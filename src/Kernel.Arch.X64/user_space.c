@@ -148,6 +148,17 @@ int wit_user_space_map(WitUserSpace *space, WitU64 address, int writable, int ex
         (writable ? PAGE_WRITE : 0) | (executable ? 0 : PAGE_NX));
 }
 
+int wit_user_space_unmap_fixed(WitUserSpace *space, WitU64 address)
+{
+    const WitU64 *entry;
+    if (!space->Root || address < WIT_USER_BASE || address >= WIT_USER_LIMIT ||
+        (address & 4095)) return 0;
+    entry = leaf(space, address, 0);
+    if (!entry || !(*entry & PAGE_OWNED)) return 0;
+    unmap_page(space, address);
+    return 1;
+}
+
 WitU64 wit_user_space_physical(const WitUserSpace *space, WitU64 address, int write, int execute)
 {
     const WitU32 shifts[4] = { 39, 30, 21, 12 };

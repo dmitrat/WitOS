@@ -31,10 +31,17 @@ internal static class UserImage
         }
         var includes = string.Join("\n", constants.Select(item => $"{item.Key} EQU 0{item.Value:X}h")) + "\n";
         await File.WriteAllTextAsync(Path.Combine(output, "user_abi.inc"), includes, Encoding.ASCII);
-        var obj = Path.Combine(output, "user_fixture.obj");
-        var image = Path.Combine(output, "UserFixture.pe");
+        await BuildFixtureAsync(root, output, msvc, constants, "entry", "UserFixture", "wit_user_test_image", "user_image.h");
+        await BuildFixtureAsync(root, output, msvc, constants, "threads", "ThreadFixture", "wit_user_thread_image", "user_thread_image.h");
+    }
+
+    private static async Task BuildFixtureAsync(string root, string output, string msvc,
+        Dictionary<string, ulong> constants, string source, string name, string symbol, string header)
+    {
+        var obj = Path.Combine(output, name + ".obj");
+        var image = Path.Combine(output, name + ".pe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
-            ["/nologo", "/c", $"/I{output}", $"/Fo{obj}", Path.Combine(root, "tests", "User.X64", "entry.asm")], root);
+            ["/nologo", "/c", $"/I{output}", $"/Fo{obj}", Path.Combine(root, "tests", "User.X64", source + ".asm")], root);
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
         [
             "/nologo", "/subsystem:native", "/entry:wit_user_start", "/nodefaultlib", "/machine:x64",
@@ -60,11 +67,11 @@ internal static class UserImage
             throw new InvalidDataException("User fixture must be a fixed x64 native image with one-page RX code and no imports/relocations.");
 
         var payload = bytes.AsSpan(code.PointerToRawData, code.VirtualSize).ToArray();
-        var generated = new StringBuilder("/* Generated from the separately linked user fixture; do not edit. */\nstatic const unsigned char wit_user_test_image[] = {\n");
+        var generated = new StringBuilder("/* Generated from the separately linked user fixture; do not edit. */\nstatic const unsigned char " + symbol + "[] = {\n");
         for (var index = 0; index < payload.Length; index += 16)
             generated.AppendLine("    " + string.Join(", ", payload.Skip(index).Take(16).Select(value => $"0x{value:X2}")) + ",");
         generated.AppendLine("};");
-        await File.WriteAllTextAsync(Path.Combine(output, "user_image.h"), generated.ToString(), Encoding.ASCII);
-        Console.WriteLine($"User fixture: {payload.Length} bytes of separately linked native code.");
+        await File.WriteAllTextAsync(Path.Combine(output, header), generated.ToString(), Encoding.ASCII);
+        Console.WriteLine($"{name}: {payload.Length} bytes of separately linked native code.");
     }
 }

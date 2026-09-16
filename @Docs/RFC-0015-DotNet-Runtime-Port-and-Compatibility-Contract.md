@@ -1,6 +1,6 @@
 # RFC 0015 — .NET Runtime Port & Compatibility Contract
 
-Draft v0.2. Status: source inventory, hosted reference probe and bounded M2 user-memory primitives implemented; guest runtime port not implemented.
+Draft v0.3. Status: source inventory, hosted reference probe, bounded M2 memory and native thread/TLS primitives implemented; guest runtime port not implemented.
 
 ## 1. Evidence baseline
 
@@ -79,6 +79,8 @@ WitOS 0.0.5 implements these basic reservation/commit/decommit/release semantics
 Write-watch is optional: the pinned Unix GC implementation reports it unsupported. It must not be invented as an early mandatory kernel service.
 
 ## 6. Threading and GC
+
+WitOS 0.0.6 adds bounded native user threads, timer/yield dispatch, raw FS-based TLS and consuming join with cycle rejection. [Implementation and tests](Implementation/M2-User-Threads-and-Tls.md) establish the native mechanism only: compiler TLS, runtime attach/detach, finalization and GC suspension still need actual upstream integration.
 
 Disabling concurrent/server GC for the experiment does not eliminate thread requirements or stop-the-world coordination. The runtime still uses finalization and ordinary managed threads.
 

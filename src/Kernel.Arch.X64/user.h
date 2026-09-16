@@ -24,6 +24,22 @@ typedef enum WitUserState {
     WitUserFaulted, WitUserBudgetExpired, WitUserBadReturn
 } WitUserState;
 
+typedef enum WitUserThreadState {
+    WitThreadEmpty, WitThreadReady, WitThreadRunning, WitThreadWaiting, WitThreadExited
+} WitUserThreadState;
+
+typedef struct WitUserThread {
+    WitUserThreadState State;
+    WitU32 WaitingOn;
+    WitU32 Joiner;
+    WitU64 Handle;
+    WitU64 StackBottom;
+    WitU64 StackTop;
+    WitU64 Tls;
+    WitU64 ExitCode;
+    WitInterruptContext *Context;
+} WitUserThread;
+
 typedef struct WitUserProcess {
     WitUserSpace Space;
     WitHandleTable Handles;
@@ -39,7 +55,15 @@ typedef struct WitUserProcess {
     WitU64 FaultRip;
     WitU64 FaultCs;
     WitU64 FaultSs;
-    WitInterruptContext *InitialContext;
+    WitUserThread Threads[WIT_USER_THREAD_CAPACITY];
+    WitU32 CurrentThread;
+    WitU32 FaultThread;
+    WitU64 ThreadCreates;
+    WitU64 ThreadSwitches;
+    WitU64 ThreadTimerSwitches;
+    WitU64 ThreadJoins;
+    WitU64 ThreadReaps;
+    WitU64 ThreadDeadlocks;
 } WitUserProcess;
 
 int wit_user_space_create(WitUserSpace *space, WitPageAllocator *allocator);
@@ -47,16 +71,19 @@ int wit_user_space_map(WitUserSpace *space, WitU64 address, int writable, int ex
 WitU64 wit_user_space_physical(const WitUserSpace *space, WitU64 address, int write, int execute);
 int wit_user_copy_from(const WitUserSpace *space, WitU64 address, WitU8 *buffer, WitU32 size);
 void wit_user_space_destroy(WitUserSpace *space);
+int wit_user_space_unmap_fixed(WitUserSpace *space, WitU64 address);
 WitU64 wit_user_memory_reserve(WitUserSpace *space, WitU64 size, WitU64 alignment, WitU64 *result);
 WitU64 wit_user_memory_commit(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection);
 WitU64 wit_user_memory_decommit(WitUserSpace *space, WitU64 address, WitU64 size);
 WitU64 wit_user_memory_protect(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection);
 WitU64 wit_user_memory_release(WitUserSpace *space, WitU64 address);
 void wit_user_memory_self_test(WitPageAllocator *pages);
+void wit_user_thread_self_test(WitPageAllocator *pages);
 WitU64 wit_virtual_kernel_root(void);
 
 int wit_user_create(WitUserProcess *process, WitPageAllocator *allocator,
     WitU32 slot, const WitU8 *code, WitU32 code_size);
+WitU64 wit_user_thread_create(WitUserProcess *process, WitU64 entry, WitU64 argument, WitU64 *result);
 void wit_user_run(WitUserProcess *process);
 void wit_user_destroy(WitUserProcess *process);
 int wit_user_is_active(void);
@@ -67,4 +94,5 @@ WIT_NORETURN void wit_user_fault(const WitExceptionFrame *frame, WitU64 address)
 void wit_x64_run_user(WitInterruptContext *context, WitU64 root);
 WIT_NORETURN void wit_x64_leave_user(void);
 void wit_x64_set_kernel_stack(WitU64 top);
+void wit_x64_set_user_tls(WitU64 address);
 #endif

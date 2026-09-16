@@ -7,6 +7,20 @@ host_rsp QWORD 0
 host_cr3 QWORD 0
 
 .code
+PUBLIC wit_x64_set_user_tls
+wit_x64_set_user_tls PROC
+    ; Kernel chooses the base and selector on every return to a user thread.
+    mov r8, rcx
+    mov ax, 2Bh
+    mov fs, ax
+    mov ecx, 0C0000100h
+    mov eax, r8d
+    shr r8, 32
+    mov edx, r8d
+    wrmsr
+    ret
+wit_x64_set_user_tls ENDP
+
 PUBLIC wit_x64_run_user
 wit_x64_run_user PROC
     ; Serialized bootstrap launch; IF=0, one active user component.

@@ -5,6 +5,8 @@
 #define WIT_HANDLE_CAPACITY 8U
 #define WIT_HANDLE_CONSOLE 1U
 #define WIT_HANDLE_SELF 2U
+#define WIT_HANDLE_THREAD 3U
+#define WIT_RIGHT_JOIN 2U
 #define WIT_RIGHT_WRITE 1U
 
 typedef struct WitHandleEntry {

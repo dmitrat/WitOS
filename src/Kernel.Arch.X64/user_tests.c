@@ -147,11 +147,13 @@ void wit_user_self_test(WitPageAllocator *pages)
     wit_user_run(&components[0]);
     require(components[0].State == WitUserExited && components[0].ExitCode == WIT_TEST_EXIT_CODE &&
         components[0].Writes == 1 && components[0].Handles.Count == 0 &&
-        components[0].Space.OwnedCount == 12, "User memory lifecycle failed");
+        components[0].Space.OwnedCount == 13, "User memory lifecycle failed");
     wit_user_destroy(&components[0]);
     require(wit_pages_free_count(pages) == before, "User memory lifecycle leaked");
     recovery(pages);
     wit_console_write("[TEST-PASS] User.MemoryLifecycle\n");
+
+    wit_user_thread_self_test(pages);
 
     create(pages, 0, WIT_TEST_BAD_RETURN);
     wit_user_run(&components[0]);

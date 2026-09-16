@@ -1,6 +1,6 @@
 # M2 — Sparse user memory
 
-Status: implemented in WitOS 0.0.5, 2026-09-16. This extends the [isolated native execution slice](M2-Isolated-Execution.md); the guest still does not run .NET.
+Status: introduced in WitOS 0.0.5; updated for 0.0.6 threads/TLS, 2026-09-16. This extends the [isolated native execution slice](M2-Isolated-Execution.md); the guest still does not run .NET.
 
 ## Purpose and scope
 
@@ -8,11 +8,11 @@ The pinned NativeAOT GC separates virtual reservation from physical commitment. 
 
 Each address space has a dynamic arena from `0x0000010000000000` (1 TiB, PML4 slot 2) up to `0x0000011000000000` (exclusive). Fixed code, startup data and stack mappings remain in slot 1. Slot 0 contains shared supervisor mappings. The dynamic-memory calls cannot alter either the fixed image or the kernel.
 
-Prototype limits are eight live reservations and 128 owned physical frames per component. The latter includes its PML4, all private page tables, fixed image/data/stack pages and dynamic backing pages. A normal fixture starts with 12 owned frames. These explicit bounds keep syscall work and resource use finite; they are not a suitable final managed-heap quota.
+Prototype limits are eight live reservations and 128 owned physical frames per component. The latter includes its PML4, all private page tables, fixed image/data/stack pages and dynamic backing pages. A normal fixture starts with 13 owned frames including its main-thread TLS page; each additional thread adds five frames for its stack and TLS. These explicit bounds keep syscall work and resource use finite; they are not a suitable final managed-heap quota.
 
-## Experimental ABI v2
+## Memory calls in experimental ABI v3
 
-Transport and preservation rules are unchanged: INT 0x80, RAX call, RCX/RDX/R8 arguments, RAX status and RDX result. Startup and query report version 2. Calls 0–3 remain query/write/exit/close.
+Transport and preservation rules are unchanged: INT 0x80, RAX call, RCX/RDX/R8 arguments, RAX status and RDX result. Startup and query report version 3. Calls 0–3 remain query/write/exit/close. The memory semantics introduced in v2 are unchanged; calls 9–12 add [thread operations](M2-User-Threads-and-Tls.md).
 
 | Call | RCX | RDX | R8 | Successful result |
 | --- | --- | --- | --- | --- |
@@ -50,7 +50,7 @@ Protect first verifies the complete range is committed, then changes every leaf.
 
 Decommit removes mappings, returns backing frames and prunes empty private page tables. It preserves the reservation, ignores already uncommitted holes and discards contents. Recommit allocates zeroed memory again. Release performs the same discard over the entire reservation and removes its metadata. Exit/fault/budget teardown also frees committed no-access pages and remaining reservations.
 
-Active address-space changes invalidate local translations before freed frames can be reused. Inactive spaces are flushed on CR3 entry. There is no PCID, shared/global user mapping or SMP in this slice. The syscall interrupt gate keeps IF clear throughout the operation; there is one active user thread.
+Active address-space changes invalidate local translations before freed frames can be reused. Inactive spaces are flushed on CR3 entry. There is no PCID, shared/global user mapping or SMP in this slice. The syscall interrupt gate keeps IF clear throughout the operation; only the selected thread executes and it cannot be preempted during a memory syscall.
 
 Decommit/release visit owned frames rather than iterating all pages in a potentially enormous reservation. Commit/protect bound their page walk by the frame quota. Reserve scans the bounded reservation table. These algorithms must be reconsidered when increasing limits or adding concurrency.
 
@@ -63,7 +63,7 @@ dotnet build WitOS.slnx --configuration Release
 dotnet run --project tools/WitOS.Dev --configuration Release -- test
 ```
 
-The suite retains 17 VM scenarios. Successful boots require 32 M2 groups (21 existing isolation groups plus 11 memory groups) and 18 contained user faults.
+The suite retains 17 VM scenarios. Successful boots require 42 M2 groups (21 isolation, 11 memory and 10 thread groups) and 21 contained user faults.
 
 | Added group | Evidence |
 | --- | --- |
@@ -83,6 +83,6 @@ Each fault checks selectors, address and expected state, closes handles, frees t
 
 ## Remaining runtime work
 
-This is not a NativeAOT port or a general virtual-memory manager. There is no GC/PAL adapter, reset/write-watch implementation, demand paging, swap, shared mapping, NUMA policy, large pages or dynamic executable allocation. Thread creation, TLS, waits, runtime exception delivery and GC rendezvous remain absent.
+This is not a NativeAOT port or a general virtual-memory manager. There is no GC/PAL adapter, reset/write-watch implementation, demand paging, swap, shared mapping, NUMA policy, large pages or dynamic executable allocation. Bounded thread creation, raw TLS and join are implemented; general waits, compiler/managed TLS, runtime exception delivery and GC rendezvous remain absent.
 
-The next slice is user threads and TLS, followed by blocking/waking and runtime coordination. Managed execution requires those mechanisms, an actual upstream runtime build and a supported ABI/backend; the hosted Windows probe remains reference evidence only.
+The next slice is general wait/wake objects and deadlines, followed by runtime coordination. Managed execution requires those mechanisms, an actual upstream runtime build and a supported ABI/backend; the hosted Windows probe remains reference evidence only.

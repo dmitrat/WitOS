@@ -83,7 +83,7 @@ internal static class DevTool
 
         await UserImage.BuildAsync(root, output, msvc);
 
-        string[] sources = ["src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c", "src/Kernel/handles.c", "src/Kernel.Arch.X64/user_space.c", "src/Kernel.Arch.X64/user.c", "src/Kernel.Arch.X64/user_tests.c", "src/Kernel.Arch.X64/user_memory_tests.c"];
+        string[] sources = ["src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c", "src/Kernel/handles.c", "src/Kernel.Arch.X64/user_space.c", "src/Kernel.Arch.X64/user.c", "src/Kernel.Arch.X64/user_tests.c", "src/Kernel.Arch.X64/user_memory_tests.c", "src/Kernel.Arch.X64/user_thread_tests.c"];
         var objects = new List<string>();
         foreach (var source in sources)
         {
@@ -310,7 +310,10 @@ internal static class DevTool
             "MemoryReservedFault", "MemoryDecommittedFault", "MemoryReleasedFault",
             "MemoryReadOnlyFault", "MemoryNoAccessFault", "MemoryNxFault",
             "MemorySparseAndPrivate", "MemoryQuotaRollback", "MemoryReservationErrors", "MemoryPhysicalOom",
-            "MemoryLifecycle", "BadReturn", "TimerBudget", "PreemptionState",
+            "MemoryLifecycle",
+            "ThreadPreemptionAndTls", "ThreadJoinAndReuse", "ThreadJoinCycle", "ThreadCapacity",
+            "ThreadCreationRollback", "ThreadFault", "ThreadGuardLow", "ThreadGuardHigh",
+            "ThreadBadReturn", "ThreadProcessExit", "BadReturn", "TimerBudget", "PreemptionState",
             "ZeroFillAndStaleHandles", "Teardown", "Isolation"
         ];
         var markers = new List<string> { "[TEST-PASS] Scheduler.RegisterState", "[TEST-BEGIN] User.Isolation" };
@@ -319,7 +322,7 @@ internal static class DevTool
         if (!MarkersInOrder(output, markers.ToArray())) return false;
         var faults = Regex.Matches(output,
             @"\[USER-FAULT\] id=(\d+) vector=(\d+) error=(0x[0-9A-F]{16}) address=(0x[0-9A-F]{16}) cs=(0x[0-9A-F]{16})");
-        return faults.Count == 18 && faults.All(match =>
+        return faults.Count == 21 && faults.All(match =>
             Convert.ToUInt64(match.Groups[5].Value[2..], 16) == 0x33);
     }
 
