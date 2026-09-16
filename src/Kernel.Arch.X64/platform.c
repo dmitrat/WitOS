@@ -43,6 +43,14 @@ void wit_console_write(const char *text)
     }
 }
 
+void wit_console_write_buffer(const WitU8 *data, WitU32 size)
+{
+    for (WitU32 i = 0; i < size; ++i) {
+        if (data[i] == '\n') write_char('\r');
+        write_char((char)data[i]);
+    }
+}
+
 void wit_console_write_u64(WitU64 value)
 {
     char digits[20];

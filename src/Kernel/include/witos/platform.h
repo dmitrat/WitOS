@@ -8,6 +8,7 @@ struct WitBootInfo;
 void wit_console_initialize(void);
 void wit_console_write(const char *text);
 void wit_console_write_u64(WitU64 value);
+void wit_console_write_buffer(const WitU8 *data, WitU32 size);
 void wit_console_write_hex(WitU64 value);
 void wit_disable_interrupts(void);
 WIT_NORETURN void wit_platform_enter(const struct WitBootInfo *boot);

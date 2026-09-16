@@ -1,0 +1,40 @@
+#ifndef WITOS_USER_TEST_PROTOCOL_H
+#define WITOS_USER_TEST_PROTOCOL_H
+#include "witos/user_abi.h"
+
+/* Test-only extension after the public startup prefix. */
+#define WIT_TEST_NORMAL 0U
+#define WIT_TEST_KERNEL_READ 1U
+#define WIT_TEST_KERNEL_WRITE 2U
+#define WIT_TEST_PRIVILEGED_CLI 3U
+#define WIT_TEST_PRIVILEGED_PORT 4U
+#define WIT_TEST_EXECUTE_DATA 5U
+#define WIT_TEST_GUARD_LOW 6U
+#define WIT_TEST_GUARD_HIGH 7U
+#define WIT_TEST_WRITE_CODE 8U
+#define WIT_TEST_WRITE_INFO 9U
+#define WIT_TEST_PEER_READ 10U
+#define WIT_TEST_SPIN 11U
+#define WIT_TEST_NULL_READ 12U
+#define WIT_TEST_INVALID_OPCODE 13U
+#define WIT_TEST_BAD_RETURN 14U
+#define WIT_TEST_PREEMPTION_STATE 15U
+#define WIT_TEST_EXIT_CODE 42U
+#define WIT_TEST_RO_OFFSET 16U
+#define WIT_TEST_SELF_OFFSET 24U
+#define WIT_TEST_FOREIGN_OFFSET 32U
+#define WIT_TEST_MODE_OFFSET 40U
+#define WIT_TEST_KERNEL_OFFSET 48U
+#define WIT_TEST_INSTANCE_OFFSET 56U
+
+typedef struct WitUserTestConfig {
+    WitUserStartup Startup;
+    WitU64 ReadOnlyHandle;
+    WitU64 SelfHandle;
+    WitU64 ForeignHandle;
+    WitU64 Mode;
+    WitU64 KernelProbe;
+    WitU64 InstanceId;
+} WitUserTestConfig;
+_Static_assert(sizeof(WitUserTestConfig) == 64, "User test config layout");
+#endif

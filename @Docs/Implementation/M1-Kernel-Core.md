@@ -1,7 +1,7 @@
 # M1 — Kernel core
 
 Status: implemented and locally verified on 2026-09-16.
-Version: WitOS 0.0.3.
+Version: WitOS 0.0.3. This records the M1 milestone; [WitOS 0.0.4](M2-Isolated-Execution.md) adds the first user isolation boundary.
 
 This completes the initial M1 Definition of Done: physical allocation, virtual mappings and protection, exception diagnostics, timer interrupts, at least two scheduled contexts, and automated QEMU checks. It is a small kernel demonstration, not a production scheduler or a managed OS.
 

@@ -53,7 +53,7 @@ Implementing the declarations in Pal.h alone is not evidence of a complete port.
 
 ## 4. Source-backed requirements and M1 gaps
 
-| Requirement | Source evidence | Current WitOS | Required progression |
+| Requirement | Source evidence | At the M1 audit | Required progression |
 | --- | --- | --- | --- |
 | Runtime initialization | [Bootstrap/main.cpp](https://github.com/dotnet/runtime/blob/b82454cad0aaaae3db2cf18fbf2cccc36e201ccc/src/coreclr/nativeaot/Bootstrap/main.cpp), [startup.cpp](https://github.com/dotnet/runtime/blob/b82454cad0aaaae3db2cf18fbf2cccc36e201ccc/src/coreclr/nativeaot/Runtime/startup.cpp) | Native kernel entry only | C/C++ runtime setup, image/module metadata and PAL must exist before managed Main |
 | Virtual reserve/commit/decommit/release | [gcenv.os.h](https://github.com/dotnet/runtime/blob/b82454cad0aaaae3db2cf18fbf2cccc36e201ccc/src/coreclr/gc/env/gcenv.os.h) | Physical pages and scratch mappings | Per-address-space reservations, sparse commitment, zero-filled pages, recoverable OOM and clear ownership |
@@ -133,7 +133,7 @@ The immediate M2 slice only needs separate user mappings, a versioned call bound
 ## 10. Port gates
 
 - **Evidence gate, implemented:** pinned sources/package provenance, actual hosted NativeAOT binary, semantic smoke tests and direct-import report.
-- **M2 isolation gate, pending:** native unprivileged component; invalid pointers/handles and illegal memory access cannot damage the kernel or another component.
+- **Initial M2 isolation gate, implemented for the controlled fixture:** native unprivileged component, checked pointers/handles, private mappings and contained faults. See [M2 limits and evidence](Implementation/M2-Isolated-Execution.md); a general loader and runtime services are still pending.
 - **Runtime substrate gate, pending:** memory lifecycle, TLS, blocking/waking and runtime-coordinated suspension have executable tests.
 - **M3 gate, pending:** the real NativeAOT component passes the relevant probe cases inside WitOS, including GC and thread activity. Report disabled features and all upstream changes.
 - **Maintenance gate, pending:** rebuild/retest against a subsequent upstream revision and measure the adaptation effort.

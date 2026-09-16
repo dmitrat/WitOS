@@ -6,9 +6,9 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 
 ## Current status
 
-**WitOS 0.0.3: the initial M1 kernel-core milestone is implemented.**
+**WitOS 0.0.4: the first M2 isolated native execution slice is implemented.**
 
-The kernel boots independently through UEFI, owns its stacks and page tables, protects code/data, and preempts two kernel contexts using timer interrupts. It validates memory and context state before printing `Hello from WitOS.` and reporting a VM test result. CPU faults produce register diagnostics; double faults use a separate emergency stack.
+The kernel boots independently through UEFI and now runs a separately built native component in ring 3 with private user mappings and handles. The component writes through a checked syscall and exits; its faults are contained while the kernel runs the next component. M1 paging, protection, timer and kernel-context checks remain part of every successful boot.
 
 **The guest does not run .NET yet.** The C# code in `tools/` runs on the development computer. NativeAOT system components are a later milestone; standard CoreCLR applications follow after that.
 
@@ -39,7 +39,7 @@ Expected guest output includes:
 ```text
 [BOOT] UEFI x64 adapter
 [BOOT] ExitBootServices OK
-WitOS 0.0.3 (M1 kernel core)
+WitOS 0.0.4 (M2 isolated execution)
 Build: <git-revision> | x64 | Debug
 [TEST-BEGIN] Boot.Contract
 [TEST-PASS] Boot.Contract
@@ -60,6 +60,9 @@ B: 3
 [TEST-PASS] Cpu.Timer
 [TEST-PASS] Scheduler.Preemption
 [TEST-PASS] Scheduler.RegisterState
+[USER] Hello from ring 3.
+...
+[TEST-PASS] User.Isolation
 Kernel initialized.
 Hello from WitOS.
 [TEST-PASS] Boot.Hello
@@ -87,6 +90,8 @@ The integration suite boots seventeen real VM scenarios:
 
 Normal boots also verify map/protect/unmap behavior, aliasing, TLB invalidation, timer delivery, progress of both preempted contexts and preserved GPR/SSE state. Exception tests validate vector, error code, register frame, fault address and stack selection. The double-fault test deliberately invalidates the main stack and requires diagnostics from the emergency stack.
 
+Successful boots also require 21 M2 groups: ring-3 entry, ABI/handles, private memory, user-fault containment, safe return state, timer budgeting, register/flag preservation, zero-fill and resource teardown. They run in the same real VM; they are not 21 additional VM launches.
+
 Every test creates fresh firmware variable storage. A timeout, unexpected exit, panic or missing success marker fails an ordinary boot test.
 
 Outputs:
@@ -97,6 +102,7 @@ artifacts/x64/boot/WitOS-x64.img    Bootable FAT16 disk image
 artifacts/x64/boot/WitOS.pdb        Native symbols
 artifacts/x64/boot/WitOS.map        Native link map
 artifacts/x64/boot/build.txt        Source revision and toolchain
+artifacts/x64/boot/UserFixture.pe  Separately linked test image (not a Windows app)
 artifacts/logs/                   Serial, stderr and outcome logs
 ```
 
@@ -119,8 +125,9 @@ See [RFC 0015](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md)
 
 ```text
 src/Boot.Uefi/          Firmware-specific entry and handoff adapter
-src/Kernel/             Common boot validation and physical-page allocator
-src/Kernel.Arch.X64/     Paging, guarded stacks, exceptions, timer and context switches
+src/Kernel/             Boot validation, physical pages and process-local handles
+src/Kernel.Arch.X64/     Paging, traps, context transitions and user execution
+tests/User.X64/         Unprivileged native ABI/isolation fixture
 tools/WitOS.Dev/         C# build, VM tests and runtime investigation tools
 experiments/NativeAotProbe/ Hosted reference; not guest runtime code
 @Docs/                  Architecture drafts and implementation notes
@@ -131,13 +138,14 @@ The core kernel does not include UEFI structures. The output is a freestanding P
 
 ## Scope and next work
 
-M1 meets the initial kernel-core criteria on the pinned one-CPU QEMU target. It uses one kernel address space, 4 KiB pages and usable physical addresses below 4 GiB. Firmware memory remains reserved. The legacy PIC/PIT timer and fixed two-worker dispatcher establish the mechanism; dynamic threads, SMP, AVX context state and a general scheduling API remain future work.
+The first M2 slice uses two fixed component slots and activates one user thread at a time. Each has private user mappings and a dedicated kernel stack; shared kernel mappings stay supervisor-only. Known one-page native images use an experimental query/write/exit/close ABI. Firmware memory remains reserved, and usable physical addresses remain below 4 GiB.
 
-CPU exceptions are fatal diagnostics. User-mode isolation and managed execution are not implemented. The NativeAOT inventory and hosted reference are now available. Next is the [first M2 isolated execution slice](@Docs/Implementation/M2-Isolated-Execution-Plan.md), with runtime requirements informing the user/kernel boundary.
+User faults terminate that component; kernel faults remain fatal diagnostics. General executable loading, dynamic user threads/TLS, blocking/waking, IPC channels, SMP and managed execution remain future work. Next are the memory and execution services required by the pinned NativeAOT runtime.
 
 - [Architecture document index](@Docs/README.md)
 - [M0 implementation history](@Docs/Implementation/M0-Boot.md)
 - [Initial M1 memory and exception slice](@Docs/Implementation/M1-Memory-and-Exceptions.md)
 - [Completed initial M1 kernel core](@Docs/Implementation/M1-Kernel-Core.md)
+- [M2 isolated native execution and ABI](@Docs/Implementation/M2-Isolated-Execution.md)
 - [RFC 0011: initial kernel boot contract](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md)
 - [Immediate development sequence](@Docs/Implementation/Next-Steps.md)

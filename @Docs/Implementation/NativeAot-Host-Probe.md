@@ -2,7 +2,7 @@
 
 Status: implemented and verified locally on 2026-09-16.
 
-This is a Windows-hosted experiment. The WitOS guest remains the M1 native kernel; M2 isolation and the M3 runtime port are not implemented by this experiment.
+This is a Windows-hosted experiment. The separate [M2 implementation](M2-Isolated-Execution.md) now provides native user isolation; this experiment does not provide a guest .NET runtime.
 
 ## Reproduce
 
@@ -67,4 +67,4 @@ This build uses published NativeAOT packages. It is not a source build of the en
 
 A separate hosted-runtime workflow runs the source audit and native probe. Kernel VM tests remain separate so a passing Windows probe cannot be mistaken for guest runtime support.
 
-Next: implement M2's protected user address space and minimal native execution/call boundary, using the requirements in [RFC 0015](../RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md).
+Next: extend the initial M2 boundary with runtime-capable memory, threads/TLS, waits and fault handling, following [RFC 0015](../RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md).

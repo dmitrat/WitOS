@@ -53,6 +53,7 @@ jobs:
           retention-days: 14
           path: |
             artifacts/x64/boot/BOOTX64.EFI
+            artifacts/x64/boot/UserFixture.pe
             artifacts/x64/boot/WitOS-x64.img
             artifacts/x64/boot/WitOS.pdb
             artifacts/x64/boot/WitOS.map

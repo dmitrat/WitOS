@@ -118,7 +118,7 @@ static int reserved_image_page(const WitBootInfo *boot, WitU64 address)
 void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator)
 {
     int cpu[4];
-    WitU64 guards[8];
+    WitU64 guards[WIT_STACK_GUARD_COUNT];
     const WitU64 old_root = __readcr3() & PTE_ADDRESS;
     const WitU64 cr4 = __readcr4();
     __cpuid(cpu, (int)0x80000000U);
@@ -164,7 +164,7 @@ void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator
         }
     }
     wit_x64_stack_guards(guards);
-    for (WitU32 i = 0; i < 8; ++i) remove_page(guards[i]);
+    for (WitU32 i = 0; i < WIT_STACK_GUARD_COUNT; ++i) remove_page(guards[i]);
 
     /* Flush inherited global entries as well as ordinary translations. */
     __writemsr(0xC0000080, __readmsr(0xC0000080) | (1ULL << 11));
@@ -178,11 +178,13 @@ void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator
     wit_console_write("Kernel CR3: ");
     wit_console_write_hex(root_table);
     wit_console_write("\n[TEST-PASS] Memory.KernelPaging\n");
-    for (WitU32 i = 0; i < 8; ++i)
+    for (WitU32 i = 0; i < WIT_STACK_GUARD_COUNT; ++i)
         require(leaf(guards[i], 0) != 0 && !(*leaf(guards[i], 0) & 1), "Stack guard is mapped");
     require(leaf(0, 0) == 0 || !(*leaf(0, 0) & 1), "Null page is mapped");
     wit_console_write("[TEST-PASS] Memory.StackGuards\n");
 }
+
+WitU64 wit_virtual_kernel_root(void) { return root_table; }
 
 void wit_virtual_self_test(WitPageAllocator *allocator)
 {

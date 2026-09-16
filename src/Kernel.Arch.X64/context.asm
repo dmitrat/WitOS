@@ -35,6 +35,11 @@ wit_x64_timer_entry PROC
     sub rsp, 32
     call wit_x64_timer_interrupt
     mov rsp, rax
+    jmp wit_x64_restore_context
+wit_x64_timer_entry ENDP
+
+PUBLIC wit_x64_restore_context
+wit_x64_restore_context PROC
     db 048h
     fxrstor [rsp]
     add rsp, 512
@@ -54,7 +59,7 @@ wit_x64_timer_entry PROC
     pop rbx
     pop rax
     iretq
-wit_x64_timer_entry ENDP
+wit_x64_restore_context ENDP
 
 PUBLIC wit_x64_fxsave
 wit_x64_fxsave PROC

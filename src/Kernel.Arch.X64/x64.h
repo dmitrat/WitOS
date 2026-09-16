@@ -7,12 +7,16 @@
 #define WIT_EMERGENCY_STACK_SIZE 32768U
 #define WIT_KERNEL_STACK_REGION_SIZE (WIT_KERNEL_STACK_SIZE + 8192U)
 #define WIT_EMERGENCY_STACK_REGION_SIZE (WIT_EMERGENCY_STACK_SIZE + 8192U)
+#define WIT_STACK_GUARD_COUNT 12U
 #define WIT_PAGE_FAULT_PROBE 0x0000400000000000ULL
 
 extern WitU8 wit_x64_kernel_stack[WIT_KERNEL_STACK_REGION_SIZE];
 extern WitU8 wit_x64_double_fault_stack[WIT_EMERGENCY_STACK_REGION_SIZE];
 extern WitU8 wit_x64_worker_stacks[2][WIT_KERNEL_STACK_REGION_SIZE];
-void wit_x64_stack_guards(WitU64 guards[8]);
+extern WitU8 wit_x64_user_kernel_stacks[2][WIT_KERNEL_STACK_REGION_SIZE];
+void wit_x64_stack_guards(WitU64 guards[WIT_STACK_GUARD_COUNT]);
+void wit_x64_timer_start(void);
+void wit_x64_timer_stop(void);
 extern WitU64 wit_x64_isr_table[256];
 
 #pragma pack(push, 1)

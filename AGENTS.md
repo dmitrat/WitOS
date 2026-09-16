@@ -2,7 +2,7 @@
 
 ## Project direction
 
-The core objective is standard upstream .NET above a minimal native kernel and a hardware-independent system layer. Shells and applications eventually run on that .NET platform. Current guest code is the native M1 kernel foundation with paging, timer interrupts and two preempted kernel contexts; host-side C# tooling must not be described as guest .NET support.
+The core objective is standard upstream .NET above a minimal native kernel and a hardware-independent system layer. Shells and applications eventually run on that .NET platform. Current guest code includes the M1 foundation and the first M2 ring-3 isolation slice; host-side C# tooling must not be described as guest .NET support.
 
 Original vision documents live in `@Docs/`. Concrete implementation status and deliberate limitations live in `@Docs/Implementation/`. Preserve original drafts unless the task calls for revising them.
 
@@ -16,7 +16,10 @@ Original vision documents live in `@Docs/`. Concrete implementation status and d
 - The kernel now owns its page tables, but firmware memory remains reserved until reclamation is explicitly designed and tested.
 - Treat mapping/physical-page operations as serialized bootstrap APIs. Current allocation and mapping setup runs with interrupts disabled.
 - Context switching currently preserves baseline x87/SSE state; do not introduce AVX/XSAVE assumptions without extending state management and tests.
-- Treat the boot handoff as an internal evolving contract, not a frozen external ABI.
+- Keep shared kernel mappings supervisor-only. Never reuse the kernel scratch branch as a user page-table branch.
+- Validate user handles and complete buffer ranges before copying/output. Close handles and free only component-owned pages on teardown.
+- Validate user return addresses/selectors/flags before IRETQ. Timer returns must preserve condition codes; syscall flags follow the explicit ABI.
+- Treat the boot handoff and experimental user ABI as evolving contracts, not a frozen public SDK.
 
 ## Validation
 

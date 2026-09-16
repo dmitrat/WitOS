@@ -1,10 +1,11 @@
 #include "x64.h"
+#include "user.h"
 #include "witos/platform.h"
 
 unsigned __int64 __readcr3(void);
 #pragma intrinsic(__readcr3)
 
-__declspec(align(16)) static WitU64 gdt[5];
+__declspec(align(16)) static WitU64 gdt[7];
 __declspec(align(16)) static WitInterruptGate idt[256];
 static WitTaskState task_state;
 
@@ -39,13 +40,15 @@ void wit_platform_initialize(void)
         (((tss_limit >> 16) & 0xFULL) << 48) |
         (((tss_base >> 24) & 0xFFULL) << 56);
     gdt[4] = tss_base >> 32;
+    gdt[5] = 0x00CFF2000000FFFFULL; /* ring-3 data, selector 0x2B */
+    gdt[6] = 0x00AFFA000000FFFFULL; /* ring-3 code, selector 0x33 */
 
     for (WitU32 i = 0; i < 256; ++i) {
         const WitU64 address = wit_x64_isr_table[i];
         idt[i].OffsetLow = (WitU16)address;
         idt[i].Selector = 8;
         idt[i].Ist = i == 8 ? 1 : 0;
-        idt[i].Attributes = 0x8E; /* present, ring 0 interrupt gate */
+        idt[i].Attributes = i == 128 ? 0xEE : 0x8E; /* Only INT 0x80 has DPL3. */
         idt[i].OffsetMiddle = (WitU16)(address >> 16);
         idt[i].OffsetHigh = (WitU32)(address >> 32);
         idt[i].Reserved = 0;
@@ -57,6 +60,8 @@ void wit_platform_initialize(void)
     wit_x64_load_tables(&gdt_pointer, &idt_pointer);
     wit_console_write("[TEST-PASS] Cpu.ExceptionTables\n");
 }
+
+void wit_x64_set_kernel_stack(WitU64 top) { task_state.Rsp[0] = top; }
 
 static const char *exception_name(WitU64 vector)
 {
@@ -77,6 +82,8 @@ WIT_NORETURN void wit_x64_exception(const WitExceptionFrame *frame, WitU64 fault
     const WitU64 emergency_begin = (WitU64)wit_x64_double_fault_stack + 4096;
     const int on_emergency_stack = stack_pointer >= emergency_begin &&
         stack_pointer < emergency_begin + WIT_EMERGENCY_STACK_SIZE;
+
+    if ((frame->Cs & 3) == 3) wit_user_fault(frame, fault_address);
 
     wit_console_write("[EXCEPTION] vector=");
     wit_console_write_u64(frame->Vector);

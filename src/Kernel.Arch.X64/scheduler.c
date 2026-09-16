@@ -1,4 +1,5 @@
 #include "x64.h"
+#include "user.h"
 #include "witos/platform.h"
 
 void __outbyte(unsigned short, unsigned char);
@@ -28,7 +29,7 @@ static void require(int condition, const char *message)
 
 static void io_wait(void) { __outbyte(0x80, 0); }
 
-static void timer_start(void)
+void wit_x64_timer_start(void)
 {
     const WitU64 apic = __readmsr(0x1B);
     require((apic & (1ULL << 10)) == 0, "x2APIC is unsupported by the bootstrap timer");
@@ -54,7 +55,7 @@ static void timer_start(void)
     __outbyte(0x21, 0xFE); /* Only IRQ0. */
 }
 
-static void timer_stop(void)
+void wit_x64_timer_stop(void)
 {
     _disable();
     __outbyte(0x21, 0xFF);
@@ -88,6 +89,7 @@ WitInterruptContext *wit_x64_timer_interrupt(WitInterruptContext *context)
     WitU64 high;
     ++timer_ticks;
     __outbyte(0x20, 0x20); /* EOI before dispatching a different context. */
+    if (wit_user_is_active()) return wit_user_timer_tick(context);
     if (!scheduling) return context;
 
     low = (WitU64)(current == 2 ? wit_x64_kernel_stack : wit_x64_worker_stacks[current]) + 4096;
@@ -130,10 +132,10 @@ void wit_scheduler_self_test(void)
     timer_ticks = 0;
     switches = 0;
     wit_console_write("[TEST-BEGIN] Scheduler.Preemption\n");
-    timer_start();
+    wit_x64_timer_start();
     _enable();
     while (scheduling) __halt();
-    timer_stop();
+    wit_x64_timer_stop();
 
     require(timer_ticks >= 7 && switches >= 7, "Timer or context switching stalled");
     require(wit_worker_done[0] && wit_worker_done[1] &&

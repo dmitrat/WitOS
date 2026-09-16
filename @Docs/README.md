@@ -136,13 +136,14 @@ These are architecture drafts intended for continued review and revision rather 
 
 The initial native milestone now has a concrete boot contract and runnable implementation:
 
-- [RFC 0011 — Kernel Architecture & ABI](RFC-0011-Kernel-Architecture-and-ABI.md) — Draft v0.3, boot v2, paging and kernel execution boundary.
+- [RFC 0011 — Kernel Architecture & ABI](RFC-0011-Kernel-Architecture-and-ABI.md) — Draft v0.4, boot v2, kernel execution and experimental user ABI.
 - [M0 implementation and validation](Implementation/M0-Boot.md).
 - [M1 memory and exception foundation](Implementation/M1-Memory-and-Exceptions.md) — first slice, eleven VM scenarios.
 - [M1 kernel core](Implementation/M1-Kernel-Core.md) — paging, protection and preemptive execution; seventeen VM scenarios.
 - [RFC 0015 — .NET Runtime Port & Compatibility Contract](RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md) — source-backed requirements and a pinned hosted NativeAOT probe.
 - [NativeAOT host experiment](Implementation/NativeAot-Host-Probe.md).
 - [M2 isolated execution plan](Implementation/M2-Isolated-Execution-Plan.md).
+- [M2 implementation and experimental ABI](Implementation/M2-Isolated-Execution.md) — ring 3, private mappings/handles and contained user faults.
 - [Immediate next steps](Implementation/Next-Steps.md).
 
 The earlier RFCs describe the long-term vision. These implementation notes distinguish working behavior from future runtime and operating-system features.

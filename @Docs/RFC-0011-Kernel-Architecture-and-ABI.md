@@ -1,20 +1,20 @@
 # RFC 0011 — Kernel Architecture & ABI
 
-Draft v0.3. Scope: the implemented boot and M1 kernel foundation.
+Draft v0.4. Scope: the boot, M1 kernel foundation and first M2 user boundary.
 
 ## Objective
 
 Provide the native mechanisms needed below eventual upstream .NET while separating common contracts from UEFI and x64 implementation details.
 
-This document does not freeze future syscalls, capability handles, user isolation or the .NET PAL. Runtime requirements must inform those boundaries.
+The first user calls and process-local handles are experimental. This document does not freeze a general syscall SDK, executable format or .NET PAL; runtime requirements must continue to inform those boundaries.
 
 ## Components
 
 | Component | Responsibility |
 | --- | --- |
 | Boot.Uefi | Translate firmware memory and loaded-image information, exit boot services |
-| Kernel | Validate the handoff, track physical pages, run the integrated kernel checks |
-| Kernel.Arch.X64 | Stacks, GDT/TSS/IDT, paging, exceptions, PIC/PIT and context switching |
+| Kernel | Validate the handoff, track physical pages and process-local handle authority |
+| Kernel.Arch.X64 | Paging, traps, PIC/PIT, context transitions and isolated user execution |
 | WitOS.Dev | Host compilation, image packaging, QEMU execution and validation |
 
 The native components currently share one EFI executable. The common kernel receives normalized information and does not parse firmware or PE structures.
@@ -61,10 +61,18 @@ The workers demonstrate timer-driven preemption and preserved register state. Th
 
 Contract errors and CPU exceptions produce bounded serial diagnostics and a distinct VM failure status. Exception reports include vector, error, RIP, CS, RFLAGS, interrupted RSP, SS and CR2.
 
-CPU exceptions are currently fatal. Timer interrupts return to an execution context. No language-level exception unwinding or recoverable user fault handling exists yet.
+Kernel CPU exceptions remain fatal. User faults terminate the current component and return to its supervisor; a subsequent component can run. Timer interrupts can return to the same user context or stop it at the test budget. Managed exception translation/unwinding is still absent.
+
+## First M2 user boundary
+
+A separately linked native fixture runs in ring 3 with its own CR3 and private mappings. Kernel mappings remain supervisor-only. Each component has a guarded user stack, a dedicated kernel stack and a private typed handle table. Two spaces may coexist; one user activation runs at a time.
+
+Experimental user ABI v1 uses INT 0x80 for query, checked terminal write, exit and close. Call numbers, statuses and startup layout are defined in `user_abi.h` and verified by the independently compiled fixture. Full details and limits are in [M2 implementation](Implementation/M2-Isolated-Execution.md).
+
+Fault/exit/budget paths close handles, restore the kernel CR3 and supervising context, and allow owned pages to be reclaimed. Timer returns preserve condition codes; syscall return flags follow the declared ABI. Invalid return state is rejected before IRETQ.
 
 ## Acceptance and next ABI work
 
-The 17-scenario suite covers multiple RAM sizes, invalid handoffs, CPU faults, protection faults, mappings, preemption and timeouts. See [M1 implementation](Implementation/M1-Kernel-Core.md).
+The 17-scenario VM suite preserves M1 coverage and requires 21 M2 groups in successful boots: privilege boundaries, user mappings, ABI/handles, faults, safe returns, time budgeting and teardown. See [M1 history](Implementation/M1-Kernel-Core.md) and [M2 evidence](Implementation/M2-Isolated-Execution.md).
 
 Before M2 stabilizes a user ABI, determine the selected upstream runtime's requirements for reserve/commit/protect, thread-local storage, threads, waits/wakes, clocks, exceptions and startup. Add mechanisms when a tested vertical slice needs them.

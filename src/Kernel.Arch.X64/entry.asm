@@ -4,6 +4,7 @@ option casemap:none
 EXTERN wit_kernel_entry:PROC
 EXTERN wit_x64_exception:PROC
 EXTERN wit_x64_timer_entry:PROC
+EXTERN wit_x64_user_syscall_entry:PROC
 
 EXTERN wit_x64_kernel_stack:BYTE
 
@@ -51,6 +52,8 @@ MAKE_ISR MACRO number
 isr&number PROC
     IF number EQ 32
         jmp wit_x64_timer_entry
+    ELSEIF number EQ 128
+        jmp wit_x64_user_syscall_entry
     ELSE
     ; These CPU exceptions push an error code; all other vectors need a zero.
     IF (number NE 8) AND (number NE 10) AND (number NE 11) AND (number NE 12) AND (number NE 13) AND (number NE 14) AND (number NE 17) AND (number NE 21) AND (number NE 29) AND (number NE 30)

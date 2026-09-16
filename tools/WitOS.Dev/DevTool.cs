@@ -81,7 +81,9 @@ internal static class DevTool
         var buildId = await BuildIdAsync(root);
         await File.WriteAllTextAsync(Path.Combine(output, "build_info.h"), $"#define WITOS_BUILD_ID \"{buildId}\"\n", Encoding.ASCII);
 
-        string[] sources = ["src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c"];
+        await UserImage.BuildAsync(root, output, msvc);
+
+        string[] sources = ["src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c", "src/Kernel/handles.c", "src/Kernel.Arch.X64/user_space.c", "src/Kernel.Arch.X64/user.c", "src/Kernel.Arch.X64/user_tests.c"];
         var objects = new List<string>();
         foreach (var source in sources)
         {
@@ -90,7 +92,7 @@ internal static class DevTool
             var arguments = new List<string>
             {
                 "/nologo", "/c", "/TC", "/std:c17", "/W4", "/WX", "/GS-", "/Zl", "/Oi", "/Od", "/Zi",
-                $"/I{Path.Combine(root, "src", "Kernel", "include")}", $"/I{output}",
+                $"/I{Path.Combine(root, "src", "Kernel", "include")}", $"/I{Path.Combine(root, "tests", "User.X64")}", $"/I{output}",
                 $"/Fo{obj}", $"/Fd{Path.Combine(output, "compiler.pdb")}"
             };
             var define = scenario switch
@@ -117,7 +119,7 @@ internal static class DevTool
             await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), arguments, root);
         }
 
-        foreach (var assembly in new[] { "entry", "context" })
+        foreach (var assembly in new[] { "entry", "context", "user_entry" })
         {
             var assemblyObject = Path.Combine(output, $"x64_{assembly}.obj");
             await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
@@ -242,7 +244,7 @@ internal static class DevTool
             "[TEST-PASS] Memory.KernelPaging", "[TEST-PASS] Memory.StackGuards",
             "[TEST-PASS] Memory.PhysicalPages", "[TEST-PASS] Memory.Exhaustion",
             "[TEST-PASS] Memory.InvalidMaps", "[TEST-PASS] Memory.VirtualMappings");
-        var booted = foundationReady && ValidateScheduler(result.Output) && hello > result.Output.IndexOf("[TEST-PASS] Scheduler.RegisterState", StringComparison.Ordinal) &&
+        var booted = foundationReady && ValidateScheduler(result.Output) && ValidateUsers(result.Output) && hello > result.Output.IndexOf("[TEST-PASS] Scheduler.RegisterState", StringComparison.Ordinal) &&
             !panic && !result.Output.Contains("[EXCEPTION]", StringComparison.Ordinal);
         var failedBeforeContract = !result.TimedOut && result.ExitCode == 35 && exitedFirmware >= 0 && contract < 0 && hello < 0;
         var passed = expected switch
@@ -295,6 +297,26 @@ internal static class DevTool
             Number("Context switches") == (ulong)dispatches.Count + 1 &&
             Number("Timer ticks") >= Number("Context switches") &&
             Number("Worker A iterations") > 0 && Number("Worker B iterations") > 0;
+    }
+
+    private static bool ValidateUsers(string output)
+    {
+        string[] checks =
+        [
+            "Ring3", "AbiAndHandles", "PrivateMemory", "PeerMemory",
+            "KernelRead", "KernelWrite", "PrivilegedCli", "PrivilegedPort", "Nx",
+            "GuardLow", "GuardHigh", "WriteCode", "WriteInfo", "NullRead",
+            "InvalidOpcode", "BadReturn", "TimerBudget", "PreemptionState",
+            "ZeroFillAndStaleHandles", "Teardown", "Isolation"
+        ];
+        var markers = new List<string> { "[TEST-PASS] Scheduler.RegisterState", "[TEST-BEGIN] User.Isolation" };
+        markers.AddRange(checks.Select(name => $"[TEST-PASS] User.{name}"));
+        markers.Add("[TEST-PASS] Boot.Hello");
+        if (!MarkersInOrder(output, markers.ToArray())) return false;
+        var faults = Regex.Matches(output,
+            @"\[USER-FAULT\] id=(\d+) vector=(\d+) error=(0x[0-9A-F]{16}) address=(0x[0-9A-F]{16}) cs=(0x[0-9A-F]{16})");
+        return faults.Count == 12 && faults.All(match =>
+            Convert.ToUInt64(match.Groups[5].Value[2..], 16) == 0x33);
     }
 
     private static bool ValidateException(string output, FaultExpectation expected)

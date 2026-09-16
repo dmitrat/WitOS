@@ -1,6 +1,6 @@
 # M2 — First isolated execution slice
 
-Status: proposed implementation sequence, informed by the [NativeAOT source inventory](../RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md). No M2 guest feature is implemented by the hosted probe.
+Status: original plan, now implemented for the controlled fixture in [WitOS 0.0.4](M2-Isolated-Execution.md). The [NativeAOT inventory](../RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md) informed this work; the hosted probe remains separate evidence.
 
 ## Observable result
 
