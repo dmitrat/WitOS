@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/tools/">
+    <Project Path="tools/WitOS.Dev/WitOS.Dev.csproj" />
+  </Folder>
+</Solution>

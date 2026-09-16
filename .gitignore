@@ -1,0 +1,20 @@
+# Local tools, VM images, downloads and logs
+.tools/
+artifacts/
+
+# .NET and IDE output
+**/bin/
+**/obj/
+.vs/
+.idea/
+*.user
+*.suo
+TestResults/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.key

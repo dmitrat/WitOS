@@ -1,0 +1,60 @@
+name: M0 boot
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m0-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  boot:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          global-json-file: global.json
+
+      - name: Cache pinned QEMU download
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .tools/downloads
+          key: qemu-windows-x64-20260811-5bcf9eed634e8575
+
+      - name: Build host tools
+        run: dotnet build WitOS.slnx --configuration Release
+
+      - name: Extract verified QEMU
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
+
+      - name: Check environment
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- doctor
+
+      - name: Run real VM integration scenarios
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- test
+
+      - name: Upload boot image and diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: witos-m0-x64
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            artifacts/m0/boot/BOOTX64.EFI
+            artifacts/m0/boot/WitOS-x64.img
+            artifacts/m0/boot/WitOS.pdb
+            artifacts/m0/boot/WitOS.map
+            artifacts/m0/boot/build.txt
+            artifacts/logs/
