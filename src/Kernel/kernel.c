@@ -1,6 +1,9 @@
 #include "witos/boot.h"
+#include "witos/memory.h"
 #include "witos/platform.h"
 #include "build_info.h"
+
+static WitPageAllocator physical_pages;
 
 WIT_NORETURN void wit_panic(const char *reason)
 {
@@ -14,7 +17,7 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
 {
     WitU64 usable = 0;
 
-    wit_console_write("WitOS 0.0.1 (M0)\n");
+    wit_console_write("WitOS 0.0.2 (M1 memory foundation)\n");
     wit_console_write("Build: " WITOS_BUILD_ID " | x64 | Debug\n");
     wit_console_write("[TEST-BEGIN] Boot.Contract\n");
 
@@ -26,14 +29,11 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
         boot->MemoryRegionCount > WIT_MAX_MEMORY_REGIONS) {
         wit_panic("Invalid WitBootInfo");
     }
-
+    if (!wit_memory_map_valid(boot->MemoryRegions, boot->MemoryRegionCount)) {
+        wit_panic("Invalid memory map");
+    }
     for (WitU32 i = 0; i < boot->MemoryRegionCount; ++i) {
         const WitMemoryRegion *region = &boot->MemoryRegions[i];
-        if (region->Length == 0 || region->Base > ~0ULL - region->Length ||
-            (region->Base & 4095ULL) != 0 || (region->Length & 4095ULL) != 0 ||
-            region->Kind > WIT_MEMORY_USABLE || region->Reserved != 0) {
-            wit_panic("Invalid memory region");
-        }
         if (region->Kind == WIT_MEMORY_USABLE) {
             if (usable > ~0ULL - region->Length) {
                 wit_panic("Memory size overflow");
@@ -46,15 +46,26 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
     }
 
     wit_console_write("[TEST-PASS] Boot.Contract\n");
+    wit_platform_initialize();
     wit_console_write("CPU: x86_64\nUsable memory: ");
     wit_console_write_u64(usable / (1024ULL * 1024ULL));
     wit_console_write(" MiB\nMemory regions: ");
     wit_console_write_u64(boot->MemoryRegionCount);
-    wit_console_write("\nKernel initialized.\nHello from WitOS.\n");
+    wit_console_write("\n");
+
+    if (!wit_pages_initialize(&physical_pages, boot->MemoryRegions, boot->MemoryRegionCount)) {
+        wit_panic("Physical allocator initialization failed (limit: 4 GiB)");
+    }
+    wit_console_write("Free physical pages: ");
+    wit_console_write_u64(wit_pages_free_count(&physical_pages));
+    wit_console_write("\n");
+    wit_memory_self_test(boot, &physical_pages);
+    wit_platform_fault_test();
+
+    wit_console_write("Kernel initialized.\nHello from WitOS.\n");
     wit_console_write("[TEST-PASS] Boot.Hello\n");
 
 #ifdef WITOS_TEST_HANG
-    /* The test runner must classify a guest that never exits as a timeout. */
     for (;;) { }
 #else
     wit_platform_finish(0x10);

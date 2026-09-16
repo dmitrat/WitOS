@@ -56,6 +56,14 @@ void wit_console_write_u64(WitU64 value)
     }
 }
 
+void wit_console_write_hex(WitU64 value)
+{
+    static const char digits[] = "0123456789ABCDEF";
+    wit_console_write("0x");
+    for (WitU32 digit = 0; digit < 16; ++digit) {
+        write_char(digits[(value >> ((15 - digit) * 4)) & 15]);
+    }
+}
 void wit_disable_interrupts(void)
 {
     _disable();

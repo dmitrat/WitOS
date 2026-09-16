@@ -65,11 +65,16 @@ EfiStatus efi_main(EfiHandle image, EfiSystemTable *system)
             boot_info.Architecture = WIT_ARCH_X64;
             boot_info.MemoryRegions = memory_regions;
             boot_info.Flags = WIT_BOOT_SERVICES_EXITED;
+#ifdef WITOS_TEST_OVERLAPPING_MAP
+            if (boot_info.MemoryRegionCount > 1) {
+                memory_regions[1].Base = memory_regions[0].Base;
+            }
+#endif
 #ifdef WITOS_TEST_INVALID_BOOTINFO
             boot_info.Version = 0;
 #endif
             wit_console_write("[BOOT] ExitBootServices OK\n");
-            wit_kernel_entry(&boot_info);
+            wit_platform_enter(&boot_info);
         }
         if (status != EFI_INVALID_PARAMETER) {
             wit_panic("ExitBootServices failed");

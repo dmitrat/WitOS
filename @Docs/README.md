@@ -136,8 +136,9 @@ These are architecture drafts intended for continued review and revision rather 
 
 The initial native milestone now has a concrete boot contract and runnable implementation:
 
-- [RFC 0011 — Kernel Architecture & ABI](RFC-0011-Kernel-Architecture-and-ABI.md) — Draft v0.1, M0 boot boundary.
+- [RFC 0011 — Kernel Architecture & ABI](RFC-0011-Kernel-Architecture-and-ABI.md) — Draft v0.2, boot and initial memory/exception boundary.
 - [M0 implementation and validation](Implementation/M0-Boot.md).
+- [M1 memory and exception foundation](Implementation/M1-Memory-and-Exceptions.md) — first slice, eleven VM scenarios.
 - [Immediate next steps](Implementation/Next-Steps.md).
 
 The earlier RFCs describe the long-term vision. These implementation notes distinguish working behavior from future runtime and operating-system features.

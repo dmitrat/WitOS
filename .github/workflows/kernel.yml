@@ -1,4 +1,4 @@
-name: M0 boot
+name: Kernel boot
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: m0-${{ github.ref }}
+  group: kernel-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -48,13 +48,13 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: witos-m0-x64
+          name: witos-kernel-x64
           if-no-files-found: warn
           retention-days: 14
           path: |
-            artifacts/m0/boot/BOOTX64.EFI
-            artifacts/m0/boot/WitOS-x64.img
-            artifacts/m0/boot/WitOS.pdb
-            artifacts/m0/boot/WitOS.map
-            artifacts/m0/boot/build.txt
+            artifacts/x64/boot/BOOTX64.EFI
+            artifacts/x64/boot/WitOS-x64.img
+            artifacts/x64/boot/WitOS.pdb
+            artifacts/x64/boot/WitOS.map
+            artifacts/x64/boot/build.txt
             artifacts/logs/

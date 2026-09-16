@@ -30,8 +30,8 @@ internal static class Toolchain
             .Where(path => Version.TryParse(Path.GetFileName(path), out _))
             .OrderByDescending(path => Version.Parse(Path.GetFileName(path)))
             .Select(path => Path.Combine(path, "bin", "Hostx64", "x64"))
-            .FirstOrDefault(path => File.Exists(Path.Combine(path, "cl.exe")) && File.Exists(Path.Combine(path, "link.exe")));
-        return candidate ?? throw new InvalidOperationException("MSVC x64 compiler/linker were not found.");
+            .FirstOrDefault(path => File.Exists(Path.Combine(path, "cl.exe")) && File.Exists(Path.Combine(path, "link.exe")) && File.Exists(Path.Combine(path, "ml64.exe")));
+        return candidate ?? throw new InvalidOperationException("MSVC x64 compiler/linker/MASM were not found.");
     }
 
     public static void RequireQemu(string root)

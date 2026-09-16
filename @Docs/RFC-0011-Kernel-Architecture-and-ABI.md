@@ -1,6 +1,6 @@
 # RFC 0011 — Kernel Architecture & ABI
 
-Draft v0.1. Scope: the implemented M0 boot boundary only.
+Draft v0.2. Scope: the boot boundary and initial M1 memory/exception foundation.
 
 ## Objective
 
@@ -13,8 +13,8 @@ This RFC does not define future syscalls, process isolation, scheduling, capabil
 | Component | Responsibility |
 | --- | --- |
 | Boot.Uefi | Read and translate firmware information, exit firmware boot services |
-| Kernel | Validate WitBootInfo, enter the common kernel path, report fatal contract errors |
-| Kernel.Arch.X64 | Direct serial I/O, interrupt control, halt and VM test completion |
+| Kernel | Validate the handoff/map, manage physical pages and report fatal failures |
+| Kernel.Arch.X64 | Kernel stacks, GDT/TSS/IDT, exception entry, serial I/O and VM completion |
 | WitOS.Dev | Host compilation, boot-image packaging, QEMU execution and result validation |
 
 At M0 the native components are linked together into one EFI image. Separate source boundaries allow replacing the boot adapter later without teaching the common kernel UEFI types.
@@ -39,15 +39,17 @@ Each memory descriptor contains physical base, byte length, normalized kind and 
 
 The adapter's static buffers and the executable remain resident. Their memory is reserved in the translated map. Only conventional RAM is initially eligible for future allocation.
 
-The current stack and page tables remain firmware-provided. Boot-services/loader memory must not become free merely because ExitBootServices succeeded. M1 must establish ownership before reclaiming it.
+The x64 trampoline switches to an image-owned 64 KiB stack before entering C. Initialization installs image-owned GDT/IDT/TSS structures and a 32 KiB IST1 emergency stack for double faults.
 
-The CPU enters the kernel in x64 long mode with maskable interrupts disabled. There is no promise about a production virtual-address layout yet.
+Page tables remain firmware-provided. Boot-services/loader memory must not become free merely because ExitBootServices succeeded or the active stack changed.
+
+The CPU enters the kernel in x64 long mode with maskable interrupts disabled. The single-CPU page allocator rejects overlapping maps, protects reserved regions and currently supports usable physical addresses below 4 GiB. There is no production virtual-address layout or concurrent allocation contract yet.
 
 ## Failure behavior
 
 An invalid handoff produces a bounded serial panic and a distinct VM exit status. Missing serial hardware cannot cause an infinite UART polling loop. A missing QEMU exit device causes the CPU to halt.
 
-This is diagnostic behavior, not recovery from arbitrary CPU faults.
+CPU exception entry now records vector, error, RIP, CS, RFLAGS, interrupted RSP, SS and CR2 before a fatal panic. Vector 8 uses a separate emergency stack. These handlers do not resume execution or implement language-level exception unwinding.
 
 ## Runtime work before stabilizing the user ABI
 
@@ -59,4 +61,4 @@ The native kernel must not grow public APIs merely to anticipate every RFC. Add 
 
 The host integration tests must demonstrate normal boot at multiple memory sizes, rejection of a bad contract and detection of a guest that fails to finish.
 
-See [M0 implementation notes](Implementation/M0-Boot.md) for commands, evidence and current limitations.
+See [M0 history](Implementation/M0-Boot.md) and the [M1 foundation](Implementation/M1-Memory-and-Exceptions.md) for commands, evidence and current limitations.
