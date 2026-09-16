@@ -67,6 +67,8 @@ wit_user_start PROC
     je bad_return
     cmp r14, WIT_TEST_PREEMPTION_STATE
     je preemption_state
+    cmp r14, WIT_TEST_MEMORY_LIFECYCLE
+    jae memory_start
     cmp r14, WIT_TEST_NORMAL
     jne failed
 
@@ -164,6 +166,236 @@ wit_user_start PROC
     mov [rbx], rax
     mov ecx, WIT_TEST_EXIT_CODE
     jmp exit_component
+
+; Memory tests use the same INT 80h boundary as future runtime callers.
+memory_start:
+    mov rcx, 0800000000h ; 32 GiB reservation
+    mov edx, 0200000h
+    mov eax, WIT_CALL_MEMORY_RESERVE
+    int 80h
+    EXPECT WIT_STATUS_OK
+    mov rbx, rdx
+    mov rax, WIT_USER_MEMORY_BASE
+    cmp rbx, rax
+    jne failed
+    cmp r14, WIT_TEST_MEMORY_RESERVED
+    je memory_read_fault
+
+    ; Force a partially completed commit to exhaust the component's frame quota.
+    ; The syscall must report failure, leave no accessible prefix and allow retry.
+    mov rcx, rbx
+    mov edx, WIT_USER_PAGE_CAPACITY * 4096
+    mov r8d, 3
+    mov eax, WIT_CALL_MEMORY_COMMIT
+    int 80h
+    EXPECT WIT_STATUS_NO_MEMORY
+    test rdx, rdx
+    jne failed
+    call memory_bad_buffer
+
+    mov rcx, rbx
+    mov edx, 8192
+    mov r8d, WIT_MEMORY_READ + WIT_MEMORY_WRITE
+    mov eax, WIT_CALL_MEMORY_COMMIT
+    int 80h
+    EXPECT WIT_STATUS_OK
+    mov rdi, rbx
+    mov ecx, 1024
+    xor eax, eax
+    repe scasq
+    jne failed
+    mov QWORD PTR [rbx], 12345678h
+    mov QWORD PTR [rbx + 8184], 76543210h
+    cmp r14, WIT_TEST_MEMORY_NX
+    je memory_execute_fault
+
+    ; Warm writable translations before removing permissions.
+    mov rcx, rbx
+    mov edx, 8192
+    mov r8d, WIT_MEMORY_READ
+    mov eax, WIT_CALL_MEMORY_PROTECT
+    int 80h
+    EXPECT WIT_STATUS_OK
+    cmp r14, WIT_TEST_MEMORY_READONLY
+    je memory_write_fault
+    cmp QWORD PTR [rbx], 12345678h
+    jne failed
+    cmp QWORD PTR [rbx + 8184], 76543210h
+    jne failed
+
+    mov rcx, rbx
+    mov edx, 8192
+    xor r8d, r8d
+    mov eax, WIT_CALL_MEMORY_PROTECT
+    int 80h
+    EXPECT WIT_STATUS_OK
+    cmp r14, WIT_TEST_MEMORY_NOACCESS
+    je memory_read_fault
+    call memory_bad_buffer
+    ; Idempotent commit must preserve NOACCESS and content.
+    mov rcx, rbx
+    mov edx, 8192
+    mov r8d, 3
+    mov eax, WIT_CALL_MEMORY_COMMIT
+    int 80h
+    EXPECT WIT_STATUS_OK
+    call memory_bad_buffer
+    mov rcx, rbx
+    mov edx, 8192
+    mov r8d, 3
+    mov eax, WIT_CALL_MEMORY_PROTECT
+    int 80h
+    EXPECT WIT_STATUS_OK
+    cmp QWORD PTR [rbx], 12345678h
+    jne failed
+    cmp QWORD PTR [rbx + 8184], 76543210h
+    jne failed
+    ; A range containing a hole must fail without changing its mapped prefix.
+    mov rcx, rbx
+    mov edx, 12288
+    xor r8d, r8d
+    mov eax, WIT_CALL_MEMORY_PROTECT
+    int 80h
+    EXPECT WIT_STATUS_NOT_COMMITTED
+    mov QWORD PTR [rbx], 1111h
+
+    mov rcx, rbx
+    mov edx, 8192
+    mov eax, WIT_CALL_MEMORY_DECOMMIT
+    int 80h
+    EXPECT WIT_STATUS_OK
+    cmp r14, WIT_TEST_MEMORY_DECOMMITTED
+    je memory_read_fault
+    call memory_bad_buffer
+    ; Allocate physical memory with no access, then expose zero-filled contents.
+    mov rcx, rbx
+    mov edx, 8192
+    xor r8d, r8d
+    mov eax, WIT_CALL_MEMORY_COMMIT
+    int 80h
+    EXPECT WIT_STATUS_OK
+    call memory_bad_buffer
+    mov rcx, rbx
+    mov edx, 8192
+    mov r8d, 3
+    mov eax, WIT_CALL_MEMORY_PROTECT
+    int 80h
+    EXPECT WIT_STATUS_OK
+    mov rdi, rbx
+    mov ecx, 1024
+    xor eax, eax
+    repe scasq
+    jne failed
+    mov QWORD PTR [rbx], 2222h
+    mov rcx, rbx
+    mov eax, WIT_CALL_MEMORY_RELEASE
+    int 80h
+    EXPECT WIT_STATUS_OK
+    cmp r14, WIT_TEST_MEMORY_RELEASED
+    je memory_read_fault
+    call memory_bad_buffer
+    mov rcx, rbx
+    mov edx, 4096
+    mov r8d, 3
+    mov eax, WIT_CALL_MEMORY_COMMIT
+    int 80h
+    EXPECT WIT_STATUS_NOT_RESERVED
+    mov rcx, rbx
+    mov eax, WIT_CALL_MEMORY_RELEASE
+    int 80h
+    EXPECT WIT_STATUS_NOT_RESERVED
+
+    mov ecx, 8192
+    mov edx, 4096
+    mov eax, WIT_CALL_MEMORY_RESERVE
+    int 80h
+    EXPECT WIT_STATUS_OK
+    cmp rdx, rbx
+    jne failed
+    mov rcx, rbx
+    mov edx, 8192
+    mov r8d, 3
+    mov eax, WIT_CALL_MEMORY_COMMIT
+    int 80h
+    EXPECT WIT_STATUS_OK
+    mov rdi, rbx
+    mov ecx, 1024
+    xor eax, eax
+    repe scasq
+    jne failed
+    ; Dynamic user buffers must work, including a page boundary.
+    mov DWORD PTR [rbx + 4092], 0746D656Dh
+    mov DWORD PTR [rbx + 4096], 00A747365h
+    mov rcx, [r15 + 8]
+    lea rdx, [rbx + 4092]
+    mov r8d, 8
+    mov eax, WIT_CALL_WRITE
+    int 80h
+    EXPECT WIT_STATUS_OK
+    cmp rdx, 8
+    jne failed
+
+    mov rcx, WIT_USER_CODE
+    mov edx, 4096
+    mov r8d, 3
+    mov eax, WIT_CALL_MEMORY_PROTECT
+    int 80h
+    EXPECT WIT_STATUS_BAD_ADDRESS
+    mov rcx, rbx
+    inc rcx
+    mov edx, 4096
+    mov eax, WIT_CALL_MEMORY_DECOMMIT
+    int 80h
+    EXPECT WIT_STATUS_INVALID_ARGUMENT
+    mov rcx, rbx
+    mov edx, 4096
+    mov r8d, 5 ; executable dynamic memory is not in this ABI
+    mov eax, WIT_CALL_MEMORY_PROTECT
+    int 80h
+    EXPECT WIT_STATUS_INVALID_ARGUMENT
+    mov rcx, rbx
+    mov rdx, -4096
+    mov r8d, 3
+    mov eax, WIT_CALL_MEMORY_COMMIT
+    int 80h
+    EXPECT WIT_STATUS_BAD_ADDRESS
+    mov ecx, 4096
+    mov edx, 12288
+    mov eax, WIT_CALL_MEMORY_RESERVE
+    int 80h
+    EXPECT WIT_STATUS_INVALID_ARGUMENT
+    test rdx, rdx
+    jne failed
+    mov rcx, rbx
+    mov eax, WIT_CALL_MEMORY_RELEASE
+    int 80h
+    EXPECT WIT_STATUS_OK
+    movq rax, xmm6
+    cmp rax, r12
+    jne failed
+    mov ecx, WIT_TEST_EXIT_CODE
+    jmp exit_component
+
+memory_bad_buffer:
+    mov rcx, [r15 + 8]
+    mov rdx, rbx
+    mov r8d, 8
+    mov eax, WIT_CALL_WRITE
+    int 80h
+    EXPECT WIT_STATUS_BAD_ADDRESS
+    test rdx, rdx
+    jne failed
+    ret
+memory_read_fault:
+    mov rax, [rbx]
+    jmp failed
+memory_write_fault:
+    mov QWORD PTR [rbx], 0
+    jmp failed
+memory_execute_fault:
+    mov BYTE PTR [rbx], 0C3h
+    call rbx
+    jmp failed
 
 try_write:
     lea rdx, message

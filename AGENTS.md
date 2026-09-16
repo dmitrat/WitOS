@@ -2,7 +2,7 @@
 
 ## Project direction
 
-The core objective is standard upstream .NET above a minimal native kernel and a hardware-independent system layer. Shells and applications eventually run on that .NET platform. Current guest code includes the M1 foundation and the first M2 ring-3 isolation slice; host-side C# tooling must not be described as guest .NET support.
+The core objective is standard upstream .NET above a minimal native kernel and a hardware-independent system layer. Shells and applications eventually run on that .NET platform. Current guest code includes the M1 foundation, M2 ring-3 isolation and sparse user memory; host-side C# tooling must not be described as guest .NET support.
 
 Original vision documents live in `@Docs/`. Concrete implementation status and deliberate limitations live in `@Docs/Implementation/`. Preserve original drafts unless the task calls for revising them.
 
@@ -18,6 +18,8 @@ Original vision documents live in `@Docs/`. Concrete implementation status and d
 - Context switching currently preserves baseline x87/SSE state; do not introduce AVX/XSAVE assumptions without extending state management and tests.
 - Keep shared kernel mappings supervisor-only. Never reuse the kernel scratch branch as a user page-table branch.
 - Validate user handles and complete buffer ranges before copying/output. Close handles and free only component-owned pages on teardown.
+- Keep dynamic reservations separate from fixed image/stack mappings. Reservation must not consume backing RAM; failed commit must roll back additions; decommit retains the reservation and recommit zeroes pages.
+- Track committed no-access pages as owned. Invalidate active translations before reuse, reclaim empty private page tables, and keep memory-call work bounded by prototype quotas.
 - Validate user return addresses/selectors/flags before IRETQ. Timer returns must preserve condition codes; syscall flags follow the explicit ABI.
 - Treat the boot handoff and experimental user ABI as evolving contracts, not a frozen public SDK.
 

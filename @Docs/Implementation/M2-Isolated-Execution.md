@@ -1,7 +1,7 @@
 # M2 — First isolated native execution
 
 Status: implemented and locally verified on 2026-09-16.
-Guest version: WitOS 0.0.4.
+Guest version: WitOS 0.0.5 (initial isolation in 0.0.4; memory extension in 0.0.5).
 
 This is the first M2 isolation slice, not a general process platform or a .NET runtime port.
 
@@ -29,7 +29,7 @@ Each of two available component slots has:
 - a dedicated, guarded 64 KiB kernel stack from a fixed kernel-owned pool;
 - an owned-page list and a process-local handle table.
 
-Only PML4 slot 0 is shared with the kernel, retaining supervisor-only permission. Kernel scratch mappings are not copied. User addresses live in a separate fixed 2 MiB arena starting at 512 GiB. No low user mappings are provided.
+Only PML4 slot 0 is shared with the kernel, retaining supervisor-only permission. Kernel scratch mappings are not copied. The fixed image occupies a separate 2 MiB arena starting at 512 GiB. Dynamic reservations use a private 64 GiB arena starting at 1 TiB; see [memory semantics](M2-User-Memory.md). No low user mappings are provided.
 
 Every allocated page is zeroed before user exposure. User leaf pages and private page tables are freed after switching back to the kernel CR3. Kernel mappings and fixed kernel-stack pools remain kernel-owned. Repeated execution restores the physical-page count.
 
@@ -45,7 +45,7 @@ Initial user GPR/SIMD state is cleared. The startup pointer is passed in RCX. Be
 
 Syscalls reset flags according to the experimental ABI. Timer returns preserve arithmetic flags and DF while removing unsupported/unsafe flag state. Losing condition codes during a timer return is covered by the long-running user-state test.
 
-## Experimental user ABI v1
+## Experimental user ABI v2
 
 Authoritative constants and startup prefix: `src/Kernel/include/witos/user_abi.h`. The host generates matching MASM constants from the C headers.
 
@@ -63,8 +63,13 @@ Transport: `INT 0x80`.
 | 1 Write | Console handle, user pointer, byte count | Bytes written |
 | 2 Exit | Exit status | Does not return |
 | 3 Close | Handle | Success or invalid handle |
+| 4 Memory reserve | Size, alignment | Reservation base |
+| 5 Memory commit | Address, size, protection | Zero |
+| 6 Memory decommit | Address, size | Zero |
+| 7 Memory protect | Address, size, protection | Zero |
+| 8 Memory release | Exact reservation base | Zero |
 
-Statuses: 0 success, 1 unsupported call, 2 invalid handle, 3 denied rights, 4 invalid address, 5 excessive length, 6 reserved invalid-argument status, 7 wrong object type.
+Statuses: 0 success, 1 unsupported call, 2 invalid handle, 3 denied rights, 4 invalid address, 5 excessive length, 6 invalid argument, 7 wrong object type, 8 resource exhaustion, 9 range not reserved by this component, 10 range not fully committed. Returning errors have a zero result. The version/startup field is now 2; this replaces the experimental v1 fixture contract.
 
 Write accepts at most 256 input bytes per call. The diagnostic UART output adds a [USER] prefix and translates line endings; this is not a general file/Stream contract. A zero-length write validates the handle but does not dereference the pointer. Nonempty writes validate the entire range before copying or output. Copying uses verified physical translations through supervisor aliases, so a bad user pointer never becomes an unchecked kernel dereference. Cross-page buffers are tested.
 
@@ -93,7 +98,7 @@ dotnet build WitOS.slnx --configuration Release
 dotnet run --project tools/WitOS.Dev --configuration Release -- test
 ```
 
-All 17 VM scenarios passed locally. Ordinary successful boots now additionally require 21 M2 check groups, including:
+All 17 VM scenarios passed locally. Ordinary successful boots now additionally require 32 M2 check groups, including:
 
 - actual ring-3 execution and ABI/handle checks;
 - two live private address spaces, foreign live handles and an inaccessible peer-only page;
@@ -101,12 +106,13 @@ All 17 VM scenarios passed locally. Ordinary successful boots now additionally r
 - rejection of a noncanonical stack before kernel-to-user return;
 - timer termination and condition-code/GPR/SIMD preservation;
 - actual physical-page reuse with zero-fill and stale-handle rejection;
-- handle closure and physical-page accounting after teardown.
+- handle closure and physical-page accounting after teardown;
+- eleven [memory groups](M2-User-Memory.md): sparse/private memory, quota rollback, invalid reservations, physical OOM, ring-3 lifecycle and six hardware access faults.
 
 For faults the guest checks CPU error codes, CR2 where meaningful, CS/SS and kernel canaries. Every failure is followed by a normal component. The host requires the full M2 marker sequence and ring-3 fault selectors before accepting boot success.
 
 ## Limits and next work
 
-Two fixed slots, one active user thread, one x64 CPU, known one-page code images, a fixed virtual layout and at most 32 owned physical pages per component. No general executable loader, filesystem, IPC channels, transferable capabilities, per-thread TLS, blocking/waking, dynamic user-thread scheduling or managed runtime exists yet.
+Two fixed slots, one active user thread, one x64 CPU, known one-page code images, a fixed image layout, eight dynamic reservations and at most 128 owned physical pages per component (including tables and fixed mappings). No general executable loader, filesystem, IPC channels, transferable capabilities, per-thread TLS, blocking/waking, dynamic user-thread scheduling or managed runtime exists yet.
 
-Next implement per-address-space reserve/commit/decommit/release and the thread/wait/runtime substrate in RFC 0015. The interrupt transport and fixed layout are experimental and can change with executable tests.
+The memory primitive slice is implemented; next implement the thread/TLS/wait substrate in RFC 0015. A real NativeAOT memory adapter and scalable commitment limits are still required. The interrupt transport and fixed layout are experimental and can change with executable tests.

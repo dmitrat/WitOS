@@ -1,6 +1,6 @@
 # RFC 0011 — Kernel Architecture & ABI
 
-Draft v0.4. Scope: the boot, M1 kernel foundation and first M2 user boundary.
+Draft v0.5. Scope: boot, M1 kernel foundation, M2 user boundary and sparse memory.
 
 ## Objective
 
@@ -47,7 +47,7 @@ The kernel allocates and retains its page-table pages. It does not reclaim old f
 
 The kernel installs four-level, 4 KiB mappings for usable RAM and its image. Code sections are read/execute; mutable data is non-executable. Writable executable image sections are invalid. CR0.WP and EFER.NXE enforce these rules in ring 0.
 
-Page zero and the guard pages around all four stacks are absent. Scratch map/protect/unmap operations invalidate local TLB entries and accept only allocated pages in the defined scratch range. They are single-CPU privileged mechanisms, not user authority.
+Page zero and the guard pages around all six kernel-owned stacks are absent. Scratch map/protect/unmap operations invalidate local TLB entries and accept only allocated pages in the defined scratch range. They are single-CPU privileged mechanisms, not user authority.
 
 ## Execution
 
@@ -67,12 +67,12 @@ Kernel CPU exceptions remain fatal. User faults terminate the current component 
 
 A separately linked native fixture runs in ring 3 with its own CR3 and private mappings. Kernel mappings remain supervisor-only. Each component has a guarded user stack, a dedicated kernel stack and a private typed handle table. Two spaces may coexist; one user activation runs at a time.
 
-Experimental user ABI v1 uses INT 0x80 for query, checked terminal write, exit and close. Call numbers, statuses and startup layout are defined in `user_abi.h` and verified by the independently compiled fixture. Full details and limits are in [M2 implementation](Implementation/M2-Isolated-Execution.md).
+Experimental user ABI v2 uses INT 0x80 for query, checked terminal write, exit, close and reserve/commit/decommit/protect/release memory operations. Call numbers, statuses and startup layout are defined in `user_abi.h` and verified by the independently compiled fixture. Full details and limits are in [M2 implementation](Implementation/M2-Isolated-Execution.md).
 
 Fault/exit/budget paths close handles, restore the kernel CR3 and supervising context, and allow owned pages to be reclaimed. Timer returns preserve condition codes; syscall return flags follow the declared ABI. Invalid return state is rejected before IRETQ.
 
 ## Acceptance and next ABI work
 
-The 17-scenario VM suite preserves M1 coverage and requires 21 M2 groups in successful boots: privilege boundaries, user mappings, ABI/handles, faults, safe returns, time budgeting and teardown. See [M1 history](Implementation/M1-Kernel-Core.md) and [M2 evidence](Implementation/M2-Isolated-Execution.md).
+The 17-scenario VM suite preserves M1 coverage and requires 32 M2 groups in successful boots: privilege boundaries, user mappings, ABI/handles, faults, safe returns, time budgeting and teardown. See [M1 history](Implementation/M1-Kernel-Core.md) and [M2 evidence](Implementation/M2-Isolated-Execution.md).
 
-Before M2 stabilizes a user ABI, determine the selected upstream runtime's requirements for reserve/commit/protect, thread-local storage, threads, waits/wakes, clocks, exceptions and startup. Add mechanisms when a tested vertical slice needs them.
+The [sparse user-memory contract](Implementation/M2-User-Memory.md) provides private reservations, zero-fill and recoverable all-or-nothing commitment, with explicit prototype quotas. Before M2 stabilizes a user ABI, continue matching the selected upstream runtime's requirements for thread-local storage, threads, waits/wakes, clocks, exceptions and startup. Add mechanisms when a tested vertical slice needs them.

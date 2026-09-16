@@ -73,7 +73,13 @@ void wit_user_self_test(WitPageAllocator *pages)
         { WIT_TEST_WRITE_CODE, "User.WriteCode", 14, 7, WIT_USER_CODE },
         { WIT_TEST_WRITE_INFO, "User.WriteInfo", 14, 7, WIT_USER_INFO },
         { WIT_TEST_NULL_READ, "User.NullRead", 14, 4, 0 },
-        { WIT_TEST_INVALID_OPCODE, "User.InvalidOpcode", 6, 0, 0 }
+        { WIT_TEST_INVALID_OPCODE, "User.InvalidOpcode", 6, 0, 0 },
+        { WIT_TEST_MEMORY_RESERVED, "User.MemoryReservedFault", 14, 4, WIT_USER_MEMORY_BASE },
+        { WIT_TEST_MEMORY_DECOMMITTED, "User.MemoryDecommittedFault", 14, 4, WIT_USER_MEMORY_BASE },
+        { WIT_TEST_MEMORY_RELEASED, "User.MemoryReleasedFault", 14, 4, WIT_USER_MEMORY_BASE },
+        { WIT_TEST_MEMORY_READONLY, "User.MemoryReadOnlyFault", 14, 7, WIT_USER_MEMORY_BASE },
+        { WIT_TEST_MEMORY_NOACCESS, "User.MemoryNoAccessFault", 14, 4, WIT_USER_MEMORY_BASE },
+        { WIT_TEST_MEMORY_NX, "User.MemoryNxFault", 14, 21, WIT_USER_MEMORY_BASE }
     };
     WitU64 data_a, data_b, old_data, old_console;
 
@@ -122,7 +128,8 @@ void wit_user_self_test(WitPageAllocator *pages)
             components[0].FaultVector == faults[i].Vector &&
             components[0].FaultError == faults[i].Error &&
             components[0].FaultCs == WIT_USER_CS && components[0].FaultSs == WIT_USER_SS &&
-            components[0].FaultRip >= WIT_USER_CODE && components[0].FaultRip < WIT_USER_LIMIT &&
+            ((components[0].FaultRip >= WIT_USER_CODE && components[0].FaultRip < WIT_USER_LIMIT) ||
+                (faults[i].Mode == WIT_TEST_MEMORY_NX && components[0].FaultRip == WIT_USER_MEMORY_BASE)) &&
             components[0].Handles.Count == 0, "User fault was not contained");
         if (faults[i].Vector == 14)
             require(components[0].FaultAddress == faults[i].Address, "Unexpected user fault address");
@@ -134,6 +141,17 @@ void wit_user_self_test(WitPageAllocator *pages)
         wit_console_write(faults[i].Name);
         wit_console_write("\n");
     }
+
+    wit_user_memory_self_test(pages);
+    create(pages, 0, WIT_TEST_MEMORY_LIFECYCLE);
+    wit_user_run(&components[0]);
+    require(components[0].State == WitUserExited && components[0].ExitCode == WIT_TEST_EXIT_CODE &&
+        components[0].Writes == 1 && components[0].Handles.Count == 0 &&
+        components[0].Space.OwnedCount == 12, "User memory lifecycle failed");
+    wit_user_destroy(&components[0]);
+    require(wit_pages_free_count(pages) == before, "User memory lifecycle leaked");
+    recovery(pages);
+    wit_console_write("[TEST-PASS] User.MemoryLifecycle\n");
 
     create(pages, 0, WIT_TEST_BAD_RETURN);
     wit_user_run(&components[0]);

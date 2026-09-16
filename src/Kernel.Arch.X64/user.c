@@ -177,6 +177,21 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
         }
         context->Rdx = argument2;
         break;
+    case WIT_CALL_MEMORY_RESERVE:
+        context->Rax = wit_user_memory_reserve(&current_user->Space, argument0, argument1, &context->Rdx);
+        break;
+    case WIT_CALL_MEMORY_COMMIT:
+        context->Rax = wit_user_memory_commit(&current_user->Space, argument0, argument1, argument2);
+        break;
+    case WIT_CALL_MEMORY_DECOMMIT:
+        context->Rax = wit_user_memory_decommit(&current_user->Space, argument0, argument1);
+        break;
+    case WIT_CALL_MEMORY_PROTECT:
+        context->Rax = wit_user_memory_protect(&current_user->Space, argument0, argument1, argument2);
+        break;
+    case WIT_CALL_MEMORY_RELEASE:
+        context->Rax = wit_user_memory_release(&current_user->Space, argument0);
+        break;
     case WIT_CALL_EXIT:
         finish(WitUserExited, argument0);
     case WIT_CALL_CLOSE:

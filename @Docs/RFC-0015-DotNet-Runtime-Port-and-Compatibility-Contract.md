@@ -1,6 +1,6 @@
 # RFC 0015 — .NET Runtime Port & Compatibility Contract
 
-Draft v0.1. Status: source inventory and hosted reference probe implemented; guest runtime port not implemented.
+Draft v0.2. Status: source inventory, hosted reference probe and bounded M2 user-memory primitives implemented; guest runtime port not implemented.
 
 ## 1. Evidence baseline
 
@@ -70,9 +70,11 @@ Implementing the declarations in Pal.h alone is not evidence of a complete port.
 
 NativeAOT's GC has a separate GCToOSInterface. A combined allocate-and-map function is insufficient.
 
-A future reservation must retain virtual identity without immediately consuming backing RAM. Commit must establish zero-initialized private pages. Decommit must remove access and discard content while retaining the reservation. Recommit must not expose stale data. Release invalidates the reservation and its mappings.
+A reservation must retain virtual identity without immediately consuming backing RAM. Commit must establish zero-initialized private pages. Decommit must remove access and discard content while retaining the reservation. Recommit must not expose stale data. Release invalidates the reservation and its mappings.
 
 Operations need aligned ranges, overflow checks, explicit errors, defined partial-failure behavior and address-space ownership. Out-of-memory in an application must not ordinarily panic the whole kernel.
+
+WitOS 0.0.5 implements these basic reservation/commit/decommit/release semantics through experimental user ABI v2. [Implementation and tests](Implementation/M2-User-Memory.md) cover sparse RAM use, zero-fill, protection, ownership and atomic rollback. Eight reservations and 128 total owned frames per component are deliberate test limits, not sufficient evidence for a production GC heap. The GC/PAL adapter, reset semantics, allocation policy and runtime integration remain unimplemented.
 
 Write-watch is optional: the pinned Unix GC implementation reports it unsupported. It must not be invented as an early mandatory kernel service.
 
