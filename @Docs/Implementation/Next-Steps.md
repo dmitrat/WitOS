@@ -2,46 +2,38 @@
 
 The core objective remains a minimal hardware-dependent kernel, a common system layer supporting upstream .NET, and applications/shells built above .NET.
 
-## Completed: M0 and initial M1
+## Completed
 
-- Independent x64 boot, WitBootInfo, serial diagnostics, disk images and C# host tools.
-- Kernel-owned stacks, GDT/TSS/IDT, fatal CPU diagnostics and emergency double-fault handling.
-- Physical pages, kernel-owned page tables, image protection, stack guards and scratch mapping operations.
-- Timer interrupts and preemptive switching between two kernel contexts.
-- Seventeen real VM scenarios.
+- M0: independent x64 boot and automated VM execution.
+- Initial M1: physical pages, protected kernel mappings, guarded stacks, CPU diagnostics, timer interrupts and two preempted kernel contexts.
+- M1 regression suite: seventeen real VM scenarios.
+- Runtime evidence gate: pinned .NET 10.0.8 source/package provenance, SHA-256 audit of 22 selected files, a real hosted NativeAOT binary and six semantic probe groups.
+- RFC 0015 maps the observed runtime requirements to concrete kernel gaps.
 
-See [M0 history](M0-Boot.md), the [first M1 slice](M1-Memory-and-Exceptions.md) and the [completed initial M1](M1-Kernel-Core.md).
+See [M1](M1-Kernel-Core.md), [NativeAOT host evidence](NativeAot-Host-Probe.md) and [RFC 0015](../RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md).
 
-Guest .NET support does not exist yet.
+Guest .NET support and M2 isolation do not exist yet.
 
-## Next: runtime requirements and M2 design
+## Next: M2 isolated native execution
 
-1. Pin one upstream .NET revision and inventory NativeAOT bootstrap dependencies.
-2. Map required memory, GC, thread-local storage, threads, waits, time and exception mechanisms onto the kernel.
-3. Define the smallest user ABI and loader contract needed for isolated execution and the eventual runtime.
-4. Build a separate user address space with a protected kernel boundary.
-5. Run an unprivileged native component and validate syscall entry/return.
-6. Prove that invalid user accesses terminate that component without corrupting the kernel.
-7. Add explicit capability handles and minimal communication as required by the next vertical slice.
+Follow [the M2 implementation slice](M2-Isolated-Execution-Plan.md):
 
-The existing scheduler is a fixed two-worker kernel demonstration. General thread lifecycle, blocking/waking and user contexts need explicit contracts and tests.
+1. Separate user address space and guarded user/kernel stacks.
+2. Controlled native image running in ring 3.
+3. Minimal versioned query/output/exit call boundary and explicit console authority.
+4. Contained user faults, checked user buffers and handle validation.
+5. Resource teardown, zero-fill on reuse and timer control of uncooperative execution.
 
-## NativeAOT bootstrap
+Commit syscall details with executable tests rather than freezing an anticipated full OS API.
 
-Deliver the dependency inventory as RFC 0015 plus executable experiments. Separate required runtime mechanisms from optional BCL features, avoid cycles through managed services and maintain a patch inventory.
+## Before M3
 
-M3 must run a real NativeAOT system component in an isolated context, testing GC, exceptions and threading in addition to console output. CoreCLR and unchanged ordinary IL applications remain a separate later milestone.
+Implement the runtime substrate identified in RFC 0015: reserve/commit/decommit/release, dynamic threads and TLS, waits/deadlines, GC rendezvous and managed fault delivery. Select the actual guest runtime ABI/backend through a porting experiment and track all upstream changes.
 
-## Current limits to preserve or deliberately revise
+M3 must run a real NativeAOT component in WitOS, exercising GC, exceptions and threading. CoreCLR and unchanged ordinary IL applications remain the later M6 milestone.
 
-- One x64 CPU, QEMU q35, UEFI boot and Windows-hosted tooling.
-- Usable physical addresses below 4 GiB.
-- One kernel address space; no user-mode isolation yet.
-- Legacy PIC/PIT timer; no real-time guarantees.
-- Baseline x87/SSE context state, no AVX/XSAVE or per-thread FS/GS switching.
-- Reserved firmware memory is not reclaimed automatically.
-- Mapping and physical-page APIs are internal bootstrap mechanisms, not security capabilities.
+## Current limits
 
-## Deferred
+One x64 CPU; QEMU q35; usable physical addresses below 4 GiB; one kernel address space; PIC/PIT timer; baseline x87/SSE state; no automatic firmware-memory reclamation. Bootstrap mapping/allocation APIs are serialized internal mechanisms, not user capabilities.
 
-Broad hardware, firmware flashing, GPU drivers, a custom filesystem, GUI, stores and distributed orchestration do not block these steps.
+Broad hardware, firmware flashing, GPU drivers, a custom filesystem, GUI, stores and distribution do not block the next slice.

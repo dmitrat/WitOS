@@ -1,0 +1,65 @@
+name: Hosted NativeAOT reference
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/NativeAotProbe/**'
+      - 'tools/WitOS.Dev/**'
+      - 'global.json'
+      - 'Directory.Build.props'
+      - '.github/workflows/nativeaot.yml'
+  pull_request:
+    paths:
+      - 'experiments/NativeAotProbe/**'
+      - 'tools/WitOS.Dev/**'
+      - 'global.json'
+      - 'Directory.Build.props'
+      - '.github/workflows/nativeaot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hosted-nativeaot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hosted-probe:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          global-json-file: global.json
+
+      - name: Cache pinned compiler packages and source files
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .tools/nuget
+            .tools/runtime-audit
+          key: nativeaot-win-x64-${{ hashFiles('experiments/NativeAotProbe/packages.lock.json', 'experiments/NativeAotProbe/upstream.lock.json') }}
+
+      - name: Build host tools
+        run: dotnet build WitOS.slnx --configuration Release
+
+      - name: Verify pinned upstream sources and package provenance
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-audit
+
+      - name: Publish and run HOSTED NativeAOT reference
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-probe
+
+      - name: Upload hosted reference and evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hosted-nativeaot-10.0.8-win-x64
+          if-no-files-found: warn
+          retention-days: 14
+          path: artifacts/runtime-probe/

@@ -102,13 +102,27 @@ artifacts/logs/                   Serial, stderr and outcome logs
 
 Failure-injection images have separate output directories and do not replace the normal boot image.
 
+## NativeAOT reference experiment (hosted)
+
+The runtime investigation pins .NET 10.0.8, verifies selected upstream source hashes and package provenance, and runs a real NativeAOT reference workload **on Windows**:
+
+```powershell
+dotnet run --project tools/WitOS.Dev -- runtime-audit
+dotnet run --project tools/WitOS.Dev -- runtime-probe
+```
+
+This is separate from the guest VM. It checks GC/finalization, exceptions, threads/TLS, waits, Tasks and clocks, then reports native OS imports. Sources and NuGet packages are cached under `.tools/`; logs and reports are under `artifacts/runtime-probe/`. A separate CI workflow publishes the hosted reference artifacts.
+
+See [RFC 0015](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md) and [experiment notes](@Docs/Implementation/NativeAot-Host-Probe.md).
+
 ## Layout
 
 ```text
 src/Boot.Uefi/          Firmware-specific entry and handoff adapter
 src/Kernel/             Common boot validation and physical-page allocator
 src/Kernel.Arch.X64/     Paging, guarded stacks, exceptions, timer and context switches
-tools/WitOS.Dev/         C# build, disk-image and VM-test tool
+tools/WitOS.Dev/         C# build, VM tests and runtime investigation tools
+experiments/NativeAotProbe/ Hosted reference; not guest runtime code
 @Docs/                  Architecture drafts and implementation notes
 .github/workflows/      Automated native build and VM tests
 ```
@@ -119,7 +133,7 @@ The core kernel does not include UEFI structures. The output is a freestanding P
 
 M1 meets the initial kernel-core criteria on the pinned one-CPU QEMU target. It uses one kernel address space, 4 KiB pages and usable physical addresses below 4 GiB. Firmware memory remains reserved. The legacy PIC/PIT timer and fixed two-worker dispatcher establish the mechanism; dynamic threads, SMP, AVX context state and a general scheduling API remain future work.
 
-CPU exceptions are fatal diagnostics. User-mode isolation and managed execution are not implemented. Next are a concrete NativeAOT dependency inventory and the minimal M2 user/kernel ABI and isolated execution path.
+CPU exceptions are fatal diagnostics. User-mode isolation and managed execution are not implemented. The NativeAOT inventory and hosted reference are now available. Next is the [first M2 isolated execution slice](@Docs/Implementation/M2-Isolated-Execution-Plan.md), with runtime requirements informing the user/kernel boundary.
 
 - [Architecture document index](@Docs/README.md)
 - [M0 implementation history](@Docs/Implementation/M0-Boot.md)

@@ -29,4 +29,6 @@ dotnet run --project tools/WitOS.Dev --configuration Release -- test
 
 Use `setup` once for the pinned local QEMU package. The test tool must distinguish successful boot, panic, unexpected exit and timeout. Never infer a passing boot from an exit code or log line alone.
 
+For runtime experiment or source-pin changes, run `runtime-audit` and `runtime-probe` through the same tool. Their results are hosted Windows evidence, never proof that .NET runs in the guest. Preserve the source/package pins and explicit profile limitations unless the task deliberately updates them.
+
 Keep generated images, binaries, firmware, downloads, logs and credentials out of Git. They belong in ignored `artifacts/` or `.tools/`. Record actual results and limitations in documentation; do not mark a future milestone complete based on M0 boot.

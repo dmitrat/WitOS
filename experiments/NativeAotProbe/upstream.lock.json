@@ -1,0 +1,101 @@
+{
+    "schemaVersion":  1,
+    "runtimeVersion":  "10.0.8",
+    "runtimeRepository":  "https://github.com/dotnet/runtime",
+    "runtimeTag":  "v10.0.8",
+    "runtimeCommit":  "b82454cad0aaaae3db2cf18fbf2cccc36e201ccc",
+    "packageRepository":  "https://github.com/dotnet/dotnet",
+    "packageCommit":  "94ea82652cdd4e0f8046b5bd5becbd11461482ca",
+    "sourceManifestPath":  "src/source-manifest.json",
+    "sourceManifestSha256":  "6c00a20fe1c175f5ef7cd70b8efec5453feebc6892f8c7c9e707c5f93ed6dec0",
+    "sources":  [
+                    {
+                        "path":  "src/coreclr/nativeaot/Bootstrap/main.cpp",
+                        "sha256":  "6333d9d79afd3c9b18afa7a7b1c62217a2b17595fa9a40ac23cc1593997449c1"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/Runtime/startup.cpp",
+                        "sha256":  "0378b208954d852565d0453a3b51ffe340e36ce083faf5440ada1b7022e4ac7e"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/Runtime/Pal.h",
+                        "sha256":  "18a18a3ccea00558a1c780b035d4f4869ab329a5536f76798194a0b207ed870b"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/Runtime/windows/PalMinWin.cpp",
+                        "sha256":  "4a43fa8030d705df7575795d280a28c5118c79af75d86c31a17068f4ddab5bd7"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/Runtime/windows/PalCommon.cpp",
+                        "sha256":  "e8343a687951072b8945078c44cb7fa5eae33e76456dfcd4694a77096154430d"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/Runtime/unix/PalUnix.cpp",
+                        "sha256":  "a963bf90bb6314226ce08077d82b39dc8dba56a167ccb1d8e7d1ccbcf65665a5"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/Runtime/unix/HardwareExceptions.cpp",
+                        "sha256":  "b966e640ebce45b260e3d689fa2b263a29015babe4cb01c4720427018b22eeca"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/Runtime/unix/UnwindHelpers.cpp",
+                        "sha256":  "16b457ecf40448f731982a5f238b3de09f5854de49d188f800275df4d4f08ec0"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/Runtime/EHHelpers.cpp",
+                        "sha256":  "2fcbe021a175db59020e0a8227563ad4aaa52f98ef83445844ef235f3e15922a"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/Runtime/threadstore.cpp",
+                        "sha256":  "481eeac03c34043472f6a6a4866103f9df7f0e8de03d96a186291d6d0bffc122"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/Runtime/thread.h",
+                        "sha256":  "5419a4b8445a9a75667c2f7f2a12dc770ec41319f72ef0099f32b66023ea9c88"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/Runtime/thread.cpp",
+                        "sha256":  "aeba3bdd4400fce672c12d68de7ef1c1b80a95076507477d2952086798ca8eee"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/Runtime/CMakeLists.txt",
+                        "sha256":  "8483e6d82bc36c24eb95a3a4742a80ea61917b45f4a1a77637d483428f222904"
+                    },
+                    {
+                        "path":  "src/coreclr/gc/env/gcenv.os.h",
+                        "sha256":  "199b116e1421ff456bba3a1035178b7b07d51800937947b60ab325b363854847"
+                    },
+                    {
+                        "path":  "src/coreclr/gc/windows/gcenv.windows.cpp",
+                        "sha256":  "7703266590259d9a2ea3401db3324867aa59370d5b75023746c45cb75b811885"
+                    },
+                    {
+                        "path":  "src/coreclr/gc/unix/gcenv.unix.cpp",
+                        "sha256":  "d8affa44a7ec61c37cfe5ef6c7463095d4decf3275b536965b1dbfbc3dc4840d"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/System.Private.CoreLib/src/System/Threading/Thread.NativeAot.Windows.cs",
+                        "sha256":  "57b5c3cb9ea34da4ff4b06dded109cc64e6e5c92395668196057e71d55639778"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/System.Private.CoreLib/src/System/Threading/Thread.NativeAot.Unix.cs",
+                        "sha256":  "93a4cf4452b1fa94c2d361e9b5cc8feb93004d8ea42c296f86a805553154e11b"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/BuildIntegration/Microsoft.NETCore.Native.Unix.targets",
+                        "sha256":  "cec7dfe627fa35b719cc6049f09732b2dcfc0470cced3fc646a689a2c419f28e"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/BuildIntegration/Microsoft.NETCore.Native.Windows.targets",
+                        "sha256":  "e676cca33292d38860677b05f5f3ca1aeaa5c0030f64b3057a5eed6e99b4543b"
+                    },
+                    {
+                        "path":  "src/native/minipal/time.c",
+                        "sha256":  "64144376f3044c13d74e238c60bbf487f72a32cbef110f2a0a31df2cddb3aca5"
+                    },
+                    {
+                        "path":  "src/native/minipal/random.c",
+                        "sha256":  "1eef51707f9fece9e71e6beb9ed932f4eaba1fb812afa062d8ef5cc9a459b5fd"
+                    }
+                ]
+}
