@@ -2,7 +2,7 @@
 
 ## Project direction
 
-The core objective is standard upstream .NET above a minimal native kernel and a hardware-independent system layer. Shells and applications eventually run on that .NET platform. Current guest code is the native boot and initial M1 memory/exception foundation; host-side C# tooling must not be described as guest .NET support.
+The core objective is standard upstream .NET above a minimal native kernel and a hardware-independent system layer. Shells and applications eventually run on that .NET platform. Current guest code is the native M1 kernel foundation with paging, timer interrupts and two preempted kernel contexts; host-side C# tooling must not be described as guest .NET support.
 
 Original vision documents live in `@Docs/`. Concrete implementation status and deliberate limitations live in `@Docs/Implementation/`. Preserve original drafts unless the task calls for revising them.
 
@@ -13,7 +13,9 @@ Original vision documents live in `@Docs/`. Concrete implementation status and d
 - Keep the common kernel independent of firmware structure definitions.
 - Use ordinary .NET for development tools.
 - Do not add speculative public resource APIs, distributed services or GUI work to a boot milestone.
-- Any temporary dependency on firmware state must be documented before memory can be reclaimed.
+- The kernel now owns its page tables, but firmware memory remains reserved until reclamation is explicitly designed and tested.
+- Treat mapping/physical-page operations as serialized bootstrap APIs. Current allocation and mapping setup runs with interrupts disabled.
+- Context switching currently preserves baseline x87/SSE state; do not introduce AVX/XSAVE assumptions without extending state management and tests.
 - Treat the boot handoff as an internal evolving contract, not a frozen external ABI.
 
 ## Validation

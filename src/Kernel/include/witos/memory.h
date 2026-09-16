@@ -23,6 +23,7 @@ int wit_memory_map_valid(const WitMemoryRegion *regions, WitU32 count);
 int wit_pages_initialize(WitPageAllocator *allocator, const WitMemoryRegion *regions, WitU32 count);
 int wit_page_allocate(WitPageAllocator *allocator, WitU64 *physical_address);
 int wit_page_free(WitPageAllocator *allocator, WitU64 physical_address);
+int wit_page_is_allocated(const WitPageAllocator *allocator, WitU64 physical_address);
 WitU64 wit_pages_free_count(const WitPageAllocator *allocator);
 void wit_memory_self_test(const WitBootInfo *boot, WitPageAllocator *allocator);
 

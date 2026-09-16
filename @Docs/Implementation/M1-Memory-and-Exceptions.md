@@ -1,7 +1,7 @@
 # M1 — Physical memory and exception foundation
 
 Status: first M1 slice implemented and locally verified on 2026-09-16.
-Version: WitOS 0.0.2. The complete M1 milestone is **not** finished.
+Version: WitOS 0.0.2. This document records the first slice. The initial M1 milestone is now completed in [WitOS 0.0.3](M1-Kernel-Core.md); limitations below describe the earlier state.
 
 ## New behavior
 

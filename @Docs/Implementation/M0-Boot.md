@@ -2,7 +2,7 @@
 
 Status: implemented and locally verified on 2026-09-16.
 
-This document records the original M0 slice. Current stack, exception and allocator behavior is described in the [M1 foundation](M1-Memory-and-Exceptions.md).
+This document records the original M0 slice. The [first M1 slice](M1-Memory-and-Exceptions.md) and [completed M1 kernel core](M1-Kernel-Core.md) describe the later implementation.
 
 ## What runs
 

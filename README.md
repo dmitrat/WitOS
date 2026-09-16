@@ -6,9 +6,9 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 
 ## Current status
 
-**WitOS 0.0.2: independent boot plus the first M1 memory/exception slice.**
+**WitOS 0.0.3: the initial M1 kernel-core milestone is implemented.**
 
-The UEFI adapter obtains the memory map, calls `ExitBootServices`, and transfers control through `WitBootInfo` onto a kernel-owned stack. The kernel installs its own exception tables, allocates and verifies physical pages, prints `Hello from WitOS.`, and exits QEMU with a test result. Fatal CPU exceptions produce register diagnostics; double faults use a separate emergency stack.
+The kernel boots independently through UEFI, owns its stacks and page tables, protects code/data, and preempts two kernel contexts using timer interrupts. It validates memory and context state before printing `Hello from WitOS.` and reporting a VM test result. CPU faults produce register diagnostics; double faults use a separate emergency stack.
 
 **The guest does not run .NET yet.** The C# code in `tools/` runs on the development computer. NativeAOT system components are a later milestone; standard CoreCLR applications follow after that.
 
@@ -39,7 +39,7 @@ Expected guest output includes:
 ```text
 [BOOT] UEFI x64 adapter
 [BOOT] ExitBootServices OK
-WitOS 0.0.2 (M1 memory foundation)
+WitOS 0.0.3 (M1 kernel core)
 Build: <git-revision> | x64 | Debug
 [TEST-BEGIN] Boot.Contract
 [TEST-PASS] Boot.Contract
@@ -48,6 +48,18 @@ Kernel stack: ...
 [TEST-PASS] Cpu.ExceptionTables
 CPU: x86_64
 Usable memory: ...
+[TEST-PASS] Memory.KernelPaging
+[TEST-PASS] Memory.StackGuards
+...
+A: 1
+B: 1
+A: 2
+B: 2
+A: 3
+B: 3
+[TEST-PASS] Cpu.Timer
+[TEST-PASS] Scheduler.Preemption
+[TEST-PASS] Scheduler.RegisterState
 Kernel initialized.
 Hello from WitOS.
 [TEST-PASS] Boot.Hello
@@ -65,14 +77,15 @@ dotnet run --project tools/WitOS.Dev --configuration Release -- test
 
 The native kernel currently always builds in Debug mode, including when the host tool uses Release.
 
-The integration suite boots eleven real VM scenarios:
+The integration suite boots seventeen real VM scenarios:
 
 - Normal boot with 128 MiB and 512 MiB RAM, including real-page read/write, reserved-memory, exhaustion, reuse and invalid-map checks.
 - Rejection of an invalid boot-contract version and overlapping firmware memory regions.
 - Actual breakpoint, divide error, invalid opcode, general protection, page fault and double fault.
+- Hardware-enforced refusal of code writes, data execution, lower/upper stack guard access, read-only alias writes and unmapped alias reads.
 - Detection and termination of a deliberately hung guest after full initialization.
 
-Exception tests validate vector, error code, register frame and stack selection. The double-fault test deliberately invalidates the main stack and requires diagnostics from the emergency stack.
+Normal boots also verify map/protect/unmap behavior, aliasing, TLB invalidation, timer delivery, progress of both preempted contexts and preserved GPR/SSE state. Exception tests validate vector, error code, register frame, fault address and stack selection. The double-fault test deliberately invalidates the main stack and requires diagnostics from the emergency stack.
 
 Every test creates fresh firmware variable storage. A timeout, unexpected exit, panic or missing success marker fails an ordinary boot test.
 
@@ -94,7 +107,7 @@ Failure-injection images have separate output directories and do not replace the
 ```text
 src/Boot.Uefi/          Firmware-specific entry and handoff adapter
 src/Kernel/             Common boot validation and physical-page allocator
-src/Kernel.Arch.X64/     Stacks, descriptor tables, exceptions, serial and VM exit
+src/Kernel.Arch.X64/     Paging, guarded stacks, exceptions, timer and context switches
 tools/WitOS.Dev/         C# build, disk-image and VM-test tool
 @Docs/                  Architecture drafts and implementation notes
 .github/workflows/      Automated native build and VM tests
@@ -104,12 +117,13 @@ The core kernel does not include UEFI structures. The output is a freestanding P
 
 ## Scope and next work
 
-M1 is not complete. The kernel owns its stacks and exception tables but still retains firmware-provided page tables. Maskable interrupts stay disabled and only one CPU runs. The physical-page allocator accepts usable RAM below 4 GiB and rejects higher usable addresses explicitly. Image and firmware memory remain reserved.
+M1 meets the initial kernel-core criteria on the pinned one-CPU QEMU target. It uses one kernel address space, 4 KiB pages and usable physical addresses below 4 GiB. Firmware memory remains reserved. The legacy PIC/PIT timer and fixed two-worker dispatcher establish the mechanism; dynamic threads, SMP, AVX context state and a general scheduling API remain future work.
 
-Exceptions are fatal diagnostics; no resumable exception handling, scheduler, user mode or managed runtime exists yet. The next steps are kernel-owned mappings/protection, a timer and execution-context switching. A concrete NativeAOT dependency inventory should inform the later user/kernel ABI.
+CPU exceptions are fatal diagnostics. User-mode isolation and managed execution are not implemented. Next are a concrete NativeAOT dependency inventory and the minimal M2 user/kernel ABI and isolated execution path.
 
 - [Architecture document index](@Docs/README.md)
 - [M0 implementation history](@Docs/Implementation/M0-Boot.md)
-- [Current M1 memory and exception foundation](@Docs/Implementation/M1-Memory-and-Exceptions.md)
+- [Initial M1 memory and exception slice](@Docs/Implementation/M1-Memory-and-Exceptions.md)
+- [Completed initial M1 kernel core](@Docs/Implementation/M1-Kernel-Core.md)
 - [RFC 0011: initial kernel boot contract](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md)
 - [Immediate development sequence](@Docs/Implementation/Next-Steps.md)

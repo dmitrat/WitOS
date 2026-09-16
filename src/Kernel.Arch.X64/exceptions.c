@@ -4,7 +4,6 @@
 unsigned __int64 __readcr3(void);
 #pragma intrinsic(__readcr3)
 
-__declspec(align(16)) static WitU8 double_fault_stack[WIT_EMERGENCY_STACK_SIZE];
 __declspec(align(16)) static WitU64 gdt[5];
 __declspec(align(16)) static WitInterruptGate idt[256];
 static WitTaskState task_state;
@@ -12,7 +11,7 @@ static WitTaskState task_state;
 void wit_platform_initialize(void)
 {
     const WitU64 stack_pointer = wit_x64_stack_pointer();
-    const WitU64 stack_begin = (WitU64)wit_x64_kernel_stack;
+    const WitU64 stack_begin = (WitU64)wit_x64_kernel_stack + 4096;
     const WitU64 tss_base = (WitU64)&task_state;
     const WitU64 tss_limit = sizeof(task_state) - 1;
     WitDescriptorPointer gdt_pointer;
@@ -32,7 +31,7 @@ void wit_platform_initialize(void)
     gdt[1] = 0x00AF9A000000FFFFULL; /* ring 0, present, long-mode code */
     gdt[2] = 0x00CF92000000FFFFULL; /* ring 0 data */
     task_state.Rsp[0] = stack_begin + WIT_KERNEL_STACK_SIZE;
-    task_state.Ist[0] = (WitU64)double_fault_stack + sizeof(double_fault_stack);
+    task_state.Ist[0] = (WitU64)wit_x64_double_fault_stack + 4096 + WIT_EMERGENCY_STACK_SIZE;
     task_state.IoMapBase = sizeof(task_state);
     gdt[3] = (tss_limit & 0xFFFFULL) |
         ((tss_base & 0xFFFFFFULL) << 16) |
@@ -75,9 +74,9 @@ static const char *exception_name(WitU64 vector)
 WIT_NORETURN void wit_x64_exception(const WitExceptionFrame *frame, WitU64 fault_address)
 {
     const WitU64 stack_pointer = wit_x64_stack_pointer();
-    const WitU64 emergency_begin = (WitU64)double_fault_stack;
+    const WitU64 emergency_begin = (WitU64)wit_x64_double_fault_stack + 4096;
     const int on_emergency_stack = stack_pointer >= emergency_begin &&
-        stack_pointer < emergency_begin + sizeof(double_fault_stack);
+        stack_pointer < emergency_begin + WIT_EMERGENCY_STACK_SIZE;
 
     wit_console_write("[EXCEPTION] vector=");
     wit_console_write_u64(frame->Vector);
@@ -102,8 +101,7 @@ WIT_NORETURN void wit_x64_exception(const WitExceptionFrame *frame, WitU64 fault
 void wit_platform_fault_test(void)
 {
 #if defined(WITOS_TEST_PAGE_FAULT) || defined(WITOS_TEST_DOUBLE_FAULT)
-    /* Keep the test independent of an assumption about firmware mappings.
-     * This M1 slice deliberately retains CR3; a present slot is a test error. */
+    /* The kernel's own page tables must leave the fault probe absent. */
     const WitU64 *pml4 = (const WitU64 *)(__readcr3() & 0x000FFFFFFFFFF000ULL);
     if ((pml4[(WIT_PAGE_FAULT_PROBE >> 39) & 511] & 1) != 0) {
         wit_panic("Page fault probe is mapped");

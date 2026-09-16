@@ -1,5 +1,6 @@
 #include "witos/boot.h"
 #include "witos/memory.h"
+#include "witos/virtual.h"
 #include "witos/platform.h"
 #include "build_info.h"
 
@@ -17,7 +18,7 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
 {
     WitU64 usable = 0;
 
-    wit_console_write("WitOS 0.0.2 (M1 memory foundation)\n");
+    wit_console_write("WitOS 0.0.3 (M1 kernel core)\n");
     wit_console_write("Build: " WITOS_BUILD_ID " | x64 | Debug\n");
     wit_console_write("[TEST-BEGIN] Boot.Contract\n");
 
@@ -59,8 +60,12 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
     wit_console_write("Free physical pages: ");
     wit_console_write_u64(wit_pages_free_count(&physical_pages));
     wit_console_write("\n");
+    wit_virtual_initialize(boot, &physical_pages);
     wit_memory_self_test(boot, &physical_pages);
+    wit_virtual_self_test(&physical_pages);
+    wit_virtual_fault_test();
     wit_platform_fault_test();
+    wit_scheduler_self_test();
 
     wit_console_write("Kernel initialized.\nHello from WitOS.\n");
     wit_console_write("[TEST-PASS] Boot.Hello\n");

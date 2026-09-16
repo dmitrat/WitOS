@@ -7,6 +7,7 @@
 static WitU64 raw_memory_map[16384];
 static WitMemoryRegion memory_regions[WIT_MAX_MEMORY_REGIONS];
 static WitBootInfo boot_info;
+void wit_boot_describe_image(WitBootInfo *boot);
 
 EfiStatus efi_main(EfiHandle image, EfiSystemTable *system)
 {
@@ -26,6 +27,7 @@ EfiStatus efi_main(EfiHandle image, EfiSystemTable *system)
         wit_panic("Invalid UEFI boot services");
     }
 
+    wit_boot_describe_image(&boot_info);
     for (WitU32 attempt = 0; attempt < 3; ++attempt) {
         WitU64 size = sizeof(raw_memory_map);
         WitU64 key = 0;

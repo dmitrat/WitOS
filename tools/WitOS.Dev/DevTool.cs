@@ -75,7 +75,7 @@ internal static class DevTool
         var buildId = await BuildIdAsync(root);
         await File.WriteAllTextAsync(Path.Combine(output, "build_info.h"), $"#define WITOS_BUILD_ID \"{buildId}\"\n", Encoding.ASCII);
 
-        string[] sources = ["src/Boot.Uefi/entry.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/exceptions.c"];
+        string[] sources = ["src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c"];
         var objects = new List<string>();
         foreach (var source in sources)
         {
@@ -97,6 +97,12 @@ internal static class DevTool
                 "general-protection" => "WITOS_TEST_GENERAL_PROTECTION",
                 "page-fault" => "WITOS_TEST_PAGE_FAULT",
                 "double-fault" => "WITOS_TEST_DOUBLE_FAULT",
+                "write-code" => "WITOS_TEST_WRITE_CODE",
+                "execute-data" => "WITOS_TEST_EXECUTE_DATA",
+                "guard-low" => "WITOS_TEST_GUARD_LOW",
+                "guard-high" => "WITOS_TEST_GUARD_HIGH",
+                "readonly-alias" => "WITOS_TEST_READONLY_ALIAS",
+                "unmapped-alias" => "WITOS_TEST_UNMAPPED_ALIAS",
                 "timeout" => "WITOS_TEST_HANG",
                 _ => null
             };
@@ -105,10 +111,13 @@ internal static class DevTool
             await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), arguments, root);
         }
 
-        var assemblyObject = Path.Combine(output, "x64_entry.obj");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
-            ["/nologo", "/c", "/Zi", $"/Fo{assemblyObject}", Path.Combine(root, "src", "Kernel.Arch.X64", "entry.asm")], root);
-        objects.Add(assemblyObject);
+        foreach (var assembly in new[] { "entry", "context" })
+        {
+            var assemblyObject = Path.Combine(output, $"x64_{assembly}.obj");
+            await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
+                ["/nologo", "/c", "/Zi", $"/Fo{assemblyObject}", Path.Combine(root, "src", "Kernel.Arch.X64", assembly + ".asm")], root);
+            objects.Add(assemblyObject);
+        }
 
         var efi = Path.Combine(output, "BOOTX64.EFI");
         var linkArgs = new List<string>
@@ -169,7 +178,13 @@ internal static class DevTool
             ("invalid-opcode", new(6, 0, "Cpu.InvalidOpcode", "Invalid opcode")),
             ("general-protection", new(13, 0xFFF8, "Cpu.GeneralProtection", "General protection")),
             ("page-fault", new(14, 0, "Cpu.PageFault", "Page fault")),
-            ("double-fault", new(8, 0, "Cpu.DoubleFault", "Double fault"))
+            ("double-fault", new(8, 0, "Cpu.DoubleFault", "Double fault")),
+            ("write-code", new(14, 3, "Memory.WriteCode", "Page fault", true)),
+            ("execute-data", new(14, 17, "Memory.ExecuteData", "Page fault", true)),
+            ("guard-low", new(14, 2, "Memory.GuardLow", "Page fault", true)),
+            ("guard-high", new(14, 2, "Memory.GuardHigh", "Page fault", true)),
+            ("readonly-alias", new(14, 3, "Memory.ReadOnlyAlias", "Page fault", true)),
+            ("unmapped-alias", new(14, 0, "Memory.UnmappedAlias", "Page fault", true))
         ];
         foreach (var (name, fault) in faults)
         {
@@ -178,11 +193,11 @@ internal static class DevTool
         }
         var timeout = await BuildAsync(root, "timeout");
         await BootAsync(root, timeout, "timeout", 256, 15, ExpectedOutcome.Timeout);
-        Console.WriteLine("PASS: all 11 kernel integration scenarios.");
+        Console.WriteLine("PASS: all 17 kernel integration scenarios.");
     }
 
     private enum ExpectedOutcome { Success, InvalidBootInfo, InvalidMap, Exception, Timeout }
-    private sealed record FaultExpectation(int Vector, ulong Error, string Trigger, string Panic);
+    private sealed record FaultExpectation(int Vector, ulong Error, string Trigger, string Panic, bool Probe = false);
 
     private static async Task BootAsync(string root, string image, string name, int memoryMiB, int timeoutSeconds, ExpectedOutcome expected, FaultExpectation? fault = null)
     {
@@ -218,8 +233,10 @@ internal static class DevTool
         var foundationReady = validMemory && MarkersInOrder(result.Output,
             "[BOOT] ExitBootServices OK", "[TEST-PASS] Boot.Contract",
             "[TEST-PASS] Cpu.KernelStack", "[TEST-PASS] Cpu.ExceptionTables",
-            "[TEST-PASS] Memory.PhysicalPages", "[TEST-PASS] Memory.Exhaustion", "[TEST-PASS] Memory.InvalidMaps");
-        var booted = foundationReady && hello > result.Output.IndexOf("[TEST-PASS] Memory.InvalidMaps", StringComparison.Ordinal) &&
+            "[TEST-PASS] Memory.KernelPaging", "[TEST-PASS] Memory.StackGuards",
+            "[TEST-PASS] Memory.PhysicalPages", "[TEST-PASS] Memory.Exhaustion",
+            "[TEST-PASS] Memory.InvalidMaps", "[TEST-PASS] Memory.VirtualMappings");
+        var booted = foundationReady && ValidateScheduler(result.Output) && hello > result.Output.IndexOf("[TEST-PASS] Scheduler.RegisterState", StringComparison.Ordinal) &&
             !panic && !result.Output.Contains("[EXCEPTION]", StringComparison.Ordinal);
         var failedBeforeContract = !result.TimedOut && result.ExitCode == 35 && exitedFirmware >= 0 && contract < 0 && hello < 0;
         var passed = expected switch
@@ -250,9 +267,33 @@ internal static class DevTool
         return true;
     }
 
+    private static bool ValidateScheduler(string output)
+    {
+        if (!MarkersInOrder(output, "[TEST-PASS] Memory.VirtualMappings", "[TEST-BEGIN] Scheduler.Preemption",
+                "[TEST-PASS] Cpu.Timer", "[TEST-PASS] Scheduler.Preemption", "[TEST-PASS] Scheduler.RegisterState", "[TEST-PASS] Boot.Hello"))
+            return false;
+        var dispatches = Regex.Matches(output, @"^(A|B): (\d+)\r?$", RegexOptions.Multiline);
+        var counts = new int[2];
+        foreach (Match dispatch in dispatches)
+        {
+            var worker = dispatch.Groups[1].Value == "A" ? 0 : 1;
+            if (int.Parse(dispatch.Groups[2].Value) != ++counts[worker]) return false;
+        }
+        ulong Number(string label)
+        {
+            var match = Regex.Match(output, Regex.Escape(label) + @": (\d+)");
+            return match.Success ? ulong.Parse(match.Groups[1].Value) : 0;
+        }
+        return counts[0] >= 3 && counts[1] >= 3 &&
+            dispatches[0].Groups[1].Value == "A" && dispatches[1].Groups[1].Value == "B" &&
+            Number("Context switches") == (ulong)dispatches.Count + 1 &&
+            Number("Timer ticks") >= Number("Context switches") &&
+            Number("Worker A iterations") > 0 && Number("Worker B iterations") > 0;
+    }
+
     private static bool ValidateException(string output, FaultExpectation expected)
     {
-        if (!MarkersInOrder(output, "[TEST-PASS] Memory.InvalidMaps", $"[TEST-BEGIN] {expected.Trigger}",
+        if (!MarkersInOrder(output, "[TEST-PASS] Memory.VirtualMappings", $"[TEST-BEGIN] {expected.Trigger}",
                 "[EXCEPTION]", $"[PANIC] {expected.Panic}"))
             return false;
         var frame = Regex.Match(output,
@@ -269,8 +310,15 @@ internal static class DevTool
             return false;
         var low = Convert.ToUInt64(stack.Groups[1].Value[2..], 16);
         var high = Convert.ToUInt64(stack.Groups[2].Value[2..], 16);
+        var expectedAddress = 0x0000400000000000UL;
+        if (expected.Probe)
+        {
+            var probe = Regex.Match(output, @"\[FAULT-PROBE\] address=(0x[0-9A-F]{16})");
+            if (!probe.Success) return false;
+            expectedAddress = Convert.ToUInt64(probe.Groups[1].Value[2..], 16);
+        }
         return Hex(6) >= low && Hex(6) < high && frame.Groups[9].Value == "kernel" &&
-            (expected.Vector != 14 || Hex(8) == 0x0000400000000000UL);
+            (expected.Vector != 14 || Hex(8) == expectedAddress);
     }
 
     // Escape QEMU's comma-separated key/value syntax independently of shell quoting.

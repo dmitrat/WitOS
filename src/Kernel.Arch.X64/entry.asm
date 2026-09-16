@@ -3,18 +3,16 @@ option casemap:none
 
 EXTERN wit_kernel_entry:PROC
 EXTERN wit_x64_exception:PROC
+EXTERN wit_x64_timer_entry:PROC
 
-.data?
-ALIGN 16
-PUBLIC wit_x64_kernel_stack
-wit_x64_kernel_stack BYTE 65536 DUP (?)
+EXTERN wit_x64_kernel_stack:BYTE
 
 .code
 PUBLIC wit_platform_enter
 wit_platform_enter PROC
     cli
     cld
-    lea rsp, [wit_x64_kernel_stack + 65536]
+    lea rsp, [wit_x64_kernel_stack + 4096 + 65536]
     and rsp, -16
     xor ebp, ebp
     sub rsp, 32                   ; caller-owned shadow space
@@ -51,12 +49,16 @@ wit_x64_load_tables ENDP
 
 MAKE_ISR MACRO number
 isr&number PROC
+    IF number EQ 32
+        jmp wit_x64_timer_entry
+    ELSE
     ; These CPU exceptions push an error code; all other vectors need a zero.
     IF (number NE 8) AND (number NE 10) AND (number NE 11) AND (number NE 12) AND (number NE 13) AND (number NE 14) AND (number NE 17) AND (number NE 21) AND (number NE 29) AND (number NE 30)
         push 0
     ENDIF
     push number
     jmp exception_common
+    ENDIF
 isr&number ENDP
 ENDM
 

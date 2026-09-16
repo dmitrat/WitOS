@@ -1,64 +1,70 @@
 # RFC 0011 — Kernel Architecture & ABI
 
-Draft v0.2. Scope: the boot boundary and initial M1 memory/exception foundation.
+Draft v0.3. Scope: the implemented boot and M1 kernel foundation.
 
 ## Objective
 
-Establish a native boot foundation beneath the eventual standard .NET runtime. Keep the common kernel independent of firmware structures and x64 I/O details.
+Provide the native mechanisms needed below eventual upstream .NET while separating common contracts from UEFI and x64 implementation details.
 
-This RFC does not define future syscalls, process isolation, scheduling, capability tables or the .NET PAL. Those contracts require separate implementation evidence.
+This document does not freeze future syscalls, capability handles, user isolation or the .NET PAL. Runtime requirements must inform those boundaries.
 
 ## Components
 
 | Component | Responsibility |
 | --- | --- |
-| Boot.Uefi | Read and translate firmware information, exit firmware boot services |
-| Kernel | Validate the handoff/map, manage physical pages and report fatal failures |
-| Kernel.Arch.X64 | Kernel stacks, GDT/TSS/IDT, exception entry, serial I/O and VM completion |
-| WitOS.Dev | Host compilation, boot-image packaging, QEMU execution and result validation |
+| Boot.Uefi | Translate firmware memory and loaded-image information, exit boot services |
+| Kernel | Validate the handoff, track physical pages, run the integrated kernel checks |
+| Kernel.Arch.X64 | Stacks, GDT/TSS/IDT, paging, exceptions, PIC/PIT and context switching |
+| WitOS.Dev | Host compilation, image packaging, QEMU execution and validation |
 
-At M0 the native components are linked together into one EFI image. Separate source boundaries allow replacing the boot adapter later without teaching the common kernel UEFI types.
+The native components currently share one EFI executable. The common kernel receives normalized information and does not parse firmware or PE structures.
 
-## WitBootInfo v1
+## WitBootInfo v2
 
-The authoritative layout is in `src/Kernel/include/witos/boot.h`. Compile-time assertions enforce its current 64-bit layout.
+The authoritative layout is in `src/Kernel/include/witos/boot.h`. Version 2 is 72 bytes on the current 64-bit ABI. It replaces v1 internally; old versions are rejected.
 
 | Field | Meaning |
 | --- | --- |
-| Magic | Identifies the WitOS boot contract |
-| Version | Contract version; currently 1 |
-| Size | Complete structure size; currently 40 bytes |
-| Architecture | x64 for the first implementation |
-| MemoryRegionCount | Number of normalized descriptors, 1 through 1024 |
-| MemoryRegions | Identity-mapped pointer to adapter-owned descriptors |
-| Flags | Includes successful exit from firmware boot services |
+| Magic, Version, Size | Contract identification and validation |
+| Architecture | x64 for this implementation |
+| MemoryRegionCount, MemoryRegions | 1–1024 normalized physical-memory regions |
+| Flags | Successful exit from boot services |
+| ImageBase, ImageSize | Page-aligned resident native-image extent |
+| ImageSectionCount, ImageSections | 1–16 normalized section mappings |
+| Reserved | Must be zero |
 
-Each memory descriptor contains physical base, byte length, normalized kind and a reserved zero field. Regions are page-aligned. The core validates lengths against overflow.
+Each memory region contains base, byte length, usable/reserved kind and a zero reserved field. Each image section contains base, byte length, read/write/execute flags and a zero reserved field.
 
-## Ownership and machine state
+Pointers initially use UEFI's identity mapping. The resident image and boot metadata retain identity mappings after switching to the kernel's own root.
 
-The adapter's static buffers and the executable remain resident. Their memory is reserved in the translated map. Only conventional RAM is initially eligible for future allocation.
+## Ownership
 
-The x64 trampoline switches to an image-owned 64 KiB stack before entering C. Initialization installs image-owned GDT/IDT/TSS structures and a 32 KiB IST1 emergency stack for double faults.
+All non-conventional firmware memory remains reserved. Image, boot metadata, descriptor tables and static stacks reside in reserved image memory. A physical page is not available merely because the firmware exited.
 
-Page tables remain firmware-provided. Boot-services/loader memory must not become free merely because ExitBootServices succeeded or the active stack changed.
+The kernel allocates and retains its page-table pages. It does not reclaim old firmware allocations in M1. Physical-page bookkeeping currently accepts usable addresses below 4 GiB only.
 
-The CPU enters the kernel in x64 long mode with maskable interrupts disabled. The single-CPU page allocator rejects overlapping maps, protects reserved regions and currently supports usable physical addresses below 4 GiB. There is no production virtual-address layout or concurrent allocation contract yet.
+## Mapping and protection
+
+The kernel installs four-level, 4 KiB mappings for usable RAM and its image. Code sections are read/execute; mutable data is non-executable. Writable executable image sections are invalid. CR0.WP and EFER.NXE enforce these rules in ring 0.
+
+Page zero and the guard pages around all four stacks are absent. Scratch map/protect/unmap operations invalidate local TLB entries and accept only allocated pages in the defined scratch range. They are single-CPU privileged mechanisms, not user authority.
+
+## Execution
+
+An x64 trampoline enters a 64 KiB kernel stack. A 32 KiB double-fault stack uses IST1. Each of two demonstration workers has its own guarded 64 KiB stack.
+
+The initial PIC/PIT backend delivers IRQ0 at approximately 100 Hz. Interrupt entry saves GPRs, the hardware return frame and x87/SSE state. Dispatch can select another saved context, restored with IRETQ.
+
+The workers demonstrate timer-driven preemption and preserved register state. This is not yet a general scheduler API, user process model, SMP scheduler or AVX-capable context manager.
 
 ## Failure behavior
 
-An invalid handoff produces a bounded serial panic and a distinct VM exit status. Missing serial hardware cannot cause an infinite UART polling loop. A missing QEMU exit device causes the CPU to halt.
+Contract errors and CPU exceptions produce bounded serial diagnostics and a distinct VM failure status. Exception reports include vector, error, RIP, CS, RFLAGS, interrupted RSP, SS and CR2.
 
-CPU exception entry now records vector, error, RIP, CS, RFLAGS, interrupted RSP, SS and CR2 before a fatal panic. Vector 8 uses a separate emergency stack. These handlers do not resume execution or implement language-level exception unwinding.
+CPU exceptions are currently fatal. Timer interrupts return to an execution context. No language-level exception unwinding or recoverable user fault handling exists yet.
 
-## Runtime work before stabilizing the user ABI
+## Acceptance and next ABI work
 
-The kernel ABI must be informed by the selected upstream NativeAOT/CoreCLR requirements: memory reservation/commit/protection, thread-local storage, threads, waits/wakes, monotonic time, exception handling and runtime startup.
+The 17-scenario suite covers multiple RAM sizes, invalid handoffs, CPU faults, protection faults, mappings, preemption and timeouts. See [M1 implementation](Implementation/M1-Kernel-Core.md).
 
-The native kernel must not grow public APIs merely to anticipate every RFC. Add a mechanism when the next tested vertical slice requires it.
-
-## Acceptance
-
-The host integration tests must demonstrate normal boot at multiple memory sizes, rejection of a bad contract and detection of a guest that fails to finish.
-
-See [M0 history](Implementation/M0-Boot.md) and the [M1 foundation](Implementation/M1-Memory-and-Exceptions.md) for commands, evidence and current limitations.
+Before M2 stabilizes a user ABI, determine the selected upstream runtime's requirements for reserve/commit/protect, thread-local storage, threads, waits/wakes, clocks, exceptions and startup. Add mechanisms when a tested vertical slice needs them.
