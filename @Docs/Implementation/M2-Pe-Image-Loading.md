@@ -1,6 +1,6 @@
 # ADR 0004: Bounded guest PE image loading
 
-**Status:** Implemented and locally verified in WitOS 0.0.8.
+**Status:** Introduced in WitOS 0.0.8; extended with plain unwind metadata and image handoff in 0.0.9.
 **Date:** 2026-09-17.
 **Scope:** Native ring-3 images. Guest .NET is not running.
 
@@ -16,7 +16,7 @@ The common kernel's `pe.c` validates file structure into a bounded plan without 
 | Bounded native PE profile | Chosen: exercises the format/calling convention measured by the NativeAOT experiment without implying Windows compatibility |
 | Accept arbitrary PE/DLL/TLS/import graphs | Deferred until module lifetime, binding, TLS and exception contracts exist |
 
-There is one image per new component. This is an internal kernel creation API, not a filesystem loader or a new user syscall. Experimental user ABI v4 is unchanged.
+There is one image per new component. This is an internal kernel creation API, not a filesystem loader or a new user syscall. Current ABI v5 adds a readonly [image description](M2-Native-Module-Bootstrap.md) in the startup block.
 
 ## Accepted profile and bounds
 
@@ -28,8 +28,8 @@ There is one image per new component. This is an internal kernel creation API, n
 | Alignment | Section alignment 4096; file alignment a power of two from 512 through 4096 |
 | Headers | Complete section table, at most one 4096-byte page |
 | Entry | Inside initialized bytes of an RX section, not headers, BSS or padding |
-| Directories | Base relocations; bounded file-backed debug directory as opaque data |
-| Unsupported | Imports/IAT/delay imports, exports, TLS, exception/unwind directory, load configuration/CFG, resources, certificates, CLR metadata and other nonempty directories |
+| Directories | Base relocations, bounded plain x64 function/unwind metadata; file-backed debug directory as opaque data |
+| Unsupported | Imports/IAT/delay imports, exports, TLS, exception handlers/chained unwind, load configuration/CFG, resources, certificates, CLR metadata and other nonempty directories |
 | Relocations | At most 2048 entries including padding; ABSOLUTE padding and DIR64 only |
 
 The parser checks signatures, optional-header sizes, directory pairs, raw-file bounds, virtual bounds, integer overflow, raw overlap and page overlap. Section names do not grant permissions. Disjoint sections may leave gaps, which remain unmapped; sections cannot share a page. SizeOfImage must match the rounded end of the final mapped section.
@@ -62,7 +62,9 @@ actual base + (original pointer - preferred base)
 
 That supports relocation in both directions without signed-delta overflow. Original pointer bytes are read from the immutable file, not an image modified by earlier fixups. A different load base requires a relocation directory; an image without relocations can load at its preferred base only.
 
-Headers retain the preferred ImageBase field. The kernel records actual ImageBase, ImageEntry and ImageSize separately.
+Headers retain the preferred ImageBase field. The kernel records actual ImageBase, ImageEntry and ImageSize separately and supplies a readonly user descriptor.
+
+Version 0.0.9 accepts up to 128 ordinary x64 runtime-function records and structurally validates their version-1 unwind info. Handler/chained/machine-frame forms remain unsupported. Relocations cannot modify those metadata ranges. This is not an exception unwinder; details are in the [native bootstrap contract](M2-Native-Module-Bootstrap.md).
 
 ## Creation and failure ownership
 
@@ -87,7 +89,7 @@ Test symbol RVAs come from public symbols in linker maps; tests do not assume th
 
 The guest fixture validates relocated code/data pointers, calls through a relocated read-only pointer, reads the cross-page pointer, scans 8192 BSS bytes, writes its instance ID into private image data and prints via the granted console handle.
 
-The seventeen VM scenarios now require 72 M2 groups and 27 contained user faults. Sixteen new image groups cover:
+The seventeen VM scenarios now require 83 M2 groups and 29 contained user faults. Sixteen new image groups cover:
 
 | Group | Evidence |
 | --- | --- |
@@ -113,4 +115,4 @@ The format fields and DIR64 operation follow the [Microsoft PE reference](https:
 
 This loader cannot yet accept the hosted NativeAOT DLL: DLL/import/TLS/unwind semantics remain unsupported, its measured image is larger than the profile and the physical quota is still 128 frames per component.
 
-Next define module registration and runtime bootstrap, select the source-level runtime backend, then add the TLS, unwind/fault and GC coordination mechanisms required by that choice. Keep unsupported features explicit; a successful native PE load is not a .NET runtime port.
+Native image handoff and C startup are now implemented. Next select the actual source-level runtime backend, then add its TLS, unwinding/fault and GC coordination mechanisms. Managed-module registration stays inside the real runtime. Keep unsupported features explicit; a successful native PE load is not a .NET runtime port.

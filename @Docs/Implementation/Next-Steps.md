@@ -4,27 +4,28 @@ The core objective remains a minimal hardware-dependent kernel, a common system 
 
 ## Completed
 
-- M0 independent boot and initial M1 memory/paging/timer/kernel-context mechanisms.
-- Seventeen VM scenarios, with 72 required M2 groups inside successful boots.
-- M2 isolated ring-3 components, sparse memory, bounded threads/raw FS TLS/join and events/deadlines/idle.
-- M2 guest PE32+ loading: protected sections, zero-filled data, bounded DIR64 fixups, entry validation and rollback of unpublished components.
-- Experimental user ABI v4 remains unchanged by the internal image-creation API.
-- Pinned .NET 10.0.8 source/package audit, hosted semantic probe and native C-host bootstrap/target experiment.
+- M0 boot and M1 paging/protection/timer/kernel-context foundation.
+- Seventeen VM scenarios with 83 required M2 groups in successful boots.
+- M2 ring-3 isolation, sparse memory, bounded threads/raw FS TLS/join, events/deadlines and idle.
+- Bounded guest PE loading with section protection, zero-fill, relocations and allocation rollback.
+- ABI v5 readonly image description; user-space C startup with checked callbacks, run-once state and reverse cleanup.
+- Structural validation/exposure of ordinary x64 function/unwind metadata, without exception dispatch or stack walking.
+- .NET 10.0.8 audit of 26 source files and two hosted NativeAOT evidence probes.
 
-See [isolation](M2-Isolated-Execution.md), [memory](M2-User-Memory.md), [threads/TLS](M2-User-Threads-and-Tls.md), [events](M2-Events-and-Deadlines.md), [guest PE loading](M2-Pe-Image-Loading.md), [NativeAOT target evidence](NativeAot-Target-Bootstrap.md) and [RFC 0015](../RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md).
+See [PE loading](M2-Pe-Image-Loading.md), [native module/bootstrap handoff](M2-Native-Module-Bootstrap.md), [NativeAOT target evidence](NativeAot-Target-Bootstrap.md) and [RFC 0015](../RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md).
 
-Guest WitOS is now 0.0.8. It executes native PE images, but .NET does not run inside it yet.
+WitOS 0.0.9 executes native C startup in the guest. It still does not run .NET there.
 
-## Next: module bootstrap and runtime backend
+## Next: source-level NativeAOT backend and adapter
 
-1. Select the source-level NativeAOT runtime/PAL/CoreLib backend and record the required patch set. Microsoft x64 and PE/COFF are the measured initial format/call candidate, not a Windows compatibility promise.
-2. Define module registration and bootstrap order using the measured NativeAOT sections, code boundaries and class-library callbacks.
-3. Add compiler/runtime TLS and unwind metadata/fault handling only with explicit initialization and lifetime contracts. Current PE loading rejects those directories.
-4. Provide process-local GC rendezvous/context operations; adapt memory/thread/wait behavior and expand image/stack/commit limits for the actual runtime profile.
-5. Replace delivered-PIT-tick timing with a suitable elapsed-time source before claiming full runtime monotonic timing.
+1. Choose a reproducible source-level runtime/PAL/CoreLib backend/build path and record its upstream patch set. Microsoft x64 and PE/COFF remain the measured format/call candidate, not a Windows compatibility promise.
+2. Implement the selected adapter's native TLS/thread attachment, module boundaries, imports and early runtime initialization using the tested WitOS contracts.
+3. Keep ReadyToRun/TypeManager/GC-static/frozen-object/eager-constructor initialization inside the real user-space runtime. It already requires real GC support.
+4. Add runtime fault/context delivery and process-local GC rendezvous; expand image/stack/commit limits for the actual profile.
+5. Replace delivered-PIT-tick timing with a suitable elapsed-time source before claiming full runtime timing.
 6. Add IPC/capability transfer when a tested service boundary needs it.
 
-The hosted module's Windows imports, TLS callbacks/indexing, unwind entries and image size remain real blockers. The new loader establishes section/relocation/protection mechanics, not those missing runtime semantics.
+The readonly descriptor and native initializer helper solve the image handoff and native C lifecycle. They are not NativeAOT module registration, a CLR initializer or a Windows CRT/TLS implementation.
 
 ## M3 acceptance
 
@@ -32,8 +33,8 @@ Run a real NativeAOT component inside WitOS with allocations/GC, finalization, e
 
 ## Current limits
 
-One x64 CPU, QEMU q35, usable physical addresses below 4 GiB, two component slots and one active component. Each supports four threads, four events, eight handles, eight dynamic reservations and 128 owned frames. Dynamic VA spans 64 GiB; native PE images have a separate window, a 256 KiB mapped-size cap and a restricted directory/relocation profile. Kernel stacks remain in a fixed guarded pool.
+One x64 CPU, QEMU q35, physical usable addresses below 4 GiB, two component slots and one active component. Each supports four threads, four events, eight handles, eight dynamic reservations and 128 owned frames. Dynamic VA spans 64 GiB; PE images use a separate window with a 256 KiB cap.
 
-PIC/PIT timing, baseline x87/SSE and the ten-tick test budget remain. The clock advances only on delivered IRQ0. Firmware memory is not automatically reclaimed.
+The PE profile permits up to sixteen sections and 128 plain version-1 unwind records. DLL/import/TLS/handler/chained semantics remain unsupported. Kernel stacks use a fixed guarded pool; x87/SSE context state and the ten-tick activation budget remain. The clock counts delivered IRQ0 only. Firmware memory is not automatically reclaimed.
 
-No general Windows/DLL loader, compiler/managed TLS, semaphores/mutexes/multi-object waits, IPC channels or managed runtime exists yet. Broad hardware, firmware flashing, GPU, custom filesystems, GUI and distributed orchestration do not block the next slice.
+No managed runtime, compiler/managed TLS, exception unwinder, general Windows loader, multi-object waits or IPC channels exist yet. Broad hardware, firmware flashing, GPU, filesystems, GUI and distributed orchestration do not block the next adapter experiment.

@@ -1,7 +1,7 @@
 # M2 — First isolated native execution
 
 Status: implemented; latest extension locally verified on 2026-09-17.
-Guest version: WitOS 0.0.8 (isolation in 0.0.4, memory in 0.0.5, threads/TLS in 0.0.6, events in 0.0.7, PE loading in 0.0.8).
+Guest version: WitOS 0.0.9 (latest addition: native image handoff and user-space C bootstrap).
 
 This is the first M2 isolation slice, not a general process platform or a .NET runtime port.
 
@@ -46,7 +46,7 @@ Initial user GPR/SIMD state is cleared. The main thread receives the startup poi
 
 Syscalls reset flags according to the experimental ABI. Timer returns preserve arithmetic flags and DF while removing unsupported/unsafe flag state. Losing condition codes during a timer return is covered by the long-running user-state test.
 
-## Experimental user ABI v4
+## Experimental user ABI v5
 
 Authoritative constants and startup prefix: `src/Kernel/include/witos/user_abi.h`. The host generates matching MASM constants from the C headers.
 
@@ -56,7 +56,7 @@ Transport: `INT 0x80`.
 - Output: RAX status; RDX result.
 - Other GPRs and baseline x87/SSE state are preserved across returning syscalls.
 - Syscall return flags are 0x202; flags are not a preserved syscall result.
-- Public startup prefix: version, byte size and console handle (16 bytes).
+- Public startup prefix: version, byte size, console handle and readonly ImageInfo pointer (24 bytes). ImageInfo is zero for raw fixtures; PE images receive their actual mapped ranges and plain unwind-table location.
 
 | Call | Arguments | Result |
 | --- | --- | --- |
@@ -83,7 +83,7 @@ Transport: `INT 0x80`.
 
 Thread/TLS lifetime and blocking behavior are specified in the [thread decision](M2-User-Threads-and-Tls.md).
 
-Statuses: 0 success, 1 unsupported call, 2 invalid handle, 3 denied rights, 4 invalid address, 5 excessive length, 6 invalid argument, 7 wrong object type, 8 resource exhaustion, 9 range not reserved by this component, 10 range not fully committed, 11 join deadlock, 12 busy thread, 13 timed out, 14 closed event. Returning errors have a zero result. The version/startup field is now 4; this replaces the earlier experimental fixture contracts.
+Statuses: 0 success, 1 unsupported call, 2 invalid handle, 3 denied rights, 4 invalid address, 5 excessive length, 6 invalid argument, 7 wrong object type, 8 resource exhaustion, 9 range not reserved by this component, 10 range not fully committed, 11 join deadlock, 12 busy thread, 13 timed out, 14 closed event. Returning errors have a zero result. The version/startup field is now 5; this replaces the earlier experimental fixture contracts.
 
 Write accepts at most 256 input bytes per call. The diagnostic UART output adds a [USER] prefix and translates line endings; this is not a general file/Stream contract. A zero-length write validates the handle but does not dereference the pointer. Nonempty writes validate the entire range before copying or output. Copying uses verified physical translations through supervisor aliases, so a bad user pointer never becomes an unchecked kernel dereference. Cross-page buffers are tested.
 
@@ -112,7 +112,7 @@ dotnet build WitOS.slnx --configuration Release
 dotnet run --project tools/WitOS.Dev --configuration Release -- test
 ```
 
-All 17 VM scenarios passed locally. Ordinary successful boots now additionally require 72 M2 check groups, including:
+All 17 VM scenarios passed locally. Ordinary successful boots now additionally require 83 M2 check groups, including:
 
 - actual ring-3 execution and ABI/handle checks;
 - two live private address spaces, foreign live handles and an inaccessible peer-only page;
@@ -124,7 +124,8 @@ All 17 VM scenarios passed locally. Ordinary successful boots now additionally r
 - eleven [memory groups](M2-User-Memory.md): sparse/private memory, quota rollback, invalid reservations, physical OOM, ring-3 lifecycle and six hardware access faults;
 - ten [thread groups](M2-User-Threads-and-Tls.md): preemption/TLS, join/reuse, cycle rejection, capacity/creation failures and child-fault/exit cleanup;
 - fourteen [wait groups](M2-Events-and-Deadlines.md): event state/rights, wakeup/close/deadline ordering, handoff, idle and resource limits;
-- sixteen [image groups](M2-Pe-Image-Loading.md): guest PE validation, section mapping, relocations, zero-fill/private data, failure rollback and access faults.
+- sixteen [image groups](M2-Pe-Image-Loading.md): guest PE validation, section mapping, relocations, zero-fill/private data, failure rollback and access faults;
+- eleven [native bootstrap groups](M2-Native-Module-Bootstrap.md): C entry, image handoff, metadata validation, constructor/cleanup order, run-once behavior and failure containment.
 
 For faults the guest checks CPU error codes, CR2 where meaningful, CS/SS and kernel canaries. Every failure is followed by a normal component. The host requires the full M2 marker sequence and ring-3 fault selectors before accepting boot success.
 
@@ -132,4 +133,4 @@ For faults the guest checks CPU error codes, CR2 where meaningful, CS/SS and ker
 
 Two component slots, one active component, four threads per component, one x64 CPU, legacy one-page fixtures and a bounded native PE profile, fixed startup/thread regions, eight dynamic reservations and at most 128 owned physical pages per component (including tables, user stacks and TLS). No general Windows/DLL loader, filesystem, IPC channels, transferable capabilities, compiler/managed TLS, mutexes/multi-object waits or managed runtime exists yet.
 
-Memory, thread/TLS/join, events/deadlines and bounded PE image loading are implemented. Next define the actual NativeAOT module/bootstrap contract and choose the runtime backend from RFC 0015. A real NativeAOT memory adapter and scalable commitment limits are still required. The interrupt transport and fixed layout are experimental and can change with executable tests.
+Memory, thread/TLS/join, events/deadlines and bounded PE image loading are implemented. The native image/bootstrap contract is implemented; next choose and adapt the actual NativeAOT runtime backend from RFC 0015. A real NativeAOT memory adapter and scalable commitment limits are still required. The interrupt transport and fixed layout are experimental and can change with executable tests.

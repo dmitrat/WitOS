@@ -1,12 +1,13 @@
 #ifndef WITOS_USER_ABI_H
 #define WITOS_USER_ABI_H
 #include "types.h"
+#include "image_info.h"
 
 /* Experimental x64 interrupt ABI, not a stable public SDK.
  * INT 0x80: RAX=call, RCX/RDX/R8=arguments; RAX=status, RDX=result.
  * Other GPRs and baseline x87/SSE state survive; flags are reset to 0x202. */
-#define WIT_ABI_VERSION 4U
-#define WIT_ABI_STARTUP_SIZE 16U
+#define WIT_ABI_VERSION 5U
+#define WIT_ABI_STARTUP_SIZE 24U
 #define WIT_CALL_QUERY 0U
 #define WIT_CALL_WRITE 1U
 #define WIT_CALL_EXIT 2U
@@ -71,6 +72,7 @@ typedef struct WitUserStartup {
     WitU32 Version;
     WitU32 Size;
     WitU64 ConsoleHandle;
+    WitU64 ImageInfo; /* Immutable WitUserImageInfo for PE images; zero for raw fixtures. */
 } WitUserStartup;
 _Static_assert(sizeof(WitUserStartup) == WIT_ABI_STARTUP_SIZE, "User startup ABI");
 #endif

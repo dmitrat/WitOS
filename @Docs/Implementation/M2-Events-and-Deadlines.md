@@ -30,9 +30,9 @@ Create flags are bit 0 ManualReset and bit 1 InitiallySignaled. Zero selects an 
 
 Checking stored state and publishing a wait record happen in one serialized syscall. Set, timeout and close clear the wait kind before marking the thread Ready, so exactly one completion wins. FIFO applies to parked auto-reset waiters; it does not promise CPU scheduling order.
 
-## Experimental ABI v4
+## Event calls introduced in ABI v4
 
-Startup and query report version 4. Existing calls 0–12 retain their meanings.
+Startup and query now report version 5. The event calls introduced in v4 and calls 0–12 retain their meanings; v5 extends the startup image handoff.
 
 | Call | RCX | RDX | Result |
 | --- | --- | --- | --- |
@@ -74,7 +74,7 @@ Join edges are distinguished from event/sleep waits. Cycle detection follows onl
 
 The separate `WaitFixture.pe` is built from `tests/User.X64/waits.asm`, checked as one-page RX native code with no imports/relocations, embedded like the other fixtures and uploaded by CI.
 
-The seventeen VM scenarios now require 72 M2 groups (21 isolation, 11 memory, 10 thread, 14 wait and 16 image groups), with 27 contained user faults.
+The seventeen VM scenarios now require 83 M2 groups (including 11 native-bootstrap groups), with 29 contained user faults.
 
 | New group | Evidence |
 | --- | --- |

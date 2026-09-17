@@ -96,6 +96,22 @@
                     {
                         "path":  "src/native/minipal/random.c",
                         "sha256":  "1eef51707f9fece9e71e6beb9ed932f4eaba1fb812afa062d8ef5cc9a459b5fd"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/Common/src/Internal/Runtime/CompilerHelpers/StartupCodeHelpers.cs",
+                        "sha256":  "d93ac7ff135842974a71a1f5ba87ba2d8cab6e3878b7e1d9026071ae666bc427"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/Runtime/inc/ModuleHeaders.h",
+                        "sha256":  "ca21144d8461ab2a08e66f1e8ec180f5a2a26dd504aaa0b574075b6d423c3c2e"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/Runtime/TypeManager.cpp",
+                        "sha256":  "2e66882e44d452b518f96fe8caf64aa5ea2b42223587325570f569bce698619e"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/Runtime/RuntimeInstance.cpp",
+                        "sha256":  "71143ca01b9c35c16821f59d0e928da79fd7113da595f0949753b11488642152"
                     }
                 ]
 }

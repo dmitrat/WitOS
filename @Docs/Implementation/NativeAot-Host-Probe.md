@@ -22,7 +22,7 @@ The project is under `experiments/` and is intentionally outside the ordinary ke
 
 ## Pins
 
-The source and binary package versions are 10.0.8. Compiler packages are locked by NuGet version/content hash, while 22 selected source files and the package VMR manifest are locked by SHA-256.
+The source and binary package versions are 10.0.8. Compiler packages are locked by NuGet version/content hash, while 26 selected source files and the package VMR manifest are locked by SHA-256.
 
 Published packages report a dotnet/dotnet VMR commit, not the dotnet/runtime tag SHA. The audit verifies that the VMR's runtime component maps to the reviewed runtime commit. The probe independently validates both the compiler package and the NativeAOT runtime pack's nuspec repository metadata.
 

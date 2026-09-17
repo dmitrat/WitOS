@@ -7,6 +7,9 @@
 #include "witos/memory.h"
 #include "witos/pe.h"
 
+_Static_assert(WIT_PE_MAX_SECTIONS == WIT_IMAGE_INFO_MAX_RANGES, "Image range capacities");
+_Static_assert(WIT_USER_IMAGE_INFO_OFFSET + WIT_IMAGE_INFO_SIZE <= 4096, "Image information page bound");
+
 typedef struct WitUserReservation {
     WitU64 Base;
     WitU64 Size;
@@ -102,6 +105,7 @@ void wit_user_memory_self_test(WitPageAllocator *pages);
 void wit_user_thread_self_test(WitPageAllocator *pages);
 void wit_user_wait_self_test(WitPageAllocator *pages);
 void wit_user_image_self_test(WitPageAllocator *pages);
+void wit_user_bootstrap_self_test(WitPageAllocator *pages);
 WitU64 wit_virtual_kernel_root(void);
 
 int wit_user_create(WitUserProcess *process, WitPageAllocator *allocator,

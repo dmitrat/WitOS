@@ -1,6 +1,6 @@
 # RFC 0015 — .NET Runtime Port & Compatibility Contract
 
-Draft v0.6. Status: source inventory, hosted reference/native-bootstrap probes, bounded M2 mechanisms and native PE loading implemented; guest runtime port not implemented.
+Draft v0.7. Status: source inventory, hosted evidence probes, bounded M2 mechanisms and guest native C bootstrap implemented; guest managed runtime port not implemented.
 
 ## 1. Evidence baseline
 
@@ -14,7 +14,7 @@ This RFC targets upstream .NET **10.0.8**:
 - package VMR commit: `94ea82652cdd4e0f8046b5bd5becbd11461482ca`
 - host SDK: `10.0.300`, from the repository's global.json
 
-The VMR source manifest maps its runtime component to the pinned runtime commit. The checked-in [source lock](../experiments/NativeAotProbe/upstream.lock.json) records SHA-256 hashes for 22 selected source files and the VMR manifest. The [NuGet lock](../experiments/NativeAotProbe/packages.lock.json) pins the compiler packages and their content hashes.
+The VMR source manifest maps its runtime component to the pinned runtime commit. The checked-in [source lock](../experiments/NativeAotProbe/upstream.lock.json) records SHA-256 hashes for 26 selected source files and the VMR manifest. The [NuGet lock](../experiments/NativeAotProbe/packages.lock.json) pins the compiler packages and their content hashes.
 
 These are selected integration sources, not a complete dependency closure. This is a reference version for investigation, not a claim that it is the newest release.
 
@@ -105,6 +105,8 @@ For M2's first native component, an unhandled user fault can terminate that comp
 The loader must establish the selected native ABI, TLS, relocations, zeroed data, module boundaries and unwind metadata. PE/COFF and Microsoft x64 are the measured candidate; WitOS 0.0.8 implements a [restricted native executable loading path](Implementation/M2-Pe-Image-Loading.md) with section protection, zero-fill and internal DIR64 fixups. It rejects DLL/import/TLS/unwind semantics until their runtime contracts are implemented. The final source-level runtime backend remains undecided; the win-x64 experiments do not choose a Windows compatibility personality for WitOS.
 
 CPU instruction support and saved state must agree. M1 preserves x87/SSE only; any emitted or runtime-selected AVX/extended state requires the corresponding kernel support or an explicitly compatible target profile.
+
+WitOS 0.0.9 supplies [readonly native image information and a user-space C startup helper](Implementation/M2-Native-Module-Bootstrap.md), plus structural validation of plain x64 unwind records. This is not managed-module initialization or an unwinder. The newly pinned StartupCodeHelpers/TypeManager sources make the boundary explicit: real GC and runtime initialization precede GC statics, frozen segments and eager constructors; those operations stay in the runtime.
 
 ## 8. Initial M3 profile
 

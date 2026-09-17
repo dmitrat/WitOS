@@ -46,7 +46,7 @@ The ten delivered-tick budget applies to the entire activation, not separately t
 
 ## Thread calls introduced in ABI v3
 
-The existing INT 0x80 transport, calls 0–8, startup prefix and register preservation remain. The current startup/query report version 4; v4 retains these thread calls and adds event/clock operations.
+The existing INT 0x80 transport, calls 0–8, startup prefix and register preservation remain. The current startup/query report version 5; v4 retains these thread calls and adds event/clock operations.
 
 | Call | RCX | RDX | R8 | Result |
 | --- | --- | --- | --- | --- |
@@ -82,7 +82,7 @@ This is a raw TLS block for native fixtures. It is not a Windows TEB, ELF TLS la
 
 The host separately builds `threads.asm` as `ThreadFixture.pe`, applying the same one-page RX, fixed native entry and no-import/no-relocation checks as the original `UserFixture.pe`. Both images are uploaded with CI diagnostics.
 
-The existing seventeen VM scenarios now require seventy-two M2 groups and twenty-seven contained user faults in each successful boot; the ten thread groups below are unchanged. Ten added groups cover:
+The existing seventeen VM scenarios now require eighty-three M2 groups and twenty-nine contained user faults in each successful boot; the ten thread groups below are unchanged. Ten added groups cover:
 
 | Group | Evidence |
 | --- | --- |

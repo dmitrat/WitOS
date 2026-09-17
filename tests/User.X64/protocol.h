@@ -53,13 +53,25 @@
 #define WIT_IMAGE_TEST_EXECUTE_DATA 4U
 #define WIT_IMAGE_TEST_END 5U
 #define WIT_IMAGE_TEST_GAP 6U
+#define WIT_BOOTSTRAP_TEST_NORMAL 0U
+#define WIT_BOOTSTRAP_TEST_INIT_FAIL 1U
+#define WIT_BOOTSTRAP_TEST_MAIN_FAIL 2U
+#define WIT_BOOTSTRAP_TEST_BAD_INIT 3U
+#define WIT_BOOTSTRAP_TEST_WRITABLE_TABLE 4U
+#define WIT_BOOTSTRAP_TEST_BAD_MAIN 5U
+#define WIT_BOOTSTRAP_TEST_TOO_MANY 6U
+#define WIT_BOOTSTRAP_TEST_BAD_IMAGE 7U
+#define WIT_BOOTSTRAP_TEST_WRITE_INFO 8U
+#define WIT_BOOTSTRAP_TEST_INIT_FAULT 9U
+#define WIT_BOOTSTRAP_TEST_EMPTY 10U
+#define WIT_BOOTSTRAP_TEST_CONCURRENT 11U
 #define WIT_TEST_EXIT_CODE 42U
-#define WIT_TEST_RO_OFFSET 16U
-#define WIT_TEST_SELF_OFFSET 24U
-#define WIT_TEST_FOREIGN_OFFSET 32U
-#define WIT_TEST_MODE_OFFSET 40U
-#define WIT_TEST_KERNEL_OFFSET 48U
-#define WIT_TEST_INSTANCE_OFFSET 56U
+#define WIT_TEST_RO_OFFSET 24U
+#define WIT_TEST_SELF_OFFSET 32U
+#define WIT_TEST_FOREIGN_OFFSET 40U
+#define WIT_TEST_MODE_OFFSET 48U
+#define WIT_TEST_KERNEL_OFFSET 56U
+#define WIT_TEST_INSTANCE_OFFSET 64U
 
 typedef struct WitUserTestConfig {
     WitUserStartup Startup;
@@ -70,5 +82,5 @@ typedef struct WitUserTestConfig {
     WitU64 KernelProbe;
     WitU64 InstanceId;
 } WitUserTestConfig;
-_Static_assert(sizeof(WitUserTestConfig) == 64, "User test config layout");
+_Static_assert(sizeof(WitUserTestConfig) == 72, "User test config layout");
 #endif

@@ -6,9 +6,9 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 
 ## Current status
 
-**WitOS 0.0.8: the guest loads native PE32+ images with protected sections, zero-fill and relocations.**
+**WitOS 0.0.9: native C bootstrap runs in the guest with a readonly image handoff, checked initializers and cleanup.**
 
-The kernel boots independently through UEFI and runs separately built native components in ring 3 with private mappings and handles. Its bounded PE loader parses complete files inside the guest, maps sections and applies relocations. The component writes through a checked syscall and exits; its faults are contained while the kernel runs the next component. Within a component, up to four user threads can run with timer preemption, separate stacks/TLS and blocking join. Manual/auto-reset events, sleep and absolute deadlines work with kernel idle when all threads are blocked. M1 paging, protection, timer and kernel-context checks remain part of every successful boot.
+The kernel boots independently through UEFI and runs separately built native components in ring 3 with private mappings and handles. Its bounded PE loader parses complete files inside the guest, maps sections and applies relocations. A freestanding C startup layer receives image metadata, runs native initializers and enters the program in user space. The component writes through a checked syscall and exits; its faults are contained while the kernel runs the next component. Within a component, up to four user threads can run with timer preemption, separate stacks/TLS and blocking join. Manual/auto-reset events, sleep and absolute deadlines work with kernel idle when all threads are blocked. M1 paging, protection, timer and kernel-context checks remain part of every successful boot.
 
 **The guest does not run .NET yet.** The C# code in `tools/` runs on the development computer. NativeAOT system components are a later milestone; standard CoreCLR applications follow after that.
 
@@ -39,7 +39,7 @@ Expected guest output includes:
 ```text
 [BOOT] UEFI x64 adapter
 [BOOT] ExitBootServices OK
-WitOS 0.0.8 (M2 PE image loading)
+WitOS 0.0.9 (M2 native module bootstrap)
 Build: <git-revision> | x64 | Debug
 [TEST-BEGIN] Boot.Contract
 [TEST-PASS] Boot.Contract
@@ -90,7 +90,7 @@ The integration suite boots seventeen real VM scenarios:
 
 Normal boots also verify map/protect/unmap behavior, aliasing, TLB invalidation, timer delivery, progress of both preempted contexts and preserved GPR/SSE state. Exception tests validate vector, error code, register frame, fault address and stack selection. The double-fault test deliberately invalidates the main stack and requires diagnostics from the emergency stack.
 
-Successful boots also require 72 M2 groups: ring-3 entry, ABI/handles, private memory, user-fault containment, safe return state, timer budgeting, register/flag preservation, zero-fill and resource teardown, plus sparse reservations, commit/decommit/protect/release, recoverable exhaustion and hardware memory faults, plus user-thread preemption, TLS/register state, join/cycle handling, slot reuse and child-fault cleanup, plus event state/rights, wakeups, close/timeout ordering, signal handoff and kernel idle, plus PE validation/loading, relocation, BSS, allocation rollback and hardware section protection. They run within the same real VM.
+Successful boots also require 83 M2 groups: ring-3 entry, ABI/handles, private memory, user-fault containment, safe return state, timer budgeting, register/flag preservation, zero-fill and resource teardown, plus sparse reservations, commit/decommit/protect/release, recoverable exhaustion and hardware memory faults, plus user-thread preemption, TLS/register state, join/cycle handling, slot reuse and child-fault cleanup, plus event state/rights, wakeups, close/timeout ordering, signal handoff and kernel idle, plus PE validation/loading, relocation, BSS, allocation rollback and hardware section protection, plus native C startup, image descriptors, initializer rollback/run-once behavior and structural unwind validation. They run within the same real VM.
 
 Every test creates fresh firmware variable storage. A timeout, unexpected exit, panic or missing success marker fails an ordinary boot test.
 
@@ -107,6 +107,7 @@ artifacts/x64/boot/ThreadFixture.pe Separately linked thread/TLS fixture
 artifacts/x64/boot/WaitFixture.pe   Separately linked event/deadline fixture
 artifacts/x64/boot/PeFixture.pe     Complete relocatable guest PE image
 artifacts/x64/boot/PeFixedFixture.pe Complete image for preferred-base loading
+artifacts/x64/boot/BootstrapFixture.pe Freestanding C startup and unwind fixture
 artifacts/logs/                   Serial, stderr and outcome logs
 ```
 
@@ -143,6 +144,7 @@ This still runs on Windows. The guest now has a restricted native PE loading pat
 src/Boot.Uefi/          Firmware-specific entry and handoff adapter
 src/Kernel/             Boot validation, physical pages and process-local handles
 src/Kernel.Arch.X64/     Paging, traps, context transitions and user execution
+src/System.Native/      User-space native startup helper (not managed runtime)
 tests/User.X64/         Unprivileged native ABI/isolation fixture
 tools/WitOS.Dev/         C# build, VM tests and runtime investigation tools
 experiments/NativeAotProbe/ Hosted reference; not guest runtime code
@@ -155,9 +157,9 @@ The core kernel does not include UEFI structures. The output is a freestanding P
 
 ## Scope and next work
 
-M2 uses two fixed component slots and activates one component at a time. Up to four threads share its private address space and handles; each has separate guarded user/kernel stacks and a raw FS-based TLS block. Shared kernel mappings stay supervisor-only. Native components use experimental ABI v4 for query/write/exit/close, memory, thread, event and clock operations. Earlier one-page fixtures remain alongside the new PE path, whose profile permits up to 16 sections and a 256 KiB mapped image. Each space can reserve within a separate 64 GiB virtual arena without allocating backing RAM; commitment is explicitly limited to 128 owned frames including page tables and fixed mappings. Firmware memory remains reserved, and usable physical addresses remain below 4 GiB.
+M2 uses two fixed component slots and activates one component at a time. Up to four threads share its private address space and handles; each has separate guarded user/kernel stacks and a raw FS-based TLS block. Shared kernel mappings stay supervisor-only. Native components use experimental ABI v5 for query/write/exit/close, memory, thread, event and clock operations. Earlier one-page fixtures remain alongside the new PE path, whose profile permits up to 16 sections and a 256 KiB mapped image. Each space can reserve within a separate 64 GiB virtual arena without allocating backing RAM; commitment is explicitly limited to 128 owned frames including page tables and fixed mappings. Firmware memory remains reserved, and usable physical addresses remain below 4 GiB.
 
-User faults terminate that component; kernel faults remain fatal diagnostics. General Windows/DLL loading, imports, compiler/managed TLS, unwind integration, mutexes/multi-object waits, IPC channels, SMP and managed execution remain future work. The pinned target/bootstrap experiment now supplies measured object, TLS, unwind and dependency requirements. The bounded guest PE loading contract is implemented; next are module/bootstrap contracts and selection of the source-level runtime backend. The current clock counts delivered PIT ticks (nominal 100 Hz), pauses when IRQ0 is disabled and does not provide calibrated elapsed time.
+User faults terminate that component; kernel faults remain fatal diagnostics. General Windows/DLL loading, imports, compiler/managed TLS, unwind integration, mutexes/multi-object waits, IPC channels, SMP and managed execution remain future work. The pinned target/bootstrap experiment now supplies measured object, TLS, unwind and dependency requirements. The bounded guest PE loading contract is implemented; native image handoff and C startup are now implemented. Next is selection and source-level adaptation of the actual NativeAOT backend. The current clock counts delivered PIT ticks (nominal 100 Hz), pauses when IRQ0 is disabled and does not provide calibrated elapsed time.
 
 - [Architecture document index](@Docs/README.md)
 - [M0 implementation history](@Docs/Implementation/M0-Boot.md)
@@ -168,5 +170,6 @@ User faults terminate that component; kernel faults remain fatal diagnostics. Ge
 - [M2 user threads, TLS and join](@Docs/Implementation/M2-User-Threads-and-Tls.md)
 - [M2 events, deadlines and kernel idle](@Docs/Implementation/M2-Events-and-Deadlines.md)
 - [M2 guest PE image loading](@Docs/Implementation/M2-Pe-Image-Loading.md)
+- [M2 native image handoff and C bootstrap](@Docs/Implementation/M2-Native-Module-Bootstrap.md)
 - [RFC 0011: initial kernel boot contract](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md)
 - [Immediate development sequence](@Docs/Implementation/Next-Steps.md)

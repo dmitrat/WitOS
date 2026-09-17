@@ -329,6 +329,27 @@ static WitPeStatus create_process(WitUserProcess *process, WitPageAllocator *all
     startup = (WitUserStartup *)wit_user_space_physical(&process->Space, WIT_USER_INFO, 0, 0);
     startup->Version = WIT_ABI_VERSION;
     startup->Size = sizeof(*startup);
+    startup->ImageInfo = 0;
+    if (image) {
+        WitUserImageInfo *info = (WitUserImageInfo *)((WitU8 *)startup + WIT_USER_IMAGE_INFO_OFFSET);
+        info->Version = WIT_IMAGE_INFO_VERSION;
+        info->Size = sizeof(*info);
+        info->Base = process->ImageBase;
+        info->Entry = process->ImageEntry;
+        info->ImageSize = process->ImageSize;
+        info->RangeCount = image->SectionCount;
+        info->HeadersSize = image->HeadersSize;
+        info->UnwindRva = image->UnwindRva;
+        info->UnwindSize = image->UnwindSize;
+        for (WitU32 i = 0; i < image->SectionCount; ++i) {
+            const WitPeSection *s = &image->Sections[i];
+            info->Ranges[i].Rva = s->Rva;
+            info->Ranges[i].Size = s->VirtualSize;
+            info->Ranges[i].InitializedSize = s->RawSize < s->VirtualSize ? s->RawSize : s->VirtualSize;
+            info->Ranges[i].Flags = s->Flags;
+        }
+        startup->ImageInfo = WIT_USER_INFO + WIT_USER_IMAGE_INFO_OFFSET;
+    }
     startup->ConsoleHandle = wit_handle_grant(&process->Handles, WIT_HANDLE_CONSOLE, WIT_RIGHT_WRITE);
     if (!startup->ConsoleHandle || prepare_thread(process, 0, process->ImageEntry, WIT_USER_INFO) != WIT_STATUS_OK)
         goto failed;

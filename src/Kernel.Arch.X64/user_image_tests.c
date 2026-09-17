@@ -135,7 +135,7 @@ static void malformed_tests(WitPageAllocator *pages)
     for (WitU32 i = 0; i < 16; ++i) {
         if (i == 5 || i == 6) continue;
         reset(); put32(optional + 112 + i * 8, 0x1000); put32(optional + 116 + i * 8, 16);
-        reject_current(pages, WitPeUnsupportedImage);
+        reject_current(pages, i == 3 ? WitPeInvalidImage : WitPeUnsupportedImage);
     }
     reset(); put32(optional + 112 + 5 * 8, 0); put32(optional + 116 + 5 * 8, 0);
     reject_current(pages, WitPeUnsupportedImage); /* relocation required at this base */
