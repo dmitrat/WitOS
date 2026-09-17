@@ -5,7 +5,7 @@
 /* Experimental x64 interrupt ABI, not a stable public SDK.
  * INT 0x80: RAX=call, RCX/RDX/R8=arguments; RAX=status, RDX=result.
  * Other GPRs and baseline x87/SSE state survive; flags are reset to 0x202. */
-#define WIT_ABI_VERSION 3U
+#define WIT_ABI_VERSION 4U
 #define WIT_ABI_STARTUP_SIZE 16U
 #define WIT_CALL_QUERY 0U
 #define WIT_CALL_WRITE 1U
@@ -28,6 +28,19 @@
 #define WIT_CALL_THREAD_YIELD 10U
 #define WIT_CALL_THREAD_EXIT 11U
 #define WIT_CALL_THREAD_JOIN 12U
+#define WIT_CALL_CLOCK_READ 13U
+#define WIT_CALL_CLOCK_FREQUENCY 14U
+#define WIT_CALL_THREAD_SLEEP 15U
+#define WIT_CALL_EVENT_CREATE 16U
+#define WIT_CALL_EVENT_SET 17U
+#define WIT_CALL_EVENT_RESET 18U
+#define WIT_CALL_EVENT_WAIT 19U
+/* Deadlines use absolute delivered PIT ticks. Zero polls; all-ones waits forever.
+ * The frequency is nominal; this bootstrap clock pauses while IRQ0 is disabled. */
+#define WIT_CLOCK_FREQUENCY 100ULL
+#define WIT_WAIT_INFINITE 0xFFFFFFFFFFFFFFFFULL
+#define WIT_EVENT_MANUAL_RESET 1ULL
+#define WIT_EVENT_INITIAL_SIGNALED 2ULL
 /* Kernel-selected FS base: self pointer, thread handle, initial argument, then zeroed bytes.
  * This raw TLS block is not yet a compiler/CoreLib TLS layout. */
 #define WIT_TLS_SELF_OFFSET 0U
@@ -47,6 +60,8 @@
 #define WIT_STATUS_NOT_COMMITTED 10U
 #define WIT_STATUS_DEADLOCK 11U
 #define WIT_STATUS_BUSY 12U
+#define WIT_STATUS_TIMED_OUT 13U
+#define WIT_STATUS_CLOSED 14U
 #define WIT_MEMORY_NONE 0U
 #define WIT_MEMORY_READ 1U
 #define WIT_MEMORY_WRITE 2U

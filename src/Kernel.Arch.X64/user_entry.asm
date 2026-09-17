@@ -7,6 +7,17 @@ host_rsp QWORD 0
 host_cr3 QWORD 0
 
 .code
+PUBLIC wit_x64_idle_once
+PUBLIC wit_x64_idle_resume
+wit_x64_idle_once PROC
+    ; IF is clear at entry. The STI shadow covers HLT: no check-to-sleep race.
+    sti
+    hlt
+wit_x64_idle_resume::
+    cli
+    ret
+wit_x64_idle_once ENDP
+
 PUBLIC wit_x64_set_user_tls
 wit_x64_set_user_tls PROC
     ; Kernel chooses the base and selector on every return to a user thread.

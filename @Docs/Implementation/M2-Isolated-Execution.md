@@ -1,7 +1,7 @@
 # M2 — First isolated native execution
 
-Status: implemented and locally verified on 2026-09-16.
-Guest version: WitOS 0.0.6 (isolation in 0.0.4, memory in 0.0.5, threads/TLS in 0.0.6).
+Status: implemented; latest extension locally verified on 2026-09-17.
+Guest version: WitOS 0.0.7 (isolation in 0.0.4, memory in 0.0.5, threads/TLS in 0.0.6, events/deadlines in 0.0.7).
 
 This is the first M2 isolation slice, not a general process platform or a .NET runtime port.
 
@@ -46,7 +46,7 @@ Initial user GPR/SIMD state is cleared. The main thread receives the startup poi
 
 Syscalls reset flags according to the experimental ABI. Timer returns preserve arithmetic flags and DF while removing unsupported/unsafe flag state. Losing condition codes during a timer return is covered by the long-running user-state test.
 
-## Experimental user ABI v3
+## Experimental user ABI v4
 
 Authoritative constants and startup prefix: `src/Kernel/include/witos/user_abi.h`. The host generates matching MASM constants from the C headers.
 
@@ -73,10 +73,17 @@ Transport: `INT 0x80`.
 | 10 Thread yield | None | Zero |
 | 11 Thread exit | Exit code | Does not return to this thread |
 | 12 Thread join | Thread handle | Exit code; consumes handle |
+| 13 Clock read | None | Delivered tick count |
+| 14 Clock frequency | None | Nominal ticks/second |
+| 15 Thread sleep | Absolute deadline | Zero |
+| 16 Event create | Flags | Event handle |
+| 17 Event set | Event handle | Zero |
+| 18 Event reset | Event handle | Zero |
+| 19 Event wait | Event handle, absolute deadline | Zero |
 
 Thread/TLS lifetime and blocking behavior are specified in the [thread decision](M2-User-Threads-and-Tls.md).
 
-Statuses: 0 success, 1 unsupported call, 2 invalid handle, 3 denied rights, 4 invalid address, 5 excessive length, 6 invalid argument, 7 wrong object type, 8 resource exhaustion, 9 range not reserved by this component, 10 range not fully committed, 11 join deadlock, 12 busy thread. Returning errors have a zero result. The version/startup field is now 3; this replaces the earlier experimental fixture contracts.
+Statuses: 0 success, 1 unsupported call, 2 invalid handle, 3 denied rights, 4 invalid address, 5 excessive length, 6 invalid argument, 7 wrong object type, 8 resource exhaustion, 9 range not reserved by this component, 10 range not fully committed, 11 join deadlock, 12 busy thread, 13 timed out, 14 closed event. Returning errors have a zero result. The version/startup field is now 4; this replaces the earlier experimental fixture contracts.
 
 Write accepts at most 256 input bytes per call. The diagnostic UART output adds a [USER] prefix and translates line endings; this is not a general file/Stream contract. A zero-length write validates the handle but does not dereference the pointer. Nonempty writes validate the entire range before copying or output. Copying uses verified physical translations through supervisor aliases, so a bad user pointer never becomes an unchecked kernel dereference. Cross-page buffers are tested.
 
@@ -105,7 +112,7 @@ dotnet build WitOS.slnx --configuration Release
 dotnet run --project tools/WitOS.Dev --configuration Release -- test
 ```
 
-All 17 VM scenarios passed locally. Ordinary successful boots now additionally require 42 M2 check groups, including:
+All 17 VM scenarios passed locally. Ordinary successful boots now additionally require 56 M2 check groups, including:
 
 - actual ring-3 execution and ABI/handle checks;
 - two live private address spaces, foreign live handles and an inaccessible peer-only page;
@@ -115,12 +122,13 @@ All 17 VM scenarios passed locally. Ordinary successful boots now additionally r
 - actual physical-page reuse with zero-fill and stale-handle rejection;
 - handle closure and physical-page accounting after teardown;
 - eleven [memory groups](M2-User-Memory.md): sparse/private memory, quota rollback, invalid reservations, physical OOM, ring-3 lifecycle and six hardware access faults;
-- ten [thread groups](M2-User-Threads-and-Tls.md): preemption/TLS, join/reuse, cycle rejection, capacity/creation failures and child-fault/exit cleanup.
+- ten [thread groups](M2-User-Threads-and-Tls.md): preemption/TLS, join/reuse, cycle rejection, capacity/creation failures and child-fault/exit cleanup;
+- fourteen [wait groups](M2-Events-and-Deadlines.md): event state/rights, wakeup/close/deadline ordering, handoff, idle and resource limits.
 
 For faults the guest checks CPU error codes, CR2 where meaningful, CS/SS and kernel canaries. Every failure is followed by a normal component. The host requires the full M2 marker sequence and ring-3 fault selectors before accepting boot success.
 
 ## Limits and next work
 
-Two component slots, one active component, four threads per component, one x64 CPU, known one-page code images, a fixed image layout, eight dynamic reservations and at most 128 owned physical pages per component (including tables, user stacks and TLS). No general executable loader, filesystem, IPC channels, transferable capabilities, compiler/managed TLS, general wait objects or managed runtime exists yet.
+Two component slots, one active component, four threads per component, one x64 CPU, known one-page code images, a fixed image layout, eight dynamic reservations and at most 128 owned physical pages per component (including tables, user stacks and TLS). No general executable loader, filesystem, IPC channels, transferable capabilities, compiler/managed TLS, mutexes/multi-object waits or managed runtime exists yet.
 
-Memory and bounded thread/TLS/join primitives are implemented; next implement persistent wait/wake objects and deadlines from RFC 0015. A real NativeAOT memory adapter and scalable commitment limits are still required. The interrupt transport and fixed layout are experimental and can change with executable tests.
+Memory, thread/TLS/join and event/deadline primitives are implemented. Next investigate the actual guest NativeAOT target/bootstrap and required runtime adapters from RFC 0015. A real NativeAOT memory adapter and scalable commitment limits are still required. The interrupt transport and fixed layout are experimental and can change with executable tests.

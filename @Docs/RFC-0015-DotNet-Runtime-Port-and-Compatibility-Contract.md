@@ -1,6 +1,6 @@
 # RFC 0015 — .NET Runtime Port & Compatibility Contract
 
-Draft v0.3. Status: source inventory, hosted reference probe, bounded M2 memory and native thread/TLS primitives implemented; guest runtime port not implemented.
+Draft v0.4. Status: source inventory, hosted reference probe and bounded M2 memory/thread/TLS/event primitives implemented; guest runtime port not implemented.
 
 ## 1. Evidence baseline
 
@@ -89,6 +89,8 @@ ThreadStore coordinates suspension using transition-frame state and process-wide
 Kernel mechanisms must let a runtime coordinate threads within its own protection domain. The kernel should not interpret managed heaps, stack maps or GC generations. Thread/context authority must not accidentally grant access to unrelated applications.
 
 Do not stub suspension/barriers as unconditional success or substitute a never-collecting heap and call it standard NativeAOT support.
+
+WitOS 0.0.7 adds manual/auto-reset events, atomic parking, timeout/close completion, absolute tick deadlines and kernel idle. [Implementation and tests](Implementation/M2-Events-and-Deadlines.md) establish native wait semantics. Its nominal 100 Hz clock advances only on delivered PIT interrupts and pauses while IRQ0 is disabled; it is not yet a complete runtime elapsed-time provider. Mutexes, semaphores, multi-object waits and alertable cancellation remain separate adapter requirements.
 
 ## 7. Exceptions, TLS and ABI
 

@@ -1,6 +1,6 @@
 # ADR 0001: Bounded user threads and TLS
 
-**Status:** Accepted and implemented in WitOS 0.0.6.
+**Status:** Accepted and implemented in WitOS 0.0.6; extended by [events/deadlines](M2-Events-and-Deadlines.md) in 0.0.7.
 **Date:** 2026-09-16.
 **Scope:** M2 native execution; no guest .NET runtime yet.
 
@@ -44,9 +44,9 @@ Thread exit stops only the caller. When no ready/waiting threads remain, the com
 
 The ten delivered-tick budget applies to the entire activation, not separately to each thread. It remains a bounded test mechanism rather than calibrated CPU accounting.
 
-## Experimental user ABI v3
+## Thread calls introduced in ABI v3
 
-The existing INT 0x80 transport, calls 0–8, startup prefix and register preservation remain. Startup/query now report version 3.
+The existing INT 0x80 transport, calls 0–8, startup prefix and register preservation remain. The current startup/query report version 4; v4 retains these thread calls and adds event/clock operations.
 
 | Call | RCX | RDX | R8 | Result |
 | --- | --- | --- | --- | --- |
@@ -82,7 +82,7 @@ This is a raw TLS block for native fixtures. It is not a Windows TEB, ELF TLS la
 
 The host separately builds `threads.asm` as `ThreadFixture.pe`, applying the same one-page RX, fixed native entry and no-import/no-relocation checks as the original `UserFixture.pe`. Both images are uploaded with CI diagnostics.
 
-The existing seventeen VM scenarios now require forty-two M2 groups and twenty-one contained user faults in each successful boot. Ten added groups cover:
+The existing seventeen VM scenarios now require fifty-six M2 groups and twenty-one contained user faults in each successful boot; the ten thread groups below are unchanged. Ten added groups cover:
 
 | Group | Evidence |
 | --- | --- |
@@ -102,4 +102,4 @@ The raw thread fixture scans all sixteen KiB of a new/reused stack and checks it
 
 The kernel can now schedule bounded native sibling threads and perform blocking join. These mechanisms support further runtime work, but they do not implement stop-the-world GC, managed TLS, finalization or managed exceptions.
 
-Next add general wait/wake objects with persistent signal state, monotonic deadlines, timeout/close behavior and an idle path when every thread is blocked. Then connect runtime TLS/bootstrap, coordinated GC suspension and validated fault delivery. Dynamic kernel stacks, larger quotas, cross-process scheduling and SMP remain separate extensions.
+Version 0.0.7 adds [events/deadlines and idle](M2-Events-and-Deadlines.md). Next investigate the actual runtime target/bootstrap, compiler TLS, coordinated GC suspension and validated fault delivery. Dynamic kernel stacks, larger quotas, cross-process scheduling and SMP remain separate extensions.

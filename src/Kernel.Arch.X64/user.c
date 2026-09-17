@@ -12,6 +12,7 @@ void __writemsr(unsigned long, unsigned __int64);
 static WitUserProcess *current_user;
 static WitUserProcess *slot_owners[2];
 static WitU32 next_id = 1;
+static volatile WitU32 user_idle;
 
 static void require(int condition, const char *message)
 {
@@ -39,8 +40,13 @@ static WIT_NORETURN void finish(WitUserState state, WitU64 code)
         if (current_user->Threads[i].State != WitThreadEmpty) current_user->Threads[i].State = WitThreadExited;
         current_user->Threads[i].WaitingOn = NO_THREAD;
         current_user->Threads[i].Joiner = NO_THREAD;
+        current_user->Threads[i].WaitKind = WitWaitNone;
+        current_user->Threads[i].WaitHandle = 0;
+        current_user->Threads[i].Deadline = WIT_WAIT_INFINITE;
     }
     wit_handles_close_all(&current_user->Handles);
+    wit_events_initialize(&current_user->Events);
+    user_idle = 0;
     __writemsr(FS_BASE, 0); /* Kernel C has no segment-based TLS. */
     current_user = 0;
     wit_x64_leave_user();
@@ -101,6 +107,10 @@ static WitU64 prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry
     thread->Context = context;
     thread->WaitingOn = NO_THREAD;
     thread->Joiner = NO_THREAD;
+    thread->WaitKind = WitWaitNone;
+    thread->WaitHandle = 0;
+    thread->Deadline = WIT_WAIT_INFINITE;
+    thread->WaitOrder = 0;
     thread->State = WitThreadReady;
     ++process->ThreadCreates;
     return WIT_STATUS_OK;
@@ -152,24 +162,35 @@ static WitU32 thread_index(WitU64 handle)
 static WitInterruptContext *dispatch(int timer, WitU64 last_exit)
 {
     const WitU32 previous = current_user->CurrentThread;
-    for (WitU32 offset = 1; offset <= WIT_USER_THREAD_CAPACITY; ++offset) {
-        const WitU32 index = (previous + offset) % WIT_USER_THREAD_CAPACITY;
-        WitUserThread *thread = &current_user->Threads[index];
-        if (thread->State != WitThreadReady) continue;
-        validate_return(thread->Context, index, 0);
-        if (index != previous) {
-            ++current_user->ThreadSwitches;
-            if (timer) ++current_user->ThreadTimerSwitches;
+    for (;;) {
+        int waiting = 0;
+        wit_user_wait_expire(current_user, wit_x64_clock_ticks());
+        for (WitU32 offset = 1; offset <= WIT_USER_THREAD_CAPACITY; ++offset) {
+            const WitU32 index = (previous + offset) % WIT_USER_THREAD_CAPACITY;
+            WitUserThread *thread = &current_user->Threads[index];
+            if (thread->State == WitThreadWaiting) waiting = 1;
+            if (thread->State != WitThreadReady) continue;
+            validate_return(thread->Context, index, 0);
+            if (index != previous) {
+                ++current_user->ThreadSwitches;
+                if (timer) ++current_user->ThreadTimerSwitches;
+            }
+            current_user->CurrentThread = index;
+            thread->State = WitThreadRunning;
+            wit_x64_set_kernel_stack(stack_low(current_user, index) + WIT_KERNEL_STACK_SIZE);
+            wit_x64_set_user_tls(thread->Tls);
+            return thread->Context;
         }
-        current_user->CurrentThread = index;
-        thread->State = WitThreadRunning;
-        wit_x64_set_kernel_stack(stack_low(current_user, index) + WIT_KERNEL_STACK_SIZE);
-        wit_x64_set_user_tls(thread->Tls);
-        return thread->Context;
+        if (!waiting) finish(WitUserExited, last_exit);
+        /* Remain on this kernel stack until an IRQ returns to the instruction
+         * after HLT. The nested IRQ never replaces any saved user context. */
+        require((wit_x64_read_flags() & 0x200) == 0, "Idle entered with interrupts enabled");
+        __writemsr(FS_BASE, 0);
+        user_idle = 1;
+        ++current_user->IdleHalts;
+        wit_x64_idle_once();
+        user_idle = 0;
     }
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i)
-        require(current_user->Threads[i].State != WitThreadWaiting, "Join cycle escaped validation");
-    finish(WitUserExited, last_exit);
 }
 
 static WitInterruptContext *exit_thread(WitU64 code)
@@ -184,6 +205,7 @@ static WitInterruptContext *exit_thread(WitU64 code)
         waiter->Context->Rax = WIT_STATUS_OK;
         waiter->Context->Rdx = code;
         waiter->WaitingOn = NO_THREAD;
+        waiter->WaitKind = WitWaitNone;
         waiter->State = WitThreadReady;
         thread->Joiner = NO_THREAD;
         ++current_user->ThreadJoins;
@@ -209,7 +231,8 @@ static WitInterruptContext *join_thread(WitInterruptContext *context, WitU64 han
             context->Rax = WIT_STATUS_DEADLOCK;
             return context;
         }
-        if (current_user->Threads[walk].State != WitThreadWaiting) break;
+        if (current_user->Threads[walk].State != WitThreadWaiting ||
+            current_user->Threads[walk].WaitKind != WitWaitJoin) break;
         walk = current_user->Threads[walk].WaitingOn;
         require(walk < WIT_USER_THREAD_CAPACITY, "Invalid join edge");
     }
@@ -223,6 +246,8 @@ static WitInterruptContext *join_thread(WitInterruptContext *context, WitU64 han
     caller = &current_user->Threads[current_user->CurrentThread];
     caller->State = WitThreadWaiting;
     caller->WaitingOn = target;
+    caller->WaitKind = WitWaitJoin;
+    caller->Deadline = WIT_WAIT_INFINITE;
     thread->Joiner = current_user->CurrentThread;
     return dispatch(0, 0);
 }
@@ -231,7 +256,11 @@ static WitU64 close_handle(WitU64 handle)
 {
     const WitU64 status = wit_handle_check(&current_user->Handles, handle, WIT_HANDLE_THREAD, 0);
     WitU32 index;
-    if (status == WIT_STATUS_WRONG_TYPE) return wit_handle_close(&current_user->Handles, handle);
+    if (status == WIT_STATUS_WRONG_TYPE) {
+        const WitU64 event_status = wit_user_event_close(current_user, handle);
+        return event_status == WIT_STATUS_WRONG_TYPE ?
+            wit_handle_close(&current_user->Handles, handle) : event_status;
+    }
     if (status != WIT_STATUS_OK) return status;
     index = thread_index(handle);
     if (current_user->Threads[index].State != WitThreadExited || current_user->Threads[index].Joiner != NO_THREAD)
@@ -267,6 +296,14 @@ int wit_user_create(WitUserProcess *process, WitPageAllocator *allocator,
     process->ThreadJoins = 0;
     process->ThreadReaps = 0;
     process->ThreadDeadlocks = 0;
+    process->NextWaitOrder = 0;
+    process->EventParks = 0;
+    process->EventWakes = 0;
+    process->WaitTimeouts = 0;
+    process->WaitCloses = 0;
+    process->IdleHalts = 0;
+    process->IdleTicks = 0;
+    wit_events_initialize(&process->Events);
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) process->Threads[i].State = WitThreadEmpty;
     wit_handles_initialize(&process->Handles, process->Id);
     slot_owners[slot] = process;
@@ -292,7 +329,7 @@ failed:
 
 void wit_user_run(WitUserProcess *process)
 {
-    require(!current_user && process->State == WitUserReady &&
+    require(!current_user && !user_idle && process->State == WitUserReady &&
         slot_owners[process->Slot] == process &&
         (wit_x64_read_flags() & 0x200) == 0 && __readmsr(FS_BASE) == 0, "Invalid user launch");
     current_user = process;
@@ -313,6 +350,7 @@ void wit_user_destroy(WitUserProcess *process)
 {
     require(current_user != process && process->State != WitUserRunning, "Destroying running component");
     wit_handles_close_all(&process->Handles);
+    wit_events_initialize(&process->Events);
     wit_user_space_destroy(&process->Space);
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) process->Threads[i].State = WitThreadEmpty;
     if (process->Slot < 2 && slot_owners[process->Slot] == process) slot_owners[process->Slot] = 0;
@@ -323,13 +361,25 @@ int wit_user_is_active(void) { return current_user != 0; }
 
 WitInterruptContext *wit_user_timer_tick(WitInterruptContext *context)
 {
-    WitUserThread *thread;
     require(current_user != 0, "User timer without component");
-    validate_return(context, current_user->CurrentThread, 0);
+    if (user_idle) {
+        const WitU64 low = stack_low(current_user, current_user->CurrentThread);
+        require(frame_inside_kernel_stack(context, sizeof(*context), current_user->CurrentThread) &&
+            ((WitU64)context & 15) == 0 && context->Cs == 8 &&
+            (context->Ss == 0 || context->Ss == 0x10) &&
+            context->Rsp >= low && context->Rsp < low + WIT_KERNEL_STACK_SIZE &&
+            context->Rip == (WitU64)wit_x64_idle_resume && __readmsr(FS_BASE) == 0,
+            "Timer did not interrupt the kernel idle path");
+        ++current_user->IdleTicks;
+    } else {
+        WitUserThread *thread = &current_user->Threads[current_user->CurrentThread];
+        validate_return(context, current_user->CurrentThread, 0);
+        thread->Context = context;
+        thread->State = WitThreadReady;
+    }
+    wit_user_wait_expire(current_user, wit_x64_clock_ticks());
     if (++current_user->Ticks >= WIT_USER_TICK_BUDGET) finish(WitUserBudgetExpired, 0);
-    thread = &current_user->Threads[current_user->CurrentThread];
-    thread->Context = context;
-    thread->State = WitThreadReady;
+    if (user_idle) return context; /* Resume CLI/RET and recheck ready threads. */
     return dispatch(1, 0);
 }
 
@@ -340,6 +390,7 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
     WitU64 call, argument0, argument1, argument2;
     require(current_user != 0 && current_user->State == WitUserRunning, "Syscall without component");
     validate_return(context, current_user->CurrentThread, 1);
+    wit_user_wait_expire(current_user, wit_x64_clock_ticks());
     current_user->Threads[current_user->CurrentThread].Context = context;
     call = context->Rax;
     argument0 = context->Rcx;
@@ -381,6 +432,28 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
     case WIT_CALL_MEMORY_RELEASE:
         context->Rax = wit_user_memory_release(&current_user->Space, argument0);
         break;
+    case WIT_CALL_CLOCK_READ:
+        context->Rdx = wit_x64_clock_ticks();
+        break;
+    case WIT_CALL_CLOCK_FREQUENCY:
+        context->Rdx = WIT_CLOCK_FREQUENCY;
+        break;
+    case WIT_CALL_THREAD_SLEEP:
+        context->Rax = wit_user_sleep(current_user, argument0, wit_x64_clock_ticks());
+        break;
+    case WIT_CALL_EVENT_CREATE:
+        context->Rax = wit_event_create(&current_user->Events, &current_user->Handles,
+            argument0, WIT_RIGHT_WAIT | WIT_RIGHT_SIGNAL, &context->Rdx);
+        break;
+    case WIT_CALL_EVENT_SET:
+        context->Rax = wit_user_event_set(current_user, argument0);
+        break;
+    case WIT_CALL_EVENT_RESET:
+        context->Rax = wit_user_event_reset(current_user, argument0);
+        break;
+    case WIT_CALL_EVENT_WAIT:
+        context->Rax = wit_user_event_wait(current_user, argument0, argument1, wit_x64_clock_ticks());
+        break;
     case WIT_CALL_THREAD_CREATE:
         context->Rax = argument2 ? WIT_STATUS_INVALID_ARGUMENT :
             wit_user_thread_create(current_user, argument0, argument1, &context->Rdx);
@@ -402,7 +475,9 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
         context->Rax = WIT_STATUS_UNSUPPORTED;
         break;
     }
-    /* Join may have switched current thread; all other calls retain the caller. */
+    if (current_user->Threads[current_user->CurrentThread].State == WitThreadWaiting)
+        return dispatch(0, 0);
+    /* Join may have switched current thread; nonblocking calls retain the caller. */
     wit_x64_set_user_tls(current_user->Threads[current_user->CurrentThread].Tls);
     return context;
 }

@@ -1,6 +1,6 @@
 # M2 — Sparse user memory
 
-Status: introduced in WitOS 0.0.5; updated for 0.0.6 threads/TLS, 2026-09-16. This extends the [isolated native execution slice](M2-Isolated-Execution.md); the guest still does not run .NET.
+Status: introduced in WitOS 0.0.5; updated through 0.0.7 events/deadlines, 2026-09-17. This extends the [isolated native execution slice](M2-Isolated-Execution.md); the guest still does not run .NET.
 
 ## Purpose and scope
 
@@ -10,9 +10,9 @@ Each address space has a dynamic arena from `0x0000010000000000` (1 TiB, PML4 sl
 
 Prototype limits are eight live reservations and 128 owned physical frames per component. The latter includes its PML4, all private page tables, fixed image/data/stack pages and dynamic backing pages. A normal fixture starts with 13 owned frames including its main-thread TLS page; each additional thread adds five frames for its stack and TLS. These explicit bounds keep syscall work and resource use finite; they are not a suitable final managed-heap quota.
 
-## Memory calls in experimental ABI v3
+## Memory calls in experimental ABI v4
 
-Transport and preservation rules are unchanged: INT 0x80, RAX call, RCX/RDX/R8 arguments, RAX status and RDX result. Startup and query report version 3. Calls 0–3 remain query/write/exit/close. The memory semantics introduced in v2 are unchanged; calls 9–12 add [thread operations](M2-User-Threads-and-Tls.md).
+Transport and preservation rules are unchanged: INT 0x80, RAX call, RCX/RDX/R8 arguments, RAX status and RDX result. Startup and query report version 4. Calls 0–3 remain query/write/exit/close. The memory semantics introduced in v2 are unchanged; calls 9–12 add [thread operations](M2-User-Threads-and-Tls.md).
 
 | Call | RCX | RDX | R8 | Successful result |
 | --- | --- | --- | --- | --- |
@@ -63,7 +63,7 @@ dotnet build WitOS.slnx --configuration Release
 dotnet run --project tools/WitOS.Dev --configuration Release -- test
 ```
 
-The suite retains 17 VM scenarios. Successful boots require 42 M2 groups (21 isolation, 11 memory and 10 thread groups) and 21 contained user faults.
+The suite retains 17 VM scenarios. Successful boots require 56 M2 groups (21 isolation, 11 memory, 10 thread and 14 wait groups) and 21 contained user faults.
 
 | Added group | Evidence |
 | --- | --- |
@@ -83,6 +83,6 @@ Each fault checks selectors, address and expected state, closes handles, frees t
 
 ## Remaining runtime work
 
-This is not a NativeAOT port or a general virtual-memory manager. There is no GC/PAL adapter, reset/write-watch implementation, demand paging, swap, shared mapping, NUMA policy, large pages or dynamic executable allocation. Bounded thread creation, raw TLS and join are implemented; general waits, compiler/managed TLS, runtime exception delivery and GC rendezvous remain absent.
+This is not a NativeAOT port or a general virtual-memory manager. There is no GC/PAL adapter, reset/write-watch implementation, demand paging, swap, shared mapping, NUMA policy, large pages or dynamic executable allocation. Bounded threads, raw TLS, join and events are implemented; compiler/managed TLS, runtime exception delivery and GC rendezvous remain absent.
 
-The next slice is general wait/wake objects and deadlines, followed by runtime coordination. Managed execution requires those mechanisms, an actual upstream runtime build and a supported ABI/backend; the hosted Windows probe remains reference evidence only.
+Next investigate the guest NativeAOT target/bootstrap and runtime coordination. Managed execution requires those mechanisms, an actual upstream runtime build and a supported ABI/backend; the hosted Windows probe remains reference evidence only.

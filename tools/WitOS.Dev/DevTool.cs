@@ -83,7 +83,7 @@ internal static class DevTool
 
         await UserImage.BuildAsync(root, output, msvc);
 
-        string[] sources = ["src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c", "src/Kernel/handles.c", "src/Kernel.Arch.X64/user_space.c", "src/Kernel.Arch.X64/user.c", "src/Kernel.Arch.X64/user_tests.c", "src/Kernel.Arch.X64/user_memory_tests.c", "src/Kernel.Arch.X64/user_thread_tests.c"];
+        string[] sources = ["src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c", "src/Kernel/handles.c", "src/Kernel.Arch.X64/user_space.c", "src/Kernel.Arch.X64/user.c", "src/Kernel.Arch.X64/user_tests.c", "src/Kernel.Arch.X64/user_memory_tests.c", "src/Kernel.Arch.X64/user_thread_tests.c", "src/Kernel/events.c", "src/Kernel.Arch.X64/user_wait.c", "src/Kernel.Arch.X64/user_wait_tests.c"];
         var objects = new List<string>();
         foreach (var source in sources)
         {
@@ -313,7 +313,11 @@ internal static class DevTool
             "MemoryLifecycle",
             "ThreadPreemptionAndTls", "ThreadJoinAndReuse", "ThreadJoinCycle", "ThreadCapacity",
             "ThreadCreationRollback", "ThreadFault", "ThreadGuardLow", "ThreadGuardHigh",
-            "ThreadBadReturn", "ThreadProcessExit", "BadReturn", "TimerBudget", "PreemptionState",
+            "ThreadBadReturn", "ThreadProcessExit",
+            "WaitQueueSemantics", "WaitResourceLimits", "WaitSignalState", "WaitClockAndIdle",
+            "WaitAutoWake", "WaitManualWake", "WaitCloseAndReuse", "WaitHandoff", "WaitDeadlineOrder",
+            "WaitExitCleanup", "WaitIdleBudget", "WaitRights", "WaitActiveTimeout", "WaitJoinChain",
+            "BadReturn", "TimerBudget", "PreemptionState",
             "ZeroFillAndStaleHandles", "Teardown", "Isolation"
         ];
         var markers = new List<string> { "[TEST-PASS] Scheduler.RegisterState", "[TEST-BEGIN] User.Isolation" };

@@ -3,6 +3,7 @@
 #include "x64.h"
 #include "user_layout.h"
 #include "witos/handles.h"
+#include "witos/events.h"
 #include "witos/memory.h"
 
 typedef struct WitUserReservation {
@@ -28,10 +29,18 @@ typedef enum WitUserThreadState {
     WitThreadEmpty, WitThreadReady, WitThreadRunning, WitThreadWaiting, WitThreadExited
 } WitUserThreadState;
 
+typedef enum WitUserWaitKind {
+    WitWaitNone, WitWaitJoin, WitWaitEvent, WitWaitSleep
+} WitUserWaitKind;
+
 typedef struct WitUserThread {
     WitUserThreadState State;
     WitU32 WaitingOn;
     WitU32 Joiner;
+    WitUserWaitKind WaitKind;
+    WitU64 WaitHandle;
+    WitU64 Deadline;
+    WitU64 WaitOrder;
     WitU64 Handle;
     WitU64 StackBottom;
     WitU64 StackTop;
@@ -43,6 +52,7 @@ typedef struct WitUserThread {
 typedef struct WitUserProcess {
     WitUserSpace Space;
     WitHandleTable Handles;
+    WitEventTable Events;
     WitU32 Id;
     WitU32 Slot;
     WitUserState State;
@@ -64,6 +74,13 @@ typedef struct WitUserProcess {
     WitU64 ThreadJoins;
     WitU64 ThreadReaps;
     WitU64 ThreadDeadlocks;
+    WitU64 NextWaitOrder;
+    WitU64 EventParks;
+    WitU64 EventWakes;
+    WitU64 WaitTimeouts;
+    WitU64 WaitCloses;
+    WitU64 IdleHalts;
+    WitU64 IdleTicks;
 } WitUserProcess;
 
 int wit_user_space_create(WitUserSpace *space, WitPageAllocator *allocator);
@@ -79,6 +96,7 @@ WitU64 wit_user_memory_protect(WitUserSpace *space, WitU64 address, WitU64 size,
 WitU64 wit_user_memory_release(WitUserSpace *space, WitU64 address);
 void wit_user_memory_self_test(WitPageAllocator *pages);
 void wit_user_thread_self_test(WitPageAllocator *pages);
+void wit_user_wait_self_test(WitPageAllocator *pages);
 WitU64 wit_virtual_kernel_root(void);
 
 int wit_user_create(WitUserProcess *process, WitPageAllocator *allocator,
@@ -87,6 +105,12 @@ WitU64 wit_user_thread_create(WitUserProcess *process, WitU64 entry, WitU64 argu
 void wit_user_run(WitUserProcess *process);
 void wit_user_destroy(WitUserProcess *process);
 int wit_user_is_active(void);
+void wit_user_wait_expire(WitUserProcess *process, WitU64 now);
+WitU64 wit_user_sleep(WitUserProcess *process, WitU64 deadline, WitU64 now);
+WitU64 wit_user_event_wait(WitUserProcess *process, WitU64 handle, WitU64 deadline, WitU64 now);
+WitU64 wit_user_event_set(WitUserProcess *process, WitU64 handle);
+WitU64 wit_user_event_reset(WitUserProcess *process, WitU64 handle);
+WitU64 wit_user_event_close(WitUserProcess *process, WitU64 handle);
 WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context);
 WitInterruptContext *wit_user_timer_tick(WitInterruptContext *context);
 WIT_NORETURN void wit_user_fault(const WitExceptionFrame *frame, WitU64 address);

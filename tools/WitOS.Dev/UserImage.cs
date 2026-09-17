@@ -33,6 +33,7 @@ internal static class UserImage
         await File.WriteAllTextAsync(Path.Combine(output, "user_abi.inc"), includes, Encoding.ASCII);
         await BuildFixtureAsync(root, output, msvc, constants, "entry", "UserFixture", "wit_user_test_image", "user_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "threads", "ThreadFixture", "wit_user_thread_image", "user_thread_image.h");
+        await BuildFixtureAsync(root, output, msvc, constants, "waits", "WaitFixture", "wit_user_wait_image", "user_wait_image.h");
     }
 
     private static async Task BuildFixtureAsync(string root, string output, string msvc,

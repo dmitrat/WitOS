@@ -18,6 +18,9 @@ extern WitU8 wit_x64_user_kernel_stacks[2][WIT_USER_THREAD_CAPACITY][WIT_KERNEL_
 void wit_x64_stack_guards(WitU64 guards[WIT_STACK_GUARD_COUNT]);
 void wit_x64_timer_start(void);
 void wit_x64_timer_stop(void);
+WitU64 wit_x64_clock_ticks(void);
+void wit_x64_idle_once(void);
+void wit_x64_idle_resume(void);
 extern WitU64 wit_x64_isr_table[256];
 
 #pragma pack(push, 1)

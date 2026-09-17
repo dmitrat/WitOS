@@ -136,7 +136,7 @@ These are architecture drafts intended for continued review and revision rather 
 
 The initial native milestone now has a concrete boot contract and runnable implementation:
 
-- [RFC 0011 — Kernel Architecture & ABI](RFC-0011-Kernel-Architecture-and-ABI.md) — Draft v0.6, boot v2, kernel execution and experimental user ABI.
+- [RFC 0011 — Kernel Architecture & ABI](RFC-0011-Kernel-Architecture-and-ABI.md) — Draft v0.7, boot v2, kernel execution and experimental user ABI.
 - [M0 implementation and validation](Implementation/M0-Boot.md).
 - [M1 memory and exception foundation](Implementation/M1-Memory-and-Exceptions.md) — first slice, eleven VM scenarios.
 - [M1 kernel core](Implementation/M1-Kernel-Core.md) — paging, protection and preemptive execution; seventeen VM scenarios.
@@ -146,6 +146,7 @@ The initial native milestone now has a concrete boot contract and runnable imple
 - [M2 implementation and experimental ABI](Implementation/M2-Isolated-Execution.md) — ring 3, private mappings/handles and contained user faults.
 - [M2 sparse user memory](Implementation/M2-User-Memory.md) — reserve/commit/decommit/protect/release, recoverable exhaustion and ABI v2.
 - [M2 user threads and TLS](Implementation/M2-User-Threads-and-Tls.md) — bounded preemption, raw TLS, join/exit, cleanup and ABI v3.
+- [M2 events and deadlines](Implementation/M2-Events-and-Deadlines.md) — persistent signals, close/timeout ordering, kernel idle and ABI v4.
 - [Immediate next steps](Implementation/Next-Steps.md).
 
 The earlier RFCs describe the long-term vision. These implementation notes distinguish working behavior from future runtime and operating-system features.

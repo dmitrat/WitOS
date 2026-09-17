@@ -29,6 +29,8 @@ static void require(int condition, const char *message)
 
 static void io_wait(void) { __outbyte(0x80, 0); }
 
+WitU64 wit_x64_clock_ticks(void) { return timer_ticks; }
+
 void wit_x64_timer_start(void)
 {
     const WitU64 apic = __readmsr(0x1B);
@@ -87,7 +89,7 @@ WitInterruptContext *wit_x64_timer_interrupt(WitInterruptContext *context)
 {
     WitU64 low;
     WitU64 high;
-    ++timer_ticks;
+    if (timer_ticks < WIT_WAIT_INFINITE - 1) ++timer_ticks; /* Saturate; never wrap deadlines. */
     __outbyte(0x20, 0x20); /* EOI before dispatching a different context. */
     if (wit_user_is_active()) return wit_user_timer_tick(context);
     if (!scheduling) return context;

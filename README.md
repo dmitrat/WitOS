@@ -6,9 +6,9 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 
 ## Current status
 
-**WitOS 0.0.6: isolated native execution, sparse memory, user threads and raw TLS are implemented.**
+**WitOS 0.0.7: isolated native execution, memory, threads/TLS, events and deadlines are implemented.**
 
-The kernel boots independently through UEFI and now runs a separately built native component in ring 3 with private user mappings and handles. The component writes through a checked syscall and exits; its faults are contained while the kernel runs the next component. Within a component, up to four user threads can run with timer preemption, separate stacks/TLS and blocking join. M1 paging, protection, timer and kernel-context checks remain part of every successful boot.
+The kernel boots independently through UEFI and now runs a separately built native component in ring 3 with private user mappings and handles. The component writes through a checked syscall and exits; its faults are contained while the kernel runs the next component. Within a component, up to four user threads can run with timer preemption, separate stacks/TLS and blocking join. Manual/auto-reset events, sleep and absolute deadlines work with kernel idle when all threads are blocked. M1 paging, protection, timer and kernel-context checks remain part of every successful boot.
 
 **The guest does not run .NET yet.** The C# code in `tools/` runs on the development computer. NativeAOT system components are a later milestone; standard CoreCLR applications follow after that.
 
@@ -39,7 +39,7 @@ Expected guest output includes:
 ```text
 [BOOT] UEFI x64 adapter
 [BOOT] ExitBootServices OK
-WitOS 0.0.6 (M2 user threads and TLS)
+WitOS 0.0.7 (M2 events and deadlines)
 Build: <git-revision> | x64 | Debug
 [TEST-BEGIN] Boot.Contract
 [TEST-PASS] Boot.Contract
@@ -90,7 +90,7 @@ The integration suite boots seventeen real VM scenarios:
 
 Normal boots also verify map/protect/unmap behavior, aliasing, TLB invalidation, timer delivery, progress of both preempted contexts and preserved GPR/SSE state. Exception tests validate vector, error code, register frame, fault address and stack selection. The double-fault test deliberately invalidates the main stack and requires diagnostics from the emergency stack.
 
-Successful boots also require 42 M2 groups: ring-3 entry, ABI/handles, private memory, user-fault containment, safe return state, timer budgeting, register/flag preservation, zero-fill and resource teardown, plus sparse reservations, commit/decommit/protect/release, recoverable exhaustion and hardware memory faults, plus user-thread preemption, TLS/register state, join/cycle handling, slot reuse and child-fault cleanup. They run within the same real VM.
+Successful boots also require 56 M2 groups: ring-3 entry, ABI/handles, private memory, user-fault containment, safe return state, timer budgeting, register/flag preservation, zero-fill and resource teardown, plus sparse reservations, commit/decommit/protect/release, recoverable exhaustion and hardware memory faults, plus user-thread preemption, TLS/register state, join/cycle handling, slot reuse and child-fault cleanup, plus event state/rights, wakeups, close/timeout ordering, signal handoff and kernel idle. They run within the same real VM.
 
 Every test creates fresh firmware variable storage. A timeout, unexpected exit, panic or missing success marker fails an ordinary boot test.
 
@@ -104,6 +104,7 @@ artifacts/x64/boot/WitOS.map        Native link map
 artifacts/x64/boot/build.txt        Source revision and toolchain
 artifacts/x64/boot/UserFixture.pe  Separately linked isolation/memory fixture
 artifacts/x64/boot/ThreadFixture.pe Separately linked thread/TLS fixture
+artifacts/x64/boot/WaitFixture.pe   Separately linked event/deadline fixture
 artifacts/logs/                   Serial, stderr and outcome logs
 ```
 
@@ -139,9 +140,9 @@ The core kernel does not include UEFI structures. The output is a freestanding P
 
 ## Scope and next work
 
-M2 uses two fixed component slots and activates one component at a time. Up to four threads share its private address space and handles; each has separate guarded user/kernel stacks and a raw FS-based TLS block. Shared kernel mappings stay supervisor-only. Known one-page native images use experimental ABI v3 for query/write/exit/close, memory and thread operations. Each space can reserve within a separate 64 GiB virtual arena without allocating backing RAM; commitment is explicitly limited to 128 owned frames including page tables and fixed mappings. Firmware memory remains reserved, and usable physical addresses remain below 4 GiB.
+M2 uses two fixed component slots and activates one component at a time. Up to four threads share its private address space and handles; each has separate guarded user/kernel stacks and a raw FS-based TLS block. Shared kernel mappings stay supervisor-only. Known one-page native images use experimental ABI v4 for query/write/exit/close, memory, thread, event and clock operations. Each space can reserve within a separate 64 GiB virtual arena without allocating backing RAM; commitment is explicitly limited to 128 owned frames including page tables and fixed mappings. Firmware memory remains reserved, and usable physical addresses remain below 4 GiB.
 
-User faults terminate that component; kernel faults remain fatal diagnostics. General executable loading, compiler/managed TLS, general wait objects, IPC channels, SMP and managed execution remain future work. Next are persistent wait/wake objects and monotonic deadlines. The runtime adapters and scalable quotas still need implementation.
+User faults terminate that component; kernel faults remain fatal diagnostics. General executable loading, compiler/managed TLS, mutexes/multi-object waits, IPC channels, SMP and managed execution remain future work. Next is a pinned NativeAOT target/bootstrap experiment to select the guest ABI and concrete runtime adapters. The current clock counts delivered PIT ticks (nominal 100 Hz), pauses when IRQ0 is disabled and does not provide calibrated elapsed time.
 
 - [Architecture document index](@Docs/README.md)
 - [M0 implementation history](@Docs/Implementation/M0-Boot.md)
@@ -150,5 +151,6 @@ User faults terminate that component; kernel faults remain fatal diagnostics. Ge
 - [M2 isolated native execution and ABI](@Docs/Implementation/M2-Isolated-Execution.md)
 - [M2 sparse user memory and failure semantics](@Docs/Implementation/M2-User-Memory.md)
 - [M2 user threads, TLS and join](@Docs/Implementation/M2-User-Threads-and-Tls.md)
+- [M2 events, deadlines and kernel idle](@Docs/Implementation/M2-Events-and-Deadlines.md)
 - [RFC 0011: initial kernel boot contract](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md)
 - [Immediate development sequence](@Docs/Implementation/Next-Steps.md)
