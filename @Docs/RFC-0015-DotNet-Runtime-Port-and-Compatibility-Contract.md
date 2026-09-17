@@ -1,6 +1,6 @@
 # RFC 0015 — .NET Runtime Port & Compatibility Contract
 
-Draft v0.8. Status: source inventory, hosted evidence probes, bounded M2 mechanisms guest native C bootstrap and first GC memory-interface adapter implemented; guest managed runtime port not implemented.
+Draft v0.9. Status: source inventory, hosted evidence probes, bounded M2 mechanisms guest native C bootstrap and first GC memory-interface adapter implemented; guest managed runtime port not implemented.
 
 ## 1. Evidence baseline
 
@@ -14,7 +14,7 @@ This RFC targets upstream .NET **10.0.8**:
 - package VMR commit: `94ea82652cdd4e0f8046b5bd5becbd11461482ca`
 - host SDK: `10.0.300`, from the repository's global.json
 
-The VMR source manifest maps its runtime component to the pinned runtime commit. The checked-in [source lock](../experiments/NativeAotProbe/upstream.lock.json) records SHA-256 hashes for 31 selected source/license files and the VMR manifest. The [NuGet lock](../experiments/NativeAotProbe/packages.lock.json) pins the compiler packages and their content hashes.
+The VMR source manifest maps its runtime component to the pinned runtime commit. The checked-in [source lock](../experiments/NativeAotProbe/upstream.lock.json) records SHA-256 hashes for 32 selected source/license files and the VMR manifest. The [NuGet lock](../experiments/NativeAotProbe/packages.lock.json) pins the compiler packages and their content hashes.
 
 These are selected integration sources, not a complete dependency closure. This is a reference version for investigation, not a claim that it is the newest release.
 
@@ -145,7 +145,7 @@ The immediate M2 slice only needs separate user mappings, a versioned call bound
 - **Evidence gate, implemented:** pinned sources/package provenance, actual hosted NativeAOT binary, semantic smoke tests and direct-import report.
 - **Target/bootstrap evidence gate, implemented on Windows:** pinned static ILC archive, native C-host entry with real GC/TLS, COFF/PE metadata and strict-link failure inventory. A restricted native PE loader is now implemented; actual runtime bootstrap remains pending.
 - **Initial M2 isolation gate, implemented for the controlled fixture:** native unprivileged component, checked pointers/handles, private mappings and contained faults. See [M2 limits and evidence](Implementation/M2-Isolated-Execution.md); general DLL/import/TLS/unwind support and actual runtime services are still pending.
-- **First source-adapter gate, implemented:** native GC memory methods compile against pinned, unchanged upstream headers and execute through WitOS syscalls in QEMU; missing GC initialization is rejected at link time. This does not execute the collector.
+- **First source-adapter gate, implemented:** native GC memory methods compile against pinned, unchanged upstream headers and execute through WitOS syscalls in QEMU; the later [discovery extension](Implementation/NativeAot-Gc-Discovery.md) implements environment initialization and live quota/physical accounting. Missing GC performance-clock support remains rejected at link time. This does not execute the collector.
 - **Native source-build gate, implemented:** full upstream nativeaot libraries, a tested source-built Windows reference, and a source-built workstation archive with the WitOS memory adapter. Strict linking records incomplete GC/OS requirements; guest execution remains pending.
 - **Runtime substrate gate, pending:** memory lifecycle, TLS, blocking/waking and runtime-coordinated suspension have executable tests.
 - **M3 gate, pending:** the real NativeAOT component passes the relevant probe cases inside WitOS, including GC and thread activity. Report disabled features and all upstream changes.

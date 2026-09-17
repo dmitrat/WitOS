@@ -11,7 +11,7 @@ internal static class RuntimePortImage
     internal const string Backend = "windows-x64-codegen-witos-pal";
     private static readonly string[] UpstreamInputs =
     [
-        "src/coreclr/gc/env/gcenv.os.h", "src/coreclr/gc/env/gcenv.base.h",
+        "src/coreclr/gc/env/gcenv.os.h", "src/coreclr/gc/env/gcenv.base.h", "src/coreclr/gc/env/gcenv.windows.inl",
         "src/coreclr/gc/env/gcenv.structs.h", "src/native/minipal/utils.h",
         "src/native/minipal/mutex.h", "LICENSE.TXT"
     ];
@@ -40,7 +40,7 @@ internal static class RuntimePortImage
         string[] compile =
         [
             "/nologo", "/c", "/TP", "/std:c++17", "/W4", "/WX", "/GS-", "/Zl", "/Oi", "/O1", "/GR-",
-            "/DHOST_WINDOWS", "/DTARGET_WINDOWS", "/DHOST_AMD64", "/DTARGET_AMD64", "/DTARGET_64BIT",
+            "/DHOST_64BIT", "/DHOST_WINDOWS", "/DTARGET_WINDOWS", "/DHOST_AMD64", "/DTARGET_AMD64", "/DTARGET_64BIT",
             "/DNDEBUG", "/DWIN32_LEAN_AND_MEAN", "/DNOMINMAX",
             $"/I{Path.Combine(vc, "include")}", $"/I{Path.Combine(sdk, "ucrt")}",
             $"/I{Path.Combine(sdk, "um")}", $"/I{Path.Combine(sdk, "shared")}",
@@ -48,7 +48,7 @@ internal static class RuntimePortImage
             $"/I{Path.Combine(root, "src", "Runtime.NativeAot")}", $"/I{Path.Combine(root, "src", "System.Native")}",
             $"/I{Path.Combine(root, "src", "Kernel", "include")}", $"/I{Path.Combine(root, "tests", "User.X64")}"
         ];
-        string[] sources = ["src/Runtime.NativeAot/gcenv.witos.cpp", "tests/User.X64/gc_memory.cpp", "tests/User.X64/gc_missing.cpp"];
+        string[] sources = ["src/Runtime.NativeAot/gcenv.witos.cpp", "tests/User.X64/gc_memory.cpp", "tests/User.X64/gc_missing.cpp", "tests/User.X64/gc_discovery.cpp"];
         var objects = new List<string>();
         foreach (var source in sources)
         {
@@ -67,12 +67,12 @@ internal static class RuntimePortImage
         var errors = Regex.Matches(diagnostic, @"error LNK\d+:[^\r\n]*");
         if (missing.TimedOut || missing.ExitCode == 0 || errors.Count != 2 ||
             errors.Count(e => e.Value.Contains("LNK2019:", StringComparison.Ordinal) &&
-                e.Value.Contains("?Initialize@GCToOSInterface@@SA_NXZ", StringComparison.Ordinal)) != 1 ||
+                e.Value.Contains("?QueryPerformanceFrequency@GCToOSInterface@@SA_JXZ", StringComparison.Ordinal)) != 1 ||
             errors.Count(e => e.Value.Contains("LNK1120: 1 ", StringComparison.Ordinal)) != 1)
-            throw new InvalidDataException($"Expected exactly the unimplemented GC initialization link failure.\n{diagnostic}");
+            throw new InvalidDataException($"Expected exactly the unimplemented GC performance clock link failure.\n{diagnostic}");
         var image = Path.Combine(output, "GcMemoryFixture.pe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
-            [.. link, $"/out:{image}", $"/map:{Path.Combine(output, "GcMemoryFixture.map")}", objects[1]], root);
+            [.. link, $"/out:{image}", $"/map:{Path.Combine(output, "GcMemoryFixture.map")}", objects[1], objects[3]], root);
         var bytes = await File.ReadAllBytesAsync(image);
         using var stream = new MemoryStream(bytes, writable: false);
         using var pe = new PEReader(stream);
@@ -90,12 +90,12 @@ internal static class RuntimePortImage
         var report = new
         {
             backend = Backend, pin.RuntimeVersion, pin.RuntimeCommit,
-            scope = "Source-level GCToOSInterface memory slice; no collector or managed code linked. Guest execution is checked separately by the VM runner.",
-            guestManagedRuntime = false, missingGcInitializationRejected = true,
+            scope = "Source-level GCToOSInterface memory/discovery slice; no collector or managed code linked. Guest execution is checked separately by the VM runner.",
+            guestManagedRuntime = false, missingGcPerformanceClockRejected = true,
             upstreamInputs = pin.Sources.Where(s => UpstreamInputs.Contains(s.Path)),
             localInputs = sources.Append("src/Runtime.NativeAot/gcenv.witos.h").Append("src/Kernel.Arch.X64/native_start.asm")
                 .Concat(["src/System.Native/bootstrap.h", "src/Kernel/include/witos/user_abi.h",
-                    "src/Kernel/include/witos/types.h", "src/Kernel/include/witos/image_info.h", "tests/User.X64/protocol.h"])
+                    "src/Kernel/include/witos/types.h", "src/Kernel/include/witos/image_info.h", "src/Kernel/include/witos/memory_info.h", "tests/User.X64/protocol.h"])
                 .Select(p => new { path = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, p)))).ToLowerInvariant() }),
             compiler = msvc, sdkVersion,
             imageBytes = bytes.Length, imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
@@ -103,6 +103,6 @@ internal static class RuntimePortImage
         };
         await File.WriteAllTextAsync(Path.Combine(output, "gc-memory-build.json"),
             JsonSerializer.Serialize(report, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
-        Console.WriteLine($"GcMemoryFixture: {bytes.Length} bytes; pinned upstream interface, WitOS syscalls, no OS/CRT imports; missing GC startup rejected.");
+        Console.WriteLine($"GcMemoryFixture: {bytes.Length} bytes; pinned upstream interface, WitOS syscalls, no OS/CRT imports; missing GC performance clock rejected.");
     }
 }

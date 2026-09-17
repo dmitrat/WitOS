@@ -4,6 +4,7 @@
 #include "gc_memory_image.h"
 
 static WitUserProcess process;
+static WitPageAllocator limited_pages;
 static void require(int condition, const char* message)
 {
     if (!condition) wit_panic(message);
@@ -11,20 +12,35 @@ static void require(int condition, const char* message)
 static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
 {
     const WitU64 free_before = wit_pages_free_count(pages);
-    WitU32 owned;
+    WitU32 owned, table_pages = 0;
+    WitU64 free_active;
     WitUserTestConfig* config;
     require(wit_user_create_pe(&process, pages, 0, wit_gc_memory_image,
         sizeof(wit_gc_memory_image), base) == WitPeOk, "GC memory fixture load failed");
     config = (WitUserTestConfig*)wit_user_space_physical(&process.Space, WIT_USER_INFO, 0, 0);
     config->Mode = mode;
     owned = process.Space.OwnedCount;
+    free_active = wit_pages_free_count(pages);
+    for (WitU32 i = 0; i < owned; ++i) if (!process.Space.OwnedVirtual[i]) ++table_pages;
     wit_user_run(&process);
-    if (mode == WIT_GC_TEST_NORMAL) {
+    if (mode == WIT_GC_TEST_NORMAL || mode == WIT_GC_TEST_DISCOVERY) {
         if (process.State != WitUserExited || process.ExitCode != WIT_TEST_EXIT_CODE) {
             wit_console_write("GC memory fixture state/code: ");
             wit_console_write_u64(process.State); wit_console_write("/");
             wit_console_write_u64(process.ExitCode); wit_console_write("\n");
             wit_panic("GC memory adapter contract failed");
+        }
+        if (mode == WIT_GC_TEST_DISCOVERY) {
+            const WitUserMemoryInfo* info = (const WitUserMemoryInfo*)wit_user_space_physical(
+                &process.Space, WIT_GC_INFO_REPORT, 0, 0);
+            require(info && info->Version == WIT_MEMORY_INFO_VERSION && info->Size == sizeof(*info) &&
+                info->PhysicalTotalBytes == pages->TotalPages * WIT_PAGE_SIZE &&
+                info->PhysicalAvailableBytes == free_active * WIT_PAGE_SIZE &&
+                info->OwnedLimitBytes == WIT_USER_PAGE_CAPACITY * WIT_PAGE_SIZE &&
+                info->OwnedBytes == owned * WIT_PAGE_SIZE && info->PrivatePageTableBytes == table_pages * WIT_PAGE_SIZE &&
+                info->VirtualBase == WIT_USER_MEMORY_BASE && info->VirtualBytes == WIT_USER_MEMORY_LIMIT - WIT_USER_MEMORY_BASE &&
+                info->ReservationCapacity == WIT_USER_RESERVATION_CAPACITY && !info->ReservationCount &&
+                !info->ReservedBytes && !info->DynamicCommittedBytes, "Guest memory snapshot disagrees with allocator");
         }
         require(process.Space.OwnedCount == owned, "GC adapter leaked backing or private page tables");
         for (WitU32 i = 0; i < WIT_USER_RESERVATION_CAPACITY; ++i)
@@ -49,6 +65,24 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
     wit_user_destroy(&process);
     require(wit_pages_free_count(pages) == free_before, "GC adapter teardown leaked physical memory");
 }
+static void limited_discovery(WitPageAllocator* pages)
+{
+    WitU64 borrowed[48];
+    WitMemoryRegion regions[48];
+    const WitU64 before = wit_pages_free_count(pages);
+    for (WitU32 i = 0; i < 48; ++i) {
+        require(wit_page_allocate(pages, &borrowed[i]), "Cannot borrow GC discovery frame");
+        regions[i].Base = borrowed[i];
+        regions[i].Length = WIT_PAGE_SIZE;
+        regions[i].Kind = WIT_MEMORY_USABLE;
+        regions[i].Reserved = 0;
+    }
+    require(wit_pages_initialize(&limited_pages, regions, 48), "Cannot initialize limited GC allocator");
+    run(&limited_pages, WIT_GC_TEST_DISCOVERY, WIT_USER_IMAGE_BASE);
+    require(wit_pages_free_count(&limited_pages) == 48, "Limited GC discovery leaked");
+    for (WitU32 i = 0; i < 48; ++i) require(wit_page_free(pages, borrowed[i]), "Cannot return GC discovery frame");
+    require(wit_pages_free_count(pages) == before, "GC pressure fixture leaked real RAM");
+}
 void wit_user_gc_self_test(WitPageAllocator* pages)
 {
     run(pages, WIT_GC_TEST_NORMAL, WIT_USER_IMAGE_BASE);
@@ -64,4 +98,9 @@ void wit_user_gc_self_test(WitPageAllocator* pages)
     run(pages, WIT_GC_TEST_NX, WIT_USER_IMAGE_BASE);
     run(pages, WIT_GC_TEST_NORMAL, WIT_USER_IMAGE_BASE);
     wit_console_write("[TEST-PASS] User.GcMemoryNx\n");
+    run(pages, WIT_GC_TEST_DISCOVERY, WIT_USER_IMAGE_BASE);
+    run(pages, WIT_GC_TEST_DISCOVERY, WIT_USER_IMAGE_ALTERNATE);
+    wit_console_write("[TEST-PASS] User.GcEnvironmentInit\n[TEST-PASS] User.GcMemoryInformation\n[TEST-PASS] User.GcInformationBuffers\n");
+    limited_discovery(pages);
+    wit_console_write("[TEST-PASS] User.GcPhysicalPressure\n");
 }

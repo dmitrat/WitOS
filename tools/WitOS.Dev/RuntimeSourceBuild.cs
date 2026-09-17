@@ -37,8 +37,8 @@ internal static class RuntimeSourceBuild
         var referenceHost = await RunReferenceAsync(root, output, target, msvc, publishedInputs, referenceInputs);
         var boundary = await RuntimeTargetExperiment.LinkBoundaryAsync(msvc, output,
             Path.Combine(target, "static", "NativeAotTarget.lib"), portedInputs, "witos-without-platform");
-        string[] implemented = ["VirtualReserve@", "VirtualCommit@", "VirtualDecommit@", "VirtualRelease@", "SupportsWriteWatch@"];
-        if (!boundary.Unresolved.Any(s => s.Contains("Initialize@GCToOSInterface", StringComparison.Ordinal)) ||
+        string[] implemented = ["VirtualReserve@", "VirtualCommit@", "VirtualDecommit@", "VirtualRelease@", "SupportsWriteWatch@", "Initialize@", "Shutdown@", "GetTotalProcessorCount@", "GetPhysicalMemoryLimit@", "GetVirtualMemoryLimit@", "GetVirtualMemoryMaxAddress@", "GetMemoryStatus@", "CanEnableGCCPUGroups@", "CanEnableGCNumaAware@"];
+        if (!boundary.Unresolved.Any(s => s.Contains("QueryPerformanceFrequency@GCToOSInterface", StringComparison.Ordinal)) ||
             !boundary.Unresolved.Any(s => s.Contains("GCEvent", StringComparison.Ordinal)) ||
             !boundary.Unresolved.Contains("wit_native_call") ||
             !boundary.Unresolved.Contains("_tls_index") ||
@@ -62,7 +62,7 @@ internal static class RuntimeSourceBuild
             ported = new { ported.ArchiveSha256, members = ported.Members, compileUnits = ported.Commands.Length },
             sourceOverlay = new[] { "src/Runtime.NativeAot/runtime-overlay.cmake", "src/Runtime.NativeAot/gcenv.witos.cpp",
                 "src/Runtime.NativeAot/gcenv.witos.h", "src/System.Native/bootstrap.h", "src/Kernel/include/witos/types.h",
-                "src/Kernel/include/witos/user_abi.h", "src/Kernel/include/witos/image_info.h" }
+                "src/Kernel/include/witos/user_abi.h", "src/Kernel/include/witos/image_info.h", "src/Kernel/include/witos/memory_info.h" }
                 .Select(p => new { path = p, sha256 = Hash(Path.Combine(root, p)) }),
             referenceInputs = referenceInputs.Select(p => new { file = Path.GetFileName(p), sha256 = Hash(p) }),
             portedInputs = portedInputs.Select(p => new { file = Path.GetFileName(p), sha256 = Hash(p) }),

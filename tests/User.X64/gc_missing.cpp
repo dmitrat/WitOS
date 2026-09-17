@@ -1,6 +1,6 @@
 #include "gcenv.witos.h"
-/* Deliberate negative link root: the memory slice must not claim GC startup. */
+/* Deliberate negative link root: PIT ticks do not implement the GC performance clock. */
 extern "C" WitU64 wit_native_main(const WitUserStartup*)
 {
-    return GCToOSInterface::Initialize() ? 0 : 1;
+    return (WitU64)GCToOSInterface::QueryPerformanceFrequency();
 }

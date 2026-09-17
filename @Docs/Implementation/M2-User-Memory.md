@@ -10,7 +10,7 @@ Each address space has a dynamic arena from `0x0000010000000000` (1 TiB, PML4 sl
 
 Prototype limits are eight live reservations and 128 owned physical frames per component. The latter includes its PML4, all private page tables, fixed image/data/stack pages and dynamic backing pages. A normal fixture starts with 13 owned frames including its main-thread TLS page; each additional thread adds five frames for its stack and TLS. These explicit bounds keep syscall work and resource use finite; they are not a suitable final managed-heap quota.
 
-## Memory calls in experimental ABI v5
+## Memory calls in experimental ABI v6
 
 Transport and preservation rules are unchanged: INT 0x80, RAX call, RCX/RDX/R8 arguments, RAX status and RDX result. Startup and query report version 5. Calls 0–3 remain query/write/exit/close. The memory semantics introduced in v2 are unchanged; calls 9–12 add [thread operations](M2-User-Threads-and-Tls.md).
 
@@ -63,7 +63,7 @@ dotnet build WitOS.slnx --configuration Release
 dotnet run --project tools/WitOS.Dev --configuration Release -- test
 ```
 
-The suite retains 17 VM scenarios. Successful boots require 89 user groups (21 isolation, 11 memory, 10 thread, 14 wait, 16 image, 11 native-bootstrap and six GC memory-adapter groups) and 33 contained user faults.
+The suite retains 17 VM scenarios. Successful boots require 93 user groups (21 isolation, 11 memory, 10 thread, 14 wait, 16 image, 11 native-bootstrap and ten GC memory/discovery groups) and 33 contained user faults.
 
 | Added group | Evidence |
 | --- | --- |

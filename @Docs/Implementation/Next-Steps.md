@@ -5,23 +5,23 @@ The core objective remains a minimal hardware-dependent kernel, a common system 
 ## Completed
 
 - M0 boot and M1 paging/protection/timer/kernel-context foundation.
-- Seventeen VM scenarios with 89 required user groups and 33 contained user faults in successful boots.
+- Seventeen VM scenarios with 93 required user groups and 33 contained user faults in successful boots.
 - M2 ring-3 isolation, sparse memory, bounded threads/raw FS TLS/join, events/deadlines and idle.
 - Bounded guest PE loading with section protection, zero-fill, relocations and allocation rollback.
-- ABI v5 readonly image description; user-space C startup with checked callbacks, run-once state and reverse cleanup.
+- ABI v6 retains the readonly image description and adds an atomic allocator snapshot; user-space C startup with checked callbacks, run-once state and reverse cleanup.
 - Structural validation/exposure of ordinary x64 function/unwind metadata, without exception dispatch or stack walking.
-- .NET 10.0.8 audit of 31 source/license files and two hosted NativeAOT evidence probes.
+- .NET 10.0.8 audit of 32 source/license files and two hosted NativeAOT evidence probes.
 - Source-port direction selected: Windows x64 code generation/PE plus an explicit WitOS user-space adapter.
-- First GCToOSInterface memory slice compiled against unchanged pinned headers and executed in ring 3; unsupported GC initialization still fails strict linking.
+- GC memory and discovery methods compile against unchanged pinned headers and execute in ring 3; initialization validates ABI/snapshot data, while unsupported GC clocks/events remain unresolved.
 - Full upstream nativeaot component built from the pinned source tree in separate Windows-reference and WitOS-overlay profiles; source-built Windows GC/TLS execution passes and incomplete WitOS dependencies are inventoried.
 
-See [native module/bootstrap handoff](M2-Native-Module-Bootstrap.md), [NativeAOT target evidence](NativeAot-Target-Bootstrap.md), [backend decision and memory adapter](NativeAot-Gc-Memory-Port.md), [full native source build](NativeAot-Source-Build.md) and [RFC 0015](../RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md).
+See [native module/bootstrap handoff](M2-Native-Module-Bootstrap.md), [NativeAOT target evidence](NativeAot-Target-Bootstrap.md), [backend decision and memory adapter](NativeAot-Gc-Memory-Port.md), [full native source build](NativeAot-Source-Build.md), [GC discovery](NativeAot-Gc-Discovery.md) and [RFC 0015](../RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md).
 
-WitOS 0.0.10 executes the native memory adapter in the guest. It still does not run .NET or its collector there.
+WitOS 0.0.11 executes the native memory/discovery adapter in the guest. It still does not run .NET or its collector there.
 
 ## Next: extend the selected source port
 
-1. Use the source-built archive's unresolved-symbol inventory to implement real GC environment initialization, memory/CPU discovery and synchronization; connect runtime thread attachment/TLS to the tested WitOS lifecycle. Keep unimplemented methods unresolved rather than returning synthetic success.
+1. Use the source-built archive's unresolved-symbol inventory to implement real GC events/synchronization and suitable timing; connect runtime thread attachment/TLS to the tested WitOS lifecycle. Keep unimplemented methods unresolved rather than returning synthetic success.
 2. Add module boundaries, fault/context delivery, unwinding and process-local GC rendezvous; expand image/stack/commit limits for the actual profile.
 3. Keep ReadyToRun/TypeManager/GC-static/frozen-object/eager-constructor initialization inside the real user-space runtime. It already requires real GC support.
 4. Replace delivered-PIT-tick timing with a suitable elapsed-time source before claiming full runtime timing.

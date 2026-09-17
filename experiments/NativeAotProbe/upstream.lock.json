@@ -132,6 +132,10 @@
                     {
                         "path":  "LICENSE.TXT",
                         "sha256":  "cfc21f5e8bd655ae997eec916138b707b1d290b83272c02a95c9f821b8c87310"
+                    },
+                    {
+                        "path":  "src/coreclr/gc/env/gcenv.windows.inl",
+                        "sha256":  "bad826c0e5b54a558f0021f4389ef0ffea11868baa21c54b9666a6dd7821597a"
                     }
                 ]
 }

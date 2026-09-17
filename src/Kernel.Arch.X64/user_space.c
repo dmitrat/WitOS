@@ -188,6 +188,53 @@ int wit_user_copy_from(const WitUserSpace *space, WitU64 address, WitU8 *buffer,
     return 1;
 }
 
+int wit_user_copy_to(const WitUserSpace *space, WitU64 address, const WitU8 *buffer, WitU32 size)
+{
+    const WitU64 limit = address_limit(address);
+    if (size == 0) return 1;
+    if (!limit || size > limit - address) return 0;
+    /* No output until every destination page is validated. IF is clear for the
+     * entire validation/copy, so a sibling cannot decommit between the passes. */
+    for (WitU64 p = address & ~4095ULL; p <= ((address + size - 1) & ~4095ULL); p += 4096)
+        if (!wit_user_space_physical(space, p, 1, 0)) return 0;
+    for (WitU32 i = 0; i < size; ++i)
+        *(WitU8 *)wit_user_space_physical(space, address + i, 1, 0) = buffer[i];
+    return 1;
+}
+
+WitU64 wit_user_memory_query(const WitUserSpace *space, WitU64 address, WitU64 size, WitU64 version)
+{
+    WitUserMemoryInfo info;
+    if (version != WIT_MEMORY_INFO_VERSION) return WIT_STATUS_UNSUPPORTED;
+    if (size != sizeof(info)) return WIT_STATUS_INVALID_ARGUMENT;
+    info.Version = WIT_MEMORY_INFO_VERSION;
+    info.Size = sizeof(info);
+    info.PageSize = (WitU32)WIT_PAGE_SIZE;
+    info.ProcessorCount = 1; /* Only the bootstrap CPU is online in this backend. */
+    info.PhysicalTotalBytes = space->Allocator->TotalPages * WIT_PAGE_SIZE;
+    info.PhysicalAvailableBytes = wit_pages_free_count(space->Allocator) * WIT_PAGE_SIZE;
+    info.OwnedLimitBytes = WIT_USER_PAGE_CAPACITY * WIT_PAGE_SIZE;
+    info.OwnedBytes = space->OwnedCount * WIT_PAGE_SIZE;
+    info.VirtualBase = WIT_USER_MEMORY_BASE;
+    info.VirtualBytes = WIT_USER_MEMORY_LIMIT - WIT_USER_MEMORY_BASE;
+    info.ReservedBytes = 0;
+    info.DynamicCommittedBytes = 0;
+    info.PrivatePageTableBytes = 0;
+    info.ReservationCount = 0;
+    info.ReservationCapacity = WIT_USER_RESERVATION_CAPACITY;
+    for (WitU32 i = 0; i < WIT_USER_RESERVATION_CAPACITY; ++i) {
+        info.ReservedBytes += space->Reservations[i].Size;
+        if (space->Reservations[i].Size) ++info.ReservationCount;
+    }
+    for (WitU32 i = 0; i < space->OwnedCount; ++i) {
+        const WitU64 address_owned = space->OwnedVirtual[i];
+        if (!address_owned) info.PrivatePageTableBytes += WIT_PAGE_SIZE;
+        else if (address_owned >= WIT_USER_MEMORY_BASE && address_owned < WIT_USER_MEMORY_LIMIT)
+            info.DynamicCommittedBytes += WIT_PAGE_SIZE;
+    }
+    return wit_user_copy_to(space, address, (const WitU8 *)&info, sizeof(info)) ? WIT_STATUS_OK : WIT_STATUS_BAD_ADDRESS;
+}
+
 static int valid_protection(WitU64 protection)
 {
     return protection == WIT_MEMORY_NONE || protection == WIT_MEMORY_READ ||

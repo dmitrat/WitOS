@@ -22,6 +22,6 @@ function(witos_select_gc_environment)
     target_include_directories(Runtime.WorkstationGC PRIVATE
         "${WITOS_SOURCE_ROOT}/src/System.Native" "${WITOS_SOURCE_ROOT}/src/Kernel/include")
     file(WRITE "${CMAKE_BINARY_DIR}/witos-runtime-sources.txt" "${sources}\n")
-    message(STATUS "WitOS: replaced GC memory environment; all missing methods remain undefined")
+    message(STATUS "WitOS: replaced GC memory/discovery environment; all missing methods remain undefined")
 endfunction()
 cmake_language(DEFER CALL witos_select_gc_environment)

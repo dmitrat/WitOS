@@ -2,7 +2,7 @@
 
 ## Project direction
 
-The core objective is standard upstream .NET above a minimal native kernel and a hardware-independent system layer. Shells and applications eventually run on that .NET platform. Current guest code includes the M1 foundation, M2 ring-3 isolation, sparse user memory, bounded user threads/TLS, events/deadlines, restricted native PE loading and user-space C bootstrap; host-side C# tooling must not be described as guest .NET support.
+The core objective is standard upstream .NET above a minimal native kernel and a hardware-independent system layer. Shells and applications eventually run on that .NET platform. Current guest code includes the M1 foundation, M2 ring-3 isolation, sparse user memory, bounded user threads/TLS, events/deadlines, restricted native PE loading, user-space C bootstrap and a partial native GC OS adapter; host-side C# tooling must not be described as guest .NET support.
 
 Original vision documents live in `@Docs/`. Concrete implementation status and deliberate limitations live in `@Docs/Implementation/`. Preserve original drafts unless the task calls for revising them.
 
@@ -19,6 +19,7 @@ Original vision documents live in `@Docs/`. Concrete implementation status and d
 - Keep shared kernel mappings supervisor-only. Never reuse the kernel scratch branch as a user page-table branch.
 - Validate user handles and complete buffer ranges before copying/output. Close handles and free only component-owned pages on teardown.
 - Keep dynamic reservations separate from fixed image/stack mappings. Reservation must not consume backing RAM; failed commit must roll back additions; decommit retains the reservation and recommit zeroes pages.
+- Keep memory-discovery snapshots consistent through IF-disabled validation and copy-out; reject the full destination before any write. Report fixed mappings and private tables as ownership costs, and retain no-access commitments in accounting.
 - Track committed no-access pages as owned. Invalidate active translations before reuse, reclaim empty private page tables, and keep memory-call work bounded by prototype quotas.
 - Validate user return addresses/selectors/flags and the selected thread's owning stacks before IRETQ. Timer returns must preserve condition codes; syscall flags follow the explicit ABI.
 - Switch TSS.RSP0 and raw FS-based TLS with the selected user thread. Keep FSGSBASE disabled and restore zero FS base on kernel supervision; the current kernel has no segment-based TLS.

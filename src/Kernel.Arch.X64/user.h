@@ -94,6 +94,8 @@ int wit_user_space_create(WitUserSpace *space, WitPageAllocator *allocator);
 int wit_user_space_map(WitUserSpace *space, WitU64 address, int writable, int executable);
 WitU64 wit_user_space_physical(const WitUserSpace *space, WitU64 address, int write, int execute);
 int wit_user_copy_from(const WitUserSpace *space, WitU64 address, WitU8 *buffer, WitU32 size);
+int wit_user_copy_to(const WitUserSpace *space, WitU64 address, const WitU8 *buffer, WitU32 size);
+WitU64 wit_user_memory_query(const WitUserSpace *space, WitU64 address, WitU64 size, WitU64 version);
 void wit_user_space_destroy(WitUserSpace *space);
 int wit_user_space_unmap_fixed(WitUserSpace *space, WitU64 address);
 WitU64 wit_user_memory_reserve(WitUserSpace *space, WitU64 size, WitU64 alignment, WitU64 *result);

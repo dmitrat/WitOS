@@ -336,6 +336,7 @@ internal static class DevTool
             "BootstrapEmptyList", "BootstrapDescriptorProtection", "BootstrapInitializerFault",
             "GcMemoryContract", "GcMemoryOwnership", "GcMemoryRelocation",
             "GcReserveProtection", "GcDecommitProtection", "GcMemoryNx",
+            "GcEnvironmentInit", "GcMemoryInformation", "GcInformationBuffers", "GcPhysicalPressure",
             "BadReturn", "TimerBudget", "PreemptionState",
             "ZeroFillAndStaleHandles", "Teardown", "Isolation"
         ];

@@ -2,6 +2,7 @@
 #include "protocol.h"
 
 using OS = GCToOSInterface;
+WitU64 wit_gc_discovery(const WitUserStartup* startup);
 static bool zero(volatile unsigned char* p, size_t size)
 {
     for (size_t i = 0; i < size; ++i) if (p[i]) return false;
@@ -61,6 +62,7 @@ extern "C" WitU64 wit_native_main(const WitUserStartup* startup)
     if (!startup || startup->Version != WIT_ABI_VERSION || startup->Size != WIT_ABI_STARTUP_SIZE ||
         !startup->ImageInfo) return 100;
     const auto config = (const WitUserTestConfig*)startup;
+    if (config->Mode == WIT_GC_TEST_DISCOVERY) return wit_gc_discovery(startup);
     if (config->Mode == WIT_GC_TEST_NORMAL) return selected_test();
     if (config->Mode == WIT_GC_TEST_ROLLBACK) {
         auto p = (unsigned char*)OS::VirtualReserve(128 * 4096, 0, 0);

@@ -9,6 +9,7 @@
 #include "gcenv.structs.h"
 #include "gcenv.base.h"
 #include "gcenv.os.h"
+#include "gcenv.windows.inl"
 extern "C" {
 #include "bootstrap.h"
 }

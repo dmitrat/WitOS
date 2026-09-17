@@ -16,7 +16,7 @@ The common kernel's `pe.c` validates file structure into a bounded plan without 
 | Bounded native PE profile | Chosen: exercises the format/calling convention measured by the NativeAOT experiment without implying Windows compatibility |
 | Accept arbitrary PE/DLL/TLS/import graphs | Deferred until module lifetime, binding, TLS and exception contracts exist |
 
-There is one image per new component. This is an internal kernel creation API, not a filesystem loader or a new user syscall. Current ABI v5 adds a readonly [image description](M2-Native-Module-Bootstrap.md) in the startup block.
+There is one image per new component. This is an internal kernel creation API, not a filesystem loader or a new user syscall. ABI v5 introduced the readonly [image description](M2-Native-Module-Bootstrap.md) in the startup block.
 
 ## Accepted profile and bounds
 
@@ -89,7 +89,7 @@ Test symbol RVAs come from public symbols in linker maps; tests do not assume th
 
 The guest fixture validates relocated code/data pointers, calls through a relocated read-only pointer, reads the cross-page pointer, scans 8192 BSS bytes, writes its instance ID into private image data and prints via the granted console handle.
 
-The seventeen VM scenarios now require 89 user groups and 33 contained user faults. Sixteen new image groups cover:
+The seventeen VM scenarios now require 93 user groups and 33 contained user faults. Sixteen new image groups cover:
 
 | Group | Evidence |
 | --- | --- |

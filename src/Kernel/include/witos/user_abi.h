@@ -2,11 +2,12 @@
 #define WITOS_USER_ABI_H
 #include "types.h"
 #include "image_info.h"
+#include "memory_info.h"
 
 /* Experimental x64 interrupt ABI, not a stable public SDK.
  * INT 0x80: RAX=call, RCX/RDX/R8=arguments; RAX=status, RDX=result.
  * Other GPRs and baseline x87/SSE state survive; flags are reset to 0x202. */
-#define WIT_ABI_VERSION 5U
+#define WIT_ABI_VERSION 6U
 #define WIT_ABI_STARTUP_SIZE 24U
 #define WIT_CALL_QUERY 0U
 #define WIT_CALL_WRITE 1U
@@ -36,6 +37,9 @@
 #define WIT_CALL_EVENT_SET 17U
 #define WIT_CALL_EVENT_RESET 18U
 #define WIT_CALL_EVENT_WAIT 19U
+/* Query(buffer, exact size, version) atomically copies WitUserMemoryInfo.
+ * The whole buffer must be writable. Result is bytes copied, or zero on failure. */
+#define WIT_CALL_MEMORY_QUERY 20U
 /* Deadlines use absolute delivered PIT ticks. Zero polls; all-ones waits forever.
  * The frequency is nominal; this bootstrap clock pauses while IRQ0 is disabled. */
 #define WIT_CLOCK_FREQUENCY 100ULL

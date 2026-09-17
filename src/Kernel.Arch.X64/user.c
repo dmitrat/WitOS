@@ -489,6 +489,10 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
     case WIT_CALL_MEMORY_RELEASE:
         context->Rax = wit_user_memory_release(&current_user->Space, argument0);
         break;
+    case WIT_CALL_MEMORY_QUERY:
+        context->Rax = wit_user_memory_query(&current_user->Space, argument0, argument1, argument2);
+        if (context->Rax == WIT_STATUS_OK) context->Rdx = WIT_MEMORY_INFO_SIZE;
+        break;
     case WIT_CALL_CLOCK_READ:
         context->Rdx = wit_x64_clock_ticks();
         break;

@@ -1,7 +1,83 @@
 #include "gcenv.witos.h"
 
-/* First source-port slice, not a complete GC environment. All other methods
- * deliberately remain undefined. No state or allocation lives in this shim. */
+/* Environment initialization is serialized by runtime startup, before worker
+ * threads exist. Shutdown likewise requires the runtime's threads to be stopped.
+ * No allocator resources or dynamic C++ initialization are needed here. */
+static GCSystemInfo system_info;
+
+static bool read_information(WitUserMemoryInfo* info)
+{
+    WitU64 copied = 0;
+    return wit_native_call(WIT_CALL_MEMORY_QUERY, (uintptr_t)info, sizeof(*info),
+        WIT_MEMORY_INFO_VERSION, &copied) == WIT_STATUS_OK && copied == sizeof(*info) &&
+        info->Version == WIT_MEMORY_INFO_VERSION && info->Size == sizeof(*info) &&
+        info->PageSize == 4096 && info->ProcessorCount == 1 && info->PhysicalTotalBytes &&
+        info->PhysicalAvailableBytes <= info->PhysicalTotalBytes && info->OwnedLimitBytes &&
+        info->OwnedBytes <= info->OwnedLimitBytes && info->PrivatePageTableBytes <= info->OwnedBytes &&
+        info->DynamicCommittedBytes <= info->OwnedBytes - info->PrivatePageTableBytes &&
+        info->VirtualBytes && info->VirtualBase <= UINT64_MAX - info->VirtualBytes &&
+        info->ReservedBytes <= info->VirtualBytes && info->ReservationCount <= info->ReservationCapacity;
+}
+static uint64_t minimum(uint64_t a, uint64_t b) { return a < b ? a : b; }
+
+bool GCToOSInterface::Initialize()
+{
+    WitU64 version = 0;
+    WitUserMemoryInfo info;
+    if (wit_native_call(WIT_CALL_QUERY, 0, 0, 0, &version) != WIT_STATUS_OK ||
+        version != WIT_ABI_VERSION || !read_information(&info)) return false;
+    system_info.dwNumberOfProcessors = info.ProcessorCount;
+    system_info.dwPageSize = info.PageSize;
+    system_info.dwAllocationGranularity = 65536; // VirtualReserve's minimum alignment.
+    return true;
+}
+void GCToOSInterface::Shutdown()
+{
+    system_info.dwNumberOfProcessors = 0;
+    system_info.dwPageSize = 0;
+    system_info.dwAllocationGranularity = 0;
+}
+uint32_t GCToOSInterface::GetTotalProcessorCount() { return system_info.dwNumberOfProcessors; }
+bool GCToOSInterface::CanEnableGCNumaAware() { return false; }
+bool GCToOSInterface::CanEnableGCCPUGroups() { return false; }
+
+size_t GCToOSInterface::GetVirtualMemoryLimit()
+{
+    WitUserMemoryInfo info;
+    return read_information(&info) ? (size_t)info.VirtualBytes : 0;
+}
+size_t GCToOSInterface::GetVirtualMemoryMaxAddress()
+{
+    WitUserMemoryInfo info;
+    return read_information(&info) ? (size_t)(info.VirtualBase + info.VirtualBytes) : 0;
+}
+uint64_t GCToOSInterface::GetPhysicalMemoryLimit(bool* is_restricted)
+{
+    WitUserMemoryInfo info;
+    if (is_restricted) *is_restricted = false;
+    if (!read_information(&info)) return 0;
+    if (is_restricted) *is_restricted = info.OwnedLimitBytes < info.PhysicalTotalBytes;
+    return minimum(info.OwnedLimitBytes, info.PhysicalTotalBytes);
+}
+void GCToOSInterface::GetMemoryStatus(uint64_t restricted_limit, uint32_t* memory_load,
+    uint64_t* available_physical, uint64_t* available_page_file)
+{
+    WitUserMemoryInfo info;
+    // Fail conservatively. Zero page-file estimate matches the restricted
+    // upstream path; WitOS currently has no paging store.
+    if (memory_load) *memory_load = 100;
+    if (available_physical) *available_physical = 0;
+    if (available_page_file) *available_page_file = 0;
+    if (!read_information(&info)) return;
+    const uint64_t limit = restricted_limit ? minimum(restricted_limit,
+        minimum(info.OwnedLimitBytes, info.PhysicalTotalBytes)) : info.PhysicalTotalBytes;
+    const uint64_t used = restricted_limit ? minimum(info.OwnedBytes, limit) :
+        info.PhysicalTotalBytes - info.PhysicalAvailableBytes;
+    // Kernel v1 totals are bounded by the 4 GiB physical allocator, so used*100
+    // cannot overflow. Available is an upper bound: new page tables cost frames.
+    if (memory_load) *memory_load = (uint32_t)(used * 100 / limit);
+    if (available_physical) *available_physical = minimum(limit - used, info.PhysicalAvailableBytes);
+}
 static bool page_size(size_t size, size_t* rounded)
 {
     if (!size || size > SIZE_MAX - 4095) return false;

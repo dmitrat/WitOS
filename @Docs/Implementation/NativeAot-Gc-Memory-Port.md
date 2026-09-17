@@ -23,7 +23,7 @@ Hardware instructions stay in `Kernel.Arch.X64`; the C++ adapter uses the existi
 
 ## Implemented interface
 
-The compiler consumes the actual [gcenv.os.h](https://github.com/dotnet/runtime/blob/b82454cad0aaaae3db2cf18fbf2cccc36e201ccc/src/coreclr/gc/env/gcenv.os.h), its base/structs headers and two minipal headers. All five headers and the upstream MIT license are copied from a SHA-256-verified cache into the build directory. The entire source audit now contains 31 source/license files. The upstream headers are unchanged; Windows SDK types are compile-time declarations only.
+The compiler consumes the actual [gcenv.os.h](https://github.com/dotnet/runtime/blob/b82454cad0aaaae3db2cf18fbf2cccc36e201ccc/src/coreclr/gc/env/gcenv.os.h), its base/structs headers and two minipal headers. The original five headers, the subsequently pinned page-size inline definition and the upstream MIT license are copied from a SHA-256-verified cache into the build directory. The entire source audit now contains 32 source/license files. The upstream headers are unchanged; Windows SDK types are compile-time declarations only.
 
 | Method | WitOS behavior |
 | --- | --- |
@@ -35,7 +35,7 @@ The compiler consumes the actual [gcenv.os.h](https://github.com/dotnet/runtime/
 
 NUMA node 0 and `NUMA_NODE_UNDEFINED` use the single-node allocator; other nodes fail. Unaligned commit/decommit addresses are rejected rather than silently extending the affected range. Failure is `nullptr`/`false`. Kernel prototype quotas remain in force.
 
-All other `GCToOSInterface` methods remain undefined. In particular, reset/large-page support, initialization, locks, events and thread creation are not successful placeholders. A negative link rooted at `GCToOSInterface::Initialize` must fail with exactly that missing symbol, without `/FORCE` or runtime/OS/CRT libraries.
+Version 0.0.11 adds [real environment initialization and memory discovery](NativeAot-Gc-Discovery.md). Reset/large-page support, synchronization, events, threads and performance clocks remain incomplete. The negative link now roots `GCToOSInterface::QueryPerformanceFrequency` and must fail with exactly that missing symbol, without `/FORCE` or runtime/OS/CRT libraries.
 
 ## Build and guest evidence
 
@@ -50,7 +50,7 @@ dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-target
 
 `runtime-port` builds the normal kernel and fixtures in `artifacts/x64/runtime-port/`, then requires a successful 256 MiB QEMU boot with all expected markers and exit status. Normal `run`, `build` and `test` also build the adapter; successful boots require its checks. The last two runtime commands still execute hosted Windows reference workloads.
 
-The local MSVC 14.51 / SDK 10.0.26100 build produces a 5,120-byte native PE with seven ordinary unwind records, a real relocation and no OS/CRT imports, managed header or compiler TLS directory. The build report records source hashes, compiler/SDK identity and image hash; identical bytes across different compiler versions are not promised. CI builds with its installed MSVC/SDK.
+At version 0.0.10, the local MSVC 14.51 / SDK 10.0.26100 build produced a 5,120-byte native PE with seven ordinary unwind records, a real relocation and no OS/CRT imports, managed header or compiler TLS directory. The build report records source hashes, compiler/SDK identity and image hash; identical bytes across different compiler versions are not promised. CI builds with its installed MSVC/SDK.
 
 Six new guest groups cover:
 
@@ -59,7 +59,7 @@ Six new guest groups cover:
 - Execution of the same C++ image relocated to two different guest bases.
 - Actual page faults on a reserved page, a decommitted page, a page rolled back after commit exhaustion, and attempted execution from committed data.
 
-The supervisor checks fault vector/error/address/selectors and resource counts. Reservation and decommit fault cases must leave the owned-frame count unchanged. Every component teardown restores the physical-page count. The full suite has 17 VM scenarios, 89 user check groups and 33 contained user faults in each successful boot. Local `runtime-port`, full VM suite, source audit and both hosted probes passed.
+The supervisor checks fault vector/error/address/selectors and resource counts. Reservation and decommit fault cases must leave the owned-frame count unchanged. Every component teardown restores the physical-page count. The full suite has 17 VM scenarios, 93 user check groups and 33 contained user faults in each successful boot. Local `runtime-port`, full VM suite, source audit and both hosted probes passed.
 
 Reports: `gc-memory-build.json`, `gc-missing-link.log`, `GcMemoryFixture.pe` and `.map` under the relevant image directory; serial/outcome logs under `artifacts/logs/`. Kernel CI uploads the new evidence alongside its boot artifacts.
 
