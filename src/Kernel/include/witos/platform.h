@@ -13,6 +13,7 @@ void wit_console_write_hex(WitU64 value);
 void wit_disable_interrupts(void);
 WIT_NORETURN void wit_platform_enter(const struct WitBootInfo *boot);
 void wit_platform_initialize(void);
+void wit_platform_clock_initialize(const struct WitBootInfo *boot);
 void wit_platform_fault_test(void);
 void wit_scheduler_self_test(void);
 WIT_NORETURN void wit_platform_finish(WitU32 code);

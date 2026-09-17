@@ -43,6 +43,7 @@ static WIT_NORETURN void finish(WitUserState state, WitU64 code)
         current_user->Threads[i].WaitKind = WitWaitNone;
         current_user->Threads[i].WaitHandle = 0;
         current_user->Threads[i].Deadline = WIT_WAIT_INFINITE;
+        current_user->Threads[i].MonotonicWait = 0;
     }
     wit_handles_close_all(&current_user->Handles);
     wit_events_initialize(&current_user->Events);
@@ -159,12 +160,18 @@ static WitU32 thread_index(WitU64 handle)
     wit_panic("Live thread handle without thread");
 }
 
+static void expire_waits(void)
+{
+    wit_user_wait_expire(current_user, wit_x64_clock_ticks());
+    wit_user_wait_expire_time(current_user, wit_x64_monotonic_read());
+}
+
 static WitInterruptContext *dispatch(int timer, WitU64 last_exit)
 {
     const WitU32 previous = current_user->CurrentThread;
     for (;;) {
         int waiting = 0;
-        wit_user_wait_expire(current_user, wit_x64_clock_ticks());
+        expire_waits();
         for (WitU32 offset = 1; offset <= WIT_USER_THREAD_CAPACITY; ++offset) {
             const WitU32 index = (previous + offset) % WIT_USER_THREAD_CAPACITY;
             WitUserThread *thread = &current_user->Threads[index];
@@ -434,7 +441,7 @@ WitInterruptContext *wit_user_timer_tick(WitInterruptContext *context)
         thread->Context = context;
         thread->State = WitThreadReady;
     }
-    wit_user_wait_expire(current_user, wit_x64_clock_ticks());
+    expire_waits();
     if (++current_user->Ticks >= WIT_USER_TICK_BUDGET) finish(WitUserBudgetExpired, 0);
     if (user_idle) return context; /* Resume CLI/RET and recheck ready threads. */
     return dispatch(1, 0);
@@ -447,7 +454,7 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
     WitU64 call, argument0, argument1, argument2;
     require(current_user != 0 && current_user->State == WitUserRunning, "Syscall without component");
     validate_return(context, current_user->CurrentThread, 1);
-    wit_user_wait_expire(current_user, wit_x64_clock_ticks());
+    expire_waits();
     current_user->Threads[current_user->CurrentThread].Context = context;
     call = context->Rax;
     argument0 = context->Rcx;
@@ -492,6 +499,20 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
     case WIT_CALL_MEMORY_QUERY:
         context->Rax = wit_user_memory_query(&current_user->Space, argument0, argument1, argument2);
         if (context->Rax == WIT_STATUS_OK) context->Rdx = WIT_MEMORY_INFO_SIZE;
+        break;
+    case WIT_CALL_MONOTONIC_READ:
+        context->Rdx = wit_x64_monotonic_read();
+        break;
+    case WIT_CALL_MONOTONIC_FREQUENCY:
+        context->Rdx = wit_x64_monotonic_frequency();
+        break;
+    case WIT_CALL_SLEEP_UNTIL:
+        context->Rax = (argument1 || argument2) ? WIT_STATUS_INVALID_ARGUMENT :
+            wit_user_sleep_until(current_user, argument0, wit_x64_monotonic_read());
+        break;
+    case WIT_CALL_EVENT_WAIT_UNTIL:
+        context->Rax = argument2 ? WIT_STATUS_INVALID_ARGUMENT :
+            wit_user_event_wait_until(current_user, argument0, argument1, wit_x64_monotonic_read());
         break;
     case WIT_CALL_CLOCK_READ:
         context->Rdx = wit_x64_clock_ticks();

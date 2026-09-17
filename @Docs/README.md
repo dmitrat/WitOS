@@ -154,6 +154,7 @@ The initial native milestone now has a concrete boot contract and runnable imple
 - [NativeAOT native source build](Implementation/NativeAot-Source-Build.md) - complete native libraries, source-built Windows execution and strict WitOS port boundary.
 - [GC environment discovery](Implementation/NativeAot-Gc-Discovery.md) - atomic allocator snapshots, quota/physical-pressure accounting and ABI v6.
 - [GC events and yielding](Implementation/NativeAot-Gc-Events.md) - native signals/waits, safe slot reuse, failure containment and explicit timing limits.
+- [Monotonic time and GC deadlines](Implementation/NativeAot-Gc-Time.md) - q35 HPET, IRQ-independent counts, finite waits and ABI v7.
 - [Immediate next steps](Implementation/Next-Steps.md).
 
 The earlier RFCs describe the long-term vision. These implementation notes distinguish working behavior from future runtime and operating-system features.

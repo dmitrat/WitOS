@@ -1,7 +1,7 @@
 # M2 — First isolated native execution
 
 Status: implemented; latest extension locally verified on 2026-09-17.
-Guest version: WitOS 0.0.12 (latest addition: GC events and yielding; ABI remains v6).
+Guest version: WitOS 0.0.13 (latest addition: monotonic time and GC deadlines; ABI v7).
 
 This is the first M2 isolation slice, not a general process platform or a .NET runtime port.
 
@@ -46,7 +46,7 @@ Initial user GPR/SIMD state is cleared. The main thread receives the startup poi
 
 Syscalls reset flags according to the experimental ABI. Timer returns preserve arithmetic flags and DF while removing unsupported/unsafe flag state. Losing condition codes during a timer return is covered by the long-running user-state test.
 
-## Experimental user ABI v6
+## Experimental user ABI v7
 
 Authoritative constants and startup prefix: `src/Kernel/include/witos/user_abi.h`. The host generates matching MASM constants from the C headers.
 
@@ -81,10 +81,14 @@ Transport: `INT 0x80`.
 | 18 Event reset | Event handle | Zero |
 | 19 Event wait | Event handle, absolute deadline | Zero |
 | 20 Memory query | Writable buffer, exact byte size, snapshot version | 96 bytes copied |
+| 21 Monotonic read | None | Monotonic counter |
+| 22 Monotonic frequency | None | Counts per second |
+| 23 Sleep until | Monotonic absolute deadline, zero, zero | Zero |
+| 24 Event wait until | Handle, monotonic absolute deadline, zero | Zero |
 
 Thread/TLS lifetime and blocking behavior are specified in the [thread decision](M2-User-Threads-and-Tls.md).
 
-Statuses: 0 success, 1 unsupported call, 2 invalid handle, 3 denied rights, 4 invalid address, 5 excessive length, 6 invalid argument, 7 wrong object type, 8 resource exhaustion, 9 range not reserved by this component, 10 range not fully committed, 11 join deadlock, 12 busy thread, 13 timed out, 14 closed event. Returning errors have a zero result. The version/startup field is now 6; this replaces the earlier experimental fixture contracts.
+Statuses: 0 success, 1 unsupported call, 2 invalid handle, 3 denied rights, 4 invalid address, 5 excessive length, 6 invalid argument, 7 wrong object type, 8 resource exhaustion, 9 range not reserved by this component, 10 range not fully committed, 11 join deadlock, 12 busy thread, 13 timed out, 14 closed event. Returning errors have a zero result. The version/startup field is now 7; this replaces the earlier experimental fixture contracts.
 
 Write accepts at most 256 input bytes per call. The diagnostic UART output adds a [USER] prefix and translates line endings; this is not a general file/Stream contract. A zero-length write validates the handle but does not dereference the pointer. Nonempty writes validate the entire range before copying or output. Copying uses verified physical translations through supervisor aliases, so a bad user pointer never becomes an unchecked kernel dereference. Cross-page buffers are tested.
 
@@ -113,7 +117,7 @@ dotnet build WitOS.slnx --configuration Release
 dotnet run --project tools/WitOS.Dev --configuration Release -- test
 ```
 
-All 17 VM scenarios passed locally. Ordinary successful boots now additionally require 100 user check groups, including:
+All 18 VM scenarios passed locally. Ordinary successful boots now additionally require 106 user check groups, including:
 
 - actual ring-3 execution and ABI/handle checks;
 - two live private address spaces, foreign live handles and an inaccessible peer-only page;
@@ -127,7 +131,7 @@ All 17 VM scenarios passed locally. Ordinary successful boots now additionally r
 - fourteen [wait groups](M2-Events-and-Deadlines.md): event state/rights, wakeup/close/deadline ordering, handoff, idle and resource limits;
 - sixteen [image groups](M2-Pe-Image-Loading.md): guest PE validation, section mapping, relocations, zero-fill/private data, failure rollback and access faults;
 - eleven [native bootstrap groups](M2-Native-Module-Bootstrap.md): C entry, image handoff, metadata validation, constructor/cleanup order, run-once behavior and failure containment;
-- seventeen GC adapter groups: memory operations/protection plus [discovery, atomic snapshot copies and physical pressure](NativeAot-Gc-Discovery.md), and seven [event/lifetime/yield groups](NativeAot-Gc-Events.md).
+- twenty-two GC adapter groups: memory operations/protection plus [discovery, atomic snapshot copies and physical pressure](NativeAot-Gc-Discovery.md), seven [event/lifetime/yield groups](NativeAot-Gc-Events.md), and five [time/deadline/isolation groups](NativeAot-Gc-Time.md). A separate wait-model group checks clock-domain separation.
 
 For faults the guest checks CPU error codes, CR2 where meaningful, CS/SS and kernel canaries. Every failure is followed by a normal component. The host requires the full M2 marker sequence and ring-3 fault selectors before accepting boot success.
 

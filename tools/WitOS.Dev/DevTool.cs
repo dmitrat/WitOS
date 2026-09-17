@@ -93,7 +93,7 @@ internal static class DevTool
 
         await UserImage.BuildAsync(root, output, msvc);
 
-        string[] sources = ["src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c", "src/Kernel/handles.c", "src/Kernel.Arch.X64/user_space.c", "src/Kernel.Arch.X64/user.c", "src/Kernel.Arch.X64/user_tests.c", "src/Kernel.Arch.X64/user_memory_tests.c", "src/Kernel.Arch.X64/user_thread_tests.c", "src/Kernel/events.c", "src/Kernel.Arch.X64/user_wait.c", "src/Kernel.Arch.X64/user_wait_tests.c", "src/Kernel/pe.c", "src/Kernel.Arch.X64/user_image.c", "src/Kernel.Arch.X64/user_image_tests.c", "src/Kernel.Arch.X64/user_bootstrap_tests.c", "src/Kernel.Arch.X64/user_gc_tests.c"];
+        string[] sources = ["src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/clock.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c", "src/Kernel/handles.c", "src/Kernel.Arch.X64/user_space.c", "src/Kernel.Arch.X64/user.c", "src/Kernel.Arch.X64/user_tests.c", "src/Kernel.Arch.X64/user_memory_tests.c", "src/Kernel.Arch.X64/user_thread_tests.c", "src/Kernel/events.c", "src/Kernel.Arch.X64/user_wait.c", "src/Kernel.Arch.X64/user_wait_tests.c", "src/Kernel/pe.c", "src/Kernel.Arch.X64/user_image.c", "src/Kernel.Arch.X64/user_image_tests.c", "src/Kernel.Arch.X64/user_bootstrap_tests.c", "src/Kernel.Arch.X64/user_gc_tests.c"];
         var objects = new List<string>();
         foreach (var source in sources)
         {
@@ -184,6 +184,7 @@ internal static class DevTool
         var image = await BuildAsync(root, "boot");
         await BootAsync(root, image, "boot-128", 128, 60, ExpectedOutcome.Success);
         await BootAsync(root, image, "boot-512", 512, 60, ExpectedOutcome.Success);
+        await BootAsync(root, image, "no-hpet", 256, 60, ExpectedOutcome.ClockUnavailable);
         var panic = await BuildAsync(root, "invalid-boot-info");
         await BootAsync(root, panic, "invalid-boot-info", 256, 60, ExpectedOutcome.InvalidBootInfo);
         var overlap = await BuildAsync(root, "overlapping-map");
@@ -211,10 +212,10 @@ internal static class DevTool
         }
         var timeout = await BuildAsync(root, "timeout");
         await BootAsync(root, timeout, "timeout", 256, 15, ExpectedOutcome.Timeout);
-        Console.WriteLine("PASS: all 17 kernel integration scenarios.");
+        Console.WriteLine("PASS: all 18 kernel integration scenarios.");
     }
 
-    private enum ExpectedOutcome { Success, InvalidBootInfo, InvalidMap, Exception, Timeout }
+    private enum ExpectedOutcome { Success, InvalidBootInfo, InvalidMap, Exception, Timeout, ClockUnavailable }
     private sealed record FaultExpectation(int Vector, ulong Error, string Trigger, string Panic, bool Probe = false);
 
     private static async Task BootAsync(string root, string image, string name, int memoryMiB, int timeoutSeconds, ExpectedOutcome expected, FaultExpectation? fault = null)
@@ -224,7 +225,7 @@ internal static class DevTool
         File.Copy(Toolchain.FirmwareVariables(root), firmwareState, overwrite: true);
         var arguments = new[]
         {
-            "-machine", "q35", "-accel", "tcg,thread=single", "-cpu", "qemu64", "-smp", "1", "-m", memoryMiB.ToString(),
+            "-machine", expected == ExpectedOutcome.ClockUnavailable ? "q35,hpet=off" : "q35,hpet=on", "-accel", "tcg,thread=single", "-cpu", "qemu64", "-smp", "1", "-m", memoryMiB.ToString(),
             "-display", "none", "-monitor", "none", "-serial", "stdio", "-nic", "none", "-no-reboot",
             "-drive", $"if=pflash,unit=0,format=raw,readonly=on,file={QemuPath(Toolchain.Firmware(root))}",
             "-drive", $"if=pflash,unit=1,format=raw,file={QemuPath(firmwareState)}",
@@ -248,10 +249,12 @@ internal static class DevTool
         var panic = result.Output.Contains("[PANIC]", StringComparison.Ordinal);
         var memory = Regex.Match(result.Output, @"Usable memory: (\d+) MiB");
         var validMemory = memory.Success && int.TryParse(memory.Groups[1].Value, out var usable) && usable > 0 && usable < memoryMiB;
-        var foundationReady = validMemory && MarkersInOrder(result.Output,
+        var counterFrequency = Regex.Match(result.Output, @"HPET frequency: (\d+)");
+        var foundationReady = validMemory && counterFrequency.Success && counterFrequency.Groups[1].Value == "100000000" && MarkersInOrder(result.Output,
             "[BOOT] ExitBootServices OK", "[TEST-PASS] Boot.Contract",
             "[TEST-PASS] Cpu.KernelStack", "[TEST-PASS] Cpu.ExceptionTables",
             "[TEST-PASS] Memory.KernelPaging", "[TEST-PASS] Memory.StackGuards",
+            "[TEST-PASS] Clock.Counter64", "[TEST-PASS] Clock.IrqIndependent",
             "[TEST-PASS] Memory.PhysicalPages", "[TEST-PASS] Memory.Exhaustion",
             "[TEST-PASS] Memory.InvalidMaps", "[TEST-PASS] Memory.VirtualMappings");
         var booted = foundationReady && ValidateScheduler(result.Output) && ValidateUsers(result.Output) && hello > result.Output.IndexOf("[TEST-PASS] Scheduler.RegisterState", StringComparison.Ordinal) &&
@@ -259,6 +262,9 @@ internal static class DevTool
         var failedBeforeContract = !result.TimedOut && result.ExitCode == 35 && exitedFirmware >= 0 && contract < 0 && hello < 0;
         var passed = expected switch
         {
+            ExpectedOutcome.ClockUnavailable => !result.TimedOut && result.ExitCode == 35 && hello < 0 &&
+                MarkersInOrder(result.Output, "[TEST-PASS] Boot.Contract", "[TEST-PASS] Memory.KernelPaging",
+                    "[PANIC] Unsupported q35 HPET") && !result.Output.Contains("[EXCEPTION]", StringComparison.Ordinal),
             ExpectedOutcome.Success => !result.TimedOut && result.ExitCode == 33 && booted,
             ExpectedOutcome.InvalidBootInfo => failedBeforeContract && result.Output.Contains("[PANIC] Invalid WitBootInfo", StringComparison.Ordinal),
             ExpectedOutcome.InvalidMap => failedBeforeContract && result.Output.Contains("[PANIC] Invalid memory map", StringComparison.Ordinal),
@@ -324,7 +330,7 @@ internal static class DevTool
             "ThreadPreemptionAndTls", "ThreadJoinAndReuse", "ThreadJoinCycle", "ThreadCapacity",
             "ThreadCreationRollback", "ThreadFault", "ThreadGuardLow", "ThreadGuardHigh",
             "ThreadBadReturn", "ThreadProcessExit",
-            "WaitQueueSemantics", "WaitResourceLimits", "WaitSignalState", "WaitClockAndIdle",
+            "WaitQueueSemantics", "WaitClockDomains", "WaitResourceLimits", "WaitSignalState", "WaitClockAndIdle",
             "WaitAutoWake", "WaitManualWake", "WaitCloseAndReuse", "WaitHandoff", "WaitDeadlineOrder",
             "WaitExitCleanup", "WaitIdleBudget", "WaitRights", "WaitActiveTimeout", "WaitJoinChain",
             "ImageHeadersAndBounds", "ImageUnsupportedFeatures", "ImageSectionsAndEntry", "ImageRelocationValidation",
@@ -339,6 +345,7 @@ internal static class DevTool
             "GcEnvironmentInit", "GcMemoryInformation", "GcInformationBuffers", "GcPhysicalPressure",
             "GcEventState", "GcEventCapacity", "GcEventManual", "GcEventAuto",
             "GcEventClose", "GcEventContention", "GcEventFailFast",
+            "GcClockContract", "GcTimedWait", "GcTimedSignal", "GcTimeArithmetic", "GcClockIsolation",
             "BadReturn", "TimerBudget", "PreemptionState",
             "ZeroFillAndStaleHandles", "Teardown", "Isolation"
         ];
@@ -348,7 +355,7 @@ internal static class DevTool
         if (!MarkersInOrder(output, markers.ToArray())) return false;
         var faults = Regex.Matches(output,
             @"\[USER-FAULT\] id=(\d+) vector=(\d+) error=(0x[0-9A-F]{16}) address=(0x[0-9A-F]{16}) cs=(0x[0-9A-F]{16})");
-        return faults.Count == 33 && faults.All(match =>
+        return faults.Count == 34 && faults.All(match =>
             Convert.ToUInt64(match.Groups[5].Value[2..], 16) == 0x33);
     }
 

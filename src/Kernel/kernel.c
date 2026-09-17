@@ -19,7 +19,7 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
 {
     WitU64 usable = 0;
 
-    wit_console_write("WitOS 0.0.12 (GC events and yielding)\n");
+    wit_console_write("WitOS 0.0.13 (monotonic time and GC deadlines)\n");
     wit_console_write("Build: " WITOS_BUILD_ID " | x64 | Debug\n");
     wit_console_write("[TEST-BEGIN] Boot.Contract\n");
 
@@ -62,6 +62,7 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
     wit_console_write_u64(wit_pages_free_count(&physical_pages));
     wit_console_write("\n");
     wit_virtual_initialize(boot, &physical_pages);
+    wit_platform_clock_initialize(boot);
     wit_memory_self_test(boot, &physical_pages);
     wit_virtual_self_test(&physical_pages);
     wit_virtual_fault_test();

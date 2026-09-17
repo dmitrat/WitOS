@@ -6,7 +6,7 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 
 ## Current status
 
-**WitOS 0.0.12: native GC events and yielding work inside the guest, alongside memory/discovery through ABI v6.**
+**WitOS 0.0.13: an IRQ-independent monotonic clock, GC sleep and finite event waits work inside the guest through ABI v7.**
 
 The kernel boots independently through UEFI and runs separately built native components in ring 3 with private mappings and handles. Its bounded PE loader parses complete files inside the guest, maps sections and applies relocations. A freestanding C startup layer receives image metadata, runs native initializers and enters the program in user space. The component writes through a checked syscall and exits; its faults are contained while the kernel runs the next component. Within a component, up to four user threads can run with timer preemption, separate stacks/TLS and blocking join. Manual/auto-reset events, sleep and absolute deadlines work with kernel idle when all threads are blocked. M1 paging, protection, timer and kernel-context checks remain part of every successful boot.
 
@@ -39,7 +39,7 @@ Expected guest output includes:
 ```text
 [BOOT] UEFI x64 adapter
 [BOOT] ExitBootServices OK
-WitOS 0.0.12 (GC events and yielding)
+WitOS 0.0.13 (monotonic time and GC deadlines)
 Build: <git-revision> | x64 | Debug
 [TEST-BEGIN] Boot.Contract
 [TEST-PASS] Boot.Contract
@@ -80,17 +80,17 @@ dotnet run --project tools/WitOS.Dev --configuration Release -- test
 
 The native kernel currently always builds in Debug mode, including when the host tool uses Release.
 
-The integration suite boots seventeen real VM scenarios:
+The integration suite boots eighteen real VM scenarios:
 
 - Normal boot with 128 MiB and 512 MiB RAM, including real-page read/write, reserved-memory, exhaustion, reuse and invalid-map checks.
-- Rejection of an invalid boot-contract version and overlapping firmware memory regions.
+- Rejection of an invalid boot-contract version, overlapping firmware memory regions and a missing required HPET clock.
 - Actual breakpoint, divide error, invalid opcode, general protection, page fault and double fault.
 - Hardware-enforced refusal of code writes, data execution, lower/upper stack guard access, read-only alias writes and unmapped alias reads.
 - Detection and termination of a deliberately hung guest after full initialization.
 
 Normal boots also verify map/protect/unmap behavior, aliasing, TLB invalidation, timer delivery, progress of both preempted contexts and preserved GPR/SSE state. Exception tests validate vector, error code, register frame, fault address and stack selection. The double-fault test deliberately invalidates the main stack and requires diagnostics from the emergency stack.
 
-Successful boots also require 100 user groups: ring-3 entry, ABI/handles, private memory, user-fault containment, safe return state, timer budgeting, register/flag preservation, zero-fill and resource teardown, plus sparse reservations, commit/decommit/protect/release, recoverable exhaustion and hardware memory faults, plus user-thread preemption, TLS/register state, join/cycle handling, slot reuse and child-fault cleanup, plus event state/rights, wakeups, close/timeout ordering, signal handoff and kernel idle, plus PE validation/loading, relocation, BSS, allocation rollback and hardware section protection, plus native C startup, image descriptors, initializer rollback/run-once behavior and structural unwind validation, plus the upstream GC memory/discovery adapter, hardware protection, atomic snapshot copies, physical pressure, GC events and synchronization checks. They run within the same real VM.
+Successful boots also require 106 user groups: ring-3 entry, ABI/handles, private memory, user-fault containment, safe return state, timer budgeting, register/flag preservation, zero-fill and resource teardown, plus sparse reservations, commit/decommit/protect/release, recoverable exhaustion and hardware memory faults, plus user-thread preemption, TLS/register state, join/cycle handling, slot reuse and child-fault cleanup, plus event state/rights, wakeups, close/timeout ordering, signal handoff and kernel idle, plus PE validation/loading, relocation, BSS, allocation rollback and hardware section protection, plus native C startup, image descriptors, initializer rollback/run-once behavior and structural unwind validation, plus the upstream GC memory/discovery adapter, hardware protection, atomic snapshot copies, physical pressure, GC events, synchronization and monotonic deadline checks. They run within the same real VM.
 
 Every test creates fresh firmware variable storage. A timeout, unexpected exit, panic or missing success marker fails an ordinary boot test.
 
@@ -176,9 +176,9 @@ The core kernel does not include UEFI structures. The output is a freestanding P
 
 ## Scope and next work
 
-M2 uses two fixed component slots and activates one component at a time. Up to four threads share its private address space and handles; each has separate guarded user/kernel stacks and a raw FS-based TLS block. Shared kernel mappings stay supervisor-only. Native components use experimental ABI v6 for query/write/exit/close, memory, thread, event, clock and allocator-snapshot operations. Earlier one-page fixtures remain alongside the new PE path, whose profile permits up to 16 sections and a 256 KiB mapped image. Each space can reserve within a separate 64 GiB virtual arena without allocating backing RAM; commitment is explicitly limited to 128 owned frames including page tables and fixed mappings. Firmware memory remains reserved, and usable physical addresses remain below 4 GiB.
+M2 uses two fixed component slots and activates one component at a time. Up to four threads share its private address space and handles; each has separate guarded user/kernel stacks and a raw FS-based TLS block. Shared kernel mappings stay supervisor-only. Native components use experimental ABI v7 for query/write/exit/close, memory, thread, event, legacy tick-clock, monotonic deadline and allocator-snapshot operations. Earlier one-page fixtures remain alongside the new PE path, whose profile permits up to 16 sections and a 256 KiB mapped image. Each space can reserve within a separate 64 GiB virtual arena without allocating backing RAM; commitment is explicitly limited to 128 owned frames including page tables and fixed mappings. Firmware memory remains reserved, and usable physical addresses remain below 4 GiB.
 
-User faults terminate that component; kernel faults remain fatal diagnostics. General Windows/DLL loading, imports, compiler/managed TLS, unwind integration, mutexes/multi-object waits, IPC channels, SMP and managed execution remain future work. The pinned target/bootstrap experiment now supplies measured object, TLS, unwind and dependency requirements. The bounded guest PE loading contract is implemented; native image handoff and C startup are now implemented. Windows x64 code generation is selected and the first GC memory adapter is implemented; the full native source build and strict port-dependency inventory are established. GC environment discovery and event polling/infinite waits are implemented; next add suitable timing, finite GC waits and the remaining native lock/PAL/TLS environment. The current clock counts delivered PIT ticks (nominal 100 Hz), pauses when IRQ0 is disabled and does not provide calibrated elapsed time.
+User faults terminate that component; kernel faults remain fatal diagnostics. General Windows/DLL loading, imports, compiler/managed TLS, unwind integration, mutexes/multi-object waits, IPC channels, SMP and managed execution remain future work. The pinned target/bootstrap experiment now supplies measured object, TLS, unwind and dependency requirements. The bounded guest PE loading contract is implemented; native image handoff and C startup are now implemented. Windows x64 code generation is selected and the first GC memory adapter is implemented; the full native source build and strict port-dependency inventory are established. GC discovery, monotonic time and finite event waits are implemented; next add the remaining native lock/PAL/TLS environment. The q35 HPET counter advances independently of IRQs; PIT retains scheduling and the legacy delivered-tick ABI. This is not UTC or a hard real-time wake-latency guarantee.
 
 - [Architecture document index](@Docs/README.md)
 - [M0 implementation history](@Docs/Implementation/M0-Boot.md)
@@ -194,5 +194,6 @@ User faults terminate that component; kernel faults remain fatal diagnostics. Ge
 - [NativeAOT native source build and remaining dependencies](@Docs/Implementation/NativeAot-Source-Build.md)
 - [GC discovery and atomic allocator snapshots](@Docs/Implementation/NativeAot-Gc-Discovery.md)
 - [GC events, lifecycle and yielding](@Docs/Implementation/NativeAot-Gc-Events.md)
+- [HPET time and finite GC deadlines](@Docs/Implementation/NativeAot-Gc-Time.md)
 - [RFC 0011: initial kernel boot contract](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md)
 - [Immediate development sequence](@Docs/Implementation/Next-Steps.md)

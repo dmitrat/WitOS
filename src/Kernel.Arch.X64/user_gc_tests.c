@@ -19,11 +19,12 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
         sizeof(wit_gc_memory_image), base) == WitPeOk, "GC memory fixture load failed");
     config = (WitUserTestConfig*)wit_user_space_physical(&process.Space, WIT_USER_INFO, 0, 0);
     config->Mode = mode;
+    if (mode == WIT_GC_TEST_HPET_READ) config->KernelProbe = WIT_X64_HPET_BASE;
     owned = process.Space.OwnedCount;
     free_active = wit_pages_free_count(pages);
     for (WitU32 i = 0; i < owned; ++i) if (!process.Space.OwnedVirtual[i]) ++table_pages;
     wit_user_run(&process);
-    if (mode == WIT_GC_TEST_NORMAL || mode == WIT_GC_TEST_DISCOVERY || (mode >= WIT_GC_TEST_EVENT_STATE && mode <= WIT_GC_TEST_EVENT_CONTENTION)) {
+    if (mode == WIT_GC_TEST_NORMAL || mode == WIT_GC_TEST_DISCOVERY || (mode >= WIT_GC_TEST_EVENT_STATE && mode <= WIT_GC_TEST_EVENT_CONTENTION) || (mode >= WIT_GC_TEST_CLOCK && mode <= WIT_GC_TEST_TIME_ARITHMETIC)) {
         if (process.State != WitUserExited || process.ExitCode != WIT_TEST_EXIT_CODE) {
             wit_console_write("GC memory fixture state/code: ");
             wit_console_write_u64(process.State); wit_console_write("/");
@@ -48,9 +49,16 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
         if (mode == WIT_GC_TEST_EVENT_CONTENTION)
             require(process.ThreadCreates == 4 && process.ThreadJoins == 3 && process.ThreadReaps == 3 && process.ThreadSwitches >= 2,
                 "GC native lock did not exercise a yielding contender");
+        if (mode == WIT_GC_TEST_TIMED_SIGNAL)
+            require(process.ThreadCreates == 2 && process.ThreadJoins == 1 && process.ThreadReaps == 1,
+                "Timed GC signal worker leaked");
         require(process.Space.OwnedCount == owned, "GC adapter leaked backing or private page tables");
         for (WitU32 i = 0; i < WIT_USER_RESERVATION_CAPACITY; ++i)
             require(!process.Space.Reservations[i].Size, "GC adapter leaked reservation");
+    } else if (mode == WIT_GC_TEST_HPET_READ) {
+        require(process.State == WitUserFaulted && process.FaultVector == 14 && process.FaultError == 5 &&
+            process.FaultAddress == WIT_X64_HPET_BASE && process.FaultCs == WIT_USER_CS && process.FaultSs == WIT_USER_SS,
+            "HPET MMIO was accessible from user mode");
     } else if (mode == WIT_GC_TEST_EVENT_FAIL_FAST) {
         const WitU64 evidence = wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
         require(process.State == WitUserExited && process.ExitCode == WIT_GC_TEST_FAIL_FAST_EXIT &&
@@ -131,4 +139,15 @@ void wit_user_gc_self_test(WitPageAllocator* pages)
     run(pages, WIT_GC_TEST_EVENT_FAIL_FAST, WIT_USER_IMAGE_BASE);
     run(pages, WIT_GC_TEST_EVENT_STATE, WIT_USER_IMAGE_BASE);
     wit_console_write("[TEST-PASS] User.GcEventFailFast\n");
+    run(pages, WIT_GC_TEST_CLOCK, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.GcClockContract\n");
+    run(pages, WIT_GC_TEST_TIMED_WAIT, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.GcTimedWait\n");
+    run(pages, WIT_GC_TEST_TIMED_SIGNAL, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.GcTimedSignal\n");
+    run(pages, WIT_GC_TEST_TIME_ARITHMETIC, WIT_USER_IMAGE_ALTERNATE);
+    wit_console_write("[TEST-PASS] User.GcTimeArithmetic\n");
+    run(pages, WIT_GC_TEST_HPET_READ, WIT_USER_IMAGE_BASE);
+    run(pages, WIT_GC_TEST_CLOCK, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.GcClockIsolation\n");
 }

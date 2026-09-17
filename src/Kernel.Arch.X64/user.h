@@ -44,6 +44,7 @@ typedef struct WitUserThread {
     WitUserWaitKind WaitKind;
     WitU64 WaitHandle;
     WitU64 Deadline;
+    WitU32 MonotonicWait; /* 0: delivered PIT ticks; 1: monotonic counter. */
     WitU64 WaitOrder;
     WitU64 Handle;
     WitU64 StackBottom;
@@ -121,6 +122,9 @@ void wit_user_run(WitUserProcess *process);
 void wit_user_destroy(WitUserProcess *process);
 int wit_user_is_active(void);
 void wit_user_wait_expire(WitUserProcess *process, WitU64 now);
+void wit_user_wait_expire_time(WitUserProcess *process, WitU64 now);
+WitU64 wit_user_sleep_until(WitUserProcess *process, WitU64 deadline, WitU64 now);
+WitU64 wit_user_event_wait_until(WitUserProcess *process, WitU64 handle, WitU64 deadline, WitU64 now);
 WitU64 wit_user_sleep(WitUserProcess *process, WitU64 deadline, WitU64 now);
 WitU64 wit_user_event_wait(WitUserProcess *process, WitU64 handle, WitU64 deadline, WitU64 now);
 WitU64 wit_user_event_set(WitUserProcess *process, WitU64 handle);

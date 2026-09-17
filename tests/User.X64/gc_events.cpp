@@ -58,9 +58,8 @@ static WitU64 state()
     if (automatic.IsValid() || automatic.Wait(0, false) != WAIT_FAILED ||
         !automatic.CreateAutoEventNoThrow(true) || !automatic.IsValid() ||
         automatic.CreateManualEventNoThrow(false)) return 150;
-    // Unsupported finite waits cannot consume an already stored signal.
-    if (automatic.Wait(1, false) != WAIT_FAILED || automatic.Wait(INFINITE - 1, false) != WAIT_FAILED ||
-        automatic.Wait(0, true) != WAIT_OBJECT_0 || automatic.Wait(0, false) != WAIT_TIMEOUT) return 151;
+    // A stored signal wins even with the largest finite timeout.
+    if (automatic.Wait(INFINITE - 1, false) != WAIT_OBJECT_0 || automatic.Wait(0, false) != WAIT_TIMEOUT) return 151;
     automatic.Set(); automatic.Set();
     if (automatic.Wait(0, false) != WAIT_OBJECT_0 || automatic.Wait(0, false) != WAIT_TIMEOUT) return 152;
     automatic.Set(); automatic.Reset();

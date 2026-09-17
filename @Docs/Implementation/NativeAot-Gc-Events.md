@@ -1,7 +1,7 @@
 # ADR 0009: Bounded GC events and yielding
 
 **Status:** Implemented in WitOS 0.0.12; verified locally on 2026-09-17.
-**Scope:** Native GCEvent methods and GCToOSInterface::YieldThread in the guest and source-built archive. User ABI remains v6. The collector and managed runtime still do not execute in WitOS.
+**Scope:** Native GCEvent methods and GCToOSInterface::YieldThread in the guest and source-built archive. This milestone introduced the event slice on ABI v6; the later [time extension](NativeAot-Gc-Time.md) uses ABI v7 and adds finite waits. The collector and managed runtime still do not execute in WitOS.
 
 ## Context and decision
 
@@ -11,7 +11,7 @@ Use four component-private static slots containing an owner pointer and a kernel
 
 A native heap allocation per event would introduce another bootstrap dependency and consume scarce backing pages/reservations. Retaining leaked wrappers forever would make the prototype fail after a few lifetimes. A bounded reusable pool supports the current kernel's four-event quota and makes failure/reuse executable. A larger runtime profile will need larger tested quotas or a native allocator.
 
-## Contract
+## Initial 0.0.12 contract (finite waits extended in 0.0.13)
 
 The adapter compiles against the unchanged [upstream GCEvent declaration](https://github.com/dotnet/runtime/blob/b82454cad0aaaae3db2cf18fbf2cccc36e201ccc/src/coreclr/gc/env/gcenv.os.h).
 
@@ -57,4 +57,4 @@ The local fixture is 12,800 bytes with 32 plain unwind records and no Windows/CR
 
 ## Remaining work
 
-Implement a suitable monotonic clock and finite GCEvent waits, then port remaining native locks, TLS/thread attachment, GC rendezvous and fault/unwind integration. The private gate is not a port of minipal_mutex or CLRCriticalSection. Pool/kernel quotas remain prototype limits. Full NativeAOT initialization and managed execution remain the M3 acceptance gate.
+The [monotonic clock and finite GCEvent waits](NativeAot-Gc-Time.md) are now implemented. Next port remaining native locks, TLS/thread attachment, GC rendezvous and fault/unwind integration. The private gate is not a port of minipal_mutex or CLRCriticalSection. Pool/kernel quotas remain prototype limits. Full NativeAOT initialization and managed execution remain the M3 acceptance gate.

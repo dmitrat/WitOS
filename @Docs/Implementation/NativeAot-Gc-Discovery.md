@@ -1,7 +1,7 @@
 # ADR 0008: Allocator snapshots and GC environment discovery
 
 **Status:** Implemented in WitOS 0.0.11; verified locally on 2026-09-17.
-**Scope:** Experimental user ABI v6 and real native GC environment methods. The collector itself still does not execute in the guest.
+**Scope:** Experimental user ABI v6 introduced allocator snapshots and native GC discovery; [ABI v7](NativeAot-Gc-Time.md) retains that layout and adds monotonic deadlines. The collector itself still does not execute in the guest.
 
 ## Context and decision
 
@@ -45,7 +45,7 @@ All methods use the unchanged .NET 10.0.8 interface. The source audit now pins 3
 
 The 512 KiB quota includes non-heap costs. It remains a prototype limit, not a claim that the real collector can initialize a useful heap within it. The currently single-CPU, 4 KiB, below-4-GiB allocator contract constrains this adapter.
 
-The later [GC event extension](NativeAot-Gc-Events.md) implements polling/infinite waits and a private yielding gate. Finite waits, remaining native locks, thread attachment, fault/unwind delivery and proper elapsed time remain incomplete. In particular, delivered PIT ticks are not supplied as a GC performance clock. The negative link now roots `QueryPerformanceFrequency` and must fail with exactly that missing symbol.
+The later [GC event extension](NativeAot-Gc-Events.md) implements polling/infinite waits and a private yielding gate. The [time extension](NativeAot-Gc-Time.md) now implements monotonic time and finite waits. Remaining native locks, thread attachment and fault/unwind delivery are incomplete. In particular, delivered PIT ticks are not supplied as a GC performance clock. The initial negative link rooted QueryPerformanceFrequency; it now roots VirtualReset after the time implementation.
 
 ## Validation and evidence
 
@@ -62,4 +62,4 @@ The local native fixture is 8,192 bytes with 16 ordinary unwind records and no O
 
 GC discovery now observes the same ownership model that enforces memory operations. New page-table costs cannot disappear from pressure accounting, and no-access pages cannot masquerade as free memory. A future SMP backend must replace the current serialization contract before allowing concurrent mapping changes during copy-out.
 
-GC event polling/infinite waits are now implemented. Next implement a suitable monotonic time source, finite waits and remaining native locks, followed by runtime TLS/attachment and GC rendezvous. Keep quota/image/stack expansion tied to measured runtime requirements. Successful environment initialization is not NativeAOT `RhInitialize`, managed-module initialization or execution of the collector.
+GC event polling/infinite waits are now implemented. Monotonic time and finite waits are now implemented. Next implement remaining native locks, followed by runtime TLS/attachment and GC rendezvous. Keep quota/image/stack expansion tied to measured runtime requirements. Successful environment initialization is not NativeAOT `RhInitialize`, managed-module initialization or execution of the collector.

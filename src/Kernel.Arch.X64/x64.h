@@ -19,6 +19,10 @@ void wit_x64_stack_guards(WitU64 guards[WIT_STACK_GUARD_COUNT]);
 void wit_x64_timer_start(void);
 void wit_x64_timer_stop(void);
 WitU64 wit_x64_clock_ticks(void);
+#define WIT_X64_HPET_BASE 0xFED00000ULL
+void wit_x64_map_hpet(const WitBootInfo *boot);
+WitU64 wit_x64_monotonic_read(void);
+WitU64 wit_x64_monotonic_frequency(void);
 void wit_x64_idle_once(void);
 void wit_x64_idle_resume(void);
 extern WitU64 wit_x64_isr_table[256];

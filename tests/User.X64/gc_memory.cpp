@@ -4,6 +4,7 @@
 using OS = GCToOSInterface;
 WitU64 wit_gc_discovery(const WitUserStartup* startup);
 WitU64 wit_gc_events(WitU64 mode);
+WitU64 wit_gc_time(const WitUserStartup* startup, WitU64 mode);
 static bool zero(volatile unsigned char* p, size_t size)
 {
     for (size_t i = 0; i < size; ++i) if (p[i]) return false;
@@ -63,6 +64,7 @@ extern "C" WitU64 wit_native_main(const WitUserStartup* startup)
     if (!startup || startup->Version != WIT_ABI_VERSION || startup->Size != WIT_ABI_STARTUP_SIZE ||
         !startup->ImageInfo) return 100;
     const auto config = (const WitUserTestConfig*)startup;
+    if (config->Mode >= WIT_GC_TEST_CLOCK) return wit_gc_time(startup, config->Mode);
     if (config->Mode >= WIT_GC_TEST_EVENT_STATE) return wit_gc_events(config->Mode);
     if (config->Mode == WIT_GC_TEST_DISCOVERY) return wit_gc_discovery(startup);
     if (config->Mode == WIT_GC_TEST_NORMAL) return selected_test();

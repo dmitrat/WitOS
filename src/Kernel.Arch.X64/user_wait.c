@@ -7,14 +7,15 @@ static void wake(WitUserThread *thread, WitU64 status)
     thread->WaitKind = WitWaitNone;
     thread->WaitHandle = 0;
     thread->Deadline = WIT_WAIT_INFINITE;
+    thread->MonotonicWait = 0;
     thread->State = WitThreadReady;
 }
 
-void wit_user_wait_expire(WitUserProcess *process, WitU64 now)
+static void expire(WitUserProcess *process, WitU64 now, WitU32 monotonic)
 {
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
         WitUserThread *thread = &process->Threads[i];
-        if (thread->State != WitThreadWaiting ||
+        if (thread->State != WitThreadWaiting || thread->MonotonicWait != monotonic ||
             (thread->WaitKind != WitWaitEvent && thread->WaitKind != WitWaitSleep) ||
             thread->Deadline == WIT_WAIT_INFINITE || thread->Deadline > now) continue;
         if (thread->WaitKind == WitWaitEvent) {
@@ -24,19 +25,23 @@ void wit_user_wait_expire(WitUserProcess *process, WitU64 now)
     }
 }
 
-WitU64 wit_user_sleep(WitUserProcess *process, WitU64 deadline, WitU64 now)
+void wit_user_wait_expire(WitUserProcess *process, WitU64 now) { expire(process, now, 0); }
+void wit_user_wait_expire_time(WitUserProcess *process, WitU64 now) { expire(process, now, 1); }
+
+static WitU64 sleep_at(WitUserProcess *process, WitU64 deadline, WitU64 now, WitU32 monotonic)
 {
     WitUserThread *thread = &process->Threads[process->CurrentThread];
-    if (deadline == WIT_WAIT_INFINITE) return WIT_STATUS_INVALID_ARGUMENT;
+    if (!monotonic && deadline == WIT_WAIT_INFINITE) return WIT_STATUS_INVALID_ARGUMENT;
     if (deadline <= now) return WIT_STATUS_OK;
     thread->WaitKind = WitWaitSleep;
     thread->WaitHandle = 0;
     thread->Deadline = deadline;
+    thread->MonotonicWait = monotonic;
     thread->State = WitThreadWaiting;
     return WIT_STATUS_OK;
 }
 
-WitU64 wit_user_event_wait(WitUserProcess *process, WitU64 handle, WitU64 deadline, WitU64 now)
+static WitU64 event_at(WitUserProcess *process, WitU64 handle, WitU64 deadline, WitU64 now, WitU32 monotonic)
 {
     WitEvent *event;
     WitUserThread *thread = &process->Threads[process->CurrentThread];
@@ -52,10 +57,34 @@ WitU64 wit_user_event_wait(WitUserProcess *process, WitU64 handle, WitU64 deadli
     thread->WaitKind = WitWaitEvent;
     thread->WaitHandle = handle;
     thread->Deadline = deadline;
+    thread->MonotonicWait = monotonic;
     thread->WaitOrder = ++process->NextWaitOrder;
     thread->State = WitThreadWaiting;
     ++process->EventParks;
     return WIT_STATUS_OK;
+}
+
+WitU64 wit_user_sleep(WitUserProcess *process, WitU64 deadline, WitU64 now)
+{
+    return sleep_at(process, deadline, now, 0);
+}
+WitU64 wit_user_event_wait(WitUserProcess *process, WitU64 handle, WitU64 deadline, WitU64 now)
+{
+    return event_at(process, handle, deadline, now, 0);
+}
+static int valid_deadline(WitU64 deadline)
+{
+    return deadline <= WIT_MONOTONIC_MAX || deadline == WIT_WAIT_INFINITE;
+}
+WitU64 wit_user_sleep_until(WitUserProcess *process, WitU64 deadline, WitU64 now)
+{
+    if (!valid_deadline(deadline)) return WIT_STATUS_INVALID_ARGUMENT;
+    return sleep_at(process, deadline, now, 1);
+}
+WitU64 wit_user_event_wait_until(WitUserProcess *process, WitU64 handle, WitU64 deadline, WitU64 now)
+{
+    if (!valid_deadline(deadline)) return WIT_STATUS_INVALID_ARGUMENT;
+    return event_at(process, handle, deadline, now, 1);
 }
 
 WitU64 wit_user_event_set(WitUserProcess *process, WitU64 handle)

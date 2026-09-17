@@ -13,4 +13,6 @@
 extern "C" {
 #include "bootstrap.h"
 }
+WitU64 wit_gc_deadline_at(uint32_t milliseconds, WitU64 now, WitU64 frequency);
+WitU64 wit_gc_deadline(uint32_t milliseconds);
 #endif

@@ -7,7 +7,7 @@
 /* Experimental x64 interrupt ABI, not a stable public SDK.
  * INT 0x80: RAX=call, RCX/RDX/R8=arguments; RAX=status, RDX=result.
  * Other GPRs and baseline x87/SSE state survive; flags are reset to 0x202. */
-#define WIT_ABI_VERSION 6U
+#define WIT_ABI_VERSION 7U
 #define WIT_ABI_STARTUP_SIZE 24U
 #define WIT_CALL_QUERY 0U
 #define WIT_CALL_WRITE 1U
@@ -40,7 +40,15 @@
 /* Query(buffer, exact size, version) atomically copies WitUserMemoryInfo.
  * The whole buffer must be writable. Result is bytes copied, or zero on failure. */
 #define WIT_CALL_MEMORY_QUERY 20U
-/* Deadlines use absolute delivered PIT ticks. Zero polls; all-ones waits forever.
+/* A separate, interrupt-independent monotonic domain. Counts are nonnegative
+ * signed-64 compatible; frequency is counts/second. Absolute deadlines use
+ * this counter, never the delivered-PIT clock. All-ones means infinite. */
+#define WIT_CALL_MONOTONIC_READ 21U
+#define WIT_CALL_MONOTONIC_FREQUENCY 22U
+#define WIT_CALL_SLEEP_UNTIL 23U
+#define WIT_CALL_EVENT_WAIT_UNTIL 24U
+#define WIT_MONOTONIC_MAX 0x7FFFFFFFFFFFFFFFULL
+/* Legacy calls 13-19 use absolute delivered PIT ticks. Zero polls; all-ones waits forever.
  * The frequency is nominal; this bootstrap clock pauses while IRQ0 is disabled. */
 #define WIT_CLOCK_FREQUENCY 100ULL
 #define WIT_WAIT_INFINITE 0xFFFFFFFFFFFFFFFFULL

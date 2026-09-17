@@ -1,6 +1,6 @@
 # RFC 0011 — Kernel Architecture & ABI
 
-Draft v0.10. Scope: boot, M1 foundation, M2 mechanisms, PE image loading, native image/bootstrap handoff and allocator snapshots.
+Draft v0.11. Scope: boot, M1 foundation, M2 mechanisms, PE image loading, native image/bootstrap handoff and allocator snapshots.
 
 ## Objective
 
@@ -67,7 +67,7 @@ Kernel CPU exceptions remain fatal. User faults terminate the current component 
 
 A separately linked native fixture runs in ring 3 with its own CR3 and private mappings. Kernel mappings remain supervisor-only. Each component has a private typed handle table and up to four threads with separate guarded user/kernel stacks and raw TLS blocks. Two spaces may coexist; one component runs at a time, with timer/yield dispatch among its threads.
 
-Experimental user ABI v6 uses INT 0x80 for query, checked terminal write, component exit, close, memory and thread operations, typed events, tick-clock deadlines and atomic allocator snapshots for GC discovery. Call numbers, statuses and startup layout are defined in `user_abi.h` and verified by the independently compiled fixture. Full details and limits are in [M2 implementation](Implementation/M2-Isolated-Execution.md).
+Experimental user ABI v7 uses INT 0x80 for query, checked terminal write, component exit, close, memory and thread operations, typed events, tick-clock deadlines and atomic allocator snapshots and a separate monotonic deadline domain for GC. Call numbers, statuses and startup layout are defined in `user_abi.h` and verified by the independently compiled fixture. Full details and limits are in [M2 implementation](Implementation/M2-Isolated-Execution.md).
 
 Fault/exit/budget paths close handles, restore the kernel CR3 and supervising context, and allow owned pages to be reclaimed. Timer returns preserve condition codes; syscall return flags follow the declared ABI. Invalid return state is rejected before IRETQ.
 

@@ -72,7 +72,7 @@ void GCEvent::CloseEvent() { Impl::Change(this, WIT_CALL_CLOSE); }
 uint32_t GCEvent::Wait(uint32_t timeout, bool alertable)
 {
     (void)alertable; // Both pinned upstream GC backends perform non-alertable waits.
-    if (timeout != 0 && timeout != INFINITE) return WAIT_FAILED;
+    const WitU64 deadline = wit_gc_deadline(timeout);
     Impl::Lock();
     Impl* entry = Impl::Find(this);
     const WitU64 handle = entry ? entry->Handle : 0;
@@ -80,8 +80,7 @@ uint32_t GCEvent::Wait(uint32_t timeout, bool alertable)
     if (!handle) return WAIT_FAILED;
     // The handle includes its generation. Never hold Gate while parked and
     // never touch Impl after returning: Close may already have reused its slot.
-    const WitU64 status = wit_native_call(WIT_CALL_EVENT_WAIT, handle,
-        timeout == INFINITE ? WIT_WAIT_INFINITE : 0, 0, nullptr);
+    const WitU64 status = wit_native_call(WIT_CALL_EVENT_WAIT_UNTIL, handle, deadline, 0, nullptr);
     if (status == WIT_STATUS_OK) return WAIT_OBJECT_0;
     if (status == WIT_STATUS_TIMED_OUT) return WAIT_TIMEOUT;
     return WAIT_FAILED;

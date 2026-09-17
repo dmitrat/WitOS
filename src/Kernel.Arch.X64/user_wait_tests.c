@@ -29,6 +29,7 @@ static void initialize_model(void)
         model.Threads[i].Context = &model_contexts[i];
         model.Threads[i].State = WitThreadRunning;
         model.Threads[i].WaitKind = WitWaitNone;
+        model.Threads[i].MonotonicWait = 0;
     }
 }
 
@@ -93,6 +94,63 @@ static void queue_semantics(void)
     wit_console_write("[TEST-PASS] User.WaitQueueSemantics\n");
 }
 
+static void clock_domains(void)
+{
+    WitU64 handle;
+    initialize_model();
+    handle = make_event(&model, 0, WIT_RIGHT_WAIT | WIT_RIGHT_SIGNAL);
+    park(0, handle, 102);
+    model.CurrentThread = 1;
+    require(wit_user_event_wait_until(&model, handle, 1002, 1000) == WIT_STATUS_OK, "Monotonic park failed");
+    wit_user_wait_expire(&model, 5000);
+    require(model.Threads[0].State == WitThreadReady && model.Threads[1].State == WitThreadWaiting,
+        "PIT expiration consumed a monotonic deadline");
+    wit_user_wait_expire_time(&model, 1001);
+    require(model.Threads[1].State == WitThreadWaiting, "Monotonic deadline expired early");
+    wit_user_wait_expire_time(&model, 1002);
+    require(model_contexts[1].Rax == WIT_STATUS_TIMED_OUT && !model.Threads[1].MonotonicWait,
+        "Monotonic exact deadline failed");
+    require(wit_user_event_set(&model, handle) == WIT_STATUS_OK && model_contexts[1].Rax == WIT_STATUS_TIMED_OUT,
+        "Late signal replaced a timeout");
+    require(wit_user_event_wait_until(&model, handle, WIT_MONOTONIC_MAX + 1, 1002) == WIT_STATUS_INVALID_ARGUMENT &&
+        wit_user_event_wait_until(&model, handle, 0, 1002) == WIT_STATUS_OK, "Invalid deadline consumed a signal");
+
+    initialize_model();
+    handle = make_event(&model, 0, WIT_RIGHT_WAIT | WIT_RIGHT_SIGNAL);
+    park(0, handle, 102);
+    model.CurrentThread = 1;
+    require(wit_user_event_wait_until(&model, handle, 1002, 1000) == WIT_STATUS_OK, "Monotonic park failed");
+    wit_user_wait_expire_time(&model, 5000);
+    require(model.Threads[0].State == WitThreadWaiting && model.Threads[1].State == WitThreadReady,
+        "Monotonic expiration consumed a PIT deadline");
+    require(wit_user_event_close(&model, handle) == WIT_STATUS_OK && model_contexts[0].Rax == WIT_STATUS_CLOSED &&
+        model_contexts[1].Rax == WIT_STATUS_TIMED_OUT, "Close overwrote a monotonic timeout");
+
+    initialize_model();
+    handle = make_event(&model, 0, WIT_RIGHT_WAIT | WIT_RIGHT_SIGNAL);
+    model.CurrentThread = 1;
+    require(wit_user_event_wait_until(&model, handle, WIT_WAIT_INFINITE, 1000) == WIT_STATUS_OK, "Infinite time wait failed");
+    park(0, handle, WIT_WAIT_INFINITE);
+    require(wit_user_event_set(&model, handle) == WIT_STATUS_OK && model.Threads[1].State == WitThreadReady &&
+        model.Threads[0].State == WitThreadWaiting, "Mixed-clock FIFO changed");
+    model.CurrentThread = 2;
+    require(wit_user_sleep_until(&model, WIT_MONOTONIC_MAX + 1, 1000) == WIT_STATUS_INVALID_ARGUMENT &&
+        wit_user_sleep_until(&model, 1000, 1000) == WIT_STATUS_OK &&
+        wit_user_sleep_until(&model, WIT_WAIT_INFINITE, 1000) == WIT_STATUS_OK, "Sleep deadline validation failed");
+    wit_user_wait_expire_time(&model, WIT_MONOTONIC_MAX);
+    require(model.Threads[2].State == WitThreadWaiting, "Infinite monotonic sleep expired");
+    model.CurrentThread = 3;
+    require(wit_user_sleep_until(&model, 1010, 1000) == WIT_STATUS_OK, "Timed sleep failed");
+    wit_user_wait_expire_time(&model, 1009);
+    require(model.Threads[3].State == WitThreadWaiting, "Timed sleep woke early");
+    wit_user_wait_expire_time(&model, 1010);
+    require(model.Threads[3].State == WitThreadReady && model_contexts[3].Rax == WIT_STATUS_OK,
+        "Timed sleep did not wake");
+    wit_handles_close_all(&model.Handles);
+    wit_events_initialize(&model.Events);
+    wit_console_write("[TEST-PASS] User.WaitClockDomains\n");
+}
+
 static void resource_limits(void)
 {
     WitU64 handles[WIT_HANDLE_CAPACITY], result;
@@ -136,6 +194,7 @@ void wit_user_wait_self_test(WitPageAllocator *pages)
     };
     WitUserProcess *process = &processes[0];
     queue_semantics();
+    clock_domains();
     resource_limits();
     for (WitU32 mode = 0; mode < sizeof(names) / sizeof(names[0]); ++mode) {
         WitU64 foreign = 0, clock_before = wit_x64_clock_ticks();
