@@ -45,7 +45,7 @@ All methods use the unchanged .NET 10.0.8 interface. The source audit now pins 3
 
 The 512 KiB quota includes non-heap costs. It remains a prototype limit, not a claim that the real collector can initialize a useful heap within it. The currently single-CPU, 4 KiB, below-4-GiB allocator contract constrains this adapter.
 
-Events, synchronization, thread attachment, fault/unwind delivery and proper elapsed time remain incomplete. In particular, delivered PIT ticks are not supplied as a GC performance clock. The negative link now roots `QueryPerformanceFrequency` and must fail with exactly that missing symbol.
+The later [GC event extension](NativeAot-Gc-Events.md) implements polling/infinite waits and a private yielding gate. Finite waits, remaining native locks, thread attachment, fault/unwind delivery and proper elapsed time remain incomplete. In particular, delivered PIT ticks are not supplied as a GC performance clock. The negative link now roots `QueryPerformanceFrequency` and must fail with exactly that missing symbol.
 
 ## Validation and evidence
 
@@ -62,4 +62,4 @@ The local native fixture is 8,192 bytes with 16 ordinary unwind records and no O
 
 GC discovery now observes the same ownership model that enforces memory operations. New page-table costs cannot disappear from pressure accounting, and no-access pages cannot masquerade as free memory. A future SMP backend must replace the current serialization contract before allowing concurrent mapping changes during copy-out.
 
-Next implement real GC events/synchronization and a suitable monotonic time source, followed by runtime TLS/attachment and GC rendezvous. Keep quota/image/stack expansion tied to measured runtime requirements. Successful environment initialization is not NativeAOT `RhInitialize`, managed-module initialization or execution of the collector.
+GC event polling/infinite waits are now implemented. Next implement a suitable monotonic time source, finite waits and remaining native locks, followed by runtime TLS/attachment and GC rendezvous. Keep quota/image/stack expansion tied to measured runtime requirements. Successful environment initialization is not NativeAOT `RhInitialize`, managed-module initialization or execution of the collector.

@@ -23,7 +23,7 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
     free_active = wit_pages_free_count(pages);
     for (WitU32 i = 0; i < owned; ++i) if (!process.Space.OwnedVirtual[i]) ++table_pages;
     wit_user_run(&process);
-    if (mode == WIT_GC_TEST_NORMAL || mode == WIT_GC_TEST_DISCOVERY) {
+    if (mode == WIT_GC_TEST_NORMAL || mode == WIT_GC_TEST_DISCOVERY || (mode >= WIT_GC_TEST_EVENT_STATE && mode <= WIT_GC_TEST_EVENT_CONTENTION)) {
         if (process.State != WitUserExited || process.ExitCode != WIT_TEST_EXIT_CODE) {
             wit_console_write("GC memory fixture state/code: ");
             wit_console_write_u64(process.State); wit_console_write("/");
@@ -42,9 +42,21 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
                 info->ReservationCapacity == WIT_USER_RESERVATION_CAPACITY && !info->ReservationCount &&
                 !info->ReservedBytes && !info->DynamicCommittedBytes, "Guest memory snapshot disagrees with allocator");
         }
+        if (mode == WIT_GC_TEST_EVENT_MANUAL || mode == WIT_GC_TEST_EVENT_AUTO || mode == WIT_GC_TEST_EVENT_CLOSE)
+            require(process.ThreadCreates == 3 && process.ThreadJoins == 2 && process.ThreadReaps == 2,
+                "GC event workers were not joined and reaped");
+        if (mode == WIT_GC_TEST_EVENT_CONTENTION)
+            require(process.ThreadCreates == 4 && process.ThreadJoins == 3 && process.ThreadReaps == 3 && process.ThreadSwitches >= 2,
+                "GC native lock did not exercise a yielding contender");
         require(process.Space.OwnedCount == owned, "GC adapter leaked backing or private page tables");
         for (WitU32 i = 0; i < WIT_USER_RESERVATION_CAPACITY; ++i)
             require(!process.Space.Reservations[i].Size, "GC adapter leaked reservation");
+    } else if (mode == WIT_GC_TEST_EVENT_FAIL_FAST) {
+        const WitU64 evidence = wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
+        require(process.State == WitUserExited && process.ExitCode == WIT_GC_TEST_FAIL_FAST_EXIT &&
+            process.ThreadCreates == 2 && process.Space.OwnedCount > owned && evidence &&
+            *(const WitU64*)evidence == 0x475345564641494CULL,
+            "Invalid GC event operation did not fail fast with live resources");
     } else {
         const WitU64 error = mode == WIT_GC_TEST_RESERVED ? 6 : mode == WIT_GC_TEST_NX ? 21 : 4;
         require(process.State == WitUserFaulted && process.FaultVector == 14 && process.FaultError == error &&
@@ -61,7 +73,7 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
         } else if (mode != WIT_GC_TEST_NX)
             require(process.Space.OwnedCount == owned, "GC reserve/decommit retained backing pages");
     }
-    require(!process.Handles.Count, "GC adapter component left handles");
+    require(!process.Handles.Count && !process.Events.Count, "GC adapter component left handles/events");
     wit_user_destroy(&process);
     require(wit_pages_free_count(pages) == free_before, "GC adapter teardown leaked physical memory");
 }
@@ -103,4 +115,20 @@ void wit_user_gc_self_test(WitPageAllocator* pages)
     wit_console_write("[TEST-PASS] User.GcEnvironmentInit\n[TEST-PASS] User.GcMemoryInformation\n[TEST-PASS] User.GcInformationBuffers\n");
     limited_discovery(pages);
     wit_console_write("[TEST-PASS] User.GcPhysicalPressure\n");
+    run(pages, WIT_GC_TEST_EVENT_STATE, WIT_USER_IMAGE_BASE);
+    run(pages, WIT_GC_TEST_EVENT_STATE, WIT_USER_IMAGE_ALTERNATE);
+    wit_console_write("[TEST-PASS] User.GcEventState\n");
+    run(pages, WIT_GC_TEST_EVENT_CAPACITY, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.GcEventCapacity\n");
+    run(pages, WIT_GC_TEST_EVENT_MANUAL, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.GcEventManual\n");
+    run(pages, WIT_GC_TEST_EVENT_AUTO, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.GcEventAuto\n");
+    run(pages, WIT_GC_TEST_EVENT_CLOSE, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.GcEventClose\n");
+    run(pages, WIT_GC_TEST_EVENT_CONTENTION, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.GcEventContention\n");
+    run(pages, WIT_GC_TEST_EVENT_FAIL_FAST, WIT_USER_IMAGE_BASE);
+    run(pages, WIT_GC_TEST_EVENT_STATE, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.GcEventFailFast\n");
 }

@@ -35,7 +35,7 @@ The compiler consumes the actual [gcenv.os.h](https://github.com/dotnet/runtime/
 
 NUMA node 0 and `NUMA_NODE_UNDEFINED` use the single-node allocator; other nodes fail. Unaligned commit/decommit addresses are rejected rather than silently extending the affected range. Failure is `nullptr`/`false`. Kernel prototype quotas remain in force.
 
-Version 0.0.11 adds [real environment initialization and memory discovery](NativeAot-Gc-Discovery.md). Reset/large-page support, synchronization, events, threads and performance clocks remain incomplete. The negative link now roots `GCToOSInterface::QueryPerformanceFrequency` and must fail with exactly that missing symbol, without `/FORCE` or runtime/OS/CRT libraries.
+Version 0.0.11 adds [real environment initialization and memory discovery](NativeAot-Gc-Discovery.md). Reset/large-page support, remaining native locks, threads and performance clocks remain incomplete; [GC events](NativeAot-Gc-Events.md) now support polling and infinite waits. The negative link now roots `GCToOSInterface::QueryPerformanceFrequency` and must fail with exactly that missing symbol, without `/FORCE` or runtime/OS/CRT libraries.
 
 ## Build and guest evidence
 
@@ -59,7 +59,7 @@ Six new guest groups cover:
 - Execution of the same C++ image relocated to two different guest bases.
 - Actual page faults on a reserved page, a decommitted page, a page rolled back after commit exhaustion, and attempted execution from committed data.
 
-The supervisor checks fault vector/error/address/selectors and resource counts. Reservation and decommit fault cases must leave the owned-frame count unchanged. Every component teardown restores the physical-page count. The full suite has 17 VM scenarios, 93 user check groups and 33 contained user faults in each successful boot. Local `runtime-port`, full VM suite, source audit and both hosted probes passed.
+The supervisor checks fault vector/error/address/selectors and resource counts. Reservation and decommit fault cases must leave the owned-frame count unchanged. Every component teardown restores the physical-page count. The full suite has 17 VM scenarios, 100 user check groups and 33 contained user faults in each successful boot. Local `runtime-port`, full VM suite, source audit and both hosted probes passed.
 
 Reports: `gc-memory-build.json`, `gc-missing-link.log`, `GcMemoryFixture.pe` and `.map` under the relevant image directory; serial/outcome logs under `artifacts/logs/`. Kernel CI uploads the new evidence alongside its boot artifacts.
 

@@ -1,7 +1,7 @@
 # M2 — First isolated native execution
 
 Status: implemented; latest extension locally verified on 2026-09-17.
-Guest version: WitOS 0.0.11 (latest addition: GC environment discovery and allocator snapshots).
+Guest version: WitOS 0.0.12 (latest addition: GC events and yielding; ABI remains v6).
 
 This is the first M2 isolation slice, not a general process platform or a .NET runtime port.
 
@@ -113,7 +113,7 @@ dotnet build WitOS.slnx --configuration Release
 dotnet run --project tools/WitOS.Dev --configuration Release -- test
 ```
 
-All 17 VM scenarios passed locally. Ordinary successful boots now additionally require 93 user check groups, including:
+All 17 VM scenarios passed locally. Ordinary successful boots now additionally require 100 user check groups, including:
 
 - actual ring-3 execution and ABI/handle checks;
 - two live private address spaces, foreign live handles and an inaccessible peer-only page;
@@ -127,7 +127,7 @@ All 17 VM scenarios passed locally. Ordinary successful boots now additionally r
 - fourteen [wait groups](M2-Events-and-Deadlines.md): event state/rights, wakeup/close/deadline ordering, handoff, idle and resource limits;
 - sixteen [image groups](M2-Pe-Image-Loading.md): guest PE validation, section mapping, relocations, zero-fill/private data, failure rollback and access faults;
 - eleven [native bootstrap groups](M2-Native-Module-Bootstrap.md): C entry, image handoff, metadata validation, constructor/cleanup order, run-once behavior and failure containment;
-- ten GC adapter groups: memory operations/protection plus [discovery, atomic snapshot copies and physical pressure](NativeAot-Gc-Discovery.md).
+- seventeen GC adapter groups: memory operations/protection plus [discovery, atomic snapshot copies and physical pressure](NativeAot-Gc-Discovery.md), and seven [event/lifetime/yield groups](NativeAot-Gc-Events.md).
 
 For faults the guest checks CPU error codes, CR2 where meaningful, CS/SS and kernel canaries. Every failure is followed by a normal component. The host requires the full M2 marker sequence and ring-3 fault selectors before accepting boot success.
 

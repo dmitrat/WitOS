@@ -337,6 +337,8 @@ internal static class DevTool
             "GcMemoryContract", "GcMemoryOwnership", "GcMemoryRelocation",
             "GcReserveProtection", "GcDecommitProtection", "GcMemoryNx",
             "GcEnvironmentInit", "GcMemoryInformation", "GcInformationBuffers", "GcPhysicalPressure",
+            "GcEventState", "GcEventCapacity", "GcEventManual", "GcEventAuto",
+            "GcEventClose", "GcEventContention", "GcEventFailFast",
             "BadReturn", "TimerBudget", "PreemptionState",
             "ZeroFillAndStaleHandles", "Teardown", "Isolation"
         ];

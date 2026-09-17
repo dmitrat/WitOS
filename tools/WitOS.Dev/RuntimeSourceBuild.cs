@@ -37,9 +37,9 @@ internal static class RuntimeSourceBuild
         var referenceHost = await RunReferenceAsync(root, output, target, msvc, publishedInputs, referenceInputs);
         var boundary = await RuntimeTargetExperiment.LinkBoundaryAsync(msvc, output,
             Path.Combine(target, "static", "NativeAotTarget.lib"), portedInputs, "witos-without-platform");
-        string[] implemented = ["VirtualReserve@", "VirtualCommit@", "VirtualDecommit@", "VirtualRelease@", "SupportsWriteWatch@", "Initialize@", "Shutdown@", "GetTotalProcessorCount@", "GetPhysicalMemoryLimit@", "GetVirtualMemoryLimit@", "GetVirtualMemoryMaxAddress@", "GetMemoryStatus@", "CanEnableGCCPUGroups@", "CanEnableGCNumaAware@"];
+        string[] implemented = ["VirtualReserve@", "VirtualCommit@", "VirtualDecommit@", "VirtualRelease@", "SupportsWriteWatch@", "Initialize@", "Shutdown@", "GetTotalProcessorCount@", "GetPhysicalMemoryLimit@", "GetVirtualMemoryLimit@", "GetVirtualMemoryMaxAddress@", "GetMemoryStatus@", "CanEnableGCCPUGroups@", "CanEnableGCNumaAware@", "YieldThread@"];
         if (!boundary.Unresolved.Any(s => s.Contains("QueryPerformanceFrequency@GCToOSInterface", StringComparison.Ordinal)) ||
-            !boundary.Unresolved.Any(s => s.Contains("GCEvent", StringComparison.Ordinal)) ||
+            boundary.Unresolved.Any(s => s.Contains("GCEvent", StringComparison.Ordinal)) ||
             !boundary.Unresolved.Contains("wit_native_call") ||
             !boundary.Unresolved.Contains("_tls_index") ||
             boundary.Unresolved.Contains("RhpReversePInvoke") ||
@@ -48,8 +48,8 @@ internal static class RuntimeSourceBuild
         var groups = new Dictionary<string, string[]>
         {
             ["gc-environment"] = boundary.Unresolved.Where(s => s.Contains("GCToOSInterface", StringComparison.Ordinal) || s.Contains("GCEvent", StringComparison.Ordinal)).ToArray(),
-            ["witos-transport"] = boundary.Unresolved.Where(s => s == "wit_native_call").ToArray(),
-            ["remaining-platform-runtime"] = boundary.Unresolved.Where(s => !s.Contains("GCToOSInterface", StringComparison.Ordinal) && !s.Contains("GCEvent", StringComparison.Ordinal) && s != "wit_native_call").ToArray()
+            ["witos-transport"] = boundary.Unresolved.Where(s => s.StartsWith("wit_native_", StringComparison.Ordinal)).ToArray(),
+            ["remaining-platform-runtime"] = boundary.Unresolved.Where(s => !s.Contains("GCToOSInterface", StringComparison.Ordinal) && !s.Contains("GCEvent", StringComparison.Ordinal) && !s.StartsWith("wit_native_", StringComparison.Ordinal)).ToArray()
         };
         var report = new
         {
@@ -61,7 +61,7 @@ internal static class RuntimeSourceBuild
             reference = new { reference.ArchiveSha256, members = reference.Members, compileUnits = reference.Commands.Length },
             ported = new { ported.ArchiveSha256, members = ported.Members, compileUnits = ported.Commands.Length },
             sourceOverlay = new[] { "src/Runtime.NativeAot/runtime-overlay.cmake", "src/Runtime.NativeAot/gcenv.witos.cpp",
-                "src/Runtime.NativeAot/gcenv.witos.h", "src/System.Native/bootstrap.h", "src/Kernel/include/witos/types.h",
+                "src/Runtime.NativeAot/gcenv.witos.h", "src/Runtime.NativeAot/gc_events.witos.cpp", "src/System.Native/bootstrap.h", "src/Kernel/include/witos/types.h",
                 "src/Kernel/include/witos/user_abi.h", "src/Kernel/include/witos/image_info.h", "src/Kernel/include/witos/memory_info.h" }
                 .Select(p => new { path = p, sha256 = Hash(Path.Combine(root, p)) }),
             referenceInputs = referenceInputs.Select(p => new { file = Path.GetFileName(p), sha256 = Hash(p) }),
@@ -73,7 +73,7 @@ internal static class RuntimeSourceBuild
         await File.WriteAllTextAsync(Path.Combine(output, "missing-platform.md"),
             "# Source-built NativeAOT port boundary\n\nNo guest runtime executed. Strict link failed as expected.\n\n" +
             string.Join("\n\n", groups.Select(g => $"## {g.Key} ({g.Value.Length})\n\n" + string.Join("\n", g.Value.Select(v => "- `" + v + "`")))) + "\n");
-        Console.WriteLine($"[SOURCE-PASS] Full native archive: {ported.Members.Length} members; GC adapter object verified byte-for-byte.");
+        Console.WriteLine($"[SOURCE-PASS] Full native archive: {ported.Members.Length} members; GC adapter objects verified byte-for-byte.");
         Console.WriteLine($"[SOURCE-PASS] Windows source-built reference: {Cases.Length} execution groups.");
         Console.WriteLine($"[SOURCE-PASS] Strict WitOS link boundary: {boundary.Unresolved.Length} unresolved symbols, including {groups["gc-environment"].Length} GC environment requirements.");
         Console.WriteLine($"Reports: {output}");
@@ -160,6 +160,8 @@ internal static class RuntimeSourceBuild
         {
             var adapter = commands.Single(c => c.File.Replace('\\', '/').EndsWith("/gcenv.witos.cpp", StringComparison.Ordinal));
             NativeObject.VerifyArchive(archive, Path.GetFullPath(adapter.Output, adapter.Directory));
+            var events = commands.Single(c => c.File.Replace('\\', '/').EndsWith("/gc_events.witos.cpp", StringComparison.Ordinal));
+            NativeObject.VerifyArchive(archive, Path.GetFullPath(events.Output, events.Directory));
         }
         return new(sdk, members, commands, Hash(archive));
     }

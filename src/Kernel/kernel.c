@@ -19,7 +19,7 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
 {
     WitU64 usable = 0;
 
-    wit_console_write("WitOS 0.0.11 (GC environment discovery)\n");
+    wit_console_write("WitOS 0.0.12 (GC events and yielding)\n");
     wit_console_write("Build: " WITOS_BUILD_ID " | x64 | Debug\n");
     wit_console_write("[TEST-BEGIN] Boot.Contract\n");
 

@@ -17,7 +17,8 @@ function(witos_select_gc_environment)
         message(FATAL_ERROR "Expected exactly one upstream Windows GC environment source")
     endif()
     list(REMOVE_ITEM sources "${windows_gc}")
-    list(APPEND sources "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/gcenv.witos.cpp")
+    list(APPEND sources "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/gcenv.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/gc_events.witos.cpp")
     set_property(TARGET Runtime.WorkstationGC PROPERTY SOURCES "${sources}")
     target_include_directories(Runtime.WorkstationGC PRIVATE
         "${WITOS_SOURCE_ROOT}/src/System.Native" "${WITOS_SOURCE_ROOT}/src/Kernel/include")

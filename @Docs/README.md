@@ -153,6 +153,7 @@ The initial native milestone now has a concrete boot contract and runnable imple
 - [NativeAOT source-port decision and GC memory adapter](Implementation/NativeAot-Gc-Memory-Port.md) - pinned upstream interface, guest syscalls and strict incomplete-runtime link boundary.
 - [NativeAOT native source build](Implementation/NativeAot-Source-Build.md) - complete native libraries, source-built Windows execution and strict WitOS port boundary.
 - [GC environment discovery](Implementation/NativeAot-Gc-Discovery.md) - atomic allocator snapshots, quota/physical-pressure accounting and ABI v6.
+- [GC events and yielding](Implementation/NativeAot-Gc-Events.md) - native signals/waits, safe slot reuse, failure containment and explicit timing limits.
 - [Immediate next steps](Implementation/Next-Steps.md).
 
 The earlier RFCs describe the long-term vision. These implementation notes distinguish working behavior from future runtime and operating-system features.

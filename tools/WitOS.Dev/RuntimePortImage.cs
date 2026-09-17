@@ -48,7 +48,7 @@ internal static class RuntimePortImage
             $"/I{Path.Combine(root, "src", "Runtime.NativeAot")}", $"/I{Path.Combine(root, "src", "System.Native")}",
             $"/I{Path.Combine(root, "src", "Kernel", "include")}", $"/I{Path.Combine(root, "tests", "User.X64")}"
         ];
-        string[] sources = ["src/Runtime.NativeAot/gcenv.witos.cpp", "tests/User.X64/gc_memory.cpp", "tests/User.X64/gc_missing.cpp", "tests/User.X64/gc_discovery.cpp"];
+        string[] sources = ["src/Runtime.NativeAot/gcenv.witos.cpp", "tests/User.X64/gc_memory.cpp", "tests/User.X64/gc_missing.cpp", "tests/User.X64/gc_discovery.cpp", "src/Runtime.NativeAot/gc_events.witos.cpp", "tests/User.X64/gc_events.cpp"];
         var objects = new List<string>();
         foreach (var source in sources)
         {
@@ -59,7 +59,7 @@ internal static class RuntimePortImage
         // native_start.obj was assembled by UserBootstrapImage; all x64 ABI glue stays there.
         string[] link = ["/nologo", "/subsystem:native", "/entry:wit_native_start", "/nodefaultlib", "/machine:x64",
             "/fixed:no", "/dynamicbase", "/incremental:no", "/Brepro", "/base:0x180000000",
-            Path.Combine(output, "native_start.obj"), objects[0]];
+            Path.Combine(output, "native_start.obj"), objects[0], objects[4]];
         var missing = await Processes.RunAsync(Path.Combine(msvc, "link.exe"),
             [.. link, $"/out:{Path.Combine(output, "GcMissing.pe")}", objects[2]], root);
         var diagnostic = missing.Output + missing.Error;
@@ -72,7 +72,7 @@ internal static class RuntimePortImage
             throw new InvalidDataException($"Expected exactly the unimplemented GC performance clock link failure.\n{diagnostic}");
         var image = Path.Combine(output, "GcMemoryFixture.pe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
-            [.. link, $"/out:{image}", $"/map:{Path.Combine(output, "GcMemoryFixture.map")}", objects[1], objects[3]], root);
+            [.. link, $"/out:{image}", $"/map:{Path.Combine(output, "GcMemoryFixture.map")}", objects[1], objects[3], objects[5]], root);
         var bytes = await File.ReadAllBytesAsync(image);
         using var stream = new MemoryStream(bytes, writable: false);
         using var pe = new PEReader(stream);
@@ -90,7 +90,7 @@ internal static class RuntimePortImage
         var report = new
         {
             backend = Backend, pin.RuntimeVersion, pin.RuntimeCommit,
-            scope = "Source-level GCToOSInterface memory/discovery slice; no collector or managed code linked. Guest execution is checked separately by the VM runner.",
+            scope = "Source-level GCToOSInterface memory/discovery/event slice; no collector or managed code linked. Guest execution is checked separately by the VM runner.",
             guestManagedRuntime = false, missingGcPerformanceClockRejected = true,
             upstreamInputs = pin.Sources.Where(s => UpstreamInputs.Contains(s.Path)),
             localInputs = sources.Append("src/Runtime.NativeAot/gcenv.witos.h").Append("src/Kernel.Arch.X64/native_start.asm")

@@ -26,6 +26,31 @@ wit_native_claim_startup PROC
     ret
 wit_native_claim_startup ENDP
 
+PUBLIC wit_native_try_lock
+wit_native_try_lock PROC
+    xor eax, eax
+    mov edx, 1
+    lock cmpxchg DWORD PTR [rcx], edx
+    sete al
+    movzx eax, al
+    ret
+wit_native_try_lock ENDP
+
+PUBLIC wit_native_unlock
+wit_native_unlock PROC
+    ; Release ordering for prior stores on x64 TSO; external call is the
+    ; MSVC compiler boundary. No AVX/XSAVE or segment-based TLS is involved.
+    mov DWORD PTR [rcx], 0
+    ret
+wit_native_unlock ENDP
+
+PUBLIC wit_native_fail_fast
+wit_native_fail_fast PROC
+    mov eax, WIT_CALL_EXIT
+    int 80h
+    ud2
+wit_native_fail_fast ENDP
+
 PUBLIC wit_native_call
 wit_native_call PROC
     mov rax, rcx
