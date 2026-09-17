@@ -5,6 +5,7 @@
 #include "witos/handles.h"
 #include "witos/events.h"
 #include "witos/memory.h"
+#include "witos/pe.h"
 
 typedef struct WitUserReservation {
     WitU64 Base;
@@ -59,6 +60,9 @@ typedef struct WitUserProcess {
     WitU32 Writes;
     WitU64 Ticks;
     WitU64 ExitCode;
+    WitU64 ImageBase;
+    WitU64 ImageEntry;
+    WitU32 ImageSize;
     WitU64 FaultVector;
     WitU64 FaultError;
     WitU64 FaultAddress;
@@ -97,10 +101,14 @@ WitU64 wit_user_memory_release(WitUserSpace *space, WitU64 address);
 void wit_user_memory_self_test(WitPageAllocator *pages);
 void wit_user_thread_self_test(WitPageAllocator *pages);
 void wit_user_wait_self_test(WitPageAllocator *pages);
+void wit_user_image_self_test(WitPageAllocator *pages);
 WitU64 wit_virtual_kernel_root(void);
 
 int wit_user_create(WitUserProcess *process, WitPageAllocator *allocator,
     WitU32 slot, const WitU8 *code, WitU32 code_size);
+WitPeStatus wit_user_create_pe(WitUserProcess *process, WitPageAllocator *allocator,
+    WitU32 slot, const WitU8 *file, WitU32 size, WitU64 base);
+int wit_user_image_map(WitUserSpace *space, const WitU8 *file, const WitPeImage *plan, WitU64 base);
 WitU64 wit_user_thread_create(WitUserProcess *process, WitU64 entry, WitU64 argument, WitU64 *result);
 void wit_user_run(WitUserProcess *process);
 void wit_user_destroy(WitUserProcess *process);

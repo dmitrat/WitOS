@@ -1,7 +1,7 @@
 # M2 — First isolated native execution
 
 Status: implemented; latest extension locally verified on 2026-09-17.
-Guest version: WitOS 0.0.7 (isolation in 0.0.4, memory in 0.0.5, threads/TLS in 0.0.6, events/deadlines in 0.0.7).
+Guest version: WitOS 0.0.8 (isolation in 0.0.4, memory in 0.0.5, threads/TLS in 0.0.6, events in 0.0.7, PE loading in 0.0.8).
 
 This is the first M2 isolation slice, not a general process platform or a .NET runtime port.
 
@@ -17,7 +17,7 @@ The existing M1 kernel-worker demonstration remains intact.
 
 The guest copies these bytes into a newly allocated user code page. It never calls that code in ring 0.
 
-This is a known build-time fixture, not a general untrusted PE loader. Its fixed layout and test extension are not a public application format.
+This original path remains a known build-time fixture, not a general loader. Version 0.0.8 separately embeds complete PE files for the [bounded guest PE loading path](M2-Pe-Image-Loading.md), which performs its own guest validation. Neither fixture layout is a public application format.
 
 ## Address spaces and ownership
 
@@ -112,7 +112,7 @@ dotnet build WitOS.slnx --configuration Release
 dotnet run --project tools/WitOS.Dev --configuration Release -- test
 ```
 
-All 17 VM scenarios passed locally. Ordinary successful boots now additionally require 56 M2 check groups, including:
+All 17 VM scenarios passed locally. Ordinary successful boots now additionally require 72 M2 check groups, including:
 
 - actual ring-3 execution and ABI/handle checks;
 - two live private address spaces, foreign live handles and an inaccessible peer-only page;
@@ -123,12 +123,13 @@ All 17 VM scenarios passed locally. Ordinary successful boots now additionally r
 - handle closure and physical-page accounting after teardown;
 - eleven [memory groups](M2-User-Memory.md): sparse/private memory, quota rollback, invalid reservations, physical OOM, ring-3 lifecycle and six hardware access faults;
 - ten [thread groups](M2-User-Threads-and-Tls.md): preemption/TLS, join/reuse, cycle rejection, capacity/creation failures and child-fault/exit cleanup;
-- fourteen [wait groups](M2-Events-and-Deadlines.md): event state/rights, wakeup/close/deadline ordering, handoff, idle and resource limits.
+- fourteen [wait groups](M2-Events-and-Deadlines.md): event state/rights, wakeup/close/deadline ordering, handoff, idle and resource limits;
+- sixteen [image groups](M2-Pe-Image-Loading.md): guest PE validation, section mapping, relocations, zero-fill/private data, failure rollback and access faults.
 
 For faults the guest checks CPU error codes, CR2 where meaningful, CS/SS and kernel canaries. Every failure is followed by a normal component. The host requires the full M2 marker sequence and ring-3 fault selectors before accepting boot success.
 
 ## Limits and next work
 
-Two component slots, one active component, four threads per component, one x64 CPU, known one-page code images, a fixed image layout, eight dynamic reservations and at most 128 owned physical pages per component (including tables, user stacks and TLS). No general executable loader, filesystem, IPC channels, transferable capabilities, compiler/managed TLS, mutexes/multi-object waits or managed runtime exists yet.
+Two component slots, one active component, four threads per component, one x64 CPU, legacy one-page fixtures and a bounded native PE profile, fixed startup/thread regions, eight dynamic reservations and at most 128 owned physical pages per component (including tables, user stacks and TLS). No general Windows/DLL loader, filesystem, IPC channels, transferable capabilities, compiler/managed TLS, mutexes/multi-object waits or managed runtime exists yet.
 
-Memory, thread/TLS/join and event/deadline primitives are implemented. Next investigate the actual guest NativeAOT target/bootstrap and required runtime adapters from RFC 0015. A real NativeAOT memory adapter and scalable commitment limits are still required. The interrupt transport and fixed layout are experimental and can change with executable tests.
+Memory, thread/TLS/join, events/deadlines and bounded PE image loading are implemented. Next define the actual NativeAOT module/bootstrap contract and choose the runtime backend from RFC 0015. A real NativeAOT memory adapter and scalable commitment limits are still required. The interrupt transport and fixed layout are experimental and can change with executable tests.

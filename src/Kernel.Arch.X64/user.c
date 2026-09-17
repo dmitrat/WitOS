@@ -269,19 +269,27 @@ static WitU64 close_handle(WitU64 handle)
     return WIT_STATUS_OK;
 }
 
-int wit_user_create(WitUserProcess *process, WitPageAllocator *allocator,
-    WitU32 slot, const WitU8 *code, WitU32 code_size)
+static int can_create(const WitUserProcess *process, WitU32 slot)
+{
+    return process && !current_user && slot < 2 && !slot_owners[slot] && next_id &&
+        slot_owners[0] != process && slot_owners[1] != process && (wit_x64_read_flags() & 0x200) == 0;
+}
+
+static WitPeStatus create_process(WitUserProcess *process, WitPageAllocator *allocator,
+    WitU32 slot, const WitU8 *code, WitU32 code_size, const WitPeImage *image, WitU64 base)
 {
     WitUserStartup *startup;
     WitU64 physical;
-    if (current_user || slot >= 2 || slot_owners[slot] || !next_id ||
-        code == 0 || code_size == 0 || code_size > 4096) return 0;
+    if (!can_create(process, slot)) return WitPeBusy;
     process->Id = next_id++;
     process->Slot = slot;
     process->State = WitUserEmpty;
     process->Writes = 0;
     process->Ticks = 0;
     process->ExitCode = 0;
+    process->ImageBase = image ? base : WIT_USER_CODE;
+    process->ImageEntry = image ? base + image->EntryRva : WIT_USER_CODE;
+    process->ImageSize = image ? image->ImageSize : code_size;
     process->FaultVector = 0;
     process->FaultError = 0;
     process->FaultAddress = 0;
@@ -307,24 +315,49 @@ int wit_user_create(WitUserProcess *process, WitPageAllocator *allocator,
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) process->Threads[i].State = WitThreadEmpty;
     wit_handles_initialize(&process->Handles, process->Id);
     slot_owners[slot] = process;
-    if (!wit_user_space_create(&process->Space, allocator) ||
-        !wit_user_space_map(&process->Space, WIT_USER_CODE, 0, 1) ||
-        !wit_user_space_map(&process->Space, WIT_USER_INFO, 0, 0)) goto failed;
+    if (!wit_user_space_create(&process->Space, allocator)) goto failed;
+    if (image) {
+        if (!wit_user_image_map(&process->Space, code, image, base)) goto failed;
+    } else if (!wit_user_space_map(&process->Space, WIT_USER_CODE, 0, 1)) goto failed;
+    if (!wit_user_space_map(&process->Space, WIT_USER_INFO, 0, 0)) goto failed;
     for (WitU64 page = WIT_USER_DATA; page < WIT_USER_DATA_END; page += 4096)
         if (!wit_user_space_map(&process->Space, page, 1, 0)) goto failed;
-    physical = wit_user_space_physical(&process->Space, WIT_USER_CODE, 0, 1);
-    for (WitU32 i = 0; i < code_size; ++i) ((WitU8 *)physical)[i] = code[i];
+    if (!image) {
+        physical = wit_user_space_physical(&process->Space, WIT_USER_CODE, 0, 1);
+        for (WitU32 i = 0; i < code_size; ++i) ((WitU8 *)physical)[i] = code[i];
+    }
     startup = (WitUserStartup *)wit_user_space_physical(&process->Space, WIT_USER_INFO, 0, 0);
     startup->Version = WIT_ABI_VERSION;
     startup->Size = sizeof(*startup);
     startup->ConsoleHandle = wit_handle_grant(&process->Handles, WIT_HANDLE_CONSOLE, WIT_RIGHT_WRITE);
-    if (!startup->ConsoleHandle || prepare_thread(process, 0, WIT_USER_CODE, WIT_USER_INFO) != WIT_STATUS_OK)
+    if (!startup->ConsoleHandle || prepare_thread(process, 0, process->ImageEntry, WIT_USER_INFO) != WIT_STATUS_OK)
         goto failed;
     process->State = WitUserReady;
-    return 1;
+    return WitPeOk;
 failed:
     wit_user_destroy(process);
-    return 0;
+    return WitPeNoMemory;
+}
+
+int wit_user_create(WitUserProcess *process, WitPageAllocator *allocator,
+    WitU32 slot, const WitU8 *code, WitU32 code_size)
+{
+    if (!code || !code_size || code_size > 4096) return 0;
+    return create_process(process, allocator, slot, code, code_size, 0, 0) == WitPeOk;
+}
+
+WitPeStatus wit_user_create_pe(WitUserProcess *process, WitPageAllocator *allocator,
+    WitU32 slot, const WitU8 *file, WitU32 size, WitU64 base)
+{
+    WitPeImage image;
+    WitPeStatus status;
+    if (!can_create(process, slot)) return WitPeBusy;
+    status = wit_pe_validate(file, size, &image);
+    if (status != WitPeOk) return status;
+    if ((base & 65535) || base < WIT_USER_IMAGE_BASE || base >= WIT_USER_LIMIT ||
+        image.ImageSize > WIT_USER_LIMIT - base) return WitPeBadBase;
+    if (base != image.PreferredBase && !image.RelocSize) return WitPeUnsupportedImage;
+    return create_process(process, allocator, slot, file, size, &image, base);
 }
 
 void wit_user_run(WitUserProcess *process)
@@ -355,6 +388,9 @@ void wit_user_destroy(WitUserProcess *process)
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) process->Threads[i].State = WitThreadEmpty;
     if (process->Slot < 2 && slot_owners[process->Slot] == process) slot_owners[process->Slot] = 0;
     process->State = WitUserEmpty;
+    process->ImageBase = 0;
+    process->ImageEntry = 0;
+    process->ImageSize = 0;
 }
 
 int wit_user_is_active(void) { return current_user != 0; }

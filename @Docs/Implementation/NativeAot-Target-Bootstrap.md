@@ -2,7 +2,7 @@
 
 **Status:** Reproducible experiment implemented; candidate format/ABI selected for the next loader experiment.
 **Date:** 2026-09-17.
-**Guest status:** WitOS remains 0.0.7. No NativeAOT runtime has been started inside the guest.
+**Guest status:** The experiment was introduced with WitOS 0.0.7; 0.0.8 adds [bounded guest PE loading](M2-Pe-Image-Loading.md). No NativeAOT runtime has been started inside the guest.
 
 ## Decision and scope
 
@@ -109,6 +109,6 @@ The current inspector is an analysis tool, not a complete validating guest loade
 
 ## Next bounded step
 
-Implement and test a guest PE image/metadata loading contract using controlled native images: separated RX/RO/RW sections, zero-fill, relocations and explicit rejection of unsupported import/TLS features. Use this module's measured requirements to drive that work. In parallel with that progression, choose the actual source-level runtime backend and record its patch set.
+The controlled native image-loading slice is implemented in [WitOS 0.0.8](M2-Pe-Image-Loading.md): separated RX/RO/RW sections, zero-fill, relocations and explicit rejection of unsupported import/TLS/unwind features. Next define the actual module/bootstrap contract, choose the source-level runtime backend and record its patch set. The hosted DLL still exceeds the loader profile and requires unimplemented runtime services.
 
 Do not load the unadapted Windows DLL in ring 0, bypass reverse-P/Invoke/GC initialization, substitute a fake CoreLib or call a leaf C# method and label it a completed runtime port. M3 still requires real allocations/GC, finalization, exceptions and thread activity inside WitOS.

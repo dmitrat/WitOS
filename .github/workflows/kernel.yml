@@ -56,6 +56,10 @@ jobs:
             artifacts/x64/boot/UserFixture.pe
             artifacts/x64/boot/ThreadFixture.pe
             artifacts/x64/boot/WaitFixture.pe
+            artifacts/x64/boot/PeFixture.pe
+            artifacts/x64/boot/PeFixedFixture.pe
+            artifacts/x64/boot/PeFixture.map
+            artifacts/x64/boot/PeFixedFixture.map
             artifacts/x64/boot/WitOS-x64.img
             artifacts/x64/boot/WitOS.pdb
             artifacts/x64/boot/WitOS.map

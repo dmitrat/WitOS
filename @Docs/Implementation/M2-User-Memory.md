@@ -1,6 +1,6 @@
 # M2 — Sparse user memory
 
-Status: introduced in WitOS 0.0.5; updated through 0.0.7 events/deadlines, 2026-09-17. This extends the [isolated native execution slice](M2-Isolated-Execution.md); the guest still does not run .NET.
+Status: introduced in WitOS 0.0.5; updated through 0.0.8 image loading, 2026-09-17. This extends the [isolated native execution slice](M2-Isolated-Execution.md); the guest still does not run .NET.
 
 ## Purpose and scope
 
@@ -63,7 +63,7 @@ dotnet build WitOS.slnx --configuration Release
 dotnet run --project tools/WitOS.Dev --configuration Release -- test
 ```
 
-The suite retains 17 VM scenarios. Successful boots require 56 M2 groups (21 isolation, 11 memory, 10 thread and 14 wait groups) and 21 contained user faults.
+The suite retains 17 VM scenarios. Successful boots require 72 M2 groups (21 isolation, 11 memory, 10 thread, 14 wait and 16 image groups) and 27 contained user faults.
 
 | Added group | Evidence |
 | --- | --- |

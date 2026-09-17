@@ -2,7 +2,7 @@
 
 ## Project direction
 
-The core objective is standard upstream .NET above a minimal native kernel and a hardware-independent system layer. Shells and applications eventually run on that .NET platform. Current guest code includes the M1 foundation, M2 ring-3 isolation, sparse user memory, bounded user threads/TLS and events/deadlines; host-side C# tooling must not be described as guest .NET support.
+The core objective is standard upstream .NET above a minimal native kernel and a hardware-independent system layer. Shells and applications eventually run on that .NET platform. Current guest code includes the M1 foundation, M2 ring-3 isolation, sparse user memory, bounded user threads/TLS, events/deadlines and restricted native PE loading; host-side C# tooling must not be described as guest .NET support.
 
 Original vision documents live in `@Docs/`. Concrete implementation status and deliberate limitations live in `@Docs/Implementation/`. Preserve original drafts unless the task calls for revising them.
 
@@ -27,6 +27,8 @@ Original vision documents live in `@Docs/`. Concrete implementation status and d
 - Distinguish join edges from event/sleep waits. Idle IRQs must resume their CPL0 frame without replacing saved user contexts; use the adjacent STI/HLT/CLI path with zero kernel FS base.
 - The current clock counts delivered PIT ticks only. Do not describe its nominal frequency as calibrated elapsed time or wall-clock support.
 - Keep NativeAOT Static/Shared intermediate and output paths separate; their same-named libraries are different artifacts. Preserve strict missing-symbol link checks without dummy runtime/OS implementations or forced linking.
+- Validate immutable, kernel-owned PE bytes before allocation. Keep parsing in the common kernel and page-table work in the architecture layer; unsupported directories must fail explicitly.
+- Publish a PE component only after all sections, fixups and thread state exist. Preserve RX/RO/RW separation, keep image gaps unmapped, and roll back the entire unpublished component on allocation failure.
 - Treat the boot handoff and experimental user ABI as evolving contracts, not a frozen public SDK.
 
 ## Validation

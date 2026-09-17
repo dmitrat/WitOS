@@ -1,6 +1,6 @@
 # RFC 0011 — Kernel Architecture & ABI
 
-Draft v0.7. Scope: boot, M1 foundation, M2 isolation, memory, threads/TLS and event/deadline waits.
+Draft v0.8. Scope: boot, M1 foundation, M2 isolation, memory, threads/TLS, events/deadlines and bounded PE image loading.
 
 ## Objective
 
@@ -17,7 +17,7 @@ The first user calls and process-local handles are experimental. This document d
 | Kernel.Arch.X64 | Paging, traps, PIC/PIT, context transitions and isolated user execution |
 | WitOS.Dev | Host compilation, image packaging, QEMU execution and validation |
 
-The native components currently share one EFI executable. The common kernel receives normalized information and does not parse firmware or PE structures.
+The native kernel components share one EFI executable. Boot handoff remains normalized and firmware-independent. A separate common-kernel PE parser validates user-image bytes; x64 code maps the resulting plan.
 
 ## WitBootInfo v2
 
@@ -73,6 +73,6 @@ Fault/exit/budget paths close handles, restore the kernel CR3 and supervising co
 
 ## Acceptance and next ABI work
 
-The 17-scenario VM suite preserves M1 coverage and requires 56 M2 groups in successful boots: privilege boundaries, user mappings, ABI/handles, faults, safe returns, time budgeting and teardown. See [M1 history](Implementation/M1-Kernel-Core.md) and [M2 evidence](Implementation/M2-Isolated-Execution.md).
+The 17-scenario VM suite preserves M1 coverage and requires 72 M2 groups in successful boots: privilege boundaries, user mappings, ABI/handles, faults, safe returns, time budgeting and teardown. See [M1 history](Implementation/M1-Kernel-Core.md) and [M2 evidence](Implementation/M2-Isolated-Execution.md).
 
-The [sparse user-memory contract](Implementation/M2-User-Memory.md) provides private reservations, zero-fill and recoverable all-or-nothing commitment, with explicit prototype quotas. The [thread/TLS decision](Implementation/M2-User-Threads-and-Tls.md) records bounded scheduling, consuming join and raw FS storage. The [event/deadline decision](Implementation/M2-Events-and-Deadlines.md) records signal persistence, timeout/close ordering and kernel idle, including the delivered-tick clock's limits. Before M2 stabilizes a user ABI, continue matching the selected upstream runtime's requirements for thread-local storage, threads, waits/wakes, clocks, exceptions and startup. Add mechanisms when a tested vertical slice needs them.
+The [sparse user-memory contract](Implementation/M2-User-Memory.md) provides private reservations, zero-fill and recoverable all-or-nothing commitment, with explicit prototype quotas. The [thread/TLS decision](Implementation/M2-User-Threads-and-Tls.md) records bounded scheduling, consuming join and raw FS storage. The [event/deadline decision](Implementation/M2-Events-and-Deadlines.md) records signal persistence, timeout/close ordering and kernel idle, including the delivered-tick clock's limits. The [guest PE contract](Implementation/M2-Pe-Image-Loading.md) adds protected sections, zero-fill and bounded DIR64 fixups with rollback. Before M2 stabilizes a user ABI, continue matching the selected upstream runtime's requirements for thread-local storage, threads, waits/wakes, clocks, exceptions and startup. Add mechanisms when a tested vertical slice needs them.
