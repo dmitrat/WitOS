@@ -63,7 +63,7 @@ dotnet build WitOS.slnx --configuration Release
 dotnet run --project tools/WitOS.Dev --configuration Release -- test
 ```
 
-The suite retains 17 VM scenarios. Successful boots require 83 M2 groups (21 isolation, 11 memory, 10 thread, 14 wait, 16 image and 11 native-bootstrap groups) and 29 contained user faults.
+The suite retains 17 VM scenarios. Successful boots require 89 user groups (21 isolation, 11 memory, 10 thread, 14 wait, 16 image, 11 native-bootstrap and six GC memory-adapter groups) and 33 contained user faults.
 
 | Added group | Evidence |
 | --- | --- |

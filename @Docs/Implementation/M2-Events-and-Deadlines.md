@@ -74,7 +74,7 @@ Join edges are distinguished from event/sleep waits. Cycle detection follows onl
 
 The separate `WaitFixture.pe` is built from `tests/User.X64/waits.asm`, checked as one-page RX native code with no imports/relocations, embedded like the other fixtures and uploaded by CI.
 
-The seventeen VM scenarios now require 83 M2 groups (including 11 native-bootstrap groups), with 29 contained user faults.
+The seventeen VM scenarios now require 89 user groups (including 11 native-bootstrap and six GC memory-adapter groups), with 33 contained user faults.
 
 | New group | Evidence |
 | --- | --- |

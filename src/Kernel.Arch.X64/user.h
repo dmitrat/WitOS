@@ -106,6 +106,7 @@ void wit_user_thread_self_test(WitPageAllocator *pages);
 void wit_user_wait_self_test(WitPageAllocator *pages);
 void wit_user_image_self_test(WitPageAllocator *pages);
 void wit_user_bootstrap_self_test(WitPageAllocator *pages);
+void wit_user_gc_self_test(WitPageAllocator *pages);
 WitU64 wit_virtual_kernel_root(void);
 
 int wit_user_create(WitUserProcess *process, WitPageAllocator *allocator,

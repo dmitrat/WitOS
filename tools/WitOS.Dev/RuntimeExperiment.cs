@@ -70,7 +70,7 @@ internal static class RuntimeExperiment
         Console.WriteLine($"Package VMR {pin.PackageCommit} maps to the same runtime commit.");
     }
 
-    private static async Task<string> FetchAsync(HttpClient client, string cache, string repository, string revision, string path, string expectedHash)
+    internal static async Task<string> FetchAsync(HttpClient client, string cache, string repository, string revision, string path, string expectedHash)
     {
         if (!Regex.IsMatch(expectedHash, "^[0-9a-f]{64}$") || Path.IsPathRooted(path) ||
             path.Contains('\\') || path.Split('/').Any(part => part is "" or "." or ".."))

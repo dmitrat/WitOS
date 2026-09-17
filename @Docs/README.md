@@ -150,6 +150,7 @@ The initial native milestone now has a concrete boot contract and runnable imple
 - [NativeAOT target/bootstrap evidence](Implementation/NativeAot-Target-Bootstrap.md) — static object, native C-host initialization and strict link boundaries; hosted only.
 - [M2 guest PE loading](Implementation/M2-Pe-Image-Loading.md) — validated sections, zero-fill, relocation, isolation and rollback.
 - [M2 native image/bootstrap handoff](Implementation/M2-Native-Module-Bootstrap.md) — readonly descriptors, C startup, cleanup and plain unwind metadata; ABI v5.
+- [NativeAOT source-port decision and GC memory adapter](Implementation/NativeAot-Gc-Memory-Port.md) - pinned upstream interface, guest syscalls and strict incomplete-runtime link boundary.
 - [Immediate next steps](Implementation/Next-Steps.md).
 
 The earlier RFCs describe the long-term vision. These implementation notes distinguish working behavior from future runtime and operating-system features.

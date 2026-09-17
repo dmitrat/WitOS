@@ -10,7 +10,7 @@ The pinned NativeAOT bootstrap calls RhInitialize, registers the native image/co
 
 Those managed operations belong to the runtime in user space. The kernel should describe and protect an image, not interpret ReadyToRun rows or implement a substitute TypeManager/GC.
 
-The source audit now pins 26 files, adding:
+At this milestone the source audit pinned 26 files, adding:
 
 - [StartupCodeHelpers.cs](https://github.com/dotnet/runtime/blob/b82454cad0aaaae3db2cf18fbf2cccc36e201ccc/src/coreclr/nativeaot/Common/src/Internal/Runtime/CompilerHelpers/StartupCodeHelpers.cs)
 - [ModuleHeaders.h](https://github.com/dotnet/runtime/blob/b82454cad0aaaae3db2cf18fbf2cccc36e201ccc/src/coreclr/nativeaot/Runtime/inc/ModuleHeaders.h)
@@ -88,7 +88,7 @@ The structures follow the [Microsoft x64 unwind format](https://learn.microsoft.
 
 The fixture creates actual WitOS memory reservations/committed pages and an event during initialization. It uses them in main, then closes/releases them through native cleanup. An atomic run-once test calls the same startup context from two guest C threads. Invalid callback tables/functions and descriptor versions fail before initialization.
 
-Seventeen VM scenarios now require 83 M2 groups and 29 contained user faults. Eleven new groups cover:
+At version 0.0.9, seventeen VM scenarios required 83 M2 groups and 29 contained user faults. Eleven new groups cover:
 
 | Group | Evidence |
 | --- | --- |
@@ -108,6 +108,6 @@ The original image, memory, thread, event and isolation tests remain. The source
 
 ## Remaining runtime work
 
-The runtime OS backend is not yet selected or ported. The kernel has not registered ReadyToRun modules, initialized GC tables or run managed constructors. Compiler TLS, imports, runtime exception delivery and GC rendezvous remain missing.
+The subsequent [0.0.10 backend decision and memory slice](NativeAot-Gc-Memory-Port.md) select Windows x64 code generation with a WitOS source adapter; the full runtime is still unported. The kernel has not registered ReadyToRun modules, initialized GC tables or run managed constructors. Compiler TLS, imports, runtime exception delivery and GC rendezvous remain missing.
 
-Next make the source-level NativeAOT backend/build decision and implement an explicit adapter to the tested image/thread/memory/wait contracts. Preserve the upstream order: real runtime/GC initialization must precede managed-module initialization. Do not implement successful Rh* placeholders or call the native initializer test a managed runtime bootstrap.
+Continue the selected source port with the full runtime build and explicit adapters to the tested image/thread/wait contracts. Preserve the upstream order: real runtime/GC initialization must precede managed-module initialization. Do not implement successful Rh* placeholders or call the native initializer test a managed runtime bootstrap.

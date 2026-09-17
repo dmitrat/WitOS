@@ -105,7 +105,9 @@ internal static class RuntimeTargetExperiment
         {
             hostOnly = true, guestRuntimePorted = false,
             candidateCallingConvention = "Microsoft x64", candidateObjectFormat = "AMD64 COFF / PE32+",
-            runtimeBackendSelected = false,
+            runtimeBackendSelected = true,
+            runtimeBackend = RuntimePortImage.Backend,
+            fullGuestRuntimeSourceBuild = false,
             pin.RuntimeVersion, pin.RuntimeCommit, pin.PackageCommit, verifiedPackages,
             compilerArguments = required,
             objectSha256 = Hash(obj), staticArchiveSha256 = Hash(archive), moduleSha256 = Hash(dll),

@@ -1,7 +1,7 @@
 # M2 — First isolated native execution
 
 Status: implemented; latest extension locally verified on 2026-09-17.
-Guest version: WitOS 0.0.9 (latest addition: native image handoff and user-space C bootstrap).
+Guest version: WitOS 0.0.10 (latest addition: source-level GC memory-interface adapter).
 
 This is the first M2 isolation slice, not a general process platform or a .NET runtime port.
 
@@ -112,7 +112,7 @@ dotnet build WitOS.slnx --configuration Release
 dotnet run --project tools/WitOS.Dev --configuration Release -- test
 ```
 
-All 17 VM scenarios passed locally. Ordinary successful boots now additionally require 83 M2 check groups, including:
+All 17 VM scenarios passed locally. Ordinary successful boots now additionally require 89 user check groups, including:
 
 - actual ring-3 execution and ABI/handle checks;
 - two live private address spaces, foreign live handles and an inaccessible peer-only page;
@@ -133,4 +133,4 @@ For faults the guest checks CPU error codes, CR2 where meaningful, CS/SS and ker
 
 Two component slots, one active component, four threads per component, one x64 CPU, legacy one-page fixtures and a bounded native PE profile, fixed startup/thread regions, eight dynamic reservations and at most 128 owned physical pages per component (including tables, user stacks and TLS). No general Windows/DLL loader, filesystem, IPC channels, transferable capabilities, compiler/managed TLS, mutexes/multi-object waits or managed runtime exists yet.
 
-Memory, thread/TLS/join, events/deadlines and bounded PE image loading are implemented. The native image/bootstrap contract is implemented; next choose and adapt the actual NativeAOT runtime backend from RFC 0015. A real NativeAOT memory adapter and scalable commitment limits are still required. The interrupt transport and fixed layout are experimental and can change with executable tests.
+Memory, thread/TLS/join, events/deadlines and bounded PE image loading are implemented. The native image/bootstrap contract is implemented; the [NativeAOT backend direction is selected and first memory adapter implemented](NativeAot-Gc-Memory-Port.md). The full runtime source build, remaining platform adapters and scalable commitment limits are still required. The interrupt transport and fixed layout are experimental and can change with executable tests.

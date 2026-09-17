@@ -11,7 +11,7 @@ internal static class DevTool
         try
         {
             if (args.Length > 1)
-                throw new ArgumentException("Use a single command: doctor, setup, build, run, test, runtime-audit, runtime-probe, runtime-target.");
+                throw new ArgumentException("Use a single command: doctor, setup, build, run, test, runtime-audit, runtime-probe, runtime-target, runtime-port.");
             if (!OperatingSystem.IsWindows())
                 throw new PlatformNotSupportedException("The current development host is Windows x64 with Visual Studio C++ tools. The guest does not use Windows.");
 
@@ -42,6 +42,10 @@ internal static class DevTool
                 case "test":
                     await TestAsync(root);
                     break;
+                case "runtime-port":
+                    var portImage = await BuildAsync(root, "runtime-port");
+                    await BootAsync(root, portImage, "runtime-port-256", 256, 60, ExpectedOutcome.Success);
+                    break;
                 case "runtime-audit":
                     await RuntimeExperiment.AuditAsync(root);
                     break;
@@ -52,7 +56,7 @@ internal static class DevTool
                     await RuntimeTargetExperiment.RunAsync(root);
                     break;
                 case "help":
-                    Console.WriteLine("WitOS development tool\nUsage: dotnet run --project tools/WitOS.Dev -- <command>\n\n  doctor  Check compiler, QEMU and firmware\n  setup   Download and verify pinned QEMU into .tools\n  build   Build the x64 UEFI image (no VM)\n  run     Build and boot headlessly in QEMU\n  test    Test boot, physical pages, CPU exceptions and timeout handling\n  runtime-audit  Verify pinned NativeAOT sources and package provenance\n  runtime-probe  Publish and execute a hosted NativeAOT dependency probe\n  runtime-target  Inspect NativeAOT objects and test native-host bootstrap / strict link boundaries");
+                    Console.WriteLine("WitOS development tool\nUsage: dotnet run --project tools/WitOS.Dev -- <command>\n\n  doctor  Check compiler, QEMU and firmware\n  setup   Download and verify pinned QEMU into .tools\n  build   Build the x64 UEFI image (no VM)\n  run     Build and boot headlessly in QEMU\n  test    Test boot, physical pages, CPU exceptions and timeout handling\n  runtime-audit  Verify pinned NativeAOT sources and package provenance\n  runtime-probe  Publish and execute a hosted NativeAOT dependency probe\n  runtime-target  Inspect NativeAOT objects and test native-host bootstrap / strict link boundaries\n  runtime-port  Build pinned GC memory adapter and execute guest checks in QEMU");
                     break;
                 default:
                     throw new ArgumentException($"Unknown command: {command}. Use help.");
@@ -86,7 +90,7 @@ internal static class DevTool
 
         await UserImage.BuildAsync(root, output, msvc);
 
-        string[] sources = ["src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c", "src/Kernel/handles.c", "src/Kernel.Arch.X64/user_space.c", "src/Kernel.Arch.X64/user.c", "src/Kernel.Arch.X64/user_tests.c", "src/Kernel.Arch.X64/user_memory_tests.c", "src/Kernel.Arch.X64/user_thread_tests.c", "src/Kernel/events.c", "src/Kernel.Arch.X64/user_wait.c", "src/Kernel.Arch.X64/user_wait_tests.c", "src/Kernel/pe.c", "src/Kernel.Arch.X64/user_image.c", "src/Kernel.Arch.X64/user_image_tests.c", "src/Kernel.Arch.X64/user_bootstrap_tests.c"];
+        string[] sources = ["src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c", "src/Kernel/handles.c", "src/Kernel.Arch.X64/user_space.c", "src/Kernel.Arch.X64/user.c", "src/Kernel.Arch.X64/user_tests.c", "src/Kernel.Arch.X64/user_memory_tests.c", "src/Kernel.Arch.X64/user_thread_tests.c", "src/Kernel/events.c", "src/Kernel.Arch.X64/user_wait.c", "src/Kernel.Arch.X64/user_wait_tests.c", "src/Kernel/pe.c", "src/Kernel.Arch.X64/user_image.c", "src/Kernel.Arch.X64/user_image_tests.c", "src/Kernel.Arch.X64/user_bootstrap_tests.c", "src/Kernel.Arch.X64/user_gc_tests.c"];
         var objects = new List<string>();
         foreach (var source in sources)
         {
@@ -327,6 +331,8 @@ internal static class DevTool
             "BootstrapUnwindMetadata", "BootstrapUnwindRejection", "BootstrapNativeEntry", "BootstrapImageDescriptor",
             "BootstrapOrderAndRunOnce", "BootstrapRollback", "BootstrapMainFailure", "BootstrapValidation",
             "BootstrapEmptyList", "BootstrapDescriptorProtection", "BootstrapInitializerFault",
+            "GcMemoryContract", "GcMemoryOwnership", "GcMemoryRelocation",
+            "GcReserveProtection", "GcDecommitProtection", "GcMemoryNx",
             "BadReturn", "TimerBudget", "PreemptionState",
             "ZeroFillAndStaleHandles", "Teardown", "Isolation"
         ];
@@ -336,7 +342,7 @@ internal static class DevTool
         if (!MarkersInOrder(output, markers.ToArray())) return false;
         var faults = Regex.Matches(output,
             @"\[USER-FAULT\] id=(\d+) vector=(\d+) error=(0x[0-9A-F]{16}) address=(0x[0-9A-F]{16}) cs=(0x[0-9A-F]{16})");
-        return faults.Count == 29 && faults.All(match =>
+        return faults.Count == 33 && faults.All(match =>
             Convert.ToUInt64(match.Groups[5].Value[2..], 16) == 0x33);
     }
 

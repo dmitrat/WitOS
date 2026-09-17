@@ -112,6 +112,26 @@
                     {
                         "path":  "src/coreclr/nativeaot/Runtime/RuntimeInstance.cpp",
                         "sha256":  "71143ca01b9c35c16821f59d0e928da79fd7113da595f0949753b11488642152"
+                    },
+                    {
+                        "path":  "src/coreclr/gc/env/gcenv.structs.h",
+                        "sha256":  "2d330dbf7f2e06fbd8d8cc4976700cff2ef5c96e635e916bc08d4a673c484662"
+                    },
+                    {
+                        "path":  "src/coreclr/gc/env/gcenv.base.h",
+                        "sha256":  "2b6ba152beaaa9e5c24f95768441f62393b63655ec93c2934eb40ac83406ec2f"
+                    },
+                    {
+                        "path":  "src/native/minipal/utils.h",
+                        "sha256":  "8333e5651ae3fd5e80127fb40b9608fdedc71b5419d3695418c09bfddc48fb86"
+                    },
+                    {
+                        "path":  "src/native/minipal/mutex.h",
+                        "sha256":  "cc93fa7f5f38af65e63408a9216c2a703125ae9a6ea5fcde262e36bf4540897e"
+                    },
+                    {
+                        "path":  "LICENSE.TXT",
+                        "sha256":  "cfc21f5e8bd655ae997eec916138b707b1d290b83272c02a95c9f821b8c87310"
                     }
                 ]
 }

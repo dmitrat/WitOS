@@ -61,6 +61,10 @@ jobs:
             artifacts/x64/boot/PeFixture.map
             artifacts/x64/boot/PeFixedFixture.map
             artifacts/x64/boot/BootstrapFixture.pe
+            artifacts/x64/boot/GcMemoryFixture.pe
+            artifacts/x64/boot/GcMemoryFixture.map
+            artifacts/x64/boot/gc-memory-build.json
+            artifacts/x64/boot/gc-missing-link.log
             artifacts/x64/boot/WitOS-x64.img
             artifacts/x64/boot/WitOS.pdb
             artifacts/x64/boot/WitOS.map

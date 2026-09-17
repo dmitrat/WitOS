@@ -1,6 +1,6 @@
 # RFC 0015 — .NET Runtime Port & Compatibility Contract
 
-Draft v0.7. Status: source inventory, hosted evidence probes, bounded M2 mechanisms and guest native C bootstrap implemented; guest managed runtime port not implemented.
+Draft v0.8. Status: source inventory, hosted evidence probes, bounded M2 mechanisms guest native C bootstrap and first GC memory-interface adapter implemented; guest managed runtime port not implemented.
 
 ## 1. Evidence baseline
 
@@ -14,7 +14,7 @@ This RFC targets upstream .NET **10.0.8**:
 - package VMR commit: `94ea82652cdd4e0f8046b5bd5becbd11461482ca`
 - host SDK: `10.0.300`, from the repository's global.json
 
-The VMR source manifest maps its runtime component to the pinned runtime commit. The checked-in [source lock](../experiments/NativeAotProbe/upstream.lock.json) records SHA-256 hashes for 26 selected source files and the VMR manifest. The [NuGet lock](../experiments/NativeAotProbe/packages.lock.json) pins the compiler packages and their content hashes.
+The VMR source manifest maps its runtime component to the pinned runtime commit. The checked-in [source lock](../experiments/NativeAotProbe/upstream.lock.json) records SHA-256 hashes for 31 selected source/license files and the VMR manifest. The [NuGet lock](../experiments/NativeAotProbe/packages.lock.json) pins the compiler packages and their content hashes.
 
 These are selected integration sources, not a complete dependency closure. This is a reference version for investigation, not a claim that it is the newest release.
 
@@ -102,7 +102,7 @@ The null area is platform-specific in the pinned PAL: 64 KiB on Windows, 4 KiB o
 
 For M2's first native component, an unhandled user fault can terminate that component. M3 additionally needs the runtime's managed exception paths, including selected hardware-fault translation and safe context restoration. Those operations must validate privilege level, flags, stack and target addresses before resuming.
 
-The loader must establish the selected native ABI, TLS, relocations, zeroed data, module boundaries and unwind metadata. PE/COFF and Microsoft x64 are the measured candidate; WitOS 0.0.8 implements a [restricted native executable loading path](Implementation/M2-Pe-Image-Loading.md) with section protection, zero-fill and internal DIR64 fixups. It rejects DLL/import/TLS/unwind semantics until their runtime contracts are implemented. The final source-level runtime backend remains undecided; the win-x64 experiments do not choose a Windows compatibility personality for WitOS.
+The loader must establish the selected native ABI, TLS, relocations, zeroed data, module boundaries and unwind metadata. PE/COFF and Microsoft x64 are the measured candidate; WitOS 0.0.8 implements a [restricted native executable loading path](Implementation/M2-Pe-Image-Loading.md) with section protection, zero-fill and internal DIR64 fixups. It rejects DLL/import/TLS/unwind semantics until their runtime contracts are implemented. WitOS 0.0.10 selects Windows x64 code generation with an explicit WitOS source adapter in [ADR 0006](Implementation/NativeAot-Gc-Memory-Port.md). This is not a Windows compatibility personality; the full runtime source build and remaining OS behavior are still pending.
 
 CPU instruction support and saved state must agree. M1 preserves x87/SSE only; any emitted or runtime-selected AVX/extended state requires the corresponding kernel support or an explicitly compatible target profile.
 
@@ -145,6 +145,7 @@ The immediate M2 slice only needs separate user mappings, a versioned call bound
 - **Evidence gate, implemented:** pinned sources/package provenance, actual hosted NativeAOT binary, semantic smoke tests and direct-import report.
 - **Target/bootstrap evidence gate, implemented on Windows:** pinned static ILC archive, native C-host entry with real GC/TLS, COFF/PE metadata and strict-link failure inventory. A restricted native PE loader is now implemented; actual runtime bootstrap remains pending.
 - **Initial M2 isolation gate, implemented for the controlled fixture:** native unprivileged component, checked pointers/handles, private mappings and contained faults. See [M2 limits and evidence](Implementation/M2-Isolated-Execution.md); general DLL/import/TLS/unwind support and actual runtime services are still pending.
+- **First source-adapter gate, implemented:** native GC memory methods compile against pinned, unchanged upstream headers and execute through WitOS syscalls in QEMU; missing GC initialization is rejected at link time. This does not execute the collector.
 - **Runtime substrate gate, pending:** memory lifecycle, TLS, blocking/waking and runtime-coordinated suspension have executable tests.
 - **M3 gate, pending:** the real NativeAOT component passes the relevant probe cases inside WitOS, including GC and thread activity. Report disabled features and all upstream changes.
 - **Maintenance gate, pending:** rebuild/retest against a subsequent upstream revision and measure the adaptation effort.
@@ -161,4 +162,4 @@ The first command verifies cached/downloaded source bytes and the VMR mapping. T
 
 The third command verifies target artifacts, executes a native bootstrap host and records strict-link boundaries under `artifacts/runtime-target/`.
 
-See [host experiment notes](Implementation/NativeAot-Host-Probe.md) and [target/bootstrap evidence](Implementation/NativeAot-Target-Bootstrap.md). No upstream runtime changes have been made in these experiments.
+See [host experiment notes](Implementation/NativeAot-Host-Probe.md) and [target/bootstrap evidence](Implementation/NativeAot-Target-Bootstrap.md). Those hosted experiments use unchanged upstream packages. The separate `runtime-port` command builds and executes the WitOS GC memory source overlay against unchanged upstream headers; it does not yet build the full runtime.

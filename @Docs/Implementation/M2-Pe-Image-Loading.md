@@ -89,7 +89,7 @@ Test symbol RVAs come from public symbols in linker maps; tests do not assume th
 
 The guest fixture validates relocated code/data pointers, calls through a relocated read-only pointer, reads the cross-page pointer, scans 8192 BSS bytes, writes its instance ID into private image data and prints via the granted console handle.
 
-The seventeen VM scenarios now require 83 M2 groups and 29 contained user faults. Sixteen new image groups cover:
+The seventeen VM scenarios now require 89 user groups and 33 contained user faults. Sixteen new image groups cover:
 
 | Group | Evidence |
 | --- | --- |
@@ -115,4 +115,4 @@ The format fields and DIR64 operation follow the [Microsoft PE reference](https:
 
 This loader cannot yet accept the hosted NativeAOT DLL: DLL/import/TLS/unwind semantics remain unsupported, its measured image is larger than the profile and the physical quota is still 128 frames per component.
 
-Native image handoff and C startup are now implemented. Next select the actual source-level runtime backend, then add its TLS, unwinding/fault and GC coordination mechanisms. Managed-module registration stays inside the real runtime. Keep unsupported features explicit; a successful native PE load is not a .NET runtime port.
+Native image handoff and C startup are now implemented. The [backend direction and first GC memory adapter](NativeAot-Gc-Memory-Port.md) are selected/implemented; next extend the source build, TLS, unwinding/fault and GC coordination mechanisms. Managed-module registration stays inside the real runtime. Keep unsupported features explicit; a successful native PE load is not a .NET runtime port.

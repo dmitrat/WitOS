@@ -2,13 +2,13 @@
 
 **Status:** Reproducible experiment implemented; candidate format/ABI selected for the next loader experiment.
 **Date:** 2026-09-17.
-**Guest status:** The experiment was introduced with WitOS 0.0.7; 0.0.8 adds [bounded guest PE loading](M2-Pe-Image-Loading.md). Version 0.0.9 adds [native C startup and readonly image information](M2-Native-Module-Bootstrap.md). No NativeAOT runtime has been started inside the guest.
+**Guest status:** The experiment was introduced with WitOS 0.0.7; 0.0.8 adds [bounded guest PE loading](M2-Pe-Image-Loading.md). Version 0.0.9 adds [native C startup and readonly image information](M2-Native-Module-Bootstrap.md). Version 0.0.10 adds the [first GC memory-interface adapter](NativeAot-Gc-Memory-Port.md). No NativeAOT runtime has been started inside the guest.
 
 ## Decision and scope
 
 Use AMD64 COFF / PE32+ and the Microsoft x64 calling convention as the first measured integration candidate. They match the existing MSVC/MASM environment and native WitOS call convention. The published win-x64 NativeAOT compiler can produce inspectable objects without a custom compiler build.
 
-This selects an experimental object/call boundary, not the runtime's final OS backend. The Windows PAL, CoreLib platform paths, TLS and exception integration are still unported. A Windows compatibility personality has not been selected or implemented.
+This experiment established the object/call boundary. [ADR 0006](NativeAot-Gc-Memory-Port.md) subsequently selected Windows x64 code generation with an explicit WitOS source adapter. The Windows PAL, CoreLib platform paths, TLS and exception integration are still unported. A Windows compatibility personality has not been selected or implemented.
 
 | Option | Evidence and trade-off |
 | --- | --- |
@@ -109,6 +109,6 @@ The current inspector is an analysis tool, not a complete validating guest loade
 
 ## Next bounded step
 
-The controlled native image-loading slice is implemented in [WitOS 0.0.8](M2-Pe-Image-Loading.md): separated RX/RO/RW sections, zero-fill, relocations and explicit rejection of unsupported import/TLS/unwind features. The native image handoff and C lifecycle are implemented in 0.0.9; next choose the source-level runtime backend and record its patch set. Actual managed-module initialization remains a runtime responsibility. The hosted DLL still exceeds the loader profile and requires unimplemented runtime services.
+The controlled native image-loading slice is implemented in [WitOS 0.0.8](M2-Pe-Image-Loading.md): separated RX/RO/RW sections, zero-fill, relocations and explicit rejection of unsupported import/TLS/unwind features. The native image handoff and C lifecycle are implemented in 0.0.9; the 0.0.10 source-port decision and memory adapter now define the next direction. The full native runtime source build and remaining platform adapters are pending. Actual managed-module initialization remains a runtime responsibility. The hosted DLL still exceeds the loader profile and requires unimplemented runtime services.
 
 Do not load the unadapted Windows DLL in ring 0, bypass reverse-P/Invoke/GC initialization, substitute a fake CoreLib or call a leaf C# method and label it a completed runtime port. M3 still requires real allocations/GC, finalization, exceptions and thread activity inside WitOS.

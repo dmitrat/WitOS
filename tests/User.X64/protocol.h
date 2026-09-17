@@ -65,6 +65,11 @@
 #define WIT_BOOTSTRAP_TEST_INIT_FAULT 9U
 #define WIT_BOOTSTRAP_TEST_EMPTY 10U
 #define WIT_BOOTSTRAP_TEST_CONCURRENT 11U
+#define WIT_GC_TEST_NORMAL 0U
+#define WIT_GC_TEST_RESERVED 1U
+#define WIT_GC_TEST_DECOMMITTED 2U
+#define WIT_GC_TEST_NX 3U
+#define WIT_GC_TEST_ROLLBACK 4U
 #define WIT_TEST_EXIT_CODE 42U
 #define WIT_TEST_RO_OFFSET 24U
 #define WIT_TEST_SELF_OFFSET 32U
@@ -82,5 +87,5 @@ typedef struct WitUserTestConfig {
     WitU64 KernelProbe;
     WitU64 InstanceId;
 } WitUserTestConfig;
-_Static_assert(sizeof(WitUserTestConfig) == 72, "User test config layout");
+WIT_STATIC_ASSERT(sizeof(WitUserTestConfig) == 72, "User test config layout");
 #endif

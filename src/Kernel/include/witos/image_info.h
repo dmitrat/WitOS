@@ -30,6 +30,6 @@ typedef struct WitUserImageInfo {
     WitUserImageRange Ranges[WIT_IMAGE_INFO_MAX_RANGES];
 } WitUserImageInfo;
 
-_Static_assert(sizeof(WitUserImageRange) == 16, "Image range ABI");
-_Static_assert(sizeof(WitUserImageInfo) == WIT_IMAGE_INFO_SIZE, "Image information ABI");
+WIT_STATIC_ASSERT(sizeof(WitUserImageRange) == 16, "Image range ABI");
+WIT_STATIC_ASSERT(sizeof(WitUserImageInfo) == WIT_IMAGE_INFO_SIZE, "Image information ABI");
 #endif
