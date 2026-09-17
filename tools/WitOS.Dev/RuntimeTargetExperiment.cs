@@ -157,9 +157,9 @@ internal static class RuntimeTargetExperiment
         return directory;
     }
 
-    private sealed record LinkEvidence(string[] Roots, string[] Inputs, int ExitCode, string[] Unresolved);
+    internal sealed record LinkEvidence(string[] Roots, string[] Inputs, int ExitCode, string[] Unresolved);
 
-    private static async Task<LinkEvidence> LinkBoundaryAsync(string msvc, string output, string archive,
+    internal static async Task<LinkEvidence> LinkBoundaryAsync(string msvc, string output, string archive,
         string[] libraries, string name)
     {
         var image = Path.Combine(output, name + ".dll");

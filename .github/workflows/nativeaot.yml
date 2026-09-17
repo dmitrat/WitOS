@@ -7,6 +7,10 @@ on:
       - 'experiments/NativeAotProbe/**'
       - 'experiments/NativeAotTarget/**'
       - 'tools/WitOS.Dev/**'
+      - 'src/Runtime.NativeAot/**'
+      - 'src/System.Native/**'
+      - 'src/Kernel/include/witos/**'
+      - '.gitattributes'
       - 'global.json'
       - 'Directory.Build.props'
       - '.github/workflows/nativeaot.yml'
@@ -15,6 +19,10 @@ on:
       - 'experiments/NativeAotProbe/**'
       - 'experiments/NativeAotTarget/**'
       - 'tools/WitOS.Dev/**'
+      - 'src/Runtime.NativeAot/**'
+      - 'src/System.Native/**'
+      - 'src/Kernel/include/witos/**'
+      - '.gitattributes'
       - 'global.json'
       - 'Directory.Build.props'
       - '.github/workflows/nativeaot.yml'
@@ -60,6 +68,9 @@ jobs:
       - name: Inspect target objects and native bootstrap (HOSTED)
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-target
 
+      - name: Build upstream native sources and verify WitOS overlay
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-source
+
       - name: Upload hosted reference and evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -70,3 +81,4 @@ jobs:
           path: |
             artifacts/runtime-probe/
             artifacts/runtime-target/
+            artifacts/runtime-source/

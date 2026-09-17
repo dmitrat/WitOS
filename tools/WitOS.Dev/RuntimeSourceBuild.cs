@@ -1,0 +1,213 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+
+namespace WitOS.Dev;
+
+internal static class RuntimeSourceBuild
+{
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private static readonly string[] Cases = ["FirstExportInitialization", "AllocationGcAndExceptions", "TlsOnNativeThreads", "RepeatEntry"];
+    private sealed record CompileCommand(string Directory, string Command, string File, string Output);
+    private sealed record SourceBuild(string Sdk, string[] Members, CompileCommand[] Commands, string ArchiveSha256);
+
+    public static async Task RunAsync(string root)
+    {
+        // Refresh the real ILC object, native host and locked-package evidence.
+        await RuntimeTargetExperiment.RunAsync(root);
+        var pin = RuntimeExperiment.ReadLock(root);
+        var output = Path.Combine(root, "artifacts", "runtime-source");
+        Directory.CreateDirectory(output);
+        var source = await PrepareSourceAsync(root, pin);
+        var tree = (await GitAsync(source, ["rev-parse", "HEAD^{tree}"])).Trim();
+        var msvc = await Toolchain.FindMsvcAsync(root);
+        Console.WriteLine("Building upstream native libraries from source; Windows reference plus incomplete WitOS archive. No guest managed execution.");
+        var reference = await BuildAsync(root, source, output, msvc, "reference", overlay: false);
+        var ported = await BuildAsync(root, source, output, msvc, "witos", overlay: true);
+        await RequireCleanAsync(source);
+
+        var target = Path.Combine(root, "artifacts", "runtime-target");
+        var publishedInputs = (await File.ReadAllLinesAsync(Path.Combine(target, "shared", "native", "native-libraries.txt")))
+            .Where(p => !string.IsNullOrWhiteSpace(p)).Select(Path.GetFullPath).ToArray();
+        string[] Inputs(string sdk) => publishedInputs.Select(p => Path.Combine(sdk, Path.GetFileName(p))).ToArray();
+        var referenceInputs = Inputs(reference.Sdk);
+        var portedInputs = Inputs(ported.Sdk);
+        if (referenceInputs.Concat(portedInputs).Any(p => !File.Exists(p)))
+            throw new InvalidDataException("Source build did not produce every captured NativeAOT native input.");
+        var referenceHost = await RunReferenceAsync(root, output, target, msvc, publishedInputs, referenceInputs);
+        var boundary = await RuntimeTargetExperiment.LinkBoundaryAsync(msvc, output,
+            Path.Combine(target, "static", "NativeAotTarget.lib"), portedInputs, "witos-without-platform");
+        string[] implemented = ["VirtualReserve@", "VirtualCommit@", "VirtualDecommit@", "VirtualRelease@", "SupportsWriteWatch@"];
+        if (!boundary.Unresolved.Any(s => s.Contains("Initialize@GCToOSInterface", StringComparison.Ordinal)) ||
+            !boundary.Unresolved.Any(s => s.Contains("GCEvent", StringComparison.Ordinal)) ||
+            !boundary.Unresolved.Contains("wit_native_call") ||
+            !boundary.Unresolved.Contains("_tls_index") ||
+            boundary.Unresolved.Contains("RhpReversePInvoke") ||
+            boundary.Unresolved.Any(s => implemented.Any(name => s.Contains(name + "GCToOSInterface", StringComparison.Ordinal))))
+            throw new InvalidDataException("Source archive link did not expose the expected implemented/missing adapter boundary.");
+        var groups = new Dictionary<string, string[]>
+        {
+            ["gc-environment"] = boundary.Unresolved.Where(s => s.Contains("GCToOSInterface", StringComparison.Ordinal) || s.Contains("GCEvent", StringComparison.Ordinal)).ToArray(),
+            ["witos-transport"] = boundary.Unresolved.Where(s => s == "wit_native_call").ToArray(),
+            ["remaining-platform-runtime"] = boundary.Unresolved.Where(s => !s.Contains("GCToOSInterface", StringComparison.Ordinal) && !s.Contains("GCEvent", StringComparison.Ordinal) && s != "wit_native_call").ToArray()
+        };
+        var report = new
+        {
+            pin.RuntimeVersion, pin.RuntimeCommit, upstreamTree = tree, backend = RuntimePortImage.Backend,
+            upstreamWorkingTreeClean = true, upstreamFilesPatched = false,
+            nativeRuntimeSourceBuilt = true, managedCompilerAndCoreLibFromLockedPackages = true,
+            guestRuntimePorted = false, guestManagedExecution = false,
+            referenceHostPassedCases = Cases, referenceHost,
+            reference = new { reference.ArchiveSha256, members = reference.Members, compileUnits = reference.Commands.Length },
+            ported = new { ported.ArchiveSha256, members = ported.Members, compileUnits = ported.Commands.Length },
+            sourceOverlay = new[] { "src/Runtime.NativeAot/runtime-overlay.cmake", "src/Runtime.NativeAot/gcenv.witos.cpp",
+                "src/Runtime.NativeAot/gcenv.witos.h", "src/System.Native/bootstrap.h", "src/Kernel/include/witos/types.h",
+                "src/Kernel/include/witos/user_abi.h", "src/Kernel/include/witos/image_info.h" }
+                .Select(p => new { path = p, sha256 = Hash(Path.Combine(root, p)) }),
+            referenceInputs = referenceInputs.Select(p => new { file = Path.GetFileName(p), sha256 = Hash(p) }),
+            portedInputs = portedInputs.Select(p => new { file = Path.GetFileName(p), sha256 = Hash(p) }),
+            boundary, missingGroups = groups,
+            scope = "Entire upstream nativeaot CMake component built twice. Only workstation GC environment source is replaced in the WitOS archive; remaining Windows PAL/CRT/TLS dependencies and unsupported GC methods are intentionally unresolved. This is not a runnable guest runtime or a complete .NET source build."
+        };
+        await File.WriteAllTextAsync(Path.Combine(output, "source-build-report.json"), JsonSerializer.Serialize(report, Json));
+        await File.WriteAllTextAsync(Path.Combine(output, "missing-platform.md"),
+            "# Source-built NativeAOT port boundary\n\nNo guest runtime executed. Strict link failed as expected.\n\n" +
+            string.Join("\n\n", groups.Select(g => $"## {g.Key} ({g.Value.Length})\n\n" + string.Join("\n", g.Value.Select(v => "- `" + v + "`")))) + "\n");
+        Console.WriteLine($"[SOURCE-PASS] Full native archive: {ported.Members.Length} members; GC adapter object verified byte-for-byte.");
+        Console.WriteLine($"[SOURCE-PASS] Windows source-built reference: {Cases.Length} execution groups.");
+        Console.WriteLine($"[SOURCE-PASS] Strict WitOS link boundary: {boundary.Unresolved.Length} unresolved symbols, including {groups["gc-environment"].Length} GC environment requirements.");
+        Console.WriteLine($"Reports: {output}");
+    }
+
+    private static async Task<string> PrepareSourceAsync(string root, RuntimeExperiment.SourceLock pin)
+    {
+        var source = Path.Combine(root, ".tools", "upstream", $"runtime-{pin.RuntimeVersion}");
+        if (!Directory.Exists(Path.Combine(source, ".git")))
+        {
+            if (Directory.Exists(source) && Directory.EnumerateFileSystemEntries(source).Any())
+                throw new InvalidOperationException("Runtime source directory exists without Git metadata; refusing to overwrite it.");
+            Directory.CreateDirectory(source);
+            await GitAsync(source, ["init"]);
+            await GitAsync(source, ["remote", "add", "origin", pin.RuntimeRepository + ".git"]);
+            await GitAsync(source, ["fetch", "--depth=1", "--filter=blob:none", "origin", pin.RuntimeCommit], 600);
+            await GitAsync(source, ["sparse-checkout", "init", "--cone"]);
+            await GitAsync(source, ["sparse-checkout", "set", "eng", "src/coreclr", "src/native"]);
+            await GitAsync(source, ["checkout", "--detach", pin.RuntimeCommit], 600);
+        }
+        var revision = (await GitAsync(source, ["rev-parse", "HEAD"])).Trim();
+        var remote = (await GitAsync(source, ["remote", "get-url", "origin"])).Trim();
+        if (revision != pin.RuntimeCommit || (remote.TrimEnd('/') != pin.RuntimeRepository && remote.TrimEnd('/') != pin.RuntimeRepository + ".git"))
+            throw new InvalidDataException("Existing runtime checkout differs from the pinned repository/commit; it was not changed.");
+        await RequireCleanAsync(source);
+        await GitAsync(source, ["sparse-checkout", "add", "eng", "src/coreclr", "src/native"], 600);
+        await RequireCleanAsync(source);
+        return source;
+    }
+
+    private static async Task RequireCleanAsync(string source)
+    {
+        if (!string.IsNullOrWhiteSpace(await GitAsync(source, ["status", "--porcelain", "--untracked-files=normal"])))
+            throw new InvalidDataException("Runtime source checkout has local changes; refusing to build or overwrite them.");
+    }
+
+    private static async Task<string> GitAsync(string source, string[] args, int timeout = 60)
+    {
+        var result = await Processes.RunAsync("git", ["-c", $"safe.directory={source.Replace('\\', '/')}", .. args], source, timeout);
+        if (result.TimedOut || result.ExitCode != 0)
+            throw new InvalidOperationException($"Runtime Git {args[0]} failed. {result.Output}\n{result.Error}");
+        return result.Output;
+    }
+
+    private static string BatchPath(string path)
+    {
+        // cmd.exe is needed only for the upstream .cmd build entry. Keep its
+        // generated script free of user-controlled shell metacharacters.
+        if (path.Any(c => c > 127) || path.IndexOfAny(['"', '%', '!', '^', '&', '|', '<', '>', '\r', '\n']) >= 0)
+            throw new InvalidOperationException("Native source build currently requires ASCII paths without command-shell metacharacters.");
+        return '"' + path + '"';
+    }
+
+    private static async Task<SourceBuild> BuildAsync(string root, string source, string output, string msvc, string profile, bool overlay)
+    {
+        var script = Path.Combine(output, "build-" + profile + ".cmd");
+        var hook = Path.Combine(root, "src", "Runtime.NativeAot", "runtime-overlay.cmake").Replace('\\', '/');
+        var extra = overlay ? " -cmakeargs " + BatchPath("-DCMAKE_PROJECT_CoreCLR_INCLUDE=" + hook) : "";
+        await File.WriteAllTextAsync(script, "@echo off\r\nsetlocal\r\nset \"NumberOfCores=4\"\r\nset \"CMAKE_BUILD_PARALLEL_LEVEL=4\"\r\ncall " +
+            BatchPath(Path.Combine(source, "src", "coreclr", "build-runtime.cmd")) +
+            " -x64 -release -component nativeaot -subdir " + profile + extra + "\r\nexit /b %errorlevel%\r\n", Encoding.ASCII);
+        Console.WriteLine($"Building source profile {profile} (up to four parallel native jobs)...");
+        var build = await Processes.RunAsync("cmd.exe", ["/d", "/c", script], root, 900);
+        await File.WriteAllTextAsync(Path.Combine(output, profile + "-build.log"), build.Output + build.Error);
+        if (build.TimedOut || build.ExitCode != 0)
+            throw new InvalidOperationException($"Source profile {profile} failed (exit={build.ExitCode}, timeout={build.TimedOut}). See artifacts/runtime-source/{profile}-build.log.");
+        var sdk = Path.Combine(source, "artifacts", "bin", "coreclr", "windows.x64.Release", profile, "aotsdk");
+        var archive = Path.Combine(sdk, "Runtime.WorkstationGC.lib");
+        var listing = await Processes.RunAsync(Path.Combine(msvc, "lib.exe"), ["/nologo", "/list", archive], root);
+        if (listing.ExitCode != 0 || listing.TimedOut) throw new InvalidDataException("Cannot inspect source-built runtime archive.");
+        await File.WriteAllTextAsync(Path.Combine(output, profile + "-members.txt"), listing.Output);
+        var members = listing.Output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+        var obj = Path.Combine(source, "artifacts", "obj", "coreclr", "windows.x64.Release", profile);
+        var commands = JsonSerializer.Deserialize<CompileCommand[]>(await File.ReadAllTextAsync(Path.Combine(obj, "compile_commands.json")), Json)!
+            .Where(c => c.Output.Replace('\\', '/').Contains("/Runtime.WorkstationGC.dir/", StringComparison.Ordinal)).ToArray();
+        var paths = commands.Select(c => c.File.Replace('\\', '/')).ToArray();
+        string[] required = ["/gc/gcwks.cpp", "/gc/gchandletable.cpp", "/Runtime/startup.cpp", "/Runtime/thread.cpp", "/Runtime/TypeManager.cpp"];
+        if (required.Any(s => !paths.Any(p => p.EndsWith(s, StringComparison.Ordinal))) ||
+            paths.Any(p => p.EndsWith("/gc/windows/gcenv.windows.cpp", StringComparison.Ordinal)) == overlay ||
+            paths.Count(p => p.EndsWith("/gcenv.witos.cpp", StringComparison.Ordinal)) != (overlay ? 1 : 0) || members.Length < 50)
+            throw new InvalidDataException("Native source build did not compile the expected full runtime and selected GC environment.");
+        await File.WriteAllTextAsync(Path.Combine(output, profile + "-compile-commands.json"), JsonSerializer.Serialize(commands, Json));
+        if (overlay)
+        {
+            var adapter = commands.Single(c => c.File.Replace('\\', '/').EndsWith("/gcenv.witos.cpp", StringComparison.Ordinal));
+            NativeObject.VerifyArchive(archive, Path.GetFullPath(adapter.Output, adapter.Directory));
+        }
+        return new(sdk, members, commands, Hash(archive));
+    }
+
+    private static async Task<object> RunReferenceAsync(string root, string output, string target, string msvc,
+        string[] publishedInputs, string[] sourceInputs)
+    {
+        var hostDirectory = Path.Combine(output, "reference-host");
+        Directory.CreateDirectory(hostDirectory);
+        var dll = Path.Combine(hostDirectory, "NativeAotTarget.dll");
+        var lines = await File.ReadAllLinesAsync(Path.Combine(target, "shared", "native", "link.rsp"));
+        var replacements = 0;
+        var seen = new HashSet<int>();
+        var outputs = 0;
+        for (var i = 0; i < lines.Length; ++i)
+        {
+            if (lines[i].StartsWith("/OUT:", StringComparison.OrdinalIgnoreCase))
+            {
+                lines[i] = "/OUT:\"" + dll + "\"";
+                ++outputs;
+            }
+            else if (lines[i].StartsWith('"') && lines[i].EndsWith('"'))
+            {
+                var value = lines[i][1..^1];
+                if (!Path.IsPathRooted(value)) continue;
+                var index = Array.FindIndex(publishedInputs, p => p.Equals(Path.GetFullPath(value), StringComparison.OrdinalIgnoreCase));
+                if (index < 0) continue;
+                lines[i] = '"' + sourceInputs[index] + '"';
+                seen.Add(index);
+                ++replacements;
+            }
+        }
+        if (outputs != 1 || seen.Count != publishedInputs.Length || replacements != publishedInputs.Length || lines.Any(l => l.Contains("/FORCE", StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidDataException("Could not replace every published native input with its source-built counterpart.");
+        var rsp = Path.Combine(hostDirectory, "link.rsp");
+        await File.WriteAllLinesAsync(rsp, lines);
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"), ["@" + rsp], root);
+        File.Copy(Path.Combine(target, "shared", "native_host.exe"), Path.Combine(hostDirectory, "native_host.exe"), overwrite: true);
+        var run = await Processes.RunAsync(Path.Combine(hostDirectory, "native_host.exe"), [], hostDirectory, 60);
+        await File.WriteAllTextAsync(Path.Combine(output, "reference-host.log"), run.Output + run.Error);
+        if (run.TimedOut || run.ExitCode != 0 || run.Output.Contains("[TARGET-FAIL]", StringComparison.Ordinal) ||
+            !run.Output.Contains("[TARGET-SUCCESS]", StringComparison.Ordinal) ||
+            Cases.Any(c => !run.Output.Contains("[TARGET-PASS] " + c, StringComparison.Ordinal)))
+            throw new InvalidOperationException("Source-built Windows runtime reference failed native-host execution.");
+        Console.Write(run.Output);
+        return new { imageSha256 = Hash(dll), imageBytes = new FileInfo(dll).Length,
+            nativeInputsReplaced = replacements, imports = NativeImports.Inspect(dll) };
+    }
+
+    private static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+}

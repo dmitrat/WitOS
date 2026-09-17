@@ -12,20 +12,20 @@ The core objective remains a minimal hardware-dependent kernel, a common system 
 - Structural validation/exposure of ordinary x64 function/unwind metadata, without exception dispatch or stack walking.
 - .NET 10.0.8 audit of 31 source/license files and two hosted NativeAOT evidence probes.
 - Source-port direction selected: Windows x64 code generation/PE plus an explicit WitOS user-space adapter.
-- First `GCToOSInterface` memory slice compiled against unchanged pinned headers and executed in ring 3; unsupported GC initialization still fails strict linking.
+- First GCToOSInterface memory slice compiled against unchanged pinned headers and executed in ring 3; unsupported GC initialization still fails strict linking.
+- Full upstream nativeaot component built from the pinned source tree in separate Windows-reference and WitOS-overlay profiles; source-built Windows GC/TLS execution passes and incomplete WitOS dependencies are inventoried.
 
-See [native module/bootstrap handoff](M2-Native-Module-Bootstrap.md), [NativeAOT target evidence](NativeAot-Target-Bootstrap.md), [backend decision and memory adapter](NativeAot-Gc-Memory-Port.md) and [RFC 0015](../RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md).
+See [native module/bootstrap handoff](M2-Native-Module-Bootstrap.md), [NativeAOT target evidence](NativeAot-Target-Bootstrap.md), [backend decision and memory adapter](NativeAot-Gc-Memory-Port.md), [full native source build](NativeAot-Source-Build.md) and [RFC 0015](../RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md).
 
 WitOS 0.0.10 executes the native memory adapter in the guest. It still does not run .NET or its collector there.
 
 ## Next: extend the selected source port
 
-1. Establish the pinned full native-runtime source build and explicit source overlay/build selection. The current reproducible recipe compiles only five GC OS methods, not the collector or full runtime.
-2. Implement real GC environment initialization, memory/CPU discovery and synchronization; connect runtime thread attachment/TLS to the tested WitOS lifecycle. Keep unimplemented methods unresolved rather than returning synthetic success.
-3. Add module boundaries, fault/context delivery, unwinding and process-local GC rendezvous; expand image/stack/commit limits for the actual profile.
-4. Keep ReadyToRun/TypeManager/GC-static/frozen-object/eager-constructor initialization inside the real user-space runtime. It already requires real GC support.
-5. Replace delivered-PIT-tick timing with a suitable elapsed-time source before claiming full runtime timing.
-6. Add IPC/capability transfer when a tested service boundary needs it.
+1. Use the source-built archive's unresolved-symbol inventory to implement real GC environment initialization, memory/CPU discovery and synchronization; connect runtime thread attachment/TLS to the tested WitOS lifecycle. Keep unimplemented methods unresolved rather than returning synthetic success.
+2. Add module boundaries, fault/context delivery, unwinding and process-local GC rendezvous; expand image/stack/commit limits for the actual profile.
+3. Keep ReadyToRun/TypeManager/GC-static/frozen-object/eager-constructor initialization inside the real user-space runtime. It already requires real GC support.
+4. Replace delivered-PIT-tick timing with a suitable elapsed-time source before claiming full runtime timing.
+5. Add IPC/capability transfer when a tested service boundary needs it.
 
 The image descriptor, native initializer helper and memory adapter are separate building blocks. They are not NativeAOT module registration, a CLR initializer or a Windows CRT/TLS implementation.
 

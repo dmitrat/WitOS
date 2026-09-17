@@ -146,7 +146,15 @@ This still runs on Windows. The guest now has a restricted native PE loading pat
 dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-port
 ```
 
-This builds a native C++ implementation of `GCToOSInterface` memory methods against the unchanged .NET 10.0.8 headers, then boots QEMU and checks actual WitOS memory operations. It has no Windows/CRT imports. The compiler/format direction is Windows x64 code generation with a WitOS source adapter; full runtime compilation and managed execution remain pending. See [the decision, exact contract and evidence](@Docs/Implementation/NativeAot-Gc-Memory-Port.md).
+This builds a native C++ implementation of `GCToOSInterface` memory methods against the unchanged .NET 10.0.8 headers, then boots QEMU and checks actual WitOS memory operations. It has no Windows/CRT imports. The compiler/format direction is Windows x64 code generation with a WitOS source adapter; the full native source-build recipe is available below, while managed execution in WitOS remains pending. See [the decision, exact contract and evidence](@Docs/Implementation/NativeAot-Gc-Memory-Port.md).
+
+## NativeAOT native libraries from source
+
+```powershell
+dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-source
+```
+
+This fetches the pinned upstream native tree and builds separate Windows-reference and WitOS-overlay libraries with the upstream CMake recipe. It runs the source-built Windows runtime through the native host, then verifies the expected unresolved dependencies of the incomplete WitOS archive. Python 3 and CMake/Ninja are required in addition to the normal tools. Reports and input hashes are written to `artifacts/runtime-source/`; the command does not start a managed runtime in the guest. See [the source-build contract and results](@Docs/Implementation/NativeAot-Source-Build.md).
 
 ## Layout
 
@@ -170,7 +178,7 @@ The core kernel does not include UEFI structures. The output is a freestanding P
 
 M2 uses two fixed component slots and activates one component at a time. Up to four threads share its private address space and handles; each has separate guarded user/kernel stacks and a raw FS-based TLS block. Shared kernel mappings stay supervisor-only. Native components use experimental ABI v5 for query/write/exit/close, memory, thread, event and clock operations. Earlier one-page fixtures remain alongside the new PE path, whose profile permits up to 16 sections and a 256 KiB mapped image. Each space can reserve within a separate 64 GiB virtual arena without allocating backing RAM; commitment is explicitly limited to 128 owned frames including page tables and fixed mappings. Firmware memory remains reserved, and usable physical addresses remain below 4 GiB.
 
-User faults terminate that component; kernel faults remain fatal diagnostics. General Windows/DLL loading, imports, compiler/managed TLS, unwind integration, mutexes/multi-object waits, IPC channels, SMP and managed execution remain future work. The pinned target/bootstrap experiment now supplies measured object, TLS, unwind and dependency requirements. The bounded guest PE loading contract is implemented; native image handoff and C startup are now implemented. Windows x64 code generation is selected and the first GC memory adapter is implemented; next establish the full source build and extend the actual GC/PAL/TLS environment. The current clock counts delivered PIT ticks (nominal 100 Hz), pauses when IRQ0 is disabled and does not provide calibrated elapsed time.
+User faults terminate that component; kernel faults remain fatal diagnostics. General Windows/DLL loading, imports, compiler/managed TLS, unwind integration, mutexes/multi-object waits, IPC channels, SMP and managed execution remain future work. The pinned target/bootstrap experiment now supplies measured object, TLS, unwind and dependency requirements. The bounded guest PE loading contract is implemented; native image handoff and C startup are now implemented. Windows x64 code generation is selected and the first GC memory adapter is implemented; the full native source build and strict port-dependency inventory are established. Next extend the actual GC/PAL/TLS environment. The current clock counts delivered PIT ticks (nominal 100 Hz), pauses when IRQ0 is disabled and does not provide calibrated elapsed time.
 
 - [Architecture document index](@Docs/README.md)
 - [M0 implementation history](@Docs/Implementation/M0-Boot.md)
@@ -183,5 +191,6 @@ User faults terminate that component; kernel faults remain fatal diagnostics. Ge
 - [M2 guest PE image loading](@Docs/Implementation/M2-Pe-Image-Loading.md)
 - [M2 native image handoff and C bootstrap](@Docs/Implementation/M2-Native-Module-Bootstrap.md)
 - [NativeAOT backend decision and GC memory adapter](@Docs/Implementation/NativeAot-Gc-Memory-Port.md)
+- [NativeAOT native source build and remaining dependencies](@Docs/Implementation/NativeAot-Source-Build.md)
 - [RFC 0011: initial kernel boot contract](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md)
 - [Immediate development sequence](@Docs/Implementation/Next-Steps.md)
