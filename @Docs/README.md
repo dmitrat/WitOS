@@ -147,6 +147,7 @@ The initial native milestone now has a concrete boot contract and runnable imple
 - [M2 sparse user memory](Implementation/M2-User-Memory.md) — reserve/commit/decommit/protect/release, recoverable exhaustion and ABI v2.
 - [M2 user threads and TLS](Implementation/M2-User-Threads-and-Tls.md) — bounded preemption, raw TLS, join/exit, cleanup and ABI v3.
 - [M2 events and deadlines](Implementation/M2-Events-and-Deadlines.md) — persistent signals, close/timeout ordering, kernel idle and ABI v4.
+- [NativeAOT target/bootstrap evidence](Implementation/NativeAot-Target-Bootstrap.md) — static object, native C-host initialization and strict link boundaries; hosted only.
 - [Immediate next steps](Implementation/Next-Steps.md).
 
 The earlier RFCs describe the long-term vision. These implementation notes distinguish working behavior from future runtime and operating-system features.

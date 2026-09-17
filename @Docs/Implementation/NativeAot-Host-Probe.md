@@ -67,4 +67,4 @@ This build uses published NativeAOT packages. It is not a source build of the en
 
 A separate hosted-runtime workflow runs the source audit and native probe. Kernel VM tests remain separate so a passing Windows probe cannot be mistaken for guest runtime support.
 
-Next: extend the initial M2 boundary with runtime-capable memory, threads/TLS, waits and fault handling, following [RFC 0015](../RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md).
+The M2 memory/thread/event slices are now implemented. The [target/bootstrap experiment](NativeAot-Target-Bootstrap.md) extends hosted evidence to native C entry, static ILC artifacts and strict link boundaries. Guest loading, runtime adaptations and fault/GC integration remain, following [RFC 0015](../RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md).

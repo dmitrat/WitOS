@@ -16,12 +16,12 @@ internal static class RuntimeExperiment
         "ThreadsTlsMonitorAndGc", "WaitSignalResetAndTimeout", "TasksCancellationAndClock"
     ];
 
-    private sealed record SourceFile(string Path, string Sha256);
-    private sealed record SourceLock(int SchemaVersion, string RuntimeVersion, string RuntimeRepository,
+    internal sealed record SourceFile(string Path, string Sha256);
+    internal sealed record SourceLock(int SchemaVersion, string RuntimeVersion, string RuntimeRepository,
         string RuntimeTag, string RuntimeCommit, string PackageRepository, string PackageCommit,
         string SourceManifestPath, string SourceManifestSha256, SourceFile[] Sources);
 
-    private static SourceLock ReadLock(string root)
+    internal static SourceLock ReadLock(string root)
     {
         var data = JsonSerializer.Deserialize<SourceLock>(
             File.ReadAllText(Path.Combine(root, ExperimentPath, "upstream.lock.json")), Json)
@@ -98,6 +98,22 @@ internal static class RuntimeExperiment
             throw new InvalidDataException($"SHA-256 mismatch: {label}.");
     }
 
+    internal static string[] VerifyPublishedPackages(string root, SourceLock pin)
+    {
+        var packageCache = Path.Combine(root, ".tools", "nuget");
+        string[] verifiedPackages = ["runtime.win-x64.microsoft.dotnet.ilcompiler", "microsoft.netcore.app.runtime.nativeaot.win-x64"];
+        foreach (var packageId in verifiedPackages)
+        {
+            var package = Path.Combine(packageCache, packageId, pin.RuntimeVersion, packageId + ".nuspec");
+            var provenance = XDocument.Load(package).Descendants().Single(element => element.Name.LocalName == "repository");
+            if ((string?)provenance.Attribute("url") != pin.PackageRepository ||
+                (string?)provenance.Attribute("commit") != pin.PackageCommit)
+                throw new InvalidDataException($"Published package {packageId} provenance differs from the source lock.");
+        }
+
+        return verifiedPackages;
+    }
+
     public static async Task ProbeAsync(string root)
     {
         var pin = ReadLock(root);
@@ -117,15 +133,7 @@ internal static class RuntimeExperiment
         if (build.TimedOut || build.ExitCode != 0)
             throw new InvalidOperationException($"NativeAOT publish failed (exit={build.ExitCode}, timeout={build.TimedOut}).\n{build.Output}\n{build.Error}");
 
-        string[] verifiedPackages = ["runtime.win-x64.microsoft.dotnet.ilcompiler", "microsoft.netcore.app.runtime.nativeaot.win-x64"];
-        foreach (var packageId in verifiedPackages)
-        {
-            var package = Path.Combine(packageCache, packageId, pin.RuntimeVersion, packageId + ".nuspec");
-            var provenance = XDocument.Load(package).Descendants().Single(element => element.Name.LocalName == "repository");
-            if ((string?)provenance.Attribute("url") != pin.PackageRepository ||
-                (string?)provenance.Attribute("commit") != pin.PackageCommit)
-                throw new InvalidDataException($"Published package {packageId} provenance differs from the source lock.");
-        }
+        var verifiedPackages = VerifyPublishedPackages(root, pin);
 
         var executable = Path.Combine(publish, "NativeAotProbe.exe");
         var pe = NativeImports.Inspect(executable);

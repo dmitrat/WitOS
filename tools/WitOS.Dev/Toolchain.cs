@@ -34,6 +34,19 @@ internal static class Toolchain
         return candidate ?? throw new InvalidOperationException("MSVC x64 compiler/linker/MASM were not found.");
     }
 
+    public static string FindWindowsSdkLibrary(string name)
+    {
+        if (Path.GetFileName(name) != name || !name.EndsWith(".lib", StringComparison.Ordinal))
+            throw new ArgumentException("Expected an SDK library filename.", nameof(name));
+        var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            "Windows Kits", "10", "Lib");
+        var library = Directory.Exists(directory) ? Directory.GetDirectories(directory)
+            .Where(path => Version.TryParse(Path.GetFileName(path), out _))
+            .OrderByDescending(path => Version.Parse(Path.GetFileName(path)))
+            .Select(path => Path.Combine(path, "um", "x64", name)).FirstOrDefault(File.Exists) : null;
+        return library ?? throw new InvalidOperationException($"Install the Windows SDK x64 libraries; {name} was not found.");
+    }
+
     public static void RequireQemu(string root)
     {
         if (!File.Exists(Qemu(root)) || !File.Exists(Firmware(root)) || !File.Exists(FirmwareVariables(root)))

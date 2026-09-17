@@ -26,6 +26,7 @@ Original vision documents live in `@Docs/`. Concrete implementation status and d
 - Serialize event state checks, parking and completion publication with interrupts disabled. Expire parked deadlines before later signal/close calls; completed waits must not follow a reused event handle.
 - Distinguish join edges from event/sleep waits. Idle IRQs must resume their CPL0 frame without replacing saved user contexts; use the adjacent STI/HLT/CLI path with zero kernel FS base.
 - The current clock counts delivered PIT ticks only. Do not describe its nominal frequency as calibrated elapsed time or wall-clock support.
+- Keep NativeAOT Static/Shared intermediate and output paths separate; their same-named libraries are different artifacts. Preserve strict missing-symbol link checks without dummy runtime/OS implementations or forced linking.
 - Treat the boot handoff and experimental user ABI as evolving contracts, not a frozen public SDK.
 
 ## Validation
@@ -39,6 +40,6 @@ dotnet run --project tools/WitOS.Dev --configuration Release -- test
 
 Use `setup` once for the pinned local QEMU package. The test tool must distinguish successful boot, panic, unexpected exit and timeout. Never infer a passing boot from an exit code or log line alone.
 
-For runtime experiment or source-pin changes, run `runtime-audit` and `runtime-probe` through the same tool. Their results are hosted Windows evidence, never proof that .NET runs in the guest. Preserve the source/package pins and explicit profile limitations unless the task deliberately updates them.
+For runtime experiment or source-pin changes, run `runtime-audit`, `runtime-probe` and `runtime-target` through the same tool. Their results are hosted Windows evidence, including native C-host bootstrap, never proof that .NET runs in the guest. Preserve the source/package pins and explicit profile limitations unless the task deliberately updates them.
 
 Keep generated images, binaries, firmware, downloads, logs and credentials out of Git. They belong in ignored `artifacts/` or `.tools/`. Record actual results and limitations in documentation; do not mark a future milestone complete based on M0 boot.

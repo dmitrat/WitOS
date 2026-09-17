@@ -123,6 +123,18 @@ This is separate from the guest VM. It checks GC/finalization, exceptions, threa
 
 See [RFC 0015](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md) and [experiment notes](@Docs/Implementation/NativeAot-Host-Probe.md).
 
+## NativeAOT target/bootstrap experiment (hosted)
+
+```powershell
+dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-target
+```
+
+This builds both a static ILC archive and a shared NativeAOT module from ordinary upstream CoreLib. A separate C executable, importing only Kernel32, loads the module and checks initialization, allocations/GC, exceptions and TLS across native threads. It does not start CoreCLR.
+
+The command also inspects COFF relocations and PE TLS/unwind data, verifies archive contents and performs strict links without runtime or OS/CRT libraries. Missing-symbol failures are recorded as dependency evidence; no dummy implementations are provided. Reports and hashes are in `artifacts/runtime-target/`.
+
+This still runs on Windows. PE/COFF and Microsoft x64 are the candidate for the first guest loader experiment; the runtime OS backend is not yet selected or ported. See [measured requirements and next work](@Docs/Implementation/NativeAot-Target-Bootstrap.md).
+
 ## Layout
 
 ```text
@@ -132,6 +144,7 @@ src/Kernel.Arch.X64/     Paging, traps, context transitions and user execution
 tests/User.X64/         Unprivileged native ABI/isolation fixture
 tools/WitOS.Dev/         C# build, VM tests and runtime investigation tools
 experiments/NativeAotProbe/ Hosted reference; not guest runtime code
+experiments/NativeAotTarget/ Native bootstrap and target artifact evidence
 @Docs/                  Architecture drafts and implementation notes
 .github/workflows/      Automated native build and VM tests
 ```
@@ -142,7 +155,7 @@ The core kernel does not include UEFI structures. The output is a freestanding P
 
 M2 uses two fixed component slots and activates one component at a time. Up to four threads share its private address space and handles; each has separate guarded user/kernel stacks and a raw FS-based TLS block. Shared kernel mappings stay supervisor-only. Known one-page native images use experimental ABI v4 for query/write/exit/close, memory, thread, event and clock operations. Each space can reserve within a separate 64 GiB virtual arena without allocating backing RAM; commitment is explicitly limited to 128 owned frames including page tables and fixed mappings. Firmware memory remains reserved, and usable physical addresses remain below 4 GiB.
 
-User faults terminate that component; kernel faults remain fatal diagnostics. General executable loading, compiler/managed TLS, mutexes/multi-object waits, IPC channels, SMP and managed execution remain future work. Next is a pinned NativeAOT target/bootstrap experiment to select the guest ABI and concrete runtime adapters. The current clock counts delivered PIT ticks (nominal 100 Hz), pauses when IRQ0 is disabled and does not provide calibrated elapsed time.
+User faults terminate that component; kernel faults remain fatal diagnostics. General executable loading, compiler/managed TLS, mutexes/multi-object waits, IPC channels, SMP and managed execution remain future work. The pinned target/bootstrap experiment now supplies measured object, TLS, unwind and dependency requirements. Next is a guest PE image-loading contract, followed by actual runtime adapters. The current clock counts delivered PIT ticks (nominal 100 Hz), pauses when IRQ0 is disabled and does not provide calibrated elapsed time.
 
 - [Architecture document index](@Docs/README.md)
 - [M0 implementation history](@Docs/Implementation/M0-Boot.md)
