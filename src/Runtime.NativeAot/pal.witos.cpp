@@ -19,7 +19,8 @@ uint64_t PalGetCurrentOSThreadId()
 bool PalGetMaximumStackBounds(void** low, void** high)
 {
     WitUserThreadInfo info;
-    if (!low || !high || low == high || !current(&info)) return false;
+    if (!low || !high || low == high) { SetLastError(ERROR_INVALID_PARAMETER); return false; }
+    if (!current(&info)) { SetLastError(ERROR_GEN_FAILURE); return false; }
     *low = (void*)(uintptr_t)info.StackLow;
     *high = (void*)(uintptr_t)info.StackHigh;
     return true;

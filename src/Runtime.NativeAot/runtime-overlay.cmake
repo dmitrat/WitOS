@@ -40,8 +40,22 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_memory.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_events.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_threads.witos.cpp"
-        "${WITOS_SOURCE_ROOT}/src/System.Native/thread.c")
+        "${WITOS_SOURCE_ROOT}/src/System.Native/thread.c"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_error.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_error.asm")
     set_source_files_properties("${WITOS_SOURCE_ROOT}/src/System.Native/thread.c" TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES COMPILE_OPTIONS "/std:c17")
+    file(STRINGS "${WITOS_SOURCE_ROOT}/src/Kernel/include/witos/user_abi.h" error_line
+        REGEX "^#define WIT_TLS_LAST_ERROR_OFFSET [0-9]+U$")
+    list(LENGTH error_line error_lines)
+    if(NOT error_lines EQUAL 1)
+        message(FATAL_ERROR "Missing or ambiguous native last-error ABI offset")
+    endif()
+    string(REGEX REPLACE "^#define WIT_TLS_LAST_ERROR_OFFSET ([0-9]+)U$" "\\1" error_offset "${error_line}")
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/witos-abi")
+    file(WRITE "${CMAKE_BINARY_DIR}/witos-abi/user_abi.inc" "WIT_TLS_LAST_ERROR_OFFSET EQU ${error_offset}\n")
+    set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_error.asm"
+        TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES LANGUAGE ASM_MASM
+        COMPILE_OPTIONS "/I${CMAKE_BINARY_DIR}/witos-abi")
     set_property(TARGET Runtime.WorkstationGC PROPERTY SOURCES "${sources}")
 
     get_target_property(minipal_sources aotminipal SOURCES)

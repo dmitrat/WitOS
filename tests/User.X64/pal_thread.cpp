@@ -2,6 +2,7 @@
 #include "protocol.h"
 
 WitU64 wit_pal_services(const WitUserStartup* startup);
+WitU64 wit_pal_error(const WitUserStartup* startup);
 static WitUserThreadInfo observed[3];
 static WitU64 query(void* p, WitU64 size = sizeof(WitUserThreadInfo), WitU64 version = WIT_THREAD_INFO_VERSION)
 {
@@ -58,6 +59,7 @@ static void worker(WitU64 index)
 extern "C" WitU64 wit_native_main(const WitUserStartup* startup)
 {
     const auto config = (const WitUserTestConfig*)startup;
+    if (config->Mode >= 30) return wit_pal_error(startup);
     if (config->Mode >= 10) return wit_pal_services(startup);
     auto original = (WitUserThreadInfo*)WIT_GC_INFO_REPORT;
     auto cross = (WitUserThreadInfo*)(WIT_GC_INFO_REPORT + 4096 - 16);

@@ -107,3 +107,5 @@ Version 0.0.7 adds [events/deadlines and idle](M2-Events-and-Deadlines.md). Next
 Version 0.0.17 adds a separate [static compiler TLS page and GS module vector](NativeAot-Compiler-Tls.md), preserving the raw FS layout. It still does not implement dynamic TLS callbacks or managed thread attachment.
 
 Version 0.0.21 adds [detached creation and automatic reclamation](NativeAot-Pal-Background-Threads.md) in ABI v12; flags zero retains the joinable lifecycle described above.
+
+ABI v13 changes the current raw FS layout: 24-27 hold native last-error, 28-31 are reserved, and application storage starts at 32. The original ABI v3 layout above is historical; see [last-error](NativeAot-Pal-Last-Error.md).

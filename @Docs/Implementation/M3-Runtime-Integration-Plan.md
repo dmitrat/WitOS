@@ -1,6 +1,6 @@
 # M3: Remaining runtime integration work
 
-**Assessment date:** 2026-09-20, based on the 0.0.15 source-link inventory and pinned .NET 10.0.8 runtime. Updated through 0.0.21: native allocation, compiler TLS, kernel thread discovery, PAL memory/waits and detached native workers.
+**Assessment date:** 2026-09-20, based on the 0.0.15 source-link inventory and pinned .NET 10.0.8 runtime. Updated through 0.0.22: native allocation, compiler TLS, kernel thread discovery, PAL memory/waits, detached workers and native last-error.
 
 ## Estimate and meaning of running .NET
 
@@ -36,7 +36,7 @@ These packages overlap and are not eight strictly sequential commits. For exampl
 
 ## Next implementation boundary
 
-PAL memory, events and non-alertable single-event waits are implemented in 0.0.20. Prioritize the remaining startup/thread/handle/last-error and GC coordination services for real collector initialization. ThreadStore detach calls GC FixAllocContext, so its full acceptance depends on actual GC startup; an isolated success stub is not valid evidence. Version 0.0.19 implements kernel-backed PAL thread/stack discovery; static/dynamic compiler TLS is already implemented. Inspect the actual generated TLS access and pinned startup/thread-store code before selecting its guest layout. Keep architecture-specific segment access in Kernel.Arch.X64 and runtime attachment in user space. Preserve the clean upstream tree and separate source-build profiles.
+PAL memory, events and non-alertable single-event waits are implemented in 0.0.20. Prioritize the remaining startup/thread/handle and GC coordination services for real collector initialization. ThreadStore detach calls GC FixAllocContext, so its full acceptance depends on actual GC startup; an isolated success stub is not valid evidence. Version 0.0.19 implements kernel-backed PAL thread/stack discovery; static/dynamic compiler TLS is already implemented. Inspect the actual generated TLS access and pinned startup/thread-store code before selecting its guest layout. Keep architecture-specific segment access in Kernel.Arch.X64 and runtime attachment in user space. Preserve the clean upstream tree and separate source-build profiles.
 
 Continue using strict source-link inventories to track dependencies, but require guest execution evidence for each implemented service. Revisit limits and the estimate when the first complete adapted workload links.
 
@@ -45,3 +45,5 @@ The 0.0.19 source overlay removes Windows PalCommon/PalMinWin and exposes 33 mis
 Version 0.0.20 implements ten more PAL methods and leaves 24 explicit PAL requirements (116 unresolved symbols overall). See [the exact memory/wait contract](NativeAot-Pal-Memory-and-Waits.md).
 
 Version 0.0.21 adds native detached workers for PAL GC/finalizer/helper startup and automatic resource reclamation; 22 PAL methods remain unresolved (114 symbols overall). Actual collector/finalizer execution remains pending. See [the worker contract](NativeAot-Pal-Background-Threads.md).
+
+Version 0.0.22 adds real per-thread native last-error and PAL failure diagnostics; 110 unresolved symbols remain, including 22 PAL methods. PalInit is still explicitly unimplemented. See [native last-error](NativeAot-Pal-Last-Error.md).

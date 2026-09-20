@@ -55,3 +55,5 @@ Runtime.WorkstationGC now includes pal_threads.witos.cpp and the native thread w
 The Workstation archive has 74 members. The strict link leaves 114 unresolved symbols: seven GC environment, 22 PAL, five deliberately excluded guest transport/startup helpers and 80 other platform/runtime requirements. Two formerly unresolved entrypoints resolve; the EventPipe helper is implemented/tested as well but was not an unresolved root of the selected diagnostic workload.
 
 Next complete PAL initialization/last-error/handle semantics, module registration and GC coordination needed for the real runtime. Full ThreadStore teardown still calls real GC allocation-context cleanup. These native worker APIs provide the execution substrate, not evidence that managed GC/finalization already runs in WitOS.
+
+Version 0.0.22 adds [creator-local error reporting and worker last-error isolation](NativeAot-Pal-Last-Error.md), including real C++ TLS constructors/destructors.

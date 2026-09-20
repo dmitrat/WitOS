@@ -8,7 +8,7 @@
 /* Experimental x64 interrupt ABI, not a stable public SDK.
  * INT 0x80: RAX=call, RCX/RDX/R8=arguments; RAX=status, RDX=result.
  * Other GPRs and baseline x87/SSE state survive; flags are reset to 0x202. */
-#define WIT_ABI_VERSION 12U
+#define WIT_ABI_VERSION 13U
 #define WIT_ABI_STARTUP_SIZE 24U
 #define WIT_CALL_QUERY 0U
 #define WIT_CALL_WRITE 1U
@@ -67,12 +67,14 @@
 #define WIT_WAIT_INFINITE 0xFFFFFFFFFFFFFFFFULL
 #define WIT_EVENT_MANUAL_RESET 1ULL
 #define WIT_EVENT_INITIAL_SIGNALED 2ULL
-/* Kernel-selected FS base: self pointer, thread handle, initial argument, then zeroed bytes.
- * This raw TLS block is not yet a compiler/CoreLib TLS layout. */
+/* Kernel-selected FS base: self pointer, thread handle, initial argument,
+ * 32-bit native last-error, 32-bit reserved zero, then application storage.
+ * The error word is caller-writable state, never authority or kernel status. */
 #define WIT_TLS_SELF_OFFSET 0U
 #define WIT_TLS_HANDLE_OFFSET 8U
 #define WIT_TLS_ARGUMENT_OFFSET 16U
-#define WIT_TLS_DATA_OFFSET 24U
+#define WIT_TLS_LAST_ERROR_OFFSET 24U
+#define WIT_TLS_DATA_OFFSET 32U
 #define WIT_STATUS_OK 0U
 #define WIT_STATUS_UNSUPPORTED 1U
 #define WIT_STATUS_BAD_HANDLE 2U

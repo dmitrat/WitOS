@@ -13,31 +13,32 @@ static WitU64 deadline(uint32_t milliseconds)
 }
 HANDLE PalCreateEventW(LPSECURITY_ATTRIBUTES attributes, UInt32_BOOL manual, UInt32_BOOL signaled, LPCWSTR name)
 {
-    if (attributes || name) return nullptr; // No named objects or Win32 inheritance/security descriptors.
+    if (attributes || name) { SetLastError(ERROR_NOT_SUPPORTED); return nullptr; } // No named objects or Win32 inheritance/security descriptors.
     WitU64 handle = 0;
     const WitU64 flags = (manual ? WIT_EVENT_MANUAL_RESET : 0) | (signaled ? WIT_EVENT_INITIAL_SIGNALED : 0);
-    if (wit_native_call(WIT_CALL_EVENT_CREATE, flags, 0, 0, &handle) != WIT_STATUS_OK) return nullptr;
+    if (!wit_pal_result(wit_native_call(WIT_CALL_EVENT_CREATE, flags, 0, 0, &handle))) return nullptr;
     return (HANDLE)(uintptr_t)handle;
 }
 UInt32_BOOL PalSetEvent(HANDLE handle)
 {
-    return wit_native_call(WIT_CALL_EVENT_SET, (uintptr_t)handle, 0, 0, nullptr) == WIT_STATUS_OK;
+    return wit_pal_result(wit_native_call(WIT_CALL_EVENT_SET, (uintptr_t)handle, 0, 0, nullptr));
 }
 UInt32_BOOL PalResetEvent(HANDLE handle)
 {
-    return wit_native_call(WIT_CALL_EVENT_RESET, (uintptr_t)handle, 0, 0, nullptr) == WIT_STATUS_OK;
+    return wit_pal_result(wit_native_call(WIT_CALL_EVENT_RESET, (uintptr_t)handle, 0, 0, nullptr));
 }
 uint32_t PalWaitForSingleObjectEx(HANDLE handle, uint32_t milliseconds, UInt32_BOOL alertable)
 {
-    if (alertable) return WAIT_FAILED; // No APC/reentrant wait machinery exists yet.
+    if (alertable) { SetLastError(ERROR_NOT_SUPPORTED); return WAIT_FAILED; } // No APC/reentrant wait machinery exists yet.
     const WitU64 status = wit_native_call(WIT_CALL_EVENT_WAIT_UNTIL, (uintptr_t)handle, deadline(milliseconds), 0, nullptr);
     if (status == WIT_STATUS_OK) return WAIT_OBJECT_0;
     if (status == WIT_STATUS_TIMED_OUT) return WAIT_TIMEOUT;
+    wit_pal_set_status(status);
     return WAIT_FAILED;
 }
 UInt32_BOOL PalCloseHandle(HANDLE handle)
 {
-    return wit_native_call(WIT_CALL_CLOSE, (uintptr_t)handle, 0, 0, nullptr) == WIT_STATUS_OK;
+    return wit_pal_result(wit_native_call(WIT_CALL_CLOSE, (uintptr_t)handle, 0, 0, nullptr));
 }
 UInt32_BOOL PalSwitchToThread()
 {

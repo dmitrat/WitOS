@@ -52,3 +52,5 @@ The Workstation archive has 72 members with pal_memory.witos.cpp and pal_events.
 The diagnostic workload now leaves 116 unresolved symbols: seven GC environment, 24 PAL, five deliberately excluded guest transport/startup and 80 other runtime/platform requirements. Nine previously unresolved PAL entries resolve; PalVirtualProtect is implemented/tested too but was not rooted as an unresolved requirement by that workload. This remains an incomplete port.
 
 Next complete the startup/handle/thread/last-error and GC coordination requirements exposed by the PAL inventory, then initialize the real runtime/collector and validate ThreadStore attachment and GC allocation-context cleanup. Executable allocation, fixed-image reprotection, multi-object waits, managed exceptions and arbitrary Windows compatibility remain outside this slice.
+
+Version 0.0.22 adds [per-thread last-error and concrete PAL failure codes](NativeAot-Pal-Last-Error.md). The earlier statement about missing GetLastError/SetLastError describes the 0.0.20 boundary; the remaining unsupported modes stay explicit.

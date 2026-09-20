@@ -12,7 +12,7 @@ class BackgroundLocal {
 public:
     BackgroundLocal() noexcept : m_data(::operator new(16, std::nothrow))
     {
-        if (!m_data) wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+        if (!m_data || GetLastError() != 0) wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
         *(WitU64*)m_data = 0x123456;
         ++constructions;
         if (mode == 5 && PalGetCurrentOSThreadId() != root_id) {
@@ -24,6 +24,7 @@ public:
     {
         if (*(WitU64*)m_data != 0x123456) wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
         if (index_value < 3) {
+            if (GetLastError() != (DWORD)(0xAB000000 + index_value)) wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
             dtor_started[index_value] = 1;
             if (mode <= 2) while (!cleanup_seen[index_value]) (void)PalSwitchToThread();
             else (void)PalSwitchToThread();
@@ -59,6 +60,7 @@ static uint32_t callback(void* context)
     if (!ids[index] || ids[index] == root_id ||
         wit_native_call(WIT_CALL_THREAD_JOIN, ids[index], 0, 0, &result) != WIT_STATUS_DENIED || result ||
         wit_native_call(WIT_CALL_CLOSE, ids[index], 0, 0, nullptr) != WIT_STATUS_BUSY) wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+    SetLastError((DWORD)(0xAB000000 + index));
     started[index] = 1;
     if (mode == 3) { *(WitU64*)WIT_GC_INFO_REPORT = mode; *(volatile WitU64*)0 = 1; }
     if (release_event && PalWaitForSingleObjectEx(release_event, INFINITE, FALSE) != WAIT_OBJECT_0)
@@ -101,7 +103,7 @@ extern "C" WitU64 wit_background_program(const WitUserStartup* startup)
 {
     (void)startup;
     WitUserMemoryInfo baseline, after;
-    if (constructions != 1 || !snapshot(&baseline)) return 1300;
+    if (constructions != 1 || GetLastError() != 0 || !snapshot(&baseline)) return 1300;
     if (mode >= 3) {
         if (!launch(0, nullptr)) return 1301;
         if (mode == 6) wit_native_thread_exit(WIT_TEST_EXIT_CODE); // Last detached worker must finish the component safely.
@@ -113,11 +115,13 @@ extern "C" WitU64 wit_background_program(const WitUserStartup* startup)
         wit_native_call(WIT_CALL_THREAD_CREATE, 0, 0, WIT_THREAD_DETACHED, &result) != WIT_STATUS_BAD_ADDRESS || result ||
         PalStartBackgroundGCThread(nullptr, nullptr) ||
         PalStartFinalizerThread((BackgroundCallback)startup, nullptr)) return 1302;
+    if (GetLastError() != ERROR_INVALID_PARAMETER) return 1303;
+    SetLastError(0x12345678);
     if (mode == 0) {
         WitU64 previous = 0;
         for (unsigned i = 0; i < 12; ++i) {
             clear(0);
-            if (!launch(i % 3, nullptr) || !wait_for_reap(0) || ids[0] == previous || !snapshot(&after) || !same(baseline, after)) return 1310;
+            if (!launch(i % 3, nullptr) || !wait_for_reap(0) || ids[0] == previous || GetLastError() != 0x12345678 || !snapshot(&after) || !same(baseline, after)) return 1310;
             previous = ids[0];
         }
     } else if (mode == 1) {
@@ -125,7 +129,7 @@ extern "C" WitU64 wit_background_program(const WitUserStartup* startup)
         if (!release_event) return 1320;
         for (unsigned i = 0; i < 3; ++i) if (!launch(i, (void*)(uintptr_t)i)) return 1321;
         while (!started[0] || !started[1] || !started[2]) (void)PalSwitchToThread();
-        for (unsigned i = 0; i < 12; ++i) if (launch(i % 3, nullptr)) return 1322;
+        for (unsigned i = 0; i < 12; ++i) if (launch(i % 3, nullptr) || GetLastError() != ERROR_NOT_ENOUGH_MEMORY) return 1322;
         if (!PalSetEvent(release_event)) return 1323;
         // Observe every destructor while the three callbacks yield from cleanup.
         bool seen[3] = {};
@@ -154,7 +158,7 @@ extern "C" WitU64 wit_background_program(const WitUserStartup* startup)
                 arena + (pages - remaining) * 4096, remaining * 4096, 0, nullptr) != WIT_STATUS_OK)) return 1331;
             WitUserMemoryInfo held;
             if (!snapshot(&held)) return 1332;
-            for (unsigned i = 0; i < 3; ++i) if (launch(i, nullptr)) return 1333;
+            for (unsigned i = 0; i < 3; ++i) if (launch(i, nullptr) || GetLastError() != ERROR_NOT_ENOUGH_MEMORY) return 1333;
             if (started[0] || !snapshot(&after) || !same(held, after) ||
                 wit_native_call(WIT_CALL_MEMORY_RELEASE, arena, 0, 0, nullptr) != WIT_STATUS_OK) return 1334;
         }

@@ -163,6 +163,7 @@ void wit_user_self_test(WitPageAllocator *pages)
     wit_user_pal_self_test(pages);
     wit_user_pal_services_self_test(pages);
     wit_user_pal_background_self_test(pages);
+    wit_user_pal_error_self_test(pages);
 
     create(pages, 0, WIT_TEST_BAD_RETURN);
     wit_user_run(&components[0]);

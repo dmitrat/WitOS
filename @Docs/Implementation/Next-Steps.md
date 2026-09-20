@@ -5,10 +5,10 @@ The core objective remains a minimal hardware-dependent kernel, a common system 
 ## Completed
 
 - M0 boot and M1 paging/protection/timer/kernel-context foundation.
-- Eighteen VM scenarios with 147 required user groups and 49 contained user faults in successful boots.
+- Eighteen VM scenarios with 150 required user groups and 50 contained user faults in successful boots.
 - M2 ring-3 isolation, sparse memory, bounded threads/raw FS TLS/join, events/deadlines and idle.
 - Bounded guest PE loading with section protection, zero-fill, relocations and allocation rollback.
-- ABI v12 retains readonly image descriptions, allocator snapshots, monotonic deadlines and kernel-owned thread identity, and provides committed-memory reset, atomic current-thread discovery, a truthful yield result and detached thread creation; user-space C startup with checked callbacks, run-once state and reverse cleanup.
+- ABI v13 retains readonly image descriptions, allocator snapshots, monotonic deadlines and kernel-owned thread identity, and provides committed-memory reset, atomic current-thread discovery, a truthful yield result, detached thread creation and per-thread native error storage; user-space C startup with checked callbacks, run-once state and reverse cleanup.
 - Structural validation/exposure of ordinary x64 function/unwind metadata, without exception dispatch or stack walking.
 - .NET 10.0.8 audit of 41 source/license files and two hosted NativeAOT evidence probes.
 - Source-port direction selected: Windows x64 code generation/PE plus an explicit WitOS user-space adapter.
@@ -22,17 +22,18 @@ The core objective remains a minimal hardware-dependent kernel, a common system 
 - Four actual NativeAOT PAL thread-discovery functions execute against the kernel-owned thread snapshot; the WitOS source profile now replaces the Windows PAL with an explicitly incomplete adapter. See [PAL boundary and GC dependency](NativeAot-Pal-Thread-Discovery.md).
 - PAL memory allocation/protection/free, unnamed events, non-alertable single-event waits, close, sleep and truthful yield execute in the guest; see [memory and waits](NativeAot-Pal-Memory-and-Waits.md).
 - Detached native callbacks start through all three PAL background/finalizer/helper entrypoints, run C++ TLS cleanup and automatically reclaim their stack/TLS/private identity; see [PAL workers](NativeAot-Pal-Background-Threads.md).
+- Native last-error is thread-local before compiler TLS, binds the real upstream direct/import symbols and reports failures across the implemented PAL methods; see [the error contract](NativeAot-Pal-Last-Error.md).
 - Full upstream nativeaot component built from the pinned source tree in separate Windows-reference and WitOS-overlay profiles; source-built Windows GC/TLS execution passes and incomplete WitOS dependencies are inventoried.
 
 See [native module/bootstrap handoff](M2-Native-Module-Bootstrap.md), [NativeAOT target evidence](NativeAot-Target-Bootstrap.md), [backend decision and memory adapter](NativeAot-Gc-Memory-Port.md), [full native source build](NativeAot-Source-Build.md), [GC discovery](NativeAot-Gc-Discovery.md), [GC events](NativeAot-Gc-Events.md), [monotonic GC time](NativeAot-Gc-Time.md), [native mutexes](NativeAot-Mutexes.md) and [RFC 0015](../RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md).
 
-WitOS 0.0.21 executes the native memory/reset/discovery/event/time, minipal/Crst and nothrow allocation adapters in the guest. It still does not run .NET or its collector there.
+WitOS 0.0.22 executes the native memory/reset/discovery/event/time, minipal/Crst and nothrow allocation adapters in the guest. It still does not run .NET or its collector there.
 
 ## Next: extend the selected source port
 
 See [the M3 work-package estimate](M3-Runtime-Integration-Plan.md): roughly eight major packages / 12-20 bounded slices estimated at 0.0.15; native allocation now completes part of the first package.
 
-1. Use the explicit PAL inventory to complete startup/thread/handle/last-error and GC coordination services for real runtime and GC initialization, then connect actual ThreadStore attachment/shutdown to the tested TLS lifecycle. Full detach already calls GC FixAllocContext, so do not substitute a fake collector to claim lifecycle completion. Complete remaining CRT/PAL behavior and extend memory semantics as required by the runtime profile. Committed reset is implemented; working-set unlock and large pages remain unsupported. Keep unimplemented methods unresolved rather than returning synthetic success.
+1. Use the explicit PAL inventory to complete startup/thread/handle and GC coordination services for real runtime and GC initialization, then connect actual ThreadStore attachment/shutdown to the tested TLS lifecycle. Full detach already calls GC FixAllocContext, so do not substitute a fake collector to claim lifecycle completion. Complete remaining CRT/PAL behavior and extend memory semantics as required by the runtime profile. Committed reset is implemented; working-set unlock and large pages remain unsupported. Keep unimplemented methods unresolved rather than returning synthetic success.
 2. Add module boundaries, fault/context delivery, unwinding and process-local GC rendezvous; expand image/stack/commit limits for the actual profile.
 3. Keep ReadyToRun/TypeManager/GC-static/frozen-object/eager-constructor initialization inside the real user-space runtime. It already requires real GC support.
 4. Extend the explicit q35 clock profile to discovered hardware when broadening platform support; keep monotonic counts distinct from UTC and legacy IRQ ticks.

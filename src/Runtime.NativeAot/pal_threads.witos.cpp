@@ -26,18 +26,18 @@ static WitU64 run(WitU64 slot)
 }
 static bool start(BackgroundCallback callback, void* context)
 {
-    if (!wit_native_tls_code_pointer((WitU64)callback)) return false;
+    if (!wit_native_tls_code_pointer((WitU64)callback)) { SetLastError(ERROR_INVALID_PARAMETER); return false; }
     lock();
     size_t slot = 0;
     while (slot < 4 && starts[slot].Callback) ++slot;
-    if (slot == 4) { wit_native_unlock(&gate); return false; }
+    if (slot == 4) { wit_native_unlock(&gate); SetLastError(ERROR_NOT_ENOUGH_MEMORY); return false; }
     starts[slot].Context = context;
     starts[slot].Callback = callback;
     // Creation cannot park. Serialize publication/rollback against child copy-out.
     const WitU64 status = wit_native_thread_create_detached(run, slot);
     if (status != WIT_STATUS_OK) starts[slot].Callback = nullptr;
     wit_native_unlock(&gate);
-    return status == WIT_STATUS_OK;
+    return wit_pal_result(status) != 0;
 }
 bool PalStartBackgroundGCThread(BackgroundCallback callback, void* context) { return start(callback, context); }
 bool PalStartFinalizerThread(BackgroundCallback callback, void* context)

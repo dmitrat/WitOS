@@ -49,7 +49,7 @@ internal static class UserPalBackgroundImage
             objects.Add(obj);
         }
         string[] shared = ["native_start.obj", "dynamic_tls.witos.obj", "dynamic_native_new.witos.obj",
-            "dynamic_thread.obj", "dynamic_tls_metadata.obj", "pal_pal.witos.obj", "pal_pal_events.witos.obj"];
+            "dynamic_thread.obj", "dynamic_tls_metadata.obj", "pal_pal.witos.obj", "pal_pal_events.witos.obj", "pal_pal_error.witos.obj", "native_error.obj"];
         var path = Path.Combine(output, "PalBackgroundFixture.pe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
             ["/nologo", "/subsystem:native", "/entry:wit_native_start", "/nodefaultlib", "/machine:x64", "/fixed:no",

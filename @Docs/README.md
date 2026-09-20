@@ -167,6 +167,7 @@ The initial native milestone now has a concrete boot contract and runnable imple
 - [WitOS PAL and thread discovery](Implementation/NativeAot-Pal-Thread-Discovery.md) - kernel-owned thread/stack snapshots, actual PAL declarations, explicit missing services and ABI v10.
 - [PAL memory, events and waits](Implementation/NativeAot-Pal-Memory-and-Waits.md) - committed allocation/protection, typed events, monotonic waits and truthful yield result; ABI v11.
 - [Detached PAL workers](Implementation/NativeAot-Pal-Background-Threads.md) - actual native callbacks, C++ TLS cleanup, automatic stack/TLS/handle reclamation and ABI v12.
+- [Native last-error](Implementation/NativeAot-Pal-Last-Error.md) - per-thread 32-bit storage, real direct/import bindings, PAL failure diagnostics and ABI v13.
 - [M3 runtime integration plan](Implementation/M3-Runtime-Integration-Plan.md) - remaining work packages, acceptance and estimate.
 - [Immediate next steps](Implementation/Next-Steps.md).
 
