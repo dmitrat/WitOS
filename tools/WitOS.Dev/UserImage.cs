@@ -44,6 +44,7 @@ internal static class UserImage
         await UserDynamicTlsImage.BuildAsync(root, output, msvc);
         await UserPalImage.BuildAsync(root, output, msvc);
         await UserPalBackgroundImage.BuildAsync(root, output, msvc);
+        await UserPalModuleImage.BuildAsync(root, output, msvc);
     }
 
     private static async Task BuildFixtureAsync(string root, string output, string msvc,

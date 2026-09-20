@@ -11,6 +11,7 @@ internal static class UserBootstrapImage
         foreach (var (source, name) in new[]
         {
             ("src/System.Native/bootstrap.c", "native_bootstrap"),
+            ("src/System.Native/image.c", "native_image"),
             ("tests/User.X64/bootstrap.c", "bootstrap_fixture")
         })
         {

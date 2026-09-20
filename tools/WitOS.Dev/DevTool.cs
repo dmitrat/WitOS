@@ -93,7 +93,7 @@ internal static class DevTool
 
         await UserImage.BuildAsync(root, output, msvc);
 
-        string[] sources = ["src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/clock.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c", "src/Kernel/handles.c", "src/Kernel.Arch.X64/user_space.c", "src/Kernel.Arch.X64/user.c", "src/Kernel.Arch.X64/user_thread.c", "src/Kernel.Arch.X64/user_tls_tests.c", "src/Kernel.Arch.X64/user_dynamic_tls_tests.c", "src/Kernel.Arch.X64/user_pal_tests.c", "src/Kernel.Arch.X64/user_pal_service_tests.c", "src/Kernel.Arch.X64/user_pal_background_tests.c", "src/Kernel.Arch.X64/user_pal_error_tests.c", "src/Kernel.Arch.X64/user_tests.c", "src/Kernel.Arch.X64/user_memory_tests.c", "src/Kernel.Arch.X64/user_thread_tests.c", "src/Kernel/events.c", "src/Kernel.Arch.X64/user_wait.c", "src/Kernel.Arch.X64/user_wait_tests.c", "src/Kernel/pe.c", "src/Kernel.Arch.X64/user_image.c", "src/Kernel.Arch.X64/user_image_tests.c", "src/Kernel.Arch.X64/user_bootstrap_tests.c", "src/Kernel.Arch.X64/user_gc_tests.c"];
+        string[] sources = ["src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/clock.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c", "src/Kernel/handles.c", "src/Kernel.Arch.X64/user_space.c", "src/Kernel.Arch.X64/user.c", "src/Kernel.Arch.X64/user_thread.c", "src/Kernel.Arch.X64/user_tls_tests.c", "src/Kernel.Arch.X64/user_dynamic_tls_tests.c", "src/Kernel.Arch.X64/user_pal_tests.c", "src/Kernel.Arch.X64/user_pal_service_tests.c", "src/Kernel.Arch.X64/user_pal_background_tests.c", "src/Kernel.Arch.X64/user_pal_error_tests.c", "src/Kernel.Arch.X64/user_pal_module_tests.c", "src/Kernel.Arch.X64/user_tests.c", "src/Kernel.Arch.X64/user_memory_tests.c", "src/Kernel.Arch.X64/user_thread_tests.c", "src/Kernel/events.c", "src/Kernel.Arch.X64/user_wait.c", "src/Kernel.Arch.X64/user_wait_tests.c", "src/Kernel/pe.c", "src/Kernel.Arch.X64/user_image.c", "src/Kernel.Arch.X64/user_image_tests.c", "src/Kernel.Arch.X64/user_bootstrap_tests.c", "src/Kernel.Arch.X64/user_gc_tests.c"];
         var objects = new List<string>();
         foreach (var source in sources)
         {
@@ -353,6 +353,7 @@ internal static class DevTool
             "DynamicTlsLifecycle", "DynamicTlsExplicitExit", "DynamicTlsDestructorOrder", "DynamicTlsFailFast", "DynamicTlsFaultIsolation",
             "PalThreadSnapshot", "PalThreadBuffers", "PalThreadSwitching", "PalStackGuards",
             "PalMemory", "PalMemoryRollback", "PalEventState", "PalEventHandoff", "PalWaitTime", "PalCloseCancellation", "PalMemoryProtection", "PalFreeFailFast",
+            "PalModuleDiscovery", "PalModuleInvalidBounds",
             "PalBackgroundLifecycle", "PalBackgroundCapacity", "PalBackgroundRollback", "DetachedLastExit", "PalBackgroundIsolation",
             "NativeLastError", "PalErrorCodes", "LastErrorBindingProtection",
             "BadReturn", "TimerBudget", "PreemptionState",

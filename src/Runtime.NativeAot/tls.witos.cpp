@@ -19,15 +19,7 @@ static __declspec(thread) TlsFunction destructors[WIT_NATIVE_TLS_MAX_DESTRUCTORS
 static WIT_NORETURN void fatal() { wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT); }
 static bool range(WitU64 address, WitU64 size, WitU32 required, WitU32 forbidden)
 {
-    if (!image || !size || address < image->Base || address - image->Base >= image->ImageSize ||
-        size > image->ImageSize - (address - image->Base)) return false;
-    const WitU64 rva = address - image->Base;
-    for (WitU32 i = 0; i < image->RangeCount; ++i) {
-        const auto& part = image->Ranges[i];
-        if ((part.Flags & required) == required && !(part.Flags & forbidden) && rva >= part.Rva &&
-            rva - part.Rva < part.InitializedSize && size <= part.InitializedSize - (rva - part.Rva)) return true;
-    }
-    return false;
+    return wit_native_image_range(image, address, size, required, forbidden, 1) != 0;
 }
 extern "C" int wit_native_tls_code_pointer(WitU64 address)
 {
@@ -38,10 +30,8 @@ extern "C" void wit_native_tls_initialize(const WitUserStartup *startup)
     // Exactly once, on the startup thread, before publishing worker threads.
     if (!wit_native_claim_startup(&initialized) || !startup || startup->Version != WIT_ABI_VERSION ||
         startup->Size != sizeof(*startup) || !startup->ImageInfo) fatal();
-    image = (const WitUserImageInfo *)startup->ImageInfo;
-    if (image->Version != WIT_IMAGE_INFO_VERSION || image->Size != sizeof(*image) || image->Reserved ||
-        !image->RangeCount || image->RangeCount > WIT_IMAGE_INFO_MAX_RANGES ||
-        !image->ImageSize || image->Base > ~0ULL - image->ImageSize) fatal();
+    wit_native_process_image_initialize(startup);
+    image = wit_native_process_image();
     const WitU64 first = (WitU64)&wit_tls_initializers_begin;
     const WitU64 last = (WitU64)&wit_tls_initializers_end;
     if (last <= first || (last - first) % sizeof(TlsFunction) ||

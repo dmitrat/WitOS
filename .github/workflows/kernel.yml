@@ -75,6 +75,8 @@ jobs:
             artifacts/x64/boot/PalPlainFixture.pe
             artifacts/x64/boot/PalThreadFixture.pe
             artifacts/x64/boot/pal-build.json
+            artifacts/x64/boot/PalModuleFixture.pe
+            artifacts/x64/boot/pal-module-build.json
             artifacts/x64/boot/PalBackgroundFixture.pe
             artifacts/x64/boot/pal-background-build.json
             artifacts/x64/boot/WitOS-x64.img

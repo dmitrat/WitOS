@@ -41,9 +41,12 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_events.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_threads.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/System.Native/thread.c"
+        "${WITOS_SOURCE_ROOT}/src/System.Native/image.c"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_module.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_error.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_error.asm")
-    set_source_files_properties("${WITOS_SOURCE_ROOT}/src/System.Native/thread.c" TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES COMPILE_OPTIONS "/std:c17")
+    set_source_files_properties("${WITOS_SOURCE_ROOT}/src/System.Native/thread.c"
+        "${WITOS_SOURCE_ROOT}/src/System.Native/image.c" TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES COMPILE_OPTIONS "/std:c17")
     file(STRINGS "${WITOS_SOURCE_ROOT}/src/Kernel/include/witos/user_abi.h" error_line
         REGEX "^#define WIT_TLS_LAST_ERROR_OFFSET [0-9]+U$")
     list(LENGTH error_line error_lines)

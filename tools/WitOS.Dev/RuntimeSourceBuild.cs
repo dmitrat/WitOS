@@ -43,7 +43,7 @@ internal static class RuntimeSourceBuild
             "__imp_InitializeCriticalSection", "__imp_DeleteCriticalSection", "__imp_EnterCriticalSection", "__imp_LeaveCriticalSection"];
         string[] palImplemented = ["PalGetCurrentOSThreadId", "PalGetMaximumStackBounds", "PalGetCurrentProcessId", "PalGetProcessCpuCount",
             "PalVirtualAlloc", "PalVirtualFree", "PalVirtualProtect", "PalCreateEventW", "PalSetEvent", "PalResetEvent",
-            "PalWaitForSingleObjectEx", "PalCloseHandle", "PalSleep", "PalSwitchToThread", "PalStartBackgroundGCThread", "PalStartFinalizerThread", "PalStartEventPipeHelperThread"];
+            "PalWaitForSingleObjectEx", "PalCloseHandle", "PalSleep", "PalSwitchToThread", "PalStartBackgroundGCThread", "PalStartFinalizerThread", "PalStartEventPipeHelperThread", "PalGetModuleHandleFromPointer", "PalGetModuleBounds"];
         if (boundary.Unresolved.Any(s => s is "GetLastError" or "SetLastError" or "__imp_GetLastError" or "__imp_SetLastError") ||
             boundary.Unresolved.Any(s => palImplemented.Any(p => s.Contains(p, StringComparison.Ordinal))) ||
             !boundary.Unresolved.Any(s => s.Contains("PalAttachThread", StringComparison.Ordinal)) ||
@@ -76,7 +76,7 @@ internal static class RuntimeSourceBuild
             ported = new { ported.ArchiveSha256, members = ported.Members, compileUnits = ported.Commands.Length, minipal = ported.Minipal },
             sourceOverlay = new[] { "src/Runtime.NativeAot/runtime-overlay.cmake", "src/Runtime.NativeAot/gcenv.witos.cpp",
                 "src/Runtime.NativeAot/gcenv.witos.h", "src/Runtime.NativeAot/gc_events.witos.cpp", "src/Runtime.NativeAot/gc_time.witos.cpp",
-                "src/Runtime.NativeAot/mutex.witos.cpp", "src/Runtime.NativeAot/crst.witos.cpp", "src/Runtime.NativeAot/native_new.witos.cpp", "src/Runtime.NativeAot/tls.witos.cpp", "src/Runtime.NativeAot/pal.witos.cpp", "src/Runtime.NativeAot/pal_memory.witos.cpp", "src/Runtime.NativeAot/pal_events.witos.cpp", "src/Runtime.NativeAot/pal_threads.witos.cpp", "src/System.Native/thread.c", "src/System.Native/error.h", "src/Runtime.NativeAot/pal_error.witos.cpp", "src/Kernel.Arch.X64/native_error.asm", "src/Runtime.NativeAot/pal.witos.h", "src/System.Native/tls.h", "src/System.Native/bootstrap.h", "src/Kernel/include/witos/types.h",
+                "src/Runtime.NativeAot/mutex.witos.cpp", "src/Runtime.NativeAot/crst.witos.cpp", "src/Runtime.NativeAot/native_new.witos.cpp", "src/Runtime.NativeAot/tls.witos.cpp", "src/Runtime.NativeAot/pal.witos.cpp", "src/Runtime.NativeAot/pal_memory.witos.cpp", "src/Runtime.NativeAot/pal_events.witos.cpp", "src/Runtime.NativeAot/pal_threads.witos.cpp", "src/System.Native/thread.c", "src/System.Native/image.c", "src/System.Native/image.h", "src/Runtime.NativeAot/pal_module.witos.cpp", "src/System.Native/error.h", "src/Runtime.NativeAot/pal_error.witos.cpp", "src/Kernel.Arch.X64/native_error.asm", "src/Runtime.NativeAot/pal.witos.h", "src/System.Native/tls.h", "src/System.Native/bootstrap.h", "src/Kernel/include/witos/types.h",
                 "src/Kernel/include/witos/user_abi.h", "src/Kernel/include/witos/thread_info.h", "src/Kernel/include/witos/image_info.h", "src/Kernel/include/witos/memory_info.h" }
                 .Select(p => new { path = p, sha256 = Hash(Path.Combine(root, p)) }),
             referenceInputs = referenceInputs.Select(p => new { file = Path.GetFileName(p), sha256 = Hash(p) }),
@@ -200,7 +200,7 @@ internal static class RuntimeSourceBuild
         await File.WriteAllTextAsync(Path.Combine(output, profile + "-minipal-compile-commands.json"), JsonSerializer.Serialize(minipalCommands, Json));
         if (overlay)
         {
-            foreach (var file in new[] { "/gcenv.witos.cpp", "/gc_events.witos.cpp", "/gc_time.witos.cpp", "/crst.witos.cpp", "/native_new.witos.cpp", "/tls.witos.cpp", "/pal.witos.cpp", "/pal_memory.witos.cpp", "/pal_events.witos.cpp", "/pal_threads.witos.cpp", "/System.Native/thread.c", "/pal_error.witos.cpp", "/native_error.asm" })
+            foreach (var file in new[] { "/gcenv.witos.cpp", "/gc_events.witos.cpp", "/gc_time.witos.cpp", "/crst.witos.cpp", "/native_new.witos.cpp", "/tls.witos.cpp", "/pal.witos.cpp", "/pal_memory.witos.cpp", "/pal_events.witos.cpp", "/pal_threads.witos.cpp", "/System.Native/thread.c", "/System.Native/image.c", "/pal_module.witos.cpp", "/pal_error.witos.cpp", "/native_error.asm" })
             {
                 var adapter = commands.Single(c => Normalize(c.File).EndsWith(file, StringComparison.Ordinal));
                 NativeObject.VerifyArchive(archive, Path.GetFullPath(adapter.Output, adapter.Directory));

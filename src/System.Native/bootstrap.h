@@ -1,6 +1,6 @@
 #ifndef WITOS_NATIVE_BOOTSTRAP_H
 #define WITOS_NATIVE_BOOTSTRAP_H
-#include "witos/user_abi.h"
+#include "image.h"
 
 /* Private native startup helper, not NativeAOT's managed-module ABI. */
 #define WIT_NATIVE_MAX_INITIALIZERS 16U
@@ -31,8 +31,6 @@ typedef struct WitNativeInitializer {
     WitNativeCleanup Cleanup;
 } WitNativeInitializer;
 
-int wit_native_image_range(const WitUserImageInfo *image, WitU64 address, WitU64 size,
-    WitU32 required, WitU32 forbidden, int initialized);
 WitU64 wit_native_module_from_address(const WitNativeModule *module, WitU64 address);
 WitU64 wit_native_bootstrap(WitNativeModule *module, const WitUserStartup *startup,
     const WitNativeInitializer *initializers, WitU32 count, WitNativeMain main, WitU64 *exit_code);
