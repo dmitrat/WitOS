@@ -1,6 +1,6 @@
 # M2 — First isolated native execution
 
-Status: implemented; latest extension locally verified on 2026-09-20.
+Historical snapshot: initial isolation with extensions through 0.0.14 / ABI v8. Current status, including ABI v13 and later PAL adapters, is in [Next-Steps](Next-Steps.md); authoritative call constants remain in user_abi.h.
 Guest version: WitOS 0.0.14 (latest addition: native runtime mutexes and thread identity; ABI v8).
 
 This is the first M2 isolation slice, not a general process platform or a .NET runtime port.
@@ -89,7 +89,7 @@ Transport: `INT 0x80`.
 
 Thread/TLS lifetime and blocking behavior are specified in the [thread decision](M2-User-Threads-and-Tls.md).
 
-Statuses: 0 success, 1 unsupported call, 2 invalid handle, 3 denied rights, 4 invalid address, 5 excessive length, 6 invalid argument, 7 wrong object type, 8 resource exhaustion, 9 range not reserved by this component, 10 range not fully committed, 11 join deadlock, 12 busy thread, 13 timed out, 14 closed event. Returning errors have a zero result. ThreadCurrent borrows the current generation-bearing token from kernel state, independent of writable TLS; normal handle lifetime and rights still apply. The version/startup field is now 8; this replaces the earlier experimental fixture contracts.
+Statuses: 0 success, 1 unsupported call, 2 invalid handle, 3 denied rights, 4 invalid address, 5 excessive length, 6 invalid argument, 7 wrong object type, 8 resource exhaustion, 9 range not reserved by this component, 10 range not fully committed, 11 join deadlock, 12 busy thread, 13 timed out, 14 closed event. Returning errors have a zero result. ThreadCurrent borrows the current generation-bearing token from kernel state, independent of writable TLS; normal handle lifetime and rights still apply. The version/startup field in this snapshot is 8; this replaces the earlier experimental fixture contracts.
 
 Write accepts at most 256 input bytes per call. The diagnostic UART output adds a [USER] prefix and translates line endings; this is not a general file/Stream contract. A zero-length write validates the handle but does not dereference the pointer. Nonempty writes validate the entire range before copying or output. Copying uses verified physical translations through supervisor aliases, so a bad user pointer never becomes an unchecked kernel dereference. Cross-page buffers are tested.
 
@@ -118,7 +118,7 @@ dotnet build WitOS.slnx --configuration Release
 dotnet run --project tools/WitOS.Dev --configuration Release -- test
 ```
 
-All 18 VM scenarios passed locally. Ordinary successful boots now additionally require 113 user check groups, including:
+All 18 VM scenarios passed locally. At version 0.0.14, ordinary successful boots additionally required 113 user check groups, including:
 
 - actual ring-3 execution and ABI/handle checks;
 - two live private address spaces, foreign live handles and an inaccessible peer-only page;

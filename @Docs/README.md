@@ -170,6 +170,7 @@ The initial native milestone now has a concrete boot contract and runnable imple
 - [Native last-error](Implementation/NativeAot-Pal-Last-Error.md) - per-thread 32-bit storage, real direct/import bindings, PAL failure diagnostics and ABI v13.
 - [Native PAL module discovery](Implementation/NativeAot-Pal-Module-Discovery.md) - shared checked image metadata, section-aware lookup, inclusive bounds and TLS/worker lifecycle coverage.
 - [M3 runtime integration plan](Implementation/M3-Runtime-Integration-Plan.md) - remaining work packages, acceptance and estimate.
+- [Immutable native environment and PAL strings](Implementation/NativeAot-Pal-Environment.md) - validated readonly startup values, native UTF conversion and the remaining real GCConfig boundary.
 - [Immediate next steps](Implementation/Next-Steps.md).
 
 The earlier RFCs describe the long-term vision. These implementation notes distinguish working behavior from future runtime and operating-system features.

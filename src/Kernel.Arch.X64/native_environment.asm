@@ -1,0 +1,14 @@
+option casemap:none
+EXTERN wit_pal_environment_get:PROC
+.code
+PUBLIC GetEnvironmentVariableW
+PUBLIC wit_native_environment_get
+GetEnvironmentVariableW PROC
+wit_native_environment_get LABEL NEAR
+    jmp wit_pal_environment_get
+GetEnvironmentVariableW ENDP
+.const
+ALIGN 8
+PUBLIC __imp_GetEnvironmentVariableW
+__imp_GetEnvironmentVariableW QWORD GetEnvironmentVariableW
+END

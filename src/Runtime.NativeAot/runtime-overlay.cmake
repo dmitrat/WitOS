@@ -43,8 +43,10 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/src/System.Native/thread.c"
         "${WITOS_SOURCE_ROOT}/src/System.Native/image.c"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_module.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_environment.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_error.witos.cpp"
-        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_error.asm")
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_error.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_environment.asm")
     set_source_files_properties("${WITOS_SOURCE_ROOT}/src/System.Native/thread.c"
         "${WITOS_SOURCE_ROOT}/src/System.Native/image.c" TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES COMPILE_OPTIONS "/std:c17")
     file(STRINGS "${WITOS_SOURCE_ROOT}/src/Kernel/include/witos/user_abi.h" error_line
@@ -57,6 +59,7 @@ function(witos_select_gc_environment)
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/witos-abi")
     file(WRITE "${CMAKE_BINARY_DIR}/witos-abi/user_abi.inc" "WIT_TLS_LAST_ERROR_OFFSET EQU ${error_offset}\n")
     set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_error.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_environment.asm"
         TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES LANGUAGE ASM_MASM
         COMPILE_OPTIONS "/I${CMAKE_BINARY_DIR}/witos-abi")
     set_property(TARGET Runtime.WorkstationGC PROPERTY SOURCES "${sources}")

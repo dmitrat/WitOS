@@ -30,7 +30,10 @@ extern "C" void wit_native_tls_initialize(const WitUserStartup *startup)
     // Exactly once, on the startup thread, before publishing worker threads.
     if (!wit_native_claim_startup(&initialized) || !startup || startup->Version != WIT_ABI_VERSION ||
         startup->Size != sizeof(*startup) || !startup->ImageInfo) fatal();
-    wit_native_process_image_initialize(startup);
+    // Native startup may publish the same checked image before TLS, for example
+    // to configure immutable environment data needed by TLS constructors.
+    if (!wit_native_process_image()) wit_native_process_image_initialize(startup);
+    else if ((const WitUserImageInfo*)startup->ImageInfo != wit_native_process_image()) fatal();
     image = wit_native_process_image();
     const WitU64 first = (WitU64)&wit_tls_initializers_begin;
     const WitU64 last = (WitU64)&wit_tls_initializers_end;

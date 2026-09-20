@@ -49,3 +49,5 @@ Version 0.0.21 adds native detached workers for PAL GC/finalizer/helper startup 
 Version 0.0.22 adds real per-thread native last-error and PAL failure diagnostics; 110 unresolved symbols remain, including 22 PAL methods. PalInit is still explicitly unimplemented. See [native last-error](NativeAot-Pal-Last-Error.md).
 
 Version 0.0.23 supplies real single-image PAL identity/bounds, including TLS constructors and worker reuse; 108 unresolved symbols remain, including 20 PAL methods. Tracing PalInit identifies real GCConfig/RhConfig and configuration/environment dependencies as the next startup boundary. This does not complete runtime/managed module registration. See [native module discovery](NativeAot-Pal-Module-Discovery.md).
+
+Version 0.0.24 implements immutable native environment and PAL string conversion, with 105 remaining symbols (18 PAL). The next acceptance boundary is executable real RhConfig/GCConfig, including embedded settings/knobs, numeric/string dependencies and allocation failure semantics; PalInit remains unresolved. See [configuration transport](NativeAot-Pal-Environment.md).

@@ -134,6 +134,7 @@ int wit_user_image_map(WitUserSpace *space, const WitU8 *file, const WitPeImage 
 WitU64 wit_user_thread_create(WitUserProcess *process, WitU64 entry, WitU64 argument, WitU64 *result);
 WitU64 wit_user_thread_create_flags(WitUserProcess *process, WitU64 entry, WitU64 argument, WitU64 flags, WitU64 *result);
 void wit_user_pal_module_self_test(WitPageAllocator *pages);
+void wit_user_pal_environment_self_test(WitPageAllocator *pages);
 void wit_user_pal_background_self_test(WitPageAllocator *pages);
 void wit_user_pal_error_self_test(WitPageAllocator *pages);
 void wit_user_run(WitUserProcess *process);

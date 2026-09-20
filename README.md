@@ -6,7 +6,7 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 
 ## Current status
 
-**WitOS 0.0.23: NativeAOT PAL module lookup and inclusive image bounds execute in the guest, including TLS constructors and reused worker slots. The shared immutable image handoff retains ABI v13.**
+**WitOS 0.0.24: immutable native environment values and PAL UTF-16/UTF-8 conversion execute in the guest, including TLS constructors and reused worker slots. ABI v13 is unchanged.**
 
 The kernel boots independently through UEFI and runs separately built native components in ring 3 with private mappings and handles. Its bounded PE loader parses complete files inside the guest, maps sections and applies relocations. A freestanding C startup layer receives image metadata, runs native initializers and enters the program in user space. The component writes through a checked syscall and exits; its faults are contained while the kernel runs the next component. Within a component, up to four user threads can run with timer preemption, separate stacks/TLS and blocking join. Manual/auto-reset events, sleep and absolute deadlines work with kernel idle when all threads are blocked. M1 paging, protection, timer and kernel-context checks remain part of every successful boot.
 
@@ -39,7 +39,7 @@ Expected guest output includes:
 ```text
 [BOOT] UEFI x64 adapter
 [BOOT] ExitBootServices OK
-WitOS 0.0.23 (native PAL module discovery)
+WitOS 0.0.24 (native PAL environment and strings)
 Build: <git-revision> | x64 | Debug
 [TEST-BEGIN] Boot.Contract
 [TEST-PASS] Boot.Contract
@@ -90,7 +90,7 @@ The integration suite boots eighteen real VM scenarios:
 
 Normal boots also verify map/protect/unmap behavior, aliasing, TLB invalidation, timer delivery, progress of both preempted contexts and preserved GPR/SSE state. Exception tests validate vector, error code, register frame, fault address and stack selection. The double-fault test deliberately invalidates the main stack and requires diagnostics from the emergency stack.
 
-Successful boots also require 152 user groups: ring-3 entry, ABI/handles, private memory, user-fault containment, safe return state, timer budgeting, register/flag preservation, zero-fill and resource teardown, plus sparse reservations, commit/decommit/protect/release, recoverable exhaustion and hardware memory faults, plus user-thread preemption, TLS/register state, join/cycle handling, slot reuse and child-fault cleanup, plus event state/rights, wakeups, close/timeout ordering, signal handoff and kernel idle, plus PE validation/loading, relocation, BSS, allocation rollback and hardware section protection, plus native C startup, image descriptors, initializer rollback/run-once behavior and structural unwind validation, plus the upstream GC memory/discovery adapter, hardware protection, atomic snapshot copies, physical pressure, GC events, monotonic deadlines, recursive mutexes, blocking handoff, Crst lifecycle checks, atomic committed-memory reset, native C++ allocation/reclamation, static compiler TLS, dynamic C++ TLS lifecycle, kernel-backed PAL thread discovery, PAL memory/event/wait services, detached PAL worker lifecycle, per-thread native error diagnostics and module lookup/bounds. They run within the same real VM.
+Successful boots also require 156 user groups: ring-3 entry, ABI/handles, private memory, user-fault containment, safe return state, timer budgeting, register/flag preservation, zero-fill and resource teardown, plus sparse reservations, commit/decommit/protect/release, recoverable exhaustion and hardware memory faults, plus user-thread preemption, TLS/register state, join/cycle handling, slot reuse and child-fault cleanup, plus event state/rights, wakeups, close/timeout ordering, signal handoff and kernel idle, plus PE validation/loading, relocation, BSS, allocation rollback and hardware section protection, plus native C startup, image descriptors, initializer rollback/run-once behavior and structural unwind validation, plus the upstream GC memory/discovery adapter, hardware protection, atomic snapshot copies, physical pressure, GC events, monotonic deadlines, recursive mutexes, blocking handoff, Crst lifecycle checks, atomic committed-memory reset, native C++ allocation/reclamation, static compiler TLS, dynamic C++ TLS lifecycle, kernel-backed PAL thread discovery, PAL memory/event/wait services, detached PAL worker lifecycle, per-thread native error diagnostics, module lookup/bounds, immutable configuration values and UTF conversion. They run within the same real VM.
 
 Every test creates fresh firmware variable storage. A timeout, unexpected exit, panic or missing success marker fails an ordinary boot test.
 
@@ -207,4 +207,5 @@ User faults terminate that component; kernel faults remain fatal diagnostics. Ge
 - [Per-thread native last-error](@Docs/Implementation/NativeAot-Pal-Last-Error.md)
 - [Native PAL module discovery](@Docs/Implementation/NativeAot-Pal-Module-Discovery.md)
 - [M3 integration plan and estimate](@Docs/Implementation/M3-Runtime-Integration-Plan.md)
+- [Immutable native environment and PAL strings](@Docs/Implementation/NativeAot-Pal-Environment.md)
 - [Immediate development sequence](@Docs/Implementation/Next-Steps.md)
