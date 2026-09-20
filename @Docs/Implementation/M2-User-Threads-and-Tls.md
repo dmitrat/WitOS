@@ -105,3 +105,5 @@ The kernel can now schedule bounded native sibling threads and perform blocking 
 Version 0.0.7 adds [events/deadlines and idle](M2-Events-and-Deadlines.md). Next investigate the actual runtime target/bootstrap, compiler TLS, coordinated GC suspension and validated fault delivery. Dynamic kernel stacks, larger quotas, cross-process scheduling and SMP remain separate extensions.
 
 Version 0.0.17 adds a separate [static compiler TLS page and GS module vector](NativeAot-Compiler-Tls.md), preserving the raw FS layout. It still does not implement dynamic TLS callbacks or managed thread attachment.
+
+Version 0.0.21 adds [detached creation and automatic reclamation](NativeAot-Pal-Background-Threads.md) in ABI v12; flags zero retains the joinable lifecycle described above.

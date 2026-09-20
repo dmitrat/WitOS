@@ -19,7 +19,7 @@ int wit_user_capture_tls(WitUserProcess *process, const WitPeImage *image)
     return 1;
 }
 
-WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument)
+WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument, WitU64 flags)
 {
     WitUserThread *thread = &process->Threads[index];
     WitU64 handle, physical, *tls;
@@ -30,7 +30,8 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 ent
     const WitU64 top = WIT_USER_STACK_TOP + index * WIT_USER_THREAD_STRIDE;
     const WitU64 tls_address = WIT_USER_TLS + index * WIT_USER_THREAD_STRIDE;
     thread->CompilerTls = 0;
-    handle = wit_handle_grant(&process->Handles, WIT_HANDLE_THREAD, WIT_RIGHT_JOIN);
+    thread->Detached = 0;
+    handle = wit_handle_grant(&process->Handles, WIT_HANDLE_THREAD, flags & WIT_THREAD_DETACHED ? 0 : WIT_RIGHT_JOIN);
     if (!handle) return WIT_STATUS_NO_MEMORY;
     for (WitU64 page = bottom; page < top; page += 4096) {
         if (!wit_user_space_map(&process->Space, page, 1, 0)) goto failed;
@@ -76,7 +77,9 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 ent
     thread->WaitHandle = 0;
     thread->Deadline = WIT_WAIT_INFINITE;
     thread->WaitOrder = 0;
+    thread->Detached = (flags & WIT_THREAD_DETACHED) != 0;
     thread->State = WitThreadReady;
+    if (thread->Detached) ++process->DetachedCreates;
     ++process->ThreadCreates;
     return WIT_STATUS_OK;
 failed:

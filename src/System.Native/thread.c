@@ -26,7 +26,7 @@ static void run(WitU64 slot)
     wit_native_tls_enter();
     wit_native_thread_exit(entry(argument));
 }
-WitU64 wit_native_thread_create(WitNativeThreadMain entry, WitU64 argument, WitU64 *handle)
+static WitU64 create(WitNativeThreadMain entry, WitU64 argument, WitU64 flags, WitU64 *handle)
 {
     WitU32 slot;
     WitU64 status;
@@ -40,9 +40,20 @@ WitU64 wit_native_thread_create(WitNativeThreadMain entry, WitU64 argument, WitU
     starts[slot].Entry = entry;
     // ThreadCreate does not park. Keep this slot locked through success/failure
     // publication so a preempted creator cannot erase a slot already reused.
-    status = wit_native_call(WIT_CALL_THREAD_CREATE, (WitU64)run, slot, 0, handle);
+    status = wit_native_call(WIT_CALL_THREAD_CREATE, (WitU64)run, slot, flags, handle);
     if (status != WIT_STATUS_OK) starts[slot].Entry = 0;
     wit_native_unlock(&gate);
+    return status;
+}
+WitU64 wit_native_thread_create(WitNativeThreadMain entry, WitU64 argument, WitU64 *handle)
+{
+    return create(entry, argument, 0, handle);
+}
+WitU64 wit_native_thread_create_detached(WitNativeThreadMain entry, WitU64 argument)
+{
+    WitU64 result = 0;
+    const WitU64 status = create(entry, argument, WIT_THREAD_DETACHED, &result);
+    if (result) wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     return status;
 }
 WIT_NORETURN void wit_native_thread_exit(WitU64 code)

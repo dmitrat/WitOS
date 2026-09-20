@@ -38,7 +38,10 @@ function(witos_select_gc_environment)
     endforeach()
     list(APPEND sources "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_memory.witos.cpp"
-        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_events.witos.cpp")
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_events.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_threads.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/System.Native/thread.c")
+    set_source_files_properties("${WITOS_SOURCE_ROOT}/src/System.Native/thread.c" TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES COMPILE_OPTIONS "/std:c17")
     set_property(TARGET Runtime.WorkstationGC PROPERTY SOURCES "${sources}")
 
     get_target_property(minipal_sources aotminipal SOURCES)

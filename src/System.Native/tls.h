@@ -13,6 +13,7 @@ void wit_native_tls_leave(void);
 int wit_native_tls_code_pointer(WitU64 address);
 typedef WitU64 (*WitNativeThreadMain)(WitU64 argument);
 WitU64 wit_native_thread_create(WitNativeThreadMain entry, WitU64 argument, WitU64 *handle);
+WitU64 wit_native_thread_create_detached(WitNativeThreadMain entry, WitU64 argument);
 WIT_NORETURN void wit_native_thread_exit(WitU64 code);
 #ifdef __cplusplus
 }

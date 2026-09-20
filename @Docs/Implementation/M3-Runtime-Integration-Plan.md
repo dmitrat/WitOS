@@ -1,6 +1,6 @@
 # M3: Remaining runtime integration work
 
-**Assessment date:** 2026-09-20, based on the 0.0.15 source-link inventory and pinned .NET 10.0.8 runtime. Updated through 0.0.20: native allocation, compiler TLS, kernel thread discovery and bounded PAL memory/event/wait services.
+**Assessment date:** 2026-09-20, based on the 0.0.15 source-link inventory and pinned .NET 10.0.8 runtime. Updated through 0.0.21: native allocation, compiler TLS, kernel thread discovery, PAL memory/waits and detached native workers.
 
 ## Estimate and meaning of running .NET
 
@@ -43,3 +43,5 @@ Continue using strict source-link inventories to track dependencies, but require
 The 0.0.19 source overlay removes Windows PalCommon/PalMinWin and exposes 33 missing PAL methods explicitly. Its 125 unresolved symbols are a reclassified dependency boundary, not nine completed services compared with the prior count of 134. See [the PAL decision](NativeAot-Pal-Thread-Discovery.md).
 
 Version 0.0.20 implements ten more PAL methods and leaves 24 explicit PAL requirements (116 unresolved symbols overall). See [the exact memory/wait contract](NativeAot-Pal-Memory-and-Waits.md).
+
+Version 0.0.21 adds native detached workers for PAL GC/finalizer/helper startup and automatic resource reclamation; 22 PAL methods remain unresolved (114 symbols overall). Actual collector/finalizer execution remains pending. See [the worker contract](NativeAot-Pal-Background-Threads.md).

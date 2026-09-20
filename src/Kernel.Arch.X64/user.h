@@ -39,6 +39,7 @@ typedef enum WitUserWaitKind {
 
 typedef struct WitUserThread {
     WitUserThreadState State;
+    WitU32 Detached;
     WitU32 WaitingOn;
     WitU32 Joiner;
     WitUserWaitKind WaitKind;
@@ -84,6 +85,8 @@ typedef struct WitUserProcess {
     WitU64 ThreadTimerSwitches;
     WitU64 ThreadJoins;
     WitU64 ThreadReaps;
+    WitU64 DetachedCreates;
+    WitU64 DetachedReaps;
     WitU64 ThreadDeadlocks;
     WitU64 NextWaitOrder;
     WitU64 EventParks;
@@ -120,7 +123,7 @@ WitU64 wit_user_thread_query(const WitUserProcess *process, WitU64 address, WitU
 void wit_user_pal_self_test(WitPageAllocator *pages);
 void wit_user_pal_services_self_test(WitPageAllocator *pages);
 int wit_user_capture_tls(WitUserProcess *process, const WitPeImage *image);
-WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument);
+WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument, WitU64 flags);
 WitU64 wit_virtual_kernel_root(void);
 
 int wit_user_create(WitUserProcess *process, WitPageAllocator *allocator,
@@ -129,6 +132,8 @@ WitPeStatus wit_user_create_pe(WitUserProcess *process, WitPageAllocator *alloca
     WitU32 slot, const WitU8 *file, WitU32 size, WitU64 base);
 int wit_user_image_map(WitUserSpace *space, const WitU8 *file, const WitPeImage *plan, WitU64 base);
 WitU64 wit_user_thread_create(WitUserProcess *process, WitU64 entry, WitU64 argument, WitU64 *result);
+WitU64 wit_user_thread_create_flags(WitUserProcess *process, WitU64 entry, WitU64 argument, WitU64 flags, WitU64 *result);
+void wit_user_pal_background_self_test(WitPageAllocator *pages);
 void wit_user_run(WitUserProcess *process);
 void wit_user_destroy(WitUserProcess *process);
 int wit_user_is_active(void);

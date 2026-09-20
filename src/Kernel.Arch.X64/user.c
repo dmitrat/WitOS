@@ -72,13 +72,19 @@ static void validate_return(WitInterruptContext *context, WitU32 index, int sysc
 
 WitU64 wit_user_thread_create(WitUserProcess *process, WitU64 entry, WitU64 argument, WitU64 *result)
 {
+    return wit_user_thread_create_flags(process, entry, argument, 0, result);
+}
+
+WitU64 wit_user_thread_create_flags(WitUserProcess *process, WitU64 entry, WitU64 argument, WitU64 flags, WitU64 *result)
+{
     *result = 0;
+    if (flags & ~(WitU64)WIT_THREAD_DETACHED) return WIT_STATUS_INVALID_ARGUMENT;
     if (!wit_user_space_physical(&process->Space, entry, 0, 1)) return WIT_STATUS_BAD_ADDRESS;
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
         WitU64 status;
         if (process->Threads[i].State != WitThreadEmpty) continue;
-        status = wit_user_prepare_thread(process, i, entry, argument);
-        if (status == WIT_STATUS_OK) *result = process->Threads[i].Handle;
+        status = wit_user_prepare_thread(process, i, entry, argument, flags);
+        if (status == WIT_STATUS_OK && !(flags & WIT_THREAD_DETACHED)) *result = process->Threads[i].Handle;
         return status;
     }
     return WIT_STATUS_NO_MEMORY;
@@ -95,6 +101,8 @@ static void reap(WitU32 index)
     thread->CompilerTls = 0;
     require(wit_handle_close(&current_user->Handles, thread->Handle) == WIT_STATUS_OK, "Thread handle lost");
     thread->Handle = 0;
+    if (thread->Detached) ++current_user->DetachedReaps;
+    thread->Detached = 0;
     thread->State = WitThreadEmpty;
     ++current_user->ThreadReaps;
 }
@@ -154,7 +162,10 @@ static WitInterruptContext *exit_thread(WitU64 code)
     WitUserThread *thread = &current_user->Threads[index];
     thread->State = WitThreadExited;
     thread->ExitCode = code;
-    if (thread->Joiner != NO_THREAD) {
+    if (thread->Detached) {
+        require(thread->Joiner == NO_THREAD, "Detached thread acquired a joiner");
+        reap(index);
+    } else if (thread->Joiner != NO_THREAD) {
         WitUserThread *waiter = &current_user->Threads[thread->Joiner];
         require(waiter->State == WitThreadWaiting && waiter->WaitingOn == index, "Invalid thread waiter");
         waiter->Context->Rax = WIT_STATUS_OK;
@@ -258,6 +269,8 @@ static WitPeStatus create_process(WitUserProcess *process, WitPageAllocator *all
     process->ThreadTimerSwitches = 0;
     process->ThreadJoins = 0;
     process->ThreadReaps = 0;
+    process->DetachedCreates = 0;
+    process->DetachedReaps = 0;
     process->ThreadDeadlocks = 0;
     process->NextWaitOrder = 0;
     process->EventParks = 0;
@@ -307,7 +320,7 @@ static WitPeStatus create_process(WitUserProcess *process, WitPageAllocator *all
         startup->ImageInfo = WIT_USER_INFO + WIT_USER_IMAGE_INFO_OFFSET;
     }
     startup->ConsoleHandle = wit_handle_grant(&process->Handles, WIT_HANDLE_CONSOLE, WIT_RIGHT_WRITE);
-    if (!startup->ConsoleHandle || wit_user_prepare_thread(process, 0, process->ImageEntry, WIT_USER_INFO) != WIT_STATUS_OK)
+    if (!startup->ConsoleHandle || wit_user_prepare_thread(process, 0, process->ImageEntry, WIT_USER_INFO, 0) != WIT_STATUS_OK)
         goto failed;
     process->State = WitUserReady;
     return WitPeOk;
@@ -499,8 +512,7 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
         else context->Rdx = current_user->Threads[current_user->CurrentThread].Handle;
         break;
     case WIT_CALL_THREAD_CREATE:
-        context->Rax = argument2 ? WIT_STATUS_INVALID_ARGUMENT :
-            wit_user_thread_create(current_user, argument0, argument1, &context->Rdx);
+        context->Rax = wit_user_thread_create_flags(current_user, argument0, argument1, argument2, &context->Rdx);
         break;
     case WIT_CALL_THREAD_YIELD: {
         WitInterruptContext *next;
