@@ -6,7 +6,7 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 
 ## Current status
 
-**WitOS 0.0.24: immutable native environment values and PAL UTF-16/UTF-8 conversion execute in the guest, including TLS constructors and reused worker slots. ABI v13 is unchanged.**
+**WitOS 0.0.25: the dedicated runtime-config command executes real upstream RhConfig/GCConfig configuration logic inside the guest, with checked native string allocation and per-thread errno. ABI v13 is unchanged.**
 
 The kernel boots independently through UEFI and runs separately built native components in ring 3 with private mappings and handles. Its bounded PE loader parses complete files inside the guest, maps sections and applies relocations. A freestanding C startup layer receives image metadata, runs native initializers and enters the program in user space. The component writes through a checked syscall and exits; its faults are contained while the kernel runs the next component. Within a component, up to four user threads can run with timer preemption, separate stacks/TLS and blocking join. Manual/auto-reset events, sleep and absolute deadlines work with kernel idle when all threads are blocked. M1 paging, protection, timer and kernel-context checks remain part of every successful boot.
 
@@ -39,7 +39,7 @@ Expected guest output includes:
 ```text
 [BOOT] UEFI x64 adapter
 [BOOT] ExitBootServices OK
-WitOS 0.0.24 (native PAL environment and strings)
+WitOS 0.0.25 (upstream runtime configuration)
 Build: <git-revision> | x64 | Debug
 [TEST-BEGIN] Boot.Contract
 [TEST-PASS] Boot.Contract
@@ -156,6 +156,14 @@ dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-source
 
 This fetches the pinned upstream native tree and builds separate Windows-reference and WitOS-overlay libraries with the upstream CMake recipe. It runs the source-built Windows runtime through the native host, then verifies the expected unresolved dependencies of the incomplete WitOS archive. Python 3 and CMake/Ninja are required in addition to the normal tools. Reports and input hashes are written to `artifacts/runtime-source/`; the command does not start a managed runtime in the guest. See [the source-build contract and results](@Docs/Implementation/NativeAot-Source-Build.md).
 
+## Upstream configuration in the guest
+
+    dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-config
+
+This refreshes the native source build and executes actual configuration methods in QEMU at 128 and 512 MiB RAM. Each boot checks 162 user groups, including six additional configuration/CRT groups. Ordinary test retains eighteen scenarios and 156 groups without requiring a full runtime source build.
+
+This tests configuration initialization, not a running collector or managed code. The explicit RhConfig OOM overlay and source provenance are described in [ADR 0022](@Docs/Implementation/NativeAot-Runtime-Configuration.md).
+
 ## Layout
 
 ```text
@@ -208,4 +216,5 @@ User faults terminate that component; kernel faults remain fatal diagnostics. Ge
 - [Native PAL module discovery](@Docs/Implementation/NativeAot-Pal-Module-Discovery.md)
 - [M3 integration plan and estimate](@Docs/Implementation/M3-Runtime-Integration-Plan.md)
 - [Immutable native environment and PAL strings](@Docs/Implementation/NativeAot-Pal-Environment.md)
+- [Upstream runtime configuration and native C support](@Docs/Implementation/NativeAot-Runtime-Configuration.md)
 - [Immediate development sequence](@Docs/Implementation/Next-Steps.md)

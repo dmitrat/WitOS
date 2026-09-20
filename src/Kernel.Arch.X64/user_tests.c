@@ -166,6 +166,9 @@ void wit_user_self_test(WitPageAllocator *pages)
     wit_user_pal_environment_self_test(pages);
     wit_user_pal_background_self_test(pages);
     wit_user_pal_error_self_test(pages);
+#if defined(WITOS_TEST_RUNTIME_CONFIG)
+    wit_user_runtime_config_self_test(pages);
+#endif
 
     create(pages, 0, WIT_TEST_BAD_RETURN);
     wit_user_run(&components[0]);

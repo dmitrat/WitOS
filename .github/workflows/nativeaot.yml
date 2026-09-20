@@ -1,4 +1,4 @@
-name: Hosted NativeAOT reference
+name: NativeAOT reference and guest configuration
 
 on:
   push:
@@ -8,7 +8,9 @@ on:
       - 'experiments/NativeAotTarget/**'
       - 'tools/WitOS.Dev/**'
       - 'src/Runtime.NativeAot/**'
-      - 'src/Kernel.Arch.X64/native_*.asm'
+      - 'src/Kernel.Arch.X64/**'
+      - 'src/Kernel/**'
+      - 'tests/User.X64/**'
       - 'src/System.Native/**'
       - 'src/Kernel/include/witos/**'
       - '.gitattributes'
@@ -21,7 +23,9 @@ on:
       - 'experiments/NativeAotTarget/**'
       - 'tools/WitOS.Dev/**'
       - 'src/Runtime.NativeAot/**'
-      - 'src/Kernel.Arch.X64/native_*.asm'
+      - 'src/Kernel.Arch.X64/**'
+      - 'src/Kernel/**'
+      - 'tests/User.X64/**'
       - 'src/System.Native/**'
       - 'src/Kernel/include/witos/**'
       - '.gitattributes'
@@ -73,6 +77,18 @@ jobs:
       - name: Build upstream native sources and verify WitOS overlay
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-source
 
+      - name: Cache pinned QEMU download
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .tools/downloads
+          key: qemu-windows-x64-20260811-5bcf9eed634e8575
+
+      - name: Extract verified QEMU
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
+
+      - name: Execute upstream configuration inside WitOS
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-config
+
       - name: Upload hosted reference and evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -84,3 +100,7 @@ jobs:
             artifacts/runtime-probe/
             artifacts/runtime-target/
             artifacts/runtime-source/
+            artifacts/runtime-config/
+            artifacts/logs/runtime-config*
+            artifacts/x64/runtime-config/RuntimeConfigFixture.pe
+            artifacts/x64/runtime-config/WitOS-x64.img

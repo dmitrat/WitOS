@@ -1,6 +1,7 @@
 # Loaded only by CMAKE_PROJECT_CoreCLR_INCLUDE; upstream files stay unchanged.
 # Defer until the upstream project has created the actual runtime target.
 get_filename_component(WITOS_SOURCE_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+add_subdirectory("${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/config-probe" "${CMAKE_BINARY_DIR}/witos-config-build")
 function(witos_select_gc_environment)
     if(NOT TARGET Runtime.WorkstationGC OR NOT CLR_CMAKE_TARGET_WIN32 OR NOT CLR_CMAKE_TARGET_ARCH_AMD64)
         message(FATAL_ERROR "WitOS source overlay requires the pinned Windows AMD64 workstation runtime")
@@ -62,6 +63,14 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_environment.asm"
         TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES LANGUAGE ASM_MASM
         COMPILE_OPTIONS "/I${CMAKE_BINARY_DIR}/witos-abi")
+    set(old_config "${CLR_DIR}/nativeaot/Runtime/RhConfig.cpp")
+    list(FIND sources "${old_config}" config_index)
+    if(config_index EQUAL -1)
+        message(FATAL_ERROR "Pinned RhConfig source missing")
+    endif()
+    list(REMOVE_ITEM sources "${old_config}")
+    list(APPEND sources "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/rhconfig.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/crt_config.witos.cpp")
     set_property(TARGET Runtime.WorkstationGC PROPERTY SOURCES "${sources}")
 
     get_target_property(minipal_sources aotminipal SOURCES)
@@ -78,5 +87,37 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/src/System.Native" "${WITOS_SOURCE_ROOT}/src/Kernel/include")
     file(WRITE "${CMAKE_BINARY_DIR}/witos-runtime-sources.txt" "${sources}\n")
     message(STATUS "WitOS: replaced workstation GC environment, Release Crst and minipal mutex; missing methods remain undefined")
+    # Create the probe in an isolated directory with the actual NativeAOT
+    # directory settings; the hook itself runs in CoreCLR's parent scope.
+    get_target_property(WITOS_CONFIG_INCLUDES Runtime.WorkstationGC INCLUDE_DIRECTORIES)
+    get_target_property(config_directory Runtime.WorkstationGC SOURCE_DIR)
+    get_target_property(config_binary_directory Runtime.WorkstationGC BINARY_DIR)
+    list(PREPEND WITOS_CONFIG_INCLUDES "${config_binary_directory}" "${config_directory}")
+    get_directory_property(WITOS_CONFIG_DEFINITIONS DIRECTORY "${config_directory}" COMPILE_DEFINITIONS)
+    get_target_property(WITOS_CONFIG_OPTIONS Runtime.WorkstationGC COMPILE_OPTIONS)
+    get_directory_property(WITOS_CONFIG_FLAGS DIRECTORY "${config_directory}" DEFINITION CMAKE_CXX_FLAGS)
+    get_directory_property(WITOS_CONFIG_RELEASE_FLAGS DIRECTORY "${config_directory}" DEFINITION CMAKE_CXX_FLAGS_RELEASE)
+    if(NOT "FEATURE_NATIVEAOT" IN_LIST WITOS_CONFIG_DEFINITIONS OR "FEATURE_CORECLR" IN_LIST WITOS_CONFIG_DEFINITIONS)
+        message(FATAL_ERROR "Configuration probe requires the actual NativeAOT compile profile")
+    endif()
+    set(config_sources "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/rhconfig.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/gcconfig.slice.cpp"
+        "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/gcenv.config.slice.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_config.cpp")
+    foreach(config_source IN LISTS config_sources)
+        if(NOT EXISTS "${config_source}")
+            message(FATAL_ERROR "Run runtime-source to prepare the pinned configuration sources")
+        endif()
+    endforeach()
+    get_target_property(config_runtime_library Runtime.WorkstationGC MSVC_RUNTIME_LIBRARY)
+    list(FILTER WITOS_CONFIG_OPTIONS EXCLUDE REGEX "[/-]guard:")
+    separate_arguments(config_flags WINDOWS_COMMAND "${WITOS_CONFIG_FLAGS} ${WITOS_CONFIG_RELEASE_FLAGS}")
+    set_target_properties(WitOS.ConfigProbe PROPERTIES SOURCES "${config_sources}"
+        INCLUDE_DIRECTORIES "${WITOS_CONFIG_INCLUDES};${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot;${WITOS_SOURCE_ROOT}/tests/User.X64"
+        MSVC_RUNTIME_LIBRARY "${config_runtime_library}"
+        COMPILE_DEFINITIONS "${WITOS_CONFIG_DEFINITIONS}"
+        COMPILE_OPTIONS "${WITOS_CONFIG_OPTIONS};${config_flags};/GS-;/O1;/Zl;/Gy;/Gw;/EHa-s-")
+    add_dependencies(WitOS.ConfigProbe aot_eventing_headers)
+    add_dependencies(Runtime.WorkstationGC WitOS.ConfigProbe)
 endfunction()
 cmake_language(DEFER CALL witos_select_gc_environment)

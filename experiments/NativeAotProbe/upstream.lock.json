@@ -177,6 +177,8 @@
                     {"path":"src/coreclr/nativeaot/Runtime/RhConfig.h","sha256":"fa428027e7ab5e6130dd8732348d729b7ae5cc0df152b5c875978172d06ece92"},
                     {"path":"src/coreclr/nativeaot/Runtime/RhConfigValues.h","sha256":"850de36e89ff2d794511d135fd2f6127a8f912eb710eba03e7fd0ac8d2dd42d7"},
                     {"path":"src/coreclr/gc/gcconfig.cpp","sha256":"d988551209003a7df409f51a9b7458e38e4db541601cebbfad2a77aef1406231"},
-                    {"path":"src/coreclr/nativeaot/Runtime/gcenv.ee.cpp","sha256":"34a4106345051e0c58ed1a03dc124f64c66ce6037c6bea1ea2b5fd1bcae59550"}
+                    {"path":"src/coreclr/nativeaot/Runtime/gcenv.ee.cpp","sha256":"34a4106345051e0c58ed1a03dc124f64c66ce6037c6bea1ea2b5fd1bcae59550"},
+                    {"path":"src/coreclr/gc/gcconfig.h","sha256":"4e9fa100b7458187135b26ba09eda3a2e57fbc6a72cb5ed2afc31a22d828b117"},
+                    {"path":"src/coreclr/nativeaot/Runtime/gcenv.h","sha256":"4e6f12c83171324bae17d5409f707bf2aad6dd232da68e0dd5cc34ee20aceec1"}
                 ]
 }

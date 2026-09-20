@@ -11,7 +11,7 @@ internal static class DevTool
         try
         {
             if (args.Length > 1)
-                throw new ArgumentException("Use a single command: doctor, setup, build, run, test, runtime-audit, runtime-probe, runtime-target, runtime-port, runtime-source.");
+                throw new ArgumentException("Use a single command: doctor, setup, build, run, test, runtime-audit, runtime-probe, runtime-target, runtime-port, runtime-source, runtime-config.");
             if (!OperatingSystem.IsWindows())
                 throw new PlatformNotSupportedException("The current development host is Windows x64 with Visual Studio C++ tools. The guest does not use Windows.");
 
@@ -46,6 +46,12 @@ internal static class DevTool
                     var portImage = await BuildAsync(root, "runtime-port");
                     await BootAsync(root, portImage, "runtime-port-256", 256, 60, ExpectedOutcome.Success);
                     break;
+                case "runtime-config":
+                    await RuntimeSourceBuild.RunAsync(root);
+                    var configImage = await BuildAsync(root, "runtime-config");
+                    await BootAsync(root, configImage, "runtime-config-128", 128, 60, ExpectedOutcome.Success, runtimeConfig: true);
+                    await BootAsync(root, configImage, "runtime-config-512", 512, 60, ExpectedOutcome.Success, runtimeConfig: true);
+                    break;
                 case "runtime-audit":
                     await RuntimeExperiment.AuditAsync(root);
                     break;
@@ -59,7 +65,7 @@ internal static class DevTool
                     await RuntimeTargetExperiment.RunAsync(root);
                     break;
                 case "help":
-                    Console.WriteLine("WitOS development tool\nUsage: dotnet run --project tools/WitOS.Dev -- <command>\n\n  doctor  Check compiler, QEMU and firmware\n  setup   Download and verify pinned QEMU into .tools\n  build   Build the x64 UEFI image (no VM)\n  run     Build and boot headlessly in QEMU\n  test    Test boot, physical pages, CPU exceptions and timeout handling\n  runtime-audit  Verify pinned NativeAOT sources and package provenance\n  runtime-probe  Publish and execute a hosted NativeAOT dependency probe\n  runtime-target  Inspect NativeAOT objects and test native-host bootstrap / strict link boundaries\n  runtime-port  Build pinned GC memory adapter and execute guest checks in QEMU\n  runtime-source  Build full upstream native libraries and verify the WitOS source overlay");
+                    Console.WriteLine("WitOS development tool\nUsage: dotnet run --project tools/WitOS.Dev -- <command>\n\n  doctor  Check compiler, QEMU and firmware\n  setup   Download and verify pinned QEMU into .tools\n  build   Build the x64 UEFI image (no VM)\n  run     Build and boot headlessly in QEMU\n  test    Test boot, physical pages, CPU exceptions and timeout handling\n  runtime-audit  Verify pinned NativeAOT sources and package provenance\n  runtime-probe  Publish and execute a hosted NativeAOT dependency probe\n  runtime-target  Inspect NativeAOT objects and test native-host bootstrap / strict link boundaries\n  runtime-port  Build pinned GC memory adapter and execute guest checks in QEMU\n  runtime-source  Build full upstream native libraries and verify the WitOS source overlay\n  runtime-config  Build real upstream configuration sources and execute their guest probe");
                     break;
                 default:
                     throw new ArgumentException($"Unknown command: {command}. Use help.");
@@ -92,8 +98,9 @@ internal static class DevTool
         await File.WriteAllTextAsync(Path.Combine(output, "build_info.h"), $"#define WITOS_BUILD_ID \"{buildId}\"\n", Encoding.ASCII);
 
         await UserImage.BuildAsync(root, output, msvc);
+        if (scenario == "runtime-config") await RuntimeConfigProbe.BuildImageAsync(root, output, msvc);
 
-        string[] sources = ["src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/clock.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c", "src/Kernel/handles.c", "src/Kernel.Arch.X64/user_space.c", "src/Kernel.Arch.X64/user.c", "src/Kernel.Arch.X64/user_thread.c", "src/Kernel.Arch.X64/user_tls_tests.c", "src/Kernel.Arch.X64/user_dynamic_tls_tests.c", "src/Kernel.Arch.X64/user_pal_tests.c", "src/Kernel.Arch.X64/user_pal_service_tests.c", "src/Kernel.Arch.X64/user_pal_background_tests.c", "src/Kernel.Arch.X64/user_pal_error_tests.c", "src/Kernel.Arch.X64/user_pal_module_tests.c", "src/Kernel.Arch.X64/user_pal_environment_tests.c", "src/Kernel.Arch.X64/user_tests.c", "src/Kernel.Arch.X64/user_memory_tests.c", "src/Kernel.Arch.X64/user_thread_tests.c", "src/Kernel/events.c", "src/Kernel.Arch.X64/user_wait.c", "src/Kernel.Arch.X64/user_wait_tests.c", "src/Kernel/pe.c", "src/Kernel.Arch.X64/user_image.c", "src/Kernel.Arch.X64/user_image_tests.c", "src/Kernel.Arch.X64/user_bootstrap_tests.c", "src/Kernel.Arch.X64/user_gc_tests.c"];
+        string[] sources = ["src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/clock.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c", "src/Kernel/handles.c", "src/Kernel.Arch.X64/user_space.c", "src/Kernel.Arch.X64/user.c", "src/Kernel.Arch.X64/user_thread.c", "src/Kernel.Arch.X64/user_tls_tests.c", "src/Kernel.Arch.X64/user_dynamic_tls_tests.c", "src/Kernel.Arch.X64/user_pal_tests.c", "src/Kernel.Arch.X64/user_pal_service_tests.c", "src/Kernel.Arch.X64/user_pal_background_tests.c", "src/Kernel.Arch.X64/user_pal_error_tests.c", "src/Kernel.Arch.X64/user_pal_module_tests.c", "src/Kernel.Arch.X64/user_pal_environment_tests.c", "src/Kernel.Arch.X64/user_runtime_config_tests.c", "src/Kernel.Arch.X64/user_tests.c", "src/Kernel.Arch.X64/user_memory_tests.c", "src/Kernel.Arch.X64/user_thread_tests.c", "src/Kernel/events.c", "src/Kernel.Arch.X64/user_wait.c", "src/Kernel.Arch.X64/user_wait_tests.c", "src/Kernel/pe.c", "src/Kernel.Arch.X64/user_image.c", "src/Kernel.Arch.X64/user_image_tests.c", "src/Kernel.Arch.X64/user_bootstrap_tests.c", "src/Kernel.Arch.X64/user_gc_tests.c"];
         var objects = new List<string>();
         foreach (var source in sources)
         {
@@ -122,6 +129,7 @@ internal static class DevTool
                 "readonly-alias" => "WITOS_TEST_READONLY_ALIAS",
                 "unmapped-alias" => "WITOS_TEST_UNMAPPED_ALIAS",
                 "timeout" => "WITOS_TEST_HANG",
+                "runtime-config" => "WITOS_TEST_RUNTIME_CONFIG",
                 _ => null
             };
             if (define is not null) arguments.Add($"/D{define}=1");
@@ -218,7 +226,7 @@ internal static class DevTool
     private enum ExpectedOutcome { Success, InvalidBootInfo, InvalidMap, Exception, Timeout, ClockUnavailable }
     private sealed record FaultExpectation(int Vector, ulong Error, string Trigger, string Panic, bool Probe = false);
 
-    private static async Task BootAsync(string root, string image, string name, int memoryMiB, int timeoutSeconds, ExpectedOutcome expected, FaultExpectation? fault = null)
+    private static async Task BootAsync(string root, string image, string name, int memoryMiB, int timeoutSeconds, ExpectedOutcome expected, FaultExpectation? fault = null, bool runtimeConfig = false)
     {
         Toolchain.RequireQemu(root);
         var firmwareState = Path.Combine(Path.GetDirectoryName(image)!, name + ".vars.fd");
@@ -259,6 +267,10 @@ internal static class DevTool
             "[TEST-PASS] Memory.InvalidMaps", "[TEST-PASS] Memory.VirtualMappings");
         var booted = foundationReady && ValidateScheduler(result.Output) && ValidateUsers(result.Output) && hello > result.Output.IndexOf("[TEST-PASS] Scheduler.RegisterState", StringComparison.Ordinal) &&
             !panic && !result.Output.Contains("[EXCEPTION]", StringComparison.Ordinal);
+        if (runtimeConfig)
+            booted = booted && MarkersInOrder(result.Output, "[TEST-PASS] User.RuntimeConfigCrt",
+                "[TEST-PASS] User.RhConfigPrecedence", "[TEST-PASS] User.RhConfigStrings", "[TEST-PASS] User.GcConfigValues",
+                "[TEST-PASS] User.GcConfigRefresh", "[TEST-PASS] User.RuntimeConfigThreads", "[TEST-PASS] User.Isolation");
         var failedBeforeContract = !result.TimedOut && result.ExitCode == 35 && exitedFirmware >= 0 && contract < 0 && hello < 0;
         var passed = expected switch
         {
