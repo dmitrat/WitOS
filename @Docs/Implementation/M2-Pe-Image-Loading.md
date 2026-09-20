@@ -29,7 +29,7 @@ There is one image per new component. This is an internal kernel creation API, n
 | Headers | Complete section table, at most one 4096-byte page |
 | Entry | Inside initialized bytes of an RX section, not headers, BSS or padding |
 | Directories | Base relocations, bounded plain x64 function/unwind metadata; file-backed debug directory as opaque data |
-| Unsupported | Imports/IAT/delay imports, exports, TLS, exception handlers/chained unwind, load configuration/CFG, resources, certificates, CLR metadata and other nonempty directories |
+| Unsupported | Imports/IAT/delay imports, exports, nonempty TLS callbacks/multiple TLS modules, exception handlers/chained unwind, load configuration/CFG, resources, certificates, CLR metadata and other nonempty directories |
 | Relocations | At most 2048 entries including padding; ABSOLUTE padding and DIR64 only |
 
 The parser checks signatures, optional-header sizes, directory pairs, raw-file bounds, virtual bounds, integer overflow, raw overlap and page overlap. Section names do not grant permissions. Disjoint sections may leave gaps, which remain unmapped; sections cannot share a page. SizeOfImage must match the rounded end of the final mapped section.
@@ -113,6 +113,8 @@ The format fields and DIR64 operation follow the [Microsoft PE reference](https:
 
 ## Remaining NativeAOT work
 
-This loader cannot yet accept the hosted NativeAOT DLL: DLL/import/TLS/unwind semantics remain unsupported, its measured image is larger than the profile and the physical quota is still 128 frames per component.
+This loader cannot yet accept the hosted NativeAOT DLL: DLL/import/dynamic-TLS/unwind execution semantics remain unsupported, its measured image is larger than the profile and the physical quota is still 128 frames per component.
 
 Native image handoff and C startup are now implemented. The [backend direction and first GC memory adapter](NativeAot-Gc-Memory-Port.md) are selected/implemented; next extend the source build, TLS, unwinding/fault and GC coordination mechanisms. Managed-module registration stays inside the real runtime. Keep unsupported features explicit; a successful native PE load is not a .NET runtime port.
+
+Version 0.0.17 adds the [bounded static compiler TLS profile](NativeAot-Compiler-Tls.md): one validated template, index zero, at most 3,840 bytes per thread and no nonempty callbacks.

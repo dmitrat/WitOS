@@ -6,7 +6,7 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 
 ## Current status
 
-**WitOS 0.0.14: recursive native runtime mutexes, checked Crst and kernel-owned thread identity work inside the guest through ABI v8.**
+**WitOS 0.0.19: the WitOS PAL obtains current thread/process identity and stack bounds from kernel-owned snapshots through ABI v10. The remaining PAL services are explicit unresolved port requirements.**
 
 The kernel boots independently through UEFI and runs separately built native components in ring 3 with private mappings and handles. Its bounded PE loader parses complete files inside the guest, maps sections and applies relocations. A freestanding C startup layer receives image metadata, runs native initializers and enters the program in user space. The component writes through a checked syscall and exits; its faults are contained while the kernel runs the next component. Within a component, up to four user threads can run with timer preemption, separate stacks/TLS and blocking join. Manual/auto-reset events, sleep and absolute deadlines work with kernel idle when all threads are blocked. M1 paging, protection, timer and kernel-context checks remain part of every successful boot.
 
@@ -30,7 +30,7 @@ dotnet run --project tools/WitOS.Dev -- doctor
 dotnet run --project tools/WitOS.Dev -- run
 ```
 
-`setup` downloads QEMU **11.1.0**, verifies a pinned SHA-512 digest and extracts it into `.tools/`. It does not run the installer, edit PATH, or install a Windows service. The download is approximately 197 MiB. The first image build also downloads seven pinned .NET interface headers/inline definitions and their license. After these files are cached, builds and VM tests can run offline.
+`setup` downloads QEMU **11.1.0**, verifies a pinned SHA-512 digest and extracts it into `.tools/`. It does not run the installer, edit PATH, or install a Windows service. The download is approximately 197 MiB. The first image build also downloads pinned .NET GC/PAL interface headers and their license. After these files are cached, builds and VM tests can run offline.
 
 `run` builds an x64 EFI executable, packages it into a 32 MiB FAT16 disk image and boots a headless QEMU VM with software emulation, one CPU, 256 MiB RAM and no networking. No Hyper-V configuration is required.
 
@@ -39,7 +39,7 @@ Expected guest output includes:
 ```text
 [BOOT] UEFI x64 adapter
 [BOOT] ExitBootServices OK
-WitOS 0.0.14 (recursive runtime mutexes)
+WitOS 0.0.19 (WitOS PAL thread discovery)
 Build: <git-revision> | x64 | Debug
 [TEST-BEGIN] Boot.Contract
 [TEST-PASS] Boot.Contract
@@ -90,7 +90,7 @@ The integration suite boots eighteen real VM scenarios:
 
 Normal boots also verify map/protect/unmap behavior, aliasing, TLB invalidation, timer delivery, progress of both preempted contexts and preserved GPR/SSE state. Exception tests validate vector, error code, register frame, fault address and stack selection. The double-fault test deliberately invalidates the main stack and requires diagnostics from the emergency stack.
 
-Successful boots also require 113 user groups: ring-3 entry, ABI/handles, private memory, user-fault containment, safe return state, timer budgeting, register/flag preservation, zero-fill and resource teardown, plus sparse reservations, commit/decommit/protect/release, recoverable exhaustion and hardware memory faults, plus user-thread preemption, TLS/register state, join/cycle handling, slot reuse and child-fault cleanup, plus event state/rights, wakeups, close/timeout ordering, signal handoff and kernel idle, plus PE validation/loading, relocation, BSS, allocation rollback and hardware section protection, plus native C startup, image descriptors, initializer rollback/run-once behavior and structural unwind validation, plus the upstream GC memory/discovery adapter, hardware protection, atomic snapshot copies, physical pressure, GC events, monotonic deadlines, recursive mutexes, blocking handoff and Crst lifecycle checks. They run within the same real VM.
+Successful boots also require 134 user groups: ring-3 entry, ABI/handles, private memory, user-fault containment, safe return state, timer budgeting, register/flag preservation, zero-fill and resource teardown, plus sparse reservations, commit/decommit/protect/release, recoverable exhaustion and hardware memory faults, plus user-thread preemption, TLS/register state, join/cycle handling, slot reuse and child-fault cleanup, plus event state/rights, wakeups, close/timeout ordering, signal handoff and kernel idle, plus PE validation/loading, relocation, BSS, allocation rollback and hardware section protection, plus native C startup, image descriptors, initializer rollback/run-once behavior and structural unwind validation, plus the upstream GC memory/discovery adapter, hardware protection, atomic snapshot copies, physical pressure, GC events, monotonic deadlines, recursive mutexes, blocking handoff, Crst lifecycle checks, atomic committed-memory reset, native C++ allocation/reclamation, static compiler TLS, dynamic C++ TLS lifecycle and kernel-backed PAL thread discovery. They run within the same real VM.
 
 Every test creates fresh firmware variable storage. A timeout, unexpected exit, panic or missing success marker fails an ordinary boot test.
 
@@ -176,9 +176,9 @@ The core kernel does not include UEFI structures. The output is a freestanding P
 
 ## Scope and next work
 
-M2 uses two fixed component slots and activates one component at a time. Up to four threads share its private address space and handles; each has separate guarded user/kernel stacks and a raw FS-based TLS block. Shared kernel mappings stay supervisor-only. Native components use experimental ABI v8 for query/write/exit/close, memory, thread, event, legacy tick-clock, monotonic deadline, allocator-snapshot and current-thread identity operations. Earlier one-page fixtures remain alongside the new PE path, whose profile permits up to 16 sections and a 256 KiB mapped image. Each space can reserve within a separate 64 GiB virtual arena without allocating backing RAM; commitment is explicitly limited to 128 owned frames including page tables and fixed mappings. Firmware memory remains reserved, and usable physical addresses remain below 4 GiB.
+M2 uses two fixed component slots and activates one component at a time. Up to four threads share its private address space and handles; each has separate guarded user/kernel stacks and a raw FS-based TLS block. Shared kernel mappings stay supervisor-only. Native components use experimental ABI v10 for query/write/exit/close, memory, thread, event, legacy tick-clock, monotonic deadline, allocator-snapshot and current-thread identity operations. Earlier one-page fixtures remain alongside the new PE path, whose profile permits up to 16 sections and a 256 KiB mapped image. Each space can reserve within a separate 64 GiB virtual arena without allocating backing RAM; commitment is explicitly limited to 128 owned frames including page tables and fixed mappings. Firmware memory remains reserved, and usable physical addresses remain below 4 GiB.
 
-User faults terminate that component; kernel faults remain fatal diagnostics. General Windows/DLL loading, imports, compiler/managed TLS, unwind integration, multi-object waits, IPC channels, SMP and managed execution remain future work. The pinned target/bootstrap experiment now supplies measured object, TLS, unwind and dependency requirements. The bounded guest PE loading contract is implemented; native image handoff and C startup are now implemented. Windows x64 code generation is selected and the first GC memory adapter is implemented; the full native source build and strict port-dependency inventory are established. GC discovery, monotonic time, finite event waits and recursive minipal/Crst mutexes are implemented; next connect runtime TLS/thread attachment and native allocation. The q35 HPET counter advances independently of IRQs; PIT retains scheduling and the legacy delivered-tick ABI. This is not UTC or a hard real-time wake-latency guarantee.
+User faults terminate that component; kernel faults remain fatal diagnostics. General Windows/DLL loading, imports, managed TLS/ThreadStore attachment, unwind integration, multi-object waits, IPC channels, SMP and managed execution remain future work. The pinned target/bootstrap experiment now supplies measured object, TLS, unwind and dependency requirements. The bounded guest PE loading contract is implemented; native image handoff and C startup are now implemented. Windows x64 code generation is selected and the first GC memory adapter is implemented; the full native source build and strict port-dependency inventory are established. GC discovery, monotonic time, finite event waits, recursive minipal/Crst mutexes and committed-memory reset are implemented; bounded native new/delete is also implemented. Static single-module compiler TLS is now implemented. User-space dynamic C++ TLS initialization/destruction is implemented for the bounded single-module profile. Four thread-discovery PAL methods now execute through kernel snapshots. Next implement the memory/event PAL services needed for real runtime/GC startup, then connect actual ThreadStore attachment/shutdown; remaining CRT/PAL services are still incomplete. The q35 HPET counter advances independently of IRQs; PIT retains scheduling and the legacy delivered-tick ABI. This is not UTC or a hard real-time wake-latency guarantee.
 
 - [Architecture document index](@Docs/README.md)
 - [M0 implementation history](@Docs/Implementation/M0-Boot.md)
@@ -197,4 +197,10 @@ User faults terminate that component; kernel faults remain fatal diagnostics. Ge
 - [HPET time and finite GC deadlines](@Docs/Implementation/NativeAot-Gc-Time.md)
 - [Recursive native mutexes, Crst and thread identity](@Docs/Implementation/NativeAot-Mutexes.md)
 - [RFC 0011: initial kernel boot contract](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md)
+- [Committed memory reset and GC adapter](@Docs/Implementation/NativeAot-Gc-Reset.md)
+- [Native runtime allocation](@Docs/Implementation/NativeAot-Native-Heap.md)
+- [Static compiler TLS](@Docs/Implementation/NativeAot-Compiler-Tls.md)
+- [Dynamic C++ TLS lifecycle](@Docs/Implementation/NativeAot-Dynamic-Tls.md)
+- [WitOS PAL and current-thread discovery](@Docs/Implementation/NativeAot-Pal-Thread-Discovery.md)
+- [M3 integration plan and estimate](@Docs/Implementation/M3-Runtime-Integration-Plan.md)
 - [Immediate development sequence](@Docs/Implementation/Next-Steps.md)

@@ -78,6 +78,10 @@ The documents form the initial high-level architecture set: from the overall pla
     - publisher identity, TOFU, key rotation and transparency
     - mandatory shell indication for unsigned/invalid software
 
+## Storage implementation plan
+
+- [Block storage and filesystem architecture](WitOS-Block-Storage-and-Filesystem-Architecture.md) - Draft v0.1; future M5 storage work: asynchronous block capabilities, managed filesystem providers, reuse of OutWit.Common.Fat, and later ext4/volume composition. Revisit when filesystem implementation begins; the immediate implementation focus remains M3 NativeAOT.
+
 ## Project Naming
 
 Product name:
@@ -136,7 +140,7 @@ These are architecture drafts intended for continued review and revision rather 
 
 The initial native milestone now has a concrete boot contract and runnable implementation:
 
-- [RFC 0011 — Kernel Architecture & ABI](RFC-0011-Kernel-Architecture-and-ABI.md) — Draft v0.12, boot v2, kernel execution and experimental user ABI.
+- [RFC 0011 — Kernel Architecture & ABI](RFC-0011-Kernel-Architecture-and-ABI.md) — Draft v0.13, boot v2, kernel execution and experimental user ABI.
 - [M0 implementation and validation](Implementation/M0-Boot.md).
 - [M1 memory and exception foundation](Implementation/M1-Memory-and-Exceptions.md) — first slice, eleven VM scenarios.
 - [M1 kernel core](Implementation/M1-Kernel-Core.md) — paging, protection and preemptive execution; seventeen VM scenarios.
@@ -156,6 +160,12 @@ The initial native milestone now has a concrete boot contract and runnable imple
 - [GC events and yielding](Implementation/NativeAot-Gc-Events.md) - native signals/waits, safe slot reuse, failure containment and explicit timing limits.
 - [Monotonic time and GC deadlines](Implementation/NativeAot-Gc-Time.md) - q35 HPET, IRQ-independent counts, finite waits and ABI v7.
 - [Recursive native mutexes and Crst](Implementation/NativeAot-Mutexes.md) - kernel-owned thread identity, blocking/recursive locks, checked initialization and ABI v8.
+- [Committed memory reset](Implementation/NativeAot-Gc-Reset.md) - whole-range validation, retained commitment/protection, no allocation and ABI v9.
+- [Native runtime allocation](Implementation/NativeAot-Native-Heap.md) - bounded nothrow C++ new/delete, lazy commitment, cross-thread use and rollback.
+- [Static compiler TLS](Implementation/NativeAot-Compiler-Tls.md) - validated single-module PE TLS, private per-thread templates, GS switching and rollback.
+- [Dynamic C++ TLS lifecycle](Implementation/NativeAot-Dynamic-Tls.md) - real compiler constructors/destructors, user-space thread entry/exit, bounded cleanup and failure containment.
+- [WitOS PAL and thread discovery](Implementation/NativeAot-Pal-Thread-Discovery.md) - kernel-owned thread/stack snapshots, actual PAL declarations, explicit missing services and ABI v10.
+- [M3 runtime integration plan](Implementation/M3-Runtime-Integration-Plan.md) - remaining work packages, acceptance and estimate.
 - [Immediate next steps](Implementation/Next-Steps.md).
 
 The earlier RFCs describe the long-term vision. These implementation notes distinguish working behavior from future runtime and operating-system features.

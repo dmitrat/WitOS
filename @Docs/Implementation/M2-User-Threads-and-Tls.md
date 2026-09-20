@@ -103,3 +103,5 @@ The raw thread fixture scans all sixteen KiB of a new/reused stack and checks it
 The kernel can now schedule bounded native sibling threads and perform blocking join. These mechanisms support further runtime work, but they do not implement stop-the-world GC, managed TLS, finalization or managed exceptions.
 
 Version 0.0.7 adds [events/deadlines and idle](M2-Events-and-Deadlines.md). Next investigate the actual runtime target/bootstrap, compiler TLS, coordinated GC suspension and validated fault delivery. Dynamic kernel stacks, larger quotas, cross-process scheduling and SMP remain separate extensions.
+
+Version 0.0.17 adds a separate [static compiler TLS page and GS module vector](NativeAot-Compiler-Tls.md), preserving the raw FS layout. It still does not implement dynamic TLS callbacks or managed thread attachment.

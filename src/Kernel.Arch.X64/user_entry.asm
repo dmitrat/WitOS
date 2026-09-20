@@ -22,12 +22,20 @@ PUBLIC wit_x64_set_user_tls
 wit_x64_set_user_tls PROC
     ; Kernel chooses the base and selector on every return to a user thread.
     mov r8, rcx
+    mov r9, rdx
     mov ax, 2Bh
     mov fs, ax
     mov ecx, 0C0000100h
     mov eax, r8d
     shr r8, 32
     mov edx, r8d
+    wrmsr
+    mov ax, 2Bh
+    mov gs, ax
+    mov ecx, 0C0000101h
+    mov eax, r9d
+    shr r9, 32
+    mov edx, r9d
     wrmsr
     ret
 wit_x64_set_user_tls ENDP

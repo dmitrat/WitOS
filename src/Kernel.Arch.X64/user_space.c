@@ -329,6 +329,25 @@ WitU64 wit_user_memory_decommit(WitUserSpace *space, WitU64 address, WitU64 size
     return WIT_STATUS_OK;
 }
 
+WitU64 wit_user_memory_reset(WitUserSpace *space, WitU64 address, WitU64 size)
+{
+    const WitU64 status = reserved_range(space, address, size);
+    if (status != WIT_STATUS_OK) return status;
+    /* Bound work even for sparse multi-gigabyte reservations. No allocation. */
+    if (size / 4096 > WIT_USER_PAGE_CAPACITY) return WIT_STATUS_NOT_COMMITTED;
+    for (WitU64 p = address; p < address + size; p += 4096) {
+        const WitU64 *entry = leaf(space, p, 0);
+        if (!entry || !(*entry & PAGE_OWNED)) return WIT_STATUS_NOT_COMMITTED;
+    }
+    /* IF stays clear across validation and mutation. Owned physical backing
+     * lets read-only/no-access commitments retain their original protection. */
+    for (WitU64 p = address; p < address + size; p += 4096) {
+        volatile WitU64 *data = (volatile WitU64 *)(*leaf(space, p, 0) & PAGE_ADDRESS);
+        for (WitU32 i = 0; i < 512; ++i) data[i] = 0;
+    }
+    return WIT_STATUS_OK;
+}
+
 WitU64 wit_user_memory_protect(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection)
 {
     WitU64 status = reserved_range(space, address, size);

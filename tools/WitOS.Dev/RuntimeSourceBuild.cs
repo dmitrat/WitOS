@@ -38,11 +38,17 @@ internal static class RuntimeSourceBuild
         var referenceHost = await RunReferenceAsync(root, output, target, msvc, publishedInputs, referenceInputs);
         var boundary = await RuntimeTargetExperiment.LinkBoundaryAsync(msvc, output,
             Path.Combine(target, "static", "NativeAotTarget.lib"), portedInputs, "witos-without-platform");
-        string[] implemented = ["VirtualReserve@", "VirtualCommit@", "VirtualDecommit@", "VirtualRelease@", "SupportsWriteWatch@", "Initialize@", "Shutdown@", "GetTotalProcessorCount@", "GetPhysicalMemoryLimit@", "GetVirtualMemoryLimit@", "GetVirtualMemoryMaxAddress@", "GetMemoryStatus@", "CanEnableGCCPUGroups@", "CanEnableGCNumaAware@", "YieldThread@", "Sleep@", "QueryPerformanceCounter@", "QueryPerformanceFrequency@", "GetLowPrecisionTimeStamp@"];
+        string[] implemented = ["VirtualReset@", "VirtualReserve@", "VirtualCommit@", "VirtualDecommit@", "VirtualRelease@", "SupportsWriteWatch@", "Initialize@", "Shutdown@", "GetTotalProcessorCount@", "GetPhysicalMemoryLimit@", "GetVirtualMemoryLimit@", "GetVirtualMemoryMaxAddress@", "GetMemoryStatus@", "CanEnableGCCPUGroups@", "CanEnableGCNumaAware@", "YieldThread@", "Sleep@", "QueryPerformanceCounter@", "QueryPerformanceFrequency@", "GetLowPrecisionTimeStamp@"];
         string[] replacedMutexSymbols = ["minipal_mutex_init", "minipal_mutex_destroy", "minipal_mutex_enter", "minipal_mutex_leave",
             "__imp_InitializeCriticalSection", "__imp_DeleteCriticalSection", "__imp_EnterCriticalSection", "__imp_LeaveCriticalSection"];
-        if (boundary.Unresolved.Any(s => replacedMutexSymbols.Contains(s, StringComparer.Ordinal)) ||
-            !boundary.Unresolved.Any(s => s.Contains("VirtualReset@GCToOSInterface", StringComparison.Ordinal)) ||
+        string[] palImplemented = ["PalGetCurrentOSThreadId", "PalGetMaximumStackBounds", "PalGetCurrentProcessId", "PalGetProcessCpuCount"];
+        if (boundary.Unresolved.Any(s => palImplemented.Any(p => s.Contains(p, StringComparison.Ordinal))) ||
+            !boundary.Unresolved.Any(s => s.Contains("PalAttachThread", StringComparison.Ordinal)) ||
+            !boundary.Unresolved.Any(s => s.Contains("?PalInit@@", StringComparison.Ordinal)) ||
+            boundary.Unresolved.Any(s => s is "__dyn_tls_init" or "__dyn_tls_on_demand_init" or "__tls_guard" or "__tlregdtor") ||
+            boundary.Unresolved.Any(s => s.Contains("operator new", StringComparison.Ordinal) || s.Contains("operator delete", StringComparison.Ordinal) || s.Contains("?nothrow@std@@", StringComparison.Ordinal)) ||
+            boundary.Unresolved.Any(s => replacedMutexSymbols.Contains(s, StringComparer.Ordinal)) ||
+            !boundary.Unresolved.Any(s => s.Contains("FlushProcessWriteBuffers@GCToOSInterface", StringComparison.Ordinal)) ||
             boundary.Unresolved.Any(s => s.Contains("GCEvent", StringComparison.Ordinal)) ||
             !boundary.Unresolved.Contains("wit_native_call") ||
             !boundary.Unresolved.Contains("_tls_index") ||
@@ -52,8 +58,9 @@ internal static class RuntimeSourceBuild
         var groups = new Dictionary<string, string[]>
         {
             ["gc-environment"] = boundary.Unresolved.Where(s => s.Contains("GCToOSInterface", StringComparison.Ordinal) || s.Contains("GCEvent", StringComparison.Ordinal)).ToArray(),
+            ["nativeaot-pal"] = boundary.Unresolved.Where(s => s.Contains("?Pal", StringComparison.Ordinal)).ToArray(),
             ["witos-transport"] = boundary.Unresolved.Where(s => s.StartsWith("wit_native_", StringComparison.Ordinal)).ToArray(),
-            ["remaining-platform-runtime"] = boundary.Unresolved.Where(s => !s.Contains("GCToOSInterface", StringComparison.Ordinal) && !s.Contains("GCEvent", StringComparison.Ordinal) && !s.StartsWith("wit_native_", StringComparison.Ordinal)).ToArray()
+            ["remaining-platform-runtime"] = boundary.Unresolved.Where(s => !s.Contains("GCToOSInterface", StringComparison.Ordinal) && !s.Contains("GCEvent", StringComparison.Ordinal) && !s.StartsWith("wit_native_", StringComparison.Ordinal) && !s.Contains("?Pal", StringComparison.Ordinal)).ToArray()
         };
         var report = new
         {
@@ -66,8 +73,8 @@ internal static class RuntimeSourceBuild
             ported = new { ported.ArchiveSha256, members = ported.Members, compileUnits = ported.Commands.Length, minipal = ported.Minipal },
             sourceOverlay = new[] { "src/Runtime.NativeAot/runtime-overlay.cmake", "src/Runtime.NativeAot/gcenv.witos.cpp",
                 "src/Runtime.NativeAot/gcenv.witos.h", "src/Runtime.NativeAot/gc_events.witos.cpp", "src/Runtime.NativeAot/gc_time.witos.cpp",
-                "src/Runtime.NativeAot/mutex.witos.cpp", "src/Runtime.NativeAot/crst.witos.cpp", "src/System.Native/bootstrap.h", "src/Kernel/include/witos/types.h",
-                "src/Kernel/include/witos/user_abi.h", "src/Kernel/include/witos/image_info.h", "src/Kernel/include/witos/memory_info.h" }
+                "src/Runtime.NativeAot/mutex.witos.cpp", "src/Runtime.NativeAot/crst.witos.cpp", "src/Runtime.NativeAot/native_new.witos.cpp", "src/Runtime.NativeAot/tls.witos.cpp", "src/Runtime.NativeAot/pal.witos.cpp", "src/Runtime.NativeAot/pal.witos.h", "src/System.Native/tls.h", "src/System.Native/bootstrap.h", "src/Kernel/include/witos/types.h",
+                "src/Kernel/include/witos/user_abi.h", "src/Kernel/include/witos/thread_info.h", "src/Kernel/include/witos/image_info.h", "src/Kernel/include/witos/memory_info.h" }
                 .Select(p => new { path = p, sha256 = Hash(Path.Combine(root, p)) }),
             referenceInputs = referenceInputs.Select(p => new { file = Path.GetFileName(p), sha256 = Hash(p) }),
             portedInputs = portedInputs.Select(p => new { file = Path.GetFileName(p), sha256 = Hash(p) }),
@@ -167,6 +174,12 @@ internal static class RuntimeSourceBuild
             members.Count(m => Normalize(m).EndsWith("/Crst.cpp.obj", StringComparison.Ordinal)) != (overlay ? 0 : 1) ||
             members.Count(m => Normalize(m).EndsWith("/crst.witos.cpp.obj", StringComparison.Ordinal)) != (overlay ? 1 : 0) || members.Length < 50)
             throw new InvalidDataException("Native source build did not compile the expected full runtime and selected GC/Crst adapters.");
+        foreach (var file in new[] { "PalCommon.cpp", "PalMinWin.cpp" })
+            if (paths.Count(p => p.EndsWith("/windows/" + file, StringComparison.Ordinal)) != (overlay ? 0 : 1) ||
+                members.Count(m => Normalize(m).EndsWith("/" + file + ".obj", StringComparison.Ordinal)) != (overlay ? 0 : 1))
+                throw new InvalidDataException("Runtime archive contains the wrong platform PAL source.");
+        if (paths.Count(p => p.EndsWith("/pal.witos.cpp", StringComparison.Ordinal)) != (overlay ? 1 : 0))
+            throw new InvalidDataException("Runtime archive did not compile the selected WitOS PAL.");
         await File.WriteAllTextAsync(Path.Combine(output, profile + "-compile-commands.json"), JsonSerializer.Serialize(commands, Json));
 
         var minipalArchive = Path.Combine(sdk, "aotminipal.lib");
@@ -184,7 +197,7 @@ internal static class RuntimeSourceBuild
         await File.WriteAllTextAsync(Path.Combine(output, profile + "-minipal-compile-commands.json"), JsonSerializer.Serialize(minipalCommands, Json));
         if (overlay)
         {
-            foreach (var file in new[] { "/gcenv.witos.cpp", "/gc_events.witos.cpp", "/gc_time.witos.cpp", "/crst.witos.cpp" })
+            foreach (var file in new[] { "/gcenv.witos.cpp", "/gc_events.witos.cpp", "/gc_time.witos.cpp", "/crst.witos.cpp", "/native_new.witos.cpp", "/tls.witos.cpp", "/pal.witos.cpp" })
             {
                 var adapter = commands.Single(c => Normalize(c.File).EndsWith(file, StringComparison.Ordinal));
                 NativeObject.VerifyArchive(archive, Path.GetFullPath(adapter.Output, adapter.Directory));

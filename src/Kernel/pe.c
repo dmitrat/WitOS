@@ -39,6 +39,17 @@ static int file_range_flags(const WitPeImage *plan, WitU32 rva, WitU32 size,
     return 0;
 }
 
+/* Runtime-written data such as the TLS index may live in zero-filled BSS. */
+static int memory_range_flags(const WitPeImage *plan, WitU32 rva, WitU32 size, WitU32 required, WitU32 forbidden)
+{
+    for (WitU32 i = 0; i < plan->SectionCount; ++i) {
+        const WitPeSection *s = &plan->Sections[i];
+        if ((s->Flags & required) == required && !(s->Flags & forbidden) && rva >= s->Rva &&
+            range(rva - s->Rva, size, s->VirtualSize)) return 1;
+    }
+    return 0;
+}
+
 static int nonvolatile_register(WitU32 reg)
 {
     return reg == 3 || reg == 5 || reg == 6 || reg == 7 || (reg >= 12 && reg <= 15);
@@ -121,10 +132,51 @@ static WitPeStatus unwind_info(const WitU8 *file, WitPeImage *plan)
     return WitPeOk;
 }
 
+/* Single static TLS module. Addresses in PE32+ TLS directories are VAs. */
+static int tls_rva(const WitPeImage *plan, WitU64 va, WitU32 *rva)
+{
+    if (va < plan->PreferredBase || va - plan->PreferredBase > plan->ImageSize) return 0;
+    *rva = (WitU32)(va - plan->PreferredBase);
+    return 1;
+}
+static WitPeStatus tls_info(const WitU8 *file, WitPeImage *plan)
+{
+    WitU32 raw, ignored, flags, alignment, end;
+    WitU64 callbacks;
+    plan->TlsTemplateRva = plan->TlsInitialized = plan->TlsZeroFill = plan->TlsIndexRva = plan->TlsCallbacksRva = 0;
+    if (!plan->TlsSize) return WitPeOk;
+    if (plan->TlsSize != 40 || (plan->TlsRva & 7) ||
+        !file_range_flags(plan, plan->TlsRva, 40, WIT_PE_READ, WIT_PE_WRITE | WIT_PE_EXECUTE, &raw)) return WitPeInvalidImage;
+    if (!tls_rva(plan, u64(file + raw), &plan->TlsTemplateRva) ||
+        !tls_rva(plan, u64(file + raw + 8), &end) || end < plan->TlsTemplateRva ||
+        !tls_rva(plan, u64(file + raw + 16), &plan->TlsIndexRva) || (plan->TlsIndexRva & 3)) return WitPeInvalidImage;
+    plan->TlsInitialized = end - plan->TlsTemplateRva;
+    plan->TlsZeroFill = u32(file + raw + 32);
+    if (plan->TlsInitialized > WIT_PE_TLS_MAX_BYTES || plan->TlsZeroFill > WIT_PE_TLS_MAX_BYTES - plan->TlsInitialized)
+        return WitPeTooLarge;
+    if (!plan->TlsInitialized && !plan->TlsZeroFill) return WitPeUnsupportedImage;
+    flags = u32(file + raw + 36);
+    alignment = (flags >> 20) & 15;
+    if ((flags & ~0x00F00000U) || alignment > 9) return WitPeUnsupportedImage;
+    if (!file_range_flags(plan, plan->TlsTemplateRva, plan->TlsInitialized, WIT_PE_READ, WIT_PE_EXECUTE, &ignored) ||
+        !memory_range_flags(plan, plan->TlsIndexRva, 4, WIT_PE_READ | WIT_PE_WRITE, WIT_PE_EXECUTE) ||
+        overlap(plan->TlsIndexRva, 4, plan->TlsTemplateRva, plan->TlsInitialized) ||
+        overlap(plan->TlsRva, 40, plan->TlsTemplateRva, plan->TlsInitialized)) return WitPeInvalidImage;
+    callbacks = u64(file + raw + 24);
+    if (callbacks) {
+        if (!tls_rva(plan, callbacks, &plan->TlsCallbacksRva) || (plan->TlsCallbacksRva & 7) ||
+            !file_range_flags(plan, plan->TlsCallbacksRva, 8, WIT_PE_READ, WIT_PE_WRITE | WIT_PE_EXECUTE, &ignored))
+            return WitPeInvalidImage;
+        if (u64(file + ignored)) return WitPeUnsupportedImage;
+    }
+    return WitPeOk;
+}
+
 static WitPeStatus relocations(const WitU8 *file, const WitPeImage *plan)
 {
     WitU32 raw, consumed = 0, entries = 0, previous_page = 0, previous_target = 0;
     int have_page = 0, have_target = 0;
+    WitU32 tls_fixups = 0;
     if (!plan->RelocSize) return WitPeOk;
     if (!wit_pe_file_range(plan, plan->RelocRva, plan->RelocSize, &raw)) return WitPeInvalidImage;
     while (consumed < plan->RelocSize) {
@@ -155,6 +207,15 @@ static WitPeStatus relocations(const WitU8 *file, const WitPeImage *plan)
             if (overlap(target, 8, plan->UnwindRva, plan->UnwindSize)) return WitPeInvalidImage;
             for (WitU32 i = 0; i < plan->UnwindCount; ++i)
                 if (overlap(target, 8, plan->UnwindInfo[i].Rva, plan->UnwindInfo[i].Size)) return WitPeInvalidImage;
+            if (plan->TlsSize) {
+                if (overlap(target, 8, plan->TlsIndexRva, 4) ||
+                    (plan->TlsCallbacksRva && overlap(target, 8, plan->TlsCallbacksRva, 8))) return WitPeInvalidImage;
+                if (overlap(target, 8, plan->TlsRva, 40)) {
+                    if (target < plan->TlsRva || target - plan->TlsRva > 24 || ((target - plan->TlsRva) & 7))
+                        return WitPeInvalidImage;
+                    tls_fixups |= 1U << ((target - plan->TlsRva) / 8);
+                }
+            }
             value = u64(file + target_raw);
             if (value < plan->PreferredBase || value - plan->PreferredBase > plan->ImageSize)
                 return WitPeInvalidImage;
@@ -163,6 +224,7 @@ static WitPeStatus relocations(const WitU8 *file, const WitPeImage *plan)
         }
         consumed += length;
     }
+    if (plan->TlsSize && tls_fixups != (plan->TlsCallbacksRva ? 15U : 7U)) return WitPeInvalidImage;
     return WitPeOk;
 }
 
@@ -211,12 +273,14 @@ WitPeStatus wit_pe_validate(const WitU8 *file, WitU32 size, WitPeImage *plan)
     plan->UnwindSize = u32(file + optional + 116 + 3 * 8);
     plan->RelocRva = u32(file + optional + 112 + 5 * 8);
     plan->RelocSize = u32(file + optional + 116 + 5 * 8);
+    plan->TlsRva = u32(file + optional + 112 + 9 * 8);
+    plan->TlsSize = u32(file + optional + 116 + 9 * 8);
     debug_rva = u32(file + optional + 112 + 6 * 8);
     debug_size = u32(file + optional + 116 + 6 * 8);
     for (WitU32 i = 0; i < 16; ++i) {
         const WitU32 rva = u32(file + optional + 112 + i * 8);
         const WitU32 length = u32(file + optional + 116 + i * 8);
-        if (i != 3 && i != 5 && i != 6 && (rva || length)) return WitPeUnsupportedImage;
+        if (i != 3 && i != 5 && i != 6 && i != 9 && (rva || length)) return WitPeUnsupportedImage;
         if ((!rva) != (!length)) return WitPeInvalidImage;
     }
     if ((characteristics & 1) && plan->RelocSize) return WitPeInvalidImage;
@@ -267,6 +331,10 @@ WitPeStatus wit_pe_validate(const WitU8 *file, WitU32 size, WitPeImage *plan)
     }
     {
         const WitPeStatus status = unwind_info(file, plan);
+        if (status != WitPeOk) return status;
+    }
+    {
+        const WitPeStatus status = tls_info(file, plan);
         if (status != WitPeOk) return status;
     }
     return relocations(file, plan);

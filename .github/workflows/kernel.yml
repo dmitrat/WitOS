@@ -65,6 +65,16 @@ jobs:
             artifacts/x64/boot/GcMemoryFixture.map
             artifacts/x64/boot/gc-memory-build.json
             artifacts/x64/boot/gc-missing-link.log
+            artifacts/x64/boot/TlsFixture.pe
+            artifacts/x64/boot/compiler-tls-build.json
+            artifacts/x64/boot/compiler-tls-disassembly.log
+            artifacts/x64/boot/DynamicTlsFixture.pe
+            artifacts/x64/boot/DynamicTlsFixture.map
+            artifacts/x64/boot/dynamic-tls-build.json
+            artifacts/x64/boot/dynamic-tls-symbols.log
+            artifacts/x64/boot/PalPlainFixture.pe
+            artifacts/x64/boot/PalThreadFixture.pe
+            artifacts/x64/boot/pal-build.json
             artifacts/x64/boot/WitOS-x64.img
             artifacts/x64/boot/WitOS.pdb
             artifacts/x64/boot/WitOS.map

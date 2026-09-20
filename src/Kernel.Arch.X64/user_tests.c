@@ -158,6 +158,9 @@ void wit_user_self_test(WitPageAllocator *pages)
     wit_user_image_self_test(pages);
     wit_user_bootstrap_self_test(pages);
     wit_user_gc_self_test(pages);
+    wit_user_tls_self_test(pages);
+    wit_user_dynamic_tls_self_test(pages);
+    wit_user_pal_self_test(pages);
 
     create(pages, 0, WIT_TEST_BAD_RETURN);
     wit_user_run(&components[0]);

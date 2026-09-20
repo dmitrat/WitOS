@@ -7,6 +7,7 @@
 #define WIT_PE_MAX_FILE_SIZE 1048576U
 #define WIT_PE_MAX_RELOCATIONS 2048U
 #define WIT_PE_MAX_UNWIND_ENTRIES 128U
+#define WIT_PE_TLS_MAX_BYTES 3840U
 #define WIT_PE_READ 1U
 #define WIT_PE_WRITE 2U
 #define WIT_PE_EXECUTE 4U
@@ -41,6 +42,7 @@ typedef struct WitPeImage {
     WitU32 UnwindRva;
     WitU32 UnwindSize;
     WitU32 UnwindCount;
+    WitU32 TlsRva, TlsSize, TlsTemplateRva, TlsInitialized, TlsZeroFill, TlsIndexRva, TlsCallbacksRva;
     WitPeUnwindRange UnwindInfo[WIT_PE_MAX_UNWIND_ENTRIES];
     WitPeSection Sections[WIT_PE_MAX_SECTIONS];
 } WitPeImage;

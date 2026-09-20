@@ -131,4 +131,12 @@ bool GCToOSInterface::VirtualRelease(void* address, size_t size)
     return wit_native_call(WIT_CALL_MEMORY_RELEASE, (uintptr_t)address, 0, 0, nullptr) == WIT_STATUS_OK;
 }
 
+bool GCToOSInterface::VirtualReset(void* address, size_t size, bool unlock)
+{
+    size_t rounded;
+    /* No working-set locking API exists. Reject unlock before mutation. */
+    return !unlock && range(address, size, &rounded) &&
+        wit_native_call(WIT_CALL_MEMORY_RESET, (uintptr_t)address, rounded, 0, nullptr) == WIT_STATUS_OK;
+}
+
 bool GCToOSInterface::SupportsWriteWatch() { return false; }

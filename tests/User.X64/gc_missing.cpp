@@ -1,6 +1,7 @@
 #include "gcenv.witos.h"
-/* Reset semantics are still unported; time support must not hide this boundary. */
+/* Process-wide GC rendezvous remains unported; reset must not hide it. */
 extern "C" WitU64 wit_native_main(const WitUserStartup*)
 {
-    return GCToOSInterface::VirtualReset(nullptr, 0, false) ? 0 : 1;
+    GCToOSInterface::FlushProcessWriteBuffers();
+    return 0;
 }

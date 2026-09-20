@@ -37,6 +37,9 @@ internal static class UserImage
         await UserPeImage.BuildAsync(root, output, msvc, constants);
         await UserBootstrapImage.BuildAsync(root, output, msvc);
         await RuntimePortImage.BuildAsync(root, output, msvc);
+        await UserTlsImage.BuildAsync(root, output, msvc);
+        await UserDynamicTlsImage.BuildAsync(root, output, msvc);
+        await UserPalImage.BuildAsync(root, output, msvc);
     }
 
     private static async Task BuildFixtureAsync(string root, string output, string msvc,

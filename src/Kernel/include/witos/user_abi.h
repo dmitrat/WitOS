@@ -3,11 +3,12 @@
 #include "types.h"
 #include "image_info.h"
 #include "memory_info.h"
+#include "thread_info.h"
 
 /* Experimental x64 interrupt ABI, not a stable public SDK.
  * INT 0x80: RAX=call, RCX/RDX/R8=arguments; RAX=status, RDX=result.
  * Other GPRs and baseline x87/SSE state survive; flags are reset to 0x202. */
-#define WIT_ABI_VERSION 8U
+#define WIT_ABI_VERSION 10U
 #define WIT_ABI_STARTUP_SIZE 24U
 #define WIT_CALL_QUERY 0U
 #define WIT_CALL_WRITE 1U
@@ -50,6 +51,12 @@
 /* Borrow the current thread's existing generation-bearing handle. No new
  * handle is granted; identity comes from kernel state, not writable raw TLS. */
 #define WIT_CALL_THREAD_CURRENT 25U
+/* Reset(base, size, flags=0) eagerly zeroes committed dynamic pages.
+ * Validate the whole range first; retain commitment, ownership and protection. */
+#define WIT_CALL_MEMORY_RESET 26U
+/* ThreadQuery(buffer, exact size, version) copies one atomic current-thread
+ * snapshot. Result is bytes copied, or zero; no handle is allocated. */
+#define WIT_CALL_THREAD_QUERY 27U
 #define WIT_MONOTONIC_MAX 0x7FFFFFFFFFFFFFFFULL
 /* Legacy calls 13-19 use absolute delivered PIT ticks. Zero polls; all-ones waits forever.
  * The frequency is nominal; this bootstrap clock pauses while IRQ0 is disabled. */

@@ -8,6 +8,7 @@ void __writemsr(unsigned long, unsigned __int64);
 
 #define NO_THREAD WIT_USER_THREAD_CAPACITY
 #define FS_BASE 0xC0000100UL
+#define GS_BASE 0xC0000101UL
 
 static WitUserProcess *current_user;
 static WitUserProcess *slot_owners[2];
@@ -49,6 +50,7 @@ static WIT_NORETURN void finish(WitUserState state, WitU64 code)
     wit_events_initialize(&current_user->Events);
     user_idle = 0;
     __writemsr(FS_BASE, 0); /* Kernel C has no segment-based TLS. */
+    __writemsr(GS_BASE, 0);
     current_user = 0;
     wit_x64_leave_user();
 }
@@ -67,63 +69,6 @@ static void validate_return(WitInterruptContext *context, WitU32 index, int sysc
     context->Rflags = syscall ? 0x202 : (context->Rflags & 0x200CD5ULL) | 0x202;
 }
 
-static WitU64 prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument)
-{
-    WitUserThread *thread = &process->Threads[index];
-    WitU64 handle, physical, *tls;
-    WitU32 mapped = 0;
-    WitInterruptContext *context;
-    const WitU64 bottom = WIT_USER_STACK_BOTTOM + index * WIT_USER_THREAD_STRIDE;
-    const WitU64 top = WIT_USER_STACK_TOP + index * WIT_USER_THREAD_STRIDE;
-    const WitU64 tls_address = WIT_USER_TLS + index * WIT_USER_THREAD_STRIDE;
-    handle = wit_handle_grant(&process->Handles, WIT_HANDLE_THREAD, WIT_RIGHT_JOIN);
-    if (!handle) return WIT_STATUS_NO_MEMORY;
-    for (WitU64 page = bottom; page < top; page += 4096) {
-        if (!wit_user_space_map(&process->Space, page, 1, 0)) goto failed;
-        ++mapped;
-    }
-    if (!wit_user_space_map(&process->Space, tls_address, 1, 0)) goto failed;
-    physical = wit_user_space_physical(&process->Space, tls_address, 1, 0);
-    tls = (WitU64 *)physical;
-    tls[0] = tls_address;
-    tls[1] = handle;
-    tls[2] = argument;
-    context = (WitInterruptContext *)(stack_low(process, index) + WIT_KERNEL_STACK_SIZE - 4096);
-    for (WitU32 i = 0; i < sizeof(*context); ++i) ((WitU8 *)context)[i] = 0;
-    context->FxState[0] = 0x7F;
-    context->FxState[1] = 0x03;
-    context->FxState[24] = 0x80;
-    context->FxState[25] = 0x1F;
-    context->Rcx = argument;
-    context->Rip = entry;
-    context->Cs = WIT_USER_CS;
-    context->Ss = WIT_USER_SS;
-    context->Rflags = 0x202;
-    context->Rsp = top - 40; /* Aligned ABI entry, zero return address traps accidental RET. */
-    thread->Handle = handle;
-    thread->StackBottom = bottom;
-    thread->StackTop = top;
-    thread->Tls = tls_address;
-    thread->ExitCode = 0;
-    thread->Context = context;
-    thread->WaitingOn = NO_THREAD;
-    thread->Joiner = NO_THREAD;
-    thread->WaitKind = WitWaitNone;
-    thread->WaitHandle = 0;
-    thread->Deadline = WIT_WAIT_INFINITE;
-    thread->WaitOrder = 0;
-    thread->State = WitThreadReady;
-    ++process->ThreadCreates;
-    return WIT_STATUS_OK;
-failed:
-    while (mapped) {
-        --mapped;
-        require(wit_user_space_unmap_fixed(&process->Space, bottom + mapped * 4096ULL),
-            "Thread creation rollback lost a stack page");
-    }
-    require(wit_handle_close(&process->Handles, handle) == WIT_STATUS_OK, "Thread handle rollback failed");
-    return WIT_STATUS_NO_MEMORY;
-}
 
 WitU64 wit_user_thread_create(WitUserProcess *process, WitU64 entry, WitU64 argument, WitU64 *result)
 {
@@ -132,7 +77,7 @@ WitU64 wit_user_thread_create(WitUserProcess *process, WitU64 entry, WitU64 argu
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
         WitU64 status;
         if (process->Threads[i].State != WitThreadEmpty) continue;
-        status = prepare_thread(process, i, entry, argument);
+        status = wit_user_prepare_thread(process, i, entry, argument);
         if (status == WIT_STATUS_OK) *result = process->Threads[i].Handle;
         return status;
     }
@@ -146,6 +91,8 @@ static void reap(WitU32 index)
     for (WitU64 p = thread->StackBottom; p < thread->StackTop; p += 4096)
         require(wit_user_space_unmap_fixed(&current_user->Space, p), "Thread stack ownership lost");
     require(wit_user_space_unmap_fixed(&current_user->Space, thread->Tls), "Thread TLS ownership lost");
+    if (thread->CompilerTls) require(wit_user_space_unmap_fixed(&current_user->Space, thread->CompilerTls), "Compiler TLS ownership lost");
+    thread->CompilerTls = 0;
     require(wit_handle_close(&current_user->Handles, thread->Handle) == WIT_STATUS_OK, "Thread handle lost");
     thread->Handle = 0;
     thread->State = WitThreadEmpty;
@@ -185,7 +132,7 @@ static WitInterruptContext *dispatch(int timer, WitU64 last_exit)
             current_user->CurrentThread = index;
             thread->State = WitThreadRunning;
             wit_x64_set_kernel_stack(stack_low(current_user, index) + WIT_KERNEL_STACK_SIZE);
-            wit_x64_set_user_tls(thread->Tls);
+            wit_x64_set_user_tls(thread->Tls, thread->CompilerTls);
             return thread->Context;
         }
         if (!waiting) finish(WitUserExited, last_exit);
@@ -193,6 +140,7 @@ static WitInterruptContext *dispatch(int timer, WitU64 last_exit)
          * after HLT. The nested IRQ never replaces any saved user context. */
         require((wit_x64_read_flags() & 0x200) == 0, "Idle entered with interrupts enabled");
         __writemsr(FS_BASE, 0);
+        __writemsr(GS_BASE, 0);
         user_idle = 1;
         ++current_user->IdleHalts;
         wit_x64_idle_once();
@@ -326,6 +274,7 @@ static WitPeStatus create_process(WitUserProcess *process, WitPageAllocator *all
     if (image) {
         if (!wit_user_image_map(&process->Space, code, image, base)) goto failed;
     } else if (!wit_user_space_map(&process->Space, WIT_USER_CODE, 0, 1)) goto failed;
+    if (!wit_user_capture_tls(process, image)) goto failed;
     if (!wit_user_space_map(&process->Space, WIT_USER_INFO, 0, 0)) goto failed;
     for (WitU64 page = WIT_USER_DATA; page < WIT_USER_DATA_END; page += 4096)
         if (!wit_user_space_map(&process->Space, page, 1, 0)) goto failed;
@@ -358,7 +307,7 @@ static WitPeStatus create_process(WitUserProcess *process, WitPageAllocator *all
         startup->ImageInfo = WIT_USER_INFO + WIT_USER_IMAGE_INFO_OFFSET;
     }
     startup->ConsoleHandle = wit_handle_grant(&process->Handles, WIT_HANDLE_CONSOLE, WIT_RIGHT_WRITE);
-    if (!startup->ConsoleHandle || prepare_thread(process, 0, process->ImageEntry, WIT_USER_INFO) != WIT_STATUS_OK)
+    if (!startup->ConsoleHandle || wit_user_prepare_thread(process, 0, process->ImageEntry, WIT_USER_INFO) != WIT_STATUS_OK)
         goto failed;
     process->State = WitUserReady;
     return WitPeOk;
@@ -392,18 +341,18 @@ void wit_user_run(WitUserProcess *process)
 {
     require(!current_user && !user_idle && process->State == WitUserReady &&
         slot_owners[process->Slot] == process &&
-        (wit_x64_read_flags() & 0x200) == 0 && __readmsr(FS_BASE) == 0, "Invalid user launch");
+        (wit_x64_read_flags() & 0x200) == 0 && __readmsr(FS_BASE) == 0 && __readmsr(GS_BASE) == 0, "Invalid user launch");
     current_user = process;
     process->State = WitUserRunning;
     process->Threads[0].State = WitThreadRunning;
     process->Ticks = 0;
     wit_x64_set_kernel_stack(stack_low(process, 0) + WIT_KERNEL_STACK_SIZE);
     wit_x64_timer_start();
-    wit_x64_set_user_tls(process->Threads[0].Tls);
+    wit_x64_set_user_tls(process->Threads[0].Tls, process->Threads[0].CompilerTls);
     wit_x64_run_user(process->Threads[0].Context, process->Space.Root);
     require(!current_user && process->State != WitUserRunning &&
         (__readcr3() & 0x000FFFFFFFFFF000ULL) == wit_virtual_kernel_root() &&
-        (wit_x64_read_flags() & 0x200) == 0 && __readmsr(FS_BASE) == 0, "User return did not restore kernel state");
+        (wit_x64_read_flags() & 0x200) == 0 && __readmsr(FS_BASE) == 0 && __readmsr(GS_BASE) == 0, "User return did not restore kernel state");
     wit_x64_set_kernel_stack((WitU64)wit_x64_kernel_stack + 4096 + WIT_KERNEL_STACK_SIZE);
 }
 
@@ -419,6 +368,7 @@ void wit_user_destroy(WitUserProcess *process)
     process->ImageBase = 0;
     process->ImageEntry = 0;
     process->ImageSize = 0;
+    process->TlsBytes = 0;
 }
 
 int wit_user_is_active(void) { return current_user != 0; }
@@ -432,7 +382,7 @@ WitInterruptContext *wit_user_timer_tick(WitInterruptContext *context)
             ((WitU64)context & 15) == 0 && context->Cs == 8 &&
             (context->Ss == 0 || context->Ss == 0x10) &&
             context->Rsp >= low && context->Rsp < low + WIT_KERNEL_STACK_SIZE &&
-            context->Rip == (WitU64)wit_x64_idle_resume && __readmsr(FS_BASE) == 0,
+            context->Rip == (WitU64)wit_x64_idle_resume && __readmsr(FS_BASE) == 0 && __readmsr(GS_BASE) == 0,
             "Timer did not interrupt the kernel idle path");
         ++current_user->IdleTicks;
     } else {
@@ -487,6 +437,10 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
     case WIT_CALL_MEMORY_COMMIT:
         context->Rax = wit_user_memory_commit(&current_user->Space, argument0, argument1, argument2);
         break;
+    case WIT_CALL_MEMORY_RESET:
+        context->Rax = argument2 ? WIT_STATUS_INVALID_ARGUMENT :
+            wit_user_memory_reset(&current_user->Space, argument0, argument1);
+        break;
     case WIT_CALL_MEMORY_DECOMMIT:
         context->Rax = wit_user_memory_decommit(&current_user->Space, argument0, argument1);
         break;
@@ -536,6 +490,10 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
     case WIT_CALL_EVENT_WAIT:
         context->Rax = wit_user_event_wait(current_user, argument0, argument1, wit_x64_clock_ticks());
         break;
+    case WIT_CALL_THREAD_QUERY:
+        context->Rax = wit_user_thread_query(current_user, argument0, argument1, argument2);
+        if (context->Rax == WIT_STATUS_OK) context->Rdx = WIT_THREAD_INFO_SIZE;
+        break;
     case WIT_CALL_THREAD_CURRENT:
         if (argument0 || argument1 || argument2) context->Rax = WIT_STATUS_INVALID_ARGUMENT;
         else context->Rdx = current_user->Threads[current_user->CurrentThread].Handle;
@@ -564,7 +522,8 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
     if (current_user->Threads[current_user->CurrentThread].State == WitThreadWaiting)
         return dispatch(0, 0);
     /* Join may have switched current thread; nonblocking calls retain the caller. */
-    wit_x64_set_user_tls(current_user->Threads[current_user->CurrentThread].Tls);
+    wit_x64_set_user_tls(current_user->Threads[current_user->CurrentThread].Tls,
+        current_user->Threads[current_user->CurrentThread].CompilerTls);
     return context;
 }
 

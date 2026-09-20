@@ -50,6 +50,7 @@ typedef struct WitUserThread {
     WitU64 StackBottom;
     WitU64 StackTop;
     WitU64 Tls;
+    WitU64 CompilerTls;
     WitU64 ExitCode;
     WitInterruptContext *Context;
 } WitUserThread;
@@ -67,6 +68,8 @@ typedef struct WitUserProcess {
     WitU64 ImageBase;
     WitU64 ImageEntry;
     WitU32 ImageSize;
+    WitU32 TlsBytes;
+    WitU8 TlsTemplate[WIT_PE_TLS_MAX_BYTES];
     WitU64 FaultVector;
     WitU64 FaultError;
     WitU64 FaultAddress;
@@ -101,6 +104,7 @@ void wit_user_space_destroy(WitUserSpace *space);
 int wit_user_space_unmap_fixed(WitUserSpace *space, WitU64 address);
 WitU64 wit_user_memory_reserve(WitUserSpace *space, WitU64 size, WitU64 alignment, WitU64 *result);
 WitU64 wit_user_memory_commit(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection);
+WitU64 wit_user_memory_reset(WitUserSpace *space, WitU64 address, WitU64 size);
 WitU64 wit_user_memory_decommit(WitUserSpace *space, WitU64 address, WitU64 size);
 WitU64 wit_user_memory_protect(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection);
 WitU64 wit_user_memory_release(WitUserSpace *space, WitU64 address);
@@ -110,6 +114,12 @@ void wit_user_wait_self_test(WitPageAllocator *pages);
 void wit_user_image_self_test(WitPageAllocator *pages);
 void wit_user_bootstrap_self_test(WitPageAllocator *pages);
 void wit_user_gc_self_test(WitPageAllocator *pages);
+void wit_user_tls_self_test(WitPageAllocator *pages);
+void wit_user_dynamic_tls_self_test(WitPageAllocator *pages);
+WitU64 wit_user_thread_query(const WitUserProcess *process, WitU64 address, WitU64 size, WitU64 version);
+void wit_user_pal_self_test(WitPageAllocator *pages);
+int wit_user_capture_tls(WitUserProcess *process, const WitPeImage *image);
+WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument);
 WitU64 wit_virtual_kernel_root(void);
 
 int wit_user_create(WitUserProcess *process, WitPageAllocator *allocator,
@@ -137,5 +147,5 @@ WIT_NORETURN void wit_user_fault(const WitExceptionFrame *frame, WitU64 address)
 void wit_x64_run_user(WitInterruptContext *context, WitU64 root);
 WIT_NORETURN void wit_x64_leave_user(void);
 void wit_x64_set_kernel_stack(WitU64 top);
-void wit_x64_set_user_tls(WitU64 address);
+void wit_x64_set_user_tls(WitU64 address, WitU64 compiler_address);
 #endif

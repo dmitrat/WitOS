@@ -148,6 +148,30 @@
                     {
                         "path":  "src/coreclr/nativeaot/Runtime/Crst.cpp",
                         "sha256":  "143ec64e194a0438db0a0bd4c4d2deca1e608a041f5c1aacd2fcd3f5dbfd459b"
+                    },
+                    {
+                        "path": "src/coreclr/nativeaot/Runtime/inc/CommonTypes.h",
+                        "sha256": "0fccc59ca6961f24192d61de6b5b99cb4e001359c95683a2a909c5fc461e9bee"
+                    },
+                    {
+                        "path": "src/coreclr/nativeaot/Runtime/CommonMacros.h",
+                        "sha256": "eec45af2f649f79c260c93f475bcbd89aead3517c619179872b5a310b849e673"
+                    },
+                    {
+                        "path": "src/coreclr/nativeaot/Runtime/PalLimitedContext.h",
+                        "sha256": "a91205f223290be85baedf522a3052881702457c0b004cb3e41f0871ba510e0e"
+                    },
+                    {
+                        "path": "src/coreclr/nativeaot/Runtime/rhassert.h",
+                        "sha256": "0eb7d6789b6d8993d7c668092c32783ddc6c5047974e42be3c9a1d13f044d645"
+                    },
+                    {
+                        "path": "src/coreclr/nativeaot/Runtime/windows/PalInline.h",
+                        "sha256": "03744acff47b597883d618fcc27813901aa0bd93448bcfe3cacbf9f54a97bab8"
+                    },
+                    {
+                        "path": "src/native/minipal/guid.h",
+                        "sha256": "78bcf8ae6d839768cc31186dc3e05931e26844b120f39b8a4c87ae04867e47a8"
                     }
                 ]
 }

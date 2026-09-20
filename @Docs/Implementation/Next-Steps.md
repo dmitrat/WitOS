@@ -5,25 +5,32 @@ The core objective remains a minimal hardware-dependent kernel, a common system 
 ## Completed
 
 - M0 boot and M1 paging/protection/timer/kernel-context foundation.
-- Eighteen VM scenarios with 113 required user groups and 34 contained user faults in successful boots.
+- Eighteen VM scenarios with 134 required user groups and 43 contained user faults in successful boots.
 - M2 ring-3 isolation, sparse memory, bounded threads/raw FS TLS/join, events/deadlines and idle.
 - Bounded guest PE loading with section protection, zero-fill, relocations and allocation rollback.
-- ABI v8 retains readonly image descriptions, allocator snapshots and monotonic deadlines, and adds kernel-owned thread identity; user-space C startup with checked callbacks, run-once state and reverse cleanup.
+- ABI v10 retains readonly image descriptions, allocator snapshots, monotonic deadlines and kernel-owned thread identity, and provides committed-memory reset plus atomic current-thread discovery; user-space C startup with checked callbacks, run-once state and reverse cleanup.
 - Structural validation/exposure of ordinary x64 function/unwind metadata, without exception dispatch or stack walking.
-- .NET 10.0.8 audit of 35 source/license files and two hosted NativeAOT evidence probes.
+- .NET 10.0.8 audit of 41 source/license files and two hosted NativeAOT evidence probes.
 - Source-port direction selected: Windows x64 code generation/PE plus an explicit WitOS user-space adapter.
 - GC memory and discovery methods compile against unchanged pinned headers and execute in ring 3; initialization validates ABI/snapshot data, and the GC clock/sleep hooks use IRQ-independent HPET time.
 - GC events support manual/auto signals, poll/finite/infinite waits, bounded slot reuse and close cancellation; native contenders yield instead of preventing their owner from running.
 - Recursive minipal mutexes and checked Release Crst execute in the guest, with real blocking, ownership checks, bounded reuse and fail-fast cleanup.
+- GC VirtualReset validates the entire range before eagerly discarding data, retaining backing/commitment/protection even under quota pressure; see [the exact contract](NativeAot-Gc-Reset.md).
+- Bounded native C++ nothrow new/delete executes in the guest and resolves in the source-built runtime archive; see [native allocation](NativeAot-Native-Heap.md).
+- Static single-module compiler TLS executes in ring 3 with validated PE templates, separate GS pages, preemption/idle restoration and thread rollback/reuse; see [compiler TLS](NativeAot-Compiler-Tls.md).
+- Actual C++ thread_local constructors/destructors run through a bounded user-space lifecycle, including eager/lazy entry, normal/explicit thread exit and failure containment; see [dynamic TLS](NativeAot-Dynamic-Tls.md).
+- Four actual NativeAOT PAL thread-discovery functions execute against the kernel-owned thread snapshot; the WitOS source profile now replaces the Windows PAL with an explicitly incomplete adapter. See [PAL boundary and GC dependency](NativeAot-Pal-Thread-Discovery.md).
 - Full upstream nativeaot component built from the pinned source tree in separate Windows-reference and WitOS-overlay profiles; source-built Windows GC/TLS execution passes and incomplete WitOS dependencies are inventoried.
 
 See [native module/bootstrap handoff](M2-Native-Module-Bootstrap.md), [NativeAOT target evidence](NativeAot-Target-Bootstrap.md), [backend decision and memory adapter](NativeAot-Gc-Memory-Port.md), [full native source build](NativeAot-Source-Build.md), [GC discovery](NativeAot-Gc-Discovery.md), [GC events](NativeAot-Gc-Events.md), [monotonic GC time](NativeAot-Gc-Time.md), [native mutexes](NativeAot-Mutexes.md) and [RFC 0015](../RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md).
 
-WitOS 0.0.14 executes the native memory/discovery/event/time and minipal/Crst adapters in the guest. It still does not run .NET or its collector there.
+WitOS 0.0.19 executes the native memory/reset/discovery/event/time, minipal/Crst and nothrow allocation adapters in the guest. It still does not run .NET or its collector there.
 
 ## Next: extend the selected source port
 
-1. Use the source-built archive's unresolved-symbol inventory to connect runtime thread attachment/TLS and native allocation to the tested WitOS lifecycle, and complete memory/reset semantics. Keep unimplemented methods unresolved rather than returning synthetic success.
+See [the M3 work-package estimate](M3-Runtime-Integration-Plan.md): roughly eight major packages / 12-20 bounded slices estimated at 0.0.15; native allocation now completes part of the first package.
+
+1. Use the explicit PAL inventory to implement memory/event/wait/bootstrap services for real runtime and GC initialization, then connect actual ThreadStore attachment/shutdown to the tested TLS lifecycle. Full detach already calls GC FixAllocContext, so do not substitute a fake collector to claim lifecycle completion. Complete remaining CRT/PAL behavior and extend memory semantics as required by the runtime profile. Committed reset is implemented; working-set unlock and large pages remain unsupported. Keep unimplemented methods unresolved rather than returning synthetic success.
 2. Add module boundaries, fault/context delivery, unwinding and process-local GC rendezvous; expand image/stack/commit limits for the actual profile.
 3. Keep ReadyToRun/TypeManager/GC-static/frozen-object/eager-constructor initialization inside the real user-space runtime. It already requires real GC support.
 4. Extend the explicit q35 clock profile to discovered hardware when broadening platform support; keep monotonic counts distinct from UTC and legacy IRQ ticks.
@@ -37,8 +44,8 @@ Run a real NativeAOT component inside WitOS with allocations/GC, finalization, e
 
 ## Current limits
 
-One x64 CPU, QEMU q35, physical usable addresses below 4 GiB, two component slots and one active component. Each supports four threads, four events, eight handles, eight dynamic reservations and 128 owned frames. The native mutex registry supports sixteen locks; contended locks retain one shared-quota event until destruction. Dynamic VA spans 64 GiB; PE images use a separate window with a 256 KiB cap.
+One x64 CPU, QEMU q35, physical usable addresses below 4 GiB, two component slots and one active component. Each supports four threads, four events, eight handles, eight dynamic reservations and 128 owned frames. The native heap uses one lazy 256 KiB arena, 128 allocation descriptors and 16-byte alignment; its limits still need expansion for full runtime integration. The native mutex registry supports sixteen locks; contended locks retain one shared-quota event until destruction. Dynamic VA spans 64 GiB; PE images use a separate window with a 256 KiB cap.
 
-The PE profile permits up to sixteen sections and 128 plain version-1 unwind records. DLL/import/TLS/handler/chained semantics remain unsupported. Kernel stacks use a fixed guarded pool; x87/SSE context state and the ten-tick activation budget remain. HPET supplies monotonic time; PIT supplies scheduling and the legacy delivered-tick domain. Firmware memory is not automatically reclaimed.
+The PE profile permits up to sixteen sections and 128 plain version-1 unwind records. One static TLS module with at most 3,840 bytes per thread is supported; TLS callbacks, DLL/import/handler/chained semantics remain unsupported. Kernel stacks use a fixed guarded pool; x87/SSE context state and the ten-tick activation budget remain. HPET supplies monotonic time; PIT supplies scheduling and the legacy delivered-tick domain. Firmware memory is not automatically reclaimed.
 
-No managed runtime, compiler/managed TLS, exception unwinder, general Windows loader, multi-object waits or IPC channels exist yet. Broad hardware, firmware flashing, GPU, filesystems, GUI and distributed orchestration do not block the next adapter experiment.
+No managed runtime, managed TLS/ThreadStore attachment, exception unwinder, general Windows loader, multi-object waits or IPC channels exist yet. Broad hardware, firmware flashing, GPU, filesystems, GUI and distributed orchestration do not block the next adapter experiment.
