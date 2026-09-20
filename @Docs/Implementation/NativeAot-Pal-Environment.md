@@ -15,6 +15,8 @@ The pinned Windows PalInit first calls GCConfig::Initialize, then GCToOSInterfac
 
 The exact [RhConfig.cpp](https://github.com/dotnet/runtime/blob/b82454cad0aaaae3db2cf18fbf2cccc36e201ccc/src/coreclr/nativeaot/Runtime/RhConfig.cpp), RhConfig.h, RhConfigValues.h, [gcconfig.cpp](https://github.com/dotnet/runtime/blob/b82454cad0aaaae3db2cf18fbf2cccc36e201ccc/src/coreclr/gc/gcconfig.cpp), and [gcenv.ee.cpp](https://github.com/dotnet/runtime/blob/b82454cad0aaaae3db2cf18fbf2cccc36e201ccc/src/coreclr/nativeaot/Runtime/gcenv.ee.cpp) are added to the SHA-256 audit. There are now 46 source/license files; the .NET 10.0.8 Git/VMR/package revisions are unchanged.
 
+The first clean CI run exposed six pre-existing PAL header hashes calculated from CRLF Git worktree copies. Fresh downloads from the same pinned commit differed only by CRLF-to-LF conversion. Those pins and the local audit cache were corrected to the canonical downloaded bytes; strict byte hashing remains unchanged. This makes the source audit reproducible on an empty runner cache.
+
 ## Decision and alternatives
 
 Supply a bounded immutable environment from initialized readonly data in the component's own image. The private native startup helper accepts an entry table; it publishes the table only after complete validation against the existing checked image descriptor. No new kernel call, kernel environment parser, writable environment API or public resource API is added.

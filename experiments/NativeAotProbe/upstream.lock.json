@@ -151,27 +151,27 @@
                     },
                     {
                         "path": "src/coreclr/nativeaot/Runtime/inc/CommonTypes.h",
-                        "sha256": "0fccc59ca6961f24192d61de6b5b99cb4e001359c95683a2a909c5fc461e9bee"
+                        "sha256": "f8390ad7e60a315b94130a5fee3ecd15859b79876c393d9e914e29aa469bd3ab"
                     },
                     {
                         "path": "src/coreclr/nativeaot/Runtime/CommonMacros.h",
-                        "sha256": "eec45af2f649f79c260c93f475bcbd89aead3517c619179872b5a310b849e673"
+                        "sha256": "2cc871bc3ccbd1076b0140e474808549fca08807f644a67a1eda77516cfe7bc5"
                     },
                     {
                         "path": "src/coreclr/nativeaot/Runtime/PalLimitedContext.h",
-                        "sha256": "a91205f223290be85baedf522a3052881702457c0b004cb3e41f0871ba510e0e"
+                        "sha256": "b2d2e94149b03353f6bb019ff5df847b8123a716d13cb088c99240e608c76935"
                     },
                     {
                         "path": "src/coreclr/nativeaot/Runtime/rhassert.h",
-                        "sha256": "0eb7d6789b6d8993d7c668092c32783ddc6c5047974e42be3c9a1d13f044d645"
+                        "sha256": "ed181c10df4c3389e8e47d05ddbc740061f95133b7ada76bca625c3bd3626a61"
                     },
                     {
                         "path": "src/coreclr/nativeaot/Runtime/windows/PalInline.h",
-                        "sha256": "03744acff47b597883d618fcc27813901aa0bd93448bcfe3cacbf9f54a97bab8"
+                        "sha256": "51f8af493bdcd76f3c191bc55b8e70be3b8bed6c4c5fab7691f9c70ee0ef4e4e"
                     },
                     {
                         "path": "src/native/minipal/guid.h",
-                        "sha256": "78bcf8ae6d839768cc31186dc3e05931e26844b120f39b8a4c87ae04867e47a8"
+                        "sha256": "4d824a9b7e37a259e85e169ba17a6c6eb55e4065f3b5c4f6c458c342d5f1628c"
                     },
                     {"path":"src/coreclr/nativeaot/Runtime/RhConfig.cpp","sha256":"6b593fe314136dac0f9abdcd169305cd371b09ee2e112ac5b00b1bcb578c1e4b"},
                     {"path":"src/coreclr/nativeaot/Runtime/RhConfig.h","sha256":"fa428027e7ab5e6130dd8732348d729b7ae5cc0df152b5c875978172d06ece92"},
