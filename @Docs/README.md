@@ -165,6 +165,7 @@ The initial native milestone now has a concrete boot contract and runnable imple
 - [Static compiler TLS](Implementation/NativeAot-Compiler-Tls.md) - validated single-module PE TLS, private per-thread templates, GS switching and rollback.
 - [Dynamic C++ TLS lifecycle](Implementation/NativeAot-Dynamic-Tls.md) - real compiler constructors/destructors, user-space thread entry/exit, bounded cleanup and failure containment.
 - [WitOS PAL and thread discovery](Implementation/NativeAot-Pal-Thread-Discovery.md) - kernel-owned thread/stack snapshots, actual PAL declarations, explicit missing services and ABI v10.
+- [PAL memory, events and waits](Implementation/NativeAot-Pal-Memory-and-Waits.md) - committed allocation/protection, typed events, monotonic waits and truthful yield result; ABI v11.
 - [M3 runtime integration plan](Implementation/M3-Runtime-Integration-Plan.md) - remaining work packages, acceptance and estimate.
 - [Immediate next steps](Implementation/Next-Steps.md).
 

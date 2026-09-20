@@ -36,7 +36,9 @@ function(witos_select_gc_environment)
         endif()
         list(REMOVE_ITEM sources "${old_pal}")
     endforeach()
-    list(APPEND sources "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal.witos.cpp")
+    list(APPEND sources "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_memory.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_events.witos.cpp")
     set_property(TARGET Runtime.WorkstationGC PROPERTY SOURCES "${sources}")
 
     get_target_property(minipal_sources aotminipal SOURCES)

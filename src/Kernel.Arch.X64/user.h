@@ -118,6 +118,7 @@ void wit_user_tls_self_test(WitPageAllocator *pages);
 void wit_user_dynamic_tls_self_test(WitPageAllocator *pages);
 WitU64 wit_user_thread_query(const WitUserProcess *process, WitU64 address, WitU64 size, WitU64 version);
 void wit_user_pal_self_test(WitPageAllocator *pages);
+void wit_user_pal_services_self_test(WitPageAllocator *pages);
 int wit_user_capture_tls(WitUserProcess *process, const WitPeImage *image);
 WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument);
 WitU64 wit_virtual_kernel_root(void);

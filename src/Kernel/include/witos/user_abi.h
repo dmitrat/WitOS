@@ -8,7 +8,7 @@
 /* Experimental x64 interrupt ABI, not a stable public SDK.
  * INT 0x80: RAX=call, RCX/RDX/R8=arguments; RAX=status, RDX=result.
  * Other GPRs and baseline x87/SSE state survive; flags are reset to 0x202. */
-#define WIT_ABI_VERSION 10U
+#define WIT_ABI_VERSION 11U
 #define WIT_ABI_STARTUP_SIZE 24U
 #define WIT_CALL_QUERY 0U
 #define WIT_CALL_WRITE 1U
@@ -28,6 +28,7 @@
 /* Create(entry, argument, flags=0) -> join handle. Join(handle) blocks and consumes
  * the handle on success. Thread exit affects only the caller; call 2 exits the component. */
 #define WIT_CALL_THREAD_CREATE 9U
+/* Yield result is 1 if this call selected another thread, otherwise 0. */
 #define WIT_CALL_THREAD_YIELD 10U
 #define WIT_CALL_THREAD_EXIT 11U
 #define WIT_CALL_THREAD_JOIN 12U

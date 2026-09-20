@@ -502,9 +502,13 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
         context->Rax = argument2 ? WIT_STATUS_INVALID_ARGUMENT :
             wit_user_thread_create(current_user, argument0, argument1, &context->Rdx);
         break;
-    case WIT_CALL_THREAD_YIELD:
+    case WIT_CALL_THREAD_YIELD: {
+        WitInterruptContext *next;
         current_user->Threads[current_user->CurrentThread].State = WitThreadReady;
-        return dispatch(0, 0);
+        next = dispatch(0, 0);
+        context->Rdx = next != context ? 1 : 0;
+        return next;
+    }
     case WIT_CALL_THREAD_EXIT:
         return exit_thread(argument0);
     case WIT_CALL_THREAD_JOIN:

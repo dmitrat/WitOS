@@ -16,7 +16,7 @@ internal static class UserPalImage
         "src/coreclr/gc/env/gcenv.structs.h", "LICENSE.TXT"
     ];
 
-    /// <summary>Builds import-free PAL thread discovery fixtures against pinned upstream declarations.</summary>
+    /// <summary>Builds import-free PAL thread, memory and wait fixtures against pinned upstream declarations.</summary>
     /// <param name="root">Repository root.</param>
     /// <param name="output">Artifact directory.</param>
     /// <param name="msvc">Native compiler directory.</param>
@@ -55,7 +55,8 @@ internal static class UserPalImage
             $"/I{Path.Combine(root, "src", "Runtime.NativeAot")}", $"/I{Path.Combine(root, "src", "System.Native")}",
             $"/I{Path.Combine(root, "src", "Kernel", "include")}", $"/I{Path.Combine(root, "tests", "User.X64")}"
         ];
-        string[] sources = ["src/Runtime.NativeAot/pal.witos.cpp", "tests/User.X64/pal_thread.cpp", "src/System.Native/tls_metadata.c"];
+        string[] sources = ["src/Runtime.NativeAot/pal.witos.cpp", "tests/User.X64/pal_thread.cpp", "src/System.Native/tls_metadata.c",
+            "src/Runtime.NativeAot/pal_memory.witos.cpp", "src/Runtime.NativeAot/pal_events.witos.cpp", "tests/User.X64/pal_services.cpp"];
         var objects = new List<string>();
         foreach (var name in sources)
         {
@@ -67,7 +68,7 @@ internal static class UserPalImage
                     $"/Fo{obj}", Path.Combine(root, name)], root);
             objects.Add(obj);
         }
-        var header = new StringBuilder("/* NativeAOT PAL thread discovery fixtures; generated. */\n");
+        var header = new StringBuilder("/* NativeAOT PAL thread/memory/wait fixtures; generated. */\n");
         foreach (var tls in new[] { false, true })
         {
             var path = Path.Combine(output, tls ? "PalThreadFixture.pe" : "PalPlainFixture.pe");
@@ -77,7 +78,7 @@ internal static class UserPalImage
             await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
                 ["/nologo", "/subsystem:native", "/entry:wit_native_start", "/nodefaultlib", "/machine:x64",
                     "/fixed:no", "/dynamicbase", "/incremental:no", "/Brepro", "/base:0x8000100000",
-                    $"/out:{path}", Path.Combine(output, "native_start.obj"), objects[0], objects[1], .. metadata], root);
+                    $"/out:{path}", Path.Combine(output, "native_start.obj"), objects[0], objects[1], objects[3], objects[4], objects[5], .. metadata], root);
             var bytes = await File.ReadAllBytesAsync(path);
             using var stream = new MemoryStream(bytes, writable: false);
             using var pe = new PEReader(stream);
@@ -95,7 +96,7 @@ internal static class UserPalImage
         await File.WriteAllTextAsync(Path.Combine(output, "pal-build.json"), JsonSerializer.Serialize(new
         {
             pin.RuntimeVersion, pin.RuntimeCommit, guestManagedRuntime = false,
-            scope = "Partial NativeAOT PAL: current thread/process identity, stack bounds and CPU count; no ThreadStore or GC execution.",
+            scope = "Partial NativeAOT PAL: thread discovery, committed memory, events and non-alertable waits; no ThreadStore or GC execution.",
             inputs = pin.Sources.Where(s => INPUTS.Contains(s.Path)),
             localInputs = sources.Concat(["src/Runtime.NativeAot/pal.witos.h", "src/Kernel/include/witos/thread_info.h",
                     "src/Kernel/include/witos/user_abi.h", "src/Kernel.Arch.X64/native_start.asm"])
