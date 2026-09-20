@@ -136,6 +136,18 @@
                     {
                         "path":  "src/coreclr/gc/env/gcenv.windows.inl",
                         "sha256":  "bad826c0e5b54a558f0021f4389ef0ffea11868baa21c54b9666a6dd7821597a"
+                    },
+                    {
+                        "path":  "src/native/minipal/mutex.c",
+                        "sha256":  "97131243aef82fadbb7cdeb1e406fa92fb5f466e286454d47f9f1e017d3d249b"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/Runtime/Crst.h",
+                        "sha256":  "41b5c99648a41155fd310ce2c57a4f3f9a8016be55ed6593d014bb2658cd099e"
+                    },
+                    {
+                        "path":  "src/coreclr/nativeaot/Runtime/Crst.cpp",
+                        "sha256":  "143ec64e194a0438db0a0bd4c4d2deca1e608a041f5c1aacd2fcd3f5dbfd459b"
                     }
                 ]
 }

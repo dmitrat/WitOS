@@ -1,6 +1,6 @@
 # RFC 0015 — .NET Runtime Port & Compatibility Contract
 
-Draft v0.9. Status: source inventory, hosted evidence probes, bounded M2 mechanisms guest native C bootstrap and first GC memory-interface adapter implemented; guest managed runtime port not implemented.
+Draft v0.10. Status: source inventory, hosted evidence probes, bounded M2 mechanisms, guest native C bootstrap, GC environment adapters and recursive minipal/Crst mutexes implemented; guest managed runtime port not implemented.
 
 ## 1. Evidence baseline
 
@@ -76,7 +76,7 @@ A reservation must retain virtual identity without immediately consuming backing
 
 Operations need aligned ranges, overflow checks, explicit errors, defined partial-failure behavior and address-space ownership. Out-of-memory in an application must not ordinarily panic the whole kernel.
 
-WitOS 0.0.5 implements these basic reservation/commit/decommit/release semantics through experimental user ABI v2. [Implementation and tests](Implementation/M2-User-Memory.md) cover sparse RAM use, zero-fill, protection, ownership and atomic rollback. Eight reservations and 128 total owned frames per component are deliberate test limits, not sufficient evidence for a production GC heap. The GC/PAL adapter, reset semantics, allocation policy and runtime integration remain unimplemented.
+WitOS 0.0.5 implements these basic reservation/commit/decommit/release semantics through experimental user ABI v2. [Implementation and tests](Implementation/M2-User-Memory.md) cover sparse RAM use, zero-fill, protection, ownership and atomic rollback. Eight reservations and 128 total owned frames per component are deliberate test limits, not sufficient evidence for a production GC heap. The later GC memory/discovery adapter exercises this mechanism; reset semantics, complete allocation policy and managed runtime integration remain unimplemented.
 
 Write-watch is optional: the pinned Unix GC implementation reports it unsupported. It must not be invented as an early mandatory kernel service.
 
@@ -147,7 +147,8 @@ The immediate M2 slice only needs separate user mappings, a versioned call bound
 - **Initial M2 isolation gate, implemented for the controlled fixture:** native unprivileged component, checked pointers/handles, private mappings and contained faults. See [M2 limits and evidence](Implementation/M2-Isolated-Execution.md); general DLL/import/TLS/unwind support and actual runtime services are still pending.
 - **First source-adapter gate, implemented:** native GC memory methods compile against pinned, unchanged upstream headers and execute through WitOS syscalls in QEMU; the later [discovery extension](Implementation/NativeAot-Gc-Discovery.md) implements environment initialization and live quota/physical accounting. The [time extension](Implementation/NativeAot-Gc-Time.md) implements GC performance clocks and sleep; the remaining VirtualReset boundary is rejected at link time. This does not execute the collector.
 - **Native source-build gate, implemented:** full upstream nativeaot libraries, a tested source-built Windows reference, and a source-built workstation archive with the WitOS memory adapter. Strict linking records incomplete GC/OS requirements; guest execution remains pending.
-- **GC event/time adapter, implemented for the controlled profile:** [native GCEvent](Implementation/NativeAot-Gc-Events.md) uses kernel events for poll/finite/infinite waits, safe lifecycle handling and yielding. HPET supplies GC monotonic time; remaining native locks need further porting.
+- **GC event/time adapter, implemented for the controlled profile:** [native GCEvent](Implementation/NativeAot-Gc-Events.md) uses kernel events for poll/finite/infinite waits, safe lifecycle handling and yielding. HPET supplies GC monotonic time.
+- **Native mutex adapter, implemented for the controlled profile:** [recursive minipal and checked Release Crst](Implementation/NativeAot-Mutexes.md) use kernel-owned thread identity and event-backed blocking; source-built archives verify replacement of the Windows critical-section implementation.
 - **Runtime substrate gate, pending:** memory lifecycle, TLS, blocking/waking and runtime-coordinated suspension have executable tests.
 - **M3 gate, pending:** the real NativeAOT component passes the relevant probe cases inside WitOS, including GC and thread activity. Report disabled features and all upstream changes.
 - **Maintenance gate, pending:** rebuild/retest against a subsequent upstream revision and measure the adaptation effort.
@@ -164,4 +165,4 @@ The first command verifies cached/downloaded source bytes and the VMR mapping. T
 
 The third command verifies target artifacts, executes a native bootstrap host and records strict-link boundaries under `artifacts/runtime-target/`.
 
-See [host experiment notes](Implementation/NativeAot-Host-Probe.md) and [target/bootstrap evidence](Implementation/NativeAot-Target-Bootstrap.md). Those hosted experiments use unchanged upstream packages. The separate `runtime-port` command builds and executes the WitOS GC memory source overlay against unchanged upstream headers; it exercises only the guest memory slice. `runtime-source` now builds the full native libraries in separate Windows-reference and incomplete WitOS-overlay profiles; no managed guest runtime is claimed.
+See [host experiment notes](Implementation/NativeAot-Host-Probe.md) and [target/bootstrap evidence](Implementation/NativeAot-Target-Bootstrap.md). Those hosted experiments use unchanged upstream packages. The separate `runtime-port` command builds and executes the WitOS GC memory source overlay against unchanged upstream headers; it exercises native GC environment and minipal/Crst adapters in the guest. `runtime-source` now builds the full native libraries in separate Windows-reference and incomplete WitOS-overlay profiles; no managed guest runtime is claimed.

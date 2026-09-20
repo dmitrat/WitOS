@@ -346,6 +346,8 @@ internal static class DevTool
             "GcEventState", "GcEventCapacity", "GcEventManual", "GcEventAuto",
             "GcEventClose", "GcEventContention", "GcEventFailFast",
             "GcClockContract", "GcTimedWait", "GcTimedSignal", "GcTimeArithmetic", "GcClockIsolation",
+            "GcThreadIdentity", "GcMutexRecursive", "GcMutexBlocking", "GcMutexStress",
+            "GcMutexCapacity", "GcCrst", "GcMutexFailFast",
             "BadReturn", "TimerBudget", "PreemptionState",
             "ZeroFillAndStaleHandles", "Teardown", "Isolation"
         ];

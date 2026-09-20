@@ -9,7 +9,8 @@ internal static class RuntimeSourceBuild
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
     private static readonly string[] Cases = ["FirstExportInitialization", "AllocationGcAndExceptions", "TlsOnNativeThreads", "RepeatEntry"];
     private sealed record CompileCommand(string Directory, string Command, string File, string Output);
-    private sealed record SourceBuild(string Sdk, string[] Members, CompileCommand[] Commands, string ArchiveSha256);
+    private sealed record ArchiveEvidence(string Sha256, string[] Members, int CompileUnits);
+    private sealed record SourceBuild(string Sdk, string[] Members, CompileCommand[] Commands, string ArchiveSha256, ArchiveEvidence Minipal);
 
     public static async Task RunAsync(string root)
     {
@@ -38,7 +39,10 @@ internal static class RuntimeSourceBuild
         var boundary = await RuntimeTargetExperiment.LinkBoundaryAsync(msvc, output,
             Path.Combine(target, "static", "NativeAotTarget.lib"), portedInputs, "witos-without-platform");
         string[] implemented = ["VirtualReserve@", "VirtualCommit@", "VirtualDecommit@", "VirtualRelease@", "SupportsWriteWatch@", "Initialize@", "Shutdown@", "GetTotalProcessorCount@", "GetPhysicalMemoryLimit@", "GetVirtualMemoryLimit@", "GetVirtualMemoryMaxAddress@", "GetMemoryStatus@", "CanEnableGCCPUGroups@", "CanEnableGCNumaAware@", "YieldThread@", "Sleep@", "QueryPerformanceCounter@", "QueryPerformanceFrequency@", "GetLowPrecisionTimeStamp@"];
-        if (!boundary.Unresolved.Any(s => s.Contains("VirtualReset@GCToOSInterface", StringComparison.Ordinal)) ||
+        string[] replacedMutexSymbols = ["minipal_mutex_init", "minipal_mutex_destroy", "minipal_mutex_enter", "minipal_mutex_leave",
+            "__imp_InitializeCriticalSection", "__imp_DeleteCriticalSection", "__imp_EnterCriticalSection", "__imp_LeaveCriticalSection"];
+        if (boundary.Unresolved.Any(s => replacedMutexSymbols.Contains(s, StringComparer.Ordinal)) ||
+            !boundary.Unresolved.Any(s => s.Contains("VirtualReset@GCToOSInterface", StringComparison.Ordinal)) ||
             boundary.Unresolved.Any(s => s.Contains("GCEvent", StringComparison.Ordinal)) ||
             !boundary.Unresolved.Contains("wit_native_call") ||
             !boundary.Unresolved.Contains("_tls_index") ||
@@ -58,22 +62,24 @@ internal static class RuntimeSourceBuild
             nativeRuntimeSourceBuilt = true, managedCompilerAndCoreLibFromLockedPackages = true,
             guestRuntimePorted = false, guestManagedExecution = false,
             referenceHostPassedCases = Cases, referenceHost,
-            reference = new { reference.ArchiveSha256, members = reference.Members, compileUnits = reference.Commands.Length },
-            ported = new { ported.ArchiveSha256, members = ported.Members, compileUnits = ported.Commands.Length },
+            reference = new { reference.ArchiveSha256, members = reference.Members, compileUnits = reference.Commands.Length, minipal = reference.Minipal },
+            ported = new { ported.ArchiveSha256, members = ported.Members, compileUnits = ported.Commands.Length, minipal = ported.Minipal },
             sourceOverlay = new[] { "src/Runtime.NativeAot/runtime-overlay.cmake", "src/Runtime.NativeAot/gcenv.witos.cpp",
-                "src/Runtime.NativeAot/gcenv.witos.h", "src/Runtime.NativeAot/gc_events.witos.cpp", "src/Runtime.NativeAot/gc_time.witos.cpp", "src/System.Native/bootstrap.h", "src/Kernel/include/witos/types.h",
+                "src/Runtime.NativeAot/gcenv.witos.h", "src/Runtime.NativeAot/gc_events.witos.cpp", "src/Runtime.NativeAot/gc_time.witos.cpp",
+                "src/Runtime.NativeAot/mutex.witos.cpp", "src/Runtime.NativeAot/crst.witos.cpp", "src/System.Native/bootstrap.h", "src/Kernel/include/witos/types.h",
                 "src/Kernel/include/witos/user_abi.h", "src/Kernel/include/witos/image_info.h", "src/Kernel/include/witos/memory_info.h" }
                 .Select(p => new { path = p, sha256 = Hash(Path.Combine(root, p)) }),
             referenceInputs = referenceInputs.Select(p => new { file = Path.GetFileName(p), sha256 = Hash(p) }),
             portedInputs = portedInputs.Select(p => new { file = Path.GetFileName(p), sha256 = Hash(p) }),
             boundary, missingGroups = groups,
-            scope = "Entire upstream nativeaot CMake component built twice. Only workstation GC environment source is replaced in the WitOS archive; remaining Windows PAL/CRT/TLS dependencies and unsupported GC methods are intentionally unresolved. This is not a runnable guest runtime or a complete .NET source build."
+            scope = "Entire upstream nativeaot CMake component built twice. Workstation GC environment, Release Crst and aotminipal mutex sources are replaced in the WitOS archives; remaining Windows PAL/CRT/TLS dependencies and unsupported GC methods are intentionally unresolved. This is not a runnable guest runtime or a complete .NET source build."
         };
         await File.WriteAllTextAsync(Path.Combine(output, "source-build-report.json"), JsonSerializer.Serialize(report, Json));
         await File.WriteAllTextAsync(Path.Combine(output, "missing-platform.md"),
             "# Source-built NativeAOT port boundary\n\nNo guest runtime executed. Strict link failed as expected.\n\n" +
             string.Join("\n\n", groups.Select(g => $"## {g.Key} ({g.Value.Length})\n\n" + string.Join("\n", g.Value.Select(v => "- `" + v + "`")))) + "\n");
-        Console.WriteLine($"[SOURCE-PASS] Full native archive: {ported.Members.Length} members; GC adapter objects verified byte-for-byte.");
+        Console.WriteLine($"[SOURCE-PASS] Full native archive: {ported.Members.Length} members; GC/Crst adapter objects verified byte-for-byte.");
+        Console.WriteLine($"[SOURCE-PASS] aotminipal archive: {ported.Minipal.Members.Length} members; mutex adapter object verified byte-for-byte.");
         Console.WriteLine($"[SOURCE-PASS] Windows source-built reference: {Cases.Length} execution groups.");
         Console.WriteLine($"[SOURCE-PASS] Strict WitOS link boundary: {boundary.Unresolved.Length} unresolved symbols, including {groups["gc-environment"].Length} GC environment requirements.");
         Console.WriteLine($"Reports: {output}");
@@ -147,25 +153,46 @@ internal static class RuntimeSourceBuild
         await File.WriteAllTextAsync(Path.Combine(output, profile + "-members.txt"), listing.Output);
         var members = listing.Output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
         var obj = Path.Combine(source, "artifacts", "obj", "coreclr", "windows.x64.Release", profile);
-        var commands = JsonSerializer.Deserialize<CompileCommand[]>(await File.ReadAllTextAsync(Path.Combine(obj, "compile_commands.json")), Json)!
-            .Where(c => c.Output.Replace('\\', '/').Contains("/Runtime.WorkstationGC.dir/", StringComparison.Ordinal)).ToArray();
-        var paths = commands.Select(c => c.File.Replace('\\', '/')).ToArray();
+        var allCommands = JsonSerializer.Deserialize<CompileCommand[]>(await File.ReadAllTextAsync(Path.Combine(obj, "compile_commands.json")), Json)
+            ?? throw new InvalidDataException("Missing native compile commands.");
+        static string Normalize(string path) => path.Replace(Path.DirectorySeparatorChar, '/');
+        var commands = allCommands.Where(c => Normalize(c.Output).Contains("/Runtime.WorkstationGC.dir/", StringComparison.Ordinal)).ToArray();
+        var paths = commands.Select(c => Normalize(c.File)).ToArray();
         string[] required = ["/gc/gcwks.cpp", "/gc/gchandletable.cpp", "/Runtime/startup.cpp", "/Runtime/thread.cpp", "/Runtime/TypeManager.cpp"];
         if (required.Any(s => !paths.Any(p => p.EndsWith(s, StringComparison.Ordinal))) ||
-            paths.Any(p => p.EndsWith("/gc/windows/gcenv.windows.cpp", StringComparison.Ordinal)) == overlay ||
-            paths.Count(p => p.EndsWith("/gcenv.witos.cpp", StringComparison.Ordinal)) != (overlay ? 1 : 0) || members.Length < 50)
-            throw new InvalidDataException("Native source build did not compile the expected full runtime and selected GC environment.");
+            paths.Count(p => p.EndsWith("/gc/windows/gcenv.windows.cpp", StringComparison.Ordinal)) != (overlay ? 0 : 1) ||
+            paths.Count(p => p.EndsWith("/gcenv.witos.cpp", StringComparison.Ordinal)) != (overlay ? 1 : 0) ||
+            paths.Count(p => p.EndsWith("/Runtime/Crst.cpp", StringComparison.Ordinal)) != (overlay ? 0 : 1) ||
+            paths.Count(p => p.EndsWith("/crst.witos.cpp", StringComparison.Ordinal)) != (overlay ? 1 : 0) ||
+            members.Count(m => Normalize(m).EndsWith("/Crst.cpp.obj", StringComparison.Ordinal)) != (overlay ? 0 : 1) ||
+            members.Count(m => Normalize(m).EndsWith("/crst.witos.cpp.obj", StringComparison.Ordinal)) != (overlay ? 1 : 0) || members.Length < 50)
+            throw new InvalidDataException("Native source build did not compile the expected full runtime and selected GC/Crst adapters.");
         await File.WriteAllTextAsync(Path.Combine(output, profile + "-compile-commands.json"), JsonSerializer.Serialize(commands, Json));
+
+        var minipalArchive = Path.Combine(sdk, "aotminipal.lib");
+        var minipalListing = await Processes.RunAsync(Path.Combine(msvc, "lib.exe"), ["/nologo", "/list", minipalArchive], root);
+        if (minipalListing.ExitCode != 0 || minipalListing.TimedOut) throw new InvalidDataException("Cannot inspect source-built aotminipal archive.");
+        await File.WriteAllTextAsync(Path.Combine(output, profile + "-minipal-members.txt"), minipalListing.Output);
+        var minipalMembers = minipalListing.Output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+        var minipalCommands = allCommands.Where(c => Normalize(c.Output).Contains("/aotminipal.dir/", StringComparison.Ordinal)).ToArray();
+        if (minipalCommands.Count(c => Normalize(c.File).EndsWith("/minipal/mutex.c", StringComparison.Ordinal)) != (overlay ? 0 : 1) ||
+            minipalCommands.Count(c => Normalize(c.File).EndsWith("/mutex.witos.cpp", StringComparison.Ordinal)) != (overlay ? 1 : 0) ||
+            minipalMembers.Count(m => Normalize(m).EndsWith("/mutex.c.obj", StringComparison.Ordinal)) != (overlay ? 0 : 1) ||
+            minipalMembers.Count(m => Normalize(m).EndsWith("/mutex.witos.cpp.obj", StringComparison.Ordinal)) != (overlay ? 1 : 0) ||
+            minipalMembers.Length < 2)
+            throw new InvalidDataException("Source build did not compile the selected minipal mutex implementation.");
+        await File.WriteAllTextAsync(Path.Combine(output, profile + "-minipal-compile-commands.json"), JsonSerializer.Serialize(minipalCommands, Json));
         if (overlay)
         {
-            var adapter = commands.Single(c => c.File.Replace('\\', '/').EndsWith("/gcenv.witos.cpp", StringComparison.Ordinal));
-            NativeObject.VerifyArchive(archive, Path.GetFullPath(adapter.Output, adapter.Directory));
-            var events = commands.Single(c => c.File.Replace('\\', '/').EndsWith("/gc_events.witos.cpp", StringComparison.Ordinal));
-            NativeObject.VerifyArchive(archive, Path.GetFullPath(events.Output, events.Directory));
-            var time = commands.Single(c => c.File.Replace('\\', '/').EndsWith("/gc_time.witos.cpp", StringComparison.Ordinal));
-            NativeObject.VerifyArchive(archive, Path.GetFullPath(time.Output, time.Directory));
+            foreach (var file in new[] { "/gcenv.witos.cpp", "/gc_events.witos.cpp", "/gc_time.witos.cpp", "/crst.witos.cpp" })
+            {
+                var adapter = commands.Single(c => Normalize(c.File).EndsWith(file, StringComparison.Ordinal));
+                NativeObject.VerifyArchive(archive, Path.GetFullPath(adapter.Output, adapter.Directory));
+            }
+            var mutex = minipalCommands.Single(c => Normalize(c.File).EndsWith("/mutex.witos.cpp", StringComparison.Ordinal));
+            NativeObject.VerifyArchive(minipalArchive, Path.GetFullPath(mutex.Output, mutex.Directory));
         }
-        return new(sdk, members, commands, Hash(archive));
+        return new(sdk, members, commands, Hash(archive), new(Hash(minipalArchive), minipalMembers, minipalCommands.Length));
     }
 
     private static async Task<object> RunReferenceAsync(string root, string output, string target, string msvc,

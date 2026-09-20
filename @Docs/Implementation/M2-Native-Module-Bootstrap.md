@@ -31,7 +31,7 @@ The new startup helper is ordinary freestanding C in `src/System.Native/`. Its s
 
 ## ABI v5 image handoff
 
-This section records the introduced v5 layout. [ABI v6](NativeAot-Gc-Discovery.md) keeps the same 24-byte prefix and adds MemoryQuery; current startup Version is 7 after the [monotonic-time extension](NativeAot-Gc-Time.md).
+This section records the introduced v5 layout. [ABI v6](NativeAot-Gc-Discovery.md) keeps the same 24-byte prefix and adds MemoryQuery; current startup Version is 8 after the [thread-identity/mutex extension](NativeAot-Mutexes.md).
 
 The startup prefix grows from 16 to 24 bytes:
 

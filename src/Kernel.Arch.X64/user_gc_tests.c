@@ -20,11 +20,12 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
     config = (WitUserTestConfig*)wit_user_space_physical(&process.Space, WIT_USER_INFO, 0, 0);
     config->Mode = mode;
     if (mode == WIT_GC_TEST_HPET_READ) config->KernelProbe = WIT_X64_HPET_BASE;
+    if (mode == WIT_GC_TEST_THREAD_ID) config->KernelProbe = WIT_USER_TLS;
     owned = process.Space.OwnedCount;
     free_active = wit_pages_free_count(pages);
     for (WitU32 i = 0; i < owned; ++i) if (!process.Space.OwnedVirtual[i]) ++table_pages;
     wit_user_run(&process);
-    if (mode == WIT_GC_TEST_NORMAL || mode == WIT_GC_TEST_DISCOVERY || (mode >= WIT_GC_TEST_EVENT_STATE && mode <= WIT_GC_TEST_EVENT_CONTENTION) || (mode >= WIT_GC_TEST_CLOCK && mode <= WIT_GC_TEST_TIME_ARITHMETIC)) {
+    if (mode == WIT_GC_TEST_NORMAL || mode == WIT_GC_TEST_DISCOVERY || (mode >= WIT_GC_TEST_EVENT_STATE && mode <= WIT_GC_TEST_EVENT_CONTENTION) || (mode >= WIT_GC_TEST_CLOCK && mode <= WIT_GC_TEST_TIME_ARITHMETIC) || (mode >= WIT_GC_TEST_THREAD_ID && mode <= WIT_GC_TEST_CRST)) {
         if (process.State != WitUserExited || process.ExitCode != WIT_TEST_EXIT_CODE) {
             wit_console_write("GC memory fixture state/code: ");
             wit_console_write_u64(process.State); wit_console_write("/");
@@ -52,9 +53,26 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
         if (mode == WIT_GC_TEST_TIMED_SIGNAL)
             require(process.ThreadCreates == 2 && process.ThreadJoins == 1 && process.ThreadReaps == 1,
                 "Timed GC signal worker leaked");
+        if (mode == WIT_GC_TEST_THREAD_ID) {
+            const WitU64 report = wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
+            require(report && *(const WitU64*)report == process.Threads[0].Handle && process.ThreadCreates == 3 &&
+                process.ThreadJoins == 2 && process.ThreadReaps == 2, "Kernel thread identity or slot reuse failed");
+        }
+        if (mode == WIT_GC_TEST_MUTEX_BLOCKING)
+            require(process.ThreadCreates == 2 && process.ThreadJoins == 1 && process.ThreadReaps == 1 &&
+                process.EventParks > 0 && process.EventWakes > 0, "Mutex contender did not park/wake");
+        if (mode == WIT_GC_TEST_MUTEX_STRESS)
+            require(process.ThreadCreates == 3 && process.ThreadJoins == 2 && process.ThreadReaps == 2 &&
+                process.EventParks > 0 && process.EventWakes > 0, "Mutex stress did not block contenders");
         require(process.Space.OwnedCount == owned, "GC adapter leaked backing or private page tables");
         for (WitU32 i = 0; i < WIT_USER_RESERVATION_CAPACITY; ++i)
             require(!process.Space.Reservations[i].Size, "GC adapter leaked reservation");
+    } else if (mode >= WIT_GC_TEST_MUTEX_OWNER_FAIL && mode <= WIT_GC_TEST_MUTEX_EVENT_FAIL) {
+        const WitU64 report = wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
+        require(process.State == WitUserExited && process.ExitCode == WIT_GC_TEST_FAIL_FAST_EXIT &&
+            report && *(const WitU64*)report == mode, "Mutex misuse did not fail at the intended boundary");
+        if (mode == WIT_GC_TEST_MUTEX_OWNER_FAIL || mode == WIT_GC_TEST_MUTEX_EVENT_FAIL)
+            require(process.ThreadCreates == 2 && process.Space.OwnedCount > owned, "Mutex failure had no live worker");
     } else if (mode == WIT_GC_TEST_HPET_READ) {
         require(process.State == WitUserFaulted && process.FaultVector == 14 && process.FaultError == 5 &&
             process.FaultAddress == WIT_X64_HPET_BASE && process.FaultCs == WIT_USER_CS && process.FaultSs == WIT_USER_SS,
@@ -150,4 +168,21 @@ void wit_user_gc_self_test(WitPageAllocator* pages)
     run(pages, WIT_GC_TEST_HPET_READ, WIT_USER_IMAGE_BASE);
     run(pages, WIT_GC_TEST_CLOCK, WIT_USER_IMAGE_BASE);
     wit_console_write("[TEST-PASS] User.GcClockIsolation\n");
+    run(pages, WIT_GC_TEST_THREAD_ID, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.GcThreadIdentity\n");
+    run(pages, WIT_GC_TEST_MUTEX_BASIC, WIT_USER_IMAGE_BASE);
+    run(pages, WIT_GC_TEST_MUTEX_BASIC, WIT_USER_IMAGE_ALTERNATE);
+    wit_console_write("[TEST-PASS] User.GcMutexRecursive\n");
+    run(pages, WIT_GC_TEST_MUTEX_BLOCKING, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.GcMutexBlocking\n");
+    run(pages, WIT_GC_TEST_MUTEX_STRESS, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.GcMutexStress\n");
+    run(pages, WIT_GC_TEST_MUTEX_CAPACITY, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.GcMutexCapacity\n");
+    run(pages, WIT_GC_TEST_CRST, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.GcCrst\n");
+    for (WitU64 mode = WIT_GC_TEST_MUTEX_OWNER_FAIL; mode <= WIT_GC_TEST_MUTEX_EVENT_FAIL; ++mode)
+        run(pages, mode, WIT_USER_IMAGE_BASE);
+    run(pages, WIT_GC_TEST_MUTEX_BASIC, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.GcMutexFailFast\n");
 }

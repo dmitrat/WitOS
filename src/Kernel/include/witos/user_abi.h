@@ -7,7 +7,7 @@
 /* Experimental x64 interrupt ABI, not a stable public SDK.
  * INT 0x80: RAX=call, RCX/RDX/R8=arguments; RAX=status, RDX=result.
  * Other GPRs and baseline x87/SSE state survive; flags are reset to 0x202. */
-#define WIT_ABI_VERSION 7U
+#define WIT_ABI_VERSION 8U
 #define WIT_ABI_STARTUP_SIZE 24U
 #define WIT_CALL_QUERY 0U
 #define WIT_CALL_WRITE 1U
@@ -47,6 +47,9 @@
 #define WIT_CALL_MONOTONIC_FREQUENCY 22U
 #define WIT_CALL_SLEEP_UNTIL 23U
 #define WIT_CALL_EVENT_WAIT_UNTIL 24U
+/* Borrow the current thread's existing generation-bearing handle. No new
+ * handle is granted; identity comes from kernel state, not writable raw TLS. */
+#define WIT_CALL_THREAD_CURRENT 25U
 #define WIT_MONOTONIC_MAX 0x7FFFFFFFFFFFFFFFULL
 /* Legacy calls 13-19 use absolute delivered PIT ticks. Zero polls; all-ones waits forever.
  * The frequency is nominal; this bootstrap clock pauses while IRQ0 is disabled. */

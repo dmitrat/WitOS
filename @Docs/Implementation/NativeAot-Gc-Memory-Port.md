@@ -23,7 +23,7 @@ Hardware instructions stay in `Kernel.Arch.X64`; the C++ adapter uses the existi
 
 ## Implemented interface
 
-The compiler consumes the actual [gcenv.os.h](https://github.com/dotnet/runtime/blob/b82454cad0aaaae3db2cf18fbf2cccc36e201ccc/src/coreclr/gc/env/gcenv.os.h), its base/structs headers and two minipal headers. The original five headers, the subsequently pinned page-size inline definition and the upstream MIT license are copied from a SHA-256-verified cache into the build directory. The entire source audit now contains 32 source/license files. The upstream headers are unchanged; Windows SDK types are compile-time declarations only.
+The compiler consumes the actual [gcenv.os.h](https://github.com/dotnet/runtime/blob/b82454cad0aaaae3db2cf18fbf2cccc36e201ccc/src/coreclr/gc/env/gcenv.os.h), its base/structs headers and two minipal headers. The original five headers, the subsequently pinned page-size inline definition and the upstream MIT license are copied from a SHA-256-verified cache into the build directory. The entire source audit now contains 35 source/license files. The upstream headers are unchanged; Windows SDK types are compile-time declarations only.
 
 | Method | WitOS behavior |
 | --- | --- |
@@ -35,7 +35,7 @@ The compiler consumes the actual [gcenv.os.h](https://github.com/dotnet/runtime/
 
 NUMA node 0 and `NUMA_NODE_UNDEFINED` use the single-node allocator; other nodes fail. Unaligned commit/decommit addresses are rejected rather than silently extending the affected range. Failure is `nullptr`/`false`. Kernel prototype quotas remain in force.
 
-Version 0.0.11 adds [real environment initialization and memory discovery](NativeAot-Gc-Discovery.md). Reset/large-page support, remaining native locks, threads remain incomplete; [GC events](NativeAot-Gc-Events.md) and the [time extension](NativeAot-Gc-Time.md) now support polling, finite and infinite waits. The negative link now roots `GCToOSInterface::VirtualReset` and must fail with exactly that missing symbol, without `/FORCE` or runtime/OS/CRT libraries.
+Version 0.0.11 adds [real environment initialization and memory discovery](NativeAot-Gc-Discovery.md). Reset/large-page support and runtime thread attachment remain incomplete; [recursive minipal/Crst mutexes](NativeAot-Mutexes.md) are now implemented; [GC events](NativeAot-Gc-Events.md) and the [time extension](NativeAot-Gc-Time.md) now support polling, finite and infinite waits. The negative link now roots `GCToOSInterface::VirtualReset` and must fail with exactly that missing symbol, without `/FORCE` or runtime/OS/CRT libraries.
 
 ## Build and guest evidence
 
@@ -59,10 +59,10 @@ Six new guest groups cover:
 - Execution of the same C++ image relocated to two different guest bases.
 - Actual page faults on a reserved page, a decommitted page, a page rolled back after commit exhaustion, and attempted execution from committed data.
 
-The supervisor checks fault vector/error/address/selectors and resource counts. Reservation and decommit fault cases must leave the owned-frame count unchanged. Every component teardown restores the physical-page count. The full suite has 18 VM scenarios, 106 user check groups and 34 contained user faults in each successful boot. Local `runtime-port`, full VM suite, source audit and both hosted probes passed.
+The supervisor checks fault vector/error/address/selectors and resource counts. Reservation and decommit fault cases must leave the owned-frame count unchanged. Every component teardown restores the physical-page count. The full suite has 18 VM scenarios, 113 user check groups and 34 contained user faults in each successful boot. Local `runtime-port`, full VM suite, source audit and both hosted probes passed.
 
 Reports: `gc-memory-build.json`, `gc-missing-link.log`, `GcMemoryFixture.pe` and `.map` under the relevant image directory; serial/outcome logs under `artifacts/logs/`. Kernel CI uploads the new evidence alongside its boot artifacts.
 
 ## Remaining boundary
 
-This proves five native adapter methods against the upstream declaration, not that upstream collector algorithms execute in the guest. The [native source build](NativeAot-Source-Build.md) is now established with incomplete platform bindings. Native/managed TLS, thread attachment, synchronization, memory discovery, module registration, fault/unwind integration and GC rendezvous remain incomplete. The 128-frame quota, 256 KiB image limit and 128-entry plain-unwind limit cannot accommodate the measured hosted runtime. Preserve the measured strict link failures while extending the source adapter, then raise limits with tests driven by the real runtime profile. M3 acceptance remains unchanged.
+This proves five native adapter methods against the upstream declaration, not that upstream collector algorithms execute in the guest. The [native source build](NativeAot-Source-Build.md) is now established with incomplete platform bindings. Memory discovery, GC events/time and recursive minipal/Crst locks are now implemented. Native/managed TLS, thread attachment, remaining synchronization, module registration, fault/unwind integration and GC rendezvous remain incomplete. The 128-frame quota, 256 KiB image limit and 128-entry plain-unwind limit cannot accommodate the measured hosted runtime. Preserve the measured strict link failures while extending the source adapter, then raise limits with tests driven by the real runtime profile. M3 acceptance remains unchanged.

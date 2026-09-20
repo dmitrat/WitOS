@@ -13,7 +13,7 @@ internal static class RuntimePortImage
     [
         "src/coreclr/gc/env/gcenv.os.h", "src/coreclr/gc/env/gcenv.base.h", "src/coreclr/gc/env/gcenv.windows.inl",
         "src/coreclr/gc/env/gcenv.structs.h", "src/native/minipal/utils.h",
-        "src/native/minipal/mutex.h", "LICENSE.TXT"
+        "src/native/minipal/mutex.h", "src/coreclr/nativeaot/Runtime/Crst.h", "LICENSE.TXT"
     ];
 
     public static async Task BuildAsync(string root, string output, string msvc)
@@ -45,10 +45,11 @@ internal static class RuntimePortImage
             $"/I{Path.Combine(vc, "include")}", $"/I{Path.Combine(sdk, "ucrt")}",
             $"/I{Path.Combine(sdk, "um")}", $"/I{Path.Combine(sdk, "shared")}",
             $"/I{Path.Combine(stage, "src", "coreclr", "gc", "env")}", $"/I{Path.Combine(stage, "src", "native")}",
+            $"/I{Path.Combine(stage, "src", "coreclr", "nativeaot", "Runtime")}",
             $"/I{Path.Combine(root, "src", "Runtime.NativeAot")}", $"/I{Path.Combine(root, "src", "System.Native")}",
             $"/I{Path.Combine(root, "src", "Kernel", "include")}", $"/I{Path.Combine(root, "tests", "User.X64")}"
         ];
-        string[] sources = ["src/Runtime.NativeAot/gcenv.witos.cpp", "tests/User.X64/gc_memory.cpp", "tests/User.X64/gc_missing.cpp", "tests/User.X64/gc_discovery.cpp", "src/Runtime.NativeAot/gc_events.witos.cpp", "tests/User.X64/gc_events.cpp", "src/Runtime.NativeAot/gc_time.witos.cpp", "tests/User.X64/gc_time.cpp"];
+        string[] sources = ["src/Runtime.NativeAot/gcenv.witos.cpp", "tests/User.X64/gc_memory.cpp", "tests/User.X64/gc_missing.cpp", "tests/User.X64/gc_discovery.cpp", "src/Runtime.NativeAot/gc_events.witos.cpp", "tests/User.X64/gc_events.cpp", "src/Runtime.NativeAot/gc_time.witos.cpp", "tests/User.X64/gc_time.cpp", "src/Runtime.NativeAot/mutex.witos.cpp", "src/Runtime.NativeAot/crst.witos.cpp", "tests/User.X64/gc_mutex.cpp"];
         var objects = new List<string>();
         foreach (var source in sources)
         {
@@ -59,7 +60,7 @@ internal static class RuntimePortImage
         // native_start.obj was assembled by UserBootstrapImage; all x64 ABI glue stays there.
         string[] link = ["/nologo", "/subsystem:native", "/entry:wit_native_start", "/nodefaultlib", "/machine:x64",
             "/fixed:no", "/dynamicbase", "/incremental:no", "/Brepro", "/base:0x180000000",
-            Path.Combine(output, "native_start.obj"), objects[0], objects[4], objects[6]];
+            Path.Combine(output, "native_start.obj"), objects[0], objects[4], objects[6], objects[8], objects[9]];
         var missing = await Processes.RunAsync(Path.Combine(msvc, "link.exe"),
             [.. link, $"/out:{Path.Combine(output, "GcMissing.pe")}", objects[2]], root);
         var diagnostic = missing.Output + missing.Error;
@@ -72,7 +73,7 @@ internal static class RuntimePortImage
             throw new InvalidDataException($"Expected exactly the unimplemented GC virtual reset link failure.\n{diagnostic}");
         var image = Path.Combine(output, "GcMemoryFixture.pe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
-            [.. link, $"/out:{image}", $"/map:{Path.Combine(output, "GcMemoryFixture.map")}", objects[1], objects[3], objects[5], objects[7]], root);
+            [.. link, $"/out:{image}", $"/map:{Path.Combine(output, "GcMemoryFixture.map")}", objects[1], objects[3], objects[5], objects[7], objects[10]], root);
         var bytes = await File.ReadAllBytesAsync(image);
         using var stream = new MemoryStream(bytes, writable: false);
         using var pe = new PEReader(stream);
@@ -90,7 +91,7 @@ internal static class RuntimePortImage
         var report = new
         {
             backend = Backend, pin.RuntimeVersion, pin.RuntimeCommit,
-            scope = "Source-level GCToOSInterface memory/discovery/event/time slice; no collector or managed code linked. Guest execution is checked separately by the VM runner.",
+            scope = "Source-level GC memory/discovery/event/time and minipal/Crst mutex slice; no collector or managed code linked. Guest execution is checked separately by the VM runner.",
             guestManagedRuntime = false, missingGcVirtualResetRejected = true,
             upstreamInputs = pin.Sources.Where(s => UpstreamInputs.Contains(s.Path)),
             localInputs = sources.Append("src/Runtime.NativeAot/gcenv.witos.h").Append("src/Kernel.Arch.X64/native_start.asm")

@@ -10,7 +10,7 @@ Each address space has a dynamic arena from `0x0000010000000000` (1 TiB, PML4 sl
 
 Prototype limits are eight live reservations and 128 owned physical frames per component. The latter includes its PML4, all private page tables, fixed image/data/stack pages and dynamic backing pages. A normal fixture starts with 13 owned frames including its main-thread TLS page; each additional thread adds five frames for its stack and TLS. These explicit bounds keep syscall work and resource use finite; they are not a suitable final managed-heap quota.
 
-## Memory calls in experimental ABI v7
+## Memory calls in experimental ABI v8
 
 Transport and preservation rules are unchanged: INT 0x80, RAX call, RCX/RDX/R8 arguments, RAX status and RDX result. Startup and query report version 5. Calls 0–3 remain query/write/exit/close. The memory semantics introduced in v2 are unchanged; calls 9–12 add [thread operations](M2-User-Threads-and-Tls.md).
 
@@ -63,7 +63,7 @@ dotnet build WitOS.slnx --configuration Release
 dotnet run --project tools/WitOS.Dev --configuration Release -- test
 ```
 
-The suite retains 18 VM scenarios. Successful boots require 106 user groups (21 isolation, 11 memory, 10 thread, 14 wait, 16 image, 11 native-bootstrap and twenty-two GC memory/discovery/event/time groups plus a clock-domain group) and 34 contained user faults.
+The suite retains 18 VM scenarios. Successful boots require 113 user groups (21 isolation, 11 memory, 10 thread, 14 wait, 16 image, 11 native-bootstrap and twenty-nine native GC environment/mutex groups plus a clock-domain group) and 34 contained user faults.
 
 | Added group | Evidence |
 | --- | --- |
@@ -83,6 +83,6 @@ Each fault checks selectors, address and expected state, closes handles, frees t
 
 ## Remaining runtime work
 
-This is not a NativeAOT port or a general virtual-memory manager. There is no GC/PAL adapter, reset/write-watch implementation, demand paging, swap, shared mapping, NUMA policy, large pages or dynamic executable allocation. Bounded threads, raw TLS, join and events are implemented; compiler/managed TLS, runtime exception delivery and GC rendezvous remain absent.
+This is not a NativeAOT port or a general virtual-memory manager. The native GC memory/discovery adapter is implemented, but there is no reset/write-watch implementation, demand paging, swap, shared mapping, NUMA policy, large pages or dynamic executable allocation. Bounded threads, raw TLS, join and events are implemented; compiler/managed TLS, runtime exception delivery and GC rendezvous remain absent.
 
-Next investigate the guest NativeAOT target/bootstrap and runtime coordination. Managed execution requires those mechanisms, an actual upstream runtime build and a supported ABI/backend; the hosted Windows probe remains reference evidence only.
+Next extend the established source port with runtime TLS/attachment and GC coordination. Managed execution requires those mechanisms, an actual upstream runtime build and a supported ABI/backend; the hosted Windows probe remains reference evidence only.

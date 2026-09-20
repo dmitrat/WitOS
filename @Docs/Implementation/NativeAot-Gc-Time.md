@@ -44,13 +44,13 @@ PIT still wakes the CPU from idle. A deadline will not expire before the sampled
 
 GCEvent computes its deadline before acquiring the private pool gate, so setup/contention counts toward the timeout. It captures the generation-bearing handle, releases the gate, and uses EventWaitUntil. Poll, finite and infinite waits now share the same kernel event state and cancellation rules. The alertable argument retains the upstream non-alertable behavior.
 
-These are GC interface hooks, not a complete port of all CoreLib/Windows PAL clock APIs. The strict negative link now requires the still-unimplemented VirtualReset symbol. Native locks, TLS/attachment, fault/unwind integration and GC rendezvous remain incomplete.
+These are GC interface hooks, not a complete port of all CoreLib/Windows PAL clock APIs. The strict negative link now requires the still-unimplemented VirtualReset symbol. At this milestone native locks remained incomplete; the subsequent [mutex extension](NativeAot-Mutexes.md) implements minipal/Crst. TLS/attachment, fault/unwind integration and GC rendezvous remain incomplete.
 
 ## Validation
 
 Release build, runtime-port, all 18 VM scenarios, runtime-audit, runtime-probe and runtime-source passed locally; runtime-source also refreshes runtime-target. The new negative scenario boots the same image with `hpet=off` and requires the specific unsupported-HPET panic plus expected exit status.
 
-Successful boots require 106 user check groups and 34 contained user faults, plus kernel counter-rollover/IRQ-independence markers and the pinned 100 MHz frequency. New checks cover:
+At version 0.0.13, successful boots required 106 user check groups and 34 contained user faults, plus kernel counter-rollover/IRQ-independence markers and the pinned 100 MHz frequency. New checks cover:
 
 - Coherent 64-bit hardware counting and progress with interrupts disabled.
 - Deterministic mixed-clock FIFO, exact deadline, late signal/close, past/invalid deadline and infinite-sleep state transitions.
@@ -63,4 +63,4 @@ Timing tests assert lower bounds and semantic results, not tight host-dependent 
 
 ## Next work
 
-Port the remaining native locks and runtime TLS/attachment, complete memory/reset and fault/GC coordination semantics, and expand measured runtime quotas. General device discovery and other clock backends are later platform work. A successful native time probe does not meet the managed-runtime M3 gate.
+Native minipal/Crst locks are now implemented. Connect runtime TLS/attachment, complete memory/reset and fault/GC coordination semantics, and expand measured runtime quotas. General device discovery and other clock backends are later platform work. A successful native time probe does not meet the managed-runtime M3 gate.

@@ -89,7 +89,7 @@ Test symbol RVAs come from public symbols in linker maps; tests do not assume th
 
 The guest fixture validates relocated code/data pointers, calls through a relocated read-only pointer, reads the cross-page pointer, scans 8192 BSS bytes, writes its instance ID into private image data and prints via the granted console handle.
 
-The eighteen VM scenarios now require 106 user groups and 34 contained user faults. Sixteen new image groups cover:
+The eighteen VM scenarios now require 113 user groups and 34 contained user faults. Sixteen new image groups cover:
 
 | Group | Evidence |
 | --- | --- |

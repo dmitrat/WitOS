@@ -536,6 +536,10 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
     case WIT_CALL_EVENT_WAIT:
         context->Rax = wit_user_event_wait(current_user, argument0, argument1, wit_x64_clock_ticks());
         break;
+    case WIT_CALL_THREAD_CURRENT:
+        if (argument0 || argument1 || argument2) context->Rax = WIT_STATUS_INVALID_ARGUMENT;
+        else context->Rdx = current_user->Threads[current_user->CurrentThread].Handle;
+        break;
     case WIT_CALL_THREAD_CREATE:
         context->Rax = argument2 ? WIT_STATUS_INVALID_ARGUMENT :
             wit_user_thread_create(current_user, argument0, argument1, &context->Rdx);

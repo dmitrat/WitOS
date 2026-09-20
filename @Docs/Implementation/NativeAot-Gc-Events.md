@@ -57,4 +57,4 @@ The local fixture is 12,800 bytes with 32 plain unwind records and no Windows/CR
 
 ## Remaining work
 
-The [monotonic clock and finite GCEvent waits](NativeAot-Gc-Time.md) are now implemented. Next port remaining native locks, TLS/thread attachment, GC rendezvous and fault/unwind integration. The private gate is not a port of minipal_mutex or CLRCriticalSection. Pool/kernel quotas remain prototype limits. Full NativeAOT initialization and managed execution remain the M3 acceptance gate.
+The [monotonic clock and finite GCEvent waits](NativeAot-Gc-Time.md) are now implemented. Recursive [minipal/Crst locks](NativeAot-Mutexes.md) are now implemented. Next connect TLS/thread attachment, GC rendezvous and fault/unwind integration. The private gate is not a port of minipal_mutex or CLRCriticalSection. Pool/kernel quotas remain prototype limits. Full NativeAOT initialization and managed execution remain the M3 acceptance gate.
