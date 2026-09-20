@@ -39,6 +39,14 @@ static const WitPalEnvironmentEntry environment[] = {
     ENTRY(L"DOTNET_Text", L"\x0416\xD83D\xDE80"), ENTRY(L"DOTNET_Long", long_text),
     ENTRY(L"DOTNET_Max", L"ffffffffffffffff"), ENTRY(L"DOTNET_TooLong", L"10000000000000000")
 };
+static const WitPalEnvironmentEntry cpu_profiles[][1] = {
+    { ENTRY(L"DOTNET_PROCESSOR_COUNT", L"1") },
+    { ENTRY(L"DOTNET_PROCESSOR_COUNT", L"2") },
+    { ENTRY(L"DOTNET_PROCESSOR_COUNT", L"0") },
+    { ENTRY(L"DOTNET_PROCESSOR_COUNT", L"65536") },
+    { ENTRY(L"DOTNET_PROCESSOR_COUNT", L"invalid") },
+    { ENTRY(L"DOTNET_PROCESSOR_COUNT", L"65535") }
+};
 static WitU64 mode;
 static int64_t expected_limit;
 static unsigned enumeration_count, enumerated_limit, enumerated_conservative, enumerated_string;
@@ -144,6 +152,17 @@ static void enumerate(void*, void* name, void*, GCConfigurationType type, int64_
     if (!strcmp((const char*)name, "ConservativeGC") && type == GCConfigurationType::Boolean && value == 1) ++enumerated_conservative;
     if (type == GCConfigurationType::StringUtf8 && value == 0) ++enumerated_string;
 }
+static bool cached_init()
+{
+    const DWORD saved = GetLastError();
+    for (size_t attempt = 0; attempt < 16; ++attempt) {
+        if (PalInit()) return true;
+        if (GetLastError() != ERROR_BUSY ||
+            wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr) != WIT_STATUS_OK) return false;
+        SetLastError(saved);
+    }
+    return false;
+}
 static WitU64 worker(WitU64 argument)
 {
     if (errno) return 1670;
@@ -151,7 +170,7 @@ static WitU64 worker(WitU64 argument)
         errno = (int)(100 + argument); SetLastError((DWORD)(200 + argument));
         uint64_t value;
         if (!config.ReadKnobUInt64Value("System.GC.HeapHardLimitPercent", &value) || value != 60 ||
-            GCConfig::GetGCHeapHardLimit() != expected_limit) return 1671;
+            !cached_init() || GCToOSInterface::GetTotalProcessorCount() != 1 || GCConfig::GetGCHeapHardLimit() != expected_limit) return 1671;
         (void)wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr);
         if (errno != 100 + argument || GetLastError() != 200 + argument) return 1672;
     }
@@ -161,17 +180,58 @@ extern "C" WitU64 wit_native_main(const WitUserStartup* startup)
 {
     mode = ((const WitUserTestConfig*)startup)->Mode;
     report()[0] = mode; report()[1] = 0;
+    if (mode == 8) {
+        // Identical native code, but a PE with no TLS directory. PalInit must
+        // reject this before touching errno/compiler GS storage.
+        wit_native_process_image_initialize(startup);
+        if (!wit_pal_environment_initialize(nullptr, 0) || PalInit() || GetLastError() != ERROR_NOT_READY ||
+            GCToOSInterface::GetTotalProcessorCount() || GCConfig::GetGCHeapHardLimit()) return 1680;
+        report()[1] = 2048;
+        return WIT_TEST_EXIT_CODE;
+    }
     // Numeric CRT and compiler TLS work before dynamic constructors.
     if (!crt()) return 1601;
     report()[1] |= 1;
+    if (PalInit() || GetLastError() != ERROR_NOT_READY || GCToOSInterface::GetTotalProcessorCount() ||
+        GCConfig::GetGCHeapHardLimit()) return 1681;
     wit_native_process_image_initialize(startup);
-    if (!wit_pal_environment_initialize(mode ? nullptr : environment, mode ? 0 : (uint32_t)(sizeof(environment)/sizeof(environment[0])))) return 1602;
+    if (PalInit() || GetLastError() != ERROR_NOT_READY || GCToOSInterface::GetTotalProcessorCount() ||
+        GCConfig::GetGCHeapHardLimit()) return 1682;
+    const WitPalEnvironmentEntry* selected = mode == 0 ? environment : (mode == 1 ? nullptr : cpu_profiles[mode - 2]);
+    const uint32_t selected_count = mode == 0 ? (uint32_t)(sizeof(environment)/sizeof(environment[0])) : (mode == 1 ? 0 : 1);
+    if (!wit_pal_environment_initialize(selected, selected_count)) return 1602;
+    g_pRhConfig = nullptr;
+    if (PalInit() || GetLastError() != ERROR_NOT_READY || GCToOSInterface::GetTotalProcessorCount() ||
+        GCConfig::GetGCHeapHardLimit()) return 1683;
+    g_pRhConfig = &config;
+    report()[1] |= 64;
+    if (mode == 3 || mode == 7) {
+        errno = 91;
+        for (size_t i = 0; i < 2; ++i)
+            if (PalInit() || GetLastError() != ERROR_NOT_SUPPORTED || errno != 91 ||
+                GCToOSInterface::GetTotalProcessorCount() || GCConfig::GetGCHeapHardLimit()) return 1684;
+        report()[1] |= 1024;
+        return WIT_TEST_EXIT_CODE;
+    }
     wit_native_tls_initialize(startup);
     if (!precedence()) return 1610;
     report()[1] |= 2;
     if (!strings()) return 1620;
     report()[1] |= 4;
-    GCConfig::Initialize();
+    WitUserMemoryInfo before_init, after_init;
+    WitUserThreadInfo info;
+    if (!snapshot(&before_init) || wit_native_call(WIT_CALL_THREAD_QUERY, (uintptr_t)&info, sizeof(info),
+        WIT_THREAD_INFO_VERSION, nullptr) != WIT_STATUS_OK) return 1685;
+    auto raw = (WitU64*)(uintptr_t)info.RawTls;
+    const WitU64 saved_self = raw[0], saved_id = raw[1];
+    raw[0] = raw[1] = 0; // Writable hints cannot supply processor/thread identity.
+    errno = 77; SetLastError(0x87654321);
+    const bool initialized = PalInit();
+    raw[0] = saved_self; raw[1] = saved_id;
+    if (!initialized || errno != 77 || GetLastError() != 0x87654321 ||
+        GCToOSInterface::GetTotalProcessorCount() != 1 || PalGetProcessCpuCount() != 1 ||
+        !snapshot(&after_init) || !same_memory(before_init, after_init)) return 1686;
+    report()[1] |= 128;
     expected_limit = mode ? 262144 : 524288;
     if (GCConfig::GetGCHeapHardLimit() != expected_limit || GCConfig::GetGCHeapHardLimit(17) != expected_limit ||
         GCConfig::GetGCHeapHardLimitPercent() != 60 || GCConfig::GetConcurrentGC() != (mode != 0) ||
@@ -188,6 +248,11 @@ extern "C" WitU64 wit_native_main(const WitUserStartup* startup)
     GCConfig::EnumerateConfigurationValues(nullptr, enumerate);
     if (enumeration_count < 20 || enumerated_limit != 1 || enumerated_conservative != 1 || !enumerated_string) return 1641;
     report()[1] |= 16;
+    g_gcHeapHardLimitInfoSpecified = false; // Re-initialization would now replace the refreshed value.
+    errno = 83; SetLastError(0x12344321);
+    if (!PalInit() || errno != 83 || GetLastError() != 0x12344321 ||
+        GCConfig::GetGCHeapHardLimit() != expected_limit) return 1687;
+    report()[1] |= 256;
     WitU64 handles[2], result;
     errno = 42;
     for (WitU64 i = 0; i < 2; ++i) if (wit_native_thread_create(worker, i, &handles[i]) != WIT_STATUS_OK) return 1650;
@@ -197,6 +262,11 @@ extern "C" WitU64 wit_native_main(const WitUserStartup* startup)
         wit_native_call(WIT_CALL_THREAD_JOIN, handles[0], 0, 0, &result) != WIT_STATUS_OK ||
         result != WIT_TEST_EXIT_CODE || errno != 42) return 1652;
     report()[1] |= 32;
+    GCToOSInterface::Shutdown();
+    errno = 89;
+    if (PalInit() || GetLastError() != ERROR_INVALID_STATE || errno != 89 ||
+        GCToOSInterface::GetTotalProcessorCount() || GCConfig::GetGCHeapHardLimit() != expected_limit) return 1688;
+    report()[1] |= 512;
     wit_native_tls_leave();
     return WIT_TEST_EXIT_CODE;
 }

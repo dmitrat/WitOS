@@ -16,4 +16,5 @@ static constexpr uint32_t WIT_PAL_ENV_CAPACITY = 16;
 static constexpr uint32_t WIT_PAL_ENV_NAME_MAX = 63;
 static constexpr uint32_t WIT_PAL_ENV_VALUE_MAX = 1023;
 bool wit_pal_environment_initialize(const WitPalEnvironmentEntry* entries, uint32_t count);
+bool wit_pal_environment_is_ready();
 #endif

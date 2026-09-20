@@ -2,7 +2,7 @@
 
 **Status:** Accepted; implemented in WitOS 0.0.25.
 **Date:** 2026-09-20.
-**Scope:** Dedicated native runtime-config guest probe; ABI v13 unchanged. PalInit, collector startup, ThreadStore attachment and managed execution remain pending.
+**Scope:** Dedicated native runtime-config guest probe; ABI v13 unchanged. The later [PalInit extension](NativeAot-Pal-Initialization.md) connects this path to GC OS initialization. Collector startup, ThreadStore attachment and managed execution remain pending.
 
 ## Decision and source boundary
 
@@ -20,7 +20,7 @@ The 48-file audit adds gcconfig.h and nativeaot/Runtime/gcenv.h. Source/package 
 
     dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-config
 
-The command runs runtime-source, including runtime-target, refreshes both native profiles and verifies all four probe objects byte-for-byte in WitOS.ConfigProbe.lib. It then builds an import-free PE and boots QEMU at 128 and 512 MiB RAM.
+The command runs runtime-source, including runtime-target, refreshes both native profiles and verifies all five probe objects after the PalInit extension byte-for-byte in WitOS.ConfigProbe.lib. It then builds an import-free PE and boots QEMU at 128 and 512 MiB RAM.
 
 An isolated CMake target uses the actual NativeAOT headers/feature definitions and rejects CoreCLR definitions. Its guest flags select static CRT declarations, size optimization and disabled Windows GS/CFG/EH instrumentation, matching existing native fixtures. It links no Windows/CRT library. The Workstation library retains its normal native compilation profile.
 
@@ -67,10 +67,10 @@ Release build, the complete eighteen-scenario regression, both runtime-config bo
 | GcConfigRefresh | Actual heap-limit override refresh and enumeration |
 | RuntimeConfigThreads | Yielding workers, independent errors and zero errno in a reused slot |
 
-Each dedicated boot retains 156 ordinary groups plus these six, and 50 contained hardware user faults. Configured/empty environments and two relocated bases run with a required completion bitmask, three joins/reaps and full resource reclamation.
+At version 0.0.25, each dedicated boot retained 156 ordinary groups plus these six, and 50 contained hardware user faults. Configured/empty environments and two relocated bases run with a required completion bitmask, three joins/reaps and full resource reclamation.
 
-The local probe is 25,600 bytes with 41 plain unwind entries. Workstation has 81 members, including nineteen verified local adapter/helper objects; the separate probe has four objects, and minipal eleven. Strict linking reports 100 unresolved symbols: seven GC environment, eighteen PAL, five deliberately excluded transport/startup and seventy other requirements. PalInit and PalAttachThread remain unresolved.
+At version 0.0.25, the local probe was 25,600 bytes with 41 plain unwind entries. Workstation has 81 members, including nineteen verified local adapter/helper objects; the separate probe has four objects, and minipal eleven. Strict linking reports 100 unresolved symbols: seven GC environment, eighteen PAL, five deliberately excluded transport/startup and seventy other requirements. At that milestone PalInit and PalAttachThread remained unresolved; PalInit is now covered by ADR 0023.
 
 ## Next boundary
 
-Implement PalInit using this verified configuration path and existing GC OS initialization, with explicit environment/startup ordering and processor-count/profile policy. Continue to actual RuntimeInstance/collector startup and ThreadStore lifecycle, preserving the real FixAllocContext dependency on detach. Managed-module registration, GC rendezvous, exceptions/unwinding and measured image/stack/quota expansion remain M3 work.
+PalInit is now implemented using this verified path; see its [startup/lifecycle contract](NativeAot-Pal-Initialization.md). Continue to actual RuntimeInstance/collector startup and ThreadStore lifecycle, preserving the real FixAllocContext dependency on detach. Managed-module registration, GC rendezvous, exceptions/unwinding and measured image/stack/quota expansion remain M3 work.

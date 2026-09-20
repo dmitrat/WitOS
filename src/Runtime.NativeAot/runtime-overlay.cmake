@@ -39,6 +39,7 @@ function(witos_select_gc_environment)
     endforeach()
     list(APPEND sources "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_memory.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_init.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_events.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_threads.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/System.Native/thread.c"
@@ -103,7 +104,8 @@ function(witos_select_gc_environment)
     set(config_sources "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/rhconfig.witos.cpp"
         "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/gcconfig.slice.cpp"
         "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/gcenv.config.slice.cpp"
-        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_config.cpp")
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_config.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_init.witos.cpp")
     foreach(config_source IN LISTS config_sources)
         if(NOT EXISTS "${config_source}")
             message(FATAL_ERROR "Run runtime-source to prepare the pinned configuration sources")

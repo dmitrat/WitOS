@@ -9,7 +9,9 @@ static void require(int condition, const char* message) { if (!condition) wit_pa
 static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
 {
     const WitU64 before = wit_pages_free_count(pages);
-    require(wit_user_create_pe(&process, pages, 0, wit_runtime_config_image, sizeof(wit_runtime_config_image), base) == WitPeOk,
+    const WitU8* image = mode == 8 ? wit_runtime_config_raw_image : wit_runtime_config_image;
+    const WitU32 size = mode == 8 ? sizeof(wit_runtime_config_raw_image) : sizeof(wit_runtime_config_image);
+    require(wit_user_create_pe(&process, pages, 0, image, size, base) == WitPeOk,
         "Runtime configuration fixture load failed");
     const WitU32 owned = process.Space.OwnedCount;
     WitUserTestConfig* config = (WitUserTestConfig*)wit_user_space_physical(&process.Space, WIT_USER_INFO, 0, 0);
@@ -21,9 +23,14 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
         wit_console_write("/"); wit_console_write_u64(process.ExitCode); wit_console_write("\n");
         wit_panic("Upstream configuration contract failed");
     }
-    require(report && report[0] == mode && report[1] == 63 && process.ThreadCreates == 4 &&
-        process.ThreadJoins == 3 && process.ThreadReaps == 3 && process.ThreadSwitches,
-        "Runtime configuration missed required checks or thread reuse");
+    if (mode == 3 || mode == 7 || mode == 8)
+        require(report && report[0] == mode && report[1] == (mode == 8 ? 2048 : 1089) &&
+            process.ThreadCreates == 1 && !process.ThreadJoins && !process.ThreadReaps &&
+            (process.Threads[0].CompilerTls != 0) == (mode != 8), "PAL initialization rejection missed its intended boundary");
+    else
+        require(report && report[0] == mode && report[1] == 1023 && process.ThreadCreates == 4 &&
+            process.ThreadJoins == 3 && process.ThreadReaps == 3 && process.ThreadSwitches,
+            "Runtime configuration missed required checks or thread reuse");
     require(process.Space.OwnedCount == owned && !process.Handles.Count && !process.Events.Count,
         "Runtime configuration leaked resources");
     for (WitU32 i = 0; i < WIT_USER_RESERVATION_CAPACITY; ++i)
@@ -36,8 +43,11 @@ void wit_user_runtime_config_self_test(WitPageAllocator* pages)
     run(pages, 0, WIT_USER_IMAGE_BASE);
     run(pages, 0, WIT_USER_IMAGE_ALTERNATE);
     run(pages, 1, WIT_USER_IMAGE_BASE);
+    for (WitU64 mode = 2; mode <= 8; ++mode) run(pages, mode, WIT_USER_IMAGE_BASE);
     wit_console_write("[TEST-PASS] User.RuntimeConfigCrt\n[TEST-PASS] User.RhConfigPrecedence\n");
     wit_console_write("[TEST-PASS] User.RhConfigStrings\n[TEST-PASS] User.GcConfigValues\n");
     wit_console_write("[TEST-PASS] User.GcConfigRefresh\n[TEST-PASS] User.RuntimeConfigThreads\n");
+    wit_console_write("[TEST-PASS] User.PalInitPrerequisites\n[TEST-PASS] User.PalInitPolicy\n");
+    wit_console_write("[TEST-PASS] User.PalInitLifecycle\n");
 }
 #endif

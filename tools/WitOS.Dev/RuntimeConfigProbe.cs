@@ -80,9 +80,9 @@ internal static class RuntimeConfigProbe
         var members = listing.Output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
         var all = JsonSerializer.Deserialize<JsonElement[]>(await File.ReadAllTextAsync(Path.Combine(obj, "compile_commands.json")), Json)!;
         var commands = all.Where(c => c.GetProperty("output").GetString()!.Replace('\\', '/').Contains("/WitOS.ConfigProbe.dir/", StringComparison.Ordinal)).ToArray();
-        string[] names = ["rhconfig.witos.cpp", "gcconfig.slice.cpp", "gcenv.config.slice.cpp", "runtime_config.cpp"];
+        string[] names = ["rhconfig.witos.cpp", "gcconfig.slice.cpp", "gcenv.config.slice.cpp", "runtime_config.cpp", "pal_init.witos.cpp"];
         if (members.Length != names.Length || commands.Length != names.Length)
-            throw new InvalidDataException("Configuration probe must contain exactly the selected four objects.");
+            throw new InvalidDataException("Configuration probe must contain exactly the selected five objects.");
         foreach (var name in names)
         {
             var command = commands.Single(c => Path.GetFileName(c.GetProperty("file").GetString()!) == name);
@@ -94,13 +94,13 @@ internal static class RuntimeConfigProbe
             archiveSha256 = Hash(archive), members, commands, guestManagedRuntime = false,
             localInputs = new[] { "tests/User.X64/runtime_config.cpp", "tests/User.X64/protocol.h",
                 "src/Runtime.NativeAot/runtime-overlay.cmake", "src/Runtime.NativeAot/config-probe/CMakeLists.txt",
-                "src/Runtime.NativeAot/crt_config.witos.cpp", "src/Runtime.NativeAot/pal_environment.witos.h",
+                "src/Runtime.NativeAot/crt_config.witos.cpp", "src/Runtime.NativeAot/pal_init.witos.cpp", "src/Runtime.NativeAot/pal_environment.witos.h",
                 "src/System.Native/tls.h", "src/Kernel/include/witos/user_abi.h",
                 "artifacts/runtime-config/source/rhconfig.witos.cpp", "artifacts/runtime-config/source/gcconfig.slice.cpp",
                 "artifacts/runtime-config/source/gcenv.config.slice.cpp" }
                 .Select(p => new { path = p, sha256 = Hash(Path.Combine(root, p)) })
         }, Json));
-        Console.WriteLine("[SOURCE-PASS] Configuration probe: four exact source objects; collector and ThreadStore excluded.");
+        Console.WriteLine("[SOURCE-PASS] Configuration probe: five exact source objects; collector and ThreadStore excluded.");
     }
 
     public static async Task BuildImageAsync(string root, string output, string msvc)
@@ -124,7 +124,7 @@ internal static class RuntimeConfigProbe
                 Path.Combine(root, "src", "Runtime.NativeAot", "crt_config.witos.cpp")], root);
         string[] shared = ["native_start.obj", "environment_pal_environment.witos.obj", "native_new.witos.obj",
             "native_error.obj", "native_environment.obj", "dynamic_image.obj", "dynamic_thread.obj",
-            "dynamic_tls.witos.obj", "dynamic_tls_metadata.obj"];
+            "dynamic_tls.witos.obj", "dynamic_tls_metadata.obj", "gcenv.witos.obj", "pal_pal.witos.obj", "pal_pal_error.witos.obj"];
         var image = Path.Combine(output, "RuntimeConfigFixture.pe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
             ["/nologo", "/subsystem:native", "/entry:wit_native_start", "/nodefaultlib", "/machine:x64", "/fixed:no", "/dynamicbase",
@@ -140,11 +140,25 @@ internal static class RuntimeConfigProbe
         for (var i = 0; i < bytes.Length; i += 16)
             text.AppendLine("    " + string.Join(", ", bytes.Skip(i).Take(16).Select(b => $"0x{b:X2}")) + ",");
         text.AppendLine("};");
+        var raw = (byte[])bytes.Clone();
+        // Controlled fixture: retain identical code/sections, omit only the
+        // PE32+ TLS directory so the kernel supplies no compiler GS page.
+        var tlsDirectory = checked(BitConverter.ToInt32(raw, 0x3c) + 24 + 112 + 9 * 8);
+        raw.AsSpan(tlsDirectory, 8).Clear();
+        using (var plain = new PEReader(new MemoryStream(raw, writable: false)))
+            if (plain.PEHeaders.PEHeader!.ThreadLocalStorageTableDirectory.Size != 0 ||
+                plain.PEHeaders.PEHeader.ThreadLocalStorageTableDirectory.RelativeVirtualAddress != 0)
+                throw new InvalidDataException("Raw configuration fixture retained a compiler TLS directory.");
+        await File.WriteAllBytesAsync(Path.Combine(output, "RuntimeConfigRawFixture.pe"), raw);
+        text.AppendLine("static const unsigned char wit_runtime_config_raw_image[] = {");
+        for (var i = 0; i < raw.Length; i += 16)
+            text.AppendLine("    " + string.Join(", ", raw.Skip(i).Take(16).Select(b => $"0x{b:X2}")) + ",");
+        text.AppendLine("};");
         await File.WriteAllTextAsync(Path.Combine(output, "runtime_config_image.h"), text.ToString(), Encoding.ASCII);
         await File.WriteAllTextAsync(Path.Combine(root, "artifacts", "runtime-config", "image-report.json"), JsonSerializer.Serialize(new
         {
             guestManagedRuntime = false, imageBytes = bytes.Length, imageSha256 = Hash(image), unwindEntries = h.ExceptionTableDirectory.Size / 12,
-            archiveSha256 = Hash(archive), crtSha256 = Hash(crt), sharedObjects = shared.Select(p => new { file = p, sha256 = Hash(Path.Combine(output, p)) })
+            rawImageSha256 = Hash(Path.Combine(output, "RuntimeConfigRawFixture.pe")), archiveSha256 = Hash(archive), crtSha256 = Hash(crt), sharedObjects = shared.Select(p => new { file = p, sha256 = Hash(Path.Combine(output, p)) })
         }, Json));
         Console.WriteLine($"RuntimeConfigFixture: {bytes.Length} bytes, real upstream configuration methods, no OS/CRT imports.");
     }

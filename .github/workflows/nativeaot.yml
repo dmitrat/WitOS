@@ -103,4 +103,5 @@ jobs:
             artifacts/runtime-config/
             artifacts/logs/runtime-config*
             artifacts/x64/runtime-config/RuntimeConfigFixture.pe
+            artifacts/x64/runtime-config/RuntimeConfigRawFixture.pe
             artifacts/x64/runtime-config/WitOS-x64.img

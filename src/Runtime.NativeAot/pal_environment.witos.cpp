@@ -9,6 +9,7 @@ static_assert(sizeof(TCHAR) == 2, "The selected PAL uses UTF-16 TCHAR.");
 static const WitPalEnvironmentEntry* environment;
 static uint32_t environment_count;
 static bool environment_ready;
+bool wit_pal_environment_is_ready() { return environment_ready; }
 
 static wchar_t fold(wchar_t c) { return c >= L'a' && c <= L'z' ? c - (L'a' - L'A') : c; }
 static bool name_character(wchar_t c) { return c >= L'!' && c <= L'~' && c != L'='; }
