@@ -14,6 +14,20 @@ internal static class Toolchain
 
     public static string FirmwareVariables(string root) => Path.Combine(QemuDirectory(root), "share", "edk2-i386-vars.fd");
 
+    public static IReadOnlyDictionary<string, string> NativeAotEnvironment()
+    {
+        // NativeAOT's SDK invokes VS discovery scripts that can use bare
+        // vswhere.exe. Scope its directory to the publish child process.
+        var installer = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            "Microsoft Visual Studio", "Installer");
+        if (!File.Exists(Path.Combine(installer, "vswhere.exe")))
+            throw new InvalidOperationException("Install Visual Studio Build Tools with Desktop development with C++ (x64). vswhere.exe was not found.");
+        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["PATH"] = installer + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH")
+        };
+    }
+
     public static async Task<string> FindMsvcAsync(string root)
     {
         var vswhere = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),

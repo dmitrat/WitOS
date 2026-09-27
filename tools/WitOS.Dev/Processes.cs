@@ -7,7 +7,7 @@ internal sealed record ProcessResult(int ExitCode, string Output, string Error, 
 internal static class Processes
 {
     public static async Task<ProcessResult> RunAsync(
-        string executable, IEnumerable<string> arguments, string directory, int timeoutSeconds = 60)
+        string executable, IEnumerable<string> arguments, string directory, int timeoutSeconds = 60, IReadOnlyDictionary<string, string>? environment = null)
     {
         var start = new ProcessStartInfo(executable)
         {
@@ -17,6 +17,8 @@ internal static class Processes
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
+        if (environment is not null)
+            foreach (var (name, value) in environment) start.Environment[name] = value;
         foreach (var argument in arguments)
             start.ArgumentList.Add(argument);
 

@@ -1,6 +1,6 @@
 # NativeAOT host reference and source audit
 
-Status: implemented and verified locally on 2026-09-16.
+Status: implemented; extended reference verified locally on 2026-09-27.
 
 This is a Windows-hosted experiment. The separate [M2 implementation](M2-Isolated-Execution.md) now provides native user isolation; this experiment does not provide a guest .NET runtime.
 
@@ -22,7 +22,7 @@ The project is under `experiments/` and is intentionally outside the ordinary ke
 
 ## Pins
 
-The source and binary package versions are 10.0.8. Compiler packages are locked by NuGet version/content hash, while 32 selected source/license files and the package VMR manifest are locked by SHA-256.
+The source and binary package versions are 10.0.8. Compiler packages are locked by NuGet version/content hash, while 48 selected source/license files and the package VMR manifest are locked by SHA-256.
 
 Published packages report a dotnet/dotnet VMR commit, not the dotnet/runtime tag SHA. The audit verifies that the VMR's runtime component maps to the reviewed runtime commit. The probe independently validates both the compiler package and the NativeAOT runtime pack's nuspec repository metadata.
 
@@ -33,15 +33,15 @@ No upstream code is vendored into Git. The caches retain the upstream files and 
 
 ## Checks
 
-Six groups exercise NativeAOT identity, GC roots/finalizers, exception/filter/finally/null/divide behavior, threads/TLS/Monitor/Join/atomics/GC, wait/reset/timeout behavior and Task/cancellation/clock behavior.
+Eight groups exercise NativeAOT identity, GC roots/finalizers, composite/generic/interior roots, collection during exception filter/finally/catch and rethrow, exception/null/divide behavior, threads/TLS/Monitor/Join/atomics/GC, wait/reset/timeout behavior and Task/cancellation/clock behavior.
 
-The host tool requires the expected runtime version, all six success markers, successful process exit, no failure marker and no timeout. It verifies an x64 native console PE without a CLR header.
+The host tool requires the expected runtime version, all eight success markers, successful process exit, no failure marker and no timeout. It verifies an x64 native console PE without a CLR header.
 
 The profile explicitly chooses invariant globalization, workstation/non-concurrent GC and the non-Windows-specific ThreadPool implementation option. It does not promise the removal of every Windows service dependency.
 
 ## Observed local result
 
-All six groups passed. The reference executable was 1,558,528 bytes with 158 direct import symbols from 11 libraries:
+All eight groups passed. The reference executable was 1,570,304 bytes with 158 direct import symbols from 11 libraries:
 
 | Library group | Observation |
 | --- | --- |
@@ -55,6 +55,8 @@ Exact size and import counts are observations for the local native linker/SDK, n
 
 Additional local checks confirmed that modifying a cached source byte causes a SHA-256 audit failure, and that the restored source verifies again. Every direct import library/symbol was independently compared against MSVC dumpbin.
 
+The two added root/unwind groups are independently authored after the [BootTo.NET review](BootToNET-Review.md). NativeAOT publish now receives the Visual Studio Installer directory in its child-process PATH, so VS discovery does not depend on a global vswhere PATH entry.
+
 ## Interpretation limits
 
 The import report covers the PE's direct import table and reports the delay-import directory size. It does not enumerate dynamically resolved calls, forwarded exports, all transitive DLL dependencies or platform-specific instructions. Imports can remain linked without being exercised by the probe.
@@ -65,6 +67,6 @@ This build uses published NativeAOT packages. It is not a source build of the en
 
 ## CI and next step
 
-A separate hosted-runtime workflow runs the source audit and native probe. Kernel VM tests remain separate so a passing Windows probe cannot be mistaken for guest runtime support.
+The NativeAOT workflow runs the source audit, hosted probe, target/bootstrap checks, native source builds and the guest configuration probe. The full kernel VM regression has a separate workflow. Hosted managed execution and guest native configuration evidence remain explicitly distinguished.
 
 The M2 memory/thread/event slices are now implemented. The [target/bootstrap experiment](NativeAot-Target-Bootstrap.md) extends hosted evidence to native C entry, static ILC artifacts and strict link boundaries. Guest loading, runtime adaptations and fault/GC integration remain, following [RFC 0015](../RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md).

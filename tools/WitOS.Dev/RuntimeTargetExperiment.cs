@@ -150,7 +150,7 @@ internal static class RuntimeTargetExperiment
             "--configfile", Path.Combine(root, Project, "NuGet.Config"), "-p:RestoreLockedMode=true",
             "-p:NativeLib=" + kind, "-p:NativeIntermediateOutputPath=" + Path.Combine(directory, "native") + "/",
             "-p:NativeOutputPath=" + Path.Combine(directory, "link") + "/"
-        ], root, 600);
+        ], root, 600, Toolchain.NativeAotEnvironment());
         await File.WriteAllTextAsync(Path.Combine(directory, "publish.log"), result.Output + result.Error);
         if (result.TimedOut || result.ExitCode != 0)
             throw new InvalidOperationException($"NativeAOT {kind} publish failed. {result.Output}\n{result.Error}");

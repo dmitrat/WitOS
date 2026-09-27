@@ -12,7 +12,7 @@ internal static class RuntimeExperiment
     private const string ExperimentPath = "experiments/NativeAotProbe";
     private static readonly string[] ProbeCases =
     [
-        "NativeAotIdentity", "GcRootsAndFinalizer", "ExceptionsAndFinally",
+        "NativeAotIdentity", "GcRootsAndFinalizer", "GcCompositeRoots", "GcRootsAcrossUnwind", "ExceptionsAndFinally",
         "ThreadsTlsMonitorAndGc", "WaitSignalResetAndTimeout", "TasksCancellationAndClock"
     ];
 
@@ -128,7 +128,7 @@ internal static class RuntimeExperiment
             "--configuration", "Release", "--runtime", "win-x64", "--output", publish,
             "--packages", packageCache, "--configfile", Path.Combine(root, ExperimentPath, "NuGet.Config"),
             "-p:RestoreLockedMode=true"
-        ], root, 600);
+        ], root, 600, Toolchain.NativeAotEnvironment());
         await File.WriteAllTextAsync(Path.Combine(output, "publish.log"), build.Output + build.Error);
         if (build.TimedOut || build.ExitCode != 0)
             throw new InvalidOperationException($"NativeAOT publish failed (exit={build.ExitCode}, timeout={build.TimedOut}).\n{build.Output}\n{build.Error}");

@@ -33,6 +33,8 @@ See [native module/bootstrap handoff](M2-Native-Module-Bootstrap.md), [NativeAOT
 
 WitOS 0.0.26 executes the native memory/reset/discovery/event/time, minipal/Crst and nothrow allocation adapters, plus native PAL environment/string services, in the guest. The separate runtime-config command adds nine groups to each of two guest boots, exercising upstream configuration and native PAL initialization. It still does not run managed .NET or its collector there.
 
+The [BootTo.NET source review](BootToNET-Review.md) keeps the upstream runtime direction and existing WitOS runner. Its immediate result is expanded hosted root/unwind coverage; it recommends an explicit minimal bring-up profile for the next full startup workload.
+
 ## Next: extend the selected source port
 
 See [the M3 work-package estimate](M3-Runtime-Integration-Plan.md): roughly eight major packages / 12-20 bounded slices estimated at 0.0.15; native allocation now completes part of the first package.

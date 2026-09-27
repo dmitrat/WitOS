@@ -22,6 +22,10 @@ internal static class Program
             Check(!System.Runtime.GCSettings.IsServerGC, "Expected workstation GC.");
             Pass("NativeAotIdentity");
             CollectionsAndGc();
+            RuntimeBoundaryChecks.CompositeRoots();
+            Pass("GcCompositeRoots");
+            RuntimeBoundaryChecks.UnwindRoots();
+            Pass("GcRootsAcrossUnwind");
             ManagedExceptions();
             ThreadingAndTls();
             WaitTimeouts();
