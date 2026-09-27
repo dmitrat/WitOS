@@ -81,6 +81,7 @@ typedef struct __declspec(align(16)) WitInterruptContext {
 _Static_assert(sizeof(WitInterruptContext) == 672, "x64 interrupt context layout");
 WitInterruptContext *wit_x64_timer_interrupt(WitInterruptContext *context);
 void wit_x64_fxsave(void *state);
+void wit_x64_process_write_barrier(void);
 WitU64 wit_x64_read_flags(void);
 WIT_NORETURN void wit_x64_worker(WitU32 index);
 void wit_x64_load_tables(const WitDescriptorPointer *gdt, const WitDescriptorPointer *idt);

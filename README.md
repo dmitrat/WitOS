@@ -6,7 +6,7 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 
 ## Current status
 
-**WitOS 0.0.29: actual upstream RuntimeInstance and empty ThreadStore creation execute in the guest, with checked TLS metadata, allocation rollback and native worker visibility. ABI v13 is unchanged; managed execution and GC startup remain pending.**
+**WitOS 0.0.30: GC and PAL process memory barriers execute through a real x64 kernel fence, with thread/error-state checks and explicit single-processor limits. ABI v14 adds the barrier call; managed execution and GC startup remain pending.**
 
 The kernel boots independently through UEFI and runs separately built native components in ring 3 with private mappings and handles. Its bounded PE loader parses complete files inside the guest, maps sections and applies relocations. A freestanding C startup layer receives image metadata, runs native initializers and enters the program in user space. The component writes through a checked syscall and exits; its faults are contained while the kernel runs the next component. Within a component, up to four user threads can run with timer preemption, separate stacks/TLS and blocking join. Manual/auto-reset events, sleep and absolute deadlines work with kernel idle when all threads are blocked. M1 paging, protection, timer and kernel-context checks remain part of every successful boot.
 
@@ -39,7 +39,7 @@ Expected guest output includes:
 ```text
 [BOOT] UEFI x64 adapter
 [BOOT] ExitBootServices OK
-WitOS 0.0.29 (upstream runtime instance startup)
+WitOS 0.0.30 (process memory barriers)
 Build: <git-revision> | x64 | Debug
 [TEST-BEGIN] Boot.Contract
 [TEST-PASS] Boot.Contract
@@ -160,7 +160,7 @@ This fetches the pinned upstream native tree and builds separate Windows-referen
 
     dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-config
 
-This refreshes the native source build and executes actual configuration methods in QEMU at 128 and 512 MiB RAM. Each boot checks 175 user groups, including thirteen additional configuration/CRT/PAL/startup groups. Ordinary test retains eighteen scenarios and 162 groups without requiring a full runtime source build.
+This refreshes the native source build and executes actual configuration methods in QEMU at 128 and 512 MiB RAM. Each boot checks 177 user groups, including fifteen additional configuration/CRT/PAL/startup groups. Ordinary test retains eighteen scenarios and 162 groups without requiring a full runtime source build.
 
 This tests PalInit and configuration/GC OS initialization, not a running collector or managed code. The explicit RhConfig OOM overlay and source provenance are described in [ADR 0022](@Docs/Implementation/NativeAot-Runtime-Configuration.md).
 
@@ -184,7 +184,7 @@ The core kernel does not include UEFI structures. The output is a freestanding P
 
 ## Scope and next work
 
-M2 uses two fixed component slots and activates one component at a time. Up to four threads share its private address space and handles; each has separate guarded user/kernel stacks and a raw FS-based TLS block. Shared kernel mappings stay supervisor-only. Native components use experimental ABI v13 for query/write/exit/close, memory, thread, event, legacy tick-clock, monotonic deadline, allocator-snapshot and current-thread identity operations. Earlier one-page fixtures remain alongside the new PE path, whose profile permits up to 16 sections and a 256 KiB mapped image. Each space can reserve within a separate 64 GiB virtual arena without allocating backing RAM; commitment is explicitly limited to 128 owned frames including page tables and fixed mappings. Firmware memory remains reserved, and usable physical addresses remain below 4 GiB.
+M2 uses two fixed component slots and activates one component at a time. Up to four threads share its private address space and handles; each has separate guarded user/kernel stacks and a raw FS-based TLS block. Shared kernel mappings stay supervisor-only. Native components use experimental ABI v14 for query/write/exit/close, memory, thread, event, legacy tick-clock, monotonic deadline, allocator-snapshot, current-thread identity and process memory-barrier operations. Earlier one-page fixtures remain alongside the new PE path, whose profile permits up to 16 sections and a 256 KiB mapped image. Each space can reserve within a separate 64 GiB virtual arena without allocating backing RAM; commitment is explicitly limited to 128 owned frames including page tables and fixed mappings. Firmware memory remains reserved, and usable physical addresses remain below 4 GiB.
 
 User faults terminate that component; kernel faults remain fatal diagnostics. General Windows/DLL loading, imports, managed TLS/ThreadStore attachment, unwind integration, multi-object waits, IPC channels, SMP and managed execution remain future work. The pinned target/bootstrap experiment now supplies measured object, TLS, unwind and dependency requirements. The bounded guest PE loading contract is implemented; native image handoff and C startup are now implemented. Windows x64 code generation is selected and the first GC memory adapter is implemented; the full native source build and strict port-dependency inventory are established. GC discovery, monotonic time, finite event waits, recursive minipal/Crst mutexes and committed-memory reset are implemented; bounded native new/delete is also implemented. Static single-module compiler TLS is now implemented. User-space dynamic C++ TLS initialization/destruction is implemented for the bounded single-module profile. Four thread-discovery PAL methods now execute through kernel snapshots. PAL memory, events and non-alertable single-event waits are implemented for the bounded profile. Detached PAL background workers now run native callbacks with TLS cleanup. Per-thread native last-error and failure diagnostics are implemented. Next complete initialization/handle/GC coordination requirements, initialize the real runtime/collector, then validate ThreadStore attachment/shutdown; remaining CRT/PAL services are still incomplete. The q35 HPET counter advances independently of IRQs; PIT retains scheduling and the legacy delivered-tick ABI. This is not UTC or a hard real-time wake-latency guarantee.
 

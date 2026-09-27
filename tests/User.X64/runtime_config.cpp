@@ -13,6 +13,8 @@ extern "C" bool wit_test_runtime_allocator();
 extern "C" bool wit_test_interface_dispatch();
 extern "C" bool wit_test_runtime_instance();
 extern "C" void wit_test_runtime_missing_tls();
+extern "C" bool wit_test_barrier_early();
+extern "C" bool wit_test_barrier_threads();
 static RhConfig config;
 RhConfig* g_pRhConfig = &config;
 /* Fixture-owned configuration inputs, using the actual upstream declaration.
@@ -184,6 +186,17 @@ extern "C" WitU64 wit_native_main(const WitUserStartup* startup)
 {
     mode = ((const WitUserTestConfig*)startup)->Mode;
     report()[0] = mode; report()[1] = 0;
+    if (mode == 12 || mode == 13) {
+        if (!wit_test_barrier_early()) return 1695;
+        if (mode == 12) {
+            wit_native_process_image_initialize(startup);
+            wit_native_tls_initialize(startup);
+            if (!wit_test_barrier_threads()) return 1696;
+            wit_native_tls_leave();
+        }
+        report()[1] = 65536;
+        return WIT_TEST_EXIT_CODE;
+    }
     if (mode == 11) {
         report()[1] = 32768;
         wit_test_runtime_missing_tls();

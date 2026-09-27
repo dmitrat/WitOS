@@ -210,7 +210,7 @@ WitU64 wit_user_memory_query(const WitUserSpace *space, WitU64 address, WitU64 s
     info.Version = WIT_MEMORY_INFO_VERSION;
     info.Size = sizeof(info);
     info.PageSize = (WitU32)WIT_PAGE_SIZE;
-    info.ProcessorCount = 1; /* Only the bootstrap CPU is online in this backend. */
+    info.ProcessorCount = WIT_USER_PROCESSOR_COUNT; /* Only the bootstrap CPU is online in this backend. */
     info.PhysicalTotalBytes = space->Allocator->TotalPages * WIT_PAGE_SIZE;
     info.PhysicalAvailableBytes = wit_pages_free_count(space->Allocator) * WIT_PAGE_SIZE;
     info.OwnedLimitBytes = WIT_USER_PAGE_CAPACITY * WIT_PAGE_SIZE;

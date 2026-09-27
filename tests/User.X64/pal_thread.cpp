@@ -114,5 +114,15 @@ extern "C" WitU64 wit_native_main(const WitUserStartup* startup)
         observed[2].StackLow != observed[0].StackLow) return 1125;
     if (wit_native_call(WIT_CALL_CLOCK_READ, 0, 0, 0, &code) != WIT_STATUS_OK ||
         wit_native_call(WIT_CALL_THREAD_SLEEP, code + 1, 0, 0, nullptr) != WIT_STATUS_OK || !check(*original)) return 1126;
+    WitU64 barrier_result = 99;
+    SetLastError(0x12341111);
+    PalFlushProcessWriteBuffers();
+    if (wit_native_call(WIT_CALL_PROCESS_WRITE_BARRIER, 0, 0, 0, &barrier_result) != WIT_STATUS_OK || barrier_result ||
+        GetLastError() != 0x12341111) return 1127;
+    for (WitU32 i = 0; i < 3; ++i) {
+        barrier_result = 99;
+        if (wit_native_call(WIT_CALL_PROCESS_WRITE_BARRIER, i == 0, i == 1, i == 2, &barrier_result) != WIT_STATUS_INVALID_ARGUMENT ||
+            barrier_result || GetLastError() != 0x12341111) return 1128;
+    }
     return WIT_TEST_EXIT_CODE;
 }

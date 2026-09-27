@@ -61,3 +61,5 @@ Version 0.0.27 implements bounded native exit callbacks and checks their registr
 Version 0.0.28 executes actual interface-dispatch initialization and allocation over the WitOS PAL, with explicit upstream AllocHeap lock cleanup. This advances the first InitDLL subsystem; the full link remains at 98 unresolved symbols. See [interface-dispatch startup](NativeAot-Interface-Dispatch-Startup.md).
 
 Version 0.0.29 creates the actual upstream RuntimeInstance and empty ThreadStore in the guest, replacing the startup TEB assumption with kernel-confirmed TLS metadata. Both allocation failures roll back; attachment and real GC remain pending. See [RuntimeInstance startup](NativeAot-Runtime-Instance.md).
+
+Version 0.0.30 supplies real GC/PAL process memory barriers under the single-online-CPU contract (ABI v14). Full-link unresolved symbols drop to 96; root enumeration, managed suspension and actual GC startup remain separate work. See [process barriers](NativeAot-Process-Barrier.md).

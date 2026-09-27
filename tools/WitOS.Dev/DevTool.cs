@@ -273,7 +273,8 @@ internal static class DevTool
                 "[TEST-PASS] User.GcConfigRefresh", "[TEST-PASS] User.RuntimeConfigThreads",
                 "[TEST-PASS] User.PalInitPrerequisites", "[TEST-PASS] User.PalInitPolicy",
                 "[TEST-PASS] User.PalInitLifecycle", "[TEST-PASS] User.RuntimeAllocHeap", "[TEST-PASS] User.InterfaceDispatchInit", "[TEST-PASS] User.RuntimeInstanceStartup",
-                "[TEST-PASS] User.ThreadStoreTlsPrerequisite", "[TEST-PASS] User.Isolation");
+                "[TEST-PASS] User.ThreadStoreTlsPrerequisite", "[TEST-PASS] User.GcProcessWriteBarrier",
+                "[TEST-PASS] User.ProcessBarrierWithoutTls", "[TEST-PASS] User.Isolation");
         var failedBeforeContract = !result.TimedOut && result.ExitCode == 35 && exitedFirmware >= 0 && contract < 0 && hello < 0;
         var passed = expected switch
         {

@@ -8,7 +8,7 @@
 /* Experimental x64 interrupt ABI, not a stable public SDK.
  * INT 0x80: RAX=call, RCX/RDX/R8=arguments; RAX=status, RDX=result.
  * Other GPRs and baseline x87/SSE state survive; flags are reset to 0x202. */
-#define WIT_ABI_VERSION 13U
+#define WIT_ABI_VERSION 14U
 #define WIT_ABI_STARTUP_SIZE 24U
 /* Existing single-module compiler TLS page layout; not a Windows TEB. */
 #define WIT_COMPILER_TLS_DATA_OFFSET 256U
@@ -62,6 +62,9 @@
 /* ThreadQuery(buffer, exact size, version) copies one atomic current-thread
  * snapshot. Result is bytes copied, or zero; no handle is allocated. */
 #define WIT_CALL_THREAD_QUERY 27U
+/* Process data-memory barrier: all arguments zero; no allocation or parking.
+ * Current UP backend only. Unsupported CPU topology must never report success. */
+#define WIT_CALL_PROCESS_WRITE_BARRIER 28U
 #define WIT_MONOTONIC_MAX 0x7FFFFFFFFFFFFFFFULL
 /* Legacy calls 13-19 use absolute delivered PIT ticks. Zero polls; all-ones waits forever.
  * The frequency is nominal; this bootstrap clock pauses while IRQ0 is disabled. */

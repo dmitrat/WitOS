@@ -36,7 +36,7 @@ The compiler consumes the actual [gcenv.os.h](https://github.com/dotnet/runtime/
 
 NUMA node 0 and `NUMA_NODE_UNDEFINED` use the single-node allocator; other nodes fail. Unaligned commit/decommit addresses are rejected rather than silently extending the affected range. Failure is `nullptr`/`false`. Kernel prototype quotas remain in force.
 
-Version 0.0.11 adds [real environment initialization and memory discovery](NativeAot-Gc-Discovery.md). [Committed reset](NativeAot-Gc-Reset.md) is implemented in 0.0.15; large-page support and runtime thread attachment remain incomplete; [recursive minipal/Crst mutexes](NativeAot-Mutexes.md) are now implemented; [GC events](NativeAot-Gc-Events.md) and the [time extension](NativeAot-Gc-Time.md) now support polling, finite and infinite waits. The negative link now roots `GCToOSInterface::FlushProcessWriteBuffers` and must fail with exactly that missing symbol, without `/FORCE` or runtime/OS/CRT libraries.
+Version 0.0.11 adds [real environment initialization and memory discovery](NativeAot-Gc-Discovery.md). [Committed reset](NativeAot-Gc-Reset.md) is implemented in 0.0.15; large-page support and runtime thread attachment remain incomplete; [recursive minipal/Crst mutexes](NativeAot-Mutexes.md) are now implemented; [GC events](NativeAot-Gc-Events.md) and the [time extension](NativeAot-Gc-Time.md) now support polling, finite and infinite waits. Version 0.0.30 implements [process memory barriers](NativeAot-Process-Barrier.md). The negative link now roots `GCToOSInterface::GetCacheSizePerLogicalCpu` and must fail with exactly that remaining missing symbol, without `/FORCE` or runtime/OS/CRT libraries.
 
 ## Build and guest evidence
 

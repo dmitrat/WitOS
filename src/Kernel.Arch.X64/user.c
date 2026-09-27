@@ -264,6 +264,7 @@ static WitPeStatus create_process(WitUserProcess *process, WitPageAllocator *all
     process->FaultSs = 0;
     process->CurrentThread = 0;
     process->FaultThread = NO_THREAD;
+    process->ProcessWriteBarriers = 0;
     process->ThreadCreates = 0;
     process->ThreadSwitches = 0;
     process->ThreadTimerSwitches = 0;
@@ -502,6 +503,14 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
         break;
     case WIT_CALL_EVENT_WAIT:
         context->Rax = wit_user_event_wait(current_user, argument0, argument1, wit_x64_clock_ticks());
+        break;
+    case WIT_CALL_PROCESS_WRITE_BARRIER:
+        if (argument0 || argument1 || argument2) context->Rax = WIT_STATUS_INVALID_ARGUMENT;
+        else if (WIT_USER_PROCESSOR_COUNT != 1) context->Rax = WIT_STATUS_UNSUPPORTED;
+        else {
+            wit_x64_process_write_barrier();
+            ++current_user->ProcessWriteBarriers;
+        }
         break;
     case WIT_CALL_THREAD_QUERY:
         context->Rax = wit_user_thread_query(current_user, argument0, argument1, argument2);

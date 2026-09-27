@@ -133,7 +133,8 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/dispatch.aot.slice.cpp"
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_allocator.cpp"
         "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/startup.objects.slice.cpp"
-        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_instance.cpp")
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_instance.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_barrier.cpp")
     foreach(config_source IN LISTS config_sources)
         if(NOT EXISTS "${config_source}")
             message(FATAL_ERROR "Run runtime-source to prepare the pinned configuration sources")

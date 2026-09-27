@@ -31,6 +31,7 @@ static void run(WitPageAllocator *pages, int tls, WitU64 base, WitU64 mode)
             wit_console_write("/"); wit_console_write_u64(process.ExitCode); wit_console_write("\n");
             wit_panic("PAL thread contract failed");
         }
+        require(process.ProcessWriteBarriers == 2, "PAL process barrier count or argument validation failed");
         require(process.ThreadCreates == 4 && process.ThreadJoins == 3 && process.ThreadReaps == 3 &&
             process.ThreadTimerSwitches > 0 && process.IdleHalts > 0 && process.Space.OwnedCount == owned,
             "PAL thread preemption/reuse/accounting failed");

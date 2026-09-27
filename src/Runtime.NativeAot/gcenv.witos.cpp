@@ -31,6 +31,11 @@ bool GCToOSInterface::Initialize()
     system_info.dwAllocationGranularity = 65536; // VirtualReserve's minimum alignment.
     return true;
 }
+void GCToOSInterface::FlushProcessWriteBuffers()
+{
+    if (wit_native_call(WIT_CALL_PROCESS_WRITE_BARRIER, 0, 0, 0, nullptr) != WIT_STATUS_OK)
+        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+}
 void GCToOSInterface::Shutdown()
 {
     system_info.dwNumberOfProcessors = 0;

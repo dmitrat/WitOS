@@ -1,5 +1,10 @@
 #include "pal.witos.h"
 
+void PalFlushProcessWriteBuffers()
+{
+    if (!wit_pal_result(wit_native_call(WIT_CALL_PROCESS_WRITE_BARRIER, 0, 0, 0, nullptr)))
+        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+}
 static bool current(WitUserThreadInfo* info)
 {
     WitU64 copied = 0;

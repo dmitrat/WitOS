@@ -177,6 +177,7 @@ The initial native milestone now has a concrete boot contract and runnable imple
 - [Native process exit](Implementation/NativeAot-Process-Exit.md) - real atexit callbacks, TLS ordering, bounded cleanup and checked upstream registration failure.
 - [Upstream interface-dispatch startup](Implementation/NativeAot-Interface-Dispatch-Startup.md) - real InitDLL entry subsystem, AllocHeap lifecycle and OOM/concurrency checks.
 - [RuntimeInstance and ThreadStore creation](Implementation/NativeAot-Runtime-Instance.md) - real upstream object startup, allocation rollback and kernel-confirmed compiler TLS metadata.
+- [Process memory barriers](Implementation/NativeAot-Process-Barrier.md) - ABI v14 data-memory fence, real GC/PAL bindings and single-processor limitations.
 - [Immediate next steps](Implementation/Next-Steps.md).
 
 The earlier RFCs describe the long-term vision. These implementation notes distinguish working behavior from future runtime and operating-system features.

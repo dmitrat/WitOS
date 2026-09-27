@@ -80,6 +80,7 @@ typedef struct WitUserProcess {
     WitUserThread Threads[WIT_USER_THREAD_CAPACITY];
     WitU32 CurrentThread;
     WitU32 FaultThread;
+    WitU64 ProcessWriteBarriers;
     WitU64 ThreadCreates;
     WitU64 ThreadSwitches;
     WitU64 ThreadTimerSwitches;

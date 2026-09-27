@@ -108,7 +108,7 @@ WitU64 wit_user_thread_query(const WitUserProcess *process, WitU64 address, WitU
     info.RawTls = thread->Tls;
     info.CompilerTls = thread->CompilerTls;
     info.ProcessId = process->Id;
-    info.ProcessorCount = 1; // The supported backend brings up one processor.
+    info.ProcessorCount = WIT_USER_PROCESSOR_COUNT; // The supported backend brings up one processor.
     // IF remains clear through snapshot and whole-buffer validation/copy.
     return wit_user_copy_to(&process->Space, address, (const WitU8 *)&info, sizeof(info)) ? WIT_STATUS_OK : WIT_STATUS_BAD_ADDRESS;
 }

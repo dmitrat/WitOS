@@ -9,8 +9,8 @@ static void require(int condition, const char* message) { if (!condition) wit_pa
 static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
 {
     const WitU64 before = wit_pages_free_count(pages);
-    const WitU8* image = (mode == 8 || mode == 11) ? wit_runtime_config_raw_image : wit_runtime_config_image;
-    const WitU32 size = (mode == 8 || mode == 11) ? sizeof(wit_runtime_config_raw_image) : sizeof(wit_runtime_config_image);
+    const WitU8* image = (mode == 8 || mode == 11 || mode == 13) ? wit_runtime_config_raw_image : wit_runtime_config_image;
+    const WitU32 size = (mode == 8 || mode == 11 || mode == 13) ? sizeof(wit_runtime_config_raw_image) : sizeof(wit_runtime_config_image);
     require(wit_user_create_pe(&process, pages, 0, image, size, base) == WitPeOk,
         "Runtime configuration fixture load failed");
     const WitU32 owned = process.Space.OwnedCount;
@@ -32,6 +32,18 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
         wit_console_write("/"); wit_console_write_u64(process.ExitCode); wit_console_write("\n");
         wit_panic("Upstream configuration contract failed");
     }
+    if (mode == 12 || mode == 13) {
+        require(report && report[0] == mode && report[1] == 65536 &&
+            process.ProcessWriteBarriers == (mode == 12 ? 50U : 2U) &&
+            process.ThreadCreates == (mode == 12 ? 4U : 1U) && process.ThreadJoins == (mode == 12 ? 3U : 0U) &&
+            process.ThreadReaps == (mode == 12 ? 3U : 0U) &&
+            (process.Threads[0].CompilerTls != 0) == (mode == 12) &&
+            process.Space.OwnedCount == owned && !process.Handles.Count && !process.Events.Count,
+            "GC/PAL barrier count, thread lifecycle or no-allocation contract failed");
+        wit_user_destroy(&process);
+        require(wit_pages_free_count(pages) == before, "Process barrier teardown leaked pages");
+        return;
+    }
     if (mode == 9 || mode == 10) {
         require(report && report[0] == mode && report[1] == (mode == 9 ? 8192U : 24576U) &&
             process.ThreadCreates == (mode == 9 ? 1U : 4U) && process.ThreadJoins == (mode == 9 ? 0U : 3U) &&
@@ -47,7 +59,7 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
         return;
     }
     if (mode == 3 || mode == 7 || mode == 8)
-        require(report && report[0] == mode && report[1] == ((mode == 8 || mode == 11) ? 2048 : 1089) &&
+        require(report && report[0] == mode && report[1] == ((mode == 8 || mode == 11 || mode == 13) ? 2048 : 1089) &&
             process.ThreadCreates == 1 && !process.ThreadJoins && !process.ThreadReaps &&
             (process.Threads[0].CompilerTls != 0) == (mode != 8), "PAL initialization rejection missed its intended boundary");
     else
@@ -79,5 +91,9 @@ void wit_user_runtime_config_self_test(WitPageAllocator* pages)
     wit_console_write("[TEST-PASS] User.RuntimeInstanceStartup\n");
     run(pages, 11, WIT_USER_IMAGE_BASE);
     wit_console_write("[TEST-PASS] User.ThreadStoreTlsPrerequisite\n");
+    run(pages, 12, WIT_USER_IMAGE_BASE); run(pages, 12, WIT_USER_IMAGE_ALTERNATE);
+    wit_console_write("[TEST-PASS] User.GcProcessWriteBarrier\n");
+    run(pages, 13, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.ProcessBarrierWithoutTls\n");
 }
 #endif
