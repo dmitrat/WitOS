@@ -1,12 +1,26 @@
 # M3: Remaining runtime integration work
 
-**Assessment date:** 2026-09-20, based on the 0.0.15 source-link inventory and pinned .NET 10.0.8 runtime. Updated through 0.0.22: native allocation, compiler TLS, kernel thread discovery, PAL memory/waits, detached workers and native last-error.
+**Current reassessment:** 2026-09-27, WitOS 0.0.37, pinned .NET 10.0.8. Historical per-version notes are retained below.
 
 ## Estimate and meaning of running .NET
 
-Working estimate at 0.0.15: about eight major work packages, or 12-20 bounded implementation/validation slices of the recent size, to complete M3. This is an engineering planning range, not a schedule or a measured completion percentage. Integration findings may add work, particularly around TLS, stack walking and exception delivery. The native allocation slice below completes part of package 1, not the entire package.
+**The earlier 12-20-slice estimate is superseded.** Versions 0.0.16-0.0.36 completed many necessary native services but did not produce a link-complete guest runtime. Counting these small slices understated integration work. There is no defensible remaining percentage or calendar delivery date yet.
 
-A first real managed entry with normal runtime initialization is expected after roughly 5-7 packages, with prerequisite portions of the others brought forward as needed. This is not permission to bypass GC/bootstrap or replace runtime helpers with successful stubs. Required exception and stack-walk infrastructure cannot simply be postponed if startup or collection needs it.
+The new minimal standard-CoreLib executable allocates objects/arrays, preserves static and local roots through GC.Collect, and passes on Windows. Rooting its real source-built wmain startup with actual WitOS syscall transport and TLS metadata still leaves 83 unresolved symbols. These are exactly the earlier broad inventory minus five already implemented transport symbols and _tls_index; reducing the application to a small Main did not remove the remaining platform requirements. They are neither 83 independent tasks nor a reliable percentage.
+
+Its Windows reference occupies 954,368 mapped bytes (233 pages) and 2,593 unwind entries. Guest limits remain 262,144 image bytes, 128 total owned pages and 128 plain unwind entries. These measurements demonstrate a resource/profile gap, not the final guest image size. Raising quotas alone would not implement handler unwind metadata or runtime stack walking.
+
+Until a full guest-shaped workload links, plan by observable gates:
+
+1. **Complete native link and startup driver:** finish the actually referenced PAL/CRT/platform paths, explicit optional-feature decisions, native process/TLS initialization and publication, using the ordinary CoreLib and genuine upstream bootstrap. The current diagnostic wmain root is not a kernel handoff entrypoint.
+2. **Loadable runtime image and measured budgets:** image layout, unwind policy, stacks/TLS and heap/handle/event/page budgets derived from the adapted image and collector initialization requirements.
+3. **Runtime threads and collector coordination:** true ThreadStore attachment/shutdown, allocation-context cleanup, root visibility, contexts, suspension and stack walking. Current native records and exit notification are prerequisites, not completion.
+4. **First guest managed entry:** normal RhInitialize/module registration/TypeManager/GC-static/frozen-object initialization reaches Main, allocations and a real collection preserve roots. This is the first minimal guest .NET milestone.
+5. **Complete M3 behavior:** managed throw/catch/finally, finalization and thread activity pass one end-to-end workload. Required exception/context infrastructure must be brought forward into gate 3 when needed by startup or GC.
+
+Several substantial integration blocks remain; this is not one or two small commits. Re-estimate calendar effort after gate 1, when the final platform boundary and executable profile are concrete. CoreCLR/JIT and unchanged portable IL deployment remain M6, beyond the first NativeAOT guest milestone.
+
+The historical package grouping below remains useful for tracking work, but its old slice-count forecast is no longer a current estimate. This is not permission to bypass GC/bootstrap or replace runtime helpers with successful stubs. Required exception and stack-walk infrastructure cannot simply be postponed if startup or collection needs it.
 
 M3 acceptance remains a real NativeAOT component running inside WitOS with allocation/collection, finalization, exceptions and thread activity. Ordinary unchanged IL programs using CoreCLR remain M6, beyond this estimate.
 
@@ -69,3 +83,7 @@ Version 0.0.31 provides actual CPUID cache-size discovery to the GC through ABI 
 Version 0.0.32 adds real event-only PalCompatibleWaitAny through ABI v16, with up to four validated handles and atomic deadline/close completion. The full link has 94 unresolved symbols. See [WaitAny](NativeAot-Wait-Any.md).
 
 Version 0.0.33 supplies real low-memory notification events to NativeAOT through ABI v17, driven by kernel physical/quota accounting. The full link has 93 unresolved symbols; actual finalizer/GC lifecycle remains pending. See [memory pressure](NativeAot-Memory-Pressure.md).
+
+Version 0.0.35 adds native thread exit notification; 0.0.36 executes actual GC-special Thread record construction and selects an explicit disabled-StressLog profile. Actual ThreadStore attachment and collector startup remain pending.
+
+Version 0.0.37 adds a minimal executable startup diagnostic rooted in the real wmain/normal CoreLib path. See [startup readiness](NativeAot-Startup-Readiness.md). Use that workload to drive integration and retain the broader M3 target as regression coverage.

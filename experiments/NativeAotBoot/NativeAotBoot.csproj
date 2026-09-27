@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <PublishAot>true</PublishAot>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <RuntimeFrameworkVersion>10.0.8</RuntimeFrameworkVersion>
+    <SelfContained>true</SelfContained>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <UseWindowsThreadPool>false</UseWindowsThreadPool>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <IlcGenerateWin32Resources>false</IlcGenerateWin32Resources>
+    <IlcGenerateMapFile>true</IlcGenerateMapFile>
+    <IlcInstructionSet>x86-64</IlcInstructionSet>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <TrimmerSingleWarn>false</TrimmerSingleWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <KnownILCompilerPack Update="Microsoft.DotNet.ILCompiler" ILCompilerPackVersion="10.0.8" />
+  </ItemGroup>
+  <Target Name="CaptureNativeTargetInputs" AfterTargets="LinkNative">
+    <WriteLinesToFile File="$(NativeIntermediateOutputPath)native-libraries.txt"
+                      Lines="@(NativeLibrary->'%(FullPath)')" Overwrite="true" Encoding="utf-8" />
+  </Target>
+</Project>

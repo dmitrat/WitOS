@@ -6,7 +6,7 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 
 ## Current status
 
-**WitOS 0.0.36: the source-derived runtime probe initializes actual upstream Thread records through SetGCSpecial/Construct, using kernel identity and stack bounds. The absent OS thread/context handle remains explicitly invalid. ABI v17 is unchanged; ThreadStore attachment, managed execution and GC startup remain pending.**
+**WitOS 0.0.37: a minimal standard-CoreLib executable now measures the real upstream startup boundary. Its allocation/GC workload passes on Windows; the WitOS link remains incomplete with 83 platform dependencies. Guest .NET execution is still pending.**
 
 The kernel boots independently through UEFI and runs separately built native components in ring 3 with private mappings and handles. Its bounded PE loader parses complete files inside the guest, maps sections and applies relocations. A freestanding C startup layer receives image metadata, runs native initializers and enters the program in user space. The component writes through a checked syscall and exits; its faults are contained while the kernel runs the next component. Within a component, up to four user threads can run with timer preemption, separate stacks/TLS and blocking join. Manual/auto-reset events, sleep and absolute deadlines work with kernel idle when all threads are blocked. M1 paging, protection, timer and kernel-context checks remain part of every successful boot.
 
@@ -39,7 +39,7 @@ Expected guest output includes:
 ```text
 [BOOT] UEFI x64 adapter
 [BOOT] ExitBootServices OK
-WitOS 0.0.36 (runtime thread records)
+WitOS 0.0.37 (runtime startup readiness)
 Build: <git-revision> | x64 | Debug
 [TEST-BEGIN] Boot.Contract
 [TEST-PASS] Boot.Contract
@@ -220,3 +220,9 @@ User faults terminate that component; kernel faults remain fatal diagnostics. Ge
 - [Upstream runtime configuration and native C support](@Docs/Implementation/NativeAot-Runtime-Configuration.md)
 - [Native PAL initialization and startup policy](@Docs/Implementation/NativeAot-Pal-Initialization.md)
 - [Immediate development sequence](@Docs/Implementation/Next-Steps.md)
+
+The minimal executable startup assessment runs as part of runtime-source and runtime-config, or through:
+
+    dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-readiness
+
+It checks an ordinary standard-CoreLib Main on Windows, then performs a strict native-entry link with the WitOS source libraries and real syscall/TLS objects. It reports dependencies and measured Windows-reference image costs in artifacts/runtime-readiness. It neither boots a managed guest nor supplies missing runtime stubs. See [the updated distance to M3](@Docs/Implementation/M3-Runtime-Integration-Plan.md).

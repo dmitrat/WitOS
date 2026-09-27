@@ -11,7 +11,7 @@ internal static class DevTool
         try
         {
             if (args.Length > 1)
-                throw new ArgumentException("Use a single command: doctor, setup, build, run, test, runtime-audit, runtime-probe, runtime-target, runtime-port, runtime-source, runtime-config.");
+                throw new ArgumentException("Use a single command: doctor, setup, build, run, test, runtime-audit, runtime-probe, runtime-target, runtime-port, runtime-source, runtime-readiness, runtime-config.");
             if (!OperatingSystem.IsWindows())
                 throw new PlatformNotSupportedException("The current development host is Windows x64 with Visual Studio C++ tools. The guest does not use Windows.");
 
@@ -58,6 +58,7 @@ internal static class DevTool
                 case "runtime-probe":
                     await RuntimeExperiment.ProbeAsync(root);
                     break;
+                case "runtime-readiness":
                 case "runtime-source":
                     await RuntimeSourceBuild.RunAsync(root);
                     break;
@@ -65,7 +66,7 @@ internal static class DevTool
                     await RuntimeTargetExperiment.RunAsync(root);
                     break;
                 case "help":
-                    Console.WriteLine("WitOS development tool\nUsage: dotnet run --project tools/WitOS.Dev -- <command>\n\n  doctor  Check compiler, QEMU and firmware\n  setup   Download and verify pinned QEMU into .tools\n  build   Build the x64 UEFI image (no VM)\n  run     Build and boot headlessly in QEMU\n  test    Test boot, physical pages, CPU exceptions and timeout handling\n  runtime-audit  Verify pinned NativeAOT sources and package provenance\n  runtime-probe  Publish and execute a hosted NativeAOT dependency probe\n  runtime-target  Inspect NativeAOT objects and test native-host bootstrap / strict link boundaries\n  runtime-port  Build pinned GC memory adapter and execute guest checks in QEMU\n  runtime-source  Build full upstream native libraries and verify the WitOS source overlay\n  runtime-config  Build upstream configuration/startup sources and execute their guest probe");
+                    Console.WriteLine("WitOS development tool\nUsage: dotnet run --project tools/WitOS.Dev -- <command>\n\n  doctor  Check compiler, QEMU and firmware\n  setup   Download and verify pinned QEMU into .tools\n  build   Build the x64 UEFI image (no VM)\n  run     Build and boot headlessly in QEMU\n  test    Test boot, physical pages, CPU exceptions and timeout handling\n  runtime-audit  Verify pinned NativeAOT sources and package provenance\n  runtime-probe  Publish and execute a hosted NativeAOT dependency probe\n  runtime-target  Inspect NativeAOT objects and test native-host bootstrap / strict link boundaries\n  runtime-port  Build pinned GC memory adapter and execute guest checks in QEMU\n  runtime-source  Build full upstream native libraries and verify the WitOS source overlay\n  runtime-readiness  Build source runtime and audit minimal standard-CoreLib executable startup\n  runtime-config  Build upstream configuration/startup sources and execute their guest probe");
                     break;
                 default:
                     throw new ArgumentException($"Unknown command: {command}. Use help.");

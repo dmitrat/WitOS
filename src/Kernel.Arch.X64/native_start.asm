@@ -1,8 +1,9 @@
 option casemap:none
 include user_abi.inc
-EXTERN wit_native_main:PROC
 ; This object is linked into the USER image, not the kernel.
 .code
+IFNDEF WITOS_NATIVE_TRANSPORT_ONLY
+EXTERN wit_native_main:PROC
 PUBLIC wit_native_start
 wit_native_start PROC FRAME
     sub rsp, 40
@@ -15,6 +16,7 @@ wit_native_start PROC FRAME
     int 80h
     ud2
 wit_native_start ENDP
+ENDIF
 
 PUBLIC wit_native_claim_startup
 wit_native_claim_startup PROC

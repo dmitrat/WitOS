@@ -99,6 +99,7 @@ internal static class RuntimeSourceBuild
         Console.WriteLine($"[SOURCE-PASS] Windows source-built reference: {Cases.Length} execution groups.");
         Console.WriteLine($"[SOURCE-PASS] Strict WitOS link boundary: {boundary.Unresolved.Length} unresolved symbols, including {groups["gc-environment"].Length} GC environment requirements.");
         Console.WriteLine($"Reports: {output}");
+        await RuntimeReadiness.RunAsync(root, msvc, ported.Sdk);
     }
 
     private static async Task<string> PrepareSourceAsync(string root, RuntimeExperiment.SourceLock pin)

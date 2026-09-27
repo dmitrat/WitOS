@@ -6,6 +6,7 @@ on:
     paths:
       - 'experiments/NativeAotProbe/**'
       - 'experiments/NativeAotTarget/**'
+      - 'experiments/NativeAotBoot/**'
       - 'tools/WitOS.Dev/**'
       - 'src/Runtime.NativeAot/**'
       - 'src/Kernel.Arch.X64/**'
@@ -21,6 +22,7 @@ on:
     paths:
       - 'experiments/NativeAotProbe/**'
       - 'experiments/NativeAotTarget/**'
+      - 'experiments/NativeAotBoot/**'
       - 'tools/WitOS.Dev/**'
       - 'src/Runtime.NativeAot/**'
       - 'src/Kernel.Arch.X64/**'
@@ -100,6 +102,7 @@ jobs:
             artifacts/runtime-probe/
             artifacts/runtime-target/
             artifacts/runtime-source/
+            artifacts/runtime-readiness/
             artifacts/runtime-config/
             artifacts/logs/runtime-config*
             artifacts/x64/runtime-config/RuntimeConfigFixture.pe
