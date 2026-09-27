@@ -80,6 +80,13 @@ function(witos_select_gc_environment)
     endif()
     list(REMOVE_ITEM sources "${old_allocheap}")
     list(APPEND sources "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/allocheap.witos.cpp")
+    set(old_threadstore "${CLR_DIR}/nativeaot/Runtime/threadstore.cpp")
+    list(FIND sources "${old_threadstore}" threadstore_index)
+    if(threadstore_index EQUAL -1)
+        message(FATAL_ERROR "Pinned ThreadStore source missing")
+    endif()
+    list(REMOVE_ITEM sources "${old_threadstore}")
+    list(APPEND sources "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/threadstore.witos.cpp")
     set(old_startup "${CLR_DIR}/nativeaot/Runtime/startup.cpp")
     list(FIND sources "${old_startup}" startup_index)
     if(startup_index EQUAL -1)
@@ -124,7 +131,9 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/allocheap.witos.cpp"
         "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/dispatch.shared.slice.cpp"
         "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/dispatch.aot.slice.cpp"
-        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_allocator.cpp")
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_allocator.cpp"
+        "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/startup.objects.slice.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_instance.cpp")
     foreach(config_source IN LISTS config_sources)
         if(NOT EXISTS "${config_source}")
             message(FATAL_ERROR "Run runtime-source to prepare the pinned configuration sources")

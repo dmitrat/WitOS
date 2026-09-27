@@ -11,6 +11,8 @@
 
 extern "C" bool wit_test_runtime_allocator();
 extern "C" bool wit_test_interface_dispatch();
+extern "C" bool wit_test_runtime_instance();
+extern "C" void wit_test_runtime_missing_tls();
 static RhConfig config;
 RhConfig* g_pRhConfig = &config;
 /* Fixture-owned configuration inputs, using the actual upstream declaration.
@@ -182,11 +184,22 @@ extern "C" WitU64 wit_native_main(const WitUserStartup* startup)
 {
     mode = ((const WitUserTestConfig*)startup)->Mode;
     report()[0] = mode; report()[1] = 0;
-    if (mode == 9) {
+    if (mode == 11) {
+        report()[1] = 32768;
+        wit_test_runtime_missing_tls();
+        return 1699;
+    }
+    if (mode == 9 || mode == 10) {
         wit_native_process_image_initialize(startup);
+        if (mode == 10 && !wit_pal_environment_initialize(nullptr, 0)) return 1693;
         wit_native_tls_initialize(startup);
+        if (mode == 10 && !PalInit()) return 1694;
         if (!wit_test_interface_dispatch()) return 1691;
         report()[1] = 8192;
+        if (mode == 10) {
+            if (!wit_test_runtime_instance()) return 1692;
+            report()[1] |= 16384;
+        }
         wit_native_tls_leave();
         return WIT_TEST_EXIT_CODE;
     }

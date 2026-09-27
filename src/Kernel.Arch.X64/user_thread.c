@@ -1,7 +1,7 @@
 #include "user.h"
 #include "witos/platform.h"
 #define NO_THREAD WIT_USER_THREAD_CAPACITY
-_Static_assert(0x100 + WIT_PE_TLS_MAX_BYTES <= 4096, "Compiler TLS page bound");
+_Static_assert(WIT_COMPILER_TLS_DATA_OFFSET + WIT_PE_TLS_MAX_BYTES <= 4096, "Compiler TLS page bound");
 static void require(int condition, const char *message) { if (!condition) wit_panic(message); }
 
 /* Capture the relocated initial template before publishing the component.
@@ -44,8 +44,8 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 ent
         if (!wit_user_space_map(&process->Space, address, 1, 0)) goto failed;
         physical = wit_user_space_physical(&process->Space, address, 1, 0);
         ((WitU64 *)physical)[0x58 / 8] = address + 0x80;
-        ((WitU64 *)physical)[0x80 / 8] = address + 0x100;
-        for (WitU32 i = 0; i < process->TlsBytes; ++i) ((WitU8 *)physical)[0x100 + i] = process->TlsTemplate[i];
+        ((WitU64 *)physical)[0x80 / 8] = address + WIT_COMPILER_TLS_DATA_OFFSET;
+        for (WitU32 i = 0; i < process->TlsBytes; ++i) ((WitU8 *)physical)[WIT_COMPILER_TLS_DATA_OFFSET + i] = process->TlsTemplate[i];
         thread->CompilerTls = address;
     }
     physical = wit_user_space_physical(&process->Space, tls_address, 1, 0);

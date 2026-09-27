@@ -9,8 +9,8 @@ static void require(int condition, const char* message) { if (!condition) wit_pa
 static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
 {
     const WitU64 before = wit_pages_free_count(pages);
-    const WitU8* image = mode == 8 ? wit_runtime_config_raw_image : wit_runtime_config_image;
-    const WitU32 size = mode == 8 ? sizeof(wit_runtime_config_raw_image) : sizeof(wit_runtime_config_image);
+    const WitU8* image = (mode == 8 || mode == 11) ? wit_runtime_config_raw_image : wit_runtime_config_image;
+    const WitU32 size = (mode == 8 || mode == 11) ? sizeof(wit_runtime_config_raw_image) : sizeof(wit_runtime_config_image);
     require(wit_user_create_pe(&process, pages, 0, image, size, base) == WitPeOk,
         "Runtime configuration fixture load failed");
     const WitU32 owned = process.Space.OwnedCount;
@@ -18,13 +18,24 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
     config->Mode = mode;
     wit_user_run(&process);
     const WitU64* report = (const WitU64*)wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
+    if (mode == 11) {
+        require(process.State == WitUserExited && process.ExitCode == WIT_GC_TEST_FAIL_FAST_EXIT &&
+            report && report[0] == 11 && report[1] == 32768 && !process.Threads[0].CompilerTls &&
+            process.Space.OwnedCount == owned && !process.Handles.Count && !process.Events.Count,
+            "ThreadStore metadata accessed unavailable compiler TLS");
+        wit_user_destroy(&process);
+        require(wit_pages_free_count(pages) == before, "ThreadStore rejected-TLS teardown leaked pages");
+        return;
+    }
     if (process.State != WitUserExited || process.ExitCode != WIT_TEST_EXIT_CODE) {
         wit_console_write("Runtime config state/code: "); wit_console_write_u64(process.State);
         wit_console_write("/"); wit_console_write_u64(process.ExitCode); wit_console_write("\n");
         wit_panic("Upstream configuration contract failed");
     }
-    if (mode == 9) {
-        require(report && report[0] == 9 && report[1] == 8192 && process.ThreadCreates == 1 &&
+    if (mode == 9 || mode == 10) {
+        require(report && report[0] == mode && report[1] == (mode == 9 ? 8192U : 24576U) &&
+            process.ThreadCreates == (mode == 9 ? 1U : 4U) && process.ThreadJoins == (mode == 9 ? 0U : 3U) &&
+            process.ThreadReaps == (mode == 9 ? 0U : 3U) &&
             process.Space.OwnedCount > owned, "Interface dispatch initialization missed real allocations");
         WitU32 reservations = 0;
         for (WitU32 i = 0; i < WIT_USER_RESERVATION_CAPACITY; ++i)
@@ -36,7 +47,7 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
         return;
     }
     if (mode == 3 || mode == 7 || mode == 8)
-        require(report && report[0] == mode && report[1] == (mode == 8 ? 2048 : 1089) &&
+        require(report && report[0] == mode && report[1] == ((mode == 8 || mode == 11) ? 2048 : 1089) &&
             process.ThreadCreates == 1 && !process.ThreadJoins && !process.ThreadReaps &&
             (process.Threads[0].CompilerTls != 0) == (mode != 8), "PAL initialization rejection missed its intended boundary");
     else
@@ -64,5 +75,9 @@ void wit_user_runtime_config_self_test(WitPageAllocator* pages)
     wit_console_write("[TEST-PASS] User.RuntimeAllocHeap\n");
     run(pages, 9, WIT_USER_IMAGE_BASE); run(pages, 9, WIT_USER_IMAGE_ALTERNATE);
     wit_console_write("[TEST-PASS] User.InterfaceDispatchInit\n");
+    run(pages, 10, WIT_USER_IMAGE_BASE); run(pages, 10, WIT_USER_IMAGE_ALTERNATE);
+    wit_console_write("[TEST-PASS] User.RuntimeInstanceStartup\n");
+    run(pages, 11, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.ThreadStoreTlsPrerequisite\n");
 }
 #endif

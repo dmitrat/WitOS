@@ -14,6 +14,7 @@ internal static class RuntimeConfigProbe
     {
         var output = Path.Combine(root, "artifacts", "runtime-config", "source");
         Directory.CreateDirectory(output);
+        await RuntimeStartupSources.PrepareAsync(root, pin);
         using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
         async Task<string> Read(string path)
         {
@@ -101,9 +102,9 @@ internal static class RuntimeConfigProbe
         var members = listing.Output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
         var all = JsonSerializer.Deserialize<JsonElement[]>(await File.ReadAllTextAsync(Path.Combine(obj, "compile_commands.json")), Json)!;
         var commands = all.Where(c => c.GetProperty("output").GetString()!.Replace('\\', '/').Contains("/WitOS.ConfigProbe.dir/", StringComparison.Ordinal)).ToArray();
-        string[] names = ["rhconfig.witos.cpp", "gcconfig.slice.cpp", "gcenv.config.slice.cpp", "runtime_config.cpp", "pal_init.witos.cpp", "allocheap.witos.cpp", "dispatch.shared.slice.cpp", "dispatch.aot.slice.cpp", "runtime_allocator.cpp"];
+        string[] names = ["rhconfig.witos.cpp", "gcconfig.slice.cpp", "gcenv.config.slice.cpp", "runtime_config.cpp", "pal_init.witos.cpp", "allocheap.witos.cpp", "dispatch.shared.slice.cpp", "dispatch.aot.slice.cpp", "runtime_allocator.cpp", "startup.objects.slice.cpp", "runtime_instance.cpp"];
         if (members.Length != names.Length || commands.Length != names.Length)
-            throw new InvalidDataException("Configuration probe must contain exactly the selected nine objects.");
+            throw new InvalidDataException("Configuration probe must contain exactly the selected eleven objects.");
         foreach (var name in names)
         {
             var command = commands.Single(c => Path.GetFileName(c.GetProperty("file").GetString()!) == name);
@@ -113,7 +114,7 @@ internal static class RuntimeConfigProbe
         await File.WriteAllTextAsync(Path.Combine(output, "archive-report.json"), JsonSerializer.Serialize(new
         {
             archiveSha256 = Hash(archive), members, commands, guestManagedRuntime = false,
-            localInputs = new[] { "tests/User.X64/runtime_config.cpp", "tests/User.X64/runtime_allocator.cpp", "tests/User.X64/protocol.h", "artifacts/runtime-config/source/allocheap.witos.cpp", "artifacts/runtime-config/source/dispatch.shared.slice.cpp", "artifacts/runtime-config/source/dispatch.aot.slice.cpp",
+            localInputs = new[] { "tests/User.X64/runtime_config.cpp", "tests/User.X64/runtime_instance.cpp", "artifacts/runtime-config/source/startup.objects.slice.cpp", "artifacts/runtime-config/source/threadstore.witos.cpp", "tests/User.X64/runtime_allocator.cpp", "tests/User.X64/protocol.h", "artifacts/runtime-config/source/allocheap.witos.cpp", "artifacts/runtime-config/source/dispatch.shared.slice.cpp", "artifacts/runtime-config/source/dispatch.aot.slice.cpp",
                 "src/Runtime.NativeAot/runtime-overlay.cmake", "src/Runtime.NativeAot/config-probe/CMakeLists.txt",
                 "src/Runtime.NativeAot/crt_config.witos.cpp", "src/Runtime.NativeAot/pal_init.witos.cpp", "src/Runtime.NativeAot/pal_environment.witos.h",
                 "src/System.Native/tls.h", "src/Kernel/include/witos/user_abi.h",
@@ -121,7 +122,7 @@ internal static class RuntimeConfigProbe
                 "artifacts/runtime-config/source/gcenv.config.slice.cpp" }
                 .Select(p => new { path = p, sha256 = Hash(Path.Combine(root, p)) })
         }, Json));
-        Console.WriteLine("[SOURCE-PASS] Configuration probe: nine exact source objects; collector and ThreadStore excluded.");
+        Console.WriteLine("[SOURCE-PASS] Configuration probe: eleven exact source objects; collector and thread attachment excluded.");
     }
 
     public static async Task BuildImageAsync(string root, string output, string msvc)
@@ -145,7 +146,7 @@ internal static class RuntimeConfigProbe
                 Path.Combine(root, "src", "Runtime.NativeAot", "crt_config.witos.cpp")], root);
         string[] shared = ["native_start.obj", "environment_pal_environment.witos.obj", "native_new.witos.obj",
             "native_error.obj", "native_environment.obj", "dynamic_image.obj", "dynamic_thread.obj",
-            "dynamic_tls.witos.obj", "dynamic_tls_metadata.obj", "gcenv.witos.obj", "pal_pal.witos.obj", "pal_pal_error.witos.obj", "pal_pal_memory.witos.obj", "crst.witos.obj", "mutex.witos.obj"];
+            "dynamic_tls.witos.obj", "dynamic_tls_metadata.obj", "gcenv.witos.obj", "pal_pal.witos.obj", "pal_pal_error.witos.obj", "pal_pal_memory.witos.obj", "module_pal_module.witos.obj", "crst.witos.obj", "mutex.witos.obj"];
         var image = Path.Combine(output, "RuntimeConfigFixture.pe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
             ["/nologo", "/subsystem:native", "/entry:wit_native_start", "/nodefaultlib", "/machine:x64", "/fixed:no", "/dynamicbase",

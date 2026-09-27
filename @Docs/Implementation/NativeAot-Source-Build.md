@@ -13,7 +13,7 @@ The WitOS profile additionally removes Windows PalCommon.cpp/PalMinWin.cpp and c
 
 Version 0.0.23 also compiles the shared System.Native/image.c descriptor/context implementation and the [PAL module adapter](NativeAot-Pal-Module-Discovery.md), verifying both archive objects byte-for-byte.
 
-The source commit is `b82454cad0aaaae3db2cf18fbf2cccc36e201ccc` (.NET 10.0.8). The tool fetches that exact commit into an ignored sparse checkout containing `eng`, `src/coreclr` and `src/native`, verifies the repository/revision and refuses a dirty or mismatched checkout. It checks cleanliness again after building. Git commits pin the full native source/build tree; the current 52-file SHA-256 audit includes the GC/Crst inputs, PAL declaration closure and RhConfig/GCConfig sources; the runtime revision and VMR/package provenance remain unchanged.
+The source commit is `b82454cad0aaaae3db2cf18fbf2cccc36e201ccc` (.NET 10.0.8). The tool fetches that exact commit into an ignored sparse checkout containing `eng`, `src/coreclr` and `src/native`, verifies the repository/revision and refuses a dirty or mismatched checkout. It checks cleanliness again after building. Git commits pin the full native source/build tree; the current 58-file SHA-256 audit includes the GC/Crst inputs, PAL declaration closure and RhConfig/GCConfig sources; the runtime revision and VMR/package provenance remain unchanged.
 
 The upstream [native build entry](https://github.com/dotnet/runtime/blob/b82454cad0aaaae3db2cf18fbf2cccc36e201ccc/src/coreclr/build-runtime.cmd) and [full runtime target](https://github.com/dotnet/runtime/blob/b82454cad0aaaae3db2cf18fbf2cccc36e201ccc/src/coreclr/nativeaot/Runtime/Full/CMakeLists.txt) define the build. Generated event headers, assembly offsets and support libraries remain part of that recipe.
 
@@ -37,7 +37,7 @@ Compiler and managed CoreLib remain the locked published 10.0.8 packages. This i
 The local run produced:
 
 - 67 compile units/archive members in the Windows reference and 83 in the WitOS `Runtime.WorkstationGC.lib`, including real collector, handle-table, startup, thread, TypeManager and assembly code.
-- The Windows GC environment and Crst in the reference target; twenty-three WitOS adapter/helper or explicitly derived sources in the selected workstation target. Both aotminipal archives contain eleven members, with mutex.c replaced by mutex.witos.cpp only in the WitOS profile. Source/member inventories reject the old objects there; each adapter object occurs exactly once, verified byte-for-byte.
+- The Windows GC environment and Crst in the reference target; twenty-four WitOS adapter/helper or explicitly derived sources in the selected workstation target. Both aotminipal archives contain eleven members, with mutex.c replaced by mutex.witos.cpp only in the WitOS profile. Source/member inventories reject the old objects there; each adapter object occurs exactly once, verified byte-for-byte.
 - A reference DLL relinked with all 13 captured native library/object inputs replaced by their source-built counterparts. Standard Windows/CRT libraries remain available for this positive reference.
 - Four passing native-host groups with the source-built Windows runtime: initial exported entry, allocations/GC/exceptions, TLS across two native threads and repeated entry.
 - A strict link of the real static ILC workload plus source-built WitOS-profile inputs, without OS/CRT libraries or forced linking: 98 unresolved symbols after the 0.0.27 process-exit extension; 99 after the 0.0.26 PalInit extension; 100 after native C/configuration support; 105 after environment/string support; 108 after module discovery; 110 after last-error; 114 after detached workers; 116 after PAL memory/waits; 125 after the 0.0.19 PAL replacement (134 after dynamic TLS; 136 after native allocation; 162 at the initial source-build milestone). The new count reclassifies missing Windows internals as missing PAL services and is not a direct completion measure. Implemented GC memory/discovery/event/time and mutex methods resolve; the four Windows critical-section imports are absent; core runtime helpers such as `RhpReversePInvoke` resolve.
@@ -59,6 +59,8 @@ The 0.0.25 [configuration probe](NativeAot-Runtime-Configuration.md) introduced 
 The 0.0.27 [process-exit adapter](NativeAot-Process-Exit.md) supplies real atexit registration. A complete generated startup.cpp retains upstream dependencies while checking registration failure; its exact object is verified in the archive. The reference source remains unchanged.
 
 The 0.0.28 [interface-dispatch startup probe](NativeAot-Interface-Dispatch-Startup.md) grows the separate archive to nine objects. The full WitOS runtime uses the complete derived AllocHeap with explicit Crst destruction; full dispatch sources retain their original dependencies. Guest startup slices do not replace them in the runtime archive.
+
+The 0.0.29 [RuntimeInstance probe](NativeAot-Runtime-Instance.md) grows the dedicated archive to eleven objects. The complete WitOS ThreadStore source uses kernel-confirmed compiler TLS for its startup metadata; both allocation-failure paths and real object creation run in the guest. Attachment/collector dependencies remain outside the probe and unresolved in the full port.
 
 ## Next boundary
 

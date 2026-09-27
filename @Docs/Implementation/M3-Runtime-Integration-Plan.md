@@ -59,3 +59,5 @@ Version 0.0.26 implements PalInit over real configuration and GC OS initializati
 Version 0.0.27 implements bounded native exit callbacks and checks their registration in the complete upstream startup source. This removes one strict-link dependency (98 remain); actual RhInitialize/InitDLL execution still requires runtime/GC integration. See [process exit](NativeAot-Process-Exit.md).
 
 Version 0.0.28 executes actual interface-dispatch initialization and allocation over the WitOS PAL, with explicit upstream AllocHeap lock cleanup. This advances the first InitDLL subsystem; the full link remains at 98 unresolved symbols. See [interface-dispatch startup](NativeAot-Interface-Dispatch-Startup.md).
+
+Version 0.0.29 creates the actual upstream RuntimeInstance and empty ThreadStore in the guest, replacing the startup TEB assumption with kernel-confirmed TLS metadata. Both allocation failures roll back; attachment and real GC remain pending. See [RuntimeInstance startup](NativeAot-Runtime-Instance.md).

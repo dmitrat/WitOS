@@ -10,6 +10,8 @@
  * Other GPRs and baseline x87/SSE state survive; flags are reset to 0x202. */
 #define WIT_ABI_VERSION 13U
 #define WIT_ABI_STARTUP_SIZE 24U
+/* Existing single-module compiler TLS page layout; not a Windows TEB. */
+#define WIT_COMPILER_TLS_DATA_OFFSET 256U
 #define WIT_CALL_QUERY 0U
 #define WIT_CALL_WRITE 1U
 #define WIT_CALL_EXIT 2U
