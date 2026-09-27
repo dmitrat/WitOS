@@ -273,7 +273,7 @@ internal static class DevTool
                 "[TEST-PASS] User.RhConfigPrecedence", "[TEST-PASS] User.RhConfigStrings", "[TEST-PASS] User.GcConfigValues",
                 "[TEST-PASS] User.GcConfigRefresh", "[TEST-PASS] User.RuntimeConfigThreads",
                 "[TEST-PASS] User.PalInitPrerequisites", "[TEST-PASS] User.PalInitPolicy",
-                "[TEST-PASS] User.PalInitLifecycle", "[TEST-PASS] User.RuntimeAllocHeap", "[TEST-PASS] User.InterfaceDispatchInit", "[TEST-PASS] User.RuntimeInstanceStartup",
+                "[TEST-PASS] User.PalInitLifecycle", "[TEST-PASS] User.RuntimeAllocHeap", "[TEST-PASS] User.InterfaceDispatchInit", "[TEST-PASS] User.RuntimeInstanceStartup", "[TEST-PASS] User.RuntimeThreadRecord",
                 "[TEST-PASS] User.ThreadStoreTlsPrerequisite", "[TEST-PASS] User.GcProcessWriteBarrier",
                 "[TEST-PASS] User.ProcessBarrierWithoutTls", "[TEST-PASS] User.Isolation");
         var failedBeforeContract = !result.TimedOut && result.ExitCode == 35 && exitedFirmware >= 0 && contract < 0 && hello < 0;

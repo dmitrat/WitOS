@@ -108,13 +108,16 @@ internal static class RuntimeConfigProbe
         foreach (var name in names)
         {
             var command = commands.Single(c => Path.GetFileName(c.GetProperty("file").GetString()!) == name);
+            var compile = command.GetProperty("command").GetString()!;
+            if (!compile.Contains("-DNO_STRESS_LOG", StringComparison.Ordinal) && !compile.Contains("/DNO_STRESS_LOG", StringComparison.Ordinal))
+                throw new InvalidDataException("Configuration probe must match the WitOS NO_STRESS_LOG profile.");
             NativeObject.VerifyArchive(archive, Path.GetFullPath(command.GetProperty("output").GetString()!, command.GetProperty("directory").GetString()!));
         }
         File.Copy(archive, Path.Combine(output, "WitOS.ConfigProbe.lib"), overwrite: true);
         await File.WriteAllTextAsync(Path.Combine(output, "archive-report.json"), JsonSerializer.Serialize(new
         {
             archiveSha256 = Hash(archive), members, commands, guestManagedRuntime = false,
-            localInputs = new[] { "tests/User.X64/runtime_config.cpp", "tests/User.X64/runtime_instance.cpp", "tests/User.X64/runtime_barrier.cpp", "artifacts/runtime-config/source/startup.objects.slice.cpp", "artifacts/runtime-config/source/threadstore.witos.cpp", "tests/User.X64/runtime_allocator.cpp", "tests/User.X64/protocol.h", "artifacts/runtime-config/source/allocheap.witos.cpp", "artifacts/runtime-config/source/dispatch.shared.slice.cpp", "artifacts/runtime-config/source/dispatch.aot.slice.cpp",
+            localInputs = new[] { "tests/User.X64/runtime_config.cpp", "tests/User.X64/runtime_instance.cpp", "tests/User.X64/runtime_barrier.cpp", "artifacts/runtime-config/source/startup.objects.slice.cpp", "artifacts/runtime-config/source/threadstore.witos.cpp", "artifacts/runtime-config/source/thread.witos.cpp", "artifacts/runtime-config/include/stressLog.h", "tests/User.X64/runtime_allocator.cpp", "tests/User.X64/protocol.h", "artifacts/runtime-config/source/allocheap.witos.cpp", "artifacts/runtime-config/source/dispatch.shared.slice.cpp", "artifacts/runtime-config/source/dispatch.aot.slice.cpp",
                 "src/Runtime.NativeAot/runtime-overlay.cmake", "src/Runtime.NativeAot/config-probe/CMakeLists.txt",
                 "src/Runtime.NativeAot/crt_config.witos.cpp", "src/Runtime.NativeAot/pal_init.witos.cpp", "src/Runtime.NativeAot/pal_environment.witos.h",
                 "src/System.Native/tls.h", "src/Kernel/include/witos/user_abi.h",

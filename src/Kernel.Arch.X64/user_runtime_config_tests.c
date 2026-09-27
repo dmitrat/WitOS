@@ -44,10 +44,10 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
         require(wit_pages_free_count(pages) == before, "Process barrier teardown leaked pages");
         return;
     }
-    if (mode == 9 || mode == 10) {
-        require(report && report[0] == mode && report[1] == (mode == 9 ? 8192U : 24576U) &&
-            process.ThreadCreates == (mode == 9 ? 1U : 4U) && process.ThreadJoins == (mode == 9 ? 0U : 3U) &&
-            process.ThreadReaps == (mode == 9 ? 0U : 3U) &&
+    if (mode == 9 || mode == 10 || mode == 14) {
+        require(report && report[0] == mode && report[1] == (mode == 9 ? 8192U : (mode == 14 ? 155648U : 24576U)) &&
+            process.ThreadCreates == (mode == 9 ? 1U : (mode == 14 ? 16U : 4U)) && process.ThreadJoins == (mode == 9 ? 0U : (mode == 14 ? 15U : 3U)) &&
+            process.ThreadReaps == (mode == 9 ? 0U : (mode == 14 ? 15U : 3U)) &&
             process.Space.OwnedCount > owned, "Interface dispatch initialization missed real allocations");
         WitU32 reservations = 0;
         for (WitU32 i = 0; i < WIT_USER_RESERVATION_CAPACITY; ++i)
@@ -89,6 +89,8 @@ void wit_user_runtime_config_self_test(WitPageAllocator* pages)
     wit_console_write("[TEST-PASS] User.InterfaceDispatchInit\n");
     run(pages, 10, WIT_USER_IMAGE_BASE); run(pages, 10, WIT_USER_IMAGE_ALTERNATE);
     wit_console_write("[TEST-PASS] User.RuntimeInstanceStartup\n");
+    run(pages, 14, WIT_USER_IMAGE_BASE); run(pages, 14, WIT_USER_IMAGE_ALTERNATE);
+    wit_console_write("[TEST-PASS] User.RuntimeThreadRecord\n");
     run(pages, 11, WIT_USER_IMAGE_BASE);
     wit_console_write("[TEST-PASS] User.ThreadStoreTlsPrerequisite\n");
     run(pages, 12, WIT_USER_IMAGE_BASE); run(pages, 12, WIT_USER_IMAGE_ALTERNATE);

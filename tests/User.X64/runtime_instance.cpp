@@ -1,12 +1,13 @@
 #include "common.h"
+#include "gcenv.h"
 #include <minipal/mutex.h>
-#include "CachedInterfaceDispatchPal.h"
 #include "event.h"
 #include "regdisplay.h"
 #include "StackFrameIterator.h"
 #include "thread.h"
 #include "threadstore.h"
 #include "threadstore.inl"
+#include "thread.inl"
 #include "RestrictedCallouts.h"
 #include "tls.h"
 #include "protocol.h"
@@ -88,4 +89,77 @@ extern "C" bool wit_test_runtime_instance()
 extern "C" void wit_test_runtime_missing_tls()
 {
     ThreadStore::SaveCurrentThreadOffsetForDAC();
+}
+
+static WitU64 record_ids[3], prior_ids[3];
+static volatile WitU64 record_ready[3], record_release;
+static bool construct_record()
+{
+    WitUserThreadInfo info;
+    if (!query(info) || !local_record()) return false;
+    Thread* record = ThreadStore::RawGetCurrentThread();
+    if (record->IsInitialized() || record->IsGCSpecial()) return false;
+    // Neither caller-writable FS hints nor compiler TLS supply kernel identity.
+    auto raw = (WitU64*)(uintptr_t)info.RawTls;
+    const WitU64 old_self = raw[0], old_id = raw[1];
+    raw[0] = raw[1] = 0;
+    SetLastError(0x12348765);
+    record->SetGCSpecial(); // Actual upstream public route to private Construct.
+    raw[0] = old_self; raw[1] = old_id;
+    for (unsigned i = 0; i < 3; ++i) {
+        void *low = nullptr, *high = nullptr;
+        record->GetStackBounds(&low, &high);
+        if (!record->IsInitialized() || !record->IsGCSpecial() ||
+            ThreadStore::GetCurrentThreadIfAvailable() != record ||
+            record->GetPalThreadIdForLogging() != info.ThreadId || record->GetOSThreadHandle() != INVALID_HANDLE_VALUE ||
+            (uintptr_t)low != info.StackLow || (uintptr_t)high != info.StackHigh ||
+            !record->IsWithinStackBounds(low) || record->IsWithinStackBounds(high) ||
+            !record->IsWithinStackBounds(&info) || record->IsCurrentThreadInCooperativeMode() ||
+            GetLastError() != 0x12348765) return false;
+        const auto bytes = (const unsigned char*)record->GetEEAllocContext();
+        for (size_t j = 0; j < sizeof(ee_alloc_context); ++j) if (bytes[j]) return false;
+        record->SetGCSpecial();
+        if (wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr) != WIT_STATUS_OK) return false;
+    }
+    return true;
+}
+static WitU64 record_worker(WitU64 index)
+{
+    if (index >= 3 || !construct_record()) wit_native_fail_fast(1731);
+    record_ids[index] = ThreadStore::RawGetCurrentThread()->GetPalThreadIdForLogging();
+    record_ready[index] = 1;
+    while (!record_release)
+        if (wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr) != WIT_STATUS_OK) return 1732;
+    return WIT_TEST_EXIT_CODE;
+}
+extern "C" bool wit_test_runtime_thread_record()
+{
+    // The earlier RuntimeInstance probe leaves all records unattached. This
+    // workload initializes real GC-special records without publishing a list
+    // entry or a GC allocation context. No attach/detach implementation is faked.
+    if (!construct_record()) return false;
+    WitUserMemoryInfo before, after;
+    if (!snapshot(before)) return false;
+    for (unsigned round = 0; round < 4; ++round) {
+        WitU64 handles[3], result;
+        record_release = 0;
+        for (unsigned i = 0; i < 3; ++i) {
+            record_ids[i] = record_ready[i] = 0;
+            if (wit_native_thread_create(record_worker, i, &handles[i]) != WIT_STATUS_OK) return false;
+        }
+        while (!record_ready[0] || !record_ready[1] || !record_ready[2])
+            if (wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr) != WIT_STATUS_OK) return false;
+        for (unsigned i = 0; i < 3; ++i) {
+            if (!record_ids[i] || record_ids[i] == ThreadStore::RawGetCurrentThread()->GetPalThreadIdForLogging()) return false;
+            for (unsigned j = 0; j < 3; ++j)
+                if (record_ids[i] == prior_ids[j] || (i != j && record_ids[i] == record_ids[j])) return false;
+        }
+        record_release = 1;
+        for (unsigned i = 0; i < 3; ++i) {
+            if (wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &result) != WIT_STATUS_OK || result != WIT_TEST_EXIT_CODE) return false;
+            prior_ids[i] = record_ids[i];
+        }
+        if (!snapshot(after) || !equal(before, after)) return false;
+    }
+    return true;
 }

@@ -12,6 +12,7 @@
 extern "C" bool wit_test_runtime_allocator();
 extern "C" bool wit_test_interface_dispatch();
 extern "C" bool wit_test_runtime_instance();
+extern "C" bool wit_test_runtime_thread_record();
 extern "C" void wit_test_runtime_missing_tls();
 extern "C" bool wit_test_barrier_early();
 extern "C" bool wit_test_barrier_threads();
@@ -202,16 +203,20 @@ extern "C" WitU64 wit_native_main(const WitUserStartup* startup)
         wit_test_runtime_missing_tls();
         return 1699;
     }
-    if (mode == 9 || mode == 10) {
+    if (mode == 9 || mode == 10 || mode == 14) {
         wit_native_process_image_initialize(startup);
-        if (mode == 10 && !wit_pal_environment_initialize(nullptr, 0)) return 1693;
+        if (mode != 9 && !wit_pal_environment_initialize(nullptr, 0)) return 1693;
         wit_native_tls_initialize(startup);
-        if (mode == 10 && !PalInit()) return 1694;
+        if (mode != 9 && !PalInit()) return 1694;
         if (!wit_test_interface_dispatch()) return 1691;
         report()[1] = 8192;
-        if (mode == 10) {
+        if (mode != 9) {
             if (!wit_test_runtime_instance()) return 1692;
             report()[1] |= 16384;
+            if (mode == 14) {
+                if (!wit_test_runtime_thread_record()) return 1697;
+                report()[1] |= 131072;
+            }
         }
         wit_native_tls_leave();
         return WIT_TEST_EXIT_CODE;

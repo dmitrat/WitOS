@@ -189,6 +189,9 @@
                     {"path":"src/coreclr/nativeaot/Runtime/threadstore.inl","sha256":"dc8200dd989b902c9db386fd8a77830a37070201b92415f872044413376523e5"},
                     {"path":"src/coreclr/nativeaot/Runtime/RestrictedCallouts.cpp","sha256":"a4a43bedc79e2077de0a43cc1595a2bb2957a9fc0be9635a2cc8aa831af46daa"},
                     {"path":"src/coreclr/nativeaot/Runtime/RestrictedCallouts.h","sha256":"a8a1fa9af49f1a52cf96b71bc2e92368a2f47097309e3ffc59b7e640607544be"},
-                    {"path":"src/coreclr/nativeaot/Runtime/clrgc.disabled.cpp","sha256":"a7d5cf44d43cb48d1b0d2673d96468c9e6a401be8a030702c24fcaa79f475a54"}
+                    {"path":"src/coreclr/nativeaot/Runtime/clrgc.disabled.cpp","sha256":"a7d5cf44d43cb48d1b0d2673d96468c9e6a401be8a030702c24fcaa79f475a54"},
+                    {"path":"src/coreclr/nativeaot/Runtime/thread.inl","sha256":"66b9f935d0e697d843bd48f96469c0789f79b48bb2b1d8b69f49e6147fe7f88e"},
+                    {"path":"src/coreclr/nativeaot/Runtime/inc/stressLog.h","sha256":"47d3bc193daf4be76b55d1d67e6de176da177dfde5bf5d6e3cb05fc61a5cba52"},
+                    {"path":"src/coreclr/nativeaot/Runtime/DebugHeader.cpp","sha256":"1bcec8e4bcb190da174dff05b261c2b6c805815ef01180c5903abd2ccf130f05"}
                 ]
 }

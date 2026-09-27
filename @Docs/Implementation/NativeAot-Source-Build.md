@@ -3,6 +3,8 @@
 **Status:** Implemented and verified locally on 2026-09-20.
 **Scope:** Full upstream native libraries and an incomplete WitOS workstation archive. The 0.0.11 [discovery extension](NativeAot-Gc-Discovery.md) adds guest environment queries; managed execution in WitOS is still pending.
 
+**Update (0.0.36):** The WitOS profile now compiles source-derived Thread construction with an explicit invalid OS-handle policy and native fatal branch. It consistently disables StressLog using upstream NO_STRESS_LOG, with conditional debug-header metadata. Windows-reference diagnostics remain unchanged. See [thread records and profile evidence](NativeAot-Thread-Records.md).
+
 ## Context and decision
 
 The first guest adapter compiled five GC memory methods against upstream headers. The next requirement is to compile the actual runtime and collector, and show where the adapter meets their real dependencies.
