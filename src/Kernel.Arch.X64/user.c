@@ -474,6 +474,16 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
         context->Rax = wit_user_memory_query(&current_user->Space, argument0, argument1, argument2);
         if (context->Rax == WIT_STATUS_OK) context->Rdx = WIT_MEMORY_INFO_SIZE;
         break;
+    case WIT_CALL_MONOTONIC_QUERY: {
+        if (argument1 != sizeof(WitU64)) { context->Rax = WIT_STATUS_INVALID_ARGUMENT; break; }
+        if (argument2 > WIT_MONOTONIC_HZ) { context->Rax = WIT_STATUS_UNSUPPORTED; break; }
+        const WitU64 value = argument2 == WIT_MONOTONIC_COUNTER ? wit_x64_monotonic_read() : wit_x64_monotonic_frequency();
+        // The dispatcher keeps IF clear through sampling and whole-buffer copy.
+        if (!wit_user_copy_to(&current_user->Space, argument0, (const WitU8*)&value, sizeof(value)))
+            context->Rax = WIT_STATUS_BAD_ADDRESS;
+        else context->Rdx = sizeof(value);
+        break;
+    }
     case WIT_CALL_MONOTONIC_READ:
         context->Rdx = wit_x64_monotonic_read();
         break;

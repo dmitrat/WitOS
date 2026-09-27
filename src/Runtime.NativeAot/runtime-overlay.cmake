@@ -51,6 +51,8 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_module.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_environment.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_error.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_clock.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_clock.asm"
         "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_error.asm"
         "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_environment.asm"
         "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/chkstk.asm")
@@ -66,6 +68,7 @@ function(witos_select_gc_environment)
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/witos-abi")
     file(WRITE "${CMAKE_BINARY_DIR}/witos-abi/user_abi.inc" "WIT_TLS_LAST_ERROR_OFFSET EQU ${error_offset}\n")
     set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_error.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_clock.asm"
         "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_environment.asm"
         "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/chkstk.asm"
         TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES LANGUAGE ASM_MASM
@@ -119,6 +122,8 @@ function(witos_select_gc_environment)
     list(APPEND sources "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/startup.witos.cpp")
     set_property(TARGET Runtime.WorkstationGC PROPERTY SOURCES "${sources}")
 
+    set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_clock.witos.cpp"
+        TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES COMPILE_OPTIONS "/Od;/GS-")
     get_target_property(minipal_sources aotminipal SOURCES)
     list(FIND minipal_sources "mutex.c" mutex_index)
     if(mutex_index EQUAL -1)
@@ -180,7 +185,8 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_time.cpp"
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_crt.cpp"
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_stack.cpp"
-        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_cpu.cpp")
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_cpu.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_clock.cpp")
     set_source_files_properties("${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_stack.cpp"
         TARGET_DIRECTORY WitOS.ConfigProbe PROPERTIES COMPILE_OPTIONS "/Gs4096")
     foreach(config_source IN LISTS config_sources)

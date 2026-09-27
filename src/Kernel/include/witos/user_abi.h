@@ -8,7 +8,7 @@
 /* Experimental x64 interrupt ABI, not a stable public SDK.
  * INT 0x80: RAX=call, RCX/RDX/R8=arguments; RAX=status, RDX=result.
  * Other GPRs and baseline x87/SSE state survive; flags are reset to 0x202. */
-#define WIT_ABI_VERSION 17U
+#define WIT_ABI_VERSION 18U
 #define WIT_ABI_STARTUP_SIZE 24U
 /* Existing single-module compiler TLS page layout; not a Windows TEB. */
 #define WIT_COMPILER_TLS_DATA_OFFSET 256U
@@ -75,6 +75,12 @@
 /* Create a kernel-controlled manual memory-pressure event; all arguments zero.
  * Returned handle permits waiting and closing, never user signaling/reset. */
 #define WIT_CALL_MEMORY_PRESSURE_EVENT 31U
+/* Copy a uint64 monotonic value to a completely writable user buffer.
+ * Query(buffer, exact size=8, selector); IF-disabled validation/copy-out.
+ * Result is 8 bytes copied on success, zero on failure. No TLS/heap required. */
+#define WIT_CALL_MONOTONIC_QUERY 32U
+#define WIT_MONOTONIC_COUNTER 0U
+#define WIT_MONOTONIC_HZ 1U
 #define WIT_MONOTONIC_MAX 0x7FFFFFFFFFFFFFFFULL
 /* Legacy calls 13-19 use absolute delivered PIT ticks. Zero polls; all-ones waits forever.
  * The frequency is nominal; this bootstrap clock pauses while IRQ0 is disabled. */

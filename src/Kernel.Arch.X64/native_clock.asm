@@ -1,0 +1,26 @@
+option casemap:none
+EXTERN wit_native_query_performance_counter:PROC
+EXTERN wit_native_query_performance_frequency:PROC
+EXTERN wit_native_tick_count64:PROC
+.code
+PUBLIC QueryPerformanceCounter
+QueryPerformanceCounter PROC
+    jmp wit_native_query_performance_counter
+QueryPerformanceCounter ENDP
+PUBLIC QueryPerformanceFrequency
+QueryPerformanceFrequency PROC
+    jmp wit_native_query_performance_frequency
+QueryPerformanceFrequency ENDP
+PUBLIC GetTickCount64
+GetTickCount64 PROC
+    jmp wit_native_tick_count64
+GetTickCount64 ENDP
+.const
+ALIGN 8
+PUBLIC __imp_QueryPerformanceCounter
+PUBLIC __imp_QueryPerformanceFrequency
+PUBLIC __imp_GetTickCount64
+__imp_QueryPerformanceCounter QWORD QueryPerformanceCounter
+__imp_QueryPerformanceFrequency QWORD QueryPerformanceFrequency
+__imp_GetTickCount64 QWORD GetTickCount64
+END

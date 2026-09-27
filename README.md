@@ -6,7 +6,7 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 
 ## Current status
 
-**WitOS 0.0.41: runtime CPU discovery now follows the kernel FXSAVE-only policy. SSE4.2/AES groups are gated by real CPUID dependencies; AVX is disabled and tested on an AVX-capable QEMU CPU. Minimal startup retains 71 unresolved platform symbols; managed guest execution remains pending.**
+**WitOS 0.0.42: native CoreLib clock bindings use the kernel monotonic domain and atomic checked output buffers. Direct/import bindings execute in the guest, including without compiler TLS. ABI v18; minimal startup retains 68 unresolved platform symbols and managed guest execution remains pending.**
 
 The kernel boots independently through UEFI and runs separately built native components in ring 3 with private mappings and handles. Its bounded PE loader parses complete files inside the guest, maps sections and applies relocations. A freestanding C startup layer receives image metadata, runs native initializers and enters the program in user space. The component writes through a checked syscall and exits; its faults are contained while the kernel runs the next component. Within a component, up to four user threads can run with timer preemption, separate stacks/TLS and blocking join. Manual/auto-reset events, sleep and absolute deadlines work with kernel idle when all threads are blocked. M1 paging, protection, timer and kernel-context checks remain part of every successful boot.
 
@@ -39,7 +39,7 @@ Expected guest output includes:
 ```text
 [BOOT] UEFI x64 adapter
 [BOOT] ExitBootServices OK
-WitOS 0.0.41 (runtime CPU capabilities)
+WitOS 0.0.42 (native clock bindings)
 Build: <git-revision> | x64 | Debug
 [TEST-BEGIN] Boot.Contract
 [TEST-PASS] Boot.Contract
@@ -161,7 +161,7 @@ This fetches the pinned upstream native tree and builds separate Windows-referen
 
     dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-config
 
-This refreshes the native source build and executes actual configuration methods in QEMU at 128 and 512 MiB RAM, plus 256 MiB Intel Nehalem and AVX-capable max profiles. Each boot checks 205 user groups, including twenty-seven additional configuration/CRT/PAL/startup groups. Ordinary test retains nineteen scenarios and 178 groups without requiring a full runtime source build.
+This refreshes the native source build and executes actual configuration methods in QEMU at 128 and 512 MiB RAM, plus 256 MiB Intel Nehalem and AVX-capable max profiles. Each boot checks 207 user groups, including twenty-nine additional configuration/CRT/PAL/startup groups. Ordinary test retains nineteen scenarios and 178 groups without requiring a full runtime source build.
 
 This tests PalInit and configuration/GC OS initialization, not a running collector or managed code. The explicit RhConfig OOM overlay and source provenance are described in [ADR 0022](@Docs/Implementation/NativeAot-Runtime-Configuration.md).
 
@@ -185,7 +185,7 @@ The core kernel does not include UEFI structures. The output is a freestanding P
 
 ## Scope and next work
 
-M2 uses two fixed component slots and activates one component at a time. Up to four threads share its private address space and handles; each has separate guarded user/kernel stacks and a raw FS-based TLS block. Shared kernel mappings stay supervisor-only. Native components use experimental ABI v17 for query/write/exit/close, memory, thread, event, legacy tick-clock, monotonic deadline, allocator-snapshot, current-thread identity and process memory-barrier and CPU-cache discovery and bounded event wait-any and memory-pressure notification operations. Earlier one-page fixtures remain alongside the new PE path, whose profile permits up to 16 sections and a 256 KiB mapped image. Each space can reserve within a separate 64 GiB virtual arena without allocating backing RAM; commitment is explicitly limited to 128 owned frames including page tables and fixed mappings. Firmware memory remains reserved, and usable physical addresses remain below 4 GiB.
+M2 uses two fixed component slots and activates one component at a time. Up to four threads share its private address space and handles; each has separate guarded user/kernel stacks and a raw FS-based TLS block. Shared kernel mappings stay supervisor-only. Native components use experimental ABI v18 for query/write/exit/close, memory, thread, event, legacy tick-clock, monotonic deadline, allocator-snapshot, current-thread identity and process memory-barrier and CPU-cache discovery and bounded event wait-any and memory-pressure notification operations, plus atomic monotonic clock copy-out. Earlier one-page fixtures remain alongside the new PE path, whose profile permits up to 16 sections and a 256 KiB mapped image. Each space can reserve within a separate 64 GiB virtual arena without allocating backing RAM; commitment is explicitly limited to 128 owned frames including page tables and fixed mappings. Firmware memory remains reserved, and usable physical addresses remain below 4 GiB.
 
 User faults terminate that component; kernel faults remain fatal diagnostics. General Windows/DLL loading, imports, managed TLS/ThreadStore attachment, unwind integration, general mixed-object/wait-all semantics, IPC channels, SMP and managed execution remain future work. The pinned target/bootstrap experiment now supplies measured object, TLS, unwind and dependency requirements. The bounded guest PE loading contract is implemented; native image handoff and C startup are now implemented. Windows x64 code generation is selected and the first GC memory adapter is implemented; the full native source build and strict port-dependency inventory are established. GC discovery, monotonic time, finite event waits, recursive minipal/Crst mutexes and committed-memory reset are implemented; bounded native new/delete is also implemented. Static single-module compiler TLS is now implemented. User-space dynamic C++ TLS initialization/destruction is implemented for the bounded single-module profile. Four thread-discovery PAL methods now execute through kernel snapshots. PAL memory, events and non-alertable single-event/WaitAny waits are implemented for the bounded event-only profile. Detached PAL background workers now run native callbacks with TLS cleanup. Per-thread native last-error and failure diagnostics are implemented. Next complete initialization/handle/GC coordination requirements, initialize the real runtime/collector, then validate ThreadStore attachment/shutdown; remaining CRT/PAL services are still incomplete. The q35 HPET counter advances independently of IRQs; PIT retains scheduling and the legacy delivered-tick ABI. This is not UTC or a hard real-time wake-latency guarantee.
 

@@ -12,8 +12,8 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
     const WitU64 before = wit_pages_free_count(pages);
     const WitU8* image = (mode == 8 || mode == 11 || mode == 13 || mode == 16 || mode == 18 || mode == 23) ? wit_runtime_config_raw_image : wit_runtime_config_image;
     const WitU32 size = (mode == 8 || mode == 11 || mode == 13 || mode == 16 || mode == 18 || mode == 23) ? sizeof(wit_runtime_config_raw_image) : sizeof(wit_runtime_config_image);
-    const WitU8* selected = mode >= 24 ? (mode == 25 ? wit_runtime_cpu_raw_image : wit_runtime_cpu_image) : image;
-    const WitU32 selectedSize = mode >= 24 ? (mode == 25 ? sizeof(wit_runtime_cpu_raw_image) : sizeof(wit_runtime_cpu_image)) : size;
+    const WitU8* selected = mode >= 24 ? ((mode == 25 || mode == 28) ? wit_runtime_cpu_raw_image : wit_runtime_cpu_image) : image;
+    const WitU32 selectedSize = mode >= 24 ? ((mode == 25 || mode == 28) ? sizeof(wit_runtime_cpu_raw_image) : sizeof(wit_runtime_cpu_image)) : size;
     require(wit_user_create_pe(&process, pages, 0, selected, selectedSize, base) == WitPeOk,
         "Runtime configuration fixture load failed");
     const WitU32 owned = process.Space.OwnedCount;
@@ -21,6 +21,16 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
     config->Mode = mode;
     wit_user_run(&process);
     const WitU64* report = (const WitU64*)wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
+    if (mode == 27 || mode == 28) {
+        require(report && report[0] == mode && report[1] == 4194304 && process.State == WitUserExited &&
+            process.ExitCode == WIT_TEST_EXIT_CODE && process.Space.OwnedCount == owned &&
+            process.ThreadCreates == (mode == 27 ? 4U : 1U) && process.ThreadJoins == (mode == 27 ? 3U : 0U) &&
+            process.ThreadReaps == (mode == 27 ? 3U : 0U) && (process.Threads[0].CompilerTls != 0) == (mode == 27) &&
+            !process.Handles.Count && !process.Events.Count, "Native clock binding/atomic copy contract failed");
+        wit_user_destroy(&process);
+        require(wit_pages_free_count(pages) == before, "Native clock teardown leaked pages");
+        return;
+    }
     if (mode >= 24) {
         require(report && report[0] == mode && report[1] == 2097152 && process.Space.OwnedCount == owned &&
             !process.Handles.Count && !process.Events.Count, "CPU feature fixture lost state/resources");
@@ -182,5 +192,9 @@ void wit_user_runtime_config_self_test(WitPageAllocator* pages)
     wit_console_write("[TEST-PASS] User.MinipalCpuWithoutTls\n");
     run(pages, 26, WIT_USER_IMAGE_BASE);
     wit_console_write("[TEST-PASS] User.AvxDisabled\n");
+    run(pages, 27, WIT_USER_IMAGE_BASE); run(pages, 27, WIT_USER_IMAGE_ALTERNATE);
+    wit_console_write("[TEST-PASS] User.NativeClockBindings\n");
+    run(pages, 28, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.NativeClockAtomicCopy\n");
 }
 #endif
