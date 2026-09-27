@@ -4,6 +4,8 @@
 
 The core objective is standard upstream .NET above a minimal native kernel and a hardware-independent system layer. Shells and applications eventually run on that .NET platform. Current guest code includes the M1 foundation, M2 ring-3 isolation, sparse user memory, bounded user threads/TLS, events/deadlines, restricted native PE loading, user-space C bootstrap and a partial native GC OS adapter; host-side C# tooling must not be described as guest .NET support.
 
+The application compatibility target is unchanged portable managed binaries under upstream CoreCLR/JIT, standard TFMs/SDK/NuGet and optional additive WitOS APIs. NativeAOT is an early system implementation/deployment tool, not the application compatibility contract; do not replace upstream CoreLib or managed semantics.
+
 Original vision documents live in `@Docs/`. Concrete implementation status and deliberate limitations live in `@Docs/Implementation/`. Preserve original drafts unless the task calls for revising them.
 
 ## Boundaries
@@ -47,6 +49,7 @@ Original vision documents live in `@Docs/`. Concrete implementation status and d
 - Publish native environment state only after validating the complete readonly image table and all terminated strings, before TLS constructors/workers. Preserve immutable lookup, native last-error and equivalent direct/import bindings. UTF conversion must use the real native heap with bounded input and caller-owned cleanup; environment transport is not GCConfig or PalInit execution.
 - Keep configuration probes tied to hash-verified upstream method bodies and actual headers; record every compiled-source correction. Preserve full runtime dependencies outside the probe. RhConfig string failures must retain caller output and release temporary buffers. Native errno is separate static compiler TLS state, not raw-FS last-error; locale support remains explicitly C-only.
 - PalInit requires published image/environment and kernel-confirmed compiler TLS before errno access. Keep initialization serialized without parking under its gate, reject unsupported valid CPU overrides before GC mutation, preserve native error/errno, and never reset refreshed configuration on cached calls or resurrect it after GC OS shutdown. PalInit success is not collector or managed runtime startup.
+- Keep native process-exit callbacks component-private and separate from thread exit. Use kernel identity for the draining owner, pop before invocation, release the registry gate across callbacks/TLS cleanup, reject foreign registration during shutdown and bound re-registration. Preserve TLS-before-atexit ordering, explicit raw/fault bypass and checked upstream registration failure. This lifecycle does not provide ThreadStore detach, managed shutdown or general CRT exit semantics.
 - Keep native initializer execution in user space. Kernel image descriptors are readonly; ReadyToRun/TypeManager/GC-table initialization belongs to the actual runtime, not the kernel.
 - Accepted plain unwind metadata is structural evidence only. Reject handler/chained forms and relocation into validated unwind ranges; do not claim stack unwinding or managed exception support from parsing tables.
 - Treat the boot handoff and experimental user ABI as evolving contracts, not a frozen public SDK.

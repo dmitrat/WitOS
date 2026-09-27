@@ -46,6 +46,7 @@ internal static class UserImage
         await UserPalBackgroundImage.BuildAsync(root, output, msvc);
         await UserPalModuleImage.BuildAsync(root, output, msvc);
         await UserPalEnvironmentImage.BuildAsync(root, output, msvc);
+        await UserProcessExitImage.BuildAsync(root, output, msvc);
     }
 
     private static async Task BuildFixtureAsync(string root, string output, string msvc,

@@ -45,7 +45,7 @@ internal static class RuntimeSourceBuild
         string[] palImplemented = ["PalGetCurrentOSThreadId", "PalGetMaximumStackBounds", "PalGetCurrentProcessId", "PalGetProcessCpuCount",
             "PalVirtualAlloc", "PalVirtualFree", "PalVirtualProtect", "PalCreateEventW", "PalSetEvent", "PalResetEvent",
             "PalWaitForSingleObjectEx", "PalCloseHandle", "PalSleep", "PalSwitchToThread", "PalStartBackgroundGCThread", "PalStartFinalizerThread", "PalStartEventPipeHelperThread", "PalGetModuleHandleFromPointer", "PalGetModuleBounds", "PalGetEnvironmentVariable", "PalCopyTCharAsChar", "?PalInit@@"];
-        if (boundary.Unresolved.Any(s => s is "strlen" or "memcpy" or "strcmp" or "_stricmp" or "strtoull" or "_errno" or "__imp__errno" or "GetEnvironmentVariableW" or "__imp_GetEnvironmentVariableW" or "GetLastError" or "SetLastError" or "__imp_GetLastError" or "__imp_SetLastError") ||
+        if (boundary.Unresolved.Any(s => s is "atexit" or "__imp_atexit" or "strlen" or "memcpy" or "strcmp" or "_stricmp" or "strtoull" or "_errno" or "__imp__errno" or "GetEnvironmentVariableW" or "__imp_GetEnvironmentVariableW" or "GetLastError" or "SetLastError" or "__imp_GetLastError" or "__imp_SetLastError") ||
             boundary.Unresolved.Any(s => palImplemented.Any(p => s.Contains(p, StringComparison.Ordinal))) ||
             !boundary.Unresolved.Any(s => s.Contains("PalAttachThread", StringComparison.Ordinal)) ||
             !boundary.Unresolved.Any(s => s.Contains("PalInitComAndFlsSlot", StringComparison.Ordinal)) ||
@@ -69,7 +69,7 @@ internal static class RuntimeSourceBuild
         var report = new
         {
             pin.RuntimeVersion, pin.RuntimeCommit, upstreamTree = tree, backend = RuntimePortImage.Backend,
-            upstreamWorkingTreeClean = true, upstreamWorkingTreePatched = false, rhConfigAllocationChecksPatched = true,
+            upstreamWorkingTreeClean = true, upstreamWorkingTreePatched = false, rhConfigAllocationChecksPatched = true, startupExitRegistrationChecked = true,
             nativeRuntimeSourceBuilt = true, managedCompilerAndCoreLibFromLockedPackages = true,
             guestRuntimePorted = false, guestManagedExecution = false,
             referenceHostPassedCases = Cases, referenceHost,
@@ -77,7 +77,7 @@ internal static class RuntimeSourceBuild
             ported = new { ported.ArchiveSha256, members = ported.Members, compileUnits = ported.Commands.Length, minipal = ported.Minipal },
             sourceOverlay = new[] { "src/Runtime.NativeAot/runtime-overlay.cmake", "src/Runtime.NativeAot/config-probe/CMakeLists.txt", "src/Runtime.NativeAot/gcenv.witos.cpp",
                 "src/Runtime.NativeAot/gcenv.witos.h", "src/Runtime.NativeAot/gc_events.witos.cpp", "src/Runtime.NativeAot/gc_time.witos.cpp",
-                "src/Runtime.NativeAot/mutex.witos.cpp", "src/Runtime.NativeAot/crst.witos.cpp", "src/Runtime.NativeAot/native_new.witos.cpp", "src/Runtime.NativeAot/crt_config.witos.cpp", "artifacts/runtime-config/source/rhconfig.witos.cpp", "src/Runtime.NativeAot/tls.witos.cpp", "src/Runtime.NativeAot/pal.witos.cpp", "src/Runtime.NativeAot/pal_init.witos.cpp", "src/Runtime.NativeAot/pal_memory.witos.cpp", "src/Runtime.NativeAot/pal_events.witos.cpp", "src/Runtime.NativeAot/pal_threads.witos.cpp", "src/System.Native/thread.c", "src/System.Native/image.c", "src/System.Native/image.h", "src/Runtime.NativeAot/pal_module.witos.cpp", "src/Runtime.NativeAot/pal_environment.witos.cpp", "src/Runtime.NativeAot/pal_environment.witos.h", "src/System.Native/error.h", "src/Runtime.NativeAot/pal_error.witos.cpp", "src/Kernel.Arch.X64/native_error.asm", "src/Kernel.Arch.X64/native_environment.asm", "src/Runtime.NativeAot/pal.witos.h", "src/System.Native/tls.h", "src/System.Native/bootstrap.h", "src/Kernel/include/witos/types.h",
+                "src/Runtime.NativeAot/mutex.witos.cpp", "src/Runtime.NativeAot/crst.witos.cpp", "src/Runtime.NativeAot/native_new.witos.cpp", "src/Runtime.NativeAot/crt_config.witos.cpp", "src/Runtime.NativeAot/crt_exit.witos.cpp", "src/System.Native/native_process.h", "artifacts/runtime-config/source/rhconfig.witos.cpp", "artifacts/runtime-config/source/startup.witos.cpp", "src/Runtime.NativeAot/tls.witos.cpp", "src/Runtime.NativeAot/pal.witos.cpp", "src/Runtime.NativeAot/pal_init.witos.cpp", "src/Runtime.NativeAot/pal_memory.witos.cpp", "src/Runtime.NativeAot/pal_events.witos.cpp", "src/Runtime.NativeAot/pal_threads.witos.cpp", "src/System.Native/thread.c", "src/System.Native/image.c", "src/System.Native/image.h", "src/Runtime.NativeAot/pal_module.witos.cpp", "src/Runtime.NativeAot/pal_environment.witos.cpp", "src/Runtime.NativeAot/pal_environment.witos.h", "src/System.Native/error.h", "src/Runtime.NativeAot/pal_error.witos.cpp", "src/Kernel.Arch.X64/native_error.asm", "src/Kernel.Arch.X64/native_environment.asm", "src/Runtime.NativeAot/pal.witos.h", "src/System.Native/tls.h", "src/System.Native/bootstrap.h", "src/Kernel/include/witos/types.h",
                 "src/Kernel/include/witos/user_abi.h", "src/Kernel/include/witos/thread_info.h", "src/Kernel/include/witos/image_info.h", "src/Kernel/include/witos/memory_info.h" }
                 .Select(p => new { path = p, sha256 = Hash(Path.Combine(root, p)) }),
             referenceInputs = referenceInputs.Select(p => new { file = Path.GetFileName(p), sha256 = Hash(p) }),
@@ -169,7 +169,7 @@ internal static class RuntimeSourceBuild
         static string Normalize(string path) => path.Replace(Path.DirectorySeparatorChar, '/');
         var commands = allCommands.Where(c => Normalize(c.Output).Contains("/Runtime.WorkstationGC.dir/", StringComparison.Ordinal)).ToArray();
         var paths = commands.Select(c => Normalize(c.File)).ToArray();
-        string[] required = ["/gc/gcwks.cpp", "/gc/gchandletable.cpp", "/Runtime/startup.cpp", "/Runtime/thread.cpp", "/Runtime/TypeManager.cpp"];
+        string[] required = ["/gc/gcwks.cpp", "/gc/gchandletable.cpp", overlay ? "/startup.witos.cpp" : "/Runtime/startup.cpp", "/Runtime/thread.cpp", "/Runtime/TypeManager.cpp"];
         if (required.Any(s => !paths.Any(p => p.EndsWith(s, StringComparison.Ordinal))) ||
             paths.Count(p => p.EndsWith("/gc/windows/gcenv.windows.cpp", StringComparison.Ordinal)) != (overlay ? 0 : 1) ||
             paths.Count(p => p.EndsWith("/gcenv.witos.cpp", StringComparison.Ordinal)) != (overlay ? 1 : 0) ||
@@ -185,6 +185,10 @@ internal static class RuntimeSourceBuild
         if (paths.Count(p => p.EndsWith("/pal.witos.cpp", StringComparison.Ordinal)) != (overlay ? 1 : 0) ||
             paths.Count(p => p.EndsWith("/pal_init.witos.cpp", StringComparison.Ordinal)) != (overlay ? 1 : 0))
             throw new InvalidDataException("Runtime archive did not compile the selected WitOS PAL.");
+        if (paths.Count(p => p.EndsWith("/Runtime/startup.cpp", StringComparison.Ordinal)) != (overlay ? 0 : 1) ||
+            paths.Count(p => p.EndsWith("/startup.witos.cpp", StringComparison.Ordinal)) != (overlay ? 1 : 0) ||
+            paths.Count(p => p.EndsWith("/crt_exit.witos.cpp", StringComparison.Ordinal)) != (overlay ? 1 : 0))
+            throw new InvalidDataException("Runtime archive contains the wrong startup/exit registration policy.");
         if (paths.Count(p => p.EndsWith("/Runtime/RhConfig.cpp", StringComparison.Ordinal)) != (overlay ? 0 : 1) ||
             paths.Count(p => p.EndsWith("/rhconfig.witos.cpp", StringComparison.Ordinal)) != (overlay ? 1 : 0))
             throw new InvalidDataException("Runtime archive contains the wrong RhConfig allocation policy.");
@@ -205,7 +209,7 @@ internal static class RuntimeSourceBuild
         await File.WriteAllTextAsync(Path.Combine(output, profile + "-minipal-compile-commands.json"), JsonSerializer.Serialize(minipalCommands, Json));
         if (overlay)
         {
-            foreach (var file in new[] { "/gcenv.witos.cpp", "/gc_events.witos.cpp", "/gc_time.witos.cpp", "/crst.witos.cpp", "/native_new.witos.cpp", "/crt_config.witos.cpp", "/rhconfig.witos.cpp", "/tls.witos.cpp", "/pal.witos.cpp", "/pal_init.witos.cpp", "/pal_memory.witos.cpp", "/pal_events.witos.cpp", "/pal_threads.witos.cpp", "/System.Native/thread.c", "/System.Native/image.c", "/pal_module.witos.cpp", "/pal_environment.witos.cpp", "/pal_error.witos.cpp", "/native_error.asm", "/native_environment.asm" })
+            foreach (var file in new[] { "/gcenv.witos.cpp", "/gc_events.witos.cpp", "/gc_time.witos.cpp", "/crst.witos.cpp", "/native_new.witos.cpp", "/crt_config.witos.cpp", "/crt_exit.witos.cpp", "/rhconfig.witos.cpp", "/startup.witos.cpp", "/tls.witos.cpp", "/pal.witos.cpp", "/pal_init.witos.cpp", "/pal_memory.witos.cpp", "/pal_events.witos.cpp", "/pal_threads.witos.cpp", "/System.Native/thread.c", "/System.Native/image.c", "/pal_module.witos.cpp", "/pal_environment.witos.cpp", "/pal_error.witos.cpp", "/native_error.asm", "/native_environment.asm" })
             {
                 var adapter = commands.Single(c => Normalize(c.File).EndsWith(file, StringComparison.Ordinal));
                 NativeObject.VerifyArchive(archive, Path.GetFullPath(adapter.Output, adapter.Directory));

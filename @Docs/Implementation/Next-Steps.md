@@ -5,7 +5,7 @@ The core objective remains a minimal hardware-dependent kernel, a common system 
 ## Completed
 
 - M0 boot and M1 paging/protection/timer/kernel-context foundation.
-- Eighteen VM scenarios with 156 required user groups and 50 contained user faults in successful boots.
+- Eighteen VM scenarios with 162 required user groups and 51 contained user faults in successful boots.
 - M2 ring-3 isolation, sparse memory, bounded threads/raw FS TLS/join, events/deadlines and idle.
 - Bounded guest PE loading with section protection, zero-fill, relocations and allocation rollback.
 - ABI v13 retains readonly image descriptions, allocator snapshots, monotonic deadlines and kernel-owned thread identity, and provides committed-memory reset, atomic current-thread discovery, a truthful yield result, detached thread creation and per-thread native error storage; user-space C startup with checked callbacks, run-once state and reverse cleanup.
@@ -27,11 +27,12 @@ The core objective remains a minimal hardware-dependent kernel, a common system 
 - Immutable native environment tables and PAL UTF-16/UTF-8 conversion execute before/during TLS and worker lifecycles; see [configuration transport](NativeAot-Pal-Environment.md).
 - The dedicated runtime-config probe executes real RhConfig/GCConfig methods, precedence/default/refresh/enumeration semantics, checked string OOM paths and a C-locale CRT slice with thread-local errno; see [configuration execution](NativeAot-Runtime-Configuration.md).
 - PalInit now executes real GCConfig/GC OS initialization, requires published environment and compiler TLS, enforces the single-CPU policy and caches readiness without resetting refreshed configuration; see [PAL initialization](NativeAot-Pal-Initialization.md).
+- Native process callbacks execute after TLS cleanup, with LIFO, bounded re-registration and checked upstream atexit failure; see [process exit](NativeAot-Process-Exit.md).
 - Full upstream nativeaot component built from the pinned source tree in separate Windows-reference and WitOS-overlay profiles; source-built Windows GC/TLS execution passes and incomplete WitOS dependencies are inventoried.
 
 See [native module/bootstrap handoff](M2-Native-Module-Bootstrap.md), [NativeAOT target evidence](NativeAot-Target-Bootstrap.md), [backend decision and memory adapter](NativeAot-Gc-Memory-Port.md), [full native source build](NativeAot-Source-Build.md), [GC discovery](NativeAot-Gc-Discovery.md), [GC events](NativeAot-Gc-Events.md), [monotonic GC time](NativeAot-Gc-Time.md), [native mutexes](NativeAot-Mutexes.md) and [RFC 0015](../RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md).
 
-WitOS 0.0.26 executes the native memory/reset/discovery/event/time, minipal/Crst and nothrow allocation adapters, plus native PAL environment/string services, in the guest. The separate runtime-config command adds nine groups to each of two guest boots, exercising upstream configuration and native PAL initialization. It still does not run managed .NET or its collector there.
+WitOS 0.0.27 executes the native memory/reset/discovery/event/time, minipal/Crst and nothrow allocation adapters, plus native PAL environment/string services and bounded native process cleanup, in the guest. The separate runtime-config command adds nine groups to each of two guest boots, exercising upstream configuration and native PAL initialization. It still does not run managed .NET or its collector there.
 
 The [BootTo.NET source review](BootToNET-Review.md) keeps the upstream runtime direction and existing WitOS runner. Its immediate result is expanded hosted root/unwind coverage; it recommends an explicit minimal bring-up profile for the next full startup workload.
 
@@ -39,7 +40,7 @@ The [BootTo.NET source review](BootToNET-Review.md) keeps the upstream runtime d
 
 See [the M3 work-package estimate](M3-Runtime-Integration-Plan.md): roughly eight major packages / 12-20 bounded slices estimated at 0.0.15; native allocation now completes part of the first package.
 
-1. Continue through actual RhInitialize/InitDLL after the implemented PalInit: define native process-exit callbacks and the explicit WitOS handling of Windows startup/diagnostic paths, then advance RuntimeInstance and real GC initialization. Module lookup already supplies image identity. Use the explicit PAL inventory to complete startup/thread/handle and GC coordination services for real runtime and GC initialization, then connect actual ThreadStore attachment/shutdown to the tested TLS lifecycle. Full detach already calls GC FixAllocContext, so do not substitute a fake collector to claim lifecycle completion. Complete remaining CRT/PAL behavior and extend memory semantics as required by the runtime profile. Committed reset is implemented; working-set unlock and large pages remain unsupported. Keep unimplemented methods unresolved rather than returning synthetic success.
+1. Continue through actual RhInitialize/InitDLL after the implemented PalInit: use the implemented native exit registry and define the explicit WitOS handling of Windows startup/diagnostic paths, then advance RuntimeInstance and real GC initialization. Module lookup already supplies image identity. Use the explicit PAL inventory to complete startup/thread/handle and GC coordination services for real runtime and GC initialization, then connect actual ThreadStore attachment/shutdown to the tested TLS lifecycle. Full detach already calls GC FixAllocContext, so do not substitute a fake collector to claim lifecycle completion. Complete remaining CRT/PAL behavior and extend memory semantics as required by the runtime profile. Committed reset is implemented; working-set unlock and large pages remain unsupported. Keep unimplemented methods unresolved rather than returning synthetic success.
 2. Connect the implemented native image bounds to actual runtime module registration; add fault/context delivery, unwinding and process-local GC rendezvous. Expand image/stack/commit limits for the actual profile.
 3. Keep ReadyToRun/TypeManager/GC-static/frozen-object/eager-constructor initialization inside the real user-space runtime. It already requires real GC support.
 4. Extend the explicit q35 clock profile to discovered hardware when broadening platform support; keep monotonic counts distinct from UTC and legacy IRQ ticks.

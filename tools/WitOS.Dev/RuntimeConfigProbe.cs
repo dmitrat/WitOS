@@ -26,7 +26,7 @@ internal static class RuntimeConfigProbe
         {
             var first = source.IndexOf(before, StringComparison.Ordinal);
             if (first < 0 || source.IndexOf(before, first + before.Length, StringComparison.Ordinal) >= 0)
-                throw new InvalidDataException("Pinned configuration allocation-check anchor changed.");
+                throw new InvalidDataException("Pinned runtime correction anchor changed.");
             return source.Replace(before, after, StringComparison.Ordinal);
         }
         static string Slice(string source, string first, string next)
@@ -38,6 +38,10 @@ internal static class RuntimeConfigProbe
                 throw new InvalidDataException("Pinned GC configuration slice anchors changed.");
             return source[start..end];
         }
+        const string startupPath = "src/coreclr/nativeaot/Runtime/startup.cpp";
+        var startup = ReplaceOne(await Read(startupPath), "    atexit(&OnProcessExit);",
+            "    if (atexit(&OnProcessExit) != 0) return false;");
+        await File.WriteAllTextAsync(Path.Combine(output, "startup.witos.cpp"), startup);
         const string rhPath = "src/coreclr/nativeaot/Runtime/RhConfig.cpp";
         const string gcPath = "src/coreclr/gc/gcconfig.cpp";
         const string eePath = "src/coreclr/nativeaot/Runtime/gcenv.ee.cpp";
@@ -64,9 +68,9 @@ internal static class RuntimeConfigProbe
         await File.WriteAllTextAsync(Path.Combine(output, "provenance.json"), JsonSerializer.Serialize(new
         {
             pin.RuntimeCommit,
-            scope = "Whole RhConfig with explicit allocation-failure checks; unchanged GCConfig prefix and four unchanged GCToEE configuration methods. No collector/lifecycle substitutes.",
-            inputs = pin.Sources.Where(s => s.Path == rhPath || s.Path == gcPath || s.Path == eePath),
-            generated = new[] { "rhconfig.witos.cpp", "gcconfig.slice.cpp", "gcenv.config.slice.cpp" }
+            scope = "Whole RhConfig with explicit allocation-failure checks; unchanged GCConfig prefix and four unchanged GCToEE configuration methods. Startup additionally checks atexit registration failure. No collector/lifecycle substitutes.",
+            inputs = pin.Sources.Where(s => s.Path == rhPath || s.Path == gcPath || s.Path == eePath || s.Path == startupPath),
+            generated = new[] { "startup.witos.cpp", "rhconfig.witos.cpp", "gcconfig.slice.cpp", "gcenv.config.slice.cpp" }
                 .Select(p => new { file = p, sha256 = Hash(Path.Combine(output, p)) })
         }, Json));
     }

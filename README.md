@@ -6,7 +6,7 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 
 ## Current status
 
-**WitOS 0.0.26: NativeAOT PalInit executes real configuration and GC OS initialization in the guest, with checked startup prerequisites, explicit single-CPU policy and cached lifecycle. ABI v13 is unchanged.**
+**WitOS 0.0.27: bounded native process-exit callbacks execute in the guest, with TLS ordering, concurrent registration and failure checks. The upstream NativeAOT startup now checks registration failure. ABI v13 is unchanged; managed guest execution remains pending.**
 
 The kernel boots independently through UEFI and runs separately built native components in ring 3 with private mappings and handles. Its bounded PE loader parses complete files inside the guest, maps sections and applies relocations. A freestanding C startup layer receives image metadata, runs native initializers and enters the program in user space. The component writes through a checked syscall and exits; its faults are contained while the kernel runs the next component. Within a component, up to four user threads can run with timer preemption, separate stacks/TLS and blocking join. Manual/auto-reset events, sleep and absolute deadlines work with kernel idle when all threads are blocked. M1 paging, protection, timer and kernel-context checks remain part of every successful boot.
 
@@ -39,7 +39,7 @@ Expected guest output includes:
 ```text
 [BOOT] UEFI x64 adapter
 [BOOT] ExitBootServices OK
-WitOS 0.0.26 (native PAL initialization)
+WitOS 0.0.27 (native process exit lifecycle)
 Build: <git-revision> | x64 | Debug
 [TEST-BEGIN] Boot.Contract
 [TEST-PASS] Boot.Contract
@@ -90,7 +90,7 @@ The integration suite boots eighteen real VM scenarios:
 
 Normal boots also verify map/protect/unmap behavior, aliasing, TLB invalidation, timer delivery, progress of both preempted contexts and preserved GPR/SSE state. Exception tests validate vector, error code, register frame, fault address and stack selection. The double-fault test deliberately invalidates the main stack and requires diagnostics from the emergency stack.
 
-Successful boots also require 156 user groups: ring-3 entry, ABI/handles, private memory, user-fault containment, safe return state, timer budgeting, register/flag preservation, zero-fill and resource teardown, plus sparse reservations, commit/decommit/protect/release, recoverable exhaustion and hardware memory faults, plus user-thread preemption, TLS/register state, join/cycle handling, slot reuse and child-fault cleanup, plus event state/rights, wakeups, close/timeout ordering, signal handoff and kernel idle, plus PE validation/loading, relocation, BSS, allocation rollback and hardware section protection, plus native C startup, image descriptors, initializer rollback/run-once behavior and structural unwind validation, plus the upstream GC memory/discovery adapter, hardware protection, atomic snapshot copies, physical pressure, GC events, monotonic deadlines, recursive mutexes, blocking handoff, Crst lifecycle checks, atomic committed-memory reset, native C++ allocation/reclamation, static compiler TLS, dynamic C++ TLS lifecycle, kernel-backed PAL thread discovery, PAL memory/event/wait services, detached PAL worker lifecycle, per-thread native error diagnostics, module lookup/bounds, immutable configuration values and UTF conversion. They run within the same real VM.
+Successful boots also require 162 user groups: ring-3 entry, ABI/handles, private memory, user-fault containment, safe return state, timer budgeting, register/flag preservation, zero-fill and resource teardown, plus sparse reservations, commit/decommit/protect/release, recoverable exhaustion and hardware memory faults, plus user-thread preemption, TLS/register state, join/cycle handling, slot reuse and child-fault cleanup, plus event state/rights, wakeups, close/timeout ordering, signal handoff and kernel idle, plus PE validation/loading, relocation, BSS, allocation rollback and hardware section protection, plus native C startup, image descriptors, initializer rollback/run-once behavior and structural unwind validation, plus the upstream GC memory/discovery adapter, hardware protection, atomic snapshot copies, physical pressure, GC events, monotonic deadlines, recursive mutexes, blocking handoff, Crst lifecycle checks, atomic committed-memory reset, native C++ allocation/reclamation, static compiler TLS, dynamic C++ TLS lifecycle, kernel-backed PAL thread discovery, PAL memory/event/wait services, detached PAL worker lifecycle, per-thread native error diagnostics, module lookup/bounds, immutable configuration values, UTF conversion and native process cleanup. They run within the same real VM.
 
 Every test creates fresh firmware variable storage. A timeout, unexpected exit, panic or missing success marker fails an ordinary boot test.
 
@@ -160,7 +160,7 @@ This fetches the pinned upstream native tree and builds separate Windows-referen
 
     dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-config
 
-This refreshes the native source build and executes actual configuration methods in QEMU at 128 and 512 MiB RAM. Each boot checks 165 user groups, including nine additional configuration/CRT/PAL initialization groups. Ordinary test retains eighteen scenarios and 156 groups without requiring a full runtime source build.
+This refreshes the native source build and executes actual configuration methods in QEMU at 128 and 512 MiB RAM. Each boot checks 171 user groups, including nine additional configuration/CRT/PAL initialization groups. Ordinary test retains eighteen scenarios and 162 groups without requiring a full runtime source build.
 
 This tests PalInit and configuration/GC OS initialization, not a running collector or managed code. The explicit RhConfig OOM overlay and source provenance are described in [ADR 0022](@Docs/Implementation/NativeAot-Runtime-Configuration.md).
 

@@ -100,7 +100,7 @@ internal static class DevTool
         await UserImage.BuildAsync(root, output, msvc);
         if (scenario == "runtime-config") await RuntimeConfigProbe.BuildImageAsync(root, output, msvc);
 
-        string[] sources = ["src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/clock.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c", "src/Kernel/handles.c", "src/Kernel.Arch.X64/user_space.c", "src/Kernel.Arch.X64/user.c", "src/Kernel.Arch.X64/user_thread.c", "src/Kernel.Arch.X64/user_tls_tests.c", "src/Kernel.Arch.X64/user_dynamic_tls_tests.c", "src/Kernel.Arch.X64/user_pal_tests.c", "src/Kernel.Arch.X64/user_pal_service_tests.c", "src/Kernel.Arch.X64/user_pal_background_tests.c", "src/Kernel.Arch.X64/user_pal_error_tests.c", "src/Kernel.Arch.X64/user_pal_module_tests.c", "src/Kernel.Arch.X64/user_pal_environment_tests.c", "src/Kernel.Arch.X64/user_runtime_config_tests.c", "src/Kernel.Arch.X64/user_tests.c", "src/Kernel.Arch.X64/user_memory_tests.c", "src/Kernel.Arch.X64/user_thread_tests.c", "src/Kernel/events.c", "src/Kernel.Arch.X64/user_wait.c", "src/Kernel.Arch.X64/user_wait_tests.c", "src/Kernel/pe.c", "src/Kernel.Arch.X64/user_image.c", "src/Kernel.Arch.X64/user_image_tests.c", "src/Kernel.Arch.X64/user_bootstrap_tests.c", "src/Kernel.Arch.X64/user_gc_tests.c"];
+        string[] sources = ["src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/clock.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c", "src/Kernel/handles.c", "src/Kernel.Arch.X64/user_space.c", "src/Kernel.Arch.X64/user.c", "src/Kernel.Arch.X64/user_thread.c", "src/Kernel.Arch.X64/user_tls_tests.c", "src/Kernel.Arch.X64/user_dynamic_tls_tests.c", "src/Kernel.Arch.X64/user_process_exit_tests.c", "src/Kernel.Arch.X64/user_pal_tests.c", "src/Kernel.Arch.X64/user_pal_service_tests.c", "src/Kernel.Arch.X64/user_pal_background_tests.c", "src/Kernel.Arch.X64/user_pal_error_tests.c", "src/Kernel.Arch.X64/user_pal_module_tests.c", "src/Kernel.Arch.X64/user_pal_environment_tests.c", "src/Kernel.Arch.X64/user_runtime_config_tests.c", "src/Kernel.Arch.X64/user_tests.c", "src/Kernel.Arch.X64/user_memory_tests.c", "src/Kernel.Arch.X64/user_thread_tests.c", "src/Kernel/events.c", "src/Kernel.Arch.X64/user_wait.c", "src/Kernel.Arch.X64/user_wait_tests.c", "src/Kernel/pe.c", "src/Kernel.Arch.X64/user_image.c", "src/Kernel.Arch.X64/user_image_tests.c", "src/Kernel.Arch.X64/user_bootstrap_tests.c", "src/Kernel.Arch.X64/user_gc_tests.c"];
         var objects = new List<string>();
         foreach (var source in sources)
         {
@@ -369,6 +369,7 @@ internal static class DevTool
             "PalMemory", "PalMemoryRollback", "PalEventState", "PalEventHandoff", "PalWaitTime", "PalCloseCancellation", "PalMemoryProtection", "PalFreeFailFast",
             "PalModuleDiscovery", "PalModuleInvalidBounds",
             "PalEnvironment", "PalEnvironmentValidation", "PalUtf8Copy", "PalEnvironmentThreads",
+            "NativeProcessExitOrder", "NativeProcessExitCapacity", "NativeProcessExitThreads", "NativeProcessExitFailFast", "NativeProcessExitFault", "NativeProcessAbruptExit",
             "PalBackgroundLifecycle", "PalBackgroundCapacity", "PalBackgroundRollback", "DetachedLastExit", "PalBackgroundIsolation",
             "NativeLastError", "PalErrorCodes", "LastErrorBindingProtection",
             "BadReturn", "TimerBudget", "PreemptionState",
@@ -380,7 +381,7 @@ internal static class DevTool
         if (!MarkersInOrder(output, markers.ToArray())) return false;
         var faults = Regex.Matches(output,
             @"\[USER-FAULT\] id=(\d+) vector=(\d+) error=(0x[0-9A-F]{16}) address=(0x[0-9A-F]{16}) cs=(0x[0-9A-F]{16})");
-        return faults.Count == 50 && faults.All(match =>
+        return faults.Count == 51 && faults.All(match =>
             Convert.ToUInt64(match.Groups[5].Value[2..], 16) == 0x33);
     }
 

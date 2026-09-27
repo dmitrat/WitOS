@@ -71,7 +71,15 @@ function(witos_select_gc_environment)
     endif()
     list(REMOVE_ITEM sources "${old_config}")
     list(APPEND sources "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/rhconfig.witos.cpp"
-        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/crt_config.witos.cpp")
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/crt_config.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/crt_exit.witos.cpp")
+    set(old_startup "${CLR_DIR}/nativeaot/Runtime/startup.cpp")
+    list(FIND sources "${old_startup}" startup_index)
+    if(startup_index EQUAL -1)
+        message(FATAL_ERROR "Pinned startup source missing")
+    endif()
+    list(REMOVE_ITEM sources "${old_startup}")
+    list(APPEND sources "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/startup.witos.cpp")
     set_property(TARGET Runtime.WorkstationGC PROPERTY SOURCES "${sources}")
 
     get_target_property(minipal_sources aotminipal SOURCES)
