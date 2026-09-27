@@ -52,7 +52,8 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_environment.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_error.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_error.asm"
-        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_environment.asm")
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_environment.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/chkstk.asm")
     set_source_files_properties("${WITOS_SOURCE_ROOT}/src/System.Native/thread.c"
         "${WITOS_SOURCE_ROOT}/src/System.Native/image.c" TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES COMPILE_OPTIONS "/std:c17")
     file(STRINGS "${WITOS_SOURCE_ROOT}/src/Kernel/include/witos/user_abi.h" error_line
@@ -66,6 +67,7 @@ function(witos_select_gc_environment)
     file(WRITE "${CMAKE_BINARY_DIR}/witos-abi/user_abi.inc" "WIT_TLS_LAST_ERROR_OFFSET EQU ${error_offset}\n")
     set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_error.asm"
         "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_environment.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/chkstk.asm"
         TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES LANGUAGE ASM_MASM
         COMPILE_OPTIONS "/I${CMAKE_BINARY_DIR}/witos-abi")
     set(old_config "${CLR_DIR}/nativeaot/Runtime/RhConfig.cpp")
@@ -168,7 +170,10 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_instance.cpp"
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_barrier.cpp"
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_time.cpp"
-        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_crt.cpp")
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_crt.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_stack.cpp")
+    set_source_files_properties("${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_stack.cpp"
+        TARGET_DIRECTORY WitOS.ConfigProbe PROPERTIES COMPILE_OPTIONS "/Gs4096")
     foreach(config_source IN LISTS config_sources)
         if(NOT EXISTS "${config_source}")
             message(FATAL_ERROR "Run runtime-source to prepare the pinned configuration sources")

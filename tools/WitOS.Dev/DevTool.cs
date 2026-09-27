@@ -267,7 +267,7 @@ internal static class DevTool
             "[TEST-PASS] Clock.Counter64", "[TEST-PASS] Clock.IrqIndependent",
             "[TEST-PASS] Memory.PhysicalPages", "[TEST-PASS] Memory.Exhaustion",
             "[TEST-PASS] Memory.InvalidMaps", "[TEST-PASS] Memory.VirtualMappings");
-        var booted = foundationReady && ValidateScheduler(result.Output) && ValidateUsers(result.Output) && hello > result.Output.IndexOf("[TEST-PASS] Scheduler.RegisterState", StringComparison.Ordinal) &&
+        var booted = foundationReady && ValidateScheduler(result.Output) && ValidateUsers(result.Output, runtimeConfig ? 53 : 51) && hello > result.Output.IndexOf("[TEST-PASS] Scheduler.RegisterState", StringComparison.Ordinal) &&
             !panic && !result.Output.Contains("[EXCEPTION]", StringComparison.Ordinal);
         if (runtimeConfig)
             booted = booted && MarkersInOrder(result.Output, "[TEST-PASS] User.RuntimeConfigCrt",
@@ -276,7 +276,7 @@ internal static class DevTool
                 "[TEST-PASS] User.PalInitPrerequisites", "[TEST-PASS] User.PalInitPolicy",
                 "[TEST-PASS] User.PalInitLifecycle", "[TEST-PASS] User.RuntimeAllocHeap", "[TEST-PASS] User.InterfaceDispatchInit", "[TEST-PASS] User.RuntimeInstanceStartup", "[TEST-PASS] User.RuntimeThreadRecord",
                 "[TEST-PASS] User.ThreadStoreTlsPrerequisite", "[TEST-PASS] User.GcProcessWriteBarrier",
-                "[TEST-PASS] User.ProcessBarrierWithoutTls", "[TEST-PASS] User.MinipalTime", "[TEST-PASS] User.MinipalTimeWithoutTls", "[TEST-PASS] User.RuntimeRandomTls", "[TEST-PASS] User.CrtMemoryAndStrings", "[TEST-PASS] User.CrtUnsignedLong", "[TEST-PASS] User.Isolation");
+                "[TEST-PASS] User.ProcessBarrierWithoutTls", "[TEST-PASS] User.MinipalTime", "[TEST-PASS] User.MinipalTimeWithoutTls", "[TEST-PASS] User.RuntimeRandomTls", "[TEST-PASS] User.CrtMemoryAndStrings", "[TEST-PASS] User.CrtUnsignedLong", "[TEST-PASS] User.CompilerStackProbe", "[TEST-PASS] User.CompilerStackProbeWithoutTls", "[TEST-PASS] User.CompilerStackProbeGuard", "[TEST-PASS] User.Isolation");
         var failedBeforeContract = !result.TimedOut && result.ExitCode == 35 && exitedFirmware >= 0 && contract < 0 && hello < 0;
         var passed = expected switch
         {
@@ -333,7 +333,7 @@ internal static class DevTool
             Number("Worker A iterations") > 0 && Number("Worker B iterations") > 0;
     }
 
-    private static bool ValidateUsers(string output)
+    private static bool ValidateUsers(string output, int expectedFaults)
     {
         string[] checks =
         [
@@ -387,7 +387,7 @@ internal static class DevTool
         if (!MarkersInOrder(output, markers.ToArray())) return false;
         var faults = Regex.Matches(output,
             @"\[USER-FAULT\] id=(\d+) vector=(\d+) error=(0x[0-9A-F]{16}) address=(0x[0-9A-F]{16}) cs=(0x[0-9A-F]{16})");
-        return faults.Count == 51 && faults.All(match =>
+        return faults.Count == expectedFaults && faults.All(match =>
             Convert.ToUInt64(match.Groups[5].Value[2..], 16) == 0x33);
     }
 

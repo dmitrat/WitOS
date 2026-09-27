@@ -9,8 +9,8 @@ static void require(int condition, const char* message) { if (!condition) wit_pa
 static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
 {
     const WitU64 before = wit_pages_free_count(pages);
-    const WitU8* image = (mode == 8 || mode == 11 || mode == 13 || mode == 16 || mode == 18) ? wit_runtime_config_raw_image : wit_runtime_config_image;
-    const WitU32 size = (mode == 8 || mode == 11 || mode == 13 || mode == 16 || mode == 18) ? sizeof(wit_runtime_config_raw_image) : sizeof(wit_runtime_config_image);
+    const WitU8* image = (mode == 8 || mode == 11 || mode == 13 || mode == 16 || mode == 18 || mode == 23) ? wit_runtime_config_raw_image : wit_runtime_config_image;
+    const WitU32 size = (mode == 8 || mode == 11 || mode == 13 || mode == 16 || mode == 18 || mode == 23) ? sizeof(wit_runtime_config_raw_image) : sizeof(wit_runtime_config_image);
     require(wit_user_create_pe(&process, pages, 0, image, size, base) == WitPeOk,
         "Runtime configuration fixture load failed");
     const WitU32 owned = process.Space.OwnedCount;
@@ -18,6 +18,17 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
     config->Mode = mode;
     wit_user_run(&process);
     const WitU64* report = (const WitU64*)wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
+    if (mode == 21 || mode == 22) {
+        require(report && report[0] == mode && report[1] == 1048576 && process.State == WitUserFaulted &&
+            process.FaultVector == 14 && process.FaultError == 4 && process.FaultCs == WIT_USER_CS && process.FaultSs == WIT_USER_SS &&
+            process.FaultAddress >= WIT_USER_STACK_BOTTOM - 4096 && process.FaultAddress < WIT_USER_STACK_BOTTOM &&
+            process.FaultRip >= base + WIT_STACK_PROBE_BEGIN && process.FaultRip < base + WIT_STACK_PROBE_END &&
+            process.Space.OwnedCount == owned && !process.Handles.Count && !process.Events.Count,
+            "Compiler stack probe did not stop at its first guard page");
+        wit_user_destroy(&process);
+        require(wit_pages_free_count(pages) == before, "Stack probe fault teardown leaked pages");
+        return;
+    }
     if (mode == 11) {
         require(process.State == WitUserExited && process.ExitCode == WIT_GC_TEST_FAIL_FAST_EXIT &&
             report && report[0] == 11 && report[1] == 32768 && !process.Threads[0].CompilerTls &&
@@ -31,6 +42,16 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
         wit_console_write("Runtime config state/code: "); wit_console_write_u64(process.State);
         wit_console_write("/"); wit_console_write_u64(process.ExitCode); wit_console_write("\n");
         wit_panic("Upstream configuration contract failed");
+    }
+    if (mode == 20 || mode == 23) {
+        require(report && report[0] == mode && report[1] == 1048576 &&
+            process.ThreadCreates == (mode == 20 ? 7U : 1U) && process.ThreadJoins == (mode == 20 ? 6U : 0U) &&
+            process.ThreadReaps == (mode == 20 ? 6U : 0U) &&
+            (process.Threads[0].CompilerTls != 0) == (mode == 20) && process.Space.OwnedCount == owned &&
+            !process.Handles.Count && !process.Events.Count, "Compiler stack probe ABI/frame/resource contract failed");
+        wit_user_destroy(&process);
+        require(wit_pages_free_count(pages) == before, "Stack probe teardown leaked pages");
+        return;
     }
     if (mode == 18 || mode == 19) {
         require(report && report[0] == mode && report[1] == 524288 &&
@@ -79,7 +100,7 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
         return;
     }
     if (mode == 3 || mode == 7 || mode == 8)
-        require(report && report[0] == mode && report[1] == ((mode == 8 || mode == 11 || mode == 13 || mode == 16 || mode == 18) ? 2048 : 1089) &&
+        require(report && report[0] == mode && report[1] == ((mode == 8 || mode == 11 || mode == 13 || mode == 16 || mode == 18 || mode == 23) ? 2048 : 1089) &&
             process.ThreadCreates == 1 && !process.ThreadJoins && !process.ThreadReaps &&
             (process.Threads[0].CompilerTls != 0) == (mode != 8), "PAL initialization rejection missed its intended boundary");
     else
@@ -127,5 +148,12 @@ void wit_user_runtime_config_self_test(WitPageAllocator* pages)
     wit_console_write("[TEST-PASS] User.CrtMemoryAndStrings\n");
     run(pages, 19, WIT_USER_IMAGE_BASE); run(pages, 19, WIT_USER_IMAGE_ALTERNATE);
     wit_console_write("[TEST-PASS] User.CrtUnsignedLong\n");
+    run(pages, 20, WIT_USER_IMAGE_BASE); run(pages, 20, WIT_USER_IMAGE_ALTERNATE);
+    wit_console_write("[TEST-PASS] User.CompilerStackProbe\n");
+    run(pages, 23, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.CompilerStackProbeWithoutTls\n");
+    run(pages, 21, WIT_USER_IMAGE_BASE); run(pages, 22, WIT_USER_IMAGE_ALTERNATE);
+    run(pages, 20, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.CompilerStackProbeGuard\n");
 }
 #endif

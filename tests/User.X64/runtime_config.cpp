@@ -14,6 +14,9 @@ extern "C" bool wit_test_interface_dispatch();
 extern "C" bool wit_test_runtime_instance();
 extern "C" bool wit_test_runtime_thread_record();
 extern "C" void wit_test_runtime_missing_tls();
+extern "C" bool wit_test_stack_early();
+extern "C" bool wit_test_stack_threads();
+extern "C" void wit_test_stack_overflow(WitU64 mode);
 extern "C" bool wit_test_crt_memory();
 extern "C" bool wit_test_crt_numbers();
 extern "C" bool wit_test_minipal_time_early();
@@ -192,6 +195,18 @@ extern "C" WitU64 wit_native_main(const WitUserStartup* startup)
 {
     mode = ((const WitUserTestConfig*)startup)->Mode;
     report()[0] = mode; report()[1] = 0;
+    if (mode >= 20 && mode <= 23) {
+        if (mode == 21 || mode == 22) { report()[1] = 1048576; wit_test_stack_overflow(mode); return 1783; }
+        if (!wit_test_stack_early()) return 1784;
+        if (mode == 20) {
+            wit_native_process_image_initialize(startup);
+            wit_native_tls_initialize(startup);
+            if (!wit_test_stack_threads()) return 1785;
+            wit_native_tls_leave();
+        }
+        report()[1] = 1048576;
+        return WIT_TEST_EXIT_CODE;
+    }
     if (mode == 18 || mode == 19) {
         if (!wit_test_crt_memory()) return 1772;
         if (mode == 19) {

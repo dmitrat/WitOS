@@ -93,7 +93,7 @@ internal static class RuntimeConfigProbe
         }, Json));
     }
 
-    public static async Task VerifyArchiveAsync(string root, string obj, string msvc, string minipalArchive, string memoryObject)
+    public static async Task VerifyArchiveAsync(string root, string obj, string msvc, string minipalArchive, string memoryObject, string stackObject)
     {
         var output = Path.Combine(root, "artifacts", "runtime-config");
         var archive = Path.Combine(obj, "witos-config", "WitOS.ConfigProbe.lib");
@@ -102,9 +102,9 @@ internal static class RuntimeConfigProbe
         var members = listing.Output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
         var all = JsonSerializer.Deserialize<JsonElement[]>(await File.ReadAllTextAsync(Path.Combine(obj, "compile_commands.json")), Json)!;
         var commands = all.Where(c => c.GetProperty("output").GetString()!.Replace('\\', '/').Contains("/WitOS.ConfigProbe.dir/", StringComparison.Ordinal)).ToArray();
-        string[] names = ["rhconfig.witos.cpp", "gcconfig.slice.cpp", "gcenv.config.slice.cpp", "runtime_config.cpp", "pal_init.witos.cpp", "allocheap.witos.cpp", "dispatch.shared.slice.cpp", "dispatch.aot.slice.cpp", "runtime_allocator.cpp", "startup.objects.slice.cpp", "runtime_instance.cpp", "runtime_barrier.cpp", "runtime_time.cpp", "runtime_crt.cpp"];
+        string[] names = ["rhconfig.witos.cpp", "gcconfig.slice.cpp", "gcenv.config.slice.cpp", "runtime_config.cpp", "pal_init.witos.cpp", "allocheap.witos.cpp", "dispatch.shared.slice.cpp", "dispatch.aot.slice.cpp", "runtime_allocator.cpp", "startup.objects.slice.cpp", "runtime_instance.cpp", "runtime_barrier.cpp", "runtime_time.cpp", "runtime_crt.cpp", "runtime_stack.cpp"];
         if (members.Length != names.Length || commands.Length != names.Length)
-            throw new InvalidDataException("Configuration probe must contain exactly the selected fourteen objects.");
+            throw new InvalidDataException("Configuration probe must contain exactly the selected fifteen objects.");
         foreach (var name in names)
         {
             var command = commands.Single(c => Path.GetFileName(c.GetProperty("file").GetString()!) == name);
@@ -113,13 +113,21 @@ internal static class RuntimeConfigProbe
                 throw new InvalidDataException("Configuration probe must match the WitOS NO_STRESS_LOG profile.");
             NativeObject.VerifyArchive(archive, Path.GetFullPath(command.GetProperty("output").GetString()!, command.GetProperty("directory").GetString()!));
         }
+        var stackCommand = commands.Single(c => Path.GetFileName(c.GetProperty("file").GetString()!) == "runtime_stack.cpp");
+        if (!stackCommand.GetProperty("command").GetString()!.Contains("/Gs4096", StringComparison.Ordinal))
+            throw new InvalidDataException("Compiler stack-probe threshold missing.");
+        var stackSymbols = await Processes.RunAsync(Path.Combine(msvc, "dumpbin.exe"),
+            ["/symbols", Path.GetFullPath(stackCommand.GetProperty("output").GetString()!, stackCommand.GetProperty("directory").GetString()!)], root);
+        if (stackSymbols.ExitCode != 0 || stackSymbols.TimedOut || !System.Text.RegularExpressions.Regex.IsMatch(stackSymbols.Output, @"UNDEF[^\r\n]*\b__chkstk\b"))
+            throw new InvalidDataException("Compiler did not emit the real __chkstk dependency.");
+        File.Copy(stackObject, Path.Combine(output, "chkstk.obj"), overwrite: true);
         File.Copy(archive, Path.Combine(output, "WitOS.ConfigProbe.lib"), overwrite: true);
         File.Copy(minipalArchive, Path.Combine(output, "WitOS.Minipal.lib"), overwrite: true);
         File.Copy(memoryObject, Path.Combine(output, "crt_memory.witos.obj"), overwrite: true);
         await File.WriteAllTextAsync(Path.Combine(output, "archive-report.json"), JsonSerializer.Serialize(new
         {
-            archiveSha256 = Hash(archive), minipalSha256 = Hash(minipalArchive), memorySha256 = Hash(memoryObject), members, commands, guestManagedRuntime = false,
-            localInputs = new[] { "tests/User.X64/runtime_crt.cpp", "src/Runtime.NativeAot/crt_memory.witos.c", "tests/User.X64/runtime_time.cpp", "src/Runtime.NativeAot/minipal_time.witos.cpp", "src/Runtime.NativeAot/minipal_time.witos.h", "tests/User.X64/runtime_config.cpp", "tests/User.X64/runtime_instance.cpp", "tests/User.X64/runtime_barrier.cpp", "artifacts/runtime-config/source/startup.objects.slice.cpp", "artifacts/runtime-config/source/threadstore.witos.cpp", "artifacts/runtime-config/source/thread.witos.cpp", "artifacts/runtime-config/include/stressLog.h", "tests/User.X64/runtime_allocator.cpp", "tests/User.X64/protocol.h", "artifacts/runtime-config/source/allocheap.witos.cpp", "artifacts/runtime-config/source/dispatch.shared.slice.cpp", "artifacts/runtime-config/source/dispatch.aot.slice.cpp",
+            archiveSha256 = Hash(archive), minipalSha256 = Hash(minipalArchive), memorySha256 = Hash(memoryObject), stackSha256 = Hash(stackObject), members, commands, guestManagedRuntime = false,
+            localInputs = new[] { "tests/User.X64/runtime_stack.cpp", "src/Kernel.Arch.X64/user_runtime_stack_fixture.asm", "src/Kernel.Arch.X64/chkstk.asm", "tests/User.X64/runtime_crt.cpp", "src/Runtime.NativeAot/crt_memory.witos.c", "tests/User.X64/runtime_time.cpp", "src/Runtime.NativeAot/minipal_time.witos.cpp", "src/Runtime.NativeAot/minipal_time.witos.h", "tests/User.X64/runtime_config.cpp", "tests/User.X64/runtime_instance.cpp", "tests/User.X64/runtime_barrier.cpp", "artifacts/runtime-config/source/startup.objects.slice.cpp", "artifacts/runtime-config/source/threadstore.witos.cpp", "artifacts/runtime-config/source/thread.witos.cpp", "artifacts/runtime-config/include/stressLog.h", "tests/User.X64/runtime_allocator.cpp", "tests/User.X64/protocol.h", "artifacts/runtime-config/source/allocheap.witos.cpp", "artifacts/runtime-config/source/dispatch.shared.slice.cpp", "artifacts/runtime-config/source/dispatch.aot.slice.cpp",
                 "src/Runtime.NativeAot/runtime-overlay.cmake", "src/Runtime.NativeAot/config-probe/CMakeLists.txt",
                 "src/Runtime.NativeAot/crt_config.witos.cpp", "src/Runtime.NativeAot/pal_init.witos.cpp", "src/Runtime.NativeAot/pal_environment.witos.h",
                 "src/System.Native/tls.h", "src/Kernel/include/witos/user_abi.h",
@@ -127,7 +135,7 @@ internal static class RuntimeConfigProbe
                 "artifacts/runtime-config/source/gcenv.config.slice.cpp" }
                 .Select(p => new { path = p, sha256 = Hash(Path.Combine(root, p)) })
         }, Json));
-        Console.WriteLine("[SOURCE-PASS] Configuration probe: fourteen exact source objects; collector and thread attachment excluded.");
+        Console.WriteLine("[SOURCE-PASS] Configuration probe: fifteen exact source objects; collector and thread attachment excluded.");
     }
 
     public static async Task BuildImageAsync(string root, string output, string msvc)
@@ -147,6 +155,12 @@ internal static class RuntimeConfigProbe
         var memoryObject = Path.Combine(root, "artifacts", "runtime-config", "crt_memory.witos.obj");
         if (Hash(memoryObject) != report.RootElement.GetProperty("memorySha256").GetString())
             throw new InvalidDataException("Native memory object changed after archive verification.");
+        var stackObject = Path.Combine(root, "artifacts", "runtime-config", "chkstk.obj");
+        if (Hash(stackObject) != report.RootElement.GetProperty("stackSha256").GetString())
+            throw new InvalidDataException("Stack probe object changed after archive verification.");
+        var stackTest = Path.Combine(output, "runtime_stack_test.obj");
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
+            ["/nologo", "/c", "/Fo" + stackTest, Path.Combine(root, "src", "Kernel.Arch.X64", "user_runtime_stack_fixture.asm")], root);
         var vc = Path.GetFullPath(Path.Combine(msvc, "..", "..", ".."));
         var sdkVersion = Directory.GetParent(Toolchain.FindWindowsSdkLibrary("kernel32.lib"))!.Parent!.Parent!.Name;
         var sdk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Windows Kits", "10", "Include", sdkVersion);
@@ -162,7 +176,7 @@ internal static class RuntimeConfigProbe
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
             ["/nologo", "/subsystem:native", "/entry:wit_native_start", "/nodefaultlib", "/machine:x64", "/fixed:no", "/dynamicbase",
                 "/incremental:no", "/Brepro", "/opt:ref", "/include:_tls_used", "/merge:.CRT=.rdata", "/base:0x180000000",
-                $"/out:{image}", archive, minipalArchive, memoryObject, crt, .. shared.Select(p => Path.Combine(output, p))], root);
+                $"/out:{image}", $"/map:{Path.Combine(output, "RuntimeConfigFixture.map")}", archive, minipalArchive, memoryObject, stackObject, stackTest, crt, .. shared.Select(p => Path.Combine(output, p))], root);
         var bytes = await File.ReadAllBytesAsync(image);
         using var reader = new PEReader(new MemoryStream(bytes, writable: false));
         var h = reader.PEHeaders.PEHeader ?? throw new InvalidDataException("Configuration PE missing.");
@@ -187,6 +201,13 @@ internal static class RuntimeConfigProbe
         for (var i = 0; i < raw.Length; i += 16)
             text.AppendLine("    " + string.Join(", ", raw.Skip(i).Take(16).Select(b => $"0x{b:X2}")) + ",");
         text.AppendLine("};");
+        var map = await File.ReadAllTextAsync(Path.Combine(output, "RuntimeConfigFixture.map"));
+        foreach (var symbol in new[] { "__chkstk", "wit_chkstk_end" }) {
+            var match = System.Text.RegularExpressions.Regex.Match(map, @"\b" + symbol + @"\s+([0-9a-fA-F]{16})\b");
+            if (!match.Success) throw new InvalidDataException("Stack probe marker missing from map: " + symbol);
+            var rva = Convert.ToUInt64(match.Groups[1].Value, 16) - h.ImageBase;
+            text.AppendLine($"#define WIT_STACK_PROBE_{(symbol == "__chkstk" ? "BEGIN" : "END")} 0x{rva:X}U");
+        }
         await File.WriteAllTextAsync(Path.Combine(output, "runtime_config_image.h"), text.ToString(), Encoding.ASCII);
         await File.WriteAllTextAsync(Path.Combine(root, "artifacts", "runtime-config", "image-report.json"), JsonSerializer.Serialize(new
         {
