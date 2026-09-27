@@ -3,6 +3,7 @@
 #include "witos/platform.h"
 #include "protocol.h"
 #include "runtime_config_image.h"
+#include "runtime_cpu_image.h"
 
 static WitUserProcess process;
 static void require(int condition, const char* message) { if (!condition) wit_panic(message); }
@@ -11,13 +12,33 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
     const WitU64 before = wit_pages_free_count(pages);
     const WitU8* image = (mode == 8 || mode == 11 || mode == 13 || mode == 16 || mode == 18 || mode == 23) ? wit_runtime_config_raw_image : wit_runtime_config_image;
     const WitU32 size = (mode == 8 || mode == 11 || mode == 13 || mode == 16 || mode == 18 || mode == 23) ? sizeof(wit_runtime_config_raw_image) : sizeof(wit_runtime_config_image);
-    require(wit_user_create_pe(&process, pages, 0, image, size, base) == WitPeOk,
+    const WitU8* selected = mode >= 24 ? (mode == 25 ? wit_runtime_cpu_raw_image : wit_runtime_cpu_image) : image;
+    const WitU32 selectedSize = mode >= 24 ? (mode == 25 ? sizeof(wit_runtime_cpu_raw_image) : sizeof(wit_runtime_cpu_image)) : size;
+    require(wit_user_create_pe(&process, pages, 0, selected, selectedSize, base) == WitPeOk,
         "Runtime configuration fixture load failed");
     const WitU32 owned = process.Space.OwnedCount;
     WitUserTestConfig* config = (WitUserTestConfig*)wit_user_space_physical(&process.Space, WIT_USER_INFO, 0, 0);
     config->Mode = mode;
     wit_user_run(&process);
     const WitU64* report = (const WitU64*)wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
+    if (mode >= 24) {
+        require(report && report[0] == mode && report[1] == 2097152 && process.Space.OwnedCount == owned &&
+            !process.Handles.Count && !process.Events.Count, "CPU feature fixture lost state/resources");
+        if (mode == 26) require(process.State == WitUserFaulted && process.FaultVector == 6 && !process.FaultError &&
+            process.FaultCs == WIT_USER_CS && process.FaultSs == WIT_USER_SS && process.FaultRip == base + WIT_CPU_AVX_RVA,
+            "AVX executed outside the kernel FXSAVE profile");
+        else {
+            require(process.State == WitUserExited && process.ExitCode == WIT_TEST_EXIT_CODE &&
+                process.ThreadCreates == (mode == 24 ? 4U : 1U) && process.ThreadJoins == (mode == 24 ? 3U : 0U) &&
+                process.ThreadReaps == (mode == 24 ? 3U : 0U) && (process.Threads[0].CompilerTls != 0) == (mode == 24),
+                "Minipal CPU discovery/instruction/thread test failed");
+            wit_console_write("[MINIPAL-CPU] features="); wit_console_write_u64(report[2]);
+            wit_console_write("; avx-hardware="); wit_console_write_u64(report[3]); wit_console_write("\n");
+        }
+        wit_user_destroy(&process);
+        require(wit_pages_free_count(pages) == before, "CPU feature teardown leaked pages");
+        return;
+    }
     if (mode == 21 || mode == 22) {
         require(report && report[0] == mode && report[1] == 1048576 && process.State == WitUserFaulted &&
             process.FaultVector == 14 && process.FaultError == 4 && process.FaultCs == WIT_USER_CS && process.FaultSs == WIT_USER_SS &&
@@ -155,5 +176,11 @@ void wit_user_runtime_config_self_test(WitPageAllocator* pages)
     run(pages, 21, WIT_USER_IMAGE_BASE); run(pages, 22, WIT_USER_IMAGE_ALTERNATE);
     run(pages, 20, WIT_USER_IMAGE_BASE);
     wit_console_write("[TEST-PASS] User.CompilerStackProbeGuard\n");
+    run(pages, 24, WIT_USER_IMAGE_BASE); run(pages, 24, WIT_USER_IMAGE_ALTERNATE);
+    wit_console_write("[TEST-PASS] User.MinipalCpuFeatures\n");
+    run(pages, 25, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.MinipalCpuWithoutTls\n");
+    run(pages, 26, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.AvxDisabled\n");
 }
 #endif

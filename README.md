@@ -6,7 +6,7 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 
 ## Current status
 
-**WitOS 0.0.40: a real x64 compiler stack probe preserves the required register state and stops oversized allocations at the first guard page. Compiler-generated 8 KiB frames execute in guest workers. Minimal startup retains 72 unresolved platform symbols; managed guest execution remains pending.**
+**WitOS 0.0.41: runtime CPU discovery now follows the kernel FXSAVE-only policy. SSE4.2/AES groups are gated by real CPUID dependencies; AVX is disabled and tested on an AVX-capable QEMU CPU. Minimal startup retains 71 unresolved platform symbols; managed guest execution remains pending.**
 
 The kernel boots independently through UEFI and runs separately built native components in ring 3 with private mappings and handles. Its bounded PE loader parses complete files inside the guest, maps sections and applies relocations. A freestanding C startup layer receives image metadata, runs native initializers and enters the program in user space. The component writes through a checked syscall and exits; its faults are contained while the kernel runs the next component. Within a component, up to four user threads can run with timer preemption, separate stacks/TLS and blocking join. Manual/auto-reset events, sleep and absolute deadlines work with kernel idle when all threads are blocked. M1 paging, protection, timer and kernel-context checks remain part of every successful boot.
 
@@ -39,7 +39,7 @@ Expected guest output includes:
 ```text
 [BOOT] UEFI x64 adapter
 [BOOT] ExitBootServices OK
-WitOS 0.0.40 (compiler stack probes)
+WitOS 0.0.41 (runtime CPU capabilities)
 Build: <git-revision> | x64 | Debug
 [TEST-BEGIN] Boot.Contract
 [TEST-PASS] Boot.Contract
@@ -161,7 +161,7 @@ This fetches the pinned upstream native tree and builds separate Windows-referen
 
     dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-config
 
-This refreshes the native source build and executes actual configuration methods in QEMU at 128 and 512 MiB RAM. Each boot checks 202 user groups, including twenty-four additional configuration/CRT/PAL/startup groups. Ordinary test retains nineteen scenarios and 178 groups without requiring a full runtime source build.
+This refreshes the native source build and executes actual configuration methods in QEMU at 128 and 512 MiB RAM, plus 256 MiB Intel Nehalem and AVX-capable max profiles. Each boot checks 205 user groups, including twenty-seven additional configuration/CRT/PAL/startup groups. Ordinary test retains nineteen scenarios and 178 groups without requiring a full runtime source build.
 
 This tests PalInit and configuration/GC OS initialization, not a running collector or managed code. The explicit RhConfig OOM overlay and source provenance are described in [ADR 0022](@Docs/Implementation/NativeAot-Runtime-Configuration.md).
 

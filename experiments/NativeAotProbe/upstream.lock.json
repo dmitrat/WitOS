@@ -195,6 +195,8 @@
                     {"path":"src/coreclr/nativeaot/Runtime/DebugHeader.cpp","sha256":"1bcec8e4bcb190da174dff05b261c2b6c805815ef01180c5903abd2ccf130f05"},
                     {"path":"src/native/minipal/time.h","sha256":"faec85bbc05ffa1017cacdfb80eebcd68bdaafc2bf1ae66208518c16b2bbf12e"},
                     {"path":"src/native/minipal/xoshiro128pp.h","sha256":"41e9acf3a4a0160e2385bd5c67fec0a32368dfb47416e49cf8a12d6c646ee72f"},
-                    {"path":"src/native/minipal/xoshiro128pp.c","sha256":"f024a1d967d03074bb4bf28a759b588d6fce025ddc282976131876db6654949b"}
+                    {"path":"src/native/minipal/xoshiro128pp.c","sha256":"f024a1d967d03074bb4bf28a759b588d6fce025ddc282976131876db6654949b"},
+                    {"path":"src/native/minipal/cpufeatures.h","sha256":"ea7ad7ae925a1c3221f5459f899df68aa8c19713c87c88fd131c4fb614447b60"},
+                    {"path":"src/native/minipal/cpufeatures.c","sha256":"6fd347458c86394092cb45534768983f0f8ce20492a0c75b5e00d90c768ff566"}
                 ]
 }

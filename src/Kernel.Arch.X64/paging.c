@@ -168,7 +168,8 @@ void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator
 
     /* Flush inherited global entries as well as ordinary translations. */
     __writemsr(0xC0000080, __readmsr(0xC0000080) | (1ULL << 11));
-    __writecr4(cr4 & ~((1ULL << 7) | (1ULL << 16))); /* No global pages or user FSGSBASE. */
+    __writecr4(cr4 & ~((1ULL << 7) | (1ULL << 16) | (1ULL << 18))); /* No global pages, FSGSBASE or OSXSAVE. */
+    require((__readcr4() & ((1ULL << 16) | (1ULL << 18))) == 0, "Unsupported user extended CPU state enabled");
     __writecr3(root_table);
     __writecr0(__readcr0() | (1ULL << 16));
     active = 1;

@@ -51,6 +51,8 @@ internal static class DevTool
                     var configImage = await BuildAsync(root, "runtime-config");
                     await BootAsync(root, configImage, "runtime-config-128", 128, 60, ExpectedOutcome.Success, runtimeConfig: true);
                     await BootAsync(root, configImage, "runtime-config-512", 512, 60, ExpectedOutcome.Success, runtimeConfig: true);
+                    await BootAsync(root, configImage, "runtime-config-intel", 256, 60, ExpectedOutcome.Success, runtimeConfig: true, cpuModel: "Nehalem");
+                    await BootAsync(root, configImage, "runtime-config-avx", 256, 60, ExpectedOutcome.Success, runtimeConfig: true, cpuModel: "max");
                     break;
                 case "runtime-audit":
                     await RuntimeExperiment.AuditAsync(root);
@@ -267,7 +269,7 @@ internal static class DevTool
             "[TEST-PASS] Clock.Counter64", "[TEST-PASS] Clock.IrqIndependent",
             "[TEST-PASS] Memory.PhysicalPages", "[TEST-PASS] Memory.Exhaustion",
             "[TEST-PASS] Memory.InvalidMaps", "[TEST-PASS] Memory.VirtualMappings");
-        var booted = foundationReady && ValidateScheduler(result.Output) && ValidateUsers(result.Output, runtimeConfig ? 53 : 51) && hello > result.Output.IndexOf("[TEST-PASS] Scheduler.RegisterState", StringComparison.Ordinal) &&
+        var booted = foundationReady && ValidateScheduler(result.Output) && ValidateUsers(result.Output, runtimeConfig ? 54 : 51) && hello > result.Output.IndexOf("[TEST-PASS] Scheduler.RegisterState", StringComparison.Ordinal) &&
             !panic && !result.Output.Contains("[EXCEPTION]", StringComparison.Ordinal);
         if (runtimeConfig)
             booted = booted && MarkersInOrder(result.Output, "[TEST-PASS] User.RuntimeConfigCrt",
@@ -276,7 +278,12 @@ internal static class DevTool
                 "[TEST-PASS] User.PalInitPrerequisites", "[TEST-PASS] User.PalInitPolicy",
                 "[TEST-PASS] User.PalInitLifecycle", "[TEST-PASS] User.RuntimeAllocHeap", "[TEST-PASS] User.InterfaceDispatchInit", "[TEST-PASS] User.RuntimeInstanceStartup", "[TEST-PASS] User.RuntimeThreadRecord",
                 "[TEST-PASS] User.ThreadStoreTlsPrerequisite", "[TEST-PASS] User.GcProcessWriteBarrier",
-                "[TEST-PASS] User.ProcessBarrierWithoutTls", "[TEST-PASS] User.MinipalTime", "[TEST-PASS] User.MinipalTimeWithoutTls", "[TEST-PASS] User.RuntimeRandomTls", "[TEST-PASS] User.CrtMemoryAndStrings", "[TEST-PASS] User.CrtUnsignedLong", "[TEST-PASS] User.CompilerStackProbe", "[TEST-PASS] User.CompilerStackProbeWithoutTls", "[TEST-PASS] User.CompilerStackProbeGuard", "[TEST-PASS] User.Isolation");
+                "[TEST-PASS] User.ProcessBarrierWithoutTls", "[TEST-PASS] User.MinipalTime", "[TEST-PASS] User.MinipalTimeWithoutTls", "[TEST-PASS] User.RuntimeRandomTls", "[TEST-PASS] User.CrtMemoryAndStrings", "[TEST-PASS] User.CrtUnsignedLong", "[TEST-PASS] User.CompilerStackProbe", "[TEST-PASS] User.CompilerStackProbeWithoutTls", "[TEST-PASS] User.CompilerStackProbeGuard", "[TEST-PASS] User.MinipalCpuFeatures", "[TEST-PASS] User.MinipalCpuWithoutTls", "[TEST-PASS] User.AvxDisabled", "[TEST-PASS] User.Isolation");
+        if (runtimeConfig) {
+            var cpuMarker = cpuModel == "max" ? "features=513; avx-hardware=1" :
+                cpuModel == "Nehalem" ? "features=1; avx-hardware=0" : "features=0; avx-hardware=0";
+            booted = booted && result.Output.Contains("[MINIPAL-CPU] " + cpuMarker, StringComparison.Ordinal);
+        }
         var failedBeforeContract = !result.TimedOut && result.ExitCode == 35 && exitedFirmware >= 0 && contract < 0 && hello < 0;
         var passed = expected switch
         {

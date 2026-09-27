@@ -136,6 +136,14 @@ function(witos_select_gc_environment)
     # Keep this bootstrap object in the current plain-unwind guest profile.
     set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/minipal_time.witos.cpp"
         TARGET_DIRECTORY aotminipal PROPERTIES COMPILE_OPTIONS "/Od")
+    list(FIND minipal_sources "cpufeatures.c" cpu_index)
+    if(cpu_index EQUAL -1)
+        message(FATAL_ERROR "Pinned CPU features source missing from aotminipal")
+    endif()
+    list(REMOVE_ITEM minipal_sources "cpufeatures.c")
+    list(APPEND minipal_sources "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/minipal_cpu.witos.cpp")
+    set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/minipal_cpu.witos.cpp"
+        TARGET_DIRECTORY aotminipal PROPERTIES COMPILE_OPTIONS "/Od;/GS-")
     set_property(TARGET aotminipal PROPERTY SOURCES "${minipal_sources}")
     target_include_directories(aotminipal PRIVATE "${WITOS_SOURCE_ROOT}/src/System.Native"
         "${WITOS_SOURCE_ROOT}/src/Kernel/include")
@@ -171,7 +179,8 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_barrier.cpp"
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_time.cpp"
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_crt.cpp"
-        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_stack.cpp")
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_stack.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_cpu.cpp")
     set_source_files_properties("${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_stack.cpp"
         TARGET_DIRECTORY WitOS.ConfigProbe PROPERTIES COMPILE_OPTIONS "/Gs4096")
     foreach(config_source IN LISTS config_sources)
@@ -183,7 +192,7 @@ function(witos_select_gc_environment)
     list(FILTER WITOS_CONFIG_OPTIONS EXCLUDE REGEX "[/-]guard:")
     separate_arguments(config_flags WINDOWS_COMMAND "${WITOS_CONFIG_FLAGS} ${WITOS_CONFIG_RELEASE_FLAGS}")
     set_target_properties(WitOS.ConfigProbe PROPERTIES SOURCES "${config_sources}"
-        INCLUDE_DIRECTORIES "${WITOS_CONFIG_INCLUDES};${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot;${WITOS_SOURCE_ROOT}/tests/User.X64"
+        INCLUDE_DIRECTORIES "${WITOS_CONFIG_INCLUDES};${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot;${WITOS_SOURCE_ROOT}/tests/User.X64;${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64"
         MSVC_RUNTIME_LIBRARY "${config_runtime_library}"
         COMPILE_DEFINITIONS "${WITOS_CONFIG_DEFINITIONS}"
         COMPILE_OPTIONS "${WITOS_CONFIG_OPTIONS};${config_flags};/GS-;/O1;/Zl;/Gy;/Gw;/EHa-s-")
