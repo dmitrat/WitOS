@@ -14,6 +14,12 @@ int wit_native_tls_code_pointer(WitU64 address);
 typedef WitU64 (*WitNativeThreadMain)(WitU64 argument);
 WitU64 wit_native_thread_create(WitNativeThreadMain entry, WitU64 argument, WitU64 *handle);
 WitU64 wit_native_thread_create_detached(WitNativeThreadMain entry, WitU64 argument);
+/* One private runtime exit notification per thread; not a general FLS API.
+ * Register during TLS initialization/normal execution. Context is opaque.
+ * Notification runs after TLS cleanup (and after atexit on process shutdown). */
+typedef void (*WitNativeThreadExitCallback)(void *context);
+WitU64 wit_native_thread_on_exit(WitNativeThreadExitCallback callback, void *context);
+void wit_native_thread_notify_exit(void);
 WIT_NORETURN void wit_native_thread_exit(WitU64 code);
 #ifdef __cplusplus
 }

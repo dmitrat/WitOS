@@ -15,6 +15,12 @@ static volatile WitU32 initialized;
 static __declspec(thread) WitU32 phase;
 static __declspec(thread) WitU32 count;
 static __declspec(thread) TlsFunction destructors[WIT_NATIVE_TLS_MAX_DESTRUCTORS];
+// Storage belongs to this thread's kernel-managed compiler TLS page. Identity is
+// always queried from the kernel; neither FS nor GS data supplies authority.
+static __declspec(thread) WitNativeThreadExitCallback exit_callback;
+static __declspec(thread) void *exit_context;
+static __declspec(thread) WitU64 exit_owner;
+static __declspec(thread) WitU32 exit_phase; // 0 empty, 1 registered, 2 invoking, 3 completed
 
 static WIT_NORETURN void fatal() { wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT); }
 static bool range(WitU64 address, WitU64 size, WitU32 required, WitU32 forbidden)
@@ -24,6 +30,41 @@ static bool range(WitU64 address, WitU64 size, WitU32 required, WitU32 forbidden
 extern "C" int wit_native_tls_code_pointer(WitU64 address)
 {
     return initialized == 2 && range(address, 1, WIT_IMAGE_INFO_EXECUTE, WIT_IMAGE_INFO_WRITE);
+}
+static bool current_thread(WitUserThreadInfo& info)
+{
+    return wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&info, sizeof(info), WIT_THREAD_INFO_VERSION, nullptr) == WIT_STATUS_OK &&
+        info.Version == WIT_THREAD_INFO_VERSION && info.Size == sizeof(info) && info.ThreadId && info.CompilerTls;
+}
+extern "C" WitU64 wit_native_thread_on_exit(WitNativeThreadExitCallback callback, void *context)
+{
+    // Check publication and kernel-confirmed TLS before the first GS access.
+    WitUserThreadInfo info;
+    if (initialized != 2 || !current_thread(info)) return WIT_STATUS_DENIED;
+    if (phase >= 3 || exit_phase >= 2) return WIT_STATUS_CLOSED;
+    if (!phase) return WIT_STATUS_DENIED;
+    if (!wit_native_tls_code_pointer((WitU64)callback)) return WIT_STATUS_BAD_ADDRESS;
+    if (exit_phase) return WIT_STATUS_BUSY;
+    exit_owner = info.ThreadId;
+    exit_context = context;
+    exit_callback = callback;
+    exit_phase = 1;
+    return WIT_STATUS_OK;
+}
+extern "C" void wit_native_thread_notify_exit(void)
+{
+    WitUserThreadInfo info;
+    if (initialized != 2 || !current_thread(info)) fatal();
+    if (phase != 4 || exit_phase == 2) fatal();
+    if (exit_phase == 3) return;
+    const auto callback = exit_callback;
+    void *context = exit_context;
+    if (exit_phase && (exit_owner != info.ThreadId || !wit_native_tls_code_pointer((WitU64)callback))) fatal();
+    exit_callback = nullptr;
+    exit_context = nullptr;
+    exit_phase = 2; // Pop before calling; recursion and re-registration cannot repeat cleanup.
+    if (callback) callback(context); // No shared gate: callbacks may yield or park.
+    exit_phase = 3;
 }
 extern "C" void wit_native_tls_initialize(const WitUserStartup *startup)
 {

@@ -59,6 +59,7 @@ WitU64 wit_native_thread_create_detached(WitNativeThreadMain entry, WitU64 argum
 WIT_NORETURN void wit_native_thread_exit(WitU64 code)
 {
     wit_native_tls_leave();
+    wit_native_thread_notify_exit();
     (void)wit_native_call(WIT_CALL_THREAD_EXIT, code, 0, 0, 0);
     wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
 }

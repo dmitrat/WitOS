@@ -374,7 +374,7 @@ internal static class DevTool
             "MemoryPressurePolicy", "MemoryPressureWaitAndReuse", "MemoryPressureCapacity", "MemoryPressurePhysical",
             "PalModuleDiscovery", "PalModuleInvalidBounds",
             "PalEnvironment", "PalEnvironmentValidation", "PalUtf8Copy", "PalEnvironmentThreads",
-            "NativeProcessExitOrder", "NativeProcessExitCapacity", "NativeProcessExitThreads", "NativeProcessExitFailFast", "NativeProcessExitFault", "NativeProcessAbruptExit",
+            "NativeProcessExitOrder", "NativeProcessExitCapacity", "NativeProcessExitThreads", "NativeProcessExitFailFast", "NativeProcessExitFault", "NativeThreadExitNotify", "NativeThreadExitDetached", "NativeThreadExitFailFast", "NativeProcessAbruptExit",
             "PalBackgroundLifecycle", "PalBackgroundCapacity", "PalBackgroundRollback", "DetachedLastExit", "PalBackgroundIsolation",
             "NativeLastError", "PalErrorCodes", "LastErrorBindingProtection",
             "BadReturn", "TimerBudget", "PreemptionState",

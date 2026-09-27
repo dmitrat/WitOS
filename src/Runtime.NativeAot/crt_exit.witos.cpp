@@ -6,7 +6,7 @@
 using ExitCallback = void (__cdecl *)(void);
 static ExitCallback callbacks[WIT_NATIVE_EXIT_MAX_CALLBACKS];
 static volatile WitU32 gate;
-static WitU32 count, phase; // 0 accepting, 1 TLS cleanup, 2 callbacks, 3 stopped
+static WitU32 count, phase; // 0 accepting, 1 TLS cleanup, 2 callbacks, 3 thread notification, 4 stopped
 static WitU64 owner;
 static WIT_NORETURN void fatal() { wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT); }
 static WitUserThreadInfo current()
@@ -31,7 +31,7 @@ extern "C" int __cdecl atexit(ExitCallback callback)
     if (!code(callback)) return -1;
     const auto info = current();
     lock();
-    if (phase == 3 || (phase && owner != info.ThreadId) || count == WIT_NATIVE_EXIT_MAX_CALLBACKS) {
+    if (phase >= 3 || (phase && owner != info.ThreadId) || count == WIT_NATIVE_EXIT_MAX_CALLBACKS) {
         wit_native_unlock(&gate);
         return -1;
     }
@@ -44,7 +44,7 @@ extern "C" void wit_native_process_shutdown(void)
     const auto info = current();
     if (!info.CompilerTls) fatal();
     lock();
-    if (phase == 3 && owner == info.ThreadId) { wit_native_unlock(&gate); return; }
+    if (phase == 4 && owner == info.ThreadId) { wit_native_unlock(&gate); return; }
     if (phase) { wit_native_unlock(&gate); fatal(); }
     owner = info.ThreadId;
     phase = 1;
@@ -56,7 +56,17 @@ extern "C" void wit_native_process_shutdown(void)
     phase = 2;
     WitU32 invoked = 0;
     for (;;) {
-        if (!count) { phase = 3; wit_native_unlock(&gate); return; }
+        if (!count) {
+            phase = 3;
+            wit_native_unlock(&gate);
+            // Runtime process-exit callbacks must publish shutdown before the
+            // thread notification reaches a future real RuntimeThreadShutdown.
+            wit_native_thread_notify_exit();
+            lock();
+            phase = 4;
+            wit_native_unlock(&gate);
+            return;
+        }
         if (++invoked > 2 * WIT_NATIVE_EXIT_MAX_CALLBACKS) { wit_native_unlock(&gate); fatal(); }
         const auto callback = callbacks[--count];
         callbacks[count] = nullptr;

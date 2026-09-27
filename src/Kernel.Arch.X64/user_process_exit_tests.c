@@ -16,7 +16,7 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
     wit_user_run(&process);
     const WitU64* report = (const WitU64*)wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
     require(report && report[0] == mode, "Process exit fixture missed entry");
-    if (mode == 4 || mode == 5 || mode == 9) {
+    if (mode == 4 || mode == 5 || mode == 9 || (mode >= 12 && mode <= 14)) {
         require(process.State == WitUserExited && process.ExitCode == WIT_GC_TEST_FAIL_FAST_EXIT &&
             report[1] == (mode == 5 ? 64U : 1U) && !report[4], "Process exit recursion was not bounded");
     } else if (mode == 6) {
@@ -30,13 +30,19 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
             wit_console_write("/"); wit_console_write_u64(process.ExitCode); wit_console_write("\n");
             wit_panic("Native process exit lifecycle failed");
         }
+        if (mode == 10 || mode == 11) require(report[6] == 12 && process.ThreadCreates == 13 &&
+            process.ThreadJoins == (mode == 10 ? 12U : 0U) && process.ThreadReaps == 12,
+            "Thread notifications lost cleanup or reused live resources");
+        if (mode == 15) require(!report[6] && process.ThreadJoins == 1 && process.ThreadReaps == 1,
+            "Raw thread exit unexpectedly invoked notification");
+        if (mode != 7) require(report[7] == 1, "Process thread notification missing");
         if (mode <= 1) require(report[2] == 3241 && report[5] == 1, "Process/TLS cleanup order failed");
         if (mode == 2 || mode == 3) require(report[3] == (mode == 2 ? 32U : 24U), "Exit registrations lost or duplicated");
         if (mode == 3) require(process.ThreadCreates == 4 && process.ThreadJoins == 3 && process.ThreadReaps == 3,
             "Process callbacks missed worker exit");
         if (mode == 8) require(report[2] == 1 && process.ThreadJoins == 1 && process.ThreadReaps == 1,
             "Foreign registration was not rejected outside the callback gate");
-        if (mode == 7) require(report[1] == 1 && !report[3] && !report[4] && !report[5], "Raw exit unexpectedly invoked cleanup");
+        if (mode == 7) require(report[1] == 1 && !report[3] && !report[4] && !report[5] && !report[7], "Raw exit unexpectedly invoked cleanup");
         else if (mode != 1) require(report[4] == 1, "Process shutdown did not return");
     }
     require(!process.Handles.Count && !process.Events.Count, "Process exit handles leaked");
@@ -58,6 +64,14 @@ void wit_user_process_exit_self_test(WitPageAllocator* pages)
     wit_console_write("[TEST-PASS] User.NativeProcessExitFailFast\n");
     run(pages, 6, WIT_USER_IMAGE_BASE); run(pages, 0, WIT_USER_IMAGE_BASE);
     wit_console_write("[TEST-PASS] User.NativeProcessExitFault\n");
+    run(pages, 10, WIT_USER_IMAGE_BASE); run(pages, 10, WIT_USER_IMAGE_ALTERNATE);
+    run(pages, 15, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.NativeThreadExitNotify\n");
+    run(pages, 11, WIT_USER_IMAGE_BASE); run(pages, 11, WIT_USER_IMAGE_ALTERNATE);
+    wit_console_write("[TEST-PASS] User.NativeThreadExitDetached\n");
+    run(pages, 12, WIT_USER_IMAGE_BASE); run(pages, 13, WIT_USER_IMAGE_BASE); run(pages, 14, WIT_USER_IMAGE_BASE);
+    run(pages, 0, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.NativeThreadExitFailFast\n");
     run(pages, 7, WIT_USER_IMAGE_BASE);
     wit_console_write("[TEST-PASS] User.NativeProcessAbruptExit\n");
 }

@@ -1,6 +1,8 @@
 # Native process exit callbacks
 
 **Status:** Implemented in WitOS 0.0.27; ABI v13 unchanged.
+**Update (0.0.35):** Process shutdown now invokes the private current-thread exit notification after the atexit queue, before publishing completion. Individual native thread exit runs TLS cleanup followed by its notification. See [the current contract and tests](NativeAot-Thread-Exit-Notification.md); historical build counts below describe 0.0.27.
+
 **Decision:** A bounded user-space CRT exit registry, used by explicit native component shutdown. Upstream CoreLib and managed semantics remain unchanged.
 
 ## Context and compatibility direction
@@ -18,7 +20,7 @@ Linking the Windows CRT would introduce foreign OS dependencies. A successful at
 ## Implemented contract
 
 - The real C atexit signature returns zero on registration and nonzero on failure. It requires a published immutable image and a callback in initialized executable, nonwritable image bytes. Null, data and unavailable-image callbacks are rejected before mutation.
-- Registration works before compiler TLS initialization. Multiple native workers may register before shutdown; their individual exits execute TLS cleanup only.
+- Registration works before compiler TLS initialization. Multiple native workers may register before shutdown; their individual exits do not drain the process queue.
 - wit_native_process_shutdown claims a kernel-confirmed thread identity and requires compiler TLS. It destroys that thread's C++ TLS objects, then drains process callbacks in reverse registration order. This matches the TLS/atexit ordering documented for [Microsoft CRT exit](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/exit-exit-exit?view=msvc-170); [atexit](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/atexit?view=msvc-170) defines the return and LIFO registration contract.
 - The draining owner may register more work during TLS cleanup or a callback. A callback is removed before invocation, so newly registered work executes before older pending work. At most 64 callbacks may run during one drain; endless re-registration fails fast.
 - Other threads cannot register once shutdown starts. Concurrent or recursive shutdown fails fast. Completed shutdown is idempotent only for the same owner; registrations after completion fail.
