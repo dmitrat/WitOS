@@ -69,6 +69,8 @@ dotnet build WitOS.slnx --configuration Release
 dotnet run --project tools/WitOS.Dev --configuration Release -- test
 ```
 
+Absolute deadlines may expire between a user clock read and kernel entry. Test deadline completion separately from mandatory idle-path coverage; do not require every successful sleep to park. Keep preemption and resource-accounting assertions independent and diagnostic.
+
 Use `setup` once for the pinned local QEMU package. The test tool must distinguish successful boot, panic, unexpected exit and timeout. Never infer a passing boot from an exit code or log line alone.
 
 For runtime experiment or source-pin changes, run `runtime-audit`, `runtime-probe` and `runtime-target` through the same tool. Their results are hosted Windows evidence, including native C-host bootstrap, never proof that .NET runs in the guest. Preserve the source/package pins and explicit profile limitations unless the task deliberately updates them. `runtime-port` builds and boots the native GC memory adapter in QEMU; it is guest adapter evidence, not managed runtime execution. For full native source-build or overlay changes, also run `runtime-source`: it builds the upstream native libraries, executes the Windows reference and checks unresolved WitOS port requirements.

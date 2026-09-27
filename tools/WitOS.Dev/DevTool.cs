@@ -368,7 +368,7 @@ internal static class DevTool
             "NativeHeap", "NativeHeapReuse", "NativeHeapFailure", "NativeHeapThreads", "NativeHeapFailFast", "NativeHeapProtection",
             "CompilerTlsValidation", "CompilerTlsRollback", "CompilerTlsThreads", "CompilerTlsIsolation",
             "DynamicTlsLifecycle", "DynamicTlsExplicitExit", "DynamicTlsDestructorOrder", "DynamicTlsFailFast", "DynamicTlsFaultIsolation",
-            "PalThreadSnapshot", "PalThreadBuffers", "PalThreadSwitching", "PalStackGuards",
+            "PalThreadSnapshot", "PalThreadBuffers", "PalThreadSwitching", "PalExpiredSleep", "PalStackGuards",
             "PalMemory", "PalMemoryRollback", "PalEventState", "PalEventHandoff", "PalWaitTime", "PalCloseCancellation", "PalMemoryProtection", "PalFreeFailFast",
             "WaitAnyValidation", "WaitAnyAutoReset", "WaitAnyManualAndReuse", "WaitAnyClose", "WaitAnyDeadline", "WaitAnySnapshot", "WaitAnySingleAndMixed",
             "MemoryPressurePolicy", "MemoryPressureWaitAndReuse", "MemoryPressureCapacity", "MemoryPressurePhysical",

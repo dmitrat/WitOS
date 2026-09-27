@@ -25,16 +25,33 @@ static void run(WitPageAllocator *pages, int tls, WitU64 base, WitU64 mode)
         report->StackHigh == process.Threads[0].StackTop && report->RawTls == process.Threads[0].Tls &&
         report->CompilerTls == process.Threads[0].CompilerTls && (report->CompilerTls != 0) == tls &&
         report->ProcessId == process.Id && report->ProcessorCount == 1, "Guest thread snapshot differs from kernel records");
-    if (!mode) {
+    if (!mode || mode == 4) {
         if (process.State != WitUserExited || process.ExitCode != WIT_TEST_EXIT_CODE) {
             wit_console_write("PAL state/code: "); wit_console_write_u64(process.State);
             wit_console_write("/"); wit_console_write_u64(process.ExitCode); wit_console_write("\n");
             wit_panic("PAL thread contract failed");
         }
         require(process.ProcessWriteBarriers == 2, "PAL process barrier count or argument validation failed");
-        require(process.ThreadCreates == 4 && process.ThreadJoins == 3 && process.ThreadReaps == 3 &&
-            process.ThreadTimerSwitches > 0 && process.IdleHalts > 0 && process.Space.OwnedCount == owned,
-            "PAL thread preemption/reuse/accounting failed");
+        const WitU64* sleep = (const WitU64*)(report + 1);
+        const int valid_counts = process.ThreadCreates == 4 && process.ThreadJoins == 3 && process.ThreadReaps == 3;
+        if (!valid_counts || !process.ThreadTimerSwitches || process.Space.OwnedCount != owned ||
+            (mode == 4 && process.IdleHalts)) {
+            wit_console_write("PAL mode/tls/create/join/reap/timer/idle/owned/expected: ");
+            wit_console_write_u64(mode); wit_console_write("/"); wit_console_write_u64((WitU64)tls);
+            wit_console_write("/"); wit_console_write_u64(process.ThreadCreates);
+            wit_console_write("/"); wit_console_write_u64(process.ThreadJoins);
+            wit_console_write("/"); wit_console_write_u64(process.ThreadReaps);
+            wit_console_write("/"); wit_console_write_u64(process.ThreadTimerSwitches);
+            wit_console_write("/"); wit_console_write_u64(process.IdleHalts);
+            wit_console_write("/"); wit_console_write_u64(process.Space.OwnedCount);
+            wit_console_write("/"); wit_console_write_u64(owned); wit_console_write("\n");
+        }
+        require(valid_counts, "PAL thread create/join/reap accounting failed");
+        require(process.ThreadTimerSwitches > 0, "PAL thread timer preemption missing");
+        require(process.Space.OwnedCount == owned, "PAL thread resources leaked");
+        require(sleep[0] && sleep[2] >= sleep[0] && sleep[2] >= sleep[1], "PAL sleep returned before its deadline");
+        if (mode == 4) require(sleep[1] >= sleep[0] && !process.IdleHalts,
+            "Expired absolute sleep unexpectedly entered idle");
     } else require(process.State == WitUserFaulted && process.FaultVector == 14 && process.FaultError == 6 &&
         process.FaultAddress == (mode == 2 ? report->StackLow - 1 : report->StackHigh) &&
         process.FaultCs == WIT_USER_CS && process.FaultSs == WIT_USER_SS, "Reported PAL stack bounds include a guard page");
@@ -48,6 +65,9 @@ void wit_user_pal_self_test(WitPageAllocator *pages)
     run(pages, 1, WIT_USER_IMAGE_BASE, 0);
     run(pages, 1, WIT_USER_IMAGE_ALTERNATE, 0);
     wit_console_write("[TEST-PASS] User.PalThreadSnapshot\n[TEST-PASS] User.PalThreadBuffers\n[TEST-PASS] User.PalThreadSwitching\n");
+    run(pages, 0, WIT_USER_IMAGE_BASE, 4);
+    run(pages, 1, WIT_USER_IMAGE_ALTERNATE, 4);
+    wit_console_write("[TEST-PASS] User.PalExpiredSleep\n");
     run(pages, 1, WIT_USER_IMAGE_BASE, 2);
     run(pages, 1, WIT_USER_IMAGE_BASE, 3);
     run(pages, 0, WIT_USER_IMAGE_BASE, 0);

@@ -50,7 +50,7 @@ The tool requires the expected incomplete-port failure with only unresolved-symb
 
 `source-build-report.json` records the source commit/tree, overlay/input/archive/image hashes, archive members, compile-unit counts, reference execution and unresolved-symbol groups. Separate compile-command, member-list, build, reference-host and strict-link logs preserve the evidence. `missing-platform.md` groups the remaining symbols. These reports and the source-built reference image are uploaded by the NativeAOT workflow.
 
-The workflow triggers on the source overlay, native adapter headers and tooling as well as runtime experiments. It fetches native sources in a clean runner, instead of relying on the developer's checkout or installed prebuilt runtime archive. Kernel CI retains all 19 VM scenarios, 174 user groups and 51 contained user faults. Local source build, source audit, hosted probes and kernel suite passed.
+The workflow triggers on the source overlay, native adapter headers and tooling as well as runtime experiments. It fetches native sources in a clean runner, instead of relying on the developer's checkout or installed prebuilt runtime archive. Kernel CI retains all 19 VM scenarios, 175 user groups and 51 contained user faults. Local source build, source audit, hosted probes and kernel suite passed.
 
 The 0.0.24 [environment/string adapter](NativeAot-Pal-Environment.md) and direct/import assembly bindings are also compiled and verified byte-for-byte. PalInit is now implemented; PalAttachThread and PalInitComAndFlsSlot remain explicit missing requirements.
 

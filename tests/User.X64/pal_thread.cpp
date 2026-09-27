@@ -116,8 +116,24 @@ extern "C" WitU64 wit_native_main(const WitUserStartup* startup)
         wit_native_call(WIT_CALL_THREAD_JOIN, handles[0], 0, 0, &code) != WIT_STATUS_OK || code != WIT_TEST_EXIT_CODE ||
         observed[2].ThreadId == observed[0].ThreadId || observed[2].ThreadId != handles[0] ||
         observed[2].StackLow != observed[0].StackLow) return 1125;
-    if (wit_native_call(WIT_CALL_CLOCK_READ, 0, 0, 0, &code) != WIT_STATUS_OK ||
-        wit_native_call(WIT_CALL_THREAD_SLEEP, code + 1, 0, 0, nullptr) != WIT_STATUS_OK || !check(*original)) return 1126;
+    if (wit_native_call(WIT_CALL_CLOCK_READ, 0, 0, 0, &code) != WIT_STATUS_OK) return 1126;
+    const WitU64 sleep_deadline = code + 1;
+    if (config->Mode == 4) {
+        // Force the valid race from CI: the absolute deadline expires before
+        // the sleep syscall is entered. This must not require kernel idle.
+        do {
+            if (wit_native_call(WIT_CALL_CLOCK_READ, 0, 0, 0, &code) != WIT_STATUS_OK) return 1129;
+        } while (code < sleep_deadline);
+    }
+    const WitU64 before_sleep = code;
+    WitU64 after_sleep = 0;
+    if (wit_native_call(WIT_CALL_THREAD_SLEEP, sleep_deadline, 0, 0, nullptr) != WIT_STATUS_OK ||
+        wit_native_call(WIT_CALL_CLOCK_READ, 0, 0, 0, &after_sleep) != WIT_STATUS_OK ||
+        after_sleep < sleep_deadline || !check(*original)) return 1126;
+    auto sleep_report = (WitU64*)(original + 1);
+    sleep_report[0] = sleep_deadline;
+    sleep_report[1] = before_sleep;
+    sleep_report[2] = after_sleep;
     WitU64 barrier_result = 99;
     SetLastError(0x12341111);
     PalFlushProcessWriteBuffers();
