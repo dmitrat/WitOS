@@ -3,6 +3,9 @@
 /* Only the bootstrap logical processor is brought online. Shared by discovery
  * and process-wide operations; SMP requires a real remote-CPU rendezvous. */
 #define WIT_USER_PROCESSOR_COUNT 1U
+/* Prototype hysteresis, in allocatable pages (global RAM and component quota). */
+#define WIT_PRESSURE_LOW_PAGES 16U
+#define WIT_PRESSURE_HIGH_PAGES 32U
 
 /* Fixed addresses for the controlled M2 image, not an application ABI promise. */
 #define WIT_USER_BASE 0x0000008000000000ULL

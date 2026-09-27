@@ -93,6 +93,8 @@ typedef struct WitUserProcess {
     WitU64 DetachedReaps;
     WitU64 ThreadDeadlocks;
     WitU64 NextWaitOrder;
+    WitU32 MemoryPressureLow;
+    WitU64 MemoryPressureEvents[WIT_EVENT_CAPACITY];
     WitU64 EventParks;
     WitU64 EventWakes;
     WitU64 WaitTimeouts;
@@ -127,6 +129,7 @@ WitU64 wit_user_thread_query(const WitUserProcess *process, WitU64 address, WitU
 void wit_user_pal_self_test(WitPageAllocator *pages);
 void wit_user_pal_services_self_test(WitPageAllocator *pages);
 void wit_user_wait_any_self_test(WitPageAllocator *pages);
+void wit_user_pressure_self_test(WitPageAllocator *pages);
 int wit_user_capture_tls(WitUserProcess *process, const WitPeImage *image);
 WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument, WitU64 flags);
 WitU64 wit_virtual_kernel_root(void);
@@ -147,6 +150,9 @@ void wit_user_pal_error_self_test(WitPageAllocator *pages);
 void wit_user_run(WitUserProcess *process);
 void wit_user_destroy(WitUserProcess *process);
 int wit_user_is_active(void);
+void wit_user_pressure_update(WitUserProcess *process);
+WitU64 wit_user_pressure_create(WitUserProcess *process, WitU64 *handle);
+WitU64 wit_user_event_notify(WitUserProcess *process, WitU64 handle, int signaled);
 void wit_user_wait_expire(WitUserProcess *process, WitU64 now);
 void wit_user_wait_expire_time(WitUserProcess *process, WitU64 now);
 WitU64 wit_user_sleep_until(WitUserProcess *process, WitU64 deadline, WitU64 now);

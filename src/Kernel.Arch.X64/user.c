@@ -122,6 +122,7 @@ static void expire_waits(void)
 {
     wit_user_wait_expire(current_user, wit_x64_clock_ticks());
     wit_user_wait_expire_time(current_user, wit_x64_monotonic_read());
+    wit_user_pressure_update(current_user);
 }
 
 static WitInterruptContext *dispatch(int timer, WitU64 last_exit)
@@ -277,6 +278,8 @@ static WitPeStatus create_process(WitUserProcess *process, WitPageAllocator *all
     process->DetachedReaps = 0;
     process->ThreadDeadlocks = 0;
     process->NextWaitOrder = 0;
+    process->MemoryPressureLow = 0;
+    for (WitU32 i = 0; i < WIT_EVENT_CAPACITY; ++i) process->MemoryPressureEvents[i] = 0;
     process->EventParks = 0;
     process->EventWakes = 0;
     process->WaitTimeouts = 0;
@@ -507,6 +510,10 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
     case WIT_CALL_EVENT_WAIT:
         context->Rax = wit_user_event_wait(current_user, argument0, argument1, wit_x64_clock_ticks());
         break;
+    case WIT_CALL_MEMORY_PRESSURE_EVENT:
+        context->Rax = (argument0 || argument1 || argument2) ? WIT_STATUS_INVALID_ARGUMENT :
+            wit_user_pressure_create(current_user, &context->Rdx);
+        break;
     case WIT_CALL_EVENT_WAIT_ANY_UNTIL:
         context->Rax = wit_user_event_wait_any_until(current_user, argument0, argument1, argument2,
             wit_x64_monotonic_read(), &context->Rdx);
@@ -559,7 +566,11 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
         context->Rax = WIT_STATUS_UNSUPPORTED;
         break;
     }
-    if (current_user->Threads[current_user->CurrentThread].State == WitThreadWaiting)
+    // Publish settled memory pressure, after expiring both deadline domains.
+    // A finite wait can complete here before this syscall returns; dispatch its
+    // Ready state normally instead of returning with an inconsistent state.
+    expire_waits();
+    if (current_user->Threads[current_user->CurrentThread].State != WitThreadRunning)
         return dispatch(0, 0);
     /* Join may have switched current thread; nonblocking calls retain the caller. */
     wit_x64_set_user_tls(current_user->Threads[current_user->CurrentThread].Tls,

@@ -180,6 +180,7 @@ The initial native milestone now has a concrete boot contract and runnable imple
 - [Process memory barriers](Implementation/NativeAot-Process-Barrier.md) - ABI v14 data-memory fence, real GC/PAL bindings and single-processor limitations.
 - [CPU cache discovery](Implementation/NativeAot-Cpu-Cache.md) - bounded architectural cache metadata, real GC binding and Intel/AMD guest validation.
 - [Atomic event WaitAny](Implementation/NativeAot-Wait-Any.md) - real PAL multi-event waiting, deadlines and generation-safe completion.
+- [Memory-pressure notifications](Implementation/NativeAot-Memory-Pressure.md) - kernel-driven low-memory events, hysteresis and real physical/quota tests.
 - [Immediate next steps](Implementation/Next-Steps.md).
 
 The earlier RFCs describe the long-term vision. These implementation notes distinguish working behavior from future runtime and operating-system features.

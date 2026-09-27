@@ -163,6 +163,7 @@ void wit_user_self_test(WitPageAllocator *pages)
     wit_user_pal_self_test(pages);
     wit_user_pal_services_self_test(pages);
     wit_user_wait_any_self_test(pages);
+    wit_user_pressure_self_test(pages);
     wit_user_pal_module_self_test(pages);
     wit_user_pal_environment_self_test(pages);
     wit_user_process_exit_self_test(pages);

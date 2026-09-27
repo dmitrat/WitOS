@@ -135,11 +135,9 @@ static int event_index(const WitUserThread *thread, WitU64 handle, WitU32 *index
             if (thread->WaitHandles[i] == handle) { *index = i; return 1; }
     return 0;
 }
-WitU64 wit_user_event_set(WitUserProcess *process, WitU64 handle)
+static void signal(WitUserProcess *process, WitEvent *event)
 {
-    WitEvent *event;
-    WitU64 status = wit_event_get(&process->Events, &process->Handles, handle, WIT_RIGHT_SIGNAL, &event);
-    if (status != WIT_STATUS_OK) return status;
+    const WitU64 handle = event->Handle;
     event->Signaled = 1;
     for (;;) {
         WitUserThread *first = 0;
@@ -158,6 +156,22 @@ WitU64 wit_user_event_set(WitUserProcess *process, WitU64 handle)
         ++process->EventWakes;
         if (!event->ManualReset) break;
     }
+}
+WitU64 wit_user_event_set(WitUserProcess *process, WitU64 handle)
+{
+    WitEvent *event;
+    const WitU64 status = wit_event_get(&process->Events, &process->Handles, handle, WIT_RIGHT_SIGNAL, &event);
+    if (status == WIT_STATUS_OK) signal(process, event);
+    return status;
+}
+WitU64 wit_user_event_notify(WitUserProcess *process, WitU64 handle, int signaled)
+{
+    WitEvent *event;
+    const WitU64 status = wit_event_get(&process->Events, &process->Handles, handle, WIT_RIGHT_WAIT, &event);
+    if (status != WIT_STATUS_OK) return status;
+    if (!event->ManualReset) return WIT_STATUS_INVALID_ARGUMENT;
+    if (signaled) signal(process, event);
+    else event->Signaled = 0;
     return WIT_STATUS_OK;
 }
 

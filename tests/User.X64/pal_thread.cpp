@@ -4,6 +4,7 @@
 WitU64 wit_pal_services(const WitUserStartup* startup);
 WitU64 wit_pal_error(const WitUserStartup* startup);
 WitU64 wit_pal_wait_any(const WitUserStartup* startup);
+WitU64 wit_pal_pressure(const WitUserStartup* startup);
 static WitUserThreadInfo observed[3];
 static WitU64 query(void* p, WitU64 size = sizeof(WitUserThreadInfo), WitU64 version = WIT_THREAD_INFO_VERSION)
 {
@@ -60,6 +61,7 @@ static void worker(WitU64 index)
 extern "C" WitU64 wit_native_main(const WitUserStartup* startup)
 {
     const auto config = (const WitUserTestConfig*)startup;
+    if (config->Mode >= 60 && config->Mode <= 63) return wit_pal_pressure(startup);
     if (config->Mode >= 50 && config->Mode <= 57) return wit_pal_wait_any(startup);
     if (config->Mode >= 30) return wit_pal_error(startup);
     if (config->Mode >= 10) return wit_pal_services(startup);

@@ -46,3 +46,5 @@ Local Release build, 58-file source audit, hosted NativeAOT, runtime-target/sour
 ## Remaining boundary
 
 The prototype still has four event slots, eight handles and four threads per component. General mixed-object waits, wait-all, APC/reentrant behavior, low-memory event generation and a full Windows compatibility layer remain absent. The next work remains actual finalizer/ThreadStore lifecycle, GC startup and exception/root-enumeration integration above the tested native primitives.
+
+Version 0.0.33 adds [real memory-pressure event generation](NativeAot-Memory-Pressure.md); actual finalizer/GC lifecycle remains pending.

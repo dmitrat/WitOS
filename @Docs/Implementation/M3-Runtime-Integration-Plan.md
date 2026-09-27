@@ -67,3 +67,5 @@ Version 0.0.30 supplies real GC/PAL process memory barriers under the single-onl
 Version 0.0.31 provides actual CPUID cache-size discovery to the GC through ABI v15, with Intel/AMD validation and no invented fallback. The strict link has 95 unresolved symbols. See [CPU cache discovery](NativeAot-Cpu-Cache.md).
 
 Version 0.0.32 adds real event-only PalCompatibleWaitAny through ABI v16, with up to four validated handles and atomic deadline/close completion. The full link has 94 unresolved symbols. See [WaitAny](NativeAot-Wait-Any.md).
+
+Version 0.0.33 supplies real low-memory notification events to NativeAOT through ABI v17, driven by kernel physical/quota accounting. The full link has 93 unresolved symbols; actual finalizer/GC lifecycle remains pending. See [memory pressure](NativeAot-Memory-Pressure.md).

@@ -11,6 +11,12 @@ static WitU64 deadline(uint32_t milliseconds)
     const WitU64 ticks = ((WitU64)milliseconds * frequency + 999) / 1000;
     return ticks > WIT_MONOTONIC_MAX - now ? WIT_MONOTONIC_MAX : now + ticks;
 }
+HANDLE PalCreateLowMemoryResourceNotification()
+{
+    WitU64 handle = 0;
+    if (!wit_pal_result(wit_native_call(WIT_CALL_MEMORY_PRESSURE_EVENT, 0, 0, 0, &handle))) return nullptr;
+    return (HANDLE)(uintptr_t)handle;
+}
 HANDLE PalCreateEventW(LPSECURITY_ATTRIBUTES attributes, UInt32_BOOL manual, UInt32_BOOL signaled, LPCWSTR name)
 {
     if (attributes || name) { SetLastError(ERROR_NOT_SUPPORTED); return nullptr; } // No named objects or Win32 inheritance/security descriptors.
