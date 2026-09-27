@@ -75,6 +75,8 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 ent
     thread->Joiner = NO_THREAD;
     thread->WaitKind = WitWaitNone;
     thread->WaitHandle = 0;
+    thread->WaitCount = 0;
+    for (WitU32 w = 0; w < WIT_WAIT_ANY_CAPACITY; ++w) thread->WaitHandles[w] = 0;
     thread->Deadline = WIT_WAIT_INFINITE;
     thread->WaitOrder = 0;
     thread->Detached = (flags & WIT_THREAD_DETACHED) != 0;

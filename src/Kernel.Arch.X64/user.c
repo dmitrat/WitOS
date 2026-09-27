@@ -44,6 +44,8 @@ static WIT_NORETURN void finish(WitUserState state, WitU64 code)
         current_user->Threads[i].Joiner = NO_THREAD;
         current_user->Threads[i].WaitKind = WitWaitNone;
         current_user->Threads[i].WaitHandle = 0;
+        current_user->Threads[i].WaitCount = 0;
+        for (WitU32 w = 0; w < WIT_WAIT_ANY_CAPACITY; ++w) current_user->Threads[i].WaitHandles[w] = 0;
         current_user->Threads[i].Deadline = WIT_WAIT_INFINITE;
         current_user->Threads[i].MonotonicWait = 0;
     }
@@ -504,6 +506,10 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
         break;
     case WIT_CALL_EVENT_WAIT:
         context->Rax = wit_user_event_wait(current_user, argument0, argument1, wit_x64_clock_ticks());
+        break;
+    case WIT_CALL_EVENT_WAIT_ANY_UNTIL:
+        context->Rax = wit_user_event_wait_any_until(current_user, argument0, argument1, argument2,
+            wit_x64_monotonic_read(), &context->Rdx);
         break;
     case WIT_CALL_CPU_CACHE_SIZE:
         if (argument0 || argument1 || argument2) context->Rax = WIT_STATUS_INVALID_ARGUMENT;

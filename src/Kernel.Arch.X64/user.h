@@ -7,6 +7,7 @@
 #include "witos/memory.h"
 #include "witos/pe.h"
 
+_Static_assert(WIT_WAIT_ANY_CAPACITY == WIT_EVENT_CAPACITY, "Wait-any event capacity");
 _Static_assert(WIT_PE_MAX_SECTIONS == WIT_IMAGE_INFO_MAX_RANGES, "Image range capacities");
 _Static_assert(WIT_USER_IMAGE_INFO_OFFSET + WIT_IMAGE_INFO_SIZE <= 4096, "Image information page bound");
 
@@ -34,7 +35,7 @@ typedef enum WitUserThreadState {
 } WitUserThreadState;
 
 typedef enum WitUserWaitKind {
-    WitWaitNone, WitWaitJoin, WitWaitEvent, WitWaitSleep
+    WitWaitNone, WitWaitJoin, WitWaitEvent, WitWaitSleep, WitWaitEvents
 } WitUserWaitKind;
 
 typedef struct WitUserThread {
@@ -44,6 +45,8 @@ typedef struct WitUserThread {
     WitU32 Joiner;
     WitUserWaitKind WaitKind;
     WitU64 WaitHandle;
+    WitU64 WaitHandles[WIT_WAIT_ANY_CAPACITY];
+    WitU32 WaitCount;
     WitU64 Deadline;
     WitU32 MonotonicWait; /* 0: delivered PIT ticks; 1: monotonic counter. */
     WitU64 WaitOrder;
@@ -123,6 +126,7 @@ void wit_user_dynamic_tls_self_test(WitPageAllocator *pages);
 WitU64 wit_user_thread_query(const WitUserProcess *process, WitU64 address, WitU64 size, WitU64 version);
 void wit_user_pal_self_test(WitPageAllocator *pages);
 void wit_user_pal_services_self_test(WitPageAllocator *pages);
+void wit_user_wait_any_self_test(WitPageAllocator *pages);
 int wit_user_capture_tls(WitUserProcess *process, const WitPeImage *image);
 WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument, WitU64 flags);
 WitU64 wit_virtual_kernel_root(void);
@@ -146,6 +150,7 @@ int wit_user_is_active(void);
 void wit_user_wait_expire(WitUserProcess *process, WitU64 now);
 void wit_user_wait_expire_time(WitUserProcess *process, WitU64 now);
 WitU64 wit_user_sleep_until(WitUserProcess *process, WitU64 deadline, WitU64 now);
+WitU64 wit_user_event_wait_any_until(WitUserProcess *process, WitU64 address, WitU64 count, WitU64 deadline, WitU64 now, WitU64 *index);
 WitU64 wit_user_event_wait_until(WitUserProcess *process, WitU64 handle, WitU64 deadline, WitU64 now);
 WitU64 wit_user_sleep(WitUserProcess *process, WitU64 deadline, WitU64 now);
 WitU64 wit_user_event_wait(WitUserProcess *process, WitU64 handle, WitU64 deadline, WitU64 now);

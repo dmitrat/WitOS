@@ -1,6 +1,6 @@
 # M2 — First isolated native execution
 
-Historical snapshot: initial isolation with extensions through 0.0.14 / ABI v8. Current status, including ABI v15 and later PAL adapters, is in [Next-Steps](Next-Steps.md); authoritative call constants remain in user_abi.h.
+Historical snapshot: initial isolation with extensions through 0.0.14 / ABI v8. Current status, including ABI v16 and later PAL adapters, is in [Next-Steps](Next-Steps.md); authoritative call constants remain in user_abi.h.
 Guest version: WitOS 0.0.14 (latest addition: native runtime mutexes and thread identity; ABI v8).
 
 This is the first M2 isolation slice, not a general process platform or a .NET runtime port.

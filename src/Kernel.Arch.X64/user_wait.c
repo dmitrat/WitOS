@@ -1,11 +1,13 @@
 #include "user.h"
 
-static void wake(WitUserThread *thread, WitU64 status)
+static void wake(WitUserThread *thread, WitU64 status, WitU64 index)
 {
     thread->Context->Rax = status;
-    thread->Context->Rdx = 0;
+    thread->Context->Rdx = index;
     thread->WaitKind = WitWaitNone;
     thread->WaitHandle = 0;
+    thread->WaitCount = 0;
+    for (WitU32 i = 0; i < WIT_WAIT_ANY_CAPACITY; ++i) thread->WaitHandles[i] = 0;
     thread->Deadline = WIT_WAIT_INFINITE;
     thread->MonotonicWait = 0;
     thread->State = WitThreadReady;
@@ -16,12 +18,12 @@ static void expire(WitUserProcess *process, WitU64 now, WitU32 monotonic)
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
         WitUserThread *thread = &process->Threads[i];
         if (thread->State != WitThreadWaiting || thread->MonotonicWait != monotonic ||
-            (thread->WaitKind != WitWaitEvent && thread->WaitKind != WitWaitSleep) ||
+            (thread->WaitKind != WitWaitEvent && thread->WaitKind != WitWaitEvents && thread->WaitKind != WitWaitSleep) ||
             thread->Deadline == WIT_WAIT_INFINITE || thread->Deadline > now) continue;
-        if (thread->WaitKind == WitWaitEvent) {
+        if (thread->WaitKind == WitWaitEvent || thread->WaitKind == WitWaitEvents) {
             ++process->WaitTimeouts;
-            wake(thread, WIT_STATUS_TIMED_OUT);
-        } else wake(thread, WIT_STATUS_OK);
+            wake(thread, WIT_STATUS_TIMED_OUT, 0);
+        } else wake(thread, WIT_STATUS_OK, 0);
     }
 }
 
@@ -35,6 +37,8 @@ static WitU64 sleep_at(WitUserProcess *process, WitU64 deadline, WitU64 now, Wit
     if (deadline <= now) return WIT_STATUS_OK;
     thread->WaitKind = WitWaitSleep;
     thread->WaitHandle = 0;
+    thread->WaitCount = 0;
+    for (WitU32 i = 0; i < WIT_WAIT_ANY_CAPACITY; ++i) thread->WaitHandles[i] = 0;
     thread->Deadline = deadline;
     thread->MonotonicWait = monotonic;
     thread->State = WitThreadWaiting;
@@ -54,6 +58,7 @@ static WitU64 event_at(WitUserProcess *process, WitU64 handle, WitU64 deadline, 
         return WIT_STATUS_TIMED_OUT;
     }
     if (process->NextWaitOrder == ~0ULL) return WIT_STATUS_NO_MEMORY;
+    thread->WaitCount = 0;
     thread->WaitKind = WitWaitEvent;
     thread->WaitHandle = handle;
     thread->Deadline = deadline;
@@ -87,6 +92,49 @@ WitU64 wit_user_event_wait_until(WitUserProcess *process, WitU64 handle, WitU64 
     return event_at(process, handle, deadline, now, 1);
 }
 
+WitU64 wit_user_event_wait_any_until(WitUserProcess *process, WitU64 address, WitU64 count,
+    WitU64 deadline, WitU64 now, WitU64 *index)
+{
+    WitU64 handles[WIT_WAIT_ANY_CAPACITY];
+    WitEvent *events[WIT_WAIT_ANY_CAPACITY];
+    WitUserThread *thread = &process->Threads[process->CurrentThread];
+    *index = 0;
+    if (!count || count > WIT_WAIT_ANY_CAPACITY || !valid_deadline(deadline)) return WIT_STATUS_INVALID_ARGUMENT;
+    if (!wit_user_copy_from(&process->Space, address, (WitU8*)handles, (WitU32)(count * sizeof(WitU64))))
+        return WIT_STATUS_BAD_ADDRESS;
+    // IF is clear through full validation, consumption and waiter publication.
+    for (WitU32 i = 0; i < count; ++i) {
+        const WitU64 status = wit_event_get(&process->Events, &process->Handles, handles[i], WIT_RIGHT_WAIT, &events[i]);
+        if (status != WIT_STATUS_OK) return status;
+        for (WitU32 j = 0; j < i; ++j) if (handles[j] == handles[i]) return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    for (WitU32 i = 0; i < count; ++i)
+        if (wit_event_consume(events[i])) { *index = i; return WIT_STATUS_OK; }
+    if (deadline != WIT_WAIT_INFINITE && deadline <= now) {
+        ++process->WaitTimeouts;
+        return WIT_STATUS_TIMED_OUT;
+    }
+    if (process->NextWaitOrder == ~0ULL) return WIT_STATUS_NO_MEMORY;
+    thread->WaitHandle = 0;
+    for (WitU32 i = 0; i < WIT_WAIT_ANY_CAPACITY; ++i) thread->WaitHandles[i] = i < count ? handles[i] : 0;
+    thread->WaitCount = (WitU32)count;
+    thread->WaitKind = WitWaitEvents;
+    thread->Deadline = deadline;
+    thread->MonotonicWait = 1;
+    thread->WaitOrder = ++process->NextWaitOrder;
+    thread->State = WitThreadWaiting;
+    ++process->EventParks;
+    return WIT_STATUS_OK;
+}
+static int event_index(const WitUserThread *thread, WitU64 handle, WitU32 *index)
+{
+    if (thread->State != WitThreadWaiting) return 0;
+    if (thread->WaitKind == WitWaitEvent && thread->WaitHandle == handle) { *index = 0; return 1; }
+    if (thread->WaitKind == WitWaitEvents)
+        for (WitU32 i = 0; i < thread->WaitCount; ++i)
+            if (thread->WaitHandles[i] == handle) { *index = i; return 1; }
+    return 0;
+}
 WitU64 wit_user_event_set(WitUserProcess *process, WitU64 handle)
 {
     WitEvent *event;
@@ -95,15 +143,18 @@ WitU64 wit_user_event_set(WitUserProcess *process, WitU64 handle)
     event->Signaled = 1;
     for (;;) {
         WitUserThread *first = 0;
+        WitU32 winner = 0;
         for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
             WitUserThread *thread = &process->Threads[i];
-            if (thread->State == WitThreadWaiting && thread->WaitKind == WitWaitEvent &&
-                thread->WaitHandle == handle && (!first || thread->WaitOrder < first->WaitOrder))
+            WitU32 index = 0;
+            if (event_index(thread, handle, &index) && (!first || thread->WaitOrder < first->WaitOrder)) {
                 first = thread;
+                winner = index;
+            }
         }
         if (!first) break;
         (void)wit_event_consume(event);
-        wake(first, WIT_STATUS_OK);
+        wake(first, WIT_STATUS_OK, winner);
         ++process->EventWakes;
         if (!event->ManualReset) break;
     }
@@ -125,9 +176,9 @@ WitU64 wit_user_event_close(WitUserProcess *process, WitU64 handle)
     if (status != WIT_STATUS_OK) return status;
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
         WitUserThread *thread = &process->Threads[i];
-        if (thread->State == WitThreadWaiting && thread->WaitKind == WitWaitEvent &&
-            thread->WaitHandle == handle) {
-            wake(thread, WIT_STATUS_CLOSED);
+        WitU32 index = 0;
+        if (event_index(thread, handle, &index)) {
+            wake(thread, WIT_STATUS_CLOSED, 0);
             ++process->WaitCloses;
         }
     }

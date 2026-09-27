@@ -65,3 +65,5 @@ Version 0.0.29 creates the actual upstream RuntimeInstance and empty ThreadStore
 Version 0.0.30 supplies real GC/PAL process memory barriers under the single-online-CPU contract (ABI v14). Full-link unresolved symbols drop to 96; root enumeration, managed suspension and actual GC startup remain separate work. See [process barriers](NativeAot-Process-Barrier.md).
 
 Version 0.0.31 provides actual CPUID cache-size discovery to the GC through ABI v15, with Intel/AMD validation and no invented fallback. The strict link has 95 unresolved symbols. See [CPU cache discovery](NativeAot-Cpu-Cache.md).
+
+Version 0.0.32 adds real event-only PalCompatibleWaitAny through ABI v16, with up to four validated handles and atomic deadline/close completion. The full link has 94 unresolved symbols. See [WaitAny](NativeAot-Wait-Any.md).

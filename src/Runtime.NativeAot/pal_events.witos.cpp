@@ -36,6 +36,21 @@ uint32_t PalWaitForSingleObjectEx(HANDLE handle, uint32_t milliseconds, UInt32_B
     wit_pal_set_status(status);
     return WAIT_FAILED;
 }
+uint32_t PalCompatibleWaitAny(UInt32_BOOL alertable, uint32_t timeout, uint32_t count, HANDLE* handles, UInt32_BOOL reentrant)
+{
+    static_assert(sizeof(HANDLE) == sizeof(WitU64));
+    if (alertable || reentrant || count > WIT_WAIT_ANY_CAPACITY) { SetLastError(ERROR_NOT_SUPPORTED); return WAIT_FAILED; }
+    if (!count || !handles) { SetLastError(ERROR_INVALID_PARAMETER); return WAIT_FAILED; }
+    WitU64 index = 0;
+    const WitU64 status = wit_native_call(WIT_CALL_EVENT_WAIT_ANY_UNTIL, (uintptr_t)handles, count, deadline(timeout), &index);
+    if (status == WIT_STATUS_OK) {
+        if (index >= count) wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+        return WAIT_OBJECT_0 + (uint32_t)index;
+    }
+    if (status == WIT_STATUS_TIMED_OUT) return WAIT_TIMEOUT;
+    wit_pal_set_status(status);
+    return WAIT_FAILED;
+}
 UInt32_BOOL PalCloseHandle(HANDLE handle)
 {
     return wit_pal_result(wit_native_call(WIT_CALL_CLOSE, (uintptr_t)handle, 0, 0, nullptr));

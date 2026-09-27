@@ -54,3 +54,5 @@ The diagnostic workload now leaves 116 unresolved symbols: seven GC environment,
 Next complete the startup/handle/thread/last-error and GC coordination requirements exposed by the PAL inventory, then initialize the real runtime/collector and validate ThreadStore attachment and GC allocation-context cleanup. Executable allocation, fixed-image reprotection, multi-object waits, managed exceptions and arbitrary Windows compatibility remain outside this slice.
 
 Version 0.0.22 adds [per-thread last-error and concrete PAL failure codes](NativeAot-Pal-Last-Error.md). The earlier statement about missing GetLastError/SetLastError describes the 0.0.20 boundary; the remaining unsupported modes stay explicit.
+
+Version 0.0.32 adds real event-only PalCompatibleWaitAny through ABI v16, with up to four validated handles and atomic deadline/close completion. The full link has 94 unresolved symbols. See [WaitAny](NativeAot-Wait-Any.md).

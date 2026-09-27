@@ -56,7 +56,7 @@ internal static class UserPalImage
             $"/I{Path.Combine(root, "src", "Kernel", "include")}", $"/I{Path.Combine(root, "tests", "User.X64")}"
         ];
         string[] sources = ["src/Runtime.NativeAot/pal.witos.cpp", "tests/User.X64/pal_thread.cpp", "src/System.Native/tls_metadata.c",
-            "src/Runtime.NativeAot/pal_memory.witos.cpp", "src/Runtime.NativeAot/pal_events.witos.cpp", "tests/User.X64/pal_services.cpp", "src/Runtime.NativeAot/pal_error.witos.cpp", "tests/User.X64/pal_error.cpp"];
+            "src/Runtime.NativeAot/pal_memory.witos.cpp", "src/Runtime.NativeAot/pal_events.witos.cpp", "tests/User.X64/pal_services.cpp", "src/Runtime.NativeAot/pal_error.witos.cpp", "tests/User.X64/pal_error.cpp", "tests/User.X64/pal_wait_any.cpp"];
         var objects = new List<string>();
         foreach (var name in sources)
         {
@@ -78,7 +78,7 @@ internal static class UserPalImage
             await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
                 ["/nologo", "/subsystem:native", "/entry:wit_native_start", "/nodefaultlib", "/machine:x64",
                     "/fixed:no", "/dynamicbase", "/incremental:no", "/Brepro", "/base:0x8000100000",
-                    $"/out:{path}", Path.Combine(output, "native_start.obj"), objects[0], objects[1], objects[3], objects[4], objects[5], objects[6], objects[7], Path.Combine(output, "native_error.obj"), .. metadata], root);
+                    $"/out:{path}", Path.Combine(output, "native_start.obj"), objects[0], objects[1], objects[3], objects[4], objects[5], objects[6], objects[7], objects[8], Path.Combine(output, "native_error.obj"), .. metadata], root);
             var bytes = await File.ReadAllBytesAsync(path);
             using var stream = new MemoryStream(bytes, writable: false);
             using var pe = new PEReader(stream);

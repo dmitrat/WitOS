@@ -47,7 +47,7 @@ internal static class RuntimeSourceBuild
             "__imp_InitializeCriticalSection", "__imp_DeleteCriticalSection", "__imp_EnterCriticalSection", "__imp_LeaveCriticalSection"];
         string[] palImplemented = ["PalGetCurrentOSThreadId", "PalGetMaximumStackBounds", "PalGetCurrentProcessId", "PalGetProcessCpuCount",
             "PalVirtualAlloc", "PalVirtualFree", "PalVirtualProtect", "PalCreateEventW", "PalSetEvent", "PalResetEvent",
-            "PalWaitForSingleObjectEx", "PalCloseHandle", "PalSleep", "PalSwitchToThread", "PalStartBackgroundGCThread", "PalStartFinalizerThread", "PalStartEventPipeHelperThread", "PalGetModuleHandleFromPointer", "PalGetModuleBounds", "PalGetEnvironmentVariable", "PalCopyTCharAsChar", "?PalInit@@"];
+            "PalWaitForSingleObjectEx", "PalCompatibleWaitAny", "PalCloseHandle", "PalSleep", "PalSwitchToThread", "PalStartBackgroundGCThread", "PalStartFinalizerThread", "PalStartEventPipeHelperThread", "PalGetModuleHandleFromPointer", "PalGetModuleBounds", "PalGetEnvironmentVariable", "PalCopyTCharAsChar", "?PalInit@@"];
         if (boundary.Unresolved.Any(s => s is "atexit" or "__imp_atexit" or "strlen" or "memcpy" or "strcmp" or "_stricmp" or "strtoull" or "_errno" or "__imp__errno" or "GetEnvironmentVariableW" or "__imp_GetEnvironmentVariableW" or "GetLastError" or "SetLastError" or "__imp_GetLastError" or "__imp_SetLastError") ||
             boundary.Unresolved.Any(s => palImplemented.Any(p => s.Contains(p, StringComparison.Ordinal))) ||
             !boundary.Unresolved.Any(s => s.Contains("PalAttachThread", StringComparison.Ordinal)) ||
