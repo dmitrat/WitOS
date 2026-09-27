@@ -9,8 +9,8 @@ static void require(int condition, const char* message) { if (!condition) wit_pa
 static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
 {
     const WitU64 before = wit_pages_free_count(pages);
-    const WitU8* image = (mode == 8 || mode == 11 || mode == 13 || mode == 16) ? wit_runtime_config_raw_image : wit_runtime_config_image;
-    const WitU32 size = (mode == 8 || mode == 11 || mode == 13 || mode == 16) ? sizeof(wit_runtime_config_raw_image) : sizeof(wit_runtime_config_image);
+    const WitU8* image = (mode == 8 || mode == 11 || mode == 13 || mode == 16 || mode == 18) ? wit_runtime_config_raw_image : wit_runtime_config_image;
+    const WitU32 size = (mode == 8 || mode == 11 || mode == 13 || mode == 16 || mode == 18) ? sizeof(wit_runtime_config_raw_image) : sizeof(wit_runtime_config_image);
     require(wit_user_create_pe(&process, pages, 0, image, size, base) == WitPeOk,
         "Runtime configuration fixture load failed");
     const WitU32 owned = process.Space.OwnedCount;
@@ -31,6 +31,16 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
         wit_console_write("Runtime config state/code: "); wit_console_write_u64(process.State);
         wit_console_write("/"); wit_console_write_u64(process.ExitCode); wit_console_write("\n");
         wit_panic("Upstream configuration contract failed");
+    }
+    if (mode == 18 || mode == 19) {
+        require(report && report[0] == mode && report[1] == 524288 &&
+            process.ThreadCreates == (mode == 18 ? 1U : 7U) && process.ThreadJoins == (mode == 18 ? 0U : 6U) &&
+            process.ThreadReaps == (mode == 18 ? 0U : 6U) &&
+            (process.Threads[0].CompilerTls != 0) == (mode == 19) && process.Space.OwnedCount == owned &&
+            !process.Handles.Count && !process.Events.Count, "Native CRT range/parse/resource contract failed");
+        wit_user_destroy(&process);
+        require(wit_pages_free_count(pages) == before, "Native CRT teardown leaked pages");
+        return;
     }
     if (mode >= 15 && mode <= 17) {
         require(report && report[0] == mode && report[1] == 262144 &&
@@ -69,7 +79,7 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
         return;
     }
     if (mode == 3 || mode == 7 || mode == 8)
-        require(report && report[0] == mode && report[1] == ((mode == 8 || mode == 11 || mode == 13 || mode == 16) ? 2048 : 1089) &&
+        require(report && report[0] == mode && report[1] == ((mode == 8 || mode == 11 || mode == 13 || mode == 16 || mode == 18) ? 2048 : 1089) &&
             process.ThreadCreates == 1 && !process.ThreadJoins && !process.ThreadReaps &&
             (process.Threads[0].CompilerTls != 0) == (mode != 8), "PAL initialization rejection missed its intended boundary");
     else
@@ -113,5 +123,9 @@ void wit_user_runtime_config_self_test(WitPageAllocator* pages)
     wit_console_write("[TEST-PASS] User.MinipalTimeWithoutTls\n");
     run(pages, 17, WIT_USER_IMAGE_BASE); run(pages, 17, WIT_USER_IMAGE_ALTERNATE);
     wit_console_write("[TEST-PASS] User.RuntimeRandomTls\n");
+    run(pages, 18, WIT_USER_IMAGE_BASE); run(pages, 18, WIT_USER_IMAGE_ALTERNATE);
+    wit_console_write("[TEST-PASS] User.CrtMemoryAndStrings\n");
+    run(pages, 19, WIT_USER_IMAGE_BASE); run(pages, 19, WIT_USER_IMAGE_ALTERNATE);
+    wit_console_write("[TEST-PASS] User.CrtUnsignedLong\n");
 }
 #endif

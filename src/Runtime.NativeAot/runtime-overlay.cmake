@@ -76,7 +76,10 @@ function(witos_select_gc_environment)
     list(REMOVE_ITEM sources "${old_config}")
     list(APPEND sources "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/rhconfig.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/crt_config.witos.cpp"
-        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/crt_exit.witos.cpp")
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/crt_exit.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/crt_memory.witos.c")
+    set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/crt_memory.witos.c"
+        TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES COMPILE_OPTIONS "/std:c17;/O1")
     set(old_allocheap "${CLR_DIR}/nativeaot/Runtime/allocheap.cpp")
     list(FIND sources "${old_allocheap}" allocheap_index)
     if(allocheap_index EQUAL -1)
@@ -164,7 +167,8 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/startup.objects.slice.cpp"
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_instance.cpp"
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_barrier.cpp"
-        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_time.cpp")
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_time.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_crt.cpp")
     foreach(config_source IN LISTS config_sources)
         if(NOT EXISTS "${config_source}")
             message(FATAL_ERROR "Run runtime-source to prepare the pinned configuration sources")

@@ -93,7 +93,7 @@ internal static class RuntimeConfigProbe
         }, Json));
     }
 
-    public static async Task VerifyArchiveAsync(string root, string obj, string msvc, string minipalArchive)
+    public static async Task VerifyArchiveAsync(string root, string obj, string msvc, string minipalArchive, string memoryObject)
     {
         var output = Path.Combine(root, "artifacts", "runtime-config");
         var archive = Path.Combine(obj, "witos-config", "WitOS.ConfigProbe.lib");
@@ -102,9 +102,9 @@ internal static class RuntimeConfigProbe
         var members = listing.Output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
         var all = JsonSerializer.Deserialize<JsonElement[]>(await File.ReadAllTextAsync(Path.Combine(obj, "compile_commands.json")), Json)!;
         var commands = all.Where(c => c.GetProperty("output").GetString()!.Replace('\\', '/').Contains("/WitOS.ConfigProbe.dir/", StringComparison.Ordinal)).ToArray();
-        string[] names = ["rhconfig.witos.cpp", "gcconfig.slice.cpp", "gcenv.config.slice.cpp", "runtime_config.cpp", "pal_init.witos.cpp", "allocheap.witos.cpp", "dispatch.shared.slice.cpp", "dispatch.aot.slice.cpp", "runtime_allocator.cpp", "startup.objects.slice.cpp", "runtime_instance.cpp", "runtime_barrier.cpp", "runtime_time.cpp"];
+        string[] names = ["rhconfig.witos.cpp", "gcconfig.slice.cpp", "gcenv.config.slice.cpp", "runtime_config.cpp", "pal_init.witos.cpp", "allocheap.witos.cpp", "dispatch.shared.slice.cpp", "dispatch.aot.slice.cpp", "runtime_allocator.cpp", "startup.objects.slice.cpp", "runtime_instance.cpp", "runtime_barrier.cpp", "runtime_time.cpp", "runtime_crt.cpp"];
         if (members.Length != names.Length || commands.Length != names.Length)
-            throw new InvalidDataException("Configuration probe must contain exactly the selected thirteen objects.");
+            throw new InvalidDataException("Configuration probe must contain exactly the selected fourteen objects.");
         foreach (var name in names)
         {
             var command = commands.Single(c => Path.GetFileName(c.GetProperty("file").GetString()!) == name);
@@ -115,10 +115,11 @@ internal static class RuntimeConfigProbe
         }
         File.Copy(archive, Path.Combine(output, "WitOS.ConfigProbe.lib"), overwrite: true);
         File.Copy(minipalArchive, Path.Combine(output, "WitOS.Minipal.lib"), overwrite: true);
+        File.Copy(memoryObject, Path.Combine(output, "crt_memory.witos.obj"), overwrite: true);
         await File.WriteAllTextAsync(Path.Combine(output, "archive-report.json"), JsonSerializer.Serialize(new
         {
-            archiveSha256 = Hash(archive), minipalSha256 = Hash(minipalArchive), members, commands, guestManagedRuntime = false,
-            localInputs = new[] { "tests/User.X64/runtime_time.cpp", "src/Runtime.NativeAot/minipal_time.witos.cpp", "src/Runtime.NativeAot/minipal_time.witos.h", "tests/User.X64/runtime_config.cpp", "tests/User.X64/runtime_instance.cpp", "tests/User.X64/runtime_barrier.cpp", "artifacts/runtime-config/source/startup.objects.slice.cpp", "artifacts/runtime-config/source/threadstore.witos.cpp", "artifacts/runtime-config/source/thread.witos.cpp", "artifacts/runtime-config/include/stressLog.h", "tests/User.X64/runtime_allocator.cpp", "tests/User.X64/protocol.h", "artifacts/runtime-config/source/allocheap.witos.cpp", "artifacts/runtime-config/source/dispatch.shared.slice.cpp", "artifacts/runtime-config/source/dispatch.aot.slice.cpp",
+            archiveSha256 = Hash(archive), minipalSha256 = Hash(minipalArchive), memorySha256 = Hash(memoryObject), members, commands, guestManagedRuntime = false,
+            localInputs = new[] { "tests/User.X64/runtime_crt.cpp", "src/Runtime.NativeAot/crt_memory.witos.c", "tests/User.X64/runtime_time.cpp", "src/Runtime.NativeAot/minipal_time.witos.cpp", "src/Runtime.NativeAot/minipal_time.witos.h", "tests/User.X64/runtime_config.cpp", "tests/User.X64/runtime_instance.cpp", "tests/User.X64/runtime_barrier.cpp", "artifacts/runtime-config/source/startup.objects.slice.cpp", "artifacts/runtime-config/source/threadstore.witos.cpp", "artifacts/runtime-config/source/thread.witos.cpp", "artifacts/runtime-config/include/stressLog.h", "tests/User.X64/runtime_allocator.cpp", "tests/User.X64/protocol.h", "artifacts/runtime-config/source/allocheap.witos.cpp", "artifacts/runtime-config/source/dispatch.shared.slice.cpp", "artifacts/runtime-config/source/dispatch.aot.slice.cpp",
                 "src/Runtime.NativeAot/runtime-overlay.cmake", "src/Runtime.NativeAot/config-probe/CMakeLists.txt",
                 "src/Runtime.NativeAot/crt_config.witos.cpp", "src/Runtime.NativeAot/pal_init.witos.cpp", "src/Runtime.NativeAot/pal_environment.witos.h",
                 "src/System.Native/tls.h", "src/Kernel/include/witos/user_abi.h",
@@ -126,7 +127,7 @@ internal static class RuntimeConfigProbe
                 "artifacts/runtime-config/source/gcenv.config.slice.cpp" }
                 .Select(p => new { path = p, sha256 = Hash(Path.Combine(root, p)) })
         }, Json));
-        Console.WriteLine("[SOURCE-PASS] Configuration probe: thirteen exact source objects; collector and thread attachment excluded.");
+        Console.WriteLine("[SOURCE-PASS] Configuration probe: fourteen exact source objects; collector and thread attachment excluded.");
     }
 
     public static async Task BuildImageAsync(string root, string output, string msvc)
@@ -143,6 +144,9 @@ internal static class RuntimeConfigProbe
         var minipalArchive = Path.Combine(root, "artifacts", "runtime-config", "WitOS.Minipal.lib");
         if (Hash(minipalArchive) != report.RootElement.GetProperty("minipalSha256").GetString())
             throw new InvalidDataException("Minipal archive changed after source verification.");
+        var memoryObject = Path.Combine(root, "artifacts", "runtime-config", "crt_memory.witos.obj");
+        if (Hash(memoryObject) != report.RootElement.GetProperty("memorySha256").GetString())
+            throw new InvalidDataException("Native memory object changed after archive verification.");
         var vc = Path.GetFullPath(Path.Combine(msvc, "..", "..", ".."));
         var sdkVersion = Directory.GetParent(Toolchain.FindWindowsSdkLibrary("kernel32.lib"))!.Parent!.Parent!.Name;
         var sdk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Windows Kits", "10", "Include", sdkVersion);
@@ -158,7 +162,7 @@ internal static class RuntimeConfigProbe
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
             ["/nologo", "/subsystem:native", "/entry:wit_native_start", "/nodefaultlib", "/machine:x64", "/fixed:no", "/dynamicbase",
                 "/incremental:no", "/Brepro", "/opt:ref", "/include:_tls_used", "/merge:.CRT=.rdata", "/base:0x180000000",
-                $"/out:{image}", archive, minipalArchive, crt, .. shared.Select(p => Path.Combine(output, p))], root);
+                $"/out:{image}", archive, minipalArchive, memoryObject, crt, .. shared.Select(p => Path.Combine(output, p))], root);
         var bytes = await File.ReadAllBytesAsync(image);
         using var reader = new PEReader(new MemoryStream(bytes, writable: false));
         var h = reader.PEHeaders.PEHeader ?? throw new InvalidDataException("Configuration PE missing.");
