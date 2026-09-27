@@ -2,6 +2,8 @@
 
 **Status:** WitOS 0.0.37. This is hosted execution and a strict link diagnostic, not guest managed execution.
 
+**Update (0.0.38):** Porting [minipal time](NativeAot-Minipal-Time.md) removes four native Windows time imports, leaving 79 minimal-startup dependencies (85 in the broad inventory). Historical measurements below describe the initial 0.0.37 assessment.
+
 ## Purpose
 
 The existing NativeAotTarget workload exercises a shared library with allocation, exceptions and native threads. Its broad source-link inventory deliberately omits existing WitOS transport/TLS definitions. This assessment adds an ordinary executable whose normal startup roots come from the real upstream bootstrapper.obj and wmain, instead of additional /include roots for individual runtime functions.

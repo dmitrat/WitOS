@@ -104,7 +104,8 @@ internal static class RuntimeStartupSources
             Cut(ri, "bool RuntimeInstance::Initialize(HANDLE hPalInstance)", "bool RuntimeInstance::ShouldHijackLoopForGcStress") +
             Cut(ts, "ThreadStore::ThreadStore()", "void ThreadStore::AttachCurrentThread(bool fAcquireThreadStoreLock)") +
             Cut(ts, "volatile uint32_t * p_tls_index;", "#else // DACCESS_COMPILE");
-        slice += Cut(thread, "void Thread::Construct()", "uint64_t Thread::s_DeadThreadsNonAllocBytes") +
+        slice += Cut(thread, "ee_alloc_context::PerThreadRandom::PerThreadRandom()", "PInvokeTransitionFrame* Thread::GetTransitionFrame()") +
+            Cut(thread, "void Thread::Construct()", "uint64_t Thread::s_DeadThreadsNonAllocBytes") +
             Cut(thread, "void Thread::SetState(ThreadStateFlags flags)", "void Thread::ClearState(ThreadStateFlags flags)");
         var callouts = await Read(prefix + "RestrictedCallouts.cpp");
         slice += "\n#include \"RestrictedCallouts.h\"\n" +
@@ -115,8 +116,8 @@ internal static class RuntimeStartupSources
         await File.WriteAllTextAsync(Path.Combine(output, "startup-provenance.json"), JsonSerializer.Serialize(new
         {
             pin.RuntimeCommit,
-            scope = "Unchanged RuntimeInstance/ThreadStore creation methods, RestrictedCallouts initialization and upstream disabled-standalone-GC event-lock method. Windows TEB access in DAC TLS metadata is replaced with kernel-confirmed compiler TLS bounds; Thread::Construct explicitly retains the upstream-allowed invalid OS handle because duplicated thread/context capabilities are unavailable. Stack-discovery failure terminates the native component. WitOS uses upstream NO_STRESS_LOG consistently for the archive and probe; DebugHeader stress types/global are guarded by the actual feature macro; upstream disabled logging macros are exposed under GCENV and the VA signature matches enabled logging. Actual SetGCSpecial/Construct/state/logging methods execute without attachment or collector substitutes.",
-            inputs = pin.Sources.Where(s => names.Any(n => s.Path == prefix + n)),
+            scope = "Unchanged RuntimeInstance/ThreadStore creation methods, RestrictedCallouts initialization and upstream disabled-standalone-GC event-lock method. Windows TEB access in DAC TLS metadata is replaced with kernel-confirmed compiler TLS bounds; Thread::Construct explicitly retains the upstream-allowed invalid OS handle because duplicated thread/context capabilities are unavailable. Stack-discovery failure terminates the native component. WitOS uses upstream NO_STRESS_LOG consistently for the archive and probe; DebugHeader stress types/global are guarded by the actual feature macro; upstream disabled logging macros are exposed under GCENV and the VA signature matches enabled logging. The unchanged PerThreadRandom constructor/TLS definition uses real source-built minipal time and xoshiro. Actual SetGCSpecial/Construct/state/logging methods execute without attachment or collector substitutes.",
+            inputs = pin.Sources.Where(s => names.Any(n => s.Path == prefix + n) || s.Path is "src/native/minipal/time.h" or "src/native/minipal/xoshiro128pp.h" or "src/native/minipal/xoshiro128pp.c"),
             stressHeader = new { file = "../include/stressLog.h", sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(includeOutput, "stressLog.h")))).ToLowerInvariant() },
             generated = new[] { "threadstore.witos.cpp", "thread.witos.cpp", "debugheader.witos.cpp", "startup.objects.slice.cpp" }.Select(name => new
             {

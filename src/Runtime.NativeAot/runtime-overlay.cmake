@@ -121,6 +121,16 @@ function(witos_select_gc_environment)
     endif()
     list(REMOVE_ITEM minipal_sources "mutex.c")
     list(APPEND minipal_sources "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/mutex.witos.cpp")
+    list(FIND minipal_sources "time.c" time_index)
+    if(time_index EQUAL -1)
+        message(FATAL_ERROR "Pinned time source missing from aotminipal")
+    endif()
+    list(REMOVE_ITEM minipal_sources "time.c")
+    list(APPEND minipal_sources "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/minipal_time.witos.cpp")
+    # MSVC optimized time functions emit shrink-wrapped chained unwind records.
+    # Keep this bootstrap object in the current plain-unwind guest profile.
+    set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/minipal_time.witos.cpp"
+        TARGET_DIRECTORY aotminipal PROPERTIES COMPILE_OPTIONS "/Od")
     set_property(TARGET aotminipal PROPERTY SOURCES "${minipal_sources}")
     target_include_directories(aotminipal PRIVATE "${WITOS_SOURCE_ROOT}/src/System.Native"
         "${WITOS_SOURCE_ROOT}/src/Kernel/include")
@@ -153,7 +163,8 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_allocator.cpp"
         "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/startup.objects.slice.cpp"
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_instance.cpp"
-        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_barrier.cpp")
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_barrier.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_time.cpp")
     foreach(config_source IN LISTS config_sources)
         if(NOT EXISTS "${config_source}")
             message(FATAL_ERROR "Run runtime-source to prepare the pinned configuration sources")

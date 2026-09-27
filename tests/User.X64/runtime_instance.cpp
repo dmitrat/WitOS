@@ -163,3 +163,47 @@ extern "C" bool wit_test_runtime_thread_record()
     }
     return true;
 }
+
+static minipal_xoshiro128pp* main_random;
+static WitU64 random_addresses[3];
+static volatile WitU64 random_ready[3], random_release;
+static WitU64 random_worker(WitU64 index)
+{
+    auto state = &ee_alloc_context::t_random.random_state;
+    if (index >= 3 || state == main_random || !(state->s[0] | state->s[1] | state->s[2] | state->s[3]))
+        wit_native_fail_fast(1760);
+    random_addresses[index] = (WitU64)state;
+    const uint32_t marker = (uint32_t)(index + 19);
+    state->s[0] = marker;
+    random_ready[index] = 1;
+    while (!random_release)
+        if (wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr) != WIT_STATUS_OK || state->s[0] != marker)
+            wit_native_fail_fast(1761);
+    // A later reused thread must run the real constructor over fresh storage.
+    for (unsigned i = 0; i < 4; ++i) state->s[i] = 0;
+    return WIT_TEST_EXIT_CODE;
+}
+extern "C" bool wit_test_runtime_random_tls()
+{
+    main_random = &ee_alloc_context::t_random.random_state;
+    if (!(main_random->s[0] | main_random->s[1] | main_random->s[2] | main_random->s[3])) return false;
+    uint32_t saved[4];
+    for (unsigned i = 0; i < 4; ++i) saved[i] = main_random->s[i];
+    for (unsigned round = 0; round < 2; ++round) {
+        WitU64 handles[3], result;
+        random_release = 0;
+        for (WitU64 i = 0; i < 3; ++i) {
+            random_ready[i] = 0;
+            if (wit_native_thread_create(random_worker, i, &handles[i]) != WIT_STATUS_OK) return false;
+        }
+        while (!random_ready[0] || !random_ready[1] || !random_ready[2])
+            if (wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr) != WIT_STATUS_OK) return false;
+        if (random_addresses[0] == random_addresses[1] || random_addresses[0] == random_addresses[2] ||
+            random_addresses[1] == random_addresses[2]) return false;
+        random_release = 1;
+        for (unsigned i = 0; i < 3; ++i)
+            if (wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &result) != WIT_STATUS_OK || result != WIT_TEST_EXIT_CODE) return false;
+        for (unsigned i = 0; i < 4; ++i) if (main_random->s[i] != saved[i]) return false;
+    }
+    return true;
+}

@@ -87,3 +87,5 @@ Version 0.0.33 supplies real low-memory notification events to NativeAOT through
 Version 0.0.35 adds native thread exit notification; 0.0.36 executes actual GC-special Thread record construction and selects an explicit disabled-StressLog profile. Actual ThreadStore attachment and collector startup remain pending.
 
 Version 0.0.37 adds a minimal executable startup diagnostic rooted in the real wmain/normal CoreLib path. See [startup readiness](NativeAot-Startup-Readiness.md). Use that workload to drive integration and retain the broader M3 target as regression coverage.
+
+Version 0.0.38 supplies actual minipal monotonic time and microdelays using the kernel clock, and executes the upstream PerThreadRandom TLS constructor with the real xoshiro implementation. Four minipal Windows imports are removed: the broad source boundary is 85 symbols and the minimal startup boundary is 79. The integration gates and revised uncertainty above remain unchanged. See [minipal time](NativeAot-Minipal-Time.md).

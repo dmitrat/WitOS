@@ -14,6 +14,9 @@ extern "C" bool wit_test_interface_dispatch();
 extern "C" bool wit_test_runtime_instance();
 extern "C" bool wit_test_runtime_thread_record();
 extern "C" void wit_test_runtime_missing_tls();
+extern "C" bool wit_test_minipal_time_early();
+extern "C" bool wit_test_minipal_time_threads();
+extern "C" bool wit_test_runtime_random_tls();
 extern "C" bool wit_test_barrier_early();
 extern "C" bool wit_test_barrier_threads();
 static RhConfig config;
@@ -187,6 +190,18 @@ extern "C" WitU64 wit_native_main(const WitUserStartup* startup)
 {
     mode = ((const WitUserTestConfig*)startup)->Mode;
     report()[0] = mode; report()[1] = 0;
+    if (mode >= 15 && mode <= 17) {
+        if (!wit_test_minipal_time_early()) return 1698;
+        if (mode != 16) {
+            wit_native_process_image_initialize(startup);
+            wit_native_tls_initialize(startup);
+            if (mode == 15 && !wit_test_minipal_time_threads()) return 1698;
+            if (mode == 17 && !wit_test_runtime_random_tls()) return 1698;
+            wit_native_tls_leave();
+        }
+        report()[1] = 262144;
+        return WIT_TEST_EXIT_CODE;
+    }
     if (mode == 12 || mode == 13) {
         if (!wit_test_barrier_early()) return 1695;
         if (mode == 12) {

@@ -90,7 +90,7 @@ internal static class RuntimeReadiness
         var errors = Regex.Matches(log, @"error (LNK\d+):").Select(m => m.Groups[1].Value).ToArray();
         if (link.TimedOut || link.ExitCode == 0 || File.Exists(image) || unresolved.Length == 0 ||
             !errors.Contains("LNK1120") || errors.Any(e => e is not ("LNK2001" or "LNK2019" or "LNK1120")) ||
-            unresolved.Any(s => s.StartsWith("wit_native_", StringComparison.Ordinal) || s is "_tls_index" or "wmain" or "RhInitialize" or "RhRegisterOSModule" or "InitializeModules" or "__managed__Main") ||
+            unresolved.Any(s => s.Contains("wit_native_", StringComparison.Ordinal) || s is "_tls_index" or "wmain" or "RhInitialize" or "RhRegisterOSModule" or "InitializeModules" or "__managed__Main") ||
             !unresolved.Any(s => s.Contains("PalAttachThread", StringComparison.Ordinal)))
             throw new InvalidOperationException("Unexpected minimal startup link outcome; see runtime-readiness/strict-link.log.");
         var imageLimit = Constant(root, "src/Kernel/include/witos/pe.h", "WIT_PE_MAX_IMAGE_SIZE");

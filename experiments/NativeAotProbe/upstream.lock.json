@@ -192,6 +192,9 @@
                     {"path":"src/coreclr/nativeaot/Runtime/clrgc.disabled.cpp","sha256":"a7d5cf44d43cb48d1b0d2673d96468c9e6a401be8a030702c24fcaa79f475a54"},
                     {"path":"src/coreclr/nativeaot/Runtime/thread.inl","sha256":"66b9f935d0e697d843bd48f96469c0789f79b48bb2b1d8b69f49e6147fe7f88e"},
                     {"path":"src/coreclr/nativeaot/Runtime/inc/stressLog.h","sha256":"47d3bc193daf4be76b55d1d67e6de176da177dfde5bf5d6e3cb05fc61a5cba52"},
-                    {"path":"src/coreclr/nativeaot/Runtime/DebugHeader.cpp","sha256":"1bcec8e4bcb190da174dff05b261c2b6c805815ef01180c5903abd2ccf130f05"}
+                    {"path":"src/coreclr/nativeaot/Runtime/DebugHeader.cpp","sha256":"1bcec8e4bcb190da174dff05b261c2b6c805815ef01180c5903abd2ccf130f05"},
+                    {"path":"src/native/minipal/time.h","sha256":"faec85bbc05ffa1017cacdfb80eebcd68bdaafc2bf1ae66208518c16b2bbf12e"},
+                    {"path":"src/native/minipal/xoshiro128pp.h","sha256":"41e9acf3a4a0160e2385bd5c67fec0a32368dfb47416e49cf8a12d6c646ee72f"},
+                    {"path":"src/native/minipal/xoshiro128pp.c","sha256":"f024a1d967d03074bb4bf28a759b588d6fce025ddc282976131876db6654949b"}
                 ]
 }

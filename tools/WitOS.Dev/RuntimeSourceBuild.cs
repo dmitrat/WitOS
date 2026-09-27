@@ -42,6 +42,8 @@ internal static class RuntimeSourceBuild
         var referenceHost = await RunReferenceAsync(root, output, target, msvc, publishedInputs, referenceInputs);
         var boundary = await RuntimeTargetExperiment.LinkBoundaryAsync(msvc, output,
             Path.Combine(target, "static", "NativeAotTarget.lib"), portedInputs, "witos-without-platform");
+        if (boundary.Unresolved.Any(s => s.Contains("wit_native_", StringComparison.Ordinal) && !s.StartsWith("wit_native_", StringComparison.Ordinal)))
+            throw new InvalidDataException("Native transport must retain C linkage, not unresolved C++-decorated declarations.");
         string[] implemented = ["VirtualReset@", "VirtualReserve@", "VirtualCommit@", "VirtualDecommit@", "VirtualRelease@", "SupportsWriteWatch@", "Initialize@", "Shutdown@", "GetTotalProcessorCount@", "GetPhysicalMemoryLimit@", "GetVirtualMemoryLimit@", "GetVirtualMemoryMaxAddress@", "GetMemoryStatus@", "CanEnableGCCPUGroups@", "CanEnableGCNumaAware@", "YieldThread@", "Sleep@", "QueryPerformanceCounter@", "QueryPerformanceFrequency@", "GetLowPrecisionTimeStamp@"];
         string[] replacedMutexSymbols = ["minipal_mutex_init", "minipal_mutex_destroy", "minipal_mutex_enter", "minipal_mutex_leave",
             "__imp_InitializeCriticalSection", "__imp_DeleteCriticalSection", "__imp_EnterCriticalSection", "__imp_LeaveCriticalSection"];
@@ -82,7 +84,7 @@ internal static class RuntimeSourceBuild
             ported = new { ported.ArchiveSha256, members = ported.Members, compileUnits = ported.Commands.Length, minipal = ported.Minipal },
             sourceOverlay = new[] { "src/Runtime.NativeAot/runtime-overlay.cmake", "src/Runtime.NativeAot/config-probe/CMakeLists.txt", "src/Runtime.NativeAot/gcenv.witos.cpp",
                 "src/Runtime.NativeAot/gcenv.witos.h", "src/Runtime.NativeAot/gc_events.witos.cpp", "src/Runtime.NativeAot/gc_time.witos.cpp",
-                "src/Runtime.NativeAot/mutex.witos.cpp", "src/Runtime.NativeAot/crst.witos.cpp", "src/Runtime.NativeAot/native_new.witos.cpp", "src/Runtime.NativeAot/crt_config.witos.cpp", "src/Runtime.NativeAot/crt_exit.witos.cpp", "src/System.Native/native_process.h", "artifacts/runtime-config/source/rhconfig.witos.cpp", "artifacts/runtime-config/source/startup.witos.cpp", "artifacts/runtime-config/source/allocheap.witos.cpp", "artifacts/runtime-config/source/threadstore.witos.cpp", "artifacts/runtime-config/source/thread.witos.cpp", "artifacts/runtime-config/source/debugheader.witos.cpp", "artifacts/runtime-config/include/stressLog.h", "tools/WitOS.Dev/RuntimeStartupSources.cs", "src/Runtime.NativeAot/tls.witos.cpp", "src/Runtime.NativeAot/pal.witos.cpp", "src/Runtime.NativeAot/pal_init.witos.cpp", "src/Runtime.NativeAot/pal_memory.witos.cpp", "src/Runtime.NativeAot/pal_events.witos.cpp", "src/Runtime.NativeAot/pal_threads.witos.cpp", "src/System.Native/thread.c", "src/System.Native/image.c", "src/System.Native/image.h", "src/Runtime.NativeAot/pal_module.witos.cpp", "src/Runtime.NativeAot/pal_environment.witos.cpp", "src/Runtime.NativeAot/pal_environment.witos.h", "src/System.Native/error.h", "src/Runtime.NativeAot/pal_error.witos.cpp", "src/Kernel.Arch.X64/native_error.asm", "src/Kernel.Arch.X64/native_environment.asm", "src/Runtime.NativeAot/pal.witos.h", "src/System.Native/tls.h", "src/System.Native/bootstrap.h", "src/Kernel/include/witos/types.h",
+                "src/Runtime.NativeAot/minipal_time.witos.cpp", "src/Runtime.NativeAot/minipal_time.witos.h", "src/Runtime.NativeAot/mutex.witos.cpp", "src/Runtime.NativeAot/crst.witos.cpp", "src/Runtime.NativeAot/native_new.witos.cpp", "src/Runtime.NativeAot/crt_config.witos.cpp", "src/Runtime.NativeAot/crt_exit.witos.cpp", "src/System.Native/native_process.h", "artifacts/runtime-config/source/rhconfig.witos.cpp", "artifacts/runtime-config/source/startup.witos.cpp", "artifacts/runtime-config/source/allocheap.witos.cpp", "artifacts/runtime-config/source/threadstore.witos.cpp", "artifacts/runtime-config/source/thread.witos.cpp", "artifacts/runtime-config/source/debugheader.witos.cpp", "artifacts/runtime-config/include/stressLog.h", "tools/WitOS.Dev/RuntimeStartupSources.cs", "src/Runtime.NativeAot/tls.witos.cpp", "src/Runtime.NativeAot/pal.witos.cpp", "src/Runtime.NativeAot/pal_init.witos.cpp", "src/Runtime.NativeAot/pal_memory.witos.cpp", "src/Runtime.NativeAot/pal_events.witos.cpp", "src/Runtime.NativeAot/pal_threads.witos.cpp", "src/System.Native/thread.c", "src/System.Native/image.c", "src/System.Native/image.h", "src/Runtime.NativeAot/pal_module.witos.cpp", "src/Runtime.NativeAot/pal_environment.witos.cpp", "src/Runtime.NativeAot/pal_environment.witos.h", "src/System.Native/error.h", "src/Runtime.NativeAot/pal_error.witos.cpp", "src/Kernel.Arch.X64/native_error.asm", "src/Kernel.Arch.X64/native_environment.asm", "src/Runtime.NativeAot/pal.witos.h", "src/System.Native/tls.h", "src/System.Native/bootstrap.h", "src/Kernel/include/witos/types.h",
                 "src/Kernel/include/witos/user_abi.h", "src/Kernel/include/witos/thread_info.h", "src/Kernel/include/witos/image_info.h", "src/Kernel/include/witos/memory_info.h" }
                 .Select(p => new { path = p, sha256 = Hash(Path.Combine(root, p)) }),
             referenceInputs = referenceInputs.Select(p => new { file = Path.GetFileName(p), sha256 = Hash(p) }),
@@ -95,7 +97,7 @@ internal static class RuntimeSourceBuild
             "# Source-built NativeAOT port boundary\n\nNo guest runtime executed. Strict link failed as expected.\n\n" +
             string.Join("\n\n", groups.Select(g => $"## {g.Key} ({g.Value.Length})\n\n" + string.Join("\n", g.Value.Select(v => "- `" + v + "`")))) + "\n");
         Console.WriteLine($"[SOURCE-PASS] Full native archive: {ported.Members.Length} members; native adapter objects verified byte-for-byte.");
-        Console.WriteLine($"[SOURCE-PASS] aotminipal archive: {ported.Minipal.Members.Length} members; mutex adapter object verified byte-for-byte.");
+        Console.WriteLine($"[SOURCE-PASS] aotminipal archive: {ported.Minipal.Members.Length} members; mutex/time adapters and upstream PRNG object verified byte-for-byte.");
         Console.WriteLine($"[SOURCE-PASS] Windows source-built reference: {Cases.Length} execution groups.");
         Console.WriteLine($"[SOURCE-PASS] Strict WitOS link boundary: {boundary.Unresolved.Length} unresolved symbols, including {groups["gc-environment"].Length} GC environment requirements.");
         Console.WriteLine($"Reports: {output}");
@@ -227,6 +229,11 @@ internal static class RuntimeSourceBuild
             minipalMembers.Count(m => Normalize(m).EndsWith("/mutex.witos.cpp.obj", StringComparison.Ordinal)) != (overlay ? 1 : 0) ||
             minipalMembers.Length < 2)
             throw new InvalidDataException("Source build did not compile the selected minipal mutex implementation.");
+        if (minipalCommands.Count(c => Normalize(c.File).EndsWith("/minipal/time.c", StringComparison.Ordinal)) != (overlay ? 0 : 1) ||
+            minipalCommands.Count(c => Normalize(c.File).EndsWith("/minipal_time.witos.cpp", StringComparison.Ordinal)) != (overlay ? 1 : 0) ||
+            minipalMembers.Count(m => Normalize(m).EndsWith("/time.c.obj", StringComparison.Ordinal)) != (overlay ? 0 : 1) ||
+            minipalMembers.Count(m => Normalize(m).EndsWith("/minipal_time.witos.cpp.obj", StringComparison.Ordinal)) != (overlay ? 1 : 0))
+            throw new InvalidDataException("Source build did not select the expected minipal time implementation.");
         await File.WriteAllTextAsync(Path.Combine(output, profile + "-minipal-compile-commands.json"), JsonSerializer.Serialize(minipalCommands, Json));
         if (overlay)
         {
@@ -237,7 +244,13 @@ internal static class RuntimeSourceBuild
             }
             var mutex = minipalCommands.Single(c => Normalize(c.File).EndsWith("/mutex.witos.cpp", StringComparison.Ordinal));
             NativeObject.VerifyArchive(minipalArchive, Path.GetFullPath(mutex.Output, mutex.Directory));
-            await RuntimeConfigProbe.VerifyArchiveAsync(root, obj, msvc);
+            var time = minipalCommands.Single(c => Normalize(c.File).EndsWith("/minipal_time.witos.cpp", StringComparison.Ordinal));
+            if (!time.Command.Contains("/Od", StringComparison.Ordinal))
+                throw new InvalidDataException("Minipal time must retain the current plain-unwind bootstrap profile.");
+            NativeObject.VerifyArchive(minipalArchive, Path.GetFullPath(time.Output, time.Directory));
+            var random = minipalCommands.Single(c => Normalize(c.File).EndsWith("/minipal/xoshiro128pp.c", StringComparison.Ordinal));
+            NativeObject.VerifyArchive(minipalArchive, Path.GetFullPath(random.Output, random.Directory));
+            await RuntimeConfigProbe.VerifyArchiveAsync(root, obj, msvc, minipalArchive);
         }
         return new(sdk, members, commands, Hash(archive), new(Hash(minipalArchive), minipalMembers, minipalCommands.Length));
     }
