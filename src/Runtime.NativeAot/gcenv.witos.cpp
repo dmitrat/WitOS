@@ -31,6 +31,12 @@ bool GCToOSInterface::Initialize()
     system_info.dwAllocationGranularity = 65536; // VirtualReserve's minimum alignment.
     return true;
 }
+size_t GCToOSInterface::GetCacheSizePerLogicalCpu(bool trueSize)
+{
+    (void)trueSize; // The pinned x64 Windows backend uses no scaling either.
+    WitU64 bytes = 0;
+    return wit_native_call(WIT_CALL_CPU_CACHE_SIZE, 0, 0, 0, &bytes) == WIT_STATUS_OK ? (size_t)bytes : 0;
+}
 void GCToOSInterface::FlushProcessWriteBuffers()
 {
     if (wit_native_call(WIT_CALL_PROCESS_WRITE_BARRIER, 0, 0, 0, nullptr) != WIT_STATUS_OK)

@@ -1,6 +1,7 @@
 #include "gcenv.witos.h"
-/* CPU cache discovery remains unported; memory barriers must not hide it. */
+/* Write-watch reset remains unported; CPU discovery must not hide it. */
 extern "C" WitU64 wit_native_main(const WitUserStartup*)
 {
-    return GCToOSInterface::GetCacheSizePerLogicalCpu(true);
+    GCToOSInterface::ResetWriteWatch(nullptr, 0);
+    return 0;
 }

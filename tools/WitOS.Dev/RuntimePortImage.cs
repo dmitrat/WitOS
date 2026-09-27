@@ -68,9 +68,9 @@ internal static class RuntimePortImage
         var errors = Regex.Matches(diagnostic, @"error LNK\d+:[^\r\n]*");
         if (missing.TimedOut || missing.ExitCode == 0 || errors.Count != 2 ||
             errors.Count(e => e.Value.Contains("LNK2019:", StringComparison.Ordinal) &&
-                e.Value.Contains("?GetCacheSizePerLogicalCpu@GCToOSInterface@@SA_K_N@Z", StringComparison.Ordinal)) != 1 ||
+                e.Value.Contains("?ResetWriteWatch@GCToOSInterface@@SAXPEAX_K@Z", StringComparison.Ordinal)) != 1 ||
             errors.Count(e => e.Value.Contains("LNK1120: 1 ", StringComparison.Ordinal)) != 1)
-            throw new InvalidDataException($"Expected exactly the unimplemented GC cache-size discovery link failure.\n{diagnostic}");
+            throw new InvalidDataException($"Expected exactly the unimplemented GC write-watch reset link failure.\n{diagnostic}");
         var image = Path.Combine(output, "GcMemoryFixture.pe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
             [.. link, $"/out:{image}", $"/map:{Path.Combine(output, "GcMemoryFixture.map")}", objects[1], objects[3], objects[5], objects[7], objects[10], objects[11], objects[13]], root);
@@ -92,7 +92,7 @@ internal static class RuntimePortImage
         {
             backend = Backend, pin.RuntimeVersion, pin.RuntimeCommit,
             scope = "Source-level GC memory/discovery/event/time and minipal/Crst mutex slice; no collector or managed code linked. Guest execution is checked separately by the VM runner.",
-            guestManagedRuntime = false, missingGcCacheDiscoveryRejected = true,
+            guestManagedRuntime = false, missingGcWriteWatchResetRejected = true,
             upstreamInputs = pin.Sources.Where(s => UpstreamInputs.Contains(s.Path)),
             localInputs = sources.Append("src/Runtime.NativeAot/gcenv.witos.h").Append("src/Kernel.Arch.X64/native_start.asm")
                 .Concat(["src/System.Native/bootstrap.h", "src/Kernel/include/witos/user_abi.h",
@@ -104,6 +104,6 @@ internal static class RuntimePortImage
         };
         await File.WriteAllTextAsync(Path.Combine(output, "gc-memory-build.json"),
             JsonSerializer.Serialize(report, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
-        Console.WriteLine($"GcMemoryFixture: {bytes.Length} bytes; pinned upstream interface, WitOS syscalls, no OS/CRT imports; missing GC cache-size discovery rejected.");
+        Console.WriteLine($"GcMemoryFixture: {bytes.Length} bytes; pinned upstream interface, WitOS syscalls, no OS/CRT imports; missing GC write-watch reset rejected.");
     }
 }

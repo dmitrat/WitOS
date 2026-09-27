@@ -59,6 +59,14 @@ WitU64 wit_gc_discovery(const WitUserStartup* startup)
         OS::GetVirtualMemoryLimit() != baseline->VirtualBytes ||
         OS::GetVirtualMemoryMaxAddress() != baseline->VirtualBase + baseline->VirtualBytes ||
         OS::CanEnableGCNumaAware() || OS::CanEnableGCCPUGroups()) return 132;
+    WitU64 cache = 0;
+    if (wit_native_call(WIT_CALL_CPU_CACHE_SIZE, 0, 0, 0, &cache) != WIT_STATUS_OK || !cache ||
+        OS::GetCacheSizePerLogicalCpu(true) != cache || OS::GetCacheSizePerLogicalCpu(false) != cache) return 139;
+    *(uint64_t*)(baseline + 1) = cache;
+    for (WitU32 i = 0; i < 3; ++i) {
+        WitU64 result = 99;
+        if (wit_native_call(WIT_CALL_CPU_CACHE_SIZE, i == 0, i == 1, i == 2, &result) != WIT_STATUS_INVALID_ARGUMENT || result) return 140;
+    }
     bool restricted = false;
     if (OS::GetPhysicalMemoryLimit(&restricted) != smaller(baseline->OwnedLimitBytes, baseline->PhysicalTotalBytes) ||
         restricted != (baseline->OwnedLimitBytes < baseline->PhysicalTotalBytes) ||

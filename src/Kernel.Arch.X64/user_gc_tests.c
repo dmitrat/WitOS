@@ -1,4 +1,5 @@
 #include "user.h"
+#include "cpu_cache.h"
 #include "witos/platform.h"
 #include "protocol.h"
 #include "gc_memory_image.h"
@@ -35,6 +36,7 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
         if (mode == WIT_GC_TEST_DISCOVERY) {
             const WitUserMemoryInfo* info = (const WitUserMemoryInfo*)wit_user_space_physical(
                 &process.Space, WIT_GC_INFO_REPORT, 0, 0);
+            require(info && *(const WitU64*)(info + 1) == wit_x64_cache_size(), "GC cache size differs from kernel discovery");
             require(info && info->Version == WIT_MEMORY_INFO_VERSION && info->Size == sizeof(*info) &&
                 info->PhysicalTotalBytes == pages->TotalPages * WIT_PAGE_SIZE &&
                 info->PhysicalAvailableBytes == free_active * WIT_PAGE_SIZE &&
@@ -153,6 +155,7 @@ void wit_user_gc_self_test(WitPageAllocator* pages)
     run(pages, WIT_GC_TEST_NX, WIT_USER_IMAGE_BASE);
     run(pages, WIT_GC_TEST_NORMAL, WIT_USER_IMAGE_BASE);
     wit_console_write("[TEST-PASS] User.GcMemoryNx\n");
+    wit_x64_cache_self_test();
     run(pages, WIT_GC_TEST_DISCOVERY, WIT_USER_IMAGE_BASE);
     run(pages, WIT_GC_TEST_DISCOVERY, WIT_USER_IMAGE_ALTERNATE);
     wit_console_write("[TEST-PASS] User.GcEnvironmentInit\n[TEST-PASS] User.GcMemoryInformation\n[TEST-PASS] User.GcInformationBuffers\n");

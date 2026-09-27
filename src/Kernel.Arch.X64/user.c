@@ -1,4 +1,5 @@
 #include "user.h"
+#include "cpu_cache.h"
 #include "witos/platform.h"
 
 unsigned __int64 __readcr3(void);
@@ -503,6 +504,14 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
         break;
     case WIT_CALL_EVENT_WAIT:
         context->Rax = wit_user_event_wait(current_user, argument0, argument1, wit_x64_clock_ticks());
+        break;
+    case WIT_CALL_CPU_CACHE_SIZE:
+        if (argument0 || argument1 || argument2) context->Rax = WIT_STATUS_INVALID_ARGUMENT;
+        else if (WIT_USER_PROCESSOR_COUNT != 1) context->Rax = WIT_STATUS_UNSUPPORTED;
+        else {
+            context->Rdx = wit_x64_cache_size();
+            if (!context->Rdx) context->Rax = WIT_STATUS_UNSUPPORTED;
+        }
         break;
     case WIT_CALL_PROCESS_WRITE_BARRIER:
         if (argument0 || argument1 || argument2) context->Rax = WIT_STATUS_INVALID_ARGUMENT;

@@ -30,6 +30,8 @@ static WitU64 worker(WitU64 index)
         values[index] = index * 100 + i;
         GCToOSInterface::FlushProcessWriteBuffers();
         PalFlushProcessWriteBuffers();
+        const size_t cache = GCToOSInterface::GetCacheSizePerLogicalCpu(true);
+        if (!cache || GCToOSInterface::GetCacheSizePerLogicalCpu(false) != cache) return 1741;
         if (GetLastError() != 100 + index || errno != 200 + index ||
             values[index] != index * 100 + i ||
             wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr) != WIT_STATUS_OK) return 1740;

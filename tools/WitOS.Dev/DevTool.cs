@@ -100,7 +100,7 @@ internal static class DevTool
         await UserImage.BuildAsync(root, output, msvc);
         if (scenario == "runtime-config") await RuntimeConfigProbe.BuildImageAsync(root, output, msvc);
 
-        string[] sources = ["src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/clock.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c", "src/Kernel/handles.c", "src/Kernel.Arch.X64/user_space.c", "src/Kernel.Arch.X64/user.c", "src/Kernel.Arch.X64/user_thread.c", "src/Kernel.Arch.X64/user_tls_tests.c", "src/Kernel.Arch.X64/user_dynamic_tls_tests.c", "src/Kernel.Arch.X64/user_process_exit_tests.c", "src/Kernel.Arch.X64/user_pal_tests.c", "src/Kernel.Arch.X64/user_pal_service_tests.c", "src/Kernel.Arch.X64/user_pal_background_tests.c", "src/Kernel.Arch.X64/user_pal_error_tests.c", "src/Kernel.Arch.X64/user_pal_module_tests.c", "src/Kernel.Arch.X64/user_pal_environment_tests.c", "src/Kernel.Arch.X64/user_runtime_config_tests.c", "src/Kernel.Arch.X64/user_tests.c", "src/Kernel.Arch.X64/user_memory_tests.c", "src/Kernel.Arch.X64/user_thread_tests.c", "src/Kernel/events.c", "src/Kernel.Arch.X64/user_wait.c", "src/Kernel.Arch.X64/user_wait_tests.c", "src/Kernel/pe.c", "src/Kernel.Arch.X64/user_image.c", "src/Kernel.Arch.X64/user_image_tests.c", "src/Kernel.Arch.X64/user_bootstrap_tests.c", "src/Kernel.Arch.X64/user_gc_tests.c"];
+        string[] sources = ["src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/clock.c", "src/Kernel.Arch.X64/cpu_cache.c", "src/Kernel.Arch.X64/cpu_cache_tests.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c", "src/Kernel/handles.c", "src/Kernel.Arch.X64/user_space.c", "src/Kernel.Arch.X64/user.c", "src/Kernel.Arch.X64/user_thread.c", "src/Kernel.Arch.X64/user_tls_tests.c", "src/Kernel.Arch.X64/user_dynamic_tls_tests.c", "src/Kernel.Arch.X64/user_process_exit_tests.c", "src/Kernel.Arch.X64/user_pal_tests.c", "src/Kernel.Arch.X64/user_pal_service_tests.c", "src/Kernel.Arch.X64/user_pal_background_tests.c", "src/Kernel.Arch.X64/user_pal_error_tests.c", "src/Kernel.Arch.X64/user_pal_module_tests.c", "src/Kernel.Arch.X64/user_pal_environment_tests.c", "src/Kernel.Arch.X64/user_runtime_config_tests.c", "src/Kernel.Arch.X64/user_tests.c", "src/Kernel.Arch.X64/user_memory_tests.c", "src/Kernel.Arch.X64/user_thread_tests.c", "src/Kernel/events.c", "src/Kernel.Arch.X64/user_wait.c", "src/Kernel.Arch.X64/user_wait_tests.c", "src/Kernel/pe.c", "src/Kernel.Arch.X64/user_image.c", "src/Kernel.Arch.X64/user_image_tests.c", "src/Kernel.Arch.X64/user_bootstrap_tests.c", "src/Kernel.Arch.X64/user_gc_tests.c"];
         var objects = new List<string>();
         foreach (var source in sources)
         {
@@ -192,6 +192,7 @@ internal static class DevTool
         var image = await BuildAsync(root, "boot");
         await BootAsync(root, image, "boot-128", 128, 60, ExpectedOutcome.Success);
         await BootAsync(root, image, "boot-512", 512, 60, ExpectedOutcome.Success);
+        await BootAsync(root, image, "boot-intel", 256, 60, ExpectedOutcome.Success, cpuModel: "Nehalem");
         await BootAsync(root, image, "no-hpet", 256, 60, ExpectedOutcome.ClockUnavailable);
         var panic = await BuildAsync(root, "invalid-boot-info");
         await BootAsync(root, panic, "invalid-boot-info", 256, 60, ExpectedOutcome.InvalidBootInfo);
@@ -220,20 +221,20 @@ internal static class DevTool
         }
         var timeout = await BuildAsync(root, "timeout");
         await BootAsync(root, timeout, "timeout", 256, 15, ExpectedOutcome.Timeout);
-        Console.WriteLine("PASS: all 18 kernel integration scenarios.");
+        Console.WriteLine("PASS: all 19 kernel integration scenarios.");
     }
 
     private enum ExpectedOutcome { Success, InvalidBootInfo, InvalidMap, Exception, Timeout, ClockUnavailable }
     private sealed record FaultExpectation(int Vector, ulong Error, string Trigger, string Panic, bool Probe = false);
 
-    private static async Task BootAsync(string root, string image, string name, int memoryMiB, int timeoutSeconds, ExpectedOutcome expected, FaultExpectation? fault = null, bool runtimeConfig = false)
+    private static async Task BootAsync(string root, string image, string name, int memoryMiB, int timeoutSeconds, ExpectedOutcome expected, FaultExpectation? fault = null, bool runtimeConfig = false, string cpuModel = "qemu64")
     {
         Toolchain.RequireQemu(root);
         var firmwareState = Path.Combine(Path.GetDirectoryName(image)!, name + ".vars.fd");
         File.Copy(Toolchain.FirmwareVariables(root), firmwareState, overwrite: true);
         var arguments = new[]
         {
-            "-machine", expected == ExpectedOutcome.ClockUnavailable ? "q35,hpet=off" : "q35,hpet=on", "-accel", "tcg,thread=single", "-cpu", "qemu64", "-smp", "1", "-m", memoryMiB.ToString(),
+            "-machine", expected == ExpectedOutcome.ClockUnavailable ? "q35,hpet=off" : "q35,hpet=on", "-accel", "tcg,thread=single", "-cpu", cpuModel, "-smp", "1", "-m", memoryMiB.ToString(),
             "-display", "none", "-monitor", "none", "-serial", "stdio", "-nic", "none", "-no-reboot",
             "-drive", $"if=pflash,unit=0,format=raw,readonly=on,file={QemuPath(Toolchain.Firmware(root))}",
             "-drive", $"if=pflash,unit=1,format=raw,file={QemuPath(firmwareState)}",
@@ -241,7 +242,7 @@ internal static class DevTool
             "-device", "virtio-blk-pci,drive=boot,bootindex=1",
             "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04"
         };
-        Console.WriteLine($"Booting {name} ({memoryMiB} MiB, TCG, no networking)...");
+        Console.WriteLine($"Booting {name} ({memoryMiB} MiB, {cpuModel}, TCG, no networking)...");
         var result = await Processes.RunAsync(Toolchain.Qemu(root), arguments, root, timeoutSeconds);
         var logs = Path.Combine(root, "artifacts", "logs");
         Directory.CreateDirectory(logs);
@@ -358,7 +359,7 @@ internal static class DevTool
             "BootstrapEmptyList", "BootstrapDescriptorProtection", "BootstrapInitializerFault",
             "GcMemoryContract", "GcMemoryOwnership", "GcMemoryRelocation",
             "GcReserveProtection", "GcDecommitProtection", "GcMemoryNx",
-            "GcEnvironmentInit", "GcMemoryInformation", "GcInformationBuffers", "GcPhysicalPressure",
+            "CpuCacheDiscovery", "GcEnvironmentInit", "GcMemoryInformation", "GcInformationBuffers", "GcPhysicalPressure",
             "GcEventState", "GcEventCapacity", "GcEventManual", "GcEventAuto",
             "GcEventClose", "GcEventContention", "GcEventFailFast",
             "GcClockContract", "GcTimedWait", "GcTimedSignal", "GcTimeArithmetic", "GcClockIsolation",

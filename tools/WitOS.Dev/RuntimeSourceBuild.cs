@@ -56,7 +56,8 @@ internal static class RuntimeSourceBuild
             boundary.Unresolved.Any(s => s.Contains("operator new", StringComparison.Ordinal) || s.Contains("operator delete", StringComparison.Ordinal) || s.Contains("?nothrow@std@@", StringComparison.Ordinal)) ||
             boundary.Unresolved.Any(s => replacedMutexSymbols.Contains(s, StringComparer.Ordinal)) ||
             boundary.Unresolved.Any(s => s.Contains("FlushProcessWriteBuffers", StringComparison.Ordinal)) ||
-            !boundary.Unresolved.Any(s => s.Contains("GetCacheSizePerLogicalCpu@GCToOSInterface", StringComparison.Ordinal)) ||
+            boundary.Unresolved.Any(s => s.Contains("GetCacheSizePerLogicalCpu@GCToOSInterface", StringComparison.Ordinal)) ||
+            !boundary.Unresolved.Any(s => s.Contains("ResetWriteWatch@GCToOSInterface", StringComparison.Ordinal)) ||
             boundary.Unresolved.Any(s => s.Contains("GCEvent", StringComparison.Ordinal)) ||
             !boundary.Unresolved.Contains("wit_native_call") ||
             !boundary.Unresolved.Contains("_tls_index") ||

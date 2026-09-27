@@ -5,10 +5,10 @@ The core objective remains a minimal hardware-dependent kernel, a common system 
 ## Completed
 
 - M0 boot and M1 paging/protection/timer/kernel-context foundation.
-- Eighteen VM scenarios with 162 required user groups and 51 contained user faults in successful boots.
+- Nineteen VM scenarios with 163 required user groups and 51 contained user faults in successful boots.
 - M2 ring-3 isolation, sparse memory, bounded threads/raw FS TLS/join, events/deadlines and idle.
 - Bounded guest PE loading with section protection, zero-fill, relocations and allocation rollback.
-- ABI v14 adds a process data-memory barrier for the single online CPU, retains readonly image descriptions, allocator snapshots, monotonic deadlines and kernel-owned thread identity, and provides committed-memory reset, atomic current-thread discovery, a truthful yield result, detached thread creation and per-thread native error storage; user-space C startup with checked callbacks, run-once state and reverse cleanup.
+- ABI v15 adds CPU cache discovery and a process data-memory barrier for the single online CPU, retains readonly image descriptions, allocator snapshots, monotonic deadlines and kernel-owned thread identity, and provides committed-memory reset, atomic current-thread discovery, a truthful yield result, detached thread creation and per-thread native error storage; user-space C startup with checked callbacks, run-once state and reverse cleanup.
 - Structural validation/exposure of ordinary x64 function/unwind metadata, without exception dispatch or stack walking.
 - .NET 10.0.8 audit of 58 source/license files and two hosted NativeAOT evidence probes.
 - Source-port direction selected: Windows x64 code generation/PE plus an explicit WitOS user-space adapter.
@@ -31,11 +31,12 @@ The core objective remains a minimal hardware-dependent kernel, a common system 
 - Actual InterfaceDispatch_Initialize and AllocHeap execute with OOM/retry, native worker allocations and checked lock cleanup; see [interface-dispatch startup](NativeAot-Interface-Dispatch-Startup.md).
 - Actual RuntimeInstance and empty ThreadStore creation execute with both allocation-failure paths, adapted kernel-confirmed TLS metadata and native worker visibility; see [runtime instance startup](NativeAot-Runtime-Instance.md).
 - GCToOSInterface and PAL process write-buffer flushes execute through the UP kernel fence; argument/error/TLS/thread behavior is tested and SMP remains unsupported. See [process memory barriers](NativeAot-Process-Barrier.md).
+- GC cache-size discovery uses bounded CPUID parsing in the kernel, with an explicit unknown result and both AMD/Intel guest boots; see [CPU cache discovery](NativeAot-Cpu-Cache.md).
 - Full upstream nativeaot component built from the pinned source tree in separate Windows-reference and WitOS-overlay profiles; source-built Windows GC/TLS execution passes and incomplete WitOS dependencies are inventoried.
 
 See [native module/bootstrap handoff](M2-Native-Module-Bootstrap.md), [NativeAOT target evidence](NativeAot-Target-Bootstrap.md), [backend decision and memory adapter](NativeAot-Gc-Memory-Port.md), [full native source build](NativeAot-Source-Build.md), [GC discovery](NativeAot-Gc-Discovery.md), [GC events](NativeAot-Gc-Events.md), [monotonic GC time](NativeAot-Gc-Time.md), [native mutexes](NativeAot-Mutexes.md) and [RFC 0015](../RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md).
 
-WitOS 0.0.30 executes the native memory/reset/discovery/event/time, minipal/Crst and nothrow allocation adapters, plus native PAL environment/string services and bounded native process cleanup, in the guest. The separate runtime-config command adds fifteen groups to each of two guest boots, exercising upstream configuration, native PAL initialization, interface-dispatch allocation and RuntimeInstance/empty ThreadStore creation and GC/PAL data-memory barriers. It still does not run managed .NET or its collector there.
+WitOS 0.0.31 executes the native memory/reset/discovery/event/time, minipal/Crst and nothrow allocation adapters, plus native PAL environment/string services and bounded native process cleanup, in the guest. The separate runtime-config command adds fifteen groups to each of two guest boots, exercising upstream configuration, native PAL initialization, interface-dispatch allocation and RuntimeInstance/empty ThreadStore creation and GC/PAL data-memory barriers. It still does not run managed .NET or its collector there.
 
 The [BootTo.NET source review](BootToNET-Review.md) keeps the upstream runtime direction and existing WitOS runner. Its immediate result is expanded hosted root/unwind coverage; it recommends an explicit minimal bring-up profile for the next full startup workload.
 
