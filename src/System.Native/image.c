@@ -4,6 +4,7 @@
  * constructor or worker. This is independent of compiler TLS and the PE bytes. */
 static const WitUserImageInfo *process_image;
 static volatile WitU32 image_state;
+static WitU64 process_console;
 
 int wit_native_image_range(const WitUserImageInfo *image, WitU64 address, WitU64 size,
     WitU32 required, WitU32 forbidden, int initialized)
@@ -61,10 +62,16 @@ void wit_native_process_image_initialize(const WitUserStartup *startup)
         !wit_native_image_valid((const WitUserImageInfo *)startup->ImageInfo))
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     process_image = (const WitUserImageInfo *)startup->ImageInfo;
+    process_console = startup->ConsoleHandle;
     image_state = 2;
 }
 
 const WitUserImageInfo *wit_native_process_image(void)
 {
     return image_state == 2 ? process_image : 0;
+}
+
+WitU64 wit_native_process_console(void)
+{
+    return image_state == 2 ? process_console : 0;
 }

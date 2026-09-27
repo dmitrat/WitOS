@@ -11,6 +11,8 @@ int wit_native_image_range(const WitUserImageInfo *image, WitU64 address, WitU64
 WitU64 wit_native_image_from_address(const WitUserImageInfo *image, WitU64 address);
 void wit_native_process_image_initialize(const WitUserStartup *startup);
 const WitUserImageInfo *wit_native_process_image(void);
+/* Captured startup capability; the kernel checks its live rights on every write. */
+WitU64 wit_native_process_console(void);
 #ifdef __cplusplus
 }
 #endif

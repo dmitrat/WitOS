@@ -2,6 +2,7 @@
 #if defined(WITOS_TEST_RUNTIME_CONFIG)
 #include "witos/platform.h"
 #include "protocol.h"
+#include "../System.Native/diagnostics.h"
 #include "runtime_config_image.h"
 #include "runtime_cpu_image.h"
 
@@ -12,8 +13,8 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
     const WitU64 before = wit_pages_free_count(pages);
     const WitU8* image = (mode == 8 || mode == 11 || mode == 13 || mode == 16 || mode == 18 || mode == 23) ? wit_runtime_config_raw_image : wit_runtime_config_image;
     const WitU32 size = (mode == 8 || mode == 11 || mode == 13 || mode == 16 || mode == 18 || mode == 23) ? sizeof(wit_runtime_config_raw_image) : sizeof(wit_runtime_config_image);
-    const WitU8* selected = mode >= 24 ? ((mode == 25 || mode == 28) ? wit_runtime_cpu_raw_image : wit_runtime_cpu_image) : image;
-    const WitU32 selectedSize = mode >= 24 ? ((mode == 25 || mode == 28) ? sizeof(wit_runtime_cpu_raw_image) : sizeof(wit_runtime_cpu_image)) : size;
+    const WitU8* selected = mode >= 24 ? ((mode == 25 || mode == 28 || mode == 30) ? wit_runtime_cpu_raw_image : wit_runtime_cpu_image) : image;
+    const WitU32 selectedSize = mode >= 24 ? ((mode == 25 || mode == 28 || mode == 30) ? sizeof(wit_runtime_cpu_raw_image) : sizeof(wit_runtime_cpu_image)) : size;
     require(wit_user_create_pe(&process, pages, 0, selected, selectedSize, base) == WitPeOk,
         "Runtime configuration fixture load failed");
     const WitU32 owned = process.Space.OwnedCount;
@@ -21,6 +22,20 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
     config->Mode = mode;
     wit_user_run(&process);
     const WitU64* report = (const WitU64*)wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
+    if (mode >= 29) {
+        const WitU64 expected = mode <= 30 ? WIT_TEST_EXIT_CODE :
+            ((mode == 31 || mode == 33) ? WIT_NATIVE_PURECALL_EXIT :
+             ((mode == 32 || mode == 34) ? WIT_NATIVE_RANGECHECK_EXIT : WIT_GC_TEST_FAIL_FAST_EXIT));
+        require(report && report[0] == mode && report[1] == 8388608 && report[2] == (mode == 29 ? 3U : 0U) &&
+            process.State == WitUserExited && process.ExitCode == expected && process.Space.OwnedCount == owned &&
+            process.Writes == (mode <= 30 ? 3U : (mode == 31 || mode == 32 ? 1U : 0U)) &&
+            process.ThreadCreates == 1 && !process.ThreadJoins && !process.ThreadReaps &&
+            (process.Threads[0].CompilerTls != 0) == (mode != 30) && !process.Handles.Count && !process.Events.Count,
+            "Fatal diagnostic output, raw exit or cleanup contract failed");
+        wit_user_destroy(&process);
+        require(wit_pages_free_count(pages) == before, "Fatal diagnostic teardown leaked pages");
+        return;
+    }
     if (mode == 27 || mode == 28) {
         require(report && report[0] == mode && report[1] == 4194304 && process.State == WitUserExited &&
             process.ExitCode == WIT_TEST_EXIT_CODE && process.Space.OwnedCount == owned &&
@@ -196,5 +211,13 @@ void wit_user_runtime_config_self_test(WitPageAllocator* pages)
     wit_console_write("[TEST-PASS] User.NativeClockBindings\n");
     run(pages, 28, WIT_USER_IMAGE_BASE);
     wit_console_write("[TEST-PASS] User.NativeClockAtomicCopy\n");
+    run(pages, 29, WIT_USER_IMAGE_BASE); run(pages, 29, WIT_USER_IMAGE_ALTERNATE);
+    run(pages, 30, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.FatalDiagnosticOutput\n");
+    for (WitU64 mode = 31; mode <= 34; ++mode) run(pages, mode, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.FatalCrtExit\n");
+    for (WitU64 mode = 35; mode <= 38; ++mode) run(pages, mode, WIT_USER_IMAGE_ALTERNATE);
+    run(pages, 29, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.FatalDiagnosticRejection\n");
 }
 #endif

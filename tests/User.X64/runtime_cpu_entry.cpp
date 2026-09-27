@@ -1,5 +1,6 @@
 #include "tls.h"
 #include "protocol.h"
+extern "C" WitU64 wit_test_fatal(const WitUserStartup*, WitU64);
 extern "C" bool wit_test_native_clock_early();
 extern "C" bool wit_test_native_clock_threads();
 extern "C" bool wit_test_cpu_early();
@@ -10,6 +11,7 @@ extern "C" WitU64 wit_native_main(const WitUserStartup* startup)
     auto report = (WitU64*)WIT_GC_INFO_REPORT;
     const WitU64 mode = ((const WitUserTestConfig*)startup)->Mode;
     report[0] = mode; report[1] = 2097152;
+    if (mode >= 29) return wit_test_fatal(startup, mode);
     if (mode == 27 || mode == 28) {
         report[1] = 4194304;
         if (!wit_test_native_clock_early()) return 1802;

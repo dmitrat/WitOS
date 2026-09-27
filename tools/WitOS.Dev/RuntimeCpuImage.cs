@@ -1,4 +1,4 @@
-﻿using System.Reflection.PortableExecutable;
+using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 namespace WitOS.Dev;
 internal static class RuntimeCpuImage
 {
-    public static async Task BuildAsync(string root, string output, string msvc, string archive, string minipal, string memory, string crt, string clockObject, string clockBinding)
+    public static async Task BuildAsync(string root, string output, string msvc, string archive, string minipal, string memory, string crt, string clockObject, string clockBinding, string fatalObject)
     {
         var entry = Path.Combine(output, "runtime_cpu_entry.obj");
         var assembly = Path.Combine(output, "runtime_cpu_test.obj");
@@ -20,13 +20,13 @@ internal static class RuntimeCpuImage
         var clockTest = Path.Combine(output, "runtime_clock_test.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
             ["/nologo", "/c", "/Fo" + clockTest, Path.Combine(root, "src", "Kernel.Arch.X64", "user_runtime_clock_fixture.asm")], root);
-        string[] shared = ["native_start.obj", "native_error.obj", "dynamic_thread.obj", "dynamic_image.obj", "dynamic_tls.witos.obj", "dynamic_tls_metadata.obj", "pal_pal_error.witos.obj"];
+        string[] shared = ["process_crt_exit.witos.obj", "native_start.obj", "native_error.obj", "dynamic_thread.obj", "dynamic_image.obj", "dynamic_tls.witos.obj", "dynamic_tls_metadata.obj", "pal_pal_error.witos.obj"];
         var path = Path.Combine(output, "RuntimeCpuFixture.pe");
         var mapPath = Path.Combine(output, "RuntimeCpuFixture.map");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
             ["/nologo", "/subsystem:native", "/entry:wit_native_start", "/nodefaultlib", "/machine:x64", "/fixed:no", "/dynamicbase",
                 "/incremental:no", "/Brepro", "/opt:ref", "/include:_tls_used", "/merge:.CRT=.rdata", "/base:0x180000000",
-                "/out:" + path, "/map:" + mapPath, entry, assembly, clockTest, clockObject, clockBinding, archive, minipal, memory, crt,
+                "/out:" + path, "/map:" + mapPath, entry, assembly, clockTest, clockObject, clockBinding, fatalObject, archive, minipal, memory, crt,
                 .. shared.Select(p => Path.Combine(output, p))], root);
         var bytes = await File.ReadAllBytesAsync(path);
         using var pe = new PEReader(new MemoryStream(bytes, writable: false));
@@ -51,8 +51,8 @@ internal static class RuntimeCpuImage
         static string Hash(string p) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(p))).ToLowerInvariant();
         await File.WriteAllTextAsync(Path.Combine(root, "artifacts", "runtime-config", "cpu-image-report.json"), JsonSerializer.Serialize(new {
             guestManagedRuntime = false, imageBytes = bytes.Length, imageSha256 = Hash(path), unwindEntries = h.ExceptionTableDirectory.Size / 12,
-            inputs = new[] { entry, assembly, clockTest, clockObject, clockBinding, archive, minipal, memory, crt }.Concat(shared.Select(p => Path.Combine(output, p))).Select(p => new { file = p, sha256 = Hash(p) }),
-            sources = new[] { "src/Kernel.Arch.X64/user_runtime_clock_fixture.asm", "tests/User.X64/runtime_clock.cpp", "tests/User.X64/runtime_cpu_entry.cpp", "tests/User.X64/runtime_cpu.cpp", "src/Kernel.Arch.X64/user_runtime_cpu_fixture.asm" }
+            inputs = new[] { entry, assembly, clockTest, clockObject, clockBinding, fatalObject, archive, minipal, memory, crt }.Concat(shared.Select(p => Path.Combine(output, p))).Select(p => new { file = p, sha256 = Hash(p) }),
+            sources = new[] { "src/Runtime.NativeAot/crt_exit.witos.cpp", "tests/User.X64/runtime_fatal.cpp", "src/Runtime.NativeAot/fatal.witos.cpp", "src/System.Native/diagnostics.h", "src/Kernel.Arch.X64/user_runtime_clock_fixture.asm", "tests/User.X64/runtime_clock.cpp", "tests/User.X64/runtime_cpu_entry.cpp", "tests/User.X64/runtime_cpu.cpp", "src/Kernel.Arch.X64/user_runtime_cpu_fixture.asm" }
                 .Select(p => new { file = p, sha256 = Hash(Path.Combine(root, p)) })
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine($"RuntimeCpuFixture: {bytes.Length} bytes, real minipal CPU backend, no OS/CRT imports.");

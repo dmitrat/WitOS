@@ -6,7 +6,7 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 
 ## Current status
 
-**WitOS 0.0.42: native CoreLib clock bindings use the kernel monotonic domain and atomic checked output buffers. Direct/import bindings execute in the guest, including without compiler TLS. ABI v18; minimal startup retains 68 unresolved platform symbols and managed guest execution remains pending.**
+**WitOS 0.0.43: native fatal diagnostics use the existing console capability; purecall and compiler range-check failures terminate the component with distinct causes. ABI v18; minimal startup retains 65 unresolved platform symbols and managed guest execution remains pending.**
 
 The kernel boots independently through UEFI and runs separately built native components in ring 3 with private mappings and handles. Its bounded PE loader parses complete files inside the guest, maps sections and applies relocations. A freestanding C startup layer receives image metadata, runs native initializers and enters the program in user space. The component writes through a checked syscall and exits; its faults are contained while the kernel runs the next component. Within a component, up to four user threads can run with timer preemption, separate stacks/TLS and blocking join. Manual/auto-reset events, sleep and absolute deadlines work with kernel idle when all threads are blocked. M1 paging, protection, timer and kernel-context checks remain part of every successful boot.
 
@@ -39,7 +39,7 @@ Expected guest output includes:
 ```text
 [BOOT] UEFI x64 adapter
 [BOOT] ExitBootServices OK
-WitOS 0.0.42 (native clock bindings)
+WitOS 0.0.43 (native fatal diagnostics)
 Build: <git-revision> | x64 | Debug
 [TEST-BEGIN] Boot.Contract
 [TEST-PASS] Boot.Contract
@@ -161,7 +161,9 @@ This fetches the pinned upstream native tree and builds separate Windows-referen
 
     dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-config
 
-This refreshes the native source build and executes actual configuration methods in QEMU at 128 and 512 MiB RAM, plus 256 MiB Intel Nehalem and AVX-capable max profiles. Each boot checks 207 user groups, including twenty-nine additional configuration/CRT/PAL/startup groups. Ordinary test retains nineteen scenarios and 178 groups without requiring a full runtime source build.
+This refreshes the native source build and executes actual configuration methods in QEMU at 128 and 512 MiB RAM, plus 256 MiB Intel Nehalem and AVX-capable max profiles. Each boot checks 210 user groups, including thirty-two additional configuration/CRT/PAL/startup groups. Ordinary test retains nineteen scenarios and 178 groups without requiring a full runtime source build.
+
+The native fatal-diagnostic cases also verify bounded output, revoked capabilities and raw termination without cleanup; see [the exact contract](@Docs/Implementation/NativeAot-Fatal-Diagnostics.md).
 
 This tests PalInit and configuration/GC OS initialization, not a running collector or managed code. The explicit RhConfig OOM overlay and source provenance are described in [ADR 0022](@Docs/Implementation/NativeAot-Runtime-Configuration.md).
 
