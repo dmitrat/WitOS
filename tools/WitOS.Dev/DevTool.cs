@@ -65,7 +65,7 @@ internal static class DevTool
                     await RuntimeTargetExperiment.RunAsync(root);
                     break;
                 case "help":
-                    Console.WriteLine("WitOS development tool\nUsage: dotnet run --project tools/WitOS.Dev -- <command>\n\n  doctor  Check compiler, QEMU and firmware\n  setup   Download and verify pinned QEMU into .tools\n  build   Build the x64 UEFI image (no VM)\n  run     Build and boot headlessly in QEMU\n  test    Test boot, physical pages, CPU exceptions and timeout handling\n  runtime-audit  Verify pinned NativeAOT sources and package provenance\n  runtime-probe  Publish and execute a hosted NativeAOT dependency probe\n  runtime-target  Inspect NativeAOT objects and test native-host bootstrap / strict link boundaries\n  runtime-port  Build pinned GC memory adapter and execute guest checks in QEMU\n  runtime-source  Build full upstream native libraries and verify the WitOS source overlay\n  runtime-config  Build real upstream configuration sources and execute their guest probe");
+                    Console.WriteLine("WitOS development tool\nUsage: dotnet run --project tools/WitOS.Dev -- <command>\n\n  doctor  Check compiler, QEMU and firmware\n  setup   Download and verify pinned QEMU into .tools\n  build   Build the x64 UEFI image (no VM)\n  run     Build and boot headlessly in QEMU\n  test    Test boot, physical pages, CPU exceptions and timeout handling\n  runtime-audit  Verify pinned NativeAOT sources and package provenance\n  runtime-probe  Publish and execute a hosted NativeAOT dependency probe\n  runtime-target  Inspect NativeAOT objects and test native-host bootstrap / strict link boundaries\n  runtime-port  Build pinned GC memory adapter and execute guest checks in QEMU\n  runtime-source  Build full upstream native libraries and verify the WitOS source overlay\n  runtime-config  Build upstream configuration/startup sources and execute their guest probe");
                     break;
                 default:
                     throw new ArgumentException($"Unknown command: {command}. Use help.");
@@ -272,7 +272,7 @@ internal static class DevTool
                 "[TEST-PASS] User.RhConfigPrecedence", "[TEST-PASS] User.RhConfigStrings", "[TEST-PASS] User.GcConfigValues",
                 "[TEST-PASS] User.GcConfigRefresh", "[TEST-PASS] User.RuntimeConfigThreads",
                 "[TEST-PASS] User.PalInitPrerequisites", "[TEST-PASS] User.PalInitPolicy",
-                "[TEST-PASS] User.PalInitLifecycle", "[TEST-PASS] User.Isolation");
+                "[TEST-PASS] User.PalInitLifecycle", "[TEST-PASS] User.RuntimeAllocHeap", "[TEST-PASS] User.InterfaceDispatchInit", "[TEST-PASS] User.Isolation");
         var failedBeforeContract = !result.TimedOut && result.ExitCode == 35 && exitedFirmware >= 0 && contract < 0 && hello < 0;
         var passed = expected switch
         {

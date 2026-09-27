@@ -23,13 +23,25 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
         wit_console_write("/"); wit_console_write_u64(process.ExitCode); wit_console_write("\n");
         wit_panic("Upstream configuration contract failed");
     }
+    if (mode == 9) {
+        require(report && report[0] == 9 && report[1] == 8192 && process.ThreadCreates == 1 &&
+            process.Space.OwnedCount > owned, "Interface dispatch initialization missed real allocations");
+        WitU32 reservations = 0;
+        for (WitU32 i = 0; i < WIT_USER_RESERVATION_CAPACITY; ++i)
+            if (process.Space.Reservations[i].Size) ++reservations;
+        require(reservations == 2 && !process.Handles.Count && !process.Events.Count,
+            "Interface dispatch retained unexpected resources");
+        wit_user_destroy(&process);
+        require(wit_pages_free_count(pages) == before, "Interface dispatch process teardown leaked pages");
+        return;
+    }
     if (mode == 3 || mode == 7 || mode == 8)
         require(report && report[0] == mode && report[1] == (mode == 8 ? 2048 : 1089) &&
             process.ThreadCreates == 1 && !process.ThreadJoins && !process.ThreadReaps &&
             (process.Threads[0].CompilerTls != 0) == (mode != 8), "PAL initialization rejection missed its intended boundary");
     else
-        require(report && report[0] == mode && report[1] == 1023 && process.ThreadCreates == 4 &&
-            process.ThreadJoins == 3 && process.ThreadReaps == 3 && process.ThreadSwitches,
+        require(report && report[0] == mode && report[1] == 5119 && process.ThreadCreates == 7 &&
+            process.ThreadJoins == 6 && process.ThreadReaps == 6 && process.ThreadSwitches,
             "Runtime configuration missed required checks or thread reuse");
     require(process.Space.OwnedCount == owned && !process.Handles.Count && !process.Events.Count,
         "Runtime configuration leaked resources");
@@ -49,5 +61,8 @@ void wit_user_runtime_config_self_test(WitPageAllocator* pages)
     wit_console_write("[TEST-PASS] User.GcConfigRefresh\n[TEST-PASS] User.RuntimeConfigThreads\n");
     wit_console_write("[TEST-PASS] User.PalInitPrerequisites\n[TEST-PASS] User.PalInitPolicy\n");
     wit_console_write("[TEST-PASS] User.PalInitLifecycle\n");
+    wit_console_write("[TEST-PASS] User.RuntimeAllocHeap\n");
+    run(pages, 9, WIT_USER_IMAGE_BASE); run(pages, 9, WIT_USER_IMAGE_ALTERNATE);
+    wit_console_write("[TEST-PASS] User.InterfaceDispatchInit\n");
 }
 #endif

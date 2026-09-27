@@ -57,3 +57,5 @@ Version 0.0.25 executes real RhConfig/GCConfig methods in a dedicated guest prob
 Version 0.0.26 implements PalInit over real configuration and GC OS initialization, with explicit readiness/CPU/lifecycle checks. The full link retains 99 unresolved symbols, including PalAttachThread and PalInitComAndFlsSlot. Next follow RhInitialize/InitDLL through native exit callbacks, platform/diagnostic policy, RuntimeInstance and collector startup. See [PAL initialization](NativeAot-Pal-Initialization.md).
 
 Version 0.0.27 implements bounded native exit callbacks and checks their registration in the complete upstream startup source. This removes one strict-link dependency (98 remain); actual RhInitialize/InitDLL execution still requires runtime/GC integration. See [process exit](NativeAot-Process-Exit.md).
+
+Version 0.0.28 executes actual interface-dispatch initialization and allocation over the WitOS PAL, with explicit upstream AllocHeap lock cleanup. This advances the first InitDLL subsystem; the full link remains at 98 unresolved symbols. See [interface-dispatch startup](NativeAot-Interface-Dispatch-Startup.md).

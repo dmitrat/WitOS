@@ -179,6 +179,10 @@
                     {"path":"src/coreclr/gc/gcconfig.cpp","sha256":"d988551209003a7df409f51a9b7458e38e4db541601cebbfad2a77aef1406231"},
                     {"path":"src/coreclr/nativeaot/Runtime/gcenv.ee.cpp","sha256":"34a4106345051e0c58ed1a03dc124f64c66ce6037c6bea1ea2b5fd1bcae59550"},
                     {"path":"src/coreclr/gc/gcconfig.h","sha256":"4e9fa100b7458187135b26ba09eda3a2e57fbc6a72cb5ed2afc31a22d828b117"},
-                    {"path":"src/coreclr/nativeaot/Runtime/gcenv.h","sha256":"4e6f12c83171324bae17d5409f707bf2aad6dd232da68e0dd5cc34ee20aceec1"}
+                    {"path":"src/coreclr/nativeaot/Runtime/gcenv.h","sha256":"4e6f12c83171324bae17d5409f707bf2aad6dd232da68e0dd5cc34ee20aceec1"},
+                    {"path":"src/coreclr/nativeaot/Runtime/allocheap.cpp","sha256":"8ec757e258e701b03f8f28694a4ac74069893d409130f2d52b5f5f720fc1d507"},
+                    {"path":"src/coreclr/nativeaot/Runtime/allocheap.h","sha256":"30e9c825ca6d0a963cbf12b0313a4c538f4265307f627de1b8e36c7962034420"},
+                    {"path":"src/coreclr/nativeaot/Runtime/CachedInterfaceDispatch_Aot.cpp","sha256":"ce39dad857b16e7191af653ec5041deafa9a9fa6fdcf9e411237284551f5b6b4"},
+                    {"path":"src/coreclr/runtime/CachedInterfaceDispatch.cpp","sha256":"a088c63cd4bf7483a3eb6334b52bf872ff1a106160154e7f796a302e67b11d22"}
                 ]
 }

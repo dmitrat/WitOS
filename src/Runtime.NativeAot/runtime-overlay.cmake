@@ -73,6 +73,13 @@ function(witos_select_gc_environment)
     list(APPEND sources "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/rhconfig.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/crt_config.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/crt_exit.witos.cpp")
+    set(old_allocheap "${CLR_DIR}/nativeaot/Runtime/allocheap.cpp")
+    list(FIND sources "${old_allocheap}" allocheap_index)
+    if(allocheap_index EQUAL -1)
+        message(FATAL_ERROR "Pinned AllocHeap source missing")
+    endif()
+    list(REMOVE_ITEM sources "${old_allocheap}")
+    list(APPEND sources "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/allocheap.witos.cpp")
     set(old_startup "${CLR_DIR}/nativeaot/Runtime/startup.cpp")
     list(FIND sources "${old_startup}" startup_index)
     if(startup_index EQUAL -1)
@@ -113,7 +120,11 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/gcconfig.slice.cpp"
         "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/gcenv.config.slice.cpp"
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_config.cpp"
-        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_init.witos.cpp")
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_init.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/allocheap.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/dispatch.shared.slice.cpp"
+        "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/dispatch.aot.slice.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_allocator.cpp")
     foreach(config_source IN LISTS config_sources)
         if(NOT EXISTS "${config_source}")
             message(FATAL_ERROR "Run runtime-source to prepare the pinned configuration sources")

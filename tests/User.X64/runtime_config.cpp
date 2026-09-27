@@ -9,6 +9,8 @@
 #include "protocol.h"
 #include <errno.h>
 
+extern "C" bool wit_test_runtime_allocator();
+extern "C" bool wit_test_interface_dispatch();
 static RhConfig config;
 RhConfig* g_pRhConfig = &config;
 /* Fixture-owned configuration inputs, using the actual upstream declaration.
@@ -180,6 +182,14 @@ extern "C" WitU64 wit_native_main(const WitUserStartup* startup)
 {
     mode = ((const WitUserTestConfig*)startup)->Mode;
     report()[0] = mode; report()[1] = 0;
+    if (mode == 9) {
+        wit_native_process_image_initialize(startup);
+        wit_native_tls_initialize(startup);
+        if (!wit_test_interface_dispatch()) return 1691;
+        report()[1] = 8192;
+        wit_native_tls_leave();
+        return WIT_TEST_EXIT_CODE;
+    }
     if (mode == 8) {
         // Identical native code, but a PE with no TLS directory. PalInit must
         // reject this before touching errno/compiler GS storage.
@@ -262,6 +272,8 @@ extern "C" WitU64 wit_native_main(const WitUserStartup* startup)
         wit_native_call(WIT_CALL_THREAD_JOIN, handles[0], 0, 0, &result) != WIT_STATUS_OK ||
         result != WIT_TEST_EXIT_CODE || errno != 42) return 1652;
     report()[1] |= 32;
+    if (!wit_test_runtime_allocator()) return 1690;
+    report()[1] |= 4096;
     GCToOSInterface::Shutdown();
     errno = 89;
     if (PalInit() || GetLastError() != ERROR_INVALID_STATE || errno != 89 ||

@@ -175,6 +175,7 @@ The initial native milestone now has a concrete boot contract and runnable imple
 - [Native PAL initialization](Implementation/NativeAot-Pal-Initialization.md) - actual GC config/OS initialization, startup prerequisites, CPU policy and cached lifecycle.
 - [BootTo.NET source review](Implementation/BootToNET-Review.md) - verified applicability, harness differences and independent hosted GC/unwind regression additions.
 - [Native process exit](Implementation/NativeAot-Process-Exit.md) - real atexit callbacks, TLS ordering, bounded cleanup and checked upstream registration failure.
+- [Upstream interface-dispatch startup](Implementation/NativeAot-Interface-Dispatch-Startup.md) - real InitDLL entry subsystem, AllocHeap lifecycle and OOM/concurrency checks.
 - [Immediate next steps](Implementation/Next-Steps.md).
 
 The earlier RFCs describe the long-term vision. These implementation notes distinguish working behavior from future runtime and operating-system features.
