@@ -8,6 +8,8 @@ The application compatibility target is unchanged portable managed binaries unde
 
 Original vision documents live in `@Docs/`. Concrete implementation status and deliberate limitations live in `@Docs/Implementation/`. Preserve original drafts unless the task calls for revising them.
 
+Track runtime bring-up in the root PLAN.md. After each completed implementation slice, update its baseline, affected checkboxes/statuses, evidence links and next step; mark milestones complete only when their guest acceptance criteria pass.
+
 ## Boundaries
 
 - Keep UEFI details in `src/Boot.Uefi/`.

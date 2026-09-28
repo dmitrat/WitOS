@@ -4,6 +4,8 @@ WitOS is an experimental operating system built around a minimal native kernel a
 
 The hardware layer may eventually be supplied in firmware. The first implementation uses QEMU and UEFI to test the same separation without custom hardware.
 
+**Roadmap:** [План запуска .NET / PLAN.md](PLAN.md) — текущий этап, оставшиеся работы и критерии готовности.
+
 ## Current status
 
 **WitOS 0.0.44: native GC affinity configuration uses the real upstream parser with flat CPU indices. Guest tests cover range boundaries, partial failure results and per-thread errno. ABI v18; minimal startup retains 64 unresolved platform symbols and managed guest execution remains pending.**
