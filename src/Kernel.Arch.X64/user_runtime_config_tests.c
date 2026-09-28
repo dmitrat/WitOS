@@ -22,6 +22,16 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
     config->Mode = mode;
     wit_user_run(&process);
     const WitU64* report = (const WitU64*)wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
+    if (mode == 39 || mode == 40) {
+        require(report && report[0] == mode && report[1] == 16777216 && process.State == WitUserExited &&
+            process.ExitCode == WIT_TEST_EXIT_CODE && process.Space.OwnedCount == owned &&
+            process.ThreadCreates == (mode == 39 ? 4U : 1U) && process.ThreadJoins == (mode == 39 ? 3U : 0U) &&
+            process.ThreadReaps == (mode == 39 ? 3U : 0U) && !process.Writes &&
+            !process.Handles.Count && !process.Events.Count, "GC affinity parser contract failed");
+        wit_user_destroy(&process);
+        require(wit_pages_free_count(pages) == before, "GC affinity parser teardown leaked pages");
+        return;
+    }
     if (mode >= 29) {
         const WitU64 expected = mode <= 30 ? WIT_TEST_EXIT_CODE :
             ((mode == 31 || mode == 33) ? WIT_NATIVE_PURECALL_EXIT :
@@ -219,5 +229,9 @@ void wit_user_runtime_config_self_test(WitPageAllocator* pages)
     for (WitU64 mode = 35; mode <= 38; ++mode) run(pages, mode, WIT_USER_IMAGE_ALTERNATE);
     run(pages, 29, WIT_USER_IMAGE_BASE);
     wit_console_write("[TEST-PASS] User.FatalDiagnosticRejection\n");
+    run(pages, 39, WIT_USER_IMAGE_BASE); run(pages, 39, WIT_USER_IMAGE_ALTERNATE);
+    wit_console_write("[TEST-PASS] User.GcAffinityParsing\n");
+    run(pages, 40, WIT_USER_IMAGE_BASE);
+    wit_console_write("[TEST-PASS] User.GcAffinityBeforeTlsConstructors\n");
 }
 #endif

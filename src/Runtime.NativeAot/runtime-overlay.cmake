@@ -23,6 +23,7 @@ function(witos_select_gc_environment)
     endif()
     list(REMOVE_ITEM sources "${windows_gc}")
     list(APPEND sources "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/gcenv.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/gc_affinity.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/gc_events.witos.cpp" "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/gc_time.witos.cpp")
     set(crst "${CLR_DIR}/nativeaot/Runtime/Crst.cpp")
     list(FIND sources "${crst}" crst_index)
@@ -174,6 +175,7 @@ function(witos_select_gc_environment)
     endif()
     set(config_sources "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/rhconfig.witos.cpp"
         "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/gcconfig.slice.cpp"
+        "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/gcaffinity.slice.cpp"
         "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/gcenv.config.slice.cpp"
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_config.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_init.witos.cpp"
@@ -189,7 +191,8 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_stack.cpp"
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_cpu.cpp"
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_clock.cpp"
-        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_fatal.cpp")
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_fatal.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_affinity.cpp")
     set_source_files_properties("${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_stack.cpp"
         TARGET_DIRECTORY WitOS.ConfigProbe PROPERTIES COMPILE_OPTIONS "/Gs4096")
     foreach(config_source IN LISTS config_sources)
