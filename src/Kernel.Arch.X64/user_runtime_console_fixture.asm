@@ -1,0 +1,33 @@
+option casemap:none
+EXTERN WriteFile:PROC
+EXTERN GetStdHandle:PROC
+EXTERN GetConsoleOutputCP:PROC
+EXTERN GetCurrentProcessorNumberEx:PROC
+EXTERN MultiByteToWideChar:PROC
+EXTERN WideCharToMultiByte:PROC
+.code
+PUBLIC wit_console_direct_write
+wit_console_direct_write PROC
+ jmp WriteFile
+wit_console_direct_write ENDP
+PUBLIC wit_console_direct_handle
+wit_console_direct_handle PROC
+ jmp GetStdHandle
+wit_console_direct_handle ENDP
+PUBLIC wit_console_direct_codepage
+wit_console_direct_codepage PROC
+ jmp GetConsoleOutputCP
+wit_console_direct_codepage ENDP
+PUBLIC wit_processor_direct_query
+wit_processor_direct_query PROC
+ jmp GetCurrentProcessorNumberEx
+wit_processor_direct_query ENDP
+PUBLIC wit_encoding_direct_mb
+wit_encoding_direct_mb PROC
+ jmp MultiByteToWideChar
+wit_encoding_direct_mb ENDP
+PUBLIC wit_encoding_direct_wc
+wit_encoding_direct_wc PROC
+ jmp WideCharToMultiByte
+wit_encoding_direct_wc ENDP
+END

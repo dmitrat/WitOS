@@ -152,7 +152,7 @@ static void rollback(WitPageAllocator *pages)
     // Fail each stack/raw-TLS/compiler-TLS allocation of a child, including the last.
     require(wit_user_create_pe(&process, pages, 0, wit_tls_image, sizeof(wit_tls_image), WIT_USER_IMAGE_BASE) == WitPeOk,
         "TLS child OOM fixture creation failed");
-    for (WitU32 remaining = 0; remaining < 6; ++remaining) {
+    for (WitU32 remaining = 0; remaining < (WIT_USER_STACK_TOP-WIT_USER_STACK_BOTTOM)/4096+2; ++remaining) {
         WitU64 arena, result = 99;
         WitU32 count = 0;
         WitU64 free_before;

@@ -1,5 +1,7 @@
 # WitOS RFC Draft Set
 
+Current runtime bring-up: [PLAN.md](../PLAN.md), [M3 NativeAOT profile](Implementation/M3-NativeAOT-Profile.md), [P5 integration evidence](Implementation/P5-Managed-Integration.md) and [P5 completion audit](Implementation/P5-Completion-Audit.md). Original architecture drafts and historical milestones remain below.
+
 This archive contains the first ten architecture RFCs drafted for WitOS.
 
 The documents form the initial high-level architecture set: from the overall platform concept and capability model down through execution, communication, hardware, storage, presentation, packaging, software identity, signing, and trust.
@@ -185,3 +187,7 @@ The initial native milestone now has a concrete boot contract and runnable imple
 - [Immediate next steps](Implementation/Next-Steps.md).
 
 The earlier RFCs describe the long-term vision. These implementation notes distinguish working behavior from future runtime and operating-system features.
+
+- [Pre-P6 code quality and coverage audit](Implementation/P5-Code-Quality-and-Coverage-Audit.md) - reproduced tooling defects, coverage gaps and Q1 follow-up.
+
+- [Q1 quality hardening](Implementation/Q1-Quality-Hardening.md) - completed audit fixes, real return-address hijack, measured native branch coverage and sanitizer/fuzz lanes.

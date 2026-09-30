@@ -33,21 +33,22 @@ internal static class RuntimeReadiness
         var pin = RuntimeExperiment.ReadLock(root);
         var packages = RuntimeExperiment.VerifyPublishedPackages(root, pin);
         var compilerArgs = await File.ReadAllLinesAsync(Path.Combine(reference, "native", "NativeAotBoot.ilc.rsp"));
-        string[] required = ["--targetos:win", "--targetarch:x64", "--instruction-set:x86-64", "--initassembly:System.Private.CoreLib"];
-        if (required.Any(a => !compilerArgs.Contains(a)) || compilerArgs.Contains("--nativelib") ||
+        string[] required = ["--runtimeknob:System.GC.Concurrent=false", "--runtimeknob:System.GC.LargePages=false", "--runtimeknob:System.GC.Server=false", "--targetos:win", "--targetarch:x64", "--instruction-set:x86-64", "--initassembly:System.Private.CoreLib"];
+        if (required.Any(a => !compilerArgs.Contains(a)) || compilerArgs.Contains("--nativelib") || compilerArgs.Contains("--guard:cf") ||
             compilerArgs.Any(a => a.StartsWith("--systemmodule", StringComparison.Ordinal)) ||
             !compilerArgs.Any(a => a.StartsWith("-r:", StringComparison.Ordinal) && a.EndsWith("System.Private.CoreLib.dll", StringComparison.Ordinal)))
             throw new InvalidDataException("Minimal workload must use normal executable bootstrap and standard CoreLib.");
         var managed = Path.Combine(reference, "native", "NativeAotBoot.obj");
-        var coff = NativeObject.Inspect(managed);
+        var coff = NativeObject.Inspect(managed, collectReferences: true);
         if (!coff.Sections.Any(s => s.Name.StartsWith(".managedcode", StringComparison.Ordinal)) ||
             !coff.UndefinedExternals.Any(s => s.StartsWith("RhpNew", StringComparison.Ordinal)))
             throw new InvalidDataException("Minimal workload lost actual managed code/allocation dependencies.");
         var executable = Path.Combine(reference, "NativeAotBoot.exe");
+        await RuntimeUnwindReference.ValidateImageAsync(root,executable);
         var hosted = await Processes.RunAsync(executable, [], reference, 60);
         await File.WriteAllTextAsync(Path.Combine(output, "hosted.log"), hosted.Output + hosted.Error + $"\nExit code: {hosted.ExitCode}\n");
-        if (hosted.TimedOut || hosted.ExitCode != 42) throw new InvalidOperationException("Minimal hosted allocation/GC/root workload failed.");
-        Console.WriteLine("[READINESS-PASS] Minimal executable: static initialization, allocations and GC (HOSTED Windows).");
+        if (!RuntimeBootProtocol.ValidateHosted(hosted.Output,hosted.ExitCode,hosted.TimedOut)||!string.IsNullOrEmpty(hosted.Error)) throw new InvalidOperationException("Hosted combined GC/EH/finalization/thread semantic workload failed.");
+        Console.WriteLine("[READINESS-PASS] Four combined GC/EH/finalization/thread cycles with exact semantic reports (HOSTED Windows).");
         var module = NativeModule.Inspect(executable);
         var imports = NativeImports.Inspect(executable);
         if (imports.HasClrHeader || module.Tls is null || module.UnwindEntries == 0 || imports.DirectImports.Length == 0)
@@ -88,36 +89,45 @@ internal static class RuntimeReadiness
         var unresolved = Regex.Matches(log, @"error LNK(?:2001|2019): unresolved external symbol (.+?)(?: referenced in function .*|\r?$)", RegexOptions.Multiline)
             .Select(m => m.Groups[1].Value).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         var errors = Regex.Matches(log, @"error (LNK\d+):").Select(m => m.Groups[1].Value).ToArray();
-        if (link.TimedOut || link.ExitCode == 0 || File.Exists(image) || unresolved.Length == 0 ||
-            !errors.Contains("LNK1120") || errors.Any(e => e is not ("LNK2001" or "LNK2019" or "LNK1120")) ||
-            unresolved.Any(s => s.Contains("wit_native_", StringComparison.Ordinal) || s is "_tls_index" or "wmain" or "RhInitialize" or "RhRegisterOSModule" or "InitializeModules" or "__managed__Main") ||
-            !unresolved.Any(s => s.Contains("PalAttachThread", StringComparison.Ordinal)))
-            throw new InvalidOperationException("Unexpected minimal startup link outcome; see runtime-readiness/strict-link.log.");
+        if (link.TimedOut || link.ExitCode != 0 || !File.Exists(image) || unresolved.Length != 0 || errors.Length != 0)
+            throw new InvalidOperationException("Strict native startup link is incomplete; see runtime-readiness/strict-link.log.");
+        var diagnosticModule=NativeModule.Inspect(image);
+        var diagnosticImports=NativeImports.Inspect(image);
+        if(diagnosticImports.HasClrHeader||diagnosticImports.DirectImports.Length!=0||diagnosticImports.DelayImportDirectorySize!=0||
+           diagnosticModule.Tls is null||diagnosticModule.UnwindEntries==0)
+            throw new InvalidDataException("Linked startup diagnostic lost native TLS/unwind metadata or retained OS imports.");
+        await RuntimePlatformBoundary.WriteAsync(root, managed, coff, log, unresolved, compilerArgs);
+        var guestDriver=await RuntimeGuestDriver.BuildAsync(root,msvc,output,managed,tls,libraries);
         var imageLimit = Constant(root, "src/Kernel/include/witos/pe.h", "WIT_PE_MAX_IMAGE_SIZE");
         var unwindLimit = Constant(root, "src/Kernel/include/witos/pe.h", "WIT_PE_MAX_UNWIND_ENTRIES");
         var pageLimit = Constant(root, "src/Kernel.Arch.X64/user_layout.h", "WIT_USER_PAGE_CAPACITY");
+        var handleLimit=Constant(root,"src/Kernel/include/witos/handles.h","WIT_HANDLE_CAPACITY");
+        var runtimeUnwindLimit=Constant(root,"src/Kernel/include/witos/pe.h","WIT_PE_RUNTIME_UNWIND_ENTRIES");
         var evidence = new
         {
-            pin.RuntimeVersion, pin.RuntimeCommit, guestManagedExecution = false, guestImageLinked = false,
-            hostedPassed = true, hostedExitCode = hosted.ExitCode, packages, module, imports,
+            pin.RuntimeVersion, pin.RuntimeCommit, guestManagedExecution = false, guestImageLinked = true, diagnosticImageLinked = true,
+            guestDriver = new { file=guestDriver, sha256=Hash(guestDriver), executed=false },
+            diagnosticImage = new { file=image, sha256=Hash(image), module=diagnosticModule, imports=diagnosticImports },
+            hostedPassed = true, hostedSemanticAcceptance = true, hostedLogSha256 = Hash(Path.Combine(output,"hosted.log")), hostedExitCode = hosted.ExitCode, packages, module, imports,
             managedObjectSha256 = Hash(managed), referenceImageSha256 = Hash(executable),
             startupRoot = "wmain", artificialRuntimeRoots = Array.Empty<string>(),
             strictLinkExitCode = link.ExitCode, unresolved,
-            limits = new { imageLimit, unwindLimit, pageLimit, pageSize = 4096 },
+            limits = new { imageLimit, unwindLimit, runtimeUnwindLimit, pageLimit, handleLimit, pageSize = 4096 },
             referenceImagePages = (module.ImageBytes + 4095) / 4096,
             inputs = libraries.Concat([transport, tls]).Select(p => new { file = p, sha256 = Hash(p) }),
-            localSources = new[] { project + "/Program.cs", project + "/NativeAotBoot.csproj", project + "/packages.lock.json",
+            localSources = new[] { project + "/Program.cs", project + "/ExceptionProbe.cs", project + "/FinalizationProbe.cs", project + "/GuestReport.cs", project + "/ManagedThreadProbe.cs", project + "/StackOverflowProbe.cs", project + "/ThreadQuotaProbe.cs", project + "/FaultProbe.cs", project + "/MemoryFailureProbe.cs", project + "/NativeAotBoot.csproj", project + "/packages.lock.json",
                 "src/Kernel.Arch.X64/native_start.asm", "src/System.Native/tls_metadata.c", "src/Kernel/include/witos/pe.h",
-                "src/Kernel/include/witos/user_abi.h", "src/Kernel.Arch.X64/user_layout.h" }
+                "src/Kernel/include/witos/user_abi.h", "src/Kernel/include/witos/handles.h", "src/Kernel.Arch.X64/user_layout.h" }
                 .Select(p => new { file = p, sha256 = Hash(Path.Combine(root, p)) }),
-            scope = "Hosted standard-CoreLib executable plus incomplete source-built native-entry link. wmain is a dependency root, not a valid WitOS startup thunk. Native image/environment publication, C++ initialization, actual TLS entry and orderly shutdown still need an integrated guest driver. Reference image sizes are not final guest requirements."
+            scope = "Hosted standard-CoreLib executable plus strictly linked source-built wmain diagnostic image. wmain is a dependency root, not a valid WitOS startup thunk. The separate guest handoff driver links image/environment publication, GS/TLS/initializer entry and orderly shutdown; its execution and resource budgets still require guest acceptance. Reference image sizes are not final guest requirements."
         };
         await File.WriteAllTextAsync(Path.Combine(output, "readiness.json"), JsonSerializer.Serialize(evidence,
             new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         var summary = new StringBuilder("# Minimal runtime startup readiness\n\nGuest .NET has not executed.\n\n");
-        summary.AppendLine($"Hosted standard-CoreLib allocation/GC workload passed (exit 42). Real wmain startup link remains blocked by {unresolved.Length} unique unresolved symbols, after including actual WitOS transport and TLS metadata.");
+        summary.AppendLine("Hosted standard-CoreLib allocation/GC workload passed (exit 42). The source-built wmain diagnostic image links with zero unresolved symbols and no OS imports. It has not executed in the guest.");
+        summary.AppendLine($"\nWitOS diagnostic: {diagnosticModule.ImageBytes} mapped bytes, {diagnosticModule.UnwindEntries} unwind entries; TLS template {diagnosticModule.Tls!.TemplateBytes} bytes plus {diagnosticModule.Tls.ZeroFillBytes} zero-fill bytes. The entry still requires a real guest handoff driver.");
         summary.AppendLine($"\nWindows reference: {module.ImageBytes} mapped bytes ({(module.ImageBytes + 4095) / 4096} pages), {module.UnwindEntries} unwind entries. Current guest limits: {imageLimit} image bytes, {pageLimit} total owned pages, {unwindLimit} plain unwind entries. Reference sizes do not establish final guest resource requirements.");
-        summary.AppendLine("\nThis is a link diagnostic, not a bootable guest driver; complete runtime initialization and normal CoreLib remain required.\n\n## Unresolved startup dependencies\n");
+        summary.AppendLine($"\nSeparate guest handoff driver: {guestDriver}. It links strictly but has not executed; loader/resource and runtime/GC acceptance remain open.\n\n## Unresolved startup dependencies\n");
         foreach (var symbol in unresolved) summary.AppendLine("- `" + symbol + "`");
         await File.WriteAllTextAsync(Path.Combine(output, "readiness.md"), summary.ToString());
         Console.WriteLine($"[READINESS-PASS] Real wmain startup boundary: {unresolved.Length} unresolved symbols; transport/TLS metadata supplied, no OS imports linked.");

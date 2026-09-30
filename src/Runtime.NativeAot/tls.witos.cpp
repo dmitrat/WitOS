@@ -20,6 +20,9 @@ static __declspec(thread) TlsFunction destructors[WIT_NATIVE_TLS_MAX_DESTRUCTORS
 static __declspec(thread) WitNativeThreadExitCallback exit_callback;
 static __declspec(thread) void *exit_context;
 static __declspec(thread) WitU64 exit_owner;
+static __declspec(thread) WitNativeThreadExitCallback cleanup_callback;
+static __declspec(thread) void *cleanup_context;
+static __declspec(thread) WitU64 cleanup_owner;
 static __declspec(thread) WitU32 exit_phase; // 0 empty, 1 registered, 2 invoking, 3 completed
 
 static WIT_NORETURN void fatal() { wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT); }
@@ -51,6 +54,17 @@ extern "C" WitU64 wit_native_thread_on_exit(WitNativeThreadExitCallback callback
     exit_phase = 1;
     return WIT_STATUS_OK;
 }
+extern "C" WitU64 wit_native_thread_on_cleanup(WitNativeThreadExitCallback callback, void *context)
+{
+    WitUserThreadInfo info;
+    if (initialized != 2 || !current_thread(info)) return WIT_STATUS_DENIED;
+    if (phase >= 3 || exit_phase >= 2) return WIT_STATUS_CLOSED;
+    if (!phase) return WIT_STATUS_DENIED;
+    if (!wit_native_tls_code_pointer((WitU64)callback)) return WIT_STATUS_BAD_ADDRESS;
+    if (cleanup_callback) return WIT_STATUS_BUSY;
+    cleanup_owner=info.ThreadId;cleanup_context=context;cleanup_callback=callback;
+    return WIT_STATUS_OK;
+}
 extern "C" void wit_native_thread_notify_exit(void)
 {
     WitUserThreadInfo info;
@@ -60,10 +74,15 @@ extern "C" void wit_native_thread_notify_exit(void)
     const auto callback = exit_callback;
     void *context = exit_context;
     if (exit_phase && (exit_owner != info.ThreadId || !wit_native_tls_code_pointer((WitU64)callback))) fatal();
+    const auto cleanup = cleanup_callback;
+    void* cleanup_data = cleanup_context;
+    if (cleanup && (cleanup_owner != info.ThreadId || !wit_native_tls_code_pointer((WitU64)cleanup))) fatal();
+    cleanup_callback=nullptr;cleanup_context=nullptr;cleanup_owner=0;
     exit_callback = nullptr;
     exit_context = nullptr;
     exit_phase = 2; // Pop before calling; recursion and re-registration cannot repeat cleanup.
     if (callback) callback(context); // No shared gate: callbacks may yield or park.
+    if (cleanup) cleanup(cleanup_data); // Apartment/platform state outlives real runtime detach.
     exit_phase = 3;
 }
 extern "C" void wit_native_tls_initialize(const WitUserStartup *startup)

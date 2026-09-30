@@ -16,7 +16,7 @@ static bool equal(const WitUserThreadInfo& a, const WitUserThreadInfo& b)
 {
     return a.Version == b.Version && a.Size == b.Size && a.ThreadId == b.ThreadId && a.StackLow == b.StackLow &&
         a.StackHigh == b.StackHigh && a.RawTls == b.RawTls && a.CompilerTls == b.CompilerTls &&
-        a.ProcessId == b.ProcessId && a.ProcessorCount == b.ProcessorCount;
+        a.ProcessId == b.ProcessId && a.ProcessorCount == b.ProcessorCount && a.NativeId == b.NativeId && a.Reserved == b.Reserved;
 }
 static void fill(void* p, size_t size)
 {
@@ -34,7 +34,7 @@ static bool check(const WitUserThreadInfo& info)
     if (query(&local) != WIT_STATUS_OK || !equal(info, local) || !PalGetMaximumStackBounds(&low, &high) ||
         (uintptr_t)low != info.StackLow || (uintptr_t)high != info.StackHigh ||
         (uintptr_t)&local < info.StackLow || (uintptr_t)&local + sizeof(local) > info.StackHigh ||
-        PalGetCurrentOSThreadId() != info.ThreadId || PalGetCurrentProcessId() != info.ProcessId ||
+        PalGetCurrentOSThreadId() != info.NativeId || PalGetCurrentProcessId() != info.ProcessId ||
         PalGetProcessCpuCount() != (int)info.ProcessorCount) return false;
     low = high = (void*)1;
     return !PalGetMaximumStackBounds(nullptr, &high) && high == (void*)1 &&
@@ -70,7 +70,7 @@ extern "C" WitU64 wit_native_main(const WitUserStartup* startup)
     WitUserThreadInfo current;
     if (query(original) != WIT_STATUS_OK || !check(*original) ||
         original->Version != WIT_THREAD_INFO_VERSION || original->Size != sizeof(*original) ||
-        original->StackHigh - original->StackLow != 16384 || !original->ProcessId || original->ProcessorCount != 1)
+        original->StackHigh - original->StackLow != 65536 || !original->ProcessId || original->ProcessorCount != 1)
         return 1110;
     if (config->Mode == 2) { *(volatile char*)(original->StackLow - 1) = 1; return 1111; }
     if (config->Mode == 3) { *(volatile char*)original->StackHigh = 1; return 1112; }
@@ -111,10 +111,10 @@ extern "C" WitU64 wit_native_main(const WitUserStartup* startup)
         if (wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &code) != WIT_STATUS_OK || code != WIT_TEST_EXIT_CODE ||
             observed[i].ThreadId != handles[i] || observed[i].ProcessId != original->ProcessId ||
             observed[i].StackLow == original->StackLow || observed[i].RawTls == original->RawTls) return 1123;
-    if (observed[0].StackLow == observed[1].StackLow || !check(*original)) return 1124;
+    if (observed[0].StackLow == observed[1].StackLow || !observed[0].NativeId || observed[0].NativeId == observed[1].NativeId || !check(*original)) return 1124;
     if (wit_native_call(WIT_CALL_THREAD_CREATE, (uintptr_t)worker, 2, 0, &handles[0]) != WIT_STATUS_OK ||
         wit_native_call(WIT_CALL_THREAD_JOIN, handles[0], 0, 0, &code) != WIT_STATUS_OK || code != WIT_TEST_EXIT_CODE ||
-        observed[2].ThreadId == observed[0].ThreadId || observed[2].ThreadId != handles[0] ||
+        observed[2].NativeId <= observed[1].NativeId || observed[2].ThreadId == observed[0].ThreadId || observed[2].ThreadId != handles[0] ||
         observed[2].StackLow != observed[0].StackLow) return 1125;
     if (wit_native_call(WIT_CALL_CLOCK_READ, 0, 0, 0, &code) != WIT_STATUS_OK) return 1126;
     const WitU64 sleep_deadline = code + 1;

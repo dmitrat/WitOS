@@ -125,6 +125,7 @@ void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator
     require((WitU32)cpu[0] >= 0x80000001U, "Extended CPU features unavailable");
     __cpuid(cpu, (int)0x80000001U);
     require((cpu[3] & (1 << 20)) != 0, "NX is required");
+    require((cr4 & ((1ULL << 22) | (1ULL << 23) | (1ULL << 25))) == 0, "Inherited PKE/CET/UINTR state is unsupported");
     require((cr4 & ((1ULL << 12) | (1ULL << 17))) == 0, "LA57/PCID are unsupported");
     require(boot->ImageBase != 0 && (boot->ImageBase & 4095) == 0 &&
         boot->ImageSize != 0 && (boot->ImageSize & 4095) == 0 &&
@@ -172,6 +173,7 @@ void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator
     require((__readcr4() & ((1ULL << 16) | (1ULL << 18))) == 0, "Unsupported user extended CPU state enabled");
     __writecr3(root_table);
     __writecr0(__readcr0() | (1ULL << 16));
+    wit_x64_context_profile_self_test();
     active = 1;
     require((__readcr3() & PTE_ADDRESS) == root_table && root_table != old_root &&
         (__readcr0() & (1ULL << 16)) && (__readmsr(0xC0000080) & (1ULL << 11)),

@@ -5,14 +5,15 @@ using System.Text;
 namespace WitOS.Dev;
 
 internal sealed record CoffSectionInfo(string Name, uint Size, uint Characteristics, int Relocations);
+internal sealed record CoffExternalReference(string Target, string Section, uint Offset, string? ContainingSymbol, ushort Kind);
 internal sealed record CoffObjectInfo(int SectionCount, int SymbolRecords, CoffSectionInfo[] Sections,
     Dictionary<string, int> RelocationKinds, string[] DefinedExports, string[] UndefinedExternals,
-    uint? RequiredCpuFeatures);
+    uint? RequiredCpuFeatures, CoffExternalReference[]? ExternalReferences);
 
 internal static class NativeObject
 {
     // Standard AMD64 COFF only. Import objects and BigObj are rejected explicitly.
-    public static CoffObjectInfo Inspect(string path)
+    public static CoffObjectInfo Inspect(string path, bool collectReferences = false, bool includeDefinedReferences = false)
     {
         var data = File.ReadAllBytes(path);
         void Range(long offset, long length)
@@ -51,7 +52,10 @@ internal static class NativeObject
         }
 
         var symbolNames = new string?[symbolCount];
+        var owners = new Dictionary<int, List<(uint Offset, string Name)>>();
+        var references = collectReferences ? new List<CoffExternalReference>() : null;
         var undefined = new HashSet<string>(StringComparer.Ordinal);
+        var defined = new HashSet<string>(StringComparer.Ordinal);
         var exports = new HashSet<string>(StringComparer.Ordinal);
         uint? requiredCpuFeatures = null;
         for (var i = 0; i < symbolCount;)
@@ -64,6 +68,11 @@ internal static class NativeObject
             if (section > sectionCount || auxiliaries >= symbolCount - i)
                 throw new InvalidDataException("Invalid COFF symbol/auxiliary count.");
             symbolNames[i] = name;
+            if (storage == 2 && section > 0) defined.Add(name);
+            if (collectReferences && storage == 2 && section > 0) {
+                if (!owners.TryGetValue(section, out var symbols)) owners.Add(section, symbols = []);
+                symbols.Add((U32(at + 8), name));
+            }
             if ((storage == 2 || storage == 105) && section == 0 && U32(at + 8) == 0) undefined.Add(name);
             if (storage == 2 && section > 0 && name.StartsWith("witos_target_", StringComparison.Ordinal)) exports.Add(name);
             if (name == "g_requiredCpuFeatures" && section > 0)
@@ -76,6 +85,7 @@ internal static class NativeObject
             i += 1 + auxiliaries;
         }
 
+        foreach (var symbols in owners.Values) symbols.Sort((a, b) => a.Offset.CompareTo(b.Offset));
         var sections = new List<CoffSectionInfo>();
         var kinds = new Dictionary<string, int>(StringComparer.Ordinal);
         for (var i = 0; i < sectionCount; ++i)
@@ -110,6 +120,17 @@ internal static class NativeObject
                 var kind = U16(rel + 8);
                 if (symbol >= symbolCount || symbolNames[symbol] is null)
                     throw new InvalidDataException("COFF relocation targets a missing/auxiliary symbol.");
+                if (references is not null && (undefined.Contains(symbolNames[symbol]!) || (includeDefinedReferences && defined.Contains(symbolNames[symbol]!)))) {
+                    var offset = U32(rel);
+                    if (offset >= rawSize) throw new InvalidDataException("External relocation lies outside its section.");
+                    string? owner = null;
+                    if (owners.TryGetValue(i + 1, out var symbols))
+                        foreach (var candidate in symbols) {
+                            if (candidate.Offset > offset) break;
+                            owner = candidate.Name;
+                        }
+                    references.Add(new(symbolNames[symbol]!, name, offset, owner, kind));
+                }
                 var label = kind switch
                 {
                     1 => "ADDR64", 2 => "ADDR32", 3 => "ADDR32NB",
@@ -123,7 +144,7 @@ internal static class NativeObject
         }
         return new(sectionCount, symbolCount, sections.ToArray(), kinds,
             exports.Order(StringComparer.Ordinal).ToArray(), undefined.Order(StringComparer.Ordinal).ToArray(),
-            requiredCpuFeatures);
+            requiredCpuFeatures, references?.ToArray());
     }
 
     public static void VerifyArchive(string archivePath, string objectPath)

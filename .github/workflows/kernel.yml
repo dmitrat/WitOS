@@ -35,6 +35,9 @@ jobs:
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
 
+      - name: Host tooling regressions
+        run: dotnet run --project tests/WitOS.Dev.Tests --configuration Release --no-build
+
       - name: Extract verified QEMU
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
 

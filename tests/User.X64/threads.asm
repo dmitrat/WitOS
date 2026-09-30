@@ -122,7 +122,7 @@ close_finished:
     jmp process_exit
 
 worker:
-    ; No calls/prologue have touched the new stack. Check all 16 KiB and TLS payload.
+    ; No calls/prologue have touched the new stack. Check the entire configured stack and TLS payload.
     mov r12, rcx
     mov rbx, QWORD PTR fs:[WIT_TLS_SELF_OFFSET]
     cmp QWORD PTR fs:[WIT_TLS_ARGUMENT_OFFSET], r12
@@ -135,8 +135,8 @@ worker:
     movq rax, xmm6
     test rax, rax
     jne failed
-    lea rdi, [rbx - 6000h]
-    mov ecx, 2048
+    lea rdi, [rbx - (WIT_USER_TLS - WIT_USER_STACK_BOTTOM)]
+    mov ecx, (WIT_USER_STACK_TOP - WIT_USER_STACK_BOTTOM) / 8
     xor eax, eax
     repe scasq
     jne failed
@@ -274,10 +274,10 @@ fault_worker:
     je thread_process_exit
     ud2
 thread_guard_low:
-    mov BYTE PTR [rbx - 6001h], 1
+    mov BYTE PTR [rbx - (WIT_USER_TLS - WIT_USER_STACK_BOTTOM) - 1], 1
     jmp failed
 thread_guard_high:
-    mov BYTE PTR [rbx - 2000h], 1
+    mov BYTE PTR [rbx - (WIT_USER_TLS - WIT_USER_STACK_TOP)], 1
     jmp failed
 thread_bad_return:
     mov rsp, WIT_USER_STACK_TOP - 40 ; mapped, but belongs to a different thread

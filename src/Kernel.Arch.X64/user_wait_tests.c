@@ -232,7 +232,7 @@ void wit_user_wait_self_test(WitPageAllocator *pages)
             require(process->IdleTicks >= 1 && process->WaitTimeouts == 1, "Clock wait did not use idle/timer");
         if (mode == WIT_WAIT_TEST_AUTO || mode == WIT_WAIT_TEST_MANUAL)
             require(process->EventParks == 3 && process->EventWakes == 3 &&
-                process->ThreadJoins == 3 && process->Space.OwnedCount == 13, "Event wake/join accounting failed");
+                process->ThreadJoins == 3 && process->Space.OwnedCount == 9 + (WIT_USER_STACK_TOP - WIT_USER_STACK_BOTTOM) / 4096, "Event wake/join accounting failed");
         if (mode == WIT_WAIT_TEST_CLOSE)
             require(process->WaitCloses == 3 && process->ThreadJoins == 3, "Close did not wake blocked threads");
         if (mode == WIT_WAIT_TEST_HANDOFF)

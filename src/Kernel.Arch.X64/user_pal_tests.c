@@ -4,6 +4,7 @@
 #include "pal_image.h"
 
 static WitUserProcess process;
+static WitU32 last_native_id;
 static void require(int condition, const char *message) { if (!condition) wit_panic(message); }
 static void run(WitPageAllocator *pages, int tls, WitU64 base, WitU64 mode)
 {
@@ -21,10 +22,12 @@ static void run(WitPageAllocator *pages, int tls, WitU64 base, WitU64 mode)
     wit_user_run(&process);
     report = (const WitUserThreadInfo *)wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
     require(report && report->Version == WIT_THREAD_INFO_VERSION && report->Size == sizeof(*report) &&
-        report->ThreadId == process.Threads[0].Handle && report->StackLow == process.Threads[0].StackBottom &&
+        report->ThreadId == process.Threads[0].Handle && report->NativeId == process.Threads[0].NativeId &&
+        report->NativeId > last_native_id && !report->Reserved && report->StackLow == process.Threads[0].StackBottom &&
         report->StackHigh == process.Threads[0].StackTop && report->RawTls == process.Threads[0].Tls &&
         report->CompilerTls == process.Threads[0].CompilerTls && (report->CompilerTls != 0) == tls &&
         report->ProcessId == process.Id && report->ProcessorCount == 1, "Guest thread snapshot differs from kernel records");
+    last_native_id=report->NativeId;
     if (!mode || mode == 4) {
         if (process.State != WitUserExited || process.ExitCode != WIT_TEST_EXIT_CODE) {
             wit_console_write("PAL state/code: "); wit_console_write_u64(process.State);

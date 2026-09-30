@@ -2,13 +2,16 @@
 #define WITOS_HANDLES_H
 #include "user_abi.h"
 
-#define WIT_HANDLE_CAPACITY 8U
+#define WIT_HANDLE_CAPACITY 16U
+#define WIT_RUNTIME_HANDLE_CAPACITY 32U
 #define WIT_HANDLE_CONSOLE 1U
 #define WIT_HANDLE_SELF 2U
 #define WIT_HANDLE_THREAD 3U
 #define WIT_HANDLE_EVENT 4U
+#define WIT_HANDLE_THREAD_REFERENCE 5U
 #define WIT_RIGHT_WAIT 4U
 #define WIT_RIGHT_SIGNAL 8U
+WIT_STATIC_ASSERT(WIT_RIGHT_WAIT==WIT_EVENT_ACCESS_WAIT && WIT_RIGHT_SIGNAL==WIT_EVENT_ACCESS_SIGNAL,"Event access ABI");
 #define WIT_RIGHT_JOIN 2U
 #define WIT_RIGHT_WRITE 1U
 
@@ -23,7 +26,8 @@ typedef struct WitHandleEntry {
 typedef struct WitHandleTable {
     WitU32 Owner;
     WitU32 Count;
-    WitHandleEntry Entries[WIT_HANDLE_CAPACITY];
+    WitU32 Limit;
+    WitHandleEntry Entries[WIT_RUNTIME_HANDLE_CAPACITY];
 } WitHandleTable;
 
 void wit_handles_initialize(WitHandleTable *table, WitU32 owner);

@@ -1,5 +1,7 @@
 # Immediate development sequence
 
+**Historical native bring-up notes below.** Current implementation and next work are tracked in [PLAN.md](../../PLAN.md), the [M3 NativeAOT profile](M3-NativeAOT-Profile.md) and [P5 audit](P5-Completion-Audit.md). The later runtime/GC/EH/finalization/Thread implementation supersedes the old pending-status statements below; they are retained as history.
+
 The core objective remains a minimal hardware-dependent kernel, a common system layer supporting upstream .NET, and applications/shells above .NET.
 
 ## Completed

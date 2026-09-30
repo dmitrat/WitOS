@@ -3,6 +3,7 @@
 #include "handles.h"
 
 #define WIT_EVENT_CAPACITY 4U
+#define WIT_RUNTIME_EVENT_CAPACITY 16U
 
 typedef struct WitEvent {
     WitU64 Handle;
@@ -11,8 +12,8 @@ typedef struct WitEvent {
 } WitEvent;
 
 typedef struct WitEventTable {
-    WitEvent Entries[WIT_EVENT_CAPACITY];
-    WitU32 Count;
+    WitEvent Entries[WIT_RUNTIME_EVENT_CAPACITY];
+    WitU32 Count,Limit;
 } WitEventTable;
 
 /* Serialized, component-local state. The architecture scheduler owns waiters. */

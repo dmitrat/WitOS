@@ -3,7 +3,8 @@
 void wit_events_initialize(WitEventTable *table)
 {
     table->Count = 0;
-    for (WitU32 i = 0; i < WIT_EVENT_CAPACITY; ++i) {
+    table->Limit = WIT_EVENT_CAPACITY;
+    for (WitU32 i = 0; i < WIT_RUNTIME_EVENT_CAPACITY; ++i) {
         table->Entries[i].Handle = 0;
         table->Entries[i].ManualReset = 0;
         table->Entries[i].Signaled = 0;
@@ -16,7 +17,7 @@ WitU64 wit_event_create(WitEventTable *table, WitHandleTable *handles,
     *result = 0;
     if ((flags & ~(WIT_EVENT_MANUAL_RESET | WIT_EVENT_INITIAL_SIGNALED)) ||
         (rights & ~(WIT_RIGHT_WAIT | WIT_RIGHT_SIGNAL))) return WIT_STATUS_INVALID_ARGUMENT;
-    for (WitU32 i = 0; i < WIT_EVENT_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < table->Limit; ++i) {
         WitEvent *event = &table->Entries[i];
         WitU64 handle;
         if (event->Handle) continue;
@@ -38,7 +39,7 @@ WitU64 wit_event_get(WitEventTable *table, WitHandleTable *handles,
     const WitU64 status = wit_handle_check(handles, handle, WIT_HANDLE_EVENT, rights);
     *result = 0;
     if (status != WIT_STATUS_OK) return status;
-    for (WitU32 i = 0; i < WIT_EVENT_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < table->Limit; ++i) {
         if (table->Entries[i].Handle != handle) continue;
         *result = &table->Entries[i];
         return WIT_STATUS_OK;

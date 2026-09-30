@@ -2,4 +2,7 @@
   <Folder Name="/tools/">
     <Project Path="tools/WitOS.Dev/WitOS.Dev.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/WitOS.Dev.Tests/WitOS.Dev.Tests.csproj" />
+  </Folder>
 </Solution>

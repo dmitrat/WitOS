@@ -19,10 +19,11 @@ typedef struct WitUserReservation {
 typedef struct WitUserSpace {
     WitPageAllocator *Allocator;
     WitU64 Root;
-    WitU64 OwnedPages[WIT_USER_PAGE_CAPACITY];
-    WitU64 OwnedVirtual[WIT_USER_PAGE_CAPACITY]; /* Zero for page tables. */
-    WitUserReservation Reservations[WIT_USER_RESERVATION_CAPACITY];
-    WitU32 OwnedCount;
+    WitU64 OwnedPages[WIT_RUNTIME_PAGE_CAPACITY];
+    WitU64 OwnedVirtual[WIT_RUNTIME_PAGE_CAPACITY]; /* Zero for page tables. */
+    WitUserReservation Reservations[WIT_RUNTIME_RESERVATION_CAPACITY];
+    WitU32 OwnedCount,PageLimit,ReservationLimit;
+    WitU64 FixedLimit;
 } WitUserSpace;
 
 typedef enum WitUserState {
@@ -35,18 +36,28 @@ typedef enum WitUserThreadState {
 } WitUserThreadState;
 
 typedef enum WitUserWaitKind {
-    WitWaitNone, WitWaitJoin, WitWaitEvent, WitWaitSleep, WitWaitEvents
+    WitWaitNone, WitWaitJoin, WitWaitEvent, WitWaitSleep, WitWaitEvents, WitWaitObjects
 } WitUserWaitKind;
 
 typedef struct WitUserThread {
     WitUserThreadState State;
     WitU32 Detached;
+    WitU32 NativeId;
+    WitU32 SuspendCount;
+    WitUserExceptionInfo Exception;
+    WitUserExceptionInfo ExceptionParents[WIT_EXCEPTION_MAX_DEPTH-1];
+    WitU32 ExceptionDepth;
+    WitU32 NameLength;
+    WitU16 Name[WIT_THREAD_NAME_CAPACITY];
     WitU32 WaitingOn;
     WitU32 Joiner;
     WitUserWaitKind WaitKind;
     WitU64 WaitHandle;
     WitU64 WaitHandles[WIT_WAIT_ANY_CAPACITY];
     WitU32 WaitCount;
+    WitU32 WaitAll,WaitAlertable;
+    WitUserApc Apcs[WIT_APC_CAPACITY];
+    WitU32 ApcCount;
     WitU64 Deadline;
     WitU32 MonotonicWait; /* 0: delivered PIT ticks; 1: monotonic counter. */
     WitU64 WaitOrder;
@@ -59,6 +70,14 @@ typedef struct WitUserThread {
     WitInterruptContext *Context;
 } WitUserThread;
 
+/* References retain terminal identity/exit metadata, never reaped user pages. */
+typedef struct WitUserThreadReference {
+    WitU64 Handle,ThreadId,ExitCode;
+    WitU32 Rights,Exited;
+} WitUserThreadReference;
+
+typedef struct WitUserStackLease { WitU64 Token,OwnerId,ThreadId; } WitUserStackLease;
+
 typedef struct WitUserProcess {
     WitUserSpace Space;
     WitHandleTable Handles;
@@ -67,7 +86,9 @@ typedef struct WitUserProcess {
     WitU32 Slot;
     WitUserState State;
     WitU32 Writes;
-    WitU64 Ticks;
+    WitU32 RandomRequests;
+    WitU64 RandomBytes;
+    WitU64 Ticks,TickLimit;
     WitU64 ExitCode;
     WitU64 ImageBase;
     WitU64 ImageEntry;
@@ -80,7 +101,19 @@ typedef struct WitUserProcess {
     WitU64 FaultRip;
     WitU64 FaultCs;
     WitU64 FaultSs;
+    WitUserStackLease StackLeases[WIT_STACK_LEASE_CAPACITY];
     WitUserThread Threads[WIT_USER_THREAD_CAPACITY];
+    WitUserThreadReference ThreadReferences[WIT_RUNTIME_HANDLE_CAPACITY];
+    WitU64 ExceptionCallback;
+    WitU32 RequireThreadCompletion;
+    WitU64 AbruptThreadId,AbruptThreadCode,OrderlyThreadExits;
+    WitU64 MemoryCommitFailures;
+    WitU64 ForeignObjectWaitSuspends;
+    WitU64 ReferenceThreadCapacityFailures;
+    WitU64 HardwareNullReads,HardwareNullWrites,HardwareDivideFaults,HardwareIllegalFaults,ExceptionContinuations;
+    WitU64 FatalOwner;
+    WitUserFatalInfo Fatal;
+    WitU32 FatalArmed;
     WitU32 CurrentThread;
     WitU32 FaultThread;
     WitU64 ProcessWriteBarriers;
@@ -94,7 +127,7 @@ typedef struct WitUserProcess {
     WitU64 ThreadDeadlocks;
     WitU64 NextWaitOrder;
     WitU32 MemoryPressureLow;
-    WitU64 MemoryPressureEvents[WIT_EVENT_CAPACITY];
+    WitU64 MemoryPressureEvents[WIT_RUNTIME_EVENT_CAPACITY];
     WitU64 EventParks;
     WitU64 EventWakes;
     WitU64 WaitTimeouts;
@@ -103,10 +136,59 @@ typedef struct WitUserProcess {
     WitU64 IdleTicks;
 } WitUserProcess;
 
+void wit_user_exception_initialize(WitUserProcess*);
+void wit_user_exception_clear(WitUserThread*);
+WitU64 wit_user_exception_begin(WitUserProcess*,WitU64,WitU64,WitU64,WitU64*);
+WitU64 wit_user_exception_register(WitUserProcess*,WitU64,WitU64,WitU64);
+WitU64 wit_user_exception_query(WitUserProcess*,WitU64,WitU64,WitU64);
+WitU64 wit_user_exception_continue(WitUserProcess*,WitU64,WitU64,WitU64);
+WitU64 wit_user_exception_unwind(WitUserProcess*,WitU64,WitU64,WitU64);
+int wit_user_exception_deliver(WitUserProcess*,WitInterruptContext*,WitU64,WitU64,WitU64);
+WitInterruptContext* wit_x64_user_exception(WitInterruptContext*,WitU64,WitU64,WitU64);
+void wit_user_context_snapshot(WitThreadContext*,const WitUserThread*,const WitInterruptContext*);
+WitU64 wit_user_context_validate(WitUserProcess*,WitUserThread*,const WitThreadContext*,int);
+void wit_user_context_commit(WitInterruptContext*,const WitThreadContext*);
+void wit_user_stack_leases_initialize(WitUserProcess*);
+void wit_user_stack_leases_exit(WitUserProcess*,WitU64);
+int wit_user_stack_leases_owned(const WitUserProcess*,WitU64);
+int wit_user_stack_leased(const WitUserProcess*,WitU64,int);
+WitU64 wit_user_stack_lease_acquire(WitUserProcess*,WitU64,WitU64,WitU64);
+WitU64 wit_user_stack_lease_query(WitUserProcess*,WitU64,WitU64,WitU64);
+WitU64 wit_user_stack_lease_release(WitUserProcess*,WitU64);
+WitU64 wit_user_thread_context_metadata(WitUserProcess*,WitU64,WitU64,WitU64);
+WitU64 wit_user_thread_context_set(WitUserProcess*,WitU64,WitU64,WitU64);
+WitU64 wit_user_thread_context_restore(WitUserProcess*,WitU64,WitU64,WitU64);
+WitU64 wit_user_thread_context_get(WitUserProcess*,WitU64,WitU64,WitU64);
+WitU64 wit_user_cpu_context_query(WitUserProcess*,WitU64,WitU64,WitU64);
+void wit_user_thread_name_clear(WitUserThread*);
+WitU64 wit_user_thread_name_set(WitUserProcess*,WitU64,WitU64,WitU64);
+WitU64 wit_user_thread_name_query(WitUserProcess*,WitU64,WitU64,WitU64);
+void wit_user_suspend_deadline_self_test(void);
+WitU64 wit_user_thread_suspend(WitUserProcess*,WitU64,int,WitU64*);
+void wit_user_wait_complete(WitUserThread*,WitU64,WitU64);
+void wit_user_wait_objects_changed(WitUserProcess*);
+void wit_user_wait_handle_closed(WitUserProcess*,WitU64);
+void wit_user_apc_initialize(WitUserThread*);
+WitU64 wit_user_apc_queue(WitUserProcess*,WitU64,WitU64,WitU64);
+WitU64 wit_user_apc_dequeue(WitUserProcess*,WitU64,WitU64);
+WitU64 wit_user_objects_poll(WitUserProcess*,const WitU64*,WitU32,int,int,WitU64*);
+WitU64 wit_user_object_wait(WitUserProcess*,WitU64,WitU64,WitU64,WitU64,WitU64*);
+WitU64 wit_user_reference_target(WitUserProcess*,WitU64,WitU32,WitUserThread**);
+WitU64 wit_user_reference_signaled(WitUserProcess*,WitU64,int*);
+void wit_user_references_initialize(WitUserProcess*);
+void wit_user_references_exit(WitUserProcess*,WitU64,WitU64);
+WitU64 wit_user_reference_duplicate(WitUserProcess*,WitU64,WitU64,WitU64);
+WitU64 wit_user_reference_query(WitUserProcess*,WitU64,WitU64,WitU64);
+WitU64 wit_user_reference_close(WitUserProcess*,WitU64);
+
+int wit_user_space_create_profile(WitUserSpace*,WitPageAllocator*,int);
 int wit_user_space_create(WitUserSpace *space, WitPageAllocator *allocator);
 int wit_user_space_map(WitUserSpace *space, WitU64 address, int writable, int executable);
 WitU64 wit_user_space_physical(const WitUserSpace *space, WitU64 address, int write, int execute);
 int wit_user_copy_from(const WitUserSpace *space, WitU64 address, WitU8 *buffer, WitU32 size);
+WitU64 wit_user_console_write(WitUserProcess*,WitU64,WitU64,WitU64);
+int wit_user_buffer_readable(const WitUserSpace*,WitU64,WitU32);
+int wit_user_buffer_writable(const WitUserSpace*,WitU64,WitU32);
 int wit_user_copy_to(const WitUserSpace *space, WitU64 address, const WitU8 *buffer, WitU32 size);
 WitU64 wit_user_memory_query(const WitUserSpace *space, WitU64 address, WitU64 size, WitU64 version);
 void wit_user_space_destroy(WitUserSpace *space);
@@ -119,6 +201,8 @@ WitU64 wit_user_memory_protect(WitUserSpace *space, WitU64 address, WitU64 size,
 WitU64 wit_user_memory_release(WitUserSpace *space, WitU64 address);
 void wit_user_memory_self_test(WitPageAllocator *pages);
 void wit_user_thread_self_test(WitPageAllocator *pages);
+void wit_user_native_id_self_test(void);
+void wit_user_runtime_unwind_metadata_self_test(WitPageAllocator*);
 void wit_user_wait_self_test(WitPageAllocator *pages);
 void wit_user_image_self_test(WitPageAllocator *pages);
 void wit_user_bootstrap_self_test(WitPageAllocator *pages);
@@ -131,11 +215,15 @@ void wit_user_pal_services_self_test(WitPageAllocator *pages);
 void wit_user_wait_any_self_test(WitPageAllocator *pages);
 void wit_user_pressure_self_test(WitPageAllocator *pages);
 int wit_user_capture_tls(WitUserProcess *process, const WitPeImage *image);
+WitU64 wit_user_thread_create_reference(WitUserProcess* process,WitU64 input,WitU64 size,WitU64* result);
 WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument, WitU64 flags);
 WitU64 wit_virtual_kernel_root(void);
 
 int wit_user_create(WitUserProcess *process, WitPageAllocator *allocator,
     WitU32 slot, const WitU8 *code, WitU32 code_size);
+WitPeStatus wit_user_create_pe_profile(WitUserProcess*,WitPageAllocator*,WitU32,const WitU8*,WitU32,WitU64,const char*,WitU32);
+WitPeStatus wit_user_create_named_pe(WitUserProcess *process, WitPageAllocator *allocator,
+    WitU32 slot, const WitU8 *file, WitU32 size, WitU64 base, const char *resource_name);
 WitPeStatus wit_user_create_pe(WitUserProcess *process, WitPageAllocator *allocator,
     WitU32 slot, const WitU8 *file, WitU32 size, WitU64 base);
 int wit_user_image_map(WitUserSpace *space, const WitU8 *file, const WitPeImage *plan, WitU64 base);
@@ -145,6 +233,7 @@ void wit_user_pal_module_self_test(WitPageAllocator *pages);
 void wit_user_pal_environment_self_test(WitPageAllocator *pages);
 void wit_user_process_exit_self_test(WitPageAllocator *pages);
 void wit_user_runtime_config_self_test(WitPageAllocator *pages);
+void wit_user_runtime_boot_test(WitPageAllocator *pages);
 void wit_user_pal_background_self_test(WitPageAllocator *pages);
 void wit_user_pal_error_self_test(WitPageAllocator *pages);
 void wit_user_run(WitUserProcess *process);

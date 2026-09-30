@@ -8,8 +8,11 @@ function(witos_select_gc_environment)
     endif()
     # Explicit initial WitOS diagnostics profile; Windows reference is unchanged.
     # Use upstream's supported disable switch across all workstation objects.
+    # Supported upstream target properties: no Windows CFG loader in this profile.
+    set_property(TARGET Runtime.WorkstationGC aotminipal PROPERTY CLR_CONTROL_FLOW_GUARD OFF)
+    set_property(TARGET Runtime.WorkstationGC aotminipal PROPERTY CLR_EH_CONTINUATION OFF)
     target_compile_definitions(Runtime.WorkstationGC PRIVATE NO_STRESS_LOG)
-    target_include_directories(Runtime.WorkstationGC BEFORE PRIVATE "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/include")
+    target_include_directories(Runtime.WorkstationGC BEFORE PRIVATE "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/include" "${WITOS_SOURCE_ROOT}/artifacts/runtime-unwind")
     get_target_property(sources Runtime.WorkstationGC SOURCES)
     set(windows_gc "${CLR_DIR}/gc/windows/gcenv.windows.cpp")
     set(matches 0)
@@ -22,7 +25,59 @@ function(witos_select_gc_environment)
         message(FATAL_ERROR "Expected exactly one upstream Windows GC environment source")
     endif()
     list(REMOVE_ITEM sources "${windows_gc}")
-    list(APPEND sources "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/gcenv.witos.cpp"
+    list(APPEND sources "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_exception_x64.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/seh_security.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/seh_scope.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/seh_validation.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/failfast_exception.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_exception.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_exception.asm"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/unwind_scope.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/unwind_guest.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/unwind_checked.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/unwind_validation.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/artifacts/runtime-unwind/unwinder.checked.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_unwind.asm"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_context.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_suspend.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_suspend.asm"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_context_storage.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/gc_policy.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/gc_policy.asm"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_com.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_com.asm"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_diagnostics.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_diagnostics.asm"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_thread_name.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_module.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_module.asm"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_encoding.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_encoding.asm"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_console.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_processor.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_console.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_processor.asm"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_wait.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_wait.asm"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_thread_handles.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_thread_create.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_thread_handles.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_thread_create.asm"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_services.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_services.asm"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_memory.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_memory.asm"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_random.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_random.asm"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/security_cookie.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/security_handler.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/security_cookie.asm"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_format.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/format_fixed.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_format.asm"
+        "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/log.openlibm.c"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_math.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/gcenv.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/gc_affinity.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/gc_events.witos.cpp" "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/gc_time.witos.cpp")
     set(crst "${CLR_DIR}/nativeaot/Runtime/Crst.cpp")
@@ -47,6 +102,8 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_init.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_events.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_threads.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_attach.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_hijack.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/System.Native/thread.c"
         "${WITOS_SOURCE_ROOT}/src/System.Native/image.c"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_module.witos.cpp"
@@ -69,8 +126,32 @@ function(witos_select_gc_environment)
     string(REGEX REPLACE "^#define WIT_TLS_LAST_ERROR_OFFSET ([0-9]+)U$" "\\1" error_offset "${error_line}")
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/witos-abi")
     file(WRITE "${CMAKE_BINARY_DIR}/witos-abi/user_abi.inc" "WIT_TLS_LAST_ERROR_OFFSET EQU ${error_offset}\n")
-    set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_error.asm"
+    file(STRINGS "${WITOS_SOURCE_ROOT}/src/Kernel/include/witos/user_abi.h" fatal_line REGEX "^#define WIT_CALL_FATAL_ARM [0-9]+U$")
+    list(LENGTH fatal_line fatal_lines)
+    if(NOT fatal_lines EQUAL 1)
+        message(FATAL_ERROR "Missing or ambiguous fatal arm ABI")
+    endif()
+    string(REGEX REPLACE "^#define WIT_CALL_FATAL_ARM ([0-9]+)U$" "\\1" fatal_call "${fatal_line}")
+    file(APPEND "${CMAKE_BINARY_DIR}/witos-abi/user_abi.inc" "WIT_CALL_FATAL_ARM EQU ${fatal_call}\n")
+    set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_exception.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_suspend.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/gc_policy.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_com.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_diagnostics.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_module.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_encoding.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_console.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_processor.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_wait.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_thread_handles.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_thread_create.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_services.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_memory.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_random.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/security_cookie.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_error.asm"
         "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_clock.asm"
+        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_format.asm"
         "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/native_environment.asm"
         "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/chkstk.asm"
         TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES LANGUAGE ASM_MASM
@@ -87,6 +168,26 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/crt_memory.witos.c")
     set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/crt_memory.witos.c"
         TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES COMPILE_OPTIONS "/std:c17;/O1")
+    foreach(pair IN ITEMS "GCHelpers.cpp|gchelpers.witos.cpp" "FinalizerHelpers.cpp|finalizerhelpers.witos.cpp" "gcenv.ee.cpp|gcenv.ee.witos.cpp")
+        string(REPLACE "|" ";" parts "${pair}")
+        list(GET parts 0 original)
+        list(GET parts 1 adapted)
+        set(old_source "${CLR_DIR}/nativeaot/Runtime/${original}")
+        list(FIND sources "${old_source}" source_index)
+        if(source_index EQUAL -1)
+            message(FATAL_ERROR "Pinned runtime startup diagnostic source missing: ${original}")
+        endif()
+        list(REMOVE_ITEM sources "${old_source}")
+        list(APPEND sources "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/${adapted}")
+    endforeach()
+    set(old_workstation "${CLR_DIR}/gc/gcwks.cpp")
+    list(FIND sources "${old_workstation}" workstation_index)
+    if(workstation_index EQUAL -1)
+        message(FATAL_ERROR "Pinned workstation collector missing")
+    endif()
+    list(REMOVE_ITEM sources "${old_workstation}")
+    list(APPEND sources "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/gcwks.witos.cpp")
+    target_include_directories(Runtime.WorkstationGC PRIVATE "${CLR_DIR}/gc")
     set(old_allocheap "${CLR_DIR}/nativeaot/Runtime/allocheap.cpp")
     list(FIND sources "${old_allocheap}" allocheap_index)
     if(allocheap_index EQUAL -1)
@@ -124,9 +225,38 @@ function(witos_select_gc_environment)
     list(APPEND sources "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/startup.witos.cpp")
     set_property(TARGET Runtime.WorkstationGC PROPERTY SOURCES "${sources}")
 
-    set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/fatal.witos.cpp"
+    # Cookie initialization and its check/handler cannot themselves depend on
+    # an initialized cookie or recursively invoke GS while validating a frame.
+    set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_console.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_processor.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_wait.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_thread_handles.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_thread_create.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_services.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_memory.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_random.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/security_cookie.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/security_handler.witos.cpp"
+        TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES COMPILE_OPTIONS "/Od;/GS-")
+    set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/failfast_exception.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/fatal.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_clock.witos.cpp"
         TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES COMPILE_OPTIONS "/Od;/GS-")
+    # Preserve production GS while avoiding optimizer-generated chained unwind
+    # in the exact native heap object executed by the bounded guest fixtures.
+    set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_context.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_suspend.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_context_storage.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/gc_policy.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_com.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_diagnostics.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_new.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_thread_name.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_module.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_encoding.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_events.witos.cpp"
+        TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES COMPILE_OPTIONS "/Od")
+    set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_context.witos.cpp" TARGET_DIRECTORY WitOS.ConfigProbe PROPERTIES COMPILE_OPTIONS "/Od")
     get_target_property(minipal_sources aotminipal SOURCES)
     list(FIND minipal_sources "mutex.c" mutex_index)
     if(mutex_index EQUAL -1)
@@ -155,7 +285,11 @@ function(witos_select_gc_environment)
     set_property(TARGET aotminipal PROPERTY SOURCES "${minipal_sources}")
     target_include_directories(aotminipal PRIVATE "${WITOS_SOURCE_ROOT}/src/System.Native"
         "${WITOS_SOURCE_ROOT}/src/Kernel/include")
-    target_include_directories(Runtime.WorkstationGC PRIVATE
+    set_source_files_properties("${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/log.openlibm.c"
+        TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES COMPILE_OPTIONS "/std:c17;/fp:strict;/Od;/GS-")
+    set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_math.witos.cpp"
+        TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES COMPILE_OPTIONS "/fp:strict;/Od;/GS-")
+    target_include_directories(Runtime.WorkstationGC PRIVATE "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot"
         "${WITOS_SOURCE_ROOT}/src/System.Native" "${WITOS_SOURCE_ROOT}/src/Kernel/include")
     file(WRITE "${CMAKE_BINARY_DIR}/witos-runtime-sources.txt" "${sources}\n")
     message(STATUS "WitOS: replaced workstation GC environment, Release Crst and minipal mutex; missing methods remain undefined")
@@ -192,9 +326,43 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_cpu.cpp"
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_clock.cpp"
         "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_fatal.cpp"
-        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_affinity.cpp")
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_affinity.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_math.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_format.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/format_fixed.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_format.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_security.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_random.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_memory.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_services.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_thread_references.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_object_wait.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_console.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_encoding.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_module_names.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_thread_names.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_diagnostics.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_com.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_gc_policy.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_context_set.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_stack_lease.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_unwind.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_exception.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_vectored.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_raise.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_failfast.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_seh.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/unwind_scope.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_suspend.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_context_capture.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_context.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_context_storage.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/pal_context_storage.witos.cpp")
     set_source_files_properties("${WITOS_SOURCE_ROOT}/tests/User.X64/runtime_stack.cpp"
         TARGET_DIRECTORY WitOS.ConfigProbe PROPERTIES COMPILE_OPTIONS "/Gs4096")
+    set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/native_format.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/format_fixed.witos.cpp"
+        TARGET_DIRECTORY WitOS.ConfigProbe PROPERTIES COMPILE_OPTIONS "/Od")
     foreach(config_source IN LISTS config_sources)
         if(NOT EXISTS "${config_source}")
             message(FATAL_ERROR "Run runtime-source to prepare the pinned configuration sources")

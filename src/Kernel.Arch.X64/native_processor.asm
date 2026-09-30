@@ -1,0 +1,12 @@
+option casemap:none
+EXTERN wit_native_processor_number:PROC
+.code
+PUBLIC GetCurrentProcessorNumberEx
+GetCurrentProcessorNumberEx PROC
+ jmp wit_native_processor_number
+GetCurrentProcessorNumberEx ENDP
+.const
+ALIGN 8
+PUBLIC __imp_GetCurrentProcessorNumberEx
+__imp_GetCurrentProcessorNumberEx DQ GetCurrentProcessorNumberEx
+END

@@ -1,12 +1,14 @@
 #include "user.h"
+#include "witos/platform.h"
 
-static void wake(WitUserThread *thread, WitU64 status, WitU64 index)
+void wit_user_wait_complete(WitUserThread *thread, WitU64 status, WitU64 index)
 {
     thread->Context->Rax = status;
     thread->Context->Rdx = index;
     thread->WaitKind = WitWaitNone;
     thread->WaitHandle = 0;
     thread->WaitCount = 0;
+    thread->WaitAll=0;thread->WaitAlertable=0;
     for (WitU32 i = 0; i < WIT_WAIT_ANY_CAPACITY; ++i) thread->WaitHandles[i] = 0;
     thread->Deadline = WIT_WAIT_INFINITE;
     thread->MonotonicWait = 0;
@@ -18,12 +20,12 @@ static void expire(WitUserProcess *process, WitU64 now, WitU32 monotonic)
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
         WitUserThread *thread = &process->Threads[i];
         if (thread->State != WitThreadWaiting || thread->MonotonicWait != monotonic ||
-            (thread->WaitKind != WitWaitEvent && thread->WaitKind != WitWaitEvents && thread->WaitKind != WitWaitSleep) ||
+            (thread->WaitKind != WitWaitEvent && thread->WaitKind != WitWaitEvents && thread->WaitKind != WitWaitObjects && thread->WaitKind != WitWaitSleep) ||
             thread->Deadline == WIT_WAIT_INFINITE || thread->Deadline > now) continue;
-        if (thread->WaitKind == WitWaitEvent || thread->WaitKind == WitWaitEvents) {
+        if (thread->WaitKind == WitWaitEvent || thread->WaitKind == WitWaitEvents || thread->WaitKind == WitWaitObjects) {
             ++process->WaitTimeouts;
-            wake(thread, WIT_STATUS_TIMED_OUT, 0);
-        } else wake(thread, WIT_STATUS_OK, 0);
+            wit_user_wait_complete(thread, WIT_STATUS_TIMED_OUT, 0);
+        } else wit_user_wait_complete(thread, WIT_STATUS_OK, 0);
     }
 }
 
@@ -38,6 +40,7 @@ static WitU64 sleep_at(WitUserProcess *process, WitU64 deadline, WitU64 now, Wit
     thread->WaitKind = WitWaitSleep;
     thread->WaitHandle = 0;
     thread->WaitCount = 0;
+    thread->WaitAll=0;thread->WaitAlertable=0;
     for (WitU32 i = 0; i < WIT_WAIT_ANY_CAPACITY; ++i) thread->WaitHandles[i] = 0;
     thread->Deadline = deadline;
     thread->MonotonicWait = monotonic;
@@ -59,6 +62,7 @@ static WitU64 event_at(WitUserProcess *process, WitU64 handle, WitU64 deadline, 
     }
     if (process->NextWaitOrder == ~0ULL) return WIT_STATUS_NO_MEMORY;
     thread->WaitCount = 0;
+    thread->WaitAll=0;thread->WaitAlertable=0;
     thread->WaitKind = WitWaitEvent;
     thread->WaitHandle = handle;
     thread->Deadline = deadline;
@@ -118,6 +122,7 @@ WitU64 wit_user_event_wait_any_until(WitUserProcess *process, WitU64 address, Wi
     thread->WaitHandle = 0;
     for (WitU32 i = 0; i < WIT_WAIT_ANY_CAPACITY; ++i) thread->WaitHandles[i] = i < count ? handles[i] : 0;
     thread->WaitCount = (WitU32)count;
+    thread->WaitAll=0;thread->WaitAlertable=0;
     thread->WaitKind = WitWaitEvents;
     thread->Deadline = deadline;
     thread->MonotonicWait = 1;
@@ -130,31 +135,44 @@ static int event_index(const WitUserThread *thread, WitU64 handle, WitU32 *index
 {
     if (thread->State != WitThreadWaiting) return 0;
     if (thread->WaitKind == WitWaitEvent && thread->WaitHandle == handle) { *index = 0; return 1; }
-    if (thread->WaitKind == WitWaitEvents)
+    if (thread->WaitKind == WitWaitEvents || thread->WaitKind == WitWaitObjects)
         for (WitU32 i = 0; i < thread->WaitCount; ++i)
             if (thread->WaitHandles[i] == handle) { *index = i; return 1; }
     return 0;
 }
-static void signal(WitUserProcess *process, WitEvent *event)
+static WitU64 poll(WitUserProcess* process,WitUserThread* thread,int consume,WitU64* winner)
 {
-    const WitU64 handle = event->Handle;
-    event->Signaled = 1;
-    for (;;) {
-        WitUserThread *first = 0;
-        WitU32 winner = 0;
-        for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
-            WitUserThread *thread = &process->Threads[i];
-            WitU32 index = 0;
-            if (event_index(thread, handle, &index) && (!first || thread->WaitOrder < first->WaitOrder)) {
-                first = thread;
-                winner = index;
-            }
+    if(thread->WaitKind==WitWaitEvent)return wit_user_objects_poll(process,&thread->WaitHandle,1,0,consume,winner);
+    return wit_user_objects_poll(process,thread->WaitHandles,thread->WaitCount,
+        thread->WaitKind==WitWaitObjects&&thread->WaitAll,consume,winner);
+}
+void wit_user_wait_objects_changed(WitUserProcess* process)
+{
+    for(;;){
+        WitUserThread* first=0;
+        for(WitU32 i=0;i<WIT_USER_THREAD_CAPACITY;++i){
+            WitUserThread* thread=&process->Threads[i];WitU64 winner=0;
+            if(thread->State!=WitThreadWaiting||(thread->WaitKind!=WitWaitEvent&&thread->WaitKind!=WitWaitEvents&&thread->WaitKind!=WitWaitObjects))continue;
+            const WitU64 status=poll(process,thread,0,&winner);
+            if(status!=WIT_STATUS_OK&&status!=WIT_STATUS_TIMED_OUT)wit_panic("Parked wait lost a validated object");
+            if(status==WIT_STATUS_OK&&(!first||thread->WaitOrder<first->WaitOrder))first=thread;
         }
-        if (!first) break;
-        (void)wit_event_consume(event);
-        wake(first, WIT_STATUS_OK, winner);
-        ++process->EventWakes;
-        if (!event->ManualReset) break;
+        if(!first)break;
+        WitU64 winner=0;
+        if(poll(process,first,1,&winner)!=WIT_STATUS_OK)wit_panic("Ready object wait changed under serialization");
+        wit_user_wait_complete(first,WIT_STATUS_OK,winner);++process->EventWakes;
+    }
+}
+static void signal(WitUserProcess* process,WitEvent* event)
+{
+    event->Signaled=1;wit_user_wait_objects_changed(process);
+}
+void wit_user_wait_handle_closed(WitUserProcess* process,WitU64 handle)
+{
+    for(WitU32 i=0;i<WIT_USER_THREAD_CAPACITY;++i){WitU32 index=0;
+        if(event_index(&process->Threads[i],handle,&index)){
+            wit_user_wait_complete(&process->Threads[i],WIT_STATUS_CLOSED,0);++process->WaitCloses;
+        }
     }
 }
 WitU64 wit_user_event_set(WitUserProcess *process, WitU64 handle)
@@ -188,13 +206,6 @@ WitU64 wit_user_event_close(WitUserProcess *process, WitU64 handle)
     WitEvent *event;
     const WitU64 status = wit_event_get(&process->Events, &process->Handles, handle, 0, &event);
     if (status != WIT_STATUS_OK) return status;
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
-        WitUserThread *thread = &process->Threads[i];
-        WitU32 index = 0;
-        if (event_index(thread, handle, &index)) {
-            wake(thread, WIT_STATUS_CLOSED, 0);
-            ++process->WaitCloses;
-        }
-    }
+    wit_user_wait_handle_closed(process,handle);
     return wit_event_remove(&process->Events, &process->Handles, handle);
 }

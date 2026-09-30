@@ -4,7 +4,8 @@
 #include "types.h"
 
 #define WIT_BOOT_MAGIC 0x574954424F4F5430ULL
-#define WIT_BOOT_VERSION 2U
+#define WIT_BOOT_VERSION 3U
+#define WIT_BOOT_SEED_BYTES 32U
 #define WIT_ARCH_X64 1U
 #define WIT_BOOT_SERVICES_EXITED 1ULL
 #define WIT_MAX_MEMORY_REGIONS 1024U
@@ -44,11 +45,16 @@ typedef struct WitBootInfo {
     WitU32 ImageSectionCount;
     WitU32 Reserved;
     const WitImageSection *ImageSections;
+    /* Boot adapter transfers a private writable seed buffer in its image.
+     * Kernel initialization consumes/wipes it; it is never exposed to users. */
+    WitU8 *EntropySeed;
+    WitU32 EntropySize;
+    WitU32 EntropyReserved;
 } WitBootInfo;
 
 _Static_assert(sizeof(void *) == 8, "The boot contract requires a 64-bit target");
 _Static_assert(sizeof(WitMemoryRegion) == 24, "Memory region ABI");
-_Static_assert(sizeof(WitBootInfo) == 72, "Boot info ABI");
+_Static_assert(sizeof(WitBootInfo) == 88, "Boot info ABI");
 
 WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot);
 

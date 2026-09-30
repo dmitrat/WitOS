@@ -4,7 +4,8 @@ void wit_handles_initialize(WitHandleTable *table, WitU32 owner)
 {
     table->Owner = owner;
     table->Count = 0;
-    for (WitU32 i = 0; i < WIT_HANDLE_CAPACITY; ++i) {
+    table->Limit = WIT_HANDLE_CAPACITY;
+    for (WitU32 i = 0; i < WIT_RUNTIME_HANDLE_CAPACITY; ++i) {
         table->Entries[i].Token = 0;
         table->Entries[i].Kind = 0;
         table->Entries[i].Rights = 0;
@@ -16,7 +17,7 @@ void wit_handles_initialize(WitHandleTable *table, WitU32 owner)
 WitU64 wit_handle_grant(WitHandleTable *table, WitU32 kind, WitU32 rights)
 {
     if (table->Owner == 0 || kind == 0) return 0;
-    for (WitU32 i = 0; i < WIT_HANDLE_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < table->Limit; ++i) {
         WitHandleEntry *entry = &table->Entries[i];
         if (!entry->Live && entry->Generation <= 0xFFFF) {
             entry->Token = ((WitU64)table->Owner << 32) |
@@ -35,7 +36,7 @@ static WitHandleEntry *lookup(WitHandleTable *table, WitU64 token)
 {
     const WitU32 slot = (WitU32)(token & 0xFFFF);
     WitHandleEntry *entry;
-    if ((token >> 32) != table->Owner || slot == 0 || slot > WIT_HANDLE_CAPACITY) return 0;
+    if ((token >> 32) != table->Owner || slot == 0 || slot > table->Limit) return 0;
     entry = &table->Entries[slot - 1];
     return entry->Live && entry->Token == token ? entry : 0;
 }
@@ -62,6 +63,6 @@ WitU64 wit_handle_close(WitHandleTable *table, WitU64 token)
 
 void wit_handles_close_all(WitHandleTable *table)
 {
-    for (WitU32 i = 0; i < WIT_HANDLE_CAPACITY; ++i)
+    for (WitU32 i = 0; i < table->Limit; ++i)
         if (table->Entries[i].Live) (void)wit_handle_close(table, table->Entries[i].Token);
 }

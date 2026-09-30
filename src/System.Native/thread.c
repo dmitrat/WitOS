@@ -60,6 +60,25 @@ WIT_NORETURN void wit_native_thread_exit(WitU64 code)
 {
     wit_native_tls_leave();
     wit_native_thread_notify_exit();
-    (void)wit_native_call(WIT_CALL_THREAD_EXIT, code, 0, 0, 0);
+    (void)wit_native_call(WIT_CALL_THREAD_COMPLETE, code, 0, 0, 0);
     wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+}
+
+WitU64 wit_native_thread_create_reference(WitNativeThreadMain entry,WitU64 argument,
+    WitU64 stack_bytes,WitU64 flags,WitU64 native_id_output,WitU64* reference)
+{
+    if(!reference)return WIT_STATUS_INVALID_ARGUMENT;
+    *reference=0;
+    if(flags&~(WitU64)WIT_THREAD_START_SUSPENDED)return WIT_STATUS_INVALID_ARGUMENT;
+    if(!wit_native_tls_code_pointer((WitU64)entry))return WIT_STATUS_BAD_ADDRESS;
+    lock();WitU32 slot;
+    for(slot=0;slot<4;++slot)if(!starts[slot].Entry)break;
+    if(slot==4){wit_native_unlock(&gate);return WIT_STATUS_NO_MEMORY;}
+    starts[slot].Argument=argument;starts[slot].Entry=entry;
+    WitThreadCreateRequest request={WIT_THREAD_CREATE_REFERENCE_VERSION,sizeof(request),
+        (WitU64)run,slot,stack_bytes,native_id_output,(WitU32)flags,0};
+    const WitU64 status=wit_native_call(WIT_CALL_THREAD_CREATE_REFERENCE,(WitU64)&request,sizeof(request),0,reference);
+    if(status!=WIT_STATUS_OK)starts[slot].Entry=0;
+    wit_native_unlock(&gate);
+    return status;
 }

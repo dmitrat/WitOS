@@ -1,0 +1,33 @@
+option casemap:none
+EXTERN wit_native_create_event_ex:PROC
+EXTERN wit_native_set_event:PROC
+EXTERN wit_native_wait_multiple:PROC
+EXTERN wit_native_queue_apc:PROC
+.code
+PUBLIC CreateEventExW
+CreateEventExW PROC
+ jmp wit_native_create_event_ex
+CreateEventExW ENDP
+PUBLIC SetEvent
+SetEvent PROC
+ jmp wit_native_set_event
+SetEvent ENDP
+PUBLIC WaitForMultipleObjectsEx
+WaitForMultipleObjectsEx PROC
+ jmp wit_native_wait_multiple
+WaitForMultipleObjectsEx ENDP
+PUBLIC QueueUserAPC
+QueueUserAPC PROC
+ jmp wit_native_queue_apc
+QueueUserAPC ENDP
+.const
+ALIGN 8
+PUBLIC __imp_CreateEventExW
+PUBLIC __imp_SetEvent
+PUBLIC __imp_WaitForMultipleObjectsEx
+PUBLIC __imp_QueueUserAPC
+__imp_CreateEventExW DQ CreateEventExW
+__imp_SetEvent DQ SetEvent
+__imp_WaitForMultipleObjectsEx DQ WaitForMultipleObjectsEx
+__imp_QueueUserAPC DQ QueueUserAPC
+END

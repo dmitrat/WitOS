@@ -14,7 +14,13 @@ internal static class RuntimeConfigProbe
     {
         var output = Path.Combine(root, "artifacts", "runtime-config", "source");
         Directory.CreateDirectory(output);
+        await NativeMathSources.PrepareAsync(root, generate: true);
         await RuntimeStartupSources.PrepareAsync(root, pin);
+        using(var contextClient=new HttpClient { Timeout=TimeSpan.FromMinutes(2) }) {
+            var header=pin.Sources.Single(s=>s.Path=="src/coreclr/nativeaot/Runtime/windows/NativeContext.h");
+            var verified=await RuntimeExperiment.FetchAsync(contextClient,Path.Combine(root,".tools/runtime-audit"),"runtime",pin.RuntimeCommit,header.Path,header.Sha256);
+            File.Copy(verified,Path.Combine(root,"artifacts/runtime-config/include/NativeContext.h"),overwrite:true);
+        }
         using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
         async Task<string> Read(string path)
         {
@@ -59,7 +65,33 @@ internal static class RuntimeConfigProbe
         const string startupPath = "src/coreclr/nativeaot/Runtime/startup.cpp";
         var startup = ReplaceOne(await Read(startupPath), "    atexit(&OnProcessExit);",
             "    if (atexit(&OnProcessExit) != 0) return false;");
+        startup = ReplaceOne(startup, "    AddVectoredExceptionHandler(1, RhpVectoredExceptionHandler);", "    if (AddVectoredExceptionHandler(1, RhpVectoredExceptionHandler) == NULL) return false;");
+        foreach(var condition in new[]{"InterfaceDispatch_Initialize()","RestrictedCallouts::Initialize()","RuntimeInstance::Initialize(hPalInstance)","InitializeGC()","DetectCPUFeatures()","PalInit()","InitDLL(PalGetModuleHandleFromPointer((void*)&RhInitialize))"})
+            startup=ReplaceOne(startup,"    if (!"+condition+")\n        return false;",
+                "    if (!"+condition+") { PalPrintFatalError(\"WitOS startup failure: "+condition+"\\n\"); return false; }");
         await File.WriteAllTextAsync(Path.Combine(output, "startup.witos.cpp"), startup);
+        var gcHelpers=await Read("src/coreclr/nativeaot/Runtime/GCHelpers.cpp");
+        foreach(var condition in new[]{"RhInitializeFinalization()","GCHandleUtilities::GetGCHandleManager()->Initialize()","RhWaitForFinalizerThreadStart()"})
+            gcHelpers=ReplaceOne(gcHelpers,"    if (!"+condition+")\n        return false;",
+                "    if (!"+condition+") { PalPrintFatalError(\"WitOS GC startup failure: "+condition+"\\n\"); return false; }");
+        foreach(var call in new[]{"HRESULT hr = GCHeapUtilities::InitializeGC();","hr = g_pGCHeap->Initialize();"})
+            gcHelpers=ReplaceOne(gcHelpers,"    "+call+"\n    if (FAILED(hr))\n        return false;",
+                "    "+call+"\n    if (FAILED(hr)) { PalPrintFatalError(\"WitOS GC startup failure: "+call+"\\n\"); return false; }");
+        await File.WriteAllTextAsync(Path.Combine(output,"gchelpers.witos.cpp"),gcHelpers);
+        var finalizers=await Read("src/coreclr/nativeaot/Runtime/FinalizerHelpers.cpp");
+        foreach(var condition in new[]{"g_FinalizerEvent.CreateAutoEventNoThrow(false)","g_FinalizerDoneEvent.CreateManualEventNoThrow(false)","PalStartFinalizerThread(FinalizerStart, (void*)g_FinalizerEvent.GetOSEvent())"})
+            finalizers=ReplaceOne(finalizers,"    if (!"+condition+")\n        return false;",
+                "    if (!"+condition+") { PalPrintFatalError(\"WitOS finalizer startup failure: "+condition+"\\n\"); return false; }");
+        finalizers=ReplaceOne(finalizers,"    if (!g_ComAndFlsInitSucceeded)\n        return 0;",
+            "    if (!g_ComAndFlsInitSucceeded) { PalPrintFatalError(\"WitOS finalizer PAL init failed\\n\"); return 0; }");
+        await File.WriteAllTextAsync(Path.Combine(output,"finalizerhelpers.witos.cpp"),finalizers);
+        var collector=await Read("src/coreclr/gc/gc.cpp");
+        collector=ReplaceOne(collector,"        if ((element != total_bookkeeping_elements) && (sizes[element] != 0))",
+            "        // Preserve a page boundary for the commit clamp even when the mark array is empty.\n"+
+            "        if ((element == total_bookkeeping_elements)\n#ifdef BACKGROUND_GC\n            || (element == mark_array_element)\n#endif\n            || (sizes[element] != 0))");
+        await File.WriteAllTextAsync(Path.Combine(output,"gc.witos.cpp"),collector);
+        var workstation=ReplaceOne(await Read("src/coreclr/gc/gcwks.cpp"),"#include \"gc.cpp\"","#include \"gc.witos.cpp\"");
+        await File.WriteAllTextAsync(Path.Combine(output,"gcwks.witos.cpp"),workstation);
         const string rhPath = "src/coreclr/nativeaot/Runtime/RhConfig.cpp";
         const string gcPath = "src/coreclr/gc/gcconfig.cpp";
         const string eePath = "src/coreclr/nativeaot/Runtime/gcenv.ee.cpp";
@@ -88,17 +120,20 @@ internal static class RuntimeConfigProbe
             Slice(ee, "bool GCToEEInterface::GetBooleanConfigValue(", "void GCToEEInterface::LogErrorToHost(") +
             Slice(ee, "bool GCToEEInterface::GetStringConfigValue(", "void GCToEEInterface::TriggerClientBridgeProcessing(");
         await File.WriteAllTextAsync(Path.Combine(output, "gcenv.config.slice.cpp"), selected);
+        var diagnosticEe=ReplaceOne(ee,"void GCToEEInterface::LogErrorToHost(const char *message)\n{\n}",
+            "void GCToEEInterface::LogErrorToHost(const char *message)\n{\n    PalPrintFatalError(message);\n    PalPrintFatalError(\"\\n\");\n}");
+        await File.WriteAllTextAsync(Path.Combine(output,"gcenv.ee.witos.cpp"),diagnosticEe);
         await File.WriteAllTextAsync(Path.Combine(output, "provenance.json"), JsonSerializer.Serialize(new
         {
             pin.RuntimeCommit,
-            scope = "Whole RhConfig with explicit allocation-failure checks; unchanged GCConfig prefix and affinity parser bodies and four unchanged GCToEE configuration methods. Startup checks atexit failure; whole AllocHeap destroys its Crst; selected dispatch initialization/allocation method bodies remain unchanged; full dispatch dependencies retained outside this probe. No collector/lifecycle substitutes.",
-            inputs = pin.Sources.Where(s => s.Path == rhPath || s.Path == gcPath || s.Path == eePath || s.Path == startupPath || s.Path == allocPath || s.Path == dispatchPath || s.Path == dispatchAotPath || s.Path == "src/coreclr/nativeaot/Runtime/allocheap.h"),
-            generated = new[] { "allocheap.witos.cpp", "dispatch.shared.slice.cpp", "dispatch.aot.slice.cpp", "startup.witos.cpp", "rhconfig.witos.cpp", "gcconfig.slice.cpp", "gcaffinity.slice.cpp", "gcenv.config.slice.cpp" }
+            scope = "Full pinned GC preserves page alignment of the empty mark-array boundary and total bookkeeping extent; GCHelpers/FinalizerHelpers add failure-only diagnostics and GCToEE LogErrorToHost uses bounded console output. Whole RhConfig with explicit allocation-failure checks; unchanged GCConfig prefix and affinity parser bodies and four unchanged GCToEE configuration methods. Startup checks atexit and vectored-handler registration failure; whole AllocHeap destroys its Crst; selected dispatch initialization/allocation method bodies remain unchanged; full dispatch dependencies retained outside this probe. No collector/lifecycle substitutes.",
+            inputs = pin.Sources.Where(s => s.Path == rhPath || s.Path == gcPath || s.Path == eePath || s.Path == startupPath || s.Path == allocPath || s.Path == dispatchPath || s.Path == dispatchAotPath || s.Path == "src/coreclr/nativeaot/Runtime/allocheap.h" || s.Path == "src/coreclr/nativeaot/Runtime/GCHelpers.cpp" || s.Path == "src/coreclr/nativeaot/Runtime/FinalizerHelpers.cpp" || s.Path == "src/coreclr/gc/gc.cpp" || s.Path == "src/coreclr/gc/gcwks.cpp"),
+            generated = new[] { "gc.witos.cpp", "gcwks.witos.cpp", "gcenv.ee.witos.cpp", "gchelpers.witos.cpp", "finalizerhelpers.witos.cpp", "allocheap.witos.cpp", "dispatch.shared.slice.cpp", "dispatch.aot.slice.cpp", "startup.witos.cpp", "rhconfig.witos.cpp", "gcconfig.slice.cpp", "gcaffinity.slice.cpp", "gcenv.config.slice.cpp" }
                 .Select(p => new { file = p, sha256 = Hash(Path.Combine(output, p)) })
         }, Json));
     }
 
-    public static async Task VerifyArchiveAsync(string root, string obj, string msvc, string minipalArchive, string memoryObject, string stackObject, string clockObject, string clockBinding, string fatalObject, string affinityObject)
+    public static async Task VerifyArchiveAsync(string root, string obj, string msvc, string minipalArchive, string memoryObject, string stackObject, string clockObject, string clockBinding, string fatalObject, string affinityObject, string mathObject, string logObject, NativePlatformObjects securityObjects)
     {
         var output = Path.Combine(root, "artifacts", "runtime-config");
         var archive = Path.Combine(obj, "witos-config", "WitOS.ConfigProbe.lib");
@@ -107,9 +142,9 @@ internal static class RuntimeConfigProbe
         var members = listing.Output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
         var all = JsonSerializer.Deserialize<JsonElement[]>(await File.ReadAllTextAsync(Path.Combine(obj, "compile_commands.json")), Json)!;
         var commands = all.Where(c => c.GetProperty("output").GetString()!.Replace('\\', '/').Contains("/WitOS.ConfigProbe.dir/", StringComparison.Ordinal)).ToArray();
-        string[] names = ["rhconfig.witos.cpp", "gcconfig.slice.cpp", "gcaffinity.slice.cpp", "gcenv.config.slice.cpp", "runtime_config.cpp", "pal_init.witos.cpp", "allocheap.witos.cpp", "dispatch.shared.slice.cpp", "dispatch.aot.slice.cpp", "runtime_allocator.cpp", "startup.objects.slice.cpp", "runtime_instance.cpp", "runtime_barrier.cpp", "runtime_time.cpp", "runtime_crt.cpp", "runtime_stack.cpp", "runtime_cpu.cpp", "runtime_clock.cpp", "runtime_fatal.cpp", "runtime_affinity.cpp"];
+        string[] names = ["rhconfig.witos.cpp", "gcconfig.slice.cpp", "gcaffinity.slice.cpp", "gcenv.config.slice.cpp", "runtime_config.cpp", "pal_init.witos.cpp", "allocheap.witos.cpp", "dispatch.shared.slice.cpp", "dispatch.aot.slice.cpp", "runtime_allocator.cpp", "startup.objects.slice.cpp", "runtime_instance.cpp", "runtime_barrier.cpp", "runtime_time.cpp", "runtime_crt.cpp", "runtime_stack.cpp", "runtime_cpu.cpp", "runtime_clock.cpp", "runtime_fatal.cpp", "runtime_affinity.cpp", "runtime_math.cpp", "native_format.witos.cpp", "format_fixed.witos.cpp", "runtime_format.cpp", "runtime_security.cpp", "runtime_random.cpp", "runtime_memory.cpp", "runtime_services.cpp", "runtime_thread_references.cpp", "runtime_object_wait.cpp", "runtime_console.cpp", "runtime_encoding.cpp", "runtime_module_names.cpp", "runtime_thread_names.cpp", "runtime_diagnostics.cpp", "runtime_com.cpp", "runtime_gc_policy.cpp", "runtime_context_storage.cpp", "runtime_context_capture.cpp", "runtime_suspend.cpp", "runtime_context_set.cpp", "runtime_stack_lease.cpp", "runtime_unwind.cpp", "runtime_exception.cpp", "runtime_vectored.cpp", "runtime_raise.cpp", "runtime_failfast.cpp", "runtime_seh.cpp", "unwind_scope.witos.cpp", "pal_context.witos.cpp", "pal_context_storage.witos.cpp"];
         if (members.Length != names.Length || commands.Length != names.Length)
-            throw new InvalidDataException("Configuration probe must contain exactly the selected seventeen objects.");
+            throw new InvalidDataException("Configuration probe must contain exactly the selected source objects.");
         foreach (var name in names)
         {
             var command = commands.Single(c => Path.GetFileName(c.GetProperty("file").GetString()!) == name);
@@ -118,6 +153,12 @@ internal static class RuntimeConfigProbe
                 throw new InvalidDataException("Configuration probe must match the WitOS NO_STRESS_LOG profile.");
             NativeObject.VerifyArchive(archive, Path.GetFullPath(command.GetProperty("output").GetString()!, command.GetProperty("directory").GetString()!));
         }
+        if(!commands.Single(c=>Path.GetFileName(c.GetProperty("file").GetString()!)=="unwind_scope.witos.cpp").GetProperty("command").GetString()!.Contains("/GS-",StringComparison.Ordinal))
+            throw new InvalidDataException("Unwind scope probe must remain explicitly distinct from the protected production object until guest handler execution.");
+        var contextStorageCommand=commands.Single(c=>Path.GetFileName(c.GetProperty("file").GetString()!)=="pal_context_storage.witos.cpp");
+        if(!contextStorageCommand.GetProperty("command").GetString()!.Contains("/GS-",StringComparison.Ordinal))
+            throw new InvalidDataException("Context storage probe profile must be explicitly distinct from protected production code.");
+        if(!commands.Single(c=>Path.GetFileName(c.GetProperty("file").GetString()!)=="pal_context.witos.cpp").GetProperty("command").GetString()!.Contains("/GS-",StringComparison.Ordinal))throw new InvalidDataException("PAL context probe profile missing.");
         var stackCommand = commands.Single(c => Path.GetFileName(c.GetProperty("file").GetString()!) == "runtime_stack.cpp");
         if (!stackCommand.GetProperty("command").GetString()!.Contains("/Gs4096", StringComparison.Ordinal))
             throw new InvalidDataException("Compiler stack-probe threshold missing.");
@@ -126,6 +167,9 @@ internal static class RuntimeConfigProbe
         if (stackSymbols.ExitCode != 0 || stackSymbols.TimedOut || !System.Text.RegularExpressions.Regex.IsMatch(stackSymbols.Output, @"UNDEF[^\r\n]*\b__chkstk\b"))
             throw new InvalidDataException("Compiler did not emit the real __chkstk dependency.");
         File.Copy(stackObject, Path.Combine(output, "chkstk.obj"), overwrite: true);
+        var platformManifest = securityObjects.CopyTo(output);
+        File.Copy(mathObject, Path.Combine(output, "native_math.witos.obj"), overwrite: true);
+        File.Copy(logObject, Path.Combine(output, "log.openlibm.obj"), overwrite: true);
         File.Copy(affinityObject, Path.Combine(output, "gc_affinity.witos.obj"), overwrite: true);
         File.Copy(fatalObject, Path.Combine(output, "fatal.witos.obj"), overwrite: true);
         File.Copy(clockObject, Path.Combine(output, "native_clock.witos.obj"), overwrite: true);
@@ -135,8 +179,8 @@ internal static class RuntimeConfigProbe
         File.Copy(memoryObject, Path.Combine(output, "crt_memory.witos.obj"), overwrite: true);
         await File.WriteAllTextAsync(Path.Combine(output, "archive-report.json"), JsonSerializer.Serialize(new
         {
-            archiveSha256 = Hash(archive), minipalSha256 = Hash(minipalArchive), memorySha256 = Hash(memoryObject), stackSha256 = Hash(stackObject), clockSha256 = Hash(clockObject), clockBindingSha256 = Hash(clockBinding), fatalSha256 = Hash(fatalObject), affinitySha256 = Hash(affinityObject), members, commands, guestManagedRuntime = false,
-            localInputs = new[] { "tests/User.X64/runtime_affinity.cpp", "src/Runtime.NativeAot/gc_affinity.witos.cpp", "artifacts/runtime-config/source/gcaffinity.slice.cpp", "tests/User.X64/runtime_fatal.cpp", "src/Runtime.NativeAot/fatal.witos.cpp", "src/System.Native/diagnostics.h", "tests/User.X64/runtime_clock.cpp", "src/Runtime.NativeAot/native_clock.witos.cpp", "src/Kernel.Arch.X64/native_clock.asm", "src/Kernel.Arch.X64/user_runtime_clock_fixture.asm", "tests/User.X64/runtime_cpu.cpp", "src/Kernel.Arch.X64/user_runtime_cpu_fixture.asm", "src/Kernel.Arch.X64/minipal_cpu.witos.cpp", "src/Kernel.Arch.X64/minipal_cpu.witos.h", "tests/User.X64/runtime_stack.cpp", "src/Kernel.Arch.X64/user_runtime_stack_fixture.asm", "src/Kernel.Arch.X64/chkstk.asm", "tests/User.X64/runtime_crt.cpp", "src/Runtime.NativeAot/crt_memory.witos.c", "tests/User.X64/runtime_time.cpp", "src/Runtime.NativeAot/minipal_time.witos.cpp", "src/Runtime.NativeAot/minipal_time.witos.h", "tests/User.X64/runtime_config.cpp", "tests/User.X64/runtime_instance.cpp", "tests/User.X64/runtime_barrier.cpp", "artifacts/runtime-config/source/startup.objects.slice.cpp", "artifacts/runtime-config/source/threadstore.witos.cpp", "artifacts/runtime-config/source/thread.witos.cpp", "artifacts/runtime-config/include/stressLog.h", "tests/User.X64/runtime_allocator.cpp", "tests/User.X64/protocol.h", "artifacts/runtime-config/source/allocheap.witos.cpp", "artifacts/runtime-config/source/dispatch.shared.slice.cpp", "artifacts/runtime-config/source/dispatch.aot.slice.cpp",
+            platformObjects = platformManifest, archiveSha256 = Hash(archive), minipalSha256 = Hash(minipalArchive), memorySha256 = Hash(memoryObject), stackSha256 = Hash(stackObject), clockSha256 = Hash(clockObject), clockBindingSha256 = Hash(clockBinding), fatalSha256 = Hash(fatalObject), affinitySha256 = Hash(affinityObject), mathSha256 = Hash(mathObject), logSha256 = Hash(logObject), members, commands, guestManagedRuntime = false,
+            localInputs = new[] { "src/Kernel/include/witos/handles.h", "tests/User.X64/runtime_seh.cpp", "tests/User.X64/runtime_failfast.cpp", "src/Kernel/include/witos/fatal_info.h", "src/Runtime.NativeAot/failfast_exception.witos.cpp", "tests/User.X64/runtime_raise.cpp", "src/Kernel/include/witos/exception.h", "src/Kernel.Arch.X64/user_exception.c", "tests/User.X64/runtime_vectored.cpp", "src/Runtime.NativeAot/context_conversion.witos.h", "src/Runtime.NativeAot/native_exception.witos.cpp", "src/Kernel.Arch.X64/native_exception.asm", "src/Kernel/include/witos/exception.h", "src/Kernel.Arch.X64/user_exception.c", "src/Kernel.Arch.X64/entry.asm", "tests/User.X64/runtime_exception.cpp", "src/Kernel.Arch.X64/user_runtime_exception_fixture.asm", "tests/User.X64/runtime_unwind.cpp", "tests/User.X64/runtime_unwind_protected.cpp", "tests/User.X64/runtime_unwind_entry.cpp", "src/Kernel.Arch.X64/user_runtime_unwind_fixture.asm", "src/Kernel/include/witos/unwind_metadata.h", "src/Runtime.NativeAot/unwind_scope.witos.cpp", "src/Runtime.NativeAot/unwind_scope.witos.h", "tests/User.X64/runtime_stack_lease.cpp", "src/Kernel/include/witos/stack_lease.h", "src/Kernel.Arch.X64/user_stack_lease.c", "tests/User.X64/runtime_console.cpp", "src/Runtime.NativeAot/native_console.witos.cpp", "src/Runtime.NativeAot/native_processor.witos.cpp", "src/Kernel.Arch.X64/native_console.asm", "src/Kernel.Arch.X64/native_processor.asm", "src/Kernel.Arch.X64/user_runtime_console_fixture.asm", "src/Kernel/include/witos/console_info.h", "tests/User.X64/runtime_object_wait.cpp", "src/Runtime.NativeAot/native_wait.witos.cpp", "src/Kernel.Arch.X64/native_wait.asm", "src/Kernel/include/witos/wait_objects.h", "tests/User.X64/runtime_thread_references.cpp", "tests/User.X64/runtime_thread_entry.cpp", "src/Runtime.NativeAot/native_thread_handles.witos.cpp", "src/Runtime.NativeAot/native_thread_create.witos.cpp", "src/Kernel.Arch.X64/native_thread_create.asm", "src/Kernel.Arch.X64/native_thread_handles.asm", "src/Kernel/include/witos/thread_reference.h", "src/Kernel.Arch.X64/user_runtime_reference_fixture.asm", "tests/User.X64/runtime_services.cpp", "src/Runtime.NativeAot/native_services.witos.cpp", "src/Kernel.Arch.X64/native_services.asm", "src/Kernel.Arch.X64/user_runtime_services_fixture.asm", "tests/User.X64/runtime_memory.cpp", "src/Runtime.NativeAot/native_memory.witos.cpp", "src/Kernel.Arch.X64/native_memory.asm", "src/Kernel.Arch.X64/user_runtime_memory_fixture.asm", "tests/User.X64/runtime_random.cpp", "src/Runtime.NativeAot/native_random.witos.cpp", "src/Kernel.Arch.X64/native_random.asm", "src/Kernel.Arch.X64/user_runtime_random_fixture.asm", "tests/User.X64/runtime_security.cpp", "src/Kernel.Arch.X64/user_runtime_security_fixture.asm", "src/Runtime.NativeAot/security_cookie.witos.cpp", "src/Runtime.NativeAot/security_handler.witos.cpp", "src/Kernel.Arch.X64/security_cookie.asm", "src/System.Native/native_security.h", "tests/User.X64/runtime_format.cpp", "src/Runtime.NativeAot/native_format.witos.cpp", "src/Runtime.NativeAot/format_fixed.witos.cpp", "src/Runtime.NativeAot/format_fixed.witos.h", "src/Kernel.Arch.X64/native_format.asm", "src/Kernel.Arch.X64/user_runtime_math_fixture.asm", "tests/User.X64/runtime_math.cpp", "tests/User.X64/math_log_vectors.h", "src/Runtime.NativeAot/native_math.witos.cpp", "src/Runtime.NativeAot/math_bits.witos.h", "src/Runtime.NativeAot/math.lock.json", "artifacts/runtime-config/source/log.openlibm.c", "tests/User.X64/runtime_affinity.cpp", "src/Runtime.NativeAot/gc_affinity.witos.cpp", "artifacts/runtime-config/source/gcaffinity.slice.cpp", "tests/User.X64/runtime_fatal.cpp", "src/Runtime.NativeAot/fatal.witos.cpp", "src/System.Native/diagnostics.h", "tests/User.X64/runtime_clock.cpp", "src/Runtime.NativeAot/native_clock.witos.cpp", "src/Kernel.Arch.X64/native_clock.asm", "src/Kernel.Arch.X64/user_runtime_clock_fixture.asm", "tests/User.X64/runtime_cpu.cpp", "src/Kernel.Arch.X64/user_runtime_cpu_fixture.asm", "src/Kernel.Arch.X64/minipal_cpu.witos.cpp", "src/Kernel.Arch.X64/minipal_cpu.witos.h", "tests/User.X64/runtime_stack.cpp", "src/Kernel.Arch.X64/user_runtime_stack_fixture.asm", "src/Kernel.Arch.X64/chkstk.asm", "tests/User.X64/runtime_crt.cpp", "src/Runtime.NativeAot/crt_memory.witos.c", "tests/User.X64/runtime_time.cpp", "src/Runtime.NativeAot/minipal_time.witos.cpp", "src/Runtime.NativeAot/minipal_time.witos.h", "tests/User.X64/runtime_config.cpp", "tests/User.X64/runtime_instance.cpp", "tests/User.X64/runtime_barrier.cpp", "artifacts/runtime-config/source/startup.objects.slice.cpp", "artifacts/runtime-config/source/threadstore.witos.cpp", "artifacts/runtime-config/source/thread.witos.cpp", "artifacts/runtime-config/include/stressLog.h", "tests/User.X64/runtime_allocator.cpp", "tests/User.X64/protocol.h", "artifacts/runtime-config/source/allocheap.witos.cpp", "artifacts/runtime-config/source/dispatch.shared.slice.cpp", "artifacts/runtime-config/source/dispatch.aot.slice.cpp",
                 "src/Runtime.NativeAot/runtime-overlay.cmake", "src/Runtime.NativeAot/config-probe/CMakeLists.txt",
                 "src/Runtime.NativeAot/crt_config.witos.cpp", "src/Runtime.NativeAot/pal_init.witos.cpp", "src/Runtime.NativeAot/pal_environment.witos.h",
                 "src/System.Native/tls.h", "src/Kernel/include/witos/user_abi.h",
@@ -158,6 +202,8 @@ internal static class RuntimeConfigProbe
         foreach (var input in report.RootElement.GetProperty("localInputs").EnumerateArray())
             if (Hash(Path.Combine(root, input.GetProperty("path").GetString()!)) != input.GetProperty("sha256").GetString())
                 throw new InvalidDataException("Configuration source inputs changed after archive verification; rerun runtime-config.");
+        var securityObjects = NativePlatformObjects.Read(Path.Combine(root,"artifacts/runtime-config"), report.RootElement.GetProperty("platformObjects"));
+        var recordBindings = securityObjects.Record;
         var minipalArchive = Path.Combine(root, "artifacts", "runtime-config", "WitOS.Minipal.lib");
         if (Hash(minipalArchive) != report.RootElement.GetProperty("minipalSha256").GetString())
             throw new InvalidDataException("Minipal archive changed after source verification.");
@@ -185,7 +231,7 @@ internal static class RuntimeConfigProbe
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
             ["/nologo", "/subsystem:native", "/entry:wit_native_start", "/nodefaultlib", "/machine:x64", "/fixed:no", "/dynamicbase",
                 "/incremental:no", "/Brepro", "/opt:ref", "/include:_tls_used", "/merge:.CRT=.rdata", "/base:0x180000000",
-                $"/out:{image}", $"/map:{Path.Combine(output, "RuntimeConfigFixture.map")}", archive, minipalArchive, memoryObject, stackObject, stackTest, crt, .. shared.Select(p => Path.Combine(output, p))], root);
+                $"/out:{image}", $"/map:{Path.Combine(output, "RuntimeConfigFixture.map")}", archive, minipalArchive, memoryObject, stackObject, stackTest, crt, .. recordBindings, .. shared.Select(p => Path.Combine(output, p))], root);
         var bytes = await File.ReadAllBytesAsync(image);
         using var reader = new PEReader(new MemoryStream(bytes, writable: false));
         var h = reader.PEHeaders.PEHeader ?? throw new InvalidDataException("Configuration PE missing.");
@@ -221,7 +267,7 @@ internal static class RuntimeConfigProbe
         await File.WriteAllTextAsync(Path.Combine(root, "artifacts", "runtime-config", "image-report.json"), JsonSerializer.Serialize(new
         {
             guestManagedRuntime = false, imageBytes = bytes.Length, imageSha256 = Hash(image), unwindEntries = h.ExceptionTableDirectory.Size / 12,
-            rawImageSha256 = Hash(Path.Combine(output, "RuntimeConfigRawFixture.pe")), archiveSha256 = Hash(archive), crtSha256 = Hash(crt), sharedObjects = shared.Select(p => new { file = p, sha256 = Hash(Path.Combine(output, p)) })
+            recordBindings=recordBindings.Select(p=>new{file=p,sha256=Hash(p)}), rawImageSha256 = Hash(Path.Combine(output, "RuntimeConfigRawFixture.pe")), archiveSha256 = Hash(archive), crtSha256 = Hash(crt), sharedObjects = shared.Select(p => new { file = p, sha256 = Hash(Path.Combine(output, p)) })
         }, Json));
         var clockObject = Path.Combine(root, "artifacts", "runtime-config", "native_clock.witos.obj");
         var clockBinding = Path.Combine(root, "artifacts", "runtime-config", "native_clock.obj");
@@ -234,7 +280,11 @@ internal static class RuntimeConfigProbe
         var affinityObject = Path.Combine(root, "artifacts", "runtime-config", "gc_affinity.witos.obj");
         if (Hash(affinityObject) != report.RootElement.GetProperty("affinitySha256").GetString())
             throw new InvalidDataException("GC affinity adapter differs from the source archive.");
-        await RuntimeCpuImage.BuildAsync(root, output, msvc, archive, minipalArchive, memoryObject, crt, clockObject, clockBinding, fatalObject, affinityObject);
+        var mathObject = Path.Combine(root, "artifacts", "runtime-config", "native_math.witos.obj");
+        var logObject = Path.Combine(root, "artifacts", "runtime-config", "log.openlibm.obj");
+        if (Hash(mathObject) != report.RootElement.GetProperty("mathSha256").GetString() || Hash(logObject) != report.RootElement.GetProperty("logSha256").GetString())
+            throw new InvalidDataException("Math objects differ from the source archive.");
+        await RuntimeCpuImage.BuildAsync(root, output, msvc, archive, minipalArchive, memoryObject, crt, clockObject, clockBinding, fatalObject, affinityObject, mathObject, logObject, securityObjects);
         Console.WriteLine($"RuntimeConfigFixture: {bytes.Length} bytes, real upstream configuration methods, no OS/CRT imports.");
     }
 }

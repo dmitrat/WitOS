@@ -8,7 +8,8 @@ class GCEvent::Impl
 public:
     GCEvent* Owner;
     WitU64 Handle;
-    static Impl Slots[4];
+    static constexpr size_t Capacity=16;
+    static Impl Slots[Capacity];
     static volatile WitU32 Gate;
 
     static void Lock()
@@ -18,7 +19,7 @@ public:
     static void Unlock() { wit_native_unlock(&Gate); }
     static Impl* Find(GCEvent* event)
     {
-        for (size_t i = 0; i < 4; ++i)
+        for (size_t i = 0; i < Capacity; ++i)
             if (event->m_impl == &Slots[i] && Slots[i].Owner == event && Slots[i].Handle) return &Slots[i];
         return nullptr;
     }
@@ -26,7 +27,7 @@ public:
     {
         Lock();
         if (event->m_impl) { Unlock(); return false; }
-        for (size_t i = 0; i < 4; ++i) {
+        for (size_t i = 0; i < Capacity; ++i) {
             if (Slots[i].Owner) continue;
             WitU64 handle = 0;
             const WitU64 flags = (manual ? WIT_EVENT_MANUAL_RESET : 0) | (signaled ? WIT_EVENT_INITIAL_SIGNALED : 0);
@@ -57,7 +58,7 @@ public:
         Unlock();
     }
 };
-GCEvent::Impl GCEvent::Impl::Slots[4];
+GCEvent::Impl GCEvent::Impl::Slots[GCEvent::Impl::Capacity];
 volatile WitU32 GCEvent::Impl::Gate;
 
 GCEvent::GCEvent() : m_impl(nullptr) { }

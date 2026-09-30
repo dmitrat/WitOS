@@ -11,6 +11,7 @@
 #include "RestrictedCallouts.h"
 #include "tls.h"
 #include "protocol.h"
+#include "witos/handles.h"
 
 extern volatile uint32_t* p_tls_index;
 extern volatile uint32_t SECTIONREL__tls_CurrentThread;
@@ -106,12 +107,17 @@ static bool construct_record()
     SetLastError(0x12348765);
     record->SetGCSpecial(); // Actual upstream public route to private Construct.
     raw[0] = old_self; raw[1] = old_id;
+    const HANDLE capability=record->GetOSThreadHandle();
+    if(!capability||capability==INVALID_HANDLE_VALUE||capability==GetCurrentThread())return false;
+    WitThreadReferenceInfo reference;
+    if(wit_native_call(WIT_CALL_THREAD_REFERENCE_QUERY,(WitU64)capability,(WitU64)&reference,sizeof(reference),nullptr)!=WIT_STATUS_OK||
+       reference.ThreadId!=info.ThreadId||reference.Rights!=WIT_THREAD_REFERENCE_ALL)return false;
     for (unsigned i = 0; i < 3; ++i) {
         void *low = nullptr, *high = nullptr;
         record->GetStackBounds(&low, &high);
         if (!record->IsInitialized() || !record->IsGCSpecial() ||
             ThreadStore::GetCurrentThreadIfAvailable() != record ||
-            record->GetPalThreadIdForLogging() != info.ThreadId || record->GetOSThreadHandle() != INVALID_HANDLE_VALUE ||
+            record->GetPalThreadIdForLogging() != info.NativeId || record->GetOSThreadHandle() != capability ||
             (uintptr_t)low != info.StackLow || (uintptr_t)high != info.StackHigh ||
             !record->IsWithinStackBounds(low) || record->IsWithinStackBounds(high) ||
             !record->IsWithinStackBounds(&info) || record->IsCurrentThreadInCooperativeMode() ||
@@ -130,7 +136,22 @@ static WitU64 record_worker(WitU64 index)
     record_ready[index] = 1;
     while (!record_release)
         if (wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr) != WIT_STATUS_OK) return 1732;
+    // Construct-only fixture: explicitly release its owned capability. Actual
+    // runtime attachment uses the unchanged Thread::Destroy cleanup instead.
+    if(!CloseHandle(ThreadStore::RawGetCurrentThread()->GetOSThreadHandle()))return 1733;
     return WIT_TEST_EXIT_CODE;
+}
+static WitU64 record_exhaustion_worker(WitU64)
+{
+    if(!local_record())return 1734;
+    HANDLE held[WIT_HANDLE_CAPACITY];unsigned count=0;
+    while(count<WIT_HANDLE_CAPACITY&&DuplicateHandle(GetCurrentProcess(),GetCurrentThread(),GetCurrentProcess(),&held[count],0,FALSE,DUPLICATE_SAME_ACCESS))++count;
+    if(!count||count==WIT_HANDLE_CAPACITY||GetLastError()!=ERROR_NOT_ENOUGH_MEMORY)return 1735;
+    Thread* record=ThreadStore::RawGetCurrentThread();record->SetGCSpecial();
+    if(!record->IsInitialized()||!record->IsGCSpecial()||record->GetOSThreadHandle()!=INVALID_HANDLE_VALUE||GetLastError()!=ERROR_NOT_ENOUGH_MEMORY)return 1736;
+    for(unsigned i=0;i<count;++i)if(!CloseHandle(held[i]))return 1737;
+    record->SetGCSpecial(); // Initialization cannot silently replace the absent capability later.
+    return record->GetOSThreadHandle()==INVALID_HANDLE_VALUE?WIT_TEST_EXIT_CODE:1738;
 }
 extern "C" bool wit_test_runtime_thread_record()
 {
@@ -161,7 +182,11 @@ extern "C" bool wit_test_runtime_thread_record()
         }
         if (!snapshot(after) || !equal(before, after)) return false;
     }
-    return true;
+    WitU64 exhaustion,result;
+    if(wit_native_thread_create(record_exhaustion_worker,0,&exhaustion)!=WIT_STATUS_OK||
+       wit_native_call(WIT_CALL_THREAD_JOIN,exhaustion,0,0,&result)!=WIT_STATUS_OK||result!=WIT_TEST_EXIT_CODE||
+       !snapshot(after)||!equal(before,after))return false;
+    return CloseHandle(ThreadStore::RawGetCurrentThread()->GetOSThreadHandle())!=FALSE;
 }
 
 static minipal_xoshiro128pp* main_random;

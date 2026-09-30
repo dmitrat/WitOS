@@ -7,6 +7,13 @@
 #define WIT_PE_MAX_FILE_SIZE 1048576U
 #define WIT_PE_MAX_RELOCATIONS 2048U
 #define WIT_PE_MAX_UNWIND_ENTRIES 128U
+#define WIT_PE_RUNTIME_UNWIND_ENTRIES 320U
+#define WIT_PE_MAX_UNWIND_RANGES 320U
+#define WIT_PE_FULL_UNWIND_ENTRIES 4096U
+/* P5 managed Thread image: 1,060,864 bytes; next 64 KiB boundary. */
+#define WIT_PE_FULL_IMAGE_SIZE 1114112U
+#define WIT_PE_RUNTIME_FULL 4U
+#define WIT_PE_UNWIND_RUNTIME 1U
 #define WIT_PE_TLS_MAX_BYTES 3840U
 #define WIT_PE_READ 1U
 #define WIT_PE_WRITE 2U
@@ -33,6 +40,7 @@ typedef struct WitPeUnwindRange {
 
 typedef struct WitPeImage {
     WitU64 PreferredBase;
+    WitU32 Profile;
     WitU32 ImageSize;
     WitU32 HeadersSize;
     WitU32 EntryRva;
@@ -43,12 +51,13 @@ typedef struct WitPeImage {
     WitU32 UnwindSize;
     WitU32 UnwindCount;
     WitU32 TlsRva, TlsSize, TlsTemplateRva, TlsInitialized, TlsZeroFill, TlsIndexRva, TlsCallbacksRva;
-    WitPeUnwindRange UnwindInfo[WIT_PE_MAX_UNWIND_ENTRIES];
+    WitPeUnwindRange UnwindInfo[WIT_PE_FULL_UNWIND_ENTRIES];
     WitPeSection Sections[WIT_PE_MAX_SECTIONS];
 } WitPeImage;
 
 /* Input is a truthful, immutable kernel-owned byte span. Plan is usable only on Ok.
  * This controlled profile is not a Windows executable compatibility contract. */
 WitPeStatus wit_pe_validate(const WitU8 *file, WitU32 size, WitPeImage *plan);
+WitPeStatus wit_pe_validate_profile(const WitU8 *file, WitU32 size, WitPeImage *plan, WitU32 profile);
 int wit_pe_file_range(const WitPeImage *plan, WitU32 rva, WitU32 size, WitU32 *offset);
 #endif

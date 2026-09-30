@@ -4,6 +4,24 @@
 _Static_assert(WIT_COMPILER_TLS_DATA_OFFSET + WIT_PE_TLS_MAX_BYTES <= 4096, "Compiler TLS page bound");
 static void require(int condition, const char *message) { if (!condition) wit_panic(message); }
 
+static WitU64 next_native_id=1;
+static int take_native_id(WitU64* next,WitU32* output)
+{
+    if(!*next||*next>0xFFFFFFFFULL)return 0;
+    *output=(WitU32)*next;++*next;return 1;
+}
+void wit_user_native_id_self_test(void)
+{
+    WitU64 cursor=1;WitU32 value=0;
+    require(take_native_id(&cursor,&value)&&value==1&&cursor==2,"Native ID initial allocation failed");
+    cursor=0xFFFFFFFFULL;
+    require(take_native_id(&cursor,&value)&&value==0xFFFFFFFFU&&cursor==0x100000000ULL,"Native ID final allocation failed");
+    value=17;
+    require(!take_native_id(&cursor,&value)&&value==17&&cursor==0x100000000ULL,"Native ID wrapped on exhaustion");
+    cursor=0;require(!take_native_id(&cursor,&value)&&value==17,"Native ID accepted zero cursor");
+    wit_console_write("[TEST-PASS] User.NativeThreadIdExhaustion\n");
+}
+
 /* Capture the relocated initial template before publishing the component.
  * Later user writes to its PE image cannot change the seed for future threads. */
 int wit_user_capture_tls(WitUserProcess *process, const WitPeImage *image)
@@ -29,6 +47,9 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 ent
     const WitU64 bottom = WIT_USER_STACK_BOTTOM + index * WIT_USER_THREAD_STRIDE;
     const WitU64 top = WIT_USER_STACK_TOP + index * WIT_USER_THREAD_STRIDE;
     const WitU64 tls_address = WIT_USER_TLS + index * WIT_USER_THREAD_STRIDE;
+    thread->NativeId=0;thread->SuspendCount=0;wit_user_exception_clear(thread);
+    wit_user_thread_name_clear(thread);
+    if(next_native_id>0xFFFFFFFFULL)return WIT_STATUS_NO_MEMORY;
     thread->CompilerTls = 0;
     thread->Detached = 0;
     handle = wit_handle_grant(&process->Handles, WIT_HANDLE_THREAD, flags & WIT_THREAD_DETACHED ? 0 : WIT_RIGHT_JOIN);
@@ -65,6 +86,7 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 ent
     context->Ss = WIT_USER_SS;
     context->Rflags = 0x202;
     context->Rsp = top - 40; /* Aligned ABI entry, zero return address traps accidental RET. */
+    require(take_native_id(&next_native_id,&thread->NativeId),"Serialized native ID allocation failed");
     thread->Handle = handle;
     thread->StackBottom = bottom;
     thread->StackTop = top;
@@ -76,6 +98,7 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 ent
     thread->WaitKind = WitWaitNone;
     thread->WaitHandle = 0;
     thread->WaitCount = 0;
+    thread->WaitAll=0;thread->WaitAlertable=0;wit_user_apc_initialize(thread);
     for (WitU32 w = 0; w < WIT_WAIT_ANY_CAPACITY; ++w) thread->WaitHandles[w] = 0;
     thread->Deadline = WIT_WAIT_INFINITE;
     thread->WaitOrder = 0;
@@ -110,7 +133,46 @@ WitU64 wit_user_thread_query(const WitUserProcess *process, WitU64 address, WitU
     info.RawTls = thread->Tls;
     info.CompilerTls = thread->CompilerTls;
     info.ProcessId = process->Id;
+    info.NativeId=thread->NativeId;info.Reserved=0;
     info.ProcessorCount = WIT_USER_PROCESSOR_COUNT; // The supported backend brings up one processor.
     // IF remains clear through snapshot and whole-buffer validation/copy.
     return wit_user_copy_to(&process->Space, address, (const WitU8 *)&info, sizeof(info)) ? WIT_STATUS_OK : WIT_STATUS_BAD_ADDRESS;
+}
+
+WitU64 wit_user_thread_create_reference(WitUserProcess* p,WitU64 input,WitU64 size,WitU64* result)
+{
+    *result=0;
+    if(size!=sizeof(WitThreadCreateRequest))return WIT_STATUS_INVALID_ARGUMENT;
+    WitThreadCreateRequest request;
+    if(!wit_user_copy_from(&p->Space,input,(WitU8*)&request,sizeof(request)))return WIT_STATUS_BAD_ADDRESS;
+    if(request.Version!=WIT_THREAD_CREATE_REFERENCE_VERSION)return WIT_STATUS_UNSUPPORTED;
+    if(request.Size!=sizeof(request)||request.Reserved||(request.Flags&~WIT_THREAD_START_SUSPENDED))return WIT_STATUS_INVALID_ARGUMENT;
+    if(request.StackBytes>WIT_USER_STACK_TOP-WIT_USER_STACK_BOTTOM)return WIT_STATUS_UNSUPPORTED;
+    if(!wit_user_space_physical(&p->Space,request.Entry,0,1)||
+        (request.NativeIdOutput&&!wit_user_buffer_writable(&p->Space,request.NativeIdOutput,sizeof(WitU32))))return WIT_STATUS_BAD_ADDRESS;
+    WitU32 index=0;
+    while(index<WIT_USER_THREAD_CAPACITY&&p->Threads[index].State!=WitThreadEmpty)++index;
+    if(index==WIT_USER_THREAD_CAPACITY){++p->ReferenceThreadCapacityFailures;return WIT_STATUS_NO_MEMORY;}
+    WitUserThreadReference* reference=0;
+    for(WitU32 n=0;n<p->Handles.Limit;++n)if(!p->ThreadReferences[n].Handle){reference=&p->ThreadReferences[n];break;}
+    if(!reference)return WIT_STATUS_NO_MEMORY;
+    // Reserve the observer first. No user-visible publication occurs before
+    // the private thread identity, stacks/TLS and suspend state all exist.
+    const WitU64 handle=wit_handle_grant(&p->Handles,WIT_HANDLE_THREAD_REFERENCE,WIT_THREAD_REFERENCE_ALL);
+    if(!handle)return WIT_STATUS_NO_MEMORY;
+    const WitU64 status=wit_user_prepare_thread(p,index,request.Entry,request.Argument,WIT_THREAD_DETACHED);
+    if(status!=WIT_STATUS_OK){
+        if(wit_handle_close(&p->Handles,handle)!=WIT_STATUS_OK)wit_panic("Create reference rollback failed");
+        return status;
+    }
+    WitUserThread* thread=&p->Threads[index];
+    thread->SuspendCount=(request.Flags&WIT_THREAD_START_SUSPENDED)?1U:0U;
+    reference->Handle=handle;reference->ThreadId=thread->Handle;reference->ExitCode=0;
+    reference->Rights=WIT_THREAD_REFERENCE_ALL;reference->Exited=0;
+    // The syscall is serialized with IF clear. Allocation did not remove or
+    // change the prevalidated destination's existing mapping.
+    if(request.NativeIdOutput&&!wit_user_copy_to(&p->Space,request.NativeIdOutput,(const WitU8*)&thread->NativeId,sizeof(thread->NativeId)))
+        wit_panic("Validated thread native ID output changed");
+    *result=handle;
+    return WIT_STATUS_OK;
 }

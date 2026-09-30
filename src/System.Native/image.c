@@ -26,6 +26,7 @@ int wit_native_image_range(const WitUserImageInfo *image, WitU64 address, WitU64
 int wit_native_image_valid(const WitUserImageInfo *image)
 {
     if (!image || image->Version != WIT_IMAGE_INFO_VERSION || image->Size != sizeof(*image) ||
+        image->ResourceReserved || !wit_image_resource_valid(image->ResourceName,image->ResourceNameLength) ||
         image->Reserved || !image->ImageSize || !image->RangeCount ||
         image->RangeCount > WIT_IMAGE_INFO_MAX_RANGES ||
         image->Base > ~0ULL - image->ImageSize || !image->HeadersSize ||

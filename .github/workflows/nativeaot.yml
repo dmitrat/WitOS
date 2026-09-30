@@ -1,4 +1,4 @@
-name: NativeAOT reference and guest configuration
+name: NativeAOT M3 reference and guest acceptance
 
 on:
   push:
@@ -9,9 +9,13 @@ on:
       - 'experiments/NativeAotBoot/**'
       - 'tools/WitOS.Dev/**'
       - 'src/Runtime.NativeAot/**'
+      - 'src/Boot.Uefi/**'
       - 'src/Kernel.Arch.X64/**'
       - 'src/Kernel/**'
       - 'tests/User.X64/**'
+      - 'tests/Runtime.NativeAot/**'
+      - 'tests/WitOS.Dev.Tests/**'
+      - 'WitOS.slnx'
       - 'src/System.Native/**'
       - 'src/Kernel/include/witos/**'
       - '.gitattributes'
@@ -25,9 +29,13 @@ on:
       - 'experiments/NativeAotBoot/**'
       - 'tools/WitOS.Dev/**'
       - 'src/Runtime.NativeAot/**'
+      - 'src/Boot.Uefi/**'
       - 'src/Kernel.Arch.X64/**'
       - 'src/Kernel/**'
       - 'tests/User.X64/**'
+      - 'tests/Runtime.NativeAot/**'
+      - 'tests/WitOS.Dev.Tests/**'
+      - 'WitOS.slnx'
       - 'src/System.Native/**'
       - 'src/Kernel/include/witos/**'
       - '.gitattributes'
@@ -46,7 +54,7 @@ concurrency:
 jobs:
   hosted-probe:
     runs-on: windows-2025
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -67,6 +75,9 @@ jobs:
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
 
+      - name: Host tooling regressions
+        run: dotnet run --project tests/WitOS.Dev.Tests --configuration Release --no-build
+
       - name: Verify pinned upstream sources and package provenance
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-audit
 
@@ -79,19 +90,40 @@ jobs:
       - name: Build upstream native sources and verify WitOS overlay
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-source
 
+      - name: Hosted PE parser corpus
+        run: dotnet run --project tests/WitOS.Dev.Tests --configuration Release --no-build -- --pe
+
+      - name: Cache pinned LLVM coverage toolchain download
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .tools/downloads/LLVM-20.1.8-win64.exe
+          key: llvm-20.1.8-win64-3197846a2b190636
+
+      - name: Native parser branch coverage and AddressSanitizer
+        run: dotnet run --project tests/WitOS.Dev.Tests --configuration Release --no-build -- --pe-coverage
+
+      - name: Bounded native parser fuzz smoke
+        run: dotnet run --project tests/WitOS.Dev.Tests --configuration Release --no-build -- --pe-fuzz
+
       - name: Cache pinned QEMU download
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: .tools/downloads
+          path: .tools/downloads/qemu-w64-setup-20260811.exe
           key: qemu-windows-x64-20260811-5bcf9eed634e8575
 
       - name: Extract verified QEMU
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
 
+      - name: Kernel regression matrix
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- test
+
       - name: Execute upstream configuration inside WitOS
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-config
 
-      - name: Upload hosted reference and evidence
+      - name: Execute repeated managed GC/EH/finalization/thread acceptance
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-boot-run
+
+      - name: Upload hosted reference and guest execution evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -99,12 +131,24 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
           path: |
+            artifacts/q0-tests/
             artifacts/runtime-probe/
             artifacts/runtime-target/
             artifacts/runtime-source/
             artifacts/runtime-readiness/
+            artifacts/runtime-unwind/
             artifacts/runtime-config/
             artifacts/logs/runtime-config*
+            artifacts/logs/runtime-boot*
+            artifacts/runtime-gc-layout-reference/
+            artifacts/runtime-gp-reference/
+            artifacts/runtime-seh-reference/
+            artifacts/x64/runtime-boot/runtime-input.json
+            artifacts/x64/runtime-boot/acceptance.json
+            artifacts/x64/runtime-boot/current-run.json
+            artifacts/x64/runtime-boot/last-success.json
+            artifacts/x64/runtime-boot/runs/
+            artifacts/x64/runtime-boot/WitOS-x64.img
             artifacts/x64/runtime-config/RuntimeConfigFixture.pe
             artifacts/x64/runtime-config/RuntimeConfigRawFixture.pe
             artifacts/x64/runtime-config/RuntimeCpuFixture.pe

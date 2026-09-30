@@ -1,5 +1,6 @@
 #include "witos/boot.h"
 #include "witos/memory.h"
+#include "witos/random.h"
 #include "witos/virtual.h"
 #include "witos/platform.h"
 #include "build_info.h"
@@ -62,6 +63,19 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
     wit_console_write_u64(wit_pages_free_count(&physical_pages));
     wit_console_write("\n");
     wit_virtual_initialize(boot, &physical_pages);
+    {
+        const WitU64 address=(WitU64)boot->EntropySeed;
+        int owned=0;
+        if(boot->EntropySize!=WIT_RANDOM_KEY_BYTES||boot->EntropyReserved||!address)wit_panic("Invalid boot entropy");
+        for(WitU32 i=0;i<boot->ImageSectionCount;++i){const WitImageSection* section=&boot->ImageSections[i];
+            if((section->Flags&WIT_IMAGE_WRITE)&&!(section->Flags&WIT_IMAGE_EXECUTE)&&address>=section->Base&&
+                address-section->Base<=section->Length&&WIT_RANDOM_KEY_BYTES<=section->Length-(address-section->Base))owned=1;
+        }
+        if(!owned||!wit_random_initialize(boot->EntropySeed))wit_panic("Invalid boot entropy");
+        for(WitU32 i=0;i<WIT_RANDOM_KEY_BYTES;++i)if(boot->EntropySeed[i])wit_panic("Boot seed not erased");
+        wit_console_write("[TEST-PASS] Random.BootSeedConsumed\n");
+        wit_random_self_test();
+    }
     wit_platform_clock_initialize(boot);
     wit_memory_self_test(boot, &physical_pages);
     wit_virtual_self_test(&physical_pages);

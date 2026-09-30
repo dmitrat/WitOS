@@ -2,7 +2,7 @@
 #include "protocol.h"
 
 extern "C" const void* const __imp_GetLastError;
-static WitU64 identities[3];
+static WitU64 identities[3], ownerships[3];
 static bool preserved(WitU32 value)
 {
     return (WitU32)PalGetLastError() == value && GetLastError() == value && wit_native_error_get() == value;
@@ -17,7 +17,9 @@ static void worker(WitU64 index)
     WitU64 result = WIT_TEST_EXIT_CODE;
     const WitU32 value = (WitU32)(0xF0000010 + index);
     if (!preserved(0)) result = 1401;
-    identities[index] = PalGetCurrentOSThreadId();
+    WitUserThreadInfo info;
+    if(wit_native_call(WIT_CALL_THREAD_QUERY,(uintptr_t)&info,sizeof(info),WIT_THREAD_INFO_VERSION,nullptr)!=WIT_STATUS_OK)result=1405;
+    else {ownerships[index]=info.ThreadId;identities[index]=PalGetCurrentOSThreadId();if(identities[index]!=info.NativeId)result=1406;}
     PalSetLastError((int)value);
     if (index < 2) {
         if (wit_native_call(WIT_CALL_CLOCK_READ, 0, 0, 0, &start) != WIT_STATUS_OK) result = 1402;
@@ -50,7 +52,7 @@ static WitU64 state()
         if (!preserved(value) || raw[WIT_TLS_LAST_ERROR_OFFSET / 4 + 1] != 0xA1B2C3D4) return 1414;
     }
     if (*(volatile WitU64*)(uintptr_t)info.RawTls != self || *(volatile WitU64*)(uintptr_t)(info.RawTls + 8) != handle ||
-        *(volatile WitU64*)(uintptr_t)(info.RawTls + 16) != argument || PalGetCurrentOSThreadId() != info.ThreadId) return 1415;
+        *(volatile WitU64*)(uintptr_t)(info.RawTls + 16) != argument || PalGetCurrentOSThreadId() != info.NativeId) return 1415;
     raw[WIT_TLS_LAST_ERROR_OFFSET / 4 + 1] = 0;
     PalSetLastError(0x76543210);
     WitU64 handles[2], code;
@@ -58,10 +60,10 @@ static WitU64 state()
         if (wit_native_call(WIT_CALL_THREAD_CREATE, (uintptr_t)worker, i, 0, &handles[i]) != WIT_STATUS_OK) return 1416;
     for (unsigned i = 0; i < 2; ++i)
         if (wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &code) != WIT_STATUS_OK ||
-            code != WIT_TEST_EXIT_CODE || identities[i] != handles[i] || !preserved(0x76543210)) return 1417;
+            code != WIT_TEST_EXIT_CODE || ownerships[i] != handles[i] || !identities[i] || identities[i] == info.NativeId || !preserved(0x76543210)) return 1417;
     if (wit_native_call(WIT_CALL_THREAD_CREATE, (uintptr_t)worker, 2, 0, &handles[0]) != WIT_STATUS_OK ||
         wit_native_call(WIT_CALL_THREAD_JOIN, handles[0], 0, 0, &code) != WIT_STATUS_OK || code != WIT_TEST_EXIT_CODE ||
-        identities[0] == identities[2] || !preserved(0x76543210)) return 1418;
+        identities[0] >= identities[2] || identities[0] == identities[1] || !preserved(0x76543210)) return 1418;
     PalSleep(1);
     return preserved(0x76543210) ? WIT_TEST_EXIT_CODE : 1419;
 }
@@ -95,7 +97,10 @@ static WitU64 failures()
         PalWaitForSingleObjectEx(event, 0, FALSE) != WAIT_FAILED || GetLastError() != ERROR_INVALID_HANDLE ||
         PalSetEvent(INVALID_HANDLE_VALUE) || GetLastError() != ERROR_INVALID_HANDLE) return 1427;
     WitU64 id = PalGetCurrentOSThreadId();
-    if (PalCloseHandle((HANDLE)(uintptr_t)id) || GetLastError() != ERROR_BUSY) return 1428;
+    if (PalCloseHandle((HANDLE)(uintptr_t)id) || GetLastError() != ERROR_INVALID_HANDLE) return 1428;
+    WitU64 ownership=0;
+    if(wit_native_call(WIT_CALL_THREAD_CURRENT,0,0,0,&ownership)!=WIT_STATUS_OK||
+        PalCloseHandle((HANDLE)(uintptr_t)ownership)||GetLastError()!=ERROR_BUSY)return 1428;
     void* low = (void*)1;
     if (PalGetMaximumStackBounds(&low, nullptr) || GetLastError() != ERROR_INVALID_PARAMETER || low != (void*)1) return 1429;
     HANDLE events[4];

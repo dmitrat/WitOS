@@ -1,0 +1,15 @@
+{
+  "repository": "https://github.com/JuliaMath/openlibm",
+  "revision": "9fbeafcd4f1b6ef6aa3946c1c8faead50f38a94d",
+  "tag": "v0.8.7",
+  "sources": [
+    {
+      "path": "src/e_log.c",
+      "sha256": "8996b789a4cbbcef7cf7d568c1be558ce9110900a40ca6c46fb4ed46c343cafd"
+    },
+    {
+      "path": "LICENSE.md",
+      "sha256": "b1843fbf5b03f519a5f0a44fce751bdd1022ae7148614923f9d6293e17a18b17"
+    }
+  ]
+}

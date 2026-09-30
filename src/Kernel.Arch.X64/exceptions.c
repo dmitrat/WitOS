@@ -48,7 +48,7 @@ void wit_platform_initialize(void)
         idt[i].OffsetLow = (WitU16)address;
         idt[i].Selector = 8;
         idt[i].Ist = i == 8 ? 1 : 0;
-        idt[i].Attributes = i == 128 ? 0xEE : 0x8E; /* Only INT 0x80 has DPL3. */
+        idt[i].Attributes = (i == 3 || i == 128) ? 0xEE : 0x8E; /* User INT3 trap and syscall gate only. */
         idt[i].OffsetMiddle = (WitU16)(address >> 16);
         idt[i].OffsetHigh = (WitU32)(address >> 32);
         idt[i].Reserved = 0;

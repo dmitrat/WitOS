@@ -1,0 +1,26 @@
+option casemap:none
+EXTERN wit_native_std_handle:PROC
+EXTERN wit_native_console_codepage:PROC
+EXTERN wit_native_write_file:PROC
+.code
+PUBLIC GetStdHandle
+GetStdHandle PROC
+ jmp wit_native_std_handle
+GetStdHandle ENDP
+PUBLIC GetConsoleOutputCP
+GetConsoleOutputCP PROC
+ jmp wit_native_console_codepage
+GetConsoleOutputCP ENDP
+PUBLIC WriteFile
+WriteFile PROC
+ jmp wit_native_write_file
+WriteFile ENDP
+.const
+ALIGN 8
+PUBLIC __imp_GetStdHandle
+PUBLIC __imp_GetConsoleOutputCP
+PUBLIC __imp_WriteFile
+__imp_GetStdHandle DQ GetStdHandle
+__imp_GetConsoleOutputCP DQ GetConsoleOutputCP
+__imp_WriteFile DQ WriteFile
+END

@@ -1,8 +1,10 @@
-; Microsoft x64 ABI. Fatal exception paths never resume interrupted code.
+; Microsoft x64 ABI. Kernel faults are fatal; validated user upcalls may resume.
 option casemap:none
 
 EXTERN wit_kernel_entry:PROC
 EXTERN wit_x64_exception:PROC
+EXTERN wit_x64_user_exception:PROC
+EXTERN wit_x64_restore_context:PROC
 EXTERN wit_x64_timer_entry:PROC
 EXTERN wit_x64_user_syscall_entry:PROC
 
@@ -74,6 +76,8 @@ ENDM
 exception_common PROC
     cli
     cld
+    test BYTE PTR [rsp+24],3
+    jnz user_exception_common
     mov rcx, rsp                  ; capture frame before realigning the stack
     mov rdx, cr2
     and rsp, -16
@@ -81,6 +85,45 @@ exception_common PROC
     call wit_x64_exception
     ud2
 exception_common ENDP
+
+user_exception_common PROC
+    push rax
+    push rbx
+    push rcx
+    push rdx
+    push rbp
+    push rdi
+    push rsi
+    push r8
+    push r9
+    push r10
+    push r11
+    push r12
+    push r13
+    push r14
+    push r15
+    sub rsp,512
+    db 048h
+    fxsave [rsp]
+    mov rcx,rsp
+    mov rdx,[rsp+632]
+    mov r8,[rsp+640]
+    mov r9,cr2
+    mov rax,[rsp+648]
+    mov [rsp+632],rax
+    mov rax,[rsp+656]
+    mov [rsp+640],rax
+    mov rax,[rsp+664]
+    mov [rsp+648],rax
+    mov rax,[rsp+672]
+    mov [rsp+656],rax
+    mov rax,[rsp+680]
+    mov [rsp+664],rax
+    sub rsp,32
+    call wit_x64_user_exception
+    mov rsp,rax
+    jmp wit_x64_restore_context
+user_exception_common ENDP
 
 PUBLIC wit_x64_trigger_breakpoint
 wit_x64_trigger_breakpoint PROC

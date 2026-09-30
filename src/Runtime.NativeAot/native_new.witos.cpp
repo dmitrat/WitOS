@@ -1,5 +1,6 @@
 #include <new>
 #include <stdint.h>
+#include "native_heap.witos.h"
 extern "C" {
 #include "bootstrap.h"
 }
@@ -13,6 +14,7 @@ static constexpr size_t PAGE_BYTES = 4096;
 struct Allocation {
     size_t Offset;
     size_t Size;
+    unsigned Kind;
 };
 static Allocation allocations[CAPACITY];
 static unsigned short references[ARENA_BYTES / PAGE_BYTES];
@@ -32,7 +34,7 @@ static void release_arena()
     if (wit_native_call(WIT_CALL_MEMORY_RELEASE, arena, 0, 0, nullptr) != WIT_STATUS_OK) fatal();
     arena = 0;
 }
-static void* allocate(size_t size)
+static void* allocate(size_t size, unsigned kind=0)
 {
     if (!size) size = 1;
     if (size > ARENA_BYTES) return nullptr;
@@ -74,23 +76,25 @@ static void* allocate(size_t size)
     for (size_t page = first; page < end; ++page) ++references[page];
     allocations[slot].Offset = offset;
     allocations[slot].Size = size;
+    allocations[slot].Kind = kind;
     ++live;
     void* result = (void*)(uintptr_t)(arena + offset);
     unlock();
     return result;
 }
-static void deallocate(void* address)
+static bool release(void* address, unsigned kind)
 {
-    if (!address) return;
+    if (!address) return true;
     lock();
     size_t slot = CAPACITY;
     for (size_t i = 0; i < CAPACITY; ++i)
         if (allocations[i].Size && (uintptr_t)address == arena + allocations[i].Offset) { slot = i; break; }
     // Never dereference caller-supplied metadata or free an interior pointer.
-    if (slot == CAPACITY) fatal();
+    if (slot == CAPACITY || allocations[slot].Kind != kind) { unlock(); return false; }
     const size_t first = allocations[slot].Offset / PAGE_BYTES;
     const size_t end = (allocations[slot].Offset + allocations[slot].Size + PAGE_BYTES - 1) / PAGE_BYTES;
     allocations[slot].Size = 0;
+    allocations[slot].Kind = 0;
     --live;
     for (size_t page = first; page < end; ++page) {
         if (!references[page]) fatal();
@@ -101,7 +105,11 @@ static void deallocate(void* address)
     }
     if (!live) release_arena();
     unlock();
+    return true;
 }
+static void deallocate(void* address) { if (!release(address,0)) fatal(); }
+extern "C" void* wit_native_local_allocate(size_t bytes) { return allocate(bytes,1); }
+extern "C" bool wit_native_local_release(void* address) { return release(address,1); }
 
 // Match the real MSVC C++ declarations used by the upstream runtime. Throwing
 // and over-aligned allocation remain unresolved until their contracts exist.

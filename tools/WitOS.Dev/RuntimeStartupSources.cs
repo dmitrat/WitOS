@@ -28,7 +28,7 @@ internal static class RuntimeStartupSources
         {
             var first = source.IndexOf(before, StringComparison.Ordinal);
             if (first < 0 || source.IndexOf(before, first + before.Length, StringComparison.Ordinal) >= 0)
-                throw new InvalidDataException("Pinned runtime startup correction changed.");
+                throw new InvalidDataException("Pinned runtime startup correction changed: " + before.Split('\n')[0]);
             return source.Replace(before, after, StringComparison.Ordinal);
         }
         const string prefix = "src/coreclr/nativeaot/Runtime/";
@@ -74,14 +74,65 @@ internal static class RuntimeStartupSources
                        FALSE,  // inherit
                        DUPLICATE_SAME_ACCESS);
 """;
-        thread = Replace(thread, duplicateHandle, """
-    // WitOS has no duplicated OS thread/context handle yet. Keep the upstream
-    // INVALID_HANDLE_VALUE outcome explicitly allowed above; do not substitute
-    // a Windows pseudo handle or a kernel identity for a context capability.
-""");
+        // Preserve the real upstream DuplicateHandle call. WitOS now supplies
+        // generation-bearing context capabilities and atomic output-on-success.
+        // Assert the pinned body still matches; its INVALID_HANDLE_VALUE fallback
+        // remains untouched when duplication fails.
+        thread = Replace(thread, duplicateHandle, duplicateHandle);
         thread = Replace(thread, "#include \"common.h\"", "#include \"common.h\"\nextern \"C\" {\n#include \"bootstrap.h\"\n}");
         thread = Replace(thread, "    if (!PalGetMaximumStackBounds(&m_pStackLow, &m_pStackHigh))\n        RhFailFast();",
             "    if (!PalGetMaximumStackBounds(&m_pStackLow, &m_pStackHigh))\n        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);");
+        thread = Replace(thread, "#include \"common.h\"", "#include \"common.h\"\n#include \"unwind_scope.witos.h\"");
+        foreach(var signature in new[]{
+            "void Thread::HijackReturnAddress(PAL_LIMITED_CONTEXT* pSuspendCtx, HijackFunc* pfnHijackFunction)",
+            "void Thread::HijackReturnAddress(NATIVE_CONTEXT* pSuspendCtx, HijackFunc* pfnHijackFunction)"})
+            thread = Replace(thread, signature+"\n{", signature+"\n{\n"+
+                "    // Retain original stack locations through the entire return-address write.\n"+
+                "    WitNativeUnwindScope walk(this == ThreadStore::RawGetCurrentThread() ? WIT_THREAD_REFERENCE_CURRENT : (WitU64)m_hOSThread);\n"+
+                "    if (walk.Status() != WIT_STATUS_OK) return;\n");
+        const string gcRoots = """
+void Thread::GcScanRoots(ScanFunc * pfnEnumCallback, ScanContext * pvCallbackData)
+{
+    this->CrossThreadUnhijack();
+
+#ifdef HOST_WASM
+    GcScanWasmShadowStack(pfnEnumCallback, pvCallbackData);
+#else
+    StackFrameIterator frameIterator(this, GetTransitionFrame());
+    GcScanRootsWorker(pfnEnumCallback, pvCallbackData, frameIterator);
+#endif
+}
+""";
+        const string scopedGcRoots = """
+void Thread::GcScanRoots(ScanFunc * pfnEnumCallback, ScanContext * pvCallbackData)
+{
+    // The runtime rendezvous stabilizes managed state; the kernel suspension and
+    // lease additionally keep the actual foreign stack alive through every use
+    // of original saved-register/root locations, including CrossThreadUnhijack.
+    const bool foreign = this != ThreadStore::RawGetCurrentThread();
+    if (foreign && (m_hOSThread == INVALID_HANDLE_VALUE || SuspendThread(m_hOSThread) == (DWORD)-1))
+        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+    WitNativeUnwindScope walk(foreign ? (WitU64)m_hOSThread : WIT_THREAD_REFERENCE_CURRENT);
+    if (walk.Status() != WIT_STATUS_OK)
+        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+
+    this->CrossThreadUnhijack();
+
+#ifdef HOST_WASM
+    GcScanWasmShadowStack(pfnEnumCallback, pvCallbackData);
+#else
+    StackFrameIterator frameIterator(this, GetTransitionFrame());
+    GcScanRootsWorker(pfnEnumCallback, pvCallbackData, frameIterator);
+#endif
+
+    // Release original-stack authority before allowing the target to run again.
+    if (walk.Close() != WIT_STATUS_OK)
+        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+    if (foreign && ResumeThread(m_hOSThread) == (DWORD)-1)
+        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+}
+""";
+        thread = Replace(thread, gcRoots, scopedGcRoots);
         await File.WriteAllTextAsync(Path.Combine(output, "thread.witos.cpp"), thread);
         var stressHeader = await Read(prefix + "inc/stressLog.h");
         stressHeader = Replace(stressHeader, "#ifndef __GCENV_BASE_INCLUDED__\n#if !defined(STRESS_LOG) || defined(DACCESS_COMPILE)",
@@ -116,7 +167,7 @@ internal static class RuntimeStartupSources
         await File.WriteAllTextAsync(Path.Combine(output, "startup-provenance.json"), JsonSerializer.Serialize(new
         {
             pin.RuntimeCommit,
-            scope = "Unchanged RuntimeInstance/ThreadStore creation methods, RestrictedCallouts initialization and upstream disabled-standalone-GC event-lock method. Windows TEB access in DAC TLS metadata is replaced with kernel-confirmed compiler TLS bounds; Thread::Construct explicitly retains the upstream-allowed invalid OS handle because duplicated thread/context capabilities are unavailable. Stack-discovery failure terminates the native component. WitOS uses upstream NO_STRESS_LOG consistently for the archive and probe; DebugHeader stress types/global are guarded by the actual feature macro; upstream disabled logging macros are exposed under GCENV and the VA signature matches enabled logging. The unchanged PerThreadRandom constructor/TLS definition uses real source-built minipal time and xoshiro. Actual SetGCSpecial/Construct/state/logging methods execute without attachment or collector substitutes.",
+            scope = "Unchanged RuntimeInstance/ThreadStore creation methods, RestrictedCallouts initialization and upstream disabled-standalone-GC event-lock method. Windows TEB access in DAC TLS metadata is replaced with kernel-confirmed compiler TLS bounds; Thread::Construct retains the genuine upstream DuplicateHandle operation over real WitOS context capabilities, including unchanged INVALID_HANDLE_VALUE on failure. Both return-address hijack entrypoints retain a native walk scope through all original-stack pointer uses, without enclosing the preceding Redirect path. Full GcScanRoots retains the original upstream enumeration body inside a kernel stack lease; foreign targets acquire a counted suspension after the runtime rendezvous, and the lease is released before the paired resume. Failure terminates the component instead of scanning an unprotected foreign stack. Stack-discovery failure terminates the native component. WitOS uses upstream NO_STRESS_LOG consistently for the archive and probe; DebugHeader stress types/global are guarded by the actual feature macro; upstream disabled logging macros are exposed under GCENV and the VA signature matches enabled logging. The unchanged PerThreadRandom constructor/TLS definition uses real source-built minipal time and xoshiro. Actual SetGCSpecial/Construct/state/logging methods execute without attachment or collector substitutes.",
             inputs = pin.Sources.Where(s => names.Any(n => s.Path == prefix + n) || s.Path is "src/native/minipal/time.h" or "src/native/minipal/xoshiro128pp.h" or "src/native/minipal/xoshiro128pp.c"),
             stressHeader = new { file = "../include/stressLog.h", sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(includeOutput, "stressLog.h")))).ToLowerInvariant() },
             generated = new[] { "threadstore.witos.cpp", "thread.witos.cpp", "debugheader.witos.cpp", "startup.objects.slice.cpp" }.Select(name => new

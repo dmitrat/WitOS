@@ -16,7 +16,7 @@ void __invlpg(void *);
 static WitU64 allocate(WitUserSpace *space, WitU64 address)
 {
     WitU64 page = 0;
-    if (space->OwnedCount == WIT_USER_PAGE_CAPACITY ||
+    if (space->OwnedCount >= space->PageLimit ||
         !wit_page_allocate(space->Allocator, &page)) return 0;
     space->OwnedPages[space->OwnedCount] = page;
     space->OwnedVirtual[space->OwnedCount++] = address;
@@ -117,20 +117,23 @@ static void unmap_page(WitUserSpace *space, WitU64 address)
     prune(space, address);
 }
 
-static WitU64 address_limit(WitU64 address)
+static WitU64 address_limit(const WitUserSpace* space,WitU64 address)
 {
-    if (address >= WIT_USER_BASE && address < WIT_USER_LIMIT) return WIT_USER_LIMIT;
+    if (address >= WIT_USER_BASE && address < space->FixedLimit) return space->FixedLimit;
     if (address >= WIT_USER_MEMORY_BASE && address < WIT_USER_MEMORY_LIMIT) return WIT_USER_MEMORY_LIMIT;
     return 0;
 }
 
-int wit_user_space_create(WitUserSpace *space, WitPageAllocator *allocator)
+int wit_user_space_create_profile(WitUserSpace *space, WitPageAllocator *allocator,int full)
 {
     const WitU64 shared = ((WitU64 *)wit_virtual_kernel_root())[0];
     space->Allocator = allocator;
+    space->PageLimit=full?WIT_RUNTIME_PAGE_CAPACITY:WIT_USER_PAGE_CAPACITY;
+    space->ReservationLimit=full?WIT_RUNTIME_RESERVATION_CAPACITY:WIT_USER_RESERVATION_CAPACITY;
+    space->FixedLimit=full?WIT_RUNTIME_USER_LIMIT:WIT_USER_LIMIT;
     space->OwnedCount = 0;
     space->Root = 0;
-    for (WitU32 i = 0; i < WIT_USER_RESERVATION_CAPACITY; ++i)
+    for (WitU32 i = 0; i < space->ReservationLimit; ++i)
         space->Reservations[i].Size = 0;
     if (!(shared & PAGE_PRESENT) || (shared & PAGE_USER)) return 0;
     space->Root = allocate(space, 0);
@@ -140,9 +143,12 @@ int wit_user_space_create(WitUserSpace *space, WitPageAllocator *allocator)
     return 1;
 }
 
+int wit_user_space_create(WitUserSpace* space,WitPageAllocator* allocator)
+{return wit_user_space_create_profile(space,allocator,0);}
+
 int wit_user_space_map(WitUserSpace *space, WitU64 address, int writable, int executable)
 {
-    if (!space->Root || address < WIT_USER_BASE || address >= WIT_USER_LIMIT ||
+    if (!space->Root || address < WIT_USER_BASE || address >= space->FixedLimit ||
         (address & 4095) || (writable && executable)) return 0;
     return map_page(space, address, PAGE_OWNED | PAGE_PRESENT | PAGE_USER |
         (writable ? PAGE_WRITE : 0) | (executable ? 0 : PAGE_NX));
@@ -151,7 +157,7 @@ int wit_user_space_map(WitUserSpace *space, WitU64 address, int writable, int ex
 int wit_user_space_unmap_fixed(WitUserSpace *space, WitU64 address)
 {
     const WitU64 *entry;
-    if (!space->Root || address < WIT_USER_BASE || address >= WIT_USER_LIMIT ||
+    if (!space->Root || address < WIT_USER_BASE || address >= space->FixedLimit ||
         (address & 4095)) return 0;
     entry = leaf(space, address, 0);
     if (!entry || !(*entry & PAGE_OWNED)) return 0;
@@ -164,7 +170,7 @@ WitU64 wit_user_space_physical(const WitUserSpace *space, WitU64 address, int wr
     const WitU32 shifts[4] = { 39, 30, 21, 12 };
     const WitU64 required = PAGE_PRESENT | PAGE_USER | (write ? PAGE_WRITE : 0);
     WitU64 *table = (WitU64 *)space->Root;
-    if (!space->Root || !address_limit(address)) return 0;
+    if (!space->Root || !address_limit(space,address)) return 0;
     for (WitU32 level = 0; level < 4; ++level) {
         const WitU64 entry = table[(address >> shifts[level]) & 511];
         if ((entry & required) != required || (execute && (entry & PAGE_NX))) return 0;
@@ -175,28 +181,39 @@ WitU64 wit_user_space_physical(const WitUserSpace *space, WitU64 address, int wr
     return 0;
 }
 
-int wit_user_copy_from(const WitUserSpace *space, WitU64 address, WitU8 *buffer, WitU32 size)
+int wit_user_buffer_readable(const WitUserSpace *space, WitU64 address, WitU32 size)
 {
-    const WitU64 limit = address_limit(address);
+    const WitU64 limit = address_limit(space,address);
     if (size == 0) return 1;
     if (!limit || size > limit - address) return 0;
     /* Validate everything before output; operations are serialized with IF clear. */
     for (WitU64 p = address & ~4095ULL; p <= ((address + size - 1) & ~4095ULL); p += 4096)
         if (!wit_user_space_physical(space, p, 0, 0)) return 0;
+    return 1;
+}
+
+int wit_user_copy_from(const WitUserSpace *space, WitU64 address, WitU8 *buffer, WitU32 size)
+{
+    if(!wit_user_buffer_readable(space,address,size))return 0;
     for (WitU32 i = 0; i < size; ++i)
         buffer[i] = *(const WitU8 *)wit_user_space_physical(space, address + i, 0, 0);
     return 1;
 }
 
+int wit_user_buffer_writable(const WitUserSpace* space,WitU64 address,WitU32 size)
+{
+    const WitU64 limit=address_limit(space,address);
+    if(!size)return 1;
+    if(!limit||size>limit-address)return 0;
+    /* Mapping and copy operations stay serialized with IF clear. */
+    for(WitU64 p=address&~4095ULL;p<=((address+size-1)&~4095ULL);p+=4096)
+        if(!wit_user_space_physical(space,p,1,0))return 0;
+    return 1;
+}
+
 int wit_user_copy_to(const WitUserSpace *space, WitU64 address, const WitU8 *buffer, WitU32 size)
 {
-    const WitU64 limit = address_limit(address);
-    if (size == 0) return 1;
-    if (!limit || size > limit - address) return 0;
-    /* No output until every destination page is validated. IF is clear for the
-     * entire validation/copy, so a sibling cannot decommit between the passes. */
-    for (WitU64 p = address & ~4095ULL; p <= ((address + size - 1) & ~4095ULL); p += 4096)
-        if (!wit_user_space_physical(space, p, 1, 0)) return 0;
+    if (!wit_user_buffer_writable(space,address,size)) return 0;
     for (WitU32 i = 0; i < size; ++i)
         *(WitU8 *)wit_user_space_physical(space, address + i, 1, 0) = buffer[i];
     return 1;
@@ -213,7 +230,7 @@ WitU64 wit_user_memory_query(const WitUserSpace *space, WitU64 address, WitU64 s
     info.ProcessorCount = WIT_USER_PROCESSOR_COUNT; /* Only the bootstrap CPU is online in this backend. */
     info.PhysicalTotalBytes = space->Allocator->TotalPages * WIT_PAGE_SIZE;
     info.PhysicalAvailableBytes = wit_pages_free_count(space->Allocator) * WIT_PAGE_SIZE;
-    info.OwnedLimitBytes = WIT_USER_PAGE_CAPACITY * WIT_PAGE_SIZE;
+    info.OwnedLimitBytes = space->PageLimit * WIT_PAGE_SIZE;
     info.OwnedBytes = space->OwnedCount * WIT_PAGE_SIZE;
     info.VirtualBase = WIT_USER_MEMORY_BASE;
     info.VirtualBytes = WIT_USER_MEMORY_LIMIT - WIT_USER_MEMORY_BASE;
@@ -221,8 +238,8 @@ WitU64 wit_user_memory_query(const WitUserSpace *space, WitU64 address, WitU64 s
     info.DynamicCommittedBytes = 0;
     info.PrivatePageTableBytes = 0;
     info.ReservationCount = 0;
-    info.ReservationCapacity = WIT_USER_RESERVATION_CAPACITY;
-    for (WitU32 i = 0; i < WIT_USER_RESERVATION_CAPACITY; ++i) {
+    info.ReservationCapacity = space->ReservationLimit;
+    for (WitU32 i = 0; i < space->ReservationLimit; ++i) {
         info.ReservedBytes += space->Reservations[i].Size;
         if (space->Reservations[i].Size) ++info.ReservationCount;
     }
@@ -246,7 +263,7 @@ static WitU64 reserved_range(const WitUserSpace *space, WitU64 address, WitU64 s
     if (!size || (address & 4095) || (size & 4095)) return WIT_STATUS_INVALID_ARGUMENT;
     if (address < WIT_USER_MEMORY_BASE || address >= WIT_USER_MEMORY_LIMIT ||
         size > WIT_USER_MEMORY_LIMIT - address) return WIT_STATUS_BAD_ADDRESS;
-    for (WitU32 i = 0; i < WIT_USER_RESERVATION_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < space->ReservationLimit; ++i) {
         const WitUserReservation *r = &space->Reservations[i];
         if (r->Size && address >= r->Base && address - r->Base < r->Size &&
             size <= r->Size - (address - r->Base)) return WIT_STATUS_OK;
@@ -258,20 +275,20 @@ WitU64 wit_user_memory_reserve(WitUserSpace *space, WitU64 size, WitU64 alignmen
 {
     const WitU64 arena_size = WIT_USER_MEMORY_LIMIT - WIT_USER_MEMORY_BASE;
     WitU64 candidate;
-    WitU32 slot = WIT_USER_RESERVATION_CAPACITY;
+    WitU32 slot = space->ReservationLimit;
     *result = 0;
     if (!space->Root || !size || (size & 4095) || alignment < 4096 ||
         alignment > arena_size || (alignment & (alignment - 1))) return WIT_STATUS_INVALID_ARGUMENT;
     if (size > arena_size) return WIT_STATUS_NO_MEMORY;
-    for (WitU32 i = 0; i < WIT_USER_RESERVATION_CAPACITY; ++i)
+    for (WitU32 i = 0; i < space->ReservationLimit; ++i)
         if (!space->Reservations[i].Size) { slot = i; break; }
-    if (slot == WIT_USER_RESERVATION_CAPACITY) return WIT_STATUS_NO_MEMORY;
+    if (slot == space->ReservationLimit) return WIT_STATUS_NO_MEMORY;
     candidate = (WIT_USER_MEMORY_BASE + alignment - 1) & ~(alignment - 1);
     for (;;) {
         int overlap = 0;
         if (candidate >= WIT_USER_MEMORY_LIMIT || size > WIT_USER_MEMORY_LIMIT - candidate)
             return WIT_STATUS_NO_MEMORY;
-        for (WitU32 i = 0; i < WIT_USER_RESERVATION_CAPACITY; ++i) {
+        for (WitU32 i = 0; i < space->ReservationLimit; ++i) {
             const WitUserReservation *r = &space->Reservations[i];
             if (!r->Size || candidate >= r->Base + r->Size || candidate + size <= r->Base) continue;
             candidate = (r->Base + r->Size + alignment - 1) & ~(alignment - 1);
@@ -288,13 +305,13 @@ WitU64 wit_user_memory_reserve(WitUserSpace *space, WitU64 size, WitU64 alignmen
 
 WitU64 wit_user_memory_commit(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection)
 {
-    WitU64 added[WIT_USER_PAGE_CAPACITY];
+    WitU64 added[WIT_RUNTIME_PAGE_CAPACITY];
     WitU32 count = 0;
     WitU64 status = reserved_range(space, address, size);
     if (status != WIT_STATUS_OK) return status;
     if (!valid_protection(protection)) return WIT_STATUS_INVALID_ARGUMENT;
     /* Bound work as well as memory when called with hostile lengths. */
-    if (size / 4096 > WIT_USER_PAGE_CAPACITY) return WIT_STATUS_NO_MEMORY;
+    if (size / 4096 > space->PageLimit) return WIT_STATUS_NO_MEMORY;
     for (WitU64 p = address; p < address + size; p += 4096) {
         WitU64 *entry = leaf(space, p, 0);
         if (entry && (*entry & PAGE_OWNED)) continue; /* Preserve data and protection. */
@@ -334,7 +351,7 @@ WitU64 wit_user_memory_reset(WitUserSpace *space, WitU64 address, WitU64 size)
     const WitU64 status = reserved_range(space, address, size);
     if (status != WIT_STATUS_OK) return status;
     /* Bound work even for sparse multi-gigabyte reservations. No allocation. */
-    if (size / 4096 > WIT_USER_PAGE_CAPACITY) return WIT_STATUS_NOT_COMMITTED;
+    if (size / 4096 > space->PageLimit) return WIT_STATUS_NOT_COMMITTED;
     for (WitU64 p = address; p < address + size; p += 4096) {
         const WitU64 *entry = leaf(space, p, 0);
         if (!entry || !(*entry & PAGE_OWNED)) return WIT_STATUS_NOT_COMMITTED;
@@ -353,7 +370,7 @@ WitU64 wit_user_memory_protect(WitUserSpace *space, WitU64 address, WitU64 size,
     WitU64 status = reserved_range(space, address, size);
     if (status != WIT_STATUS_OK) return status;
     if (!valid_protection(protection)) return WIT_STATUS_INVALID_ARGUMENT;
-    if (size / 4096 > WIT_USER_PAGE_CAPACITY) return WIT_STATUS_NOT_COMMITTED;
+    if (size / 4096 > space->PageLimit) return WIT_STATUS_NOT_COMMITTED;
     for (WitU64 p = address; p < address + size; p += 4096) {
         const WitU64 *entry = leaf(space, p, 0);
         if (!entry || !(*entry & PAGE_OWNED)) return WIT_STATUS_NOT_COMMITTED;
@@ -370,7 +387,7 @@ WitU64 wit_user_memory_release(WitUserSpace *space, WitU64 address)
 {
     if (address & 4095) return WIT_STATUS_INVALID_ARGUMENT;
     if (address < WIT_USER_MEMORY_BASE || address >= WIT_USER_MEMORY_LIMIT) return WIT_STATUS_BAD_ADDRESS;
-    for (WitU32 i = 0; i < WIT_USER_RESERVATION_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < space->ReservationLimit; ++i) {
         WitUserReservation *r = &space->Reservations[i];
         if (!r->Size || r->Base != address) continue;
         decommit_range(space, r->Base, r->Size);
@@ -389,5 +406,5 @@ void wit_user_space_destroy(WitUserSpace *space)
         if (!wit_page_free(space->Allocator, page)) wit_panic("User page ownership corrupted");
     }
     space->Root = 0;
-    for (WitU32 i = 0; i < WIT_USER_RESERVATION_CAPACITY; ++i) space->Reservations[i].Size = 0;
+    for (WitU32 i = 0; i < space->ReservationLimit; ++i) space->Reservations[i].Size = 0;
 }

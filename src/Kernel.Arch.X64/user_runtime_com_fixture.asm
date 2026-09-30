@@ -1,0 +1,18 @@
+option casemap:none
+EXTERN CoInitializeEx:PROC
+EXTERN CoGetApartmentType:PROC
+EXTERN CoUninitialize:PROC
+.code
+PUBLIC wit_test_com_initialize
+wit_test_com_initialize PROC
+ jmp CoInitializeEx
+wit_test_com_initialize ENDP
+PUBLIC wit_test_com_apartment
+wit_test_com_apartment PROC
+ jmp CoGetApartmentType
+wit_test_com_apartment ENDP
+PUBLIC wit_test_com_uninitialize
+wit_test_com_uninitialize PROC
+ jmp CoUninitialize
+wit_test_com_uninitialize ENDP
+END

@@ -38,6 +38,7 @@ internal static class RuntimeExperiment
 
     public static async Task AuditAsync(string root)
     {
+        await NativeMathSources.PrepareAsync(root, generate: false);
         var pin = ReadLock(root);
         var cache = Path.Combine(root, ".tools", "runtime-audit");
         Directory.CreateDirectory(cache);

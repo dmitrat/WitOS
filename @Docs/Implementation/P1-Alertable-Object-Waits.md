@@ -1,0 +1,23 @@
+# P1.5 alertable object waits and user APCs
+
+User ABI v22 adds a versioned object-wait descriptor, per-thread bounded APC queue/dequeue and event creation with explicit rights. WaitAny/WaitAll accept up to four events or native thread references. Kernel copies and validates the complete handle array before consuming any event or reporting APC readiness. WaitAll checks every object before atomically consuming auto-reset events; duplicate handles are rejected for WaitAll. WaitAny preserves lowest-index selection and accepts duplicate entries without double consumption.
+
+The scheduler completes legacy and extended object waits through one ordered mechanism. Both deadline domains expire before later signal/close/queue changes. Completion clears the retained snapshots; later close/reuse/APC enqueue cannot overwrite an already completed result. A terminal thread reference is permanently signaled until closed, without retaining reaped user pages. Closing a waited reference wakes the waiter with a closed result.
+
+QueueUserAPC targets the current-thread pseudo handle or a live generation-bearing reference with SET_CONTEXT permission. GET_CONTEXT is a distinct right and does not authorize enqueue. Callback addresses must be executable bytes inside the component's fixed image. Each thread has four queued records, cleared at exit/reuse. Invalid target/callback, exhausted queue and exited target return failure. A rejected dequeue buffer does not pop or partially copy a record.
+
+Callbacks never run in the kernel. WaitForMultipleObjectsEx responds to APC readiness by checked dequeue and FIFO invocation in user space with no kernel gate held, then returns WAIT_IO_COMPLETION after draining the pending queue. Callbacks can re-register or enter another alertable wait; ordinary user preemption/budget applies. Non-alertable waits retain queued callbacks until a later alertable operation. The current API cannot obtain another thread's native reference before that thread begins running; no before-first-entry injection or special-mode suspension APC support is claimed.
+
+CreateEventExW enforces the prototype's unnamed/non-inheritable component-local profile and requested wait/signal rights. Native SetEvent uses the actual PAL/kernel event. All four direct/import bindings are equivalent; import slots are readonly. Successful operations preserve native error state except for intentional user callback side effects. Legacy PAL reentrant/alertable restrictions have not been silently rewritten; the reached CoreLib direct WaitForMultipleObjectsEx path uses the new service.
+
+## Evidence
+
+Tests cover FIFO/capacity, re-registration, non-alertable pending APC, callback target identity, GET_CONTEXT-only denial, parked wake, WaitAll no-partial-consumption, terminal-reference mixed waits, deterministic parked-reference completion on target exit and on reference close, close/reuse completion preservation, finite timeout, pending callback discard on exit and subsequent slot reuse. Cross-page invalid handle-array and dequeue destinations preserve signals, queue entries and writable prefixes. A parked caller's original handle array is mutated to prove kernel-owned snapshots. Direct/import and readonly binding checks execute in the guest, including without compiler TLS.
+
+Validation: Release build, 20 boot scenarios, source audit/hosted probe, native target/source/reference/readiness and four runtime-config profiles passed. Each runtime profile passed 229 user groups and 54 expected contained faults. Thread/wait fixture: 18432 bytes, 53 plain unwind records. Full archive: 107 members; configuration archive: 30 objects. Minimal/broad strict boundaries: 43/49 unresolved symbols. No managed runtime execution is claimed.
+
+The FIFO dispatch/WAIT_IO_COMPLETION contract follows [Microsoft QueueUserAPC documentation](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-queueuserapc). Prototype quotas, supported handle kinds and unavailable process/STA/IO facilities remain explicit; this is not a complete Windows object manager or general asynchronous I/O subsystem.
+
+## Next console boundary
+
+The pinned CoreLib Internal.Console.Windows.cs converts the entire string and makes one WriteFile call, ignoring the returned count. A successful short write therefore cannot substitute for this reached path. Prepared console sources use a checked descriptor: caller-owned completion DWORD validation, real console capability validation, full source-range validation, then bounded synchronous output. These new sources are not yet wired into the build or dispatcher and have no guest acceptance claim.

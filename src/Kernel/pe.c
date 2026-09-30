@@ -1,4 +1,5 @@
 #include "witos/pe.h"
+#include "witos/unwind_metadata.h"
 
 static WitU16 u16(const WitU8 *p) { return (WitU16)(p[0] | ((WitU16)p[1] << 8)); }
 static WitU32 u32(const WitU8 *p) { return (WitU32)u16(p) | ((WitU32)u16(p + 2) << 16); }
@@ -132,6 +133,30 @@ static WitPeStatus unwind_info(const WitU8 *file, WitPeImage *plan)
     return WitPeOk;
 }
 
+typedef struct WitPeUnwindReader { const WitU8* File;WitPeImage* Plan; } WitPeUnwindReader;
+static const WitU8* runtime_unwind_read(void* context,WitU32 rva,WitU32 size,int code)
+{
+    const WitPeUnwindReader* reader=(const WitPeUnwindReader*)context;WitU32 raw;
+    return file_range_flags(reader->Plan,rva,size,WIT_PE_READ|(code?WIT_PE_EXECUTE:0),WIT_PE_WRITE|(code?0:WIT_PE_EXECUTE),&raw)?reader->File+raw:0;
+}
+static int runtime_unwind_visit(void* context,WitU32 rva,WitU32 size)
+{
+    WitPeImage* plan=((WitPeUnwindReader*)context)->Plan;
+    for(WitU32 i=0;i<plan->UnwindCount;++i)if(plan->UnwindInfo[i].Rva==rva)return plan->UnwindInfo[i].Size==size;
+    if(plan->UnwindCount==((plan->Profile&WIT_PE_RUNTIME_FULL)?WIT_PE_FULL_UNWIND_ENTRIES:WIT_PE_MAX_UNWIND_RANGES))return 0;
+    plan->UnwindInfo[plan->UnwindCount++]=(WitPeUnwindRange){rva,size};return 1;
+}
+static WitPeStatus runtime_unwind_info(const WitU8* file,WitPeImage* plan)
+{
+    plan->UnwindCount=0;if(!plan->UnwindSize)return WitPeOk;
+    WitPeUnwindReader reader={file,plan};
+    const WitUnwindMetadataView view={&reader,runtime_unwind_read,runtime_unwind_visit,plan->ImageSize,plan->UnwindRva,plan->UnwindSize,(plan->Profile&WIT_PE_RUNTIME_FULL)?WIT_PE_FULL_UNWIND_ENTRIES:WIT_PE_RUNTIME_UNWIND_ENTRIES};
+    const WitUnwindValidation status=wit_unwind_metadata_image(&view);
+    if(status==WitUnwindValid)return WitPeOk;
+    if(status==WitUnwindQuota)return WitPeTooLarge;
+    return status==WitUnwindUnsupported?WitPeUnsupportedImage:WitPeInvalidImage;
+}
+
 /* Single static TLS module. Addresses in PE32+ TLS directories are VAs. */
 static int tls_rva(const WitPeImage *plan, WitU64 va, WitU32 *rva)
 {
@@ -228,12 +253,14 @@ static WitPeStatus relocations(const WitU8 *file, const WitPeImage *plan)
     return WitPeOk;
 }
 
-WitPeStatus wit_pe_validate(const WitU8 *file, WitU32 size, WitPeImage *plan)
+WitPeStatus wit_pe_validate_profile(const WitU8 *file, WitU32 size, WitPeImage *plan, WitU32 profile)
 {
+    if((profile&~(WIT_PE_UNWIND_RUNTIME|WIT_PE_RUNTIME_FULL))||((profile&WIT_PE_RUNTIME_FULL)&&!(profile&WIT_PE_UNWIND_RUNTIME)))return WitPeUnsupportedImage;
     WitU32 nt, optional, sections, alignment, maximum, debug_rva, debug_size;
     WitU16 characteristics;
     int entry_valid = 0;
     if (!file || !plan || size < 64) return WitPeInvalidImage;
+    plan->Profile=profile;
     if (size > WIT_PE_MAX_FILE_SIZE) return WitPeTooLarge;
     if (u16(file) != 0x5A4D) return WitPeInvalidImage;
     nt = u32(file + 60);
@@ -261,7 +288,7 @@ WitPeStatus wit_pe_validate(const WitU8 *file, WitU32 size, WitPeImage *plan)
     plan->HeadersSize = u32(file + optional + 60);
     plan->EntryRva = u32(file + optional + 16);
     if (!plan->ImageSize || (plan->ImageSize & 4095)) return WitPeInvalidImage;
-    if (plan->ImageSize > WIT_PE_MAX_IMAGE_SIZE) return WitPeTooLarge;
+    if (plan->ImageSize > ((profile&WIT_PE_RUNTIME_FULL)?WIT_PE_FULL_IMAGE_SIZE:WIT_PE_MAX_IMAGE_SIZE)) return WitPeTooLarge;
     if (!plan->PreferredBase || (plan->PreferredBase & 65535) ||
         plan->PreferredBase > 0x0000800000000000ULL - plan->ImageSize) return WitPeInvalidImage;
     if (!plan->HeadersSize || plan->HeadersSize > 4096 ||
@@ -330,7 +357,7 @@ WitPeStatus wit_pe_validate(const WitU8 *file, WitU32 size, WitPeImage *plan)
             return WitPeInvalidImage;
     }
     {
-        const WitPeStatus status = unwind_info(file, plan);
+        const WitPeStatus status = profile&WIT_PE_UNWIND_RUNTIME?runtime_unwind_info(file,plan):unwind_info(file, plan);
         if (status != WitPeOk) return status;
     }
     {
@@ -339,3 +366,6 @@ WitPeStatus wit_pe_validate(const WitU8 *file, WitU32 size, WitPeImage *plan)
     }
     return relocations(file, plan);
 }
+
+WitPeStatus wit_pe_validate(const WitU8* file,WitU32 size,WitPeImage* plan)
+{return wit_pe_validate_profile(file,size,plan,0);}

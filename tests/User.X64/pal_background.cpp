@@ -55,9 +55,12 @@ static uint32_t callback(void* context)
     const auto index = (WitU64)(uintptr_t)context;
     if (index >= 3 || constructions != 1 || index_value != 3) wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     index_value = index;
-    ids[index] = PalGetCurrentOSThreadId();
+    const auto nativeId=PalGetCurrentOSThreadId();
+    WitU64 identity=0;
+    if(wit_native_call(WIT_CALL_THREAD_CURRENT,0,0,0,&identity)!=WIT_STATUS_OK)wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+    ids[index]=identity; // Lifetime checks use kernel identity, never the native DWORD ID.
     WitU64 result = 99;
-    if (!ids[index] || ids[index] == root_id ||
+    if (!nativeId || nativeId == root_id || !ids[index] ||
         wit_native_call(WIT_CALL_THREAD_JOIN, ids[index], 0, 0, &result) != WIT_STATUS_DENIED || result ||
         wit_native_call(WIT_CALL_CLOSE, ids[index], 0, 0, nullptr) != WIT_STATUS_BUSY) wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     SetLastError((DWORD)(0xAB000000 + index));
@@ -150,7 +153,10 @@ extern "C" WitU64 wit_background_program(const WitUserStartup* startup)
         clear(0);
         if (!launch(0, nullptr) || !wait_for_reap(0)) return 1327;
     } else if (mode == 2) {
-        for (WitU64 remaining = 0; remaining < 6; ++remaining) {
+        WitUserThreadInfo thread;
+        if(wit_native_call(WIT_CALL_THREAD_QUERY,(WitU64)&thread,sizeof(thread),WIT_THREAD_INFO_VERSION,nullptr)!=WIT_STATUS_OK)return 1329;
+        const WitU64 childPages=(thread.StackHigh-thread.StackLow)/4096+2;
+        for (WitU64 remaining = 0; remaining < childPages; ++remaining) {
             WitU64 arena = 0, pages = 0;
             if (wit_native_call(WIT_CALL_MEMORY_RESERVE, 128 * 4096, 4096, 0, &arena) != WIT_STATUS_OK) return 1330;
             while (wit_native_call(WIT_CALL_MEMORY_COMMIT, arena + pages * 4096, 4096, 3, nullptr) == WIT_STATUS_OK) ++pages;
