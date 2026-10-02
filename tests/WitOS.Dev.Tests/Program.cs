@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using WitOS.Dev;
+using WitOS.Dev.Commands;
 using WitOS.Dev.CoreClr;
 using WitOS.Dev.Host;
 using WitOS.Dev.Kernel;
@@ -136,7 +136,7 @@ await Test("FailedBuildInvalidatesCurrentAcceptance", async () =>
     using var errors = new StringWriter();
     int exit;
     try
-    { Console.SetError(errors); Environment.CurrentDirectory = isolated; exit = await DevTool.RunAsync(["runtime-boot-run"]); }
+    { Console.SetError(errors); Environment.CurrentDirectory = isolated; exit = await CommandLine.RunAsync(["runtime-boot-run"]); }
     finally { Environment.CurrentDirectory = cwd; Console.SetError(stderr); }
     Check(errors.ToString().Contains("ERROR:"), "Expected diagnostic missing");
     Check(exit != 0, "Missing source should fail build");
@@ -318,11 +318,11 @@ await Test("LegacyAndRuntimeFaultBoundaries", () =>
 {
     const string fault = "[USER-FAULT] id=1 vector=14 error=0x0000000000000004 address=0x0000008000014E10 cs=0x0000000000000033\n";
     const string boundary = "[TEST-PASS] User.Isolation\n";
-    Check(DevTool.ValidateUserFaults(fault + fault + boundary + fault, 2, 1), "Valid legacy/runtime fault split rejected");
-    Check(!DevTool.ValidateUserFaults(fault + boundary + fault + fault, 2, 1), "Extra runtime fault hid missing legacy fault");
-    Check(!DevTool.ValidateUserFaults(fault + fault + fault + boundary, 2, 1), "Legacy fault hid missing runtime fault");
-    Check(!DevTool.ValidateUserFaults(fault + fault + boundary + fault + "[USER-FAULT] malformed\n", 2, 1), "Malformed fault ignored");
-    Check(!DevTool.ValidateUserFaults((fault + fault + boundary + fault).Replace("0033", "0008"), 2, 1), "Supervisor fault accepted");
+    Check(BootValidation.ValidateUserFaults(fault + fault + boundary + fault, 2, 1), "Valid legacy/runtime fault split rejected");
+    Check(!BootValidation.ValidateUserFaults(fault + boundary + fault + fault, 2, 1), "Extra runtime fault hid missing legacy fault");
+    Check(!BootValidation.ValidateUserFaults(fault + fault + fault + boundary, 2, 1), "Legacy fault hid missing runtime fault");
+    Check(!BootValidation.ValidateUserFaults(fault + fault + boundary + fault + "[USER-FAULT] malformed\n", 2, 1), "Malformed fault ignored");
+    Check(!BootValidation.ValidateUserFaults((fault + fault + boundary + fault).Replace("0033", "0008"), 2, 1), "Supervisor fault accepted");
     return Task.CompletedTask;
 });
 await Test("PerBaseProtocolMutations", () =>

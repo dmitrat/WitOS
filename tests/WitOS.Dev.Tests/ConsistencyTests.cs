@@ -1,5 +1,5 @@
 using System.Text.RegularExpressions;
-using WitOS.Dev;
+using WitOS.Dev.Commands;
 using WitOS.Dev.Kernel;
 using WitOS.Dev.Quality;
 
@@ -11,6 +11,51 @@ internal static class ConsistencyTests
         yield return ("FormatManifestDescribesTree", () => FormatManifestAsync(root));
         yield return ("VersionsHaveOneSource", () => VersionsAsync(root));
         yield return ("AbiReferenceCoversEveryCall", () => AbiReferenceAsync(root));
+        yield return ("WorkflowCommandsExist", () => WorkflowCommandsAsync(root));
+        yield return ("ToolSourcePathsExist", () => ToolSourcePathsAsync(root));
+    }
+
+    // Repository paths written as literals in the tool (evidence inputs, overlay sources) must exist;
+    // moving a file must not silently break an evidence list.
+    private static Task ToolSourcePathsAsync(string root)
+    {
+        var pattern = @"""((?:src/(?:Boot\.Uefi|Kernel[A-Za-z0-9.]*|Runtime\.[A-Za-z]+|System\.Native)|tools|tests|experiments)/" +
+            @"[A-Za-z0-9_./-]+\.(?:cs|c|h|cpp|asm|cmake|json|csproj))""";
+        var checkedPaths = 0;
+        foreach (var file in Directory.EnumerateFiles(Path.Combine(root, "tools"), "*.cs", SearchOption.AllDirectories))
+        {
+            if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"))
+            {
+                continue;
+            }
+            foreach (Match match in Regex.Matches(File.ReadAllText(file), pattern))
+            {
+                ++checkedPaths;
+                Check(File.Exists(Path.Combine(root, match.Groups[1].Value)),
+                    $"{Path.GetFileName(file)} names a missing file: {match.Groups[1].Value}");
+            }
+        }
+        Check(checkedPaths > 0, "No repository path literals were found in the tool");
+        return Task.CompletedTask;
+    }
+
+    // Every dev tool command a CI workflow invokes must exist in the command catalog.
+    private static Task WorkflowCommandsAsync(string root)
+    {
+        var known = CommandLine.CommandNames.ToHashSet(StringComparer.Ordinal);
+        var used = 0;
+        foreach (var workflow in Directory.EnumerateFiles(Path.Combine(root, ".github", "workflows"), "*.yml"))
+        {
+            var pattern = @"--project tools/WitOS\.Dev .*?-- ([a-z0-9-]+)";
+            foreach (Match match in Regex.Matches(File.ReadAllText(workflow), pattern))
+            {
+                ++used;
+                Check(known.Contains(match.Groups[1].Value),
+                    $"{Path.GetFileName(workflow)} runs unknown command {match.Groups[1].Value}");
+            }
+        }
+        Check(used > 0, "No dev tool command invocations were found in the workflows");
+        return Task.CompletedTask;
     }
 
     private static Task AbiReferenceAsync(string root)

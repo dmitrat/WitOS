@@ -60,7 +60,7 @@ internal static class ImageFingerprint
             {
                 Directory.Delete(directory, recursive: true);
             }
-            await DevTool.BuildAsync(root, scenario, directory, FixedBuildId);
+            await KernelImageBuilder.BuildAsync(root, scenario, directory, FixedBuildId);
             foreach (var file in Directory.EnumerateFiles(directory).Order(StringComparer.Ordinal))
             {
                 if (ImageExtensions.Contains(Path.GetExtension(file).ToLowerInvariant()) && IsNative(file))

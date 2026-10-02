@@ -88,7 +88,7 @@ internal static class CoreClrHostReference
             versionPolicy = "Upstream MSBuild generated resources; VersionPrefix explicitly matches the package pin. Arcade local file-version sentinel retained; these are not Microsoft release binaries.",
             compileCommandsSha256 = Hash(Path.Combine(build, "compile_commands.json")),
             upstreamClean = true,
-            sourceInputs = new[]{"tools/WitOS.Dev/CoreClrHostReference.cs","tools/WitOS.Dev/CoreClrHostBinding.cs","experiments/CoreClrHost/version-includes.cmake",
+            sourceInputs = new[]{"tools/WitOS.Dev/CoreClr/CoreClrHostReference.cs","tools/WitOS.Dev/CoreClr/CoreClrHostBinding.cs","experiments/CoreClrHost/version-includes.cmake",
                 "experiments/CoreClrHost/Probe/HostBindingProbe.csproj","experiments/CoreClrHost/Probe/Program.cs","experiments/CoreClrHost/Probe/packages.lock.json",
                 "experiments/CoreClrHost/Dependency/HostBindingDependency.csproj","experiments/CoreClrHost/Dependency/Dependency.cs","experiments/CoreClrHost/Dependency/packages.lock.json"}
                 .Select(path => new { path, sha256 = Hash(Path.Combine(root, path)) })

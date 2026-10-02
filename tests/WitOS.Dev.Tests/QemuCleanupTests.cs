@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using WitOS.Dev;
 using WitOS.Dev.Host;
 internal static class QemuCleanupTests
 {

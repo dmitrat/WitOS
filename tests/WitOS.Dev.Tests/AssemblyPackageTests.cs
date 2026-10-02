@@ -1,7 +1,6 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
-using WitOS.Dev;
 using WitOS.Dev.Kernel;
 
 internal static class AssemblyPackageTests

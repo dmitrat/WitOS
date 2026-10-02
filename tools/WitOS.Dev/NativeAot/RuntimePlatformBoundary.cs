@@ -74,7 +74,7 @@ internal static class RuntimePlatformBoundary
             guestManagedExecution = false,
             managedObjectSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(managedObject))).ToLowerInvariant(),
             compilerKnobs = compilerArguments.Where(a => a.StartsWith("--runtimeknob:", StringComparison.Ordinal)),
-            generatorSources = new[] { "tools/WitOS.Dev/RuntimePlatformBoundary.cs", "tools/WitOS.Dev/RuntimeReadiness.cs", "tools/WitOS.Dev/NativeObject.cs" }
+            generatorSources = new[] { "tools/WitOS.Dev/NativeAot/RuntimePlatformBoundary.cs", "tools/WitOS.Dev/NativeAot/RuntimeReadiness.cs", "tools/WitOS.Dev/Pe/NativeObject.cs" }
                 .Select(p => new { file = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, p)))).ToLowerInvariant() }),
             entries,
             scope = "Every current unresolved symbol classified; COFF relocation owners and actual linker reference evidence. No runtime service is implemented by this report."
