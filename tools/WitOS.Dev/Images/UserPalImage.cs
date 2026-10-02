@@ -47,38 +47,9 @@ internal static class UserPalImage
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             File.Copy(cached, target, overwrite: true);
         }
-        var vc = Path.GetFullPath(Path.Combine(msvc, "..", "..", ".."));
-        var sdkLib = Toolchain.FindWindowsSdkLibrary("kernel32.lib");
-        var sdkVersion = Directory.GetParent(sdkLib)!.Parent!.Parent!.Name;
-        var sdk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-            "Windows Kits", "10", "Include", sdkVersion);
-        string[] compile =
-        [
-            "/nologo", "/c", "/TP", "/std:c++17", "/W4", "/WX", "/GS-", "/Zl", "/Oi", "/O1", "/GR-",
-            "/DHOST_64BIT", "/DHOST_WINDOWS", "/DTARGET_WINDOWS", "/DHOST_AMD64", "/DTARGET_AMD64", "/DTARGET_64BIT",
-            "/DNDEBUG", "/DWIN32_LEAN_AND_MEAN", "/DNOMINMAX",
-            $"/I{Path.Combine(vc, "include")}", $"/I{Path.Combine(sdk, "ucrt")}",
-            $"/I{Path.Combine(sdk, "um")}", $"/I{Path.Combine(sdk, "shared")}",
-            $"/I{Path.Combine(stage, "src", "coreclr", "nativeaot", "Runtime")}",
-            $"/I{Path.Combine(stage, "src", "coreclr", "nativeaot", "Runtime", "inc")}",
-            $"/I{Path.Combine(stage, "src", "coreclr", "nativeaot", "Runtime", "windows")}",
-            $"/I{Path.Combine(stage, "src", "coreclr", "gc", "env")}", $"/I{Path.Combine(stage, "src", "native")}",
-            $"/I{Path.Combine(root, "src", "Runtime.NativeAot")}", $"/I{Path.Combine(root, "src", "Runtime.Native")}",
-            $"/I{Path.Combine(root, "src", "Kernel", "include")}", $"/I{Path.Combine(root, "tests", "User.X64")}"
-        ];
         string[] sources = ["src/Runtime.NativeAot/pal.witos.cpp", "tests/User.X64/pal_thread.cpp", "src/Runtime.Native/tls_metadata.c",
             "src/Runtime.NativeAot/pal_memory.witos.cpp", "src/Runtime.NativeAot/pal_events.witos.cpp", "tests/User.X64/pal_services.cpp", "src/Runtime.NativeAot/pal_error.witos.cpp", "tests/User.X64/pal_error.cpp", "tests/User.X64/pal_wait_any.cpp", "tests/User.X64/pal_pressure.cpp"];
-        var objects = new List<string>();
-        foreach (var name in sources)
-        {
-            var obj = Path.Combine(output, "pal_" + Path.GetFileNameWithoutExtension(name) + ".obj");
-            await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"),
-                [.. compile.Where(a => a != "/TP" && a != "/std:c++17"),
-                    name.EndsWith(".c", StringComparison.Ordinal) ? "/TC" : "/TP",
-                    name.EndsWith(".c", StringComparison.Ordinal) ? "/std:c17" : "/std:c++17",
-                    $"/Fo{obj}", Path.Combine(root, name)], root);
-            objects.Add(obj);
-        }
+        var objects = await PalFixtureCompiler.CompileAsync(root, output, msvc, "pal_", sources, upstreamHeaders: true);
         var header = new StringBuilder("/* NativeAOT PAL thread/memory/wait fixtures; generated. */\n");
         foreach (var tls in new[] { false, true })
         {

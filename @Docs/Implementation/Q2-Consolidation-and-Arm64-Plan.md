@@ -362,3 +362,31 @@ x64-реализация живёт в новых `frame.c` и `frame_context.c`
 Граница среза. Построители фикстурных образов в `tools/WitOS.Dev/Images`, `CoreClr` и `NativeAot` пока держат свои списки: у каждого свой набор флагов, общих объектов и evidence-хэшей, а их пути меняет переименование `System.Native` → `Runtime.Native`. Перевод этих списков в манифесты перенесён в Q2.8 вместе с выбором фикстур вне `boot_driver`. Для A0 это не нужно: ARM64-ядро начинается без пользовательских фикстур.
 
 Матрица на рабочем дереве перед коммитом: runtime-source, 20 kernel-сценариев (434 с), coreclr-memory, coreclr-storage, runtime-config, runtime-boot-run, runtime-port, coreclr-functions, release прошли. Host tests в прогоне матрицы 56/57: `PublicationFailureStagesTest` получил `UnauthorizedAccessException` от `File.Move` с перезаписью при публикации evidence, вероятно из-за сканера, державшего свежий файл. Отдельно тест прошёл 5 раз из 5, полный набор 57/57. Сбой не связан со срезом и остаётся открытой нестабильностью хостовых тестов.
+
+### Q2.8 — runtime-слой
+
+Срез выполнен четырьмя коммитами; после каждого сравнивались отпечатки образов, а после изменений кода прошла полная матрица.
+
+**Перенос (`d4e318c`).** `src/System.Native` переименован в `src/Runtime.Native`, чтобы не совпадать с upstream `System.Native` из .NET. Из `src/Kernel.Arch.X64` ушёл весь пользовательский код:
+
+| Что | Куда |
+| --- | --- |
+| 18 Win32-привязок `native_*.asm` (`QueryPerformanceCounter`, `CreateThread`, `RaiseException` и т.д.) | `src/Runtime.Pal.Win32/X64` |
+| `native_start.asm`: вход процесса, syscall, блокировки, fail-fast | `src/Runtime.Native/X64` |
+| `native_format.asm`, `security_cookie.asm`, `gc_policy.asm`, `native_exception_x64.cpp`, `minipal_cpu.witos.*` | `src/Runtime.NativeAot/X64` |
+| `coreclr_unwind_bindings.asm` | `src/Runtime.CoreClr/X64` |
+| 21 фикстура `*_fixture.asm` | `tests/User.X64` |
+
+В арх-каталоге остался только `chkstk.asm`, общий для ядра и пользовательских образов. Все 79 образов совпали с предыдущим коммитом побайтно, `runtime-boot-run` и `runtime-port` прошли. Тест `ArchitectureHoldsOnlyKernelSources` требует, чтобы каждый исходник арх-каталога линковался в ядро.
+
+Граница. Реализации Win32-адаптеров `native_*.witos.cpp` остаются в `src/Runtime.NativeAot`, а в `Runtime.Pal.Win32` пока лежат только привязки имён. Адаптеры построены на upstream `Pal.h` и PAL NativeAOT (`PalSleep`, `PalCloseHandle`, `wit_pal_result`), а `pal_thread_name.witos.cpp` из NativeAOT включает `native_encoding.witos.h` адаптеров. Перенос как есть сделал бы два каталога взаимозависимыми. Адаптеры переезжают в P6.4, когда ту же Win32-поверхность возьмёт CoreCLR и их нужно будет перевести на `Runtime.Native`.
+
+**Общие примитивы (`f9aa201`).** В `bootstrap.h` появились `wit_native_lock` (ожидание с уступкой, неудачный yield фатален), `wit_native_thread_info` (полная запись потока этой версии ABI с идентичностью) и `wit_native_thread_identity`. Они заменили 13 копий цикла блокировки, 9 копий проверки записи потока и 2 копии запроса идентичности; каждый вызывающий проверяет сверх общей проверки только свои поля. Намеренно отдельными остались три места: шлюз обработчиков исключений распознаёт повторный вход владельца, `PalInit` берёт шлюз без ожидания, а `PalInit` и `unwind_scope` сообщают исходный статус ядра. Изменились ровно образы, содержащие затронутые файлы; код подрос на 16–156 байт, потому что общая проверка строже некоторых прежних копий.
+
+**Выбор фикстур (`12a6f87`).** Драйвер NativeAotBoot больше не содержит имён тестовых фикстур. Построитель тестового образа линкует `tests/Runtime.NativeAot/boot_fixtures.cpp`, который по имени загрузочного ресурса компонента выбирает нативную точку входа для `wmain`; неизвестные имена запускают приёмку воркеров, как раньше.
+
+**Манифесты фикстур.** Четыре однотипные PAL-фикстуры (module, background, environment, process-exit) описаны в `build/fixtures/*.json`: исходники, префикс объектов, дополнительные define и `/Gy`, общие объекты, заголовок встраивания и состав evidence. Их собирает один `PalFixtureImage` вместо четырёх копий по 90 строк. Профиль компиляции `PalFixtureCompiler` общий для всех шести PAL-построителей; `UserPalImage` (два варианта линковки) и `UserDynamicTlsImage` (адрес из map, проверка `dumpbin`) сохранили свою постобработку. Все 78 образов сценариев совпали побайтно. `FixtureManifestTests` проверяют, что каждый манифест читается, называет существующие файлы и собирается.
+
+Граница. Остальные построители (`UserImage`, `UserPe`, `UserTls`, `UserBootstrap`, `NativeLibrary*`, `CoreClr*`, `Runtime*`) держат свои списки: у каждого свой профиль, линковка и проверки, общего шаблона нет. Их судьба решается вместе с декомпозицией Q2.9.
+
+Матрица после шагов 2 и 3: runtime-source, 20 kernel-сценариев (404 с), coreclr-memory, coreclr-storage, runtime-config, runtime-boot-run, runtime-port, coreclr-functions, release прошли. Host tests: в прогонах матрицы трижды подряд падал `FileCaptureOwnershipAndLimitsTest` с `Owned process cleanup exceeded grace (wait=258, active=0)`; это открытая с Q2.3 нестабильность очистки процессов, повтор каждый раз проходил, итог 60/60.

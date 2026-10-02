@@ -22,36 +22,11 @@ internal static class UserDynamicTlsImage
     /// <exception cref="InvalidDataException">The fixture violates the guest image contract.</exception>
     public static async Task BuildAsync(string root, string output, string msvc)
     {
-        var vc = Path.GetFullPath(Path.Combine(msvc, "..", "..", ".."));
-        var sdkLib = Toolchain.FindWindowsSdkLibrary("kernel32.lib");
-        var sdkVersion = Directory.GetParent(sdkLib)!.Parent!.Parent!.Name;
-        var sdk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-            "Windows Kits", "10", "Include", sdkVersion);
-        string[] compile =
-        [
-            "/nologo", "/c", "/TP", "/std:c++17", "/W4", "/WX", "/GS-", "/Zl", "/Oi", "/O1", "/GR-",
-            "/DHOST_64BIT", "/DHOST_WINDOWS", "/DTARGET_WINDOWS", "/DHOST_AMD64", "/DTARGET_AMD64", "/DTARGET_64BIT",
-            "/DNDEBUG", "/DWIN32_LEAN_AND_MEAN", "/DNOMINMAX",
-            $"/I{Path.Combine(vc, "include")}", $"/I{Path.Combine(sdk, "ucrt")}",
-            $"/I{Path.Combine(sdk, "um")}", $"/I{Path.Combine(sdk, "shared")}",
-            $"/I{Path.Combine(root, "src", "Runtime.NativeAot")}", $"/I{Path.Combine(root, "src", "Runtime.Native")}",
-            $"/I{Path.Combine(root, "src", "Kernel", "include")}", $"/I{Path.Combine(root, "tests", "User.X64")}"
-        ];
         string[] sources = ["src/Runtime.NativeAot/tls.witos.cpp", "src/Runtime.NativeAot/native_new.witos.cpp",
             "src/Runtime.Native/thread.c", "src/Runtime.Native/library_lifecycle.c", "src/Runtime.NativeAot/crt_memory.witos.c", "src/Runtime.Native/image.c", "src/Runtime.Native/tls_metadata.c", "tests/User.X64/dynamic_tls_entry.c",
             "tests/User.X64/dynamic_tls.cpp", "tests/User.X64/dynamic_tls_access.cpp"];
-        var objects = new List<string>();
-        foreach (var source in sources)
-        {
-            var obj = Path.Combine(output, "dynamic_" + Path.GetFileNameWithoutExtension(source) + ".obj");
-            await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"),
-                [.. compile.Where(a => a != "/TP" && a != "/std:c++17"),
-                    source.EndsWith(".c", StringComparison.Ordinal) ? "/TC" : "/TP",
-                    source.EndsWith(".c", StringComparison.Ordinal) ? "/std:c17" : "/std:c++17",
-                    ..(source.EndsWith("/library_lifecycle.c",StringComparison.Ordinal)?new[]{"/Gy"}:Array.Empty<string>()),
-                    $"/Fo{obj}", Path.Combine(root, source)], root);
-            objects.Add(obj);
-        }
+        var objects = await PalFixtureCompiler.CompileAsync(root, output, msvc, "dynamic_", sources, upstreamHeaders: false,
+            functionSections: ["src/Runtime.Native/library_lifecycle.c"]);
         var path = Path.Combine(output, "DynamicTlsFixture.pe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
             ["/nologo", "/subsystem:native", "/entry:wit_native_start", "/nodefaultlib", "/machine:x64",

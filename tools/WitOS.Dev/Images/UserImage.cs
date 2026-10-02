@@ -57,10 +57,10 @@ internal static class UserImage
         await UserTlsImage.BuildAsync(root, output, msvc);
         await UserDynamicTlsImage.BuildAsync(root, output, msvc);
         await UserPalImage.BuildAsync(root, output, msvc);
-        await UserPalBackgroundImage.BuildAsync(root, output, msvc);
-        await UserPalModuleImage.BuildAsync(root, output, msvc);
-        await UserPalEnvironmentImage.BuildAsync(root, output, msvc);
-        await UserProcessExitImage.BuildAsync(root, output, msvc);
+        await PalFixtureImage.BuildAsync(root, output, msvc, "pal-background");
+        await PalFixtureImage.BuildAsync(root, output, msvc, "pal-module");
+        await PalFixtureImage.BuildAsync(root, output, msvc, "pal-environment");
+        await PalFixtureImage.BuildAsync(root, output, msvc, "process-exit");
     }
 
     #endregion

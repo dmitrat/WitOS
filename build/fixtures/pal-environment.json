@@ -1,0 +1,44 @@
+{
+  "name": "pal-environment",
+  "description": "Immutable environment PAL fixture",
+  "image": "PalEnvironmentFixture.pe",
+  "objectPrefix": "environment_",
+  "upstreamHeaders": true,
+  "defines": [
+    "UNICODE",
+    "_UNICODE"
+  ],
+  "assembly": [
+    "src/Runtime.Pal.Win32/X64/native_environment.asm"
+  ],
+  "sources": [
+    "src/Runtime.NativeAot/pal_environment.witos.cpp",
+    "tests/User.X64/pal_environment.cpp",
+    "tests/User.X64/pal_environment_entry.c"
+  ],
+  "functionSections": [],
+  "shared": [
+    "native_start.obj",
+    "dynamic_tls.witos.obj",
+    "dynamic_thread.obj",
+    "dynamic_library_lifecycle.obj",
+    "dynamic_crt_memory.witos.obj",
+    "dynamic_image.obj",
+    "dynamic_tls_metadata.obj",
+    "native_error.obj",
+    "native_environment.obj",
+    "native_new.witos.obj"
+  ],
+  "header": "pal_environment_image.h",
+  "symbol": "wit_pal_environment_image",
+  "report": "pal-environment-build.json",
+  "scope": "Immutable native environment and UTF-16 to UTF-8 conversion; no GCConfig or managed execution.",
+  "inputs": [
+    "src/Runtime.Native/thread.c",
+    "src/Runtime.Native/tls.h",
+    "src/Runtime.Native/image.h",
+    "src/Runtime.NativeAot/pal_environment.witos.h",
+    "src/Kernel/include/witos/user_abi.h"
+  ],
+  "summary": "native environment and UTF conversion"
+}
