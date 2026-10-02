@@ -4,12 +4,6 @@ using System.Text;
 
 namespace WitOS.Dev.Pe;
 
-internal sealed record CoffSectionInfo(string Name, uint Size, uint Characteristics, int Relocations);
-internal sealed record CoffExternalReference(string Target, string Section, uint Offset, string? ContainingSymbol, ushort Kind);
-internal sealed record CoffObjectInfo(int SectionCount, int SymbolRecords, CoffSectionInfo[] Sections,
-    Dictionary<string, int> RelocationKinds, string[] DefinedExports, string[] UndefinedExternals,
-    uint? RequiredCpuFeatures, CoffExternalReference[]? ExternalReferences);
-
 internal static class NativeObject
 {
     // Standard AMD64 COFF only. Import objects and BigObj are rejected explicitly.

@@ -5,12 +5,10 @@ namespace WitOS.Dev.NativeAot;
 
 internal static class NativeMathSources
 {
-    private sealed record Source(string Path, string Sha256);
-    private sealed record Pin(string Repository, string Revision, string Tag, Source[] Sources);
     public static async Task PrepareAsync(string root, bool generate)
     {
         var json = new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true };
-        var pin = JsonSerializer.Deserialize<Pin>(await File.ReadAllTextAsync(Path.Combine(root, "src/Runtime.NativeAot/math.lock.json")), json)
+        var pin = JsonSerializer.Deserialize<NativeMathPin>(await File.ReadAllTextAsync(Path.Combine(root, "src/Runtime.NativeAot/math.lock.json")), json)
             ?? throw new InvalidDataException("Missing native math pin.");
         if (pin.Repository != "https://github.com/JuliaMath/openlibm" || !Regex.IsMatch(pin.Revision, "^[0-9a-f]{40}$") ||
             pin.Sources.Length != 2 || !pin.Sources.Select(s => s.Path).Order().SequenceEqual(new[] { "LICENSE.md", "src/e_log.c" }))

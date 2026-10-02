@@ -4,8 +4,6 @@ using System.Text;
 
 namespace WitOS.Dev.Host;
 
-internal sealed record ProcessResult(int ExitCode, string Output, string Error, bool TimedOut);
-
 internal static class Processes
 {
     private static readonly TimeSpan CLEANUP_BUDGET = TimeSpan.FromSeconds(5);
@@ -90,9 +88,9 @@ internal static class Processes
             throw new ArgumentOutOfRangeException(nameof(timeoutSeconds));
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
         using var stopIo = new CancellationTokenSource();
-        using var outputPipe = new WindowsChildProcess.CapturePipe();
-        using var errorPipe = new WindowsChildProcess.CapturePipe();
-        using var inputPipe = timeoutControl is null || !standardInputControl ? null : new WindowsChildProcess.InputPipe();
+        using var outputPipe = new WindowsChildProcessCapturePipe();
+        using var errorPipe = new WindowsChildProcessCapturePipe();
+        using var inputPipe = timeoutControl is null || !standardInputControl ? null : new WindowsChildProcessInputPipe();
         try
         {
             await Task.WhenAll(outputPipe.ConnectAsync(deadline.Token), errorPipe.ConnectAsync(deadline.Token),

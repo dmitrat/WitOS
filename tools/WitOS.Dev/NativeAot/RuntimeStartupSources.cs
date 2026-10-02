@@ -5,7 +5,7 @@ namespace WitOS.Dev.NativeAot;
 
 internal static class RuntimeStartupSources
 {
-    public static async Task PrepareAsync(string root, RuntimeExperiment.SourceLock pin)
+    public static async Task PrepareAsync(string root, UpstreamSourceLock pin)
     {
         var output = Path.Combine(root, "artifacts", "runtime-config", "source");
         using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };

@@ -11,9 +11,6 @@ internal static class RuntimeSourceBuild
 {
     private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web) { WriteIndented = true };
     private static readonly string[] CASES = ["FirstExportInitialization", "AllocationGcAndExceptions", "TlsOnNativeThreads", "RepeatEntry"];
-    private sealed record CompileCommand(string Directory, string Command, string File, string Output);
-    private sealed record ArchiveEvidence(string Sha256, string[] Members, int CompileUnits);
-    private sealed record SourceBuild(string Sdk, string[] Members, CompileCommand[] Commands, string ArchiveSha256, ArchiveEvidence Minipal);
 
     public static async Task RunAsync(string root)
     {
@@ -132,7 +129,7 @@ internal static class RuntimeSourceBuild
         await RuntimeReadiness.RunAsync(root, msvc, ported.Sdk);
     }
 
-    internal static async Task<string> PrepareSourceAsync(string root, RuntimeExperiment.SourceLock pin)
+    internal static async Task<string> PrepareSourceAsync(string root, UpstreamSourceLock pin)
     {
         var source = Path.Combine(root, ".tools", "upstream", $"runtime-{pin.RuntimeVersion}");
         if (!Directory.Exists(Path.Combine(source, ".git")))
@@ -180,7 +177,7 @@ internal static class RuntimeSourceBuild
         return '"' + path + '"';
     }
 
-    private static async Task<SourceBuild> BuildAsync(string root, string source, string output, string msvc, string profile, bool overlay)
+    private static async Task<RuntimeSourceBuildResult> BuildAsync(string root, string source, string output, string msvc, string profile, bool overlay)
     {
         var script = Path.Combine(output, "build-" + profile + ".cmd");
         var hook = Path.Combine(root, "src", "Runtime.NativeAot", "runtime-overlay.cmake").Replace('\\', '/');
@@ -201,7 +198,7 @@ internal static class RuntimeSourceBuild
         await File.WriteAllTextAsync(Path.Combine(output, profile + "-members.txt"), listing.Output);
         var members = listing.Output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
         var obj = Path.Combine(source, "artifacts", "obj", "coreclr", "windows.x64.Release", profile);
-        var allCommands = JsonSerializer.Deserialize<CompileCommand[]>(await File.ReadAllTextAsync(Path.Combine(obj, "compile_commands.json")), JSON)
+        var allCommands = JsonSerializer.Deserialize<RuntimeSourceBuildCommand[]>(await File.ReadAllTextAsync(Path.Combine(obj, "compile_commands.json")), JSON)
             ?? throw new InvalidDataException("Missing native compile commands.");
         static string Normalize(string path) => path.Replace(Path.DirectorySeparatorChar, '/');
         var commands = allCommands.Where(c => Normalize(c.Output).Contains("/Runtime.WorkstationGC.dir/", StringComparison.Ordinal)).ToArray();

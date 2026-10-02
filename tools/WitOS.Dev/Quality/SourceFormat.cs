@@ -13,8 +13,6 @@ internal static class SourceFormat
     private static readonly string[] MANAGED_EXTENSIONS = [".cs"];
     private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web);
 
-    internal sealed record Manifest(string[] Native, string[] Managed, string[] Exclude);
-
     public static async Task RunAsync(string root, bool check)
     {
         var manifest = await ReadManifestAsync(root);
@@ -38,10 +36,10 @@ internal static class SourceFormat
         }
     }
 
-    internal static async Task<Manifest> ReadManifestAsync(string root)
+    internal static async Task<SourceFormatManifest> ReadManifestAsync(string root)
     {
         var path = Path.Combine(root, "build", "format.json");
-        var manifest = JsonSerializer.Deserialize<Manifest>(await File.ReadAllTextAsync(path), JSON);
+        var manifest = JsonSerializer.Deserialize<SourceFormatManifest>(await File.ReadAllTextAsync(path), JSON);
         if (manifest is null || manifest.Native is null || manifest.Managed is null || manifest.Exclude is null)
         {
             throw new InvalidDataException("build/format.json must define native, managed and exclude arrays.");

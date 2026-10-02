@@ -3,11 +3,6 @@ using System.Reflection.PortableExecutable;
 
 namespace WitOS.Dev.Pe;
 
-internal sealed record NativeSection(string Name, int Rva, int VirtualSize, int RawSize, string Protection);
-internal sealed record NativeTlsInfo(ulong TemplateBytes, uint ZeroFillBytes, uint IndexRva, uint[] CallbackRvas);
-internal sealed record NativeModuleInfo(ulong PreferredBase, int ImageBytes, int EntryRva, int UnwindEntries,
-    NativeSection[] Sections, NativeTlsInfo? Tls, Dictionary<string, int> BaseRelocations);
-
 internal static class NativeModule
 {
     public static NativeModuleInfo Inspect(string path)

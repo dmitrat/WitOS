@@ -7,7 +7,6 @@ namespace WitOS.Dev.NativeAot;
 
 internal static class RuntimeGcPolicy
 {
-    private sealed record Command(string Directory, string CommandLine, string File, string Output);
     public static Task ExistingAsync(string root)
     {
         var source = Path.Combine(root, ".tools/upstream", "runtime-" + RuntimeExperiment.ReadLock(root).RuntimeVersion);
@@ -27,7 +26,7 @@ internal static class RuntimeGcPolicy
             !Regex.IsMatch(gcText, @"#ifndef FEATURE_MANUALLY_MANAGED_CARD_BUNDLES(?:(?!#endif).)*update_card_table_bundle\(\);(?:(?!#endif).)*#endif", RegexOptions.Singleline))
             throw new InvalidDataException("Pinned GC card-table caller no longer has the verified compile-time exclusion.");
         var all = JsonSerializer.Deserialize<JsonElement[]>(await File.ReadAllTextAsync(Path.Combine(obj, "compile_commands.json")))!;
-        var commands = all.Select(c => new Command(c.GetProperty("directory").GetString()!, c.GetProperty("command").GetString()!, c.GetProperty("file").GetString()!, c.GetProperty("output").GetString()!))
+        var commands = all.Select(c => new RuntimeGcPolicyCommand(c.GetProperty("directory").GetString()!, c.GetProperty("command").GetString()!, c.GetProperty("file").GetString()!, c.GetProperty("output").GetString()!))
             .Where(c => c.Output.Replace('\\', '/').Contains("/Runtime.WorkstationGC.dir/", StringComparison.Ordinal)).ToArray();
         var gc = commands.Single(c => c.File.Replace('\\', '/').EndsWith("/gcwks.witos.cpp", StringComparison.Ordinal));
         foreach (var flag in new[] { "FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP", "FEATURE_MANUALLY_MANAGED_CARD_BUNDLES" })

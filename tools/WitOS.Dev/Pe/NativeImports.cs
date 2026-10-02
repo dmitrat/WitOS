@@ -4,9 +4,6 @@ using System.Text;
 
 namespace WitOS.Dev.Pe;
 
-internal sealed record NativeImport(string Library, string[] Symbols);
-internal sealed record NativeImageInfo(string Machine, string Subsystem, bool HasClrHeader, int DelayImportDirectorySize, NativeImport[] DirectImports, NativeImport[] DelayImports);
-
 internal static class NativeImports
 {
     public static NativeImageInfo Inspect(string path)

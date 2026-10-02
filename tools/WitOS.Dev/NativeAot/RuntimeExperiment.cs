@@ -18,14 +18,9 @@ internal static class RuntimeExperiment
         "ThreadsTlsMonitorAndGc", "WaitSignalResetAndTimeout", "TasksCancellationAndClock"
     ];
 
-    internal sealed record SourceFile(string Path, string Sha256);
-    internal sealed record SourceLock(int SchemaVersion, string RuntimeVersion, string RuntimeRepository,
-        string RuntimeTag, string RuntimeCommit, string PackageRepository, string PackageCommit,
-        string SourceManifestPath, string SourceManifestSha256, SourceFile[] Sources);
-
-    internal static SourceLock ReadLock(string root)
+    internal static UpstreamSourceLock ReadLock(string root)
     {
-        var data = JsonSerializer.Deserialize<SourceLock>(
+        var data = JsonSerializer.Deserialize<UpstreamSourceLock>(
             File.ReadAllText(Path.Combine(root, EXPERIMENT_PATH, "upstream.lock.json")), JSON)
             ?? throw new InvalidDataException("Runtime source lock is empty.");
         if (data.SchemaVersion != 1 || data.RuntimeVersion != "10.0.8" ||
@@ -103,7 +98,7 @@ internal static class RuntimeExperiment
             throw new InvalidDataException($"SHA-256 mismatch: {label}.");
     }
 
-    internal static string[] VerifyPublishedPackages(string root, SourceLock pin)
+    internal static string[] VerifyPublishedPackages(string root, UpstreamSourceLock pin)
     {
         var packageCache = Path.Combine(root, ".tools", "nuget");
         string[] verifiedPackages = ["runtime.win-x64.microsoft.dotnet.ilcompiler", "microsoft.netcore.app.runtime.nativeaot.win-x64"];

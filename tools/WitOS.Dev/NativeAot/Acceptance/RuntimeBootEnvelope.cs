@@ -4,7 +4,7 @@ namespace WitOS.Dev.NativeAot.Acceptance;
 // Keeping the envelope separate makes duplicates and misplaced reports fail closed.
 internal static class RuntimeBootEnvelope
 {
-    private const string USER = "[USER] [RUNTIME] ";
+    internal const string USER = "[USER] [RUNTIME] ";
     internal static bool Validate(string[] lines) => Validate(lines, out _);
 
     internal static bool Validate(string[] lines, out string error)
@@ -14,7 +14,7 @@ internal static class RuntimeBootEnvelope
         var begin = Array.IndexOf(wire, "[TEST-PASS] Runtime.InvalidHandoffTeardown");
         if (begin < 0 || wire[..begin].Any(line => line.StartsWith("Runtime ", StringComparison.Ordinal) || line.StartsWith("[TEST-PASS] Runtime.", StringComparison.Ordinal) || line.StartsWith(USER, StringComparison.Ordinal)))
             return false;
-        var cursor = new Cursor(wire, begin);
+        var cursor = new RuntimeBootEnvelopeCursor(wire, begin);
         bool Parse()
         {
             if (!cursor.Exact("[TEST-PASS] Runtime.InvalidHandoffTeardown"))
@@ -88,45 +88,4 @@ internal static class RuntimeBootEnvelope
     private static bool IsRuntime(string line) => line.StartsWith("Runtime ", StringComparison.Ordinal) ||
         line.StartsWith("[TEST-PASS] Runtime.", StringComparison.Ordinal) || line.StartsWith(USER, StringComparison.Ordinal) ||
         line.StartsWith("[USER] [NATIVE-FAIL-FAST]", StringComparison.Ordinal) || line.StartsWith("[USER] WitOS ", StringComparison.Ordinal);
-
-    private sealed class Cursor(string[] lines, int position)
-    {
-        internal int Position { get; private set; } = position;
-        internal string Error { get; private set; } = "Invalid block count";
-        internal string Peek => Position < lines.Length ? lines[Position] : "";
-        internal bool Exact(string value)
-        {
-            if (Position >= lines.Length || Peek != value)
-            { Error = "Expected " + value; return false; }
-            ++Position;
-            return true;
-        }
-        internal bool Prefix(string value)
-        {
-            if (!Peek.StartsWith(value, StringComparison.Ordinal))
-            { Error = "Expected prefix " + value; return false; }
-            ++Position;
-            return true;
-        }
-        internal bool Startup() => Exact(USER + "image published") && Exact(USER + "native TLS ready") &&
-            Exact(USER + "native initializers ready") && Exact(USER + "entering upstream wmain");
-        internal bool BookkeepingFailure()
-        {
-            if (!Peek.StartsWith("[USER] Committing ", StringComparison.Ordinal))
-                return true;
-            if (!System.Text.RegularExpressions.Regex.IsMatch(Peek,
-                @"^\[USER\] Committing [1-9][0-9]* bytes \([0-9]+\.[0-9]+ mb\) for GC bookkeeping element#[0-9]+ failed\[USER\] $"))
-                return false;
-            ++Position;
-            return true;
-        }
-        internal bool Fatal()
-        {
-            if (!System.Text.RegularExpressions.Regex.IsMatch(Peek,
-                @"^\[USER\] \[NATIVE-FAIL-FAST\] code=0xC000001D address=0x([0-9A-F]{16}) rip=0x\1$"))
-                return false;
-            ++Position;
-            return true;
-        }
-    }
 }

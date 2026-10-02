@@ -1,90 +1,181 @@
 using System.Collections;
 using System.ComponentModel;
-using System.IO.Pipes;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Security.Principal;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
+using WitOS.Dev.Host.Native;
 
 namespace WitOS.Dev.Host;
 
-// Host-only Windows 10+ process ownership. JOB_LIST assigns the job atomically
-// at creation, before user code can spawn children. No breakaway is permitted.
+/// <summary>
+/// Host-only Windows 10+ process ownership. JOB_LIST assigns the job atomically at creation, before user
+/// code can spawn children. No breakaway is permitted.
+/// </summary>
 internal sealed class WindowsChildProcess : IDisposable
 {
+    #region Constants
+
+    private const uint WAIT_OBJECT_0 = 0;
+
+    private const uint WAIT_TIMEOUT = 258;
+
+    private const int ERROR_ACCESS_DENIED = 5;
+
+    #endregion
+
+    #region Fields
+
     private readonly SafeFileHandle m_job;
+
     private readonly SafeFileHandle m_process;
-    private WindowsChildProcess(SafeFileHandle job, SafeFileHandle process) { this.m_job = job; this.m_process = process; }
 
-    internal sealed class CapturePipe : IDisposable
+    #endregion
+
+    #region Constructors
+
+    private WindowsChildProcess(SafeFileHandle job, SafeFileHandle process)
     {
-        public NamedPipeServerStream Reader { get; }
-        public NamedPipeClientStream Writer { get; }
-        public CapturePipe()
-        {
-            var name = "WitOS.Dev." + Guid.NewGuid().ToString("N");
-            Reader = new(name, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-            Writer = new(".", name, PipeDirection.Out, PipeOptions.None, TokenImpersonationLevel.Identification, HandleInheritability.Inheritable);
-        }
-        public async Task ConnectAsync(CancellationToken token)
-        {
-            var connected = Reader.WaitForConnectionAsync(token);
-            await Writer.ConnectAsync(token);
-            await connected;
-        }
-        public void Dispose() { Writer.Dispose(); Reader.Dispose(); }
+        m_job = job;
+        m_process = process;
     }
 
-    internal sealed class InputPipe : IDisposable
-    {
-        public NamedPipeServerStream Writer { get; }
-        public NamedPipeClientStream Reader { get; }
-        public InputPipe()
-        {
-            var name = "WitOS.Dev.Input." + Guid.NewGuid().ToString("N");
-            Writer = new(name, PipeDirection.Out, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-            Reader = new(".", name, PipeDirection.In, PipeOptions.None, TokenImpersonationLevel.Identification, HandleInheritability.Inheritable);
-        }
-        public async Task ConnectAsync(CancellationToken token)
-        {
-            var connected = Writer.WaitForConnectionAsync(token);
-            await Reader.ConnectAsync(token);
-            await connected;
-        }
-        public void Dispose() { Reader.Dispose(); Writer.Dispose(); }
-    }
+    #endregion
 
+    #region Functions
+
+    /// <summary>
+    /// Starts a child with piped standard streams inside a kill-on-close job.
+    /// </summary>
     public static WindowsChildProcess Start(string executable, IEnumerable<string> arguments, string directory,
-        IReadOnlyDictionary<string, string>? environment, CapturePipe output, CapturePipe error, InputPipe? inputPipe = null)
+        IReadOnlyDictionary<string, string>? environment, WindowsChildProcessCapturePipe output,
+        WindowsChildProcessCapturePipe error, WindowsChildProcessInputPipe? inputPipe = null)
     {
-        using var nullInput = inputPipe is null ? File.OpenHandle(@"\\.\NUL", FileMode.Open, FileAccess.Read, FileShare.ReadWrite) : null;
+        using var nullInput = inputPipe is null
+            ? File.OpenHandle(@"\\.\NUL", FileMode.Open, FileAccess.Read, FileShare.ReadWrite)
+            : null;
         SafeHandle input = inputPipe is null ? nullInput! : inputPipe.Reader.SafePipeHandle;
-        return StartWithHandles(executable, arguments, directory, environment, output.Writer.SafePipeHandle, error.Writer.SafePipeHandle, input);
+        return StartWithHandles(executable, arguments, directory, environment, output.Writer.SafePipeHandle,
+            error.Writer.SafePipeHandle, input);
     }
 
-    internal static WindowsChildProcess StartWithFiles(string executable, IEnumerable<string> arguments, string directory,
+    /// <summary>
+    /// Starts a child whose stdout and stderr are files and whose stdin is NUL.
+    /// </summary>
+    public static WindowsChildProcess StartWithFiles(string executable, IEnumerable<string> arguments, string directory,
         SafeFileHandle output, SafeFileHandle error)
     {
         using var input = File.OpenHandle(@"\\.\NUL", FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         return StartWithHandles(executable, arguments, directory, null, output, error, input);
     }
 
+    /// <summary>
+    /// Terminates the root process and every process in its job.
+    /// </summary>
+    public void Terminate()
+    {
+        // Stop the known root directly before terminating all owned descendants.
+        // Access denied can race an exiting root; confirmation below still
+        // requires its signaled process object and an empty job.
+        var state = Kernel32.WaitForSingleObject(m_process, 0);
+        if (state != WAIT_OBJECT_0 && state != WAIT_TIMEOUT)
+        {
+            throw Kernel32.LastError();
+        }
+        if (state == WAIT_TIMEOUT && !Kernel32.TerminateProcess(m_process, unchecked((uint)-1)))
+        {
+            var error = Marshal.GetLastWin32Error();
+            if (error != ERROR_ACCESS_DENIED)
+            {
+                throw new Win32Exception(error);
+            }
+        }
+        if (!Kernel32.TerminateJobObject(m_job, unchecked((uint)-1)))
+        {
+            throw Kernel32.LastError();
+        }
+    }
+
+    /// <summary>
+    /// Waits until the root process exits.
+    /// </summary>
+    public async Task WaitForExitAsync(CancellationToken token)
+    {
+        while (true)
+        {
+            token.ThrowIfCancellationRequested();
+            var state = Kernel32.WaitForSingleObject(m_process, 0);
+            if (state == WAIT_OBJECT_0)
+            {
+                return;
+            }
+            if (state != WAIT_TIMEOUT)
+            {
+                throw Kernel32.LastError();
+            }
+            await Task.Delay(10, token);
+        }
+    }
+
+    /// <summary>
+    /// Requires the root to be signaled and the job to be empty within <paramref name="grace"/>.
+    /// </summary>
+    /// <exception cref="TimeoutException">Cleanup did not complete in time.</exception>
+    public async Task ConfirmTerminationAsync(TimeSpan grace)
+    {
+        // Poll authoritative native state without blocking the async I/O
+        // continuations involved in process/pipe teardown. EOF is not liveness.
+        var clock = Stopwatch.StartNew();
+        while (true)
+        {
+            var state = Kernel32.WaitForSingleObject(m_process, 0);
+            if (state != WAIT_OBJECT_0 && state != WAIT_TIMEOUT)
+            {
+                throw Kernel32.LastError();
+            }
+            var active = ActiveProcesses;
+            if (state == WAIT_OBJECT_0 && active == 0)
+            {
+                return;
+            }
+            if (clock.Elapsed >= grace)
+            {
+                throw new TimeoutException(
+                    $"Owned process cleanup exceeded grace (wait={state}, exit={ExitCode}, active={active}).");
+            }
+            await Task.Delay(10).ConfigureAwait(false);
+        }
+    }
+
+    #endregion
+
+    #region Tools
+
     private static WindowsChildProcess StartWithHandles(string executable, IEnumerable<string> arguments, string directory,
         IReadOnlyDictionary<string, string>? environment, SafeHandle output, SafeHandle error, SafeHandle input)
     {
-        var job = CreateJobObjectW(IntPtr.Zero, null);
+        var job = Kernel32.CreateJobObjectW(IntPtr.Zero, null);
         if (job.IsInvalid)
-        { job.Dispose(); throw Error(); }
+        {
+            job.Dispose();
+            throw Kernel32.LastError();
+        }
         try
         {
-            var limits = new ExtendedLimits();
+            var limits = new JobExtendedLimits();
             limits.Basic.LimitFlags = 0x2000; // KILL_ON_JOB_CLOSE
-            if (!SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf<ExtendedLimits>()))
-                throw Error();
+            if (!Kernel32.SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf<JobExtendedLimits>()))
+            {
+                throw Kernel32.LastError();
+            }
             foreach (var handle in new[] { input, output, error })
-                if (!SetHandleInformation(handle, 1, 1))
-                    throw Error();
-            using var attributes = new Attributes();
+            {
+                if (!Kernel32.SetHandleInformation(handle, 1, 1))
+                {
+                    throw Kernel32.LastError();
+                }
+            }
+            using var attributes = new WindowsChildProcessAttributeList();
             attributes.Add(0x20002, [input.DangerousGetHandle(), output.DangerousGetHandle(), error.DangerousGetHandle()]);
             attributes.Add(0x2000D, [job.DangerousGetHandle()]); // PROC_THREAD_ATTRIBUTE_JOB_LIST
             var startup = new StartupInfoEx();
@@ -94,140 +185,103 @@ internal sealed class WindowsChildProcess : IDisposable
             startup.Startup.Output = output.DangerousGetHandle();
             startup.Startup.Error = error.DangerousGetHandle();
             startup.Attributes = attributes.Pointer;
-            var variables = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (DictionaryEntry item in Environment.GetEnvironmentVariables())
-                variables[(string)item.Key] = (string)item.Value!;
-            if (environment != null)
-                foreach (var item in environment)
-                {
-                    if (item.Key.Length == 0 || item.Key.Contains('=') || item.Key.Contains('\0') || item.Value.Contains('\0'))
-                        throw new ArgumentException("Invalid environment entry.");
-                    variables[item.Key] = item.Value;
-                }
-            var block = Marshal.StringToHGlobalUni(string.Join('\0', variables.Select(v => v.Key + "=" + v.Value)) + "\0\0");
+            var block = Marshal.StringToHGlobalUni(EnvironmentBlock(environment));
             try
             {
-                var command = new StringBuilder(string.Join(' ', new[] { executable }.Concat(arguments).Select(WindowsCommandLine.Quote)));
-                if (!CreateProcessW(null, command, IntPtr.Zero, IntPtr.Zero, true, 0x08080400, block, Path.GetFullPath(directory), ref startup, out var info))
-                    throw Error();
+                var command = new StringBuilder(string.Join(' ',
+                    new[] { executable }.Concat(arguments).Select(WindowsCommandLine.Quote)));
+                if (!Kernel32.CreateProcessW(null, command, IntPtr.Zero, IntPtr.Zero, true, 0x08080400, block,
+                        Path.GetFullPath(directory), ref startup, out var info))
+                {
+                    throw Kernel32.LastError();
+                }
                 using var thread = new SafeFileHandle(info.Thread, true);
                 return new(job, new SafeFileHandle(info.Process, true));
             }
-            finally { Marshal.FreeHGlobal(block); }
+            finally
+            {
+                Marshal.FreeHGlobal(block);
+            }
         }
-        catch { job.Dispose(); throw; }
+        catch
+        {
+            job.Dispose();
+            throw;
+        }
     }
+
+    // Sorted, case-insensitive variables; caller entries override inherited ones.
+    private static string EnvironmentBlock(IReadOnlyDictionary<string, string>? environment)
+    {
+        var variables = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (DictionaryEntry item in Environment.GetEnvironmentVariables())
+        {
+            variables[(string)item.Key] = (string)item.Value!;
+        }
+        if (environment != null)
+        {
+            foreach (var item in environment)
+            {
+                if (item.Key.Length == 0 || item.Key.Contains('=') || item.Key.Contains('\0') || item.Value.Contains('\0'))
+                {
+                    throw new ArgumentException("Invalid environment entry.");
+                }
+                variables[item.Key] = item.Value;
+            }
+        }
+        return string.Join('\0', variables.Select(v => v.Key + "=" + v.Value)) + "\0\0";
+    }
+
+    #endregion
+
+    #region IDisposable
+
+    public void Dispose()
+    {
+        m_job.Dispose();
+        m_process.Dispose();
+    }
+
+    #endregion
+
+    #region Properties
+
     public bool HasExited
     {
         get
         {
-            var state = WaitForSingleObject(m_process, 0);
-            if (state != 0 && state != 258)
-                throw Error();
-            return state == 0;
+            var state = Kernel32.WaitForSingleObject(m_process, 0);
+            if (state != WAIT_OBJECT_0 && state != WAIT_TIMEOUT)
+            {
+                throw Kernel32.LastError();
+            }
+            return state == WAIT_OBJECT_0;
         }
     }
-    public int ExitCode { get { if (!GetExitCodeProcess(m_process, out uint code)) throw Error(); return unchecked((int)code); } }
-    public void Terminate()
+
+    public int ExitCode
     {
-        // Stop the known root directly before terminating all owned descendants.
-        // Access denied can race an exiting root; confirmation below still
-        // requires its signaled process object and an empty job.
-        var state = WaitForSingleObject(m_process, 0);
-        if (state != 0 && state != 258)
-            throw Error();
-        if (state == 258 && !TerminateProcess(m_process, unchecked((uint)-1)))
+        get
         {
-            var error = Marshal.GetLastWin32Error();
-            if (error != 5)
-                throw new Win32Exception(error);
-        }
-        if (!TerminateJobObject(m_job, unchecked((uint)-1)))
-            throw Error();
-    }
-    public async Task WaitForExitAsync(CancellationToken token)
-    {
-        while (true)
-        {
-            token.ThrowIfCancellationRequested();
-            var state = WaitForSingleObject(m_process, 0);
-            if (state == 0)
-                return;
-            if (state != 258)
-                throw Error();
-            await Task.Delay(10, token);
+            if (!Kernel32.GetExitCodeProcess(m_process, out uint code))
+            {
+                throw Kernel32.LastError();
+            }
+            return unchecked((int)code);
         }
     }
+
     public uint ActiveProcesses
     {
         get
         {
-            if (!QueryInformationJobObject(m_job, 1, out var info, (uint)Marshal.SizeOf<Accounting>(), IntPtr.Zero))
-                throw Error();
+            if (!Kernel32.QueryInformationJobObject(m_job, 1, out var info, (uint)Marshal.SizeOf<JobAccounting>(), IntPtr.Zero))
+            {
+                throw Kernel32.LastError();
+            }
             return info.ActiveProcesses;
         }
     }
-    public async Task ConfirmTerminationAsync(TimeSpan grace)
-    {
-        // Poll authoritative native state without blocking the async I/O
-        // continuations involved in process/pipe teardown. EOF is not liveness.
-        var clock = System.Diagnostics.Stopwatch.StartNew();
-        while (true)
-        {
-            var state = WaitForSingleObject(m_process, 0);
-            if (state != 0 && state != 258)
-                throw Error();
-            var active = ActiveProcesses;
-            if (state == 0 && active == 0)
-                return;
-            if (clock.Elapsed >= grace)
-                throw new TimeoutException($"Owned process cleanup exceeded grace (wait={state}, exit={ExitCode}, active={active}).");
-            await Task.Delay(10).ConfigureAwait(false);
-        }
-    }
-    public void Dispose() { m_job.Dispose(); m_process.Dispose(); }
-    private static Win32Exception Error() => new(Marshal.GetLastWin32Error());
-    private sealed class Attributes : IDisposable
-    {
-        public IntPtr Pointer { get; }
-        private readonly List<IntPtr> m_values = [];
-        public Attributes()
-        {
-            nuint size = 0;
-            InitializeProcThreadAttributeList(IntPtr.Zero, 2, 0, ref size);
-            Pointer = Marshal.AllocHGlobal(checked((int)size));
-            if (!InitializeProcThreadAttributeList(Pointer, 2, 0, ref size))
-            { Marshal.FreeHGlobal(Pointer); throw Error(); }
-        }
-        public void Add(nuint key, IntPtr[] handles)
-        {
-            var data = Marshal.AllocHGlobal(handles.Length * IntPtr.Size);
-            m_values.Add(data);
-            Marshal.Copy(handles, 0, data, handles.Length);
-            if (!UpdateProcThreadAttribute(Pointer, 0, key, data, (nuint)(handles.Length * IntPtr.Size), IntPtr.Zero, IntPtr.Zero))
-                throw Error();
-        }
-        public void Dispose() { DeleteProcThreadAttributeList(Pointer); foreach (var value in m_values) Marshal.FreeHGlobal(value); Marshal.FreeHGlobal(Pointer); }
-    }
-#pragma warning disable CS0649 // Native structures populated by Win32.
-    [StructLayout(LayoutKind.Sequential)] private struct BasicLimits { public long ProcessTime, JobTime; public uint LimitFlags; public nuint MinWorkingSet, MaxWorkingSet; public uint ActiveLimit; public nuint Affinity; public uint Priority, Scheduling; }
-    [StructLayout(LayoutKind.Sequential)] private struct IoCounters { public ulong ReadOps, WriteOps, OtherOps, ReadBytes, WriteBytes, OtherBytes; }
-    [StructLayout(LayoutKind.Sequential)] private struct ExtendedLimits { public BasicLimits Basic; public IoCounters Io; public nuint ProcessMemory, JobMemory, PeakProcessMemory, PeakJobMemory; }
-    [StructLayout(LayoutKind.Sequential)] private struct Accounting { public long User, Kernel, PeriodUser, PeriodKernel; public uint PageFaults, TotalProcesses, ActiveProcesses, TerminatedProcesses; }
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] private struct StartupInfo { public int Size; public IntPtr Reserved, Desktop, Title; public uint X, Y, Width, Height, CharsX, CharsY, Fill, Flags; public ushort Show, ReservedBytes; public IntPtr ReservedData, Input, Output, Error; }
-    [StructLayout(LayoutKind.Sequential)] private struct StartupInfoEx { public StartupInfo Startup; public IntPtr Attributes; }
-    [StructLayout(LayoutKind.Sequential)] private struct ProcessInfo { public IntPtr Process, Thread; public uint ProcessId, ThreadId; }
-#pragma warning restore CS0649
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern SafeFileHandle CreateJobObjectW(IntPtr attributes, string? name);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool SetInformationJobObject(SafeFileHandle job, int kind, ref ExtendedLimits info, uint length);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool QueryInformationJobObject(SafeFileHandle job, int kind, out Accounting info, uint length, IntPtr returned);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool TerminateProcess(SafeFileHandle process, uint code);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool TerminateJobObject(SafeFileHandle job, uint code);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool SetHandleInformation(SafeHandle handle, uint mask, uint flags);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool InitializeProcThreadAttributeList(IntPtr list, int count, uint flags, ref nuint size);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool UpdateProcThreadAttribute(IntPtr list, uint flags, nuint key, IntPtr value, nuint size, IntPtr previous, IntPtr returned);
-    [DllImport("kernel32.dll")] private static extern void DeleteProcThreadAttributeList(IntPtr list);
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern bool CreateProcessW(string? application, StringBuilder command, IntPtr processAttributes, IntPtr threadAttributes, bool inherit, uint flags, IntPtr environment, string directory, ref StartupInfoEx startup, out ProcessInfo info);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern uint WaitForSingleObject(SafeFileHandle process, uint milliseconds);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool GetExitCodeProcess(SafeFileHandle process, out uint code);
+
+    #endregion
 }

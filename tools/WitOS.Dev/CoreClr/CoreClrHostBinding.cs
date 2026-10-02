@@ -6,7 +6,7 @@ namespace WitOS.Dev.CoreClr;
 
 internal static class CoreClrHostBinding
 {
-    internal static async Task<object> RunAsync(string root, string source, string binaries, RuntimeExperiment.SourceLock pin, string attempt)
+    internal static async Task<object> RunAsync(string root, string source, string binaries, UpstreamSourceLock pin, string attempt)
     {
         var pointerPath = Path.Combine(root, "artifacts/coreclr-source/current-run.json");
         using var pointer = JsonDocument.Parse(await File.ReadAllTextAsync(pointerPath));

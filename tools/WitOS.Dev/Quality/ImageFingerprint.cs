@@ -15,12 +15,6 @@ internal static class ImageFingerprint
     private static readonly string[] IMAGE_EXTENSIONS = [".efi", ".pe", ".dll"];
     private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
-    internal sealed record Section(string Name, int VirtualSize, int RawSize, string Sha256);
-
-    internal sealed record Image(string Key, Section[] Sections);
-
-    internal sealed record Report(string BuildId, string[] Scenarios, Image[] Images);
-
     // Usage: fingerprint [--output <file>] [--compare <file>] [scenario...]
     public static async Task RunAsync(string root, IReadOnlyList<string> arguments)
     {
@@ -52,7 +46,7 @@ internal static class ImageFingerprint
         }
         output ??= Path.Combine(root, "artifacts", "fingerprint", "fingerprint.json");
 
-        var images = new List<Image>();
+        var images = new List<FingerprintImage>();
         foreach (var scenario in scenarios)
         {
             var directory = Path.Combine(root, "artifacts", "fingerprint", scenario);
@@ -77,7 +71,7 @@ internal static class ImageFingerprint
             images.Add(Compute("runtime-readiness/WitOS.NativeAotBoot.pe", runtime));
         }
 
-        var report = new Report(FIXED_BUILD_ID, [.. scenarios], [.. images]);
+        var report = new FingerprintReport(FIXED_BUILD_ID, [.. scenarios], [.. images]);
         Directory.CreateDirectory(Path.GetDirectoryName(output)!);
         await File.WriteAllTextAsync(output, JsonSerializer.Serialize(report, JSON));
         Console.WriteLine($"Fingerprinted {images.Count} images, {images.Sum(i => i.Sections.Length)} sections: {output}");
@@ -85,7 +79,7 @@ internal static class ImageFingerprint
         {
             return;
         }
-        var baseline = JsonSerializer.Deserialize<Report>(await File.ReadAllTextAsync(compare), JSON)
+        var baseline = JsonSerializer.Deserialize<FingerprintReport>(await File.ReadAllTextAsync(compare), JSON)
             ?? throw new InvalidDataException("The baseline fingerprint is empty.");
         var differences = Compare(baseline, report);
         if (differences.Count > 0)
@@ -96,7 +90,7 @@ internal static class ImageFingerprint
         Console.WriteLine($"Fingerprints match the baseline: {compare}");
     }
 
-    internal static Image Compute(string key, string path)
+    internal static FingerprintImage Compute(string key, string path)
     {
         var bytes = File.ReadAllBytes(path);
         var masked = (byte[])bytes.Clone();
@@ -123,13 +117,13 @@ internal static class ImageFingerprint
         }
 
         var sections = headers.SectionHeaders
-            .Select(section => new Section(section.Name, section.VirtualSize, section.SizeOfRawData,
+            .Select(section => new FingerprintSection(section.Name, section.VirtualSize, section.SizeOfRawData,
                 Hash(masked, section.PointerToRawData, section.SizeOfRawData)))
             .ToArray();
-        return new Image(key, sections);
+        return new FingerprintImage(key, sections);
     }
 
-    internal static List<string> Compare(Report baseline, Report current)
+    internal static List<string> Compare(FingerprintReport baseline, FingerprintReport current)
     {
         var differences = new List<string>();
         var before = baseline.Images.ToDictionary(image => image.Key, StringComparer.Ordinal);

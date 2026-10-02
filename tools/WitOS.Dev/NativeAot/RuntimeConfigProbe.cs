@@ -12,7 +12,7 @@ internal static class RuntimeConfigProbe
     private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web) { WriteIndented = true };
     private static string Hash(string file) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))).ToLowerInvariant();
 
-    public static async Task PrepareAsync(string root, RuntimeExperiment.SourceLock pin)
+    public static async Task PrepareAsync(string root, UpstreamSourceLock pin)
     {
         var output = Path.Combine(root, "artifacts", "runtime-config", "source");
         Directory.CreateDirectory(output);
