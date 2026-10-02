@@ -191,3 +191,14 @@ The earlier RFCs describe the long-term vision. These implementation notes disti
 - [Pre-P6 code quality and coverage audit](Implementation/P5-Code-Quality-and-Coverage-Audit.md) - reproduced tooling defects, coverage gaps and Q1 follow-up.
 
 - [Q1 quality hardening](Implementation/Q1-Quality-Hardening.md) - completed audit fixes, real return-address hijack, measured native branch coverage and sanitizer/fuzz lanes.
+
+- [P6 CoreCLR/JIT profile and boundary](Implementation/P6-CoreClr-Profile.md) - pinned source-built reference, ordinary IL hosted acceptance, full direct/delay/ordinal import inventory and WitOS port requirements.
+- [P6 executable memory](Implementation/P6-Executable-Memory.md) - sparse RW/RX views and VMToOS adapter.
+- [P6 dynamic unwind](Implementation/P6-Dynamic-Unwind.md) - function tables, target/collided dispatch and Windows/guest acceptance.
+- [P6 assembly storage](Implementation/P6-Assembly-Storage.md) - unchanged payload delivery, readonly guest IO and boot ownership.
+- [P6 host and binding](Implementation/P6-Host-Binding.md) - active upstream hosting work and remaining platform boundaries.
+- [P6 native libraries](Implementation/P6-Native-Libraries.md) - immutable DLL loading, protected image ownership, actual library PAL leaves and remaining loader lifecycle.
+
+- [P6 DLL process lifecycle](Implementation/P6-DLL-Lifecycle.md) - readonly user-space callback plans, attach/detach rollback and explicit process-only bring-up boundary.
+
+- [P6 DLL thread notifications](Implementation/P6-DLL-Thread-Notifications.md) - cooperative kernel-owned lifecycle, actual worker callbacks and remaining DLL TLS boundary.
