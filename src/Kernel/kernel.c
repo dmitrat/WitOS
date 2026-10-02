@@ -4,6 +4,7 @@
 #include "witos/random.h"
 #include "witos/virtual.h"
 #include "witos/platform.h"
+#include "witos/user_abi.h"
 #include "build_info.h"
 
 static WitPageAllocator physical_pages;
@@ -21,7 +22,12 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
 {
     WitU64 usable = 0;
 
-    wit_console_write("WitOS 0.0.44 (native GC affinity parsing)\n");
+    /* Versions come from the ABI headers; the host runner checks this line. */
+    wit_console_write("WitOS user ABI v");
+    wit_console_write_u64(WIT_ABI_VERSION);
+    wit_console_write(", boot ABI v");
+    wit_console_write_u64(WIT_BOOT_VERSION);
+    wit_console_write("\n");
     wit_console_write("Build: " WITOS_BUILD_ID " | x64 | Debug\n");
     wit_console_write("[TEST-BEGIN] Boot.Contract\n");
 

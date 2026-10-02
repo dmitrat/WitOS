@@ -3,6 +3,7 @@
   "managed": [
     "tests/WitOS.Dev.Tests/ConsistencyTests.cs",
     "tools/WitOS.Dev/ImageFingerprint.cs",
+    "tools/WitOS.Dev/KernelAbi.cs",
     "tools/WitOS.Dev/SourceFormat.cs",
     "tools/WitOS.Dev/Toolchain.cs"
   ],

@@ -399,7 +399,7 @@ internal static class DevTool
         var counterFrequency = Regex.Match(result.Output, @"HPET frequency: (\d+)");
         var foundationReady = result.Output.Contains("[TEST-PASS] Cpu.SuspendedDeadlineState",StringComparison.Ordinal) && result.Output.Contains("[TEST-PASS] Cpu.ContextSanitization",StringComparison.Ordinal) && result.Output.Contains("[TEST-PASS] Cpu.ContextStateProfile",StringComparison.Ordinal) && result.Output.Contains("[TEST-PASS] Random.BootSeedConsumed",StringComparison.Ordinal) &&
             result.Output.Contains("[TEST-PASS] Random.ChaCha20Vector",StringComparison.Ordinal) && validMemory && counterFrequency.Success && counterFrequency.Groups[1].Value == "100000000" && MarkersInOrder(result.Output,
-            "[BOOT] ExitBootServices OK", "[TEST-PASS] Boot.Contract",
+            "[BOOT] ExitBootServices OK", KernelAbi.Banner(root) + "\n", "[TEST-PASS] Boot.Contract",
             "[TEST-PASS] Cpu.KernelStack", "[TEST-PASS] Cpu.ExceptionTables",
             "[TEST-PASS] Memory.KernelPaging", "[TEST-PASS] Memory.StackGuards",
             "[TEST-PASS] Clock.Counter64", "[TEST-PASS] Clock.IrqIndependent",
