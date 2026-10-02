@@ -7,7 +7,7 @@ namespace WitOS.Dev.NativeAot.References;
 
 internal static class RuntimeUnwindReference
 {
-    private static readonly string[] names = ["src/coreclr/unwinder/amd64/unwinder.cpp", "src/coreclr/unwinder/amd64/unwinder.h", "src/coreclr/unwinder/baseunwinder.h", "src/coreclr/inc/win64unwind.h"];
+    private static readonly string[] NAMES = ["src/coreclr/unwinder/amd64/unwinder.cpp", "src/coreclr/unwinder/amd64/unwinder.h", "src/coreclr/unwinder/baseunwinder.h", "src/coreclr/inc/win64unwind.h"];
     public static async Task ValidateImageAsync(string root, string image)
     {
         var output = Path.Combine(root, "artifacts/runtime-unwind");
@@ -25,7 +25,7 @@ internal static class RuntimeUnwindReference
         Directory.CreateDirectory(output);
         using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
 
-        foreach (var name in names)
+        foreach (var name in NAMES)
         {
             var item = pin.Sources.Single(p => p.Path == name);
             var original = await RuntimeExperiment.FetchAsync(client, Path.Combine(root, ".tools/runtime-audit"), "runtime", pin.RuntimeCommit, name, item.Sha256);
@@ -120,9 +120,9 @@ internal static class RuntimeUnwindReference
             transactionalFailureCases = 13,
             metadataCases = 20,
             boundedReadCases = 8,
-            sourcePins = pin.Sources.Where(p => names.Contains(p.Path)),
+            sourcePins = pin.Sources.Where(p => NAMES.Contains(p.Path)),
             adaptation = "Original reference changes only stdafx.h. Separate checked copy replaces stack reads, instruction buffer and metadata lookup, with renamed classes and checked assertions; non-DAC Windows algorithm retained. Hosted access failure uses C++ exceptions; guest delivery remains pending.",
-            inputs = names.Select(n => Path.Combine(output, Path.GetFileName(n))).Concat(new[] { Path.Combine(output, "unwinder.checked.cpp") }).Concat(new[] { "src/Kernel/include/witos/unwind_metadata.h", "src/Runtime.NativeAot/unwind_checked.witos.cpp", "src/Runtime.NativeAot/unwind_checked.witos.h", "src/Runtime.NativeAot/unwind_environment.witos.h", "tests/Runtime.NativeAot/unwind_checked_reference.cpp", "tests/Runtime.NativeAot/unwind_environment.h", "tests/Runtime.NativeAot/unwind_reference.cpp", "tests/Runtime.NativeAot/unwind_frames.asm", "tests/Runtime.NativeAot/unwind_compiler_frame.cpp", "tests/Runtime.NativeAot/unwind_validation_reference.cpp", "src/Runtime.NativeAot/unwind_validation.witos.cpp", "src/Runtime.NativeAot/unwind_validation.witos.h" }.Select(p => Path.Combine(root, p)))
+            inputs = NAMES.Select(n => Path.Combine(output, Path.GetFileName(n))).Concat(new[] { Path.Combine(output, "unwinder.checked.cpp") }).Concat(new[] { "src/Kernel/include/witos/unwind_metadata.h", "src/Runtime.NativeAot/unwind_checked.witos.cpp", "src/Runtime.NativeAot/unwind_checked.witos.h", "src/Runtime.NativeAot/unwind_environment.witos.h", "tests/Runtime.NativeAot/unwind_checked_reference.cpp", "tests/Runtime.NativeAot/unwind_environment.h", "tests/Runtime.NativeAot/unwind_reference.cpp", "tests/Runtime.NativeAot/unwind_frames.asm", "tests/Runtime.NativeAot/unwind_compiler_frame.cpp", "tests/Runtime.NativeAot/unwind_validation_reference.cpp", "src/Runtime.NativeAot/unwind_validation.witos.cpp", "src/Runtime.NativeAot/unwind_validation.witos.h" }.Select(p => Path.Combine(root, p)))
                 .Select(p => new { file = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(p))).ToLowerInvariant() })
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine("[UNWIND-REFERENCE-PASS] 20 upstream/checked/Windows comparisons, 40 cached comparisons/40 forged-entry rejections and 13 transactional failure cases (HOSTED only).");

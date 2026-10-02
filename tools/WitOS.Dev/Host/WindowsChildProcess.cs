@@ -12,9 +12,9 @@ namespace WitOS.Dev.Host;
 // at creation, before user code can spawn children. No breakaway is permitted.
 internal sealed class WindowsChildProcess : IDisposable
 {
-    private readonly SafeFileHandle job;
-    private readonly SafeFileHandle process;
-    private WindowsChildProcess(SafeFileHandle job, SafeFileHandle process) { this.job = job; this.process = process; }
+    private readonly SafeFileHandle m_job;
+    private readonly SafeFileHandle m_process;
+    private WindowsChildProcess(SafeFileHandle job, SafeFileHandle process) { this.m_job = job; this.m_process = process; }
 
     internal sealed class CapturePipe : IDisposable
     {
@@ -121,28 +121,28 @@ internal sealed class WindowsChildProcess : IDisposable
     {
         get
         {
-            var state = WaitForSingleObject(process, 0);
+            var state = WaitForSingleObject(m_process, 0);
             if (state != 0 && state != 258)
                 throw Error();
             return state == 0;
         }
     }
-    public int ExitCode { get { if (!GetExitCodeProcess(process, out uint code)) throw Error(); return unchecked((int)code); } }
+    public int ExitCode { get { if (!GetExitCodeProcess(m_process, out uint code)) throw Error(); return unchecked((int)code); } }
     public void Terminate()
     {
         // Stop the known root directly before terminating all owned descendants.
         // Access denied can race an exiting root; confirmation below still
         // requires its signaled process object and an empty job.
-        var state = WaitForSingleObject(process, 0);
+        var state = WaitForSingleObject(m_process, 0);
         if (state != 0 && state != 258)
             throw Error();
-        if (state == 258 && !TerminateProcess(process, unchecked((uint)-1)))
+        if (state == 258 && !TerminateProcess(m_process, unchecked((uint)-1)))
         {
             var error = Marshal.GetLastWin32Error();
             if (error != 5)
                 throw new Win32Exception(error);
         }
-        if (!TerminateJobObject(job, unchecked((uint)-1)))
+        if (!TerminateJobObject(m_job, unchecked((uint)-1)))
             throw Error();
     }
     public async Task WaitForExitAsync(CancellationToken token)
@@ -150,7 +150,7 @@ internal sealed class WindowsChildProcess : IDisposable
         while (true)
         {
             token.ThrowIfCancellationRequested();
-            var state = WaitForSingleObject(process, 0);
+            var state = WaitForSingleObject(m_process, 0);
             if (state == 0)
                 return;
             if (state != 258)
@@ -162,7 +162,7 @@ internal sealed class WindowsChildProcess : IDisposable
     {
         get
         {
-            if (!QueryInformationJobObject(job, 1, out var info, (uint)Marshal.SizeOf<Accounting>(), IntPtr.Zero))
+            if (!QueryInformationJobObject(m_job, 1, out var info, (uint)Marshal.SizeOf<Accounting>(), IntPtr.Zero))
                 throw Error();
             return info.ActiveProcesses;
         }
@@ -174,7 +174,7 @@ internal sealed class WindowsChildProcess : IDisposable
         var clock = System.Diagnostics.Stopwatch.StartNew();
         while (true)
         {
-            var state = WaitForSingleObject(process, 0);
+            var state = WaitForSingleObject(m_process, 0);
             if (state != 0 && state != 258)
                 throw Error();
             var active = ActiveProcesses;
@@ -185,12 +185,12 @@ internal sealed class WindowsChildProcess : IDisposable
             await Task.Delay(10).ConfigureAwait(false);
         }
     }
-    public void Dispose() { job.Dispose(); process.Dispose(); }
+    public void Dispose() { m_job.Dispose(); m_process.Dispose(); }
     private static Win32Exception Error() => new(Marshal.GetLastWin32Error());
     private sealed class Attributes : IDisposable
     {
         public IntPtr Pointer { get; }
-        private readonly List<IntPtr> values = [];
+        private readonly List<IntPtr> m_values = [];
         public Attributes()
         {
             nuint size = 0;
@@ -202,12 +202,12 @@ internal sealed class WindowsChildProcess : IDisposable
         public void Add(nuint key, IntPtr[] handles)
         {
             var data = Marshal.AllocHGlobal(handles.Length * IntPtr.Size);
-            values.Add(data);
+            m_values.Add(data);
             Marshal.Copy(handles, 0, data, handles.Length);
             if (!UpdateProcThreadAttribute(Pointer, 0, key, data, (nuint)(handles.Length * IntPtr.Size), IntPtr.Zero, IntPtr.Zero))
                 throw Error();
         }
-        public void Dispose() { DeleteProcThreadAttributeList(Pointer); foreach (var value in values) Marshal.FreeHGlobal(value); Marshal.FreeHGlobal(Pointer); }
+        public void Dispose() { DeleteProcThreadAttributeList(Pointer); foreach (var value in m_values) Marshal.FreeHGlobal(value); Marshal.FreeHGlobal(Pointer); }
     }
 #pragma warning disable CS0649 // Native structures populated by Win32.
     [StructLayout(LayoutKind.Sequential)] private struct BasicLimits { public long ProcessTime, JobTime; public uint LimitFlags; public nuint MinWorkingSet, MaxWorkingSet; public uint ActiveLimit; public nuint Affinity; public uint Priority, Scheduling; }

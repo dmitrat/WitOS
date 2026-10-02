@@ -6,7 +6,7 @@ namespace WitOS.Dev.Pe;
 // Source identity is the key; link groups never depend on positional indices.
 internal sealed class NativePlatformObjects
 {
-    internal static readonly string[] Sources = [
+    internal static readonly string[] SOURCES = [
         "security_cookie.witos.cpp",
         "security_handler.witos.cpp",
         "security_cookie.asm",
@@ -43,16 +43,16 @@ internal sealed class NativePlatformObjects
         "native_thread_create.witos.cpp",
         "native_thread_create.asm",
     ];
-    private readonly Dictionary<string, string> files;
+    private readonly Dictionary<string, string> m_files;
     internal NativePlatformObjects(IEnumerable<KeyValuePair<string, string>> objects)
     {
-        files = objects.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
-        if (!files.Keys.Order().SequenceEqual(Sources.Order()))
+        m_files = objects.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+        if (!m_files.Keys.Order().SequenceEqual(SOURCES.Order()))
             throw new InvalidDataException("Native platform source manifest differs from the required set.");
     }
-    internal string[] Select(params string[] names) => names.Select(name => files.TryGetValue(name, out var file)
+    internal string[] Select(params string[] names) => names.Select(name => m_files.TryGetValue(name, out var file)
         ? file : throw new InvalidDataException("Native platform object missing: " + name)).ToArray();
-    internal string[] All => Sources.Select(name => files[name]).ToArray();
+    internal string[] All => SOURCES.Select(name => m_files[name]).ToArray();
     internal string[] Cpu => Select(
         "security_cookie.witos.cpp",
         "security_handler.witos.cpp",
@@ -109,13 +109,13 @@ internal sealed class NativePlatformObjects
         "pal_events.witos.cpp",
         "native_thread_handles.witos.cpp",
         "native_thread_handles.asm");
-    internal string[] Com => Sources.Where(name => name != "pal_context_storage.witos.cpp").Select(name => files[name]).ToArray();
+    internal string[] Com => SOURCES.Where(name => name != "pal_context_storage.witos.cpp").Select(name => m_files[name]).ToArray();
     internal object[] CopyTo(string directory)
     {
-        return Sources.Select(name =>
+        return SOURCES.Select(name =>
         {
             var destination = Path.Combine(directory, name + ".obj");
-            File.Copy(files[name], destination, overwrite: true);
+            File.Copy(m_files[name], destination, overwrite: true);
             return (object)new { source = name, file = Path.GetFileName(destination), sha256 = Hash(destination) };
         }).ToArray();
     }

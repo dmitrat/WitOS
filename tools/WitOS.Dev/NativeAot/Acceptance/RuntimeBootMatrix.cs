@@ -57,8 +57,8 @@ internal static class RuntimeBootMatrix
         attempt.Publish(new
         {
             guestManagedExecution = true,
-            integrationCyclesPerExecution = RuntimeBootProtocol.IntegrationCycles,
-            executionsPerProfile = RuntimeBootProtocol.ExecutionBases.Length,
+            integrationCyclesPerExecution = RuntimeBootProtocol.INTEGRATION_CYCLES,
+            executionsPerProfile = RuntimeBootProtocol.EXECUTION_BASES.Length,
             threadStoreAudit = true,
             collectorExecution = true,
             managedStackOverflowContained = true,
@@ -84,8 +84,8 @@ internal static class RuntimeBootMatrix
             hijackObserved = true,
             activeServiceFrameRejected = true,
             collectionDuringThreadExit = true,
-            workersPerExecution = RuntimeBootProtocol.WorkersPerExecution,
-            imageRelocations = RuntimeBootProtocol.ImageBases.Length,
+            workersPerExecution = RuntimeBootProtocol.WORKERS_PER_EXECUTION,
+            imageRelocations = RuntimeBootProtocol.IMAGE_BASES.Length,
             profiles = 4,
             runtimeImageSha256 = input.RootElement.GetProperty("sha256").GetString(),
             kernelDiskSha256 = Hash(image),

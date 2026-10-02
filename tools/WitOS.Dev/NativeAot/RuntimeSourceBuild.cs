@@ -9,8 +9,8 @@ namespace WitOS.Dev.NativeAot;
 
 internal static class RuntimeSourceBuild
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
-    private static readonly string[] Cases = ["FirstExportInitialization", "AllocationGcAndExceptions", "TlsOnNativeThreads", "RepeatEntry"];
+    private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private static readonly string[] CASES = ["FirstExportInitialization", "AllocationGcAndExceptions", "TlsOnNativeThreads", "RepeatEntry"];
     private sealed record CompileCommand(string Directory, string Command, string File, string Output);
     private sealed record ArchiveEvidence(string Sha256, string[] Members, int CompileUnits);
     private sealed record SourceBuild(string Sdk, string[] Members, CompileCommand[] Commands, string ArchiveSha256, ArchiveEvidence Minipal);
@@ -94,7 +94,7 @@ internal static class RuntimeSourceBuild
             pin.RuntimeVersion,
             pin.RuntimeCommit,
             upstreamTree = tree,
-            backend = RuntimePortImage.Backend,
+            backend = RuntimePortImage.BACKEND,
             upstreamWorkingTreeClean = true,
             upstreamWorkingTreePatched = false,
             rhConfigAllocationChecksPatched = true,
@@ -105,7 +105,7 @@ internal static class RuntimeSourceBuild
             managedCompilerAndCoreLibFromLockedPackages = true,
             guestRuntimePorted = false,
             guestManagedExecution = false,
-            referenceHostPassedCases = Cases,
+            referenceHostPassedCases = CASES,
             referenceHost,
             reference = new { reference.ArchiveSha256, members = reference.Members, compileUnits = reference.Commands.Length, minipal = reference.Minipal },
             ported = new { ported.ArchiveSha256, members = ported.Members, compileUnits = ported.Commands.Length, minipal = ported.Minipal },
@@ -120,13 +120,13 @@ internal static class RuntimeSourceBuild
             missingGroups = groups,
             scope = "Entire upstream nativeaot CMake component built twice. Workstation GC environment, Release Crst and aotminipal mutex sources are replaced in the WitOS archives; remaining Windows PAL/CRT/TLS dependencies and unsupported GC methods are intentionally unresolved. This is not a runnable guest runtime or a complete .NET source build."
         };
-        await File.WriteAllTextAsync(Path.Combine(output, "source-build-report.json"), JsonSerializer.Serialize(report, Json));
+        await File.WriteAllTextAsync(Path.Combine(output, "source-build-report.json"), JsonSerializer.Serialize(report, JSON));
         await File.WriteAllTextAsync(Path.Combine(output, "missing-platform.md"),
             "# Source-built NativeAOT port boundary\n\nNo guest runtime executed. Strict link failed as expected.\n\n" +
             string.Join("\n\n", groups.Select(g => $"## {g.Key} ({g.Value.Length})\n\n" + string.Join("\n", g.Value.Select(v => "- `" + v + "`")))) + "\n");
         Console.WriteLine($"[SOURCE-PASS] Full native archive: {ported.Members.Length} members; native adapter objects verified byte-for-byte.");
         Console.WriteLine($"[SOURCE-PASS] aotminipal archive: {ported.Minipal.Members.Length} members; mutex/time adapters and upstream PRNG object verified byte-for-byte.");
-        Console.WriteLine($"[SOURCE-PASS] Windows source-built reference: {Cases.Length} execution groups.");
+        Console.WriteLine($"[SOURCE-PASS] Windows source-built reference: {CASES.Length} execution groups.");
         Console.WriteLine($"[SOURCE-PASS] Strict WitOS link boundary: {boundary.Unresolved.Length} unresolved symbols, including {groups["gc-environment"].Length} GC environment requirements.");
         Console.WriteLine($"Reports: {output}");
         await RuntimeReadiness.RunAsync(root, msvc, ported.Sdk);
@@ -201,7 +201,7 @@ internal static class RuntimeSourceBuild
         await File.WriteAllTextAsync(Path.Combine(output, profile + "-members.txt"), listing.Output);
         var members = listing.Output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
         var obj = Path.Combine(source, "artifacts", "obj", "coreclr", "windows.x64.Release", profile);
-        var allCommands = JsonSerializer.Deserialize<CompileCommand[]>(await File.ReadAllTextAsync(Path.Combine(obj, "compile_commands.json")), Json)
+        var allCommands = JsonSerializer.Deserialize<CompileCommand[]>(await File.ReadAllTextAsync(Path.Combine(obj, "compile_commands.json")), JSON)
             ?? throw new InvalidDataException("Missing native compile commands.");
         static string Normalize(string path) => path.Replace(Path.DirectorySeparatorChar, '/');
         var commands = allCommands.Where(c => Normalize(c.Output).Contains("/Runtime.WorkstationGC.dir/", StringComparison.Ordinal)).ToArray();
@@ -245,7 +245,7 @@ internal static class RuntimeSourceBuild
         if (paths.Count(p => p.EndsWith("/Runtime/RhConfig.cpp", StringComparison.Ordinal)) != (overlay ? 0 : 1) ||
             paths.Count(p => p.EndsWith("/rhconfig.witos.cpp", StringComparison.Ordinal)) != (overlay ? 1 : 0))
             throw new InvalidDataException("Runtime archive contains the wrong RhConfig allocation policy.");
-        await File.WriteAllTextAsync(Path.Combine(output, profile + "-compile-commands.json"), JsonSerializer.Serialize(commands, Json));
+        await File.WriteAllTextAsync(Path.Combine(output, profile + "-compile-commands.json"), JsonSerializer.Serialize(commands, JSON));
 
         var minipalArchive = Path.Combine(sdk, "aotminipal.lib");
         var minipalListing = await Processes.RunAsync(Path.Combine(msvc, "lib.exe"), ["/nologo", "/list", minipalArchive], root);
@@ -268,7 +268,7 @@ internal static class RuntimeSourceBuild
         if (minipalCommands.Count(c => Normalize(c.File).EndsWith("/minipal/cpufeatures.c", StringComparison.Ordinal)) != (overlay ? 0 : 1) ||
             minipalCommands.Count(c => Normalize(c.File).EndsWith("/minipal_cpu.witos.cpp", StringComparison.Ordinal)) != (overlay ? 1 : 0))
             throw new InvalidDataException("Incorrect minipal CPU backend.");
-        await File.WriteAllTextAsync(Path.Combine(output, profile + "-minipal-compile-commands.json"), JsonSerializer.Serialize(minipalCommands, Json));
+        await File.WriteAllTextAsync(Path.Combine(output, profile + "-minipal-compile-commands.json"), JsonSerializer.Serialize(minipalCommands, JSON));
         if (overlay)
         {
             await RuntimeGcPolicy.RunAsync(root, source, obj, archive);
@@ -329,7 +329,7 @@ internal static class RuntimeSourceBuild
                 .Select(c => { var file = Path.GetFullPath(c.Output, c.Directory); return new { file, sha256 = Hash(file) }; }).ToArray(),
                 contextObjects = commands.Where(c => new[] { "pal_context.witos.cpp", "pal_context_storage.witos.cpp" }.Contains(Path.GetFileName(c.File)))
                 .Select(c => { var file = Path.GetFullPath(c.Output, c.Directory); return new { file, sha256 = Hash(file) }; }).ToArray()
-            }, Json));
+            }, JSON));
             if (commands.Single(c => Normalize(c.File).EndsWith("/pal_context.witos.cpp", StringComparison.Ordinal)).Command.Contains("/GS-", StringComparison.Ordinal))
                 throw new InvalidDataException("Production PAL context lost GS protection.");
             var contextStorage = commands.Single(c => Normalize(c.File).EndsWith("/pal_context_storage.witos.cpp", StringComparison.Ordinal));
@@ -364,7 +364,7 @@ internal static class RuntimeSourceBuild
             }
             var affinity = commands.Single(c => Normalize(c.File).EndsWith("/gc_affinity.witos.cpp", StringComparison.Ordinal));
             var fatal = commands.Single(c => Normalize(c.File).EndsWith("/fatal.witos.cpp", StringComparison.Ordinal));
-            var security = new NativePlatformObjects(NativePlatformObjects.Sources.Select(name =>
+            var security = new NativePlatformObjects(NativePlatformObjects.SOURCES.Select(name =>
             {
                 var compile = commands.Single(c => Normalize(c.File).EndsWith("/" + name, StringComparison.Ordinal));
                 return KeyValuePair.Create(name, Path.GetFullPath(compile.Output, compile.Directory));
@@ -415,7 +415,7 @@ internal static class RuntimeSourceBuild
         await File.WriteAllTextAsync(Path.Combine(output, "reference-host.log"), run.Output + run.Error);
         if (run.TimedOut || run.ExitCode != 0 || run.Output.Contains("[TARGET-FAIL]", StringComparison.Ordinal) ||
             !run.Output.Contains("[TARGET-SUCCESS]", StringComparison.Ordinal) ||
-            Cases.Any(c => !run.Output.Contains("[TARGET-PASS] " + c, StringComparison.Ordinal)))
+            CASES.Any(c => !run.Output.Contains("[TARGET-PASS] " + c, StringComparison.Ordinal)))
             throw new InvalidOperationException("Source-built Windows runtime reference failed native-host execution.");
         Console.Write(run.Output);
         return new

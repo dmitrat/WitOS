@@ -7,22 +7,22 @@ internal static class RuntimeBootProtocol
 {
     // Versioned fixture contract; these are two distinct kernel-reported bases,
     // not two matches anywhere in a concatenated log.
-    internal static readonly ulong[] ImageBases = [0x8000100000, 0x8000180000];
-    internal static readonly ulong[] ExecutionBases = [.. ImageBases, .. ImageBases];
-    internal const int IntegrationCycles = 4;
-    internal const string Cycle = "[USER] [RUNTIME] integration cycle passed";
-    internal const string LifecycleAudit = "[USER] [RUNTIME] managed lifecycle audit passed: main+finalizer";
-    internal const int WorkersPerExecution = 43;
-    internal static int StackFaultsPerProfile => ImageBases.Length;
-    internal const string Worker = "[USER] [RUNTIME] worker attach/detach/reuse/rollback and foreign GC/hijack/service-guard/exit-GC passed";
-    internal const string Oom = "[USER] [RUNTIME] managed OOM recovery passed: 3 hard-limit + 1 backing-pressure";
-    internal const string ManagedEh = "[USER] [RUNTIME] managed EH workers passed: 2 (filters/rethrow/nested-finally/native-release)";
-    internal const string Finalization = "[USER] [RUNTIME] managed finalization passed: 48 releases + 8 resurrection passes + suppression";
-    internal const string ManagedThreads = "[USER] [RUNTIME] managed threads passed: 28 (Thread/Join/Monitor/TLS/GC)";
-    internal const string ThreadQuota = "[USER] [RUNTIME] managed thread quota recovery passed: 4";
-    private static readonly string[] Phases = ["Runtime boot load status: 0","[TEST-PASS] Runtime.MemoryProfile",
+    internal static readonly ulong[] IMAGE_BASES = [0x8000100000, 0x8000180000];
+    internal static readonly ulong[] EXECUTION_BASES = [.. IMAGE_BASES, .. IMAGE_BASES];
+    internal const int INTEGRATION_CYCLES = 4;
+    internal const string CYCLE = "[USER] [RUNTIME] integration cycle passed";
+    internal const string LIFECYCLE_AUDIT = "[USER] [RUNTIME] managed lifecycle audit passed: main+finalizer";
+    internal const int WORKERS_PER_EXECUTION = 43;
+    internal static int StackFaultsPerProfile => IMAGE_BASES.Length;
+    internal const string WORKER = "[USER] [RUNTIME] worker attach/detach/reuse/rollback and foreign GC/hijack/service-guard/exit-GC passed";
+    internal const string OOM = "[USER] [RUNTIME] managed OOM recovery passed: 3 hard-limit + 1 backing-pressure";
+    internal const string MANAGED_EH = "[USER] [RUNTIME] managed EH workers passed: 2 (filters/rethrow/nested-finally/native-release)";
+    internal const string FINALIZATION = "[USER] [RUNTIME] managed finalization passed: 48 releases + 8 resurrection passes + suppression";
+    internal const string MANAGED_THREADS = "[USER] [RUNTIME] managed threads passed: 28 (Thread/Join/Monitor/TLS/GC)";
+    internal const string THREAD_QUOTA = "[USER] [RUNTIME] managed thread quota recovery passed: 4";
+    private static readonly string[] PHASES = ["Runtime boot load status: 0","[TEST-PASS] Runtime.MemoryProfile",
         "[USER] [RUNTIME] image published","[USER] [RUNTIME] native TLS ready","[USER] [RUNTIME] native initializers ready",
-        "[USER] [RUNTIME] entering upstream wmain",Oom,ManagedEh,Worker,Finalization,ManagedThreads,ThreadQuota];
+        "[USER] [RUNTIME] entering upstream wmain",OOM,MANAGED_EH,WORKER,FINALIZATION,MANAGED_THREADS,THREAD_QUOTA];
 
     internal static string SharedManagedObjectHash(System.Text.Json.JsonElement input)
     {
@@ -44,7 +44,7 @@ internal static class RuntimeBootProtocol
         if (timedOut || exitCode != 42)
             return false;
         var lines = output.Replace("\r\n", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        string[] expected = [..Enumerable.Repeat(Cycle[7..],IntegrationCycles),Finalization[7..],ManagedThreads[7..],
+        string[] expected = [..Enumerable.Repeat(CYCLE[7..],INTEGRATION_CYCLES),FINALIZATION[7..],MANAGED_THREADS[7..],
             "[RUNTIME] managed thread capacity reference passed: 4"];
         return lines.SequenceEqual(expected);
     }
@@ -64,10 +64,10 @@ internal static class RuntimeBootProtocol
         if (!RuntimeBootEnvelope.Validate(lines))
             return false;
         var starts = lines.Select((line, index) => (line, index)).Where(x => x.line.StartsWith("Runtime boot image base:", StringComparison.Ordinal)).ToArray();
-        if (starts.Length != ExecutionBases.Length)
+        if (starts.Length != EXECUTION_BASES.Length)
             return false;
         var nativeFaultBases = lines.Where(l => l.StartsWith("Runtime native fault base: ", StringComparison.Ordinal)).ToArray();
-        if (!nativeFaultBases.SequenceEqual(ImageBases.Select(b => $"Runtime native fault base: 0x{b:X16}")) ||
+        if (!nativeFaultBases.SequenceEqual(IMAGE_BASES.Select(b => $"Runtime native fault base: 0x{b:X16}")) ||
             lines.Count(l => l == "[TEST-PASS] Runtime.NativeFaultContained") != 2)
             return false;
         var abrupt = lines.Select((line, index) => (line, index)).Where(x => x.line.StartsWith("Runtime abrupt mode/base: ", StringComparison.Ordinal)).ToArray();
@@ -76,7 +76,7 @@ internal static class RuntimeBootProtocol
         for (int n = 0; n < abrupt.Length; ++n)
         {
             int mode = n / 2;
-            if (abrupt[n].line != $"Runtime abrupt mode/base: {mode}/0x{ImageBases[n % 2]:X16}")
+            if (abrupt[n].line != $"Runtime abrupt mode/base: {mode}/0x{IMAGE_BASES[n % 2]:X16}")
                 return false;
             var block = lines[(abrupt[n].index + 1)..(n + 1 < abrupt.Length ? abrupt[n + 1].index : starts[0].index)];
             var report = block.Select((line, index) => (line, index)).Where(x => x.line.StartsWith("Runtime abrupt exit/report: ", StringComparison.Ordinal)).ToArray();
@@ -84,7 +84,7 @@ internal static class RuntimeBootProtocol
             var entered = block.Select((line, index) => (line, index)).Where(x => x.line == "[USER] [RUNTIME] entering upstream wmain").ToArray();
             var expected = mode < 2 ? "0x00000000FFFF0002" : "0x00000000C000001D";
             if (report.Length != 1 || done.Length != 1 || entered.Length != 1 || entered[0].index >= report[0].index || report[0].index >= done[0].index ||
-                report[0].line != $"Runtime abrupt exit/report: {expected}/1/0/0/0" || block.Contains(Worker) ||
+                report[0].line != $"Runtime abrupt exit/report: {expected}/1/0/0/0" || block.Contains(WORKER) ||
                 block.Any(l => l.StartsWith("[USER] [RUNTIME] wmain returned", StringComparison.Ordinal)))
                 return false;
             var fatals = block.Select((line, index) => (line, index)).Where(x => x.line.StartsWith("[USER] [NATIVE-FAIL-FAST]", StringComparison.Ordinal)).ToArray();
@@ -95,14 +95,14 @@ internal static class RuntimeBootProtocol
                 return false;
         }
         var init = lines.Select((line, index) => (line, index)).Where(x => x.line.StartsWith("Runtime init failure base: ", StringComparison.Ordinal)).ToArray();
-        if (init.Length != ImageBases.Length || init[^1].index >= abrupt[0].index)
+        if (init.Length != IMAGE_BASES.Length || init[^1].index >= abrupt[0].index)
             return false;
         var stacks = lines.Select((line, index) => (line, index)).Where(x => x.line.StartsWith("Runtime managed stack overflow base: ", StringComparison.Ordinal)).ToArray();
         if (stacks.Length != 2 || stacks[^1].index >= init[0].index)
             return false;
         for (int n = 0; n < stacks.Length; ++n)
         {
-            if (stacks[n].line != $"Runtime managed stack overflow base: 0x{ImageBases[n]:X16}")
+            if (stacks[n].line != $"Runtime managed stack overflow base: 0x{IMAGE_BASES[n]:X16}")
                 return false;
             var block = lines[(stacks[n].index + 1)..(n + 1 < stacks.Length ? stacks[n + 1].index : init[0].index)];
             int entered = Array.IndexOf(block, "[USER] [RUNTIME] entering upstream wmain");
@@ -126,7 +126,7 @@ internal static class RuntimeBootProtocol
         }
         for (int n = 0; n < init.Length; ++n)
         {
-            if (init[n].line != $"Runtime init failure base: 0x{ImageBases[n]:X16}")
+            if (init[n].line != $"Runtime init failure base: 0x{IMAGE_BASES[n]:X16}")
                 return false;
             var block = lines[(init[n].index + 1)..(n + 1 < init.Length ? init[n + 1].index : abrupt[0].index)];
             string[] required = ["[USER] [RUNTIME] image published","[USER] [RUNTIME] native TLS ready",
@@ -147,7 +147,7 @@ internal static class RuntimeBootProtocol
                 returns[0].index >= failure[0].index || failure[0].index >= previous ||
                 !Regex.IsMatch(failure[0].line, @"^Runtime init failure exit/commits: 0x00000000FFFFFFFF/[1-9][0-9]*$") ||
                 !Regex.IsMatch(returns[0].line, @"^\[USER\] \[RUNTIME\] wmain returned 0x00000000FFFFFFFF last-error=0x[0-9A-F]{16}$") ||
-                block.Contains(Worker) || block.Contains(Oom))
+                block.Contains(WORKER) || block.Contains(OOM))
                 return false;
         }
         int Unique(string marker) => Array.FindAll(lines, l => l == marker).Length == 1 ? Array.IndexOf(lines, marker) : -1;
@@ -158,26 +158,26 @@ internal static class RuntimeBootProtocol
             return false;
         for (int n = 0; n < starts.Length; n++)
         {
-            if (starts[n].line != $"Runtime boot image base: 0x{ExecutionBases[n]:X16}")
+            if (starts[n].line != $"Runtime boot image base: 0x{EXECUTION_BASES[n]:X16}")
                 return false;
             int end = n + 1 < starts.Length ? starts[n + 1].index : managed;
             var block = lines[(starts[n].index + 1)..end];
             int previous = -1;
-            foreach (var phase in Phases)
+            foreach (var phase in PHASES)
             {
                 var indices = block.Select((line, index) => (line, index)).Where(x => x.line == phase).Select(x => x.index).ToArray();
                 if (indices.Length != 1 || indices[0] <= previous)
                     return false;
                 previous = indices[0];
             }
-            var cycles = block.Select((line, index) => (line, index)).Where(x => x.line == Cycle || x.line == LifecycleAudit).ToArray();
-            if (cycles.Length != IntegrationCycles * 2 || cycles[0].index <= Array.IndexOf(block, Worker) || cycles[^1].index >= Array.IndexOf(block, Finalization))
+            var cycles = block.Select((line, index) => (line, index)).Where(x => x.line == CYCLE || x.line == LIFECYCLE_AUDIT).ToArray();
+            if (cycles.Length != INTEGRATION_CYCLES * 2 || cycles[0].index <= Array.IndexOf(block, WORKER) || cycles[^1].index >= Array.IndexOf(block, FINALIZATION))
                 return false;
-            for (int cycle = 0; cycle < IntegrationCycles; ++cycle)
-                if (cycles[cycle * 2].line != LifecycleAudit || cycles[cycle * 2 + 1].line != Cycle)
+            for (int cycle = 0; cycle < INTEGRATION_CYCLES; ++cycle)
+                if (cycles[cycle * 2].line != LIFECYCLE_AUDIT || cycles[cycle * 2 + 1].line != CYCLE)
                     return false;
             var counters = block.Select((line, index) => (line, index)).Where(x => x.line.StartsWith("[USER] [RUNTIME] hijack attempts/", StringComparison.Ordinal)).ToArray();
-            if (counters.Length != 1 || counters[0].index <= Array.IndexOf(block, Phases[5]) || counters[0].index >= previous)
+            if (counters.Length != 1 || counters[0].index <= Array.IndexOf(block, PHASES[5]) || counters[0].index >= previous)
                 return false;
             var values = Regex.Match(counters[0].line, @"^\[USER\] \[RUNTIME\] hijack attempts/redirects/returns/unsafe: ([0-9A-F]{16})/([0-9A-F]{16})/([0-9A-F]{16})/([0-9A-F]{16})$");
             if (!values.Success)
@@ -209,10 +209,10 @@ internal static class RuntimeBootProtocol
             if (!budget.Success || !ulong.TryParse(budget.Groups[1].Value, out var usedTicks) || usedTicks >= 3000)
                 return false;
             var orderly = block.Select((line, index) => (line, index)).Where(x => x.line.StartsWith("Runtime orderly thread completions: ", StringComparison.Ordinal)).ToArray();
-            if (orderly.Length != 1 || orderly[0].index <= failedCommits[0].index || orderly[0].line != $"Runtime orderly thread completions: {WorkersPerExecution}")
+            if (orderly.Length != 1 || orderly[0].index <= failedCommits[0].index || orderly[0].line != $"Runtime orderly thread completions: {WORKERS_PER_EXECUTION}")
                 return false;
         }
         // No extra workload claims outside either validated execution block.
-        return lines.Count(l => l == Worker) == ExecutionBases.Length && lines.Count(l => l == Cycle) == ExecutionBases.Length * IntegrationCycles && lines.Count(l => l == LifecycleAudit) == ExecutionBases.Length * IntegrationCycles;
+        return lines.Count(l => l == WORKER) == EXECUTION_BASES.Length && lines.Count(l => l == CYCLE) == EXECUTION_BASES.Length * INTEGRATION_CYCLES && lines.Count(l => l == LIFECYCLE_AUDIT) == EXECUTION_BASES.Length * INTEGRATION_CYCLES;
     }
 }

@@ -8,8 +8,8 @@ internal sealed record ProcessResult(int ExitCode, string Output, string Error, 
 
 internal static class Processes
 {
-    private static readonly TimeSpan CleanupBudget = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan ControlBudget = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan CLEANUP_BUDGET = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan CONTROL_BUDGET = TimeSpan.FromSeconds(1);
 
     public static Task<ProcessResult> RunAsync(string executable, IEnumerable<string> arguments, string directory,
         int timeoutSeconds = 60, IReadOnlyDictionary<string, string>? environment = null)
@@ -53,7 +53,7 @@ internal static class Processes
             while (!child.HasExited)
             {
                 deadline.Token.ThrowIfCancellationRequested();
-                if (new FileInfo(outputPath).Length > BoundedCapture.Limit || new FileInfo(errorPath).Length > BoundedCapture.Limit)
+                if (new FileInfo(outputPath).Length > BoundedCapture.LIMIT || new FileInfo(errorPath).Length > BoundedCapture.LIMIT)
                     throw new InvalidDataException("Process output exceeded file capture limit.");
                 await Task.Delay(10, deadline.Token);
             }
@@ -67,7 +67,7 @@ internal static class Processes
         try
         {
             child.Terminate();
-            await child.ConfirmTerminationAsync(CleanupBudget - cleanup.Elapsed);
+            await child.ConfirmTerminationAsync(CLEANUP_BUDGET - cleanup.Elapsed);
         }
         catch (Exception exception)
         {
@@ -125,7 +125,7 @@ internal static class Processes
             {
                 var completed = await Task.WhenAny(all, stdout.Overflow, stderr.Overflow).WaitAsync(deadline.Token);
                 if (completed != all)
-                    throw new InvalidDataException($"Process output exceeded {BoundedCapture.Limit} characters per stream: {executable}");
+                    throw new InvalidDataException($"Process output exceeded {BoundedCapture.LIMIT} characters per stream: {executable}");
                 await all;
             }
             catch (OperationCanceledException) when (deadline.IsCancellationRequested) { timedOut = true; }
@@ -144,7 +144,7 @@ internal static class Processes
             {
                 // Normal root exit also reaps pipe-independent descendants.
                 child.Terminate();
-                await child.ConfirmTerminationAsync(CleanupBudget - cleanup.Elapsed).ConfigureAwait(false);
+                await child.ConfirmTerminationAsync(CLEANUP_BUDGET - cleanup.Elapsed).ConfigureAwait(false);
             }
             catch (Exception cleanupError)
             {
@@ -170,13 +170,13 @@ internal static class Processes
     private static async Task<Exception?> RequestStopAsync(Func<Stream, Func<string>, CancellationToken, Task> control,
         Stream input, Func<string> output, Stopwatch cleanup)
     {
-        using var stop = new CancellationTokenSource(ControlBudget);
+        using var stop = new CancellationTokenSource(CONTROL_BUDGET);
         var token = stop.Token;
         var task = Task.Run(() => control(input, output, token));
         try
         {
             await task.WaitAsync(stop.Token);
-            var remaining = ControlBudget - cleanup.Elapsed;
+            var remaining = CONTROL_BUDGET - cleanup.Elapsed;
             if (remaining > TimeSpan.Zero)
                 await Task.Delay(remaining, stop.Token);
         }

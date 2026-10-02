@@ -10,7 +10,7 @@ namespace WitOS.Dev.NativeAot;
 internal static class RuntimePlatformBoundary
 {
     private sealed record Group(string Id, string Plan, string Decision, string Symbols);
-    private static readonly Group[] Groups = [
+    private static readonly Group[] GROUPS = [
         new("attachment", "P1.8/P3", "Required: real runtime attach/detach and private exit notification; no fake COM/FLS initialization.", "PalInitComAndFlsSlot PalAttachThread"),
         new("contexts", "P1.8/P3", "Required: kernel-authorized contexts, suspension, hijack and restore. CET may be disabled only with a verified hardware/context profile.", "PalGetCompleteThreadContext PalSetThreadContext PalAllocateCompleteOSContext PalRestoreContext PalHijack PalGetHijackTarget PalAreShadowStacksEnabled GetSSP SetSSP PopulateControlSegmentRegisters"),
         new("names", "P1.6", "Required: real single-image identity and native thread names, with explicit lifetime and allocation contracts.", "PalSetCurrentThreadName PalSetCurrentThreadNameW PalGetModuleFileName"),
@@ -35,7 +35,7 @@ internal static class RuntimePlatformBoundary
         string linkLog, string[] unresolved, string[] compilerArguments)
     {
         var lookup = new Dictionary<string, Group>(StringComparer.Ordinal);
-        foreach (var group in Groups)
+        foreach (var group in GROUPS)
             foreach (var symbol in group.Symbols.Split(' '))
                 if (!lookup.TryAdd(symbol, group))
                     throw new InvalidDataException("Duplicate platform policy: " + symbol);

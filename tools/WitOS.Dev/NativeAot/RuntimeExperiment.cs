@@ -10,9 +10,9 @@ namespace WitOS.Dev.NativeAot;
 
 internal static class RuntimeExperiment
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
-    private const string ExperimentPath = "experiments/NativeAotProbe";
-    private static readonly string[] ProbeCases =
+    private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private const string EXPERIMENT_PATH = "experiments/NativeAotProbe";
+    private static readonly string[] PROBE_CASES =
     [
         "NativeAotIdentity", "GcRootsAndFinalizer", "GcCompositeRoots", "GcRootsAcrossUnwind", "ExceptionsAndFinally",
         "ThreadsTlsMonitorAndGc", "WaitSignalResetAndTimeout", "TasksCancellationAndClock"
@@ -26,7 +26,7 @@ internal static class RuntimeExperiment
     internal static SourceLock ReadLock(string root)
     {
         var data = JsonSerializer.Deserialize<SourceLock>(
-            File.ReadAllText(Path.Combine(root, ExperimentPath, "upstream.lock.json")), Json)
+            File.ReadAllText(Path.Combine(root, EXPERIMENT_PATH, "upstream.lock.json")), JSON)
             ?? throw new InvalidDataException("Runtime source lock is empty.");
         if (data.SchemaVersion != 1 || data.RuntimeVersion != "10.0.8" ||
             data.RuntimeRepository != "https://github.com/dotnet/runtime" ||
@@ -70,7 +70,7 @@ internal static class RuntimeExperiment
             provenanceVerified = true,
             scope = "Selected source files only; not an exhaustive runtime dependency closure.",
             verifiedSources = verified
-        }, Json));
+        }, JSON));
         Console.WriteLine($"Verified {verified.Count} source files at {pin.RuntimeCommit}.");
         Console.WriteLine($"Package VMR {pin.PackageCommit} maps to the same runtime commit.");
     }
@@ -129,9 +129,9 @@ internal static class RuntimeExperiment
         Console.WriteLine("Publishing a HOSTED Windows NativeAOT probe; this is not a WitOS guest build.");
         var build = await Processes.RunAsync("dotnet",
         [
-            "publish", Path.Combine(root, ExperimentPath, "NativeAotProbe.csproj"),
+            "publish", Path.Combine(root, EXPERIMENT_PATH, "NativeAotProbe.csproj"),
             "--configuration", "Release", "--runtime", "win-x64", "--output", publish,
-            "--packages", packageCache, "--configfile", Path.Combine(root, ExperimentPath, "NuGet.Config"),
+            "--packages", packageCache, "--configfile", Path.Combine(root, EXPERIMENT_PATH, "NuGet.Config"),
             "-p:RestoreLockedMode=true"
         ], root, 600, Toolchain.NativeAotEnvironment());
         await File.WriteAllTextAsync(Path.Combine(output, "publish.log"), build.Output + build.Error);
@@ -151,7 +151,7 @@ internal static class RuntimeExperiment
         Console.Write(result.Output);
         if (result.TimedOut || result.ExitCode != 0 || !result.Output.Contains("[PROBE-SUCCESS]", StringComparison.Ordinal) ||
             result.Output.Contains("[PROBE-FAIL]", StringComparison.Ordinal) ||
-            ProbeCases.Any(test => !result.Output.Contains($"[PROBE-PASS] {test}", StringComparison.Ordinal)))
+            PROBE_CASES.Any(test => !result.Output.Contains($"[PROBE-PASS] {test}", StringComparison.Ordinal)))
             throw new InvalidOperationException($"NativeAOT probe failed (exit={result.ExitCode}, timeout={result.TimedOut}). {result.Error}");
 
         var bytes = await File.ReadAllBytesAsync(executable);
@@ -167,13 +167,13 @@ internal static class RuntimeExperiment
             profile = new { invariantGlobalization = true, serverGc = false, concurrentGc = false, windowsThreadPool = false },
             executableSize = bytes.Length,
             executableSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
-            passedCases = ProbeCases,
+            passedCases = PROBE_CASES,
             directImportLibraryCount = pe.DirectImports.Length,
             directImportSymbolCount = pe.DirectImports.Sum(value => value.Symbols.Length),
             limitation = "PE IAT imports only. Dynamic GetProcAddress/PInvoke, forwarded exports, DLL dependencies and platform instructions are not a complete syscall list.",
             image = pe
         };
-        await File.WriteAllTextAsync(Path.Combine(output, "probe-report.json"), JsonSerializer.Serialize(report, Json));
+        await File.WriteAllTextAsync(Path.Combine(output, "probe-report.json"), JsonSerializer.Serialize(report, JSON));
 
         var text = new StringBuilder();
         text.AppendLine("# Hosted NativeAOT probe");

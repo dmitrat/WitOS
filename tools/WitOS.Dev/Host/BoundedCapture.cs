@@ -4,28 +4,28 @@ namespace WitOS.Dev.Host;
 
 internal sealed class BoundedCapture
 {
-    internal const int Limit = 8 * 1024 * 1024;
-    private readonly StringBuilder text = new();
-    private readonly TaskCompletionSource overflow = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    internal Task Overflow => overflow.Task;
-    internal bool Truncated { get { lock (text) return overflow.Task.IsCompleted; } }
+    internal const int LIMIT = 8 * 1024 * 1024;
+    private readonly StringBuilder m_text = new();
+    private readonly TaskCompletionSource m_overflow = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    internal Task Overflow => m_overflow.Task;
+    internal bool Truncated { get { lock (m_text) return m_overflow.Task.IsCompleted; } }
     internal void Append(ReadOnlySpan<char> value)
     {
-        lock (text)
+        lock (m_text)
         {
-            var room = Limit - text.Length;
-            text.Append(value[..Math.Min(room, value.Length)]);
+            var room = LIMIT - m_text.Length;
+            m_text.Append(value[..Math.Min(room, value.Length)]);
             if (value.Length > room)
-                overflow.TrySetResult();
+                m_overflow.TrySetResult();
         }
     }
-    internal string Snapshot() { lock (text) return text.ToString(); }
+    internal string Snapshot() { lock (m_text) return m_text.ToString(); }
 
     internal static async Task<string> ReadFileAsync(string path)
     {
         using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        if (file.Length > Limit)
-            throw new InvalidDataException($"Evidence file exceeds {Limit} bytes: {path}");
+        if (file.Length > LIMIT)
+            throw new InvalidDataException($"Evidence file exceeds {LIMIT} bytes: {path}");
         using var reader = new StreamReader(file);
         var result = new BoundedCapture();
         var buffer = new char[4096];

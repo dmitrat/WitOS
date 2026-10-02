@@ -10,25 +10,25 @@ namespace WitOS.Dev.Host;
 // Keeping QMP off inherited stdin removes QEMU's synchronous pipe reader path.
 internal sealed class QemuControl : IDisposable
 {
-    private readonly TcpListener listener = new(IPAddress.Loopback, 0);
-    private readonly CancellationTokenSource lifetime = new();
-    private readonly Task<TcpClient> connected;
-    private readonly StringBuilder transcript = new();
+    private readonly TcpListener m_listener = new(IPAddress.Loopback, 0);
+    private readonly CancellationTokenSource m_lifetime = new();
+    private readonly Task<TcpClient> m_connected;
+    private readonly StringBuilder m_transcript = new();
     internal string Argument { get; }
     internal bool QuitAcknowledged { get; private set; }
-    internal string Transcript { get { lock (transcript) return transcript.ToString(); } }
+    internal string Transcript { get { lock (m_transcript) return m_transcript.ToString(); } }
     internal QemuControl()
     {
-        listener.Start(1);
-        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        m_listener.Start(1);
+        var port = ((IPEndPoint)m_listener.LocalEndpoint).Port;
         Argument = $"tcp:127.0.0.1:{port},server=off";
-        connected = listener.AcceptTcpClientAsync(lifetime.Token).AsTask();
+        m_connected = m_listener.AcceptTcpClientAsync(m_lifetime.Token).AsTask();
     }
     internal async Task QuitAsync(CancellationToken cancellation)
     {
-        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation, lifetime.Token);
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation, m_lifetime.Token);
         var token = stop.Token;
-        var client = await connected.WaitAsync(token);
+        var client = await m_connected.WaitAsync(token);
         client.NoDelay = true;
         using var stream = client.GetStream();
         using var reader = new StreamReader(stream, Encoding.UTF8, false, 1024, true);
@@ -83,24 +83,24 @@ internal sealed class QemuControl : IDisposable
     }
     private void Record(string line)
     {
-        lock (transcript)
+        lock (m_transcript)
         {
-            if (transcript.Length + line.Length + 1 > 65536)
+            if (m_transcript.Length + line.Length + 1 > 65536)
                 throw new InvalidDataException("QMP transcript exceeded limit.");
-            transcript.AppendLine(line);
+            m_transcript.AppendLine(line);
         }
     }
     public void Dispose()
     {
-        lifetime.Cancel();
-        listener.Stop();
-        _ = connected.ContinueWith(task =>
+        m_lifetime.Cancel();
+        m_listener.Stop();
+        _ = m_connected.ContinueWith(task =>
         {
             if (task.Status == TaskStatus.RanToCompletion)
                 task.Result.Dispose();
             else
                 _ = task.Exception;
         }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-        lifetime.Dispose();
+        m_lifetime.Dispose();
     }
 }

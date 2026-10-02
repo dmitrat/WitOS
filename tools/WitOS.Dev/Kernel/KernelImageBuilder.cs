@@ -172,7 +172,7 @@ internal static class KernelImageBuilder
         var disk = Path.Combine(output, "WitOS-x64.img");
         FatImage.Create(disk, await File.ReadAllBytesAsync(efi), bootPackage);
         await File.WriteAllTextAsync(Path.Combine(output, "build.txt"),
-            $"Build: {buildId}\nScenario: {scenario}\nCompiler: {msvc}\nQEMU: {Toolchain.QemuVersion}\n");
+            $"Build: {buildId}\nScenario: {scenario}\nCompiler: {msvc}\nQEMU: {Toolchain.QEMU_VERSION}\n");
         Console.WriteLine($"Built {scenario}: {disk}");
         return disk;
     }

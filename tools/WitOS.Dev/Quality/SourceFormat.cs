@@ -8,18 +8,18 @@ namespace WitOS.Dev.Quality;
 // C and C++ use the pinned clang-format; C# uses the SDK formatter.
 internal static class SourceFormat
 {
-    private const int BatchSize = 48;
-    private static readonly string[] NativeExtensions = [".c", ".h", ".cpp"];
-    private static readonly string[] ManagedExtensions = [".cs"];
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    private const int BATCH_SIZE = 48;
+    private static readonly string[] NATIVE_EXTENSIONS = [".c", ".h", ".cpp"];
+    private static readonly string[] MANAGED_EXTENSIONS = [".cs"];
+    private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web);
 
     internal sealed record Manifest(string[] Native, string[] Managed, string[] Exclude);
 
     public static async Task RunAsync(string root, bool check)
     {
         var manifest = await ReadManifestAsync(root);
-        var native = Expand(root, manifest.Native, NativeExtensions, manifest.Exclude);
-        var managed = Expand(root, manifest.Managed, ManagedExtensions, manifest.Exclude);
+        var native = Expand(root, manifest.Native, NATIVE_EXTENSIONS, manifest.Exclude);
+        var managed = Expand(root, manifest.Managed, MANAGED_EXTENSIONS, manifest.Exclude);
         var failed = new List<string>();
         if (native.Count > 0)
         {
@@ -41,7 +41,7 @@ internal static class SourceFormat
     internal static async Task<Manifest> ReadManifestAsync(string root)
     {
         var path = Path.Combine(root, "build", "format.json");
-        var manifest = JsonSerializer.Deserialize<Manifest>(await File.ReadAllTextAsync(path), Json);
+        var manifest = JsonSerializer.Deserialize<Manifest>(await File.ReadAllTextAsync(path), JSON);
         if (manifest is null || manifest.Native is null || manifest.Managed is null || manifest.Exclude is null)
         {
             throw new InvalidDataException("build/format.json must define native, managed and exclude arrays.");
@@ -96,7 +96,7 @@ internal static class SourceFormat
     {
         var formatter = await Toolchain.PrepareClangFormatAsync(root);
         var failed = new List<string>();
-        foreach (var batch in files.Chunk(BatchSize))
+        foreach (var batch in files.Chunk(BATCH_SIZE))
         {
             string[] mode = check ? ["--dry-run", "--Werror"] : ["-i"];
             var result = await Processes.RunAsync(formatter, [.. mode, "--style=file", .. batch], root, 300);
@@ -130,7 +130,7 @@ internal static class SourceFormat
     private static async Task<List<string>> RunManagedAsync(string root, List<string> files, bool check)
     {
         var failed = new List<string>();
-        foreach (var batch in files.Chunk(BatchSize))
+        foreach (var batch in files.Chunk(BATCH_SIZE))
         {
             List<string> arguments = ["format", "whitespace", root, "--folder", "--include", .. batch];
             if (check)

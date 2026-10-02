@@ -10,10 +10,10 @@ namespace WitOS.Dev.Quality;
 // every fingerprint unchanged, while any code or data change alters one.
 internal static class ImageFingerprint
 {
-    public const string FixedBuildId = "fingerprint";
-    private static readonly string[] DefaultScenarios = ["boot", "coreclr-memory", "coreclr-storage"];
-    private static readonly string[] ImageExtensions = [".efi", ".pe", ".dll"];
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    public const string FIXED_BUILD_ID = "fingerprint";
+    private static readonly string[] DEFAULT_SCENARIOS = ["boot", "coreclr-memory", "coreclr-storage"];
+    private static readonly string[] IMAGE_EXTENSIONS = [".efi", ".pe", ".dll"];
+    private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
     internal sealed record Section(string Name, int VirtualSize, int RawSize, string Sha256);
 
@@ -48,7 +48,7 @@ internal static class ImageFingerprint
         }
         if (scenarios.Count == 0)
         {
-            scenarios.AddRange(DefaultScenarios);
+            scenarios.AddRange(DEFAULT_SCENARIOS);
         }
         output ??= Path.Combine(root, "artifacts", "fingerprint", "fingerprint.json");
 
@@ -60,10 +60,10 @@ internal static class ImageFingerprint
             {
                 Directory.Delete(directory, recursive: true);
             }
-            await KernelImageBuilder.BuildAsync(root, scenario, directory, FixedBuildId);
+            await KernelImageBuilder.BuildAsync(root, scenario, directory, FIXED_BUILD_ID);
             foreach (var file in Directory.EnumerateFiles(directory).Order(StringComparer.Ordinal))
             {
-                if (ImageExtensions.Contains(Path.GetExtension(file).ToLowerInvariant()) && IsNative(file))
+                if (IMAGE_EXTENSIONS.Contains(Path.GetExtension(file).ToLowerInvariant()) && IsNative(file))
                 {
                     images.Add(Compute($"{scenario}/{Path.GetFileName(file)}", file));
                 }
@@ -77,15 +77,15 @@ internal static class ImageFingerprint
             images.Add(Compute("runtime-readiness/WitOS.NativeAotBoot.pe", runtime));
         }
 
-        var report = new Report(FixedBuildId, [.. scenarios], [.. images]);
+        var report = new Report(FIXED_BUILD_ID, [.. scenarios], [.. images]);
         Directory.CreateDirectory(Path.GetDirectoryName(output)!);
-        await File.WriteAllTextAsync(output, JsonSerializer.Serialize(report, Json));
+        await File.WriteAllTextAsync(output, JsonSerializer.Serialize(report, JSON));
         Console.WriteLine($"Fingerprinted {images.Count} images, {images.Sum(i => i.Sections.Length)} sections: {output}");
         if (compare is null)
         {
             return;
         }
-        var baseline = JsonSerializer.Deserialize<Report>(await File.ReadAllTextAsync(compare), Json)
+        var baseline = JsonSerializer.Deserialize<Report>(await File.ReadAllTextAsync(compare), JSON)
             ?? throw new InvalidDataException("The baseline fingerprint is empty.");
         var differences = Compare(baseline, report);
         if (differences.Count > 0)

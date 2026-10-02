@@ -6,12 +6,12 @@ namespace WitOS.Dev.Kernel;
 // versions and call numbers. Documentation and guest output are checked against it.
 internal static partial class KernelAbi
 {
-    private const string UserAbiHeader = "src/Kernel/include/witos/user_abi.h";
-    private const string BootHeader = "src/Kernel/include/witos/boot.h";
+    private const string USER_ABI_HEADER = "src/Kernel/include/witos/user_abi.h";
+    private const string BOOT_HEADER = "src/Kernel/include/witos/boot.h";
 
-    public static int UserVersion(string root) => ReadDefine(root, UserAbiHeader, "WIT_ABI_VERSION");
+    public static int UserVersion(string root) => ReadDefine(root, USER_ABI_HEADER, "WIT_ABI_VERSION");
 
-    public static int BootVersion(string root) => ReadDefine(root, BootHeader, "WIT_BOOT_VERSION");
+    public static int BootVersion(string root) => ReadDefine(root, BOOT_HEADER, "WIT_BOOT_VERSION");
 
     // The first kernel output line; BootAsync requires it in every successful boot.
     public static string Banner(string root) => $"WitOS user ABI v{UserVersion(root)}, boot ABI v{BootVersion(root)}";
@@ -19,7 +19,7 @@ internal static partial class KernelAbi
     public static IReadOnlyDictionary<string, int> Calls(string root)
     {
         var calls = new SortedDictionary<string, int>(StringComparer.Ordinal);
-        foreach (Match match in CallDefine().Matches(File.ReadAllText(Path.Combine(root, UserAbiHeader))))
+        foreach (Match match in CallDefine().Matches(File.ReadAllText(Path.Combine(root, USER_ABI_HEADER))))
         {
             calls.Add(match.Groups[1].Value, int.Parse(match.Groups[2].Value));
         }

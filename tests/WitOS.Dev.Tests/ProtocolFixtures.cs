@@ -1,7 +1,7 @@
 internal static class ProtocolFixtures
 {
-    internal const string Worker = "[USER] [RUNTIME] worker attach/detach/reuse/rollback and foreign GC/hijack/service-guard/exit-GC passed";
-    internal static readonly string[] LegacyMarkers = ["[TEST-PASS] Runtime.InvalidHandoffTeardown", "[TEST-PASS] Runtime.MemoryProfile", "[RUNTIME] image published", "[RUNTIME] native TLS ready", "[RUNTIME] native initializers ready", "[RUNTIME] entering upstream wmain", Worker, "[RUNTIME] wmain returned 0x000000000000002A", "[TEST-PASS] Runtime.ManagedBootAndGc", "[TEST-PASS] Runtime.RelocationAndTeardown"];
+    internal const string WORKER = "[USER] [RUNTIME] worker attach/detach/reuse/rollback and foreign GC/hijack/service-guard/exit-GC passed";
+    internal static readonly string[] LEGACY_MARKERS = ["[TEST-PASS] Runtime.InvalidHandoffTeardown", "[TEST-PASS] Runtime.MemoryProfile", "[RUNTIME] image published", "[RUNTIME] native TLS ready", "[RUNTIME] native initializers ready", "[RUNTIME] entering upstream wmain", WORKER, "[RUNTIME] wmain returned 0x000000000000002A", "[TEST-PASS] Runtime.ManagedBootAndGc", "[TEST-PASS] Runtime.RelocationAndTeardown"];
     internal static string Block(string address) => $"""
 Runtime boot image base: {address}
 Runtime boot load status: 0
@@ -13,7 +13,7 @@ Runtime boot load status: 0
 [USER] [RUNTIME] hijack attempts/redirects/returns/unsafe: 0000000000000003/0000000000000001/0000000000000001/0000000000000001
 [USER] [RUNTIME] managed OOM recovery passed: 3 hard-limit + 1 backing-pressure
 [USER] [RUNTIME] managed EH workers passed: 2 (filters/rethrow/nested-finally/native-release)
-{Worker}
+{WORKER}
 {string.Join("\n", Enumerable.Repeat("[USER] [RUNTIME] managed lifecycle audit passed: main+finalizer\n[USER] [RUNTIME] integration cycle passed", 4))}
 [USER] [RUNTIME] managed finalization passed: 48 releases + 8 resurrection passes + suppression
 [USER] [RUNTIME] managed threads passed: 28 (Thread/Join/Monitor/TLS/GC)

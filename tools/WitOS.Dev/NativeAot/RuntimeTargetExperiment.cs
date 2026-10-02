@@ -9,10 +9,10 @@ namespace WitOS.Dev.NativeAot;
 
 internal static class RuntimeTargetExperiment
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
-    private const string Project = "experiments/NativeAotTarget";
-    private static readonly string[] Exports = ["witos_target_probe", "witos_target_version"];
-    private static readonly string[] Cases = ["FirstExportInitialization", "AllocationGcAndExceptions", "TlsOnNativeThreads", "RepeatEntry"];
+    private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private const string PROJECT = "experiments/NativeAotTarget";
+    private static readonly string[] EXPORTS = ["witos_target_probe", "witos_target_version"];
+    private static readonly string[] CASES = ["FirstExportInitialization", "AllocationGcAndExceptions", "TlsOnNativeThreads", "RepeatEntry"];
 
     public static async Task RunAsync(string root)
     {
@@ -34,7 +34,7 @@ internal static class RuntimeTargetExperiment
         var dll = Path.Combine(sharedDirectory, "NativeAotTarget.dll");
         NativeObject.VerifyArchive(archive, obj);
         var coff = NativeObject.Inspect(obj);
-        if (!Exports.SequenceEqual(coff.DefinedExports) ||
+        if (!EXPORTS.SequenceEqual(coff.DefinedExports) ||
             !coff.UndefinedExternals.Contains("RhpReversePInvoke") || !coff.UndefinedExternals.Contains("_tls_index") ||
             !coff.Sections.Any(section => section.Name.StartsWith(".managedcode", StringComparison.Ordinal)) ||
             coff.RelocationKinds.Count == 0)
@@ -60,7 +60,7 @@ internal static class RuntimeTargetExperiment
         var host = Path.Combine(sharedDirectory, "native_host.exe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"),
             ["/nologo", "/c", "/TC", "/std:c17", "/W4", "/WX", "/GS-", "/Zl", "/Oi", "/O2",
-                "/Fo" + hostObject, Path.Combine(root, Project, "native_host.c")], root);
+                "/Fo" + hostObject, Path.Combine(root, PROJECT, "native_host.c")], root);
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
             ["/nologo", "/entry:host_main", "/subsystem:console", "/nodefaultlib", "/machine:x64",
                 "/incremental:no", "/Brepro", "/out:" + host, hostObject, kernel32], root);
@@ -75,7 +75,7 @@ internal static class RuntimeTargetExperiment
         if (execution.TimedOut || execution.ExitCode != 0 ||
             !execution.Output.Contains("[TARGET-SUCCESS]", StringComparison.Ordinal) ||
             execution.Output.Contains("[TARGET-FAIL]", StringComparison.Ordinal) ||
-            Cases.Any(test => !execution.Output.Contains($"[TARGET-PASS] {test}", StringComparison.Ordinal)))
+            CASES.Any(test => !execution.Output.Contains($"[TARGET-PASS] {test}", StringComparison.Ordinal)))
             throw new InvalidOperationException($"Native host failed: exit={execution.ExitCode}, timeout={execution.TimedOut}.");
 
         var libraries = await File.ReadAllLinesAsync(Path.Combine(sharedDirectory, "native", "native-libraries.txt"));
@@ -110,7 +110,7 @@ internal static class RuntimeTargetExperiment
             candidateCallingConvention = "Microsoft x64",
             candidateObjectFormat = "AMD64 COFF / PE32+",
             runtimeBackendSelected = true,
-            runtimeBackend = RuntimePortImage.Backend,
+            runtimeBackend = RuntimePortImage.BACKEND,
             fullGuestRuntimeSourceBuild = false,
             pin.RuntimeVersion,
             pin.RuntimeCommit,
@@ -122,7 +122,7 @@ internal static class RuntimeTargetExperiment
             moduleSha256 = Hash(dll),
             nativeHostSha256 = Hash(host),
             nativeHostImports = hostImports,
-            passedCases = Cases,
+            passedCases = CASES,
             archiveContainsExactObject = true,
             objectFile = coff,
             image = module,
@@ -133,7 +133,7 @@ internal static class RuntimeTargetExperiment
             guestBlockers = blockers,
             scope = "Selected exports and explicit bootstrap roots. Link-undefined symbols, PE imports and executed calls are different sets; no dummy definitions or /FORCE linking."
         };
-        await File.WriteAllTextAsync(Path.Combine(output, "target-report.json"), JsonSerializer.Serialize(report, Json));
+        await File.WriteAllTextAsync(Path.Combine(output, "target-report.json"), JsonSerializer.Serialize(report, JSON));
         var summary = new StringBuilder("# NativeAOT target/bootstrap evidence\n\n");
         summary.AppendLine("HOSTED Windows only. The actual upstream runtime is initialized from a C executable with no CoreCLR.");
         summary.AppendLine();
@@ -162,9 +162,9 @@ internal static class RuntimeTargetExperiment
         Directory.CreateDirectory(directory);
         var result = await Processes.RunAsync("dotnet",
         [
-            "publish", Path.Combine(root, Project, "NativeAotTarget.csproj"), "-c", "Release",
+            "publish", Path.Combine(root, PROJECT, "NativeAotTarget.csproj"), "-c", "Release",
             "-r", "win-x64", "-o", directory, "--packages", Path.Combine(root, ".tools", "nuget"),
-            "--configfile", Path.Combine(root, Project, "NuGet.Config"), "-p:RestoreLockedMode=true",
+            "--configfile", Path.Combine(root, PROJECT, "NuGet.Config"), "-p:RestoreLockedMode=true",
             "-p:NativeLib=" + kind, "-p:NativeIntermediateOutputPath=" + Path.Combine(directory, "native") + "/",
             "-p:NativeOutputPath=" + Path.Combine(directory, "link") + "/"
         ], root, 600, Toolchain.NativeAotEnvironment());
@@ -185,7 +185,7 @@ internal static class RuntimeTargetExperiment
         string[] roots = libraries.Length == 0 ? [] : ["RhInitialize", "RhRegisterOSModule", "InitializeModules"];
         var result = await Processes.RunAsync(Path.Combine(msvc, "link.exe"),
             ["/nologo", "/dll", "/noentry", "/nodefaultlib", "/machine:x64", "/incremental:no", "/opt:ref",
-                .. Exports.Select(value => "/export:" + value), .. roots.Select(value => "/include:" + value),
+                .. EXPORTS.Select(value => "/export:" + value), .. roots.Select(value => "/include:" + value),
                 "/out:" + image, archive, .. libraries], output, 120);
         var log = result.Output + result.Error;
         await File.WriteAllTextAsync(Path.Combine(output, name + ".log"), log);
@@ -196,7 +196,7 @@ internal static class RuntimeTargetExperiment
             fatal.Count == 0 || fatal.Any(match => match.Groups[1].Value != "LNK1120") ||
             Regex.Matches(log, @"(?<!fatal )error (LNK\d+):").Any(match => match.Groups[1].Value is not ("LNK2001" or "LNK2019" or "LNK1120")))
             throw new InvalidOperationException($"Unexpected strict-link outcome ({name}). See {name}.log.");
-        return new([.. Exports, .. roots], [Path.GetFileName(archive), .. libraries.Select(path => Path.GetFileName(path)!)],
+        return new([.. EXPORTS, .. roots], [Path.GetFileName(archive), .. libraries.Select(path => Path.GetFileName(path)!)],
             result.ExitCode, unresolved);
     }
 

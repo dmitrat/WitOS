@@ -4,22 +4,22 @@ namespace WitOS.Dev.Host;
 
 internal static class Toolchain
 {
-    public const string QemuVersion = "11.1.0";
-    private const string QemuInstaller = "qemu-w64-setup-20260811.exe";
-    private const string QemuSha512 = "5bcf9eed634e8575a37b74f445af41a2fe4106da512d0c30c368301d4c105037fdfab40a5287367a28a957624cddebbc8c07e16c88ab6634f554cdf3d16bf543";
+    public const string QEMU_VERSION = "11.1.0";
+    private const string QEMU_INSTALLER = "qemu-w64-setup-20260811.exe";
+    private const string QEMU_SHA512 = "5bcf9eed634e8575a37b74f445af41a2fe4106da512d0c30c368301d4c105037fdfab40a5287367a28a957624cddebbc8c07e16c88ab6634f554cdf3d16bf543";
 
-    public static string QemuDirectory(string root) => Path.Combine(root, ".tools", $"qemu-{QemuVersion}");
+    public static string QemuDirectory(string root) => Path.Combine(root, ".tools", $"qemu-{QEMU_VERSION}");
     public static string Qemu(string root) => Path.Combine(QemuDirectory(root), "qemu-system-x86_64.exe");
     public static string Firmware(string root) => Path.Combine(QemuDirectory(root), "share", "edk2-x86_64-code.fd");
 
     public static string FirmwareVariables(string root) => Path.Combine(QemuDirectory(root), "share", "edk2-i386-vars.fd");
 
     // Official LLVM release used for coverage, sanitizers and clang-format.
-    public const string LlvmVersion = "20.1.8";
-    public const string LlvmInstallerSha256 = "3197846a2b19063687dd56e93e34cd941e3548d907f23a6131571321bdf9fe7b";
+    public const string LLVM_VERSION = "20.1.8";
+    public const string LLVM_INSTALLER_SHA256 = "3197846a2b19063687dd56e93e34cd941e3548d907f23a6131571321bdf9fe7b";
 
     public static string LlvmInstaller(string root)
-        => Path.Combine(root, ".tools", "downloads", $"LLVM-{LlvmVersion}-win64.exe");
+        => Path.Combine(root, ".tools", "downloads", $"LLVM-{LLVM_VERSION}-win64.exe");
 
     public static string SevenZip()
     {
@@ -38,7 +38,7 @@ internal static class Toolchain
         Directory.CreateDirectory(Path.GetDirectoryName(installer)!);
         if (!File.Exists(installer))
         {
-            var url = $"https://github.com/llvm/llvm-project/releases/download/llvmorg-{LlvmVersion}/LLVM-{LlvmVersion}-win64.exe";
+            var url = $"https://github.com/llvm/llvm-project/releases/download/llvmorg-{LLVM_VERSION}/LLVM-{LLVM_VERSION}-win64.exe";
             using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
             using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
             response.EnsureSuccessStatusCode();
@@ -52,7 +52,7 @@ internal static class Toolchain
         await using (var stream = File.OpenRead(installer))
         {
             var digest = Convert.ToHexString(await SHA256.HashDataAsync(stream)).ToLowerInvariant();
-            if (digest != LlvmInstallerSha256)
+            if (digest != LLVM_INSTALLER_SHA256)
             {
                 throw new InvalidDataException($"LLVM installer hash mismatch. Remove the invalid download: {installer}");
             }
@@ -65,12 +65,12 @@ internal static class Toolchain
     public static async Task<string> PrepareClangFormatAsync(string root)
     {
         var installer = await RequireLlvmInstallerAsync(root);
-        var directory = Path.Combine(root, ".tools", $"clang-format-{LlvmVersion}");
+        var directory = Path.Combine(root, ".tools", $"clang-format-{LLVM_VERSION}");
         await Processes.RequireSuccessAsync(SevenZip(),
             ["e", installer, @"bin\clang-format.exe", $"-o{directory}", "-y", "-bso0", "-bsp0"], root);
         var formatter = Path.Combine(directory, "clang-format.exe");
         var version = await Processes.RunAsync(formatter, ["--version"], root);
-        if (version.ExitCode != 0 || !version.Output.Contains($"clang-format version {LlvmVersion}", StringComparison.Ordinal))
+        if (version.ExitCode != 0 || !version.Output.Contains($"clang-format version {LLVM_VERSION}", StringComparison.Ordinal))
         {
             throw new InvalidDataException($"Unexpected clang-format version: {version.Output.Trim()}");
         }
@@ -136,12 +136,12 @@ internal static class Toolchain
 
         var downloads = Path.Combine(root, ".tools", "downloads");
         Directory.CreateDirectory(downloads);
-        var installer = Path.Combine(downloads, QemuInstaller);
+        var installer = Path.Combine(downloads, QEMU_INSTALLER);
         if (!File.Exists(installer))
         {
-            Console.WriteLine($"Downloading pinned QEMU {QemuVersion} (about 197 MiB)...");
+            Console.WriteLine($"Downloading pinned QEMU {QEMU_VERSION} (about 197 MiB)...");
             using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
-            using var response = await client.GetAsync($"https://qemu.weilnetz.de/w64/{QemuInstaller}", HttpCompletionOption.ResponseHeadersRead);
+            using var response = await client.GetAsync($"https://qemu.weilnetz.de/w64/{QEMU_INSTALLER}", HttpCompletionOption.ResponseHeadersRead);
             response.EnsureSuccessStatusCode();
             var partial = installer + ".partial";
             await using (var file = File.Create(partial))
@@ -151,7 +151,7 @@ internal static class Toolchain
         await using (var file = File.OpenRead(installer))
         {
             var hash = Convert.ToHexString(await SHA512.HashDataAsync(file));
-            if (!hash.Equals(QemuSha512, StringComparison.OrdinalIgnoreCase))
+            if (!hash.Equals(QEMU_SHA512, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException($"QEMU SHA-512 mismatch. Remove the invalid download and run setup again: {installer}");
         }
         Console.WriteLine("SHA-512 verified. Extracting QEMU locally; the installer is not executed.");

@@ -10,8 +10,8 @@ namespace WitOS.Dev.NativeAot;
 
 internal static class RuntimePortImage
 {
-    internal const string Backend = "windows-x64-codegen-witos-pal";
-    private static readonly string[] UpstreamInputs =
+    internal const string BACKEND = "windows-x64-codegen-witos-pal";
+    private static readonly string[] UPSTREAM_INPUTS =
     [
         "src/coreclr/gc/env/gcenv.os.h", "src/coreclr/gc/env/gcenv.base.h", "src/coreclr/gc/env/gcenv.windows.inl",
         "src/coreclr/gc/env/gcenv.structs.h", "src/native/minipal/utils.h",
@@ -25,7 +25,7 @@ internal static class RuntimePortImage
         // mutable full checkout or an unpinned installed runtime header.
         var stage = Path.Combine(output, "runtime-source");
         using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
-        foreach (var path in UpstreamInputs)
+        foreach (var path in UPSTREAM_INPUTS)
         {
             var source = pin.Sources.Single(s => s.Path == path);
             var input = await RuntimeExperiment.FetchAsync(client, Path.Combine(root, ".tools", "runtime-audit"),
@@ -92,13 +92,13 @@ internal static class RuntimePortImage
         await File.WriteAllTextAsync(Path.Combine(output, "gc_memory_image.h"), generated.ToString(), Encoding.ASCII);
         var report = new
         {
-            backend = Backend,
+            backend = BACKEND,
             pin.RuntimeVersion,
             pin.RuntimeCommit,
             scope = "Source-level GC memory/discovery/event/time and minipal/Crst mutex slice; no collector or managed code linked. Guest execution is checked separately by the VM runner.",
             guestManagedRuntime = false,
             missingGcWriteWatchResetRejected = true,
-            upstreamInputs = pin.Sources.Where(s => UpstreamInputs.Contains(s.Path)),
+            upstreamInputs = pin.Sources.Where(s => UPSTREAM_INPUTS.Contains(s.Path)),
             localInputs = sources.Append("src/Runtime.NativeAot/gcenv.witos.h").Append("src/Kernel.Arch.X64/native_start.asm")
                 .Concat(["src/System.Native/bootstrap.h", "src/Kernel/include/witos/user_abi.h",
                     "src/Kernel/include/witos/types.h", "src/Kernel/include/witos/thread_info.h", "src/Kernel/include/witos/image_info.h", "src/Kernel/include/witos/memory_info.h", "tests/User.X64/protocol.h"])

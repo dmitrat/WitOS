@@ -10,8 +10,8 @@ namespace WitOS.Dev.CoreClr;
 
 internal static class CoreClrExperiment
 {
-    private const string Profile = "coreclr-reference";
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private const string PROFILE = "coreclr-reference";
+    private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web) { WriteIndented = true };
     internal static Task RunAsync(string root)
         => RuntimeBootAttempt.RunInDirectoryAsync(Path.Combine(root, "artifacts/coreclr-source"), "coreclr-source",
             attempt => BuildAsync(root, attempt));
@@ -31,7 +31,7 @@ internal static class CoreClrExperiment
             throw new InvalidDataException("CoreCLR profile and upstream package/source pin differ.");
         var reference = contract.GetProperty("reference");
         if (reference.GetProperty("os").GetString() != "windows" || reference.GetProperty("architecture").GetString() != "x64" ||
-            reference.GetProperty("configuration").GetString() != "Release" || reference.GetProperty("outputProfile").GetString() != Profile ||
+            reference.GetProperty("configuration").GetString() != "Release" || reference.GetProperty("outputProfile").GetString() != PROFILE ||
             reference.GetProperty("readyToRunExecution").GetBoolean() ||
             !reference.GetProperty("components").EnumerateArray().Select(v => v.GetString()).SequenceEqual(new[] { "runtime", "jit" }))
             throw new InvalidDataException("Unsupported CoreCLR reference build profile.");
@@ -46,7 +46,7 @@ internal static class CoreClrExperiment
         }
         await File.WriteAllTextAsync(script, "@echo off\r\nsetlocal\r\nset \"NumberOfCores=4\"\r\nset \"CMAKE_BUILD_PARALLEL_LEVEL=4\"\r\ncall " +
             Quote(Path.Combine(source, "src/coreclr/build-runtime.cmd")) +
-            " -x64 -release -component runtime -component jit -subdir " + Profile + "\r\nexit /b %errorlevel%\r\n", Encoding.ASCII);
+            " -x64 -release -component runtime -component jit -subdir " + PROFILE + "\r\nexit /b %errorlevel%\r\n", Encoding.ASCII);
         Console.WriteLine("Building pinned CoreCLR/JIT WINDOWS REFERENCE; this does not execute in the guest.");
         var build = await Processes.RunAsync("cmd.exe", ["/d", "/c", script], root, 1800);
         await File.WriteAllTextAsync(Path.Combine(output, "build.log"), build.Output + build.Error);
@@ -56,7 +56,7 @@ internal static class CoreClrExperiment
         if (status.TimedOut || status.ExitCode != 0 || !string.IsNullOrWhiteSpace(status.Output))
             throw new InvalidDataException("Upstream CoreCLR source tree changed during build.");
         var msvc = await Toolchain.FindMsvcAsync(root);
-        var binaries = Path.Combine(source, "artifacts/bin/coreclr", "windows.x64.Release", Profile);
+        var binaries = Path.Combine(source, "artifacts/bin/coreclr", "windows.x64.Release", PROFILE);
         // Locate only within this profile, never the NativeAOT install or host runtime.
         if (!Directory.Exists(binaries))
             throw new DirectoryNotFoundException("CoreCLR profile output missing: " + binaries);
@@ -105,7 +105,7 @@ internal static class CoreClrExperiment
         {
             hostOnly = true,
             guestExecuted = false,
-            profile = Profile,
+            profile = PROFILE,
             pin.RuntimeVersion,
             pin.RuntimeCommit,
             pin.PackageCommit,
@@ -126,10 +126,10 @@ internal static class CoreClrExperiment
             sources = new[] { "src/coreclr/components.cmake", "src/coreclr/dlls/mscoree/coreclr/CMakeLists.txt", "src/coreclr/jit/CMakeLists.txt" }
                 .Select(path => new { path, worktreeSha256 = Hash(Path.Combine(source, path)) })
         };
-        await CoreClrBoundary.WriteAsync(root, output, inventory.Select(value => JsonSerializer.SerializeToElement(value, Json)).ToArray());
+        await CoreClrBoundary.WriteAsync(root, output, inventory.Select(value => JsonSerializer.SerializeToElement(value, JSON)).ToArray());
         // Reuse the Q1 commit/recovery protocol for hosted evidence too.
         // reference.json is a per-run diagnostic; acceptance/current-run are authoritative.
-        await File.WriteAllTextAsync(Path.Combine(attempt.RunDirectory, "reference.json"), JsonSerializer.Serialize(report, Json));
+        await File.WriteAllTextAsync(Path.Combine(attempt.RunDirectory, "reference.json"), JsonSerializer.Serialize(report, JSON));
         foreach (var file in new[] { "build.log", "hosted.log", "platform-boundary.json", "platform-boundary.md" })
             attempt.Snapshot(Path.Combine(output, file));
         attempt.Publish(report);

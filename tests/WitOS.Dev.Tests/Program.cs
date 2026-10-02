@@ -153,7 +153,7 @@ await Test("QuotedCompileProfile", () =>
 await Test("MissingSecondWorkloadRejected", () =>
 {
     var valid = ProtocolFixtures.Valid;
-    var broken = valid.Remove(valid.LastIndexOf(ProtocolFixtures.Worker, StringComparison.Ordinal), ProtocolFixtures.Worker.Length);
+    var broken = valid.Remove(valid.LastIndexOf(ProtocolFixtures.WORKER, StringComparison.Ordinal), ProtocolFixtures.WORKER.Length);
     Check(Accept(valid), "Valid two-base protocol rejected");
     Check(!Accept(broken), "Second workload evidence absent but accepted");
     return Task.CompletedTask;
@@ -303,11 +303,11 @@ await Test("ManagedObjectSnapshotSchema", () =>
 });
 await Test("HostedSemanticContract", () =>
 {
-    var valid = string.Join("\n", Enumerable.Repeat(RuntimeBootProtocol.Cycle[7..], 4)) + "\n" +
-        RuntimeBootProtocol.Finalization[7..] + "\n" + RuntimeBootProtocol.ManagedThreads[7..] + "\n[RUNTIME] managed thread capacity reference passed: 4\n";
+    var valid = string.Join("\n", Enumerable.Repeat(RuntimeBootProtocol.CYCLE[7..], 4)) + "\n" +
+        RuntimeBootProtocol.FINALIZATION[7..] + "\n" + RuntimeBootProtocol.MANAGED_THREADS[7..] + "\n[RUNTIME] managed thread capacity reference passed: 4\n";
     Check(RuntimeBootProtocol.ValidateHosted(valid, 42, false), "Valid hosted semantic workload rejected");
     Check(RuntimeBootProtocol.ValidateHostedLog(valid + "\nExit code: 42\n"), "Persisted hosted proof rejected");
-    foreach (var invalid in new[]{"",valid.Replace(RuntimeBootProtocol.Cycle[7..]+"\n",""),valid+RuntimeBootProtocol.Cycle[7..]+"\n",
+    foreach (var invalid in new[]{"",valid.Replace(RuntimeBootProtocol.CYCLE[7..]+"\n",""),valid+RuntimeBootProtocol.CYCLE[7..]+"\n",
         valid.Replace("48 releases","12 releases"),valid.Replace("capacity reference","quota recovery"),valid+"unexpected stderr\n"})
         Check(!RuntimeBootProtocol.ValidateHosted(invalid, 42, false), "Incomplete/mismatched hosted proof accepted");
     Check(!RuntimeBootProtocol.ValidateHosted(valid, 0, false) && !RuntimeBootProtocol.ValidateHosted(valid, 42, true), "Hosted exit/timeout ignored");
@@ -331,25 +331,25 @@ await Test("PerBaseProtocolMutations", () =>
     var second = good.LastIndexOf("Runtime boot image base:", StringComparison.Ordinal);
     Check(Accept(good.Replace("\n", "\r\n")), "CRLF protocol rejected");
     string[] mutations = [
-        good.Replace(RuntimeBootProtocol.Cycle,""),
-        good.Replace(RuntimeBootProtocol.LifecycleAudit,""),
-        good.Replace(RuntimeBootProtocol.LifecycleAudit+"\n"+RuntimeBootProtocol.Cycle,RuntimeBootProtocol.Cycle+"\n"+RuntimeBootProtocol.LifecycleAudit),
+        good.Replace(RuntimeBootProtocol.CYCLE,""),
+        good.Replace(RuntimeBootProtocol.LIFECYCLE_AUDIT,""),
+        good.Replace(RuntimeBootProtocol.LIFECYCLE_AUDIT+"\n"+RuntimeBootProtocol.CYCLE,RuntimeBootProtocol.CYCLE+"\n"+RuntimeBootProtocol.LIFECYCLE_AUDIT),
         good.Replace("Runtime execution ticks/limit: 120/3000","Runtime execution ticks/limit: 3000/3000"),
-        good.Replace(RuntimeBootProtocol.ThreadQuota,""),
+        good.Replace(RuntimeBootProtocol.THREAD_QUOTA,""),
         good.Replace("Runtime managed thread capacity failures: 4","Runtime managed thread capacity failures: 0"),
         good.Replace("[TEST-PASS] Runtime.ManagedStackOverflowContained",""),
         good.Replace("[USER] [RUNTIME] managed stack frame",""),
         good.Replace("/0x0000008000015000","/0x0000008000025000"),
         good.Replace("[TEST-PASS] Runtime.ManagedStackOverflowContained","[USER] [RUNTIME] unexpected stack-finally cleanup\n[TEST-PASS] Runtime.ManagedStackOverflowContained"),
-        good.Replace(RuntimeBootProtocol.ManagedThreads, ""),
+        good.Replace(RuntimeBootProtocol.MANAGED_THREADS, ""),
         good.Replace("Runtime parked foreign object waits: 2", "Runtime parked foreign object waits: 0"),
-        good.Replace(RuntimeBootProtocol.Finalization, ""),
+        good.Replace(RuntimeBootProtocol.FINALIZATION, ""),
         good.Replace("48 releases + 8 resurrection passes", "12 releases + 1 resurrection passes"),
-        good.Replace(RuntimeBootProtocol.ManagedEh, ""),
-        good.Insert(second, RuntimeBootProtocol.ManagedEh+"\n"),
+        good.Replace(RuntimeBootProtocol.MANAGED_EH, ""),
+        good.Insert(second, RuntimeBootProtocol.MANAGED_EH+"\n"),
         good.Replace("0x0000008000180000","0x0000008000100000"),
         good+"[PANIC] injected\n",good+"[EXCEPTION] injected\n",
-        good.Insert(second,ProtocolFixtures.Worker+"\n"),
+        good.Insert(second,ProtocolFixtures.WORKER+"\n"),
         good.Replace("[USER] [RUNTIME] native TLS ready\n",""),
         good.Replace("[USER] [RUNTIME] native TLS ready","[USER] [RUNTIME] image published"),
         good.Replace("[USER] [RUNTIME] native TLS ready\n[USER] [RUNTIME] native initializers ready","[USER] [RUNTIME] native initializers ready\n[USER] [RUNTIME] native TLS ready"),
@@ -369,7 +369,7 @@ await Test("PerBaseProtocolMutations", () =>
     Check(!RuntimeBootProtocol.Validate(good, 33, true) && !RuntimeBootProtocol.Validate(good, 35, false), "Timeout/exit ignored");
     var header = File.ReadAllText(Path.Combine(root, "src/Kernel.Arch.X64/user_layout.h"));
     var bases = Regex.Matches(header, @"#define WIT_USER_IMAGE_(?:BASE|ALTERNATE) 0x([0-9a-fA-F]+)ULL").Select(m => Convert.ToUInt64(m.Groups[1].Value, 16));
-    Check(bases.SequenceEqual(RuntimeBootProtocol.ImageBases), "Kernel/host base contract drift");
+    Check(bases.SequenceEqual(RuntimeBootProtocol.IMAGE_BASES), "Kernel/host base contract drift");
     return Task.CompletedTask;
 });
 await Test("AttemptHistoryAndFailureStages", async () =>

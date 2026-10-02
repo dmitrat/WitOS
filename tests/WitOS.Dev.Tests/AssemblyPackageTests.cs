@@ -43,12 +43,12 @@ internal static class AssemblyPackageTests
         foreach (var name in new[] { "", "/app", "app/", "app//file", ".", "..", "app/../file", "app/./file", "C:/file", "app\\file", "a\0b", "\ud800", new string('x', 1025) })
             Reject(new[] { (name, ReadOnlyMemory<byte>.Empty) });
         Reject(new[] { ("same", ReadOnlyMemory<byte>.Empty), ("same", ReadOnlyMemory<byte>.Empty) });
-        Reject(Enumerable.Range(0, AssemblyPackage.MaximumFiles + 1).Select(i => (i.ToString(), ReadOnlyMemory<byte>.Empty)));
+        Reject(Enumerable.Range(0, AssemblyPackage.MAXIMUM_FILES + 1).Select(i => (i.ToString(), ReadOnlyMemory<byte>.Empty)));
         Reject(new[] { (new string('\u03bb', 513), ReadOnlyMemory<byte>.Empty) });
         Reject(new[] { ("a", ReadOnlyMemory<byte>.Empty), ("a.b", ReadOnlyMemory<byte>.Empty), ("a/child", ReadOnlyMemory<byte>.Empty) });
         var megabyte = new byte[1024 * 1024];
         Reject(Enumerable.Range(0, 129).Select(i => (i.ToString(), (ReadOnlyMemory<byte>)megabyte)));
-        Require(AssemblyPackage.Create(Enumerable.Range(0, AssemblyPackage.MaximumFiles).Select(i => (i.ToString(), ReadOnlyMemory<byte>.Empty))).Length > 32,
+        Require(AssemblyPackage.Create(Enumerable.Range(0, AssemblyPackage.MAXIMUM_FILES).Select(i => (i.ToString(), ReadOnlyMemory<byte>.Empty))).Length > 32,
             "Exact file quota rejected.");
         Require(AssemblyPackage.Create(Array.Empty<(string, ReadOnlyMemory<byte>)>()).Length == 32, "Empty package is not canonical.");
         return Task.CompletedTask;

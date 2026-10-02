@@ -5,8 +5,8 @@ using WitOS.Dev.Images;
 
 internal static class NativeCoverage
 {
-    internal const string Version = Toolchain.LlvmVersion;
-    internal static string DirectoryPath(string root) => Path.Combine(root, ".tools", "llvm-" + Version);
+    internal const string VERSION = Toolchain.LLVM_VERSION;
+    internal static string DirectoryPath(string root) => Path.Combine(root, ".tools", "llvm-" + VERSION);
 
     internal static async Task PrepareAsync(string root)
     {
@@ -54,8 +54,8 @@ internal static class NativeCoverage
         await File.WriteAllTextAsync(Path.Combine(output, "native-fuzz.json"), JsonSerializer.Serialize(new
         {
             hostOnly = true,
-            llvmVersion = Version,
-            installerSha256 = Toolchain.LlvmInstallerSha256,
+            llvmVersion = VERSION,
+            installerSha256 = Toolchain.LLVM_INSTALLER_SHA256,
             runs = 500,
             seed = 1462848041,
             profiles = new[] { "runtime-full", "library-runtime-unwind", "library-imports", "library-static-tls" },
@@ -88,8 +88,8 @@ internal static class NativeCoverage
         await File.WriteAllTextAsync(Path.Combine(output, "native-coverage-profile.json"), JsonSerializer.Serialize(new
         {
             hostOnly = true,
-            llvmVersion = Version,
-            installerSha256 = Toolchain.LlvmInstallerSha256,
+            llvmVersion = VERSION,
+            installerSha256 = Toolchain.LLVM_INSTALLER_SHA256,
             addressSanitizer = true,
             cases = 555,
             structuralVerdictCases = 26,

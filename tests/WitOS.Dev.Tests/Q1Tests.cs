@@ -47,8 +47,8 @@ internal static class Q1Tests
                 good.Insert(afterHeader, "[USER] [NATIVE-FAIL-FAST] code=0xC000001D address=0x0000008000100000 rip=0x0000008000100000\n"),
                 good.Replace(capacity, capacity + "\nRuntime managed thread capacity failures: 0"),
                 good.Replace(verdict, "") + verdict + verdict,
-                good + RuntimeBootProtocol.Finalization + "\n",
-                RuntimeBootProtocol.Finalization + "\n" + good,
+                good + RuntimeBootProtocol.FINALIZATION + "\n",
+                RuntimeBootProtocol.FINALIZATION + "\n" + good,
                 good.Replace("Runtime native fault base: 0x0000008000180000", "Runtime native fault base: 0x0000008000100000"),
                 good.Replace("[USER] [RUNTIME] native fault probe entered\n", ""),
                 good.Replace("Runtime managed stack overflow base:", "Runtime init failure base:")];
@@ -180,7 +180,7 @@ internal static class Q1Tests
         var output = Path.Combine(scratch, "platform-output");
         Directory.CreateDirectory(input);
         Directory.CreateDirectory(output);
-        var entries = NativePlatformObjects.Sources.Select(name =>
+        var entries = NativePlatformObjects.SOURCES.Select(name =>
         {
             var file = Path.Combine(input, name + ".obj");
             File.WriteAllText(file, name);
@@ -231,13 +231,13 @@ internal static class Q1Tests
     private static async Task Capture(string root, string scratch)
     {
         var capture = new BoundedCapture();
-        capture.Append(new string('x', BoundedCapture.Limit));
+        capture.Append(new string('x', BoundedCapture.LIMIT));
         Check(!capture.Truncated, "Exact capture limit rejected");
         capture.Append("y");
-        Check(capture.Truncated && capture.Snapshot().Length == BoundedCapture.Limit, "Capture is unbounded");
+        Check(capture.Truncated && capture.Snapshot().Length == BoundedCapture.LIMIT, "Capture is unbounded");
         var file = Path.Combine(scratch, "oversized-serial.log");
         using (var output = File.Create(file))
-            output.SetLength(BoundedCapture.Limit + 1L);
+            output.SetLength(BoundedCapture.LIMIT + 1L);
         bool rejected = false;
         try
         { await BoundedCapture.ReadFileAsync(file); }

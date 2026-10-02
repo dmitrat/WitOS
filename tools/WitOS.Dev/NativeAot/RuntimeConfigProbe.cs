@@ -9,7 +9,7 @@ namespace WitOS.Dev.NativeAot;
 
 internal static class RuntimeConfigProbe
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web) { WriteIndented = true };
     private static string Hash(string file) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))).ToLowerInvariant();
 
     public static async Task PrepareAsync(string root, RuntimeExperiment.SourceLock pin)
@@ -134,7 +134,7 @@ internal static class RuntimeConfigProbe
             inputs = pin.Sources.Where(s => s.Path == rhPath || s.Path == gcPath || s.Path == eePath || s.Path == startupPath || s.Path == allocPath || s.Path == dispatchPath || s.Path == dispatchAotPath || s.Path == "src/coreclr/nativeaot/Runtime/allocheap.h" || s.Path == "src/coreclr/nativeaot/Runtime/GCHelpers.cpp" || s.Path == "src/coreclr/nativeaot/Runtime/FinalizerHelpers.cpp" || s.Path == "src/coreclr/gc/gc.cpp" || s.Path == "src/coreclr/gc/gcwks.cpp"),
             generated = new[] { "gc.witos.cpp", "gcwks.witos.cpp", "gcenv.ee.witos.cpp", "gchelpers.witos.cpp", "finalizerhelpers.witos.cpp", "allocheap.witos.cpp", "dispatch.shared.slice.cpp", "dispatch.aot.slice.cpp", "startup.witos.cpp", "rhconfig.witos.cpp", "gcconfig.slice.cpp", "gcaffinity.slice.cpp", "gcenv.config.slice.cpp" }
                 .Select(p => new { file = p, sha256 = Hash(Path.Combine(output, p)) })
-        }, Json));
+        }, JSON));
     }
 
     public static async Task VerifyArchiveAsync(string root, string obj, string msvc, string minipalArchive, string memoryObject, string stackObject, string clockObject, string clockBinding, string fatalObject, string affinityObject, string mathObject, string logObject, NativePlatformObjects securityObjects)
@@ -145,7 +145,7 @@ internal static class RuntimeConfigProbe
         if (listing.ExitCode != 0 || listing.TimedOut)
             throw new InvalidDataException("Configuration archive listing failed.");
         var members = listing.Output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
-        var all = JsonSerializer.Deserialize<JsonElement[]>(await File.ReadAllTextAsync(Path.Combine(obj, "compile_commands.json")), Json)!;
+        var all = JsonSerializer.Deserialize<JsonElement[]>(await File.ReadAllTextAsync(Path.Combine(obj, "compile_commands.json")), JSON)!;
         var commands = all.Where(c => c.GetProperty("output").GetString()!.Replace('\\', '/').Contains("/WitOS.ConfigProbe.dir/", StringComparison.Ordinal)).ToArray();
         string[] names = ["rhconfig.witos.cpp", "gcconfig.slice.cpp", "gcaffinity.slice.cpp", "gcenv.config.slice.cpp", "runtime_config.cpp", "pal_init.witos.cpp", "allocheap.witos.cpp", "dispatch.shared.slice.cpp", "dispatch.aot.slice.cpp", "runtime_allocator.cpp", "startup.objects.slice.cpp", "runtime_instance.cpp", "runtime_barrier.cpp", "runtime_time.cpp", "runtime_crt.cpp", "runtime_stack.cpp", "runtime_cpu.cpp", "runtime_clock.cpp", "runtime_fatal.cpp", "runtime_affinity.cpp", "runtime_math.cpp", "native_format.witos.cpp", "format_fixed.witos.cpp", "runtime_format.cpp", "runtime_security.cpp", "runtime_random.cpp", "runtime_memory.cpp", "runtime_services.cpp", "runtime_thread_references.cpp", "runtime_object_wait.cpp", "runtime_console.cpp", "runtime_encoding.cpp", "runtime_module_names.cpp", "runtime_thread_names.cpp", "runtime_diagnostics.cpp", "runtime_com.cpp", "runtime_gc_policy.cpp", "runtime_context_storage.cpp", "runtime_context_capture.cpp", "runtime_suspend.cpp", "runtime_context_set.cpp", "runtime_stack_lease.cpp", "runtime_unwind.cpp", "runtime_exception.cpp", "runtime_vectored.cpp", "runtime_raise.cpp", "runtime_failfast.cpp", "runtime_seh.cpp", "unwind_scope.witos.cpp", "pal_context.witos.cpp", "pal_context_storage.witos.cpp"];
         if (members.Length != names.Length || commands.Length != names.Length)
@@ -206,7 +206,7 @@ internal static class RuntimeConfigProbe
                 "artifacts/runtime-config/source/rhconfig.witos.cpp", "artifacts/runtime-config/source/gcconfig.slice.cpp",
                 "artifacts/runtime-config/source/gcenv.config.slice.cpp" }
                 .Select(p => new { path = p, sha256 = Hash(Path.Combine(root, p)) })
-        }, Json));
+        }, JSON));
         Console.WriteLine($"[SOURCE-PASS] Configuration probe: {names.Length} exact source objects; collector and thread attachment excluded.");
     }
 
@@ -296,7 +296,7 @@ internal static class RuntimeConfigProbe
             archiveSha256 = Hash(archive),
             crtSha256 = Hash(crt),
             sharedObjects = shared.Select(p => new { file = p, sha256 = Hash(Path.Combine(output, p)) })
-        }, Json));
+        }, JSON));
         var clockObject = Path.Combine(root, "artifacts", "runtime-config", "native_clock.witos.obj");
         var clockBinding = Path.Combine(root, "artifacts", "runtime-config", "native_clock.obj");
         if (Hash(clockObject) != report.RootElement.GetProperty("clockSha256").GetString() ||
