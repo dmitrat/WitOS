@@ -23,25 +23,12 @@ static WIT_NORETURN void fatal()
 
 static void lock()
 {
-    while (!wit_native_try_lock(&gate)) {
-        if (wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr) != WIT_STATUS_OK) {
-            fatal();
-        }
-    }
+    wit_native_lock(&gate);
 }
 
 static void unlock()
 {
     wit_native_unlock(&gate);
-}
-
-static WitU64 identity()
-{
-    WitU64 value = 0;
-    if (wit_native_call(WIT_CALL_THREAD_CURRENT, 0, 0, 0, &value) != WIT_STATUS_OK || !value) {
-        fatal();
-    }
-    return value;
 }
 
 static MutexState *find(minipal_mutex *mutex)
@@ -106,7 +93,7 @@ extern "C" void minipal_mutex_destroy(minipal_mutex *mutex)
 
 extern "C" void minipal_mutex_enter(minipal_mutex *mutex)
 {
-    const WitU64 self = identity();
+    const WitU64 self = wit_native_thread_identity();
     lock();
     for (;;) {
         MutexState *state = find(mutex);
@@ -158,7 +145,7 @@ extern "C" void minipal_mutex_enter(minipal_mutex *mutex)
 
 extern "C" void minipal_mutex_leave(minipal_mutex *mutex)
 {
-    const WitU64 self = identity();
+    const WitU64 self = wit_native_thread_identity();
     lock();
     MutexState *state = find(mutex);
     if (!state || state->Owner != self || !state->Depth) {

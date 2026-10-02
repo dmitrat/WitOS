@@ -43,4 +43,39 @@ void wit_native_unlock(volatile WitU32 *state);
 #define WIT_NATIVE_FAIL_FAST_EXIT 0xFFFF0001ULL
 WIT_NORETURN void wit_native_fail_fast(WitU64 code);
 WitU64 wit_native_call(WitU64 call, WitU64 argument0, WitU64 argument1, WitU64 argument2, WitU64 *result);
+
+/* The one blocking form of the lock above: contenders yield until the owner
+ * releases it, and a failed yield is fatal. */
+static inline void wit_native_lock(volatile WitU32 *state)
+{
+    while (!wit_native_try_lock(state)) {
+        if (wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, 0) != WIT_STATUS_OK) {
+            wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+        }
+    }
+}
+
+/* Kernel record of the calling thread. Nonzero only for a complete record of
+ * this ABI version with a thread identity; writable FS/GS data never defines
+ * identity or stack bounds. Callers check the further fields they rely on. */
+static inline int wit_native_thread_info(WitUserThreadInfo *info)
+{
+    WitU64 copied = 0;
+    return wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)info, sizeof(*info), WIT_THREAD_INFO_VERSION, &copied) ==
+        WIT_STATUS_OK &&
+        copied == sizeof(*info) &&
+        info->Version == WIT_THREAD_INFO_VERSION &&
+        info->Size == sizeof(*info) &&
+        info->ThreadId;
+}
+
+/* Generation-bearing identity of the calling thread; a failed query is fatal. */
+static inline WitU64 wit_native_thread_identity(void)
+{
+    WitU64 identity = 0;
+    if (wit_native_call(WIT_CALL_THREAD_CURRENT, 0, 0, 0, &identity) != WIT_STATUS_OK || !identity) {
+        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+    }
+    return identity;
+}
 #endif

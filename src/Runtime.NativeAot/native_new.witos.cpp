@@ -31,11 +31,7 @@ static WIT_NORETURN void fatal()
 
 static void lock()
 {
-    while (!wit_native_try_lock(&gate)) {
-        if (wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr) != WIT_STATUS_OK) {
-            fatal();
-        }
-    }
+    wit_native_lock(&gate);
 }
 
 static void unlock()

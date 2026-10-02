@@ -9,13 +9,7 @@ void PalFlushProcessWriteBuffers()
 
 static bool current(WitUserThreadInfo *info)
 {
-    WitU64 copied = 0;
-    return wit_native_call(WIT_CALL_THREAD_QUERY, (uintptr_t)info, sizeof(*info), WIT_THREAD_INFO_VERSION, &copied) ==
-        WIT_STATUS_OK &&
-        copied == sizeof(*info) &&
-        info->Version == WIT_THREAD_INFO_VERSION &&
-        info->Size == sizeof(*info) &&
-        info->ThreadId &&
+    return wit_native_thread_info(info) &&
         info->NativeId &&
         !info->Reserved &&
         info->ProcessId &&

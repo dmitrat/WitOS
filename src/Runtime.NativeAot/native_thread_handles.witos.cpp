@@ -83,10 +83,7 @@ extern "C" int WINAPI wit_native_thread_priority(HANDLE handle)
     WitU64 copied = 0;
     if (handle == (HANDLE)(intptr_t)-2) {
         WitUserThreadInfo current;
-        if (wit_native_call(WIT_CALL_THREAD_QUERY, (uintptr_t)&current, sizeof(current), WIT_THREAD_INFO_VERSION,
-                &copied) != WIT_STATUS_OK ||
-            copied != sizeof(current) ||
-            !current.ThreadId) {
+        if (!wit_native_thread_info(&current)) {
             wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
         }
         return THREAD_PRIORITY_NORMAL;

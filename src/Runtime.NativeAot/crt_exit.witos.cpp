@@ -18,11 +18,7 @@ static WIT_NORETURN void fatal()
 static WitUserThreadInfo current()
 {
     WitUserThreadInfo info;
-    if (wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&info, sizeof(info), WIT_THREAD_INFO_VERSION, nullptr) !=
-            WIT_STATUS_OK ||
-        info.Version != WIT_THREAD_INFO_VERSION ||
-        info.Size != sizeof(info) ||
-        !info.ThreadId) {
+    if (!wit_native_thread_info(&info)) {
         fatal();
     }
     return info;
@@ -30,11 +26,7 @@ static WitUserThreadInfo current()
 
 static void lock()
 {
-    while (!wit_native_try_lock(&gate)) {
-        if (wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr) != WIT_STATUS_OK) {
-            fatal();
-        }
-    }
+    wit_native_lock(&gate);
 }
 
 static bool code(ExitCallback callback)

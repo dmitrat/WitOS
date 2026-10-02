@@ -21,11 +21,7 @@ struct CodeGuard {
 
 void enter()
 {
-    while (!wit_native_try_lock(&gate)) {
-        if (wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr) != WIT_STATUS_OK) {
-            wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
-        }
-    }
+    wit_native_lock(&gate);
 }
 
 void leave()
@@ -56,12 +52,7 @@ static __declspec(thread) unsigned lookupDepth;
 bool tls_ready()
 {
     WitUserThreadInfo info;
-    return wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&info, sizeof(info), WIT_THREAD_INFO_VERSION, nullptr) ==
-        WIT_STATUS_OK &&
-        info.Version == WIT_THREAD_INFO_VERSION &&
-        info.Size == sizeof(info) &&
-        info.CompilerTls &&
-        info.ThreadId;
+    return wit_native_thread_info(&info) && info.CompilerTls;
 }
 
 bool name_valid(PCWSTR name)

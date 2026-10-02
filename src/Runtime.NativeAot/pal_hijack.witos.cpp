@@ -25,12 +25,7 @@ void PalHijack(Thread *target)
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
     WitUserThreadInfo owner;
-    if (wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&owner, sizeof(owner), WIT_THREAD_INFO_VERSION, nullptr) !=
-            WIT_STATUS_OK ||
-        owner.Version != WIT_THREAD_INFO_VERSION ||
-        owner.Size != sizeof(owner) ||
-        !owner.ThreadId ||
-        !owner.CompilerTls) {
+    if (!wit_native_thread_info(&owner) || !owner.CompilerTls) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
     const DWORD saved_error = GetLastError();

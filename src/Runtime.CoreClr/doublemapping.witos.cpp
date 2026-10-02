@@ -100,11 +100,7 @@ void reap(Mapper &m)
 
 void wit_coreclr_code_gate_enter()
 {
-    while (!wit_native_try_lock(&gate)) {
-        if (wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr) != WIT_STATUS_OK) {
-            wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
-        }
-    }
+    wit_native_lock(&gate);
 }
 
 void wit_coreclr_code_gate_leave()

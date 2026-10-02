@@ -25,13 +25,7 @@ Thread *current_record()
     static_assert(sizeof(Thread) == sizeof(RuntimeThreadLocals));
     static_assert(sizeof(RuntimeThreadLocals) <= 4096 - WIT_COMPILER_TLS_DATA_OFFSET);
     WitUserThreadInfo info;
-    WitU64 copied = 0;
-    if (wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&info, sizeof(info), WIT_THREAD_INFO_VERSION, &copied) !=
-            WIT_STATUS_OK ||
-        copied != sizeof(info) ||
-        info.Version != WIT_THREAD_INFO_VERSION ||
-        info.Size != sizeof(info) ||
-        !info.ThreadId ||
+    if (!wit_native_thread_info(&info) ||
         !info.CompilerTls ||
         (info.CompilerTls & 4095) ||
         info.CompilerTls > UINTPTR_MAX - 4096) {

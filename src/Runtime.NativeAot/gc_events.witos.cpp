@@ -13,9 +13,7 @@ public:
 
     static void Lock()
     {
-        while (!wit_native_try_lock(&Gate)) {
-            GCToOSInterface::YieldThread(0);
-        }
+        wit_native_lock(&Gate);
     }
 
     static void Unlock()

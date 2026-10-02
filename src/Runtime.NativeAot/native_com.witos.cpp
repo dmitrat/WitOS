@@ -17,20 +17,7 @@ volatile WitU32 gate;
 
 void lock()
 {
-    while (!wit_native_try_lock(&gate)) {
-        if (wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr) != WIT_STATUS_OK) {
-            wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
-        }
-    }
-}
-
-WitU64 current()
-{
-    WitU64 id = 0;
-    if (wit_native_call(WIT_CALL_THREAD_CURRENT, 0, 0, 0, &id) != WIT_STATUS_OK || !id) {
-        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
-    }
-    return id;
+    wit_native_lock(&gate);
 }
 
 Participant *find(WitU64 id)
@@ -45,7 +32,7 @@ Participant *find(WitU64 id)
 
 void cleanup(void *context)
 {
-    const WitU64 id = current();
+    const WitU64 id = wit_native_thread_identity();
     lock();
     auto entry = find(id);
     if (!entry || entry != context) {
@@ -63,7 +50,7 @@ extern "C" HRESULT WINAPI wit_native_com_initialize(LPVOID reserved, DWORD flags
     if (reserved || (flags & ~(COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE | COINIT_SPEED_OVER_MEMORY))) {
         return E_INVALIDARG;
     }
-    const WitU64 id = current();
+    const WitU64 id = wit_native_thread_identity();
     lock();
     auto entry = find(id);
     if (flags & COINIT_APARTMENTTHREADED) {
@@ -101,7 +88,7 @@ extern "C" HRESULT WINAPI wit_native_com_initialize(LPVOID reserved, DWORD flags
 
 extern "C" void WINAPI wit_native_com_uninitialize()
 {
-    const WitU64 id = current();
+    const WitU64 id = wit_native_thread_identity();
     lock();
     auto entry = find(id);
     if (entry && entry->References) {
@@ -116,7 +103,7 @@ extern "C" HRESULT WINAPI wit_native_com_apartment(APTTYPE *type, APTTYPEQUALIFI
     if (!type || !qualifier) {
         return E_INVALIDARG;
     }
-    const WitU64 id = current();
+    const WitU64 id = wit_native_thread_identity();
     lock();
     auto entry = find(id);
     const bool explicitMta = entry && entry->References;

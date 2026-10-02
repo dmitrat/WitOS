@@ -42,12 +42,7 @@ extern "C" int wit_native_tls_code_pointer(WitU64 address)
 
 static bool current_thread(WitUserThreadInfo &info)
 {
-    return wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&info, sizeof(info), WIT_THREAD_INFO_VERSION, nullptr) ==
-        WIT_STATUS_OK &&
-        info.Version == WIT_THREAD_INFO_VERSION &&
-        info.Size == sizeof(info) &&
-        info.ThreadId &&
-        info.CompilerTls;
+    return wit_native_thread_info(&info) && info.CompilerTls;
 }
 
 extern "C" WitU64 wit_native_thread_on_exit(WitNativeThreadExitCallback callback, void *context)

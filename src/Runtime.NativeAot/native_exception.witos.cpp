@@ -32,12 +32,7 @@ static bool installed;
 
 bool current(WitUserThreadInfo &thread)
 {
-    return wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&thread, sizeof(thread), WIT_THREAD_INFO_VERSION, nullptr) ==
-        WIT_STATUS_OK &&
-        thread.Version == WIT_THREAD_INFO_VERSION &&
-        thread.Size == sizeof(thread) &&
-        thread.ThreadId &&
-        thread.CompilerTls;
+    return wit_native_thread_info(&thread) && thread.CompilerTls;
 }
 
 bool enter(WitU64 owner)

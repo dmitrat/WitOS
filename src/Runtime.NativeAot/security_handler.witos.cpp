@@ -89,14 +89,7 @@ extern "C" WitU32 wit_native_gs_check(
         wit_native_security_failure();
     }
     WitUserThreadInfo info;
-    WitU64 copied = 0;
-    if (wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&info, sizeof(info), WIT_THREAD_INFO_VERSION, &copied) !=
-            WIT_STATUS_OK ||
-        copied != sizeof(info) ||
-        info.Version != WIT_THREAD_INFO_VERSION ||
-        info.Size != sizeof(info) ||
-        !info.ThreadId ||
-        info.StackLow >= info.StackHigh) {
+    if (!wit_native_thread_info(&info) || info.StackLow >= info.StackHigh) {
         wit_native_security_failure();
     }
     const auto frameAddress = (WitU64)establisher;
