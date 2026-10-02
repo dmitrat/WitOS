@@ -16,6 +16,7 @@ internal static class Q1Tests
         yield return ("Q1.PublicationFailureStages", () => Publication(scratch));
         yield return ("Q1.ControlIgnoresCancellation", () => Control(root));
         yield return ("Q1.NamedNativeObjects", () => Objects(scratch));
+        yield return ("FileCaptureOwnershipAndLimits", () => FileCapture(root,scratch));
         yield return ("Q1.BoundedCapture", () => Capture(root, scratch));
     }
 
@@ -188,6 +189,24 @@ internal static class Q1Tests
         try { NativePlatformObjects.Read(output, json.RootElement); } catch (InvalidDataException) { rejected = true; }
         Check(rejected, "Changed object hash accepted");
         return Task.CompletedTask;
+    }
+
+    private static async Task FileCapture(string root,string scratch)
+    {
+        var assembly=Assembly.GetExecutingAssembly().Location;
+        var output=Path.Combine(scratch,"file.stdout.log");var error=Path.Combine(scratch,"file.stderr.log");
+        var result=await Processes.RunWithFilesAsync("dotnet",[assembly,"echo","file mode"],root,15,output,error,_=>Task.CompletedTask);
+        Check(result.ExitCode==7&&!result.TimedOut&&result.Output.Contains("file mode")&&result.Error=="stderr-tail","File capture lost exit/stdout/stderr");
+        result=await Processes.RunWithFilesAsync("dotnet",[assembly,"wait"],root,1,output,error,_=>Task.CompletedTask);
+        Check(result.TimedOut&&result.ExitCode!=0,"File mode failed forced cleanup");
+        var pid=Path.Combine(scratch,"file-child.pid");
+        result=await Processes.RunWithFilesAsync("dotnet",[assembly,"launcher-no-pipes",pid],root,15,output,error,_=>Task.CompletedTask);
+        Check(result.ExitCode==0&&!result.TimedOut,"File mode changed normal exit");
+        try{using var child=Process.GetProcessById(int.Parse(File.ReadAllText(pid)));Check(child.HasExited,"File mode left a descendant");}catch(ArgumentException){}
+        var rejected=false;
+        try{await Processes.RunWithFilesAsync("dotnet",[assembly,"capture-limit","stderr"],root,15,output,error,_=>Task.CompletedTask);}
+        catch(InvalidDataException){rejected=true;}
+        Check(rejected,"File capture accepted oversized output");
     }
 
     private static async Task Capture(string root, string scratch)

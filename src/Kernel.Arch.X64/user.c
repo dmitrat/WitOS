@@ -76,6 +76,8 @@ static WIT_NORETURN void finish(WitUserState state, WitU64 code)
         current_user->Threads[i].MonotonicWait = 0;
     }
     wit_handles_close_all(&current_user->Handles);
+    wit_files_initialize(&current_user->Files);
+    wit_user_library_initialize(current_user);
     wit_user_references_initialize(current_user);
     wit_user_stack_leases_initialize(current_user);
     wit_user_exception_initialize(current_user);
@@ -110,7 +112,7 @@ WitU64 wit_user_thread_create(WitUserProcess *process, WitU64 entry, WitU64 argu
 WitU64 wit_user_thread_create_flags(WitUserProcess *process, WitU64 entry, WitU64 argument, WitU64 flags, WitU64 *result)
 {
     *result = 0;
-    if (flags & ~(WitU64)WIT_THREAD_DETACHED) return WIT_STATUS_INVALID_ARGUMENT;
+    if (flags & ~(WitU64)(WIT_THREAD_DETACHED|WIT_THREAD_LIBRARY_NOTIFICATIONS)) return WIT_STATUS_INVALID_ARGUMENT;
     if (!wit_user_space_physical(&process->Space, entry, 0, 1)) return WIT_STATUS_BAD_ADDRESS;
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
         WitU64 status;
@@ -130,6 +132,9 @@ static void reap(WitU32 index)
     for (WitU64 p = thread->StackBottom; p < thread->StackTop; p += 4096)
         require(wit_user_space_unmap_fixed(&current_user->Space, p), "Thread stack ownership lost");
     require(wit_user_space_unmap_fixed(&current_user->Space, thread->Tls), "Thread TLS ownership lost");
+    for(WitU32 n=0;n<2;++n)if(thread->LibraryNotificationHandles[n]){require(wit_handle_close(&current_user->Handles,thread->LibraryNotificationHandles[n])==WIT_STATUS_OK,"Thread notification handle lost");thread->LibraryNotificationHandles[n]=0;}
+    if(thread->LibraryNotificationPage){require(wit_user_space_unmap_fixed(&current_user->Space,thread->LibraryNotificationPage),"Thread notification page lost");thread->LibraryNotificationPage=0;}
+    wit_user_library_tls_reap_thread(current_user,index);
     if (thread->CompilerTls) require(wit_user_space_unmap_fixed(&current_user->Space, thread->CompilerTls), "Compiler TLS ownership lost");
     thread->CompilerTls = 0;
     require(wit_handle_close(&current_user->Handles, thread->Handle) == WIT_STATUS_OK, "Thread handle lost");
@@ -261,6 +266,9 @@ static WitInterruptContext *join_thread(WitInterruptContext *context, WitU64 han
 
 static WitU64 close_handle(WitU64 handle)
 {
+    if(wit_handle_check(&current_user->Handles,handle,WIT_HANDLE_LIBRARY,0)==WIT_STATUS_OK||wit_handle_check(&current_user->Handles,handle,WIT_HANDLE_LIBRARY_READER,0)==WIT_STATUS_OK||wit_handle_check(&current_user->Handles,handle,WIT_HANDLE_LIBRARY_LIFECYCLE,0)==WIT_STATUS_OK)return WIT_STATUS_WRONG_TYPE;
+    const WitU64 file=wit_file_close(&current_user->Files,&current_user->Handles,handle);
+    if(file!=WIT_STATUS_WRONG_TYPE)return file;
     const WitU64 reference=wit_user_reference_close(current_user,handle);
     if(reference!=WIT_STATUS_WRONG_TYPE)return reference;
     const WitU64 status = wit_handle_check(&current_user->Handles, handle, WIT_HANDLE_THREAD, 0);
@@ -290,6 +298,8 @@ static WitPeStatus create_process(WitUserProcess *process, WitPageAllocator *all
     WitUserStartup *startup;
     WitU64 physical;
     if (!can_create(process, slot)) return WitPeBusy;
+    wit_files_initialize(&process->Files);
+    wit_user_library_initialize(process);
     process->Id = next_id++;
     process->Slot = slot;
     process->State = WitUserEmpty;
@@ -407,6 +417,7 @@ WitPeStatus wit_user_create_pe(WitUserProcess *process, WitPageAllocator *alloca
 WitPeStatus wit_user_create_pe_profile(WitUserProcess *process, WitPageAllocator *allocator,
     WitU32 slot, const WitU8 *file, WitU32 size, WitU64 base, const char *resource_name, WitU32 profile)
 {
+    if(profile&WIT_PE_LIBRARY)return WitPeUnsupportedImage; // Libraries never enter the component-main path.
     WitPeImage image;
     WitPeStatus status;
     WitU16 resource[WIT_IMAGE_RESOURCE_CAPACITY]={0};
@@ -453,6 +464,8 @@ void wit_user_destroy(WitUserProcess *process)
 {
     require(current_user != process && process->State != WitUserRunning, "Destroying running component");
     wit_handles_close_all(&process->Handles);
+    wit_files_initialize(&process->Files);
+    wit_user_library_initialize(process);
     wit_user_references_initialize(process);
     wit_user_stack_leases_initialize(process);
     wit_user_exception_initialize(process);
@@ -601,6 +614,14 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
         }
         context->Rdx = argument2;
         break;
+    case WIT_CALL_LIBRARY:
+        context->Rax=wit_user_library_call(current_user,argument0,argument1,argument2,&context->Rdx);break;
+    case WIT_CALL_STORAGE_QUERY:
+        context->Rax=wit_user_storage_query(current_user,argument0,argument1,argument2,&context->Rdx);break;
+    case WIT_CALL_FILE:
+        context->Rax=wit_user_file_call(current_user,argument0,argument1,argument2,&context->Rdx);break;
+    case WIT_CALL_CODE_MEMORY:
+        context->Rax=wit_user_code_call(current_user,argument0,argument1,argument2,&context->Rdx);break;
     case WIT_CALL_MEMORY_RESERVE:
         context->Rax = wit_user_memory_reserve(&current_user->Space, argument0, argument1, &context->Rdx);
         break;
@@ -770,7 +791,7 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
         return next;
     }
     case WIT_CALL_THREAD_EXIT:
-        if(current_user->RequireThreadCompletion){
+        if(current_user->RequireThreadCompletion||current_user->Threads[current_user->CurrentThread].LibraryRequired||(current_user->LibraryLifecycle.Token&&current_user->LibraryLifecycle.Owner==current_user->Threads[current_user->CurrentThread].Handle)){
             // Never free one coordinated worker's TLS/stack and resume peers
             // whose user-space runtime may still hold its record or GC roots.
             current_user->AbruptThreadId=current_user->Threads[current_user->CurrentThread].Handle;
@@ -780,6 +801,9 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
         return exit_thread(argument0);
     case WIT_CALL_THREAD_COMPLETE:
         if(argument1||argument2){context->Rax=WIT_STATUS_INVALID_ARGUMENT;break;}
+        if((current_user->Threads[current_user->CurrentThread].LibraryRequired&&current_user->Threads[current_user->CurrentThread].LibraryPhase!=4)||(current_user->LibraryLifecycle.Token&&current_user->LibraryLifecycle.Owner==current_user->Threads[current_user->CurrentThread].Handle)){
+            current_user->AbruptThreadId=current_user->Threads[current_user->CurrentThread].Handle;current_user->AbruptThreadCode=argument0;finish(WitUserExited,WIT_PROCESS_ABRUPT_THREAD_EXIT);
+        }
         ++current_user->OrderlyThreadExits;
         return exit_thread(argument0);
     case WIT_CALL_THREAD_JOIN:

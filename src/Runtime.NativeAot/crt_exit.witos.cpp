@@ -1,4 +1,5 @@
 #include "native_process.h"
+#include "library_lifecycle.h"
 #include <stdlib.h>
 
 // Define the actual CRT signature, without linking a Windows CRT implementation.
@@ -62,6 +63,8 @@ extern "C" void wit_native_process_shutdown(void)
             // Runtime process-exit callbacks must publish shutdown before the
             // thread notification reaches a future real RuntimeThreadShutdown.
             wit_native_thread_notify_exit();
+            // Keep DLL code alive through runtime detach/cleanup notifications.
+            if(wit_native_library_shutdown()!=WIT_STATUS_OK)fatal();
             lock();
             phase = 4;
             wit_native_unlock(&gate);

@@ -31,9 +31,11 @@ internal sealed class RuntimeBootAttempt : IDisposable
         Directory.CreateDirectory(RunDirectory);
     }
 
-    public static async Task RunAsync(string root, string command, Func<RuntimeBootAttempt, Task> action)
+    public static Task RunAsync(string root, string command, Func<RuntimeBootAttempt, Task> action)
+        => RunInDirectoryAsync(Path.Combine(root, "artifacts/x64/runtime-boot"), command, action);
+
+    internal static async Task RunInDirectoryAsync(string directory, string command, Func<RuntimeBootAttempt, Task> action)
     {
-        var directory = Path.Combine(root, "artifacts/x64/runtime-boot");
         Directory.CreateDirectory(directory);
         var lease = new FileStream(Path.Combine(directory, "run.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         RuntimeBootAttempt attempt;

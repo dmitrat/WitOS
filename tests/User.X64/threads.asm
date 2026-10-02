@@ -56,7 +56,7 @@ wit_user_start PROC
     int 80h
     EXPECT WIT_STATUS_BAD_ADDRESS
     lea rcx, worker
-    mov r8d, 2 ; only bit 0 (detached) is supported
+    mov r8d, 4 ; bit 2 is reserved; bits 0/1 select detached/library lifecycle
     mov eax, WIT_CALL_THREAD_CREATE
     int 80h
     EXPECT WIT_STATUS_INVALID_ARGUMENT

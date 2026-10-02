@@ -18,6 +18,15 @@ public:
     const WitUserImageInfo* Image() const { return image; }
 };
 HRESULT wit_checked_virtual_unwind_prevalidated(const WitValidatedUnwindImage&,const WitUnwindStackRange*,DWORD,DWORD64,PRUNTIME_FUNCTION,CONTEXT*,void**,DWORD64*,KNONVOLATILE_CONTEXT_POINTERS*,PEXCEPTION_ROUTINE*);
+// Dynamic caller holds a registration reader lease AND an owning stack scope
+// throughout validation/use. No validation cache is attached to this view.
+struct WitDynamicUnwindSource {
+    DWORD64 Base,Length;
+    void* Context;
+    const void* (*Read)(void*,DWORD64,DWORD,bool);
+    PRUNTIME_FUNCTION (*Lookup)(void*,DWORD64);
+};
+HRESULT wit_checked_virtual_unwind_dynamic(const WitDynamicUnwindSource*,const WitUnwindStackRange*,DWORD,DWORD64,PRUNTIME_FUNCTION,CONTEXT*,void**,DWORD64*,KNONVOLATILE_CONTEXT_POINTERS*,PEXCEPTION_ROUTINE*);
 ULONG64 wit_checked_read64(ULONG64);
 M128A wit_checked_read128(ULONG64);
 void* wit_checked_unwind_info(ULONG64);

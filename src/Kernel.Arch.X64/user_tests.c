@@ -215,4 +215,6 @@ void wit_user_self_test(WitPageAllocator *pages)
     require(wit_pages_free_count(pages) == before, "User teardown leaked physical pages");
     wit_console_write("[TEST-PASS] User.ZeroFillAndStaleHandles\n[TEST-PASS] User.Teardown\n[TEST-PASS] User.Isolation\n");
     wit_user_runtime_boot_test(pages);
+    wit_user_code_self_test(pages);
+    wit_user_file_self_test(pages);
 }

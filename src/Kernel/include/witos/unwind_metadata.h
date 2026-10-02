@@ -22,13 +22,16 @@ static inline const WitU8* wit_unwind_meta_at(const WitUnwindMetadataView* v,Wit
 static inline WitU16 wit_unwind_meta_u16(const WitU8* p){return (WitU16)(p[0]|((WitU16)p[1]<<8));}
 static inline WitU32 wit_unwind_meta_u32(const WitU8* p){return p[0]|((WitU32)p[1]<<8)|((WitU32)p[2]<<16)|((WitU32)p[3]<<24);}
 static inline int wit_unwind_meta_nonvolatile(WitU32 reg){return reg==3||reg==5||reg==6||reg==7||(reg>=12&&reg<=15);}
-static inline WitUnwindValidation wit_unwind_metadata_function(const WitUnwindMetadataView* image,WitU32 entryRva,WitUnwindRecord* result)
+/* first points to a stable, already range-validated 12-byte function entry.
+ * Dynamic JIT tables can live outside the code heap; chain entries remain RVAs. */
+static inline WitUnwindValidation wit_unwind_metadata_record(const WitUnwindMetadataView* image,const WitU8* first,WitUnwindRecord* result)
 {
-    if(!wit_unwind_meta_view_valid(image)||!result)return WitUnwindBadFormat;
+    if(!wit_unwind_meta_view_valid(image)||!first||!result)return WitUnwindBadFormat;
+    WitU32 entryRva=0;
     WitUnwindRecord record={0};WitU32 seen[33]={0},seenCount=0,frameSignature=~0U;
     for(;;){
-        if(!wit_unwind_meta_data(image,entryRva,12))return WitUnwindBadRange;
-        const WitU8* entry=wit_unwind_meta_at(image,entryRva);const WitU32 begin=wit_unwind_meta_u32(entry),end=wit_unwind_meta_u32(entry+4),info=wit_unwind_meta_u32(entry+8);
+        if(seenCount&&!wit_unwind_meta_data(image,entryRva,12))return WitUnwindBadRange;
+        const WitU8* entry=seenCount?wit_unwind_meta_at(image,entryRva):first;const WitU32 begin=wit_unwind_meta_u32(entry),end=wit_unwind_meta_u32(entry+4),info=wit_unwind_meta_u32(entry+8);
         if(begin>=end||!wit_unwind_meta_code(image,begin,end-begin)||(info&3)||!wit_unwind_meta_data(image,info,4))return WitUnwindBadRange;
         for(WitU32 i=0;i<seenCount;++i)if(seen[i]==info)return WitUnwindCycle;
         if(seenCount==33)return WitUnwindQuota;seen[seenCount++]=info;
@@ -83,6 +86,12 @@ static inline WitUnwindValidation wit_unwind_metadata_function(const WitUnwindMe
         entryRva=info+aligned;
     }
     record.Depth=seenCount;*result=record;return WitUnwindValid;
+}
+static inline WitUnwindValidation wit_unwind_metadata_function(const WitUnwindMetadataView* image,WitU32 entryRva,WitUnwindRecord* result)
+{
+    if(!wit_unwind_meta_view_valid(image)||!result)return WitUnwindBadFormat;
+    if(!wit_unwind_meta_data(image,entryRva,12))return WitUnwindBadRange;
+    return wit_unwind_metadata_record(image,wit_unwind_meta_at(image,entryRva),result);
 }
 static inline WitUnwindValidation wit_unwind_metadata_image(const WitUnwindMetadataView* image)
 {

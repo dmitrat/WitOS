@@ -85,6 +85,53 @@ extern "C" uint32_t wit_pal_environment_get(LPCWSTR name, LPWSTR buffer, uint32_
 }
 
 
+namespace {
+struct EnvironmentBlock { wchar_t* Address; bool Busy; };
+EnvironmentBlock blocks[WIT_PAL_ENV_BLOCK_CAPACITY];
+volatile WitU32 blocks_gate;
+void block_lock()
+{
+    while(!wit_native_try_lock(&blocks_gate))
+        if(wit_native_call(WIT_CALL_THREAD_YIELD,0,0,0,nullptr)!=WIT_STATUS_OK)wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+}
+void block_unlock(){wit_native_unlock(&blocks_gate);}
+}
+extern "C" wchar_t* wit_pal_environment_strings()
+{
+    if(!environment_ready){SetLastError(ERROR_NOT_READY);return nullptr;}
+    block_lock();uint32_t slot=WIT_PAL_ENV_BLOCK_CAPACITY;
+    for(uint32_t i=0;i<WIT_PAL_ENV_BLOCK_CAPACITY;++i)if(!blocks[i].Busy){slot=i;blocks[i].Busy=true;break;}
+    block_unlock();
+    if(slot==WIT_PAL_ENV_BLOCK_CAPACITY){SetLastError(ERROR_NOT_ENOUGH_MEMORY);return nullptr;}
+    size_t units=environment_count?1:2;
+    for(uint32_t i=0;i<environment_count;++i)units+=environment[i].NameLength+environment[i].ValueLength+2;
+    auto block=new(std::nothrow) wchar_t[units];
+    if(!block){block_lock();blocks[slot]={nullptr,false};block_unlock();SetLastError(ERROR_NOT_ENOUGH_MEMORY);return nullptr;}
+    size_t at=0;
+    for(uint32_t i=0;i<environment_count;++i){
+        const auto& entry=environment[i];
+        for(uint32_t j=0;j<entry.NameLength;++j)block[at++]=entry.Name[j];
+        block[at++]=L'=';
+        for(uint32_t j=0;j<entry.ValueLength;++j)block[at++]=entry.Value[j];
+        block[at++]=0;
+    }
+    block[at++]=0;if(!environment_count)block[at++]=0;
+    if(at!=units)wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+    block_lock();blocks[slot].Address=block;block_unlock();return block;
+}
+extern "C" int wit_pal_environment_free(wchar_t* address)
+{
+    block_lock();
+    for(uint32_t i=0;i<WIT_PAL_ENV_BLOCK_CAPACITY;++i)if(address&&blocks[i].Busy&&blocks[i].Address==address){
+        // Keep the slot claimed until actual heap release completes. A new
+        // block cannot be published at the same address during this transition.
+        blocks[i].Address=nullptr;block_unlock();delete[] address;
+        block_lock();blocks[i].Busy=false;block_unlock();return 1;
+    }
+    block_unlock();SetLastError(ERROR_INVALID_PARAMETER);return 0;
+}
+
+
 char* PalCopyTCharAsChar(const TCHAR* input)
 {
     if (!input) { SetLastError(ERROR_INVALID_PARAMETER); return nullptr; }

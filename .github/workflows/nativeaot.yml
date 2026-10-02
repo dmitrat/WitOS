@@ -9,6 +9,7 @@ on:
       - 'experiments/NativeAotBoot/**'
       - 'tools/WitOS.Dev/**'
       - 'src/Runtime.NativeAot/**'
+      - 'src/Runtime.CoreClr/**'
       - 'src/Boot.Uefi/**'
       - 'src/Kernel.Arch.X64/**'
       - 'src/Kernel/**'
@@ -29,6 +30,7 @@ on:
       - 'experiments/NativeAotBoot/**'
       - 'tools/WitOS.Dev/**'
       - 'src/Runtime.NativeAot/**'
+      - 'src/Runtime.CoreClr/**'
       - 'src/Boot.Uefi/**'
       - 'src/Kernel.Arch.X64/**'
       - 'src/Kernel/**'
@@ -114,8 +116,20 @@ jobs:
       - name: Extract verified QEMU
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
 
+      - name: QEMU timeout native-completion stress
+        run: dotnet run --project tests/WitOS.Dev.Tests --configuration Release --no-build -- --qemu-cleanup
+
       - name: Kernel regression matrix
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- test
+
+      - name: CoreCLR function-table and target-unwind Windows reference
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- coreclr-functions
+
+      - name: CoreCLR executable-memory and dynamic-unwind guest capabilities
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- coreclr-memory
+
+      - name: CoreCLR assembly delivery and readonly storage guest capabilities
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- coreclr-storage
 
       - name: Execute upstream configuration inside WitOS
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-config
@@ -137,6 +151,13 @@ jobs:
             artifacts/runtime-source/
             artifacts/runtime-readiness/
             artifacts/runtime-unwind/
+            artifacts/coreclr-function-tables/
+            artifacts/logs/coreclr-memory*
+            artifacts/logs/coreclr-storage*
+            artifacts/x64/coreclr-storage/boot-package.json
+            artifacts/x64/coreclr-storage/CoreClrStorageFixture.pe
+            artifacts/x64/coreclr-memory/coreclr-mapper-image.json
+            artifacts/x64/coreclr-memory/CoreClrMapperFixture.pe
             artifacts/runtime-config/
             artifacts/logs/runtime-config*
             artifacts/logs/runtime-boot*

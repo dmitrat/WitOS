@@ -1,0 +1,8 @@
+LIBRARY WitLibraryFixture
+EXPORTS
+    LibraryAdd @7
+    AliasAdd=LibraryAdd @8
+    LibraryData=library_value @9 DATA
+    LibraryPointer=library_pointer @10 DATA
+    LibraryOrdinal @12 NONAME
+    LibraryTraceTarget=library_trace_target @14 DATA

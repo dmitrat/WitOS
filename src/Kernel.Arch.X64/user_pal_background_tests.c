@@ -22,12 +22,22 @@ static void run(WitPageAllocator* pages, WitU64 mode, WitU64 base)
             wit_console_write("PAL background mode/state/code: "); wit_console_write_u64(mode);
             wit_console_write("/"); wit_console_write_u64(process.State);
             wit_console_write("/"); wit_console_write_u64(process.ExitCode); wit_console_write("\n");
+            wit_console_write("PAL background ticks/limit/rollback-boundaries: ");wit_console_write_u64(process.Ticks);
+            wit_console_write("/");wit_console_write_u64(process.TickLimit);wit_console_write("/");
+            wit_console_write_u64(report[3]);wit_console_write("\n");
             wit_panic("Detached PAL worker lifecycle failed");
         }
         const WitU64 detached = mode == 0 ? 12 : mode == 1 ? 4 : 1;
         require(process.ThreadCreates == detached + 1 && process.DetachedCreates == detached &&
             process.ThreadReaps == detached && process.DetachedReaps == detached && process.ThreadJoins == 0 &&
             process.Space.OwnedCount == owned, "Detached worker resources were not automatically reaped");
+        if (mode == 2) {
+            require(report[3] == (WIT_USER_STACK_TOP-WIT_USER_STACK_BOTTOM)/4096+2,
+                "PAL rollback did not cover every stack/TLS allocation boundary");
+            wit_console_write("PAL rollback boundaries/ticks/limit: ");wit_console_write_u64(report[3]);
+            wit_console_write("/");wit_console_write_u64(process.Ticks);wit_console_write("/");
+            wit_console_write_u64(process.TickLimit);wit_console_write("\n");
+        }
         if (mode == 6) require(report[1] == 1 && report[2] == 1, "Last-thread completion skipped TLS cleanup");
         for (WitU32 i = 0; i < WIT_USER_RESERVATION_CAPACITY; ++i)
             require(!process.Space.Reservations[i].Size, "PAL worker TLS cleanup leaked a reservation");

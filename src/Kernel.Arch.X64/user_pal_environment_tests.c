@@ -33,6 +33,6 @@ void wit_user_pal_environment_self_test(WitPageAllocator* pages)
 {
     run(pages, 0, WIT_USER_IMAGE_BASE); run(pages, 0, WIT_USER_IMAGE_ALTERNATE);
     run(pages, 1, WIT_USER_IMAGE_BASE);
-    wit_console_write("[TEST-PASS] User.PalEnvironment\n[TEST-PASS] User.PalEnvironmentValidation\n");
+    wit_console_write("[TEST-PASS] User.PalEnvironment\n[TEST-PASS] User.PalEnvironmentValidation\n[TEST-PASS] User.PalEnvironmentBlocks\n");
     wit_console_write("[TEST-PASS] User.PalUtf8Copy\n[TEST-PASS] User.PalEnvironmentThreads\n");
 }

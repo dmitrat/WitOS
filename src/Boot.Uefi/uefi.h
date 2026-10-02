@@ -42,11 +42,18 @@ struct EfiRngProtocol {
 typedef EfiStatus (*EfiGetMemoryMap)(WitU64 *, void *, WitU64 *, WitU64 *, WitU32 *);
 typedef EfiStatus (*EfiExitBootServices)(EfiHandle, WitU64);
 
+typedef EfiStatus (*EfiAllocatePages)(WitU32,WitU32,WitU64,WitU64*);
+typedef EfiStatus (*EfiFreePages)(WitU64,WitU64);
+typedef EfiStatus (*EfiHandleProtocol)(EfiHandle,const EfiGuid*,void**);
 typedef struct EfiBootServicesPrefix {
     EfiTableHeader Header;
-    void *BeforeGetMemoryMap[4];
+    void *BeforeAllocatePages[2];
+    EfiAllocatePages AllocatePages;
+    EfiFreePages FreePages;
     EfiGetMemoryMap GetMemoryMap;
-    void *BeforeExitBootServices[21];
+    void *BeforeHandleProtocol[11];
+    EfiHandleProtocol HandleProtocol;
+    void *BeforeExitBootServices[9];
     EfiExitBootServices ExitBootServices;
     void *BeforeLocateProtocol[10];
     EfiLocateProtocol LocateProtocol;

@@ -1,5 +1,7 @@
 option casemap:none
 EXTERN wit_pal_environment_get:PROC
+EXTERN wit_pal_environment_strings:PROC
+EXTERN wit_pal_environment_free:PROC
 .code
 PUBLIC GetEnvironmentVariableW
 PUBLIC wit_native_environment_get
@@ -7,8 +9,20 @@ GetEnvironmentVariableW PROC
 wit_native_environment_get LABEL NEAR
     jmp wit_pal_environment_get
 GetEnvironmentVariableW ENDP
+PUBLIC GetEnvironmentStringsW
+GetEnvironmentStringsW PROC
+    jmp wit_pal_environment_strings
+GetEnvironmentStringsW ENDP
+PUBLIC FreeEnvironmentStringsW
+FreeEnvironmentStringsW PROC
+    jmp wit_pal_environment_free
+FreeEnvironmentStringsW ENDP
 .const
 ALIGN 8
 PUBLIC __imp_GetEnvironmentVariableW
 __imp_GetEnvironmentVariableW QWORD GetEnvironmentVariableW
+PUBLIC __imp_GetEnvironmentStringsW
+PUBLIC __imp_FreeEnvironmentStringsW
+__imp_GetEnvironmentStringsW QWORD GetEnvironmentStringsW
+__imp_FreeEnvironmentStringsW QWORD FreeEnvironmentStringsW
 END

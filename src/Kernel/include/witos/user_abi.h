@@ -13,11 +13,15 @@
 #include "thread_reference.h"
 #include "wait_objects.h"
 #include "console_info.h"
+#include "code_memory.h"
+#include "file_io.h"
+#include "storage_query.h"
+#include "library.h"
 
 /* Experimental x64 interrupt ABI, not a stable public SDK.
  * INT 0x80: RAX=call, RCX/RDX/R8=arguments; RAX=status, RDX=result.
  * Other GPRs and baseline x87/SSE state survive; flags are reset to 0x202. */
-#define WIT_ABI_VERSION 37U
+#define WIT_ABI_VERSION 48U
 #define WIT_ABI_STARTUP_SIZE 24U
 /* Existing single-module compiler TLS page layout; not a Windows TEB. */
 #define WIT_COMPILER_TLS_DATA_OFFSET 256U
@@ -56,6 +60,10 @@
 #define WIT_CALL_THREAD_COMPLETE 63U
 /* Create(request, exact size, reserved=0) -> independently closable reference. */
 #define WIT_CALL_THREAD_CREATE_REFERENCE 64U
+#define WIT_CALL_CODE_MEMORY 65U
+#define WIT_CALL_FILE 66U
+#define WIT_CALL_STORAGE_QUERY 67U
+#define WIT_CALL_LIBRARY 68U
 #define WIT_PROCESS_ABRUPT_THREAD_EXIT 0xFFFF0002ULL
 #define WIT_CALL_QUERY 0U
 #define WIT_CALL_WRITE 1U
@@ -78,6 +86,7 @@
  * profile. Coordinated full-runtime admission makes raw exit component-fatal;
  * orderly user-space lifecycle uses THREAD_COMPLETE. */
 #define WIT_THREAD_DETACHED 1U
+#define WIT_THREAD_LIBRARY_NOTIFICATIONS 2U
 #define WIT_CALL_THREAD_CREATE 9U
 /* Yield result is 1 if this call selected another thread, otherwise 0. */
 #define WIT_CALL_THREAD_YIELD 10U
@@ -179,6 +188,8 @@
 #define WIT_STATUS_TIMED_OUT 13U
 #define WIT_STATUS_CLOSED 14U
 #define WIT_STATUS_APC_PENDING 15U
+#define WIT_STATUS_NOT_FOUND 16U
+#define WIT_STATUS_INITIALIZATION_FAILED 17U
 #define WIT_MEMORY_NONE 0U
 #define WIT_MEMORY_READ 1U
 #define WIT_MEMORY_WRITE 2U

@@ -164,6 +164,27 @@ void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator
                 (s->Flags & WIT_IMAGE_EXECUTE ? 0 : PTE_NX));
         }
     }
+    const WitU64 storageTable=(WitU64)boot->StorageExtents;
+    require(boot->StorageBytes>=32&&boot->StorageBytes<=128ULL*1024*1024&&!boot->StorageReserved&&
+        boot->StorageExtentCount&&boot->StorageExtentCount<=WIT_MAX_STORAGE_EXTENTS&&
+        storageTable>=boot->ImageBase&&storageTable-boot->ImageBase<=boot->ImageSize&&
+        (WitU64)boot->StorageExtentCount*sizeof(WitBootStorageExtent)<=boot->ImageSize-(storageTable-boot->ImageBase),"Invalid boot storage descriptor");
+    WitU64 mapped=0;
+    for(WitU32 i=0;i<boot->StorageExtentCount;++i){
+        const WitBootStorageExtent* extent=&boot->StorageExtents[i];
+        require(extent->Base&&!(extent->Base&4095)&&extent->Length&&!(extent->Length&4095)&&extent->Length<=1024*1024&&
+            extent->Base<WIT_PHYSICAL_LIMIT&&extent->Length<=WIT_PHYSICAL_LIMIT-extent->Base&&
+            (extent->Base>=boot->ImageBase+boot->ImageSize||boot->ImageBase>=extent->Base+extent->Length)&&
+            mapped<=((boot->StorageBytes+4095)&~4095ULL)&&extent->Length<=((boot->StorageBytes+4095)&~4095ULL)-mapped,"Invalid boot storage extent");
+        for(WitU32 j=0;j<i;++j)require(extent->Base>=boot->StorageExtents[j].Base+boot->StorageExtents[j].Length||
+            boot->StorageExtents[j].Base>=extent->Base+extent->Length,"Overlapping boot storage extents");
+        for(WitU64 offset=0;offset<extent->Length;offset+=4096){
+            require(reserved_image_page(boot,extent->Base+offset),"Boot storage overlaps usable or absent memory");
+            set_page(WIT_X64_STORAGE_BASE+mapped+offset,extent->Base+offset,PTE_NX);
+        }
+        mapped+=extent->Length;
+    }
+    require(mapped==((boot->StorageBytes+4095)&~4095ULL),"Incomplete boot storage mapping");
     wit_x64_stack_guards(guards);
     for (WitU32 i = 0; i < WIT_STACK_GUARD_COUNT; ++i) remove_page(guards[i]);
 
@@ -292,3 +313,5 @@ void wit_virtual_fault_test(void)
     (void)nx_probe;
 #endif
 }
+
+const WitU8* wit_virtual_boot_storage(void){return active?(const WitU8*)WIT_X64_STORAGE_BASE:0;}

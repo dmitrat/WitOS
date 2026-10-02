@@ -128,7 +128,7 @@ static bool creation_bad_requests()
     if(!creation_reject((WitU64)&request,sizeof(request),0,WIT_STATUS_INVALID_ARGUMENT,id))return false;
     request.Size=sizeof(request);request.Reserved=1;
     if(!creation_reject((WitU64)&request,sizeof(request),0,WIT_STATUS_INVALID_ARGUMENT,id))return false;
-    request.Reserved=0;request.Flags=2;
+    request.Reserved=0;request.Flags=4; // Next reserved bit; bit 1 is the DLL lifecycle contract.
     if(!creation_reject((WitU64)&request,sizeof(request),0,WIT_STATUS_INVALID_ARGUMENT,id))return false;
     request.Flags=WIT_THREAD_START_SUSPENDED;request.StackBytes=65537;
     if(!creation_reject((WitU64)&request,sizeof(request),0,WIT_STATUS_UNSUPPORTED,id))return false;

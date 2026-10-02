@@ -39,6 +39,7 @@ int wit_user_capture_tls(WitUserProcess *process, const WitPeImage *image)
 
 WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument, WitU64 flags)
 {
+    const WitU64 admission=wit_user_library_thread_admission(process,flags);if(admission!=WIT_STATUS_OK)return admission;
     WitUserThread *thread = &process->Threads[index];
     WitU64 handle, physical, *tls;
     WitU32 mapped = 0;
@@ -47,10 +48,14 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 ent
     const WitU64 bottom = WIT_USER_STACK_BOTTOM + index * WIT_USER_THREAD_STRIDE;
     const WitU64 top = WIT_USER_STACK_TOP + index * WIT_USER_THREAD_STRIDE;
     const WitU64 tls_address = WIT_USER_TLS + index * WIT_USER_THREAD_STRIDE;
+    thread->LibraryNotifications=(flags&WIT_THREAD_LIBRARY_NOTIFICATIONS)!=0;thread->LibraryPhase=thread->LibraryNotifications?1U:0U;thread->LibraryRequired=0;
+    if(thread->LibraryNotifications)for(WitU32 n=0;n<WIT_LIBRARY_CAPACITY;++n)if(process->Libraries[n].Token&&process->Libraries[n].EntryRva)thread->LibraryRequired=1;
     thread->NativeId=0;thread->SuspendCount=0;wit_user_exception_clear(thread);
     wit_user_thread_name_clear(thread);
     if(next_native_id>0xFFFFFFFFULL)return WIT_STATUS_NO_MEMORY;
+    thread->LibraryNotificationPage=0;thread->LibraryNotificationHandles[0]=thread->LibraryNotificationHandles[1]=0;
     thread->CompilerTls = 0;
+    for(WitU32 i=0;i<WIT_LIBRARY_CAPACITY;++i)thread->LibraryTls[i]=0;
     thread->Detached = 0;
     handle = wit_handle_grant(&process->Handles, WIT_HANDLE_THREAD, flags & WIT_THREAD_DETACHED ? 0 : WIT_RIGHT_JOIN);
     if (!handle) return WIT_STATUS_NO_MEMORY;
@@ -68,6 +73,13 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 ent
         ((WitU64 *)physical)[0x80 / 8] = address + WIT_COMPILER_TLS_DATA_OFFSET;
         for (WitU32 i = 0; i < process->TlsBytes; ++i) ((WitU8 *)physical)[WIT_COMPILER_TLS_DATA_OFFSET + i] = process->TlsTemplate[i];
         thread->CompilerTls = address;
+    }
+    if(!wit_user_library_tls_create_thread(process,index))goto failed;
+    if(thread->LibraryRequired){
+        const WitU64 address=WIT_USER_TLS+index*WIT_USER_THREAD_STRIDE+(WIT_LIBRARY_CAPACITY+2)*4096;
+        if(!wit_user_space_map(&process->Space,address,0,0))goto failed;
+        thread->LibraryNotificationPage=address;
+        for(WitU32 n=0;n<2;++n){thread->LibraryNotificationHandles[n]=wit_handle_grant(&process->Handles,WIT_HANDLE_LIBRARY_LIFECYCLE,WIT_RIGHT_READ);if(!thread->LibraryNotificationHandles[n])goto failed;}
     }
     physical = wit_user_space_physical(&process->Space, tls_address, 1, 0);
     tls = (WitU64 *)physical;
@@ -108,6 +120,10 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 ent
     ++process->ThreadCreates;
     return WIT_STATUS_OK;
 failed:
+    for(WitU32 n=0;n<2;++n)if(thread->LibraryNotificationHandles[n]){require(wit_handle_close(&process->Handles,thread->LibraryNotificationHandles[n])==WIT_STATUS_OK,"Thread notification handle rollback failed");thread->LibraryNotificationHandles[n]=0;}
+    if(thread->LibraryNotificationPage){require(wit_user_space_unmap_fixed(&process->Space,thread->LibraryNotificationPage),"Thread notification page rollback failed");thread->LibraryNotificationPage=0;}
+    wit_user_library_tls_reap_thread(process,index);
+    if(thread->CompilerTls){require(wit_user_space_unmap_fixed(&process->Space,thread->CompilerTls),"Compiler TLS rollback lost page");thread->CompilerTls=0;}
     if (raw_mapped) require(wit_user_space_unmap_fixed(&process->Space, tls_address), "Raw TLS rollback failed");
     while (mapped) {
         --mapped;
@@ -131,7 +147,8 @@ WitU64 wit_user_thread_query(const WitUserProcess *process, WitU64 address, WitU
     info.StackLow = thread->StackBottom;
     info.StackHigh = thread->StackTop;
     info.RawTls = thread->Tls;
-    info.CompilerTls = thread->CompilerTls;
+    info.CompilerTls = process->TlsBytes?thread->CompilerTls:0;
+    info.CompilerTlsHeader=thread->CompilerTls;
     info.ProcessId = process->Id;
     info.NativeId=thread->NativeId;info.Reserved=0;
     info.ProcessorCount = WIT_USER_PROCESSOR_COUNT; // The supported backend brings up one processor.
@@ -146,7 +163,7 @@ WitU64 wit_user_thread_create_reference(WitUserProcess* p,WitU64 input,WitU64 si
     WitThreadCreateRequest request;
     if(!wit_user_copy_from(&p->Space,input,(WitU8*)&request,sizeof(request)))return WIT_STATUS_BAD_ADDRESS;
     if(request.Version!=WIT_THREAD_CREATE_REFERENCE_VERSION)return WIT_STATUS_UNSUPPORTED;
-    if(request.Size!=sizeof(request)||request.Reserved||(request.Flags&~WIT_THREAD_START_SUSPENDED))return WIT_STATUS_INVALID_ARGUMENT;
+    if(request.Size!=sizeof(request)||request.Reserved||(request.Flags&~(WIT_THREAD_START_SUSPENDED|WIT_THREAD_LIBRARY_NOTIFICATIONS)))return WIT_STATUS_INVALID_ARGUMENT;
     if(request.StackBytes>WIT_USER_STACK_TOP-WIT_USER_STACK_BOTTOM)return WIT_STATUS_UNSUPPORTED;
     if(!wit_user_space_physical(&p->Space,request.Entry,0,1)||
         (request.NativeIdOutput&&!wit_user_buffer_writable(&p->Space,request.NativeIdOutput,sizeof(WitU32))))return WIT_STATUS_BAD_ADDRESS;
@@ -160,7 +177,7 @@ WitU64 wit_user_thread_create_reference(WitUserProcess* p,WitU64 input,WitU64 si
     // the private thread identity, stacks/TLS and suspend state all exist.
     const WitU64 handle=wit_handle_grant(&p->Handles,WIT_HANDLE_THREAD_REFERENCE,WIT_THREAD_REFERENCE_ALL);
     if(!handle)return WIT_STATUS_NO_MEMORY;
-    const WitU64 status=wit_user_prepare_thread(p,index,request.Entry,request.Argument,WIT_THREAD_DETACHED);
+    const WitU64 status=wit_user_prepare_thread(p,index,request.Entry,request.Argument,WIT_THREAD_DETACHED|(request.Flags&WIT_THREAD_LIBRARY_NOTIFICATIONS));
     if(status!=WIT_STATUS_OK){
         if(wit_handle_close(&p->Handles,handle)!=WIT_STATUS_OK)wit_panic("Create reference rollback failed");
         return status;

@@ -165,8 +165,9 @@ function(witos_select_gc_environment)
     list(APPEND sources "${WITOS_SOURCE_ROOT}/artifacts/runtime-config/source/rhconfig.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/crt_config.witos.cpp"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/crt_exit.witos.cpp"
+        "${WITOS_SOURCE_ROOT}/src/System.Native/library_lifecycle.c"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/crt_memory.witos.c")
-    set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/crt_memory.witos.c"
+    set_source_files_properties("${WITOS_SOURCE_ROOT}/src/System.Native/library_lifecycle.c" "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/crt_memory.witos.c"
         TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES COMPILE_OPTIONS "/std:c17;/O1")
     foreach(pair IN ITEMS "GCHelpers.cpp|gchelpers.witos.cpp" "FinalizerHelpers.cpp|finalizerhelpers.witos.cpp" "gcenv.ee.cpp|gcenv.ee.witos.cpp")
         string(REPLACE "|" ";" parts "${pair}")

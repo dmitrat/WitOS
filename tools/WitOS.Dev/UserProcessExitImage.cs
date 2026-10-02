@@ -35,7 +35,7 @@ internal static class UserProcessExitImage
             $"/I{Path.Combine(root, "src", "Runtime.NativeAot")}", $"/I{Path.Combine(root, "src", "System.Native")}",
             $"/I{Path.Combine(root, "src", "Kernel", "include")}", $"/I{Path.Combine(root, "tests", "User.X64")}"
         ];
-        string[] sources = ["src/Runtime.NativeAot/crt_exit.witos.cpp", "tests/User.X64/process_exit.cpp"
+        string[] sources = ["src/Runtime.NativeAot/crt_memory.witos.c", "src/System.Native/library_lifecycle.c", "src/System.Native/library.c", "src/System.Native/path.c", "src/System.Native/current_directory.c", "src/System.Native/file.c", "src/Runtime.NativeAot/crt_exit.witos.cpp", "tests/User.X64/process_exit.cpp", "tests/User.X64/library_threads.cpp", "tests/User.X64/library_tls_main.cpp"
         ];
         var objects = new List<string>();
         foreach (var name in sources)
@@ -45,6 +45,7 @@ internal static class UserProcessExitImage
                 [.. compile.Where(a => a != "/TP" && a != "/std:c++17"),
                     name.EndsWith(".c", StringComparison.Ordinal) ? "/TC" : "/TP",
                     name.EndsWith(".c", StringComparison.Ordinal) ? "/std:c17" : "/std:c++17",
+                    ..(name.EndsWith("/library_lifecycle.c",StringComparison.Ordinal)||name.EndsWith("/crt_exit.witos.cpp",StringComparison.Ordinal)?new[]{"/Gy"}:Array.Empty<string>()),
                     $"/Fo{obj}", Path.Combine(root, name)], root);
             objects.Add(obj);
         }

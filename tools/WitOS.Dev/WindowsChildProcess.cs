@@ -52,20 +52,34 @@ internal sealed class WindowsChildProcess : IDisposable
     public static WindowsChildProcess Start(string executable,IEnumerable<string> arguments,string directory,
         IReadOnlyDictionary<string,string>? environment,CapturePipe output,CapturePipe error,InputPipe? inputPipe=null)
     {
+        using var nullInput=inputPipe is null?File.OpenHandle(@"\\.\NUL",FileMode.Open,FileAccess.Read,FileShare.ReadWrite):null;
+        SafeHandle input=inputPipe is null?nullInput!:inputPipe.Reader.SafePipeHandle;
+        return StartWithHandles(executable,arguments,directory,environment,output.Writer.SafePipeHandle,error.Writer.SafePipeHandle,input);
+    }
+
+    internal static WindowsChildProcess StartWithFiles(string executable,IEnumerable<string> arguments,string directory,
+        SafeFileHandle output,SafeFileHandle error)
+    {
+        using var input=File.OpenHandle(@"\\.\NUL",FileMode.Open,FileAccess.Read,FileShare.ReadWrite);
+        return StartWithHandles(executable,arguments,directory,null,output,error,input);
+    }
+
+    private static WindowsChildProcess StartWithHandles(string executable,IEnumerable<string> arguments,string directory,
+        IReadOnlyDictionary<string,string>? environment,SafeHandle output,SafeHandle error,SafeHandle input)
+    {
         var job=CreateJobObjectW(IntPtr.Zero,null);
         if(job.IsInvalid){job.Dispose();throw Error();}
         try{
             var limits=new ExtendedLimits();limits.Basic.LimitFlags=0x2000; // KILL_ON_JOB_CLOSE
             if(!SetInformationJobObject(job,9,ref limits,(uint)Marshal.SizeOf<ExtendedLimits>()))throw Error();
-            using var nullInput=inputPipe is null?File.OpenHandle(@"\\.\NUL",FileMode.Open,FileAccess.Read,FileShare.ReadWrite):null;
-            SafeHandle input=inputPipe is null?nullInput!:inputPipe.Reader.SafePipeHandle;
-            if(!SetHandleInformation(input,1,1))throw Error();
+            foreach(var handle in new[]{input,output,error})
+                if(!SetHandleInformation(handle,1,1))throw Error();
             using var attributes=new Attributes();
-            attributes.Add(0x20002,[input.DangerousGetHandle(),output.Writer.SafePipeHandle.DangerousGetHandle(),error.Writer.SafePipeHandle.DangerousGetHandle()]);
+            attributes.Add(0x20002,[input.DangerousGetHandle(),output.DangerousGetHandle(),error.DangerousGetHandle()]);
             attributes.Add(0x2000D,[job.DangerousGetHandle()]); // PROC_THREAD_ATTRIBUTE_JOB_LIST
             var startup=new StartupInfoEx();startup.Startup.Size=Marshal.SizeOf<StartupInfoEx>();
             startup.Startup.Flags=0x100;startup.Startup.Input=input.DangerousGetHandle();
-            startup.Startup.Output=output.Writer.SafePipeHandle.DangerousGetHandle();startup.Startup.Error=error.Writer.SafePipeHandle.DangerousGetHandle();
+            startup.Startup.Output=output.DangerousGetHandle();startup.Startup.Error=error.DangerousGetHandle();
             startup.Attributes=attributes.Pointer;
             var variables=new SortedDictionary<string,string>(StringComparer.OrdinalIgnoreCase);
             foreach(DictionaryEntry item in Environment.GetEnvironmentVariables())variables[(string)item.Key]=(string)item.Value!;

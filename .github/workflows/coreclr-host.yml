@@ -1,0 +1,65 @@
+name: CoreCLR hosting Windows reference
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/CoreClrProbe/**'
+      - 'experiments/CoreClrHost/**'
+      - 'experiments/NativeAotProbe/upstream.lock.json'
+      - 'tools/WitOS.Dev/**'
+      - 'global.json'
+      - 'Directory.Build.props'
+      - '.github/workflows/coreclr-host.yml'
+  pull_request:
+    paths:
+      - 'experiments/CoreClrProbe/**'
+      - 'experiments/CoreClrHost/**'
+      - 'experiments/NativeAotProbe/upstream.lock.json'
+      - 'tools/WitOS.Dev/**'
+      - 'global.json'
+      - 'Directory.Build.props'
+      - '.github/workflows/coreclr-host.yml'
+permissions:
+  contents: read
+concurrency:
+  group: coreclr-host-reference-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  hosted-reference:
+    runs-on: windows-2025
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Set up .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          global-json-file: global.json
+      - name: Cache pinned build SDK packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .tools/host-nuget
+          key: host-sdk-${{ hashFiles('experiments/NativeAotProbe/upstream.lock.json', 'global.json') }}
+      - name: Build tools
+        run: dotnet build WitOS.slnx --configuration Release
+      - name: Build and execute pinned CoreCLR and JIT (Windows only)
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- coreclr-source
+      - name: Build upstream host and verify standard binding (Windows only)
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- coreclr-host
+      - name: Verify actual hosting PAL file contracts (hosted syscall model)
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- coreclr-host-files
+      - name: Upload source and binding evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coreclr-host-windows-reference
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            artifacts/coreclr-source/current-run.json
+            artifacts/coreclr-source/runs/
+            artifacts/coreclr-host-reference/current-run.json
+            artifacts/coreclr-host-reference/runs/
+            artifacts/coreclr-host-reference/build.log
+            artifacts/coreclr-host-file-pal/

@@ -37,6 +37,7 @@ internal static class UserImage
         await BuildFixtureAsync(root, output, msvc, constants, "entry", "UserFixture", "wit_user_test_image", "user_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "threads", "ThreadFixture", "wit_user_thread_image", "user_thread_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "waits", "WaitFixture", "wit_user_wait_image", "user_wait_image.h");
+        await BuildFixtureAsync(root, output, msvc, constants, "coreclr_memory", "CoreClrMemoryFixture", "wit_coreclr_memory_image", "coreclr_memory_image.h");
         await UserPeImage.BuildAsync(root, output, msvc, constants);
         await UserBootstrapImage.BuildAsync(root, output, msvc);
         await RuntimePortImage.BuildAsync(root, output, msvc);

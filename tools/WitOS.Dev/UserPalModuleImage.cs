@@ -48,7 +48,7 @@ internal static class UserPalModuleImage
                     $"/Fo{obj}", Path.Combine(root, name)], root);
             objects.Add(obj);
         }
-        string[] shared = ["native_start.obj", "dynamic_tls.witos.obj", "dynamic_thread.obj", "dynamic_image.obj",
+        string[] shared = ["native_start.obj", "dynamic_tls.witos.obj", "dynamic_thread.obj", "dynamic_library_lifecycle.obj", "dynamic_crt_memory.witos.obj", "dynamic_image.obj",
             "dynamic_tls_metadata.obj", "native_error.obj"];
         var path = Path.Combine(output, "PalModuleFixture.pe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),

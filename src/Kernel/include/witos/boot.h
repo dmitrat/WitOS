@@ -4,7 +4,7 @@
 #include "types.h"
 
 #define WIT_BOOT_MAGIC 0x574954424F4F5430ULL
-#define WIT_BOOT_VERSION 3U
+#define WIT_BOOT_VERSION 4U
 #define WIT_BOOT_SEED_BYTES 32U
 #define WIT_ARCH_X64 1U
 #define WIT_BOOT_SERVICES_EXITED 1ULL
@@ -12,6 +12,7 @@
 #define WIT_MEMORY_RESERVED 0U
 #define WIT_MEMORY_USABLE 1U
 #define WIT_MAX_IMAGE_SECTIONS 16U
+#define WIT_MAX_STORAGE_EXTENTS 128U
 #define WIT_IMAGE_READ 1U
 #define WIT_IMAGE_WRITE 2U
 #define WIT_IMAGE_EXECUTE 4U
@@ -32,6 +33,8 @@ typedef struct WitImageSection {
     WitU32 Reserved;
 } WitImageSection;
 
+typedef struct WitBootStorageExtent { WitU64 Base,Length; } WitBootStorageExtent;
+
 typedef struct WitBootInfo {
     WitU64 Magic;
     WitU32 Version;
@@ -50,11 +53,14 @@ typedef struct WitBootInfo {
     WitU8 *EntropySeed;
     WitU32 EntropySize;
     WitU32 EntropyReserved;
+    const WitBootStorageExtent* StorageExtents;
+    WitU64 StorageBytes;
+    WitU32 StorageExtentCount,StorageReserved;
 } WitBootInfo;
 
 _Static_assert(sizeof(void *) == 8, "The boot contract requires a 64-bit target");
 _Static_assert(sizeof(WitMemoryRegion) == 24, "Memory region ABI");
-_Static_assert(sizeof(WitBootInfo) == 88, "Boot info ABI");
+_Static_assert(sizeof(WitBootInfo) == 112, "Boot info ABI");
 
 WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot);
 

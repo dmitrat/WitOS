@@ -225,7 +225,7 @@ internal static class RuntimeConfigProbe
                 $"/I{Path.Combine(vc, "include")}", $"/I{Path.Combine(sdk, "ucrt")}", $"/Fo{crt}",
                 Path.Combine(root, "src", "Runtime.NativeAot", "crt_config.witos.cpp")], root);
         string[] shared = ["native_start.obj", "environment_pal_environment.witos.obj", "native_new.witos.obj",
-            "native_error.obj", "native_environment.obj", "dynamic_image.obj", "dynamic_thread.obj",
+            "native_error.obj", "native_environment.obj", "dynamic_image.obj", "dynamic_thread.obj", "dynamic_library_lifecycle.obj",
             "dynamic_tls.witos.obj", "dynamic_tls_metadata.obj", "gcenv.witos.obj", "pal_pal.witos.obj", "pal_pal_error.witos.obj", "pal_pal_memory.witos.obj", "module_pal_module.witos.obj", "crst.witos.obj", "mutex.witos.obj"];
         var image = Path.Combine(output, "RuntimeConfigFixture.pe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),

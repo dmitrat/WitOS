@@ -43,6 +43,18 @@ if(args.FirstOrDefault()=="capture-limit"){
 }
 var root=Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,"../../../../.."));
 var scratch=Path.Combine(root,"artifacts/q0-tests",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(scratch);
+if(args.Contains("--qemu-cleanup")){await QemuCleanupTests.RunAsync(root,scratch);return 0;}
+if(args.Contains("--dll-tls-reference")){await LibraryTls.RunAsync(root,scratch);return 0;}
+if(args.Contains("--dll-thread-reference")){await ThreadNotifications.RunAsync(root,scratch);return 0;}
+if(args.Contains("--pe-imports-asan")){await PeImports.RunAsync(root,scratch,true);return 0;}
+if(args.Contains("--pe-imports")){await PeImports.RunAsync(root,scratch);return 0;}
+if(args.Contains("--native-library")){await NativeLibrary.RunAsync(root,scratch);return 0;}
+if(args.Contains("--native-directory")){await NativeDirectory.RunAsync(root,scratch);return 0;}
+if(args.Contains("--native-paths")){await NativePaths.RunAsync(root,scratch);return 0;}
+if(args.Contains("--file-view-faults")){await FileViewFaults.RunAsync(root,scratch);return 0;}
+if(args.Contains("--assembly-package-native")){await AssemblyPackageNative.RunAsync(root,scratch);return 0;}
+if(args.Contains("--assembly-package")){await AssemblyPackageTests.RunAsync();Console.WriteLine("PASS: assembly package wire format, unchanged bytes, canonical names and quotas");return 0;}
+if(args.Contains("--virtual-gap")){await VirtualGap.RunAsync(root,scratch);return 0;}
 if(args.Contains("--pe-fuzz")){await NativeCoverage.FuzzAsync(root,scratch);return 0;}
 if(args.Contains("--pe-coverage")){await PeCorpus.RunAsync(root,scratch,true);return 0;}
 if(args.Contains("--pe-only")){await PeCorpus.RunAsync(root,scratch);return 0;}
@@ -92,14 +104,35 @@ await Test("MissingSecondWorkloadRejected",()=>{
     var broken=valid.Remove(valid.LastIndexOf(ProtocolFixtures.Worker,StringComparison.Ordinal),ProtocolFixtures.Worker.Length);
     Check(Accept(valid),"Valid two-base protocol rejected");Check(!Accept(broken),"Second workload evidence absent but accepted");return Task.CompletedTask;
 });
+await Test("NativeDllTlsReference",()=>LibraryTls.RunAsync(root,scratch));
+await Test("NativeDllThreadReference",()=>ThreadNotifications.RunAsync(root,scratch));
+await Test("NativeImportDescriptors",()=>PeImports.RunAsync(root,scratch));
+await Test("NativeLibraryExports",()=>NativeLibrary.RunAsync(root,scratch));
+await Test("NativeDirectoryEnumeration",()=>NativeDirectory.RunAsync(root,scratch));
+await Test("NativePathNormalization",()=>NativePaths.RunAsync(root,scratch));
+await Test("FileViewFailureTransactions",()=>FileViewFaults.RunAsync(root,scratch));
+await Test("AssemblyPackageCanonicalBytes",AssemblyPackageTests.RunAsync);
+await Test("AssemblyPackageNativeGuarded",()=>AssemblyPackageNative.RunAsync(root,scratch));
+await Test("CoreClrHostCiPrerequisites",()=>{
+    var ci=File.ReadAllText(Path.Combine(root,".github/workflows/coreclr-host.yml"));
+    var pr=ci.IndexOf("  pull_request:",StringComparison.Ordinal);
+    var permissions=ci.IndexOf("permissions:",StringComparison.Ordinal);
+    Check(pr>0&&permissions>pr,"Hosting CI trigger sections missing");
+    foreach(var section in new[]{ci[..pr],ci[pr..permissions]})
+        Check(section.Contains("experiments/CoreClrHost/**",StringComparison.Ordinal)&&section.Contains("upstream.lock.json",StringComparison.Ordinal),"Hosting/pin changes do not select CI");
+    var source=ci.IndexOf("-- coreclr-source",StringComparison.Ordinal);
+    Check(source>=0&&ci.IndexOf("-- coreclr-host",StringComparison.Ordinal)>source,"Hosting reference lacks its source-built runtime prerequisite");
+    Check(ci.Contains("-- coreclr-host-files",StringComparison.Ordinal),"Hosting PAL contract CI gate missing");
+    return Task.CompletedTask;
+});
 await Test("BootChangesSelectManagedCi",()=>{
     var ci=File.ReadAllText(Path.Combine(root,".github/workflows/nativeaot.yml"));
     var pr=ci.IndexOf("  pull_request:",StringComparison.Ordinal);
     var dispatch=ci.IndexOf("  workflow_dispatch:",StringComparison.Ordinal);
     Check(pr>0&&dispatch>pr,"CI trigger sections missing");
     foreach(var section in new[]{ci[..pr],ci[pr..dispatch]})
-        Check(section.Contains("- 'src/Boot.Uefi/**'",StringComparison.Ordinal)&&section.Contains("- 'tests/WitOS.Dev.Tests/**'",StringComparison.Ordinal),"Boot/tool tests missing from a trigger");
-    foreach(var command in new[]{"runtime-source","runtime-config","runtime-boot-run","-- test","--pe-coverage","--pe-fuzz"})
+        Check(section.Contains("- 'src/Boot.Uefi/**'",StringComparison.Ordinal)&&section.Contains("- 'tests/WitOS.Dev.Tests/**'",StringComparison.Ordinal)&&section.Contains("- 'src/Runtime.CoreClr/**'",StringComparison.Ordinal),"Boot/tool/CoreCLR paths missing from a trigger");
+    foreach(var command in new[]{"runtime-source","runtime-config","runtime-boot-run","-- test","--pe-coverage","--pe-fuzz","coreclr-functions","coreclr-memory","coreclr-storage"})
         Check(ci.Contains(command,StringComparison.Ordinal),"Required M3 CI gate missing: "+command);
     return Task.CompletedTask;
 });
@@ -142,7 +175,8 @@ await Test("RootDeadlineAndPartialOutput",async()=>{
 await Test("NormalExitReapsPipeIndependentDescendant",async()=>{
     var pid=Path.Combine(scratch,"normal-child.pid");var time=Stopwatch.StartNew();
     var r=await Processes.RunAsync("dotnet",Child("launcher-no-pipes",pid),root,15);
-    Check(!r.TimedOut&&r.ExitCode==0,"Normal exit changed");
+    await File.WriteAllTextAsync(Path.Combine(scratch,"normal-descendant.json"),JsonSerializer.Serialize(new{result=r,elapsed=time.Elapsed,childPidFileExists=File.Exists(pid)},new JsonSerializerOptions{WriteIndented=true}));
+    Check(!r.TimedOut&&r.ExitCode==0,$"Normal exit changed: timeout={r.TimedOut}, exit={r.ExitCode}, stdout={r.Output.Length}, stderr={r.Error.Length}; see {scratch}");
     Check(time.Elapsed<TimeSpan.FromSeconds(6),"Waited for a pipe-independent child to exit naturally");
     try{using var child=Process.GetProcessById(int.Parse(File.ReadAllText(pid)));Check(child.HasExited,"Daemon escaped command ownership");}catch(ArgumentException){}
 });
@@ -155,7 +189,13 @@ await Test("LaunchFailureAndEnvironment",async()=>{
 });
 await Test("ConcurrentPipesStayIsolated",async()=>{
     var runs=await Task.WhenAll(Enumerable.Range(0,4).Select(i=>Processes.RunAsync("dotnet",Child("echo",i.ToString()),root,15)));
-    for(int i=0;i<runs.Length;i++)Check(JsonSerializer.Deserialize<string[]>(runs[i].Output)!.Single()==i.ToString(),"Cross-process pipe leak");
+    await File.WriteAllTextAsync(Path.Combine(scratch,"concurrent-pipes.json"),JsonSerializer.Serialize(runs,new JsonSerializerOptions{WriteIndented=true}));
+    for(int i=0;i<runs.Length;i++){
+        var result=runs[i];
+        Check(!result.TimedOut&&result.ExitCode==7,$"Concurrent child {i}: timeout={result.TimedOut}, exit={result.ExitCode}, stdout={result.Output.Length}, stderr={result.Error.Length}; see {scratch}");
+        Check(result.Error=="stderr-tail",$"Concurrent child {i}: stderr missing or crossed");
+        Check(JsonSerializer.Deserialize<string[]>(result.Output)!.Single()==i.ToString(),$"Concurrent child {i}: cross-process pipe leak");
+    }
 });
 await Test("ArgumentRoundtrip",()=>{
     string[] values=["cl.exe","","-IC:\\with spaces\\","-DNAME=\"two words\"","\\\"","a\"\"b","tab\tvalue"];
@@ -287,6 +327,19 @@ await Test("LegacyHistoryAndPublicationFailure",async()=>{
     using var status=JsonDocument.Parse(File.ReadAllText(Path.Combine(dir,"current-run.json")));
     Check(status.RootElement.GetProperty("status").GetString()=="failed","Publication failure missing");
 });
+await Test("SocketQmpSequencingAndErrors",QemuCleanupTests.ProtocolAsync);
+await Test("CoreClrDirectAndDelayImports",()=>CoreClrImportTests.RunAsync(scratch));
+await Test("CoreClrProfilePinMismatch",async()=>{
+    var isolated=Path.Combine(scratch,"coreclr-profile");
+    Directory.CreateDirectory(Path.Combine(isolated,"experiments/NativeAotProbe"));
+    Directory.CreateDirectory(Path.Combine(isolated,"experiments/CoreClrProbe"));
+    File.Copy(Path.Combine(root,"experiments/NativeAotProbe/upstream.lock.json"),Path.Combine(isolated,"experiments/NativeAotProbe/upstream.lock.json"));
+    var profile=System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(root,"experiments/CoreClrProbe/profile.json")))!;
+    profile["runtimeCommit"]=new string('0',40);
+    File.WriteAllText(Path.Combine(isolated,"experiments/CoreClrProbe/profile.json"),profile.ToJsonString());
+    bool rejected=false;try{await CoreClrExperiment.RunAsync(isolated);}catch(InvalidDataException){rejected=true;}
+    Check(rejected,"CoreCLR mismatched source pin accepted");
+});
 foreach(var test in Q1Tests.Cases(root,scratch))await Test(test.Name,test.Run);
-if(args.Contains("--pe"))await Test("GuardedPeCorpus",()=>PeCorpus.RunAsync(root,scratch));
+if(args.Contains("--pe")){await Test("VirtualGapPropertyCases",()=>VirtualGap.RunAsync(root,scratch));await Test("GuardedPeCorpus",()=>PeCorpus.RunAsync(root,scratch));}
 Console.WriteLine($"HOST TESTS: {passed} passed, {failures.Count} failed");return failures.Count==0?0:1;

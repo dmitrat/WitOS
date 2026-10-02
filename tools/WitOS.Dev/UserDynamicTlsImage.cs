@@ -32,7 +32,7 @@ internal static class UserDynamicTlsImage
             $"/I{Path.Combine(root, "src", "Kernel", "include")}", $"/I{Path.Combine(root, "tests", "User.X64")}"
         ];
         string[] sources = ["src/Runtime.NativeAot/tls.witos.cpp", "src/Runtime.NativeAot/native_new.witos.cpp",
-            "src/System.Native/thread.c", "src/System.Native/image.c", "src/System.Native/tls_metadata.c", "tests/User.X64/dynamic_tls_entry.c",
+            "src/System.Native/thread.c", "src/System.Native/library_lifecycle.c", "src/Runtime.NativeAot/crt_memory.witos.c", "src/System.Native/image.c", "src/System.Native/tls_metadata.c", "tests/User.X64/dynamic_tls_entry.c",
             "tests/User.X64/dynamic_tls.cpp", "tests/User.X64/dynamic_tls_access.cpp"];
         var objects = new List<string>();
         foreach (var source in sources)
@@ -42,6 +42,7 @@ internal static class UserDynamicTlsImage
                 [.. compile.Where(a => a != "/TP" && a != "/std:c++17"),
                     source.EndsWith(".c", StringComparison.Ordinal) ? "/TC" : "/TP",
                     source.EndsWith(".c", StringComparison.Ordinal) ? "/std:c17" : "/std:c++17",
+                    ..(source.EndsWith("/library_lifecycle.c",StringComparison.Ordinal)?new[]{"/Gy"}:Array.Empty<string>()),
                     $"/Fo{obj}", Path.Combine(root, source)], root);
             objects.Add(obj);
         }

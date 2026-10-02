@@ -5,6 +5,8 @@
 #include <new>
 extern "C" DWORD WINAPI wit_native_environment_get(LPCWSTR, LPWSTR, DWORD);
 extern "C" decltype(&GetEnvironmentVariableW) const __imp_GetEnvironmentVariableW;
+extern "C" decltype(&GetEnvironmentStringsW) const __imp_GetEnvironmentStringsW;
+extern "C" decltype(&FreeEnvironmentStringsW) const __imp_FreeEnvironmentStringsW;
 
 #define ENTRY(name, value) { name, value, (uint32_t)(sizeof(name) / sizeof(wchar_t) - 1), (uint32_t)(sizeof(value) / sizeof(wchar_t) - 1) }
 static const wchar_t long_value[] =
@@ -41,6 +43,7 @@ static const WitPalEnvironmentEntry huge[] = { { L"Name", L"Value", 4, ~0U } };
 static wchar_t oversized[32769];
 static WitU64 mode;
 static volatile WitU64 constructed, destroyed;
+static wchar_t* worker_block;
 static bool equal(const wchar_t* a, const wchar_t* b, size_t size)
 {
     for (size_t i = 0; i < size; ++i) if (a[i] != b[i]) return false;
@@ -68,6 +71,43 @@ static bool lookup()
         PalGetEnvironmentVariable(L"DOTNET_GCHeapHardLimit", buffer, 6) == 5 &&
         equal(buffer, L"40000", 6) && buffer[6] == 0x7777 && GetLastError() == saved;
 }
+static bool block_matches(const wchar_t* block)
+{
+    if(!block)return false;
+    if(mode==1)return block[0]==0&&block[1]==0;
+    size_t at=0;
+    for(const auto& entry:entries){
+        if(!equal(block+at,entry.Name,entry.NameLength))return false;at+=entry.NameLength;
+        if(block[at++]!=L'=')return false;
+        if(!equal(block+at,entry.Value,entry.ValueLength))return false;at+=entry.ValueLength;
+        if(block[at++])return false;
+    }
+    return block[at]==0;
+}
+static bool environment_blocks()
+{
+    WitUserMemoryInfo before,after;if(!snapshot(&before))return false;
+    SetLastError(0x7890);
+    auto first=GetEnvironmentStringsW();auto second=__imp_GetEnvironmentStringsW();
+    if(!first||!second||first==second||!block_matches(first)||!block_matches(second)||GetLastError()!=0x7890)return false;
+    first[0]=L'X';if(!block_matches(second)||!lookup())return false;
+    if(FreeEnvironmentStringsW(first+1)||GetLastError()!=ERROR_INVALID_PARAMETER)return false;
+    SetLastError(0x6543);
+    if(!__imp_FreeEnvironmentStringsW(first)||!FreeEnvironmentStringsW(second)||GetLastError()!=0x6543)return false;
+    if(FreeEnvironmentStringsW(first)||FreeEnvironmentStringsW(nullptr)||GetLastError()!=ERROR_INVALID_PARAMETER)return false;
+    wchar_t* held[WIT_PAL_ENV_BLOCK_CAPACITY];
+    for(uint32_t i=0;i<WIT_PAL_ENV_BLOCK_CAPACITY;++i)if(!(held[i]=GetEnvironmentStringsW()))return false;
+    if(GetEnvironmentStringsW()||GetLastError()!=ERROR_NOT_ENOUGH_MEMORY)return false;
+    for(auto block:held)if(!FreeEnvironmentStringsW(block))return false;
+    // A foreign allocation must never be mistaken for an environment block.
+    auto foreign=new(std::nothrow) wchar_t[4];if(!foreign)return false;
+    if(FreeEnvironmentStringsW(foreign)||GetLastError()!=ERROR_INVALID_PARAMETER)return false;delete[] foreign;
+    void* slots[128];for(size_t i=0;i<128;++i)if(!(slots[i]=::operator new(1,std::nothrow)))return false;
+    if(GetEnvironmentStringsW()||GetLastError()!=ERROR_NOT_ENOUGH_MEMORY)return false;
+    for(auto slot:slots)::operator delete(slot);
+    auto retry=GetEnvironmentStringsW();if(!block_matches(retry)||!FreeEnvironmentStringsW(retry))return false;
+    return snapshot(&after)&&same_memory(before,after);
+}
 class EnvironmentLocal {
 public:
     EnvironmentLocal() noexcept { if (!lookup()) wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT); ++constructed; }
@@ -79,9 +119,11 @@ static WitU64 worker(WitU64 value)
     for (size_t i = 0; i < 6; ++i) {
         SetLastError((DWORD)(0x1000 + value));
         if (!lookup()) return 1510;
+        auto block=GetEnvironmentStringsW();if(!block_matches(block)||!FreeEnvironmentStringsW(block))return 1512;
         (void)wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr);
         if (GetLastError() != (mode == 1 ? ERROR_ENVVAR_NOT_FOUND : 0x1000 + value)) return 1511;
     }
+    if(value==2){worker_block=GetEnvironmentStringsW();if(!worker_block)return 1513;}
     return WIT_TEST_EXIT_CODE;
 }
 extern "C" WitU64 wit_environment_configure(const WitUserStartup* startup)
@@ -91,6 +133,7 @@ extern "C" WitU64 wit_environment_configure(const WitUserStartup* startup)
     wchar_t sentinel = 0x1234;
     if (wit_pal_environment_initialize(nullptr, 0) || GetLastError() != ERROR_NOT_READY ||
         PalGetEnvironmentVariable(L"Name", &sentinel, 1) || GetLastError() != ERROR_NOT_READY || sentinel != 0x1234) return 1500;
+    if(GetEnvironmentStringsW()||GetLastError()!=ERROR_NOT_READY)return 1507;
     wit_native_process_image_initialize(startup);
     WitUserMemoryInfo before, after;
     if (!snapshot(&before)) return 1501;
@@ -145,6 +188,7 @@ extern "C" WitU64 wit_environment_program()
         wchar_t unicode[6];
         if (PalGetEnvironmentVariable(L"DOTNET_Text", unicode, 6) != 5 || !equal(unicode, entries[2].Value, 6)) return 1525;
     }
+    if(!environment_blocks())return 1527;
     WitUserMemoryInfo before, after;
     if (!snapshot(&before)) return 1530;
     const unsigned char text[] = { 0xD0,0x96,0xD7,0x90,0xE2,0x82,0xAC,0xF0,0x9F,0x9A,0x80,0 };
@@ -174,6 +218,8 @@ extern "C" WitU64 wit_environment_program()
     if (wit_native_thread_create(worker, 2, &handles[0]) != WIT_STATUS_OK ||
         wit_native_call(WIT_CALL_THREAD_JOIN, handles[0], 0, 0, &result) != WIT_STATUS_OK ||
         result != WIT_TEST_EXIT_CODE || constructed != 4 || destroyed != 3) return 1542;
+    if(!block_matches(worker_block)||!FreeEnvironmentStringsW(worker_block))return 1543;
+    worker_block=nullptr;
     return WIT_TEST_EXIT_CODE;
 }
 extern "C" WitU64 wit_environment_finish(WitU64 result)

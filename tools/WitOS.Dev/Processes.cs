@@ -29,9 +29,56 @@ internal static class Processes
         string directory, int timeoutSeconds, Func<Stream, Func<string>, CancellationToken, Task> control)
         => RunCoreAsync(executable, arguments, directory, timeoutSeconds, null, control);
 
+    public static Task<ProcessResult> RunWithTimeoutSignalAsync(string executable, IEnumerable<string> arguments,
+        string directory, int timeoutSeconds, Func<CancellationToken, Task> control)
+        => RunCoreAsync(executable, arguments, directory, timeoutSeconds, null, (_, _, token) => control(token), false);
+
+    // QEMU uses file-backed standard streams: no inherited named-pipe endpoints
+    // can participate in its exit path. Files remain available on cleanup failure.
+    public static async Task<ProcessResult> RunWithFilesAsync(string executable,IEnumerable<string> arguments,
+        string directory,int timeoutSeconds,string outputPath,string errorPath,Func<CancellationToken,Task> control)
+    {
+        if(timeoutSeconds<=0)throw new ArgumentOutOfRangeException(nameof(timeoutSeconds));
+        using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+        using var output=File.OpenHandle(outputPath,FileMode.Create,FileAccess.Write,FileShare.ReadWrite);
+        using var error=File.OpenHandle(errorPath,FileMode.Create,FileAccess.Write,FileShare.ReadWrite);
+        using var child=WindowsChildProcess.StartWithFiles(executable,arguments,directory,output,error);
+        output.Dispose();error.Dispose();
+        bool timedOut=false;
+        Exception? failure=null;
+        try
+        {
+            while(!child.HasExited)
+            {
+                deadline.Token.ThrowIfCancellationRequested();
+                if(new FileInfo(outputPath).Length>BoundedCapture.Limit||new FileInfo(errorPath).Length>BoundedCapture.Limit)
+                    throw new InvalidDataException("Process output exceeded file capture limit.");
+                await Task.Delay(10,deadline.Token);
+            }
+            timedOut=deadline.IsCancellationRequested;
+        }
+        catch(OperationCanceledException)when(deadline.IsCancellationRequested){timedOut=true;}
+        catch(Exception exception){failure=exception;}
+        var cleanup=Stopwatch.StartNew();
+        if(timedOut)
+            failure=await RequestStopAsync((_,_,token)=>control(token),Stream.Null,()=>"",cleanup)??failure;
+        try
+        {
+            child.Terminate();
+            await child.ConfirmTerminationAsync(CleanupBudget-cleanup.Elapsed);
+        }
+        catch(Exception exception)
+        {
+            if(failure is null)throw;
+            failure.Data["CleanupError"]=exception.ToString();
+        }
+        if(failure is not null)ExceptionDispatchInfo.Capture(failure).Throw();
+        return new(child.ExitCode,await BoundedCapture.ReadFileAsync(outputPath),await BoundedCapture.ReadFileAsync(errorPath),timedOut);
+    }
+
     private static async Task<ProcessResult> RunCoreAsync(string executable, IEnumerable<string> arguments,
         string directory, int timeoutSeconds, IReadOnlyDictionary<string, string>? environment,
-        Func<Stream, Func<string>, CancellationToken, Task>? timeoutControl)
+        Func<Stream, Func<string>, CancellationToken, Task>? timeoutControl, bool standardInputControl = true)
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Process containment requires Windows 10 or newer.");
         if (timeoutSeconds <= 0) throw new ArgumentOutOfRangeException(nameof(timeoutSeconds));
@@ -39,7 +86,7 @@ internal static class Processes
         using var stopIo = new CancellationTokenSource();
         using var outputPipe = new WindowsChildProcess.CapturePipe();
         using var errorPipe = new WindowsChildProcess.CapturePipe();
-        using var inputPipe = timeoutControl is null ? null : new WindowsChildProcess.InputPipe();
+        using var inputPipe = timeoutControl is null || !standardInputControl ? null : new WindowsChildProcess.InputPipe();
         try
         {
             await Task.WhenAll(outputPipe.ConnectAsync(deadline.Token), errorPipe.ConnectAsync(deadline.Token),
@@ -78,8 +125,8 @@ internal static class Processes
             catch (Exception error) { failure = error; }
 
             var cleanup = Stopwatch.StartNew();
-            if (timedOut && inputPipe is not null)
-                failure = await RequestStopAsync(timeoutControl!, inputPipe.Writer, stdout.Snapshot, cleanup) ?? failure;
+            if (timedOut && timeoutControl is not null)
+                failure = await RequestStopAsync(timeoutControl, inputPipe?.Writer ?? Stream.Null, stdout.Snapshot, cleanup) ?? failure;
             if (timedOut || failure is not null)
             {
                 stopIo.Cancel();

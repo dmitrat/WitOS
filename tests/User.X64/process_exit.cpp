@@ -1,8 +1,13 @@
 #include "native_process.h"
 #include "error.h"
+extern "C" {
+#include "library.h"
+}
 #include "protocol.h"
 #include <stdlib.h>
 
+extern "C" WitU64 wit_library_threads_probe(unsigned);
+extern "C" WitU64 wit_library_tls_main_probe(unsigned,WitU64);
 static WitU64 mode, sequence, called;
 static volatile WitU64 released, attempted;
 static __declspec(thread) bool worker_thread;
@@ -11,6 +16,7 @@ static WitU64* report() { return (WitU64*)WIT_GC_INFO_REPORT; }
 static void require(bool value) { if (!value) wit_native_fail_fast(0xFFFF1010ULL); }
 static void tick() { require(wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr) == WIT_STATUS_OK); }
 static void count_call() { report()[3] = ++called; }
+static void dll_atexit(){require(tls_destroyed&&report()[8]==73115);report()[9]=1;}
 static void extra() { sequence = sequence * 10 + 4; }
 static void from_tls() { sequence = sequence * 10 + 3; }
 struct Cleanup {
@@ -75,6 +81,7 @@ static void notification(void* context)
     if (!worker_thread) {
         require(context == &main_id && id == main_id && !report()[7]);
         require(atexit(count_call) != 0); // atexit is already drained and closed.
+        if(mode==16)require(report()[8]==73115&&report()[9]==1);
         if (mode <= 1) require(sequence == 3241);
         report()[7] = 1;
         if (mode == 12) { report()[1] = 1; wit_native_thread_notify_exit(); }
@@ -164,6 +171,29 @@ extern "C" WitU64 wit_native_main(const WitUserStartup* startup)
     if (mode == 14) { report()[1] = 1; wit_native_thread_notify_exit(); }
     require(atexit(nullptr) != 0 && atexit((void(__cdecl*)())startup) != 0 &&
         atexit((void(__cdecl*)())&sequence) != 0);
+    if(mode==20||mode==21)return wit_library_tls_main_probe((unsigned)mode,((const WitUserTestConfig*)startup)->KernelProbe);
+    if(mode>=17&&mode<=19)return wit_library_threads_probe((unsigned)mode);
+    if(mode==16){
+        WitU64 provider=0,traceAddress=0,dataAddress=0,root=0,reader=0,pc=0;
+        const char providerPath[]="/native/WitLibraryFixture.dll",rootPath[]="/native/initparent.dll";
+        require(wit_native_library_load(providerPath,sizeof(providerPath)-1,&provider)==WIT_STATUS_OK);
+        require(wit_native_library_symbol(provider,"LibraryData",11,0,&dataAddress)==WIT_STATUS_OK);
+        require(wit_native_library_symbol(provider,"LibraryTraceTarget",18,0,&traceAddress)==WIT_STATUS_OK);
+        *(int*)dataAddress=731;*(WitU64*)traceAddress=(WitU64)(report()+8);
+        require(wit_native_library_load(rootPath,sizeof(rootPath)-1,&root)==WIT_STATUS_OK&&report()[8]==73115);
+        require(wit_native_library_symbol(root,"ParentValue",11,0,&pc)==WIT_STATUS_OK);
+        WitLibraryInfo info;
+        require(wit_native_library_acquire_reader(pc,&info,&reader)==WIT_STATUS_OK);
+        require(wit_native_library_shutdown()==WIT_STATUS_BUSY&&report()[8]==73115);
+        require(wit_native_library_info(root,&info)==WIT_STATUS_OK&&info.References==1);
+        require(wit_native_library_release_reader(reader)==WIT_STATUS_OK&&atexit(dll_atexit)==0);
+        wit_native_process_shutdown();
+        require(tls_destroyed&&report()[5]==1&&report()[7]==1&&report()[9]==1&&report()[8]==7311584);
+        require(wit_native_library_info(root,&info)==WIT_STATUS_BAD_HANDLE&&wit_native_library_info(provider,&info)==WIT_STATUS_BAD_HANDLE);
+        root=99;require(wit_native_library_load(rootPath,sizeof(rootPath)-1,&root)==WIT_STATUS_CLOSED&&root==99);
+        wit_native_process_shutdown();require(wit_native_library_shutdown()==WIT_STATUS_OK&&report()[8]==7311584);
+        require(wit_native_error_get()==0xABCDEF12);report()[4]=1;return WIT_TEST_EXIT_CODE;
+    }
     WitU64 handles[3] = {}, result;
     if (mode <= 1) {
         require(atexit(second) == 0);

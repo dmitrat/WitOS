@@ -41,12 +41,17 @@ internal static class NativeCoverage
             ["/nologo", "/MD", "/TC", "/std:c17", "/O1", "/Zi", "/W4", "/WX", "/clang:-fsanitize=fuzzer,address", "-fuse-ld=lld",
              "/I"+Path.Combine(vc,"include"), "/I"+Path.Combine(sdk,"Include",version,"ucrt"),
              "/I"+Path.Combine(root,"src/Kernel/include"), "/Fo"+output+"/", "/Fe"+exe,
-             Path.Combine(root,"tests/WitOS.Dev.Tests/PeFuzzer.c"), Path.Combine(root,"src/Kernel/pe.c"), "/link",
+             Path.Combine(root,"tests/WitOS.Dev.Tests/PeFuzzer.c"), Path.Combine(root,"src/Kernel/pe.c"), Path.Combine(root,"src/Kernel/pe_imports.c"),Path.Combine(root,"src/Kernel/pe_exports.c"), "/link",
              "/LIBPATH:"+Path.Combine(vc,"lib/x64"), "/LIBPATH:"+Path.Combine(sdk,"Lib",version,"ucrt/x64"),
              "/LIBPATH:"+Path.Combine(sdk,"Lib",version,"um/x64")], root);
         var corpus = Path.Combine(output, "fuzz-corpus"); Directory.CreateDirectory(corpus);
         var image = Path.Combine(root, "artifacts/runtime-readiness/guest-driver/WitOS.NativeAotBoot.pe");
         File.Copy(image, Path.Combine(corpus, "valid.pe"));
+        var library = await NativeLibraryImage.BuildAsync(root, output, msvc);
+        File.Copy(library, Path.Combine(corpus, "library.dll"));
+        var dependencies=await NativeLibraryImage.BuildDependenciesAsync(root,output,msvc);
+        var tls=await NativeTlsLibraryImage.BuildAsync(root,output,msvc);File.Copy(tls,Path.Combine(corpus,"statictls.dll"));
+        foreach(var dependency in dependencies)File.Copy(dependency.Value,Path.Combine(corpus,dependency.Key));
         await File.WriteAllBytesAsync(Path.Combine(corpus, "header.bin"), (await File.ReadAllBytesAsync(image))[..64]);
         string[] arguments = [corpus, "-runs=500", "-seed=1462848041", "-max_len=1048576", "-timeout=5", "-rss_limit_mb=512", "-artifact_prefix="+output+"/"];
         var run = await Processes.RunAsync(exe, arguments, output, 120, new Dictionary<string,string>
@@ -59,8 +64,9 @@ internal static class NativeCoverage
         await File.WriteAllTextAsync(Path.Combine(output,"native-fuzz.json"),JsonSerializer.Serialize(new
         {
             hostOnly=true,llvmVersion=Version,installerSha256=Digest,runs=500,seed=1462848041,
+            profiles=new[]{"runtime-full","library-runtime-unwind","library-imports","library-static-tls"},librarySha256=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(library))).ToLowerInvariant(),
             imageSha256=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(image))).ToLowerInvariant(),
-            sources=new[]{"src/Kernel/pe.c","src/Kernel/include/witos/unwind_metadata.h","tests/WitOS.Dev.Tests/PeFuzzer.c"}
+            sources=new[]{"src/Kernel/pe.c","src/Kernel/pe_imports.c","src/Kernel/include/witos/pe_imports.h","src/Kernel/pe_exports.c","src/Kernel/include/witos/unwind_metadata.h","tests/WitOS.Dev.Tests/PeFuzzer.c"}
                 .Select(file=>new{file,sha256=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root,file)))).ToLowerInvariant()})
         },new JsonSerializerOptions{WriteIndented=true}));
         Console.WriteLine("PASS: 500 bounded libFuzzer/ASan parser runs; this is a smoke budget, not exhaustive fuzzing.");

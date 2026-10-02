@@ -22,6 +22,27 @@ HRESULT OOPStackUnwinder::GetFunctionEntry(DWORD64 pc,PVOID output,DWORD bytes)
 }
 [[noreturn]] void wit_unwind_access_failure(WitUnwindFailureReason reason){throw WitUnwindAccessFailure{reason};}
 extern "C" bool describe_host_image(const void*,WitUserImageInfo*);
+struct DynamicView {const WitUserImageInfo* Image;RUNTIME_FUNCTION Entry;};
+static const void* dynamic_read(void* value,DWORD64 address,DWORD size,bool executable)
+{
+    auto view=(DynamicView*)value;const auto image=view->Image;
+    const auto table=(DWORD64)&view->Entry;
+    if(!executable&&address>=table&&address-table<sizeof(view->Entry)&&size<=sizeof(view->Entry)-(address-table))return (const void*)address;
+    if(!size||address<image->Base||address-image->Base>=image->ImageSize||size>image->ImageSize-(address-image->Base))return nullptr;
+    const auto rva=address-image->Base;
+    for(WitU32 i=0;i<image->RangeCount;++i){const auto& r=image->Ranges[i];
+        if(rva>=r.Rva&&rva-r.Rva<r.InitializedSize&&size<=r.InitializedSize-(rva-r.Rva)&&
+            (r.Flags&WIT_IMAGE_INFO_READ)&&(!executable||(r.Flags&WIT_IMAGE_INFO_EXECUTE)))return (const void*)address;
+    }
+    return nullptr;
+}
+static PRUNTIME_FUNCTION dynamic_lookup(void* value,DWORD64 pc)
+{
+    auto view=(DynamicView*)value;
+    if(pc>=view->Image->Base+view->Entry.BeginAddress&&pc<view->Image->Base+view->Entry.EndAddress)return &view->Entry;
+    DWORD64 base=0;auto result=RtlLookupFunctionEntry(pc,&base,nullptr);
+    return base==view->Image->Base?result:nullptr;
+}
 static unsigned count;
 static bool check(void(*pc)(),CONTEXT seed,ULONG handlerType=0,bool epilog=false,bool requireHandler=false)
 {
@@ -44,6 +65,22 @@ static bool check(void(*pc)(),CONTEXT seed,ULONG handlerType=0,bool epilog=false
     if(checkedHr!=S_OK||checkedHandler!=actualHandler||checkedData!=actualData||(!epilog&&checkedFrame!=actualFrame)||
        memcmp(&checked,&actual,sizeof(actual))||memcmp(&checkedPointers,&actualPointers,sizeof(actualPointers))){
         printf("Checked unwind mismatch hr=%08lx pc=%p\n",(unsigned long)checkedHr,pc);return false;}
+    DynamicView dynamic{&image,*function};
+    WitDynamicUnwindSource dynamicSource={image.Base,image.ImageSize,&dynamic,dynamic_read,dynamic_lookup};
+    CONTEXT dynamicContext=seed;void* dynamicData=(void*)0x1234;DWORD64 dynamicFrame=0;
+    KNONVOLATILE_CONTEXT_POINTERS dynamicPointers={};PEXCEPTION_ROUTINE dynamicHandler=nullptr;
+    const auto dynamicHr=wit_checked_virtual_unwind_dynamic(&dynamicSource,&stack,handlerType,(DWORD64)pc,&dynamic.Entry,
+        &dynamicContext,&dynamicData,&dynamicFrame,&dynamicPointers,&dynamicHandler);
+    if(dynamicHr!=S_OK||dynamicHandler!=actualHandler||dynamicData!=actualData||(!epilog&&dynamicFrame!=actualFrame)||
+       memcmp(&dynamicContext,&actual,sizeof(actual))||memcmp(&dynamicPointers,&actualPointers,sizeof(actualPointers)))return false;
+    const auto savedDynamic=dynamicContext;const auto savedPointers=dynamicPointers;const auto savedData=dynamicData;
+    const auto savedFrame=dynamicFrame;const auto savedHandler=dynamicHandler;
+    auto fakeEntry=dynamic.Entry;
+    if(SUCCEEDED(wit_checked_virtual_unwind_dynamic(&dynamicSource,&stack,handlerType,(DWORD64)pc,&fakeEntry,&dynamicContext,&dynamicData,&dynamicFrame,&dynamicPointers,&dynamicHandler)))return false;
+    dynamic.Entry.UnwindData|=1;
+    if(SUCCEEDED(wit_checked_virtual_unwind_dynamic(&dynamicSource,&stack,handlerType,(DWORD64)pc,&dynamic.Entry,&dynamicContext,&dynamicData,&dynamicFrame,&dynamicPointers,&dynamicHandler))||
+       memcmp(&dynamicContext,&savedDynamic,sizeof(dynamicContext))||memcmp(&dynamicPointers,&savedPointers,sizeof(dynamicPointers))||
+       dynamicData!=savedData||dynamicFrame!=savedFrame||dynamicHandler!=savedHandler)return false;
     WitValidatedUnwindImage validated;
     WitUserImageInfo invalid=image;invalid.UnwindSize=1;
     if(SUCCEEDED(validated.Initialize(&invalid))||validated.Image()!=nullptr||
@@ -127,6 +164,7 @@ int main(int argc,char** argv)
     *(DWORD64*)(body+32)=0x1122334455667788ULL;*(DWORD64*)(body+40)=(DWORD64)&unwind_simple_body;
     if(!check(unwind_simple_body,c))return 12;
     if(protected_frame()!=59||!compilerFramePassed)return 8;
+    puts("PASS: 20 dynamic-source Windows comparisons and 40 transactional entry/metadata rejections");
     printf("PASS: %u immutable-image cached unwind comparisons and %u forged-entry rejections\n",count*2,count*2);
     printf("PASS: %u checked unwind differential cases\n",count);
     printf("PASS: %u upstream AMD64 unwind differential cases\n",count);return 0;

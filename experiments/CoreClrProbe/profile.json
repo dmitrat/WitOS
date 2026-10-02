@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "runtimeVersion": "10.0.8",
+  "runtimeCommit": "b82454cad0aaaae3db2cf18fbf2cccc36e201ccc",
+  "packageCommit": "94ea82652cdd4e0f8046b5bd5becbd11461482ca",
+  "reference": {
+    "os": "windows",
+    "architecture": "x64",
+    "configuration": "Release",
+    "components": [
+      "runtime",
+      "jit"
+    ],
+    "outputProfile": "coreclr-reference",
+    "readyToRunExecution": false
+  },
+  "guest": {
+    "os": "WitOS",
+    "architecture": "x64",
+    "onlineProcessors": 1,
+    "compilerAbi": "AMD64 PE/COFF, MSVC ABI; not a Windows operating system",
+    "runtime": "upstream CoreCLR + RyuJIT",
+    "corelib": "upstream System.Private.CoreLib with platform port, never replacement semantics",
+    "applicationContract": "unchanged portable net10.0 IL, standard SDK/TFM/NuGet",
+    "codePolicy": "no writable+executable virtual mapping; explicit publication and dynamic unwind lifetime",
+    "nativeImplementation": "WitOS system layer and existing kernel primitives; no Windows DLL implementations in guest",
+    "isaState": "kernel-confirmed x87/SSE; extended state unavailable until separately implemented",
+    "osIdentity": "WitOS; Windows-shaped private native bindings must not report Windows application compatibility",
+    "initialGc": "single-processor workstation; blocking collections; real collector and attachment",
+    "requiredDynamicFeatures": [
+      "JIT",
+      "runtime generics",
+      "reflection",
+      "Assembly.Load",
+      "AssemblyLoadContext",
+      "DynamicMethod",
+      "Reflection.Emit",
+      "expression compilation"
+    ],
+    "windowsSpecificInterop": "COM/WinRT/registry/token impersonation require explicit platform exclusion or real supported services, never fake success"
+  }
+}

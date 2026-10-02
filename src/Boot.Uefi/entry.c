@@ -9,6 +9,7 @@ static WitMemoryRegion memory_regions[WIT_MAX_MEMORY_REGIONS];
 static WitBootInfo boot_info;
 void wit_boot_describe_image(WitBootInfo *boot);
 void wit_boot_entropy(EfiBootServicesPrefix*,WitBootInfo*);
+int wit_boot_storage(EfiHandle,EfiBootServicesPrefix*,WitBootInfo*);
 
 EfiStatus efi_main(EfiHandle image, EfiSystemTable *system)
 {
@@ -30,6 +31,7 @@ EfiStatus efi_main(EfiHandle image, EfiSystemTable *system)
 
     wit_boot_describe_image(&boot_info);
     wit_boot_entropy(services,&boot_info);
+    if(!wit_boot_storage(image,services,&boot_info))wit_panic("UEFI boot package unavailable or invalid");
     for (WitU32 attempt = 0; attempt < 3; ++attempt) {
         WitU64 size = sizeof(raw_memory_map);
         WitU64 key = 0;

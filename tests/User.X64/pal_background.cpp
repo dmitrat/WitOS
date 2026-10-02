@@ -113,7 +113,7 @@ extern "C" WitU64 wit_background_program(const WitUserStartup* startup)
         for (;;) (void)PalSwitchToThread();
     }
     WitU64 result = 99;
-    if (wit_native_call(WIT_CALL_THREAD_CREATE, (uintptr_t)callback, 0, 2, &result) != WIT_STATUS_INVALID_ARGUMENT || result ||
+    if (wit_native_call(WIT_CALL_THREAD_CREATE, (uintptr_t)callback, 0, 4, &result) != WIT_STATUS_INVALID_ARGUMENT || result ||
         wit_native_call(WIT_CALL_THREAD_CREATE, (uintptr_t)callback, 0, 1ULL << 32, &result) != WIT_STATUS_INVALID_ARGUMENT || result ||
         wit_native_call(WIT_CALL_THREAD_CREATE, 0, 0, WIT_THREAD_DETACHED, &result) != WIT_STATUS_BAD_ADDRESS || result ||
         PalStartBackgroundGCThread(nullptr, nullptr) ||
@@ -156,18 +156,24 @@ extern "C" WitU64 wit_background_program(const WitUserStartup* startup)
         WitUserThreadInfo thread;
         if(wit_native_call(WIT_CALL_THREAD_QUERY,(WitU64)&thread,sizeof(thread),WIT_THREAD_INFO_VERSION,nullptr)!=WIT_STATUS_OK)return 1329;
         const WitU64 childPages=(thread.StackHigh-thread.StackLow)/4096+2;
+        // Reach the real quota once, then expose each successive failure
+        // boundary by releasing one backing page. Re-filling the entire arena
+        // 18 times did unnecessary work and could exhaust the unchanged guest
+        // CPU budget on CI. All three entry points still fail at every boundary.
+        WitU64 arena = 0, pages = 0;
+        if (wit_native_call(WIT_CALL_MEMORY_RESERVE, 128 * 4096, 4096, 0, &arena) != WIT_STATUS_OK) return 1330;
+        while (wit_native_call(WIT_CALL_MEMORY_COMMIT, arena + pages * 4096, 4096, 3, nullptr) == WIT_STATUS_OK) ++pages;
+        if (pages < childPages) return 1331;
         for (WitU64 remaining = 0; remaining < childPages; ++remaining) {
-            WitU64 arena = 0, pages = 0;
-            if (wit_native_call(WIT_CALL_MEMORY_RESERVE, 128 * 4096, 4096, 0, &arena) != WIT_STATUS_OK) return 1330;
-            while (wit_native_call(WIT_CALL_MEMORY_COMMIT, arena + pages * 4096, 4096, 3, nullptr) == WIT_STATUS_OK) ++pages;
-            if (pages <= remaining || (remaining && wit_native_call(WIT_CALL_MEMORY_DECOMMIT,
-                arena + (pages - remaining) * 4096, remaining * 4096, 0, nullptr) != WIT_STATUS_OK)) return 1331;
+            if (remaining && wit_native_call(WIT_CALL_MEMORY_DECOMMIT,
+                arena + (pages - remaining) * 4096, 4096, 0, nullptr) != WIT_STATUS_OK) return 1331;
             WitUserMemoryInfo held;
             if (!snapshot(&held)) return 1332;
             for (unsigned i = 0; i < 3; ++i) if (launch(i, nullptr) || GetLastError() != ERROR_NOT_ENOUGH_MEMORY) return 1333;
-            if (started[0] || !snapshot(&after) || !same(held, after) ||
-                wit_native_call(WIT_CALL_MEMORY_RELEASE, arena, 0, 0, nullptr) != WIT_STATUS_OK) return 1334;
+            if (started[0] || !snapshot(&after) || !same(held, after)) return 1334;
+            ((volatile WitU64*)WIT_GC_INFO_REPORT)[3] = remaining + 1;
         }
+        if (wit_native_call(WIT_CALL_MEMORY_RELEASE, arena, 0, 0, nullptr) != WIT_STATUS_OK) return 1334;
         clear(0);
         if (!launch(0, nullptr) || !wait_for_reap(0)) return 1335;
     }
