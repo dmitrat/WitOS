@@ -124,7 +124,7 @@ WitU64 wit_user_thread_context_get(WitUserProcess *process, WitU64 reference, Wi
     if (status != WIT_STATUS_OK) {
         return status;
     }
-    if (!wit_x64_context_profile_supported()) {
+    if (!wit_arch_context_supported()) {
         return WIT_STATUS_UNSUPPORTED;
     }
     const WitInterruptContext *saved = owned_context(process, target);
@@ -222,7 +222,7 @@ WitU64 wit_user_thread_context_set(WitUserProcess *process, WitU64 reference, Wi
     if (target->Exception.Token || wit_user_stack_leased(process, target->Handle, 0)) {
         return WIT_STATUS_BUSY;
     }
-    if (!wit_x64_context_profile_supported()) {
+    if (!wit_arch_context_supported()) {
         return WIT_STATUS_UNSUPPORTED;
     }
     WitThreadContext input;
@@ -254,7 +254,7 @@ WitU64 wit_user_thread_context_restore(WitUserProcess *process, WitU64 address, 
         wit_user_stack_leases_owned(process, target->Handle)) {
         return WIT_STATUS_BUSY;
     }
-    if (!wit_x64_context_profile_supported()) {
+    if (!wit_arch_context_supported()) {
         return WIT_STATUS_UNSUPPORTED;
     }
     WitThreadContext input;
@@ -279,7 +279,7 @@ WitU64 wit_user_thread_context_metadata(WitUserProcess *process, WitU64 referenc
     if (status != WIT_STATUS_OK) {
         return status;
     }
-    if (!wit_x64_context_profile_supported()) {
+    if (!wit_arch_context_supported()) {
         return WIT_STATUS_UNSUPPORTED;
     }
     WitThreadContext metadata = {0};

@@ -81,7 +81,7 @@ void wit_platform_clock_initialize(const WitBootInfo *boot)
     require(value >= 0x100000000ULL, "HPET 64-bit rollover failed");
     wit_console_write("[TEST-PASS] Clock.Counter64\n");
     reset_counter(0); // Final boot epoch. Never reset after ready is published.
-    ticks = wit_x64_clock_ticks();
+    ticks = wit_arch_clock_ticks();
     start = counter();
     value = start;
     for (WitU32 i = 0; i < 10000000 && value - start < frequency / 500; ++i) {
@@ -90,7 +90,7 @@ void wit_platform_clock_initialize(const WitBootInfo *boot)
         value = next;
     }
     require(value - start >= frequency / 500 &&
-            wit_x64_clock_ticks() == ticks &&
+            wit_arch_clock_ticks() == ticks &&
             !(wit_x64_read_flags() & 0x200) &&
             read32(0x10) == 1,
         "HPET did not advance with IRQs disabled");
@@ -101,7 +101,7 @@ void wit_platform_clock_initialize(const WitBootInfo *boot)
     wit_console_write("\n[TEST-PASS] Clock.IrqIndependent\n");
 }
 
-WitU64 wit_x64_monotonic_read(void)
+WitU64 wit_arch_monotonic_read(void)
 {
     WitU64 value;
     require(ready && !(wit_x64_read_flags() & 0x200), "Monotonic read outside serialized kernel context");
@@ -114,7 +114,7 @@ WitU64 wit_x64_monotonic_read(void)
     return value;
 }
 
-WitU64 wit_x64_monotonic_frequency(void)
+WitU64 wit_arch_monotonic_frequency(void)
 {
     require(ready, "Clock frequency requested before initialization");
     return frequency;

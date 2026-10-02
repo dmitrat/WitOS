@@ -7,19 +7,19 @@ host_rsp QWORD 0
 host_cr3 QWORD 0
 
 .code
-PUBLIC wit_x64_idle_once
+PUBLIC wit_arch_idle_once
 PUBLIC wit_x64_idle_resume
-wit_x64_idle_once PROC
+wit_arch_idle_once PROC
     ; IF is clear at entry. The STI shadow covers HLT: no check-to-sleep race.
     sti
     hlt
 wit_x64_idle_resume::
     cli
     ret
-wit_x64_idle_once ENDP
+wit_arch_idle_once ENDP
 
-PUBLIC wit_x64_set_user_tls
-wit_x64_set_user_tls PROC
+PUBLIC wit_arch_set_user_tls
+wit_arch_set_user_tls PROC
     ; Kernel chooses the base and selector on every return to a user thread.
     mov r8, rcx
     mov r9, rdx
@@ -38,10 +38,10 @@ wit_x64_set_user_tls PROC
     mov edx, r9d
     wrmsr
     ret
-wit_x64_set_user_tls ENDP
+wit_arch_set_user_tls ENDP
 
-PUBLIC wit_x64_run_user
-wit_x64_run_user PROC
+PUBLIC wit_arch_run_user
+wit_arch_run_user PROC
     ; Serialized bootstrap launch; IF=0, one active user component.
     push rbx
     push rbp
@@ -64,10 +64,10 @@ wit_x64_run_user PROC
     mov es, ax
     mov rsp, r8
     jmp wit_x64_restore_context
-wit_x64_run_user ENDP
+wit_arch_run_user ENDP
 
-PUBLIC wit_x64_leave_user
-wit_x64_leave_user PROC
+PUBLIC wit_arch_leave_user
+wit_arch_leave_user PROC
     cli
     cld
     mov rax, host_cr3
@@ -92,7 +92,7 @@ wit_x64_leave_user PROC
     pop rbp
     pop rbx
     ret
-wit_x64_leave_user ENDP
+wit_arch_leave_user ENDP
 
 PUBLIC wit_x64_user_syscall_entry
 wit_x64_user_syscall_entry PROC

@@ -34,12 +34,12 @@ static void io_wait(void)
     __outbyte(0x80, 0);
 }
 
-WitU64 wit_x64_clock_ticks(void)
+WitU64 wit_arch_clock_ticks(void)
 {
     return timer_ticks;
 }
 
-void wit_x64_timer_start(void)
+void wit_arch_timer_start(void)
 {
     const WitU64 apic = __readmsr(0x1B);
     require((apic & (1ULL << 10)) == 0, "x2APIC is unsupported by the bootstrap timer");
@@ -73,7 +73,7 @@ void wit_x64_timer_start(void)
     __outbyte(0x21, 0xFE); /* Only IRQ0. */
 }
 
-void wit_x64_timer_stop(void)
+void wit_arch_timer_stop(void)
 {
     _disable();
     __outbyte(0x21, 0xFF);
@@ -161,12 +161,12 @@ void wit_scheduler_self_test(void)
     timer_ticks = 0;
     switches = 0;
     wit_console_write("[TEST-BEGIN] Scheduler.Preemption\n");
-    wit_x64_timer_start();
+    wit_arch_timer_start();
     _enable();
     while (scheduling) {
         __halt();
     }
-    wit_x64_timer_stop();
+    wit_arch_timer_stop();
 
     require(timer_ticks >= 7 && switches >= 7, "Timer or context switching stalled");
     require(wit_worker_done[0] &&

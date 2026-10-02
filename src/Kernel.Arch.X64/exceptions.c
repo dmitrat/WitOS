@@ -61,7 +61,7 @@ void wit_platform_initialize(void)
     wit_console_write("[TEST-PASS] Cpu.ExceptionTables\n");
 }
 
-void wit_x64_set_kernel_stack(WitU64 top)
+void wit_arch_set_kernel_stack(WitU64 top)
 {
     task_state.Rsp[0] = top;
 }

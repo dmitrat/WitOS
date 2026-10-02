@@ -102,7 +102,7 @@ WitU64 wit_x64_decode_cache(WitCpuidReader read)
     return legacy_amd(read, maximum_leaf); // AuthenticAMD, older CPUID format.
 }
 
-WitU64 wit_x64_cache_size(void)
+WitU64 wit_arch_cache_size(void)
 {
     // Called on the sole online CPU with IF clear; no hotplug or migration.
     static WitU64 bytes;

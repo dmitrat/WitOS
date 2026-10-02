@@ -144,5 +144,5 @@ void wit_user_library_tls_reap_thread(WitUserProcess *p, WitU32 index)
 void wit_user_library_tls_refresh(WitUserProcess *p)
 {
     WitUserThread *thread = &p->Threads[p->CurrentThread];
-    wit_x64_set_user_tls(thread->Tls, thread->CompilerTls);
+    wit_arch_set_user_tls(thread->Tls, thread->CompilerTls);
 }

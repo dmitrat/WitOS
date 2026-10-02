@@ -38,7 +38,7 @@ static int frame_inside_kernel_stack(const void *frame, WitU64 size, WitU32 thre
 static WIT_NORETURN void finish(WitUserState state, WitU64 code)
 {
     require(current_user != 0 && current_user->State == WitUserRunning, "No current user component");
-    wit_x64_timer_stop();
+    wit_arch_timer_stop();
 #if defined(WITOS_TEST_RUNTIME_BOOT)
     if (state == WitUserBudgetExpired && current_user->RequireThreadCompletion) {
         wit_console_write("Runtime budget ticks/idle: ");
@@ -121,7 +121,7 @@ static WIT_NORETURN void finish(WitUserState state, WitU64 code)
     __writemsr(FS_BASE, 0); /* Kernel C has no segment-based TLS. */
     __writemsr(GS_BASE, 0);
     current_user = 0;
-    wit_x64_leave_user();
+    wit_arch_leave_user();
 }
 
 static void validate_return(WitInterruptContext *context, WitU32 index, int syscall)
@@ -220,8 +220,8 @@ static WitU32 thread_index(WitU64 handle)
 
 static void expire_waits(void)
 {
-    wit_user_wait_expire(current_user, wit_x64_clock_ticks());
-    wit_user_wait_expire_time(current_user, wit_x64_monotonic_read());
+    wit_user_wait_expire(current_user, wit_arch_clock_ticks());
+    wit_user_wait_expire_time(current_user, wit_arch_monotonic_read());
     wit_user_pressure_update(current_user);
 }
 
@@ -249,8 +249,8 @@ static WitInterruptContext *dispatch(int timer, WitU64 last_exit)
             }
             current_user->CurrentThread = index;
             thread->State = WitThreadRunning;
-            wit_x64_set_kernel_stack(stack_low(current_user, index) + WIT_KERNEL_STACK_SIZE);
-            wit_x64_set_user_tls(thread->Tls, thread->CompilerTls);
+            wit_arch_set_kernel_stack(stack_low(current_user, index) + WIT_KERNEL_STACK_SIZE);
+            wit_arch_set_user_tls(thread->Tls, thread->CompilerTls);
             return thread->Context;
         }
         if (!waiting) {
@@ -263,7 +263,7 @@ static WitInterruptContext *dispatch(int timer, WitU64 last_exit)
         __writemsr(GS_BASE, 0);
         user_idle = 1;
         ++current_user->IdleHalts;
-        wit_x64_idle_once();
+        wit_arch_idle_once();
         user_idle = 0;
     }
 }
@@ -606,10 +606,10 @@ void wit_user_run(WitUserProcess *process)
     process->State = WitUserRunning;
     process->Threads[0].State = WitThreadRunning;
     process->Ticks = 0;
-    wit_x64_set_kernel_stack(stack_low(process, 0) + WIT_KERNEL_STACK_SIZE);
-    wit_x64_timer_start();
-    wit_x64_set_user_tls(process->Threads[0].Tls, process->Threads[0].CompilerTls);
-    wit_x64_run_user(process->Threads[0].Context, process->Space.Root);
+    wit_arch_set_kernel_stack(stack_low(process, 0) + WIT_KERNEL_STACK_SIZE);
+    wit_arch_timer_start();
+    wit_arch_set_user_tls(process->Threads[0].Tls, process->Threads[0].CompilerTls);
+    wit_arch_run_user(process->Threads[0].Context, process->Space.Root);
     require(!current_user &&
             process->State != WitUserRunning &&
             (__readcr3() & 0x000FFFFFFFFFF000ULL) == wit_virtual_kernel_root() &&
@@ -617,7 +617,7 @@ void wit_user_run(WitUserProcess *process)
             __readmsr(FS_BASE) == 0 &&
             __readmsr(GS_BASE) == 0,
         "User return did not restore kernel state");
-    wit_x64_set_kernel_stack((WitU64)wit_x64_kernel_stack + 4096 + WIT_KERNEL_STACK_SIZE);
+    wit_arch_set_kernel_stack((WitU64)wit_x64_kernel_stack + 4096 + WIT_KERNEL_STACK_SIZE);
 }
 
 void wit_user_destroy(WitUserProcess *process)
@@ -763,7 +763,7 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
             ? wit_user_exception_continue(current_user, argument0, argument1, argument2)
             : wit_user_exception_unwind(current_user, argument0, argument1, argument2);
         if (status == WIT_STATUS_OK) {
-            wit_x64_set_user_tls(current_user->Threads[current_user->CurrentThread].Tls,
+            wit_arch_set_user_tls(current_user->Threads[current_user->CurrentThread].Tls,
                 current_user->Threads[current_user->CurrentThread].CompilerTls);
             return context;
         }
@@ -799,7 +799,7 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
     case WIT_CALL_THREAD_CONTEXT_RESTORE:
         status = wit_user_thread_context_restore(current_user, argument0, argument1, argument2);
         if (status == WIT_STATUS_OK) {
-            wit_x64_set_user_tls(current_user->Threads[current_user->CurrentThread].Tls,
+            wit_arch_set_user_tls(current_user->Threads[current_user->CurrentThread].Tls,
                 current_user->Threads[current_user->CurrentThread].CompilerTls);
             return context; // Preserve restored RAX/RDX and flags; no syscall-result overwrite.
         }
@@ -949,7 +949,7 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
             break;
         }
         const WitU64 value =
-            argument2 == WIT_MONOTONIC_COUNTER ? wit_x64_monotonic_read() : wit_x64_monotonic_frequency();
+            argument2 == WIT_MONOTONIC_COUNTER ? wit_arch_monotonic_read() : wit_arch_monotonic_frequency();
         // The dispatcher keeps IF clear through sampling and whole-buffer copy.
         if (!wit_user_copy_to(&current_user->Space, argument0, (const WitU8 *)&value, sizeof(value))) {
             context->Rax = WIT_STATUS_BAD_ADDRESS;
@@ -959,33 +959,33 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
         break;
     }
     case WIT_CALL_MONOTONIC_READ:
-        context->Rdx = wit_x64_monotonic_read();
+        context->Rdx = wit_arch_monotonic_read();
         break;
     case WIT_CALL_MONOTONIC_FREQUENCY:
-        context->Rdx = wit_x64_monotonic_frequency();
+        context->Rdx = wit_arch_monotonic_frequency();
         break;
     case WIT_CALL_SLEEP_UNTIL:
         context->Rax = (argument1 || argument2)
             ? WIT_STATUS_INVALID_ARGUMENT
-            : wit_user_sleep_until(current_user, argument0, wit_x64_monotonic_read());
+            : wit_user_sleep_until(current_user, argument0, wit_arch_monotonic_read());
         break;
     case WIT_CALL_EVENT_WAIT_UNTIL:
         context->Rax = argument2
             ? WIT_STATUS_INVALID_ARGUMENT
-            : wit_user_event_wait_until(current_user, argument0, argument1, wit_x64_monotonic_read());
+            : wit_user_event_wait_until(current_user, argument0, argument1, wit_arch_monotonic_read());
         break;
     case WIT_CALL_CLOCK_READ:
-        context->Rdx = wit_x64_clock_ticks();
+        context->Rdx = wit_arch_clock_ticks();
         break;
     case WIT_CALL_CLOCK_FREQUENCY:
         context->Rdx = WIT_CLOCK_FREQUENCY;
         break;
     case WIT_CALL_THREAD_SLEEP:
-        context->Rax = wit_user_sleep(current_user, argument0, wit_x64_clock_ticks());
+        context->Rax = wit_user_sleep(current_user, argument0, wit_arch_clock_ticks());
         break;
     case WIT_CALL_OBJECT_WAIT:
         context->Rax = wit_user_object_wait(
-            current_user, argument0, argument1, argument2, wit_x64_monotonic_read(), &context->Rdx);
+            current_user, argument0, argument1, argument2, wit_arch_monotonic_read(), &context->Rdx);
         break;
     case WIT_CALL_APC_QUEUE:
         context->Rax = wit_user_apc_queue(current_user, argument0, argument1, argument2);
@@ -1023,7 +1023,7 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
         context->Rax = wit_user_event_reset(current_user, argument0);
         break;
     case WIT_CALL_EVENT_WAIT:
-        context->Rax = wit_user_event_wait(current_user, argument0, argument1, wit_x64_clock_ticks());
+        context->Rax = wit_user_event_wait(current_user, argument0, argument1, wit_arch_clock_ticks());
         break;
     case WIT_CALL_MEMORY_PRESSURE_EVENT:
         context->Rax = (argument0 || argument1 || argument2) ? WIT_STATUS_INVALID_ARGUMENT
@@ -1031,7 +1031,7 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
         break;
     case WIT_CALL_EVENT_WAIT_ANY_UNTIL:
         context->Rax = wit_user_event_wait_any_until(
-            current_user, argument0, argument1, argument2, wit_x64_monotonic_read(), &context->Rdx);
+            current_user, argument0, argument1, argument2, wit_arch_monotonic_read(), &context->Rdx);
         break;
     case WIT_CALL_CPU_CACHE_SIZE:
         if (argument0 || argument1 || argument2) {
@@ -1039,7 +1039,7 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
         } else if (WIT_USER_PROCESSOR_COUNT != 1) {
             context->Rax = WIT_STATUS_UNSUPPORTED;
         } else {
-            context->Rdx = wit_x64_cache_size();
+            context->Rdx = wit_arch_cache_size();
             if (!context->Rdx) {
                 context->Rax = WIT_STATUS_UNSUPPORTED;
             }
@@ -1051,7 +1051,7 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
         } else if (WIT_USER_PROCESSOR_COUNT != 1) {
             context->Rax = WIT_STATUS_UNSUPPORTED;
         } else {
-            wit_x64_process_write_barrier();
+            wit_arch_process_write_barrier();
             ++current_user->ProcessWriteBarriers;
         }
         break;
@@ -1157,7 +1157,7 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
         return dispatch(0, 0);
     }
     /* Join may have switched current thread; nonblocking calls retain the caller. */
-    wit_x64_set_user_tls(current_user->Threads[current_user->CurrentThread].Tls,
+    wit_arch_set_user_tls(current_user->Threads[current_user->CurrentThread].Tls,
         current_user->Threads[current_user->CurrentThread].CompilerTls);
     return context;
 }
@@ -1177,7 +1177,7 @@ WitInterruptContext *wit_x64_user_exception(WitInterruptContext *context, WitU64
     }
     if (wit_user_exception_deliver(current_user, context, vector, error, address)) {
         validate_return(context, current_user->CurrentThread, 0);
-        wit_x64_set_user_tls(thread->Tls, thread->CompilerTls);
+        wit_arch_set_user_tls(thread->Tls, thread->CompilerTls);
         return context;
     }
     if (thread->Exception.Token && thread->Exception.Vector == WIT_EXCEPTION_SOFTWARE_VECTOR) {

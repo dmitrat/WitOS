@@ -56,7 +56,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
         if (mode == WIT_GC_TEST_DISCOVERY) {
             const WitUserMemoryInfo *info =
                 (const WitUserMemoryInfo *)wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
-            require(info && *(const WitU64 *)(info + 1) == wit_x64_cache_size(),
+            require(info && *(const WitU64 *)(info + 1) == wit_arch_cache_size(),
                 "GC cache size differs from kernel discovery");
             require(info &&
                     info->Version == WIT_MEMORY_INFO_VERSION &&

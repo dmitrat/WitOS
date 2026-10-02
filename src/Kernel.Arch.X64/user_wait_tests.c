@@ -226,7 +226,7 @@ void wit_user_wait_self_test(WitPageAllocator *pages)
     clock_domains();
     resource_limits();
     for (WitU32 mode = 0; mode < sizeof(names) / sizeof(names[0]); ++mode) {
-        WitU64 foreign = 0, clock_before = wit_x64_clock_ticks();
+        WitU64 foreign = 0, clock_before = wit_arch_clock_ticks();
         WitUserTestConfig *info = create(pages, 0, mode);
         wit_console_write("[TEST-BEGIN] User.");
         wit_console_write(names[mode]);
@@ -258,7 +258,7 @@ void wit_user_wait_self_test(WitPageAllocator *pages)
                 wit_panic("User wait fixture failed");
             }
         }
-        require(wit_x64_clock_ticks() >= clock_before && process->Handles.Count == 0 && process->Events.Count == 0,
+        require(wit_arch_clock_ticks() >= clock_before && process->Handles.Count == 0 && process->Events.Count == 0,
             "Wait teardown/clock failed");
         if (mode == WIT_WAIT_TEST_CLOCK) {
             require(process->IdleTicks >= 1 && process->WaitTimeouts == 1, "Clock wait did not use idle/timer");

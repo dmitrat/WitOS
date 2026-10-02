@@ -69,7 +69,7 @@ WitU64 wit_user_exception_continue(WitUserProcess *p, WitU64 token, WitU64 input
         (wit_user_stack_leased(p, t->Handle, 0) || wit_user_stack_leases_owned(p, t->Handle))) {
         return WIT_STATUS_BUSY;
     }
-    if (!wit_x64_context_profile_supported()) {
+    if (!wit_arch_context_supported()) {
         return WIT_STATUS_UNSUPPORTED;
     }
     WitThreadContext context;
@@ -109,7 +109,7 @@ WitU64 wit_user_exception_unwind(WitUserProcess *p, WitU64 token, WitU64 input, 
         wit_user_stack_leases_owned(p, t->Handle)) {
         return WIT_STATUS_BUSY;
     }
-    if (!wit_x64_context_profile_supported()) {
+    if (!wit_arch_context_supported()) {
         return WIT_STATUS_UNSUPPORTED;
     }
     WitUserExceptionTransfer request;
@@ -170,7 +170,7 @@ WitU64 wit_user_exception_begin(WitUserProcess *p, WitU64 input, WitU64 size, Wi
     if (!next_exception_token || t->ExceptionDepth + (t->Exception.Token ? 1U : 0U) >= WIT_EXCEPTION_MAX_DEPTH) {
         return WIT_STATUS_NO_MEMORY;
     }
-    if (!wit_x64_context_profile_supported()) {
+    if (!wit_arch_context_supported()) {
         return WIT_STATUS_UNSUPPORTED;
     }
     WitThreadContext context;
@@ -210,7 +210,7 @@ int wit_user_exception_deliver(
         t->SuspendCount ||
         t->WaitKind != WitWaitNone ||
         (vector != 0 && vector != 3 && vector != 6 && vector != 13 && vector != 14) ||
-        !wit_x64_context_profile_supported()) {
+        !wit_arch_context_supported()) {
         return 0;
     }
     if (frame->Cs != WIT_USER_CS ||

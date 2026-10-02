@@ -319,11 +319,6 @@ WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context);
 WitInterruptContext *wit_user_timer_tick(WitInterruptContext *context);
 WIT_NORETURN void wit_user_fault(const WitExceptionFrame *frame, WitU64 address);
 
-void wit_x64_run_user(WitInterruptContext *context, WitU64 root);
-WIT_NORETURN void wit_x64_leave_user(void);
-void wit_x64_set_kernel_stack(WitU64 top);
-void wit_x64_set_user_tls(WitU64 address, WitU64 compiler_address);
-
 WitU64 wit_user_code_call(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
 WitU64 wit_user_code_reserve(WitUserSpace *, WitU64, WitU64, WitU64, WitU64, WitU64 *);
 WitU64 wit_user_code_validate(WitUserSpace *, WitU64, WitU64, WitU64);

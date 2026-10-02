@@ -27,7 +27,7 @@ static int debug_disabled(void)
     return !(__readdr(7) & ~0x400ULL) && !__readdr(0) && !__readdr(1) && !__readdr(2) && !__readdr(3);
 }
 
-int wit_x64_context_profile_supported(void)
+int wit_arch_context_supported(void)
 {
     return profile(__readcr0(), __readcr4(), __readmsr(0xC0000080)) && debug_disabled();
 }
@@ -88,7 +88,7 @@ WitU64 wit_user_cpu_context_query(WitUserProcess *process, WitU64 address, WitU6
     if (size != sizeof(info)) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
-    if (!wit_x64_context_profile_supported() || WIT_USER_PROCESSOR_COUNT != 1) {
+    if (!wit_arch_context_supported() || WIT_USER_PROCESSOR_COUNT != 1) {
         return WIT_STATUS_UNSUPPORTED;
     }
     if (!context || context->Cs != WIT_USER_CS || context->Ss != WIT_USER_SS) {

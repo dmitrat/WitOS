@@ -153,13 +153,13 @@ wit_x64_trigger_general_protection PROC
     ret
 wit_x64_trigger_general_protection ENDP
 
-PUBLIC wit_x64_process_write_barrier
-wit_x64_process_write_barrier PROC
+PUBLIC wit_arch_process_write_barrier
+wit_arch_process_write_barrier PROC
     ; All guest threads execute on the sole online logical processor. This is
     ; a full data-memory fence, not instruction-cache maintenance or GC stop.
     mfence
     ret
-wit_x64_process_write_barrier ENDP
+wit_arch_process_write_barrier ENDP
 
 PUBLIC wit_x64_trigger_page_fault
 wit_x64_trigger_page_fault PROC

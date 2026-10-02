@@ -74,11 +74,11 @@ void wit_x64_cache_self_test(void)
             wit_panic("CPUID cache decoder contract failed");
         }
     }
-    if (wit_x64_decode_cache(0) || !wit_x64_cache_size()) {
+    if (wit_x64_decode_cache(0) || !wit_arch_cache_size()) {
         wit_panic("CPUID cache discovery unavailable in test CPU profile");
     }
     wit_console_write("[CACHE] Largest reported bytes: ");
-    wit_console_write_u64(wit_x64_cache_size());
+    wit_console_write_u64(wit_arch_cache_size());
     wit_console_write("\n");
     wit_console_write("[TEST-PASS] User.CpuCacheDiscovery\n");
 }
