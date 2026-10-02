@@ -239,6 +239,8 @@ WitU64 wit_user_reference_duplicate(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_reference_query(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_reference_close(WitUserProcess *, WitU64);
 
+WitU64 wit_user_space_take_table(WitUserSpace *space);
+void wit_user_space_release_table(WitUserSpace *space, WitU64 page);
 int wit_user_space_create_profile(WitUserSpace *, WitPageAllocator *, int);
 int wit_user_space_create(WitUserSpace *space, WitPageAllocator *allocator);
 int wit_user_space_map(WitUserSpace *space, WitU64 address, int writable, int executable);

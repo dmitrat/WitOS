@@ -1,20 +1,8 @@
-#include "x64.h"
 #include "user.h"
 #include "witos/platform.h"
 
-unsigned __int64 __readcr3(void);
-void __invlpg(void *);
-void __cpuid(int[4], int);
-#pragma intrinsic(__readcr3, __invlpg, __cpuid)
-
-#define PAGE_PRESENT 1ULL
-#define PAGE_WRITE 2ULL
-#define PAGE_USER 4ULL
-/* Software bit: a committed leaf retains its frame even with no access. */
-#define PAGE_OWNED 0x200ULL
-#define PAGE_ALIAS 0x400ULL
-#define PAGE_NX (1ULL << 63)
-#define PAGE_ADDRESS 0x000FFFFFFFFFF000ULL
+/* User address-space policy: ownership accounting, reservations, commitments, code views and user copies.
+ * Entry encoding, table walks and translation caches belong to the architecture (witos/arch.h). */
 
 static WitU64 allocate(WitUserSpace *space, WitU64 address)
 {
@@ -47,80 +35,50 @@ static void free_owned(WitUserSpace *space, WitU64 page)
     wit_panic("Freeing unowned user page");
 }
 
+WitU64 wit_user_space_take_table(WitUserSpace *space)
+{
+    return allocate(space, 0);
+}
+
+void wit_user_space_release_table(WitUserSpace *space, WitU64 page)
+{
+    free_owned(space, page);
+}
+
 static void invalidate(const WitUserSpace *space, WitU64 address)
 {
-    /* No PCID, global user mappings or second CPU. Inactive CR3s are flushed on entry. */
-    if ((__readcr3() & PAGE_ADDRESS) == space->Root) {
-        __invlpg((void *)address);
-    }
+    wit_arch_page_invalidate(space, address);
+}
+
+static WitU32 entry_flags(WitU64 entry)
+{
+    return wit_arch_page_entry_flags(entry);
+}
+
+static WitU64 entry_physical(WitU64 entry)
+{
+    return wit_arch_page_entry_physical(entry);
 }
 
 static WitU64 *leaf(WitUserSpace *space, WitU64 address, int create)
 {
-    const WitU32 shifts[3] = {39, 30, 21};
-    WitU64 *table = (WitU64 *)space->Root;
-    if (!table) {
-        return 0;
-    }
-    for (WitU32 level = 0; level < 3; ++level) {
-        WitU64 *entry = &table[(address >> shifts[level]) & 511];
-        if (!(*entry & PAGE_PRESENT)) {
-            WitU64 page;
-            if (!create || *entry != 0) {
-                return 0;
-            }
-            page = allocate(space, 0);
-            if (!page) {
-                return 0;
-            }
-            *entry = page | PAGE_PRESENT | PAGE_WRITE | PAGE_USER;
-        }
-        if ((*entry & (PAGE_PRESENT | PAGE_USER | 0x80)) != (PAGE_PRESENT | PAGE_USER)) {
-            return 0;
-        }
-        table = (WitU64 *)(*entry & PAGE_ADDRESS);
-    }
-    return &table[(address >> 12) & 511];
+    return wit_arch_page_entry(space, address, create);
 }
 
-/* Removes partially built paths after allocation failure. Never frees root or
- * visits the shared supervisor branch. Call only for validated user addresses. */
 static void prune(WitUserSpace *space, WitU64 address)
 {
-    const WitU32 shifts[3] = {39, 30, 21};
-    WitU64 *tables[4], *parents[3];
-    WitU32 depth = 0;
-    tables[0] = (WitU64 *)space->Root;
-    for (; depth < 3; ++depth) {
-        WitU64 *entry = &tables[depth][(address >> shifts[depth]) & 511];
-        if ((*entry & (PAGE_PRESENT | PAGE_USER | 0x80)) != (PAGE_PRESENT | PAGE_USER)) {
-            break;
-        }
-        parents[depth] = entry;
-        tables[depth + 1] = (WitU64 *)(*entry & PAGE_ADDRESS);
-    }
-    while (depth) {
-        for (WitU32 i = 0; i < 512; ++i) {
-            if (tables[depth][i] != 0) {
-                return;
-            }
-        }
-        *parents[depth - 1] = 0;
-        invalidate(space, address);
-        free_owned(space, (WitU64)tables[depth--]);
-    }
+    wit_arch_page_prune(space, address);
 }
 
-static WitU64 protection_flags(WitU64 protection)
+static WitU32 protection_flags(WitU64 protection)
 {
-    return PAGE_OWNED |
-        PAGE_USER |
-        ((protection & WIT_CODE_EXECUTE) ? 0 : PAGE_NX) |
-        (protection & WIT_MEMORY_READ ? PAGE_PRESENT : 0) |
-        (protection & WIT_MEMORY_WRITE ? PAGE_WRITE : 0);
+    return WIT_PAGE_OWNED |
+        ((protection & WIT_CODE_EXECUTE) ? WIT_PAGE_EXECUTE : 0) |
+        (protection & WIT_MEMORY_READ ? WIT_PAGE_READ : 0) |
+        (protection & WIT_MEMORY_WRITE ? WIT_PAGE_WRITE : 0);
 }
 
-static int map_page(WitUserSpace *space, WitU64 address, WitU64 flags)
+static int map_page(WitUserSpace *space, WitU64 address, WitU32 flags)
 {
     WitU64 *entry = leaf(space, address, 1);
     WitU64 page;
@@ -136,7 +94,7 @@ static int map_page(WitUserSpace *space, WitU64 address, WitU64 flags)
         prune(space, address);
         return 0;
     }
-    *entry = page | flags;
+    *entry = wit_arch_page_entry_make(page, flags);
     invalidate(space, address);
     return 1;
 }
@@ -181,7 +139,7 @@ static int map_alias_page(WitUserSpace *space, WitU64 destination, WitU64 physic
     if (*output) {
         return 0;
     }
-    *output = physical | (protection_flags(protection) & ~PAGE_OWNED) | PAGE_ALIAS;
+    *output = wit_arch_page_entry_make(physical, (protection_flags(protection) & ~WIT_PAGE_OWNED) | WIT_PAGE_ALIAS);
     space->AliasVirtual[space->AliasCount] = destination;
     space->AliasPhysical[space->AliasCount++] = physical;
     invalidate(space, destination);
@@ -212,11 +170,11 @@ static int aliased_range(const WitUserSpace *space, WitU64 address, WitU64 size)
 static void unmap_page(WitUserSpace *space, WitU64 address)
 {
     WitU64 *entry = leaf(space, address, 0);
-    if (!entry || !(*entry & (PAGE_OWNED | PAGE_ALIAS))) {
+    if (!entry || !(entry_flags(*entry) & (WIT_PAGE_OWNED | WIT_PAGE_ALIAS))) {
         wit_panic("Missing owned user mapping");
     }
-    const WitU64 page = *entry & PAGE_ADDRESS;
-    const int alias = (*entry & PAGE_ALIAS) != 0;
+    const WitU64 page = entry_physical(*entry);
+    const int alias = (entry_flags(*entry) & WIT_PAGE_ALIAS) != 0;
     if (!alias && aliased(space, page)) {
         wit_panic("Freeing backing with live code aliases");
     }
@@ -276,8 +234,6 @@ static WitU64 address_limit(const WitUserSpace *space, WitU64 address)
 
 int wit_user_space_create_profile(WitUserSpace *space, WitPageAllocator *allocator, int full)
 {
-    const WitU64 shared = ((WitU64 *)wit_virtual_kernel_root())[0];
-    const WitU64 storage = ((WitU64 *)wit_virtual_kernel_root())[WIT_X64_STORAGE_SLOT];
     space->Allocator = allocator;
     space->PageLimit = full ? WIT_RUNTIME_PAGE_CAPACITY : WIT_USER_PAGE_CAPACITY;
     space->ReservationLimit = full ? WIT_RUNTIME_RESERVATION_CAPACITY : WIT_USER_RESERVATION_CAPACITY;
@@ -294,16 +250,14 @@ int wit_user_space_create_profile(WitUserSpace *space, WitPageAllocator *allocat
     for (WitU32 i = 0; i < space->ReservationLimit; ++i) {
         space->Reservations[i].Size = 0;
     }
-    if (!(shared & PAGE_PRESENT) || (shared & PAGE_USER) || !(storage & PAGE_PRESENT) || (storage & PAGE_USER)) {
+    if (!wit_arch_space_kernel_ready()) {
         return 0;
     }
     space->Root = allocate(space, 0);
     if (space->Root == 0) {
         return 0;
     }
-    /* Slots 1 (fixed image) and 2 (dynamic memory) are private. */
-    ((WitU64 *)space->Root)[0] = shared;
-    ((WitU64 *)space->Root)[WIT_X64_STORAGE_SLOT] = storage; // Shared supervisor branch, never a private/user table.
+    wit_arch_space_install_kernel(space->Root);
     return 1;
 }
 
@@ -322,7 +276,7 @@ int wit_user_space_map(WitUserSpace *space, WitU64 address, int writable, int ex
         return 0;
     }
     return map_page(space, address,
-        PAGE_OWNED | PAGE_PRESENT | PAGE_USER | (writable ? PAGE_WRITE : 0) | (executable ? 0 : PAGE_NX));
+        WIT_PAGE_OWNED | WIT_PAGE_READ | (writable ? WIT_PAGE_WRITE : 0) | (executable ? WIT_PAGE_EXECUTE : 0));
 }
 
 int wit_user_space_unmap_fixed(WitUserSpace *space, WitU64 address)
@@ -332,7 +286,7 @@ int wit_user_space_unmap_fixed(WitUserSpace *space, WitU64 address)
         return 0;
     }
     entry = leaf(space, address, 0);
-    if (!entry || !(*entry & PAGE_OWNED)) {
+    if (!entry || !(entry_flags(*entry) & WIT_PAGE_OWNED)) {
         return 0;
     }
     unmap_page(space, address);
@@ -341,26 +295,10 @@ int wit_user_space_unmap_fixed(WitUserSpace *space, WitU64 address)
 
 WitU64 wit_user_space_physical(const WitUserSpace *space, WitU64 address, int write, int execute)
 {
-    const WitU32 shifts[4] = {39, 30, 21, 12};
-    const WitU64 required = PAGE_PRESENT | PAGE_USER | (write ? PAGE_WRITE : 0);
-    WitU64 *table = (WitU64 *)space->Root;
     if (!space->Root || !address_limit(space, address)) {
         return 0;
     }
-    for (WitU32 level = 0; level < 4; ++level) {
-        const WitU64 entry = table[(address >> shifts[level]) & 511];
-        if ((entry & required) != required || (execute && (entry & PAGE_NX))) {
-            return 0;
-        }
-        if (level == 3) {
-            return (entry & PAGE_ADDRESS) | (address & 4095);
-        }
-        if (entry & 0x80) {
-            return 0;
-        }
-        table = (WitU64 *)(entry & PAGE_ADDRESS);
-    }
-    return 0;
+    return wit_arch_page_translate(space->Root, address, write, execute);
 }
 
 int wit_user_buffer_readable(const WitUserSpace *space, WitU64 address, WitU32 size)
@@ -577,29 +515,29 @@ WitU64 wit_user_memory_commit(WitUserSpace *space, WitU64 address, WitU64 size, 
         for (WitU64 p = low; p < high; p += 4096) {
             const WitU64 *input = leaf(space, p, 0);
             const WitU64 *output = leaf(space, v->Destination + p - v->Source, 0);
-            if (input && *input && !(*input & PAGE_OWNED)) {
+            if (input && *input && !(entry_flags(*input) & WIT_PAGE_OWNED)) {
                 return WIT_STATUS_DENIED;
             }
             if (output &&
                 *output &&
                 (!input ||
-                    !(*input & PAGE_OWNED) ||
-                    !(*output & PAGE_ALIAS) ||
-                    (*output & PAGE_ADDRESS) != (*input & PAGE_ADDRESS))) {
+                    !(entry_flags(*input) & WIT_PAGE_OWNED) ||
+                    !(entry_flags(*output) & WIT_PAGE_ALIAS) ||
+                    entry_physical(*output) != entry_physical(*input))) {
                 return WIT_STATUS_BUSY;
             }
         }
     }
     for (WitU64 p = address; p < address + size; p += 4096) {
         WitU64 *entry = leaf(space, p, 0);
-        if (!entry || !(*entry & (PAGE_OWNED | PAGE_ALIAS))) {
+        if (!entry || !(entry_flags(*entry) & (WIT_PAGE_OWNED | WIT_PAGE_ALIAS))) {
             if (!map_page(space, p, protection_flags(protection))) {
                 goto failed;
             }
             added[count++] = p;
             entry = leaf(space, p, 0);
         }
-        const WitU64 physical = *entry & PAGE_ADDRESS;
+        const WitU64 physical = entry_physical(*entry);
         for (WitU32 i = 0; i < WIT_CODE_VIEW_CAPACITY; ++i) {
             const WitCodeView *v = &space->CodeViews[i];
             if (!v->Size || p < v->Source || p - v->Source >= v->Size) {
@@ -607,7 +545,7 @@ WitU64 wit_user_memory_commit(WitUserSpace *space, WitU64 address, WitU64 size, 
             }
             const WitU64 target = v->Destination + p - v->Source;
             const WitU64 *present = leaf(space, target, 0);
-            if (present && (*present & PAGE_ALIAS)) {
+            if (present && (entry_flags(*present) & WIT_PAGE_ALIAS)) {
                 continue; // Preserve existing protection and bytes.
             }
             if (mappingCount == WIT_RUNTIME_PAGE_CAPACITY || !map_alias_page(space, target, physical, v->Protection)) {
@@ -686,17 +624,17 @@ WitU64 wit_user_memory_reset(WitUserSpace *space, WitU64 address, WitU64 size)
     }
     for (WitU64 p = address; p < address + size; p += 4096) {
         const WitU64 *entry = leaf(space, p, 0);
-        if (!entry || !(*entry & PAGE_OWNED)) {
+        if (!entry || !(entry_flags(*entry) & WIT_PAGE_OWNED)) {
             return WIT_STATUS_NOT_COMMITTED;
         }
-        if (!(*entry & PAGE_NX)) {
+        if (entry_flags(*entry) & WIT_PAGE_EXECUTE) {
             return WIT_STATUS_DENIED;
         }
     }
     /* IF stays clear across validation and mutation. Owned physical backing
      * lets read-only/no-access commitments retain their original protection. */
     for (WitU64 p = address; p < address + size; p += 4096) {
-        volatile WitU64 *data = (volatile WitU64 *)(*leaf(space, p, 0) & PAGE_ADDRESS);
+        volatile WitU64 *data = (volatile WitU64 *)entry_physical(*leaf(space, p, 0));
         for (WitU32 i = 0; i < 512; ++i) {
             data[i] = 0;
         }
@@ -721,13 +659,15 @@ static WitU64 protect(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 p
     }
     for (WitU64 p = address; p < address + size; p += 4096) {
         const WitU64 *entry = leaf(space, p, 0);
-        if (!entry || !(*entry & (PAGE_OWNED | PAGE_ALIAS))) {
+        if (!entry || !(entry_flags(*entry) & (WIT_PAGE_OWNED | WIT_PAGE_ALIAS))) {
             return WIT_STATUS_NOT_COMMITTED;
         }
     }
     for (WitU64 p = address; p < address + size; p += 4096) {
         WitU64 *entry = leaf(space, p, 0);
-        *entry = (*entry & (PAGE_ADDRESS | PAGE_OWNED | PAGE_ALIAS)) | (protection_flags(protection) & ~PAGE_OWNED);
+        const WitU32 kept = entry_flags(*entry) & (WIT_PAGE_OWNED | WIT_PAGE_ALIAS);
+        *entry =
+            wit_arch_page_entry_make(entry_physical(*entry), kept | (protection_flags(protection) & ~WIT_PAGE_OWNED));
         invalidate(space, p);
     }
     return WIT_STATUS_OK;
@@ -787,7 +727,7 @@ WitU64 wit_user_code_reset_sparse(WitUserSpace *space, WitU64 address, WitU64 si
             continue;
         }
         const WitU64 *entry = leaf(space, p, 0);
-        if (!entry || !(*entry & PAGE_OWNED) || !(*entry & PAGE_NX)) {
+        if (!entry || !(entry_flags(*entry) & WIT_PAGE_OWNED) || (entry_flags(*entry) & WIT_PAGE_EXECUTE)) {
             return WIT_STATUS_DENIED;
         }
     }
@@ -899,7 +839,7 @@ WitU64 wit_user_code_alias(WitUserSpace *space, WitU64 destination, WitU64 sourc
     for (WitU64 offset = 0; offset < size; offset += 4096) {
         const WitU64 *input = leaf(space, source + offset, 0);
         const WitU64 *output = leaf(space, destination + offset, 0);
-        if (!input || !(*input & PAGE_OWNED) || (*input & PAGE_ALIAS)) {
+        if (!input || !(entry_flags(*input) & WIT_PAGE_OWNED) || (entry_flags(*input) & WIT_PAGE_ALIAS)) {
             return WIT_STATUS_NOT_COMMITTED;
         }
         if (output && *output) {
@@ -917,8 +857,8 @@ WitU64 wit_user_code_alias(WitUserSpace *space, WitU64 destination, WitU64 sourc
             }
             return WIT_STATUS_NO_MEMORY;
         }
-        const WitU64 physical = *leaf(space, source + added, 0) & PAGE_ADDRESS;
-        *output = physical | (protection_flags(protection) & ~PAGE_OWNED) | PAGE_ALIAS;
+        const WitU64 physical = entry_physical(*leaf(space, source + added, 0));
+        *output = wit_arch_page_entry_make(physical, (protection_flags(protection) & ~WIT_PAGE_OWNED) | WIT_PAGE_ALIAS);
         space->AliasVirtual[space->AliasCount] = destination + added;
         space->AliasPhysical[space->AliasCount++] = physical;
         invalidate(space, destination + added);
@@ -958,18 +898,15 @@ WitU64 wit_user_code_publish(WitUserSpace *space, WitU64 address, WitU64 size)
     for (WitU64 page = low; page < high; page += 4096) {
         const WitU64 *entry = leaf(space, page, 0);
         if (!entry ||
-            (*entry & (PAGE_PRESENT | PAGE_USER)) != (PAGE_PRESENT | PAGE_USER) ||
-            !(*entry & (PAGE_OWNED | PAGE_ALIAS))) {
+            !(entry_flags(*entry) & WIT_PAGE_READ) ||
+            !(entry_flags(*entry) & (WIT_PAGE_OWNED | WIT_PAGE_ALIAS))) {
             return WIT_STATUS_NOT_COMMITTED;
         }
-        if (*entry & (PAGE_WRITE | PAGE_NX)) {
+        if ((entry_flags(*entry) & WIT_PAGE_WRITE) || !(entry_flags(*entry) & WIT_PAGE_EXECUTE)) {
             return WIT_STATUS_DENIED;
         }
     }
-    // CPUID is a real serializing instruction on the sole online x64 CPU.
-    // This is instruction publication; the existing data-fence API is separate.
-    int cpu[4];
-    __cpuid(cpu, 0);
+    wit_arch_publish_code();
     return WIT_STATUS_OK;
 }
 
@@ -1017,7 +954,7 @@ WitU64 wit_user_library_release(WitUserSpace *space, WitU64 address)
 
 void wit_user_space_destroy(WitUserSpace *space)
 {
-    if (space->Root && (__readcr3() & PAGE_ADDRESS) == space->Root) {
+    if (space->Root && wit_arch_space_active(space->Root)) {
         wit_panic("Destroying active user address space");
     }
     while (space->OwnedCount != 0) {

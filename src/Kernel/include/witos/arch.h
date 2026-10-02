@@ -85,6 +85,30 @@ void wit_arch_fault_from_context(WitArchFaultState *state, const WitThreadContex
 int wit_arch_fault_from_user(const WitArchFaultState *state);
 void wit_arch_fault_describe(const WitArchFaultState *state);
 
+/*
+ * User address spaces. The common kernel owns and accounts every page, including table pages, which the
+ * architecture takes and returns through wit_user_space_take_table and wit_user_space_release_table.
+ * A leaf entry is zero when nothing is mapped; otherwise the architecture encodes these flags.
+ */
+#define WIT_PAGE_READ 1U /* Accessible from user mode. */
+#define WIT_PAGE_WRITE 2U
+#define WIT_PAGE_EXECUTE 4U
+#define WIT_PAGE_OWNED 8U /* Committed backing owned by the space, even with no access. */
+#define WIT_PAGE_ALIAS 16U /* Code view of backing owned elsewhere in the same space. */
+
+struct WitUserSpace;
+WitU64 wit_arch_page_entry_make(WitU64 physical, WitU32 flags);
+WitU32 wit_arch_page_entry_flags(WitU64 entry);
+WitU64 wit_arch_page_entry_physical(WitU64 entry);
+WitU64 *wit_arch_page_entry(struct WitUserSpace *space, WitU64 address, int create);
+void wit_arch_page_prune(struct WitUserSpace *space, WitU64 address);
+void wit_arch_page_invalidate(const struct WitUserSpace *space, WitU64 address);
+WitU64 wit_arch_page_translate(WitU64 root, WitU64 address, int write, int execute);
+int wit_arch_space_kernel_ready(void);
+void wit_arch_space_install_kernel(WitU64 root);
+int wit_arch_space_active(WitU64 root);
+void wit_arch_publish_code(void);
+
 /* Time: scheduler ticks and the monotonic counter. */
 void wit_arch_timer_start(void);
 void wit_arch_timer_stop(void);
