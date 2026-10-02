@@ -8,6 +8,28 @@ internal static class ConsistencyTests
     {
         yield return ("FormatManifestDescribesTree", () => FormatManifestAsync(root));
         yield return ("VersionsHaveOneSource", () => VersionsAsync(root));
+        yield return ("AbiReferenceCoversEveryCall", () => AbiReferenceAsync(root));
+    }
+
+    private static Task AbiReferenceAsync(string root)
+    {
+        var reference = File.ReadAllText(Path.Combine(root, "@Docs/Implementation/ABI-Reference.md"));
+        var calls = KernelAbi.Calls(root);
+        Check(calls.Count > 0, "No WIT_CALL_* definitions were found");
+        foreach (var (name, number) in calls)
+        {
+            Check(Regex.IsMatch(reference, $@"^\| {number} \| `{name}` \|", RegexOptions.Multiline),
+                $"ABI reference lacks a row for {name} = {number}");
+        }
+        var rows = Regex.Matches(reference, @"^\| \d+ \| `(WIT_CALL_[A-Z0-9_]+)` \|", RegexOptions.Multiline);
+        Check(rows.Count == calls.Count, $"ABI reference has {rows.Count} call rows for {calls.Count} calls");
+        var next = calls.Values.Max() + 1;
+        Check(reference.Contains($"Следующий свободный номер: **{next}**", StringComparison.Ordinal),
+            "ABI reference names a stale next free call number");
+        Check(reference.Contains($"**user ABI v{KernelAbi.UserVersion(root)}**", StringComparison.Ordinal) &&
+            reference.Contains($"**boot ABI v{KernelAbi.BootVersion(root)}**", StringComparison.Ordinal),
+            "ABI reference names stale versions");
+        return Task.CompletedTask;
     }
 
     private static Task VersionsAsync(string root)

@@ -56,5 +56,6 @@ WIT_STATIC_ASSERT(sizeof(WitLibraryInfo)==40,"Library info ABI");
  * Reader handles independently retain the module graph while unwind metadata is
  * inspected. Acquire uses Ordinal as a PC and copies WitLibraryInfo atomically.
  * Query/release use the distinct reader handle; ordinary CLOSE/UNLOAD reject it.
- * TLS, forwarders and nonzero entry points remain unsupported. */
+ * Entry points run in user space through readonly lifecycle plans and static
+ * TLS uses per-module slots (ABI v45-v48). Forwarders remain unsupported. */
 #endif
