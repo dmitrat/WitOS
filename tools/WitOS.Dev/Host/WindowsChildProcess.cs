@@ -236,6 +236,7 @@ internal sealed class WindowsChildProcess : IDisposable
 
     #region IDisposable
 
+    /// <inheritdoc />
     public void Dispose()
     {
         m_job.Dispose();

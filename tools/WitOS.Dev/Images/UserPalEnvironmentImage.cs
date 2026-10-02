@@ -6,6 +6,9 @@ using WitOS.Dev.Host;
 
 namespace WitOS.Dev.Images;
 
+/// <summary>
+/// Builds the guest fixture that exercises the PAL environment and UTF conversion.
+/// </summary>
 internal static class UserPalEnvironmentImage
 {
     #region Functions

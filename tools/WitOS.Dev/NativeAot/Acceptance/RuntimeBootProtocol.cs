@@ -3,6 +3,9 @@ using System.Text.RegularExpressions;
 
 namespace WitOS.Dev.NativeAot.Acceptance;
 
+/// <summary>
+/// Markers and counts of the runtime-boot guest protocol, and validation of a captured boot log.
+/// </summary>
 internal static class RuntimeBootProtocol
 {
     #region Constants
@@ -45,6 +48,11 @@ internal static class RuntimeBootProtocol
 
     #region Functions
 
+    /// <summary>
+    /// Reads the single managed object hash from a guest input snapshot.
+    /// </summary>
+    /// <param name="input">Guest input snapshot.</param>
+    /// <returns>Lowercase SHA-256.</returns>
     internal static string SharedManagedObjectHash(System.Text.Json.JsonElement input)
     {
         if (!input.TryGetProperty("buildEvidence", out var build) || !build.TryGetProperty("inputs", out var inputs) ||
@@ -60,6 +68,13 @@ internal static class RuntimeBootProtocol
         return value;
     }
 
+    /// <summary>
+    /// Checks the output of the hosted reference run.
+    /// </summary>
+    /// <param name="output">Standard output.</param>
+    /// <param name="exitCode">Exit code.</param>
+    /// <param name="timedOut">Whether the run timed out.</param>
+    /// <returns>True when the run passed.</returns>
     internal static bool ValidateHosted(string output, int exitCode, bool timedOut)
     {
         if (timedOut || exitCode != 42)
@@ -70,12 +85,24 @@ internal static class RuntimeBootProtocol
         return lines.SequenceEqual(expected);
     }
 
+    /// <summary>
+    /// Checks a recorded hosted reference log.
+    /// </summary>
+    /// <param name="text">Log text.</param>
+    /// <returns>True when the run passed.</returns>
     internal static bool ValidateHostedLog(string text)
     {
         const string suffix = "\nExit code: 42\n";
         return text.EndsWith(suffix, StringComparison.Ordinal) && ValidateHosted(text[..^suffix.Length], 42, false);
     }
 
+    /// <summary>
+    /// Checks a guest runtime-boot log against the full protocol.
+    /// </summary>
+    /// <param name="output">Serial output.</param>
+    /// <param name="exitCode">QEMU exit code.</param>
+    /// <param name="timedOut">Whether the boot timed out.</param>
+    /// <returns>True when the boot passed.</returns>
     public static bool Validate(string output, int exitCode, bool timedOut)
     {
         if (timedOut || exitCode != 33 || output.Contains("[PANIC]", StringComparison.Ordinal) || output.Contains("[EXCEPTION]", StringComparison.Ordinal) ||
@@ -241,6 +268,9 @@ internal static class RuntimeBootProtocol
 
     #region Properties
 
+    /// <summary>
+    /// Number of contained stack faults each machine profile must report.
+    /// </summary>
     internal static int StackFaultsPerProfile => IMAGE_BASES.Length;
 
     #endregion

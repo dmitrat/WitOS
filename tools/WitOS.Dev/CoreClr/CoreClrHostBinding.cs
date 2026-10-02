@@ -4,10 +4,22 @@ using WitOS.Dev.Host;
 using WitOS.Dev.NativeAot;
 namespace WitOS.Dev.CoreClr;
 
+/// <summary>
+/// Runs the upstream Windows host against a probe app and verifies standard runtimeconfig/deps binding.
+/// </summary>
 internal static class CoreClrHostBinding
 {
     #region Functions
 
+    /// <summary>
+    /// Runs the upstream host binding tests against the accepted CoreCLR source build.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="source">Pinned upstream runtime source tree.</param>
+    /// <param name="binaries">Source-built host binaries.</param>
+    /// <param name="pin">Pinned upstream sources.</param>
+    /// <param name="attempt">Directory of the current recorded attempt.</param>
+    /// <returns>Binding evidence for the attempt record.</returns>
     internal static async Task<object> RunAsync(string root, string source, string binaries, UpstreamSourceLock pin, string attempt)
     {
         var pointerPath = Path.Combine(root, "artifacts/coreclr-source/current-run.json");

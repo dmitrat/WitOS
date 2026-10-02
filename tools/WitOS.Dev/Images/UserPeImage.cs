@@ -6,10 +6,20 @@ using WitOS.Dev.Host;
 
 namespace WitOS.Dev.Images;
 
+/// <summary>
+/// Builds the relocatable and fixed PE fixtures that the guest PE loader must parse.
+/// </summary>
 internal static class UserPeImage
 {
     #region Functions
 
+    /// <summary>
+    /// Links the relocatable and fixed PE fixtures and generates their embedding header.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
+    /// <param name="constants">User ABI constants by name.</param>
     public static async Task BuildAsync(string root, string output, string msvc, Dictionary<string, ulong> constants)
     {
         var obj = Path.Combine(output, "PeFixture.obj");

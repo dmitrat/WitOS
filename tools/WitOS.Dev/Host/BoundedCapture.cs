@@ -2,6 +2,9 @@ using System.Text;
 
 namespace WitOS.Dev.Host;
 
+/// <summary>
+/// Thread-safe text capture that stops growing at a fixed limit and reports the overflow.
+/// </summary>
 internal sealed class BoundedCapture
 {
     #region Constants
@@ -20,6 +23,10 @@ internal sealed class BoundedCapture
 
     #region Functions
 
+    /// <summary>
+    /// Appends text up to the capture limit and signals overflow once the limit is exceeded.
+    /// </summary>
+    /// <param name="value">Text to append.</param>
     internal void Append(ReadOnlySpan<char> value)
     {
         lock (m_text)
@@ -31,8 +38,17 @@ internal sealed class BoundedCapture
         }
     }
 
+    /// <summary>
+    /// Copies the text captured so far.
+    /// </summary>
+    /// <returns>Captured text.</returns>
     internal string Snapshot() { lock (m_text) return m_text.ToString(); }
 
+    /// <summary>
+    /// Reads an evidence file that must not exceed the capture limit.
+    /// </summary>
+    /// <param name="path">File to read.</param>
+    /// <returns>File text.</returns>
     internal static async Task<string> ReadFileAsync(string path)
     {
         using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -55,8 +71,14 @@ internal sealed class BoundedCapture
 
     #region Properties
 
+    /// <summary>
+    /// Completes when appended text first exceeds the limit.
+    /// </summary>
     internal Task Overflow => m_overflow.Task;
 
+    /// <summary>
+    /// Whether appended text exceeded the limit.
+    /// </summary>
     internal bool Truncated { get { lock (m_text) return m_overflow.Task.IsCompleted; } }
 
     #endregion

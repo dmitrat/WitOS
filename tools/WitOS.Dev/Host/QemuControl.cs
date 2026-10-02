@@ -5,9 +5,11 @@ using System.Text.Json;
 
 namespace WitOS.Dev.Host;
 
-// The parent owns a loopback listener before QEMU starts; no released-port race.
-// QEMU connects as a transport client but remains the QMP protocol server.
-// Keeping QMP off inherited stdin removes QEMU's synchronous pipe reader path.
+/// <summary>
+/// The parent owns a loopback listener before QEMU starts; no released-port race.
+/// QEMU connects as a transport client but remains the QMP protocol server.
+/// Keeping QMP off inherited stdin removes QEMU's synchronous pipe reader path.
+/// </summary>
 internal sealed class QemuControl : IDisposable
 {
     #region Fields
@@ -36,6 +38,10 @@ internal sealed class QemuControl : IDisposable
 
     #region Functions
 
+    /// <summary>
+    /// Asks QEMU to quit through QMP after it connects.
+    /// </summary>
+    /// <param name="cancellation">Stops the request.</param>
     internal async Task QuitAsync(CancellationToken cancellation)
     {
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation, m_lifetime.Token);
@@ -112,6 +118,7 @@ internal sealed class QemuControl : IDisposable
 
     #region IDisposable
 
+    /// <inheritdoc />
     public void Dispose()
     {
         m_lifetime.Cancel();
@@ -130,10 +137,19 @@ internal sealed class QemuControl : IDisposable
 
     #region Properties
 
+    /// <summary>
+    /// QEMU -qmp argument that connects to the loopback listener.
+    /// </summary>
     internal string Argument { get; }
 
+    /// <summary>
+    /// Whether QEMU acknowledged the quit command.
+    /// </summary>
     internal bool QuitAcknowledged { get; private set; }
 
+    /// <summary>
+    /// QMP messages exchanged so far.
+    /// </summary>
     internal string Transcript { get { lock (m_transcript) return m_transcript.ToString(); } }
 
     #endregion

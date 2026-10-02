@@ -5,10 +5,17 @@ using WitOS.Dev.Host;
 using WitOS.Dev.Pe;
 namespace WitOS.Dev.NativeAot;
 
+/// <summary>
+/// Audits that source-built GC objects exclude write-watch support.
+/// </summary>
 internal static class RuntimeGcPolicy
 {
     #region Functions
 
+    /// <summary>
+    /// Audits the GC objects of the existing source build.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
     public static Task ExistingAsync(string root)
     {
         var source = Path.Combine(root, ".tools/upstream", "runtime-" + RuntimeExperiment.ReadLock(root).RuntimeVersion);
@@ -16,6 +23,13 @@ internal static class RuntimeGcPolicy
             Path.Combine(source, "artifacts/bin/coreclr/windows.x64.Release/witos/aotsdk/Runtime.WorkstationGC.lib"));
     }
 
+    /// <summary>
+    /// Audits that the GC objects were compiled without write-watch support.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="source">Pinned upstream source tree.</param>
+    /// <param name="obj">Source-build object directory.</param>
+    /// <param name="archive">Workstation GC archive.</param>
     public static async Task RunAsync(string root, string source, string obj, string archive)
     {
         var pin = RuntimeExperiment.ReadLock(root);

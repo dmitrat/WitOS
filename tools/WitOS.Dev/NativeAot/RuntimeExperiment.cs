@@ -8,6 +8,9 @@ using WitOS.Dev.Pe;
 
 namespace WitOS.Dev.NativeAot;
 
+/// <summary>
+/// Audits pinned NativeAOT sources and package provenance and runs the hosted dependency probe.
+/// </summary>
 internal static class RuntimeExperiment
 {
     #region Constants
@@ -30,6 +33,11 @@ internal static class RuntimeExperiment
 
     #region Functions
 
+    /// <summary>
+    /// Reads the runtime source lock.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Pinned upstream sources.</returns>
     internal static UpstreamSourceLock ReadLock(string root)
     {
         var data = JsonSerializer.Deserialize<UpstreamSourceLock>(
@@ -45,6 +53,10 @@ internal static class RuntimeExperiment
         return data;
     }
 
+    /// <summary>
+    /// Downloads every pinned source, verifies its hash and checks package provenance.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
     public static async Task AuditAsync(string root)
     {
         await NativeMathSources.PrepareAsync(root, generate: false);
@@ -82,6 +94,16 @@ internal static class RuntimeExperiment
         Console.WriteLine($"Package VMR {pin.PackageCommit} maps to the same runtime commit.");
     }
 
+    /// <summary>
+    /// Returns a cached upstream file, downloading it first when missing; verifies its SHA-256 either way.
+    /// </summary>
+    /// <param name="client">HTTP client.</param>
+    /// <param name="cache">Cache directory.</param>
+    /// <param name="repository">dotnet repository name.</param>
+    /// <param name="revision">Git revision.</param>
+    /// <param name="path">Repository-relative path.</param>
+    /// <param name="expectedHash">Expected lowercase SHA-256.</param>
+    /// <returns>Cached file path.</returns>
     internal static async Task<string> FetchAsync(HttpClient client, string cache, string repository, string revision, string path, string expectedHash)
     {
         if (!Regex.IsMatch(expectedHash, "^[0-9a-f]{64}$") || Path.IsPathRooted(path) ||
@@ -103,6 +125,12 @@ internal static class RuntimeExperiment
         return destination;
     }
 
+    /// <summary>
+    /// Checks that the restored NativeAOT packages come from the pinned repository and commit.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="pin">Pinned upstream sources.</param>
+    /// <returns>Verified package identifiers.</returns>
     internal static string[] VerifyPublishedPackages(string root, UpstreamSourceLock pin)
     {
         var packageCache = Path.Combine(root, ".tools", "nuget");
@@ -119,6 +147,10 @@ internal static class RuntimeExperiment
         return verifiedPackages;
     }
 
+    /// <summary>
+    /// Publishes and executes the hosted NativeAOT dependency probe.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
     public static async Task ProbeAsync(string root)
     {
         var pin = ReadLock(root);

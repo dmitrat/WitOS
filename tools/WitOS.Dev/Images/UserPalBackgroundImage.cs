@@ -6,6 +6,9 @@ using WitOS.Dev.Host;
 
 namespace WitOS.Dev.Images;
 
+/// <summary>
+/// Builds the guest fixture that exercises PAL background-thread creation.
+/// </summary>
 internal static class UserPalBackgroundImage
 {
     #region Functions

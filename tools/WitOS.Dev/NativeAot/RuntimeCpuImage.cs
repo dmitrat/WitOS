@@ -8,10 +8,30 @@ using WitOS.Dev.NativeAot.References;
 using WitOS.Dev.Pe;
 namespace WitOS.Dev.NativeAot;
 
+/// <summary>
+/// Links the guest runtime-config probe image from the runtime archive and its CPU, clock and security fixtures.
+/// </summary>
 internal static class RuntimeCpuImage
 {
     #region Functions
 
+    /// <summary>
+    /// Assembles the CPU fixtures and links the runtime-config probe image.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
+    /// <param name="archive">Probe archive.</param>
+    /// <param name="minipal">minipal archive.</param>
+    /// <param name="memory">CRT memory object.</param>
+    /// <param name="crt">CRT helper object.</param>
+    /// <param name="clockObject">Clock object.</param>
+    /// <param name="clockBinding">Clock import binding object.</param>
+    /// <param name="fatalObject">Fatal diagnostics object.</param>
+    /// <param name="affinityObject">GC affinity parser object.</param>
+    /// <param name="mathObject">Math object.</param>
+    /// <param name="logObject">Logarithm object.</param>
+    /// <param name="securityObjects">Native platform objects.</param>
     public static async Task BuildAsync(string root, string output, string msvc, string archive, string minipal, string memory, string crt, string clockObject, string clockBinding, string fatalObject, string affinityObject, string mathObject, string logObject, NativePlatformObjects securityObjects)
     {
         var entry = Path.Combine(output, "runtime_cpu_entry.obj");

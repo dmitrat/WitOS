@@ -29,6 +29,7 @@ internal sealed class CommandRuntimeBoot : ICommand
 
     #region ICommand
 
+    /// <inheritdoc />
     public Task RunAsync(string root, IReadOnlyList<string> arguments)
         => RuntimeBootAttempt.RunAsync(root, Name, async attempt =>
         {
@@ -44,10 +45,13 @@ internal sealed class CommandRuntimeBoot : ICommand
 
     #region Properties
 
+    /// <inheritdoc />
     public string Name => m_rebuildRuntime ? "runtime-boot" : "runtime-boot-run";
 
+    /// <inheritdoc />
     public string Arguments => "";
 
+    /// <inheritdoc />
     public string Description => m_rebuildRuntime
         ? "Build and execute the full guest runtime/GC workload"
         : "Rebuild kernel and boot the last hash-verified runtime image";

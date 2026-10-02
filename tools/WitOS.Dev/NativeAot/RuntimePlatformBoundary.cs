@@ -6,7 +6,9 @@ using WitOS.Dev.Pe;
 
 namespace WitOS.Dev.NativeAot;
 
-// Evidence inventory, not a substitute for guest implementation or dynamic reachability.
+/// <summary>
+/// Evidence inventory, not a substitute for guest implementation or dynamic reachability.
+/// </summary>
 internal static class RuntimePlatformBoundary
 {
     #region Fields
@@ -30,6 +32,15 @@ internal static class RuntimePlatformBoundary
 
     #region Functions
 
+    /// <summary>
+    /// Groups the unresolved platform symbols by porting decision and writes the boundary report.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="managedObject">NativeAOT managed object.</param>
+    /// <param name="coff">Parsed managed object.</param>
+    /// <param name="linkLog">Strict link log.</param>
+    /// <param name="unresolved">Unresolved symbols.</param>
+    /// <param name="compilerArguments">Arguments the managed object was compiled with.</param>
     public static async Task WriteAsync(string root, string managedObject, CoffObjectInfo coff,
         string linkLog, string[] unresolved, string[] compilerArguments)
     {

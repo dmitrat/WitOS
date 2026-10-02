@@ -5,10 +5,18 @@ using WitOS.Dev.Host;
 using WitOS.Dev.Pe;
 namespace WitOS.Dev.NativeAot.References;
 
+/// <summary>
+/// Verifies an actual compiler /GS frame: intact return and termination on a corrupted cookie (hosted).
+/// </summary>
 internal static class RuntimeSecurityReference
 {
     #region Functions
 
+    /// <summary>
+    /// Builds the /GS frame probe and runs it on Windows.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
     public static async Task RunAsync(string root, string msvc)
     {
         var output = Path.Combine(root, "artifacts/runtime-security");

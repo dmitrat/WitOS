@@ -6,6 +6,9 @@ using WitOS.Dev.Host;
 
 namespace WitOS.Dev.Images;
 
+/// <summary>
+/// Builds the guest fixture that exercises native process-exit callbacks and TLS cleanup order.
+/// </summary>
 internal static class UserProcessExitImage
 {
     #region Functions

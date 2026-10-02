@@ -6,6 +6,9 @@ using WitOS.Dev.Host;
 
 namespace WitOS.Dev.Images;
 
+/// <summary>
+/// Builds the guest fixture that exercises PAL module lookup in the single-image context.
+/// </summary>
 internal static class UserPalModuleImage
 {
     #region Functions

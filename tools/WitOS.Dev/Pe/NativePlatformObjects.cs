@@ -3,7 +3,9 @@ using System.Text.Json;
 
 namespace WitOS.Dev.Pe;
 
-// Source identity is the key; link groups never depend on positional indices.
+/// <summary>
+/// Source identity is the key; link groups never depend on positional indices.
+/// </summary>
 internal sealed class NativePlatformObjects
 {
     #region Fields
@@ -63,9 +65,19 @@ internal sealed class NativePlatformObjects
 
     #region Functions
 
+    /// <summary>
+    /// Selects objects by source name.
+    /// </summary>
+    /// <param name="names">Source names.</param>
+    /// <returns>Object paths.</returns>
     internal string[] Select(params string[] names) => names.Select(name => m_files.TryGetValue(name, out var file)
         ? file : throw new InvalidDataException("Native platform object missing: " + name)).ToArray();
 
+    /// <summary>
+    /// Copies every object into a directory.
+    /// </summary>
+    /// <param name="directory">Destination directory.</param>
+    /// <returns>Manifest entries of the copies.</returns>
     internal object[] CopyTo(string directory)
     {
         return SOURCES.Select(name =>
@@ -76,6 +88,12 @@ internal sealed class NativePlatformObjects
         }).ToArray();
     }
 
+    /// <summary>
+    /// Reads and hash-checks the objects listed in a manifest.
+    /// </summary>
+    /// <param name="directory">Object directory.</param>
+    /// <param name="manifest">Manifest entries.</param>
+    /// <returns>The verified objects.</returns>
     internal static NativePlatformObjects Read(string directory, JsonElement manifest)
     {
         var items = manifest.EnumerateArray().Select(item =>
@@ -102,8 +120,14 @@ internal sealed class NativePlatformObjects
 
     #region Properties
 
+    /// <summary>
+    /// Every object, in source order.
+    /// </summary>
     internal string[] All => SOURCES.Select(name => m_files[name]).ToArray();
 
+    /// <summary>
+    /// Objects linked into the CPU probe image.
+    /// </summary>
     internal string[] Cpu => Select(
         "security_cookie.witos.cpp",
         "security_handler.witos.cpp",
@@ -124,6 +148,9 @@ internal sealed class NativePlatformObjects
         "native_console.asm",
         "native_processor.asm");
 
+    /// <summary>
+    /// Objects linked into the thread probe images.
+    /// </summary>
     internal string[] Thread => Select(
         "security_cookie.witos.cpp",
         "security_handler.witos.cpp",
@@ -156,6 +183,9 @@ internal sealed class NativePlatformObjects
         "native_thread_create.witos.cpp",
         "native_thread_create.asm");
 
+    /// <summary>
+    /// Service, event and thread-handle bindings linked into the runtime-config probe image.
+    /// </summary>
     internal string[] Record => Select(
         "native_services.witos.cpp",
         "native_services.asm",
@@ -163,6 +193,9 @@ internal sealed class NativePlatformObjects
         "native_thread_handles.witos.cpp",
         "native_thread_handles.asm");
 
+    /// <summary>
+    /// Every object except the context storage, for the COM probe.
+    /// </summary>
     internal string[] Com => SOURCES.Where(name => name != "pal_context_storage.witos.cpp").Select(name => m_files[name]).ToArray();
 
     #endregion

@@ -4,11 +4,23 @@ using System.Text;
 
 namespace WitOS.Dev.Pe;
 
+/// <summary>
+/// Reads COFF objects and verifies that an archive contains an exact object.
+/// </summary>
 internal static class NativeObject
 {
     #region Functions
 
-    // Standard AMD64 COFF only. Import objects and BigObj are rejected explicitly.
+    /// <summary>
+    /// Reads the sections, symbols and optionally the external references of a COFF object.
+    /// </summary>
+    /// <remarks>
+    /// Standard AMD64 COFF only. Import objects and BigObj are rejected explicitly.
+    /// </remarks>
+    /// <param name="path">Object path.</param>
+    /// <param name="collectReferences">Whether to collect relocations to external symbols.</param>
+    /// <param name="includeDefinedReferences">Whether to include relocations to symbols the object defines.</param>
+    /// <returns>Object facts.</returns>
     public static CoffObjectInfo Inspect(string path, bool collectReferences = false, bool includeDefinedReferences = false)
     {
         var data = File.ReadAllBytes(path);
@@ -172,6 +184,11 @@ internal static class NativeObject
             requiredCpuFeatures, references?.ToArray());
     }
 
+    /// <summary>
+    /// Throws unless an archive contains a member identical to an object file.
+    /// </summary>
+    /// <param name="archivePath">Archive path.</param>
+    /// <param name="objectPath">Object path.</param>
     public static void VerifyArchive(string archivePath, string objectPath)
     {
         var archive = File.ReadAllBytes(archivePath);

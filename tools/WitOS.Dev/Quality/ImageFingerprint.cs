@@ -5,9 +5,11 @@ using WitOS.Dev.Kernel;
 
 namespace WitOS.Dev.Quality;
 
-// Section fingerprints of the native images the tool builds. Debug records and
-// link timestamps are masked, so formatting, comments and file moves must leave
-// every fingerprint unchanged, while any code or data change alters one.
+/// <summary>
+/// Section fingerprints of the native images the tool builds. Debug records and
+/// link timestamps are masked, so formatting, comments and file moves must leave
+/// every fingerprint unchanged, while any code or data change alters one.
+/// </summary>
 internal static class ImageFingerprint
 {
     #region Constants
@@ -28,7 +30,14 @@ internal static class ImageFingerprint
 
     #region Functions
 
-    // Usage: fingerprint [--output <file>] [--compare <file>] [scenario...]
+    /// <summary>
+    /// Builds the scenarios, fingerprints their images and optionally saves or compares the report.
+    /// </summary>
+    /// <remarks>
+    /// Usage: fingerprint [--output <file>] [--compare <file>] [scenario...]
+    /// </remarks>
+    /// <param name="root">Repository root.</param>
+    /// <param name="arguments">Options and scenario names.</param>
     public static async Task RunAsync(string root, IReadOnlyList<string> arguments)
     {
         string? output = null;
@@ -103,6 +112,12 @@ internal static class ImageFingerprint
         Console.WriteLine($"Fingerprints match the baseline: {compare}");
     }
 
+    /// <summary>
+    /// Hashes every section of an image with its debug data masked.
+    /// </summary>
+    /// <param name="key">Image key in the report.</param>
+    /// <param name="path">Image path.</param>
+    /// <returns>Section hashes.</returns>
     internal static FingerprintImage Compute(string key, string path)
     {
         var bytes = File.ReadAllBytes(path);
@@ -136,6 +151,12 @@ internal static class ImageFingerprint
         return new FingerprintImage(key, sections);
     }
 
+    /// <summary>
+    /// Lists the images and sections that differ between two reports.
+    /// </summary>
+    /// <param name="baseline">Earlier report.</param>
+    /// <param name="current">New report.</param>
+    /// <returns>Differences; empty when the reports match.</returns>
     internal static List<string> Compare(FingerprintReport baseline, FingerprintReport current)
     {
         var differences = new List<string>();

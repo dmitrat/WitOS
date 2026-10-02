@@ -34,6 +34,7 @@ internal sealed class CommandScenario : ICommand
 
     #region ICommand
 
+    /// <inheritdoc />
     public async Task RunAsync(string root, IReadOnlyList<string> arguments)
     {
         if (m_prepare is not null)
@@ -51,10 +52,13 @@ internal sealed class CommandScenario : ICommand
 
     #region Properties
 
+    /// <inheritdoc />
     public string Name { get; }
 
+    /// <inheritdoc />
     public string Arguments => "";
 
+    /// <inheritdoc />
     public string Description { get; }
 
     #endregion

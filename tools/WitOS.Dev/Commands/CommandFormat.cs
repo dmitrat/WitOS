@@ -25,16 +25,20 @@ internal sealed class CommandFormat : ICommand
 
     #region ICommand
 
+    /// <inheritdoc />
     public Task RunAsync(string root, IReadOnlyList<string> arguments) => SourceFormat.RunAsync(root, m_check);
 
     #endregion
 
     #region Properties
 
+    /// <inheritdoc />
     public string Name => m_check ? "format-check" : "format";
 
+    /// <inheritdoc />
     public string Arguments => "";
 
+    /// <inheritdoc />
     public string Description => m_check
         ? "Verify the repository style without changing files"
         : "Apply the repository style to files listed in build/format.json";

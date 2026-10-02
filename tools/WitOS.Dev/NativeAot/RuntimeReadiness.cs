@@ -9,10 +9,19 @@ using WitOS.Dev.Pe;
 
 namespace WitOS.Dev.NativeAot;
 
+/// <summary>
+/// Publishes the NativeAOT readiness app and audits the minimal standard-CoreLib executable startup.
+/// </summary>
 internal static class RuntimeReadiness
 {
     #region Functions
 
+    /// <summary>
+    /// Publishes the Windows reference executable and audits its startup roots and image costs.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
+    /// <param name="nativeSdk">Source-built NativeAOT SDK directory.</param>
     public static async Task RunAsync(string root, string msvc, string nativeSdk)
     {
         const string project = "experiments/NativeAotBoot";

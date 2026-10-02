@@ -8,6 +8,9 @@ using WitOS.Dev.Pe;
 
 namespace WitOS.Dev.CoreClr;
 
+/// <summary>
+/// Builds the pinned CoreCLR/JIT Windows reference and inventories the platform imports a WitOS port must supply.
+/// </summary>
 internal static class CoreClrExperiment
 {
     #region Constants
@@ -24,6 +27,10 @@ internal static class CoreClrExperiment
 
     #region Functions
 
+    /// <summary>
+    /// Runs the CoreCLR source experiment as one recorded attempt.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
     internal static Task RunAsync(string root)
         => RuntimeBootAttempt.RunInDirectoryAsync(Path.Combine(root, "artifacts/coreclr-source"), "coreclr-source",
             attempt => BuildAsync(root, attempt));
@@ -51,7 +58,7 @@ internal static class CoreClrExperiment
             reference.GetProperty("readyToRunExecution").GetBoolean() ||
             !reference.GetProperty("components").EnumerateArray().Select(v => v.GetString()).SequenceEqual(new[] { "runtime", "jit" }))
             throw new InvalidDataException("Unsupported CoreCLR reference build profile.");
-        var source = await RuntimeSourceBuild.PrepareSourceAsync(root, pin);
+        var source = await RuntimeSourceCheckout.PrepareAsync(root, pin);
         Directory.CreateDirectory(output);
         var script = Path.Combine(output, "build-reference.cmd");
         string Quote(string value)

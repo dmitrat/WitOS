@@ -3,10 +3,19 @@ using System.Text;
 using WitOS.Dev.Host;
 namespace WitOS.Dev.CoreClr;
 
+/// <summary>
+/// Builds the guest image that tests unchanged assembly delivery and readonly guest file IO.
+/// </summary>
 internal static class CoreClrStorageImage
 {
     #region Functions
 
+    /// <summary>
+    /// Compiles and links the CoreCLR storage test image.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
     internal static async Task BuildAsync(string root, string output, string msvc)
     {
         var objects = new List<string> { Path.Combine(output, "native_start.obj") };

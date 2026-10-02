@@ -8,6 +8,9 @@ using WitOS.Dev.Images;
 
 namespace WitOS.Dev.NativeAot;
 
+/// <summary>
+/// Builds the guest image that runs the pinned GC memory adapter checks.
+/// </summary>
 internal static class RuntimePortImage
 {
     #region Constants
@@ -29,6 +32,12 @@ internal static class RuntimePortImage
 
     #region Functions
 
+    /// <summary>
+    /// Compiles the GC memory adapter against verified upstream headers and links the port image.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
     public static async Task BuildAsync(string root, string output, string msvc)
     {
         var pin = RuntimeExperiment.ReadLock(root);

@@ -7,6 +7,9 @@ using WitOS.Dev.Host;
 
 namespace WitOS.Dev.Images;
 
+/// <summary>
+/// Builds the guest fixture that exercises dynamic C++ TLS constructors and destructors.
+/// </summary>
 internal static class UserDynamicTlsImage
 {
     #region Functions

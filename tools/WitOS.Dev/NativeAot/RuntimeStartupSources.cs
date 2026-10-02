@@ -3,10 +3,18 @@ using System.Text.Json;
 
 namespace WitOS.Dev.NativeAot;
 
+/// <summary>
+/// Fetches the pinned runtime startup sources and applies the recorded WitOS corrections.
+/// </summary>
 internal static class RuntimeStartupSources
 {
     #region Functions
 
+    /// <summary>
+    /// Writes the startup source slices with the recorded corrections applied.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="pin">Pinned upstream sources.</param>
     public static async Task PrepareAsync(string root, UpstreamSourceLock pin)
     {
         var output = Path.Combine(root, "artifacts", "runtime-config", "source");

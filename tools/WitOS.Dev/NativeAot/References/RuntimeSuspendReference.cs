@@ -3,10 +3,18 @@ using System.Text.Json;
 using WitOS.Dev.Host;
 namespace WitOS.Dev.NativeAot.References;
 
+/// <summary>
+/// Verifies the Windows thread suspend count and its overflow behavior (hosted).
+/// </summary>
 internal static class RuntimeSuspendReference
 {
     #region Functions
 
+    /// <summary>
+    /// Builds and runs the suspend reference.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
     public static async Task RunAsync(string root, string msvc)
     {
         var output = Path.Combine(root, "artifacts", "runtime-suspend");

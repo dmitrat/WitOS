@@ -3,6 +3,9 @@ using System.Text;
 
 namespace WitOS.Dev.Kernel;
 
+/// <summary>
+/// Writes a FAT boot disk that holds the UEFI loader, the kernel and an optional boot package.
+/// </summary>
 internal static class FatImage
 {
     #region Constants
@@ -32,6 +35,12 @@ internal static class FatImage
 
     #region Functions
 
+    /// <summary>
+    /// Writes a FAT16 boot disk with the loader at EFI/BOOT/BOOTX64.EFI and the boot package beside it.
+    /// </summary>
+    /// <param name="destination">Disk image path.</param>
+    /// <param name="executable">UEFI loader bytes.</param>
+    /// <param name="package">Boot package, or an empty package when null.</param>
     public static void Create(string destination, byte[] executable, byte[]? package = null)
     {
         // Preserve the existing 32 MiB layout. Assembly packages use a 128 MiB

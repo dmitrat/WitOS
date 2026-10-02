@@ -3,11 +3,19 @@ using System.Text.Json;
 
 namespace WitOS.Dev.CoreClr;
 
-// Complete native PE import inventory, not dynamic reachability or an OS implementation.
+/// <summary>
+/// Complete native PE import inventory, not dynamic reachability or an OS implementation.
+/// </summary>
 internal static class CoreClrBoundary
 {
     #region Functions
 
+    /// <summary>
+    /// Writes the platform-import boundary of the CoreCLR reference images, grouped by porting area.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="images">Import inventories of the reference images.</param>
     internal static async Task WriteAsync(string root, string output, JsonElement[] images)
     {
         var entries = images.SelectMany(image => new[] { "directImports", "delayImports" }.SelectMany(kind =>

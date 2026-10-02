@@ -4,6 +4,9 @@ using System.Text;
 
 namespace WitOS.Dev.Host;
 
+/// <summary>
+/// Runs host child processes with timeouts, bounded output capture and optional control input.
+/// </summary>
 internal static class Processes
 {
     #region Fields
@@ -16,10 +19,28 @@ internal static class Processes
 
     #region Functions
 
+    /// <summary>
+    /// Runs a program and captures its output.
+    /// </summary>
+    /// <param name="executable">Program to run.</param>
+    /// <param name="arguments">Program arguments.</param>
+    /// <param name="directory">Working directory.</param>
+    /// <param name="timeoutSeconds">Wall-clock limit before the child process tree is stopped.</param>
+    /// <param name="environment">Extra environment variables, or null.</param>
+    /// <returns>Exit code, output and timeout state.</returns>
     public static Task<ProcessResult> RunAsync(string executable, IEnumerable<string> arguments, string directory,
         int timeoutSeconds = 60, IReadOnlyDictionary<string, string>? environment = null)
         => RunCoreAsync(executable, arguments, directory, timeoutSeconds, environment, null);
 
+    /// <summary>
+    /// Runs a program and writes fixed text to its standard input when the timeout expires.
+    /// </summary>
+    /// <param name="executable">Program to run.</param>
+    /// <param name="arguments">Program arguments.</param>
+    /// <param name="directory">Working directory.</param>
+    /// <param name="timeoutSeconds">Wall-clock limit before the child process tree is stopped.</param>
+    /// <param name="timeoutInput">Text written to standard input on timeout.</param>
+    /// <returns>Exit code, output and timeout state.</returns>
     public static Task<ProcessResult> RunWithTimeoutInputAsync(string executable, IEnumerable<string> arguments,
         string directory, int timeoutSeconds, string timeoutInput)
         => RunCoreAsync(executable, arguments, directory, timeoutSeconds, null, async (input, _, token) =>
@@ -28,18 +49,51 @@ internal static class Processes
             await input.FlushAsync(token);
         });
 
-    // Callbacks must eventually finish; cancellation cannot terminate arbitrary managed code.
-    // The runner bounds its wait even for an uncooperative or synchronously blocking callback.
+    /// <summary>
+    /// Runs a program and calls a stop callback with its standard input and output when the timeout expires.
+    /// </summary>
+    /// <remarks>
+    /// Callbacks must eventually finish; cancellation cannot terminate arbitrary managed code.
+    /// The runner bounds its wait even for an uncooperative or synchronously blocking callback.
+    /// </remarks>
+    /// <param name="executable">Program to run.</param>
+    /// <param name="arguments">Program arguments.</param>
+    /// <param name="directory">Working directory.</param>
+    /// <param name="timeoutSeconds">Wall-clock limit before the child process tree is stopped.</param>
+    /// <param name="control">Stop callback that receives standard input, an output snapshot and a cancellation token.</param>
+    /// <returns>Exit code, output and timeout state.</returns>
     public static Task<ProcessResult> RunWithTimeoutControlAsync(string executable, IEnumerable<string> arguments,
         string directory, int timeoutSeconds, Func<Stream, Func<string>, CancellationToken, Task> control)
         => RunCoreAsync(executable, arguments, directory, timeoutSeconds, null, control);
 
+    /// <summary>
+    /// Runs a program without a standard-input pipe and calls a stop callback when the timeout expires.
+    /// </summary>
+    /// <param name="executable">Program to run.</param>
+    /// <param name="arguments">Program arguments.</param>
+    /// <param name="directory">Working directory.</param>
+    /// <param name="timeoutSeconds">Wall-clock limit before the child process tree is stopped.</param>
+    /// <param name="control">Stop callback.</param>
+    /// <returns>Exit code, output and timeout state.</returns>
     public static Task<ProcessResult> RunWithTimeoutSignalAsync(string executable, IEnumerable<string> arguments,
         string directory, int timeoutSeconds, Func<CancellationToken, Task> control)
         => RunCoreAsync(executable, arguments, directory, timeoutSeconds, null, (_, _, token) => control(token), false);
 
-    // QEMU uses file-backed standard streams: no inherited named-pipe endpoints
-    // can participate in its exit path. Files remain available on cleanup failure.
+    /// <summary>
+    /// Runs a program with file-backed standard streams and calls a stop callback when the timeout expires.
+    /// </summary>
+    /// <remarks>
+    /// QEMU uses file-backed standard streams: no inherited named-pipe endpoints
+    /// can participate in its exit path. Files remain available on cleanup failure.
+    /// </remarks>
+    /// <param name="executable">Program to run.</param>
+    /// <param name="arguments">Program arguments.</param>
+    /// <param name="directory">Working directory.</param>
+    /// <param name="timeoutSeconds">Wall-clock limit before the child process tree is stopped.</param>
+    /// <param name="outputPath">Standard output file.</param>
+    /// <param name="errorPath">Standard error file.</param>
+    /// <param name="control">Stop callback.</param>
+    /// <returns>Exit code, file contents and timeout state.</returns>
     public static async Task<ProcessResult> RunWithFilesAsync(string executable, IEnumerable<string> arguments,
         string directory, int timeoutSeconds, string outputPath, string errorPath, Func<CancellationToken, Task> control)
     {
@@ -85,6 +139,12 @@ internal static class Processes
         return new(child.ExitCode, await BoundedCapture.ReadFileAsync(outputPath), await BoundedCapture.ReadFileAsync(errorPath), timedOut);
     }
 
+    /// <summary>
+    /// Runs a program and throws unless it exits with code 0 before the default timeout.
+    /// </summary>
+    /// <param name="executable">Program to run.</param>
+    /// <param name="arguments">Program arguments.</param>
+    /// <param name="directory">Working directory.</param>
     public static async Task RequireSuccessAsync(string executable, IEnumerable<string> arguments, string directory)
     {
         var result = await RunAsync(executable, arguments, directory);

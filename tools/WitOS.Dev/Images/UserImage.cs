@@ -7,10 +7,19 @@ using WitOS.Dev.NativeAot;
 
 namespace WitOS.Dev.Images;
 
+/// <summary>
+/// Builds the ABI include files and every ring-3 test fixture embedded in the kernel test image.
+/// </summary>
 internal static class UserImage
 {
     #region Functions
 
+    /// <summary>
+    /// Generates the ABI include files and builds every user fixture.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
     public static async Task BuildAsync(string root, string output, string msvc)
     {
         var constants = new Dictionary<string, ulong>(StringComparer.Ordinal);

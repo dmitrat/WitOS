@@ -4,10 +4,18 @@ using WitOS.Dev.Host;
 using WitOS.Dev.NativeAot;
 namespace WitOS.Dev.NativeAot.References;
 
+/// <summary>
+/// Compares the corrected GC layout methods with the pinned upstream originals (hosted).
+/// </summary>
 internal static class RuntimeGcLayoutReference
 {
     #region Functions
 
+    /// <summary>
+    /// Extracts the pinned and corrected methods and runs the layout comparison.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
     public static async Task RunAsync(string root, string msvc)
     {
         var output = Path.Combine(root, "artifacts/runtime-gc-layout-reference");

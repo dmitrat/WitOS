@@ -38,6 +38,7 @@ internal sealed class WindowsChildProcessInputPipe : IDisposable
 
     #region IDisposable
 
+    /// <inheritdoc />
     public void Dispose()
     {
         Reader.Dispose();
@@ -48,8 +49,14 @@ internal sealed class WindowsChildProcessInputPipe : IDisposable
 
     #region Properties
 
+    /// <summary>
+    /// Parent end that writes the child input.
+    /// </summary>
     public NamedPipeServerStream Writer { get; }
 
+    /// <summary>
+    /// Inheritable child end.
+    /// </summary>
     public NamedPipeClientStream Reader { get; }
 
     #endregion

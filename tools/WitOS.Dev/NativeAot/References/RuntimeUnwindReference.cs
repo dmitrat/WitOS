@@ -5,6 +5,9 @@ using WitOS.Dev.NativeAot;
 using WitOS.Dev.Pe;
 namespace WitOS.Dev.NativeAot.References;
 
+/// <summary>
+/// Compares the pinned AMD64 unwinder with Windows and validates guest image unwind tables (hosted).
+/// </summary>
 internal static class RuntimeUnwindReference
 {
     #region Fields
@@ -15,6 +18,11 @@ internal static class RuntimeUnwindReference
 
     #region Functions
 
+    /// <summary>
+    /// Validates every unwind record of a PE image with the hosted unwinder.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="image">Image to validate.</param>
     public static async Task ValidateImageAsync(string root, string image)
     {
         var output = Path.Combine(root, "artifacts/runtime-unwind");
@@ -26,6 +34,10 @@ internal static class RuntimeUnwindReference
         Console.WriteLine("[UNWIND-IMAGE-PASS] Full NativeAOT reference metadata validated (HOSTED only).");
     }
 
+    /// <summary>
+    /// Fetches the pinned unwinder sources.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
     public static async Task PrepareAsync(string root)
     {
         var pin = RuntimeExperiment.ReadLock(root);
@@ -64,6 +76,11 @@ internal static class RuntimeUnwindReference
         await File.WriteAllTextAsync(Path.Combine(output, "unwinder.checked.cpp"), checkedBody);
     }
 
+    /// <summary>
+    /// Builds the hosted unwinder and compares it with Windows.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
     public static async Task RunAsync(string root, string msvc)
     {
         await PrepareAsync(root);

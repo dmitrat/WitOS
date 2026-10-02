@@ -5,10 +5,21 @@ using WitOS.Dev.Host;
 using WitOS.Dev.Pe;
 namespace WitOS.Dev.NativeAot.References;
 
+/// <summary>
+/// Verifies compiler SEH scope tables and the real filter/finally ABI (hosted).
+/// </summary>
 internal static class RuntimeSehReference
 {
     #region Functions
 
+    /// <summary>
+    /// Compiles the SEH frame probe and reads its scope table.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="aligned">Whether to build the over-aligned frame variant.</param>
+    /// <returns>Object and listing paths.</returns>
     public static async Task<string[]> BuildProtectedFrameAsync(string root, string msvc, string output, bool aligned = false)
     {
         Directory.CreateDirectory(output);
@@ -40,6 +51,11 @@ internal static class RuntimeSehReference
         return aligned ? [frame, layoutObject] : new[] { frame, layoutObject }.Concat(await BuildProtectedFrameAsync(root, msvc, output, true)).ToArray();
     }
 
+    /// <summary>
+    /// Builds and runs the SEH reference.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
     public static async Task RunAsync(string root, string msvc)
     {
         var output = Path.Combine(root, "artifacts/runtime-seh-reference");

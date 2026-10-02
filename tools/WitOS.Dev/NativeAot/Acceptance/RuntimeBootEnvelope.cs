@@ -1,7 +1,9 @@
 namespace WitOS.Dev.NativeAot.Acceptance;
 
-// Complete ordered wire shape. Semantic values are checked by RuntimeBootProtocol.
-// Keeping the envelope separate makes duplicates and misplaced reports fail closed.
+/// <summary>
+/// Complete ordered wire shape. Semantic values are checked by RuntimeBootProtocol.
+/// Keeping the envelope separate makes duplicates and misplaced reports fail closed.
+/// </summary>
 internal static class RuntimeBootEnvelope
 {
     #region Constants
@@ -12,8 +14,19 @@ internal static class RuntimeBootEnvelope
 
     #region Functions
 
+    /// <summary>
+    /// Checks the ordered wire shape of a runtime-boot log.
+    /// </summary>
+    /// <param name="lines">Log lines.</param>
+    /// <returns>True when the shape is complete and ordered.</returns>
     internal static bool Validate(string[] lines) => Validate(lines, out _);
 
+    /// <summary>
+    /// Checks the ordered wire shape of a runtime-boot log.
+    /// </summary>
+    /// <param name="lines">Log lines.</param>
+    /// <param name="error">First violation, when the shape is invalid.</param>
+    /// <returns>True when the shape is complete and ordered.</returns>
     internal static bool Validate(string[] lines, out string error)
     {
         error = "Missing or misplaced runtime boundary.";

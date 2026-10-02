@@ -8,15 +8,33 @@ using WitOS.Dev.Host;
 using WitOS.Dev.Pe;
 namespace WitOS.Dev.NativeAot;
 
+/// <summary>
+/// Compiles the guest NativeAOT boot driver and links the guest runtime image.
+/// </summary>
 internal static class RuntimeGuestDriver
 {
     #region Functions
 
+    /// <summary>
+    /// Extracts defines, include paths and warning switches from a recorded compile command.
+    /// </summary>
+    /// <param name="command">Recorded command line.</param>
+    /// <returns>Compiler arguments.</returns>
     internal static string[] CompileProfile(string command) => WindowsCommandLine.Parse(command).Skip(1)
         .Where(a => a.StartsWith("-D", StringComparison.Ordinal) || a.StartsWith("-I", StringComparison.Ordinal) ||
             a.StartsWith("/D", StringComparison.Ordinal) || a.StartsWith("/I", StringComparison.Ordinal) ||
             Regex.IsMatch(a, @"^/w(?:d|e|[1-4])")).ToArray();
 
+    /// <summary>
+    /// Compiles the guest boot driver and links it with the managed object and runtime libraries.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="managed">NativeAOT managed object.</param>
+    /// <param name="tls">Compiler TLS object.</param>
+    /// <param name="libraries">Runtime libraries.</param>
+    /// <returns>Guest image path.</returns>
     public static async Task<string> BuildAsync(string root, string msvc, string output, string managed, string tls, string[] libraries)
     {
         var directory = Path.Combine(output, "guest-driver");

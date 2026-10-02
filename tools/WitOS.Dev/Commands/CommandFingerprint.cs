@@ -10,16 +10,20 @@ internal sealed class CommandFingerprint : ICommand
 {
     #region ICommand
 
+    /// <inheritdoc />
     public Task RunAsync(string root, IReadOnlyList<string> arguments) => ImageFingerprint.RunAsync(root, arguments);
 
     #endregion
 
     #region Properties
 
+    /// <inheritdoc />
     public string Name => "fingerprint";
 
+    /// <inheritdoc />
     public string Arguments => "[--output <file>] [--compare <file>] [scenario...]";
 
+    /// <inheritdoc />
     public string Description => "Hash code/data sections of built images, ignoring debug records";
 
     #endregion

@@ -4,10 +4,18 @@ using System.Text;
 
 namespace WitOS.Dev.Pe;
 
+/// <summary>
+/// Reads the machine, subsystem and import tables of a PE image.
+/// </summary>
 internal static class NativeImports
 {
     #region Functions
 
+    /// <summary>
+    /// Reads the machine, subsystem and imports of a PE image.
+    /// </summary>
+    /// <param name="path">Image path.</param>
+    /// <returns>Image facts.</returns>
     public static NativeImageInfo Inspect(string path)
     {
         var bytes = File.ReadAllBytes(path);

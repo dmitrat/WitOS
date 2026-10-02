@@ -7,6 +7,9 @@ using WitOS.Dev.Pe;
 
 namespace WitOS.Dev.NativeAot;
 
+/// <summary>
+/// Inspects NativeAOT objects and tests native-host bootstrap and strict link boundaries.
+/// </summary>
 internal static class RuntimeTargetExperiment
 {
     #region Constants
@@ -27,6 +30,10 @@ internal static class RuntimeTargetExperiment
 
     #region Functions
 
+    /// <summary>
+    /// Inspects the NativeAOT objects and runs the native-host and strict link checks.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
     public static async Task RunAsync(string root)
     {
         await RuntimeExperiment.AuditAsync(root);
@@ -169,6 +176,15 @@ internal static class RuntimeTargetExperiment
         Console.WriteLine($"Reports: {output}");
     }
 
+    /// <summary>
+    /// Links an archive strictly and records its unresolved symbols.
+    /// </summary>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="archive">Archive to link.</param>
+    /// <param name="libraries">Additional libraries.</param>
+    /// <param name="name">Output image name.</param>
+    /// <returns>Link evidence.</returns>
     internal static async Task<RuntimeTargetLinkEvidence> LinkBoundaryAsync(string msvc, string output, string archive,
         string[] libraries, string name)
     {

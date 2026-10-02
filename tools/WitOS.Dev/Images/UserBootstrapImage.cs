@@ -4,10 +4,19 @@ using WitOS.Dev.Host;
 
 namespace WitOS.Dev.Images;
 
+/// <summary>
+/// Builds the guest fixture that exercises the user-space C bootstrap and image context.
+/// </summary>
 internal static class UserBootstrapImage
 {
     #region Functions
 
+    /// <summary>
+    /// Compiles and links the bootstrap fixture and generates its embedding header.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
     public static async Task BuildAsync(string root, string output, string msvc)
     {
         var objects = new List<string>();

@@ -6,12 +6,25 @@ using WitOS.Dev.NativeAot;
 using WitOS.Dev.NativeAot.Acceptance;
 namespace WitOS.Dev.CoreClr;
 
+/// <summary>
+/// Verifies the pinned hosting PAL file contracts against a hosted model of the WitOS file calls.
+/// </summary>
 internal static class CoreClrHostFilePal
 {
     #region Functions
 
+    /// <summary>
+    /// Runs the host file PAL verification as one recorded attempt.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
     internal static Task RunAsync(string root) => RuntimeBootAttempt.RunInDirectoryAsync(Path.Combine(root, "artifacts/coreclr-host-file-pal"), "coreclr-host-files", attempt => RunAsync(root, attempt));
 
+    /// <summary>
+    /// Fetches the pinned hosting PAL sources and generates their WitOS configuration header.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory.</param>
+    /// <returns>Path of the prepared PAL source.</returns>
     internal static async Task<string> PrepareAsync(string root, string output)
     {
         Directory.CreateDirectory(output);

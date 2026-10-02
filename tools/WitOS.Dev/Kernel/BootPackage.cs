@@ -7,10 +7,21 @@ using WitOS.Dev.Images;
 using WitOS.Dev.NativeAot;
 namespace WitOS.Dev.Kernel;
 
+/// <summary>
+/// Builds the boot package of guest assemblies and native libraries placed beside the kernel on the FAT image.
+/// </summary>
 internal static class BootPackage
 {
     #region Functions
 
+    /// <summary>
+    /// Builds the boot package for a scenario.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="assemblies">Whether to include the unchanged guest assemblies.</param>
+    /// <param name="nativeLibraries">Whether to include the native library fixtures.</param>
+    /// <returns>Package bytes.</returns>
     internal static async Task<byte[]> BuildAsync(string root, string output, bool assemblies, bool nativeLibraries = false)
     {
         var files = new List<(string Name, ReadOnlyMemory<byte> Bytes)>();

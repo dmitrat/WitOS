@@ -3,10 +3,18 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 namespace WitOS.Dev.NativeAot;
 
+/// <summary>
+/// Fetches, verifies and prepares the pinned native math sources.
+/// </summary>
 internal static class NativeMathSources
 {
     #region Functions
 
+    /// <summary>
+    /// Verifies the pinned math sources and optionally generates the adapted logarithm source.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="generate">Whether to write the adapted source.</param>
     public static async Task PrepareAsync(string root, bool generate)
     {
         var json = new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true };

@@ -2,10 +2,20 @@ using WitOS.Dev.Host;
 
 namespace WitOS.Dev.Images;
 
+/// <summary>
+/// Builds the native library fixtures loaded by the guest library loader tests.
+/// </summary>
 internal static class NativeLibraryImage
 {
     #region Functions
 
+    /// <summary>
+    /// Builds the main native library fixture.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
+    /// <returns>Library path.</returns>
     internal static async Task<string> BuildAsync(string root, string output, string msvc)
     {
         Directory.CreateDirectory(output);
@@ -17,6 +27,13 @@ internal static class NativeLibraryImage
         return dll;
     }
 
+    /// <summary>
+    /// Builds the dependent library graph used by the guest loader tests.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
+    /// <returns>Library paths by file name.</returns>
     internal static async Task<Dictionary<string, string>> BuildDependenciesAsync(string root, string output, string msvc)
     {
         async Task Compile(string source, string name, string? define = null)

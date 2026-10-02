@@ -6,10 +6,19 @@ using WitOS.Dev.NativeAot;
 using WitOS.Dev.NativeAot.References;
 namespace WitOS.Dev.CoreClr;
 
+/// <summary>
+/// Builds the guest image that tests the owned executable-memory backend for CoreCLR (not guest CoreCLR).
+/// </summary>
 internal static class CoreClrMemoryImage
 {
     #region Functions
 
+    /// <summary>
+    /// Compiles and links the CoreCLR memory test image.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
     internal static async Task BuildAsync(string root, string output, string msvc)
     {
         const string revision = "b82454cad0aaaae3db2cf18fbf2cccc36e201ccc";

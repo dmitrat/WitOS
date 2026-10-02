@@ -53,6 +53,7 @@ internal sealed class WindowsChildProcessAttributeList : IDisposable
 
     #region IDisposable
 
+    /// <inheritdoc />
     public void Dispose()
     {
         Kernel32.DeleteProcThreadAttributeList(Pointer);
@@ -67,6 +68,9 @@ internal sealed class WindowsChildProcessAttributeList : IDisposable
 
     #region Properties
 
+    /// <summary>
+    /// Native attribute list passed to CreateProcessW.
+    /// </summary>
     public IntPtr Pointer { get; }
 
     #endregion

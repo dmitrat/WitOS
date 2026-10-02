@@ -2,6 +2,9 @@ using System.Security.Cryptography;
 
 namespace WitOS.Dev.Host;
 
+/// <summary>
+/// Locates and verifies the pinned host tools: QEMU, firmware, MSVC, LLVM clang-format and 7-Zip.
+/// </summary>
 internal static class Toolchain
 {
     #region Constants
@@ -21,17 +24,46 @@ internal static class Toolchain
 
     #region Functions
 
+    /// <summary>
+    /// Directory of the pinned QEMU package.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Directory path.</returns>
     public static string QemuDirectory(string root) => Path.Combine(root, ".tools", $"qemu-{QEMU_VERSION}");
 
+    /// <summary>
+    /// Path of the pinned QEMU x86_64 system emulator.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Executable path.</returns>
     public static string Qemu(string root) => Path.Combine(QemuDirectory(root), "qemu-system-x86_64.exe");
 
+    /// <summary>
+    /// Path of the EDK II x86_64 firmware code image.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Firmware path.</returns>
     public static string Firmware(string root) => Path.Combine(QemuDirectory(root), "share", "edk2-x86_64-code.fd");
 
+    /// <summary>
+    /// Path of the EDK II firmware variables template.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Template path.</returns>
     public static string FirmwareVariables(string root) => Path.Combine(QemuDirectory(root), "share", "edk2-i386-vars.fd");
 
+    /// <summary>
+    /// Path of the cached pinned LLVM installer.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Installer path.</returns>
     public static string LlvmInstaller(string root)
         => Path.Combine(root, ".tools", "downloads", $"LLVM-{LLVM_VERSION}-win64.exe");
 
+    /// <summary>
+    /// Finds the installed 7-Zip executable used to extract the LLVM installer.
+    /// </summary>
+    /// <returns>Executable path.</returns>
     public static string SevenZip()
     {
         var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "7-Zip", "7z.exe");
@@ -42,7 +74,14 @@ internal static class Toolchain
         return path;
     }
 
-    // Downloads the pinned installer when absent and always verifies its digest.
+    /// <summary>
+    /// Downloads the pinned LLVM installer when missing and verifies its SHA-256.
+    /// </summary>
+    /// <remarks>
+    /// Downloads the pinned installer when absent and always verifies its digest.
+    /// </remarks>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Installer path.</returns>
     public static async Task<string> RequireLlvmInstallerAsync(string root)
     {
         var installer = LlvmInstaller(root);
@@ -71,8 +110,15 @@ internal static class Toolchain
         return installer;
     }
 
-    // Extracts only clang-format from the verified installer on every use; a
-    // previously extracted executable is never trusted as the pinned tool.
+    /// <summary>
+    /// Extracts the pinned clang-format from the verified LLVM installer.
+    /// </summary>
+    /// <remarks>
+    /// Extracts only clang-format from the verified installer on every use; a
+    /// previously extracted executable is never trusted as the pinned tool.
+    /// </remarks>
+    /// <param name="root">Repository root.</param>
+    /// <returns>clang-format path.</returns>
     public static async Task<string> PrepareClangFormatAsync(string root)
     {
         var installer = await RequireLlvmInstallerAsync(root);
@@ -88,6 +134,10 @@ internal static class Toolchain
         return formatter;
     }
 
+    /// <summary>
+    /// Environment for NativeAOT publish children, with vswhere on the path.
+    /// </summary>
+    /// <returns>Environment variables to add.</returns>
     public static IReadOnlyDictionary<string, string> NativeAotEnvironment()
     {
         // NativeAOT's SDK invokes VS discovery scripts that can use bare
@@ -102,6 +152,11 @@ internal static class Toolchain
         };
     }
 
+    /// <summary>
+    /// Finds the newest MSVC x64 host tools with cl, link and ml64.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Tool directory.</returns>
     public static async Task<string> FindMsvcAsync(string root)
     {
         var vswhere = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
@@ -122,6 +177,11 @@ internal static class Toolchain
         return candidate ?? throw new InvalidOperationException("MSVC x64 compiler/linker/MASM were not found.");
     }
 
+    /// <summary>
+    /// Finds an x64 library in the newest installed Windows SDK.
+    /// </summary>
+    /// <param name="name">Library file name.</param>
+    /// <returns>Library path.</returns>
     public static string FindWindowsSdkLibrary(string name)
     {
         if (Path.GetFileName(name) != name || !name.EndsWith(".lib", StringComparison.Ordinal))
@@ -135,12 +195,20 @@ internal static class Toolchain
         return library ?? throw new InvalidOperationException($"Install the Windows SDK x64 libraries; {name} was not found.");
     }
 
+    /// <summary>
+    /// Throws unless the pinned QEMU and its firmware are installed.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
     public static void RequireQemu(string root)
     {
         if (!File.Exists(Qemu(root)) || !File.Exists(Firmware(root)) || !File.Exists(FirmwareVariables(root)))
             throw new InvalidOperationException("QEMU/EDK II are missing. Run: dotnet run --project tools/WitOS.Dev -- setup");
     }
 
+    /// <summary>
+    /// Downloads and verifies the pinned QEMU package into .tools.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
     public static async Task SetupAsync(string root)
     {
         var sevenZip = SevenZip();

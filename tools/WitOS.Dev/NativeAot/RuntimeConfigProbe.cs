@@ -7,6 +7,9 @@ using WitOS.Dev.Pe;
 
 namespace WitOS.Dev.NativeAot;
 
+/// <summary>
+/// Prepares, builds and verifies the upstream configuration and startup sources for the guest runtime-config probe.
+/// </summary>
 internal static class RuntimeConfigProbe
 {
     #region Fields
@@ -17,6 +20,11 @@ internal static class RuntimeConfigProbe
 
     #region Functions
 
+    /// <summary>
+    /// Fetches and corrects the upstream configuration sources of the probe.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="pin">Pinned upstream sources.</param>
     public static async Task PrepareAsync(string root, UpstreamSourceLock pin)
     {
         var output = Path.Combine(root, "artifacts", "runtime-config", "source");
@@ -142,6 +150,22 @@ internal static class RuntimeConfigProbe
         }, JSON));
     }
 
+    /// <summary>
+    /// Verifies that the probe archive holds exactly the expected objects and records them.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="obj">Source-build object directory.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
+    /// <param name="minipalArchive">minipal archive.</param>
+    /// <param name="memoryObject">CRT memory object.</param>
+    /// <param name="stackObject">Stack probe object.</param>
+    /// <param name="clockObject">Clock object.</param>
+    /// <param name="clockBinding">Clock import binding object.</param>
+    /// <param name="fatalObject">Fatal diagnostics object.</param>
+    /// <param name="affinityObject">GC affinity parser object.</param>
+    /// <param name="mathObject">Math object.</param>
+    /// <param name="logObject">Logarithm object.</param>
+    /// <param name="securityObjects">Native platform objects.</param>
     public static async Task VerifyArchiveAsync(string root, string obj, string msvc, string minipalArchive, string memoryObject, string stackObject, string clockObject, string clockBinding, string fatalObject, string affinityObject, string mathObject, string logObject, NativePlatformObjects securityObjects)
     {
         var output = Path.Combine(root, "artifacts", "runtime-config");
@@ -215,6 +239,12 @@ internal static class RuntimeConfigProbe
         Console.WriteLine($"[SOURCE-PASS] Configuration probe: {names.Length} exact source objects; collector and thread attachment excluded.");
     }
 
+    /// <summary>
+    /// Links the guest probe image from the recorded runtime-config archive.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
     public static async Task BuildImageAsync(string root, string output, string msvc)
     {
         // The runtime-config command refreshes source/objects first. Ordinary

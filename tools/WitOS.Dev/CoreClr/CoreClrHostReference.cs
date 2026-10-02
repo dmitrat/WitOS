@@ -7,13 +7,25 @@ using WitOS.Dev.NativeAot.Acceptance;
 using WitOS.Dev.Pe;
 namespace WitOS.Dev.CoreClr;
 
+/// <summary>
+/// Builds the upstream dotnet/hostfxr/hostpolicy Windows reference and verifies standard runtimeconfig/deps binding.
+/// </summary>
 internal static class CoreClrHostReference
 {
     #region Functions
 
+    /// <summary>
+    /// Runs the host reference build and binding check as one recorded attempt.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
     internal static Task RunAsync(string root) => RuntimeBootAttempt.RunInDirectoryAsync(
         Path.Combine(root, "artifacts/coreclr-host-reference"), "coreclr-host", attempt => RunAsync(root, attempt));
 
+    /// <summary>
+    /// Computes the lowercase SHA-256 of a file.
+    /// </summary>
+    /// <param name="file">File to hash.</param>
+    /// <returns>Hex digest.</returns>
     internal static string Hash(string file) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))).ToLowerInvariant();
 
     #endregion
@@ -23,7 +35,7 @@ internal static class CoreClrHostReference
     private static async Task RunAsync(string root, RuntimeBootAttempt attempt)
     {
         var pin = RuntimeExperiment.ReadLock(root);
-        var source = await RuntimeSourceBuild.PrepareSourceAsync(root, pin);
+        var source = await RuntimeSourceCheckout.PrepareAsync(root, pin);
         var gitArgs = new[] { "-c", "safe.directory=" + Forward(source), "-C", source };
         await RequireAsync("git", [.. gitArgs, "sparse-checkout", "add", "src/libraries/System.Runtime.InteropServices/gen"], root, 600);
         var output = Path.Combine(root, "artifacts/coreclr-host-reference");

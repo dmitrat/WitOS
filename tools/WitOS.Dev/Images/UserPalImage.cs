@@ -7,6 +7,9 @@ using WitOS.Dev.NativeAot;
 
 namespace WitOS.Dev.Images;
 
+/// <summary>
+/// Builds the guest fixture that exercises the NativeAOT PAL against hash-verified upstream headers.
+/// </summary>
 internal static class UserPalImage
 {
     #region Fields

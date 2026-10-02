@@ -6,6 +6,9 @@ using WitOS.Dev.Host;
 
 namespace WitOS.Dev.Images;
 
+/// <summary>
+/// Builds the guest fixture that exercises static compiler TLS.
+/// </summary>
 internal static class UserTlsImage
 {
     #region Functions

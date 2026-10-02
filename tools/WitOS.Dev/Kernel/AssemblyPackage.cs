@@ -3,8 +3,10 @@ using System.Text;
 
 namespace WitOS.Dev.Kernel;
 
-// Private bring-up storage format. Packaging preserves file bytes; it does not
-// compile assemblies or define runtime/framework binding policy.
+/// <summary>
+/// Private bring-up storage format. Packaging preserves file bytes; it does not
+/// compile assemblies or define runtime/framework binding policy.
+/// </summary>
 internal static class AssemblyPackage
 {
     #region Constants
@@ -23,6 +25,11 @@ internal static class AssemblyPackage
 
     #region Functions
 
+    /// <summary>
+    /// Packs files into the private boot package format.
+    /// </summary>
+    /// <param name="files">File names and contents.</param>
+    /// <returns>Package bytes.</returns>
     internal static byte[] Create(IEnumerable<(string Name, ReadOnlyMemory<byte> Bytes)> files)
     {
         var entries = new List<(byte[] Name, ReadOnlyMemory<byte> Bytes)>();

@@ -97,10 +97,19 @@ internal sealed class RuntimeBootEnvelopeCursor
 
     #region Properties
 
+    /// <summary>
+    /// Index of the next unread line.
+    /// </summary>
     public int Position { get; private set; }
 
+    /// <summary>
+    /// Description of the first violation.
+    /// </summary>
     public string Error { get; private set; } = "Invalid block count";
 
+    /// <summary>
+    /// Next unread line, or empty at the end.
+    /// </summary>
     public string Peek => Position < m_lines.Length ? m_lines[Position] : "";
 
     #endregion

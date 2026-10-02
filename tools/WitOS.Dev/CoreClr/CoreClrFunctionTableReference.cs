@@ -2,10 +2,17 @@ using WitOS.Dev.Host;
 
 namespace WitOS.Dev.CoreClr;
 
+/// <summary>
+/// Compares WitOS dynamic function-table registration and target unwind with the Windows implementation (hosted).
+/// </summary>
 internal static class CoreClrFunctionTableReference
 {
     #region Functions
 
+    /// <summary>
+    /// Builds and runs the hosted function-table comparison.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
     internal static async Task RunAsync(string root)
     {
         var output = Path.Combine(root, "artifacts/coreclr-function-tables");

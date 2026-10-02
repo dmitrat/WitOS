@@ -2,10 +2,20 @@ using WitOS.Dev.Host;
 
 namespace WitOS.Dev.Images;
 
+/// <summary>
+/// Builds the native library fixture that carries static TLS for the guest loader tests.
+/// </summary>
 internal static class NativeTlsLibraryImage
 {
     #region Functions
 
+    /// <summary>
+    /// Builds the static TLS library fixture.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
+    /// <returns>Library path.</returns>
     internal static async Task<string> BuildAsync(string root, string output, string msvc)
     {
         Directory.CreateDirectory(output);

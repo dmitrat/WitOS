@@ -26,16 +26,20 @@ internal sealed class CommandAction : ICommand
 
     #region ICommand
 
+    /// <inheritdoc />
     public Task RunAsync(string root, IReadOnlyList<string> arguments) => m_action(root);
 
     #endregion
 
     #region Properties
 
+    /// <inheritdoc />
     public string Name { get; }
 
+    /// <inheritdoc />
     public string Arguments => "";
 
+    /// <inheritdoc />
     public string Description { get; }
 
     #endregion

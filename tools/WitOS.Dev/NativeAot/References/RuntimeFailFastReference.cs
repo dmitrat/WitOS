@@ -3,10 +3,18 @@ using System.Text.Json;
 using WitOS.Dev.Host;
 namespace WitOS.Dev.NativeAot.References;
 
+/// <summary>
+/// Verifies the Windows fail-fast debugger record and context (hosted).
+/// </summary>
 internal static class RuntimeFailFastReference
 {
     #region Functions
 
+    /// <summary>
+    /// Builds and runs the fail-fast reference.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
     public static async Task RunAsync(string root, string msvc)
     {
         var output = Path.Combine(root, "artifacts/runtime-failfast-reference");

@@ -3,9 +3,11 @@ using WitOS.Dev.Host;
 
 namespace WitOS.Dev.Quality;
 
-// Repository formatting gate. build/format.json lists the files and directories
-// that follow the repository style; Q2.3 grows it until it covers the tree.
-// C and C++ use the pinned clang-format; C# uses the SDK formatter.
+/// <summary>
+/// Repository formatting gate. build/format.json lists the files and directories
+/// that follow the repository style; Q2.3 grows it until it covers the tree.
+/// C and C++ use the pinned clang-format; C# uses the SDK formatter.
+/// </summary>
 internal static class SourceFormat
 {
     #region Constants
@@ -26,6 +28,11 @@ internal static class SourceFormat
 
     #region Functions
 
+    /// <summary>
+    /// Formats, or checks the formatting of, every file listed in the format manifest.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="check">Whether to check without writing.</param>
     public static async Task RunAsync(string root, bool check)
     {
         var manifest = await ReadManifestAsync(root);
@@ -49,6 +56,11 @@ internal static class SourceFormat
         }
     }
 
+    /// <summary>
+    /// Reads build/format.json.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>The manifest.</returns>
     internal static async Task<SourceFormatManifest> ReadManifestAsync(string root)
     {
         var path = Path.Combine(root, "build", "format.json");
@@ -60,8 +72,18 @@ internal static class SourceFormat
         return manifest;
     }
 
-    // Entries are repository-relative files or directories. A missing entry is an
-    // error: the manifest must describe the tree exactly, not optimistically.
+    /// <summary>
+    /// Expands manifest entries into the source files they cover.
+    /// </summary>
+    /// <remarks>
+    /// Entries are repository-relative files or directories. A missing entry is an
+    /// error: the manifest must describe the tree exactly, not optimistically.
+    /// </remarks>
+    /// <param name="root">Repository root.</param>
+    /// <param name="entries">Repository-relative files or directories.</param>
+    /// <param name="extensions">Accepted extensions.</param>
+    /// <param name="exclude">Excluded repository-relative paths.</param>
+    /// <returns>Sorted relative file paths.</returns>
     internal static List<string> Expand(string root, IEnumerable<string> entries, string[] extensions, string[] exclude)
     {
         var files = new SortedSet<string>(StringComparer.Ordinal);

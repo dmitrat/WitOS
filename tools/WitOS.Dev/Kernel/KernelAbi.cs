@@ -2,8 +2,10 @@ using System.Text.RegularExpressions;
 
 namespace WitOS.Dev.Kernel;
 
-// Reads ABI facts from the kernel headers, the single source of truth for
-// versions and call numbers. Documentation and guest output are checked against it.
+/// <summary>
+/// Reads ABI facts from the kernel headers, the single source of truth for
+/// versions and call numbers. Documentation and guest output are checked against it.
+/// </summary>
 internal static partial class KernelAbi
 {
     #region Constants
@@ -16,13 +18,35 @@ internal static partial class KernelAbi
 
     #region Functions
 
+    /// <summary>
+    /// Reads the user ABI version from the shared header.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>WIT_ABI_VERSION.</returns>
     public static int UserVersion(string root) => ReadDefine(root, USER_ABI_HEADER, "WIT_ABI_VERSION");
 
+    /// <summary>
+    /// Reads the boot ABI version from the boot header.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>WIT_BOOT_VERSION.</returns>
     public static int BootVersion(string root) => ReadDefine(root, BOOT_HEADER, "WIT_BOOT_VERSION");
 
-    // The first kernel output line; BootAsync requires it in every successful boot.
+    /// <summary>
+    /// Builds the version line that every successful boot must print.
+    /// </summary>
+    /// <remarks>
+    /// The first kernel output line; BootValidation requires it in every successful boot.
+    /// </remarks>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Banner text.</returns>
     public static string Banner(string root) => $"WitOS user ABI v{UserVersion(root)}, boot ABI v{BootVersion(root)}";
 
+    /// <summary>
+    /// Reads every user ABI call number from the shared header.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Call numbers by name.</returns>
     public static IReadOnlyDictionary<string, int> Calls(string root)
     {
         var calls = new SortedDictionary<string, int>(StringComparer.Ordinal);

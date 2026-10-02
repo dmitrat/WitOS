@@ -4,10 +4,18 @@ using System.Text;
 
 namespace WitOS.Dev.Host;
 
+/// <summary>
+/// Quotes and parses Windows command-line arguments with the MSVC runtime rules.
+/// </summary>
 internal static class WindowsCommandLine
 {
     #region Functions
 
+    /// <summary>
+    /// Quotes one argument so the MSVC runtime parses it back unchanged.
+    /// </summary>
+    /// <param name="argument">Argument to quote.</param>
+    /// <returns>Quoted argument.</returns>
     public static string Quote(string argument)
     {
         if (argument.IndexOf('\0') >= 0)
@@ -28,6 +36,11 @@ internal static class WindowsCommandLine
         return result.Append('\\', slashes * 2).Append('"').ToString();
     }
 
+    /// <summary>
+    /// Splits a command line with the MSVC runtime rules.
+    /// </summary>
+    /// <param name="command">Command line.</param>
+    /// <returns>Arguments, including the program name.</returns>
     public static string[] Parse(string command)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(command);

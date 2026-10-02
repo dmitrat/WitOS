@@ -4,9 +4,11 @@ using System.Text.Json.Nodes;
 
 namespace WitOS.Dev.NativeAot.Acceptance;
 
-// current-run.json (schema 3) is the sole atomic commit record, including the
-// last committed success pointer/hash. All other top-level JSON files are views.
-// Readers needing an authoritative verdict must read this record and its hash.
+/// <summary>
+/// current-run.json (schema 3) is the sole atomic commit record, including the
+/// last committed success pointer/hash. All other top-level JSON files are views.
+/// Readers needing an authoritative verdict must read this record and its hash.
+/// </summary>
 internal sealed class RuntimeBootAttempt : IDisposable
 {
     #region Fields
@@ -46,9 +48,21 @@ internal sealed class RuntimeBootAttempt : IDisposable
 
     #region Functions
 
+    /// <summary>
+    /// Runs a runtime-boot action as one recorded attempt.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="command">Command name recorded with the attempt.</param>
+    /// <param name="action">Work that must publish acceptance evidence.</param>
     public static Task RunAsync(string root, string command, Func<RuntimeBootAttempt, Task> action)
         => RunInDirectoryAsync(Path.Combine(root, "artifacts/x64/runtime-boot"), command, action);
 
+    /// <summary>
+    /// Runs an action as one attempt recorded in a directory, committing on success and recording the failure otherwise.
+    /// </summary>
+    /// <param name="directory">Attempt record directory.</param>
+    /// <param name="command">Command name recorded with the attempt.</param>
+    /// <param name="action">Work that must publish acceptance evidence.</param>
     internal static async Task RunInDirectoryAsync(string directory, string command, Func<RuntimeBootAttempt, Task> action)
     {
         Directory.CreateDirectory(directory);
@@ -78,6 +92,11 @@ internal sealed class RuntimeBootAttempt : IDisposable
         }
     }
 
+    /// <summary>
+    /// Copies an input file into the run directory.
+    /// </summary>
+    /// <param name="file">File to copy.</param>
+    /// <returns>Copy path.</returns>
     public string Snapshot(string file)
     {
         var copy = Path.Combine(RunDirectory, Path.GetFileName(file));
@@ -85,7 +104,13 @@ internal sealed class RuntimeBootAttempt : IDisposable
         return copy;
     }
 
-    // Prepare only. Even an exception after Publish cannot advance last-success.
+    /// <summary>
+    /// Prepares the acceptance evidence of this attempt.
+    /// </summary>
+    /// <remarks>
+    /// Prepare only. Even an exception after Publish cannot advance last-success.
+    /// </remarks>
+    /// <param name="value">Evidence object.</param>
     public void Publish(object value)
     {
         if (m_evidence is not null || m_committed)
@@ -98,6 +123,10 @@ internal sealed class RuntimeBootAttempt : IDisposable
         m_evidence["finishedUtc"] = DateTimeOffset.UtcNow;
     }
 
+    /// <summary>
+    /// Marks an attempt left running by an interrupted process as interrupted.
+    /// </summary>
+    /// <param name="directory">Attempt record directory.</param>
     internal static void Recover(string directory)
     {
         var state = ReadObject(Path.Combine(directory, "current-run.json"));
@@ -260,16 +289,26 @@ internal sealed class RuntimeBootAttempt : IDisposable
 
     #region IDisposable
 
+    /// <inheritdoc />
     public void Dispose() => m_lease.Dispose();
 
     #endregion
 
     #region Properties
 
-    internal static Action<string, string>? BeforeWrite { get; set; } // Failure injection; serialized tests only.
+    /// <summary>
+    /// Failure injection called before each record write; serialized tests only.
+    /// </summary>
+    internal static Action<string, string>? BeforeWrite { get; set; }
 
+    /// <summary>
+    /// Unique run identifier: UTC start time and a random suffix.
+    /// </summary>
     public string RunId { get; } = DateTimeOffset.UtcNow.ToString("yyyyMMddTHHmmssfff") + "-" + Guid.NewGuid().ToString("N");
 
+    /// <summary>
+    /// Directory that holds the snapshots of this run.
+    /// </summary>
     public string RunDirectory { get; }
 
     #endregion

@@ -3,10 +3,18 @@ using System.Text.Json;
 using WitOS.Dev.Host;
 namespace WitOS.Dev.NativeAot.References;
 
+/// <summary>
+/// Compares the WitOS UTF conversions with the Windows APIs (hosted).
+/// </summary>
 internal static class RuntimeEncodingReference
 {
     #region Functions
 
+    /// <summary>
+    /// Builds and runs the encoding comparison.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
     public static async Task RunAsync(string root, string msvc)
     {
         var output = Path.Combine(root, "artifacts", "runtime-encoding");

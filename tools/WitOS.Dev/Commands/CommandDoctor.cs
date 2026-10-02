@@ -10,6 +10,7 @@ internal sealed class CommandDoctor : ICommand
 {
     #region ICommand
 
+    /// <inheritdoc />
     public async Task RunAsync(string root, IReadOnlyList<string> arguments)
     {
         Console.WriteLine($"Root: {root}");
@@ -28,10 +29,13 @@ internal sealed class CommandDoctor : ICommand
 
     #region Properties
 
+    /// <inheritdoc />
     public string Name => "doctor";
 
+    /// <inheritdoc />
     public string Arguments => "";
 
+    /// <inheritdoc />
     public string Description => "Check compiler, QEMU and firmware";
 
     #endregion

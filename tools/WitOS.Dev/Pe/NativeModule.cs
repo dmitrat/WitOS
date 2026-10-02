@@ -3,10 +3,18 @@ using System.Reflection.PortableExecutable;
 
 namespace WitOS.Dev.Pe;
 
+/// <summary>
+/// Reads the layout, sections, unwind entries and TLS directory of a PE image.
+/// </summary>
 internal static class NativeModule
 {
     #region Functions
 
+    /// <summary>
+    /// Reads the layout, sections, unwind entries and TLS directory of a PE image.
+    /// </summary>
+    /// <param name="path">Image path.</param>
+    /// <returns>Image facts.</returns>
     public static NativeModuleInfo Inspect(string path)
     {
         using var stream = File.OpenRead(path);
