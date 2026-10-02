@@ -2,7 +2,7 @@
 
 Обновлено: **2026-10-02**. Upstream .NET: **10.0.8**. Историческая база реализации: **WitOS 0.0.44**, commit `e619a14`, user ABI v18. Текущая реализация: **user ABI v48, boot ABI v4**; база P1/Q0/P3/P5/Q1 опубликована в private dmitrat/WitOS (`5d22d75`); текущие изменения P6 включены в checkpoint от 2026-10-02 по запросу пользователя.
 
-**Сейчас: P5 и M3 завершены в проверенном x64/UP NativeAOT профиле. Standard CoreLib, реальный GC, managed exceptions, finalization и Thread/Monitor/TLS проходят совместную повторную suite внутри WitOS. Q1 завершён: строгая приёмка, атомарный commit evidence, ограниченный runner, оба hijack-пути и измеренное parser coverage. Следующий этап — P6 CoreCLR/JIT и неизменённые portable assemblies.**
+**Сейчас: P5 и M3 завершены в проверенном x64/UP NativeAOT профиле. Standard CoreLib, реальный GC, managed exceptions, finalization и Thread/Monitor/TLS проходят совместную повторную suite внутри WitOS. Q1 завершён: строгая приёмка, атомарный commit evidence, ограниченный runner, оба hijack-пути и измеренное parser coverage. P6.1–P6.3 завершены, P6.4 дошёл до static DLL TLS. По итогам аудита кода 2026-10-02 следующий этап — Q2 консолидация и слоение, затем A ARM64-ядро, затем продолжение P6 CoreCLR/JIT и неизменённые portable assemblies; [план Q2/A](@Docs/Implementation/Q2-Consolidation-and-Arm64-Plan.md).**
 
 Это основной файл отслеживания работ. Детали реализации и исторические результаты остаются в [`@Docs/Implementation/`](@Docs/Implementation/). План перечисляет известные обязательные блоки; интеграция может выявить новые подзадачи. Число символов линкера не равно числу задач или проценту готовности. Полный образ уже исполняется; оставшийся объём связан с CoreCLR/JIT и совместимостью P6. [Итоговый аудит P5](@Docs/Implementation/P5-Completion-Audit.md), [поддержанный M3-профиль](@Docs/Implementation/M3-NativeAOT-Profile.md).
 
@@ -19,9 +19,9 @@
 | Ориентир | Текущее положение |
 | --- | --- |
 | Завершено | **P1, Q0, P3, P5/M3, Q1 и P6.1–P6.3**; P0, P2 и первый managed-запуск P4 — в проверенном bring-up профиле |
-| Следующий этап | **P6.4**: upstream host/startup и стандартный framework/assembly binding |
-| Следующий проверяемый результат | Реальный hosting layer разрешает runtimeconfig/deps/framework и передаёт portable DLL настоящему CoreCLR |
-| После него | P6.5 CoreCLR/JIT → P6.6–P6.9 portable compatibility suite и developer workflow |
+| Следующий этап | **Q2.0**: baseline, формат-проверка и начало [консолидации и слоения](@Docs/Implementation/Q2-Consolidation-and-Arm64-Plan.md); P6.4 приостановлен на срезе static DLL TLS |
+| Следующий проверяемый результат | Полная матрица на HEAD зелёная, хэши образов и логов зафиксированы как эталон, формат-проверка в CI проходит |
+| После него | Q2.1–Q2.11 → A0–A2 ARM64-ядро на QEMU `virt` → P6.4 host/binding → P6.5 CoreCLR/JIT с заморозкой ABI → P6.6–P6.9 compatibility suite и developer workflow |
 | Первый запуск .NET | **Достигнут:** P4 NativeAOT Main + реальные allocations/GC, 8 запусков (4 профиля × 2 адреса) |
 | Исходная цель проекта | P6: запуск неизменённой portable DLL через upstream CoreCLR/JIT |
 
@@ -66,7 +66,9 @@ NativeAOT — средство раннего запуска и реализац
 | P3. Runtime threads, контексты, обход стеков и GC | Завершён в выбранном x64/UP NativeAOT профиле | Реальные runtime threads и collector согласованно работают, корни видимы GC |
 | P4. Bootstrap и первый managed `Main` | **Пройдено в госте** | Минимальный managed workload с allocation + GC проходит внутри WitOS |
 | P5. Полный M3 и регрессии | **Завершён в проверенном x64/UP NativeAOT профиле** | Exceptions, finalization и managed threads проходят в одном runtime |
-| P6. CoreCLR/JIT и переносимые приложения | Не начат как исполняемый гостевой порт | Неизменённые managed binaries проходят согласованную compatibility suite |
+| Q2. Консолидация и слоение | Не начат | Политика ядра в `src/Kernel` за арх-интерфейсом, платформа q35 и тесты вынесены, код отформатирован, версии из одного источника, справочник ABI, матрица без изменений поведения |
+| A. ARM64-ядро | Не начат | A0–A2 на QEMU `virt`: загрузка, MMU/исключения/таймер, EL0-компоненты через общую политику без правок в `src/Kernel` |
+| P6. CoreCLR/JIT и переносимые приложения | P6.1–P6.3 завершены, P6.4 приостановлен до конца A2 | Неизменённые managed binaries проходят согласованную compatibility suite |
 
 Порядок показывает зависимости, а не отдельные коммиты. P1–P3 потребуют итераций; P3 и P4 интегрируются вместе. Нельзя доказать GC/ThreadStore detach без настоящего collector. Если exception/context-инфраструктура нужна bootstrap или обходу корней, реализуем её в P3, а не откладываем до P5.
 
@@ -268,7 +270,37 @@ Fault/failure/abrupt-exit критерии P3 завершены; далее —
 - [x] **Q1.5** Углубить структурный PE/unwind corpus с ожидаемыми verdict; измерить начальное branch coverage доступных host/native путей и определить sanitizer/fuzz lane.
 - [x] **Q1.6** Устранить выявленный долг tooling: ограничение capture объёма, именованные группы native objects, читаемые функции parser/publication и точные diagnostics новых тестов.
 
-Q1 завершён в текущем x64/UP профиле. Измеренное покрытие относится только к hosted native parsers; широкое покрытие ядра/BCL и длительный fuzz campaign не заявляются. Следующий шаг — P6.1.
+Q1 завершён в текущем x64/UP профиле. Измеренное покрытие относится только к hosted native parsers; широкое покрытие ядра/BCL и длительный fuzz campaign не заявляются. Следующим шагом был P6.1; после аудита 2026-10-02 между P6.4 и P6.5 вставлены Q2 и A.
+
+## Q2. Консолидация и слоение
+
+[Аудит кода 2026-10-02 и согласованный план](@Docs/Implementation/Q2-Consolidation-and-Arm64-Plan.md). Поведение и ABI не меняются; каждый срез проверяется полной матрицей, чистые переформатирования дополнительно подтверждаются неизменным хэшем секции `.text` образа. Решения: MSVC ARM64 cross tools, каталоги `Kernel.Arch.A64` / `Kernel.Platform.Q35` / `Kernel.Platform.QemuVirt` / `Runtime.Pal.Win32`, переименование `System.Native` → `Runtime.Native`, стиль 120 символов, C#-драйвер сборки с манифестами.
+
+- [ ] **Q2.0** Baseline полной матрицы на HEAD с хэшами образов и логов; `.clang-format`, `dotnet format` и проверка формата в CI.
+- [ ] **Q2.1** Единый источник версий ABI/boot/баннера из заголовков; хостовый тест согласованности README и PLAN.
+- [ ] **Q2.2** Справочник ABI со классами стабильности каждого вызова, карта слоёв, инструкции «как добавить syscall» и «как добавить платформу»; тест полноты по `WIT_CALL_*`.
+- [ ] **Q2.3** Механическое переформатирование C/C++/C# по каталогам; хэш `.text` не меняется.
+- [ ] **Q2.4** Арх-интерфейс `witos/arch.h` и аксессоры кадра; ни одного `wit_x64_` и имени регистра в политике.
+- [ ] **Q2.5** Перенос политики `user_*.c` в `src/Kernel`; в арх-слое остаются входы, контексты, таблицы страниц, FXSAVE-профиль и классификация векторов.
+- [ ] **Q2.6** `Kernel.Platform.Q35`: COM1, порт 0xF4, HPET, PIC/PIT за `platform.h`.
+- [ ] **Q2.7** Self-test и фикстуры в `tests/Kernel.X64` под `WITOS_SELFTEST`; релизная сборка без тестов.
+- [ ] **Q2.8** `Runtime.Pal.Win32` для переходников и Win32-адаптеров, `Runtime.Native` вместо `System.Native`, общие lock/thread-query примитивы, выбор фикстур вне `boot_driver`.
+- [ ] **Q2.9** Декомпозиция диспетчера syscall, библиотечного вызова, диспетчера исключений и списков маркеров `BootAsync`.
+- [ ] **Q2.10** Манифесты исходников по слоям; список файлов из `DevTool.cs` удалён.
+- [ ] **Q2.11** Патчи upstream как `.patch`-файлы с хэшами; структурированный протокол маркеров со сводкой; квоты в `witos/limits.h`.
+
+**Готово, когда:** `src/Kernel.Arch.X64` содержит только ISA-код, матрица и hosted gates зелёные без изменения поведения, справочник ABI и карта слоёв опубликованы. Q2.6, Q2.7 и Q2.10 являются предусловиями A0; остальные срезы Q2 могут идти параллельно с A.
+
+## A. ARM64-ядро
+
+Вторая ISA как доказательство слоения и предусловие заморозки ABI в P6.5. Среда: `qemu-system-aarch64` и EDK2 AArch64 из того же pinned-пакета, машина `virt` с GICv3, EL1, TTBR0/TTBR1, SVC-syscall, TPIDR_EL0 и x18 для TLS, generic timer, PL011, semihosting-выход в `Kernel.Platform.QemuVirt`. Детали и критерии: [план Q2/A](@Docs/Implementation/Q2-Consolidation-and-Arm64-Plan.md).
+
+- [ ] **A0** MSVC ARM64, `build --arch arm64`, параметризованный `Boot.Uefi`, `BOOTAA64.EFI` на `virt` с контрактом загрузки и semihosting-выходом; сценарии boot/invalid-boot-info/overlapping-map/timeout различают четыре исхода.
+- [ ] **A1** MMU, guard-страницы, таблица векторов и диагностика исключений, GICv3/таймер, контексты ядра, физические страницы, монотонные часы; матрица, эквивалентная x64 M1.
+- [ ] **A2** EL0-компоненты через общую политику: `UserFixture`, `ThreadFixture`, `WaitFixture`, `PeFixture` проходят на `virt` без правок в `src/Kernel`.
+- [ ] **A3** Позже, внутри P6: ARM64 unwind-метаданные и Win32-адаптеры; отдельный план после A2.
+
+**Готово, когда:** A2 проходит в CI вторым job на `windows-2025`, общая политика не содержит ISA-ветвлений.
 
 ## P6. CoreCLR/JIT и исходная цель совместимости
 
@@ -282,11 +314,12 @@ Q1 завершён в текущем x64/UP профиле. Измеренно�
 - [x] **P6.2** Реализовать требования JIT к executable memory, W^X/protection transitions, публикации кода, code registration/unwind и context/exception handling. Проверены VMToOS adapter, sparse RW/RX views, текущие/чужие frames, реальные fault/target/collided dispatch и отказы. Обычные memory calls остаются NX; null-target exit-unwind явно не поддержан. Интеграция с реальным CoreCLR/JIT — P6.5.
 - [x] **P6.3** Подготовить доставку и чтение runtime/application assemblies, metadata и конфигурации из гостя; выбрать минимальное хранилище/образ для bring-up, затем нужные filesystem/stream semantics. Полная файловая система не блокирует P4.
 - [ ] **P6.4** Реализовать host/startup и binding: стандартные `.runtimeconfig.json`, `.deps.json`, framework/assembly resolution и путь запуска `dotnet Application.dll` без AOT-пересборки приложения.
-- [ ] **P6.5** Запустить первый portable IL executable через настоящий JIT со стандартной CoreLib; allocations, GC, exceptions и threads должны выполняться в CoreCLR.
+- [ ] **P6.5** Запустить первый portable IL executable через настоящий JIT со стандартной CoreLib; allocations, GC, exceptions и threads должны выполняться в CoreCLR. Подэтап заморозки ABI: биты возможностей, правило «только добавление», двусторонние тесты совместимости старого гостя с новым ядром и наоборот, syscall-заглушка от ядра; опирается на справочник Q2.2 и проверку двумя ISA из A2.
 - [ ] **P6.6** Проверить runtime generics, reflection, `Assembly.Load`, `AssemblyLoadContext`, dynamic loading, `DynamicMethod`, `Reflection.Emit` и compilation expression trees в поддержанном upstream профиле.
 - [ ] **P6.7** Завершить необходимые BCL platform services и регрессии: ThreadPool/Task/async, timers, synchronization, streams/files, encoding/globalization и другие API выбранной compatibility suite. Native/platform-specific зависимости пакетов описывать отдельно.
 - [ ] **P6.8** Поддержать обычный developer workflow: стандартный TFM/SDK/MSBuild/NuGet на хосте, доставка output без перекомпиляции под WitOS; определить runtime packaging, diagnostics/debugging и доступные средства тестирования.
 - [ ] **P6.9** Формализовать compatibility test: собрать portable приложение на другой ОС, зафиксировать hashes DLL и зависимостей, перенести байты без изменений, запустить в WitOS и сравнить поведение. Добавить representative portable NuGet libraries и regression matrix поддерживаемых API.
+- [ ] **R1** Исследовательский срез параллельно P6: инвентаризация libc-поверхности upstream `System.Native` и `pal.unix` против Win32-поверхности текущей CoreLib на инструменте строгой линковки; результат определяет постоянную границу Win32-слоя runtime PAL и дорожную карту TargetOS witos. Приложения при этом остаются portable IL без RID; см. раздел «Таргет платформы и приложения» в [плане Q2/A](@Docs/Implementation/Q2-Consolidation-and-Arm64-Plan.md).
 
 **Готово, когда:** неизменённые portable managed binaries проходят объявленный контракт совместимости. Нельзя обещать произвольному NuGet-пакету работу Windows/Linux-specific native dependencies только на основании переносимости IL.
 
