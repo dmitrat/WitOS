@@ -8,7 +8,9 @@ static volatile WitU64 kernel_canary = 0xBADC0FFEE0DDF00DULL;
 
 static void require(int condition, const char *message)
 {
-    if (!condition) wit_panic(message);
+    if (!condition) {
+        wit_panic(message);
+    }
 }
 
 static WitUserTestConfig *config(WitUserProcess *process)
@@ -34,8 +36,11 @@ static void create(WitPageAllocator *pages, WitU32 slot, WitU64 mode)
 
 static void check_normal(WitUserProcess *process)
 {
-    require(process->State == WitUserExited && process->ExitCode == WIT_TEST_EXIT_CODE &&
-        process->Writes == 2 && process->Handles.Count == 0, "User ABI/handle checks failed");
+    require(process->State == WitUserExited &&
+            process->ExitCode == WIT_TEST_EXIT_CODE &&
+            process->Writes == 2 &&
+            process->Handles.Count == 0,
+        "User ABI/handle checks failed");
     require(*(WitU64 *)wit_user_space_physical(&process->Space, WIT_USER_DATA, 0, 0) == process->Id,
         "User private state incorrect");
     require(kernel_canary == 0xBADC0FFEE0DDF00DULL, "Kernel memory was modified by user");
@@ -62,25 +67,22 @@ typedef struct UserFaultCase {
 void wit_user_self_test(WitPageAllocator *pages)
 {
     const WitU64 before = wit_pages_free_count(pages);
-    static const UserFaultCase faults[] = {
-        { WIT_TEST_KERNEL_READ, "User.KernelRead", 14, 5, (WitU64)&kernel_canary },
-        { WIT_TEST_KERNEL_WRITE, "User.KernelWrite", 14, 7, (WitU64)&kernel_canary },
-        { WIT_TEST_PRIVILEGED_CLI, "User.PrivilegedCli", 13, 0, 0 },
-        { WIT_TEST_PRIVILEGED_PORT, "User.PrivilegedPort", 13, 0, 0 },
-        { WIT_TEST_EXECUTE_DATA, "User.Nx", 14, 21, WIT_USER_DATA },
-        { WIT_TEST_GUARD_LOW, "User.GuardLow", 14, 6, WIT_USER_STACK_BOTTOM - 1 },
-        { WIT_TEST_GUARD_HIGH, "User.GuardHigh", 14, 6, WIT_USER_STACK_TOP },
-        { WIT_TEST_WRITE_CODE, "User.WriteCode", 14, 7, WIT_USER_CODE },
-        { WIT_TEST_WRITE_INFO, "User.WriteInfo", 14, 7, WIT_USER_INFO },
-        { WIT_TEST_NULL_READ, "User.NullRead", 14, 4, 0 },
-        { WIT_TEST_INVALID_OPCODE, "User.InvalidOpcode", 6, 0, 0 },
-        { WIT_TEST_MEMORY_RESERVED, "User.MemoryReservedFault", 14, 4, WIT_USER_MEMORY_BASE },
-        { WIT_TEST_MEMORY_DECOMMITTED, "User.MemoryDecommittedFault", 14, 4, WIT_USER_MEMORY_BASE },
-        { WIT_TEST_MEMORY_RELEASED, "User.MemoryReleasedFault", 14, 4, WIT_USER_MEMORY_BASE },
-        { WIT_TEST_MEMORY_READONLY, "User.MemoryReadOnlyFault", 14, 7, WIT_USER_MEMORY_BASE },
-        { WIT_TEST_MEMORY_NOACCESS, "User.MemoryNoAccessFault", 14, 4, WIT_USER_MEMORY_BASE },
-        { WIT_TEST_MEMORY_NX, "User.MemoryNxFault", 14, 21, WIT_USER_MEMORY_BASE }
-    };
+    static const UserFaultCase faults[] = {{WIT_TEST_KERNEL_READ, "User.KernelRead", 14, 5, (WitU64)&kernel_canary},
+        {WIT_TEST_KERNEL_WRITE, "User.KernelWrite", 14, 7, (WitU64)&kernel_canary},
+        {WIT_TEST_PRIVILEGED_CLI, "User.PrivilegedCli", 13, 0, 0},
+        {WIT_TEST_PRIVILEGED_PORT, "User.PrivilegedPort", 13, 0, 0},
+        {WIT_TEST_EXECUTE_DATA, "User.Nx", 14, 21, WIT_USER_DATA},
+        {WIT_TEST_GUARD_LOW, "User.GuardLow", 14, 6, WIT_USER_STACK_BOTTOM - 1},
+        {WIT_TEST_GUARD_HIGH, "User.GuardHigh", 14, 6, WIT_USER_STACK_TOP},
+        {WIT_TEST_WRITE_CODE, "User.WriteCode", 14, 7, WIT_USER_CODE},
+        {WIT_TEST_WRITE_INFO, "User.WriteInfo", 14, 7, WIT_USER_INFO}, {WIT_TEST_NULL_READ, "User.NullRead", 14, 4, 0},
+        {WIT_TEST_INVALID_OPCODE, "User.InvalidOpcode", 6, 0, 0},
+        {WIT_TEST_MEMORY_RESERVED, "User.MemoryReservedFault", 14, 4, WIT_USER_MEMORY_BASE},
+        {WIT_TEST_MEMORY_DECOMMITTED, "User.MemoryDecommittedFault", 14, 4, WIT_USER_MEMORY_BASE},
+        {WIT_TEST_MEMORY_RELEASED, "User.MemoryReleasedFault", 14, 4, WIT_USER_MEMORY_BASE},
+        {WIT_TEST_MEMORY_READONLY, "User.MemoryReadOnlyFault", 14, 7, WIT_USER_MEMORY_BASE},
+        {WIT_TEST_MEMORY_NOACCESS, "User.MemoryNoAccessFault", 14, 4, WIT_USER_MEMORY_BASE},
+        {WIT_TEST_MEMORY_NX, "User.MemoryNxFault", 14, 21, WIT_USER_MEMORY_BASE}};
     WitU64 data_a, data_b, old_data, old_console;
 
     wit_console_write("[TEST-BEGIN] User.Isolation\n");
@@ -110,9 +112,12 @@ void wit_user_self_test(WitPageAllocator *pages)
     *(WitU64 *)wit_user_space_physical(&components[0].Space, WIT_USER_PEER_PAGE, 0, 0) = 0x12345678;
     create(pages, 1, WIT_TEST_PEER_READ);
     wit_user_run(&components[1]);
-    require(components[1].State == WitUserFaulted && components[1].FaultVector == 14 &&
-        components[1].FaultError == 4 && components[1].FaultAddress == WIT_USER_PEER_PAGE &&
-        components[1].FaultCs == WIT_USER_CS && components[1].Handles.Count == 0,
+    require(components[1].State == WitUserFaulted &&
+            components[1].FaultVector == 14 &&
+            components[1].FaultError == 4 &&
+            components[1].FaultAddress == WIT_USER_PEER_PAGE &&
+            components[1].FaultCs == WIT_USER_CS &&
+            components[1].Handles.Count == 0,
         "Peer private page was accessible");
     wit_user_destroy(&components[1]);
     wit_user_run(&components[0]);
@@ -125,14 +130,17 @@ void wit_user_self_test(WitPageAllocator *pages)
         create(pages, 0, faults[i].Mode);
         wit_user_run(&components[0]);
         require(components[0].State == WitUserFaulted &&
-            components[0].FaultVector == faults[i].Vector &&
-            components[0].FaultError == faults[i].Error &&
-            components[0].FaultCs == WIT_USER_CS && components[0].FaultSs == WIT_USER_SS &&
-            ((components[0].FaultRip >= WIT_USER_CODE && components[0].FaultRip < WIT_USER_LIMIT) ||
-                (faults[i].Mode == WIT_TEST_MEMORY_NX && components[0].FaultRip == WIT_USER_MEMORY_BASE)) &&
-            components[0].Handles.Count == 0, "User fault was not contained");
-        if (faults[i].Vector == 14)
+                components[0].FaultVector == faults[i].Vector &&
+                components[0].FaultError == faults[i].Error &&
+                components[0].FaultCs == WIT_USER_CS &&
+                components[0].FaultSs == WIT_USER_SS &&
+                ((components[0].FaultRip >= WIT_USER_CODE && components[0].FaultRip < WIT_USER_LIMIT) ||
+                    (faults[i].Mode == WIT_TEST_MEMORY_NX && components[0].FaultRip == WIT_USER_MEMORY_BASE)) &&
+                components[0].Handles.Count == 0,
+            "User fault was not contained");
+        if (faults[i].Vector == 14) {
             require(components[0].FaultAddress == faults[i].Address, "Unexpected user fault address");
+        }
         require(kernel_canary == 0xBADC0FFEE0DDF00DULL, "User fault corrupted kernel");
         wit_user_destroy(&components[0]);
         require(wit_pages_free_count(pages) == before, "Faulted component leaked pages");
@@ -145,9 +153,12 @@ void wit_user_self_test(WitPageAllocator *pages)
     wit_user_memory_self_test(pages);
     create(pages, 0, WIT_TEST_MEMORY_LIFECYCLE);
     wit_user_run(&components[0]);
-    require(components[0].State == WitUserExited && components[0].ExitCode == WIT_TEST_EXIT_CODE &&
-        components[0].Writes == 1 && components[0].Handles.Count == 0 &&
-        components[0].Space.OwnedCount == 9 + (WIT_USER_STACK_TOP - WIT_USER_STACK_BOTTOM) / 4096, "User memory lifecycle failed");
+    require(components[0].State == WitUserExited &&
+            components[0].ExitCode == WIT_TEST_EXIT_CODE &&
+            components[0].Writes == 1 &&
+            components[0].Handles.Count == 0 &&
+            components[0].Space.OwnedCount == 9 + (WIT_USER_STACK_TOP - WIT_USER_STACK_BOTTOM) / 4096,
+        "User memory lifecycle failed");
     wit_user_destroy(&components[0]);
     require(wit_pages_free_count(pages) == before, "User memory lifecycle leaked");
     recovery(pages);
@@ -184,7 +195,8 @@ void wit_user_self_test(WitPageAllocator *pages)
     create(pages, 0, WIT_TEST_SPIN);
     wit_user_run(&components[0]);
     require(components[0].State == WitUserBudgetExpired &&
-        components[0].Ticks == WIT_USER_TICK_BUDGET && components[0].Handles.Count == 0,
+            components[0].Ticks == WIT_USER_TICK_BUDGET &&
+            components[0].Handles.Count == 0,
         "Uncooperative user did not lose execution");
     wit_user_destroy(&components[0]);
     recovery(pages);
@@ -193,7 +205,8 @@ void wit_user_self_test(WitPageAllocator *pages)
     create(pages, 0, WIT_TEST_PREEMPTION_STATE);
     wit_user_run(&components[0]);
     require(components[0].State == WitUserBudgetExpired &&
-        components[0].Ticks == WIT_USER_TICK_BUDGET && components[0].Handles.Count == 0,
+            components[0].Ticks == WIT_USER_TICK_BUDGET &&
+            components[0].Handles.Count == 0,
         "Timer corrupted user flags, GPR or SIMD state");
     wit_user_destroy(&components[0]);
     recovery(pages);
@@ -202,7 +215,9 @@ void wit_user_self_test(WitPageAllocator *pages)
     create(pages, 0, WIT_TEST_NORMAL);
     old_data = wit_user_space_physical(&components[0].Space, WIT_USER_DATA, 0, 0);
     old_console = config(&components[0])->Startup.ConsoleHandle;
-    for (WitU32 i = 0; i < 4096; ++i) ((WitU8 *)old_data)[i] = 0xA5;
+    for (WitU32 i = 0; i < 4096; ++i) {
+        ((WitU8 *)old_data)[i] = 0xA5;
+    }
     wit_user_destroy(&components[0]);
     create(pages, 0, WIT_TEST_NORMAL);
     require(wit_user_space_physical(&components[0].Space, WIT_USER_DATA, 0, 0) == old_data,
@@ -213,7 +228,8 @@ void wit_user_self_test(WitPageAllocator *pages)
     check_normal(&components[0]);
     wit_user_destroy(&components[0]);
     require(wit_pages_free_count(pages) == before, "User teardown leaked physical pages");
-    wit_console_write("[TEST-PASS] User.ZeroFillAndStaleHandles\n[TEST-PASS] User.Teardown\n[TEST-PASS] User.Isolation\n");
+    wit_console_write(
+        "[TEST-PASS] User.ZeroFillAndStaleHandles\n[TEST-PASS] User.Teardown\n[TEST-PASS] User.Isolation\n");
     wit_user_runtime_boot_test(pages);
     wit_user_code_self_test(pages);
     wit_user_file_self_test(pages);

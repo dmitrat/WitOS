@@ -6,7 +6,7 @@
 
 #define WIT_X64_STORAGE_BASE 0xFFFFA00000000000ULL
 #define WIT_X64_STORAGE_SLOT 320U
-WIT_STATIC_ASSERT(((WIT_X64_STORAGE_BASE>>39)&511)==WIT_X64_STORAGE_SLOT,"Storage PML4 slot");
+WIT_STATIC_ASSERT(((WIT_X64_STORAGE_BASE >> 39) & 511) == WIT_X64_STORAGE_SLOT, "Storage PML4 slot");
 #define WIT_KERNEL_STACK_SIZE 65536U
 #define WIT_EMERGENCY_STACK_SIZE 32768U
 #define WIT_KERNEL_STACK_REGION_SIZE (WIT_KERNEL_STACK_SIZE + 8192U)
@@ -35,6 +35,7 @@ void wit_x64_idle_resume(void);
 extern WitU64 wit_x64_isr_table[256];
 
 #pragma pack(push, 1)
+
 typedef struct WitDescriptorPointer {
     WitU16 Limit;
     WitU64 Base;
@@ -59,6 +60,7 @@ typedef struct WitTaskState {
     WitU16 Reserved3;
     WitU16 IoMapBase;
 } WitTaskState;
+
 #pragma pack(pop)
 
 /* The stubs normalize the vector/error prefix. Long-mode hardware supplies

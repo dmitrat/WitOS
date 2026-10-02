@@ -1,7 +1,8 @@
 {
   "native": [
     "src/Boot.Uefi",
-    "src/Kernel"
+    "src/Kernel",
+    "src/Kernel.Arch.X64"
   ],
   "managed": [
     "tests/WitOS.Dev.Tests/ConsistencyTests.cs",

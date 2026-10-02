@@ -61,18 +61,28 @@ void wit_platform_initialize(void)
     wit_console_write("[TEST-PASS] Cpu.ExceptionTables\n");
 }
 
-void wit_x64_set_kernel_stack(WitU64 top) { task_state.Rsp[0] = top; }
+void wit_x64_set_kernel_stack(WitU64 top)
+{
+    task_state.Rsp[0] = top;
+}
 
 static const char *exception_name(WitU64 vector)
 {
     switch (vector) {
-    case 0: return "Divide error";
-    case 3: return "Breakpoint";
-    case 6: return "Invalid opcode";
-    case 8: return "Double fault";
-    case 13: return "General protection";
-    case 14: return "Page fault";
-    default: return "Unhandled exception or interrupt";
+    case 0:
+        return "Divide error";
+    case 3:
+        return "Breakpoint";
+    case 6:
+        return "Invalid opcode";
+    case 8:
+        return "Double fault";
+    case 13:
+        return "General protection";
+    case 14:
+        return "Page fault";
+    default:
+        return "Unhandled exception or interrupt";
     }
 }
 
@@ -80,10 +90,12 @@ WIT_NORETURN void wit_x64_exception(const WitExceptionFrame *frame, WitU64 fault
 {
     const WitU64 stack_pointer = wit_x64_stack_pointer();
     const WitU64 emergency_begin = (WitU64)wit_x64_double_fault_stack + 4096;
-    const int on_emergency_stack = stack_pointer >= emergency_begin &&
-        stack_pointer < emergency_begin + WIT_EMERGENCY_STACK_SIZE;
+    const int on_emergency_stack =
+        stack_pointer >= emergency_begin && stack_pointer < emergency_begin + WIT_EMERGENCY_STACK_SIZE;
 
-    if ((frame->Cs & 3) == 3) wit_user_fault(frame, fault_address);
+    if ((frame->Cs & 3) == 3) {
+        wit_user_fault(frame, fault_address);
+    }
 
     wit_console_write("[EXCEPTION] vector=");
     wit_console_write_u64(frame->Vector);
@@ -133,7 +145,12 @@ void wit_platform_fault_test(void)
     wit_console_write("[TEST-BEGIN] Cpu.DoubleFault\n");
     wit_x64_trigger_double_fault();
 #endif
-#if defined(WITOS_TEST_BREAKPOINT) || defined(WITOS_TEST_DIVIDE_ERROR) || defined(WITOS_TEST_INVALID_OPCODE) || defined(WITOS_TEST_GENERAL_PROTECTION) || defined(WITOS_TEST_PAGE_FAULT) || defined(WITOS_TEST_DOUBLE_FAULT)
+#if defined(WITOS_TEST_BREAKPOINT) || \
+    defined(WITOS_TEST_DIVIDE_ERROR) || \
+    defined(WITOS_TEST_INVALID_OPCODE) || \
+    defined(WITOS_TEST_GENERAL_PROTECTION) || \
+    defined(WITOS_TEST_PAGE_FAULT) || \
+    defined(WITOS_TEST_DOUBLE_FAULT)
     wit_panic("Fault injection unexpectedly returned");
 #endif
 }

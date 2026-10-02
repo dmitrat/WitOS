@@ -6,7 +6,9 @@ static WitPageAllocator limited_pages;
 
 static void require(int condition, const char *message)
 {
-    if (!condition) wit_panic(message);
+    if (!condition) {
+        wit_panic(message);
+    }
 }
 
 static void expect(WitU64 actual, WitU64 expected)
@@ -32,11 +34,12 @@ static void physical_failure(WitPageAllocator *pages)
         require(wit_pages_initialize(&limited_pages, regions, count), "Limited allocator setup failed");
         require(wit_user_space_create(&spaces[0], &limited_pages), "Limited root allocation failed");
         expect(wit_user_memory_reserve(&spaces[0], 16384, 4096, &base), WIT_STATUS_OK);
-        expect(wit_user_memory_commit(&spaces[0], base, 8192, 3),
-            count == 6 ? WIT_STATUS_OK : WIT_STATUS_NO_MEMORY);
+        expect(wit_user_memory_commit(&spaces[0], base, 8192, 3), count == 6 ? WIT_STATUS_OK : WIT_STATUS_NO_MEMORY);
         if (count < 6) {
-            require(spaces[0].OwnedCount == 1 && wit_pages_free_count(&limited_pages) == count - 1 &&
-                !wit_user_space_physical(&spaces[0], base, 0, 0), "Physical OOM rollback leaked");
+            require(spaces[0].OwnedCount == 1 &&
+                    wit_pages_free_count(&limited_pages) == count - 1 &&
+                    !wit_user_space_physical(&spaces[0], base, 0, 0),
+                "Physical OOM rollback leaked");
             if (count == 5) {
                 expect(wit_user_memory_commit(&spaces[0], base, 4096, 3), WIT_STATUS_OK);
                 *(WitU64 *)wit_user_space_physical(&spaces[0], base, 1, 0) = 0x1234;
@@ -48,7 +51,9 @@ static void physical_failure(WitPageAllocator *pages)
         wit_user_space_destroy(&spaces[0]);
         require(wit_pages_free_count(&limited_pages) == count, "Limited allocator teardown leaked");
     }
-    for (WitU32 i = 0; i < 6; ++i) require(wit_page_free(pages, borrowed[i]), "Borrowed frame return failed");
+    for (WitU32 i = 0; i < 6; ++i) {
+        require(wit_page_free(pages, borrowed[i]), "Borrowed frame return failed");
+    }
     require(wit_pages_free_count(pages) == before, "Physical failure test leaked");
     wit_console_write("[TEST-PASS] User.MemoryPhysicalOom\n");
 }
@@ -74,8 +79,12 @@ void wit_user_memory_self_test(WitPageAllocator *pages)
         expect(wit_user_memory_commit(&spaces[i], base[i] + large - 4096, 4096, 3), WIT_STATUS_OK);
         first[i] = wit_user_space_physical(&spaces[i], base[i], 1, 0);
         last[i] = wit_user_space_physical(&spaces[i], base[i] + large - 4096, 1, 0);
-        require(first[i] && last[i] && first[i] != last[i] && spaces[i].OwnedCount == 8 &&
-            !wit_user_space_physical(&spaces[i], base[i] + 4096, 0, 0), "Sparse commitment incorrect");
+        require(first[i] &&
+                last[i] &&
+                first[i] != last[i] &&
+                spaces[i].OwnedCount == 8 &&
+                !wit_user_space_physical(&spaces[i], base[i] + 4096, 0, 0),
+            "Sparse commitment incorrect");
         *(WitU64 *)first[i] = 100 + i;
         *(WitU64 *)last[i] = 200 + i;
     }
@@ -102,8 +111,9 @@ void wit_user_memory_self_test(WitPageAllocator *pages)
     free_after_roots = wit_pages_free_count(pages);
     expect(wit_user_memory_commit(&spaces[0], base[0], WIT_USER_PAGE_CAPACITY * 4096ULL, 1), WIT_STATUS_NO_MEMORY);
     require(wit_pages_free_count(pages) == free_after_roots &&
-        *(WitU64 *)wit_user_space_physical(&spaces[0], base[0], 1, 0) == 0xABCDE &&
-        !wit_user_space_physical(&spaces[0], base[0] + 4096, 0, 0), "Quota rollback changed memory");
+            *(WitU64 *)wit_user_space_physical(&spaces[0], base[0], 1, 0) == 0xABCDE &&
+            !wit_user_space_physical(&spaces[0], base[0] + 4096, 0, 0),
+        "Quota rollback changed memory");
     expect(wit_user_memory_commit(&spaces[0], base[0] + 4096, 4096, 3), WIT_STATUS_OK);
     expect(wit_user_memory_release(&spaces[0], address), WIT_STATUS_OK);
     require(spaces[0].OwnedCount == 1, "Release retained empty tables");
@@ -131,8 +141,9 @@ void wit_user_memory_self_test(WitPageAllocator *pages)
     expect(wit_user_memory_protect(&spaces[0], WIT_USER_CODE, 4096, 3), WIT_STATUS_BAD_ADDRESS);
     expect(wit_user_memory_release(&spaces[0], held[0] + 4096), WIT_STATUS_NOT_RESERVED);
     require(spaces[0].OwnedCount == 1, "Rejected request consumed frames");
-    for (WitU32 i = 0; i < WIT_USER_RESERVATION_CAPACITY; ++i)
+    for (WitU32 i = 0; i < WIT_USER_RESERVATION_CAPACITY; ++i) {
         expect(wit_user_memory_release(&spaces[0], held[i]), WIT_STATUS_OK);
+    }
     /* Adjacent reservations still cannot be operated on as a single range. */
     expect(wit_user_memory_reserve(&spaces[0], 4096, 4096, &address), WIT_STATUS_OK);
     expect(wit_user_memory_reserve(&spaces[0], 4096, 4096, &result), WIT_STATUS_OK);
