@@ -399,14 +399,20 @@ internal static class DevTool
         var counterFrequency = Regex.Match(result.Output, @"HPET frequency: (\d+)");
         var foundationReady = result.Output.Contains("[TEST-PASS] Cpu.SuspendedDeadlineState",StringComparison.Ordinal) && result.Output.Contains("[TEST-PASS] Cpu.ContextSanitization",StringComparison.Ordinal) && result.Output.Contains("[TEST-PASS] Cpu.ContextStateProfile",StringComparison.Ordinal) && result.Output.Contains("[TEST-PASS] Random.BootSeedConsumed",StringComparison.Ordinal) &&
             result.Output.Contains("[TEST-PASS] Random.ChaCha20Vector",StringComparison.Ordinal) && validMemory && counterFrequency.Success && counterFrequency.Groups[1].Value == "100000000" && MarkersInOrder(result.Output,
-            "[BOOT] ExitBootServices OK", KernelAbi.Banner(root) + "\n", "[TEST-PASS] Boot.Contract",
+            "[BOOT] ExitBootServices OK", KernelAbi.Banner(root), "[TEST-PASS] Boot.Contract",
             "[TEST-PASS] Cpu.KernelStack", "[TEST-PASS] Cpu.ExceptionTables",
             "[TEST-PASS] Memory.KernelPaging", "[TEST-PASS] Memory.StackGuards",
             "[TEST-PASS] Clock.Counter64", "[TEST-PASS] Clock.IrqIndependent",
             "[TEST-PASS] Memory.PhysicalPages", "[TEST-PASS] Memory.Exhaustion",
             "[TEST-PASS] Memory.InvalidMaps", "[TEST-PASS] Memory.VirtualMappings");
-        var booted = foundationReady && ValidateScheduler(result.Output) && ValidateUsers(result.Output, runtimeConfig ? 66 : 51, runtimeBoot ? RuntimeBootProtocol.StackFaultsPerProfile : coreclrMemory ? 9 : coreclrStorage ? 7 : 0) && hello > result.Output.IndexOf("[TEST-PASS] Scheduler.RegisterState", StringComparison.Ordinal) &&
-            !panic && !result.Output.Contains("[EXCEPTION]", StringComparison.Ordinal);
+        // The kernel console emits CRLF; match the banner as one exact line.
+        var bannerReady = Regex.IsMatch(result.Output, "^" + Regex.Escape(KernelAbi.Banner(root)) + @"\r?$", RegexOptions.Multiline);
+        var schedulerReady = ValidateScheduler(result.Output);
+        var usersReady = ValidateUsers(result.Output, runtimeConfig ? 66 : 51, runtimeBoot ? RuntimeBootProtocol.StackFaultsPerProfile : coreclrMemory ? 9 : coreclrStorage ? 7 : 0);
+        var helloReady = hello > result.Output.IndexOf("[TEST-PASS] Scheduler.RegisterState", StringComparison.Ordinal);
+        var exception = result.Output.Contains("[EXCEPTION]", StringComparison.Ordinal);
+        var booted = bannerReady && foundationReady && schedulerReady && usersReady && helloReady && !panic && !exception;
+        var bootDiagnostics = $"banner={bannerReady} foundation={foundationReady} scheduler={schedulerReady} users={usersReady} hello={helloReady} panic={panic} exception={exception}";
         if(coreclrMemory)booted=booted&&MarkersInOrder(result.Output,"[TEST-PASS] Code.VMToOSMapper","[TEST-PASS] Code.VMToOSMapperRollback","[TEST-PASS] Code.DynamicFrameUnwind","[TEST-PASS] Code.ForeignDynamicUnwind","[TEST-PASS] Code.DynamicExceptionDispatch","[TEST-PASS] Code.DynamicTargetUnwind","[TEST-PASS] Code.CoreClrCollidedDispatch","[TEST-PASS] Code.CollidedContextRejection","[TEST-PASS] Code.DynamicUnwindRejection","[TEST-PASS] Code.ModuleUnwind","[TEST-PASS] Code.ForeignModuleUnwind","[TEST-PASS] Code.SparseViewsAndLateCommit","[TEST-PASS] Code.SparseCommitRollback","[TEST-PASS] Code.OwnershipAndAtomicProtection",
             "[TEST-PASS] Code.PublicationAndExecution","[TEST-PASS] Code.WriteAndNxFaults","[TEST-PASS] Code.AliasesAndLifetime","[TEST-PASS] Code.Teardown");
         if(coreclrStorage)booted=booted&&MarkersInOrder(result.Output,"[TEST-PASS] Storage.AssemblyBytes","[TEST-PASS] Storage.AtomicReadAndSeek","[TEST-PASS] Storage.HandlesAndQuotas","[TEST-PASS] Storage.NamespaceQueries","[TEST-PASS] Storage.FileViews","[TEST-PASS] Storage.CoreHostPalFiles","[TEST-PASS] Storage.NativePaths","[TEST-PASS] Storage.NativeDirectories","[TEST-PASS] Storage.NativeLibraries","[TEST-PASS] Storage.LibraryRollback","[TEST-PASS] Storage.LibraryDependencies","[TEST-PASS] Storage.LibraryReaders","[TEST-PASS] Storage.LibraryLifecycle","[TEST-PASS] Storage.LibraryShutdown","[TEST-PASS] Storage.LibraryThreadNotifications","[TEST-PASS] Storage.LibraryStaticTls","[TEST-PASS] Storage.FileViewRollback","[TEST-PASS] Storage.Isolation","[TEST-PASS] Storage.Teardown");
@@ -441,7 +447,7 @@ internal static class DevTool
             _ => false
         };
         if (!passed)
-            throw new InvalidOperationException($"{name}: expected {expected}, got exit={result.ExitCode}, timeout={result.TimedOut}. Logs: {logs}\n{result.Error}");
+            throw new InvalidOperationException($"{name}: expected {expected}, got exit={result.ExitCode}, timeout={result.TimedOut}. Checks: {bootDiagnostics}. Logs: {logs}\n{result.Error}");
         Console.WriteLine($"PASS: {name} (exit={result.ExitCode}, timeout={result.TimedOut}).");
     }
 
