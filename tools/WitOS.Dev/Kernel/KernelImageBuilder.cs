@@ -46,6 +46,8 @@ internal static class KernelImageBuilder
         "src/Kernel.Arch.X64/user_suspend_tests.c",
         "src/Kernel.Arch.X64/user_suspend.c",
         "src/Kernel.Arch.X64/user_thread_context.c",
+        "src/Kernel.Arch.X64/frame.c",
+        "src/Kernel.Arch.X64/frame_context.c",
         "src/Kernel.Arch.X64/user_cpu_context.c",
         "src/Kernel.Arch.X64/user_thread_name.c",
         "src/Kernel.Arch.X64/user_console.c",
@@ -193,7 +195,8 @@ internal static class KernelImageBuilder
             var arguments = new List<string>
             {
                 "/nologo", "/c", "/TC", "/std:c17", "/W4", "/WX", "/GS-", "/Zl", "/Oi", "/Od", "/Zi",
-                $"/I{Path.Combine(root, "src", "Kernel", "include")}", $"/I{Path.Combine(root, "tests", "User.X64")}",
+                $"/I{Path.Combine(root, "src", "Kernel", "include")}",
+                $"/I{Path.Combine(root, "src", "Kernel.Arch.X64", "include")}", $"/I{Path.Combine(root, "tests", "User.X64")}",
                 $"/I{output}", $"/Fo{obj}", $"/Fd{Path.Combine(output, "compiler.pdb")}"
             };
             if (define is not null)

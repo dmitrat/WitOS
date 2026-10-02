@@ -83,6 +83,10 @@ typedef struct __declspec(align(16)) WitArchFrame {
 
 _Static_assert(sizeof(WitInterruptContext) == 672, "x64 interrupt context layout");
 WitInterruptContext *wit_x64_timer_interrupt(WitInterruptContext *context);
+WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context);
+WitInterruptContext *wit_x64_user_exception(WitInterruptContext *context, WitU64 vector, WitU64 error, WitU64 address);
+WIT_NORETURN void wit_x64_user_fault(const WitExceptionFrame *frame, WitU64 address);
+void wit_x64_set_kernel_stack(WitU64 top);
 void wit_x64_fxsave(void *state);
 WitU64 wit_x64_read_flags(void);
 WIT_NORETURN void wit_x64_worker(WitU32 index);

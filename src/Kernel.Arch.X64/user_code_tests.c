@@ -316,7 +316,7 @@ void wit_user_code_self_test(WitPageAllocator *pages)
             } else {
                 require(process.State == WitUserFaulted &&
                         process.FaultVector == 14 &&
-                        process.FaultCs == WIT_USER_CS &&
+                        process.FaultState.Cs == WIT_USER_CS &&
                         process.FaultAddress == entryAddress &&
                         process.FaultError == (mode == 1 ? 7U : 21U),
                     "RX write/NX revocation was not enforced by CPU");

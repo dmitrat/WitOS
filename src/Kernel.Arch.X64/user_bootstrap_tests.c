@@ -171,8 +171,8 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
         require(process.State == WitUserFaulted &&
                 process.FaultVector == 14 &&
                 process.FaultError == 7 &&
-                process.FaultCs == WIT_USER_CS &&
-                process.FaultSs == WIT_USER_SS &&
+                process.FaultState.Cs == WIT_USER_CS &&
+                process.FaultState.Ss == WIT_USER_SS &&
                 process.FaultAddress == WIT_USER_INFO + WIT_USER_IMAGE_INFO_OFFSET,
             "Bootstrap fault was not contained");
         if (mode == WIT_BOOTSTRAP_TEST_INIT_FAULT) {

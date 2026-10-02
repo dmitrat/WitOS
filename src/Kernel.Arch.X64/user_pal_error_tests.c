@@ -29,8 +29,8 @@ static void run(WitPageAllocator *pages, WitU64 mode, int tls, WitU64 base)
                 process.FaultVector == 14 &&
                 process.FaultError == 7 &&
                 process.FaultAddress == *report &&
-                process.FaultCs == WIT_USER_CS &&
-                process.FaultSs == WIT_USER_SS &&
+                process.FaultState.Cs == WIT_USER_CS &&
+                process.FaultState.Ss == WIT_USER_SS &&
                 *report >= base &&
                 *report < base + process.ImageSize &&
                 !wit_user_space_physical(&process.Space, *report, 1, 0),

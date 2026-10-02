@@ -60,8 +60,8 @@ static void run(WitPageAllocator *pages, WitU64 base, WitU64 mode)
                     process.FaultVector == 14 &&
                     process.FaultError == 6 &&
                     process.FaultAddress == 0 &&
-                    process.FaultCs == WIT_USER_CS &&
-                    process.FaultSs == WIT_USER_SS,
+                    process.FaultState.Cs == WIT_USER_CS &&
+                    process.FaultState.Ss == WIT_USER_SS,
                 "TLS destructor fault was not contained");
         } else {
             require(process.State == WitUserExited && process.ExitCode == WIT_GC_TEST_FAIL_FAST_EXIT,

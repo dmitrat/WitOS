@@ -203,7 +203,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 process.State == WitUserFaulted &&
                 process.FaultVector == 13 &&
                 !process.FaultError &&
-                process.FaultRip == report[12] &&
+                process.FaultState.Rip == report[12] &&
                 !process.Handles.Count &&
                 !process.Events.Count &&
                 !process.Writes &&
@@ -377,7 +377,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
         } else {
             require(process.State == WitUserFaulted &&
                     process.FaultVector == (mode == 122 ? 13U : 6U) &&
-                    process.FaultRip == report[3],
+                    process.FaultState.Rip == report[3],
                 "VEH failure lost original fault");
         }
         if (mode == 122) {
@@ -419,7 +419,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
             require(process.State == WitUserFaulted &&
                     process.FaultVector == 6 &&
                     process.FaultError == 0 &&
-                    process.FaultRip == report[3] &&
+                    process.FaultState.Rip == report[3] &&
                     report[2] == (mode <= 114 ? 1U : 0U),
                 "Exception failure lost original cause");
         }
@@ -666,12 +666,12 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 !process.Writes,
             "GC policy fixture state invalid");
         if (mode == 85) {
-            const WitU64 instruction = wit_user_space_physical(&process.Space, process.FaultRip - 1, 0, 1);
+            const WitU64 instruction = wit_user_space_physical(&process.Space, process.FaultState.Rip - 1, 0, 1);
             require(process.State == WitUserFaulted &&
                     process.FaultVector == 3 &&
                     !process.FaultError &&
-                    process.FaultCs == WIT_USER_CS &&
-                    process.FaultRip == report[2] &&
+                    process.FaultState.Cs == WIT_USER_CS &&
+                    process.FaultState.Rip == report[2] &&
                     instruction &&
                     *(const WitU8 *)instruction == 0xCC,
                 "GC breakpoint was not a user INT3 trap");
@@ -1053,9 +1053,9 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
             require(process.State == WitUserFaulted &&
                     process.FaultVector == 6 &&
                     !process.FaultError &&
-                    process.FaultCs == WIT_USER_CS &&
-                    process.FaultSs == WIT_USER_SS &&
-                    process.FaultRip == base + WIT_CPU_AVX_RVA,
+                    process.FaultState.Cs == WIT_USER_CS &&
+                    process.FaultState.Ss == WIT_USER_SS &&
+                    process.FaultState.Rip == base + WIT_CPU_AVX_RVA,
                 "AVX executed outside the kernel FXSAVE profile");
         } else {
             require(process.State == WitUserExited &&
@@ -1082,12 +1082,12 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 process.State == WitUserFaulted &&
                 process.FaultVector == 14 &&
                 process.FaultError == 4 &&
-                process.FaultCs == WIT_USER_CS &&
-                process.FaultSs == WIT_USER_SS &&
+                process.FaultState.Cs == WIT_USER_CS &&
+                process.FaultState.Ss == WIT_USER_SS &&
                 process.FaultAddress >= WIT_USER_STACK_BOTTOM - 4096 &&
                 process.FaultAddress < WIT_USER_STACK_BOTTOM &&
-                process.FaultRip >= base + WIT_STACK_PROBE_BEGIN &&
-                process.FaultRip < base + WIT_STACK_PROBE_END &&
+                process.FaultState.Rip >= base + WIT_STACK_PROBE_BEGIN &&
+                process.FaultState.Rip < base + WIT_STACK_PROBE_END &&
                 process.Space.OwnedCount == owned &&
                 !process.Handles.Count &&
                 !process.Events.Count,

@@ -145,7 +145,7 @@ void wit_user_runtime_boot_test(WitPageAllocator *pages)
             (process.FaultError == 4 || process.FaultError == 6) &&
             process.FaultAddress < stackLow &&
             process.FaultAddress >= stackLow - 4096 &&
-            wit_user_space_physical(&process.Space, process.FaultRip, 0, 1) &&
+            wit_user_space_physical(&process.Space, process.FaultState.Rip, 0, 1) &&
             !process.Handles.Count &&
             !process.Events.Count;
         wit_user_destroy(&process);
@@ -248,7 +248,7 @@ void wit_user_runtime_boot_test(WitPageAllocator *pages)
         wit_console_write("/");
         wit_console_write_hex(process.ExitCode);
         wit_console_write("/");
-        wit_console_write_hex(process.FaultRip);
+        wit_console_write_hex(process.FaultState.Rip);
         wit_console_write("/");
         wit_console_write_u64(process.Space.OwnedCount);
         wit_console_write("\n");

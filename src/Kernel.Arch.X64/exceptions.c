@@ -61,7 +61,7 @@ void wit_platform_initialize(void)
     wit_console_write("[TEST-PASS] Cpu.ExceptionTables\n");
 }
 
-void wit_arch_set_kernel_stack(WitU64 top)
+void wit_x64_set_kernel_stack(WitU64 top)
 {
     task_state.Rsp[0] = top;
 }
@@ -94,7 +94,7 @@ WIT_NORETURN void wit_x64_exception(const WitExceptionFrame *frame, WitU64 fault
         stack_pointer >= emergency_begin && stack_pointer < emergency_begin + WIT_EMERGENCY_STACK_SIZE;
 
     if ((frame->Cs & 3) == 3) {
-        wit_user_fault(frame, fault_address);
+        wit_x64_user_fault(frame, fault_address);
     }
 
     wit_console_write("[EXCEPTION] vector=");

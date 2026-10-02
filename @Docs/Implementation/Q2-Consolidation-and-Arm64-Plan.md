@@ -264,3 +264,30 @@ RID `witos-x64` появляется в потоке приложения тол
 | остальные 76 образов, включая все образы ядра | совпали |
 
 Поведение проверено гейтами, которые исполняют эти сборки: runtime-audit, runtime-probe и runtime-target; runtime-source с hosted-эталоном из четырёх циклов GC, исключений, финализации и потоков; runtime-boot-run, где хэш управляемого объекта в записи приёмки совпал с пересобранным; coreclr-storage и coreclr-memory; coreclr-source, где `CoreClrProbe` прошёл все девять проверок под эталонным CoreCLR/JIT; coreclr-host, coreclr-host-files и coreclr-functions. Хостовые тесты 48/48, `format-check` чистый.
+
+### Q2.4 — интерфейс архитектуры
+
+Срез сделан двумя коммитами.
+
+**Переименование.** Объявления 13 функций x64, которые вызывает политика, переехали в новый [`witos/arch.h`](../../src/Kernel/include/witos/arch.h) под именами `wit_arch_*`, а тег структуры кадра прерывания стал `WitArchFrame`. Код при этом не менялся, но побайтного равенства не получилось: MSVC располагает функции внутри объектного файла в порядке имён, поэтому переименованные функции переместились. Все 332 не-ядерных образа совпали с эталоном из 20 вариантов сборки ядра (352 образа). Map-файлы ядра до и после перечисляют те же 675 функций с теми же размерами.
+
+**Непрозрачный кадр.** Политика работает с кадром только через функции `arch.h`:
+
+| Было в политике | Стало |
+| --- | --- |
+| чтение RAX, RCX, RDX, R8 в диспетчере syscall | x64-вход `wit_x64_user_syscall` раскодирует регистры и зовёт `wit_user_syscall(frame, call, a0, a1, a2)` |
+| запись RAX и RDX | слоты `wit_arch_frame_status`, `wit_arch_frame_value`, `wit_arch_frame_set_result` |
+| проверки CS, SS, RSP, RIP и RFLAGS при возврате | `wit_arch_frame_owned`, `returns_to_user`, `pc`, `sp`, `prepare_return` |
+| проверка idle-кадра с селекторами, `wit_x64_idle_resume` и MSR | `wit_arch_frame_is_idle` |
+| FS/GS MSR, CR3, бит IF | `wit_arch_reset_user_tls`, `user_tls_is_reset`, `kernel_space_active`, `interrupts_enabled` |
+| расчёт стека ядра потока | `wit_arch_select_thread_stack`, `select_boot_stack`, `kernel_stack_contains` |
+| построение начального кадра | `wit_arch_frame_create` |
+| копирование регистров и FXSAVE в `WitThreadContext` | `wit_arch_context_capture`, `apply`, `registers_valid`, `state_valid`, `profile` |
+| векторы 0/3/6/13/14, биты ошибки #PF, 40 байт кадра вызова | `wit_arch_exception_deliverable`, `exception_kind`, `callback_stack`, `frame_enter_callback` |
+| `FaultRip`, `FaultCs`, `FaultSs` процесса | `WitArchFaultState FaultState` из [`arch_types.h`](../../src/Kernel.Arch.X64/include/witos/arch_types.h) |
+
+x64-реализация живёт в новых `frame.c` и `frame_context.c`; FXSAVE-санитизация и её self-test переехали туда из файла политики. Каталог `src/Kernel.Arch.X64/include` стал единственным архитектурным путём включения общего ядра. Порядок проверок и коды отказа сохранены: например, для `THREAD_CONTEXT_SET` сначала метаданные и регистры дают `INVALID_ARGUMENT`, затем стек и PC дают `BAD_ADDRESS`, затем состояние FPU снова `INVALID_ARGUMENT`.
+
+Хостовые тесты `KernelLayeringTests` проверяют 20 файлов политики на `wit_x64_*`, имена регистров и селекторов, интринсики и x64-типы, а `src/Kernel` на включение архитектурных заголовков. Вставка комментария с `Rax` в `user_wait.c` дала ожидаемый отказ. Заголовок `user.h` пока включает `x64.h`; его разделение относится к Q2.5.
+
+Матрица на рабочем дереве перед коммитом: runtime-source, 20 kernel-сценариев (413 с), coreclr-memory, coreclr-storage, runtime-config, runtime-boot-run, runtime-port, coreclr-functions прошли; host tests 50/50, `format-check` чистый.

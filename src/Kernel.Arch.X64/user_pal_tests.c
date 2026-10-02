@@ -92,8 +92,8 @@ static void run(WitPageAllocator *pages, int tls, WitU64 base, WitU64 mode)
                 process.FaultVector == 14 &&
                 process.FaultError == 6 &&
                 process.FaultAddress == (mode == 2 ? report->StackLow - 1 : report->StackHigh) &&
-                process.FaultCs == WIT_USER_CS &&
-                process.FaultSs == WIT_USER_SS,
+                process.FaultState.Cs == WIT_USER_CS &&
+                process.FaultState.Ss == WIT_USER_SS,
             "Reported PAL stack bounds include a guard page");
     }
     require(!process.Handles.Count && !process.Events.Count, "PAL query leaked handles");

@@ -78,30 +78,17 @@ void wit_x64_context_profile_self_test(void)
     wit_console_write("[TEST-PASS] Cpu.ContextStateProfile\n");
 }
 
-WitU64 wit_user_cpu_context_query(WitUserProcess *process, WitU64 address, WitU64 size, WitU64 version)
+void wit_arch_cpu_context_describe(WitCpuContextInfo *info, const WitArchFrame *frame)
 {
-    WitCpuContextInfo info = {0};
-    const WitInterruptContext *context = process->Threads[process->CurrentThread].Context;
-    if (version != WIT_CPU_CONTEXT_VERSION) {
-        return WIT_STATUS_UNSUPPORTED;
-    }
-    if (size != sizeof(info)) {
-        return WIT_STATUS_INVALID_ARGUMENT;
-    }
-    if (!wit_arch_context_supported() || WIT_USER_PROCESSOR_COUNT != 1) {
-        return WIT_STATUS_UNSUPPORTED;
-    }
-    if (!context || context->Cs != WIT_USER_CS || context->Ss != WIT_USER_SS) {
+    if (!frame || !wit_arch_frame_returns_to_user(frame)) {
         wit_panic("CPU profile lost current user selectors");
     }
-    info.Version = WIT_CPU_CONTEXT_VERSION;
-    info.Size = sizeof(info);
-    info.EnabledState = WIT_CPU_CONTEXT_LEGACY;
-    info.DebugPolicy = WIT_CPU_DEBUG_DISABLED;
-    info.MxcsrMask = mxcsr_mask;
-    info.LegacySaveBytes = sizeof(context->FxState);
-    info.CodeSelector = (WitU16)context->Cs;
-    info.StackSelector = (WitU16)context->Ss;
-    return wit_user_copy_to(&process->Space, address, (const WitU8 *)&info, sizeof(info)) ? WIT_STATUS_OK
-                                                                                          : WIT_STATUS_BAD_ADDRESS;
+    info->Version = WIT_CPU_CONTEXT_VERSION;
+    info->Size = sizeof(*info);
+    info->EnabledState = WIT_CPU_CONTEXT_LEGACY;
+    info->DebugPolicy = WIT_CPU_DEBUG_DISABLED;
+    info->MxcsrMask = mxcsr_mask;
+    info->LegacySaveBytes = sizeof(frame->FxState);
+    info->CodeSelector = (WitU16)frame->Cs;
+    info->StackSelector = (WitU16)frame->Ss;
 }

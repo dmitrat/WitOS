@@ -116,7 +116,7 @@ void wit_user_self_test(WitPageAllocator *pages)
             components[1].FaultVector == 14 &&
             components[1].FaultError == 4 &&
             components[1].FaultAddress == WIT_USER_PEER_PAGE &&
-            components[1].FaultCs == WIT_USER_CS &&
+            components[1].FaultState.Cs == WIT_USER_CS &&
             components[1].Handles.Count == 0,
         "Peer private page was accessible");
     wit_user_destroy(&components[1]);
@@ -132,10 +132,10 @@ void wit_user_self_test(WitPageAllocator *pages)
         require(components[0].State == WitUserFaulted &&
                 components[0].FaultVector == faults[i].Vector &&
                 components[0].FaultError == faults[i].Error &&
-                components[0].FaultCs == WIT_USER_CS &&
-                components[0].FaultSs == WIT_USER_SS &&
-                ((components[0].FaultRip >= WIT_USER_CODE && components[0].FaultRip < WIT_USER_LIMIT) ||
-                    (faults[i].Mode == WIT_TEST_MEMORY_NX && components[0].FaultRip == WIT_USER_MEMORY_BASE)) &&
+                components[0].FaultState.Cs == WIT_USER_CS &&
+                components[0].FaultState.Ss == WIT_USER_SS &&
+                ((components[0].FaultState.Rip >= WIT_USER_CODE && components[0].FaultState.Rip < WIT_USER_LIMIT) ||
+                    (faults[i].Mode == WIT_TEST_MEMORY_NX && components[0].FaultState.Rip == WIT_USER_MEMORY_BASE)) &&
                 components[0].Handles.Count == 0,
             "User fault was not contained");
         if (faults[i].Vector == 14) {

@@ -188,8 +188,8 @@ static void run(WitPageAllocator *pages, WitU64 base, WitU64 mode)
                 process.FaultVector == 14 &&
                 process.FaultError == (mode == 1 ? 21U : 5U) &&
                 process.FaultAddress == (mode == 1 ? gs + 0x100 : config->ForeignHandle) &&
-                process.FaultCs == WIT_USER_CS &&
-                process.FaultSs == WIT_USER_SS,
+                process.FaultState.Cs == WIT_USER_CS &&
+                process.FaultState.Ss == WIT_USER_SS,
             "Compiler TLS isolation fault mismatch");
     }
     require(!process.Handles.Count && !process.Events.Count, "Compiler TLS handles leaked");

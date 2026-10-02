@@ -80,7 +80,7 @@ WitU64 wit_user_exception_continue(WitUserProcess *p, WitU64 token, WitU64 input
     if (status != WIT_STATUS_OK) {
         return status;
     }
-    wit_user_context_commit(t->Context, &context);
+    wit_arch_context_apply(t->Context, &context);
     ++p->ExceptionContinuations;
     if (t->ExceptionDepth) {
         t->Exception = t->ExceptionParents[--t->ExceptionDepth];
@@ -139,7 +139,7 @@ WitU64 wit_user_exception_unwind(WitUserProcess *p, WitU64 token, WitU64 input, 
     }
     /* IF is clear: commit registers and retire exactly the selected suffix only
      * after validating the full copied request and current-thread token chain. */
-    wit_user_context_commit(t->Context, &request.Context);
+    wit_arch_context_apply(t->Context, &request.Context);
     if (!retire) {
         wit_user_exception_clear(t);
     } else {
@@ -187,8 +187,7 @@ WitU64 wit_user_exception_begin(WitUserProcess *p, WitU64 input, WitU64 size, Wi
     info.Token = next_exception_token++;
     info.Vector = WIT_EXCEPTION_SOFTWARE_VECTOR;
     info.Error = code;
-    info.Address = context.Rip;
-    info.RawRflags = context.Rflags;
+    wit_arch_exception_record_software(&info, &context);
     info.Context = context;
     info.Context.Flags |= WIT_THREAD_CONTEXT_EXCEPTION_ACTIVE;
     if (t->Exception.Token) {
@@ -199,8 +198,7 @@ WitU64 wit_user_exception_begin(WitUserProcess *p, WitU64 input, WitU64 size, Wi
     return WIT_STATUS_OK;
 }
 
-int wit_user_exception_deliver(
-    WitUserProcess *p, WitInterruptContext *frame, WitU64 vector, WitU64 error, WitU64 address)
+int wit_user_exception_deliver(WitUserProcess *p, WitArchFrame *frame, WitU64 vector, WitU64 error, WitU64 address)
 {
     WitUserThread *t = &p->Threads[p->CurrentThread];
     if (!p->ExceptionCallback ||
@@ -209,23 +207,22 @@ int wit_user_exception_deliver(
         t->State != WitThreadRunning ||
         t->SuspendCount ||
         t->WaitKind != WitWaitNone ||
-        (vector != 0 && vector != 3 && vector != 6 && vector != 13 && vector != 14) ||
+        !wit_arch_exception_deliverable(vector) ||
         !wit_arch_context_supported()) {
         return 0;
     }
-    if (frame->Cs != WIT_USER_CS ||
-        frame->Ss != WIT_USER_SS ||
-        frame->Rsp < t->StackBottom ||
-        frame->Rsp >= t->StackTop) {
+    const WitU64 sp = wit_arch_frame_sp(frame);
+    if (!wit_arch_frame_returns_to_user(frame) || sp < t->StackBottom || sp >= t->StackTop) {
         return 0;
     }
-    const WitU64 aligned = frame->Rsp & ~15ULL;
-    if (aligned < t->StackBottom + WIT_EXCEPTION_STACK_MINIMUM + 40) {
+    WitU32 callFrameBytes;
+    const WitU64 callbackStack = wit_arch_callback_stack(sp, &callFrameBytes);
+    static const WitU8 callFrame[64] = {0};
+    if (callFrameBytes > sizeof(callFrame) || callbackStack < t->StackBottom + WIT_EXCEPTION_STACK_MINIMUM) {
         return 0;
     }
-    const WitU64 callbackStack = aligned - 40;
     if (!wit_user_buffer_writable(
-            &p->Space, callbackStack - WIT_EXCEPTION_STACK_MINIMUM, WIT_EXCEPTION_STACK_MINIMUM + 40) ||
+            &p->Space, callbackStack - WIT_EXCEPTION_STACK_MINIMUM, WIT_EXCEPTION_STACK_MINIMUM + callFrameBytes) ||
         !wit_user_space_physical(&p->Space, p->ExceptionCallback, 0, 1)) {
         return 0;
     }
@@ -235,33 +232,30 @@ int wit_user_exception_deliver(
     info.Token = next_exception_token;
     info.Vector = vector;
     info.Error = error;
-    info.Address = vector == 14 ? address : 0;
-    info.RawRflags = frame->Rflags;
     wit_user_context_snapshot(&info.Context, t, frame);
     info.Context.Flags |= WIT_THREAD_CONTEXT_EXCEPTION_ACTIVE;
-    info.Context.Rflags = (info.Context.Rflags & 0x200CD5ULL) | 0x202;
-    const WitU8 callFrame[40] = {0};
-    if (!wit_user_copy_to(&p->Space, callbackStack, callFrame, sizeof(callFrame))) {
+    wit_arch_exception_record(&info, frame, address);
+    if (!wit_user_copy_to(&p->Space, callbackStack, callFrame, callFrameBytes)) {
         return 0;
     }
     t->Exception = info;
     ++next_exception_token;
-    if (vector == 14 && address == 0 && !(error & 16)) {
-        if (error & 2) {
-            ++p->HardwareNullWrites;
-        } else {
-            ++p->HardwareNullReads;
-        }
-    } else if (vector == 0) {
+    switch (wit_arch_exception_kind(vector, error, address)) {
+    case WitArchExceptionNullWrite:
+        ++p->HardwareNullWrites;
+        break;
+    case WitArchExceptionNullRead:
+        ++p->HardwareNullReads;
+        break;
+    case WitArchExceptionDivide:
         ++p->HardwareDivideFaults;
-    } else if (vector == 6) {
+        break;
+    case WitArchExceptionIllegal:
         ++p->HardwareIllegalFaults;
+        break;
+    default:
+        break;
     }
-    frame->Rip = p->ExceptionCallback;
-    frame->Rsp = callbackStack;
-    frame->Rflags = 0x202;
-    frame->Rcx = info.Token;
-    frame->Rdx = vector;
-    frame->R8 = info.Address;
+    wit_arch_frame_enter_callback(frame, p->ExceptionCallback, callbackStack, info.Token, vector, info.Address);
     return 1;
 }

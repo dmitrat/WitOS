@@ -164,8 +164,8 @@ void wit_user_thread_self_test(WitPageAllocator *pages)
                 process.FaultThread == 1 &&
                 process.FaultVector == faults[i].Vector &&
                 process.FaultError == faults[i].Error &&
-                process.FaultCs == WIT_USER_CS &&
-                process.FaultSs == WIT_USER_SS &&
+                process.FaultState.Cs == WIT_USER_CS &&
+                process.FaultState.Ss == WIT_USER_SS &&
                 process.Handles.Count == 0,
             "Child fault was not contained");
         if (faults[i].Vector == 14) {

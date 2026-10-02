@@ -67,8 +67,8 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 process.FaultVector == 14 &&
                 process.FaultError == error &&
                 process.FaultAddress == WIT_USER_MEMORY_BASE &&
-                process.FaultCs == WIT_USER_CS &&
-                process.FaultSs == WIT_USER_SS,
+                process.FaultState.Cs == WIT_USER_CS &&
+                process.FaultState.Ss == WIT_USER_SS,
             "PAL memory hardware protection failed");
     }
     require(!process.Handles.Count && !process.Events.Count, "PAL service handles leaked");

@@ -70,7 +70,6 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 ent
     WitU64 handle, physical, *tls;
     WitU32 mapped = 0;
     int raw_mapped = 0;
-    WitInterruptContext *context;
     const WitU64 bottom = WIT_USER_STACK_BOTTOM + index * WIT_USER_THREAD_STRIDE;
     const WitU64 top = WIT_USER_STACK_TOP + index * WIT_USER_THREAD_STRIDE;
     const WitU64 tls_address = WIT_USER_TLS + index * WIT_USER_THREAD_STRIDE;
@@ -147,22 +146,7 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 ent
     tls[0] = tls_address;
     tls[1] = handle;
     tls[2] = argument;
-    context = (WitInterruptContext *)(((WitU64)wit_x64_user_kernel_stacks[process->Slot][index] + 4096) +
-        WIT_KERNEL_STACK_SIZE -
-        4096);
-    for (WitU32 i = 0; i < sizeof(*context); ++i) {
-        ((WitU8 *)context)[i] = 0;
-    }
-    context->FxState[0] = 0x7F;
-    context->FxState[1] = 0x03;
-    context->FxState[24] = 0x80;
-    context->FxState[25] = 0x1F;
-    context->Rcx = argument;
-    context->Rip = entry;
-    context->Cs = WIT_USER_CS;
-    context->Ss = WIT_USER_SS;
-    context->Rflags = 0x202;
-    context->Rsp = top - 40; /* Aligned ABI entry, zero return address traps accidental RET. */
+    WitArchFrame *context = wit_arch_frame_create(process->Slot, index, entry, argument, top);
     require(take_native_id(&next_native_id, &thread->NativeId), "Serialized native ID allocation failed");
     thread->Handle = handle;
     thread->StackBottom = bottom;

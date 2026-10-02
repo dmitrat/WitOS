@@ -1,6 +1,7 @@
 #ifndef WITOS_USER_H
 #define WITOS_USER_H
 #include "x64.h"
+#include "witos/arch_types.h"
 #include "user_layout.h"
 #include "witos/handles.h"
 #include "witos/files.h"
@@ -95,7 +96,7 @@ typedef struct WitUserThread {
     WitU64 LibraryTls[WIT_LIBRARY_CAPACITY];
     WitU64 LibraryNotificationPage, LibraryNotificationHandles[2];
     WitU64 ExitCode;
-    WitInterruptContext *Context;
+    WitArchFrame *Context;
 } WitUserThread;
 
 /* References retain terminal identity/exit metadata, never reaped user pages. */
@@ -158,9 +159,7 @@ typedef struct WitUserProcess {
     WitU64 FaultVector;
     WitU64 FaultError;
     WitU64 FaultAddress;
-    WitU64 FaultRip;
-    WitU64 FaultCs;
-    WitU64 FaultSs;
+    WitArchFaultState FaultState;
     WitUserStackLease StackLeases[WIT_STACK_LEASE_CAPACITY];
     WitUserThread Threads[WIT_USER_THREAD_CAPACITY];
     WitUserThreadReference ThreadReferences[WIT_RUNTIME_HANDLE_CAPACITY];
@@ -203,11 +202,10 @@ WitU64 wit_user_exception_register(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_exception_query(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_exception_continue(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_exception_unwind(WitUserProcess *, WitU64, WitU64, WitU64);
-int wit_user_exception_deliver(WitUserProcess *, WitInterruptContext *, WitU64, WitU64, WitU64);
-WitInterruptContext *wit_x64_user_exception(WitInterruptContext *, WitU64, WitU64, WitU64);
-void wit_user_context_snapshot(WitThreadContext *, const WitUserThread *, const WitInterruptContext *);
+int wit_user_exception_deliver(WitUserProcess *, WitArchFrame *, WitU64, WitU64, WitU64);
+WitArchFrame *wit_user_exception_trap(WitArchFrame *, WitU64, WitU64, WitU64);
+void wit_user_context_snapshot(WitThreadContext *, const WitUserThread *, const WitArchFrame *);
 WitU64 wit_user_context_validate(WitUserProcess *, WitUserThread *, const WitThreadContext *, int);
-void wit_user_context_commit(WitInterruptContext *, const WitThreadContext *);
 void wit_user_stack_leases_initialize(WitUserProcess *);
 void wit_user_stack_leases_exit(WitUserProcess *, WitU64);
 int wit_user_stack_leases_owned(const WitUserProcess *, WitU64);
@@ -315,9 +313,10 @@ WitU64 wit_user_event_wait(WitUserProcess *process, WitU64 handle, WitU64 deadli
 WitU64 wit_user_event_set(WitUserProcess *process, WitU64 handle);
 WitU64 wit_user_event_reset(WitUserProcess *process, WitU64 handle);
 WitU64 wit_user_event_close(WitUserProcess *process, WitU64 handle);
-WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context);
-WitInterruptContext *wit_user_timer_tick(WitInterruptContext *context);
-WIT_NORETURN void wit_user_fault(const WitExceptionFrame *frame, WitU64 address);
+WitArchFrame *wit_user_syscall(WitArchFrame *frame, WitU64 call, WitU64 argument0, WitU64 argument1, WitU64 argument2);
+WitArchFrame *wit_user_timer_tick(WitArchFrame *frame);
+WIT_NORETURN void wit_user_fault(
+    const void *trap, WitU64 trap_size, WitU64 vector, WitU64 error, WitU64 address, const WitArchFaultState *state);
 
 WitU64 wit_user_code_call(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
 WitU64 wit_user_code_reserve(WitUserSpace *, WitU64, WitU64, WitU64, WitU64, WitU64 *);

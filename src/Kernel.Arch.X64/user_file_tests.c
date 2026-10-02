@@ -91,7 +91,7 @@ void wit_user_file_self_test(WitPageAllocator *pages)
         wit_user_run(&process);
         require(process.State == WitUserFaulted &&
                 process.FaultVector == 14 &&
-                process.FaultCs == WIT_USER_CS &&
+                process.FaultState.Cs == WIT_USER_CS &&
                 process.FaultAddress == (WitU64)wit_storage_package()->Data &&
                 process.FaultError ==
                     (mode == 1          ? 5ULL
@@ -113,7 +113,7 @@ void wit_user_file_self_test(WitPageAllocator *pages)
                 report[4] &&
                 process.State == WitUserFaulted &&
                 process.FaultVector == 14 &&
-                process.FaultCs == WIT_USER_CS &&
+                process.FaultState.Cs == WIT_USER_CS &&
                 process.FaultAddress == report[4] &&
                 process.FaultError == (mode == 4 ? 7ULL : 21ULL),
             "File view protection did not fault");
@@ -181,7 +181,7 @@ void wit_user_file_self_test(WitPageAllocator *pages)
             libraryReport[4] &&
             process.State == WitUserFaulted &&
             process.FaultVector == 14 &&
-            process.FaultCs == WIT_USER_CS &&
+            process.FaultState.Cs == WIT_USER_CS &&
             process.FaultAddress == libraryReport[4] &&
             process.FaultError == 7,
         "Library RX write did not fault");
@@ -228,7 +228,7 @@ void wit_user_file_self_test(WitPageAllocator *pages)
                     report[4] &&
                     process.State == WitUserFaulted &&
                     process.FaultVector == 14 &&
-                    process.FaultCs == WIT_USER_CS &&
+                    process.FaultState.Cs == WIT_USER_CS &&
                     process.FaultAddress == report[4] &&
                     process.FaultError == 7,
                 "Library IAT write did not fault");

@@ -432,8 +432,8 @@ void wit_user_image_self_test(WitPageAllocator *pages)
                             : i == 3 ? 21ULL
                                      : 4ULL) &&
                 components[0].FaultAddress == expected_address[i] &&
-                components[0].FaultCs == WIT_USER_CS &&
-                components[0].FaultSs == WIT_USER_SS &&
+                components[0].FaultState.Cs == WIT_USER_CS &&
+                components[0].FaultState.Ss == WIT_USER_SS &&
                 components[0].Handles.Count == 0,
             "PE protection fault not contained");
         wit_user_destroy(&components[0]);

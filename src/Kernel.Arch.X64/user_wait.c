@@ -3,8 +3,7 @@
 
 void wit_user_wait_complete(WitUserThread *thread, WitU64 status, WitU64 index)
 {
-    thread->Context->Rax = status;
-    thread->Context->Rdx = index;
+    wit_arch_frame_set_result(thread->Context, status, index);
     thread->WaitKind = WitWaitNone;
     thread->WaitHandle = 0;
     thread->WaitCount = 0;
