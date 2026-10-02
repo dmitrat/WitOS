@@ -18,13 +18,11 @@ __declspec(allocate(".CRT$XIZ")) CInitializer const wit_runtime_c_end[] = {nullp
 __declspec(allocate(".CRT$XCA")) CppInitializer const wit_runtime_cpp_begin[] = {nullptr};
 __declspec(allocate(".CRT$XCZ")) CppInitializer const wit_runtime_cpp_end[] = {nullptr};
 int __cdecl wmain(int, wchar_t **);
-int wit_runtime_worker_acceptance(int (*callback)(int));
-int wit_runtime_native_fault(int (*callback)(int));
-int wit_runtime_stack_overflow(int (*callback)(int));
-int wit_runtime_raw_join(int (*)(int));
-int wit_runtime_raw_detached(int (*)(int));
-int wit_runtime_fault_join(int (*)(int));
-int wit_runtime_fault_detached(int (*)(int));
+// The test image builder links the provider that maps this component's boot
+// resource name to the native fixture handed to wmain.
+using WitRuntimeCallback = int (*)(int);
+using WitRuntimeFixture = int (*)(WitRuntimeCallback);
+WitRuntimeFixture wit_runtime_boot_fixture(const WitUserImageInfo *image);
 }
 
 namespace {
@@ -102,31 +100,7 @@ extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
         }
     }
     mark("[RUNTIME] native initializers ready\n");
-    const auto image = wit_native_process_image();
-    const wchar_t faultName[] = L"boot:/WitOS.NativeAotBoot.native-fault.pe";
-    bool nativeFault = image->ResourceNameLength == sizeof(faultName) / sizeof(wchar_t) - 1;
-    for (WitU32 i = 0; nativeFault && i < image->ResourceNameLength; ++i) {
-        nativeFault = image->ResourceName[i] == faultName[i];
-    }
-    auto entry = nativeFault ? &wit_runtime_native_fault : &wit_runtime_worker_acceptance;
-    const wchar_t *labels[] = {L"boot:/WitOS.NativeAotBoot.raw-join.pe", L"boot:/WitOS.NativeAotBoot.raw-detached.pe",
-        L"boot:/WitOS.NativeAotBoot.fault-join.pe", L"boot:/WitOS.NativeAotBoot.fault-detached.pe",
-        L"boot:/WitOS.NativeAotBoot.stack-overflow.pe"};
-    const decltype(entry) entries[] = {&wit_runtime_raw_join, &wit_runtime_raw_detached, &wit_runtime_fault_join,
-        &wit_runtime_fault_detached, &wit_runtime_stack_overflow};
-    for (unsigned n = 0; n < 5; ++n) {
-        unsigned length = 0;
-        while (labels[n][length]) {
-            ++length;
-        }
-        bool match = length == image->ResourceNameLength;
-        for (unsigned i = 0; match && i < length; ++i) {
-            match = image->ResourceName[i] == labels[n][i];
-        }
-        if (match) {
-            entry = entries[n];
-        }
-    }
+    const auto entry = wit_runtime_boot_fixture(wit_native_process_image());
     wchar_t name[] = L"WitOS.NativeAotBoot";
     wchar_t fixture[17] = {};
     const wchar_t hex[] = L"0123456789ABCDEF";

@@ -47,6 +47,11 @@ internal static class RuntimeGuestDriver
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo","/c","/std:c++17","/W4","/WX","/GS-","/Zl","/O1","/GR-","/EHs-c-",
             "/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"ucrt"),"/I"+Path.Combine(root,"src/Kernel/include"),
             "/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"src/Runtime.NativeAot"),"/Fo"+driver,source], root);
+        // The test image builder supplies the fixture selection; the driver holds no fixture names.
+        var selectionSource = Path.Combine(root, "tests/Runtime.NativeAot/boot_fixtures.cpp");
+        var selection = Path.Combine(directory, "boot_fixtures.obj");
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo","/c","/std:c++17","/W4","/WX","/GS-","/Zl","/O1","/GR-","/EHs-c-",
+            "/I"+Path.Combine(root,"src/Kernel/include"),"/I"+Path.Combine(root,"src/Runtime.Native"),"/Fo"+selection,selectionSource], root);
         // Compile the test helper against the exact definitions/header profile of
         // the source-built PAL, without adding test callbacks to the runtime archive.
         var fixtureSource = Path.Combine(root, "tests/Runtime.NativeAot/worker_lifecycle.cpp");
@@ -70,7 +75,7 @@ internal static class RuntimeGuestDriver
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + faultFixture, faultSource], root);
         var image = Path.Combine(directory, "WitOS.NativeAotBoot.pe");
         string[] arguments = ["/nologo","/subsystem:native","/entry:wit_native_start","/nodefaultlib","/machine:x64","/fixed:no","/dynamicbase","/incremental:no","/Brepro","/opt:ref","/include:_tls_used","/merge:.CRT=.rdata",
-            "/map:"+Path.Combine(directory,"WitOS.NativeAotBoot.map"),"/out:"+image,driver,fixture,abrupt,faultFixture,entry,managed,tls,..libraries];
+            "/map:"+Path.Combine(directory,"WitOS.NativeAotBoot.map"),"/out:"+image,driver,selection,fixture,abrupt,faultFixture,entry,managed,tls,..libraries];
         await File.WriteAllLinesAsync(Path.Combine(directory, "link-arguments.txt"), arguments);
         var link = await Processes.RunAsync(Path.Combine(msvc, "link.exe"), arguments, root, 120);
         await File.WriteAllTextAsync(Path.Combine(directory, "link.log"), link.Output + link.Error);
@@ -134,8 +139,9 @@ internal static class RuntimeGuestDriver
             imports,
             initializers,
             environment = new { DOTNET_GCHeapHardLimit = "400000" },
-            inputs = libraries.Concat(new[] { driver, fixture, abrupt, faultFixture, entry, managed, tls }).Select(file => new { file, sha256 = Hash(file) }),
+            inputs = libraries.Concat(new[] { driver, selection, fixture, abrupt, faultFixture, entry, managed, tls }).Select(file => new { file, sha256 = Hash(file) }),
             source = new { file = source, sha256 = Hash(source) },
+            selection = new { file = selectionSource, sha256 = Hash(selectionSource) },
             workerFixture = new { file = fixtureSource, sha256 = Hash(fixtureSource) },
             abruptFixture = new { file = abruptSource, sha256 = Hash(abruptSource) },
             faultFixture = new { file = faultSource, sha256 = Hash(faultSource) },
