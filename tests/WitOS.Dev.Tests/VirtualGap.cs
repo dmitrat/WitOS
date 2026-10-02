@@ -1,4 +1,5 @@
 using WitOS.Dev;
+using WitOS.Dev.Host;
 internal static class VirtualGap
 {
     internal static async Task RunAsync(string root, string output)

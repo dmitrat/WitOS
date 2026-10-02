@@ -3,6 +3,11 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using WitOS.Dev;
+using WitOS.Dev.CoreClr;
+using WitOS.Dev.Host;
+using WitOS.Dev.Kernel;
+using WitOS.Dev.NativeAot;
+using WitOS.Dev.NativeAot.Acceptance;
 
 if (args.FirstOrDefault() is "leaf" or "leaf-no-pipes")
 {

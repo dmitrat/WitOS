@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Security.Cryptography;
 using WitOS.Dev;
+using WitOS.Dev.Host;
+using WitOS.Dev.NativeAot;
 internal static class PeCorpus
 {
     public static async Task RunAsync(string root, string output, bool coverage = false)

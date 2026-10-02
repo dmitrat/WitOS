@@ -3,6 +3,9 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using WitOS.Dev;
+using WitOS.Dev.Host;
+using WitOS.Dev.NativeAot.Acceptance;
+using WitOS.Dev.Pe;
 
 internal static class Q1Tests
 {

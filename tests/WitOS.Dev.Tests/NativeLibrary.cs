@@ -1,4 +1,6 @@
 using WitOS.Dev;
+using WitOS.Dev.Host;
+using WitOS.Dev.Images;
 internal static class NativeLibrary
 {
     internal static async Task RunAsync(string root, string output)

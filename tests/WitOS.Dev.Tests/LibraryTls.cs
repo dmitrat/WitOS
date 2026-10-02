@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using WitOS.Dev;
+using WitOS.Dev.Host;
+using WitOS.Dev.Images;
 internal static class LibraryTls
 {
     internal static async Task RunAsync(string root, string output)

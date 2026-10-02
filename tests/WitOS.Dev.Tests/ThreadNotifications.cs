@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using WitOS.Dev;
+using WitOS.Dev.Host;
+using WitOS.Dev.Images;
 internal static class ThreadNotifications
 {
     internal static async Task RunAsync(string root, string output)

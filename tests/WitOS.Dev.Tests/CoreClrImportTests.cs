@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
 using WitOS.Dev;
+using WitOS.Dev.Pe;
 
 internal static class CoreClrImportTests
 {

@@ -1,5 +1,7 @@
 using System.Text.RegularExpressions;
 using WitOS.Dev;
+using WitOS.Dev.Kernel;
+using WitOS.Dev.Quality;
 
 // Repository consistency checks: documentation, manifests and headers must agree.
 internal static class ConsistencyTests
