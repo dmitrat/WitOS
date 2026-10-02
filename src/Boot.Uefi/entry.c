@@ -1,5 +1,6 @@
 #include "uefi.h"
 #include "witos/boot.h"
+#include "witos/arch.h"
 #include "witos/platform.h"
 
 /* Fixed boot buffers avoid allocator/GC/filesystem dependencies at M0.
@@ -70,7 +71,7 @@ EfiStatus efi_main(EfiHandle image, EfiSystemTable *system)
          * A stale key is retried with a fresh map, even after partial exit. */
         status = services->ExitBootServices(image, key);
         if (status == EFI_SUCCESS) {
-            wit_disable_interrupts();
+            wit_arch_disable_interrupts();
             boot_info.Magic = WIT_BOOT_MAGIC;
             boot_info.Version = WIT_BOOT_VERSION;
             boot_info.Size = sizeof(WitBootInfo);
@@ -86,7 +87,7 @@ EfiStatus efi_main(EfiHandle image, EfiSystemTable *system)
             boot_info.Version = 0;
 #endif
             wit_console_write("[BOOT] ExitBootServices OK\n");
-            wit_platform_enter(&boot_info);
+            wit_arch_enter(&boot_info);
         }
         if (status != EFI_INVALID_PARAMETER) {
             wit_panic("ExitBootServices failed");

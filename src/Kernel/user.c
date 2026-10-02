@@ -19,7 +19,7 @@ static void require(int condition, const char *message)
 static WIT_NORETURN void finish(WitUserState state, WitU64 code)
 {
     require(current_user != 0 && current_user->State == WitUserRunning, "No current user component");
-    wit_arch_timer_stop();
+    wit_platform_timer_stop();
 #if defined(WITOS_TEST_RUNTIME_BOOT)
     if (state == WitUserBudgetExpired && current_user->RequireThreadCompletion) {
         wit_console_write("Runtime budget ticks/idle: ");
@@ -197,7 +197,7 @@ static WitU32 thread_index(WitU64 handle)
 static void expire_waits(void)
 {
     wit_user_wait_expire(current_user, wit_arch_clock_ticks());
-    wit_user_wait_expire_time(current_user, wit_arch_monotonic_read());
+    wit_user_wait_expire_time(current_user, wit_platform_monotonic_read());
     wit_user_pressure_update(current_user);
 }
 
@@ -579,7 +579,7 @@ void wit_user_run(WitUserProcess *process)
     process->Threads[0].State = WitThreadRunning;
     process->Ticks = 0;
     wit_arch_select_thread_stack(process->Slot, 0);
-    wit_arch_timer_start();
+    wit_platform_timer_start();
     wit_arch_set_user_tls(process->Threads[0].Tls, process->Threads[0].CompilerTls);
     wit_arch_run_user(process->Threads[0].Context, process->Space.Root);
     require(!current_user &&
@@ -908,7 +908,7 @@ WitArchFrame *wit_user_syscall(WitArchFrame *context, WitU64 call, WitU64 argume
             break;
         }
         const WitU64 sample =
-            argument2 == WIT_MONOTONIC_COUNTER ? wit_arch_monotonic_read() : wit_arch_monotonic_frequency();
+            argument2 == WIT_MONOTONIC_COUNTER ? wit_platform_monotonic_read() : wit_platform_monotonic_frequency();
         // The dispatcher keeps IF clear through sampling and whole-buffer copy.
         if (!wit_user_copy_to(&current_user->Space, argument0, (const WitU8 *)&sample, sizeof(sample))) {
             *result = WIT_STATUS_BAD_ADDRESS;
@@ -918,18 +918,20 @@ WitArchFrame *wit_user_syscall(WitArchFrame *context, WitU64 call, WitU64 argume
         break;
     }
     case WIT_CALL_MONOTONIC_READ:
-        *value = wit_arch_monotonic_read();
+        *value = wit_platform_monotonic_read();
         break;
     case WIT_CALL_MONOTONIC_FREQUENCY:
-        *value = wit_arch_monotonic_frequency();
+        *value = wit_platform_monotonic_frequency();
         break;
     case WIT_CALL_SLEEP_UNTIL:
-        *result = (argument1 || argument2) ? WIT_STATUS_INVALID_ARGUMENT
-                                           : wit_user_sleep_until(current_user, argument0, wit_arch_monotonic_read());
+        *result = (argument1 || argument2)
+            ? WIT_STATUS_INVALID_ARGUMENT
+            : wit_user_sleep_until(current_user, argument0, wit_platform_monotonic_read());
         break;
     case WIT_CALL_EVENT_WAIT_UNTIL:
-        *result = argument2 ? WIT_STATUS_INVALID_ARGUMENT
-                            : wit_user_event_wait_until(current_user, argument0, argument1, wit_arch_monotonic_read());
+        *result = argument2
+            ? WIT_STATUS_INVALID_ARGUMENT
+            : wit_user_event_wait_until(current_user, argument0, argument1, wit_platform_monotonic_read());
         break;
     case WIT_CALL_CLOCK_READ:
         *value = wit_arch_clock_ticks();
@@ -941,7 +943,8 @@ WitArchFrame *wit_user_syscall(WitArchFrame *context, WitU64 call, WitU64 argume
         *result = wit_user_sleep(current_user, argument0, wit_arch_clock_ticks());
         break;
     case WIT_CALL_OBJECT_WAIT:
-        *result = wit_user_object_wait(current_user, argument0, argument1, argument2, wit_arch_monotonic_read(), value);
+        *result =
+            wit_user_object_wait(current_user, argument0, argument1, argument2, wit_platform_monotonic_read(), value);
         break;
     case WIT_CALL_APC_QUEUE:
         *result = wit_user_apc_queue(current_user, argument0, argument1, argument2);
@@ -985,7 +988,7 @@ WitArchFrame *wit_user_syscall(WitArchFrame *context, WitU64 call, WitU64 argume
         break;
     case WIT_CALL_EVENT_WAIT_ANY_UNTIL:
         *result = wit_user_event_wait_any_until(
-            current_user, argument0, argument1, argument2, wit_arch_monotonic_read(), value);
+            current_user, argument0, argument1, argument2, wit_platform_monotonic_read(), value);
         break;
     case WIT_CALL_CPU_CACHE_SIZE:
         if (argument0 || argument1 || argument2) {

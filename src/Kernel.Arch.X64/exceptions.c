@@ -3,13 +3,15 @@
 #include "witos/platform.h"
 
 unsigned __int64 __readcr3(void);
-#pragma intrinsic(__readcr3)
+void __halt(void);
+void _disable(void);
+#pragma intrinsic(__readcr3, __halt, _disable)
 
 __declspec(align(16)) static WitU64 gdt[7];
 __declspec(align(16)) static WitInterruptGate idt[256];
 static WitTaskState task_state;
 
-void wit_platform_initialize(void)
+void wit_arch_initialize(void)
 {
     const WitU64 stack_pointer = wit_x64_stack_pointer();
     const WitU64 stack_begin = (WitU64)wit_x64_kernel_stack + 4096;
@@ -117,7 +119,7 @@ WIT_NORETURN void wit_x64_exception(const WitExceptionFrame *frame, WitU64 fault
     wit_panic(exception_name(frame->Vector));
 }
 
-void wit_platform_fault_test(void)
+void wit_arch_fault_self_test(void)
 {
 #if defined(WITOS_TEST_PAGE_FAULT) || defined(WITOS_TEST_DOUBLE_FAULT)
     /* The kernel's own page tables must leave the fault probe absent. */
@@ -153,4 +155,17 @@ void wit_platform_fault_test(void)
     defined(WITOS_TEST_DOUBLE_FAULT)
     wit_panic("Fault injection unexpectedly returned");
 #endif
+}
+
+void wit_arch_disable_interrupts(void)
+{
+    _disable();
+}
+
+WIT_NORETURN void wit_arch_halt(void)
+{
+    _disable();
+    for (;;) {
+        __halt();
+    }
 }

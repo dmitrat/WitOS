@@ -308,3 +308,20 @@ x64-реализация живёт в новых `frame.c` и `frame_context.c`
 Матрица на рабочем дереве перед коммитом: runtime-source, 20 kernel-сценариев (420 с), coreclr-memory, coreclr-storage, runtime-config, runtime-boot-run, runtime-port, coreclr-functions прошли. Host tests в матрице дали 50/51: `FileCaptureOwnershipAndLimitsTest` превысил таймаут хостового раннера процессов, это известная нестабильность очистки процессов, не связанная с ядром. Два повторных прогона дали 51/51.
 
 В `src/Kernel.Arch.X64` остались входы и выходы пользовательского режима, кадры и контексты, таблицы страниц, FXSAVE-профиль, векторы и CPUID. До Q2.6–Q2.8 там же лежат платформа q35, self-test ядра и пользовательские `native_*.asm`.
+
+### Q2.6 — платформа q35
+
+Устройства платы ушли из арх-слоя в [`src/Kernel.Platform.Q35`](../../src/Kernel.Platform.Q35):
+
+| Файл | Что | Было |
+| --- | --- | --- |
+| `console.c` | UART COM1 и выход через QEMU isa-debug-exit на порту 0xF4 | `Kernel.Arch.X64/platform.c` |
+| `hpet.c` | HPET как монотонные часы `wit_platform_monotonic_read` и `frequency` | `Kernel.Arch.X64/clock.c` |
+| `interrupts.c` | PIC 8259, PIT 8254 как источник тиков, EOI `wit_platform_timer_acknowledge` | часть `scheduler.c` |
+| `q35.h` | адрес HPET для платформы и self-test изоляции MMIO | `WIT_X64_HPET_BASE` в `x64.h` |
+
+В арх-слое остались вход прерывания таймера и счётчик тиков планировщика. Отображение HPET стало общей функцией `wit_arch_map_device_page(boot, physical)`: проверки PAT UC, пересечений с образом ядра и RAM и прав доступа остались прежними, изменились только тексты паник. Функции, которые были объявлены в `platform.h`, но выполняют CPU-операции, переехали в `arch.h`: `wit_arch_enter`, `wit_arch_initialize`, `wit_arch_disable_interrupts`, `wit_arch_halt`, `wit_arch_fault_self_test`, `wit_arch_scheduler_self_test`. `platform.h` теперь описывает только плату: консоль, таймер тиков, монотонные часы и тестовый выход. Загрузчик UEFI зависит от `arch.h` только для передачи управления ядру.
+
+Тест `ArchitectureHasNoBoardDevices` запрещает в файлах `src/Kernel.Arch.X64` (кроме self-test до Q2.7) порт-ввод/вывод, COM1, HPET и адреса платы; комментарий с COM1 в `stacks.c` дал ожидаемый отказ. Общему ядру запрещено включать заголовки платформы.
+
+Матрица на рабочем дереве перед коммитом: runtime-source, 20 kernel-сценариев (423 с) включая сценарий без HPET, coreclr-memory, coreclr-storage, runtime-config, runtime-boot-run, runtime-port, coreclr-functions прошли; host tests 52/52.

@@ -270,29 +270,28 @@ void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator
 }
 
 /* Controlled q35 device aperture only; not a public mapping API. */
-void wit_x64_map_hpet(const WitBootInfo *boot)
+void wit_arch_map_device_page(const WitBootInfo *boot, WitU64 physical)
 {
     int cpu[4];
     WitU64 *entry;
-    require(active, "HPET mapping before kernel paging");
-    require(boot->ImageBase >= WIT_X64_HPET_BASE + 4096 || boot->ImageBase + boot->ImageSize <= WIT_X64_HPET_BASE,
-        "HPET overlaps kernel image or guards");
+    require(active, "Device mapping before kernel paging");
+    require(boot->ImageBase >= physical + 4096 || boot->ImageBase + boot->ImageSize <= physical,
+        "Device page overlaps kernel image or guards");
     __cpuid(cpu, 1);
-    require((cpu[3] & (1 << 16)) && ((__readmsr(0x277) >> 24) & 255) == 0, "HPET requires PAT entry 3 to be UC");
+    require(
+        (cpu[3] & (1 << 16)) && ((__readmsr(0x277) >> 24) & 255) == 0, "Device mapping requires PAT entry 3 to be UC");
     for (WitU32 i = 0; i < boot->MemoryRegionCount; ++i) {
         const WitMemoryRegion *r = &boot->MemoryRegions[i];
-        require(r->Kind != WIT_MEMORY_USABLE ||
-                r->Base >= WIT_X64_HPET_BASE + 4096 ||
-                r->Base + r->Length <= WIT_X64_HPET_BASE,
-            "HPET overlaps usable RAM");
+        require(r->Kind != WIT_MEMORY_USABLE || r->Base >= physical + 4096 || r->Base + r->Length <= physical,
+            "Device page overlaps usable RAM");
     }
-    entry = leaf(WIT_X64_HPET_BASE, 0);
-    require(!entry || !(*entry & PTE_PRESENT), "HPET aperture already mapped");
+    entry = leaf(physical, 0);
+    require(!entry || !(*entry & PTE_PRESENT), "Device page already mapped");
     /* PCD|PWT selects verified UC PAT entry 3; supervisor RW/NX, no aliases. */
-    set_page(WIT_X64_HPET_BASE, WIT_X64_HPET_BASE, PTE_WRITE | PTE_NX | 0x18);
-    require((*leaf(WIT_X64_HPET_BASE, 0) & (PTE_PRESENT | PTE_WRITE | PTE_NX | 0x1C)) ==
-            (PTE_PRESENT | PTE_WRITE | PTE_NX | 0x18),
-        "HPET mapping permissions failed");
+    set_page(physical, physical, PTE_WRITE | PTE_NX | 0x18);
+    require(
+        (*leaf(physical, 0) & (PTE_PRESENT | PTE_WRITE | PTE_NX | 0x1C)) == (PTE_PRESENT | PTE_WRITE | PTE_NX | 0x18),
+        "Device page permissions failed");
 }
 
 WitU64 wit_virtual_kernel_root(void)

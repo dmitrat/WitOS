@@ -26,8 +26,6 @@ void wit_x64_context_profile_self_test(void);
 void wit_x64_context_copy_self_test(void);
 WitU32 wit_x64_mxcsr_mask(void);
 void wit_x64_stack_guards(WitU64 guards[WIT_STACK_GUARD_COUNT]);
-#define WIT_X64_HPET_BASE 0xFED00000ULL
-void wit_x64_map_hpet(const WitBootInfo *boot);
 void wit_x64_idle_resume(void);
 extern WitU64 wit_x64_isr_table[256];
 

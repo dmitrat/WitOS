@@ -38,7 +38,12 @@ public sealed class KernelLayeringTests
         @"\b(?:WIT_USER_CS|WIT_USER_SS|WitInterruptContext|WitExceptionFrame)\b");
 
     private static readonly Regex ARCHITECTURE_INCLUDE = new(
-        @"#include\s+""(?:[^""]*Arch[^""]*|x64\.h|cpu_cache\.h|minipal_cpu[^""]*)""");
+        @"#include\s+""(?:[^""]*Arch[^""]*|[^""]*Platform\.[^""]*|x64\.h|q35\.h|cpu_cache\.h|minipal_cpu[^""]*)""");
+
+    // Board devices of q35: port I/O, the UART, the HPET aperture and the QEMU exit port.
+    private static readonly Regex BOARD_DEVICE = new(
+        @"\b(?:__outbyte|__inbyte|__outword|__inword|__outdword|__indword|HPET|COM1)\b|0x3F8|0xFED00000|^\s+(?:out|in)\s",
+        RegexOptions.IgnoreCase);
 
     private static readonly Regex ARCH_TYPES_INCLUDE = new(@"#include\s+""witos/arch_types\.h""");
 
@@ -95,6 +100,28 @@ public sealed class KernelLayeringTests
             {
                 Assert.That(ARCH_TYPES_INCLUDE.IsMatch(text), Is.False,
                     $"{relative} includes witos/arch_types.h; only {ARCH_TYPES_OWNER} embeds architecture types");
+            }
+        }
+    }
+
+    // Kernel self-tests still live next to the x64 code until Q2.7 and may probe board addresses.
+    [Test]
+    public void ArchitectureHasNoBoardDevicesTest()
+    {
+        var architecture = Path.Combine(TestEnvironment.Root, ARCH_DIRECTORY);
+        var files = Directory.EnumerateFiles(architecture)
+            .Where(path => path.EndsWith(".c", StringComparison.Ordinal) || path.EndsWith(".h", StringComparison.Ordinal) ||
+                path.EndsWith(".cpp", StringComparison.Ordinal) || path.EndsWith(".asm", StringComparison.Ordinal))
+            .Where(path => !path.EndsWith("_tests.c", StringComparison.Ordinal))
+            .ToList();
+        Assert.That(files, Is.Not.Empty);
+        foreach (var path in files)
+        {
+            var lines = File.ReadAllLines(path);
+            for (var i = 0; i < lines.Length; ++i)
+            {
+                var match = BOARD_DEVICE.Match(lines[i]);
+                Assert.That(match.Success, Is.False, $"{Path.GetFileName(path)}:{i + 1} drives a board device: {match.Value}");
             }
         }
     }

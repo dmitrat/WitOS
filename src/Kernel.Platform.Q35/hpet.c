@@ -1,19 +1,23 @@
-#include "x64.h"
+#include "witos/arch.h"
+#include "witos/boot.h"
 #include "witos/platform.h"
+#include "q35.h"
 
 /* This first clock is explicitly the q35 HPET at the board's fixed aperture.
  * General ACPI discovery and non-q35 targets are separate platform work. */
+#define HPET_BASE WIT_Q35_HPET_BASE
+
 static WitU64 frequency, last_counter;
 static int ready;
 
 static WitU32 read32(WitU32 offset)
 {
-    return *(volatile WitU32 *)(WIT_X64_HPET_BASE + offset);
+    return *(volatile WitU32 *)(HPET_BASE + offset);
 }
 
 static void write32(WitU32 offset, WitU32 value)
 {
-    *(volatile WitU32 *)(WIT_X64_HPET_BASE + offset) = value;
+    *(volatile WitU32 *)(HPET_BASE + offset) = value;
 }
 
 static WitU64 counter(void)
@@ -47,8 +51,8 @@ void wit_platform_clock_initialize(const WitBootInfo *boot)
 {
     WitU32 capabilities, period, timers;
     WitU64 start, value, ticks;
-    require(!ready && !(wit_x64_read_flags() & 0x200), "Invalid clock initialization context");
-    wit_x64_map_hpet(boot);
+    require(!ready && !wit_arch_interrupts_enabled(), "Invalid clock initialization context");
+    wit_arch_map_device_page(boot, HPET_BASE);
     capabilities = read32(0);
     period = read32(4);
     timers = ((capabilities >> 8) & 31) + 1;
@@ -91,7 +95,7 @@ void wit_platform_clock_initialize(const WitBootInfo *boot)
     }
     require(value - start >= frequency / 500 &&
             wit_arch_clock_ticks() == ticks &&
-            !(wit_x64_read_flags() & 0x200) &&
+            !wit_arch_interrupts_enabled() &&
             read32(0x10) == 1,
         "HPET did not advance with IRQs disabled");
     last_counter = value;
@@ -101,10 +105,10 @@ void wit_platform_clock_initialize(const WitBootInfo *boot)
     wit_console_write("\n[TEST-PASS] Clock.IrqIndependent\n");
 }
 
-WitU64 wit_arch_monotonic_read(void)
+WitU64 wit_platform_monotonic_read(void)
 {
     WitU64 value;
-    require(ready && !(wit_x64_read_flags() & 0x200), "Monotonic read outside serialized kernel context");
+    require(ready && !wit_arch_interrupts_enabled(), "Monotonic read outside serialized kernel context");
     value = counter();
     if (value > 0x7FFFFFFFFFFFFFFFULL) {
         value = 0x7FFFFFFFFFFFFFFFULL;
@@ -114,7 +118,7 @@ WitU64 wit_arch_monotonic_read(void)
     return value;
 }
 
-WitU64 wit_arch_monotonic_frequency(void)
+WitU64 wit_platform_monotonic_frequency(void)
 {
     require(ready, "Clock frequency requested before initialization");
     return frequency;

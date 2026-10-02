@@ -61,8 +61,9 @@ internal static class KernelImageBuilder
         "src/Kernel/kernel.c",
         "src/Kernel/memory.c",
         "src/Kernel/memory_tests.c",
-        "src/Kernel.Arch.X64/platform.c",
-        "src/Kernel.Arch.X64/clock.c",
+        "src/Kernel.Platform.Q35/console.c",
+        "src/Kernel.Platform.Q35/hpet.c",
+        "src/Kernel.Platform.Q35/interrupts.c",
         "src/Kernel.Arch.X64/cpu_cache.c",
         "src/Kernel.Arch.X64/cpu_cache_tests.c",
         "src/Kernel.Arch.X64/exceptions.c",
@@ -197,7 +198,8 @@ internal static class KernelImageBuilder
             {
                 "/nologo", "/c", "/TC", "/std:c17", "/W4", "/WX", "/GS-", "/Zl", "/Oi", "/Od", "/Zi",
                 $"/I{Path.Combine(root, "src", "Kernel", "include")}", $"/I{Path.Combine(root, "src", "Kernel")}",
-                $"/I{Path.Combine(root, "src", "Kernel.Arch.X64", "include")}", $"/I{Path.Combine(root, "tests", "User.X64")}",
+                $"/I{Path.Combine(root, "src", "Kernel.Arch.X64", "include")}",
+                $"/I{Path.Combine(root, "src", "Kernel.Platform.Q35")}", $"/I{Path.Combine(root, "tests", "User.X64")}",
                 $"/I{output}", $"/Fo{obj}", $"/Fd{Path.Combine(output, "compiler.pdb")}"
             };
             if (define is not null)

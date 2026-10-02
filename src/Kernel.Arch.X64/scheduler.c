@@ -2,13 +2,12 @@
 #include "user.h"
 #include "witos/platform.h"
 
-void __outbyte(unsigned short, unsigned char);
 unsigned __int64 __readmsr(unsigned long);
 void __writemsr(unsigned long, unsigned __int64);
 void __halt(void);
 void _enable(void);
 void _disable(void);
-#pragma intrinsic(__outbyte, __readmsr, __writemsr, __halt, _enable, _disable)
+#pragma intrinsic(__readmsr, __writemsr, __halt, _enable, _disable)
 
 volatile WitU64 wit_worker_iterations[2];
 volatile WitU64 wit_worker_slices[2];
@@ -29,55 +28,9 @@ static void require(int condition, const char *message)
     }
 }
 
-static void io_wait(void)
-{
-    __outbyte(0x80, 0);
-}
-
 WitU64 wit_arch_clock_ticks(void)
 {
     return timer_ticks;
-}
-
-void wit_arch_timer_start(void)
-{
-    const WitU64 apic = __readmsr(0x1B);
-    require((apic & (1ULL << 10)) == 0, "x2APIC is unsupported by the bootstrap timer");
-    /* The controlled one-CPU PC backend uses the legacy PIC/PIT path.
-     * Disable local APIC delivery so it does not retain firmware routing. */
-    __writemsr(0x1B, apic & ~(1ULL << 11));
-    __outbyte(0x21, 0xFF);
-    __outbyte(0xA1, 0xFF);
-    __outbyte(0x20, 0x11);
-    io_wait();
-    __outbyte(0xA0, 0x11);
-    io_wait();
-    __outbyte(0x21, 0x20);
-    io_wait();
-    __outbyte(0xA1, 0x28);
-    io_wait();
-    __outbyte(0x21, 0x04);
-    io_wait();
-    __outbyte(0xA1, 0x02);
-    io_wait();
-    __outbyte(0x21, 0x01);
-    io_wait();
-    __outbyte(0xA1, 0x01);
-    io_wait();
-    __outbyte(0x21, 0xFF);
-    __outbyte(0xA1, 0xFF);
-    /* Channel 0, low/high count, mode 2; approximately 100 Hz. */
-    __outbyte(0x43, 0x34);
-    __outbyte(0x40, (WitU8)(11932 & 255));
-    __outbyte(0x40, (WitU8)(11932 >> 8));
-    __outbyte(0x21, 0xFE); /* Only IRQ0. */
-}
-
-void wit_arch_timer_stop(void)
-{
-    _disable();
-    __outbyte(0x21, 0xFF);
-    __outbyte(0xA1, 0xFF);
 }
 
 WIT_NORETURN void wit_x64_thread_returned(void)
@@ -110,7 +63,7 @@ WitInterruptContext *wit_x64_timer_interrupt(WitInterruptContext *context)
     if (timer_ticks < WIT_WAIT_INFINITE - 1) {
         ++timer_ticks; /* Saturate; never wrap deadlines. */
     }
-    __outbyte(0x20, 0x20); /* EOI before dispatching a different context. */
+    wit_platform_timer_acknowledge(); /* Before dispatching a different context. */
     if (wit_user_is_active()) {
         return wit_user_timer_tick(context);
     }
@@ -149,7 +102,7 @@ WitInterruptContext *wit_x64_timer_interrupt(WitInterruptContext *context)
     wit_panic("No runnable kernel context");
 }
 
-void wit_scheduler_self_test(void)
+void wit_arch_scheduler_self_test(void)
 {
     const WitU64 flags = wit_x64_read_flags();
     require((flags & 0x200) == 0, "Scheduler initialized with interrupts enabled");
@@ -161,12 +114,12 @@ void wit_scheduler_self_test(void)
     timer_ticks = 0;
     switches = 0;
     wit_console_write("[TEST-BEGIN] Scheduler.Preemption\n");
-    wit_arch_timer_start();
+    wit_platform_timer_start();
     _enable();
     while (scheduling) {
         __halt();
     }
-    wit_arch_timer_stop();
+    wit_platform_timer_stop();
 
     require(timer_ticks >= 7 && switches >= 7, "Timer or context switching stalled");
     require(wit_worker_done[0] &&

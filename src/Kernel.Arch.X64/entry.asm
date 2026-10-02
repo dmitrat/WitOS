@@ -11,8 +11,8 @@ EXTERN wit_x64_user_syscall_entry:PROC
 EXTERN wit_x64_kernel_stack:BYTE
 
 .code
-PUBLIC wit_platform_enter
-wit_platform_enter PROC
+PUBLIC wit_arch_enter
+wit_arch_enter PROC
     cli
     cld
     lea rsp, [wit_x64_kernel_stack + 4096 + 65536]
@@ -21,7 +21,7 @@ wit_platform_enter PROC
     sub rsp, 32                   ; caller-owned shadow space
     call wit_kernel_entry         ; RCX still contains WitBootInfo
     ud2
-wit_platform_enter ENDP
+wit_arch_enter ENDP
 
 PUBLIC wit_x64_stack_pointer
 wit_x64_stack_pointer PROC

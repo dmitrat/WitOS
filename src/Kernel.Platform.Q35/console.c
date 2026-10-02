@@ -1,12 +1,13 @@
+#include "witos/arch.h"
 #include "witos/platform.h"
+
+/* q35 console on the COM1 UART and the QEMU isa-debug-exit device. */
 
 /* Compiler intrinsics emit instructions directly; no CRT or Windows API. */
 unsigned char __inbyte(unsigned short port);
 void __outbyte(unsigned short port, unsigned char value);
 void __outdword(unsigned short port, unsigned long value);
-void __halt(void);
-void _disable(void);
-#pragma intrinsic(__inbyte, __outbyte, __outdword, __halt, _disable)
+#pragma intrinsic(__inbyte, __outbyte, __outdword)
 
 #define COM1 0x3F8
 #define SERIAL_POLL_LIMIT 1000000U
@@ -75,18 +76,11 @@ void wit_console_write_hex(WitU64 value)
     }
 }
 
-void wit_disable_interrupts(void)
-{
-    _disable();
-}
-
 WIT_NORETURN void wit_platform_finish(WitU32 code)
 {
     /* QEMU test device only: guest 0x10 -> host 33, guest 0x11 -> host 35.
      * On hardware without this device, remain halted. */
-    _disable();
+    wit_arch_disable_interrupts();
     __outdword(0xF4, code);
-    for (;;) {
-        __halt();
-    }
+    wit_arch_halt();
 }

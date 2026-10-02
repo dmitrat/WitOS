@@ -1,4 +1,5 @@
 #include "x64.h"
+#include "q35.h"
 #include "user.h"
 #include "cpu_cache.h"
 #include "witos/platform.h"
@@ -26,7 +27,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
     config = (WitUserTestConfig *)wit_user_space_physical(&process.Space, WIT_USER_INFO, 0, 0);
     config->Mode = mode;
     if (mode == WIT_GC_TEST_HPET_READ) {
-        config->KernelProbe = WIT_X64_HPET_BASE;
+        config->KernelProbe = WIT_Q35_HPET_BASE;
     }
     if (mode == WIT_GC_TEST_THREAD_ID) {
         config->KernelProbe = WIT_USER_TLS;
@@ -165,7 +166,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
         require(process.State == WitUserFaulted &&
                 process.FaultVector == 14 &&
                 process.FaultError == 5 &&
-                process.FaultAddress == WIT_X64_HPET_BASE &&
+                process.FaultAddress == WIT_Q35_HPET_BASE &&
                 process.FaultState.Cs == WIT_USER_CS &&
                 process.FaultState.Ss == WIT_USER_SS,
             "HPET MMIO was accessible from user mode");

@@ -3,6 +3,7 @@
 #include "witos/memory.h"
 #include "witos/random.h"
 #include "witos/virtual.h"
+#include "witos/arch.h"
 #include "witos/platform.h"
 #include "witos/user_abi.h"
 #include "build_info.h"
@@ -59,7 +60,7 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
     }
 
     wit_console_write("[TEST-PASS] Boot.Contract\n");
-    wit_platform_initialize();
+    wit_arch_initialize();
     wit_console_write("CPU: x86_64\nUsable memory: ");
     wit_console_write_u64(usable / (1024ULL * 1024ULL));
     wit_console_write(" MiB\nMemory regions: ");
@@ -107,8 +108,8 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
     wit_memory_self_test(boot, &physical_pages);
     wit_virtual_self_test(&physical_pages);
     wit_virtual_fault_test();
-    wit_platform_fault_test();
-    wit_scheduler_self_test();
+    wit_arch_fault_self_test();
+    wit_arch_scheduler_self_test();
     wit_user_self_test(&physical_pages);
 
     wit_console_write("Kernel initialized.\nHello from WitOS.\n");
