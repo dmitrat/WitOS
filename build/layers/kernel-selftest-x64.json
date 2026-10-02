@@ -1,0 +1,42 @@
+{
+  "name": "kernel-selftest-x64",
+  "description": "Kernel self-tests and their x64 fixtures, linked only into WITOS_SELFTEST kernels.",
+  "includes": [
+    "src/Kernel.Arch.X64",
+    "src/Kernel.Platform.Q35",
+    "tests/User.X64"
+  ],
+  "sources": [
+    "tests/Kernel.X64/user_file_tests.c",
+    "tests/Kernel.X64/user_code_tests.c",
+    "tests/Kernel.X64/user_runtime_boot_tests.c",
+    "tests/Kernel.X64/user_runtime_unwind_tests.c",
+    "tests/Kernel.X64/user_suspend_tests.c",
+    "tests/Kernel.X64/memory_tests.c",
+    "tests/Kernel.X64/cpu_cache_tests.c",
+    "tests/Kernel.X64/user_tls_tests.c",
+    "tests/Kernel.X64/user_dynamic_tls_tests.c",
+    "tests/Kernel.X64/user_process_exit_tests.c",
+    "tests/Kernel.X64/user_pal_tests.c",
+    "tests/Kernel.X64/user_pal_service_tests.c",
+    "tests/Kernel.X64/user_pal_background_tests.c",
+    "tests/Kernel.X64/user_pal_error_tests.c",
+    "tests/Kernel.X64/user_pal_module_tests.c",
+    "tests/Kernel.X64/user_pal_environment_tests.c",
+    "tests/Kernel.X64/user_runtime_config_tests.c",
+    "tests/Kernel.X64/user_tests.c",
+    "tests/Kernel.X64/user_memory_tests.c",
+    "tests/Kernel.X64/user_thread_tests.c",
+    "tests/Kernel.X64/user_pressure_tests.c",
+    "tests/Kernel.X64/user_wait_tests.c",
+    "tests/Kernel.X64/user_wait_any_tests.c",
+    "tests/Kernel.X64/user_image_tests.c",
+    "tests/Kernel.X64/user_bootstrap_tests.c",
+    "tests/Kernel.X64/user_gc_tests.c",
+    "tests/Kernel.X64/kernel_tests.c",
+    "tests/Kernel.X64/fault_tests.c"
+  ],
+  "assembly": [
+    "tests/Kernel.X64/self_test.asm"
+  ]
+}

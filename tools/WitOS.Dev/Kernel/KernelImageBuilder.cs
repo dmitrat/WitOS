@@ -17,106 +17,20 @@ internal static class KernelImageBuilder
 {
     #region Constants
 
-    private const string BOOT_STORAGE_SOURCE = "src/Boot.Uefi/storage.c";
-
-    private const string SELF_TEST_DIRECTORY = "tests/Kernel.X64/";
-
     /// <summary>
     /// Scenario of the release kernel: no self-tests, fixtures or WITOS_SELFTEST code.
     /// </summary>
     public const string RELEASE_SCENARIO = "release";
 
+    private const string ARCHITECTURE = "x64";
+
     #endregion
 
     #region Fields
 
-    // Link order defines the image layout; fingerprints rely on it staying stable.
-    private static readonly string[] KERNEL_SOURCES =
-    [
-        "src/Boot.Uefi/storage.c",
-        "src/Kernel/package.c",
-        "src/Kernel/storage.c",
-        "src/Kernel/files.c",
-        "src/Kernel/user_files.c",
-        "src/Kernel/user_library.c",
-        "src/Kernel/user_library_readers.c",
-        "src/Kernel/user_library_tls.c",
-        "src/Kernel/user_library_lifecycle.c",
-        "tests/Kernel.X64/user_file_tests.c",
-        "src/Kernel/user_code.c",
-        "src/Kernel/virtual_gap.c",
-        "tests/Kernel.X64/user_code_tests.c",
-        "tests/Kernel.X64/user_runtime_boot_tests.c",
-        "src/Kernel/user_exception.c",
-        "tests/Kernel.X64/user_runtime_unwind_tests.c",
-        "src/Kernel/user_stack_lease.c",
-        "tests/Kernel.X64/user_suspend_tests.c",
-        "src/Kernel/user_suspend.c",
-        "src/Kernel/user_thread_context.c",
-        "src/Kernel.Arch.X64/frame.c",
-        "src/Kernel.Arch.X64/frame_context.c",
-        "src/Kernel.Arch.X64/user_cpu_context.c",
-        "src/Kernel/user_thread_name.c",
-        "src/Kernel/user_console.c",
-        "src/Kernel/user_apc.c",
-        "src/Kernel/user_objects.c",
-        "src/Kernel/user_reference.c",
-        "src/Boot.Uefi/entropy.c",
-        "src/Kernel/random.c",
-        "src/Boot.Uefi/entry.c",
-        "src/Boot.Uefi/image.c",
-        "src/Kernel/kernel.c",
-        "src/Kernel/memory.c",
-        "tests/Kernel.X64/memory_tests.c",
-        "src/Kernel.Platform.Q35/console.c",
-        "src/Kernel.Platform.Q35/hpet.c",
-        "src/Kernel.Platform.Q35/interrupts.c",
-        "src/Kernel.Arch.X64/cpu_cache.c",
-        "tests/Kernel.X64/cpu_cache_tests.c",
-        "src/Kernel.Arch.X64/exceptions.c",
-        "src/Kernel.Arch.X64/stacks.c",
-        "src/Kernel.Arch.X64/paging.c",
-        "src/Kernel.Arch.X64/scheduler.c",
-        "src/Kernel/handles.c",
-        "src/Kernel/user_space.c",
-        "src/Kernel.Arch.X64/page_table.c",
-        "src/Kernel/user.c",
-        "src/Kernel/user_thread.c",
-        "tests/Kernel.X64/user_tls_tests.c",
-        "tests/Kernel.X64/user_dynamic_tls_tests.c",
-        "tests/Kernel.X64/user_process_exit_tests.c",
-        "tests/Kernel.X64/user_pal_tests.c",
-        "tests/Kernel.X64/user_pal_service_tests.c",
-        "tests/Kernel.X64/user_pal_background_tests.c",
-        "tests/Kernel.X64/user_pal_error_tests.c",
-        "tests/Kernel.X64/user_pal_module_tests.c",
-        "tests/Kernel.X64/user_pal_environment_tests.c",
-        "tests/Kernel.X64/user_runtime_config_tests.c",
-        "tests/Kernel.X64/user_tests.c",
-        "tests/Kernel.X64/user_memory_tests.c",
-        "tests/Kernel.X64/user_thread_tests.c",
-        "src/Kernel/events.c",
-        "src/Kernel/user_wait.c",
-        "src/Kernel/user_pressure.c",
-        "tests/Kernel.X64/user_pressure_tests.c",
-        "tests/Kernel.X64/user_wait_tests.c",
-        "tests/Kernel.X64/user_wait_any_tests.c",
-        "src/Kernel/pe.c",
-        "src/Kernel/pe_imports.c",
-        "src/Kernel/pe_exports.c",
-        "src/Kernel/user_image.c",
-        "tests/Kernel.X64/user_image_tests.c",
-        "tests/Kernel.X64/user_bootstrap_tests.c",
-        "tests/Kernel.X64/user_gc_tests.c"
-    ];
-
-    private static readonly string[] KERNEL_ASSEMBLY = ["entry", "context", "user_entry", "chkstk"];
-
-    private static readonly string[] SELF_TEST_KERNEL_SOURCES = ["tests/Kernel.X64/kernel_tests.c", "tests/Kernel.X64/fault_tests.c"];
-
     // A release map must not name self-test code: test objects, self-test functions, fault triggers or workers.
     private static readonly Regex SELF_TEST_SYMBOL = new(
-        @"self_test|_tests\.obj|wit_x64_trigger_|wit_x64_worker\b|wit_worker_|fixture", RegexOptions.IgnoreCase);
+        @"self_test|selftest|_tests\.obj|wit_x64_trigger_|wit_x64_worker\b|wit_worker_|fixture", RegexOptions.IgnoreCase);
 
     private static readonly Dictionary<string, string> SCENARIO_DEFINES = new()
     {
@@ -209,55 +123,43 @@ internal static class KernelImageBuilder
     private static async Task<List<string>> CompileKernelAsync(string root, string output, string msvc, string scenario,
         bool selfTest)
     {
-        var objects = new List<string>();
+        var target = KernelManifest.ReadTarget(root, ARCHITECTURE);
+        var layers = KernelManifest.ReadLayers(root, target, selfTest);
         SCENARIO_DEFINES.TryGetValue(scenario, out var define);
-        var sources = selfTest
-            ? KERNEL_SOURCES.Concat(SELF_TEST_KERNEL_SOURCES)
-            : KERNEL_SOURCES.Where(source => !source.StartsWith(SELF_TEST_DIRECTORY, StringComparison.Ordinal));
-        foreach (var source in sources)
+        var objects = new List<string>();
+        foreach (var layer in layers)
         {
-            var name = source == BOOT_STORAGE_SOURCE ? "boot_storage" : Path.GetFileNameWithoutExtension(source);
-            var obj = Path.Combine(output, name + ".obj");
-            objects.Add(obj);
-            var arguments = new List<string>
+            foreach (var source in layer.Sources)
             {
-                "/nologo", "/c", "/TC", "/std:c17", "/W4", "/WX", "/GS-", "/Zl", "/Oi", "/Od", "/Zi",
-                $"/I{Path.Combine(root, "src", "Kernel", "include")}", $"/I{Path.Combine(root, "src", "Kernel")}",
-                $"/I{Path.Combine(root, "src", "Kernel.Arch.X64", "include")}",
-                $"/I{Path.Combine(root, "src", "Kernel.Platform.Q35")}", $"/I{Path.Combine(root, "tests", "User.X64")}",
-                $"/I{output}", $"/Fo{obj}", $"/Fd{Path.Combine(output, "compiler.pdb")}"
-            };
-            if (selfTest)
-            {
-                arguments.Add("/DWITOS_SELFTEST=1");
+                var obj = Path.Combine(output, $"{layer.Name}.{Path.GetFileNameWithoutExtension(source)}.obj");
+                objects.Add(obj);
+                var arguments = new List<string>
+                {
+                    "/nologo", "/c", "/TC", "/std:c17", "/W4", "/WX", "/GS-", "/Zl", "/Oi", "/Od", "/Zi"
+                };
+                arguments.AddRange(target.Includes.Concat(layer.Includes).Select(include => $"/I{Path.Combine(root, include)}"));
+                arguments.AddRange([$"/I{output}", $"/Fo{obj}", $"/Fd{Path.Combine(output, "compiler.pdb")}"]);
+                if (selfTest)
+                {
+                    arguments.Add("/DWITOS_SELFTEST=1");
+                }
+                if (define is not null)
+                {
+                    arguments.Add($"/D{define}=1");
+                }
+                arguments.Add(Path.Combine(root, source));
+                await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), arguments, root);
             }
-            if (define is not null)
-            {
-                arguments.Add($"/D{define}=1");
-            }
-            if (source.StartsWith(SELF_TEST_DIRECTORY, StringComparison.Ordinal))
-            {
-                // Self-tests are white-box x64 tests; only they see the architecture headers.
-                arguments.Add($"/I{Path.Combine(root, "src", "Kernel.Arch.X64")}");
-            }
-            arguments.Add(Path.Combine(root, source));
-            await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), arguments, root);
         }
-
-        foreach (var assembly in KERNEL_ASSEMBLY)
+        foreach (var layer in layers)
         {
-            var assemblyObject = Path.Combine(output, $"x64_{assembly}.obj");
-            await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
-                ["/nologo", "/c", "/Zi", $"/Fo{assemblyObject}", Path.Combine(root, "src", "Kernel.Arch.X64", assembly + ".asm")],
-                root);
-            objects.Add(assemblyObject);
-        }
-        if (selfTest)
-        {
-            var testObject = Path.Combine(output, "x64_self_test.obj");
-            await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
-                ["/nologo", "/c", "/Zi", $"/Fo{testObject}", Path.Combine(root, "tests", "Kernel.X64", "self_test.asm")], root);
-            objects.Add(testObject);
+            foreach (var source in layer.Assembly)
+            {
+                var obj = Path.Combine(output, $"{layer.Name}.{Path.GetFileNameWithoutExtension(source)}.obj");
+                await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
+                    ["/nologo", "/c", "/Zi", $"/Fo{obj}", Path.Combine(root, source)], root);
+                objects.Add(obj);
+            }
         }
         return objects;
     }

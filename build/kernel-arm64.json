@@ -1,0 +1,19 @@
+{
+  "architecture": "arm64",
+  "status": "template",
+  "description": "ARM64 kernel on the QEMU virt board (phase A). The architecture, platform and self-test layers do not exist yet.",
+  "includes": [
+    "src/Kernel/include",
+    "src/Kernel",
+    "src/Kernel.Arch.A64/include"
+  ],
+  "layers": [
+    "boot-uefi",
+    "kernel-common",
+    "kernel-arch-a64",
+    "kernel-platform-qemu-virt"
+  ],
+  "selfTestLayers": [
+    "kernel-selftest-a64"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "architecture": "x64",
+  "status": "active",
+  "description": "x64 kernel on the QEMU q35 board.",
+  "includes": [
+    "src/Kernel/include",
+    "src/Kernel",
+    "src/Kernel.Arch.X64/include"
+  ],
+  "layers": [
+    "boot-uefi",
+    "kernel-common",
+    "kernel-arch-x64",
+    "kernel-platform-q35"
+  ],
+  "selfTestLayers": [
+    "kernel-selftest-x64"
+  ]
+}

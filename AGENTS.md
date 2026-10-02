@@ -15,6 +15,7 @@ Track runtime bring-up in the root PLAN.md. After each completed implementation 
 - Keep UEFI details in `src/Boot.Uefi/`.
 - Keep x64 instructions, descriptor tables and QEMU-specific test mechanisms in `src/Kernel.Arch.X64/`.
 - Keep the common kernel independent of firmware structure definitions.
+- Keep board devices in `src/Kernel.Platform.Q35/` and kernel self-tests in `tests/Kernel.X64/` under `WITOS_SELFTEST`. Kernel sources are listed only in `build/kernel-<arch>.json` and `build/layers/*.json`; each kernel C source belongs to exactly one layer, and the release kernel links no self-test layer.
 - Use ordinary .NET for development tools.
 - Do not add speculative public resource APIs, distributed services or GUI work to a boot milestone.
 - The kernel now owns its page tables, but firmware memory remains reserved until reclamation is explicitly designed and tested.
