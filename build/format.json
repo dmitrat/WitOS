@@ -5,7 +5,8 @@
     "src/Kernel.Arch.X64",
     "src/Runtime.CoreClr",
     "src/Runtime.NativeAot",
-    "src/System.Native"
+    "src/System.Native",
+    "tests/User.X64"
   ],
   "managed": [
     "tests/WitOS.Dev.Tests/ConsistencyTests.cs",

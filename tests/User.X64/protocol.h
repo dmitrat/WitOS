@@ -125,5 +125,6 @@ typedef struct WitUserTestConfig {
     WitU64 KernelProbe;
     WitU64 InstanceId;
 } WitUserTestConfig;
+
 WIT_STATIC_ASSERT(sizeof(WitUserTestConfig) == 72, "User test config layout");
 #endif
