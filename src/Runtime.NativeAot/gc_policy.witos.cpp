@@ -1,5 +1,5 @@
 #include "gcenv.witos.h"
-#include "../System.Native/diagnostics.h"
+#include "../Runtime.Native/diagnostics.h"
 extern "C" void wit_native_gc_breakpoint();
 
 void *GCToOSInterface::VirtualReserveAndCommitLargePages(size_t size, uint16_t node)

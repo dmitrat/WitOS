@@ -38,39 +38,39 @@ internal static class RuntimeCpuImage
         var assembly = Path.Combine(output, "runtime_cpu_test.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"),
             ["/nologo", "/c", "/TP", "/std:c++17", "/W4", "/WX", "/GS-", "/Zl", "/O1", "/GR-",
-                "/I" + Path.Combine(root, "src", "System.Native"), "/I" + Path.Combine(root, "src", "Kernel", "include"),
+                "/I" + Path.Combine(root, "src", "Runtime.Native"), "/I" + Path.Combine(root, "src", "Kernel", "include"),
                 "/I" + Path.Combine(root, "tests", "User.X64"), "/Fo" + entry,
                 Path.Combine(root, "tests", "User.X64", "runtime_cpu_entry.cpp")], root);
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
-            ["/nologo", "/c", "/I" + output, "/Fo" + assembly, Path.Combine(root, "src", "Kernel.Arch.X64", "user_runtime_cpu_fixture.asm")], root);
+            ["/nologo", "/c", "/I" + output, "/Fo" + assembly, Path.Combine(root, "tests", "User.X64", "user_runtime_cpu_fixture.asm")], root);
         var clockTest = Path.Combine(output, "runtime_clock_test.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
-            ["/nologo", "/c", "/Fo" + clockTest, Path.Combine(root, "src", "Kernel.Arch.X64", "user_runtime_clock_fixture.asm")], root);
+            ["/nologo", "/c", "/Fo" + clockTest, Path.Combine(root, "tests", "User.X64", "user_runtime_clock_fixture.asm")], root);
         var mathTest = Path.Combine(output, "runtime_math_test.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
-            ["/nologo", "/c", "/Fo" + mathTest, Path.Combine(root, "src", "Kernel.Arch.X64", "user_runtime_math_fixture.asm")], root);
+            ["/nologo", "/c", "/Fo" + mathTest, Path.Combine(root, "tests", "User.X64", "user_runtime_math_fixture.asm")], root);
         var formatAssembly = Path.Combine(output, "native_format.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
-            ["/nologo", "/c", "/Fo" + formatAssembly, Path.Combine(root, "src/Kernel.Arch.X64/native_format.asm")], root);
+            ["/nologo", "/c", "/Fo" + formatAssembly, Path.Combine(root, "src/Runtime.NativeAot/X64/native_format.asm")], root);
         var securityTest = Path.Combine(output, "runtime_security_test.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
-            ["/nologo", "/c", "/Fo" + securityTest, Path.Combine(root, "src/Kernel.Arch.X64/user_runtime_security_fixture.asm")], root);
+            ["/nologo", "/c", "/Fo" + securityTest, Path.Combine(root, "tests/User.X64/user_runtime_security_fixture.asm")], root);
         var randomTest = Path.Combine(output, "runtime_random_test.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
-            ["/nologo", "/c", "/Fo" + randomTest, Path.Combine(root, "src/Kernel.Arch.X64/user_runtime_random_fixture.asm")], root);
+            ["/nologo", "/c", "/Fo" + randomTest, Path.Combine(root, "tests/User.X64/user_runtime_random_fixture.asm")], root);
         var memoryTest = Path.Combine(output, "runtime_memory_test.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
-            ["/nologo", "/c", "/Fo" + memoryTest, Path.Combine(root, "src/Kernel.Arch.X64/user_runtime_memory_fixture.asm")], root);
+            ["/nologo", "/c", "/Fo" + memoryTest, Path.Combine(root, "tests/User.X64/user_runtime_memory_fixture.asm")], root);
         var servicesTest = Path.Combine(output, "runtime_services_test.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
-            ["/nologo", "/c", "/Fo" + servicesTest, Path.Combine(root, "src/Kernel.Arch.X64/user_runtime_services_fixture.asm")], root);
+            ["/nologo", "/c", "/Fo" + servicesTest, Path.Combine(root, "tests/User.X64/user_runtime_services_fixture.asm")], root);
         var consoleTest = Path.Combine(output, "runtime_console_test.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
-            ["/nologo", "/c", "/Fo" + consoleTest, Path.Combine(root, "src/Kernel.Arch.X64/user_runtime_console_fixture.asm")], root);
+            ["/nologo", "/c", "/Fo" + consoleTest, Path.Combine(root, "tests/User.X64/user_runtime_console_fixture.asm")], root);
         var moduleTest = Path.Combine(output, "runtime_module_test.obj");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + moduleTest, Path.Combine(root, "src/Kernel.Arch.X64/user_runtime_module_fixture.asm")], root);
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + moduleTest, Path.Combine(root, "tests/User.X64/user_runtime_module_fixture.asm")], root);
         var diagnosticTest = Path.Combine(output, "runtime_diagnostics_test.obj");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + diagnosticTest, Path.Combine(root, "src/Kernel.Arch.X64/user_runtime_diagnostics_fixture.asm")], root);
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + diagnosticTest, Path.Combine(root, "tests/User.X64/user_runtime_diagnostics_fixture.asm")], root);
         string[] shared = ["gcenv.witos.obj", "process_crt_exit.witos.obj", "process_library_lifecycle.obj", "native_start.obj", "native_error.obj", "dynamic_thread.obj", "dynamic_image.obj", "dynamic_tls.witos.obj", "dynamic_tls_metadata.obj", "pal_pal_error.witos.obj"];
         // Only the original eighteen platform objects belong to the older CPU fixture.
         // Later UTF/module/name/diagnostic/COM services and their heap/bindings are
@@ -114,7 +114,7 @@ internal static class RuntimeCpuImage
             imageSha256 = Hash(path),
             unwindEntries = h.ExceptionTableDirectory.Size / 12,
             inputs = new[] { entry, assembly, clockTest, mathTest, formatAssembly, clockObject, clockBinding, fatalObject, affinityObject, mathObject, logObject, archive, minipal, memory, crt }.Concat(cpuPlatformObjects).Append(securityTest).Append(randomTest).Append(memoryTest).Append(servicesTest).Concat(shared.Select(p => Path.Combine(output, p))).Select(p => new { file = p, sha256 = Hash(p) }),
-            sources = new[] { "src/Runtime.NativeAot/native_diagnostics.witos.cpp", "src/Runtime.NativeAot/native_heap.witos.h", "tests/User.X64/runtime_diagnostics.cpp", "src/Kernel.Arch.X64/user_runtime_diagnostics_fixture.asm", "src/Runtime.NativeAot/pal_thread_name.witos.cpp", "tests/User.X64/runtime_thread_names.cpp", "src/Kernel/user_thread_name.c", "src/Kernel/include/witos/thread_name.h", "src/Runtime.NativeAot/native_module.witos.cpp", "src/Kernel.Arch.X64/native_module.asm", "tests/User.X64/runtime_module_names.cpp", "src/Kernel.Arch.X64/user_runtime_module_fixture.asm", "tests/User.X64/runtime_encoding.cpp", "src/Runtime.NativeAot/native_encoding.witos.cpp", "src/Runtime.NativeAot/native_encoding.witos.h", "src/Kernel.Arch.X64/native_encoding.asm", "tests/User.X64/runtime_console.cpp", "src/Runtime.NativeAot/native_console.witos.cpp", "src/Runtime.NativeAot/native_processor.witos.cpp", "src/Kernel.Arch.X64/user_runtime_console_fixture.asm", "src/Kernel/include/witos/console_info.h", "tests/User.X64/runtime_object_wait.cpp", "src/Runtime.NativeAot/native_wait.witos.cpp", "src/Kernel.Arch.X64/native_wait.asm", "src/Kernel/include/witos/wait_objects.h", "tests/User.X64/runtime_services.cpp", "src/Runtime.NativeAot/native_services.witos.cpp", "src/Kernel.Arch.X64/native_services.asm", "src/Kernel.Arch.X64/user_runtime_services_fixture.asm", "tests/User.X64/runtime_memory.cpp", "src/Runtime.NativeAot/native_memory.witos.cpp", "src/Kernel.Arch.X64/native_memory.asm", "src/Kernel.Arch.X64/user_runtime_memory_fixture.asm", "tests/User.X64/runtime_random.cpp", "src/Runtime.NativeAot/native_random.witos.cpp", "src/Kernel.Arch.X64/native_random.asm", "src/Kernel.Arch.X64/user_runtime_random_fixture.asm", "tests/User.X64/runtime_security.cpp", "src/Kernel.Arch.X64/user_runtime_security_fixture.asm", "src/Runtime.NativeAot/security_cookie.witos.cpp", "src/Runtime.NativeAot/security_handler.witos.cpp", "src/Kernel.Arch.X64/security_cookie.asm", "src/System.Native/native_security.h", "tests/User.X64/runtime_format.cpp", "src/Runtime.NativeAot/native_format.witos.cpp", "src/Runtime.NativeAot/format_fixed.witos.cpp", "src/Runtime.NativeAot/format_fixed.witos.h", "src/Kernel.Arch.X64/native_format.asm", "src/Kernel.Arch.X64/user_runtime_math_fixture.asm", "tests/User.X64/runtime_math.cpp", "tests/User.X64/math_log_vectors.h", "src/Runtime.NativeAot/native_math.witos.cpp", "src/Runtime.NativeAot/math_bits.witos.h", "tests/User.X64/runtime_affinity.cpp", "src/Runtime.NativeAot/gc_affinity.witos.cpp", "src/Runtime.NativeAot/crt_exit.witos.cpp", "src/System.Native/library_lifecycle.c", "src/System.Native/library_lifecycle.h", "tests/User.X64/runtime_fatal.cpp", "src/Runtime.NativeAot/fatal.witos.cpp", "src/System.Native/diagnostics.h", "src/Kernel.Arch.X64/user_runtime_clock_fixture.asm", "tests/User.X64/runtime_clock.cpp", "tests/User.X64/runtime_cpu_entry.cpp", "tests/User.X64/runtime_cpu.cpp", "src/Kernel.Arch.X64/user_runtime_cpu_fixture.asm" }
+            sources = new[] { "src/Runtime.NativeAot/native_diagnostics.witos.cpp", "src/Runtime.NativeAot/native_heap.witos.h", "tests/User.X64/runtime_diagnostics.cpp", "tests/User.X64/user_runtime_diagnostics_fixture.asm", "src/Runtime.NativeAot/pal_thread_name.witos.cpp", "tests/User.X64/runtime_thread_names.cpp", "src/Kernel/user_thread_name.c", "src/Kernel/include/witos/thread_name.h", "src/Runtime.NativeAot/native_module.witos.cpp", "src/Runtime.Pal.Win32/X64/native_module.asm", "tests/User.X64/runtime_module_names.cpp", "tests/User.X64/user_runtime_module_fixture.asm", "tests/User.X64/runtime_encoding.cpp", "src/Runtime.NativeAot/native_encoding.witos.cpp", "src/Runtime.NativeAot/native_encoding.witos.h", "src/Runtime.Pal.Win32/X64/native_encoding.asm", "tests/User.X64/runtime_console.cpp", "src/Runtime.NativeAot/native_console.witos.cpp", "src/Runtime.NativeAot/native_processor.witos.cpp", "tests/User.X64/user_runtime_console_fixture.asm", "src/Kernel/include/witos/console_info.h", "tests/User.X64/runtime_object_wait.cpp", "src/Runtime.NativeAot/native_wait.witos.cpp", "src/Runtime.Pal.Win32/X64/native_wait.asm", "src/Kernel/include/witos/wait_objects.h", "tests/User.X64/runtime_services.cpp", "src/Runtime.NativeAot/native_services.witos.cpp", "src/Runtime.Pal.Win32/X64/native_services.asm", "tests/User.X64/user_runtime_services_fixture.asm", "tests/User.X64/runtime_memory.cpp", "src/Runtime.NativeAot/native_memory.witos.cpp", "src/Runtime.Pal.Win32/X64/native_memory.asm", "tests/User.X64/user_runtime_memory_fixture.asm", "tests/User.X64/runtime_random.cpp", "src/Runtime.NativeAot/native_random.witos.cpp", "src/Runtime.Pal.Win32/X64/native_random.asm", "tests/User.X64/user_runtime_random_fixture.asm", "tests/User.X64/runtime_security.cpp", "tests/User.X64/user_runtime_security_fixture.asm", "src/Runtime.NativeAot/security_cookie.witos.cpp", "src/Runtime.NativeAot/security_handler.witos.cpp", "src/Runtime.NativeAot/X64/security_cookie.asm", "src/Runtime.Native/native_security.h", "tests/User.X64/runtime_format.cpp", "src/Runtime.NativeAot/native_format.witos.cpp", "src/Runtime.NativeAot/format_fixed.witos.cpp", "src/Runtime.NativeAot/format_fixed.witos.h", "src/Runtime.NativeAot/X64/native_format.asm", "tests/User.X64/user_runtime_math_fixture.asm", "tests/User.X64/runtime_math.cpp", "tests/User.X64/math_log_vectors.h", "src/Runtime.NativeAot/native_math.witos.cpp", "src/Runtime.NativeAot/math_bits.witos.h", "tests/User.X64/runtime_affinity.cpp", "src/Runtime.NativeAot/gc_affinity.witos.cpp", "src/Runtime.NativeAot/crt_exit.witos.cpp", "src/Runtime.Native/library_lifecycle.c", "src/Runtime.Native/library_lifecycle.h", "tests/User.X64/runtime_fatal.cpp", "src/Runtime.NativeAot/fatal.witos.cpp", "src/Runtime.Native/diagnostics.h", "tests/User.X64/user_runtime_clock_fixture.asm", "tests/User.X64/runtime_clock.cpp", "tests/User.X64/runtime_cpu_entry.cpp", "tests/User.X64/runtime_cpu.cpp", "tests/User.X64/user_runtime_cpu_fixture.asm" }
                 .Select(p => new { file = p, sha256 = Hash(Path.Combine(root, p)) })
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine($"RuntimeCpuFixture: {bytes.Length} bytes, real minipal CPU backend, no OS/CRT imports.");
@@ -122,9 +122,9 @@ internal static class RuntimeCpuImage
         var threadAssembly = Path.Combine(output, "runtime_reference_test.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"),
             ["/nologo","/c","/TP","/std:c++17","/W4","/WX","/GS-","/Zl","/O1","/GR-",
-             "/I"+Path.Combine(root,"src/System.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),"/I"+Path.Combine(root,"tests/User.X64"),
+             "/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),"/I"+Path.Combine(root,"tests/User.X64"),
              "/Fo"+threadEntry,Path.Combine(root,"tests/User.X64/runtime_thread_entry.cpp")], root);
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + threadAssembly, Path.Combine(root, "src/Kernel.Arch.X64/user_runtime_reference_fixture.asm")], root);
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + threadAssembly, Path.Combine(root, "tests/User.X64/user_runtime_reference_fixture.asm")], root);
         var threadPath = Path.Combine(output, "RuntimeThreadFixture.pe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
             ["/nologo","/subsystem:native","/entry:wit_native_start","/nodefaultlib","/machine:x64","/fixed:no","/dynamicbase","/incremental:no","/Brepro","/opt:ref","/include:_tls_used","/merge:.CRT=.rdata","/base:0x180000000","/out:"+threadPath,
@@ -157,16 +157,16 @@ internal static class RuntimeCpuImage
         var comEntry = Path.Combine(output, "runtime_com_entry.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"),
             ["/nologo","/c","/TP","/std:c++17","/W4","/WX","/GS-","/Zl","/O1","/GR-",
-             "/I"+Path.Combine(root,"src/System.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),
+             "/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),
              "/Fo"+comEntry,Path.Combine(root,"tests/User.X64/runtime_com_entry.cpp")], root);
         var comAssembly = Path.Combine(output, "runtime_com_test.obj");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + comAssembly, Path.Combine(root, "src/Kernel.Arch.X64/user_runtime_com_fixture.asm")], root);
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + comAssembly, Path.Combine(root, "tests/User.X64/user_runtime_com_fixture.asm")], root);
         var contextAssembly = Path.Combine(output, "runtime_context_test.obj");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + contextAssembly, Path.Combine(root, "src/Kernel.Arch.X64/user_runtime_context_fixture.asm")], root);
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + contextAssembly, Path.Combine(root, "tests/User.X64/user_runtime_context_fixture.asm")], root);
         var captureAssembly = Path.Combine(output, "runtime_capture_test.obj");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + captureAssembly, Path.Combine(root, "src/Kernel.Arch.X64/user_runtime_capture_fixture.asm")], root);
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + captureAssembly, Path.Combine(root, "tests/User.X64/user_runtime_capture_fixture.asm")], root);
         var suspendAssembly = Path.Combine(output, "runtime_suspend_test.obj");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + suspendAssembly, Path.Combine(root, "src/Kernel.Arch.X64/user_runtime_suspend_fixture.asm")], root);
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + suspendAssembly, Path.Combine(root, "tests/User.X64/user_runtime_suspend_fixture.asm")], root);
         var comPlatformObjects = securityObjects.Com; // Keep production GS context storage separate from its probe.
         var comPath = Path.Combine(output, "RuntimeComFixture.pe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
@@ -201,10 +201,10 @@ internal static class RuntimeCpuImage
         var mutationEntry = Path.Combine(output, "runtime_context_set_entry.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"),
             ["/nologo","/c","/TP","/std:c++17","/W4","/WX","/GS-","/Zl","/O1","/GR-",
-             "/I"+Path.Combine(root,"src/System.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),
+             "/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),
              "/Fo"+mutationEntry,Path.Combine(root,"tests/User.X64/runtime_context_set_entry.cpp")], root);
         var mutationAssembly = Path.Combine(output, "runtime_context_set_test.obj");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + mutationAssembly, Path.Combine(root, "src/Kernel.Arch.X64/user_runtime_context_set_fixture.asm")], root);
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + mutationAssembly, Path.Combine(root, "tests/User.X64/user_runtime_context_set_fixture.asm")], root);
         var mutationStack = Path.Combine(root, "artifacts/runtime-config/chkstk.obj");
         using var productionReport = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(root, "artifacts/runtime-source/witos-unwind-objects.json")));
         var productionContexts = productionReport.RootElement.GetProperty("contextObjects").EnumerateArray()
@@ -247,12 +247,12 @@ internal static class RuntimeCpuImage
         var protectedFrame = Path.Combine(output, "runtime_unwind_protected.obj");
         foreach (var (sourceName, target, protection) in new[] { ("runtime_unwind_entry.cpp", unwindEntry, "/GS-"), ("runtime_unwind_protected.cpp", protectedFrame, "/GS") })
             await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo","/c","/TP","/std:c++17","/W4","/WX",protection,"/Zl","/O2","/GR-","/EHs-c-",
-                "/I"+Path.Combine(root,"src/System.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),"/Fo"+target,Path.Combine(root,"tests/User.X64",sourceName)], root);
+                "/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),"/Fo"+target,Path.Combine(root,"tests/User.X64",sourceName)], root);
         var frameSymbols = NativeObject.Inspect(protectedFrame);
         if (!frameSymbols.UndefinedExternals.Contains("__security_check_cookie") || !frameSymbols.UndefinedExternals.Contains("__GSHandlerCheck"))
             throw new InvalidDataException("Guest protected frame lost real GS check/handler dependencies.");
         var unwindAssembly = Path.Combine(output, "runtime_unwind_test.obj");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + unwindAssembly, Path.Combine(root, "src/Kernel.Arch.X64/user_runtime_unwind_fixture.asm")], root);
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + unwindAssembly, Path.Combine(root, "tests/User.X64/user_runtime_unwind_fixture.asm")], root);
         using var unwindReport = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(root, "artifacts/runtime-source/witos-unwind-objects.json")));
         var unwindObjects = unwindReport.RootElement.GetProperty("objects").EnumerateArray().Select(o =>
         {
@@ -273,9 +273,9 @@ internal static class RuntimeCpuImage
         if (exceptionObjects.Length != 7)
             throw new InvalidDataException("Missing actual exception adapter objects.");
         var exceptionAssembly = Path.Combine(output, "runtime_exception_test.obj");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/I" + output, "/Fo" + exceptionAssembly, Path.Combine(root, "src/Kernel.Arch.X64/user_runtime_exception_fixture.asm")], root);
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/I" + output, "/Fo" + exceptionAssembly, Path.Combine(root, "tests/User.X64/user_runtime_exception_fixture.asm")], root);
         var gpAssembly = Path.Combine(output, "gp_reference_fixture.obj");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + gpAssembly, Path.Combine(root, "src/Kernel.Arch.X64/gp_reference_fixture.asm")], root);
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + gpAssembly, Path.Combine(root, "tests/User.X64/gp_reference_fixture.asm")], root);
         var sehGsObjects = await RuntimeSehReference.BuildProtectedFrameAsync(root, msvc, output);
         var unwindPath = Path.Combine(output, "RuntimeUnwindFixture.pe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),

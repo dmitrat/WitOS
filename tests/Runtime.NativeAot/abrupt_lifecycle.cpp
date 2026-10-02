@@ -73,7 +73,7 @@ WitU64 worker(WitU64 argument)
     if (start.Fault) {
         wit_runtime_invalid_instruction();
     }
-    // Deliberate bypass of System.Native TLS/runtime exit notification.
+    // Deliberate bypass of Runtime.Native TLS/runtime exit notification.
     (void)wit_native_call(WIT_CALL_THREAD_EXIT, 0x1234, 0, 0, nullptr);
     wit_native_fail_fast(0xFFFF0102);
 }

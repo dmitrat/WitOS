@@ -34,11 +34,11 @@ internal static class UserDynamicTlsImage
             "/DNDEBUG", "/DWIN32_LEAN_AND_MEAN", "/DNOMINMAX",
             $"/I{Path.Combine(vc, "include")}", $"/I{Path.Combine(sdk, "ucrt")}",
             $"/I{Path.Combine(sdk, "um")}", $"/I{Path.Combine(sdk, "shared")}",
-            $"/I{Path.Combine(root, "src", "Runtime.NativeAot")}", $"/I{Path.Combine(root, "src", "System.Native")}",
+            $"/I{Path.Combine(root, "src", "Runtime.NativeAot")}", $"/I{Path.Combine(root, "src", "Runtime.Native")}",
             $"/I{Path.Combine(root, "src", "Kernel", "include")}", $"/I{Path.Combine(root, "tests", "User.X64")}"
         ];
         string[] sources = ["src/Runtime.NativeAot/tls.witos.cpp", "src/Runtime.NativeAot/native_new.witos.cpp",
-            "src/System.Native/thread.c", "src/System.Native/library_lifecycle.c", "src/Runtime.NativeAot/crt_memory.witos.c", "src/System.Native/image.c", "src/System.Native/tls_metadata.c", "tests/User.X64/dynamic_tls_entry.c",
+            "src/Runtime.Native/thread.c", "src/Runtime.Native/library_lifecycle.c", "src/Runtime.NativeAot/crt_memory.witos.c", "src/Runtime.Native/image.c", "src/Runtime.Native/tls_metadata.c", "tests/User.X64/dynamic_tls_entry.c",
             "tests/User.X64/dynamic_tls.cpp", "tests/User.X64/dynamic_tls_access.cpp"];
         var objects = new List<string>();
         foreach (var source in sources)
@@ -91,7 +91,7 @@ internal static class UserDynamicTlsImage
             imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
             compiler = msvc,
             unwindEntries = h.ExceptionTableDirectory.Size / 12,
-            sources = sources.Concat(["src/System.Native/tls.h", "src/Kernel.Arch.X64/native_start.asm"])
+            sources = sources.Concat(["src/Runtime.Native/tls.h", "src/Runtime.Native/X64/native_start.asm"])
                 .Select(p => new { path = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, p)))).ToLowerInvariant() })
         };
         await File.WriteAllTextAsync(Path.Combine(output, "dynamic-tls-build.json"),

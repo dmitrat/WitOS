@@ -187,18 +187,24 @@ This builds the pinned runtime and exact standard-CoreLib managed object used by
 ## Layout
 
 ```text
-src/Boot.Uefi/          Firmware-specific entry and handoff adapter
-src/Kernel/             Boot validation, physical pages and process-local handles
-src/Kernel.Arch.X64/     Paging, traps, context transitions and user execution
-src/System.Native/      User-space native startup helper (not managed runtime)
-src/Runtime.NativeAot/  Native runtime platform adapters and source overlay
-tests/User.X64/         Unprivileged native ABI/isolation fixture
-tools/WitOS.Dev/         C# build, VM tests and runtime investigation tools
-experiments/NativeAotBoot/ Combined guest and Windows-reference acceptance
-experiments/NativeAotProbe/ Hosted reference; not guest runtime code
+src/Boot.Uefi/               Firmware-specific entry and handoff adapter
+src/Kernel/                  Architecture-independent kernel: memory, handles, processes, threads, loader
+src/Kernel.Arch.X64/         x64 traps, frames, contexts, page tables and user transitions
+src/Kernel.Platform.Q35/     q35 board devices: COM1, PIC/PIT, HPET and test exit
+src/Runtime.Native/          User-space native base: startup, syscalls, threads, TLS, images, files
+src/Runtime.Pal.Win32/       Win32 API names for the upstream runtimes
+src/Runtime.NativeAot/       NativeAOT platform adapters and source overlay
+src/Runtime.CoreClr/         CoreCLR host and runtime adapters
+build/                       Kernel target, layer and format manifests
+tests/Kernel.X64/            Kernel self-tests, linked only into WITOS_SELFTEST kernels
+tests/User.X64/              Unprivileged native ABI, isolation and runtime fixtures
+tests/WitOS.Dev.Tests/       Host tests (NUnit)
+tools/WitOS.Dev/             C# build, VM tests and runtime investigation tools
+experiments/NativeAotBoot/   Combined guest and Windows-reference acceptance
+experiments/NativeAotProbe/  Hosted reference; not guest runtime code
 experiments/NativeAotTarget/ Native bootstrap and target artifact evidence
-@Docs/                  Architecture drafts and implementation notes
-.github/workflows/      Automated native build and VM tests
+@Docs/                       Architecture drafts and implementation notes
+.github/workflows/           Automated native build and VM tests
 ```
 
 The core kernel does not include UEFI structures. The output is a freestanding PE/COFF EFI image with no Windows or C-runtime imports. MSVC is a host compiler, not a guest dependency.

@@ -68,7 +68,7 @@ internal static class RuntimePortImage
             $"/I{Path.Combine(sdk, "um")}", $"/I{Path.Combine(sdk, "shared")}",
             $"/I{Path.Combine(stage, "src", "coreclr", "gc", "env")}", $"/I{Path.Combine(stage, "src", "native")}",
             $"/I{Path.Combine(stage, "src", "coreclr", "nativeaot", "Runtime")}",
-            $"/I{Path.Combine(root, "src", "Runtime.NativeAot")}", $"/I{Path.Combine(root, "src", "System.Native")}",
+            $"/I{Path.Combine(root, "src", "Runtime.NativeAot")}", $"/I{Path.Combine(root, "src", "Runtime.Native")}",
             $"/I{Path.Combine(root, "src", "Kernel", "include")}", $"/I{Path.Combine(root, "tests", "User.X64")}"
         ];
         string[] sources = ["src/Runtime.NativeAot/gcenv.witos.cpp", "tests/User.X64/gc_memory.cpp", "tests/User.X64/gc_missing.cpp", "tests/User.X64/gc_discovery.cpp", "src/Runtime.NativeAot/gc_events.witos.cpp", "tests/User.X64/gc_events.cpp", "src/Runtime.NativeAot/gc_time.witos.cpp", "tests/User.X64/gc_time.cpp", "src/Runtime.NativeAot/mutex.witos.cpp", "src/Runtime.NativeAot/crst.witos.cpp", "tests/User.X64/gc_mutex.cpp", "tests/User.X64/gc_reset.cpp", "src/Runtime.NativeAot/native_new.witos.cpp", "tests/User.X64/native_heap.cpp"];
@@ -119,8 +119,8 @@ internal static class RuntimePortImage
             guestManagedRuntime = false,
             missingGcWriteWatchResetRejected = true,
             upstreamInputs = pin.Sources.Where(s => UPSTREAM_INPUTS.Contains(s.Path)),
-            localInputs = sources.Append("src/Runtime.NativeAot/gcenv.witos.h").Append("src/Kernel.Arch.X64/native_start.asm")
-                .Concat(["src/System.Native/bootstrap.h", "src/Kernel/include/witos/user_abi.h",
+            localInputs = sources.Append("src/Runtime.NativeAot/gcenv.witos.h").Append("src/Runtime.Native/X64/native_start.asm")
+                .Concat(["src/Runtime.Native/bootstrap.h", "src/Kernel/include/witos/user_abi.h",
                     "src/Kernel/include/witos/types.h", "src/Kernel/include/witos/thread_info.h", "src/Kernel/include/witos/image_info.h", "src/Kernel/include/witos/memory_info.h", "tests/User.X64/protocol.h"])
                 .Select(p => new { path = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, p)))).ToLowerInvariant() }),
             compiler = msvc,

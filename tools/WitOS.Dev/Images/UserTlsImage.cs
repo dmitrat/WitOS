@@ -32,13 +32,13 @@ internal static class UserTlsImage
             await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"),
                 ["/nologo", "/c", "/TC", "/std:c17", "/W4", "/WX", "/GS-", "/Zl", "/Oi", "/O1",
                     $"/I{Path.Combine(root, "src", "Kernel", "include")}",
-                    $"/I{Path.Combine(root, "src", "System.Native")}",
+                    $"/I{Path.Combine(root, "src", "Runtime.Native")}",
                     $"/I{Path.Combine(root, "tests", "User.X64")}", $"/Fo{obj}", Path.Combine(root, source)], root);
             objects.Add(obj);
         }
         var entry = Path.Combine(output, "native_start.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
-            ["/nologo", "/c", $"/I{output}", $"/Fo{entry}", Path.Combine(root, "src", "Kernel.Arch.X64", "native_start.asm")], root);
+            ["/nologo", "/c", $"/I{output}", $"/Fo{entry}", Path.Combine(root, "src", "Runtime.Native", "X64", "native_start.asm")], root);
         objects.Add(entry);
         var image = Path.Combine(output, "TlsFixture.pe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
@@ -77,7 +77,7 @@ internal static class UserTlsImage
             tlsDirectoryBytes = h.ThreadLocalStorageTableDirectory.Size,
             unwindEntries = h.ExceptionTableDirectory.Size / 12,
             sources = new[] { "tests/User.X64/compiler_tls.c", "tests/User.X64/compiler_tls_access.c",
-                "src/Kernel.Arch.X64/native_start.asm", "src/Kernel/include/witos/user_abi.h" }
+                "src/Runtime.Native/X64/native_start.asm", "src/Kernel/include/witos/user_abi.h" }
                 .Select(p => new { path = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, p)))).ToLowerInvariant() })
         };
         await File.WriteAllTextAsync(Path.Combine(output, "compiler-tls-build.json"),

@@ -38,10 +38,10 @@ internal static class UserProcessExitImage
             $"/I{Path.Combine(stage, "src", "coreclr", "nativeaot", "Runtime", "inc")}",
             $"/I{Path.Combine(stage, "src", "coreclr", "nativeaot", "Runtime", "windows")}",
             $"/I{Path.Combine(stage, "src", "coreclr", "gc", "env")}", $"/I{Path.Combine(stage, "src", "native")}",
-            $"/I{Path.Combine(root, "src", "Runtime.NativeAot")}", $"/I{Path.Combine(root, "src", "System.Native")}",
+            $"/I{Path.Combine(root, "src", "Runtime.NativeAot")}", $"/I{Path.Combine(root, "src", "Runtime.Native")}",
             $"/I{Path.Combine(root, "src", "Kernel", "include")}", $"/I{Path.Combine(root, "tests", "User.X64")}"
         ];
-        string[] sources = ["src/Runtime.NativeAot/crt_memory.witos.c", "src/System.Native/library_lifecycle.c", "src/System.Native/library.c", "src/System.Native/path.c", "src/System.Native/current_directory.c", "src/System.Native/file.c", "src/Runtime.NativeAot/crt_exit.witos.cpp", "tests/User.X64/process_exit.cpp", "tests/User.X64/library_threads.cpp", "tests/User.X64/library_tls_main.cpp"
+        string[] sources = ["src/Runtime.NativeAot/crt_memory.witos.c", "src/Runtime.Native/library_lifecycle.c", "src/Runtime.Native/library.c", "src/Runtime.Native/path.c", "src/Runtime.Native/current_directory.c", "src/Runtime.Native/file.c", "src/Runtime.NativeAot/crt_exit.witos.cpp", "tests/User.X64/process_exit.cpp", "tests/User.X64/library_threads.cpp", "tests/User.X64/library_tls_main.cpp"
         ];
         var objects = new List<string>();
         foreach (var name in sources)
@@ -82,7 +82,7 @@ internal static class UserProcessExitImage
             imageBytes = bytes.Length,
             imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
             unwindEntries = h.ExceptionTableDirectory.Size / 12,
-            localSources = sources.Concat(["src/System.Native/thread.c", "src/System.Native/tls.h", "src/System.Native/native_process.h", "src/System.Native/image.h", "src/Kernel/include/witos/user_abi.h"])
+            localSources = sources.Concat(["src/Runtime.Native/thread.c", "src/Runtime.Native/tls.h", "src/Runtime.Native/native_process.h", "src/Runtime.Native/image.h", "src/Kernel/include/witos/user_abi.h"])
                 .Select(p => new { path = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, p)))).ToLowerInvariant() }),
             sharedObjects = shared.Select(p => new { file = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(output, p)))).ToLowerInvariant() })
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));

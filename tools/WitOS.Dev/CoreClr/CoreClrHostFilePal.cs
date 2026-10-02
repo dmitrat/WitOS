@@ -73,14 +73,14 @@ internal static class CoreClrHostFilePal
         var version = Directory.GetParent(Toolchain.FindWindowsSdkLibrary("kernel32.lib"))!.Parent!.Parent!.Name;
         var dll = await NativeLibraryImage.BuildAsync(root, output, msvc);
         var objects = new List<string>();
-        foreach (var source in new[] { "src/System.Native/library.c", "src/System.Native/library_lifecycle.c", "src/Runtime.CoreClr/host_library.witos.cpp", "src/Runtime.CoreClr/host_library_discovery.witos.cpp", "tests/Runtime.NativeAot/host_library_reference.c", "tests/Runtime.NativeAot/host_library_allocation.cpp", "src/System.Native/directory.c", "src/System.Native/path.c", "src/System.Native/current_directory.c", "src/System.Native/file.c", "src/System.Native/file_view.c", "tests/WitOS.Dev.Tests/Native/FileViewFaults.c", "src/Runtime.CoreClr/host_files.witos.cpp", "src/Runtime.CoreClr/host_paths.witos.cpp", "src/Runtime.CoreClr/host_directory.witos.cpp", "src/Runtime.CoreClr/host_environment.witos.cpp", "tests/Runtime.NativeAot/host_environment_reference.cpp", "tests/Runtime.NativeAot/host_file_pal.cpp" })
+        foreach (var source in new[] { "src/Runtime.Native/library.c", "src/Runtime.Native/library_lifecycle.c", "src/Runtime.CoreClr/host_library.witos.cpp", "src/Runtime.CoreClr/host_library_discovery.witos.cpp", "tests/Runtime.NativeAot/host_library_reference.c", "tests/Runtime.NativeAot/host_library_allocation.cpp", "src/Runtime.Native/directory.c", "src/Runtime.Native/path.c", "src/Runtime.Native/current_directory.c", "src/Runtime.Native/file.c", "src/Runtime.Native/file_view.c", "tests/WitOS.Dev.Tests/Native/FileViewFaults.c", "src/Runtime.CoreClr/host_files.witos.cpp", "src/Runtime.CoreClr/host_paths.witos.cpp", "src/Runtime.CoreClr/host_directory.witos.cpp", "src/Runtime.CoreClr/host_environment.witos.cpp", "tests/Runtime.NativeAot/host_environment_reference.cpp", "tests/Runtime.NativeAot/host_file_pal.cpp" })
         {
             var cpp = source.EndsWith(".cpp", StringComparison.Ordinal);
             var obj = Path.Combine(output, Path.GetFileName(source) + ".obj");
             objects.Add(obj);
             await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo","/c",cpp?"/TP":"/TC",cpp?"/std:c++17":"/std:c17","/MD","/EHsc","/O2","/GS-","/Zl","/W4","/WX","/DNDEBUG","/DWITOS_HOST_FILES","/DFILE_VIEW_PAL_TEST","/DHOST_LIBRARY_PAL_TEST",
                 "/I"+output,"/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"Include",version,"ucrt"),"/I"+Path.Combine(sdk,"Include",version,"um"),"/I"+Path.Combine(sdk,"Include",version,"shared"),
-                "/I"+Path.Combine(root,"src/System.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),"/Fo"+obj,Path.Combine(root,source)], root);
+                "/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),"/Fo"+obj,Path.Combine(root,source)], root);
         }
         var exe = Path.Combine(output, "host-file-pal.exe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"), ["/nologo", "/out:" + exe, "/LIBPATH:" + Path.Combine(vc, "lib/x64"), "/LIBPATH:" + Path.Combine(sdk, "Lib", version, "ucrt/x64"), "/LIBPATH:" + Path.Combine(sdk, "Lib", version, "um/x64"), .. objects, "msvcrt.lib", "vcruntime.lib", "ucrt.lib", "msvcprt.lib", "kernel32.lib"], root);

@@ -76,13 +76,13 @@ internal static class RuntimeReadiness
         var transport = Path.Combine(output, "native_transport.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
             ["/nologo", "/c", "/DWITOS_NATIVE_TRANSPORT_ONLY", "/I" + output, "/Fo" + transport,
-                Path.Combine(root, "src", "Kernel.Arch.X64", "native_start.asm")], root);
+                Path.Combine(root, "src", "Runtime.Native", "X64", "native_start.asm")], root);
         if (NativeObject.Inspect(transport).UndefinedExternals.Contains("wit_native_main"))
             throw new InvalidDataException("Transport-only object unexpectedly requires a fixture entrypoint.");
         var tls = Path.Combine(output, "tls_metadata.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"),
             ["/nologo", "/c", "/TC", "/std:c17", "/W4", "/WX", "/GS-", "/Zl", "/O1", "/Fo" + tls,
-                "/I" + Path.Combine(root, "src", "Kernel", "include"), Path.Combine(root, "src", "System.Native", "tls_metadata.c")], root);
+                "/I" + Path.Combine(root, "src", "Kernel", "include"), Path.Combine(root, "src", "Runtime.Native", "tls_metadata.c")], root);
         var image = Path.Combine(output, "unlinked-native-entry.exe");
         if (File.Exists(image))
             File.Delete(image);
@@ -139,7 +139,7 @@ internal static class RuntimeReadiness
             referenceImagePages = (module.ImageBytes + 4095) / 4096,
             inputs = libraries.Concat([transport, tls]).Select(p => new { file = p, sha256 = Hash(p) }),
             localSources = new[] { project + "/Program.cs", project + "/ExceptionProbe.cs", project + "/FinalizationProbe.cs", project + "/GuestReport.cs", project + "/ManagedThreadProbe.cs", project + "/StackOverflowProbe.cs", project + "/ThreadQuotaProbe.cs", project + "/FaultProbe.cs", project + "/MemoryFailureProbe.cs", project + "/NativeAotBoot.csproj", project + "/packages.lock.json",
-                "src/Kernel.Arch.X64/native_start.asm", "src/System.Native/tls_metadata.c", "src/Kernel/include/witos/pe.h",
+                "src/Runtime.Native/X64/native_start.asm", "src/Runtime.Native/tls_metadata.c", "src/Kernel/include/witos/pe.h",
                 "src/Kernel/include/witos/user_abi.h", "src/Kernel/include/witos/handles.h", "src/Kernel/include/witos/user_layout.h" }
                 .Select(p => new { file = p, sha256 = Hash(Path.Combine(root, p)) }),
             scope = "Hosted standard-CoreLib executable plus strictly linked source-built wmain diagnostic image. wmain is a dependency root, not a valid WitOS startup thunk. The separate guest handoff driver links image/environment publication, GS/TLS/initializer entry and orderly shutdown; its execution and resource budgets still require guest acceptance. Reference image sizes are not final guest requirements."

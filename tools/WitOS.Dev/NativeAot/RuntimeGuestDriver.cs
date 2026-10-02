@@ -46,7 +46,7 @@ internal static class RuntimeGuestDriver
         var driver = Path.Combine(directory, "boot_driver.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo","/c","/std:c++17","/W4","/WX","/GS-","/Zl","/O1","/GR-","/EHs-c-",
             "/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"ucrt"),"/I"+Path.Combine(root,"src/Kernel/include"),
-            "/I"+Path.Combine(root,"src/System.Native"),"/I"+Path.Combine(root,"src/Runtime.NativeAot"),"/Fo"+driver,source], root);
+            "/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"src/Runtime.NativeAot"),"/Fo"+driver,source], root);
         // Compile the test helper against the exact definitions/header profile of
         // the source-built PAL, without adding test callbacks to the runtime archive.
         var fixtureSource = Path.Combine(root, "tests/Runtime.NativeAot/worker_lifecycle.cpp");
@@ -64,9 +64,9 @@ internal static class RuntimeGuestDriver
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo","/c","/std:c++17","/W4","/WX","/GS","/Zl","/O1","/Oi","/MT","/Zp8","/GR-","/EHs-c-",
             "/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"ucrt"),"/I"+Path.Combine(sdk,"shared"),"/I"+Path.Combine(sdk,"um"),..profile,"/Fo"+abrupt,abruptSource], root);
         var entry = Path.Combine(directory, "native_start.obj");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/I" + output, "/Fo" + entry, Path.Combine(root, "src/Kernel.Arch.X64/native_start.asm")], root);
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/I" + output, "/Fo" + entry, Path.Combine(root, "src/Runtime.Native/X64/native_start.asm")], root);
         var faultFixture = Path.Combine(directory, "runtime_fault_fixture.obj");
-        var faultSource = Path.Combine(root, "src/Kernel.Arch.X64/runtime_fault_fixture.asm");
+        var faultSource = Path.Combine(root, "tests/User.X64/runtime_fault_fixture.asm");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + faultFixture, faultSource], root);
         var image = Path.Combine(directory, "WitOS.NativeAotBoot.pe");
         string[] arguments = ["/nologo","/subsystem:native","/entry:wit_native_start","/nodefaultlib","/machine:x64","/fixed:no","/dynamicbase","/incremental:no","/Brepro","/opt:ref","/include:_tls_used","/merge:.CRT=.rdata",

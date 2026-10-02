@@ -27,7 +27,7 @@ Repository/package revisions remain unchanged. The source lock records checksums
 | Expose a readonly native image description; initialize in user space | Chosen: enough information to identify this native module and validate native startup ranges |
 | Parse arbitrary DLL graphs and automatically invoke Windows CRT/TLS callbacks | Deferred: requires explicit linking, TLS, exception and lifetime contracts |
 
-The new startup helper is ordinary freestanding C in `src/System.Native/`. Its syscall/entry/atomic-claim shim is x64 assembly under `Kernel.Arch.X64`, linked into the user PE only. It is not a replacement CoreLib, Windows CRT or implementation of NativeAOT's InitializeModules.
+The new startup helper is ordinary freestanding C in `src/Runtime.Native/`. Its syscall/entry/atomic-claim shim is x64 assembly under `Kernel.Arch.X64`, linked into the user PE only. It is not a replacement CoreLib, Windows CRT or implementation of NativeAOT's InitializeModules.
 
 ## ABI v5 image handoff
 

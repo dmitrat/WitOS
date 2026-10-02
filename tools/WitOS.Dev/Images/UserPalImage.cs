@@ -63,10 +63,10 @@ internal static class UserPalImage
             $"/I{Path.Combine(stage, "src", "coreclr", "nativeaot", "Runtime", "inc")}",
             $"/I{Path.Combine(stage, "src", "coreclr", "nativeaot", "Runtime", "windows")}",
             $"/I{Path.Combine(stage, "src", "coreclr", "gc", "env")}", $"/I{Path.Combine(stage, "src", "native")}",
-            $"/I{Path.Combine(root, "src", "Runtime.NativeAot")}", $"/I{Path.Combine(root, "src", "System.Native")}",
+            $"/I{Path.Combine(root, "src", "Runtime.NativeAot")}", $"/I{Path.Combine(root, "src", "Runtime.Native")}",
             $"/I{Path.Combine(root, "src", "Kernel", "include")}", $"/I{Path.Combine(root, "tests", "User.X64")}"
         ];
-        string[] sources = ["src/Runtime.NativeAot/pal.witos.cpp", "tests/User.X64/pal_thread.cpp", "src/System.Native/tls_metadata.c",
+        string[] sources = ["src/Runtime.NativeAot/pal.witos.cpp", "tests/User.X64/pal_thread.cpp", "src/Runtime.Native/tls_metadata.c",
             "src/Runtime.NativeAot/pal_memory.witos.cpp", "src/Runtime.NativeAot/pal_events.witos.cpp", "tests/User.X64/pal_services.cpp", "src/Runtime.NativeAot/pal_error.witos.cpp", "tests/User.X64/pal_error.cpp", "tests/User.X64/pal_wait_any.cpp", "tests/User.X64/pal_pressure.cpp"];
         var objects = new List<string>();
         foreach (var name in sources)
@@ -112,7 +112,7 @@ internal static class UserPalImage
             scope = "Partial NativeAOT PAL: thread discovery, committed memory, events and non-alertable waits; no ThreadStore or GC execution.",
             inputs = pin.Sources.Where(s => INPUTS.Contains(s.Path)),
             localInputs = sources.Concat(["src/Runtime.NativeAot/pal.witos.h", "src/Kernel/include/witos/thread_info.h",
-                    "src/Kernel/include/witos/user_abi.h", "src/System.Native/error.h", "src/Kernel.Arch.X64/native_error.asm", "src/Kernel.Arch.X64/native_start.asm"])
+                    "src/Kernel/include/witos/user_abi.h", "src/Runtime.Native/error.h", "src/Runtime.Pal.Win32/X64/native_error.asm", "src/Runtime.Native/X64/native_start.asm"])
                 .Select(p => new { path = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, p)))).ToLowerInvariant() })
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
     }

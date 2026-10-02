@@ -24,7 +24,7 @@ internal static class RuntimeFormattingReference
         var sdkVersion = Directory.GetParent(kernel)!.Parent!.Parent!.Name;
         var sdk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Windows Kits", "10");
         var assembly = Path.Combine(output, "native_format.obj");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + assembly, Path.Combine(root, "src/Kernel.Arch.X64/native_format.asm")], root);
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + assembly, Path.Combine(root, "src/Runtime.NativeAot/X64/native_format.asm")], root);
         string[] sources = ["tests/Runtime.NativeAot/format_reference.cpp", "src/Runtime.NativeAot/native_format.witos.cpp", "src/Runtime.NativeAot/format_fixed.witos.cpp"];
         var executable = Path.Combine(output, "format_reference.exe");
         var compile = await Processes.RunAsync(Path.Combine(msvc, "cl.exe"),
@@ -43,7 +43,7 @@ internal static class RuntimeFormattingReference
         {
             hostOnly = true,
             passedCases = 49484,
-            inputs = sources.Concat(["src/Runtime.NativeAot/format_fixed.witos.h", "src/Kernel.Arch.X64/native_format.asm"]).Select(p => new { file = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, p)))).ToLowerInvariant() }),
+            inputs = sources.Concat(["src/Runtime.NativeAot/format_fixed.witos.h", "src/Runtime.NativeAot/X64/native_format.asm"]).Select(p => new { file = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, p)))).ToLowerInvariant() }),
             scope = "Hosted C-locale secure formatting comparison, initial round-to-nearest FP environment; guest compiler/GS integration is separate."
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine("[FORMAT-REFERENCE-PASS] 49484 secure formatting comparisons against Windows CRT (HOSTED only).");

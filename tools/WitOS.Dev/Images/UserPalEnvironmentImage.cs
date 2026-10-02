@@ -23,7 +23,7 @@ internal static class UserPalEnvironmentImage
     {
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
             ["/nologo", "/c", $"/Fo{Path.Combine(output, "native_environment.obj")}",
-                Path.Combine(root, "src", "Kernel.Arch.X64", "native_environment.asm")], root);
+                Path.Combine(root, "src", "Runtime.Pal.Win32", "X64", "native_environment.asm")], root);
         var stage = Path.Combine(output, "pal-source");
         var vc = Path.GetFullPath(Path.Combine(msvc, "..", "..", ".."));
         var sdkLib = Toolchain.FindWindowsSdkLibrary("kernel32.lib");
@@ -41,7 +41,7 @@ internal static class UserPalEnvironmentImage
             $"/I{Path.Combine(stage, "src", "coreclr", "nativeaot", "Runtime", "inc")}",
             $"/I{Path.Combine(stage, "src", "coreclr", "nativeaot", "Runtime", "windows")}",
             $"/I{Path.Combine(stage, "src", "coreclr", "gc", "env")}", $"/I{Path.Combine(stage, "src", "native")}",
-            $"/I{Path.Combine(root, "src", "Runtime.NativeAot")}", $"/I{Path.Combine(root, "src", "System.Native")}",
+            $"/I{Path.Combine(root, "src", "Runtime.NativeAot")}", $"/I{Path.Combine(root, "src", "Runtime.Native")}",
             $"/I{Path.Combine(root, "src", "Kernel", "include")}", $"/I{Path.Combine(root, "tests", "User.X64")}"
         ];
         string[] sources = ["src/Runtime.NativeAot/pal_environment.witos.cpp", "tests/User.X64/pal_environment.cpp",
@@ -84,7 +84,7 @@ internal static class UserPalEnvironmentImage
             imageBytes = bytes.Length,
             imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
             unwindEntries = h.ExceptionTableDirectory.Size / 12,
-            localSources = sources.Concat(["src/System.Native/thread.c", "src/System.Native/tls.h", "src/System.Native/image.h", "src/Runtime.NativeAot/pal_environment.witos.h", "src/Kernel.Arch.X64/native_environment.asm", "src/Kernel/include/witos/user_abi.h"])
+            localSources = sources.Concat(["src/Runtime.Native/thread.c", "src/Runtime.Native/tls.h", "src/Runtime.Native/image.h", "src/Runtime.NativeAot/pal_environment.witos.h", "src/Runtime.Pal.Win32/X64/native_environment.asm", "src/Kernel/include/witos/user_abi.h"])
                 .Select(p => new { path = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, p)))).ToLowerInvariant() }),
             sharedObjects = shared.Select(p => new { file = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(output, p)))).ToLowerInvariant() })
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));

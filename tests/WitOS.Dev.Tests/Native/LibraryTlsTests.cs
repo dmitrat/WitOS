@@ -45,7 +45,7 @@ public sealed class LibraryTlsTests
             guestExecuted = false,
             dllSha256 = Hash(dll),
             executableSha256 = Hash(exe),
-            sources = new[] { "tests/User.X64/library_tls.c", "src/System.Native/tls_metadata.c", "tests/WitOS.Dev.Tests/Native/LibraryTls.c" }.ToDictionary(file => file, file => Hash(Path.Combine(root, file)))
+            sources = new[] { "tests/User.X64/library_tls.c", "src/Runtime.Native/tls_metadata.c", "tests/WitOS.Dev.Tests/Native/LibraryTls.c" }.ToDictionary(file => file, file => Hash(Path.Combine(root, file)))
         }, new JsonSerializerOptions { WriteIndented = true }));
         Console.Write(run.Output);
     }

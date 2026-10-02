@@ -4,7 +4,7 @@
 #include "witos/platform.h"
 #include "witos/random.h"
 #include "protocol.h"
-#include "../System.Native/diagnostics.h"
+#include "../Runtime.Native/diagnostics.h"
 #include "runtime_config_image.h"
 #include "runtime_cpu_image.h"
 #include "runtime_threads_image.h"

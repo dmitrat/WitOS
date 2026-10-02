@@ -22,8 +22,8 @@ internal static class UserBootstrapImage
         var objects = new List<string>();
         foreach (var (source, name) in new[]
         {
-            ("src/System.Native/bootstrap.c", "native_bootstrap"),
-            ("src/System.Native/image.c", "native_image"),
+            ("src/Runtime.Native/bootstrap.c", "native_bootstrap"),
+            ("src/Runtime.Native/image.c", "native_image"),
             ("tests/User.X64/bootstrap.c", "bootstrap_fixture")
         })
         {
@@ -31,13 +31,13 @@ internal static class UserBootstrapImage
             await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"),
                 ["/nologo", "/c", "/TC", "/std:c17", "/W4", "/WX", "/GS-", "/Zl", "/Oi", "/O1",
                     $"/I{Path.Combine(root, "src", "Kernel", "include")}",
-                    $"/I{Path.Combine(root, "src", "System.Native")}",
+                    $"/I{Path.Combine(root, "src", "Runtime.Native")}",
                     $"/I{Path.Combine(root, "tests", "User.X64")}", $"/Fo{obj}", Path.Combine(root, source)], root);
             objects.Add(obj);
         }
         var entry = Path.Combine(output, "native_start.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
-            ["/nologo", "/c", $"/I{output}", $"/Fo{entry}", Path.Combine(root, "src", "Kernel.Arch.X64", "native_start.asm")], root);
+            ["/nologo", "/c", $"/I{output}", $"/Fo{entry}", Path.Combine(root, "src", "Runtime.Native", "X64", "native_start.asm")], root);
         objects.Add(entry);
         var image = Path.Combine(output, "BootstrapFixture.pe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),

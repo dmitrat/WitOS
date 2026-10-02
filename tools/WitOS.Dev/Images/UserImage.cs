@@ -46,7 +46,7 @@ internal static class UserImage
         await File.WriteAllTextAsync(Path.Combine(output, "user_abi.inc"), includes, Encoding.ASCII);
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
             ["/nologo", "/c", $"/I{output}", $"/Fo{Path.Combine(output, "native_error.obj")}",
-                Path.Combine(root, "src", "Kernel.Arch.X64", "native_error.asm")], root);
+                Path.Combine(root, "src", "Runtime.Pal.Win32", "X64", "native_error.asm")], root);
         await BuildFixtureAsync(root, output, msvc, constants, "entry", "UserFixture", "wit_user_test_image", "user_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "threads", "ThreadFixture", "wit_user_thread_image", "user_thread_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "waits", "WaitFixture", "wit_user_wait_image", "user_wait_image.h");

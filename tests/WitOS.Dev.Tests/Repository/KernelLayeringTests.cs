@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using WitOS.Dev.Kernel;
 using WitOS.Dev.Tests.Support;
 
 namespace WitOS.Dev.Tests.Repository;
@@ -121,6 +122,23 @@ public sealed class KernelLayeringTests
                 var match = BOARD_DEVICE.Match(lines[i]);
                 Assert.That(match.Success, Is.False, $"{Path.GetFileName(path)}:{i + 1} drives a board device: {match.Value}");
             }
+        }
+    }
+
+    // User-mode bindings, runtime helpers and fixtures left in Q2.8: every source here links into the kernel.
+    [Test]
+    public void ArchitectureHoldsOnlyKernelSourcesTest()
+    {
+        var layer = KernelManifest.ReadLayer(TestEnvironment.Root, "kernel-arch-x64");
+        var linked = layer.Sources.Concat(layer.Assembly).ToHashSet(StringComparer.Ordinal);
+        foreach (var path in Directory.EnumerateFiles(Path.Combine(TestEnvironment.Root, ARCH_DIRECTORY)))
+        {
+            var relative = Path.GetRelativePath(TestEnvironment.Root, path).Replace('\\', '/');
+            if (relative.EndsWith(".h", StringComparison.Ordinal))
+            {
+                continue;
+            }
+            Assert.That(linked, Does.Contain(relative), "Architecture file is not linked into the kernel: " + relative);
         }
     }
 

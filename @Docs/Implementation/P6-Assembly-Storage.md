@@ -24,7 +24,7 @@ Names are case-sensitive relative paths, preserved without Unicode normalization
 
 User ABI v39 adds private FILE call 66 with a copied 64-byte request. OPEN accepts a counted canonical UTF-8 path; LENGTH, READ, READ_AT and signed SEEK use a component-owned generation-bearing readonly handle. READ_AT does not move the cursor. READ/SEEK cursor updates are serialized with interrupts disabled; failed calls preserve cursor and destination. Reads validate the entire requested destination before writing, even at EOF. Zero-byte reads are no-ops; each call is bounded to 64 KiB. Negative/overflowing seeks, unsupported operations/flags and reserved fields fail explicitly.
 
-The native adapter in System.Native/file.c invokes real syscalls and preserves caller outputs on failure. This does not yet implement CoreCLR's full native file/mapping PAL, filesystem writes, asynchronous IO or host resolution policy; those remain integration/BCL work in P6.4?P6.7.
+The native adapter in Runtime.Native/file.c invokes real syscalls and preserves caller outputs on failure. This does not yet implement CoreCLR's full native file/mapping PAL, filesystem writes, asynchronous IO or host resolution policy; those remain integration/BCL work in P6.4?P6.7.
 
 ## Executed acceptance and remaining gates
 

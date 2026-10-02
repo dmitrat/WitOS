@@ -26,8 +26,8 @@ public sealed class FileViewFaultsTests
         var version = Directory.GetParent(Toolchain.FindWindowsSdkLibrary("kernel32.lib"))!.Parent!.Parent!.Name;
         var exe = Path.Combine(output, "file-view-faults.exe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo","/MD","/TC","/std:c17","/W4","/WX","/O2",
-            "/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"Include",version,"ucrt"),"/I"+Path.Combine(sdk,"Include",version,"um"),"/I"+Path.Combine(sdk,"Include",version,"shared"),"/I"+Path.Combine(root,"src/System.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),
-            "/Fo"+output+"/","/Fe"+exe,Path.Combine(root,"src/System.Native/file.c"),Path.Combine(root,"src/System.Native/file_view.c"),Path.Combine(root,"tests/WitOS.Dev.Tests/Native/FileViewFaults.c"),
+            "/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"Include",version,"ucrt"),"/I"+Path.Combine(sdk,"Include",version,"um"),"/I"+Path.Combine(sdk,"Include",version,"shared"),"/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),
+            "/Fo"+output+"/","/Fe"+exe,Path.Combine(root,"src/Runtime.Native/file.c"),Path.Combine(root,"src/Runtime.Native/file_view.c"),Path.Combine(root,"tests/WitOS.Dev.Tests/Native/FileViewFaults.c"),
             "/link","/LIBPATH:"+Path.Combine(vc,"lib/x64"),"/LIBPATH:"+Path.Combine(sdk,"Lib",version,"ucrt/x64"),
             "/LIBPATH:"+Path.Combine(sdk,"Lib",version,"um/x64"),"kernel32.lib"], root);
         var run = await Processes.RunAsync(exe, [], output, 30);

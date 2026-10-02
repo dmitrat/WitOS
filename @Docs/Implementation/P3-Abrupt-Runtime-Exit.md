@@ -8,11 +8,11 @@ The baseline full-runtime fixture attached a real joinable worker to ThreadStore
 
 ## Generic kernel policy, user-space cleanup
 
-Experimental user ABI v36 adds THREAD_COMPLETE(code,0,0), call 63. System.Native invokes it only after wit_native_tls_leave and wit_native_thread_notify_exit. The kernel performs the existing thread-exit/reap operation; it does not invoke or emulate RuntimeThreadShutdown, ThreadStore detach, FixAllocContext or managed callbacks.
+Experimental user ABI v36 adds THREAD_COMPLETE(code,0,0), call 63. Runtime.Native invokes it only after wit_native_tls_leave and wit_native_thread_notify_exit. The kernel performs the existing thread-exit/reap operation; it does not invoke or emulate RuntimeThreadShutdown, ThreadStore detach, FixAllocContext or managed callbacks.
 
 The kernel-selected full-runtime admission profile sets RequireThreadCompletion independently of memory quotas. Raw THREAD_EXIT in this coordinated profile records the kernel-owned caller identity and requested code, then terminates the entire component with WIT_PROCESS_ABRUPT_THREAD_EXIT (0xFFFF0002). Peers cannot resume while holding dead runtime records. The ordinary native profile retains its existing raw current-thread exit behavior.
 
-THREAD_COMPLETE is a lifecycle assertion, not a security capability and not proof of managed cleanup against hostile native code in the same component. Native code can already corrupt its own runtime state. The distinction makes supported System.Native completion and explicit raw bypass unambiguous. Reserved completion arguments are rejected before mutation; successful completion cannot return. The boot ABI and public application compatibility target are unchanged.
+THREAD_COMPLETE is a lifecycle assertion, not a security capability and not proof of managed cleanup against hostile native code in the same component. Native code can already corrupt its own runtime state. The distinction makes supported Runtime.Native completion and explicit raw bypass unambiguous. Reserved completion arguments are rejected before mutation; successful completion cannot return. The boot ABI and public application compatibility target are unchanged.
 
 An unhandled native fault in an attached worker follows the actual upstream handler/fail-fast path and terminates the whole component. Whole-process raw exit remains abrupt component teardown. No attempt is made to resume a partially damaged runtime or to synthesize managed detach in the kernel.
 

@@ -28,7 +28,7 @@ public sealed class NativeLibraryTests
         var fixture = await NativeLibraryImage.BuildAsync(root, output, msvc);
         var exe = Path.Combine(output, "native-library.exe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo","/MD","/TC","/std:c17","/W4","/WX","/O2",
-            "/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"Include",version,"ucrt"),"/I"+Path.Combine(sdk,"Include",version,"um"),"/I"+Path.Combine(sdk,"Include",version,"shared"),"/I"+Path.Combine(root,"src/System.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),
+            "/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"Include",version,"ucrt"),"/I"+Path.Combine(sdk,"Include",version,"um"),"/I"+Path.Combine(sdk,"Include",version,"shared"),"/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),
             "/Fo"+output+"/","/Fe"+exe,Path.Combine(root,"src/Kernel/pe.c"),Path.Combine(root,"src/Kernel/pe_imports.c"),Path.Combine(root,"src/Kernel/pe_exports.c"),Path.Combine(root,"tests/WitOS.Dev.Tests/Native/NativeLibrary.c"),
             "/link","/LIBPATH:"+Path.Combine(vc,"lib/x64"),"/LIBPATH:"+Path.Combine(sdk,"Lib",version,"ucrt/x64"),
             "/LIBPATH:"+Path.Combine(sdk,"Lib",version,"um/x64"),"kernel32.lib"], root);

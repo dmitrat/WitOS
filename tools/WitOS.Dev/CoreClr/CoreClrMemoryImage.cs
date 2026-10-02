@@ -38,34 +38,34 @@ internal static class CoreClrMemoryImage
         await RuntimeUnwindReference.PrepareAsync(root);
         var unwind = Path.Combine(root, "artifacts/runtime-unwind");
         var objects = new List<string>();
-        foreach (var file in new[]{"src/System.Native/library.c","src/System.Native/library_lifecycle.c","src/System.Native/path.c","src/System.Native/current_directory.c","src/System.Native/file.c","src/Runtime.CoreClr/module_functions.witos.cpp","src/Runtime.CoreClr/doublemapping.witos.cpp","src/Runtime.CoreClr/function_tables.witos.cpp","src/Runtime.CoreClr/function_tables_guest.witos.cpp","src/Runtime.CoreClr/dynamic_unwind_guest.witos.cpp",
+        foreach (var file in new[]{"src/Runtime.Native/library.c","src/Runtime.Native/library_lifecycle.c","src/Runtime.Native/path.c","src/Runtime.Native/current_directory.c","src/Runtime.Native/file.c","src/Runtime.CoreClr/module_functions.witos.cpp","src/Runtime.CoreClr/doublemapping.witos.cpp","src/Runtime.CoreClr/function_tables.witos.cpp","src/Runtime.CoreClr/function_tables_guest.witos.cpp","src/Runtime.CoreClr/dynamic_unwind_guest.witos.cpp",
             "tests/User.X64/coreclr_mapper.cpp","tests/User.X64/module_unwind.cpp","tests/User.X64/module_foreign_unwind.cpp","tests/User.X64/coreclr_dynamic_unwind.cpp","src/Runtime.NativeAot/crt_memory.witos.c","src/Runtime.NativeAot/crt_config.witos.cpp",
-            "src/System.Native/tls_metadata.c","src/System.Native/image.c","src/Runtime.NativeAot/unwind_checked.witos.cpp","src/Runtime.NativeAot/unwind_validation.witos.cpp",
+            "src/Runtime.Native/tls_metadata.c","src/Runtime.Native/image.c","src/Runtime.NativeAot/unwind_checked.witos.cpp","src/Runtime.NativeAot/unwind_validation.witos.cpp",
             "src/Runtime.NativeAot/unwind_scope.witos.cpp","src/Runtime.NativeAot/unwind_guest.witos.cpp","src/Runtime.NativeAot/native_exception.witos.cpp","src/Runtime.NativeAot/seh_scope.witos.cpp",
             "src/Runtime.NativeAot/seh_validation.witos.cpp","src/Runtime.NativeAot/seh_security.witos.cpp","src/Runtime.NativeAot/security_handler.witos.cpp",
             "src/Runtime.NativeAot/security_cookie.witos.cpp","src/Runtime.NativeAot/failfast_exception.witos.cpp","src/Runtime.NativeAot/pal_error.witos.cpp",
-            "src/Kernel.Arch.X64/native_exception_x64.cpp","artifacts/runtime-unwind/unwinder.checked.cpp"})
+            "src/Runtime.NativeAot/X64/native_exception_x64.cpp","artifacts/runtime-unwind/unwinder.checked.cpp"})
         {
             var obj = Path.Combine(output, Path.GetFileName(file) + ".obj");
             var c = file.EndsWith(".c", StringComparison.Ordinal);
             await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo","/c",c?"/TC":"/TP",c?"/std:c17":"/std:c++17","/GS-","/GR-","/EHs-c-","/Zl","/Oi","/O1","/DTARGET_AMD64","/DHOST_AMD64","/DHOST_64BIT","/DTARGET_64BIT","/DHOST_WINDOWS","/DTARGET_WINDOWS","/DNDEBUG","/DNOMINMAX","/DWITOS_DYNAMIC_CODE","/W4","/WX",
                 "/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"Include",version,"ucrt"),"/I"+Path.Combine(sdk,"Include",version,"um"),"/I"+Path.Combine(sdk,"Include",version,"shared"),"/I"+unwind,"/I"+Path.Combine(verified,"src/coreclr/nativeaot/Runtime"),"/I"+Path.Combine(verified,"src/coreclr/nativeaot/Runtime/inc"),"/I"+Path.Combine(verified,"src/coreclr/nativeaot/Runtime/windows"),"/I"+Path.Combine(verified,"src/coreclr/gc/env"),"/I"+Path.Combine(verified,"src/native"),"/I"+Path.Combine(root,"artifacts/runtime-config/include"),"/I"+Path.Combine(root,"src/Runtime.NativeAot"),"/I"+Path.Combine(root,"src/Runtime.CoreClr"),"/I"+Path.GetDirectoryName(header),"/I"+Path.Combine(root,"src/Kernel/include"),
-                "/I"+Path.Combine(root,"src/System.Native"),"/I"+Path.Combine(root,"tests/User.X64"),"/Fo"+obj,Path.Combine(root,file)], root);
+                "/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"tests/User.X64"),"/Fo"+obj,Path.Combine(root,file)], root);
             objects.Add(obj);
         }
         var entry = Path.Combine(output, "coreclr_mapper_start.obj");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/I" + output, "/Fo" + entry, Path.Combine(root, "src/Kernel.Arch.X64/native_start.asm")], root);
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/I" + output, "/Fo" + entry, Path.Combine(root, "src/Runtime.Native/X64/native_start.asm")], root);
         objects.Add(entry);
         var frameObject = Path.Combine(output, "coreclr_jit_frame.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + frameObject, Path.Combine(root, "tests/User.X64/coreclr_jit_frame.asm")], root);
         objects.Add(frameObject);
         var bindings = Path.Combine(output, "coreclr_unwind_bindings.obj");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + bindings, Path.Combine(root, "src/Kernel.Arch.X64/coreclr_unwind_bindings.asm")], root);
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + bindings, Path.Combine(root, "src/Runtime.CoreClr/X64/coreclr_unwind_bindings.asm")], root);
         objects.Add(bindings);
-        foreach (var name in new[] { "native_exception", "security_cookie" })
+        foreach (var (directory, name) in new[] { ("src/Runtime.Pal.Win32/X64", "native_exception"), ("src/Runtime.NativeAot/X64", "security_cookie") })
         {
             var obj = Path.Combine(output, "coreclr-" + name + ".obj");
-            await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/I" + output, "/Fo" + obj, Path.Combine(root, "src/Kernel.Arch.X64", name + ".asm")], root);
+            await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/I" + output, "/Fo" + obj, Path.Combine(root, directory, name + ".asm")], root);
             objects.Add(obj);
         }
         objects.Add(Path.Combine(output, "native_error.obj"));

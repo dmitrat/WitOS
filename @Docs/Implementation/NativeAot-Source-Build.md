@@ -13,7 +13,7 @@ Use the pinned upstream `src/coreclr/build-runtime.cmd -x64 -release -component 
 
 The WitOS profile additionally removes Windows PalCommon.cpp/PalMinWin.cpp and compiles the [partial WitOS PAL](NativeAot-Pal-Thread-Discovery.md). Missing services remain unresolved at the PAL interface.
 
-Version 0.0.23 also compiles the shared System.Native/image.c descriptor/context implementation and the [PAL module adapter](NativeAot-Pal-Module-Discovery.md), verifying both archive objects byte-for-byte.
+Version 0.0.23 also compiles the shared Runtime.Native/image.c descriptor/context implementation and the [PAL module adapter](NativeAot-Pal-Module-Discovery.md), verifying both archive objects byte-for-byte.
 
 The source commit is `b82454cad0aaaae3db2cf18fbf2cccc36e201ccc` (.NET 10.0.8). The tool fetches that exact commit into an ignored sparse checkout containing `eng`, `src/coreclr` and `src/native`, verifies the repository/revision and refuses a dirty or mismatched checkout. It checks cleanliness again after building. Git commits pin the full native source/build tree; the current 58-file SHA-256 audit includes the GC/Crst inputs, PAL declaration closure and RhConfig/GCConfig sources; the runtime revision and VMR/package provenance remain unchanged.
 

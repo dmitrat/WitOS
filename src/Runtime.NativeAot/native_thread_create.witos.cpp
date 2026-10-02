@@ -61,7 +61,7 @@ extern "C" HANDLE WINAPI wit_native_create_thread(LPSECURITY_ATTRIBUTES attribut
     }
     starts[slot] = {callback, argument};
     WitU64 reference = 0;
-    // System.Native's real wrapper enters/leaves TLS and invokes runtime exit
+    // Runtime.Native's real wrapper enters/leaves TLS and invokes runtime exit
     // notification before THREAD_COMPLETE. Kernel publication is atomic.
     const auto status = wit_native_thread_create_reference(
         run, slot, stackBytes, flags & CREATE_SUSPENDED ? WIT_THREAD_START_SUSPENDED : 0, (WitU64)nativeId, &reference);

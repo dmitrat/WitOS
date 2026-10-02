@@ -8,12 +8,13 @@
 | --- | --- | --- | --- | --- |
 | Загрузчик UEFI | `src/Boot.Uefi` | там же | Вход `efi_main`, карта памяти, образ ядра, энтропия, загрузочный пакет, `ExitBootServices` | `witos/boot.h`, `platform.h`; `arch.h` для передачи управления ядру |
 | Общее ядро | `src/Kernel` | там же с Q2.5 | Физические страницы, хэндлы, события, PE-валидатор, пакет, случайность, процессы, потоки, ожидания, APC, references, stack leases, DLL, исключения как политика | только `src/Kernel/include` и `witos/arch.h` |
-| Архитектура | `src/Kernel.Arch.X64`, затем `src/Kernel.Arch.A64` | там же; до Q2.8 рядом лежат `native_*.asm` и пользовательские фикстуры | Векторы, вход и выход из пользовательского режима, сохранение контекста, таблицы страниц, профиль FPU, CPUID и кэш, барьеры | общее ядро через `arch.h` |
+| Архитектура | `src/Kernel.Arch.X64`, затем `src/Kernel.Arch.A64` | там же; с Q2.8 только код ядра, единственный общий с пользовательскими образами файл `chkstk.asm` | Векторы, вход и выход из пользовательского режима, сохранение контекста, таблицы страниц, профиль FPU, CPUID и кэш, барьеры | общее ядро через `arch.h` |
 | Платформа | `src/Kernel.Platform.Q35`, `src/Kernel.Platform.QemuVirt` | `src/Kernel.Platform.Q35` с Q2.6 | Консоль, контроллер прерываний, таймер тиков, монотонные часы, тестовый выход | `platform.h` |
-| Self-test и фикстуры ядра | `tests/Kernel.X64` | там же с Q2.7; белые ящики под `WITOS_SELFTEST` рядом со своими модулями | `*_tests.c`, `*_fixture.asm`; собираются только с `WITOS_SELFTEST` | все слои ядра |
-| Пользовательский native-слой | `src/Runtime.Native` | `src/System.Native` | Обёртки syscall, bootstrap, TLS-цикл, пути, файлы, DLL lifecycle | только `user_abi.h` и его заголовки |
-| Win32-форма PAL | `src/Runtime.Pal.Win32` | `src/Runtime.NativeAot` и `native_*.asm` в `src/Kernel.Arch.X64` | Реализации Win32-имён, которые ждёт runtime, собранный под Windows ABI | `Runtime.Native` |
-| Адаптеры runtime | `src/Runtime.NativeAot`, `src/Runtime.CoreClr` | там же | GC OS interface, PAL NativeAOT, minipal, CoreCLR VMToOS, hosting PAL | `Runtime.Native`, `Runtime.Pal.Win32` |
+| Self-test и фикстуры ядра | `tests/Kernel.X64` | там же с Q2.7; белые ящики под `WITOS_SELFTEST` рядом со своими модулями | `*_tests.c`, `self_test.asm`; собираются только с `WITOS_SELFTEST` | все слои ядра |
+| Гостевые фикстуры | `tests/User.X64`, `tests/Runtime.NativeAot` | там же; ассемблерные `*_fixture.asm` переехали из арх-каталога в Q2.8 | Пользовательские процессы и runtime-пробы, которые встраиваются в тестовые образы | пользовательские слои |
+| Пользовательский native-слой | `src/Runtime.Native` | там же с Q2.8 (прежде `src/System.Native`); `X64/native_start.asm`: вход процесса, syscall, блокировки, fail-fast | Обёртки syscall, bootstrap, TLS-цикл, пути, файлы, DLL lifecycle | только `user_abi.h` и его заголовки |
+| Win32-форма PAL | `src/Runtime.Pal.Win32` | с Q2.8 Win32-привязки `X64/native_*.asm`; реализации `native_*.witos.cpp` пока в `src/Runtime.NativeAot` поверх PAL NativeAOT, перенос вместе с отвязкой от upstream `Pal.h` в P6.4 | Реализации Win32-имён, которые ждёт runtime, собранный под Windows ABI | `Runtime.Native` |
+| Адаптеры runtime | `src/Runtime.NativeAot`, `src/Runtime.CoreClr` | там же; ISA-код в подкаталогах `X64` | GC OS interface, PAL NativeAOT, minipal, CoreCLR VMToOS, hosting PAL | `Runtime.Native`, `Runtime.Pal.Win32` |
 | Upstream .NET | вне репозитория, pinned | `.tools/upstream` | `dotnet/runtime` с hash-проверкой и оверлеем | адаптеры runtime |
 | Инструменты | `tools/WitOS.Dev`, манифесты `build/` | `tools/WitOS.Dev` | Сборка, QEMU, приёмка, evidence | — |
 

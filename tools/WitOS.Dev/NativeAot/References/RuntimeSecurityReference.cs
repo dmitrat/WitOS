@@ -36,11 +36,11 @@ internal static class RuntimeSecurityReference
         if (!allocate.Success || buffer < 32 || cookie - buffer < 128 || cookie + 8 > int.Parse(allocate.Groups[1].Value) || cookie - buffer > 4096 ||
             !new[] { "__security_cookie", "__security_check_cookie", "__GSHandlerCheck" }.All(NativeObject.Inspect(frame).UndefinedExternals.Contains))
             throw new InvalidDataException("GS probe no longer identifies a protected cookie slot safely.");
-        string[] includes = ["/I"+Path.Combine(root,"src/System.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),"/I"+Path.Combine(vc,"include"),
+        string[] includes = ["/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),"/I"+Path.Combine(vc,"include"),
             "/I"+Path.Combine(sdk,"Include",version,"ucrt"),"/I"+Path.Combine(sdk,"Include",version,"shared"),"/I"+Path.Combine(sdk,"Include",version,"um")];
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo", "/c", "/std:c++17", "/W4", "/WX", "/O2", "/GS-", "/Gy", "/Zl", "/DWITOS_GS_COOKIE_OFFSET=" + (cookie - buffer), .. includes, "/Fo" + output + "/", Path.Combine(root, "tests/Runtime.NativeAot/security_reference.cpp"), Path.Combine(root, "src/Runtime.NativeAot/security_cookie.witos.cpp")], root);
         var check = Path.Combine(output, "security_cookie.obj");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + check, Path.Combine(root, "src/Kernel.Arch.X64/security_cookie.asm")], root);
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + check, Path.Combine(root, "src/Runtime.NativeAot/X64/security_cookie.asm")], root);
         var executable = Path.Combine(output, "security_reference.exe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"), ["/nologo","/nodefaultlib","/entry:wit_gs_reference_start","/subsystem:console","/machine:x64","/opt:ref","/incremental:no","/out:"+executable,
             frame,Path.Combine(output,"security_reference.obj"),Path.Combine(output,"security_cookie.witos.obj"),check,
@@ -61,7 +61,7 @@ internal static class RuntimeSecurityReference
             cookieOffset = cookie,
             results,
             frameSha256 = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(frame))).ToLowerInvariant(),
-            sources = new[] { "tests/Runtime.NativeAot/security_frame.cpp", "tests/Runtime.NativeAot/security_reference.cpp", "src/Runtime.NativeAot/security_cookie.witos.cpp", "src/Kernel.Arch.X64/security_cookie.asm", "src/System.Native/native_security.h", "src/System.Native/diagnostics.h" }
+            sources = new[] { "tests/Runtime.NativeAot/security_frame.cpp", "tests/Runtime.NativeAot/security_reference.cpp", "src/Runtime.NativeAot/security_cookie.witos.cpp", "src/Runtime.NativeAot/X64/security_cookie.asm", "src/Runtime.Native/native_security.h", "src/Runtime.Native/diagnostics.h" }
                 .Select(p => new { file = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, p)))).ToLowerInvariant() }),
             scope = "Real MSVC /GS frame and own cookie/check with Windows entropy/exit transport. System seed before protected entry; corrupt slot terminates. Windows GS unwind handler is used only by this hosted image; guest v1 handler evidence remains separate."
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));

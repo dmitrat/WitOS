@@ -19,12 +19,12 @@ internal static class CoreClrStorageImage
     internal static async Task BuildAsync(string root, string output, string msvc)
     {
         var objects = new List<string> { Path.Combine(output, "native_start.obj") };
-        foreach (var source in new[] { "src/System.Native/library.c", "src/System.Native/library_lifecycle.c", "tests/User.X64/library_loader.c", "tests/User.X64/library_graph.c", "tests/User.X64/library_readers.c", "tests/User.X64/library_lifecycle.c", "tests/User.X64/library_tls_guest.c", "src/System.Native/directory.c", "tests/User.X64/native_directory.c", "src/System.Native/path.c", "src/System.Native/current_directory.c", "tests/User.X64/native_paths.c", "src/System.Native/file.c", "src/System.Native/file_view.c", "tests/User.X64/file_views.c", "tests/User.X64/coreclr_storage.c" })
+        foreach (var source in new[] { "src/Runtime.Native/library.c", "src/Runtime.Native/library_lifecycle.c", "tests/User.X64/library_loader.c", "tests/User.X64/library_graph.c", "tests/User.X64/library_readers.c", "tests/User.X64/library_lifecycle.c", "tests/User.X64/library_tls_guest.c", "src/Runtime.Native/directory.c", "tests/User.X64/native_directory.c", "src/Runtime.Native/path.c", "src/Runtime.Native/current_directory.c", "tests/User.X64/native_paths.c", "src/Runtime.Native/file.c", "src/Runtime.Native/file_view.c", "tests/User.X64/file_views.c", "tests/User.X64/coreclr_storage.c" })
         {
             var obj = Path.Combine(output, "storage_" + source.Replace('/', '_').Replace('.', '_') + ".obj");
             objects.Add(obj);
             await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo","/c","/TC","/std:c17","/W4","/WX","/GS-","/Zl","/Oi","/O2",
-                "/I"+Path.Combine(root,"src/Kernel/include"),"/I"+Path.Combine(root,"src/System.Native"),"/I"+Path.Combine(root,"tests/User.X64"),"/I"+output,
+                "/I"+Path.Combine(root,"src/Kernel/include"),"/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"tests/User.X64"),"/I"+output,
                 "/Fo"+obj,Path.Combine(root,source)], root);
         }
         var palInclude = Path.Combine(output, "host-pal");
@@ -38,7 +38,7 @@ internal static class CoreClrStorageImage
             objects.Add(obj);
             await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo","/c","/TP","/std:c++20","/O2","/GS-","/Zl","/W4","/WX","/DNDEBUG","/DWITOS_HOST_FILES",
                 "/I"+palInclude,"/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"Include",version,"ucrt"),"/I"+Path.Combine(sdk,"Include",version,"um"),"/I"+Path.Combine(sdk,"Include",version,"shared"),
-                "/I"+Path.Combine(root,"src/System.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),"/Fo"+obj,Path.Combine(root,source)], root);
+                "/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),"/Fo"+obj,Path.Combine(root,source)], root);
         }
         var stackProbe = Path.Combine(output, "storage_chkstk.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + stackProbe, Path.Combine(root, "src/Kernel.Arch.X64/chkstk.asm")], root);
