@@ -1,10 +1,34 @@
-using System.Text.Json;
 using System.Security.Cryptography;
+using System.Text.Json;
 using WitOS.Dev.Host;
 using WitOS.Dev.NativeAot;
-internal static class PeCorpus
+using WitOS.Dev.Tests.Support;
+
+namespace WitOS.Dev.Tests.Native;
+
+/// <summary>
+/// Common kernel PE validator on the 555-case guarded corpus, plain and with branch coverage and ASan (hosted).
+/// </summary>
+[TestFixture]
+public sealed class PeCorpusTests
 {
-    public static async Task RunAsync(string root, string output, bool coverage = false)
+    #region Functions
+
+    [Test]
+    [Category(TestCategories.PE)]
+    [Explicit("Needs the runtime-source image")]
+    public Task GuardedPeCorpusTest() => RunAsync(TestEnvironment.Root, TestEnvironment.Scratch());
+
+    [Test]
+    [Category(TestCategories.PE_COVERAGE)]
+    [Explicit("Needs the pinned LLVM toolchain")]
+    public Task GuardedPeCorpusCoverageTest() => RunAsync(TestEnvironment.Root, TestEnvironment.Scratch(), true);
+
+    #endregion
+
+    #region Tools
+
+    private static async Task RunAsync(string root, string output, bool coverage = false)
     {
         var msvc = await Toolchain.FindMsvcAsync(root);
         var vc = Path.GetFullPath(Path.Combine(msvc, "../../.."));
@@ -21,7 +45,7 @@ internal static class PeCorpus
             await NativeCoverage.PrepareAsync(root);
         var compiler = coverage ? Path.Combine(NativeCoverage.DirectoryPath(root), "bin/clang-cl.exe") : Path.Combine(msvc, "cl.exe");
         string[] instrumentation = coverage ? ["/clang:-fprofile-instr-generate", "/clang:-fcoverage-mapping", "/fsanitize=address", "-fuse-ld=lld"] : [];
-        var source = Path.Combine(root, "tests/WitOS.Dev.Tests/PeCorpus.c");
+        var source = Path.Combine(root, "tests/WitOS.Dev.Tests/Native/PeCorpus.c");
         var parser = Path.Combine(root, "src/Kernel/pe.c");
         var exe = Path.Combine(output, "pe-corpus.exe");
         await Processes.RequireSuccessAsync(compiler, ["/nologo","/MD","/TC","/std:c17",coverage?"/Od":"/O2",..instrumentation,"/GS","/W4","/WX","/D_CRT_SECURE_NO_WARNINGS",
@@ -44,4 +68,6 @@ internal static class PeCorpus
         if (coverage)
             await NativeCoverage.ReportAsync(root, output, exe);
     }
+
+    #endregion
 }

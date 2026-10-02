@@ -1,8 +1,25 @@
 using WitOS.Dev.Host;
 using WitOS.Dev.Kernel;
-internal static class AssemblyPackageNative
+using WitOS.Dev.Tests.Support;
+
+namespace WitOS.Dev.Tests.Native;
+
+/// <summary>
+/// Native boot package parser and firmware transport on guarded and fault-injected inputs (hosted).
+/// </summary>
+[TestFixture]
+public sealed class AssemblyPackageNativeTests
 {
-    internal static async Task RunAsync(string root, string output)
+    #region Functions
+
+    [Test]
+    public Task AssemblyPackageNativeGuardedTest() => RunAsync(TestEnvironment.Root, TestEnvironment.Scratch());
+
+    #endregion
+
+    #region Tools
+
+    private static async Task RunAsync(string root, string output)
     {
         var msvc = await Toolchain.FindMsvcAsync(root);
         var vc = Path.GetFullPath(Path.Combine(msvc, "../../.."));
@@ -25,7 +42,7 @@ internal static class AssemblyPackageNative
         var exe = Path.Combine(output, "assembly-package.exe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo","/MD","/TC","/std:c17","/W4","/WX","/O2",
             "/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"Include",version,"ucrt"),"/I"+Path.Combine(sdk,"Include",version,"um"),"/I"+Path.Combine(sdk,"Include",version,"shared"),"/I"+Path.Combine(root,"src/Kernel/include"),
-            "/Fo"+output+"/","/Fe"+exe,Path.Combine(root,"src/Kernel/package.c"),Path.Combine(root,"tests/WitOS.Dev.Tests/AssemblyPackageNative.c"),Path.Combine(root,"tests/WitOS.Dev.Tests/BootPackageFirmware.c"),
+            "/Fo"+output+"/","/Fe"+exe,Path.Combine(root,"src/Kernel/package.c"),Path.Combine(root,"tests/WitOS.Dev.Tests/Native/AssemblyPackageNative.c"),Path.Combine(root,"tests/WitOS.Dev.Tests/Native/BootPackageFirmware.c"),
             "/link","/LIBPATH:"+Path.Combine(vc,"lib/x64"),"/LIBPATH:"+Path.Combine(sdk,"Lib",version,"ucrt/x64"),
             "/LIBPATH:"+Path.Combine(sdk,"Lib",version,"um/x64"),"kernel32.lib"], root);
         var run = await Processes.RunAsync(exe, [package, small, firmware, hierarchy], output, 30);
@@ -40,4 +57,6 @@ internal static class AssemblyPackageNative
         }
         Console.Write(run.Output);
     }
+
+    #endregion
 }

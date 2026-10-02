@@ -29,7 +29,8 @@ dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-audit
 dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-probe
 dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-target
 dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-source
-dotnet run --project tests/WitOS.Dev.Tests --configuration Release -- --pe
+dotnet test tests/WitOS.Dev.Tests --configuration Release --no-build
+dotnet test tests/WitOS.Dev.Tests --configuration Release --no-build --filter TestCategory=Pe
 dotnet run --project tools/WitOS.Dev --configuration Release -- test
 dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-config
 dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-boot-run

@@ -4,5 +4,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/WitOS.Dev.Tests/WitOS.Dev.Tests.csproj" />
+    <Project Path="tests/WitOS.Dev.Tests.Child/WitOS.Dev.Tests.Child.csproj" />
   </Folder>
 </Solution>

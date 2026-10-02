@@ -3,12 +3,19 @@ using System.Security.Cryptography;
 using System.Text;
 using WitOS.Dev.Kernel;
 
-internal static class AssemblyPackageTests
+namespace WitOS.Dev.Tests.Kernel;
+
+/// <summary>
+/// Boot package writer: canonical wire format, unchanged bytes, canonical names and quotas.
+/// </summary>
+[TestFixture]
+public sealed class AssemblyPackageTests
 {
-    internal static Task RunAsync()
+    #region Functions
+
+    [Test]
+    public void AssemblyPackageCanonicalBytesTest()
     {
-        static void Require(bool value, string message)
-        { if (!value) throw new InvalidDataException(message); }
         static void Reject(IEnumerable<(string Name, ReadOnlyMemory<byte> Bytes)> files)
         {
             try
@@ -23,11 +30,10 @@ internal static class AssemblyPackageTests
             ("empty", Array.Empty<byte>()), ("resources/\u03bb.txt", "payload"u8.ToArray())
         };
         var package = AssemblyPackage.Create(files);
-        Require(package.AsSpan().SequenceEqual(AssemblyPackage.Create(files.Reverse())), "Package depends on input enumeration order.");
-        Require(package.AsSpan(0, 8).SequenceEqual("WITPAK01"u8) && BinaryPrimitives.ReadUInt32LittleEndian(package.AsSpan(8)) == 1 &&
+        Assert.That(package.AsSpan().SequenceEqual(AssemblyPackage.Create(files.Reverse())), Is.True, "Package depends on input enumeration order.");
+        Assert.That(package.AsSpan(0, 8).SequenceEqual("WITPAK01"u8) && BinaryPrimitives.ReadUInt32LittleEndian(package.AsSpan(8)) == 1 &&
             BinaryPrimitives.ReadUInt32LittleEndian(package.AsSpan(12)) == 32 && BinaryPrimitives.ReadUInt32LittleEndian(package.AsSpan(16)) == 4 &&
-            BinaryPrimitives.ReadUInt32LittleEndian(package.AsSpan(20)) == 32 && BinaryPrimitives.ReadUInt64LittleEndian(package.AsSpan(24)) == (ulong)package.Length,
-            "Package wire header changed.");
+            BinaryPrimitives.ReadUInt32LittleEndian(package.AsSpan(20)) == 32 && BinaryPrimitives.ReadUInt64LittleEndian(package.AsSpan(24)) == (ulong)package.Length, Is.True, "Package wire header changed.");
         foreach (var (file, index) in files.Select((file, index) => (file, index)))
         {
             var at = 32 + index * 32;
@@ -35,10 +41,9 @@ internal static class AssemblyPackageTests
             var nameBytes = (int)BinaryPrimitives.ReadUInt32LittleEndian(package.AsSpan(at + 4));
             var dataAt = (int)BinaryPrimitives.ReadUInt64LittleEndian(package.AsSpan(at + 8));
             var dataBytes = (int)BinaryPrimitives.ReadUInt64LittleEndian(package.AsSpan(at + 16));
-            Require(Encoding.UTF8.GetString(package, nameAt, nameBytes) == file.Name && (dataAt & 7) == 0 && dataBytes == file.Bytes.Length,
-                "Wire index/name/alignment mismatch.");
-            Require(SHA256.HashData(package.AsSpan(dataAt, dataBytes)).AsSpan().SequenceEqual(SHA256.HashData(file.Bytes.Span)), "Packaged file bytes changed.");
-            Require(BinaryPrimitives.ReadUInt64LittleEndian(package.AsSpan(at + 24)) == 0, "Reserved index fields are nonzero.");
+            Assert.That(Encoding.UTF8.GetString(package, nameAt, nameBytes) == file.Name && (dataAt & 7) == 0 && dataBytes == file.Bytes.Length, Is.True, "Wire index/name/alignment mismatch.");
+            Assert.That(SHA256.HashData(package.AsSpan(dataAt, dataBytes)).AsSpan().SequenceEqual(SHA256.HashData(file.Bytes.Span)), Is.True, "Packaged file bytes changed.");
+            Assert.That(BinaryPrimitives.ReadUInt64LittleEndian(package.AsSpan(at + 24)) == 0, Is.True, "Reserved index fields are nonzero.");
         }
         foreach (var name in new[] { "", "/app", "app/", "app//file", ".", "..", "app/../file", "app/./file", "C:/file", "app\\file", "a\0b", "\ud800", new string('x', 1025) })
             Reject(new[] { (name, ReadOnlyMemory<byte>.Empty) });
@@ -48,9 +53,9 @@ internal static class AssemblyPackageTests
         Reject(new[] { ("a", ReadOnlyMemory<byte>.Empty), ("a.b", ReadOnlyMemory<byte>.Empty), ("a/child", ReadOnlyMemory<byte>.Empty) });
         var megabyte = new byte[1024 * 1024];
         Reject(Enumerable.Range(0, 129).Select(i => (i.ToString(), (ReadOnlyMemory<byte>)megabyte)));
-        Require(AssemblyPackage.Create(Enumerable.Range(0, AssemblyPackage.MAXIMUM_FILES).Select(i => (i.ToString(), ReadOnlyMemory<byte>.Empty))).Length > 32,
-            "Exact file quota rejected.");
-        Require(AssemblyPackage.Create(Array.Empty<(string, ReadOnlyMemory<byte>)>()).Length == 32, "Empty package is not canonical.");
-        return Task.CompletedTask;
+        Assert.That(AssemblyPackage.Create(Enumerable.Range(0, AssemblyPackage.MAXIMUM_FILES).Select(i => (i.ToString(), ReadOnlyMemory<byte>.Empty))).Length > 32, Is.True, "Exact file quota rejected.");
+        Assert.That(AssemblyPackage.Create(Array.Empty<(string, ReadOnlyMemory<byte>)>()).Length == 32, Is.True, "Empty package is not canonical.");
     }
+
+    #endregion
 }

@@ -1,7 +1,24 @@
 using WitOS.Dev.Host;
-internal static class FileViewFaults
+using WitOS.Dev.Tests.Support;
+
+namespace WitOS.Dev.Tests.Native;
+
+/// <summary>
+/// Native file-view adapter under deterministic syscall failures (hosted).
+/// </summary>
+[TestFixture]
+public sealed class FileViewFaultsTests
 {
-    internal static async Task RunAsync(string root, string output)
+    #region Functions
+
+    [Test]
+    public Task FileViewFailureTransactionsTest() => RunAsync(TestEnvironment.Root, TestEnvironment.Scratch());
+
+    #endregion
+
+    #region Tools
+
+    private static async Task RunAsync(string root, string output)
     {
         var msvc = await Toolchain.FindMsvcAsync(root);
         var vc = Path.GetFullPath(Path.Combine(msvc, "../../.."));
@@ -10,7 +27,7 @@ internal static class FileViewFaults
         var exe = Path.Combine(output, "file-view-faults.exe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo","/MD","/TC","/std:c17","/W4","/WX","/O2",
             "/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"Include",version,"ucrt"),"/I"+Path.Combine(sdk,"Include",version,"um"),"/I"+Path.Combine(sdk,"Include",version,"shared"),"/I"+Path.Combine(root,"src/System.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),
-            "/Fo"+output+"/","/Fe"+exe,Path.Combine(root,"src/System.Native/file.c"),Path.Combine(root,"src/System.Native/file_view.c"),Path.Combine(root,"tests/WitOS.Dev.Tests/FileViewFaults.c"),
+            "/Fo"+output+"/","/Fe"+exe,Path.Combine(root,"src/System.Native/file.c"),Path.Combine(root,"src/System.Native/file_view.c"),Path.Combine(root,"tests/WitOS.Dev.Tests/Native/FileViewFaults.c"),
             "/link","/LIBPATH:"+Path.Combine(vc,"lib/x64"),"/LIBPATH:"+Path.Combine(sdk,"Lib",version,"ucrt/x64"),
             "/LIBPATH:"+Path.Combine(sdk,"Lib",version,"um/x64"),"kernel32.lib"], root);
         var run = await Processes.RunAsync(exe, [], output, 30);
@@ -23,4 +40,6 @@ internal static class FileViewFaults
             throw new InvalidDataException("File view lost failed rollback cleanup.");
         Console.WriteLine("PASS: failed file-view rollback release fails fast (host fault injection only)");
     }
+
+    #endregion
 }

@@ -1,7 +1,26 @@
+namespace WitOS.Dev.Tests.Support;
+
+/// <summary>
+/// Synthetic runtime-boot serial logs that satisfy the guest protocol, and their building blocks.
+/// </summary>
 internal static class ProtocolFixtures
 {
+    #region Constants
+
+    /// <summary>
+    /// Worker lifecycle marker every successful runtime-boot block reports.
+    /// </summary>
     internal const string WORKER = "[USER] [RUNTIME] worker attach/detach/reuse/rollback and foreign GC/hijack/service-guard/exit-GC passed";
-    internal static readonly string[] LEGACY_MARKERS = ["[TEST-PASS] Runtime.InvalidHandoffTeardown", "[TEST-PASS] Runtime.MemoryProfile", "[RUNTIME] image published", "[RUNTIME] native TLS ready", "[RUNTIME] native initializers ready", "[RUNTIME] entering upstream wmain", WORKER, "[RUNTIME] wmain returned 0x000000000000002A", "[TEST-PASS] Runtime.ManagedBootAndGc", "[TEST-PASS] Runtime.RelocationAndTeardown"];
+
+    #endregion
+
+    #region Functions
+
+    /// <summary>
+    /// Successful runtime-boot block for one image base.
+    /// </summary>
+    /// <param name="address">Image base as 0x-prefixed hex.</param>
+    /// <returns>Serial log lines.</returns>
     internal static string Block(string address) => $"""
 Runtime boot image base: {address}
 Runtime boot load status: 0
@@ -27,6 +46,12 @@ Runtime managed thread capacity failures: 4
 Runtime orderly thread completions: 43
 Runtime execution ticks/limit: 120/3000
 """;
+
+    /// <summary>
+    /// Contained managed stack overflow block for one image base.
+    /// </summary>
+    /// <param name="address">Image base as 0x-prefixed hex.</param>
+    /// <returns>Serial log lines.</returns>
     internal static string StackOverflow(string address) => $"""
 Runtime managed stack overflow base: {address}
 [USER] [RUNTIME] image published
@@ -42,6 +67,12 @@ Runtime managed stack overflow base: {address}
 Runtime stack fault vector/error/address/low: 14/0x0000000000000004/0x0000008000014E10/0x0000008000015000
 [TEST-PASS] Runtime.ManagedStackOverflowContained
 """;
+
+    /// <summary>
+    /// GC initialization failure block for one image base.
+    /// </summary>
+    /// <param name="address">Image base as 0x-prefixed hex.</param>
+    /// <returns>Serial log lines.</returns>
     internal static string InitFailure(string address) => $"""
 Runtime init failure base: {address}
 [USER] [RUNTIME] image published
@@ -55,6 +86,13 @@ Runtime init failure base: {address}
 Runtime init failure exit/commits: 0x00000000FFFFFFFF/1
 [TEST-PASS] Runtime.GcInitFailureTeardown
 """;
+
+    /// <summary>
+    /// Abrupt worker exit block for one mode and image base.
+    /// </summary>
+    /// <param name="mode">Abrupt exit mode, 0 to 3.</param>
+    /// <param name="address">Image base as 0x-prefixed hex.</param>
+    /// <returns>Serial log lines.</returns>
     internal static string Abrupt(int mode, string address) => $"""
 Runtime abrupt mode/base: {mode}/{address}
 [USER] [RUNTIME] image published
@@ -65,6 +103,12 @@ Runtime abrupt mode/base: {mode}/{address}
 Runtime abrupt exit/report: {(mode < 2 ? "0x00000000FFFF0002" : "0x00000000C000001D")}/1/0/0/0
 [TEST-PASS] Runtime.AbruptWorkerContained
 """;
+
+    /// <summary>
+    /// Contained native fault block for one image base.
+    /// </summary>
+    /// <param name="address">Image base as 0x-prefixed hex.</param>
+    /// <returns>Serial log lines.</returns>
     internal static string NativeFault(string address) => $"""
 Runtime native fault base: {address}
 [USER] [RUNTIME] image published
@@ -75,10 +119,20 @@ Runtime native fault base: {address}
 [USER] [NATIVE-FAIL-FAST] code=0xC000001D address={address} rip={address}
 [TEST-PASS] Runtime.NativeFaultContained
 """;
+
+    #endregion
+
+    #region Properties
+
+    /// <summary>
+    /// Complete valid two-base protocol log.
+    /// </summary>
     internal static string Valid => ("[TEST-PASS] Runtime.InvalidHandoffTeardown\n" +
         NativeFault("0x0000008000100000") + "\n" + NativeFault("0x0000008000180000") + "\n" +
         StackOverflow("0x0000008000100000") + "\n" + StackOverflow("0x0000008000180000") + "\n" +
         InitFailure("0x0000008000100000") + "\n" + InitFailure("0x0000008000180000") + "\n" +
         string.Join("\n", Enumerable.Range(0, 4).SelectMany(mode => new[] { Abrupt(mode, "0x0000008000100000"), Abrupt(mode, "0x0000008000180000") })) + "\n" +
         Block("0x0000008000100000") + "\n" + Block("0x0000008000180000") + "\n" + Block("0x0000008000100000") + "\n" + Block("0x0000008000180000") + "\n[TEST-PASS] Runtime.ManagedBootAndGc\n[TEST-PASS] Runtime.RelocationAndTeardown\n").Replace("\r\n", "\n");
+
+    #endregion
 }

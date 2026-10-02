@@ -2,9 +2,31 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using WitOS.Dev.Host;
 using WitOS.Dev.Images;
-internal static class PeImports
+using WitOS.Dev.Tests.Support;
+
+namespace WitOS.Dev.Tests.Native;
+
+/// <summary>
+/// Import descriptor parser on guarded inputs and real linker-built DLL graphs, compared with Windows (hosted).
+/// </summary>
+[TestFixture]
+public sealed class PeImportsTests
 {
-    internal static async Task RunAsync(string root, string output, bool sanitize = false)
+    #region Functions
+
+    [Test]
+    public Task NativeImportDescriptorsTest() => RunAsync(TestEnvironment.Root, TestEnvironment.Scratch());
+
+    [Test]
+    [Category(TestCategories.PE_IMPORTS_ASAN)]
+    [Explicit("Needs the pinned LLVM toolchain")]
+    public Task NativeImportDescriptorsAsanTest() => RunAsync(TestEnvironment.Root, TestEnvironment.Scratch(), true);
+
+    #endregion
+
+    #region Tools
+
+    private static async Task RunAsync(string root, string output, bool sanitize = false)
     {
         if (sanitize)
             await NativeCoverage.PrepareAsync(root);
@@ -18,7 +40,7 @@ internal static class PeImports
         var exe = Path.Combine(output, "pe-imports.exe");
         await Processes.RequireSuccessAsync(sanitize ? Path.Combine(NativeCoverage.DirectoryPath(root), "bin/clang-cl.exe") : Path.Combine(msvc, "cl.exe"), ["/nologo","/MD","/TC","/std:c17","/W4","/WX",sanitize?"/O1":"/O2",..(sanitize?new[]{"/Zi","/clang:-fsanitize=address","-fuse-ld=lld"}:Array.Empty<string>()),
             "/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"Include",version,"ucrt"),"/I"+Path.Combine(sdk,"Include",version,"um"),"/I"+Path.Combine(sdk,"Include",version,"shared"),"/I"+Path.Combine(root,"src/System.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),
-            "/Fo"+output+"/","/Fe"+exe,Path.Combine(root,"src/Kernel/pe.c"),Path.Combine(root,"src/Kernel/pe_exports.c"),Path.Combine(root,"src/Kernel/pe_imports.c"),Path.Combine(root,"tests/WitOS.Dev.Tests/PeImports.c"),
+            "/Fo"+output+"/","/Fe"+exe,Path.Combine(root,"src/Kernel/pe.c"),Path.Combine(root,"src/Kernel/pe_exports.c"),Path.Combine(root,"src/Kernel/pe_imports.c"),Path.Combine(root,"tests/WitOS.Dev.Tests/Native/PeImports.c"),
             "/link","/LIBPATH:"+Path.Combine(vc,"lib/x64"),"/LIBPATH:"+Path.Combine(sdk,"Lib",version,"ucrt/x64"),
             "/LIBPATH:"+Path.Combine(sdk,"Lib",version,"um/x64"),"kernel32.lib"], root);
         var run = await Processes.RunAsync(exe, [fixtures["dependent.dll"], fixtures["CycleA.dll"], provider, fixtures["init.dll"], fixtures["initparent.dll"], fixtures["initfail.dll"], fixtures["initparentfail.dll"], tlsFixture], output, 30, sanitize ? new Dictionary<string, string>
@@ -49,8 +71,10 @@ internal static class PeImports
             guestExecuted = false,
             addressSanitizer = sanitize,
             executableSha256 = Hash(exe),
-            sourceSha256 = new[] { "src/Kernel/pe.c", "src/Kernel/pe_exports.c", "src/Kernel/pe_imports.c", "src/Kernel/include/witos/pe.h", "src/Kernel/include/witos/pe_imports.h", "tests/WitOS.Dev.Tests/PeImports.c" }.ToDictionary(file => file, file => Hash(Path.Combine(root, file)))
+            sourceSha256 = new[] { "src/Kernel/pe.c", "src/Kernel/pe_exports.c", "src/Kernel/pe_imports.c", "src/Kernel/include/witos/pe.h", "src/Kernel/include/witos/pe_imports.h", "tests/WitOS.Dev.Tests/Native/PeImports.c" }.ToDictionary(file => file, file => Hash(Path.Combine(root, file)))
         }, new JsonSerializerOptions { WriteIndented = true }));
         Console.Write(run.Output);
     }
+
+    #endregion
 }

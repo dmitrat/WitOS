@@ -1,8 +1,19 @@
 using System.Diagnostics;
 using WitOS.Dev.Host;
-internal static class QemuCleanupTests
+using WitOS.Dev.Tests.Support;
+
+namespace WitOS.Dev.Tests.Host;
+
+/// <summary>
+/// QMP control: message sequencing and errors over the socket, and timeout cleanup of real QEMU processes.
+/// </summary>
+[TestFixture]
+public sealed class QemuControlTests
 {
-    internal static async Task ProtocolAsync()
+    #region Functions
+
+    [Test]
+    public async Task SocketQmpSequencingAndErrorsTest()
     {
         foreach (var reject in new[] { false, true })
         {
@@ -38,8 +49,13 @@ internal static class QemuCleanupTests
         }
     }
 
-    internal static async Task RunAsync(string root, string output)
+    [Test]
+    [Category(TestCategories.QEMU_CLEANUP)]
+    [Explicit("Stress test; requires the pinned QEMU")]
+    public async Task QemuTimeoutCleanupTest()
     {
+        var root = TestEnvironment.Root;
+        var output = TestEnvironment.Scratch();
         Toolchain.RequireQemu(root);
         for (var round = 0; round < 12; ++round)
         {
@@ -57,4 +73,6 @@ internal static class QemuCleanupTests
         }
         Console.WriteLine("PASS: 12 QEMU socket-QMP timeouts with native process/job completion.");
     }
+
+    #endregion
 }

@@ -2,9 +2,26 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using WitOS.Dev.Host;
 using WitOS.Dev.Images;
-internal static class ThreadNotifications
+using WitOS.Dev.Tests.Support;
+
+namespace WitOS.Dev.Tests.Native;
+
+/// <summary>
+/// Windows reference for DLL thread attach/detach notifications on normal and suspended threads (hosted).
+/// </summary>
+[TestFixture]
+public sealed class ThreadNotificationsTests
 {
-    internal static async Task RunAsync(string root, string output)
+    #region Functions
+
+    [Test]
+    public Task NativeDllThreadReferenceTest() => RunAsync(TestEnvironment.Root, TestEnvironment.Scratch());
+
+    #endregion
+
+    #region Tools
+
+    private static async Task RunAsync(string root, string output)
     {
         var msvc = await Toolchain.FindMsvcAsync(root);
         var vc = Path.GetFullPath(Path.Combine(msvc, "../../.."));
@@ -14,7 +31,7 @@ internal static class ThreadNotifications
         var exe = Path.Combine(output, "thread-notification-reference.exe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo","/MD","/TC","/std:c17","/W4","/WX","/O2",
             "/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"Include",version,"ucrt"),"/I"+Path.Combine(sdk,"Include",version,"um"),"/I"+Path.Combine(sdk,"Include",version,"shared"),
-            "/Fo"+output+"/","/Fe"+exe,Path.Combine(root,"tests/WitOS.Dev.Tests/ThreadNotifications.c"),"/link",
+            "/Fo"+output+"/","/Fe"+exe,Path.Combine(root,"tests/WitOS.Dev.Tests/Native/ThreadNotifications.c"),"/link",
             "/LIBPATH:"+Path.Combine(vc,"lib/x64"),"/LIBPATH:"+Path.Combine(sdk,"Lib",version,"ucrt/x64"),"/LIBPATH:"+Path.Combine(sdk,"Lib",version,"um/x64"),"kernel32.lib"], root);
         var run = await Processes.RunAsync(exe, [dll], output, 90);
         await File.WriteAllTextAsync(Path.Combine(output, "thread-notifications.log"), run.Output + run.Error);
@@ -27,8 +44,10 @@ internal static class ThreadNotifications
             guestExecuted = false,
             dllSha256 = Hash(dll),
             executableSha256 = Hash(exe),
-            sources = new[] { "tests/User.X64/library_thread_entry.c", "tests/User.X64/library_entry_x64.asm", "tests/WitOS.Dev.Tests/ThreadNotifications.c" }.ToDictionary(file => file, file => Hash(Path.Combine(root, file)))
+            sources = new[] { "tests/User.X64/library_thread_entry.c", "tests/User.X64/library_entry_x64.asm", "tests/WitOS.Dev.Tests/Native/ThreadNotifications.c" }.ToDictionary(file => file, file => Hash(Path.Combine(root, file)))
         }, new JsonSerializerOptions { WriteIndented = true }));
         Console.Write(run.Output);
     }
+
+    #endregion
 }

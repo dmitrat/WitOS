@@ -1,11 +1,22 @@
 using System.Buffers.Binary;
 using System.Text;
 using WitOS.Dev.Pe;
+using WitOS.Dev.Tests.Support;
 
-internal static class CoreClrImportTests
+namespace WitOS.Dev.Tests.CoreClr;
+
+/// <summary>
+/// Direct and delay-load import inventory of CoreCLR reference images.
+/// </summary>
+[TestFixture]
+public sealed class CoreClrImportTests
 {
-    internal static Task RunAsync(string directory)
+    #region Functions
+
+    [Test]
+    public void CoreClrDirectAndDelayImportsTest()
     {
+        var directory = TestEnvironment.Scratch();
         var path = Path.Combine(directory, "imports.pe");
         byte[] Image()
         {
@@ -56,13 +67,11 @@ internal static class CoreClrImportTests
             Encoding.ASCII.GetBytes("Later\0").CopyTo(bytes, 962);
             return bytes;
         }
-        void Check(bool value, string why)
-        { if (!value) throw new InvalidOperationException(why); }
         var good = Image();
         File.WriteAllBytes(path, good);
         var result = NativeImports.Inspect(path);
-        Check(result.DirectImports.Single().Library == "direct.dll" && result.DirectImports[0].Symbols.SequenceEqual(new[] { "Now", "ordinal:7" }), "Direct imports/ordinal changed");
-        Check(result.DelayImports.Single().Library == "late.dll" && result.DelayImports[0].Symbols.Single() == "Later", "Delayed imports lost");
+        Assert.That(result.DirectImports.Single().Library == "direct.dll" && result.DirectImports[0].Symbols.SequenceEqual(new[] { "Now", "ordinal:7" }), Is.True, "Direct imports/ordinal changed");
+        Assert.That(result.DelayImports.Single().Library == "late.dll" && result.DelayImports[0].Symbols.Single() == "Later", Is.True, "Delayed imports lost");
         foreach (var (name, change) in new (string, Action<byte[]>)[]{
             ("absolute delay descriptor", b=>BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(768),0)),
             ("unterminated delay descriptors", b=>BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(152+116+13*8),32)),
@@ -77,8 +86,9 @@ internal static class CoreClrImportTests
             try
             { _ = NativeImports.Inspect(path); }
             catch (Exception error) when (error is InvalidDataException or OverflowException) { rejected = true; }
-            Check(rejected, "Malformed import inventory accepted: " + name);
+            Assert.That(rejected, Is.True, "Malformed import inventory accepted: " + name);
         }
-        return Task.CompletedTask;
     }
+
+    #endregion
 }

@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
-#include "../../src/Boot.Uefi/storage.c"
+#include "../../../src/Boot.Uefi/storage.c"
 _Static_assert(offsetof(EfiBootServicesPrefix, AllocatePages) == 40, "UEFI AllocatePages offset");
 _Static_assert(offsetof(EfiBootServicesPrefix, HandleProtocol) == 152, "UEFI HandleProtocol offset");
 _Static_assert(offsetof(EfiBootServicesPrefix, ExitBootServices) == 232, "UEFI ExitBootServices offset");

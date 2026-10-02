@@ -228,3 +228,25 @@ RID `witos-x64` появляется в потоке приложения тол
 Гостевая матрица на завершающем шаге: 20 kernel-сценариев (539 с), coreclr-storage, runtime-config с полной пересборкой `runtime-source` через новые классы, runtime-boot-run, runtime-port и coreclr-host прошли. Хостовые проверки: сборка без предупреждений, `format-check` (357 нативных и 154 C#-файла), host suite 47/47, отпечатки 79 образов совпали с эталоном до среза.
 
 Открытый вопрос: `coreclr-memory-512` дважды упал с паникой `VMToOS mapper guest failed` в одном и том же месте: первый прогон фикстуры VMToOS, состояние гостя 5, то есть исчерпан бюджет тиков. Оба раза хост был нагружен параллельной работой; прогоны на свободном хосте прошли, последний за 65 с. Образы при этом побайтно совпадали с эталоном. Бюджет `WIT_USER_TICK_BUDGET` равен 10 тикам PIT при 100 Гц, а TCG отсчитывает их по реальному времени, поэтому гостевые гейты зависят от загрузки хоста. Предложение для отдельной задачи: детерминированное время QEMU (`-icount`) в гостевых гейтах.
+
+### Q2.13 — хостовые тесты на NUnit 4
+
+Консольный `tests/WitOS.Dev.Tests/Program.cs` с ключами запуска заменён проектом NUnit 4 по тестовому стилю OutWit: фикстуры `*Tests` с методами `*Test`, по одной на файл, в папках инструмента `Host`, `Commands`, `Kernel`, `Pe`, `NativeAot/Acceptance` и `CoreClr`. C-харнессы перенесены в `Native` рядом с фикстурами, которые их собирают; `Repository` проверяет документацию, манифесты и workflow; `Support` содержит корень репозитория, scratch-каталог на тест и протокольные фикстуры. Тела тестов перенесены генератором без изменения условий и сообщений: `Check` стал `Assert.That(..., Is.True, ...)`.
+
+Режимы дочерних процессов (`leaf`, `launcher`, `export-pipes`, `burst-wait` и другие) живут в отдельном исполняемом `tests/WitOS.Dev.Tests.Child`, который сборка копирует к тестам. Пакеты NUnit 4.6.1, NUnit3TestAdapter 6.2.0, Microsoft.NET.Test.Sdk 18.8.1 и NUnit.Analyzers 4.14.0 совпадают с OutWit.Common и закреплены `packages.lock.json`; в CI restore идёт в locked mode.
+
+| Прежний запуск | Новый запуск |
+| --- | --- |
+| без ключей | `dotnet test tests/WitOS.Dev.Tests` |
+| `--pe` | `--filter TestCategory=Pe` после набора по умолчанию |
+| `--pe-coverage`, `--pe-fuzz`, `--pe-imports-asan`, `--qemu-cleanup` | `--filter TestCategory=PeCoverage`, `PeFuzz`, `PeImportsAsan`, `QemuCleanup` |
+| `--q1-protocol`, `--native-paths` и другие фокусные ключи | `--filter Name=<имя теста>` |
+
+Проверки:
+
+- Набор по умолчанию: 48 тестов прошли за 46 с. Это прежние 47 групп и новый тест `WorkflowTestCategoriesExist`: каждая категория из CI объявлена, и каждая объявленная категория помечает хотя бы один тест.
+- Явные категории прошли: `Pe` с 555 входами корпуса PE и 368 640 случаями virtual gap, `PeCoverage`, `PeFuzz`, `PeImportsAsan` и 12 таймаутов QEMU в `QemuCleanup`.
+- `ToolSourcePathsExist` теперь проверяет и пути в тестах. Перенос C-файлов сломал два места: путь к `FileViewFaults.c` в `coreclr-host-files` и относительный `#include` загрузчика в `BootPackageFirmware.c`; оба исправлены. Негативная проверка с намеренно неверным путём дала ожидаемый отказ, `coreclr-host-files` прошёл.
+- Сборка без предупреждений, включая NUnit.Analyzers; `format-check` покрывает 169 C#-файлов.
+
+Мёртвое поле `LEGACY_MARKERS` в протокольных фикстурах удалено: ссылок на него не было.
