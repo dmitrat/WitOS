@@ -9,7 +9,9 @@
 #include "build_info.h"
 
 static WitPageAllocator physical_pages;
-void wit_user_self_test(WitPageAllocator *pages);
+#if defined(WITOS_SELFTEST)
+void wit_kernel_self_test(const WitBootInfo *boot, WitPageAllocator *pages);
+#endif
 
 WIT_NORETURN void wit_panic(const char *reason)
 {
@@ -102,15 +104,14 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
             }
         }
         wit_console_write("[TEST-PASS] Random.BootSeedConsumed\n");
+#if defined(WITOS_SELFTEST)
         wit_random_self_test();
+#endif
     }
     wit_platform_clock_initialize(boot);
-    wit_memory_self_test(boot, &physical_pages);
-    wit_virtual_self_test(&physical_pages);
-    wit_virtual_fault_test();
-    wit_arch_fault_self_test();
-    wit_arch_scheduler_self_test();
-    wit_user_self_test(&physical_pages);
+#if defined(WITOS_SELFTEST)
+    wit_kernel_self_test(boot, &physical_pages);
+#endif
 
     wit_console_write("Kernel initialized.\nHello from WitOS.\n");
     wit_console_write("[TEST-PASS] Boot.Hello\n");

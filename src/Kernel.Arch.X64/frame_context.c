@@ -28,6 +28,8 @@ static void copy_fx(WitU8 *output, const WitU8 *input)
     }
 }
 
+#if defined(WITOS_SELFTEST)
+/* FXSAVE sanitization check; copy_fx is private to this file. */
 void wit_x64_context_copy_self_test(void)
 {
     WitU8 source[512], destination[512];
@@ -49,6 +51,7 @@ void wit_x64_context_copy_self_test(void)
     }
     wit_console_write("[TEST-PASS] Cpu.ContextSanitization\n");
 }
+#endif
 
 WitU32 wit_arch_context_profile(void)
 {

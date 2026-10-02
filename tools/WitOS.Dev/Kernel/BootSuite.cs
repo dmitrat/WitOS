@@ -9,5 +9,6 @@ internal enum BootSuite
     RuntimeConfig,
     RuntimeBoot,
     CoreClrMemory,
-    CoreClrStorage
+    CoreClrStorage,
+    Release
 }

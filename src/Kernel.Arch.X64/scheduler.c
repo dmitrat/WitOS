@@ -9,17 +9,20 @@ void _enable(void);
 void _disable(void);
 #pragma intrinsic(__readmsr, __writemsr, __halt, _enable, _disable)
 
+static volatile WitU64 timer_ticks;
+
+#if defined(WITOS_SELFTEST)
+/* Kernel-worker preemption test: two workers on private kernel stacks and the bootstrap context. */
 volatile WitU64 wit_worker_iterations[2];
 volatile WitU64 wit_worker_slices[2];
 volatile WitU64 wit_worker_done[2];
 volatile WitU64 wit_worker_errors[2];
 volatile WitU32 wit_worker_mxcsr[2];
-
 static WitInterruptContext *saved[3];
 static volatile WitU32 scheduling;
 static WitU32 current = 2;
-static volatile WitU64 timer_ticks;
 static WitU64 switches;
+#endif
 
 static void require(int condition, const char *message)
 {
@@ -33,6 +36,8 @@ WitU64 wit_arch_clock_ticks(void)
     return timer_ticks;
 }
 
+#if defined(WITOS_SELFTEST)
+/* Kernel worker threads of the preemption self-test. */
 WIT_NORETURN void wit_x64_thread_returned(void)
 {
     wit_panic("Kernel thread unexpectedly returned");
@@ -55,11 +60,10 @@ static WitInterruptContext *prepare_thread(WitU32 index)
     *(WitU64 *)context->Rsp = (WitU64)wit_x64_thread_returned;
     return context;
 }
+#endif
 
 WitInterruptContext *wit_x64_timer_interrupt(WitInterruptContext *context)
 {
-    WitU64 low;
-    WitU64 high;
     if (timer_ticks < WIT_WAIT_INFINITE - 1) {
         ++timer_ticks; /* Saturate; never wrap deadlines. */
     }
@@ -67,12 +71,13 @@ WitInterruptContext *wit_x64_timer_interrupt(WitInterruptContext *context)
     if (wit_user_is_active()) {
         return wit_user_timer_tick(context);
     }
+#if defined(WITOS_SELFTEST)
     if (!scheduling) {
         return context;
     }
 
-    low = (WitU64)(current == 2 ? wit_x64_kernel_stack : wit_x64_worker_stacks[current]) + 4096;
-    high = low + WIT_KERNEL_STACK_SIZE;
+    const WitU64 low = (WitU64)(current == 2 ? wit_x64_kernel_stack : wit_x64_worker_stacks[current]) + 4096;
+    const WitU64 high = low + WIT_KERNEL_STACK_SIZE;
     require((WitU64)context >= low &&
             (WitU64)context <= high - sizeof(*context) &&
             ((WitU64)context & 15) == 0 &&
@@ -100,8 +105,12 @@ WitInterruptContext *wit_x64_timer_interrupt(WitInterruptContext *context)
         }
     }
     wit_panic("No runnable kernel context");
+#else
+    return context;
+#endif
 }
 
+#if defined(WITOS_SELFTEST)
 void wit_arch_scheduler_self_test(void)
 {
     const WitU64 flags = wit_x64_read_flags();
@@ -142,3 +151,4 @@ void wit_arch_scheduler_self_test(void)
     wit_console_write(
         "\n[TEST-PASS] Cpu.Timer\n[TEST-PASS] Scheduler.Preemption\n[TEST-PASS] Scheduler.RegisterState\n");
 }
+#endif

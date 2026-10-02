@@ -31,6 +31,11 @@ internal static class CommandLine
         new CommandScenario("run", "Build and boot headlessly in QEMU", "boot",
             [new BootRequest("boot-256", 256, 60, ExpectedOutcome.Success)]),
         new CommandAction("test", "Test boot, physical pages, CPU exceptions and timeout handling", KernelTestSuite.RunAsync),
+        new CommandScenario("release", "Build and boot the release kernel without self-tests", KernelImageBuilder.RELEASE_SCENARIO,
+        [
+            new BootRequest("release-128", 128, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release },
+            new BootRequest("release-512", 512, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release }
+        ]),
         new CommandFormat(check: false),
         new CommandFormat(check: true),
         new CommandFingerprint(),

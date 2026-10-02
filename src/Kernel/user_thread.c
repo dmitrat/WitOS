@@ -22,6 +22,8 @@ static int take_native_id(WitU64 *next, WitU32 *output)
     return 1;
 }
 
+#if defined(WITOS_SELFTEST)
+/* Native ID exhaustion check; take_native_id is private to this file. */
 void wit_user_native_id_self_test(void)
 {
     WitU64 cursor = 1;
@@ -37,6 +39,7 @@ void wit_user_native_id_self_test(void)
     require(!take_native_id(&cursor, &value) && value == 17, "Native ID accepted zero cursor");
     wit_console_write("[TEST-PASS] User.NativeThreadIdExhaustion\n");
 }
+#endif
 
 /* Capture the relocated initial template before publishing the component.
  * Later user writes to its PE image cannot change the seed for future threads. */

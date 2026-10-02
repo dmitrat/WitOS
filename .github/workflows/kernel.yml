@@ -56,6 +56,9 @@ jobs:
       - name: Run real VM integration scenarios
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- test
 
+      - name: Release kernel without self-tests
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- release
+
       - name: Upload boot image and diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

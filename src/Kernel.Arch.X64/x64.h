@@ -22,6 +22,7 @@ extern WitU8 wit_x64_kernel_stack[WIT_KERNEL_STACK_REGION_SIZE];
 extern WitU8 wit_x64_double_fault_stack[WIT_EMERGENCY_STACK_REGION_SIZE];
 extern WitU8 wit_x64_worker_stacks[2][WIT_KERNEL_STACK_REGION_SIZE];
 extern WitU8 wit_x64_user_kernel_stacks[2][WIT_USER_THREAD_CAPACITY][WIT_KERNEL_STACK_REGION_SIZE];
+void wit_x64_context_profile_initialize(void);
 void wit_x64_context_profile_self_test(void);
 void wit_x64_context_copy_self_test(void);
 WitU32 wit_x64_mxcsr_mask(void);

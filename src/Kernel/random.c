@@ -122,6 +122,7 @@ int wit_random_fill(WitU8 *output, WitU32 bytes)
     return 1;
 }
 
+#if defined(WITOS_SELFTEST)
 void wit_random_self_test(void)
 {
     // RFC 8439 section 2.3.2. Public known-answer data, never a live seed.
@@ -145,3 +146,4 @@ void wit_random_self_test(void)
     wipe(output, sizeof(output));
     wit_console_write("[TEST-PASS] Random.ChaCha20Vector\n");
 }
+#endif

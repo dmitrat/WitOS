@@ -33,7 +33,7 @@ int wit_arch_context_supported(void)
     return profile(__readcr0(), __readcr4(), __readmsr(0xC0000080)) && debug_disabled();
 }
 
-void wit_x64_context_profile_self_test(void)
+void wit_x64_context_profile_initialize(void)
 {
     int cpu[4];
     __cpuid(cpu, 1);
@@ -51,6 +51,20 @@ void wit_x64_context_profile_self_test(void)
     if (!debug_disabled()) {
         wit_panic("Hardware breakpoints were not disabled");
     }
+    __declspec(align(16)) WitU8 legacy[512] = {0};
+    wit_x64_fxsave(legacy);
+    mxcsr_mask = *(const WitU32 *)&legacy[28];
+    if (!mxcsr_mask) {
+        mxcsr_mask = 0xFFBF; // Architectural fallback when hardware reports zero.
+    }
+    if ((mxcsr_mask & 0xFFFF0000U) || (mxcsr_mask & 0x1F80U) != 0x1F80U) {
+        wit_panic("Invalid hardware MXCSR mask");
+    }
+}
+
+#if defined(WITOS_SELFTEST)
+void wit_x64_context_profile_self_test(void)
+{
     const WitU64 baseline = 1ULL << 9;
     const WitU64 unsupported[] = {0, baseline | (1ULL << 16), baseline | (1ULL << 18), baseline | (1ULL << 22),
         baseline | (1ULL << 23), baseline | (1ULL << 25)};
@@ -65,19 +79,11 @@ void wit_x64_context_profile_self_test(void)
             wit_panic("Unsupported context mode accepted");
         }
     }
-    __declspec(align(16)) WitU8 legacy[512] = {0};
-    wit_x64_fxsave(legacy);
-    mxcsr_mask = *(const WitU32 *)&legacy[28];
-    if (!mxcsr_mask) {
-        mxcsr_mask = 0xFFBF; // Architectural fallback when hardware reports zero.
-    }
-    if ((mxcsr_mask & 0xFFFF0000U) || (mxcsr_mask & 0x1F80U) != 0x1F80U) {
-        wit_panic("Invalid hardware MXCSR mask");
-    }
     wit_x64_context_copy_self_test();
     wit_user_suspend_deadline_self_test();
     wit_console_write("[TEST-PASS] Cpu.ContextStateProfile\n");
 }
+#endif
 
 void wit_arch_cpu_context_describe(WitCpuContextInfo *info, const WitArchFrame *frame)
 {

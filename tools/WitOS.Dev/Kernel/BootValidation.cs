@@ -170,6 +170,10 @@ internal static class BootValidation
     /// <returns>The verdict and a summary of the success check groups.</returns>
     public static BootVerdict Evaluate(string root, BootRequest request, ProcessResult result)
     {
+        if (request.Suite == BootSuite.Release)
+        {
+            return EvaluateRelease(root, request, result);
+        }
         var output = result.Output;
         var exitedFirmware = output.IndexOf("[BOOT] ExitBootServices OK", StringComparison.Ordinal);
         var contract = output.IndexOf("[TEST-PASS] Boot.Contract", StringComparison.Ordinal);
@@ -217,6 +221,29 @@ internal static class BootValidation
             _ => false
         };
         return new BootVerdict(passed, diagnostics);
+    }
+
+    /// <summary>
+    /// Decides whether a release kernel booted: the boot contract, paging, exception tables and clock are ready,
+    /// the kernel reports Hello and finishes with success, and no self-test or user component ran.
+    /// </summary>
+    /// <param name="root">Repository root, used to read the expected kernel banner.</param>
+    /// <param name="request">Boot request of the release suite.</param>
+    /// <param name="result">Exit code, timeout state and serial log of the boot.</param>
+    /// <returns>The verdict and a summary of the release check groups.</returns>
+    public static BootVerdict EvaluateRelease(string root, BootRequest request, ProcessResult result)
+    {
+        var output = result.Output;
+        var banner = Regex.IsMatch(output, "^" + Regex.Escape(KernelAbi.Banner(root)) + @"\r?$", RegexOptions.Multiline);
+        var ready = MarkersInOrder(output, "[TEST-PASS] Boot.Contract", "[TEST-PASS] Cpu.ExceptionTables",
+            "[TEST-PASS] Memory.KernelPaging", "[TEST-PASS] Clock.IrqIndependent", "Kernel initialized.",
+            "[TEST-PASS] Boot.Hello");
+        string[] forbidden = ["[PANIC]", "[EXCEPTION]", "[USER", "[TEST-BEGIN] User.", "Scheduler.", "Random.ChaCha20Vector",
+            "Memory.VirtualMappings", "Cpu.ContextStateProfile"];
+        var clean = forbidden.All(marker => !output.Contains(marker, StringComparison.Ordinal));
+        var passed = request.Expected == ExpectedOutcome.Success && !result.TimedOut && result.ExitCode == 33 &&
+            banner && ready && clean;
+        return new BootVerdict(passed, $"banner={banner} ready={ready} clean={clean}");
     }
 
     /// <summary>

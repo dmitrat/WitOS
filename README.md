@@ -80,9 +80,12 @@ The host tool returns exit code 0 only after checking both guest markers and the
 dotnet build WitOS.slnx --configuration Release
 dotnet run --project tools/WitOS.Dev --configuration Release -- build
 dotnet run --project tools/WitOS.Dev --configuration Release -- test
+dotnet run --project tools/WitOS.Dev --configuration Release -- release
 ```
 
 The native kernel currently always builds in Debug mode, including when the host tool uses Release.
+
+Every test scenario builds a self-test kernel: the sources in `tests/Kernel.X64` and the white-box checks guarded by `WITOS_SELFTEST` run during boot before `Hello`. `release` builds the kernel without them, rejects a link map that names self-test code, and boots it with 128 MiB and 512 MiB of RAM; that kernel initializes, reports `Hello` and exits without running user components.
 
 The integration suite boots nineteen real VM scenarios:
 

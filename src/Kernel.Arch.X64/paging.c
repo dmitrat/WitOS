@@ -23,7 +23,10 @@ void __cpuid(int[4], int);
 static WitPageAllocator *pages;
 static WitU64 root_table;
 static int active;
+#if defined(WITOS_SELFTEST)
+/* Executable-data probe of the execute-data fault test. */
 __declspec(align(4096)) static WitU8 nx_probe[4096] = {0xC3};
+#endif
 
 static void require(int condition, const char *message)
 {
@@ -252,7 +255,10 @@ void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator
     require((__readcr4() & ((1ULL << 16) | (1ULL << 18))) == 0, "Unsupported user extended CPU state enabled");
     __writecr3(root_table);
     __writecr0(__readcr0() | (1ULL << 16));
+    wit_x64_context_profile_initialize();
+#if defined(WITOS_SELFTEST)
     wit_x64_context_profile_self_test();
+#endif
     active = 1;
     require((__readcr3() & PTE_ADDRESS) == root_table &&
             root_table != old_root &&
@@ -299,6 +305,7 @@ WitU64 wit_virtual_kernel_root(void)
     return root_table;
 }
 
+#if defined(WITOS_SELFTEST)
 void wit_virtual_self_test(WitPageAllocator *allocator)
 {
     WitU64 first = 0, second = 0;
@@ -384,6 +391,7 @@ void wit_virtual_fault_test(void)
     (void)nx_probe;
 #endif
 }
+#endif
 
 const WitU8 *wit_virtual_boot_storage(void)
 {

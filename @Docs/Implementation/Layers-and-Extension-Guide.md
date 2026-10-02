@@ -8,9 +8,9 @@
 | --- | --- | --- | --- | --- |
 | Загрузчик UEFI | `src/Boot.Uefi` | там же | Вход `efi_main`, карта памяти, образ ядра, энтропия, загрузочный пакет, `ExitBootServices` | `witos/boot.h`, `platform.h`; `arch.h` для передачи управления ядру |
 | Общее ядро | `src/Kernel` | там же с Q2.5 | Физические страницы, хэндлы, события, PE-валидатор, пакет, случайность, процессы, потоки, ожидания, APC, references, stack leases, DLL, исключения как политика | только `src/Kernel/include` и `witos/arch.h` |
-| Архитектура | `src/Kernel.Arch.X64`, затем `src/Kernel.Arch.A64` | там же; до Q2.7–Q2.8 рядом лежат self-test и `native_*.asm` | Векторы, вход и выход из пользовательского режима, сохранение контекста, таблицы страниц, профиль FPU, CPUID и кэш, барьеры | общее ядро через `arch.h` |
+| Архитектура | `src/Kernel.Arch.X64`, затем `src/Kernel.Arch.A64` | там же; до Q2.8 рядом лежат `native_*.asm` и пользовательские фикстуры | Векторы, вход и выход из пользовательского режима, сохранение контекста, таблицы страниц, профиль FPU, CPUID и кэш, барьеры | общее ядро через `arch.h` |
 | Платформа | `src/Kernel.Platform.Q35`, `src/Kernel.Platform.QemuVirt` | `src/Kernel.Platform.Q35` с Q2.6 | Консоль, контроллер прерываний, таймер тиков, монотонные часы, тестовый выход | `platform.h` |
-| Self-test и фикстуры ядра | `tests/Kernel.X64` | в `src/Kernel.Arch.X64` | `*_tests.c`, `*_fixture.asm`; собираются только с `WITOS_SELFTEST` | все слои ядра |
+| Self-test и фикстуры ядра | `tests/Kernel.X64` | там же с Q2.7; белые ящики под `WITOS_SELFTEST` рядом со своими модулями | `*_tests.c`, `*_fixture.asm`; собираются только с `WITOS_SELFTEST` | все слои ядра |
 | Пользовательский native-слой | `src/Runtime.Native` | `src/System.Native` | Обёртки syscall, bootstrap, TLS-цикл, пути, файлы, DLL lifecycle | только `user_abi.h` и его заголовки |
 | Win32-форма PAL | `src/Runtime.Pal.Win32` | `src/Runtime.NativeAot` и `native_*.asm` в `src/Kernel.Arch.X64` | Реализации Win32-имён, которые ждёт runtime, собранный под Windows ABI | `Runtime.Native` |
 | Адаптеры runtime | `src/Runtime.NativeAot`, `src/Runtime.CoreClr` | там же | GC OS interface, PAL NativeAOT, minipal, CoreCLR VMToOS, hosting PAL | `Runtime.Native`, `Runtime.Pal.Win32` |

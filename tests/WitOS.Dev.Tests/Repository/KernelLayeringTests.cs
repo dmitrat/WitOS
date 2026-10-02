@@ -104,7 +104,6 @@ public sealed class KernelLayeringTests
         }
     }
 
-    // Kernel self-tests still live next to the x64 code until Q2.7 and may probe board addresses.
     [Test]
     public void ArchitectureHasNoBoardDevicesTest()
     {
@@ -112,7 +111,6 @@ public sealed class KernelLayeringTests
         var files = Directory.EnumerateFiles(architecture)
             .Where(path => path.EndsWith(".c", StringComparison.Ordinal) || path.EndsWith(".h", StringComparison.Ordinal) ||
                 path.EndsWith(".cpp", StringComparison.Ordinal) || path.EndsWith(".asm", StringComparison.Ordinal))
-            .Where(path => !path.EndsWith("_tests.c", StringComparison.Ordinal))
             .ToList();
         Assert.That(files, Is.Not.Empty);
         foreach (var path in files)
@@ -124,6 +122,17 @@ public sealed class KernelLayeringTests
                 Assert.That(match.Success, Is.False, $"{Path.GetFileName(path)}:{i + 1} drives a board device: {match.Value}");
             }
         }
+    }
+
+    // Kernel self-tests live in tests/Kernel.X64 and link only into WITOS_SELFTEST kernels.
+    [Test]
+    public void SelfTestsLiveOutsideKernelSourcesTest()
+    {
+        var kernelSources = Directory.EnumerateFiles(Path.Combine(TestEnvironment.Root, "src"), "*_tests.c", SearchOption.AllDirectories)
+            .Select(path => Path.GetRelativePath(TestEnvironment.Root, path))
+            .ToList();
+        Assert.That(kernelSources, Is.Empty, "Self-test sources inside src");
+        Assert.That(Directory.EnumerateFiles(Path.Combine(TestEnvironment.Root, "tests", "Kernel.X64"), "*_tests.c"), Is.Not.Empty);
     }
 
     #endregion

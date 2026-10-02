@@ -41,8 +41,6 @@ void wit_arch_initialize(void);
 void wit_arch_disable_interrupts(void);
 WIT_NORETURN void wit_arch_halt(void);
 void wit_arch_map_device_page(const struct WitBootInfo *boot, WitU64 physical);
-void wit_arch_fault_self_test(void);
-void wit_arch_scheduler_self_test(void);
 
 /* Switching between kernel and user mode. */
 void wit_arch_run_user(WitArchFrame *frame, WitU64 root);

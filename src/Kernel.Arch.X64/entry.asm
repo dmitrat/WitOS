@@ -125,34 +125,6 @@ user_exception_common PROC
     jmp wit_x64_restore_context
 user_exception_common ENDP
 
-PUBLIC wit_x64_trigger_breakpoint
-wit_x64_trigger_breakpoint PROC
-    int 3
-    ret
-wit_x64_trigger_breakpoint ENDP
-
-PUBLIC wit_x64_trigger_divide_error
-wit_x64_trigger_divide_error PROC
-    xor edx, edx
-    mov eax, 1
-    xor ecx, ecx
-    div rcx
-    ret
-wit_x64_trigger_divide_error ENDP
-
-PUBLIC wit_x64_trigger_invalid_opcode
-wit_x64_trigger_invalid_opcode PROC
-    ud2
-    ret
-wit_x64_trigger_invalid_opcode ENDP
-
-PUBLIC wit_x64_trigger_general_protection
-wit_x64_trigger_general_protection PROC
-    mov ax, 0FFF8h                ; beyond the kernel GDT, error code 0xFFF8
-    mov ds, ax
-    ret
-wit_x64_trigger_general_protection ENDP
-
 PUBLIC wit_arch_process_write_barrier
 wit_arch_process_write_barrier PROC
     ; All guest threads execute on the sole online logical processor. This is
@@ -160,21 +132,6 @@ wit_arch_process_write_barrier PROC
     mfence
     ret
 wit_arch_process_write_barrier ENDP
-
-PUBLIC wit_x64_trigger_page_fault
-wit_x64_trigger_page_fault PROC
-    mov rax, 0000400000000000h    ; canonical address in a verified absent PML4 slot
-    mov rax, qword ptr [rax]
-    ret
-wit_x64_trigger_page_fault ENDP
-
-PUBLIC wit_x64_trigger_double_fault
-wit_x64_trigger_double_fault PROC
-    mov rsp, 1                   ; #PF cannot deliver its frame on this stack
-    mov rax, 0000400000000000h
-    mov rax, qword ptr [rax]
-    ud2
-wit_x64_trigger_double_fault ENDP
 
 .data
 ALIGN 8
