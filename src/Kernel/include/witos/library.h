@@ -24,31 +24,40 @@
 #define WIT_LIBRARY_BY_BASENAME 1U
 #define WIT_LIBRARY_PATH_BYTES 1024U
 #define WIT_LIBRARY_BY_ORDINAL 1U
-typedef struct WitLibraryLifecycleEntry { WitU64 Handle,Base,Entry; } WitLibraryLifecycleEntry;
+
+typedef struct WitLibraryLifecycleEntry {
+    WitU64 Handle, Base, Entry;
+} WitLibraryLifecycleEntry;
+
 typedef struct WitLibraryLifecycle {
-    WitU32 Version,Size,Attach,Count;
-    WitU64 Token,Root;
+    WitU32 Version, Size, Attach, Count;
+    WitU64 Token, Root;
     WitLibraryLifecycleEntry Entries[WIT_LIBRARY_CAPACITY];
 } WitLibraryLifecycle;
-WIT_STATIC_ASSERT(sizeof(WitLibraryLifecycle)==128,"Readonly library lifecycle plan");
+
+WIT_STATIC_ASSERT(sizeof(WitLibraryLifecycle) == 128, "Readonly library lifecycle plan");
+
 typedef struct WitLibraryRequest {
-    WitU32 Version,Size,Operation,Flags;
-    WitU64 Handle,Name,NameBytes,Ordinal,Buffer,BufferBytes;
+    WitU32 Version, Size, Operation, Flags;
+    WitU64 Handle, Name, NameBytes, Ordinal, Buffer, BufferBytes;
 } WitLibraryRequest;
+
 typedef struct WitLibraryInfo {
-    WitU32 Version,Size;
-    WitU64 Base,ImageBytes;
-    WitU32 EntryRva,UnwindRva,UnwindBytes,References;
+    WitU32 Version, Size;
+    WitU64 Base, ImageBytes;
+    WitU32 EntryRva, UnwindRva, UnwindBytes, References;
 } WitLibraryInfo;
+
 typedef struct WitLibraryPath {
-    WitU32 Version,Size,NameBytes,Reserved;
+    WitU32 Version, Size, NameBytes, Reserved;
     WitU8 Name[WIT_LIBRARY_PATH_BYTES]; /* Counted canonical package key. */
 } WitLibraryPath;
-WIT_STATIC_ASSERT(sizeof(WitLibraryPath)==1040,"Library path ABI");
+
+WIT_STATIC_ASSERT(sizeof(WitLibraryPath) == 1040, "Library path ABI");
 /* FIND acquires one reference without loading. Basename ambiguity returns BUSY
  * before changing references; PATH validates the whole output before copying. */
-WIT_STATIC_ASSERT(sizeof(WitLibraryRequest)==64,"Library request ABI");
-WIT_STATIC_ASSERT(sizeof(WitLibraryInfo)==40,"Library info ABI");
+WIT_STATIC_ASSERT(sizeof(WitLibraryRequest) == 64, "Library request ABI");
+WIT_STATIC_ASSERT(sizeof(WitLibraryInfo) == 40, "Library info ABI");
 /* Private native-library contract: immutable package bytes only. Caller must
  * quiesce code/readers and unregister unwind tables before final UNLOAD.
  * Dependencies resolve in the importing package directory. References count

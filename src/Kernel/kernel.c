@@ -31,11 +31,14 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
     wit_console_write("Build: " WITOS_BUILD_ID " | x64 | Debug\n");
     wit_console_write("[TEST-BEGIN] Boot.Contract\n");
 
-    if (boot == 0 || boot->Magic != WIT_BOOT_MAGIC ||
-        boot->Version != WIT_BOOT_VERSION || boot->Size != sizeof(WitBootInfo) ||
+    if (boot == 0 ||
+        boot->Magic != WIT_BOOT_MAGIC ||
+        boot->Version != WIT_BOOT_VERSION ||
+        boot->Size != sizeof(WitBootInfo) ||
         boot->Architecture != WIT_ARCH_X64 ||
         (boot->Flags & WIT_BOOT_SERVICES_EXITED) == 0 ||
-        boot->MemoryRegions == 0 || boot->MemoryRegionCount == 0 ||
+        boot->MemoryRegions == 0 ||
+        boot->MemoryRegionCount == 0 ||
         boot->MemoryRegionCount > WIT_MAX_MEMORY_REGIONS) {
         wit_panic("Invalid WitBootInfo");
     }
@@ -70,17 +73,33 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
     wit_console_write_u64(wit_pages_free_count(&physical_pages));
     wit_console_write("\n");
     wit_virtual_initialize(boot, &physical_pages);
-    if(!wit_storage_initialize(boot))wit_panic("Invalid readonly boot package");
+    if (!wit_storage_initialize(boot)) {
+        wit_panic("Invalid readonly boot package");
+    }
     {
-        const WitU64 address=(WitU64)boot->EntropySeed;
-        int owned=0;
-        if(boot->EntropySize!=WIT_RANDOM_KEY_BYTES||boot->EntropyReserved||!address)wit_panic("Invalid boot entropy");
-        for(WitU32 i=0;i<boot->ImageSectionCount;++i){const WitImageSection* section=&boot->ImageSections[i];
-            if((section->Flags&WIT_IMAGE_WRITE)&&!(section->Flags&WIT_IMAGE_EXECUTE)&&address>=section->Base&&
-                address-section->Base<=section->Length&&WIT_RANDOM_KEY_BYTES<=section->Length-(address-section->Base))owned=1;
+        const WitU64 address = (WitU64)boot->EntropySeed;
+        int owned = 0;
+        if (boot->EntropySize != WIT_RANDOM_KEY_BYTES || boot->EntropyReserved || !address) {
+            wit_panic("Invalid boot entropy");
         }
-        if(!owned||!wit_random_initialize(boot->EntropySeed))wit_panic("Invalid boot entropy");
-        for(WitU32 i=0;i<WIT_RANDOM_KEY_BYTES;++i)if(boot->EntropySeed[i])wit_panic("Boot seed not erased");
+        for (WitU32 i = 0; i < boot->ImageSectionCount; ++i) {
+            const WitImageSection *section = &boot->ImageSections[i];
+            if ((section->Flags & WIT_IMAGE_WRITE) &&
+                !(section->Flags & WIT_IMAGE_EXECUTE) &&
+                address >= section->Base &&
+                address - section->Base <= section->Length &&
+                WIT_RANDOM_KEY_BYTES <= section->Length - (address - section->Base)) {
+                owned = 1;
+            }
+        }
+        if (!owned || !wit_random_initialize(boot->EntropySeed)) {
+            wit_panic("Invalid boot entropy");
+        }
+        for (WitU32 i = 0; i < WIT_RANDOM_KEY_BYTES; ++i) {
+            if (boot->EntropySeed[i]) {
+                wit_panic("Boot seed not erased");
+            }
+        }
         wit_console_write("[TEST-PASS] Random.BootSeedConsumed\n");
         wit_random_self_test();
     }
@@ -96,7 +115,8 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
     wit_console_write("[TEST-PASS] Boot.Hello\n");
 
 #ifdef WITOS_TEST_HANG
-    for (;;) { }
+    for (;;) {
+    }
 #else
     wit_platform_finish(0x10);
 #endif

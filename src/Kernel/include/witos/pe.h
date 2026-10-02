@@ -25,8 +25,13 @@
 #define WIT_PE_EXECUTE 4U
 
 typedef enum WitPeStatus {
-    WitPeOk, WitPeInvalidImage, WitPeUnsupportedImage, WitPeTooLarge,
-    WitPeNoMemory, WitPeBusy, WitPeBadBase
+    WitPeOk,
+    WitPeInvalidImage,
+    WitPeUnsupportedImage,
+    WitPeTooLarge,
+    WitPeNoMemory,
+    WitPeBusy,
+    WitPeBadBase
 } WitPeStatus;
 
 typedef struct WitPeSection {
@@ -50,9 +55,9 @@ typedef struct WitPeImage {
     WitU32 HeadersSize;
     WitU32 EntryRva;
     WitU32 SectionCount;
-    WitU32 ExportRva,ExportSize,ExportBase,ExportCount,ExportNames;
-    WitU32 ExportFunctionsRva,ExportNamesRva,ExportOrdinalsRva;
-    WitU32 ImportRva,ImportSize,IatRva,IatSize;
+    WitU32 ExportRva, ExportSize, ExportBase, ExportCount, ExportNames;
+    WitU32 ExportFunctionsRva, ExportNamesRva, ExportOrdinalsRva;
+    WitU32 ImportRva, ImportSize, IatRva, IatSize;
     WitU32 RelocRva;
     WitU32 RelocSize;
     WitU32 UnwindRva;
@@ -68,8 +73,8 @@ typedef struct WitPeImage {
 WitPeStatus wit_pe_validate(const WitU8 *file, WitU32 size, WitPeImage *plan);
 WitPeStatus wit_pe_validate_profile(const WitU8 *file, WitU32 size, WitPeImage *plan, WitU32 profile);
 int wit_pe_file_range(const WitPeImage *plan, WitU32 rva, WitU32 size, WitU32 *offset);
-WitPeStatus wit_pe_exports_validate(const WitU8*,WitPeImage*);
+WitPeStatus wit_pe_exports_validate(const WitU8 *, WitPeImage *);
 /* Validated immutable input only; lookup returns RVA or zero and never runs a
  * forwarder/initializer. Name lookup is case-sensitive, ordinal lookup uses Base. */
-WitPeStatus wit_pe_export_find(const WitU8*,const WitPeImage*,const char*,WitU32,WitU32,WitU32*);
+WitPeStatus wit_pe_export_find(const WitU8 *, const WitPeImage *, const char *, WitU32, WitU32, WitU32 *);
 #endif

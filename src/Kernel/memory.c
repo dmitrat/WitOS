@@ -7,10 +7,12 @@ int wit_memory_map_valid(const WitMemoryRegion *regions, WitU32 count)
     }
     for (WitU32 i = 0; i < count; ++i) {
         const WitMemoryRegion *region = &regions[i];
-        if (region->Length == 0 || region->Base > ~0ULL - region->Length ||
+        if (region->Length == 0 ||
+            region->Base > ~0ULL - region->Length ||
             (region->Base & (WIT_PAGE_SIZE - 1)) != 0 ||
             (region->Length & (WIT_PAGE_SIZE - 1)) != 0 ||
-            region->Kind > WIT_MEMORY_USABLE || region->Reserved != 0) {
+            region->Kind > WIT_MEMORY_USABLE ||
+            region->Reserved != 0) {
             return 0;
         }
     }
@@ -39,8 +41,7 @@ int wit_pages_initialize(WitPageAllocator *allocator, const WitMemoryRegion *reg
         return 0;
     }
     for (WitU32 i = 0; i < count; ++i) {
-        if (regions[i].Kind == WIT_MEMORY_USABLE &&
-            regions[i].Base + regions[i].Length > WIT_PHYSICAL_LIMIT) {
+        if (regions[i].Kind == WIT_MEMORY_USABLE && regions[i].Base + regions[i].Length > WIT_PHYSICAL_LIMIT) {
             return 0;
         }
     }
@@ -99,15 +100,16 @@ int wit_page_free(WitPageAllocator *allocator, WitU64 physical_address)
 {
     WitU64 page;
     WitU64 mask;
-    if (allocator == 0 || !allocator->Initialized || physical_address == 0 ||
+    if (allocator == 0 ||
+        !allocator->Initialized ||
+        physical_address == 0 ||
         physical_address >= WIT_PHYSICAL_LIMIT ||
         (physical_address & (WIT_PAGE_SIZE - 1)) != 0) {
         return 0;
     }
     page = physical_address / WIT_PAGE_SIZE;
     mask = 1ULL << (page % 64);
-    if ((allocator->Eligible[page / 64] & mask) == 0 ||
-        (allocator->Allocated[page / 64] & mask) == 0) {
+    if ((allocator->Eligible[page / 64] & mask) == 0 || (allocator->Allocated[page / 64] & mask) == 0) {
         return 0;
     }
     allocator->Allocated[page / 64] &= ~mask;
@@ -120,12 +122,16 @@ int wit_page_is_allocated(const WitPageAllocator *allocator, WitU64 address)
 {
     WitU64 page;
     WitU64 mask;
-    if (allocator == 0 || !allocator->Initialized || address == 0 ||
-        address >= WIT_PHYSICAL_LIMIT || (address & 4095) != 0) return 0;
+    if (allocator == 0 ||
+        !allocator->Initialized ||
+        address == 0 ||
+        address >= WIT_PHYSICAL_LIMIT ||
+        (address & 4095) != 0) {
+        return 0;
+    }
     page = address / WIT_PAGE_SIZE;
     mask = 1ULL << (page % 64);
-    return (allocator->Eligible[page / 64] & mask) != 0 &&
-        (allocator->Allocated[page / 64] & mask) != 0;
+    return (allocator->Eligible[page / 64] & mask) != 0 && (allocator->Allocated[page / 64] & mask) != 0;
 }
 
 WitU64 wit_pages_free_count(const WitPageAllocator *allocator)

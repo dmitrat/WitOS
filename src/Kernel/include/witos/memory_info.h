@@ -4,6 +4,7 @@
 
 #define WIT_MEMORY_INFO_VERSION 2U
 #define WIT_MEMORY_INFO_SIZE 112U
+
 /* A serialized allocator snapshot, not a promise that a later commit succeeds.
  * All counts are bytes. Owned includes fixed mappings and private page tables;
  * DynamicCommitted includes committed no-access leaves. Physical totals cover
@@ -29,5 +30,6 @@ typedef struct WitUserMemoryInfo {
     WitU64 CodeVirtualBase;
     WitU64 CodeVirtualBytes;
 } WitUserMemoryInfo;
+
 WIT_STATIC_ASSERT(sizeof(WitUserMemoryInfo) == WIT_MEMORY_INFO_SIZE, "Memory information ABI");
 #endif

@@ -14,22 +14,26 @@
 #define WIT_THREAD_REFERENCE_EXITED 2U
 #define WIT_THREAD_REFERENCE_WAITING 3U
 #define WIT_THREAD_REFERENCE_SUSPENDED 4U
+
 typedef struct WitThreadReferenceInfo {
-    WitU32 Version,Size;
-    WitU64 ThreadId,ExitCode,StackLow,StackHigh;
-    WitU32 State,Rights;
-    WitU32 SuspendCount,Reserved;
+    WitU32 Version, Size;
+    WitU64 ThreadId, ExitCode, StackLow, StackHigh;
+    WitU32 State, Rights;
+    WitU32 SuspendCount, Reserved;
 } WitThreadReferenceInfo;
-WIT_STATIC_ASSERT(sizeof(WitThreadReferenceInfo)==56,"Thread reference snapshot ABI");
+
+WIT_STATIC_ASSERT(sizeof(WitThreadReferenceInfo) == 56, "Thread reference snapshot ABI");
 /* Atomic reference-bearing thread creation. The fixed-stack backend accepts
  * zero or a supported stack size; ID output is optional and fully validated.
  * A reference observes lifetime; it is not a consuming join capability. */
 #define WIT_THREAD_CREATE_REFERENCE_VERSION 1U
 #define WIT_THREAD_START_SUSPENDED 1U
+
 typedef struct WitThreadCreateRequest {
     WitU32 Version, Size;
     WitU64 Entry, Argument, StackBytes, NativeIdOutput;
     WitU32 Flags, Reserved;
 } WitThreadCreateRequest;
-WIT_STATIC_ASSERT(sizeof(WitThreadCreateRequest)==48,"Thread create request ABI");
+
+WIT_STATIC_ASSERT(sizeof(WitThreadCreateRequest) == 48, "Thread create request ABI");
 #endif

@@ -201,5 +201,6 @@ typedef struct WitUserStartup {
     WitU64 ConsoleHandle;
     WitU64 ImageInfo; /* Immutable WitUserImageInfo for PE images; zero for raw fixtures. */
 } WitUserStartup;
+
 WIT_STATIC_ASSERT(sizeof(WitUserStartup) == WIT_ABI_STARTUP_SIZE, "User startup ABI");
 #endif

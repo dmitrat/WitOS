@@ -1,5 +1,8 @@
 {
-  "native": [],
+  "native": [
+    "src/Boot.Uefi",
+    "src/Kernel"
+  ],
   "managed": [
     "tests/WitOS.Dev.Tests/ConsistencyTests.cs",
     "tools/WitOS.Dev/ImageFingerprint.cs",

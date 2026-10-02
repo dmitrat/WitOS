@@ -33,7 +33,9 @@ typedef struct WitImageSection {
     WitU32 Reserved;
 } WitImageSection;
 
-typedef struct WitBootStorageExtent { WitU64 Base,Length; } WitBootStorageExtent;
+typedef struct WitBootStorageExtent {
+    WitU64 Base, Length;
+} WitBootStorageExtent;
 
 typedef struct WitBootInfo {
     WitU64 Magic;
@@ -53,9 +55,9 @@ typedef struct WitBootInfo {
     WitU8 *EntropySeed;
     WitU32 EntropySize;
     WitU32 EntropyReserved;
-    const WitBootStorageExtent* StorageExtents;
+    const WitBootStorageExtent *StorageExtents;
     WitU64 StorageBytes;
-    WitU32 StorageExtentCount,StorageReserved;
+    WitU32 StorageExtentCount, StorageReserved;
 } WitBootInfo;
 
 _Static_assert(sizeof(void *) == 8, "The boot contract requires a 64-bit target");

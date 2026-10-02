@@ -38,12 +38,31 @@ typedef struct WitUserImageInfo {
  * Names are ASCII labels transported as UTF-16 for the upstream PAL contract. */
 static inline int wit_image_resource_valid(const WitU16 *name, WitU32 length)
 {
-    if (length >= WIT_IMAGE_RESOURCE_CAPACITY || name[length]) return 0;
-    if (!length) return 1; /* Explicitly anonymous image. */
-    if (length <= 6 || name[0]!='b' || name[1]!='o' || name[2]!='o' || name[3]!='t' || name[4]!=':' || name[5]!='/') return 0;
-    for (WitU32 i=6;i<length;++i) {
-        const WitU16 c=name[i];
-        if (!((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='.'||c=='_'||c=='-')) return 0;
+    if (length >= WIT_IMAGE_RESOURCE_CAPACITY || name[length]) {
+        return 0;
+    }
+    if (!length) {
+        return 1; /* Explicitly anonymous image. */
+    }
+    if (length <= 6 ||
+        name[0] != 'b' ||
+        name[1] != 'o' ||
+        name[2] != 'o' ||
+        name[3] != 't' ||
+        name[4] != ':' ||
+        name[5] != '/') {
+        return 0;
+    }
+    for (WitU32 i = 6; i < length; ++i) {
+        const WitU16 c = name[i];
+        if (!((c >= 'a' && c <= 'z') ||
+                (c >= 'A' && c <= 'Z') ||
+                (c >= '0' && c <= '9') ||
+                c == '.' ||
+                c == '_' ||
+                c == '-')) {
+            return 0;
+        }
     }
     return 1;
 }

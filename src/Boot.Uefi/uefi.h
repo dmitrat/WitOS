@@ -32,19 +32,27 @@ typedef struct EfiMemoryDescriptor {
     WitU64 Attributes;
 } EfiMemoryDescriptor;
 
-typedef struct EfiGuid { WitU32 A; WitU16 B,C; WitU8 D[8]; } EfiGuid;
-typedef EfiStatus (*EfiLocateProtocol)(const EfiGuid*,void*,void**);
+typedef struct EfiGuid {
+    WitU32 A;
+    WitU16 B, C;
+    WitU8 D[8];
+} EfiGuid;
+
+typedef EfiStatus (*EfiLocateProtocol)(const EfiGuid *, void *, void **);
 typedef struct EfiRngProtocol EfiRngProtocol;
+
 struct EfiRngProtocol {
-    EfiStatus (*GetInfo)(EfiRngProtocol*,WitU64*,EfiGuid*);
-    EfiStatus (*GetRng)(EfiRngProtocol*,const EfiGuid*,WitU64,WitU8*);
+    EfiStatus (*GetInfo)(EfiRngProtocol *, WitU64 *, EfiGuid *);
+    EfiStatus (*GetRng)(EfiRngProtocol *, const EfiGuid *, WitU64, WitU8 *);
 };
+
 typedef EfiStatus (*EfiGetMemoryMap)(WitU64 *, void *, WitU64 *, WitU64 *, WitU32 *);
 typedef EfiStatus (*EfiExitBootServices)(EfiHandle, WitU64);
 
-typedef EfiStatus (*EfiAllocatePages)(WitU32,WitU32,WitU64,WitU64*);
-typedef EfiStatus (*EfiFreePages)(WitU64,WitU64);
-typedef EfiStatus (*EfiHandleProtocol)(EfiHandle,const EfiGuid*,void**);
+typedef EfiStatus (*EfiAllocatePages)(WitU32, WitU32, WitU64, WitU64 *);
+typedef EfiStatus (*EfiFreePages)(WitU64, WitU64);
+typedef EfiStatus (*EfiHandleProtocol)(EfiHandle, const EfiGuid *, void **);
+
 typedef struct EfiBootServicesPrefix {
     EfiTableHeader Header;
     void *BeforeAllocatePages[2];
