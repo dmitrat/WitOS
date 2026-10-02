@@ -16,7 +16,8 @@ internal static class ManagedThreadProbe
         long start = Stopwatch.GetTimestamp();
         while (Volatile.Read(ref Ready) == 0)
         {
-            if (Volatile.Read(ref Failed) != 0 || Stopwatch.GetElapsedTime(start).TotalSeconds >= 10) return false;
+            if (Volatile.Read(ref Failed) != 0 || Stopwatch.GetElapsedTime(start).TotalSeconds >= 10)
+                return false;
             Thread.Yield();
         }
         return true;
@@ -27,17 +28,20 @@ internal static class ManagedThreadProbe
         try
         {
             int round = (int)argument!;
-            if (Local != 0) { Volatile.Write(ref Failed, 1); return; }
+            if (Local != 0)
+            { Volatile.Write(ref Failed, 1); return; }
             Local = 731 + round;
             WorkerId = Environment.CurrentManagedThreadId;
             var root = new Root(Local);
             var bytes = new byte[2048];
-            bytes[0] = 17; bytes[^1] = 29;
+            bytes[0] = 17;
+            bytes[^1] = 29;
             if ((round & 1) == 0)
             {
                 Volatile.Write(ref Ready, 1);
                 // Actual managed execution must be suspended by GC, not voluntarily parked.
-                while (Volatile.Read(ref Release) == 0) { }
+                while (Volatile.Read(ref Release) == 0)
+                { }
             }
             else
             {
@@ -47,14 +51,18 @@ internal static class ManagedThreadProbe
                     {
                         Volatile.Write(ref Ready, 1);
                         while (Volatile.Read(ref Release) == 0)
-                            if (!Monitor.Wait(Gate, 10000)) throw new TimeoutException();
-                        if (!Monitor.IsEntered(Gate)) throw new InvalidOperationException();
+                            if (!Monitor.Wait(Gate, 10000))
+                                throw new TimeoutException();
+                        if (!Monitor.IsEntered(Gate))
+                            throw new InvalidOperationException();
                     }
                 }
             }
             if (root.Value != Local || Local != 731 + round || bytes[0] != 17 || bytes[^1] != 29 ||
-                !ExceptionProbe.Run()) Volatile.Write(ref Failed, 1);
-            GC.KeepAlive(root); GC.KeepAlive(bytes);
+                !ExceptionProbe.Run())
+                Volatile.Write(ref Failed, 1);
+            GC.KeepAlive(root);
+            GC.KeepAlive(bytes);
             Interlocked.Increment(ref Completed);
         }
         catch { Volatile.Write(ref Failed, 1); }
@@ -70,13 +78,15 @@ internal static class ManagedThreadProbe
         {
             if (WaitReady() && !thread.Join(0) && WorkerId != mainId && Local == 911)
             {
-                if (Previous is { } old && (old.IsAlive || !old.Join(0))) return false;
+                if (Previous is { } old && (old.IsAlive || !old.Join(0)))
+                    return false;
                 if ((round & 1) != 0)
                 {
                     long start = Stopwatch.GetTimestamp();
                     while ((thread.ThreadState & System.Threading.ThreadState.WaitSleepJoin) == 0 && Volatile.Read(ref Failed) == 0)
                     {
-                        if (Stopwatch.GetElapsedTime(start).TotalSeconds >= 10) return false;
+                        if (Stopwatch.GetElapsedTime(start).TotalSeconds >= 10)
+                            return false;
                         Thread.Yield();
                     }
                     // Force a scheduling opportunity after the managed wait-state
@@ -91,7 +101,8 @@ internal static class ManagedThreadProbe
         finally
         {
             Volatile.Write(ref Release, 1);
-            lock (Gate) Monitor.PulseAll(Gate);
+            lock (Gate)
+                Monitor.PulseAll(Gate);
             valid &= thread.Join(10000);
         }
         bool passed = valid && !thread.IsAlive && thread.Join(0) && Completed == 1 && Failed == 0 && Local == 911;
@@ -107,13 +118,16 @@ internal static class ManagedThreadProbe
         lock (Gate)
         {
             lock (Gate)
-                if (Monitor.Wait(Gate, 1) || !Monitor.IsEntered(Gate)) return false;
+                if (Monitor.Wait(Gate, 1) || !Monitor.IsEntered(Gate))
+                    return false;
         }
-        try { Monitor.Wait(new object(), 0); return false; }
+        try
+        { Monitor.Wait(new object(), 0); return false; }
         catch (SynchronizationLockException) { }
         for (int round = 0; round < 4; ++round)
         {
-            if (!Round(round, mainId)) return false;
+            if (!Round(round, mainId))
+                return false;
             // Prior rounds become collectible; the latest exited observer stays live for reuse checks.
             GC.Collect();
             GC.WaitForPendingFinalizers();

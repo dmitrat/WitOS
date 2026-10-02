@@ -7,10 +7,12 @@ internal static class AssemblyPackageTests
 {
     internal static Task RunAsync()
     {
-        static void Require(bool value, string message) { if (!value) throw new InvalidDataException(message); }
+        static void Require(bool value, string message)
+        { if (!value) throw new InvalidDataException(message); }
         static void Reject(IEnumerable<(string Name, ReadOnlyMemory<byte> Bytes)> files)
         {
-            try { AssemblyPackage.Create(files); }
+            try
+            { AssemblyPackage.Create(files); }
             catch (InvalidDataException) { return; }
             throw new InvalidDataException("Invalid package input was accepted.");
         }
@@ -43,7 +45,7 @@ internal static class AssemblyPackageTests
         Reject(new[] { ("same", ReadOnlyMemory<byte>.Empty), ("same", ReadOnlyMemory<byte>.Empty) });
         Reject(Enumerable.Range(0, AssemblyPackage.MaximumFiles + 1).Select(i => (i.ToString(), ReadOnlyMemory<byte>.Empty)));
         Reject(new[] { (new string('\u03bb', 513), ReadOnlyMemory<byte>.Empty) });
-        Reject(new[] { ("a",ReadOnlyMemory<byte>.Empty),("a.b",ReadOnlyMemory<byte>.Empty),("a/child",ReadOnlyMemory<byte>.Empty) });
+        Reject(new[] { ("a", ReadOnlyMemory<byte>.Empty), ("a.b", ReadOnlyMemory<byte>.Empty), ("a/child", ReadOnlyMemory<byte>.Empty) });
         var megabyte = new byte[1024 * 1024];
         Reject(Enumerable.Range(0, 129).Select(i => (i.ToString(), (ReadOnlyMemory<byte>)megabyte)));
         Require(AssemblyPackage.Create(Enumerable.Range(0, AssemblyPackage.MaximumFiles).Select(i => (i.ToString(), ReadOnlyMemory<byte>.Empty))).Length > 32,

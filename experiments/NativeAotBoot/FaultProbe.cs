@@ -35,19 +35,24 @@ internal static class FaultProbe
             int kind = i % 3;
             try
             {
-                if (kind == 0) _ = Read((int*)0);
-                else if (kind == 1) Write((int*)0, 123);
-                else _ = Divide(42, 0);
+                if (kind == 0)
+                    _ = Read((int*)0);
+                else if (kind == 1)
+                    Write((int*)0, 123);
+                else
+                    _ = Divide(42, 0);
                 return false;
             }
             catch (NullReferenceException error)
             {
-                if (kind == 2 || !Collect(root, error)) return false;
+                if (kind == 2 || !Collect(root, error))
+                    return false;
                 ++caught;
             }
             catch (DivideByZeroException error)
             {
-                if (kind != 2 || !Collect(root, error)) return false;
+                if (kind != 2 || !Collect(root, error))
+                    return false;
                 ++caught;
             }
             finally { ++finalized; }

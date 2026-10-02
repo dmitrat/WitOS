@@ -8,7 +8,8 @@ internal static class Q1Tests
 {
     private static void Check(bool condition, string message)
     {
-        if (!condition) throw new InvalidOperationException(message);
+        if (!condition)
+            throw new InvalidOperationException(message);
     }
     internal static IEnumerable<(string Name, Func<Task> Run)> Cases(string root, string scratch)
     {
@@ -16,7 +17,7 @@ internal static class Q1Tests
         yield return ("Q1.PublicationFailureStages", () => Publication(scratch));
         yield return ("Q1.ControlIgnoresCancellation", () => Control(root));
         yield return ("Q1.NamedNativeObjects", () => Objects(scratch));
-        yield return ("FileCaptureOwnershipAndLimits", () => FileCapture(root,scratch));
+        yield return ("FileCaptureOwnershipAndLimits", () => FileCapture(root, scratch));
         yield return ("Q1.BoundedCapture", () => Capture(root, scratch));
     }
 
@@ -62,48 +63,50 @@ internal static class Q1Tests
     {
         string[] files = ["run/acceptance.json", "run/status.json", "current-run.json", "acceptance.json", "last-success.json"];
         foreach (var file in files)
-        foreach (var stage in new[] { "write", "rename" })
-        {
-            var home = Path.Combine(scratch, "publication-" + Guid.NewGuid().ToString("N"));
-            var dir = Path.Combine(home, "artifacts/x64/runtime-boot");
-            await RuntimeBootAttempt.RunAsync(home, "old", a => { a.Publish(new { fixture = "old" }); return Task.CompletedTask; });
-            var old = File.ReadAllText(Path.Combine(dir, "last-success.json"));
-            bool armed = false, injected = false, failed = false;
-            string? run = null;
-            RuntimeBootAttempt.BeforeWrite = (path, point) =>
+            foreach (var stage in new[] { "write", "rename" })
             {
-                if (!armed || injected || point != stage) return;
-                var actual = path.StartsWith(run! + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                    ? "run/" + Path.GetFileName(path) : Path.GetFileName(path);
-                if (actual != file) return;
-                injected = true;
-                throw new IOException("injected-" + file + "-" + stage);
-            };
-            try
-            {
-                await RuntimeBootAttempt.RunAsync(home, "new", a =>
+                var home = Path.Combine(scratch, "publication-" + Guid.NewGuid().ToString("N"));
+                var dir = Path.Combine(home, "artifacts/x64/runtime-boot");
+                await RuntimeBootAttempt.RunAsync(home, "old", a => { a.Publish(new { fixture = "old" }); return Task.CompletedTask; });
+                var old = File.ReadAllText(Path.Combine(dir, "last-success.json"));
+                bool armed = false, injected = false, failed = false;
+                string? run = null;
+                RuntimeBootAttempt.BeforeWrite = (path, point) =>
                 {
-                    run = a.RunDirectory;
-                    a.Publish(new { fixture = "new" });
-                    armed = true;
-                    return Task.CompletedTask;
-                });
+                    if (!armed || injected || point != stage)
+                        return;
+                    var actual = path.StartsWith(run! + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                        ? "run/" + Path.GetFileName(path) : Path.GetFileName(path);
+                    if (actual != file)
+                        return;
+                    injected = true;
+                    throw new IOException("injected-" + file + "-" + stage);
+                };
+                try
+                {
+                    await RuntimeBootAttempt.RunAsync(home, "new", a =>
+                    {
+                        run = a.RunDirectory;
+                        a.Publish(new { fixture = "new" });
+                        armed = true;
+                        return Task.CompletedTask;
+                    });
+                }
+                catch (IOException error) { failed = error.Message.StartsWith("injected-", StringComparison.Ordinal); }
+                finally { RuntimeBootAttempt.BeforeWrite = null; }
+                Check(injected, "Failure point not reached: " + file + "/" + stage);
+                var viewFailure = file is "acceptance.json" or "last-success.json";
+                Check(failed != viewFailure, "Commit boundary incorrect: " + file + "/" + stage);
+                if (!viewFailure)
+                    Check(File.ReadAllText(Path.Combine(dir, "last-success.json")) == old, "Uncommitted run advanced last success");
+                RuntimeBootAttempt.Recover(dir);
+                using var state = JsonDocument.Parse(File.ReadAllText(Path.Combine(dir, "current-run.json")));
+                Check(state.RootElement.GetProperty("status").GetString() == (viewFailure ? "succeeded" : "failed"), "Recovered state incorrect");
+                Check(File.Exists(Path.Combine(dir, "acceptance.json")) == viewFailure, "Recovered current acceptance incorrect");
+                Check(!Directory.EnumerateFiles(dir, "*.tmp", SearchOption.AllDirectories).Any(), "Temporary publication file leaked");
+                if (viewFailure)
+                    Check(File.ReadAllText(Path.Combine(dir, "last-success.json")) != old, "Committed success not recovered");
             }
-            catch (IOException error) { failed = error.Message.StartsWith("injected-", StringComparison.Ordinal); }
-            finally { RuntimeBootAttempt.BeforeWrite = null; }
-            Check(injected, "Failure point not reached: " + file + "/" + stage);
-            var viewFailure = file is "acceptance.json" or "last-success.json";
-            Check(failed != viewFailure, "Commit boundary incorrect: " + file + "/" + stage);
-            if (!viewFailure)
-                Check(File.ReadAllText(Path.Combine(dir, "last-success.json")) == old, "Uncommitted run advanced last success");
-            RuntimeBootAttempt.Recover(dir);
-            using var state = JsonDocument.Parse(File.ReadAllText(Path.Combine(dir, "current-run.json")));
-            Check(state.RootElement.GetProperty("status").GetString() == (viewFailure ? "succeeded" : "failed"), "Recovered state incorrect");
-            Check(File.Exists(Path.Combine(dir, "acceptance.json")) == viewFailure, "Recovered current acceptance incorrect");
-            Check(!Directory.EnumerateFiles(dir, "*.tmp", SearchOption.AllDirectories).Any(), "Temporary publication file leaked");
-            if (viewFailure)
-                Check(File.ReadAllText(Path.Combine(dir, "last-success.json")) != old, "Committed success not recovered");
-        }
         var broken = Path.Combine(scratch, "blocked-status");
         await RuntimeBootAttempt.RunAsync(broken, "old", a => { a.Publish(new { fixture = "old" }); return Task.CompletedTask; });
         var output = Path.Combine(broken, "artifacts/x64/runtime-boot");
@@ -123,7 +126,8 @@ internal static class Q1Tests
         Check(rejected && File.ReadAllText(Path.Combine(output, "last-success.json")) == previous, "Original Q1.2 reproduction persists");
         using (var state = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "current-run.json"))))
             Check(state.RootElement.GetProperty("status").GetString() == "failed", "Blocked run status hid current failure");
-        try { await RuntimeBootAttempt.RunAsync(broken, "after-publish", a => { a.Publish(new { fixture = "bad" }); throw new IOException("after publish"); }); }
+        try
+        { await RuntimeBootAttempt.RunAsync(broken, "after-publish", a => { a.Publish(new { fixture = "bad" }); throw new IOException("after publish"); }); }
         catch (IOException e) { Check(e.Message == "after publish", "Original exception replaced"); }
         Check(File.ReadAllText(Path.Combine(output, "last-success.json")) == previous, "Throw after Publish committed evidence");
         var interrupted = JsonNode.Parse(File.ReadAllText(Path.Combine(output, "current-run.json")))!.AsObject();
@@ -146,7 +150,10 @@ internal static class Q1Tests
                 {
                     try
                     {
-                        if (synchronous) Thread.Sleep(4000); else await Task.Delay(4000);
+                        if (synchronous)
+                            Thread.Sleep(4000);
+                        else
+                            await Task.Delay(4000);
                         await input.WriteAsync(new byte[] { 1 }); // Must fault after the runner has disposed input.
                         throw new InvalidOperationException("Late control failure");
                     }
@@ -169,10 +176,12 @@ internal static class Q1Tests
     {
         var input = Path.Combine(scratch, "platform-input");
         var output = Path.Combine(scratch, "platform-output");
-        Directory.CreateDirectory(input); Directory.CreateDirectory(output);
+        Directory.CreateDirectory(input);
+        Directory.CreateDirectory(output);
         var entries = NativePlatformObjects.Sources.Select(name =>
         {
-            var file = Path.Combine(input, name + ".obj"); File.WriteAllText(file, name);
+            var file = Path.Combine(input, name + ".obj");
+            File.WriteAllText(file, name);
             return KeyValuePair.Create(name, file);
         }).Reverse().ToArray(); // Enumeration order must not alter semantic link groups.
         var objects = new NativePlatformObjects(entries);
@@ -182,31 +191,39 @@ internal static class Q1Tests
         var loaded = NativePlatformObjects.Read(output, json.RootElement);
         Check(loaded.All.Select(Path.GetFileName).SequenceEqual(objects.All.Select(Path.GetFileName)), "Named manifest roundtrip changed objects");
         var rejected = false;
-        try { _ = new NativePlatformObjects(entries.Skip(1)); } catch (InvalidDataException) { rejected = true; }
+        try
+        { _ = new NativePlatformObjects(entries.Skip(1)); }
+        catch (InvalidDataException) { rejected = true; }
         Check(rejected, "Missing native source accepted");
         File.AppendAllText(loaded.All[0], "changed");
         rejected = false;
-        try { NativePlatformObjects.Read(output, json.RootElement); } catch (InvalidDataException) { rejected = true; }
+        try
+        { NativePlatformObjects.Read(output, json.RootElement); }
+        catch (InvalidDataException) { rejected = true; }
         Check(rejected, "Changed object hash accepted");
         return Task.CompletedTask;
     }
 
-    private static async Task FileCapture(string root,string scratch)
+    private static async Task FileCapture(string root, string scratch)
     {
-        var assembly=Assembly.GetExecutingAssembly().Location;
-        var output=Path.Combine(scratch,"file.stdout.log");var error=Path.Combine(scratch,"file.stderr.log");
-        var result=await Processes.RunWithFilesAsync("dotnet",[assembly,"echo","file mode"],root,15,output,error,_=>Task.CompletedTask);
-        Check(result.ExitCode==7&&!result.TimedOut&&result.Output.Contains("file mode")&&result.Error=="stderr-tail","File capture lost exit/stdout/stderr");
-        result=await Processes.RunWithFilesAsync("dotnet",[assembly,"wait"],root,1,output,error,_=>Task.CompletedTask);
-        Check(result.TimedOut&&result.ExitCode!=0,"File mode failed forced cleanup");
-        var pid=Path.Combine(scratch,"file-child.pid");
-        result=await Processes.RunWithFilesAsync("dotnet",[assembly,"launcher-no-pipes",pid],root,15,output,error,_=>Task.CompletedTask);
-        Check(result.ExitCode==0&&!result.TimedOut,"File mode changed normal exit");
-        try{using var child=Process.GetProcessById(int.Parse(File.ReadAllText(pid)));Check(child.HasExited,"File mode left a descendant");}catch(ArgumentException){}
-        var rejected=false;
-        try{await Processes.RunWithFilesAsync("dotnet",[assembly,"capture-limit","stderr"],root,15,output,error,_=>Task.CompletedTask);}
-        catch(InvalidDataException){rejected=true;}
-        Check(rejected,"File capture accepted oversized output");
+        var assembly = Assembly.GetExecutingAssembly().Location;
+        var output = Path.Combine(scratch, "file.stdout.log");
+        var error = Path.Combine(scratch, "file.stderr.log");
+        var result = await Processes.RunWithFilesAsync("dotnet", [assembly, "echo", "file mode"], root, 15, output, error, _ => Task.CompletedTask);
+        Check(result.ExitCode == 7 && !result.TimedOut && result.Output.Contains("file mode") && result.Error == "stderr-tail", "File capture lost exit/stdout/stderr");
+        result = await Processes.RunWithFilesAsync("dotnet", [assembly, "wait"], root, 1, output, error, _ => Task.CompletedTask);
+        Check(result.TimedOut && result.ExitCode != 0, "File mode failed forced cleanup");
+        var pid = Path.Combine(scratch, "file-child.pid");
+        result = await Processes.RunWithFilesAsync("dotnet", [assembly, "launcher-no-pipes", pid], root, 15, output, error, _ => Task.CompletedTask);
+        Check(result.ExitCode == 0 && !result.TimedOut, "File mode changed normal exit");
+        try
+        { using var child = Process.GetProcessById(int.Parse(File.ReadAllText(pid))); Check(child.HasExited, "File mode left a descendant"); }
+        catch (ArgumentException) { }
+        var rejected = false;
+        try
+        { await Processes.RunWithFilesAsync("dotnet", [assembly, "capture-limit", "stderr"], root, 15, output, error, _ => Task.CompletedTask); }
+        catch (InvalidDataException) { rejected = true; }
+        Check(rejected, "File capture accepted oversized output");
     }
 
     private static async Task Capture(string root, string scratch)
@@ -217,14 +234,18 @@ internal static class Q1Tests
         capture.Append("y");
         Check(capture.Truncated && capture.Snapshot().Length == BoundedCapture.Limit, "Capture is unbounded");
         var file = Path.Combine(scratch, "oversized-serial.log");
-        using (var output = File.Create(file)) output.SetLength(BoundedCapture.Limit + 1L);
+        using (var output = File.Create(file))
+            output.SetLength(BoundedCapture.Limit + 1L);
         bool rejected = false;
-        try { await BoundedCapture.ReadFileAsync(file); } catch (InvalidDataException) { rejected = true; }
+        try
+        { await BoundedCapture.ReadFileAsync(file); }
+        catch (InvalidDataException) { rejected = true; }
         Check(rejected, "Oversized serial file accepted");
         foreach (var stream in new[] { "stdout", "stderr" })
         {
             rejected = false;
-            try { await Processes.RunAsync("dotnet", [Assembly.GetExecutingAssembly().Location, "capture-limit", stream], root, 15); }
+            try
+            { await Processes.RunAsync("dotnet", [Assembly.GetExecutingAssembly().Location, "capture-limit", stream], root, 15); }
             catch (InvalidDataException) { rejected = true; }
             Check(rejected, "Truncated process output accepted: " + stream);
         }

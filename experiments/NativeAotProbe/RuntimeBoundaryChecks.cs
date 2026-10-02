@@ -140,7 +140,8 @@ internal static class RuntimeBoundaryChecks
         }
         Require(caught && order.Count == 4 && order[3] == 4, "unwind completion");
 
-        try { RethrowAfterInnerException(signal); }
+        try
+        { RethrowAfterInnerException(signal); }
         catch (Signal error)
         {
             Require(ReferenceEquals(error, signal) && error.Payload.Link!.Id == 702, "rethrow identity/root");
@@ -155,7 +156,8 @@ internal static class RuntimeBoundaryChecks
     private static void ThrowThroughCleanup(Signal signal, Payload root, List<int> order)
     {
         var local = new Envelope { Item = new Payload(703), Stamp = 73 };
-        try { throw signal; }
+        try
+        { throw signal; }
         finally
         {
             Collect();
@@ -177,10 +179,12 @@ internal static class RuntimeBoundaryChecks
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void RethrowAfterInnerException(Signal signal)
     {
-        try { throw signal; }
+        try
+        { throw signal; }
         catch (Signal)
         {
-            try { throw new ArgumentException("inner marker"); }
+            try
+            { throw new ArgumentException("inner marker"); }
             catch (ArgumentException) { Collect(); }
             throw;
         }
@@ -196,6 +200,7 @@ internal static class RuntimeBoundaryChecks
 
     private static void Require(bool condition, string name)
     {
-        if (!condition) throw new InvalidOperationException("Runtime boundary: " + name);
+        if (!condition)
+            throw new InvalidOperationException("Runtime boundary: " + name);
     }
 }

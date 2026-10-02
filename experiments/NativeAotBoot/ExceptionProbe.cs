@@ -42,7 +42,8 @@ internal static unsafe class ExceptionProbe
     {
         trace.Step(throws ? 2U : 3U);
         Collect(trace, root, error);
-        if (throws) throw new InvalidOperationException(); // CLR must treat this filter as false.
+        if (throws)
+            throw new InvalidOperationException(); // CLR must treat this filter as false.
         return true;
     }
 
@@ -50,7 +51,8 @@ internal static unsafe class ExceptionProbe
     private static void ThrowWithResource(Trace trace, Payload root, ProbeException error)
     {
         byte* memory = (byte*)VirtualAlloc(null, 4096, 0x3000, 4);
-        if (memory == null) { trace.Valid = false; throw error; }
+        if (memory == null)
+        { trace.Valid = false; throw error; }
         memory[0] = 17;
         memory[4095] = 29;
         try
@@ -64,8 +66,10 @@ internal static unsafe class ExceptionProbe
             trace.Step(4);
             Collect(trace, root, error);
             trace.Valid &= memory[0] == 17 && memory[4095] == 29;
-            if (VirtualFree(memory, 0, 0x8000) != 0) ++trace.Releases;
-            else trace.Valid = false;
+            if (VirtualFree(memory, 0, 0x8000) != 0)
+                ++trace.Releases;
+            else
+                trace.Valid = false;
         }
     }
 
@@ -79,7 +83,8 @@ internal static unsafe class ExceptionProbe
         {
             try
             {
-                try { ThrowWithResource(trace, root, error); }
+                try
+                { ThrowWithResource(trace, root, error); }
                 catch (ProbeException caught) when (Filter(trace, root, caught, true))
                 { trace.Valid = false; }
                 catch (ProbeException caught) when (Filter(trace, root, caught, false))
@@ -92,7 +97,8 @@ internal static unsafe class ExceptionProbe
                 finally
                 {
                     trace.Step(6);
-                    try { throw new ArgumentException(); }
+                    try
+                    { throw new ArgumentException(); }
                     catch (ArgumentException) { trace.Step(7); Collect(trace, root, error); }
                     finally { trace.Step(8); }
                 }
@@ -113,7 +119,8 @@ internal static unsafe class ExceptionProbe
     internal static bool Run()
     {
         for (int round = 0; round < 4; ++round)
-            if (!Round()) return false;
+            if (!Round())
+                return false;
         return true;
     }
 }

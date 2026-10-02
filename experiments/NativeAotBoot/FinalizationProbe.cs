@@ -33,7 +33,8 @@ internal static unsafe class FinalizationProbe
         internal Resource()
         {
             Memory = (byte*)VirtualAlloc(null, 4096, 0x3000, 4);
-            if (Memory == null) throw new OutOfMemoryException();
+            if (Memory == null)
+                throw new OutOfMemoryException();
             Memory[0] = 17;
             Memory[4095] = 29;
         }
@@ -42,15 +43,18 @@ internal static unsafe class FinalizationProbe
             byte* memory = Memory;
             Memory = null;
             if (memory == null || memory[0] != 17 || memory[4095] != 29 ||
-                VirtualFree(memory, 0, 0x8000) == 0) Volatile.Write(ref Failed, 1);
-            else Interlocked.Increment(ref Released);
+                VirtualFree(memory, 0, 0x8000) == 0)
+                Volatile.Write(ref Failed, 1);
+            else
+                Interlocked.Increment(ref Released);
         }
         ~Resource()
         {
             CheckThread();
             Release();
             GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
-            if (Root.Value != 731) Volatile.Write(ref Failed, 1);
+            if (Root.Value != 731)
+                Volatile.Write(ref Failed, 1);
             GC.KeepAlive(Root);
             Interlocked.Increment(ref Finalized);
         }
@@ -66,14 +70,16 @@ internal static unsafe class FinalizationProbe
         ~Resurrecting()
         {
             CheckThread();
-            if (Root.Value != 731) Volatile.Write(ref Failed, 1);
+            if (Root.Value != 731)
+                Volatile.Write(ref Failed, 1);
             Interlocked.Increment(ref Resurrections);
             if (++Pass == 1)
             {
                 Survivor = this;
                 GC.ReRegisterForFinalize(this);
             }
-            else if (Pass != 2) Volatile.Write(ref Failed, 1);
+            else if (Pass != 2)
+                Volatile.Write(ref Failed, 1);
         }
     }
 
@@ -104,16 +110,20 @@ internal static unsafe class FinalizationProbe
             CreateWave();
             Drain();
             if (Volatile.Read(ref Finalized) != wave * 4 || Volatile.Read(ref Released) != wave * 4 ||
-                Volatile.Read(ref Failed) != 0 || Volatile.Read(ref Suppressed) != 0) return false;
+                Volatile.Read(ref Failed) != 0 || Volatile.Read(ref Suppressed) != 0)
+                return false;
         }
         CreateResurrecting();
         Drain();
-        if (Volatile.Read(ref Resurrections) != 1 || !HasSurvivor()) return false;
+        if (Volatile.Read(ref Resurrections) != 1 || !HasSurvivor())
+            return false;
         Drain(); // A resurrected, strongly rooted object must not finalize again.
-        if (Volatile.Read(ref Resurrections) != 1) return false;
+        if (Volatile.Read(ref Resurrections) != 1)
+            return false;
         ReleaseSurvivor();
         Drain();
-        if (Volatile.Read(ref Resurrections) != 2) return false;
+        if (Volatile.Read(ref Resurrections) != 2)
+            return false;
         Drain();
         GC.WaitForPendingFinalizers(); // Empty-queue handshake must also complete.
         return FinalizerThread != 0 && Volatile.Read(ref Failed) == 0 && Volatile.Read(ref Suppressed) == 0 &&

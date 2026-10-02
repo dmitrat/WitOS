@@ -15,7 +15,8 @@ internal static class MemoryFailureProbe
         // The guest driver sets the actual upstream hard limit to 4 MiB.
         // 16 MiB is a valid array size, so failure must reach real allocation policy.
         var live = Allocate(4096);
-        live[0] = 71; live[^1] = 93;
+        live[0] = 71;
+        live[^1] = 93;
         int failures = 0;
         for (int i = 0; i < 3; ++i)
         {
@@ -27,11 +28,13 @@ internal static class MemoryFailureProbe
             }
             catch (OutOfMemoryException error)
             {
-                if (error is null || live[0] != 71 || live[^1] != 93) return false;
+                if (error is null || live[0] != 71 || live[^1] != 93)
+                    return false;
                 ++failures;
             }
             var recovered = Allocate(8192);
-            recovered[0] = 17; recovered[^1] = 29;
+            recovered[0] = 17;
+            recovered[^1] = 29;
             int before = GC.CollectionCount(0);
             GC.Collect();
             if (GC.CollectionCount(0) <= before || recovered[0] != 17 || recovered[^1] != 29 || live[0] != 71 || live[^1] != 93)
@@ -45,7 +48,8 @@ internal static class MemoryFailureProbe
 
     internal static bool FailUnderPressure()
     {
-        try { GC.KeepAlive(Allocate(2 * 1024 * 1024)); return false; }
+        try
+        { GC.KeepAlive(Allocate(2 * 1024 * 1024)); return false; }
         catch (OutOfMemoryException)
         {
             ++PressureFailures;
@@ -56,7 +60,8 @@ internal static class MemoryFailureProbe
     internal static bool RecoverAfterPressure()
     {
         var recovered = Allocate(2 * 1024 * 1024);
-        recovered[0] = 37; recovered[^1] = 59;
+        recovered[0] = 37;
+        recovered[^1] = 59;
         int before = GC.CollectionCount(0);
         GC.Collect();
         bool valid = PressureFailures == 1 && GC.CollectionCount(0) > before && recovered[0] == 37 && recovered[^1] == 59 &&

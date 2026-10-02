@@ -23,7 +23,8 @@
     "tests/WitOS.Dev.Tests/VirtualGap.c"
   ],
   "managed": [
-    "tests/WitOS.Dev.Tests/ConsistencyTests.cs",
+    "experiments",
+    "tests/WitOS.Dev.Tests",
     "tools/WitOS.Dev"
   ],
   "exclude": []

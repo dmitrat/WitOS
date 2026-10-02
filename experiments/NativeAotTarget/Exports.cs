@@ -25,7 +25,8 @@ public static class Exports
     [UnmanagedCallersOnly(EntryPoint = "witos_target_probe")]
     public static int Probe(int seed)
     {
-        if (RuntimeFeature.IsDynamicCodeSupported || Root.Value != 0x57) return -1;
+        if (RuntimeFeature.IsDynamicCodeSupported || Root.Value != 0x57)
+            return -1;
         var count = ++sequence;
         var payload = new Payload(seed) { Next = new Payload(seed ^ 0x55) };
         var large = new byte[128 * 1024];
@@ -34,7 +35,8 @@ public static class Exports
         GC.Collect();
         var caught = false;
         var finallyRan = false;
-        try { ThrowMarker(); }
+        try
+        { ThrowMarker(); }
         catch (InvalidOperationException) { caught = true; }
         finally { finallyRan = true; }
         var valid = payload.Value == seed && payload.Next.Value == (seed ^ 0x55) &&

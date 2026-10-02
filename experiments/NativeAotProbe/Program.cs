@@ -77,7 +77,8 @@ internal static class Program
         var caught = false;
         try
         {
-            try { ThrowExpected(); }
+            try
+            { ThrowExpected(); }
             finally { ranFinally = true; }
         }
         catch (InvalidOperationException error) when (error.Message == "expected-probe-exception")
@@ -154,7 +155,8 @@ internal static class Program
                 }
                 catch (Exception error) { failure[captured] = error; }
                 finally { finished.Signal(); }
-            }) { IsBackground = true };
+            })
+            { IsBackground = true };
             workers[index].Start();
         }
 
@@ -215,7 +217,8 @@ internal static class Program
     private static void Pass(string name) => Console.WriteLine($"[PROBE-PASS] {name}");
     private static void Check(bool condition, string message)
     {
-        if (!condition) throw new InvalidOperationException(message);
+        if (!condition)
+            throw new InvalidOperationException(message);
     }
 
     private sealed record Node(int Value, Node? Previous);
