@@ -10,8 +10,8 @@ internal static class DevTool
     {
         try
         {
-            if (args.Length > 1)
-                throw new ArgumentException("Use a single command: doctor, setup, build, run, test, runtime-audit, runtime-probe, runtime-target, runtime-port, runtime-source, runtime-boot, runtime-readiness, runtime-unwind, runtime-exception, runtime-gp, runtime-failfast, runtime-seh, runtime-gc-policy, runtime-encoding, runtime-config.");
+            if (args.Length > 1 && args[0] != "fingerprint")
+                throw new ArgumentException("Use a single command; only fingerprint takes options. Run help for the command list.");
             if (!OperatingSystem.IsWindows())
                 throw new PlatformNotSupportedException("The current development host is Windows x64 with Visual Studio C++ tools. The guest does not use Windows.");
 
@@ -41,6 +41,15 @@ internal static class DevTool
                     break;
                 case "test":
                     await TestAsync(root);
+                    break;
+                case "format":
+                    await SourceFormat.RunAsync(root, check: false);
+                    break;
+                case "format-check":
+                    await SourceFormat.RunAsync(root, check: true);
+                    break;
+                case "fingerprint":
+                    await ImageFingerprint.RunAsync(root, args[1..]);
                     break;
                 case "runtime-port":
                     var portImage = await BuildAsync(root, "runtime-port");
@@ -125,7 +134,7 @@ internal static class DevTool
                     await RuntimeTargetExperiment.RunAsync(root);
                     break;
                 case "help":
-                    Console.WriteLine("WitOS development tool\nUsage: dotnet run --project tools/WitOS.Dev -- <command>\n\n  doctor  Check compiler, QEMU and firmware\n  setup   Download and verify pinned QEMU into .tools\n  build   Build the x64 UEFI image (no VM)\n  run     Build and boot headlessly in QEMU\n  test    Test boot, physical pages, CPU exceptions and timeout handling\n  coreclr-memory  Test owned executable memory backend (not guest CoreCLR)\n  coreclr-storage  Test unchanged assembly delivery and readonly guest IO (not guest CoreCLR)\n  coreclr-source  Build pinned CoreCLR/JIT Windows reference and inventory platform imports\n  coreclr-host  Build upstream Windows host and verify standard runtimeconfig/deps binding\n  coreclr-host-files  Verify pinned hosting PAL file contracts with a hosted syscall model\n  runtime-audit  Verify pinned NativeAOT sources and package provenance\n  runtime-probe  Publish and execute a hosted NativeAOT dependency probe\n  runtime-target  Inspect NativeAOT objects and test native-host bootstrap / strict link boundaries\n  runtime-port  Build pinned GC memory adapter and execute guest checks in QEMU\n  runtime-source  Build full upstream native libraries and verify the WitOS source overlay\n  runtime-boot-run  Rebuild kernel and boot the last hash-verified runtime image\n  runtime-boot  Build and execute the full guest runtime/GC workload\n  runtime-readiness  Build source runtime and audit minimal standard-CoreLib executable startup\n  runtime-unwind  Compare the pinned AMD64 unwinder with Windows (hosted)\n  runtime-exception  Verify Windows exception/VEH reference semantics (hosted)\n  runtime-gp  Verify Windows x64 general-protection translation (hosted)\n  runtime-failfast  Verify Windows fail-fast debugger record/context (hosted)\n  runtime-seh  Verify compiler scope tables and real filter/finally ABI (hosted)\n  runtime-gc-policy  Audit write-watch exclusion in existing source-built GC objects\n  runtime-encoding  Compare UTF conversions with Windows APIs (hosted)\n  runtime-config  Build upstream configuration/startup sources and execute their guest probe");
+                    Console.WriteLine("WitOS development tool\nUsage: dotnet run --project tools/WitOS.Dev -- <command>\n\n  doctor  Check compiler, QEMU and firmware\n  setup   Download and verify pinned QEMU into .tools\n  build   Build the x64 UEFI image (no VM)\n  run     Build and boot headlessly in QEMU\n  test    Test boot, physical pages, CPU exceptions and timeout handling\n  format  Apply the repository style to files listed in build/format.json\n  format-check  Verify the repository style without changing files\n  fingerprint [--compare <file>] [scenario...]  Hash code/data sections of built images, ignoring debug records\n  coreclr-memory  Test owned executable memory backend (not guest CoreCLR)\n  coreclr-storage  Test unchanged assembly delivery and readonly guest IO (not guest CoreCLR)\n  coreclr-source  Build pinned CoreCLR/JIT Windows reference and inventory platform imports\n  coreclr-host  Build upstream Windows host and verify standard runtimeconfig/deps binding\n  coreclr-host-files  Verify pinned hosting PAL file contracts with a hosted syscall model\n  runtime-audit  Verify pinned NativeAOT sources and package provenance\n  runtime-probe  Publish and execute a hosted NativeAOT dependency probe\n  runtime-target  Inspect NativeAOT objects and test native-host bootstrap / strict link boundaries\n  runtime-port  Build pinned GC memory adapter and execute guest checks in QEMU\n  runtime-source  Build full upstream native libraries and verify the WitOS source overlay\n  runtime-boot-run  Rebuild kernel and boot the last hash-verified runtime image\n  runtime-boot  Build and execute the full guest runtime/GC workload\n  runtime-readiness  Build source runtime and audit minimal standard-CoreLib executable startup\n  runtime-unwind  Compare the pinned AMD64 unwinder with Windows (hosted)\n  runtime-exception  Verify Windows exception/VEH reference semantics (hosted)\n  runtime-gp  Verify Windows x64 general-protection translation (hosted)\n  runtime-failfast  Verify Windows fail-fast debugger record/context (hosted)\n  runtime-seh  Verify compiler scope tables and real filter/finally ABI (hosted)\n  runtime-gc-policy  Audit write-watch exclusion in existing source-built GC objects\n  runtime-encoding  Compare UTF conversions with Windows APIs (hosted)\n  runtime-config  Build upstream configuration/startup sources and execute their guest probe");
                     break;
                 default:
                     throw new ArgumentException($"Unknown command: {command}. Use help.");
@@ -149,12 +158,15 @@ internal static class DevTool
         throw new InvalidOperationException("Run this command inside the WitOS repository.");
     }
 
-    private static async Task<string> BuildAsync(string root, string scenario)
+    // A fixed build id and output directory let fingerprint builds compare
+    // images across commits without the Git revision string shifting data.
+    internal static async Task<string> BuildAsync(string root, string scenario, string? outputDirectory = null,
+        string? fixedBuildId = null)
     {
         var msvc = await Toolchain.FindMsvcAsync(root);
-        var output = Path.Combine(root, "artifacts", "x64", scenario);
+        var output = outputDirectory ?? Path.Combine(root, "artifacts", "x64", scenario);
         Directory.CreateDirectory(output);
-        var buildId = await BuildIdAsync(root);
+        var buildId = fixedBuildId ?? await BuildIdAsync(root);
         await File.WriteAllTextAsync(Path.Combine(output, "build_info.h"), $"#define WITOS_BUILD_ID \"{buildId}\"\n", Encoding.ASCII);
 
         await UserImage.BuildAsync(root, output, msvc);

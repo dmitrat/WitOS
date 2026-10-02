@@ -38,6 +38,15 @@ jobs:
       - name: Host tooling regressions
         run: dotnet run --project tests/WitOS.Dev.Tests --configuration Release --no-build
 
+      - name: Cache pinned LLVM installer
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .tools/downloads/LLVM-20.1.8-win64.exe
+          key: llvm-20.1.8-win64-3197846a2b190636
+
+      - name: Check source formatting
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- format-check
+
       - name: Extract verified QEMU
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
 

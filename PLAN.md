@@ -19,8 +19,8 @@
 | Ориентир | Текущее положение |
 | --- | --- |
 | Завершено | **P1, Q0, P3, P5/M3, Q1 и P6.1–P6.3**; P0, P2 и первый managed-запуск P4 — в проверенном bring-up профиле |
-| Следующий этап | **Q2.0**: baseline, формат-проверка и начало [консолидации и слоения](@Docs/Implementation/Q2-Consolidation-and-Arm64-Plan.md); P6.4 приостановлен на срезе static DLL TLS |
-| Следующий проверяемый результат | Полная матрица на HEAD зелёная, хэши образов и логов зафиксированы как эталон, формат-проверка в CI проходит |
+| Следующий этап | **Q2.1**: единый источник версий в [консолидации и слоении](@Docs/Implementation/Q2-Consolidation-and-Arm64-Plan.md); Q2.0 завершён, P6.4 приостановлен на срезе static DLL TLS |
+| Следующий проверяемый результат | Баннер ядра и документы берут версии ABI из заголовков; runner и хостовый тест отвергают расхождение |
 | После него | Q2.1–Q2.11 → A0–A2 ARM64-ядро на QEMU `virt` → P6.4 host/binding → P6.5 CoreCLR/JIT с заморозкой ABI → P6.6–P6.9 compatibility suite и developer workflow |
 | Первый запуск .NET | **Достигнут:** P4 NativeAOT Main + реальные allocations/GC, 8 запусков (4 профиля × 2 адреса) |
 | Исходная цель проекта | P6: запуск неизменённой portable DLL через upstream CoreCLR/JIT |
@@ -276,7 +276,7 @@ Q1 завершён в текущем x64/UP профиле. Измеренно�
 
 [Аудит кода 2026-10-02 и согласованный план](@Docs/Implementation/Q2-Consolidation-and-Arm64-Plan.md). Поведение и ABI не меняются; каждый срез проверяется полной матрицей, чистые переформатирования дополнительно подтверждаются неизменным хэшем секции `.text` образа. Решения: MSVC ARM64 cross tools, каталоги `Kernel.Arch.A64` / `Kernel.Platform.Q35` / `Kernel.Platform.QemuVirt` / `Runtime.Pal.Win32`, переименование `System.Native` → `Runtime.Native`, стиль 120 символов, C#-драйвер сборки с манифестами.
 
-- [ ] **Q2.0** Baseline полной матрицы на HEAD с хэшами образов и логов; `.clang-format`, `dotnet format` и проверка формата в CI.
+- [x] **Q2.0** Baseline полной матрицы на HEAD с хэшами образов и логов; `.clang-format`, `dotnet format` и проверка формата в CI. Эталон на чистом `75a3de7`: 19/19 шагов в порядке CI (Release, 42 host-группы, audit/probe/target/source, PE corpus/coverage/fuzz, QEMU cleanup, 20 kernel-сценариев, coreclr-functions/memory/storage, runtime-config, runtime-boot-run, coreclr-source/host/host-files); 478 хэшей образов и логов в `artifacts/q2-baseline/`. Добавлены `format`/`format-check` по манифесту `build/format.json` (pinned clang-format 20.1.8 извлекается из проверенного LLVM installer; C# через `dotnet format whitespace`), шаг CI в `kernel.yml` и `fingerprint`: хэши секций всех собранных PE с маскированием debug-записей и меток времени. Два независимых прогона совпали по 54 образам/233 секциям; изменение одной строки `events.c` меняет `.text`. Host suite 43/43. [Детали](@Docs/Implementation/Q2-Consolidation-and-Arm64-Plan.md#исполнение).
 - [ ] **Q2.1** Единый источник версий ABI/boot/баннера из заголовков; хостовый тест согласованности README и PLAN.
 - [ ] **Q2.2** Справочник ABI со классами стабильности каждого вызова, карта слоёв, инструкции «как добавить syscall» и «как добавить платформу»; тест полноты по `WIT_CALL_*`.
 - [ ] **Q2.3** Механическое переформатирование C/C++/C# по каталогам; хэш `.text` не меняется.

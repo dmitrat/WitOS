@@ -341,5 +341,6 @@ await Test("CoreClrProfilePinMismatch",async()=>{
     Check(rejected,"CoreCLR mismatched source pin accepted");
 });
 foreach(var test in Q1Tests.Cases(root,scratch))await Test(test.Name,test.Run);
+foreach(var test in ConsistencyTests.Cases(root))await Test(test.Name,test.Run);
 if(args.Contains("--pe")){await Test("VirtualGapPropertyCases",()=>VirtualGap.RunAsync(root,scratch));await Test("GuardedPeCorpus",()=>PeCorpus.RunAsync(root,scratch));}
 Console.WriteLine($"HOST TESTS: {passed} passed, {failures.Count} failed");return failures.Count==0?0:1;

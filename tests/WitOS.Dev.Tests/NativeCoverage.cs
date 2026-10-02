@@ -4,28 +4,14 @@ using WitOS.Dev;
 
 internal static class NativeCoverage
 {
-    internal const string Version = "20.1.8";
-    private const string Digest = "3197846a2b19063687dd56e93e34cd941e3548d907f23a6131571321bdf9fe7b";
+    internal const string Version = Toolchain.LlvmVersion;
     internal static string DirectoryPath(string root) => Path.Combine(root, ".tools", "llvm-" + Version);
 
     internal static async Task PrepareAsync(string root)
     {
-        var installer = Path.Combine(root, ".tools/downloads/LLVM-" + Version + "-win64.exe");
-        Directory.CreateDirectory(Path.GetDirectoryName(installer)!);
-        if (!File.Exists(installer))
-        {
-            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
-            using var response = await client.GetAsync($"https://github.com/llvm/llvm-project/releases/download/llvmorg-{Version}/LLVM-{Version}-win64.exe", HttpCompletionOption.ResponseHeadersRead);
-            response.EnsureSuccessStatusCode();
-            var partial = installer + ".partial";
-            await using (var stream = File.Create(partial)) await response.Content.CopyToAsync(stream);
-            File.Move(partial, installer, overwrite: true);
-        }
-        await using (var stream = File.OpenRead(installer))
-            if (Convert.ToHexString(await SHA256.HashDataAsync(stream)).ToLowerInvariant() != Digest)
-                throw new InvalidDataException("LLVM installer hash mismatch.");
+        var installer = await Toolchain.RequireLlvmInstallerAsync(root);
         // Always extract verified bytes: cached installed executables are not a source pin.
-        await Processes.RequireSuccessAsync(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "7-Zip/7z.exe"),
+        await Processes.RequireSuccessAsync(Toolchain.SevenZip(),
             ["x", installer, "-o" + DirectoryPath(root), "-y", "-bso0", "-bsp0"], root);
     }
 
@@ -63,7 +49,7 @@ internal static class NativeCoverage
             throw new InvalidDataException("Native fuzz smoke failed; see "+output);
         await File.WriteAllTextAsync(Path.Combine(output,"native-fuzz.json"),JsonSerializer.Serialize(new
         {
-            hostOnly=true,llvmVersion=Version,installerSha256=Digest,runs=500,seed=1462848041,
+            hostOnly=true,llvmVersion=Version,installerSha256=Toolchain.LlvmInstallerSha256,runs=500,seed=1462848041,
             profiles=new[]{"runtime-full","library-runtime-unwind","library-imports","library-static-tls"},librarySha256=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(library))).ToLowerInvariant(),
             imageSha256=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(image))).ToLowerInvariant(),
             sources=new[]{"src/Kernel/pe.c","src/Kernel/pe_imports.c","src/Kernel/include/witos/pe_imports.h","src/Kernel/pe_exports.c","src/Kernel/include/witos/unwind_metadata.h","tests/WitOS.Dev.Tests/PeFuzzer.c"}
@@ -91,7 +77,7 @@ internal static class NativeCoverage
         }
         await File.WriteAllTextAsync(Path.Combine(output, "native-coverage-profile.json"), JsonSerializer.Serialize(new
         {
-            hostOnly = true, llvmVersion = Version, installerSha256 = Digest, addressSanitizer = true,
+            hostOnly = true, llvmVersion = Version, installerSha256 = Toolchain.LlvmInstallerSha256, addressSanitizer = true,
             cases = 555, structuralVerdictCases = 26, profile = "clang-cl /O0, LLVM branch instrumentation + ASan; actual common kernel parser and metadata header",
             executableSha256 = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(executable))).ToLowerInvariant(),
             sources = sources.Select(file => new { file, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))).ToLowerInvariant() })

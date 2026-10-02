@@ -14,6 +14,69 @@ internal static class Toolchain
 
     public static string FirmwareVariables(string root) => Path.Combine(QemuDirectory(root), "share", "edk2-i386-vars.fd");
 
+    // Official LLVM release used for coverage, sanitizers and clang-format.
+    public const string LlvmVersion = "20.1.8";
+    public const string LlvmInstallerSha256 = "3197846a2b19063687dd56e93e34cd941e3548d907f23a6131571321bdf9fe7b";
+
+    public static string LlvmInstaller(string root)
+        => Path.Combine(root, ".tools", "downloads", $"LLVM-{LlvmVersion}-win64.exe");
+
+    public static string SevenZip()
+    {
+        var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "7-Zip", "7z.exe");
+        if (!File.Exists(path))
+        {
+            throw new InvalidOperationException("Install 7-Zip from https://www.7-zip.org/; pinned tools are extracted with it.");
+        }
+        return path;
+    }
+
+    // Downloads the pinned installer when absent and always verifies its digest.
+    public static async Task<string> RequireLlvmInstallerAsync(string root)
+    {
+        var installer = LlvmInstaller(root);
+        Directory.CreateDirectory(Path.GetDirectoryName(installer)!);
+        if (!File.Exists(installer))
+        {
+            var url = $"https://github.com/llvm/llvm-project/releases/download/llvmorg-{LlvmVersion}/LLVM-{LlvmVersion}-win64.exe";
+            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
+            using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+            var partial = installer + ".partial";
+            await using (var stream = File.Create(partial))
+            {
+                await response.Content.CopyToAsync(stream);
+            }
+            File.Move(partial, installer, overwrite: true);
+        }
+        await using (var stream = File.OpenRead(installer))
+        {
+            var digest = Convert.ToHexString(await SHA256.HashDataAsync(stream)).ToLowerInvariant();
+            if (digest != LlvmInstallerSha256)
+            {
+                throw new InvalidDataException($"LLVM installer hash mismatch. Remove the invalid download: {installer}");
+            }
+        }
+        return installer;
+    }
+
+    // Extracts only clang-format from the verified installer on every use; a
+    // previously extracted executable is never trusted as the pinned tool.
+    public static async Task<string> PrepareClangFormatAsync(string root)
+    {
+        var installer = await RequireLlvmInstallerAsync(root);
+        var directory = Path.Combine(root, ".tools", $"clang-format-{LlvmVersion}");
+        await Processes.RequireSuccessAsync(SevenZip(),
+            ["e", installer, @"bin\clang-format.exe", $"-o{directory}", "-y", "-bso0", "-bsp0"], root);
+        var formatter = Path.Combine(directory, "clang-format.exe");
+        var version = await Processes.RunAsync(formatter, ["--version"], root);
+        if (version.ExitCode != 0 || !version.Output.Contains($"clang-format version {LlvmVersion}", StringComparison.Ordinal))
+        {
+            throw new InvalidDataException($"Unexpected clang-format version: {version.Output.Trim()}");
+        }
+        return formatter;
+    }
+
     public static IReadOnlyDictionary<string, string> NativeAotEnvironment()
     {
         // NativeAOT's SDK invokes VS discovery scripts that can use bare
@@ -69,9 +132,7 @@ internal static class Toolchain
 
     public static async Task SetupAsync(string root)
     {
-        var sevenZip = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "7-Zip", "7z.exe");
-        if (!File.Exists(sevenZip))
-            throw new InvalidOperationException("Install 7-Zip from https://www.7-zip.org/ before setup.");
+        var sevenZip = SevenZip();
 
         var downloads = Path.Combine(root, ".tools", "downloads");
         Directory.CreateDirectory(downloads);
