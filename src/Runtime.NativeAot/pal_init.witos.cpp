@@ -17,38 +17,65 @@ bool PalInit()
 {
     const DWORD saved_error = GetLastError();
     if (!wit_native_process_image() || !wit_pal_environment_is_ready() || !g_pRhConfig) {
-        SetLastError(ERROR_NOT_READY); return false;
+        SetLastError(ERROR_NOT_READY);
+        return false;
     }
     // Do not access compiler TLS (including errno) until kernel state confirms
     // it exists. Writable FS/GS hints never determine the CPU count or identity.
     WitUserThreadInfo info;
     WitU64 copied = 0;
-    const auto status = wit_native_call(WIT_CALL_THREAD_QUERY, (uintptr_t)&info, sizeof(info),
-        WIT_THREAD_INFO_VERSION, &copied);
-    if (status != WIT_STATUS_OK) { wit_pal_set_status(status); return false; }
-    if (copied != sizeof(info) || info.Version != WIT_THREAD_INFO_VERSION || info.Size != sizeof(info) ||
-        !info.ThreadId || !info.ProcessId || !info.RawTls) {
-        SetLastError(ERROR_GEN_FAILURE); return false;
+    const auto status =
+        wit_native_call(WIT_CALL_THREAD_QUERY, (uintptr_t)&info, sizeof(info), WIT_THREAD_INFO_VERSION, &copied);
+    if (status != WIT_STATUS_OK) {
+        wit_pal_set_status(status);
+        return false;
     }
-    if (!info.CompilerTls) { SetLastError(ERROR_NOT_READY); return false; }
-    if (info.ProcessorCount != 1) { SetLastError(ERROR_NOT_SUPPORTED); return false; }
-    if (!wit_native_try_lock(&gate)) { SetLastError(ERROR_BUSY); return false; }
+    if (copied != sizeof(info) ||
+        info.Version != WIT_THREAD_INFO_VERSION ||
+        info.Size != sizeof(info) ||
+        !info.ThreadId ||
+        !info.ProcessId ||
+        !info.RawTls) {
+        SetLastError(ERROR_GEN_FAILURE);
+        return false;
+    }
+    if (!info.CompilerTls) {
+        SetLastError(ERROR_NOT_READY);
+        return false;
+    }
+    if (info.ProcessorCount != 1) {
+        SetLastError(ERROR_NOT_SUPPORTED);
+        return false;
+    }
+    if (!wit_native_try_lock(&gate)) {
+        SetLastError(ERROR_BUSY);
+        return false;
+    }
     const int saved_errno = errno;
     DWORD failure = ERROR_SUCCESS;
     if (ready) {
         // Shutdown ends this lifecycle; cached init must not resurrect it or
         // overwrite refreshed configuration after GC/runtime startup.
-        if (GCToOSInterface::GetTotalProcessorCount() != info.ProcessorCount) failure = ERROR_INVALID_STATE;
+        if (GCToOSInterface::GetTotalProcessorCount() != info.ProcessorCount) {
+            failure = ERROR_INVALID_STATE;
+        }
     } else {
         uint64_t count;
         // Match upstream parsing/validity: zero, unparseable and >65535 values
         // fall back to kernel discovery. A valid override must fit this profile.
-        if (g_pRhConfig->ReadConfigValue("PROCESSOR_COUNT", &count, true) && count && count <= 65535 &&
-            count != info.ProcessorCount) failure = ERROR_NOT_SUPPORTED;
+        if (g_pRhConfig->ReadConfigValue("PROCESSOR_COUNT", &count, true) &&
+            count &&
+            count <= 65535 &&
+            count != info.ProcessorCount) {
+            failure = ERROR_NOT_SUPPORTED;
+        }
         if (!failure) {
             GCConfig::Initialize();
-            if (!GCToOSInterface::Initialize()) failure = ERROR_GEN_FAILURE;
-            else ready = true;
+            if (!GCToOSInterface::Initialize()) {
+                failure = ERROR_GEN_FAILURE;
+            } else {
+                ready = true;
+            }
         }
     }
     errno = saved_errno;

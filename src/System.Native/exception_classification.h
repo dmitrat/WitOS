@@ -9,7 +9,7 @@ extern "C" {
 #endif
 /* Selected x64 GP forms, at most 15 initialized instruction bytes. Unknown
  * forms remain unsupported; this does not reconstruct a memory address. */
-WitU32 wit_x64_classify_gp(const WitU8* bytes,WitU32 size,WitU64 error);
+WitU32 wit_x64_classify_gp(const WitU8 *bytes, WitU32 size, WitU64 error);
 #ifdef __cplusplus
 }
 #endif

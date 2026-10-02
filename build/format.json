@@ -2,7 +2,10 @@
   "native": [
     "src/Boot.Uefi",
     "src/Kernel",
-    "src/Kernel.Arch.X64"
+    "src/Kernel.Arch.X64",
+    "src/Runtime.CoreClr",
+    "src/Runtime.NativeAot",
+    "src/System.Native"
   ],
   "managed": [
     "tests/WitOS.Dev.Tests/ConsistencyTests.cs",

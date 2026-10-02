@@ -26,6 +26,7 @@ typedef struct WitNativeModule {
 typedef WitU64 (*WitNativeInitialize)(WitNativeModule *);
 typedef void (*WitNativeCleanup)(WitNativeModule *);
 typedef WitU64 (*WitNativeMain)(WitNativeModule *);
+
 typedef struct WitNativeInitializer {
     WitNativeInitialize Initialize;
     WitNativeCleanup Cleanup;
