@@ -6,6 +6,8 @@ namespace WitOS.Dev.Images;
 
 internal static class UserBootstrapImage
 {
+    #region Functions
+
     public static async Task BuildAsync(string root, string output, string msvc)
     {
         var objects = new List<string>();
@@ -49,4 +51,6 @@ internal static class UserBootstrapImage
         await File.WriteAllTextAsync(Path.Combine(output, "bootstrap_image.h"), generated.ToString(), Encoding.ASCII);
         Console.WriteLine($"BootstrapFixture: {bytes.Length} file bytes, {h.ExceptionTableDirectory.Size / 12} unwind entries; native C, no CRT.");
     }
+
+    #endregion
 }

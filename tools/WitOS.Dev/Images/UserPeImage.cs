@@ -8,6 +8,8 @@ namespace WitOS.Dev.Images;
 
 internal static class UserPeImage
 {
+    #region Functions
+
     public static async Task BuildAsync(string root, string output, string msvc, Dictionary<string, ulong> constants)
     {
         var obj = Path.Combine(output, "PeFixture.obj");
@@ -69,4 +71,6 @@ internal static class UserPeImage
             generated.AppendLine($"#define WIT_PE_TEST_{symbol.Key.ToUpperInvariant()}_RVA 0x{symbol.Value:X}U");
         await File.WriteAllTextAsync(Path.Combine(output, "pe_image.h"), generated.ToString(), Encoding.ASCII);
     }
+
+    #endregion
 }

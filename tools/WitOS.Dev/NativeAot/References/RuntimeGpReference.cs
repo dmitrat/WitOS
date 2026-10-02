@@ -5,6 +5,8 @@ namespace WitOS.Dev.NativeAot.References;
 
 internal static class RuntimeGpReference
 {
+    #region Functions
+
     public static async Task RunAsync(string root, string msvc)
     {
         var output = Path.Combine(root, "artifacts/runtime-gp-reference");
@@ -33,4 +35,6 @@ internal static class RuntimeGpReference
         await File.WriteAllTextAsync(Path.Combine(output, "reference.json"), JsonSerializer.Serialize(new { hostOnly = true, decoderSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, "src/Kernel.Arch.X64/native_exception_x64.cpp")))).ToLowerInvariant(), assemblySha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(assembly))).ToLowerInvariant(), sourceSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(source))).ToLowerInvariant(), executableSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(executable))).ToLowerInvariant() }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine("[GP-REFERENCE-PASS] Windows selector, privileged instruction, noncanonical access and SIMD alignment faults (HOSTED only).");
     }
+
+    #endregion
 }

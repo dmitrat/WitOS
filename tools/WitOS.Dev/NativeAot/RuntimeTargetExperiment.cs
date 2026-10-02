@@ -9,10 +9,23 @@ namespace WitOS.Dev.NativeAot;
 
 internal static class RuntimeTargetExperiment
 {
-    private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    #region Constants
+
     private const string PROJECT = "experiments/NativeAotTarget";
+
+    #endregion
+
+    #region Fields
+
+    private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+
     private static readonly string[] EXPORTS = ["witos_target_probe", "witos_target_version"];
+
     private static readonly string[] CASES = ["FirstExportInitialization", "AllocationGcAndExceptions", "TlsOnNativeThreads", "RepeatEntry"];
+
+    #endregion
+
+    #region Functions
 
     public static async Task RunAsync(string root)
     {
@@ -156,24 +169,6 @@ internal static class RuntimeTargetExperiment
         Console.WriteLine($"Reports: {output}");
     }
 
-    private static async Task<string> PublishAsync(string root, string output, string kind)
-    {
-        var directory = Path.Combine(output, kind.ToLowerInvariant());
-        Directory.CreateDirectory(directory);
-        var result = await Processes.RunAsync("dotnet",
-        [
-            "publish", Path.Combine(root, PROJECT, "NativeAotTarget.csproj"), "-c", "Release",
-            "-r", "win-x64", "-o", directory, "--packages", Path.Combine(root, ".tools", "nuget"),
-            "--configfile", Path.Combine(root, PROJECT, "NuGet.Config"), "-p:RestoreLockedMode=true",
-            "-p:NativeLib=" + kind, "-p:NativeIntermediateOutputPath=" + Path.Combine(directory, "native") + "/",
-            "-p:NativeOutputPath=" + Path.Combine(directory, "link") + "/"
-        ], root, 600, Toolchain.NativeAotEnvironment());
-        await File.WriteAllTextAsync(Path.Combine(directory, "publish.log"), result.Output + result.Error);
-        if (result.TimedOut || result.ExitCode != 0)
-            throw new InvalidOperationException($"NativeAOT {kind} publish failed. {result.Output}\n{result.Error}");
-        return directory;
-    }
-
     internal static async Task<RuntimeTargetLinkEvidence> LinkBoundaryAsync(string msvc, string output, string archive,
         string[] libraries, string name)
     {
@@ -198,6 +193,28 @@ internal static class RuntimeTargetExperiment
             result.ExitCode, unresolved);
     }
 
+    #endregion
+
+    #region Tools
+
+    private static async Task<string> PublishAsync(string root, string output, string kind)
+    {
+        var directory = Path.Combine(output, kind.ToLowerInvariant());
+        Directory.CreateDirectory(directory);
+        var result = await Processes.RunAsync("dotnet",
+        [
+            "publish", Path.Combine(root, PROJECT, "NativeAotTarget.csproj"), "-c", "Release",
+            "-r", "win-x64", "-o", directory, "--packages", Path.Combine(root, ".tools", "nuget"),
+            "--configfile", Path.Combine(root, PROJECT, "NuGet.Config"), "-p:RestoreLockedMode=true",
+            "-p:NativeLib=" + kind, "-p:NativeIntermediateOutputPath=" + Path.Combine(directory, "native") + "/",
+            "-p:NativeOutputPath=" + Path.Combine(directory, "link") + "/"
+        ], root, 600, Toolchain.NativeAotEnvironment());
+        await File.WriteAllTextAsync(Path.Combine(directory, "publish.log"), result.Output + result.Error);
+        if (result.TimedOut || result.ExitCode != 0)
+            throw new InvalidOperationException($"NativeAOT {kind} publish failed. {result.Output}\n{result.Error}");
+        return directory;
+    }
+
     private static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
 
     private static void VerifyMalformedInputs(string output, string obj, string archive, string dll)
@@ -219,4 +236,6 @@ internal static class RuntimeTargetExperiment
         File.WriteAllBytes(badImage, File.ReadAllBytes(dll)[..32]);
         Reject(() => NativeModule.Inspect(badImage));
     }
+
+    #endregion
 }

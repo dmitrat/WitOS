@@ -5,6 +5,8 @@ namespace WitOS.Dev.NativeAot.References;
 
 internal static class RuntimeEncodingReference
 {
+    #region Functions
+
     public static async Task RunAsync(string root, string msvc)
     {
         var output = Path.Combine(root, "artifacts", "runtime-encoding");
@@ -40,4 +42,6 @@ internal static class RuntimeEncodingReference
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine("[ENCODING-REFERENCE-PASS] 9456444 UTF conversion comparisons against Windows (HOSTED only).");
     }
+
+    #endregion
 }

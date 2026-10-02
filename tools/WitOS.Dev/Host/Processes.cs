@@ -6,8 +6,15 @@ namespace WitOS.Dev.Host;
 
 internal static class Processes
 {
+    #region Fields
+
     private static readonly TimeSpan CLEANUP_BUDGET = TimeSpan.FromSeconds(5);
+
     private static readonly TimeSpan CONTROL_BUDGET = TimeSpan.FromSeconds(1);
+
+    #endregion
+
+    #region Functions
 
     public static Task<ProcessResult> RunAsync(string executable, IEnumerable<string> arguments, string directory,
         int timeoutSeconds = 60, IReadOnlyDictionary<string, string>? environment = null)
@@ -77,6 +84,17 @@ internal static class Processes
             ExceptionDispatchInfo.Capture(failure).Throw();
         return new(child.ExitCode, await BoundedCapture.ReadFileAsync(outputPath), await BoundedCapture.ReadFileAsync(errorPath), timedOut);
     }
+
+    public static async Task RequireSuccessAsync(string executable, IEnumerable<string> arguments, string directory)
+    {
+        var result = await RunAsync(executable, arguments, directory);
+        if (result.TimedOut || result.ExitCode != 0)
+            throw new InvalidOperationException($"{Path.GetFileName(executable)} failed (exit {result.ExitCode}, timeout={result.TimedOut}).\n{result.Output}\n{result.Error}");
+    }
+
+    #endregion
+
+    #region Tools
 
     private static async Task<ProcessResult> RunCoreAsync(string executable, IEnumerable<string> arguments,
         string directory, int timeoutSeconds, IReadOnlyDictionary<string, string>? environment,
@@ -193,10 +211,5 @@ internal static class Processes
     private static void Observe(Task task) => _ = task.ContinueWith(t => { _ = t.Exception; }, CancellationToken.None,
         TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
 
-    public static async Task RequireSuccessAsync(string executable, IEnumerable<string> arguments, string directory)
-    {
-        var result = await RunAsync(executable, arguments, directory);
-        if (result.TimedOut || result.ExitCode != 0)
-            throw new InvalidOperationException($"{Path.GetFileName(executable)} failed (exit {result.ExitCode}, timeout={result.TimedOut}).\n{result.Output}\n{result.Error}");
-    }
+    #endregion
 }

@@ -10,11 +10,27 @@ namespace WitOS.Dev.CoreClr;
 
 internal static class CoreClrExperiment
 {
+    #region Constants
+
     private const string PROFILE = "coreclr-reference";
+
+    #endregion
+
+    #region Fields
+
     private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+
+    #endregion
+
+    #region Functions
+
     internal static Task RunAsync(string root)
         => RuntimeBootAttempt.RunInDirectoryAsync(Path.Combine(root, "artifacts/coreclr-source"), "coreclr-source",
             attempt => BuildAsync(root, attempt));
+
+    #endregion
+
+    #region Tools
 
     private static async Task BuildAsync(string root, RuntimeBootAttempt attempt)
     {
@@ -135,5 +151,8 @@ internal static class CoreClrExperiment
         attempt.Publish(report);
         Console.WriteLine("[CORECLR-REFERENCE-BUILD-PASS] Actual upstream CoreCLR/JIT/host binaries and direct/delay imports inventoried. Guest port remains pending.");
     }
+
     private static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+
+    #endregion
 }

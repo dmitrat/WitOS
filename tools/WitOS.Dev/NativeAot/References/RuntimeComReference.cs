@@ -5,6 +5,8 @@ namespace WitOS.Dev.NativeAot.References;
 
 internal static class RuntimeComReference
 {
+    #region Functions
+
     public static async Task RunAsync(string root, string msvc)
     {
         var output = Path.Combine(root, "artifacts", "runtime-com");
@@ -37,4 +39,6 @@ internal static class RuntimeComReference
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine("[COM-REFERENCE-PASS] Windows explicit/implicit MTA lifecycle (HOSTED only).");
     }
+
+    #endregion
 }

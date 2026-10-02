@@ -9,6 +9,8 @@ namespace WitOS.Dev.Images;
 
 internal static class UserPalImage
 {
+    #region Fields
+
     private static readonly string[] INPUTS =
     [
         "src/coreclr/nativeaot/Runtime/Pal.h", "src/coreclr/nativeaot/Runtime/PalLimitedContext.h",
@@ -17,6 +19,10 @@ internal static class UserPalImage
         "src/native/minipal/guid.h", "src/native/minipal/utils.h", "src/native/minipal/mutex.h",
         "src/coreclr/gc/env/gcenv.structs.h", "LICENSE.TXT"
     ];
+
+    #endregion
+
+    #region Functions
 
     /// <summary>Builds import-free PAL thread, memory and wait fixtures against pinned upstream declarations.</summary>
     /// <param name="root">Repository root.</param>
@@ -107,4 +113,6 @@ internal static class UserPalImage
                 .Select(p => new { path = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, p)))).ToLowerInvariant() })
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
     }
+
+    #endregion
 }

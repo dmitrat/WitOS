@@ -5,17 +5,32 @@ namespace WitOS.Dev.Kernel;
 
 internal static class FatImage
 {
+    #region Constants
+
     // A standard 32 MiB FAT16 superfloppy. QEMU/UEFI open it read-only.
     private const int SECTOR_SIZE = 512;
+
     private const int TOTAL_SECTORS = 65536;
+
     private const int SECTORS_PER_CLUSTER = 4;
+
     private const int FAT_SECTORS = 64;
+
     private const int ROOT_ENTRIES = 512;
+
     private const int ROOT_SECTORS = ROOT_ENTRIES * 32 / SECTOR_SIZE;
+
     private const int ROOT_START = 1 + 2 * FAT_SECTORS;
+
     private const int DATA_START = ROOT_START + ROOT_SECTORS;
+
     private const int CLUSTER_SIZE = SECTORS_PER_CLUSTER * SECTOR_SIZE;
+
     private const int CLUSTER_COUNT = (TOTAL_SECTORS - DATA_START) / SECTORS_PER_CLUSTER;
+
+    #endregion
+
+    #region Functions
 
     public static void Create(string destination, byte[] executable, byte[]? package = null)
     {
@@ -95,6 +110,10 @@ internal static class FatImage
         stream.Write(package);
     }
 
+    #endregion
+
+    #region Tools
+
     private static void Entry(byte[] buffer, int index, string name, byte attributes, int cluster, int length)
     {
         var offset = index * 32;
@@ -109,6 +128,10 @@ internal static class FatImage
     }
 
     private static void Put16(byte[] data, int offset, int value) => BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(offset), checked((ushort)value));
+
     private static void Put32(byte[] data, int offset, int value) => BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(offset), checked((uint)value));
+
     private static void PutText(byte[] data, int offset, string value) => Encoding.ASCII.GetBytes(value).CopyTo(data, offset);
+
+    #endregion
 }

@@ -8,6 +8,8 @@ namespace WitOS.Dev.Images;
 
 internal static class UserPalBackgroundImage
 {
+    #region Functions
+
     /// <summary>Builds a real PAL worker/TLS lifecycle fixture using same-build native objects.</summary>
     /// <param name="root">Repository root.</param>
     /// <param name="output">Artifact directory already populated by the base fixtures.</param>
@@ -82,4 +84,6 @@ internal static class UserPalBackgroundImage
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine($"PalBackgroundFixture: {bytes.Length} bytes, native callback/TLS lifecycle, no OS/CRT imports.");
     }
+
+    #endregion
 }

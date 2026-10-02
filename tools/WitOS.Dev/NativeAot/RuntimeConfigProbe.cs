@@ -9,8 +9,13 @@ namespace WitOS.Dev.NativeAot;
 
 internal static class RuntimeConfigProbe
 {
+    #region Fields
+
     private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web) { WriteIndented = true };
-    private static string Hash(string file) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))).ToLowerInvariant();
+
+    #endregion
+
+    #region Functions
 
     public static async Task PrepareAsync(string root, UpstreamSourceLock pin)
     {
@@ -315,4 +320,12 @@ internal static class RuntimeConfigProbe
         await RuntimeCpuImage.BuildAsync(root, output, msvc, archive, minipalArchive, memoryObject, crt, clockObject, clockBinding, fatalObject, affinityObject, mathObject, logObject, securityObjects);
         Console.WriteLine($"RuntimeConfigFixture: {bytes.Length} bytes, real upstream configuration methods, no OS/CRT imports.");
     }
+
+    #endregion
+
+    #region Tools
+
+    private static string Hash(string file) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))).ToLowerInvariant();
+
+    #endregion
 }

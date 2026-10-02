@@ -8,6 +8,8 @@ namespace WitOS.Dev.Images;
 
 internal static class UserPalModuleImage
 {
+    #region Functions
+
     /// <summary>Builds module lookup/bounds coverage across native TLS and worker lifetimes.</summary>
     /// <param name="root">Repository root.</param>
     /// <param name="output">Artifact directory already populated by the base fixtures.</param>
@@ -82,4 +84,6 @@ internal static class UserPalModuleImage
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine($"PalModuleFixture: {bytes.Length} bytes, native module discovery, no OS/CRT imports.");
     }
+
+    #endregion
 }

@@ -7,9 +7,21 @@ namespace WitOS.Dev.Kernel;
 // compile assemblies or define runtime/framework binding policy.
 internal static class AssemblyPackage
 {
+    #region Constants
+
     internal const int HEADER_BYTES = 32, ENTRY_BYTES = 32, MAXIMUM_FILES = 1024;
+
     internal const int MAXIMUM_NAME_BYTES = 1024, MAXIMUM_BYTES = 128 * 1024 * 1024;
+
+    #endregion
+
+    #region Fields
+
     private static readonly UTF8Encoding UTF8 = new(false, true);
+
+    #endregion
+
+    #region Functions
 
     internal static byte[] Create(IEnumerable<(string Name, ReadOnlyMemory<byte> Bytes)> files)
     {
@@ -73,7 +85,16 @@ internal static class AssemblyPackage
         }
         return output;
     }
+
+    #endregion
+
+    #region Tools
+
     private static long Align(long value) => checked(value + 7) & ~7L;
+
     private static void Put32(byte[] output, int offset, int value) => BinaryPrimitives.WriteUInt32LittleEndian(output.AsSpan(offset), checked((uint)value));
+
     private static void Put64(byte[] output, int offset, long value) => BinaryPrimitives.WriteUInt64LittleEndian(output.AsSpan(offset), checked((ulong)value));
+
+    #endregion
 }

@@ -10,13 +10,25 @@ namespace WitOS.Dev.NativeAot;
 
 internal static class RuntimeExperiment
 {
-    private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    #region Constants
+
     private const string EXPERIMENT_PATH = "experiments/NativeAotProbe";
+
+    #endregion
+
+    #region Fields
+
+    private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+
     private static readonly string[] PROBE_CASES =
     [
         "NativeAotIdentity", "GcRootsAndFinalizer", "GcCompositeRoots", "GcRootsAcrossUnwind", "ExceptionsAndFinally",
         "ThreadsTlsMonitorAndGc", "WaitSignalResetAndTimeout", "TasksCancellationAndClock"
     ];
+
+    #endregion
+
+    #region Functions
 
     internal static UpstreamSourceLock ReadLock(string root)
     {
@@ -89,13 +101,6 @@ internal static class RuntimeExperiment
         }
         VerifyHash(await File.ReadAllBytesAsync(destination), expectedHash, path);
         return destination;
-    }
-
-    private static void VerifyHash(byte[] data, string expected, string label)
-    {
-        var actual = Convert.ToHexString(SHA256.HashData(data));
-        if (!actual.Equals(expected, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException($"SHA-256 mismatch: {label}.");
     }
 
     internal static string[] VerifyPublishedPackages(string root, UpstreamSourceLock pin)
@@ -187,4 +192,17 @@ internal static class RuntimeExperiment
         Console.WriteLine($"Native PE verified: {bytes.Length} bytes, {report.directImportSymbolCount} direct symbols in {report.directImportLibraryCount} libraries.");
         Console.WriteLine($"Reports: {output}");
     }
+
+    #endregion
+
+    #region Tools
+
+    private static void VerifyHash(byte[] data, string expected, string label)
+    {
+        var actual = Convert.ToHexString(SHA256.HashData(data));
+        if (!actual.Equals(expected, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException($"SHA-256 mismatch: {label}.");
+    }
+
+    #endregion
 }

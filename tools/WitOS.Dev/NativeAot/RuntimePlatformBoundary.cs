@@ -9,6 +9,8 @@ namespace WitOS.Dev.NativeAot;
 // Evidence inventory, not a substitute for guest implementation or dynamic reachability.
 internal static class RuntimePlatformBoundary
 {
+    #region Fields
+
     private static readonly RuntimePlatformBoundaryGroup[] GROUPS = [
         new("attachment", "P1.8/P3", "Required: real runtime attach/detach and private exit notification; no fake COM/FLS initialization.", "PalInitComAndFlsSlot PalAttachThread"),
         new("contexts", "P1.8/P3", "Required: kernel-authorized contexts, suspension, hijack and restore. CET may be disabled only with a verified hardware/context profile.", "PalGetCompleteThreadContext PalSetThreadContext PalAllocateCompleteOSContext PalRestoreContext PalHijack PalGetHijackTarget PalAreShadowStacksEnabled GetSSP SetSSP PopulateControlSegmentRegisters"),
@@ -24,11 +26,9 @@ internal static class RuntimePlatformBoundary
         new("entropy", "P1.4", "Required entropy-backed generation. No timestamps, thread IDs or noncryptographic PRNG as substitutes for BCryptGenRandom.", "BCryptGenRandom")
     ];
 
-    private static string Name(string display)
-    {
-        var cpp = Regex.Match(display, @"__cdecl (?:GCToOSInterface::)?(\w+)\(");
-        return cpp.Success ? cpp.Groups[1].Value : display;
-    }
+    #endregion
+
+    #region Functions
 
     public static async Task WriteAsync(string root, string managedObject, CoffObjectInfo coff,
         string linkLog, string[] unresolved, string[] compilerArguments)
@@ -80,4 +80,16 @@ internal static class RuntimePlatformBoundary
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine($"[READINESS-PASS] P1 platform policy covers {entries.Length} unresolved symbols with link evidence and ILC relocation owners.");
     }
+
+    #endregion
+
+    #region Tools
+
+    private static string Name(string display)
+    {
+        var cpp = Regex.Match(display, @"__cdecl (?:GCToOSInterface::)?(\w+)\(");
+        return cpp.Success ? cpp.Groups[1].Value : display;
+    }
+
+    #endregion
 }

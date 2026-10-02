@@ -8,7 +8,43 @@ namespace WitOS.Dev.CoreClr;
 
 internal static class CoreClrHostFilePal
 {
+    #region Functions
+
     internal static Task RunAsync(string root) => RuntimeBootAttempt.RunInDirectoryAsync(Path.Combine(root, "artifacts/coreclr-host-file-pal"), "coreclr-host-files", attempt => RunAsync(root, attempt));
+
+    internal static async Task<string> PrepareAsync(string root, string output)
+    {
+        Directory.CreateDirectory(output);
+        var pin = RuntimeExperiment.ReadLock(root);
+        using var contract = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(root, "experiments/CoreClrHost/host-files.lock.json")));
+        var item = contract.RootElement;
+        if (item.GetProperty("runtimeCommit").GetString() != pin.RuntimeCommit)
+            throw new InvalidDataException("Host PAL header pin mismatch.");
+        using var client = new HttpClient();
+        var raw = await RuntimeExperiment.FetchAsync(client, Path.Combine(root, ".tools/runtime-audit"), "runtime", pin.RuntimeCommit,
+            item.GetProperty("path").GetString()!, item.GetProperty("sha256").GetString()!);
+        var header = await File.ReadAllTextAsync(raw);
+        const string original = "    inline bool munmap(void* addr, size_t length) { return UnmapViewOfFile(addr) != 0; }";
+        if (header.IndexOf(original, StringComparison.Ordinal) < 0 || header.IndexOf(original, StringComparison.Ordinal) != header.LastIndexOf(original, StringComparison.Ordinal))
+            throw new InvalidDataException("Pinned corehost munmap declaration changed.");
+        var corrected = header.Replace(original, string.Join(Environment.NewLine, "#if defined(WITOS_HOST_FILES)", "    bool munmap(void* addr, size_t length);", "#else", original, "#endif"), StringComparison.Ordinal);
+        await File.WriteAllTextAsync(Path.Combine(output, "pal.h"), corrected);
+        var configuration = item.GetProperty("configuration");
+        var template = await RuntimeExperiment.FetchAsync(client, Path.Combine(root, ".tools/runtime-audit"), "runtime", pin.RuntimeCommit,
+            configuration.GetProperty("path").GetString()!, configuration.GetProperty("sha256").GetString()!);
+        var config = (await File.ReadAllTextAsync(template)).Replace("#cmakedefine CLR_SINGLE_FILE_HOST_ONLY", "/* CLR_SINGLE_FILE_HOST_ONLY is not enabled. */", StringComparison.Ordinal)
+            .Replace("@CLI_CMAKE_PKG_RID@", "witos-x64", StringComparison.Ordinal).Replace("@CLI_CMAKE_COMMIT_HASH@", pin.RuntimeCommit, StringComparison.Ordinal)
+            .Replace("@CLI_CMAKE_FALLBACK_OS@", "witos", StringComparison.Ordinal).Replace("@CLR_CMAKE_TARGET_OS@", "witos", StringComparison.Ordinal).Replace("@CLR_CMAKE_TARGET_ARCH@", "x64", StringComparison.Ordinal);
+        if (config.Contains('@') || config.Contains("#cmakedefine", StringComparison.Ordinal))
+            throw new InvalidDataException("Host PAL configure template changed.");
+        await File.WriteAllTextAsync(Path.Combine(output, "configure.h"), config);
+        return raw;
+    }
+
+    #endregion
+
+    #region Tools
+
     private static async Task RunAsync(string root, RuntimeBootAttempt attempt)
     {
         var legacy = Path.Combine(root, "artifacts/coreclr-host-file-pal/reference.json");
@@ -58,33 +94,6 @@ internal static class CoreClrHostFilePal
         attempt.Publish(report);
         Console.Write(run.Output);
     }
-    internal static async Task<string> PrepareAsync(string root, string output)
-    {
-        Directory.CreateDirectory(output);
-        var pin = RuntimeExperiment.ReadLock(root);
-        using var contract = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(root, "experiments/CoreClrHost/host-files.lock.json")));
-        var item = contract.RootElement;
-        if (item.GetProperty("runtimeCommit").GetString() != pin.RuntimeCommit)
-            throw new InvalidDataException("Host PAL header pin mismatch.");
-        using var client = new HttpClient();
-        var raw = await RuntimeExperiment.FetchAsync(client, Path.Combine(root, ".tools/runtime-audit"), "runtime", pin.RuntimeCommit,
-            item.GetProperty("path").GetString()!, item.GetProperty("sha256").GetString()!);
-        var header = await File.ReadAllTextAsync(raw);
-        const string original = "    inline bool munmap(void* addr, size_t length) { return UnmapViewOfFile(addr) != 0; }";
-        if (header.IndexOf(original, StringComparison.Ordinal) < 0 || header.IndexOf(original, StringComparison.Ordinal) != header.LastIndexOf(original, StringComparison.Ordinal))
-            throw new InvalidDataException("Pinned corehost munmap declaration changed.");
-        var corrected = header.Replace(original, string.Join(Environment.NewLine, "#if defined(WITOS_HOST_FILES)", "    bool munmap(void* addr, size_t length);", "#else", original, "#endif"), StringComparison.Ordinal);
-        await File.WriteAllTextAsync(Path.Combine(output, "pal.h"), corrected);
-        var configuration = item.GetProperty("configuration");
-        var template = await RuntimeExperiment.FetchAsync(client, Path.Combine(root, ".tools/runtime-audit"), "runtime", pin.RuntimeCommit,
-            configuration.GetProperty("path").GetString()!, configuration.GetProperty("sha256").GetString()!);
-        var config = (await File.ReadAllTextAsync(template)).Replace("#cmakedefine CLR_SINGLE_FILE_HOST_ONLY", "/* CLR_SINGLE_FILE_HOST_ONLY is not enabled. */", StringComparison.Ordinal)
-            .Replace("@CLI_CMAKE_PKG_RID@", "witos-x64", StringComparison.Ordinal).Replace("@CLI_CMAKE_COMMIT_HASH@", pin.RuntimeCommit, StringComparison.Ordinal)
-            .Replace("@CLI_CMAKE_FALLBACK_OS@", "witos", StringComparison.Ordinal).Replace("@CLR_CMAKE_TARGET_OS@", "witos", StringComparison.Ordinal).Replace("@CLR_CMAKE_TARGET_ARCH@", "x64", StringComparison.Ordinal);
-        if (config.Contains('@') || config.Contains("#cmakedefine", StringComparison.Ordinal))
-            throw new InvalidDataException("Host PAL configure template changed.");
-        await File.WriteAllTextAsync(Path.Combine(output, "configure.h"), config);
-        return raw;
-    }
 
+    #endregion
 }

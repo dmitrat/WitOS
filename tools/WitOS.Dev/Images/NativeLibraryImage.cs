@@ -4,6 +4,8 @@ namespace WitOS.Dev.Images;
 
 internal static class NativeLibraryImage
 {
+    #region Functions
+
     internal static async Task<string> BuildAsync(string root, string output, string msvc)
     {
         Directory.CreateDirectory(output);
@@ -14,6 +16,7 @@ internal static class NativeLibraryImage
             "/base:0x180000000","/def:"+Path.Combine(root,"tests/User.X64/native_library.def"),"/out:"+dll,obj], root);
         return dll;
     }
+
     internal static async Task<Dictionary<string, string>> BuildDependenciesAsync(string root, string output, string msvc)
     {
         async Task Compile(string source, string name, string? define = null)
@@ -55,4 +58,6 @@ internal static class NativeLibraryImage
         }
         return result;
     }
+
+    #endregion
 }

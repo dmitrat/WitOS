@@ -9,6 +9,8 @@ namespace WitOS.Dev.Images;
 
 internal static class UserDynamicTlsImage
 {
+    #region Functions
+
     /// <summary>Builds the real C++ thread_local lifecycle guest fixture.</summary>
     /// <param name="root">Repository root.</param>
     /// <param name="output">Artifact directory.</param>
@@ -93,4 +95,6 @@ internal static class UserDynamicTlsImage
             JsonSerializer.Serialize(report, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine($"DynamicTlsFixture: {bytes.Length} bytes, real compiler initializers/destructor registration, no OS/CRT imports.");
     }
+
+    #endregion
 }

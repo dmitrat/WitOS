@@ -10,13 +10,20 @@ namespace WitOS.Dev.Host;
 // Keeping QMP off inherited stdin removes QEMU's synchronous pipe reader path.
 internal sealed class QemuControl : IDisposable
 {
+    #region Fields
+
     private readonly TcpListener m_listener = new(IPAddress.Loopback, 0);
+
     private readonly CancellationTokenSource m_lifetime = new();
+
     private readonly Task<TcpClient> m_connected;
+
     private readonly StringBuilder m_transcript = new();
-    internal string Argument { get; }
-    internal bool QuitAcknowledged { get; private set; }
-    internal string Transcript { get { lock (m_transcript) return m_transcript.ToString(); } }
+
+    #endregion
+
+    #region Constructors
+
     internal QemuControl()
     {
         m_listener.Start(1);
@@ -24,6 +31,11 @@ internal sealed class QemuControl : IDisposable
         Argument = $"tcp:127.0.0.1:{port},server=off";
         m_connected = m_listener.AcceptTcpClientAsync(m_lifetime.Token).AsTask();
     }
+
+    #endregion
+
+    #region Functions
+
     internal async Task QuitAsync(CancellationToken cancellation)
     {
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation, m_lifetime.Token);
@@ -81,6 +93,11 @@ internal sealed class QemuControl : IDisposable
         await Reply("witos-quit");
         QuitAcknowledged = true;
     }
+
+    #endregion
+
+    #region Tools
+
     private void Record(string line)
     {
         lock (m_transcript)
@@ -90,6 +107,11 @@ internal sealed class QemuControl : IDisposable
             m_transcript.AppendLine(line);
         }
     }
+
+    #endregion
+
+    #region IDisposable
+
     public void Dispose()
     {
         m_lifetime.Cancel();
@@ -103,4 +125,16 @@ internal sealed class QemuControl : IDisposable
         }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         m_lifetime.Dispose();
     }
+
+    #endregion
+
+    #region Properties
+
+    internal string Argument { get; }
+
+    internal bool QuitAcknowledged { get; private set; }
+
+    internal string Transcript { get { lock (m_transcript) return m_transcript.ToString(); } }
+
+    #endregion
 }

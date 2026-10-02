@@ -15,7 +15,7 @@ internal static class RuntimeBootMatrix
 
     #endregion
 
-    #region Run
+    #region Functions
 
     /// <summary>
     /// Verifies the hosted reference evidence, boots every profile and publishes the combined evidence.
@@ -111,6 +111,10 @@ internal static class RuntimeBootMatrix
             })
         });
     }
+
+    #endregion
+
+    #region Tools
 
     private static Task BootProfileAsync(string root, string image, BootRequest request, string logs)
         => BootScenarioRunner.RunAsync(root, image, request with { Suite = BootSuite.RuntimeBoot, LogDirectory = logs });

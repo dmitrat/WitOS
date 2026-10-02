@@ -8,6 +8,11 @@ namespace WitOS.Dev.Host.Native;
 [StructLayout(LayoutKind.Sequential)]
 internal struct StartupInfoEx
 {
+    #region Fields
+
     public StartupInfo Startup;
+
     public IntPtr Attributes;
+
+    #endregion
 }

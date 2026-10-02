@@ -10,13 +10,24 @@ namespace WitOS.Dev.NativeAot;
 
 internal static class RuntimePortImage
 {
+    #region Constants
+
     internal const string BACKEND = "windows-x64-codegen-witos-pal";
+
+    #endregion
+
+    #region Fields
+
     private static readonly string[] UPSTREAM_INPUTS =
     [
         "src/coreclr/gc/env/gcenv.os.h", "src/coreclr/gc/env/gcenv.base.h", "src/coreclr/gc/env/gcenv.windows.inl",
         "src/coreclr/gc/env/gcenv.structs.h", "src/native/minipal/utils.h",
         "src/native/minipal/mutex.h", "src/coreclr/nativeaot/Runtime/Crst.h", "LICENSE.TXT"
     ];
+
+    #endregion
+
+    #region Functions
 
     public static async Task BuildAsync(string root, string output, string msvc)
     {
@@ -114,4 +125,6 @@ internal static class RuntimePortImage
             JsonSerializer.Serialize(report, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine($"GcMemoryFixture: {bytes.Length} bytes; pinned upstream interface, WitOS syscalls, no OS/CRT imports; missing GC write-watch reset rejected.");
     }
+
+    #endregion
 }

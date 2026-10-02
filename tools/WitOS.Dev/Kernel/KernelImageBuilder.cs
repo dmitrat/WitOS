@@ -126,7 +126,7 @@ internal static class KernelImageBuilder
 
     #endregion
 
-    #region Build
+    #region Functions
 
     /// <summary>
     /// Builds the image of <paramref name="scenario"/> and returns the bootable FAT disk path.
@@ -176,6 +176,10 @@ internal static class KernelImageBuilder
         Console.WriteLine($"Built {scenario}: {disk}");
         return disk;
     }
+
+    #endregion
+
+    #region Tools
 
     private static async Task<List<string>> CompileKernelAsync(string root, string output, string msvc, string scenario)
     {

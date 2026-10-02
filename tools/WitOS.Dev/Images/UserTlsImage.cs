@@ -8,6 +8,8 @@ namespace WitOS.Dev.Images;
 
 internal static class UserTlsImage
 {
+    #region Functions
+
     /// <summary>Builds the import-free MSVC static TLS guest fixture.</summary>
     /// <param name="root">Repository root.</param>
     /// <param name="output">Generated artifact directory.</param>
@@ -79,4 +81,6 @@ internal static class UserTlsImage
             JsonSerializer.Serialize(report, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine($"TlsFixture: {bytes.Length} file bytes, {h.ExceptionTableDirectory.Size / 12} unwind entries; native C, no CRT.");
     }
+
+    #endregion
 }

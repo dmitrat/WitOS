@@ -8,7 +8,10 @@ namespace WitOS.Dev.Host.Native;
 [StructLayout(LayoutKind.Sequential)]
 internal struct JobIoCounters
 {
+    #region Fields
+
 #pragma warning disable CS0649 // Populated by Win32.
     public ulong ReadOps, WriteOps, OtherOps, ReadBytes, WriteBytes, OtherBytes;
-#pragma warning restore CS0649
+
+    #endregion
 }

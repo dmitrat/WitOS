@@ -27,7 +27,7 @@ internal static class KernelTestSuite
 
     #endregion
 
-    #region Run
+    #region Functions
 
     /// <summary>
     /// Builds and boots every kernel scenario; throws on the first unexpected outcome.

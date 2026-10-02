@@ -6,6 +6,8 @@ namespace WitOS.Dev.CoreClr;
 
 internal static class CoreClrHostBinding
 {
+    #region Functions
+
     internal static async Task<object> RunAsync(string root, string source, string binaries, UpstreamSourceLock pin, string attempt)
     {
         var pointerPath = Path.Combine(root, "artifacts/coreclr-source/current-run.json");
@@ -159,4 +161,6 @@ internal static class CoreClrHostBinding
                 .Select(file => new { file, sha256 = CoreClrHostReference.Hash(file) })
         };
     }
+
+    #endregion
 }

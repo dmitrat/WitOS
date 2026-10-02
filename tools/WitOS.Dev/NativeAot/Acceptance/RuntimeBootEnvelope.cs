@@ -4,7 +4,14 @@ namespace WitOS.Dev.NativeAot.Acceptance;
 // Keeping the envelope separate makes duplicates and misplaced reports fail closed.
 internal static class RuntimeBootEnvelope
 {
+    #region Constants
+
     internal const string USER = "[USER] [RUNTIME] ";
+
+    #endregion
+
+    #region Functions
+
     internal static bool Validate(string[] lines) => Validate(lines, out _);
 
     internal static bool Validate(string[] lines, out string error)
@@ -85,7 +92,13 @@ internal static class RuntimeBootEnvelope
         return valid;
     }
 
+    #endregion
+
+    #region Tools
+
     private static bool IsRuntime(string line) => line.StartsWith("Runtime ", StringComparison.Ordinal) ||
         line.StartsWith("[TEST-PASS] Runtime.", StringComparison.Ordinal) || line.StartsWith(USER, StringComparison.Ordinal) ||
         line.StartsWith("[USER] [NATIVE-FAIL-FAST]", StringComparison.Ordinal) || line.StartsWith("[USER] WitOS ", StringComparison.Ordinal);
+
+    #endregion
 }

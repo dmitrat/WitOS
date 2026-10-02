@@ -5,6 +5,8 @@ namespace WitOS.Dev.NativeAot;
 
 internal static class RuntimeStartupSources
 {
+    #region Functions
+
     public static async Task PrepareAsync(string root, UpstreamSourceLock pin)
     {
         var output = Path.Combine(root, "artifacts", "runtime-config", "source");
@@ -177,4 +179,6 @@ void Thread::GcScanRoots(ScanFunc * pfnEnumCallback, ScanContext * pvCallbackDat
             })
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
     }
+
+    #endregion
 }

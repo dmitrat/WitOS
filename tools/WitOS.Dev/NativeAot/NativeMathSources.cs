@@ -5,6 +5,8 @@ namespace WitOS.Dev.NativeAot;
 
 internal static class NativeMathSources
 {
+    #region Functions
+
     public static async Task PrepareAsync(string root, bool generate)
     {
         var json = new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true };
@@ -59,4 +61,6 @@ internal static class NativeMathSources
         }
         Console.WriteLine("[MATH-AUDIT-PASS] OpenLibm log source and license verified at " + pin.Revision + ".");
     }
+
+    #endregion
 }

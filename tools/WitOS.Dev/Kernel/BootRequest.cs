@@ -9,6 +9,8 @@ namespace WitOS.Dev.Kernel;
 /// <param name="Expected">Required outcome.</param>
 internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSeconds, ExpectedOutcome Expected)
 {
+    #region Properties
+
     /// <summary>
     /// Kernel exception required by an <see cref="ExpectedOutcome.Exception"/> boot.
     /// </summary>
@@ -28,4 +30,6 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     /// Log directory; the shared artifacts/logs directory when null.
     /// </summary>
     public string? LogDirectory { get; init; }
+
+    #endregion
 }

@@ -7,7 +7,14 @@ namespace WitOS.Dev.NativeAot.References;
 
 internal static class RuntimeUnwindReference
 {
+    #region Fields
+
     private static readonly string[] NAMES = ["src/coreclr/unwinder/amd64/unwinder.cpp", "src/coreclr/unwinder/amd64/unwinder.h", "src/coreclr/unwinder/baseunwinder.h", "src/coreclr/inc/win64unwind.h"];
+
+    #endregion
+
+    #region Functions
+
     public static async Task ValidateImageAsync(string root, string image)
     {
         var output = Path.Combine(root, "artifacts/runtime-unwind");
@@ -18,6 +25,7 @@ internal static class RuntimeUnwindReference
         await File.WriteAllTextAsync(Path.Combine(output, "image-reference.json"), JsonSerializer.Serialize(new { hostOnly = true, image, imageSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(image))).ToLowerInvariant() }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine("[UNWIND-IMAGE-PASS] Full NativeAOT reference metadata validated (HOSTED only).");
     }
+
     public static async Task PrepareAsync(string root)
     {
         var pin = RuntimeExperiment.ReadLock(root);
@@ -55,6 +63,7 @@ internal static class RuntimeUnwindReference
         }
         await File.WriteAllTextAsync(Path.Combine(output, "unwinder.checked.cpp"), checkedBody);
     }
+
     public static async Task RunAsync(string root, string msvc)
     {
         await PrepareAsync(root);
@@ -127,4 +136,6 @@ internal static class RuntimeUnwindReference
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine("[UNWIND-REFERENCE-PASS] 20 upstream/checked/Windows comparisons, 40 cached comparisons/40 forged-entry rejections and 13 transactional failure cases (HOSTED only).");
     }
+
+    #endregion
 }

@@ -159,7 +159,7 @@ internal static class BootValidation
 
     #endregion
 
-    #region Classification
+    #region Functions
 
     /// <summary>
     /// Decides whether a boot produced the outcome its request requires.
@@ -257,6 +257,10 @@ internal static class BootValidation
             faults.Count(m => m.Index < boundary) == legacyFaults &&
             faults.All(m => Convert.ToUInt64(m.Groups[5].Value[2..], 16) == 0x33);
     }
+
+    #endregion
+
+    #region Tools
 
     private static string[] FoundationOrder(string root)
         => [FOUNDATION_ORDER[0], KernelAbi.Banner(root), .. FOUNDATION_ORDER[1..]];

@@ -4,19 +4,30 @@ namespace WitOS.Dev.Host;
 
 internal static class Toolchain
 {
+    #region Constants
+
     public const string QEMU_VERSION = "11.1.0";
+
     private const string QEMU_INSTALLER = "qemu-w64-setup-20260811.exe";
+
     private const string QEMU_SHA512 = "5bcf9eed634e8575a37b74f445af41a2fe4106da512d0c30c368301d4c105037fdfab40a5287367a28a957624cddebbc8c07e16c88ab6634f554cdf3d16bf543";
-
-    public static string QemuDirectory(string root) => Path.Combine(root, ".tools", $"qemu-{QEMU_VERSION}");
-    public static string Qemu(string root) => Path.Combine(QemuDirectory(root), "qemu-system-x86_64.exe");
-    public static string Firmware(string root) => Path.Combine(QemuDirectory(root), "share", "edk2-x86_64-code.fd");
-
-    public static string FirmwareVariables(string root) => Path.Combine(QemuDirectory(root), "share", "edk2-i386-vars.fd");
 
     // Official LLVM release used for coverage, sanitizers and clang-format.
     public const string LLVM_VERSION = "20.1.8";
+
     public const string LLVM_INSTALLER_SHA256 = "3197846a2b19063687dd56e93e34cd941e3548d907f23a6131571321bdf9fe7b";
+
+    #endregion
+
+    #region Functions
+
+    public static string QemuDirectory(string root) => Path.Combine(root, ".tools", $"qemu-{QEMU_VERSION}");
+
+    public static string Qemu(string root) => Path.Combine(QemuDirectory(root), "qemu-system-x86_64.exe");
+
+    public static string Firmware(string root) => Path.Combine(QemuDirectory(root), "share", "edk2-x86_64-code.fd");
+
+    public static string FirmwareVariables(string root) => Path.Combine(QemuDirectory(root), "share", "edk2-i386-vars.fd");
 
     public static string LlvmInstaller(string root)
         => Path.Combine(root, ".tools", "downloads", $"LLVM-{LLVM_VERSION}-win64.exe");
@@ -162,4 +173,6 @@ internal static class Toolchain
         RequireQemu(root);
         Console.WriteLine($"Ready: {Qemu(root)}");
     }
+
+    #endregion
 }

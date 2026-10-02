@@ -4,6 +4,8 @@ namespace WitOS.Dev.Images;
 
 internal static class NativeThreadLibraryImage
 {
+    #region Functions
+
     internal static async Task<string> BuildAsync(string root, string output, string msvc)
     {
         Directory.CreateDirectory(output);
@@ -15,4 +17,6 @@ internal static class NativeThreadLibraryImage
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"), ["/nologo", "/dll", "/entry:LibraryThreadEntry", "/nodefaultlib", "/machine:x64", "/subsystem:native", "/fixed:no", "/dynamicbase", "/incremental:no", "/Brepro", "/out:" + dll, obj, machine], root);
         return dll;
     }
+
+    #endregion
 }

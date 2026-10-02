@@ -8,9 +8,14 @@ namespace WitOS.Dev.Host.Native;
 [StructLayout(LayoutKind.Sequential)]
 internal struct JobExtendedLimits
 {
+    #region Fields
+
 #pragma warning disable CS0649 // Populated by Win32.
     public JobBasicLimits Basic;
+
     public JobIoCounters Io;
+
     public nuint ProcessMemory, JobMemory, PeakProcessMemory, PeakJobMemory;
-#pragma warning restore CS0649
+
+    #endregion
 }

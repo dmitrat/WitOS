@@ -10,6 +10,8 @@ namespace WitOS.Dev.NativeAot;
 
 internal static class RuntimeGuestDriver
 {
+    #region Functions
+
     internal static string[] CompileProfile(string command) => WindowsCommandLine.Parse(command).Skip(1)
         .Where(a => a.StartsWith("-D", StringComparison.Ordinal) || a.StartsWith("-I", StringComparison.Ordinal) ||
             a.StartsWith("/D", StringComparison.Ordinal) || a.StartsWith("/I", StringComparison.Ordinal) ||
@@ -124,4 +126,6 @@ internal static class RuntimeGuestDriver
         Console.WriteLine($"[DRIVER-LINK-PASS] {module.ImageBytes} mapped bytes, {module.UnwindEntries} unwind entries, TLS {module.Tls.TemplateBytes} bytes; guest execution pending.");
         return image;
     }
+
+    #endregion
 }

@@ -6,6 +6,8 @@ namespace WitOS.Dev.NativeAot.References;
 
 internal static class RuntimeGcLayoutReference
 {
+    #region Functions
+
     public static async Task RunAsync(string root, string msvc)
     {
         var output = Path.Combine(root, "artifacts/runtime-gc-layout-reference");
@@ -50,4 +52,6 @@ internal static class RuntimeGcLayoutReference
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine("[GC-LAYOUT-REFERENCE-PASS] 128 pinned original/corrected layouts; complete page coverage (HOSTED only).");
     }
+
+    #endregion
 }

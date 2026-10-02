@@ -5,6 +5,8 @@ namespace WitOS.Dev.NativeAot.References;
 
 internal static class RuntimeExceptionReference
 {
+    #region Functions
+
     public static async Task RunAsync(string root, string msvc)
     {
         var output = Path.Combine(root, "artifacts/runtime-exception-reference");
@@ -30,4 +32,6 @@ internal static class RuntimeExceptionReference
         await File.WriteAllTextAsync(Path.Combine(output, "reference.json"), JsonSerializer.Serialize(new { hostOnly = true, sourceSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(source))).ToLowerInvariant(), executableSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(executable))).ToLowerInvariant() }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine("[EXCEPTION-REFERENCE-PASS] Windows VEH ordering, payload, continuation and removal (HOSTED only).");
     }
+
+    #endregion
 }

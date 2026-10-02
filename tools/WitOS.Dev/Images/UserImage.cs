@@ -9,6 +9,8 @@ namespace WitOS.Dev.Images;
 
 internal static class UserImage
 {
+    #region Functions
+
     public static async Task BuildAsync(string root, string output, string msvc)
     {
         var constants = new Dictionary<string, ulong>(StringComparer.Ordinal);
@@ -52,6 +54,10 @@ internal static class UserImage
         await UserProcessExitImage.BuildAsync(root, output, msvc);
     }
 
+    #endregion
+
+    #region Tools
+
     private static async Task BuildFixtureAsync(string root, string output, string msvc,
         Dictionary<string, ulong> constants, string source, string name, string symbol, string header)
     {
@@ -91,4 +97,6 @@ internal static class UserImage
         await File.WriteAllTextAsync(Path.Combine(output, header), generated.ToString(), Encoding.ASCII);
         Console.WriteLine($"{name}: {payload.Length} bytes of separately linked native code.");
     }
+
+    #endregion
 }

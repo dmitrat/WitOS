@@ -7,12 +7,15 @@ namespace WitOS.Dev.NativeAot;
 
 internal static class RuntimeGcPolicy
 {
+    #region Functions
+
     public static Task ExistingAsync(string root)
     {
         var source = Path.Combine(root, ".tools/upstream", "runtime-" + RuntimeExperiment.ReadLock(root).RuntimeVersion);
         return RunAsync(root, source, Path.Combine(source, "artifacts/obj/coreclr/windows.x64.Release/witos"),
             Path.Combine(source, "artifacts/bin/coreclr/windows.x64.Release/witos/aotsdk/Runtime.WorkstationGC.lib"));
     }
+
     public static async Task RunAsync(string root, string source, string obj, string archive)
     {
         var pin = RuntimeExperiment.ReadLock(root);
@@ -76,5 +79,12 @@ internal static class RuntimeGcPolicy
             throw new InvalidDataException($"Unexpected GC write-watch boundary: {dependencies.Count} OS references, {incoming.Count} incoming card-table update references. See runtime-gc-policy/policy.json.");
         Console.WriteLine("[GC-POLICY-PASS] Software heap watch/manual card bundles: two OS references confined to an uncalled method; no incoming code/data references in the full runtime archive.");
     }
+
+    #endregion
+
+    #region Tools
+
     private static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+
+    #endregion
 }

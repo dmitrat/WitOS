@@ -11,15 +11,7 @@ namespace WitOS.Dev.NativeAot;
 
 internal static class RuntimeReadiness
 {
-    private static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
-    private static uint Constant(string root, string file, string name)
-    {
-        var matches = Regex.Matches(File.ReadAllText(Path.Combine(root, file)),
-            @"^#define\s+" + Regex.Escape(name) + @"\s+([0-9]+)U\s*$", RegexOptions.Multiline);
-        if (matches.Count != 1)
-            throw new InvalidDataException("Missing/ambiguous readiness limit: " + name);
-        return uint.Parse(matches[0].Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
-    }
+    #region Functions
 
     public static async Task RunAsync(string root, string msvc, string nativeSdk)
     {
@@ -156,4 +148,21 @@ internal static class RuntimeReadiness
         Console.WriteLine($"[READINESS-PASS] Real wmain startup boundary: {unresolved.Length} unresolved symbols; transport/TLS metadata supplied, no OS imports linked.");
         Console.WriteLine($"Minimal Windows reference: {module.ImageBytes} mapped bytes, {module.UnwindEntries} unwind entries. Reports: {output}");
     }
+
+    #endregion
+
+    #region Tools
+
+    private static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+
+    private static uint Constant(string root, string file, string name)
+    {
+        var matches = Regex.Matches(File.ReadAllText(Path.Combine(root, file)),
+            @"^#define\s+" + Regex.Escape(name) + @"\s+([0-9]+)U\s*$", RegexOptions.Multiline);
+        if (matches.Count != 1)
+            throw new InvalidDataException("Missing/ambiguous readiness limit: " + name);
+        return uint.Parse(matches[0].Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    #endregion
 }

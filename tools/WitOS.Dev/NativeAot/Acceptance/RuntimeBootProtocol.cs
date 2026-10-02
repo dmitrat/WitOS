@@ -5,24 +5,45 @@ namespace WitOS.Dev.NativeAot.Acceptance;
 
 internal static class RuntimeBootProtocol
 {
+    #region Constants
+
+    internal const int INTEGRATION_CYCLES = 4;
+
+    internal const string CYCLE = "[USER] [RUNTIME] integration cycle passed";
+
+    internal const string LIFECYCLE_AUDIT = "[USER] [RUNTIME] managed lifecycle audit passed: main+finalizer";
+
+    internal const int WORKERS_PER_EXECUTION = 43;
+
+    internal const string WORKER = "[USER] [RUNTIME] worker attach/detach/reuse/rollback and foreign GC/hijack/service-guard/exit-GC passed";
+
+    internal const string OOM = "[USER] [RUNTIME] managed OOM recovery passed: 3 hard-limit + 1 backing-pressure";
+
+    internal const string MANAGED_EH = "[USER] [RUNTIME] managed EH workers passed: 2 (filters/rethrow/nested-finally/native-release)";
+
+    internal const string FINALIZATION = "[USER] [RUNTIME] managed finalization passed: 48 releases + 8 resurrection passes + suppression";
+
+    internal const string MANAGED_THREADS = "[USER] [RUNTIME] managed threads passed: 28 (Thread/Join/Monitor/TLS/GC)";
+
+    internal const string THREAD_QUOTA = "[USER] [RUNTIME] managed thread quota recovery passed: 4";
+
+    #endregion
+
+    #region Fields
+
     // Versioned fixture contract; these are two distinct kernel-reported bases,
     // not two matches anywhere in a concatenated log.
     internal static readonly ulong[] IMAGE_BASES = [0x8000100000, 0x8000180000];
+
     internal static readonly ulong[] EXECUTION_BASES = [.. IMAGE_BASES, .. IMAGE_BASES];
-    internal const int INTEGRATION_CYCLES = 4;
-    internal const string CYCLE = "[USER] [RUNTIME] integration cycle passed";
-    internal const string LIFECYCLE_AUDIT = "[USER] [RUNTIME] managed lifecycle audit passed: main+finalizer";
-    internal const int WORKERS_PER_EXECUTION = 43;
-    internal static int StackFaultsPerProfile => IMAGE_BASES.Length;
-    internal const string WORKER = "[USER] [RUNTIME] worker attach/detach/reuse/rollback and foreign GC/hijack/service-guard/exit-GC passed";
-    internal const string OOM = "[USER] [RUNTIME] managed OOM recovery passed: 3 hard-limit + 1 backing-pressure";
-    internal const string MANAGED_EH = "[USER] [RUNTIME] managed EH workers passed: 2 (filters/rethrow/nested-finally/native-release)";
-    internal const string FINALIZATION = "[USER] [RUNTIME] managed finalization passed: 48 releases + 8 resurrection passes + suppression";
-    internal const string MANAGED_THREADS = "[USER] [RUNTIME] managed threads passed: 28 (Thread/Join/Monitor/TLS/GC)";
-    internal const string THREAD_QUOTA = "[USER] [RUNTIME] managed thread quota recovery passed: 4";
+
     private static readonly string[] PHASES = ["Runtime boot load status: 0","[TEST-PASS] Runtime.MemoryProfile",
         "[USER] [RUNTIME] image published","[USER] [RUNTIME] native TLS ready","[USER] [RUNTIME] native initializers ready",
         "[USER] [RUNTIME] entering upstream wmain",OOM,MANAGED_EH,WORKER,FINALIZATION,MANAGED_THREADS,THREAD_QUOTA];
+
+    #endregion
+
+    #region Functions
 
     internal static string SharedManagedObjectHash(System.Text.Json.JsonElement input)
     {
@@ -215,4 +236,12 @@ internal static class RuntimeBootProtocol
         // No extra workload claims outside either validated execution block.
         return lines.Count(l => l == WORKER) == EXECUTION_BASES.Length && lines.Count(l => l == CYCLE) == EXECUTION_BASES.Length * INTEGRATION_CYCLES && lines.Count(l => l == LIFECYCLE_AUDIT) == EXECUTION_BASES.Length * INTEGRATION_CYCLES;
     }
+
+    #endregion
+
+    #region Properties
+
+    internal static int StackFaultsPerProfile => IMAGE_BASES.Length;
+
+    #endregion
 }

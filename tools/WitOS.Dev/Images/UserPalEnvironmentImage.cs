@@ -8,6 +8,8 @@ namespace WitOS.Dev.Images;
 
 internal static class UserPalEnvironmentImage
 {
+    #region Functions
+
     /// <summary>Builds environment/string coverage across native TLS and worker lifetimes.</summary>
     /// <param name="root">Repository root.</param>
     /// <param name="output">Artifact directory already populated by the base fixtures.</param>
@@ -85,4 +87,6 @@ internal static class UserPalEnvironmentImage
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine($"PalEnvironmentFixture: {bytes.Length} bytes, native environment and UTF conversion, no OS/CRT imports.");
     }
+
+    #endregion
 }

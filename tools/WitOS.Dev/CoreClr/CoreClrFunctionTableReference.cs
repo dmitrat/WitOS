@@ -4,6 +4,8 @@ namespace WitOS.Dev.CoreClr;
 
 internal static class CoreClrFunctionTableReference
 {
+    #region Functions
+
     internal static async Task RunAsync(string root)
     {
         var output = Path.Combine(root, "artifacts/coreclr-function-tables");
@@ -41,4 +43,6 @@ internal static class CoreClrFunctionTableReference
             throw new InvalidDataException("Target-unwind reference failed: " + targetRun.ExitCode + " " + targetRun.Output + targetRun.Error);
         Console.Write(targetRun.Output);
     }
+
+    #endregion
 }

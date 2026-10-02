@@ -6,6 +6,8 @@ namespace WitOS.Dev.Host;
 
 internal static class WindowsCommandLine
 {
+    #region Functions
+
     public static string Quote(string argument)
     {
         if (argument.IndexOf('\0') >= 0)
@@ -38,7 +40,15 @@ internal static class WindowsCommandLine
         { return Enumerable.Range(0, count).Select(i => Marshal.PtrToStringUni(Marshal.ReadIntPtr(memory, i * IntPtr.Size))!).ToArray(); }
         finally { LocalFree(memory); }
     }
+
+    #endregion
+
+    #region Tools
+
     [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr CommandLineToArgvW(string command, out int count);
+
     [DllImport("kernel32.dll")] private static extern IntPtr LocalFree(IntPtr memory);
+
+    #endregion
 }

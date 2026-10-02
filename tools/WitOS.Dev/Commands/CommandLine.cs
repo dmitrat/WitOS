@@ -103,7 +103,7 @@ internal static class CommandLine
 
     #endregion
 
-    #region Run
+    #region Functions
 
     /// <summary>
     /// Runs the command named by the first argument.
@@ -145,6 +145,10 @@ internal static class CommandLine
             return 1;
         }
     }
+
+    #endregion
+
+    #region Tools
 
     private static string FindRoot()
     {

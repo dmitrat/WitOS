@@ -10,10 +10,23 @@ namespace WitOS.Dev.Quality;
 // every fingerprint unchanged, while any code or data change alters one.
 internal static class ImageFingerprint
 {
+    #region Constants
+
     public const string FIXED_BUILD_ID = "fingerprint";
+
+    #endregion
+
+    #region Fields
+
     private static readonly string[] DEFAULT_SCENARIOS = ["boot", "coreclr-memory", "coreclr-storage"];
+
     private static readonly string[] IMAGE_EXTENSIONS = [".efi", ".pe", ".dll"];
+
     private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+
+    #endregion
+
+    #region Functions
 
     // Usage: fingerprint [--output <file>] [--compare <file>] [scenario...]
     public static async Task RunAsync(string root, IReadOnlyList<string> arguments)
@@ -156,6 +169,10 @@ internal static class ImageFingerprint
         return differences;
     }
 
+    #endregion
+
+    #region Tools
+
     private static bool IsNative(string file)
     {
         using var stream = File.OpenRead(file);
@@ -182,4 +199,6 @@ internal static class ImageFingerprint
             throw new InvalidDataException("An image range lies outside the file.");
         }
     }
+
+    #endregion
 }

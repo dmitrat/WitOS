@@ -5,6 +5,8 @@ namespace WitOS.Dev.Pe;
 
 internal static class NativeModule
 {
+    #region Functions
+
     public static NativeModuleInfo Inspect(string path)
     {
         using var stream = File.OpenRead(path);
@@ -106,4 +108,6 @@ internal static class NativeModule
         return new(header.ImageBase, header.SizeOfImage, header.AddressOfEntryPoint,
             directory.Size / 12, sections, tls, relocations);
     }
+
+    #endregion
 }

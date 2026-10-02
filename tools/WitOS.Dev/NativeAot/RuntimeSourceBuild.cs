@@ -9,8 +9,15 @@ namespace WitOS.Dev.NativeAot;
 
 internal static class RuntimeSourceBuild
 {
+    #region Fields
+
     private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+
     private static readonly string[] CASES = ["FirstExportInitialization", "AllocationGcAndExceptions", "TlsOnNativeThreads", "RepeatEntry"];
+
+    #endregion
+
+    #region Functions
 
     public static async Task RunAsync(string root)
     {
@@ -153,6 +160,10 @@ internal static class RuntimeSourceBuild
         await RequireCleanAsync(source);
         return source;
     }
+
+    #endregion
+
+    #region Tools
 
     private static async Task RequireCleanAsync(string source)
     {
@@ -425,4 +436,6 @@ internal static class RuntimeSourceBuild
     }
 
     private static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+
+    #endregion
 }

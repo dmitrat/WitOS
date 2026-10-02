@@ -5,6 +5,8 @@ namespace WitOS.Dev.NativeAot.References;
 
 internal static class RuntimeFormattingReference
 {
+    #region Functions
+
     public static async Task RunAsync(string root, string msvc)
     {
         var output = Path.Combine(root, "artifacts", "runtime-format");
@@ -38,4 +40,6 @@ internal static class RuntimeFormattingReference
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine("[FORMAT-REFERENCE-PASS] 49484 secure formatting comparisons against Windows CRT (HOSTED only).");
     }
+
+    #endregion
 }

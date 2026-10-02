@@ -5,6 +5,8 @@ namespace WitOS.Dev.CoreClr;
 
 internal static class CoreClrStorageImage
 {
+    #region Functions
+
     internal static async Task BuildAsync(string root, string output, string msvc)
     {
         var objects = new List<string> { Path.Combine(output, "native_start.obj") };
@@ -46,4 +48,6 @@ internal static class CoreClrStorageImage
         header.AppendLine("};");
         await File.WriteAllTextAsync(Path.Combine(output, "coreclr_storage_image.h"), header.ToString(), Encoding.ASCII);
     }
+
+    #endregion
 }

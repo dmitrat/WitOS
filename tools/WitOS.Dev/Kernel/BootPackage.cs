@@ -9,6 +9,8 @@ namespace WitOS.Dev.Kernel;
 
 internal static class BootPackage
 {
+    #region Functions
+
     internal static async Task<byte[]> BuildAsync(string root, string output, bool assemblies, bool nativeLibraries = false)
     {
         var files = new List<(string Name, ReadOnlyMemory<byte> Bytes)>();
@@ -88,4 +90,6 @@ internal static class BootPackage
         Console.WriteLine($"Boot package: {files.Count} files, {package.Length} bytes, separate boot-owned readonly/NX allocation.");
         return package;
     }
+
+    #endregion
 }

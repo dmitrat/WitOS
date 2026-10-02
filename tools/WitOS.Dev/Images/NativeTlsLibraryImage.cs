@@ -4,6 +4,8 @@ namespace WitOS.Dev.Images;
 
 internal static class NativeTlsLibraryImage
 {
+    #region Functions
+
     internal static async Task<string> BuildAsync(string root, string output, string msvc)
     {
         Directory.CreateDirectory(output);
@@ -15,4 +17,6 @@ internal static class NativeTlsLibraryImage
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"), ["/nologo", "/dll", "/entry:StaticTlsEntry", "/include:_tls_used", "/nodefaultlib", "/machine:x64", "/subsystem:native", "/fixed:no", "/dynamicbase", "/incremental:no", "/Brepro", "/base:0x180000000", "/out:" + dll, code, metadata, Path.Combine(output, "WitLibraryFixture.lib")], root);
         return dll;
     }
+
+    #endregion
 }

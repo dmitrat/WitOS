@@ -6,6 +6,8 @@ namespace WitOS.Dev.Pe;
 
 internal static class NativeImports
 {
+    #region Functions
+
     public static NativeImageInfo Inspect(string path)
     {
         var bytes = File.ReadAllBytes(path);
@@ -101,4 +103,6 @@ internal static class NativeImports
             headers.CorHeader is not null, header.DelayImportTableDirectory.Size,
             imports, delayed);
     }
+
+    #endregion
 }

@@ -9,18 +9,29 @@ namespace WitOS.Dev.NativeAot.Acceptance;
 // Readers needing an authoritative verdict must read this record and its hash.
 internal sealed class RuntimeBootAttempt : IDisposable
 {
+    #region Fields
+
     private readonly string m_directory;
+
     private readonly FileStream m_lease;
+
     private readonly string m_command;
+
     private readonly DateTimeOffset m_started = DateTimeOffset.UtcNow;
+
     private JsonObject? m_evidence;
+
     private JsonObject? m_lastSuccess;
+
     private bool m_committed;
+
     private bool m_startedAttempt;
+
     private static readonly JsonSerializerOptions JSON = new() { WriteIndented = true };
-    internal static Action<string, string>? BeforeWrite { get; set; } // Failure injection; serialized tests only.
-    public string RunId { get; } = DateTimeOffset.UtcNow.ToString("yyyyMMddTHHmmssfff") + "-" + Guid.NewGuid().ToString("N");
-    public string RunDirectory { get; }
+
+    #endregion
+
+    #region Constructors
 
     private RuntimeBootAttempt(string directory, string command, FileStream lease)
     {
@@ -30,6 +41,10 @@ internal sealed class RuntimeBootAttempt : IDisposable
         RunDirectory = Path.Combine(directory, "runs", RunId);
         Directory.CreateDirectory(RunDirectory);
     }
+
+    #endregion
+
+    #region Functions
 
     public static Task RunAsync(string root, string command, Func<RuntimeBootAttempt, Task> action)
         => RunInDirectoryAsync(Path.Combine(root, "artifacts/x64/runtime-boot"), command, action);
@@ -62,6 +77,50 @@ internal sealed class RuntimeBootAttempt : IDisposable
             }
         }
     }
+
+    public string Snapshot(string file)
+    {
+        var copy = Path.Combine(RunDirectory, Path.GetFileName(file));
+        File.Copy(file, copy, overwrite: false);
+        return copy;
+    }
+
+    // Prepare only. Even an exception after Publish cannot advance last-success.
+    public void Publish(object value)
+    {
+        if (m_evidence is not null || m_committed)
+            throw new InvalidOperationException("Attempt already published.");
+        m_evidence = JsonSerializer.SerializeToNode(value, JSON)!.AsObject();
+        m_evidence["schemaVersion"] = 2;
+        m_evidence["runId"] = RunId;
+        m_evidence["command"] = m_command;
+        m_evidence["startedUtc"] = m_started;
+        m_evidence["finishedUtc"] = DateTimeOffset.UtcNow;
+    }
+
+    internal static void Recover(string directory)
+    {
+        var state = ReadObject(Path.Combine(directory, "current-run.json"));
+        if (state?["schemaVersion"]?.GetValue<int>() != 3)
+            return;
+        // Runs can call recovery only while owning run.lock (tests use isolated roots).
+        if (state["status"]?.GetValue<string>() == "running")
+        {
+            state["status"] = "interrupted";
+            state["error"] = "Previous attempt ended without a commit.";
+            state["finishedUtc"] = DateTimeOffset.UtcNow;
+            Atomic(Path.Combine(directory, "current-run.json"), state);
+        }
+        var run = Path.Combine(directory, "runs", state["runId"]!.GetValue<string>());
+        if (state["status"]?.GetValue<string>() != "succeeded")
+            TryDiagnostic(() => File.Delete(Path.Combine(run, "acceptance.json")));
+        TryDiagnostic(() => Atomic(Path.Combine(run, "status.json"), state));
+        RepairViews(directory, state);
+    }
+
+    #endregion
+
+    #region Tools
 
     private void Start()
     {
@@ -103,26 +162,6 @@ internal sealed class RuntimeBootAttempt : IDisposable
         Atomic(Path.Combine(m_directory, "last-success.json"), node);
     }
 
-    public string Snapshot(string file)
-    {
-        var copy = Path.Combine(RunDirectory, Path.GetFileName(file));
-        File.Copy(file, copy, overwrite: false);
-        return copy;
-    }
-
-    // Prepare only. Even an exception after Publish cannot advance last-success.
-    public void Publish(object value)
-    {
-        if (m_evidence is not null || m_committed)
-            throw new InvalidOperationException("Attempt already published.");
-        m_evidence = JsonSerializer.SerializeToNode(value, JSON)!.AsObject();
-        m_evidence["schemaVersion"] = 2;
-        m_evidence["runId"] = RunId;
-        m_evidence["command"] = m_command;
-        m_evidence["startedUtc"] = m_started;
-        m_evidence["finishedUtc"] = DateTimeOffset.UtcNow;
-    }
-
     private void Commit()
     {
         var path = Path.Combine(RunDirectory, "acceptance.json");
@@ -159,26 +198,6 @@ internal sealed class RuntimeBootAttempt : IDisposable
         TryDiagnostic(() => File.Delete(Path.Combine(RunDirectory, "acceptance.json")), error);
     }
 
-    internal static void Recover(string directory)
-    {
-        var state = ReadObject(Path.Combine(directory, "current-run.json"));
-        if (state?["schemaVersion"]?.GetValue<int>() != 3)
-            return;
-        // Runs can call recovery only while owning run.lock (tests use isolated roots).
-        if (state["status"]?.GetValue<string>() == "running")
-        {
-            state["status"] = "interrupted";
-            state["error"] = "Previous attempt ended without a commit.";
-            state["finishedUtc"] = DateTimeOffset.UtcNow;
-            Atomic(Path.Combine(directory, "current-run.json"), state);
-        }
-        var run = Path.Combine(directory, "runs", state["runId"]!.GetValue<string>());
-        if (state["status"]?.GetValue<string>() != "succeeded")
-            TryDiagnostic(() => File.Delete(Path.Combine(run, "acceptance.json")));
-        TryDiagnostic(() => Atomic(Path.Combine(run, "status.json"), state));
-        RepairViews(directory, state);
-    }
-
     private static void RepairViews(string directory, JsonObject state)
     {
         TryDiagnostic(() =>
@@ -198,7 +217,9 @@ internal sealed class RuntimeBootAttempt : IDisposable
     }
 
     private static JsonObject Pointer(string path) => new() { ["file"] = path, ["sha256"] = Hash(File.ReadAllBytes(path)) };
+
     private static string Hash(byte[] value) => Convert.ToHexString(SHA256.HashData(value)).ToLowerInvariant();
+
     private static JsonObject? ReadObject(string path)
     {
         if (!File.Exists(path))
@@ -207,6 +228,7 @@ internal sealed class RuntimeBootAttempt : IDisposable
         { return JsonNode.Parse(File.ReadAllText(path)) as JsonObject; }
         catch (JsonException) { return null; }
     }
+
     private static void TryDiagnostic(Action write, Exception? primary = null)
     {
         try
@@ -218,7 +240,9 @@ internal sealed class RuntimeBootAttempt : IDisposable
             Console.Error.WriteLine($"WARNING: evidence view requires recovery: {secondary.Message}");
         }
     }
+
     private static void Atomic(string path, JsonNode value) => AtomicBytes(path, System.Text.Encoding.UTF8.GetBytes(value.ToJsonString(JSON)));
+
     private static void AtomicBytes(string path, byte[] value)
     {
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
@@ -231,5 +255,22 @@ internal sealed class RuntimeBootAttempt : IDisposable
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
+
+    #endregion
+
+    #region IDisposable
+
     public void Dispose() => m_lease.Dispose();
+
+    #endregion
+
+    #region Properties
+
+    internal static Action<string, string>? BeforeWrite { get; set; } // Failure injection; serialized tests only.
+
+    public string RunId { get; } = DateTimeOffset.UtcNow.ToString("yyyyMMddTHHmmssfff") + "-" + Guid.NewGuid().ToString("N");
+
+    public string RunDirectory { get; }
+
+    #endregion
 }

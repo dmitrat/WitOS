@@ -6,26 +6,8 @@ namespace WitOS.Dev.CoreClr;
 // Complete native PE import inventory, not dynamic reachability or an OS implementation.
 internal static class CoreClrBoundary
 {
-    private static string Group(string library, string name)
-    {
-        if (library.Contains("-crt-", StringComparison.OrdinalIgnoreCase))
-            return "crt";
-        if (library.StartsWith("ole", StringComparison.OrdinalIgnoreCase) || library.Contains("winrt", StringComparison.OrdinalIgnoreCase))
-            return "windows-interop";
-        if (library.Equals("ADVAPI32.dll", StringComparison.OrdinalIgnoreCase))
-            return "security-registry-diagnostics";
-        if (library.Equals("VERSION.dll", StringComparison.OrdinalIgnoreCase) || library.Equals("USER32.dll", StringComparison.OrdinalIgnoreCase))
-            return "windows-resource-metadata";
-        if (name.Contains("FunctionTable", StringComparison.Ordinal) || name.StartsWith("Rtl", StringComparison.Ordinal) || name.Contains("Context", StringComparison.Ordinal) || name.Contains("Exception", StringComparison.Ordinal))
-            return "code-context-unwind";
-        if (name.Contains("Virtual", StringComparison.Ordinal) || name.Contains("Map", StringComparison.Ordinal) || name.Contains("Memory", StringComparison.Ordinal) || name.Contains("Heap", StringComparison.Ordinal) || name.Contains("Cache", StringComparison.Ordinal))
-            return "memory-code-publication";
-        if (name.Contains("File", StringComparison.Ordinal) || name.Contains("Pipe", StringComparison.Ordinal) || name.Contains("Library", StringComparison.Ordinal) || name.Contains("Module", StringComparison.Ordinal) || name == "GetProcAddress" || name.Contains("Path", StringComparison.Ordinal))
-            return "files-modules-binding";
-        if (name.Contains("Thread", StringComparison.Ordinal) || name.Contains("Wait", StringComparison.Ordinal) || name.Contains("Event", StringComparison.Ordinal) || name.Contains("Semaphore", StringComparison.Ordinal) || name.Contains("CriticalSection", StringComparison.Ordinal) || name.Contains("SRW", StringComparison.Ordinal) || name.Contains("ConditionVariable", StringComparison.Ordinal) || name.StartsWith("Tls", StringComparison.Ordinal) || name.StartsWith("Fls", StringComparison.Ordinal) || name.StartsWith("Sleep", StringComparison.Ordinal))
-            return "threads-tls-synchronization";
-        return "other-kernel-platform"; // Explicitly inventoried, not implicitly supported.
-    }
+    #region Functions
+
     internal static async Task WriteAsync(string root, string output, JsonElement[] images)
     {
         var entries = images.SelectMany(image => new[] { "directImports", "delayImports" }.SelectMany(kind =>
@@ -60,4 +42,31 @@ internal static class CoreClrBoundary
         }
         await File.WriteAllTextAsync(Path.Combine(output, "platform-boundary.md"), text.ToString());
     }
+
+    #endregion
+
+    #region Tools
+
+    private static string Group(string library, string name)
+    {
+        if (library.Contains("-crt-", StringComparison.OrdinalIgnoreCase))
+            return "crt";
+        if (library.StartsWith("ole", StringComparison.OrdinalIgnoreCase) || library.Contains("winrt", StringComparison.OrdinalIgnoreCase))
+            return "windows-interop";
+        if (library.Equals("ADVAPI32.dll", StringComparison.OrdinalIgnoreCase))
+            return "security-registry-diagnostics";
+        if (library.Equals("VERSION.dll", StringComparison.OrdinalIgnoreCase) || library.Equals("USER32.dll", StringComparison.OrdinalIgnoreCase))
+            return "windows-resource-metadata";
+        if (name.Contains("FunctionTable", StringComparison.Ordinal) || name.StartsWith("Rtl", StringComparison.Ordinal) || name.Contains("Context", StringComparison.Ordinal) || name.Contains("Exception", StringComparison.Ordinal))
+            return "code-context-unwind";
+        if (name.Contains("Virtual", StringComparison.Ordinal) || name.Contains("Map", StringComparison.Ordinal) || name.Contains("Memory", StringComparison.Ordinal) || name.Contains("Heap", StringComparison.Ordinal) || name.Contains("Cache", StringComparison.Ordinal))
+            return "memory-code-publication";
+        if (name.Contains("File", StringComparison.Ordinal) || name.Contains("Pipe", StringComparison.Ordinal) || name.Contains("Library", StringComparison.Ordinal) || name.Contains("Module", StringComparison.Ordinal) || name == "GetProcAddress" || name.Contains("Path", StringComparison.Ordinal))
+            return "files-modules-binding";
+        if (name.Contains("Thread", StringComparison.Ordinal) || name.Contains("Wait", StringComparison.Ordinal) || name.Contains("Event", StringComparison.Ordinal) || name.Contains("Semaphore", StringComparison.Ordinal) || name.Contains("CriticalSection", StringComparison.Ordinal) || name.Contains("SRW", StringComparison.Ordinal) || name.Contains("ConditionVariable", StringComparison.Ordinal) || name.StartsWith("Tls", StringComparison.Ordinal) || name.StartsWith("Fls", StringComparison.Ordinal) || name.StartsWith("Sleep", StringComparison.Ordinal))
+            return "threads-tls-synchronization";
+        return "other-kernel-platform"; // Explicitly inventoried, not implicitly supported.
+    }
+
+    #endregion
 }

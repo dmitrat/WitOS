@@ -8,10 +8,23 @@ namespace WitOS.Dev.Quality;
 // C and C++ use the pinned clang-format; C# uses the SDK formatter.
 internal static class SourceFormat
 {
+    #region Constants
+
     private const int BATCH_SIZE = 48;
+
+    #endregion
+
+    #region Fields
+
     private static readonly string[] NATIVE_EXTENSIONS = [".c", ".h", ".cpp"];
+
     private static readonly string[] MANAGED_EXTENSIONS = [".cs"];
+
     private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web);
+
+    #endregion
+
+    #region Functions
 
     public static async Task RunAsync(string root, bool check)
     {
@@ -80,6 +93,10 @@ internal static class SourceFormat
         files.RemoveWhere(file => exclude.Any(prefix => Covers(prefix, file)));
         return [.. files];
     }
+
+    #endregion
+
+    #region Tools
 
     private static bool Covers(string prefix, string file)
         => file == prefix || file.StartsWith(prefix.TrimEnd('/') + "/", StringComparison.Ordinal);
@@ -154,4 +171,6 @@ internal static class SourceFormat
         var range = $"{batch[0]} .. {batch[^1]} ({batch.Length} files)";
         return $"{range}: exit {result.ExitCode}, timed out {result.TimedOut}\n{detail}";
     }
+
+    #endregion
 }

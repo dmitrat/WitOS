@@ -10,6 +10,8 @@ namespace WitOS.Dev.NativeAot;
 
 internal static class RuntimeCpuImage
 {
+    #region Functions
+
     public static async Task BuildAsync(string root, string output, string msvc, string archive, string minipal, string memory, string crt, string clockObject, string clockBinding, string fatalObject, string affinityObject, string mathObject, string logObject, NativePlatformObjects securityObjects)
     {
         var entry = Path.Combine(output, "runtime_cpu_entry.obj");
@@ -287,4 +289,6 @@ internal static class RuntimeCpuImage
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine($"RuntimeUnwindFixture: {unwindBytes.Length} bytes, {uh.ExceptionTableDirectory.Size / 12} unwind records; actual archived GS-protected unwinder.");
     }
+
+    #endregion
 }

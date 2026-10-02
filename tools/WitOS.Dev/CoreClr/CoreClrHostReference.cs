@@ -9,8 +9,16 @@ namespace WitOS.Dev.CoreClr;
 
 internal static class CoreClrHostReference
 {
+    #region Functions
+
     internal static Task RunAsync(string root) => RuntimeBootAttempt.RunInDirectoryAsync(
         Path.Combine(root, "artifacts/coreclr-host-reference"), "coreclr-host", attempt => RunAsync(root, attempt));
+
+    internal static string Hash(string file) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))).ToLowerInvariant();
+
+    #endregion
+
+    #region Tools
 
     private static async Task RunAsync(string root, RuntimeBootAttempt attempt)
     {
@@ -95,18 +103,22 @@ internal static class CoreClrHostReference
         });
         Console.WriteLine("[CORECLR-HOST-REFERENCE-PASS] Source-built host and standard runtimeconfig/deps binding; WINDOWS ONLY.");
     }
+
     private static async Task RequireAsync(string executable, string[] arguments, string directory, int seconds, IReadOnlyDictionary<string, string>? environment = null)
     {
         var result = await Processes.RunAsync(executable, arguments, directory, seconds, environment);
         if (result.TimedOut || result.ExitCode != 0)
             throw new InvalidOperationException(executable + " failed: " + result.Output + result.Error);
     }
-    internal static string Hash(string file) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))).ToLowerInvariant();
+
     private static string Forward(string value) => value.Replace((char)92, '/');
+
     private static string Quote(string value)
     {
         if (value.Any(c => c < 32 || c > 126 || c == 34 || "%!^&|<>$;".Contains(c)))
             throw new InvalidDataException("Host reference build requires ASCII paths without shell/CMake metacharacters.");
         return ((char)34) + value + (char)34;
     }
+
+    #endregion
 }

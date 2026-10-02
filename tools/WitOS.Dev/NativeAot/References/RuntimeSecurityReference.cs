@@ -7,6 +7,8 @@ namespace WitOS.Dev.NativeAot.References;
 
 internal static class RuntimeSecurityReference
 {
+    #region Functions
+
     public static async Task RunAsync(string root, string msvc)
     {
         var output = Path.Combine(root, "artifacts/runtime-security");
@@ -57,4 +59,6 @@ internal static class RuntimeSecurityReference
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine("[GS-REFERENCE-PASS] Actual compiler /GS frame: intact return and corrupted-cookie termination (HOSTED).");
     }
+
+    #endregion
 }

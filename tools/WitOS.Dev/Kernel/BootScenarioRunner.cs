@@ -7,7 +7,7 @@ namespace WitOS.Dev.Kernel;
 /// </summary>
 internal static class BootScenarioRunner
 {
-    #region Boot
+    #region Functions
 
     /// <summary>
     /// Boots <paramref name="image"/> once and throws unless the boot produced the requested outcome.
@@ -72,6 +72,10 @@ internal static class BootScenarioRunner
         }
         Console.WriteLine($"PASS: {name} (exit={result.ExitCode}, timeout={result.TimedOut}).");
     }
+
+    #endregion
+
+    #region Tools
 
     private static string QemuPath(string path) => path.Replace('\\', '/').Replace(",", ",,");
 

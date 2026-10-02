@@ -6,6 +6,8 @@ namespace WitOS.Dev.Pe;
 
 internal static class NativeObject
 {
+    #region Functions
+
     // Standard AMD64 COFF only. Import objects and BigObj are rejected explicitly.
     public static CoffObjectInfo Inspect(string path, bool collectReferences = false, bool includeDefinedReferences = false)
     {
@@ -192,4 +194,6 @@ internal static class NativeObject
         if (offset != archive.Length || matches != 1)
             throw new InvalidDataException("Static archive must contain the exact generated object once.");
     }
+
+    #endregion
 }

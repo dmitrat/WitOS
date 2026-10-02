@@ -8,6 +8,8 @@ namespace WitOS.Dev.CoreClr;
 
 internal static class CoreClrMemoryImage
 {
+    #region Functions
+
     internal static async Task BuildAsync(string root, string output, string msvc)
     {
         const string revision = "b82454cad0aaaae3db2cf18fbf2cccc36e201ccc";
@@ -72,4 +74,6 @@ internal static class CoreClrMemoryImage
         await File.WriteAllTextAsync(Path.Combine(output, "coreclr_mapper_image.h"), text.ToString(), Encoding.ASCII);
         await File.WriteAllTextAsync(Path.Combine(output, "coreclr-mapper-image.json"), System.Text.Json.JsonSerializer.Serialize(new { headerSha256 = digest, imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), profile = "native VMToOS adapter probe; GS/EH disabled fixture, not source-built guest CoreCLR" }));
     }
+
+    #endregion
 }

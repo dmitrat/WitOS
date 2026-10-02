@@ -6,8 +6,15 @@ namespace WitOS.Dev.Kernel;
 // versions and call numbers. Documentation and guest output are checked against it.
 internal static partial class KernelAbi
 {
+    #region Constants
+
     private const string USER_ABI_HEADER = "src/Kernel/include/witos/user_abi.h";
+
     private const string BOOT_HEADER = "src/Kernel/include/witos/boot.h";
+
+    #endregion
+
+    #region Functions
 
     public static int UserVersion(string root) => ReadDefine(root, USER_ABI_HEADER, "WIT_ABI_VERSION");
 
@@ -26,6 +33,10 @@ internal static partial class KernelAbi
         return calls;
     }
 
+    #endregion
+
+    #region Tools
+
     private static int ReadDefine(string root, string header, string name)
     {
         var text = File.ReadAllText(Path.Combine(root, header));
@@ -39,4 +50,6 @@ internal static partial class KernelAbi
 
     [GeneratedRegex(@"^#define (WIT_CALL_[A-Z0-9_]+) (\d+)U\r?$", RegexOptions.Multiline)]
     private static partial Regex CallDefine();
+
+    #endregion
 }

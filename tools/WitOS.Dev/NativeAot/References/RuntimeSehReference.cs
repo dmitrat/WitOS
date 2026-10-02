@@ -7,6 +7,8 @@ namespace WitOS.Dev.NativeAot.References;
 
 internal static class RuntimeSehReference
 {
+    #region Functions
+
     public static async Task<string[]> BuildProtectedFrameAsync(string root, string msvc, string output, bool aligned = false)
     {
         Directory.CreateDirectory(output);
@@ -37,6 +39,7 @@ internal static class RuntimeSehReference
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo", "/c", "/O2", "/GS-", "/Zl", "/W4", "/WX", "/Fo" + layoutObject, layout], root);
         return aligned ? [frame, layoutObject] : new[] { frame, layoutObject }.Concat(await BuildProtectedFrameAsync(root, msvc, output, true)).ToArray();
     }
+
     public static async Task RunAsync(string root, string msvc)
     {
         var output = Path.Combine(root, "artifacts/runtime-seh-reference");
@@ -73,4 +76,6 @@ internal static class RuntimeSehReference
         await File.WriteAllTextAsync(Path.Combine(output, "reference.json"), JsonSerializer.Serialize(new { hostOnly = true, guestSehImplemented = false, boundaryCases = 18, combinedBoundaryCases = 11, gsObjects = gsObjects.Select(p => new { file = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(p))).ToLowerInvariant() }), inputs = new[] { source, Path.Combine(root, "tests/Runtime.NativeAot/seh_gs_frame.cpp"), Path.Combine(root, "src/Runtime.NativeAot/seh_scope.witos.cpp"), Path.Combine(root, "src/Runtime.NativeAot/seh_scope.witos.h"), Path.Combine(root, "src/Runtime.NativeAot/seh_validation.witos.cpp"), Path.Combine(root, "src/Runtime.NativeAot/seh_validation.witos.h"), Path.Combine(root, "src/Kernel/include/witos/unwind_metadata.h") }.Select(p => new { file = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(p))).ToLowerInvariant() }), sourceSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(source))).ToLowerInvariant(), executableSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(executable))).ToLowerInvariant() }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine("[SEH-REFERENCE-PASS] Actual compiler scope tables, filters/finally/handler order and continuation (HOSTED only).");
     }
+
+    #endregion
 }

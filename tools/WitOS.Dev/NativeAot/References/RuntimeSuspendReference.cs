@@ -5,6 +5,8 @@ namespace WitOS.Dev.NativeAot.References;
 
 internal static class RuntimeSuspendReference
 {
+    #region Functions
+
     public static async Task RunAsync(string root, string msvc)
     {
         var output = Path.Combine(root, "artifacts", "runtime-suspend");
@@ -37,4 +39,6 @@ internal static class RuntimeSuspendReference
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine("[SUSPEND-REFERENCE-PASS] Windows suspend count/overflow (HOSTED only).");
     }
+
+    #endregion
 }

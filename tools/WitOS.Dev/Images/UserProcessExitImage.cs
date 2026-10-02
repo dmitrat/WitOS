@@ -8,6 +8,8 @@ namespace WitOS.Dev.Images;
 
 internal static class UserProcessExitImage
 {
+    #region Functions
+
     /// <summary>Builds native process cleanup coverage across TLS, atexit and worker lifetimes.</summary>
     /// <param name="root">Repository root.</param>
     /// <param name="output">Artifact directory already populated by the base fixtures.</param>
@@ -83,4 +85,6 @@ internal static class UserProcessExitImage
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
         Console.WriteLine($"ProcessExitFixture: {bytes.Length} bytes, native process cleanup, no OS/CRT imports.");
     }
+
+    #endregion
 }

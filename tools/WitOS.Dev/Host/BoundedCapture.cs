@@ -4,11 +4,22 @@ namespace WitOS.Dev.Host;
 
 internal sealed class BoundedCapture
 {
+    #region Constants
+
     internal const int LIMIT = 8 * 1024 * 1024;
+
+    #endregion
+
+    #region Fields
+
     private readonly StringBuilder m_text = new();
+
     private readonly TaskCompletionSource m_overflow = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    internal Task Overflow => m_overflow.Task;
-    internal bool Truncated { get { lock (m_text) return m_overflow.Task.IsCompleted; } }
+
+    #endregion
+
+    #region Functions
+
     internal void Append(ReadOnlySpan<char> value)
     {
         lock (m_text)
@@ -19,6 +30,7 @@ internal sealed class BoundedCapture
                 m_overflow.TrySetResult();
         }
     }
+
     internal string Snapshot() { lock (m_text) return m_text.ToString(); }
 
     internal static async Task<string> ReadFileAsync(string path)
@@ -38,4 +50,14 @@ internal sealed class BoundedCapture
         }
         return result.Snapshot();
     }
+
+    #endregion
+
+    #region Properties
+
+    internal Task Overflow => m_overflow.Task;
+
+    internal bool Truncated { get { lock (m_text) return m_overflow.Task.IsCompleted; } }
+
+    #endregion
 }
