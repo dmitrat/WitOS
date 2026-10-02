@@ -21,21 +21,23 @@ internal static class FatImage
     {
         // Preserve the existing 32 MiB layout. Assembly packages use a 128 MiB
         // FAT16 volume with 8 KiB clusters, retaining the bounded FAT capacity.
-        package ??= AssemblyPackage.Create(Array.Empty<(string,ReadOnlyMemory<byte>)>());
-        var large=(long)executable.Length+package.Length+ClusterSize>(ClusterCount-2)*ClusterSize;
-        var totalSectors=large?262144:TotalSectors;
-        var sectorsPerCluster=large?16:SectorsPerCluster;
-        var clusterSize=sectorsPerCluster*SectorSize;
-        var clusterCount=(totalSectors-DataStart)/sectorsPerCluster;
+        package ??= AssemblyPackage.Create(Array.Empty<(string, ReadOnlyMemory<byte>)>());
+        var large = (long)executable.Length + package.Length + ClusterSize > (ClusterCount - 2) * ClusterSize;
+        var totalSectors = large ? 262144 : TotalSectors;
+        var sectorsPerCluster = large ? 16 : SectorsPerCluster;
+        var clusterSize = sectorsPerCluster * SectorSize;
+        var clusterCount = (totalSectors - DataStart) / sectorsPerCluster;
         var fileClusters = checked((executable.Length + clusterSize - 1) / clusterSize);
-        var packageClusters=checked((package.Length+clusterSize-1)/clusterSize);
+        var packageClusters = checked((package.Length + clusterSize - 1) / clusterSize);
         if (fileClusters == 0 || packageClusters == 0 || fileClusters + packageClusters + 2 > clusterCount)
             throw new InvalidOperationException("EFI image does not fit in the M0 FAT16 volume.");
 
         using var stream = File.Create(destination);
         stream.SetLength((long)totalSectors * SectorSize);
         var boot = new byte[SectorSize];
-        boot[0] = 0xEB; boot[1] = 0x3C; boot[2] = 0x90;
+        boot[0] = 0xEB;
+        boot[1] = 0x3C;
+        boot[2] = 0x90;
         PutText(boot, 3, "WITOS   ");
         Put16(boot, 11, SectorSize);
         boot[13] = (byte)sectorsPerCluster;
@@ -52,7 +54,8 @@ internal static class FatImage
         Put32(boot, 39, 0x5749544F);
         PutText(boot, 43, "WITOS BOOT ");
         PutText(boot, 54, "FAT16   ");
-        boot[510] = 0x55; boot[511] = 0xAA;
+        boot[510] = 0x55;
+        boot[511] = 0xAA;
         stream.Write(boot);
 
         var fat = new byte[FatSectors * SectorSize];
@@ -62,8 +65,9 @@ internal static class FatImage
         Put16(fat, 6, 0xFFFF); // BOOT directory, cluster 3.
         for (var i = 0; i < fileClusters; ++i)
             Put16(fat, (i + 4) * 2, i == fileClusters - 1 ? 0xFFFF : i + 5);
-        var packageFirst=4+fileClusters;
-        for(var i=0;i<packageClusters;++i)Put16(fat,(packageFirst+i)*2,i==packageClusters-1?0xFFFF:packageFirst+i+1);
+        var packageFirst = 4 + fileClusters;
+        for (var i = 0; i < packageClusters; ++i)
+            Put16(fat, (packageFirst + i) * 2, i == packageClusters - 1 ? 0xFFFF : packageFirst + i + 1);
         stream.Position = SectorSize;
         stream.Write(fat);
         stream.Write(fat);
@@ -87,7 +91,7 @@ internal static class FatImage
         Entry(directory, 2, "BOOTX64 EFI", 0x20, 4, executable.Length);
         stream.Write(directory);
         stream.Write(executable);
-        stream.Position=(long)DataStart*SectorSize+(long)(packageFirst-2)*clusterSize;
+        stream.Position = (long)DataStart * SectorSize + (long)(packageFirst - 2) * clusterSize;
         stream.Write(package);
     }
 

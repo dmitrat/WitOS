@@ -47,7 +47,8 @@ internal sealed class NativePlatformObjects
     internal NativePlatformObjects(IEnumerable<KeyValuePair<string, string>> objects)
     {
         files = objects.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
-        if (!files.Keys.Order().SequenceEqual(Sources.Order())) throw new InvalidDataException("Native platform source manifest differs from the required set.");
+        if (!files.Keys.Order().SequenceEqual(Sources.Order()))
+            throw new InvalidDataException("Native platform source manifest differs from the required set.");
     }
     internal string[] Select(params string[] names) => names.Select(name => files.TryGetValue(name, out var file)
         ? file : throw new InvalidDataException("Native platform object missing: " + name)).ToArray();
@@ -124,9 +125,11 @@ internal sealed class NativePlatformObjects
         {
             var name = item.GetProperty("source").GetString()!;
             var file = item.GetProperty("file").GetString()!;
-            if (file != name + ".obj" || Path.GetFileName(file) != file) throw new InvalidDataException("Invalid native platform object filename.");
+            if (file != name + ".obj" || Path.GetFileName(file) != file)
+                throw new InvalidDataException("Invalid native platform object filename.");
             var full = Path.Combine(directory, file);
-            if (Hash(full) != item.GetProperty("sha256").GetString()) throw new InvalidDataException("Native platform object hash changed: " + name);
+            if (Hash(full) != item.GetProperty("sha256").GetString())
+                throw new InvalidDataException("Native platform object hash changed: " + name);
             return KeyValuePair.Create(name, full);
         });
         return new(items);

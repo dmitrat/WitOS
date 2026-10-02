@@ -62,7 +62,9 @@ internal static class RuntimeExperiment
         Directory.CreateDirectory(output);
         await File.WriteAllTextAsync(Path.Combine(output, "source-audit.json"), JsonSerializer.Serialize(new
         {
-            pin.RuntimeVersion, pin.RuntimeCommit, pin.PackageCommit,
+            pin.RuntimeVersion,
+            pin.RuntimeCommit,
+            pin.PackageCommit,
             provenanceVerified = true,
             scope = "Selected source files only; not an exhaustive runtime dependency closure.",
             verifiedSources = verified
@@ -155,7 +157,9 @@ internal static class RuntimeExperiment
         {
             hostOnly = true,
             guestRuntimePorted = false,
-            pin.RuntimeVersion, pin.RuntimeCommit, pin.PackageCommit,
+            pin.RuntimeVersion,
+            pin.RuntimeCommit,
+            pin.PackageCommit,
             verifiedPackages,
             rid = "win-x64",
             profile = new { invariantGlobalization = true, serverGc = false, concurrentGc = false, windowsThreadPool = false },

@@ -95,7 +95,9 @@ internal static class UserPalImage
         await File.WriteAllTextAsync(Path.Combine(output, "pal_image.h"), header.ToString(), Encoding.ASCII);
         await File.WriteAllTextAsync(Path.Combine(output, "pal-build.json"), JsonSerializer.Serialize(new
         {
-            pin.RuntimeVersion, pin.RuntimeCommit, guestManagedRuntime = false,
+            pin.RuntimeVersion,
+            pin.RuntimeCommit,
+            guestManagedRuntime = false,
             scope = "Partial NativeAOT PAL: thread discovery, committed memory, events and non-alertable waits; no ThreadStore or GC execution.",
             inputs = pin.Sources.Where(s => INPUTS.Contains(s.Path)),
             localInputs = sources.Concat(["src/Runtime.NativeAot/pal.witos.h", "src/Kernel/include/witos/thread_info.h",

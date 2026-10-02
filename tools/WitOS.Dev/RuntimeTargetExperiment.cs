@@ -103,18 +103,32 @@ internal static class RuntimeTargetExperiment
         };
         var report = new
         {
-            hostOnly = true, guestRuntimePorted = false,
-            candidateCallingConvention = "Microsoft x64", candidateObjectFormat = "AMD64 COFF / PE32+",
+            hostOnly = true,
+            guestRuntimePorted = false,
+            candidateCallingConvention = "Microsoft x64",
+            candidateObjectFormat = "AMD64 COFF / PE32+",
             runtimeBackendSelected = true,
             runtimeBackend = RuntimePortImage.Backend,
             fullGuestRuntimeSourceBuild = false,
-            pin.RuntimeVersion, pin.RuntimeCommit, pin.PackageCommit, verifiedPackages,
+            pin.RuntimeVersion,
+            pin.RuntimeCommit,
+            pin.PackageCommit,
+            verifiedPackages,
             compilerArguments = required,
-            objectSha256 = Hash(obj), staticArchiveSha256 = Hash(archive), moduleSha256 = Hash(dll),
-            nativeHostSha256 = Hash(host), nativeHostImports = hostImports,
-            passedCases = Cases, archiveContainsExactObject = true,
-            objectFile = coff, image = module, imports, nativeSdkInputs = sdkInputs,
-            withoutRuntime, withoutPlatform, guestBlockers = blockers,
+            objectSha256 = Hash(obj),
+            staticArchiveSha256 = Hash(archive),
+            moduleSha256 = Hash(dll),
+            nativeHostSha256 = Hash(host),
+            nativeHostImports = hostImports,
+            passedCases = Cases,
+            archiveContainsExactObject = true,
+            objectFile = coff,
+            image = module,
+            imports,
+            nativeSdkInputs = sdkInputs,
+            withoutRuntime,
+            withoutPlatform,
+            guestBlockers = blockers,
             scope = "Selected exports and explicit bootstrap roots. Link-undefined symbols, PE imports and executed calls are different sets; no dummy definitions or /FORCE linking."
         };
         await File.WriteAllTextAsync(Path.Combine(output, "target-report.json"), JsonSerializer.Serialize(report, Json));
@@ -130,7 +144,8 @@ internal static class RuntimeTargetExperiment
         summary.AppendLine();
         summary.AppendLine("Candidate format/calling convention: PE32+ and Microsoft x64. This does not select or implement a Windows compatibility personality.");
         summary.AppendLine();
-        foreach (var blocker in blockers) summary.AppendLine("- " + blocker);
+        foreach (var blocker in blockers)
+            summary.AppendLine("- " + blocker);
         summary.AppendLine();
         summary.AppendLine(report.scope);
         await File.WriteAllTextAsync(Path.Combine(output, "target-report.md"), summary.ToString());
@@ -163,7 +178,8 @@ internal static class RuntimeTargetExperiment
         string[] libraries, string name)
     {
         var image = Path.Combine(output, name + ".dll");
-        if (File.Exists(image)) File.Delete(image);
+        if (File.Exists(image))
+            File.Delete(image);
         string[] roots = libraries.Length == 0 ? [] : ["RhInitialize", "RhRegisterOSModule", "InitializeModules"];
         var result = await Processes.RunAsync(Path.Combine(msvc, "link.exe"),
             ["/nologo", "/dll", "/noentry", "/nodefaultlib", "/machine:x64", "/incremental:no", "/opt:ref",
@@ -190,7 +206,8 @@ internal static class RuntimeTargetExperiment
         Directory.CreateDirectory(directory);
         void Reject(Action action)
         {
-            try { action(); }
+            try
+            { action(); }
             catch (Exception error) when (error is InvalidDataException or BadImageFormatException or OverflowException) { return; }
             throw new InvalidOperationException("Malformed native artifact was accepted.");
         }

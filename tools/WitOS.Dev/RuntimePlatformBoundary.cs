@@ -36,33 +36,40 @@ internal static class RuntimePlatformBoundary
         var lookup = new Dictionary<string, Group>(StringComparer.Ordinal);
         foreach (var group in Groups)
             foreach (var symbol in group.Symbols.Split(' '))
-                if (!lookup.TryAdd(symbol, group)) throw new InvalidDataException("Duplicate platform policy: " + symbol);
+                if (!lookup.TryAdd(symbol, group))
+                    throw new InvalidDataException("Duplicate platform policy: " + symbol);
         var unknown = unresolved.Select(Name).Where(n => !lookup.ContainsKey(n)).ToArray();
-        if (unknown.Length != 0) throw new InvalidDataException("Unclassified runtime platform dependencies: " + string.Join(", ", unknown));
+        if (unknown.Length != 0)
+            throw new InvalidDataException("Unclassified runtime platform dependencies: " + string.Join(", ", unknown));
         var output = Path.Combine(root, "artifacts", "runtime-readiness");
-        var entries = unresolved.Select(display => {
+        var entries = unresolved.Select(display =>
+        {
             var name = Name(display);
             var group = lookup[name];
             var decorated = Regex.Match(display, @"\((\?[^\s]+)\)$");
             var target = decorated.Success ? decorated.Groups[1].Value : display;
             var native = linkLog.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
                 .Where(line => line.Contains("unresolved external symbol " + display, StringComparison.Ordinal)).ToArray();
-            if (native.Length == 0) throw new InvalidDataException("Dependency has no linker evidence: " + display);
+            if (native.Length == 0)
+                throw new InvalidDataException("Dependency has no linker evidence: " + display);
             var managed = (coff.ExternalReferences ?? throw new InvalidDataException("Missing managed COFF references."))
                 .Where(r => r.Target == target).ToArray();
             return new { name, symbol = target, group.Id, group.Plan, group.Decision, linkerReferences = native, managedReferences = managed };
         }).ToArray();
         var summary = new StringBuilder("# P1 platform dependency evidence\n\n");
         summary.AppendLine("These are link/object references, not proof that every site executes in the minimal workload. Names of containing symbols come from COFF offsets; data references are not represented as calls. Guest runtime execution remains pending.\n");
-        foreach (var entry in entries) {
+        foreach (var entry in entries)
+        {
             summary.AppendLine($"## {entry.name} ({entry.Plan})\n\n{entry.Decision}\n");
             foreach (var site in entry.managedReferences)
                 summary.AppendLine($"- ILC: `{site.ContainingSymbol ?? "<no external owner>"}` in `{site.Section}` +0x{site.Offset:X}, relocation {site.Kind}.");
-            foreach (var site in entry.linkerReferences) summary.AppendLine("- Link: `" + site + "`");
+            foreach (var site in entry.linkerReferences)
+                summary.AppendLine("- Link: `" + site + "`");
             summary.AppendLine();
         }
         await File.WriteAllTextAsync(Path.Combine(output, "platform-boundary.md"), summary.ToString());
-        await File.WriteAllTextAsync(Path.Combine(output, "platform-boundary.json"), JsonSerializer.Serialize(new {
+        await File.WriteAllTextAsync(Path.Combine(output, "platform-boundary.json"), JsonSerializer.Serialize(new
+        {
             guestManagedExecution = false,
             managedObjectSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(managedObject))).ToLowerInvariant(),
             compilerKnobs = compilerArguments.Where(a => a.StartsWith("--runtimeknob:", StringComparison.Ordinal)),

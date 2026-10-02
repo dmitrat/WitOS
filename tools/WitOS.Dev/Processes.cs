@@ -35,53 +35,59 @@ internal static class Processes
 
     // QEMU uses file-backed standard streams: no inherited named-pipe endpoints
     // can participate in its exit path. Files remain available on cleanup failure.
-    public static async Task<ProcessResult> RunWithFilesAsync(string executable,IEnumerable<string> arguments,
-        string directory,int timeoutSeconds,string outputPath,string errorPath,Func<CancellationToken,Task> control)
+    public static async Task<ProcessResult> RunWithFilesAsync(string executable, IEnumerable<string> arguments,
+        string directory, int timeoutSeconds, string outputPath, string errorPath, Func<CancellationToken, Task> control)
     {
-        if(timeoutSeconds<=0)throw new ArgumentOutOfRangeException(nameof(timeoutSeconds));
-        using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
-        using var output=File.OpenHandle(outputPath,FileMode.Create,FileAccess.Write,FileShare.ReadWrite);
-        using var error=File.OpenHandle(errorPath,FileMode.Create,FileAccess.Write,FileShare.ReadWrite);
-        using var child=WindowsChildProcess.StartWithFiles(executable,arguments,directory,output,error);
-        output.Dispose();error.Dispose();
-        bool timedOut=false;
-        Exception? failure=null;
+        if (timeoutSeconds <= 0)
+            throw new ArgumentOutOfRangeException(nameof(timeoutSeconds));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+        using var output = File.OpenHandle(outputPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
+        using var error = File.OpenHandle(errorPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
+        using var child = WindowsChildProcess.StartWithFiles(executable, arguments, directory, output, error);
+        output.Dispose();
+        error.Dispose();
+        bool timedOut = false;
+        Exception? failure = null;
         try
         {
-            while(!child.HasExited)
+            while (!child.HasExited)
             {
                 deadline.Token.ThrowIfCancellationRequested();
-                if(new FileInfo(outputPath).Length>BoundedCapture.Limit||new FileInfo(errorPath).Length>BoundedCapture.Limit)
+                if (new FileInfo(outputPath).Length > BoundedCapture.Limit || new FileInfo(errorPath).Length > BoundedCapture.Limit)
                     throw new InvalidDataException("Process output exceeded file capture limit.");
-                await Task.Delay(10,deadline.Token);
+                await Task.Delay(10, deadline.Token);
             }
-            timedOut=deadline.IsCancellationRequested;
+            timedOut = deadline.IsCancellationRequested;
         }
-        catch(OperationCanceledException)when(deadline.IsCancellationRequested){timedOut=true;}
-        catch(Exception exception){failure=exception;}
-        var cleanup=Stopwatch.StartNew();
-        if(timedOut)
-            failure=await RequestStopAsync((_,_,token)=>control(token),Stream.Null,()=>"",cleanup)??failure;
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested) { timedOut = true; }
+        catch (Exception exception) { failure = exception; }
+        var cleanup = Stopwatch.StartNew();
+        if (timedOut)
+            failure = await RequestStopAsync((_, _, token) => control(token), Stream.Null, () => "", cleanup) ?? failure;
         try
         {
             child.Terminate();
-            await child.ConfirmTerminationAsync(CleanupBudget-cleanup.Elapsed);
+            await child.ConfirmTerminationAsync(CleanupBudget - cleanup.Elapsed);
         }
-        catch(Exception exception)
+        catch (Exception exception)
         {
-            if(failure is null)throw;
-            failure.Data["CleanupError"]=exception.ToString();
+            if (failure is null)
+                throw;
+            failure.Data["CleanupError"] = exception.ToString();
         }
-        if(failure is not null)ExceptionDispatchInfo.Capture(failure).Throw();
-        return new(child.ExitCode,await BoundedCapture.ReadFileAsync(outputPath),await BoundedCapture.ReadFileAsync(errorPath),timedOut);
+        if (failure is not null)
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        return new(child.ExitCode, await BoundedCapture.ReadFileAsync(outputPath), await BoundedCapture.ReadFileAsync(errorPath), timedOut);
     }
 
     private static async Task<ProcessResult> RunCoreAsync(string executable, IEnumerable<string> arguments,
         string directory, int timeoutSeconds, IReadOnlyDictionary<string, string>? environment,
         Func<Stream, Func<string>, CancellationToken, Task>? timeoutControl, bool standardInputControl = true)
     {
-        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Process containment requires Windows 10 or newer.");
-        if (timeoutSeconds <= 0) throw new ArgumentOutOfRangeException(nameof(timeoutSeconds));
+        if (!OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException("Process containment requires Windows 10 or newer.");
+        if (timeoutSeconds <= 0)
+            throw new ArgumentOutOfRangeException(nameof(timeoutSeconds));
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
         using var stopIo = new CancellationTokenSource();
         using var outputPipe = new WindowsChildProcess.CapturePipe();
@@ -118,7 +124,8 @@ internal static class Processes
             try
             {
                 var completed = await Task.WhenAny(all, stdout.Overflow, stderr.Overflow).WaitAsync(deadline.Token);
-                if (completed != all) throw new InvalidDataException($"Process output exceeded {BoundedCapture.Limit} characters per stream: {executable}");
+                if (completed != all)
+                    throw new InvalidDataException($"Process output exceeded {BoundedCapture.Limit} characters per stream: {executable}");
                 await all;
             }
             catch (OperationCanceledException) when (deadline.IsCancellationRequested) { timedOut = true; }
@@ -141,11 +148,14 @@ internal static class Processes
             }
             catch (Exception cleanupError)
             {
-                if (failure is null) throw;
+                if (failure is null)
+                    throw;
                 failure.Data["CleanupError"] = cleanupError.ToString();
             }
-            if (failure is not null) ExceptionDispatchInfo.Capture(failure).Throw();
-            if (stdout.Truncated || stderr.Truncated) throw new InvalidDataException("Process evidence was truncated; success is forbidden.");
+            if (failure is not null)
+                ExceptionDispatchInfo.Capture(failure).Throw();
+            if (stdout.Truncated || stderr.Truncated)
+                throw new InvalidDataException("Process evidence was truncated; success is forbidden.");
             return new(child.ExitCode, stdout.Snapshot(), stderr.Snapshot(), timedOut);
         }
         finally
@@ -167,7 +177,8 @@ internal static class Processes
         {
             await task.WaitAsync(stop.Token);
             var remaining = ControlBudget - cleanup.Elapsed;
-            if (remaining > TimeSpan.Zero) await Task.Delay(remaining, stop.Token);
+            if (remaining > TimeSpan.Zero)
+                await Task.Delay(remaining, stop.Token);
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
         catch (IOException) { }

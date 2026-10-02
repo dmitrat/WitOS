@@ -70,7 +70,9 @@ internal static class UserPalBackgroundImage
         await File.WriteAllTextAsync(Path.Combine(output, "pal-background-build.json"), JsonSerializer.Serialize(new
         {
             scope = "Actual PAL worker callbacks with C++ TLS cleanup and detached reclamation; no managed finalizer or collector execution.",
-            guestManagedRuntime = false, compiler = msvc, imageBytes = bytes.Length,
+            guestManagedRuntime = false,
+            compiler = msvc,
+            imageBytes = bytes.Length,
             imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
             unwindEntries = h.ExceptionTableDirectory.Size / 12,
             localSources = sources.Concat(["src/System.Native/thread.c", "src/System.Native/tls.h", "src/Kernel/include/witos/user_abi.h"])

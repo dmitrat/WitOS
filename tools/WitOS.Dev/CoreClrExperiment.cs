@@ -16,7 +16,8 @@ internal static class CoreClrExperiment
     {
         var output = Path.Combine(root, "artifacts/coreclr-source");
         var legacy = Path.Combine(output, "reference.json");
-        if (File.Exists(legacy)) File.Move(legacy, Path.Combine(attempt.RunDirectory, "previous-reference.json"));
+        if (File.Exists(legacy))
+            File.Move(legacy, Path.Combine(attempt.RunDirectory, "previous-reference.json"));
         var pin = RuntimeExperiment.ReadLock(root);
         var profilePath = Path.Combine(root, "experiments/CoreClrProbe/profile.json");
         using var profile = JsonDocument.Parse(await File.ReadAllTextAsync(profilePath));
@@ -53,17 +54,21 @@ internal static class CoreClrExperiment
         var msvc = await Toolchain.FindMsvcAsync(root);
         var binaries = Path.Combine(source, "artifacts/bin/coreclr", "windows.x64.Release", Profile);
         // Locate only within this profile, never the NativeAOT install or host runtime.
-        if (!Directory.Exists(binaries)) throw new DirectoryNotFoundException("CoreCLR profile output missing: " + binaries);
+        if (!Directory.Exists(binaries))
+            throw new DirectoryNotFoundException("CoreCLR profile output missing: " + binaries);
         var inventory = new List<object>();
         foreach (var name in new[] { "coreclr.dll", "clrjit.dll", "corerun.exe" })
         {
             var file = Path.Combine(binaries, name);
-            if (!File.Exists(file)) throw new FileNotFoundException("CoreCLR reference binary missing.", file);
+            if (!File.Exists(file))
+                throw new FileNotFoundException("CoreCLR reference binary missing.", file);
             var imports = await Processes.RunAsync(Path.Combine(msvc, "dumpbin.exe"), ["/nologo", "/imports", file], root);
-            if (imports.TimedOut || imports.ExitCode != 0) throw new InvalidDataException("CoreCLR import inventory failed: " + name);
+            if (imports.TimedOut || imports.ExitCode != 0)
+                throw new InvalidDataException("CoreCLR import inventory failed: " + name);
             await File.WriteAllTextAsync(Path.Combine(output, name + ".imports.txt"), imports.Output);
             var pe = NativeImports.Inspect(file);
-            if (pe.HasClrHeader) throw new InvalidDataException("Expected native CoreCLR/JIT/host binary.");
+            if (pe.HasClrHeader)
+                throw new InvalidDataException("Expected native CoreCLR/JIT/host binary.");
             inventory.Add(new { file = attempt.Snapshot(file), sourceFile = file, sha256 = Hash(file), bytes = new FileInfo(file).Length, pe.DirectImports, pe.DelayImports });
         }
         var framework = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet/shared/Microsoft.NETCore.App", pin.RuntimeVersion);
@@ -76,8 +81,13 @@ internal static class CoreClrExperiment
         await Processes.RequireSuccessAsync("dotnet", ["build", probe, "--configuration", "Release", "--output", app], root);
         var assembly = Path.Combine(app, "CoreClrProbe.dll");
         var run = await Processes.RunAsync(Path.Combine(binaries, "corerun.exe"), [assembly], root, 120,
-            new Dictionary<string,string> { ["CORE_ROOT"] = binaries, ["CORE_LIBRARIES"] = framework,
-                ["WITOS_CORECLR_REFERENCE"] = binaries, ["DOTNET_ReadyToRun"] = "0" });
+            new Dictionary<string, string>
+            {
+                ["CORE_ROOT"] = binaries,
+                ["CORE_LIBRARIES"] = framework,
+                ["WITOS_CORECLR_REFERENCE"] = binaries,
+                ["DOTNET_ReadyToRun"] = "0"
+            });
         await File.WriteAllTextAsync(Path.Combine(output, "hosted.log"), run.Output + run.Error + $"\nExit code: {run.ExitCode}\n");
         string[] expected = ["JitRuntimeIdentity", "DynamicMethodExecution", "RuntimeGenericReflection", "GcAndFinalization", "ExceptionsAndRoots",
             "ThreadPoolTaskAndGc", "AssemblyLoadContextFromStream", "SourceModule:coreclr.dll", "SourceModule:clrjit.dll"];
@@ -89,9 +99,27 @@ internal static class CoreClrExperiment
         var capturedProfile = attempt.Snapshot(profilePath);
         var report = new
         {
-            hostOnly = true, guestExecuted = false, profile = Profile, pin.RuntimeVersion, pin.RuntimeCommit, pin.PackageCommit,
-            upstreamClean = true, buildEntry = "src/coreclr/build-runtime.cmd -x64 -release -component runtime -component jit",
-            binaries, inventory, profileSha256 = Hash(capturedProfile), capturedProfile, capturedAssembly, capturedCorelib, guestContract = contract.GetProperty("guest"), hostedPassed = true, readyToRunDisabled = true, managedAssemblySha256 = Hash(assembly), corelibSha256 = Hash(corelib), corelibProductVersion = product, sources = new[] { "src/coreclr/components.cmake", "src/coreclr/dlls/mscoree/coreclr/CMakeLists.txt", "src/coreclr/jit/CMakeLists.txt" }
+            hostOnly = true,
+            guestExecuted = false,
+            profile = Profile,
+            pin.RuntimeVersion,
+            pin.RuntimeCommit,
+            pin.PackageCommit,
+            upstreamClean = true,
+            buildEntry = "src/coreclr/build-runtime.cmd -x64 -release -component runtime -component jit",
+            binaries,
+            inventory,
+            profileSha256 = Hash(capturedProfile),
+            capturedProfile,
+            capturedAssembly,
+            capturedCorelib,
+            guestContract = contract.GetProperty("guest"),
+            hostedPassed = true,
+            readyToRunDisabled = true,
+            managedAssemblySha256 = Hash(assembly),
+            corelibSha256 = Hash(corelib),
+            corelibProductVersion = product,
+            sources = new[] { "src/coreclr/components.cmake", "src/coreclr/dlls/mscoree/coreclr/CMakeLists.txt", "src/coreclr/jit/CMakeLists.txt" }
                 .Select(path => new { path, worktreeSha256 = Hash(Path.Combine(source, path)) })
         };
         await CoreClrBoundary.WriteAsync(root, output, inventory.Select(value => JsonSerializer.SerializeToElement(value, Json)).ToArray());

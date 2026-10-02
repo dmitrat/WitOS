@@ -73,7 +73,9 @@ internal static class UserPalEnvironmentImage
         await File.WriteAllTextAsync(Path.Combine(output, "pal-environment-build.json"), JsonSerializer.Serialize(new
         {
             scope = "Immutable native environment and UTF-16 to UTF-8 conversion; no GCConfig or managed execution.",
-            guestManagedRuntime = false, compiler = msvc, imageBytes = bytes.Length,
+            guestManagedRuntime = false,
+            compiler = msvc,
+            imageBytes = bytes.Length,
             imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
             unwindEntries = h.ExceptionTableDirectory.Size / 12,
             localSources = sources.Concat(["src/System.Native/thread.c", "src/System.Native/tls.h", "src/System.Native/image.h", "src/Runtime.NativeAot/pal_environment.witos.h", "src/Kernel.Arch.X64/native_environment.asm", "src/Kernel/include/witos/user_abi.h"])

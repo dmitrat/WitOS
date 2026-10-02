@@ -66,7 +66,8 @@ internal static class UserDynamicTlsImage
         header.AppendLine("};");
         var map = await File.ReadAllTextAsync(Path.Combine(output, "DynamicTlsFixture.map"));
         var begin = Regex.Match(map, @"\bwit_tls_initializers_begin\s+([0-9A-Fa-f]{16})\b");
-        if (!begin.Success) throw new InvalidDataException("Dynamic TLS initializer boundary missing from linker map.");
+        if (!begin.Success)
+            throw new InvalidDataException("Dynamic TLS initializer boundary missing from linker map.");
         var initializerRva = Convert.ToUInt64(begin.Groups[1].Value, 16) - h.ImageBase;
         header.AppendLine($"#define WIT_DYNAMIC_TLS_INITIALIZER_RVA 0x{initializerRva + 8:X}U");
         await File.WriteAllTextAsync(Path.Combine(output, "dynamic_tls_image.h"), header.ToString(), Encoding.ASCII);
@@ -79,8 +80,10 @@ internal static class UserDynamicTlsImage
         var report = new
         {
             scope = "Actual MSVC C++ thread_local constructors/destructors in user space. No ThreadStore or managed runtime.",
-            guestManagedRuntime = false, imageBytes = bytes.Length,
-            imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), compiler = msvc,
+            guestManagedRuntime = false,
+            imageBytes = bytes.Length,
+            imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
+            compiler = msvc,
             unwindEntries = h.ExceptionTableDirectory.Size / 12,
             sources = sources.Concat(["src/System.Native/tls.h", "src/Kernel.Arch.X64/native_start.asm"])
                 .Select(p => new { path = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, p)))).ToLowerInvariant() })

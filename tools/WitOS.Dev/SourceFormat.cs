@@ -107,7 +107,26 @@ internal static class SourceFormat
         return failed;
     }
 
+    // The SDK formatter can need a second pass, for example when splitting a
+    // statement re-indents its nested block. Apply until a check pass is clean.
     private static async Task<List<string>> FormatManagedAsync(string root, List<string> files, bool check)
+    {
+        if (check)
+        {
+            return await RunManagedAsync(root, files, check: true);
+        }
+        for (var pass = 0; pass < 3; ++pass)
+        {
+            await RunManagedAsync(root, files, check: false);
+            if ((await RunManagedAsync(root, files, check: true)).Count == 0)
+            {
+                return [];
+            }
+        }
+        return await RunManagedAsync(root, files, check: true);
+    }
+
+    private static async Task<List<string>> RunManagedAsync(string root, List<string> files, bool check)
     {
         var failed = new List<string>();
         foreach (var batch in files.Chunk(BatchSize))

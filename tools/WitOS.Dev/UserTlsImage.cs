@@ -64,9 +64,12 @@ internal static class UserTlsImage
         var report = new
         {
             scope = "Single static MSVC TLS image. No dynamic TLS callbacks, ThreadStore attachment or guest managed execution.",
-            guestManagedRuntime = false, compiler = msvc,
-            imageBytes = bytes.Length, imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
-            tlsDirectoryBytes = h.ThreadLocalStorageTableDirectory.Size, unwindEntries = h.ExceptionTableDirectory.Size / 12,
+            guestManagedRuntime = false,
+            compiler = msvc,
+            imageBytes = bytes.Length,
+            imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
+            tlsDirectoryBytes = h.ThreadLocalStorageTableDirectory.Size,
+            unwindEntries = h.ExceptionTableDirectory.Size / 12,
             sources = new[] { "tests/User.X64/compiler_tls.c", "tests/User.X64/compiler_tls_access.c",
                 "src/Kernel.Arch.X64/native_start.asm", "src/Kernel/include/witos/user_abi.h" }
                 .Select(p => new { path = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, p)))).ToLowerInvariant() })

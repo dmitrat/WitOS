@@ -56,20 +56,20 @@ internal static class DevTool
                     await BootAsync(root, portImage, "runtime-port-256", 256, 60, ExpectedOutcome.Success);
                     break;
                 case "runtime-seh":
-                    await RuntimeSehReference.RunAsync(root,await Toolchain.FindMsvcAsync(root));
+                    await RuntimeSehReference.RunAsync(root, await Toolchain.FindMsvcAsync(root));
                     break;
                 case "runtime-failfast":
-                    await RuntimeFailFastReference.RunAsync(root,await Toolchain.FindMsvcAsync(root));
+                    await RuntimeFailFastReference.RunAsync(root, await Toolchain.FindMsvcAsync(root));
                     break;
                 case "runtime-gp":
-                    await RuntimeGpReference.RunAsync(root,await Toolchain.FindMsvcAsync(root));
+                    await RuntimeGpReference.RunAsync(root, await Toolchain.FindMsvcAsync(root));
                     break;
                 case "runtime-exception":
-                    await RuntimeExceptionReference.RunAsync(root,await Toolchain.FindMsvcAsync(root));
+                    await RuntimeExceptionReference.RunAsync(root, await Toolchain.FindMsvcAsync(root));
                     break;
                 case "runtime-unwind":
                     await RuntimeExperiment.AuditAsync(root);
-                    await RuntimeUnwindReference.RunAsync(root,await Toolchain.FindMsvcAsync(root));
+                    await RuntimeUnwindReference.RunAsync(root, await Toolchain.FindMsvcAsync(root));
                     break;
                 case "runtime-gc-policy":
                     await RuntimeGcPolicy.ExistingAsync(root);
@@ -78,16 +78,18 @@ internal static class DevTool
                     await RuntimeEncodingReference.RunAsync(root, await Toolchain.FindMsvcAsync(root));
                     break;
                 case "runtime-boot-run":
-                    await RuntimeBootAttempt.RunAsync(root,command,async attempt=>{
-                        var preparedImage=await BuildAsync(root,"runtime-boot");
-                        await BootRuntimeMatrixAsync(root,preparedImage,attempt);
+                    await RuntimeBootAttempt.RunAsync(root, command, async attempt =>
+                    {
+                        var preparedImage = await BuildAsync(root, "runtime-boot");
+                        await BootRuntimeMatrixAsync(root, preparedImage, attempt);
                     });
                     break;
                 case "runtime-boot":
-                    await RuntimeBootAttempt.RunAsync(root,command,async attempt=>{
+                    await RuntimeBootAttempt.RunAsync(root, command, async attempt =>
+                    {
                         await RuntimeSourceBuild.RunAsync(root);
-                        var runtimeImage=await BuildAsync(root,"runtime-boot");
-                        await BootRuntimeMatrixAsync(root,runtimeImage,attempt);
+                        var runtimeImage = await BuildAsync(root, "runtime-boot");
+                        await BootRuntimeMatrixAsync(root, runtimeImage, attempt);
                     });
                     break;
                 case "runtime-config":
@@ -102,14 +104,14 @@ internal static class DevTool
                     await CoreClrFunctionTableReference.RunAsync(root);
                     break;
                 case "coreclr-storage":
-                    var storageImage=await BuildAsync(root,"coreclr-storage");
-                    await BootAsync(root,storageImage,"coreclr-storage-128",128,120,ExpectedOutcome.Success,coreclrStorage:true);
-                    await BootAsync(root,storageImage,"coreclr-storage-512",512,120,ExpectedOutcome.Success,coreclrStorage:true);
+                    var storageImage = await BuildAsync(root, "coreclr-storage");
+                    await BootAsync(root, storageImage, "coreclr-storage-128", 128, 120, ExpectedOutcome.Success, coreclrStorage: true);
+                    await BootAsync(root, storageImage, "coreclr-storage-512", 512, 120, ExpectedOutcome.Success, coreclrStorage: true);
                     break;
                 case "coreclr-memory":
                     var codeImage = await BuildAsync(root, "coreclr-memory");
-                    await BootAsync(root,codeImage,"coreclr-memory-128",128,60,ExpectedOutcome.Success,coreclrMemory:true);
-                    await BootAsync(root,codeImage,"coreclr-memory-512",512,60,ExpectedOutcome.Success,coreclrMemory:true);
+                    await BootAsync(root, codeImage, "coreclr-memory-128", 128, 60, ExpectedOutcome.Success, coreclrMemory: true);
+                    await BootAsync(root, codeImage, "coreclr-memory-512", 512, 60, ExpectedOutcome.Success, coreclrMemory: true);
                     break;
                 case "coreclr-host-files":
                     await CoreClrHostFilePal.RunAsync(root);
@@ -170,33 +172,45 @@ internal static class DevTool
         await File.WriteAllTextAsync(Path.Combine(output, "build_info.h"), $"#define WITOS_BUILD_ID \"{buildId}\"\n", Encoding.ASCII);
 
         await UserImage.BuildAsync(root, output, msvc);
-        if (scenario == "coreclr-memory") await CoreClrMemoryImage.BuildAsync(root,output,msvc);
-        if (scenario == "runtime-config") await RuntimeConfigProbe.BuildImageAsync(root, output, msvc);
-        if(scenario=="runtime-boot"){
-            var driver=Path.Combine(root,"artifacts/runtime-readiness/guest-driver/WitOS.NativeAotBoot.pe");
-            var bytes=await File.ReadAllBytesAsync(driver);
-            using(var evidence=System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(Path.GetDirectoryName(driver)!,"image.json")))){
-                var hash=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant();
-                if(hash!=evidence.RootElement.GetProperty("sha256").GetString())throw new InvalidDataException("Prepared runtime image hash changed; rebuild runtime-boot.");
-                await File.WriteAllTextAsync(Path.Combine(output,"runtime_report.h"),$"#define WIT_RUNTIME_ABRUPT_REPORT_RVA {evidence.RootElement.GetProperty("abruptReportRva").GetUInt32()}U\n",Encoding.ASCII);
-                await File.WriteAllTextAsync(Path.Combine(output,"runtime-input.json"),System.Text.Json.JsonSerializer.Serialize(new {
-                    file=driver,sha256=hash,fileBytes=bytes.Length,buildEvidence=evidence.RootElement.Clone()
-                },new System.Text.Json.JsonSerializerOptions{WriteIndented=true}));
+        if (scenario == "coreclr-memory")
+            await CoreClrMemoryImage.BuildAsync(root, output, msvc);
+        if (scenario == "runtime-config")
+            await RuntimeConfigProbe.BuildImageAsync(root, output, msvc);
+        if (scenario == "runtime-boot")
+        {
+            var driver = Path.Combine(root, "artifacts/runtime-readiness/guest-driver/WitOS.NativeAotBoot.pe");
+            var bytes = await File.ReadAllBytesAsync(driver);
+            using (var evidence = System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(Path.GetDirectoryName(driver)!, "image.json"))))
+            {
+                var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant();
+                if (hash != evidence.RootElement.GetProperty("sha256").GetString())
+                    throw new InvalidDataException("Prepared runtime image hash changed; rebuild runtime-boot.");
+                await File.WriteAllTextAsync(Path.Combine(output, "runtime_report.h"), $"#define WIT_RUNTIME_ABRUPT_REPORT_RVA {evidence.RootElement.GetProperty("abruptReportRva").GetUInt32()}U\n", Encoding.ASCII);
+                await File.WriteAllTextAsync(Path.Combine(output, "runtime-input.json"), System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    file = driver,
+                    sha256 = hash,
+                    fileBytes = bytes.Length,
+                    buildEvidence = evidence.RootElement.Clone()
+                }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
             }
 
-            await File.WriteAllBytesAsync(Path.Combine(output,"runtime-image.pe"),bytes);
-            var header=new StringBuilder("static const unsigned char wit_runtime_boot_image[] = {\n");
-            for(var i=0;i<bytes.Length;i+=16)header.AppendLine("    "+string.Join(", ",bytes.Skip(i).Take(16).Select(b=>$"0x{b:X2}"))+",");
-            header.AppendLine("};");await File.WriteAllTextAsync(Path.Combine(output,"runtime_boot_image.h"),header.ToString(),Encoding.ASCII);
+            await File.WriteAllBytesAsync(Path.Combine(output, "runtime-image.pe"), bytes);
+            var header = new StringBuilder("static const unsigned char wit_runtime_boot_image[] = {\n");
+            for (var i = 0; i < bytes.Length; i += 16)
+                header.AppendLine("    " + string.Join(", ", bytes.Skip(i).Take(16).Select(b => $"0x{b:X2}")) + ",");
+            header.AppendLine("};");
+            await File.WriteAllTextAsync(Path.Combine(output, "runtime_boot_image.h"), header.ToString(), Encoding.ASCII);
         }
 
-        var bootPackage=await BootPackage.BuildAsync(root,output,scenario=="coreclr-storage",scenario=="coreclr-memory");
-        if(scenario=="coreclr-storage")await CoreClrStorageImage.BuildAsync(root,output,msvc);
-        string[] sources = ["src/Boot.Uefi/storage.c","src/Kernel/package.c","src/Kernel/storage.c","src/Kernel/files.c","src/Kernel.Arch.X64/user_files.c","src/Kernel.Arch.X64/user_library.c","src/Kernel.Arch.X64/user_library_readers.c","src/Kernel.Arch.X64/user_library_tls.c","src/Kernel.Arch.X64/user_library_lifecycle.c","src/Kernel.Arch.X64/user_file_tests.c","src/Kernel.Arch.X64/user_code.c","src/Kernel/virtual_gap.c","src/Kernel.Arch.X64/user_code_tests.c","src/Kernel.Arch.X64/user_runtime_boot_tests.c","src/Kernel.Arch.X64/user_exception.c","src/Kernel.Arch.X64/user_runtime_unwind_tests.c","src/Kernel.Arch.X64/user_stack_lease.c","src/Kernel.Arch.X64/user_suspend_tests.c","src/Kernel.Arch.X64/user_suspend.c","src/Kernel.Arch.X64/user_thread_context.c","src/Kernel.Arch.X64/user_cpu_context.c","src/Kernel.Arch.X64/user_thread_name.c","src/Kernel.Arch.X64/user_console.c","src/Kernel.Arch.X64/user_apc.c", "src/Kernel.Arch.X64/user_objects.c","src/Kernel.Arch.X64/user_reference.c","src/Boot.Uefi/entropy.c", "src/Kernel/random.c", "src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/clock.c", "src/Kernel.Arch.X64/cpu_cache.c", "src/Kernel.Arch.X64/cpu_cache_tests.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c", "src/Kernel/handles.c", "src/Kernel.Arch.X64/user_space.c", "src/Kernel.Arch.X64/user.c", "src/Kernel.Arch.X64/user_thread.c", "src/Kernel.Arch.X64/user_tls_tests.c", "src/Kernel.Arch.X64/user_dynamic_tls_tests.c", "src/Kernel.Arch.X64/user_process_exit_tests.c", "src/Kernel.Arch.X64/user_pal_tests.c", "src/Kernel.Arch.X64/user_pal_service_tests.c", "src/Kernel.Arch.X64/user_pal_background_tests.c", "src/Kernel.Arch.X64/user_pal_error_tests.c", "src/Kernel.Arch.X64/user_pal_module_tests.c", "src/Kernel.Arch.X64/user_pal_environment_tests.c", "src/Kernel.Arch.X64/user_runtime_config_tests.c", "src/Kernel.Arch.X64/user_tests.c", "src/Kernel.Arch.X64/user_memory_tests.c", "src/Kernel.Arch.X64/user_thread_tests.c", "src/Kernel/events.c", "src/Kernel.Arch.X64/user_wait.c", "src/Kernel.Arch.X64/user_pressure.c", "src/Kernel.Arch.X64/user_pressure_tests.c", "src/Kernel.Arch.X64/user_wait_tests.c", "src/Kernel.Arch.X64/user_wait_any_tests.c", "src/Kernel/pe.c", "src/Kernel/pe_imports.c", "src/Kernel/pe_exports.c", "src/Kernel.Arch.X64/user_image.c", "src/Kernel.Arch.X64/user_image_tests.c", "src/Kernel.Arch.X64/user_bootstrap_tests.c", "src/Kernel.Arch.X64/user_gc_tests.c"];
+        var bootPackage = await BootPackage.BuildAsync(root, output, scenario == "coreclr-storage", scenario == "coreclr-memory");
+        if (scenario == "coreclr-storage")
+            await CoreClrStorageImage.BuildAsync(root, output, msvc);
+        string[] sources = ["src/Boot.Uefi/storage.c", "src/Kernel/package.c", "src/Kernel/storage.c", "src/Kernel/files.c", "src/Kernel.Arch.X64/user_files.c", "src/Kernel.Arch.X64/user_library.c", "src/Kernel.Arch.X64/user_library_readers.c", "src/Kernel.Arch.X64/user_library_tls.c", "src/Kernel.Arch.X64/user_library_lifecycle.c", "src/Kernel.Arch.X64/user_file_tests.c", "src/Kernel.Arch.X64/user_code.c", "src/Kernel/virtual_gap.c", "src/Kernel.Arch.X64/user_code_tests.c", "src/Kernel.Arch.X64/user_runtime_boot_tests.c", "src/Kernel.Arch.X64/user_exception.c", "src/Kernel.Arch.X64/user_runtime_unwind_tests.c", "src/Kernel.Arch.X64/user_stack_lease.c", "src/Kernel.Arch.X64/user_suspend_tests.c", "src/Kernel.Arch.X64/user_suspend.c", "src/Kernel.Arch.X64/user_thread_context.c", "src/Kernel.Arch.X64/user_cpu_context.c", "src/Kernel.Arch.X64/user_thread_name.c", "src/Kernel.Arch.X64/user_console.c", "src/Kernel.Arch.X64/user_apc.c", "src/Kernel.Arch.X64/user_objects.c", "src/Kernel.Arch.X64/user_reference.c", "src/Boot.Uefi/entropy.c", "src/Kernel/random.c", "src/Boot.Uefi/entry.c", "src/Boot.Uefi/image.c", "src/Kernel/kernel.c", "src/Kernel/memory.c", "src/Kernel/memory_tests.c", "src/Kernel.Arch.X64/platform.c", "src/Kernel.Arch.X64/clock.c", "src/Kernel.Arch.X64/cpu_cache.c", "src/Kernel.Arch.X64/cpu_cache_tests.c", "src/Kernel.Arch.X64/exceptions.c", "src/Kernel.Arch.X64/stacks.c", "src/Kernel.Arch.X64/paging.c", "src/Kernel.Arch.X64/scheduler.c", "src/Kernel/handles.c", "src/Kernel.Arch.X64/user_space.c", "src/Kernel.Arch.X64/user.c", "src/Kernel.Arch.X64/user_thread.c", "src/Kernel.Arch.X64/user_tls_tests.c", "src/Kernel.Arch.X64/user_dynamic_tls_tests.c", "src/Kernel.Arch.X64/user_process_exit_tests.c", "src/Kernel.Arch.X64/user_pal_tests.c", "src/Kernel.Arch.X64/user_pal_service_tests.c", "src/Kernel.Arch.X64/user_pal_background_tests.c", "src/Kernel.Arch.X64/user_pal_error_tests.c", "src/Kernel.Arch.X64/user_pal_module_tests.c", "src/Kernel.Arch.X64/user_pal_environment_tests.c", "src/Kernel.Arch.X64/user_runtime_config_tests.c", "src/Kernel.Arch.X64/user_tests.c", "src/Kernel.Arch.X64/user_memory_tests.c", "src/Kernel.Arch.X64/user_thread_tests.c", "src/Kernel/events.c", "src/Kernel.Arch.X64/user_wait.c", "src/Kernel.Arch.X64/user_pressure.c", "src/Kernel.Arch.X64/user_pressure_tests.c", "src/Kernel.Arch.X64/user_wait_tests.c", "src/Kernel.Arch.X64/user_wait_any_tests.c", "src/Kernel/pe.c", "src/Kernel/pe_imports.c", "src/Kernel/pe_exports.c", "src/Kernel.Arch.X64/user_image.c", "src/Kernel.Arch.X64/user_image_tests.c", "src/Kernel.Arch.X64/user_bootstrap_tests.c", "src/Kernel.Arch.X64/user_gc_tests.c"];
         var objects = new List<string>();
         foreach (var source in sources)
         {
-            var obj = Path.Combine(output, source=="src/Boot.Uefi/storage.c" ? "boot_storage.obj" : Path.GetFileNameWithoutExtension(source)+".obj");
+            var obj = Path.Combine(output, source == "src/Boot.Uefi/storage.c" ? "boot_storage.obj" : Path.GetFileNameWithoutExtension(source) + ".obj");
             objects.Add(obj);
             var arguments = new List<string>
             {
@@ -227,7 +241,8 @@ internal static class DevTool
                 "coreclr-storage" => "WITOS_TEST_CORECLR_STORAGE",
                 _ => null
             };
-            if (define is not null) arguments.Add($"/D{define}=1");
+            if (define is not null)
+                arguments.Add($"/D{define}=1");
             arguments.Add(Path.Combine(root, source));
             await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), arguments, root);
         }
@@ -320,38 +335,79 @@ internal static class DevTool
         Console.WriteLine("PASS: all 20 kernel integration scenarios.");
     }
 
-    private static async Task BootRuntimeMatrixAsync(string root,string image,RuntimeBootAttempt attempt)
+    private static async Task BootRuntimeMatrixAsync(string root, string image, RuntimeBootAttempt attempt)
     {
-        var directory=Path.GetDirectoryName(image)!;
-        string Hash(string path)=>Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
-        var capturedInput=attempt.Snapshot(Path.Combine(directory,"runtime-input.json"));
-        attempt.Snapshot(Path.Combine(directory,"runtime-image.pe"));
-        using var input=System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(capturedInput));
-        var referenceReport=attempt.Snapshot(Path.Combine(root,"artifacts/runtime-readiness/readiness.json"));
-        var referenceLog=attempt.Snapshot(Path.Combine(root,"artifacts/runtime-readiness/hosted.log"));
-        var referenceImage=attempt.Snapshot(Path.Combine(root,"artifacts/runtime-readiness/reference/NativeAotBoot.exe"));
-        using var reference=System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(referenceReport));
-        var proof=reference.RootElement;
-        var managedObjectHash=RuntimeBootProtocol.SharedManagedObjectHash(input.RootElement);
-        if(!proof.TryGetProperty("hostedSemanticAcceptance",out var semantic)||!semantic.GetBoolean()||!proof.GetProperty("hostedPassed").GetBoolean()||
-            proof.GetProperty("managedObjectSha256").GetString()!=managedObjectHash||
-            proof.GetProperty("referenceImageSha256").GetString()!=Hash(referenceImage)||proof.GetProperty("hostedLogSha256").GetString()!=Hash(referenceLog)||
+        var directory = Path.GetDirectoryName(image)!;
+        string Hash(string path) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+        var capturedInput = attempt.Snapshot(Path.Combine(directory, "runtime-input.json"));
+        attempt.Snapshot(Path.Combine(directory, "runtime-image.pe"));
+        using var input = System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(capturedInput));
+        var referenceReport = attempt.Snapshot(Path.Combine(root, "artifacts/runtime-readiness/readiness.json"));
+        var referenceLog = attempt.Snapshot(Path.Combine(root, "artifacts/runtime-readiness/hosted.log"));
+        var referenceImage = attempt.Snapshot(Path.Combine(root, "artifacts/runtime-readiness/reference/NativeAotBoot.exe"));
+        using var reference = System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(referenceReport));
+        var proof = reference.RootElement;
+        var managedObjectHash = RuntimeBootProtocol.SharedManagedObjectHash(input.RootElement);
+        if (!proof.TryGetProperty("hostedSemanticAcceptance", out var semantic) || !semantic.GetBoolean() || !proof.GetProperty("hostedPassed").GetBoolean() ||
+            proof.GetProperty("managedObjectSha256").GetString() != managedObjectHash ||
+            proof.GetProperty("referenceImageSha256").GetString() != Hash(referenceImage) || proof.GetProperty("hostedLogSha256").GetString() != Hash(referenceLog) ||
             !RuntimeBootProtocol.ValidateHostedLog(await File.ReadAllTextAsync(referenceLog)))
             throw new InvalidDataException("Hosted semantic evidence or shared managed object changed; rebuild runtime-source.");
-        var logs=Path.Combine(attempt.RunDirectory,"logs");
-        await BootAsync(root,image,"runtime-boot-128",128,120,ExpectedOutcome.Success,runtimeBoot:true,logDirectory:logs);
-        await BootAsync(root,image,"runtime-boot-512",512,120,ExpectedOutcome.Success,runtimeBoot:true,logDirectory:logs);
-        await BootAsync(root,image,"runtime-boot-intel",256,120,ExpectedOutcome.Success,cpuModel:"Nehalem",runtimeBoot:true,logDirectory:logs);
-        await BootAsync(root,image,"runtime-boot-avx",256,120,ExpectedOutcome.Success,cpuModel:"max",runtimeBoot:true,logDirectory:logs);
+        var logs = Path.Combine(attempt.RunDirectory, "logs");
+        await BootAsync(root, image, "runtime-boot-128", 128, 120, ExpectedOutcome.Success, runtimeBoot: true, logDirectory: logs);
+        await BootAsync(root, image, "runtime-boot-512", 512, 120, ExpectedOutcome.Success, runtimeBoot: true, logDirectory: logs);
+        await BootAsync(root, image, "runtime-boot-intel", 256, 120, ExpectedOutcome.Success, cpuModel: "Nehalem", runtimeBoot: true, logDirectory: logs);
+        await BootAsync(root, image, "runtime-boot-avx", 256, 120, ExpectedOutcome.Success, cpuModel: "max", runtimeBoot: true, logDirectory: logs);
 
-        var names=new[]{"runtime-boot-128","runtime-boot-512","runtime-boot-intel","runtime-boot-avx"};
-        attempt.Publish(new {
-            guestManagedExecution=true,integrationCyclesPerExecution=RuntimeBootProtocol.IntegrationCycles,executionsPerProfile=RuntimeBootProtocol.ExecutionBases.Length,threadStoreAudit=true,collectorExecution=true,managedStackOverflowContained=true,managedThreadCapacityRecovery=true,managedThreadApis=true,managedThreadsPerExecution=28,parkedManagedRoots=true,managedFinalization=true,probeFinalizersPerExecution=56,managedExceptionUnwind=true,managedExceptionRoundsPerExecution=88,hardwareFaultTranslation=true,hardwareFaultsPerExecution=36,nativeFaultContainment=true,abruptWorkerContainment=true,abruptWorkerCasesPerProfile=8,orderlyThreadCompletion=true,gcInitializationFailure=true,managedOomRecovery=true,managedOomFailuresPerExecution=4,workerLifecycle=true,workerDrivenCollection=true,hijackObserved=true,activeServiceFrameRejected=true,collectionDuringThreadExit=true,workersPerExecution=RuntimeBootProtocol.WorkersPerExecution,imageRelocations=RuntimeBootProtocol.ImageBases.Length,profiles=4,
-            runtimeImageSha256=input.RootElement.GetProperty("sha256").GetString(),kernelDiskSha256=Hash(image),
-            hostedReference=new { semanticPassed=true,sharedManagedObjectSha256=managedObjectHash,
-                report=referenceReport,reportSha256=Hash(referenceReport),log=referenceLog,logSha256=Hash(referenceLog),image=referenceImage,imageSha256=Hash(referenceImage) },
-            workload="Standard CoreLib: four combined hardware/managed EH, compacting GC, finalization/resurrection and Thread/Monitor/TLS/quota-recovery cycles; locked ThreadStore audit and stale observer checks; 43 orderly workers; base A/B/A/B; actual failure components, exit 42 and full component resource reclamation. Hosted reference uses the exact same managed object with an explicitly different OS thread quota.",
-            logs=names.Select(name=>{var file=Path.Combine(logs,name+".serial.log");return new{file,sha256=Hash(file)};})
+        var names = new[] { "runtime-boot-128", "runtime-boot-512", "runtime-boot-intel", "runtime-boot-avx" };
+        attempt.Publish(new
+        {
+            guestManagedExecution = true,
+            integrationCyclesPerExecution = RuntimeBootProtocol.IntegrationCycles,
+            executionsPerProfile = RuntimeBootProtocol.ExecutionBases.Length,
+            threadStoreAudit = true,
+            collectorExecution = true,
+            managedStackOverflowContained = true,
+            managedThreadCapacityRecovery = true,
+            managedThreadApis = true,
+            managedThreadsPerExecution = 28,
+            parkedManagedRoots = true,
+            managedFinalization = true,
+            probeFinalizersPerExecution = 56,
+            managedExceptionUnwind = true,
+            managedExceptionRoundsPerExecution = 88,
+            hardwareFaultTranslation = true,
+            hardwareFaultsPerExecution = 36,
+            nativeFaultContainment = true,
+            abruptWorkerContainment = true,
+            abruptWorkerCasesPerProfile = 8,
+            orderlyThreadCompletion = true,
+            gcInitializationFailure = true,
+            managedOomRecovery = true,
+            managedOomFailuresPerExecution = 4,
+            workerLifecycle = true,
+            workerDrivenCollection = true,
+            hijackObserved = true,
+            activeServiceFrameRejected = true,
+            collectionDuringThreadExit = true,
+            workersPerExecution = RuntimeBootProtocol.WorkersPerExecution,
+            imageRelocations = RuntimeBootProtocol.ImageBases.Length,
+            profiles = 4,
+            runtimeImageSha256 = input.RootElement.GetProperty("sha256").GetString(),
+            kernelDiskSha256 = Hash(image),
+            hostedReference = new
+            {
+                semanticPassed = true,
+                sharedManagedObjectSha256 = managedObjectHash,
+                report = referenceReport,
+                reportSha256 = Hash(referenceReport),
+                log = referenceLog,
+                logSha256 = Hash(referenceLog),
+                image = referenceImage,
+                imageSha256 = Hash(referenceImage)
+            },
+            workload = "Standard CoreLib: four combined hardware/managed EH, compacting GC, finalization/resurrection and Thread/Monitor/TLS/quota-recovery cycles; locked ThreadStore audit and stale observer checks; 43 orderly workers; base A/B/A/B; actual failure components, exit 42 and full component resource reclamation. Hosted reference uses the exact same managed object with an explicitly different OS thread quota.",
+            logs = names.Select(name => { var file = Path.Combine(logs, name + ".serial.log"); return new { file, sha256 = Hash(file) }; })
         });
     }
 
@@ -361,9 +417,11 @@ internal static class DevTool
     private static async Task BootAsync(string root, string image, string name, int memoryMiB, int timeoutSeconds, ExpectedOutcome expected, FaultExpectation? fault = null, bool runtimeConfig = false, string cpuModel = "qemu64", bool runtimeBoot = false, string? logDirectory = null, bool coreclrMemory = false, bool coreclrStorage = false)
     {
         Toolchain.RequireQemu(root);
-        var logs=logDirectory??Path.Combine(root,"artifacts","logs");Directory.CreateDirectory(logs);
-        var serialPath=Path.Combine(logs,name+".serial.log");
-        if(File.Exists(serialPath))File.Delete(serialPath);
+        var logs = logDirectory ?? Path.Combine(root, "artifacts", "logs");
+        Directory.CreateDirectory(logs);
+        var serialPath = Path.Combine(logs, name + ".serial.log");
+        if (File.Exists(serialPath))
+            File.Delete(serialPath);
         var firmwareState = Path.Combine(Path.GetDirectoryName(image)!, name + ".vars.fd");
         File.Copy(Toolchain.FirmwareVariables(root), firmwareState, overwrite: true);
         using var qmpControl = new QemuControl();
@@ -377,14 +435,15 @@ internal static class DevTool
             "-device", "virtio-blk-pci,drive=boot,bootindex=1",
             "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04"
         };
-        if(expected!=ExpectedOutcome.EntropyUnavailable)
-            arguments.AddRange(["-object","rng-builtin,id=entropy0","-device","virtio-rng-pci,rng=entropy0"]);
+        if (expected != ExpectedOutcome.EntropyUnavailable)
+            arguments.AddRange(["-object", "rng-builtin,id=entropy0", "-device", "virtio-rng-pci,rng=entropy0"]);
         Console.WriteLine($"Booting {name} ({memoryMiB} MiB, {cpuModel}, TCG, no networking)...");
         ProcessResult monitorResult;
-        try { monitorResult=await Processes.RunWithFilesAsync(Toolchain.Qemu(root),arguments,root,timeoutSeconds,Path.Combine(logs,name+".stdout.log"),Path.Combine(logs,name+".stderr.log"),qmpControl.QuitAsync); }
-        finally { await File.WriteAllTextAsync(Path.Combine(logs,name+".monitor.log"),qmpControl.Transcript); }
-        var serial=File.Exists(serialPath)?await BoundedCapture.ReadFileAsync(serialPath):"";
-        var result=monitorResult with {Output=serial};
+        try
+        { monitorResult = await Processes.RunWithFilesAsync(Toolchain.Qemu(root), arguments, root, timeoutSeconds, Path.Combine(logs, name + ".stdout.log"), Path.Combine(logs, name + ".stderr.log"), qmpControl.QuitAsync); }
+        finally { await File.WriteAllTextAsync(Path.Combine(logs, name + ".monitor.log"), qmpControl.Transcript); }
+        var serial = File.Exists(serialPath) ? await BoundedCapture.ReadFileAsync(serialPath) : "";
+        var result = monitorResult with { Output = serial };
         await File.WriteAllTextAsync(Path.Combine(logs, name + ".stderr.log"), result.Error);
         await File.WriteAllTextAsync(Path.Combine(logs, name + ".result.txt"),
             $"ExitCode={result.ExitCode}\nTimedOut={result.TimedOut}\nExpected={expected}\n");
@@ -397,8 +456,8 @@ internal static class DevTool
         var memory = Regex.Match(result.Output, @"Usable memory: (\d+) MiB");
         var validMemory = memory.Success && int.TryParse(memory.Groups[1].Value, out var usable) && usable > 0 && usable < memoryMiB;
         var counterFrequency = Regex.Match(result.Output, @"HPET frequency: (\d+)");
-        var foundationReady = result.Output.Contains("[TEST-PASS] Cpu.SuspendedDeadlineState",StringComparison.Ordinal) && result.Output.Contains("[TEST-PASS] Cpu.ContextSanitization",StringComparison.Ordinal) && result.Output.Contains("[TEST-PASS] Cpu.ContextStateProfile",StringComparison.Ordinal) && result.Output.Contains("[TEST-PASS] Random.BootSeedConsumed",StringComparison.Ordinal) &&
-            result.Output.Contains("[TEST-PASS] Random.ChaCha20Vector",StringComparison.Ordinal) && validMemory && counterFrequency.Success && counterFrequency.Groups[1].Value == "100000000" && MarkersInOrder(result.Output,
+        var foundationReady = result.Output.Contains("[TEST-PASS] Cpu.SuspendedDeadlineState", StringComparison.Ordinal) && result.Output.Contains("[TEST-PASS] Cpu.ContextSanitization", StringComparison.Ordinal) && result.Output.Contains("[TEST-PASS] Cpu.ContextStateProfile", StringComparison.Ordinal) && result.Output.Contains("[TEST-PASS] Random.BootSeedConsumed", StringComparison.Ordinal) &&
+            result.Output.Contains("[TEST-PASS] Random.ChaCha20Vector", StringComparison.Ordinal) && validMemory && counterFrequency.Success && counterFrequency.Groups[1].Value == "100000000" && MarkersInOrder(result.Output,
             "[BOOT] ExitBootServices OK", KernelAbi.Banner(root), "[TEST-PASS] Boot.Contract",
             "[TEST-PASS] Cpu.KernelStack", "[TEST-PASS] Cpu.ExceptionTables",
             "[TEST-PASS] Memory.KernelPaging", "[TEST-PASS] Memory.StackGuards",
@@ -413,10 +472,13 @@ internal static class DevTool
         var exception = result.Output.Contains("[EXCEPTION]", StringComparison.Ordinal);
         var booted = bannerReady && foundationReady && schedulerReady && usersReady && helloReady && !panic && !exception;
         var bootDiagnostics = $"banner={bannerReady} foundation={foundationReady} scheduler={schedulerReady} users={usersReady} hello={helloReady} panic={panic} exception={exception}";
-        if(coreclrMemory)booted=booted&&MarkersInOrder(result.Output,"[TEST-PASS] Code.VMToOSMapper","[TEST-PASS] Code.VMToOSMapperRollback","[TEST-PASS] Code.DynamicFrameUnwind","[TEST-PASS] Code.ForeignDynamicUnwind","[TEST-PASS] Code.DynamicExceptionDispatch","[TEST-PASS] Code.DynamicTargetUnwind","[TEST-PASS] Code.CoreClrCollidedDispatch","[TEST-PASS] Code.CollidedContextRejection","[TEST-PASS] Code.DynamicUnwindRejection","[TEST-PASS] Code.ModuleUnwind","[TEST-PASS] Code.ForeignModuleUnwind","[TEST-PASS] Code.SparseViewsAndLateCommit","[TEST-PASS] Code.SparseCommitRollback","[TEST-PASS] Code.OwnershipAndAtomicProtection",
-            "[TEST-PASS] Code.PublicationAndExecution","[TEST-PASS] Code.WriteAndNxFaults","[TEST-PASS] Code.AliasesAndLifetime","[TEST-PASS] Code.Teardown");
-        if(coreclrStorage)booted=booted&&MarkersInOrder(result.Output,"[TEST-PASS] Storage.AssemblyBytes","[TEST-PASS] Storage.AtomicReadAndSeek","[TEST-PASS] Storage.HandlesAndQuotas","[TEST-PASS] Storage.NamespaceQueries","[TEST-PASS] Storage.FileViews","[TEST-PASS] Storage.CoreHostPalFiles","[TEST-PASS] Storage.NativePaths","[TEST-PASS] Storage.NativeDirectories","[TEST-PASS] Storage.NativeLibraries","[TEST-PASS] Storage.LibraryRollback","[TEST-PASS] Storage.LibraryDependencies","[TEST-PASS] Storage.LibraryReaders","[TEST-PASS] Storage.LibraryLifecycle","[TEST-PASS] Storage.LibraryShutdown","[TEST-PASS] Storage.LibraryThreadNotifications","[TEST-PASS] Storage.LibraryStaticTls","[TEST-PASS] Storage.FileViewRollback","[TEST-PASS] Storage.Isolation","[TEST-PASS] Storage.Teardown");
-        if(runtimeBoot)booted=booted&&RuntimeBootProtocol.Validate(result.Output,result.ExitCode,result.TimedOut);
+        if (coreclrMemory)
+            booted = booted && MarkersInOrder(result.Output, "[TEST-PASS] Code.VMToOSMapper", "[TEST-PASS] Code.VMToOSMapperRollback", "[TEST-PASS] Code.DynamicFrameUnwind", "[TEST-PASS] Code.ForeignDynamicUnwind", "[TEST-PASS] Code.DynamicExceptionDispatch", "[TEST-PASS] Code.DynamicTargetUnwind", "[TEST-PASS] Code.CoreClrCollidedDispatch", "[TEST-PASS] Code.CollidedContextRejection", "[TEST-PASS] Code.DynamicUnwindRejection", "[TEST-PASS] Code.ModuleUnwind", "[TEST-PASS] Code.ForeignModuleUnwind", "[TEST-PASS] Code.SparseViewsAndLateCommit", "[TEST-PASS] Code.SparseCommitRollback", "[TEST-PASS] Code.OwnershipAndAtomicProtection",
+            "[TEST-PASS] Code.PublicationAndExecution", "[TEST-PASS] Code.WriteAndNxFaults", "[TEST-PASS] Code.AliasesAndLifetime", "[TEST-PASS] Code.Teardown");
+        if (coreclrStorage)
+            booted = booted && MarkersInOrder(result.Output, "[TEST-PASS] Storage.AssemblyBytes", "[TEST-PASS] Storage.AtomicReadAndSeek", "[TEST-PASS] Storage.HandlesAndQuotas", "[TEST-PASS] Storage.NamespaceQueries", "[TEST-PASS] Storage.FileViews", "[TEST-PASS] Storage.CoreHostPalFiles", "[TEST-PASS] Storage.NativePaths", "[TEST-PASS] Storage.NativeDirectories", "[TEST-PASS] Storage.NativeLibraries", "[TEST-PASS] Storage.LibraryRollback", "[TEST-PASS] Storage.LibraryDependencies", "[TEST-PASS] Storage.LibraryReaders", "[TEST-PASS] Storage.LibraryLifecycle", "[TEST-PASS] Storage.LibraryShutdown", "[TEST-PASS] Storage.LibraryThreadNotifications", "[TEST-PASS] Storage.LibraryStaticTls", "[TEST-PASS] Storage.FileViewRollback", "[TEST-PASS] Storage.Isolation", "[TEST-PASS] Storage.Teardown");
+        if (runtimeBoot)
+            booted = booted && RuntimeBootProtocol.Validate(result.Output, result.ExitCode, result.TimedOut);
         if (runtimeConfig)
             booted = booted && MarkersInOrder(result.Output, "[TEST-PASS] User.RuntimeConfigCrt",
                 "[TEST-PASS] User.RhConfigPrecedence", "[TEST-PASS] User.RhConfigStrings", "[TEST-PASS] User.GcConfigValues",
@@ -425,7 +487,8 @@ internal static class DevTool
                 "[TEST-PASS] User.PalInitLifecycle", "[TEST-PASS] User.RuntimeAllocHeap", "[TEST-PASS] User.InterfaceDispatchInit", "[TEST-PASS] User.RuntimeInstanceStartup", "[TEST-PASS] User.RuntimeThreadRecord",
                 "[TEST-PASS] User.ThreadStoreTlsPrerequisite", "[TEST-PASS] User.GcProcessWriteBarrier",
                 "[TEST-PASS] User.ProcessBarrierWithoutTls", "[TEST-PASS] User.MinipalTime", "[TEST-PASS] User.MinipalTimeWithoutTls", "[TEST-PASS] User.RuntimeRandomTls", "[TEST-PASS] User.CrtMemoryAndStrings", "[TEST-PASS] User.CrtUnsignedLong", "[TEST-PASS] User.CompilerStackProbe", "[TEST-PASS] User.CompilerStackProbeWithoutTls", "[TEST-PASS] User.CompilerStackProbeGuard", "[TEST-PASS] User.MinipalCpuFeatures", "[TEST-PASS] User.MinipalCpuWithoutTls", "[TEST-PASS] User.AvxDisabled", "[TEST-PASS] User.NativeClockBindings", "[TEST-PASS] User.NativeClockAtomicCopy", "[TEST-PASS] User.FatalDiagnosticOutput", "[TEST-PASS] User.FatalCrtExit", "[TEST-PASS] User.FatalDiagnosticRejection", "[TEST-PASS] User.GcAffinityParsing", "[TEST-PASS] User.GcAffinityBeforeTlsConstructors", "[TEST-PASS] User.NativeMathLog", "[TEST-PASS] User.NativeMathBeforeTlsConstructors", "[TEST-PASS] User.NativeSecureFormatting", "[TEST-PASS] User.NativeFormattingBeforeTlsConstructors", "[TEST-PASS] User.SecurityCookieAbi", "[TEST-PASS] User.SecurityCookieFailClosed", "[TEST-PASS] User.CryptographicRandom", "[TEST-PASS] User.RandomAtomicCopyAndEarlyCookie", "[TEST-PASS] User.NativeVirtualMemory", "[TEST-PASS] User.NativeMemoryWithoutCompilerTls", "[TEST-PASS] User.NativeCloseAndSleep", "[TEST-PASS] User.NativeServicesWithoutCompilerTls", "[TEST-PASS] User.NativeThreadReferences", "[TEST-PASS] User.ThreadReferencesWithoutCompilerTls", "[TEST-PASS] User.AlertableObjectWaits", "[TEST-PASS] User.ApcWithoutCompilerTls", "[TEST-PASS] User.NativeConsoleBindings", "[TEST-PASS] User.NativeUtfConversions", "[TEST-PASS] User.NativeProcessorAtomicCopy", "[TEST-PASS] User.NativeModuleNames", "[TEST-PASS] User.NativeModuleNamesWithoutTls", "[TEST-PASS] User.AnonymousModuleIdentity", "[TEST-PASS] User.NativeThreadNames", "[TEST-PASS] User.NativeThreadNamesWithoutTls", "[TEST-PASS] User.NativeDiagnosticServices", "[TEST-PASS] User.NativeDiagnosticsWithoutTls", "[TEST-PASS] User.NativeMtaLifecycle", "[TEST-PASS] User.NativeMtaProcessCleanup", "[TEST-PASS] User.NativeMtaPrerequisites", "[TEST-PASS] User.GcOptionalMemoryPolicy", "[TEST-PASS] User.GcWriteWatchFailClosed", "[TEST-PASS] User.GcArchitecturalBreakpoint", "[TEST-PASS] User.NativeContextStorage", "[TEST-PASS] User.NativeContextProfileWithoutTls", "[TEST-PASS] User.NativeContextInvalidOutput", "[TEST-PASS] User.RegisterContextSnapshots", "[TEST-PASS] User.RegisterSnapshotsWithoutTls", "[TEST-PASS] User.ThreadSuspension", "[TEST-PASS] User.SuspensionWithoutTls", "[TEST-PASS] User.SuspendedIdleBudget", "[TEST-PASS] User.ContextSetAndRestore", "[TEST-PASS] User.ContextRestoreWithoutTls", "[TEST-PASS] User.PalContextMapping", "[TEST-PASS] User.PalContextFailClosed", "[TEST-PASS] User.StackLeaseLifetime", "[TEST-PASS] User.StackLeaseWithoutTls", "[TEST-PASS] User.StackLeaseRawExit", "[TEST-PASS] User.NativeUnwindScope", "[TEST-PASS] User.NativeUnwindScopeRejection", "[TEST-PASS] User.RuntimeUnwindMetadataRejection", "[TEST-PASS] User.ArchivedNativeUnwinder", "[TEST-PASS] User.NativeUnwindFailureAndGs", "[TEST-PASS] User.NativeForeignUnwind", "[TEST-PASS] User.ExceptionDeliveryAndContinue", "[TEST-PASS] User.ExceptionFailureContainment", "[TEST-PASS] User.NativeVectoredHandlers", "[TEST-PASS] User.NativeVectoredFailure", "[TEST-PASS] User.NativeExceptionFrameSearch", "[TEST-PASS] User.NativeRaiseException", "[TEST-PASS] User.NativeNoncontinuableException", "[TEST-PASS] User.NativeRaiseFailFastException", "[TEST-PASS] User.CompilerSehTargetUnwind", "[TEST-PASS] User.CompilerLocalUnwind", "[TEST-PASS] User.CompilerNestedSehCallbacks", "[TEST-PASS] User.ExceptionScopeTransfer", "[TEST-PASS] User.CompilerCollidedUnwind", "[TEST-PASS] User.CompilerGsSeh", "[TEST-PASS] User.CompilerGsSehValidation", "[TEST-PASS] User.CompilerGsSehAligned", "[TEST-PASS] User.NativeGeneralProtection", "[TEST-PASS] User.NativeGeneralProtectionUnsupported", "[TEST-PASS] User.NativeThreadCreationAndRollback", "[TEST-PASS] User.Isolation");
-        if (runtimeConfig) {
+        if (runtimeConfig)
+        {
             var cpuMarker = cpuModel == "max" ? "features=513; avx-hardware=1" :
                 cpuModel == "Nehalem" ? "features=1; avx-hardware=0" : "features=0; avx-hardware=0";
             booted = booted && result.Output.Contains("[MINIPAL-CPU] " + cpuMarker, StringComparison.Ordinal);
@@ -433,8 +496,8 @@ internal static class DevTool
         var failedBeforeContract = !result.TimedOut && result.ExitCode == 35 && exitedFirmware >= 0 && contract < 0 && hello < 0;
         var passed = expected switch
         {
-            ExpectedOutcome.EntropyUnavailable => !result.TimedOut && result.ExitCode==35 && exitedFirmware<0 && contract<0 && hello<0 &&
-                result.Output.Contains("[PANIC] UEFI RNG unavailable",StringComparison.Ordinal),
+            ExpectedOutcome.EntropyUnavailable => !result.TimedOut && result.ExitCode == 35 && exitedFirmware < 0 && contract < 0 && hello < 0 &&
+                result.Output.Contains("[PANIC] UEFI RNG unavailable", StringComparison.Ordinal),
             ExpectedOutcome.ClockUnavailable => !result.TimedOut && result.ExitCode == 35 && hello < 0 &&
                 MarkersInOrder(result.Output, "[TEST-PASS] Boot.Contract", "[TEST-PASS] Memory.KernelPaging",
                     "[PANIC] Unsupported q35 HPET") && !result.Output.Contains("[EXCEPTION]", StringComparison.Ordinal),
@@ -474,7 +537,8 @@ internal static class DevTool
         foreach (Match dispatch in dispatches)
         {
             var worker = dispatch.Groups[1].Value == "A" ? 0 : 1;
-            if (int.Parse(dispatch.Groups[2].Value) != ++counts[worker]) return false;
+            if (int.Parse(dispatch.Groups[2].Value) != ++counts[worker])
+                return false;
         }
         ulong Number(string label)
         {
@@ -539,19 +603,20 @@ internal static class DevTool
         var markers = new List<string> { "[TEST-PASS] Scheduler.RegisterState", "[TEST-BEGIN] User.Isolation" };
         markers.AddRange(checks.Select(name => $"[TEST-PASS] User.{name}"));
         markers.Add("[TEST-PASS] Boot.Hello");
-        if (!MarkersInOrder(output, markers.ToArray())) return false;
+        if (!MarkersInOrder(output, markers.ToArray()))
+            return false;
         return ValidateUserFaults(output, expectedFaults, followingFaults);
     }
 
     internal static bool ValidateUserFaults(string output, int legacyFaults, int followingFaults)
     {
-        var boundary=output.IndexOf("[TEST-PASS] User.Isolation",StringComparison.Ordinal);
-        var faults=Regex.Matches(output,
+        var boundary = output.IndexOf("[TEST-PASS] User.Isolation", StringComparison.Ordinal);
+        var faults = Regex.Matches(output,
             @"(?m)^\[USER-FAULT\] id=(\d+) vector=(\d+) error=(0x[0-9A-F]{16}) address=(0x[0-9A-F]{16}) cs=(0x[0-9A-F]{16})\r?$");
-        return boundary>=0&&faults.Count==legacyFaults+followingFaults&&
-            Regex.Matches(output,@"(?m)^\[USER-FAULT\]").Count==faults.Count&&
-            faults.Count(m=>m.Index<boundary)==legacyFaults&&
-            faults.All(m=>Convert.ToUInt64(m.Groups[5].Value[2..],16)==0x33);
+        return boundary >= 0 && faults.Count == legacyFaults + followingFaults &&
+            Regex.Matches(output, @"(?m)^\[USER-FAULT\]").Count == faults.Count &&
+            faults.Count(m => m.Index < boundary) == legacyFaults &&
+            faults.All(m => Convert.ToUInt64(m.Groups[5].Value[2..], 16) == 0x33);
     }
 
     private static bool ValidateException(string output, FaultExpectation expected)
@@ -577,7 +642,8 @@ internal static class DevTool
         if (expected.Probe)
         {
             var probe = Regex.Match(output, @"\[FAULT-PROBE\] address=(0x[0-9A-F]{16})");
-            if (!probe.Success) return false;
+            if (!probe.Success)
+                return false;
             expectedAddress = Convert.ToUInt64(probe.Groups[1].Value[2..], 16);
         }
         return Hex(6) >= low && Hex(6) < high && frame.Groups[9].Value == "kernel" &&

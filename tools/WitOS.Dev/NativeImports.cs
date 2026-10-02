@@ -49,7 +49,8 @@ internal static class NativeImports
             for (uint i = 0; i < 4096; ++i)
             {
                 var value = bytes[Offset(checked(rva + i), 1)];
-                if (value == 0) return Encoding.ASCII.GetString(result.ToArray());
+                if (value == 0)
+                    return Encoding.ASCII.GetString(result.ToArray());
                 result.Add(value);
             }
             throw new InvalidDataException("Unterminated PE import string.");
@@ -61,7 +62,8 @@ internal static class NativeImports
             for (uint i = 0; i < 16384; ++i)
             {
                 var thunk = U64(checked(lookup + i * 8));
-                if (thunk == 0) return symbols.Order(StringComparer.Ordinal).ToArray();
+                if (thunk == 0)
+                    return symbols.Order(StringComparer.Ordinal).ToArray();
                 symbols.Add((thunk & (1UL << 63)) != 0
                     ? $"ordinal:{thunk & 0xFFFF}"
                     : CString(checked((uint)thunk + 2)));
@@ -70,7 +72,8 @@ internal static class NativeImports
         }
         NativeImport[] Descriptors(DirectoryEntry directory, bool delay)
         {
-            if (directory.Size == 0) return [];
+            if (directory.Size == 0)
+                return [];
             var imports = new List<NativeImport>();
             var descriptor = checked((uint)directory.RelativeVirtualAddress);
             var stride = delay ? 32 : 20;
@@ -78,13 +81,17 @@ internal static class NativeImports
             for (var index = 0; index < count; ++index)
             {
                 var fields = Enumerable.Range(0, stride / 4).Select(i => U32(checked(descriptor + (uint)i * 4))).ToArray();
-                if (fields.All(value => value == 0)) return imports.OrderBy(value => value.Library, StringComparer.OrdinalIgnoreCase).ToArray();
-                if (delay && fields[0] != 1) throw new InvalidDataException("Only RVA-based PE32+ delay imports are supported.");
+                if (fields.All(value => value == 0))
+                    return imports.OrderBy(value => value.Library, StringComparer.OrdinalIgnoreCase).ToArray();
+                if (delay && fields[0] != 1)
+                    throw new InvalidDataException("Only RVA-based PE32+ delay imports are supported.");
                 var name = fields[delay ? 1 : 3];
                 var iat = fields[delay ? 3 : 4];
                 var lookup = fields[delay ? 4 : 0];
-                if (name == 0 || iat == 0) throw new InvalidDataException("Incomplete PE import descriptor.");
-                if (lookup == 0) lookup = iat;
+                if (name == 0 || iat == 0)
+                    throw new InvalidDataException("Incomplete PE import descriptor.");
+                if (lookup == 0)
+                    lookup = iat;
                 imports.Add(new NativeImport(CString(name), Symbols(lookup)));
                 descriptor = checked(descriptor + (uint)stride);
             }

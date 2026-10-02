@@ -45,7 +45,8 @@ internal static class UserPeImage
             {
                 var match = Regex.Match(mapText,
                     @"^\s*[0-9A-Fa-f]+:[0-9A-Fa-f]+\s+" + label + @"\s+([0-9A-Fa-f]+)\s", RegexOptions.Multiline);
-                if (!match.Success) throw new InvalidDataException($"Missing test symbol {label}.");
+                if (!match.Success)
+                    throw new InvalidDataException($"Missing test symbol {label}.");
                 var address = ulong.Parse(match.Groups[1].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
                 if (address < preferredBase || address - preferredBase >= (ulong)h.SizeOfImage)
                     throw new InvalidDataException("Test symbol escaped the image.");

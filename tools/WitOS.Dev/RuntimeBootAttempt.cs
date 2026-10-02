@@ -39,7 +39,8 @@ internal sealed class RuntimeBootAttempt : IDisposable
         Directory.CreateDirectory(directory);
         var lease = new FileStream(Path.Combine(directory, "run.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         RuntimeBootAttempt attempt;
-        try { attempt = new(directory, command, lease); }
+        try
+        { attempt = new(directory, command, lease); }
         catch { lease.Dispose(); throw; }
         using (attempt)
         {
@@ -48,13 +49,15 @@ internal sealed class RuntimeBootAttempt : IDisposable
                 Recover(directory);
                 attempt.Start();
                 await action(attempt);
-                if (attempt.evidence is null) throw new InvalidOperationException("Guest attempt did not publish acceptance.");
+                if (attempt.evidence is null)
+                    throw new InvalidOperationException("Guest attempt did not publish acceptance.");
                 attempt.Commit();
             }
             catch (Exception error)
             {
                 // A failed diagnostic write must not hide the original error.
-                if (attempt.startedAttempt && !attempt.committed) attempt.Fail(error);
+                if (attempt.startedAttempt && !attempt.committed)
+                    attempt.Fail(error);
                 throw;
             }
         }
@@ -64,7 +67,8 @@ internal sealed class RuntimeBootAttempt : IDisposable
     {
         var state = ReadObject(Path.Combine(directory, "current-run.json"));
         lastSuccess = state?["lastSuccess"]?.DeepClone() as JsonObject;
-        if (state?["schemaVersion"]?.GetValue<int>() != 3) MigrateLegacy();
+        if (state?["schemaVersion"]?.GetValue<int>() != 3)
+            MigrateLegacy();
         startedAttempt = true;
         File.Delete(Path.Combine(directory, "acceptance.json"));
         var running = State("running", null, lastSuccess);
@@ -76,17 +80,20 @@ internal sealed class RuntimeBootAttempt : IDisposable
     {
         var current = Path.Combine(directory, "acceptance.json");
         var source = File.Exists(current) ? current : Path.Combine(directory, "last-success.json");
-        if (!File.Exists(source)) return;
+        if (!File.Exists(source))
+            return;
         var previous = Path.Combine(RunDirectory, "previous-acceptance.json");
         File.Copy(source, previous);
         var node = ReadObject(previous);
-        if (node is null) return; // Retain corrupt bytes as diagnostics, never success.
+        if (node is null)
+            return; // Retain corrupt bytes as diagnostics, never success.
         if (node["logs"] is JsonArray logs)
             foreach (var item in logs.OfType<JsonObject>())
             {
                 var file = item["file"]?.GetValue<string>();
                 var oldLogs = Path.GetFullPath(Path.Combine(directory, "../../logs")) + Path.DirectorySeparatorChar;
-                if (file is null || !File.Exists(file) || !Path.GetFullPath(file).StartsWith(oldLogs, StringComparison.OrdinalIgnoreCase)) continue;
+                if (file is null || !File.Exists(file) || !Path.GetFullPath(file).StartsWith(oldLogs, StringComparison.OrdinalIgnoreCase))
+                    continue;
                 var copy = Path.Combine(RunDirectory, "previous-" + Path.GetFileName(file));
                 File.Copy(file, copy);
                 item["file"] = copy;
@@ -106,7 +113,8 @@ internal sealed class RuntimeBootAttempt : IDisposable
     // Prepare only. Even an exception after Publish cannot advance last-success.
     public void Publish(object value)
     {
-        if (evidence is not null || committed) throw new InvalidOperationException("Attempt already published.");
+        if (evidence is not null || committed)
+            throw new InvalidOperationException("Attempt already published.");
         evidence = JsonSerializer.SerializeToNode(value, Json)!.AsObject();
         evidence["schemaVersion"] = 2;
         evidence["runId"] = RunId;
@@ -130,9 +138,14 @@ internal sealed class RuntimeBootAttempt : IDisposable
 
     private JsonObject State(string status, string? error, JsonObject? previous) => new()
     {
-        ["schemaVersion"] = 3, ["runId"] = RunId, ["command"] = command, ["status"] = status,
-        ["startedUtc"] = started, ["finishedUtc"] = status == "running" ? null : JsonValue.Create(DateTimeOffset.UtcNow),
-        ["error"] = error, ["acceptance"] = status == "succeeded" ? Path.Combine(RunDirectory, "acceptance.json") : null,
+        ["schemaVersion"] = 3,
+        ["runId"] = RunId,
+        ["command"] = command,
+        ["status"] = status,
+        ["startedUtc"] = started,
+        ["finishedUtc"] = status == "running" ? null : JsonValue.Create(DateTimeOffset.UtcNow),
+        ["error"] = error,
+        ["acceptance"] = status == "succeeded" ? Path.Combine(RunDirectory, "acceptance.json") : null,
         ["lastSuccess"] = previous?.DeepClone()
     };
 
@@ -149,7 +162,8 @@ internal sealed class RuntimeBootAttempt : IDisposable
     internal static void Recover(string directory)
     {
         var state = ReadObject(Path.Combine(directory, "current-run.json"));
-        if (state?["schemaVersion"]?.GetValue<int>() != 3) return;
+        if (state?["schemaVersion"]?.GetValue<int>() != 3)
+            return;
         // Runs can call recovery only while owning run.lock (tests use isolated roots).
         if (state["status"]?.GetValue<string>() == "running")
         {
@@ -169,12 +183,15 @@ internal sealed class RuntimeBootAttempt : IDisposable
     {
         TryDiagnostic(() =>
         {
-            if (state["lastSuccess"] is not JsonObject pointer) return;
+            if (state["lastSuccess"] is not JsonObject pointer)
+                return;
             var file = pointer["file"]!.GetValue<string>();
             var bytes = File.ReadAllBytes(file);
-            if (Hash(bytes) != pointer["sha256"]!.GetValue<string>()) throw new InvalidDataException("Committed acceptance hash changed.");
+            if (Hash(bytes) != pointer["sha256"]!.GetValue<string>())
+                throw new InvalidDataException("Committed acceptance hash changed.");
             AtomicBytes(Path.Combine(directory, "last-success.json"), bytes);
-            if (state["status"]!.GetValue<string>() == "succeeded") AtomicBytes(Path.Combine(directory, "acceptance.json"), bytes);
+            if (state["status"]!.GetValue<string>() == "succeeded")
+                AtomicBytes(Path.Combine(directory, "acceptance.json"), bytes);
         });
         if (state["status"]?.GetValue<string>() != "succeeded")
             TryDiagnostic(() => File.Delete(Path.Combine(directory, "acceptance.json")));
@@ -184,16 +201,20 @@ internal sealed class RuntimeBootAttempt : IDisposable
     private static string Hash(byte[] value) => Convert.ToHexString(SHA256.HashData(value)).ToLowerInvariant();
     private static JsonObject? ReadObject(string path)
     {
-        if (!File.Exists(path)) return null;
-        try { return JsonNode.Parse(File.ReadAllText(path)) as JsonObject; }
+        if (!File.Exists(path))
+            return null;
+        try
+        { return JsonNode.Parse(File.ReadAllText(path)) as JsonObject; }
         catch (JsonException) { return null; }
     }
     private static void TryDiagnostic(Action write, Exception? primary = null)
     {
-        try { write(); }
+        try
+        { write(); }
         catch (Exception secondary) when (secondary is IOException or UnauthorizedAccessException or InvalidDataException)
         {
-            if (primary is not null) primary.Data["EvidenceWriteError"] = secondary.ToString();
+            if (primary is not null)
+                primary.Data["EvidenceWriteError"] = secondary.ToString();
             Console.Error.WriteLine($"WARNING: evidence view requires recovery: {secondary.Message}");
         }
     }

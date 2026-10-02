@@ -90,17 +90,23 @@ internal static class RuntimePortImage
         await File.WriteAllTextAsync(Path.Combine(output, "gc_memory_image.h"), generated.ToString(), Encoding.ASCII);
         var report = new
         {
-            backend = Backend, pin.RuntimeVersion, pin.RuntimeCommit,
+            backend = Backend,
+            pin.RuntimeVersion,
+            pin.RuntimeCommit,
             scope = "Source-level GC memory/discovery/event/time and minipal/Crst mutex slice; no collector or managed code linked. Guest execution is checked separately by the VM runner.",
-            guestManagedRuntime = false, missingGcWriteWatchResetRejected = true,
+            guestManagedRuntime = false,
+            missingGcWriteWatchResetRejected = true,
             upstreamInputs = pin.Sources.Where(s => UpstreamInputs.Contains(s.Path)),
             localInputs = sources.Append("src/Runtime.NativeAot/gcenv.witos.h").Append("src/Kernel.Arch.X64/native_start.asm")
                 .Concat(["src/System.Native/bootstrap.h", "src/Kernel/include/witos/user_abi.h",
                     "src/Kernel/include/witos/types.h", "src/Kernel/include/witos/thread_info.h", "src/Kernel/include/witos/image_info.h", "src/Kernel/include/witos/memory_info.h", "tests/User.X64/protocol.h"])
                 .Select(p => new { path = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, p)))).ToLowerInvariant() }),
-            compiler = msvc, sdkVersion,
-            imageBytes = bytes.Length, imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
-            imports = 0, unwindEntries = h.ExceptionTableDirectory.Size / 12
+            compiler = msvc,
+            sdkVersion,
+            imageBytes = bytes.Length,
+            imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
+            imports = 0,
+            unwindEntries = h.ExceptionTableDirectory.Size / 12
         };
         await File.WriteAllTextAsync(Path.Combine(output, "gc-memory-build.json"),
             JsonSerializer.Serialize(report, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));

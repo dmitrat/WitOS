@@ -88,11 +88,22 @@ internal static class RuntimeSourceBuild
         };
         var report = new
         {
-            pin.RuntimeVersion, pin.RuntimeCommit, upstreamTree = tree, backend = RuntimePortImage.Backend,
-            upstreamWorkingTreeClean = true, upstreamWorkingTreePatched = false, rhConfigAllocationChecksPatched = true, startupExitRegistrationChecked = true, allocHeapLockCleanupCorrected = true, threadStoreTlsDiscoveryAdapted = true,
-            nativeRuntimeSourceBuilt = true, managedCompilerAndCoreLibFromLockedPackages = true,
-            guestRuntimePorted = false, guestManagedExecution = false,
-            referenceHostPassedCases = Cases, referenceHost,
+            pin.RuntimeVersion,
+            pin.RuntimeCommit,
+            upstreamTree = tree,
+            backend = RuntimePortImage.Backend,
+            upstreamWorkingTreeClean = true,
+            upstreamWorkingTreePatched = false,
+            rhConfigAllocationChecksPatched = true,
+            startupExitRegistrationChecked = true,
+            allocHeapLockCleanupCorrected = true,
+            threadStoreTlsDiscoveryAdapted = true,
+            nativeRuntimeSourceBuilt = true,
+            managedCompilerAndCoreLibFromLockedPackages = true,
+            guestRuntimePorted = false,
+            guestManagedExecution = false,
+            referenceHostPassedCases = Cases,
+            referenceHost,
             reference = new { reference.ArchiveSha256, members = reference.Members, compileUnits = reference.Commands.Length, minipal = reference.Minipal },
             ported = new { ported.ArchiveSha256, members = ported.Members, compileUnits = ported.Commands.Length, minipal = ported.Minipal },
             sourceOverlay = new[] { "artifacts/runtime-config/source/gc.witos.cpp", "artifacts/runtime-config/source/gcwks.witos.cpp", "artifacts/runtime-config/source/gchelpers.witos.cpp", "artifacts/runtime-config/source/finalizerhelpers.witos.cpp", "artifacts/runtime-config/source/gcenv.ee.witos.cpp", "src/Kernel/include/witos/handles.h", "src/Runtime.NativeAot/pal_hijack.witos.cpp", "src/Runtime.NativeAot/hijack_evidence.witos.h", "src/Runtime.NativeAot/pal_attach.witos.cpp", "src/System.Native/exception_classification.h", "src/Kernel.Arch.X64/native_exception_x64.cpp", "src/Kernel.Arch.X64/gp_reference_fixture.asm", "tests/Runtime.NativeAot/gp_reference.cpp", "src/Runtime.NativeAot/security_handler.witos.h", "src/Runtime.NativeAot/seh_security.witos.cpp", "tests/Runtime.NativeAot/seh_gs_frame.cpp", "tests/User.X64/runtime_seh.cpp", "src/Runtime.NativeAot/seh_scope.witos.cpp", "src/Runtime.NativeAot/seh_scope.witos.h", "src/Runtime.NativeAot/seh_validation.witos.cpp", "src/Runtime.NativeAot/seh_validation.witos.h", "tests/Runtime.NativeAot/seh_reference.cpp", "tests/User.X64/runtime_failfast.cpp", "src/Kernel/include/witos/fatal_info.h", "src/Runtime.NativeAot/failfast_exception.witos.cpp", "tests/User.X64/runtime_raise.cpp", "src/Kernel/include/witos/exception.h", "src/Kernel.Arch.X64/user_exception.c", "tests/User.X64/runtime_vectored.cpp", "src/Runtime.NativeAot/context_conversion.witos.h", "src/Runtime.NativeAot/native_exception.witos.cpp", "src/Kernel.Arch.X64/native_exception.asm", "src/Kernel/include/witos/exception.h", "src/Kernel.Arch.X64/user_exception.c", "src/Kernel.Arch.X64/entry.asm", "tests/User.X64/runtime_exception.cpp", "src/Kernel.Arch.X64/user_runtime_exception_fixture.asm", "src/Kernel.Arch.X64/user_runtime_unwind_tests.c", "src/Kernel/pe.c", "src/Kernel/include/witos/pe.h", "tests/User.X64/runtime_unwind.cpp", "tests/User.X64/runtime_unwind_protected.cpp", "tests/User.X64/runtime_unwind_entry.cpp", "src/Kernel.Arch.X64/user_runtime_unwind_fixture.asm", "src/Kernel/include/witos/unwind_metadata.h", "src/Runtime.NativeAot/unwind_guest.witos.cpp", "src/Runtime.NativeAot/unwind_checked.witos.cpp", "src/Runtime.NativeAot/unwind_checked.witos.h", "src/Runtime.NativeAot/unwind_environment.witos.h", "src/Runtime.NativeAot/unwind_validation.witos.cpp", "src/Runtime.NativeAot/unwind_validation.witos.h", "src/Kernel.Arch.X64/native_unwind.asm", "artifacts/runtime-unwind/unwinder.checked.cpp", "artifacts/runtime-unwind/unwinder.h", "artifacts/runtime-unwind/baseunwinder.h", "artifacts/runtime-unwind/win64unwind.h", "src/Runtime.NativeAot/unwind_scope.witos.cpp", "src/Runtime.NativeAot/unwind_scope.witos.h", "tests/User.X64/runtime_stack_lease.cpp", "src/Kernel/include/witos/stack_lease.h", "src/Kernel.Arch.X64/user_stack_lease.c", "src/Runtime.NativeAot/pal_context.witos.cpp", "tests/User.X64/runtime_context_set.cpp", "tests/User.X64/runtime_context_set_entry.cpp", "src/Kernel.Arch.X64/user_runtime_context_set_fixture.asm", "src/Kernel.Arch.X64/user_suspend.c", "src/Kernel.Arch.X64/user_suspend_tests.c", "src/Runtime.NativeAot/native_suspend.witos.cpp", "src/Kernel.Arch.X64/native_suspend.asm", "tests/User.X64/runtime_suspend.cpp", "src/Kernel.Arch.X64/user_runtime_suspend_fixture.asm", "tests/Runtime.NativeAot/suspend_reference.cpp", "tools/WitOS.Dev/RuntimeSuspendReference.cs", "src/Kernel.Arch.X64/user_thread_context.c", "src/Kernel/include/witos/thread_context.h", "tests/User.X64/runtime_context_capture.cpp", "src/Kernel.Arch.X64/user_runtime_capture_fixture.asm", "src/Runtime.NativeAot/pal_context_storage.witos.cpp", "src/Kernel.Arch.X64/user_cpu_context.c", "src/Kernel/include/witos/cpu_context_info.h", "tests/User.X64/runtime_context_storage.cpp", "src/Kernel.Arch.X64/user_runtime_context_fixture.asm", "artifacts/runtime-config/include/NativeContext.h", "src/Runtime.NativeAot/gc_policy.witos.cpp", "src/Kernel.Arch.X64/gc_policy.asm", "src/Kernel.Arch.X64/exceptions.c", "tools/WitOS.Dev/RuntimeGcPolicy.cs", "tests/User.X64/runtime_gc_policy.cpp", "src/Runtime.NativeAot/native_com.witos.cpp", "src/Runtime.NativeAot/com_counter.witos.h", "src/Kernel.Arch.X64/native_com.asm", "tests/User.X64/runtime_com.cpp", "tests/User.X64/runtime_com_entry.cpp", "src/Kernel.Arch.X64/user_runtime_com_fixture.asm", "tests/Runtime.NativeAot/com_reference.cpp", "tools/WitOS.Dev/RuntimeComReference.cs", "src/Runtime.NativeAot/native_diagnostics.witos.cpp", "src/Runtime.NativeAot/native_heap.witos.h", "src/Kernel.Arch.X64/native_diagnostics.asm", "tests/User.X64/runtime_diagnostics.cpp", "src/Kernel.Arch.X64/user_runtime_diagnostics_fixture.asm", "src/Runtime.NativeAot/pal_thread_name.witos.cpp", "src/Kernel.Arch.X64/user_thread_name.c", "src/Kernel/include/witos/thread_name.h", "tests/User.X64/runtime_thread_names.cpp", "src/Runtime.NativeAot/native_module.witos.cpp", "src/Kernel.Arch.X64/native_module.asm", "src/Kernel/include/witos/image_info.h", "src/Kernel.Arch.X64/user.c", "src/System.Native/image.c", "tests/User.X64/runtime_module_names.cpp", "src/Kernel.Arch.X64/user_runtime_module_fixture.asm", "src/Runtime.NativeAot/native_encoding.witos.cpp", "src/Runtime.NativeAot/native_encoding.witos.h", "src/Kernel.Arch.X64/native_encoding.asm", "tests/User.X64/runtime_encoding.cpp", "tests/Runtime.NativeAot/encoding_reference.cpp", "tools/WitOS.Dev/RuntimeEncodingReference.cs", "src/Runtime.NativeAot/native_console.witos.cpp", "src/Runtime.NativeAot/native_processor.witos.cpp", "src/Kernel.Arch.X64/native_console.asm", "src/Kernel.Arch.X64/native_processor.asm", "src/Kernel.Arch.X64/user_console.c", "src/Kernel/include/witos/console_info.h", "src/Runtime.NativeAot/native_wait.witos.cpp", "src/Kernel.Arch.X64/native_wait.asm", "src/Kernel.Arch.X64/user_apc.c", "src/Kernel.Arch.X64/user_objects.c", "src/Kernel/include/witos/wait_objects.h", "src/Runtime.NativeAot/native_thread_handles.witos.cpp", "src/Runtime.NativeAot/native_thread_create.witos.cpp", "src/Kernel.Arch.X64/native_thread_create.asm", "src/Kernel.Arch.X64/native_thread_handles.asm", "src/Kernel.Arch.X64/user_reference.c", "src/Kernel/include/witos/thread_reference.h", "src/Runtime.NativeAot/native_services.witos.cpp", "src/Kernel.Arch.X64/native_services.asm", "src/Runtime.NativeAot/native_memory.witos.cpp", "src/Kernel.Arch.X64/native_memory.asm", "tools/WitOS.Dev/RuntimeSecurityReference.cs", "tests/Runtime.NativeAot/security_frame.cpp", "tests/Runtime.NativeAot/security_reference.cpp", "src/Runtime.NativeAot/native_random.witos.cpp", "src/Kernel.Arch.X64/native_random.asm", "src/Kernel/random.c", "src/Kernel/include/witos/random.h", "src/Boot.Uefi/entropy.c", "src/Boot.Uefi/uefi.h", "src/Kernel/include/witos/boot.h", "src/Runtime.NativeAot/security_cookie.witos.cpp", "src/Runtime.NativeAot/security_handler.witos.cpp", "src/Kernel.Arch.X64/security_cookie.asm", "src/System.Native/native_security.h", "src/System.Native/diagnostics.h", "src/Runtime.NativeAot/native_format.witos.cpp", "src/Runtime.NativeAot/format_fixed.witos.cpp", "src/Runtime.NativeAot/format_fixed.witos.h", "src/Kernel.Arch.X64/native_format.asm", "tools/WitOS.Dev/RuntimeFormattingReference.cs", "tests/Runtime.NativeAot/format_reference.cpp", "src/Runtime.NativeAot/math.lock.json", "src/Runtime.NativeAot/math_bits.witos.h", "src/Runtime.NativeAot/native_math.witos.cpp", "artifacts/runtime-config/source/log.openlibm.c", "tools/WitOS.Dev/NativeMathSources.cs", "src/Runtime.NativeAot/gc_affinity.witos.cpp", "src/Runtime.NativeAot/runtime-overlay.cmake", "src/Runtime.NativeAot/config-probe/CMakeLists.txt", "src/Runtime.NativeAot/gcenv.witos.cpp",
@@ -102,7 +113,8 @@ internal static class RuntimeSourceBuild
                 .Select(p => new { path = p, sha256 = Hash(Path.Combine(root, p)) }),
             referenceInputs = referenceInputs.Select(p => new { file = Path.GetFileName(p), sha256 = Hash(p) }),
             portedInputs = portedInputs.Select(p => new { file = Path.GetFileName(p), sha256 = Hash(p) }),
-            boundary, missingGroups = groups,
+            boundary,
+            missingGroups = groups,
             scope = "Entire upstream nativeaot CMake component built twice. Workstation GC environment, Release Crst and aotminipal mutex sources are replaced in the WitOS archives; remaining Windows PAL/CRT/TLS dependencies and unsupported GC methods are intentionally unresolved. This is not a runnable guest runtime or a complete .NET source build."
         };
         await File.WriteAllTextAsync(Path.Combine(output, "source-build-report.json"), JsonSerializer.Serialize(report, Json));
@@ -181,7 +193,8 @@ internal static class RuntimeSourceBuild
         var sdk = Path.Combine(source, "artifacts", "bin", "coreclr", "windows.x64.Release", profile, "aotsdk");
         var archive = Path.Combine(sdk, "Runtime.WorkstationGC.lib");
         var listing = await Processes.RunAsync(Path.Combine(msvc, "lib.exe"), ["/nologo", "/list", archive], root);
-        if (listing.ExitCode != 0 || listing.TimedOut) throw new InvalidDataException("Cannot inspect source-built runtime archive.");
+        if (listing.ExitCode != 0 || listing.TimedOut)
+            throw new InvalidDataException("Cannot inspect source-built runtime archive.");
         await File.WriteAllTextAsync(Path.Combine(output, profile + "-members.txt"), listing.Output);
         var members = listing.Output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
         var obj = Path.Combine(source, "artifacts", "obj", "coreclr", "windows.x64.Release", profile);
@@ -233,7 +246,8 @@ internal static class RuntimeSourceBuild
 
         var minipalArchive = Path.Combine(sdk, "aotminipal.lib");
         var minipalListing = await Processes.RunAsync(Path.Combine(msvc, "lib.exe"), ["/nologo", "/list", minipalArchive], root);
-        if (minipalListing.ExitCode != 0 || minipalListing.TimedOut) throw new InvalidDataException("Cannot inspect source-built aotminipal archive.");
+        if (minipalListing.ExitCode != 0 || minipalListing.TimedOut)
+            throw new InvalidDataException("Cannot inspect source-built aotminipal archive.");
         await File.WriteAllTextAsync(Path.Combine(output, profile + "-minipal-members.txt"), minipalListing.Output);
         var minipalMembers = minipalListing.Output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
         var minipalCommands = allCommands.Where(c => Normalize(c.Output).Contains("/aotminipal.dir/", StringComparison.Ordinal)).ToArray();
@@ -255,56 +269,68 @@ internal static class RuntimeSourceBuild
         if (overlay)
         {
             await RuntimeGcPolicy.RunAsync(root, source, obj, archive);
-            await RuntimeGcLayoutReference.RunAsync(root,msvc);
-            foreach(var name in new[]{"unwind_scope.witos.cpp","unwind_guest.witos.cpp","unwind_checked.witos.cpp","unwind_validation.witos.cpp","unwinder.checked.cpp","native_unwind.asm","native_exception.witos.cpp","native_exception.asm","seh_validation.witos.cpp","seh_scope.witos.cpp","seh_security.witos.cpp","native_exception_x64.cpp"}) {
-                var command=commands.Single(c=>Normalize(c.File).EndsWith("/"+name,StringComparison.Ordinal));
-                if(command.Command.Contains("/GS-",StringComparison.Ordinal))throw new InvalidDataException("Production unwinder lost GS protection: "+name);
-                NativeObject.VerifyArchive(archive,Path.GetFullPath(command.Output,command.Directory));
+            await RuntimeGcLayoutReference.RunAsync(root, msvc);
+            foreach (var name in new[] { "unwind_scope.witos.cpp", "unwind_guest.witos.cpp", "unwind_checked.witos.cpp", "unwind_validation.witos.cpp", "unwinder.checked.cpp", "native_unwind.asm", "native_exception.witos.cpp", "native_exception.asm", "seh_validation.witos.cpp", "seh_scope.witos.cpp", "seh_security.witos.cpp", "native_exception_x64.cpp" })
+            {
+                var command = commands.Single(c => Normalize(c.File).EndsWith("/" + name, StringComparison.Ordinal));
+                if (command.Command.Contains("/GS-", StringComparison.Ordinal))
+                    throw new InvalidDataException("Production unwinder lost GS protection: " + name);
+                NativeObject.VerifyArchive(archive, Path.GetFullPath(command.Output, command.Directory));
             }
-            var hijack=commands.Single(c=>Normalize(c.File).EndsWith("/pal_hijack.witos.cpp",StringComparison.Ordinal));
-            NativeObject.VerifyArchive(archive,Path.GetFullPath(hijack.Output,hijack.Directory));
-            var hijackSymbols=NativeObject.Inspect(Path.GetFullPath(hijack.Output,hijack.Directory));
-            if(hijack.Command.Contains("/GS-",StringComparison.Ordinal)||
-               !hijackSymbols.UndefinedExternals.Any(s=>s.Contains("HijackCallback",StringComparison.Ordinal))||
-               !hijackSymbols.UndefinedExternals.Any(s=>s.Contains("PalGetCompleteThreadContext",StringComparison.Ordinal)))
+            var hijack = commands.Single(c => Normalize(c.File).EndsWith("/pal_hijack.witos.cpp", StringComparison.Ordinal));
+            NativeObject.VerifyArchive(archive, Path.GetFullPath(hijack.Output, hijack.Directory));
+            var hijackSymbols = NativeObject.Inspect(Path.GetFullPath(hijack.Output, hijack.Directory));
+            if (hijack.Command.Contains("/GS-", StringComparison.Ordinal) ||
+               !hijackSymbols.UndefinedExternals.Any(s => s.Contains("HijackCallback", StringComparison.Ordinal)) ||
+               !hijackSymbols.UndefinedExternals.Any(s => s.Contains("PalGetCompleteThreadContext", StringComparison.Ordinal)))
                 throw new InvalidDataException("PAL hijack lost actual runtime callback/context dependencies.");
-            var attachment=commands.Single(c=>Normalize(c.File).EndsWith("/pal_attach.witos.cpp",StringComparison.Ordinal));
-            var attachmentSymbols=NativeObject.Inspect(Path.GetFullPath(attachment.Output,attachment.Directory));
-            if(attachment.Command.Contains("/GS-",StringComparison.Ordinal)||
-               !attachmentSymbols.UndefinedExternals.Any(s=>s.Contains("RuntimeThreadShutdown",StringComparison.Ordinal))||
+            var attachment = commands.Single(c => Normalize(c.File).EndsWith("/pal_attach.witos.cpp", StringComparison.Ordinal));
+            var attachmentSymbols = NativeObject.Inspect(Path.GetFullPath(attachment.Output, attachment.Directory));
+            if (attachment.Command.Contains("/GS-", StringComparison.Ordinal) ||
+               !attachmentSymbols.UndefinedExternals.Any(s => s.Contains("RuntimeThreadShutdown", StringComparison.Ordinal)) ||
                !attachmentSymbols.UndefinedExternals.Contains("wit_native_thread_on_exit"))
                 throw new InvalidDataException("PAL attachment lost production protection or actual runtime exit dependencies.");
-            var failfast=commands.Single(c=>Normalize(c.File).EndsWith("/failfast_exception.witos.cpp",StringComparison.Ordinal));
-            if(!failfast.Command.Contains("/GS-",StringComparison.Ordinal)||!failfast.Command.Contains("/Od",StringComparison.Ordinal))throw new InvalidDataException("Fail-fast must not recursively require GS/optimized unwind state.");
-            NativeObject.VerifyArchive(archive,Path.GetFullPath(failfast.Output,failfast.Directory));
-            var exceptionBinding=commands.Single(c=>Normalize(c.File).EndsWith("/native_exception.asm",StringComparison.Ordinal));
-            var exceptionSymbols=NativeObject.Inspect(Path.GetFullPath(exceptionBinding.Output,exceptionBinding.Directory),collectReferences:true,includeDefinedReferences:true);
-            var exceptionReferences=exceptionSymbols.ExternalReferences??throw new InvalidDataException("Missing VEH binding references.");
-            if(!exceptionSymbols.Sections.Any(s=>s.Name==".rdata"&&(s.Characteristics&0xE0000000U)==0x40000000U))throw new InvalidDataException("VEH import slots are not readonly.");
-            if(!exceptionReferences.Any(r=>r.ContainingSymbol=="__imp_RaiseException"&&r.Target=="RaiseException"&&r.Section==".rdata"&&r.Kind==1))
+            var failfast = commands.Single(c => Normalize(c.File).EndsWith("/failfast_exception.witos.cpp", StringComparison.Ordinal));
+            if (!failfast.Command.Contains("/GS-", StringComparison.Ordinal) || !failfast.Command.Contains("/Od", StringComparison.Ordinal))
+                throw new InvalidDataException("Fail-fast must not recursively require GS/optimized unwind state.");
+            NativeObject.VerifyArchive(archive, Path.GetFullPath(failfast.Output, failfast.Directory));
+            var exceptionBinding = commands.Single(c => Normalize(c.File).EndsWith("/native_exception.asm", StringComparison.Ordinal));
+            var exceptionSymbols = NativeObject.Inspect(Path.GetFullPath(exceptionBinding.Output, exceptionBinding.Directory), collectReferences: true, includeDefinedReferences: true);
+            var exceptionReferences = exceptionSymbols.ExternalReferences ?? throw new InvalidDataException("Missing VEH binding references.");
+            if (!exceptionSymbols.Sections.Any(s => s.Name == ".rdata" && (s.Characteristics & 0xE0000000U) == 0x40000000U))
+                throw new InvalidDataException("VEH import slots are not readonly.");
+            if (!exceptionReferences.Any(r => r.ContainingSymbol == "__imp_RaiseException" && r.Target == "RaiseException" && r.Section == ".rdata" && r.Kind == 1))
                 throw new InvalidDataException("RaiseException import is not a readonly alias of the real capture entry.");
-            if(!exceptionReferences.Any(r=>r.ContainingSymbol=="__imp_RaiseFailFastException"&&r.Target=="RaiseFailFastException"&&r.Section==".rdata"&&r.Kind==1))
+            if (!exceptionReferences.Any(r => r.ContainingSymbol == "__imp_RaiseFailFastException" && r.Target == "RaiseFailFastException" && r.Section == ".rdata" && r.Kind == 1))
                 throw new InvalidDataException("RaiseFailFastException lost readonly common entry binding.");
-            foreach(var (name,target) in new[]{("AddVectoredExceptionHandler","wit_native_add_vectored_exception_handler"),("RemoveVectoredExceptionHandler","wit_native_remove_vectored_exception_handler")})
-                if(!exceptionReferences.Any(r=>r.ContainingSymbol=="__imp_"+name&&r.Target==name&&r.Section==".rdata"&&r.Kind==1)||
-                   !exceptionReferences.Any(r=>r.ContainingSymbol==name&&r.Target==target&&(r.Section==".text"||r.Section.StartsWith(".text$",StringComparison.Ordinal))&&r.Kind==4))
-                    throw new InvalidDataException("VEH direct/import transport lost its actual common target: "+name);
-            var unwindBinding=commands.Single(c=>Normalize(c.File).EndsWith("/native_unwind.asm",StringComparison.Ordinal));
-            var unwindBindingPath=Path.GetFullPath(unwindBinding.Output,unwindBinding.Directory);
-            var unwindSymbols=NativeObject.Inspect(unwindBindingPath,collectReferences:true,includeDefinedReferences:true);
-            var unwindReferences=unwindSymbols.ExternalReferences??throw new InvalidDataException("Missing unwinder COFF relocation evidence.");
-            if(!unwindSymbols.Sections.Any(s=>s.Name==".rdata"&&(s.Characteristics&0xE0000000U)==0x40000000U)||
-                !unwindReferences.Any(r=>r.ContainingSymbol=="__imp_RtlVirtualUnwind"&&r.Target=="RtlVirtualUnwind"&&r.Section==".rdata"&&r.Offset==0&&r.Kind==1)||
-                !unwindReferences.Any(r=>r.ContainingSymbol=="RtlVirtualUnwind"&&r.Target=="wit_native_rtl_virtual_unwind"&&(r.Section==".text"||r.Section.StartsWith(".text$",StringComparison.Ordinal))&&r.Offset==1&&r.Kind==4))
+            foreach (var (name, target) in new[] { ("AddVectoredExceptionHandler", "wit_native_add_vectored_exception_handler"), ("RemoveVectoredExceptionHandler", "wit_native_remove_vectored_exception_handler") })
+                if (!exceptionReferences.Any(r => r.ContainingSymbol == "__imp_" + name && r.Target == name && r.Section == ".rdata" && r.Kind == 1) ||
+                   !exceptionReferences.Any(r => r.ContainingSymbol == name && r.Target == target && (r.Section == ".text" || r.Section.StartsWith(".text$", StringComparison.Ordinal)) && r.Kind == 4))
+                    throw new InvalidDataException("VEH direct/import transport lost its actual common target: " + name);
+            var unwindBinding = commands.Single(c => Normalize(c.File).EndsWith("/native_unwind.asm", StringComparison.Ordinal));
+            var unwindBindingPath = Path.GetFullPath(unwindBinding.Output, unwindBinding.Directory);
+            var unwindSymbols = NativeObject.Inspect(unwindBindingPath, collectReferences: true, includeDefinedReferences: true);
+            var unwindReferences = unwindSymbols.ExternalReferences ?? throw new InvalidDataException("Missing unwinder COFF relocation evidence.");
+            if (!unwindSymbols.Sections.Any(s => s.Name == ".rdata" && (s.Characteristics & 0xE0000000U) == 0x40000000U) ||
+                !unwindReferences.Any(r => r.ContainingSymbol == "__imp_RtlVirtualUnwind" && r.Target == "RtlVirtualUnwind" && r.Section == ".rdata" && r.Offset == 0 && r.Kind == 1) ||
+                !unwindReferences.Any(r => r.ContainingSymbol == "RtlVirtualUnwind" && r.Target == "wit_native_rtl_virtual_unwind" && (r.Section == ".text" || r.Section.StartsWith(".text$", StringComparison.Ordinal)) && r.Offset == 1 && r.Kind == 4))
                 throw new InvalidDataException("Unwinder direct/import binding lost its readonly alias or real tail-call target.");
-            var unwindObjects=commands.Where(c=>new[]{"unwind_scope.witos.cpp","unwind_guest.witos.cpp","unwind_checked.witos.cpp","unwind_validation.witos.cpp","unwinder.checked.cpp","native_unwind.asm"}.Contains(Path.GetFileName(c.File)))
-                .Select(c=>{var file=Path.GetFullPath(c.Output,c.Directory);return new{file,sha256=Hash(file),NativeObject.Inspect(file).UndefinedExternals};}).ToArray();
-            await File.WriteAllTextAsync(Path.Combine(output,"witos-unwind-objects.json"),JsonSerializer.Serialize(new {guestUnwinderExecuted=false,archiveSha256=Hash(archive),objects=unwindObjects,exceptionObjects=commands.Where(c=>new[]{"native_exception.witos.cpp","native_exception.asm","failfast_exception.witos.cpp","seh_scope.witos.cpp","seh_validation.witos.cpp","seh_security.witos.cpp","native_exception_x64.cpp"}.Contains(Path.GetFileName(c.File)))
-                .Select(c=>{var file=Path.GetFullPath(c.Output,c.Directory);return new{file,sha256=Hash(file)};}).ToArray(),contextObjects=commands.Where(c=>new[]{"pal_context.witos.cpp","pal_context_storage.witos.cpp"}.Contains(Path.GetFileName(c.File)))
-                .Select(c=>{var file=Path.GetFullPath(c.Output,c.Directory);return new{file,sha256=Hash(file)};}).ToArray()},Json));
-            if(commands.Single(c=>Normalize(c.File).EndsWith("/pal_context.witos.cpp",StringComparison.Ordinal)).Command.Contains("/GS-",StringComparison.Ordinal))throw new InvalidDataException("Production PAL context lost GS protection.");
-            var contextStorage=commands.Single(c=>Normalize(c.File).EndsWith("/pal_context_storage.witos.cpp",StringComparison.Ordinal));
-            if(contextStorage.Command.Contains("/GS-",StringComparison.Ordinal))
+            var unwindObjects = commands.Where(c => new[] { "unwind_scope.witos.cpp", "unwind_guest.witos.cpp", "unwind_checked.witos.cpp", "unwind_validation.witos.cpp", "unwinder.checked.cpp", "native_unwind.asm" }.Contains(Path.GetFileName(c.File)))
+                .Select(c => { var file = Path.GetFullPath(c.Output, c.Directory); return new { file, sha256 = Hash(file), NativeObject.Inspect(file).UndefinedExternals }; }).ToArray();
+            await File.WriteAllTextAsync(Path.Combine(output, "witos-unwind-objects.json"), JsonSerializer.Serialize(new
+            {
+                guestUnwinderExecuted = false,
+                archiveSha256 = Hash(archive),
+                objects = unwindObjects,
+                exceptionObjects = commands.Where(c => new[] { "native_exception.witos.cpp", "native_exception.asm", "failfast_exception.witos.cpp", "seh_scope.witos.cpp", "seh_validation.witos.cpp", "seh_security.witos.cpp", "native_exception_x64.cpp" }.Contains(Path.GetFileName(c.File)))
+                .Select(c => { var file = Path.GetFullPath(c.Output, c.Directory); return new { file, sha256 = Hash(file) }; }).ToArray(),
+                contextObjects = commands.Where(c => new[] { "pal_context.witos.cpp", "pal_context_storage.witos.cpp" }.Contains(Path.GetFileName(c.File)))
+                .Select(c => { var file = Path.GetFullPath(c.Output, c.Directory); return new { file, sha256 = Hash(file) }; }).ToArray()
+            }, Json));
+            if (commands.Single(c => Normalize(c.File).EndsWith("/pal_context.witos.cpp", StringComparison.Ordinal)).Command.Contains("/GS-", StringComparison.Ordinal))
+                throw new InvalidDataException("Production PAL context lost GS protection.");
+            var contextStorage = commands.Single(c => Normalize(c.File).EndsWith("/pal_context_storage.witos.cpp", StringComparison.Ordinal));
+            if (contextStorage.Command.Contains("/GS-", StringComparison.Ordinal))
                 throw new InvalidDataException("Production context storage lost compiler GS protection.");
             foreach (var file in new[] { "/pal_attach.witos.cpp", "/pal_context.witos.cpp", "/native_suspend.witos.cpp", "/native_suspend.asm", "/pal_context_storage.witos.cpp", "/gc_policy.witos.cpp", "/gc_policy.asm", "/native_com.witos.cpp", "/native_com.asm", "/native_diagnostics.witos.cpp", "/native_diagnostics.asm", "/pal_thread_name.witos.cpp", "/native_module.witos.cpp", "/native_module.asm", "/native_encoding.witos.cpp", "/native_encoding.asm", "/native_console.witos.cpp", "/native_processor.witos.cpp", "/native_console.asm", "/native_processor.asm", "/native_wait.witos.cpp", "/native_wait.asm", "/native_thread_handles.witos.cpp", "/native_thread_handles.asm", "/native_services.witos.cpp", "/native_services.asm", "/native_memory.witos.cpp", "/native_memory.asm", "/native_random.witos.cpp", "/native_random.asm", "/security_cookie.witos.cpp", "/security_handler.witos.cpp", "/security_cookie.asm", "/native_format.witos.cpp", "/format_fixed.witos.cpp", "/native_format.asm", "/native_math.witos.cpp", "/log.openlibm.c", "/gc_affinity.witos.cpp", "/gcenv.witos.cpp", "/gc_events.witos.cpp", "/gc_time.witos.cpp", "/crst.witos.cpp", "/native_new.witos.cpp", "/crt_config.witos.cpp", "/crt_memory.witos.c", "/crt_exit.witos.cpp", "/System.Native/library_lifecycle.c", "/rhconfig.witos.cpp", "/startup.witos.cpp", "/allocheap.witos.cpp", "/threadstore.witos.cpp", "/thread.witos.cpp", "/debugheader.witos.cpp", "/tls.witos.cpp", "/pal.witos.cpp", "/pal_init.witos.cpp", "/pal_memory.witos.cpp", "/pal_events.witos.cpp", "/pal_threads.witos.cpp", "/System.Native/thread.c", "/System.Native/image.c", "/pal_module.witos.cpp", "/pal_environment.witos.cpp", "/pal_error.witos.cpp", "/chkstk.asm", "/fatal.witos.cpp", "/native_clock.witos.cpp", "/native_clock.asm", "/native_error.asm", "/native_environment.asm" })
             {
@@ -327,7 +353,8 @@ internal static class RuntimeSourceBuild
             var clockBinding = commands.Single(c => Normalize(c.File).EndsWith("/native_clock.asm", StringComparison.Ordinal));
             var math = commands.Single(c => Normalize(c.File).EndsWith("/native_math.witos.cpp", StringComparison.Ordinal));
             var log = commands.Single(c => Normalize(c.File).EndsWith("/log.openlibm.c", StringComparison.Ordinal));
-            foreach (var numeric in new[] { math, log }) {
+            foreach (var numeric in new[] { math, log })
+            {
                 var fp = System.Text.RegularExpressions.Regex.Matches(numeric.Command, @"/fp:(strict|precise|fast)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                 if (fp.Count == 0 || !fp[^1].Groups[1].Value.Equals("strict", StringComparison.OrdinalIgnoreCase) || !numeric.Command.Contains("/Od", StringComparison.Ordinal))
                     throw new InvalidDataException("Native log requires strict FP and the validated plain-unwind profile.");
@@ -365,9 +392,11 @@ internal static class RuntimeSourceBuild
             else if (lines[i].StartsWith('"') && lines[i].EndsWith('"'))
             {
                 var value = lines[i][1..^1];
-                if (!Path.IsPathRooted(value)) continue;
+                if (!Path.IsPathRooted(value))
+                    continue;
                 var index = Array.FindIndex(publishedInputs, p => p.Equals(Path.GetFullPath(value), StringComparison.OrdinalIgnoreCase));
-                if (index < 0) continue;
+                if (index < 0)
+                    continue;
                 lines[i] = '"' + sourceInputs[index] + '"';
                 seen.Add(index);
                 ++replacements;
@@ -386,8 +415,13 @@ internal static class RuntimeSourceBuild
             Cases.Any(c => !run.Output.Contains("[TARGET-PASS] " + c, StringComparison.Ordinal)))
             throw new InvalidOperationException("Source-built Windows runtime reference failed native-host execution.");
         Console.Write(run.Output);
-        return new { imageSha256 = Hash(dll), imageBytes = new FileInfo(dll).Length,
-            nativeInputsReplaced = replacements, imports = NativeImports.Inspect(dll) };
+        return new
+        {
+            imageSha256 = Hash(dll),
+            imageBytes = new FileInfo(dll).Length,
+            nativeInputsReplaced = replacements,
+            imports = NativeImports.Inspect(dll)
+        };
     }
 
     private static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();

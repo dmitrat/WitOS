@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 namespace WitOS.Dev;
+
 internal static class NativeMathSources
 {
     private sealed record Source(string Path, string Sha256);
@@ -16,23 +17,29 @@ internal static class NativeMathSources
             throw new InvalidDataException("Unsupported native math source pin.");
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
         var paths = new Dictionary<string, string>();
-        foreach (var source in pin.Sources) {
-            if (!Regex.IsMatch(source.Sha256, "^[0-9a-f]{64}$")) throw new InvalidDataException("Bad math hash.");
+        foreach (var source in pin.Sources)
+        {
+            if (!Regex.IsMatch(source.Sha256, "^[0-9a-f]{64}$"))
+                throw new InvalidDataException("Bad math hash.");
             var path = Path.Combine(root, ".tools", "math-audit", pin.Revision, source.Path);
             byte[] bytes = File.Exists(path) ? await File.ReadAllBytesAsync(path) :
                 await client.GetByteArrayAsync($"https://raw.githubusercontent.com/JuliaMath/openlibm/{pin.Revision}/{source.Path}");
             if (Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant() != source.Sha256)
                 throw new InvalidDataException("Native math canonical-byte hash mismatch: " + source.Path);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            if (!File.Exists(path)) await File.WriteAllBytesAsync(path, bytes);
+            if (!File.Exists(path))
+                await File.WriteAllBytesAsync(path, bytes);
             paths.Add(source.Path, path);
         }
         var output = Path.Combine(root, "artifacts", "runtime-config", "source");
-        if (generate) {
+        if (generate)
+        {
             Directory.CreateDirectory(output);
             var source = (await File.ReadAllTextAsync(paths["src/e_log.c"])).Replace("\r\n", "\n");
-            string Replace(string before, string after) {
-                if (source.Split(before, StringSplitOptions.None).Length != 2) throw new InvalidDataException("Math adaptation anchor changed.");
+            string Replace(string before, string after)
+            {
+                if (source.Split(before, StringSplitOptions.None).Length != 2)
+                    throw new InvalidDataException("Math adaptation anchor changed.");
                 return source.Replace(before, after, StringComparison.Ordinal);
             }
             source = Replace("#include \"cdefs-compat.h\"", "/* Compiler attributes supplied by WitOS. */");
@@ -44,8 +51,10 @@ internal static class NativeMathSources
             source += "\n#pragma warning(pop)\n";
             await File.WriteAllTextAsync(Path.Combine(output, "log.openlibm.c"), source);
             await File.WriteAllTextAsync(Path.Combine(output, "openlibm-LICENSE.md"), await File.ReadAllTextAsync(paths["LICENSE.md"]));
-            await File.WriteAllTextAsync(Path.Combine(output, "math-provenance.json"), JsonSerializer.Serialize(new {
-                pin, corrections = new[] { "Replace compiler/header macros with WitOS binary64 word access", "Map __ieee754_log to private wit_ieee754_log", "Omit unsupported long-double weak alias", "Scope MSVC C4723 suppression to intentional IEEE exceptional divisions; preserve strict FP and test MXCSR flags" },
+            await File.WriteAllTextAsync(Path.Combine(output, "math-provenance.json"), JsonSerializer.Serialize(new
+            {
+                pin,
+                corrections = new[] { "Replace compiler/header macros with WitOS binary64 word access", "Map __ieee754_log to private wit_ieee754_log", "Omit unsupported long-double weak alias", "Scope MSVC C4723 suppression to intentional IEEE exceptional divisions; preserve strict FP and test MXCSR flags" },
                 algorithmBodyChanged = false,
                 generatedSha256 = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(Path.Combine(output, "log.openlibm.c")))).ToLowerInvariant()
             }, json));

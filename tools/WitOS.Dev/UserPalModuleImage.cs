@@ -70,7 +70,9 @@ internal static class UserPalModuleImage
         await File.WriteAllTextAsync(Path.Combine(output, "pal-module-build.json"), JsonSerializer.Serialize(new
         {
             scope = "Actual PAL module lookup and inclusive bounds from immutable image metadata; no managed module registration.",
-            guestManagedRuntime = false, compiler = msvc, imageBytes = bytes.Length,
+            guestManagedRuntime = false,
+            compiler = msvc,
+            imageBytes = bytes.Length,
             imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
             unwindEntries = h.ExceptionTableDirectory.Size / 12,
             localSources = sources.Concat(["src/System.Native/thread.c", "src/System.Native/tls.h", "src/System.Native/image.h", "src/Kernel/include/witos/user_abi.h"])

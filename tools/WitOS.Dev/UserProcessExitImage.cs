@@ -71,7 +71,9 @@ internal static class UserProcessExitImage
         await File.WriteAllTextAsync(Path.Combine(output, "process-exit-build.json"), JsonSerializer.Serialize(new
         {
             scope = "Bounded CRT atexit and native process cleanup; no managed shutdown or ThreadStore detach.",
-            guestManagedRuntime = false, compiler = msvc, imageBytes = bytes.Length,
+            guestManagedRuntime = false,
+            compiler = msvc,
+            imageBytes = bytes.Length,
             imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
             unwindEntries = h.ExceptionTableDirectory.Size / 12,
             localSources = sources.Concat(["src/System.Native/thread.c", "src/System.Native/tls.h", "src/System.Native/native_process.h", "src/System.Native/image.h", "src/Kernel/include/witos/user_abi.h"])

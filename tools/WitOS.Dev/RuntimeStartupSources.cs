@@ -83,12 +83,12 @@ internal static class RuntimeStartupSources
         thread = Replace(thread, "    if (!PalGetMaximumStackBounds(&m_pStackLow, &m_pStackHigh))\n        RhFailFast();",
             "    if (!PalGetMaximumStackBounds(&m_pStackLow, &m_pStackHigh))\n        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);");
         thread = Replace(thread, "#include \"common.h\"", "#include \"common.h\"\n#include \"unwind_scope.witos.h\"");
-        foreach(var signature in new[]{
+        foreach (var signature in new[]{
             "void Thread::HijackReturnAddress(PAL_LIMITED_CONTEXT* pSuspendCtx, HijackFunc* pfnHijackFunction)",
             "void Thread::HijackReturnAddress(NATIVE_CONTEXT* pSuspendCtx, HijackFunc* pfnHijackFunction)"})
-            thread = Replace(thread, signature+"\n{", signature+"\n{\n"+
-                "    // Retain original stack locations through the entire return-address write.\n"+
-                "    WitNativeUnwindScope walk(this == ThreadStore::RawGetCurrentThread() ? WIT_THREAD_REFERENCE_CURRENT : (WitU64)m_hOSThread);\n"+
+            thread = Replace(thread, signature + "\n{", signature + "\n{\n" +
+                "    // Retain original stack locations through the entire return-address write.\n" +
+                "    WitNativeUnwindScope walk(this == ThreadStore::RawGetCurrentThread() ? WIT_THREAD_REFERENCE_CURRENT : (WitU64)m_hOSThread);\n" +
                 "    if (walk.Status() != WIT_STATUS_OK) return;\n");
         const string gcRoots = """
 void Thread::GcScanRoots(ScanFunc * pfnEnumCallback, ScanContext * pvCallbackData)
@@ -172,7 +172,8 @@ void Thread::GcScanRoots(ScanFunc * pfnEnumCallback, ScanContext * pvCallbackDat
             stressHeader = new { file = "../include/stressLog.h", sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(includeOutput, "stressLog.h")))).ToLowerInvariant() },
             generated = new[] { "threadstore.witos.cpp", "thread.witos.cpp", "debugheader.witos.cpp", "startup.objects.slice.cpp" }.Select(name => new
             {
-                file = name, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(output, name)))).ToLowerInvariant()
+                file = name,
+                sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(output, name)))).ToLowerInvariant()
             })
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
     }
