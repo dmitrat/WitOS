@@ -1,31 +1,13 @@
 {
   "native": [
-    "src/Boot.Uefi",
-    "src/Kernel",
-    "src/Kernel.Arch.X64",
-    "src/Runtime.CoreClr",
-    "src/Runtime.NativeAot",
-    "src/System.Native",
-    "tests/User.X64",
-    "tests/Runtime.NativeAot",
-    "experiments/NativeAotTarget/native_host.c",
-    "tests/WitOS.Dev.Tests/AssemblyPackageNative.c",
-    "tests/WitOS.Dev.Tests/BootPackageFirmware.c",
-    "tests/WitOS.Dev.Tests/FileViewFaults.c",
-    "tests/WitOS.Dev.Tests/LibraryTls.c",
-    "tests/WitOS.Dev.Tests/NativeDirectory.c",
-    "tests/WitOS.Dev.Tests/NativeLibrary.c",
-    "tests/WitOS.Dev.Tests/NativePaths.c",
-    "tests/WitOS.Dev.Tests/PeCorpus.c",
-    "tests/WitOS.Dev.Tests/PeFuzzer.c",
-    "tests/WitOS.Dev.Tests/PeImports.c",
-    "tests/WitOS.Dev.Tests/ThreadNotifications.c",
-    "tests/WitOS.Dev.Tests/VirtualGap.c"
+    "experiments",
+    "src",
+    "tests"
   ],
   "managed": [
     "experiments",
-    "tests/WitOS.Dev.Tests",
-    "tools/WitOS.Dev"
+    "tests",
+    "tools"
   ],
   "exclude": []
 }

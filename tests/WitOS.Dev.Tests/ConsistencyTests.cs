@@ -78,6 +78,24 @@ internal static class ConsistencyTests
             missing = true;
         }
         Check(missing, "A missing manifest entry was accepted");
+
+        // Every source file in the repository must be under the formatting gate.
+        var covered = native.Concat(managed).ToHashSet(StringComparer.Ordinal);
+        string[] ignored = [".git", ".tools", "artifacts", "bin", "obj", ".vs", ".idea"];
+        foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(root, file).Replace('\\', '/');
+            if (relative.Split('/').Any(segment => ignored.Contains(segment, StringComparer.Ordinal)))
+            {
+                continue;
+            }
+            var extension = Path.GetExtension(relative);
+            if (extension is ".c" or ".h" or ".cpp" or ".cs")
+            {
+                Check(covered.Contains(relative) || manifest.Exclude.Any(prefix => relative.StartsWith(prefix, StringComparison.Ordinal)),
+                    $"Source file is outside the formatting gate: {relative}");
+            }
+        }
     }
 
     private static void Check(bool value, string why)
