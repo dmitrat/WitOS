@@ -1,3 +1,4 @@
+#include "x64.h"
 #include "user.h"
 #include "witos/platform.h"
 #if defined(WITOS_TEST_CORECLR_MEMORY)

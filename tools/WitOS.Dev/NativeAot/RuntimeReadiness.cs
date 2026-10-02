@@ -110,7 +110,7 @@ internal static class RuntimeReadiness
         var guestDriver = await RuntimeGuestDriver.BuildAsync(root, msvc, output, managed, tls, libraries);
         var imageLimit = Constant(root, "src/Kernel/include/witos/pe.h", "WIT_PE_MAX_IMAGE_SIZE");
         var unwindLimit = Constant(root, "src/Kernel/include/witos/pe.h", "WIT_PE_MAX_UNWIND_ENTRIES");
-        var pageLimit = Constant(root, "src/Kernel.Arch.X64/user_layout.h", "WIT_USER_PAGE_CAPACITY");
+        var pageLimit = Constant(root, "src/Kernel/include/witos/user_layout.h", "WIT_USER_PAGE_CAPACITY");
         var handleLimit = Constant(root, "src/Kernel/include/witos/handles.h", "WIT_HANDLE_CAPACITY");
         var runtimeUnwindLimit = Constant(root, "src/Kernel/include/witos/pe.h", "WIT_PE_RUNTIME_UNWIND_ENTRIES");
         var evidence = new
@@ -140,7 +140,7 @@ internal static class RuntimeReadiness
             inputs = libraries.Concat([transport, tls]).Select(p => new { file = p, sha256 = Hash(p) }),
             localSources = new[] { project + "/Program.cs", project + "/ExceptionProbe.cs", project + "/FinalizationProbe.cs", project + "/GuestReport.cs", project + "/ManagedThreadProbe.cs", project + "/StackOverflowProbe.cs", project + "/ThreadQuotaProbe.cs", project + "/FaultProbe.cs", project + "/MemoryFailureProbe.cs", project + "/NativeAotBoot.csproj", project + "/packages.lock.json",
                 "src/Kernel.Arch.X64/native_start.asm", "src/System.Native/tls_metadata.c", "src/Kernel/include/witos/pe.h",
-                "src/Kernel/include/witos/user_abi.h", "src/Kernel/include/witos/handles.h", "src/Kernel.Arch.X64/user_layout.h" }
+                "src/Kernel/include/witos/user_abi.h", "src/Kernel/include/witos/handles.h", "src/Kernel/include/witos/user_layout.h" }
                 .Select(p => new { file = p, sha256 = Hash(Path.Combine(root, p)) }),
             scope = "Hosted standard-CoreLib executable plus strictly linked source-built wmain diagnostic image. wmain is a dependency root, not a valid WitOS startup thunk. The separate guest handoff driver links image/environment publication, GS/TLS/initializer entry and orderly shutdown; its execution and resource budgets still require guest acceptance. Reference image sizes are not final guest requirements."
         };

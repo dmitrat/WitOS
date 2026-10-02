@@ -1,6 +1,6 @@
 #include "file_view.h"
 #include "protocol.h"
-#include "../../src/Kernel.Arch.X64/user_layout.h"
+#include "../../src/Kernel/include/witos/user_layout.h"
 #pragma optimize("", off)
 #define CHECK(value, code) \
     do { \

@@ -1,3 +1,4 @@
+#include "x64.h"
 #include "user.h"
 #include "witos/platform.h"
 unsigned __int64 __readcr0(void);

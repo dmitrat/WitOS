@@ -3,10 +3,13 @@
 
 #include "witos/arch.h"
 #include "witos/boot.h"
-#include "user_layout.h"
+#include "witos/user_layout.h"
 
 #define WIT_X64_STORAGE_BASE 0xFFFFA00000000000ULL
 #define WIT_X64_STORAGE_SLOT 320U
+/* User-mode code and stack selectors of the kernel GDT. */
+#define WIT_USER_CS 0x33U
+#define WIT_USER_SS 0x2BU
 WIT_STATIC_ASSERT(((WIT_X64_STORAGE_BASE >> 39) & 511) == WIT_X64_STORAGE_SLOT, "Storage PML4 slot");
 #define WIT_KERNEL_STACK_SIZE 65536U
 #define WIT_EMERGENCY_STACK_SIZE 32768U

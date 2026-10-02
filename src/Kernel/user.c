@@ -1,5 +1,4 @@
 #include "user.h"
-#include "cpu_cache.h"
 #include "witos/random.h"
 #include "witos/platform.h"
 

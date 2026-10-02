@@ -1,5 +1,5 @@
 #include "file.h"
-#include "../../src/Kernel.Arch.X64/user_layout.h"
+#include "../../src/Kernel/include/witos/user_layout.h"
 #include "protocol.h"
 #include "storage_manifest.h"
 extern WitU64 wit_file_views_test(WitU64);

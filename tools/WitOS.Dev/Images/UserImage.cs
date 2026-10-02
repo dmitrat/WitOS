@@ -26,7 +26,7 @@ internal static class UserImage
         string[] headers =
         [
             "src/Kernel/include/witos/user_abi.h",
-            "src/Kernel.Arch.X64/user_layout.h",
+            "src/Kernel/include/witos/user_layout.h",
             "tests/User.X64/protocol.h"
         ];
         foreach (var header in headers)

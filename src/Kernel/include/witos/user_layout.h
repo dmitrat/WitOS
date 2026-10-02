@@ -25,8 +25,6 @@
 #define WIT_USER_THREAD_CAPACITY 4U
 #define WIT_USER_THREAD_STRIDE 0x20000ULL
 #define WIT_USER_TLS 0x0000008000027000ULL
-#define WIT_USER_CS 0x33U
-#define WIT_USER_SS 0x2BU
 /* Separate PML4 slot: 64 GiB of sparse VA, bounded prototype metadata/frames. */
 /* JIT RX views stay within rel32 reach of the current fixed native image.
  * This private window is disjoint from image/stacks and the default data arena. */

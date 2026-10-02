@@ -99,7 +99,7 @@ public sealed class RuntimeBootProtocolTests
         foreach (var mutation in mutations)
             Assert.That(!Accept(mutation), Is.True, "Malformed protocol accepted");
         Assert.That(!RuntimeBootProtocol.Validate(good, 33, true) && !RuntimeBootProtocol.Validate(good, 35, false), Is.True, "Timeout/exit ignored");
-        var header = File.ReadAllText(Path.Combine(root, "src/Kernel.Arch.X64/user_layout.h"));
+        var header = File.ReadAllText(Path.Combine(root, "src/Kernel/include/witos/user_layout.h"));
         var bases = Regex.Matches(header, @"#define WIT_USER_IMAGE_(?:BASE|ALTERNATE) 0x([0-9a-fA-F]+)ULL").Select(m => Convert.ToUInt64(m.Groups[1].Value, 16));
         Assert.That(bases.SequenceEqual(RuntimeBootProtocol.IMAGE_BASES), Is.True, "Kernel/host base contract drift");
     }

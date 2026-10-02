@@ -1,3 +1,4 @@
+#include "x64.h"
 #include "user.h"
 #include "witos/arch_types.h"
 #include "witos/platform.h"

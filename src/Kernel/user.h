@@ -1,8 +1,8 @@
 #ifndef WITOS_USER_H
 #define WITOS_USER_H
-#include "x64.h"
+#include "witos/arch.h"
 #include "witos/arch_types.h"
-#include "user_layout.h"
+#include "witos/user_layout.h"
 #include "witos/handles.h"
 #include "witos/files.h"
 #include "witos/events.h"
