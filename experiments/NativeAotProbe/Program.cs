@@ -4,11 +4,33 @@ using System.Runtime.InteropServices;
 
 namespace WitOS.Experiments;
 
+/// <summary>
+/// Hosted NativeAOT dependency probe: runs the boundary checks with the pinned packages on Windows.
+/// </summary>
 internal static class Program
 {
-    [ThreadStatic] private static int threadValue;
-    private static int finalized;
-    private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(15);
+    #region Fields
+
+    [ThreadStatic] private static int m_threadValue;
+
+    private static int m_finalized;
+
+    private static readonly TimeSpan DEADLINE = TimeSpan.FromSeconds(15);
+
+    #endregion
+
+    #region Types
+
+    private sealed record Node(int Value, Node? Previous);
+
+    private sealed class Finalizable
+    {
+        ~Finalizable() => Interlocked.Increment(ref m_finalized);
+    }
+
+    #endregion
+
+    #region Tools
 
     private static int Main()
     {
@@ -62,7 +84,7 @@ internal static class Program
         CreateFinalizable();
         GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true);
         GC.WaitForPendingFinalizers();
-        Check(Volatile.Read(ref finalized) == 1, "Finalizer did not run.");
+        Check(Volatile.Read(ref m_finalized) == 1, "Finalizer did not run.");
         GC.KeepAlive(nodes);
         GC.KeepAlive(large);
         Pass("GcRootsAndFinalizer");
@@ -112,7 +134,7 @@ internal static class Program
 
     private static void ThreadingAndTls()
     {
-        threadValue = 99;
+        m_threadValue = 99;
         var failure = new Exception?[2];
         var ids = new int[2];
         var gate = new object();
@@ -129,26 +151,26 @@ internal static class Program
             {
                 try
                 {
-                    Check(threadValue == 0, "Thread-static initial value leaked.");
-                    threadValue = captured + 1;
+                    Check(m_threadValue == 0, "Thread-static initial value leaked.");
+                    m_threadValue = captured + 1;
                     ids[captured] = Environment.CurrentManagedThreadId;
                     lock (gate)
                     {
                         ++readyCount;
                         Monitor.PulseAll(gate);
                         while (!release)
-                            Check(Monitor.Wait(gate, Deadline), "Worker rendezvous timed out.");
+                            Check(Monitor.Wait(gate, DEADLINE), "Worker rendezvous timed out.");
                     }
                     for (var i = 0; i < 4000; ++i)
                     {
-                        var live = new Node(threadValue, null);
+                        var live = new Node(m_threadValue, null);
                         Interlocked.Increment(ref shared);
                         if ((i & 255) == 0)
                         {
                             Thread.Yield();
                             GC.Collect(0, GCCollectionMode.Forced, blocking: true);
                         }
-                        Check(live.Value == captured + 1 && threadValue == captured + 1,
+                        Check(live.Value == captured + 1 && m_threadValue == captured + 1,
                             "GC root or thread-static state crossed threads.");
                         GC.KeepAlive(live);
                     }
@@ -163,16 +185,16 @@ internal static class Program
         lock (gate)
         {
             while (readyCount != 2)
-                Check(Monitor.Wait(gate, Deadline), "Parent rendezvous timed out.");
+                Check(Monitor.Wait(gate, DEADLINE), "Parent rendezvous timed out.");
             release = true;
             Monitor.PulseAll(gate);
         }
-        Check(finished.Wait(Deadline), "Workers did not finish.");
+        Check(finished.Wait(DEADLINE), "Workers did not finish.");
         foreach (var worker in workers)
-            Check(worker.Join(Deadline), "Thread join timed out.");
+            Check(worker.Join(DEADLINE), "Thread join timed out.");
         Check(failure[0] is null && failure[1] is null,
             $"Worker failed: {failure[0]?.Message ?? failure[1]?.Message}");
-        Check(shared == 8000 && threadValue == 99 && ids[0] != ids[1],
+        Check(shared == 8000 && m_threadValue == 99 && ids[0] != ids[1],
             "Thread isolation or atomic increment failed.");
         Pass("ThreadsTlsMonitorAndGc");
     }
@@ -184,7 +206,7 @@ internal static class Program
         Check(!signal.WaitOne(30), "Unsignalled event completed successfully.");
         Check(clock.ElapsedMilliseconds >= 10, "Wait timeout returned immediately.");
         signal.Set();
-        Check(signal.WaitOne(Deadline), "Signalled event did not wake.");
+        Check(signal.WaitOne(DEADLINE), "Signalled event did not wake.");
         Check(!signal.WaitOne(0), "Auto-reset event retained the signal.");
         using var manual = new ManualResetEvent(false);
         manual.Set();
@@ -215,15 +237,12 @@ internal static class Program
     }
 
     private static void Pass(string name) => Console.WriteLine($"[PROBE-PASS] {name}");
+
     private static void Check(bool condition, string message)
     {
         if (!condition)
             throw new InvalidOperationException(message);
     }
 
-    private sealed record Node(int Value, Node? Previous);
-    private sealed class Finalizable
-    {
-        ~Finalizable() => Interlocked.Increment(ref finalized);
-    }
+    #endregion
 }

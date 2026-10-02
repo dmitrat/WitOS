@@ -4,86 +4,140 @@ using System.Threading;
 
 namespace WitOS.NativeAotBoot;
 
+/// <summary>
+/// Managed threads: start, join, Monitor waits, thread-static data and GC with parked threads.
+/// </summary>
 internal static class ManagedThreadProbe
 {
-    [ThreadStatic] private static int Local;
-    private static Thread? Previous;
-    private static readonly object Gate = new();
-    private static int Ready, Release, Completed, Failed, WorkerId;
+    #region Fields
+
+    [ThreadStatic] private static int m_local;
+
+    private static Thread? m_previous;
+
+    private static readonly object GATE = new();
+
+    private static int m_ready, m_release, m_completed, m_failed, m_workerId;
+
+    #endregion
+
+    #region Types
+
     private sealed class Root(int value) { internal readonly int Value = value; }
+
+    #endregion
+
+    #region Functions
+
+    /// <summary>
+    /// Runs the managed thread cases.
+    /// </summary>
+    /// <returns>True when every case passed.</returns>
+    internal static bool Run()
+    {
+        int mainId = Environment.CurrentManagedThreadId;
+        m_local = 911;
+        m_previous = null;
+        lock (GATE)
+        {
+            lock (GATE)
+                if (Monitor.Wait(GATE, 1) || !Monitor.IsEntered(GATE))
+                    return false;
+        }
+        try
+        { Monitor.Wait(new object(), 0); return false; }
+        catch (SynchronizationLockException) { }
+        for (int round = 0; round < 4; ++round)
+        {
+            if (!Round(round, mainId))
+                return false;
+            // Prior rounds become collectible; the latest exited observer stays live for reuse checks.
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+        m_previous = null;
+        return m_local == 911;
+    }
+
+    #endregion
+
+    #region Tools
+
     private static bool WaitReady()
     {
         long start = Stopwatch.GetTimestamp();
-        while (Volatile.Read(ref Ready) == 0)
+        while (Volatile.Read(ref m_ready) == 0)
         {
-            if (Volatile.Read(ref Failed) != 0 || Stopwatch.GetElapsedTime(start).TotalSeconds >= 10)
+            if (Volatile.Read(ref m_failed) != 0 || Stopwatch.GetElapsedTime(start).TotalSeconds >= 10)
                 return false;
             Thread.Yield();
         }
         return true;
     }
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void Work(object? argument)
     {
         try
         {
             int round = (int)argument!;
-            if (Local != 0)
-            { Volatile.Write(ref Failed, 1); return; }
-            Local = 731 + round;
-            WorkerId = Environment.CurrentManagedThreadId;
-            var root = new Root(Local);
+            if (m_local != 0)
+            { Volatile.Write(ref m_failed, 1); return; }
+            m_local = 731 + round;
+            m_workerId = Environment.CurrentManagedThreadId;
+            var root = new Root(m_local);
             var bytes = new byte[2048];
             bytes[0] = 17;
             bytes[^1] = 29;
             if ((round & 1) == 0)
             {
-                Volatile.Write(ref Ready, 1);
+                Volatile.Write(ref m_ready, 1);
                 // Actual managed execution must be suspended by GC, not voluntarily parked.
-                while (Volatile.Read(ref Release) == 0)
+                while (Volatile.Read(ref m_release) == 0)
                 { }
             }
             else
             {
-                lock (Gate)
+                lock (GATE)
                 {
-                    lock (Gate) // Monitor recursion depth must survive Wait's full release/reacquire.
+                    lock (GATE) // Monitor recursion depth must survive Wait's full release/reacquire.
                     {
-                        Volatile.Write(ref Ready, 1);
-                        while (Volatile.Read(ref Release) == 0)
-                            if (!Monitor.Wait(Gate, 10000))
+                        Volatile.Write(ref m_ready, 1);
+                        while (Volatile.Read(ref m_release) == 0)
+                            if (!Monitor.Wait(GATE, 10000))
                                 throw new TimeoutException();
-                        if (!Monitor.IsEntered(Gate))
+                        if (!Monitor.IsEntered(GATE))
                             throw new InvalidOperationException();
                     }
                 }
             }
-            if (root.Value != Local || Local != 731 + round || bytes[0] != 17 || bytes[^1] != 29 ||
+            if (root.Value != m_local || m_local != 731 + round || bytes[0] != 17 || bytes[^1] != 29 ||
                 !ExceptionProbe.Run())
-                Volatile.Write(ref Failed, 1);
+                Volatile.Write(ref m_failed, 1);
             GC.KeepAlive(root);
             GC.KeepAlive(bytes);
-            Interlocked.Increment(ref Completed);
+            Interlocked.Increment(ref m_completed);
         }
-        catch { Volatile.Write(ref Failed, 1); }
+        catch { Volatile.Write(ref m_failed, 1); }
     }
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static bool Round(int round, int mainId)
     {
-        Ready = Release = Completed = Failed = WorkerId = 0;
+        m_ready = m_release = m_completed = m_failed = m_workerId = 0;
         var thread = new Thread(Work);
         thread.Start(round);
         bool valid = false;
         try
         {
-            if (WaitReady() && !thread.Join(0) && WorkerId != mainId && Local == 911)
+            if (WaitReady() && !thread.Join(0) && m_workerId != mainId && m_local == 911)
             {
-                if (Previous is { } old && (old.IsAlive || !old.Join(0)))
+                if (m_previous is { } old && (old.IsAlive || !old.Join(0)))
                     return false;
                 if ((round & 1) != 0)
                 {
                     long start = Stopwatch.GetTimestamp();
-                    while ((thread.ThreadState & System.Threading.ThreadState.WaitSleepJoin) == 0 && Volatile.Read(ref Failed) == 0)
+                    while ((thread.ThreadState & System.Threading.ThreadState.WaitSleepJoin) == 0 && Volatile.Read(ref m_failed) == 0)
                     {
                         if (Stopwatch.GetElapsedTime(start).TotalSeconds >= 10)
                             return false;
@@ -100,39 +154,15 @@ internal static class ManagedThreadProbe
         }
         finally
         {
-            Volatile.Write(ref Release, 1);
-            lock (Gate)
-                Monitor.PulseAll(Gate);
+            Volatile.Write(ref m_release, 1);
+            lock (GATE)
+                Monitor.PulseAll(GATE);
             valid &= thread.Join(10000);
         }
-        bool passed = valid && !thread.IsAlive && thread.Join(0) && Completed == 1 && Failed == 0 && Local == 911;
-        Previous = thread; // Keep the exited observer live through the next slot reuse.
+        bool passed = valid && !thread.IsAlive && thread.Join(0) && m_completed == 1 && m_failed == 0 && m_local == 911;
+        m_previous = thread; // Keep the exited observer live through the next slot reuse.
         return passed;
     }
 
-    internal static bool Run()
-    {
-        int mainId = Environment.CurrentManagedThreadId;
-        Local = 911;
-        Previous = null;
-        lock (Gate)
-        {
-            lock (Gate)
-                if (Monitor.Wait(Gate, 1) || !Monitor.IsEntered(Gate))
-                    return false;
-        }
-        try
-        { Monitor.Wait(new object(), 0); return false; }
-        catch (SynchronizationLockException) { }
-        for (int round = 0; round < 4; ++round)
-        {
-            if (!Round(round, mainId))
-                return false;
-            // Prior rounds become collectible; the latest exited observer stays live for reuse checks.
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-        }
-        Previous = null;
-        return Local == 911;
-    }
+    #endregion
 }

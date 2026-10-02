@@ -2,29 +2,23 @@ using System.Runtime.CompilerServices;
 
 namespace WitOS.NativeAotBoot;
 
+/// <summary>
+/// Hardware null reads, null writes and integer division by zero surface as managed exceptions with live roots.
+/// </summary>
 internal static class FaultProbe
 {
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static unsafe int Read(int* address) => *address;
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static unsafe void Write(int* address, int value) => *address = value;
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static int Divide(int numerator, int denominator) => numerator / denominator;
+    #region Types
 
     private sealed class Root(int value) { internal readonly int Value = value; }
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static Root MakeRoot(int value) => new(value);
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static bool Collect(Root root, Exception error)
-    {
-        int before = GC.CollectionCount(0);
-        GC.Collect();
-        bool valid = GC.CollectionCount(0) > before && root.Value == 731 && error is not null;
-        GC.KeepAlive(error);
-        GC.KeepAlive(root);
-        return valid;
-    }
 
+    #endregion
+
+    #region Functions
+
+    /// <summary>
+    /// Triggers each hardware fault twice and checks the caught exception types and live roots.
+    /// </summary>
+    /// <returns>True when every fault was caught as expected.</returns>
     [MethodImpl(MethodImplOptions.NoInlining)]
     internal static unsafe bool Run()
     {
@@ -60,4 +54,33 @@ internal static class FaultProbe
         GC.KeepAlive(root);
         return caught == 6 && finalized == 6 && root.Value == 731;
     }
+
+    #endregion
+
+    #region Tools
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static unsafe int Read(int* address) => *address;
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static unsafe void Write(int* address, int value) => *address = value;
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int Divide(int numerator, int denominator) => numerator / denominator;
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static Root MakeRoot(int value) => new(value);
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static bool Collect(Root root, Exception error)
+    {
+        int before = GC.CollectionCount(0);
+        GC.Collect();
+        bool valid = GC.CollectionCount(0) > before && root.Value == 731 && error is not null;
+        GC.KeepAlive(error);
+        GC.KeepAlive(root);
+        return valid;
+    }
+
+    #endregion
 }

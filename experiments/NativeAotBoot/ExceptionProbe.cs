@@ -3,27 +3,72 @@ using System.Runtime.InteropServices;
 
 namespace WitOS.NativeAotBoot;
 
-// Same managed cases run in the Windows reference and the guest. The explicit
-// native allocation exercises existing platform bindings, not a replacement BCL.
+/// <summary>
+/// Managed exception dispatch, filters, finally ordering and GC during unwinding.
+/// </summary>
+/// <remarks>
+/// Same managed cases run in the Windows reference and the guest. The explicit
+/// native allocation exercises existing platform bindings, not a replacement BCL.
+/// </remarks>
 internal static unsafe class ExceptionProbe
 {
-    [DllImport("kernel32.dll", ExactSpelling = true)]
-    private static extern void* VirtualAlloc(void* address, nuint bytes, uint kind, uint protection);
-    [DllImport("kernel32.dll", ExactSpelling = true)]
-    private static extern int VirtualFree(void* address, nuint bytes, uint kind);
+    #region Types
 
     private sealed class Payload(int value) { internal readonly int Value = value; }
+
     private sealed class ProbeException(Payload payload) : Exception
     {
         internal readonly Payload Payload = payload;
     }
+
     private sealed class Trace
     {
+        #region Fields
+
         internal ulong Steps;
+
         internal int Collections, Releases;
+
         internal bool Valid = true;
+
+        #endregion
+
+        #region Functions
+
+        /// <summary>
+        /// Appends one step to the recorded order as a hexadecimal digit.
+        /// </summary>
+        /// <param name="value">Step number, 0 to 15.</param>
         internal void Step(uint value) => Steps = Steps * 16 + value;
+
+        #endregion
     }
+
+    #endregion
+
+    #region Functions
+
+    /// <summary>
+    /// Runs four rounds of the exception cases.
+    /// </summary>
+    /// <returns>True when every round passed.</returns>
+    internal static bool Run()
+    {
+        for (int round = 0; round < 4; ++round)
+            if (!Round())
+                return false;
+        return true;
+    }
+
+    #endregion
+
+    #region Tools
+
+    [DllImport("kernel32.dll", ExactSpelling = true)]
+    private static extern void* VirtualAlloc(void* address, nuint bytes, uint kind, uint protection);
+
+    [DllImport("kernel32.dll", ExactSpelling = true)]
+    private static extern int VirtualFree(void* address, nuint bytes, uint kind);
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void Collect(Trace trace, Payload root, ProbeException error)
@@ -116,11 +161,5 @@ internal static unsafe class ExceptionProbe
         return trace.Valid && trace.Steps == 0x123456789AUL && trace.Collections == 6 && trace.Releases == 1;
     }
 
-    internal static bool Run()
-    {
-        for (int round = 0; round < 4; ++round)
-            if (!Round())
-                return false;
-        return true;
-    }
+    #endregion
 }

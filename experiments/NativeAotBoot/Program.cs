@@ -4,17 +4,35 @@ using System.Threading;
 
 namespace WitOS.NativeAotBoot;
 
+/// <summary>
+/// Guest NativeAOT workload: native worker entry points and the managed Main that runs every probe and reports protocol lines.
+/// </summary>
 internal static class Program
 {
+    #region Fields
+
+    private static readonly Box ROOT = Make(87);
+
+    private static Box? m_workerRoot;
+
+    private static int m_workerCollections;
+
+    private static int m_spinReady, m_spinStop, m_spinSucceeded;
+
+    private static int m_fallbackReady, m_fallbackStop, m_fallbackResult;
+
+    #endregion
+
+    #region Types
+
     private sealed class Box(int value) { internal readonly int Value = value; }
-    private static readonly Box Root = Make(87);
+
+    #endregion
+
+    #region Tools
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static Box Make(int value) => new(value);
-
-    private static Box? WorkerRoot;
-    private static int WorkerCollections;
-    private static int SpinReady, SpinStop, SpinSucceeded;
 
     [UnmanagedCallersOnly]
     private static int Worker(int value)
@@ -39,7 +57,7 @@ internal static class Program
             return CollectSpinningWorker();
         if (value == 211)
             return CollectExitingWorker();
-        WorkerRoot = Make(value);
+        m_workerRoot = Make(value);
         if (value == 207)
         {
             var local = Make(1207);
@@ -48,15 +66,15 @@ internal static class Program
             bytes[^1] = 53;
             int before = GC.CollectionCount(0);
             GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
-            if (GC.CollectionCount(0) <= before || local.Value != 1207 || WorkerRoot.Value != value || bytes[0] != 31 || bytes[^1] != 53)
+            if (GC.CollectionCount(0) <= before || local.Value != 1207 || m_workerRoot.Value != value || bytes[0] != 31 || bytes[^1] != 53)
                 return -1;
             GC.KeepAlive(local);
             GC.KeepAlive(bytes);
-            WorkerCollections++;
+            m_workerCollections++;
             // Keep the shutdown acceptance context populated after the collection.
-            WorkerRoot = Make(value);
+            m_workerRoot = Make(value);
         }
-        return WorkerRoot.Value;
+        return m_workerRoot.Value;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -66,39 +84,37 @@ internal static class Program
         var bytes = new byte[2048];
         bytes[0] = 67;
         bytes[^1] = 89;
-        Volatile.Write(ref SpinReady, 1);
-        while (Volatile.Read(ref SpinStop) == 0)
+        Volatile.Write(ref m_spinReady, 1);
+        while (Volatile.Read(ref m_spinStop) == 0)
         { }
         bool valid = local.Value == 3208 && bytes[0] == 67 && bytes[^1] == 89;
         GC.KeepAlive(local);
         GC.KeepAlive(bytes);
         GC.KeepAlive(Make(208)); // Refill the allocation context after the collection.
-        Volatile.Write(ref SpinSucceeded, valid ? 1 : -1);
+        Volatile.Write(ref m_spinSucceeded, valid ? 1 : -1);
         return valid ? 208 : -1;
     }
 
     private static int CollectSpinningWorker()
     {
-        while (Volatile.Read(ref SpinReady) == 0)
+        while (Volatile.Read(ref m_spinReady) == 0)
         { }
         int before = GC.CollectionCount(0);
         GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
         if (GC.CollectionCount(0) <= before)
             return -1;
-        WorkerRoot = Make(209);
-        WorkerCollections++;
-        Volatile.Write(ref SpinStop, 1);
+        m_workerRoot = Make(209);
+        m_workerCollections++;
+        Volatile.Write(ref m_spinStop, 1);
         return 209;
     }
-
-    private static int FallbackReady, FallbackStop, FallbackResult;
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static Box FallbackReturn(Box root)
     {
         // Repeated real returns let the upstream return-address hijack run.
         // Keep this method call/GC-poll free while the timer captures its frame.
-        for (int i = 0; i < 1000000 && Volatile.Read(ref FallbackStop) == 0; ++i)
+        for (int i = 0; i < 1000000 && Volatile.Read(ref m_fallbackStop) == 0; ++i)
         { }
         return root;
     }
@@ -110,29 +126,29 @@ internal static class Program
         var bytes = new byte[2048];
         bytes[0] = 71;
         bytes[^1] = 93;
-        Volatile.Write(ref FallbackReady, 1);
-        while (Volatile.Read(ref FallbackStop) == 0)
+        Volatile.Write(ref m_fallbackReady, 1);
+        while (Volatile.Read(ref m_fallbackStop) == 0)
             if (FallbackReturn(root).Value != 3218)
                 return -1;
         bool valid = root.Value == 3218 && bytes[0] == 71 && bytes[^1] == 93;
         GC.KeepAlive(root);
         GC.KeepAlive(bytes);
         GC.KeepAlive(Make(218));
-        Volatile.Write(ref FallbackResult, valid ? 1 : -1);
+        Volatile.Write(ref m_fallbackResult, valid ? 1 : -1);
         return valid ? 218 : -1;
     }
 
     private static int FallbackCollector()
     {
-        while (Volatile.Read(ref FallbackReady) == 0)
+        while (Volatile.Read(ref m_fallbackReady) == 0)
         { }
         int before = GC.CollectionCount(0);
         GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
         if (GC.CollectionCount(0) <= before)
             return -1;
-        WorkerRoot = Make(219);
-        WorkerCollections++;
-        Volatile.Write(ref FallbackStop, 1);
+        m_workerRoot = Make(219);
+        m_workerCollections++;
+        Volatile.Write(ref m_fallbackStop, 1);
         return 219;
     }
 
@@ -140,10 +156,10 @@ internal static class Program
     {
         int before = GC.CollectionCount(0);
         GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
-        if (GC.CollectionCount(0) <= before || WorkerRoot?.Value != 210)
+        if (GC.CollectionCount(0) <= before || m_workerRoot?.Value != 210)
             return -1;
-        WorkerRoot = Make(211);
-        WorkerCollections++;
+        m_workerRoot = Make(211);
+        m_workerCollections++;
         return 211;
     }
 
@@ -172,7 +188,7 @@ internal static class Program
                 address = (address << 4) | (nuint)digit;
             }
             lifecycle = (delegate* unmanaged<delegate* unmanaged<int, int>, int>)address;
-            if (address == 0 || lifecycle(&Worker) != 42 || WorkerRoot?.Value != 211 || WorkerCollections != 4 || Volatile.Read(ref SpinSucceeded) != 1 || Volatile.Read(ref FallbackResult) != 1)
+            if (address == 0 || lifecycle(&Worker) != 42 || m_workerRoot?.Value != 211 || m_workerCollections != 4 || Volatile.Read(ref m_spinSucceeded) != 1 || Volatile.Read(ref m_fallbackResult) != 1)
                 return 105;
         }
         for (int cycle = 0; cycle < 4; ++cycle)
@@ -204,9 +220,11 @@ internal static class Program
             return 113;
         int before = GC.CollectionCount(0);
         GC.Collect();
-        var valid = GC.CollectionCount(0) > before && Root.Value == 87 && local.Value == 42 && bytes[0] == 17 && bytes[^1] == 29 && (args.Length == 0 || WorkerRoot?.Value == 211);
+        var valid = GC.CollectionCount(0) > before && ROOT.Value == 87 && local.Value == 42 && bytes[0] == 17 && bytes[^1] == 29 && (args.Length == 0 || m_workerRoot?.Value == 211);
         GC.KeepAlive(local);
         GC.KeepAlive(bytes);
         return valid ? 42 : 102;
     }
+
+    #endregion
 }

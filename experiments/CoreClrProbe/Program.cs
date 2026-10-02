@@ -6,13 +6,31 @@ using System.Runtime.Loader;
 
 namespace WitOS.CoreClrProbe;
 
+/// <summary>
+/// Portable managed probe that upstream CoreCLR runs unchanged: JIT and dynamic methods, generic reflection, GC and
+/// finalization, exceptions, thread pool tasks, load contexts and module paths.
+/// </summary>
 internal static class Program
 {
-    private static int finalizers;
-    private sealed class Finalizable { ~Finalizable() => Interlocked.Increment(ref finalizers); }
+    #region Fields
+
+    private static int m_finalizers;
+
+    #endregion
+
+    #region Types
+
+    private sealed class Finalizable { ~Finalizable() => Interlocked.Increment(ref m_finalizers); }
+
+    #endregion
+
+    #region Tools
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static WeakReference MakeFinalizable() => new(new Finalizable());
+
     private static T Identity<T>(T value) => value;
+
     private static void Require(bool value, string name)
     {
         if (!value)
@@ -38,7 +56,7 @@ internal static class Program
         GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
         GC.WaitForPendingFinalizers();
         GC.Collect();
-        Require(finalizers == 1 && !weak.IsAlive, "GcAndFinalization");
+        Require(m_finalizers == 1 && !weak.IsAlive, "GcAndFinalization");
         var roots = new object[] { new byte[8192], new List<int> { 17, 29 } };
         var finished = false;
         try
@@ -74,4 +92,6 @@ internal static class Program
         GC.KeepAlive(roots);
         return 42;
     }
+
+    #endregion
 }

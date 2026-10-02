@@ -2,14 +2,26 @@ using System.Runtime.CompilerServices;
 
 namespace WitOS.Experiments;
 
-// Independently authored port-boundary checks. Standard upstream CoreLib only;
-// they execute on the hosted reference until the guest runtime exists.
+/// <summary>
+/// Runtime boundary checks for composite GC roots and roots that survive exception unwinding.
+/// </summary>
+/// <remarks>
+/// Independently authored port-boundary checks. Standard upstream CoreLib only;
+/// they execute on the hosted reference until the guest runtime exists.
+/// </remarks>
 internal static class RuntimeBoundaryChecks
 {
+    #region Types
+
     private sealed class Payload(int id)
     {
+        #region Fields
+
         internal readonly int Id = id;
+
         internal Payload? Link;
+
+        #endregion
     }
 
     private class BaseRoot
@@ -24,8 +36,13 @@ internal static class RuntimeBoundaryChecks
 
     private struct Envelope
     {
+        #region Fields
+
         internal Payload? Item;
+
         internal long Stamp;
+
+        #endregion
     }
 
     private static class ClosedRoots<T>
@@ -34,8 +51,21 @@ internal static class RuntimeBoundaryChecks
     }
 
     private sealed class FirstTag;
+
     private sealed class SecondTag;
 
+    private sealed class Signal(Payload payload) : Exception
+    {
+        internal readonly Payload Payload = payload;
+    }
+
+    #endregion
+
+    #region Functions
+
+    /// <summary>
+    /// Keeps objects alive through struct arrays, jagged arrays, generic statics and inheritance across collections.
+    /// </summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
     internal static void CompositeRoots()
     {
@@ -81,36 +111,9 @@ internal static class RuntimeBoundaryChecks
         }
     }
 
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static DerivedRoot MakeGraph()
-    {
-        var first = new Payload(302);
-        first.Link = new Payload(303) { Link = first };
-        return new DerivedRoot
-        {
-            Inherited = new Payload(301),
-            Nested = new Envelope { Item = first, Stamp = 0x1122334455667788 }
-        };
-    }
-
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static ref Envelope MakeInteriorRoot()
-    {
-        var array = new Envelope[19];
-        array[7] = new Envelope { Item = new Payload(601), Stamp = 33 };
-        // The caller receives only a managed interior ref, never the array.
-        return ref array[7];
-    }
-
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static Payload?[][] MakeJaggedRoots() =>
-        [new Payload?[] { new Payload(801), null }, new Payload?[] { new Payload(802) }];
-
-    private sealed class Signal(Payload payload) : Exception
-    {
-        internal readonly Payload Payload = payload;
-    }
-
+    /// <summary>
+    /// Keeps objects alive across exception filters, finally blocks and catch.
+    /// </summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
     internal static void UnwindRoots()
     {
@@ -151,6 +154,35 @@ internal static class RuntimeBoundaryChecks
         }
         throw new InvalidOperationException("Expected rethrow did not occur.");
     }
+
+    #endregion
+
+    #region Tools
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static DerivedRoot MakeGraph()
+    {
+        var first = new Payload(302);
+        first.Link = new Payload(303) { Link = first };
+        return new DerivedRoot
+        {
+            Inherited = new Payload(301),
+            Nested = new Envelope { Item = first, Stamp = 0x1122334455667788 }
+        };
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static ref Envelope MakeInteriorRoot()
+    {
+        var array = new Envelope[19];
+        array[7] = new Envelope { Item = new Payload(601), Stamp = 33 };
+        // The caller receives only a managed interior ref, never the array.
+        return ref array[7];
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static Payload?[][] MakeJaggedRoots() =>
+        [new Payload?[] { new Payload(801), null }, new Payload?[] { new Payload(802) }];
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void ThrowThroughCleanup(Signal signal, Payload root, List<int> order)
@@ -203,4 +235,6 @@ internal static class RuntimeBoundaryChecks
         if (!condition)
             throw new InvalidOperationException("Runtime boundary: " + name);
     }
+
+    #endregion
 }
