@@ -50,7 +50,7 @@ public sealed class PeCorpusTests
         var exe = Path.Combine(output, "pe-corpus.exe");
         await Processes.RequireSuccessAsync(compiler, ["/nologo","/MD","/TC","/std:c17",coverage?"/Od":"/O2",..instrumentation,"/GS","/W4","/WX","/D_CRT_SECURE_NO_WARNINGS",
             "/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"Include",version,"ucrt"),"/I"+Path.Combine(sdk,"Include",version,"shared"),"/I"+Path.Combine(sdk,"Include",version,"um"),
-            "/I"+Path.Combine(root,"src/Kernel/include"),"/Fo"+output+"/","/Fe"+exe,source,parser,Path.Combine(root,"src/Kernel/pe_imports.c"),Path.Combine(root,"src/Kernel/pe_exports.c"),"/link",
+            "/I"+Path.Combine(root,"src/Kernel/include"),"/Fo"+output+"/","/Fe"+exe,source,parser,Path.Combine(root,"tests/WitOS.Dev.Tests/Native/HostIdentity.c"),Path.Combine(root,"src/Kernel/pe_imports.c"),Path.Combine(root,"src/Kernel/pe_exports.c"),"/link",
             "/LIBPATH:"+Path.Combine(vc,"lib/x64"),"/LIBPATH:"+Path.Combine(sdk,"Lib",version,"ucrt/x64"),"/LIBPATH:"+Path.Combine(sdk,"Lib",version,"um/x64"),"kernel32.lib"], root);
         var image = Path.Combine(root, "artifacts/runtime-readiness/guest-driver/WitOS.NativeAotBoot.pe");
         IReadOnlyDictionary<string, string>? environment = coverage ? new Dictionary<string, string>
@@ -63,7 +63,7 @@ public sealed class PeCorpusTests
         if (result.TimedOut || result.ExitCode != 0 || !result.Output.Contains("PASS: 555 immutable trailing-guard PE inputs"))
             throw new Exception($"PE corpus failed (exit={result.ExitCode}, timeout={result.TimedOut}); see {Path.Combine(output, "pe-corpus.log")}");
         string Hash(string p) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(p))).ToLowerInvariant();
-        await File.WriteAllTextAsync(Path.Combine(output, "pe-corpus.json"), JsonSerializer.Serialize(new { hostOnly = true, cases = 555, structuralVerdictCases = 26, seed = "0x57314A29", inputs = new[] { source, parser, Path.Combine(root, "src/Kernel/pe_imports.c"), Path.Combine(root, "src/Kernel/pe_exports.c"), image, Path.Combine(root, "src/Kernel/include/witos/pe.h"), Path.Combine(root, "src/Kernel/include/witos/unwind_metadata.h") }.Select(file => new { file, sha256 = Hash(file) }) }));
+        await File.WriteAllTextAsync(Path.Combine(output, "pe-corpus.json"), JsonSerializer.Serialize(new { hostOnly = true, cases = 555, structuralVerdictCases = 26, seed = "0x57314A29", inputs = new[] { source, parser, Path.Combine(root, "tests/WitOS.Dev.Tests/Native/HostIdentity.c"), Path.Combine(root, "src/Kernel/pe_imports.c"), Path.Combine(root, "src/Kernel/pe_exports.c"), image, Path.Combine(root, "src/Kernel/include/witos/pe.h"), Path.Combine(root, "src/Kernel/include/witos/unwind_metadata.h") }.Select(file => new { file, sha256 = Hash(file) }) }));
         Console.Write(result.Output);
         if (coverage)
             await NativeCoverage.ReportAsync(root, output, exe);

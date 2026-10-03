@@ -1,3 +1,4 @@
+#include "witos/arch.h"
 #include "witos/pe_imports.h"
 #include "witos/pe.h"
 #include "witos/unwind_metadata.h"
@@ -487,9 +488,8 @@ WitPeStatus wit_pe_validate_profile(const WitU8 *file, WitU32 size, WitPeImage *
     if (nt < 64 || !range(nt, 24, size) || u32(file + nt) != 0x4550) {
         return WitPeInvalidImage;
     }
-    /* x64 user images only: the unwind validation below decodes x64 unwind codes. ARM64 user images
-     * arrive with phase A and their own unwind validator. */
-    if (u16(file + nt + 4) != 0x8664) {
+    /* User images run on the kernel's own machine. */
+    if (u16(file + nt + 4) != wit_arch_identity()->PeMachine) {
         return WitPeUnsupportedImage;
     }
     characteristics = u16(file + nt + 22);
@@ -583,6 +583,10 @@ WitPeStatus wit_pe_validate_profile(const WitU8 *file, WitU32 size, WitPeImage *
         if ((!rva) != (!length)) {
             return WitPeInvalidImage;
         }
+    }
+    /* The unwind validation decodes one machine's metadata; elsewhere an exception directory is refused. */
+    if (plan->UnwindSize && !(wit_arch_identity()->Capabilities & WIT_ARCH_PE_UNWIND)) {
+        return WitPeUnsupportedImage;
     }
     if ((characteristics & 1) && plan->RelocSize) {
         return WitPeInvalidImage;

@@ -35,7 +35,7 @@ public sealed class PeFuzzTests
             ["/nologo", "/MD", "/TC", "/std:c17", "/O1", "/Zi", "/W4", "/WX", "/clang:-fsanitize=fuzzer,address", "-fuse-ld=lld",
              "/I"+Path.Combine(vc,"include"), "/I"+Path.Combine(sdk,"Include",version,"ucrt"),
              "/I"+Path.Combine(root,"src/Kernel/include"), "/Fo"+output+"/", "/Fe"+exe,
-             Path.Combine(root,"tests/WitOS.Dev.Tests/Native/PeFuzzer.c"), Path.Combine(root,"src/Kernel/pe.c"), Path.Combine(root,"src/Kernel/pe_imports.c"),Path.Combine(root,"src/Kernel/pe_exports.c"), "/link",
+             Path.Combine(root,"tests/WitOS.Dev.Tests/Native/PeFuzzer.c"), Path.Combine(root,"src/Kernel/pe.c"), Path.Combine(root,"src/Kernel/pe_imports.c"),Path.Combine(root,"src/Kernel/pe_exports.c"), Path.Combine(root,"tests/WitOS.Dev.Tests/Native/HostIdentity.c"), "/link",
              "/LIBPATH:"+Path.Combine(vc,"lib/x64"), "/LIBPATH:"+Path.Combine(sdk,"Lib",version,"ucrt/x64"),
              "/LIBPATH:"+Path.Combine(sdk,"Lib",version,"um/x64")], root);
         var corpus = Path.Combine(output, "fuzz-corpus");
@@ -68,7 +68,7 @@ public sealed class PeFuzzTests
             profiles = new[] { "runtime-full", "library-runtime-unwind", "library-imports", "library-static-tls" },
             librarySha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(library))).ToLowerInvariant(),
             imageSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(image))).ToLowerInvariant(),
-            sources = new[] { "src/Kernel/pe.c", "src/Kernel/pe_imports.c", "src/Kernel/include/witos/pe_imports.h", "src/Kernel/pe_exports.c", "src/Kernel/include/witos/unwind_metadata.h", "tests/WitOS.Dev.Tests/Native/PeFuzzer.c" }
+            sources = new[] { "src/Kernel/pe.c", "src/Kernel/pe_imports.c", "src/Kernel/include/witos/pe_imports.h", "src/Kernel/pe_exports.c", "src/Kernel/include/witos/unwind_metadata.h", "tests/WitOS.Dev.Tests/Native/PeFuzzer.c", "tests/WitOS.Dev.Tests/Native/HostIdentity.c" }
                 .Select(file => new { file, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, file)))).ToLowerInvariant() })
         }, new JsonSerializerOptions { WriteIndented = true }));
         Console.WriteLine("PASS: 500 bounded libFuzzer/ASan parser runs; this is a smoke budget, not exhaustive fuzzing.");

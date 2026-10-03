@@ -48,9 +48,9 @@ public sealed class KernelLayeringTests
     private static readonly Regex ARCHITECTURE_INCLUDE = new(
         @"#include\s+""(?:[^""]*Arch[^""]*|[^""]*Platform\.[^""]*|x64\.h|q35\.h|cpu_cache\.h|minipal_cpu[^""]*)""");
 
-    // Named exceptions: the user PE validator accepts x64 images only until ARM64 user images get their own unwind
-    // validator in phase A.
-    private static readonly (string File, string Name)[] ARCHITECTURE_NAME_EXCEPTIONS = [("pe.c", "0x8664")];
+    // Named exceptions, each with its reason. None remain: the PE validator takes its machine and unwind capability
+    // from wit_arch_identity().
+    private static readonly (string File, string Name)[] ARCHITECTURE_NAME_EXCEPTIONS = [];
 
     // Board devices: q35 port I/O, UART, HPET aperture and exit port; virt PL011 and Arm semihosting.
     private static readonly Regex BOARD_DEVICE = new(

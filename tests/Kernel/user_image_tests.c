@@ -1,7 +1,7 @@
-#include "x64.h"
 #include "user.h"
 #include "witos/platform.h"
 #include "protocol.h"
+#include "user_arch_tests.h"
 #include "pe_image.h"
 
 static WitUserProcess components[2];
@@ -188,7 +188,7 @@ static void malformed_tests(WitPageAllocator *pages)
     wit_console_write("[TEST-PASS] User.ImageHeadersAndBounds\n");
 
     reset();
-    put16(nt + 4, 0xAA64);
+    put16(nt + 4, wit_test_foreign_machine);
     reject_current(pages, WitPeUnsupportedImage);
     reset();
     put16(nt + 22, (WitU16)(u16(changed + nt + 22) | 0x2000));
@@ -212,7 +212,10 @@ static void malformed_tests(WitPageAllocator *pages)
         reset();
         put32(optional + 112 + i * 8, 0x1000);
         put32(optional + 116 + i * 8, 16);
-        reject_current(pages, (i == 3 || i == 9) ? WitPeInvalidImage : WitPeUnsupportedImage);
+        reject_current(pages,
+            i == 3       ? wit_test_exception_directory_status
+                : i == 9 ? WitPeInvalidImage
+                         : WitPeUnsupportedImage);
     }
     reset();
     put32(optional + 112 + 5 * 8, 0);
@@ -426,17 +429,11 @@ void wit_user_image_self_test(WitPageAllocator *pages)
         }
         create(pages, 0, changed, sizeof(wit_pe_test_image), WIT_USER_IMAGE_BASE, i + 1);
         wit_user_run(&components[0]);
-        require(components[0].State == WitUserFaulted &&
-                components[0].FaultVector == 14 &&
-                components[0].FaultError ==
-                    (i < 3           ? 7ULL
-                            : i == 3 ? 21ULL
-                                     : 4ULL) &&
-                components[0].FaultAddress == expected_address[i] &&
-                components[0].FaultState.Cs == WIT_USER_CS &&
-                components[0].FaultState.Ss == WIT_USER_SS &&
-                components[0].Handles.Count == 0,
-            "PE protection fault not contained");
+        const WitUserFaultCase *kind = &wit_test_image_faults[i < 3 ? WitImageFaultWrite
+                : i == 3                                            ? WitImageFaultExecute
+                                                                    : WitImageFaultRead];
+        const WitUserFaultCase expected = {i + 1, fault_names[i], kind->Vector, kind->Error, expected_address[i], 1, 0};
+        require(wit_test_user_fault_contained(&components[0], &expected, 0), "PE protection fault not contained");
         wit_user_destroy(&components[0]);
         require(wit_pages_free_count(pages) == before, "Faulted PE component leaked");
         create(pages, 0, wit_pe_test_image, sizeof(wit_pe_test_image), WIT_USER_IMAGE_BASE, 0);

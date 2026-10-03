@@ -39,11 +39,14 @@ struct WitBootInfo;
 /* What the boot contract, the image check and the banner say about this architecture. */
 typedef struct WitArchIdentity {
     WitU32 BootArchitecture; /* WIT_ARCH_* in WitBootInfo. */
-    WitU16 PeMachine; /* Machine field of the kernel's own PE image. */
-    WitU16 Reserved;
+    WitU16 PeMachine; /* Machine field of the kernel's PE image and of the user images it loads. */
+    WitU16 Capabilities; /* WIT_ARCH_* capability flags below. */
     const char *Name; /* Short name, such as x64. */
     const char *Processor; /* Processor family, such as x86_64. */
 } WitArchIdentity;
+
+/* The kernel validates the unwind metadata (exception directory) of this machine's images. */
+#define WIT_ARCH_PE_UNWIND 1U
 
 /* Identity, bring-up, interrupt flag and halting. */
 const WitArchIdentity *wit_arch_identity(void);

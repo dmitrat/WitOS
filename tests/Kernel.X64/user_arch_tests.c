@@ -32,6 +32,12 @@ const WitUserFaultCase wit_test_thread_faults[] = {{WIT_THREAD_TEST_FAULT, "User
     {WIT_THREAD_TEST_GUARD_HIGH, "User.ThreadGuardHigh", 14, 6, WIT_USER_STACK_TOP + WIT_USER_THREAD_STRIDE, 1, 0}};
 const WitU32 wit_test_thread_fault_count = sizeof(wit_test_thread_faults) / sizeof(wit_test_thread_faults[0]);
 
+/* x64 validates x64 unwind metadata, so a malformed exception directory is invalid, not unsupported. */
+const WitU16 wit_test_foreign_machine = 0xAA64;
+const WitPeStatus wit_test_exception_directory_status = WitPeInvalidImage;
+const WitUserFaultCase wit_test_image_faults[3] = {
+    {0, "write", 14, 7, 0, 0, 0}, {0, "execute", 14, 21, 0, 0, 0}, {0, "read", 14, 4, 0, 0, 0}};
+
 static WitInterruptContext model_frames[WIT_USER_THREAD_CAPACITY];
 
 WitArchFrame *wit_test_model_frame(WitU32 index)

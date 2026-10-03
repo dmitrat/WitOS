@@ -40,7 +40,7 @@ public sealed class PeImportsTests
         var exe = Path.Combine(output, "pe-imports.exe");
         await Processes.RequireSuccessAsync(sanitize ? Path.Combine(NativeCoverage.DirectoryPath(root), "bin/clang-cl.exe") : Path.Combine(msvc, "cl.exe"), ["/nologo","/MD","/TC","/std:c17","/W4","/WX",sanitize?"/O1":"/O2",..(sanitize?new[]{"/Zi","/clang:-fsanitize=address","-fuse-ld=lld"}:Array.Empty<string>()),
             "/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"Include",version,"ucrt"),"/I"+Path.Combine(sdk,"Include",version,"um"),"/I"+Path.Combine(sdk,"Include",version,"shared"),"/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),
-            "/Fo"+output+"/","/Fe"+exe,Path.Combine(root,"src/Kernel/pe.c"),Path.Combine(root,"src/Kernel/pe_exports.c"),Path.Combine(root,"src/Kernel/pe_imports.c"),Path.Combine(root,"tests/WitOS.Dev.Tests/Native/PeImports.c"),
+            "/Fo"+output+"/","/Fe"+exe,Path.Combine(root,"src/Kernel/pe.c"),Path.Combine(root,"src/Kernel/pe_exports.c"),Path.Combine(root,"src/Kernel/pe_imports.c"),Path.Combine(root,"tests/WitOS.Dev.Tests/Native/PeImports.c"),Path.Combine(root,"tests/WitOS.Dev.Tests/Native/HostIdentity.c"),
             "/link","/LIBPATH:"+Path.Combine(vc,"lib/x64"),"/LIBPATH:"+Path.Combine(sdk,"Lib",version,"ucrt/x64"),
             "/LIBPATH:"+Path.Combine(sdk,"Lib",version,"um/x64"),"kernel32.lib"], root);
         var run = await Processes.RunAsync(exe, [fixtures["dependent.dll"], fixtures["CycleA.dll"], provider, fixtures["init.dll"], fixtures["initparent.dll"], fixtures["initfail.dll"], fixtures["initparentfail.dll"], tlsFixture], output, 30, sanitize ? new Dictionary<string, string>

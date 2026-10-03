@@ -46,6 +46,12 @@ const WitUserFaultCase wit_test_thread_faults[] = {
         1, 0}};
 const WitU32 wit_test_thread_fault_count = sizeof(wit_test_thread_faults) / sizeof(wit_test_thread_faults[0]);
 
+/* No ARM64 unwind validator exists before A3, so any exception directory is unsupported. */
+const WitU16 wit_test_foreign_machine = 0x8664;
+const WitPeStatus wit_test_exception_directory_status = WitPeUnsupportedImage;
+const WitUserFaultCase wit_test_image_faults[3] = {{0, "write", DATA, 0x9200004FU, 0, 0, 0},
+    {0, "execute", INSTRUCTION, 0x8200000FU, 0, 0, 0}, {0, "read", DATA, 0x92000007U, 0, 0, 0}};
+
 static WitA64Frame model_frames[WIT_USER_THREAD_CAPACITY];
 
 WitArchFrame *wit_test_model_frame(WitU32 index)

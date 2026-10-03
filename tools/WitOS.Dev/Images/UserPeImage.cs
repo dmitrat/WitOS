@@ -11,6 +11,19 @@ namespace WitOS.Dev.Images;
 /// </summary>
 internal static class UserPeImage
 {
+    #region Constants
+
+    // PE layout offsets: COFF characteristics after the signature, DllCharacteristics and the base relocation
+    // directory in the PE32+ optional header.
+    private const int COFF_CHARACTERISTICS = 22;
+    private const int OPTIONAL_HEADER = 24;
+    private const int DLL_CHARACTERISTICS = 70;
+    private const int RELOCATION_DIRECTORY = 112 + 5 * 8;
+    private const ushort RELOCS_STRIPPED = 1;
+    private const ushort DYNAMIC_BASE = 0x40;
+
+    #endregion
+
     #region Functions
 
     /// <summary>
@@ -25,6 +38,38 @@ internal static class UserPeImage
         var obj = Path.Combine(output, "PeFixture.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
             ["/nologo", "/c", $"/I{output}", $"/Fo{obj}", Path.Combine(root, "tests", "User.X64", "image.asm")], root);
+        await LinkAndEmbedAsync(root, output, msvc, constants, obj, "x64", Machine.Amd64, stripFixed: false);
+    }
+
+    /// <summary>
+    /// Links the ARM64 PE fixtures and generates their embedding header.
+    /// </summary>
+    /// <remarks>
+    /// The ARM64 linker refuses /FIXED. The fixed fixture is therefore the same object linked at its load address
+    /// with the relocation directory removed afterwards: a valid PE that only loads at its preferred base.
+    /// </remarks>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory with the generated ARM64 ABI header.</param>
+    /// <param name="msvc">Directory of the MSVC ARM64 cross tools.</param>
+    /// <param name="constants">User ABI constants by name.</param>
+    public static async Task BuildArm64Async(string root, string output, string msvc, Dictionary<string, ulong> constants)
+    {
+        var preprocessed = Path.Combine(output, "PeFixture.asm");
+        var obj = Path.Combine(output, "PeFixture.obj");
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"),
+            ["/nologo", "/EP", "/P", $"/Fi{preprocessed}", $"/I{output}", "/Tc",
+                Path.Combine(root, "tests", "User.A64", "image.asm")], root);
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "armasm64.exe"), ["-nologo", "-o", obj, preprocessed], root);
+        await LinkAndEmbedAsync(root, output, msvc, constants, obj, "arm64", Machine.Arm64, stripFixed: true);
+    }
+
+    #endregion
+
+    #region Tools
+
+    private static async Task LinkAndEmbedAsync(string root, string output, string msvc,
+        Dictionary<string, ulong> constants, string obj, string linkMachine, Machine machine, bool stripFixed)
+    {
         var generated = new StringBuilder("/* Full PE files for guest parsing; generated, do not edit. */\n");
         var symbols = new Dictionary<string, ulong>(StringComparer.Ordinal);
         foreach (var fixedImage in new[] { false, true })
@@ -33,16 +78,22 @@ internal static class UserPeImage
             var image = Path.Combine(output, name + ".pe");
             var map = Path.Combine(output, name + ".map");
             var preferredBase = fixedImage ? constants["WIT_USER_IMAGE_BASE"] : 0x180000000UL;
+            var linkFixed = fixedImage && !stripFixed;
             await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
-                ["/nologo", "/subsystem:native", "/entry:wit_pe_start", "/nodefaultlib", "/machine:x64",
-                    fixedImage ? "/fixed" : "/fixed:no", fixedImage ? "/dynamicbase:no" : "/dynamicbase",
+                ["/nologo", "/subsystem:native", "/entry:wit_pe_start", "/nodefaultlib", $"/machine:{linkMachine}",
+                    linkFixed ? "/fixed" : "/fixed:no", linkFixed ? "/dynamicbase:no" : "/dynamicbase",
                     "/incremental:no", "/Brepro", "/section:USERDATA,RW", $"/base:0x{preferredBase:X}", $"/out:{image}", $"/map:{map}", obj], root);
             var bytes = await File.ReadAllBytesAsync(image);
+            if (fixedImage && stripFixed)
+            {
+                StripRelocations(bytes);
+                await File.WriteAllBytesAsync(image, bytes);
+            }
             using var stream = new MemoryStream(bytes, writable: false);
             using var pe = new PEReader(stream);
             var h = pe.PEHeaders.PEHeader ?? throw new InvalidDataException("PE fixture header missing.");
             var sections = pe.PEHeaders.SectionHeaders;
-            if (pe.PEHeaders.CoffHeader.Machine != Machine.Amd64 || h.Magic != PEMagic.PE32Plus ||
+            if (pe.PEHeaders.CoffHeader.Machine != machine || h.Magic != PEMagic.PE32Plus ||
                 h.Subsystem != Subsystem.Native || h.ImageBase != preferredBase ||
                 pe.PEHeaders.CorHeader is not null || h.ImportTableDirectory.Size != 0 ||
                 h.ThreadLocalStorageTableDirectory.Size != 0 || h.ExceptionTableDirectory.Size != 0 ||
@@ -80,6 +131,19 @@ internal static class UserPeImage
         foreach (var symbol in symbols)
             generated.AppendLine($"#define WIT_PE_TEST_{symbol.Key.ToUpperInvariant()}_RVA 0x{symbol.Value:X}U");
         await File.WriteAllTextAsync(Path.Combine(output, "pe_image.h"), generated.ToString(), Encoding.ASCII);
+    }
+
+    // Turns an image linked at its load address into a fixed one: no relocation directory, relocations stripped,
+    // no dynamic base. The relocation section stays as unused read-only data.
+    private static void StripRelocations(byte[] bytes)
+    {
+        var nt = BitConverter.ToInt32(bytes, 60);
+        var optional = nt + OPTIONAL_HEADER;
+        var characteristics = BitConverter.ToUInt16(bytes, nt + COFF_CHARACTERISTICS);
+        BitConverter.GetBytes((ushort)(characteristics | RELOCS_STRIPPED)).CopyTo(bytes, nt + COFF_CHARACTERISTICS);
+        var dll = BitConverter.ToUInt16(bytes, optional + DLL_CHARACTERISTICS);
+        BitConverter.GetBytes((ushort)(dll & ~DYNAMIC_BASE)).CopyTo(bytes, optional + DLL_CHARACTERISTICS);
+        Array.Clear(bytes, optional + RELOCATION_DIRECTORY, 8);
     }
 
     #endregion

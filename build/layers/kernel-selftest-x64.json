@@ -27,7 +27,6 @@
     "tests/Kernel.X64/user_arch_tests.c",
     "tests/Kernel.X64/user_pressure_tests.c",
     "tests/Kernel.X64/user_wait_any_tests.c",
-    "tests/Kernel.X64/user_image_tests.c",
     "tests/Kernel.X64/user_bootstrap_tests.c",
     "tests/Kernel.X64/user_gc_tests.c",
     "tests/Kernel.X64/kernel_tests.c",
