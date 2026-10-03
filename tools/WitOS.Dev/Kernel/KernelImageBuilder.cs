@@ -28,13 +28,15 @@ internal static class KernelImageBuilder
 
     // A release map must not name self-test code: test objects, self-test functions, fault triggers or workers.
     private static readonly Regex SELF_TEST_SYMBOL = new(
-        @"self_test|selftest|_tests\.obj|wit_x64_trigger_|wit_x64_worker\b|wit_worker_|fixture", RegexOptions.IgnoreCase);
+        @"self_test|selftest|_tests\.obj|wit_(?:x64|a64)_trigger_|wit_x64_worker\b|wit_worker_|fixture", RegexOptions.IgnoreCase);
 
     private static readonly Dictionary<string, string> SCENARIO_DEFINES = new()
     {
         ["invalid-boot-info"] = "WITOS_TEST_INVALID_BOOTINFO",
         ["overlapping-map"] = "WITOS_TEST_OVERLAPPING_MAP",
         ["breakpoint"] = "WITOS_TEST_BREAKPOINT",
+        ["undefined-instruction"] = "WITOS_TEST_UNDEFINED_INSTRUCTION",
+        ["data-abort"] = "WITOS_TEST_DATA_ABORT",
         ["divide-error"] = "WITOS_TEST_DIVIDE_ERROR",
         ["invalid-opcode"] = "WITOS_TEST_INVALID_OPCODE",
         ["general-protection"] = "WITOS_TEST_GENERAL_PROTECTION",
@@ -81,7 +83,8 @@ internal static class KernelImageBuilder
 
         // Every scenario kernel is a self-test kernel where the target has self-test layers; the release kernel never is.
         var selfTest = scenario != RELEASE_SCENARIO && target.SelfTestLayers.Length > 0;
-        if (selfTest)
+        // User fixtures are x64 images; ARM64 user mode arrives with A2.
+        if (selfTest && architecture == KernelArchitecture.X64)
         {
             await UserImage.BuildAsync(root, output, msvc);
         }

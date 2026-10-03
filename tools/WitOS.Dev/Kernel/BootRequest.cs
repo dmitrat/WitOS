@@ -17,6 +17,11 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public FaultExpectation? Fault { get; init; }
 
     /// <summary>
+    /// ARM64 kernel exception required by an <see cref="ExpectedOutcome.Exception"/> boot of that architecture.
+    /// </summary>
+    public A64FaultExpectation? A64Fault { get; init; }
+
+    /// <summary>
     /// Architecture whose QEMU board boots the image.
     /// </summary>
     public KernelArchitecture Architecture { get; init; } = KernelArchitecture.X64;

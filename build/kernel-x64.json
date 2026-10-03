@@ -15,6 +15,7 @@
     "kernel-platform-q35"
   ],
   "selfTestLayers": [
+    "kernel-selftest-shared",
     "kernel-selftest-x64"
   ]
 }

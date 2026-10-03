@@ -1,0 +1,11 @@
+{
+  "name": "kernel-selftest-shared",
+  "description": "Architecture-independent kernel self-tests shared by every target: the physical page allocator.",
+  "includes": [
+    "tests/Kernel"
+  ],
+  "sources": [
+    "tests/Kernel/memory_tests.c"
+  ],
+  "assembly": []
+}

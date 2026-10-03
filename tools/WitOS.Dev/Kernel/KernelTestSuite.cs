@@ -19,6 +19,13 @@ internal static class KernelTestSuite
 
     #region Fields
 
+    private static readonly (string Name, A64FaultExpectation Fault)[] A64_FAULT_SCENARIOS =
+    [
+        ("breakpoint", new(0x3C, "Cpu.Breakpoint", "Breakpoint")),
+        ("undefined-instruction", new(0x00, "Cpu.UndefinedInstruction", "Undefined instruction")),
+        ("data-abort", new(0x25, "Cpu.DataAbort", "Data abort", FaultAddress: true))
+    ];
+
     private static readonly (string Name, FaultExpectation Fault)[] FAULT_SCENARIOS =
     [
         ("breakpoint", new(3, 0, "Cpu.Breakpoint", "Breakpoint")),
@@ -71,8 +78,8 @@ internal static class KernelTestSuite
     }
 
     /// <summary>
-    /// Boots the boot-only kernel of a new architecture and requires its four outcomes: success at 128 and 512 MiB,
-    /// a rejected boot contract, a rejected memory map and a timeout after a successful boot.
+    /// Boots the boot-only kernel of a new architecture and requires its outcomes: success at 128 and 512 MiB,
+    /// a rejected boot contract, a rejected memory map, each fatal CPU exception and a timeout after a successful boot.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="architecture">Architecture whose target builds the boot-only profile.</param>
@@ -93,9 +100,15 @@ internal static class KernelTestSuite
         var overlap = await KernelImageBuilder.BuildAsync(root, "overlapping-map", architecture: architecture);
         await BootScenarioRunner.RunAsync(root, overlap,
             Request("overlapping-map", 256, BOOT_ONLY_TIMEOUT, ExpectedOutcome.InvalidMap));
+        foreach (var (name, fault) in A64_FAULT_SCENARIOS)
+        {
+            var faultImage = await KernelImageBuilder.BuildAsync(root, name, architecture: architecture);
+            await BootScenarioRunner.RunAsync(root, faultImage,
+                Request(name, 256, BOOT_ONLY_TIMEOUT, ExpectedOutcome.Exception) with { A64Fault = fault });
+        }
         var timeout = await KernelImageBuilder.BuildAsync(root, "timeout", architecture: architecture);
         await BootScenarioRunner.RunAsync(root, timeout, Request("timeout", 256, BOOT_ONLY_HANG, ExpectedOutcome.Timeout));
-        Console.WriteLine($"PASS: all 5 {architecture.Name} boot-only scenarios.");
+        Console.WriteLine($"PASS: all {5 + A64_FAULT_SCENARIOS.Length} {architecture.Name} boot-only scenarios.");
     }
 
     #endregion

@@ -17,7 +17,7 @@ public sealed class KernelManifestTests
     private static readonly string[] KERNEL_SOURCE_DIRECTORIES =
     [
         "src/Boot.Uefi", "src/Kernel", "src/Kernel.Arch.X64", "src/Kernel.Arch.A64", "src/Kernel.Platform.Q35",
-        "src/Kernel.Platform.QemuVirt", "tests/Kernel.X64"
+        "src/Kernel.Platform.QemuVirt", "tests/Kernel", "tests/Kernel.X64", "tests/Kernel.A64"
     ];
 
     private static readonly string[] SHARED_LAYERS = ["boot-uefi", "kernel-boot"];
