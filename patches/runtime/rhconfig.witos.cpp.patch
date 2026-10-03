@@ -1,0 +1,38 @@
+Source: src/coreclr/nativeaot/Runtime/RhConfig.cpp
+Output: rhconfig.witos.cpp
+Before: 6b593fe314136dac0f9abdcd169305cd371b09ee2e112ac5b00b1bcb578c1e4b
+After: 53c85c194e70600853cfee3e1db53b049ac474c8f9ba6cbbe0eeb60d20bece73
+
+RhConfig string reads check allocation and conversion failures and reject an empty second read; the caller's output
+is written only on success and temporary buffers are released.
+
+--- a/src/coreclr/nativeaot/Runtime/RhConfig.cpp
++++ b/src/coreclr/nativeaot/Runtime/RhConfig.cpp
+@@ -101,19 +101,24 @@
+ 
+     if (actualLen < bufferLen)
+     {
+-        *value = PalCopyTCharAsChar(buffer);
++        char* converted = PalCopyTCharAsChar(buffer);
++        if (!converted) return false;
++        *value = converted;
+         return true;
+     }
+ 
+     // Expand the buffer to get the value
+     bufferLen = actualLen + 1;
+     NewArrayHolder<TCHAR> newBuffer {new (nothrow) TCHAR[bufferLen]};
++    if (newBuffer == nullptr) return false;
+     actualLen = PalGetEnvironmentVariable(variableName, newBuffer, bufferLen);
+-    if (actualLen >= bufferLen)
++    if (actualLen == 0 || actualLen >= bufferLen)
+         return false;
+ 
+ #ifdef TARGET_WINDOWS
+-    *value = PalCopyTCharAsChar(newBuffer);
++    char* converted = PalCopyTCharAsChar(newBuffer);
++    if (!converted) return false;
++    *value = converted;
+ #else
+     *value = newBuffer.Extract();
+ #endif

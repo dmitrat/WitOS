@@ -52,28 +52,15 @@ internal static class RuntimeUnwindReference
             var target = Path.Combine(output, Path.GetFileName(name));
             if (name.EndsWith("unwinder.cpp", StringComparison.Ordinal))
             {
-                var body = await File.ReadAllTextAsync(original);
-                const string before = "#include \"stdafx.h\"";
-                if (body.Split(before).Length != 2)
-                    throw new InvalidDataException("Unwinder environment anchor changed.");
-                await File.WriteAllTextAsync(target, body.Replace(before, "#include \"unwind_environment.h\""));
+                // The hosted reference and the checked copy are two patches of the same upstream file.
+                var body = (await File.ReadAllTextAsync(original)).Replace("\r\n", "\n");
+                foreach (var patched in new[] { "unwinder.cpp", "unwinder.checked.cpp" })
+                    await File.WriteAllTextAsync(Path.Combine(output, patched),
+                        UpstreamPatches.Apply(root, "runtime", name, patched, body));
             }
             else
                 File.Copy(original, target, overwrite: true);
         }
-        var checkedBody = await File.ReadAllTextAsync(Path.Combine(output, "unwinder.cpp"));
-        foreach (var replacement in new[]{
-            ("#include \"unwind_environment.h\"","#include \"unwind_environment.witos.h\""),
-            ("return *dac_cast<PTR_ULONG64>((TADDR)addr);","return wit_checked_read64((ULONG64)addr);"),
-            ("return *dac_cast<PTR_M128A>((TADDR)addr);","return wit_checked_read128((ULONG64)addr);"),
-            ("typedef UCHAR * InstructionBuffer;","typedef WitUnwindInstructionBuffer InstructionBuffer;"),
-            ("return (UNWIND_INFO *)taUnwindInfo;","return (UNWIND_INFO *)wit_checked_unwind_info(taUnwindInfo);")})
-        {
-            if (checkedBody.Split(replacement.Item1).Length != 2)
-                throw new InvalidDataException("Checked unwind adaptation anchor changed: " + replacement.Item1);
-            checkedBody = checkedBody.Replace(replacement.Item1, replacement.Item2);
-        }
-        await File.WriteAllTextAsync(Path.Combine(output, "unwinder.checked.cpp"), checkedBody);
     }
 
     /// <summary>
@@ -148,6 +135,8 @@ internal static class RuntimeUnwindReference
             boundedReadCases = 8,
             sourcePins = pin.Sources.Where(p => NAMES.Contains(p.Path)),
             adaptation = "Original reference changes only stdafx.h. Separate checked copy replaces stack reads, instruction buffer and metadata lookup, with renamed classes and checked assertions; non-DAC Windows algorithm retained. Hosted access failure uses C++ exceptions; guest delivery remains pending.",
+            patches = new[] { "unwinder.cpp", "unwinder.checked.cpp" }
+                .Select(name => UpstreamPatches.Describe(root, "runtime", name)),
             inputs = NAMES.Select(n => Path.Combine(output, Path.GetFileName(n))).Concat(new[] { Path.Combine(output, "unwinder.checked.cpp") }).Concat(new[] { "src/Kernel/include/witos/unwind_metadata.h", "src/Runtime.NativeAot/unwind_checked.witos.cpp", "src/Runtime.NativeAot/unwind_checked.witos.h", "src/Runtime.NativeAot/unwind_environment.witos.h", "tests/Runtime.NativeAot/unwind_checked_reference.cpp", "tests/Runtime.NativeAot/unwind_environment.h", "tests/Runtime.NativeAot/unwind_reference.cpp", "tests/Runtime.NativeAot/unwind_frames.asm", "tests/Runtime.NativeAot/unwind_compiler_frame.cpp", "tests/Runtime.NativeAot/unwind_validation_reference.cpp", "src/Runtime.NativeAot/unwind_validation.witos.cpp", "src/Runtime.NativeAot/unwind_validation.witos.h" }.Select(p => Path.Combine(root, p)))
                 .Select(p => new { file = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(p))).ToLowerInvariant() })
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));

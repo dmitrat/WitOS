@@ -1,0 +1,18 @@
+Source: src/coreclr/unwinder/amd64/unwinder.cpp
+Output: unwinder.cpp
+Before: 4a67959a8f67a5022ed0db11047ca9b9ac558ce9ff1749c5738787d51f6013f2
+After: e1e94dc18ca188fedc6bd985c349157c29d40587af55a6a81bf2985616161a70
+
+The hosted reference unwinder includes unwind_environment.h instead of stdafx.h; the algorithm is unchanged.
+
+--- a/src/coreclr/unwinder/amd64/unwinder.cpp
++++ b/src/coreclr/unwinder/amd64/unwinder.cpp
+@@ -3,7 +3,7 @@
+ 
+ //
+ 
+-#include "stdafx.h"
++#include "unwind_environment.h"
+ #include "unwinder.h"
+ 
+ typedef DPTR(M128A)  PTR_M128A;

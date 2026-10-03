@@ -1,0 +1,22 @@
+Source: src/coreclr/nativeaot/Runtime/inc/stressLog.h
+Output: stressLog.h
+Before: 47d3bc193daf4be76b55d1d67e6de176da177dfde5bf5d6e3cb05fc61a5cba52
+After: d7b8f7a2e18c1f5f5c72e539d9ec22d49429a084ef1e9f7838e14513b56defbd
+
+WitOS builds with NO_STRESS_LOG: the disabled stress-log macros are also exposed under GCENV, and STRESS_LOG_VA
+takes the same arguments as the enabled form.
+
+--- a/src/coreclr/nativeaot/Runtime/inc/stressLog.h
++++ b/src/coreclr/nativeaot/Runtime/inc/stressLog.h
+@@ -771,9 +771,9 @@
+ 
+ #endif // STRESS_LOG
+ 
+-#ifndef __GCENV_BASE_INCLUDED__
++#if !defined(__GCENV_BASE_INCLUDED__) || !defined(STRESS_LOG)
+ #if !defined(STRESS_LOG) || defined(DACCESS_COMPILE)
+-#define STRESS_LOG_VA(msg)                                              do { } WHILE_0
++#define STRESS_LOG_VA(dprintfLevel, msg)                                              do { } WHILE_0
+ #define STRESS_LOG0(facility, level, msg)                               do { } WHILE_0
+ #define STRESS_LOG1(facility, level, msg, data1)                        do { } WHILE_0
+ #define STRESS_LOG2(facility, level, msg, data1, data2)                 do { } WHILE_0

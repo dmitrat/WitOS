@@ -15,7 +15,7 @@
 | Пользовательский native-слой | `src/Runtime.Native` | там же с Q2.8 (прежде `src/System.Native`); `X64/native_start.asm`: вход процесса, syscall, блокировки, fail-fast | Обёртки syscall, bootstrap, TLS-цикл, пути, файлы, DLL lifecycle | только `user_abi.h` и его заголовки |
 | Win32-форма PAL | `src/Runtime.Pal.Win32` | с Q2.8 Win32-привязки `X64/native_*.asm`; реализации `native_*.witos.cpp` пока в `src/Runtime.NativeAot` поверх PAL NativeAOT, перенос вместе с отвязкой от upstream `Pal.h` в P6.4 | Реализации Win32-имён, которые ждёт runtime, собранный под Windows ABI | `Runtime.Native` |
 | Адаптеры runtime | `src/Runtime.NativeAot`, `src/Runtime.CoreClr` | там же; ISA-код в подкаталогах `X64` | GC OS interface, PAL NativeAOT, minipal, CoreCLR VMToOS, hosting PAL | `Runtime.Native`, `Runtime.Pal.Win32` |
-| Upstream .NET | вне репозитория, pinned | `.tools/upstream` | `dotnet/runtime` с hash-проверкой и оверлеем | адаптеры runtime |
+| Upstream .NET | вне репозитория, pinned; правки в `patches/` | `.tools/upstream` | `dotnet/runtime` с hash-проверкой и оверлеем | адаптеры runtime |
 | Инструменты | `tools/WitOS.Dev`, манифесты `build/` | `tools/WitOS.Dev` | Сборка, QEMU, приёмка, evidence | — |
 
 Правила:
@@ -54,6 +54,16 @@
 6. Добавить обёртку в `Runtime.Native`, если вызов нужен пользовательскому коду.
 7. Добавить гостевую фикстуру в `tests/User.X64` с положительными и отрицательными случаями и маркером `[TEST-PASS]`, ожидание маркера в манифесте сценария.
 8. Увеличить `WIT_ABI_VERSION`, обновить справочник, `PLAN.md` и документ среза. Хостовый тест сверяет справочник с заголовком.
+
+## Как изменить upstream-исходник
+
+Pinned-исходники не правятся ни в рабочем дереве upstream, ни заменами строк в инструменте. Правка — это файл `patches/<репозиторий>/<выход>.patch`, где репозиторий `runtime` или `openlibm`, а выход — имя файла, который получает сборка.
+
+1. Взять pinned-файл из кэша загрузки (`.tools/runtime-audit/runtime/<commit>/<путь>` или `.tools/math-audit/<revision>/<путь>`), скопировать и изменить копию.
+2. Получить diff: `git diff --no-index -U3 <оригинал> <копия>` и заменить его заголовки на `--- a/<путь>` и `+++ b/<путь>`, где путь — путь в upstream-репозитории.
+3. Перед diff записать четыре строки `Source: <путь>`, `Output: <выход>`, `Before: <sha256 пина>`, `After: <sha256>` и абзац о том, зачем нужна правка. `After` можно взять из сообщения об ошибке первого применения.
+4. В инструменте вызвать `UpstreamPatches.Apply(root, репозиторий, путь, выход, текст)` и записать результат в `artifacts`; в отчёт добавить `UpstreamPatches.Describe`.
+5. Хостовые тесты требуют, чтобы база патча была пином, чтобы инструмент применял каждый патч и чтобы патч воспроизводил свой выход. При смене пина каждый патч отказывает, пока его не переделают на новой базе.
 
 ## Как добавить платформу
 

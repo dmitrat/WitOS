@@ -16,6 +16,9 @@ internal static class RuntimeConfigProbe
 
     private static readonly JsonSerializerOptions JSON = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
+    private static readonly string[] PATCHES = ["allocheap.witos.cpp", "startup.witos.cpp", "gchelpers.witos.cpp",
+        "finalizerhelpers.witos.cpp", "gc.witos.cpp", "gcwks.witos.cpp", "rhconfig.witos.cpp", "gcenv.ee.witos.cpp"];
+
     #endregion
 
     #region Functions
@@ -45,12 +48,11 @@ internal static class RuntimeConfigProbe
                 "runtime", pin.RuntimeCommit, path, item.Sha256);
             return (await File.ReadAllTextAsync(file)).Replace("\r\n", "\n");
         }
-        static string ReplaceOne(string source, string before, string after)
+        async Task<string> Patch(string path, string name)
         {
-            var first = source.IndexOf(before, StringComparison.Ordinal);
-            if (first < 0 || source.IndexOf(before, first + before.Length, StringComparison.Ordinal) >= 0)
-                throw new InvalidDataException("Pinned runtime correction anchor changed.");
-            return source.Replace(before, after, StringComparison.Ordinal);
+            var text = UpstreamPatches.Apply(root, "runtime", path, name, await Read(path));
+            await File.WriteAllTextAsync(Path.Combine(output, name), text);
+            return text;
         }
         static string Slice(string source, string first, string next)
         {
@@ -64,9 +66,7 @@ internal static class RuntimeConfigProbe
         const string allocPath = "src/coreclr/nativeaot/Runtime/allocheap.cpp";
         const string dispatchPath = "src/coreclr/runtime/CachedInterfaceDispatch.cpp";
         const string dispatchAotPath = "src/coreclr/nativeaot/Runtime/CachedInterfaceDispatch_Aot.cpp";
-        var alloc = ReplaceOne(await Read(allocPath), "        delete pCur;\n    }\n}",
-            "        delete pCur;\n    }\n    m_lock.Destroy();\n}");
-        await File.WriteAllTextAsync(Path.Combine(output, "allocheap.witos.cpp"), alloc);
+        await Patch(allocPath, "allocheap.witos.cpp");
         var dispatch = await Read(dispatchPath);
         if (dispatch.Split("static CrstStatic g_sListLock;", StringSplitOptions.None).Length != 2)
             throw new InvalidDataException("Pinned interface dispatch lock declaration changed.");
@@ -80,47 +80,15 @@ internal static class RuntimeConfigProbe
             throw new InvalidDataException("Pinned AOT dispatch prefix changed.");
         await File.WriteAllTextAsync(Path.Combine(output, "dispatch.aot.slice.cpp"), dispatchAot[..dispatchEnd]);
         const string startupPath = "src/coreclr/nativeaot/Runtime/startup.cpp";
-        var startup = ReplaceOne(await Read(startupPath), "    atexit(&OnProcessExit);",
-            "    if (atexit(&OnProcessExit) != 0) return false;");
-        startup = ReplaceOne(startup, "    AddVectoredExceptionHandler(1, RhpVectoredExceptionHandler);", "    if (AddVectoredExceptionHandler(1, RhpVectoredExceptionHandler) == NULL) return false;");
-        foreach (var condition in new[] { "InterfaceDispatch_Initialize()", "RestrictedCallouts::Initialize()", "RuntimeInstance::Initialize(hPalInstance)", "InitializeGC()", "DetectCPUFeatures()", "PalInit()", "InitDLL(PalGetModuleHandleFromPointer((void*)&RhInitialize))" })
-            startup = ReplaceOne(startup, "    if (!" + condition + ")\n        return false;",
-                "    if (!" + condition + ") { PalPrintFatalError(\"WitOS startup failure: " + condition + "\\n\"); return false; }");
-        await File.WriteAllTextAsync(Path.Combine(output, "startup.witos.cpp"), startup);
-        var gcHelpers = await Read("src/coreclr/nativeaot/Runtime/GCHelpers.cpp");
-        foreach (var condition in new[] { "RhInitializeFinalization()", "GCHandleUtilities::GetGCHandleManager()->Initialize()", "RhWaitForFinalizerThreadStart()" })
-            gcHelpers = ReplaceOne(gcHelpers, "    if (!" + condition + ")\n        return false;",
-                "    if (!" + condition + ") { PalPrintFatalError(\"WitOS GC startup failure: " + condition + "\\n\"); return false; }");
-        foreach (var call in new[] { "HRESULT hr = GCHeapUtilities::InitializeGC();", "hr = g_pGCHeap->Initialize();" })
-            gcHelpers = ReplaceOne(gcHelpers, "    " + call + "\n    if (FAILED(hr))\n        return false;",
-                "    " + call + "\n    if (FAILED(hr)) { PalPrintFatalError(\"WitOS GC startup failure: " + call + "\\n\"); return false; }");
-        await File.WriteAllTextAsync(Path.Combine(output, "gchelpers.witos.cpp"), gcHelpers);
-        var finalizers = await Read("src/coreclr/nativeaot/Runtime/FinalizerHelpers.cpp");
-        foreach (var condition in new[] { "g_FinalizerEvent.CreateAutoEventNoThrow(false)", "g_FinalizerDoneEvent.CreateManualEventNoThrow(false)", "PalStartFinalizerThread(FinalizerStart, (void*)g_FinalizerEvent.GetOSEvent())" })
-            finalizers = ReplaceOne(finalizers, "    if (!" + condition + ")\n        return false;",
-                "    if (!" + condition + ") { PalPrintFatalError(\"WitOS finalizer startup failure: " + condition + "\\n\"); return false; }");
-        finalizers = ReplaceOne(finalizers, "    if (!g_ComAndFlsInitSucceeded)\n        return 0;",
-            "    if (!g_ComAndFlsInitSucceeded) { PalPrintFatalError(\"WitOS finalizer PAL init failed\\n\"); return 0; }");
-        await File.WriteAllTextAsync(Path.Combine(output, "finalizerhelpers.witos.cpp"), finalizers);
-        var collector = await Read("src/coreclr/gc/gc.cpp");
-        collector = ReplaceOne(collector, "        if ((element != total_bookkeeping_elements) && (sizes[element] != 0))",
-            "        // Preserve a page boundary for the commit clamp even when the mark array is empty.\n" +
-            "        if ((element == total_bookkeeping_elements)\n#ifdef BACKGROUND_GC\n            || (element == mark_array_element)\n#endif\n            || (sizes[element] != 0))");
-        await File.WriteAllTextAsync(Path.Combine(output, "gc.witos.cpp"), collector);
-        var workstation = ReplaceOne(await Read("src/coreclr/gc/gcwks.cpp"), "#include \"gc.cpp\"", "#include \"gc.witos.cpp\"");
-        await File.WriteAllTextAsync(Path.Combine(output, "gcwks.witos.cpp"), workstation);
+        await Patch(startupPath, "startup.witos.cpp");
+        await Patch("src/coreclr/nativeaot/Runtime/GCHelpers.cpp", "gchelpers.witos.cpp");
+        await Patch("src/coreclr/nativeaot/Runtime/FinalizerHelpers.cpp", "finalizerhelpers.witos.cpp");
+        await Patch("src/coreclr/gc/gc.cpp", "gc.witos.cpp");
+        await Patch("src/coreclr/gc/gcwks.cpp", "gcwks.witos.cpp");
         const string rhPath = "src/coreclr/nativeaot/Runtime/RhConfig.cpp";
         const string gcPath = "src/coreclr/gc/gcconfig.cpp";
         const string eePath = "src/coreclr/nativeaot/Runtime/gcenv.ee.cpp";
-        var rh = await Read(rhPath);
-        rh = ReplaceOne(rh, "        *value = PalCopyTCharAsChar(buffer);\n        return true;",
-            "        char* converted = PalCopyTCharAsChar(buffer);\n        if (!converted) return false;\n        *value = converted;\n        return true;");
-        rh = ReplaceOne(rh, "    NewArrayHolder<TCHAR> newBuffer {new (nothrow) TCHAR[bufferLen]};",
-            "    NewArrayHolder<TCHAR> newBuffer {new (nothrow) TCHAR[bufferLen]};\n    if (newBuffer == nullptr) return false;");
-        rh = ReplaceOne(rh, "    if (actualLen >= bufferLen)", "    if (actualLen == 0 || actualLen >= bufferLen)");
-        rh = ReplaceOne(rh, "    *value = PalCopyTCharAsChar(newBuffer);",
-            "    char* converted = PalCopyTCharAsChar(newBuffer);\n    if (!converted) return false;\n    *value = converted;");
-        await File.WriteAllTextAsync(Path.Combine(output, "rhconfig.witos.cpp"), rh);
+        await Patch(rhPath, "rhconfig.witos.cpp");
         var gc = await Read(gcPath);
         var cut = gc.IndexOf("// Parse an integer index or range", StringComparison.Ordinal);
         if (cut < 0 || !gc[..cut].Contains("void GCConfig::Initialize()", StringComparison.Ordinal))
@@ -137,14 +105,13 @@ internal static class RuntimeConfigProbe
             Slice(ee, "bool GCToEEInterface::GetBooleanConfigValue(", "void GCToEEInterface::LogErrorToHost(") +
             Slice(ee, "bool GCToEEInterface::GetStringConfigValue(", "void GCToEEInterface::TriggerClientBridgeProcessing(");
         await File.WriteAllTextAsync(Path.Combine(output, "gcenv.config.slice.cpp"), selected);
-        var diagnosticEe = ReplaceOne(ee, "void GCToEEInterface::LogErrorToHost(const char *message)\n{\n}",
-            "void GCToEEInterface::LogErrorToHost(const char *message)\n{\n    PalPrintFatalError(message);\n    PalPrintFatalError(\"\\n\");\n}");
-        await File.WriteAllTextAsync(Path.Combine(output, "gcenv.ee.witos.cpp"), diagnosticEe);
+        await Patch(eePath, "gcenv.ee.witos.cpp");
         await File.WriteAllTextAsync(Path.Combine(output, "provenance.json"), JsonSerializer.Serialize(new
         {
             pin.RuntimeCommit,
             scope = "Full pinned GC preserves page alignment of the empty mark-array boundary and total bookkeeping extent; GCHelpers/FinalizerHelpers add failure-only diagnostics and GCToEE LogErrorToHost uses bounded console output. Whole RhConfig with explicit allocation-failure checks; unchanged GCConfig prefix and affinity parser bodies and four unchanged GCToEE configuration methods. Startup checks atexit and vectored-handler registration failure; whole AllocHeap destroys its Crst; selected dispatch initialization/allocation method bodies remain unchanged; full dispatch dependencies retained outside this probe. No collector/lifecycle substitutes.",
             inputs = pin.Sources.Where(s => s.Path == rhPath || s.Path == gcPath || s.Path == eePath || s.Path == startupPath || s.Path == allocPath || s.Path == dispatchPath || s.Path == dispatchAotPath || s.Path == "src/coreclr/nativeaot/Runtime/allocheap.h" || s.Path == "src/coreclr/nativeaot/Runtime/GCHelpers.cpp" || s.Path == "src/coreclr/nativeaot/Runtime/FinalizerHelpers.cpp" || s.Path == "src/coreclr/gc/gc.cpp" || s.Path == "src/coreclr/gc/gcwks.cpp"),
+            patches = PATCHES.Select(name => UpstreamPatches.Describe(root, "runtime", name)),
             generated = new[] { "gc.witos.cpp", "gcwks.witos.cpp", "gcenv.ee.witos.cpp", "gchelpers.witos.cpp", "finalizerhelpers.witos.cpp", "allocheap.witos.cpp", "dispatch.shared.slice.cpp", "dispatch.aot.slice.cpp", "startup.witos.cpp", "rhconfig.witos.cpp", "gcconfig.slice.cpp", "gcaffinity.slice.cpp", "gcenv.config.slice.cpp" }
                 .Select(p => new { file = p, sha256 = Hash(Path.Combine(output, p)) })
         }, JSON));

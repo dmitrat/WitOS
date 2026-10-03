@@ -44,25 +44,13 @@ internal static class NativeMathSources
         {
             Directory.CreateDirectory(output);
             var source = (await File.ReadAllTextAsync(paths["src/e_log.c"])).Replace("\r\n", "\n");
-            string Replace(string before, string after)
-            {
-                if (source.Split(before, StringSplitOptions.None).Length != 2)
-                    throw new InvalidDataException("Math adaptation anchor changed.");
-                return source.Replace(before, after, StringComparison.Ordinal);
-            }
-            source = Replace("#include \"cdefs-compat.h\"", "/* Compiler attributes supplied by WitOS. */");
-            source = Replace("#include <openlibm_math.h>", "/* Binary64 entry declaration comes from its definition. */");
-            source = Replace("#include \"math_private.h\"", "#include \"math_bits.witos.h\"");
-            source = Replace("#if (LDBL_MANT_DIG == 53)\nopenlibm_weak_reference(log, logl);\n#endif", "/* No public long-double alias is supplied by this port. */");
-            // These two divisions deliberately produce IEEE infinity/NaN and flags.
-            source = Replace("OLM_DLLEXPORT double", "#pragma warning(push)\n#pragma warning(disable:4723)\nOLM_DLLEXPORT double");
-            source += "\n#pragma warning(pop)\n";
+            source = UpstreamPatches.Apply(root, "openlibm", "src/e_log.c", "log.openlibm.c", source);
             await File.WriteAllTextAsync(Path.Combine(output, "log.openlibm.c"), source);
             await File.WriteAllTextAsync(Path.Combine(output, "openlibm-LICENSE.md"), await File.ReadAllTextAsync(paths["LICENSE.md"]));
             await File.WriteAllTextAsync(Path.Combine(output, "math-provenance.json"), JsonSerializer.Serialize(new
             {
                 pin,
-                corrections = new[] { "Replace compiler/header macros with WitOS binary64 word access", "Map __ieee754_log to private wit_ieee754_log", "Omit unsupported long-double weak alias", "Scope MSVC C4723 suppression to intentional IEEE exceptional divisions; preserve strict FP and test MXCSR flags" },
+                patch = UpstreamPatches.Describe(root, "openlibm", "log.openlibm.c"),
                 algorithmBodyChanged = false,
                 generatedSha256 = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(Path.Combine(output, "log.openlibm.c")))).ToLowerInvariant()
             }, json));

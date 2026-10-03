@@ -36,12 +36,9 @@ internal static class CoreClrHostFilePal
         using var client = new HttpClient();
         var raw = await RuntimeExperiment.FetchAsync(client, Path.Combine(root, ".tools/runtime-audit"), "runtime", pin.RuntimeCommit,
             item.GetProperty("path").GetString()!, item.GetProperty("sha256").GetString()!);
-        var header = await File.ReadAllTextAsync(raw);
-        const string original = "    inline bool munmap(void* addr, size_t length) { return UnmapViewOfFile(addr) != 0; }";
-        if (header.IndexOf(original, StringComparison.Ordinal) < 0 || header.IndexOf(original, StringComparison.Ordinal) != header.LastIndexOf(original, StringComparison.Ordinal))
-            throw new InvalidDataException("Pinned corehost munmap declaration changed.");
-        var corrected = header.Replace(original, string.Join(Environment.NewLine, "#if defined(WITOS_HOST_FILES)", "    bool munmap(void* addr, size_t length);", "#else", original, "#endif"), StringComparison.Ordinal);
-        await File.WriteAllTextAsync(Path.Combine(output, "pal.h"), corrected);
+        var header = (await File.ReadAllTextAsync(raw)).Replace("\r\n", "\n");
+        await File.WriteAllTextAsync(Path.Combine(output, "pal.h"),
+            UpstreamPatches.Apply(root, "runtime", item.GetProperty("path").GetString()!, "pal.h", header));
         var configuration = item.GetProperty("configuration");
         var template = await RuntimeExperiment.FetchAsync(client, Path.Combine(root, ".tools/runtime-audit"), "runtime", pin.RuntimeCommit,
             configuration.GetProperty("path").GetString()!, configuration.GetProperty("sha256").GetString()!);
@@ -95,6 +92,7 @@ internal static class CoreClrHostFilePal
             guestHostExecuted = false,
             headerSha256 = Hash(raw),
             correctedHeaderSha256 = Hash(Path.Combine(output, "pal.h")),
+            patch = UpstreamPatches.Describe(root, "runtime", "pal.h"),
             configureSha256 = Hash(configure),
             libraryFixtureSha256 = Hash(dll),
             objects = objects.Select(file => new { file, sha256 = Hash(file) }),

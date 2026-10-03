@@ -1,0 +1,91 @@
+Source: src/coreclr/nativeaot/Runtime/startup.cpp
+Output: startup.witos.cpp
+Before: 0378b208954d852565d0453a3b51ffe340e36ce083faf5440ada1b7022e4ac7e
+After: 1826c44ba2676b1c2c9dcac99a3bf8e06f27930b587a03b7612444d207632b5a
+
+Startup checks atexit and vectored-handler registration failure, and reports each failed initialization step through
+PalPrintFatalError before returning false. Control flow is otherwise unchanged.
+
+--- a/src/coreclr/nativeaot/Runtime/startup.cpp
++++ b/src/coreclr/nativeaot/Runtime/startup.cpp
+@@ -92,8 +92,7 @@
+     //
+     // Initialize interface dispatch.
+     //
+-    if (!InterfaceDispatch_Initialize())
+-        return false;
++    if (!InterfaceDispatch_Initialize()) { PalPrintFatalError("WitOS startup failure: InterfaceDispatch_Initialize()\n"); return false; }
+ #endif
+ 
+     InitializeGCEventLock();
+@@ -112,19 +111,17 @@
+     //
+     // Initialize support for registering GC and HandleTable callouts.
+     //
+-    if (!RestrictedCallouts::Initialize())
+-        return false;
++    if (!RestrictedCallouts::Initialize()) { PalPrintFatalError("WitOS startup failure: RestrictedCallouts::Initialize()\n"); return false; }
+ 
+     //
+     // Initialize RuntimeInstance state
+     //
+-    if (!RuntimeInstance::Initialize(hPalInstance))
+-        return false;
++    if (!RuntimeInstance::Initialize(hPalInstance)) { PalPrintFatalError("WitOS startup failure: RuntimeInstance::Initialize(hPalInstance)\n"); return false; }
+ 
+     // Note: The global exception handler uses RuntimeInstance
+ #if !defined(USE_PORTABLE_HELPERS)
+ #ifdef HOST_WINDOWS
+-    AddVectoredExceptionHandler(1, RhpVectoredExceptionHandler);
++    if (AddVectoredExceptionHandler(1, RhpVectoredExceptionHandler) == NULL) return false;
+ #else
+     PalSetHardwareExceptionHandler(RhpHardwareExceptionHandler);
+ #endif
+@@ -146,8 +143,7 @@
+ 
+     STARTUP_TIMELINE_EVENT(NONGC_INIT_COMPLETE);
+ 
+-    if (!InitializeGC())
+-        return false;
++    if (!InitializeGC()) { PalPrintFatalError("WitOS startup failure: InitializeGC()\n"); return false; }
+ 
+     STARTUP_TIMELINE_EVENT(GC_INIT_COMPLETE);
+ 
+@@ -159,8 +155,7 @@
+ #endif
+ 
+ #ifndef USE_PORTABLE_HELPERS
+-    if (!DetectCPUFeatures())
+-        return false;
++    if (!DetectCPUFeatures()) { PalPrintFatalError("WitOS startup failure: DetectCPUFeatures()\n"); return false; }
+ #endif
+ 
+ #ifdef TARGET_UNIX
+@@ -338,8 +333,7 @@
+ 
+ extern "C" bool RhInitialize(bool isDll)
+ {
+-    if (!PalInit())
+-        return false;
++    if (!PalInit()) { PalPrintFatalError("WitOS startup failure: PalInit()\n"); return false; }
+ 
+ #if defined(HOST_WINDOWS)
+     // RtlDllShutdownInProgress provides more accurate information about whether the process is shutting down.
+@@ -350,15 +344,14 @@
+ #endif
+ 
+ #if defined(HOST_WINDOWS) || defined(FEATURE_PERFTRACING)
+-    atexit(&OnProcessExit);
++    if (atexit(&OnProcessExit) != 0) return false;
+ #endif
+ 
+ #if defined(HOST_WINDOWS) && defined(FEATURE_PERFTRACING)
+     g_safeToShutdownTracing = !isDll;
+ #endif
+ 
+-    if (!InitDLL(PalGetModuleHandleFromPointer((void*)&RhInitialize)))
+-        return false;
++    if (!InitDLL(PalGetModuleHandleFromPointer((void*)&RhInitialize))) { PalPrintFatalError("WitOS startup failure: InitDLL(PalGetModuleHandleFromPointer((void*)&RhInitialize))\n"); return false; }
+ 
+     // Populate the values needed for debugging
+     PopulateDebugHeaders();

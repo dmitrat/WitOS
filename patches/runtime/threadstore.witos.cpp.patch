@@ -1,0 +1,47 @@
+Source: src/coreclr/nativeaot/Runtime/threadstore.cpp
+Output: threadstore.witos.cpp
+Before: 481eeac03c34043472f6a6a4866103f9df7f0e8de03d96a186291d6d0bffc122
+After: 3e59e8d14eb2f5ab624ba3a338c367fa3cba48cb835c0e8c613dcbe17987c45f
+
+The TLS metadata for diagnostics is computed from a kernel-confirmed thread snapshot, TLS index zero and the shared
+compiler-TLS data offset instead of the Windows TEB; an inconsistent record fails fast before any breadcrumb is
+published. bootstrap.h supplies the kernel ABI.
+
+--- a/src/coreclr/nativeaot/Runtime/threadstore.cpp
++++ b/src/coreclr/nativeaot/Runtime/threadstore.cpp
+@@ -1,6 +1,9 @@
+ // Licensed to the .NET Foundation under one or more agreements.
+ // The .NET Foundation licenses this file to you under the MIT license.
+ #include "common.h"
++extern "C" {
++#include "bootstrap.h"
++}
+ #include "gcenv.h"
+ #include "gcheaputilities.h"
+ #include "CommonTypes.h"
+@@ -468,13 +471,19 @@
+ #endif
+ void ThreadStore::SaveCurrentThreadOffsetForDAC()
+ {
++    static_assert(sizeof(tls_CurrentThread) <= 4096 - WIT_COMPILER_TLS_DATA_OFFSET);
++    WitUserThreadInfo info;
++    WitU64 copied = 0;
++    if (wit_native_call(WIT_CALL_THREAD_QUERY, (uintptr_t)&info, sizeof(info), WIT_THREAD_INFO_VERSION, &copied) != WIT_STATUS_OK ||
++        copied != sizeof(info) || info.Version != WIT_THREAD_INFO_VERSION || info.Size != sizeof(info) ||
++        !info.CompilerTls || (info.CompilerTls & 4095) || info.CompilerTls > UINTPTR_MAX - 4096 || _tls_index != 0)
++        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
++    const uintptr_t first = info.CompilerTls + WIT_COMPILER_TLS_DATA_OFFSET;
++    const uintptr_t address = (uintptr_t)&tls_CurrentThread;
++    if (address < first || address - first > 4096 - WIT_COMPILER_TLS_DATA_OFFSET - sizeof(tls_CurrentThread))
++        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+     p_tls_index = &_tls_index;
+-
+-    uint8_t * pTls = *(uint8_t **)(PalNtCurrentTeb() + OFFSETOF__TEB__ThreadLocalStoragePointer);
+-
+-    uint8_t * pOurTls = *(uint8_t **)(pTls + (_tls_index * sizeof(void*)));
+-
+-    SECTIONREL__tls_CurrentThread = (uint32_t)((uint8_t *)&tls_CurrentThread - pOurTls);
++    SECTIONREL__tls_CurrentThread = (uint32_t)(address - first);
+ }
+ #if defined(TARGET_ARM64)
+ #pragma optimize("", on)
