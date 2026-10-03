@@ -63,7 +63,7 @@ public sealed class PeCorpusTests
         if (result.TimedOut || result.ExitCode != 0 || !result.Output.Contains("PASS: 555 immutable trailing-guard PE inputs"))
             throw new Exception($"PE corpus failed (exit={result.ExitCode}, timeout={result.TimedOut}); see {Path.Combine(output, "pe-corpus.log")}");
         string Hash(string p) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(p))).ToLowerInvariant();
-        await File.WriteAllTextAsync(Path.Combine(output, "pe-corpus.json"), JsonSerializer.Serialize(new { hostOnly = true, cases = 555, structuralVerdictCases = 26, seed = "0x57314A29", inputs = new[] { source, parser, Path.Combine(root, "tests/WitOS.Dev.Tests/Native/HostIdentity.c"), Path.Combine(root, "src/Kernel/pe_imports.c"), Path.Combine(root, "src/Kernel/pe_exports.c"), image, Path.Combine(root, "src/Kernel/include/witos/pe.h"), Path.Combine(root, "src/Kernel/include/witos/unwind_metadata.h") }.Select(file => new { file, sha256 = Hash(file) }) }));
+        await File.WriteAllTextAsync(Path.Combine(output, "pe-corpus.json"), JsonSerializer.Serialize(new { hostOnly = true, cases = 555, structuralVerdictCases = 26, seed = "0x57314A29", inputs = new[] { source, parser, Path.Combine(root, "tests/WitOS.Dev.Tests/Native/HostIdentity.c"), Path.Combine(root, "src/Kernel/pe_imports.c"), Path.Combine(root, "src/Kernel/pe_exports.c"), image, Path.Combine(root, "src/Kernel/include/witos/pe.h"), Path.Combine(root, "src/Kernel/include/witos/limits.h"), Path.Combine(root, "src/Kernel/include/witos/unwind_metadata.h") }.Select(file => new { file, sha256 = Hash(file) }) }));
         Console.Write(result.Output);
         if (coverage)
             await NativeCoverage.ReportAsync(root, output, exe);

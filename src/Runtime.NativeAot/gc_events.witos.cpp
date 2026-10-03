@@ -1,4 +1,5 @@
 #include "gcenv.witos.h"
+#include "../Runtime.Native/native_limits.h"
 
 /* Bounded bootstrap storage. No native heap, C++ static constructors or
  * destructor registration. Event objects must not be copied. Lifecycle calls
@@ -7,7 +8,7 @@ class GCEvent::Impl {
 public:
     GCEvent *Owner;
     WitU64 Handle;
-    static constexpr size_t Capacity = 16;
+    static constexpr size_t Capacity = WIT_NATIVE_GC_EVENT_CAPACITY;
     static Impl Slots[Capacity];
     static volatile WitU32 Gate;
 

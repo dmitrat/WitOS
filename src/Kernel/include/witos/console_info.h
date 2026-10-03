@@ -1,8 +1,8 @@
 #ifndef WITOS_CONSOLE_INFO_H
 #define WITOS_CONSOLE_INFO_H
 #include "types.h"
+#include "limits.h"
 #define WIT_CONSOLE_WRITE_VERSION 1U
-#define WIT_CONSOLE_MAX_WRITE 65536U
 
 typedef struct WitConsoleWriteRequest {
     WitU32 Version, Size;

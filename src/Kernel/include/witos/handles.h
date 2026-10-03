@@ -1,9 +1,8 @@
 #ifndef WITOS_HANDLES_H
 #define WITOS_HANDLES_H
 #include "user_abi.h"
+#include "limits.h"
 
-#define WIT_HANDLE_CAPACITY 16U
-#define WIT_RUNTIME_HANDLE_CAPACITY 32U
 #define WIT_HANDLE_CONSOLE 1U
 #define WIT_HANDLE_SELF 2U
 #define WIT_HANDLE_THREAD 3U

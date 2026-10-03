@@ -1,6 +1,7 @@
 #include <new>
 #include <stdint.h>
 #include "native_heap.witos.h"
+#include "../Runtime.Native/native_limits.h"
 extern "C" {
 #include "bootstrap.h"
 }
@@ -8,8 +9,8 @@ extern "C" {
 /* A bounded process-private heap for the runtime's nothrow C++ allocations.
  * Metadata is outside allocation payloads. No CRT, managed GC, compiler TLS,
  * dynamic initialization or kernel events are required. */
-static constexpr size_t CAPACITY = 128;
-static constexpr size_t ARENA_BYTES = 256 * 1024;
+static constexpr size_t CAPACITY = WIT_NATIVE_HEAP_CAPACITY;
+static constexpr size_t ARENA_BYTES = WIT_NATIVE_HEAP_ARENA_BYTES;
 static constexpr size_t PAGE_BYTES = 4096;
 
 struct Allocation {

@@ -66,7 +66,7 @@ internal static class UserDynamicTlsImage
             imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
             compiler = msvc,
             unwindEntries = h.ExceptionTableDirectory.Size / 12,
-            sources = sources.Concat(["src/Runtime.Native/tls.h", "src/Runtime.Native/X64/native_start.asm"])
+            sources = sources.Concat(["src/Runtime.Native/tls.h", "src/Runtime.Native/native_limits.h", "src/Runtime.Native/X64/native_start.asm"])
                 .Select(p => new { path = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, p)))).ToLowerInvariant() })
         };
         await File.WriteAllTextAsync(Path.Combine(output, "dynamic-tls-build.json"),

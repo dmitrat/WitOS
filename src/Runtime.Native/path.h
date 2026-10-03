@@ -1,7 +1,7 @@
 #ifndef WITOS_NATIVE_PATH_H
 #define WITOS_NATIVE_PATH_H
 #include "file.h"
-#define WIT_PATH_INPUT_MAX 4096U
+#include "native_limits.h"
 #define WIT_PATH_BUFFER (WIT_STORAGE_NAME_BYTES + 2U)
 
 typedef struct WitNativePath {

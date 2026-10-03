@@ -2,6 +2,7 @@
 #define WITOS_PAL_ENVIRONMENT_H
 #include <stdint.h>
 #include <stddef.h>
+#include "../Runtime.Native/native_limits.h"
 
 /* Internal single-image startup contract; not a general environment SDK.
  * Call once after image publication and before constructors/workers.
@@ -13,12 +14,8 @@ struct WitPalEnvironmentEntry {
     uint32_t ValueLength;
 };
 
-static constexpr uint32_t WIT_PAL_ENV_CAPACITY = 16;
-static constexpr uint32_t WIT_PAL_ENV_NAME_MAX = 63;
-static constexpr uint32_t WIT_PAL_ENV_VALUE_MAX = 1023;
 bool wit_pal_environment_initialize(const WitPalEnvironmentEntry *entries, uint32_t count);
 bool wit_pal_environment_is_ready();
-static constexpr uint32_t WIT_PAL_ENV_BLOCK_CAPACITY = 4;
 extern "C" wchar_t *wit_pal_environment_strings();
 extern "C" int wit_pal_environment_free(wchar_t *);
 #endif

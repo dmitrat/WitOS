@@ -4,6 +4,7 @@
 #include "witos/arch_types.h"
 #include "witos/user_layout.h"
 #include "witos/handles.h"
+#include "witos/limits.h"
 #include "witos/files.h"
 #include "witos/events.h"
 #include "witos/memory.h"
@@ -17,7 +18,6 @@ _Static_assert(WIT_USER_IMAGE_INFO_OFFSET + WIT_IMAGE_INFO_SIZE <= 4096, "Image 
 /* Private code-mapping backend; not enabled by ordinary memory syscalls. */
 #define WIT_CODE_EXECUTE 4ULL
 typedef WitVirtualRange WitUserReservation;
-#define WIT_CODE_VIEW_CAPACITY 16U
 
 typedef struct WitCodeView {
     WitU64 Destination, Source, Size, Protection;

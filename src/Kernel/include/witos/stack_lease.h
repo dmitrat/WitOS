@@ -1,8 +1,8 @@
 #ifndef WITOS_STACK_LEASE_H
 #define WITOS_STACK_LEASE_H
 #include "types.h"
+#include "limits.h"
 #define WIT_STACK_LEASE_VERSION 1U
-#define WIT_STACK_LEASE_CAPACITY 4U
 
 /* Private bring-up contract. The token is owned by the requesting thread;
  * copied user fields are descriptive, never authority. No automatic resume. */

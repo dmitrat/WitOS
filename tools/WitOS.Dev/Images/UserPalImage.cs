@@ -83,7 +83,7 @@ internal static class UserPalImage
             scope = "Partial NativeAOT PAL: thread discovery, committed memory, events and non-alertable waits; no ThreadStore or GC execution.",
             inputs = pin.Sources.Where(s => INPUTS.Contains(s.Path)),
             localInputs = sources.Concat(["src/Runtime.NativeAot/pal.witos.h", "src/Kernel/include/witos/thread_info.h",
-                    "src/Kernel/include/witos/user_abi.h", "src/Runtime.Native/error.h", "src/Runtime.Pal.Win32/X64/native_error.asm", "src/Runtime.Native/X64/native_start.asm"])
+                    "src/Kernel/include/witos/user_abi.h", "src/Kernel/include/witos/limits.h", "src/Runtime.Native/error.h", "src/Runtime.Pal.Win32/X64/native_error.asm", "src/Runtime.Native/X64/native_start.asm"])
                 .Select(p => new { path = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, p)))).ToLowerInvariant() })
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
     }

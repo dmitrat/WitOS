@@ -1,9 +1,7 @@
 #ifndef WITOS_EVENTS_H
 #define WITOS_EVENTS_H
 #include "handles.h"
-
-#define WIT_EVENT_CAPACITY 4U
-#define WIT_RUNTIME_EVENT_CAPACITY 16U
+#include "limits.h"
 
 typedef struct WitEvent {
     WitU64 Handle;

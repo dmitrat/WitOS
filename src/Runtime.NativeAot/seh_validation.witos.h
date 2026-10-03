@@ -1,7 +1,7 @@
 #ifndef WITOS_SEH_VALIDATION_H
 #define WITOS_SEH_VALIDATION_H
 #include "unwind_validation.witos.h"
-#define WIT_SEH_SCOPE_CAPACITY 128U
+#include "../Runtime.Native/native_limits.h"
 
 struct WitSehScope {
     WitU32 Begin, End, Handler, Target;

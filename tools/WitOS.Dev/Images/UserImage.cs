@@ -18,6 +18,7 @@ internal static class UserImage
     [
         "src/Kernel/include/witos/user_abi.h",
         "src/Kernel/include/witos/user_layout.h",
+        "src/Kernel/include/witos/limits.h",
         "tests/User/protocol.h"
     ];
 
@@ -87,7 +88,7 @@ internal static class UserImage
         {
             var source = await File.ReadAllTextAsync(Path.Combine(root, header));
             foreach (Match match in Regex.Matches(source,
-                @"^#define\s+(WIT_[A-Z0-9_]+)\s+(0x[0-9A-Fa-f]+|[0-9]+)(?:ULL|U)?\s*$", RegexOptions.Multiline))
+                @"^#define\s+(WIT_[A-Z0-9_]+)\s+(0x[0-9A-Fa-f]+|[0-9]+)(?:ULL|U)?\s*(?:/\*.*\*/)?\s*$", RegexOptions.Multiline))
             {
                 var literal = match.Groups[2].Value;
                 var value = literal.StartsWith("0x", StringComparison.Ordinal)

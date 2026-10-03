@@ -14,6 +14,12 @@ namespace WitOS.Dev.NativeAot;
 /// </summary>
 internal static class RuntimeReadiness
 {
+    #region Constants
+
+    private const string LIMITS = "src/Kernel/include/witos/limits.h";
+
+    #endregion
+
     #region Functions
 
     /// <summary>
@@ -108,11 +114,11 @@ internal static class RuntimeReadiness
             throw new InvalidDataException("Linked startup diagnostic lost native TLS/unwind metadata or retained OS imports.");
         await RuntimePlatformBoundary.WriteAsync(root, managed, coff, log, unresolved, compilerArgs);
         var guestDriver = await RuntimeGuestDriver.BuildAsync(root, msvc, output, managed, tls, libraries);
-        var imageLimit = Constant(root, "src/Kernel/include/witos/pe.h", "WIT_PE_MAX_IMAGE_SIZE");
-        var unwindLimit = Constant(root, "src/Kernel/include/witos/pe.h", "WIT_PE_MAX_UNWIND_ENTRIES");
-        var pageLimit = Constant(root, "src/Kernel/include/witos/user_layout.h", "WIT_USER_PAGE_CAPACITY");
-        var handleLimit = Constant(root, "src/Kernel/include/witos/handles.h", "WIT_HANDLE_CAPACITY");
-        var runtimeUnwindLimit = Constant(root, "src/Kernel/include/witos/pe.h", "WIT_PE_RUNTIME_UNWIND_ENTRIES");
+        var imageLimit = Constant(root, LIMITS, "WIT_PE_MAX_IMAGE_SIZE");
+        var unwindLimit = Constant(root, LIMITS, "WIT_PE_MAX_UNWIND_ENTRIES");
+        var pageLimit = Constant(root, LIMITS, "WIT_USER_PAGE_CAPACITY");
+        var handleLimit = Constant(root, LIMITS, "WIT_HANDLE_CAPACITY");
+        var runtimeUnwindLimit = Constant(root, LIMITS, "WIT_PE_RUNTIME_UNWIND_ENTRIES");
         var evidence = new
         {
             pin.RuntimeVersion,
@@ -140,7 +146,7 @@ internal static class RuntimeReadiness
             inputs = libraries.Concat([transport, tls]).Select(p => new { file = p, sha256 = Hash(p) }),
             localSources = new[] { project + "/Program.cs", project + "/ExceptionProbe.cs", project + "/FinalizationProbe.cs", project + "/GuestReport.cs", project + "/ManagedThreadProbe.cs", project + "/StackOverflowProbe.cs", project + "/ThreadQuotaProbe.cs", project + "/FaultProbe.cs", project + "/MemoryFailureProbe.cs", project + "/NativeAotBoot.csproj", project + "/packages.lock.json",
                 "src/Runtime.Native/X64/native_start.asm", "src/Runtime.Native/tls_metadata.c", "src/Kernel/include/witos/pe.h",
-                "src/Kernel/include/witos/user_abi.h", "src/Kernel/include/witos/handles.h", "src/Kernel/include/witos/user_layout.h" }
+                "src/Kernel/include/witos/user_abi.h", "src/Kernel/include/witos/handles.h", "src/Kernel/include/witos/user_layout.h", LIMITS }
                 .Select(p => new { file = p, sha256 = Hash(Path.Combine(root, p)) }),
             scope = "Hosted standard-CoreLib executable plus strictly linked source-built wmain diagnostic image. wmain is a dependency root, not a valid WitOS startup thunk. The separate guest handoff driver links image/environment publication, GS/TLS/initializer entry and orderly shutdown; its execution and resource budgets still require guest acceptance. Reference image sizes are not final guest requirements."
         };
@@ -167,7 +173,7 @@ internal static class RuntimeReadiness
     private static uint Constant(string root, string file, string name)
     {
         var matches = Regex.Matches(File.ReadAllText(Path.Combine(root, file)),
-            @"^#define\s+" + Regex.Escape(name) + @"\s+([0-9]+)U\s*$", RegexOptions.Multiline);
+            @"^#define\s+" + Regex.Escape(name) + @"\s+([0-9]+)U\s*(?:/\*.*\*/)?\s*$", RegexOptions.Multiline);
         if (matches.Count != 1)
             throw new InvalidDataException("Missing/ambiguous readiness limit: " + name);
         return uint.Parse(matches[0].Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);

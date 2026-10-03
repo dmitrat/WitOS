@@ -1,6 +1,7 @@
 #ifndef WITOS_USER_ABI_H
 #define WITOS_USER_ABI_H
 #include "types.h"
+#include "limits.h"
 #include "image_info.h"
 #include "memory_info.h"
 #include "thread_info.h"
@@ -127,7 +128,6 @@
 /* WaitAnyUntil(user handle array, count, absolute monotonic deadline).
  * All handles are validated before consuming one signal. Result is winner index. */
 #define WIT_CALL_EVENT_WAIT_ANY_UNTIL 30U
-#define WIT_WAIT_ANY_CAPACITY 4U
 /* Create a kernel-controlled manual memory-pressure event; all arguments zero.
  * Returned handle permits waiting and closing, never user signaling/reset. */
 #define WIT_CALL_MEMORY_PRESSURE_EVENT 31U
@@ -154,7 +154,6 @@
 #define WIT_CALL_PROCESSOR_QUERY 42U
 #define WIT_EVENT_ACCESS_WAIT 4U
 #define WIT_EVENT_ACCESS_SIGNAL 8U
-#define WIT_ABI_MAX_RANDOM 65536U
 #define WIT_MONOTONIC_COUNTER 0U
 #define WIT_MONOTONIC_HZ 1U
 #define WIT_MONOTONIC_MAX 0x7FFFFFFFFFFFFFFFULL
@@ -193,7 +192,6 @@
 #define WIT_MEMORY_NONE 0U
 #define WIT_MEMORY_READ 1U
 #define WIT_MEMORY_WRITE 2U
-#define WIT_ABI_MAX_WRITE 256U
 
 typedef struct WitUserStartup {
     WitU32 Version;

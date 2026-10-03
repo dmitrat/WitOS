@@ -2,6 +2,7 @@
 #define WITOS_CORECLR_FUNCTION_TABLES_H
 #include <stdint.h>
 #include <stddef.h>
+#include "../Runtime.Native/native_limits.h"
 
 struct WitRuntimeFunction {
     uint32_t BeginAddress, EndAddress, UnwindData;
@@ -37,7 +38,7 @@ class WitFunctionTables {
         bool Retiring;
     };
 
-    static constexpr unsigned Capacity = 32;
+    static constexpr unsigned Capacity = WIT_CORECLR_FUNCTION_TABLE_CAPACITY;
     Record records[Capacity]{};
 
     struct Reader {

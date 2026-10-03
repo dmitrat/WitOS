@@ -4,6 +4,7 @@
 #include "seh_scope.witos.h"
 #include "security_handler.witos.h"
 #include "exception_classification.h"
+#include "../Runtime.Native/native_limits.h"
 #if defined(WITOS_DYNAMIC_CODE)
 #include "function_tables_guest.witos.h"
 extern "C" EXCEPTION_DISPOSITION wit_native_handler_invoke(
@@ -17,7 +18,7 @@ extern "C" EXCEPTION_DISPOSITION __cdecl __C_specific_handler(
     EXCEPTION_RECORD *, void *, CONTEXT *, DISPATCHER_CONTEXT *);
 
 namespace {
-constexpr unsigned Capacity = 8;
+constexpr unsigned Capacity = WIT_NATIVE_VECTORED_HANDLER_CAPACITY;
 
 struct Entry {
     WitU64 Token;

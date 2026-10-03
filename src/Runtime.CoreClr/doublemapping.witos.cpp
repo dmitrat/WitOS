@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "minipal.h" // Hash-verified pinned upstream VMToOSInterface.
+#include "../Runtime.Native/native_limits.h"
 extern "C" {
 #include "bootstrap.h"
 }
@@ -8,8 +9,8 @@ void wit_coreclr_code_gate_enter();
 void wit_coreclr_code_gate_leave();
 
 namespace {
-constexpr unsigned MapperCount = 4, ViewCount = 16;
-constexpr WitU64 Maximum = 64ULL * 1024 * 1024, Granularity = 65536;
+constexpr unsigned MapperCount = WIT_CORECLR_MAPPER_CAPACITY, ViewCount = WIT_CORECLR_VIEW_CAPACITY;
+constexpr WitU64 Maximum = WIT_CORECLR_MAPPER_MAX_BYTES, Granularity = 65536;
 
 struct Mapper {
     WitU64 Token, Backing;

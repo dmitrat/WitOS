@@ -4,9 +4,8 @@
 extern "C" {
 #endif
 #include "bootstrap.h"
+#include "native_limits.h"
 /* Private single-module user-space lifecycle, not NativeAOT ThreadStore. */
-#define WIT_NATIVE_TLS_MAX_INITIALIZERS 32U
-#define WIT_NATIVE_TLS_MAX_DESTRUCTORS 32U
 void wit_native_tls_initialize(const WitUserStartup *startup);
 void wit_native_tls_enter(void);
 void wit_native_tls_leave(void);

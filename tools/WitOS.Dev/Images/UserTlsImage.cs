@@ -77,7 +77,7 @@ internal static class UserTlsImage
             tlsDirectoryBytes = h.ThreadLocalStorageTableDirectory.Size,
             unwindEntries = h.ExceptionTableDirectory.Size / 12,
             sources = new[] { "tests/User.X64/compiler_tls.c", "tests/User.X64/compiler_tls_access.c",
-                "src/Runtime.Native/X64/native_start.asm", "src/Kernel/include/witos/user_abi.h" }
+                "src/Runtime.Native/X64/native_start.asm", "src/Kernel/include/witos/user_abi.h", "src/Kernel/include/witos/limits.h" }
                 .Select(p => new { path = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, p)))).ToLowerInvariant() })
         };
         await File.WriteAllTextAsync(Path.Combine(output, "compiler-tls-build.json"),

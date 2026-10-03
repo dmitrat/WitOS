@@ -1,10 +1,10 @@
 #ifndef WITOS_WAIT_OBJECTS_H
 #define WITOS_WAIT_OBJECTS_H
 #include "types.h"
+#include "limits.h"
 #define WIT_WAIT_OBJECTS_VERSION 1U
 #define WIT_WAIT_OBJECTS_ALERTABLE 1U
 #define WIT_WAIT_OBJECTS_ALL 2U
-#define WIT_APC_CAPACITY 4U
 
 typedef struct WitUserWaitRequest {
     WitU32 Version, Size;

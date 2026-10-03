@@ -71,7 +71,7 @@ public sealed class PeImportsTests
             guestExecuted = false,
             addressSanitizer = sanitize,
             executableSha256 = Hash(exe),
-            sourceSha256 = new[] { "src/Kernel/pe.c", "src/Kernel/pe_exports.c", "src/Kernel/pe_imports.c", "src/Kernel/include/witos/pe.h", "src/Kernel/include/witos/pe_imports.h", "tests/WitOS.Dev.Tests/Native/PeImports.c" }.ToDictionary(file => file, file => Hash(Path.Combine(root, file)))
+            sourceSha256 = new[] { "src/Kernel/pe.c", "src/Kernel/pe_exports.c", "src/Kernel/pe_imports.c", "src/Kernel/include/witos/pe.h", "src/Kernel/include/witos/limits.h", "src/Kernel/include/witos/pe_imports.h", "tests/WitOS.Dev.Tests/Native/PeImports.c" }.ToDictionary(file => file, file => Hash(Path.Combine(root, file)))
         }, new JsonSerializerOptions { WriteIndented = true }));
         Console.Write(run.Output);
     }

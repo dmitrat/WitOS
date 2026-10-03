@@ -1,6 +1,7 @@
 #ifndef WITOS_FILE_IO_H
 #define WITOS_FILE_IO_H
 #include "types.h"
+#include "limits.h"
 #define WIT_FILE_IO_VERSION 1U
 #define WIT_FILE_OPEN 0U
 #define WIT_FILE_LENGTH 1U
@@ -10,7 +11,6 @@
 #define WIT_FILE_SEEK_BEGIN 0U
 #define WIT_FILE_SEEK_CURRENT 1U
 #define WIT_FILE_SEEK_END 2U
-#define WIT_FILE_MAX_READ 65536U
 
 /* OPEN: counted UTF-8 relative path at Address/Bytes, returns handle.
  * READ[_AT]: validates the complete requested destination, returns bytes read.

@@ -1,9 +1,9 @@
 #ifndef WITOS_NATIVE_BOOTSTRAP_H
 #define WITOS_NATIVE_BOOTSTRAP_H
 #include "image.h"
+#include "native_limits.h"
 
 /* Private native startup helper, not NativeAOT's managed-module ABI. */
-#define WIT_NATIVE_MAX_INITIALIZERS 16U
 #define WIT_NATIVE_OK 0U
 #define WIT_NATIVE_ALREADY_STARTED 1U
 #define WIT_NATIVE_INVALID_BOOTSTRAP 2U
