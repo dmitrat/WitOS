@@ -36,13 +36,19 @@ internal static class FatImage
     #region Functions
 
     /// <summary>
-    /// Writes a FAT16 boot disk with the loader at EFI/BOOT/BOOTX64.EFI and the boot package beside it.
+    /// Writes a FAT16 boot disk with the loader at EFI/BOOT/&lt;bootName&gt; and the boot package beside it.
     /// </summary>
     /// <param name="destination">Disk image path.</param>
     /// <param name="executable">UEFI loader bytes.</param>
     /// <param name="package">Boot package, or an empty package when null.</param>
-    public static void Create(string destination, byte[] executable, byte[]? package = null)
+    /// <param name="bootName">8.3 removable-media boot file name, such as BOOTX64.EFI or BOOTAA64.EFI.</param>
+    public static void Create(string destination, byte[] executable, byte[]? package = null,
+        string bootName = "BOOTX64.EFI")
     {
+        var parts = bootName.Split('.');
+        if (parts.Length != 2 || parts[0].Length is 0 or > 8 || parts[1].Length is 0 or > 3)
+            throw new ArgumentException("Boot file name must be an 8.3 name.", nameof(bootName));
+        var shortName = parts[0].ToUpperInvariant().PadRight(8) + parts[1].ToUpperInvariant().PadRight(3);
         // Preserve the existing 32 MiB layout. Assembly packages use a 128 MiB
         // FAT16 volume with 8 KiB clusters, retaining the bounded FAT capacity.
         package ??= AssemblyPackage.Create(Array.Empty<(string, ReadOnlyMemory<byte>)>());
@@ -112,7 +118,7 @@ internal static class FatImage
         var directory = new byte[clusterSize];
         Entry(directory, 0, ".          ", 0x10, 3, 0);
         Entry(directory, 1, "..         ", 0x10, 2, 0);
-        Entry(directory, 2, "BOOTX64 EFI", 0x20, 4, executable.Length);
+        Entry(directory, 2, shortName, 0x20, 4, executable.Length);
         stream.Write(directory);
         stream.Write(executable);
         stream.Position = (long)DATA_START * SECTOR_SIZE + (long)(packageFirst - 2) * clusterSize;

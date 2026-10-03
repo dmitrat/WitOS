@@ -83,9 +83,13 @@ dotnet build WitOS.slnx --configuration Release
 dotnet run --project tools/WitOS.Dev --configuration Release -- build
 dotnet run --project tools/WitOS.Dev --configuration Release -- test
 dotnet run --project tools/WitOS.Dev --configuration Release -- release
+dotnet run --project tools/WitOS.Dev --configuration Release -- build --arch arm64
+dotnet run --project tools/WitOS.Dev --configuration Release -- test --arch arm64
 ```
 
 The native kernel currently always builds in Debug mode, including when the host tool uses Release.
+
+`--arch arm64` builds `BOOTAA64.EFI` with the MSVC ARM64 cross tools (Visual Studio component `Microsoft.VisualStudio.Component.VC.Tools.ARM64`) and boots it on the QEMU `virt` board with GICv3. At phase A0 that kernel is the boot-only profile: it checks the boot contract, initializes the physical page allocator, reports `Hello` and exits through Arm semihosting. Its suite requires success at 128 and 512 MiB, rejection of an invalid boot contract and of an overlapping memory map, and a timeout after a successful boot.
 
 Every test scenario builds a self-test kernel: the sources in `tests/Kernel.X64` and the white-box checks guarded by `WITOS_SELFTEST` run during boot before `Hello`. `release` builds the kernel without them, rejects a link map that names self-test code, and boots it with 128 MiB and 512 MiB of RAM; that kernel initializes, reports `Hello` and exits without running user components.
 
@@ -193,6 +197,8 @@ src/Boot.Uefi/               Firmware-specific entry and handoff adapter
 src/Kernel/                  Architecture-independent kernel: memory, handles, processes, threads, loader
 src/Kernel.Arch.X64/         x64 traps, frames, contexts, page tables and user transitions
 src/Kernel.Platform.Q35/     q35 board devices: COM1, PIC/PIT, HPET and test exit
+src/Kernel.Arch.A64/         ARM64 bring-up: identity, boot stack, exception level and interrupt mask
+src/Kernel.Platform.QemuVirt/ QEMU virt board: PL011 console and semihosting exit
 src/Runtime.Native/          User-space native base: startup, syscalls, threads, TLS, images, files
 src/Runtime.Pal.Win32/       Win32 API names for the upstream runtimes
 src/Runtime.NativeAot/       NativeAOT platform adapters and source overlay

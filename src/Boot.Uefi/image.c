@@ -1,3 +1,4 @@
+#include "witos/arch.h"
 #include "witos/boot.h"
 #include "witos/platform.h"
 
@@ -27,7 +28,7 @@ void wit_boot_describe_image(WitBootInfo *boot)
         pe < 0x40 ||
         pe > 0x1000 ||
         read32(base + pe) != 0x00004550 ||
-        read16(base + pe + 4) != 0x8664) {
+        read16(base + pe + 4) != wit_arch_identity()->PeMachine) {
         wit_panic("Invalid native image headers");
     }
     count = read16(base + pe + 6);

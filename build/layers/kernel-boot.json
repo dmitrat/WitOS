@@ -1,0 +1,11 @@
+{
+  "name": "kernel-boot",
+  "description": "Architecture-independent kernel entry: boot contract, physical page allocator and console formatting. A new architecture links this layer first.",
+  "includes": [],
+  "sources": [
+    "src/Kernel/console.c",
+    "src/Kernel/kernel.c",
+    "src/Kernel/memory.c"
+  ],
+  "assembly": []
+}

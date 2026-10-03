@@ -12,7 +12,8 @@
  * The common kernel decides which thread runs, what a system call means and how a fault is handled.
  * The architecture switches to and from user mode, owns the saved register frame of every thread,
  * keeps the processor state profile, and reports traps. Each src/Kernel.Arch.<isa> directory implements
- * every function declared here; the common kernel never names registers, selectors or ISA instructions.
+ * the functions that the kernel layers it links call: a new architecture starts with identity and bring-up
+ * under the boot-only kernel profile. The common kernel never names registers, selectors or ISA instructions.
  *
  * A thread is identified by its component slot and thread index. Its frame lives on that thread's
  * kernel stack while the thread is outside user mode; frame pointers stay valid until the thread runs.
@@ -35,7 +36,17 @@ typedef enum WitArchExceptionKind {
 
 struct WitBootInfo;
 
-/* Bring-up, interrupt flag and halting. */
+/* What the boot contract, the image check and the banner say about this architecture. */
+typedef struct WitArchIdentity {
+    WitU32 BootArchitecture; /* WIT_ARCH_* in WitBootInfo. */
+    WitU16 PeMachine; /* Machine field of the kernel's own PE image. */
+    WitU16 Reserved;
+    const char *Name; /* Short name, such as x64. */
+    const char *Processor; /* Processor family, such as x86_64. */
+} WitArchIdentity;
+
+/* Identity, bring-up, interrupt flag and halting. */
+const WitArchIdentity *wit_arch_identity(void);
 WIT_NORETURN void wit_arch_enter(const struct WitBootInfo *boot);
 void wit_arch_initialize(void);
 void wit_arch_disable_interrupts(void);

@@ -17,9 +17,14 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public FaultExpectation? Fault { get; init; }
 
     /// <summary>
-    /// QEMU CPU model.
+    /// Architecture whose QEMU board boots the image.
     /// </summary>
-    public string CpuModel { get; init; } = "qemu64";
+    public KernelArchitecture Architecture { get; init; } = KernelArchitecture.X64;
+
+    /// <summary>
+    /// QEMU CPU model; the architecture's base profile when null.
+    /// </summary>
+    public string? CpuModel { get; init; }
 
     /// <summary>
     /// Guest suite whose markers a successful boot must report.

@@ -487,6 +487,8 @@ WitPeStatus wit_pe_validate_profile(const WitU8 *file, WitU32 size, WitPeImage *
     if (nt < 64 || !range(nt, 24, size) || u32(file + nt) != 0x4550) {
         return WitPeInvalidImage;
     }
+    /* x64 user images only: the unwind validation below decodes x64 unwind codes. ARM64 user images
+     * arrive with phase A and their own unwind validator. */
     if (u16(file + nt + 4) != 0x8664) {
         return WitPeUnsupportedImage;
     }

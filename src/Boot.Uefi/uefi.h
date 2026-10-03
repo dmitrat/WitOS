@@ -3,9 +3,10 @@
 
 #include "witos/types.h"
 
-/* Minimal x64 UEFI ABI declarations; no UEFI types cross WitBootInfo.
+/* Minimal 64-bit UEFI ABI declarations; no UEFI types cross WitBootInfo.
  * Layout reference: UEFI specification, EFI_SYSTEM_TABLE/EFI_BOOT_SERVICES.
- * All functions use the Microsoft x64 calling convention. */
+ * Firmware calls use the compiler's native convention, which is the UEFI one on both targets:
+ * Microsoft x64 on x64 and AAPCS64 on ARM64. */
 typedef WitU64 EfiStatus;
 typedef void *EfiHandle;
 

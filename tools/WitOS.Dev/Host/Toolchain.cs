@@ -157,24 +157,37 @@ internal static class Toolchain
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <returns>Tool directory.</returns>
-    public static async Task<string> FindMsvcAsync(string root)
+    public static Task<string> FindMsvcAsync(string root) =>
+        FindMsvcAsync(root, "x64", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64", "ml64.exe");
+
+    /// <summary>
+    /// Finds the newest MSVC tools that run on x64 and build for <paramref name="target"/>: cl, link and the assembler.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="target">Target directory under bin/Hostx64, such as x64 or arm64.</param>
+    /// <param name="component">Visual Studio component that installs those tools.</param>
+    /// <param name="assembler">Assembler executable, such as ml64.exe or armasm64.exe.</param>
+    /// <returns>Tool directory.</returns>
+    /// <exception cref="InvalidOperationException">Visual Studio or the tools are not installed.</exception>
+    public static async Task<string> FindMsvcAsync(string root, string target, string component, string assembler)
     {
         var vswhere = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
             "Microsoft Visual Studio", "Installer", "vswhere.exe");
         if (!File.Exists(vswhere))
             throw new InvalidOperationException("Install Visual Studio Build Tools with Desktop development with C++ (x64). vswhere.exe was not found.");
         var result = await Processes.RunAsync(vswhere,
-            ["-latest", "-products", "*", "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64", "-property", "installationPath"], root);
+            ["-latest", "-products", "*", "-requires", component, "-property", "installationPath"], root);
         var installation = result.Output.Trim();
         if (result.ExitCode != 0 || result.TimedOut || installation.Length == 0)
-            throw new InvalidOperationException("Visual Studio x64 C++ tools were not found.");
+            throw new InvalidOperationException($"Visual Studio C++ tools for {target} were not found; install the {component} component.");
         var versionsRoot = Path.Combine(installation, "VC", "Tools", "MSVC");
         var candidate = Directory.GetDirectories(versionsRoot)
             .Where(path => Version.TryParse(Path.GetFileName(path), out _))
             .OrderByDescending(path => Version.Parse(Path.GetFileName(path)))
-            .Select(path => Path.Combine(path, "bin", "Hostx64", "x64"))
-            .FirstOrDefault(path => File.Exists(Path.Combine(path, "cl.exe")) && File.Exists(Path.Combine(path, "link.exe")) && File.Exists(Path.Combine(path, "ml64.exe")));
-        return candidate ?? throw new InvalidOperationException("MSVC x64 compiler/linker/MASM were not found.");
+            .Select(path => Path.Combine(path, "bin", "Hostx64", target))
+            .FirstOrDefault(path => File.Exists(Path.Combine(path, "cl.exe")) && File.Exists(Path.Combine(path, "link.exe")) &&
+                File.Exists(Path.Combine(path, assembler)));
+        return candidate ?? throw new InvalidOperationException($"MSVC {target} compiler/linker/{assembler} were not found.");
     }
 
     /// <summary>

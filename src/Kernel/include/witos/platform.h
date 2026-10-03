@@ -5,7 +5,10 @@
 
 struct WitBootInfo;
 
+/* Board console: initialization and one byte out. src/Kernel/console.c formats on top of it. */
 void wit_console_initialize(void);
+void wit_platform_console_put(WitU8 value);
+
 void wit_console_write(const char *text);
 void wit_console_write_u64(WitU64 value);
 void wit_console_write_buffer(const WitU8 *data, WitU32 size);

@@ -9,6 +9,7 @@ namespace WitOS.Dev.Kernel;
 /// <param name="Description">Board and purpose of the target.</param>
 /// <param name="Includes">Include directories of every kernel source, in search order.</param>
 /// <param name="Layers">Layers of the release kernel, in link order.</param>
-/// <param name="SelfTestLayers">Layers linked after them into WITOS_SELFTEST kernels.</param>
+/// <param name="SelfTestLayers">Layers linked after them into WITOS_SELFTEST kernels; empty while the target has none.</param>
+/// <param name="Defines">Preprocessor symbols of every kernel source, such as the WITOS_BOOT_ONLY profile; may be absent.</param>
 internal sealed record KernelTarget(string Architecture, string Status, string Description, string[] Includes,
-    string[] Layers, string[] SelfTestLayers);
+    string[] Layers, string[] SelfTestLayers, string[]? Defines);

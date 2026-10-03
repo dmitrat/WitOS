@@ -27,10 +27,15 @@ internal static class CommandLine
     [
         new CommandDoctor(),
         new CommandAction("setup", "Download and verify pinned QEMU into .tools", Toolchain.SetupAsync),
-        new CommandAction("build", "Build the x64 UEFI image (no VM)", root => KernelImageBuilder.BuildAsync(root, "boot")),
+        new CommandArchitecture("build", "Build the UEFI image (no VM)",
+            (root, architecture) => KernelImageBuilder.BuildAsync(root, "boot", architecture: architecture)),
         new CommandScenario("run", "Build and boot headlessly in QEMU", "boot",
             [new BootRequest("boot-256", 256, 60, ExpectedOutcome.Success)]),
-        new CommandAction("test", "Test boot, physical pages, CPU exceptions and timeout handling", KernelTestSuite.RunAsync),
+        new CommandArchitecture("test",
+            "Test boot, physical pages, CPU exceptions and timeout handling; arm64: the A0 boot-only outcomes",
+            (root, architecture) => architecture == KernelArchitecture.X64
+                ? KernelTestSuite.RunAsync(root)
+                : KernelTestSuite.RunBootOnlyAsync(root, architecture)),
         new CommandScenario("release", "Build and boot the release kernel without self-tests", KernelImageBuilder.RELEASE_SCENARIO,
         [
             new BootRequest("release-128", 128, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release },
@@ -123,7 +128,7 @@ internal static class CommandLine
             var command = COMMANDS.FirstOrDefault(candidate => candidate.Name == name);
             if (args.Length > 1 && (command is null || command.Arguments.Length == 0))
             {
-                throw new ArgumentException("Use a single command; only fingerprint takes options. Run help for the command list.");
+                throw new ArgumentException("This command takes no options. Run help for the command list and their options.");
             }
             if (!OperatingSystem.IsWindows())
             {

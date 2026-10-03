@@ -3,6 +3,7 @@
   "description": "x64 implementation of witos/arch.h: descriptor tables, traps, frames and contexts, page tables, stacks and CPUID.",
   "includes": [],
   "sources": [
+    "src/Kernel.Arch.X64/identity.c",
     "src/Kernel.Arch.X64/frame.c",
     "src/Kernel.Arch.X64/frame_context.c",
     "src/Kernel.Arch.X64/user_cpu_context.c",

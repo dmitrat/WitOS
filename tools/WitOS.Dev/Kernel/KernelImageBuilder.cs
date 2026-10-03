@@ -22,8 +22,6 @@ internal static class KernelImageBuilder
     /// </summary>
     public const string RELEASE_SCENARIO = "release";
 
-    private const string ARCHITECTURE = "x64";
-
     #endregion
 
     #region Fields
@@ -64,21 +62,25 @@ internal static class KernelImageBuilder
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="scenario">Scenario name; selects test defines and extra fixtures.</param>
-    /// <param name="outputDirectory">Output directory; artifacts/x64/&lt;scenario&gt; when null.</param>
+    /// <param name="outputDirectory">Output directory; artifacts/&lt;architecture&gt;/&lt;scenario&gt; when null.</param>
     /// <param name="fixedBuildId">Build id override; fingerprint builds use a fixed id so the
     /// Git revision string cannot shift image data between commits.</param>
+    /// <param name="architecture">Target architecture; x64 when null.</param>
     /// <returns>Path of the FAT disk image.</returns>
     public static async Task<string> BuildAsync(string root, string scenario, string? outputDirectory = null,
-        string? fixedBuildId = null)
+        string? fixedBuildId = null, KernelArchitecture? architecture = null)
     {
-        var msvc = await Toolchain.FindMsvcAsync(root);
-        var output = outputDirectory ?? Path.Combine(root, "artifacts", "x64", scenario);
+        architecture ??= KernelArchitecture.X64;
+        var target = KernelManifest.ReadTarget(root, architecture.Name);
+        var msvc = await architecture.FindMsvcAsync(root);
+        var output = outputDirectory ?? Path.Combine(root, "artifacts", architecture.Name, scenario);
         Directory.CreateDirectory(output);
         var buildId = fixedBuildId ?? await BuildIdAsync(root);
         await File.WriteAllTextAsync(Path.Combine(output, "build_info.h"), $"#define WITOS_BUILD_ID \"{buildId}\"\n",
             Encoding.ASCII);
 
-        var selfTest = scenario != RELEASE_SCENARIO;
+        // Every scenario kernel is a self-test kernel where the target has self-test layers; the release kernel never is.
+        var selfTest = scenario != RELEASE_SCENARIO && target.SelfTestLayers.Length > 0;
         if (selfTest)
         {
             await UserImage.BuildAsync(root, output, msvc);
@@ -101,15 +103,15 @@ internal static class KernelImageBuilder
         {
             await CoreClrStorageImage.BuildAsync(root, output, msvc);
         }
-        var objects = await CompileKernelAsync(root, output, msvc, scenario, selfTest);
-        var efi = await LinkKernelAsync(root, output, msvc, objects);
+        var objects = await CompileKernelAsync(root, output, msvc, scenario, selfTest, target, architecture);
+        var efi = await LinkKernelAsync(root, output, msvc, objects, architecture);
         if (!selfTest)
         {
             await RequireReleaseMapAsync(Path.Combine(output, "WitOS.map"));
         }
 
-        var disk = Path.Combine(output, "WitOS-x64.img");
-        FatImage.Create(disk, await File.ReadAllBytesAsync(efi), bootPackage);
+        var disk = Path.Combine(output, $"WitOS-{architecture.Name}.img");
+        FatImage.Create(disk, await File.ReadAllBytesAsync(efi), bootPackage, architecture.EfiName);
         await File.WriteAllTextAsync(Path.Combine(output, "build.txt"),
             $"Build: {buildId}\nScenario: {scenario}\nCompiler: {msvc}\nQEMU: {Toolchain.QEMU_VERSION}\n");
         Console.WriteLine($"Built {scenario}: {disk}");
@@ -121,9 +123,8 @@ internal static class KernelImageBuilder
     #region Tools
 
     private static async Task<List<string>> CompileKernelAsync(string root, string output, string msvc, string scenario,
-        bool selfTest)
+        bool selfTest, KernelTarget target, KernelArchitecture architecture)
     {
-        var target = KernelManifest.ReadTarget(root, ARCHITECTURE);
         var layers = KernelManifest.ReadLayers(root, target, selfTest);
         SCENARIO_DEFINES.TryGetValue(scenario, out var define);
         var objects = new List<string>();
@@ -143,6 +144,7 @@ internal static class KernelImageBuilder
                 {
                     arguments.Add("/DWITOS_SELFTEST=1");
                 }
+                arguments.AddRange((target.Defines ?? []).Select(symbol => $"/D{symbol}=1"));
                 if (define is not null)
                 {
                     arguments.Add($"/D{define}=1");
@@ -156,8 +158,10 @@ internal static class KernelImageBuilder
             foreach (var source in layer.Assembly)
             {
                 var obj = Path.Combine(output, $"{layer.Name}.{Path.GetFileNameWithoutExtension(source)}.obj");
-                await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
-                    ["/nologo", "/c", "/Zi", $"/Fo{obj}", Path.Combine(root, source)], root);
+                string[] assemble = architecture.Assembler == "armasm64.exe"
+                    ? ["-nologo", "-g", "-o", obj, Path.Combine(root, source)]
+                    : ["/nologo", "/c", "/Zi", $"/Fo{obj}", Path.Combine(root, source)];
+                await Processes.RequireSuccessAsync(Path.Combine(msvc, architecture.Assembler), assemble, root);
                 objects.Add(obj);
             }
         }
@@ -173,15 +177,16 @@ internal static class KernelImageBuilder
         }
     }
 
-    private static async Task<string> LinkKernelAsync(string root, string output, string msvc, List<string> objects)
+    private static async Task<string> LinkKernelAsync(string root, string output, string msvc, List<string> objects,
+        KernelArchitecture architecture)
     {
-        var efi = Path.Combine(output, "BOOTX64.EFI");
-        var linkArgs = new List<string>
-        {
-            "/nologo", "/subsystem:efi_application", "/entry:efi_main", "/nodefaultlib", "/machine:x64",
-            "/fixed:no", "/dynamicbase:no", "/incremental:no", "/debug:full", "/Brepro",
+        var efi = Path.Combine(output, architecture.EfiName);
+        List<string> linkArgs =
+        [
+            "/nologo", "/subsystem:efi_application", "/entry:efi_main", "/nodefaultlib", $"/machine:{architecture.MsvcTarget}",
+            "/fixed:no", .. architecture.LinkOptions, "/incremental:no", "/debug:full", "/Brepro",
             $"/out:{efi}", $"/pdb:{Path.Combine(output, "WitOS.pdb")}", $"/map:{Path.Combine(output, "WitOS.map")}"
-        };
+        ];
         linkArgs.AddRange(objects);
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"), linkArgs, root);
 
@@ -189,9 +194,9 @@ internal static class KernelImageBuilder
         using var pe = new PEReader(file);
         var header = pe.PEHeaders.PEHeader;
         if (header is null || (int)header.Subsystem != 10 ||
-            pe.PEHeaders.CoffHeader.Machine != Machine.Amd64 || header.ImportTableDirectory.Size != 0)
+            pe.PEHeaders.CoffHeader.Machine != architecture.Machine || header.ImportTableDirectory.Size != 0)
         {
-            throw new InvalidOperationException("Output must be an x64 EFI image with no imported OS/CRT functions.");
+            throw new InvalidOperationException($"Output must be an {architecture.Name} EFI image with no imported OS/CRT functions.");
         }
         return efi;
     }

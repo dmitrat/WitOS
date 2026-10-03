@@ -7,6 +7,16 @@ namespace WitOS.Dev.Kernel;
 /// </summary>
 internal static class KernelTestSuite
 {
+    #region Constants
+
+    // Firmware start under TCG dominates a boot-only run of about six seconds.
+    private const int BOOT_ONLY_TIMEOUT = 60;
+
+    // A hanging kernel must reach Hello before QEMU is stopped.
+    private const int BOOT_ONLY_HANG = 30;
+
+    #endregion
+
     #region Fields
 
     private static readonly (string Name, FaultExpectation Fault)[] FAULT_SCENARIOS =
@@ -58,6 +68,34 @@ internal static class KernelTestSuite
         var timeout = await KernelImageBuilder.BuildAsync(root, "timeout");
         await BootScenarioRunner.RunAsync(root, timeout, new BootRequest("timeout", 256, 15, ExpectedOutcome.Timeout));
         Console.WriteLine("PASS: all 20 kernel integration scenarios.");
+    }
+
+    /// <summary>
+    /// Boots the boot-only kernel of a new architecture and requires its four outcomes: success at 128 and 512 MiB,
+    /// a rejected boot contract, a rejected memory map and a timeout after a successful boot.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Architecture whose target builds the boot-only profile.</param>
+    /// <exception cref="InvalidOperationException">A scenario did not produce its outcome.</exception>
+    public static async Task RunBootOnlyAsync(string root, KernelArchitecture architecture)
+    {
+        architecture.RequireQemu(root);
+        var prefix = architecture.Name + "-";
+        BootRequest Request(string name, int memory, int timeout, ExpectedOutcome expected) =>
+            new(prefix + name, memory, timeout, expected) { Architecture = architecture, Suite = BootSuite.BootOnly };
+
+        var image = await KernelImageBuilder.BuildAsync(root, "boot", architecture: architecture);
+        await BootScenarioRunner.RunAsync(root, image, Request("boot-128", 128, BOOT_ONLY_TIMEOUT, ExpectedOutcome.Success));
+        await BootScenarioRunner.RunAsync(root, image, Request("boot-512", 512, BOOT_ONLY_TIMEOUT, ExpectedOutcome.Success));
+        var panic = await KernelImageBuilder.BuildAsync(root, "invalid-boot-info", architecture: architecture);
+        await BootScenarioRunner.RunAsync(root, panic,
+            Request("invalid-boot-info", 256, BOOT_ONLY_TIMEOUT, ExpectedOutcome.InvalidBootInfo));
+        var overlap = await KernelImageBuilder.BuildAsync(root, "overlapping-map", architecture: architecture);
+        await BootScenarioRunner.RunAsync(root, overlap,
+            Request("overlapping-map", 256, BOOT_ONLY_TIMEOUT, ExpectedOutcome.InvalidMap));
+        var timeout = await KernelImageBuilder.BuildAsync(root, "timeout", architecture: architecture);
+        await BootScenarioRunner.RunAsync(root, timeout, Request("timeout", 256, BOOT_ONLY_HANG, ExpectedOutcome.Timeout));
+        Console.WriteLine($"PASS: all 5 {architecture.Name} boot-only scenarios.");
     }
 
     #endregion

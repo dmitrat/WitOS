@@ -5,17 +5,24 @@ namespace WitOS.Dev.Tests.Repository;
 
 /// <summary>
 /// Kernel build manifests: every listed file exists, every kernel C source belongs to exactly one layer, and the
-/// ARM64 template reuses the architecture-independent layers.
+/// ARM64 target reuses the architecture-independent boot layers.
 /// </summary>
 [TestFixture]
 public sealed class KernelManifestTests
 {
     #region Fields
 
-    private static readonly string[] KERNEL_SOURCE_DIRECTORIES =
-        ["src/Boot.Uefi", "src/Kernel", "src/Kernel.Arch.X64", "src/Kernel.Platform.Q35", "tests/Kernel.X64"];
+    private static readonly string[] ARCHITECTURES = ["x64", "arm64"];
 
-    private static readonly string[] SHARED_LAYERS = ["boot-uefi", "kernel-common"];
+    private static readonly string[] KERNEL_SOURCE_DIRECTORIES =
+    [
+        "src/Boot.Uefi", "src/Kernel", "src/Kernel.Arch.X64", "src/Kernel.Arch.A64", "src/Kernel.Platform.Q35",
+        "src/Kernel.Platform.QemuVirt", "tests/Kernel.X64"
+    ];
+
+    private static readonly string[] SHARED_LAYERS = ["boot-uefi", "kernel-boot"];
+
+    private const string BOOT_ONLY = "WITOS_BOOT_ONLY";
 
     #endregion
 
@@ -25,20 +32,22 @@ public sealed class KernelManifestTests
     public void ManifestFilesExistTest()
     {
         var root = TestEnvironment.Root;
-        var target = KernelManifest.ReadTarget(root, "x64");
-        foreach (var include in target.Includes)
+        foreach (var target in ARCHITECTURES.Select(architecture => KernelManifest.ReadTarget(root, architecture)))
         {
-            Assert.That(Directory.Exists(Path.Combine(root, include)), Is.True, "Missing include directory: " + include);
-        }
-        foreach (var layer in KernelManifest.ReadLayers(root, target, selfTest: true))
-        {
-            foreach (var path in layer.Includes.Where(path => !Directory.Exists(Path.Combine(root, path))))
+            foreach (var include in target.Includes)
             {
-                Assert.Fail($"{layer.Name} names a missing include directory: {path}");
+                Assert.That(Directory.Exists(Path.Combine(root, include)), Is.True, "Missing include directory: " + include);
             }
-            foreach (var path in layer.Sources.Concat(layer.Assembly).Where(path => !File.Exists(Path.Combine(root, path))))
+            foreach (var layer in KernelManifest.ReadLayers(root, target, selfTest: true))
             {
-                Assert.Fail($"{layer.Name} names a missing source: {path}");
+                foreach (var path in layer.Includes.Where(path => !Directory.Exists(Path.Combine(root, path))))
+                {
+                    Assert.Fail($"{layer.Name} names a missing include directory: {path}");
+                }
+                foreach (var path in layer.Sources.Concat(layer.Assembly).Where(path => !File.Exists(Path.Combine(root, path))))
+                {
+                    Assert.Fail($"{layer.Name} names a missing source: {path}");
+                }
             }
         }
     }
@@ -47,9 +56,12 @@ public sealed class KernelManifestTests
     public void EveryKernelSourceHasOneLayerTest()
     {
         var root = TestEnvironment.Root;
-        var target = KernelManifest.ReadTarget(root, "x64");
+        var layers = ARCHITECTURES
+            .SelectMany(architecture => KernelManifest.ReadLayers(root, KernelManifest.ReadTarget(root, architecture), selfTest: true))
+            .DistinctBy(layer => layer.Name)
+            .ToList();
         var owners = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var layer in KernelManifest.ReadLayers(root, target, selfTest: true))
+        foreach (var layer in layers)
         {
             foreach (var source in layer.Sources)
             {
@@ -71,31 +83,39 @@ public sealed class KernelManifestTests
     public void LayersKeepTheirIncludeBoundariesTest()
     {
         var root = TestEnvironment.Root;
-        var target = KernelManifest.ReadTarget(root, "x64");
-        foreach (var layer in KernelManifest.ReadLayers(root, target, selfTest: false))
+        foreach (var target in ARCHITECTURES.Select(architecture => KernelManifest.ReadTarget(root, architecture)))
         {
-            // Release layers reach other layers only through the target's shared include directories.
-            Assert.That(layer.Includes, Is.Empty, $"{layer.Name} adds private include directories");
+            foreach (var layer in KernelManifest.ReadLayers(root, target, selfTest: false))
+            {
+                // Release layers reach other layers only through the target's shared include directories.
+                Assert.That(layer.Includes, Is.Empty, $"{layer.Name} adds private include directories");
+            }
+            Assert.That(target.Includes.Count(include => include.Contains("Arch", StringComparison.Ordinal)), Is.EqualTo(1),
+                "Only the architecture include directory may be shared with the common kernel");
         }
-        Assert.That(target.Includes.Count(include => include.Contains("Arch", StringComparison.Ordinal)), Is.EqualTo(1),
-            "Only the architecture include directory may be shared with the common kernel");
     }
 
+    // A new architecture starts with the boot-only profile: the loader and kernel entry, no common kernel beyond them.
     [Test]
-    public void Arm64TemplateSharesCommonLayersTest()
+    public void Arm64SharesTheBootLayersTest()
     {
         var root = TestEnvironment.Root;
         var x64 = KernelManifest.ReadTarget(root, "x64");
         var arm64 = KernelManifest.ReadTarget(root, "arm64");
         Assert.That(x64.Status, Is.EqualTo(KernelManifest.ACTIVE));
-        Assert.That(arm64.Status, Is.EqualTo("template"));
+        Assert.That(arm64.Status, Is.EqualTo(KernelManifest.ACTIVE));
         foreach (var layer in SHARED_LAYERS)
         {
             Assert.That(x64.Layers, Does.Contain(layer));
             Assert.That(arm64.Layers, Does.Contain(layer));
         }
         Assert.That(arm64.Includes.Except(x64.Includes), Is.EqualTo(new[] { "src/Kernel.Arch.A64/include" }));
-        Assert.Throws<InvalidOperationException>(() => KernelManifest.ReadLayers(root, arm64, selfTest: false));
+        foreach (var target in new[] { x64, arm64 })
+        {
+            var bootOnly = (target.Defines ?? []).Contains(BOOT_ONLY);
+            Assert.That(target.Layers.Contains("kernel-common"), Is.EqualTo(!bootOnly),
+                $"{target.Architecture}: the boot-only profile and the common kernel layer exclude each other");
+        }
     }
 
     #endregion

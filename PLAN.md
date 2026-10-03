@@ -19,9 +19,9 @@
 | Ориентир | Текущее положение |
 | --- | --- |
 | Завершено | **P1, Q0, P3, P5/M3, Q1 и P6.1–P6.3**; P0, P2 и первый managed-запуск P4 — в проверенном bring-up профиле |
-| Следующий этап | **A0**: загрузка ARM64 на QEMU `virt` по [плану Q2/A](@Docs/Implementation/Q2-Consolidation-and-Arm64-Plan.md); предусловия Q2.6, Q2.7 и Q2.10 выполнены, нужен компонент MSVC ARM64 build tools. До его установки идёт Q2.9. Q2.0–Q2.8, Q2.10, Q2.12 и Q2.13 завершены, P6.4 приостановлен на срезе static DLL TLS |
-| Следующий проверяемый результат | `BOOTAA64.EFI` на `virt` с контрактом загрузки и semihosting-выходом; сценарии boot/invalid-boot-info/overlapping-map/timeout различают четыре исхода |
-| После него | A1–A2 ARM64-ядро на QEMU `virt` параллельно с Q2.9 и Q2.11 → P6.4 host/binding → P6.5 CoreCLR/JIT с заморозкой ABI → P6.6–P6.9 compatibility suite и developer workflow |
+| Следующий этап | **A1**: MMU, векторы и диагностика исключений, GICv3 и таймер, контексты ядра и монотонные часы на QEMU `virt` по [плану Q2/A](@Docs/Implementation/Q2-Consolidation-and-Arm64-Plan.md); параллельно Q2.9 и Q2.11. Q2.0–Q2.8, Q2.10, Q2.12, Q2.13 и A0 завершены, P6.4 приостановлен на срезе static DLL TLS |
+| Следующий проверяемый результат | ARM64-матрица, эквивалентная x64 M1: BRK, undefined, data abort, guard-страницы, таймер и часы без IRQ на `virt` |
+| После него | A2 пользовательские компоненты на `virt` параллельно с Q2.9 и Q2.11 → P6.4 host/binding → P6.5 CoreCLR/JIT с заморозкой ABI → P6.6–P6.9 compatibility suite и developer workflow |
 | Первый запуск .NET | **Достигнут:** P4 NativeAOT Main + реальные allocations/GC, 8 запусков (4 профиля × 2 адреса) |
 | Исходная цель проекта | P6: запуск неизменённой portable DLL через upstream CoreCLR/JIT |
 
@@ -297,7 +297,7 @@ Q1 завершён в текущем x64/UP профиле. Измеренно�
 
 Вторая ISA как доказательство слоения и предусловие заморозки ABI в P6.5. Среда: `qemu-system-aarch64` и EDK2 AArch64 из того же pinned-пакета, машина `virt` с GICv3, EL1, TTBR0/TTBR1, SVC-syscall, TPIDR_EL0 и x18 для TLS, generic timer, PL011, semihosting-выход в `Kernel.Platform.QemuVirt`. Детали и критерии: [план Q2/A](@Docs/Implementation/Q2-Consolidation-and-Arm64-Plan.md).
 
-- [ ] **A0** MSVC ARM64, `build --arch arm64`, параметризованный `Boot.Uefi`, `BOOTAA64.EFI` на `virt` с контрактом загрузки и semihosting-выходом; сценарии boot/invalid-boot-info/overlapping-map/timeout различают четыре исхода.
+- [x] **A0** MSVC ARM64, `build --arch arm64`, параметризованный `Boot.Uefi`, `BOOTAA64.EFI` на `virt` с контрактом загрузки и semihosting-выходом; сценарии boot/invalid-boot-info/overlapping-map/timeout различают четыре исхода. Итог: `build --arch arm64` собирает 15-килобайтный `BOOTAA64.EFI` из тех же `Boot.Uefi` и нового слоя `kernel-boot` (вход ядра, аллокатор физических страниц, консоль), плюс `src/Kernel.Arch.A64` и `src/Kernel.Platform.QemuVirt`. `test --arch arm64` проходит пять сценариев на `virt` с GICv3 и `cortex-a72`: boot-128 и boot-512 (контракт, 24 052 свободные страницы при 128 МиБ, Hello, выход 33), invalid-boot-info и overlapping-map (panic, 35), timeout после Hello; загрузка занимает около 6 с. Общее ядро и загрузчик узнают архитектуру только через `wit_arch_identity()`; ARM64-цель собирается в профиле `WITOS_BOOT_ONLY` без `kernel-common`. Новый тест слоения нашёл x64-проверку машины в валидаторе пользовательских PE; она оставлена явной до ARM64-раскрутки. В CI добавлено задание `boot-arm64`. x64-матрица зелёная. [Детали](@Docs/Implementation/Q2-Consolidation-and-Arm64-Plan.md#a0--загрузка-arm64-на-virt).
 - [ ] **A1** MMU, guard-страницы, таблица векторов и диагностика исключений, GICv3/таймер, контексты ядра, физические страницы, монотонные часы; матрица, эквивалентная x64 M1.
 - [ ] **A2** EL0-компоненты через общую политику: `UserFixture`, `ThreadFixture`, `WaitFixture`, `PeFixture` проходят на `virt` без правок в `src/Kernel`.
 - [ ] **A3** Позже, внутри P6: ARM64 unwind-метаданные и Win32-адаптеры; отдельный план после A2.

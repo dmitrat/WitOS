@@ -13,7 +13,8 @@ Track runtime bring-up in the root PLAN.md. After each completed implementation 
 ## Boundaries
 
 - Keep UEFI details in `src/Boot.Uefi/`.
-- Keep x64 instructions, descriptor tables and QEMU-specific test mechanisms in `src/Kernel.Arch.X64/`.
+- Keep x64 instructions, descriptor tables and QEMU-specific test mechanisms in `src/Kernel.Arch.X64/`, and ARM64 instructions in `src/Kernel.Arch.A64/`. QEMU virt board devices (PL011, Arm semihosting exit) stay in `src/Kernel.Platform.QemuVirt/`.
+- The common kernel and the loader learn the architecture only from `wit_arch_identity()`. A new architecture starts with the `WITOS_BOOT_ONLY` target profile, which links `kernel-boot` without `kernel-common`; add common layers only together with the architecture functions they call.
 - Keep the common kernel independent of firmware structure definitions.
 - Keep board devices in `src/Kernel.Platform.Q35/` and kernel self-tests in `tests/Kernel.X64/` under `WITOS_SELFTEST`. Kernel sources are listed only in `build/kernel-<arch>.json` and `build/layers/*.json`; each kernel C source belongs to exactly one layer, and the release kernel links no self-test layer. Uniform PAL fixtures are described by `build/fixtures/*.json` and share `PalFixtureCompiler`; user-mode code never returns to `src/Kernel.Arch.X64/`.
 - Use ordinary .NET for development tools.

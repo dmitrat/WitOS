@@ -17,7 +17,9 @@ EfiStatus efi_main(EfiHandle image, EfiSystemTable *system)
     EfiBootServicesPrefix *services;
 
     wit_console_initialize();
-    wit_console_write("[BOOT] UEFI x64 adapter\n");
+    wit_console_write("[BOOT] UEFI ");
+    wit_console_write(wit_arch_identity()->Name);
+    wit_console_write(" adapter\n");
     if (system == 0 ||
         system->Header.Signature != EFI_SYSTEM_TABLE_SIGNATURE ||
         system->Header.HeaderSize < sizeof(EfiSystemTable) ||
@@ -75,7 +77,7 @@ EfiStatus efi_main(EfiHandle image, EfiSystemTable *system)
             boot_info.Magic = WIT_BOOT_MAGIC;
             boot_info.Version = WIT_BOOT_VERSION;
             boot_info.Size = sizeof(WitBootInfo);
-            boot_info.Architecture = WIT_ARCH_X64;
+            boot_info.Architecture = wit_arch_identity()->BootArchitecture;
             boot_info.MemoryRegions = memory_regions;
             boot_info.Flags = WIT_BOOT_SERVICES_EXITED;
 #ifdef WITOS_TEST_OVERLAPPING_MAP

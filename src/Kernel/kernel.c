@@ -21,8 +21,22 @@ WIT_NORETURN void wit_panic(const char *reason)
     wit_platform_finish(0x11);
 }
 
+static WIT_NORETURN void finish(void)
+{
+    wit_console_write("Kernel initialized.\nHello from WitOS.\n");
+    wit_console_write("[TEST-PASS] Boot.Hello\n");
+
+#ifdef WITOS_TEST_HANG
+    for (;;) {
+    }
+#else
+    wit_platform_finish(0x10);
+#endif
+}
+
 WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
 {
+    const WitArchIdentity *arch = wit_arch_identity();
     WitU64 usable = 0;
 
     /* Versions come from the ABI headers; the host runner checks this line. */
@@ -31,14 +45,16 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
     wit_console_write(", boot ABI v");
     wit_console_write_u64(WIT_BOOT_VERSION);
     wit_console_write("\n");
-    wit_console_write("Build: " WITOS_BUILD_ID " | x64 | Debug\n");
+    wit_console_write("Build: " WITOS_BUILD_ID " | ");
+    wit_console_write(arch->Name);
+    wit_console_write(" | Debug\n");
     wit_console_write("[TEST-BEGIN] Boot.Contract\n");
 
     if (boot == 0 ||
         boot->Magic != WIT_BOOT_MAGIC ||
         boot->Version != WIT_BOOT_VERSION ||
         boot->Size != sizeof(WitBootInfo) ||
-        boot->Architecture != WIT_ARCH_X64 ||
+        boot->Architecture != arch->BootArchitecture ||
         (boot->Flags & WIT_BOOT_SERVICES_EXITED) == 0 ||
         boot->MemoryRegions == 0 ||
         boot->MemoryRegionCount == 0 ||
@@ -63,7 +79,9 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
 
     wit_console_write("[TEST-PASS] Boot.Contract\n");
     wit_arch_initialize();
-    wit_console_write("CPU: x86_64\nUsable memory: ");
+    wit_console_write("CPU: ");
+    wit_console_write(arch->Processor);
+    wit_console_write("\nUsable memory: ");
     wit_console_write_u64(usable / (1024ULL * 1024ULL));
     wit_console_write(" MiB\nMemory regions: ");
     wit_console_write_u64(boot->MemoryRegionCount);
@@ -75,6 +93,11 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
     wit_console_write("Free physical pages: ");
     wit_console_write_u64(wit_pages_free_count(&physical_pages));
     wit_console_write("\n");
+#if defined(WITOS_BOOT_ONLY)
+    /* A new architecture boots this far first: the boot contract and the physical allocator, before its
+     * paging, exceptions and clocks exist. */
+    finish();
+#else
     wit_virtual_initialize(boot, &physical_pages);
     if (!wit_storage_initialize(boot)) {
         wit_panic("Invalid readonly boot package");
@@ -112,14 +135,6 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
 #if defined(WITOS_SELFTEST)
     wit_kernel_self_test(boot, &physical_pages);
 #endif
-
-    wit_console_write("Kernel initialized.\nHello from WitOS.\n");
-    wit_console_write("[TEST-PASS] Boot.Hello\n");
-
-#ifdef WITOS_TEST_HANG
-    for (;;) {
-    }
-#else
-    wit_platform_finish(0x10);
+    finish();
 #endif
 }

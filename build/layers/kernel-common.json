@@ -1,6 +1,6 @@
 {
   "name": "kernel-common",
-  "description": "Architecture-independent kernel: memory, handles, events, PE validation, storage, processes, threads, waits and policy.",
+  "description": "Architecture-independent kernel beyond boot: handles, events, PE validation, storage, randomness, processes, threads, waits and policy.",
   "includes": [],
   "sources": [
     "src/Kernel/package.c",
@@ -23,8 +23,6 @@
     "src/Kernel/user_objects.c",
     "src/Kernel/user_reference.c",
     "src/Kernel/random.c",
-    "src/Kernel/kernel.c",
-    "src/Kernel/memory.c",
     "src/Kernel/handles.c",
     "src/Kernel/user_space.c",
     "src/Kernel/user.c",

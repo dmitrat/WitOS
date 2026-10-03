@@ -1,0 +1,11 @@
+{
+  "name": "kernel-platform-qemu-virt",
+  "description": "QEMU virt board: PL011 console and the test exit through Arm semihosting.",
+  "includes": [],
+  "sources": [
+    "src/Kernel.Platform.QemuVirt/console.c"
+  ],
+  "assembly": [
+    "src/Kernel.Platform.QemuVirt/semihosting.asm"
+  ]
+}

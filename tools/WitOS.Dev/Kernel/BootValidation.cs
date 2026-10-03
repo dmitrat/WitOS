@@ -195,7 +195,9 @@ internal static class BootValidation
         var usersReady = ValidateUsers(output, LegacyFaults(request.Suite), FollowingFaults(request.Suite));
         var helloReady = hello > output.IndexOf("[TEST-PASS] Scheduler.RegisterState", StringComparison.Ordinal);
         var exception = output.Contains("[EXCEPTION]", StringComparison.Ordinal);
-        var booted = bannerReady && foundationReady && schedulerReady && usersReady && helloReady && !panic && !exception;
+        var booted = request.Suite == BootSuite.BootOnly
+            ? BootOnlyReady(root, request, output)
+            : bannerReady && foundationReady && schedulerReady && usersReady && helloReady && !panic && !exception;
         var diagnostics = $"banner={bannerReady} foundation={foundationReady} scheduler={schedulerReady} " +
             $"users={usersReady} hello={helloReady} panic={panic} exception={exception}";
         booted = booted && SuiteReady(request, result);
@@ -301,6 +303,22 @@ internal static class BootValidation
         BootSuite.CoreClrStorage => 7,
         _ => 0
     };
+
+    // A boot-only kernel of a new architecture: firmware handoff, boot contract, physical allocator and Hello in order,
+    // with the banner and the build line of the requested architecture.
+    private static bool BootOnlyReady(string root, BootRequest request, string output)
+    {
+        var banner = Regex.IsMatch(output, "^" + Regex.Escape(KernelAbi.Banner(root)) + @"\r?$", RegexOptions.Multiline);
+        var build = Regex.IsMatch(output, @"^Build: \S+ \| " + Regex.Escape(request.Architecture.Name) + @" \| Debug\r?$",
+            RegexOptions.Multiline);
+        var memory = Regex.Match(output, @"Usable memory: (\d+) MiB");
+        var validMemory = memory.Success && int.TryParse(memory.Groups[1].Value, out var usable) && usable > 0 &&
+            usable < request.MemoryMiB;
+        return banner && build && validMemory &&
+            MarkersInOrder(output, "[BOOT] ExitBootServices OK", "[TEST-PASS] Boot.Contract", "Free physical pages: ",
+                "Kernel initialized.", "[TEST-PASS] Boot.Hello") &&
+            !output.Contains("[PANIC]", StringComparison.Ordinal) && !output.Contains("[EXCEPTION]", StringComparison.Ordinal);
+    }
 
     private static bool SuiteReady(BootRequest request, ProcessResult result)
     {
