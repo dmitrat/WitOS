@@ -3,7 +3,7 @@
 #endif
 #include "tls.h"
 #include "error.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>

@@ -2,7 +2,7 @@
 #include "NativeContext.h"
 #include "native_security.h"
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <string.h>
 #include <errno.h>
 extern "C" {

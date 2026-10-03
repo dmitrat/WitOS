@@ -2,7 +2,7 @@
 #include "pal.witos.h"
 #include "native_security.h"
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <errno.h>
 extern "C" BOOL WINAPI wit_reference_direct_duplicate(HANDLE, HANDLE, HANDLE, LPHANDLE, DWORD, BOOL, DWORD);
 extern "C" const void *const __imp_GetCurrentThread;

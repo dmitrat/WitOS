@@ -121,7 +121,7 @@ internal static class RuntimePortImage
             upstreamInputs = pin.Sources.Where(s => UPSTREAM_INPUTS.Contains(s.Path)),
             localInputs = sources.Append("src/Runtime.NativeAot/gcenv.witos.h").Append("src/Runtime.Native/X64/native_start.asm")
                 .Concat(["src/Runtime.Native/bootstrap.h", "src/Kernel/include/witos/user_abi.h",
-                    "src/Kernel/include/witos/types.h", "src/Kernel/include/witos/thread_info.h", "src/Kernel/include/witos/image_info.h", "src/Kernel/include/witos/memory_info.h", "tests/User.X64/protocol.h"])
+                    "src/Kernel/include/witos/types.h", "src/Kernel/include/witos/thread_info.h", "src/Kernel/include/witos/image_info.h", "src/Kernel/include/witos/memory_info.h", "tests/User/protocol.h"])
                 .Select(p => new { path = p, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(root, p)))).ToLowerInvariant() }),
             compiler = msvc,
             sdkVersion,

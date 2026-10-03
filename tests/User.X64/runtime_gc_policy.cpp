@@ -2,7 +2,7 @@
 #include "pal.witos.h"
 #include "native_security.h"
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <errno.h>
 extern "C" void wit_native_gc_breakpoint_resume();
 

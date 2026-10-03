@@ -1,5 +1,5 @@
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 extern "C" WitU64 wit_test_suspension(const WitUserStartup *, WitU64);
 extern "C" WitU64 wit_test_context_capture(const WitUserStartup *, WitU64);
 extern "C" WitU64 wit_test_context_storage(const WitUserStartup *, WitU64);

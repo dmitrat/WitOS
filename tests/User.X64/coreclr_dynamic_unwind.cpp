@@ -5,7 +5,7 @@
 #include "unwind_scope.witos.h"
 extern "C" {
 #include "bootstrap.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 void wit_dynamic_frame_begin();
 void wit_dynamic_frame_end();
 void wit_dynamic_nested_begin();

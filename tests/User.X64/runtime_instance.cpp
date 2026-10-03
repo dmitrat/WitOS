@@ -10,7 +10,7 @@
 #include "thread.inl"
 #include "RestrictedCallouts.h"
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include "witos/handles.h"
 
 extern volatile uint32_t *p_tls_index;

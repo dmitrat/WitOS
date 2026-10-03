@@ -1,5 +1,5 @@
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 extern "C" WitU64 wit_test_thread_create(const WitUserStartup *, WitU64);
 extern "C" WitU64 wit_test_diagnostics(const WitUserStartup *, WitU64);
 extern "C" WitU64 wit_test_thread_names(const WitUserStartup *, WitU64);

@@ -4,7 +4,7 @@
 #include "gcconfig.h"
 #include "pal.witos.h"
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <errno.h>
 
 static bool cases(int saved)

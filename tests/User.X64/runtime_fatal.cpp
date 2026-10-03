@@ -1,6 +1,6 @@
 #include "pal.witos.h"
 #include "native_process.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <stdlib.h>
 #include <errno.h>
 extern "C" __declspec(noreturn) void __cdecl __report_rangecheckfailure(void);

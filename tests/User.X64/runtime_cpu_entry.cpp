@@ -1,5 +1,5 @@
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 extern "C" WitU64 wit_test_services(const WitUserStartup *, WitU64);
 extern "C" WitU64 wit_test_memory(const WitUserStartup *, WitU64);
 extern "C" WitU64 wit_test_random(const WitUserStartup *, WitU64);

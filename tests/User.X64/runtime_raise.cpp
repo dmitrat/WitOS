@@ -1,7 +1,7 @@
 #include "pal.witos.h"
 #include "tls.h"
 #include "native_security.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <errno.h>
 extern "C" void wit_test_noncontinuable_frame();
 extern "C" void wit_raise_direct(DWORD, DWORD, DWORD, const ULONG_PTR *);

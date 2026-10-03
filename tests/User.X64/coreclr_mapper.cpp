@@ -2,7 +2,7 @@
 #include "minipal.h"
 extern "C" {
 #include "bootstrap.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 }
 extern "C" bool wit_dynamic_unwind_probe(unsigned);
 extern "C" WitU64 wit_module_unwind_probe(unsigned);

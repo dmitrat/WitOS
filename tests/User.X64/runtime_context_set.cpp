@@ -2,7 +2,7 @@
 #include "NativeContext.h"
 #include "native_security.h"
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <errno.h>
 // Same private helper declarations as pinned EHHelpers.cpp.
 uintptr_t GetSSP(CONTEXT *);

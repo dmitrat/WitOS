@@ -4,7 +4,7 @@
   "includes": [
     "src/Kernel.Arch.X64",
     "src/Kernel.Platform.Q35",
-    "tests/User.X64",
+    "tests/User",
     "tests/Kernel"
   ],
   "sources": [
@@ -24,8 +24,7 @@
     "tests/Kernel.X64/user_pal_module_tests.c",
     "tests/Kernel.X64/user_pal_environment_tests.c",
     "tests/Kernel.X64/user_runtime_config_tests.c",
-    "tests/Kernel.X64/user_tests.c",
-    "tests/Kernel.X64/user_memory_tests.c",
+    "tests/Kernel.X64/user_faults.c",
     "tests/Kernel.X64/user_thread_tests.c",
     "tests/Kernel.X64/user_pressure_tests.c",
     "tests/Kernel.X64/user_wait_tests.c",

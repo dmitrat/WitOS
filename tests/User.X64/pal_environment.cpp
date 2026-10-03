@@ -1,7 +1,7 @@
 #include "pal.witos.h"
 #include "pal_environment.witos.h"
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <new>
 extern "C" DWORD WINAPI wit_native_environment_get(LPCWSTR, LPWSTR, DWORD);
 extern "C" decltype(&GetEnvironmentVariableW) const __imp_GetEnvironmentVariableW;

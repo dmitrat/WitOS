@@ -1,7 +1,7 @@
 #include "pal.witos.h"
 #include "native_security.h"
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <errno.h>
 extern "C" LPVOID WINAPI wit_memory_direct_alloc(LPVOID, SIZE_T, DWORD, DWORD);
 extern "C" BOOL WINAPI wit_memory_direct_free(LPVOID, SIZE_T, DWORD);

@@ -1,5 +1,5 @@
 #include "pal.witos.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 
 WitU64 wit_pal_services(const WitUserStartup *startup);
 WitU64 wit_pal_error(const WitUserStartup *startup);

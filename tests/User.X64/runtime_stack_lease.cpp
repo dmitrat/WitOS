@@ -1,7 +1,7 @@
 #include "pal.witos.h"
 #include "native_security.h"
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include "unwind_scope.witos.h"
 #include <errno.h>
 static volatile HANDLE targetReference;

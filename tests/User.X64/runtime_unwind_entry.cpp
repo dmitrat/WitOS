@@ -1,5 +1,5 @@
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 extern "C" WitU64 wit_test_unwind(const WitUserStartup *, WitU64);
 extern "C" WitU64 wit_test_exception(const WitUserStartup *, WitU64);
 extern "C" WitU64 wit_test_vectored(const WitUserStartup *, WitU64);

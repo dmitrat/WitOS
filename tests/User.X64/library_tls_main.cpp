@@ -3,7 +3,7 @@ extern "C" {
 #include "library.h"
 extern unsigned _tls_index;
 }
-#include "protocol.h"
+#include "../User/protocol.h"
 [[msvc::no_tls_guard]] static __declspec(thread) int mainValue = 911;
 static WitU64 getValue, setValue, getAddress;
 static WitU64 parentAddress;

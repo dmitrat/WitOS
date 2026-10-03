@@ -2,7 +2,7 @@
 #include "native_security.h"
 #include "tls.h"
 #include "unwind_scope.witos.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <stddef.h>
 #include <string.h>
 #include <errno.h>

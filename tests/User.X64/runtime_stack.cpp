@@ -1,6 +1,6 @@
 #include "tls.h"
 #include "error.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 extern "C" WitU64 wit_stack_check_registers(WitU64 size);
 extern "C" void wit_stack_probe_to(void *target);
 extern "C" void wit_stack_probe_huge();

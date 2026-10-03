@@ -6,7 +6,7 @@
 #include "pal.witos.h"
 #include "pal_environment.witos.h"
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <errno.h>
 
 extern "C" bool wit_test_runtime_allocator();

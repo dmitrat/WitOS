@@ -1,7 +1,7 @@
 #include "pal.witos.h"
 #include "native_security.h"
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <errno.h>
 extern "C" BOOL WINAPI wit_console_direct_write(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED);
 extern "C" HANDLE WINAPI wit_console_direct_handle(DWORD);

@@ -1,0 +1,13 @@
+{
+  "name": "kernel-selftest-user",
+  "description": "Architecture-independent user-mode self-tests: component isolation, contained faults, user memory and teardown. The expected faults come from the architecture's self-test layer.",
+  "includes": [
+    "tests/User",
+    "tests/Kernel"
+  ],
+  "sources": [
+    "tests/Kernel/user_tests.c",
+    "tests/Kernel/user_memory_tests.c"
+  ],
+  "assembly": []
+}

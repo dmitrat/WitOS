@@ -1,7 +1,7 @@
 #include "pal.witos.h"
 #include "tls.h"
 #include "native_security.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <errno.h>
 extern "C" WitU64 wit_test_exception_trigger(WitU64);
 extern "C" WitU64 wit_unwind_protected_frame();

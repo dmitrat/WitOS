@@ -1,5 +1,5 @@
 #include "pal.witos.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 
 static HANDLE events[3], captured[2];
 static volatile WitU64 done[2], outcomes[2], errors[2];

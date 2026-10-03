@@ -1,5 +1,5 @@
 #include "pal.witos.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 
 static HANDLE shared;
 static uint32_t expected_wait;

@@ -1,7 +1,7 @@
 #include "pal.witos.h"
 #include "native_security.h"
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 extern "C" bool wit_gs_check_abi(uintptr_t);
 extern "C" EXCEPTION_DISPOSITION __cdecl __GSHandlerCheck(EXCEPTION_RECORD *, void *, CONTEXT *, DISPATCHER_CONTEXT *);
 extern "C" const RUNTIME_FUNCTION wit_gs_plain_function, wit_gs_aligned_function, wit_gs_bad_version_function,

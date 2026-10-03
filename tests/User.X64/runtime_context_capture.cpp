@@ -1,7 +1,7 @@
 #include "pal.witos.h"
 #include "native_security.h"
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <errno.h>
 extern "C" WitU64 wit_test_context_registers(WitU64, WitU64, WitU64, WitU64);
 static volatile HANDLE targetReference;

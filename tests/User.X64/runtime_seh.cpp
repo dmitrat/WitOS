@@ -1,7 +1,7 @@
 #include "pal.witos.h"
 #include "tls.h"
 #include "native_security.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <string.h>
 #include <errno.h>
 #include "seh_validation.witos.h"

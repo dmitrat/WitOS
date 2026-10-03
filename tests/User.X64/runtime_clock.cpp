@@ -1,6 +1,6 @@
 #include "pal.witos.h"
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <minipal/time.h>
 #include <errno.h>
 extern "C" BOOL WINAPI wit_clock_direct_counter(LARGE_INTEGER *);

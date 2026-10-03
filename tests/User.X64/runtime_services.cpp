@@ -1,7 +1,7 @@
 #include "pal.witos.h"
 #include "native_security.h"
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <minipal/time.h>
 #include <errno.h>
 extern "C" BOOL WINAPI wit_services_direct_close(HANDLE);

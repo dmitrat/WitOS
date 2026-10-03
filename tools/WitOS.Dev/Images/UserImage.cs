@@ -27,7 +27,7 @@ internal static class UserImage
         [
             "src/Kernel/include/witos/user_abi.h",
             "src/Kernel/include/witos/user_layout.h",
-            "tests/User.X64/protocol.h"
+            "tests/User/protocol.h"
         ];
         foreach (var header in headers)
         {

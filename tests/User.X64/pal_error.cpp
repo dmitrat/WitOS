@@ -1,5 +1,5 @@
 #include "pal.witos.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 
 extern "C" const void *const __imp_GetLastError;
 static WitU64 identities[3], ownerships[3];

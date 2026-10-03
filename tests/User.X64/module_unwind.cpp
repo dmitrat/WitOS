@@ -4,7 +4,7 @@
 #include "unwind_scope.witos.h"
 extern "C" {
 #include "library.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 }
 extern "C" WitU64 wit_foreign_module_unwind_probe(WitU64, WitU64, WitU64);
 static bool checked;

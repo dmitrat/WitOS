@@ -1,5 +1,5 @@
 #include "gcenv.witos.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 
 static_assert(WIT_NATIVE_FAIL_FAST_EXIT == WIT_GC_TEST_FAIL_FAST_EXIT, "Fatal adapter exit contract");
 static GCEvent *subject;

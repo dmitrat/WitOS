@@ -1,5 +1,5 @@
 #include "bootstrap.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 
 static WitNativeModule module;
 static const WitUserStartup *boot;

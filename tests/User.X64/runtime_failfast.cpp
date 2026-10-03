@@ -1,7 +1,7 @@
 #include "pal.witos.h"
 #include "tls.h"
 #include "native_security.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <stdlib.h>
 extern "C" void wit_failfast_direct(EXCEPTION_RECORD *, CONTEXT *, DWORD);
 extern "C" WitU64 wit_test_exception_trigger(WitU64);

@@ -4,7 +4,7 @@
 #include "unwind_scope.witos.h"
 extern "C" {
 #include "library.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 }
 
 namespace {

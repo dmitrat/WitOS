@@ -1,7 +1,7 @@
 #include "pal.witos.h"
 #include "native_security.h"
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <bcrypt.h>
 #include <errno.h>
 extern "C" NTSTATUS WINAPI wit_random_direct(BCRYPT_ALG_HANDLE, PUCHAR, ULONG, ULONG);

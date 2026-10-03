@@ -1,7 +1,7 @@
 #include "minipal_cpu.witos.h"
 #include "tls.h"
 #include "error.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <errno.h>
 extern "C" WitU64 wit_cpu_sse42();
 extern "C" WitU64 wit_cpu_aes(WitU64 seed);

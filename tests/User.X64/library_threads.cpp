@@ -3,7 +3,7 @@
 extern "C" {
 #include "library.h"
 }
-#include "protocol.h"
+#include "../User/protocol.h"
 static WitU64 mainId;
 static unsigned probeMode;
 static std::atomic<WitU64> attached{0}, detached{0};

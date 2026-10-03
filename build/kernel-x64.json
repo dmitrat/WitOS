@@ -17,6 +17,7 @@
   ],
   "selfTestLayers": [
     "kernel-selftest-shared",
+    "kernel-selftest-user",
     "kernel-selftest-x64"
   ]
 }

@@ -1,6 +1,6 @@
 #include "pal.witos.h"
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 
 static const WitUserImageInfo *expected;
 static const WitUserStartup *handoff;

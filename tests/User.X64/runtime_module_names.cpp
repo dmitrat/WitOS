@@ -1,7 +1,7 @@
 #include "pal.witos.h"
 #include "native_security.h"
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <errno.h>
 extern "C" HMODULE WINAPI wit_module_direct_handle(LPCWSTR);
 extern "C" DWORD WINAPI wit_module_direct_filename(HMODULE, LPWSTR, DWORD);

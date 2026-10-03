@@ -1,5 +1,5 @@
 #include "gcenv.witos.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 
 using OS = GCToOSInterface;
 

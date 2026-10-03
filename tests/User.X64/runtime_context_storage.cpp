@@ -2,7 +2,7 @@
 #include "NativeContext.h"
 #include "native_security.h"
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <new>
 #include <errno.h>
 extern "C" unsigned wit_test_context_cs();

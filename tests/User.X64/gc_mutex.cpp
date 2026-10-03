@@ -1,6 +1,6 @@
 #include "gcenv.witos.h"
 #include "Crst.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 
 static minipal_mutex *shared;
 static volatile WitU64 phase, entered, inside;

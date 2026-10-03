@@ -1,7 +1,7 @@
 #include "pal.witos.h"
 #include "native_security.h"
 #include "tls.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <errno.h>
 extern "C" DWORD WINAPI wit_wait_direct(DWORD, const HANDLE *, BOOL, DWORD, BOOL);
 extern "C" DWORD WINAPI wit_apc_direct(PAPCFUNC, HANDLE, ULONG_PTR);

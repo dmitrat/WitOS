@@ -1,5 +1,5 @@
 #include "gcenv.witos.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <new>
 
 static void *cross_thread[2];

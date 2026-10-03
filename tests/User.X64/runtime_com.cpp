@@ -3,7 +3,7 @@
 #include "native_security.h"
 #include "native_process.h"
 #include "com_counter.witos.h"
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <objbase.h>
 #include <errno.h>
 extern "C" HRESULT WINAPI wit_test_com_initialize(LPVOID, DWORD);

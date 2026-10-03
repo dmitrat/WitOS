@@ -3,7 +3,7 @@
 extern "C" {
 #include "library.h"
 }
-#include "protocol.h"
+#include "../User/protocol.h"
 #include <stdlib.h>
 
 extern "C" WitU64 wit_library_threads_probe(unsigned);
