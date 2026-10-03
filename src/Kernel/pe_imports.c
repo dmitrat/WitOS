@@ -106,6 +106,74 @@ static int independent_iat(const WitPeImports *imports)
     return 1;
 }
 
+/* The lookup and IAT thunks of one module, equal pairwise and ending with zero: by ordinal or by hint and name. */
+static WitPeStatus import_symbols(const WitU8 *file, WitU32 bytes, const WitPeImage *image, WitPeImportModule *module,
+    WitU32 iat, WitPeImports *output)
+{
+    for (;;) {
+        const WitU32 offset = module->SymbolCount * 8;
+        WitU32 source, target;
+        if ((WitU64)module->LookupRva + offset > 0xFFFFFFFFULL ||
+            (WitU64)iat + offset > 0xFFFFFFFFULL ||
+            !metadata(image, bytes, module->LookupRva + offset, 8, &source) ||
+            !metadata(image, bytes, iat + offset, 8, &target)) {
+            return WitPeInvalidImage;
+        }
+        const WitU64 thunk = u64(file + source);
+        if (u64(file + target) != thunk) {
+            return WitPeInvalidImage;
+        }
+        if (!thunk) {
+            return WitPeOk;
+        }
+        if (output->SymbolCount == WIT_PE_IMPORT_SYMBOLS) {
+            return WitPeTooLarge;
+        }
+        WitPeImportSymbol *symbol = &output->Symbols[output->SymbolCount++];
+        *symbol = (WitPeImportSymbol){iat + offset, 0, 0, 0};
+        if (thunk & 0x8000000000000000ULL) {
+            if (thunk & 0x7FFFFFFFFFFF0000ULL) {
+                return WitPeInvalidImage;
+            }
+            symbol->Ordinal = (WitU32)(thunk & 65535);
+        } else {
+            if (thunk > 0xFFFFFFFDULL || (thunk & 1)) {
+                return WitPeInvalidImage;
+            }
+            symbol->NameRva = (WitU32)thunk;
+            WitU32 hint;
+            if (!metadata(image, bytes, symbol->NameRva, 2, &hint) ||
+                !name(file, bytes, image, symbol->NameRva + 2, 0, &symbol->NameBytes)) {
+                return WitPeInvalidImage;
+            }
+        }
+        ++module->SymbolCount;
+    }
+}
+
+/* One import descriptor: no bound or forwarded imports, aligned lookup and IAT tables and a module name. */
+static WitPeStatus import_module(
+    const WitU8 *file, WitU32 bytes, const WitPeImage *image, const WitU8 *descriptor, WitPeImports *output)
+{
+    const WitU32 lookup = u32(descriptor), stamp = u32(descriptor + 4), chain = u32(descriptor + 8),
+                 moduleName = u32(descriptor + 12), iat = u32(descriptor + 16);
+    if (stamp || chain) {
+        return WitPeUnsupportedImage;
+    }
+    if (output->ModuleCount == WIT_PE_IMPORT_MODULES) {
+        return WitPeTooLarge;
+    }
+    if (!moduleName || !iat || (iat & 7) || (lookup & 7)) {
+        return WitPeInvalidImage;
+    }
+    WitPeImportModule *module = &output->Modules[output->ModuleCount++];
+    *module = (WitPeImportModule){moduleName, 0, lookup ? lookup : iat, iat, output->SymbolCount, 0};
+    if (!name(file, bytes, image, moduleName, 1, &module->NameBytes)) {
+        return WitPeInvalidImage;
+    }
+    return import_symbols(file, bytes, image, module, iat, output);
+}
+
 WitPeStatus wit_pe_imports_validate(
     const WitU8 *file, WitU32 bytes, const WitPeImage *image, WitU32 rva, WitU32 size, WitPeImports *output)
 {
@@ -128,9 +196,11 @@ WitPeStatus wit_pe_imports_validate(
     int terminated = 0;
     for (WitU32 at = 0; at + 20 <= size; at += 20) {
         const WitU8 *descriptor = file + directory + at;
-        const WitU32 lookup = u32(descriptor), stamp = u32(descriptor + 4), chain = u32(descriptor + 8),
-                     moduleName = u32(descriptor + 12), iat = u32(descriptor + 16);
-        if (!(lookup | stamp | chain | moduleName | iat)) {
+        if (!(u32(descriptor) |
+                u32(descriptor + 4) |
+                u32(descriptor + 8) |
+                u32(descriptor + 12) |
+                u32(descriptor + 16))) {
             for (WitU32 i = at + 20; i < size; ++i) {
                 if (file[directory + i]) {
                     return WitPeInvalidImage;
@@ -139,58 +209,9 @@ WitPeStatus wit_pe_imports_validate(
             terminated = 1;
             break;
         }
-        if (stamp || chain) {
-            return WitPeUnsupportedImage;
-        }
-        if (output->ModuleCount == WIT_PE_IMPORT_MODULES) {
-            return WitPeTooLarge;
-        }
-        if (!moduleName || !iat || (iat & 7) || (lookup & 7)) {
-            return WitPeInvalidImage;
-        }
-        WitPeImportModule *module = &output->Modules[output->ModuleCount++];
-        *module = (WitPeImportModule){moduleName, 0, lookup ? lookup : iat, iat, output->SymbolCount, 0};
-        if (!name(file, bytes, image, moduleName, 1, &module->NameBytes)) {
-            return WitPeInvalidImage;
-        }
-        for (;;) {
-            const WitU32 offset = module->SymbolCount * 8;
-            WitU32 source, target;
-            if ((WitU64)module->LookupRva + offset > 0xFFFFFFFFULL ||
-                (WitU64)iat + offset > 0xFFFFFFFFULL ||
-                !metadata(image, bytes, module->LookupRva + offset, 8, &source) ||
-                !metadata(image, bytes, iat + offset, 8, &target)) {
-                return WitPeInvalidImage;
-            }
-            const WitU64 thunk = u64(file + source);
-            if (u64(file + target) != thunk) {
-                return WitPeInvalidImage;
-            }
-            if (!thunk) {
-                break;
-            }
-            if (output->SymbolCount == WIT_PE_IMPORT_SYMBOLS) {
-                return WitPeTooLarge;
-            }
-            WitPeImportSymbol *symbol = &output->Symbols[output->SymbolCount++];
-            *symbol = (WitPeImportSymbol){iat + offset, 0, 0, 0};
-            if (thunk & 0x8000000000000000ULL) {
-                if (thunk & 0x7FFFFFFFFFFF0000ULL) {
-                    return WitPeInvalidImage;
-                }
-                symbol->Ordinal = (WitU32)(thunk & 65535);
-            } else {
-                if (thunk > 0xFFFFFFFDULL || (thunk & 1)) {
-                    return WitPeInvalidImage;
-                }
-                symbol->NameRva = (WitU32)thunk;
-                WitU32 hint;
-                if (!metadata(image, bytes, symbol->NameRva, 2, &hint) ||
-                    !name(file, bytes, image, symbol->NameRva + 2, 0, &symbol->NameBytes)) {
-                    return WitPeInvalidImage;
-                }
-            }
-            ++module->SymbolCount;
+        const WitPeStatus status = import_module(file, bytes, image, descriptor, output);
+        if (status != WitPeOk) {
+            return status;
         }
     }
     return terminated && independent_iat(output) ? WitPeOk : WitPeInvalidImage;

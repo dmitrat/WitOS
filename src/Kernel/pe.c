@@ -77,6 +77,114 @@ static int nonvolatile_register(WitU32 reg)
     return reg == 3 || reg == 5 || reg == 6 || reg == 7 || (reg >= 12 && reg <= 15);
 }
 
+/* One version-1 unwind code: nonvolatile pushes and saves, small and large allocations, one frame register and
+ * XMM saves. remaining is the number of slots after this code; extra receives the slots the code occupies. */
+static WitPeStatus unwind_code(const WitU8 *code, WitU32 remaining, WitU32 frame, WitU32 *frame_sets, WitU32 *extra)
+{
+    const WitU32 operation = code[1] & 15, argument = code[1] >> 4;
+    *extra = 0;
+    switch (operation) {
+    case 0:
+        if (!nonvolatile_register(argument)) {
+            return WitPeInvalidImage;
+        }
+        break;
+    case 1:
+        if (argument > 1) {
+            return WitPeInvalidImage;
+        }
+        *extra = argument ? 2 : 1;
+        break;
+    case 2:
+        break;
+    case 3:
+        if (argument || !frame || ++*frame_sets != 1) {
+            return WitPeInvalidImage;
+        }
+        break;
+    case 4:
+    case 5:
+        if (!nonvolatile_register(argument)) {
+            return WitPeInvalidImage;
+        }
+        *extra = operation == 4 ? 1 : 2;
+        break;
+    case 8:
+    case 9:
+        if (argument < 6) {
+            return WitPeInvalidImage;
+        }
+        *extra = operation == 8 ? 1 : 2;
+        break;
+    default:
+        return WitPeUnsupportedImage;
+    }
+    if (*extra > remaining) {
+        return WitPeInvalidImage;
+    }
+    if (operation == 1 && ((!argument && !u16(code + 2)) || (argument && (!u32(code + 2) || (u32(code + 2) & 7))))) {
+        return WitPeInvalidImage;
+    }
+    if ((operation == 5 && (u32(code + 2) & 7)) || (operation == 9 && (u32(code + 2) & 15))) {
+        return WitPeInvalidImage;
+    }
+    return WitPeOk;
+}
+
+/* One RUNTIME_FUNCTION: an ordered executable range and readonly version-1 metadata outside the table, whose
+ * codes run backwards through the prolog. */
+static WitPeStatus unwind_record(const WitU8 *file, WitPeImage *plan, WitU32 raw, WitU32 i, WitU32 *previous_end)
+{
+    const WitU32 begin = u32(file + raw + i * 12);
+    const WitU32 end = u32(file + raw + i * 12 + 4);
+    const WitU32 info = u32(file + raw + i * 12 + 8);
+    WitU32 info_raw, ignored, length, frame_sets = 0, previous_code;
+    if (begin >= end ||
+        begin < *previous_end ||
+        (info & 3) ||
+        !file_range_flags(plan, begin, end - begin, WIT_PE_EXECUTE, WIT_PE_WRITE, &ignored) ||
+        !file_range_flags(plan, info, 4, WIT_PE_READ, WIT_PE_WRITE | WIT_PE_EXECUTE, &info_raw)) {
+        return WitPeInvalidImage;
+    }
+    const WitU8 *data = file + info_raw;
+    /* Metadata only: version-1 prologs without handler/chained/machine frames. */
+    if (data[0] != 1) {
+        return WitPeUnsupportedImage;
+    }
+    const WitU32 slots = data[2];
+    const WitU32 frame = data[3] & 15;
+    if (data[1] > end - begin || (!frame && data[3]) || (frame && !nonvolatile_register(frame))) {
+        return WitPeInvalidImage;
+    }
+    length = (4 + slots * 2 + 3) & ~3U;
+    if (!file_range_flags(plan, info, length, WIT_PE_READ, WIT_PE_WRITE | WIT_PE_EXECUTE, &ignored) ||
+        overlap(info, length, plan->UnwindRva, plan->UnwindSize)) {
+        return WitPeInvalidImage;
+    }
+    previous_code = data[1];
+    for (WitU32 slot = 0; slot < slots;) {
+        const WitU8 *code = data + 4 + slot * 2;
+        WitU32 extra;
+        if (code[0] > previous_code) {
+            return WitPeInvalidImage;
+        }
+        previous_code = code[0];
+        const WitPeStatus status = unwind_code(code, slots - slot - 1, frame, &frame_sets, &extra);
+        if (status != WitPeOk) {
+            return status;
+        }
+        slot += 1 + extra;
+    }
+    if (frame && !frame_sets) {
+        return WitPeInvalidImage;
+    }
+    plan->UnwindInfo[i].Rva = info;
+    plan->UnwindInfo[i].Size = length;
+    ++plan->UnwindCount;
+    *previous_end = end;
+    return WitPeOk;
+}
+
 static WitPeStatus unwind_info(const WitU8 *file, WitPeImage *plan)
 {
     WitU32 raw, previous_end = 0;
@@ -94,98 +202,10 @@ static WitPeStatus unwind_info(const WitU8 *file, WitPeImage *plan)
         return WitPeInvalidImage;
     }
     for (WitU32 i = 0; i < plan->UnwindSize / 12; ++i) {
-        const WitU32 begin = u32(file + raw + i * 12);
-        const WitU32 end = u32(file + raw + i * 12 + 4);
-        const WitU32 info = u32(file + raw + i * 12 + 8);
-        WitU32 info_raw, ignored, length, frame_sets = 0, previous_code;
-        const WitU8 *data;
-        WitU32 slots, frame;
-        if (begin >= end ||
-            begin < previous_end ||
-            (info & 3) ||
-            !file_range_flags(plan, begin, end - begin, WIT_PE_EXECUTE, WIT_PE_WRITE, &ignored) ||
-            !file_range_flags(plan, info, 4, WIT_PE_READ, WIT_PE_WRITE | WIT_PE_EXECUTE, &info_raw)) {
-            return WitPeInvalidImage;
+        const WitPeStatus status = unwind_record(file, plan, raw, i, &previous_end);
+        if (status != WitPeOk) {
+            return status;
         }
-        data = file + info_raw;
-        /* Metadata only: version-1 prologs without handler/chained/machine frames. */
-        if (data[0] != 1) {
-            return WitPeUnsupportedImage;
-        }
-        slots = data[2];
-        frame = data[3] & 15;
-        if (data[1] > end - begin || (!frame && data[3]) || (frame && !nonvolatile_register(frame))) {
-            return WitPeInvalidImage;
-        }
-        length = (4 + slots * 2 + 3) & ~3U;
-        if (!file_range_flags(plan, info, length, WIT_PE_READ, WIT_PE_WRITE | WIT_PE_EXECUTE, &ignored) ||
-            overlap(info, length, plan->UnwindRva, plan->UnwindSize)) {
-            return WitPeInvalidImage;
-        }
-        previous_code = data[1];
-        for (WitU32 slot = 0; slot < slots;) {
-            const WitU8 *code = data + 4 + slot * 2;
-            const WitU32 operation = code[1] & 15, argument = code[1] >> 4;
-            WitU32 extra = 0;
-            if (code[0] > previous_code) {
-                return WitPeInvalidImage;
-            }
-            previous_code = code[0];
-            switch (operation) {
-            case 0:
-                if (!nonvolatile_register(argument)) {
-                    return WitPeInvalidImage;
-                }
-                break;
-            case 1:
-                if (argument > 1) {
-                    return WitPeInvalidImage;
-                }
-                extra = argument ? 2 : 1;
-                break;
-            case 2:
-                break;
-            case 3:
-                if (argument || !frame || ++frame_sets != 1) {
-                    return WitPeInvalidImage;
-                }
-                break;
-            case 4:
-            case 5:
-                if (!nonvolatile_register(argument)) {
-                    return WitPeInvalidImage;
-                }
-                extra = operation == 4 ? 1 : 2;
-                break;
-            case 8:
-            case 9:
-                if (argument < 6) {
-                    return WitPeInvalidImage;
-                }
-                extra = operation == 8 ? 1 : 2;
-                break;
-            default:
-                return WitPeUnsupportedImage;
-            }
-            if (extra > slots - slot - 1) {
-                return WitPeInvalidImage;
-            }
-            if (operation == 1 &&
-                ((!argument && !u16(code + 2)) || (argument && (!u32(code + 2) || (u32(code + 2) & 7))))) {
-                return WitPeInvalidImage;
-            }
-            if ((operation == 5 && (u32(code + 2) & 7)) || (operation == 9 && (u32(code + 2) & 15))) {
-                return WitPeInvalidImage;
-            }
-            slot += 1 + extra;
-        }
-        if (frame && !frame_sets) {
-            return WitPeInvalidImage;
-        }
-        plan->UnwindInfo[i].Rva = info;
-        plan->UnwindInfo[i].Size = length;
-        ++plan->UnwindCount;
-        previous_end = end;
     }
     return WitPeOk;
 }
@@ -305,6 +325,47 @@ static WitPeStatus tls_info(const WitU8 *file, WitPeImage *plan)
     return WitPeOk;
 }
 
+/* A DIR64 fixup must not rewrite imports, the IAT, exports, unwind metadata or TLS bookkeeping other than the
+ * three or four pointers of the TLS directory, and must point into the image. */
+static WitPeStatus check_fixup(const WitU8 *file, const WitPeImage *plan, const WitPeImports *imports, WitU32 target,
+    WitU32 target_raw, WitU32 *tls_fixups)
+{
+    if (imports && wit_pe_imports_overlap(imports, target, 8)) {
+        return WitPeInvalidImage;
+    }
+    if (overlap(target, 8, plan->IatRva, plan->IatSize)) {
+        return WitPeInvalidImage;
+    }
+    if (overlap(target, 8, plan->ExportRva, plan->ExportSize)) {
+        return WitPeInvalidImage;
+    }
+    if (overlap(target, 8, plan->UnwindRva, plan->UnwindSize)) {
+        return WitPeInvalidImage;
+    }
+    for (WitU32 i = 0; i < plan->UnwindCount; ++i) {
+        if (overlap(target, 8, plan->UnwindInfo[i].Rva, plan->UnwindInfo[i].Size)) {
+            return WitPeInvalidImage;
+        }
+    }
+    if (plan->TlsSize) {
+        if (overlap(target, 8, plan->TlsIndexRva, 4) ||
+            (plan->TlsCallbacksRva && overlap(target, 8, plan->TlsCallbacksRva, 8))) {
+            return WitPeInvalidImage;
+        }
+        if (overlap(target, 8, plan->TlsRva, 40)) {
+            if (target < plan->TlsRva || target - plan->TlsRva > 24 || ((target - plan->TlsRva) & 7)) {
+                return WitPeInvalidImage;
+            }
+            *tls_fixups |= 1U << ((target - plan->TlsRva) / 8);
+        }
+    }
+    const WitU64 value = u64(file + target_raw);
+    if (value < plan->PreferredBase || value - plan->PreferredBase > plan->ImageSize) {
+        return WitPeInvalidImage;
+    }
+    return WitPeOk;
+}
+
 static WitPeStatus relocations(const WitU8 *file, const WitPeImage *plan, const WitPeImports *imports)
 {
     WitU32 raw, consumed = 0, entries = 0, previous_page = 0, previous_target = 0;
@@ -343,7 +404,6 @@ static WitPeStatus relocations(const WitU8 *file, const WitPeImage *plan, const 
             const WitU32 kind = relocation >> 12;
             const WitU32 target = page + (relocation & 4095);
             WitU32 target_raw;
-            WitU64 value;
             if (kind == 0) {
                 continue;
             }
@@ -357,38 +417,9 @@ static WitPeStatus relocations(const WitU8 *file, const WitPeImage *plan, const 
                 !wit_pe_file_range(plan, target, 8, &target_raw)) {
                 return WitPeInvalidImage;
             }
-            if (imports && wit_pe_imports_overlap(imports, target, 8)) {
-                return WitPeInvalidImage;
-            }
-            if (overlap(target, 8, plan->IatRva, plan->IatSize)) {
-                return WitPeInvalidImage;
-            }
-            if (overlap(target, 8, plan->ExportRva, plan->ExportSize)) {
-                return WitPeInvalidImage;
-            }
-            if (overlap(target, 8, plan->UnwindRva, plan->UnwindSize)) {
-                return WitPeInvalidImage;
-            }
-            for (WitU32 i = 0; i < plan->UnwindCount; ++i) {
-                if (overlap(target, 8, plan->UnwindInfo[i].Rva, plan->UnwindInfo[i].Size)) {
-                    return WitPeInvalidImage;
-                }
-            }
-            if (plan->TlsSize) {
-                if (overlap(target, 8, plan->TlsIndexRva, 4) ||
-                    (plan->TlsCallbacksRva && overlap(target, 8, plan->TlsCallbacksRva, 8))) {
-                    return WitPeInvalidImage;
-                }
-                if (overlap(target, 8, plan->TlsRva, 40)) {
-                    if (target < plan->TlsRva || target - plan->TlsRva > 24 || ((target - plan->TlsRva) & 7)) {
-                        return WitPeInvalidImage;
-                    }
-                    tls_fixups |= 1U << ((target - plan->TlsRva) / 8);
-                }
-            }
-            value = u64(file + target_raw);
-            if (value < plan->PreferredBase || value - plan->PreferredBase > plan->ImageSize) {
-                return WitPeInvalidImage;
+            const WitPeStatus status = check_fixup(file, plan, imports, target, target_raw, &tls_fixups);
+            if (status != WitPeOk) {
+                return status;
             }
             previous_target = target;
             have_target = 1;
@@ -454,7 +485,13 @@ static WitPeStatus import_relocations(const WitU8 *file, WitU32 bytes, const Wit
     return relocations(file, plan, &imports);
 }
 
-WitPeStatus wit_pe_validate_profile(const WitU8 *file, WitU32 size, WitPeImage *plan, WitU32 profile)
+/* Layout facts that the header checks pass to the directory, section and content checks. */
+typedef struct PeLayout {
+    WitU32 Nt, Optional, Sections, Alignment, DebugRva, DebugSize;
+    WitU16 Characteristics;
+} PeLayout;
+
+static WitPeStatus check_profile(WitU32 profile)
 {
     if ((profile &
             ~(WIT_PE_UNWIND_RUNTIME |
@@ -471,9 +508,12 @@ WitPeStatus wit_pe_validate_profile(const WitU8 *file, WitU32 size, WitPeImage *
     if ((profile & WIT_PE_LIBRARY) && (profile & WIT_PE_RUNTIME_FULL)) {
         return WitPeUnsupportedImage;
     }
-    WitU32 nt, optional, sections, alignment, maximum, debug_rva, debug_size;
-    WitU16 characteristics;
-    int entry_valid = 0;
+    return WitPeOk;
+}
+
+/* DOS and PE signatures, the kernel's machine, executable and DLL characteristics and the section count. */
+static WitPeStatus parse_file_header(const WitU8 *file, WitU32 size, WitPeImage *plan, WitU32 profile, PeLayout *layout)
+{
     if (!file || !plan || size < 64) {
         return WitPeInvalidImage;
     }
@@ -484,34 +524,42 @@ WitPeStatus wit_pe_validate_profile(const WitU8 *file, WitU32 size, WitPeImage *
     if (u16(file) != 0x5A4D) {
         return WitPeInvalidImage;
     }
-    nt = u32(file + 60);
-    if (nt < 64 || !range(nt, 24, size) || u32(file + nt) != 0x4550) {
+    layout->Nt = u32(file + 60);
+    if (layout->Nt < 64 || !range(layout->Nt, 24, size) || u32(file + layout->Nt) != 0x4550) {
         return WitPeInvalidImage;
     }
     /* User images run on the kernel's own machine. */
-    if (u16(file + nt + 4) != wit_arch_identity()->PeMachine) {
+    if (u16(file + layout->Nt + 4) != wit_arch_identity()->PeMachine) {
         return WitPeUnsupportedImage;
     }
-    characteristics = u16(file + nt + 22);
-    if (!(characteristics & 2)) {
+    layout->Characteristics = u16(file + layout->Nt + 22);
+    if (!(layout->Characteristics & 2)) {
         return WitPeInvalidImage;
     }
-    if (((characteristics & 0x2000) != 0) != ((profile & WIT_PE_LIBRARY) != 0) ||
-        u32(file + nt + 12) ||
-        u32(file + nt + 16)) {
+    if (((layout->Characteristics & 0x2000) != 0) != ((profile & WIT_PE_LIBRARY) != 0) ||
+        u32(file + layout->Nt + 12) ||
+        u32(file + layout->Nt + 16)) {
         return WitPeUnsupportedImage;
     }
-    plan->SectionCount = u16(file + nt + 6);
+    plan->SectionCount = u16(file + layout->Nt + 6);
     if (!plan->SectionCount) {
         return WitPeInvalidImage;
     }
     if (plan->SectionCount > WIT_PE_MAX_SECTIONS) {
         return WitPeTooLarge;
     }
-    if (u16(file + nt + 20) != 240) {
+    if (u16(file + layout->Nt + 20) != 240) {
         return WitPeUnsupportedImage;
     }
-    optional = nt + 24;
+    return WitPeOk;
+}
+
+/* PE32+ native image: page sections, file alignment, size and placement limits and the headers. */
+static WitPeStatus parse_optional_header(
+    const WitU8 *file, WitU32 size, WitPeImage *plan, WitU32 profile, PeLayout *layout)
+{
+    const WitU32 optional = layout->Nt + 24;
+    layout->Optional = optional;
     if (!range(optional, 240, size)) {
         return WitPeInvalidImage;
     }
@@ -524,8 +572,8 @@ WitPeStatus wit_pe_validate_profile(const WitU8 *file, WitU32 size, WitPeImage *
     if (u32(file + optional + 52) || u32(file + optional + 104)) {
         return WitPeInvalidImage;
     }
-    alignment = u32(file + optional + 36);
-    if (alignment < 512 || alignment > 4096 || (alignment & (alignment - 1))) {
+    layout->Alignment = u32(file + optional + 36);
+    if (layout->Alignment < 512 || layout->Alignment > 4096 || (layout->Alignment & (layout->Alignment - 1))) {
         return WitPeUnsupportedImage;
     }
     plan->PreferredBase = u64(file + optional + 24);
@@ -545,15 +593,21 @@ WitPeStatus wit_pe_validate_profile(const WitU8 *file, WitU32 size, WitPeImage *
     }
     if (!plan->HeadersSize ||
         plan->HeadersSize > 4096 ||
-        (plan->HeadersSize & (alignment - 1)) ||
+        (plan->HeadersSize & (layout->Alignment - 1)) ||
         !range(0, plan->HeadersSize, size)) {
         return WitPeInvalidImage;
     }
-    sections = optional + 240;
-    if (!range(sections, plan->SectionCount * 40, plan->HeadersSize)) {
+    layout->Sections = optional + 240;
+    if (!range(layout->Sections, plan->SectionCount * 40, plan->HeadersSize)) {
         return WitPeInvalidImage;
     }
+    return WitPeOk;
+}
 
+/* Only exception, relocation, debug and TLS directories, plus exports and imports for libraries. */
+static WitPeStatus parse_directories(const WitU8 *file, WitPeImage *plan, WitU32 profile, PeLayout *layout)
+{
+    const WitU32 optional = layout->Optional;
     plan->ImportRva = u32(file + optional + 120);
     plan->ImportSize = u32(file + optional + 124);
     plan->IatRva = u32(file + optional + 208);
@@ -566,8 +620,8 @@ WitPeStatus wit_pe_validate_profile(const WitU8 *file, WitU32 size, WitPeImage *
     plan->RelocSize = u32(file + optional + 116 + 5 * 8);
     plan->TlsRva = u32(file + optional + 112 + 9 * 8);
     plan->TlsSize = u32(file + optional + 116 + 9 * 8);
-    debug_rva = u32(file + optional + 112 + 6 * 8);
-    debug_size = u32(file + optional + 116 + 6 * 8);
+    layout->DebugRva = u32(file + optional + 112 + 6 * 8);
+    layout->DebugSize = u32(file + optional + 116 + 6 * 8);
     for (WitU32 i = 0; i < 16; ++i) {
         const WitU32 rva = u32(file + optional + 112 + i * 8);
         const WitU32 length = u32(file + optional + 116 + i * 8);
@@ -588,100 +642,127 @@ WitPeStatus wit_pe_validate_profile(const WitU8 *file, WitU32 size, WitPeImage *
     if (plan->UnwindSize && !(wit_arch_identity()->Capabilities & WIT_ARCH_PE_UNWIND)) {
         return WitPeUnsupportedImage;
     }
-    if ((characteristics & 1) && plan->RelocSize) {
+    if ((layout->Characteristics & 1) && plan->RelocSize) {
         return WitPeInvalidImage;
     }
     if ((profile & WIT_PE_LIBRARY) && !(profile & WIT_PE_LIBRARY_TLS) && plan->TlsSize) {
         return WitPeUnsupportedImage;
     }
-    if ((profile & WIT_PE_LIBRARY) && !plan->EntryRva) {
-        entry_valid = 1;
+    return WitPeOk;
+}
+
+/* One section: readable, never writable and executable, page-aligned, inside the image, its raw bytes aligned and
+ * inside the file, overlapping no earlier section. Records the entry point and the mapped extent. */
+static WitPeStatus parse_section(const WitU8 *file, WitU32 size, WitPeImage *plan, const PeLayout *layout, WitU32 i,
+    WitU32 *maximum, int *entry_valid)
+{
+    const WitU8 *header = file + layout->Sections + i * 40;
+    const WitU32 flags = u32(header + 36);
+    WitPeSection *s = &plan->Sections[i];
+    WitU32 extent;
+    s->VirtualSize = u32(header + 8);
+    s->Rva = u32(header + 12);
+    s->RawSize = u32(header + 16);
+    s->RawOffset = u32(header + 20);
+    if (!s->VirtualSize) {
+        s->VirtualSize = s->RawSize;
     }
-    maximum = 4096;
+    if (!(flags & 0x40000000U) || (flags & 0x1C000000U) || (flags & 0xA0000000U) == 0xA0000000U) {
+        return WitPeUnsupportedImage;
+    }
+    if (u32(header + 24) || u32(header + 28) || u32(header + 32)) {
+        return WitPeUnsupportedImage;
+    }
+    s->Flags = WIT_PE_READ | (flags & 0x80000000U ? WIT_PE_WRITE : 0) | (flags & 0x20000000U ? WIT_PE_EXECUTE : 0);
+    extent = s->VirtualSize > s->RawSize ? s->VirtualSize : s->RawSize;
+    if (!extent || s->Rva < 4096 || (s->Rva & 4095) || !range(s->Rva, extent, plan->ImageSize)) {
+        return WitPeInvalidImage;
+    }
+    s->MapSize = (extent + 4095) & ~4095U;
+    if (!range(s->Rva, s->MapSize, plan->ImageSize)) {
+        return WitPeInvalidImage;
+    }
+    if (s->RawSize) {
+        if (s->RawOffset < plan->HeadersSize ||
+            (s->RawOffset & (layout->Alignment - 1)) ||
+            (s->RawSize & (layout->Alignment - 1)) ||
+            !range(s->RawOffset, s->RawSize, size)) {
+            return WitPeInvalidImage;
+        }
+    } else if (s->RawOffset) {
+        return WitPeInvalidImage;
+    }
+    for (WitU32 j = 0; j < i; ++j) {
+        const WitPeSection *other = &plan->Sections[j];
+        if (overlap(s->Rva, s->MapSize, other->Rva, other->MapSize) ||
+            (s->RawSize && other->RawSize && overlap(s->RawOffset, s->RawSize, other->RawOffset, other->RawSize))) {
+            return WitPeInvalidImage;
+        }
+    }
+    if ((s->Flags & WIT_PE_EXECUTE) &&
+        plan->EntryRva >= s->Rva &&
+        plan->EntryRva - s->Rva < s->VirtualSize &&
+        plan->EntryRva - s->Rva < s->RawSize) {
+        *entry_valid = 1;
+    }
+    if (s->Rva + s->MapSize > *maximum) {
+        *maximum = s->Rva + s->MapSize;
+    }
+    return WitPeOk;
+}
+
+/* Debug bytes stay opaque; unwind metadata, TLS, exports and relocations are validated in this order. */
+static WitPeStatus check_contents(
+    const WitU8 *file, WitU32 size, WitPeImage *plan, WitU32 profile, const PeLayout *layout)
+{
+    if (layout->DebugSize) {
+        WitU32 ignored;
+        /* Reproducible-link debug bytes are opaque data, never interpreted or invoked. */
+        if (layout->DebugSize % 28 || !wit_pe_file_range(plan, layout->DebugRva, layout->DebugSize, &ignored)) {
+            return WitPeInvalidImage;
+        }
+    }
+    WitPeStatus status = profile & WIT_PE_UNWIND_RUNTIME ? runtime_unwind_info(file, plan) : unwind_info(file, plan);
+    if (status == WitPeOk) {
+        status = tls_info(file, plan);
+    }
+    if (status == WitPeOk) {
+        status = wit_pe_exports_validate(file, plan);
+    }
+    if (status != WitPeOk) {
+        return status;
+    }
+    return profile & WIT_PE_LIBRARY_IMPORTS ? import_relocations(file, size, plan) : relocations(file, plan, 0);
+}
+
+WitPeStatus wit_pe_validate_profile(const WitU8 *file, WitU32 size, WitPeImage *plan, WitU32 profile)
+{
+    PeLayout layout = {0};
+    WitU32 maximum = 4096;
+    WitPeStatus status = check_profile(profile);
+    if (status == WitPeOk) {
+        status = parse_file_header(file, size, plan, profile, &layout);
+    }
+    if (status == WitPeOk) {
+        status = parse_optional_header(file, size, plan, profile, &layout);
+    }
+    if (status == WitPeOk) {
+        status = parse_directories(file, plan, profile, &layout);
+    }
+    if (status != WitPeOk) {
+        return status;
+    }
+    int entry_valid = (profile & WIT_PE_LIBRARY) && !plan->EntryRva;
     for (WitU32 i = 0; i < plan->SectionCount; ++i) {
-        const WitU8 *header = file + sections + i * 40;
-        const WitU32 flags = u32(header + 36);
-        WitPeSection *s = &plan->Sections[i];
-        WitU32 extent;
-        s->VirtualSize = u32(header + 8);
-        s->Rva = u32(header + 12);
-        s->RawSize = u32(header + 16);
-        s->RawOffset = u32(header + 20);
-        if (!s->VirtualSize) {
-            s->VirtualSize = s->RawSize;
-        }
-        if (!(flags & 0x40000000U) || (flags & 0x1C000000U) || (flags & 0xA0000000U) == 0xA0000000U) {
-            return WitPeUnsupportedImage;
-        }
-        if (u32(header + 24) || u32(header + 28) || u32(header + 32)) {
-            return WitPeUnsupportedImage;
-        }
-        s->Flags = WIT_PE_READ | (flags & 0x80000000U ? WIT_PE_WRITE : 0) | (flags & 0x20000000U ? WIT_PE_EXECUTE : 0);
-        extent = s->VirtualSize > s->RawSize ? s->VirtualSize : s->RawSize;
-        if (!extent || s->Rva < 4096 || (s->Rva & 4095) || !range(s->Rva, extent, plan->ImageSize)) {
-            return WitPeInvalidImage;
-        }
-        s->MapSize = (extent + 4095) & ~4095U;
-        if (!range(s->Rva, s->MapSize, plan->ImageSize)) {
-            return WitPeInvalidImage;
-        }
-        if (s->RawSize) {
-            if (s->RawOffset < plan->HeadersSize ||
-                (s->RawOffset & (alignment - 1)) ||
-                (s->RawSize & (alignment - 1)) ||
-                !range(s->RawOffset, s->RawSize, size)) {
-                return WitPeInvalidImage;
-            }
-        } else if (s->RawOffset) {
-            return WitPeInvalidImage;
-        }
-        for (WitU32 j = 0; j < i; ++j) {
-            const WitPeSection *other = &plan->Sections[j];
-            if (overlap(s->Rva, s->MapSize, other->Rva, other->MapSize) ||
-                (s->RawSize && other->RawSize && overlap(s->RawOffset, s->RawSize, other->RawOffset, other->RawSize))) {
-                return WitPeInvalidImage;
-            }
-        }
-        if ((s->Flags & WIT_PE_EXECUTE) &&
-            plan->EntryRva >= s->Rva &&
-            plan->EntryRva - s->Rva < s->VirtualSize &&
-            plan->EntryRva - s->Rva < s->RawSize) {
-            entry_valid = 1;
-        }
-        if (s->Rva + s->MapSize > maximum) {
-            maximum = s->Rva + s->MapSize;
+        status = parse_section(file, size, plan, &layout, i, &maximum, &entry_valid);
+        if (status != WitPeOk) {
+            return status;
         }
     }
     if (!entry_valid || maximum != plan->ImageSize) {
         return WitPeInvalidImage;
     }
-    if (debug_size) {
-        WitU32 ignored;
-        /* Reproducible-link debug bytes are opaque data, never interpreted or invoked. */
-        if (debug_size % 28 || !wit_pe_file_range(plan, debug_rva, debug_size, &ignored)) {
-            return WitPeInvalidImage;
-        }
-    }
-    {
-        const WitPeStatus status =
-            profile & WIT_PE_UNWIND_RUNTIME ? runtime_unwind_info(file, plan) : unwind_info(file, plan);
-        if (status != WitPeOk) {
-            return status;
-        }
-    }
-    {
-        const WitPeStatus status = tls_info(file, plan);
-        if (status != WitPeOk) {
-            return status;
-        }
-    }
-    {
-        const WitPeStatus status = wit_pe_exports_validate(file, plan);
-        if (status != WitPeOk) {
-            return status;
-        }
-    }
-    return profile & WIT_PE_LIBRARY_IMPORTS ? import_relocations(file, size, plan) : relocations(file, plan, 0);
+    return check_contents(file, size, plan, profile, &layout);
 }
 
 WitPeStatus wit_pe_validate(const WitU8 *file, WitU32 size, WitPeImage *plan)

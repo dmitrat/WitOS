@@ -5,6 +5,8 @@
 #include "witos/pe.h"
 static WitPeImage plan;
 static unsigned cases, accepted, rejected;
+/* FNV-1a over every verdict in order: equal digests show that a parser change kept each verdict. */
+static unsigned verdicts = 2166136261u;
 
 static WitPeStatus verify(const unsigned char *bytes, unsigned size)
 {
@@ -29,6 +31,7 @@ static WitPeStatus verify(const unsigned char *bytes, unsigned size)
         exit(5);
     }
     ++cases;
+    verdicts = (verdicts ^ (unsigned)result) * 16777619u;
     if (result == WitPeOk) {
         ++accepted;
     } else {
@@ -204,8 +207,8 @@ int main(int argc, char **argv)
         verify(data, n);
         data[offset] = original;
     }
-    printf("PASS: %u immutable trailing-guard PE inputs, %u accepted, %u rejected; seed=0x57314A29\n", cases, accepted,
-        rejected);
+    printf("PASS: %u immutable trailing-guard PE inputs, %u accepted, %u rejected; seed=0x57314A29; verdicts=0x%08X\n",
+        cases, accepted, rejected, verdicts);
     free(data);
     return 0;
 }

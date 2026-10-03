@@ -71,6 +71,46 @@ static int mapped(const WitPeImage *image, WitU32 rva)
     return 0;
 }
 
+/* Every exported RVA is null or mapped code or data; forwarders into the directory are not supported. */
+static WitPeStatus check_export_functions(const WitU8 *file, const WitPeImage *image, WitU32 functions)
+{
+    for (WitU32 i = 0; i < image->ExportCount; ++i) {
+        const WitU32 rva = u32(file + functions + i * 4);
+        if (!rva) {
+            continue;
+        }
+        if (within(rva, 1, image->ExportRva, image->ExportSize)) {
+            return WitPeUnsupportedImage; // Forwarder, not executable code.
+        }
+        if (!mapped(image, rva)) {
+            return WitPeInvalidImage;
+        }
+    }
+    return WitPeOk;
+}
+
+/* Names are valid strings in strictly ascending order, each naming a present export. */
+static WitPeStatus check_export_names(
+    const WitU8 *file, const WitPeImage *image, WitU32 functions, WitU32 names, WitU32 ordinals)
+{
+    const WitU8 *previous = 0, *name;
+    WitU32 previousLength = 0, length;
+    for (WitU32 i = 0; i < image->ExportNames; ++i) {
+        const WitU32 ordinal = u16(file + ordinals + i * 2);
+        if (ordinal >= image->ExportCount ||
+            !u32(file + functions + ordinal * 4) ||
+            !text(file, image, u32(file + names + i * 4), &name, &length)) {
+            return WitPeInvalidImage;
+        }
+        if (previous && compare(previous, previousLength, name, length) >= 0) {
+            return WitPeInvalidImage;
+        }
+        previous = name;
+        previousLength = length;
+    }
+    return WitPeOk;
+}
+
 WitPeStatus wit_pe_exports_validate(const WitU8 *file, WitPeImage *image)
 {
     image->ExportBase = image->ExportCount = image->ExportNames = 0;
@@ -123,34 +163,8 @@ WitPeStatus wit_pe_exports_validate(const WitU8 *file, WitPeImage *image)
             !metadata(image, image->ExportOrdinalsRva, image->ExportNames * 2, &ordinals))) {
         return WitPeInvalidImage;
     }
-    for (WitU32 i = 0; i < image->ExportCount; ++i) {
-        const WitU32 rva = u32(file + functions + i * 4);
-        if (!rva) {
-            continue;
-        }
-        if (within(rva, 1, image->ExportRva, image->ExportSize)) {
-            return WitPeUnsupportedImage; // Forwarder, not executable code.
-        }
-        if (!mapped(image, rva)) {
-            return WitPeInvalidImage;
-        }
-    }
-    const WitU8 *previous = 0;
-    WitU32 previousLength = 0;
-    for (WitU32 i = 0; i < image->ExportNames; ++i) {
-        const WitU32 ordinal = u16(file + ordinals + i * 2);
-        if (ordinal >= image->ExportCount ||
-            !u32(file + functions + ordinal * 4) ||
-            !text(file, image, u32(file + names + i * 4), &name, &length)) {
-            return WitPeInvalidImage;
-        }
-        if (previous && compare(previous, previousLength, name, length) >= 0) {
-            return WitPeInvalidImage;
-        }
-        previous = name;
-        previousLength = length;
-    }
-    return WitPeOk;
+    const WitPeStatus status = check_export_functions(file, image, functions);
+    return status != WitPeOk ? status : check_export_names(file, image, functions, names, ordinals);
 }
 
 WitPeStatus wit_pe_export_find(

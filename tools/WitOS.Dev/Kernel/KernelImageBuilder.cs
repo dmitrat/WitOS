@@ -141,12 +141,14 @@ internal static class KernelImageBuilder
             {
                 var obj = Path.Combine(output, $"{layer.Name}.{Path.GetFileNameWithoutExtension(source)}.obj");
                 objects.Add(obj);
+                // /Z7 keeps each object's debug records in the object; the linker writes the only PDB. A shared
+                // compiler PDB was locked between compilations on this host (C1041), even with /FS.
                 var arguments = new List<string>
                 {
-                    "/nologo", "/c", "/TC", "/std:c17", "/W4", "/WX", "/GS-", "/Zl", "/Oi", "/Od", "/Zi"
+                    "/nologo", "/c", "/TC", "/std:c17", "/W4", "/WX", "/GS-", "/Zl", "/Oi", "/Od", "/Z7"
                 };
                 arguments.AddRange(target.Includes.Concat(layer.Includes).Select(include => $"/I{Path.Combine(root, include)}"));
-                arguments.AddRange([$"/I{output}", $"/Fo{obj}", $"/Fd{Path.Combine(output, "compiler.pdb")}"]);
+                arguments.AddRange([$"/I{output}", $"/Fo{obj}"]);
                 if (selfTest)
                 {
                     arguments.Add("/DWITOS_SELFTEST=1");
