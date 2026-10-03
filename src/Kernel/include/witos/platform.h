@@ -23,6 +23,11 @@ WitU32 wit_platform_boot_devices(WitU64 *pages, WitU32 capacity);
 void wit_platform_timer_start(void);
 void wit_platform_timer_stop(void);
 void wit_platform_timer_acknowledge(void);
+
+/* Boards whose interrupts share one processor vector (Arm GIC): claims the pending interrupt and returns nonzero
+ * when it is the scheduler timer, which wit_platform_timer_acknowledge then completes; other interrupts are
+ * completed here. Boards with one vector per interrupt need not provide it. */
+int wit_platform_interrupt_claim(void);
 void wit_platform_clock_initialize(const struct WitBootInfo *boot);
 WitU64 wit_platform_monotonic_read(void);
 WitU64 wit_platform_monotonic_frequency(void);

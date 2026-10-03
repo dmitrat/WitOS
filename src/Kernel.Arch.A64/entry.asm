@@ -5,6 +5,7 @@
 
     EXPORT wit_a64_call_on_stack
     EXPORT wit_a64_mask_interrupts
+    EXPORT wit_a64_enable_interrupts
     EXPORT wit_a64_interrupt_mask
     EXPORT wit_a64_wait
     EXPORT wit_a64_exception_level
@@ -30,6 +31,11 @@ halt_forever
 
 wit_a64_mask_interrupts PROC
     msr daifset, #0xf
+    ret
+    ENDP
+
+wit_a64_enable_interrupts PROC
+    msr daifclr, #2
     ret
     ENDP
 

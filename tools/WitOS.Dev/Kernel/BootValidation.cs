@@ -320,9 +320,10 @@ internal static class BootValidation
         _ => 0
     };
 
-    // An ARM64 kernel foundation: the foundation markers, then Hello, without panic or exception.
+    // An ARM64 kernel foundation: the foundation markers, kernel-worker preemption, then Hello, without panic or
+    // exception.
     private static bool FoundationReady(string root, BootRequest request, string output) =>
-        A64Foundation(root, request, output) &&
+        A64Foundation(root, request, output) && ValidateScheduler(output) &&
         MarkersInOrder(output, A64_FOUNDATION_ORDER[^1], "Kernel initialized.", "[TEST-PASS] Boot.Hello") &&
         !output.Contains("[PANIC]", StringComparison.Ordinal) && !output.Contains("[EXCEPTION]", StringComparison.Ordinal);
 

@@ -5,7 +5,8 @@
 
 /* ARM64 state and instructions private to this directory; the assembly is AAPCS64. */
 
-/* Registers that an exception vector saves on the interrupted stack; vectors.asm owns the layout. */
+/* State that an exception vector saves on the interrupted stack and restores from the frame it resumes;
+ * vectors.asm owns the layout. Q holds the 32 SIMD registers as low and high halves. */
 typedef struct WitA64Frame {
     WitU64 X[31];
     WitU64 Sp;
@@ -13,14 +14,22 @@ typedef struct WitA64Frame {
     WitU64 Spsr;
     WitU64 Esr;
     WitU64 Far;
+    WitU64 Fpcr;
+    WitU64 Fpsr;
+    WitU64 Q[64];
 } WitA64Frame;
+
+#define WIT_A64_FRAME_SIZE 816U
 
 /* Kernel stack of the boot processor: [guard 4 KiB | stack | guard 4 KiB]. The guards are unmapped once the
  * kernel installs its own translation tables. */
 #define WIT_A64_KERNEL_STACK_SIZE (64U * 1024U)
 #define WIT_A64_STACK_REGION_SIZE (WIT_A64_KERNEL_STACK_SIZE + 8192U)
-#define WIT_A64_STACK_GUARD_COUNT 2U
+#define WIT_A64_STACK_GUARD_COUNT 6U
 extern WitU8 wit_a64_kernel_stack[WIT_A64_STACK_REGION_SIZE];
+
+/* Stacks of the two kernel workers of the preemption self-test, laid out like the kernel stack. */
+extern WitU8 wit_a64_worker_stacks[2][WIT_A64_STACK_REGION_SIZE];
 void wit_a64_stack_guards(WitU64 guards[WIT_A64_STACK_GUARD_COUNT]);
 
 /* Boot storage window in the TTBR1 half, at the same address as the x64 storage slot. */
@@ -34,6 +43,9 @@ WIT_NORETURN void wit_a64_call_on_stack(const void *argument, void *stack_top, v
 
 /* Masks debug, SError, IRQ and FIQ exceptions (DAIF). */
 void wit_a64_mask_interrupts(void);
+
+/* Unmasks IRQ only. */
+void wit_a64_enable_interrupts(void);
 
 /* DAIF exception mask bits as the register reads. */
 WitU64 wit_a64_interrupt_mask(void);
@@ -64,7 +76,11 @@ WitU64 wit_a64_translation_base(void);
 /* Invalidates the translation of one page for every address space after a descriptor changed. */
 void wit_a64_invalidate_page(WitU64 virtual_address);
 
-/* Reports a fatal exception taken from vector entry kind (0 to 15). */
-WIT_NORETURN void wit_a64_exception(const WitA64Frame *frame, WitU64 kind);
+/* Handles the exception of vector entry kind (0 to 15) and returns the frame to resume, which may belong to
+ * another kernel thread. Every exception other than an interrupt is fatal. */
+WitA64Frame *wit_a64_exception(WitA64Frame *frame, WitU64 kind);
+
+/* Interrupt taken at EL1: counts timer ticks and switches the self-test kernel threads. */
+WitA64Frame *wit_a64_interrupt(WitA64Frame *frame);
 
 #endif

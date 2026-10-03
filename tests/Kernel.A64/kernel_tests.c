@@ -9,4 +9,5 @@ void wit_kernel_self_test(const WitBootInfo *boot, WitPageAllocator *pages)
     wit_virtual_self_test(pages);
     wit_virtual_fault_test();
     wit_arch_fault_self_test();
+    wit_arch_scheduler_self_test();
 }

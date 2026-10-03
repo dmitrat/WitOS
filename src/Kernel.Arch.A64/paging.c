@@ -342,6 +342,20 @@ void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator
     wit_console_write("[TEST-PASS] Memory.StackGuards\n");
 }
 
+/* Device pages a board maps on demand once paging is active; not a public mapping API. */
+void wit_arch_map_device_page(const WitBootInfo *boot, WitU64 physical)
+{
+    WitU64 *entry;
+    require(active, "Device mapping before kernel paging");
+    require((physical & 4095) == 0 && physical != 0 && physical < WIT_PHYSICAL_LIMIT, "Invalid device page");
+    require(boot->ImageBase >= physical + 4096 || boot->ImageBase + boot->ImageSize <= physical,
+        "Device page overlaps kernel image or guards");
+    require(!overlaps_usable(boot, physical), "Device page overlaps usable RAM");
+    entry = leaf(physical, 0);
+    require(!entry || !(*entry & DESC_VALID), "Device page already mapped");
+    set_page(physical, page_descriptor(physical, 1, 0, 1));
+}
+
 #if defined(WITOS_SELFTEST)
 void wit_virtual_self_test(WitPageAllocator *allocator)
 {

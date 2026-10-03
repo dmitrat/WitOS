@@ -1,12 +1,13 @@
 {
   "name": "kernel-arch-a64",
-  "description": "ARM64 implementation of witos/arch.h and witos/virtual.h for the kernel foundation: identity, guarded boot stack, exception level, interrupt masking, fatal exception vectors and kernel translation tables.",
+  "description": "ARM64 implementation of witos/arch.h and witos/virtual.h for the kernel foundation: identity, guarded boot stack, exception level, interrupt masking, exception vectors with full register frames, the timer-interrupt scheduler hook and kernel translation tables.",
   "includes": [],
   "sources": [
     "src/Kernel.Arch.A64/identity.c",
     "src/Kernel.Arch.A64/bringup.c",
     "src/Kernel.Arch.A64/exceptions.c",
-    "src/Kernel.Arch.A64/paging.c"
+    "src/Kernel.Arch.A64/paging.c",
+    "src/Kernel.Arch.A64/scheduler.c"
   ],
   "assembly": [
     "src/Kernel.Arch.A64/entry.asm",

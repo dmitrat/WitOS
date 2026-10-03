@@ -89,7 +89,7 @@ dotnet run --project tools/WitOS.Dev --configuration Release -- test --arch arm6
 
 The native kernel currently always builds in Debug mode, including when the host tool uses Release.
 
-`--arch arm64` builds `BOOTAA64.EFI` with the MSVC ARM64 cross tools (Visual Studio component `Microsoft.VisualStudio.Component.VC.Tools.ARM64`) and boots it on the QEMU `virt` board with GICv3. That kernel runs the kernel foundation without user mode: it checks the boot contract, installs its EL1 exception vectors, initializes the physical page allocator, installs its own translation tables with guarded stacks, opens the boot package, seeds ChaCha20, checks the generic counter, runs the foundation self-tests, reports `Hello` and exits through Arm semihosting. Its suite requires success at 128 and 512 MiB, rejection of an invalid boot contract and of an overlapping memory map, a reported breakpoint, undefined instruction and data abort, the six memory permission faults of the x64 suite, and a timeout after a successful boot.
+`--arch arm64` builds `BOOTAA64.EFI` with the MSVC ARM64 cross tools (Visual Studio component `Microsoft.VisualStudio.Component.VC.Tools.ARM64`) and boots it on the QEMU `virt` board with GICv3. That kernel runs the kernel foundation without user mode: it checks the boot contract, installs its EL1 exception vectors, initializes the physical page allocator, installs its own translation tables with guarded stacks, opens the boot package, seeds ChaCha20, checks the generic counter, runs the foundation self-tests, preempts two kernel workers with the GICv3 virtual timer while checking their general, NEON and FPCR state, reports `Hello` and exits through Arm semihosting. Its suite requires success at 128 and 512 MiB, rejection of an invalid boot contract and of an overlapping memory map, a reported breakpoint, undefined instruction and data abort, the six memory permission faults of the x64 suite, and a timeout after a successful boot.
 
 Every test scenario builds a self-test kernel: the sources in `tests/Kernel.X64` and the white-box checks guarded by `WITOS_SELFTEST` run during boot before `Hello`. `release` builds the kernel without them, rejects a link map that names self-test code, and boots it with 128 MiB and 512 MiB of RAM; that kernel initializes, reports `Hello` and exits without running user components.
 
@@ -197,14 +197,16 @@ src/Boot.Uefi/               Firmware-specific entry and handoff adapter
 src/Kernel/                  Architecture-independent kernel: memory, handles, processes, threads, loader
 src/Kernel.Arch.X64/         x64 traps, frames, contexts, page tables and user transitions
 src/Kernel.Platform.Q35/     q35 board devices: COM1, PIC/PIT, HPET and test exit
-src/Kernel.Arch.A64/         ARM64 bring-up: identity, boot stack, exception level and interrupt mask
-src/Kernel.Platform.QemuVirt/ QEMU virt board: PL011 console and semihosting exit
+src/Kernel.Arch.A64/         ARM64 vectors, frames, kernel contexts and page tables
+src/Kernel.Platform.QemuVirt/ QEMU virt board: PL011, generic counter, GICv3 timer and semihosting exit
 src/Runtime.Native/          User-space native base: startup, syscalls, threads, TLS, images, files
 src/Runtime.Pal.Win32/       Win32 API names for the upstream runtimes
 src/Runtime.NativeAot/       NativeAOT platform adapters and source overlay
 src/Runtime.CoreClr/         CoreCLR host and runtime adapters
 build/                       Kernel target, layer and format manifests
-tests/Kernel.X64/            Kernel self-tests, linked only into WITOS_SELFTEST kernels
+tests/Kernel/                Kernel self-tests shared by both architectures (WITOS_SELFTEST only)
+tests/Kernel.X64/            x64 kernel self-tests, linked only into WITOS_SELFTEST kernels
+tests/Kernel.A64/            ARM64 kernel self-tests and fault scenarios
 tests/User.X64/              Unprivileged native ABI, isolation and runtime fixtures
 tests/WitOS.Dev.Tests/       Host tests (NUnit)
 tools/WitOS.Dev/             C# build, VM tests and runtime investigation tools

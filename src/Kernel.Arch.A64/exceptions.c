@@ -2,14 +2,21 @@
 #include "witos/platform.h"
 #include "a64.h"
 
-/* ARM64 exception vectors of the kernel. Every exception taken at EL1 is fatal for now and is reported with its
- * syndrome; the timer interrupt arrives with A1.3. */
+/* ARM64 exception vectors of the kernel. An interrupt taken at EL1 goes to the scheduler; every other exception
+ * is fatal and is reported with its syndrome. */
 
-WIT_STATIC_ASSERT(sizeof(WitA64Frame) == 288, "vectors.asm frame layout");
+#define FRAME_OFFSET(field) ((WitU64) & ((WitA64Frame *)0)->field)
+
+WIT_STATIC_ASSERT(sizeof(WitA64Frame) == WIT_A64_FRAME_SIZE, "vectors.asm frame size");
+WIT_STATIC_ASSERT(
+    FRAME_OFFSET(Sp) == 248 && FRAME_OFFSET(Elr) == 256 && FRAME_OFFSET(Spsr) == 264, "vectors.asm frame layout");
+WIT_STATIC_ASSERT(
+    FRAME_OFFSET(Far) == 280 && FRAME_OFFSET(Fpcr) == 288 && FRAME_OFFSET(Q) == 304, "vectors.asm frame layout");
 
 /* Vector entries: 0-3 current EL on SP_EL0, 4-7 current EL on SP_ELx, 8-15 lower EL; synchronous, IRQ, FIQ,
  * SError within each group. */
 #define VECTOR_KERNEL_SYNCHRONOUS 4U
+#define VECTOR_KERNEL_INTERRUPT 5U
 #define VECTOR_INTERRUPT 1U
 #define VECTOR_SERROR 3U
 
@@ -82,9 +89,13 @@ void wit_arch_initialize(void)
     wit_console_write("[TEST-PASS] Cpu.ExceptionTables\n");
 }
 
-WIT_NORETURN void wit_a64_exception(const WitA64Frame *frame, WitU64 kind)
+WitA64Frame *wit_a64_exception(WitA64Frame *frame, WitU64 kind)
 {
     const WitU64 exception_class = (frame->Esr >> 26) & 0x3F;
+
+    if (kind == VECTOR_KERNEL_INTERRUPT) {
+        return wit_a64_interrupt(frame);
+    }
 
     wit_console_write("[EXCEPTION] kind=");
     wit_console_write_u64(kind);

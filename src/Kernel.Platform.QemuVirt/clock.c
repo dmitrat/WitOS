@@ -14,7 +14,6 @@ void wit_platform_clock_initialize(const struct WitBootInfo *boot)
     WitU64 now;
     WitU64 ticks;
 
-    (void)boot;
     if (wit_arch_interrupts_enabled()) {
         wit_panic("Clock initialization requires interrupts disabled");
     }
@@ -43,6 +42,7 @@ void wit_platform_clock_initialize(const struct WitBootInfo *boot)
         wit_panic("Generic counter depends on interrupts");
     }
     wit_console_write("[TEST-PASS] Clock.IrqIndependent\n");
+    wit_virt_interrupts_map(boot);
     wit_console_write("Counter frequency: ");
     wit_console_write_u64(frequency);
     wit_console_write("\n");
