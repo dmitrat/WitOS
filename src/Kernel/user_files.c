@@ -3,6 +3,62 @@
 
 /* Nonblocking file calls run with IF clear. The package lives in immutable,
  * supervisor-only kernel storage for the entire boot; user handles own no pages. */
+static WitU64 open_file(
+    WitUserProcess *process, const WitPackage *package, const WitFileRequest *request, WitU64 *result)
+{
+    WitU8 name[WIT_PACKAGE_MAX_NAME];
+    if (request->Handle || request->Offset || !request->Bytes) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    if (request->Bytes > sizeof(name)) {
+        return WIT_STATUS_TOO_LARGE;
+    }
+    if (!wit_user_copy_from(&process->Space, request->Address, name, (WitU32)request->Bytes)) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    return wit_file_open(&process->Files, &process->Handles, package, name, (WitU32)request->Bytes, result);
+}
+
+/* WIT_FILE_READ copies from the file position and advances it; a positioned read copies from Offset. */
+static WitU64 read_file(
+    WitUserProcess *process, const WitPackage *package, WitFile *file, const WitFileRequest *request, WitU64 *result)
+{
+    if (request->Bytes > WIT_FILE_MAX_READ) {
+        return WIT_STATUS_TOO_LARGE;
+    }
+    if (request->Offset > 0x7FFFFFFFFFFFFFFFULL || (request->Operation == WIT_FILE_READ && request->Offset)) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    if (!wit_user_buffer_writable(&process->Space, request->Address, (WitU32)request->Bytes)) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    const WitU64 offset = request->Operation == WIT_FILE_READ ? file->Position : request->Offset;
+    const WitU64 available = offset < file->Length ? file->Length - offset : 0;
+    const WitU32 bytes = (WitU32)(request->Bytes < available ? request->Bytes : available);
+    /* Bounds below are kernel-owned, yet retain fail-closed validation before
+     * pointer arithmetic. The source pointer is never exposed to user space. */
+    if (file->Offset > package->Size || file->Length > package->Size - file->Offset) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    for (WitU32 done = 0; done < bytes;) {
+        const WitU64 to = request->Address + done;
+        WitU32 chunk = 4096 - (WitU32)(to & 4095);
+        if (chunk > bytes - done) {
+            chunk = bytes - done;
+        }
+        WitU8 *physical = (WitU8 *)wit_user_space_physical(&process->Space, to, 1, 0);
+        for (WitU32 i = 0; i < chunk; ++i) {
+            physical[i] = package->Data[file->Offset + offset + done + i];
+        }
+        done += chunk;
+    }
+    if (request->Operation == WIT_FILE_READ) {
+        file->Position += bytes;
+    }
+    *result = bytes;
+    return WIT_STATUS_OK;
+}
+
 WitU64 wit_user_file_call(WitUserProcess *process, WitU64 address, WitU64 size, WitU64 reserved, WitU64 *result)
 {
     WitFileRequest request;
@@ -30,20 +86,10 @@ WitU64 wit_user_file_call(WitUserProcess *process, WitU64 address, WitU64 size, 
         return WIT_STATUS_UNSUPPORTED;
     }
     if (request.Operation == WIT_FILE_OPEN) {
-        WitU8 name[WIT_PACKAGE_MAX_NAME];
-        if (request.Handle || request.Offset || !request.Bytes) {
-            return WIT_STATUS_INVALID_ARGUMENT;
-        }
-        if (request.Bytes > sizeof(name)) {
-            return WIT_STATUS_TOO_LARGE;
-        }
-        if (!wit_user_copy_from(&process->Space, request.Address, name, (WitU32)request.Bytes)) {
-            return WIT_STATUS_BAD_ADDRESS;
-        }
-        return wit_file_open(&process->Files, &process->Handles, package, name, (WitU32)request.Bytes, result);
+        return open_file(process, package, &request, result);
     }
     WitFile *file;
-    WitU64 status = wit_file_get(&process->Files, &process->Handles, request.Handle, &file);
+    const WitU64 status = wit_file_get(&process->Files, &process->Handles, request.Handle, &file);
     if (status != WIT_STATUS_OK) {
         return status;
     }
@@ -60,40 +106,7 @@ WitU64 wit_user_file_call(WitUserProcess *process, WitU64 address, WitU64 size, 
         }
         return wit_file_seek(file, request.Offset, request.Flags, result);
     }
-    if (request.Bytes > WIT_FILE_MAX_READ) {
-        return WIT_STATUS_TOO_LARGE;
-    }
-    if (request.Offset > 0x7FFFFFFFFFFFFFFFULL || (request.Operation == WIT_FILE_READ && request.Offset)) {
-        return WIT_STATUS_INVALID_ARGUMENT;
-    }
-    if (!wit_user_buffer_writable(&process->Space, request.Address, (WitU32)request.Bytes)) {
-        return WIT_STATUS_BAD_ADDRESS;
-    }
-    const WitU64 offset = request.Operation == WIT_FILE_READ ? file->Position : request.Offset;
-    const WitU64 available = offset < file->Length ? file->Length - offset : 0;
-    const WitU32 bytes = (WitU32)(request.Bytes < available ? request.Bytes : available);
-    /* Bounds below are kernel-owned, yet retain fail-closed validation before
-     * pointer arithmetic. The source pointer is never exposed to user space. */
-    if (file->Offset > package->Size || file->Length > package->Size - file->Offset) {
-        return WIT_STATUS_BAD_ADDRESS;
-    }
-    for (WitU32 done = 0; done < bytes;) {
-        const WitU64 to = request.Address + done;
-        WitU32 chunk = 4096 - (WitU32)(to & 4095);
-        if (chunk > bytes - done) {
-            chunk = bytes - done;
-        }
-        WitU8 *physical = (WitU8 *)wit_user_space_physical(&process->Space, to, 1, 0);
-        for (WitU32 i = 0; i < chunk; ++i) {
-            physical[i] = package->Data[file->Offset + offset + done + i];
-        }
-        done += chunk;
-    }
-    if (request.Operation == WIT_FILE_READ) {
-        file->Position += bytes;
-    }
-    *result = bytes;
-    return WIT_STATUS_OK;
+    return read_file(process, package, file, &request, result);
 }
 
 WitU64 wit_user_storage_query(WitUserProcess *process, WitU64 address, WitU64 size, WitU64 reserved, WitU64 *result)

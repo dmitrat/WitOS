@@ -575,3 +575,9 @@ A2 требует от ARM64 всех 55 функций `arch.h`, которые
 Обработчикам управления потоками нужен планировщик, поэтому `user.c` открыл уровню вызовов небольшой внутренний API в `user.h`: `wit_user_current`, `wit_user_finish`, `wit_user_yield`, `wit_user_exit_thread`, `wit_user_join_thread`, `wit_user_close_handle`. Диагностика бюджета профиля `WITOS_TEST_RUNTIME_BOOT` вынесена из `finish` в `report_budget`. Хостовый тест `CallTableCoversEveryCallTest` требует ровно одну строку таблицы на каждый `WIT_CALL_*` и границу `CALL_COUNT` по последнему номеру; руководство по слоям описывает новый порядок добавления вызова.
 
 **Проверка.** Перевод каждой ветки дословный; полная матрица зелёная: x64 `test` 20 сценариев, `release`, `coreclr-memory`, `coreclr-storage`, `runtime-config`, `runtime-boot-run`, `runtime-port`, ARM64 `test` 14 сценариев, хостовые тесты 61. В политике и валидаторах PE осталось 14 функций длиннее 80 строк (было 16).
+
+### Q2.9.2 — библиотечный, читательский и файловый вызовы
+
+`wit_user_library_call` (251 строка) оставил себе копирование и проверку запроса и прежние шлюзы в прежнем порядке: уведомления потоков, завершение работы, закрытое состояние, финиш жизненного цикла, `lifecycle_blocks` и читателей. Операции стали функциями: `find_library` (сравнение имени целиком или по базовому имени вынесено в `name_matches`), `load_library`, `library_of` (проверка дескриптора и поиск слота), `library_path`, `library_query`, `unload_library` и `find_export`. `wit_user_library_reader_call` (117) разделился на `acquire_reader` с `library_at`, `check_reader_request`, `reader_of` и `release_reader`; `wit_user_file_call` (92) — на `open_file` и `read_file`. Порядок проверок и коды ответов сохранены дословно.
+
+**Проверка.** Полная матрица зелёная (x64 `test` 20, `release`, `coreclr-memory`, `coreclr-storage`, `runtime-config`, `runtime-boot-run`, `runtime-port`, ARM64 `test` 14), хостовые тесты 61. Длинных функций осталось 11.

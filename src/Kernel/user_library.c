@@ -423,6 +423,272 @@ void wit_user_library_collect(WitUserProcess *process)
     wit_user_library_tls_refresh(process);
 }
 
+/* The package name of a loaded library matches the requested name, whole or by basename after the last '/'. */
+static int name_matches(
+    const WitPackage *package, const WitUserLibrary *library, const WitU8 *name, WitU32 bytes, int basename)
+{
+    const WitU8 *stored = package->Data + library->NameOffset;
+    WitU32 start = 0;
+    if (basename) {
+        for (WitU32 j = 0; j < library->NameBytes; ++j) {
+            if (stored[j] == '/') {
+                start = j + 1;
+            }
+        }
+    }
+    if (library->NameBytes - start != bytes) {
+        return 0;
+    }
+    WitU32 j = 0;
+    while (j < bytes && name[j] == stored[start + j]) {
+        ++j;
+    }
+    return j == bytes;
+}
+
+static WitU64 find_library(
+    WitUserProcess *process, const WitPackage *package, const WitLibraryRequest *request, WitU64 *result)
+{
+    if (request->Handle ||
+        request->Flags > WIT_LIBRARY_BY_BASENAME ||
+        request->Ordinal ||
+        request->Buffer ||
+        request->BufferBytes ||
+        !request->NameBytes) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    if (request->NameBytes > WIT_LIBRARY_PATH_BYTES) {
+        return WIT_STATUS_TOO_LARGE;
+    }
+    WitU8 name[WIT_LIBRARY_PATH_BYTES];
+    if (!wit_user_copy_from(&process->Space, request->Name, name, (WitU32)request->NameBytes)) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    for (WitU32 i = 0; i < request->NameBytes; ++i) {
+        if (!name[i] || name[i] == '\\' || (request->Flags && name[i] == '/')) {
+            return WIT_STATUS_INVALID_ARGUMENT;
+        }
+    }
+    WitUserLibrary *match = 0;
+    for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
+        WitUserLibrary *current = &process->Libraries[i];
+        if (!current->Token || !name_matches(package, current, name, (WitU32)request->NameBytes, request->Flags != 0)) {
+            continue;
+        }
+        if (match) {
+            return WIT_STATUS_BUSY;
+        }
+        match = current;
+    }
+    if (!match) {
+        return WIT_STATUS_NOT_FOUND;
+    }
+    if (match->References == ~0U) {
+        return WIT_STATUS_NO_MEMORY;
+    }
+    ++match->References;
+    *result = match->Token;
+    return WIT_STATUS_OK;
+}
+
+static WitU64 load_library(
+    WitUserProcess *process, const WitPackage *package, const WitLibraryRequest *request, WitU64 *result)
+{
+    if (request->Handle ||
+        request->Flags > WIT_LIBRARY_USER_LIFECYCLE ||
+        request->Ordinal ||
+        !request->NameBytes ||
+        (request->Flags ? request->BufferBytes != 8 : (request->Buffer || request->BufferBytes))) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    if (request->Flags && !wit_user_buffer_writable(&process->Space, request->Buffer, 8)) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    if (request->NameBytes > WIT_PACKAGE_MAX_NAME) {
+        return WIT_STATUS_TOO_LARGE;
+    }
+    WitU8 name[WIT_PACKAGE_MAX_NAME];
+    if (!wit_user_copy_from(&process->Space, request->Name, name, (WitU32)request->NameBytes)) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    WitPackageFile file;
+    const WitPackageStatus found = wit_package_find(package, name, (WitU32)request->NameBytes, &file);
+    if (found != WitPackageOk) {
+        return found == WitPackageMissing ? WIT_STATUS_NOT_FOUND : WIT_STATUS_INVALID_ARGUMENT;
+    }
+    WitU64 address = 0;
+    const WitU64 status = load(process, package, &file, request->Flags, &address, result);
+    if (status == WIT_STATUS_OK &&
+        request->Flags &&
+        !wit_user_copy_to(&process->Space, request->Buffer, (const WitU8 *)&address, 8)) {
+        wit_panic("Lifecycle pointer copy lost validation");
+    }
+    return status;
+}
+
+/* The loaded library of a readable library handle, or 0 with the failure status. */
+static WitUserLibrary *library_of(WitUserProcess *process, WitU64 handle, WitU64 *status)
+{
+    *status = wit_handle_check(&process->Handles, handle, WIT_HANDLE_LIBRARY, WIT_RIGHT_READ);
+    if (*status != WIT_STATUS_OK) {
+        return 0;
+    }
+    for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
+        if (process->Libraries[i].Token == handle) {
+            return &process->Libraries[i];
+        }
+    }
+    *status = WIT_STATUS_BAD_HANDLE;
+    return 0;
+}
+
+static int has_name_or_ordinal(const WitLibraryRequest *request)
+{
+    return request->Flags || request->Name || request->NameBytes || request->Ordinal;
+}
+
+static WitU64 library_path(WitUserProcess *process, const WitPackage *package, const WitUserLibrary *module,
+    const WitLibraryRequest *request, WitU64 *result)
+{
+    if (has_name_or_ordinal(request) || request->BufferBytes != sizeof(WitLibraryPath)) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    WitLibraryPath path = {WIT_LIBRARY_VERSION, sizeof(path), module->NameBytes, 0, {0}};
+    for (WitU32 i = 0; i < module->NameBytes; ++i) {
+        path.Name[i] = package->Data[module->NameOffset + i];
+    }
+    if (!wit_user_copy_to(&process->Space, request->Buffer, (const WitU8 *)&path, sizeof(path))) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    *result = sizeof(path);
+    return WIT_STATUS_OK;
+}
+
+static WitU64 library_query(
+    WitUserProcess *process, const WitUserLibrary *module, const WitLibraryRequest *request, WitU64 *result)
+{
+    if (has_name_or_ordinal(request) || request->BufferBytes != sizeof(WitLibraryInfo)) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    const WitLibraryInfo info = {WIT_LIBRARY_VERSION, sizeof(info), module->Base, module->ImageBytes, module->EntryRva,
+        module->UnwindRva, module->UnwindBytes, module->References};
+    if (!wit_user_copy_to(&process->Space, request->Buffer, (const WitU8 *)&info, sizeof(info))) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    *result = sizeof(info);
+    return WIT_STATUS_OK;
+}
+
+static WitU64 unload_library(WitUserProcess *process, WitUserLibrary *module, const WitLibraryRequest *request)
+{
+    if (request->Flags > WIT_LIBRARY_USER_LIFECYCLE ||
+        request->Name ||
+        request->NameBytes ||
+        request->Ordinal ||
+        (request->Flags ? request->BufferBytes != 8 : (request->Buffer || request->BufferBytes))) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    if (request->Flags && !wit_user_buffer_writable(&process->Space, request->Buffer, 8)) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    if (!module->References) {
+        return WIT_STATUS_DENIED;
+    }
+    WitU64 address = 0;
+    const WitU64 status = wit_user_library_release_plan(process, module, request->Handle, 0, request->Flags, &address);
+    if (status != WIT_STATUS_OK) {
+        return status;
+    }
+    if (!address) {
+        --module->References;
+        wit_user_library_collect(process);
+    }
+    if (request->Flags && !wit_user_copy_to(&process->Space, request->Buffer, (const WitU8 *)&address, 8)) {
+        wit_panic("Lifecycle release pointer lost validation");
+    }
+    return WIT_STATUS_OK;
+}
+
+/* Export lookup by name or, with WIT_LIBRARY_BY_ORDINAL, by ordinal; returns the absolute address. */
+static WitU64 find_export(WitUserProcess *process, const WitPackage *package, const WitUserLibrary *module,
+    const WitLibraryRequest *request, WitU64 *result)
+{
+    if (request->Buffer || request->BufferBytes || request->Flags > WIT_LIBRARY_BY_ORDINAL) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    char name[WIT_PE_EXPORT_NAME_MAX];
+    const char *query = 0;
+    if (request->Flags) {
+        if (request->Name || request->NameBytes || request->Ordinal > 0xFFFFFFFFULL) {
+            return WIT_STATUS_INVALID_ARGUMENT;
+        }
+    } else {
+        if (request->Ordinal || !request->NameBytes) {
+            return WIT_STATUS_INVALID_ARGUMENT;
+        }
+        if (request->NameBytes > sizeof(name)) {
+            return WIT_STATUS_TOO_LARGE;
+        }
+        if (!wit_user_copy_from(&process->Space, request->Name, (WitU8 *)name, (WitU32)request->NameBytes)) {
+            return WIT_STATUS_BAD_ADDRESS;
+        }
+        query = name;
+    }
+    const WitU8 *file = package->Data + module->FileOffset;
+    if (wit_pe_validate_profile(file, (WitU32)module->FileBytes, &plan, LIBRARY_PROFILE) != WitPeOk) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    WitU32 rva = 0;
+    const WitPeStatus status =
+        wit_pe_export_find(file, &plan, query, (WitU32)request->NameBytes, (WitU32)request->Ordinal, &rva);
+    if (status != WitPeOk) {
+        return pe_status(status);
+    }
+    if (!rva) {
+        return WIT_STATUS_NOT_FOUND;
+    }
+    *result = module->Base + rva;
+    return WIT_STATUS_OK;
+}
+
+/* A library operation is refused while another thread owns an active library lifecycle without thread
+ * notification, and load, unload and find are refused during any lifecycle. */
+static int lifecycle_blocks(const WitUserProcess *process, WitU32 operation)
+{
+    return process->LibraryLifecycle.Token &&
+        ((process->LibraryLifecycle.Owner != process->Threads[process->CurrentThread].Handle &&
+             !process->LibraryLifecycle.ThreadNotify) ||
+            operation == WIT_LIBRARY_LOAD ||
+            operation == WIT_LIBRARY_UNLOAD ||
+            operation == WIT_LIBRARY_FIND);
+}
+
+static WitU64 library_operation(
+    WitUserProcess *process, const WitPackage *package, const WitLibraryRequest *request, WitU64 *result)
+{
+    if (request->Operation == WIT_LIBRARY_FIND) {
+        return find_library(process, package, request, result);
+    }
+    if (request->Operation == WIT_LIBRARY_LOAD) {
+        return load_library(process, package, request, result);
+    }
+    WitU64 status;
+    WitUserLibrary *module = library_of(process, request->Handle, &status);
+    if (!module) {
+        return status;
+    }
+    if (request->Operation == WIT_LIBRARY_PATH) {
+        return library_path(process, package, module, request, result);
+    }
+    if (request->Operation == WIT_LIBRARY_QUERY) {
+        return library_query(process, module, request, result);
+    }
+    if (request->Operation == WIT_LIBRARY_UNLOAD) {
+        return unload_library(process, module, request);
+    }
+    return find_export(process, package, module, request, result);
+}
+
 WitU64 wit_user_library_call(
     WitUserProcess *process, WitU64 inputAddress, WitU64 bytes, WitU64 reserved, WitU64 *result)
 {
@@ -451,12 +717,7 @@ WitU64 wit_user_library_call(
     if (request.Operation == WIT_LIBRARY_FINISH_LIFECYCLE) {
         return wit_user_library_finish_lifecycle(process, &request);
     }
-    if (process->LibraryLifecycle.Token &&
-        ((process->LibraryLifecycle.Owner != process->Threads[process->CurrentThread].Handle &&
-             !process->LibraryLifecycle.ThreadNotify) ||
-            request.Operation == WIT_LIBRARY_LOAD ||
-            request.Operation == WIT_LIBRARY_UNLOAD ||
-            request.Operation == WIT_LIBRARY_FIND)) {
+    if (lifecycle_blocks(process, request.Operation)) {
         return WIT_STATUS_BUSY;
     }
     if (request.Operation >= WIT_LIBRARY_ACQUIRE_READER) {
@@ -466,211 +727,5 @@ WitU64 wit_user_library_call(
     if (!package) {
         return WIT_STATUS_UNSUPPORTED;
     }
-    if (request.Operation == WIT_LIBRARY_FIND) {
-        if (request.Handle ||
-            request.Flags > WIT_LIBRARY_BY_BASENAME ||
-            request.Ordinal ||
-            request.Buffer ||
-            request.BufferBytes ||
-            !request.NameBytes) {
-            return WIT_STATUS_INVALID_ARGUMENT;
-        }
-        if (request.NameBytes > WIT_LIBRARY_PATH_BYTES) {
-            return WIT_STATUS_TOO_LARGE;
-        }
-        WitU8 name[WIT_LIBRARY_PATH_BYTES];
-        if (!wit_user_copy_from(&process->Space, request.Name, name, (WitU32)request.NameBytes)) {
-            return WIT_STATUS_BAD_ADDRESS;
-        }
-        for (WitU32 i = 0; i < request.NameBytes; ++i) {
-            if (!name[i] || name[i] == '\\' || (request.Flags && name[i] == '/')) {
-                return WIT_STATUS_INVALID_ARGUMENT;
-            }
-        }
-        WitUserLibrary *match = 0;
-        for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
-            WitUserLibrary *current = &process->Libraries[i];
-            if (!current->Token) {
-                continue;
-            }
-            const WitU8 *stored = package->Data + current->NameOffset;
-            WitU32 start = 0;
-            if (request.Flags) {
-                for (WitU32 j = 0; j < current->NameBytes; ++j) {
-                    if (stored[j] == '/') {
-                        start = j + 1;
-                    }
-                }
-            }
-            if (current->NameBytes - start != request.NameBytes) {
-                continue;
-            }
-            WitU32 j = 0;
-            while (j < request.NameBytes && name[j] == stored[start + j]) {
-                ++j;
-            }
-            if (j != request.NameBytes) {
-                continue;
-            }
-            if (match) {
-                return WIT_STATUS_BUSY;
-            }
-            match = current;
-        }
-        if (!match) {
-            return WIT_STATUS_NOT_FOUND;
-        }
-        if (match->References == ~0U) {
-            return WIT_STATUS_NO_MEMORY;
-        }
-        ++match->References;
-        *result = match->Token;
-        return WIT_STATUS_OK;
-    }
-    if (request.Operation == WIT_LIBRARY_LOAD) {
-        if (request.Handle ||
-            request.Flags > WIT_LIBRARY_USER_LIFECYCLE ||
-            request.Ordinal ||
-            !request.NameBytes ||
-            (request.Flags ? request.BufferBytes != 8 : (request.Buffer || request.BufferBytes))) {
-            return WIT_STATUS_INVALID_ARGUMENT;
-        }
-        if (request.Flags && !wit_user_buffer_writable(&process->Space, request.Buffer, 8)) {
-            return WIT_STATUS_BAD_ADDRESS;
-        }
-        if (request.NameBytes > WIT_PACKAGE_MAX_NAME) {
-            return WIT_STATUS_TOO_LARGE;
-        }
-        WitU8 name[WIT_PACKAGE_MAX_NAME];
-        if (!wit_user_copy_from(&process->Space, request.Name, name, (WitU32)request.NameBytes)) {
-            return WIT_STATUS_BAD_ADDRESS;
-        }
-        WitPackageFile file;
-        const WitPackageStatus found = wit_package_find(package, name, (WitU32)request.NameBytes, &file);
-        if (found != WitPackageOk) {
-            return found == WitPackageMissing ? WIT_STATUS_NOT_FOUND : WIT_STATUS_INVALID_ARGUMENT;
-        }
-        WitU64 address = 0;
-        const WitU64 status = load(process, package, &file, request.Flags, &address, result);
-        if (status == WIT_STATUS_OK &&
-            request.Flags &&
-            !wit_user_copy_to(&process->Space, request.Buffer, (const WitU8 *)&address, 8)) {
-            wit_panic("Lifecycle pointer copy lost validation");
-        }
-        return status;
-    }
-    const WitU64 checked = wit_handle_check(&process->Handles, request.Handle, WIT_HANDLE_LIBRARY, WIT_RIGHT_READ);
-    if (checked != WIT_STATUS_OK) {
-        return checked;
-    }
-    WitU32 slot = WIT_LIBRARY_CAPACITY;
-    for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
-        if (process->Libraries[i].Token == request.Handle) {
-            slot = i;
-            break;
-        }
-    }
-    if (slot == WIT_LIBRARY_CAPACITY) {
-        return WIT_STATUS_BAD_HANDLE;
-    }
-    WitUserLibrary *module = &process->Libraries[slot];
-    if (request.Operation == WIT_LIBRARY_PATH) {
-        if (request.Flags ||
-            request.Name ||
-            request.NameBytes ||
-            request.Ordinal ||
-            request.BufferBytes != sizeof(WitLibraryPath)) {
-            return WIT_STATUS_INVALID_ARGUMENT;
-        }
-        WitLibraryPath path = {WIT_LIBRARY_VERSION, sizeof(path), module->NameBytes, 0, {0}};
-        for (WitU32 i = 0; i < module->NameBytes; ++i) {
-            path.Name[i] = package->Data[module->NameOffset + i];
-        }
-        if (!wit_user_copy_to(&process->Space, request.Buffer, (const WitU8 *)&path, sizeof(path))) {
-            return WIT_STATUS_BAD_ADDRESS;
-        }
-        *result = sizeof(path);
-        return WIT_STATUS_OK;
-    }
-    if (request.Operation == WIT_LIBRARY_QUERY) {
-        if (request.Flags ||
-            request.Name ||
-            request.NameBytes ||
-            request.Ordinal ||
-            request.BufferBytes != sizeof(WitLibraryInfo)) {
-            return WIT_STATUS_INVALID_ARGUMENT;
-        }
-        const WitLibraryInfo info = {WIT_LIBRARY_VERSION, sizeof(info), module->Base, module->ImageBytes,
-            module->EntryRva, module->UnwindRva, module->UnwindBytes, module->References};
-        if (!wit_user_copy_to(&process->Space, request.Buffer, (const WitU8 *)&info, sizeof(info))) {
-            return WIT_STATUS_BAD_ADDRESS;
-        }
-        *result = sizeof(info);
-        return WIT_STATUS_OK;
-    }
-    if (request.Operation == WIT_LIBRARY_UNLOAD) {
-        if (request.Flags > WIT_LIBRARY_USER_LIFECYCLE ||
-            request.Name ||
-            request.NameBytes ||
-            request.Ordinal ||
-            (request.Flags ? request.BufferBytes != 8 : (request.Buffer || request.BufferBytes))) {
-            return WIT_STATUS_INVALID_ARGUMENT;
-        }
-        if (request.Flags && !wit_user_buffer_writable(&process->Space, request.Buffer, 8)) {
-            return WIT_STATUS_BAD_ADDRESS;
-        }
-        if (!module->References) {
-            return WIT_STATUS_DENIED;
-        }
-        WitU64 address = 0;
-        const WitU64 status =
-            wit_user_library_release_plan(process, module, request.Handle, 0, request.Flags, &address);
-        if (status != WIT_STATUS_OK) {
-            return status;
-        }
-        if (!address) {
-            --module->References;
-            wit_user_library_collect(process);
-        }
-        if (request.Flags && !wit_user_copy_to(&process->Space, request.Buffer, (const WitU8 *)&address, 8)) {
-            wit_panic("Lifecycle release pointer lost validation");
-        }
-        return WIT_STATUS_OK;
-    }
-    if (request.Buffer || request.BufferBytes || request.Flags > WIT_LIBRARY_BY_ORDINAL) {
-        return WIT_STATUS_INVALID_ARGUMENT;
-    }
-    char name[WIT_PE_EXPORT_NAME_MAX];
-    const char *query = 0;
-    if (request.Flags) {
-        if (request.Name || request.NameBytes || request.Ordinal > 0xFFFFFFFFULL) {
-            return WIT_STATUS_INVALID_ARGUMENT;
-        }
-    } else {
-        if (request.Ordinal || !request.NameBytes) {
-            return WIT_STATUS_INVALID_ARGUMENT;
-        }
-        if (request.NameBytes > sizeof(name)) {
-            return WIT_STATUS_TOO_LARGE;
-        }
-        if (!wit_user_copy_from(&process->Space, request.Name, (WitU8 *)name, (WitU32)request.NameBytes)) {
-            return WIT_STATUS_BAD_ADDRESS;
-        }
-        query = name;
-    }
-    const WitU8 *file = package->Data + module->FileOffset;
-    if (wit_pe_validate_profile(file, (WitU32)module->FileBytes, &plan, LIBRARY_PROFILE) != WitPeOk) {
-        return WIT_STATUS_INVALID_ARGUMENT;
-    }
-    WitU32 rva = 0;
-    const WitPeStatus status =
-        wit_pe_export_find(file, &plan, query, (WitU32)request.NameBytes, (WitU32)request.Ordinal, &rva);
-    if (status != WitPeOk) {
-        return pe_status(status);
-    }
-    if (!rva) {
-        return WIT_STATUS_NOT_FOUND;
-    }
-    *result = module->Base + rva;
-    return WIT_STATUS_OK;
+    return library_operation(process, package, &request, result);
 }
