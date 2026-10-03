@@ -99,6 +99,23 @@ public sealed class ConsistencyTests
             reference.Contains($"**boot ABI v{KernelAbi.BootVersion(root)}**", StringComparison.Ordinal), Is.True, "ABI reference names stale versions");
     }
 
+    // Every call of the ABI has exactly one entry in the system call table, and the table bound follows the last call.
+    [Test]
+    public void CallTableCoversEveryCallTest()
+    {
+        var root = TestEnvironment.Root;
+        var table = File.ReadAllText(Path.Combine(root, "src/Kernel/user_calls.c"));
+        var calls = KernelAbi.Calls(root);
+        foreach (var name in calls.Keys)
+        {
+            Assert.That(Regex.Matches(table, $@"^\s*\[{name}\] = \w+,", RegexOptions.Multiline).Count, Is.EqualTo(1),
+                $"The call table has no single entry for {name}");
+        }
+        var last = calls.MaxBy(call => call.Value).Key;
+        Assert.That(table.Contains($"#define CALL_COUNT ({last} + 1U)", StringComparison.Ordinal), Is.True,
+            $"The call table bound does not follow the last call {last}");
+    }
+
     // Repository paths written as literals in the tool and the tests (evidence inputs, overlay sources, native
     // harnesses) must exist; moving a file must not silently break an evidence list or a harness build.
     [Test]

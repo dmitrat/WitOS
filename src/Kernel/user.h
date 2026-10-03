@@ -316,7 +316,31 @@ WitU64 wit_user_event_wait(WitUserProcess *process, WitU64 handle, WitU64 deadli
 WitU64 wit_user_event_set(WitUserProcess *process, WitU64 handle);
 WitU64 wit_user_event_reset(WitUserProcess *process, WitU64 handle);
 WitU64 wit_user_event_close(WitUserProcess *process, WitU64 handle);
-WitArchFrame *wit_user_syscall(WitArchFrame *frame, WitU64 call, WitU64 argument0, WitU64 argument1, WitU64 argument2);
+WitArchFrame *wit_user_syscall(
+    WitArchFrame *frame, WitU64 number, WitU64 argument0, WitU64 argument1, WitU64 argument2);
+
+/* One system call of the running component (user_calls.c). Status and Value point into the caller's frame; a
+ * join replaces Context with the frame to continue. */
+typedef struct WitUserCall {
+    WitUserProcess *Process;
+    WitArchFrame *Context;
+    WitU64 Number;
+    WitU64 Argument0, Argument1, Argument2;
+    WitU64 *Status;
+    WitU64 *Value;
+} WitUserCall;
+
+/* Runs one call; returns 0 to finish through the common completion of wit_user_syscall, or the frame to
+ * resume as it is. */
+WitArchFrame *wit_user_call(WitUserCall *call);
+
+/* Scheduler services of user.c for the call table. */
+WitUserProcess *wit_user_current(void);
+WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code);
+WitArchFrame *wit_user_yield(void);
+WitArchFrame *wit_user_exit_thread(WitU64 code);
+WitArchFrame *wit_user_join_thread(WitArchFrame *frame, WitU64 handle);
+WitU64 wit_user_close_handle(WitU64 handle);
 WitArchFrame *wit_user_timer_tick(WitArchFrame *frame);
 WIT_NORETURN void wit_user_fault(
     const void *trap, WitU64 trap_size, WitU64 vector, WitU64 error, WitU64 address, const WitArchFaultState *state);

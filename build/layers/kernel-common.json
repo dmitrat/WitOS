@@ -23,6 +23,7 @@
     "src/Kernel/handles.c",
     "src/Kernel/user_space.c",
     "src/Kernel/user.c",
+    "src/Kernel/user_calls.c",
     "src/Kernel/user_thread.c",
     "src/Kernel/events.c",
     "src/Kernel/user_wait.c",

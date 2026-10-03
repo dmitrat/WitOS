@@ -1,5 +1,4 @@
 #include "user.h"
-#include "witos/random.h"
 #include "witos/platform.h"
 
 #define NO_THREAD WIT_USER_THREAD_CAPACITY
@@ -16,11 +15,10 @@ static void require(int condition, const char *message)
     }
 }
 
-static WIT_NORETURN void finish(WitUserState state, WitU64 code)
-{
-    require(current_user != 0 && current_user->State == WitUserRunning, "No current user component");
-    wit_platform_timer_stop();
 #if defined(WITOS_TEST_RUNTIME_BOOT)
+/* Diagnostics of a runtime component that exhausted its tick budget: every live thread and its stack. */
+static void report_budget(WitUserState state)
+{
     if (state == WitUserBudgetExpired && current_user->RequireThreadCompletion) {
         wit_console_write("Runtime budget ticks/idle: ");
         wit_console_write_u64(current_user->Ticks);
@@ -59,6 +57,15 @@ static WIT_NORETURN void finish(WitUserState state, WitU64 code)
             }
         }
     }
+}
+#endif
+
+WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code)
+{
+    require(current_user != 0 && current_user->State == WitUserRunning, "No current user component");
+    wit_platform_timer_stop();
+#if defined(WITOS_TEST_RUNTIME_BOOT)
+    report_budget(state);
 #endif
     if (current_user->FatalArmed) {
         state = WitUserExited;
@@ -111,7 +118,7 @@ static void validate_return(WitArchFrame *frame, WitU32 index, int syscall)
         sp >= thread->StackTop ||
         !wit_user_space_physical(&current_user->Space, sp, 1, 0) ||
         !wit_user_space_physical(&current_user->Space, wit_arch_frame_pc(frame), 0, 1)) {
-        finish(WitUserBadReturn, 0);
+        wit_user_finish(WitUserBadReturn, 0);
     }
     wit_arch_frame_prepare_return(frame, syscall);
 }
@@ -230,7 +237,7 @@ static WitArchFrame *dispatch(int timer, WitU64 last_exit)
             return thread->Context;
         }
         if (!waiting) {
-            finish(WitUserExited, last_exit);
+            wit_user_finish(WitUserExited, last_exit);
         }
         /* Remain on this kernel stack until an IRQ returns to the instruction
          * after HLT. The nested IRQ never replaces any saved user context. */
@@ -243,7 +250,7 @@ static WitArchFrame *dispatch(int timer, WitU64 last_exit)
     }
 }
 
-static WitArchFrame *exit_thread(WitU64 code)
+WitArchFrame *wit_user_exit_thread(WitU64 code)
 {
     const WitU32 index = current_user->CurrentThread;
     WitUserThread *thread = &current_user->Threads[index];
@@ -274,7 +281,7 @@ static WitArchFrame *exit_thread(WitU64 code)
     return dispatch(0, code);
 }
 
-static WitArchFrame *join_thread(WitArchFrame *frame, WitU64 handle)
+WitArchFrame *wit_user_join_thread(WitArchFrame *frame, WitU64 handle)
 {
     WitU32 target, walk;
     WitUserThread *thread, *caller;
@@ -320,7 +327,7 @@ static WitArchFrame *join_thread(WitArchFrame *frame, WitU64 handle)
     return dispatch(0, 0);
 }
 
-static WitU64 close_handle(WitU64 handle)
+WitU64 wit_user_close_handle(WitU64 handle)
 {
     if (wit_handle_check(&current_user->Handles, handle, WIT_HANDLE_LIBRARY, 0) == WIT_STATUS_OK ||
         wit_handle_check(&current_user->Handles, handle, WIT_HANDLE_LIBRARY_READER, 0) == WIT_STATUS_OK ||
@@ -623,6 +630,17 @@ int wit_user_is_active(void)
     return current_user != 0;
 }
 
+WitUserProcess *wit_user_current(void)
+{
+    return current_user;
+}
+
+WitArchFrame *wit_user_yield(void)
+{
+    current_user->Threads[current_user->CurrentThread].State = WitThreadReady;
+    return dispatch(0, 0);
+}
+
 WitArchFrame *wit_user_timer_tick(WitArchFrame *context)
 {
     require(current_user != 0, "User timer without component");
@@ -639,7 +657,7 @@ WitArchFrame *wit_user_timer_tick(WitArchFrame *context)
     }
     expire_waits();
     if (++current_user->Ticks >= current_user->TickLimit) {
-        finish(WitUserBudgetExpired, 0);
+        wit_user_finish(WitUserBudgetExpired, 0);
     }
     if (user_idle) {
         return context; /* Resume CLI/RET and recheck ready threads. */
@@ -647,462 +665,21 @@ WitArchFrame *wit_user_timer_tick(WitArchFrame *context)
     return dispatch(1, 0);
 }
 
-WitArchFrame *wit_user_syscall(WitArchFrame *context, WitU64 call, WitU64 argument0, WitU64 argument1, WitU64 argument2)
+WitArchFrame *wit_user_syscall(
+    WitArchFrame *context, WitU64 number, WitU64 argument0, WitU64 argument1, WitU64 argument2)
 {
-    WitU8 buffer[WIT_ABI_MAX_WRITE];
-    WitU64 status;
     require(current_user != 0 && current_user->State == WitUserRunning, "Syscall without component");
     validate_return(context, current_user->CurrentThread, 1);
     expire_waits();
     current_user->Threads[current_user->CurrentThread].Context = context;
-    WitU64 *const result = wit_arch_frame_status(context);
-    WitU64 *const value = wit_arch_frame_value(context);
+    WitUserCall call = {current_user, context, number, argument0, argument1, argument2, wit_arch_frame_status(context),
+        wit_arch_frame_value(context)};
     wit_arch_frame_set_result(context, WIT_STATUS_OK, 0);
-    switch (call) {
-    case WIT_CALL_QUERY:
-        *value = WIT_ABI_VERSION;
-        break;
-    case WIT_CALL_THREAD_SUSPEND:
-    case WIT_CALL_THREAD_RESUME:
-        *result = (argument1 || argument2)
-            ? WIT_STATUS_INVALID_ARGUMENT
-            : wit_user_thread_suspend(current_user, argument0, call == WIT_CALL_THREAD_RESUME, value);
-        break;
-    case WIT_CALL_FATAL_ARM:
-        if (argument0 > 0xFFFFFFFFULL || argument1 || argument2) {
-            *result = WIT_STATUS_INVALID_ARGUMENT;
-            break;
-        }
-        if (current_user->FatalArmed) {
-            *result = WIT_STATUS_BUSY;
-            break;
-        }
-        current_user->Fatal = (WitUserFatalInfo){0};
-        current_user->Fatal.Version = WIT_FATAL_INFO_VERSION;
-        current_user->Fatal.Size = sizeof(current_user->Fatal);
-        current_user->Fatal.Code = (WitU32)argument0;
-        current_user->FatalOwner = current_user->Threads[current_user->CurrentThread].Handle;
-        current_user->FatalArmed = 1;
-        break;
-    case WIT_CALL_FATAL_REPORT: {
-        if (!current_user->FatalArmed ||
-            current_user->FatalOwner != current_user->Threads[current_user->CurrentThread].Handle) {
-            *result = WIT_STATUS_DENIED;
-            break;
-        }
-        if (argument1 != sizeof(WitUserFatalInfo) || argument2 != WIT_FATAL_INFO_VERSION) {
-            *result = WIT_STATUS_INVALID_ARGUMENT;
-            break;
-        }
-        WitUserFatalInfo info;
-        if (!wit_user_copy_from(&current_user->Space, argument0, (WitU8 *)&info, sizeof(info))) {
-            *result = WIT_STATUS_BAD_ADDRESS;
-            break;
-        }
-        if (info.Version != WIT_FATAL_INFO_VERSION ||
-            info.Size != sizeof(info) ||
-            info.ParameterCount > WIT_FATAL_PARAMETER_CAPACITY) {
-            *result = WIT_STATUS_INVALID_ARGUMENT;
-            break;
-        }
-        current_user->Fatal = info;
-        break;
+    WitArchFrame *const resume = wit_user_call(&call);
+    if (resume) {
+        return resume;
     }
-    case WIT_CALL_EXCEPTION_BEGIN:
-        *result = wit_user_exception_begin(current_user, argument0, argument1, argument2, value);
-        break;
-    case WIT_CALL_EXCEPTION_REGISTER:
-        *result = wit_user_exception_register(current_user, argument0, argument1, argument2);
-        break;
-    case WIT_CALL_EXCEPTION_QUERY:
-        *result = wit_user_exception_query(current_user, argument0, argument1, argument2);
-        break;
-    case WIT_CALL_EXCEPTION_CONTINUE:
-    case WIT_CALL_EXCEPTION_UNWIND:
-        status = call == WIT_CALL_EXCEPTION_CONTINUE
-            ? wit_user_exception_continue(current_user, argument0, argument1, argument2)
-            : wit_user_exception_unwind(current_user, argument0, argument1, argument2);
-        if (status == WIT_STATUS_OK) {
-            wit_arch_set_user_tls(current_user->Threads[current_user->CurrentThread].Tls,
-                current_user->Threads[current_user->CurrentThread].CompilerTls);
-            return context;
-        }
-        *result = status;
-        break;
-    case WIT_CALL_EXCEPTION_REJECT:
-        if (argument1 || argument2) {
-            *result = WIT_STATUS_INVALID_ARGUMENT;
-            break;
-        }
-        if (!argument0 || current_user->Threads[current_user->CurrentThread].Exception.Token != argument0) {
-            *result = WIT_STATUS_BAD_HANDLE;
-            break;
-        }
-        (void)wit_user_exception_trap(context, ~0ULL, 0, 0); // Pending original fault is retained by the fatal path.
-        wit_panic("Rejected exception unexpectedly resumed");
-    case WIT_CALL_STACK_LEASE_ACQUIRE:
-        *result = wit_user_stack_lease_acquire(current_user, argument0, argument1, argument2);
-        break;
-    case WIT_CALL_STACK_LEASE_QUERY:
-        *result = wit_user_stack_lease_query(current_user, argument0, argument1, argument2);
-        break;
-    case WIT_CALL_STACK_LEASE_RELEASE:
-        *result = (argument1 || argument2) ? WIT_STATUS_INVALID_ARGUMENT
-                                           : wit_user_stack_lease_release(current_user, argument0);
-        break;
-    case WIT_CALL_THREAD_CONTEXT_METADATA:
-        *result = wit_user_thread_context_metadata(current_user, argument0, argument1, argument2);
-        break;
-    case WIT_CALL_THREAD_CONTEXT_SET:
-        *result = wit_user_thread_context_set(current_user, argument0, argument1, argument2);
-        break;
-    case WIT_CALL_THREAD_CONTEXT_RESTORE:
-        status = wit_user_thread_context_restore(current_user, argument0, argument1, argument2);
-        if (status == WIT_STATUS_OK) {
-            wit_arch_set_user_tls(current_user->Threads[current_user->CurrentThread].Tls,
-                current_user->Threads[current_user->CurrentThread].CompilerTls);
-            return context; // Preserve restored RAX/RDX and flags; no syscall-result overwrite.
-        }
-        *result = status;
-        break;
-    case WIT_CALL_THREAD_CONTEXT_GET:
-        *result = wit_user_thread_context_get(current_user, argument0, argument1, argument2);
-        break;
-    case WIT_CALL_CPU_CONTEXT_QUERY:
-        *result = wit_user_cpu_context_query(current_user, argument0, argument1, argument2);
-        break;
-    case WIT_CALL_THREAD_NAME_SET:
-        *result = wit_user_thread_name_set(current_user, argument0, argument1, argument2);
-        break;
-    case WIT_CALL_THREAD_NAME_QUERY:
-        *result = wit_user_thread_name_query(current_user, argument0, argument1, argument2);
-        break;
-    case WIT_CALL_CONSOLE_WRITE:
-        *result = wit_user_console_write(current_user, argument0, argument1, argument2);
-        break;
-    case WIT_CALL_PROCESSOR_QUERY: {
-        const WitU32 processor = 0; // Sole online BSP: group 0, number 0, reserved 0.
-        if (argument1 != sizeof(processor) || argument2) {
-            *result = WIT_STATUS_INVALID_ARGUMENT;
-            break;
-        }
-        if (WIT_USER_PROCESSOR_COUNT != 1) {
-            *result = WIT_STATUS_UNSUPPORTED;
-            break;
-        }
-        if (!wit_user_copy_to(&current_user->Space, argument0, (const WitU8 *)&processor, sizeof(processor))) {
-            *result = WIT_STATUS_BAD_ADDRESS;
-        } else {
-            *value = sizeof(processor);
-        }
-        break;
-    }
-    case WIT_CALL_WRITE:
-        status = wit_handle_check(&current_user->Handles, argument0, WIT_HANDLE_CONSOLE, WIT_RIGHT_WRITE);
-        if (status != WIT_STATUS_OK) {
-            *result = status;
-            break;
-        }
-        if (argument2 > WIT_ABI_MAX_WRITE) {
-            *result = WIT_STATUS_TOO_LARGE;
-            break;
-        }
-        if (!wit_user_copy_from(&current_user->Space, argument1, buffer, (WitU32)argument2)) {
-            *result = WIT_STATUS_BAD_ADDRESS;
-            break;
-        }
-        if (argument2) {
-            wit_console_write("[USER] ");
-            wit_console_write_buffer(buffer, (WitU32)argument2);
-            ++current_user->Writes;
-        }
-        *value = argument2;
-        break;
-    case WIT_CALL_LIBRARY:
-        *result = wit_user_library_call(current_user, argument0, argument1, argument2, value);
-        break;
-    case WIT_CALL_STORAGE_QUERY:
-        *result = wit_user_storage_query(current_user, argument0, argument1, argument2, value);
-        break;
-    case WIT_CALL_FILE:
-        *result = wit_user_file_call(current_user, argument0, argument1, argument2, value);
-        break;
-    case WIT_CALL_CODE_MEMORY:
-        *result = wit_user_code_call(current_user, argument0, argument1, argument2, value);
-        break;
-    case WIT_CALL_MEMORY_RESERVE:
-        *result = wit_user_memory_reserve(&current_user->Space, argument0, argument1, value);
-        break;
-    case WIT_CALL_MEMORY_COMMIT: {
-        const WitU32 owned = current_user->Space.OwnedCount;
-        const WitU64 free = wit_pages_free_count(current_user->Space.Allocator);
-        *result = wit_user_memory_commit(&current_user->Space, argument0, argument1, argument2);
-        if (*result == WIT_STATUS_NO_MEMORY) {
-            ++current_user->MemoryCommitFailures;
-            require(
-                current_user->Space.OwnedCount == owned && wit_pages_free_count(current_user->Space.Allocator) == free,
-                "Failed user commit changed settled ownership/accounting");
-        }
-        break;
-    }
-    case WIT_CALL_MEMORY_RESET:
-        *result =
-            argument2 ? WIT_STATUS_INVALID_ARGUMENT : wit_user_memory_reset(&current_user->Space, argument0, argument1);
-        break;
-    case WIT_CALL_MEMORY_DECOMMIT:
-        *result = wit_user_memory_decommit(&current_user->Space, argument0, argument1);
-        break;
-    case WIT_CALL_MEMORY_PROTECT:
-        *result = wit_user_memory_protect(&current_user->Space, argument0, argument1, argument2);
-        break;
-    case WIT_CALL_MEMORY_RELEASE:
-        *result = wit_user_memory_release(&current_user->Space, argument0);
-        break;
-    case WIT_CALL_MEMORY_QUERY:
-        *result = wit_user_memory_query(&current_user->Space, argument0, argument1, argument2);
-        if (*result == WIT_STATUS_OK) {
-            *value = WIT_MEMORY_INFO_SIZE;
-        }
-        break;
-    case WIT_CALL_RANDOM: {
-        WitU8 random[WIT_RANDOM_BLOCK_BYTES];
-        if (argument2) {
-            *result = WIT_STATUS_INVALID_ARGUMENT;
-            break;
-        }
-        if (argument1 > WIT_ABI_MAX_RANDOM) {
-            *result = WIT_STATUS_TOO_LARGE;
-            break;
-        }
-        if (!wit_user_buffer_writable(&current_user->Space, argument0, (WitU32)argument1)) {
-            *result = WIT_STATUS_BAD_ADDRESS;
-            break;
-        }
-        for (WitU32 offset = 0; offset < (WitU32)argument1;) {
-            WitU32 count = (WitU32)argument1 - offset;
-            if (count > sizeof(random)) {
-                count = sizeof(random);
-            }
-            if (!wit_random_fill(random, count) ||
-                !wit_user_copy_to(&current_user->Space, argument0 + offset, random, count)) {
-                wit_panic("Random copy invariant failed");
-            }
-            for (WitU32 i = 0; i < sizeof(random); ++i) {
-                ((volatile WitU8 *)random)[i] = 0;
-            }
-            offset += count;
-        }
-        if (argument1) {
-            ++current_user->RandomRequests;
-            current_user->RandomBytes += argument1;
-        }
-        *value = argument1;
-        break;
-    }
-    case WIT_CALL_MONOTONIC_QUERY: {
-        if (argument1 != sizeof(WitU64)) {
-            *result = WIT_STATUS_INVALID_ARGUMENT;
-            break;
-        }
-        if (argument2 > WIT_MONOTONIC_HZ) {
-            *result = WIT_STATUS_UNSUPPORTED;
-            break;
-        }
-        const WitU64 sample =
-            argument2 == WIT_MONOTONIC_COUNTER ? wit_platform_monotonic_read() : wit_platform_monotonic_frequency();
-        // The dispatcher keeps IF clear through sampling and whole-buffer copy.
-        if (!wit_user_copy_to(&current_user->Space, argument0, (const WitU8 *)&sample, sizeof(sample))) {
-            *result = WIT_STATUS_BAD_ADDRESS;
-        } else {
-            *value = sizeof(sample);
-        }
-        break;
-    }
-    case WIT_CALL_MONOTONIC_READ:
-        *value = wit_platform_monotonic_read();
-        break;
-    case WIT_CALL_MONOTONIC_FREQUENCY:
-        *value = wit_platform_monotonic_frequency();
-        break;
-    case WIT_CALL_SLEEP_UNTIL:
-        *result = (argument1 || argument2)
-            ? WIT_STATUS_INVALID_ARGUMENT
-            : wit_user_sleep_until(current_user, argument0, wit_platform_monotonic_read());
-        break;
-    case WIT_CALL_EVENT_WAIT_UNTIL:
-        *result = argument2
-            ? WIT_STATUS_INVALID_ARGUMENT
-            : wit_user_event_wait_until(current_user, argument0, argument1, wit_platform_monotonic_read());
-        break;
-    case WIT_CALL_CLOCK_READ:
-        *value = wit_arch_clock_ticks();
-        break;
-    case WIT_CALL_CLOCK_FREQUENCY:
-        *value = WIT_CLOCK_FREQUENCY;
-        break;
-    case WIT_CALL_THREAD_SLEEP:
-        *result = wit_user_sleep(current_user, argument0, wit_arch_clock_ticks());
-        break;
-    case WIT_CALL_OBJECT_WAIT:
-        *result =
-            wit_user_object_wait(current_user, argument0, argument1, argument2, wit_platform_monotonic_read(), value);
-        break;
-    case WIT_CALL_APC_QUEUE:
-        *result = wit_user_apc_queue(current_user, argument0, argument1, argument2);
-        break;
-    case WIT_CALL_APC_DEQUEUE:
-        *result = argument2 ? WIT_STATUS_INVALID_ARGUMENT : wit_user_apc_dequeue(current_user, argument0, argument1);
-        if (*result == WIT_STATUS_OK) {
-            *value = sizeof(WitUserApc);
-        }
-        break;
-    case WIT_CALL_EVENT_CREATE_RIGHTS:
-        *result = (argument2 || argument1 > 0xFFFFFFFFULL)
-            ? WIT_STATUS_INVALID_ARGUMENT
-            : wit_event_create(&current_user->Events, &current_user->Handles, argument0, (WitU32)argument1, value);
-        break;
-    case WIT_CALL_EVENT_CREATE:
-        *result = wit_event_create(
-            &current_user->Events, &current_user->Handles, argument0, WIT_RIGHT_WAIT | WIT_RIGHT_SIGNAL, value);
-        if (*result != WIT_STATUS_OK && current_user->Space.PageLimit > WIT_USER_PAGE_CAPACITY) {
-            wit_console_write("[RUNTIME-RESOURCE] event failure status/events/handles: ");
-            wit_console_write_u64(*result);
-            wit_console_write("/");
-            wit_console_write_u64(current_user->Events.Count);
-            wit_console_write("/");
-            wit_console_write_u64(current_user->Handles.Count);
-            wit_console_write("\n");
-        }
-        break;
-    case WIT_CALL_EVENT_SET:
-        *result = wit_user_event_set(current_user, argument0);
-        break;
-    case WIT_CALL_EVENT_RESET:
-        *result = wit_user_event_reset(current_user, argument0);
-        break;
-    case WIT_CALL_EVENT_WAIT:
-        *result = wit_user_event_wait(current_user, argument0, argument1, wit_arch_clock_ticks());
-        break;
-    case WIT_CALL_MEMORY_PRESSURE_EVENT:
-        *result = (argument0 || argument1 || argument2) ? WIT_STATUS_INVALID_ARGUMENT
-                                                        : wit_user_pressure_create(current_user, value);
-        break;
-    case WIT_CALL_EVENT_WAIT_ANY_UNTIL:
-        *result = wit_user_event_wait_any_until(
-            current_user, argument0, argument1, argument2, wit_platform_monotonic_read(), value);
-        break;
-    case WIT_CALL_CPU_CACHE_SIZE:
-        if (argument0 || argument1 || argument2) {
-            *result = WIT_STATUS_INVALID_ARGUMENT;
-        } else if (WIT_USER_PROCESSOR_COUNT != 1) {
-            *result = WIT_STATUS_UNSUPPORTED;
-        } else {
-            *value = wit_arch_cache_size();
-            if (!*value) {
-                *result = WIT_STATUS_UNSUPPORTED;
-            }
-        }
-        break;
-    case WIT_CALL_PROCESS_WRITE_BARRIER:
-        if (argument0 || argument1 || argument2) {
-            *result = WIT_STATUS_INVALID_ARGUMENT;
-        } else if (WIT_USER_PROCESSOR_COUNT != 1) {
-            *result = WIT_STATUS_UNSUPPORTED;
-        } else {
-            wit_arch_process_write_barrier();
-            ++current_user->ProcessWriteBarriers;
-        }
-        break;
-    case WIT_CALL_THREAD_REFERENCE_DUPLICATE:
-        *result = wit_user_reference_duplicate(current_user, argument0, argument1, argument2);
-        if (*result == WIT_STATUS_OK) {
-            *value = sizeof(WitU64);
-        }
-        break;
-    case WIT_CALL_THREAD_REFERENCE_QUERY:
-        *result = wit_user_reference_query(current_user, argument0, argument1, argument2);
-        if (*result == WIT_STATUS_OK) {
-            *value = sizeof(WitThreadReferenceInfo);
-        }
-        break;
-    case WIT_CALL_THREAD_QUERY:
-        *result = wit_user_thread_query(current_user, argument0, argument1, argument2);
-        if (*result == WIT_STATUS_OK) {
-            *value = WIT_THREAD_INFO_SIZE;
-        }
-        break;
-    case WIT_CALL_THREAD_NATIVE_ID:
-        if (argument0 || argument1 || argument2) {
-            *result = WIT_STATUS_INVALID_ARGUMENT;
-        } else {
-            require(
-                current_user->Threads[current_user->CurrentThread].NativeId != 0, "Current thread has no native ID");
-            *value = current_user->Threads[current_user->CurrentThread].NativeId;
-        }
-        break;
-    case WIT_CALL_THREAD_CURRENT:
-        if (argument0 || argument1 || argument2) {
-            *result = WIT_STATUS_INVALID_ARGUMENT;
-        } else {
-            *value = current_user->Threads[current_user->CurrentThread].Handle;
-        }
-        break;
-    case WIT_CALL_THREAD_CREATE_REFERENCE:
-        if (argument2) {
-            *result = WIT_STATUS_INVALID_ARGUMENT;
-        } else {
-            *result = wit_user_thread_create_reference(current_user, argument0, argument1, value);
-        }
-        break;
-    case WIT_CALL_THREAD_CREATE:
-        *result = wit_user_thread_create_flags(current_user, argument0, argument1, argument2, value);
-        break;
-    case WIT_CALL_THREAD_YIELD: {
-        WitArchFrame *next;
-        current_user->Threads[current_user->CurrentThread].State = WitThreadReady;
-        next = dispatch(0, 0);
-        *value = next != context ? 1 : 0;
-        return next;
-    }
-    case WIT_CALL_THREAD_EXIT:
-        if (current_user->RequireThreadCompletion ||
-            current_user->Threads[current_user->CurrentThread].LibraryRequired ||
-            (current_user->LibraryLifecycle.Token &&
-                current_user->LibraryLifecycle.Owner == current_user->Threads[current_user->CurrentThread].Handle)) {
-            // Never free one coordinated worker's TLS/stack and resume peers
-            // whose user-space runtime may still hold its record or GC roots.
-            current_user->AbruptThreadId = current_user->Threads[current_user->CurrentThread].Handle;
-            current_user->AbruptThreadCode = argument0;
-            finish(WitUserExited, WIT_PROCESS_ABRUPT_THREAD_EXIT);
-        }
-        return exit_thread(argument0);
-    case WIT_CALL_THREAD_COMPLETE:
-        if (argument1 || argument2) {
-            *result = WIT_STATUS_INVALID_ARGUMENT;
-            break;
-        }
-        if ((current_user->Threads[current_user->CurrentThread].LibraryRequired &&
-                current_user->Threads[current_user->CurrentThread].LibraryPhase != 4) ||
-            (current_user->LibraryLifecycle.Token &&
-                current_user->LibraryLifecycle.Owner == current_user->Threads[current_user->CurrentThread].Handle)) {
-            current_user->AbruptThreadId = current_user->Threads[current_user->CurrentThread].Handle;
-            current_user->AbruptThreadCode = argument0;
-            finish(WitUserExited, WIT_PROCESS_ABRUPT_THREAD_EXIT);
-        }
-        ++current_user->OrderlyThreadExits;
-        return exit_thread(argument0);
-    case WIT_CALL_THREAD_JOIN:
-        context = join_thread(context, argument0);
-        break;
-    case WIT_CALL_EXIT:
-        finish(WitUserExited, argument0);
-    case WIT_CALL_CLOSE:
-        *result = close_handle(argument0);
-        break;
-    default:
-        *result = WIT_STATUS_UNSUPPORTED;
-        break;
-    }
+    context = call.Context; /* A join may have switched the current thread. */
     // Publish settled memory pressure, after expiring both deadline domains.
     // A finite wait can complete here before this syscall returns; dispatch its
     // Ready state normally instead of returning with an inconsistent state.
@@ -1130,7 +707,7 @@ WitArchFrame *wit_user_exception_trap(WitArchFrame *context, WitU64 vector, WitU
     WitUserThread *thread = &current_user->Threads[current_user->CurrentThread];
     thread->Context = context;
     if (current_user->FatalArmed) {
-        finish(WitUserExited, current_user->Fatal.Code);
+        wit_user_finish(WitUserExited, current_user->Fatal.Code);
     }
     if (wit_user_exception_deliver(current_user, context, vector, error, address)) {
         validate_return(context, current_user->CurrentThread, 0);
@@ -1147,7 +724,7 @@ WitArchFrame *wit_user_exception_trap(WitArchFrame *context, WitU64 vector, WitU
         wit_console_write(" address=");
         wit_console_write_hex(address);
         wit_console_write("\n");
-        finish(WitUserExited, WIT_EXCEPTION_SOFTWARE_FAILURE_EXIT);
+        wit_user_finish(WitUserExited, WIT_EXCEPTION_SOFTWARE_FAILURE_EXIT);
     }
     WitArchFaultState state;
     if (thread->Exception.Token) {
@@ -1184,7 +761,7 @@ WIT_NORETURN void wit_user_fault(
     wit_console_write_hex(address);
     wit_arch_fault_describe(state);
     wit_console_write("\n");
-    finish(WitUserFaulted, 0);
+    wit_user_finish(WitUserFaulted, 0);
 }
 
 WitPeStatus wit_user_create_named_pe(WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot,
