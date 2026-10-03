@@ -258,6 +258,196 @@ struct DispatcherRestart {
     }
 };
 #endif
+// Bridge: one frame's language handler receives the dispatcher context of the unwound frame. Dynamic code outside
+// the image runs through the funclet gate, which closes the unwind scope around the call.
+DISPATCHER_CONTEXT dispatcher_for(WitU64 pc, DWORD64 base, PRUNTIME_FUNCTION entry, DWORD64 frame, CONTEXT *context,
+    PEXCEPTION_ROUTINE handler, void *data, DWORD cursor)
+{
+    DISPATCHER_CONTEXT dispatcher = {};
+    dispatcher.ControlPc = pc;
+    dispatcher.ImageBase = base;
+    dispatcher.FunctionEntry = entry;
+    dispatcher.EstablisherFrame = frame;
+    dispatcher.ContextRecord = context;
+    dispatcher.LanguageHandler = handler;
+    dispatcher.HandlerData = data;
+    dispatcher.ScopeIndex = cursor;
+    return dispatcher;
+}
+
+EXCEPTION_DISPOSITION call_handler(SehDispatch &state, WitU64 imageBase, EXCEPTION_RECORD &record, CONTEXT *context,
+    DISPATCHER_CONTEXT &dispatcher, const CONTEXT &before)
+{
+    state.Dispatcher = &dispatcher;
+    state.Before = &before;
+    state.Bridge = nullptr;
+    EXCEPTION_DISPOSITION result;
+#if defined(WITOS_DYNAMIC_CODE)
+    if (dispatcher.ImageBase != imageBase) {
+        before_funclet(&state);
+        result = wit_native_handler_invoke(
+            &state, dispatcher.LanguageHandler, &record, (void *)dispatcher.EstablisherFrame, context, &dispatcher);
+        after_funclet(&state);
+    } else
+#else
+    (void)imageBase;
+#endif
+        result = dispatcher.LanguageHandler(&record, (void *)dispatcher.EstablisherFrame, context, &dispatcher);
+    state.Dispatcher = nullptr;
+    state.Before = nullptr;
+    return result;
+}
+
+// One step of a frame walk: continue with the caller frame, repeat with a replaced context, or resume execution.
+enum class Step {
+    Next,
+    Again,
+    Execute
+};
+
+// A frame without unwind metadata is a leaf: its return address is on top of the stack.
+void unwind_leaf(const WitUnwindStackRange &bounds, CONTEXT &working, WitU64 sp, WitU64 token)
+{
+    if (!wit_unwind_read_stack(&bounds, sp, &working.Rip, 8)) {
+        reject(token);
+    }
+    working.Rsp += 8;
+}
+
+// Unwind: walks from the faulting frame to the target frame, calling termination handlers on the way.
+struct UnwindWalk {
+    SehDispatch *State;
+    EXCEPTION_RECORD *Exception;
+    WitU64 TargetFrame, TargetIp, ReturnValue;
+    DWORD OriginalFlags;
+    CONTEXT Working;
+    bool CallSite;
+    DWORD ResumeCursor;
+    bool Collided;
+#if defined(WITOS_DYNAMIC_CODE)
+    DispatcherRestart Restart;
+#endif
+};
+
+// The selected frame's landing pad receives the frame before VirtualUnwind, with its restored nonvolatiles; the
+// thread continues there through the kernel, retiring nested exceptions when a bridge asked for it.
+[[noreturn]] void enter_target(
+    SehDispatch &state, const CONTEXT &before, WitU64 frame, WitU64 targetIp, WitU64 returnValue)
+{
+    CONTEXT destination = before;
+    destination.Rip = targetIp;
+    destination.Rsp = frame;
+    destination.Rax = returnValue;
+    destination.ContextFlags = WitContext::complete | CONTEXT_EXCEPTION_REPORTING | CONTEXT_EXCEPTION_ACTIVE;
+    if (!WitContext::decode(destination, state.Info->Context, *state.Cpu, true)) {
+        reject(state.Info->Token);
+    }
+#if defined(WITOS_DYNAMIC_CODE)
+    if (state.UnwindOutput) {
+        WitCodeMemoryRequest request = {WIT_CODE_MEMORY_VERSION, sizeof(request), WIT_CODE_VALIDATE, 3,
+            (WitU64)state.UnwindOutput, 0, sizeof(CONTEXT), 0, 0, 0};
+        if (wit_native_call(WIT_CALL_CODE_MEMORY, (WitU64)&request, sizeof(request), 0, nullptr) != WIT_STATUS_OK) {
+            reject(state.Info->Token);
+        }
+        *state.UnwindOutput = destination;
+    }
+#endif
+    const WitU64 token = state.Info->Token;
+    if (state.Scope->Close() != WIT_STATUS_OK) {
+        reject(token);
+    }
+    seh = state.Previous;
+    if (state.RetireThrough) {
+        WitUserExceptionTransfer transfer = {};
+        transfer.Version = WIT_EXCEPTION_TRANSFER_VERSION;
+        transfer.Size = sizeof(transfer);
+        transfer.RetireThroughToken = state.RetireThrough;
+        transfer.Context = state.Info->Context;
+        wit_native_call(WIT_CALL_EXCEPTION_UNWIND, token, (WitU64)&transfer, sizeof(transfer), nullptr);
+    } else {
+        wit_native_call(
+            WIT_CALL_EXCEPTION_CONTINUE, token, (WitU64)&state.Info->Context, sizeof(state.Info->Context), nullptr);
+    }
+    reject(token);
+}
+
+// A collided unwind continues from the context of the interrupted unwind, which a bridge or, for CoreCLR, the
+// restart tuple supplies.
+void resume_collided(UnwindWalk &walk, const DISPATCHER_CONTEXT &dispatcher, WitU64 sp)
+{
+    SehDispatch *state = walk.State;
+    const auto bridge = state->Bridge;
+#if defined(WITOS_DYNAMIC_CODE)
+    if (!bridge) {
+        walk.Restart.Capture(*state, dispatcher, sp, walk.Working);
+        walk.CallSite = false;
+        walk.Collided = true;
+        return;
+    }
+#endif
+    if (!bridge || !dispatcher.ContextRecord || dispatcher.ContextRecord->Rsp <= sp) {
+        reject(state->Info->Token);
+    }
+    walk.Working = *dispatcher.ContextRecord;
+    walk.Working.Rip = dispatcher.ControlPc;
+    walk.ResumeCursor = dispatcher.ScopeIndex;
+    state->RetireThrough = bridge->RetireThrough ? bridge->RetireThrough : bridge->Info->Token;
+    state->Previous = bridge->Previous;
+    walk.CallSite = false;
+    walk.Collided = true;
+}
+
+Step unwind_frame(UnwindWalk &walk, const WitUserImageInfo *image, WitU64 pc, WitU64 sp)
+{
+    SehDispatch *state = walk.State;
+    DWORD64 frameBase = 0;
+    const auto entry = function(image, pc, &frameBase);
+    if (!entry) {
+#if defined(WITOS_DYNAMIC_CODE)
+        if (walk.Restart.Pending) {
+            reject(seh->Info->Token);
+        }
+#endif
+        unwind_leaf(state->Bounds, walk.Working, sp, state->Info->Token);
+        return Step::Next;
+    }
+    const CONTEXT before = walk.Working;
+    void *data = nullptr;
+    DWORD64 frame = 0;
+    auto handler = RtlVirtualUnwind(UNW_FLAG_UHANDLER, frameBase, pc, entry, &walk.Working, &data, &frame, nullptr);
+#if defined(WITOS_DYNAMIC_CODE)
+    walk.Restart.Apply(*state, frameBase, entry, frame, handler, data, walk.ResumeCursor);
+#endif
+    if (frame > walk.TargetFrame) {
+        reject(state->Info->Token);
+    }
+    const bool target = frame == walk.TargetFrame;
+    walk.Exception->ExceptionFlags = walk.OriginalFlags |
+        EXCEPTION_UNWINDING |
+        (target ? EXCEPTION_TARGET_UNWIND : 0) |
+        (walk.Collided ? EXCEPTION_COLLIDED_UNWIND : 0);
+    if (handler) {
+        DISPATCHER_CONTEXT dispatcher =
+            dispatcher_for(pc, frameBase, entry, frame, &walk.Working, handler, data, walk.ResumeCursor);
+        dispatcher.TargetIp = walk.TargetIp;
+        const EXCEPTION_DISPOSITION result =
+            call_handler(*state, image->Base, *walk.Exception, &walk.Working, dispatcher, before);
+        if (result == ExceptionCollidedUnwind) {
+            resume_collided(walk, dispatcher, sp);
+            return Step::Again;
+        }
+        if (result != ExceptionContinueSearch) {
+            reject(state->Info->Token);
+        }
+    }
+    if (target) {
+        // Enter the compiler landing pad in the selected frame, not its
+        // caller produced by VirtualUnwind. Keep restored nonvolatiles.
+        enter_target(*state, before, frame, walk.TargetIp, walk.ReturnValue);
+    }
+    return Step::Next;
+}
+
 [[noreturn]] void unwind_target(EXCEPTION_RECORD &exception, WitU64 targetFrame, WitU64 targetIp, WitU64 returnValue)
 {
     SehDispatch *state = seh;
@@ -270,153 +460,105 @@ struct DispatcherRestart {
     }
     state->Unwinding = true;
     const auto image = wit_native_process_image();
-    CONTEXT working = *state->Initial;
-    bool callSite = state->CallSite;
-    const DWORD originalFlags = exception.ExceptionFlags;
-    DWORD resumeCursor = 0;
-    bool collided = false;
-#if defined(WITOS_DYNAMIC_CODE)
-    DispatcherRestart restart;
-#endif
-    for (unsigned depth = 0; depth < 128 && working.Rip; ++depth) {
-        const WitU64 pc = working.Rip - (callSite ? 1U : 0U), sp = working.Rsp;
+    UnwindWalk walk = {state, &exception, targetFrame, targetIp, returnValue, exception.ExceptionFlags, *state->Initial,
+        state->CallSite, 0, false};
+    for (unsigned depth = 0; depth < 128 && walk.Working.Rip; ++depth) {
+        const WitU64 pc = walk.Working.Rip - (walk.CallSite ? 1U : 0U), sp = walk.Working.Rsp;
         if (sp < state->Bounds.Low || sp >= state->Bounds.High || !code(pc)) {
             reject(state->Info->Token);
         }
-        DWORD64 frameBase = 0;
-        const auto entry = function(image, pc, &frameBase);
-        if (!entry) {
-#if defined(WITOS_DYNAMIC_CODE)
-            if (restart.Pending) {
-                reject(seh->Info->Token);
-            }
-#endif
-            if (!wit_unwind_read_stack(&state->Bounds, sp, &working.Rip, 8)) {
-                reject(state->Info->Token);
-            }
-            working.Rsp += 8;
-        } else {
-            const CONTEXT before = working;
-            void *data = nullptr;
-            DWORD64 frame = 0;
-            auto handler = RtlVirtualUnwind(UNW_FLAG_UHANDLER, frameBase, pc, entry, &working, &data, &frame, nullptr);
-#if defined(WITOS_DYNAMIC_CODE)
-            restart.Apply(*state, frameBase, entry, frame, handler, data, resumeCursor);
-#endif
-            if (frame > targetFrame) {
-                reject(state->Info->Token);
-            }
-            const bool target = frame == targetFrame;
-            exception.ExceptionFlags = originalFlags |
-                EXCEPTION_UNWINDING |
-                (target ? EXCEPTION_TARGET_UNWIND : 0) |
-                (collided ? EXCEPTION_COLLIDED_UNWIND : 0);
-            if (handler) {
-                DISPATCHER_CONTEXT dispatcher = {};
-                dispatcher.ControlPc = pc;
-                dispatcher.ImageBase = frameBase;
-                dispatcher.FunctionEntry = entry;
-                dispatcher.EstablisherFrame = frame;
-                dispatcher.ContextRecord = &working;
-                dispatcher.LanguageHandler = handler;
-                dispatcher.HandlerData = data;
-                dispatcher.TargetIp = targetIp;
-                dispatcher.ScopeIndex = resumeCursor;
-                state->Dispatcher = &dispatcher;
-                state->Before = &before;
-                state->Bridge = nullptr;
-                EXCEPTION_DISPOSITION result;
-#if defined(WITOS_DYNAMIC_CODE)
-                if (frameBase != image->Base) {
-                    before_funclet(state);
-                    result =
-                        wit_native_handler_invoke(state, handler, &exception, (void *)frame, &working, &dispatcher);
-                    after_funclet(state);
-                } else
-#endif
-                    result = handler(&exception, (void *)frame, &working, &dispatcher);
-                state->Dispatcher = nullptr;
-                state->Before = nullptr;
-                if (result == ExceptionCollidedUnwind) {
-                    const auto bridge = state->Bridge;
-#if defined(WITOS_DYNAMIC_CODE)
-                    if (!bridge) {
-                        restart.Capture(*state, dispatcher, sp, working);
-                        callSite = false;
-                        collided = true;
-                        continue;
-                    }
-#endif
-                    if (!bridge || !dispatcher.ContextRecord || dispatcher.ContextRecord->Rsp <= sp) {
-                        reject(state->Info->Token);
-                    }
-                    working = *dispatcher.ContextRecord;
-                    working.Rip = dispatcher.ControlPc;
-                    resumeCursor = dispatcher.ScopeIndex;
-                    state->RetireThrough = bridge->RetireThrough ? bridge->RetireThrough : bridge->Info->Token;
-                    state->Previous = bridge->Previous;
-                    callSite = false;
-                    collided = true;
-                    continue;
-                }
-                if (result != ExceptionContinueSearch) {
-                    reject(state->Info->Token);
-                }
-            }
-            if (target) {
-                // Enter the compiler landing pad in the selected frame, not its
-                // caller produced by VirtualUnwind. Keep restored nonvolatiles.
-                CONTEXT destination = before;
-                destination.Rip = targetIp;
-                destination.Rsp = frame;
-                destination.Rax = returnValue;
-                destination.ContextFlags =
-                    WitContext::complete | CONTEXT_EXCEPTION_REPORTING | CONTEXT_EXCEPTION_ACTIVE;
-                if (!WitContext::decode(destination, state->Info->Context, *state->Cpu, true)) {
-                    reject(state->Info->Token);
-                }
-#if defined(WITOS_DYNAMIC_CODE)
-                if (state->UnwindOutput) {
-                    WitCodeMemoryRequest request = {WIT_CODE_MEMORY_VERSION, sizeof(request), WIT_CODE_VALIDATE, 3,
-                        (WitU64)state->UnwindOutput, 0, sizeof(CONTEXT), 0, 0, 0};
-                    if (wit_native_call(WIT_CALL_CODE_MEMORY, (WitU64)&request, sizeof(request), 0, nullptr) !=
-                        WIT_STATUS_OK) {
-                        reject(state->Info->Token);
-                    }
-                    *state->UnwindOutput = destination;
-                }
-#endif
-                const WitU64 token = state->Info->Token;
-                if (state->Scope->Close() != WIT_STATUS_OK) {
-                    reject(token);
-                }
-                seh = state->Previous;
-                if (state->RetireThrough) {
-                    WitUserExceptionTransfer transfer = {};
-                    transfer.Version = WIT_EXCEPTION_TRANSFER_VERSION;
-                    transfer.Size = sizeof(transfer);
-                    transfer.RetireThroughToken = state->RetireThrough;
-                    transfer.Context = state->Info->Context;
-                    wit_native_call(WIT_CALL_EXCEPTION_UNWIND, token, (WitU64)&transfer, sizeof(transfer), nullptr);
-                } else {
-                    wit_native_call(WIT_CALL_EXCEPTION_CONTINUE, token, (WitU64)&state->Info->Context,
-                        sizeof(state->Info->Context), nullptr);
-                }
-                reject(token);
-            }
+        if (unwind_frame(walk, image, pc, sp) == Step::Again) {
+            continue;
         }
-        if (working.Rsp <= sp || working.Rsp > state->Bounds.High) {
+        if (walk.Working.Rsp <= sp || walk.Working.Rsp > state->Bounds.High) {
             reject(state->Info->Token);
         }
-        callSite = true;
-        resumeCursor = 0;
-        collided = false;
+        walk.CallSite = true;
+        walk.ResumeCursor = 0;
+        walk.Collided = false;
     }
     reject(state->Info->Token);
 }
 
-// Search real native frames. Language-specific handlers retain their genuine
-// dependencies (notably __C_specific_handler); no successful SEH substitute.
+// Search: walks real native frames from the faulting frame towards the stack top, offering the exception to each
+// language handler. Handlers retain their genuine dependencies (notably __C_specific_handler); there is no
+// successful SEH substitute.
+struct FrameSearch {
+    EXCEPTION_RECORD *Record;
+    CONTEXT *Original;
+    SehDispatch *State;
+    WitU64 Token;
+    CONTEXT Working;
+    WitU64 NestedBoundary;
+    bool CallSite;
+#if defined(WITOS_DYNAMIC_CODE)
+    DispatcherRestart Restart;
+#endif
+};
+
+// A nested exception raised by a handler continues the search from the handler's dispatcher context and marks the
+// frames up to the nested establisher.
+void resume_nested(FrameSearch &search, const DISPATCHER_CONTEXT &dispatcher, WitU64 sp)
+{
+    if (!search.State->Bridge || !dispatcher.ContextRecord || dispatcher.ContextRecord->Rsp <= sp) {
+        reject(search.Token);
+    }
+    search.Working = *dispatcher.ContextRecord;
+    search.Working.Rip = dispatcher.ControlPc;
+    search.CallSite = false;
+    if (dispatcher.EstablisherFrame > search.NestedBoundary) {
+        search.NestedBoundary = dispatcher.EstablisherFrame;
+    }
+    search.Record->ExceptionFlags |= EXCEPTION_NESTED_CALL;
+}
+
+Step search_frame(FrameSearch &search, const WitUserImageInfo *image, WitU64 pc, WitU64 sp)
+{
+    DWORD64 frameBase = 0;
+    const auto entry = function(image, pc, &frameBase);
+    if (!entry) {
+#if defined(WITOS_DYNAMIC_CODE)
+        if (search.Restart.Pending) {
+            reject(seh->Info->Token);
+        }
+#endif
+        unwind_leaf(search.State->Bounds, search.Working, sp, search.Token);
+        return Step::Next;
+    }
+    const CONTEXT before = search.Working;
+    void *data = nullptr;
+    DWORD64 frame = 0;
+    auto handler = RtlVirtualUnwind(UNW_FLAG_EHANDLER, frameBase, pc, entry, &search.Working, &data, &frame, nullptr);
+    DWORD cursor = 0;
+#if defined(WITOS_DYNAMIC_CODE)
+    search.Restart.Apply(*search.State, frameBase, entry, frame, handler, data, cursor);
+#endif
+    if (!handler) {
+        return Step::Next;
+    }
+    DISPATCHER_CONTEXT dispatcher = dispatcher_for(pc, frameBase, entry, frame, &search.Working, handler, data, cursor);
+    const EXCEPTION_DISPOSITION result =
+        call_handler(*search.State, image->Base, *search.Record, search.Original, dispatcher, before);
+    if (result == ExceptionContinueExecution) {
+        return Step::Execute;
+    }
+#if defined(WITOS_DYNAMIC_CODE)
+    if (result == ExceptionCollidedUnwind && !search.State->Bridge) {
+        search.Restart.Capture(*search.State, dispatcher, sp, search.Working);
+        search.CallSite = false;
+        return Step::Again;
+    }
+#endif
+    if (result == ExceptionNestedException) {
+        resume_nested(search, dispatcher, sp);
+        return Step::Again;
+    }
+    if (result != ExceptionContinueSearch) {
+        reject(search.Token);
+    }
+    return Step::Next;
+}
+
 LONG frames(EXCEPTION_RECORD &record, CONTEXT &original, WitUserExceptionInfo &info, const WitCpuContextInfo &cpu,
     WitU64 owner, bool callSite)
 {
@@ -435,98 +577,27 @@ LONG frames(EXCEPTION_RECORD &record, CONTEXT &original, WitUserExceptionInfo &i
     }
     const WitUnwindStackRange bounds = {lease.StackLow, lease.StackHigh};
     SehGuard guard(info, cpu, original, scope, bounds, owner, callSite);
-    CONTEXT working = original;
-    WitU64 nestedBoundary = 0;
-#if defined(WITOS_DYNAMIC_CODE)
-    DispatcherRestart restart;
-#endif
-    for (unsigned depth = 0; depth < 128 && working.Rip; ++depth) {
-        const WitU64 pc = working.Rip - (callSite ? 1U : 0U), sp = working.Rsp;
-        if (working.Rsp < bounds.Low || working.Rsp >= bounds.High || !code(pc)) {
+    FrameSearch search = {&record, &original, &guard.State, token, original, 0, callSite};
+    for (unsigned depth = 0; depth < 128 && search.Working.Rip; ++depth) {
+        const WitU64 pc = search.Working.Rip - (search.CallSite ? 1U : 0U), sp = search.Working.Rsp;
+        if (search.Working.Rsp < bounds.Low || search.Working.Rsp >= bounds.High || !code(pc)) {
             break;
         }
-        if (nestedBoundary && sp > nestedBoundary) {
+        if (search.NestedBoundary && sp > search.NestedBoundary) {
             record.ExceptionFlags &= ~EXCEPTION_NESTED_CALL;
-            nestedBoundary = 0;
+            search.NestedBoundary = 0;
         }
-        DWORD64 frameBase = 0;
-        const auto entry = function(image, pc, &frameBase);
-        if (!entry) {
-#if defined(WITOS_DYNAMIC_CODE)
-            if (restart.Pending) {
-                reject(seh->Info->Token);
-            }
-#endif
-            if (!wit_unwind_read_stack(&bounds, sp, &working.Rip, 8)) {
-                reject(token);
-            }
-            working.Rsp += 8;
-        } else {
-            const CONTEXT before = working;
-            void *data = nullptr;
-            DWORD64 frame = 0;
-            auto handler = RtlVirtualUnwind(UNW_FLAG_EHANDLER, frameBase, pc, entry, &working, &data, &frame, nullptr);
-            DWORD cursor = 0;
-#if defined(WITOS_DYNAMIC_CODE)
-            restart.Apply(guard.State, frameBase, entry, frame, handler, data, cursor);
-#endif
-            if (handler) {
-                DISPATCHER_CONTEXT dispatcher = {};
-                dispatcher.ControlPc = pc;
-                dispatcher.ImageBase = frameBase;
-                dispatcher.FunctionEntry = entry;
-                dispatcher.EstablisherFrame = frame;
-                dispatcher.ContextRecord = &working;
-                dispatcher.LanguageHandler = handler;
-                dispatcher.HandlerData = data;
-                dispatcher.ScopeIndex = cursor;
-                guard.State.Dispatcher = &dispatcher;
-                guard.State.Before = &before;
-                guard.State.Bridge = nullptr;
-                EXCEPTION_DISPOSITION result;
-#if defined(WITOS_DYNAMIC_CODE)
-                if (frameBase != image->Base) {
-                    before_funclet(&guard.State);
-                    result = wit_native_handler_invoke(
-                        &guard.State, handler, &record, (void *)frame, &original, &dispatcher);
-                    after_funclet(&guard.State);
-                } else
-#endif
-                    result = handler(&record, (void *)frame, &original, &dispatcher);
-                guard.State.Dispatcher = nullptr;
-                guard.State.Before = nullptr;
-                if (result == ExceptionContinueExecution) {
-                    return EXCEPTION_CONTINUE_EXECUTION;
-                }
-#if defined(WITOS_DYNAMIC_CODE)
-                if (result == ExceptionCollidedUnwind && !guard.State.Bridge) {
-                    restart.Capture(guard.State, dispatcher, sp, working);
-                    callSite = false;
-                    continue;
-                }
-#endif
-                if (result == ExceptionNestedException) {
-                    if (!guard.State.Bridge || !dispatcher.ContextRecord || dispatcher.ContextRecord->Rsp <= sp) {
-                        reject(token);
-                    }
-                    working = *dispatcher.ContextRecord;
-                    working.Rip = dispatcher.ControlPc;
-                    callSite = false;
-                    if (dispatcher.EstablisherFrame > nestedBoundary) {
-                        nestedBoundary = dispatcher.EstablisherFrame;
-                    }
-                    record.ExceptionFlags |= EXCEPTION_NESTED_CALL;
-                    continue;
-                }
-                if (result != ExceptionContinueSearch) {
-                    reject(token);
-                }
-            }
+        const Step step = search_frame(search, image, pc, sp);
+        if (step == Step::Execute) {
+            return EXCEPTION_CONTINUE_EXECUTION;
         }
-        if (working.Rsp <= sp || working.Rsp > bounds.High) {
+        if (step == Step::Again) {
+            continue;
+        }
+        if (search.Working.Rsp <= sp || search.Working.Rsp > bounds.High) {
             reject(token);
         }
-        callSite = true;
+        search.CallSite = true;
     }
     return EXCEPTION_CONTINUE_SEARCH;
 }
