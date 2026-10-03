@@ -3,6 +3,7 @@
 #include "witos/platform.h"
 #include "protocol.h"
 #include "dynamic_tls_image.h"
+#include "self_test.h"
 
 static WitUserProcess process;
 
@@ -57,7 +58,7 @@ static void run(WitPageAllocator *pages, WitU64 base, WitU64 mode)
         const WitU64 report = wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
         require(report && *(const WitU64 *)report == mode, "Dynamic TLS failure occurred before intended boundary");
         if (mode == 5) {
-            require(process.State == WitUserFaulted &&
+            require(wit_test_faulted(&process) &&
                     process.FaultVector == 14 &&
                     process.FaultError == 6 &&
                     process.FaultAddress == 0 &&

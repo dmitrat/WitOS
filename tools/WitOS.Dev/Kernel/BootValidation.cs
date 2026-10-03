@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using WitOS.Dev.Host;
 using WitOS.Dev.NativeAot.Acceptance;
@@ -52,8 +53,7 @@ internal static class BootValidation
         // The kernel console emits CRLF; match the banner as one exact line.
         var bannerReady = Regex.IsMatch(output, "^" + Regex.Escape(KernelAbi.Banner(root)) + @"\r?$", RegexOptions.Multiline);
         var schedulerReady = ValidateScheduler(output);
-        var usersReady =
-            ValidateUsers(root, output, LegacyFaults(root, request.Suite), FollowingFaults(root, request.Suite));
+        var usersReady = ValidateUsers(root, output);
         var helloReady = hello > output.IndexOf("[TEST-PASS] Scheduler.RegisterState", StringComparison.Ordinal);
         var exception = output.Contains("[EXCEPTION]", StringComparison.Ordinal);
         var booted = request.Suite == BootSuite.Foundation
@@ -133,21 +133,35 @@ internal static class BootValidation
     }
 
     /// <summary>
-    /// Checks the number and placement of contained user faults around the isolation boundary.
+    /// Checks the contained user faults against the guest summary: one "[TEST-SUMMARY] faults=N checked=N" line after
+    /// every fault, the kernel's count equal to the faults the tests accepted and to the well-formed x64 fault lines,
+    /// each taken at CPL3.
     /// </summary>
     /// <param name="output">Serial log.</param>
-    /// <param name="legacyFaults">Faults expected before the user isolation marker.</param>
-    /// <param name="followingFaults">Faults expected after it.</param>
-    /// <returns>True when every fault line is well formed and the counts match.</returns>
-    public static bool ValidateUserFaults(string output, int legacyFaults, int followingFaults)
+    /// <returns>True when every fault line is well formed and was expected by a test.</returns>
+    public static bool ValidateUserFaults(string output)
     {
-        var boundary = output.IndexOf("[TEST-PASS] User.Isolation", StringComparison.Ordinal);
         var faults = Regex.Matches(output,
             @"(?m)^\[USER-FAULT\] id=(\d+) vector=(\d+) error=(0x[0-9A-F]{16}) address=(0x[0-9A-F]{16}) cs=(0x[0-9A-F]{16})\r?$");
-        return boundary >= 0 && faults.Count == legacyFaults + followingFaults &&
+        return SummaryAccounts(output, faults) && faults.All(m => Convert.ToUInt64(m.Groups[5].Value[2..], 16) == 0x33);
+    }
+
+    /// <summary>
+    /// Checks the guest summary line against the fault lines: exactly one summary, after every fault, whose contained
+    /// and accepted counts both equal the number of fault lines, all of them well formed.
+    /// </summary>
+    /// <param name="output">Serial log.</param>
+    /// <param name="faults">Well-formed fault lines of the architecture.</param>
+    /// <returns>True when the summary accounts for every fault.</returns>
+    public static bool SummaryAccounts(string output, MatchCollection faults)
+    {
+        var summaries = Regex.Matches(output, @"(?m)^\[TEST-SUMMARY\].*$");
+        var summary = Regex.Match(output, @"(?m)^\[TEST-SUMMARY\] faults=(\d+) checked=(\d+)\r?$");
+        return summaries.Count == 1 && summary.Success &&
+            summary.Groups[1].Value == summary.Groups[2].Value &&
+            summary.Groups[1].Value == faults.Count.ToString(CultureInfo.InvariantCulture) &&
             Regex.Matches(output, @"(?m)^\[USER-FAULT\]").Count == faults.Count &&
-            faults.Count(m => m.Index < boundary) == legacyFaults &&
-            faults.All(m => Convert.ToUInt64(m.Groups[5].Value[2..], 16) == 0x33);
+            faults.All(m => m.Index < summary.Index);
     }
 
     #endregion
@@ -160,17 +174,6 @@ internal static class BootValidation
 
     private static string[] A64FoundationOrder(string root)
         => BootExpectations.Read(root, BootExpectations.ARM64_FOUNDATION).Markers;
-
-    private static int LegacyFaults(string root, BootSuite suite) => BootExpectations.Read(root,
-        suite == BootSuite.RuntimeConfig ? BootExpectations.RUNTIME_CONFIG : BootExpectations.X64_USERS).FaultsBeforeIsolation;
-
-    private static int FollowingFaults(string root, BootSuite suite) => suite switch
-    {
-        BootSuite.RuntimeBoot => RuntimeBootProtocol.StackFaultsPerProfile,
-        BootSuite.CoreClrMemory => BootExpectations.Read(root, BootExpectations.CORECLR_MEMORY).FaultsAfterIsolation,
-        BootSuite.CoreClrStorage => BootExpectations.Read(root, BootExpectations.CORECLR_STORAGE).FaultsAfterIsolation,
-        _ => 0
-    };
 
     // An ARM64 kernel foundation: the foundation markers, kernel-worker preemption, the EL0 isolation tests, then
     // Hello, without panic or exception.
@@ -279,26 +282,27 @@ internal static class BootValidation
         var users = BootExpectations.Read(root, BootExpectations.ARM64_USERS);
         var markers = new List<string> { "[TEST-PASS] Scheduler.RegisterState", "[TEST-BEGIN] User.Isolation" };
         markers.AddRange(users.Markers);
+        markers.Add("[TEST-SUMMARY] faults=");
         markers.Add("[TEST-PASS] Boot.Hello");
         var faults = Regex.Matches(output,
             @"(?m)^\[USER-FAULT\] id=(\d+) vector=(\d+) error=(0x[0-9A-F]{16}) address=(0x[0-9A-F]{16}) elr=(0x[0-9A-F]{16}) spsr=(0x[0-9A-F]{16}) esr=(0x[0-9A-F]{16})\r?$");
-        return MarkersInOrder(output, markers.ToArray()) && faults.Count == users.FaultsBeforeIsolation &&
-            Regex.Matches(output, @"(?m)^\[USER-FAULT\]").Count == faults.Count &&
+        return MarkersInOrder(output, markers.ToArray()) && SummaryAccounts(output, faults) &&
             faults.All(m => (Convert.ToUInt64(m.Groups[6].Value[2..], 16) & 0x1F) == 0 &&
                 m.Groups[3].Value == m.Groups[7].Value &&
                 Convert.ToUInt64(m.Groups[7].Value[2..], 16) >> 26 == ulong.Parse(m.Groups[2].Value));
     }
 
-    private static bool ValidateUsers(string root, string output, int expectedFaults, int followingFaults)
+    private static bool ValidateUsers(string root, string output)
     {
         var markers = new List<string> { "[TEST-PASS] Scheduler.RegisterState", "[TEST-BEGIN] User.Isolation" };
         markers.AddRange(BootExpectations.Read(root, BootExpectations.X64_USERS).Markers);
+        markers.Add("[TEST-SUMMARY] faults=");
         markers.Add("[TEST-PASS] Boot.Hello");
         if (!MarkersInOrder(output, markers.ToArray()))
         {
             return false;
         }
-        return ValidateUserFaults(output, expectedFaults, followingFaults);
+        return ValidateUserFaults(output);
     }
 
     private static bool ValidateException(string output, FaultExpectation expected)

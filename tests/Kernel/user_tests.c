@@ -63,7 +63,7 @@ static void recovery(WitPageAllocator *pages)
 int wit_test_user_fault_contained(const WitUserProcess *process, const WitUserFaultCase *expected, int check_pc)
 {
     WitU64 pc = 0;
-    return process->State == WitUserFaulted &&
+    return wit_test_faulted(process) &&
         process->FaultVector == expected->Vector &&
         process->FaultError == expected->Error &&
         (!expected->CheckAddress || process->FaultAddress == expected->Address) &&

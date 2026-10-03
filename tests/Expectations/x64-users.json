@@ -1,5 +1,5 @@
 {
-  "description": "x64 user-mode suites between the isolation markers, in order; contained user faults before the end of the isolation tests.",
+  "description": "x64 user-mode suites between the isolation markers, in order.",
   "markers": [
     "[TEST-PASS] User.UnprivilegedMode",
     "[TEST-PASS] User.AbiAndHandles",
@@ -181,6 +181,5 @@
     "[TEST-PASS] User.ZeroFillAndStaleHandles",
     "[TEST-PASS] User.Teardown",
     "[TEST-PASS] User.Isolation"
-  ],
-  "faultsBeforeIsolation": 51
+  ]
 }

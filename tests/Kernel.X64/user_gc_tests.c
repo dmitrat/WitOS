@@ -5,6 +5,7 @@
 #include "witos/platform.h"
 #include "protocol.h"
 #include "gc_memory_image.h"
+#include "self_test.h"
 
 static WitUserProcess process;
 static WitPageAllocator limited_pages;
@@ -136,7 +137,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
             "Invalid native free did not fail at its boundary");
     } else if (mode == WIT_NATIVE_TEST_HEAP_NX || mode == WIT_NATIVE_TEST_HEAP_FREED) {
         const WitU64 error = mode == WIT_NATIVE_TEST_HEAP_NX ? 21 : 4;
-        require(process.State == WitUserFaulted &&
+        require(wit_test_faulted(&process) &&
                 process.FaultVector == 14 &&
                 process.FaultError == error &&
                 process.FaultAddress == WIT_USER_MEMORY_BASE &&
@@ -155,7 +156,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
         }
     } else if (mode == WIT_GC_TEST_RESET_RO || mode == WIT_GC_TEST_RESET_NONE) {
         const WitU64 error = mode == WIT_GC_TEST_RESET_RO ? 7 : 6;
-        require(process.State == WitUserFaulted &&
+        require(wit_test_faulted(&process) &&
                 process.FaultVector == 14 &&
                 process.FaultError == error &&
                 process.FaultAddress == WIT_USER_MEMORY_BASE &&
@@ -163,7 +164,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 process.FaultState.Ss == WIT_USER_SS,
             "Reset changed hardware page protection");
     } else if (mode == WIT_GC_TEST_HPET_READ) {
-        require(process.State == WitUserFaulted &&
+        require(wit_test_faulted(&process) &&
                 process.FaultVector == 14 &&
                 process.FaultError == 5 &&
                 process.FaultAddress == WIT_Q35_HPET_BASE &&
@@ -181,7 +182,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
             "Invalid GC event operation did not fail fast with live resources");
     } else {
         const WitU64 error = mode == WIT_GC_TEST_RESERVED ? 6 : mode == WIT_GC_TEST_NX ? 21 : 4;
-        require(process.State == WitUserFaulted &&
+        require(wit_test_faulted(&process) &&
                 process.FaultVector == 14 &&
                 process.FaultError == error &&
                 process.FaultAddress == WIT_USER_MEMORY_BASE + (mode == WIT_GC_TEST_ROLLBACK ? 4096 : 0) &&

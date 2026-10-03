@@ -14,4 +14,12 @@ void wit_arch_scheduler_self_test(void);
 WitU64 wit_user_isolation_begin_self_test(WitPageAllocator *pages);
 void wit_user_isolation_end_self_test(WitPageAllocator *pages, WitU64 before);
 
+/* Whether a component ended in a contained fault; a fault a test accepts this way counts toward the summary. */
+struct WitUserProcess;
+int wit_test_faulted(const struct WitUserProcess *process);
+
+/* Last line of the self-tests: "[TEST-SUMMARY] faults=<contained> checked=<accepted>"; the host requires both to
+ * equal the number of [USER-FAULT] lines, so no test suite needs a hand-counted fault total. */
+void wit_test_summary(void);
+
 #endif

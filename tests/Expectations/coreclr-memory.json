@@ -1,5 +1,5 @@
 {
-  "description": "CoreCLR executable-memory backend suite in order; contained faults after the isolation tests.",
+  "description": "CoreCLR executable-memory backend suite in order.",
   "markers": [
     "[TEST-PASS] Code.VMToOSMapper",
     "[TEST-PASS] Code.VMToOSMapperRollback",
@@ -19,6 +19,5 @@
     "[TEST-PASS] Code.WriteAndNxFaults",
     "[TEST-PASS] Code.AliasesAndLifetime",
     "[TEST-PASS] Code.Teardown"
-  ],
-  "faultsAfterIsolation": 9
+  ]
 }

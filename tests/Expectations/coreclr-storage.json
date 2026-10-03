@@ -1,5 +1,5 @@
 {
-  "description": "CoreCLR assembly delivery and readonly guest IO suite in order; contained faults after the isolation tests.",
+  "description": "CoreCLR assembly delivery and readonly guest IO suite in order.",
   "markers": [
     "[TEST-PASS] Storage.AssemblyBytes",
     "[TEST-PASS] Storage.AtomicReadAndSeek",
@@ -20,6 +20,5 @@
     "[TEST-PASS] Storage.FileViewRollback",
     "[TEST-PASS] Storage.Isolation",
     "[TEST-PASS] Storage.Teardown"
-  ],
-  "faultsAfterIsolation": 7
+  ]
 }

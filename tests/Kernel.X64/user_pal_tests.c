@@ -3,6 +3,7 @@
 #include "witos/platform.h"
 #include "protocol.h"
 #include "pal_image.h"
+#include "self_test.h"
 
 static WitUserProcess process;
 static WitU32 last_native_id;
@@ -89,7 +90,7 @@ static void run(WitPageAllocator *pages, int tls, WitU64 base, WitU64 mode)
             require(sleep[1] >= sleep[0] && !process.IdleHalts, "Expired absolute sleep unexpectedly entered idle");
         }
     } else {
-        require(process.State == WitUserFaulted &&
+        require(wit_test_faulted(&process) &&
                 process.FaultVector == 14 &&
                 process.FaultError == 6 &&
                 process.FaultAddress == (mode == 2 ? report->StackLow - 1 : report->StackHigh) &&

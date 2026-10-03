@@ -4,6 +4,7 @@
 #include "runtime_boot_image.h"
 #include "runtime_report.h"
 #include "witos/platform.h"
+#include "self_test.h"
 static WitUserProcess process;
 static WitPeImage plan;
 
@@ -141,7 +142,7 @@ void wit_user_runtime_boot_test(WitPageAllocator *pages)
         wit_console_write("/");
         wit_console_write_hex(stackLow);
         wit_console_write("\n");
-        const int contained = process.State == WitUserFaulted &&
+        const int contained = wit_test_faulted(&process) &&
             process.FaultVector == 14 &&
             (process.FaultError == 4 || process.FaultError == 6) &&
             process.FaultAddress < stackLow &&

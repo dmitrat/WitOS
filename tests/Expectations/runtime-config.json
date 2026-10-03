@@ -1,5 +1,5 @@
 {
-  "description": "Upstream configuration and startup probes in order; contained user faults before the end of the isolation tests, the runtime probes included.",
+  "description": "Upstream configuration and startup probes in order.",
   "markers": [
     "[TEST-PASS] User.RuntimeConfigCrt",
     "[TEST-PASS] User.RhConfigPrecedence",
@@ -108,6 +108,5 @@
     "[TEST-PASS] User.NativeGeneralProtectionUnsupported",
     "[TEST-PASS] User.NativeThreadCreationAndRollback",
     "[TEST-PASS] User.Isolation"
-  ],
-  "faultsBeforeIsolation": 66
+  ]
 }

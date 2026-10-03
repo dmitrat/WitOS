@@ -7,6 +7,7 @@ static WitUserProcess *current_user;
 static WitUserProcess *slot_owners[2];
 static WitU32 next_id = 1;
 static volatile WitU32 user_idle;
+static WitU64 contained_faults;
 
 static void require(int condition, const char *message)
 {
@@ -660,6 +661,11 @@ WitUserProcess *wit_user_current(void)
     return current_user;
 }
 
+WitU64 wit_user_contained_faults(void)
+{
+    return contained_faults;
+}
+
 WitArchFrame *wit_user_yield(void)
 {
     current_user->Threads[current_user->CurrentThread].State = WitThreadReady;
@@ -776,6 +782,7 @@ WIT_NORETURN void wit_user_fault(
     current_user->FaultError = error;
     current_user->FaultAddress = address;
     current_user->FaultState = *state;
+    ++contained_faults;
     wit_console_write("[USER-FAULT] id=");
     wit_console_write_u64(current_user->Id);
     wit_console_write(" vector=");

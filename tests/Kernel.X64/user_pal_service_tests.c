@@ -3,6 +3,7 @@
 #include "witos/platform.h"
 #include "protocol.h"
 #include "pal_image.h"
+#include "self_test.h"
 
 static WitUserProcess process;
 
@@ -64,7 +65,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
             "Invalid PAL free did not fail fast");
     } else {
         const WitU64 error = mode == 16 ? 7 : mode == 18 ? 21 : 4;
-        require(process.State == WitUserFaulted &&
+        require(wit_test_faulted(&process) &&
                 process.FaultVector == 14 &&
                 process.FaultError == error &&
                 process.FaultAddress == WIT_USER_MEMORY_BASE &&

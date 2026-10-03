@@ -90,7 +90,7 @@ dotnet run --project tools/WitOS.Dev --configuration Release -- test
 
 Absolute deadlines may expire between a user clock read and kernel entry. Test deadline completion separately from mandatory idle-path coverage; do not require every successful sleep to park. Keep preemption and resource-accounting assertions independent and diagnostic.
 
-Expected boot markers and contained-fault counts live in `tests/Expectations/*.json`; add a suite's new marker there, never as a list in `BootValidation`, and keep every expected marker emitted by a guest source.
+Expected boot markers live in `tests/Expectations/*.json`; add a suite's new marker there, never as a list in `BootValidation`, and keep every expected marker emitted by a guest source. Contained user faults are accounted by the guest: a test accepts each expected fault through `wit_test_faulted`, and the host requires the closing `[TEST-SUMMARY] faults=N checked=N` to match the fault lines; never add a hand-counted fault total.
 
 Use `setup` once for the pinned local QEMU package. The test tool must distinguish successful boot, panic, unexpected exit and timeout. Never infer a passing boot from an exit code or log line alone.
 

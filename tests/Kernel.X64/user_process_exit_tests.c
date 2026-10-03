@@ -3,6 +3,7 @@
 #include "witos/platform.h"
 #include "protocol.h"
 #include "process_exit_image.h"
+#include "self_test.h"
 
 static WitUserProcess process;
 
@@ -32,7 +33,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 !report[4],
             "Process exit recursion was not bounded");
     } else if (mode == 6) {
-        require(process.State == WitUserFaulted &&
+        require(wit_test_faulted(&process) &&
                 process.FaultVector == 14 &&
                 process.FaultError == 6 &&
                 process.FaultAddress == 0 &&

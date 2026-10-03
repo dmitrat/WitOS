@@ -67,13 +67,13 @@ internal static class BootExpectations
     /// <param name="root">Repository root.</param>
     /// <param name="name">Expectation name.</param>
     /// <returns>The expectation; Required is empty when the file has none.</returns>
-    /// <exception cref="InvalidDataException">The file is missing a description or markers, or holds a negative count.</exception>
+    /// <exception cref="InvalidDataException">The file is missing a description or markers.</exception>
     public static BootExpectation Read(string root, string name)
     {
         var path = Path.Combine(Directory(root), name + ".json");
         var expectation = JsonSerializer.Deserialize<BootExpectation>(File.ReadAllText(path), JSON);
         if (expectation is null || string.IsNullOrWhiteSpace(expectation.Description) || expectation.Markers is null ||
-            expectation.Markers.Length == 0 || expectation.FaultsBeforeIsolation < 0 || expectation.FaultsAfterIsolation < 0)
+            expectation.Markers.Length == 0)
         {
             throw new InvalidDataException($"Invalid boot expectation: {path}");
         }

@@ -344,6 +344,8 @@ WitU64 wit_user_close_handle(WitU64 handle);
 WitArchFrame *wit_user_timer_tick(WitArchFrame *frame);
 WIT_NORETURN void wit_user_fault(
     const void *trap, WitU64 trap_size, WitU64 vector, WitU64 error, WitU64 address, const WitArchFaultState *state);
+/* Contained user faults since boot, one per [USER-FAULT] line. */
+WitU64 wit_user_contained_faults(void);
 
 WitU64 wit_user_code_call(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
 WitU64 wit_user_code_reserve(WitUserSpace *, WitU64, WitU64, WitU64, WitU64, WitU64 *);

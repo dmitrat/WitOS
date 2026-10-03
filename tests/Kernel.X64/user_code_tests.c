@@ -5,6 +5,7 @@
 #include "coreclr_memory_image.h"
 #include "coreclr_mapper_image.h"
 #include "protocol.h"
+#include "self_test.h"
 static WitUserProcess process;
 
 static void require(int value, const char *message)
@@ -42,7 +43,7 @@ static void mapper_adapter(WitPageAllocator *pages)
             require(report &&
                     report[4] == 1 &&
                     report[5] == run - 5 &&
-                    process.State == WitUserFaulted &&
+                    wit_test_faulted(&process) &&
                     process.FaultVector == 14 &&
                     process.HardwareNullReads == 1 &&
                     !process.ExceptionContinuations,
@@ -315,7 +316,7 @@ void wit_user_code_self_test(WitPageAllocator *pages)
                 require(process.State == WitUserExited && process.ExitCode == 42,
                     "Dynamic RX code did not execute in user mode");
             } else {
-                require(process.State == WitUserFaulted &&
+                require(wit_test_faulted(&process) &&
                         process.FaultVector == 14 &&
                         process.FaultState.Cs == WIT_USER_CS &&
                         process.FaultAddress == entryAddress &&

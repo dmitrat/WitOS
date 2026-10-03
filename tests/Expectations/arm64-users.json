@@ -75,6 +75,5 @@
     "[TEST-PASS] User.ZeroFillAndStaleHandles",
     "[TEST-PASS] User.Teardown",
     "[TEST-PASS] User.Isolation"
-  ],
-  "faultsBeforeIsolation": 27
+  ]
 }

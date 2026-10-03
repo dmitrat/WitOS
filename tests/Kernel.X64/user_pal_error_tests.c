@@ -3,6 +3,7 @@
 #include "witos/platform.h"
 #include "protocol.h"
 #include "pal_image.h"
+#include "self_test.h"
 
 static WitUserProcess process;
 
@@ -26,7 +27,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, int tls, WitU64 base)
     if (mode == 32) {
         const WitU64 *report = (const WitU64 *)wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
         require(report &&
-                process.State == WitUserFaulted &&
+                wit_test_faulted(&process) &&
                 process.FaultVector == 14 &&
                 process.FaultError == 7 &&
                 process.FaultAddress == *report &&

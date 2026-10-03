@@ -3,6 +3,7 @@
 #include "witos/platform.h"
 #include "protocol.h"
 #include "tls_image.h"
+#include "self_test.h"
 
 static WitUserProcess process;
 static WitPeImage plan;
@@ -185,7 +186,7 @@ static void run(WitPageAllocator *pages, WitU64 base, WitU64 mode)
         require(!wit_user_space_physical(&process.Space, gs + WIT_USER_THREAD_STRIDE, 0, 0),
             "Joined compiler TLS page remains mapped");
     } else {
-        require(process.State == WitUserFaulted &&
+        require(wit_test_faulted(&process) &&
                 process.FaultVector == 14 &&
                 process.FaultError == (mode == 1 ? 21U : 5U) &&
                 process.FaultAddress == (mode == 1 ? gs + 0x100 : config->ForeignHandle) &&

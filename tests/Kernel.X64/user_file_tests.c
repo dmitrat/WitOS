@@ -7,6 +7,7 @@
 #include "process_exit_image.h"
 #include "storage_manifest.h"
 #include "protocol.h"
+#include "self_test.h"
 static WitUserProcess process, peer;
 
 static void require(int ok, const char *message)
@@ -90,7 +91,7 @@ void wit_user_file_self_test(WitPageAllocator *pages)
         config->Mode = mode;
         config->KernelProbe = (WitU64)wit_storage_package()->Data;
         wit_user_run(&process);
-        require(process.State == WitUserFaulted &&
+        require(wit_test_faulted(&process) &&
                 process.FaultVector == 14 &&
                 process.FaultState.Cs == WIT_USER_CS &&
                 process.FaultAddress == (WitU64)wit_storage_package()->Data &&
@@ -112,7 +113,7 @@ void wit_user_file_self_test(WitPageAllocator *pages)
         const WitU64 *report = (const WitU64 *)wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
         require(report &&
                 report[4] &&
-                process.State == WitUserFaulted &&
+                wit_test_faulted(&process) &&
                 process.FaultVector == 14 &&
                 process.FaultState.Cs == WIT_USER_CS &&
                 process.FaultAddress == report[4] &&
@@ -180,7 +181,7 @@ void wit_user_file_self_test(WitPageAllocator *pages)
     const WitU64 *libraryReport = (const WitU64 *)wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
     require(libraryReport &&
             libraryReport[4] &&
-            process.State == WitUserFaulted &&
+            wit_test_faulted(&process) &&
             process.FaultVector == 14 &&
             process.FaultState.Cs == WIT_USER_CS &&
             process.FaultAddress == libraryReport[4] &&
@@ -227,7 +228,7 @@ void wit_user_file_self_test(WitPageAllocator *pages)
             const WitU64 *report = (const WitU64 *)wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
             require(report &&
                     report[4] &&
-                    process.State == WitUserFaulted &&
+                    wit_test_faulted(&process) &&
                     process.FaultVector == 14 &&
                     process.FaultState.Cs == WIT_USER_CS &&
                     process.FaultAddress == report[4] &&

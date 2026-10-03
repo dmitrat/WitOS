@@ -3,6 +3,7 @@
 #include "witos/platform.h"
 #include "protocol.h"
 #include "bootstrap_image.h"
+#include "self_test.h"
 
 static WitUserProcess process;
 static WitPeImage plan;
@@ -169,7 +170,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
     owned = process.Space.OwnedCount;
     wit_user_run(&process);
     if (mode == WIT_BOOTSTRAP_TEST_WRITE_INFO || mode == WIT_BOOTSTRAP_TEST_INIT_FAULT) {
-        require(process.State == WitUserFaulted &&
+        require(wit_test_faulted(&process) &&
                 process.FaultVector == 14 &&
                 process.FaultError == 7 &&
                 process.FaultState.Cs == WIT_USER_CS &&

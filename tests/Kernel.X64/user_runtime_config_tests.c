@@ -11,6 +11,7 @@
 #include "runtime_com_image.h"
 #include "runtime_context_mutation_image.h"
 #include "runtime_unwind_image.h"
+#include "self_test.h"
 
 static WitUserProcess process;
 
@@ -201,7 +202,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 report[1] == 562949953421312ULL &&
                 !report[2] &&
                 !report[11] &&
-                process.State == WitUserFaulted &&
+                wit_test_faulted(&process) &&
                 process.FaultVector == 13 &&
                 !process.FaultError &&
                 process.FaultState.Rip == report[12] &&
@@ -376,7 +377,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
             require(process.State == WitUserExited && process.ExitCode == WIT_NATIVE_GS_FAILURE_EXIT && report[4] == 1,
                 "Native dispatch skipped actual GS cookie failure");
         } else {
-            require(process.State == WitUserFaulted &&
+            require(wit_test_faulted(&process) &&
                     process.FaultVector == (mode == 122 ? 13U : 6U) &&
                     process.FaultState.Rip == report[3],
                 "VEH failure lost original fault");
@@ -390,8 +391,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
         return;
     }
     if (mode >= 110 && mode <= 116) {
-        if ((mode <= 111 && process.ExitCode != WIT_TEST_EXIT_CODE) ||
-            (mode >= 112 && process.State != WitUserFaulted)) {
+        if ((mode <= 111 && process.ExitCode != WIT_TEST_EXIT_CODE) || (mode >= 112 && !wit_test_faulted(&process))) {
             wit_console_write("Exception mode/state/exit: ");
             wit_console_write_u64(mode);
             wit_console_write("/");
@@ -417,7 +417,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                     process.ThreadJoins == (mode == 110 ? 1U : 0U),
                 "Exception continuation failed");
         } else {
-            require(process.State == WitUserFaulted &&
+            require(wit_test_faulted(&process) &&
                     process.FaultVector == 6 &&
                     process.FaultError == 0 &&
                     process.FaultState.Rip == report[3] &&
@@ -668,7 +668,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
             "GC policy fixture state invalid");
         if (mode == 85) {
             const WitU64 instruction = wit_user_space_physical(&process.Space, process.FaultState.Rip - 1, 0, 1);
-            require(process.State == WitUserFaulted &&
+            require(wit_test_faulted(&process) &&
                     process.FaultVector == 3 &&
                     !process.FaultError &&
                     process.FaultState.Cs == WIT_USER_CS &&
@@ -1051,7 +1051,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 !process.Events.Count,
             "CPU feature fixture lost state/resources");
         if (mode == 26) {
-            require(process.State == WitUserFaulted &&
+            require(wit_test_faulted(&process) &&
                     process.FaultVector == 6 &&
                     !process.FaultError &&
                     process.FaultState.Cs == WIT_USER_CS &&
@@ -1080,7 +1080,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
         require(report &&
                 report[0] == mode &&
                 report[1] == 1048576 &&
-                process.State == WitUserFaulted &&
+                wit_test_faulted(&process) &&
                 process.FaultVector == 14 &&
                 process.FaultError == 4 &&
                 process.FaultState.Cs == WIT_USER_CS &&

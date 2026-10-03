@@ -265,13 +265,4 @@ internal static class RuntimeBootProtocol
     }
 
     #endregion
-
-    #region Properties
-
-    /// <summary>
-    /// Number of contained stack faults each machine profile must report.
-    /// </summary>
-    internal static int StackFaultsPerProfile => IMAGE_BASES.Length;
-
-    #endregion
 }

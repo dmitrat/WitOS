@@ -3,6 +3,7 @@
 #include "witos/platform.h"
 #include "protocol.h"
 #include "pal_background_image.h"
+#include "self_test.h"
 
 static WitUserProcess process;
 
@@ -76,7 +77,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
             require(process.State == WitUserExited && process.ExitCode == WIT_GC_TEST_FAIL_FAST_EXIT,
                 "Detached TLS constructor failure was not contained");
         } else {
-            require(process.State == WitUserFaulted &&
+            require(wit_test_faulted(&process) &&
                     process.FaultThread != 0 &&
                     process.FaultVector == 14 &&
                     process.FaultError == 6 &&
