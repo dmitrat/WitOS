@@ -13,189 +13,8 @@ internal static class BootValidation
 
     private const string HPET_FREQUENCY = "100000000";
 
-    #endregion
-
-    #region Fields
-
-    private static readonly string[] FOUNDATION_TESTS =
-    [
-        "[TEST-PASS] Cpu.SuspendedDeadlineState", "[TEST-PASS] Cpu.ContextSanitization",
-        "[TEST-PASS] Cpu.ContextStateProfile", "[TEST-PASS] Random.BootSeedConsumed",
-        "[TEST-PASS] Random.ChaCha20Vector"
-    ];
-
-    // The kernel banner from the ABI headers is inserted after the first marker.
     // Unmapped address that the page-fault and data-abort scenarios read.
     private const ulong FAULT_PROBE = 0x0000400000000000UL;
-
-    // Kernel foundation of an architecture without user mode yet (ARM64 in phase A), in order: firmware handoff,
-    // boot contract, exception vectors, allocator, kernel paging, randomness, clock and the foundation self-tests.
-    private static readonly string[] A64_FOUNDATION_ORDER =
-    [
-        "[BOOT] ExitBootServices OK", "[TEST-PASS] Boot.Contract", "[TEST-PASS] Cpu.KernelStack",
-        "[TEST-PASS] Cpu.ExceptionTables", "Free physical pages: ", "[TEST-PASS] Memory.KernelPaging",
-        "[TEST-PASS] Memory.StackGuards", "[TEST-PASS] Random.BootSeedConsumed", "[TEST-PASS] Random.ChaCha20Vector",
-        "[TEST-PASS] Clock.Counter64", "[TEST-PASS] Clock.IrqIndependent", "[TEST-PASS] Memory.PhysicalPages",
-        "[TEST-PASS] Memory.Exhaustion", "[TEST-PASS] Memory.InvalidMaps", "[TEST-PASS] Memory.VirtualMappings"
-    ];
-
-    private static readonly string[] FOUNDATION_ORDER =
-    [
-        "[BOOT] ExitBootServices OK", "[TEST-PASS] Boot.Contract", "[TEST-PASS] Cpu.KernelStack",
-        "[TEST-PASS] Cpu.ExceptionTables", "[TEST-PASS] Memory.KernelPaging", "[TEST-PASS] Memory.StackGuards",
-        "[TEST-PASS] Clock.Counter64", "[TEST-PASS] Clock.IrqIndependent", "[TEST-PASS] Memory.PhysicalPages",
-        "[TEST-PASS] Memory.Exhaustion", "[TEST-PASS] Memory.InvalidMaps", "[TEST-PASS] Memory.VirtualMappings"
-    ];
-
-    private static readonly string[] CORECLR_MEMORY_MARKERS =
-    [
-        "[TEST-PASS] Code.VMToOSMapper", "[TEST-PASS] Code.VMToOSMapperRollback",
-        "[TEST-PASS] Code.DynamicFrameUnwind", "[TEST-PASS] Code.ForeignDynamicUnwind",
-        "[TEST-PASS] Code.DynamicExceptionDispatch", "[TEST-PASS] Code.DynamicTargetUnwind",
-        "[TEST-PASS] Code.CoreClrCollidedDispatch", "[TEST-PASS] Code.CollidedContextRejection",
-        "[TEST-PASS] Code.DynamicUnwindRejection", "[TEST-PASS] Code.ModuleUnwind",
-        "[TEST-PASS] Code.ForeignModuleUnwind", "[TEST-PASS] Code.SparseViewsAndLateCommit",
-        "[TEST-PASS] Code.SparseCommitRollback", "[TEST-PASS] Code.OwnershipAndAtomicProtection",
-        "[TEST-PASS] Code.PublicationAndExecution", "[TEST-PASS] Code.WriteAndNxFaults",
-        "[TEST-PASS] Code.AliasesAndLifetime", "[TEST-PASS] Code.Teardown"
-    ];
-
-    private static readonly string[] CORECLR_STORAGE_MARKERS =
-    [
-        "[TEST-PASS] Storage.AssemblyBytes", "[TEST-PASS] Storage.AtomicReadAndSeek",
-        "[TEST-PASS] Storage.HandlesAndQuotas", "[TEST-PASS] Storage.NamespaceQueries",
-        "[TEST-PASS] Storage.FileViews", "[TEST-PASS] Storage.CoreHostPalFiles", "[TEST-PASS] Storage.NativePaths",
-        "[TEST-PASS] Storage.NativeDirectories", "[TEST-PASS] Storage.NativeLibraries",
-        "[TEST-PASS] Storage.LibraryRollback", "[TEST-PASS] Storage.LibraryDependencies",
-        "[TEST-PASS] Storage.LibraryReaders", "[TEST-PASS] Storage.LibraryLifecycle",
-        "[TEST-PASS] Storage.LibraryShutdown", "[TEST-PASS] Storage.LibraryThreadNotifications",
-        "[TEST-PASS] Storage.LibraryStaticTls", "[TEST-PASS] Storage.FileViewRollback",
-        "[TEST-PASS] Storage.Isolation", "[TEST-PASS] Storage.Teardown"
-    ];
-
-    private static readonly string[] RUNTIME_CONFIG_MARKERS =
-    [
-        "[TEST-PASS] User.RuntimeConfigCrt", "[TEST-PASS] User.RhConfigPrecedence", "[TEST-PASS] User.RhConfigStrings",
-        "[TEST-PASS] User.GcConfigValues", "[TEST-PASS] User.GcConfigRefresh", "[TEST-PASS] User.RuntimeConfigThreads",
-        "[TEST-PASS] User.PalInitPrerequisites", "[TEST-PASS] User.PalInitPolicy", "[TEST-PASS] User.PalInitLifecycle",
-        "[TEST-PASS] User.RuntimeAllocHeap", "[TEST-PASS] User.InterfaceDispatchInit",
-        "[TEST-PASS] User.RuntimeInstanceStartup", "[TEST-PASS] User.RuntimeThreadRecord",
-        "[TEST-PASS] User.ThreadStoreTlsPrerequisite", "[TEST-PASS] User.GcProcessWriteBarrier",
-        "[TEST-PASS] User.ProcessBarrierWithoutTls", "[TEST-PASS] User.MinipalTime",
-        "[TEST-PASS] User.MinipalTimeWithoutTls", "[TEST-PASS] User.RuntimeRandomTls",
-        "[TEST-PASS] User.CrtMemoryAndStrings", "[TEST-PASS] User.CrtUnsignedLong",
-        "[TEST-PASS] User.CompilerStackProbe", "[TEST-PASS] User.CompilerStackProbeWithoutTls",
-        "[TEST-PASS] User.CompilerStackProbeGuard", "[TEST-PASS] User.MinipalCpuFeatures",
-        "[TEST-PASS] User.MinipalCpuWithoutTls", "[TEST-PASS] User.AvxDisabled",
-        "[TEST-PASS] User.NativeClockBindings", "[TEST-PASS] User.NativeClockAtomicCopy",
-        "[TEST-PASS] User.FatalDiagnosticOutput", "[TEST-PASS] User.FatalCrtExit",
-        "[TEST-PASS] User.FatalDiagnosticRejection", "[TEST-PASS] User.GcAffinityParsing",
-        "[TEST-PASS] User.GcAffinityBeforeTlsConstructors", "[TEST-PASS] User.NativeMathLog",
-        "[TEST-PASS] User.NativeMathBeforeTlsConstructors", "[TEST-PASS] User.NativeSecureFormatting",
-        "[TEST-PASS] User.NativeFormattingBeforeTlsConstructors", "[TEST-PASS] User.SecurityCookieAbi",
-        "[TEST-PASS] User.SecurityCookieFailClosed", "[TEST-PASS] User.CryptographicRandom",
-        "[TEST-PASS] User.RandomAtomicCopyAndEarlyCookie", "[TEST-PASS] User.NativeVirtualMemory",
-        "[TEST-PASS] User.NativeMemoryWithoutCompilerTls", "[TEST-PASS] User.NativeCloseAndSleep",
-        "[TEST-PASS] User.NativeServicesWithoutCompilerTls", "[TEST-PASS] User.NativeThreadReferences",
-        "[TEST-PASS] User.ThreadReferencesWithoutCompilerTls", "[TEST-PASS] User.AlertableObjectWaits",
-        "[TEST-PASS] User.ApcWithoutCompilerTls", "[TEST-PASS] User.NativeConsoleBindings",
-        "[TEST-PASS] User.NativeUtfConversions", "[TEST-PASS] User.NativeProcessorAtomicCopy",
-        "[TEST-PASS] User.NativeModuleNames", "[TEST-PASS] User.NativeModuleNamesWithoutTls",
-        "[TEST-PASS] User.AnonymousModuleIdentity", "[TEST-PASS] User.NativeThreadNames",
-        "[TEST-PASS] User.NativeThreadNamesWithoutTls", "[TEST-PASS] User.NativeDiagnosticServices",
-        "[TEST-PASS] User.NativeDiagnosticsWithoutTls", "[TEST-PASS] User.NativeMtaLifecycle",
-        "[TEST-PASS] User.NativeMtaProcessCleanup", "[TEST-PASS] User.NativeMtaPrerequisites",
-        "[TEST-PASS] User.GcOptionalMemoryPolicy", "[TEST-PASS] User.GcWriteWatchFailClosed",
-        "[TEST-PASS] User.GcArchitecturalBreakpoint", "[TEST-PASS] User.NativeContextStorage",
-        "[TEST-PASS] User.NativeContextProfileWithoutTls", "[TEST-PASS] User.NativeContextInvalidOutput",
-        "[TEST-PASS] User.RegisterContextSnapshots", "[TEST-PASS] User.RegisterSnapshotsWithoutTls",
-        "[TEST-PASS] User.ThreadSuspension", "[TEST-PASS] User.SuspensionWithoutTls",
-        "[TEST-PASS] User.SuspendedIdleBudget", "[TEST-PASS] User.ContextSetAndRestore",
-        "[TEST-PASS] User.ContextRestoreWithoutTls", "[TEST-PASS] User.PalContextMapping",
-        "[TEST-PASS] User.PalContextFailClosed", "[TEST-PASS] User.StackLeaseLifetime",
-        "[TEST-PASS] User.StackLeaseWithoutTls", "[TEST-PASS] User.StackLeaseRawExit",
-        "[TEST-PASS] User.NativeUnwindScope", "[TEST-PASS] User.NativeUnwindScopeRejection",
-        "[TEST-PASS] User.RuntimeUnwindMetadataRejection", "[TEST-PASS] User.ArchivedNativeUnwinder",
-        "[TEST-PASS] User.NativeUnwindFailureAndGs", "[TEST-PASS] User.NativeForeignUnwind",
-        "[TEST-PASS] User.ExceptionDeliveryAndContinue", "[TEST-PASS] User.ExceptionFailureContainment",
-        "[TEST-PASS] User.NativeVectoredHandlers", "[TEST-PASS] User.NativeVectoredFailure",
-        "[TEST-PASS] User.NativeExceptionFrameSearch", "[TEST-PASS] User.NativeRaiseException",
-        "[TEST-PASS] User.NativeNoncontinuableException", "[TEST-PASS] User.NativeRaiseFailFastException",
-        "[TEST-PASS] User.CompilerSehTargetUnwind", "[TEST-PASS] User.CompilerLocalUnwind",
-        "[TEST-PASS] User.CompilerNestedSehCallbacks", "[TEST-PASS] User.ExceptionScopeTransfer",
-        "[TEST-PASS] User.CompilerCollidedUnwind", "[TEST-PASS] User.CompilerGsSeh",
-        "[TEST-PASS] User.CompilerGsSehValidation", "[TEST-PASS] User.CompilerGsSehAligned",
-        "[TEST-PASS] User.NativeGeneralProtection", "[TEST-PASS] User.NativeGeneralProtectionUnsupported",
-        "[TEST-PASS] User.NativeThreadCreationAndRollback", "[TEST-PASS] User.Isolation"
-    ];
-
-    private static readonly string[] USER_CHECKS =
-    [
-        "UnprivilegedMode", "AbiAndHandles", "PrivateMemory", "PeerMemory", "KernelRead", "KernelWrite",
-        "PrivilegedCli",
-        "PrivilegedPort", "Nx", "GuardLow", "GuardHigh", "WriteCode", "WriteInfo", "NullRead", "InvalidOpcode",
-        "MemoryReservedFault", "MemoryDecommittedFault", "MemoryReleasedFault", "MemoryReadOnlyFault",
-        "MemoryNoAccessFault", "MemoryNxFault", "MemorySparseAndPrivate", "MemoryQuotaRollback",
-        "MemoryReservationErrors", "MemoryPhysicalOom", "MemoryLifecycle", "NativeThreadIdExhaustion",
-        "ThreadPreemptionAndTls", "ThreadJoinAndReuse", "ThreadJoinCycle", "ThreadCapacity", "ThreadCreationRollback",
-        "ThreadFault", "ThreadGuardLow", "ThreadGuardHigh", "ThreadBadReturn", "ThreadProcessExit",
-        "WaitQueueSemantics", "WaitClockDomains", "WaitResourceLimits", "WaitSignalState", "WaitClockAndIdle",
-        "WaitAutoWake", "WaitManualWake", "WaitCloseAndReuse", "WaitHandoff", "WaitDeadlineOrder", "WaitExitCleanup",
-        "WaitIdleBudget", "WaitRights", "WaitActiveTimeout", "WaitJoinChain", "ImageHeadersAndBounds",
-        "ImageUnsupportedFeatures", "ImageSectionsAndEntry", "ImageRelocationValidation", "ImageRelocatedExecution",
-        "ImageRelocationDirections", "ImagePreferredExecution", "ImageZeroFillAndPrivate", "ImageGapMapping",
-        "ImageAllocationRollback", "ImageWriteCode", "ImageWriteReadOnly", "ImageWriteHeaders", "ImageNxData",
-        "ImageEndBoundary", "ImageGapFault", "BootstrapUnwindMetadata", "BootstrapUnwindRejection",
-        "BootstrapNativeEntry", "BootstrapImageDescriptor", "BootstrapOrderAndRunOnce", "BootstrapRollback",
-        "BootstrapMainFailure", "BootstrapValidation", "BootstrapEmptyList", "BootstrapDescriptorProtection",
-        "BootstrapInitializerFault", "GcMemoryContract", "GcMemoryOwnership", "GcMemoryRelocation",
-        "GcReserveProtection", "GcDecommitProtection", "GcMemoryNx", "CpuCacheDiscovery", "GcEnvironmentInit",
-        "GcMemoryInformation", "GcInformationBuffers", "GcPhysicalPressure", "GcEventState", "GcEventCapacity",
-        "GcEventManual", "GcEventAuto", "GcEventClose", "GcEventContention", "GcEventFailFast", "GcClockContract",
-        "GcTimedWait", "GcTimedSignal", "GcTimeArithmetic", "GcClockIsolation", "GcThreadIdentity", "GcMutexRecursive",
-        "GcMutexBlocking", "GcMutexStress", "GcMutexCapacity", "GcCrst", "GcMutexFailFast", "GcMemoryReset",
-        "GcResetProtection", "NativeHeap", "NativeHeapReuse", "NativeHeapFailure", "NativeHeapThreads",
-        "NativeHeapFailFast", "NativeHeapProtection", "CompilerTlsValidation", "CompilerTlsRollback",
-        "CompilerTlsThreads", "CompilerTlsIsolation", "DynamicTlsLifecycle", "DynamicTlsExplicitExit",
-        "DynamicTlsDestructorOrder", "DynamicTlsFailFast", "DynamicTlsFaultIsolation", "PalThreadSnapshot",
-        "PalThreadBuffers", "PalThreadSwitching", "PalExpiredSleep", "PalStackGuards", "PalMemory",
-        "PalMemoryRollback", "PalEventState", "PalEventHandoff", "PalWaitTime", "PalCloseCancellation",
-        "PalMemoryProtection", "PalFreeFailFast", "WaitAnyValidation", "WaitAnyAutoReset", "WaitAnyManualAndReuse",
-        "WaitAnyClose", "WaitAnyDeadline", "WaitAnySnapshot", "WaitAnySingleAndMixed", "MemoryPressurePolicy",
-        "MemoryPressureWaitAndReuse", "MemoryPressureCapacity", "MemoryPressurePhysical", "PalModuleDiscovery",
-        "PalModuleInvalidBounds", "PalEnvironment", "PalEnvironmentValidation", "PalEnvironmentBlocks", "PalUtf8Copy",
-        "PalEnvironmentThreads", "NativeProcessExitOrder", "NativeProcessExitCapacity", "NativeProcessExitThreads",
-        "NativeProcessExitFailFast", "NativeProcessExitFault", "NativeThreadExitNotify", "NativeThreadExitDetached",
-        "NativeThreadExitFailFast", "NativeProcessAbruptExit", "PalBackgroundLifecycle", "PalBackgroundCapacity",
-        "PalBackgroundRollback", "DetachedLastExit", "PalBackgroundIsolation", "NativeLastError", "PalErrorCodes",
-        "LastErrorBindingProtection", "BadReturn", "TimerBudget", "PreemptionState", "ZeroFillAndStaleHandles",
-        "Teardown", "Isolation"
-    ];
-
-    // The shared isolation, thread, wait and image tests on ARM64, with the privileged operations of that ISA: masking
-    // interrupts and reading an EL1 system register.
-    private static readonly string[] A64_USER_CHECKS =
-    [
-        "UnprivilegedMode", "AbiAndHandles", "PrivateMemory", "PeerMemory", "KernelRead", "KernelWrite",
-        "PrivilegedMask", "PrivilegedRegister", "Nx", "GuardLow", "GuardHigh", "WriteCode", "WriteInfo", "NullRead",
-        "InvalidOpcode", "MemoryReservedFault", "MemoryDecommittedFault", "MemoryReleasedFault",
-        "MemoryReadOnlyFault", "MemoryNoAccessFault", "MemoryNxFault", "MemorySparseAndPrivate", "MemoryQuotaRollback",
-        "MemoryReservationErrors", "MemoryPhysicalOom", "MemoryLifecycle", "NativeThreadIdExhaustion",
-        "ThreadPreemptionAndTls", "ThreadJoinAndReuse", "ThreadJoinCycle", "ThreadCapacity", "ThreadCreationRollback",
-        "ThreadFault", "ThreadGuardLow", "ThreadGuardHigh", "ThreadBadReturn", "ThreadProcessExit",
-        "WaitQueueSemantics", "WaitClockDomains", "WaitResourceLimits", "WaitSignalState", "WaitClockAndIdle",
-        "WaitAutoWake", "WaitManualWake", "WaitCloseAndReuse", "WaitHandoff", "WaitDeadlineOrder", "WaitExitCleanup",
-        "WaitIdleBudget", "WaitRights", "WaitActiveTimeout", "WaitJoinChain", "ImageHeadersAndBounds",
-        "ImageUnsupportedFeatures", "ImageSectionsAndEntry", "ImageRelocationValidation", "ImageRelocatedExecution",
-        "ImageRelocationDirections", "ImagePreferredExecution", "ImageZeroFillAndPrivate", "ImageGapMapping",
-        "ImageAllocationRollback", "ImageWriteCode", "ImageWriteReadOnly", "ImageWriteHeaders", "ImageNxData",
-        "ImageEndBoundary", "ImageGapFault", "BadReturn", "TimerBudget", "PreemptionState", "ZeroFillAndStaleHandles",
-        "Teardown", "Isolation"
-    ];
-
-    // Contained EL0 faults of the ARM64 user tests: the peer page, the 17 isolation cases, the three faults of a
-    // second thread and the six image protection faults.
-    private const int A64_USER_FAULTS = 27;
 
     #endregion
 
@@ -204,7 +23,7 @@ internal static class BootValidation
     /// <summary>
     /// Decides whether a boot produced the outcome its request requires.
     /// </summary>
-    /// <param name="root">Repository root, used to read the expected kernel banner.</param>
+    /// <param name="root">Repository root, used to read the expected kernel banner and tests/Expectations.</param>
     /// <param name="request">Boot request with the expected outcome and suite.</param>
     /// <param name="result">Exit code, timeout state and serial log of the boot.</param>
     /// <returns>The verdict and a summary of the success check groups.</returns>
@@ -223,16 +42,18 @@ internal static class BootValidation
         var validMemory = memory.Success && int.TryParse(memory.Groups[1].Value, out var usable) && usable > 0 &&
             usable < request.MemoryMiB;
         var counterFrequency = Regex.Match(output, @"HPET frequency: (\d+)");
-        var foundationReady = FOUNDATION_TESTS.All(test => output.Contains(test, StringComparison.Ordinal)) &&
+        var foundation = BootExpectations.Read(root, BootExpectations.X64_FOUNDATION);
+        var foundationReady = foundation.Required.All(test => output.Contains(test, StringComparison.Ordinal)) &&
             validMemory &&
             counterFrequency.Success &&
             counterFrequency.Groups[1].Value == HPET_FREQUENCY &&
-            MarkersInOrder(output, FoundationOrder(root));
+            MarkersInOrder(output, FoundationOrder(root, foundation));
 
         // The kernel console emits CRLF; match the banner as one exact line.
         var bannerReady = Regex.IsMatch(output, "^" + Regex.Escape(KernelAbi.Banner(root)) + @"\r?$", RegexOptions.Multiline);
         var schedulerReady = ValidateScheduler(output);
-        var usersReady = ValidateUsers(output, LegacyFaults(request.Suite), FollowingFaults(request.Suite));
+        var usersReady =
+            ValidateUsers(root, output, LegacyFaults(root, request.Suite), FollowingFaults(root, request.Suite));
         var helloReady = hello > output.IndexOf("[TEST-PASS] Scheduler.RegisterState", StringComparison.Ordinal);
         var exception = output.Contains("[EXCEPTION]", StringComparison.Ordinal);
         var booted = request.Suite == BootSuite.Foundation
@@ -240,7 +61,7 @@ internal static class BootValidation
             : bannerReady && foundationReady && schedulerReady && usersReady && helloReady && !panic && !exception;
         var diagnostics = $"banner={bannerReady} foundation={foundationReady} scheduler={schedulerReady} " +
             $"users={usersReady} hello={helloReady} panic={panic} exception={exception}";
-        booted = booted && SuiteReady(request, result);
+        booted = booted && SuiteReady(root, request, result);
 
         var failedBeforeContract = !result.TimedOut && result.ExitCode == 35 && exitedFirmware >= 0 && contract < 0 && hello < 0;
         var passed = request.Expected switch
@@ -333,24 +154,29 @@ internal static class BootValidation
 
     #region Tools
 
-    private static string[] FoundationOrder(string root)
-        => [FOUNDATION_ORDER[0], KernelAbi.Banner(root), .. FOUNDATION_ORDER[1..]];
+    // The kernel banner from the ABI headers follows the first foundation marker.
+    private static string[] FoundationOrder(string root, BootExpectation foundation)
+        => [foundation.Markers[0], KernelAbi.Banner(root), .. foundation.Markers[1..]];
 
-    private static int LegacyFaults(BootSuite suite) => suite == BootSuite.RuntimeConfig ? 66 : 51;
+    private static string[] A64FoundationOrder(string root)
+        => BootExpectations.Read(root, BootExpectations.ARM64_FOUNDATION).Markers;
 
-    private static int FollowingFaults(BootSuite suite) => suite switch
+    private static int LegacyFaults(string root, BootSuite suite) => BootExpectations.Read(root,
+        suite == BootSuite.RuntimeConfig ? BootExpectations.RUNTIME_CONFIG : BootExpectations.X64_USERS).FaultsBeforeIsolation;
+
+    private static int FollowingFaults(string root, BootSuite suite) => suite switch
     {
         BootSuite.RuntimeBoot => RuntimeBootProtocol.StackFaultsPerProfile,
-        BootSuite.CoreClrMemory => 9,
-        BootSuite.CoreClrStorage => 7,
+        BootSuite.CoreClrMemory => BootExpectations.Read(root, BootExpectations.CORECLR_MEMORY).FaultsAfterIsolation,
+        BootSuite.CoreClrStorage => BootExpectations.Read(root, BootExpectations.CORECLR_STORAGE).FaultsAfterIsolation,
         _ => 0
     };
 
     // An ARM64 kernel foundation: the foundation markers, kernel-worker preemption, the EL0 isolation tests, then
     // Hello, without panic or exception.
     private static bool FoundationReady(string root, BootRequest request, string output) =>
-        A64Foundation(root, request, output) && ValidateScheduler(output) && ValidateA64Users(output) &&
-        MarkersInOrder(output, A64_FOUNDATION_ORDER[^1], "Kernel initialized.", "[TEST-PASS] Boot.Hello") &&
+        A64Foundation(root, request, output) && ValidateScheduler(output) && ValidateA64Users(root, output) &&
+        MarkersInOrder(output, A64FoundationOrder(root)[^1], "Kernel initialized.", "[TEST-PASS] Boot.Hello") &&
         !output.Contains("[PANIC]", StringComparison.Ordinal) && !output.Contains("[EXCEPTION]", StringComparison.Ordinal);
 
     // The banner, the build line of the requested architecture, plausible memory, a counter frequency and the
@@ -365,7 +191,7 @@ internal static class BootValidation
             usable < request.MemoryMiB;
         var counter = Regex.Match(output, @"Counter frequency: (\d+)");
         return banner && build && validMemory && counter.Success && ulong.Parse(counter.Groups[1].Value) > 0 &&
-            MarkersInOrder(output, A64_FOUNDATION_ORDER);
+            MarkersInOrder(output, A64FoundationOrder(root));
     }
 
     // A synchronous exception taken at EL1 on the kernel stack (vector 4, SPSR mode EL1h) after the foundation
@@ -374,7 +200,7 @@ internal static class BootValidation
     {
         var expected = request.A64Fault;
         if (expected is null || !A64Foundation(root, request, output) ||
-            !MarkersInOrder(output, A64_FOUNDATION_ORDER[^1], $"[TEST-BEGIN] {expected.Trigger}", "[EXCEPTION]",
+            !MarkersInOrder(output, A64FoundationOrder(root)[^1], $"[TEST-BEGIN] {expected.Trigger}", "[EXCEPTION]",
                 $"[PANIC] {expected.Panic}"))
         {
             return false;
@@ -396,21 +222,21 @@ internal static class BootValidation
             (!expected.Probe || Hex(frame, 5) == Hex(probe, 1));
     }
 
-    private static bool SuiteReady(BootRequest request, ProcessResult result)
+    private static bool SuiteReady(string root, BootRequest request, ProcessResult result)
     {
         var output = result.Output;
         switch (request.Suite)
         {
             case BootSuite.CoreClrMemory:
-                return MarkersInOrder(output, CORECLR_MEMORY_MARKERS);
+                return MarkersInOrder(output, BootExpectations.Read(root, BootExpectations.CORECLR_MEMORY).Markers);
             case BootSuite.CoreClrStorage:
-                return MarkersInOrder(output, CORECLR_STORAGE_MARKERS);
+                return MarkersInOrder(output, BootExpectations.Read(root, BootExpectations.CORECLR_STORAGE).Markers);
             case BootSuite.RuntimeBoot:
                 return RuntimeBootProtocol.Validate(output, result.ExitCode, result.TimedOut);
             case BootSuite.RuntimeConfig:
                 var cpuMarker = request.CpuModel == "max" ? "features=513; avx-hardware=1" :
                     request.CpuModel == "Nehalem" ? "features=1; avx-hardware=0" : "features=0; avx-hardware=0";
-                return MarkersInOrder(output, RUNTIME_CONFIG_MARKERS) &&
+                return MarkersInOrder(output, BootExpectations.Read(root, BootExpectations.RUNTIME_CONFIG).Markers) &&
                     output.Contains("[MINIPAL-CPU] " + cpuMarker, StringComparison.Ordinal);
             default:
                 return true;
@@ -448,24 +274,25 @@ internal static class BootValidation
     }
 
     // The ARM64 isolation markers in order after preemption, and exactly the expected faults, each taken at EL0t.
-    private static bool ValidateA64Users(string output)
+    private static bool ValidateA64Users(string root, string output)
     {
+        var users = BootExpectations.Read(root, BootExpectations.ARM64_USERS);
         var markers = new List<string> { "[TEST-PASS] Scheduler.RegisterState", "[TEST-BEGIN] User.Isolation" };
-        markers.AddRange(A64_USER_CHECKS.Select(name => $"[TEST-PASS] User.{name}"));
+        markers.AddRange(users.Markers);
         markers.Add("[TEST-PASS] Boot.Hello");
         var faults = Regex.Matches(output,
             @"(?m)^\[USER-FAULT\] id=(\d+) vector=(\d+) error=(0x[0-9A-F]{16}) address=(0x[0-9A-F]{16}) elr=(0x[0-9A-F]{16}) spsr=(0x[0-9A-F]{16}) esr=(0x[0-9A-F]{16})\r?$");
-        return MarkersInOrder(output, markers.ToArray()) && faults.Count == A64_USER_FAULTS &&
+        return MarkersInOrder(output, markers.ToArray()) && faults.Count == users.FaultsBeforeIsolation &&
             Regex.Matches(output, @"(?m)^\[USER-FAULT\]").Count == faults.Count &&
             faults.All(m => (Convert.ToUInt64(m.Groups[6].Value[2..], 16) & 0x1F) == 0 &&
                 m.Groups[3].Value == m.Groups[7].Value &&
                 Convert.ToUInt64(m.Groups[7].Value[2..], 16) >> 26 == ulong.Parse(m.Groups[2].Value));
     }
 
-    private static bool ValidateUsers(string output, int expectedFaults, int followingFaults)
+    private static bool ValidateUsers(string root, string output, int expectedFaults, int followingFaults)
     {
         var markers = new List<string> { "[TEST-PASS] Scheduler.RegisterState", "[TEST-BEGIN] User.Isolation" };
-        markers.AddRange(USER_CHECKS.Select(name => $"[TEST-PASS] User.{name}"));
+        markers.AddRange(BootExpectations.Read(root, BootExpectations.X64_USERS).Markers);
         markers.Add("[TEST-PASS] Boot.Hello");
         if (!MarkersInOrder(output, markers.ToArray()))
         {

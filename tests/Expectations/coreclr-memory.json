@@ -1,0 +1,24 @@
+{
+  "description": "CoreCLR executable-memory backend suite in order; contained faults after the isolation tests.",
+  "markers": [
+    "[TEST-PASS] Code.VMToOSMapper",
+    "[TEST-PASS] Code.VMToOSMapperRollback",
+    "[TEST-PASS] Code.DynamicFrameUnwind",
+    "[TEST-PASS] Code.ForeignDynamicUnwind",
+    "[TEST-PASS] Code.DynamicExceptionDispatch",
+    "[TEST-PASS] Code.DynamicTargetUnwind",
+    "[TEST-PASS] Code.CoreClrCollidedDispatch",
+    "[TEST-PASS] Code.CollidedContextRejection",
+    "[TEST-PASS] Code.DynamicUnwindRejection",
+    "[TEST-PASS] Code.ModuleUnwind",
+    "[TEST-PASS] Code.ForeignModuleUnwind",
+    "[TEST-PASS] Code.SparseViewsAndLateCommit",
+    "[TEST-PASS] Code.SparseCommitRollback",
+    "[TEST-PASS] Code.OwnershipAndAtomicProtection",
+    "[TEST-PASS] Code.PublicationAndExecution",
+    "[TEST-PASS] Code.WriteAndNxFaults",
+    "[TEST-PASS] Code.AliasesAndLifetime",
+    "[TEST-PASS] Code.Teardown"
+  ],
+  "faultsAfterIsolation": 9
+}
