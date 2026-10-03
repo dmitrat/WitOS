@@ -1,6 +1,6 @@
 # P6.4 multi-module DLL TLS work
 
-Date: 2026-10-02. ABI48 static DLL TLS is implemented and has passed targeted guest tests. Full regressions are running. Dynamic DLL TLS callbacks/constructors and admission with already-live peers remain open.
+Date: 2026-10-02, closed 2026-10-03. ABI48 static DLL TLS is implemented; the full regression matrix passed in CI and again on the consolidated Q2 code. Dynamic DLL TLS callbacks/constructors and admission with already-live peers remain open.
 
 ## Existing boundary to extend
 
@@ -30,4 +30,4 @@ Module load/abort/unload and thread creation/reaping include the extra pages in 
 
 Targeted 128/512 MiB guest runs passed two-module isolation, real template-pointer relocation, zero data, fresh worker/reused-slot state, main-slot-zero coexistence and cleanup after corrupting writable compiler-vector hints. Module-load OOM rollback passed. The worker sweep now loads DLLs first, consumes real quota to leave exactly 0..19 pages, requires rollback at every boundary, and succeeds at 20 pages including notification resources. No limits were raised and failed creation preserves the native-ID output.
 
-The new full-image TLS profile passed 4613 guarded admission/truncation/metadata cases under ASan, including retained rejection in the older library profile. The full host/kernel/source/managed/fuzz matrix is running; no final P6.4 or guest CoreCLR completion is claimed.
+The new full-image TLS profile passed 4613 guarded admission/truncation/metadata cases under ASan, including retained rejection in the older library profile. The full matrix passed in CI on `main` ([nativeaot run 36972286145](https://github.com/dmitrat/WitOS/actions/runs/36972286145)). After the Q2 consolidation it passed again locally on the same ABI48 behavior: host tests 69, x64 `test` 20 and ARM64 `test` 15 scenarios, `release`, audit/probe/target/source, PE corpus/coverage/fuzz/imports ASan, QemuCleanup, coreclr-source/host/host-files/functions/memory/storage, `runtime-config` and a full `runtime-boot` rebuild. The static slice is closed; no final P6.4 or guest CoreCLR completion is claimed.
