@@ -71,6 +71,8 @@ internal static class UserImage
         var defines = string.Join("\n", constants.Select(item => $"#define {item.Key} 0x{item.Value:X}")) + "\n";
         await File.WriteAllTextAsync(Path.Combine(output, "user_abi_a64.h"), defines, Encoding.ASCII);
         await BuildArm64FixtureAsync(root, output, msvc, constants, "entry", "UserFixture", "wit_user_test_image", "user_image.h");
+        await BuildArm64FixtureAsync(root, output, msvc, constants, "threads", "ThreadFixture", "wit_user_thread_image", "user_thread_image.h");
+        await BuildArm64FixtureAsync(root, output, msvc, constants, "waits", "WaitFixture", "wit_user_wait_image", "user_wait_image.h");
     }
 
     #endregion

@@ -1,8 +1,8 @@
 #include "x64.h"
 #include "protocol.h"
-#include "user_faults.h"
+#include "user_arch_tests.h"
 
-/* x64 expectations of the shared isolation tests: page faults (vector 14) with their error code and CR2, general
+/* x64 parts of the shared user-mode tests: page faults (vector 14) with their error code and CR2, general
  * protection (13) and invalid opcode (6). */
 
 const WitUserFaultCase wit_test_user_faults[] = {
@@ -26,6 +26,18 @@ const WitUserFaultCase wit_test_user_faults[] = {
 const WitU32 wit_test_user_fault_count = sizeof(wit_test_user_faults) / sizeof(wit_test_user_faults[0]);
 const WitUserFaultCase wit_test_user_peer_fault = {
     WIT_TEST_PEER_READ, "User.PeerMemory", 14, 4, WIT_USER_PEER_PAGE, 1, 0};
+
+const WitUserFaultCase wit_test_thread_faults[] = {{WIT_THREAD_TEST_FAULT, "User.ThreadFault", 6, 0, 0, 0, 0},
+    {WIT_THREAD_TEST_GUARD_LOW, "User.ThreadGuardLow", 14, 6, WIT_USER_STACK_BOTTOM + WIT_USER_THREAD_STRIDE - 1, 1, 0},
+    {WIT_THREAD_TEST_GUARD_HIGH, "User.ThreadGuardHigh", 14, 6, WIT_USER_STACK_TOP + WIT_USER_THREAD_STRIDE, 1, 0}};
+const WitU32 wit_test_thread_fault_count = sizeof(wit_test_thread_faults) / sizeof(wit_test_thread_faults[0]);
+
+static WitInterruptContext model_frames[WIT_USER_THREAD_CAPACITY];
+
+WitArchFrame *wit_test_model_frame(WitU32 index)
+{
+    return &model_frames[index];
+}
 
 int wit_test_user_fault_state(const WitArchFaultState *state, WitU64 *pc)
 {

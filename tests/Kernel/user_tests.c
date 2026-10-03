@@ -2,7 +2,7 @@
 #include "witos/platform.h"
 #include "protocol.h"
 #include "self_test.h"
-#include "user_faults.h"
+#include "user_arch_tests.h"
 #include "user_image.h"
 
 /* User isolation tests shared by every architecture; tests/Kernel.<isa> supplies the expected faults. */
@@ -60,8 +60,7 @@ static void recovery(WitPageAllocator *pages)
     require(wit_pages_free_count(pages) == before, "Recovery leaked pages");
 }
 
-/* The component faulted as expected, in user mode, and lost its handles. */
-static int contained(const WitUserProcess *process, const WitUserFaultCase *expected, int check_pc)
+int wit_test_user_fault_contained(const WitUserProcess *process, const WitUserFaultCase *expected, int check_pc)
 {
     WitU64 pc = 0;
     return process->State == WitUserFaulted &&
@@ -109,7 +108,8 @@ WitU64 wit_user_isolation_begin_self_test(WitPageAllocator *pages)
     *(WitU64 *)wit_user_space_physical(&components[0].Space, WIT_USER_PEER_PAGE, 0, 0) = 0x12345678;
     create(pages, 1, WIT_TEST_PEER_READ);
     wit_user_run(&components[1]);
-    require(contained(&components[1], &wit_test_user_peer_fault, 0), "Peer private page was accessible");
+    require(wit_test_user_fault_contained(&components[1], &wit_test_user_peer_fault, 0),
+        "Peer private page was accessible");
     wit_user_destroy(&components[1]);
     wit_user_run(&components[0]);
     check_normal(&components[0]);
@@ -121,7 +121,7 @@ WitU64 wit_user_isolation_begin_self_test(WitPageAllocator *pages)
         const WitUserFaultCase *fault = &wit_test_user_faults[i];
         create(pages, 0, fault->Mode);
         wit_user_run(&components[0]);
-        require(contained(&components[0], fault, 1), "User fault was not contained");
+        require(wit_test_user_fault_contained(&components[0], fault, 1), "User fault was not contained");
         require(wit_test_kernel_canary == 0xBADC0FFEE0DDF00DULL, "User fault corrupted kernel");
         wit_user_destroy(&components[0]);
         require(wit_pages_free_count(pages) == before, "Faulted component leaked pages");

@@ -172,20 +172,26 @@ internal static class BootValidation
         "Teardown", "Isolation"
     ];
 
-    // The shared isolation tests on ARM64, with the privileged operations of that ISA: masking interrupts and
-    // reading an EL1 system register.
+    // The shared isolation, thread and wait tests on ARM64, with the privileged operations of that ISA: masking
+    // interrupts and reading an EL1 system register.
     private static readonly string[] A64_USER_CHECKS =
     [
         "UnprivilegedMode", "AbiAndHandles", "PrivateMemory", "PeerMemory", "KernelRead", "KernelWrite",
         "PrivilegedMask", "PrivilegedRegister", "Nx", "GuardLow", "GuardHigh", "WriteCode", "WriteInfo", "NullRead",
         "InvalidOpcode", "MemoryReservedFault", "MemoryDecommittedFault", "MemoryReleasedFault",
         "MemoryReadOnlyFault", "MemoryNoAccessFault", "MemoryNxFault", "MemorySparseAndPrivate", "MemoryQuotaRollback",
-        "MemoryReservationErrors", "MemoryPhysicalOom", "MemoryLifecycle", "BadReturn", "TimerBudget",
+        "MemoryReservationErrors", "MemoryPhysicalOom", "MemoryLifecycle", "NativeThreadIdExhaustion",
+        "ThreadPreemptionAndTls", "ThreadJoinAndReuse", "ThreadJoinCycle", "ThreadCapacity", "ThreadCreationRollback",
+        "ThreadFault", "ThreadGuardLow", "ThreadGuardHigh", "ThreadBadReturn", "ThreadProcessExit",
+        "WaitQueueSemantics", "WaitClockDomains", "WaitResourceLimits", "WaitSignalState", "WaitClockAndIdle",
+        "WaitAutoWake", "WaitManualWake", "WaitCloseAndReuse", "WaitHandoff", "WaitDeadlineOrder", "WaitExitCleanup",
+        "WaitIdleBudget", "WaitRights", "WaitActiveTimeout", "WaitJoinChain", "BadReturn", "TimerBudget",
         "PreemptionState", "ZeroFillAndStaleHandles", "Teardown", "Isolation"
     ];
 
-    // Contained EL0 faults of the ARM64 isolation tests: the peer page and the 17 fault cases.
-    private const int A64_USER_FAULTS = 18;
+    // Contained EL0 faults of the ARM64 user tests: the peer page, the 17 isolation cases and the three faults of
+    // a second thread.
+    private const int A64_USER_FAULTS = 21;
 
     #endregion
 

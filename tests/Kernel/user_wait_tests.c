@@ -1,18 +1,23 @@
-#include "x64.h"
 #include "user.h"
 #include "witos/platform.h"
 #include "protocol.h"
+#include "user_arch_tests.h"
 #include "user_wait_image.h"
 
 static WitUserProcess processes[2];
 static WitUserProcess model;
-static WitInterruptContext model_contexts[WIT_USER_THREAD_CAPACITY];
 
 static void require(int condition, const char *message)
 {
     if (!condition) {
         wit_panic(message);
     }
+}
+
+/* Status that a model thread's wait returned in its saved frame. */
+static WitU64 status(WitU32 index)
+{
+    return *wit_arch_frame_status(wit_test_model_frame(index));
 }
 
 static WitU64 make_event(WitUserProcess *process, WitU64 flags, WitU32 rights)
@@ -29,7 +34,7 @@ static void initialize_model(void)
     wit_events_initialize(&model.Events);
     model.NextWaitOrder = 0;
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
-        model.Threads[i].Context = &model_contexts[i];
+        model.Threads[i].Context = wit_test_model_frame(i);
         model.Threads[i].State = WitThreadRunning;
         model.Threads[i].WaitKind = WitWaitNone;
         model.Threads[i].MonotonicWait = 0;
@@ -66,12 +71,12 @@ static void queue_semantics(void)
         "Auto event FIFO order failed");
     require(wit_user_event_close(&model, handle) == WIT_STATUS_OK &&
             model.Threads[1].State == WitThreadReady &&
-            model_contexts[1].Rax == WIT_STATUS_CLOSED,
+            status(1) == WIT_STATUS_CLOSED,
         "Closing event did not cancel pending wait");
     replacement = make_event(&model, WIT_EVENT_INITIAL_SIGNALED, WIT_RIGHT_WAIT | WIT_RIGHT_SIGNAL);
     require(replacement != handle &&
             wit_user_event_set(&model, handle) == WIT_STATUS_BAD_HANDLE &&
-            model_contexts[1].Rax == WIT_STATUS_CLOSED,
+            status(1) == WIT_STATUS_CLOSED,
         "Reused event changed an old completion");
 
     initialize_model();
@@ -82,15 +87,15 @@ static void queue_semantics(void)
     wit_user_wait_expire(&model, 101);
     require(model.Threads[0].State == WitThreadWaiting, "Wait expired before deadline");
     wit_user_wait_expire(&model, 102);
-    require(model_contexts[0].Rax == WIT_STATUS_TIMED_OUT &&
-            model_contexts[1].Rax == WIT_STATUS_TIMED_OUT &&
+    require(status(0) == WIT_STATUS_TIMED_OUT &&
+            status(1) == WIT_STATUS_TIMED_OUT &&
             model.Threads[2].State == WitThreadWaiting,
         "Exact deadline handling failed");
     require(wit_user_event_set(&model, handle) == WIT_STATUS_OK &&
-            model_contexts[2].Rax == WIT_STATUS_OK &&
-            model_contexts[0].Rax == WIT_STATUS_TIMED_OUT,
+            status(2) == WIT_STATUS_OK &&
+            status(0) == WIT_STATUS_TIMED_OUT,
         "Signal overwrote an expired completion");
-    require(wit_user_event_reset(&model, handle) == WIT_STATUS_OK && model_contexts[2].Rax == WIT_STATUS_OK,
+    require(wit_user_event_reset(&model, handle) == WIT_STATUS_OK && status(2) == WIT_STATUS_OK,
         "Reset revoked a claimed completion");
 
     for (WitU32 i = 0; i < 3; ++i) {
@@ -98,7 +103,7 @@ static void queue_semantics(void)
     }
     require(wit_user_event_set(&model, handle) == WIT_STATUS_OK, "Manual signal failed");
     for (WitU32 i = 0; i < 3; ++i) {
-        require(model.Threads[i].State == WitThreadReady && model_contexts[i].Rax == WIT_STATUS_OK,
+        require(model.Threads[i].State == WitThreadReady && status(i) == WIT_STATUS_OK,
             "Manual event failed to wake every waiter");
     }
     model.CurrentThread = 3;
@@ -122,9 +127,8 @@ static void clock_domains(void)
     wit_user_wait_expire_time(&model, 1001);
     require(model.Threads[1].State == WitThreadWaiting, "Monotonic deadline expired early");
     wit_user_wait_expire_time(&model, 1002);
-    require(model_contexts[1].Rax == WIT_STATUS_TIMED_OUT && !model.Threads[1].MonotonicWait,
-        "Monotonic exact deadline failed");
-    require(wit_user_event_set(&model, handle) == WIT_STATUS_OK && model_contexts[1].Rax == WIT_STATUS_TIMED_OUT,
+    require(status(1) == WIT_STATUS_TIMED_OUT && !model.Threads[1].MonotonicWait, "Monotonic exact deadline failed");
+    require(wit_user_event_set(&model, handle) == WIT_STATUS_OK && status(1) == WIT_STATUS_TIMED_OUT,
         "Late signal replaced a timeout");
     require(wit_user_event_wait_until(&model, handle, WIT_MONOTONIC_MAX + 1, 1002) == WIT_STATUS_INVALID_ARGUMENT &&
             wit_user_event_wait_until(&model, handle, 0, 1002) == WIT_STATUS_OK,
@@ -139,8 +143,8 @@ static void clock_domains(void)
     require(model.Threads[0].State == WitThreadWaiting && model.Threads[1].State == WitThreadReady,
         "Monotonic expiration consumed a PIT deadline");
     require(wit_user_event_close(&model, handle) == WIT_STATUS_OK &&
-            model_contexts[0].Rax == WIT_STATUS_CLOSED &&
-            model_contexts[1].Rax == WIT_STATUS_TIMED_OUT,
+            status(0) == WIT_STATUS_CLOSED &&
+            status(1) == WIT_STATUS_TIMED_OUT,
         "Close overwrote a monotonic timeout");
 
     initialize_model();
@@ -165,8 +169,7 @@ static void clock_domains(void)
     wit_user_wait_expire_time(&model, 1009);
     require(model.Threads[3].State == WitThreadWaiting, "Timed sleep woke early");
     wit_user_wait_expire_time(&model, 1010);
-    require(
-        model.Threads[3].State == WitThreadReady && model_contexts[3].Rax == WIT_STATUS_OK, "Timed sleep did not wake");
+    require(model.Threads[3].State == WitThreadReady && status(3) == WIT_STATUS_OK, "Timed sleep did not wake");
     wit_handles_close_all(&model.Handles);
     wit_events_initialize(&model.Events);
     wit_console_write("[TEST-PASS] User.WaitClockDomains\n");

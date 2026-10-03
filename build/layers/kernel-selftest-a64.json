@@ -9,7 +9,7 @@
   "sources": [
     "tests/Kernel.A64/kernel_tests.c",
     "tests/Kernel.A64/fault_tests.c",
-    "tests/Kernel.A64/user_faults.c"
+    "tests/Kernel.A64/user_arch_tests.c"
   ],
   "assembly": [
     "tests/Kernel.A64/self_test.asm"

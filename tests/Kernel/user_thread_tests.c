@@ -1,7 +1,7 @@
-#include "x64.h"
 #include "user.h"
 #include "witos/platform.h"
 #include "protocol.h"
+#include "user_arch_tests.h"
 #include "user_image.h"
 #include "user_thread_image.h"
 
@@ -110,13 +110,6 @@ void wit_user_thread_self_test(WitPageAllocator *pages)
     wit_user_native_id_self_test();
     const WitU64 before = wit_pages_free_count(pages);
 
-    static const struct {
-        WitU64 Mode, Vector, Error, Address;
-        const char *Name;
-    } faults[] = {{WIT_THREAD_TEST_FAULT, 6, 0, 0, "User.ThreadFault"},
-        {WIT_THREAD_TEST_GUARD_LOW, 14, 6, WIT_USER_STACK_BOTTOM + WIT_USER_THREAD_STRIDE - 1, "User.ThreadGuardLow"},
-        {WIT_THREAD_TEST_GUARD_HIGH, 14, 6, WIT_USER_STACK_TOP + WIT_USER_THREAD_STRIDE, "User.ThreadGuardHigh"}};
-
     create(pages, WIT_THREAD_TEST_NORMAL);
     wit_user_run(&process);
     check_exit(WIT_TEST_EXIT_CODE);
@@ -158,25 +151,17 @@ void wit_user_thread_self_test(WitPageAllocator *pages)
 
     allocation_failure(pages);
     require(wit_pages_free_count(pages) == before, "Thread OOM test leaked");
-    for (WitU32 i = 0; i < sizeof(faults) / sizeof(faults[0]); ++i) {
-        create(pages, faults[i].Mode);
+    for (WitU32 i = 0; i < wit_test_thread_fault_count; ++i) {
+        const WitUserFaultCase *fault = &wit_test_thread_faults[i];
+        create(pages, fault->Mode);
         wit_user_run(&process);
-        require(process.State == WitUserFaulted &&
-                process.FaultThread == 1 &&
-                process.FaultVector == faults[i].Vector &&
-                process.FaultError == faults[i].Error &&
-                process.FaultState.Cs == WIT_USER_CS &&
-                process.FaultState.Ss == WIT_USER_SS &&
-                process.Handles.Count == 0,
+        require(process.FaultThread == 1 && wit_test_user_fault_contained(&process, fault, 0),
             "Child fault was not contained");
-        if (faults[i].Vector == 14) {
-            require(process.FaultAddress == faults[i].Address, "Wrong child guard address");
-        }
         wit_user_destroy(&process);
         require(wit_pages_free_count(pages) == before, "Child fault leaked");
         recovery(pages);
         wit_console_write("[TEST-PASS] ");
-        wit_console_write(faults[i].Name);
+        wit_console_write(fault->Name);
         wit_console_write("\n");
     }
     create(pages, WIT_THREAD_TEST_BAD_RETURN);

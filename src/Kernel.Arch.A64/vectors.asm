@@ -144,6 +144,7 @@ resume_registers
     ldr x30, [sp, #240]
     ldp x0, x1, [sp]
     add sp, sp, #FRAME_SIZE
+    clrex ; an exclusive load of the interrupted thread must not pair with a store after a switch
     eret
 
     END
