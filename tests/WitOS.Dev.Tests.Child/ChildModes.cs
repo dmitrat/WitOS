@@ -51,13 +51,22 @@ internal static class ChildModes
 
     #region Tools
 
+    // A launcher waits for the file and the tests read it after a kill: publish it only complete, never as a
+    // created but still empty file.
+    private static void PublishProcessId(string pidFile)
+    {
+        var temporary = pidFile + ".tmp";
+        File.WriteAllText(temporary, Environment.ProcessId.ToString());
+        File.Move(temporary, pidFile, overwrite: true);
+    }
+
     private static async Task<int> LeafAsync(string pidFile, bool keepOutput)
     {
         if (!keepOutput)
         {
             ChildHandles.CloseOutput();
         }
-        File.WriteAllText(pidFile, Environment.ProcessId.ToString());
+        PublishProcessId(pidFile);
         await Task.Delay(8000);
         if (keepOutput)
         {
@@ -113,7 +122,7 @@ internal static class ChildModes
 
     private static async Task<int> BurstWaitAsync(string pidFile)
     {
-        File.WriteAllText(pidFile, Environment.ProcessId.ToString());
+        PublishProcessId(pidFile);
         Console.WriteLine("before burst");
         var chunk = new string('x', 65536);
         for (var n = 0; n < 32; ++n)

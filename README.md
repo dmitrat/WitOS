@@ -26,6 +26,8 @@ Development host for this first slice:
 - Git.
 - 7-Zip at its normal installation location, for extracting QEMU.
 
+Real-time antivirus scanning interferes with this workload. Microsoft Defender inspects every new process and every newly written file under `artifacts/` and `.tools/`; under the bursts of builds, child processes and captured output it can stall process creation and first writes system-wide for up to about 20 seconds. The machine then feels sluggish, and the timing-bounded host process tests fail with cleanup or deadline errors. On a development machine, keep the repository on a Dev Drive (Defender performance mode) or exclude it from real-time scanning from an administrator PowerShell: `Add-MpPreference -ExclusionPath C:\path\to\WitOS`. Downloads are verified against pinned hashes, but excluded files are not scanned.
+
 From the repository root:
 
 ```powershell
