@@ -25,6 +25,10 @@ static void mapper_adapter(WitPageAllocator *pages)
             "VMToOS fixture load failed");
         WitUserTestConfig *config = (WitUserTestConfig *)wit_user_space_physical(&process.Space, WIT_USER_INFO, 0, 0);
         config->Mode = run >= 7 ? run - 5 : run ? 1 : 0;
+        /* The mapper stands in for a runtime component and gets its tick budget: TCG counts PIT ticks in host time,
+         * and the first run, with its dynamic exception dispatch, takes 6-7 of the ordinary 10 ticks on an idle
+         * host. User.TimerBudget tests budget expiry. */
+        process.TickLimit = WIT_RUNTIME_TICK_BUDGET;
         if (run && run < 7) {
             process.Space.PageLimit = process.Space.OwnedCount + run - 1;
         }
