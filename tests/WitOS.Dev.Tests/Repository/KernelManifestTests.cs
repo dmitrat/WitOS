@@ -20,9 +20,7 @@ public sealed class KernelManifestTests
         "src/Kernel.Platform.QemuVirt", "tests/Kernel", "tests/Kernel.X64", "tests/Kernel.A64"
     ];
 
-    private static readonly string[] SHARED_LAYERS = ["boot-uefi", "kernel-boot"];
-
-    private const string BOOT_ONLY = "WITOS_BOOT_ONLY";
+    private static readonly string[] SHARED_LAYERS = ["boot-uefi", "kernel-boot", "kernel-foundation"];
 
     #endregion
 
@@ -95,9 +93,9 @@ public sealed class KernelManifestTests
         }
     }
 
-    // A new architecture starts with the boot-only profile: the loader and kernel entry, no common kernel beyond them.
+    // ARM64 shares the loader, the kernel entry and the foundation services with x64; user-mode policy follows in A2.
     [Test]
-    public void Arm64SharesTheBootLayersTest()
+    public void Arm64SharesTheFoundationLayersTest()
     {
         var root = TestEnvironment.Root;
         var x64 = KernelManifest.ReadTarget(root, "x64");
@@ -110,12 +108,8 @@ public sealed class KernelManifestTests
             Assert.That(arm64.Layers, Does.Contain(layer));
         }
         Assert.That(arm64.Includes.Except(x64.Includes), Is.EqualTo(new[] { "src/Kernel.Arch.A64/include" }));
-        foreach (var target in new[] { x64, arm64 })
-        {
-            var bootOnly = (target.Defines ?? []).Contains(BOOT_ONLY);
-            Assert.That(target.Layers.Contains("kernel-common"), Is.EqualTo(!bootOnly),
-                $"{target.Architecture}: the boot-only profile and the common kernel layer exclude each other");
-        }
+        Assert.That(x64.Layers, Does.Contain("kernel-common"));
+        Assert.That(arm64.Layers, Does.Not.Contain("kernel-common"), "ARM64 links user-mode policy only from A2");
     }
 
     #endregion

@@ -1,10 +1,8 @@
 {
   "name": "kernel-common",
-  "description": "Architecture-independent kernel beyond boot: handles, events, PE validation, storage, randomness, processes, threads, waits and policy.",
+  "description": "Architecture-independent kernel objects and user-mode policy: handles, events, files, PE validation, processes, threads, waits and libraries.",
   "includes": [],
   "sources": [
-    "src/Kernel/package.c",
-    "src/Kernel/storage.c",
     "src/Kernel/files.c",
     "src/Kernel/user_files.c",
     "src/Kernel/user_library.c",
@@ -22,7 +20,6 @@
     "src/Kernel/user_apc.c",
     "src/Kernel/user_objects.c",
     "src/Kernel/user_reference.c",
-    "src/Kernel/random.c",
     "src/Kernel/handles.c",
     "src/Kernel/user_space.c",
     "src/Kernel/user.c",

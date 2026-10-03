@@ -1,0 +1,11 @@
+{
+  "name": "kernel-foundation",
+  "description": "Architecture-independent kernel services after paging: the readonly boot package and storage, and the ChaCha20 random generator.",
+  "includes": [],
+  "sources": [
+    "src/Kernel/package.c",
+    "src/Kernel/storage.c",
+    "src/Kernel/random.c"
+  ],
+  "assembly": []
+}

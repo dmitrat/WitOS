@@ -1,11 +1,13 @@
 {
   "name": "kernel-platform-qemu-virt",
-  "description": "QEMU virt board: PL011 console and the test exit through Arm semihosting.",
+  "description": "QEMU virt board: PL011 console, the generic counter as the monotonic clock and the test exit through Arm semihosting.",
   "includes": [],
   "sources": [
-    "src/Kernel.Platform.QemuVirt/console.c"
+    "src/Kernel.Platform.QemuVirt/console.c",
+    "src/Kernel.Platform.QemuVirt/clock.c"
   ],
   "assembly": [
-    "src/Kernel.Platform.QemuVirt/semihosting.asm"
+    "src/Kernel.Platform.QemuVirt/semihosting.asm",
+    "src/Kernel.Platform.QemuVirt/counter.asm"
   ]
 }

@@ -93,14 +93,6 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
     wit_console_write("Free physical pages: ");
     wit_console_write_u64(wit_pages_free_count(&physical_pages));
     wit_console_write("\n");
-#if defined(WITOS_BOOT_ONLY)
-    /* A new architecture boots this far first: the boot contract, its exception vectors and the physical
-     * allocator, before its paging and clocks exist. */
-#if defined(WITOS_SELFTEST)
-    wit_kernel_self_test(boot, &physical_pages);
-#endif
-    finish();
-#else
     wit_virtual_initialize(boot, &physical_pages);
     if (!wit_storage_initialize(boot)) {
         wit_panic("Invalid readonly boot package");
@@ -139,5 +131,4 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
     wit_kernel_self_test(boot, &physical_pages);
 #endif
     finish();
-#endif
 }

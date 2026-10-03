@@ -10,6 +10,7 @@
   "layers": [
     "boot-uefi",
     "kernel-boot",
+    "kernel-foundation",
     "kernel-common",
     "kernel-arch-x64",
     "kernel-platform-q35"

@@ -1,11 +1,12 @@
 {
   "name": "kernel-arch-a64",
-  "description": "ARM64 implementation of witos/arch.h for the boot-only kernel: identity, bring-up stack, exception level, interrupt masking and fatal exception vectors.",
+  "description": "ARM64 implementation of witos/arch.h and witos/virtual.h for the kernel foundation: identity, guarded boot stack, exception level, interrupt masking, fatal exception vectors and kernel translation tables.",
   "includes": [],
   "sources": [
     "src/Kernel.Arch.A64/identity.c",
     "src/Kernel.Arch.A64/bringup.c",
-    "src/Kernel.Arch.A64/exceptions.c"
+    "src/Kernel.Arch.A64/exceptions.c",
+    "src/Kernel.Arch.A64/paging.c"
   ],
   "assembly": [
     "src/Kernel.Arch.A64/entry.asm",

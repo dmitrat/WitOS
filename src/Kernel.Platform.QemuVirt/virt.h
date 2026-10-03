@@ -10,4 +10,8 @@
 /* Arm semihosting call (HLT #0xF000); QEMU serves it when started with -semihosting-config. */
 WitU64 wit_virt_semihosting(WitU64 operation, const void *parameter);
 
+/* Generic counter (CNTPCT_EL0, read after an ISB) and its frequency (CNTFRQ_EL0). */
+WitU64 wit_virt_counter(void);
+WitU64 wit_virt_counter_frequency(void);
+
 #endif

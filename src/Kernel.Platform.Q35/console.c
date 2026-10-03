@@ -34,6 +34,14 @@ void wit_platform_console_put(WitU8 value)
     /* A missing/broken serial device must not hang panic or shutdown. */
 }
 
+WitU32 wit_platform_boot_devices(WitU64 *pages, WitU32 capacity)
+{
+    /* COM1 is port I/O and the HPET is mapped on demand; q35 needs no early device pages. */
+    (void)pages;
+    (void)capacity;
+    return 0;
+}
+
 WIT_NORETURN void wit_platform_finish(WitU32 code)
 {
     /* QEMU test device only: guest 0x10 -> host 33, guest 0x11 -> host 35.

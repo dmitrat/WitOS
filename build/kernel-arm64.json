@@ -1,7 +1,7 @@
 {
   "architecture": "arm64",
   "status": "active",
-  "description": "ARM64 kernel on the QEMU virt board. Boot-only profile: the boot contract, exception vectors and the physical allocator; paging and clocks arrive with A1.2 and A1.3.",
+  "description": "ARM64 kernel on the QEMU virt board: boot contract, exception vectors, kernel translation tables, boot storage, randomness and the generic counter; the timer and preemption arrive with A1.3, user mode with A2.",
   "includes": [
     "src/Kernel/include",
     "src/Kernel",
@@ -10,14 +10,12 @@
   "layers": [
     "boot-uefi",
     "kernel-boot",
+    "kernel-foundation",
     "kernel-arch-a64",
     "kernel-platform-qemu-virt"
   ],
   "selfTestLayers": [
     "kernel-selftest-shared",
     "kernel-selftest-a64"
-  ],
-  "defines": [
-    "WITOS_BOOT_ONLY"
   ]
 }

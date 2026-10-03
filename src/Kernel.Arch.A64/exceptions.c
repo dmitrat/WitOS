@@ -46,28 +46,33 @@ static const char *exception_name(WitU64 kind, WitU64 exception_class)
     }
 }
 
-static int on_boot_stack(WitU64 address)
+static WitU64 kernel_stack_begin(void)
 {
-    const WitU64 begin = (WitU64)wit_a64_boot_stack;
-    return address > begin && address <= begin + WIT_A64_BOOT_STACK_SIZE;
+    return (WitU64)wit_a64_kernel_stack + 4096;
+}
+
+static int on_kernel_stack(WitU64 address)
+{
+    const WitU64 begin = kernel_stack_begin();
+    return address > begin && address <= begin + WIT_A64_KERNEL_STACK_SIZE;
 }
 
 void wit_arch_initialize(void)
 {
-    const WitU64 stack_begin = (WitU64)wit_a64_boot_stack;
+    const WitU64 stack_begin = kernel_stack_begin();
 
     /* UEFI hands over at EL1 on QEMU virt; the kernel takes no EL2 or EL3 duties. */
     if (wit_a64_exception_level() != 1) {
         wit_panic("Unsupported exception level");
     }
-    if (!on_boot_stack(wit_a64_stack_pointer())) {
+    if (!on_kernel_stack(wit_a64_stack_pointer())) {
         wit_panic("Not running on kernel stack");
     }
     wit_console_write("[TEST-PASS] Cpu.KernelStack\n");
     wit_console_write("Kernel stack: ");
     wit_console_write_hex(stack_begin);
     wit_console_write("-");
-    wit_console_write_hex(stack_begin + WIT_A64_BOOT_STACK_SIZE);
+    wit_console_write_hex(stack_begin + WIT_A64_KERNEL_STACK_SIZE);
     wit_console_write("\n");
 
     wit_a64_set_vectors(wit_a64_vectors);
@@ -95,6 +100,6 @@ WIT_NORETURN void wit_a64_exception(const WitA64Frame *frame, WitU64 kind)
     wit_console_write_hex(frame->Spsr);
     wit_console_write(" sp=");
     wit_console_write_hex(frame->Sp);
-    wit_console_write(on_boot_stack(frame->Sp) ? " stack=kernel\n" : " stack=unknown\n");
+    wit_console_write(on_kernel_stack(frame->Sp) ? " stack=kernel\n" : " stack=unknown\n");
     wit_panic(exception_name(kind, exception_class));
 }

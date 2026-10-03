@@ -11,5 +11,5 @@ internal enum BootSuite
     CoreClrMemory,
     CoreClrStorage,
     Release,
-    BootOnly
+    Foundation
 }

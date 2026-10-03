@@ -33,6 +33,16 @@ void wit_platform_console_put(WitU8 value)
     /* A missing/broken serial device must not hang panic or shutdown. */
 }
 
+WitU32 wit_platform_boot_devices(WitU64 *pages, WitU32 capacity)
+{
+    /* The console stays usable across the switch to the kernel's translation tables. */
+    if (capacity == 0) {
+        return 0;
+    }
+    pages[0] = WIT_VIRT_PL011_BASE;
+    return 1;
+}
+
 WIT_NORETURN void wit_platform_finish(WitU32 code)
 {
     /* The host sees the same status as q35's isa-debug-exit: guest 0x10 -> 33, guest 0x11 -> 35.

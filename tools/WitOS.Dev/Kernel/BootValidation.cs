@@ -28,13 +28,15 @@ internal static class BootValidation
     // Unmapped address that the page-fault and data-abort scenarios read.
     private const ulong FAULT_PROBE = 0x0000400000000000UL;
 
-    // Boot-only kernel of an architecture in bring-up, in order: firmware handoff, boot contract, exception vectors,
-    // physical allocator and its self-tests.
-    private static readonly string[] BOOT_ONLY_ORDER =
+    // Kernel foundation of an architecture without user mode yet (ARM64 in phase A), in order: firmware handoff,
+    // boot contract, exception vectors, allocator, kernel paging, randomness, clock and the foundation self-tests.
+    private static readonly string[] A64_FOUNDATION_ORDER =
     [
         "[BOOT] ExitBootServices OK", "[TEST-PASS] Boot.Contract", "[TEST-PASS] Cpu.KernelStack",
-        "[TEST-PASS] Cpu.ExceptionTables", "Free physical pages: ", "[TEST-PASS] Memory.PhysicalPages",
-        "[TEST-PASS] Memory.Exhaustion", "[TEST-PASS] Memory.InvalidMaps"
+        "[TEST-PASS] Cpu.ExceptionTables", "Free physical pages: ", "[TEST-PASS] Memory.KernelPaging",
+        "[TEST-PASS] Memory.StackGuards", "[TEST-PASS] Random.BootSeedConsumed", "[TEST-PASS] Random.ChaCha20Vector",
+        "[TEST-PASS] Clock.Counter64", "[TEST-PASS] Clock.IrqIndependent", "[TEST-PASS] Memory.PhysicalPages",
+        "[TEST-PASS] Memory.Exhaustion", "[TEST-PASS] Memory.InvalidMaps", "[TEST-PASS] Memory.VirtualMappings"
     ];
 
     private static readonly string[] FOUNDATION_ORDER =
@@ -207,8 +209,8 @@ internal static class BootValidation
         var usersReady = ValidateUsers(output, LegacyFaults(request.Suite), FollowingFaults(request.Suite));
         var helloReady = hello > output.IndexOf("[TEST-PASS] Scheduler.RegisterState", StringComparison.Ordinal);
         var exception = output.Contains("[EXCEPTION]", StringComparison.Ordinal);
-        var booted = request.Suite == BootSuite.BootOnly
-            ? BootOnlyReady(root, request, output)
+        var booted = request.Suite == BootSuite.Foundation
+            ? FoundationReady(root, request, output)
             : bannerReady && foundationReady && schedulerReady && usersReady && helloReady && !panic && !exception;
         var diagnostics = $"banner={bannerReady} foundation={foundationReady} scheduler={schedulerReady} " +
             $"users={usersReady} hello={helloReady} panic={panic} exception={exception}";
@@ -230,7 +232,7 @@ internal static class BootValidation
             ExpectedOutcome.InvalidMap => failedBeforeContract &&
                 output.Contains("[PANIC] Invalid memory map", StringComparison.Ordinal),
             ExpectedOutcome.Exception => !result.TimedOut && result.ExitCode == 35 && hello < 0 &&
-                (request.Suite == BootSuite.BootOnly
+                (request.Suite == BootSuite.Foundation
                     ? ValidateA64Exception(root, request, output)
                     : foundationReady && request.Fault is not null && ValidateException(output, request.Fault)),
             ExpectedOutcome.Timeout => result.TimedOut && booted,
@@ -318,14 +320,15 @@ internal static class BootValidation
         _ => 0
     };
 
-    // A boot-only kernel of a new architecture: the bring-up markers, then Hello, without panic or exception.
-    private static bool BootOnlyReady(string root, BootRequest request, string output) =>
-        BootOnlyBringUp(root, request, output) &&
-        MarkersInOrder(output, BOOT_ONLY_ORDER[^1], "Kernel initialized.", "[TEST-PASS] Boot.Hello") &&
+    // An ARM64 kernel foundation: the foundation markers, then Hello, without panic or exception.
+    private static bool FoundationReady(string root, BootRequest request, string output) =>
+        A64Foundation(root, request, output) &&
+        MarkersInOrder(output, A64_FOUNDATION_ORDER[^1], "Kernel initialized.", "[TEST-PASS] Boot.Hello") &&
         !output.Contains("[PANIC]", StringComparison.Ordinal) && !output.Contains("[EXCEPTION]", StringComparison.Ordinal);
 
-    // The banner, the build line of the requested architecture, plausible memory and the bring-up markers in order.
-    private static bool BootOnlyBringUp(string root, BootRequest request, string output)
+    // The banner, the build line of the requested architecture, plausible memory, a counter frequency and the
+    // foundation markers in order.
+    private static bool A64Foundation(string root, BootRequest request, string output)
     {
         var banner = Regex.IsMatch(output, "^" + Regex.Escape(KernelAbi.Banner(root)) + @"\r?$", RegexOptions.Multiline);
         var build = Regex.IsMatch(output, @"^Build: \S+ \| " + Regex.Escape(request.Architecture.Name) + @" \| Debug\r?$",
@@ -333,16 +336,18 @@ internal static class BootValidation
         var memory = Regex.Match(output, @"Usable memory: (\d+) MiB");
         var validMemory = memory.Success && int.TryParse(memory.Groups[1].Value, out var usable) && usable > 0 &&
             usable < request.MemoryMiB;
-        return banner && build && validMemory && MarkersInOrder(output, BOOT_ONLY_ORDER);
+        var counter = Regex.Match(output, @"Counter frequency: (\d+)");
+        return banner && build && validMemory && counter.Success && ulong.Parse(counter.Groups[1].Value) > 0 &&
+            MarkersInOrder(output, A64_FOUNDATION_ORDER);
     }
 
-    // A synchronous exception taken at EL1 on the kernel stack (vector 4, SPSR mode EL1h) after the bring-up markers,
-    // with the expected syndrome class and, for data aborts, the probe address in FAR.
+    // A synchronous exception taken at EL1 on the kernel stack (vector 4, SPSR mode EL1h) after the foundation
+    // markers, with the expected syndrome class and the fault probe address in FAR where the scenario names one.
     private static bool ValidateA64Exception(string root, BootRequest request, string output)
     {
         var expected = request.A64Fault;
-        if (expected is null || !BootOnlyBringUp(root, request, output) ||
-            !MarkersInOrder(output, BOOT_ONLY_ORDER[^1], $"[TEST-BEGIN] {expected.Trigger}", "[EXCEPTION]",
+        if (expected is null || !A64Foundation(root, request, output) ||
+            !MarkersInOrder(output, A64_FOUNDATION_ORDER[^1], $"[TEST-BEGIN] {expected.Trigger}", "[EXCEPTION]",
                 $"[PANIC] {expected.Panic}"))
         {
             return false;
@@ -350,7 +355,8 @@ internal static class BootValidation
         var frame = Regex.Match(output,
             @"\[EXCEPTION\] kind=(\d+) class=(0x[0-9A-F]{16}) esr=(0x[0-9A-F]{16}) elr=(0x[0-9A-F]{16}) far=(0x[0-9A-F]{16}) spsr=(0x[0-9A-F]{16}) sp=(0x[0-9A-F]{16}) stack=(\w+)");
         var stack = Regex.Match(output, @"Kernel stack: (0x[0-9A-F]{16})-(0x[0-9A-F]{16})");
-        if (!frame.Success || !stack.Success)
+        var probe = Regex.Match(output, @"\[FAULT-PROBE\] address=(0x[0-9A-F]{16})");
+        if (!frame.Success || !stack.Success || (expected.Probe && !probe.Success))
         {
             return false;
         }
@@ -359,7 +365,8 @@ internal static class BootValidation
         var sp = Hex(frame, 7);
         return frame.Groups[1].Value == "4" && Hex(frame, 2) == exceptionClass && ((Hex(frame, 3) >> 26) & 0x3F) == exceptionClass &&
             Hex(frame, 4) != 0 && (Hex(frame, 6) & 0xF) == 5 && sp > Hex(stack, 1) && sp <= Hex(stack, 2) &&
-            frame.Groups[8].Value == "kernel" && (!expected.FaultAddress || Hex(frame, 5) == FAULT_PROBE);
+            frame.Groups[8].Value == "kernel" && (!expected.FaultAddress || Hex(frame, 5) == FAULT_PROBE) &&
+            (!expected.Probe || Hex(frame, 5) == Hex(probe, 1));
     }
 
     private static bool SuiteReady(BootRequest request, ProcessResult result)

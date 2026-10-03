@@ -32,10 +32,10 @@ internal static class CommandLine
         new CommandScenario("run", "Build and boot headlessly in QEMU", "boot",
             [new BootRequest("boot-256", 256, 60, ExpectedOutcome.Success)]),
         new CommandArchitecture("test",
-            "Test boot, physical pages, CPU exceptions and timeout handling; arm64: the A0 boot-only outcomes",
+            "Test boot, physical pages, CPU exceptions and timeout handling; arm64: the kernel foundation without user mode",
             (root, architecture) => architecture == KernelArchitecture.X64
                 ? KernelTestSuite.RunAsync(root)
-                : KernelTestSuite.RunBootOnlyAsync(root, architecture)),
+                : KernelTestSuite.RunFoundationAsync(root, architecture)),
         new CommandScenario("release", "Build and boot the release kernel without self-tests", KernelImageBuilder.RELEASE_SCENARIO,
         [
             new BootRequest("release-128", 128, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release },

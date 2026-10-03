@@ -1,6 +1,6 @@
 {
   "name": "kernel-selftest-a64",
-  "description": "ARM64 kernel self-tests of the boot-only profile: the CPU fault scenarios.",
+  "description": "ARM64 kernel self-tests: virtual mappings, memory permission faults and the CPU fault scenarios.",
   "includes": [
     "src/Kernel.Arch.A64",
     "tests/Kernel"
