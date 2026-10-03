@@ -63,19 +63,10 @@ int wit_user_capture_tls(WitUserProcess *process, const WitPeImage *image)
     return 1;
 }
 
-WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument, WitU64 flags)
+/* Resets a free thread slot for a new thread. Library notifications are required when a loaded library has an
+ * entry point. Fails when native thread identifiers are exhausted. */
+static WitU64 reset_thread(WitUserProcess *process, WitUserThread *thread, WitU64 flags)
 {
-    const WitU64 admission = wit_user_library_thread_admission(process, flags);
-    if (admission != WIT_STATUS_OK) {
-        return admission;
-    }
-    WitUserThread *thread = &process->Threads[index];
-    WitU64 handle, physical, *tls;
-    WitU32 mapped = 0;
-    int raw_mapped = 0;
-    const WitU64 bottom = WIT_USER_STACK_BOTTOM + index * WIT_USER_THREAD_STRIDE;
-    const WitU64 top = WIT_USER_STACK_TOP + index * WIT_USER_THREAD_STRIDE;
-    const WitU64 tls_address = WIT_USER_TLS + index * WIT_USER_THREAD_STRIDE;
     thread->LibraryNotifications = (flags & WIT_THREAD_LIBRARY_NOTIFICATIONS) != 0;
     thread->LibraryPhase = thread->LibraryNotifications ? 1U : 0U;
     thread->LibraryRequired = 0;
@@ -100,61 +91,114 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 ent
         thread->LibraryTls[i] = 0;
     }
     thread->Detached = 0;
-    handle = wit_handle_grant(&process->Handles, WIT_HANDLE_THREAD, flags & WIT_THREAD_DETACHED ? 0 : WIT_RIGHT_JOIN);
-    if (!handle) {
-        return WIT_STATUS_NO_MEMORY;
+    return WIT_STATUS_OK;
+}
+
+/* Pages of one thread under construction, for rollback. */
+typedef struct ThreadPages {
+    WitU64 Bottom, Top, Tls;
+    WitU32 Mapped;
+    int RawMapped;
+} ThreadPages;
+
+/* The compiler TLS page: the TEB-style self pointer at 0x58, the TLS array at 0x80 and the image template. */
+static int map_compiler_tls(WitUserProcess *process, WitUserThread *thread, WitU64 address)
+{
+    if (!wit_user_space_map(&process->Space, address, 1, 0)) {
+        return 0;
     }
-    for (WitU64 page = bottom; page < top; page += 4096) {
+    const WitU64 physical = wit_user_space_physical(&process->Space, address, 1, 0);
+    ((WitU64 *)physical)[0x58 / 8] = address + 0x80;
+    ((WitU64 *)physical)[0x80 / 8] = address + WIT_COMPILER_TLS_DATA_OFFSET;
+    for (WitU32 i = 0; i < process->TlsBytes; ++i) {
+        ((WitU8 *)physical)[WIT_COMPILER_TLS_DATA_OFFSET + i] = process->TlsTemplate[i];
+    }
+    thread->CompilerTls = address;
+    return 1;
+}
+
+/* Maps the stack, raw TLS, compiler TLS, library TLS and, when required, the library notification page and its
+ * two lifecycle handles. */
+static int map_thread(WitUserProcess *process, WitU32 index, WitUserThread *thread, ThreadPages *pages)
+{
+    for (WitU64 page = pages->Bottom; page < pages->Top; page += 4096) {
         if (!wit_user_space_map(&process->Space, page, 1, 0)) {
-            goto failed;
+            return 0;
         }
-        ++mapped;
+        ++pages->Mapped;
     }
-    if (!wit_user_space_map(&process->Space, tls_address, 1, 0)) {
-        goto failed;
+    if (!wit_user_space_map(&process->Space, pages->Tls, 1, 0)) {
+        return 0;
     }
-    raw_mapped = 1;
-    if (process->TlsBytes) {
-        const WitU64 address = tls_address + 4096;
-        if (!wit_user_space_map(&process->Space, address, 1, 0)) {
-            goto failed;
-        }
-        physical = wit_user_space_physical(&process->Space, address, 1, 0);
-        ((WitU64 *)physical)[0x58 / 8] = address + 0x80;
-        ((WitU64 *)physical)[0x80 / 8] = address + WIT_COMPILER_TLS_DATA_OFFSET;
-        for (WitU32 i = 0; i < process->TlsBytes; ++i) {
-            ((WitU8 *)physical)[WIT_COMPILER_TLS_DATA_OFFSET + i] = process->TlsTemplate[i];
-        }
-        thread->CompilerTls = address;
+    pages->RawMapped = 1;
+    if (process->TlsBytes && !map_compiler_tls(process, thread, pages->Tls + 4096)) {
+        return 0;
     }
     if (!wit_user_library_tls_create_thread(process, index)) {
-        goto failed;
+        return 0;
     }
     if (thread->LibraryRequired) {
         const WitU64 address = WIT_USER_TLS + index * WIT_USER_THREAD_STRIDE + (WIT_LIBRARY_CAPACITY + 2) * 4096;
         if (!wit_user_space_map(&process->Space, address, 0, 0)) {
-            goto failed;
+            return 0;
         }
         thread->LibraryNotificationPage = address;
         for (WitU32 n = 0; n < 2; ++n) {
             thread->LibraryNotificationHandles[n] =
                 wit_handle_grant(&process->Handles, WIT_HANDLE_LIBRARY_LIFECYCLE, WIT_RIGHT_READ);
             if (!thread->LibraryNotificationHandles[n]) {
-                goto failed;
+                return 0;
             }
         }
     }
-    physical = wit_user_space_physical(&process->Space, tls_address, 1, 0);
-    tls = (WitU64 *)physical;
-    tls[0] = tls_address;
+    return 1;
+}
+
+static void unmap_thread(
+    WitUserProcess *process, WitU32 index, WitUserThread *thread, const ThreadPages *pages, WitU64 handle)
+{
+    for (WitU32 n = 0; n < 2; ++n) {
+        if (thread->LibraryNotificationHandles[n]) {
+            require(wit_handle_close(&process->Handles, thread->LibraryNotificationHandles[n]) == WIT_STATUS_OK,
+                "Thread notification handle rollback failed");
+            thread->LibraryNotificationHandles[n] = 0;
+        }
+    }
+    if (thread->LibraryNotificationPage) {
+        require(wit_user_space_unmap_fixed(&process->Space, thread->LibraryNotificationPage),
+            "Thread notification page rollback failed");
+        thread->LibraryNotificationPage = 0;
+    }
+    wit_user_library_tls_reap_thread(process, index);
+    if (thread->CompilerTls) {
+        require(wit_user_space_unmap_fixed(&process->Space, thread->CompilerTls), "Compiler TLS rollback lost page");
+        thread->CompilerTls = 0;
+    }
+    if (pages->RawMapped) {
+        require(wit_user_space_unmap_fixed(&process->Space, pages->Tls), "Raw TLS rollback failed");
+    }
+    for (WitU32 mapped = pages->Mapped; mapped;) {
+        --mapped;
+        require(wit_user_space_unmap_fixed(&process->Space, pages->Bottom + mapped * 4096ULL),
+            "Thread creation rollback lost a stack page");
+    }
+    require(wit_handle_close(&process->Handles, handle) == WIT_STATUS_OK, "Thread handle rollback failed");
+}
+
+/* Fills the raw TLS block, creates the initial frame and makes the thread Ready. */
+static void start_thread(WitUserProcess *process, WitU32 index, WitUserThread *thread, const ThreadPages *pages,
+    WitU64 handle, WitU64 entry, WitU64 argument, WitU64 flags)
+{
+    WitU64 *tls = (WitU64 *)wit_user_space_physical(&process->Space, pages->Tls, 1, 0);
+    tls[0] = pages->Tls;
     tls[1] = handle;
     tls[2] = argument;
-    WitArchFrame *context = wit_arch_frame_create(process->Slot, index, entry, argument, top);
+    WitArchFrame *context = wit_arch_frame_create(process->Slot, index, entry, argument, pages->Top);
     require(take_native_id(&next_native_id, &thread->NativeId), "Serialized native ID allocation failed");
     thread->Handle = handle;
-    thread->StackBottom = bottom;
-    thread->StackTop = top;
-    thread->Tls = tls_address;
+    thread->StackBottom = pages->Bottom;
+    thread->StackTop = pages->Top;
+    thread->Tls = pages->Tls;
     thread->ExitCode = 0;
     thread->Context = context;
     thread->WaitingOn = NO_THREAD;
@@ -176,35 +220,32 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 ent
         ++process->DetachedCreates;
     }
     ++process->ThreadCreates;
+}
+
+WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument, WitU64 flags)
+{
+    const WitU64 admission = wit_user_library_thread_admission(process, flags);
+    if (admission != WIT_STATUS_OK) {
+        return admission;
+    }
+    WitUserThread *thread = &process->Threads[index];
+    ThreadPages pages = {WIT_USER_STACK_BOTTOM + index * WIT_USER_THREAD_STRIDE,
+        WIT_USER_STACK_TOP + index * WIT_USER_THREAD_STRIDE, WIT_USER_TLS + index * WIT_USER_THREAD_STRIDE, 0, 0};
+    const WitU64 reset = reset_thread(process, thread, flags);
+    if (reset != WIT_STATUS_OK) {
+        return reset;
+    }
+    const WitU64 handle =
+        wit_handle_grant(&process->Handles, WIT_HANDLE_THREAD, flags & WIT_THREAD_DETACHED ? 0 : WIT_RIGHT_JOIN);
+    if (!handle) {
+        return WIT_STATUS_NO_MEMORY;
+    }
+    if (!map_thread(process, index, thread, &pages)) {
+        unmap_thread(process, index, thread, &pages, handle);
+        return WIT_STATUS_NO_MEMORY;
+    }
+    start_thread(process, index, thread, &pages, handle, entry, argument, flags);
     return WIT_STATUS_OK;
-failed:
-    for (WitU32 n = 0; n < 2; ++n) {
-        if (thread->LibraryNotificationHandles[n]) {
-            require(wit_handle_close(&process->Handles, thread->LibraryNotificationHandles[n]) == WIT_STATUS_OK,
-                "Thread notification handle rollback failed");
-            thread->LibraryNotificationHandles[n] = 0;
-        }
-    }
-    if (thread->LibraryNotificationPage) {
-        require(wit_user_space_unmap_fixed(&process->Space, thread->LibraryNotificationPage),
-            "Thread notification page rollback failed");
-        thread->LibraryNotificationPage = 0;
-    }
-    wit_user_library_tls_reap_thread(process, index);
-    if (thread->CompilerTls) {
-        require(wit_user_space_unmap_fixed(&process->Space, thread->CompilerTls), "Compiler TLS rollback lost page");
-        thread->CompilerTls = 0;
-    }
-    if (raw_mapped) {
-        require(wit_user_space_unmap_fixed(&process->Space, tls_address), "Raw TLS rollback failed");
-    }
-    while (mapped) {
-        --mapped;
-        require(wit_user_space_unmap_fixed(&process->Space, bottom + mapped * 4096ULL),
-            "Thread creation rollback lost a stack page");
-    }
-    require(wit_handle_close(&process->Handles, handle) == WIT_STATUS_OK, "Thread handle rollback failed");
-    return WIT_STATUS_NO_MEMORY;
 }
 
 WitU64 wit_user_thread_query(const WitUserProcess *process, WitU64 address, WitU64 size, WitU64 version)

@@ -232,6 +232,162 @@ static void discard(WitUserProcess *process)
     }
 }
 
+static int added(WitU32 index)
+{
+    return (transaction.Added & (1U << index)) != 0;
+}
+
+/* Entry callbacks of newly added libraries run on the loading thread only while it is the sole live thread. */
+static WitU64 check_callbacks(const WitUserProcess *process, int *callbacks)
+{
+    *callbacks = 0;
+    for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
+        if (added(i) && transaction.Modules[i].EntryRva) {
+            *callbacks = 1;
+        }
+    }
+    if (!*callbacks) {
+        return WIT_STATUS_OK;
+    }
+    WitU32 live = 0;
+    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+        if (process->Threads[i].State != WitThreadEmpty && process->Threads[i].State != WitThreadExited) {
+            ++live;
+        }
+    }
+    return live == 1 ? WIT_STATUS_OK : WIT_STATUS_UNSUPPORTED;
+}
+
+/* Existing immutable images provide exports, but their maps and references stay unchanged. */
+static WitU64 validate_existing(const WitPackage *package)
+{
+    for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
+        if ((transaction.Active & (1U << i)) && !added(i)) {
+            const WitUserLibrary *module = &transaction.Modules[i];
+            if (wit_pe_validate_profile(package->Data + module->FileOffset, (WitU32)module->FileBytes,
+                    &transaction.Images[i], LIBRARY_PROFILE) != WitPeOk) {
+                return WIT_STATUS_INVALID_ARGUMENT;
+            }
+        }
+    }
+    return WIT_STATUS_OK;
+}
+
+/* Writes the provider address of every import of one added library into its IAT. */
+static WitU64 bind_imports(WitUserProcess *process, const WitPackage *package, WitU32 index)
+{
+    const WitUserLibrary *module = &transaction.Modules[index];
+    const WitPeImports *imports = &transaction.Imports[index];
+    const WitU8 *bytes = package->Data + module->FileOffset;
+    for (WitU32 j = 0; j < imports->ModuleCount; ++j) {
+        const WitPeImportModule *dependency = &imports->Modules[j];
+        const WitU32 target = transaction.Dependency[index][j];
+        const WitUserLibrary *provider = &transaction.Modules[target];
+        for (WitU32 k = 0; k < dependency->SymbolCount; ++k) {
+            const WitPeImportSymbol *symbol = &imports->Symbols[dependency->FirstSymbol + k];
+            const char *name = 0;
+            WitU32 raw, rva = 0;
+            if (symbol->NameRva) {
+                if (!wit_pe_file_range(&transaction.Images[index], symbol->NameRva + 2, symbol->NameBytes, &raw)) {
+                    return WIT_STATUS_INVALID_ARGUMENT;
+                }
+                name = (const char *)(bytes + raw);
+            }
+            const WitPeStatus found = wit_pe_export_find(package->Data + provider->FileOffset,
+                &transaction.Images[target], name, symbol->NameBytes, symbol->Ordinal, &rva);
+            if (found != WitPeOk || !rva) {
+                return found == WitPeOk ? WIT_STATUS_NOT_FOUND : pe_status(found);
+            }
+            const WitU64 address = provider->Base + rva;
+            if (!wit_user_copy_to(&process->Space, module->Base + symbol->IatRva, (const WitU8 *)&address, 8)) {
+                return WIT_STATUS_BAD_ADDRESS;
+            }
+        }
+    }
+    return WIT_STATUS_OK;
+}
+
+/* Maps, binds, gives TLS, finishes and grants every added library, stage by stage; the first failure stops. */
+static WitU64 prepare_added(WitUserProcess *process, const WitPackage *package)
+{
+    WitU64 status = WIT_STATUS_OK;
+    for (WitU32 i = 0; status == WIT_STATUS_OK && i < WIT_LIBRARY_CAPACITY; ++i) {
+        if (added(i)) {
+            WitUserLibrary *module = &transaction.Modules[i];
+            status = map(&process->Space, package->Data + module->FileOffset, &transaction.Images[i], &module->Base);
+        }
+    }
+    for (WitU32 i = 0; status == WIT_STATUS_OK && i < WIT_LIBRARY_CAPACITY; ++i) {
+        if (added(i)) {
+            status = bind_imports(process, package, i);
+        }
+    }
+    for (WitU32 i = 0; status == WIT_STATUS_OK && i < WIT_LIBRARY_CAPACITY; ++i) {
+        if (added(i) &&
+            !wit_user_library_tls_install(process, i, &transaction.Images[i], transaction.Modules[i].Base)) {
+            status = WIT_STATUS_NO_MEMORY;
+        }
+    }
+    for (WitU32 i = 0; status == WIT_STATUS_OK && i < WIT_LIBRARY_CAPACITY; ++i) {
+        if (added(i)) {
+            status = finish(&process->Space, &transaction.Images[i], transaction.Modules[i].Base);
+        }
+    }
+    for (WitU32 i = 0; status == WIT_STATUS_OK && i < WIT_LIBRARY_CAPACITY; ++i) {
+        if (added(i)) {
+            transaction.Modules[i].Token = wit_handle_grant(&process->Handles, WIT_HANDLE_LIBRARY, WIT_RIGHT_READ);
+            if (!transaction.Modules[i].Token) {
+                status = WIT_STATUS_NO_MEMORY;
+            }
+        }
+    }
+    return status;
+}
+
+/* Undoes a publication whose attach lifecycle could not begin: the added libraries leave the space again. */
+static void unpublish(WitUserProcess *process, const WitUserLibrary previous[WIT_LIBRARY_CAPACITY])
+{
+    for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
+        if (added(i)) {
+            wit_user_library_tls_remove(process, i);
+            if (wit_user_library_release(&process->Space, process->Libraries[i].Base) != WIT_STATUS_OK ||
+                wit_handle_close(&process->Handles, process->Libraries[i].Token) != WIT_STATUS_OK) {
+                wit_panic("Lifecycle prepare rollback failed");
+            }
+            process->Space.LibraryRanges[i] = (WitVirtualRange){0};
+        }
+    }
+    for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
+        process->Libraries[i] = previous[i];
+    }
+}
+
+/* Publishes the prepared libraries and, with entry callbacks, begins their attach lifecycle. */
+static WitU64 publish(WitUserProcess *process, WitU32 root, int callbacks, WitU64 *lifecycleAddress)
+{
+    WitUserLibrary previous[WIT_LIBRARY_CAPACITY];
+    for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
+        previous[i] = process->Libraries[i];
+    }
+    ++transaction.Modules[root].References;
+    for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
+        process->Libraries[i] = transaction.Modules[i];
+        if (added(i)) {
+            process->Space.LibraryRanges[i] =
+                (WitVirtualRange){transaction.Modules[i].Base, transaction.Modules[i].ImageBytes};
+        }
+    }
+    if (callbacks) {
+        const WitU64 status = wit_user_library_begin_lifecycle(
+            process, transaction.Added, 1, 0, 0, transaction.Modules[root].Token, lifecycleAddress);
+        if (status != WIT_STATUS_OK) {
+            unpublish(process, previous);
+            return status;
+        }
+    }
+    return WIT_STATUS_OK;
+}
+
 static WitU64 load(WitUserProcess *process, const WitPackage *package, const WitPackageFile *file, WitU32 flags,
     WitU64 *lifecycleAddress, WitU64 *result)
 {
@@ -252,129 +408,22 @@ static WitU64 load(WitUserProcess *process, const WitPackage *package, const Wit
     if (transaction.Modules[root].References == ~0U) {
         return WIT_STATUS_NO_MEMORY;
     }
-    int callbacks = 0;
-    for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
-        if ((transaction.Added & (1U << i)) && transaction.Modules[i].EntryRva) {
-            callbacks = 1;
-        }
+    int callbacks;
+    status = check_callbacks(process, &callbacks);
+    if (status == WIT_STATUS_OK) {
+        status = validate_existing(package);
     }
-    if (callbacks) {
-        WitU32 live = 0;
-        for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
-            if (process->Threads[i].State != WitThreadEmpty && process->Threads[i].State != WitThreadExited) {
-                ++live;
-            }
-        }
-        if (live != 1) {
-            return WIT_STATUS_UNSUPPORTED;
-        }
+    if (status != WIT_STATUS_OK) {
+        return status;
     }
-    // Existing immutable images provide exports, but their maps/references stay unchanged.
-    for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
-        if ((transaction.Active & (1U << i)) && !(transaction.Added & (1U << i))) {
-            const WitUserLibrary *module = &transaction.Modules[i];
-            if (wit_pe_validate_profile(package->Data + module->FileOffset, (WitU32)module->FileBytes,
-                    &transaction.Images[i], LIBRARY_PROFILE) != WitPeOk) {
-                return WIT_STATUS_INVALID_ARGUMENT;
-            }
-        }
-    }
-    for (WitU32 i = 0; status == WIT_STATUS_OK && i < WIT_LIBRARY_CAPACITY; ++i) {
-        if (transaction.Added & (1U << i)) {
-            WitUserLibrary *module = &transaction.Modules[i];
-            status = map(&process->Space, package->Data + module->FileOffset, &transaction.Images[i], &module->Base);
-        }
-    }
-    for (WitU32 i = 0; status == WIT_STATUS_OK && i < WIT_LIBRARY_CAPACITY; ++i) {
-        if (transaction.Added & (1U << i)) {
-            WitUserLibrary *module = &transaction.Modules[i];
-            const WitPeImports *imports = &transaction.Imports[i];
-            const WitU8 *bytes = package->Data + module->FileOffset;
-            for (WitU32 j = 0; status == WIT_STATUS_OK && j < imports->ModuleCount; ++j) {
-                const WitPeImportModule *dependency = &imports->Modules[j];
-                const WitU32 target = transaction.Dependency[i][j];
-                const WitUserLibrary *provider = &transaction.Modules[target];
-                for (WitU32 k = 0; k < dependency->SymbolCount; ++k) {
-                    const WitPeImportSymbol *symbol = &imports->Symbols[dependency->FirstSymbol + k];
-                    const char *name = 0;
-                    WitU32 raw, rva = 0;
-                    if (symbol->NameRva) {
-                        if (!wit_pe_file_range(&transaction.Images[i], symbol->NameRva + 2, symbol->NameBytes, &raw)) {
-                            status = WIT_STATUS_INVALID_ARGUMENT;
-                            break;
-                        }
-                        name = (const char *)(bytes + raw);
-                    }
-                    const WitPeStatus found = wit_pe_export_find(package->Data + provider->FileOffset,
-                        &transaction.Images[target], name, symbol->NameBytes, symbol->Ordinal, &rva);
-                    if (found != WitPeOk || !rva) {
-                        status = found == WitPeOk ? WIT_STATUS_NOT_FOUND : pe_status(found);
-                        break;
-                    }
-                    const WitU64 address = provider->Base + rva;
-                    if (!wit_user_copy_to(&process->Space, module->Base + symbol->IatRva, (const WitU8 *)&address, 8)) {
-                        status = WIT_STATUS_BAD_ADDRESS;
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    for (WitU32 i = 0; status == WIT_STATUS_OK && i < WIT_LIBRARY_CAPACITY; ++i) {
-        if (transaction.Added & (1U << i)) {
-            if (!wit_user_library_tls_install(process, i, &transaction.Images[i], transaction.Modules[i].Base)) {
-                status = WIT_STATUS_NO_MEMORY;
-            }
-        }
-    }
-    for (WitU32 i = 0; status == WIT_STATUS_OK && i < WIT_LIBRARY_CAPACITY; ++i) {
-        if (transaction.Added & (1U << i)) {
-            status = finish(&process->Space, &transaction.Images[i], transaction.Modules[i].Base);
-        }
-    }
-    for (WitU32 i = 0; status == WIT_STATUS_OK && i < WIT_LIBRARY_CAPACITY; ++i) {
-        if (transaction.Added & (1U << i)) {
-            transaction.Modules[i].Token = wit_handle_grant(&process->Handles, WIT_HANDLE_LIBRARY, WIT_RIGHT_READ);
-            if (!transaction.Modules[i].Token) {
-                status = WIT_STATUS_NO_MEMORY;
-            }
-        }
-    }
+    status = prepare_added(process, package);
     if (status != WIT_STATUS_OK) {
         discard(process);
         return status;
     }
-    WitUserLibrary previous[WIT_LIBRARY_CAPACITY];
-    for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
-        previous[i] = process->Libraries[i];
-    }
-    ++transaction.Modules[root].References;
-    for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
-        process->Libraries[i] = transaction.Modules[i];
-        if (transaction.Added & (1U << i)) {
-            process->Space.LibraryRanges[i] =
-                (WitVirtualRange){transaction.Modules[i].Base, transaction.Modules[i].ImageBytes};
-        }
-    }
-    if (callbacks) {
-        status = wit_user_library_begin_lifecycle(
-            process, transaction.Added, 1, 0, 0, transaction.Modules[root].Token, lifecycleAddress);
-        if (status != WIT_STATUS_OK) {
-            for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
-                if (transaction.Added & (1U << i)) {
-                    wit_user_library_tls_remove(process, i);
-                    if (wit_user_library_release(&process->Space, process->Libraries[i].Base) != WIT_STATUS_OK ||
-                        wit_handle_close(&process->Handles, process->Libraries[i].Token) != WIT_STATUS_OK) {
-                        wit_panic("Lifecycle prepare rollback failed");
-                    }
-                    process->Space.LibraryRanges[i] = (WitVirtualRange){0};
-                }
-            }
-            for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
-                process->Libraries[i] = previous[i];
-            }
-            return status;
-        }
+    status = publish(process, root, callbacks, lifecycleAddress);
+    if (status != WIT_STATUS_OK) {
+        return status;
     }
     wit_user_library_tls_refresh(process);
     *result = transaction.Modules[root].Token;

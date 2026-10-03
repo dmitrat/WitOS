@@ -371,14 +371,42 @@ static int can_create(const WitUserProcess *process, WitU32 slot)
         !wit_arch_interrupts_enabled();
 }
 
-static WitPeStatus create_process(WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const WitU8 *code,
-    WitU32 code_size, const WitPeImage *image, WitU64 base, const WitU16 *resource, WitU32 resource_length)
+/* Clears the statistics of a fresh component. */
+static void reset_counters(WitUserProcess *process)
 {
-    WitUserStartup *startup;
-    WitU64 physical;
-    if (!can_create(process, slot)) {
-        return WitPeBusy;
-    }
+    process->Writes = 0;
+    process->RandomRequests = 0;
+    process->RandomBytes = 0;
+    process->OrderlyThreadExits = 0;
+    process->MemoryCommitFailures = 0;
+    process->ForeignObjectWaitSuspends = 0;
+    process->ReferenceThreadCapacityFailures = 0;
+    process->HardwareNullReads = 0;
+    process->HardwareNullWrites = 0;
+    process->HardwareDivideFaults = 0;
+    process->HardwareIllegalFaults = 0;
+    process->ExceptionContinuations = 0;
+    process->ProcessWriteBarriers = 0;
+    process->ThreadCreates = 0;
+    process->ThreadSwitches = 0;
+    process->ThreadTimerSwitches = 0;
+    process->ThreadJoins = 0;
+    process->ThreadReaps = 0;
+    process->DetachedCreates = 0;
+    process->DetachedReaps = 0;
+    process->ThreadDeadlocks = 0;
+    process->EventParks = 0;
+    process->EventWakes = 0;
+    process->WaitTimeouts = 0;
+    process->WaitCloses = 0;
+    process->IdleHalts = 0;
+    process->IdleTicks = 0;
+}
+
+/* Gives a fresh component its identity, profile, image placement and empty threads, objects and handles. */
+static void reset_process(WitUserProcess *process, WitU32 slot, WitU32 code_size, const WitPeImage *image, WitU64 base)
+{
+    const int runtime = image && (image->Profile & WIT_PE_RUNTIME_FULL);
     wit_files_initialize(&process->Files);
     wit_user_library_initialize(process);
     process->Id = next_id++;
@@ -389,24 +417,12 @@ static WitPeStatus create_process(WitUserProcess *process, WitPageAllocator *all
     for (WitU32 i = 0; i < sizeof(process->Fatal); ++i) {
         ((WitU8 *)&process->Fatal)[i] = 0;
     }
-    process->Writes = 0;
-    process->RandomRequests = 0;
-    process->RandomBytes = 0;
-    process->RequireThreadCompletion = image && (image->Profile & WIT_PE_RUNTIME_FULL);
+    reset_counters(process);
+    process->RequireThreadCompletion = runtime;
     process->AbruptThreadId = 0;
     process->AbruptThreadCode = 0;
-    process->OrderlyThreadExits = 0;
-    process->MemoryCommitFailures = 0;
-    process->ForeignObjectWaitSuspends = 0;
-    process->ReferenceThreadCapacityFailures = 0;
-    process->HardwareNullReads = 0;
-    process->HardwareNullWrites = 0;
-    process->HardwareDivideFaults = 0;
-    process->HardwareIllegalFaults = 0;
-    process->ExceptionContinuations = 0;
     process->Ticks = 0;
-    process->TickLimit =
-        image && (image->Profile & WIT_PE_RUNTIME_FULL) ? WIT_RUNTIME_TICK_BUDGET : WIT_USER_TICK_BUDGET;
+    process->TickLimit = runtime ? WIT_RUNTIME_TICK_BUDGET : WIT_USER_TICK_BUDGET;
     process->ExitCode = 0;
     process->ImageBase = image ? base : WIT_USER_CODE;
     process->ImageEntry = image ? base + image->EntryRva : WIT_USER_CODE;
@@ -417,26 +433,11 @@ static WitPeStatus create_process(WitUserProcess *process, WitPageAllocator *all
     process->FaultState = (WitArchFaultState){0};
     process->CurrentThread = 0;
     process->FaultThread = NO_THREAD;
-    process->ProcessWriteBarriers = 0;
-    process->ThreadCreates = 0;
-    process->ThreadSwitches = 0;
-    process->ThreadTimerSwitches = 0;
-    process->ThreadJoins = 0;
-    process->ThreadReaps = 0;
-    process->DetachedCreates = 0;
-    process->DetachedReaps = 0;
-    process->ThreadDeadlocks = 0;
     process->NextWaitOrder = 0;
     process->MemoryPressureLow = 0;
     for (WitU32 i = 0; i < WIT_RUNTIME_EVENT_CAPACITY; ++i) {
         process->MemoryPressureEvents[i] = 0;
     }
-    process->EventParks = 0;
-    process->EventWakes = 0;
-    process->WaitTimeouts = 0;
-    process->WaitCloses = 0;
-    process->IdleHalts = 0;
-    process->IdleTicks = 0;
     wit_events_initialize(&process->Events);
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
         process->Threads[i].State = WitThreadEmpty;
@@ -444,69 +445,93 @@ static WitPeStatus create_process(WitUserProcess *process, WitPageAllocator *all
         wit_user_thread_name_clear(&process->Threads[i]);
     }
     wit_handles_initialize(&process->Handles, process->Id);
-    if (image && (image->Profile & WIT_PE_RUNTIME_FULL)) {
+    if (runtime) {
         process->Handles.Limit = WIT_RUNTIME_HANDLE_CAPACITY;
         process->Events.Limit = WIT_RUNTIME_EVENT_CAPACITY;
     }
     wit_user_references_initialize(process);
     wit_user_stack_leases_initialize(process);
     wit_user_exception_initialize(process);
-    slot_owners[slot] = process;
+}
+
+/* Builds the address space: the image or the fixed code page, TLS, the startup page and the data pages. */
+static int map_process(WitUserProcess *process, WitPageAllocator *allocator, const WitU8 *code, WitU32 code_size,
+    const WitPeImage *image, WitU64 base)
+{
     if (!wit_user_space_create_profile(&process->Space, allocator, image && (image->Profile & WIT_PE_RUNTIME_FULL))) {
-        goto failed;
+        return 0;
     }
     if (image) {
         if (!wit_user_image_map(&process->Space, code, image, base)) {
-            goto failed;
+            return 0;
         }
     } else if (!wit_user_space_map(&process->Space, WIT_USER_CODE, 0, 1)) {
-        goto failed;
+        return 0;
     }
-    if (!wit_user_capture_tls(process, image)) {
-        goto failed;
-    }
-    if (!wit_user_space_map(&process->Space, WIT_USER_INFO, 0, 0)) {
-        goto failed;
+    if (!wit_user_capture_tls(process, image) || !wit_user_space_map(&process->Space, WIT_USER_INFO, 0, 0)) {
+        return 0;
     }
     for (WitU64 page = WIT_USER_DATA; page < WIT_USER_DATA_END; page += 4096) {
         if (!wit_user_space_map(&process->Space, page, 1, 0)) {
-            goto failed;
+            return 0;
         }
     }
     if (!image) {
-        physical = wit_user_space_physical(&process->Space, WIT_USER_CODE, 0, 1);
+        const WitU64 physical = wit_user_space_physical(&process->Space, WIT_USER_CODE, 0, 1);
         for (WitU32 i = 0; i < code_size; ++i) {
             ((WitU8 *)physical)[i] = code[i];
         }
         wit_user_space_publish_code(&process->Space, WIT_USER_CODE, code_size);
+    }
+    return 1;
+}
+
+/* Describes the image after the startup block: placement, sections, unwind directory and resource name. */
+static void write_image_info(
+    WitUserProcess *process, WitUserStartup *startup, const WitPeImage *image, const WitU16 *resource, WitU32 length)
+{
+    WitUserImageInfo *info = (WitUserImageInfo *)((WitU8 *)startup + WIT_USER_IMAGE_INFO_OFFSET);
+    info->Version = WIT_IMAGE_INFO_VERSION;
+    info->Size = sizeof(*info);
+    info->Base = process->ImageBase;
+    info->Entry = process->ImageEntry;
+    info->ImageSize = process->ImageSize;
+    info->RangeCount = image->SectionCount;
+    info->HeadersSize = image->HeadersSize;
+    info->UnwindRva = image->UnwindRva;
+    info->UnwindSize = image->UnwindSize;
+    info->ResourceNameLength = length;
+    for (WitU32 i = 0; i < length; ++i) {
+        info->ResourceName[i] = resource[i];
+    }
+    for (WitU32 i = 0; i < image->SectionCount; ++i) {
+        const WitPeSection *s = &image->Sections[i];
+        info->Ranges[i].Rva = s->Rva;
+        info->Ranges[i].Size = s->VirtualSize;
+        info->Ranges[i].InitializedSize = s->RawSize < s->VirtualSize ? s->RawSize : s->VirtualSize;
+        info->Ranges[i].Flags = s->Flags;
+    }
+    startup->ImageInfo = WIT_USER_INFO + WIT_USER_IMAGE_INFO_OFFSET;
+}
+
+static WitPeStatus create_process(WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const WitU8 *code,
+    WitU32 code_size, const WitPeImage *image, WitU64 base, const WitU16 *resource, WitU32 resource_length)
+{
+    WitUserStartup *startup;
+    if (!can_create(process, slot)) {
+        return WitPeBusy;
+    }
+    reset_process(process, slot, code_size, image, base);
+    slot_owners[slot] = process;
+    if (!map_process(process, allocator, code, code_size, image, base)) {
+        goto failed;
     }
     startup = (WitUserStartup *)wit_user_space_physical(&process->Space, WIT_USER_INFO, 0, 0);
     startup->Version = WIT_ABI_VERSION;
     startup->Size = sizeof(*startup);
     startup->ImageInfo = 0;
     if (image) {
-        WitUserImageInfo *info = (WitUserImageInfo *)((WitU8 *)startup + WIT_USER_IMAGE_INFO_OFFSET);
-        info->Version = WIT_IMAGE_INFO_VERSION;
-        info->Size = sizeof(*info);
-        info->Base = process->ImageBase;
-        info->Entry = process->ImageEntry;
-        info->ImageSize = process->ImageSize;
-        info->RangeCount = image->SectionCount;
-        info->HeadersSize = image->HeadersSize;
-        info->UnwindRva = image->UnwindRva;
-        info->UnwindSize = image->UnwindSize;
-        info->ResourceNameLength = resource_length;
-        for (WitU32 i = 0; i < resource_length; ++i) {
-            info->ResourceName[i] = resource[i];
-        }
-        for (WitU32 i = 0; i < image->SectionCount; ++i) {
-            const WitPeSection *s = &image->Sections[i];
-            info->Ranges[i].Rva = s->Rva;
-            info->Ranges[i].Size = s->VirtualSize;
-            info->Ranges[i].InitializedSize = s->RawSize < s->VirtualSize ? s->RawSize : s->VirtualSize;
-            info->Ranges[i].Flags = s->Flags;
-        }
-        startup->ImageInfo = WIT_USER_INFO + WIT_USER_IMAGE_INFO_OFFSET;
+        write_image_info(process, startup, image, resource, resource_length);
     }
     startup->ConsoleHandle = wit_handle_grant(&process->Handles, WIT_HANDLE_CONSOLE, WIT_RIGHT_WRITE);
     if (!startup->ConsoleHandle ||

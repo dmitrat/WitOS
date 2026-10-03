@@ -32,6 +32,112 @@ static void order_attach(WitUserProcess *p, WitU32 slot, WitU32 mask, WitU32 *vi
     }
 }
 
+/* Attach follows dependency order; detach, shutdown and thread notification follow attach order, newest first
+ * except for thread attach. */
+static void order_lifecycle(WitUserProcess *p, WitU32 mask, WitUserLibraryLifecycle *life)
+{
+    if (life->Attach) {
+        WitU32 visited = 0;
+        for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
+            order_attach(p, i, mask, &visited, life);
+        }
+        return;
+    }
+    for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
+        if ((mask & (1U << i)) && p->Libraries[i].AttachOrder) {
+            life->Order[life->Count++] = i;
+        }
+    }
+    for (WitU32 i = 0; i < life->Count; ++i) {
+        for (WitU32 j = i + 1; j < life->Count; ++j) {
+            if (life->ThreadNotify == 2
+                    ? p->Libraries[life->Order[j]].AttachOrder < p->Libraries[life->Order[i]].AttachOrder
+                    : p->Libraries[life->Order[j]].AttachOrder > p->Libraries[life->Order[i]].AttachOrder) {
+                WitU32 v = life->Order[i];
+                life->Order[i] = life->Order[j];
+                life->Order[j] = v;
+            }
+        }
+    }
+}
+
+/* The user-space plan: the reason, the ordered libraries and their entry points. */
+static WitLibraryLifecycle lifecycle_plan(
+    const WitUserProcess *p, const WitUserLibraryLifecycle *life, WitU32 reason, WitU64 root)
+{
+    WitLibraryLifecycle plan = {WIT_LIBRARY_VERSION, sizeof(plan), reason, life->Count, life->Token, root, {{0}}};
+    for (WitU32 i = 0; i < life->Count; ++i) {
+        const WitUserLibrary *m = &p->Libraries[life->Order[i]];
+        plan.Entries[i] = (WitLibraryLifecycleEntry){m->Token, m->Base, m->Base + m->EntryRva};
+    }
+    return plan;
+}
+
+/* Thread attach and detach use the page and handles the thread reserved at creation. */
+static WitU64 begin_thread_notification(WitUserProcess *p, WitUserLibraryLifecycle *life, WitU64 root, WitU64 *address)
+{
+    WitUserThread *thread = &p->Threads[p->CurrentThread];
+    const WitU32 part = life->ThreadNotify == 2 ? 0U : 1U;
+    if (!thread->LibraryNotificationPage || !thread->LibraryNotificationHandles[part]) {
+        return WIT_STATUS_NO_MEMORY;
+    }
+    life->Address = thread->LibraryNotificationPage;
+    life->Token = thread->LibraryNotificationHandles[part];
+    life->ThreadReserved = 1;
+    const WitLibraryLifecycle plan = lifecycle_plan(p, life, life->ThreadNotify + 1, root);
+    const WitU64 physical = wit_user_space_physical(&p->Space, life->Address, 0, 0);
+    if (!physical) {
+        wit_panic("Thread notification backing lost");
+    }
+    for (WitU32 i = 0; i < sizeof(plan); ++i) {
+        ((WitU8 *)physical)[i] = ((const WitU8 *)&plan)[i];
+    }
+    p->LibraryLifecycle = *life;
+    *address = life->Address;
+    return WIT_STATUS_OK;
+}
+
+/* Other lifecycles publish their plan on a fresh read-only page behind a lifecycle handle. */
+static WitU64 publish_plan(WitUserProcess *p, WitUserLibraryLifecycle *life, WitU64 root, WitU64 *address)
+{
+    WitU64 status = wit_user_memory_reserve(&p->Space, 4096, 4096, &life->Address);
+    if (status != WIT_STATUS_OK) {
+        return status;
+    }
+    status = wit_user_memory_commit(&p->Space, life->Address, 4096, 3);
+    if (status == WIT_STATUS_OK) {
+        life->Token = wit_handle_grant(&p->Handles, WIT_HANDLE_LIBRARY_LIFECYCLE, WIT_RIGHT_READ);
+        if (!life->Token) {
+            status = WIT_STATUS_NO_MEMORY;
+        }
+    }
+    if (status == WIT_STATUS_OK) {
+        const WitU32 reason = life->ThreadNotify ? life->ThreadNotify + 1
+            : life->Shutdown                     ? WIT_LIBRARY_PROCESS_SHUTDOWN
+                                                 : life->Attach;
+        const WitLibraryLifecycle plan = lifecycle_plan(p, life, reason, root);
+        if (!wit_user_copy_to(&p->Space, life->Address, (const WitU8 *)&plan, sizeof(plan))) {
+            status = WIT_STATUS_BAD_ADDRESS;
+        }
+    }
+    if (status == WIT_STATUS_OK) {
+        status = wit_user_memory_protect(&p->Space, life->Address, 4096, 1);
+    }
+    if (status != WIT_STATUS_OK) {
+        if (life->Token && wit_handle_close(&p->Handles, life->Token) != WIT_STATUS_OK) {
+            wit_panic("Lifecycle handle rollback failed");
+        }
+        if (wit_user_memory_release(&p->Space, life->Address) != WIT_STATUS_OK) {
+            wit_panic("Lifecycle page rollback failed");
+        }
+        return status;
+    }
+    p->LibraryLifecycle = *life;
+    p->Space.LibraryRanges[WIT_LIBRARY_CAPACITY] = (WitVirtualRange){life->Address, 4096};
+    *address = life->Address;
+    return WIT_STATUS_OK;
+}
+
 WitU64 wit_user_library_begin_lifecycle(
     WitUserProcess *p, WitU32 mask, int attach, WitU64 origin, int reader, WitU64 root, WitU64 *address)
 {
@@ -46,29 +152,7 @@ WitU64 wit_user_library_begin_lifecycle(
     if (p->LibraryLifecycle.Token) {
         return WIT_STATUS_BUSY;
     }
-    if (life.Attach) {
-        WitU32 visited = 0;
-        for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
-            order_attach(p, i, mask, &visited, &life);
-        }
-    } else {
-        for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
-            if ((mask & (1U << i)) && p->Libraries[i].AttachOrder) {
-                life.Order[life.Count++] = i;
-            }
-        }
-        for (WitU32 i = 0; i < life.Count; ++i) {
-            for (WitU32 j = i + 1; j < life.Count; ++j) {
-                if (life.ThreadNotify == 2
-                        ? p->Libraries[life.Order[j]].AttachOrder < p->Libraries[life.Order[i]].AttachOrder
-                        : p->Libraries[life.Order[j]].AttachOrder > p->Libraries[life.Order[i]].AttachOrder) {
-                    WitU32 v = life.Order[i];
-                    life.Order[i] = life.Order[j];
-                    life.Order[j] = v;
-                }
-            }
-        }
-    }
+    order_lifecycle(p, mask, &life);
     if (!life.Count) {
         *address = 0;
         return WIT_STATUS_OK;
@@ -76,73 +160,8 @@ WitU64 wit_user_library_begin_lifecycle(
     if (life.Attach && p->NextLibraryAttach > ~0ULL - life.Count) {
         return WIT_STATUS_NO_MEMORY;
     }
-    if (life.ThreadNotify) {
-        WitUserThread *thread = &p->Threads[p->CurrentThread];
-        const WitU32 part = life.ThreadNotify == 2 ? 0U : 1U;
-        if (!thread->LibraryNotificationPage || !thread->LibraryNotificationHandles[part]) {
-            return WIT_STATUS_NO_MEMORY;
-        }
-        life.Address = thread->LibraryNotificationPage;
-        life.Token = thread->LibraryNotificationHandles[part];
-        life.ThreadReserved = 1;
-        WitLibraryLifecycle plan = {
-            WIT_LIBRARY_VERSION, sizeof(plan), life.ThreadNotify + 1, life.Count, life.Token, root, {{0}}};
-        for (WitU32 i = 0; i < life.Count; ++i) {
-            const WitUserLibrary *m = &p->Libraries[life.Order[i]];
-            plan.Entries[i] = (WitLibraryLifecycleEntry){m->Token, m->Base, m->Base + m->EntryRva};
-        }
-        const WitU64 physical = wit_user_space_physical(&p->Space, life.Address, 0, 0);
-        if (!physical) {
-            wit_panic("Thread notification backing lost");
-        }
-        for (WitU32 i = 0; i < sizeof(plan); ++i) {
-            ((WitU8 *)physical)[i] = ((const WitU8 *)&plan)[i];
-        }
-        p->LibraryLifecycle = life;
-        *address = life.Address;
-        return WIT_STATUS_OK;
-    }
-    WitU64 status = wit_user_memory_reserve(&p->Space, 4096, 4096, &life.Address);
-    if (status != WIT_STATUS_OK) {
-        return status;
-    }
-    status = wit_user_memory_commit(&p->Space, life.Address, 4096, 3);
-    if (status == WIT_STATUS_OK) {
-        life.Token = wit_handle_grant(&p->Handles, WIT_HANDLE_LIBRARY_LIFECYCLE, WIT_RIGHT_READ);
-        if (!life.Token) {
-            status = WIT_STATUS_NO_MEMORY;
-        }
-    }
-    if (status == WIT_STATUS_OK) {
-        WitLibraryLifecycle plan = {WIT_LIBRARY_VERSION, sizeof(plan),
-            life.ThreadNotify   ? life.ThreadNotify + 1
-                : life.Shutdown ? WIT_LIBRARY_PROCESS_SHUTDOWN
-                                : life.Attach,
-            life.Count, life.Token, root, {{0}}};
-        for (WitU32 i = 0; i < life.Count; ++i) {
-            const WitUserLibrary *m = &p->Libraries[life.Order[i]];
-            plan.Entries[i] = (WitLibraryLifecycleEntry){m->Token, m->Base, m->Base + m->EntryRva};
-        }
-        if (!wit_user_copy_to(&p->Space, life.Address, (const WitU8 *)&plan, sizeof(plan))) {
-            status = WIT_STATUS_BAD_ADDRESS;
-        }
-    }
-    if (status == WIT_STATUS_OK) {
-        status = wit_user_memory_protect(&p->Space, life.Address, 4096, 1);
-    }
-    if (status != WIT_STATUS_OK) {
-        if (life.Token && wit_handle_close(&p->Handles, life.Token) != WIT_STATUS_OK) {
-            wit_panic("Lifecycle handle rollback failed");
-        }
-        if (wit_user_memory_release(&p->Space, life.Address) != WIT_STATUS_OK) {
-            wit_panic("Lifecycle page rollback failed");
-        }
-        return status;
-    }
-    p->LibraryLifecycle = life;
-    p->Space.LibraryRanges[WIT_LIBRARY_CAPACITY] = (WitVirtualRange){life.Address, 4096};
-    *address = life.Address;
-    return WIT_STATUS_OK;
+    return life.ThreadNotify ? begin_thread_notification(p, &life, root, address)
+                             : publish_plan(p, &life, root, address);
 }
 
 WitU64 wit_user_library_release_plan(
@@ -200,7 +219,30 @@ WitU64 wit_user_library_release_plan(
     return wit_user_library_begin_lifecycle(p, mask, 0, origin, reader, 0, address);
 }
 
-WitU64 wit_user_library_finish_lifecycle(WitUserProcess *p, const WitLibraryRequest *request)
+/* Readers into a library whose lifecycle aborts or retires must have finished their user-space work; only the
+ * reader whose release started a detach lifecycle is still allowed. */
+static int readers_block(const WitUserProcess *p, const WitUserLibraryLifecycle *life, WitU64 completed)
+{
+    for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
+        if (life->ThreadNotify || !(life->Mask & (1U << i)) || !p->Libraries[i].Readers) {
+            continue;
+        }
+        WitU32 allowed = 0;
+        if (!life->Attach && life->ReaderRelease) {
+            for (WitU32 j = 0; j < WIT_LIBRARY_READER_CAPACITY; ++j) {
+                if (p->LibraryReaders[j].Token == life->Origin && p->LibraryReaders[j].Slot == i) {
+                    allowed = 1;
+                }
+            }
+        }
+        if ((!life->Attach || !completed) && p->Libraries[i].Readers > allowed) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static WitU64 check_finish(WitUserProcess *p, const WitLibraryRequest *request, const WitUserLibraryLifecycle *life)
 {
     if (request->Flags ||
         request->Name ||
@@ -210,77 +252,69 @@ WitU64 wit_user_library_finish_lifecycle(WitUserProcess *p, const WitLibraryRequ
         request->Ordinal > 1) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
-    WitUserLibraryLifecycle life = p->LibraryLifecycle;
-    if (!life.Token ||
-        life.Token != request->Handle ||
+    if (!life->Token ||
+        life->Token != request->Handle ||
         wit_handle_check(&p->Handles, request->Handle, WIT_HANDLE_LIBRARY_LIFECYCLE, WIT_RIGHT_READ) != WIT_STATUS_OK) {
         return WIT_STATUS_BAD_HANDLE;
     }
-    if (life.Owner != p->Threads[p->CurrentThread].Handle) {
+    if (life->Owner != p->Threads[p->CurrentThread].Handle) {
         return WIT_STATUS_DENIED;
     }
-    if (!life.Attach && !request->Ordinal) {
+    if (!life->Attach && !request->Ordinal) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
-    for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
-        if (!life.ThreadNotify && (life.Mask & (1U << i)) && p->Libraries[i].Readers) {
-            // The original reader release is accounted below; all other readers
-            // into an aborting/retiring image must have finished user-space work.
-            WitU32 allowed = 0;
-            if (!life.Attach && life.ReaderRelease) {
-                for (WitU32 j = 0; j < WIT_LIBRARY_READER_CAPACITY; ++j) {
-                    if (p->LibraryReaders[j].Token == life.Origin && p->LibraryReaders[j].Slot == i) {
-                        allowed = 1;
-                    }
-                }
-            }
-            if ((!life.Attach || !request->Ordinal) && p->Libraries[i].Readers > allowed) {
-                return WIT_STATUS_BUSY;
-            }
-        }
-    }
-    if (life.ThreadReserved) {
+    return readers_block(p, life, request->Ordinal) ? WIT_STATUS_BUSY : WIT_STATUS_OK;
+}
+
+/* Releases the plan page and handle, or returns a thread's reserved notification handle. */
+static void release_descriptor(WitUserProcess *p, const WitUserLibraryLifecycle *life)
+{
+    if (life->ThreadReserved) {
         WitUserThread *thread = &p->Threads[p->CurrentThread];
-        const WitU32 part = life.ThreadNotify == 2 ? 0U : 1U;
-        if (thread->LibraryNotificationHandles[part] != life.Token ||
-            wit_handle_close(&p->Handles, life.Token) != WIT_STATUS_OK) {
+        const WitU32 part = life->ThreadNotify == 2 ? 0U : 1U;
+        if (thread->LibraryNotificationHandles[part] != life->Token ||
+            wit_handle_close(&p->Handles, life->Token) != WIT_STATUS_OK) {
             wit_panic("Thread notification descriptor release failed");
         }
         thread->LibraryNotificationHandles[part] = 0;
-    } else if (wit_user_library_release(&p->Space, life.Address) != WIT_STATUS_OK ||
-        wit_handle_close(&p->Handles, life.Token) != WIT_STATUS_OK) {
+    } else if (wit_user_library_release(&p->Space, life->Address) != WIT_STATUS_OK ||
+        wit_handle_close(&p->Handles, life->Token) != WIT_STATUS_OK) {
         wit_panic("Lifecycle descriptor release failed");
     }
     p->Space.LibraryRanges[WIT_LIBRARY_CAPACITY] = (WitVirtualRange){0};
     p->LibraryLifecycle = (WitUserLibraryLifecycle){0};
-    if (life.ThreadNotify) {
-        p->Threads[p->CurrentThread].LibraryPhase = life.ThreadNotify == 2 ? 2U : 4U;
-        return WIT_STATUS_OK;
-    }
-    if (life.Attach) {
-        if (request->Ordinal) {
-            for (WitU32 i = 0; i < life.Count; ++i) {
-                p->Libraries[life.Order[i]].AttachOrder = ++p->NextLibraryAttach;
-            }
-            return WIT_STATUS_OK;
+}
+
+/* A completed attach records the attach order; a failed attach drops the new libraries. */
+static WitU64 finish_attach(WitUserProcess *p, const WitUserLibraryLifecycle *life, WitU64 completed)
+{
+    if (completed) {
+        for (WitU32 i = 0; i < life->Count; ++i) {
+            p->Libraries[life->Order[i]].AttachOrder = ++p->NextLibraryAttach;
         }
-        for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
-            if (life.Mask & (1U << i)) {
-                p->Libraries[i].References = 0;
-                p->Libraries[i].AttachOrder = 0;
-            }
-        }
-        wit_user_library_collect(p);
         return WIT_STATUS_OK;
     }
     for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
-        if (life.Mask & (1U << i)) {
+        if (life->Mask & (1U << i)) {
+            p->Libraries[i].References = 0;
             p->Libraries[i].AttachOrder = 0;
         }
     }
-    if (life.Shutdown) {
+    wit_user_library_collect(p);
+    return WIT_STATUS_OK;
+}
+
+/* After detach: shutdown retires every library, a reader release completes, an unload drops its reference. */
+static WitU64 finish_detach(WitUserProcess *p, const WitUserLibraryLifecycle *life)
+{
+    for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
+        if (life->Mask & (1U << i)) {
+            p->Libraries[i].AttachOrder = 0;
+        }
+    }
+    if (life->Shutdown) {
         for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
-            if (life.Mask & (1U << i)) {
+            if (life->Mask & (1U << i)) {
                 p->Libraries[i].References = 0;
             }
         }
@@ -288,14 +322,14 @@ WitU64 wit_user_library_finish_lifecycle(WitUserProcess *p, const WitLibraryRequ
         wit_user_library_collect(p);
         return WIT_STATUS_OK;
     }
-    if (life.ReaderRelease) {
+    if (life->ReaderRelease) {
         WitLibraryRequest release = {
-            WIT_LIBRARY_VERSION, sizeof(release), WIT_LIBRARY_RELEASE_READER, 0, life.Origin, 0, 0, 0, 0, 0};
+            WIT_LIBRARY_VERSION, sizeof(release), WIT_LIBRARY_RELEASE_READER, 0, life->Origin, 0, 0, 0, 0, 0};
         WitU64 ignored = 0;
         return wit_user_library_reader_call(p, &release, &ignored);
     }
     for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
-        if (p->Libraries[i].Token == life.Origin) {
+        if (p->Libraries[i].Token == life->Origin) {
             if (!p->Libraries[i].References) {
                 wit_panic("Lifecycle external reference lost");
             }
@@ -305,6 +339,21 @@ WitU64 wit_user_library_finish_lifecycle(WitUserProcess *p, const WitLibraryRequ
         }
     }
     wit_panic("Lifecycle origin lost");
+}
+
+WitU64 wit_user_library_finish_lifecycle(WitUserProcess *p, const WitLibraryRequest *request)
+{
+    const WitUserLibraryLifecycle life = p->LibraryLifecycle;
+    const WitU64 status = check_finish(p, request, &life);
+    if (status != WIT_STATUS_OK) {
+        return status;
+    }
+    release_descriptor(p, &life);
+    if (life.ThreadNotify) {
+        p->Threads[p->CurrentThread].LibraryPhase = life.ThreadNotify == 2 ? 2U : 4U;
+        return WIT_STATUS_OK;
+    }
+    return life.Attach ? finish_attach(p, &life, request->Ordinal) : finish_detach(p, &life);
 }
 
 WitU64 wit_user_library_shutdown(WitUserProcess *p, const WitLibraryRequest *request)
