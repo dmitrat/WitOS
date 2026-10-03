@@ -74,7 +74,8 @@ concurrency:
 jobs:
   hosted-probe:
     runs-on: windows-2025
-    timeout-minutes: 45
+    # Runner speed varies about fourfold; every guest boot keeps its own timeout.
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
