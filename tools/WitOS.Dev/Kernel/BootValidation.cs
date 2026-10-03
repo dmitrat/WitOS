@@ -131,7 +131,8 @@ internal static class BootValidation
 
     private static readonly string[] USER_CHECKS =
     [
-        "Ring3", "AbiAndHandles", "PrivateMemory", "PeerMemory", "KernelRead", "KernelWrite", "PrivilegedCli",
+        "UnprivilegedMode", "AbiAndHandles", "PrivateMemory", "PeerMemory", "KernelRead", "KernelWrite",
+        "PrivilegedCli",
         "PrivilegedPort", "Nx", "GuardLow", "GuardHigh", "WriteCode", "WriteInfo", "NullRead", "InvalidOpcode",
         "MemoryReservedFault", "MemoryDecommittedFault", "MemoryReleasedFault", "MemoryReadOnlyFault",
         "MemoryNoAccessFault", "MemoryNxFault", "MemorySparseAndPrivate", "MemoryQuotaRollback",
@@ -170,6 +171,21 @@ internal static class BootValidation
         "LastErrorBindingProtection", "BadReturn", "TimerBudget", "PreemptionState", "ZeroFillAndStaleHandles",
         "Teardown", "Isolation"
     ];
+
+    // The shared isolation tests on ARM64, with the privileged operations of that ISA: masking interrupts and
+    // reading an EL1 system register.
+    private static readonly string[] A64_USER_CHECKS =
+    [
+        "UnprivilegedMode", "AbiAndHandles", "PrivateMemory", "PeerMemory", "KernelRead", "KernelWrite",
+        "PrivilegedMask", "PrivilegedRegister", "Nx", "GuardLow", "GuardHigh", "WriteCode", "WriteInfo", "NullRead",
+        "InvalidOpcode", "MemoryReservedFault", "MemoryDecommittedFault", "MemoryReleasedFault",
+        "MemoryReadOnlyFault", "MemoryNoAccessFault", "MemoryNxFault", "MemorySparseAndPrivate", "MemoryQuotaRollback",
+        "MemoryReservationErrors", "MemoryPhysicalOom", "MemoryLifecycle", "BadReturn", "TimerBudget",
+        "PreemptionState", "ZeroFillAndStaleHandles", "Teardown", "Isolation"
+    ];
+
+    // Contained EL0 faults of the ARM64 isolation tests: the peer page and the 17 fault cases.
+    private const int A64_USER_FAULTS = 18;
 
     #endregion
 
@@ -320,10 +336,10 @@ internal static class BootValidation
         _ => 0
     };
 
-    // An ARM64 kernel foundation: the foundation markers, kernel-worker preemption, then Hello, without panic or
-    // exception.
+    // An ARM64 kernel foundation: the foundation markers, kernel-worker preemption, the EL0 isolation tests, then
+    // Hello, without panic or exception.
     private static bool FoundationReady(string root, BootRequest request, string output) =>
-        A64Foundation(root, request, output) && ValidateScheduler(output) &&
+        A64Foundation(root, request, output) && ValidateScheduler(output) && ValidateA64Users(output) &&
         MarkersInOrder(output, A64_FOUNDATION_ORDER[^1], "Kernel initialized.", "[TEST-PASS] Boot.Hello") &&
         !output.Contains("[PANIC]", StringComparison.Ordinal) && !output.Contains("[EXCEPTION]", StringComparison.Ordinal);
 
@@ -419,6 +435,21 @@ internal static class BootValidation
             Number("Context switches") == (ulong)dispatches.Count + 1 &&
             Number("Timer ticks") >= Number("Context switches") &&
             Number("Worker A iterations") > 0 && Number("Worker B iterations") > 0;
+    }
+
+    // The ARM64 isolation markers in order after preemption, and exactly the expected faults, each taken at EL0t.
+    private static bool ValidateA64Users(string output)
+    {
+        var markers = new List<string> { "[TEST-PASS] Scheduler.RegisterState", "[TEST-BEGIN] User.Isolation" };
+        markers.AddRange(A64_USER_CHECKS.Select(name => $"[TEST-PASS] User.{name}"));
+        markers.Add("[TEST-PASS] Boot.Hello");
+        var faults = Regex.Matches(output,
+            @"(?m)^\[USER-FAULT\] id=(\d+) vector=(\d+) error=(0x[0-9A-F]{16}) address=(0x[0-9A-F]{16}) elr=(0x[0-9A-F]{16}) spsr=(0x[0-9A-F]{16}) esr=(0x[0-9A-F]{16})\r?$");
+        return MarkersInOrder(output, markers.ToArray()) && faults.Count == A64_USER_FAULTS &&
+            Regex.Matches(output, @"(?m)^\[USER-FAULT\]").Count == faults.Count &&
+            faults.All(m => (Convert.ToUInt64(m.Groups[6].Value[2..], 16) & 0x1F) == 0 &&
+                m.Groups[3].Value == m.Groups[7].Value &&
+                Convert.ToUInt64(m.Groups[7].Value[2..], 16) >> 26 == ulong.Parse(m.Groups[2].Value));
     }
 
     private static bool ValidateUsers(string output, int expectedFaults, int followingFaults)

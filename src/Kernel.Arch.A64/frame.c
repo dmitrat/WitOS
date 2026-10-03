@@ -1,0 +1,344 @@
+#include "witos/arch.h"
+#include "witos/arch_types.h"
+#include "witos/platform.h"
+#include "user.h"
+#include "a64.h"
+
+/* ARM64 implementation of the thread-frame part of witos/arch.h and the EL0 trap entry. A user thread runs at
+ * EL0t with its frame at the top of its own kernel stack. System calls: SVC #0 with the number in x8 and the
+ * arguments in x0-x2; the status returns in x0 and the value in x1. The raw TLS base is TPIDRRO_EL0, which EL0
+ * cannot change, and the compiler TLS block is x18, the platform register, which the kernel sets on every
+ * return to EL0. Thread contexts and exception callbacks need the ARM64 context layout of A3 and are not
+ * offered: wit_arch_context_supported is zero and the common kernel answers UNSUPPORTED before any of the
+ * context functions below can run. */
+
+#define CLASS_UNKNOWN 0x00U
+#define CLASS_SVC64 0x15U
+#define CLASS_USER_INSTRUCTION_ABORT 0x20U
+#define CLASS_PC_ALIGNMENT 0x22U
+#define CLASS_USER_DATA_ABORT 0x24U
+#define ESR_ISS_IMMEDIATE 0xFFFFULL
+#define ESR_FAR_NOT_VALID (1ULL << 10) /* FnV of instruction and data aborts. */
+#define ESR_WRITE (1ULL << 6) /* WnR of data aborts. */
+/* A thread or callback starts below a zeroed frame record (x29, x30) that ends frame-pointer walks; the stack
+ * pointer stays 16-byte aligned. */
+#define CALL_FRAME_BYTES 16U
+
+static WitU64 selected_top;
+static WitU64 compiler_tls;
+
+static WitU64 stack_low(WitU32 slot, WitU32 thread)
+{
+    return (WitU64)wit_a64_user_kernel_stacks[slot][thread] + 4096;
+}
+
+static WIT_NORETURN void contexts_unsupported(void)
+{
+    wit_panic("ARM64 thread contexts arrive with A3");
+}
+
+void wit_arch_select_thread_stack(WitU32 slot, WitU32 thread)
+{
+    selected_top = stack_low(slot, thread) + WIT_A64_KERNEL_STACK_SIZE;
+}
+
+void wit_arch_select_boot_stack(void)
+{
+    selected_top = (WitU64)wit_a64_kernel_stack + 4096 + WIT_A64_KERNEL_STACK_SIZE;
+}
+
+void wit_arch_set_user_tls(WitU64 address, WitU64 compiler_address)
+{
+    wit_a64_set_thread_pointer(address);
+    compiler_tls = compiler_address;
+}
+
+void wit_arch_reset_user_tls(void)
+{
+    wit_a64_set_thread_pointer(0); /* Kernel C uses neither thread register. */
+    compiler_tls = 0;
+}
+
+int wit_arch_user_tls_is_reset(void)
+{
+    return wit_a64_thread_pointer() == 0 && compiler_tls == 0;
+}
+
+int wit_arch_kernel_space_active(void)
+{
+    return wit_a64_translation_base() == wit_virtual_kernel_root();
+}
+
+void wit_arch_run_user(WitArchFrame *frame, WitU64 root)
+{
+    if (wit_arch_interrupts_enabled() || !wit_arch_frame_returns_to_user(frame)) {
+        wit_panic("User launch needs IRQ masked and an EL0 frame");
+    }
+    wit_a64_run_user(wit_a64_prepare_resume(frame), root);
+}
+
+WIT_NORETURN void wit_arch_leave_user(void)
+{
+    wit_a64_leave_user();
+}
+
+WitA64Frame *wit_a64_prepare_resume(WitA64Frame *frame)
+{
+    if ((frame->Spsr & WIT_A64_SPSR_MODE) == 0) {
+        if ((WitU64)frame + WIT_A64_FRAME_SIZE != selected_top) {
+            wit_panic("EL0 frame is not at the top of the selected kernel stack");
+        }
+        frame->X[18] = compiler_tls;
+    }
+    return frame;
+}
+
+WitArchFrame *wit_arch_frame_create(WitU32 slot, WitU32 thread, WitU64 entry, WitU64 argument, WitU64 stack_top)
+{
+    WitArchFrame *frame = (WitArchFrame *)(stack_low(slot, thread) + WIT_A64_KERNEL_STACK_SIZE - WIT_A64_FRAME_SIZE);
+    for (WitU32 i = 0; i < sizeof(*frame); ++i) {
+        ((WitU8 *)frame)[i] = 0;
+    }
+    frame->X[0] = argument;
+    frame->Elr = entry;
+    frame->Spsr = 0; /* EL0t with every exception unmasked; a zero link register traps an accidental RET. */
+    frame->Sp = (stack_top & ~15ULL) - CALL_FRAME_BYTES;
+    return frame;
+}
+
+int wit_arch_kernel_stack_contains(WitU32 slot, WitU32 thread, const void *object, WitU64 size)
+{
+    const WitU64 low = stack_low(slot, thread);
+    return (WitU64)object >= low && (WitU64)object <= low + WIT_A64_KERNEL_STACK_SIZE - size;
+}
+
+int wit_arch_frame_owned(const WitArchFrame *frame, WitU32 slot, WitU32 thread)
+{
+    return wit_arch_kernel_stack_contains(slot, thread, frame, sizeof(*frame)) && ((WitU64)frame & 15) == 0;
+}
+
+int wit_arch_frame_from_user(const WitArchFrame *frame)
+{
+    return (frame->Spsr & WIT_A64_SPSR_MODE) == 0;
+}
+
+int wit_arch_frame_returns_to_user(const WitArchFrame *frame)
+{
+    return (frame->Spsr & (WIT_A64_SPSR_MODE | WIT_A64_SPSR_ILLEGAL)) == 0;
+}
+
+int wit_arch_frame_is_idle(const WitArchFrame *frame, WitU32 slot, WitU32 thread)
+{
+    const WitU64 low = stack_low(slot, thread);
+    return (frame->Spsr & WIT_A64_SPSR_MODE) == WIT_A64_SPSR_EL1H &&
+        frame->Sp >= low &&
+        frame->Sp < low + WIT_A64_KERNEL_STACK_SIZE &&
+        frame->Elr == (WitU64)wit_a64_idle_resume &&
+        wit_arch_user_tls_is_reset();
+}
+
+WitU64 wit_arch_frame_pc(const WitArchFrame *frame)
+{
+    return frame->Elr;
+}
+
+WitU64 wit_arch_frame_sp(const WitArchFrame *frame)
+{
+    return frame->Sp;
+}
+
+void wit_arch_frame_prepare_return(WitArchFrame *frame, int syscall)
+{
+    /* EL0t with exceptions unmasked; preemption keeps the condition flags, a system call clears them. */
+    frame->Spsr = syscall ? 0 : (frame->Spsr & WIT_A64_SPSR_FLAGS);
+}
+
+WitU64 *wit_arch_frame_status(WitArchFrame *frame)
+{
+    return &frame->X[0];
+}
+
+WitU64 *wit_arch_frame_value(WitArchFrame *frame)
+{
+    return &frame->X[1];
+}
+
+void wit_arch_frame_set_result(WitArchFrame *frame, WitU64 status, WitU64 value)
+{
+    frame->X[0] = status;
+    frame->X[1] = value;
+}
+
+WitU64 wit_arch_callback_stack(WitU64 sp, WitU32 *call_frame_bytes)
+{
+    *call_frame_bytes = CALL_FRAME_BYTES; /* The return address travels in x30; no shadow space. */
+    return (sp & ~15ULL) - CALL_FRAME_BYTES;
+}
+
+void wit_arch_frame_enter_callback(
+    WitArchFrame *frame, WitU64 entry, WitU64 stack, WitU64 argument0, WitU64 argument1, WitU64 argument2)
+{
+    frame->Elr = entry;
+    frame->Sp = stack;
+    frame->Spsr = 0;
+    frame->X[0] = argument0;
+    frame->X[1] = argument1;
+    frame->X[2] = argument2;
+    frame->X[30] = 0;
+}
+
+void wit_arch_frame_describe(const WitArchFrame *frame)
+{
+    const WitU64 values[] = {
+        frame->Elr, frame->Sp, frame->X[0], frame->X[1], frame->X[2], frame->X[8], frame->X[29], frame->X[30]};
+    wit_console_write("pc/sp/x0/x1/x2/x8/x29/x30: ");
+    for (WitU32 j = 0; j < 8; ++j) {
+        wit_console_write_hex(values[j]);
+        wit_console_write(j == 7 ? "\n" : "/");
+    }
+}
+
+int wit_arch_context_supported(void)
+{
+    return 0;
+}
+
+WitU32 wit_arch_context_profile(void)
+{
+    contexts_unsupported();
+}
+
+void wit_arch_context_describe(WitThreadContext *context)
+{
+    (void)context;
+    contexts_unsupported();
+}
+
+void wit_arch_context_capture(WitThreadContext *context, const WitArchFrame *frame)
+{
+    (void)context;
+    (void)frame;
+    contexts_unsupported();
+}
+
+int wit_arch_context_registers_valid(const WitThreadContext *context)
+{
+    (void)context;
+    contexts_unsupported();
+}
+
+int wit_arch_context_state_valid(const WitThreadContext *context)
+{
+    (void)context;
+    contexts_unsupported();
+}
+
+WitU64 wit_arch_context_pc(const WitThreadContext *context)
+{
+    (void)context;
+    contexts_unsupported();
+}
+
+WitU64 wit_arch_context_sp(const WitThreadContext *context)
+{
+    (void)context;
+    contexts_unsupported();
+}
+
+void wit_arch_context_apply(WitArchFrame *frame, const WitThreadContext *context)
+{
+    (void)frame;
+    (void)context;
+    contexts_unsupported();
+}
+
+void wit_arch_cpu_context_describe(WitCpuContextInfo *info, const WitArchFrame *frame)
+{
+    (void)info;
+    (void)frame;
+    contexts_unsupported();
+}
+
+/* Exception callbacks deliver a thread context, so no EL0 exception is deliverable before A3. */
+int wit_arch_exception_deliverable(WitU64 vector)
+{
+    (void)vector;
+    return 0;
+}
+
+/* vector is the exception class, error the syndrome (ESR_EL1) and address the fault address. */
+WitArchExceptionKind wit_arch_exception_kind(WitU64 vector, WitU64 error, WitU64 address)
+{
+    if (vector == CLASS_USER_DATA_ABORT && address == 0 && !(error & ESR_FAR_NOT_VALID)) {
+        return (error & ESR_WRITE) ? WitArchExceptionNullWrite : WitArchExceptionNullRead;
+    }
+    if (vector == CLASS_UNKNOWN) {
+        return WitArchExceptionIllegal;
+    }
+    return WitArchExceptionOther; /* Integer division by zero does not trap on ARM64. */
+}
+
+void wit_arch_exception_record(WitUserExceptionInfo *info, const WitArchFrame *frame, WitU64 address)
+{
+    (void)info;
+    (void)frame;
+    (void)address;
+    contexts_unsupported();
+}
+
+void wit_arch_exception_record_software(WitUserExceptionInfo *info, const WitThreadContext *context)
+{
+    (void)info;
+    (void)context;
+    contexts_unsupported();
+}
+
+void wit_arch_fault_from_frame(WitArchFaultState *state, const WitArchFrame *frame)
+{
+    state->Elr = frame->Elr;
+    state->Spsr = frame->Spsr;
+    state->Esr = frame->Esr;
+}
+
+void wit_arch_fault_from_context(WitArchFaultState *state, const WitThreadContext *context)
+{
+    (void)state;
+    (void)context;
+    contexts_unsupported();
+}
+
+int wit_arch_fault_from_user(const WitArchFaultState *state)
+{
+    return (state->Spsr & WIT_A64_SPSR_MODE) == 0;
+}
+
+void wit_arch_fault_describe(const WitArchFaultState *state)
+{
+    wit_console_write(" elr=");
+    wit_console_write_hex(state->Elr);
+    wit_console_write(" spsr=");
+    wit_console_write_hex(state->Spsr);
+    wit_console_write(" esr=");
+    wit_console_write_hex(state->Esr);
+}
+
+/* The size of the data cache is not reported before CCSIDR decoding exists; zero means unknown. */
+WitU64 wit_arch_cache_size(void)
+{
+    return 0;
+}
+
+WitA64Frame *wit_a64_user_trap(WitA64Frame *frame)
+{
+    const WitU64 exception_class = (frame->Esr >> 26) & 0x3F;
+    WitU64 address = 0;
+    if (exception_class == CLASS_SVC64 && (frame->Esr & ESR_ISS_IMMEDIATE) == 0) {
+        return wit_user_syscall(frame, frame->X[8], frame->X[0], frame->X[1], frame->X[2]);
+    }
+    if (exception_class == CLASS_PC_ALIGNMENT ||
+        ((exception_class == CLASS_USER_INSTRUCTION_ABORT || exception_class == CLASS_USER_DATA_ABORT) &&
+            !(frame->Esr & ESR_FAR_NOT_VALID))) {
+        address = frame->Far;
+    }
+    return wit_user_exception_trap(frame, exception_class, frame->Esr, address);
+}

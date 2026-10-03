@@ -100,7 +100,8 @@ WitU64 wit_user_isolation_begin_self_test(WitPageAllocator *pages)
     wit_user_destroy(&components[0]);
     wit_user_destroy(&components[1]);
     require(wit_pages_free_count(pages) == before, "User pair leaked pages");
-    wit_console_write("[TEST-PASS] User.Ring3\n[TEST-PASS] User.AbiAndHandles\n[TEST-PASS] User.PrivateMemory\n");
+    wit_console_write(
+        "[TEST-PASS] User.UnprivilegedMode\n[TEST-PASS] User.AbiAndHandles\n[TEST-PASS] User.PrivateMemory\n");
 
     /* Keep one peer's private page alive and prove it is absent in the other address space. */
     create(pages, 0, WIT_TEST_NORMAL);

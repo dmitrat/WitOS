@@ -20,7 +20,9 @@ public sealed class KernelManifestTests
         "src/Kernel.Platform.QemuVirt", "tests/Kernel", "tests/Kernel.X64", "tests/Kernel.A64"
     ];
 
-    private static readonly string[] SHARED_LAYERS = ["boot-uefi", "kernel-boot", "kernel-foundation"];
+    private static readonly string[] SHARED_LAYERS = ["boot-uefi", "kernel-boot", "kernel-foundation", "kernel-common"];
+
+    private static readonly string[] SHARED_SELF_TEST_LAYERS = ["kernel-selftest-shared", "kernel-selftest-user"];
 
     #endregion
 
@@ -93,9 +95,10 @@ public sealed class KernelManifestTests
         }
     }
 
-    // ARM64 shares the loader, the kernel entry and the foundation services with x64; user-mode policy follows in A2.
+    // ARM64 shares the loader, the kernel entry, the foundation services, the user-mode policy and the
+    // architecture-independent self-tests with x64.
     [Test]
-    public void Arm64SharesTheFoundationLayersTest()
+    public void Arm64SharesTheKernelLayersTest()
     {
         var root = TestEnvironment.Root;
         var x64 = KernelManifest.ReadTarget(root, "x64");
@@ -107,9 +110,12 @@ public sealed class KernelManifestTests
             Assert.That(x64.Layers, Does.Contain(layer));
             Assert.That(arm64.Layers, Does.Contain(layer));
         }
+        foreach (var layer in SHARED_SELF_TEST_LAYERS)
+        {
+            Assert.That(x64.SelfTestLayers, Does.Contain(layer));
+            Assert.That(arm64.SelfTestLayers, Does.Contain(layer));
+        }
         Assert.That(arm64.Includes.Except(x64.Includes), Is.EqualTo(new[] { "src/Kernel.Arch.A64/include" }));
-        Assert.That(x64.Layers, Does.Contain("kernel-common"));
-        Assert.That(arm64.Layers, Does.Not.Contain("kernel-common"), "ARM64 links user-mode policy only from A2");
     }
 
     #endregion

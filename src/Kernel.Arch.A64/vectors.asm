@@ -1,9 +1,9 @@
 ; ARM64 exception vectors (VBAR_EL1), AAPCS64. Each entry saves x0 and x1, passes its index in x0 and joins the
-; common path, which stores a WitA64Frame on the interrupted stack (general, special and SIMD registers) and calls
-; wit_a64_exception. The handler returns the frame to resume, possibly on another kernel thread's stack; the
-; frame's own stack pointer is its address plus FRAME_SIZE.
+; common path, which stores a WitArchFrame on the SP_EL1 stack (general, special, thread and SIMD registers) and
+; calls wit_a64_exception. The handler returns the frame to resume, possibly on another thread's kernel stack.
+; A frame from EL0 records SP_EL0; a frame from EL1 records its own address plus FRAME_SIZE, the interrupted SP.
 
-FRAME_SIZE EQU 816
+FRAME_SIZE EQU 832
 
     AREA |.text|, CODE, READONLY, ALIGN=11
 
@@ -58,6 +58,10 @@ save_frame
     stp x28, x29, [sp, #224]
     str x30, [sp, #240]
     add x2, sp, #FRAME_SIZE
+    cmp x0, #8
+    b.lo save_special
+    mrs x2, sp_el0
+save_special
     mrs x3, elr_el1
     stp x2, x3, [sp, #248]
     mrs x4, spsr_el1
@@ -67,53 +71,62 @@ save_frame
     mrs x7, fpcr
     stp x6, x7, [sp, #280]
     mrs x8, fpsr
-    str x8, [sp, #296]
-    stp q0, q1, [sp, #304]
-    stp q2, q3, [sp, #336]
-    stp q4, q5, [sp, #368]
-    stp q6, q7, [sp, #400]
-    stp q8, q9, [sp, #432]
-    stp q10, q11, [sp, #464]
-    stp q12, q13, [sp, #496]
-    stp q14, q15, [sp, #528]
-    stp q16, q17, [sp, #560]
-    stp q18, q19, [sp, #592]
-    stp q20, q21, [sp, #624]
-    stp q22, q23, [sp, #656]
-    stp q24, q25, [sp, #688]
-    stp q26, q27, [sp, #720]
-    stp q28, q29, [sp, #752]
-    stp q30, q31, [sp, #784]
+    mrs x9, tpidr_el0
+    stp x8, x9, [sp, #296]
+    str xzr, [sp, #312]
+    stp q0, q1, [sp, #320]
+    stp q2, q3, [sp, #352]
+    stp q4, q5, [sp, #384]
+    stp q6, q7, [sp, #416]
+    stp q8, q9, [sp, #448]
+    stp q10, q11, [sp, #480]
+    stp q12, q13, [sp, #512]
+    stp q14, q15, [sp, #544]
+    stp q16, q17, [sp, #576]
+    stp q18, q19, [sp, #608]
+    stp q20, q21, [sp, #640]
+    stp q22, q23, [sp, #672]
+    stp q24, q25, [sp, #704]
+    stp q26, q27, [sp, #736]
+    stp q28, q29, [sp, #768]
+    stp q30, q31, [sp, #800]
     mov x1, x0
     mov x0, sp
     bl wit_a64_exception
 
-; x0 = frame to resume; it is never the caller's own frame once a stack switch happened.
+; x0 = frame to resume. The stack pointer after ERET is the frame address plus FRAME_SIZE, so a frame that
+; returns to EL0 must sit at the top of its thread's kernel stack.
 wit_a64_resume_frame
     mov sp, x0
-    ldp q0, q1, [sp, #304]
-    ldp q2, q3, [sp, #336]
-    ldp q4, q5, [sp, #368]
-    ldp q6, q7, [sp, #400]
-    ldp q8, q9, [sp, #432]
-    ldp q10, q11, [sp, #464]
-    ldp q12, q13, [sp, #496]
-    ldp q14, q15, [sp, #528]
-    ldp q16, q17, [sp, #560]
-    ldp q18, q19, [sp, #592]
-    ldp q20, q21, [sp, #624]
-    ldp q22, q23, [sp, #656]
-    ldp q24, q25, [sp, #688]
-    ldp q26, q27, [sp, #720]
-    ldp q28, q29, [sp, #752]
-    ldp q30, q31, [sp, #784]
-    ldr x2, [sp, #288]
+    ldp q0, q1, [sp, #320]
+    ldp q2, q3, [sp, #352]
+    ldp q4, q5, [sp, #384]
+    ldp q6, q7, [sp, #416]
+    ldp q8, q9, [sp, #448]
+    ldp q10, q11, [sp, #480]
+    ldp q12, q13, [sp, #512]
+    ldp q14, q15, [sp, #544]
+    ldp q16, q17, [sp, #576]
+    ldp q18, q19, [sp, #608]
+    ldp q20, q21, [sp, #640]
+    ldp q22, q23, [sp, #672]
+    ldp q24, q25, [sp, #704]
+    ldp q26, q27, [sp, #736]
+    ldp q28, q29, [sp, #768]
+    ldp q30, q31, [sp, #800]
+    ldp x2, x3, [sp, #288]
     msr fpcr, x2
-    ldr x2, [sp, #296]
-    msr fpsr, x2
+    msr fpsr, x3
+    ldr x2, [sp, #304]
+    msr tpidr_el0, x2
     ldp x2, x3, [sp, #256]
     msr elr_el1, x2
     msr spsr_el1, x3
+    tst x3, #0x1F
+    b.ne resume_registers
+    ldr x2, [sp, #248]
+    msr sp_el0, x2
+resume_registers
     ldp x2, x3, [sp, #16]
     ldp x4, x5, [sp, #32]
     ldp x6, x7, [sp, #48]

@@ -1,13 +1,15 @@
 {
   "name": "kernel-selftest-a64",
-  "description": "ARM64 kernel self-tests: virtual mappings, memory permission faults, the CPU fault scenarios and kernel-worker preemption.",
+  "description": "ARM64 kernel self-tests: virtual mappings, memory permission faults, the CPU fault scenarios, kernel-worker preemption and the expected EL0 faults of the shared isolation tests.",
   "includes": [
     "src/Kernel.Arch.A64",
+    "tests/User",
     "tests/Kernel"
   ],
   "sources": [
     "tests/Kernel.A64/kernel_tests.c",
-    "tests/Kernel.A64/fault_tests.c"
+    "tests/Kernel.A64/fault_tests.c",
+    "tests/Kernel.A64/user_faults.c"
   ],
   "assembly": [
     "tests/Kernel.A64/self_test.asm"

@@ -471,6 +471,7 @@ static WitPeStatus create_process(WitUserProcess *process, WitPageAllocator *all
         for (WitU32 i = 0; i < code_size; ++i) {
             ((WitU8 *)physical)[i] = code[i];
         }
+        wit_user_space_publish_code(&process->Space, WIT_USER_CODE, code_size);
     }
     startup = (WitUserStartup *)wit_user_space_physical(&process->Space, WIT_USER_INFO, 0, 0);
     startup->Version = WIT_ABI_VERSION;

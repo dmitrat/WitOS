@@ -127,6 +127,10 @@ WitU64 wit_arch_page_translate(WitU64 root, WitU64 address, int write, int execu
 int wit_arch_space_kernel_ready(void);
 void wit_arch_space_install_kernel(WitU64 root);
 int wit_arch_space_active(WitU64 root);
+
+/* Code publication: each page that received new instructions is cleaned toward instruction fetch, then
+ * wit_arch_publish_code completes the batch before any of it may execute. */
+void wit_arch_publish_code_page(WitU64 physical);
 void wit_arch_publish_code(void);
 
 /* Scheduler ticks counted by the timer interrupt entry; the board supplies the timer (witos/platform.h). */

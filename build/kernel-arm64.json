@@ -1,7 +1,7 @@
 {
   "architecture": "arm64",
   "status": "active",
-  "description": "ARM64 kernel on the QEMU virt board: boot contract, exception vectors, kernel translation tables, boot storage, randomness, the generic counter, the GICv3 timer and kernel-thread preemption; user mode arrives with A2.",
+  "description": "ARM64 kernel on the QEMU virt board: boot contract, exception vectors, kernel translation tables, boot storage, randomness, the generic counter, the GICv3 timer, kernel-thread preemption and EL0 components through the common policy.",
   "includes": [
     "src/Kernel/include",
     "src/Kernel",
@@ -11,11 +11,13 @@
     "boot-uefi",
     "kernel-boot",
     "kernel-foundation",
+    "kernel-common",
     "kernel-arch-a64",
     "kernel-platform-qemu-virt"
   ],
   "selfTestLayers": [
     "kernel-selftest-shared",
+    "kernel-selftest-user",
     "kernel-selftest-a64"
   ]
 }

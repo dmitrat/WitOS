@@ -77,5 +77,10 @@ int wit_user_image_map(WitUserSpace *space, const WitU8 *file, const WitPeImage 
         }
         consumed += length;
     }
+    for (WitU32 i = 0; i < plan->SectionCount; ++i) {
+        if (plan->Sections[i].Flags & WIT_PE_EXECUTE) {
+            wit_user_space_publish_code(space, base + plan->Sections[i].Rva, plan->Sections[i].MapSize);
+        }
+    }
     return 1;
 }

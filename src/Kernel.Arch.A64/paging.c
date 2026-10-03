@@ -18,6 +18,9 @@
 #define DESC_PXN (1ULL << 53)
 #define DESC_UXN (1ULL << 54)
 #define DESC_ADDRESS 0x0000FFFFFFFFF000ULL
+/* Kernel level-0 entries deny EL0 access and EL0 execution for everything below them, so the kernel branch
+ * that user roots share stays out of reach whatever its leaves say. */
+#define TABLE_KERNEL ((1ULL << 61) | (1ULL << 60))
 
 /* MAIR_EL1: Attr0 normal write-back read/write-allocate, Attr1 device-nGnRnE. */
 #define MAIR_ATTRIBUTES 0x00FFULL
@@ -75,7 +78,7 @@ static WitU64 *leaf(WitU64 address, int create)
             if (!create) {
                 return 0;
             }
-            *entry = new_table() | DESC_TABLE;
+            *entry = new_table() | DESC_TABLE | (level == 0 ? TABLE_KERNEL : 0);
         }
         require((*entry & 3) == DESC_TABLE, "Unexpected block mapping");
         table = (WitU64 *)(*entry & DESC_ADDRESS);
@@ -340,6 +343,35 @@ void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator
     }
     require(leaf(0, 0) == 0 || !(*leaf(0, 0) & DESC_VALID), "Null page is mapped");
     wit_console_write("[TEST-PASS] Memory.StackGuards\n");
+}
+
+WitU64 wit_virtual_kernel_root(void)
+{
+    return low_root;
+}
+
+static int kernel_branch(WitU64 entry)
+{
+    return (entry & 3) == DESC_TABLE && (entry & TABLE_KERNEL) == TABLE_KERNEL;
+}
+
+int wit_arch_space_kernel_ready(void)
+{
+    return active &&
+        kernel_branch(((WitU64 *)low_root)[0]) &&
+        kernel_branch(((WitU64 *)high_root)[(WIT_A64_STORAGE_BASE >> 39) & 511]);
+}
+
+/* A user root shares the kernel's identity branch, level-0 entry 0; TTBR1 with the storage window is never
+ * switched. The other level-0 entries are private to the component. */
+void wit_arch_space_install_kernel(WitU64 root)
+{
+    ((WitU64 *)root)[0] = ((WitU64 *)low_root)[0];
+}
+
+int wit_arch_space_active(WitU64 root)
+{
+    return wit_a64_translation_base() == root;
 }
 
 /* Device pages a board maps on demand once paging is active; not a public mapping API. */

@@ -1,9 +1,10 @@
 #include "witos/arch.h"
 #include "witos/platform.h"
+#include "user.h"
 #include "a64.h"
 
-/* ARM64 timer interrupt: counts ticks and, in the preemption self-test, switches between two kernel workers and the
- * bootstrap thread. User threads arrive with A2. */
+/* ARM64 timer interrupt: counts ticks, runs the user scheduler while a component is active and, in the preemption
+ * self-test, switches between two kernel workers and the bootstrap thread. */
 
 static volatile WitU64 timer_ticks;
 
@@ -72,6 +73,9 @@ WitA64Frame *wit_a64_interrupt(WitA64Frame *frame)
         ++timer_ticks; /* Saturate; never wrap deadlines. */
     }
     wit_platform_timer_acknowledge(); /* Before dispatching a different context. */
+    if (wit_user_is_active()) {
+        return wit_user_timer_tick(frame);
+    }
 #if defined(WITOS_SELFTEST)
     if (!scheduling) {
         return frame;

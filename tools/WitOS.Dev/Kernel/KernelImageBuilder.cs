@@ -83,10 +83,14 @@ internal static class KernelImageBuilder
 
         // Every scenario kernel is a self-test kernel where the target has self-test layers; the release kernel never is.
         var selfTest = scenario != RELEASE_SCENARIO && target.SelfTestLayers.Length > 0;
-        // User fixtures are x64 images; ARM64 user mode arrives with A2.
+        // Every x64 user fixture; ARM64 builds the fixtures that A2 has ported so far.
         if (selfTest && architecture == KernelArchitecture.X64)
         {
             await UserImage.BuildAsync(root, output, msvc);
+        }
+        else if (selfTest)
+        {
+            await UserImage.BuildArm64Async(root, output, msvc);
         }
         if (scenario == "coreclr-memory")
         {

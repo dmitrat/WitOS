@@ -878,6 +878,21 @@ WitU64 wit_user_code_protect(WitUserSpace *space, WitU64 address, WitU64 size, W
     return protect(space, address, size, protection, 1);
 }
 
+/* Makes instructions written to the executable owned or aliased pages of [address, address + size) visible to
+ * instruction fetch. Other pages hold no code and are skipped. */
+void wit_user_space_publish_code(WitUserSpace *space, WitU64 address, WitU64 size)
+{
+    for (WitU64 page = address & ~4095ULL; page < address + size; page += 4096) {
+        const WitU64 *entry = leaf(space, page, 0);
+        if (entry &&
+            (entry_flags(*entry) & WIT_PAGE_EXECUTE) &&
+            (entry_flags(*entry) & (WIT_PAGE_OWNED | WIT_PAGE_ALIAS))) {
+            wit_arch_publish_code_page(wit_arch_page_entry_physical(*entry));
+        }
+    }
+    wit_arch_publish_code();
+}
+
 WitU64 wit_user_code_publish(WitUserSpace *space, WitU64 address, WitU64 size)
 {
     if (WIT_USER_PROCESSOR_COUNT != 1) {
@@ -906,7 +921,7 @@ WitU64 wit_user_code_publish(WitUserSpace *space, WitU64 address, WitU64 size)
             return WIT_STATUS_DENIED;
         }
     }
-    wit_arch_publish_code();
+    wit_user_space_publish_code(space, low, high - low);
     return WIT_STATUS_OK;
 }
 

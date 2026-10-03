@@ -2,8 +2,8 @@
 #include "witos/platform.h"
 #include "a64.h"
 
-/* ARM64 exception vectors of the kernel. An interrupt taken at EL1 goes to the scheduler; every other exception
- * is fatal and is reported with its syndrome. */
+/* ARM64 exception vectors of the kernel. Interrupts go to the scheduler and synchronous exceptions from EL0 to
+ * the common kernel; every other exception is fatal and is reported with its syndrome. */
 
 #define FRAME_OFFSET(field) ((WitU64) & ((WitA64Frame *)0)->field)
 
@@ -11,12 +11,15 @@ WIT_STATIC_ASSERT(sizeof(WitA64Frame) == WIT_A64_FRAME_SIZE, "vectors.asm frame 
 WIT_STATIC_ASSERT(
     FRAME_OFFSET(Sp) == 248 && FRAME_OFFSET(Elr) == 256 && FRAME_OFFSET(Spsr) == 264, "vectors.asm frame layout");
 WIT_STATIC_ASSERT(
-    FRAME_OFFSET(Far) == 280 && FRAME_OFFSET(Fpcr) == 288 && FRAME_OFFSET(Q) == 304, "vectors.asm frame layout");
+    FRAME_OFFSET(Far) == 280 && FRAME_OFFSET(Fpcr) == 288 && FRAME_OFFSET(Tpidr) == 304, "vectors.asm frame layout");
+WIT_STATIC_ASSERT(FRAME_OFFSET(Q) == 320, "vectors.asm frame layout");
 
 /* Vector entries: 0-3 current EL on SP_EL0, 4-7 current EL on SP_ELx, 8-15 lower EL; synchronous, IRQ, FIQ,
  * SError within each group. */
 #define VECTOR_KERNEL_SYNCHRONOUS 4U
 #define VECTOR_KERNEL_INTERRUPT 5U
+#define VECTOR_USER_SYNCHRONOUS 8U
+#define VECTOR_USER_INTERRUPT 9U
 #define VECTOR_INTERRUPT 1U
 #define VECTOR_SERROR 3U
 
@@ -64,6 +67,27 @@ static int on_kernel_stack(WitU64 address)
     return address > begin && address <= begin + WIT_A64_KERNEL_STACK_SIZE;
 }
 
+/* EL0 may not mask interrupts (UMA), wait for interrupts or events (nTWI, nTWE) or use a misaligned stack
+ * (SA0); it may use FP/SIMD without traps (CPACR_EL1.FPEN). */
+#define SCTLR_SA0 (1ULL << 4)
+#define SCTLR_UMA (1ULL << 9)
+#define SCTLR_NTWI (1ULL << 16)
+#define SCTLR_NTWE (1ULL << 18)
+#define SCTLR_E0E (1ULL << 24)
+#define CPACR_FPEN (3ULL << 20)
+
+static void configure_user_mode(void)
+{
+    const WitU64 control = (wit_a64_system_control() & ~(SCTLR_UMA | SCTLR_NTWI | SCTLR_NTWE)) | SCTLR_SA0;
+    wit_a64_set_system_control(control);
+    wit_a64_set_fp_access(wit_a64_fp_access() | CPACR_FPEN);
+    if (wit_a64_system_control() != control ||
+        (control & SCTLR_E0E) ||
+        (wit_a64_fp_access() & CPACR_FPEN) != CPACR_FPEN) {
+        wit_panic("EL0 control was not applied");
+    }
+}
+
 void wit_arch_initialize(void)
 {
     const WitU64 stack_begin = kernel_stack_begin();
@@ -86,6 +110,7 @@ void wit_arch_initialize(void)
     if (wit_a64_vectors_base() != (WitU64)wit_a64_vectors) {
         wit_panic("Exception vectors were not installed");
     }
+    configure_user_mode();
     wit_console_write("[TEST-PASS] Cpu.ExceptionTables\n");
 }
 
@@ -93,8 +118,11 @@ WitA64Frame *wit_a64_exception(WitA64Frame *frame, WitU64 kind)
 {
     const WitU64 exception_class = (frame->Esr >> 26) & 0x3F;
 
-    if (kind == VECTOR_KERNEL_INTERRUPT) {
-        return wit_a64_interrupt(frame);
+    if (kind == VECTOR_KERNEL_INTERRUPT || kind == VECTOR_USER_INTERRUPT) {
+        return wit_a64_prepare_resume(wit_a64_interrupt(frame));
+    }
+    if (kind == VECTOR_USER_SYNCHRONOUS) {
+        return wit_a64_prepare_resume(wit_a64_user_trap(frame));
     }
 
     wit_console_write("[EXCEPTION] kind=");

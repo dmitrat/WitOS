@@ -150,6 +150,11 @@ int wit_arch_space_active(WitU64 root)
     return (__readcr3() & PAGE_ADDRESS) == root;
 }
 
+void wit_arch_publish_code_page(WitU64 physical)
+{
+    (void)physical; /* x64 instruction fetch observes earlier data writes; only serialization remains. */
+}
+
 void wit_arch_publish_code(void)
 {
     // CPUID is a real serializing instruction on the sole online x64 CPU.

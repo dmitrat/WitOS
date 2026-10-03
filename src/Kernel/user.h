@@ -245,6 +245,7 @@ int wit_user_space_create_profile(WitUserSpace *, WitPageAllocator *, int);
 int wit_user_space_create(WitUserSpace *space, WitPageAllocator *allocator);
 int wit_user_space_map(WitUserSpace *space, WitU64 address, int writable, int executable);
 WitU64 wit_user_space_physical(const WitUserSpace *space, WitU64 address, int write, int execute);
+void wit_user_space_publish_code(WitUserSpace *space, WitU64 address, WitU64 size);
 int wit_user_copy_from(const WitUserSpace *space, WitU64 address, WitU8 *buffer, WitU32 size);
 WitU64 wit_user_console_write(WitUserProcess *, WitU64, WitU64, WitU64);
 int wit_user_buffer_readable(const WitUserSpace *, WitU64, WitU32);
