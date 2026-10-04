@@ -1,7 +1,14 @@
 #include "user.h"
 #include "witos/platform.h"
 
+/* As on Windows, only a library with an entry point takes thread and detach notifications; one without runs its TLS
+ * callbacks for the process attach alone. */
 int wit_user_library_participates(const WitUserLibrary *library)
+{
+    return library->EntryRva != 0;
+}
+
+int wit_user_library_attaches(const WitUserLibrary *library)
 {
     return library->EntryRva || library->TlsCallbackCount;
 }
@@ -32,7 +39,7 @@ static void order_attach(WitUserProcess *p, WitU32 slot, WitU32 mask, WitU32 *vi
             order_attach(p, i, mask, visited, life);
         }
     }
-    if (wit_user_library_participates(&p->Libraries[slot])) {
+    if (wit_user_library_attaches(&p->Libraries[slot])) {
         life->Order[life->Count++] = slot;
     }
 }
@@ -291,12 +298,15 @@ static void release_descriptor(WitUserProcess *p, const WitUserLibraryLifecycle 
     p->LibraryLifecycle = (WitUserLibraryLifecycle){0};
 }
 
-/* A completed attach records the attach order; a failed attach drops the new libraries. */
+/* A completed attach records the attach order of the libraries that take later notifications; a failed attach drops
+ * the new libraries. */
 static WitU64 finish_attach(WitUserProcess *p, const WitUserLibraryLifecycle *life, WitU64 completed)
 {
     if (completed) {
         for (WitU32 i = 0; i < life->Count; ++i) {
-            p->Libraries[life->Order[i]].AttachOrder = ++p->NextLibraryAttach;
+            if (wit_user_library_participates(&p->Libraries[life->Order[i]])) {
+                p->Libraries[life->Order[i]].AttachOrder = ++p->NextLibraryAttach;
+            }
         }
         return WIT_STATUS_OK;
     }

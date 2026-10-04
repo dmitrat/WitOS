@@ -118,8 +118,10 @@ typedef struct WitUserLibrary {
     WitU32 TlsCallbacksRva, TlsCallbackCount;
 } WitUserLibrary;
 
-/* A library takes part in the lifecycle when it has an entry point or PE TLS callbacks. */
+/* A library with an entry point takes thread notifications and the detach; one with an entry point or PE TLS callbacks
+ * takes the process attach. */
 int wit_user_library_participates(const WitUserLibrary *library);
+int wit_user_library_attaches(const WitUserLibrary *library);
 
 typedef struct WitUserLibraryReader {
     WitU64 Token, ModuleToken;

@@ -244,7 +244,7 @@ static WitU64 check_callbacks(const WitUserProcess *process, int *callbacks)
 {
     *callbacks = 0;
     for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
-        if (added(i) && wit_user_library_participates(&transaction.Modules[i])) {
+        if (added(i) && wit_user_library_attaches(&transaction.Modules[i])) {
             *callbacks = 1;
         }
     }
