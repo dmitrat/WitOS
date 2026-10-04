@@ -93,6 +93,8 @@ Absolute deadlines may expire between a user clock read and kernel entry. Test d
 
 Expected boot markers live in `tests/Expectations/*.json`; add a suite's new marker there, never as a list in `BootValidation`, and keep every expected marker emitted by a guest source. Contained user faults are accounted by the guest: a test accepts each expected fault through `wit_test_faulted`, and the host requires the closing `[TEST-SUMMARY] faults=N checked=N` to match the fault lines; never add a hand-counted fault total.
 
+Guest boots run in QEMU virtual time (`-icount shift=2,sleep=off` in `BootScenarioRunner`): a 10 ms tick is 2.5 million instructions on every host. Keep tick budgets and timer expectations in guest instructions, never tuned to host speed; wall-clock boot limits only stop a hung QEMU.
+
 Use `setup` once for the pinned local QEMU package. The test tool must distinguish successful boot, panic, unexpected exit and timeout. Never infer a passing boot from an exit code or log line alone.
 
 For runtime experiment or source-pin changes, run `runtime-audit`, `runtime-probe` and `runtime-target` through the same tool. Their results are hosted Windows evidence, including native C-host bootstrap, never proof that .NET runs in the guest. Preserve the source/package pins and explicit profile limitations unless the task deliberately updates them. `runtime-port` builds and boots the native GC memory adapter in QEMU; it is guest adapter evidence, not managed runtime execution. For full native source-build or overlay changes, also run `runtime-source`: it builds the upstream native libraries, executes the Windows reference and checks unresolved WitOS port requirements.

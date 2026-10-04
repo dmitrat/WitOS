@@ -15,6 +15,10 @@ internal static class KernelTestSuite
     // A hanging kernel must reach Hello before QEMU is stopped.
     private const int FOUNDATION_HANG = 30;
 
+    // The x64 hang runs every self-test before Hello: about 14 s in virtual time here, several times that on a slow
+    // runner. The limit only stops QEMU; guest time does not depend on it.
+    private const int SELFTEST_HANG = 60;
+
     #endregion
 
     #region Fields
@@ -79,7 +83,8 @@ internal static class KernelTestSuite
                 new BootRequest(name, 256, 60, ExpectedOutcome.Exception) { Fault = fault });
         }
         var timeout = await KernelImageBuilder.BuildAsync(root, "timeout");
-        await BootScenarioRunner.RunAsync(root, timeout, new BootRequest("timeout", 256, 15, ExpectedOutcome.Timeout));
+        await BootScenarioRunner.RunAsync(root, timeout,
+            new BootRequest("timeout", 256, SELFTEST_HANG, ExpectedOutcome.Timeout));
         Console.WriteLine("PASS: all 20 kernel integration scenarios.");
     }
 

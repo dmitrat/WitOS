@@ -47,12 +47,12 @@ internal static class RuntimeBootMatrix
             throw new InvalidDataException("Hosted semantic evidence or shared managed object changed; rebuild runtime-source.");
         }
         var logs = Path.Combine(attempt.RunDirectory, "logs");
-        await BootProfileAsync(root, image, new BootRequest(PROFILE_NAMES[0], 128, 120, ExpectedOutcome.Success), logs);
-        await BootProfileAsync(root, image, new BootRequest(PROFILE_NAMES[1], 512, 120, ExpectedOutcome.Success), logs);
+        await BootProfileAsync(root, image, new BootRequest(PROFILE_NAMES[0], 128, 240, ExpectedOutcome.Success), logs);
+        await BootProfileAsync(root, image, new BootRequest(PROFILE_NAMES[1], 512, 240, ExpectedOutcome.Success), logs);
         await BootProfileAsync(root, image,
-            new BootRequest(PROFILE_NAMES[2], 256, 120, ExpectedOutcome.Success) { CpuModel = "Nehalem" }, logs);
+            new BootRequest(PROFILE_NAMES[2], 256, 240, ExpectedOutcome.Success) { CpuModel = "Nehalem" }, logs);
         await BootProfileAsync(root, image,
-            new BootRequest(PROFILE_NAMES[3], 256, 120, ExpectedOutcome.Success) { CpuModel = "max" }, logs);
+            new BootRequest(PROFILE_NAMES[3], 256, 240, ExpectedOutcome.Success) { CpuModel = "max" }, logs);
 
         attempt.Publish(new
         {
