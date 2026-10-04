@@ -18,7 +18,7 @@ public sealed class CrtTests
     #region Constants
 
     private static readonly Regex DIFFERENTIAL_RESULT =
-        new(@"^PASS: (?<compared>\d+) compared, (?<skipped>\d+) skipped as invalid, 0 failed\r?$", RegexOptions.Multiline);
+        new(@"^PASS: (?<compared>\d+) compared, (?<skipped>\d+) skipped as invalid, (?<defects>\d+) UCRT counting defects, 0 failed\r?$", RegexOptions.Multiline);
 
     #endregion
 
@@ -78,6 +78,7 @@ public sealed class CrtTests
             guestExecuted = false,
             compared,
             skippedAsInvalid = long.Parse(result.Groups["skipped"].Value),
+            ucrtCountingDefects = long.Parse(result.Groups["defects"].Value),
             sources = new[] { NativeCrtImage.DIFFERENTIAL, NativeCrtImage.WINDOWS_PLATFORM }.Concat(NativeCrtImage.RUNTIME)
                 .ToDictionary(file => file, file => Hash(Path.Combine(root, file)))
         }, new JsonSerializerOptions { WriteIndented = true }));

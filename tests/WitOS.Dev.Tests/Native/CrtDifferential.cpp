@@ -25,6 +25,9 @@
 namespace {
 
 unsigned long long compared, skipped, failures;
+// Counting calls where UCRT disagrees with its own result for a buffer large enough: there the buffer result is the
+// reference. UCRT of Windows Server 2025 faults or reports EILSEQ counting a narrow string with a precision.
+unsigned long long countingDefects;
 int invalids;
 // --verbose names each print case on standard error first: the subset ends the process where it fails fast.
 bool verbose;
@@ -200,10 +203,31 @@ void Print(const wchar_t *format, const Locales &locales, const uint64_t (&a)[4]
             Fill(wit);
             invalids = 0;
             errno = 71;
-            const int expected =
+            int expected =
                 UcrtPrint(options, counting ? nullptr : ucrt, count, format, locales.Ucrt, a[0], a[1], a[2], a[3]);
-            const int expectedErrno = errno;
-            if (CrashReported(format, "vswprintf", options, count, 0)) {
+            int expectedErrno = errno;
+            if (counting) {
+                const char *countingCrashed = crashed;
+                crashed = nullptr;
+                const int countingInvalids = invalids;
+                static wchar_t large[BUFFER];
+                invalids = 0;
+                errno = 71;
+                const int whole = UcrtPrint(options, large, BUFFER, format, locales.Ucrt, a[0], a[1], a[2], a[3]);
+                const int wholeErrno = errno;
+                if (CrashReported(format, "vswprintf", options, BUFFER, 0)) {
+                    return;
+                }
+                if (invalids || countingInvalids) {
+                    ++skipped;
+                    return;
+                }
+                if (countingCrashed || whole != expected || wholeErrno != expectedErrno) {
+                    ++countingDefects;
+                    expected = whole;
+                    expectedErrno = wholeErrno;
+                }
+            } else if (CrashReported(format, "vswprintf", options, count, 0)) {
                 return;
             }
             if (invalids) {
@@ -1010,7 +1034,7 @@ int wmain(int count, wchar_t **arguments)
     LocaleCases();
     CeilCases();
     HeapCases();
-    printf("%s: %llu compared, %llu skipped as invalid, %llu failed\n", failures ? "FAIL" : "PASS", compared, skipped,
-        failures);
+    printf("%s: %llu compared, %llu skipped as invalid, %llu UCRT counting defects, %llu failed\n",
+        failures ? "FAIL" : "PASS", compared, skipped, countingDefects, failures);
     return failures ? 1 : 0;
 }
