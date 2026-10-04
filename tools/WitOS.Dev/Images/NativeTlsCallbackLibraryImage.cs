@@ -46,15 +46,6 @@ internal static class NativeTlsCallbackLibraryImage
     #region Functions
 
     /// <summary>
-    /// A Windows order without the thread that predates the load, which the guest does not admit yet (P6.4.d).
-    /// </summary>
-    /// <param name="order">Order of the Windows reference.</param>
-    /// <returns>The order the guest must produce.</returns>
-    public static string GuestOrder(string order) => string.Join(' ', order.Split(' ')
-        .Where(token => token != "P" && !token.StartsWith("P:", StringComparison.Ordinal) &&
-            !token.EndsWith("@P", StringComparison.Ordinal)));
-
-    /// <summary>
     /// Builds the sink and the callback library, with and without its entry point.
     /// </summary>
     /// <param name="root">Repository root.</param>

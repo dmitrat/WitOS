@@ -316,8 +316,8 @@ WitU64 wit_native_main(const WitUserStartup *startup)
     if (config->Mode == 13) {
         return wit_native_library_tls_test(1);
     }
-    if (config->Mode == 12) {
-        return wit_native_library_lifecycle_test(12);
+    if (config->Mode == 12 || config->Mode == 14) {
+        return wit_native_library_lifecycle_test(config->Mode);
     }
     if (config->Mode >= 9) {
         return wit_native_library_graph_test(config->Mode);

@@ -267,6 +267,42 @@ void wit_user_file_self_test(WitPageAllocator *pages)
         }
     }
     require(recovered && failures >= 10, "DLL lifecycle rollback missed plan/backing boundaries");
+    /* With a live thread that follows the notification protocol, the load reserves that thread's notification page:
+     * exactly one more load boundary. Smaller quotas fail the thread creation (44). */
+    const WitU32 loadFailures = failures;
+    failures = 0;
+    recovered = 0;
+    for (WitU32 extra = 0; extra < 96; ++extra) {
+        require(wit_user_create_pe_profile(&process, pages, 0, wit_storage_image, sizeof(wit_storage_image),
+                    WIT_USER_IMAGE_BASE, "boot:/CoreClrStorageFixture.pe", WIT_PE_UNWIND_RUNTIME) == WitPeOk,
+            "DLL live-peer rollback fixture load failed");
+        ((WitUserTestConfig *)wit_user_space_physical(&process.Space, WIT_USER_INFO, 0, 0))->Mode = 14;
+        process.Space.PageLimit = process.Space.OwnedCount + extra;
+        wit_user_run(&process);
+        if (process.State != WitUserExited ||
+            (process.ExitCode != 42 && process.ExitCode != 43 && process.ExitCode != 44)) {
+            wit_console_write("DLL live-peer code: ");
+            wit_console_write_u64(process.ExitCode);
+            wit_panic("DLL live-peer rollback failed");
+        }
+        if (process.ExitCode == 43) {
+            ++failures;
+        } else if (process.ExitCode == 42) {
+            recovered = 1;
+        }
+        wit_user_destroy(&process);
+        require(wit_pages_free_count(pages) == before, "DLL live-peer rollback leaked pages");
+        if (recovered) {
+            break;
+        }
+    }
+    if (!recovered || failures != loadFailures + 1) {
+        wit_console_write("DLL live-peer load failures: ");
+        wit_console_write_u64(failures);
+        wit_console_write(" without peer: ");
+        wit_console_write_u64(loadFailures);
+        wit_panic("DLL live-peer rollback missed the notification boundary");
+    }
     require(wit_user_create_pe_profile(&process, pages, 0, wit_process_exit_image, sizeof(wit_process_exit_image),
                 WIT_USER_IMAGE_BASE, "boot:/ProcessExitFixture.pe", WIT_PE_UNWIND_RUNTIME) == WitPeOk,
         "DLL CRT shutdown fixture load failed");

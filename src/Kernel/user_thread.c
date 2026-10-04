@@ -117,6 +117,76 @@ static int map_compiler_tls(WitUserProcess *process, WitUserThread *thread, WitU
     return 1;
 }
 
+/* Maps the library notification page and grants the lifecycle handles the thread still needs: the attach handle only
+ * before its library enter. */
+static int reserve_notifications(WitUserProcess *process, WitU32 index, WitUserThread *thread)
+{
+    const WitU64 address = WIT_USER_TLS + index * WIT_USER_THREAD_STRIDE + (WIT_LIBRARY_CAPACITY + 2) * 4096;
+    if (!wit_user_space_map(&process->Space, address, 0, 0)) {
+        return 0;
+    }
+    thread->LibraryNotificationPage = address;
+    for (WitU32 n = thread->LibraryPhase == 1 ? 0U : 1U; n < 2; ++n) {
+        thread->LibraryNotificationHandles[n] =
+            wit_handle_grant(&process->Handles, WIT_HANDLE_LIBRARY_LIFECYCLE, WIT_RIGHT_READ);
+        if (!thread->LibraryNotificationHandles[n]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void release_notifications(WitUserProcess *process, WitUserThread *thread)
+{
+    for (WitU32 n = 0; n < 2; ++n) {
+        if (thread->LibraryNotificationHandles[n]) {
+            require(wit_handle_close(&process->Handles, thread->LibraryNotificationHandles[n]) == WIT_STATUS_OK,
+                "Thread notification handle rollback failed");
+            thread->LibraryNotificationHandles[n] = 0;
+        }
+    }
+    if (thread->LibraryNotificationPage) {
+        require(wit_user_space_unmap_fixed(&process->Space, thread->LibraryNotificationPage),
+            "Thread notification page rollback failed");
+        thread->LibraryNotificationPage = 0;
+    }
+}
+
+WitU64 wit_user_thread_require_notifications(WitUserProcess *process, WitU32 *reserved)
+{
+    *reserved = 0;
+    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+        WitUserThread *thread = &process->Threads[i];
+        if (thread->State == WitThreadEmpty ||
+            thread->State == WitThreadExited ||
+            !thread->LibraryNotifications ||
+            thread->LibraryRequired ||
+            (thread->LibraryPhase != 1 && thread->LibraryPhase != 2)) {
+            continue;
+        }
+        require(!thread->LibraryNotificationPage, "Unrequired thread owns notification resources");
+        if (!reserve_notifications(process, i, thread)) {
+            release_notifications(process, thread);
+            wit_user_thread_release_notifications(process, *reserved);
+            *reserved = 0;
+            return WIT_STATUS_NO_MEMORY;
+        }
+        thread->LibraryRequired = 1;
+        *reserved |= 1U << i;
+    }
+    return WIT_STATUS_OK;
+}
+
+void wit_user_thread_release_notifications(WitUserProcess *process, WitU32 reserved)
+{
+    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+        if (reserved & (1U << i)) {
+            release_notifications(process, &process->Threads[i]);
+            process->Threads[i].LibraryRequired = 0;
+        }
+    }
+}
+
 /* Maps the stack, raw TLS, compiler TLS, library TLS and, when required, the library notification page and its
  * two lifecycle handles. */
 static int map_thread(WitUserProcess *process, WitU32 index, WitUserThread *thread, ThreadPages *pages)
@@ -137,38 +207,13 @@ static int map_thread(WitUserProcess *process, WitU32 index, WitUserThread *thre
     if (!wit_user_library_tls_create_thread(process, index)) {
         return 0;
     }
-    if (thread->LibraryRequired) {
-        const WitU64 address = WIT_USER_TLS + index * WIT_USER_THREAD_STRIDE + (WIT_LIBRARY_CAPACITY + 2) * 4096;
-        if (!wit_user_space_map(&process->Space, address, 0, 0)) {
-            return 0;
-        }
-        thread->LibraryNotificationPage = address;
-        for (WitU32 n = 0; n < 2; ++n) {
-            thread->LibraryNotificationHandles[n] =
-                wit_handle_grant(&process->Handles, WIT_HANDLE_LIBRARY_LIFECYCLE, WIT_RIGHT_READ);
-            if (!thread->LibraryNotificationHandles[n]) {
-                return 0;
-            }
-        }
-    }
-    return 1;
+    return !thread->LibraryRequired || reserve_notifications(process, index, thread);
 }
 
 static void unmap_thread(
     WitUserProcess *process, WitU32 index, WitUserThread *thread, const ThreadPages *pages, WitU64 handle)
 {
-    for (WitU32 n = 0; n < 2; ++n) {
-        if (thread->LibraryNotificationHandles[n]) {
-            require(wit_handle_close(&process->Handles, thread->LibraryNotificationHandles[n]) == WIT_STATUS_OK,
-                "Thread notification handle rollback failed");
-            thread->LibraryNotificationHandles[n] = 0;
-        }
-    }
-    if (thread->LibraryNotificationPage) {
-        require(wit_user_space_unmap_fixed(&process->Space, thread->LibraryNotificationPage),
-            "Thread notification page rollback failed");
-        thread->LibraryNotificationPage = 0;
-    }
+    release_notifications(process, thread);
     wit_user_library_tls_reap_thread(process, index);
     if (thread->CompilerTls) {
         require(wit_user_space_unmap_fixed(&process->Space, thread->CompilerTls), "Compiler TLS rollback lost page");
