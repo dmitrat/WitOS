@@ -6,9 +6,11 @@ extern "C" {
 #include "bootstrap.h"
 }
 
-/* A bounded process-private heap for the runtime's nothrow C++ allocations.
- * Metadata is outside allocation payloads. No CRT, managed GC, compiler TLS,
- * dynamic initialization or kernel events are required. */
+/* A bounded process-private heap for the runtime's nothrow C++ allocations, the
+ * Local family and the C allocations of the UCRT subset; a block is released
+ * only through its own family. Metadata is outside allocation payloads. No CRT,
+ * managed GC, compiler TLS, dynamic initialization or kernel events are
+ * required. */
 static constexpr size_t CAPACITY = WIT_NATIVE_HEAP_CAPACITY;
 static constexpr size_t ARENA_BYTES = WIT_NATIVE_HEAP_ARENA_BYTES;
 static constexpr size_t PAGE_BYTES = 4096;
@@ -176,6 +178,30 @@ extern "C" void *wit_native_local_allocate(size_t bytes)
 extern "C" bool wit_native_local_release(void *address)
 {
     return release(address, 1);
+}
+
+extern "C" void *wit_native_c_allocate(size_t bytes)
+{
+    return allocate(bytes, 2);
+}
+
+extern "C" bool wit_native_c_release(void *address)
+{
+    return release(address, 2);
+}
+
+extern "C" size_t wit_native_c_size(const void *address)
+{
+    size_t size = 0;
+    lock();
+    for (size_t i = 0; i < CAPACITY; ++i) {
+        if (allocations[i].Size && allocations[i].Kind == 2 && (uintptr_t)address == arena + allocations[i].Offset) {
+            size = allocations[i].Size;
+            break;
+        }
+    }
+    unlock();
+    return size;
 }
 
 // Match the real MSVC C++ declarations used by the upstream runtime. Throwing

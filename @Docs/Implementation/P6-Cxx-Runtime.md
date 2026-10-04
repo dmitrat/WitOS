@@ -1,6 +1,7 @@
 # P6.4 guest C++ runtime for the host
 
-Date: 2026-10-04. Status: P6.4.e (Windows), P6.4.f (guest) and P6.4.g (vcruntime surface) complete; P6.4.h next.
+Date: 2026-10-04. Status: P6.4.e (Windows), P6.4.f (guest), P6.4.g (vcruntime surface) and P6.4.h (UCRT subset)
+complete; P6.4.i next.
 
 ## Decision
 
@@ -53,13 +54,22 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
   exceptions thrown inside a catch block; the same test passes in the guest.
 - [x] **P6.4.g** The rest of the vcruntime surface the host uses: thread-safe statics, GS cookies and handlers,
   throwing `new`/`delete` on the native heap, vector constructor iterators, `std::exception` support.
-- [ ] **P6.4.h** microsoft/STL `vs-2022-17.14`: pin, audit and build of the separately compiled sources the host
-  needs; their Win32 calls go through WitOS adapters, and any change to a pinned file is an upstream patch.
-- [ ] **P6.4.i** The host's C runtime and Win32 surface: the UCRT subset it calls (`malloc`/`free`, wide `printf`,
-  stdio, time, the C locale, strings) from a pinned musl (MIT) source behind thin WitOS UCRT entry points (decided
-  2026-10-04: suitable open code from a pinned source rather than our own; the Windows SDK's UCRT sources are not
-  used), and its Win32 imports; strict link of `hostfxr` and `hostpolicy` with no unresolved symbol.
-- [ ] **P6.4.j** Guest `hostfxr_main` reads a real application's runtimeconfig and deps through `hostpolicy` and
+- [x] **P6.4.h** The host's UCRT subset, WitOS's own and checked differentially against the real UCRT: the wide
+  `printf` family with UCRT's options, legacy wide specifiers and buffer contracts (floating-point conversions fail
+  fast until something needs them, then through the pinned STL's Ryu), `wcs*`, the C and UTF-8 locales, calendar
+  time, error messages, `malloc`/`realloc`/`free` over the native heap, stdio over the WitOS console and files, and
+  the UCRT entry points (`__stdio_common_*`, `__acrt_iob_func`). Decided 2026-10-04 after two open candidates
+  failed the fit: musl's wide functions assume a 32-bit `wchar_t` and its sources are GNU C; mingw-w64's
+  `mingw_pformat.c` formats floating point through the x87 80-bit `long double` and gdtoa, which the host never
+  uses. The Windows SDK's UCRT sources are not used. It comes before the STL, whose sources call it.
+- [ ] **P6.4.i** microsoft/STL `vs-2022-17.14`: pin, audit and build of the separately compiled sources the host
+  needs (`std::_X*`, `_Mtx_*`/`_Cnd_*`, `_Thrd_*`, `_Throw_Cpp_error`, the locale and stream support behind
+  `std::wstringstream`, the vectorized algorithms) with `_beginthreadex` and the UCRT functions those sources call.
+  STL's build includes vcruntime's `internal_shared.h` from the toolset's reference sources; a minimal WitOS header
+  replaces it. Their Win32 calls go through WitOS adapters, and any change to a pinned file is an upstream patch.
+- [ ] **P6.4.j** The host's Win32 imports (files, mappings, critical sections, modules, console, registry) over
+  WitOS adapters; strict link of `hostfxr` and `hostpolicy` with no unresolved symbol.
+- [ ] **P6.4.k** Guest `hostfxr_main` reads a real application's runtimeconfig and deps through `hostpolicy` and
   reaches `coreclr_initialize`/`coreclr_execute_assembly`.
 
 ## P6.4.e: the exception runtime on Windows
@@ -179,3 +189,105 @@ iterators all run (`Code.CxxExceptions`, both profiles).
 Of the host's remaining vcruntime and CRT symbols, `_fltused`, `__chkstk`, the memory routines and `_tls_index`
 already exist in the guest, and `atexit` belongs to the C runtime slice. Both harnesses define `atexit` as
 registration only: static destructors run after the trace on Windows and not at all in the test.
+
+## P6.4.h: the UCRT subset
+
+`src/Runtime.Crt/` holds the C runtime functions the real `hostfxr` and `hostpolicy` call, under UCRT's names and
+contracts. A strict link of `hostpolicy` with `hostcommon` and `hostmisc` (the 119-symbol baseline covers `hostfxr`
+only) adds `_beginthreadex`, `_wremove`, `_wrename`, `fclose`, `fwrite`, `terminate`, `_purecall` and the STL's
+locale, stream and thread internals to the list.
+
+| File | Functions |
+|---|---|
+| `format.cpp` | the wide printf engine; `__stdio_common_vswprintf`, `__stdio_common_vsnwprintf_s` |
+| `stdio.cpp` | `__acrt_iob_func`, `__stdio_common_vfwprintf`, `fputwc`, `fwrite`, `fflush`, `setvbuf`, `_wfsopen`, `fclose`, `_wremove`, `_wrename` |
+| `locale.cpp` | `_create_locale`, `_free_locale`; the C and UTF-8 conversions |
+| `string.cpp` | `wcslen`, `wcscmp`, `wcsncmp`, `wcschr`, `_wcsicmp`, `_wcsnicmp`, `tolower`, `toupper`, `wcstoul`, `_wtoi`, `_wcserror_s` |
+| `time.cpp` | `_time64`, `_gmtime64_s`, `wcsftime` |
+| `heap.cpp`, `runtime.cpp` | `malloc`, `realloc`, `free`; `ceilf`, `terminate`, `_fltused` |
+| `platform_windows.cpp`, `platform_witos.cpp` | locks, fail-fast, standard handles, files, the heap, the UTC clock; `_errno` on Windows |
+
+`_errno`, `strlen`, the memory routines and `atexit` come from the guest's native layer
+(`Runtime.NativeAot/crt_config.witos.cpp`, `crt_memory.witos.c`, `crt_exit.witos.cpp`); `__chkstk` and `_tls_index`
+were there before. The NativeAOT overlay defines its own `_fltused` in `native_math.witos.cpp`; a module links one.
+
+### Contract
+
+- An invalid parameter ends the process, as UCRT's default invalid-parameter handler does; no handler can be
+  installed. So does everything the subset does not implement: floating-point conversions, `%Z`, single-category
+  locales, `%z`/`%Z` in `wcsftime` (there is no time zone), reading and update modes, buffering or closing a standard
+  stream.
+- Locales: `_create_locale(LC_ALL, ...)` accepts `"C"` and the code-page-only UTF-8 names (`.utf8`, `.utf-8` in any
+  case); other names return null, where UCRT would create them. The global locale is always C.
+- A module's startup calls `wit_crt_initialize_stdio_options`, which sets what a UCRT module's startup sets: legacy
+  wide specifiers and standard rounding for printf (`0x24`) and legacy wide specifiers for scanf, in the module's own
+  `__local_stdio_*_options` storage. The host's startup (P6.4.k) must call it.
+- The standard streams are unbuffered: each call writes its bytes when it ends, so nothing waits for an exit-time
+  flush. UCRT buffers standard output to files and pipes; the bytes are the same.
+- In the guest, standard output and standard error go to the process console, `malloc` uses a separate C family of
+  the native heap (a block is freed only by its own family), there is no UTC clock (`_time64` returns -1, as C
+  specifies for an unavailable time) and storage is read-only: opening a file for writing, removing and renaming
+  report `EACCES`.
+
+### Evidence
+
+- `CrtTests.WitOsSubsetMatchesUcrtTest` builds `tests/User.X64/crt_scenarios.cpp` twice: with UCRT, and with the
+  subset and no C runtime over kernel32. The scenarios call the public functions and the inline functions of UCRT's
+  headers, as the host compiles them. Both builds print `NativeCrtImage.WINDOWS_TRACE` and byte-identical standard
+  output and standard error; kernel32 is the subset build's only import.
+- `CrtTests.WitOsSubsetMatchesUcrtDifferentiallyTest` compiles the subset with `WITCRT_REFERENCE`, which leaves its
+  exported names out, and calls it next to UCRT in one process
+  (`tests/WitOS.Dev.Tests/Native/CrtDifferential.cpp`): generated printf specifications over every option set,
+  buffer size and limit, both locales and strings of both widths; streams into files in every mode and buffering;
+  every code unit through `wcstoul` and `_wtoi`; comparisons, messages, `_gmtime64_s` and `wcsftime` over 40,000
+  times and every conversion; locale data; two million `ceilf` inputs; the heap. Locally: 8,441,053 comparisons,
+  none different; 631,392 cases are not compared because UCRT calls its invalid-parameter handler there. The UCRT
+  of the Windows Server 2025 CI runners faults (access violation) or reports `EILSEQ` for a narrow string with a
+  precision in the UTF-8 locale, even for `"abc"` or `(null)`, where the local UCRT (Windows 11 build 26200) and the
+  subset convert it. The comparison probes for this defect first and, where UCRT has it, does not compare string
+  cases with a precision in the UTF-8 locale and counts them; the local run compares them all, the CI run
+  7,758,944 cases, none different.
+- In the guest, mode 22 of the CoreCLR mapper fixture (`tests/User.X64/crt_scenarios_guest.cpp`) runs the same
+  scenarios on the subset, the native heap and the process console and compares the trace with `WINDOWS_TRACE`,
+  which the tool generates into `crt_trace.h`; it also checks the missing UTC clock and the read-only storage.
+  `coreclr-memory` passes `Code.UcrtSubset` and finds the scenarios' console lines in the boot log, in both
+  profiles. The fixture now has 398 unwind entries, so the runtime profile's quota grew from 320 to 512
+  (`WIT_PE_RUNTIME_UNWIND_ENTRIES`, `WIT_PE_MAX_UNWIND_RANGES`); the plan already had room for 4096.
+
+### What the comparison established about UCRT
+
+The first versions differed from UCRT in every area; each difference became a rule of the subset:
+
+- **Malformed formats.** The non-secure functions write an unknown conversion character alone, `%` for `%%` with
+  modifiers, and nothing for a specification the format ends in. The secure ones call the invalid-parameter handler,
+  but only for the part of the format they reach: they may write one character more than allowed before the
+  terminator and stop at the next one, so a malformed specification after that is never parsed. `%n` and the `w`,
+  `L` and `T` lengths on integers are invalid in both; lengths on `%p` are ignored.
+- **Buffers.** With a buffer and a count of 0, nothing is formatted (-1) unless the standard snprintf contract asks
+  for the length. A full buffer decides the result before a failure does; the ISO contract reports a short buffer
+  as -2, which the headers turn into -1. A failure keeps the characters before it, except under the standard
+  snprintf contract and in `_vsnwprintf_s`, where it empties the string; `_vsnwprintf_s` with a limit not shorter
+  than the buffer terminates the buffer's last element first.
+- **Characters.** A narrow character the locale cannot convert writes nothing, sets `EILSEQ` and the call goes on;
+  a narrow string it cannot convert fails the call.
+- **Streams.** Text mode writes each LF as CRLF. Formatted output in the C locale writes `?` for characters above
+  U+00FF, while `fputwc` fails with `EILSEQ`; the UTF-8 locale drops surrogates, even paired ones; binary mode
+  writes UTF-16LE code units. A written U+FFFF is taken for `WEOF` and fails the call, except where the C locale
+  wrote `?` for it.
+- **Parsing.** White space is what Windows classifies as such (including U+0085, U+00A0, U+180E, U+2000–U+200A and
+  U+3000); digits include 17 Unicode decimal ranges besides ASCII, also in a `0x` prefix; a prefix without hex
+  digits converts nothing; `_wtoi` reports `ERANGE`.
+- **Time.** `_gmtime64_s` accepts -43,200 to 32,536,850,399 and reports Thursday for the last half day of 1969.
+  `wcsftime` in the C locale: `#` strips leading zeros except in `%G`/`%g`, has no effect on `%X` and selects the
+  long forms of `%c` and `%x`. Literal text and names may fill the last slot of the buffer, a number needs room for
+  the terminator, and a number under `#` keeps its last digits when it does not fit.
+- **Locales and messages.** The UTF-8 locale has `MB_CUR_MAX` 4 and code page 65001; its ctype table adds the
+  defined and alphabetic classes and marks the lead bytes C2–F4. `_wcserror_s` has messages for 0–42 and 100–140.
+
+### Deviations
+
+- A narrow string the locale cannot convert fails with `EILSEQ` as in UCRT, but before its conversion writes
+  anything: UCRT writes padding and characters first, and in a short buffer may report its truncation result. The
+  comparison checks only the failure for such strings.
+- A width, precision or count beyond `INT_MAX` fails with -1; UCRT's count wraps.
+- The locales and unimplemented features above.
