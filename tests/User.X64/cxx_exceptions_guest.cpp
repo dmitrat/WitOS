@@ -1,13 +1,16 @@
 extern "C" {
 #include "bootstrap.h"
+#include "native_security.h"
 #include "../User/protocol.h"
 }
 #include "cxx_exception_trace.h"
 
-/* The guest half of P6.4.f: tests/User.X64/cxx_exceptions.cpp on the WitOS C++ runtime and the guest's own exception
- * dispatch and RtlUnwindEx consolidation must print the trace vcruntime prints on Windows, WIT_CXX_EXCEPTION_TRACE,
- * which the tool generates. The trace grows in the report page, so the kernel can print how far a failed run got. */
+/* The guest half of P6.4.f and P6.4.g: tests/User.X64/cxx_exceptions.cpp and cxx_runtime.cpp on the WitOS C++
+ * runtime, the guest's own exception dispatch, RtlUnwindEx consolidation, GS check and native heap must print the
+ * trace vcruntime prints on Windows, WIT_CXX_EXCEPTION_TRACE, which the tool generates. The trace grows in the report
+ * page, so the kernel can print how far a failed run got. */
 extern "C" int cxx_exceptions_run();
+extern "C" void cxx_runtime_run();
 
 namespace {
 constexpr unsigned TRACE_OFFSET = 0x100, TRACE_CAPACITY = 0xE00;
@@ -31,16 +34,18 @@ extern "C" void cxx_trace(const char *text)
     }
 }
 
-/* The deleting destructors of the scenario classes refer to sized delete, which the scenarios never call; the
- * runtime's own new and delete arrive with P6.4.g. */
-void operator delete(void *, size_t) noexcept
+/* atexit belongs to the C runtime (P6.4.i): static objects register their destructors, which run after the trace on
+ * Windows, so registration alone keeps the traces equal. */
+extern "C" int __cdecl atexit(void(__cdecl *)(void))
 {
-    wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+    return 0;
 }
 
 extern "C" WitU64 wit_cxx_exceptions_probe()
 {
+    wit_native_security_initialize_system(); // GS cookies, as a component's startup sets them before C++ code runs.
     const int live = cxx_exceptions_run();
+    cxx_runtime_run();
     const char *expected = WIT_CXX_EXCEPTION_TRACE;
     unsigned same = 0;
     while (expected[same] && expected[same] == line[same]) {

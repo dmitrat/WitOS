@@ -41,7 +41,9 @@ public sealed class CxxExceptionsTests
             guestExecuted = false,
             vcruntime,
             runtime,
-            sources = new[] { "tests/User.X64/cxx_exceptions.cpp", "tests/WitOS.Dev.Tests/Native/CxxExceptionsHost.cpp" }
+            sources = new[] { "tests/User.X64/cxx_exceptions.cpp", NativeCxxExceptionImage.RUNTIME_SCENARIOS,
+                    "tests/WitOS.Dev.Tests/Native/CxxExceptionsHost.cpp", NativeCxxExceptionImage.WINDOWS_PLATFORM,
+                    NativeCxxExceptionImage.GUARD }
                 .Concat(NativeCxxExceptionImage.RUNTIME).ToDictionary(file => file, file => Hash(Path.Combine(root, file)))
         }, new JsonSerializerOptions { WriteIndented = true }));
     }
