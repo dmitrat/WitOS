@@ -36,6 +36,8 @@ bool verbose;
 // The side whose print call raised an exception, and its code: the case is reported instead of ending the run.
 const char *crashed;
 unsigned long crashCode;
+// What the current print case passes besides the format, for the reports.
+char note[64];
 
 void Handler(const wchar_t *, const wchar_t *, const wchar_t *, unsigned, uintptr_t)
 {
@@ -180,8 +182,8 @@ bool CrashReported(const wchar_t *format, const char *call, unsigned long long o
         return false;
     }
     char detail[200];
-    sprintf_s(detail, "%s options=%llx size=%zu limit=%zd: %s raised %08lX", call, options, size, (ptrdiff_t)limit,
-        crashed, crashCode);
+    sprintf_s(detail, "%s options=%llx size=%zu limit=%zd %s: %s raised %08lX", call, options, size, (ptrdiff_t)limit,
+        note, crashed, crashCode);
     crashed = nullptr;
     Report("crash", format, detail);
     return true;
@@ -226,8 +228,8 @@ void Print(const wchar_t *format, const Locales &locales, const uint64_t (&a)[4]
                 char detail[1024], u[256], w[256];
                 Escape(u, sizeof(u), ucrt, count < 40 ? count : 40);
                 Escape(w, sizeof(w), wit, count < 40 ? count : 40);
-                sprintf_s(detail, "vswprintf options=%llx count=%zu ucrt=%d/%d [%s] wit=%d/%d [%s]", options, count,
-                    expected, expectedErrno, u, actual, errno, w);
+                sprintf_s(detail, "vswprintf options=%llx count=%zu %s ucrt=%d/%d [%s] wit=%d/%d [%s]", options, count,
+                    note, expected, expectedErrno, u, actual, errno, w);
                 Report("print", format, detail);
                 return;
             }
@@ -261,8 +263,8 @@ void Print(const wchar_t *format, const Locales &locales, const uint64_t (&a)[4]
                     char detail[1024], u[256], w[256];
                     Escape(u, sizeof(u), ucrt, size < 40 ? size : 40);
                     Escape(w, sizeof(w), wit, size < 40 ? size : 40);
-                    sprintf_s(detail, "vsnwprintf_s options=%llx size=%zu limit=%zd ucrt=%d/%d [%s] wit=%d/%d [%s]",
-                        options, size, (ptrdiff_t)limit, expected, expectedErrno, u, actual, errno, w);
+                    sprintf_s(detail, "vsnwprintf_s options=%llx size=%zu limit=%zd %s ucrt=%d/%d [%s] wit=%d/%d [%s]",
+                        options, size, (ptrdiff_t)limit, note, expected, expectedErrno, u, actual, errno, w);
                     Report("print_s", format, detail);
                     return;
                 }
@@ -310,6 +312,7 @@ const unsigned CHARACTERS[] = {
 void IntegerCase(const Locales &locales)
 {
     static const wchar_t conversions[] = L"diuoxX";
+    sprintf_s(note, "%s", locales.Wit ? "utf8" : "C");
     wchar_t format[64];
     const wchar_t *width = WIDTHS[Pick(7)], *precision = PRECISIONS[Pick(8)];
     swprintf_s(
@@ -342,14 +345,19 @@ void TextCase(const Locales &locales)
     if (precision[0] && precision[1] == L'*') {
         a[used++] = uint64_t(int64_t(PRECISION_ARGUMENTS[Pick(6)]));
     }
+    const char *locale = locales.Wit ? "utf8" : "C";
     if (conversion == L'c' || conversion == L'C') {
         a[used] = CHARACTERS[Pick(sizeof(CHARACTERS) / sizeof(CHARACTERS[0]))];
+        sprintf_s(note, "%s char %llX", locale, a[used]);
     } else {
         // The width of the string depends on the options and length; give each case both kinds by trying both.
-        a[used] = (uint64_t)(uintptr_t)WIDE_STRINGS[Pick(sizeof(WIDE_STRINGS) / sizeof(WIDE_STRINGS[0]))];
+        const unsigned wide = Pick(sizeof(WIDE_STRINGS) / sizeof(WIDE_STRINGS[0]));
+        a[used] = (uint64_t)(uintptr_t)WIDE_STRINGS[wide];
+        sprintf_s(note, "%s wide#%u", locale, wide);
         Print(format, locales, a, locales.Wit != nullptr); // read as narrow, its bytes need not be valid UTF-8
         const unsigned narrow = Pick(sizeof(NARROW_STRINGS) / sizeof(NARROW_STRINGS[0]));
         a[used] = (uint64_t)(uintptr_t)NARROW_STRINGS[narrow];
+        sprintf_s(note, "%s narrow#%u", locale, narrow);
         if (pairDefect && locales.Wit && precision[0] && NARROW_STRINGS[narrow]) {
             bool pair = false;
             for (const char *p = NARROW_STRINGS[narrow]; *p; ++p) {
@@ -368,6 +376,7 @@ void TextCase(const Locales &locales)
 
 void PrintCases(const Locales &c, const Locales &utf8)
 {
+    note[0] = 0;
     for (unsigned i = 0; i < 12000; ++i) {
         IntegerCase(Pick(4) ? c : utf8);
     }
