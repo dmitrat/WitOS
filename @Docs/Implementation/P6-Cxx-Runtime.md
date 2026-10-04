@@ -1,6 +1,6 @@
 # P6.4 guest C++ runtime for the host
 
-Date: 2026-10-04. Status: P6.4.e (Windows) and P6.4.f (guest) complete; P6.4.g next.
+Date: 2026-10-04. Status: P6.4.e (Windows), P6.4.f (guest) and P6.4.g (vcruntime surface) complete; P6.4.h next.
 
 ## Decision
 
@@ -51,11 +51,14 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
   trace as with vcruntime.
 - [x] **P6.4.f** Exception runtime in the guest: `STATUS_UNWIND_CONSOLIDATE` in the WitOS `RtlUnwindEx`, including
   exceptions thrown inside a catch block; the same test passes in the guest.
-- [ ] **P6.4.g** The rest of the vcruntime surface the host uses: thread-safe statics, GS cookies and handlers,
+- [x] **P6.4.g** The rest of the vcruntime surface the host uses: thread-safe statics, GS cookies and handlers,
   throwing `new`/`delete` on the native heap, vector constructor iterators, `std::exception` support.
 - [ ] **P6.4.h** microsoft/STL `vs-2022-17.14`: pin, audit and build of the separately compiled sources the host
   needs; their Win32 calls go through WitOS adapters, and any change to a pinned file is an upstream patch.
-- [ ] **P6.4.i** The host's Win32 surface; strict link of `hostfxr` and `hostpolicy` with no unresolved symbol.
+- [ ] **P6.4.i** The host's C runtime and Win32 surface: the UCRT subset it calls (`malloc`/`free`, wide `printf`,
+  stdio, time, the C locale, strings) from a pinned musl (MIT) source behind thin WitOS UCRT entry points (decided
+  2026-10-04: suitable open code from a pinned source rather than our own; the Windows SDK's UCRT sources are not
+  used), and its Win32 imports; strict link of `hostfxr` and `hostpolicy` with no unresolved symbol.
 - [ ] **P6.4.j** Guest `hostfxr_main` reads a real application's runtimeconfig and deps through `hostpolicy` and
   reaches `coreclr_initialize`/`coreclr_execute_assembly`.
 
@@ -140,3 +143,39 @@ runtime and the guest dispatcher and compares the trace with `WINDOWS_TRACE`, wh
 exceptions the kernel admits, so every catch retired its exceptions. The scenario classes' deleting destructors
 refer to sized `operator delete`, which the guest harness, like the Windows one, defines as a fail-fast that the
 scenarios never call.
+
+## P6.4.g: the rest of the vcruntime surface
+
+- **Allocation.** Throwing `operator new` and `new[]` (`new.cpp`) call the platform's nothrow allocator and throw
+  `std::bad_alloc` when it fails; there is no new handler. In the guest the allocator is the native heap of
+  `Runtime.NativeAot/native_new.witos.cpp`, which also owns every `delete`; on Windows `platform_windows.cpp` provides
+  the same operators over the process heap.
+- **Arrays.** `vector.cpp` provides `eh vector constructor iterator` and `eh vector destructor iterator` under their
+  decorated names through `/alternatename`. A constructor that throws destroys the elements already built, newest
+  first; a destructor that throws still destroys the rest; a second exception during that cleanup terminates. Both
+  functions are `noexcept(false)`: under `/EHsc` the compiler takes `extern "C"` functions for non-throwing and drops
+  their cleanup otherwise, which the Windows comparison caught.
+- **Thread-safe statics.** `statics.cpp` implements the contract MSVC compiles against: a guard per static, a global
+  epoch and the per-thread `_Init_thread_epoch`; `_Init_thread_header` claims an initialization or waits for another
+  thread's, `_Init_thread_footer` publishes it and `_Init_thread_abort` reopens it after a throwing initializer. The
+  platform lock is an SRW lock with a condition variable on Windows and the native lock with a yield in the guest.
+- **`std::exception`.** `__std_exception_copy` copies an owned message into the nothrow allocator and shares a
+  borrowed one; `__std_exception_destroy` frees it.
+- **GS.** `__GSHandlerCheck_EH4` (`gs_witos.cpp`) checks the frame's cookie with the guest's `wit_native_gs_check`,
+  whose GS data follows the FuncInfo4 RVA, and then runs `__CxxFrameHandler4`. The guest's cookie and
+  `__security_check_cookie` need startup initialization (`wit_native_security_initialize_system`): the first run of
+  the scenarios without it ended in the GS failure exit, and the host's startup must initialize it too.
+- **Control Flow Guard.** `__guard_dispatch_icall_fptr` points to a plain jump (`X64/guard_dispatch.asm`): images
+  built with `/guard:cf` run, but the guest does not enforce CFG.
+
+`tests/User.X64/cxx_runtime.cpp` adds ten scenarios built with `/guard:cf`: `new` and `delete`, arrays with
+`delete[]`, `std::bad_alloc` from a failed allocation, nothrow `new`, a copied `std::runtime_error`, a static built
+once, a static whose first initializer throws and whose second call retries, a GS-protected frame that throws, a
+guarded indirect call and an array whose third constructor throws. On Windows both builds print the extended
+`WINDOWS_TRACE`; there the WitOS build has no GS, whose handler and cookie check belong to the guest. In the guest the
+same mode 21 runs both sets with `/GS` on the runtime scenarios, so the GS handler, native heap, statics and
+iterators all run (`Code.CxxExceptions`, both profiles).
+
+Of the host's remaining vcruntime and CRT symbols, `_fltused`, `__chkstk`, the memory routines and `_tls_index`
+already exist in the guest, and `atexit` belongs to the C runtime slice. Both harnesses define `atexit` as
+registration only: static destructors run after the trace on Windows and not at all in the test.

@@ -44,7 +44,7 @@ internal static class CoreClrMemoryImage
             "src/Runtime.Native/tls_metadata.c","src/Runtime.Native/image.c","src/Runtime.NativeAot/unwind_checked.witos.cpp","src/Runtime.NativeAot/unwind_validation.witos.cpp",
             "src/Runtime.NativeAot/unwind_scope.witos.cpp","src/Runtime.NativeAot/unwind_guest.witos.cpp","src/Runtime.NativeAot/native_exception.witos.cpp","src/Runtime.NativeAot/seh_scope.witos.cpp",
             "src/Runtime.NativeAot/seh_validation.witos.cpp","src/Runtime.NativeAot/seh_security.witos.cpp","src/Runtime.NativeAot/security_handler.witos.cpp",
-            "src/Runtime.NativeAot/security_cookie.witos.cpp","src/Runtime.NativeAot/failfast_exception.witos.cpp","src/Runtime.NativeAot/pal_error.witos.cpp",
+            "src/Runtime.NativeAot/security_cookie.witos.cpp","src/Runtime.NativeAot/failfast_exception.witos.cpp","src/Runtime.NativeAot/pal_error.witos.cpp","src/Runtime.NativeAot/native_new.witos.cpp",
             "src/Runtime.NativeAot/X64/native_exception_x64.cpp","artifacts/runtime-unwind/unwinder.checked.cpp"})
         {
             var obj = Path.Combine(output, Path.GetFileName(file) + ".obj");
@@ -54,21 +54,28 @@ internal static class CoreClrMemoryImage
                 "/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"tests/User.X64"),"/Fo"+obj,Path.Combine(root,file)], root);
             objects.Add(obj);
         }
-        // C++ exceptions on the WitOS C++ runtime (P6.4.f), against the trace vcruntime prints on Windows.
+        // C++ exceptions and the rest of the WitOS C++ runtime (P6.4.f, P6.4.g), against the trace vcruntime prints on
+        // Windows. The runtime scenarios also use the guest's GS check and native heap.
         await File.WriteAllTextAsync(Path.Combine(output, "cxx_exception_trace.h"),
             "/* Generated from NativeCxxExceptionImage.WINDOWS_TRACE. */\n" +
             $"#define WIT_CXX_EXCEPTION_TRACE \"{NativeCxxExceptionImage.WINDOWS_TRACE}\"\n");
-        foreach (var file in NativeCxxExceptionImage.RUNTIME.Append(NativeCxxExceptionImage.GUEST_PLATFORM)
-                     .Append("tests/User.X64/cxx_exceptions.cpp").Append("tests/User.X64/cxx_exceptions_guest.cpp"))
+        foreach (var file in NativeCxxExceptionImage.RUNTIME.Concat(NativeCxxExceptionImage.GUEST)
+                     .Append("tests/User.X64/cxx_exceptions.cpp").Append("tests/User.X64/cxx_exceptions_guest.cpp")
+                     .Append(NativeCxxExceptionImage.RUNTIME_SCENARIOS))
         {
             var obj = Path.Combine(output, "cxx_" + Path.GetFileName(file) + ".obj");
-            await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo", "/c", "/TP", "/std:c++17", "/GS-",
-                "/GR-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", "/I" + Path.Combine(vc, "include"),
+            string[] protection = file == NativeCxxExceptionImage.RUNTIME_SCENARIOS ? ["/GS", "/guard:cf"] : ["/GS-"];
+            await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo", "/c", "/TP", "/std:c++17",
+                .. protection, "/GR-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", "/I" + Path.Combine(vc, "include"),
                 "/I" + Path.Combine(sdk, "Include", version, "ucrt"), "/I" + Path.Combine(sdk, "Include", version, "um"),
                 "/I" + Path.Combine(sdk, "Include", version, "shared"), "/I" + Path.Combine(root, "src/Kernel/include"),
                 "/I" + Path.Combine(root, "src/Runtime.Native"), "/I" + output, "/Fo" + obj, Path.Combine(root, file)], root);
             objects.Add(obj);
         }
+        var guard = Path.Combine(output, "cxx_guard_dispatch.obj");
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + guard,
+            Path.Combine(root, NativeCxxExceptionImage.GUARD)], root);
+        objects.Add(guard);
         var entry = Path.Combine(output, "coreclr_mapper_start.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/I" + output, "/Fo" + entry, Path.Combine(root, "src/Runtime.Native/X64/native_start.asm")], root);
         objects.Add(entry);
