@@ -6,12 +6,12 @@
         if (!(v)) return c; \
     } while (0)
 
-/* The guest half of the DLL TLS references (P6.4.b, P6.4.c): the scenarios of tests/WitOS.Dev.Tests/Native/
- * LibraryTlsCallbacks.c and LibraryTlsObjects.c without the thread that predates the load, which the kernel does not
- * admit yet. Each trace is formatted the same way and must equal the order the tool generates from the Windows
- * reference: WIT_TLS_CALLBACK_ORDER for the callback library; WIT_TLS_CALLBACK_NOENTRY_ORDER for the same library
- * linked without an entry point, which must also admit a thread without notifications; WIT_TLS_OBJECTS_ORDER for C++
- * thread_local objects with the WitOS dynamic TLS support. */
+/* The guest half of the DLL TLS references (P6.4.b-d): the scenarios of tests/WitOS.Dev.Tests/Native/
+ * LibraryTlsCallbacks.c and LibraryTlsObjects.c, including the thread that already runs when the library loads. Each
+ * trace is formatted the same way and must equal the Windows order the tool generates: WIT_TLS_CALLBACK_ORDER for the
+ * callback library; WIT_TLS_CALLBACK_NOENTRY_ORDER for the same library linked without an entry point, which is loaded
+ * while threads without notifications run and admits another; WIT_TLS_OBJECTS_ORDER for C++ thread_local objects with
+ * the WitOS dynamic TLS support. */
 #define WHO_MAIN 6ULL
 #define WHO_AFTER 7ULL
 #define WHO_BEFORE 8ULL
@@ -19,7 +19,7 @@
 #define EVENT_CAPACITY 64U
 #define TEXT_CAPACITY 512U
 
-static WitU64 record, sink_read, identify, marker_set, touch;
+static WitU64 record, sink_read, identify, marker_set, touch, ready, go;
 static int notifications, objects;
 static WitU64 events[EVENT_CAPACITY];
 static char text[TEXT_CAPACITY];
@@ -57,12 +57,32 @@ static WitU64 child_body(void)
     return 42;
 }
 
-static WIT_NORETURN void child(WitU64 unused)
+/* Runs before the load and waits until main releases it after the thread started after the load has exited. */
+static WitU64 before_body(void)
 {
-    (void)unused;
-    const WitU64 code = child_body();
+    CHECK(!notifications || wit_native_library_thread_enter() == WIT_STATUS_OK, 1);
+    CHECK(wit_native_call(WIT_CALL_EVENT_SET, ready, 0, 0, 0) == WIT_STATUS_OK &&
+            wit_native_call(WIT_CALL_EVENT_WAIT, go, WIT_WAIT_INFINITE, 0, 0) == WIT_STATUS_OK,
+        3);
+    ((void (*)(WitU64))identify)(WHO_BEFORE);
+    if (objects) {
+        act(0);
+    }
+    CHECK(!notifications || wit_native_library_thread_leave() == WIT_STATUS_OK, 2);
+    return 42;
+}
+
+static WIT_NORETURN void child(WitU64 before)
+{
+    const WitU64 code = before ? before_body() : child_body();
     (void)wit_native_call(WIT_CALL_THREAD_COMPLETE, code, 0, 0, 0);
     wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+}
+
+static WitU64 start(WitU64 before, WitU64 *thread)
+{
+    return wit_native_call(
+        WIT_CALL_THREAD_CREATE, (WitU64)child, before, notifications ? WIT_THREAD_LIBRARY_NOTIFICATIONS : 0, thread);
 }
 
 static void put(WitU32 *at, char value)
@@ -147,12 +167,18 @@ static int same(const char *a, const char *b)
 static WitU64 scenario(const char *libraryName, WitU32 nameBytes, const char *expected, WitU64 base)
 {
     const char sinkName[] = "/native/tlssink.dll";
-    WitU64 sink = 0, library = 0, thread = 0, result = 0;
+    WitU64 sink = 0, library = 0, thread = 0, before = 0, result = 0;
     WitU64 status = wit_native_library_load(sinkName, sizeof(sinkName) - 1, &sink);
     CHECK(status == WIT_STATUS_OK, base + 20 + status);
     CHECK(symbol(sink, "SinkRecord", &record) == WIT_STATUS_OK && symbol(sink, "SinkRead", &sink_read) == WIT_STATUS_OK,
         base + 4);
+    CHECK(wit_native_call(WIT_CALL_EVENT_CREATE, WIT_EVENT_MANUAL_RESET, 0, 0, &ready) == WIT_STATUS_OK &&
+            wit_native_call(WIT_CALL_EVENT_CREATE, WIT_EVENT_MANUAL_RESET, 0, 0, &go) == WIT_STATUS_OK,
+        base + 13);
     step(1);
+    CHECK(start(1, &before) == WIT_STATUS_OK &&
+            wit_native_call(WIT_CALL_EVENT_WAIT, ready, WIT_WAIT_INFINITE, 0, 0) == WIT_STATUS_OK,
+        base + 14);
     step(2);
     status = wit_native_library_load(libraryName, nameBytes, &library);
     CHECK(status == WIT_STATUS_OK, base + 40 + status);
@@ -168,12 +194,17 @@ static WitU64 scenario(const char *libraryName, WitU32 nameBytes, const char *ex
     if (objects) {
         step(4);
     }
-    CHECK(wit_native_call(WIT_CALL_THREAD_CREATE, (WitU64)child, 0,
-              notifications ? WIT_THREAD_LIBRARY_NOTIFICATIONS : 0, &thread) == WIT_STATUS_OK,
-        base + 7);
+    CHECK(start(0, &thread) == WIT_STATUS_OK, base + 7);
     CHECK(wit_native_call(WIT_CALL_THREAD_JOIN, thread, 0, 0, &result) == WIT_STATUS_OK, base + 8);
     CHECK(result == 42, base + result);
     step(4 + shift);
+    CHECK(wit_native_call(WIT_CALL_EVENT_SET, go, 0, 0, 0) == WIT_STATUS_OK &&
+            wit_native_call(WIT_CALL_THREAD_JOIN, before, 0, 0, &result) == WIT_STATUS_OK,
+        base + 15);
+    CHECK(result == 42, base + 60 + result);
+    CHECK(wit_native_call(WIT_CALL_CLOSE, ready, 0, 0, 0) == WIT_STATUS_OK &&
+            wit_native_call(WIT_CALL_CLOSE, go, 0, 0, 0) == WIT_STATUS_OK,
+        base + 16);
     step(5 + shift);
     CHECK(wit_native_library_unload(library) == WIT_STATUS_OK, base + 9);
     step(6 + shift);

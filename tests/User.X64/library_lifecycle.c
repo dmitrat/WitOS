@@ -35,6 +35,21 @@ static WIT_NORETURN void wait_worker(WitU64 value)
     wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
 }
 
+/* Follows the library notification protocol around the gate, as a native runtime thread does. */
+static WIT_NORETURN void notified_worker(WitU64 value)
+{
+    (void)value;
+    WitU64 code = wit_native_library_thread_enter() == WIT_STATUS_OK ? 42 : 1;
+    while (!wit_native_try_lock(&workerGate)) {
+        (void)wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, 0);
+    }
+    if (wit_native_library_thread_leave() != WIT_STATUS_OK) {
+        code = 2;
+    }
+    (void)wit_native_call(WIT_CALL_THREAD_COMPLETE, code, 0, 0, 0);
+    wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+}
+
 static WIT_NORETURN void never_started(WitU64 value)
 {
     (void)value;
@@ -55,6 +70,27 @@ WitU64 wit_native_library_lifecycle_test(WitU64 mode)
             CHECK(status == WIT_STATUS_NO_MEMORY && root == 99, 3203);
         }
         CHECK(snapshot(&after) && same(&before, &after), 3204);
+        return status == WIT_STATUS_OK ? 42 : 43;
+    }
+    if (mode == 14) {
+        /* The same load while a thread with notifications runs: its notification resources are one more boundary,
+         * and a failed load leaves it free to leave and complete. 44 reports a failed thread creation. */
+        WitU64 peer = 0, peerResult = 0;
+        workerGate = 1;
+        WitU64 status = wit_native_call(
+            WIT_CALL_THREAD_CREATE, (WitU64)notified_worker, 0, WIT_THREAD_LIBRARY_NOTIFICATIONS, &peer);
+        if (status != WIT_STATUS_OK) {
+            CHECK(status == WIT_STATUS_NO_MEMORY, 3235);
+            CHECK(snapshot(&after) && same(&before, &after), 3236);
+            return 44;
+        }
+        status = LOAD("/native/init.dll", &root);
+        CHECK(status == WIT_STATUS_OK || (status == WIT_STATUS_NO_MEMORY && root == 99), 3237);
+        wit_native_unlock(&workerGate);
+        CHECK(
+            wit_native_call(WIT_CALL_THREAD_JOIN, peer, 0, 0, &peerResult) == WIT_STATUS_OK && peerResult == 42, 3238);
+        CHECK(status != WIT_STATUS_OK || wit_native_library_unload(root) == WIT_STATUS_OK, 3239);
+        CHECK(snapshot(&after) && same(&before, &after), 3240);
         return status == WIT_STATUS_OK ? 42 : 43;
     }
     CHECK(LOAD("/native/WitLibraryFixture.dll", &provider) == WIT_STATUS_OK, 3205);

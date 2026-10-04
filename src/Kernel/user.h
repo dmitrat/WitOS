@@ -314,6 +314,11 @@ WitPeStatus wit_user_create_pe(
     WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const WitU8 *file, WitU32 size, WitU64 base);
 int wit_user_image_map(WitUserSpace *space, const WitU8 *file, const WitPeImage *plan, WitU64 base);
 WitU64 wit_user_thread_create(WitUserProcess *process, WitU64 entry, WitU64 argument, WitU64 *result);
+/* Before the attach of a library with an entry point: every live thread that follows the notification protocol and
+ * has not left gets the notification page and handles it lacks, as a thread created after the load would, so its exit
+ * detaches the library. Returns the mask of threads that received them; fails with all of them released. */
+WitU64 wit_user_thread_require_notifications(WitUserProcess *process, WitU32 *reserved);
+void wit_user_thread_release_notifications(WitUserProcess *process, WitU32 reserved);
 WitU64 wit_user_thread_create_flags(
     WitUserProcess *process, WitU64 entry, WitU64 argument, WitU64 flags, WitU64 *result);
 void wit_user_pal_module_self_test(WitPageAllocator *pages);

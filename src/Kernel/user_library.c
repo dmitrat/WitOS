@@ -238,26 +238,30 @@ static int added(WitU32 index)
     return (transaction.Added & (1U << index)) != 0;
 }
 
-/* Entry points and TLS callbacks of newly added libraries run on the loading thread only while it is the sole
- * live thread. */
-static WitU64 check_callbacks(const WitUserProcess *process, int *callbacks)
+/* Entry points and TLS callbacks of newly added libraries run on the loading thread. As on Windows, a thread that
+ * already runs gets no attach but detaches a library with an entry point at its exit, so every other live thread must
+ * follow the notification protocol. */
+static WitU64 check_callbacks(const WitUserProcess *process, int *callbacks, int *entries)
 {
-    *callbacks = 0;
+    *callbacks = *entries = 0;
     for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
         if (added(i) && wit_user_library_attaches(&transaction.Modules[i])) {
             *callbacks = 1;
         }
-    }
-    if (!*callbacks) {
-        return WIT_STATUS_OK;
-    }
-    WitU32 live = 0;
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
-        if (process->Threads[i].State != WitThreadEmpty && process->Threads[i].State != WitThreadExited) {
-            ++live;
+        if (added(i) && wit_user_library_participates(&transaction.Modules[i])) {
+            *entries = 1;
         }
     }
-    return live == 1 ? WIT_STATUS_OK : WIT_STATUS_UNSUPPORTED;
+    for (WitU32 i = 0; *entries && i < WIT_USER_THREAD_CAPACITY; ++i) {
+        const WitUserThread *thread = &process->Threads[i];
+        if (i != process->CurrentThread &&
+            thread->State != WitThreadEmpty &&
+            thread->State != WitThreadExited &&
+            !thread->LibraryNotifications) {
+            return WIT_STATUS_UNSUPPORTED;
+        }
+    }
+    return WIT_STATUS_OK;
 }
 
 /* Existing immutable images provide exports, but their maps and references stay unchanged. */
@@ -364,8 +368,9 @@ static void unpublish(WitUserProcess *process, const WitUserLibrary previous[WIT
     }
 }
 
-/* Publishes the prepared libraries and, with entry callbacks, begins their attach lifecycle. */
-static WitU64 publish(WitUserProcess *process, WitU32 root, int callbacks, WitU64 *lifecycleAddress)
+/* Publishes the prepared libraries and, with entry callbacks, begins their attach lifecycle after the live threads
+ * received the notification resources an entry point requires. */
+static WitU64 publish(WitUserProcess *process, WitU32 root, int callbacks, int entries, WitU64 *lifecycleAddress)
 {
     WitUserLibrary previous[WIT_LIBRARY_CAPACITY];
     for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
@@ -379,15 +384,19 @@ static WitU64 publish(WitUserProcess *process, WitU32 root, int callbacks, WitU6
                 (WitVirtualRange){transaction.Modules[i].Base, transaction.Modules[i].ImageBytes};
         }
     }
-    if (callbacks) {
-        const WitU64 status = wit_user_library_begin_lifecycle(
+    WitU32 reserved = 0;
+    WitU64 status = entries ? wit_user_thread_require_notifications(process, &reserved) : WIT_STATUS_OK;
+    if (status == WIT_STATUS_OK && callbacks) {
+        status = wit_user_library_begin_lifecycle(
             process, transaction.Added, 1, 0, 0, transaction.Modules[root].Token, lifecycleAddress);
         if (status != WIT_STATUS_OK) {
-            unpublish(process, previous);
-            return status;
+            wit_user_thread_release_notifications(process, reserved);
         }
     }
-    return WIT_STATUS_OK;
+    if (status != WIT_STATUS_OK) {
+        unpublish(process, previous);
+    }
+    return status;
 }
 
 static WitU64 load(WitUserProcess *process, const WitPackage *package, const WitPackageFile *file, WitU32 flags,
@@ -410,8 +419,8 @@ static WitU64 load(WitUserProcess *process, const WitPackage *package, const Wit
     if (transaction.Modules[root].References == ~0U) {
         return WIT_STATUS_NO_MEMORY;
     }
-    int callbacks;
-    status = check_callbacks(process, &callbacks);
+    int callbacks, entries;
+    status = check_callbacks(process, &callbacks, &entries);
     if (status == WIT_STATUS_OK) {
         status = validate_existing(package);
     }
@@ -423,7 +432,7 @@ static WitU64 load(WitUserProcess *process, const WitPackage *package, const Wit
         discard(process);
         return status;
     }
-    status = publish(process, root, callbacks, lifecycleAddress);
+    status = publish(process, root, callbacks, entries, lifecycleAddress);
     if (status != WIT_STATUS_OK) {
         return status;
     }

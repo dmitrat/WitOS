@@ -1,6 +1,6 @@
 # P6.4 multi-module DLL TLS work
 
-Date: 2026-10-02, closed 2026-10-03; P6.4.a–c 2026-10-04. ABI48 static DLL TLS is implemented; the full regression matrix passed in CI and again on the consolidated Q2 code. ABI v49 adds PE TLS callbacks (P6.4.a/b) and dynamic C++ `thread_local` objects in DLLs (P6.4.c). Admission of threads that predate the load (P6.4.d) remains open.
+Date: 2026-10-02, closed 2026-10-03; P6.4.a–d 2026-10-04. ABI48 static DLL TLS is implemented; the full regression matrix passed in CI and again on the consolidated Q2 code. ABI v49 adds PE TLS callbacks (P6.4.a/b), dynamic C++ `thread_local` objects in DLLs (P6.4.c) and loading such libraries while other threads run (P6.4.d). DLL TLS is complete; P6.4 continues with the host's native dependencies and the CoreCLR handoff.
 
 ## Existing boundary to extend
 
@@ -174,5 +174,39 @@ M1 M2 C1:1@T C2:2@T M3 T M4 C1:3@N C2:4@N N D2:4@N D1:3@N M5 M6 D2:2@T D1:1@T M7
 ```
 
 The three runs use failure codes 36xx, 37xx and 38xx, and all passed in `coreclr-storage`
-(`Storage.LibraryTlsCallbacks`). A raw thread exit or a fault still skips the destructors, as for the executable's dynamic TLS. The thread that predates
-the load remains P6.4.d.
+(`Storage.LibraryTlsCallbacks`). A raw thread exit or a fault still skips the destructors, as for the executable's
+dynamic TLS. The thread that predates the load followed in P6.4.d.
+
+## Libraries loaded while other threads run (P6.4.d)
+
+The sole-thread rule for loading is gone. A load whose new libraries have an entry point requires every other live
+thread to follow the library notification protocol (`WIT_THREAD_LIBRARY_NOTIFICATIONS`, which the native thread
+wrapper always sets): a thread without it would never run the detach Windows gives it, so that load still fails with
+`WIT_STATUS_UNSUPPORTED`, as the existing lifecycle test keeps checking. Libraries with TLS callbacks only notify no
+thread after the process attach and load while any threads run.
+
+Before the attach lifecycle begins, `wit_user_thread_require_notifications` gives each live notification thread that
+lacks them, because it was created while no library had an entry point, the notification page and the lifecycle
+handles it still needs: both before its library enter, the detach handle alone after it. The thread must then leave
+before `THREAD_COMPLETE`, as if it had been created after the load. A failure releases every reservation of the load
+together with the publication; once the attach lifecycle has begun, a failed attach keeps them, because they belong to
+the thread until it is reaped and a leave without libraries is empty. The rest follows from the existing records:
+static TLS already gives every live thread a template-initialized block at the load; a thread that has entered gets no
+attach, and its leave detaches every library with an attach order, the new one included; a thread created but not yet
+entered gets the attach at its enter, as on Windows.
+
+The guest scenarios now include the thread that already runs. It is created with notifications for the callback and
+object libraries and without them for the entry-less one, enters, signals an event and waits for another before the
+load; the main thread releases it after the thread started after the load has exited. The guest requires the complete
+Windows orders, which the tool writes unchanged into `tls_callback_order.h`, and `GuestOrder` is gone. All three runs
+passed in both `coreclr-storage` profiles; for the thread that predates the load:
+
+- callback library: `P:731 A3:731@P B3:731@P E3:731@P`, template TLS, no attach and a detach at its exit;
+- entry-less library: `P:731` alone;
+- `thread_local` objects: `P C1:5@P C2:6@P D2:6@P D1:5@P`, construction on first access and destruction at its
+  detach.
+
+Storage mode 14 repeats the `init.dll` load sweep of mode 12 while a notification thread created before the load is
+live. Every quota between a failed thread creation and success either loads or rolls back to the same memory
+snapshot, after which the thread leaves and completes; the kernel requires exactly one more failing load boundary
+than without the thread: its notification page. A raw thread exit or a fault still skips the detach.
