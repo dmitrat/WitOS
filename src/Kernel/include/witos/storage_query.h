@@ -7,17 +7,20 @@
 #define WIT_STORAGE_FILE 1U
 #define WIT_STORAGE_DIRECTORY 2U
 #define WIT_STORAGE_NAME_BYTES 1024U
+
 typedef struct WitStorageQuery {
-    WitU32 Version,Size,Operation,Reserved;
-    WitU64 Path,PathBytes,Cursor,Buffer,BufferBytes,Reserved2;
+    WitU32 Version, Size, Operation, Reserved;
+    WitU64 Path, PathBytes, Cursor, Buffer, BufferBytes, Reserved2;
 } WitStorageQuery;
+
 typedef struct WitStorageInfo {
-    WitU32 Version,Size,Kind,NameBytes;
-    WitU64 Length,NextCursor;
+    WitU32 Version, Size, Kind, NameBytes;
+    WitU64 Length, NextCursor;
     WitU8 Name[WIT_STORAGE_NAME_BYTES]; /* Counted UTF-8; no required terminator. */
 } WitStorageInfo;
-WIT_STATIC_ASSERT(sizeof(WitStorageQuery)==64,"Storage query ABI");
-WIT_STATIC_ASSERT(sizeof(WitStorageInfo)==1056,"Storage info ABI");
+
+WIT_STATIC_ASSERT(sizeof(WitStorageQuery) == 64, "Storage query ABI");
+WIT_STATIC_ASSERT(sizeof(WitStorageInfo) == 1056, "Storage info ABI");
 /* Root is an empty path. LIST's cursor has no authority; the immutable package
  * defines ordering. EOF returns OK/result=0 without modifying the destination.
  * Successful STAT/LIST return sizeof(WitStorageInfo); failures preserve output. */

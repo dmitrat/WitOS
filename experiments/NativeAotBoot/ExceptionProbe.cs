@@ -3,27 +3,72 @@ using System.Runtime.InteropServices;
 
 namespace WitOS.NativeAotBoot;
 
-// Same managed cases run in the Windows reference and the guest. The explicit
-// native allocation exercises existing platform bindings, not a replacement BCL.
+/// <summary>
+/// Managed exception dispatch, filters, finally ordering and GC during unwinding.
+/// </summary>
+/// <remarks>
+/// Same managed cases run in the Windows reference and the guest. The explicit
+/// native allocation exercises existing platform bindings, not a replacement BCL.
+/// </remarks>
 internal static unsafe class ExceptionProbe
 {
-    [DllImport("kernel32.dll", ExactSpelling = true)]
-    private static extern void* VirtualAlloc(void* address, nuint bytes, uint kind, uint protection);
-    [DllImport("kernel32.dll", ExactSpelling = true)]
-    private static extern int VirtualFree(void* address, nuint bytes, uint kind);
+    #region Types
 
     private sealed class Payload(int value) { internal readonly int Value = value; }
+
     private sealed class ProbeException(Payload payload) : Exception
     {
         internal readonly Payload Payload = payload;
     }
+
     private sealed class Trace
     {
+        #region Fields
+
         internal ulong Steps;
+
         internal int Collections, Releases;
+
         internal bool Valid = true;
+
+        #endregion
+
+        #region Functions
+
+        /// <summary>
+        /// Appends one step to the recorded order as a hexadecimal digit.
+        /// </summary>
+        /// <param name="value">Step number, 0 to 15.</param>
         internal void Step(uint value) => Steps = Steps * 16 + value;
+
+        #endregion
     }
+
+    #endregion
+
+    #region Functions
+
+    /// <summary>
+    /// Runs four rounds of the exception cases.
+    /// </summary>
+    /// <returns>True when every round passed.</returns>
+    internal static bool Run()
+    {
+        for (int round = 0; round < 4; ++round)
+            if (!Round())
+                return false;
+        return true;
+    }
+
+    #endregion
+
+    #region Tools
+
+    [DllImport("kernel32.dll", ExactSpelling = true)]
+    private static extern void* VirtualAlloc(void* address, nuint bytes, uint kind, uint protection);
+
+    [DllImport("kernel32.dll", ExactSpelling = true)]
+    private static extern int VirtualFree(void* address, nuint bytes, uint kind);
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void Collect(Trace trace, Payload root, ProbeException error)
@@ -42,7 +87,8 @@ internal static unsafe class ExceptionProbe
     {
         trace.Step(throws ? 2U : 3U);
         Collect(trace, root, error);
-        if (throws) throw new InvalidOperationException(); // CLR must treat this filter as false.
+        if (throws)
+            throw new InvalidOperationException(); // CLR must treat this filter as false.
         return true;
     }
 
@@ -50,7 +96,8 @@ internal static unsafe class ExceptionProbe
     private static void ThrowWithResource(Trace trace, Payload root, ProbeException error)
     {
         byte* memory = (byte*)VirtualAlloc(null, 4096, 0x3000, 4);
-        if (memory == null) { trace.Valid = false; throw error; }
+        if (memory == null)
+        { trace.Valid = false; throw error; }
         memory[0] = 17;
         memory[4095] = 29;
         try
@@ -64,8 +111,10 @@ internal static unsafe class ExceptionProbe
             trace.Step(4);
             Collect(trace, root, error);
             trace.Valid &= memory[0] == 17 && memory[4095] == 29;
-            if (VirtualFree(memory, 0, 0x8000) != 0) ++trace.Releases;
-            else trace.Valid = false;
+            if (VirtualFree(memory, 0, 0x8000) != 0)
+                ++trace.Releases;
+            else
+                trace.Valid = false;
         }
     }
 
@@ -79,7 +128,8 @@ internal static unsafe class ExceptionProbe
         {
             try
             {
-                try { ThrowWithResource(trace, root, error); }
+                try
+                { ThrowWithResource(trace, root, error); }
                 catch (ProbeException caught) when (Filter(trace, root, caught, true))
                 { trace.Valid = false; }
                 catch (ProbeException caught) when (Filter(trace, root, caught, false))
@@ -92,7 +142,8 @@ internal static unsafe class ExceptionProbe
                 finally
                 {
                     trace.Step(6);
-                    try { throw new ArgumentException(); }
+                    try
+                    { throw new ArgumentException(); }
                     catch (ArgumentException) { trace.Step(7); Collect(trace, root, error); }
                     finally { trace.Step(8); }
                 }
@@ -110,10 +161,5 @@ internal static unsafe class ExceptionProbe
         return trace.Valid && trace.Steps == 0x123456789AUL && trace.Collections == 6 && trace.Releases == 1;
     }
 
-    internal static bool Run()
-    {
-        for (int round = 0; round < 4; ++round)
-            if (!Round()) return false;
-        return true;
-    }
+    #endregion
 }

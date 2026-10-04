@@ -1,0 +1,102 @@
+using System.Reflection.PortableExecutable;
+using WitOS.Dev.Host;
+
+namespace WitOS.Dev.Kernel;
+
+/// <summary>
+/// What differs between the kernel's target architectures in the tools: MSVC tools, EFI file, PE machine and the
+/// QEMU board that boots it.
+/// </summary>
+/// <param name="Name">Architecture name of build/kernel-&lt;name&gt;.json.</param>
+/// <param name="MsvcTarget">Directory of the cross tools under MSVC bin/Hostx64; also the link /machine value.</param>
+/// <param name="MsvcComponent">Visual Studio component that installs those tools.</param>
+/// <param name="Assembler">Assembler executable in that directory.</param>
+/// <param name="Machine">PE machine of the linked EFI image.</param>
+/// <param name="EfiName">Removable-media boot file name under EFI/BOOT.</param>
+/// <param name="Qemu">System emulator of the pinned QEMU package.</param>
+/// <param name="QemuMachine">QEMU machine of the board.</param>
+/// <param name="ExitDevice">QEMU arguments of the board's test exit.</param>
+/// <param name="LinkOptions">Architecture-specific link options; ARM64 images are always relocatable.</param>
+/// <param name="Firmware">EDK II code image under the QEMU share directory.</param>
+/// <param name="FirmwareVariables">EDK II variables template under the QEMU share directory.</param>
+/// <param name="DefaultCpu">QEMU CPU model of the base profile.</param>
+internal sealed record KernelArchitecture(string Name, string MsvcTarget, string MsvcComponent, string Assembler,
+    Machine Machine, string EfiName, string Qemu, string QemuMachine, string[] ExitDevice, string[] LinkOptions, string Firmware,
+    string FirmwareVariables, string DefaultCpu)
+{
+    #region Fields
+
+    /// <summary>
+    /// The x64 kernel on the q35 board; the exit is QEMU's isa-debug-exit port.
+    /// </summary>
+    public static readonly KernelArchitecture X64 = new("x64", "x64", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+        "ml64.exe", Machine.Amd64, "BOOTX64.EFI", "qemu-system-x86_64.exe", "q35,hpet=on",
+        ["-device", "isa-debug-exit,iobase=0xf4,iosize=0x04"], ["/dynamicbase:no"], "edk2-x86_64-code.fd", "edk2-i386-vars.fd",
+        "qemu64");
+
+    /// <summary>
+    /// The ARM64 kernel on the QEMU virt board with GICv3; the exit is Arm semihosting.
+    /// </summary>
+    public static readonly KernelArchitecture Arm64 = new("arm64", "arm64",
+        "Microsoft.VisualStudio.Component.VC.Tools.ARM64", "armasm64.exe", Machine.Arm64, "BOOTAA64.EFI",
+        "qemu-system-aarch64.exe", "virt,gic-version=3", ["-semihosting-config", "enable=on,target=native"], [],
+        "edk2-aarch64-code.fd", "edk2-arm-vars.fd", "cortex-a72");
+
+    #endregion
+
+    #region Functions
+
+    /// <summary>
+    /// Finds an architecture by name.
+    /// </summary>
+    /// <param name="name">x64 or arm64.</param>
+    /// <returns>The architecture.</returns>
+    /// <exception cref="ArgumentException">The name is not a kernel architecture.</exception>
+    public static KernelArchitecture Find(string name) => name switch
+    {
+        "x64" => X64,
+        "arm64" => Arm64,
+        _ => throw new ArgumentException($"Unknown kernel architecture '{name}'; expected x64 or arm64.", nameof(name))
+    };
+
+    /// <summary>
+    /// Finds the MSVC tools that build this architecture.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Tool directory with cl, link and the assembler.</returns>
+    public Task<string> FindMsvcAsync(string root) => Toolchain.FindMsvcAsync(root, MsvcTarget, MsvcComponent, Assembler);
+
+    /// <summary>
+    /// Path of the QEMU system emulator.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Executable path.</returns>
+    public string QemuPath(string root) => Path.Combine(Toolchain.QemuDirectory(root), Qemu);
+
+    /// <summary>
+    /// Path of the EDK II code image.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Firmware path.</returns>
+    public string FirmwarePath(string root) => Path.Combine(Toolchain.QemuDirectory(root), "share", Firmware);
+
+    /// <summary>
+    /// Path of the EDK II variables template.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Template path.</returns>
+    public string FirmwareVariablesPath(string root) => Path.Combine(Toolchain.QemuDirectory(root), "share", FirmwareVariables);
+
+    /// <summary>
+    /// Throws unless the emulator and the firmware of this architecture are installed.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <exception cref="InvalidOperationException">QEMU or EDK II is missing.</exception>
+    public void RequireQemu(string root)
+    {
+        if (!File.Exists(QemuPath(root)) || !File.Exists(FirmwarePath(root)) || !File.Exists(FirmwareVariablesPath(root)))
+            throw new InvalidOperationException($"QEMU/EDK II for {Name} are missing. Run: dotnet run --project tools/WitOS.Dev -- setup");
+    }
+
+    #endregion
+}

@@ -2,7 +2,7 @@
   "runtimeCommit": "b82454cad0aaaae3db2cf18fbf2cccc36e201ccc",
   "path": "src/native/corehost/hostmisc/pal.h",
   "sha256": "5aaf21a822992e6496a19056e15cecb9ff6b524f6d3edf68a01cff7b81306d6a",
-  "correction": "Replace only inline munmap with a WITOS_HOST_FILES declaration; retain every other upstream declaration/body.",
+  "patch": "patches/runtime/pal.h.patch",
   "configuration": {
     "path": "src/native/corehost/configure.h.in",
     "sha256": "06e3060add4c8dd33a9aefd7b8915d2f0204f2738d20869f712d6db6c13c3d60"

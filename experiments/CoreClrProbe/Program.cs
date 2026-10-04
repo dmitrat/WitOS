@@ -6,16 +6,35 @@ using System.Runtime.Loader;
 
 namespace WitOS.CoreClrProbe;
 
+/// <summary>
+/// Portable managed probe that upstream CoreCLR runs unchanged: JIT and dynamic methods, generic reflection, GC and
+/// finalization, exceptions, thread pool tasks, load contexts and module paths.
+/// </summary>
 internal static class Program
 {
-    private static int finalizers;
-    private sealed class Finalizable { ~Finalizable() => Interlocked.Increment(ref finalizers); }
+    #region Fields
+
+    private static int m_finalizers;
+
+    #endregion
+
+    #region Types
+
+    private sealed class Finalizable { ~Finalizable() => Interlocked.Increment(ref m_finalizers); }
+
+    #endregion
+
+    #region Tools
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static WeakReference MakeFinalizable() => new(new Finalizable());
+
     private static T Identity<T>(T value) => value;
+
     private static void Require(bool value, string name)
     {
-        if (!value) throw new InvalidOperationException("CoreCLR probe failed: " + name);
+        if (!value)
+            throw new InvalidOperationException("CoreCLR probe failed: " + name);
         Console.WriteLine("[CORECLR-PASS] " + name);
     }
 
@@ -24,18 +43,24 @@ internal static class Program
         Require(RuntimeFeature.IsDynamicCodeSupported && RuntimeFeature.IsDynamicCodeCompiled, "JitRuntimeIdentity");
         var method = new DynamicMethod("Add", typeof(int), [typeof(int), typeof(int)]);
         var il = method.GetILGenerator();
-        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldarg_1); il.Emit(OpCodes.Add); il.Emit(OpCodes.Ret);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Add);
+        il.Emit(OpCodes.Ret);
         var add = method.CreateDelegate<Func<int, int, int>>();
         Require(add(731, 11) == 742, "DynamicMethodExecution");
         var generic = typeof(Program).GetMethod(nameof(Identity), BindingFlags.NonPublic | BindingFlags.Static)!.MakeGenericMethod(typeof(Guid));
         var value = Guid.NewGuid();
         Require((Guid)generic.Invoke(null, [value])! == value, "RuntimeGenericReflection");
         var weak = MakeFinalizable();
-        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true); GC.WaitForPendingFinalizers(); GC.Collect();
-        Require(finalizers == 1 && !weak.IsAlive, "GcAndFinalization");
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        Require(m_finalizers == 1 && !weak.IsAlive, "GcAndFinalization");
         var roots = new object[] { new byte[8192], new List<int> { 17, 29 } };
         var finished = false;
-        try { throw new ApplicationException("payload"); }
+        try
+        { throw new ApplicationException("payload"); }
         catch (ApplicationException e) when (e.Message == "payload")
         {
             GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
@@ -67,4 +92,6 @@ internal static class Program
         GC.KeepAlive(roots);
         return 42;
     }
+
+    #endregion
 }

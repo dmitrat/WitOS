@@ -1,0 +1,13 @@
+{
+  "native": [
+    "experiments",
+    "src",
+    "tests"
+  ],
+  "managed": [
+    "experiments",
+    "tests",
+    "tools"
+  ],
+  "exclude": []
+}

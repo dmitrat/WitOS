@@ -3,9 +3,10 @@
 
 #include "witos/types.h"
 
-/* Minimal x64 UEFI ABI declarations; no UEFI types cross WitBootInfo.
+/* Minimal 64-bit UEFI ABI declarations; no UEFI types cross WitBootInfo.
  * Layout reference: UEFI specification, EFI_SYSTEM_TABLE/EFI_BOOT_SERVICES.
- * All functions use the Microsoft x64 calling convention. */
+ * Firmware calls use the compiler's native convention, which is the UEFI one on both targets:
+ * Microsoft x64 on x64 and AAPCS64 on ARM64. */
 typedef WitU64 EfiStatus;
 typedef void *EfiHandle;
 
@@ -32,19 +33,27 @@ typedef struct EfiMemoryDescriptor {
     WitU64 Attributes;
 } EfiMemoryDescriptor;
 
-typedef struct EfiGuid { WitU32 A; WitU16 B,C; WitU8 D[8]; } EfiGuid;
-typedef EfiStatus (*EfiLocateProtocol)(const EfiGuid*,void*,void**);
+typedef struct EfiGuid {
+    WitU32 A;
+    WitU16 B, C;
+    WitU8 D[8];
+} EfiGuid;
+
+typedef EfiStatus (*EfiLocateProtocol)(const EfiGuid *, void *, void **);
 typedef struct EfiRngProtocol EfiRngProtocol;
+
 struct EfiRngProtocol {
-    EfiStatus (*GetInfo)(EfiRngProtocol*,WitU64*,EfiGuid*);
-    EfiStatus (*GetRng)(EfiRngProtocol*,const EfiGuid*,WitU64,WitU8*);
+    EfiStatus (*GetInfo)(EfiRngProtocol *, WitU64 *, EfiGuid *);
+    EfiStatus (*GetRng)(EfiRngProtocol *, const EfiGuid *, WitU64, WitU8 *);
 };
+
 typedef EfiStatus (*EfiGetMemoryMap)(WitU64 *, void *, WitU64 *, WitU64 *, WitU32 *);
 typedef EfiStatus (*EfiExitBootServices)(EfiHandle, WitU64);
 
-typedef EfiStatus (*EfiAllocatePages)(WitU32,WitU32,WitU64,WitU64*);
-typedef EfiStatus (*EfiFreePages)(WitU64,WitU64);
-typedef EfiStatus (*EfiHandleProtocol)(EfiHandle,const EfiGuid*,void**);
+typedef EfiStatus (*EfiAllocatePages)(WitU32, WitU32, WitU64, WitU64 *);
+typedef EfiStatus (*EfiFreePages)(WitU64, WitU64);
+typedef EfiStatus (*EfiHandleProtocol)(EfiHandle, const EfiGuid *, void **);
+
 typedef struct EfiBootServicesPrefix {
     EfiTableHeader Header;
     void *BeforeAllocatePages[2];

@@ -1,0 +1,23 @@
+{
+  "name": "kernel-arch-x64",
+  "description": "x64 implementation of witos/arch.h: descriptor tables, traps, frames and contexts, page tables, stacks and CPUID.",
+  "includes": [],
+  "sources": [
+    "src/Kernel.Arch.X64/identity.c",
+    "src/Kernel.Arch.X64/frame.c",
+    "src/Kernel.Arch.X64/frame_context.c",
+    "src/Kernel.Arch.X64/user_cpu_context.c",
+    "src/Kernel.Arch.X64/cpu_cache.c",
+    "src/Kernel.Arch.X64/exceptions.c",
+    "src/Kernel.Arch.X64/stacks.c",
+    "src/Kernel.Arch.X64/paging.c",
+    "src/Kernel.Arch.X64/scheduler.c",
+    "src/Kernel.Arch.X64/page_table.c"
+  ],
+  "assembly": [
+    "src/Kernel.Arch.X64/entry.asm",
+    "src/Kernel.Arch.X64/context.asm",
+    "src/Kernel.Arch.X64/user_entry.asm",
+    "src/Kernel.Arch.X64/chkstk.asm"
+  ]
+}

@@ -10,11 +10,13 @@
 #define WIT_CODE_RESET_SPARSE 5U
 #define WIT_CODE_VALIDATE 6U
 #define WIT_CODE_READ_EXECUTE 5U
+
 /* Private evolving runtime ABI. Upper address bound is exclusive. Requests are
  * copied before validation/mutation; only reserve returns a nonzero result. */
 typedef struct WitCodeMemoryRequest {
-    WitU32 Version,Size,Operation,Protection;
-    WitU64 Address,Source,Bytes,Alignment,Minimum,Maximum;
+    WitU32 Version, Size, Operation, Protection;
+    WitU64 Address, Source, Bytes, Alignment, Minimum, Maximum;
 } WitCodeMemoryRequest;
-WIT_STATIC_ASSERT(sizeof(WitCodeMemoryRequest)==64,"Code memory request ABI");
+
+WIT_STATIC_ASSERT(sizeof(WitCodeMemoryRequest) == 64, "Code memory request ABI");
 #endif

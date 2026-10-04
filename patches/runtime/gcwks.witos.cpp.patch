@@ -1,0 +1,15 @@
+Source: src/coreclr/gc/gcwks.cpp
+Output: gcwks.witos.cpp
+Before: 66cbaf2fbf1b5485d0a639321e4f78a260ccf95389c5474d1c3f2be6492db513
+After: 42fe7151230337e27ffff63e62b895d4bcf9e4b5b5c6a4f7413cafcb4e7bee94
+
+The workstation GC compiles the patched gc.witos.cpp.
+
+--- a/src/coreclr/gc/gcwks.cpp
++++ b/src/coreclr/gc/gcwks.cpp
+@@ -5,4 +5,4 @@
+ #undef SERVER_GC
+ #endif
+ 
+-#include "gc.cpp"
++#include "gc.witos.cpp"

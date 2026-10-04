@@ -1,0 +1,39 @@
+Source: src/coreclr/nativeaot/Runtime/FinalizerHelpers.cpp
+Output: finalizerhelpers.witos.cpp
+Before: fd074ce8d23a5677d866bdd2b36b00f779887740cf992379d5e9ca7e4785c3dd
+After: 462ce2f501df7223dab6d0bf2de1c5828a7b0babe68c32f58001b61b07c5e388
+
+Finalizer initialization failures and a failed PAL initialization on the finalizer thread are reported through
+PalPrintFatalError; control flow is unchanged.
+
+--- a/src/coreclr/nativeaot/Runtime/FinalizerHelpers.cpp
++++ b/src/coreclr/nativeaot/Runtime/FinalizerHelpers.cpp
+@@ -49,8 +49,7 @@
+ 
+     // if FLS initialization failed do not attach the current thread and just exit instead.
+     // we are going to fail the runtime initialization.
+-    if (!g_ComAndFlsInitSucceeded)
+-        return 0;
++    if (!g_ComAndFlsInitSucceeded) { PalPrintFatalError("WitOS finalizer PAL init failed\n"); return 0; }
+ #endif // DEBUG
+ 
+     HANDLE hFinalizerEvent = (HANDLE)pContext;
+@@ -89,15 +88,12 @@
+     // by the GC whenever it completes a collection where it found otherwise unreachable finalizable objects.
+     // The g_FinalizerDoneEvent is set by the finalizer thread every time it wakes up and drains the
+     // queue of finalizable objects. It's mainly used by GC.WaitForPendingFinalizers().
+-    if (!g_FinalizerEvent.CreateAutoEventNoThrow(false))
+-        return false;
+-    if (!g_FinalizerDoneEvent.CreateManualEventNoThrow(false))
+-        return false;
++    if (!g_FinalizerEvent.CreateAutoEventNoThrow(false)) { PalPrintFatalError("WitOS finalizer startup failure: g_FinalizerEvent.CreateAutoEventNoThrow(false)\n"); return false; }
++    if (!g_FinalizerDoneEvent.CreateManualEventNoThrow(false)) { PalPrintFatalError("WitOS finalizer startup failure: g_FinalizerDoneEvent.CreateManualEventNoThrow(false)\n"); return false; }
+     g_lowMemoryNotification = PalCreateLowMemoryResourceNotification();
+ 
+     // Create the finalizer thread itself.
+-    if (!PalStartFinalizerThread(FinalizerStart, (void*)g_FinalizerEvent.GetOSEvent()))
+-        return false;
++    if (!PalStartFinalizerThread(FinalizerStart, (void*)g_FinalizerEvent.GetOSEvent())) { PalPrintFatalError("WitOS finalizer startup failure: PalStartFinalizerThread(FinalizerStart, (void*)g_FinalizerEvent.GetOSEvent())\n"); return false; }
+ 
+     return true;
+ }

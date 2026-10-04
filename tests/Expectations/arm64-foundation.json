@@ -1,0 +1,20 @@
+{
+  "description": "ARM64 kernel foundation: firmware handoff, boot contract, exception vectors, allocator, kernel paging, randomness, clock and the foundation self-tests in order.",
+  "markers": [
+    "[BOOT] ExitBootServices OK",
+    "[TEST-PASS] Boot.Contract",
+    "[TEST-PASS] Cpu.KernelStack",
+    "[TEST-PASS] Cpu.ExceptionTables",
+    "Free physical pages: ",
+    "[TEST-PASS] Memory.KernelPaging",
+    "[TEST-PASS] Memory.StackGuards",
+    "[TEST-PASS] Random.BootSeedConsumed",
+    "[TEST-PASS] Random.ChaCha20Vector",
+    "[TEST-PASS] Clock.Counter64",
+    "[TEST-PASS] Clock.IrqIndependent",
+    "[TEST-PASS] Memory.PhysicalPages",
+    "[TEST-PASS] Memory.Exhaustion",
+    "[TEST-PASS] Memory.InvalidMaps",
+    "[TEST-PASS] Memory.VirtualMappings"
+  ]
+}

@@ -1,3 +1,3 @@
-using WitOS.Dev;
+using WitOS.Dev.Commands;
 
-return await DevTool.RunAsync(args);
+return await CommandLine.RunAsync(args);

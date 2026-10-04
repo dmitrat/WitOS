@@ -1,0 +1,39 @@
+{
+  "name": "pal-background",
+  "description": "Detached PAL worker fixture",
+  "image": "PalBackgroundFixture.pe",
+  "objectPrefix": "background_",
+  "upstreamHeaders": true,
+  "defines": [],
+  "assembly": [],
+  "sources": [
+    "src/Runtime.NativeAot/pal_threads.witos.cpp",
+    "tests/User.X64/pal_background.cpp",
+    "tests/User.X64/pal_background_entry.c"
+  ],
+  "functionSections": [],
+  "shared": [
+    "native_start.obj",
+    "dynamic_tls.witos.obj",
+    "dynamic_native_new.witos.obj",
+    "dynamic_thread.obj",
+    "dynamic_library_lifecycle.obj",
+    "dynamic_crt_memory.witos.obj",
+    "dynamic_image.obj",
+    "dynamic_tls_metadata.obj",
+    "pal_pal.witos.obj",
+    "pal_pal_events.witos.obj",
+    "pal_pal_error.witos.obj",
+    "native_error.obj"
+  ],
+  "header": "pal_background_image.h",
+  "symbol": "wit_pal_background_image",
+  "report": "pal-background-build.json",
+  "scope": "Actual PAL worker callbacks with C++ TLS cleanup and detached reclamation; no managed finalizer or collector execution.",
+  "inputs": [
+    "src/Runtime.Native/thread.c",
+    "src/Runtime.Native/tls.h",
+    "src/Kernel/include/witos/user_abi.h"
+  ],
+  "summary": "native callback/TLS lifecycle"
+}

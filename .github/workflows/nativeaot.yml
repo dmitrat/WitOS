@@ -13,11 +13,20 @@ on:
       - 'src/Boot.Uefi/**'
       - 'src/Kernel.Arch.X64/**'
       - 'src/Kernel/**'
+      - 'src/Kernel.Platform.Q35/**'
+      - 'tests/Kernel/**'
+      - 'tests/Kernel.X64/**'
+      - 'tests/User/**'
+      - 'tests/Expectations/**'
+      - 'build/**'
+      - 'patches/**'
       - 'tests/User.X64/**'
       - 'tests/Runtime.NativeAot/**'
       - 'tests/WitOS.Dev.Tests/**'
+      - 'tests/WitOS.Dev.Tests.Child/**'
       - 'WitOS.slnx'
-      - 'src/System.Native/**'
+      - 'src/Runtime.Native/**'
+      - 'src/Runtime.Pal.Win32/**'
       - 'src/Kernel/include/witos/**'
       - '.gitattributes'
       - 'global.json'
@@ -34,11 +43,20 @@ on:
       - 'src/Boot.Uefi/**'
       - 'src/Kernel.Arch.X64/**'
       - 'src/Kernel/**'
+      - 'src/Kernel.Platform.Q35/**'
+      - 'tests/Kernel/**'
+      - 'tests/Kernel.X64/**'
+      - 'tests/User/**'
+      - 'tests/Expectations/**'
+      - 'build/**'
+      - 'patches/**'
       - 'tests/User.X64/**'
       - 'tests/Runtime.NativeAot/**'
       - 'tests/WitOS.Dev.Tests/**'
+      - 'tests/WitOS.Dev.Tests.Child/**'
       - 'WitOS.slnx'
-      - 'src/System.Native/**'
+      - 'src/Runtime.Native/**'
+      - 'src/Runtime.Pal.Win32/**'
       - 'src/Kernel/include/witos/**'
       - '.gitattributes'
       - 'global.json'
@@ -56,7 +74,8 @@ concurrency:
 jobs:
   hosted-probe:
     runs-on: windows-2025
-    timeout-minutes: 45
+    # Runner speed varies about fourfold; every guest boot keeps its own timeout.
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -78,7 +97,7 @@ jobs:
         run: dotnet build WitOS.slnx --configuration Release
 
       - name: Host tooling regressions
-        run: dotnet run --project tests/WitOS.Dev.Tests --configuration Release --no-build
+        run: dotnet test tests/WitOS.Dev.Tests --configuration Release --no-build
 
       - name: Verify pinned upstream sources and package provenance
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-audit
@@ -93,7 +112,7 @@ jobs:
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-source
 
       - name: Hosted PE parser corpus
-        run: dotnet run --project tests/WitOS.Dev.Tests --configuration Release --no-build -- --pe
+        run: dotnet test tests/WitOS.Dev.Tests --configuration Release --no-build --filter TestCategory=Pe
 
       - name: Cache pinned LLVM coverage toolchain download
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -102,10 +121,10 @@ jobs:
           key: llvm-20.1.8-win64-3197846a2b190636
 
       - name: Native parser branch coverage and AddressSanitizer
-        run: dotnet run --project tests/WitOS.Dev.Tests --configuration Release --no-build -- --pe-coverage
+        run: dotnet test tests/WitOS.Dev.Tests --configuration Release --no-build --filter TestCategory=PeCoverage
 
       - name: Bounded native parser fuzz smoke
-        run: dotnet run --project tests/WitOS.Dev.Tests --configuration Release --no-build -- --pe-fuzz
+        run: dotnet test tests/WitOS.Dev.Tests --configuration Release --no-build --filter TestCategory=PeFuzz
 
       - name: Cache pinned QEMU download
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -117,7 +136,7 @@ jobs:
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
 
       - name: QEMU timeout native-completion stress
-        run: dotnet run --project tests/WitOS.Dev.Tests --configuration Release --no-build -- --qemu-cleanup
+        run: dotnet test tests/WitOS.Dev.Tests --configuration Release --no-build --filter TestCategory=QemuCleanup
 
       - name: Kernel regression matrix
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- test

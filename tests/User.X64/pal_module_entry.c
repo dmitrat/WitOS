@@ -2,6 +2,7 @@
 void wit_module_configure(const WitUserStartup *startup);
 WitU64 wit_module_program(void);
 WitU64 wit_module_finish(WitU64 result);
+
 WitU64 wit_native_main(const WitUserStartup *startup)
 {
     WitU64 result;

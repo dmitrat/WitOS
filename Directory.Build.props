@@ -5,5 +5,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Deterministic>true</Deterministic>
+    <!-- Keep outputs independent of the Git commit; image fingerprints compare builds across commits.
+         Without Git queries the SDK embeds no commit in versions or SourceLink PDB data, and the
+         PDB identity stored in each PE no longer changes with the commit. -->
+    <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 </Project>

@@ -1,0 +1,22 @@
+Source: src/native/corehost/hostmisc/pal.h
+Output: pal.h
+Before: 5aaf21a822992e6496a19056e15cecb9ff6b524f6d3edf68a01cff7b81306d6a
+After: c7cb5159defd41b1517b35a586fbe2c439c79e1b2b67959ebd8def5dda3a5c0d
+
+With WITOS_HOST_FILES, corehost munmap is declared here and supplied by the WitOS host file PAL instead of the
+inline UnmapViewOfFile body; every other declaration and body is unchanged.
+
+--- a/src/native/corehost/hostmisc/pal.h
++++ b/src/native/corehost/hostmisc/pal.h
+@@ -194,7 +194,11 @@
+     inline bool rmdir(const char_t* path) { return RemoveDirectoryW(path) != 0; }
+     inline int rename(const char_t* old_name, const char_t* new_name) { return ::_wrename(old_name, new_name); }
+     inline int remove(const char_t* path) { return ::_wremove(path); }
++#if defined(WITOS_HOST_FILES)
++    bool munmap(void* addr, size_t length);
++#else
+     inline bool munmap(void* addr, size_t length) { return UnmapViewOfFile(addr) != 0; }
++#endif
+     inline int get_pid() { return GetCurrentProcessId(); }
+     inline void sleep(uint32_t milliseconds) { Sleep(milliseconds); }
+ #else // _WIN32

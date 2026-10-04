@@ -1,0 +1,15 @@
+{
+  "name": "kernel-platform-qemu-virt",
+  "description": "QEMU virt board: PL011 console, the generic counter as the monotonic clock, the EL1 virtual timer through GICv3 and the test exit through Arm semihosting.",
+  "includes": [],
+  "sources": [
+    "src/Kernel.Platform.QemuVirt/console.c",
+    "src/Kernel.Platform.QemuVirt/clock.c",
+    "src/Kernel.Platform.QemuVirt/interrupts.c"
+  ],
+  "assembly": [
+    "src/Kernel.Platform.QemuVirt/semihosting.asm",
+    "src/Kernel.Platform.QemuVirt/counter.asm",
+    "src/Kernel.Platform.QemuVirt/gic.asm"
+  ]
+}

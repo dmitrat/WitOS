@@ -36,7 +36,16 @@ jobs:
         run: dotnet build WitOS.slnx --configuration Release
 
       - name: Host tooling regressions
-        run: dotnet run --project tests/WitOS.Dev.Tests --configuration Release --no-build
+        run: dotnet test tests/WitOS.Dev.Tests --configuration Release --no-build
+
+      - name: Cache pinned LLVM installer
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .tools/downloads/LLVM-20.1.8-win64.exe
+          key: llvm-20.1.8-win64-3197846a2b190636
+
+      - name: Check source formatting
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- format-check
 
       - name: Extract verified QEMU
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
@@ -46,6 +55,9 @@ jobs:
 
       - name: Run real VM integration scenarios
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- test
+
+      - name: Release kernel without self-tests
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- release
 
       - name: Upload boot image and diagnostics
         if: always()
@@ -87,3 +99,45 @@ jobs:
             artifacts/x64/boot/WitOS.map
             artifacts/x64/boot/build.txt
             artifacts/logs/
+
+  boot-arm64:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          global-json-file: global.json
+
+      - name: Cache pinned QEMU download
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .tools/downloads
+          key: qemu-windows-x64-20260811-5bcf9eed634e8575
+
+      - name: Build host tools
+        run: dotnet build WitOS.slnx --configuration Release
+
+      - name: Extract verified QEMU
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
+
+      - name: ARM64 boot-only scenarios on QEMU virt
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- test --arch arm64
+
+      - name: Upload ARM64 boot image and diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: witos-kernel-arm64
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            artifacts/arm64/boot/BOOTAA64.EFI
+            artifacts/arm64/boot/WitOS-arm64.img
+            artifacts/arm64/boot/WitOS.pdb
+            artifacts/arm64/boot/WitOS.map
+            artifacts/arm64/boot/build.txt
+            artifacts/logs/arm64-*

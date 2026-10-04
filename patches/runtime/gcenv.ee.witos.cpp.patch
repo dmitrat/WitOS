@@ -1,0 +1,19 @@
+Source: src/coreclr/nativeaot/Runtime/gcenv.ee.cpp
+Output: gcenv.ee.witos.cpp
+Before: 34a4106345051e0c58ed1a03dc124f64c66ce6037c6bea1ea2b5fd1bcae59550
+After: 927628b3c97ccaeb0909d9b7fc9d970d1f93715a34140b3ee69f768ce8ae912d
+
+GCToEEInterface::LogErrorToHost prints the message through the bounded PalPrintFatalError console path instead of
+discarding it.
+
+--- a/src/coreclr/nativeaot/Runtime/gcenv.ee.cpp
++++ b/src/coreclr/nativeaot/Runtime/gcenv.ee.cpp
+@@ -788,6 +788,8 @@
+ 
+ void GCToEEInterface::LogErrorToHost(const char *message)
+ {
++    PalPrintFatalError(message);
++    PalPrintFatalError("\n");
+ }
+ 
+ uint64_t GCToEEInterface::GetThreadOSThreadId(Thread* thread)

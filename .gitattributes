@@ -6,6 +6,7 @@
 *.h text eol=lf
 *.cs text eol=lf
 *.md text eol=lf whitespace=-blank-at-eol
+*.patch text eol=lf whitespace=-blank-at-eol,-space-before-tab
 *.json text eol=lf
 *.yml text eol=lf
 *.xml text eol=lf

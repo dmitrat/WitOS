@@ -8,7 +8,7 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 
 ## Current status
 
-**Current local implementation: upstream .NET 10.0.8 NativeAOT and standard CoreLib execute inside WitOS. P5/M3 is complete in the tested x64/UP profile: GC, managed exceptions, finalization, standard Thread/Monitor/TLS, failure recovery and repeated combined acceptance pass together. User ABI v37 / boot ABI v3. The retained boot banner/version is a historical baseline; the tracked implementation includes P1 through Q1.**
+**Current local implementation: upstream .NET 10.0.8 NativeAOT and standard CoreLib execute inside WitOS. P5/M3 is complete in the tested x64/UP profile: GC, managed exceptions, finalization, standard Thread/Monitor/TLS, failure recovery and repeated combined acceptance pass together. P6.1–P6.3 are complete and P6.4 has reached static DLL TLS. Current interfaces: user ABI v48 / boot ABI v4; the kernel banner prints both from the headers. The [Q2 consolidation and ARM64 phase A](@Docs/Implementation/Q2-Consolidation-and-Arm64-Plan.md) are complete: the kernel policy is architecture-independent and also runs EL0 components on ARM64 (QEMU `virt`); P6.4 continues next.**
 
 The kernel boots independently through UEFI and runs separately built native components in ring 3 with private mappings and handles. Its bounded PE loader parses complete files inside the guest, maps sections and applies relocations. A freestanding C startup layer receives image metadata, runs native initializers and enters the program in user space. The component writes through a checked syscall and exits; its faults are contained while the kernel runs the next component. Within a component, up to four user threads can run with timer preemption, separate stacks/TLS and blocking join. Manual/auto-reset events, sleep and absolute deadlines work with kernel idle when all threads are blocked. M1 paging, protection, timer and kernel-context checks remain part of every successful boot.
 
@@ -25,6 +25,8 @@ Development host for this first slice:
 - Visual Studio / Build Tools with **Desktop development with C++**, including the x64 MSVC compiler, MASM and Windows SDK headers.
 - Git.
 - 7-Zip at its normal installation location, for extracting QEMU.
+
+On some Windows hosts, process creation stalls system-wide for up to about 20 seconds while the host process tests create and kill job trees: an unrelated process start waits while the CPU stays idle. The timing-bounded host process tests (`ProcessesTests`) then fail with cleanup or deadline errors; rerun them alone before suspecting the tool. Excluding the repository from Microsoft Defender real-time scanning still helps build speed, because Defender inspects every new binary under `artifacts/` and `.tools/`, but it did not remove these stalls.
 
 From the repository root:
 
@@ -43,7 +45,7 @@ Expected guest output includes:
 ```text
 [BOOT] UEFI x64 adapter
 [BOOT] ExitBootServices OK
-WitOS 0.0.44 (native GC affinity parsing)
+WitOS user ABI v48, boot ABI v4
 Build: <git-revision> | x64 | Debug
 [TEST-BEGIN] Boot.Contract
 [TEST-PASS] Boot.Contract
@@ -80,9 +82,16 @@ The host tool returns exit code 0 only after checking both guest markers and the
 dotnet build WitOS.slnx --configuration Release
 dotnet run --project tools/WitOS.Dev --configuration Release -- build
 dotnet run --project tools/WitOS.Dev --configuration Release -- test
+dotnet run --project tools/WitOS.Dev --configuration Release -- release
+dotnet run --project tools/WitOS.Dev --configuration Release -- build --arch arm64
+dotnet run --project tools/WitOS.Dev --configuration Release -- test --arch arm64
 ```
 
 The native kernel currently always builds in Debug mode, including when the host tool uses Release.
+
+`--arch arm64` builds `BOOTAA64.EFI` with the MSVC ARM64 cross tools (Visual Studio component `Microsoft.VisualStudio.Component.VC.Tools.ARM64`) and boots it on the QEMU `virt` board with GICv3. That kernel runs the kernel foundation and EL0 components through the common user-mode policy: it checks the boot contract, installs its EL1 exception vectors, initializes the physical page allocator, installs its own translation tables with guarded stacks, opens the boot package, seeds ChaCha20, checks the generic counter, runs the foundation self-tests, preempts two kernel workers with the GICv3 virtual timer while checking their general, NEON and FPCR state, runs the shared user isolation, thread, wait and image tests with ARM64 ports of their fixtures (private address spaces, system calls and handles, sparse user memory, preempted threads with TPIDRRO_EL0 TLS and FPCR state, joins, events, deadlines and the idle wait) and loads relocatable and fixed ARM64 PE images, 27 contained EL0 faults in all, reports `Hello` and exits through Arm semihosting. Its suite requires success at 128 and 512 MiB, rejection of an invalid boot contract and of an overlapping memory map, a reported breakpoint, undefined instruction and data abort, the six memory permission faults of the x64 suite, and a timeout after a successful boot.
+
+Every test scenario builds a self-test kernel: the sources in `tests/Kernel.X64` and the white-box checks guarded by `WITOS_SELFTEST` run during boot before `Hello`. `release` builds the kernel without them, rejects a link map that names self-test code, and boots it with 128 MiB and 512 MiB of RAM; that kernel initializes, reports `Hello` and exits without running user components.
 
 The integration suite boots nineteen real VM scenarios:
 
@@ -184,25 +193,37 @@ This builds the pinned runtime and exact standard-CoreLib managed object used by
 ## Layout
 
 ```text
-src/Boot.Uefi/          Firmware-specific entry and handoff adapter
-src/Kernel/             Boot validation, physical pages and process-local handles
-src/Kernel.Arch.X64/     Paging, traps, context transitions and user execution
-src/System.Native/      User-space native startup helper (not managed runtime)
-src/Runtime.NativeAot/  Native runtime platform adapters and source overlay
-tests/User.X64/         Unprivileged native ABI/isolation fixture
-tools/WitOS.Dev/         C# build, VM tests and runtime investigation tools
-experiments/NativeAotBoot/ Combined guest and Windows-reference acceptance
-experiments/NativeAotProbe/ Hosted reference; not guest runtime code
+src/Boot.Uefi/               Firmware-specific entry and handoff adapter
+src/Kernel/                  Architecture-independent kernel: memory, handles, processes, threads, loader
+src/Kernel.Arch.X64/         x64 traps, frames, contexts, page tables and user transitions
+src/Kernel.Platform.Q35/     q35 board devices: COM1, PIC/PIT, HPET and test exit
+src/Kernel.Arch.A64/         ARM64 vectors, frames, EL0 entry, kernel and user page tables
+src/Kernel.Platform.QemuVirt/ QEMU virt board: PL011, generic counter, GICv3 timer and semihosting exit
+src/Runtime.Native/          User-space native base: startup, syscalls, threads, TLS, images, files
+src/Runtime.Pal.Win32/       Win32 API names for the upstream runtimes
+src/Runtime.NativeAot/       NativeAOT platform adapters and source overlay
+src/Runtime.CoreClr/         CoreCLR host and runtime adapters
+build/                       Kernel target, layer and format manifests
+tests/Kernel/                Kernel and user-isolation self-tests shared by both architectures (WITOS_SELFTEST only)
+tests/Kernel.X64/            x64 kernel self-tests, linked only into WITOS_SELFTEST kernels
+tests/Kernel.A64/            ARM64 kernel self-tests, fault scenarios and user fault expectations
+tests/User/                  Architecture-independent fixture protocol
+tests/User.X64/              Unprivileged native ABI, isolation and runtime fixtures
+tests/User.A64/              ARM64 user fixtures, preprocessed with the ABI constants
+tests/WitOS.Dev.Tests/       Host tests (NUnit)
+tools/WitOS.Dev/             C# build, VM tests and runtime investigation tools
+experiments/NativeAotBoot/   Combined guest and Windows-reference acceptance
+experiments/NativeAotProbe/  Hosted reference; not guest runtime code
 experiments/NativeAotTarget/ Native bootstrap and target artifact evidence
-@Docs/                  Architecture drafts and implementation notes
-.github/workflows/      Automated native build and VM tests
+@Docs/                       Architecture drafts and implementation notes
+.github/workflows/           Automated native build and VM tests
 ```
 
 The core kernel does not include UEFI structures. The output is a freestanding PE/COFF EFI image with no Windows or C-runtime imports. MSVC is a host compiler, not a guest dependency.
 
 ## Scope and next work
 
-The selected x64/UP system profile uses a static image and experimental ABI v37. Ordinary native image limits remain separate from the measured full-runtime profile: 1088 KiB image, 4096 unwind entries, 8 MiB owned backing, 32 reservations, 16 events and 32 handles. Four thread slots include Main and the actual finalizer. User stacks are fixed at 64 KiB; stack overflow terminates the component. Kernel-owned references, identities, contexts and immutable image metadata underpin actual managed thread lifecycle and GC root walking.
+The selected x64/UP system profile uses a static image and experimental user ABI v48. Ordinary native image limits remain separate from the measured full-runtime profile: 1088 KiB image, 4096 unwind entries, 8 MiB owned backing, 32 reservations, 16 events and 32 handles. Four thread slots include Main and the actual finalizer. User stacks are fixed at 64 KiB; stack overflow terminates the component. Kernel-owned references, identities, contexts and immutable image metadata underpin actual managed thread lifecycle and GC root walking.
 
 P6 is the next architecture milestone: upstream CoreCLR/JIT, executable-memory/code-registration support and unchanged portable assemblies with ordinary SDK/TFM/NuGet workflows. General dynamic module loading, ThreadPool/Task/async, filesystem/network/UTC services, SMP and broad API compatibility are not established by this NativeAOT acceptance. Firmware memory remains reserved; the q35 HPET clock is monotonic, not UTC. See the [supported M3 profile](@Docs/Implementation/M3-NativeAOT-Profile.md) for precise limits and [PLAN.md](PLAN.md) for current progress.
 

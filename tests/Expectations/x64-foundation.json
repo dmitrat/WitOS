@@ -1,0 +1,24 @@
+{
+  "description": "x64 kernel foundation of every self-test boot: firmware handoff, boot contract, CPU tables, kernel paging, clock and memory self-tests in order (the kernel banner follows the first marker), and the CPU context and randomness self-tests in any order.",
+  "markers": [
+    "[BOOT] ExitBootServices OK",
+    "[TEST-PASS] Boot.Contract",
+    "[TEST-PASS] Cpu.KernelStack",
+    "[TEST-PASS] Cpu.ExceptionTables",
+    "[TEST-PASS] Memory.KernelPaging",
+    "[TEST-PASS] Memory.StackGuards",
+    "[TEST-PASS] Clock.Counter64",
+    "[TEST-PASS] Clock.IrqIndependent",
+    "[TEST-PASS] Memory.PhysicalPages",
+    "[TEST-PASS] Memory.Exhaustion",
+    "[TEST-PASS] Memory.InvalidMaps",
+    "[TEST-PASS] Memory.VirtualMappings"
+  ],
+  "required": [
+    "[TEST-PASS] Cpu.SuspendedDeadlineState",
+    "[TEST-PASS] Cpu.ContextSanitization",
+    "[TEST-PASS] Cpu.ContextStateProfile",
+    "[TEST-PASS] Random.BootSeedConsumed",
+    "[TEST-PASS] Random.ChaCha20Vector"
+  ]
+}

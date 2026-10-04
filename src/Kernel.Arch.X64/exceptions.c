@@ -3,13 +3,15 @@
 #include "witos/platform.h"
 
 unsigned __int64 __readcr3(void);
-#pragma intrinsic(__readcr3)
+void __halt(void);
+void _disable(void);
+#pragma intrinsic(__readcr3, __halt, _disable)
 
 __declspec(align(16)) static WitU64 gdt[7];
 __declspec(align(16)) static WitInterruptGate idt[256];
 static WitTaskState task_state;
 
-void wit_platform_initialize(void)
+void wit_arch_initialize(void)
 {
     const WitU64 stack_pointer = wit_x64_stack_pointer();
     const WitU64 stack_begin = (WitU64)wit_x64_kernel_stack + 4096;
@@ -61,18 +63,28 @@ void wit_platform_initialize(void)
     wit_console_write("[TEST-PASS] Cpu.ExceptionTables\n");
 }
 
-void wit_x64_set_kernel_stack(WitU64 top) { task_state.Rsp[0] = top; }
+void wit_x64_set_kernel_stack(WitU64 top)
+{
+    task_state.Rsp[0] = top;
+}
 
 static const char *exception_name(WitU64 vector)
 {
     switch (vector) {
-    case 0: return "Divide error";
-    case 3: return "Breakpoint";
-    case 6: return "Invalid opcode";
-    case 8: return "Double fault";
-    case 13: return "General protection";
-    case 14: return "Page fault";
-    default: return "Unhandled exception or interrupt";
+    case 0:
+        return "Divide error";
+    case 3:
+        return "Breakpoint";
+    case 6:
+        return "Invalid opcode";
+    case 8:
+        return "Double fault";
+    case 13:
+        return "General protection";
+    case 14:
+        return "Page fault";
+    default:
+        return "Unhandled exception or interrupt";
     }
 }
 
@@ -80,10 +92,12 @@ WIT_NORETURN void wit_x64_exception(const WitExceptionFrame *frame, WitU64 fault
 {
     const WitU64 stack_pointer = wit_x64_stack_pointer();
     const WitU64 emergency_begin = (WitU64)wit_x64_double_fault_stack + 4096;
-    const int on_emergency_stack = stack_pointer >= emergency_begin &&
-        stack_pointer < emergency_begin + WIT_EMERGENCY_STACK_SIZE;
+    const int on_emergency_stack =
+        stack_pointer >= emergency_begin && stack_pointer < emergency_begin + WIT_EMERGENCY_STACK_SIZE;
 
-    if ((frame->Cs & 3) == 3) wit_user_fault(frame, fault_address);
+    if ((frame->Cs & 3) == 3) {
+        wit_x64_user_fault(frame, fault_address);
+    }
 
     wit_console_write("[EXCEPTION] vector=");
     wit_console_write_u64(frame->Vector);
@@ -105,35 +119,15 @@ WIT_NORETURN void wit_x64_exception(const WitExceptionFrame *frame, WitU64 fault
     wit_panic(exception_name(frame->Vector));
 }
 
-void wit_platform_fault_test(void)
+void wit_arch_disable_interrupts(void)
 {
-#if defined(WITOS_TEST_PAGE_FAULT) || defined(WITOS_TEST_DOUBLE_FAULT)
-    /* The kernel's own page tables must leave the fault probe absent. */
-    const WitU64 *pml4 = (const WitU64 *)(__readcr3() & 0x000FFFFFFFFFF000ULL);
-    if ((pml4[(WIT_PAGE_FAULT_PROBE >> 39) & 511] & 1) != 0) {
-        wit_panic("Page fault probe is mapped");
+    _disable();
+}
+
+WIT_NORETURN void wit_arch_halt(void)
+{
+    _disable();
+    for (;;) {
+        __halt();
     }
-#endif
-#if defined(WITOS_TEST_BREAKPOINT)
-    wit_console_write("[TEST-BEGIN] Cpu.Breakpoint\n");
-    wit_x64_trigger_breakpoint();
-#elif defined(WITOS_TEST_DIVIDE_ERROR)
-    wit_console_write("[TEST-BEGIN] Cpu.DivideError\n");
-    wit_x64_trigger_divide_error();
-#elif defined(WITOS_TEST_INVALID_OPCODE)
-    wit_console_write("[TEST-BEGIN] Cpu.InvalidOpcode\n");
-    wit_x64_trigger_invalid_opcode();
-#elif defined(WITOS_TEST_GENERAL_PROTECTION)
-    wit_console_write("[TEST-BEGIN] Cpu.GeneralProtection\n");
-    wit_x64_trigger_general_protection();
-#elif defined(WITOS_TEST_PAGE_FAULT)
-    wit_console_write("[TEST-BEGIN] Cpu.PageFault\n");
-    wit_x64_trigger_page_fault();
-#elif defined(WITOS_TEST_DOUBLE_FAULT)
-    wit_console_write("[TEST-BEGIN] Cpu.DoubleFault\n");
-    wit_x64_trigger_double_fault();
-#endif
-#if defined(WITOS_TEST_BREAKPOINT) || defined(WITOS_TEST_DIVIDE_ERROR) || defined(WITOS_TEST_INVALID_OPCODE) || defined(WITOS_TEST_GENERAL_PROTECTION) || defined(WITOS_TEST_PAGE_FAULT) || defined(WITOS_TEST_DOUBLE_FAULT)
-    wit_panic("Fault injection unexpectedly returned");
-#endif
 }

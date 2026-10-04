@@ -17,7 +17,7 @@ Maskable interrupts remain disabled. The system still uses firmware-created page
 - `src/Kernel.Arch.X64/entry.asm`: stack switch, descriptor loading, exception entry and test fault triggers.
 - `src/Kernel.Arch.X64/exceptions.c`: x64 descriptor construction and fatal CPU diagnostics.
 - `src/Kernel/memory.c`: architecture-independent physical-page bookkeeping.
-- `src/Kernel/memory_tests.c`: in-guest checks of real memory and synthetic bookkeeping fixtures.
+- `tests/Kernel.X64/memory_tests.c`: in-guest checks of real memory and synthetic bookkeeping fixtures.
 
 MSVC's x64 compiler and MASM are host tools only. The resulting EFI executable has no Windows or CRT imports.
 
