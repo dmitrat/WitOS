@@ -118,7 +118,12 @@ internal static class NativeCxxExceptionImage
         return exe;
     }
 
-    private static string[] Includes(string msvc)
+    /// <summary>
+    /// The include directories of the MSVC toolset and the Windows SDK, UCRT's among them.
+    /// </summary>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
+    /// <returns>The /I options.</returns>
+    internal static string[] Includes(string msvc)
     {
         var vc = Path.GetFullPath(Path.Combine(msvc, "../../.."));
         var sdk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Windows Kits/10");
@@ -127,14 +132,23 @@ internal static class NativeCxxExceptionImage
             "/I" + Path.Combine(sdk, "Include", version, "um"), "/I" + Path.Combine(sdk, "Include", version, "shared")];
     }
 
-    private static string[] Libraries(string msvc)
+    /// <summary>
+    /// The library directories of the MSVC toolset, UCRT and the Windows SDK.
+    /// </summary>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
+    /// <returns>The /LIBPATH options.</returns>
+    internal static string[] Libraries(string msvc)
     {
         var vc = Path.GetFullPath(Path.Combine(msvc, "../../.."));
         var ucrt = Path.Combine(Directory.GetParent(SdkLibraries())!.Parent!.FullName, "ucrt", "x64");
         return ["/LIBPATH:" + Path.Combine(vc, "lib/x64"), "/LIBPATH:" + ucrt, "/LIBPATH:" + SdkLibraries()];
     }
 
-    private static string SdkLibraries() => Directory.GetParent(Toolchain.FindWindowsSdkLibrary("kernel32.lib"))!.FullName;
+    /// <summary>
+    /// The Windows SDK's x64 library directory.
+    /// </summary>
+    /// <returns>Directory path.</returns>
+    internal static string SdkLibraries() => Directory.GetParent(Toolchain.FindWindowsSdkLibrary("kernel32.lib"))!.FullName;
 
     #endregion
 }

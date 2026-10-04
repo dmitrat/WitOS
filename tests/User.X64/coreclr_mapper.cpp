@@ -7,6 +7,7 @@ extern "C" {
 extern "C" bool wit_dynamic_unwind_probe(unsigned);
 extern "C" WitU64 wit_module_unwind_probe(unsigned);
 extern "C" WitU64 wit_cxx_exceptions_probe();
+extern "C" WitU64 wit_crt_scenarios_probe();
 static bool (*volatile createMapper)(void **, size_t *) = &VMToOSInterface::CreateDoubleMemoryMapper;
 
 static bool snapshot(WitUserMemoryInfo &value)
@@ -37,6 +38,9 @@ extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
     }
     if (mode == 21) {
         return wit_cxx_exceptions_probe();
+    }
+    if (mode == 22) {
+        return wit_crt_scenarios_probe();
     }
     if (mode >= 2) {
         return wit_dynamic_unwind_probe((unsigned)mode) ? 42 : 1815;

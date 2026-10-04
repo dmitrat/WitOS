@@ -1,6 +1,9 @@
 {
   "description": "CoreCLR executable-memory backend suite in order.",
   "markers": [
+    "[CRT-STDOUT] wide narrow 42",
+    "[CRT-STDERR] err",
+    "[CRT-FWRITE]",
     "[TEST-PASS] Code.VMToOSMapper",
     "[TEST-PASS] Code.VMToOSMapperRollback",
     "[TEST-PASS] Code.DynamicFrameUnwind",
@@ -13,6 +16,7 @@
     "[TEST-PASS] Code.ModuleUnwind",
     "[TEST-PASS] Code.ForeignModuleUnwind",
     "[TEST-PASS] Code.CxxExceptions",
+    "[TEST-PASS] Code.UcrtSubset",
     "[TEST-PASS] Code.SparseViewsAndLateCommit",
     "[TEST-PASS] Code.SparseCommitRollback",
     "[TEST-PASS] Code.OwnershipAndAtomicProtection",

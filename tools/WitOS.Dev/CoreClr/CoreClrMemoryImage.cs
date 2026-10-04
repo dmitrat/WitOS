@@ -72,6 +72,23 @@ internal static class CoreClrMemoryImage
                 "/I" + Path.Combine(root, "src/Runtime.Native"), "/I" + output, "/Fo" + obj, Path.Combine(root, file)], root);
             objects.Add(obj);
         }
+        // The UCRT subset (P6.4.h) on the native heap and the process console, against the trace UCRT prints on
+        // Windows; the trace's \u escapes stay escapes in the C string.
+        await File.WriteAllTextAsync(Path.Combine(output, "crt_trace.h"),
+            "/* Generated from NativeCrtImage.WINDOWS_TRACE. */\n" +
+            $"#define WIT_CRT_TRACE \"{NativeCrtImage.WINDOWS_TRACE.Replace("\\", "\\\\")}\"\n");
+        foreach (var file in NativeCrtImage.RUNTIME.Append(NativeCrtImage.GUEST_PLATFORM).Append(NativeCrtImage.SCENARIOS)
+                     .Append("tests/User.X64/crt_scenarios_guest.cpp"))
+        {
+            var obj = Path.Combine(output, "ucrt_" + Path.GetFileName(file) + ".obj");
+            await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo", "/c", "/TP",
+                .. NativeCrtImage.OPTIONS, "/I" + Path.Combine(vc, "include"),
+                "/I" + Path.Combine(sdk, "Include", version, "ucrt"), "/I" + Path.Combine(sdk, "Include", version, "um"),
+                "/I" + Path.Combine(sdk, "Include", version, "shared"), "/I" + Path.Combine(root, "src/Kernel/include"),
+                "/I" + Path.Combine(root, "src/Runtime.Native"), "/I" + Path.Combine(root, "src/Runtime.Crt"),
+                "/I" + output, "/Fo" + obj, Path.Combine(root, file)], root);
+            objects.Add(obj);
+        }
         var guard = Path.Combine(output, "cxx_guard_dispatch.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + guard,
             Path.Combine(root, NativeCxxExceptionImage.GUARD)], root);

@@ -48,9 +48,10 @@
 #define WIT_PE_MAX_SECTIONS 16U
 #define WIT_PE_MAX_RELOCATIONS 2048U
 #define WIT_PE_MAX_UNWIND_ENTRIES 128U
-#define WIT_PE_RUNTIME_UNWIND_ENTRIES 320U
+/* The CoreCLR mapper fixture with the C++ runtime and the UCRT subset has 398 entries (P6.4.h). */
+#define WIT_PE_RUNTIME_UNWIND_ENTRIES 512U
 #define WIT_PE_FULL_UNWIND_ENTRIES 4096U
-#define WIT_PE_MAX_UNWIND_RANGES 320U
+#define WIT_PE_MAX_UNWIND_RANGES 512U
 #define WIT_PE_EXPORT_CAPACITY 512U
 #define WIT_PE_EXPORT_NAME_MAX 255U
 #define WIT_PE_TLS_MAX_BYTES 3840U /* static TLS template, below the compiler-TLS data offset of one page */
