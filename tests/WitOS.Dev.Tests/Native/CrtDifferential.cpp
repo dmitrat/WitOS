@@ -233,8 +233,20 @@ const int PRECISION_ARGUMENTS[] = {0, 1, 4, 13, -1, -7};
 
 const wchar_t *const WIDE_STRINGS[] = {L"", L"a", L"abc", L"hostfxr", L"h\x00E9llo \x20AC", L"\xD83D\xDE00x",
     L"x\xD83D", L"\xDE00y", L"tab\there", nullptr};
-const char *const NARROW_STRINGS[] = {"", "a", "abc", "hostpolicy", "h\xC3\xA9llo \xE2\x82\xAC", "\xF0\x9F\x98\x80x",
-    nullptr, "\xE9t\xE9", "\xC3", "a\xE2\x82", "\xED\xA0\x80", "\xC0\xAF", "\xF4\x90\x80\x80", "\xFF"};
+
+/* Narrow strings in zeroed slots: a conversion of the other width reads them as wide strings, and the slot's zero
+ * tail ends them there instead of somewhere past a literal. */
+struct NarrowSlot {
+    const char Bytes[24];
+};
+
+const NarrowSlot NARROW_SLOTS[] = {{""}, {"a"}, {"abc"}, {"hostpolicy"}, {"h\xC3\xA9llo \xE2\x82\xAC"},
+    {"\xF0\x9F\x98\x80x"}, {"\xE9t\xE9"}, {"\xC3"}, {"a\xE2\x82"}, {"\xED\xA0\x80"}, {"\xC0\xAF"}, {"\xF4\x90\x80\x80"},
+    {"\xFF"}};
+const char *const NARROW_STRINGS[] = {NARROW_SLOTS[0].Bytes, NARROW_SLOTS[1].Bytes, NARROW_SLOTS[2].Bytes,
+    NARROW_SLOTS[3].Bytes, NARROW_SLOTS[4].Bytes, NARROW_SLOTS[5].Bytes, nullptr, NARROW_SLOTS[6].Bytes,
+    NARROW_SLOTS[7].Bytes, NARROW_SLOTS[8].Bytes, NARROW_SLOTS[9].Bytes, NARROW_SLOTS[10].Bytes, NARROW_SLOTS[11].Bytes,
+    NARROW_SLOTS[12].Bytes};
 constexpr unsigned VALID_UTF8 = 7; // the strings before this index are valid UTF-8
 const unsigned CHARACTERS[] = {
     'A', 'z', 0, 0x7F, 0x80, 0xC3, 0xE9, 0xFF, 0x100, 0x1E9, 0x20AC, 0xD83D, 0xDE00, 0xFFFF, 0x10041};
@@ -929,13 +941,21 @@ int wmain(int count, wchar_t **arguments)
     }
     verbose = count > 2 && !wcscmp(arguments[2], L"--verbose");
     _set_invalid_parameter_handler(Handler);
+    setvbuf(stdout, nullptr, _IONBF, 0); // the phase lines survive a crash
     const Locales c = {nullptr, nullptr};
     const Locales utf8 = {_create_locale(LC_ALL, ".utf8"), WitCrt::CreateLocale(LC_ALL, ".utf8")};
+    if (!utf8.Ucrt || !utf8.Wit) {
+        puts("FAIL: no UTF-8 locale");
+        return 1;
+    }
     PrintCases(c, utf8);
     printf("print done: %llu compared, %llu skipped\n", compared, skipped);
     StreamCases(arguments[1], utf8.Ucrt, utf8.Wit);
+    printf("streams done: %llu compared\n", compared);
     StringCases();
+    printf("strings done: %llu compared\n", compared);
     TimeCases();
+    printf("time done: %llu compared\n", compared);
     LocaleCases();
     CeilCases();
     HeapCases();

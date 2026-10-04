@@ -61,9 +61,12 @@ public sealed class CrtTests
         var exe = await NativeCrtImage.BuildDifferentialAsync(root, output, msvc);
         var files = Path.Combine(output, "crt-files");
         Directory.CreateDirectory(files);
-        var run = await Processes.RunAsync(exe, [files], output, 300);
+        // --verbose names each print case on standard error, so a crash shows the case it was in.
+        var run = await Processes.RunAsync(exe, [files, "--verbose"], output, 300);
         await File.WriteAllTextAsync(Path.Combine(output, "crt-differential.log"), run.Output + run.Error);
-        Assert.That(run.TimedOut || run.ExitCode != 0, Is.False, $"crt-differential: {run.ExitCode} {run.Output}");
+        var lastCases = string.Join("\n", run.Error.Split('\n').TakeLast(3));
+        Assert.That(run.TimedOut || run.ExitCode != 0, Is.False,
+            $"crt-differential: {run.ExitCode} {run.Output}\nlast cases:\n{lastCases}");
         var result = DIFFERENTIAL_RESULT.Match(run.Output);
         Assert.That(result.Success, Is.True, run.Output);
         var compared = long.Parse(result.Groups["compared"].Value);

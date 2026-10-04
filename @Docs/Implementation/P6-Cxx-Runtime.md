@@ -240,8 +240,8 @@ were there before. The NativeAOT overlay defines its own `_fltused` in `native_m
   (`tests/WitOS.Dev.Tests/Native/CrtDifferential.cpp`): generated printf specifications over every option set,
   buffer size and limit, both locales and strings of both widths; streams into files in every mode and buffering;
   every code unit through `wcstoul` and `_wtoi`; comparisons, messages, `_gmtime64_s` and `wcsftime` over 40,000
-  times and every conversion; locale data; two million `ceilf` inputs; the heap. Locally: 8,439,883 comparisons,
-  none different; 632,562 cases are not compared because UCRT calls its invalid-parameter handler there.
+  times and every conversion; locale data; two million `ceilf` inputs; the heap. Locally: 8,441,053 comparisons,
+  none different; 631,392 cases are not compared because UCRT calls its invalid-parameter handler there.
 - In the guest, mode 22 of the CoreCLR mapper fixture (`tests/User.X64/crt_scenarios_guest.cpp`) runs the same
   scenarios on the subset, the native heap and the process console and compares the trace with `WINDOWS_TRACE`,
   which the tool generates into `crt_trace.h`; it also checks the missing UTC clock and the read-only storage.
