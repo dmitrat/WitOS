@@ -12,6 +12,7 @@
     "[TEST-PASS] Code.DynamicUnwindRejection",
     "[TEST-PASS] Code.ModuleUnwind",
     "[TEST-PASS] Code.ForeignModuleUnwind",
+    "[TEST-PASS] Code.CxxExceptions",
     "[TEST-PASS] Code.SparseViewsAndLateCommit",
     "[TEST-PASS] Code.SparseCommitRollback",
     "[TEST-PASS] Code.OwnershipAndAtomicProtection",

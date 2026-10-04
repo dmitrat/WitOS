@@ -1,7 +1,8 @@
 #pragma once
 /* Internal state and platform services of the WitOS C++ runtime (P6.4.e). The runtime is linked statically into
  * every module that uses C++ exceptions; each copy keeps its own per-thread state, and exceptions cross modules
- * through the image base that the exception record carries. */
+ * through the image base that the exception record carries. RaiseException and RtlUnwindEx come from Windows or from
+ * the guest's own bindings; Fatal is the only platform function, in platform_windows.cpp or platform_witos.cpp. */
 #include "exception_data.h"
 
 namespace WitCxx {
@@ -19,7 +20,7 @@ struct ActiveCatch {
     void *Leaving; // the exception whose unwind left this catch, or null while the catch runs
 };
 
-constexpr u32 CATCH_CAPACITY = 64; // nested catches and catches being left on one thread
+constexpr u32 CATCH_CAPACITY = 16; // nested catches and catches being left on one thread; static TLS is small
 
 struct ThreadState {
     ActiveCatch Catches[CATCH_CAPACITY];
@@ -31,7 +32,6 @@ struct ThreadState {
 ThreadState &Thread();
 
 [[noreturn]] void Fatal();
-u64 ImageBaseOf(const void *address);
 [[noreturn]] void Raise(const ULONG_PTR *arguments);
 void Unwind(u64 frame, u64 ip, EXCEPTION_RECORD *record, CONTEXT *context, PUNWIND_HISTORY_TABLE history);
 

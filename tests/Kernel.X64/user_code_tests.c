@@ -89,12 +89,37 @@ static void mapper_adapter(WitPageAllocator *pages)
         "Module reader exhaustion was hidden as leaf unwind");
     wit_user_destroy(&process);
     require(wit_pages_free_count(pages) == before, "Module reader exhaustion leaked images");
+    /* C++ exceptions on the WitOS C++ runtime and the guest's dispatch must print the Windows trace (P6.4.f). More
+     * throws than WIT_EXCEPTION_MAX_DEPTH also prove that every catch retires its exceptions. */
+    require(wit_user_create_pe_profile(&process, pages, 0, wit_coreclr_mapper_image, sizeof(wit_coreclr_mapper_image),
+                WIT_USER_IMAGE_BASE, "boot:/CoreClrMapperFixture.pe", WIT_PE_UNWIND_RUNTIME) == WitPeOk,
+        "C++ exception fixture load failed");
+    ((WitUserTestConfig *)wit_user_space_physical(&process.Space, WIT_USER_INFO, 0, 0))->Mode = 21;
+    process.TickLimit = WIT_RUNTIME_TICK_BUDGET;
+    wit_user_run(&process);
+    if (process.State != WitUserExited || process.ExitCode != 42) {
+        wit_console_write("C++ exception state/code: ");
+        wit_console_write_u64(process.State);
+        wit_console_write("/");
+        wit_console_write_u64(process.ExitCode);
+        wit_console_write("\n");
+        const char *trace = (const char *)wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
+        if (trace && trace[0x100]) {
+            wit_console_write("C++ exception trace: ");
+            wit_console_write(trace + 0x100);
+            wit_console_write("\n");
+        }
+        wit_panic("C++ exception guest failed");
+    }
+    wit_user_destroy(&process);
+    require(wit_pages_free_count(pages) == before, "C++ exception fixture leaked");
     wit_console_write(
         "[TEST-PASS] Code.VMToOSMapper\n[TEST-PASS] Code.VMToOSMapperRollback\n[TEST-PASS] "
         "Code.DynamicFrameUnwind\n[TEST-PASS] Code.ForeignDynamicUnwind\n[TEST-PASS] "
         "Code.DynamicExceptionDispatch\n[TEST-PASS] Code.DynamicTargetUnwind\n[TEST-PASS] "
         "Code.CoreClrCollidedDispatch\n[TEST-PASS] Code.CollidedContextRejection\n[TEST-PASS] "
-        "Code.DynamicUnwindRejection\n[TEST-PASS] Code.ModuleUnwind\n[TEST-PASS] Code.ForeignModuleUnwind\n");
+        "Code.DynamicUnwindRejection\n[TEST-PASS] Code.ModuleUnwind\n[TEST-PASS] Code.ForeignModuleUnwind\n[TEST-PASS] "
+        "Code.CxxExceptions\n");
 }
 
 static void sparse_views(WitPageAllocator *pages)
