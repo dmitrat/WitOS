@@ -70,7 +70,8 @@ public sealed class CrtTests
         var result = DIFFERENTIAL_RESULT.Match(run.Output);
         Assert.That(result.Success, Is.True, run.Output);
         var compared = long.Parse(result.Groups["compared"].Value);
-        Assert.That(compared, Is.GreaterThan(8_000_000));
+        // 8,441,053 locally; 7,758,944 where UCRT has the UTF-8 precision defect and those cases are skipped.
+        Assert.That(compared, Is.GreaterThan(7_000_000));
         string Hash(string file) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))).ToLowerInvariant();
         await File.WriteAllTextAsync(Path.Combine(output, "crt-differential.json"), JsonSerializer.Serialize(new
         {
