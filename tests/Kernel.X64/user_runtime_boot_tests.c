@@ -15,6 +15,146 @@ static void require(int ok, const char *message)
     }
 }
 
+/* An unexpected runtime failure (D1) prints everything an analysis needs while the component's memory still exists:
+ * the exception, every register, the memory the registers point to, return addresses on the faulting stack as image
+ * RVAs (the tool names them from the map) and the memory operations that touched those pages. */
+static const char *const fatal_names[] = {
+    "rax", "rbx", "rcx", "rdx", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"};
+
+static const WitU64 *fatal_word(WitU64 address)
+{
+    return (const WitU64 *)wit_user_space_physical(&process.Space, address & ~7ULL, 0, 0);
+}
+
+static void fatal_registers(const WitU64 *values)
+{
+    for (WitU32 r = 0; r < 15; ++r) {
+        if (r % 5 == 0) {
+            wit_console_write("Runtime fatal registers:");
+        }
+        wit_console_write(" ");
+        wit_console_write(fatal_names[r]);
+        wit_console_write("=");
+        wit_console_write_hex(values[r]);
+        if (r % 5 == 4) {
+            wit_console_write("\n");
+        }
+    }
+}
+
+static void fatal_memory(const WitU64 *values)
+{
+    for (WitU32 r = 0; r < 15; ++r) {
+        const WitU64 address = values[r] & ~7ULL;
+        const WitU64 *word = fatal_word(address);
+        if (!word) {
+            continue;
+        }
+        wit_console_write("Runtime fatal memory ");
+        wit_console_write(fatal_names[r]);
+        wit_console_write(":");
+        /* Four words from the pointed-to word, never past its page. */
+        for (WitU32 k = 0; k < 4 && ((address + 8 * k) & 4095) >= (address & 4095); ++k) {
+            wit_console_write(" ");
+            wit_console_write_hex(word[k]);
+        }
+        wit_console_write("\n");
+    }
+}
+
+static void fatal_stack(WitU64 rsp, WitU64 base, WitU64 size)
+{
+    WitU32 found = 0;
+    wit_console_write("Runtime fatal stack RVAs:");
+    for (WitU64 address = rsp & ~7ULL; found < 32 && address - (rsp & ~7ULL) < 16384; address += 8) {
+        const WitU64 *word = fatal_word(address);
+        if (!word) {
+            break;
+        }
+        if (*word >= base && *word - base < size) {
+            wit_console_write(" ");
+            wit_console_write_hex(*word - base);
+            ++found;
+        }
+    }
+    wit_console_write("\n");
+}
+
+static int fatal_touches(const WitMemoryJournalEntry *entry, const WitU64 *values)
+{
+    for (WitU32 r = 0; r < 15; ++r) {
+        const WitU64 page = values[r] & ~4095ULL;
+        if (page >= entry->Address && page - entry->Address < (entry->Size ? entry->Size : 4096)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void fatal_journal(const WitU64 *values)
+{
+    WitU64 count = 0;
+    WitU32 capacity = 0;
+    const WitMemoryJournalEntry *entries = wit_user_memory_journal(&count, &capacity);
+    const WitU64 first = count > capacity ? count - capacity : 0;
+    for (WitU64 n = first; n < count; ++n) {
+        const WitMemoryJournalEntry *entry = &entries[n % capacity];
+        /* Every operation on a page a register points to, and the last sixteen operations. */
+        if (n + 16 < count && !fatal_touches(entry, values)) {
+            continue;
+        }
+        wit_console_write("Runtime memory journal seq/kind/address/size/status: ");
+        wit_console_write_u64(entry->Sequence);
+        wit_console_write("/");
+        wit_console_write_u64(entry->Kind);
+        wit_console_write("/");
+        wit_console_write_hex(entry->Address);
+        wit_console_write("/");
+        wit_console_write_hex(entry->Size);
+        wit_console_write("/");
+        wit_console_write_u64(entry->Status);
+        wit_console_write("\n");
+    }
+}
+
+static void report_fatal(void)
+{
+    const WitThreadContext *c = &process.Fatal.Context;
+    const WitU64 base = process.ImageBase, size = process.ImageSize;
+    const WitU64 values[15] = {c->Rax, c->Rbx, c->Rcx, c->Rdx, c->Rbp, c->Rsi, c->Rdi, c->R8, c->R9, c->R10, c->R11,
+        c->R12, c->R13, c->R14, c->R15};
+    wit_console_write("Runtime fatal code/address/parameters:");
+    wit_console_write(" ");
+    wit_console_write_hex(process.Fatal.Code);
+    wit_console_write(" ");
+    wit_console_write_hex(process.Fatal.Address);
+    for (WitU32 k = 0; k < process.Fatal.ParameterCount && k < 2; ++k) {
+        wit_console_write(" ");
+        wit_console_write_hex(process.Fatal.Parameters[k]);
+    }
+    wit_console_write("\nRuntime fatal thread/rip/rsp/stack: ");
+    wit_console_write_u64(c->ThreadId);
+    wit_console_write(" ");
+    wit_console_write_hex(c->Rip);
+    wit_console_write(" ");
+    wit_console_write_hex(c->Rsp);
+    wit_console_write(" ");
+    wit_console_write_hex(c->StackLow);
+    wit_console_write("-");
+    wit_console_write_hex(c->StackHigh);
+    wit_console_write("\nRuntime fatal image base/size/rip RVA: ");
+    wit_console_write_hex(base);
+    wit_console_write(" ");
+    wit_console_write_hex(size);
+    wit_console_write(" ");
+    wit_console_write_hex(c->Rip - base);
+    wit_console_write("\n");
+    fatal_registers(values);
+    fatal_memory(values);
+    fatal_stack(c->Rsp, base, size);
+    fatal_journal(values);
+}
+
 static void memory_profile(WitPageAllocator *pages)
 {
     const WitU64 before = wit_pages_free_count(pages);
@@ -255,19 +395,7 @@ void wit_user_runtime_boot_test(WitPageAllocator *pages)
         wit_console_write_u64(process.Space.OwnedCount);
         wit_console_write("\n");
         if (process.ExitCode != 42) {
-            wit_console_write("Runtime fatal code/parameters/rbx/r14/r15: ");
-            wit_console_write_hex(process.Fatal.Code);
-            wit_console_write("/");
-            for (WitU32 k = 0; k < process.Fatal.ParameterCount && k < 2; ++k) {
-                wit_console_write_hex(process.Fatal.Parameters[k]);
-                wit_console_write("/");
-            }
-            wit_console_write_hex(process.Fatal.Context.Rbx);
-            wit_console_write("/");
-            wit_console_write_hex(process.Fatal.Context.R14);
-            wit_console_write("/");
-            wit_console_write_hex(process.Fatal.Context.R15);
-            wit_console_write("\n");
+            report_fatal();
             for (WitU32 k = 0; k < process.Space.ReservationLimit; ++k) {
                 if (process.Space.Reservations[k].Size) {
                     wit_console_write("Runtime reservation: ");

@@ -260,6 +260,24 @@ WitU64 wit_user_memory_reset(WitUserSpace *space, WitU64 address, WitU64 size);
 WitU64 wit_user_memory_decommit(WitUserSpace *space, WitU64 address, WitU64 size);
 WitU64 wit_user_memory_protect(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection);
 WitU64 wit_user_memory_release(WitUserSpace *space, WitU64 address);
+
+/* Kinds of the self-test memory journal; only runtime-boot kernels record it. */
+#define WIT_MEMORY_JOURNAL_RESERVE 1U
+#define WIT_MEMORY_JOURNAL_COMMIT 2U
+#define WIT_MEMORY_JOURNAL_DECOMMIT 3U
+#define WIT_MEMORY_JOURNAL_RESET 4U
+#define WIT_MEMORY_JOURNAL_PROTECT 5U
+#define WIT_MEMORY_JOURNAL_RELEASE 6U
+#if defined(WITOS_TEST_RUNTIME_BOOT)
+typedef struct WitMemoryJournalEntry {
+    WitU64 Sequence;
+    WitU32 Kind, Status;
+    WitU64 Address, Size;
+} WitMemoryJournalEntry;
+
+/* The ring of the last operations; entry Sequence - 1 sits at index (Sequence - 1) % capacity. */
+const WitMemoryJournalEntry *wit_user_memory_journal(WitU64 *count, WitU32 *capacity);
+#endif
 void wit_user_memory_self_test(WitPageAllocator *pages);
 void wit_user_thread_self_test(WitPageAllocator *pages);
 void wit_user_native_id_self_test(void);
