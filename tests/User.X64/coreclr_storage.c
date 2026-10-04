@@ -11,6 +11,7 @@ extern WitU64 wit_native_library_graph_test(WitU64);
 extern WitU64 wit_native_library_readers_test(void);
 extern WitU64 wit_native_library_lifecycle_test(WitU64);
 extern WitU64 wit_native_library_tls_test(WitU64);
+extern WitU64 wit_native_library_tls_callbacks_test(void);
 static WitU8 buffer[4096];
 
 static WitU32 length(const char *s)
@@ -172,6 +173,10 @@ static __declspec(noinline) WitU64 file_workload(const WitUserStartup *startup)
     const WitU64 tlsStatus = wit_native_library_tls_test(0);
     if (tlsStatus != 42) {
         return tlsStatus;
+    }
+    const WitU64 callbackStatus = wit_native_library_tls_callbacks_test();
+    if (callbackStatus != 42) {
+        return callbackStatus;
     }
     const WitU64 lifecycleStatus = wit_native_library_lifecycle_test(0);
     if (lifecycleStatus != 42) {

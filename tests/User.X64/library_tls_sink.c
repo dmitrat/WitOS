@@ -6,10 +6,14 @@
 static unsigned long long sink_events[SINK_CAPACITY];
 static unsigned sink_count;
 
+/* An absolute pointer gives the image a relocation, which the guest loader requires of a library it maps away from
+ * the preferred base. */
+static unsigned long long *const sink_storage = sink_events;
+
 __declspec(dllexport) void SinkRecord(unsigned long long event)
 {
     if (sink_count < SINK_CAPACITY) {
-        sink_events[sink_count] = event;
+        sink_storage[sink_count] = event;
     }
     ++sink_count;
 }
@@ -17,7 +21,7 @@ __declspec(dllexport) void SinkRecord(unsigned long long event)
 __declspec(dllexport) unsigned SinkRead(unsigned long long *events, unsigned capacity)
 {
     for (unsigned i = 0; i < sink_count && i < SINK_CAPACITY && i < capacity; ++i) {
-        events[i] = sink_events[i];
+        events[i] = sink_storage[i];
     }
     return sink_count;
 }

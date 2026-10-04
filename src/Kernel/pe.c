@@ -271,11 +271,56 @@ static int tls_rva(const WitPeImage *plan, WitU64 va, WitU32 *rva)
     return 1;
 }
 
-static WitPeStatus tls_info(const WitU8 *file, WitPeImage *plan)
+/* A callback is relocated code: an image address inside an executable section's initialized bytes. */
+static int code_rva(const WitPeImage *plan, WitU64 va)
+{
+    WitU32 rva;
+    if (!tls_rva(plan, va, &rva)) {
+        return 0;
+    }
+    for (WitU32 i = 0; i < plan->SectionCount; ++i) {
+        const WitPeSection *s = &plan->Sections[i];
+        if ((s->Flags & WIT_PE_EXECUTE) &&
+            rva >= s->Rva &&
+            rva - s->Rva < s->VirtualSize &&
+            rva - s->Rva < s->RawSize) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The null-terminated callback list lies in readonly initialized data. Only the library TLS profile may carry
+ * callbacks, at most WIT_PE_TLS_CALLBACK_CAPACITY of them, each into executable code. */
+static WitPeStatus tls_callbacks(const WitU8 *file, WitPeImage *plan, WitU32 profile)
+{
+    for (WitU32 i = 0; i <= WIT_PE_TLS_CALLBACK_CAPACITY; ++i) {
+        WitU32 raw;
+        if (!file_range_flags(
+                plan, plan->TlsCallbacksRva + 8 * i, 8, WIT_PE_READ, WIT_PE_WRITE | WIT_PE_EXECUTE, &raw)) {
+            return WitPeInvalidImage;
+        }
+        const WitU64 callback = u64(file + raw);
+        if (!callback) {
+            plan->TlsCallbackCount = i;
+            return WitPeOk;
+        }
+        if (!(profile & WIT_PE_LIBRARY_TLS)) {
+            return WitPeUnsupportedImage;
+        }
+        if (!code_rva(plan, callback)) {
+            return WitPeInvalidImage;
+        }
+    }
+    return WitPeTooLarge;
+}
+
+static WitPeStatus tls_info(const WitU8 *file, WitPeImage *plan, WitU32 profile)
 {
     WitU32 raw, ignored, flags, alignment, end;
     WitU64 callbacks;
     plan->TlsTemplateRva = plan->TlsInitialized = plan->TlsZeroFill = plan->TlsIndexRva = plan->TlsCallbacksRva = 0;
+    plan->TlsCallbackCount = 0;
     if (!plan->TlsSize) {
         return WitPeOk;
     }
@@ -313,14 +358,10 @@ static WitPeStatus tls_info(const WitU8 *file, WitPeImage *plan)
     }
     callbacks = u64(file + raw + 24);
     if (callbacks) {
-        if (!tls_rva(plan, callbacks, &plan->TlsCallbacksRva) ||
-            (plan->TlsCallbacksRva & 7) ||
-            !file_range_flags(plan, plan->TlsCallbacksRva, 8, WIT_PE_READ, WIT_PE_WRITE | WIT_PE_EXECUTE, &ignored)) {
+        if (!tls_rva(plan, callbacks, &plan->TlsCallbacksRva) || (plan->TlsCallbacksRva & 7)) {
             return WitPeInvalidImage;
         }
-        if (u64(file + ignored)) {
-            return WitPeUnsupportedImage;
-        }
+        return tls_callbacks(file, plan, profile);
     }
     return WitPeOk;
 }
@@ -328,7 +369,7 @@ static WitPeStatus tls_info(const WitU8 *file, WitPeImage *plan)
 /* A DIR64 fixup must not rewrite imports, the IAT, exports, unwind metadata or TLS bookkeeping other than the
  * three or four pointers of the TLS directory, and must point into the image. */
 static WitPeStatus check_fixup(const WitU8 *file, const WitPeImage *plan, const WitPeImports *imports, WitU32 target,
-    WitU32 target_raw, WitU32 *tls_fixups)
+    WitU32 target_raw, WitU32 *tls_fixups, WitU32 *callback_fixups)
 {
     if (imports && wit_pe_imports_overlap(imports, target, 8)) {
         return WitPeInvalidImage;
@@ -348,9 +389,17 @@ static WitPeStatus check_fixup(const WitU8 *file, const WitPeImage *plan, const 
         }
     }
     if (plan->TlsSize) {
-        if (overlap(target, 8, plan->TlsIndexRva, 4) ||
-            (plan->TlsCallbacksRva && overlap(target, 8, plan->TlsCallbacksRva, 8))) {
+        if (overlap(target, 8, plan->TlsIndexRva, 4)) {
             return WitPeInvalidImage;
+        }
+        if (plan->TlsCallbacksRva && overlap(target, 8, plan->TlsCallbacksRva, 8 * (plan->TlsCallbackCount + 1))) {
+            const WitU32 slot = (target - plan->TlsCallbacksRva) / 8;
+            if (target < plan->TlsCallbacksRva ||
+                ((target - plan->TlsCallbacksRva) & 7) ||
+                slot >= plan->TlsCallbackCount) {
+                return WitPeInvalidImage;
+            }
+            *callback_fixups |= 1U << slot;
         }
         if (overlap(target, 8, plan->TlsRva, 40)) {
             if (target < plan->TlsRva || target - plan->TlsRva > 24 || ((target - plan->TlsRva) & 7)) {
@@ -370,9 +419,9 @@ static WitPeStatus relocations(const WitU8 *file, const WitPeImage *plan, const 
 {
     WitU32 raw, consumed = 0, entries = 0, previous_page = 0, previous_target = 0;
     int have_page = 0, have_target = 0;
-    WitU32 tls_fixups = 0;
+    WitU32 tls_fixups = 0, callback_fixups = 0;
     if (!plan->RelocSize) {
-        return WitPeOk;
+        return plan->TlsCallbackCount ? WitPeInvalidImage : WitPeOk;
     }
     if (!wit_pe_file_range(plan, plan->RelocRva, plan->RelocSize, &raw)) {
         return WitPeInvalidImage;
@@ -417,7 +466,8 @@ static WitPeStatus relocations(const WitU8 *file, const WitPeImage *plan, const 
                 !wit_pe_file_range(plan, target, 8, &target_raw)) {
                 return WitPeInvalidImage;
             }
-            const WitPeStatus status = check_fixup(file, plan, imports, target, target_raw, &tls_fixups);
+            const WitPeStatus status =
+                check_fixup(file, plan, imports, target, target_raw, &tls_fixups, &callback_fixups);
             if (status != WitPeOk) {
                 return status;
             }
@@ -427,6 +477,9 @@ static WitPeStatus relocations(const WitU8 *file, const WitPeImage *plan, const 
         consumed += length;
     }
     if (plan->TlsSize && tls_fixups != (plan->TlsCallbacksRva ? 15U : 7U)) {
+        return WitPeInvalidImage;
+    }
+    if (callback_fixups != (1U << plan->TlsCallbackCount) - 1U) {
         return WitPeInvalidImage;
     }
     return WitPeOk;
@@ -724,7 +777,7 @@ static WitPeStatus check_contents(
     }
     WitPeStatus status = profile & WIT_PE_UNWIND_RUNTIME ? runtime_unwind_info(file, plan) : unwind_info(file, plan);
     if (status == WitPeOk) {
-        status = tls_info(file, plan);
+        status = tls_info(file, plan, profile);
     }
     if (status == WitPeOk) {
         status = wit_pe_exports_validate(file, plan);

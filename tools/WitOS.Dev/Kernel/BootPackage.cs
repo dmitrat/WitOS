@@ -66,6 +66,10 @@ internal static class BootPackage
             var tlsLibrary = await NativeTlsLibraryImage.BuildAsync(root, Path.GetDirectoryName(library)!, await Toolchain.FindMsvcAsync(root));
             await Add("native/statictls.dll", tlsLibrary);
             await Add("native/tlssecond.dll", tlsLibrary);
+            var (tlsSink, tlsCallbacks) = await NativeTlsCallbackLibraryImage.BuildAsync(root,
+                Path.Combine(output, "native-tls-callbacks"), await Toolchain.FindMsvcAsync(root));
+            await Add("native/tlssink.dll", tlsSink);
+            await Add("native/tlscallbacks.dll", tlsCallbacks);
             await Add("native/threadnotify.dll", await NativeThreadLibraryImage.BuildAsync(root, Path.Combine(output, "native-thread-library"), await Toolchain.FindMsvcAsync(root)));
             var dependencies = await NativeLibraryImage.BuildDependenciesAsync(root, Path.GetDirectoryName(library)!, await Toolchain.FindMsvcAsync(root));
             foreach (var entry in dependencies)

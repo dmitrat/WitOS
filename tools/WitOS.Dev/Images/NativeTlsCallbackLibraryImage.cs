@@ -20,6 +20,16 @@ internal static class NativeTlsCallbackLibraryImage
 
     #endregion
 
+    #region Properties
+
+    /// <summary>
+    /// The Windows order without the thread that predates the load, which the guest does not admit yet (P6.4.d).
+    /// </summary>
+    public static string GuestOrder => string.Join(' ', WINDOWS_ORDER.Split(' ')
+        .Where(token => !token.StartsWith("P:", StringComparison.Ordinal) && !token.EndsWith("@P", StringComparison.Ordinal)));
+
+    #endregion
+
     #region Functions
 
     /// <summary>

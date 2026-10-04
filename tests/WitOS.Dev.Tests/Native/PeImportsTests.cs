@@ -37,18 +37,20 @@ public sealed class PeImportsTests
         var provider = await NativeLibraryImage.BuildAsync(root, output, msvc);
         var fixtures = await NativeLibraryImage.BuildDependenciesAsync(root, output, msvc);
         var tlsFixture = await NativeTlsLibraryImage.BuildAsync(root, output, msvc);
+        var (_, callbackFixture) = await NativeTlsCallbackLibraryImage.BuildAsync(root, output, msvc);
         var exe = Path.Combine(output, "pe-imports.exe");
         await Processes.RequireSuccessAsync(sanitize ? Path.Combine(NativeCoverage.DirectoryPath(root), "bin/clang-cl.exe") : Path.Combine(msvc, "cl.exe"), ["/nologo","/MD","/TC","/std:c17","/W4","/WX",sanitize?"/O1":"/O2",..(sanitize?new[]{"/Zi","/clang:-fsanitize=address","-fuse-ld=lld"}:Array.Empty<string>()),
             "/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"Include",version,"ucrt"),"/I"+Path.Combine(sdk,"Include",version,"um"),"/I"+Path.Combine(sdk,"Include",version,"shared"),"/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),
             "/Fo"+output+"/","/Fe"+exe,Path.Combine(root,"src/Kernel/pe.c"),Path.Combine(root,"src/Kernel/pe_exports.c"),Path.Combine(root,"src/Kernel/pe_imports.c"),Path.Combine(root,"tests/WitOS.Dev.Tests/Native/PeImports.c"),Path.Combine(root,"tests/WitOS.Dev.Tests/Native/HostIdentity.c"),
             "/link","/LIBPATH:"+Path.Combine(vc,"lib/x64"),"/LIBPATH:"+Path.Combine(sdk,"Lib",version,"ucrt/x64"),
             "/LIBPATH:"+Path.Combine(sdk,"Lib",version,"um/x64"),"kernel32.lib"], root);
-        var run = await Processes.RunAsync(exe, [fixtures["dependent.dll"], fixtures["CycleA.dll"], provider, fixtures["init.dll"], fixtures["initparent.dll"], fixtures["initfail.dll"], fixtures["initparentfail.dll"], tlsFixture], output, 30, sanitize ? new Dictionary<string, string>
+        var run = await Processes.RunAsync(exe, [fixtures["dependent.dll"], fixtures["CycleA.dll"], provider, fixtures["init.dll"], fixtures["initparent.dll"], fixtures["initfail.dll"], fixtures["initparentfail.dll"], tlsFixture, callbackFixture], output, 30, sanitize ? new Dictionary<string, string>
         {
             ["PATH"] = Path.Combine(NativeCoverage.DirectoryPath(root), "lib/clang/20/lib/windows") + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH")
         } : null);
         await File.WriteAllTextAsync(Path.Combine(output, "pe-imports.log"), run.Output + run.Error);
-        if (run.TimedOut || run.ExitCode != 0 || !run.Output.StartsWith("PASS: ", StringComparison.Ordinal))
+        if (run.TimedOut || run.ExitCode != 0 || !run.Output.StartsWith("PASS: ", StringComparison.Ordinal) ||
+            !run.Output.Contains("DLL TLS callback list admission", StringComparison.Ordinal))
             throw new InvalidDataException("PE imports cases failed: " + run.Output + run.Error);
         var mappingName = "Local\\WitOS.DllShutdown." + Guid.NewGuid().ToString("N");
         using (var mapping = System.IO.MemoryMappedFiles.MemoryMappedFile.CreateNew(mappingName, 4096))

@@ -72,7 +72,7 @@ static WitU64 reset_thread(WitUserProcess *process, WitUserThread *thread, WitU6
     thread->LibraryRequired = 0;
     if (thread->LibraryNotifications) {
         for (WitU32 n = 0; n < WIT_LIBRARY_CAPACITY; ++n) {
-            if (process->Libraries[n].Token && process->Libraries[n].EntryRva) {
+            if (process->Libraries[n].Token && wit_user_library_participates(&process->Libraries[n])) {
                 thread->LibraryRequired = 1;
             }
         }

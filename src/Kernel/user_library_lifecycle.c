@@ -1,6 +1,11 @@
 #include "user.h"
 #include "witos/platform.h"
 
+int wit_user_library_participates(const WitUserLibrary *library)
+{
+    return library->EntryRva || library->TlsCallbackCount;
+}
+
 WitU64 wit_user_library_thread_admission(const WitUserProcess *p, WitU64 flags)
 {
     if (p->LibraryLifecycle.Token) {
@@ -8,7 +13,7 @@ WitU64 wit_user_library_thread_admission(const WitUserProcess *p, WitU64 flags)
     }
     if (!(flags & WIT_THREAD_LIBRARY_NOTIFICATIONS)) {
         for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
-            if (p->Libraries[i].Token && p->Libraries[i].EntryRva) {
+            if (p->Libraries[i].Token && wit_user_library_participates(&p->Libraries[i])) {
                 return WIT_STATUS_UNSUPPORTED;
             }
         }
@@ -27,7 +32,7 @@ static void order_attach(WitUserProcess *p, WitU32 slot, WitU32 mask, WitU32 *vi
             order_attach(p, i, mask, visited, life);
         }
     }
-    if (p->Libraries[slot].EntryRva) {
+    if (wit_user_library_participates(&p->Libraries[slot])) {
         life->Order[life->Count++] = slot;
     }
 }
@@ -61,14 +66,15 @@ static void order_lifecycle(WitUserProcess *p, WitU32 mask, WitUserLibraryLifecy
     }
 }
 
-/* The user-space plan: the reason, the ordered libraries and their entry points. */
+/* The user-space plan: the reason, the ordered libraries, their entry points and TLS callback lists. */
 static WitLibraryLifecycle lifecycle_plan(
     const WitUserProcess *p, const WitUserLibraryLifecycle *life, WitU32 reason, WitU64 root)
 {
     WitLibraryLifecycle plan = {WIT_LIBRARY_VERSION, sizeof(plan), reason, life->Count, life->Token, root, {{0}}};
     for (WitU32 i = 0; i < life->Count; ++i) {
         const WitUserLibrary *m = &p->Libraries[life->Order[i]];
-        plan.Entries[i] = (WitLibraryLifecycleEntry){m->Token, m->Base, m->Base + m->EntryRva};
+        plan.Entries[i] = (WitLibraryLifecycleEntry){m->Token, m->Base, m->EntryRva ? m->Base + m->EntryRva : 0,
+            m->TlsCallbackCount ? m->Base + m->TlsCallbacksRva : 0, m->TlsCallbackCount, 0};
     }
     return plan;
 }
@@ -423,7 +429,7 @@ WitU64 wit_user_library_thread_notify(WitUserProcess *p, const WitLibraryRequest
             return WIT_STATUS_DENIED;
         }
         for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
-            if (p->Libraries[i].Token && p->Libraries[i].EntryRva) {
+            if (p->Libraries[i].Token && wit_user_library_participates(&p->Libraries[i])) {
                 return WIT_STATUS_DENIED;
             }
         }

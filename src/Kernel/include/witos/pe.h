@@ -52,6 +52,7 @@ typedef struct WitPeImage {
     WitU32 UnwindSize;
     WitU32 UnwindCount;
     WitU32 TlsRva, TlsSize, TlsTemplateRva, TlsInitialized, TlsZeroFill, TlsIndexRva, TlsCallbacksRva;
+    WitU32 TlsCallbackCount; /* entries before the null terminator; nonzero only in the library TLS profile */
     WitPeUnwindRange UnwindInfo[WIT_PE_FULL_UNWIND_ENTRIES];
     WitPeSection Sections[WIT_PE_MAX_SECTIONS];
 } WitPeImage;

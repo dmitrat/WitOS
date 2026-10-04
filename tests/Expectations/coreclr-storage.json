@@ -17,6 +17,7 @@
     "[TEST-PASS] Storage.LibraryShutdown",
     "[TEST-PASS] Storage.LibraryThreadNotifications",
     "[TEST-PASS] Storage.LibraryStaticTls",
+    "[TEST-PASS] Storage.LibraryTlsCallbacks",
     "[TEST-PASS] Storage.FileViewRollback",
     "[TEST-PASS] Storage.Isolation",
     "[TEST-PASS] Storage.Teardown"

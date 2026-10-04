@@ -1,75 +1,88 @@
 #include "bootstrap.h"
 #include "library_lifecycle.h"
 
-/* Shared executor: no path/file/heap dependencies. Kernel publishes the whole
- * readonly plan; all native entrypoints execute here in user space. */
+/* Shared executor: no path/file/heap dependencies. Kernel publishes the whole readonly plan; all native entry points
+ * and PE TLS callbacks execute here in user space. It stays one function: small fixtures that link it must remain
+ * within the plain image profile's unwind-entry limit. */
 WitU64 wit_native_library_execute_lifecycle(WitU64 address)
 {
-    if (address) {
-        WitCodeMemoryRequest check = {WIT_CODE_MEMORY_VERSION, sizeof(check), WIT_CODE_VALIDATE, 1, address, 0,
-            sizeof(WitLibraryLifecycle), 0, 0, 0};
-        if (wit_native_call(WIT_CALL_CODE_MEMORY, (WitU64)&check, sizeof(check), 0, 0) != WIT_STATUS_OK) {
-            wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+    if (!address) {
+        return WIT_STATUS_OK;
+    }
+    typedef int (*Entry)(void *, WitU32, void *);
+    typedef void (*Callback)(void *, WitU32, void *);
+    const WitLibraryLifecycle *plan = (const WitLibraryLifecycle *)address;
+    /* The plan and every callback list are readonly, never writable; every function they name is executable. */
+    WitCodeMemoryRequest check = {
+        WIT_CODE_MEMORY_VERSION, sizeof(check), WIT_CODE_VALIDATE, 1, address, 0, sizeof(*plan), 0, 0, 0};
+    int valid = wit_native_call(WIT_CALL_CODE_MEMORY, (WitU64)&check, sizeof(check), 0, 0) == WIT_STATUS_OK;
+    check.Protection = 3;
+    valid = valid &&
+        wit_native_call(WIT_CALL_CODE_MEMORY, (WitU64)&check, sizeof(check), 0, 0) != WIT_STATUS_OK &&
+        plan->Version == WIT_LIBRARY_VERSION &&
+        plan->Size == sizeof(*plan) &&
+        plan->Attach <= WIT_LIBRARY_THREAD_DETACH &&
+        plan->Count &&
+        plan->Count <= WIT_LIBRARY_CAPACITY &&
+        plan->Token;
+    for (WitU32 i = 0; valid && i < plan->Count; ++i) {
+        const WitLibraryLifecycleEntry *entry = &plan->Entries[i];
+        const WitU64 *list = (const WitU64 *)entry->Callbacks;
+        valid = entry->Base &&
+            (entry->Entry || entry->CallbackCount) &&
+            entry->CallbackCount <= WIT_PE_TLS_CALLBACK_CAPACITY;
+        if (valid && entry->CallbackCount) {
+            check.Address = entry->Callbacks;
+            check.Bytes = 8ULL * (entry->CallbackCount + 1);
+            check.Protection = 1;
+            valid = wit_native_call(WIT_CALL_CODE_MEMORY, (WitU64)&check, sizeof(check), 0, 0) == WIT_STATUS_OK;
+            check.Protection = 3;
+            valid = valid &&
+                wit_native_call(WIT_CALL_CODE_MEMORY, (WitU64)&check, sizeof(check), 0, 0) != WIT_STATUS_OK &&
+                !list[entry->CallbackCount];
         }
-        check.Protection = 3;
-        if (wit_native_call(WIT_CALL_CODE_MEMORY, (WitU64)&check, sizeof(check), 0, 0) == WIT_STATUS_OK) {
-            wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
-        }
-        const WitLibraryLifecycle *plan = (const WitLibraryLifecycle *)address;
-        if (plan->Version != WIT_LIBRARY_VERSION ||
-            plan->Size != sizeof(*plan) ||
-            plan->Attach > WIT_LIBRARY_THREAD_DETACH ||
-            !plan->Count ||
-            plan->Count > WIT_LIBRARY_CAPACITY ||
-            !plan->Token) {
-            wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
-        }
-        const WitU64 token = plan->Token;
-        const WitU32 action = plan->Attach, attach = action == 1 ? 1U : 0U, count = plan->Count;
-        void *reserved = action == WIT_LIBRARY_PROCESS_SHUTDOWN ? (void *)1 : 0;
-        const WitU32 reason = action == WIT_LIBRARY_THREAD_ATTACH ? 2U
-            : action == WIT_LIBRARY_THREAD_DETACH                 ? 3U
-                                                                  : attach;
-        for (WitU32 i = 0; i < count; ++i) {
-            check.Address = plan->Entries[i].Entry;
+        for (WitU32 k = 0; valid && k <= entry->CallbackCount; ++k) {
+            /* The callbacks, then the entry point, if any. */
+            check.Address = k < entry->CallbackCount ? list[k] : entry->Entry;
             check.Bytes = 1;
             check.Protection = 5;
-            if (!plan->Entries[i].Base ||
-                wit_native_call(WIT_CALL_CODE_MEMORY, (WitU64)&check, sizeof(check), 0, 0) != WIT_STATUS_OK) {
-                wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
-            }
-        }
-        typedef int (*Entry)(void *, WitU32, void *);
-        WitU32 done = 0;
-        int success = 1;
-        for (; done < count;) {
-            const WitLibraryLifecycleEntry *entry = &plan->Entries[done++];
-            const int accepted = ((Entry)entry->Entry)((void *)entry->Base, reason, reserved);
-            if (attach && !accepted) {
-                success = 0;
-                break;
-            }
-        }
-        if (!success) {
-            while (done) {
-                const WitLibraryLifecycleEntry *entry = &plan->Entries[--done];
-                (void)((Entry)entry->Entry)((void *)entry->Base, 0, 0);
-            }
-        }
-        WitLibraryRequest finish = {0};
-        finish.Operation = WIT_LIBRARY_FINISH_LIFECYCLE;
-        finish.Handle = token;
-        finish.Ordinal = success ? 1 : 0;
-        finish.Version = WIT_LIBRARY_VERSION;
-        finish.Size = sizeof(finish);
-        if (wit_native_call(WIT_CALL_LIBRARY, (WitU64)&finish, sizeof(finish), 0, 0) != WIT_STATUS_OK) {
-            wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
-        }
-        if (!success) {
-            return WIT_STATUS_INITIALIZATION_FAILED;
+            valid = (!check.Address && k == entry->CallbackCount) ||
+                wit_native_call(WIT_CALL_CODE_MEMORY, (WitU64)&check, sizeof(check), 0, 0) == WIT_STATUS_OK;
         }
     }
-    return WIT_STATUS_OK;
+    if (!valid) {
+        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+    }
+    const WitU64 token = plan->Token;
+    const WitU32 action = plan->Attach, attach = action == 1 ? 1U : 0U, count = plan->Count;
+    void *reserved = action == WIT_LIBRARY_PROCESS_SHUTDOWN ? (void *)1 : 0;
+    WitU32 reason = action == WIT_LIBRARY_THREAD_ATTACH ? 2U : action == WIT_LIBRARY_THREAD_DETACH ? 3U : attach;
+    /* As on Windows, a library's TLS callbacks run before its entry point for every reason; a callback-only library
+     * accepts. A failed attach detaches the libraries already called, newest first, in the same order. */
+    WitU32 done = 0;
+    int success = 1, forward = 1;
+    while (forward ? done < count : done > 0) {
+        const WitLibraryLifecycleEntry *entry = &plan->Entries[forward ? done++ : --done];
+        for (WitU32 k = 0; k < entry->CallbackCount; ++k) {
+            ((Callback)((const WitU64 *)entry->Callbacks)[k])((void *)entry->Base, reason, reserved);
+        }
+        const int accepted = entry->Entry ? ((Entry)entry->Entry)((void *)entry->Base, reason, reserved) : 1;
+        if (forward && attach && !accepted) {
+            success = forward = 0;
+            reason = 0;
+            reserved = 0;
+        }
+    }
+    WitLibraryRequest finish = {0};
+    finish.Operation = WIT_LIBRARY_FINISH_LIFECYCLE;
+    finish.Handle = token;
+    finish.Ordinal = success ? 1 : 0;
+    finish.Version = WIT_LIBRARY_VERSION;
+    finish.Size = sizeof(finish);
+    if (wit_native_call(WIT_CALL_LIBRARY, (WitU64)&finish, sizeof(finish), 0, 0) != WIT_STATUS_OK) {
+        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+    }
+    return success ? WIT_STATUS_OK : WIT_STATUS_INITIALIZATION_FAILED;
 }
 
 /* The three notifications share one request/dispatch frame. Keep the shutdown

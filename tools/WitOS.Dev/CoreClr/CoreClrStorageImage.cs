@@ -1,6 +1,7 @@
 using System.Reflection.PortableExecutable;
 using System.Text;
 using WitOS.Dev.Host;
+using WitOS.Dev.Images;
 namespace WitOS.Dev.CoreClr;
 
 /// <summary>
@@ -19,7 +20,10 @@ internal static class CoreClrStorageImage
     internal static async Task BuildAsync(string root, string output, string msvc)
     {
         var objects = new List<string> { Path.Combine(output, "native_start.obj") };
-        foreach (var source in new[] { "src/Runtime.Native/library.c", "src/Runtime.Native/library_lifecycle.c", "tests/User.X64/library_loader.c", "tests/User.X64/library_graph.c", "tests/User.X64/library_readers.c", "tests/User.X64/library_lifecycle.c", "tests/User.X64/library_tls_guest.c", "src/Runtime.Native/directory.c", "tests/User.X64/native_directory.c", "src/Runtime.Native/path.c", "src/Runtime.Native/current_directory.c", "tests/User.X64/native_paths.c", "src/Runtime.Native/file.c", "src/Runtime.Native/file_view.c", "tests/User.X64/file_views.c", "tests/User.X64/coreclr_storage.c" })
+        await File.WriteAllTextAsync(Path.Combine(output, "tls_callback_order.h"),
+            "/* Generated from NativeTlsCallbackLibraryImage.GuestOrder, the Windows reference order. */\n" +
+            $"#define WIT_TLS_CALLBACK_ORDER \"{NativeTlsCallbackLibraryImage.GuestOrder}\"\n");
+        foreach (var source in new[] { "src/Runtime.Native/library.c", "src/Runtime.Native/library_lifecycle.c", "tests/User.X64/library_loader.c", "tests/User.X64/library_graph.c", "tests/User.X64/library_readers.c", "tests/User.X64/library_lifecycle.c", "tests/User.X64/library_tls_guest.c", "tests/User.X64/library_tls_callbacks_guest.c", "src/Runtime.Native/directory.c", "tests/User.X64/native_directory.c", "src/Runtime.Native/path.c", "src/Runtime.Native/current_directory.c", "tests/User.X64/native_paths.c", "src/Runtime.Native/file.c", "src/Runtime.Native/file_view.c", "tests/User.X64/file_views.c", "tests/User.X64/coreclr_storage.c" })
         {
             var obj = Path.Combine(output, "storage_" + source.Replace('/', '_').Replace('.', '_') + ".obj");
             objects.Add(obj);

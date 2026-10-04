@@ -115,7 +115,11 @@ typedef struct WitUserLibrary {
     WitU64 NameOffset;
     WitU32 NameBytes, Dependencies, Readers;
     WitU64 AttachOrder;
+    WitU32 TlsCallbacksRva, TlsCallbackCount;
 } WitUserLibrary;
+
+/* A library takes part in the lifecycle when it has an entry point or PE TLS callbacks. */
+int wit_user_library_participates(const WitUserLibrary *library);
 
 typedef struct WitUserLibraryReader {
     WitU64 Token, ModuleToken;
