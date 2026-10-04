@@ -116,8 +116,29 @@ internal static class RuntimeBootMatrix
 
     #region Tools
 
-    private static Task BootProfileAsync(string root, string image, BootRequest request, string logs)
-        => BootScenarioRunner.RunAsync(root, image, request with { Suite = BootSuite.RuntimeBoot, LogDirectory = logs });
+    private static async Task BootProfileAsync(string root, string image, BootRequest request, string logs)
+    {
+        try
+        {
+            await BootScenarioRunner.RunAsync(root, image, request with { Suite = BootSuite.RuntimeBoot, LogDirectory = logs });
+        }
+        catch (InvalidOperationException)
+        {
+            // Name the code addresses of an unexpected fatal report before the failure propagates (D1).
+            var serial = Path.Combine(logs, request.Name + ".serial.log");
+            var map = Path.Combine(root, "artifacts", "runtime-readiness", "guest-driver", "WitOS.NativeAotBoot.map");
+            if (File.Exists(serial) && File.Exists(map))
+            {
+                var symbols = RuntimeFatalSymbols.Describe(await File.ReadAllTextAsync(serial), await File.ReadAllTextAsync(map));
+                await File.WriteAllLinesAsync(Path.Combine(logs, request.Name + ".symbols.txt"), symbols);
+                foreach (var line in symbols)
+                {
+                    Console.WriteLine(line);
+                }
+            }
+            throw;
+        }
+    }
 
     private static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
 
