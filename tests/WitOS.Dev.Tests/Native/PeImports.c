@@ -232,8 +232,8 @@ static int tls_image(const char *path)
             changed[directory + 16] ^= 1;
         }
         if (mode == 2) {
+            /* A callback list whose first entry is the TLS template address, which is data, not code. */
             put64(changed + directory + 24, preferred);
-            expected = WitPeUnsupportedImage;
         }
         if (mode == 3) {
             put32(changed + directory + 32, 32);
@@ -246,6 +246,91 @@ static int tls_image(const char *path)
     for (unsigned count = 0; count < (unsigned)bytes; ++count) {
         if (!full_case(original, count, WitPeInvalidImage)) {
             return 66;
+        }
+    }
+    return 0;
+}
+
+/* The DIR64 fixup of one image address, located through the relocation blocks, or null. */
+static unsigned char *fixup_entry(unsigned char *data, const WitPeImage *plan, WitU32 rva)
+{
+    unsigned raw = 0;
+    if (!wit_pe_file_range(plan, plan->RelocRva, plan->RelocSize, &raw)) {
+        return 0;
+    }
+    for (WitU32 consumed = 0; consumed + 8 <= plan->RelocSize;) {
+        unsigned char *block = data + raw + consumed;
+        WitU32 page, length;
+        memcpy(&page, block, 4);
+        memcpy(&length, block + 4, 4);
+        if (length < 8) {
+            return 0;
+        }
+        for (WitU32 position = 8; position + 2 <= length; position += 2) {
+            WitU16 entry;
+            memcpy(&entry, block + position, 2);
+            if ((entry >> 12) == 10 && page + (entry & 4095) == rva) {
+                return block + position;
+            }
+        }
+        consumed += length;
+    }
+    return 0;
+}
+
+/* P6.4.b: a library may carry a nonempty, relocated callback list into its code, and nothing else. */
+static int tls_callback_image(const char *path)
+{
+    FILE *file = 0;
+    if (fopen_s(&file, path, "rb") || !file) {
+        return 70;
+    }
+    fseek(file, 0, SEEK_END);
+    long bytes = ftell(file);
+    rewind(file);
+    if (bytes <= 0 || bytes > 65536 || fread(original, 1, (size_t)bytes, file) != (size_t)bytes) {
+        fclose(file);
+        return 71;
+    }
+    fclose(file);
+    fullProfile |= WIT_PE_LIBRARY_TLS;
+    if (!full_case(original, (unsigned)bytes, WitPeOk)) {
+        return 72;
+    }
+    if (image.TlsCallbackCount != 2 || !image.TlsCallbacksRva) {
+        return 73;
+    }
+    const WitPeImage valid = image;
+    unsigned slot = 0, directory = 0;
+    if (!wit_pe_file_range(&valid, valid.TlsCallbacksRva, 8, &slot) ||
+        !wit_pe_file_range(&valid, valid.TlsRva, 40, &directory)) {
+        return 74;
+    }
+    fullProfile &= ~WIT_PE_LIBRARY_TLS;
+    if (!full_case(original, (unsigned)bytes, WitPeUnsupportedImage)) {
+        return 75;
+    }
+    fullProfile |= WIT_PE_LIBRARY_TLS;
+    for (unsigned mode = 0; mode < 2; ++mode) {
+        memcpy(changed, original, (size_t)bytes);
+        if (mode == 0) {
+            /* The first callback becomes the TLS directory address: data, not code. */
+            put64(changed + slot, valid.PreferredBase + valid.TlsRva);
+        } else {
+            /* The first callback loses its fixup and would keep the preferred address after relocation. */
+            unsigned char *fixup = fixup_entry(changed, &valid, valid.TlsCallbacksRva);
+            if (!fixup) {
+                return 76;
+            }
+            fixup[1] &= 0x0F;
+        }
+        if (!full_case(changed, (unsigned)bytes, WitPeInvalidImage)) {
+            return 77;
+        }
+    }
+    for (unsigned count = 0; count < (unsigned)bytes; ++count) {
+        if (!full_case(original, count, WitPeInvalidImage)) {
+            return 78;
         }
     }
     return 0;
@@ -496,13 +581,21 @@ int main(int argc, char **argv)
             return status;
         }
     }
-    if (argc == 9) {
+    if (argc >= 9) {
         const unsigned before = cases;
         const int status = tls_image(argv[8]);
         if (status) {
             return status;
         }
         printf("PASS: %u full DLL TLS admission/truncation/metadata cases\n", cases - before);
+    }
+    if (argc == 10) {
+        const unsigned before = cases;
+        const int status = tls_callback_image(argv[9]);
+        if (status) {
+            return status;
+        }
+        printf("PASS: %u DLL TLS callback list admission/relocation/truncation cases\n", cases - before);
     }
     VirtualFree(guarded, 0, MEM_RELEASE);
     printf("PASS: %u guarded native import descriptor/name/ordinal/IAT/quota cases (parser unit only)\n", units);

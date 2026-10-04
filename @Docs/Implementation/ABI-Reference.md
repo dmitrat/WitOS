@@ -1,6 +1,6 @@
 # Справочник пользовательского ABI ядра WitOS
 
-Версии: **user ABI v48**, **boot ABI v4**. Источник истины — заголовки `src/Kernel/include/witos/*.h`; этот документ их описывает и проверяется хостовым тестом: каждый `WIT_CALL_*` из `user_abi.h` обязан встречаться здесь. ABI экспериментальный и до P6.5 не заморожен; классы стабильности ниже — предложение для заморозки.
+Версии: **user ABI v49**, **boot ABI v4**. Источник истины — заголовки `src/Kernel/include/witos/*.h`; этот документ их описывает и проверяется хостовым тестом: каждый `WIT_CALL_*` из `user_abi.h` обязан встречаться здесь. ABI экспериментальный и до P6.5 не заморожен; классы стабильности ниже — предложение для заморозки.
 
 ## Классы стабильности
 
@@ -160,10 +160,10 @@
 | `WitFileRequest` | `file_io.h` | 64 | 1 |
 | `WitStorageQuery` | `storage_query.h` | 64 | 1 |
 | `WitStorageInfo` | `storage_query.h` | 1056 | 1 |
-| `WitLibraryRequest` | `library.h` | 64 | 1 |
-| `WitLibraryInfo` | `library.h` | 40 | 1 |
-| `WitLibraryPath` | `library.h` | 1040 | 1 |
-| `WitLibraryLifecycle` | `library.h` | 128 | 1 |
+| `WitLibraryRequest` | `library.h` | 64 | 2 |
+| `WitLibraryInfo` | `library.h` | 40 | 2 |
+| `WitLibraryPath` | `library.h` | 1040 | 2 |
+| `WitLibraryLifecycle` | `library.h` | 192 | 2 |
 
 `WitThreadContext` и производные от него структуры содержат регистры x64 и образ FXSAVE64. Для ARM64 эти структуры получат отдельную регистровую часть с тем же префиксом `Version`, `Size`, `ThreadId`, `StackLow`, `StackHigh`, `State`, `Flags`; это решение закрепляется в A2.
 

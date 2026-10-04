@@ -2,7 +2,7 @@
 #define WITOS_LIBRARY_H
 #include "types.h"
 #include "limits.h"
-#define WIT_LIBRARY_VERSION 1U
+#define WIT_LIBRARY_VERSION 2U
 #define WIT_LIBRARY_LOAD 0U
 #define WIT_LIBRARY_SYMBOL 1U
 #define WIT_LIBRARY_UNLOAD 2U
@@ -24,8 +24,11 @@
 #define WIT_LIBRARY_PATH_BYTES 1024U
 #define WIT_LIBRARY_BY_ORDINAL 1U
 
+/* Entry is zero for a library with PE TLS callbacks only. Callbacks is the library's own readonly, relocated,
+ * null-terminated list of CallbackCount functions; for every reason they run before the entry point. */
 typedef struct WitLibraryLifecycleEntry {
-    WitU64 Handle, Base, Entry;
+    WitU64 Handle, Base, Entry, Callbacks;
+    WitU32 CallbackCount, Reserved;
 } WitLibraryLifecycleEntry;
 
 typedef struct WitLibraryLifecycle {
@@ -34,7 +37,7 @@ typedef struct WitLibraryLifecycle {
     WitLibraryLifecycleEntry Entries[WIT_LIBRARY_CAPACITY];
 } WitLibraryLifecycle;
 
-WIT_STATIC_ASSERT(sizeof(WitLibraryLifecycle) == 128, "Readonly library lifecycle plan");
+WIT_STATIC_ASSERT(sizeof(WitLibraryLifecycle) == 192, "Readonly library lifecycle plan");
 
 typedef struct WitLibraryRequest {
     WitU32 Version, Size, Operation, Flags;
@@ -64,6 +67,7 @@ WIT_STATIC_ASSERT(sizeof(WitLibraryInfo) == 40, "Library info ABI");
  * Reader handles independently retain the module graph while unwind metadata is
  * inspected. Acquire uses Ordinal as a PC and copies WitLibraryInfo atomically.
  * Query/release use the distinct reader handle; ordinary CLOSE/UNLOAD reject it.
- * Entry points run in user space through readonly lifecycle plans and static
- * TLS uses per-module slots (ABI v45-v48). Forwarders remain unsupported. */
+ * Entry points and PE TLS callbacks run in user space through readonly
+ * lifecycle plans (ABI v45-v49); static TLS uses per-module slots (ABI v48).
+ * Forwarders remain unsupported. */
 #endif

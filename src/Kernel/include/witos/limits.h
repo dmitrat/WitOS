@@ -54,5 +54,6 @@
 #define WIT_PE_EXPORT_CAPACITY 512U
 #define WIT_PE_EXPORT_NAME_MAX 255U
 #define WIT_PE_TLS_MAX_BYTES 3840U /* static TLS template, below the compiler-TLS data offset of one page */
+#define WIT_PE_TLS_CALLBACK_CAPACITY 8U /* PE TLS callbacks of one library */
 
 #endif

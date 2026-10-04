@@ -167,7 +167,7 @@ static WitU64 discover(const WitPackage *package, const WitPackageFile *file, Wi
     if (valid != WitPeOk) {
         return pe_status(valid);
     }
-    if (image->EntryRva && !transaction.AllowEntry) {
+    if ((image->EntryRva || image->TlsCallbackCount) && !transaction.AllowEntry) {
         return WIT_STATUS_UNSUPPORTED;
     }
     valid = wit_pe_imports_validate(bytes, (WitU32)file->Length, image, image->ImportRva, image->ImportSize, imports);
@@ -178,7 +178,8 @@ static WitU64 discover(const WitPackage *package, const WitPackageFile *file, Wi
     transaction.Added |= 1U << slot;
     WitUserLibrary *module = &transaction.Modules[slot];
     *module = (WitUserLibrary){0, 0, image->ImageSize, file->Offset, file->Length, image->EntryRva, image->UnwindRva,
-        image->UnwindSize, 0, (WitU64)(file->Name - package->Data), file->NameLength, 0, 0, 0};
+        image->UnwindSize, 0, (WitU64)(file->Name - package->Data), file->NameLength, 0, 0, 0, image->TlsCallbacksRva,
+        image->TlsCallbackCount};
     WitU32 prefix = 0;
     for (WitU32 i = 0; i < file->NameLength; ++i) {
         if (file->Name[i] == '/') {
@@ -237,12 +238,13 @@ static int added(WitU32 index)
     return (transaction.Added & (1U << index)) != 0;
 }
 
-/* Entry callbacks of newly added libraries run on the loading thread only while it is the sole live thread. */
+/* Entry points and TLS callbacks of newly added libraries run on the loading thread only while it is the sole
+ * live thread. */
 static WitU64 check_callbacks(const WitUserProcess *process, int *callbacks)
 {
     *callbacks = 0;
     for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
-        if (added(i) && transaction.Modules[i].EntryRva) {
+        if (added(i) && wit_user_library_participates(&transaction.Modules[i])) {
             *callbacks = 1;
         }
     }

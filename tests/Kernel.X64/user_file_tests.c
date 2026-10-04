@@ -380,6 +380,7 @@ void wit_user_file_self_test(WitPageAllocator *pages)
         "Storage.LibraryDependencies\n[TEST-PASS] Storage.LibraryReaders\n[TEST-PASS] "
         "Storage.LibraryLifecycle\n[TEST-PASS] Storage.LibraryShutdown\n[TEST-PASS] "
         "Storage.LibraryThreadNotifications\n[TEST-PASS] Storage.LibraryStaticTls\n[TEST-PASS] "
+        "Storage.LibraryTlsCallbacks\n[TEST-PASS] "
         "Storage.FileViewRollback\n[TEST-PASS] Storage.Isolation\n[TEST-PASS] Storage.Teardown\n");
 }
 #else

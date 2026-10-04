@@ -8,7 +8,7 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 
 ## Current status
 
-**Current local implementation: upstream .NET 10.0.8 NativeAOT and standard CoreLib execute inside WitOS. P5/M3 is complete in the tested x64/UP profile: GC, managed exceptions, finalization, standard Thread/Monitor/TLS, failure recovery and repeated combined acceptance pass together. P6.1–P6.3 are complete and P6.4 has reached static DLL TLS. Current interfaces: user ABI v48 / boot ABI v4; the kernel banner prints both from the headers. The [Q2 consolidation and ARM64 phase A](@Docs/Implementation/Q2-Consolidation-and-Arm64-Plan.md) are complete: the kernel policy is architecture-independent and also runs EL0 components on ARM64 (QEMU `virt`); P6.4 continues next.**
+**Current local implementation: upstream .NET 10.0.8 NativeAOT and standard CoreLib execute inside WitOS. P5/M3 is complete in the tested x64/UP profile: GC, managed exceptions, finalization, standard Thread/Monitor/TLS, failure recovery and repeated combined acceptance pass together. P6.1–P6.3 are complete and P6.4 has reached static DLL TLS. Current interfaces: user ABI v49 / boot ABI v4; the kernel banner prints both from the headers. The [Q2 consolidation and ARM64 phase A](@Docs/Implementation/Q2-Consolidation-and-Arm64-Plan.md) are complete: the kernel policy is architecture-independent and also runs EL0 components on ARM64 (QEMU `virt`); P6.4 continues next.**
 
 The kernel boots independently through UEFI and runs separately built native components in ring 3 with private mappings and handles. Its bounded PE loader parses complete files inside the guest, maps sections and applies relocations. A freestanding C startup layer receives image metadata, runs native initializers and enters the program in user space. The component writes through a checked syscall and exits; its faults are contained while the kernel runs the next component. Within a component, up to four user threads can run with timer preemption, separate stacks/TLS and blocking join. Manual/auto-reset events, sleep and absolute deadlines work with kernel idle when all threads are blocked. M1 paging, protection, timer and kernel-context checks remain part of every successful boot.
 
@@ -45,7 +45,7 @@ Expected guest output includes:
 ```text
 [BOOT] UEFI x64 adapter
 [BOOT] ExitBootServices OK
-WitOS user ABI v48, boot ABI v4
+WitOS user ABI v49, boot ABI v4
 Build: <git-revision> | x64 | Debug
 [TEST-BEGIN] Boot.Contract
 [TEST-PASS] Boot.Contract
@@ -223,7 +223,7 @@ The core kernel does not include UEFI structures. The output is a freestanding P
 
 ## Scope and next work
 
-The selected x64/UP system profile uses a static image and experimental user ABI v48. Ordinary native image limits remain separate from the measured full-runtime profile: 1088 KiB image, 4096 unwind entries, 8 MiB owned backing, 32 reservations, 16 events and 32 handles. Four thread slots include Main and the actual finalizer. User stacks are fixed at 64 KiB; stack overflow terminates the component. Kernel-owned references, identities, contexts and immutable image metadata underpin actual managed thread lifecycle and GC root walking.
+The selected x64/UP system profile uses a static image and experimental user ABI v49. Ordinary native image limits remain separate from the measured full-runtime profile: 1088 KiB image, 4096 unwind entries, 8 MiB owned backing, 32 reservations, 16 events and 32 handles. Four thread slots include Main and the actual finalizer. User stacks are fixed at 64 KiB; stack overflow terminates the component. Kernel-owned references, identities, contexts and immutable image metadata underpin actual managed thread lifecycle and GC root walking.
 
 P6 is the next architecture milestone: upstream CoreCLR/JIT, executable-memory/code-registration support and unchanged portable assemblies with ordinary SDK/TFM/NuGet workflows. General dynamic module loading, ThreadPool/Task/async, filesystem/network/UTC services, SMP and broad API compatibility are not established by this NativeAOT acceptance. Firmware memory remains reserved; the q35 HPET clock is monotonic, not UTC. See the [supported M3 profile](@Docs/Implementation/M3-NativeAOT-Profile.md) for precise limits and [PLAN.md](PLAN.md) for current progress.
 

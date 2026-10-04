@@ -31,3 +31,63 @@ Module load/abort/unload and thread creation/reaping include the extra pages in 
 Targeted 128/512 MiB guest runs passed two-module isolation, real template-pointer relocation, zero data, fresh worker/reused-slot state, main-slot-zero coexistence and cleanup after corrupting writable compiler-vector hints. Module-load OOM rollback passed. The worker sweep now loads DLLs first, consumes real quota to leave exactly 0..19 pages, requires rollback at every boundary, and succeeds at 20 pages including notification resources. No limits were raised and failed creation preserves the native-ID output.
 
 The new full-image TLS profile passed 4613 guarded admission/truncation/metadata cases under ASan, including retained rejection in the older library profile. The full matrix passed in CI on `main` ([nativeaot run 36972286145](https://github.com/dmitrat/WitOS/actions/runs/36972286145)). After the Q2 consolidation it passed again locally on the same ABI48 behavior: host tests 69, x64 `test` 20 and ARM64 `test` 14 scenarios, `release`, audit/probe/target/source, PE corpus/coverage/fuzz/imports ASan, QemuCleanup, coreclr-source/host/host-files/functions/memory/storage, `runtime-config` and a full `runtime-boot` rebuild. The static slice is closed; no final P6.4 or guest CoreCLR completion is claimed.
+
+## Windows contract for TLS callbacks (P6.4.a)
+
+Dynamic DLL TLS needs PE TLS callbacks: MSVC runs `thread_local` initializers and destructors in a DLL through the
+callbacks `__dyn_tls_init` and `__dyn_tls_dtor`. Before the guest accepts them, a Windows reference fixes the order it
+must reproduce.
+
+`tests/User.X64/library_tls_callbacks.c` is a CRT-free DLL with static TLS, two TLS callbacks in the CRT layout
+(`.CRT$XLA`..`.CRT$XLZ`, merged into `.rdata`) and an entry point. Every call records who ran, the reason, the calling
+thread's TLS value and the low half of its TLS address, which names the thread without an OS import, into
+`tests/User.X64/library_tls_sink.c`. The host loads the sink first and keeps it, so detach records survive the library.
+`tests/WitOS.Dev.Tests/Native/LibraryTlsCallbacks.c` drives one scenario with step markers: a thread that is already
+running, the load, a thread started after the load, the exit of both threads and the unload. Its trace keeps the
+scenario threads only; a first version showed that a thread created but not yet running at the load is initialized
+after it and gets an attach, so the host now waits until that thread runs.
+
+Windows produced the same trace in every run (`NativeTlsCallbackLibraryImage.WINDOWS_ORDER`):
+
+```
+M1 M2 A1:731@T B1:731@T E1:731@T M3 T:731 A2:731@N B2:731@N E2:731@N N:731 A3:9@N B3:9@N E3:9@N M4
+P:731 A3:731@P B3:731@P E3:731@P M5 A0:5@T B0:5@T E0:5@T M6
+```
+
+- For every reason both callbacks run, in list order, before the entry point; the calling thread's TLS is already
+  initialized.
+- A thread started after the load is attached before its body and detached at its exit with its final TLS values.
+- A thread already running at the load gets no attach, but its TLS block exists with the template values, and it is
+  detached at its exit.
+- The unloading thread runs the process detach.
+
+`LibraryTlsCallbacksTests` rebuilds both DLLs, requires this trace and records the source and binary hashes. This is
+Windows evidence; P6.4.b reproduces it in the guest.
+
+## Guest TLS callbacks (P6.4.b, ABI v49)
+
+The PE validator accepts a nonempty callback list only in the library TLS profile: the list lies in readonly
+initialized data, holds at most `WIT_PE_TLS_CALLBACK_CAPACITY` (8) entries before its null terminator, every entry
+points into an executable section's initialized bytes, and every entry, but not the terminator, carries exactly one
+DIR64 fixup, so the list follows the image when it is relocated. Other profiles still refuse a nonempty list. The host
+import harness adds 3588 cases on the real callback DLL: acceptance with two callbacks, refusal without the TLS
+profile, a callback into data, a callback without its fixup and every truncation; an earlier case that pointed the
+list at the TLS directory now fails as a callback into data instead of as an unsupported list.
+
+A library takes part in the lifecycle when it has an entry point or callbacks (`wit_user_library_participates`): the
+attach order, thread admission, thread notifications and the sole-thread rule for loading use that test. Lifecycle
+plan entries (`WitLibraryLifecycleEntry`, ABI v49, `WIT_LIBRARY_VERSION` 2) carry the library's callback list address
+and count next to the entry point, which is zero for a callback-only library; the plan grows from 128 to 192 bytes.
+The native executor checks that every list is readonly, never writable, null-terminated at its count and that every
+callback is executable, then runs each library's callbacks in list order before its entry point for every reason,
+including the reverse detach after a failed attach. The executor stays one function: a first version split into
+helpers gave the runtime CPU fixture, which links it, more than the plain profile's 128 unwind entries
+(`runtime-config` mode 64 failed with TooLarge), and no loader limit was raised.
+
+`tests/User.X64/library_tls_callbacks_guest.c` runs the reference scenario in the `coreclr-storage` workload with the
+same sink and library DLLs from the boot package: the load, a thread with library notifications, its exit and the
+unload. It formats the trace the same way and requires `NativeTlsCallbackLibraryImage.GuestOrder`, the Windows order
+without the thread that predates the load, which the tool generates into `tls_callback_order.h`. Both profiles pass
+(`Storage.LibraryTlsCallbacks`). The thread that predates the load stays out until a library with callbacks or an entry
+point may be loaded while other threads run (P6.4.d). The guest loader requires a relocation directory for a library it
+maps away from its preferred base, so the sink holds one absolute pointer; Windows loads the same DLL unchanged.
