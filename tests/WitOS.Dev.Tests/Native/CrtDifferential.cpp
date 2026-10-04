@@ -26,8 +26,11 @@ namespace {
 
 unsigned long long compared, skipped, failures;
 int invalids;
-bool
-    verbose; // --verbose names each print case on standard error first: the subset ends the process where it fails fast
+// --verbose names each print case on standard error first: the subset ends the process where it fails fast.
+bool verbose;
+// The side whose print call raised an exception, and its code: the case is reported instead of ending the run.
+const char *crashed;
+unsigned long crashCode;
 
 void Handler(const wchar_t *, const wchar_t *, const wchar_t *, unsigned, uintptr_t)
 {
@@ -77,11 +80,22 @@ bool Report(const char *area, const wchar_t *input, const char *detail)
 
 constexpr size_t BUFFER = 320;
 
+int Crashed(const char *side, unsigned long code)
+{
+    crashed = side;
+    crashCode = code;
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
 int UcrtPrint(unsigned long long options, wchar_t *buffer, size_t count, const wchar_t *format, _locale_t locale, ...)
 {
     va_list args;
     va_start(args, locale);
-    const int result = __stdio_common_vswprintf(options, buffer, count, format, locale, args);
+    int result = INT_MIN;
+    __try {
+        result = __stdio_common_vswprintf(options, buffer, count, format, locale, args);
+    } __except (Crashed("ucrt", GetExceptionCode())) {
+    }
     va_end(args);
     return result;
 }
@@ -90,7 +104,11 @@ int WitPrint(unsigned long long options, wchar_t *buffer, size_t count, const wc
 {
     va_list args;
     va_start(args, locale);
-    const int result = WitCrt::Vswprintf(options, buffer, count, format, locale, args);
+    int result = INT_MIN;
+    __try {
+        result = WitCrt::Vswprintf(options, buffer, count, format, locale, args);
+    } __except (Crashed("wit", GetExceptionCode())) {
+    }
     va_end(args);
     return result;
 }
@@ -100,7 +118,11 @@ int UcrtPrintS(unsigned long long options, wchar_t *buffer, size_t size, size_t 
 {
     va_list args;
     va_start(args, locale);
-    const int result = __stdio_common_vsnwprintf_s(options, buffer, size, limit, format, locale, args);
+    int result = INT_MIN;
+    __try {
+        result = __stdio_common_vsnwprintf_s(options, buffer, size, limit, format, locale, args);
+    } __except (Crashed("ucrt", GetExceptionCode())) {
+    }
     va_end(args);
     return result;
 }
@@ -110,7 +132,11 @@ int WitPrintS(unsigned long long options, wchar_t *buffer, size_t size, size_t l
 {
     va_list args;
     va_start(args, locale);
-    const int result = WitCrt::Vsnwprintf_s(options, buffer, size, limit, format, locale, args);
+    int result = INT_MIN;
+    __try {
+        result = WitCrt::Vsnwprintf_s(options, buffer, size, limit, format, locale, args);
+    } __except (Crashed("wit", GetExceptionCode())) {
+    }
     va_end(args);
     return result;
 }
@@ -143,6 +169,19 @@ bool Agree(
     return actual == expected && actualErrno == expectedErrno && Same(ucrt, wit);
 }
 
+bool CrashReported(const wchar_t *format, const char *call, unsigned long long options, size_t size, size_t limit)
+{
+    if (!crashed) {
+        return false;
+    }
+    char detail[200];
+    sprintf_s(detail, "%s options=%llx size=%zu limit=%zd: %s raised %08lX", call, options, size, (ptrdiff_t)limit,
+        crashed, crashCode);
+    crashed = nullptr;
+    Report("crash", format, detail);
+    return true;
+}
+
 void Print(const wchar_t *format, const Locales &locales, const uint64_t (&a)[4], bool relaxed = false)
 {
     static wchar_t ucrt[BUFFER], wit[BUFFER];
@@ -164,6 +203,9 @@ void Print(const wchar_t *format, const Locales &locales, const uint64_t (&a)[4]
             const int expected =
                 UcrtPrint(options, counting ? nullptr : ucrt, count, format, locales.Ucrt, a[0], a[1], a[2], a[3]);
             const int expectedErrno = errno;
+            if (CrashReported(format, "vswprintf", options, count, 0)) {
+                return;
+            }
             if (invalids) {
                 ++skipped;
                 return;
@@ -171,6 +213,9 @@ void Print(const wchar_t *format, const Locales &locales, const uint64_t (&a)[4]
             errno = 71;
             const int actual =
                 WitPrint(options, counting ? nullptr : wit, count, format, locales.Wit, a[0], a[1], a[2], a[3]);
+            if (CrashReported(format, "vswprintf", options, count, 0)) {
+                return;
+            }
             ++compared;
             if (!Agree(expected, expectedErrno, actual, errno, ucrt, wit, relaxed)) {
                 char detail[1024], u[256], w[256];
@@ -194,12 +239,18 @@ void Print(const wchar_t *format, const Locales &locales, const uint64_t (&a)[4]
                 const int expected =
                     UcrtPrintS(options, ucrt, size, limit, format, locales.Ucrt, a[0], a[1], a[2], a[3]);
                 const int expectedErrno = errno;
+                if (CrashReported(format, "vsnwprintf_s", options, size, limit)) {
+                    return;
+                }
                 if (invalids) {
                     ++skipped;
                     continue;
                 }
                 errno = 71;
                 const int actual = WitPrintS(options, wit, size, limit, format, locales.Wit, a[0], a[1], a[2], a[3]);
+                if (CrashReported(format, "vsnwprintf_s", options, size, limit)) {
+                    return;
+                }
                 ++compared;
                 if (!Agree(expected, expectedErrno, actual, errno, ucrt, wit, relaxed)) {
                     char detail[1024], u[256], w[256];
