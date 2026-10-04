@@ -242,10 +242,10 @@ were there before. The NativeAOT overlay defines its own `_fltused` in `native_m
   every code unit through `wcstoul` and `_wtoi`; comparisons, messages, `_gmtime64_s` and `wcsftime` over 40,000
   times and every conversion; locale data; two million `ceilf` inputs; the heap. Locally: 8,441,053 comparisons,
   none different; 631,392 cases are not compared because UCRT calls its invalid-parameter handler there. The UCRT
-  of the Windows Server 2025 CI runners faults (access violation) or reports `EILSEQ` when a precision ends in or
-  after a four-byte UTF-8 sequence of a narrow string, where the local UCRT (Windows 11 build 26200) and the subset
-  write the surrogate pair whole. The comparison probes for this defect first and, where UCRT has it, does not
-  compare those cases and counts them.
+  of the Windows Server 2025 CI runners faults (access violation) or reports `EILSEQ` for a narrow string with a
+  precision in the UTF-8 locale, even for `"abc"` or `(null)`, where the local UCRT (Windows 11 build 26200) and the
+  subset convert it. The comparison probes for this defect first and, where UCRT has it, does not compare string
+  cases with a precision in the UTF-8 locale and counts them; the local run compares them all.
 - In the guest, mode 22 of the CoreCLR mapper fixture (`tests/User.X64/crt_scenarios_guest.cpp`) runs the same
   scenarios on the subset, the native heap and the process console and compares the trace with `WINDOWS_TRACE`,
   which the tool generates into `crt_trace.h`; it also checks the missing UTC clock and the read-only storage.

@@ -25,11 +25,11 @@
 namespace {
 
 unsigned long long compared, skipped, failures;
-// Whether this UCRT fails a narrow string whose precision ends in or after a UTF-8 sequence of four bytes (a surrogate
-// pair): the UCRT of Windows Server 2025 faults or reports EILSEQ there, newer ones keep the pair. Such cases are then
-// not compared and are counted.
-bool pairDefect;
-unsigned long long pairSkipped;
+// Whether this UCRT fails a narrow string with a precision in the UTF-8 locale: the UCRT of Windows Server 2025 faults
+// or reports EILSEQ there, even for "abc" or "(null)", newer ones convert it. String cases with a precision in the
+// UTF-8 locale are then not compared and are counted.
+bool precisionDefect;
+unsigned long long precisionSkipped;
 int invalids;
 // --verbose names each print case on standard error first: the subset ends the process where it fails fast.
 bool verbose;
@@ -351,6 +351,10 @@ void TextCase(const Locales &locales)
         sprintf_s(note, "%s char %llX", locale, a[used]);
     } else {
         // The width of the string depends on the options and length; give each case both kinds by trying both.
+        if (precisionDefect && locales.Wit && precision[0]) {
+            ++precisionSkipped;
+            return;
+        }
         const unsigned wide = Pick(sizeof(WIDE_STRINGS) / sizeof(WIDE_STRINGS[0]));
         a[used] = (uint64_t)(uintptr_t)WIDE_STRINGS[wide];
         sprintf_s(note, "%s wide#%u", locale, wide);
@@ -358,16 +362,7 @@ void TextCase(const Locales &locales)
         const unsigned narrow = Pick(sizeof(NARROW_STRINGS) / sizeof(NARROW_STRINGS[0]));
         a[used] = (uint64_t)(uintptr_t)NARROW_STRINGS[narrow];
         sprintf_s(note, "%s narrow#%u", locale, narrow);
-        if (pairDefect && locales.Wit && precision[0] && NARROW_STRINGS[narrow]) {
-            bool pair = false;
-            for (const char *p = NARROW_STRINGS[narrow]; *p; ++p) {
-                pair = pair || ((unsigned char)*p >= 0xF0 && (unsigned char)*p <= 0xF4);
-            }
-            if (pair) {
-                ++pairSkipped;
-                return;
-            }
-        }
+
         Print(format, locales, a, locales.Wit && narrow >= VALID_UTF8);
         return;
     }
@@ -1025,11 +1020,15 @@ int wmain(int count, wchar_t **arguments)
     }
     {
         wchar_t probe[8];
-        const uint64_t pair[4] = {(uint64_t)(uintptr_t)"\xF0\x9F\x98\x80"};
-        const int kept = UcrtPrint(0x24, probe, 8, L"%.1hs", utf8.Ucrt, pair[0], pair[1], pair[2], pair[3]);
-        pairDefect = crashed || kept != 2;
+        const uint64_t text = (uint64_t)(uintptr_t)"abc";
+        const int counted = UcrtPrint(0x24, nullptr, 0, L"<%.1hs>", utf8.Ucrt, text, 0, 0, 0);
+        const bool countCrashed = crashed != nullptr;
         crashed = nullptr;
-        printf("UCRT %s a surrogate pair under a precision\n", pairDefect ? "fails" : "keeps");
+        const int written = UcrtPrint(0x24, probe, 8, L"<%.1hs>", utf8.Ucrt, text, 0, 0, 0);
+        precisionDefect = countCrashed || crashed || counted != 3 || written != 3 || wcscmp(probe, L"<a>");
+        crashed = nullptr;
+        printf(
+            "UCRT %s a narrow string with a precision in the UTF-8 locale\n", precisionDefect ? "fails" : "converts");
     }
     PrintCases(c, utf8);
     printf("print done: %llu compared, %llu skipped\n", compared, skipped);
@@ -1042,7 +1041,7 @@ int wmain(int count, wchar_t **arguments)
     LocaleCases();
     CeilCases();
     HeapCases();
-    printf("%s: %llu compared, %llu skipped as invalid, %llu skipped for UCRT's pair defect, %llu failed\n",
-        failures ? "FAIL" : "PASS", compared, skipped, pairSkipped, failures);
+    printf("%s: %llu compared, %llu skipped as invalid, %llu skipped for UCRT's precision defect, %llu failed\n",
+        failures ? "FAIL" : "PASS", compared, skipped, precisionSkipped, failures);
     return failures ? 1 : 0;
 }
