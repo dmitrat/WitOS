@@ -25,9 +25,11 @@
 namespace {
 
 unsigned long long compared, skipped, failures;
-// Counting calls where UCRT disagrees with its own result for a buffer large enough: there the buffer result is the
-// reference. UCRT of Windows Server 2025 faults or reports EILSEQ counting a narrow string with a precision.
-unsigned long long countingDefects;
+// Whether this UCRT fails a narrow string whose precision ends in or after a UTF-8 sequence of four bytes (a surrogate
+// pair): the UCRT of Windows Server 2025 faults or reports EILSEQ there, newer ones keep the pair. Such cases are then
+// not compared and are counted.
+bool pairDefect;
+unsigned long long pairSkipped;
 int invalids;
 // --verbose names each print case on standard error first: the subset ends the process where it fails fast.
 bool verbose;
@@ -203,31 +205,10 @@ void Print(const wchar_t *format, const Locales &locales, const uint64_t (&a)[4]
             Fill(wit);
             invalids = 0;
             errno = 71;
-            int expected =
+            const int expected =
                 UcrtPrint(options, counting ? nullptr : ucrt, count, format, locales.Ucrt, a[0], a[1], a[2], a[3]);
-            int expectedErrno = errno;
-            if (counting) {
-                const char *countingCrashed = crashed;
-                crashed = nullptr;
-                const int countingInvalids = invalids;
-                static wchar_t large[BUFFER];
-                invalids = 0;
-                errno = 71;
-                const int whole = UcrtPrint(options, large, BUFFER, format, locales.Ucrt, a[0], a[1], a[2], a[3]);
-                const int wholeErrno = errno;
-                if (CrashReported(format, "vswprintf", options, BUFFER, 0)) {
-                    return;
-                }
-                if (invalids || countingInvalids) {
-                    ++skipped;
-                    return;
-                }
-                if (countingCrashed || whole != expected || wholeErrno != expectedErrno) {
-                    ++countingDefects;
-                    expected = whole;
-                    expectedErrno = wholeErrno;
-                }
-            } else if (CrashReported(format, "vswprintf", options, count, 0)) {
+            const int expectedErrno = errno;
+            if (CrashReported(format, "vswprintf", options, count, 0)) {
                 return;
             }
             if (invalids) {
@@ -369,6 +350,16 @@ void TextCase(const Locales &locales)
         Print(format, locales, a, locales.Wit != nullptr); // read as narrow, its bytes need not be valid UTF-8
         const unsigned narrow = Pick(sizeof(NARROW_STRINGS) / sizeof(NARROW_STRINGS[0]));
         a[used] = (uint64_t)(uintptr_t)NARROW_STRINGS[narrow];
+        if (pairDefect && locales.Wit && precision[0] && NARROW_STRINGS[narrow]) {
+            bool pair = false;
+            for (const char *p = NARROW_STRINGS[narrow]; *p; ++p) {
+                pair = pair || ((unsigned char)*p >= 0xF0 && (unsigned char)*p <= 0xF4);
+            }
+            if (pair) {
+                ++pairSkipped;
+                return;
+            }
+        }
         Print(format, locales, a, locales.Wit && narrow >= VALID_UTF8);
         return;
     }
@@ -1023,6 +1014,14 @@ int wmain(int count, wchar_t **arguments)
         puts("FAIL: no UTF-8 locale");
         return 1;
     }
+    {
+        wchar_t probe[8];
+        const uint64_t pair[4] = {(uint64_t)(uintptr_t)"\xF0\x9F\x98\x80"};
+        const int kept = UcrtPrint(0x24, probe, 8, L"%.1hs", utf8.Ucrt, pair[0], pair[1], pair[2], pair[3]);
+        pairDefect = crashed || kept != 2;
+        crashed = nullptr;
+        printf("UCRT %s a surrogate pair under a precision\n", pairDefect ? "fails" : "keeps");
+    }
     PrintCases(c, utf8);
     printf("print done: %llu compared, %llu skipped\n", compared, skipped);
     StreamCases(arguments[1], utf8.Ucrt, utf8.Wit);
@@ -1034,7 +1033,7 @@ int wmain(int count, wchar_t **arguments)
     LocaleCases();
     CeilCases();
     HeapCases();
-    printf("%s: %llu compared, %llu skipped as invalid, %llu UCRT counting defects, %llu failed\n",
-        failures ? "FAIL" : "PASS", compared, skipped, countingDefects, failures);
+    printf("%s: %llu compared, %llu skipped as invalid, %llu skipped for UCRT's pair defect, %llu failed\n",
+        failures ? "FAIL" : "PASS", compared, skipped, pairSkipped, failures);
     return failures ? 1 : 0;
 }
