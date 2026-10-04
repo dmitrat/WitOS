@@ -7,6 +7,15 @@ namespace WitOS.Dev.Kernel;
 /// </summary>
 internal static class BootScenarioRunner
 {
+    #region Constants
+
+    // Guest time follows executed instructions, not the host clock: 4 ns per instruction, so a 10 ms timer tick is
+    // 2.5 million instructions on every host and under any load. An idle guest skips ahead to its next timer instead of
+    // sleeping. Wall-clock limits of a boot only stop QEMU; they never change what the guest measures.
+    private const string VIRTUAL_TIME = "shift=2,sleep=off";
+
+    #endregion
+
     #region Functions
 
     /// <summary>
@@ -36,7 +45,7 @@ internal static class BootScenarioRunner
         var machine = request.Expected == ExpectedOutcome.ClockUnavailable ? "q35,hpet=off" : architecture.QemuMachine;
         var arguments = new List<string>
         {
-            "-machine", machine, "-accel", "tcg,thread=single", "-cpu", cpu, "-smp", "1",
+            "-machine", machine, "-accel", "tcg,thread=single", "-icount", VIRTUAL_TIME, "-cpu", cpu, "-smp", "1",
             "-m", request.MemoryMiB.ToString(), "-display", "none", "-monitor", "none", "-qmp", qmpControl.Argument,
             "-serial", "file:" + QemuPath(serialPath), "-nic", "none", "-no-reboot",
             "-drive", $"if=pflash,unit=0,format=raw,readonly=on,file={QemuPath(architecture.FirmwarePath(root))}",

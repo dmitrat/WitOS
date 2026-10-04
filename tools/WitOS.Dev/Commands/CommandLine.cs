@@ -46,8 +46,8 @@ internal static class CommandLine
         new CommandFingerprint(),
         new CommandScenario("coreclr-memory", "Test owned executable memory backend (not guest CoreCLR)", "coreclr-memory",
         [
-            new BootRequest("coreclr-memory-128", 128, 60, ExpectedOutcome.Success) { Suite = BootSuite.CoreClrMemory },
-            new BootRequest("coreclr-memory-512", 512, 60, ExpectedOutcome.Success) { Suite = BootSuite.CoreClrMemory }
+            new BootRequest("coreclr-memory-128", 128, 120, ExpectedOutcome.Success) { Suite = BootSuite.CoreClrMemory },
+            new BootRequest("coreclr-memory-512", 512, 120, ExpectedOutcome.Success) { Suite = BootSuite.CoreClrMemory }
         ]),
         new CommandScenario("coreclr-storage",
             "Test unchanged assembly delivery and readonly guest IO (not guest CoreCLR)", "coreclr-storage",
@@ -96,14 +96,14 @@ internal static class CommandLine
         new CommandScenario("runtime-config",
             "Build upstream configuration/startup sources and execute their guest probe", "runtime-config",
         [
-            new BootRequest("runtime-config-128", 128, 60, ExpectedOutcome.Success) { Suite = BootSuite.RuntimeConfig },
-            new BootRequest("runtime-config-512", 512, 60, ExpectedOutcome.Success) { Suite = BootSuite.RuntimeConfig },
-            new BootRequest("runtime-config-intel", 256, 60, ExpectedOutcome.Success)
+            new BootRequest("runtime-config-128", 128, 120, ExpectedOutcome.Success) { Suite = BootSuite.RuntimeConfig },
+            new BootRequest("runtime-config-512", 512, 120, ExpectedOutcome.Success) { Suite = BootSuite.RuntimeConfig },
+            new BootRequest("runtime-config-intel", 256, 120, ExpectedOutcome.Success)
             {
                 Suite = BootSuite.RuntimeConfig,
                 CpuModel = "Nehalem"
             },
-            new BootRequest("runtime-config-avx", 256, 60, ExpectedOutcome.Success)
+            new BootRequest("runtime-config-avx", 256, 120, ExpectedOutcome.Success)
             {
                 Suite = BootSuite.RuntimeConfig,
                 CpuModel = "max"

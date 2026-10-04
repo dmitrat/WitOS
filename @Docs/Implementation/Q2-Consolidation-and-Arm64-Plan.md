@@ -23,7 +23,7 @@
 | Квоты | дюжина заголовков и локальные `constexpr` | `witos/limits.h`, `Runtime.Native/native_limits.h` | [Q2.11.3](#q2113--квоты-в-двух-заголовках) |
 | ARM64 | нет | загрузка на QEMU `virt`, исключения, MMU, GICv3, вытеснение, EL0-компоненты, потоки, TLS, ожидания и PE через общую политику без правок `src/Kernel`; CI-job `boot-arm64` | [A0](#a0--загрузка-arm64-на-virt)–[A2.3](#a23--загрузка-pe-на-arm64) |
 
-Проверка на закрытии: хостовые тесты 69 (было 43), x64 `test` 20 сценариев и ARM64 `test` 15, `release`, `coreclr-memory`, `coreclr-storage`, `coreclr-functions`, `coreclr-source`, `coreclr-host`, `coreclr-host-files`, `runtime-audit`, `runtime-probe`, `runtime-target`, `runtime-source`, `runtime-config`, полный `runtime-boot`, `runtime-port`, PE corpus, coverage, fuzz и ASan, QemuCleanup, `format-check`.
+Проверка на закрытии: хостовые тесты 69 (было 43), x64 `test` 20 сценариев и ARM64 `test` 14, `release`, `coreclr-memory`, `coreclr-storage`, `coreclr-functions`, `coreclr-source`, `coreclr-host`, `coreclr-host-files`, `runtime-audit`, `runtime-probe`, `runtime-target`, `runtime-source`, `runtime-config`, полный `runtime-boot`, `runtime-port`, PE corpus, coverage, fuzz и ASan, QemuCleanup, `format-check`.
 
 Осталось открытым:
 
