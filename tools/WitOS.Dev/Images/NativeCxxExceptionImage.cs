@@ -28,6 +28,16 @@ internal static class NativeCxxExceptionImage
     public static readonly string[] RUNTIME = ["src/Runtime.Cxx/frame_handler.cpp", "src/Runtime.Cxx/throw.cpp",
         "src/Runtime.Cxx/type_info.cpp"];
 
+    /// <summary>
+    /// The runtime's platform source on Windows.
+    /// </summary>
+    public const string WINDOWS_PLATFORM = "src/Runtime.Cxx/platform_windows.cpp";
+
+    /// <summary>
+    /// The runtime's platform source in the guest.
+    /// </summary>
+    public const string GUEST_PLATFORM = "src/Runtime.Cxx/platform_witos.cpp";
+
     #endregion
 
     #region Functions
@@ -63,7 +73,8 @@ internal static class NativeCxxExceptionImage
     {
         var objects = Path.Combine(output, "witos");
         Directory.CreateDirectory(objects);
-        string[] sources = [.. RUNTIME, "src/Runtime.Native/library_dynamic_tls.cpp", "tests/User.X64/cxx_exceptions.cpp",
+        string[] sources = [.. RUNTIME, WINDOWS_PLATFORM, "src/Runtime.Native/library_dynamic_tls.cpp",
+            "tests/User.X64/cxx_exceptions.cpp",
             "tests/WitOS.Dev.Tests/Native/CxxExceptionsHost.cpp"];
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo", "/c", "/Zl", "/EHsc", "/O2", "/GS-",
             "/W4", "/WX", "/std:c++17", .. Includes(msvc), "/I" + Path.Combine(root, "src/Runtime.Native"),

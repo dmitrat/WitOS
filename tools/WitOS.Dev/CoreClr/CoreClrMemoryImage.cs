@@ -2,6 +2,7 @@ using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
 using WitOS.Dev.Host;
+using WitOS.Dev.Images;
 using WitOS.Dev.NativeAot;
 using WitOS.Dev.NativeAot.References;
 namespace WitOS.Dev.CoreClr;
@@ -53,6 +54,21 @@ internal static class CoreClrMemoryImage
                 "/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"tests/User.X64"),"/Fo"+obj,Path.Combine(root,file)], root);
             objects.Add(obj);
         }
+        // C++ exceptions on the WitOS C++ runtime (P6.4.f), against the trace vcruntime prints on Windows.
+        await File.WriteAllTextAsync(Path.Combine(output, "cxx_exception_trace.h"),
+            "/* Generated from NativeCxxExceptionImage.WINDOWS_TRACE. */\n" +
+            $"#define WIT_CXX_EXCEPTION_TRACE \"{NativeCxxExceptionImage.WINDOWS_TRACE}\"\n");
+        foreach (var file in NativeCxxExceptionImage.RUNTIME.Append(NativeCxxExceptionImage.GUEST_PLATFORM)
+                     .Append("tests/User.X64/cxx_exceptions.cpp").Append("tests/User.X64/cxx_exceptions_guest.cpp"))
+        {
+            var obj = Path.Combine(output, "cxx_" + Path.GetFileName(file) + ".obj");
+            await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo", "/c", "/TP", "/std:c++17", "/GS-",
+                "/GR-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", "/I" + Path.Combine(vc, "include"),
+                "/I" + Path.Combine(sdk, "Include", version, "ucrt"), "/I" + Path.Combine(sdk, "Include", version, "um"),
+                "/I" + Path.Combine(sdk, "Include", version, "shared"), "/I" + Path.Combine(root, "src/Kernel/include"),
+                "/I" + Path.Combine(root, "src/Runtime.Native"), "/I" + output, "/Fo" + obj, Path.Combine(root, file)], root);
+            objects.Add(obj);
+        }
         var entry = Path.Combine(output, "coreclr_mapper_start.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/I" + output, "/Fo" + entry, Path.Combine(root, "src/Runtime.Native/X64/native_start.asm")], root);
         objects.Add(entry);
@@ -62,7 +78,7 @@ internal static class CoreClrMemoryImage
         var bindings = Path.Combine(output, "coreclr_unwind_bindings.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + bindings, Path.Combine(root, "src/Runtime.CoreClr/X64/coreclr_unwind_bindings.asm")], root);
         objects.Add(bindings);
-        foreach (var (directory, name) in new[] { ("src/Runtime.Pal.Win32/X64", "native_exception"), ("src/Runtime.NativeAot/X64", "security_cookie") })
+        foreach (var (directory, name) in new[] { ("src/Runtime.Pal.Win32/X64", "native_exception"), ("src/Runtime.NativeAot/X64", "security_cookie"), ("src/Runtime.NativeAot/X64", "unwind_consolidation") })
         {
             var obj = Path.Combine(output, "coreclr-" + name + ".obj");
             await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/I" + output, "/Fo" + obj, Path.Combine(root, directory, name + ".asm")], root);

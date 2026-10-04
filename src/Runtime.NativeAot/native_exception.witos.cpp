@@ -6,6 +6,8 @@
 #include "exception_classification.h"
 #include "../Runtime.Native/native_limits.h"
 #if defined(WITOS_DYNAMIC_CODE)
+#include <intrin.h>
+#include <stddef.h>
 #include "function_tables_guest.witos.h"
 extern "C" EXCEPTION_DISPOSITION wit_native_handler_invoke(
     void *, PEXCEPTION_ROUTINE, EXCEPTION_RECORD *, void *, CONTEXT *, DISPATCHER_CONTEXT *);
@@ -398,6 +400,82 @@ void resume_collided(UnwindWalk &walk, const DISPATCHER_CONTEXT &dispatcher, Wit
     walk.Collided = true;
 }
 
+#if defined(WITOS_DYNAMIC_CODE)
+// A consolidation request: the target's machine frame for the trampoline, the record whose callback runs and the
+// target context it resumes. It stays in the frame of consolidate(), above the trampoline.
+struct alignas(16) WitConsolidation {
+    WitU64 Rip, Cs, Flags, Rsp, Ss;
+    EXCEPTION_RECORD *Record;
+    CONTEXT Target;
+};
+
+static_assert(offsetof(WitConsolidation, Record) == 40 && offsetof(WitConsolidation, Target) == 48,
+    "unwind_consolidation.asm reads this layout");
+
+extern "C" void wit_native_consolidate_start();
+
+__declspec(noinline) WitU64 caller_stack()
+{
+    return (WitU64)_AddressOfReturnAddress() + 8;
+}
+
+// STATUS_UNWIND_CONSOLIDATE, as C++ catches use it: the unwind ends on this thread's current stack. Its exception
+// and, when a search handler started the unwind, that search's exception retire; the kernel then enters the
+// trampoline below this frame, which runs the record's callback under a machine frame that unwinds to the target and
+// resumes the target where the callback returns.
+[[noreturn]] void consolidate(SehDispatch &state, const CONTEXT &before, WitU64 frame, const UnwindWalk &walk)
+{
+    const WitU64 token = state.Info->Token;
+    const EXCEPTION_RECORD &record = *walk.Exception;
+    if (record.NumberParameters < 1 ||
+        record.NumberParameters > EXCEPTION_MAXIMUM_PARAMETERS ||
+        !code(record.ExceptionInformation[0]) ||
+        state.RetireThrough) {
+        reject(token);
+    }
+    WitConsolidation request = {};
+    request.Record = walk.Exception;
+    request.Target = before;
+    request.Target.Rip = walk.TargetIp;
+    request.Target.Rsp = frame;
+    request.Target.Rax = walk.ReturnValue;
+    request.Target.ContextFlags = WitContext::complete;
+    WitThreadContext checked = state.Info->Context;
+    if (!WitContext::decode(request.Target, checked, *state.Cpu)) {
+        reject(token); // The target must stay restorable after the exception retires.
+    }
+    request.Rip = request.Target.Rip;
+    request.Cs = request.Target.SegCs;
+    request.Flags = request.Target.EFlags;
+    request.Rsp = request.Target.Rsp;
+    request.Ss = request.Target.SegSs;
+    CONTEXT start = request.Target;
+    start.Rip = (WitU64)&wit_native_consolidate_start;
+    start.Rsp = ((caller_stack() - 256) & ~15ULL) + 8;
+    start.Rcx = (WitU64)&request;
+    start.ContextFlags = WitContext::complete | CONTEXT_EXCEPTION_REPORTING | CONTEXT_EXCEPTION_ACTIVE;
+    if (start.Rsp < state.Bounds.Low + 4096 || !WitContext::decode(start, state.Info->Context, *state.Cpu, true)) {
+        reject(token);
+    }
+    SehDispatch *search = state.Previous;
+    if (!search || !search->Dispatcher || search->Owner != state.Owner || search->Unwinding) {
+        search = nullptr;
+    }
+    if (state.Scope->Close() != WIT_STATUS_OK ||
+        (search && search->Scope->Status() == WIT_STATUS_OK && search->Scope->Close() != WIT_STATUS_OK)) {
+        reject(token);
+    }
+    seh = search ? search->Previous : state.Previous;
+    WitUserExceptionTransfer transfer = {};
+    transfer.Version = WIT_EXCEPTION_TRANSFER_VERSION;
+    transfer.Size = sizeof(transfer);
+    transfer.RetireThroughToken = search ? search->Info->Token : token;
+    transfer.Context = state.Info->Context;
+    wit_native_call(WIT_CALL_EXCEPTION_UNWIND, token, (WitU64)&transfer, sizeof(transfer), nullptr);
+    reject(token);
+}
+#endif
+
 Step unwind_frame(UnwindWalk &walk, const WitUserImageInfo *image, WitU64 pc, WitU64 sp)
 {
     SehDispatch *state = walk.State;
@@ -442,6 +520,11 @@ Step unwind_frame(UnwindWalk &walk, const WitUserImageInfo *image, WitU64 pc, Wi
         }
     }
     if (target) {
+#if defined(WITOS_DYNAMIC_CODE)
+        if (walk.Exception->ExceptionCode == 0x80000029U) { // STATUS_UNWIND_CONSOLIDATE
+            consolidate(*state, before, frame, walk);
+        }
+#endif
         // Enter the compiler landing pad in the selected frame, not its
         // caller produced by VirtualUnwind. Keep restored nonvolatiles.
         enter_target(*state, before, frame, walk.TargetIp, walk.ReturnValue);
@@ -955,6 +1038,33 @@ extern "C" void __cdecl wit_native_raise_exception(
     dispatch(exception, *captured, info, cpu, owner.ThreadId);
 }
 
+#if defined(WITOS_DYNAMIC_CODE)
+// The consolidation trampoline's last step: the target resumes where the callback returned.
+extern "C" [[noreturn]] void wit_native_consolidate_finish(void *value, WitU64 continuation)
+{
+    auto request = (WitConsolidation *)value;
+    WitUserThreadInfo owner;
+    WitCpuContextInfo cpu;
+    WitThreadContext context;
+    if (!request ||
+        (WitU64)request < caller_stack() ||
+        !current(owner) ||
+        !WitContext::profile(cpu) ||
+        !code(continuation) ||
+        wit_native_call(WIT_CALL_THREAD_CONTEXT_METADATA, WIT_THREAD_REFERENCE_CURRENT, (WitU64)&context,
+            sizeof(context), nullptr) != WIT_STATUS_OK) {
+        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+    }
+    request->Target.Rip = continuation;
+    if (!WitContext::decode(request->Target, context, cpu)) {
+        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+    }
+    wit_native_call(
+        WIT_CALL_THREAD_CONTEXT_RESTORE, (WitU64)&context, sizeof(context), WIT_THREAD_CONTEXT_VERSION, nullptr);
+    wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+}
+#endif
+
 extern "C" void __cdecl wit_native_local_unwind(CONTEXT *captured, WitU64 targetFrame, WitU64 targetIp)
 {
     WitUserThreadInfo owner;
@@ -1029,6 +1139,16 @@ extern "C" void __cdecl wit_native_rtl_unwind(CONTEXT *captured, WitU64 targetFr
     } else {
         exception.ExceptionCode = 0xC0000027U;
         exception.ExceptionAddress = (void *)captured->Rip;
+    }
+    // A consolidation (a C++ catch) abandons the search whose handler started it. That search's stack lease ends
+    // here, as a dynamic-code handler's does around its call, so this thread can begin the unwind's exception.
+    if (exception.ExceptionCode == 0x80000029U &&
+        seh &&
+        seh->Dispatcher &&
+        seh->Owner == owner.ThreadId &&
+        seh->Scope->Status() == WIT_STATUS_OK &&
+        seh->Scope->Close() != WIT_STATUS_OK) {
+        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
     if (output) {
         WitCodeMemoryRequest request = {WIT_CODE_MEMORY_VERSION, sizeof(request), WIT_CODE_VALIDATE, 3, (WitU64)output,

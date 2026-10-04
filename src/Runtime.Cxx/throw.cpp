@@ -1,6 +1,8 @@
 #include "cxx_runtime.h"
 
-/* Throwing, per-thread exception state and the Windows platform services of the C++ runtime (P6.4.e). */
+/* Throwing and per-thread exception state of the C++ runtime (P6.4.e). */
+extern "C" const unsigned char __ImageBase;
+
 namespace WitCxx {
 
 namespace {
@@ -10,20 +12,6 @@ __declspec(thread) ThreadState state;
 ThreadState &Thread()
 {
     return state;
-}
-
-void Fatal()
-{
-    __fastfail(FAST_FAIL_FATAL_APP_EXIT);
-}
-
-u64 ImageBaseOf(const void *address)
-{
-    void *base = nullptr;
-    if (!RtlPcToFileHeader(const_cast<void *>(address), &base) || !base) {
-        Fatal();
-    }
-    return (u64)base;
 }
 
 void Raise(const ULONG_PTR *arguments)
@@ -92,7 +80,7 @@ extern "C" __declspec(noreturn) void __stdcall _CxxThrowException(void *object, 
         if (!info) {
             Fatal();
         }
-        base = ImageBaseOf(info);
+        base = (u64)&__ImageBase; // Linked into each module, the runtime throws the ThrowInfo of its own module.
     }
     ForgetLeft(object); // Records an earlier exception at this address left behind.
     ++state.Uncaught;

@@ -1,6 +1,6 @@
 # P6.4 guest C++ runtime for the host
 
-Date: 2026-10-04. Status: P6.4.e complete (Windows); P6.4.f next.
+Date: 2026-10-04. Status: P6.4.e (Windows) and P6.4.f (guest) complete; P6.4.g next.
 
 ## Decision
 
@@ -49,7 +49,7 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
   `type_info`, the consolidation callback and the current-exception state, in `src/Runtime.Cxx/`. A test program built
   with `/EHsc` against this runtime instead of vcruntime, on Windows' own dispatcher and unwinder, must print the same
   trace as with vcruntime.
-- [ ] **P6.4.f** Exception runtime in the guest: `STATUS_UNWIND_CONSOLIDATE` in the WitOS `RtlUnwindEx`, including
+- [x] **P6.4.f** Exception runtime in the guest: `STATUS_UNWIND_CONSOLIDATE` in the WitOS `RtlUnwindEx`, including
   exceptions thrown inside a catch block; the same test passes in the guest.
 - [ ] **P6.4.g** The rest of the vcruntime surface the host uses: thread-safe statics, GS cookies and handlers,
   throwing `new`/`delete` on the native heap, vector constructor iterators, `std::exception` support.
@@ -104,3 +104,39 @@ a destructor during unwinding and 0 inside the catch.
 is not supported; separated code (`isSeparated`, profile-guided layouts) decodes but is not exercised; exceptions in
 destructors during unwinding are not handled. `operator delete` in the Windows test harness is an explicit fail-fast
 stub: the scenarios never call it, and real `new`/`delete` belong to P6.4.g.
+
+## P6.4.f: the exception runtime in the guest
+
+The same runtime runs in the guest with `platform_witos.cpp`, whose `Fatal` is the component's fail-fast; the
+`RaiseException` and `RtlUnwindEx` it calls are the guest's own bindings (`Runtime.Pal.Win32/X64/native_exception.asm`
+and `Runtime.CoreClr/X64/coreclr_unwind_bindings.asm`). The image base of a throw is the throwing module's
+`__ImageBase`: the runtime is linked into each module, so a throw always names a `ThrowInfo` of its own module.
+
+### Frame consolidation in the guest dispatcher
+
+The guest `RtlUnwindEx` gained `STATUS_UNWIND_CONSOLIDATE`, in the dispatcher profile with dynamic code
+(`WITOS_DYNAMIC_CODE`, the CoreCLR memory image):
+
+- The C++ handler calls `RtlUnwindEx` from the search phase of its own exception. The guest runs the unwind as a
+  nested exception, which the kernel refuses to begin while the thread holds the search's stack lease; a
+  consolidating unwind abandons that search, so its lease ends before the unwind begins, as a dynamic-code handler's
+  lease does around its call.
+- When the unwind reaches the target frame and has called its handler, `consolidate()` retires the unwind's
+  exception and the abandoned search's together (`EXCEPTION_UNWIND` through the search's token): every catch leaves
+  no exception active, and the kernel's limit of four nested exceptions is never reached.
+- The kernel then enters `wit_native_consolidate_start` (`Runtime.NativeAot/X64/unwind_consolidation.asm`) below
+  the dead frames, with the target's nonvolatile registers. Its prolog copies the target's machine frame and saves
+  those registers where its unwind codes say, so an exception leaving the callback unwinds straight to the target
+  frame. It calls the record's callback and passes the returned address to `wit_native_consolidate_finish`, which
+  restores the target there through `THREAD_CONTEXT_RESTORE`.
+- A consolidation that would also have to retire a collided unwind is refused.
+
+### Guest evidence
+
+Mode 21 of the CoreCLR mapper fixture (`tests/User.X64/cxx_exceptions_guest.cpp`) runs the 21 scenarios on the
+runtime and the guest dispatcher and compares the trace with `WINDOWS_TRACE`, which the tool generates into
+`cxx_exception_trace.h`; the trace grows in the report page, which the kernel prints when a run fails.
+`coreclr-memory` passes `Code.CxxExceptions` in both profiles. The scenarios throw more often than the four nested
+exceptions the kernel admits, so every catch retired its exceptions. The scenario classes' deleting destructors
+refer to sized `operator delete`, which the guest harness, like the Windows one, defines as a fail-fast that the
+scenarios never call.
