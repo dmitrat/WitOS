@@ -58,11 +58,15 @@ WitU64 wit_native_library_execute_lifecycle(WitU64 address)
     void *reserved = action == WIT_LIBRARY_PROCESS_SHUTDOWN ? (void *)1 : 0;
     WitU32 reason = action == WIT_LIBRARY_THREAD_ATTACH ? 2U : action == WIT_LIBRARY_THREAD_DETACH ? 3U : attach;
     /* As on Windows, a library's TLS callbacks run before its entry point for every reason; a callback-only library
-     * accepts. A failed attach detaches the libraries already called, newest first, in the same order. */
+     * accepts. A failed attach detaches the libraries already called, newest first, in the same order, except those
+     * without an entry point, which have TLS callbacks for the process attach alone. */
     WitU32 done = 0;
     int success = 1, forward = 1;
     while (forward ? done < count : done > 0) {
         const WitLibraryLifecycleEntry *entry = &plan->Entries[forward ? done++ : --done];
+        if (!forward && !entry->Entry) {
+            continue;
+        }
         for (WitU32 k = 0; k < entry->CallbackCount; ++k) {
             ((Callback)((const WitU64 *)entry->Callbacks)[k])((void *)entry->Base, reason, reserved);
         }

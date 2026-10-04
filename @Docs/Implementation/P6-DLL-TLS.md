@@ -1,6 +1,6 @@
 # P6.4 multi-module DLL TLS work
 
-Date: 2026-10-02, closed 2026-10-03. ABI48 static DLL TLS is implemented; the full regression matrix passed in CI and again on the consolidated Q2 code. Dynamic DLL TLS callbacks/constructors and admission with already-live peers remain open.
+Date: 2026-10-02, closed 2026-10-03; P6.4.a–c 2026-10-04. ABI48 static DLL TLS is implemented; the full regression matrix passed in CI and again on the consolidated Q2 code. ABI v49 adds PE TLS callbacks (P6.4.a/b) and dynamic C++ `thread_local` objects in DLLs (P6.4.c). Admission of threads that predate the load (P6.4.d) remains open.
 
 ## Existing boundary to extend
 
@@ -74,8 +74,10 @@ import harness adds 3588 cases on the real callback DLL: acceptance with two cal
 profile, a callback into data, a callback without its fixup and every truncation; an earlier case that pointed the
 list at the TLS directory now fails as a callback into data instead of as an unsupported list.
 
-A library takes part in the lifecycle when it has an entry point or callbacks (`wit_user_library_participates`): the
-attach order, thread admission, thread notifications and the sole-thread rule for loading use that test. Lifecycle
+A library with an entry point or callbacks takes part in the process attach (`wit_user_library_attaches`), and the
+sole-thread rule for loading uses that test. Only a library with an entry point takes thread notifications and the
+detach (`wit_user_library_participates`), which also decides thread admission; P6.4.c established that rule from the
+Windows reference below, after the first version had also notified callback-only libraries. Lifecycle
 plan entries (`WitLibraryLifecycleEntry`, ABI v49, `WIT_LIBRARY_VERSION` 2) carry the library's callback list address
 and count next to the entry point, which is zero for a callback-only library; the plan grows from 128 to 192 bytes.
 The native executor checks that every list is readonly, never writable, null-terminated at its count and that every
@@ -91,3 +93,86 @@ without the thread that predates the load, which the tool generates into `tls_ca
 (`Storage.LibraryTlsCallbacks`). The thread that predates the load stays out until a library with callbacks or an entry
 point may be loaded while other threads run (P6.4.d). The guest loader requires a relocation directory for a library it
 maps away from its preferred base, so the sink holds one absolute pointer; Windows loads the same DLL unchanged.
+
+## Dynamic C++ TLS in DLLs (P6.4.c)
+
+### Libraries without an entry point
+
+The callback library linked with `/noentry` (`tlsnoentry.dll`) gave Windows' rule for such a library in every run
+(`NativeTlsCallbackLibraryImage.WINDOWS_NOENTRY_ORDER`):
+
+```
+M1 M2 A1:731@T B1:731@T M3 T:731 N:731 M4 P:731 M5 M6
+```
+
+Its TLS callbacks run for the process attach alone: no thread attach or detach and no process detach, while every
+thread still has its TLS block with the template values. The P6.4.b guest notified such a library for every reason.
+The kernel now separates `wit_user_library_attaches` (entry point or callbacks: the process attach and the sole-thread
+rule for loading) from `wit_user_library_participates` (entry point: attach order for later notifications, thread
+notifications, detach and thread admission). The executor's reverse detach after a failed attach skips a library
+without an entry point. `LibraryTlsCallbacksTests` requires both Windows orders; the guest test runs the scenario again
+with `tlsnoentry.dll` and a thread created without library notifications, which is now admitted, and requires the
+generated `WIT_TLS_CALLBACK_NOENTRY_ORDER`.
+
+### WitOS dynamic TLS support
+
+MSVC compiles a `thread_local` object with a dynamic initializer into an initializer pointer in `.CRT$XDU`, a guard
+check `__tls_guard` with a call to `__dyn_tls_on_demand_init` on each access, and a `__tlregdtor` registration of its
+destructor; the CRT supplies those symbols, the TLS directory and the callbacks. WitOS DLLs link no CRT, so
+`src/Runtime.Native/library_dynamic_tls.cpp` supplies them for one DLL:
+
+- `_tls_used` with the template bounds and index, and the callback list `__dyn_tls_init` (`.CRT$XLC`) and
+  `__dyn_tls_dtor` (`.CRT$XLD`);
+- the initializer table between null sentinels in `.CRT$XDA` and `.CRT$XDZ`, and `__tls_guard`;
+- a per-thread registry of at most `WIT_NATIVE_TLS_MAX_DESTRUCTORS` (32) destructors and `__tlregdtor`;
+- the entry point `wit_library_dll_entry`, which calls the DLL's own `DllMain` or a default that accepts every reason
+  (`/alternatename`).
+
+The semantics are the CRT's: the loading thread initializes in the entry point at the process attach, before
+`DllMain`; a thread attached after the load initializes in its attach callback; a thread that already ran initializes
+on its first access; the detach callbacks run the registered destructors newest first, popping each before its call,
+for a thread detach and, on the unloading thread, the process detach. Before the first initializer runs, the whole
+table must lie in one read-only, non-executable section of the DLL and hold at most `WIT_NATIVE_TLS_MAX_INITIALIZERS`
+(32) entries, each in an executable, non-writable section; destructors must also be code of the DLL, and destruction
+stops after twice the registry capacity. The object imports nothing, reads the DLL's own section headers through
+`__ImageBase` and ends the process with `__fastfail` on a broken contract. In the guest, `__fastfail` (`int 0x29`)
+meets a DPL0 gate and ends the component with a general-protection user fault; no guest test covers that path yet.
+Ordinary static constructors (`.CRT$XC*`) and `atexit` in a DLL remain unsupported.
+
+### Windows reference
+
+`tests/User.X64/library_tls_objects.cpp` holds two `thread_local` objects whose constructors and destructors record
+the object, a construction serial and the thread into the sink. `tests/WitOS.Dev.Tests/Native/LibraryTlsObjects.c`
+drives the P6.4.a scenario with one access per thread, and `LibraryTlsObjectsTests` runs it against the DLL linked with
+the WitOS support and against the same source linked with the MSVC CRT (`/MD`, CRT entry point). Both produced the
+same trace in every run (`NativeTlsCallbackLibraryImage.WINDOWS_OBJECTS_ORDER`):
+
+```
+M1 M2 C1:1@T C2:2@T M3 T M4 C1:3@N C2:4@N N D2:4@N D1:3@N M5 P C1:5@P C2:6@P D2:6@P D1:5@P M6 D2:2@T D1:1@T M7
+```
+
+The first version of the support initialized the loading thread lazily, on its first access; only the comparison with
+the CRT showed that the CRT's DLL startup initializes it at the process attach, and the entry point now does the same.
+Without an entry point Windows would not run the callbacks for a thread at all.
+
+`DynamicTlsBoundsTest` builds `tests/WitOS.Dev.Tests/Native/LibraryTlsBoundsFixture.cpp` four times: 32 namespace-scope
+initializers and 32 function-local destructor registrations on one thread succeed, and one more of either ends the
+process with `__fastfail` (0xC0000409) before any output. Two linker facts shaped the fixture: an unreferenced
+`thread_local` variable is dropped together with its initializer, and Windows sets up no TLS for a DLL without
+imports, as the static slice already observed (the index stays zero and accesses reach another module's block), so
+the fixture imports the sink. WitOS sets up TLS regardless of imports and does not reproduce that quirk.
+
+### Guest
+
+The boot package carries `native/tlsobjects.dll`, built by `NativeTlsCallbackLibraryImage.BuildObjectsAsync`. The
+third run of `tests/User.X64/library_tls_callbacks_guest.c` loads it, touches the objects on the main thread, runs a
+thread with library notifications that touches them, and unloads; it requires the generated `WIT_TLS_OBJECTS_ORDER`,
+the Windows order without the thread that predates the load:
+
+```
+M1 M2 C1:1@T C2:2@T M3 T M4 C1:3@N C2:4@N N D2:4@N D1:3@N M5 M6 D2:2@T D1:1@T M7
+```
+
+The three runs use failure codes 36xx, 37xx and 38xx, and all passed in `coreclr-storage`
+(`Storage.LibraryTlsCallbacks`). A raw thread exit or a fault still skips the destructors, as for the executable's dynamic TLS. The thread that predates
+the load remains P6.4.d.

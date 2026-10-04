@@ -37,7 +37,7 @@ public sealed class PeImportsTests
         var provider = await NativeLibraryImage.BuildAsync(root, output, msvc);
         var fixtures = await NativeLibraryImage.BuildDependenciesAsync(root, output, msvc);
         var tlsFixture = await NativeTlsLibraryImage.BuildAsync(root, output, msvc);
-        var (_, callbackFixture) = await NativeTlsCallbackLibraryImage.BuildAsync(root, output, msvc);
+        var (_, callbackFixture, _) = await NativeTlsCallbackLibraryImage.BuildAsync(root, output, msvc);
         var exe = Path.Combine(output, "pe-imports.exe");
         await Processes.RequireSuccessAsync(sanitize ? Path.Combine(NativeCoverage.DirectoryPath(root), "bin/clang-cl.exe") : Path.Combine(msvc, "cl.exe"), ["/nologo","/MD","/TC","/std:c17","/W4","/WX",sanitize?"/O1":"/O2",..(sanitize?new[]{"/Zi","/clang:-fsanitize=address","-fuse-ld=lld"}:Array.Empty<string>()),
             "/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"Include",version,"ucrt"),"/I"+Path.Combine(sdk,"Include",version,"um"),"/I"+Path.Combine(sdk,"Include",version,"shared"),"/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),
