@@ -203,6 +203,34 @@ wint_t Fputwc(wchar_t value, FILE *file)
     return written ? value : WEOF;
 }
 
+int Fputc(int value, FILE *file)
+{
+    Stream &stream = From(file);
+    const char byte = char(value);
+    Platform::Acquire(stream.Lock);
+    Writer writer(stream);
+    const bool written = writer.Put(&byte, 1) && writer.Finish();
+    Platform::Release(stream.Lock);
+    return written ? static_cast<unsigned char>(byte) : EOF;
+}
+
+int Fputs(const char *text, FILE *file)
+{
+    if (!text) {
+        InvalidParameter();
+    }
+    Stream &stream = From(file);
+    size_t length = 0;
+    while (text[length]) {
+        ++length;
+    }
+    Platform::Acquire(stream.Lock);
+    Writer writer(stream);
+    const bool written = writer.Put(text, length) && writer.Finish();
+    Platform::Release(stream.Lock);
+    return written ? 0 : EOF;
+}
+
 size_t Fwrite(const void *data, size_t size, size_t count, FILE *file)
 {
     if (!size || !count) {
@@ -386,6 +414,16 @@ extern "C" int __cdecl __stdio_common_vfwprintf(
 extern "C" wint_t __cdecl fputwc(wchar_t value, FILE *stream)
 {
     return WitCrt::Fputwc(value, stream);
+}
+
+extern "C" int __cdecl fputc(int value, FILE *stream)
+{
+    return WitCrt::Fputc(value, stream);
+}
+
+extern "C" int __cdecl fputs(const char *text, FILE *stream)
+{
+    return WitCrt::Fputs(text, stream);
 }
 
 extern "C" size_t __cdecl fwrite(const void *data, size_t size, size_t count, FILE *stream)

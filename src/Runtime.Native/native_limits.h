@@ -25,6 +25,7 @@
 #define WIT_PAL_ENV_NAME_MAX 63U
 #define WIT_PAL_ENV_VALUE_MAX 1023U
 #define WIT_PAL_ENV_BLOCK_CAPACITY 4U /* environment blocks handed out at once */
+#define WIT_NATIVE_PARKING_EVENTS 4U /* events of threads parked on SRW locks and condition variables */
 
 /* CoreCLR adapters. */
 #define WIT_CORECLR_MAPPER_CAPACITY 4U /* double-mapped executable regions */

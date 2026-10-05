@@ -1,7 +1,7 @@
 # P6.4 guest C++ runtime for the host
 
-Date: 2026-10-05. Status: P6.4.e (Windows), P6.4.f (guest), P6.4.g (vcruntime surface), P6.4.h (UCRT subset) and
-P6.4.i1 (STL exceptions and algorithms) complete; P6.4.i2 next.
+Date: 2026-10-05. Status: P6.4.e (Windows), P6.4.f (guest), P6.4.g (vcruntime surface), P6.4.h (UCRT subset),
+P6.4.i1 (STL exceptions and algorithms) and P6.4.i2 (STL threads and synchronization) complete; P6.4.i3 next.
 
 ## Decision
 
@@ -68,7 +68,7 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
   any change to a pinned file is an upstream patch.
   - [x] **P6.4.i1** Exceptions and algorithms: the pin, `std::_X*` and `_Throw_Cpp_error`, system error messages,
     `std::uncaught_exception` and the vectorized algorithms.
-  - [ ] **P6.4.i2** Threads and synchronization: `_Mtx_*`, `_Cnd_*`, `_Thrd_*` with `_beginthreadex`.
+  - [x] **P6.4.i2** Threads and synchronization: `_Mtx_*`, `_Cnd_*`, `_Thrd_*` with `_beginthreadex`.
   - [ ] **P6.4.i3** Locales and streams: the support behind `std::wstringstream`.
 - [ ] **P6.4.j** The host's Win32 imports (files, mappings, critical sections, modules, console, registry) over
   WitOS adapters; strict link of `hostfxr` and `hostpolicy` with no unresolved symbol.
@@ -204,12 +204,13 @@ locale, stream and thread internals to the list.
 | File | Functions |
 |---|---|
 | `format.cpp` | the wide printf engine; `__stdio_common_vswprintf`, `__stdio_common_vsnwprintf_s` |
-| `stdio.cpp` | `__acrt_iob_func`, `__stdio_common_vfwprintf`, `fputwc`, `fwrite`, `fflush`, `setvbuf`, `_wfsopen`, `fclose`, `_wremove`, `_wrename` |
+| `stdio.cpp` | `__acrt_iob_func`, `__stdio_common_vfwprintf`, `fputwc`, `fputc`, `fputs` (P6.4.i2), `fwrite`, `fflush`, `setvbuf`, `_wfsopen`, `fclose`, `_wremove`, `_wrename` |
 | `locale.cpp` | `_create_locale`, `_free_locale`; the C and UTF-8 conversions |
 | `string.cpp` | `wcslen`, `wcscmp`, `wcsncmp`, `wcschr`, `_wcsicmp`, `_wcsnicmp`, `tolower`, `toupper`, `wcstoul`, `_wtoi`, `_wcserror_s` |
 | `time.cpp` | `_time64`, `_gmtime64_s`, `wcsftime` |
-| `heap.cpp`, `runtime.cpp` | `malloc`, `realloc`, `free`; `ceilf`, `terminate`, `_fltused`; `abort`, `_invoke_watson` (P6.4.i) |
-| `platform_windows.cpp`, `platform_witos.cpp` | locks, fail-fast, standard handles, files, the heap, the UTC clock; `_errno` on Windows |
+| `heap.cpp`, `runtime.cpp` | `malloc`, `calloc` (P6.4.i2), `realloc`, `free`; `ceilf`, `terminate`, `_fltused`; `abort`, `_invoke_watson` (P6.4.i) |
+| `thread.cpp`, `errno.cpp` | `_beginthreadex`, `_endthreadex`; the errno of a Windows error (P6.4.i2) |
+| `platform_windows.cpp`, `platform_witos.cpp` | locks, fail-fast, standard handles, files, the heap, the UTC clock, threads; `_errno` on Windows |
 
 `_errno`, `strlen`, the memory routines and `atexit` come from the guest's native layer
 (`Runtime.NativeAot/crt_config.witos.cpp`, `crt_memory.witos.c`, `crt_exit.witos.cpp`); `__chkstk` and `_tls_index`
@@ -317,11 +318,11 @@ The separately compiled STL sources the host needs form a closure of 36 files. T
 
 `src/Runtime.Cxx/stl.lock.json` names the tag, the commit `1f6e5b16`, the license and the SHA-256 of the canonical
 bytes of 182 files: `LICENSE.txt`, `NOTICE.txt`, the 174 headers of `stl/inc` and the six sources of i1; each later
-slice adds its sources. `StlSources` downloads them at the commit into `.tools/stl/<commit>` and verifies every file
+slice adds its sources (189 files with i2). `StlSources` downloads them at the commit into `.tools/stl/<commit>` and verifies every file
 on every use; no STL file is in the repository (`src/Runtime.Cxx/THIRD-PARTY-NOTICES.md`). The sources compile
 unchanged with the options of the STL's own static-library build (`/std:c++latest /permissive- /Zc:preprocessor
-/Zc:threadSafeInit- /Gy /Zp8 /EHsc`, `_CRTBLD`, `_VCRT_ALLOW_INTERNALS`, `_ITERATOR_DEBUG_LEVEL=0`); i1 needed no
-upstream patch.
+/Zc:threadSafeInit- /Gy /Zp8 /EHsc`, `_CRTBLD`, `_VCRT_ALLOW_INTERNALS`, `_ITERATOR_DEBUG_LEVEL=0`; completed in
+P6.4.i2); i1 needed no upstream patch.
 
 - **The host compiles against the pinned headers.** Headers and separately compiled sources must be one version:
   the 14.51 toolset's headers already call `__std_find_first_not_of_trivial_pos_2`, which neither the pinned tag nor
@@ -381,5 +382,95 @@ upstream patch.
 ### Limitations
 
 The SSE4.2 paths run only in the guest and the AVX2 paths only on Windows. `system_category()` messages are WitOS's
-own texts, not Windows'. The NativeAOT COM probe is one unwind entry below the default profile's quota, so later Win32
-adapters that its platform objects would carry need their own files or a quota decision. Threads, mutexes and condition variables (i2) and locales and streams (i3) are next.
+own texts, not Windows'. The NativeAOT COM probe is one unwind entry below the default profile's quota, so later
+Win32 adapters that its platform objects would carry need their own files or a quota decision.
+
+## P6.4.i2: threads and synchronization
+
+`cond.cpp`, `mutex.cpp`, `cthread.cpp`, `xnotify.cpp` and `xtime.cpp` join the build; with their internal headers
+`primitives.hpp` and `awint.hpp` the lock now covers 189 files. They implement `std::mutex`, `std::recursive_mutex`,
+`std::condition_variable` and `std::thread` over SRW locks, condition variables and `_beginthreadex`, the legacy C
+functions `_Mtx_*`, `_Cnd_*` and `_Thrd_*`, notification at thread exit and the clocks.
+
+### The STL's own build options
+
+i1 compiled with a subset of the STL's options. The sources now get the options of the STL's x64 release static
+library, libcpmt, from its CMake files: also `/Os /fastfail /guard:cf`, `/w14265 /w15038` and the definitions
+`_AMD64_`, `WIN32_LEAN_AND_MEAN`, `STRICT`, `_CRT_STDIO_ARBITRARY_WIDE_SPECIFIERS`, `_WIN32_WINNT=0x0A00` and
+`NTDDI_VERSION=NTDDI_WIN10_NI`. Three differences are deliberate:
+
+- **Windows level.** The x64 build sets `_STL_WIN32_WINNT` and `_VCRT_WIN32_WINNT` to XP and looks up newer functions
+  at run time through `winapisupp.cpp` and `GetProcAddress`. WitOS sets Windows 10, as the STL's own ARM64 build does,
+  so the sources call the functions WitOS provides directly: `xtime.cpp` calls `GetSystemTimePreciseAsFileTime`
+  instead of `__crtGetSystemTimePreciseAsFileTime`.
+- **No GS cookie**, which the hosted builds have no runtime for, as before.
+- **No `_ANNOTATE_STL`**: no AddressSanitizer annotations, which would need the STL's ASan objects.
+
+### Guest synchronization
+
+The kernel has events with deadlines, not waits on an address, and Windows' SRW locks and condition variables are
+one pointer each with no initialization or destruction call. `native_stl.witos.cpp` implements them with a parking
+lot:
+
+- A thread that must wait queues a record on its own stack with the address it waits on and an auto-reset event,
+  under one native gate, releases the gate and waits on the event. The thread that wakes it dequeues it, marks it
+  woken and sets the event under the gate. The gate is never held across a wait.
+- Events come from a pool: a thread takes an idle one or creates one, and returns it unsignaled after the wait. When a
+  timed wait ends just as a wake arrives, the waiter clears the late signal first. At most one event per thread is in
+  use (`WIT_NATIVE_PARKING_EVENTS`, four), and a thread that must park when no event can be created ends the
+  component.
+- An SRW lock word holds a lock bit and a contended bit, which changes only under the gate. The fast paths take and
+  release the lock with one compare-exchange; a contender sets the contended bit and parks, and the release of a
+  contended lock wakes the first parked thread, which tries again, so a new arrival may take the lock first, as on
+  Windows. Only exclusive mode exists; releasing a lock that is not held, or finding a shared-mode bit, ends the
+  process.
+- `SleepConditionVariableSRW` queues the thread on the variable's address before it releases the lock, so a wake
+  that follows the release finds it. A wait ends at a wake or at its timeout with `ERROR_TIMEOUT`, and the lock is
+  held again either way. `CONDITION_VARIABLE_LOCKMODE_SHARED` fails with `ERROR_NOT_SUPPORTED`. The variable's own
+  memory is never written.
+
+The same file adds `GetExitCodeThread` (from the kernel's thread reference: `STILL_ACTIVE` until the thread exits),
+`GetNativeSystemInfo` (the kernel's processors and page size, the reservation alignment and the dynamic arenas as the
+application range, and level and revision from CPUID), `SwitchToThread` (nonzero only when another thread ran) and
+`GetSystemTimePreciseAsFileTime`, which ends the process: the guest has no UTC clock and the Windows function cannot
+fail. `std::chrono::system_clock` therefore ends a guest component instead of inventing a time; the steady clock
+uses the kernel's monotonic counter.
+
+### C runtime
+
+- `_beginthreadex` and `_endthreadex` (`thread.cpp`) over the platform's `CreateThread`; the procedure's signature is
+  the start routine's on x64, so no per-thread block wraps it, and `_endthreadex` ends the thread through the guest's
+  thread exit with its TLS, runtime and library notifications. A failure maps the platform error to errno.
+- `errno.cpp` holds UCRT's mapping of Windows errors, shared by both platforms. The subset's earlier table mapped
+  `ERROR_INVALID_NAME` to `ENOENT`; UCRT reports `EINVAL`, which the differential now checks with a name Windows
+  rejects.
+- `calloc` zeroes through the platform (`HEAP_ZERO_MEMORY` on Windows) and rejects a product beyond `_HEAP_MAXREQ`
+  with `ENOMEM`; `fputc` writes the low byte and `fputs` the string in the stream's mode, both returning UCRT's
+  values.
+
+### Evidence
+
+- `StlTests.PinnedStlMatchesMsvcpTest` now also runs threads: a sum and identities, a mutex three threads contend for
+  while they yield holding it, a producer and two consumers on one condition variable, `notify_all` for three
+  waiters, `try_lock` while another thread holds the mutex, a recursive mutex, relocking that throws
+  `resource_deadlock_would_occur`, `_Thrd_create`/`_Thrd_join` with exit codes and `_Thrd_exit`, the steady clock,
+  yielding until another thread ran, and `notify_all_at_thread_exit` of a detached thread. msvcp140 and the pinned
+  sources on the WitOS runtimes over kernel32 print the same trace.
+- `CrtTests` compare `calloc`, `fputc` and `fputs` with UCRT in the scenarios and in the differential, which also
+  writes them to files in every mode and buffering.
+- In the guest, mode 23 runs the same scenarios on the parking lot and the guest's threads and then checks the
+  guest functions directly: timed waits that nothing wakes, shared mode, twenty short timeouts before a wait that
+  another thread wakes, `GetExitCodeThread` while the thread runs and after it ended, `_beginthreadex` with what the
+  guest's `CreateThread` rejects (errno `EINVAL`), `SwitchToThread` with a ready thread and `GetNativeSystemInfo`.
+  The kernel checks the component's counters: the threads parked and were woken on events, timed waits timed out,
+  and the main thread started exactly eighteen threads (`[STL-PARKING] parks=217 wakes=203 timeouts=22 threads=19` at
+  128 MiB). Mode 24 calls `system_clock::now()` and must end with the native fail-fast exit
+  (`Code.StlNoUtcClock`). The host runtime fixture now starts as a module does, with
+  `wit_native_tls_initialize`, and links the guest's thread lifecycle and Win32 adapters for events, waits, handles,
+  sleeping, threads and clocks: 256 KiB with 699 unwind entries.
+
+### Limitations
+
+Shared SRW mode, `std::shared_mutex`, `sleep_for` and `wait_for` (`sharedmutex.cpp`, which the host does not link)
+and `std::call_once` are not built. A component has four threads, so at most four can park at once. Locales and
+streams (i3) are next.

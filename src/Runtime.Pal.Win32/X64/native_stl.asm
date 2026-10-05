@@ -1,6 +1,16 @@
 option casemap:none
 EXTERN wit_native_format_message_ansi:PROC
 EXTERN wit_native_locale_info:PROC
+EXTERN wit_native_srw_try_acquire:PROC
+EXTERN wit_native_srw_acquire:PROC
+EXTERN wit_native_srw_release:PROC
+EXTERN wit_native_condition_sleep:PROC
+EXTERN wit_native_condition_wake:PROC
+EXTERN wit_native_condition_wake_all:PROC
+EXTERN wit_native_thread_exit_code:PROC
+EXTERN wit_native_system_info:PROC
+EXTERN wit_native_switch_to_thread:PROC
+EXTERN wit_native_precise_system_time:PROC
 .code
 PUBLIC FormatMessageA
 FormatMessageA PROC
@@ -10,10 +20,70 @@ PUBLIC GetLocaleInfoEx
 GetLocaleInfoEx PROC
  jmp wit_native_locale_info
 GetLocaleInfoEx ENDP
+PUBLIC TryAcquireSRWLockExclusive
+TryAcquireSRWLockExclusive PROC
+ jmp wit_native_srw_try_acquire
+TryAcquireSRWLockExclusive ENDP
+PUBLIC AcquireSRWLockExclusive
+AcquireSRWLockExclusive PROC
+ jmp wit_native_srw_acquire
+AcquireSRWLockExclusive ENDP
+PUBLIC ReleaseSRWLockExclusive
+ReleaseSRWLockExclusive PROC
+ jmp wit_native_srw_release
+ReleaseSRWLockExclusive ENDP
+PUBLIC SleepConditionVariableSRW
+SleepConditionVariableSRW PROC
+ jmp wit_native_condition_sleep
+SleepConditionVariableSRW ENDP
+PUBLIC WakeConditionVariable
+WakeConditionVariable PROC
+ jmp wit_native_condition_wake
+WakeConditionVariable ENDP
+PUBLIC WakeAllConditionVariable
+WakeAllConditionVariable PROC
+ jmp wit_native_condition_wake_all
+WakeAllConditionVariable ENDP
+PUBLIC GetExitCodeThread
+GetExitCodeThread PROC
+ jmp wit_native_thread_exit_code
+GetExitCodeThread ENDP
+PUBLIC GetNativeSystemInfo
+GetNativeSystemInfo PROC
+ jmp wit_native_system_info
+GetNativeSystemInfo ENDP
+PUBLIC SwitchToThread
+SwitchToThread PROC
+ jmp wit_native_switch_to_thread
+SwitchToThread ENDP
+PUBLIC GetSystemTimePreciseAsFileTime
+GetSystemTimePreciseAsFileTime PROC
+ jmp wit_native_precise_system_time
+GetSystemTimePreciseAsFileTime ENDP
 .const
 ALIGN 8
 PUBLIC __imp_FormatMessageA
 __imp_FormatMessageA DQ FormatMessageA
 PUBLIC __imp_GetLocaleInfoEx
 __imp_GetLocaleInfoEx DQ GetLocaleInfoEx
+PUBLIC __imp_TryAcquireSRWLockExclusive
+__imp_TryAcquireSRWLockExclusive DQ TryAcquireSRWLockExclusive
+PUBLIC __imp_AcquireSRWLockExclusive
+__imp_AcquireSRWLockExclusive DQ AcquireSRWLockExclusive
+PUBLIC __imp_ReleaseSRWLockExclusive
+__imp_ReleaseSRWLockExclusive DQ ReleaseSRWLockExclusive
+PUBLIC __imp_SleepConditionVariableSRW
+__imp_SleepConditionVariableSRW DQ SleepConditionVariableSRW
+PUBLIC __imp_WakeConditionVariable
+__imp_WakeConditionVariable DQ WakeConditionVariable
+PUBLIC __imp_WakeAllConditionVariable
+__imp_WakeAllConditionVariable DQ WakeAllConditionVariable
+PUBLIC __imp_GetExitCodeThread
+__imp_GetExitCodeThread DQ GetExitCodeThread
+PUBLIC __imp_GetNativeSystemInfo
+__imp_GetNativeSystemInfo DQ GetNativeSystemInfo
+PUBLIC __imp_SwitchToThread
+__imp_SwitchToThread DQ SwitchToThread
+PUBLIC __imp_GetSystemTimePreciseAsFileTime
+__imp_GetSystemTimePreciseAsFileTime DQ GetSystemTimePreciseAsFileTime
 END

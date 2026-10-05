@@ -101,7 +101,7 @@ static void mapper_adapter(WitPageAllocator *pages)
 /* The host runtime fixture (P6.4.i) runs one group of scenarios per mode under the full runtime profile, as the
  * kernel will load the .NET host, and each group must print the trace Windows prints; a failed run prints how far its
  * trace got. */
-static void host_runtime(WitPageAllocator *pages, WitU64 mode, const char *name)
+static void host_runtime(WitPageAllocator *pages, WitU64 mode, const char *name, WitU64 expected)
 {
     const WitU64 before = wit_pages_free_count(pages);
     require(
@@ -111,7 +111,7 @@ static void host_runtime(WitPageAllocator *pages, WitU64 mode, const char *name)
     ((WitUserTestConfig *)wit_user_space_physical(&process.Space, WIT_USER_INFO, 0, 0))->Mode = mode;
     process.TickLimit = WIT_RUNTIME_TICK_BUDGET;
     wit_user_run(&process);
-    if (process.State != WitUserExited || process.ExitCode != 42) {
+    if (process.State != WitUserExited || process.ExitCode != expected) {
         wit_console_write(name);
         wit_console_write(" state/code: ");
         wit_console_write_u64(process.State);
@@ -134,6 +134,19 @@ static void host_runtime(WitPageAllocator *pages, WitU64 mode, const char *name)
         wit_console_write("[STL-ISA] ");
         wit_console_write_u64(report[0]);
         wit_console_write("\n");
+        /* Contended SRW locks and condition variables park threads on events, and the timed waits time out. The
+         * main thread starts sixteen threads in the scenarios and two in the checks after them. */
+        wit_console_write("[STL-PARKING] parks=");
+        wit_console_write_u64(process.EventParks);
+        wit_console_write(" wakes=");
+        wit_console_write_u64(process.EventWakes);
+        wit_console_write(" timeouts=");
+        wit_console_write_u64(process.WaitTimeouts);
+        wit_console_write(" threads=");
+        wit_console_write_u64(process.ThreadCreates);
+        wit_console_write("\n");
+        require(process.EventParks && process.EventWakes && process.WaitTimeouts && process.ThreadCreates == 19,
+            "STL threads did not park, wake and time out on events");
     }
     wit_user_destroy(&process);
     require(wit_pages_free_count(pages) == before, "Host runtime fixture leaked");
@@ -143,14 +156,17 @@ static void host_runtimes(WitPageAllocator *pages)
 {
     /* C++ exceptions on the WitOS C++ runtime and the guest's dispatch (P6.4.f, P6.4.g). More throws than
      * WIT_EXCEPTION_MAX_DEPTH also prove that every catch retires its exceptions. */
-    host_runtime(pages, 21, "C++ runtime");
+    host_runtime(pages, 21, "C++ runtime", 42);
     wit_console_write("[TEST-PASS] Code.CxxExceptions\n");
     /* The UCRT subset on the native heap and the process console (P6.4.h). */
-    host_runtime(pages, 22, "UCRT subset");
+    host_runtime(pages, 22, "UCRT subset", 42);
     wit_console_write("[TEST-PASS] Code.UcrtSubset\n");
-    /* The separately compiled sources of the pinned STL (P6.4.i1). */
-    host_runtime(pages, 23, "STL");
+    /* The separately compiled sources of the pinned STL (P6.4.i1, P6.4.i2). */
+    host_runtime(pages, 23, "STL", 42);
     wit_console_write("[TEST-PASS] Code.StlSupport\n");
+    /* Without a UTC clock, system_clock ends the component instead of inventing a time. */
+    host_runtime(pages, 24, "STL without UTC", 0xFFFF0001ULL); /* the native fail-fast exit */
+    wit_console_write("[TEST-PASS] Code.StlNoUtcClock\n");
 }
 
 static void sparse_views(WitPageAllocator *pages)

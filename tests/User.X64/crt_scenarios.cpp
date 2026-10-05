@@ -232,6 +232,17 @@ void Memory()
     }
     Number("m2", same);
     Number("m3", realloc(block, 0) == nullptr);
+    auto *zeroed = static_cast<unsigned char *>(calloc(3, 5));
+    int clear = zeroed != nullptr;
+    for (int i = 0; clear && i < 15; ++i) {
+        clear = !zeroed[i];
+    }
+    Number("m4", clear);
+    free(zeroed);
+    errno = 0;
+    Number("m5", calloc(SIZE_MAX / 2, 3) == nullptr);
+    Number("m6", errno);
+    Number("m7", calloc(0, 8) != nullptr); // freed with the process
     free(nullptr);
     _locale_t c = _create_locale(LC_ALL, "C"), utf8 = _create_locale(LC_ALL, ".UTF-8");
     const auto *cData = reinterpret_cast<const __crt_locale_data_public *>(c->locinfo);
@@ -259,7 +270,8 @@ void Memory()
     Number("c3", (long long)bits);
 }
 
-/* Prints the lines "[CRT-STDOUT] wide narrow 42", "[CRT-STDERR] err" and "[CRT-FWRITE]", which the runners check. */
+/* Prints the lines "[CRT-STDOUT] wide narrow 42", "[CRT-STDERR] err", "[CRT-FWRITE]" and "[CRT-FPUTS]", which the
+ * runners check. */
 void Streams()
 {
     errno = 0;
@@ -279,6 +291,8 @@ void Streams()
     Number("o12", fwprintf(stdout, L"%s\n", L"\x20AC"));
     Number("o13", errno);
     Number("o14", (long long)fwrite("[CRT-FWRITE]\n", 1, 13, stdout));
+    Number("o15", fputs("[CRT-FPUTS]", stdout));
+    Number("o16", fputc('\n' + 256, stdout)); // the low byte
 }
 
 } // namespace
