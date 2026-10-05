@@ -63,12 +63,12 @@ internal static class HostRuntimeImage
     {
         var stl = await StlSources.PrepareAsync(root);
         var cl = Path.Combine(msvc, "cl.exe");
-        var ml = Path.Combine(msvc, "ml64.exe");
         var includes = NativeCxxExceptionImage.Includes(msvc);
         // The host compiles against the pinned STL headers, ahead of the toolset's.
         string[] guest = ["/I" + Path.Combine(stl, "stl", "inc"), .. includes, "/I" + Path.Combine(root, "src/Kernel/include"),
             "/I" + Path.Combine(root, "src/Runtime.Native"), "/I" + output];
         var objects = new List<string>(support);
+        objects.AddRange(await CompileRuntimesAsync(root, output, msvc));
         async Task Compile(string prefix, IEnumerable<string> options, string source)
         {
             var obj = Path.Combine(output, prefix + Path.GetFileName(source) + ".obj");
@@ -81,9 +81,8 @@ internal static class HostRuntimeImage
         await File.WriteAllTextAsync(Path.Combine(output, "cxx_exception_trace.h"),
             "/* Generated from NativeCxxExceptionImage.WINDOWS_TRACE. */\n" +
             $"#define WIT_CXX_EXCEPTION_TRACE \"{NativeCxxExceptionImage.WINDOWS_TRACE}\"\n");
-        foreach (var file in NativeCxxExceptionImage.RUNTIME.Concat(NativeCxxExceptionImage.GUEST)
-                     .Append(NativeCxxExceptionImage.ISA).Append("tests/User.X64/cxx_exceptions.cpp")
-                     .Append("tests/User.X64/cxx_exceptions_guest.cpp").Append(NativeCxxExceptionImage.RUNTIME_SCENARIOS))
+        foreach (var file in new[] { "tests/User.X64/cxx_exceptions.cpp", "tests/User.X64/cxx_exceptions_guest.cpp",
+                     NativeCxxExceptionImage.RUNTIME_SCENARIOS })
         {
             string[] protection = file == NativeCxxExceptionImage.RUNTIME_SCENARIOS ? ["/GS", "/guard:cf"] : ["/GS-"];
             await Compile("cxx_", ["/std:c++17", .. protection, "/GR-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", .. guest],
@@ -95,23 +94,17 @@ internal static class HostRuntimeImage
         await File.WriteAllTextAsync(Path.Combine(output, "crt_trace.h"),
             "/* Generated from NativeCrtImage.WINDOWS_TRACE. */\n" +
             $"#define WIT_CRT_TRACE \"{NativeCrtImage.WINDOWS_TRACE.Replace("\\", "\\\\")}\"\n");
-        foreach (var file in NativeCrtImage.RUNTIME.Append(NativeCrtImage.GUEST_PLATFORM).Append(NativeCrtImage.SCENARIOS)
-                     .Append("tests/User.X64/crt_scenarios_guest.cpp"))
+        foreach (var file in new[] { NativeCrtImage.SCENARIOS, "tests/User.X64/crt_scenarios_guest.cpp" })
         {
             await Compile("ucrt_", [.. NativeCrtImage.OPTIONS, .. includes, "/I" + Path.Combine(root, "src/Kernel/include"),
                 "/I" + Path.Combine(root, "src/Runtime.Native"), "/I" + Path.Combine(root, "src/Runtime.Crt"), "/I" + output],
                 Path.Combine(root, file));
         }
 
-        // The separately compiled STL sources (P6.4.i1) with the STL's own options, and their scenarios against the
-        // trace msvcp140 prints on Windows.
+        // The STL scenarios against the trace msvcp140 prints on Windows.
         await File.WriteAllTextAsync(Path.Combine(output, "stl_trace.h"),
             "/* Generated from NativeStlImage.WINDOWS_TRACE. */\n" +
             $"#define WIT_STL_TRACE \"{NativeStlImage.WINDOWS_TRACE}\"\n");
-        foreach (var file in NativeStlImage.SOURCES)
-        {
-            await Compile("stl_", [.. StlSources.CompileOptions(root, stl), .. includes], Path.Combine(stl, file));
-        }
         foreach (var file in new[] { NativeStlImage.SCENARIOS, STL_GUEST, MAIN })
         {
             await Compile("stl_", ["/std:c++17", "/GS-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", .. guest],
@@ -120,13 +113,6 @@ internal static class HostRuntimeImage
         await Compile("heap_", ["/std:c++17", "/GS-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", .. guest,
             "/I" + Path.Combine(root, "src/Runtime.NativeAot")], Path.Combine(root, HEAP));
 
-        foreach (var (file, name) in BINDINGS.Select(binding => ($"src/Runtime.Pal.Win32/X64/{binding}.asm", $"host_{binding}.obj"))
-                     .Prepend((NativeCxxExceptionImage.GUARD, "cxx_guard_dispatch.obj")))
-        {
-            var obj = Path.Combine(output, name);
-            await Processes.RequireSuccessAsync(ml, ["/nologo", "/c", "/Fo" + obj, Path.Combine(root, file)], root);
-            objects.Add(obj);
-        }
         var image = Path.Combine(output, "HostRuntimeFixture.pe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"), ["/nologo", "/subsystem:native",
             "/entry:wit_native_start", "/nodefaultlib", "/machine:x64", "/fixed:no", "/dynamicbase", "/incremental:no",
@@ -149,6 +135,56 @@ internal static class HostRuntimeImage
             stlSources = NativeStlImage.SOURCES,
             profile = "C++ runtime, UCRT subset and pinned STL sources under the full runtime profile; not the .NET host"
         }));
+    }
+
+    /// <summary>
+    /// Compiles what every guest C++ module links besides the guest's native support: the WitOS C++ runtime with its
+    /// guest platform and processor level (P6.4.e-g), the UCRT subset over the guest (P6.4.h), the separately compiled
+    /// sources of the pinned STL with the STL's own options (P6.4.i) and the Win32 bindings of the adapters.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
+    /// <returns>The objects, in link order.</returns>
+    internal static async Task<List<string>> CompileRuntimesAsync(string root, string output, string msvc)
+    {
+        var stl = await StlSources.PrepareAsync(root);
+        var cl = Path.Combine(msvc, "cl.exe");
+        var ml = Path.Combine(msvc, "ml64.exe");
+        var includes = NativeCxxExceptionImage.Includes(msvc);
+        string[] guest = ["/I" + Path.Combine(stl, "stl", "inc"), .. includes, "/I" + Path.Combine(root, "src/Kernel/include"),
+            "/I" + Path.Combine(root, "src/Runtime.Native")];
+        var objects = new List<string>();
+        async Task Compile(string prefix, IEnumerable<string> options, string source)
+        {
+            var obj = Path.Combine(output, prefix + Path.GetFileName(source) + ".obj");
+            await Processes.RequireSuccessAsync(cl, ["/nologo", "/c", "/TP", .. options, "/Fo" + obj, source], root);
+            objects.Add(obj);
+        }
+
+        foreach (var file in NativeCxxExceptionImage.RUNTIME.Concat(NativeCxxExceptionImage.GUEST).Append(NativeCxxExceptionImage.ISA))
+        {
+            await Compile("cxx_", ["/std:c++17", "/GS-", "/GR-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", .. guest],
+                Path.Combine(root, file));
+        }
+        foreach (var file in NativeCrtImage.RUNTIME.Append(NativeCrtImage.GUEST_PLATFORM))
+        {
+            await Compile("ucrt_", [.. NativeCrtImage.OPTIONS, .. includes, "/I" + Path.Combine(root, "src/Kernel/include"),
+                "/I" + Path.Combine(root, "src/Runtime.Native"), "/I" + Path.Combine(root, "src/Runtime.Crt")],
+                Path.Combine(root, file));
+        }
+        foreach (var file in NativeStlImage.SOURCES)
+        {
+            await Compile("stl_", [.. StlSources.CompileOptions(root, stl), .. includes], Path.Combine(stl, file));
+        }
+        foreach (var (file, name) in BINDINGS.Select(binding => ($"src/Runtime.Pal.Win32/X64/{binding}.asm", $"host_{binding}.obj"))
+                     .Prepend((NativeCxxExceptionImage.GUARD, "cxx_guard_dispatch.obj")))
+        {
+            var obj = Path.Combine(output, name);
+            await Processes.RequireSuccessAsync(ml, ["/nologo", "/c", "/Fo" + obj, Path.Combine(root, file)], root);
+            objects.Add(obj);
+        }
+        return objects;
     }
 
     #endregion
