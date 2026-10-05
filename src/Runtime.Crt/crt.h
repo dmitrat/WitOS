@@ -6,8 +6,10 @@
  * parameter ends the process, as UCRT's default invalid-parameter handler does, and so does every conversion or mode
  * this subset does not implement. The platform functions are in platform_windows.cpp (hosted) or platform_witos.cpp
  * (guest). */
+#include <process.h>
 #include <stdarg.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <time.h>
 #include <wchar.h>
@@ -21,6 +23,9 @@ constexpr unsigned long long PRINTF_STANDARD_SNPRINTF = 1ULL << 1;
 constexpr unsigned long long PRINTF_LEGACY_WIDE_SPECIFIERS = 1ULL << 2;
 
 [[noreturn]] void InvalidParameter();
+
+/* The errno of a Windows error, as UCRT maps the errors of the functions it calls (errno.cpp). */
+int ErrnoFromOs(unsigned long error);
 
 /* A locale: what _locale_t points to, the public data UCRT's headers read through it, and the ctype table, whose
  * index 0 is EOF. The multibyte data pointer is null. */
@@ -70,6 +75,8 @@ int Vsnwprintf_s(unsigned long long options, wchar_t *buffer, size_t size, size_
 FILE *Iob(unsigned index);
 int Vfwprintf(unsigned long long options, FILE *stream, const wchar_t *format, _locale_t locale, va_list args);
 wint_t Fputwc(wchar_t value, FILE *stream);
+int Fputc(int value, FILE *stream);
+int Fputs(const char *text, FILE *stream);
 size_t Fwrite(const void *data, size_t size, size_t count, FILE *stream);
 int Fflush(FILE *stream);
 int Setvbuf(FILE *stream, char *buffer, int mode, size_t size);
@@ -99,9 +106,15 @@ size_t Wcsftime(wchar_t *buffer, size_t count, const wchar_t *format, const stru
 
 /* Memory (heap.cpp) and the rest (runtime.cpp). */
 void *Malloc(size_t size);
+void *Calloc(size_t count, size_t size);
 void *Realloc(void *block, size_t size);
 void Free(void *block);
 float Ceilf(float value);
+
+/* Threads (thread.cpp). */
+uintptr_t Beginthreadex(
+    void *security, unsigned stack, _beginthreadex_proc_type start, void *argument, unsigned flags, unsigned *id);
+[[noreturn]] void Endthreadex(unsigned code);
 
 /* Platform functions. Handles are the platform's; a failing function sets errno. A write writes all bytes or fails. */
 namespace Platform {
@@ -120,9 +133,14 @@ bool Close(void *handle);
 bool Remove(const wchar_t *path);
 bool Rename(const wchar_t *from, const wchar_t *to);
 void *Allocate(size_t size);
+void *AllocateZeroed(size_t size);
 void *Reallocate(void *block, size_t size);
 void Free(void *block);
 bool UtcNow(__time64_t &seconds); // false without a UTC clock
+/* A platform thread running start(argument): its handle, or null with errno set. The flags are CreateThread's. */
+void *CreateThread(
+    void *security, unsigned stack, _beginthreadex_proc_type start, void *argument, unsigned flags, unsigned *id);
+[[noreturn]] void ExitThread(unsigned code); // ends the calling thread as returning from its start function does
 
 } // namespace Platform
 

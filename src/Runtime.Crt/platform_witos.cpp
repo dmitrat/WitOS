@@ -1,15 +1,19 @@
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
 #include <errno.h>
 #include <string.h>
 #include "crt.h"
 #include "../Runtime.NativeAot/native_heap.witos.h"
+#include "tls.h"
 extern "C" {
-#include "bootstrap.h"
 #include "image.h"
 }
 
-/* The UCRT subset's platform functions in the guest (P6.4.h): the native lock and fail-fast, the process console for
- * standard output and standard error, the C family of the native heap and no UTC clock. Guest storage is read-only:
- * opening a file for writing, removing and renaming report EACCES. */
+/* The UCRT subset's platform functions in the guest (P6.4.h, P6.4.i2): the native lock and fail-fast, the process
+ * console for standard output and standard error, the C family of the native heap, no UTC clock and threads through
+ * the guest's CreateThread. Guest storage is read-only: opening a file for writing, removing and renaming report
+ * EACCES. */
 namespace WitCrt::Platform {
 
 void Acquire(Lock &lock)
@@ -77,6 +81,15 @@ void *Allocate(size_t size)
     return wit_native_c_allocate(size);
 }
 
+void *AllocateZeroed(size_t size)
+{
+    void *block = wit_native_c_allocate(size);
+    if (block) {
+        memset(block, 0, size);
+    }
+    return block;
+}
+
 void *Reallocate(void *block, size_t size)
 {
     const size_t old = wit_native_c_size(block);
@@ -101,6 +114,28 @@ void Free(void *block)
 bool UtcNow(__time64_t &)
 {
     return false; // the guest has a monotonic clock only
+}
+
+void *CreateThread(
+    void *security, unsigned stack, _beginthreadex_proc_type start, void *argument, unsigned flags, unsigned *id)
+{
+    DWORD thread = 0;
+    // The procedure's signature is the start routine's on x64.
+    HANDLE handle = ::CreateThread(static_cast<LPSECURITY_ATTRIBUTES>(security), stack,
+        reinterpret_cast<LPTHREAD_START_ROUTINE>(start), argument, flags, &thread);
+    if (!handle) {
+        errno = ErrnoFromOs(GetLastError());
+        return nullptr;
+    }
+    if (id) {
+        *id = thread;
+    }
+    return handle;
+}
+
+void ExitThread(unsigned code)
+{
+    wit_native_thread_exit(code); // TLS, runtime and library notifications, as when the start function returns
 }
 
 } // namespace WitCrt::Platform

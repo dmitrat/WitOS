@@ -14,7 +14,9 @@ internal static class NativeStlImage
     /// The trace msvcp140 produces for the scenarios on Windows; the pinned STL sources must produce it without any
     /// Visual C++ or C runtime library on Windows and in the guest: the messages of the throw helpers, generic error
     /// messages and the mapping of Windows errors, std::uncaught_exception during unwinding and the vectorized
-    /// algorithms and string searches (checks, mismatches with plain loops, a hash of the results).
+    /// algorithms and string searches (checks, mismatches with plain loops, a hash of the results); threads, contended
+    /// and recursive mutexes, condition variables with one and many waiters, the legacy C thread functions, the steady
+    /// clock and a notification at a detached thread's exit.
     /// </summary>
     public const string WINDOWS_TRACE = "x1:string_too_long x2:vector_too_long x3:invalid_string_position " +
         "x4:invalid_vector_subscript x5:invalid_bitset_char x6:bad_function_call x7:runtime_helper x8:bad_allocation " +
@@ -26,14 +28,17 @@ internal static class NativeStlImage
         "g2:no_such_file_or_directory g3:not_enough_memory w:2=2,generic w:5=13,generic w:8=12,generic " +
         "w:87=22,generic w:183=17,generic w:1460=138,generic w:12345=12345,system w2:system u:1,0 " +
         "v1:3195,0,751218269 v2:3197,0,879267265 v4:3197,0,79119382 v8:3200,0,556037538 s1:2000,0,656027640 " +
-        "s2:2000,0,336263857";
+        "s2:2000,0,336263857 t1:500500,1,0,1,1,1 t2:900 t3:125250,500 t4:3 t5:1,1 t6:1,0,1 " +
+        "t7:resource_deadlock_would_occur:_resource_deadlock_would_occur t8:0,0,42,7 t9:1,1,1 t10:1";
 
     /// <summary>
-    /// The separately compiled sources of the pinned STL that the host needs first: the throw helpers, system error
-    /// messages, std::uncaught_exception and the vectorized algorithms.
+    /// The separately compiled sources of the pinned STL that the host needs: the throw helpers, system error
+    /// messages, std::uncaught_exception and the vectorized algorithms (P6.4.i1); mutexes, condition variables,
+    /// threads and their clocks (P6.4.i2).
     /// </summary>
     public static readonly string[] SOURCES = ["stl/src/xthrow.cpp", "stl/src/thread0.cpp", "stl/src/syserror.cpp",
-        "stl/src/syserror_import_lib.cpp", "stl/src/uncaught_exception.cpp", "stl/src/vector_algorithms.cpp"];
+        "stl/src/syserror_import_lib.cpp", "stl/src/uncaught_exception.cpp", "stl/src/vector_algorithms.cpp",
+        "stl/src/cond.cpp", "stl/src/mutex.cpp", "stl/src/cthread.cpp", "stl/src/xnotify.cpp", "stl/src/xtime.cpp"];
 
     /// <summary>
     /// The guest's native memory routines, which the separately compiled sources call.

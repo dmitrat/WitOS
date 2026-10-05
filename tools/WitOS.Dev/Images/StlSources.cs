@@ -96,14 +96,20 @@ internal static class StlSources
     }
 
     /// <summary>
-    /// The compiler options of the STL's own build for a separately compiled source in a static library.
+    /// The compiler options of the STL's own x64 release build of its static library, libcpmt, with three deliberate
+    /// differences: the Windows level is Windows 10, as in the STL's ARM64 build, instead of XP with run-time lookup of
+    /// newer functions, so the sources call the Win32 functions WitOS provides directly; no GS cookie, which the hosted
+    /// builds have no runtime for; and no ASan annotations.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="stl">The directory <see cref="PrepareAsync"/> returned.</param>
     /// <returns>The cl options.</returns>
     internal static string[] CompileOptions(string root, string stl) => ["/Zl", "/Gy", "/Zp8", "/std:c++latest",
-        "/permissive-", "/Zc:preprocessor", "/Zc:threadSafeInit-", "/EHsc", "/O2", "/GS-", "/W4", "/WX", "/D_CRTBLD",
-        "/D_VCRT_ALLOW_INTERNALS", "/D_HAS_OLD_IOSTREAMS_MEMBERS=1", "/D_ITERATOR_DEBUG_LEVEL=0",
+        "/permissive-", "/Zc:preprocessor", "/Zc:threadSafeInit-", "/EHsc", "/O2", "/Os", "/fastfail", "/guard:cf",
+        "/GS-", "/W4", "/w14265", "/w15038", "/WX", "/D_AMD64_", "/D_VCRT_WIN32_WINNT=0x0A00",
+        "/D_STL_WIN32_WINNT=0x0A00", "/D_ALLOW_ITERATOR_DEBUG_LEVEL_MISMATCH", "/DWIN32_LEAN_AND_MEAN", "/DSTRICT",
+        "/D_CRT_STDIO_ARBITRARY_WIDE_SPECIFIERS", "/D_WIN32_WINNT=0x0A00", "/DNTDDI_VERSION=NTDDI_WIN10_NI",
+        "/D_CRTBLD", "/D_VCRT_ALLOW_INTERNALS", "/D_HAS_OLD_IOSTREAMS_MEMBERS=1", "/D_ITERATOR_DEBUG_LEVEL=0",
         "/I" + Path.Combine(stl, "stl", "inc"), "/I" + Path.Combine(root, INTERNAL_SHARED)];
 
     #endregion

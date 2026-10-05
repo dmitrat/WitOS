@@ -413,6 +413,8 @@ struct Api {
     FILE *(*Open)(const wchar_t *, const wchar_t *, int);
     int (*Vfwprintf)(unsigned long long, FILE *, const wchar_t *, _locale_t, va_list);
     wint_t (*Putwc)(wchar_t, FILE *);
+    int (*Putc)(int, FILE *);
+    int (*Puts)(const char *, FILE *);
     size_t (*Write)(const void *, size_t, size_t, FILE *);
     int (*Flush)(FILE *);
     int (*Setvbuf)(FILE *, char *, int, size_t);
@@ -435,6 +437,16 @@ int UcrtVfwprintf(unsigned long long options, FILE *stream, const wchar_t *forma
 wint_t UcrtPutwc(wchar_t value, FILE *stream)
 {
     return fputwc(value, stream);
+}
+
+int UcrtPutc(int value, FILE *stream)
+{
+    return fputc(value, stream);
+}
+
+int UcrtPuts(const char *text, FILE *stream)
+{
+    return fputs(text, stream);
 }
 
 size_t UcrtWrite(const void *data, size_t size, size_t count, FILE *stream)
@@ -525,6 +537,16 @@ void Script(const Api &api, Log &log, const wchar_t *path, const wchar_t *mode, 
     log.Add((long long)api.Write("a\nb\r\nc", 1, 6, stream));
     errno = 0;
     log.Add((long long)api.Write("12345678", 4, 2, stream));
+    errno = 0;
+    log.Add(api.Puts("put\nstring\r\n", stream));
+    errno = 0;
+    log.Add(api.Puts("", stream));
+    errno = 0;
+    log.Add(api.Putc('\n', stream));
+    errno = 0;
+    log.Add(api.Putc(0x1E9, stream));
+    errno = 0;
+    log.Add(api.Putc(-1, stream));
     StreamPrint(api, log, stream, 0x24, nullptr, L"[%s]", L"\x00E9\x00FF");
     StreamPrint(api, log, stream, 0x24, nullptr, L"[%s]", L"ab\x20AC\x0100\xD83D\xDE00\xFFFF\xDC00");
     StreamPrint(api, log, stream, 0x24, api.Utf8, L"[%s]", L"\xFFFF\xFFFE\x0800\x07FF\x0080\x007F");
@@ -576,10 +598,10 @@ void WriteFileBytes(const wchar_t *path, const char *bytes)
 
 void StreamCases(const wchar_t *directory, _locale_t ucrtUtf8, _locale_t witUtf8)
 {
-    const Api ucrt = {UcrtOpen, UcrtVfwprintf, UcrtPutwc, UcrtWrite, UcrtFlush, UcrtSetvbuf, UcrtClose, UcrtRemove,
-        UcrtRename, ucrtUtf8};
-    const Api wit = {WitCrt::Wfsopen, WitCrt::Vfwprintf, WitCrt::Fputwc, WitCrt::Fwrite, WitCrt::Fflush,
-        WitCrt::Setvbuf, WitCrt::Fclose, WitCrt::Wremove, WitCrt::Wrename, witUtf8};
+    const Api ucrt = {UcrtOpen, UcrtVfwprintf, UcrtPutwc, UcrtPutc, UcrtPuts, UcrtWrite, UcrtFlush, UcrtSetvbuf,
+        UcrtClose, UcrtRemove, UcrtRename, ucrtUtf8};
+    const Api wit = {WitCrt::Wfsopen, WitCrt::Vfwprintf, WitCrt::Fputwc, WitCrt::Fputc, WitCrt::Fputs, WitCrt::Fwrite,
+        WitCrt::Fflush, WitCrt::Setvbuf, WitCrt::Fclose, WitCrt::Wremove, WitCrt::Wrename, witUtf8};
     static char a[65536], b[65536];
     unsigned index = 0;
     for (const wchar_t *mode : {L"w", L"wb", L"wt", L"a", L"ab", L"at"}) {
@@ -624,12 +646,13 @@ void StreamCases(const wchar_t *directory, _locale_t ucrtUtf8, _locale_t witUtf8
             Report("files", L"", detail);
         }
     };
-    wchar_t missing[MAX_PATH], existing[MAX_PATH], other[MAX_PATH], moved[MAX_PATH];
+    wchar_t missing[MAX_PATH], existing[MAX_PATH], other[MAX_PATH], moved[MAX_PATH], invalid[MAX_PATH];
     swprintf_s(missing, L"%s\\missing\\file.txt", directory);
+    swprintf_s(invalid, L"%s\\a<b.txt", directory); // a name Windows rejects: ERROR_INVALID_NAME is EINVAL
     swprintf_s(existing, L"%s\\existing.txt", directory);
     swprintf_s(other, L"%s\\other.txt", directory);
     swprintf_s(moved, L"%s\\moved.txt", directory);
-    for (const wchar_t *path : {(const wchar_t *)missing, directory}) {
+    for (const wchar_t *path : {(const wchar_t *)missing, directory, (const wchar_t *)invalid}) {
         errno = 0;
         FILE *u = _wfsopen(path, L"w", _SH_DENYNO);
         const int ue = errno;
@@ -645,6 +668,12 @@ void StreamCases(const wchar_t *directory, _locale_t ucrtUtf8, _locale_t witUtf8
     errno = 0;
     int w = WitCrt::Wremove(missing);
     check("remove missing", u, ue, w, errno);
+    errno = 0;
+    u = _wremove(invalid);
+    ue = errno;
+    errno = 0;
+    w = WitCrt::Wremove(invalid);
+    check("remove invalid name", u, ue, w, errno);
     errno = 0;
     u = _wrename(existing, other);
     ue = errno;
@@ -998,6 +1027,37 @@ void HeapCases()
     block = static_cast<unsigned char *>(WitCrt::Realloc(nullptr, 10));
     check("realloc null", block != nullptr);
     WitCrt::Free(block);
+    // calloc: a product beyond the largest request fails with ENOMEM; zero still allocates; blocks come zeroed even
+    // where the heap reuses memory a dirty block used.
+    for (const size_t count : {size_t(SIZE_MAX / 2), size_t(_HEAP_MAXREQ / 4 + 1), size_t(2)}) {
+        const size_t size = count == 2 ? SIZE_MAX / 2 : 4;
+        errno = 0;
+        a = calloc(count, size);
+        const int ce = errno;
+        errno = 0;
+        b = WitCrt::Calloc(count, size);
+        check("calloc overflow", !a && !b && ce == errno);
+    }
+    a = calloc(0, 0);
+    b = WitCrt::Calloc(0, 0);
+    check("calloc zero", a && b);
+    free(a);
+    WitCrt::Free(b);
+    for (size_t round = 0; round < 64; ++round) {
+        const size_t count = 1 + round * 37 % 300, size = 1 + round % 7;
+        auto *dirty = static_cast<unsigned char *>(WitCrt::Malloc(count * size));
+        for (size_t i = 0; i < count * size; ++i) {
+            dirty[i] = 0xA5;
+        }
+        WitCrt::Free(dirty);
+        auto *clean = static_cast<unsigned char *>(WitCrt::Calloc(count, size));
+        bool zero = clean != nullptr;
+        for (size_t i = 0; zero && i < count * size; ++i) {
+            zero = !clean[i];
+        }
+        check("calloc zeroed", zero);
+        WitCrt::Free(clean);
+    }
     WitCrt::Free(nullptr);
 }
 

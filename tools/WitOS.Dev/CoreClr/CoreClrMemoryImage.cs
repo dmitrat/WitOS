@@ -67,8 +67,8 @@ internal static class CoreClrMemoryImage
             objects.Add(obj);
             support.Add(obj);
         }
-        support.Add(await Native("src/Runtime.NativeAot/native_diagnostics.witos.cpp"));
-        support.Add(await Native("src/Runtime.NativeAot/native_stl.witos.cpp"));
+        foreach (var file in HostRuntimeImage.ADAPTERS)
+            support.Add(await Native(file));
         var entry = Path.Combine(output, "coreclr_mapper_start.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/I" + output, "/Fo" + entry, Path.Combine(root, "src/Runtime.Native/X64/native_start.asm")], root);
         objects.Add(entry);

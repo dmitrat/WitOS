@@ -1,24 +1,35 @@
 #define _SILENCE_CXX17_UNCAUGHT_EXCEPTION_DEPRECATION_WARNING
 #include <algorithm>
+#include <atomic>
 #include <bitset>
 #include <cerrno>
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <exception>
 #include <functional>
+#include <initializer_list>
+#include <mutex>
 #include <new>
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <thread>
 #include <vector>
 #include <xthreads.h>
 
-/* Scenarios of the separately compiled STL parts the host uses first (P6.4.i1), through the STL's headers as the
- * host compiles them: the exceptions of the throw helpers and their messages, generic error messages and Windows
- * error mapping, std::uncaught_exception and the vectorized algorithms, compared with plain loops over random data
- * for elements of one, two, four and eight bytes. The same source runs on the toolset's msvcp140 (hosted reference),
- * on the pinned microsoft/STL sources with the WitOS C++ and C runtimes (hosted) and in the guest; every run must
- * trace the same tokens. */
+/* Scenarios of the separately compiled STL parts the host uses, through the STL's headers as the host compiles them:
+ * the exceptions of the throw helpers and their messages, generic error messages and Windows error mapping,
+ * std::uncaught_exception and the vectorized algorithms, compared with plain loops over random data for elements of
+ * one, two, four and eight bytes (P6.4.i1); threads, mutexes and condition variables (P6.4.i2). The same source runs
+ * on the toolset's msvcp140 (hosted reference), on the pinned microsoft/STL sources with the WitOS C++ and C runtimes
+ * (hosted) and in the guest; every run must trace the same tokens. The guest component has four threads, so no
+ * scenario runs more than three besides its own. */
 extern "C" void stl_trace(const char *text);
+
+// The legacy C thread functions, exported for binary compatibility and no longer declared by the headers.
+extern "C" _CRTIMP2_PURE _Thrd_result __cdecl _Thrd_create(_Thrd_t *, int (*)(void *), void *) noexcept;
+extern "C" [[noreturn]] _CRTIMP2_PURE void __cdecl _Thrd_exit(int) noexcept;
 
 namespace {
 
@@ -364,6 +375,246 @@ template <typename Char> void Strings(const char *name)
     stl_trace(token);
 }
 
+void Flags(const char *name, std::initializer_list<unsigned long long> values)
+{
+    Begin(name);
+    bool first = true;
+    for (const unsigned long long value : values) {
+        if (!first) {
+            Add(',');
+        }
+        first = false;
+        AddNumber(value);
+    }
+    stl_trace(token);
+}
+
+/* A thread's sum, joinable states and identities. */
+void Started()
+{
+    unsigned long long sum = 0;
+    std::thread::id inside;
+    std::thread worker([&] {
+        for (unsigned i = 1; i <= 1000; ++i) {
+            sum += i;
+        }
+        inside = std::this_thread::get_id();
+    });
+    const bool before = worker.joinable();
+    const std::thread::id id = worker.get_id();
+    worker.join();
+    Flags("t1",
+        {sum, before, worker.joinable(), id == inside, id != std::this_thread::get_id(),
+            worker.get_id() == std::thread::id()});
+}
+
+/* Three threads increment a counter under a mutex and yield while they hold it, so the others block on it. */
+void Contended()
+{
+    std::mutex mutex;
+    unsigned long long counter = 0;
+    const auto work = [&] {
+        for (int i = 0; i < 300; ++i) {
+            std::lock_guard<std::mutex> hold(mutex);
+            const unsigned long long seen = counter;
+            if (i % 10 == 0) {
+                std::this_thread::yield();
+            }
+            counter = seen + 1;
+        }
+    };
+    std::thread a(work), b(work), c(work);
+    a.join();
+    b.join();
+    c.join();
+    Flags("t2", {counter});
+}
+
+/* One producer and two consumers through a bounded queue and one condition variable. */
+void Queue()
+{
+    std::mutex mutex;
+    std::condition_variable changed;
+    unsigned items[16];
+    unsigned head = 0, tail = 0;
+    bool done = false;
+    unsigned long long sums[2] = {};
+    unsigned counts[2] = {};
+    const auto consume = [&](int index) {
+        for (;;) {
+            std::unique_lock<std::mutex> hold(mutex);
+            changed.wait(hold, [&] { return head != tail || done; });
+            if (head == tail) {
+                return;
+            }
+            sums[index] += items[head++ % 16];
+            ++counts[index];
+            changed.notify_all(); // room for the producer
+        }
+    };
+    std::thread first(consume, 0), second(consume, 1);
+    for (unsigned value = 1; value <= 500; ++value) {
+        std::unique_lock<std::mutex> hold(mutex);
+        changed.wait(hold, [&] { return tail - head < 16; });
+        items[tail++ % 16] = value;
+        changed.notify_one();
+    }
+    {
+        std::lock_guard<std::mutex> hold(mutex);
+        done = true;
+    }
+    changed.notify_all();
+    first.join();
+    second.join();
+    Flags("t3", {sums[0] + sums[1], counts[0] + counts[1]});
+}
+
+/* notify_all releases three threads waiting on one condition variable. */
+void Broadcast()
+{
+    std::mutex mutex;
+    std::condition_variable go;
+    bool open = false;
+    unsigned waiting = 0, released = 0;
+    const auto wait = [&] {
+        std::unique_lock<std::mutex> hold(mutex);
+        ++waiting;
+        go.notify_all();
+        go.wait(hold, [&] { return open; });
+        ++released;
+    };
+    std::thread a(wait), b(wait), c(wait);
+    {
+        // The third thread holds the mutex until its wait releases it, so all three are waiting here.
+        std::unique_lock<std::mutex> hold(mutex);
+        go.wait(hold, [&] { return waiting == 3; });
+        open = true;
+    }
+    go.notify_all();
+    a.join();
+    b.join();
+    c.join();
+    Flags("t4", {released});
+}
+
+/* try_lock fails while another thread holds the mutex and succeeds after it released it; a recursive mutex counts
+ * its owner's locks; locking a mutex its owner holds throws. */
+void Ownership()
+{
+    std::mutex mutex, stageMutex;
+    std::condition_variable changed;
+    int stage = 0;
+    std::thread holder([&] {
+        std::lock_guard<std::mutex> hold(mutex);
+        {
+            std::lock_guard<std::mutex> step(stageMutex);
+            stage = 1;
+        }
+        changed.notify_all();
+        std::unique_lock<std::mutex> step(stageMutex);
+        changed.wait(step, [&] { return stage == 2; });
+    });
+    bool held;
+    {
+        std::unique_lock<std::mutex> step(stageMutex);
+        changed.wait(step, [&] { return stage == 1; });
+        held = !mutex.try_lock();
+        stage = 2;
+    }
+    changed.notify_all();
+    holder.join();
+    const bool free = mutex.try_lock();
+    if (free) {
+        mutex.unlock();
+    }
+    Flags("t5", {held, free});
+
+    std::recursive_mutex recursive;
+    recursive.lock();
+    recursive.lock();
+    const bool again = recursive.try_lock();
+    bool other = true;
+    std::thread probe([&] {
+        other = recursive.try_lock();
+        if (other) {
+            recursive.unlock();
+        }
+    });
+    probe.join();
+    recursive.unlock();
+    recursive.unlock();
+    recursive.unlock();
+    bool released = false;
+    std::thread second([&] {
+        released = recursive.try_lock();
+        if (released) {
+            recursive.unlock();
+        }
+    });
+    second.join();
+    Flags("t6", {again, other, released});
+
+    mutex.lock();
+    Throws<std::system_error>("t7", [&] { mutex.lock(); });
+    mutex.unlock();
+}
+
+/* The legacy C functions: an exit code through _Thrd_join, and _Thrd_exit. */
+void Legacy()
+{
+    _Thrd_t thread;
+    int code = 0, exited = 0;
+    const _Thrd_result created = _Thrd_create(&thread, [](void *) { return 42; }, nullptr);
+    const _Thrd_result joined = _Thrd_join(thread, &code);
+    _Thrd_create(&thread, [](void *) -> int { _Thrd_exit(7); }, nullptr);
+    _Thrd_join(thread, &exited);
+    Flags("t8", {(unsigned)created, (unsigned)joined, (unsigned)code, (unsigned)exited});
+}
+
+/* The steady clock and the processors, and yielding until another thread ran. */
+void Scheduling()
+{
+    const auto first = std::chrono::steady_clock::now();
+    std::atomic<bool> ran{false};
+    std::thread setter([&] { ran = true; });
+    while (!ran) {
+        std::this_thread::yield();
+    }
+    setter.join();
+    const auto second = std::chrono::steady_clock::now();
+    Flags("t9", {std::thread::hardware_concurrency() >= 1, second >= first, std::chrono::steady_clock::is_steady});
+}
+
+std::mutex finishedMutex;
+std::condition_variable finished;
+bool ready;
+
+/* A detached thread that notifies at its exit, which keeps the mutex locked until then. Static objects outlive the
+ * thread's last notification. It runs last: the thread may still be ending when the scenarios end. */
+void Detached()
+{
+    std::thread([] {
+        std::unique_lock<std::mutex> hold(finishedMutex);
+        ready = true;
+        std::notify_all_at_thread_exit(finished, std::move(hold));
+    }).detach();
+    std::unique_lock<std::mutex> hold(finishedMutex);
+    finished.wait(hold, [] { return ready; });
+    Flags("t10", {ready});
+}
+
+void Threads()
+{
+    Started();
+    Contended();
+    Queue();
+    Broadcast();
+    Ownership();
+    Legacy();
+    Scheduling();
+    Detached();
+}
+
 } // namespace
 
 extern "C" void stl_scenarios_run()
@@ -377,4 +628,5 @@ extern "C" void stl_scenarios_run()
     Algorithms<uint64_t>("v8");
     Strings<char>("s1");
     Strings<wchar_t>("s2");
+    Threads();
 }

@@ -25,14 +25,22 @@ internal static class HostRuntimeImage
     public const string STL_GUEST = "tests/User.X64/stl_scenarios_guest.cpp";
 
     /// <summary>
-    /// The bindings of the guest's Windows message catalogue, whose LocalFree the STL's system_category uses.
+    /// The guest's thread lifecycle and Win32 adapters the runtimes call, compiled with the guest's native support:
+    /// compiler TLS and threads, the message catalogue, events and waits, handles, sleeping, thread creation, the
+    /// clocks and the functions only the STL's sources call (native_stl).
     /// </summary>
-    public const string DIAGNOSTICS = "src/Runtime.Pal.Win32/X64/native_diagnostics.asm";
+    public static readonly string[] ADAPTERS = ["src/Runtime.NativeAot/tls.witos.cpp", "src/Runtime.Native/thread.c",
+        "src/Runtime.NativeAot/minipal_time.witos.cpp", "src/Runtime.NativeAot/native_diagnostics.witos.cpp",
+        "src/Runtime.NativeAot/native_stl.witos.cpp", "src/Runtime.NativeAot/pal_events.witos.cpp",
+        "src/Runtime.NativeAot/native_services.witos.cpp", "src/Runtime.NativeAot/native_wait.witos.cpp",
+        "src/Runtime.NativeAot/native_thread_create.witos.cpp", "src/Runtime.NativeAot/native_thread_handles.witos.cpp",
+        "src/Runtime.NativeAot/native_clock.witos.cpp"];
 
     /// <summary>
-    /// The bindings of the Win32 functions only the STL's sources call: FormatMessageA and GetLocaleInfoEx.
+    /// The Win32 bindings of those adapters.
     /// </summary>
-    public const string STL_BINDINGS = "src/Runtime.Pal.Win32/X64/native_stl.asm";
+    public static readonly string[] BINDINGS = ["native_diagnostics", "native_stl", "native_services", "native_wait",
+        "native_thread_create", "native_thread_handles", "native_clock"];
 
     #endregion
 
@@ -45,8 +53,7 @@ internal static class HostRuntimeImage
     /// <param name="output">Output directory.</param>
     /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
     /// <param name="support">The guest's native objects the runtimes stand on: the entry, the native heap, exception
-    /// dispatch and unwinding, GS, memory routines, last error, the message catalogue and the STL's Win32
-    /// functions.</param>
+    /// dispatch and unwinding, GS, memory routines, last error and the compiled <see cref="ADAPTERS"/>.</param>
     internal static async Task BuildAsync(string root, string output, string msvc, IReadOnlyCollection<string> support)
     {
         var stl = await StlSources.PrepareAsync(root);
@@ -106,8 +113,8 @@ internal static class HostRuntimeImage
                 Path.Combine(root, file));
         }
 
-        foreach (var (file, name) in new[] { (NativeCxxExceptionImage.GUARD, "cxx_guard_dispatch.obj"),
-                     (DIAGNOSTICS, "host_native_diagnostics.obj"), (STL_BINDINGS, "host_native_stl.obj") })
+        foreach (var (file, name) in BINDINGS.Select(binding => ($"src/Runtime.Pal.Win32/X64/{binding}.asm", $"host_{binding}.obj"))
+                     .Prepend((NativeCxxExceptionImage.GUARD, "cxx_guard_dispatch.obj")))
         {
             var obj = Path.Combine(output, name);
             await Processes.RequireSuccessAsync(ml, ["/nologo", "/c", "/Fo" + obj, Path.Combine(root, file)], root);

@@ -17,21 +17,22 @@ internal static class NativeCrtImage
     /// digits in parsing, error messages, calendar time, locale data, the heap and ceilf.
     /// </summary>
     public const string WINDOWS_TRACE = "o1:36 o2:2 o3:0 o4:28 o5:46 o6:10 o7:0 o8:0 o9:17 o10:1 o11:42 o12:2 o13:0 " +
-        "o14:13 f1:93:0:wide|narrow|N|w|n|___42|ff___|010|+7|0000000000001234|%|-0042|005|-1234567890123|abcdef012345 " +
+        "o14:13 o15:0 o16:10 " +
+        "f1:93:0:wide|narrow|N|w|n|___42|ff___|010|+7|0000000000001234|%|-0042|005|-1234567890123|abcdef012345 " +
         "f2:88:0:[_____1][2___][0003][0ab_____][44][4464][18446744073709551615][0XBEEF][long][pr][___pad] " +
         "f3:-1:0:12345 f4:-1:0:abc f5:-1:0:123 f6:5:0:12345## f7:3:0:123 f8:8 f9:19:0:[(null)][(null)][\\u00E9] " +
         "f10:10:0:[\\u00E9\\u00FF][\\u00C4][\\u0080] u1:17:0:[\\u00E9\\u20AC\\uD83D\\uDE00][\\u00E9\\u20AC][____\\u00E9] " +
         "u2:-1:42: u3:2:42:[] s1:7 s2:-1 s3:1 s4:0 s5:1 s6:2 s7:1 s8:14 s9:0 s10:1 s11:0 s12:1 s13:113 s14:81 " +
-        "s15:201 s16:-123 s17:2147483647 s18:34 s19:31 s20:5 s21:34 s22:4294967295 s23:4294967295 s24:34 s25:17 " +
-        "e1:0 e2:0:34:No_such_file_or_directory e3:0:34:Permiss e4:0:34:Unknown_error e5:0:34:timed_out t1:0 " +
+        "s15:201 s16:-123 s17:2147483647 s18:34 s19:31 s20:5 s21:34 s22:4294967295 s23:4294967295 s24:34 s25:17 e1:0 " +
+        "e2:0:34:No_such_file_or_directory e3:0:34:Permiss e4:0:34:Unknown_error e5:0:34:timed_out t1:0 " +
         "t2:125,9,4,14,16,21,6,276,0, t3:28:0:Sat_Oct__4_14:16:21_2025_GMT " +
-        "t4:73:0:2025-10-04T14:16:21|277|39|39|40|2025|6|02PM|Saturday,_October_04,_2025|4 t5:0:34: t6:22 t7:-1 " +
-        "t8:0 t9:364 m1:1 m2:1 m3:1 l1:1,0,4,65001,129,616,32768, l2:1 c1:2 c2:-1 c3:2147483648";
+        "t4:73:0:2025-10-04T14:16:21|277|39|39|40|2025|6|02PM|Saturday,_October_04,_2025|4 t5:0:34: t6:22 t7:-1 t8:0 " +
+        "t9:364 m1:1 m2:1 m3:1 m4:1 m5:1 m6:12 m7:1 l1:1,0,4,65001,129,616,32768, l2:1 c1:2 c2:-1 c3:2147483648";
 
     /// <summary>
     /// The lines the scenarios print on standard output and standard error, in text mode.
     /// </summary>
-    public const string STANDARD_OUTPUT = "[CRT-STDOUT] wide narrow 42\r\n.\r\n?\r\n[CRT-FWRITE]\r\n";
+    public const string STANDARD_OUTPUT = "[CRT-STDOUT] wide narrow 42\r\n.\r\n?\r\n[CRT-FWRITE]\r\n[CRT-FPUTS]\r\n";
 
     /// <summary>
     /// The line the scenarios print on standard error.
@@ -43,7 +44,8 @@ internal static class NativeCrtImage
     /// </summary>
     public static readonly string[] RUNTIME = ["src/Runtime.Crt/format.cpp", "src/Runtime.Crt/stdio.cpp",
         "src/Runtime.Crt/locale.cpp", "src/Runtime.Crt/string.cpp", "src/Runtime.Crt/time.cpp",
-        "src/Runtime.Crt/heap.cpp", "src/Runtime.Crt/runtime.cpp"];
+        "src/Runtime.Crt/heap.cpp", "src/Runtime.Crt/runtime.cpp", "src/Runtime.Crt/errno.cpp",
+        "src/Runtime.Crt/thread.cpp"];
 
     /// <summary>
     /// The subset's platform source on Windows.
