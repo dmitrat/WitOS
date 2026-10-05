@@ -231,7 +231,11 @@ internal static class BootValidation
         switch (request.Suite)
         {
             case BootSuite.CoreClrMemory:
-                return MarkersInOrder(output, BootExpectations.Read(root, BootExpectations.CORECLR_MEMORY).Markers);
+                // The STL's vectorized algorithms run at SSE4.2 where the processor has it, never at AVX (the kernel
+                // keeps OSXSAVE clear), and otherwise at the SSE2 baseline.
+                var stlLevel = request.CpuModel is "max" or "Nehalem" ? 2 : 1;
+                return MarkersInOrder(output, BootExpectations.Read(root, BootExpectations.CORECLR_MEMORY).Markers) &&
+                    output.Contains($"[STL-ISA] {stlLevel}", StringComparison.Ordinal);
             case BootSuite.CoreClrStorage:
                 return MarkersInOrder(output, BootExpectations.Read(root, BootExpectations.CORECLR_STORAGE).Markers);
             case BootSuite.RuntimeBoot:

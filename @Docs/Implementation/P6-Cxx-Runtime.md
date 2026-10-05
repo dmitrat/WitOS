@@ -1,7 +1,7 @@
 # P6.4 guest C++ runtime for the host
 
-Date: 2026-10-04. Status: P6.4.e (Windows), P6.4.f (guest), P6.4.g (vcruntime surface) and P6.4.h (UCRT subset)
-complete; P6.4.i next.
+Date: 2026-10-05. Status: P6.4.e (Windows), P6.4.f (guest), P6.4.g (vcruntime surface), P6.4.h (UCRT subset) and
+P6.4.i1 (STL exceptions and algorithms) complete; P6.4.i2 next.
 
 ## Decision
 
@@ -63,10 +63,13 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
   `mingw_pformat.c` formats floating point through the x87 80-bit `long double` and gdtoa, which the host never
   uses. The Windows SDK's UCRT sources are not used. It comes before the STL, whose sources call it.
 - [ ] **P6.4.i** microsoft/STL `vs-2022-17.14`: pin, audit and build of the separately compiled sources the host
-  needs (`std::_X*`, `_Mtx_*`/`_Cnd_*`, `_Thrd_*`, `_Throw_Cpp_error`, the locale and stream support behind
-  `std::wstringstream`, the vectorized algorithms) with `_beginthreadex` and the UCRT functions those sources call.
-  STL's build includes vcruntime's `internal_shared.h` from the toolset's reference sources; a minimal WitOS header
-  replaces it. Their Win32 calls go through WitOS adapters, and any change to a pinned file is an upstream patch.
+  needs with the UCRT functions those sources call. STL's build includes vcruntime's `internal_shared.h` from the
+  toolset's reference sources; a minimal WitOS header replaces it. Their Win32 calls go through WitOS adapters, and
+  any change to a pinned file is an upstream patch.
+  - [x] **P6.4.i1** Exceptions and algorithms: the pin, `std::_X*` and `_Throw_Cpp_error`, system error messages,
+    `std::uncaught_exception` and the vectorized algorithms.
+  - [ ] **P6.4.i2** Threads and synchronization: `_Mtx_*`, `_Cnd_*`, `_Thrd_*` with `_beginthreadex`.
+  - [ ] **P6.4.i3** Locales and streams: the support behind `std::wstringstream`.
 - [ ] **P6.4.j** The host's Win32 imports (files, mappings, critical sections, modules, console, registry) over
   WitOS adapters; strict link of `hostfxr` and `hostpolicy` with no unresolved symbol.
 - [ ] **P6.4.k** Guest `hostfxr_main` reads a real application's runtimeconfig and deps through `hostpolicy` and
@@ -146,7 +149,8 @@ The guest `RtlUnwindEx` gained `STATUS_UNWIND_CONSOLIDATE`, in the dispatcher pr
 
 ### Guest evidence
 
-Mode 21 of the CoreCLR mapper fixture (`tests/User.X64/cxx_exceptions_guest.cpp`) runs the 21 scenarios on the
+Mode 21 of the host runtime fixture (P6.4.i; first of the CoreCLR mapper fixture,
+`tests/User.X64/cxx_exceptions_guest.cpp`) runs the 21 scenarios on the
 runtime and the guest dispatcher and compares the trace with `WINDOWS_TRACE`, which the tool generates into
 `cxx_exception_trace.h`; the trace grows in the report page, which the kernel prints when a run fails.
 `coreclr-memory` passes `Code.CxxExceptions` in both profiles. The scenarios throw more often than the four nested
@@ -204,7 +208,7 @@ locale, stream and thread internals to the list.
 | `locale.cpp` | `_create_locale`, `_free_locale`; the C and UTF-8 conversions |
 | `string.cpp` | `wcslen`, `wcscmp`, `wcsncmp`, `wcschr`, `_wcsicmp`, `_wcsnicmp`, `tolower`, `toupper`, `wcstoul`, `_wtoi`, `_wcserror_s` |
 | `time.cpp` | `_time64`, `_gmtime64_s`, `wcsftime` |
-| `heap.cpp`, `runtime.cpp` | `malloc`, `realloc`, `free`; `ceilf`, `terminate`, `_fltused` |
+| `heap.cpp`, `runtime.cpp` | `malloc`, `realloc`, `free`; `ceilf`, `terminate`, `_fltused`; `abort`, `_invoke_watson` (P6.4.i) |
 | `platform_windows.cpp`, `platform_witos.cpp` | locks, fail-fast, standard handles, files, the heap, the UTC clock; `_errno` on Windows |
 
 `_errno`, `strlen`, the memory routines and `atexit` come from the guest's native layer
@@ -247,12 +251,14 @@ were there before. The NativeAOT overlay defines its own `_fltused` in `native_m
   subset convert it. The comparison probes for this defect first and, where UCRT has it, does not compare string
   cases with a precision in the UTF-8 locale and counts them; the local run compares them all, the CI run
   7,758,944 cases, none different.
-- In the guest, mode 22 of the CoreCLR mapper fixture (`tests/User.X64/crt_scenarios_guest.cpp`) runs the same
+- In the guest, mode 22 of the host runtime fixture (P6.4.i; first of the CoreCLR mapper fixture,
+  `tests/User.X64/crt_scenarios_guest.cpp`) runs the same
   scenarios on the subset, the native heap and the process console and compares the trace with `WINDOWS_TRACE`,
   which the tool generates into `crt_trace.h`; it also checks the missing UTC clock and the read-only storage.
   `coreclr-memory` passes `Code.UcrtSubset` and finds the scenarios' console lines in the boot log, in both
-  profiles. The fixture now has 398 unwind entries, so the runtime profile's quota grew from 320 to 512
-  (`WIT_PE_RUNTIME_UNWIND_ENTRIES`, `WIT_PE_MAX_UNWIND_RANGES`); the plan already had room for 4096.
+  profiles. The mapper fixture then had 398 unwind entries, so the runtime profile's quota grew from 320 to 512
+  (`WIT_PE_RUNTIME_UNWIND_ENTRIES`, `WIT_PE_MAX_UNWIND_RANGES`); P6.4.i moved the scenarios into their own fixture
+  under the full runtime profile and returned the quota to 320.
 
 ### What the comparison established about UCRT
 
@@ -291,3 +297,89 @@ The first versions differed from UCRT in every area; each difference became a ru
   comparison checks only the failure for such strings.
 - A width, precision or count beyond `INT_MAX` fails with -1; UCRT's count wraps.
 - The locales and unimplemented features above.
+
+## P6.4.i: microsoft/STL
+
+The separately compiled STL sources the host needs form a closure of 36 files. They split by what they call:
+
+- **i1, exceptions and algorithms:** `xthrow`, `thread0`, `syserror`, `syserror_import_lib`, `uncaught_exception`,
+  `vector_algorithms`. They need `__uncaught_exception`, `__isa_available`/`__isa_enabled`, `_invoke_watson`,
+  `abort`, `memchr`, `FormatMessageA`, `LocalFree` and `GetLocaleInfoEx` beyond what the guest had.
+- **i2, threads and synchronization:** `cond`, `mutex`, `cthread`, `xnotify`, `xtime`. They need SRW locks and
+  condition variables, `_beginthreadex`/`_endthreadex`, thread waits and exit codes, `GetNativeSystemInfo`, QPC/QPF,
+  the precise system time (the guest has no UTC clock), `fputc`/`fputs` and `calloc`.
+- **i3, locales and streams:** `locale0`, `locale`, `wlocale`, `xlocale`, `ios`, `iosptrs`, `xlock`, `xmtx`, the
+  ctype, collation and conversion helpers and the `xsto*` parsers. They need UCRT's locale internals (`setlocale`,
+  `localeconv`, `___lc_*`, `__pctype_func`, the time names, `_Strftime`/`_Wcsftime`), floating-point parsing, the NLS
+  functions, critical sections and `EncodePointer`/`DecodePointer`.
+
+### Pin and build
+
+`src/Runtime.Cxx/stl.lock.json` names the tag, the commit `1f6e5b16`, the license and the SHA-256 of the canonical
+bytes of 182 files: `LICENSE.txt`, `NOTICE.txt`, the 174 headers of `stl/inc` and the six sources of i1; each later
+slice adds its sources. `StlSources` downloads them at the commit into `.tools/stl/<commit>` and verifies every file
+on every use; no STL file is in the repository (`src/Runtime.Cxx/THIRD-PARTY-NOTICES.md`). The sources compile
+unchanged with the options of the STL's own static-library build (`/std:c++latest /permissive- /Zc:preprocessor
+/Zc:threadSafeInit- /Gy /Zp8 /EHsc`, `_CRTBLD`, `_VCRT_ALLOW_INTERNALS`, `_ITERATOR_DEBUG_LEVEL=0`); i1 needed no
+upstream patch.
+
+- **The host compiles against the pinned headers.** Headers and separately compiled sources must be one version:
+  the 14.51 toolset's headers already call `__std_find_first_not_of_trivial_pos_2`, which neither the pinned tag nor
+  the 14.44 toolset has. Everything that sees STL headers puts the pinned `stl/inc` ahead of the toolset's include
+  directory; vcruntime's and UCRT's headers still come from the toolset and the SDK.
+- **`internal_shared.h`.** The STL's sources include vcruntime's closed header of that name. WitOS's own
+  `src/Runtime.Cxx/stl/internal_shared.h` gives them what they use: `Windows.h`, `malloc.h` and the CRT's internal
+  allocation names, mapped to the UCRT subset's `malloc`, `calloc`, `realloc` and `free`.
+- **Processor level.** `__isa_available` and `__isa_enabled` (`Runtime.Cxx/X64/isa.cpp`) choose the vectorized
+  algorithms' paths. They hold SSE2 until a module's startup calls `wit_cxx_initialize_isa`, which detects SSE4.2 and,
+  only with OSXSAVE and XCR0's YMM state, AVX and AVX2 with BMI1 and BMI2. The kernel keeps OSXSAVE clear, so the
+  guest runs SSE4.2 paths at most and never executes `XGETBV`. The host's startup must call it.
+- **Runtime pieces.** `__uncaught_exception` (`throw.cpp`) serves `std::uncaught_exception`; `abort` and
+  `_invoke_watson` end the process like UCRT's defaults (`Runtime.Crt/runtime.cpp`); the guest's `memchr`
+  (`crt_memory.witos.c`) reads byte by byte and stops at the first match.
+- **Win32.** `Runtime.NativeAot/native_stl.witos.cpp` with its bindings `Runtime.Pal.Win32/X64/native_stl.asm` holds
+  the Win32 functions only the STL's sources call. `FormatMessageA` is built over the wide `FormatMessageW`, as in
+  Windows: the wide call validates the request in its own order and formats into a buffer it allocates, which the
+  ANSI form narrows (the catalogue is ASCII) into the caller's buffer or a new one that `LocalFree` frees.
+  `GetLocaleInfoEx` fails with `ERROR_NOT_SUPPORTED`, since the guest has no locale database: `system_category()`
+  asks for en-US messages first, then the system language through `GetLocaleInfoEx`, then the neutral one. Its
+  messages are therefore the guest's own texts, and codes outside the catalogue give the STL's `unknown error`. The
+  pair stays out of `native_diagnostics.witos.cpp`: that file is part of the NativeAOT runtime archive, whose probe
+  images load under the default profile's 128 unwind entries, and the first version there pushed the thread and
+  COM probes to 130 and 131 (the COM probe uses 127).
+
+### Evidence
+
+- `StlTests.PinnedStlMatchesMsvcpTest` builds `tests/User.X64/stl_scenarios.cpp` twice: with the toolset's STL,
+  msvcp140, vcruntime and UCRT, and with the pinned headers and sources, the WitOS C++ runtime, the UCRT subset and
+  the guest's memory routines over kernel32 only (`memcpy` is the guest's `memmove` there, since the guest's own
+  `memcpy` shares its source with a second `_errno`). Both print `NativeStlImage.WINDOWS_TRACE`: the exceptions and
+  messages of the throw helpers (`_Xlength_error`, `_Xout_of_range`, `_Xinvalid_argument`, `_Xoverflow_error`,
+  `_Xruntime_error`, `_Xbad_alloc`, `_Xbad_function_call`, `_Throw_Cpp_error`), `generic_category` messages, the
+  mapping of Windows errors to generic conditions, `std::uncaught_exception` during unwinding, and the vectorized
+  algorithms (`find`, `count`, `mismatch`, `min_element`/`max_element`, `search`, `find_end`, `find_first_of`,
+  `adjacent_find`, `reverse`) and string searches (`find_last_of`, `find_first_not_of`, `find_first_of`, `rfind`,
+  `find`) for elements of one, two, four and eight bytes against plain loops over random data: 12,789 and 4,000
+  checks, none different, and a hash of the results. On Windows the WitOS build runs the AVX2 paths where the
+  processor has them. Two more tests check the lock: it covers the sources and license files, and a changed tag,
+  license, commit, path or hash is rejected.
+- In the guest, the C++, UCRT and STL scenarios moved into their own image, the host runtime fixture
+  (`HostRuntimeImage`, `tests/User.X64/host_runtime_main.cpp`): the C++ runtime, the UCRT subset, the six STL
+  sources and the guest's native support in 225 KiB with 589 unwind entries, which the kernel loads with the full
+  runtime profile, as it will load the host. Mode 21 (C++), mode 22 (UCRT) and the new mode 23 (STL) run there; the
+  CoreCLR mapper fixture is back to 163 entries, so the runtime profile's quota (`WIT_PE_RUNTIME_UNWIND_ENTRIES`,
+  `WIT_PE_MAX_UNWIND_RANGES`) is 320 again. Mode 23 (`tests/User.X64/stl_scenarios_guest.cpp`) compares the trace
+  with `WINDOWS_TRACE`, which the tool generates into `stl_trace.h`, and checks `system_category()` messages from the
+  guest's catalogue through `FormatMessageA`'s allocated buffer and `LocalFree`. It also calls `FormatMessageA`
+  directly: a buffer of the exact size keeps the previous last error, one character less, a missing buffer, an
+  unsupported request and another language fail with the wide form's errors, and `GetLocaleInfoEx` fails without
+  writing. `coreclr-memory` passes
+  `Code.StlSupport` in both profiles: the 128 MiB boot runs on `qemu64`, whose SSE2 leaves the scalar paths
+  (`[STL-ISA] 1`), and the 512 MiB boot on `max`, which advertises AVX and AVX2 and runs the SSE4.2 paths
+  (`[STL-ISA] 2`); `BootValidation` checks the level against the CPU model.
+
+### Limitations
+
+The SSE4.2 paths run only in the guest and the AVX2 paths only on Windows. `system_category()` messages are WitOS's
+own texts, not Windows'. The NativeAOT COM probe is one unwind entry below the default profile's quota, so later Win32
+adapters that its platform objects would carry need their own files or a quota decision. Threads, mutexes and condition variables (i2) and locales and streams (i3) are next.

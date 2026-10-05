@@ -4,6 +4,7 @@
 #if defined(WITOS_TEST_CORECLR_MEMORY)
 #include "coreclr_memory_image.h"
 #include "coreclr_mapper_image.h"
+#include "host_runtime_image.h"
 #include "protocol.h"
 #include "self_test.h"
 static WitUserProcess process;
@@ -89,60 +90,67 @@ static void mapper_adapter(WitPageAllocator *pages)
         "Module reader exhaustion was hidden as leaf unwind");
     wit_user_destroy(&process);
     require(wit_pages_free_count(pages) == before, "Module reader exhaustion leaked images");
-    /* C++ exceptions on the WitOS C++ runtime and the guest's dispatch must print the Windows trace (P6.4.f). More
-     * throws than WIT_EXCEPTION_MAX_DEPTH also prove that every catch retires its exceptions. */
-    require(wit_user_create_pe_profile(&process, pages, 0, wit_coreclr_mapper_image, sizeof(wit_coreclr_mapper_image),
-                WIT_USER_IMAGE_BASE, "boot:/CoreClrMapperFixture.pe", WIT_PE_UNWIND_RUNTIME) == WitPeOk,
-        "C++ exception fixture load failed");
-    ((WitUserTestConfig *)wit_user_space_physical(&process.Space, WIT_USER_INFO, 0, 0))->Mode = 21;
-    process.TickLimit = WIT_RUNTIME_TICK_BUDGET;
-    wit_user_run(&process);
-    if (process.State != WitUserExited || process.ExitCode != 42) {
-        wit_console_write("C++ exception state/code: ");
-        wit_console_write_u64(process.State);
-        wit_console_write("/");
-        wit_console_write_u64(process.ExitCode);
-        wit_console_write("\n");
-        const char *trace = (const char *)wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
-        if (trace && trace[0x100]) {
-            wit_console_write("C++ exception trace: ");
-            wit_console_write(trace + 0x100);
-            wit_console_write("\n");
-        }
-        wit_panic("C++ exception guest failed");
-    }
-    wit_user_destroy(&process);
-    require(wit_pages_free_count(pages) == before, "C++ exception fixture leaked");
-    /* The UCRT subset on the native heap and the process console must print the UCRT trace (P6.4.h). */
-    require(wit_user_create_pe_profile(&process, pages, 0, wit_coreclr_mapper_image, sizeof(wit_coreclr_mapper_image),
-                WIT_USER_IMAGE_BASE, "boot:/CoreClrMapperFixture.pe", WIT_PE_UNWIND_RUNTIME) == WitPeOk,
-        "UCRT subset fixture load failed");
-    ((WitUserTestConfig *)wit_user_space_physical(&process.Space, WIT_USER_INFO, 0, 0))->Mode = 22;
-    process.TickLimit = WIT_RUNTIME_TICK_BUDGET;
-    wit_user_run(&process);
-    if (process.State != WitUserExited || process.ExitCode != 42) {
-        wit_console_write("UCRT subset state/code: ");
-        wit_console_write_u64(process.State);
-        wit_console_write("/");
-        wit_console_write_u64(process.ExitCode);
-        wit_console_write("\n");
-        const char *trace = (const char *)wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
-        if (trace && trace[0x100]) {
-            wit_console_write("UCRT subset trace: ");
-            wit_console_write(trace + 0x100);
-            wit_console_write("\n");
-        }
-        wit_panic("UCRT subset guest failed");
-    }
-    wit_user_destroy(&process);
-    require(wit_pages_free_count(pages) == before, "UCRT subset fixture leaked");
     wit_console_write(
         "[TEST-PASS] Code.VMToOSMapper\n[TEST-PASS] Code.VMToOSMapperRollback\n[TEST-PASS] "
         "Code.DynamicFrameUnwind\n[TEST-PASS] Code.ForeignDynamicUnwind\n[TEST-PASS] "
         "Code.DynamicExceptionDispatch\n[TEST-PASS] Code.DynamicTargetUnwind\n[TEST-PASS] "
         "Code.CoreClrCollidedDispatch\n[TEST-PASS] Code.CollidedContextRejection\n[TEST-PASS] "
-        "Code.DynamicUnwindRejection\n[TEST-PASS] Code.ModuleUnwind\n[TEST-PASS] Code.ForeignModuleUnwind\n[TEST-PASS] "
-        "Code.CxxExceptions\n[TEST-PASS] Code.UcrtSubset\n");
+        "Code.DynamicUnwindRejection\n[TEST-PASS] Code.ModuleUnwind\n[TEST-PASS] Code.ForeignModuleUnwind\n");
+}
+
+/* The host runtime fixture (P6.4.i) runs one group of scenarios per mode under the full runtime profile, as the
+ * kernel will load the .NET host, and each group must print the trace Windows prints; a failed run prints how far its
+ * trace got. */
+static void host_runtime(WitPageAllocator *pages, WitU64 mode, const char *name)
+{
+    const WitU64 before = wit_pages_free_count(pages);
+    require(
+        wit_user_create_pe_profile(&process, pages, 0, wit_host_runtime_image, sizeof(wit_host_runtime_image),
+            WIT_USER_IMAGE_BASE, "boot:/HostRuntimeFixture.pe", WIT_PE_UNWIND_RUNTIME | WIT_PE_RUNTIME_FULL) == WitPeOk,
+        "Host runtime fixture load failed");
+    ((WitUserTestConfig *)wit_user_space_physical(&process.Space, WIT_USER_INFO, 0, 0))->Mode = mode;
+    process.TickLimit = WIT_RUNTIME_TICK_BUDGET;
+    wit_user_run(&process);
+    if (process.State != WitUserExited || process.ExitCode != 42) {
+        wit_console_write(name);
+        wit_console_write(" state/code: ");
+        wit_console_write_u64(process.State);
+        wit_console_write("/");
+        wit_console_write_u64(process.ExitCode);
+        wit_console_write("\n");
+        const char *trace = (const char *)wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
+        if (trace && trace[0x100]) {
+            wit_console_write(name);
+            wit_console_write(" trace: ");
+            wit_console_write(trace + 0x100);
+            wit_console_write("\n");
+        }
+        wit_panic("Host runtime guest failed");
+    }
+    if (mode == 23) {
+        /* The processor level of the STL's vectorized algorithms, which the host checks against the CPU model. */
+        const WitU64 *report = (const WitU64 *)wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
+        require(report != 0, "STL level report missing");
+        wit_console_write("[STL-ISA] ");
+        wit_console_write_u64(report[0]);
+        wit_console_write("\n");
+    }
+    wit_user_destroy(&process);
+    require(wit_pages_free_count(pages) == before, "Host runtime fixture leaked");
+}
+
+static void host_runtimes(WitPageAllocator *pages)
+{
+    /* C++ exceptions on the WitOS C++ runtime and the guest's dispatch (P6.4.f, P6.4.g). More throws than
+     * WIT_EXCEPTION_MAX_DEPTH also prove that every catch retires its exceptions. */
+    host_runtime(pages, 21, "C++ runtime");
+    wit_console_write("[TEST-PASS] Code.CxxExceptions\n");
+    /* The UCRT subset on the native heap and the process console (P6.4.h). */
+    host_runtime(pages, 22, "UCRT subset");
+    wit_console_write("[TEST-PASS] Code.UcrtSubset\n");
+    /* The separately compiled sources of the pinned STL (P6.4.i1). */
+    host_runtime(pages, 23, "STL");
+    wit_console_write("[TEST-PASS] Code.StlSupport\n");
 }
 
 static void sparse_views(WitPageAllocator *pages)
@@ -388,6 +396,7 @@ void wit_user_code_self_test(WitPageAllocator *pages)
         }
     }
     mapper_adapter(pages);
+    host_runtimes(pages);
     sparse_views(pages);
     wit_console_write(
         "[TEST-PASS] Code.OwnershipAndAtomicProtection\n[TEST-PASS] Code.PublicationAndExecution\n[TEST-PASS] "

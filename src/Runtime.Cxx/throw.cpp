@@ -99,3 +99,9 @@ extern "C" int __cdecl __uncaught_exceptions()
 {
     return state.Uncaught;
 }
+
+/* The C++98 form behind std::uncaught_exception (P6.4.i). */
+extern "C" bool __cdecl __uncaught_exception()
+{
+    return state.Uncaught > 0;
+}

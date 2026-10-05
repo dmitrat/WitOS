@@ -1,7 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
-#pragma function(memset, memcmp, memmove, strcpy)
+#pragma function(memset, memcmp, memmove, strcpy, memchr)
 
 /* Byte-exact native CRT bootstrap implementations. Volatile accesses prevent
  * recursive CRT lowering and speculative reads beyond the caller's range.
@@ -86,6 +86,19 @@ char *__cdecl strstr(const char *string, const char *substring)
             ++b;
         }
         ++start;
+    }
+    return NULL;
+}
+
+/* Reads one byte at a time and stops at the first match, so a match before the end of the object never reads past
+ * it, as C requires; the host's STL uses it (P6.4.i). */
+void *__cdecl memchr(const void *buffer, int value, size_t count)
+{
+    const volatile unsigned char *from = (const volatile unsigned char *)buffer;
+    for (size_t i = 0; i < count; ++i) {
+        if (from[i] == (unsigned char)value) {
+            return (void *)(from + i);
+        }
     }
     return NULL;
 }
