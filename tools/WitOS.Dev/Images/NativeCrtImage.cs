@@ -27,7 +27,13 @@ internal static class NativeCrtImage
         "e2:0:34:No_such_file_or_directory e3:0:34:Permiss e4:0:34:Unknown_error e5:0:34:timed_out t1:0 " +
         "t2:125,9,4,14,16,21,6,276,0, t3:28:0:Sat_Oct__4_14:16:21_2025_GMT " +
         "t4:73:0:2025-10-04T14:16:21|277|39|39|40|2025|6|02PM|Saturday,_October_04,_2025|4 t5:0:34: t6:22 t7:-1 t8:0 " +
-        "t9:364 m1:1 m2:1 m3:1 m4:1 m5:1 m6:12 m7:1 l1:1,0,4,65001,129,616,32768, l2:1 c1:2 c2:-1 c3:2147483648";
+        "t9:364 m1:1 m2:1 m3:1 m4:1 m5:1 m6:12 m7:1 l1:1,0,4,65001,129,616,32768, l2:1 c1:2 c2:-1 c3:2147483648 " +
+        "n1:65:0:0xff|+42|18446744073709551615|0000000000001234|___ab|wd__|q|%|end n2:C,C n3:.,0,127,. " +
+        "n4:1,0,0,1,129,72,0, " +
+        "n5::Sun:Sunday:Mon:Monday:Tue:Tuesday:Wed:Wednesday:Thu:Thursday:Fri:Friday:Sat:Saturday " +
+        "n6::Jan:January:Feb:February:Mar:March:Apr:April:May:May:Jun:June:Jul:July:Aug:August:Sep:September:Oct:October:Nov:November:Dec:December,85,134 " +
+        "n7:66:10/04/25_14:16:21|14:16:21|Saturday|Saturday,_October_04,_2025|Oct " +
+        "n8:34:0:10/04/25_14:16:21|14:16:21|October n9:26,26,6,2,8, n10:4,3,7,1, n11:750,6,1,0,-1,";
 
     /// <summary>
     /// The lines the scenarios print on standard output and standard error, in text mode.

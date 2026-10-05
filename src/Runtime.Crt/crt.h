@@ -48,28 +48,48 @@ int ToStream(const Locale &locale, wchar_t value, char bytes[3]);
  * the one or two wide characters it produced, or -1 for an invalid or incomplete sequence. */
 int ToWide(const Locale &locale, const char *text, size_t available, wchar_t wide[2], int &count);
 
+/* Converts one wide character to the locale's multibyte form as UCRT's wcrtomb does (P6.4.i3): the UTF-8 locale keeps
+ * a high surrogate pending, writing nothing, until the low one completes the pair. Returns the bytes it produced, or
+ * -1 where the locale has no form for the character. */
+int FromWide(const Locale &locale, wchar_t value, wchar_t &pending, char bytes[4]);
+
 _locale_t CreateLocale(int category, const char *name);
 void FreeLocale(_locale_t locale);
 
-/* Formatting (format.cpp): where formatted wide characters go. Write returns false when the output fails; the
- * formatter then returns -1 with errno as the output set it. */
-class __declspec(novtable) Output {
+/* Formatting (format.cpp): where formatted characters go. Write returns false when the output fails; the formatter
+ * then returns -1 with errno as the output set it. */
+template <typename Char> class __declspec(novtable) BasicOutput {
 public:
-    virtual bool Write(const wchar_t *text, size_t count) = 0;
+    virtual bool Write(const Char *text, size_t count) = 0;
 
 protected:
-    ~Output() = default;
+    ~BasicOutput() = default;
 };
 
-/* Formats into the output; returns the count of wide characters, or -1 for an output or encoding failure or a count
- * beyond INT_MAX. A secure format, as of the _s functions, rejects what the others write leniently. */
+using Output = BasicOutput<wchar_t>;
+using NarrowOutput = BasicOutput<char>;
+
+/* Formats into the output; returns the count of characters, or -1 for an output or encoding failure or a count beyond
+ * INT_MAX. A secure format, as of the _s functions, rejects what the others write leniently. The narrow form follows
+ * UCRT's printf: %s and %c take narrow arguments and l, w or S/C wide ones, which the locale converts (P6.4.i3). */
 int Format(
     Output &output, unsigned long long options, bool secure, const wchar_t *format, const Locale &locale, va_list args);
+int Format(NarrowOutput &output, unsigned long long options, bool secure, const char *format, const Locale &locale,
+    va_list args);
 
 int Vswprintf(
     unsigned long long options, wchar_t *buffer, size_t count, const wchar_t *format, _locale_t locale, va_list args);
 int Vsnwprintf_s(unsigned long long options, wchar_t *buffer, size_t size, size_t limit, const wchar_t *format,
     _locale_t locale, va_list args);
+int Vsprintf_s(
+    unsigned long long options, char *buffer, size_t size, const char *format, _locale_t locale, va_list args);
+
+/* The global locale (locale.cpp), always the C locale: setlocale and the queries UCRT's headers and the STL make. */
+char *Setlocale(int category, const char *name);
+struct lconv *Localeconv();
+void LockLocales();
+void UnlockLocales();
+const unsigned short *Pctype();
 
 /* Streams (stdio.cpp). */
 FILE *Iob(unsigned index);
@@ -98,11 +118,25 @@ int Toupper(int value);
 unsigned long Wcstoul(const wchar_t *text, wchar_t **end, int base);
 int Wtoi(const wchar_t *text);
 errno_t Wcserror_s(wchar_t *buffer, size_t count, int error);
+size_t Strncnt(const char *text, size_t count);
+size_t Wcsnlen(const wchar_t *text, size_t count);
+size_t Strcspn(const char *text, const char *reject);
+wchar_t *Wcsdup(const wchar_t *text);
+int Isctype(int value, unsigned short mask); // islower, isupper and isspace in the C locale
 
-/* Time (time.cpp). There is no time zone. */
+/* Time (time.cpp). There is no time zone. The names are the C locale's: _Gettnames hands out the subset's own record
+ * of them, which only _Strftime and _Wcsftime read, and the day and month lists are UCRT's colon-separated strings.
+ * Formatting with such a record (`record`) takes %c and %r from its Windows date and time formats, as UCRT does. */
 __time64_t Time64(__time64_t *result);
 errno_t Gmtime64_s(struct tm *result, const __time64_t *time);
-size_t Wcsftime(wchar_t *buffer, size_t count, const wchar_t *format, const struct tm *time);
+size_t Wcsftime(wchar_t *buffer, size_t count, const wchar_t *format, const struct tm *time, bool record = false);
+size_t Strftime(char *buffer, size_t count, const char *format, const struct tm *time, bool record = false);
+void *Gettnames();
+char *Getdays();
+char *Getmonths();
+wchar_t *WGetdays();
+wchar_t *WGetmonths();
+bool OwnTimeNames(const void *names); // whether _Gettnames handed it out
 
 /* Memory (heap.cpp) and the rest (runtime.cpp). */
 void *Malloc(size_t size);
@@ -110,6 +144,8 @@ void *Calloc(size_t count, size_t size);
 void *Realloc(void *block, size_t size);
 void Free(void *block);
 float Ceilf(float value);
+double Frexp(double value, int *exponent);
+short Dclass(double value);
 
 /* Threads (thread.cpp). */
 uintptr_t Beginthreadex(
