@@ -40,6 +40,10 @@
 #define WIT_FILE_MAX_READ 65536U
 #define WIT_ABI_MAX_RANDOM 65536U
 
+/* A component's environment: UTF-16 units of its "Name=Value" records with their terminators, and variables. */
+#define WIT_ENVIRONMENT_UNITS 4096U
+#define WIT_ENVIRONMENT_VARIABLES 64U
+
 /* PE images the loader admits. */
 #define WIT_PE_MAX_FILE_SIZE 1048576U
 #define WIT_PE_MAX_IMAGE_SIZE 262144U

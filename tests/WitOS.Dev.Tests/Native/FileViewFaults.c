@@ -122,6 +122,42 @@ WitU64 wit_native_call(WitU64 call, WitU64 a, WitU64 b, WitU64 c, WitU64 *result
         }
         return WIT_STATUS_OK;
     }
+    if (call == WIT_CALL_PROCESS_STATE) {
+        /* The kernel's current directory, with the model's directories: the root, app, dir and dir/sub. */
+        static char directory[1025] = "/";
+        static WitU32 directoryBytes = 1;
+        const WitProcessStateRequest *r = (const WitProcessStateRequest *)a;
+        if (b != sizeof(*r) || c || r->Version != WIT_PROCESS_STATE_VERSION || r->Size != sizeof(*r)) {
+            return WIT_STATUS_INVALID_ARGUMENT;
+        }
+        if (r->Operation == WIT_PROCESS_CWD_GET) {
+            if (r->BufferBytes >= directoryBytes) {
+                memcpy((void *)r->Buffer, directory, directoryBytes);
+            }
+            if (result) {
+                *result = directoryBytes;
+            }
+            return WIT_STATUS_OK;
+        }
+        if (r->Operation != WIT_PROCESS_CWD_SET ||
+            !r->NameUnits ||
+            r->NameUnits > sizeof(directory) ||
+            ((const char *)r->Name)[0] != '/') {
+            return WIT_STATUS_INVALID_ARGUMENT;
+        }
+        char path[1026];
+        memcpy(path, (const void *)r->Name, (size_t)r->NameUnits);
+        path[r->NameUnits] = 0;
+        if (!strcmp(path, "/missing")) {
+            return WIT_STATUS_NOT_FOUND;
+        }
+        if (strcmp(path, "/") && strcmp(path, "/app") && strcmp(path, "/dir") && strcmp(path, "/dir/sub")) {
+            return WIT_STATUS_WRONG_TYPE;
+        }
+        memcpy(directory, path, (size_t)r->NameUnits);
+        directoryBytes = (WitU32)r->NameUnits;
+        return WIT_STATUS_OK;
+    }
     if (call == WIT_CALL_STORAGE_QUERY) {
         const WitStorageQuery *r = (const WitStorageQuery *)a;
         if (b != sizeof(*r) ||

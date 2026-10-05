@@ -42,7 +42,7 @@ internal static class HostRuntimeImage
     /// The guest's thread lifecycle and Win32 adapters the runtimes call, compiled with the guest's native support:
     /// compiler TLS and threads, the message catalogue, events and waits, handles, sleeping, thread creation, the
     /// clocks, UTF-8 conversion, the functions only the STL's sources call (native_stl) and those only the .NET host
-    /// calls (native_host).
+    /// calls (native_host). The process's environment (<see cref="ENVIRONMENT"/>) is compiled as Unicode.
     /// </summary>
     public static readonly string[] ADAPTERS = ["src/Runtime.NativeAot/tls.witos.cpp", "src/Runtime.Native/thread.c",
         "src/Runtime.NativeAot/minipal_time.witos.cpp", "src/Runtime.NativeAot/native_diagnostics.witos.cpp",
@@ -53,10 +53,16 @@ internal static class HostRuntimeImage
         "src/Runtime.NativeAot/native_host.witos.cpp"];
 
     /// <summary>
+    /// The adapter of the process's environment, which the kernel keeps for every module (P6.4.j3a).
+    /// </summary>
+    public const string ENVIRONMENT = "src/Runtime.NativeAot/pal_environment.witos.cpp";
+
+    /// <summary>
     /// The Win32 bindings of those adapters.
     /// </summary>
     public static readonly string[] BINDINGS = ["native_diagnostics", "native_stl", "native_services", "native_wait",
-        "native_thread_create", "native_thread_handles", "native_clock", "native_encoding", "native_host"];
+        "native_thread_create", "native_thread_handles", "native_clock", "native_encoding", "native_host",
+        "native_environment"];
 
     #endregion
 
@@ -122,8 +128,7 @@ internal static class HostRuntimeImage
                 "/I" + Path.Combine(root, "src/Runtime.NativeAot")], Path.Combine(root, file));
         }
 
-        // The rest of the corehost PAL (P6.4.j2) over the guest's adapters, against the corrected pinned pal.h, with the
-        // environment adapter's Win32 binding.
+        // The rest of the corehost PAL (P6.4.j2) over the guest's adapters, against the corrected pinned pal.h.
         var corehost = Path.Combine(output, "corehost");
         await CoreClrHostFilePal.PrepareAsync(root, corehost);
         foreach (var file in HOST_PAL)
@@ -131,10 +136,6 @@ internal static class HostRuntimeImage
             await Compile("pal_", ["/std:c++17", "/utf-8", "/GS-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", "/DWITOS_HOST_FILES", .. guest,
                 "/I" + corehost], Path.Combine(root, file));
         }
-        var environmentBinding = Path.Combine(output, "host_native_environment.obj");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + environmentBinding,
-            Path.Combine(root, "src/Runtime.Pal.Win32/X64/native_environment.asm")], root);
-        objects.Add(environmentBinding);
         await Compile("heap_", ["/std:c++17", "/GS-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", .. guest,
             "/I" + Path.Combine(root, "src/Runtime.NativeAot")], Path.Combine(root, HEAP));
 

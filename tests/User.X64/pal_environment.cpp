@@ -244,16 +244,18 @@ extern "C" WitU64 wit_environment_configure(const WitUserStartup *startup)
 {
     mode = ((const WitUserTestConfig *)startup)->Mode;
     *(WitU64 *)WIT_GC_INFO_REPORT = mode;
+    // The process's environment exists before any image seeds it (P6.4.j3a); this component's creator set none.
     wchar_t sentinel = 0x1234;
     if (wit_pal_environment_initialize(nullptr, 0) ||
         GetLastError() != ERROR_NOT_READY ||
         PalGetEnvironmentVariable(L"Name", &sentinel, 1) ||
-        GetLastError() != ERROR_NOT_READY ||
+        GetLastError() != ERROR_ENVVAR_NOT_FOUND ||
         sentinel != 0x1234) {
         return 1500;
     }
-    if (GetEnvironmentStringsW() || GetLastError() != ERROR_NOT_READY) {
-        return 1507;
+    auto empty = GetEnvironmentStringsW();
+    if (!empty || empty[0] || empty[1] || !FreeEnvironmentStringsW(empty)) {
+        return 1507; // the empty block holds two terminators, as on Windows
     }
     wit_native_process_image_initialize(startup);
     WitUserMemoryInfo before, after;
@@ -267,8 +269,8 @@ extern "C" WitU64 wit_environment_configure(const WitUserStartup *startup)
         if (wit_pal_environment_initialize(bad[i], i == 1 ? 2 : 1) ||
             GetLastError() != ERROR_INVALID_PARAMETER ||
             PalGetEnvironmentVariable(L"Key", nullptr, 0) ||
-            GetLastError() != ERROR_NOT_READY) {
-            return 1502;
+            GetLastError() != ERROR_ENVVAR_NOT_FOUND) {
+            return 1502; // a rejected table seeds nothing
         }
     }
     if (wit_pal_environment_initialize(entries, WIT_PAL_ENV_CAPACITY + 1) ||

@@ -20,8 +20,9 @@ extern "C" WitU64 wit_heap_scenarios_probe();
 extern "C" WitU64 wit_host_pal_probe();
 
 namespace {
-// The environment of the host PAL scenarios (mode 26), readonly image data as the kernel requires.
-const WitPalEnvironmentEntry ENVIRONMENT[] = {{L"CORE_SERVICING", L"/", 14, 1}};
+// The defaults the image seeds into the environment of the host PAL scenarios (mode 26), readonly image data; the
+// kernel test sets WITOS_SEEDED as the creator, which wins.
+const WitPalEnvironmentEntry ENVIRONMENT[] = {{L"CORE_SERVICING", L"/", 14, 1}, {L"WITOS_SEEDED", L"table", 12, 5}};
 } // namespace
 
 extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
@@ -34,7 +35,7 @@ extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
     if (mode == 26) {
         // The process's image and environment, published before compiler TLS as the host's startup will.
         wit_native_process_image_initialize(startup);
-        if (!wit_pal_environment_initialize(ENVIRONMENT, 1)) {
+        if (!wit_pal_environment_initialize(ENVIRONMENT, 2)) {
             return 2503;
         }
     }

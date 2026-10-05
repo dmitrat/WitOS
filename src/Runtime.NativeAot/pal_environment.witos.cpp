@@ -6,8 +6,10 @@
 #include <new>
 static_assert(sizeof(TCHAR) == 2, "The selected PAL uses UTF-16 TCHAR.");
 
-static const WitPalEnvironmentEntry *environment;
-static uint32_t environment_count;
+/* The environment is the process's (P6.4.j3a): the kernel keeps it for every module of the component, which reads and
+ * changes it through these functions, so each module's copy of this adapter sees one state. An image's startup may
+ * seed it from a readonly table of defaults. Names here are printable ASCII without '=', which the kernel compares
+ * with ASCII case folding. */
 static bool environment_ready;
 
 bool wit_pal_environment_is_ready()
@@ -43,10 +45,42 @@ static bool readonly(const void *p, size_t bytes)
             WIT_IMAGE_INFO_WRITE | WIT_IMAGE_INFO_EXECUTE, 1);
 }
 
+namespace {
+WitU64 state(WitU32 operation, const wchar_t *name, uint32_t nameUnits, const wchar_t *value, uint32_t valueUnits,
+    wchar_t *buffer, uint32_t capacity, WitU64 *units)
+{
+    WitProcessStateRequest request = {};
+    request.Version = WIT_PROCESS_STATE_VERSION;
+    request.Size = sizeof(request);
+    request.Operation = operation;
+    request.Name = (WitU64)name;
+    request.NameUnits = nameUnits;
+    request.Value = (WitU64)value;
+    request.ValueUnits = valueUnits;
+    request.Buffer = (WitU64)buffer;
+    request.BufferBytes = (WitU64)capacity * sizeof(wchar_t);
+    return wit_native_call(WIT_CALL_PROCESS_STATE, (WitU64)&request, sizeof(request), 0, units);
+}
+
+// The length of a valid name, or 0 for an empty, overlong or invalid one.
+uint32_t name_length(LPCWSTR name)
+{
+    uint32_t length = 0;
+    while (name && length <= WIT_PAL_ENV_NAME_MAX && name[length]) {
+        if (!name_character(name[length])) {
+            return 0;
+        }
+        ++length;
+    }
+    return length <= WIT_PAL_ENV_NAME_MAX ? length : 0;
+}
+} // namespace
+
 bool wit_pal_environment_initialize(const WitPalEnvironmentEntry *entries, uint32_t count)
 {
-    // Startup is externally serialized. Failed validation publishes nothing and
-    // can be retried; after success, no replacement or mutation is supported.
+    // Startup is externally serialized. The table seeds the process's environment with defaults: a variable the
+    // process already has, from its creator, stays. Failed validation or seeding publishes nothing and can be
+    // retried; after success, no replacement is supported.
     if (environment_ready) {
         SetLastError(ERROR_ALREADY_INITIALIZED);
         return false;
@@ -96,55 +130,87 @@ bool wit_pal_environment_initialize(const WitPalEnvironmentEntry *entries, uint3
             }
         }
     }
-    environment = entries;
-    environment_count = count;
+    bool seeded[WIT_PAL_ENV_CAPACITY] = {};
+    for (uint32_t i = 0; i < count; ++i) {
+        const auto &entry = entries[i];
+        WitU64 units = 0;
+        WitU64 status = state(WIT_PROCESS_ENV_GET, entry.Name, entry.NameLength, nullptr, 0, nullptr, 0, &units);
+        if (status == WIT_STATUS_NOT_FOUND) {
+            status = state(WIT_PROCESS_ENV_SET, entry.Name, entry.NameLength, entry.ValueLength ? entry.Value : L"",
+                entry.ValueLength, nullptr, 0, &units);
+            seeded[i] = status == WIT_STATUS_OK;
+        }
+        if (status != WIT_STATUS_OK) {
+            for (uint32_t j = 0; j < i; ++j) {
+                if (seeded[j] &&
+                    state(WIT_PROCESS_ENV_SET, entries[j].Name, entries[j].NameLength, nullptr, 0, nullptr, 0,
+                        &units) != WIT_STATUS_OK) {
+                    wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+                }
+            }
+            SetLastError(status == WIT_STATUS_NO_MEMORY ? ERROR_NOT_ENOUGH_MEMORY : ERROR_INVALID_PARAMETER);
+            return false;
+        }
+    }
     environment_ready = true;
     return true;
 }
 
 uint32_t PalGetEnvironmentVariable(LPCWSTR name, LPWSTR buffer, uint32_t size)
 {
-    if (!name || (size && !buffer)) {
+    const uint32_t length = name_length(name);
+    if (!length || (size && !buffer)) {
         SetLastError(ERROR_INVALID_PARAMETER);
         return 0;
     }
-    uint32_t length = 0;
-    while (length <= WIT_PAL_ENV_NAME_MAX && name[length]) {
-        if (!name_character(name[length])) {
-            SetLastError(ERROR_INVALID_PARAMETER);
-            return 0;
-        }
-        ++length;
-    }
-    if (!length || length > WIT_PAL_ENV_NAME_MAX) {
-        SetLastError(ERROR_INVALID_PARAMETER);
+    // The kernel copies the value only when it fits whole, leaving room for the terminator.
+    WitU64 units = 0;
+    const WitU64 status =
+        state(WIT_PROCESS_ENV_GET, name, length, nullptr, 0, size ? buffer : nullptr, size ? size - 1 : 0, &units);
+    if (status == WIT_STATUS_NOT_FOUND) {
+        SetLastError(ERROR_ENVVAR_NOT_FOUND);
         return 0;
     }
-    if (!environment_ready) {
-        SetLastError(ERROR_NOT_READY);
+    if (status != WIT_STATUS_OK) {
+        SetLastError(status == WIT_STATUS_BAD_ADDRESS ? ERROR_NOACCESS : ERROR_INVALID_PARAMETER);
         return 0;
     }
-    for (uint32_t i = 0; i < environment_count; ++i) {
-        const auto &entry = environment[i];
-        if (entry.NameLength != length || !equal(entry.Name, name, length)) {
-            continue;
-        }
-        if (size <= entry.ValueLength) {
-            return entry.ValueLength + 1;
-        }
-        for (uint32_t c = 0; c <= entry.ValueLength; ++c) {
-            buffer[c] = entry.Value[c];
-        }
-        // Empty values are present, return zero and preserve prior last-error.
-        return entry.ValueLength;
+    if (units >= size) {
+        return (uint32_t)units + 1;
     }
-    SetLastError(ERROR_ENVVAR_NOT_FOUND);
-    return 0;
+    buffer[units] = 0;
+    // Empty values are present, return zero and preserve prior last-error.
+    return (uint32_t)units;
 }
 
 extern "C" uint32_t wit_pal_environment_get(LPCWSTR name, LPWSTR buffer, uint32_t size)
 {
     return PalGetEnvironmentVariable(name, buffer, size);
+}
+
+/* SetEnvironmentVariableW: a null value removes the variable, an absent one too, as on Windows; success preserves
+ * the last error. A null name, which Windows dereferences, is invalid here. */
+extern "C" BOOL WINAPI wit_pal_environment_set(LPCWSTR name, LPCWSTR value)
+{
+    const uint32_t length = name_length(name);
+    if (!length) {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+    uint32_t units = 0;
+    while (value && units <= WIT_ENVIRONMENT_UNITS && value[units]) {
+        ++units;
+    }
+    WitU64 ignored = 0;
+    const WitU64 status = units > WIT_ENVIRONMENT_UNITS
+        ? WIT_STATUS_NO_MEMORY
+        : state(
+              WIT_PROCESS_ENV_SET, name, length, value ? (units ? value : L"") : nullptr, units, nullptr, 0, &ignored);
+    if (status == WIT_STATUS_OK || (!value && status == WIT_STATUS_NOT_FOUND)) {
+        return TRUE;
+    }
+    SetLastError(status == WIT_STATUS_NO_MEMORY ? ERROR_NOT_ENOUGH_MEMORY : ERROR_INVALID_PARAMETER);
+    return FALSE;
 }
 
 namespace {
@@ -165,14 +231,13 @@ void block_unlock()
 {
     wit_native_unlock(&blocks_gate);
 }
-}
+} // namespace
 
+/* GetEnvironmentStringsW: a copy of the process's block, "Name=Value\0" records and a final "\0", with a second "\0"
+ * when it has no record, as Windows returns it. Another thread may change the environment between the size and the
+ * copy, so the copy is retried a few times. */
 extern "C" wchar_t *wit_pal_environment_strings()
 {
-    if (!environment_ready) {
-        SetLastError(ERROR_NOT_READY);
-        return nullptr;
-    }
     block_lock();
     uint32_t slot = WIT_PAL_ENV_BLOCK_CAPACITY;
     for (uint32_t i = 0; i < WIT_PAL_ENV_BLOCK_CAPACITY; ++i) {
@@ -187,36 +252,34 @@ extern "C" wchar_t *wit_pal_environment_strings()
         SetLastError(ERROR_NOT_ENOUGH_MEMORY);
         return nullptr;
     }
-    size_t units = environment_count ? 1 : 2;
-    for (uint32_t i = 0; i < environment_count; ++i) {
-        units += environment[i].NameLength + environment[i].ValueLength + 2;
+    wchar_t *block = nullptr;
+    for (int attempt = 0; attempt < 4 && !block; ++attempt) {
+        WitU64 units = 0;
+        if (state(WIT_PROCESS_ENV_BLOCK, nullptr, 0, nullptr, 0, nullptr, 0, &units) != WIT_STATUS_OK || !units) {
+            wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+        }
+        const uint32_t capacity = (uint32_t)units + (units == 1 ? 1 : 0);
+        block = new (std::nothrow) wchar_t[capacity];
+        if (!block) {
+            break;
+        }
+        WitU64 copied = 0;
+        if (state(WIT_PROCESS_ENV_BLOCK, nullptr, 0, nullptr, 0, block, capacity, &copied) != WIT_STATUS_OK) {
+            wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+        }
+        if (copied == 1 && capacity == 2) {
+            block[1] = 0;
+        } else if (copied != units) {
+            delete[] block; // changed in between
+            block = nullptr;
+        }
     }
-    auto block = new (std::nothrow) wchar_t[units];
     if (!block) {
         block_lock();
         blocks[slot] = {nullptr, false};
         block_unlock();
         SetLastError(ERROR_NOT_ENOUGH_MEMORY);
         return nullptr;
-    }
-    size_t at = 0;
-    for (uint32_t i = 0; i < environment_count; ++i) {
-        const auto &entry = environment[i];
-        for (uint32_t j = 0; j < entry.NameLength; ++j) {
-            block[at++] = entry.Name[j];
-        }
-        block[at++] = L'=';
-        for (uint32_t j = 0; j < entry.ValueLength; ++j) {
-            block[at++] = entry.Value[j];
-        }
-        block[at++] = 0;
-    }
-    block[at++] = 0;
-    if (!environment_count) {
-        block[at++] = 0;
-    }
-    if (at != units) {
-        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
     block_lock();
     blocks[slot].Address = block;

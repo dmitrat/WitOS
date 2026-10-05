@@ -199,6 +199,12 @@ typedef struct WitUserProcess {
     WitU64 WaitCloses;
     WitU64 IdleHalts;
     WitU64 IdleTicks;
+    /* The state every module shares (P6.4.j3a): the environment's records and their final terminator, and the
+     * current directory, canonical UTF-8 from '/'. */
+    WitU32 EnvironmentVariables, EnvironmentUnits;
+    WitU16 Environment[WIT_ENVIRONMENT_UNITS + 1];
+    WitU32 DirectoryBytes;
+    WitU8 Directory[WIT_PROCESS_PATH_BYTES];
 } WitUserProcess;
 
 void wit_user_exception_initialize(WitUserProcess *);
@@ -404,6 +410,11 @@ WitU64 wit_user_library_shutdown(WitUserProcess *, const WitLibraryRequest *);
 WitU64 wit_user_library_release_plan(WitUserProcess *, WitUserLibrary *, WitU64, int, WitU32, WitU64 *);
 WitU64 wit_user_library_reader_call(WitUserProcess *, const WitLibraryRequest *, WitU64 *);
 WitU64 wit_user_storage_query(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
+WitU64 wit_user_process_state(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
+void wit_user_process_state_reset(WitUserProcess *);
+/* Sets (value non-zero) or removes a variable of a component its creator prepares; the kernel's own strings. */
+WitU64 wit_user_environment_set(
+    WitUserProcess *, const WitU16 *name, WitU32 nameUnits, const WitU16 *value, WitU32 valueUnits);
 WitU64 wit_user_file_call(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
 void wit_user_file_self_test(WitPageAllocator *);
 #endif

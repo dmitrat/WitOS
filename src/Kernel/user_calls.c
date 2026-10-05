@@ -6,7 +6,7 @@
  * status and value of the caller's frame and returns 0 to finish through the common path of wit_user_syscall,
  * or the frame to resume as it is: a restored context, a dispatched thread or the caller after a yield. */
 
-#define CALL_COUNT (WIT_CALL_LIBRARY + 1U)
+#define CALL_COUNT (WIT_CALL_PROCESS_STATE + 1U)
 
 static void require(int condition, const char *message)
 {
@@ -667,6 +667,13 @@ static WitArchFrame *library(WitUserCall *call)
     return 0;
 }
 
+static WitArchFrame *process_state(WitUserCall *call)
+{
+    *call->Status =
+        wit_user_process_state(call->Process, call->Argument0, call->Argument1, call->Argument2, call->Value);
+    return 0;
+}
+
 static WitArchFrame *(*const handlers[CALL_COUNT])(WitUserCall *) = {
     [WIT_CALL_QUERY] = query,
     [WIT_CALL_WRITE] = write,
@@ -737,6 +744,7 @@ static WitArchFrame *(*const handlers[CALL_COUNT])(WitUserCall *) = {
     [WIT_CALL_FILE] = file,
     [WIT_CALL_STORAGE_QUERY] = storage_query,
     [WIT_CALL_LIBRARY] = library,
+    [WIT_CALL_PROCESS_STATE] = process_state,
 };
 
 WitArchFrame *wit_user_call(WitUserCall *call)

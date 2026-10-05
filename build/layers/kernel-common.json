@@ -5,6 +5,7 @@
   "sources": [
     "src/Kernel/files.c",
     "src/Kernel/user_files.c",
+    "src/Kernel/user_process_state.c",
     "src/Kernel/user_library.c",
     "src/Kernel/user_library_readers.c",
     "src/Kernel/user_library_tls.c",

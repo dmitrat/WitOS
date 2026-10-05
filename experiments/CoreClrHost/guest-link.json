@@ -3,17 +3,11 @@
     "?get_method_module_path@pal@@YA_NPEAV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@PEAX@Z",
     "?get_own_executable_path@pal@@YA_NPEAV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@@Z",
     "?get_own_module_path@pal@@YA_NPEAV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@@Z",
-    "__imp_FreeEnvironmentStringsW",
-    "__imp_GetEnvironmentStringsW",
-    "__imp_GetEnvironmentVariableW",
     "atexit",
     "wit_native_main"
   ],
   "hostpolicy": [
     "?get_own_executable_path@pal@@YA_NPEAV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@@Z",
-    "__imp_FreeEnvironmentStringsW",
-    "__imp_GetEnvironmentStringsW",
-    "__imp_GetEnvironmentVariableW",
     "atexit",
     "wit_native_main"
   ]
