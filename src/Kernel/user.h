@@ -160,6 +160,9 @@ typedef struct WitUserProcess {
     WitU64 ImageBase;
     WitU64 ImageEntry;
     WitU32 ImageSize;
+    /* The package file the main image came from (P6.4.j3b): its name's offset in the package, 0 bytes for none. */
+    WitU32 ImageNameBytes;
+    WitU64 ImageNameOffset;
     WitU32 TlsBytes;
     WitU8 TlsTemplate[WIT_PE_TLS_MAX_BYTES];
     WitU64 FaultVector;
@@ -316,6 +319,9 @@ WitPeStatus wit_user_create_pe_profile(
     WitUserProcess *, WitPageAllocator *, WitU32, const WitU8 *, WitU32, WitU64, const char *, WitU32);
 WitPeStatus wit_user_create_named_pe(WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot,
     const WitU8 *file, WitU32 size, WitU64 base, const char *resource_name);
+/* Creates a component from a file of the boot package, which the component's module queries then name. */
+WitPeStatus wit_user_create_package_pe(
+    WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const char *name, WitU64 base, WitU32 profile);
 WitPeStatus wit_user_create_pe(
     WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const WitU8 *file, WitU32 size, WitU64 base);
 int wit_user_image_map(WitUserSpace *space, const WitU8 *file, const WitPeImage *plan, WitU64 base);

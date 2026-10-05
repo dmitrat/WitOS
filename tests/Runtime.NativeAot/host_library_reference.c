@@ -65,6 +65,38 @@ WitU64 host_library_call(WitU64 address, WitU64 bytes, WitU64 reserved, WitU64 *
                 *output = generation;
             }
         }
+    } else if (r->Operation == WIT_LIBRARY_MODULE_PATH) {
+        /* Windows itself locates the module that holds the address; the harness stands for the main image. */
+        if (r->BufferBytes != sizeof(WitLibraryPath) ||
+            r->Handle ||
+            r->Flags > WIT_LIBRARY_MAIN_IMAGE ||
+            (r->Flags && r->Ordinal)) {
+            return WIT_STATUS_INVALID_ARGUMENT;
+        }
+        HMODULE holder = 0;
+        const char *name = 0;
+        if (r->Flags) {
+            name = "host/harness.exe";
+        } else if (GetModuleHandleExW(
+                       GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       (LPCWSTR)(ULONG_PTR)r->Ordinal, &holder)) {
+            name = holder == GetModuleHandleW(0) ? "host/harness.exe"
+                : module && holder == module     ? "native/lib.dll"
+                                                 : 0;
+        }
+        if (!name) {
+            status = WIT_STATUS_NOT_FOUND;
+        } else {
+            WitLibraryPath *path = (WitLibraryPath *)r->Buffer;
+            memset(path, 0, sizeof(*path));
+            path->Version = WIT_LIBRARY_VERSION;
+            path->Size = sizeof(*path);
+            path->NameBytes = (WitU32)strlen(name);
+            memcpy(path->Name, name, path->NameBytes);
+            if (output) {
+                *output = sizeof(*path);
+            }
+        }
     } else if (!module || r->Handle != generation) {
         status = WIT_STATUS_BAD_HANDLE;
     } else if (r->Operation == WIT_LIBRARY_PATH) {

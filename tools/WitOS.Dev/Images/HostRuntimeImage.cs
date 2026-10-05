@@ -36,6 +36,7 @@ internal static class HostRuntimeImage
     public static readonly string[] HOST_PAL = ["src/Runtime.CoreClr/host_strings.witos.cpp",
         "src/Runtime.CoreClr/host_trace.witos.cpp", "src/Runtime.CoreClr/host_install.witos.cpp",
         "src/Runtime.CoreClr/host_paths.witos.cpp", "src/Runtime.CoreClr/host_environment.witos.cpp",
+        "src/Runtime.CoreClr/host_library.witos.cpp", "src/Runtime.CoreClr/host_library_discovery.witos.cpp",
         "tests/User.X64/host_pal_guest.cpp"];
 
     /// <summary>

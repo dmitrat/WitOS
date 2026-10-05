@@ -711,6 +711,49 @@ static WitU64 find_export(WitUserProcess *process, const WitPackage *package, co
     return WIT_STATUS_OK;
 }
 
+/* The package path of the module that holds an address, or of the main image (P6.4.j3b): what GetModuleHandleExW
+ * with an address and GetModuleFileNameW answer on Windows. A query of immutable records, allowed at any time. */
+static WitU64 module_path(WitUserProcess *process, const WitLibraryRequest *request, WitU64 *result)
+{
+    if (request->Handle ||
+        request->Name ||
+        request->NameBytes ||
+        request->Flags > WIT_LIBRARY_MAIN_IMAGE ||
+        (request->Flags && request->Ordinal) ||
+        request->BufferBytes != sizeof(WitLibraryPath)) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    const WitU64 address = request->Ordinal;
+    WitU64 offset = 0;
+    WitU32 bytes = 0;
+    if (request->Flags || (address >= process->ImageBase && address - process->ImageBase < process->ImageSize)) {
+        offset = process->ImageNameOffset;
+        bytes = process->ImageNameBytes;
+    } else {
+        for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
+            const WitUserLibrary *module = &process->Libraries[i];
+            if (module->Token && address >= module->Base && address - module->Base < module->ImageBytes) {
+                offset = module->NameOffset;
+                bytes = module->NameBytes;
+                break;
+            }
+        }
+    }
+    const WitPackage *package = wit_storage_package();
+    if (!bytes || !package) {
+        return WIT_STATUS_NOT_FOUND;
+    }
+    WitLibraryPath path = {WIT_LIBRARY_VERSION, sizeof(path), bytes, 0, {0}};
+    for (WitU32 i = 0; i < bytes; ++i) {
+        path.Name[i] = package->Data[offset + i];
+    }
+    if (!wit_user_copy_to(&process->Space, request->Buffer, (const WitU8 *)&path, sizeof(path))) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    *result = sizeof(path);
+    return WIT_STATUS_OK;
+}
+
 /* A library operation is refused while another thread owns an active library lifecycle without thread
  * notification, and load, unload and find are refused during any lifecycle. */
 static int lifecycle_blocks(const WitUserProcess *process, WitU32 operation)
@@ -762,8 +805,11 @@ WitU64 wit_user_library_call(
     }
     if (request.Version != WIT_LIBRARY_VERSION ||
         request.Size != sizeof(request) ||
-        request.Operation > WIT_LIBRARY_THREAD_LEAVE) {
+        request.Operation > WIT_LIBRARY_MODULE_PATH) {
         return WIT_STATUS_UNSUPPORTED;
+    }
+    if (request.Operation == WIT_LIBRARY_MODULE_PATH) {
+        return module_path(process, &request, result);
     }
     if (request.Operation == WIT_LIBRARY_THREAD_ENTER || request.Operation == WIT_LIBRARY_THREAD_LEAVE) {
         return wit_user_library_thread_notify(process, &request);

@@ -1,5 +1,7 @@
 #include "user.h"
+#include "witos/package.h"
 #include "witos/platform.h"
+#include "witos/storage.h"
 
 #define NO_THREAD WIT_USER_THREAD_CAPACITY
 
@@ -429,6 +431,8 @@ static void reset_process(WitUserProcess *process, WitU32 slot, WitU32 code_size
     process->ImageBase = image ? base : WIT_USER_CODE;
     process->ImageEntry = image ? base + image->EntryRva : WIT_USER_CODE;
     process->ImageSize = image ? image->ImageSize : code_size;
+    process->ImageNameBytes = 0;
+    process->ImageNameOffset = 0;
     process->FaultVector = 0;
     process->FaultError = 0;
     process->FaultAddress = 0;
@@ -650,6 +654,8 @@ void wit_user_destroy(WitUserProcess *process)
     process->ImageBase = 0;
     process->ImageEntry = 0;
     process->ImageSize = 0;
+    process->ImageNameBytes = 0;
+    process->ImageNameOffset = 0;
     process->TlsBytes = 0;
 }
 
@@ -802,4 +808,29 @@ WitPeStatus wit_user_create_named_pe(WitUserProcess *process, WitPageAllocator *
     const WitU8 *file, WitU32 size, WitU64 base, const char *resource_name)
 {
     return wit_user_create_pe_profile(process, allocator, slot, file, size, base, resource_name, 0);
+}
+
+WitPeStatus wit_user_create_package_pe(
+    WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const char *name, WitU64 base, WitU32 profile)
+{
+    const WitPackage *package = wit_storage_package();
+    WitU32 length = 0;
+    while (name && length < WIT_PACKAGE_MAX_NAME && name[length]) {
+        ++length;
+    }
+    WitPackageFile file;
+    if (!package ||
+        !length ||
+        wit_package_find(package, (const WitU8 *)name, length, &file) != WitPackageOk ||
+        file.Length > 0xFFFFFFFFULL) {
+        return WitPeInvalidImage;
+    }
+    /* The package's bytes are immutable and kernel-owned for the boot's lifetime, as a loaded library's are. */
+    const WitPeStatus status = wit_user_create_pe_profile(
+        process, allocator, slot, package->Data + file.Offset, (WitU32)file.Length, base, 0, profile);
+    if (status == WitPeOk) {
+        process->ImageNameOffset = (WitU64)(file.Name - package->Data);
+        process->ImageNameBytes = file.NameLength;
+    }
+    return status;
 }

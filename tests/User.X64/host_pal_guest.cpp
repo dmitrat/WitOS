@@ -6,6 +6,7 @@
 #include <cwchar>
 extern "C" {
 #include "bootstrap.h"
+#include "image.h"
 #include "path.h"
 #include "../User/protocol.h"
 }
@@ -162,6 +163,63 @@ WitU64 process_state()
     return 0;
 }
 
+// The module at an address and the process's executable (P6.4.j3b): the kernel created this component from the boot
+// package's host/HostRuntimeFixture.pe, and the PAL's code, its data and its headers all lie in that image; a library
+// loaded from the package names its own path, and an address in no module fails as GetModuleHandleExW does.
+int image_data = 1;
+
+WitU64 module_paths()
+{
+    const pal::string_t own = L"/host/HostRuntimeFixture.pe";
+    pal::string_t path;
+    SetLastError(0x2468);
+    if (!pal::get_own_executable_path(&path) ||
+        path != own ||
+        !pal::get_own_module_path(&path) ||
+        path != own ||
+        GetLastError() != 0x2468) {
+        return 2741;
+    }
+    const auto image = wit_native_process_image();
+    if (!image ||
+        !pal::get_method_module_path(&path, reinterpret_cast<void *>(&module_paths)) ||
+        path != own ||
+        !pal::get_method_module_path(&path, reinterpret_cast<void *>(static_cast<uintptr_t>(image->Base))) ||
+        path != own ||
+        !pal::get_method_module_path(&path, &image_data) ||
+        path != own) {
+        return 2742;
+    }
+    const pal::string_t libraryPath = L"/native/lib.dll";
+    pal::dll_t library = nullptr;
+    if (!pal::load_library(&libraryPath, &library)) {
+        return 2743;
+    }
+    const auto symbol = pal::get_symbol(library, "LibraryAdd");
+    const auto data = pal::get_symbol(library, "LibraryData");
+    const bool named = symbol &&
+        data &&
+        pal::get_method_module_path(&path, reinterpret_cast<void *>(symbol)) &&
+        path == libraryPath &&
+        pal::get_method_module_path(&path, reinterpret_cast<void *>(data)) &&
+        path == libraryPath;
+    pal::unload_library(library);
+    if (!named) {
+        return 2744;
+    }
+    // After the unload, its addresses belong to no module; neither does the stack.
+    path = L"keep";
+    int local = 0;
+    if (pal::get_method_module_path(&path, reinterpret_cast<void *>(symbol)) ||
+        GetLastError() != ERROR_MOD_NOT_FOUND ||
+        pal::get_method_module_path(&path, &local) ||
+        GetLastError() != ERROR_MOD_NOT_FOUND ||
+        path != L"keep") {
+        return 2745;
+    }
+    return 0;
+}
+
 // The Win32 functions only the host calls.
 WitU64 adapters()
 {
@@ -198,6 +256,9 @@ extern "C" WitU64 wit_host_pal_probe()
     }
     if (!code) {
         code = process_state();
+    }
+    if (!code) {
+        code = module_paths();
     }
     if (!code) {
         // UTF-8 on the console through the C runtime's streams; the file compiles as UTF-8, so the markers the kernel

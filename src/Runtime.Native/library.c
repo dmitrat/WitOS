@@ -117,6 +117,17 @@ WitU64 wit_native_library_path(WitU64 handle, WitLibraryPath *output)
     return call(&request, 0);
 }
 
+WitU64 wit_native_module_path(WitU64 address, WitU32 flags, WitLibraryPath *output)
+{
+    WitLibraryRequest request = {0};
+    request.Operation = WIT_LIBRARY_MODULE_PATH;
+    request.Flags = flags;
+    request.Ordinal = address;
+    request.Buffer = (WitU64)output;
+    request.BufferBytes = sizeof(*output);
+    return call(&request, 0);
+}
+
 WitU64 wit_native_library_acquire_reader(WitU64 pc, WitLibraryInfo *info, WitU64 *output)
 {
     if (!output) {
