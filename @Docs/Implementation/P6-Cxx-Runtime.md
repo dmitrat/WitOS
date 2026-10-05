@@ -3,8 +3,8 @@
 Date: 2026-10-05. Status: P6.4.e (Windows), P6.4.f (guest), P6.4.g (vcruntime surface), P6.4.h (UCRT subset),
 P6.4.i (microsoft/STL: exceptions, algorithms, threads, locales and streams), P6.4.j1 (the host's guest build and
 its inventory), P6.4.j2 (the rest of the PAL), P6.4.j3a (process state in the kernel), P6.4.j3b (module paths)
-and P6.4.j3c1 (a C++ library's startup; both host libraries link with no unresolved symbol) complete; P6.4.j3c2
-(exceptions across modules) next.
+P6.4.j3c1 (a C++ library's startup; both host libraries link with no unresolved symbol) and P6.4.j3c2 (C++
+exceptions in a library) complete; P6.4.j3c3 (the host libraries in the guest) next.
 
 ## Decision
 
@@ -94,7 +94,7 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
       of `hostfxr.dll`/`hostpolicy.dll`.
       - [x] **P6.4.j3c1** A C++ library's startup and atexit, the libraries' link set without the process entry, and
         the full runtime profile's limits for a library; `hostfxr` and `hostpolicy` link with no unresolved symbol.
-      - [ ] **P6.4.j3c2** C++ exceptions in a library: dispatch and unwinding through the frames of loaded modules.
+      - [x] **P6.4.j3c2** C++ exceptions in a library: dispatch and unwinding through the frames of loaded modules.
       - [ ] **P6.4.j3c3** The real `hostfxr.dll` and `hostpolicy.dll` load in the guest and run their startup.
 - [ ] **P6.4.k** Guest `hostfxr_main` reads a real application's runtimeconfig and deps through `hostpolicy` and
   reaches `coreclr_initialize`/`coreclr_execute_assembly`.
@@ -867,3 +867,33 @@ The fixture's own runtimes are separate copies from the library's. `Code.CxxLibr
 Limitations. A C++ exception thrown in a library cannot be dispatched yet. The dispatcher of every module accepts
 code and unwinds frames of the main image and of registered dynamic code only, so a library's frames are j3c2's work.
 The host libraries link, but they do not run in the guest yet (j3c3).
+
+### P6.4.j3c2: C++ exceptions in a library
+
+A module raises its exceptions through its own copy of the guest dispatcher, which looks functions up and unwinds
+frames of the main image, of registered dynamic code and, through the lookup the CoreCLR support added for module
+readers, of loaded libraries. Two checks still knew only the first two kinds of code:
+
+- **`code()`** decides which program counters, handlers, targets and continuations the dispatcher accepts. It now
+  also accepts the code of a loaded library: `wit_native_library_code` takes a reader on the module that holds the
+  address, which keeps it loaded, and checks that the address lies in a section of the module's image that is
+  executable and not writable. The image's headers are readonly after the load. A frame of a library that is neither
+  main image nor dynamic code no longer ends the search.
+- **`call_handler`** called every handler outside the main image through the funclet gate, which closes the unwind
+  scope around the call and bridges collided unwinds for CoreCLR's dynamic code. A library's C++ frame handler then
+  started its catch's consolidation under that bridge, and `consolidate` refused it. Only registered dynamic code takes
+  the gate now; a library's handler is called directly, as the main image's is.
+
+So a C++ exception thrown and caught in one library works, frames of other modules in between included: the
+dispatcher calls their handlers in the search and the unwind, and their destructors run.
+
+Evidence. `CxxLibraryExceptions` in mode 27 throws a `std::runtime_error` and catches it in the library. Then it
+throws an `int` from a library function that the fixture calls back from a frame of its own, which holds an object
+with a destructor. The library's catch receives 5, and the fixture sees its destructor ran once (`Code.CxxLibrary`,
+128 and 512 MiB).
+
+Limitations. A catch in a different module than the one that raised the exception is not supported: that module's
+`RtlUnwindEx` does not see the dispatch, which is the raising module's own state, so the unwind fails and the component
+ends. Windows has one dispatcher in ntdll for every module; a guest equivalent comes when exceptions must cross the
+host's modules. Hardware exceptions in a library still go to the one dispatcher the process registered with the
+kernel.

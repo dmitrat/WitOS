@@ -151,6 +151,42 @@ WitU64 wit_native_library_query_reader(WitU64 reader, WitLibraryInfo *info)
     return call(&request, 0);
 }
 
+/* The exception dispatcher of every module accepts frames and handlers in loaded libraries through this check
+ * (P6.4.j3c2). A reader keeps the module loaded while its headers, readonly after the load, are read; the header page
+ * bounds the section table. */
+int wit_native_library_code(WitU64 address)
+{
+    WitLibraryInfo info;
+    WitU64 reader = 0;
+    if (wit_native_library_acquire_reader(address, &info, &reader) != WIT_STATUS_OK) {
+        return 0;
+    }
+    int code = 0;
+    const WitU8 *base = (const WitU8 *)info.Base;
+    const WitU64 rva = address - info.Base;
+    const WitU64 page = info.ImageBytes < 4096 ? info.ImageBytes : 4096;
+    if (info.Version == WIT_LIBRARY_VERSION && info.Size == sizeof(info) && rva < info.ImageBytes && page >= 0x40) {
+        const WitU32 nt = *(const WitU32 *)(base + 0x3C);
+        if ((WitU64)nt + 24 <= page) {
+            const WitU32 sections = *(const WitU16 *)(base + nt + 6);
+            const WitU64 table = (WitU64)nt + 24 + *(const WitU16 *)(base + nt + 20);
+            for (WitU32 i = 0; i < sections && table + 40ULL * (i + 1) <= page; ++i) {
+                const WitU8 *section = base + table + 40ULL * i;
+                const WitU32 start = *(const WitU32 *)(section + 12), size = *(const WitU32 *)(section + 8);
+                const WitU32 flags = *(const WitU32 *)(section + 36);
+                if (rva >= start && rva - start < size) {
+                    code = (flags & 0x20000000U) && !(flags & 0x80000000U); /* IMAGE_SCN_MEM_EXECUTE, _WRITE */
+                    break;
+                }
+            }
+        }
+    }
+    if (wit_native_library_release_reader(reader) != WIT_STATUS_OK) {
+        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+    }
+    return code;
+}
+
 WitU64 wit_native_library_release_reader(WitU64 reader)
 {
     WitLibraryRequest request = {0};

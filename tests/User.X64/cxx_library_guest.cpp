@@ -13,6 +13,21 @@ extern "C" {
 namespace {
 int exits[4];
 int exit_count;
+int guards;
+
+struct Guard {
+    ~Guard()
+    {
+        ++guards;
+    }
+};
+
+// A frame of the fixture between the library's catch and its throw, with an object to destroy.
+__declspec(noinline) int through(int (*inner)(int), int value)
+{
+    Guard guard;
+    return inner(value) + 1;
+}
 
 void on_exit(int id)
 {
@@ -46,7 +61,8 @@ extern "C" WitU64 wit_cxx_library_probe()
     }
     const auto set_exit = symbol<void (*)(void (*)(int))>(library, "CxxLibrarySetExit");
     const auto probe = symbol<unsigned long long (*)()>(library, "CxxLibraryProbe");
-    if (!set_exit || !probe) {
+    const auto exceptions = symbol<unsigned long long (*)(int (*)(int (*)(int), int))>(library, "CxxLibraryExceptions");
+    if (!set_exit || !probe || !exceptions) {
         return 2812;
     }
     set_exit(&on_exit);
@@ -57,6 +73,13 @@ extern "C" WitU64 wit_cxx_library_probe()
     wchar_t value[16];
     if (GetEnvironmentVariableW(L"WITOS_FROM_LIBRARY", value, 16) != 7 || std::wcscmp(value, L"library")) {
         return 2813; // the library's change is the process's
+    }
+    const unsigned long long thrown = exceptions(&through);
+    if (thrown) {
+        return thrown;
+    }
+    if (guards != 1) {
+        return 2816; // the fixture's frame was unwound by the library's catch
     }
     if (exit_count || wit_native_library_unload(library) != WIT_STATUS_OK) {
         return 2814;
