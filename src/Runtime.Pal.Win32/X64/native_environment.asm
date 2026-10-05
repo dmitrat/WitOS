@@ -2,6 +2,7 @@ option casemap:none
 EXTERN wit_pal_environment_get:PROC
 EXTERN wit_pal_environment_strings:PROC
 EXTERN wit_pal_environment_free:PROC
+EXTERN wit_pal_environment_set:PROC
 .code
 PUBLIC GetEnvironmentVariableW
 PUBLIC wit_native_environment_get
@@ -17,6 +18,10 @@ PUBLIC FreeEnvironmentStringsW
 FreeEnvironmentStringsW PROC
     jmp wit_pal_environment_free
 FreeEnvironmentStringsW ENDP
+PUBLIC SetEnvironmentVariableW
+SetEnvironmentVariableW PROC
+    jmp wit_pal_environment_set
+SetEnvironmentVariableW ENDP
 .const
 ALIGN 8
 PUBLIC __imp_GetEnvironmentVariableW
@@ -25,4 +30,6 @@ PUBLIC __imp_GetEnvironmentStringsW
 PUBLIC __imp_FreeEnvironmentStringsW
 __imp_GetEnvironmentStringsW QWORD GetEnvironmentStringsW
 __imp_FreeEnvironmentStringsW QWORD FreeEnvironmentStringsW
+PUBLIC __imp_SetEnvironmentVariableW
+__imp_SetEnvironmentVariableW QWORD SetEnvironmentVariableW
 END

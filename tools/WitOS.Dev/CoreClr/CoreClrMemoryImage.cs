@@ -44,10 +44,7 @@ internal static class CoreClrMemoryImage
         text.AppendLine("};");
         await File.WriteAllTextAsync(Path.Combine(output, "coreclr_mapper_image.h"), text.ToString(), Encoding.ASCII);
         await File.WriteAllTextAsync(Path.Combine(output, "coreclr-mapper-image.json"), System.Text.Json.JsonSerializer.Serialize(new { headerSha256 = DIGEST, imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), profile = "native VMToOS adapter probe; GS/EH disabled fixture, not source-built guest CoreCLR" }));
-        // The host runtime fixture is a process: it also links the environment adapter, which a library must not
-        // until every module sees the process's environment (P6.4.j3).
-        var environment = await CompileAsync(root, output, msvc, "src/Runtime.NativeAot/pal_environment.witos.cpp", "/DUNICODE", "/D_UNICODE");
-        await HostRuntimeImage.BuildAsync(root, output, msvc, [.. support.Objects, .. support.Adapters, support.Entry, environment]);
+        await HostRuntimeImage.BuildAsync(root, output, msvc, [.. support.Objects, .. support.Adapters, support.Entry]);
     }
 
     /// <summary>
@@ -86,6 +83,7 @@ internal static class CoreClrMemoryImage
         var adapters = new List<string>();
         foreach (var file in HostRuntimeImage.ADAPTERS)
             adapters.Add(await CompileAsync(root, output, msvc, file));
+        adapters.Add(await CompileAsync(root, output, msvc, HostRuntimeImage.ENVIRONMENT, "/DUNICODE", "/D_UNICODE"));
         var entry = Path.Combine(output, "coreclr_mapper_start.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/I" + output, "/Fo" + entry, Path.Combine(root, "src/Runtime.Native/X64/native_start.asm")], root);
         return new GuestSupport(objects, adapters, entry);

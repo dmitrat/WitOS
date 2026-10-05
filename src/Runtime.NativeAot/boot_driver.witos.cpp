@@ -77,10 +77,11 @@ extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
     }
     wit_native_process_image_initialize(startup);
     mark("[RUNTIME] image published\n");
+    // The cookies come first: seeding the environment is runtime code with GS checks (P6.4.j3a).
+    wit_native_security_initialize_system();
     if (!wit_pal_environment_initialize(environment, 1)) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
-    wit_native_security_initialize_system();
     if (!table((WitU64)wit_runtime_c_begin, (WitU64)wit_runtime_c_end) ||
         !table((WitU64)wit_runtime_cpp_begin, (WitU64)wit_runtime_cpp_end)) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);

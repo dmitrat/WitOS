@@ -410,6 +410,7 @@ static void reset_process(WitUserProcess *process, WitU32 slot, WitU32 code_size
     const int runtime = image && (image->Profile & WIT_PE_RUNTIME_FULL);
     wit_files_initialize(&process->Files);
     wit_user_library_initialize(process);
+    wit_user_process_state_reset(process);
     process->Id = next_id++;
     process->Slot = slot;
     process->State = WitUserEmpty;
@@ -635,6 +636,7 @@ void wit_user_destroy(WitUserProcess *process)
     wit_user_stack_leases_initialize(process);
     wit_user_exception_initialize(process);
     wit_events_initialize(&process->Events);
+    wit_user_process_state_reset(process);
     wit_user_space_destroy(&process->Space);
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
         process->Threads[i].State = WitThreadEmpty;

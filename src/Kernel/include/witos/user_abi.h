@@ -18,11 +18,12 @@
 #include "file_io.h"
 #include "storage_query.h"
 #include "library.h"
+#include "process_state.h"
 
 /* Experimental x64 interrupt ABI, not a stable public SDK.
  * INT 0x80: RAX=call, RCX/RDX/R8=arguments; RAX=status, RDX=result.
  * Other GPRs and baseline x87/SSE state survive; flags are reset to 0x202. */
-#define WIT_ABI_VERSION 49U
+#define WIT_ABI_VERSION 50U
 #define WIT_ABI_STARTUP_SIZE 24U
 /* Existing single-module compiler TLS page layout; not a Windows TEB. */
 #define WIT_COMPILER_TLS_DATA_OFFSET 256U
@@ -65,6 +66,8 @@
 #define WIT_CALL_FILE 66U
 #define WIT_CALL_STORAGE_QUERY 67U
 #define WIT_CALL_LIBRARY 68U
+/* Request(process_state.h), exact size, reserved=0 -> the environment or current directory every module shares. */
+#define WIT_CALL_PROCESS_STATE 69U
 #define WIT_PROCESS_ABRUPT_THREAD_EXIT 0xFFFF0002ULL
 #define WIT_CALL_QUERY 0U
 #define WIT_CALL_WRITE 1U

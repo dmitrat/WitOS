@@ -351,8 +351,13 @@ int wit_user_copy_from(const WitUserSpace *space, WitU64 address, WitU8 *buffer,
     if (!wit_user_buffer_readable(space, address, size)) {
         return 0;
     }
-    for (WitU32 i = 0; i < size; ++i) {
-        buffer[i] = *(const WitU8 *)wit_user_space_physical(space, address + i, 0, 0);
+    /* One translation per page: a page is contiguous in the kernel's view of physical memory. */
+    for (WitU32 done = 0; done < size;) {
+        const WitU8 *source = (const WitU8 *)wit_user_space_physical(space, address + done, 0, 0);
+        const WitU32 span = (WitU32)(4096 - ((address + done) & 4095));
+        for (WitU32 i = 0; i < span && done < size; ++i) {
+            buffer[done++] = source[i];
+        }
     }
     return 1;
 }
@@ -380,8 +385,12 @@ int wit_user_copy_to(const WitUserSpace *space, WitU64 address, const WitU8 *buf
     if (!wit_user_buffer_writable(space, address, size)) {
         return 0;
     }
-    for (WitU32 i = 0; i < size; ++i) {
-        *(WitU8 *)wit_user_space_physical(space, address + i, 1, 0) = buffer[i];
+    for (WitU32 done = 0; done < size;) {
+        WitU8 *target = (WitU8 *)wit_user_space_physical(space, address + done, 1, 0);
+        const WitU32 span = (WitU32)(4096 - ((address + done) & 4095));
+        for (WitU32 i = 0; i < span && done < size; ++i) {
+            target[i] = buffer[done++];
+        }
     }
     return 1;
 }

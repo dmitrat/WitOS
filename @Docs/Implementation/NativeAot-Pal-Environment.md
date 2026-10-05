@@ -1,6 +1,6 @@
 # ADR 0021: Immutable native environment and PAL string conversion
 
-**Status:** Accepted; implemented in WitOS 0.0.24, user ABI v13 unchanged.
+**Status:** Accepted; implemented in WitOS 0.0.24, user ABI v13 unchanged. Revised by P6.4.j3a (user ABI v50): the environment is the process's, kept by the kernel, and the image table seeds defaults; see the revision below.
 **Date:** 2026-09-20.
 **Scope:** User-space native configuration transport and UTF-16/UTF-8 conversion. PalInit, GCConfig execution, ThreadStore attachment and managed execution remain pending.
 
@@ -61,6 +61,18 @@ The guest fixture uses unchanged pinned Pal.h declarations with the actual Unico
 The full suite requires 156 user groups and 50 contained hardware user faults across eighteen VM scenarios. The environment fixture runs at both relocated image bases and with an explicitly empty environment. Each run checks three joins/reaps and complete physical-page/handle/event/reservation reclamation. The local fixture is 16,384 bytes with 32 plain unwind entries.
 
 The source-built Workstation archive contains eighty members, including seventeen verified local adapter/helper objects; minipal retains eleven members. Strict linking reports 105 unresolved symbols: seven GC environment, eighteen PAL, five deliberately excluded native transport/startup and 75 other platform/runtime requirements. The two new PAL methods and both GetEnvironmentVariableW bindings must resolve. PalInit and PalAttachThread must remain unresolved. Counts are diagnostics, not a compatibility percentage.
+
+## Revision: the process's environment (P6.4.j3a, user ABI v50)
+
+The .NET host is three modules, and each statically links its own copy of this adapter, so the environment cannot live in the adapter: a library would see none of what the process entry published, and a change by one module would be invisible to the others. Windows keeps one environment block per process for every module. The kernel now keeps it in the component's record and every module reaches it through `WIT_CALL_PROCESS_STATE` ([ABI reference](ABI-Reference.md), [P6.4.j3a](P6-Cxx-Runtime.md#p64j3a-process-state-in-the-kernel)). What changes here:
+
+- The table no longer is the environment; `wit_pal_environment_initialize` seeds the process's environment with it after the same complete validation. A variable the component's creator already set stays; a seeding that fails part way removes what it added, so a rejected or failed table still changes nothing.
+- The environment exists before any initialization: lookups before it report a missing variable (`ERROR_ENVVAR_NOT_FOUND`), not `ERROR_NOT_READY`, and `GetEnvironmentStringsW` returns an empty block with two terminators, as Windows does.
+- `SetEnvironmentVariableW` is supported with the semantics measured on Windows: a null value removes the variable and removing an absent one succeeds; success preserves last error; an empty value is a value; an empty name or one with `=` is `ERROR_INVALID_PARAMETER`, and so is a null name, which Windows dereferences. Values may hold up to the kernel's quota of 4,096 UTF-16 units for the whole block and 64 variables; beyond it the call reports `ERROR_NOT_ENOUGH_MEMORY` and changes nothing.
+- `GetEnvironmentStringsW` copies the kernel's block in setting order, retrying a bounded number of times if another thread changes its size in between.
+- Names keep this profile: printable ASCII without `=`, up to 63 units, compared with ASCII case folding.
+
+The bindings live in `src/Runtime.Pal.Win32/X64/native_environment.asm`. The PAL environment fixture runs as before, starting from the empty environment of a component whose creator set none.
 
 ## Next action
 

@@ -2,7 +2,7 @@
 
 Date: 2026-10-05. Status: P6.4.e (Windows), P6.4.f (guest), P6.4.g (vcruntime surface), P6.4.h (UCRT subset),
 P6.4.i (microsoft/STL: exceptions, algorithms, threads, locales and streams), P6.4.j1 (the host's guest build and
-its inventory) and P6.4.j2 (the rest of the PAL) complete; P6.4.j3 next.
+its inventory), P6.4.j2 (the rest of the PAL) and P6.4.j3a (process state in the kernel) complete; P6.4.j3b next.
 
 ## Decision
 
@@ -85,6 +85,11 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
   - [ ] **P6.4.j3** Libraries in a process: a module's own path and the module at an address (a kernel interface),
     process state that every module sees (environment, console, current directory), a library's startup (GS cookies,
     TLS, initializers, `atexit`) and the system calls apart from the process entry; no unresolved symbol.
+    - [x] **P6.4.j3a** Process state in the kernel: the environment and the current directory, one for every module
+      (user ABI v50).
+    - [ ] **P6.4.j3b** A module's own path and the module at an address.
+    - [ ] **P6.4.j3c** A library's startup, the system calls apart from the process entry and the kernel's admission
+      of `hostfxr.dll`/`hostpolicy.dll`.
 - [ ] **P6.4.k** Guest `hostfxr_main` reads a real application's runtimeconfig and deps through `hostpolicy` and
   reaches `coreclr_initialize`/`coreclr_execute_assembly`.
 
@@ -709,3 +714,60 @@ checks the same contracts over the guest's adapters, with the guest's own answer
 the four Win32 functions, and lines on the console that the kernel test requires in UTF-8 (`[HOST-PAL-ERR] λ`,
 `[HOST-PAL-OUT] λ 7`, with the file compiled as UTF-8 so the markers stand in it as written), at 128 and 512 MiB (`Code.HostPal`). The environment adapter links into that fixture, a
 process; the host libraries still leave it unresolved until j3.
+
+### P6.4.j3a: process state in the kernel
+
+A Windows process has one environment block and one current directory, which kernel32 keeps for every module. The
+guest's modules link their own copies of the adapters, so that state cannot live in them, and a shared system library
+cannot hold it either (the loader resolves imports only to siblings). The kernel keeps it in the component's record
+(decided 2026-10-05). One call, `WIT_CALL_PROCESS_STATE` (69, user ABI v50), takes a 64-byte
+`WitProcessStateRequest` (`process_state.h`):
+
+- `ENV_GET`, `ENV_SET`, `ENV_BLOCK`: the environment is a block of `Name=Value\0` records in the order they were set,
+  with a final `\0`, as `GetEnvironmentStringsW` returns it; names compare with ASCII case folding and hold no `=` or
+  NUL, and a variable set again moves to the end. The block holds 4,096 UTF-16 units and 64 variables
+  (`limits.h`); beyond that a set is `NO_MEMORY` and changes nothing. Output is copied only whole and the result is
+  its size either way, so one call both sizes and fills a buffer.
+- `CWD_GET`, `CWD_SET`: the current directory is canonical UTF-8 from `/`, up to 1,025 bytes. Resolving a relative
+  path stays in user space (`path.c`); the kernel takes the canonical result and accepts it only when the package
+  names a directory (a missing name is `NOT_FOUND`, a file `WRONG_TYPE`).
+
+Each operation runs with interrupts disabled, so it is atomic for the component's threads, and a failure changes
+neither state nor output. A component starts with an empty environment and `/`; its creator may set variables before
+it runs (`wit_user_environment_set`), as a parent passes an environment to a Windows process.
+
+In user space, `pal_environment.witos.cpp` keeps ADR 0021's PAL contract over the kernel's state
+([revision](NativeAot-Pal-Environment.md#revision-the-processs-environment-p64j3a-user-abi-v50)): lookups and blocks
+come from the kernel, the image's readonly table seeds only variables the creator did not set, and
+`SetEnvironmentVariableW` is new, with the semantics measured on Windows (a null value removes, removing an absent
+variable succeeds, success preserves last error, an empty value is a value, an empty name or one with `=` is
+`ERROR_INVALID_PARAMETER`). `current_directory.c` reads and sets the kernel's directory instead of a module's copy.
+
+Both adapters now link into `hostfxr` and `hostpolicy` with the other adapters, and the three environment imports
+leave the inventory: 5 unresolved symbols remain for `hostfxr` and 3 for `hostpolicy`, the module paths (j3b),
+`atexit` and `wit_native_main` (j3c).
+
+The adapter now makes system calls, and `/GS` protects the 64-byte request each call builds on the stack (MSVC
+treats a structure of more than 8 bytes without pointers as a buffer), so seeding the environment is GS-checked code
+in the runtime archive. The NativeAOT boot driver seeded it before initializing
+its cookies, and `runtime-boot-run` ended with the GS failure exit; the driver now initializes the cookies first, as
+the host runtime fixture already did.
+
+Copying the environment block made a kernel cost visible: `wit_user_copy_from` and `wit_user_copy_to` translated every
+byte through the page tables, and the PAL environment fixture ran out of its ten-tick budget. They now translate once
+per page, after the same whole-range validation.
+
+Evidence. In mode 26 of the host runtime fixture the kernel test sets `WITOS_CREATOR=kernel` and
+`WITOS_SEEDED=creator` as the creator, and the image's table seeds `CORE_SERVICING=/` and `WITOS_SEEDED=table`. The
+guest checks that the creator's value wins and that lookup ignores ASCII case, `SetEnvironmentVariableW` with last
+error preserved, the block in setting order with a variable set again at the end, removing twice, the invalid names,
+and the current directory through `pal::getcwd` and `wit_native_cwd_set` (a missing directory is `NOT_FOUND` and keeps
+`/`). The PAL environment fixture now starts from an empty process environment: lookups before initialization find
+nothing, the empty block holds two terminators and a rejected table seeds nothing. The hosted system-call model
+(`FileViewFaults.c`, under `coreclr-host-files` and the native tests) answers `CWD_GET`/`CWD_SET`; the file and
+directory fixtures of `coreclr-storage` resolve against the kernel's directory. `coreclr-memory` and `coreclr-storage` pass at 128 and 512 MiB, and `coreclr-host-guest`
+enforces the smaller inventory.
+
+Limitations. The console is not yet a library's: a library gets no startup descriptor until j3c. Case folding is
+ASCII, where Windows folds Unicode, and the adapter keeps ADR 0021's names (printable ASCII, up to 63 units). There
+is no process creation, so no child inherits an environment.

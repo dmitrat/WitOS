@@ -98,6 +98,23 @@ static void mapper_adapter(WitPageAllocator *pages)
         "Code.DynamicUnwindRejection\n[TEST-PASS] Code.ModuleUnwind\n[TEST-PASS] Code.ForeignModuleUnwind\n");
 }
 
+/* A variable of the component's environment, as its creator sets it before the component runs (P6.4.j3a). */
+static void creator_variable(const char *name, const char *value)
+{
+    WitU16 wideName[32], wideValue[32];
+    WitU32 nameUnits = 0, valueUnits = 0;
+    while (name[nameUnits]) {
+        wideName[nameUnits] = (WitU16)name[nameUnits];
+        ++nameUnits;
+    }
+    while (value[valueUnits]) {
+        wideValue[valueUnits] = (WitU16)value[valueUnits];
+        ++valueUnits;
+    }
+    require(wit_user_environment_set(&process, wideName, nameUnits, wideValue, valueUnits) == WIT_STATUS_OK,
+        "Creator environment rejected");
+}
+
 /* The host runtime fixture (P6.4.i) runs one group of scenarios per mode under the full runtime profile, as the
  * kernel will load the .NET host, and each group must print the trace Windows prints; a failed run prints how far its
  * trace got. */
@@ -110,6 +127,11 @@ static void host_runtime(WitPageAllocator *pages, WitU64 mode, const char *name,
         "Host runtime fixture load failed");
     ((WitUserTestConfig *)wit_user_space_physical(&process.Space, WIT_USER_INFO, 0, 0))->Mode = mode;
     process.TickLimit = WIT_RUNTIME_TICK_BUDGET;
+    if (mode == 26) {
+        /* The host PAL's process state: the creator's variables win over the image's defaults. */
+        creator_variable("WITOS_CREATOR", "kernel");
+        creator_variable("WITOS_SEEDED", "creator");
+    }
     wit_user_run(&process);
     if (process.State != WitUserExited || process.ExitCode != expected) {
         wit_console_write(name);

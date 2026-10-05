@@ -3,8 +3,10 @@
 #include "pal.h"
 #pragma warning(pop)
 #include <cstring>
+#include <cwchar>
 extern "C" {
 #include "bootstrap.h"
+#include "path.h"
 #include "../User/protocol.h"
 }
 
@@ -105,6 +107,61 @@ WitU64 policy()
     return 0;
 }
 
+// The process's environment and current directory (P6.4.j3a), which the kernel keeps for every module: the creator's
+// variables, the image's defaults where the creator set none, and changes through SetEnvironmentVariableW.
+bool value(const wchar_t *name, const wchar_t *expected)
+{
+    wchar_t buffer[32];
+    const DWORD length = GetEnvironmentVariableW(name, buffer, 32);
+    return length == wcslen(expected) && !wcscmp(buffer, expected);
+}
+
+WitU64 process_state()
+{
+    if (!value(L"WITOS_CREATOR", L"kernel") ||
+        !value(L"witos_creator", L"kernel") ||
+        !value(L"WITOS_SEEDED", L"creator") ||
+        !value(L"CORE_SERVICING", L"/")) {
+        return 2731;
+    }
+    SetLastError(0x1357);
+    if (!SetEnvironmentVariableW(L"WITOS_SET", L"one") ||
+        !SetEnvironmentVariableW(L"WITOS_SET", L"two") ||
+        GetLastError() != 0x1357 ||
+        !value(L"WITOS_SET", L"two")) {
+        return 2732;
+    }
+    // Setting order, with a variable set again moved to the end.
+    const wchar_t expected[] = L"WITOS_CREATOR=kernel\0WITOS_SEEDED=creator\0CORE_SERVICING=/\0WITOS_SET=two\0";
+    auto block = GetEnvironmentStringsW();
+    if (!block || memcmp(block, expected, sizeof(expected)) || !FreeEnvironmentStringsW(block)) {
+        return 2733;
+    }
+    if (!SetEnvironmentVariableW(L"WITOS_SET", nullptr) ||
+        !SetEnvironmentVariableW(L"WITOS_SET", nullptr) ||
+        GetLastError() != 0x1357 ||
+        GetEnvironmentVariableW(L"WITOS_SET", nullptr, 0) ||
+        GetLastError() != ERROR_ENVVAR_NOT_FOUND) {
+        return 2734; // removing an absent variable succeeds, as on Windows
+    }
+    if (SetEnvironmentVariableW(L"", L"v") ||
+        GetLastError() != ERROR_INVALID_PARAMETER ||
+        SetEnvironmentVariableW(L"A=B", L"v") ||
+        GetLastError() != ERROR_INVALID_PARAMETER) {
+        return 2735;
+    }
+    pal::string_t directory;
+    if (!pal::getcwd(&directory) ||
+        directory != L"/" ||
+        wit_native_cwd_set("/", 1) != WIT_STATUS_OK ||
+        wit_native_cwd_set("/missing", 8) != WIT_STATUS_NOT_FOUND ||
+        !pal::getcwd(&directory) ||
+        directory != L"/") {
+        return 2736;
+    }
+    return 0;
+}
+
 // The Win32 functions only the host calls.
 WitU64 adapters()
 {
@@ -138,6 +195,9 @@ extern "C" WitU64 wit_host_pal_probe()
     }
     if (!code) {
         code = adapters();
+    }
+    if (!code) {
+        code = process_state();
     }
     if (!code) {
         // UTF-8 on the console through the C runtime's streams; the file compiles as UTF-8, so the markers the kernel
