@@ -2,8 +2,10 @@
 #include <windows.h>
 #include <cstdio>
 #include <cwchar>
+#include <cstring>
 #include <map>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -38,7 +40,35 @@ DWORD WINAPI worker(void *)
 {
     return 0;
 }
+
+__declspec(noinline) int thrower(int value)
+{
+    throw value;
+}
 } // namespace
+
+/* C++ exceptions in the library (P6.4.j3c2), dispatched by the library's own runtime: one thrown and caught in the
+ * library, and one thrown in the library under a frame of the fixture, which only passes it through: the fixture's
+ * destructor runs while the library's catch unwinds that frame. */
+extern "C" __declspec(dllexport) unsigned long long CxxLibraryExceptions(int (*through)(int (*)(int), int))
+{
+    try {
+        throw std::runtime_error("library");
+    } catch (const std::exception &e) {
+        if (std::strcmp(e.what(), "library")) {
+            return 2820;
+        }
+    }
+    try {
+        through(&thrower, 5);
+        return 2821;
+    } catch (int value) {
+        if (value != 5) {
+            return 2822;
+        }
+    }
+    return 0;
+}
 
 extern "C" __declspec(dllexport) void CxxLibrarySetExit(ExitHook hook)
 {

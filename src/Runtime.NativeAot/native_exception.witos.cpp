@@ -11,6 +11,7 @@
 #include "function_tables_guest.witos.h"
 extern "C" EXCEPTION_DISPOSITION wit_native_handler_invoke(
     void *, PEXCEPTION_ROUTINE, EXCEPTION_RECORD *, void *, CONTEXT *, DISPATCHER_CONTEXT *);
+extern "C" int wit_native_library_code(WitU64 address);
 #endif
 extern "C" EXCEPTION_DISPOSITION __cdecl __GSHandlerCheck_SEH(
     EXCEPTION_RECORD *, void *, CONTEXT *, DISPATCHER_CONTEXT *);
@@ -73,7 +74,9 @@ bool code(WitU64 address)
         return true;
     }
 #if defined(WITOS_DYNAMIC_CODE)
-    return wit_coreclr_code_registered(address, 1) && wit_coreclr_unwind_read(address, 1, true) != nullptr;
+    // Registered dynamic code, or the code of a loaded library (P6.4.j3c2), whose functions the lookup finds too.
+    return (wit_coreclr_code_registered(address, 1) && wit_coreclr_unwind_read(address, 1, true) != nullptr) ||
+        wit_native_library_code(address);
 #else
     return false;
 #endif
@@ -286,7 +289,9 @@ EXCEPTION_DISPOSITION call_handler(SehDispatch &state, WitU64 imageBase, EXCEPTI
     state.Bridge = nullptr;
     EXCEPTION_DISPOSITION result;
 #if defined(WITOS_DYNAMIC_CODE)
-    if (dispatcher.ImageBase != imageBase) {
+    // Registered dynamic code runs its handler through the funclet gate; a loaded library's handler, like the main
+    // image's, is called directly (P6.4.j3c2), so a C++ catch in a library consolidates as one in the image does.
+    if (dispatcher.ImageBase != imageBase && wit_coreclr_code_registered(dispatcher.ControlPc, 1)) {
         before_funclet(&state);
         result = wit_native_handler_invoke(
             &state, dispatcher.LanguageHandler, &record, (void *)dispatcher.EstablisherFrame, context, &dispatcher);

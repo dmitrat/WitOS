@@ -14,4 +14,6 @@ WitU64 wit_native_module_path(WitU64 address, WitU32 flags, WitLibraryPath *outp
 WitU64 wit_native_library_acquire_reader(WitU64, WitLibraryInfo *, WitU64 *);
 WitU64 wit_native_library_query_reader(WitU64, WitLibraryInfo *);
 WitU64 wit_native_library_release_reader(WitU64);
+/* Whether an address is code of a loaded library: in a section of its image that is executable and not writable. */
+int wit_native_library_code(WitU64 address);
 #endif
