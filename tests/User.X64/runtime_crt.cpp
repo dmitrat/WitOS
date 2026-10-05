@@ -14,6 +14,7 @@ static void *(*volatile fill_bytes)(void *, int, size_t) = &memset;
 static int (*volatile compare_bytes)(const void *, const void *, size_t) = &memcmp;
 static char *(*volatile copy_string)(char *, const char *) = &strcpy;
 static const char *(*volatile find_string)(const char *, const char *) = &strstr;
+static const void *(*volatile find_byte)(const void *, int, size_t) = &memchr;
 static unsigned long (*volatile parse32)(const char *, char **, int) = &strtoul;
 
 static unsigned char pattern(size_t index)
@@ -119,6 +120,15 @@ static bool guarded()
         find_string(hay, (char *)src + 4095) != hay ||
         find_string((char *)src + 4095, "x") ||
         find_string(hay, hay) != hay) {
+        return false;
+    }
+    // memchr stops at the first match: the terminator in the page's last byte, with a count reaching past the page.
+    if (find_byte(src + 4090, 0, 100) != src + 4095 ||
+        find_byte(src + 4096 - sizeof(sample), 'X', sizeof(sample)) != hay + 5 ||
+        find_byte(src + 4096 - sizeof(sample), 'Q', sizeof(sample)) ||
+        find_byte(src, 0x180, 4) != src ||
+        find_byte(src, -1, 4096) != src + 1 ||
+        find_byte(nullptr, 0, 0)) {
         return false;
     }
     char *copied = (char *)dst + 4096 - sizeof(sample);

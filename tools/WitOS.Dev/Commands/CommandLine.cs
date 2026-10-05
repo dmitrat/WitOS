@@ -47,7 +47,7 @@ internal static class CommandLine
         new CommandScenario("coreclr-memory", "Test owned executable memory backend (not guest CoreCLR)", "coreclr-memory",
         [
             new BootRequest("coreclr-memory-128", 128, 120, ExpectedOutcome.Success) { Suite = BootSuite.CoreClrMemory },
-            new BootRequest("coreclr-memory-512", 512, 120, ExpectedOutcome.Success) { Suite = BootSuite.CoreClrMemory }
+            new BootRequest("coreclr-memory-512", 512, 120, ExpectedOutcome.Success) { Suite = BootSuite.CoreClrMemory, CpuModel = "max" }
         ]),
         new CommandScenario("coreclr-storage",
             "Test unchanged assembly delivery and readonly guest IO (not guest CoreCLR)", "coreclr-storage",

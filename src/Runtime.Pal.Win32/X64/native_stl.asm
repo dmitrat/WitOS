@@ -1,0 +1,19 @@
+option casemap:none
+EXTERN wit_native_format_message_ansi:PROC
+EXTERN wit_native_locale_info:PROC
+.code
+PUBLIC FormatMessageA
+FormatMessageA PROC
+ jmp wit_native_format_message_ansi
+FormatMessageA ENDP
+PUBLIC GetLocaleInfoEx
+GetLocaleInfoEx PROC
+ jmp wit_native_locale_info
+GetLocaleInfoEx ENDP
+.const
+ALIGN 8
+PUBLIC __imp_FormatMessageA
+__imp_FormatMessageA DQ FormatMessageA
+PUBLIC __imp_GetLocaleInfoEx
+__imp_GetLocaleInfoEx DQ GetLocaleInfoEx
+END

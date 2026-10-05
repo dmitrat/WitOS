@@ -33,6 +33,12 @@ jobs:
           path: .tools/downloads
           key: qemu-windows-x64-20260811-5bcf9eed634e8575
 
+      - name: Cache pinned microsoft/STL sources
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .tools/stl
+          key: stl-${{ hashFiles('src/Runtime.Cxx/stl.lock.json') }}
+
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
 

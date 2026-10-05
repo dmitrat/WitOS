@@ -3,8 +3,9 @@
 #include <string.h>
 #include "crt.h"
 
-/* The rest of the subset (P6.4.h): the invalid-parameter end, ceilf, terminate and _fltused, the marker of floating-point
- * code that a C runtime defines (the NativeAOT overlay has its own in native_math.witos.cpp; a module links one). */
+/* The rest of the subset (P6.4.h, P6.4.i): the invalid-parameter end, ceilf, terminate, abort, _invoke_watson and
+ * _fltused, the marker of floating-point code that a C runtime defines (the NativeAOT overlay has its own in
+ * native_math.witos.cpp; a module links one). */
 namespace WitCrt {
 
 void InvalidParameter()
@@ -53,6 +54,19 @@ int _fltused = 0x9875;
 extern "C" float __cdecl ceilf(float value)
 {
     return WitCrt::Ceilf(value);
+}
+
+/* abort without signal handlers: UCRT's default reports the fault and ends the process too (P6.4.i). */
+extern "C" __declspec(noreturn) void __cdecl abort()
+{
+    WitCrt::Platform::Fatal();
+}
+
+/* The end of a failed parameter check that headers and the STL call directly. */
+extern "C" __declspec(noreturn) void __cdecl _invoke_watson(
+    const wchar_t *, const wchar_t *, const wchar_t *, unsigned int, uintptr_t)
+{
+    WitCrt::Platform::Fatal();
 }
 
 /* std::terminate without terminate handlers, like the C++ runtime's __std_terminate. */

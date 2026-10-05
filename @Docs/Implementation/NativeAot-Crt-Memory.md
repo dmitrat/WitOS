@@ -39,6 +39,15 @@ CrtUnsignedLong checks 32-bit maxima, positive/negative overflow, negation, pref
 
 Both modes require exact thread counters, restored owned pages, empty handle/event tables and recovery of all physical pages on teardown. Raw byte tests run with no compiler TLS; number conversion uses the actual per-thread errno storage.
 
+## memchr (P6.4.i)
+
+The pinned microsoft/STL's vectorized algorithms call `memchr`, which `crt_memory.witos.c` now defines as well. It
+reads one byte at a time and stops at the first byte equal to the low unsigned byte of the value, so a match before
+the end of the object never reads past it, and a count of zero accepts a null pointer. The guarded test of
+`tests/User.X64/runtime_crt.cpp` finds a terminator in a page's last byte with a count reaching into the guard page,
+a byte in a readonly page, a missing byte, a truncated value (0x180) and -1. The hosted STL build links the same
+source (P6.4.i, `StlTests`).
+
 ## Validation
 
 Both runtime-config VMs passed 199 user groups and 51 contained hardware faults. The probe has fourteen source objects and a 46,080-byte import-free image with 111 plain unwind entries on the local compiler. The full WitOS runtime archive has 84 members; minipal retains 11. Source audit (64 files), hosted probe (eight groups), native/source references (four groups each) and minimal startup diagnostics passed. All 19 ordinary QEMU scenarios passed, retaining 178 user groups and 51 contained hardware faults in successful boots. Release solution builds passed without warnings or errors.

@@ -39,76 +39,56 @@ internal static class CoreClrMemoryImage
         await RuntimeUnwindReference.PrepareAsync(root);
         var unwind = Path.Combine(root, "artifacts/runtime-unwind");
         var objects = new List<string>();
-        foreach (var file in new[]{"src/Runtime.Native/library.c","src/Runtime.Native/library_lifecycle.c","src/Runtime.Native/path.c","src/Runtime.Native/current_directory.c","src/Runtime.Native/file.c","src/Runtime.CoreClr/module_functions.witos.cpp","src/Runtime.CoreClr/doublemapping.witos.cpp","src/Runtime.CoreClr/function_tables.witos.cpp","src/Runtime.CoreClr/function_tables_guest.witos.cpp","src/Runtime.CoreClr/dynamic_unwind_guest.witos.cpp",
-            "tests/User.X64/coreclr_mapper.cpp","tests/User.X64/module_unwind.cpp","tests/User.X64/module_foreign_unwind.cpp","tests/User.X64/coreclr_dynamic_unwind.cpp","src/Runtime.NativeAot/crt_memory.witos.c","src/Runtime.NativeAot/crt_config.witos.cpp",
-            "src/Runtime.Native/tls_metadata.c","src/Runtime.Native/image.c","src/Runtime.NativeAot/unwind_checked.witos.cpp","src/Runtime.NativeAot/unwind_validation.witos.cpp",
-            "src/Runtime.NativeAot/unwind_scope.witos.cpp","src/Runtime.NativeAot/unwind_guest.witos.cpp","src/Runtime.NativeAot/native_exception.witos.cpp","src/Runtime.NativeAot/seh_scope.witos.cpp",
-            "src/Runtime.NativeAot/seh_validation.witos.cpp","src/Runtime.NativeAot/seh_security.witos.cpp","src/Runtime.NativeAot/security_handler.witos.cpp",
-            "src/Runtime.NativeAot/security_cookie.witos.cpp","src/Runtime.NativeAot/failfast_exception.witos.cpp","src/Runtime.NativeAot/pal_error.witos.cpp","src/Runtime.NativeAot/native_new.witos.cpp",
-            "src/Runtime.NativeAot/X64/native_exception_x64.cpp","artifacts/runtime-unwind/unwinder.checked.cpp"})
+        // The host runtime fixture (P6.4.i) shares the guest's native support with the mapper: the native heap,
+        // exception dispatch and unwinding with the dynamic function tables it consults, GS, memory routines and last
+        // error, but not the mapper's tests.
+        var support = new List<string>();
+        async Task<string> Native(string file)
         {
             var obj = Path.Combine(output, Path.GetFileName(file) + ".obj");
             var c = file.EndsWith(".c", StringComparison.Ordinal);
             await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo","/c",c?"/TC":"/TP",c?"/std:c17":"/std:c++17","/GS-","/GR-","/EHs-c-","/Zl","/Oi","/O1","/DTARGET_AMD64","/DHOST_AMD64","/DHOST_64BIT","/DTARGET_64BIT","/DHOST_WINDOWS","/DTARGET_WINDOWS","/DNDEBUG","/DNOMINMAX","/DWITOS_DYNAMIC_CODE","/W4","/WX",
                 "/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"Include",version,"ucrt"),"/I"+Path.Combine(sdk,"Include",version,"um"),"/I"+Path.Combine(sdk,"Include",version,"shared"),"/I"+unwind,"/I"+Path.Combine(verified,"src/coreclr/nativeaot/Runtime"),"/I"+Path.Combine(verified,"src/coreclr/nativeaot/Runtime/inc"),"/I"+Path.Combine(verified,"src/coreclr/nativeaot/Runtime/windows"),"/I"+Path.Combine(verified,"src/coreclr/gc/env"),"/I"+Path.Combine(verified,"src/native"),"/I"+Path.Combine(root,"artifacts/runtime-config/include"),"/I"+Path.Combine(root,"src/Runtime.NativeAot"),"/I"+Path.Combine(root,"src/Runtime.CoreClr"),"/I"+Path.GetDirectoryName(header),"/I"+Path.Combine(root,"src/Kernel/include"),
                 "/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"tests/User.X64"),"/Fo"+obj,Path.Combine(root,file)], root);
-            objects.Add(obj);
+            return obj;
         }
-        // C++ exceptions and the rest of the WitOS C++ runtime (P6.4.f, P6.4.g), against the trace vcruntime prints on
-        // Windows. The runtime scenarios also use the guest's GS check and native heap.
-        await File.WriteAllTextAsync(Path.Combine(output, "cxx_exception_trace.h"),
-            "/* Generated from NativeCxxExceptionImage.WINDOWS_TRACE. */\n" +
-            $"#define WIT_CXX_EXCEPTION_TRACE \"{NativeCxxExceptionImage.WINDOWS_TRACE}\"\n");
-        foreach (var file in NativeCxxExceptionImage.RUNTIME.Concat(NativeCxxExceptionImage.GUEST)
-                     .Append("tests/User.X64/cxx_exceptions.cpp").Append("tests/User.X64/cxx_exceptions_guest.cpp")
-                     .Append(NativeCxxExceptionImage.RUNTIME_SCENARIOS))
+        foreach (var file in new[] { "tests/User.X64/coreclr_mapper.cpp", "tests/User.X64/module_unwind.cpp", "tests/User.X64/module_foreign_unwind.cpp", "tests/User.X64/coreclr_dynamic_unwind.cpp" })
+            objects.Add(await Native(file));
+        foreach (var file in new[]{"src/Runtime.CoreClr/module_functions.witos.cpp","src/Runtime.CoreClr/doublemapping.witos.cpp","src/Runtime.CoreClr/function_tables.witos.cpp","src/Runtime.CoreClr/function_tables_guest.witos.cpp","src/Runtime.CoreClr/dynamic_unwind_guest.witos.cpp",
+            "src/Runtime.Native/library.c","src/Runtime.Native/library_lifecycle.c","src/Runtime.Native/path.c","src/Runtime.Native/current_directory.c","src/Runtime.Native/file.c",
+            "src/Runtime.NativeAot/crt_memory.witos.c","src/Runtime.NativeAot/crt_config.witos.cpp",
+            "src/Runtime.Native/tls_metadata.c","src/Runtime.Native/image.c","src/Runtime.NativeAot/unwind_checked.witos.cpp","src/Runtime.NativeAot/unwind_validation.witos.cpp",
+            "src/Runtime.NativeAot/unwind_scope.witos.cpp","src/Runtime.NativeAot/unwind_guest.witos.cpp","src/Runtime.NativeAot/native_exception.witos.cpp","src/Runtime.NativeAot/seh_scope.witos.cpp",
+            "src/Runtime.NativeAot/seh_validation.witos.cpp","src/Runtime.NativeAot/seh_security.witos.cpp","src/Runtime.NativeAot/security_handler.witos.cpp",
+            "src/Runtime.NativeAot/security_cookie.witos.cpp","src/Runtime.NativeAot/failfast_exception.witos.cpp","src/Runtime.NativeAot/pal_error.witos.cpp","src/Runtime.NativeAot/native_new.witos.cpp",
+            "src/Runtime.NativeAot/X64/native_exception_x64.cpp","artifacts/runtime-unwind/unwinder.checked.cpp"})
         {
-            var obj = Path.Combine(output, "cxx_" + Path.GetFileName(file) + ".obj");
-            string[] protection = file == NativeCxxExceptionImage.RUNTIME_SCENARIOS ? ["/GS", "/guard:cf"] : ["/GS-"];
-            await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo", "/c", "/TP", "/std:c++17",
-                .. protection, "/GR-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", "/I" + Path.Combine(vc, "include"),
-                "/I" + Path.Combine(sdk, "Include", version, "ucrt"), "/I" + Path.Combine(sdk, "Include", version, "um"),
-                "/I" + Path.Combine(sdk, "Include", version, "shared"), "/I" + Path.Combine(root, "src/Kernel/include"),
-                "/I" + Path.Combine(root, "src/Runtime.Native"), "/I" + output, "/Fo" + obj, Path.Combine(root, file)], root);
+            var obj = await Native(file);
             objects.Add(obj);
+            support.Add(obj);
         }
-        // The UCRT subset (P6.4.h) on the native heap and the process console, against the trace UCRT prints on
-        // Windows; the trace's \u escapes stay escapes in the C string.
-        await File.WriteAllTextAsync(Path.Combine(output, "crt_trace.h"),
-            "/* Generated from NativeCrtImage.WINDOWS_TRACE. */\n" +
-            $"#define WIT_CRT_TRACE \"{NativeCrtImage.WINDOWS_TRACE.Replace("\\", "\\\\")}\"\n");
-        foreach (var file in NativeCrtImage.RUNTIME.Append(NativeCrtImage.GUEST_PLATFORM).Append(NativeCrtImage.SCENARIOS)
-                     .Append("tests/User.X64/crt_scenarios_guest.cpp"))
-        {
-            var obj = Path.Combine(output, "ucrt_" + Path.GetFileName(file) + ".obj");
-            await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo", "/c", "/TP",
-                .. NativeCrtImage.OPTIONS, "/I" + Path.Combine(vc, "include"),
-                "/I" + Path.Combine(sdk, "Include", version, "ucrt"), "/I" + Path.Combine(sdk, "Include", version, "um"),
-                "/I" + Path.Combine(sdk, "Include", version, "shared"), "/I" + Path.Combine(root, "src/Kernel/include"),
-                "/I" + Path.Combine(root, "src/Runtime.Native"), "/I" + Path.Combine(root, "src/Runtime.Crt"),
-                "/I" + output, "/Fo" + obj, Path.Combine(root, file)], root);
-            objects.Add(obj);
-        }
-        var guard = Path.Combine(output, "cxx_guard_dispatch.obj");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + guard,
-            Path.Combine(root, NativeCxxExceptionImage.GUARD)], root);
-        objects.Add(guard);
+        support.Add(await Native("src/Runtime.NativeAot/native_diagnostics.witos.cpp"));
+        support.Add(await Native("src/Runtime.NativeAot/native_stl.witos.cpp"));
         var entry = Path.Combine(output, "coreclr_mapper_start.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/I" + output, "/Fo" + entry, Path.Combine(root, "src/Runtime.Native/X64/native_start.asm")], root);
         objects.Add(entry);
+        support.Add(entry);
         var frameObject = Path.Combine(output, "coreclr_jit_frame.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + frameObject, Path.Combine(root, "tests/User.X64/coreclr_jit_frame.asm")], root);
         objects.Add(frameObject);
         var bindings = Path.Combine(output, "coreclr_unwind_bindings.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + bindings, Path.Combine(root, "src/Runtime.CoreClr/X64/coreclr_unwind_bindings.asm")], root);
         objects.Add(bindings);
+        support.Add(bindings);
         foreach (var (directory, name) in new[] { ("src/Runtime.Pal.Win32/X64", "native_exception"), ("src/Runtime.NativeAot/X64", "security_cookie"), ("src/Runtime.NativeAot/X64", "unwind_consolidation") })
         {
             var obj = Path.Combine(output, "coreclr-" + name + ".obj");
             await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/I" + output, "/Fo" + obj, Path.Combine(root, directory, name + ".asm")], root);
             objects.Add(obj);
+            support.Add(obj);
         }
         objects.Add(Path.Combine(output, "native_error.obj"));
+        support.Add(Path.Combine(output, "native_error.obj"));
         var image = Path.Combine(output, "CoreClrMapperFixture.pe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"), ["/nologo", "/subsystem:native", "/entry:wit_native_start", "/nodefaultlib", "/machine:x64", "/fixed:no", "/dynamicbase", "/incremental:no", "/Brepro", "/base:0x180000000", "/include:_tls_used", "/out:" + image, .. objects], root);
         var bytes = await File.ReadAllBytesAsync(image);
@@ -122,6 +102,7 @@ internal static class CoreClrMemoryImage
         text.AppendLine("};");
         await File.WriteAllTextAsync(Path.Combine(output, "coreclr_mapper_image.h"), text.ToString(), Encoding.ASCII);
         await File.WriteAllTextAsync(Path.Combine(output, "coreclr-mapper-image.json"), System.Text.Json.JsonSerializer.Serialize(new { headerSha256 = digest, imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), profile = "native VMToOS adapter probe; GS/EH disabled fixture, not source-built guest CoreCLR" }));
+        await HostRuntimeImage.BuildAsync(root, output, msvc, support);
     }
 
     #endregion

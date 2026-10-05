@@ -39,6 +39,11 @@ internal static class NativeCxxExceptionImage
     public const string GUARD = "src/Runtime.Cxx/X64/guard_dispatch.asm";
 
     /// <summary>
+    /// The runtime's ISA detection for the STL's vectorized algorithms (P6.4.i).
+    /// </summary>
+    public const string ISA = "src/Runtime.Cxx/X64/isa.cpp";
+
+    /// <summary>
     /// The runtime's platform source on Windows.
     /// </summary>
     public const string WINDOWS_PLATFORM = "src/Runtime.Cxx/platform_windows.cpp";
