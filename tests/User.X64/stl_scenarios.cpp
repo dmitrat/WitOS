@@ -9,6 +9,8 @@
 #include <exception>
 #include <functional>
 #include <initializer_list>
+#include <locale>
+#include <sstream>
 #include <mutex>
 #include <new>
 #include <stdexcept>
@@ -21,7 +23,8 @@
 /* Scenarios of the separately compiled STL parts the host uses, through the STL's headers as the host compiles them:
  * the exceptions of the throw helpers and their messages, generic error messages and Windows error mapping,
  * std::uncaught_exception and the vectorized algorithms, compared with plain loops over random data for elements of
- * one, two, four and eight bytes (P6.4.i1); threads, mutexes and condition variables (P6.4.i2). The same source runs
+ * one, two, four and eight bytes (P6.4.i1); threads, mutexes and condition variables (P6.4.i2); streams and locales
+ * (P6.4.i3b). The same source runs
  * on the toolset's msvcp140 (hosted reference), on the pinned microsoft/STL sources with the WitOS C++ and C runtimes
  * (hosted) and in the guest; every run must trace the same tokens. The guest component has four threads, so no
  * scenario runs more than three besides its own. */
@@ -603,6 +606,212 @@ void Detached()
     Flags("t10", {ready});
 }
 
+void AddWide(const std::wstring &text)
+{
+    for (const wchar_t c : text) {
+        Add(c == L' ' ? '_' : c >= 0x21 && c < 0x7F ? char(c) : '?');
+    }
+}
+
+void AddNarrow(const std::string &text)
+{
+    for (const char c : text) {
+        Add(c == ' ' ? '_' : c >= 0x21 && c < 0x7F ? c : '?');
+    }
+}
+
+/* Streams and locales in the classic locale (P6.4.i3b): the host's own use, splitting a wide string with getline,
+ * then formatting and parsing numbers and booleans, stream states and widths, and the facets behind them. */
+void Streams()
+{
+    {
+        std::wstringstream paths(L"first;second;;third");
+        std::wstring item;
+        Begin("w1");
+        while (std::getline(paths, item, L';')) {
+            AddWide(item);
+            Add('|');
+        }
+        AddNumber(paths.eof());
+        stl_trace(token);
+    }
+    {
+        std::ostringstream out;
+        out << 42 << ' ' << -7 << ' ' << std::hex << 255 << ' ' << std::showbase << std::oct << 8 << ' '
+            << std::uppercase << std::hex << 48879 << ' ' << std::dec << std::showpos << 5 << ' ' << std::noshowpos
+            << 18446744073709551615ULL << ' ' << -9223372036854775807LL - 1;
+        Begin("w2");
+        AddNarrow(out.str());
+        stl_trace(token);
+    }
+    {
+        std::istringstream in("  12 1f -3 0x10 777");
+        int a = 0, b = 0, c = 0, d = 0;
+        long long e = 0;
+        in >> a >> std::hex >> b >> std::dec >> c >> std::hex >> d >> std::oct >> e;
+        Begin("w3");
+        AddNumber((unsigned long long)a);
+        Add(',');
+        AddNumber((unsigned long long)b);
+        Add(',');
+        AddNumber((unsigned long long)-c);
+        Add(',');
+        AddNumber((unsigned long long)d);
+        Add(',');
+        AddNumber((unsigned long long)e);
+        Add(',');
+        AddNumber(in.fail());
+        stl_trace(token);
+    }
+    {
+        std::wistringstream in(L"   77\tword  -12 tail");
+        int number = 0, negative = 0;
+        std::wstring word, rest;
+        in >> number >> word >> negative >> rest;
+        Begin("w4");
+        AddNumber((unsigned long long)number);
+        Add(',');
+        AddWide(word);
+        Add(',');
+        AddNumber((unsigned long long)-negative);
+        Add(',');
+        AddWide(rest);
+        stl_trace(token);
+    }
+    {
+        std::ostringstream out;
+        out << std::boolalpha << true << ' ' << false << ' ' << std::noboolalpha << true;
+        std::istringstream in("false true 1 maybe");
+        bool x = true, y = false, z = false, w = true;
+        in >> std::boolalpha >> x >> y >> std::noboolalpha >> z;
+        const bool parsed = !in.fail();
+        in >> std::boolalpha >> w;
+        Begin("w5");
+        AddNarrow(out.str());
+        Add(',');
+        AddNumber(x);
+        AddNumber(y);
+        AddNumber(z);
+        AddNumber(parsed);
+        AddNumber(in.fail());
+        stl_trace(token);
+    }
+    {
+        std::istringstream in("xyz");
+        int value = 5;
+        in >> value;
+        std::istringstream overflow("99999999999999999999");
+        int big = 1;
+        overflow >> big;
+        Begin("w6");
+        AddNumber(in.fail());
+        AddNumber(in.bad());
+        AddNumber((unsigned long long)value);
+        Add(',');
+        AddNumber(overflow.fail());
+        Add(',');
+        AddNumber((unsigned long long)big);
+        stl_trace(token);
+    }
+    {
+        // Widths through the members; std::setw and std::setfill are in iomanip.cpp, which the host does not link.
+        std::ostringstream out;
+        out << '|';
+        out.width(5);
+        out << 42 << '|' << std::left;
+        out.width(5);
+        out << 42 << '|' << std::right;
+        out.fill('*');
+        out.width(6);
+        out << "ab" << '|' << std::internal;
+        out.width(6);
+        out << -3 << '|';
+        std::wostringstream wide;
+        wide << L"wide " << "narrow " << 12 << L' ' << std::wstring(L"string");
+        Begin("w7");
+        AddNarrow(out.str());
+        Add(',');
+        AddWide(wide.str());
+        stl_trace(token);
+    }
+    {
+        const std::locale classic = std::locale::classic(), current;
+        const auto &wide = std::use_facet<std::ctype<wchar_t>>(classic);
+        const auto &narrow = std::use_facet<std::ctype<char>>(classic);
+        Begin("w8");
+        AddNarrow(classic.name());
+        AddNarrow(current.name());
+        Add(',');
+        AddNumber(classic == current);
+        AddNumber(std::has_facet<std::numpunct<wchar_t>>(classic));
+        Add(',');
+        Add(char(wide.tolower(L'Q')));
+        Add(char(wide.toupper(L'e')));
+        Add(char(wide.widen('x')));
+        Add(wide.narrow(L'y', '?'));
+        Add(wide.narrow(wchar_t(0x20AC), '?'));
+        Add(narrow.tolower('M'));
+        Add(',');
+        AddNumber(wide.is(std::ctype_base::space, L'\t'));
+        AddNumber(wide.is(std::ctype_base::alpha, L'z'));
+        AddNumber(wide.is(std::ctype_base::digit, L'7'));
+        AddNumber(wide.is(std::ctype_base::upper, wchar_t(0xC9)));
+        AddNumber(wide.is(std::ctype_base::punct, wchar_t(0xAD)));
+        AddNumber(narrow.is(std::ctype_base::xdigit, 'f'));
+        AddNumber(std::isspace(L' ', classic));
+        AddNumber(std::isalpha('Z', classic));
+        stl_trace(token);
+    }
+    {
+        const std::locale classic = std::locale::classic();
+        const auto &collate = std::use_facet<std::collate<char>>(classic);
+        const auto &wideCollate = std::use_facet<std::collate<wchar_t>>(classic);
+        const char a[] = "abc", b[] = "abd";
+        const wchar_t c[] = L"same", d[] = L"same";
+        const auto &punct = std::use_facet<std::numpunct<char>>(classic);
+        Begin("w9");
+        AddNumber((unsigned long long)(collate.compare(a, a + 3, b, b + 3) + 1));
+        AddNumber((unsigned long long)(wideCollate.compare(c, c + 4, d, d + 4) + 1));
+        Add(',');
+        AddNarrow(collate.transform(a, a + 3));
+        Add(',');
+        Add(punct.decimal_point());
+        Add(punct.thousands_sep());
+        AddNumber(punct.grouping().size());
+        AddNarrow(punct.truename());
+        AddNarrow(punct.falsename());
+        stl_trace(token);
+    }
+    {
+        // A copy of the classic locale with a facet replaced, and imbuing it.
+        struct Comma : std::numpunct<char> {
+            char do_thousands_sep() const override
+            {
+                return ',';
+            }
+
+            std::string do_grouping() const override
+            {
+                return "\3";
+            }
+        };
+
+        std::ostringstream out;
+        out.imbue(std::locale(std::locale::classic(), new Comma));
+        out << 1234567 << ' ' << -1000;
+        std::istringstream in("7,654,321");
+        in.imbue(out.getloc());
+        int parsed = 0;
+        in >> parsed;
+        Begin("w10");
+        AddNarrow(out.str());
+        Add(',');
+        AddNumber((unsigned long long)parsed);
+        AddNumber(in.fail());
+        stl_trace(token);
+    }
+}
+
 void Threads()
 {
     Started();
@@ -628,5 +837,6 @@ extern "C" void stl_scenarios_run()
     Algorithms<uint64_t>("v8");
     Strings<char>("s1");
     Strings<wchar_t>("s2");
+    Streams();
     Threads();
 }

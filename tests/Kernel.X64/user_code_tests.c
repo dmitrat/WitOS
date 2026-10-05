@@ -154,6 +154,9 @@ static void host_runtime(WitPageAllocator *pages, WitU64 mode, const char *name,
 
 static void host_runtimes(WitPageAllocator *pages)
 {
+    /* The native heap the runtimes share, at the full runtime profile's quotas (P6.4.i3b). */
+    host_runtime(pages, 25, "Native heap", 42);
+    wit_console_write("[TEST-PASS] Code.NativeHeapLarge\n");
     /* C++ exceptions on the WitOS C++ runtime and the guest's dispatch (P6.4.f, P6.4.g). More throws than
      * WIT_EXCEPTION_MAX_DEPTH also prove that every catch retires its exceptions. */
     host_runtime(pages, 21, "C++ runtime", 42);

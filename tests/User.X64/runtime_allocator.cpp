@@ -205,6 +205,9 @@ extern "C" bool wit_test_interface_dispatch()
         }
     }
     // The upstream dispatch heap and two locks intentionally live until process
-    // teardown. No synthetic shutdown or managed dispatch is claimed here.
-    return snapshot(after) && after.ReservationCount == 2 && after.DynamicCommittedBytes == 8192;
+    // teardown. No synthetic shutdown or managed dispatch is claimed here. The
+    // native heap holds its AllocHeap object and BlockListElem, two size
+    // classes on two pages, with that heap's metadata page; the dispatch
+    // heap's own reservation commits the page of its two blocks.
+    return snapshot(after) && after.ReservationCount == 2 && after.DynamicCommittedBytes == 4 * 4096;
 }

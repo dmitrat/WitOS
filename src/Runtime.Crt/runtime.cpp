@@ -5,9 +5,9 @@
 
 /* The rest of the subset (P6.4.h, P6.4.i): the invalid-parameter end, ceilf, terminate, abort, _invoke_watson and
  * _fltused, the marker of floating-point code that a C runtime defines (the NativeAOT overlay has its own in
- * native_math.witos.cpp; a module links one). The STL's number facets (P6.4.i3) also call frexp and the
- * classifications _dclass and _ldclass, exact as in UCRT, and strtod and strtof, which, like the floating-point
- * conversions of printf, end the process as unimplemented. */
+ * native_math.witos.cpp; a module links one). The STL's number facets (P6.4.i3) also call frexp, fabs, abs, llabs
+ * and the classifications _dclass, _ldclass, _dtest and _ldtest, exact as in UCRT, and strtod and strtof, which, like
+ * the floating-point conversions of printf, end the process as unimplemented. */
 namespace WitCrt {
 
 void InvalidParameter()
@@ -79,6 +79,20 @@ double Frexp(double value, int *exponent)
     return value;
 }
 
+double Fabs(double value)
+{
+    uint64_t bits;
+    memcpy(&bits, &value, sizeof(bits));
+    bits &= ~(1ULL << 63); // a NaN keeps its payload
+    memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
+long long Llabs(long long value)
+{
+    return value < 0 ? (long long)(0ULL - (unsigned long long)value) : value;
+}
+
 short Dclass(double value)
 {
     uint64_t bits;
@@ -100,7 +114,7 @@ extern "C" {
 int _fltused = 0x9875;
 }
 
-#pragma function(ceilf, _dclass, _ldclass)
+#pragma function(ceilf, _dclass, _ldclass, _dtest, _ldtest, abs, llabs, fabs)
 
 extern "C" float __cdecl ceilf(float value)
 {
@@ -133,6 +147,31 @@ extern "C" short __cdecl _dclass(double value)
 extern "C" short __cdecl _ldclass(long double value)
 {
     return WitCrt::Dclass(double(value)); // long double is double on x64
+}
+
+extern "C" short __cdecl _dtest(double *value)
+{
+    return WitCrt::Dclass(*value);
+}
+
+extern "C" short __cdecl _ldtest(long double *value)
+{
+    return WitCrt::Dclass(double(*value));
+}
+
+extern "C" double __cdecl fabs(double value)
+{
+    return WitCrt::Fabs(value);
+}
+
+extern "C" int __cdecl abs(int value)
+{
+    return int(WitCrt::Llabs(value) & 0xFFFFFFFF); // INT_MIN stays itself
+}
+
+extern "C" long long __cdecl llabs(long long value)
+{
+    return WitCrt::Llabs(value);
 }
 
 /* Parsing floating-point text is not implemented (P6.4.i3). */

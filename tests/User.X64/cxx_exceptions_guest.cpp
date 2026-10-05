@@ -1,6 +1,5 @@
 extern "C" {
 #include "bootstrap.h"
-#include "native_security.h"
 #include "../User/protocol.h"
 }
 #include "cxx_exception_trace.h"
@@ -43,7 +42,6 @@ extern "C" int __cdecl atexit(void(__cdecl *)(void))
 
 extern "C" WitU64 wit_cxx_exceptions_probe()
 {
-    wit_native_security_initialize_system(); // GS cookies, as a component's startup sets them before C++ code runs.
     const int live = cxx_exceptions_run();
     cxx_runtime_run();
     const char *expected = WIT_CXX_EXCEPTION_TRACE;

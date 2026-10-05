@@ -25,22 +25,27 @@ internal static class HostRuntimeImage
     public const string STL_GUEST = "tests/User.X64/stl_scenarios_guest.cpp";
 
     /// <summary>
+    /// The native heap at the full runtime profile's quotas.
+    /// </summary>
+    public const string HEAP = "tests/User.X64/heap_scenarios.cpp";
+
+    /// <summary>
     /// The guest's thread lifecycle and Win32 adapters the runtimes call, compiled with the guest's native support:
     /// compiler TLS and threads, the message catalogue, events and waits, handles, sleeping, thread creation, the
-    /// clocks and the functions only the STL's sources call (native_stl).
+    /// clocks, UTF-8 conversion and the functions only the STL's sources call (native_stl).
     /// </summary>
     public static readonly string[] ADAPTERS = ["src/Runtime.NativeAot/tls.witos.cpp", "src/Runtime.Native/thread.c",
         "src/Runtime.NativeAot/minipal_time.witos.cpp", "src/Runtime.NativeAot/native_diagnostics.witos.cpp",
         "src/Runtime.NativeAot/native_stl.witos.cpp", "src/Runtime.NativeAot/pal_events.witos.cpp",
         "src/Runtime.NativeAot/native_services.witos.cpp", "src/Runtime.NativeAot/native_wait.witos.cpp",
         "src/Runtime.NativeAot/native_thread_create.witos.cpp", "src/Runtime.NativeAot/native_thread_handles.witos.cpp",
-        "src/Runtime.NativeAot/native_clock.witos.cpp"];
+        "src/Runtime.NativeAot/native_clock.witos.cpp", "src/Runtime.NativeAot/native_encoding.witos.cpp"];
 
     /// <summary>
     /// The Win32 bindings of those adapters.
     /// </summary>
     public static readonly string[] BINDINGS = ["native_diagnostics", "native_stl", "native_services", "native_wait",
-        "native_thread_create", "native_thread_handles", "native_clock"];
+        "native_thread_create", "native_thread_handles", "native_clock", "native_encoding"];
 
     #endregion
 
@@ -112,6 +117,8 @@ internal static class HostRuntimeImage
             await Compile("stl_", ["/std:c++17", "/GS-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", .. guest],
                 Path.Combine(root, file));
         }
+        await Compile("heap_", ["/std:c++17", "/GS-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", .. guest,
+            "/I" + Path.Combine(root, "src/Runtime.NativeAot")], Path.Combine(root, HEAP));
 
         foreach (var (file, name) in BINDINGS.Select(binding => ($"src/Runtime.Pal.Win32/X64/{binding}.asm", $"host_{binding}.obj"))
                      .Prepend((NativeCxxExceptionImage.GUARD, "cxx_guard_dispatch.obj")))

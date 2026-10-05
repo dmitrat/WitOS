@@ -46,6 +46,22 @@ public sealed class StlTests
     }
 
     [Test]
+    public async Task GuestCharacterClassesMatchWindowsTest()
+    {
+        var root = TestEnvironment.Root;
+        var output = TestEnvironment.Scratch();
+        var msvc = await Toolchain.FindMsvcAsync(root);
+        var exe = Path.Combine(output, "native-ctype.exe");
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo", "/MD", "/O2", "/W4", "/WX",
+            .. NativeCxxExceptionImage.Includes(msvc), "/I" + Path.Combine(root, "src/Runtime.NativeAot"),
+            "/Fo" + output + "/", "/Fe" + exe, Path.Combine(root, "tests/WitOS.Dev.Tests/Native/NativeCtype.cpp"),
+            "/link", .. NativeCxxExceptionImage.Libraries(msvc), "kernel32.lib"], output);
+        var run = await Processes.RunAsync(exe, [], output, 60);
+        Assert.That(run.TimedOut || run.ExitCode != 0, Is.False, run.Output);
+        Assert.That(run.Output, Does.Contain("PASS: 256 classes"));
+    }
+
+    [Test]
     public async Task PinnedStlMatchesMsvcpTest()
     {
         var root = TestEnvironment.Root;

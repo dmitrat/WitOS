@@ -31,7 +31,7 @@ internal static class NativeCxxExceptionImage
     /// </summary>
     public static readonly string[] RUNTIME = ["src/Runtime.Cxx/frame_handler.cpp", "src/Runtime.Cxx/throw.cpp",
         "src/Runtime.Cxx/type_info.cpp", "src/Runtime.Cxx/new.cpp", "src/Runtime.Cxx/vector.cpp",
-        "src/Runtime.Cxx/statics.cpp", "src/Runtime.Cxx/exception.cpp"];
+        "src/Runtime.Cxx/statics.cpp", "src/Runtime.Cxx/exception.cpp", "src/Runtime.Cxx/startup.cpp"];
 
     /// <summary>
     /// The runtime's assembly: the Control Flow Guard dispatch.

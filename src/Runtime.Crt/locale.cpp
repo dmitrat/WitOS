@@ -72,6 +72,8 @@ struct lconv C_CONVENTIONS = {POINT, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, E
 
 char C_NAME[] = "C";
 Platform::Lock globalLock;
+volatile unsigned long long globalOwner; // equal to a thread's identity only while that thread holds the lock
+unsigned globalDepth;
 
 bool SameName(const char *name, const char *expected)
 {
@@ -239,12 +241,25 @@ struct lconv *Localeconv()
 
 void LockLocales()
 {
+    const unsigned long long self = Platform::CurrentThread();
+    if (globalOwner == self) {
+        ++globalDepth;
+        return;
+    }
     Platform::Acquire(globalLock);
+    globalOwner = self;
+    globalDepth = 1;
 }
 
 void UnlockLocales()
 {
-    Platform::Release(globalLock);
+    if (globalOwner != Platform::CurrentThread() || !globalDepth) {
+        InvalidParameter(); // not held by this thread
+    }
+    if (!--globalDepth) {
+        globalOwner = 0;
+        Platform::Release(globalLock);
+    }
 }
 
 const unsigned short *Pctype()

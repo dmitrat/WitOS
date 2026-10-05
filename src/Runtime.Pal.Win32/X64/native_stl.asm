@@ -11,6 +11,16 @@ EXTERN wit_native_thread_exit_code:PROC
 EXTERN wit_native_system_info:PROC
 EXTERN wit_native_switch_to_thread:PROC
 EXTERN wit_native_precise_system_time:PROC
+EXTERN wit_native_section_initialize:PROC
+EXTERN wit_native_section_enter:PROC
+EXTERN wit_native_section_leave:PROC
+EXTERN wit_native_section_delete:PROC
+EXTERN wit_native_encode_pointer:PROC
+EXTERN wit_native_decode_pointer:PROC
+EXTERN wit_native_string_type:PROC
+EXTERN wit_native_code_page_info:PROC
+EXTERN wit_native_compare_string:PROC
+EXTERN wit_native_map_string:PROC
 .code
 PUBLIC FormatMessageA
 FormatMessageA PROC
@@ -60,6 +70,46 @@ PUBLIC GetSystemTimePreciseAsFileTime
 GetSystemTimePreciseAsFileTime PROC
  jmp wit_native_precise_system_time
 GetSystemTimePreciseAsFileTime ENDP
+PUBLIC InitializeCriticalSectionEx
+InitializeCriticalSectionEx PROC
+ jmp wit_native_section_initialize
+InitializeCriticalSectionEx ENDP
+PUBLIC EnterCriticalSection
+EnterCriticalSection PROC
+ jmp wit_native_section_enter
+EnterCriticalSection ENDP
+PUBLIC LeaveCriticalSection
+LeaveCriticalSection PROC
+ jmp wit_native_section_leave
+LeaveCriticalSection ENDP
+PUBLIC DeleteCriticalSection
+DeleteCriticalSection PROC
+ jmp wit_native_section_delete
+DeleteCriticalSection ENDP
+PUBLIC EncodePointer
+EncodePointer PROC
+ jmp wit_native_encode_pointer
+EncodePointer ENDP
+PUBLIC DecodePointer
+DecodePointer PROC
+ jmp wit_native_decode_pointer
+DecodePointer ENDP
+PUBLIC GetStringTypeW
+GetStringTypeW PROC
+ jmp wit_native_string_type
+GetStringTypeW ENDP
+PUBLIC GetCPInfo
+GetCPInfo PROC
+ jmp wit_native_code_page_info
+GetCPInfo ENDP
+PUBLIC CompareStringEx
+CompareStringEx PROC
+ jmp wit_native_compare_string
+CompareStringEx ENDP
+PUBLIC LCMapStringEx
+LCMapStringEx PROC
+ jmp wit_native_map_string
+LCMapStringEx ENDP
 .const
 ALIGN 8
 PUBLIC __imp_FormatMessageA
@@ -86,4 +136,24 @@ PUBLIC __imp_SwitchToThread
 __imp_SwitchToThread DQ SwitchToThread
 PUBLIC __imp_GetSystemTimePreciseAsFileTime
 __imp_GetSystemTimePreciseAsFileTime DQ GetSystemTimePreciseAsFileTime
+PUBLIC __imp_InitializeCriticalSectionEx
+__imp_InitializeCriticalSectionEx DQ InitializeCriticalSectionEx
+PUBLIC __imp_EnterCriticalSection
+__imp_EnterCriticalSection DQ EnterCriticalSection
+PUBLIC __imp_LeaveCriticalSection
+__imp_LeaveCriticalSection DQ LeaveCriticalSection
+PUBLIC __imp_DeleteCriticalSection
+__imp_DeleteCriticalSection DQ DeleteCriticalSection
+PUBLIC __imp_EncodePointer
+__imp_EncodePointer DQ EncodePointer
+PUBLIC __imp_DecodePointer
+__imp_DecodePointer DQ DecodePointer
+PUBLIC __imp_GetStringTypeW
+__imp_GetStringTypeW DQ GetStringTypeW
+PUBLIC __imp_GetCPInfo
+__imp_GetCPInfo DQ GetCPInfo
+PUBLIC __imp_CompareStringEx
+__imp_CompareStringEx DQ CompareStringEx
+PUBLIC __imp_LCMapStringEx
+__imp_LCMapStringEx DQ LCMapStringEx
 END

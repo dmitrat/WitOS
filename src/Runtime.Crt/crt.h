@@ -84,7 +84,8 @@ int Vsnwprintf_s(unsigned long long options, wchar_t *buffer, size_t size, size_
 int Vsprintf_s(
     unsigned long long options, char *buffer, size_t size, const char *format, _locale_t locale, va_list args);
 
-/* The global locale (locale.cpp), always the C locale: setlocale and the queries UCRT's headers and the STL make. */
+/* The global locale (locale.cpp), always the C locale: setlocale and the queries UCRT's headers and the STL make. The
+ * locale lock is recursive, as UCRT's is: the STL takes it again while it holds it. */
 char *Setlocale(int category, const char *name);
 struct lconv *Localeconv();
 void LockLocales();
@@ -146,6 +147,8 @@ void Free(void *block);
 float Ceilf(float value);
 double Frexp(double value, int *exponent);
 short Dclass(double value);
+double Fabs(double value);
+long long Llabs(long long value); // the most negative value stays itself, as in UCRT
 
 /* Threads (thread.cpp). */
 uintptr_t Beginthreadex(
@@ -161,6 +164,7 @@ struct Lock {
 
 void Acquire(Lock &lock);
 void Release(Lock &lock);
+unsigned long long CurrentThread(); // an identity of the calling thread that no other live thread has
 [[noreturn]] void Fatal();
 void *StandardHandle(unsigned index); // 1 standard output, 2 standard error; null when absent
 bool Write(void *handle, const char *bytes, size_t count);

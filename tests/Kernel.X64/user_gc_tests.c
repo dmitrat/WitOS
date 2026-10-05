@@ -136,11 +136,17 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 *(const WitU64 *)report == mode,
             "Invalid native free did not fail at its boundary");
     } else if (mode == WIT_NATIVE_TEST_HEAP_NX || mode == WIT_NATIVE_TEST_HEAP_FREED) {
+        /* The block's own page faults; the heap's metadata pages come first in its reservation. */
         const WitU64 error = mode == WIT_NATIVE_TEST_HEAP_NX ? 21 : 4;
+        const WitU64 report = wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
         require(wit_test_faulted(&process) &&
                 process.FaultVector == 14 &&
                 process.FaultError == error &&
-                process.FaultAddress == WIT_USER_MEMORY_BASE &&
+                report &&
+                process.FaultAddress == ((const WitU64 *)report)[1] &&
+                process.FaultAddress > WIT_USER_MEMORY_BASE &&
+                process.FaultAddress < WIT_USER_MEMORY_LIMIT &&
+                !(process.FaultAddress & 4095) &&
                 process.FaultState.Cs == WIT_USER_CS &&
                 process.FaultState.Ss == WIT_USER_SS,
             "Native heap hardware protection failed");
