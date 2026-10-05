@@ -258,6 +258,28 @@ int main(int argc, char **argv)
         GetLastError() != 0x6789) {
         return 52;
     }
+    // The module at an address (P6.4.j3b), which the model finds with Windows' own GetModuleHandleExW.
+    if (!pal::get_method_module_path(&modulePath, reinterpret_cast<void *>(symbol)) ||
+        modulePath != L"/native/lib.dll" ||
+        GetLastError() != 0x6789) {
+        return 60;
+    }
+    if (!pal::get_own_module_path(&modulePath) ||
+        modulePath != L"/host/harness.exe" ||
+        !pal::get_own_executable_path(&modulePath) ||
+        modulePath != L"/host/harness.exe" ||
+        GetLastError() != 0x6789) {
+        return 61;
+    }
+    modulePath = L"keep";
+    int local = 0;
+    if (pal::get_method_module_path(&modulePath, &local) ||
+        GetLastError() != ERROR_MOD_NOT_FOUND ||
+        modulePath != L"keep") {
+        return 62;
+    }
+    modulePath = L"keep";
+    SetLastError(0x6789);
     pal::unload_library(discovered);
     discovered = reinterpret_cast<pal::dll_t>(99);
     modulePath = L"keep";

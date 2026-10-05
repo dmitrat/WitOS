@@ -2,7 +2,8 @@
 
 Date: 2026-10-05. Status: P6.4.e (Windows), P6.4.f (guest), P6.4.g (vcruntime surface), P6.4.h (UCRT subset),
 P6.4.i (microsoft/STL: exceptions, algorithms, threads, locales and streams), P6.4.j1 (the host's guest build and
-its inventory), P6.4.j2 (the rest of the PAL) and P6.4.j3a (process state in the kernel) complete; P6.4.j3b next.
+its inventory), P6.4.j2 (the rest of the PAL), P6.4.j3a (process state in the kernel) and P6.4.j3b (module paths)
+complete; P6.4.j3c next.
 
 ## Decision
 
@@ -87,7 +88,7 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
     TLS, initializers, `atexit`) and the system calls apart from the process entry; no unresolved symbol.
     - [x] **P6.4.j3a** Process state in the kernel: the environment and the current directory, one for every module
       (user ABI v50).
-    - [ ] **P6.4.j3b** A module's own path and the module at an address.
+    - [x] **P6.4.j3b** A module's own path and the module at an address (user ABI v51).
     - [ ] **P6.4.j3c** A library's startup, the system calls apart from the process entry and the kernel's admission
       of `hostfxr.dll`/`hostpolicy.dll`.
 - [ ] **P6.4.k** Guest `hostfxr_main` reads a real application's runtimeconfig and deps through `hostpolicy` and
@@ -771,3 +772,36 @@ enforces the smaller inventory.
 Limitations. The console is not yet a library's: a library gets no startup descriptor until j3c. Case folding is
 ASCII, where Windows folds Unicode, and the adapter keeps ADR 0021's names (printable ASCII, up to 63 units). There
 is no process creation, so no child inherits an environment.
+
+### P6.4.j3b: the module at an address
+
+The Windows PAL finds its own module and the module of a function with `GetModuleHandleExW` and an address, and names
+it with `GetModuleFileNameW`. `hostfxr` takes the current host's path from the executable and derives the .NET root
+from its own module's path (`get_dotnet_root_from_fxr_path`), which it also hands to the SDK; the trace in both
+libraries names its file after the executable. In the guest only the kernel knows which module holds an address. `WIT_CALL_LIBRARY`
+gains `MODULE_PATH` (13, user ABI v51), which takes no handle: it writes the `WitLibraryPath` of the module whose
+image holds the address in `Ordinal`, the component's main image or a loaded library, or with
+`WIT_LIBRARY_MAIN_IMAGE` and no address that of the main image. An address in no module image, or a main image that
+came from no package file, is `NOT_FOUND`. It is a query of immutable records and is allowed during library
+lifecycles too.
+
+A library has always had its package path; a main image created from bytes in the kernel (every fixture so far) has
+none, and the kernel does not invent one. `wit_user_create_package_pe` creates a component from a file of the boot
+package and records the file's name, as the launcher of the .NET host will.
+
+`host_library_discovery.witos.cpp` implements `get_own_executable_path`, `get_own_module_path` (the module of its own
+code) and `get_method_module_path` over that query, with `/` and the package key as the path, the conversion
+`get_module_path` already used. No module at the address is `ERROR_MOD_NOT_FOUND`, as `GetModuleHandleExW` reports,
+and success keeps the last error. The inventory falls to 2 unresolved symbols for each library, `atexit` and
+`wit_native_main`, both j3c's.
+
+Evidence. The hosted reference model answers `MODULE_PATH` with Windows' own `GetModuleHandleExW`, and
+`coreclr-host-files` checks the three functions against it: a symbol of the loaded DLL, the harness's own code, and a
+stack address with `ERROR_MOD_NOT_FOUND` and the output unchanged. In the guest, the boot package of `coreclr-memory`
+carries the host runtime fixture as `host/HostRuntimeFixture.pe`, and mode 26 now runs from it; the guest checks the
+executable and own-module paths, its code, its headers and its data, a function and a data export of
+`/native/lib.dll` loaded from the package, and after the unload that the library's address and a stack address belong
+to no module (`Code.HostPal`, 128 and 512 MiB).
+
+Limitations. Paths are package keys; the guest has no other file system, and no image is loaded from anywhere else.
+The NativeAOT runtime's `GetModuleFileNameW` adapter still answers from the single image's boot resource name.

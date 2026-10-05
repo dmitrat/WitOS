@@ -16,6 +16,7 @@
 #define WIT_LIBRARY_SHUTDOWN 10U
 #define WIT_LIBRARY_THREAD_ENTER 11U
 #define WIT_LIBRARY_THREAD_LEAVE 12U
+#define WIT_LIBRARY_MODULE_PATH 13U
 #define WIT_LIBRARY_THREAD_ATTACH 3U
 #define WIT_LIBRARY_THREAD_DETACH 4U
 #define WIT_LIBRARY_PROCESS_SHUTDOWN 2U
@@ -23,6 +24,7 @@
 #define WIT_LIBRARY_BY_BASENAME 1U
 #define WIT_LIBRARY_PATH_BYTES 1024U
 #define WIT_LIBRARY_BY_ORDINAL 1U
+#define WIT_LIBRARY_MAIN_IMAGE 1U
 
 /* Entry is zero for a library with PE TLS callbacks only. Callbacks is the library's own readonly, relocated,
  * null-terminated list of CallbackCount functions; for every reason they run before the entry point. */
@@ -57,7 +59,12 @@ typedef struct WitLibraryPath {
 
 WIT_STATIC_ASSERT(sizeof(WitLibraryPath) == 1040, "Library path ABI");
 /* FIND acquires one reference without loading. Basename ambiguity returns BUSY
- * before changing references; PATH validates the whole output before copying. */
+ * before changing references; PATH validates the whole output before copying.
+ * MODULE_PATH (ABI v51) takes no handle: it writes the WitLibraryPath of the
+ * module whose image holds the address in Ordinal, the component's main image
+ * or a loaded library, or with WIT_LIBRARY_MAIN_IMAGE and Ordinal 0 that of the
+ * main image. NOT_FOUND when no module holds the address or the main image did
+ * not come from a package file. */
 WIT_STATIC_ASSERT(sizeof(WitLibraryRequest) == 64, "Library request ABI");
 WIT_STATIC_ASSERT(sizeof(WitLibraryInfo) == 40, "Library info ABI");
 /* Private native-library contract: immutable package bytes only. Caller must

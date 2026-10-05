@@ -121,9 +121,12 @@ static void creator_variable(const char *name, const char *value)
 static void host_runtime(WitPageAllocator *pages, WitU64 mode, const char *name, WitU64 expected)
 {
     const WitU64 before = wit_pages_free_count(pages);
-    require(
-        wit_user_create_pe_profile(&process, pages, 0, wit_host_runtime_image, sizeof(wit_host_runtime_image),
-            WIT_USER_IMAGE_BASE, "boot:/HostRuntimeFixture.pe", WIT_PE_UNWIND_RUNTIME | WIT_PE_RUNTIME_FULL) == WitPeOk,
+    /* The host PAL's mode runs the same image from the boot package, so the kernel knows the main image's path. */
+    require((mode == 26 ? wit_user_create_package_pe(&process, pages, 0, "host/HostRuntimeFixture.pe",
+                              WIT_USER_IMAGE_BASE, WIT_PE_UNWIND_RUNTIME | WIT_PE_RUNTIME_FULL)
+                        : wit_user_create_pe_profile(&process, pages, 0, wit_host_runtime_image,
+                              sizeof(wit_host_runtime_image), WIT_USER_IMAGE_BASE, "boot:/HostRuntimeFixture.pe",
+                              WIT_PE_UNWIND_RUNTIME | WIT_PE_RUNTIME_FULL)) == WitPeOk,
         "Host runtime fixture load failed");
     ((WitUserTestConfig *)wit_user_space_physical(&process.Space, WIT_USER_INFO, 0, 0))->Mode = mode;
     process.TickLimit = WIT_RUNTIME_TICK_BUDGET;

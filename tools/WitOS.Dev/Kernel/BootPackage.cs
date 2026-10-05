@@ -81,6 +81,11 @@ internal static class BootPackage
             await Add("test/dependent.dll", dependencies["dependent.dll"]); // Missing sibling dependency must fail transactionally.
             await Add("test/lib.dll", library); // Distinct module identity with an ambiguous basename.
         }
+        if (nativeLibraries)
+        {
+            // The host runtime fixture, which the host PAL's mode runs from the package to see its own path (P6.4.j3b).
+            await Add("host/HostRuntimeFixture.pe", Path.Combine(output, "HostRuntimeFixture.pe"));
+        }
         var package = AssemblyPackage.Create(files);
         await File.WriteAllBytesAsync(Path.Combine(output, "boot.pak"), package);
         await File.WriteAllTextAsync(Path.Combine(output, "boot-package.json"), JsonSerializer.Serialize(new
