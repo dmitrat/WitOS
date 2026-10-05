@@ -1,8 +1,8 @@
 # P6.4 guest C++ runtime for the host
 
 Date: 2026-10-05. Status: P6.4.e (Windows), P6.4.f (guest), P6.4.g (vcruntime surface), P6.4.h (UCRT subset),
-P6.4.i1 (STL exceptions and algorithms), P6.4.i2 (STL threads and synchronization) and P6.4.i3a (the C runtime
-under the STL's locales) complete; P6.4.i3b next.
+P6.4.i (microsoft/STL: exceptions, algorithms, threads, locales and streams) and P6.4.j1 (the host's guest build and
+its inventory) complete; P6.4.j2 next.
 
 ## Decision
 
@@ -75,8 +75,16 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
       names, character classes and string helpers.
     - [x] **P6.4.i3b** The Win32 NLS functions, critical sections and the 28 locale and stream sources, with the
       static initializers they need and a native heap that scales to the full runtime profile.
-- [ ] **P6.4.j** The host's Win32 imports (files, mappings, critical sections, modules, console, registry) over
-  WitOS adapters; strict link of `hostfxr` and `hostpolicy` with no unresolved symbol.
+- [ ] **P6.4.j** The host for the guest: upstream `hostfxr` and `hostpolicy` compiled unchanged for the guest, with
+  WitOS's own PAL objects in place of the Windows PAL, linked strictly with no unresolved symbol.
+  - [x] **P6.4.j1** The guest build and its inventory: the corehost sources from the verified checkout, compiled with
+    upstream's options against the pinned STL and linked over the WitOS runtimes; each image's unresolved externals
+    are a recorded expectation that the command enforces.
+  - [ ] **P6.4.j2** The rest of the PAL: strings, trace output, the host's own paths, installation locations and the
+    small functions, each against the Windows PAL's contract.
+  - [ ] **P6.4.j3** Libraries in a process: process state that every module sees (environment, console, current
+    directory), a library's startup (GS cookies, TLS, initializers, `atexit`) and the system calls apart from the
+    process entry; no unresolved symbol.
 - [ ] **P6.4.k** Guest `hostfxr_main` reads a real application's runtimeconfig and deps through `hostpolicy` and
   reaches `coreclr_initialize`/`coreclr_execute_assembly`.
 
@@ -601,3 +609,56 @@ skipping whitespace does, ends the process; `getline` with a delimiter does not 
 output through streams end the process (`strtod`, printf's floating-point conversions). `iomanip.cpp` (`std::setw`
 and the other manipulators with arguments) and `iostream.cpp` (the standard stream objects) are not built: the host
 links neither. Next is P6.4.j, the host's own Win32 imports.
+
+## P6.4.j: the host for the guest
+
+The real host is three images on Windows: `dotnet.exe` resolves and loads `hostfxr.dll`, which reads the
+application's runtimeconfig, resolves the framework and loads that framework's `hostpolicy.dll`, which reads the deps
+and loads `coreclr.dll`. Their code is upstream's, unchanged; below them sits the hosting PAL (`pal::` in
+`hostmisc/pal.h`), whose Windows implementation, `pal.windows.cpp`, is where 40 of the 42 Win32 imports of the old
+diagnostic link came from. WitOS keeps upstream's sources and policy (`fx_muxer`, `fx_resolver`, `deps_resolver`)
+and replaces only that file with its own PAL objects over the guest's native backends, compiled against the same
+pinned `pal.h` (with the one recorded correction, `munmap` as a declaration).
+
+### P6.4.j1: the guest build and its inventory
+
+`coreclr-host-guest` takes the corehost sources from the runtime checkout that `runtime-source` verifies (pinned
+commit, clean tree) and copies them, with `rapidjson` and the headers they include, into its build directory: sources
+in `hostmisc` include `pal.h` from their own directory first, so the corrected header replaces the copy, after a check
+that the checkout's `pal.h` equals the hash-verified pin. It writes the two version headers upstream's MSBuild
+generates (product 10.0.8 with the pinned commit, Arcade's local-build file version 42.42.42.42424, as the reference
+build has). The sources are those upstream's CMake lists for Windows: `hostmisc` without `pal.windows.cpp` and
+`longfile.windows.cpp` (only that PAL uses the long-path helpers), `libhostcommon`, and each library's own. They compile
+with upstream's code generation and warning policy (`/O2 /GS /EHsc /GR- /guard:cf /guard:ehcont`, `/W4 /WX` with its
+exceptions), except that no default library is named (`/Zl` instead of `-MT`), and against the pinned STL's headers
+ahead of the toolset's. WitOS's PAL objects compile against the same headers.
+
+Each library links strictly (`/NODEFAULTLIB`) over the WitOS C++ runtime, the UCRT subset, the STL's sources, the
+guest's native support and the Win32 adapters, as the host runtime fixture does, and the x64 stack probe. The
+command compares each image's unresolved externals with `experiments/CoreClrHost/guest-link.json` and fails on any
+difference, in either direction: a slice that implements something removes it from the file, and nothing returns
+unnoticed. The inventory is 27 symbols for each image, not the 119 of the old link: the C++ runtime, the UCRT subset
+and the STL closed everything else.
+
+| Group | hostfxr | hostpolicy |
+|---|---|---|
+| `pal::` functions without a WitOS implementation | 20 | 18 |
+| Win32: environment (`GetEnvironmentVariableW`, `GetEnvironmentStringsW`, `FreeEnvironmentStringsW`) | 3 | 3 |
+| Win32: `GetCurrentProcessId`, `OutputDebugStringW` (`pal.h` inline, `trace.cpp`) | 2 | 2 |
+| Win32: `CreateDirectoryW`, `RemoveDirectoryW` (`pal.h` inline, bundle extraction) | 0 | 2 |
+| `atexit`, `wit_native_main` (a library's startup) | 2 | 2 |
+
+`wit_native_main` comes from the process entry, linked for the system-call primitives in the same object.
+
+The zlib inflate functions of `bundle/extractor.cpp` are compiled only for the single-file host
+(`NATIVE_LIBS_EMBEDDED`) and are not needed.
+
+The environment adapters exist (`native_environment.asm` over the PAL environment), but they are not linked: their
+state is the table the process entry publishes from its own image, and a library linked with its own copy would see
+none. That is the design question of j3. A module statically links its runtimes, as upstream's host does with the
+static CRT, so each has its own heap and C++ state, which the hosting interfaces allow (strings cross them as
+borrowed pointers). Process state cannot be per module: the environment, the console and the current directory must
+be the process's. The loader resolves a library's imports only to siblings in its own directory, and `hostfxr.dll`
+and `hostpolicy.dll` live in different directories, so a shared system library is not the answer; the kernel must
+hand that state to every module. `coreclr.dll` is a separate module under any composition of the host, so the
+question does not go away with a static host.

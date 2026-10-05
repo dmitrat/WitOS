@@ -34,12 +34,7 @@ internal static class UserImage
     /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
     public static async Task BuildAsync(string root, string output, string msvc)
     {
-        var constants = await ReadConstantsAsync(root);
-        var includes = string.Join("\n", constants.Select(item => $"{item.Key} EQU 0{item.Value:X}h")) + "\n";
-        await File.WriteAllTextAsync(Path.Combine(output, "user_abi.inc"), includes, Encoding.ASCII);
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
-            ["/nologo", "/c", $"/I{output}", $"/Fo{Path.Combine(output, "native_error.obj")}",
-                Path.Combine(root, "src", "Runtime.Pal.Win32", "X64", "native_error.asm")], root);
+        var constants = await PrepareAbiAsync(root, output, msvc);
         await BuildFixtureAsync(root, output, msvc, constants, "entry", "UserFixture", "wit_user_test_image", "user_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "threads", "ThreadFixture", "wit_user_thread_image", "user_thread_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "waits", "WaitFixture", "wit_user_wait_image", "user_wait_image.h");
@@ -54,6 +49,25 @@ internal static class UserImage
         await PalFixtureImage.BuildAsync(root, output, msvc, "pal-module");
         await PalFixtureImage.BuildAsync(root, output, msvc, "pal-environment");
         await PalFixtureImage.BuildAsync(root, output, msvc, "process-exit");
+    }
+
+    /// <summary>
+    /// Generates user_abi.inc, the ABI constants for x64 assembly, and assembles the native last-error object every
+    /// x64 module links.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
+    /// <returns>The ABI constants.</returns>
+    public static async Task<Dictionary<string, ulong>> PrepareAbiAsync(string root, string output, string msvc)
+    {
+        var constants = await ReadConstantsAsync(root);
+        var includes = string.Join("\n", constants.Select(item => $"{item.Key} EQU 0{item.Value:X}h")) + "\n";
+        await File.WriteAllTextAsync(Path.Combine(output, "user_abi.inc"), includes, Encoding.ASCII);
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
+            ["/nologo", "/c", $"/I{output}", $"/Fo{Path.Combine(output, "native_error.obj")}",
+                Path.Combine(root, "src", "Runtime.Pal.Win32", "X64", "native_error.asm")], root);
+        return constants;
     }
 
     /// <summary>

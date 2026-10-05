@@ -10,6 +10,10 @@ on:
       - 'tools/WitOS.Dev/**'
       - 'src/Runtime.Native/**'
       - 'src/Runtime.CoreClr/**'
+      - 'src/Runtime.Cxx/**'
+      - 'src/Runtime.Crt/**'
+      - 'src/Runtime.NativeAot/**'
+      - 'src/Runtime.Pal.Win32/**'
       - 'patches/**'
       - 'global.json'
       - 'Directory.Build.props'
@@ -22,6 +26,10 @@ on:
       - 'tools/WitOS.Dev/**'
       - 'src/Runtime.Native/**'
       - 'src/Runtime.CoreClr/**'
+      - 'src/Runtime.Cxx/**'
+      - 'src/Runtime.Crt/**'
+      - 'src/Runtime.NativeAot/**'
+      - 'src/Runtime.Pal.Win32/**'
       - 'patches/**'
       - 'global.json'
       - 'Directory.Build.props'
@@ -55,6 +63,8 @@ jobs:
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- coreclr-host
       - name: Verify actual hosting PAL file contracts (hosted syscall model)
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- coreclr-host-files
+      - name: Build the upstream host for the guest and check its unresolved externals
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- coreclr-host-guest
       - name: Upload source and binding evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -69,3 +79,6 @@ jobs:
             artifacts/coreclr-host-reference/runs/
             artifacts/coreclr-host-reference/build.log
             artifacts/coreclr-host-file-pal/
+            artifacts/coreclr-host-guest/current-run.json
+            artifacts/coreclr-host-guest/runs/*/guest-link.json
+            artifacts/coreclr-host-guest/runs/*/build/*.link.log
