@@ -1,7 +1,8 @@
 # P6.4 guest C++ runtime for the host
 
 Date: 2026-10-05. Status: P6.4.e (Windows), P6.4.f (guest), P6.4.g (vcruntime surface), P6.4.h (UCRT subset),
-P6.4.i1 (STL exceptions and algorithms) and P6.4.i2 (STL threads and synchronization) complete; P6.4.i3 next.
+P6.4.i1 (STL exceptions and algorithms), P6.4.i2 (STL threads and synchronization) and P6.4.i3a (the C runtime
+under the STL's locales) complete; P6.4.i3b next.
 
 ## Decision
 
@@ -70,6 +71,9 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
     `std::uncaught_exception` and the vectorized algorithms.
   - [x] **P6.4.i2** Threads and synchronization: `_Mtx_*`, `_Cnd_*`, `_Thrd_*` with `_beginthreadex`.
   - [ ] **P6.4.i3** Locales and streams: the support behind `std::wstringstream`.
+    - [x] **P6.4.i3a** The UCRT functions the STL's locale sources call: narrow `sprintf_s`, the global locale, time
+      names, character classes and string helpers.
+    - [ ] **P6.4.i3b** The Win32 NLS functions, critical sections and the 28 locale and stream sources.
 - [ ] **P6.4.j** The host's Win32 imports (files, mappings, critical sections, modules, console, registry) over
   WitOS adapters; strict link of `hostfxr` and `hostpolicy` with no unresolved symbol.
 - [ ] **P6.4.k** Guest `hostfxr_main` reads a real application's runtimeconfig and deps through `hostpolicy` and
@@ -203,12 +207,12 @@ locale, stream and thread internals to the list.
 
 | File | Functions |
 |---|---|
-| `format.cpp` | the wide printf engine; `__stdio_common_vswprintf`, `__stdio_common_vsnwprintf_s` |
+| `format.cpp` | the printf engine; `__stdio_common_vswprintf`, `__stdio_common_vsnwprintf_s`, `__stdio_common_vsprintf_s` (P6.4.i3a) |
 | `stdio.cpp` | `__acrt_iob_func`, `__stdio_common_vfwprintf`, `fputwc`, `fputc`, `fputs` (P6.4.i2), `fwrite`, `fflush`, `setvbuf`, `_wfsopen`, `fclose`, `_wremove`, `_wrename` |
-| `locale.cpp` | `_create_locale`, `_free_locale`; the C and UTF-8 conversions |
-| `string.cpp` | `wcslen`, `wcscmp`, `wcsncmp`, `wcschr`, `_wcsicmp`, `_wcsnicmp`, `tolower`, `toupper`, `wcstoul`, `_wtoi`, `_wcserror_s` |
-| `time.cpp` | `_time64`, `_gmtime64_s`, `wcsftime` |
-| `heap.cpp`, `runtime.cpp` | `malloc`, `calloc` (P6.4.i2), `realloc`, `free`; `ceilf`, `terminate`, `_fltused`; `abort`, `_invoke_watson` (P6.4.i) |
+| `locale.cpp` | `_create_locale`, `_free_locale`; the C and UTF-8 conversions; `setlocale`, `localeconv`, `___lc_*`, `___mb_cur_max_func`, `__pctype_func`, `_lock_locales` (P6.4.i3a) |
+| `string.cpp` | `wcslen`, `wcscmp`, `wcsncmp`, `wcschr`, `_wcsicmp`, `_wcsnicmp`, `tolower`, `toupper`, `wcstoul`, `_wtoi`, `_wcserror_s`; `islower`, `isupper`, `isspace`, `__strncnt`, `wcsnlen`, `strcspn`, `_wcsdup` (P6.4.i3a) |
+| `time.cpp` | `_time64`, `_gmtime64_s`, `wcsftime`; `_Strftime`, `_Wcsftime`, `_Gettnames`, `_Getdays`, `_Getmonths` and their wide forms (P6.4.i3a) |
+| `heap.cpp`, `runtime.cpp` | `malloc`, `calloc` (P6.4.i2), `realloc`, `free`; `ceilf`, `terminate`, `_fltused`; `abort`, `_invoke_watson` (P6.4.i); `frexp`, `_dclass`, `_ldclass`, failing `strtod`/`strtof` (P6.4.i3a) |
 | `thread.cpp`, `errno.cpp` | `_beginthreadex`, `_endthreadex`; the errno of a Windows error (P6.4.i2) |
 | `platform_windows.cpp`, `platform_witos.cpp` | locks, fail-fast, standard handles, files, the heap, the UTC clock, threads; `_errno` on Windows |
 
@@ -474,3 +478,40 @@ uses the kernel's monotonic counter.
 Shared SRW mode, `std::shared_mutex`, `sleep_for` and `wait_for` (`sharedmutex.cpp`, which the host does not link)
 and `std::call_once` are not built. A component has four threads, so at most four can park at once. Locales and
 streams (i3) are next.
+
+## P6.4.i3a: the C runtime under the STL's locales
+
+The STL's locale and stream sources (i3) form a closure of 28 files: `locale0`, `locale`, `wlocale`, `xlocale`, `ios`,
+`iosptrs`, `xlock`, `xmtx`, the ctype, case, collation and conversion helpers and the `xsto*` parsers. Three of them
+(`StlCompareStringA`, `StlLCMapStringA`, `xwcsxfrm`) use owners of CRT allocations from the closed `internal_shared.h`;
+WitOS's header now defines `__crt_unique_heap_ptr`, `__crt_scoped_stack_ptr` (always a heap block here) and
+`_malloc_crt_t`/`_malloca_crt_t`. Beyond the Win32 NLS functions, critical sections and `EncodePointer`, which come
+with the sources in i3b, they call 33 UCRT functions the subset did not have. i3a adds them, each checked against
+UCRT:
+
+- **Narrow printf.** The printf engine is a template over the character type. `__stdio_common_vsprintf_s` follows
+  UCRT's narrow rules: `%s` and `%c` take narrow arguments, `l`, `w`, `%S` and `%C` wide ones, which the locale
+  converts as `wcrtomb` does. The precision and width of a wide string count wide characters; the padding goes out
+  first and the characters are converted in order as they are written, a surrogate pair together in the UTF-8 locale
+  (a lone high surrogate at the end writes nothing). An unconvertible character fails the call with `EILSEQ` after
+  what came before it, and `sprintf_s` then ends the written text and empties the string. The STL formats integers
+  (`%[+][#]{l|I64}{d|u|o|x|X}`) and pointers this way; floating-point conversions still end the process.
+- **The global locale.** `setlocale` reports the C locale and sets only it (other names return null, as for
+  `_create_locale`); `localeconv` gives the C conventions with their wide fields; `___mb_cur_max_func`,
+  `___lc_codepage_func`, `___lc_collate_cp_func`, `___lc_locale_name_func`, `__pctype_func` and
+  `_lock_locales`/`_unlock_locales` answer for it.
+- **Time names.** `_Getdays`, `_Getmonths` and their wide forms list `:Sun:Sunday:...` and `:Jan:January:...`.
+  `_Gettnames` hands out the subset's own record, which only `_Strftime` and `_Wcsftime` read: with a record, UCRT takes
+  `%c` (`%m/%d/%y %H:%M:%S`) and `%r` (`%H:%M:%S`, which `#` does not change) from its Windows formats, unlike
+  `wcsftime` in the C locale. `_Strftime`, like UCRT's `strftime`, formats the widened format and narrows the result.
+- **Characters and strings.** `islower`, `isupper` and `isspace` read the C locale's table for -1 to 255 (UCRT reads
+  past it beyond that range; the subset answers 0); `__strncnt`, `wcsnlen`, `strcspn` and `_wcsdup`.
+- **Numbers.** `frexp`, `_dclass` and `_ldclass` exactly as UCRT (infinities and NaNs give the exponent -1 and a
+  quiet NaN). `strtod` and `strtof`, which the STL's `num_get` for floating point calls, end the process, like the
+  floating-point conversions of printf: the host parses no floating-point text through streams.
+
+The differential calls each against UCRT: every printf case of the wide matrix also through the narrow `sprintf_s`,
+`_Strftime` and `_Wcsftime` with UCRT's names record over the time cases, the global locale's queries, the classes
+for -1 to 255, 200,000 string-helper cases and a million `frexp`/`_dclass` inputs: 12,594,710 comparisons, none
+different. The scenario trace gains these functions (`n1`–`n11`), which the hosted build and the guest print as UCRT
+does.

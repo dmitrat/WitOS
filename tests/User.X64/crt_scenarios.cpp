@@ -270,6 +270,134 @@ void Memory()
     Number("c3", (long long)bits);
 }
 
+void AddNarrow(const char *text)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    for (; *text; ++text) {
+        const unsigned value = static_cast<unsigned char>(*text);
+        if (value == ' ') {
+            Add('_');
+        } else if (value > ' ' && value < 0x7F) {
+            Add(char(value));
+        } else {
+            Add('\\');
+            Add('x');
+            Add(hex[value >> 4]);
+            Add(hex[value & 0xF]);
+        }
+    }
+}
+
+/* What the STL's locale and number sources call (P6.4.i3): narrow sprintf_s, the global locale and its queries, the
+ * time names and the formats of a names record, the C locale's classes, the string helpers and frexp. */
+void Locales()
+{
+    char buffer[96];
+    errno = 0;
+    const int result = sprintf_s(buffer, "%#lx|%+ld|%I64u|%p|%5.2s|%-4ls|%c|%%|%hs", 255L, 42L, 18446744073709551615ULL,
+        (void *)0x1234, "abcdef", L"wd", 'q', "end");
+    Begin("n1");
+    AddNumber(result);
+    Add(':');
+    AddNumber(errno);
+    Add(':');
+    AddNarrow(buffer);
+    crt_trace(token);
+    Begin("n2");
+    AddNarrow(setlocale(LC_ALL, nullptr));
+    Add(',');
+    AddNarrow(setlocale(LC_NUMERIC, "C"));
+    crt_trace(token);
+    const lconv *conventions = localeconv();
+    Begin("n3");
+    AddNarrow(conventions->decimal_point);
+    Add(',');
+    AddNumber((long long)strlen(conventions->grouping));
+    Add(',');
+    AddNumber(conventions->int_frac_digits);
+    Add(',');
+    AddWide(conventions->_W_decimal_point, 1);
+    crt_trace(token);
+    _lock_locales();
+    _unlock_locales();
+    Begin("n4");
+    for (const long long value : {(long long)___mb_cur_max_func(), (long long)___lc_codepage_func(),
+             (long long)___lc_collate_cp_func(), (long long)(___lc_locale_name_func()[LC_CTYPE] == nullptr),
+             (long long)__pctype_func()['A'], (long long)__pctype_func()[' '], (long long)__pctype_func()[0xE9]}) {
+        AddNumber(value);
+        Add(',');
+    }
+    crt_trace(token);
+    char *days = _Getdays(), *months = _Getmonths();
+    wchar_t *wideDays = _W_Getdays(), *wideMonths = _W_Getmonths();
+    Begin("n5");
+    AddNarrow(days);
+    crt_trace(token);
+    Begin("n6");
+    AddNarrow(months);
+    Add(',');
+    AddNumber((long long)wcslen(wideDays));
+    Add(',');
+    AddNumber((long long)wcslen(wideMonths));
+    crt_trace(token);
+    free(days);
+    free(months);
+    free(wideDays);
+    free(wideMonths);
+    struct tm time = {};
+    time.tm_year = 125;
+    time.tm_mon = 9;
+    time.tm_mday = 4;
+    time.tm_hour = 14;
+    time.tm_min = 16;
+    time.tm_sec = 21;
+    time.tm_wday = 6;
+    time.tm_yday = 276;
+    void *names = _Gettnames();
+    char text[96];
+    errno = 0;
+    const size_t written = _Strftime(text, sizeof(text), "%c|%r|%A|%#x|%b", &time, names);
+    Begin("n7");
+    AddNumber((long long)written);
+    Add(':');
+    AddNarrow(text);
+    crt_trace(token);
+    wchar_t wide[64];
+    errno = 0;
+    Result("n8", (long long)_Wcsftime(wide, 64, L"%c|%#r|%B", &time, names), wide);
+    free(names);
+    long long lower = 0, upper = 0, space = 0;
+    for (int value = -1; value < 256; ++value) {
+        lower += islower(value) != 0;
+        upper += isupper(value) != 0;
+        space += isspace(value) != 0;
+    }
+    Begin("n9");
+    for (const long long value : {lower, upper, space, (long long)islower('q'), (long long)isspace('\t')}) {
+        AddNumber(value);
+        Add(',');
+    }
+    crt_trace(token);
+    wchar_t *copy = _wcsdup(L"hostpolicy");
+    Begin("n10");
+    for (const long long value : {(long long)__strncnt("hostfxr", 4), (long long)wcsnlen(L"policy", 3),
+             (long long)strcspn("runtimeconfig", "fc"), (long long)(copy && !wcscmp(copy, L"hostpolicy"))}) {
+        AddNumber(value);
+        Add(',');
+    }
+    crt_trace(token);
+    free(copy);
+    int exponent = 0;
+    const double fraction = frexp(48.0, &exponent);
+    Begin("n11");
+    for (const long long value : {(long long)(fraction * 1000), (long long)exponent, (long long)_dclass(HUGE_VAL),
+             (long long)_dclass(0.0), (long long)_ldclass(1.0L)}) {
+        AddNumber(value);
+        Add(',');
+    }
+    crt_trace(token);
+}
+
 /* Prints the lines "[CRT-STDOUT] wide narrow 42", "[CRT-STDERR] err", "[CRT-FWRITE]" and "[CRT-FPUTS]", which the
  * runners check. */
 void Streams()
@@ -304,4 +432,5 @@ extern "C" void crt_scenarios_run()
     Strings();
     Time();
     Memory();
+    Locales();
 }

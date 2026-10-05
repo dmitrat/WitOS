@@ -1,11 +1,14 @@
+#include <ctype.h>
 #include <errno.h>
 #include <limits.h>
 #include "crt.h"
 
-/* Wide strings, C-locale characters, integer parsing and error messages (P6.4.h). The comparisons and case mappings
- * are the C locale's: only A-Z and a-z change case. Parsing follows UCRT: it skips the white space Windows classifies
- * as such, reads the decimal digits of the Unicode scripts UCRT knows besides ASCII, keeps reading after an overflow
- * and reports ERANGE. The messages are UCRT's. */
+/* Wide strings, C-locale characters, integer parsing and error messages (P6.4.h), and the string functions and
+ * character classes the STL's locale sources call (P6.4.i3). The comparisons, case mappings and classes are the C
+ * locale's: only A-Z and a-z change case, and a class comes from the C locale's table for -1 to 255 (EOF and the
+ * values of unsigned char) and is 0 beyond it. Parsing follows UCRT: it skips the white space Windows classifies as
+ * such, reads the decimal digits of the Unicode scripts UCRT knows besides ASCII, keeps reading after an overflow and
+ * reports ERANGE. The messages are UCRT's. */
 namespace WitCrt {
 
 namespace {
@@ -192,6 +195,57 @@ int Tolower(int value)
     return value >= 'A' && value <= 'Z' ? value - 'A' + 'a' : value;
 }
 
+int Isctype(int value, unsigned short mask)
+{
+    return value >= -1 && value <= 255 ? Pctype()[value] & mask : 0;
+}
+
+size_t Strncnt(const char *text, size_t count)
+{
+    size_t length = 0;
+    while (length < count && text[length]) {
+        ++length;
+    }
+    return length;
+}
+
+size_t Wcsnlen(const wchar_t *text, size_t count)
+{
+    size_t length = 0;
+    while (length < count && text[length]) {
+        ++length;
+    }
+    return length;
+}
+
+size_t Strcspn(const char *text, const char *reject)
+{
+    size_t length = 0;
+    for (; text[length]; ++length) {
+        for (const char *r = reject; *r; ++r) {
+            if (*r == text[length]) {
+                return length;
+            }
+        }
+    }
+    return length;
+}
+
+wchar_t *Wcsdup(const wchar_t *text)
+{
+    if (!text) {
+        return nullptr;
+    }
+    const size_t length = Wcslen(text);
+    auto *copy = static_cast<wchar_t *>(Malloc((length + 1) * sizeof(wchar_t)));
+    if (copy) {
+        for (size_t i = 0; i <= length; ++i) {
+            copy[i] = text[i];
+        }
+    }
+    return copy;
+}
+
 int Toupper(int value)
 {
     return value >= 'a' && value <= 'z' ? value - 'a' + 'A' : value;
@@ -297,6 +351,41 @@ extern "C" int __cdecl tolower(int value)
 extern "C" int __cdecl toupper(int value)
 {
     return WitCrt::Toupper(value);
+}
+
+extern "C" int __cdecl islower(int value)
+{
+    return WitCrt::Isctype(value, _LOWER);
+}
+
+extern "C" int __cdecl isupper(int value)
+{
+    return WitCrt::Isctype(value, _UPPER);
+}
+
+extern "C" int __cdecl isspace(int value)
+{
+    return WitCrt::Isctype(value, _SPACE);
+}
+
+extern "C" size_t __cdecl __strncnt(const char *text, size_t count)
+{
+    return WitCrt::Strncnt(text, count);
+}
+
+extern "C" size_t __cdecl wcsnlen(const wchar_t *text, size_t count)
+{
+    return WitCrt::Wcsnlen(text, count);
+}
+
+extern "C" size_t __cdecl strcspn(const char *text, const char *reject)
+{
+    return WitCrt::Strcspn(text, reject);
+}
+
+extern "C" wchar_t *__cdecl _wcsdup(const wchar_t *text)
+{
+    return WitCrt::Wcsdup(text);
 }
 
 extern "C" unsigned long __cdecl wcstoul(const wchar_t *text, wchar_t **end, int base)

@@ -3,7 +3,9 @@
 
 /* Calendar time (P6.4.h): _time64 from the platform's UTC clock, which the guest does not have (it returns -1, as C
  * specifies for an unavailable time); _gmtime64_s over UCRT's range; wcsftime in the C locale with UCRT's # flag. %z
- * and %Z need a time zone, which does not exist here, and end the process as unimplemented. */
+ * and %Z need a time zone, which does not exist here, and end the process as unimplemented. The STL's time facets
+ * (P6.4.i3) read the C locale's day and month names and format through _Strftime and _Wcsftime, which, like UCRT's
+ * strftime, formats the widened format and narrows the result. */
 namespace WitCrt {
 
 namespace {
@@ -13,6 +15,42 @@ constexpr long long MIN_TIME = -43200, MAX_TIME = 32536850399; // UCRT's range f
 constexpr const wchar_t *DAYS[] = {L"Sunday", L"Monday", L"Tuesday", L"Wednesday", L"Thursday", L"Friday", L"Saturday"};
 constexpr const wchar_t *MONTHS[] = {L"January", L"February", L"March", L"April", L"May", L"June", L"July", L"August",
     L"September", L"October", L"November", L"December"};
+
+/* The record _Gettnames hands out: the names are always the C locale's, so it only identifies itself. */
+struct TimeNames {
+    unsigned long long Magic;
+};
+
+constexpr unsigned long long TIME_NAMES = 0x53454D414E54494DULL; // "MITNAMES"
+
+/* ":Sun:Sunday:Mon:Monday:..." or ":Jan:January:...", as UCRT's _Getdays and _Getmonths list them. */
+template <typename Char> Char *NameList(const wchar_t *const *names, size_t count)
+{
+    size_t length = 1;
+    for (size_t i = 0; i < count; ++i) {
+        for (const wchar_t *name = names[i]; *name; ++name) {
+            ++length;
+        }
+        length += 5; // two colons and the abbreviation
+    }
+    auto *list = static_cast<Char *>(Malloc(length * sizeof(Char)));
+    if (!list) {
+        return nullptr;
+    }
+    Char *next = list;
+    for (size_t i = 0; i < count; ++i) {
+        *next++ = ':';
+        for (size_t j = 0; j < 3; ++j) {
+            *next++ = Char(names[i][j]);
+        }
+        *next++ = ':';
+        for (const wchar_t *name = names[i]; *name; ++name) {
+            *next++ = Char(*name);
+        }
+    }
+    *next = 0;
+    return list;
+}
 
 bool Leap(long long year)
 {
@@ -50,7 +88,14 @@ void IsoWeek(const struct tm &time, int &year, int &week)
  * when it does not fit. The first failure ends the conversion with ERANGE. */
 class Writer {
 public:
-    Writer(wchar_t *buffer, size_t count) : buffer_(buffer), count_(count), left_(count) {}
+    Writer(wchar_t *buffer, size_t count, bool record) : buffer_(buffer), count_(count), left_(count), record_(record)
+    {}
+
+    /* Whether the names come from a record of _Gettnames, whose Windows formats give %c and %r. */
+    bool Record() const
+    {
+        return record_;
+    }
 
     bool Failed() const
     {
@@ -116,6 +161,7 @@ private:
     wchar_t *buffer_;
     size_t count_;
     size_t left_;
+    bool record_;
     bool failed_ = false;
 };
 
@@ -163,7 +209,11 @@ void Convert(Writer &out, wchar_t type, bool alternate, const struct tm &time)
         Name(out, MONTHS[time.tm_mon], type != L'B');
         break;
     case L'c':
-        Composite(out, alternate ? L"%A, %B %d, %Y %H:%M:%S" : L"%a %b %e %H:%M:%S %Y", false, time);
+        Composite(out,
+            alternate          ? L"%A, %B %d, %Y %H:%M:%S"
+                : out.Record() ? L"%m/%d/%y %H:%M:%S" // the record's short date and time
+                               : L"%a %b %e %H:%M:%S %Y",
+            false, time);
         break;
     case L'C':
         Require(year >= 0 && year <= 9999);
@@ -229,7 +279,11 @@ void Convert(Writer &out, wchar_t type, bool alternate, const struct tm &time)
         Name(out, time.tm_hour < 12 ? L"AM" : L"PM", false);
         break;
     case L'r':
-        Composite(out, L"%I:%M:%S %p", alternate, time);
+        if (out.Record()) {
+            Composite(out, L"%H:%M:%S", false, time); // the record's time format, which # does not change
+        } else {
+            Composite(out, L"%I:%M:%S %p", alternate, time);
+        }
         break;
     case L'R':
         Composite(out, L"%H:%M", alternate, time);
@@ -354,12 +408,12 @@ errno_t Gmtime64_s(struct tm *result, const __time64_t *time)
     return 0;
 }
 
-size_t Wcsftime(wchar_t *buffer, size_t count, const wchar_t *format, const struct tm *time)
+size_t Wcsftime(wchar_t *buffer, size_t count, const wchar_t *format, const struct tm *time, bool record)
 {
     if (!buffer || !count || !format || !time) {
         InvalidParameter();
     }
-    Writer out(buffer, count);
+    Writer out(buffer, count, record);
     for (; *format && !out.Failed(); ++format) {
         if (*format != L'%') {
             out.Literal(*format);
@@ -378,6 +432,71 @@ size_t Wcsftime(wchar_t *buffer, size_t count, const wchar_t *format, const stru
     return out.Finish();
 }
 
+size_t Strftime(char *buffer, size_t count, const char *format, const struct tm *time, bool record)
+{
+    if (!buffer || !count || !format || !time) {
+        InvalidParameter();
+    }
+    // The C locale widens each byte to the character of the same value and narrows the result back.
+    size_t length = 0;
+    while (format[length]) {
+        ++length;
+    }
+    auto *wideFormat = static_cast<wchar_t *>(Malloc((length + 1) * sizeof(wchar_t)));
+    auto *wideBuffer =
+        count <= size_t(-1) / sizeof(wchar_t) ? static_cast<wchar_t *>(Malloc(count * sizeof(wchar_t))) : nullptr;
+    size_t written = 0;
+    if (wideFormat && wideBuffer) {
+        for (size_t i = 0; i <= length; ++i) {
+            wideFormat[i] = wchar_t(static_cast<unsigned char>(format[i]));
+        }
+        written = Wcsftime(wideBuffer, count, wideFormat, time, record);
+        for (size_t i = 0; i <= written; ++i) {
+            buffer[i] = char(wideBuffer[i]);
+        }
+    } else {
+        buffer[0] = 0;
+        errno = ENOMEM;
+    }
+    Free(wideBuffer);
+    Free(wideFormat);
+    return written;
+}
+
+void *Gettnames()
+{
+    auto *names = static_cast<TimeNames *>(Malloc(sizeof(TimeNames)));
+    if (names) {
+        names->Magic = TIME_NAMES;
+    }
+    return names;
+}
+
+bool OwnTimeNames(const void *names)
+{
+    return names && static_cast<const TimeNames *>(names)->Magic == TIME_NAMES;
+}
+
+char *Getdays()
+{
+    return NameList<char>(DAYS, 7);
+}
+
+char *Getmonths()
+{
+    return NameList<char>(MONTHS, 12);
+}
+
+wchar_t *WGetdays()
+{
+    return NameList<wchar_t>(DAYS, 7);
+}
+
+wchar_t *WGetmonths()
+{
+    return NameList<wchar_t>(MONTHS, 12);
+}
+
 } // namespace WitCrt
 
 #ifndef WITCRT_REFERENCE
@@ -394,5 +513,53 @@ extern "C" errno_t __cdecl _gmtime64_s(struct tm *result, const __time64_t *time
 extern "C" size_t __cdecl wcsftime(wchar_t *buffer, size_t count, const wchar_t *format, const struct tm *time)
 {
     return WitCrt::Wcsftime(buffer, count, format, time);
+}
+
+/* The names of a time record are the C locale's whether or not the caller passes the record _Gettnames returned. */
+extern "C" size_t __cdecl _Strftime(char *buffer, size_t count, const char *format, const struct tm *time, void *names)
+{
+    if (names && !WitCrt::OwnTimeNames(names)) {
+        WitCrt::InvalidParameter();
+    }
+    return WitCrt::Strftime(buffer, count, format, time, names != nullptr);
+}
+
+extern "C" size_t __cdecl _Wcsftime(
+    wchar_t *buffer, size_t count, const wchar_t *format, const struct tm *time, void *names)
+{
+    if (names && !WitCrt::OwnTimeNames(names)) {
+        WitCrt::InvalidParameter();
+    }
+    return WitCrt::Wcsftime(buffer, count, format, time, names != nullptr);
+}
+
+extern "C" void *__cdecl _Gettnames()
+{
+    return WitCrt::Gettnames();
+}
+
+extern "C" void *__cdecl _W_Gettnames()
+{
+    return WitCrt::Gettnames();
+}
+
+extern "C" char *__cdecl _Getdays()
+{
+    return WitCrt::Getdays();
+}
+
+extern "C" char *__cdecl _Getmonths()
+{
+    return WitCrt::Getmonths();
+}
+
+extern "C" wchar_t *__cdecl _W_Getdays()
+{
+    return WitCrt::WGetdays();
+}
+
+extern "C" wchar_t *__cdecl _W_Getmonths()
+{
+    return WitCrt::WGetmonths();
 }
 #endif

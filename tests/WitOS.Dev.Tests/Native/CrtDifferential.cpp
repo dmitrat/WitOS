@@ -148,6 +148,32 @@ int WitPrintS(unsigned long long options, wchar_t *buffer, size_t size, size_t l
     return result;
 }
 
+int UcrtPrintN(unsigned long long options, char *buffer, size_t size, const char *format, _locale_t locale, ...)
+{
+    va_list args;
+    va_start(args, locale);
+    int result = INT_MIN;
+    __try {
+        result = __stdio_common_vsprintf_s(options, buffer, size, format, locale, args);
+    } __except (Crashed("ucrt", GetExceptionCode())) {
+    }
+    va_end(args);
+    return result;
+}
+
+int WitPrintN(unsigned long long options, char *buffer, size_t size, const char *format, _locale_t locale, ...)
+{
+    va_list args;
+    va_start(args, locale);
+    int result = INT_MIN;
+    __try {
+        result = WitCrt::Vsprintf_s(options, buffer, size, format, locale, args);
+    } __except (Crashed("wit", GetExceptionCode())) {
+    }
+    va_end(args);
+    return result;
+}
+
 struct Locales {
     _locale_t Ucrt, Wit;
 };
@@ -189,7 +215,7 @@ bool CrashReported(const wchar_t *format, const char *call, unsigned long long o
     return true;
 }
 
-void Print(const wchar_t *format, const Locales &locales, const uint64_t (&a)[4], bool relaxed = false)
+void PrintWide(const wchar_t *format, const Locales &locales, const uint64_t (&a)[4], bool relaxed)
 {
     static wchar_t ucrt[BUFFER], wit[BUFFER];
     if (verbose) {
@@ -273,6 +299,73 @@ void Print(const wchar_t *format, const Locales &locales, const uint64_t (&a)[4]
     }
 }
 
+void EscapeNarrow(char *out, size_t size, const char *text, size_t count)
+{
+    size_t used = 0;
+    for (size_t i = 0; i < count && used + 8 < size; ++i) {
+        const unsigned char c = static_cast<unsigned char>(text[i]);
+        if (c >= 0x20 && c < 0x7F) {
+            out[used++] = char(c);
+        } else {
+            used += size_t(sprintf_s(out + used, size - used, "\\x%02X", c));
+        }
+    }
+    out[used] = 0;
+}
+
+/* The same case through the narrow sprintf_s (P6.4.i3): the format narrowed, characters beyond U+00FF as ?. */
+void PrintNarrow(const wchar_t *wideFormat, const Locales &locales, const uint64_t (&a)[4], bool relaxed)
+{
+    char format[256];
+    size_t length = 0;
+    for (; wideFormat[length] && length + 1 < sizeof(format); ++length) {
+        format[length] = wideFormat[length] > 0xFF ? '?' : char(wideFormat[length]);
+    }
+    format[length] = 0;
+    static char ucrt[BUFFER], wit[BUFFER];
+    for (const unsigned long long options : {0x24ULL, 0x00ULL}) {
+        for (const size_t size : {size_t(1), size_t(2), size_t(3), size_t(5), size_t(16), size_t(64), size_t(300)}) {
+            memset(ucrt, 0xA5, BUFFER);
+            memset(wit, 0xA5, BUFFER);
+            invalids = 0;
+            errno = 71;
+            const int expected = UcrtPrintN(options, ucrt, size, format, locales.Ucrt, a[0], a[1], a[2], a[3]);
+            const int expectedErrno = errno;
+            if (CrashReported(wideFormat, "vsprintf_s", options, size, 0)) {
+                return;
+            }
+            if (invalids) {
+                ++skipped;
+                continue;
+            }
+            errno = 71;
+            const int actual = WitPrintN(options, wit, size, format, locales.Wit, a[0], a[1], a[2], a[3]);
+            if (CrashReported(wideFormat, "vsprintf_s", options, size, 0)) {
+                return;
+            }
+            ++compared;
+            const bool same = relaxed && expected < 0
+                ? actual < 0 && errno == expectedErrno
+                : actual == expected && errno == expectedErrno && !memcmp(ucrt, wit, BUFFER);
+            if (!same) {
+                char detail[1024], u[256], w[256];
+                EscapeNarrow(u, sizeof(u), ucrt, size < 40 ? size : 40);
+                EscapeNarrow(w, sizeof(w), wit, size < 40 ? size : 40);
+                sprintf_s(detail, "vsprintf_s options=%llx size=%zu %s ucrt=%d/%d [%s] wit=%d/%d [%s]", options, size,
+                    note, expected, expectedErrno, u, actual, errno, w);
+                Report("print_narrow", wideFormat, detail);
+                return;
+            }
+        }
+    }
+}
+
+void Print(const wchar_t *format, const Locales &locales, const uint64_t (&a)[4], bool relaxed = false)
+{
+    PrintNarrow(format, locales, a, relaxed);
+    PrintWide(format, locales, a, relaxed);
+}
+
 const wchar_t *const FLAGS[] = {L"", L"-", L"+", L" ", L"#", L"0", L"-0", L"+0", L" 0", L"#0", L"-#", L"+ ", L"-+ #0"};
 const wchar_t *const WIDTHS[] = {L"", L"1", L"2", L"5", L"12", L"25", L"*"};
 const wchar_t *const PRECISIONS[] = {L"", L".", L".0", L".1", L".3", L".12", L".30", L".*"};
@@ -290,7 +383,7 @@ const int WIDTH_ARGUMENTS[] = {0, 1, 3, 12, -1, -5, -12};
 const int PRECISION_ARGUMENTS[] = {0, 1, 4, 13, -1, -7};
 
 const wchar_t *const WIDE_STRINGS[] = {L"", L"a", L"abc", L"hostfxr", L"h\x00E9llo \x20AC", L"\xD83D\xDE00x",
-    L"x\xD83D", L"\xDE00y", L"tab\there", nullptr};
+    L"x\xD83D", L"\xDE00y", L"tab\there", L"\xD83Dz", nullptr};
 
 /* Narrow strings in zeroed slots: a conversion of the other width reads them as wide strings, and the slot's zero
  * tail ends them there instead of somewhere past a literal. */
@@ -839,6 +932,34 @@ void StringCases()
 
 void TimeCases()
 {
+    void *const names = _Gettnames();
+    {
+        char *days = _Getdays(), *months = _Getmonths(), *myDays = WitCrt::Getdays(), *myMonths = WitCrt::Getmonths();
+        wchar_t *wideDays = _W_Getdays(), *wideMonths = _W_Getmonths(), *myWideDays = WitCrt::WGetdays(),
+                *myWideMonths = WitCrt::WGetmonths();
+        compared += 4;
+        if (strcmp(days, myDays) || strcmp(months, myMonths)) {
+            char detail[400];
+            sprintf_s(detail, "ucrt [%s] [%s] wit [%s] [%s]", days, months, myDays, myMonths);
+            Report("_Getdays", L"", detail);
+        }
+        if (wcscmp(wideDays, myWideDays) || wcscmp(wideMonths, myWideMonths)) {
+            Report("_W_Getdays", wideDays, "differs");
+        }
+        void *myNames = WitCrt::Gettnames();
+        if (!myNames || !WitCrt::OwnTimeNames(myNames) || WitCrt::OwnTimeNames(names)) {
+            Report("_Gettnames", L"", "record");
+        }
+        free(days);
+        free(months);
+        free(wideDays);
+        free(wideMonths);
+        WitCrt::Free(myDays);
+        WitCrt::Free(myMonths);
+        WitCrt::Free(myWideDays);
+        WitCrt::Free(myWideMonths);
+        WitCrt::Free(myNames);
+    }
     const auto compareTm = [](const struct tm &a, const struct tm &b) {
         return a.tm_sec == b.tm_sec &&
             a.tm_min == b.tm_min &&
@@ -917,12 +1038,172 @@ void TimeCases()
                 sprintf_s(detail, "time %lld count %zu ucrt [%s] wit [%s]", value, count, u, w);
                 Report("wcsftime", format, detail);
             }
+            // The STL's time facets: UCRT's names record, and the narrow form with a byte beyond ASCII.
+            wmemset(a, 0xA5A5, 100);
+            errno = 71;
+            const size_t n3 = _Wcsftime(a, count, format, &expected, names);
+            const int we = errno;
+            wmemset(b, 0xA5A5, 100);
+            errno = 71;
+            const size_t n6 = WitCrt::Wcsftime(b, count, format, &expected, true);
+            Check("_Wcsftime", format, (long long)n3, (long long)n6, we, errno);
+            if (wmemcmp(a, b, 100)) {
+                Report("_Wcsftime", format, "differs");
+            }
+            char narrowFormat[64], c[100], d[100];
+            size_t length = 0;
+            for (; format[length]; ++length) {
+                narrowFormat[length] = char(format[length]);
+            }
+            narrowFormat[length++] = '\xE9';
+            narrowFormat[length] = 0;
+            memset(c, 0xA5, 100);
+            memset(d, 0xA5, 100);
+            errno = 71;
+            const size_t n4 = _Strftime(c, count, narrowFormat, &expected, names);
+            const int se = errno;
+            errno = 71;
+            const size_t n5 = WitCrt::Strftime(d, count, narrowFormat, &expected, true);
+            Check("_Strftime", format, (long long)n4, (long long)n5, se, errno);
+            if (memcmp(c, d, 100)) {
+                char detail[400], u[180], w[180];
+                EscapeNarrow(u, sizeof(u), c, n4 ? n4 : 1);
+                EscapeNarrow(w, sizeof(w), d, n5 ? n5 : 1);
+                sprintf_s(detail, "time %lld count %zu ucrt [%s] wit [%s]", value, count, u, w);
+                Report("_Strftime", format, detail);
+            }
         }
     }
+    free(names);
     const __time64_t now = _time64(nullptr), mine = WitCrt::Time64(nullptr);
     ++compared;
     if (mine < now - 2 || mine > now + 2) {
         Report("_time64", L"", "clock");
+    }
+}
+
+/* The global locale's queries, the C locale's classes, the STL's string helpers and the floating-point helpers. */
+void GlobalLocaleCases()
+{
+    const auto check = [](const char *what, bool same) {
+        ++compared;
+        if (!same) {
+            Report("global locale", L"", what);
+        }
+    };
+    for (int category = LC_ALL; category <= LC_MAX; ++category) {
+        const char *ucrt = setlocale(category, nullptr), *wit = WitCrt::Setlocale(category, nullptr);
+        check("setlocale query", ucrt && wit && !strcmp(ucrt, wit));
+        ucrt = setlocale(category, "C");
+        wit = WitCrt::Setlocale(category, "C");
+        check("setlocale C", ucrt && wit && !strcmp(ucrt, wit));
+    }
+    const lconv *a = localeconv(), *b = WitCrt::Localeconv();
+    const char *const narrowA[] = {a->decimal_point, a->thousands_sep, a->grouping, a->int_curr_symbol,
+        a->currency_symbol, a->mon_decimal_point, a->mon_thousands_sep, a->mon_grouping, a->positive_sign,
+        a->negative_sign};
+    const char *const narrowB[] = {b->decimal_point, b->thousands_sep, b->grouping, b->int_curr_symbol,
+        b->currency_symbol, b->mon_decimal_point, b->mon_thousands_sep, b->mon_grouping, b->positive_sign,
+        b->negative_sign};
+    for (size_t i = 0; i < 10; ++i) {
+        check("localeconv text", !strcmp(narrowA[i], narrowB[i]));
+    }
+    const char charsA[] = {a->int_frac_digits, a->frac_digits, a->p_cs_precedes, a->p_sep_by_space, a->n_cs_precedes,
+        a->n_sep_by_space, a->p_sign_posn, a->n_sign_posn};
+    const char charsB[] = {b->int_frac_digits, b->frac_digits, b->p_cs_precedes, b->p_sep_by_space, b->n_cs_precedes,
+        b->n_sep_by_space, b->p_sign_posn, b->n_sign_posn};
+    check("localeconv values", !memcmp(charsA, charsB, sizeof(charsA)));
+    const wchar_t *const wideA[] = {a->_W_decimal_point, a->_W_thousands_sep, a->_W_int_curr_symbol,
+        a->_W_currency_symbol, a->_W_mon_decimal_point, a->_W_mon_thousands_sep, a->_W_positive_sign,
+        a->_W_negative_sign};
+    const wchar_t *const wideB[] = {b->_W_decimal_point, b->_W_thousands_sep, b->_W_int_curr_symbol,
+        b->_W_currency_symbol, b->_W_mon_decimal_point, b->_W_mon_thousands_sep, b->_W_positive_sign,
+        b->_W_negative_sign};
+    for (size_t i = 0; i < 8; ++i) {
+        check("localeconv wide text", !wcscmp(wideA[i], wideB[i]));
+    }
+    const auto &c = WitCrt::Resolve(nullptr);
+    check("___lc_codepage_func", ___lc_codepage_func() == c.Public._locale_lc_codepage);
+    check("___lc_collate_cp_func", ___lc_collate_cp_func() == c.Public._locale_lc_codepage);
+    check("___mb_cur_max_func", ___mb_cur_max_func() == c.Public._locale_mb_cur_max);
+    wchar_t **names = ___lc_locale_name_func();
+    for (int category = LC_ALL; category <= LC_MAX; ++category) {
+        check("___lc_locale_name_func", !names[category]);
+    }
+    _lock_locales();
+    _unlock_locales();
+    WitCrt::LockLocales();
+    WitCrt::UnlockLocales();
+    const unsigned short *table = __pctype_func(), *mine = WitCrt::Pctype();
+    for (int value = -1; value < 256; ++value) {
+        check("__pctype_func", table[value] == mine[value]);
+        check("islower", islower(value) == WitCrt::Isctype(value, _LOWER));
+        check("isupper", isupper(value) == WitCrt::Isctype(value, _UPPER));
+        check("isspace", isspace(value) == WitCrt::Isctype(value, _SPACE));
+    }
+}
+
+void HelperCases()
+{
+    const auto check = [](const char *what, bool same) {
+        ++compared;
+        if (!same) {
+            Report("helpers", L"", what);
+        }
+    };
+    char text[40];
+    wchar_t wide[40];
+    for (unsigned i = 0; i < 200000; ++i) {
+        const size_t length = Pick(32);
+        for (size_t j = 0; j < length; ++j) {
+            text[j] = char('a' + Pick(6));
+            wide[j] = wchar_t(Pick(3) ? L'a' + Pick(6) : Pick(0x10000));
+            wide[j] = wide[j] ? wide[j] : L'z';
+        }
+        text[length] = 0;
+        wide[length] = 0;
+        const size_t count = Pick(40);
+        check("__strncnt", __strncnt(text, count) == WitCrt::Strncnt(text, count));
+        check("wcsnlen", wcsnlen(wide, count) == WitCrt::Wcsnlen(wide, count));
+        char reject[8];
+        const size_t rejected = Pick(4);
+        for (size_t j = 0; j < rejected; ++j) {
+            reject[j] = char('a' + Pick(8));
+        }
+        reject[rejected] = 0;
+        check("strcspn", strcspn(text, reject) == WitCrt::Strcspn(text, reject));
+        if (i % 100 == 0) {
+            wchar_t *copy = WitCrt::Wcsdup(wide), *expected = _wcsdup(wide);
+            check("_wcsdup", copy && expected && !wcscmp(copy, expected) && copy != wide);
+            WitCrt::Free(copy);
+            free(expected);
+        }
+    }
+    check("_wcsdup null", !WitCrt::Wcsdup(nullptr) && !_wcsdup(nullptr));
+    const auto number = [&](uint64_t bits) {
+        double value;
+        memcpy(&value, &bits, sizeof(value));
+        int e1 = 12345, e2 = 12345;
+        const double a = frexp(value, &e1), b = WitCrt::Frexp(value, &e2);
+        uint64_t x, y;
+        memcpy(&x, &a, sizeof(x));
+        memcpy(&y, &b, sizeof(y));
+        // A NaN keeps its payload in both; compare the bits, and the exponent wherever UCRT sets one.
+        check("frexp", x == y && e1 == e2);
+        check("_dclass", _dclass(value) == WitCrt::Dclass(value));
+        check("_ldclass", _ldclass(value) == WitCrt::Dclass(value));
+    };
+    for (const uint64_t bits : {0ULL, 1ULL << 63, 1ULL, 0x000FFFFFFFFFFFFFULL, 0x0010000000000000ULL,
+             0x3FF0000000000000ULL, 0x7FEFFFFFFFFFFFFFULL, 0x7FF0000000000000ULL, 0xFFF0000000000000ULL,
+             0x7FF8000000000000ULL, 0xFFF8000000000000ULL, 0x7FF0000000000001ULL, 0x8000000000000001ULL}) {
+        number(bits);
+    }
+    for (unsigned i = 0; i < 1000000; ++i) {
+        uint64_t bits = Next();
+        if (i % 4 == 0) {
+            bits &= 0x800FFFFFFFFFFFFFULL; // subnormal or zero
+        }
+        number(bits);
     }
 }
 
@@ -1099,6 +1380,9 @@ int wmain(int count, wchar_t **arguments)
     TimeCases();
     printf("time done: %llu compared\n", compared);
     LocaleCases();
+    GlobalLocaleCases();
+    HelperCases();
+    printf("locales and helpers done: %llu compared\n", compared);
     CeilCases();
     HeapCases();
     printf("%s: %llu compared, %llu skipped as invalid, %llu skipped for UCRT's precision defect, %llu failed\n",
