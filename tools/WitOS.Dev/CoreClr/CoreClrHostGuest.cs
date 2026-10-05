@@ -105,15 +105,34 @@ internal static class CoreClrHostGuest
         Directory.CreateDirectory(output);
         var msvc = await Toolchain.FindMsvcAsync(root);
         var pin = RuntimeExperiment.ReadLock(root);
-        var checkout = await RuntimeSourceCheckout.PrepareAsync(root, pin);
-        var source = await PrepareSourcesAsync(root, output, checkout, pin);
-        var stl = await StlSources.PrepareAsync(root);
 
-        // The guest's native support and runtimes, as the host runtime fixture links them.
+        // The guest's native support and runtimes, as the host runtime fixture links them, in the set a C++ library
+        // links (P6.4.j3c).
         await UserImage.PrepareAbiAsync(root, output, msvc);
         var support = await CoreClrMemoryImage.BuildSupportAsync(root, output, msvc);
         var runtimes = await HostRuntimeImage.CompileRuntimesAsync(root, output, msvc);
+        var actual = await BuildAsync(root, output, msvc,
+            [.. runtimes, .. await CoreClrMemoryImage.BuildLibrarySupportAsync(root, output, msvc, support)]);
+        await PublishAsync(root, attempt, pin, actual);
+    }
 
+    /// <summary>
+    /// Compiles the corehost sources and WitOS's PAL into the output directory and links hostfxr.dll and
+    /// hostpolicy.dll over the given objects; an image links only when it has no unresolved external.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
+    /// <param name="below">The runtimes and the guest's support as a C++ library links them.</param>
+    /// <returns>Each image's unresolved externals, decorated, by image name.</returns>
+    internal static async Task<SortedDictionary<string, string[]>> BuildAsync(string root, string output, string msvc,
+        IReadOnlyCollection<string> below)
+    {
+        Directory.CreateDirectory(output);
+        var pin = RuntimeExperiment.ReadLock(root);
+        var checkout = await RuntimeSourceCheckout.PrepareAsync(root, pin);
+        var source = await PrepareSourcesAsync(root, output, checkout, pin);
+        var stl = await StlSources.PrepareAsync(root);
         var corehost = Path.Combine(source, "src/native/corehost");
         string[] includes = ["/I" + Path.Combine(stl, "stl", "inc"), .. NativeCxxExceptionImage.Includes(msvc),
             "/I" + Path.Combine(output, "generated"), "/I" + corehost, "/I" + Path.Combine(corehost, "hostmisc"),
@@ -150,13 +169,18 @@ internal static class CoreClrHostGuest
 
         // Both images link everything below the host as a C++ library links it, with the library startup as the entry
         // point (P6.4.j3c).
-        string[] below = [.. hostmisc, .. hostcommon, .. pal, .. runtimes,
-            .. await CoreClrMemoryImage.BuildLibrarySupportAsync(root, output, msvc, support)];
-        var actual = new SortedDictionary<string, string[]>(StringComparer.Ordinal)
+        string[] common = [.. hostmisc, .. hostcommon, .. pal, .. below];
+        return new SortedDictionary<string, string[]>(StringComparer.Ordinal)
         {
-            ["hostfxr"] = await LinkAsync(root, msvc, output, "hostfxr", [.. hostfxr, .. below]),
-            ["hostpolicy"] = await LinkAsync(root, msvc, output, "hostpolicy", [.. hostpolicy, .. below])
+            ["hostfxr"] = await LinkAsync(root, msvc, output, "hostfxr", [.. hostfxr, .. common]),
+            ["hostpolicy"] = await LinkAsync(root, msvc, output, "hostpolicy", [.. hostpolicy, .. common])
         };
+    }
+
+    // The inventory check and the attempt's evidence.
+    private static async Task PublishAsync(string root, RuntimeBootAttempt attempt, UpstreamSourceLock pin,
+        SortedDictionary<string, string[]> actual)
+    {
         var options = new JsonSerializerOptions { WriteIndented = true };
         var report = Path.Combine(attempt.RunDirectory, "guest-link.json");
         await File.WriteAllTextAsync(report, JsonSerializer.Serialize(actual, options));

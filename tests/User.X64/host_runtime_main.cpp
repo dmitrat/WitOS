@@ -19,6 +19,7 @@ extern "C" WitU64 wit_stl_no_utc_probe();
 extern "C" WitU64 wit_heap_scenarios_probe();
 extern "C" WitU64 wit_host_pal_probe();
 extern "C" WitU64 wit_cxx_library_probe();
+extern "C" WitU64 wit_host_libraries_probe();
 
 namespace {
 // The defaults the image seeds into the environment of the host PAL scenarios (mode 26), readonly image data; the
@@ -66,6 +67,9 @@ extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
         break;
     case 27:
         code = wit_cxx_library_probe();
+        break;
+    case 28:
+        code = wit_host_libraries_probe();
         break;
     }
     wit_native_tls_leave();

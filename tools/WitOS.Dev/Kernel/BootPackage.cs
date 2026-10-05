@@ -87,6 +87,15 @@ internal static class BootPackage
             await Add("host/HostRuntimeFixture.pe", Path.Combine(output, "HostRuntimeFixture.pe"));
             // The C++ library mode 27 loads (P6.4.j3c).
             await Add("host/cxxlib.dll", Path.Combine(output, "cxxlib.dll"));
+            // The .NET host's libraries in a .NET root's layout, with the framework's deps.json, without which hostfxr
+            // ignores a framework version (P6.4.j3c3).
+            var version = RuntimeExperiment.ReadLock(root).RuntimeVersion;
+            var installed = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "dotnet/shared/Microsoft.NETCore.App", version);
+            await Add("host/fxr/" + version + "/hostfxr.dll", Path.Combine(output, "host", "hostfxr.dll"));
+            await Add("shared/Microsoft.NETCore.App/" + version + "/hostpolicy.dll", Path.Combine(output, "host", "hostpolicy.dll"));
+            await Add("shared/Microsoft.NETCore.App/" + version + "/Microsoft.NETCore.App.deps.json",
+                Path.Combine(installed, "Microsoft.NETCore.App.deps.json"));
         }
         var package = AssemblyPackage.Create(files);
         await File.WriteAllBytesAsync(Path.Combine(output, "boot.pak"), package);
