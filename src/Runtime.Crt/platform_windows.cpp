@@ -28,6 +28,11 @@ void Release(Lock &lock)
     ReleaseSRWLockExclusive(reinterpret_cast<SRWLOCK *>(&lock.Storage));
 }
 
+unsigned long long CurrentThread()
+{
+    return GetCurrentThreadId();
+}
+
 void Fatal()
 {
     __fastfail(FAST_FAIL_INVALID_ARG);

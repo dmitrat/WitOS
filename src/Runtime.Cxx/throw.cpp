@@ -95,6 +95,13 @@ extern "C" __declspec(noreturn) void __cdecl __std_terminate()
     Fatal();
 }
 
+/* The slot of a pure virtual function in an abstract class's vtable (P6.4.i3b): a call through it ends the process,
+ * as vcruntime's does without a purecall handler. */
+extern "C" int __cdecl _purecall()
+{
+    Fatal();
+}
+
 extern "C" int __cdecl __uncaught_exceptions()
 {
     return state.Uncaught;

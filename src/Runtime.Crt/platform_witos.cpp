@@ -26,6 +26,11 @@ void Release(Lock &lock)
     wit_native_unlock(reinterpret_cast<volatile WitU32 *>(&lock.Storage));
 }
 
+unsigned long long CurrentThread()
+{
+    return wit_native_thread_identity(); // generation-bearing, so a later thread never matches an earlier owner
+}
+
 void Fatal()
 {
     wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);

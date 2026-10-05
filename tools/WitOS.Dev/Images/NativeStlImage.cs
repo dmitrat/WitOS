@@ -28,17 +28,28 @@ internal static class NativeStlImage
         "g2:no_such_file_or_directory g3:not_enough_memory w:2=2,generic w:5=13,generic w:8=12,generic " +
         "w:87=22,generic w:183=17,generic w:1460=138,generic w:12345=12345,system w2:system u:1,0 " +
         "v1:3195,0,751218269 v2:3197,0,879267265 v4:3197,0,79119382 v8:3200,0,556037538 s1:2000,0,656027640 " +
-        "s2:2000,0,336263857 t1:500500,1,0,1,1,1 t2:900 t3:125250,500 t4:3 t5:1,1 t6:1,0,1 " +
-        "t7:resource_deadlock_would_occur:_resource_deadlock_would_occur t8:0,0,42,7 t9:1,1,1 t10:1";
+        "s2:2000,0,336263857 w1:first|second||third|1 " +
+        "w2:42_-7_ff_010_0XBEEF_+5_18446744073709551615_-9223372036854775808 w3:12,31,3,16,511,0 w4:77,word,12,tail " +
+        "w5:true_false_1,01111 w6:100,1,2147483647 w7:|___42|42___|****ab|-****3|,wide_narrow_12_string " +
+        "w8:CC,11,qExy?m,11111111 w9:01,abc,.,0truefalse w10:1,234,567_-1,000,76543210 t1:500500,1,0,1,1,1 t2:900 " +
+        "t3:125250,500 t4:3 t5:1,1 t6:1,0,1 t7:resource_deadlock_would_occur:_resource_deadlock_would_occur " +
+        "t8:0,0,42,7 t9:1,1,1 t10:1";
 
     /// <summary>
     /// The separately compiled sources of the pinned STL that the host needs: the throw helpers, system error
     /// messages, std::uncaught_exception and the vectorized algorithms (P6.4.i1); mutexes, condition variables,
-    /// threads and their clocks (P6.4.i2).
+    /// threads and their clocks (P6.4.i2); locales, their facets and the stream bases (P6.4.i3b).
     /// </summary>
     public static readonly string[] SOURCES = ["stl/src/xthrow.cpp", "stl/src/thread0.cpp", "stl/src/syserror.cpp",
         "stl/src/syserror_import_lib.cpp", "stl/src/uncaught_exception.cpp", "stl/src/vector_algorithms.cpp",
-        "stl/src/cond.cpp", "stl/src/mutex.cpp", "stl/src/cthread.cpp", "stl/src/xnotify.cpp", "stl/src/xtime.cpp"];
+        "stl/src/cond.cpp", "stl/src/mutex.cpp", "stl/src/cthread.cpp", "stl/src/xnotify.cpp", "stl/src/xtime.cpp",
+        "stl/src/locale0.cpp", "stl/src/locale.cpp", "stl/src/wlocale.cpp", "stl/src/xlocale.cpp", "stl/src/ios.cpp",
+        "stl/src/iosptrs.cpp", "stl/src/xlock.cpp", "stl/src/xmtx.cpp", "stl/src/_tolower.cpp", "stl/src/_toupper.cpp",
+        "stl/src/xgetwctype.cpp", "stl/src/xmbtowc.cpp", "stl/src/xwctomb.cpp", "stl/src/xtowlower.cpp",
+        "stl/src/xtowupper.cpp", "stl/src/StlCompareStringA.cpp", "stl/src/StlCompareStringW.cpp",
+        "stl/src/StlLCMapStringA.cpp", "stl/src/StlLCMapStringW.cpp", "stl/src/xstrcoll.cpp", "stl/src/xstrxfrm.cpp",
+        "stl/src/xwcscoll.cpp", "stl/src/xwcsxfrm.cpp", "stl/src/xdateord.cpp", "stl/src/xstol.cpp", "stl/src/xstoll.cpp",
+        "stl/src/xstoul.cpp", "stl/src/xstoull.cpp"];
 
     /// <summary>
     /// The guest's native memory routines, which the separately compiled sources call.

@@ -18,6 +18,9 @@
 /* NativeAOT adapters. */
 #define WIT_NATIVE_HEAP_CAPACITY 128U /* live allocations of the private nothrow heap */
 #define WIT_NATIVE_HEAP_ARENA_BYTES (256U * 1024U)
+/* The heap of a component loaded with the full runtime profile. */
+#define WIT_NATIVE_HEAP_LARGE_CAPACITY 65536U
+#define WIT_NATIVE_HEAP_LARGE_ARENA_BYTES (4U * 1024U * 1024U)
 #define WIT_NATIVE_GC_EVENT_CAPACITY 16U
 #define WIT_NATIVE_VECTORED_HANDLER_CAPACITY 8U
 #define WIT_SEH_SCOPE_CAPACITY 128U /* scope-table entries one SEH validation accepts */

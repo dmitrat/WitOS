@@ -12,6 +12,7 @@
     "[TEST-PASS] Code.DynamicUnwindRejection",
     "[TEST-PASS] Code.ModuleUnwind",
     "[TEST-PASS] Code.ForeignModuleUnwind",
+    "[TEST-PASS] Code.NativeHeapLarge",
     "[TEST-PASS] Code.CxxExceptions",
     "[CRT-STDOUT] wide narrow 42",
     "[CRT-STDERR] err",

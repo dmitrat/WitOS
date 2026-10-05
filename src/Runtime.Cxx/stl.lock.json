@@ -709,6 +709,30 @@
       "sha256": "5070449e37a1735adf49204a12c7a7d5efa145d6aa607720aef5adbd2c57ef83"
     },
     {
+      "path": "stl/src/StlCompareStringA.cpp",
+      "sha256": "b74bfbe92e5ccca8c5fc64ab3d6bd7cb795643faf9eb6f6815ce582cb2632797"
+    },
+    {
+      "path": "stl/src/StlCompareStringW.cpp",
+      "sha256": "b861d8c61aedd54842de7a694ded6900491378adffd4ed3f5eced898cf19478c"
+    },
+    {
+      "path": "stl/src/StlLCMapStringA.cpp",
+      "sha256": "ebb13d265cf8c61f62f02c2bcddd7b14999dc2d1b31bc945401220acb94df7e9"
+    },
+    {
+      "path": "stl/src/StlLCMapStringW.cpp",
+      "sha256": "7fdb50cf24a5048479ee809060bd1f6ab8bdfc7d2d35238eee041806feeebb7e"
+    },
+    {
+      "path": "stl/src/_tolower.cpp",
+      "sha256": "81ee483bce453c408aed6b1ffdb44ac422ab3bb901e1552d56b190ed79777e29"
+    },
+    {
+      "path": "stl/src/_toupper.cpp",
+      "sha256": "2f896ba05f8cb3827f9e2a4d513ee1f1a1c7c432cde67d849872cbaa8a97113c"
+    },
+    {
       "path": "stl/src/awint.hpp",
       "sha256": "d78ef46609e98a275ba3686c83eb23d88bbcbb5113b39c878b3d077e327c2d73"
     },
@@ -719,6 +743,26 @@
     {
       "path": "stl/src/cthread.cpp",
       "sha256": "4b322662756e4f846517d63b98a4c9cbc6db88d8ad6a5890ced372b12bb7db1c"
+    },
+    {
+      "path": "stl/src/init_locks.hpp",
+      "sha256": "c3067f63086a47f410470fa0b3aa5651a7da0c01433a0e0b81cd4a625a387736"
+    },
+    {
+      "path": "stl/src/ios.cpp",
+      "sha256": "a3fd445164fb2a856dc50e64ff34106285f201840e7586591d17a38ad0367c2e"
+    },
+    {
+      "path": "stl/src/iosptrs.cpp",
+      "sha256": "5c4235bacc00f858d8c09fc2d875dc37d8118db84e6dc9908b3cdecda702d561"
+    },
+    {
+      "path": "stl/src/locale.cpp",
+      "sha256": "960e636a3253cfb7db8bbd1b53c27bfd9df1a31753874caca6b76e5aa2b824d4"
+    },
+    {
+      "path": "stl/src/locale0.cpp",
+      "sha256": "2c0df979fb23e84b2cf30ade3f0eba9a7749b17b8fe5a2a534155ca20c011af8"
     },
     {
       "path": "stl/src/mutex.cpp",
@@ -749,8 +793,64 @@
       "sha256": "72c9119d39a02d75da265e363f53791350078b9983d830e8e4b59001c4dad93d"
     },
     {
+      "path": "stl/src/wlocale.cpp",
+      "sha256": "7a3b9ad62813afca1c62f129e8a2e722e55ee7f16e82bc9b6bcfb534b780ce85"
+    },
+    {
+      "path": "stl/src/xdateord.cpp",
+      "sha256": "787fde2b2df35c58c3785c5b75116dbb7caced303f6b3ac7072e9a9eea0fbe61"
+    },
+    {
+      "path": "stl/src/xgetwctype.cpp",
+      "sha256": "b1e4c34402203cc65bde482dbc96af40e7dbb95cbc416ff6796b6ba6e7cef647"
+    },
+    {
+      "path": "stl/src/xlocale.cpp",
+      "sha256": "a3d28636ceedb63f35a9d55cc0d7358ff157ebc97427d618656527e5ad34d4f3"
+    },
+    {
+      "path": "stl/src/xlock.cpp",
+      "sha256": "a9d3e96ba1c2c3f2ae3f37aa0cf1bfef12a54d54bb2551579521c657300d22b8"
+    },
+    {
+      "path": "stl/src/xmbtowc.cpp",
+      "sha256": "fc47f1e1065e732016a2477e14488975283fd1bdb2d118259831781620e31905"
+    },
+    {
+      "path": "stl/src/xmtx.cpp",
+      "sha256": "7127d898540b285e3f6b68207d9f50592ed6e6881d5ae7bd81ae9fbb1c420b61"
+    },
+    {
+      "path": "stl/src/xmtx.hpp",
+      "sha256": "32c81731ec663bb8050e2c613f152f5d7c0088f48883199ba06f1a25d77cd6e3"
+    },
+    {
       "path": "stl/src/xnotify.cpp",
       "sha256": "5edeb3b47696728c302b219cae9083ad86294d6ca35fe97312f5d912d03c1c60"
+    },
+    {
+      "path": "stl/src/xstol.cpp",
+      "sha256": "76319e39c9627e810eaaa71617cf20c7cbe91367499723cdf7adf671e95b1916"
+    },
+    {
+      "path": "stl/src/xstoll.cpp",
+      "sha256": "7fa02f7eeb8db7ae9afc48940f71ba58dd99c393a10526188472405ec752638e"
+    },
+    {
+      "path": "stl/src/xstoul.cpp",
+      "sha256": "7f0ec5b7a9f6c4a1c6ddc9499f930084ee3e3759a38967a5fa2ed7afac4f5431"
+    },
+    {
+      "path": "stl/src/xstoull.cpp",
+      "sha256": "7a719570a461f2b3298ad8bf18502cba2d23b44942bb44c9b47ec5cdb4611ca5"
+    },
+    {
+      "path": "stl/src/xstrcoll.cpp",
+      "sha256": "22d56f24e0de289c524037371abac38bccc853effe39845e1d7eadad0e06caf2"
+    },
+    {
+      "path": "stl/src/xstrxfrm.cpp",
+      "sha256": "414b92eed1a96a342c803b1bc3d51fa82676e3c4b8fe0e0332cbf06b8396f57f"
     },
     {
       "path": "stl/src/xthrow.cpp",
@@ -759,6 +859,26 @@
     {
       "path": "stl/src/xtime.cpp",
       "sha256": "174bc0b1e3f1189c4fc6ac5ccd846219d63c40a373b474f675e22bae4417cfab"
+    },
+    {
+      "path": "stl/src/xtowlower.cpp",
+      "sha256": "704cde7601604868603b4e26e5e47c1b28f3cdf9cfed1286230f62d407f4d901"
+    },
+    {
+      "path": "stl/src/xtowupper.cpp",
+      "sha256": "07d7fe572dc7487f7811f78b465a1880957ad8916f24b18a37bc79a258ac751c"
+    },
+    {
+      "path": "stl/src/xwcscoll.cpp",
+      "sha256": "6668b9557ba1ae96e073b35b81e30b682b33178ddd7d8db4823dae37fbc1d581"
+    },
+    {
+      "path": "stl/src/xwcsxfrm.cpp",
+      "sha256": "ff23e303573512d7d39791674a64cea47a391fee6400c23db525241eef5bf688"
+    },
+    {
+      "path": "stl/src/xwctomb.cpp",
+      "sha256": "8bba3e8e3bbe0e163c326bc7d6c6af7c050cf8fb807ae5cdd01f08d43c7d41fa"
     }
   ]
 }

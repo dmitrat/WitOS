@@ -38,6 +38,7 @@ int main()
 #else
 extern "C" void wit_crt_initialize_stdio_options(void);
 extern "C" void wit_cxx_initialize_isa(void);
+extern "C" int wit_cxx_run_initializers(void);
 
 /* Static objects register their destructors, which run after the trace in the reference and not at all here, so
  * registration alone keeps the traces equal; the guest has the native atexit. */
@@ -50,6 +51,9 @@ extern "C" void __stdcall StlTestStart()
 {
     wit_crt_initialize_stdio_options();
     wit_cxx_initialize_isa();
+    if (wit_cxx_run_initializers()) {
+        ExitProcess(3);
+    }
     stl_scenarios_run();
     ExitProcess((UINT)finish());
 }

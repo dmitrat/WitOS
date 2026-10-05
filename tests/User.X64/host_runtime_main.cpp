@@ -1,23 +1,31 @@
 #include "tls.h"
 extern "C" {
+#include "native_security.h"
 #include "../User/protocol.h"
 }
 
 /* The host runtime fixture (P6.4.i): the WitOS C++ runtime, the UCRT subset and the separately compiled sources of
  * the pinned microsoft/STL in one image, which the kernel loads with the full runtime profile, as it will load the
- * host. Its startup publishes the image and compiler TLS before any thread starts, as a module's startup does. Each
- * mode runs one group of scenarios against the trace Windows prints. */
+ * host. Its startup does what a module's startup does, in order: the GS cookies, the image and compiler TLS before
+ * any thread starts, and the static initializers, among them the STL's locks and locale objects. Each mode runs one
+ * group of scenarios; all but the native heap's against the trace Windows prints. */
+extern "C" int wit_cxx_run_initializers(void);
 extern "C" WitU64 wit_cxx_exceptions_probe();
 extern "C" WitU64 wit_crt_scenarios_probe();
 extern "C" WitU64 wit_stl_scenarios_probe();
 extern "C" WitU64 wit_stl_no_utc_probe();
+extern "C" WitU64 wit_heap_scenarios_probe();
 
 extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
 {
     if (!startup || startup->Version != WIT_ABI_VERSION || startup->Size != sizeof(*startup)) {
         return 2500;
     }
+    wit_native_security_initialize_system();
     wit_native_tls_initialize(startup);
+    if (wit_cxx_run_initializers()) {
+        return 2502;
+    }
     WitU64 code = 2501;
     switch (((const WitUserTestConfig *)startup)->Mode) {
     case 21:
@@ -31,6 +39,9 @@ extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
         break;
     case 24:
         code = wit_stl_no_utc_probe();
+        break;
+    case 25:
+        code = wit_heap_scenarios_probe();
         break;
     }
     wit_native_tls_leave();

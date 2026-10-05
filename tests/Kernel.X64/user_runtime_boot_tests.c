@@ -302,7 +302,11 @@ void wit_user_runtime_boot_test(WitPageAllocator *pages)
             "GC init-failure admission failed");
         // The real allocator enforces a smaller component budget after image
         // admission. No GC/OS result is replaced with a synthetic failure.
-        process.Space.PageLimit = process.Space.OwnedCount + 24;
+        // The budget covers the runtime's first native heap pages (with the
+        // heap's metadata page and page tables) and the finalizer thread,
+        // which starts first, and leaves one page: the collector's first
+        // bookkeeping commit of two pages fails.
+        process.Space.PageLimit = process.Space.OwnedCount + 27;
         wit_console_write("Runtime init failure base: ");
         wit_console_write_hex(bases[i]);
         wit_console_write("\n");

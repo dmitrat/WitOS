@@ -1130,10 +1130,16 @@ void GlobalLocaleCases()
     for (int category = LC_ALL; category <= LC_MAX; ++category) {
         check("___lc_locale_name_func", !names[category]);
     }
+    // Both locks are recursive: the STL's _Lockit takes the locale lock again while it holds it.
+    _lock_locales();
     _lock_locales();
     _unlock_locales();
+    _unlock_locales();
+    WitCrt::LockLocales();
     WitCrt::LockLocales();
     WitCrt::UnlockLocales();
+    WitCrt::UnlockLocales();
+    ++compared;
     const unsigned short *table = __pctype_func(), *mine = WitCrt::Pctype();
     for (int value = -1; value < 256; ++value) {
         check("__pctype_func", table[value] == mine[value]);
@@ -1192,7 +1198,21 @@ void HelperCases()
         check("frexp", x == y && e1 == e2);
         check("_dclass", _dclass(value) == WitCrt::Dclass(value));
         check("_ldclass", _ldclass(value) == WitCrt::Dclass(value));
+        double copy = value;
+        check("_dtest", _dtest(&copy) == WitCrt::Dclass(value));
+        volatile double input = value;
+        const double absolute = fabs(input), mine = WitCrt::Fabs(value);
+        memcpy(&x, &absolute, sizeof(x));
+        memcpy(&y, &mine, sizeof(y));
+        check("fabs", x == y);
     };
+    for (const long long value :
+        {0LL, 1LL, -1LL, 2147483647LL, -2147483647LL - 1, 9223372036854775807LL, -9223372036854775807LL - 1}) {
+        volatile long long input = value;
+        volatile int narrow = int(value);
+        check("llabs", llabs(input) == WitCrt::Llabs(value));
+        check("abs", abs(narrow) == int(WitCrt::Llabs(int(value)) & 0xFFFFFFFF));
+    }
     for (const uint64_t bits : {0ULL, 1ULL << 63, 1ULL, 0x000FFFFFFFFFFFFFULL, 0x0010000000000000ULL,
              0x3FF0000000000000ULL, 0x7FEFFFFFFFFFFFFFULL, 0x7FF0000000000000ULL, 0xFFF0000000000000ULL,
              0x7FF8000000000000ULL, 0xFFF8000000000000ULL, 0x7FF0000000000001ULL, 0x8000000000000001ULL}) {

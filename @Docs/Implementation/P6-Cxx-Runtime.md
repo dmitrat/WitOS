@@ -63,17 +63,18 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
   failed the fit: musl's wide functions assume a 32-bit `wchar_t` and its sources are GNU C; mingw-w64's
   `mingw_pformat.c` formats floating point through the x87 80-bit `long double` and gdtoa, which the host never
   uses. The Windows SDK's UCRT sources are not used. It comes before the STL, whose sources call it.
-- [ ] **P6.4.i** microsoft/STL `vs-2022-17.14`: pin, audit and build of the separately compiled sources the host
+- [x] **P6.4.i** microsoft/STL `vs-2022-17.14`: pin, audit and build of the separately compiled sources the host
   needs with the UCRT functions those sources call. STL's build includes vcruntime's `internal_shared.h` from the
   toolset's reference sources; a minimal WitOS header replaces it. Their Win32 calls go through WitOS adapters, and
   any change to a pinned file is an upstream patch.
   - [x] **P6.4.i1** Exceptions and algorithms: the pin, `std::_X*` and `_Throw_Cpp_error`, system error messages,
     `std::uncaught_exception` and the vectorized algorithms.
   - [x] **P6.4.i2** Threads and synchronization: `_Mtx_*`, `_Cnd_*`, `_Thrd_*` with `_beginthreadex`.
-  - [ ] **P6.4.i3** Locales and streams: the support behind `std::wstringstream`.
+  - [x] **P6.4.i3** Locales and streams: the support behind `std::wstringstream`.
     - [x] **P6.4.i3a** The UCRT functions the STL's locale sources call: narrow `sprintf_s`, the global locale, time
       names, character classes and string helpers.
-    - [ ] **P6.4.i3b** The Win32 NLS functions, critical sections and the 28 locale and stream sources.
+    - [x] **P6.4.i3b** The Win32 NLS functions, critical sections and the 28 locale and stream sources, with the
+      static initializers they need and a native heap that scales to the full runtime profile.
 - [ ] **P6.4.j** The host's Win32 imports (files, mappings, critical sections, modules, console, registry) over
   WitOS adapters; strict link of `hostfxr` and `hostpolicy` with no unresolved symbol.
 - [ ] **P6.4.k** Guest `hostfxr_main` reads a real application's runtimeconfig and deps through `hostpolicy` and
@@ -515,3 +516,88 @@ The differential calls each against UCRT: every printf case of the wide matrix a
 for -1 to 255, 200,000 string-helper cases and a million `frexp`/`_dclass` inputs: 12,594,710 comparisons, none
 different. The scenario trace gains these functions (`n1`–`n11`), which the hosted build and the guest print as UCRT
 does.
+
+## P6.4.i3b: locales and streams
+
+i3b builds the 28 locale and stream sources of the pinned STL with the Win32 functions they call, and the host's
+`std::wstringstream` works: on Windows over kernel32 with the trace msvcp140 prints, and in the guest.
+
+### Sources and startup
+
+The pin grows to 219 files: the 28 sources and the two private headers they include (`init_locks.hpp`, `xmtx.hpp`),
+all compiled unchanged with the STL's own options. `xlock`, `iosptrs`, `locale0` and `locale` create their locks and
+the classic locale's objects in static initializers, which `#pragma init_seg(compiler)` and `init_seg(lib)` place in
+the CRT's initializer sections. The WitOS C++ runtime now runs them as vcruntime's startup does:
+`src/Runtime.Cxx/startup.cpp` brackets the C initializers (`.CRT$XIA`–`XIZ`, which return a failure code) and the
+C++ ones (`.CRT$XCA`–`XCZ`) with markers, and `wit_cxx_run_initializers` calls the C initializers, stopping at the
+first failure, then the C++ ones, skipping the zeros the linker may pad between contributions. A module's startup
+calls it once, after the GS cookies and its compiler TLS and before its own code: the host runtime fixture now sets
+the cookies itself (`cxx_exceptions_guest.cpp` did before), and the hosted WitOS build's entry calls it too. A pure
+virtual call (`_purecall`) ends the process, as vcruntime does without a handler.
+
+### Win32 under the sources
+
+On Windows the sources call kernel32. In the guest, `native_stl` gains the functions they import:
+
+- **Critical sections.** `InitializeCriticalSectionEx`, `EnterCriticalSection`, `LeaveCriticalSection` and
+  `DeleteCriticalSection`, which the STL's locks use: an exclusive SRW lock of the parking lot (i2) in the
+  `LockSemaphore` field, the owner's thread identifier and a recursion count. Initialization fills the fields as
+  Windows does (`LockCount` −1, `DebugInfo` −1, the spin count kept) and rejects flags outside
+  `RTL_CRITICAL_SECTION_FLAG_*` with `ERROR_INVALID_PARAMETER`; leaving a section the thread does not own, or deleting
+  one that is held, ends the process.
+- **`EncodePointer` and `DecodePointer`**, with which `iosptrs` keeps its pointers: Windows' scheme, the pointer XORed
+  with a per-process secret and rotated right by its low six bits, the secret drawn once from the kernel's random
+  source.
+- **`GetStringTypeW`** for `CT_CTYPE1`, which `ctype<wchar_t>::is` calls for every character: the classes of
+  U+0000–U+00FF from a table (`native_ctype.witos.h`) that a host test compares with Windows character by character.
+  The guest has no Unicode character database: a character beyond U+00FF ends the process rather than get a wrong
+  class, and `CT_CTYPE2`/`CT_CTYPE3` fail with `ERROR_NOT_SUPPORTED`. Count −1 includes the terminator, and a zero
+  count, null pointers or an unknown type fail as on Windows.
+- **`GetCPInfo`** for UTF-8 and the ANSI code pages, all UTF-8 in the guest (`MaxCharSize` 4, default `?`), and
+  `MultiByteToWideChar`/`WideCharToMultiByte` from the existing encoding adapter.
+- **`CompareStringEx` and `LCMapStringEx`** fail with `ERROR_NOT_SUPPORTED`: the STL calls them only for a named
+  locale, and the C locale's collation compares code units.
+
+### C runtime
+
+The STL's `_Lockit(_LOCK_LOCALE)` takes UCRT's locale lock again while holding it, so the subset's lock is now
+recursive, as UCRT's is: the owner is the thread's identity (generation-bearing in the guest) with a depth, and an
+unlock by any other thread ends the process. The number facets also call `_dtest`, `_ldtest`, `fabs`, `abs` and
+`llabs`, which the subset now has exactly as UCRT; the differential compares them over the same million inputs as
+`frexp` and the extremes of `int` and `long long`: 14,594,751 comparisons, none different.
+
+### The native heap
+
+Copying the classic locale, which `imbue` with a replaced facet does, creates every facet with its strings at once.
+That exceeded the 128 live blocks of the bootstrap native heap, and the guest threw `bad_alloc` where Windows
+succeeded. The heap now allocates from pages of 21 size classes and runs of whole pages, with descriptors in their own
+pages ahead of a guard page, and a component loaded with the full runtime profile gets a 4 MiB arena and 65,536 live
+blocks while every other component keeps the bounds its tests exhaust; see
+[ADR 0013](NativeAot-Native-Heap.md). The profile is the one the kernel reports through the reservation capacity,
+not the owned limit, which the GC initialization-failure test of `runtime-boot` lowers after admission. That test's
+budget and the interface-dispatch probe's committed pages follow the new layout (the ADR gives the numbers). The host
+runtime fixture checks the large heap in its own mode (`Code.NativeHeapLarge`).
+
+### Evidence
+
+- `StlTests.PinnedStlMatchesMsvcpTest` now also runs streams and locales (`w1`–`w10`): splitting a wide string with
+  `getline` as the host does, integers through `ostringstream` in every base with `showbase`, `uppercase` and
+  `showpos`, parsing in mixed bases, `wistringstream` extraction across whitespace, `boolalpha` both ways, the fail
+  state of bad and overflowing input, widths, fills and adjustment, the classic locale's facets and character classes
+  (including U+00C9 and U+00AD), collation, `numpunct`, and a locale with a replaced `numpunct` imbued for grouped
+  output and input. msvcp140 and the pinned sources on the WitOS runtimes over kernel32 print the same trace, and
+  kernel32 stays the only import.
+- `StlTests.GuestCharacterClassesMatchWindowsTest` compares the guest's `CT_CTYPE1` table with `GetStringTypeW` for
+  all 256 characters.
+- `CrtTests` cover the recursive locale lock and the new numeric functions.
+- In the guest, mode 23 prints the same trace on both CPU models and both memory profiles, and mode 25 checks the
+  large heap. The host runtime fixture is 520 KiB with 1,278 unwind entries.
+
+### Limitations
+
+Only the C locale exists: `setlocale` and the STL's named locales fail, and with them `CompareStringEx` and
+`LCMapStringEx`. Character classes end at U+00FF, so a stream that classifies text beyond Latin-1, as extraction
+skipping whitespace does, ends the process; `getline` with a delimiter does not classify. Floating-point input and
+output through streams end the process (`strtod`, printf's floating-point conversions). `iomanip.cpp` (`std::setw`
+and the other manipulators with arguments) and `iostream.cpp` (the standard stream objects) are not built: the host
+links neither. Next is P6.4.j, the host's own Win32 imports.

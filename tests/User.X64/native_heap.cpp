@@ -268,6 +268,7 @@ WitU64 wit_native_heap(WitU64 mode)
         if (!p) {
             return 840;
         }
+        ((WitU64 *)WIT_GC_INFO_REPORT)[1] = (uintptr_t)p; // where the kernel expects the fault
         if (mode == WIT_NATIVE_TEST_HEAP_NX) {
             p[0] = 0xC3;
             ((void (*)())p)();
