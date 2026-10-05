@@ -1,6 +1,7 @@
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
+using WitOS.Dev.CoreClr;
 using WitOS.Dev.Host;
 
 namespace WitOS.Dev.Images;
@@ -30,22 +31,32 @@ internal static class HostRuntimeImage
     public const string HEAP = "tests/User.X64/heap_scenarios.cpp";
 
     /// <summary>
+    /// WitOS's corehost PAL objects of P6.4.j2, the ones they call, and their guest checks.
+    /// </summary>
+    public static readonly string[] HOST_PAL = ["src/Runtime.CoreClr/host_strings.witos.cpp",
+        "src/Runtime.CoreClr/host_trace.witos.cpp", "src/Runtime.CoreClr/host_install.witos.cpp",
+        "src/Runtime.CoreClr/host_paths.witos.cpp", "src/Runtime.CoreClr/host_environment.witos.cpp",
+        "tests/User.X64/host_pal_guest.cpp"];
+
+    /// <summary>
     /// The guest's thread lifecycle and Win32 adapters the runtimes call, compiled with the guest's native support:
     /// compiler TLS and threads, the message catalogue, events and waits, handles, sleeping, thread creation, the
-    /// clocks, UTF-8 conversion and the functions only the STL's sources call (native_stl).
+    /// clocks, UTF-8 conversion, the functions only the STL's sources call (native_stl) and those only the .NET host
+    /// calls (native_host).
     /// </summary>
     public static readonly string[] ADAPTERS = ["src/Runtime.NativeAot/tls.witos.cpp", "src/Runtime.Native/thread.c",
         "src/Runtime.NativeAot/minipal_time.witos.cpp", "src/Runtime.NativeAot/native_diagnostics.witos.cpp",
         "src/Runtime.NativeAot/native_stl.witos.cpp", "src/Runtime.NativeAot/pal_events.witos.cpp",
         "src/Runtime.NativeAot/native_services.witos.cpp", "src/Runtime.NativeAot/native_wait.witos.cpp",
         "src/Runtime.NativeAot/native_thread_create.witos.cpp", "src/Runtime.NativeAot/native_thread_handles.witos.cpp",
-        "src/Runtime.NativeAot/native_clock.witos.cpp", "src/Runtime.NativeAot/native_encoding.witos.cpp"];
+        "src/Runtime.NativeAot/native_clock.witos.cpp", "src/Runtime.NativeAot/native_encoding.witos.cpp",
+        "src/Runtime.NativeAot/native_host.witos.cpp"];
 
     /// <summary>
     /// The Win32 bindings of those adapters.
     /// </summary>
     public static readonly string[] BINDINGS = ["native_diagnostics", "native_stl", "native_services", "native_wait",
-        "native_thread_create", "native_thread_handles", "native_clock", "native_encoding"];
+        "native_thread_create", "native_thread_handles", "native_clock", "native_encoding", "native_host"];
 
     #endregion
 
@@ -107,9 +118,23 @@ internal static class HostRuntimeImage
             $"#define WIT_STL_TRACE \"{NativeStlImage.WINDOWS_TRACE}\"\n");
         foreach (var file in new[] { NativeStlImage.SCENARIOS, STL_GUEST, MAIN })
         {
-            await Compile("stl_", ["/std:c++17", "/GS-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", .. guest],
-                Path.Combine(root, file));
+            await Compile("stl_", ["/std:c++17", "/GS-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", .. guest,
+                "/I" + Path.Combine(root, "src/Runtime.NativeAot")], Path.Combine(root, file));
         }
+
+        // The rest of the corehost PAL (P6.4.j2) over the guest's adapters, against the corrected pinned pal.h, with the
+        // environment adapter's Win32 binding.
+        var corehost = Path.Combine(output, "corehost");
+        await CoreClrHostFilePal.PrepareAsync(root, corehost);
+        foreach (var file in HOST_PAL)
+        {
+            await Compile("pal_", ["/std:c++17", "/utf-8", "/GS-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", "/DWITOS_HOST_FILES", .. guest,
+                "/I" + corehost], Path.Combine(root, file));
+        }
+        var environmentBinding = Path.Combine(output, "host_native_environment.obj");
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + environmentBinding,
+            Path.Combine(root, "src/Runtime.Pal.Win32/X64/native_environment.asm")], root);
+        objects.Add(environmentBinding);
         await Compile("heap_", ["/std:c++17", "/GS-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", .. guest,
             "/I" + Path.Combine(root, "src/Runtime.NativeAot")], Path.Combine(root, HEAP));
 
@@ -140,7 +165,8 @@ internal static class HostRuntimeImage
     /// <summary>
     /// Compiles what every guest C++ module links besides the guest's native support: the WitOS C++ runtime with its
     /// guest platform and processor level (P6.4.e-g), the UCRT subset over the guest (P6.4.h), the separately compiled
-    /// sources of the pinned STL with the STL's own options (P6.4.i) and the Win32 bindings of the adapters.
+    /// sources of the pinned STL with the STL's own options (P6.4.i), the Win32 bindings of the adapters and the x64
+    /// stack probe for frames larger than a page.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="output">Output directory.</param>
@@ -178,7 +204,7 @@ internal static class HostRuntimeImage
             await Compile("stl_", [.. StlSources.CompileOptions(root, stl), .. includes], Path.Combine(stl, file));
         }
         foreach (var (file, name) in BINDINGS.Select(binding => ($"src/Runtime.Pal.Win32/X64/{binding}.asm", $"host_{binding}.obj"))
-                     .Prepend((NativeCxxExceptionImage.GUARD, "cxx_guard_dispatch.obj")))
+                     .Prepend((NativeCxxExceptionImage.GUARD, "cxx_guard_dispatch.obj")).Append(("src/Kernel.Arch.X64/chkstk.asm", "chkstk.obj")))
         {
             var obj = Path.Combine(output, name);
             await Processes.RequireSuccessAsync(ml, ["/nologo", "/c", "/Fo" + obj, Path.Combine(root, file)], root);

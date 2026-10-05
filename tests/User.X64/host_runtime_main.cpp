@@ -1,5 +1,7 @@
 #include "tls.h"
+#include "pal_environment.witos.h"
 extern "C" {
+#include "image.h"
 #include "native_security.h"
 #include "../User/protocol.h"
 }
@@ -15,19 +17,33 @@ extern "C" WitU64 wit_crt_scenarios_probe();
 extern "C" WitU64 wit_stl_scenarios_probe();
 extern "C" WitU64 wit_stl_no_utc_probe();
 extern "C" WitU64 wit_heap_scenarios_probe();
+extern "C" WitU64 wit_host_pal_probe();
+
+namespace {
+// The environment of the host PAL scenarios (mode 26), readonly image data as the kernel requires.
+const WitPalEnvironmentEntry ENVIRONMENT[] = {{L"CORE_SERVICING", L"/", 14, 1}};
+} // namespace
 
 extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
 {
     if (!startup || startup->Version != WIT_ABI_VERSION || startup->Size != sizeof(*startup)) {
         return 2500;
     }
+    const WitU64 mode = ((const WitUserTestConfig *)startup)->Mode;
     wit_native_security_initialize_system();
+    if (mode == 26) {
+        // The process's image and environment, published before compiler TLS as the host's startup will.
+        wit_native_process_image_initialize(startup);
+        if (!wit_pal_environment_initialize(ENVIRONMENT, 1)) {
+            return 2503;
+        }
+    }
     wit_native_tls_initialize(startup);
     if (wit_cxx_run_initializers()) {
         return 2502;
     }
     WitU64 code = 2501;
-    switch (((const WitUserTestConfig *)startup)->Mode) {
+    switch (mode) {
     case 21:
         code = wit_cxx_exceptions_probe();
         break;
@@ -42,6 +58,9 @@ extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
         break;
     case 25:
         code = wit_heap_scenarios_probe();
+        break;
+    case 26:
+        code = wit_host_pal_probe();
         break;
     }
     wit_native_tls_leave();

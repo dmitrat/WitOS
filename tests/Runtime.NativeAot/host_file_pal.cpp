@@ -17,6 +17,7 @@ unsigned host_environment_released();
 void host_library_fixture(const char *);
 unsigned host_library_references(void);
 void host_library_fail_path_allocation(int);
+int host_pal_contracts();
 }
 
 int main(int argc, char **argv)
@@ -344,6 +345,11 @@ int main(int argc, char **argv)
         host_library_references()) {
         return 50;
     }
+    if (const int code = host_pal_contracts()) {
+        return code;
+    }
+    puts("PASS: actual corehost strings, trace output, timestamp, installation policy and queries (HOSTED syscall "
+         "model only)");
     puts("PASS: actual corehost module discovery, retained references, transactional paths and bad_alloc cleanup "
          "(HOSTED reference)");
     puts("PASS: actual corehost library signatures, real Windows DLL invocation, reference and error contracts (HOSTED "

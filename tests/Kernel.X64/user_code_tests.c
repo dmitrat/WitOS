@@ -170,6 +170,9 @@ static void host_runtimes(WitPageAllocator *pages)
     /* Without a UTC clock, system_clock ends the component instead of inventing a time. */
     host_runtime(pages, 24, "STL without UTC", 0xFFFF0001ULL); /* the native fail-fast exit */
     wit_console_write("[TEST-PASS] Code.StlNoUtcClock\n");
+    /* The rest of the corehost PAL (P6.4.j2) over the guest's adapters, its lines on the console in UTF-8. */
+    host_runtime(pages, 26, "Host PAL", 42);
+    wit_console_write("[TEST-PASS] Code.HostPal\n");
 }
 
 static void sparse_views(WitPageAllocator *pages)

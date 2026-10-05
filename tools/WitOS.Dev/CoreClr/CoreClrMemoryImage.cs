@@ -44,7 +44,10 @@ internal static class CoreClrMemoryImage
         text.AppendLine("};");
         await File.WriteAllTextAsync(Path.Combine(output, "coreclr_mapper_image.h"), text.ToString(), Encoding.ASCII);
         await File.WriteAllTextAsync(Path.Combine(output, "coreclr-mapper-image.json"), System.Text.Json.JsonSerializer.Serialize(new { headerSha256 = DIGEST, imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), profile = "native VMToOS adapter probe; GS/EH disabled fixture, not source-built guest CoreCLR" }));
-        await HostRuntimeImage.BuildAsync(root, output, msvc, [.. support.Objects, .. support.Adapters, support.Entry]);
+        // The host runtime fixture is a process: it also links the environment adapter, which a library must not
+        // until every module sees the process's environment (P6.4.j3).
+        var environment = await CompileAsync(root, output, msvc, "src/Runtime.NativeAot/pal_environment.witos.cpp", "/DUNICODE", "/D_UNICODE");
+        await HostRuntimeImage.BuildAsync(root, output, msvc, [.. support.Objects, .. support.Adapters, support.Entry, environment]);
     }
 
     /// <summary>
@@ -109,7 +112,7 @@ internal static class CoreClrMemoryImage
         await RuntimeUnwindReference.PrepareAsync(root);
     }
 
-    private static async Task<string> CompileAsync(string root, string output, string msvc, string file)
+    internal static async Task<string> CompileAsync(string root, string output, string msvc, string file, params string[] options)
     {
         var verified = Path.Combine(root, ".tools/runtime-audit/runtime", REVISION);
         var vc = Path.GetFullPath(Path.Combine(msvc, "../../.."));
@@ -119,7 +122,7 @@ internal static class CoreClrMemoryImage
         var minipal = Path.Combine(verified, "src/coreclr/minipal");
         var obj = Path.Combine(output, Path.GetFileName(file) + ".obj");
         var c = file.EndsWith(".c", StringComparison.Ordinal);
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo","/c",c?"/TC":"/TP",c?"/std:c17":"/std:c++17","/GS-","/GR-","/EHs-c-","/Zl","/Oi","/O1","/DTARGET_AMD64","/DHOST_AMD64","/DHOST_64BIT","/DTARGET_64BIT","/DHOST_WINDOWS","/DTARGET_WINDOWS","/DNDEBUG","/DNOMINMAX","/DWITOS_DYNAMIC_CODE","/W4","/WX",
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo","/c",c?"/TC":"/TP",c?"/std:c17":"/std:c++17","/GS-","/GR-","/EHs-c-","/Zl","/Oi","/O1","/DTARGET_AMD64","/DHOST_AMD64","/DHOST_64BIT","/DTARGET_64BIT","/DHOST_WINDOWS","/DTARGET_WINDOWS","/DNDEBUG","/DNOMINMAX","/DWITOS_DYNAMIC_CODE","/W4","/WX",.. options,
             "/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"Include",version,"ucrt"),"/I"+Path.Combine(sdk,"Include",version,"um"),"/I"+Path.Combine(sdk,"Include",version,"shared"),"/I"+unwind,"/I"+Path.Combine(verified,"src/coreclr/nativeaot/Runtime"),"/I"+Path.Combine(verified,"src/coreclr/nativeaot/Runtime/inc"),"/I"+Path.Combine(verified,"src/coreclr/nativeaot/Runtime/windows"),"/I"+Path.Combine(verified,"src/coreclr/gc/env"),"/I"+Path.Combine(verified,"src/native"),"/I"+Path.Combine(root,"artifacts/runtime-config/include"),"/I"+Path.Combine(root,"src/Runtime.NativeAot"),"/I"+Path.Combine(root,"src/Runtime.CoreClr"),"/I"+minipal,"/I"+Path.Combine(root,"src/Kernel/include"),
             "/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"tests/User.X64"),"/Fo"+obj,Path.Combine(root,file)], root);
         return obj;
