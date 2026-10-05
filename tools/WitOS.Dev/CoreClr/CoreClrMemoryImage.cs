@@ -44,7 +44,10 @@ internal static class CoreClrMemoryImage
         text.AppendLine("};");
         await File.WriteAllTextAsync(Path.Combine(output, "coreclr_mapper_image.h"), text.ToString(), Encoding.ASCII);
         await File.WriteAllTextAsync(Path.Combine(output, "coreclr-mapper-image.json"), System.Text.Json.JsonSerializer.Serialize(new { headerSha256 = DIGEST, imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), profile = "native VMToOS adapter probe; GS/EH disabled fixture, not source-built guest CoreCLR" }));
-        await HostRuntimeImage.BuildAsync(root, output, msvc, [.. support.Objects, .. support.Adapters, support.Entry]);
+        // The runtimes compile once for the fixture and the C++ library it loads (P6.4.j3c).
+        var runtimes = await HostRuntimeImage.CompileRuntimesAsync(root, output, msvc);
+        await HostRuntimeImage.BuildLibraryAsync(root, output, msvc, [.. await BuildLibrarySupportAsync(root, output, msvc, support), .. runtimes]);
+        await HostRuntimeImage.BuildAsync(root, output, msvc, [.. support.Objects, .. support.Adapters, support.Entry], runtimes);
     }
 
     /// <summary>
@@ -87,6 +90,32 @@ internal static class CoreClrMemoryImage
         var entry = Path.Combine(output, "coreclr_mapper_start.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/I" + output, "/Fo" + entry, Path.Combine(root, "src/Runtime.Native/X64/native_start.asm")], root);
         return new GuestSupport(objects, adapters, entry);
+    }
+
+    /// <summary>
+    /// The guest's native support as a C++ library links it (P6.4.j3c): the support and the adapters without the
+    /// process's compiler TLS, the library's dynamic TLS and startup in its place, and the system-call primitives
+    /// without the process entry.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
+    /// <param name="support">The support <see cref="BuildSupportAsync"/> compiled into the same directory.</param>
+    /// <returns>The library's support objects.</returns>
+    internal static async Task<IReadOnlyList<string>> BuildLibrarySupportAsync(string root, string output, string msvc,
+        GuestSupport support)
+    {
+        var process = new[] { HostRuntimeImage.PROCESS_TLS, HostRuntimeImage.PROCESS_TLS_DIRECTORY }
+            .Select(file => Path.Combine(output, Path.GetFileName(file) + ".obj")).ToArray();
+        var objects = support.Objects.Concat(support.Adapters)
+            .Where(obj => !process.Contains(obj, StringComparer.OrdinalIgnoreCase)).ToList();
+        foreach (var file in HostRuntimeImage.LIBRARY_STARTUP)
+            objects.Add(await CompileAsync(root, output, msvc, file));
+        var transport = Path.Combine(output, "library_transport.obj");
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/DWITOS_NATIVE_TRANSPORT_ONLY",
+            "/I" + output, "/Fo" + transport, Path.Combine(root, "src/Runtime.Native/X64/native_start.asm")], root);
+        objects.Add(transport);
+        return objects;
     }
 
     #endregion

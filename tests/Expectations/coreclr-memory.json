@@ -24,6 +24,8 @@
     "[HOST-PAL-ERR] \u03bb",
     "[HOST-PAL-OUT] \u03bb",
     "[TEST-PASS] Code.HostPal",
+    "[CXX-LIBRARY] ready",
+    "[TEST-PASS] Code.CxxLibrary",
     "[TEST-PASS] Code.SparseViewsAndLateCommit",
     "[TEST-PASS] Code.SparseCommitRollback",
     "[TEST-PASS] Code.OwnershipAndAtomicProtection",

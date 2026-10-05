@@ -148,8 +148,10 @@ internal static class CoreClrHostGuest
         foreach (var file in PAL.Where(file => file.EndsWith(".c", StringComparison.Ordinal)))
             pal.Add(await CompileNativeAsync(root, output, msvc, file));
 
-        // Both images link everything below the host; each library is linked without an entry until its startup exists.
-        string[] below = [.. hostmisc, .. hostcommon, .. pal, .. runtimes, .. support.Objects, .. support.Adapters, support.Entry];
+        // Both images link everything below the host as a C++ library links it, with the library startup as the entry
+        // point (P6.4.j3c).
+        string[] below = [.. hostmisc, .. hostcommon, .. pal, .. runtimes,
+            .. await CoreClrMemoryImage.BuildLibrarySupportAsync(root, output, msvc, support)];
         var actual = new SortedDictionary<string, string[]>(StringComparer.Ordinal)
         {
             ["hostfxr"] = await LinkAsync(root, msvc, output, "hostfxr", [.. hostfxr, .. below]),
@@ -255,9 +257,9 @@ internal static class CoreClrHostGuest
     private static async Task<string[]> LinkAsync(string root, string msvc, string output, string name, string[] objects)
     {
         var image = Path.Combine(output, name + ".dll");
-        var result = await Processes.RunAsync(Path.Combine(msvc, "link.exe"), ["/nologo", "/dll", "/noentry", "/nodefaultlib",
-            "/machine:x64", "/subsystem:native", "/fixed:no", "/dynamicbase", "/incremental:no", "/Brepro", "/opt:ref",
-            "/out:" + image, .. objects], root, 600);
+        var result = await Processes.RunAsync(Path.Combine(msvc, "link.exe"), ["/nologo", "/dll", "/entry:wit_library_cxx_entry",
+            "/nodefaultlib", "/machine:x64", "/subsystem:native", "/fixed:no", "/dynamicbase", "/incremental:no", "/Brepro",
+            "/opt:ref", "/include:_tls_used", "/out:" + image, .. objects], root, 600);
         var log = result.Output + result.Error;
         await File.WriteAllTextAsync(Path.Combine(output, name + ".link.log"), log);
         if (result.TimedOut)
