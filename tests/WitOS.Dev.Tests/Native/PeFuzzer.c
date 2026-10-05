@@ -11,7 +11,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     }
     const WitU32 profiles[] = {WIT_PE_UNWIND_RUNTIME | WIT_PE_RUNTIME_FULL, WIT_PE_UNWIND_RUNTIME | WIT_PE_LIBRARY,
         WIT_PE_UNWIND_RUNTIME | WIT_PE_LIBRARY | WIT_PE_LIBRARY_IMPORTS,
-        WIT_PE_UNWIND_RUNTIME | WIT_PE_LIBRARY | WIT_PE_LIBRARY_IMPORTS | WIT_PE_LIBRARY_TLS};
+        WIT_PE_UNWIND_RUNTIME | WIT_PE_LIBRARY | WIT_PE_LIBRARY_IMPORTS | WIT_PE_LIBRARY_TLS,
+        WIT_PE_UNWIND_RUNTIME | WIT_PE_RUNTIME_FULL | WIT_PE_LIBRARY | WIT_PE_LIBRARY_IMPORTS | WIT_PE_LIBRARY_TLS};
     for (unsigned i = 0; i < sizeof(profiles) / sizeof(profiles[0]); ++i) {
         const WitPeStatus status = wit_pe_validate_profile(data, (WitU32)size, &plan, profiles[i]);
         if (status < WitPeOk || status > WitPeBadBase) {

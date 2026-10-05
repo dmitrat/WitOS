@@ -1,6 +1,8 @@
 #include "x64.h"
 #include "user.h"
+#include "witos/package.h"
 #include "witos/platform.h"
+#include "witos/storage.h"
 #if defined(WITOS_TEST_CORECLR_MEMORY)
 #include "coreclr_memory_image.h"
 #include "coreclr_mapper_image.h"
@@ -8,6 +10,7 @@
 #include "protocol.h"
 #include "self_test.h"
 static WitUserProcess process;
+static WitPeImage library_plan;
 
 static void require(int value, const char *message)
 {
@@ -198,6 +201,21 @@ static void host_runtimes(WitPageAllocator *pages)
     /* The rest of the corehost PAL (P6.4.j2) over the guest's adapters, its lines on the console in UTF-8. */
     host_runtime(pages, 26, "Host PAL", 42);
     wit_console_write("[TEST-PASS] Code.HostPal\n");
+    /* A C++ library in the process (P6.4.j3c): its own runtimes, the library startup, the process's environment and
+     * console, and its static objects destroyed through its own atexit when it unloads. Linked like the .NET host's
+     * libraries, it exceeds the default library profile; only a component with the full runtime profile admits it. */
+    const WitPackage *package = wit_storage_package();
+    WitPackageFile library = {0};
+    require(package && wit_package_find(package, (const WitU8 *)"host/cxxlib.dll", 15, &library) == WitPackageOk,
+        "C++ library missing from the boot package");
+    const WitU32 profile = WIT_PE_LIBRARY | WIT_PE_UNWIND_RUNTIME | WIT_PE_LIBRARY_IMPORTS | WIT_PE_LIBRARY_TLS;
+    require(wit_pe_validate_profile(package->Data + library.Offset, (WitU32)library.Length, &library_plan, profile) ==
+                WitPeTooLarge &&
+            wit_pe_validate_profile(package->Data + library.Offset, (WitU32)library.Length, &library_plan,
+                profile | WIT_PE_RUNTIME_FULL) == WitPeOk,
+        "C++ library admission does not follow the component's profile");
+    host_runtime(pages, 27, "C++ library", 42);
+    wit_console_write("[TEST-PASS] Code.CxxLibrary\n");
 }
 
 static void sparse_views(WitPageAllocator *pages)

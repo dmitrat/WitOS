@@ -87,6 +87,12 @@ static bool own_code(const void *address)
     return own_range(address, 1, SECTION_EXECUTE, SECTION_WRITE);
 }
 
+/* Whether an address is code of this DLL, for the library startup's atexit (library_startup.cpp). */
+extern "C" bool wit_library_owns_code(const void *address)
+{
+    return own_code(address);
+}
+
 /* The whole initializer table, read-only data between null sentinels that names at most
  * WIT_NATIVE_TLS_MAX_INITIALIZERS functions of this DLL, is checked before the first initializer runs. */
 static void initialize()

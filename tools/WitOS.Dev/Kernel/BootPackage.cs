@@ -85,6 +85,8 @@ internal static class BootPackage
         {
             // The host runtime fixture, which the host PAL's mode runs from the package to see its own path (P6.4.j3b).
             await Add("host/HostRuntimeFixture.pe", Path.Combine(output, "HostRuntimeFixture.pe"));
+            // The C++ library mode 27 loads (P6.4.j3c).
+            await Add("host/cxxlib.dll", Path.Combine(output, "cxxlib.dll"));
         }
         var package = AssemblyPackage.Create(files);
         await File.WriteAllBytesAsync(Path.Combine(output, "boot.pak"), package);

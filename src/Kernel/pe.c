@@ -555,10 +555,9 @@ static WitPeStatus check_profile(WitU32 profile)
         ((profile & WIT_PE_RUNTIME_FULL) && !(profile & WIT_PE_UNWIND_RUNTIME))) {
         return WitPeUnsupportedImage;
     }
+    /* A library may take the full runtime profile's image and unwind limits, in a component that has that profile
+     * (P6.4.j3c): the .NET host's libraries link the C++ runtime and the STL statically. */
     if ((profile & (WIT_PE_LIBRARY_IMPORTS | WIT_PE_LIBRARY_TLS)) && !(profile & WIT_PE_LIBRARY)) {
-        return WitPeUnsupportedImage;
-    }
-    if ((profile & WIT_PE_LIBRARY) && (profile & WIT_PE_RUNTIME_FULL)) {
         return WitPeUnsupportedImage;
     }
     return WitPeOk;

@@ -31,6 +31,32 @@ internal static class HostRuntimeImage
     public const string HEAP = "tests/User.X64/heap_scenarios.cpp";
 
     /// <summary>
+    /// A C++ library linked as the .NET host's libraries are (P6.4.j3c), which mode 27 loads from the boot package.
+    /// </summary>
+    public const string CXX_LIBRARY = "tests/User.X64/cxx_library.cpp";
+
+    /// <summary>
+    /// The fixture's side of mode 27.
+    /// </summary>
+    public const string CXX_LIBRARY_GUEST = "tests/User.X64/cxx_library_guest.cpp";
+
+    /// <summary>
+    /// The process's compiler TLS, which a library replaces with <see cref="LIBRARY_STARTUP"/>.
+    /// </summary>
+    public const string PROCESS_TLS = "src/Runtime.NativeAot/tls.witos.cpp";
+
+    /// <summary>
+    /// The process's TLS directory, which a library takes from <see cref="LIBRARY_STARTUP"/> too.
+    /// </summary>
+    public const string PROCESS_TLS_DIRECTORY = "src/Runtime.Native/tls_metadata.c";
+
+    /// <summary>
+    /// A C++ library's dynamic TLS and startup, its entry point wit_library_cxx_entry (P6.4.j3c).
+    /// </summary>
+    public static readonly string[] LIBRARY_STARTUP = ["src/Runtime.Native/library_dynamic_tls.cpp",
+        "src/Runtime.Native/library_startup.cpp"];
+
+    /// <summary>
     /// WitOS's corehost PAL objects of P6.4.j2, the ones they call, and their guest checks.
     /// </summary>
     public static readonly string[] HOST_PAL = ["src/Runtime.CoreClr/host_strings.witos.cpp",
@@ -45,7 +71,7 @@ internal static class HostRuntimeImage
     /// clocks, UTF-8 conversion, the functions only the STL's sources call (native_stl) and those only the .NET host
     /// calls (native_host). The process's environment (<see cref="ENVIRONMENT"/>) is compiled as Unicode.
     /// </summary>
-    public static readonly string[] ADAPTERS = ["src/Runtime.NativeAot/tls.witos.cpp", "src/Runtime.Native/thread.c",
+    public static readonly string[] ADAPTERS = [PROCESS_TLS, "src/Runtime.Native/thread.c",
         "src/Runtime.NativeAot/minipal_time.witos.cpp", "src/Runtime.NativeAot/native_diagnostics.witos.cpp",
         "src/Runtime.NativeAot/native_stl.witos.cpp", "src/Runtime.NativeAot/pal_events.witos.cpp",
         "src/Runtime.NativeAot/native_services.witos.cpp", "src/Runtime.NativeAot/native_wait.witos.cpp",
@@ -77,7 +103,9 @@ internal static class HostRuntimeImage
     /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
     /// <param name="support">The guest's native objects the runtimes stand on: the entry, the native heap, exception
     /// dispatch and unwinding, GS, memory routines, last error and the compiled <see cref="ADAPTERS"/>.</param>
-    internal static async Task BuildAsync(string root, string output, string msvc, IReadOnlyCollection<string> support)
+    /// <param name="runtimes">The objects of <see cref="CompileRuntimesAsync"/>.</param>
+    internal static async Task BuildAsync(string root, string output, string msvc, IReadOnlyCollection<string> support,
+        IReadOnlyCollection<string> runtimes)
     {
         var stl = await StlSources.PrepareAsync(root);
         var cl = Path.Combine(msvc, "cl.exe");
@@ -86,7 +114,7 @@ internal static class HostRuntimeImage
         string[] guest = ["/I" + Path.Combine(stl, "stl", "inc"), .. includes, "/I" + Path.Combine(root, "src/Kernel/include"),
             "/I" + Path.Combine(root, "src/Runtime.Native"), "/I" + output];
         var objects = new List<string>(support);
-        objects.AddRange(await CompileRuntimesAsync(root, output, msvc));
+        objects.AddRange(runtimes);
         async Task Compile(string prefix, IEnumerable<string> options, string source)
         {
             var obj = Path.Combine(output, prefix + Path.GetFileName(source) + ".obj");
@@ -137,8 +165,11 @@ internal static class HostRuntimeImage
             await Compile("pal_", ["/std:c++17", "/utf-8", "/GS-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", "/DWITOS_HOST_FILES", .. guest,
                 "/I" + corehost], Path.Combine(root, file));
         }
-        await Compile("heap_", ["/std:c++17", "/GS-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", .. guest,
-            "/I" + Path.Combine(root, "src/Runtime.NativeAot")], Path.Combine(root, HEAP));
+        foreach (var file in new[] { HEAP, CXX_LIBRARY_GUEST })
+        {
+            await Compile("heap_", ["/std:c++17", "/GS-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", .. guest,
+                "/I" + Path.Combine(root, "src/Runtime.NativeAot")], Path.Combine(root, file));
+        }
 
         var image = Path.Combine(output, "HostRuntimeFixture.pe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"), ["/nologo", "/subsystem:native",
@@ -162,6 +193,33 @@ internal static class HostRuntimeImage
             stlSources = NativeStlImage.SOURCES,
             profile = "C++ runtime, UCRT subset and pinned STL sources under the full runtime profile; not the .NET host"
         }));
+    }
+
+    /// <summary>
+    /// Compiles and links the C++ library of mode 27, cxxlib.dll, as the .NET host's libraries link: strictly, with
+    /// the library startup as its entry point and no import.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
+    /// <param name="objects">The library's support (CoreClrMemoryImage.BuildLibrarySupportAsync) and the runtimes.</param>
+    /// <returns>The library's path.</returns>
+    internal static async Task<string> BuildLibraryAsync(string root, string output, string msvc, IReadOnlyCollection<string> objects)
+    {
+        var stl = await StlSources.PrepareAsync(root);
+        var source = Path.Combine(output, "cxxlib_" + Path.GetFileName(CXX_LIBRARY) + ".obj");
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo", "/c", "/TP", "/std:c++17", "/GS",
+            "/EHsc", "/Zl", "/O1", "/W4", "/WX", "/I" + Path.Combine(stl, "stl", "inc"), .. NativeCxxExceptionImage.Includes(msvc),
+            "/Fo" + source, Path.Combine(root, CXX_LIBRARY)], root);
+        var library = Path.Combine(output, "cxxlib.dll");
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"), ["/nologo", "/dll", "/entry:wit_library_cxx_entry",
+            "/nodefaultlib", "/machine:x64", "/subsystem:native", "/fixed:no", "/dynamicbase", "/incremental:no", "/Brepro",
+            "/include:_tls_used", "/out:" + library, .. objects, source], root);
+        using var pe = new PEReader(new MemoryStream(await File.ReadAllBytesAsync(library)));
+        var h = pe.PEHeaders.PEHeader!;
+        if (pe.PEHeaders.CorHeader is not null || h.ImportTableDirectory.Size != 0 || h.DelayImportTableDirectory.Size != 0)
+            throw new InvalidDataException("The C++ library acquired imports or a managed header.");
+        return library;
     }
 
     /// <summary>

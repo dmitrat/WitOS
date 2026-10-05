@@ -128,7 +128,16 @@ static WitU64 finish(WitUserSpace *space, const WitPeImage *image, WitU64 base)
 
 #define LIBRARY_PROFILE (WIT_PE_LIBRARY | WIT_PE_UNWIND_RUNTIME | WIT_PE_LIBRARY_IMPORTS | WIT_PE_LIBRARY_TLS)
 
+/* The profile a component's libraries are validated with: the full runtime profile's image and unwind limits in a
+ * component that has that profile (P6.4.j3c). */
+static WitU32 library_profile(const WitUserProcess *process)
+{
+    return LIBRARY_PROFILE |
+        (process->Space.ReservationLimit == WIT_RUNTIME_RESERVATION_CAPACITY ? WIT_PE_RUNTIME_FULL : 0U);
+}
+
 typedef struct LibraryTransaction {
+    WitU32 Profile; /* library_profile of the loading component */
     WitUserLibrary Modules[WIT_LIBRARY_CAPACITY];
     WitPeImage Images[WIT_LIBRARY_CAPACITY];
     WitPeImports Imports[WIT_LIBRARY_CAPACITY];
@@ -163,7 +172,7 @@ static WitU64 discover(const WitPackage *package, const WitPackageFile *file, Wi
     WitPeImage *image = &transaction.Images[slot];
     WitPeImports *imports = &transaction.Imports[slot];
     const WitU8 *bytes = package->Data + file->Offset;
-    WitPeStatus valid = wit_pe_validate_profile(bytes, (WitU32)file->Length, image, LIBRARY_PROFILE);
+    WitPeStatus valid = wit_pe_validate_profile(bytes, (WitU32)file->Length, image, transaction.Profile);
     if (valid != WitPeOk) {
         return pe_status(valid);
     }
@@ -271,7 +280,7 @@ static WitU64 validate_existing(const WitPackage *package)
         if ((transaction.Active & (1U << i)) && !added(i)) {
             const WitUserLibrary *module = &transaction.Modules[i];
             if (wit_pe_validate_profile(package->Data + module->FileOffset, (WitU32)module->FileBytes,
-                    &transaction.Images[i], LIBRARY_PROFILE) != WitPeOk) {
+                    &transaction.Images[i], transaction.Profile) != WitPeOk) {
                 return WIT_STATUS_INVALID_ARGUMENT;
             }
         }
@@ -404,6 +413,7 @@ static WitU64 load(WitUserProcess *process, const WitPackage *package, const Wit
 {
     transaction.Active = transaction.Added = 0;
     transaction.AllowEntry = (flags & WIT_LIBRARY_USER_LIFECYCLE) != 0;
+    transaction.Profile = library_profile(process);
     *lifecycleAddress = 0;
     for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
         transaction.Modules[i] = process->Libraries[i];
@@ -695,7 +705,7 @@ static WitU64 find_export(WitUserProcess *process, const WitPackage *package, co
         query = name;
     }
     const WitU8 *file = package->Data + module->FileOffset;
-    if (wit_pe_validate_profile(file, (WitU32)module->FileBytes, &plan, LIBRARY_PROFILE) != WitPeOk) {
+    if (wit_pe_validate_profile(file, (WitU32)module->FileBytes, &plan, library_profile(process)) != WitPeOk) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
     WitU32 rva = 0;

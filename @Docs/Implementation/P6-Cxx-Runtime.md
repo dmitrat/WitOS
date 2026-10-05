@@ -2,8 +2,9 @@
 
 Date: 2026-10-05. Status: P6.4.e (Windows), P6.4.f (guest), P6.4.g (vcruntime surface), P6.4.h (UCRT subset),
 P6.4.i (microsoft/STL: exceptions, algorithms, threads, locales and streams), P6.4.j1 (the host's guest build and
-its inventory), P6.4.j2 (the rest of the PAL), P6.4.j3a (process state in the kernel) and P6.4.j3b (module paths)
-complete; P6.4.j3c next.
+its inventory), P6.4.j2 (the rest of the PAL), P6.4.j3a (process state in the kernel), P6.4.j3b (module paths)
+and P6.4.j3c1 (a C++ library's startup; both host libraries link with no unresolved symbol) complete; P6.4.j3c2
+(exceptions across modules) next.
 
 ## Decision
 
@@ -91,6 +92,10 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
     - [x] **P6.4.j3b** A module's own path and the module at an address (user ABI v51).
     - [ ] **P6.4.j3c** A library's startup, the system calls apart from the process entry and the kernel's admission
       of `hostfxr.dll`/`hostpolicy.dll`.
+      - [x] **P6.4.j3c1** A C++ library's startup and atexit, the libraries' link set without the process entry, and
+        the full runtime profile's limits for a library; `hostfxr` and `hostpolicy` link with no unresolved symbol.
+      - [ ] **P6.4.j3c2** C++ exceptions in a library: dispatch and unwinding through the frames of loaded modules.
+      - [ ] **P6.4.j3c3** The real `hostfxr.dll` and `hostpolicy.dll` load in the guest and run their startup.
 - [ ] **P6.4.k** Guest `hostfxr_main` reads a real application's runtimeconfig and deps through `hostpolicy` and
   reaches `coreclr_initialize`/`coreclr_execute_assembly`.
 
@@ -805,3 +810,60 @@ to no module (`Code.HostPal`, 128 and 512 MiB).
 
 Limitations. Paths are package keys; the guest has no other file system, and no image is loaded from anywhere else.
 The NativeAOT runtime's `GetModuleFileNameW` adapter still answers from the single image's boot resource name.
+
+### P6.4.j3c1: a C++ library's startup
+
+An MSVC DLL links the static CRT's DLL startup, `_DllMainCRTStartup`, which prepares the module before `DllMain` and
+cleans it up after. The guest's C++ modules link their runtimes the same way, each its own copy, so a library needs the
+same startup. `library_startup.cpp` supplies it as the entry point `wit_library_cxx_entry`, around the existing dynamic
+TLS entry `wit_library_dll_entry` (P6.4.c), which initializes the loading thread's `thread_local` objects and calls
+`DllMain`:
+
+- **Process attach**, in vcruntime's order: the module's GS cookies; the process's context, which the module
+  publishes from the immutable startup descriptor at `WIT_USER_INFO`, so that its adapters see the process's main image
+  and console as the process entry's do; the STL's processor level and the C runtime's stream options; then the
+  module's C and C++ initializers. A failing C initializer fails the load without `DllMain`, after the callbacks
+  registered so far ran.
+- **atexit** registers with the module, as the static CRT's does in a DLL. Only the module's own code is accepted.
+  The table holds 32 callbacks (`WIT_NATIVE_EXIT_MAX_CALLBACKS`), and a module that has detached refuses more.
+- **Process detach** runs `DllMain` first, then the module's callbacks, newest first, each popped before it is called.
+  A callback may register another within a bound.
+
+A library links what a process links, except three objects: the process entry, the process's compiler TLS
+(`tls.witos.cpp`) and its TLS directory (`tls_metadata.c`). In their place it takes the library's dynamic TLS and
+startup and the system-call primitives without the entry (`native_start.asm` with `WITOS_NATIVE_TRANSPORT_ONLY`).
+`CoreClrMemoryImage.BuildLibrarySupportAsync` builds that set for the test library and for the host.
+
+**Threads.** A library starts no thread yet. A thread's lifecycle belongs to the process entry: the main image's
+compiler TLS, the runtime's thread notifications, and the libraries' thread attach around them. A library cannot
+reach that lifecycle, so its copy of the thread support accepts no entry point. `CreateThread` fails with
+`ERROR_INVALID_ADDRESS`, and the start and exit paths that would follow are unreachable. Threads that start in any
+module come with `coreclr.dll`, which needs them.
+
+**Admission.** The kernel admitted libraries only within the default limits: a 256 KiB image and 320 unwind entries.
+Linked with the C++ runtime and the STL, the host's libraries exceed both: `hostfxr` has a 432 KiB image and about
+1,200 unwind entries. A component with the full runtime profile now validates its libraries with that profile's
+limits, 1088 KiB and 4,096 entries. A component with the default profile keeps the default limits.
+
+With this set, `hostfxr` and `hostpolicy` link with no unresolved symbol, and `guest-link.json` is empty.
+
+Evidence. Mode 27 of the host runtime fixture loads `host/cxxlib.dll` (`tests/User.X64/cxx_library.cpp`) from
+`coreclr-memory`'s boot package. The kernel test first checks that the file fails the default library profile
+(`TooLarge`: 491 unwind entries) and passes the full one. The library is linked as the host's are, with its startup
+as the entry point and no import, and the fixture checks:
+
+- its static objects were constructed before the load returned, and the loading thread's `thread_local` was
+  initialized;
+- the STL, on the module's own heap, and `std::wostringstream` on the locale objects its initializers created;
+- `swprintf` from the module's C runtime;
+- the process's environment both ways: the library reads a variable the fixture set and sets one the fixture reads;
+- `CreateThread` refused;
+- a line on the process console through the library's `stdout` (`[CXX-LIBRARY] ready`);
+- at the unload, its function-local static, then its two globals, destroyed in that order through its atexit, each
+  reporting to a hook in the fixture.
+
+The fixture's own runtimes are separate copies from the library's. `Code.CxxLibrary` passes at 128 and 512 MiB.
+
+Limitations. A C++ exception thrown in a library cannot be dispatched yet. The dispatcher of every module accepts
+code and unwinds frames of the main image and of registered dynamic code only, so a library's frames are j3c2's work.
+The host libraries link, but they do not run in the guest yet (j3c3).

@@ -1,10 +1,4 @@
 {
-  "hostfxr": [
-    "atexit",
-    "wit_native_main"
-  ],
-  "hostpolicy": [
-    "atexit",
-    "wit_native_main"
-  ]
+  "hostfxr": [],
+  "hostpolicy": []
 }
