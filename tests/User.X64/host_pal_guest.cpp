@@ -1,0 +1,149 @@
+#pragma warning(push)
+#pragma warning(disable : 4100) // Upstream inline mkdir intentionally ignores mode on Windows.
+#include "pal.h"
+#pragma warning(pop)
+#include <cstring>
+extern "C" {
+#include "bootstrap.h"
+#include "../User/protocol.h"
+}
+
+/* The rest of the corehost PAL (P6.4.j2) in the guest, mode 26 of the host runtime fixture: WitOS's PAL objects over
+ * the guest's adapters, the native encoding, the C runtime's streams on the process console, the package and the
+ * environment the fixture's startup publishes (CORE_SERVICING=/). The same contracts as the hosted checks, with the
+ * guest's own answers where the guest differs: no UTC clock, no writable storage. The output lines are markers the
+ * kernel test requires. */
+extern "C" void wit_crt_initialize_stdio_options(void);
+
+namespace {
+void out_line(const pal::char_t *format, ...)
+{
+    va_list args;
+    va_start(args, format);
+    pal::out_vprint_line(format, args);
+    va_end(args);
+}
+
+WitU64 strings()
+{
+    pal::string_t text = L"a\x03BB";
+    text += (wchar_t)0xD83D;
+    text += (wchar_t)0xDE42;
+    text += (wchar_t)0xD800;
+    text += L"z";
+    const char expected[] = "a\xCE\xBB\xF0\x9F\x99\x82\xEF\xBF\xBDz";
+    std::vector<char> utf8;
+    if (!pal::pal_utf8string(text, &utf8) ||
+        utf8.size() != sizeof(expected) ||
+        memcmp(utf8.data(), expected, sizeof(expected))) {
+        return 2701;
+    }
+    char shortBuffer[4] = {1, 1, 1, 1};
+    char exact[sizeof(expected)];
+    if (pal::pal_utf8string(text, shortBuffer, sizeof(shortBuffer)) != sizeof(expected) ||
+        shortBuffer[0] != 1 ||
+        pal::pal_utf8string(text, exact, sizeof(exact)) != sizeof(expected) ||
+        memcmp(exact, expected, sizeof(expected))) {
+        return 2702;
+    }
+    std::vector<char> clr;
+    pal::string_t back;
+    if (!pal::pal_clrstring(text, &clr) ||
+        clr != utf8 ||
+        !pal::clr_palstring("a\xCE\xBB\xF0\x9F\x99\x82", &back) ||
+        back != L"a\x03BB\xD83D\xDE42") {
+        return 2703;
+    }
+    back = L"keep";
+    if (pal::clr_palstring("", &back) ||
+        !back.empty() ||
+        pal::xtoi(L" 42") != 42 ||
+        pal::xtoi(L"-17x") != -17 ||
+        pal::xtoi(L"x") != 0) {
+        return 2704;
+    }
+    return 0;
+}
+
+WitU64 policy()
+{
+    if (pal::get_timestamp() != L"(no UTC clock)" ||
+        pal::get_current_os_rid_platform() != L"witos" ||
+        pal::is_running_in_wow64() ||
+        pal::are_paths_equal_with_normalized_casing(L"/A", L"/a")) {
+        return 2711;
+    }
+    pal::string_t location = L"keep";
+    std::vector<pal::string_t> global{L"keep"};
+    if (!pal::get_default_installation_dir(&location) ||
+        location != L"/" ||
+        pal::get_global_dotnet_dirs(&global) ||
+        global.size() != 1 ||
+        pal::get_dotnet_self_registered_dir(&location) ||
+        !location.empty()) {
+        return 2712; // the package carries no install_location file
+    }
+    if (pal::get_default_breadcrumb_store(&location) ||
+        pal::get_default_bundle_extraction_base_dir(location) ||
+        !pal::get_default_servicing_directory(&location) ||
+        location != L"/") {
+        return 2713;
+    }
+    SetLastError(0x2468);
+    if (!pal::is_directory(L"/") ||
+        GetLastError() != 0x2468 ||
+        pal::is_directory(L"/missing") ||
+        GetLastError() != ERROR_FILE_NOT_FOUND) {
+        return 2714;
+    }
+    if (pal::touch_file(L"/") ||
+        GetLastError() != ERROR_FILE_EXISTS ||
+        pal::touch_file(L"/missing") ||
+        GetLastError() != ERROR_WRITE_PROTECT) {
+        return 2715;
+    }
+    return 0;
+}
+
+// The Win32 functions only the host calls.
+WitU64 adapters()
+{
+    WitUserThreadInfo info;
+    if (!wit_native_thread_info(&info) || GetCurrentProcessId() != info.ProcessId) {
+        return 2721;
+    }
+    OutputDebugStringW(L"discarded without a debugger");
+    if (CreateDirectoryW(L"/", nullptr) ||
+        GetLastError() != ERROR_ALREADY_EXISTS ||
+        CreateDirectoryW(L"/missing", nullptr) ||
+        GetLastError() != ERROR_WRITE_PROTECT ||
+        RemoveDirectoryW(L"/missing") ||
+        GetLastError() != ERROR_FILE_NOT_FOUND ||
+        RemoveDirectoryW(L"/") ||
+        GetLastError() != ERROR_WRITE_PROTECT ||
+        CreateDirectoryW(nullptr, nullptr) ||
+        GetLastError() != ERROR_INVALID_PARAMETER) {
+        return 2722;
+    }
+    return 0;
+}
+} // namespace
+
+extern "C" WitU64 wit_host_pal_probe()
+{
+    wit_crt_initialize_stdio_options();
+    WitU64 code = strings();
+    if (!code) {
+        code = policy();
+    }
+    if (!code) {
+        code = adapters();
+    }
+    if (!code) {
+        // UTF-8 on the console through the C runtime's streams; the file compiles as UTF-8, so the markers the kernel
+        // test requires stand here as written.
+        pal::err_print_line(L"[HOST-PAL-ERR] λ");
+        out_line(L"[HOST-PAL-OUT] λ %d", 7);
+    }
+    return code ? code : WIT_TEST_EXIT_CODE;
+}

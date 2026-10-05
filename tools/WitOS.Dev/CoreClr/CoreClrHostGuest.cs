@@ -61,7 +61,8 @@ internal static class CoreClrHostGuest
     public static readonly string[] PAL = ["src/Runtime.CoreClr/host_files.witos.cpp", "src/Runtime.CoreClr/host_paths.witos.cpp",
         "src/Runtime.CoreClr/host_directory.witos.cpp", "src/Runtime.CoreClr/host_environment.witos.cpp",
         "src/Runtime.CoreClr/host_library.witos.cpp", "src/Runtime.CoreClr/host_library_discovery.witos.cpp",
-        "src/Runtime.Native/file_view.c", "src/Runtime.Native/directory.c"];
+        "src/Runtime.CoreClr/host_strings.witos.cpp", "src/Runtime.CoreClr/host_trace.witos.cpp",
+        "src/Runtime.CoreClr/host_install.witos.cpp", "src/Runtime.Native/file_view.c", "src/Runtime.Native/directory.c"];
 
     #endregion
 
@@ -146,11 +147,6 @@ internal static class CoreClrHostGuest
                 "/I" + Path.Combine(root, "src/Runtime.Native"), "/I" + Path.Combine(root, "src/Kernel/include")]);
         foreach (var file in PAL.Where(file => file.EndsWith(".c", StringComparison.Ordinal)))
             pal.Add(await CompileNativeAsync(root, output, msvc, file));
-        // The compiler's stack probe for frames larger than a page, from the x64 layer.
-        var probe = Path.Combine(output, "chkstk.obj");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + probe,
-            Path.Combine(root, "src/Kernel.Arch.X64/chkstk.asm")], root);
-        pal.Add(probe);
 
         // Both images link everything below the host; each library is linked without an entry until its startup exists.
         string[] below = [.. hostmisc, .. hostcommon, .. pal, .. runtimes, .. support.Objects, .. support.Adapters, support.Entry];

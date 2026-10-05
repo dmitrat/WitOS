@@ -1,8 +1,8 @@
 # P6.4 guest C++ runtime for the host
 
 Date: 2026-10-05. Status: P6.4.e (Windows), P6.4.f (guest), P6.4.g (vcruntime surface), P6.4.h (UCRT subset),
-P6.4.i (microsoft/STL: exceptions, algorithms, threads, locales and streams) and P6.4.j1 (the host's guest build and
-its inventory) complete; P6.4.j2 next.
+P6.4.i (microsoft/STL: exceptions, algorithms, threads, locales and streams), P6.4.j1 (the host's guest build and
+its inventory) and P6.4.j2 (the rest of the PAL) complete; P6.4.j3 next.
 
 ## Decision
 
@@ -80,11 +80,11 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
   - [x] **P6.4.j1** The guest build and its inventory: the corehost sources from the verified checkout, compiled with
     upstream's options against the pinned STL and linked over the WitOS runtimes; each image's unresolved externals
     are a recorded expectation that the command enforces.
-  - [ ] **P6.4.j2** The rest of the PAL: strings, trace output, the host's own paths, installation locations and the
-    small functions, each against the Windows PAL's contract.
-  - [ ] **P6.4.j3** Libraries in a process: process state that every module sees (environment, console, current
-    directory), a library's startup (GS cookies, TLS, initializers, `atexit`) and the system calls apart from the
-    process entry; no unresolved symbol.
+  - [x] **P6.4.j2** The rest of the PAL that needs no new kernel interface: strings, trace output, the timestamp,
+    installation locations and the small queries, with the Win32 functions only the host calls.
+  - [ ] **P6.4.j3** Libraries in a process: a module's own path and the module at an address (a kernel interface),
+    process state that every module sees (environment, console, current directory), a library's startup (GS cookies,
+    TLS, initializers, `atexit`) and the system calls apart from the process entry; no unresolved symbol.
 - [ ] **P6.4.k** Guest `hostfxr_main` reads a real application's runtimeconfig and deps through `hostpolicy` and
   reaches `coreclr_initialize`/`coreclr_execute_assembly`.
 
@@ -662,3 +662,50 @@ be the process's. The loader resolves a library's imports only to siblings in it
 and `hostpolicy.dll` live in different directories, so a shared system library is not the answer; the kernel must
 hand that state to every module. `coreclr.dll` is a separate module under any composition of the host, so the
 question does not go away with a static host.
+
+### P6.4.j2: the rest of the PAL
+
+Three more PAL objects implement the 17 functions that need no new kernel interface, and a host-only adapter
+(`native_host.witos.cpp` with its Win32 binding, apart from the NativeAOT archive like `native_stl`) the four Win32
+functions upstream's `pal.h` and `trace.cpp` call directly. The inventory falls to 8 symbols for `hostfxr` and 6 for
+`hostpolicy`, all of them j3's.
+
+- **Strings** (`host_strings.witos.cpp`): `pal_utf8string`, `pal_clrstring`, `clr_palstring` convert as the Windows
+  PAL does, through `WideCharToMultiByte`/`MultiByteToWideChar`, which in the guest are the native encoding adapter's:
+  lengths include the terminator, a buffer too small gets nothing and the size it needs, ill-formed UTF-16 becomes
+  U+FFFD, and an empty input to `clr_palstring` fails, as on Windows. `xtoi` is the UCRT subset's `_wtoi`.
+- **Output** (`host_trace.witos.cpp`): `file_vprintf` formats with a UTF-8 locale into the C runtime's stream, as the
+  Windows PAL does. Its `err_print_line` and `out_vprint_line` write UTF-16 to a Windows console with `WriteConsoleW`
+  and otherwise take that stream path; the guest's console is no Windows console, so they always take the stream
+  path, which writes the bytes the Windows PAL writes when its output is redirected (UCRT converts wide output to the
+  locale's characters only in text mode, which the standard streams and the trace file have). `get_timestamp`
+  formats UTC as Windows does; the guest has no UTC clock, so it returns `(no UTC clock)` rather than an invented time.
+- **Installation and queries** (`host_install.witos.cpp`): the Windows PAL reads Program Files, ProgramData and the
+  registry, which the guest has none of, so the guest follows the Unix PAL over the immutable package:
+  - default installation directory `/` (the boot package places `shared/Microsoft.NETCore.App` at its root), none for
+    another architecture, and no global directories;
+  - registration in `/etc/dotnet/install_location_x64`, then `/etc/dotnet/install_location`, first line;
+  - servicing from `CORE_SERVICING` when it names a directory, otherwise `/opt/coreservicing` if present;
+  - no breadcrumb store, no bundle extraction directory, and `touch_file` fails (`ERROR_FILE_EXISTS` or
+    `ERROR_WRITE_PROTECT`, as `CreateFileW` with `CREATE_NEW` reports on write-protected media): nothing can be
+    written;
+  - runtime identifier platform `witos` (the generated configuration's fallback OS, so RID-specific Windows assets are
+    not selected), no WOW64, case-sensitive path equality, and `is_directory` from the package's metadata.
+- **Win32 for the host** (`native_host.witos.cpp`): `GetCurrentProcessId` is the kernel's process identifier from the
+  thread record; `OutputDebugStringW` discards the string, as Windows does with neither a debugger nor a system
+  debugger (no debugger attaches to a guest component); `CreateDirectoryW` reports an existing name as
+  `ERROR_ALREADY_EXISTS` and any other as `ERROR_WRITE_PROTECT`, and `RemoveDirectoryW` a missing name as not found and
+  any other as write-protected, which is what the bundle code's `pal::mkdir`/`pal::rmdir` see.
+
+`__chkstk` now belongs to the runtimes every guest C++ module links: the PAL's path buffers exceed a page.
+
+Evidence. `coreclr-host-files` checks the objects on Windows with the package's syscall model: the conversions with
+supplementary characters and a lone surrogate against the exact UTF-8 bytes, the sized and too-small buffers, `xtoi`,
+the formatted line read back from a text-mode stream, the error and output lines, which the harness requires as
+UTF-8 on the process's streams, the UTC timestamp, every policy answer, `is_directory`/`touch_file` with their errors
+and the servicing directory with and without `CORE_SERVICING`. In the guest, the host runtime fixture's mode 26
+publishes its image and an environment (`CORE_SERVICING=/`) before compiler TLS, as the host's startup will, and
+checks the same contracts over the guest's adapters, with the guest's own answers (no UTC clock, `/` as servicing),
+the four Win32 functions, and lines on the console that the kernel test requires in UTF-8 (`[HOST-PAL-ERR] λ`,
+`[HOST-PAL-OUT] λ 7`, with the file compiled as UTF-8 so the markers stand in it as written), at 128 and 512 MiB (`Code.HostPal`). The environment adapter links into that fixture, a
+process; the host libraries still leave it unresolved until j3.
