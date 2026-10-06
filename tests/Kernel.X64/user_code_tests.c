@@ -216,6 +216,10 @@ static void host_runtimes(WitPageAllocator *pages)
         "C++ library admission does not follow the component's profile");
     host_runtime(pages, 27, "C++ library", 42);
     wit_console_write("[TEST-PASS] Code.CxxLibrary\n");
+    /* The .NET host's libraries (P6.4.j3c3): upstream's hostfxr and hostpolicy, built for the guest, load from the
+     * boot package's .NET root, run their startup, and hostfxr reads that root through WitOS's PAL. */
+    host_runtime(pages, 28, "Host libraries", 42);
+    wit_console_write("[TEST-PASS] Code.HostLibraries\n");
 }
 
 static void sparse_views(WitPageAllocator *pages)

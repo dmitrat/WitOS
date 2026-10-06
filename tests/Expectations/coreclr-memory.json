@@ -26,6 +26,7 @@
     "[TEST-PASS] Code.HostPal",
     "[CXX-LIBRARY] ready",
     "[TEST-PASS] Code.CxxLibrary",
+    "[TEST-PASS] Code.HostLibraries",
     "[TEST-PASS] Code.SparseViewsAndLateCommit",
     "[TEST-PASS] Code.SparseCommitRollback",
     "[TEST-PASS] Code.OwnershipAndAtomicProtection",

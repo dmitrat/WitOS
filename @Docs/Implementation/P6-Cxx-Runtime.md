@@ -3,8 +3,8 @@
 Date: 2026-10-05. Status: P6.4.e (Windows), P6.4.f (guest), P6.4.g (vcruntime surface), P6.4.h (UCRT subset),
 P6.4.i (microsoft/STL: exceptions, algorithms, threads, locales and streams), P6.4.j1 (the host's guest build and
 its inventory), P6.4.j2 (the rest of the PAL), P6.4.j3a (process state in the kernel), P6.4.j3b (module paths)
-P6.4.j3c1 (a C++ library's startup; both host libraries link with no unresolved symbol) and P6.4.j3c2 (C++
-exceptions in a library) complete; P6.4.j3c3 (the host libraries in the guest) next.
+P6.4.j3c1 (a C++ library's startup; both host libraries link with no unresolved symbol), P6.4.j3c2 (C++
+exceptions in a library) and P6.4.j3c3 (the host libraries in the guest) complete, and with them P6.4.j; P6.4.k next.
 
 ## Decision
 
@@ -77,25 +77,25 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
       names, character classes and string helpers.
     - [x] **P6.4.i3b** The Win32 NLS functions, critical sections and the 28 locale and stream sources, with the
       static initializers they need and a native heap that scales to the full runtime profile.
-- [ ] **P6.4.j** The host for the guest: upstream `hostfxr` and `hostpolicy` compiled unchanged for the guest, with
+- [x] **P6.4.j** The host for the guest: upstream `hostfxr` and `hostpolicy` compiled unchanged for the guest, with
   WitOS's own PAL objects in place of the Windows PAL, linked strictly with no unresolved symbol.
   - [x] **P6.4.j1** The guest build and its inventory: the corehost sources from the verified checkout, compiled with
     upstream's options against the pinned STL and linked over the WitOS runtimes; each image's unresolved externals
     are a recorded expectation that the command enforces.
   - [x] **P6.4.j2** The rest of the PAL that needs no new kernel interface: strings, trace output, the timestamp,
     installation locations and the small queries, with the Win32 functions only the host calls.
-  - [ ] **P6.4.j3** Libraries in a process: a module's own path and the module at an address (a kernel interface),
+  - [x] **P6.4.j3** Libraries in a process: a module's own path and the module at an address (a kernel interface),
     process state that every module sees (environment, console, current directory), a library's startup (GS cookies,
     TLS, initializers, `atexit`) and the system calls apart from the process entry; no unresolved symbol.
     - [x] **P6.4.j3a** Process state in the kernel: the environment and the current directory, one for every module
       (user ABI v50).
     - [x] **P6.4.j3b** A module's own path and the module at an address (user ABI v51).
-    - [ ] **P6.4.j3c** A library's startup, the system calls apart from the process entry and the kernel's admission
+    - [x] **P6.4.j3c** A library's startup, the system calls apart from the process entry and the kernel's admission
       of `hostfxr.dll`/`hostpolicy.dll`.
       - [x] **P6.4.j3c1** A C++ library's startup and atexit, the libraries' link set without the process entry, and
         the full runtime profile's limits for a library; `hostfxr` and `hostpolicy` link with no unresolved symbol.
       - [x] **P6.4.j3c2** C++ exceptions in a library: dispatch and unwinding through the frames of loaded modules.
-      - [ ] **P6.4.j3c3** The real `hostfxr.dll` and `hostpolicy.dll` load in the guest and run their startup.
+      - [x] **P6.4.j3c3** The real `hostfxr.dll` and `hostpolicy.dll` load in the guest and run their startup.
 - [ ] **P6.4.k** Guest `hostfxr_main` reads a real application's runtimeconfig and deps through `hostpolicy` and
   reaches `coreclr_initialize`/`coreclr_execute_assembly`.
 
@@ -897,3 +897,36 @@ Limitations. A catch in a different module than the one that raised the exceptio
 ends. Windows has one dispatcher in ntdll for every module; a guest equivalent comes when exceptions must cross the
 host's modules. Hardware exceptions in a library still go to the one dispatcher the process registered with the
 kernel.
+
+### P6.4.j3c3: the host's libraries in the guest
+
+`coreclr-memory` now builds upstream's `hostfxr.dll` and `hostpolicy.dll` for the guest. It uses
+`CoreClrHostGuest.BuildAsync`, the build `coreclr-host-guest` inventories, from the checkout `runtime-source`
+verifies, so this gate needs that checkout. It fails if either library leaves a symbol unresolved. Its boot package
+places the two libraries as a .NET root lays them out: `host/fxr/10.0.8/hostfxr.dll`, then
+`shared/Microsoft.NETCore.App/10.0.8/hostpolicy.dll` beside the framework's `Microsoft.NETCore.App.deps.json`.
+hostfxr ignores a framework version without that file. The version comes from the runtime pin.
+
+Mode 28 of the host runtime fixture (`tests/User.X64/host_libraries_guest.cpp`, against upstream's `hostfxr.h`)
+loads `hostfxr.dll` from there. Its startup runs at the load, with its `thread_local` error writer in the library's
+TLS. The fixture then checks:
+
+- `hostfxr_get_dotnet_environment_info("/")` reads the root through WitOS's PAL. It looks for `global.json`, gathers
+  the SDK and framework locations, and reports no SDK and one framework, `Microsoft.NETCore.App` 10.0.8, with
+  hostfxr's own version 10.0.8.
+- With a non-null `reserved`, it fails with upstream's `InvalidArgFailure` (`0x80008081`), and upstream's message
+  reaches the writer `hostfxr_set_error_writer` installed.
+- `hostpolicy.dll` loads, exports `corehost_main` and unloads.
+- `hostfxr.dll` unloads.
+
+`Code.HostLibraries` passes at 128 and 512 MiB. With `COREHOST_TRACE=1` in the process's environment, hostfxr's own
+trace reaches the console through WitOS's PAL as on Windows. It begins with `Tracing enabled @ (no UTC clock)` and the
+entry point with its version and commit, then reports `Found FX version [10.0.8]`.
+
+The host is compiled for Windows, so it joins paths with `\`. Under the root `/` the framework's path is
+`/\shared\Microsoft.NETCore.App`, which the fixture expects exactly. WitOS's paths accept both separators, and
+upstream's path joining is not patched.
+
+With this, P6.4.j is complete: upstream's host, unchanged, runs in the guest as libraries of a process. What it does
+not do yet is start an application. `hostfxr_main` through `hostpolicy` to `coreclr_initialize` is P6.4.k, and it
+needs `coreclr.dll`, which also creates threads in its libraries.

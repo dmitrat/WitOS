@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using WitOS.Dev.CoreClr;
 using WitOS.Dev.Host;
+using WitOS.Dev.NativeAot;
 
 namespace WitOS.Dev.Images;
 
@@ -39,6 +40,11 @@ internal static class HostRuntimeImage
     /// The fixture's side of mode 27.
     /// </summary>
     public const string CXX_LIBRARY_GUEST = "tests/User.X64/cxx_library_guest.cpp";
+
+    /// <summary>
+    /// Mode 28, which loads the .NET host's libraries from the boot package's .NET root (P6.4.j3c3).
+    /// </summary>
+    public const string HOST_LIBRARIES_GUEST = "tests/User.X64/host_libraries_guest.cpp";
 
     /// <summary>
     /// The process's compiler TLS, which a library replaces with <see cref="LIBRARY_STARTUP"/>.
@@ -104,8 +110,9 @@ internal static class HostRuntimeImage
     /// <param name="support">The guest's native objects the runtimes stand on: the entry, the native heap, exception
     /// dispatch and unwinding, GS, memory routines, last error and the compiled <see cref="ADAPTERS"/>.</param>
     /// <param name="runtimes">The objects of <see cref="CompileRuntimesAsync"/>.</param>
+    /// <param name="hostSource">The corehost sources of the guest host's build, for hostfxr.h.</param>
     internal static async Task BuildAsync(string root, string output, string msvc, IReadOnlyCollection<string> support,
-        IReadOnlyCollection<string> runtimes)
+        IReadOnlyCollection<string> runtimes, string hostSource)
     {
         var stl = await StlSources.PrepareAsync(root);
         var cl = Path.Combine(msvc, "cl.exe");
@@ -170,6 +177,14 @@ internal static class HostRuntimeImage
             await Compile("heap_", ["/std:c++17", "/GS-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", .. guest,
                 "/I" + Path.Combine(root, "src/Runtime.NativeAot")], Path.Combine(root, file));
         }
+        // The .NET host's libraries (P6.4.j3c3), against upstream's hostfxr.h and the pinned runtime version, under
+        // which the boot package places them.
+        var version = RuntimeExperiment.ReadLock(root).RuntimeVersion;
+        await File.WriteAllTextAsync(Path.Combine(output, "host_libraries.h"),
+            "/* Generated from the runtime pin. */\n" +
+            $"#define WIT_HOST_RUNTIME_VERSION L\"{version}\"\n#define WIT_HOST_RUNTIME_VERSION_UTF8 \"{version}\"\n");
+        await Compile("heap_", ["/std:c++17", "/GS-", "/EHsc", "/Zl", "/O1", "/W4", "/WX", .. guest, "/I" + hostSource],
+            Path.Combine(root, HOST_LIBRARIES_GUEST));
 
         var image = Path.Combine(output, "HostRuntimeFixture.pe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"), ["/nologo", "/subsystem:native",

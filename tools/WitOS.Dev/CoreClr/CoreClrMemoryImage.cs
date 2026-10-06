@@ -44,10 +44,18 @@ internal static class CoreClrMemoryImage
         text.AppendLine("};");
         await File.WriteAllTextAsync(Path.Combine(output, "coreclr_mapper_image.h"), text.ToString(), Encoding.ASCII);
         await File.WriteAllTextAsync(Path.Combine(output, "coreclr-mapper-image.json"), System.Text.Json.JsonSerializer.Serialize(new { headerSha256 = DIGEST, imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), profile = "native VMToOS adapter probe; GS/EH disabled fixture, not source-built guest CoreCLR" }));
-        // The runtimes compile once for the fixture and the C++ library it loads (P6.4.j3c).
+        // The runtimes compile once for the fixture and the libraries it loads (P6.4.j3c): the C++ library and the .NET
+        // host's, which must leave no symbol unresolved.
         var runtimes = await HostRuntimeImage.CompileRuntimesAsync(root, output, msvc);
-        await HostRuntimeImage.BuildLibraryAsync(root, output, msvc, [.. await BuildLibrarySupportAsync(root, output, msvc, support), .. runtimes]);
-        await HostRuntimeImage.BuildAsync(root, output, msvc, [.. support.Objects, .. support.Adapters, support.Entry], runtimes);
+        string[] library = [.. await BuildLibrarySupportAsync(root, output, msvc, support), .. runtimes];
+        await HostRuntimeImage.BuildLibraryAsync(root, output, msvc, library);
+        var host = Path.Combine(output, "host");
+        var unresolved = await CoreClrHostGuest.BuildAsync(root, host, msvc, library);
+        if (unresolved.Values.Any(symbols => symbols.Length > 0))
+            throw new InvalidDataException("The guest host's libraries left symbols unresolved: " +
+                string.Join(", ", unresolved.Values.SelectMany(symbols => symbols)));
+        await HostRuntimeImage.BuildAsync(root, output, msvc, [.. support.Objects, .. support.Adapters, support.Entry], runtimes,
+            Path.Combine(host, "source/src/native/corehost"));
     }
 
     /// <summary>
