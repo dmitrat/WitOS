@@ -1036,6 +1036,30 @@ Apartments, activation, type libraries and WinRT fail explicitly, as on a system
 returns a pretended success. The alternative, CoreCLR without `FEATURE_COMINTEROP`, is not a configuration upstream
 builds for Windows, and was rejected.
 
+Refined the same day: the Windows target is a binding surface, not a second Windows. Names such as kernel32 and ole32
+are where unchanged upstream binaries look for functions. Behind them WitOS supplies the minimum that .NET needs and
+nothing more. Each function belongs to one of three classes:
+
+- **Real.** The function is on a path .NET needs. It keeps the Win32 contract .NET relies on and is checked against
+  Windows.
+- **Explicit failure.** The function is imported statically but lies outside the supported scenarios. It returns a
+  documented Win32 error that its caller handles; where the caller cannot handle one, it ends the process.
+- **Absent.** A P/Invoke binds at its first call. CoreCLR's own link delay-loads `version.dll` and WinRT's
+  `api-ms-win-core-winrt-l1-1-0.dll`. Such functions stay unexported until a supported scenario reaches them, and
+  the call then fails as on a system without the function.
+
+Upstream configuration that keeps .NET away from a Windows service is preferred to an adapter. Examples: invariant
+globalization, which needs neither NLS nor ICU, and ETW's `EventRegister` failing, since CoreCLR ignores its result.
+The registry has no content. WitOS does not supply the GUI, services, ETW, NLS, security descriptors, or installation
+discovery through Program Files or the registry.
+
+The source corrects one part of the COM decision. CoreCLR calls `CoInitializeEx` for the multithreaded apartment on
+every `Main` thread and on its finalizer thread. In `Main` it turns `E_NOTIMPL` into `PlatformNotSupportedException`
+(`Thread::SetApartment` in `vm/threads.cpp`). The multithreaded apartment is therefore real: per-thread bookkeeping
+with Windows' `S_OK` and `S_FALSE` results. A single-threaded apartment needs a message loop, so it fails with
+`E_NOTIMPL`. On x64, CoreCLR initializes WinRT only when `IsWindows8OrGreater` holds
+(`utilcode/util_nodependencies.cpp`). On ARM64 it always does, which the ARM64 port must answer.
+
 #### P6.4.k3a1: vcruntime's searches and the range-check report
 
 The C runtime CoreCLR needs from vcruntime was five functions and one report. The UCRT subset now has `strchr` and
