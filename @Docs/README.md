@@ -142,7 +142,7 @@ These are architecture drafts intended for continued review and revision rather 
 
 The initial native milestone now has a concrete boot contract and runnable implementation:
 
-- [RFC 0011 — Kernel Architecture & ABI](RFC-0011-Kernel-Architecture-and-ABI.md) — Draft v0.13, boot v2, kernel execution and experimental user ABI.
+- [RFC 0011 — Kernel Architecture & ABI](RFC-0011-Kernel-Architecture-and-ABI.md) — Draft v3 (2026-10-06): the three layers of ADR 0024, ABI-1 between the nano-kernel and the system layer, ABI-2 between the system layer and .NET, and the disposition of every current system call. The v0.x drafts described boot v2 and the experimental user ABI.
 - [M0 implementation and validation](Implementation/M0-Boot.md).
 - [M1 memory and exception foundation](Implementation/M1-Memory-and-Exceptions.md) — first slice, eleven VM scenarios.
 - [M1 kernel core](Implementation/M1-Kernel-Core.md) — paging, protection and preemptive execution; seventeen VM scenarios.

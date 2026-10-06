@@ -126,6 +126,13 @@ and the time of a reset of P6.2 in part and P6.4 in whole. Time is not the const
 | Kernel toolchain | clang and lld, with Windows parity kept in CI | the kernel's MSVC-only constructs resist |
 | Signals | minimal POSIX signals in the libc over fault delivery and APCs | the PAL's signal use turns out larger than its platform files suggest |
 
+**Applied by RFC 0011 v3 (plan step A2, 2026-10-06).** The kernel ABI inventory is fixed: of the 70 current calls 37
+stay, 13 merge into them, 6 are removed, 13 move to layer 2 and one splits; with the six families the documents
+required and the kernel lacked, ABI-1 counts 54 calls. APCs stay as thread activations delivered with the interrupted
+context, which is the mechanism the signals default above rests on; thread names move to the libc; the environment
+and current directory live in the libc as on POSIX, with the process manager passing the initial values. The four
+open decisions in the table are unchanged.
+
 ## Application
 
 The root `PLAN.md` carries the program in phases A (architecture), K (kernel), T (toolchain), S (substrate), R
