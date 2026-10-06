@@ -140,7 +140,7 @@ dotnet run --project tools/WitOS.Dev -- runtime-probe
 
 This is separate from the guest VM. It checks GC/finalization, exceptions, threads/TLS, waits, Tasks and clocks, then reports native OS imports. Sources and NuGet packages are cached under `.tools/`; logs and reports are under `artifacts/runtime-probe/`. A separate CI workflow publishes the hosted reference artifacts.
 
-See [RFC 0015](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md) and [experiment notes](@Docs/Implementation/NativeAot-Host-Probe.md).
+See [RFC 0015 v2 §10](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md), which places this evidence in the frozen Windows-form line, and the [experiment notes](@Docs/Implementation/NativeAot-Host-Probe.md).
 
 ## NativeAOT target/bootstrap experiment (hosted)
 
