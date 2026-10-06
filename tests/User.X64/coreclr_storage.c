@@ -46,14 +46,15 @@ static __declspec(noinline) WitU64 namespace_workload(void)
 {
     WitU64 copied = 0;
     WitU32 cursor = 0;
-    const char *roots[] = {"app", "native", "p", "shared", "test"};
+    /* The .NET root is /dotnet (P6.4.k1). */
+    const char *roots[] = {"app", "dotnet", "native", "p", "test"};
     for (WitU32 i = 0; i < 5; ++i) {
         CHECK(wit_native_storage_list(0, 0, cursor, &info, &copied) == WIT_STATUS_OK &&
                 copied == sizeof(info) &&
                 info.Version == WIT_STORAGE_QUERY_VERSION &&
                 info.Size == sizeof(info),
             2101);
-        CHECK(info.Kind == (i == 2 ? WIT_STORAGE_FILE : WIT_STORAGE_DIRECTORY) &&
+        CHECK(info.Kind == (i == 3 ? WIT_STORAGE_FILE : WIT_STORAGE_DIRECTORY) &&
                 info.NameBytes == length(roots[i]) &&
                 info.NextCursor > cursor &&
                 info.NextCursor <= WIT_STORAGE_FILE_COUNT,

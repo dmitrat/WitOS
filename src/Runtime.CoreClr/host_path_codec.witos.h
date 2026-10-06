@@ -90,7 +90,9 @@ inline bool resolve(const pal::string_t &path, WitNativePath &output, bool mustE
     return true;
 }
 
-// Input is the already-validated canonical UTF-8 result of the native resolver.
+// Input is the already-validated canonical UTF-8 result of the native resolver. The host is built for Windows, whose
+// path functions only know its separator, so a path reaches it as the Windows API would return it: with '\' between
+// components and '\' as the root (P6.4.k1). WitOS's paths accept both separators on the way back.
 inline size_t wide(const WitNativePath &path, pal::char_t *output)
 {
     size_t count = 0;
@@ -103,7 +105,9 @@ inline size_t wide(const WitNativePath &path, pal::char_t *output)
                 code = (code << 6) | ((unsigned char)path.Text[i++] & 63);
             }
         }
-        if (code < 0x10000) {
+        if (code == '/') {
+            output[count++] = L'\\';
+        } else if (code < 0x10000) {
             output[count++] = (pal::char_t)code;
         } else {
             code -= 0x10000;

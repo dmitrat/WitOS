@@ -109,15 +109,15 @@ int main(int argc, char **argv)
         return 16;
     }
     std::wstring cwd;
-    if (!pal::getcwd(&cwd) || cwd != L"/" || wit_native_cwd_set("/dir/sub", 8) != WIT_STATUS_OK) {
+    if (!pal::getcwd(&cwd) || cwd != L"\\" || wit_native_cwd_set("/dir/sub", 8) != WIT_STATUS_OK) {
         return 17;
     }
-    if (!pal::getcwd(&cwd) || cwd != L"/dir/sub") {
+    if (!pal::getcwd(&cwd) || cwd != L"\\dir\\sub") {
         return 18;
     }
     std::wstring full = L"../../file";
     SetLastError(0x1234);
-    if (!pal::fullpath(&full) || full != L"/file" || GetLastError() != 0x1234) {
+    if (!pal::fullpath(&full) || full != L"\\file" || GetLastError() != 0x1234) {
         return 19;
     }
     full = L"../../missing";
@@ -125,11 +125,11 @@ int main(int argc, char **argv)
     if (pal::realpath(&full) || full != missing || GetLastError() != ERROR_FILE_NOT_FOUND) {
         return 20;
     }
-    if (wit_native_cwd_set("../../file", 10) != WIT_STATUS_WRONG_TYPE || !pal::getcwd(&cwd) || cwd != L"/dir/sub") {
+    if (wit_native_cwd_set("../../file", 10) != WIT_STATUS_WRONG_TYPE || !pal::getcwd(&cwd) || cwd != L"\\dir\\sub") {
         return 21;
     }
     full = L"../../../dir//./sub/..";
-    if (!pal::realpath(&full) || full != L"/dir") {
+    if (!pal::realpath(&full) || full != L"\\dir") {
         return 22;
     }
     if (!pal::is_path_rooted(L"/file") ||
@@ -248,26 +248,26 @@ int main(int argc, char **argv)
     pal::string_t modulePath = L"keep";
     pal::dll_t discovered = reinterpret_cast<pal::dll_t>(99);
     SetLastError(0x6789);
-    if (!pal::get_module_path(library, &modulePath) || modulePath != L"/native/lib.dll" || GetLastError() != 0x6789) {
+    if (!pal::get_module_path(library, &modulePath) || modulePath != L"\\native\\lib.dll" || GetLastError() != 0x6789) {
         return 51;
     }
     if (!pal::get_loaded_library(L"lib.dll", "LibraryAdd", &discovered, &modulePath) ||
         discovered != library ||
         host_library_references() != 3 ||
-        modulePath != L"/native/lib.dll" ||
+        modulePath != L"\\native\\lib.dll" ||
         GetLastError() != 0x6789) {
         return 52;
     }
     // The module at an address (P6.4.j3b), which the model finds with Windows' own GetModuleHandleExW.
     if (!pal::get_method_module_path(&modulePath, reinterpret_cast<void *>(symbol)) ||
-        modulePath != L"/native/lib.dll" ||
+        modulePath != L"\\native\\lib.dll" ||
         GetLastError() != 0x6789) {
         return 60;
     }
     if (!pal::get_own_module_path(&modulePath) ||
-        modulePath != L"/host/harness.exe" ||
+        modulePath != L"\\host\\harness.exe" ||
         !pal::get_own_executable_path(&modulePath) ||
-        modulePath != L"/host/harness.exe" ||
+        modulePath != L"\\host\\harness.exe" ||
         GetLastError() != 0x6789) {
         return 61;
     }

@@ -46,10 +46,10 @@ internal static class BootPackage
                 using var pe = new PEReader(stream);
                 if (pe.PEHeaders.CorHeader is null)
                     continue; // Never deliver Windows native implementations.
-                await Add("shared/Microsoft.NETCore.App/" + pin.RuntimeVersion + "/" + Path.GetFileName(source), source);
+                await Add("dotnet/shared/Microsoft.NETCore.App/" + pin.RuntimeVersion + "/" + Path.GetFileName(source), source);
             }
             foreach (var name in new[] { "Microsoft.NETCore.App.deps.json", "Microsoft.NETCore.App.runtimeconfig.json" })
-                await Add("shared/Microsoft.NETCore.App/" + pin.RuntimeVersion + "/" + name, Path.Combine(framework, name));
+                await Add("dotnet/shared/Microsoft.NETCore.App/" + pin.RuntimeVersion + "/" + name, Path.Combine(framework, name));
             var app = Path.Combine(output, "portable");
             await Processes.RequireSuccessAsync("dotnet", ["build", Path.Combine(root, "experiments/CoreClrProbe/CoreClrProbe.csproj"), "--configuration", "Release", "--output", app], root);
             foreach (var name in new[] { "CoreClrProbe.dll", "CoreClrProbe.deps.json", "CoreClrProbe.runtimeconfig.json" })
@@ -87,15 +87,27 @@ internal static class BootPackage
             await Add("host/HostRuntimeFixture.pe", Path.Combine(output, "HostRuntimeFixture.pe"));
             // The C++ library mode 27 loads (P6.4.j3c).
             await Add("host/cxxlib.dll", Path.Combine(output, "cxxlib.dll"));
-            // The .NET host's libraries in a .NET root's layout, with the framework's deps.json, without which hostfxr
-            // ignores a framework version (P6.4.j3c3).
+        }
+        if (assemblies || nativeLibraries)
+        {
+            // The .NET host's libraries in the layout of a .NET root at /dotnet (P6.4.j3c3, P6.4.k1), with the
+            // framework's deps.json, without which hostfxr ignores a framework version; the delivered framework brings
+            // its own. The root is a directory, as an installation is: upstream drops a root's trailing separator.
             var version = RuntimeExperiment.ReadLock(root).RuntimeVersion;
-            var installed = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                "dotnet/shared/Microsoft.NETCore.App", version);
-            await Add("host/fxr/" + version + "/hostfxr.dll", Path.Combine(output, "host", "hostfxr.dll"));
-            await Add("shared/Microsoft.NETCore.App/" + version + "/hostpolicy.dll", Path.Combine(output, "host", "hostpolicy.dll"));
-            await Add("shared/Microsoft.NETCore.App/" + version + "/Microsoft.NETCore.App.deps.json",
-                Path.Combine(installed, "Microsoft.NETCore.App.deps.json"));
+            await Add("dotnet/host/fxr/" + version + "/hostfxr.dll", Path.Combine(output, "host", "hostfxr.dll"));
+            await Add("dotnet/shared/Microsoft.NETCore.App/" + version + "/hostpolicy.dll", Path.Combine(output, "host", "hostpolicy.dll"));
+            if (!assemblies)
+            {
+                var installed = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                    "dotnet/shared/Microsoft.NETCore.App", version);
+                await Add("dotnet/shared/Microsoft.NETCore.App/" + version + "/Microsoft.NETCore.App.deps.json",
+                    Path.Combine(installed, "Microsoft.NETCore.App.deps.json"));
+            }
+        }
+        if (assemblies)
+        {
+            // The muxer in the .NET root, as dotnet is installed (P6.4.k1): the host runtime fixture.
+            await Add("dotnet/dotnet", Path.Combine(output, "HostRuntimeFixture.pe"));
         }
         var package = AssemblyPackage.Create(files);
         await File.WriteAllBytesAsync(Path.Combine(output, "boot.pak"), package);

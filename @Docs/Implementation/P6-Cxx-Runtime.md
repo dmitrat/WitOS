@@ -4,7 +4,8 @@ Date: 2026-10-05. Status: P6.4.e (Windows), P6.4.f (guest), P6.4.g (vcruntime su
 P6.4.i (microsoft/STL: exceptions, algorithms, threads, locales and streams), P6.4.j1 (the host's guest build and
 its inventory), P6.4.j2 (the rest of the PAL), P6.4.j3a (process state in the kernel), P6.4.j3b (module paths)
 P6.4.j3c1 (a C++ library's startup; both host libraries link with no unresolved symbol), P6.4.j3c2 (C++
-exceptions in a library) and P6.4.j3c3 (the host libraries in the guest) complete, and with them P6.4.j; P6.4.k next.
+exceptions in a library) and P6.4.j3c3 (the host libraries in the guest) complete, and with them P6.4.j. In P6.4.k,
+k1 (`hostfxr_main` up to CoreCLR) is complete; k2 (the guest's `coreclr.dll`) is next.
 
 ## Decision
 
@@ -98,6 +99,9 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
       - [x] **P6.4.j3c3** The real `hostfxr.dll` and `hostpolicy.dll` load in the guest and run their startup.
 - [ ] **P6.4.k** Guest `hostfxr_main` reads a real application's runtimeconfig and deps through `hostpolicy` and
   reaches `coreclr_initialize`/`coreclr_execute_assembly`.
+  - [x] **P6.4.k1** `dotnet /app/CoreClrProbe.dll` in the guest: the muxer, the framework from the runtimeconfig,
+    hostpolicy, the deps and their assets, up to resolving CoreCLR, which the guest does not have yet.
+  - [ ] **P6.4.k2** The guest's `coreclr.dll`: upstream CoreCLR built for the guest and its unresolved inventory.
 
 ## P6.4.e: the exception runtime on Windows
 
@@ -925,8 +929,51 @@ entry point with its version and commit, then reports `Found FX version [10.0.8]
 
 The host is compiled for Windows, so it joins paths with `\`. Under the root `/` the framework's path is
 `/\shared\Microsoft.NETCore.App`, which the fixture expects exactly. WitOS's paths accept both separators, and
-upstream's path joining is not patched.
+upstream's path joining is not patched. (P6.4.k1 then moved the .NET root to `/dotnet` and made the PAL hand out
+`\`-separated paths; see there.)
 
 With this, P6.4.j is complete: upstream's host, unchanged, runs in the guest as libraries of a process. What it does
 not do yet is start an application. `hostfxr_main` through `hostpolicy` to `coreclr_initialize` is P6.4.k, and it
 needs `coreclr.dll`, which also creates threads in its libraries.
+
+## P6.4.k: the application's startup
+
+### P6.4.k1: `hostfxr_main` up to CoreCLR
+
+`coreclr-storage` delivers the unchanged framework and a portable application, and since k1 it also carries the host:
+its boot package installs .NET in `/dotnet`, with the host runtime fixture as the muxer `/dotnet/dotnet`, `hostfxr`
+in `/dotnet/host/fxr/10.0.8` and `hostpolicy` beside the framework in `/dotnet/shared/Microsoft.NETCore.App/10.0.8`.
+The kernel creates the component from `/dotnet/dotnet`, and mode 29 of the fixture calls `hostfxr_main` with
+`/dotnet/dotnet /app/CoreClrProbe.dll`, as `dotnet app.dll` would.
+
+Two corrections came out of the first runs, both about paths:
+
+- **The host's separator.** The host is built for Windows, and its path helpers (`get_directory`, `get_filename`,
+  `append_path`) know only `\`. From `/dotnet` it made the root `/dotnet\`, and from the application's path the
+  directory `/app/CoreClrProbe.dll\`. On Windows this never arises, because `GetModuleFileNameW` and
+  `GetFullPathNameW` return `\`-separated paths. WitOS's PAL now does the same: every path it hands to the host
+  (`fullpath`, `realpath`, `getcwd`, module paths, the installation, registration and servicing locations) uses `\`
+  between components and `\` as the root, as the Windows API would. WitOS's paths accept both separators on the way
+  back, so nothing else changes.
+- **The .NET root is a directory.** Upstream drops a root's trailing separator, so a .NET installed at the root of the
+  namespace becomes the empty path, on Unix as on Windows, and the framework's path turns relative. The package
+  therefore installs .NET in `/dotnet`, as every installation is a directory (`C:\Program Files\dotnet`,
+  `/usr/share/dotnet`), and the PAL's default installation directory is `\dotnet`.
+
+Evidence. With them, the real host runs the whole way in the guest, as its trace (`COREHOST_TRACE=1`) shows:
+
+- **hostfxr.** It takes its own path from the kernel (`\dotnet\dotnet`) and selects the muxer. It reads
+  `\app\CoreClrProbe.runtimeconfig.json`, rolls `Microsoft.NETCore.App` 10.0.0 forward to the delivered 10.0.8 and
+  reads the framework's runtimeconfig. It then loads `hostpolicy.dll` from the framework's directory.
+- **hostpolicy.** It reads the application's and the framework's deps and resolves their managed and native assets.
+  It then finds no CoreCLR.
+
+`hostfxr_main` returns `CoreClrResolveFailure` (`0x80008087`), and hostpolicy's message, `Could not resolve CoreCLR
+path.`, reaches the error writer the fixture installed in hostfxr. hostfxr hands that writer on to hostpolicy.
+`Storage.HostfxrMain` passes at 128 and 512 MiB. The storage tests now find the framework under `/dotnet`. Mode 28
+reads `\dotnet` and reports the framework at `\dotnet\shared\Microsoft.NETCore.App`.
+
+The framework's deps are Windows', so the native assets they list are the `win-x64` runtime pack's. The boot package
+delivers none of them, and the host does not check a framework asset's existence. The guest's own native assets
+begin with `coreclr.dll` (k2).
+

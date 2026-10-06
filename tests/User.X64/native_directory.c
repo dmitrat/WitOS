@@ -36,7 +36,7 @@ WitU64 wit_native_directory_test(void)
     WitU32 found = 0;
     CHECK(wit_native_directory_open("/", 1, &directory) == WIT_STATUS_OK, 2501);
     CHECK(wit_native_cwd_set("/app", 4) == WIT_STATUS_OK, 2502);
-    const char *expected[] = {"app", "native", "shared", "test"};
+    const char *expected[] = {"app", "dotnet", "native", "test"};
     for (WitU32 i = 0; i < 4; ++i) {
         CHECK(wit_native_directory_next(&directory, "*", 1, WIT_DIRECTORY_ONLY, &info, &found) == WIT_STATUS_OK &&
                 found &&
@@ -59,7 +59,7 @@ WitU64 wit_native_directory_test(void)
         ++jsonCount;
     }
     CHECK(jsonCount == 2, 2508);
-    const char fx[] = "/shared/Microsoft.NETCore.App";
+    const char fx[] = "/dotnet/shared/Microsoft.NETCore.App";
     CHECK(wit_native_directory_open(fx, sizeof(fx) - 1, &directory) == WIT_STATUS_OK, 2509);
     CHECK(wit_native_directory_next(&directory, "*", 1, WIT_DIRECTORY_ONLY, &info, &found) == WIT_STATUS_OK &&
             found &&
@@ -67,7 +67,7 @@ WitU64 wit_native_directory_test(void)
         2510);
     CHECK(wit_native_directory_next(&directory, "*", 1, WIT_DIRECTORY_ONLY, &info, &found) == WIT_STATUS_OK && !found,
         2511);
-    const char version[] = "/shared/Microsoft.NETCore.App/" WIT_STORAGE_RUNTIME_VERSION;
+    const char version[] = "/dotnet/shared/Microsoft.NETCore.App/" WIT_STORAGE_RUNTIME_VERSION;
     CHECK(wit_native_directory_open(version, sizeof(version) - 1, &directory) == WIT_STATUS_OK, 2512);
     jsonCount = 0;
     for (;;) {

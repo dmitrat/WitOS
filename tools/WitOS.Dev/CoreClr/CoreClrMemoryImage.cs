@@ -44,8 +44,20 @@ internal static class CoreClrMemoryImage
         text.AppendLine("};");
         await File.WriteAllTextAsync(Path.Combine(output, "coreclr_mapper_image.h"), text.ToString(), Encoding.ASCII);
         await File.WriteAllTextAsync(Path.Combine(output, "coreclr-mapper-image.json"), System.Text.Json.JsonSerializer.Serialize(new { headerSha256 = DIGEST, imageSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), profile = "native VMToOS adapter probe; GS/EH disabled fixture, not source-built guest CoreCLR" }));
-        // The runtimes compile once for the fixture and the libraries it loads (P6.4.j3c): the C++ library and the .NET
-        // host's, which must leave no symbol unresolved.
+        await BuildHostRuntimeAsync(root, output, msvc, support);
+    }
+
+    /// <summary>
+    /// Builds the host runtime fixture with the libraries it loads from the boot package: the C++ library and the .NET
+    /// host's (P6.4.j3c), which must leave no symbol unresolved. The output directory must hold the support.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Output directory.</param>
+    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
+    /// <param name="support">The support <see cref="BuildSupportAsync"/> compiled into the same directory.</param>
+    internal static async Task BuildHostRuntimeAsync(string root, string output, string msvc, GuestSupport support)
+    {
+        // The runtimes compile once for the fixture and the libraries.
         var runtimes = await HostRuntimeImage.CompileRuntimesAsync(root, output, msvc);
         string[] library = [.. await BuildLibrarySupportAsync(root, output, msvc, support), .. runtimes];
         await HostRuntimeImage.BuildLibraryAsync(root, output, msvc, library);
