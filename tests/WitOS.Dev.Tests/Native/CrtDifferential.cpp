@@ -1178,6 +1178,19 @@ void HelperCases()
         }
         reject[rejected] = 0;
         check("strcspn", strcspn(text, reject) == WitCrt::Strcspn(text, reject));
+        // The searches of P6.4.k3a, the terminator included.
+        const int narrow = Pick(5) ? 'a' + int(Pick(8)) : int(Pick(3)) * 256;
+        check("strchr", strchr(text, narrow) == WitCrt::Strchr(text, narrow));
+        check("strrchr", strrchr(text, narrow) == WitCrt::Strrchr(text, narrow));
+        const wchar_t value = Pick(5) ? wide[Pick(unsigned(length + 1))] : wchar_t(Pick(0x10000));
+        check("wcsrchr", wcsrchr(wide, value) == WitCrt::Wcsrchr(wide, value));
+        wchar_t part[6];
+        const size_t start = length ? Pick(unsigned(length)) : 0, parts = Pick(5);
+        for (size_t j = 0; j < parts; ++j) {
+            part[j] = Pick(4) && start + j < length ? wide[start + j] : wchar_t(L'a' + Pick(6));
+        }
+        part[parts] = 0;
+        check("wcsstr", wcsstr(wide, part) == WitCrt::Wcsstr(wide, part));
         if (i % 100 == 0) {
             wchar_t *copy = WitCrt::Wcsdup(wide), *expected = _wcsdup(wide);
             check("_wcsdup", copy && expected && !wcscmp(copy, expected) && copy != wide);

@@ -122,6 +122,10 @@ errno_t Wcserror_s(wchar_t *buffer, size_t count, int error);
 size_t Strncnt(const char *text, size_t count);
 size_t Wcsnlen(const wchar_t *text, size_t count);
 size_t Strcspn(const char *text, const char *reject);
+char *Strchr(const char *text, int value);
+char *Strrchr(const char *text, int value);
+wchar_t *Wcsrchr(const wchar_t *text, wchar_t value);
+wchar_t *Wcsstr(const wchar_t *text, const wchar_t *part);
 wchar_t *Wcsdup(const wchar_t *text);
 int Isctype(int value, unsigned short mask); // islower, isupper and isspace in the C locale
 

@@ -231,6 +231,58 @@ size_t Strcspn(const char *text, const char *reject)
     return length;
 }
 
+/* The searches CoreCLR calls (P6.4.k3a), which vcruntime supplies: the value converts to the string's character, and
+ * a search for 0 finds the terminator. */
+char *Strchr(const char *text, int value)
+{
+    const char c = char(value);
+    while (*text && *text != c) {
+        ++text;
+    }
+    return *text == c ? const_cast<char *>(text) : nullptr;
+}
+
+char *Strrchr(const char *text, int value)
+{
+    const char c = char(value);
+    const char *found = nullptr;
+    do {
+        if (*text == c) {
+            found = text;
+        }
+    } while (*text++);
+    return const_cast<char *>(found);
+}
+
+wchar_t *Wcsrchr(const wchar_t *text, wchar_t value)
+{
+    const wchar_t *found = nullptr;
+    do {
+        if (*text == value) {
+            found = text;
+        }
+    } while (*text++);
+    return const_cast<wchar_t *>(found);
+}
+
+/* The first occurrence of part, or text itself for an empty part. */
+wchar_t *Wcsstr(const wchar_t *text, const wchar_t *part)
+{
+    if (!*part) {
+        return const_cast<wchar_t *>(text);
+    }
+    for (; *text; ++text) {
+        size_t i = 0;
+        while (part[i] && text[i] == part[i]) {
+            ++i;
+        }
+        if (!part[i]) {
+            return const_cast<wchar_t *>(text);
+        }
+    }
+    return nullptr;
+}
+
 wchar_t *Wcsdup(const wchar_t *text)
 {
     if (!text) {
@@ -381,6 +433,26 @@ extern "C" size_t __cdecl wcsnlen(const wchar_t *text, size_t count)
 extern "C" size_t __cdecl strcspn(const char *text, const char *reject)
 {
     return WitCrt::Strcspn(text, reject);
+}
+
+extern "C" _CONST_RETURN char *__cdecl strchr(const char *text, int value)
+{
+    return WitCrt::Strchr(text, value);
+}
+
+extern "C" _CONST_RETURN char *__cdecl strrchr(const char *text, int value)
+{
+    return WitCrt::Strrchr(text, value);
+}
+
+extern "C" _CONST_RETURN wchar_t *__cdecl wcsrchr(const wchar_t *text, wchar_t value)
+{
+    return WitCrt::Wcsrchr(text, value);
+}
+
+extern "C" _CONST_RETURN wchar_t *__cdecl wcsstr(const wchar_t *text, const wchar_t *part)
+{
+    return WitCrt::Wcsstr(text, part);
 }
 
 extern "C" wchar_t *__cdecl _wcsdup(const wchar_t *text)

@@ -5,7 +5,8 @@ P6.4.i (microsoft/STL: exceptions, algorithms, threads, locales and streams), P6
 its inventory), P6.4.j2 (the rest of the PAL), P6.4.j3a (process state in the kernel), P6.4.j3b (module paths)
 P6.4.j3c1 (a C++ library's startup; both host libraries link with no unresolved symbol), P6.4.j3c2 (C++
 exceptions in a library) and P6.4.j3c3 (the host libraries in the guest) complete, and with them P6.4.j. In P6.4.k,
-k1 (`hostfxr_main` up to CoreCLR) and k2 (the inventory of the guest's `coreclr.dll`) are complete; k3 is next.
+k1 (`hostfxr_main` up to CoreCLR) and k2 (the inventory of the guest's `coreclr.dll`) are complete; k3 (closing
+that inventory) has begun with the C runtime.
 
 ## Decision
 
@@ -102,6 +103,9 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
   - [x] **P6.4.k1** `dotnet /app/CoreClrProbe.dll` in the guest: the muxer, the framework from the runtimeconfig,
     hostpolicy, the deps and their assets, up to resolving CoreCLR, which the guest does not have yet.
   - [x] **P6.4.k2** The guest's `coreclr.dll`: upstream CoreCLR built for the guest and its unresolved inventory.
+  - [ ] **P6.4.k3** Closing that inventory, then loading the image: the C runtime, Win32, COM/OLE/WinRT, the
+    kernel's limits, threads in libraries, the TEB and one exception dispatcher.
+    - [x] **P6.4.k3a1** vcruntime's searches and range-check report.
 
 ## P6.4.e: the exception runtime on Windows
 
@@ -1021,4 +1025,27 @@ Linking is not running. These obstacles stand before the image can load, and eac
 - CoreCLR creates threads, which a library cannot yet.
 - It reads the Windows TEB (`NtCurrentTeb`, `ThreadLocalStoragePointer`).
 - Its exceptions cross modules, which need one dispatcher for the process.
+
+### P6.4.k3: closing `coreclr.dll`'s inventory
+
+Decided 2026-10-06: CoreCLR stays an honest Windows target. Upstream's sources and configuration are unchanged, and
+COM interop stays compiled in. Where a COM, OLE or WinRT function is data or memory, WitOS supplies the real thing:
+the interface identifiers of `uuid.lib`, and the `BSTR`, `VARIANT` and `SAFEARRAY` helpers that marshalling uses.
+Apartments, activation, type libraries and WinRT fail explicitly, as on a system without those services; nothing
+returns a pretended success. The alternative, CoreCLR without `FEATURE_COMINTEROP`, is not a configuration upstream
+builds for Windows, and was rejected.
+
+#### P6.4.k3a1: vcruntime's searches and the range-check report
+
+The C runtime CoreCLR needs from vcruntime was five functions and one report. The UCRT subset now has `strchr` and
+`strrchr`, which `utilcode`'s namespace helpers call, and `wcsrchr` and `wcsstr`, which `minipal` calls. As in
+vcruntime, the value converts to the string's character, and a search for 0 finds the terminator; an empty `wcsstr`
+pattern finds the start. The in-process differential compares all four with UCRT's over 200,000 random strings,
+terminators included, and `CrtTests` passes.
+`__report_rangecheckfailure`, the compiler's range check under `/GS`, ends the process in the C++ runtime as
+`_purecall` does. The NativeAOT archive keeps its own report with a diagnostic line; no image links both.
+
+The inventory falls from 276 to 271. `longjmp` remains: CoreCLR's managed exception handling calls it
+(`vm/exceptionhandling.cpp`), and an MSVC x64 `longjmp` is an unwind through `RtlUnwindEx` with `STATUS_LONGJUMP`,
+which belongs to the exception work.
 
