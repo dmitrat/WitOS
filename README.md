@@ -243,7 +243,7 @@ P6 is the next architecture milestone: upstream CoreCLR/JIT, executable-memory/c
 - [GC events, lifecycle and yielding](@Docs/Implementation/NativeAot-Gc-Events.md)
 - [HPET time and finite GC deadlines](@Docs/Implementation/NativeAot-Gc-Time.md)
 - [Recursive native mutexes, Crst and thread identity](@Docs/Implementation/NativeAot-Mutexes.md)
-- [RFC 0011: initial kernel boot contract](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md)
+- [RFC 0011 v3: kernel architecture, ABI-1 and ABI-2](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md)
 - [Committed memory reset and GC adapter](@Docs/Implementation/NativeAot-Gc-Reset.md)
 - [Native runtime allocation](@Docs/Implementation/NativeAot-Native-Heap.md)
 - [Static compiler TLS](@Docs/Implementation/NativeAot-Compiler-Tls.md)
