@@ -264,3 +264,8 @@ The minimal executable startup assessment runs as part of runtime-source and run
     dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-readiness
 
 It checks an ordinary standard-CoreLib Main on Windows, then performs a strict native-entry link with the WitOS source libraries and real syscall/TLS objects. It reports dependencies and measured Windows-reference image costs in artifacts/runtime-readiness. It neither boots a managed guest nor supplies missing runtime stubs. See [the updated distance to M3](@Docs/Implementation/M3-Runtime-Integration-Plan.md).
+
+## License
+
+WitOS is licensed under the [Apache License, Version 2.0](LICENSE); see [NOTICE](NOTICE). Pinned upstream sources that the
+build downloads keep their own licenses, recorded beside their pins.
