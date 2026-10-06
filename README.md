@@ -4,7 +4,7 @@ WitOS is an experimental operating system built around a minimal native kernel a
 
 The hardware layer may eventually be supplied in firmware. The first implementation uses QEMU and UEFI to test the same separation without custom hardware.
 
-**Roadmap:** [План запуска .NET / PLAN.md](PLAN.md) — текущий этап, оставшиеся работы и критерии готовности.
+**Roadmap:** [План WitOS / PLAN.md](PLAN.md) — цели, фазы A–P и критерии готовности. **Architecture decision (2026-10-06):** [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md) — a nano-kernel of mechanisms, a user-space system layer and unchanged upstream .NET in its Unix form (`TargetOS=witos`); the Windows-form host line of P6.4 is frozen and its plan archived.
 
 ## Current status
 
@@ -264,3 +264,8 @@ The minimal executable startup assessment runs as part of runtime-source and run
     dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-readiness
 
 It checks an ordinary standard-CoreLib Main on Windows, then performs a strict native-entry link with the WitOS source libraries and real syscall/TLS objects. It reports dependencies and measured Windows-reference image costs in artifacts/runtime-readiness. It neither boots a managed guest nor supplies missing runtime stubs. See [the updated distance to M3](@Docs/Implementation/M3-Runtime-Integration-Plan.md).
+
+## License
+
+WitOS is licensed under the [Apache License, Version 2.0](LICENSE); see [NOTICE](NOTICE). Pinned upstream sources that the
+build downloads keep their own licenses, recorded beside their pins.

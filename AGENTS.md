@@ -2,15 +2,17 @@
 
 ## Project direction
 
-The core objective is standard upstream .NET above a minimal native kernel and a hardware-independent system layer. Shells and applications eventually run on that .NET platform. Current guest code includes the M1 foundation, M2 ring-3 isolation, sparse user memory, bounded user threads/TLS, events/deadlines, restricted native PE loading, user-space C bootstrap and a partial native GC OS adapter; host-side C# tooling must not be described as guest .NET support.
+The core objective is standard upstream .NET above a minimal native kernel and a hardware-independent system layer. Shells and applications eventually run on that .NET platform. [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md) (2026-10-06) fixes the architecture: a nano-kernel of mechanisms whose hardware part (`Kernel.Arch.*`, `Kernel.Platform.*`) is the UHI; a user-space system layer that owns loading, process state and the runtime substrate; unchanged upstream .NET in its Unix form (`TargetOS=witos`), whose POSIX-shaped substrate is private to the system layer. Neither Win32 nor POSIX is an external contract of WitOS. Current guest code includes the M1 foundation, M2 ring-3 isolation, sparse user memory, bounded user threads/TLS, events/deadlines, native PE loading, user-space C bootstrap and a partial native GC OS adapter written against the Windows form of the NativeAOT PAL; host-side C# tooling must not be described as guest .NET support.
 
 The application compatibility target is unchanged portable managed binaries under upstream CoreCLR/JIT, standard TFMs/SDK/NuGet and optional additive WitOS APIs. NativeAOT is an early system implementation/deployment tool, not the application compatibility contract; do not replace upstream CoreLib or managed semantics.
 
 Original vision documents live in `@Docs/`. Concrete implementation status and deliberate limitations live in `@Docs/Implementation/`. Preserve original drafts unless the task calls for revising them.
 
-Track runtime bring-up in the root PLAN.md. After each completed implementation slice, update its baseline, affected checkboxes/statuses, evidence links and next step; mark milestones complete only when their guest acceptance criteria pass.
+Track the program in the root PLAN.md: phases A, K, T, S, R, D, N, V, P with steps such as `K2.1`. Name a slice, its commit and its PR by its step; after each completed step update the plan's checkboxes, evidence links and next step; mark a step complete only when its guest acceptance passes on every supported ISA. The plan before ADR 0024 is `@Docs/Implementation/Plan-Archive-2026-10-06.md`; the frozen host line is `@Docs/Implementation/P6.4-Plan.md`.
 
 ## Boundaries
+
+The bullets below that describe the Windows-form runtime line — DLL TLS and lifecycle semantics of Windows, the guest C++ runtime, UCRT subset and pinned STL, the guest host build, `coreclr-guest` and its inventory, COM — are frozen with that line (ADR 0024): do not extend it or start new slices on it. They are removed together with its code after plan step R2.
 
 - Keep UEFI details in `src/Boot.Uefi/`.
 - Keep x64 instructions, descriptor tables and QEMU-specific test mechanisms in `src/Kernel.Arch.X64/`, and ARM64 instructions in `src/Kernel.Arch.A64/`. QEMU virt board devices (PL011, GICv3, generic timer, Arm semihosting exit) stay in `src/Kernel.Platform.QemuVirt/`.
