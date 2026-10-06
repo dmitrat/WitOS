@@ -216,7 +216,6 @@
     "__imp_VirtualUnlock",
     "__imp_WaitForMultipleObjects",
     "__imp_WriteFile",
-    "__report_rangecheckfailure",
     "__stdio_common_vfprintf",
     "__stdio_common_vsnprintf_s",
     "__stdio_common_vsprintf",
@@ -259,12 +258,10 @@
     "qsort",
     "round",
     "strcat_s",
-    "strchr",
     "strcpy_s",
     "strncat_s",
     "strncpy_s",
     "strnlen",
-    "strrchr",
     "strtok_s",
     "strtol",
     "towlower",
@@ -273,8 +270,6 @@
     "wcscpy_s",
     "wcsncat_s",
     "wcsncpy_s",
-    "wcsrchr",
-    "wcsstr",
     "wcstod"
   ]
 }

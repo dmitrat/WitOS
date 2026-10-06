@@ -102,6 +102,12 @@ extern "C" int __cdecl _purecall()
     Fatal();
 }
 
+/* The failure of a compiler-inserted range check (/GS), which ends the process as vcruntime's does (P6.4.k3a). */
+extern "C" __declspec(noreturn) void __cdecl __report_rangecheckfailure()
+{
+    Fatal();
+}
+
 extern "C" int __cdecl __uncaught_exceptions()
 {
     return state.Uncaught;
