@@ -106,6 +106,7 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
   - [ ] **P6.4.k3** Closing that inventory, then loading the image: the C runtime, Win32, COM/OLE/WinRT, the
     kernel's limits, threads in libraries, the TEB and one exception dispatcher.
     - [x] **P6.4.k3a1** vcruntime's searches and range-check report.
+    - [x] **P6.4.k3a2** UCRT's classes, integers, secure strings, environment and sorting.
 
 ## P6.4.e: the exception runtime on Windows
 
@@ -1035,6 +1036,30 @@ Apartments, activation, type libraries and WinRT fail explicitly, as on a system
 returns a pretended success. The alternative, CoreCLR without `FEATURE_COMINTEROP`, is not a configuration upstream
 builds for Windows, and was rejected.
 
+Refined the same day: the Windows target is a binding surface, not a second Windows. Names such as kernel32 and ole32
+are where unchanged upstream binaries look for functions. Behind them WitOS supplies the minimum that .NET needs and
+nothing more. Each function belongs to one of three classes:
+
+- **Real.** The function is on a path .NET needs. It keeps the Win32 contract .NET relies on and is checked against
+  Windows.
+- **Explicit failure.** The function is imported statically but lies outside the supported scenarios. It returns a
+  documented Win32 error that its caller handles; where the caller cannot handle one, it ends the process.
+- **Absent.** A P/Invoke binds at its first call. CoreCLR's own link delay-loads `version.dll` and WinRT's
+  `api-ms-win-core-winrt-l1-1-0.dll`. Such functions stay unexported until a supported scenario reaches them, and
+  the call then fails as on a system without the function.
+
+Upstream configuration that keeps .NET away from a Windows service is preferred to an adapter. Examples: invariant
+globalization, which needs neither NLS nor ICU, and ETW's `EventRegister` failing, since CoreCLR ignores its result.
+The registry has no content. WitOS does not supply the GUI, services, ETW, NLS, security descriptors, or installation
+discovery through Program Files or the registry.
+
+The source corrects one part of the COM decision. CoreCLR calls `CoInitializeEx` for the multithreaded apartment on
+every `Main` thread and on its finalizer thread. In `Main` it turns `E_NOTIMPL` into `PlatformNotSupportedException`
+(`Thread::SetApartment` in `vm/threads.cpp`). The multithreaded apartment is therefore real: per-thread bookkeeping
+with Windows' `S_OK` and `S_FALSE` results. A single-threaded apartment needs a message loop, so it fails with
+`E_NOTIMPL`. On x64, CoreCLR initializes WinRT only when `IsWindows8OrGreater` holds
+(`utilcode/util_nodependencies.cpp`). On ARM64 it always does, which the ARM64 port must answer.
+
 #### P6.4.k3a1: vcruntime's searches and the range-check report
 
 The C runtime CoreCLR needs from vcruntime was five functions and one report. The UCRT subset now has `strchr` and
@@ -1048,4 +1073,44 @@ terminators included, and `CrtTests` passes.
 The inventory falls from 276 to 271. `longjmp` remains: CoreCLR's managed exception handling calls it
 (`vm/exceptionhandling.cpp`), and an MSVC x64 `longjmp` is an unwind through `RtlUnwindEx` with `STATUS_LONGJUMP`,
 which belongs to the exception work.
+
+#### P6.4.k3a2: classes, integers, secure strings, environment and sorting
+
+Thirty of the UCRT functions CoreCLR calls join the subset. Each has UCRT's contract, and an invalid parameter ends
+the process, as UCRT's default handler does:
+
+- **Character classes and case.** `isalpha` and `isdigit` read the C locale's table. `iswalpha`, `iswspace` and
+  `iswupper` read Windows' `CT_CTYPE1` classes for Latin-1, the table the STL's locale already uses, which equals UCRT's
+  `_pwctype`. Beyond Latin-1 they ask the platform's `GetStringTypeW`. In the guest that ends the process, which has
+  no Unicode character database (the rule of P6.4.i3b). `iswascii` is below U+0080. `towlower` and `towupper` change
+  only A-Z and a-z, as UCRT does in the C locale.
+- **Integers.** `strtol`, `atol` and `_atoi64` parse narrow text as UCRT does: the C locale's white space, ASCII
+  digits, and a `0x` prefix that converts nothing when no digit follows it. They keep reading after an overflow and
+  report `ERANGE`. `_wcstoui64` is the wide parser, Unicode digits included, at 64 bits. `_ltow_s` formats in radix 2
+  to 36, signed only in radix 10.
+- **Secure strings.** `strcpy_s`, `strcat_s`, `strncpy_s` and `strncat_s` follow UCRT's rules in narrow and wide form.
+  A result that does not fit is an invalid parameter, except under `_TRUNCATE`, which returns `STRUNCATE`. Also:
+  `strnlen`, `_strdup`, `_strnicmp` (ASCII case), `_strupr_s`, `_wcslwr_s` and `strtok_s`.
+- **Environment.** `getenv` reads a narrow copy of the process's environment, made at the first call in the platform's
+  ANSI code page (UTF-8 in the guest). UCRT makes a library's narrow environment the same way. Later changes to the
+  process's environment are not in the copy, as in UCRT, which updates it only for `_putenv`. Like UCRT's, the copy
+  leaves out the entries that begin with `=`, which record the current directories of drives. Names compare without
+  ASCII case.
+- **Sorting.** `qsort` is a heap sort; the C standard leaves the order of equal elements unspecified.
+- **Invalid parameters.** `_invalid_parameter_noinfo`, the report of UCRT's inline functions, ends the process.
+
+The platform files gain `NarrowEnvironment` and `CharacterType`, both over kernel32 functions that the guest's
+adapters supply.
+
+Evidence. A new section of the in-process differential compares each function with UCRT's:
+
+- every class and case of -1 to 255 and of all 65,536 wide characters;
+- 300,000 random integer texts in six bases, with results, end pointers and `errno`;
+- `_ltow_s` in every radix;
+- 100,000 random secure copies and appends, fitting and truncating, compared byte for byte;
+- 50,000 tokenizations;
+- the environment's variables, and 2,000 sorts with duplicates.
+
+That adds 5.1 million comparisons to the 13.4 million before, with none failing. The inventory falls from 271 to
+241; ucrt's share from 54 to 24, which are formatting and scanning, mathematics, `wcstod`, `_controlfp_s` and files.
 

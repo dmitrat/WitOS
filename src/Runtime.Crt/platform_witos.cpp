@@ -116,6 +116,39 @@ void Free(void *block)
     }
 }
 
+char *NarrowEnvironment()
+{
+    wchar_t *block = GetEnvironmentStringsW();
+    if (!block) {
+        return nullptr;
+    }
+    size_t units = 0;
+    while (block[units]) {
+        while (block[units]) {
+            ++units;
+        }
+        ++units;
+    }
+    ++units; // the block's final terminator
+    const int bytes = WideCharToMultiByte(CP_ACP, 0, block, int(units), nullptr, 0, nullptr, nullptr);
+    char *narrow = bytes > 0 ? static_cast<char *>(Allocate(size_t(bytes))) : nullptr;
+    if (narrow && WideCharToMultiByte(CP_ACP, 0, block, int(units), narrow, bytes, nullptr, nullptr) != bytes) {
+        Free(narrow);
+        narrow = nullptr;
+    }
+    FreeEnvironmentStringsW(block);
+    return narrow;
+}
+
+unsigned short CharacterType(wchar_t value)
+{
+    WORD type = 0;
+    if (!GetStringTypeW(CT_CTYPE1, &value, 1, &type)) {
+        Fatal();
+    }
+    return type;
+}
+
 bool UtcNow(__time64_t &)
 {
     return false; // the guest has a monotonic clock only

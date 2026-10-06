@@ -1377,6 +1377,223 @@ void HeapCases()
 
 } // namespace
 
+/* The rest of the C runtime CoreCLR calls (P6.4.k3a2) */
+
+int __cdecl CompareInts(const void *first, const void *second)
+{
+    const int a = *static_cast<const int *>(first), b = *static_cast<const int *>(second);
+    return a < b ? -1 : a > b ? 1 : 0;
+}
+
+void CoreClrCases()
+{
+    const auto check = [](const char *what, bool same) {
+        ++compared;
+        if (!same) {
+            Report("coreclr", L"", what);
+        }
+    };
+    // Every class and case UCRT's tables answer, and every wide character, which the hosted platform classifies as
+    // Windows does.
+    for (int value = -1; value <= 255; ++value) {
+        check("isalpha", isalpha(value) == WitCrt::Isalpha(value));
+        check("isdigit", isdigit(value) == WitCrt::Isdigit(value));
+    }
+    for (unsigned value = 0; value <= 0xFFFF; ++value) {
+        const wint_t c = wint_t(value);
+        check("iswalpha", iswalpha(c) == WitCrt::Iswctype(c, _ALPHA));
+        check("iswspace", iswspace(c) == WitCrt::Iswctype(c, _SPACE));
+        check("iswupper", iswupper(c) == WitCrt::Iswctype(c, _UPPER));
+        check("iswascii", iswascii(c) == WitCrt::Iswascii(c));
+        check("towlower", towlower(c) == WitCrt::Towlower(c));
+        check("towupper", towupper(c) == WitCrt::Towupper(c));
+    }
+    // Integers: white space, signs, prefixes, digits of every base, overflow and the end of what was read.
+    static const char narrowLetters[] = " \t\v\r-+0123456789abcdefxXzZ7";
+    static const wchar_t wideLetters[] = {
+        L' ', L'\t', L'-', L'+', L'0', L'1', L'7', L'9', L'a', L'f', L'x', L'X', L'z', 0x0660, 0x0669, 0x3000, 0x00A0};
+    static const int bases[] = {0, 2, 8, 10, 16, 36};
+    for (unsigned i = 0; i < 300000; ++i) {
+        char text[32];
+        const size_t length = Pick(Pick(4) ? 12 : 30);
+        for (size_t j = 0; j < length; ++j) {
+            text[j] = narrowLetters[Pick(sizeof(narrowLetters) - 1)];
+        }
+        text[length] = 0;
+        const int base = bases[Pick(6)];
+        char *end1 = nullptr, *end2 = nullptr;
+        errno = 0;
+        const long a = strtol(text, &end1, base);
+        const int e1 = errno;
+        errno = 0;
+        const long b = WitCrt::Strtol(text, &end2, base);
+        check("strtol", a == b && end1 == end2 && e1 == errno);
+        errno = 0;
+        const long c = atol(text);
+        const int e3 = errno;
+        errno = 0;
+        check("atol", c == WitCrt::Atol(text) && e3 == errno);
+        errno = 0;
+        const long long d = _atoi64(text);
+        const int e4 = errno;
+        errno = 0;
+        check("_atoi64", d == WitCrt::Atoi64(text) && e4 == errno);
+        wchar_t wide[32];
+        for (size_t j = 0; j < length; ++j) {
+            wide[j] = wideLetters[Pick(sizeof(wideLetters) / sizeof(wideLetters[0]))];
+        }
+        wide[length] = 0;
+        wchar_t *wend1 = nullptr, *wend2 = nullptr;
+        errno = 0;
+        const unsigned long long x = _wcstoui64(wide, &wend1, base);
+        const int e5 = errno;
+        errno = 0;
+        const unsigned long long y = WitCrt::Wcstoui64(wide, &wend2, base);
+        check("_wcstoui64", x == y && wend1 == wend2 && e5 == errno);
+    }
+    const long specials[] = {0, 1, -1, 7, -7, LONG_MAX, LONG_MIN, 123456789, -987654321};
+    for (unsigned i = 0; i < 20000; ++i) {
+        const long value = i < 9 * 35 ? specials[i % 9] : long(Next());
+        const int radix = 2 + int(i % 35);
+        wchar_t expected[70], actual[70];
+        const errno_t r1 = _ltow_s(value, expected, 70, radix), r2 = WitCrt::Ltow_s(value, actual, 70, radix);
+        check("_ltow_s", r1 == r2 && !wcscmp(expected, actual));
+    }
+    // The secure copies and appends where the result fits, and the truncating forms.
+    for (unsigned i = 0; i < 100000; ++i) {
+        char source[20], prefix[8];
+        const size_t length = Pick(16), prefixLength = Pick(6);
+        for (size_t j = 0; j < length; ++j) {
+            source[j] = char('a' + Pick(26));
+        }
+        source[length] = 0;
+        for (size_t j = 0; j < prefixLength; ++j) {
+            prefix[j] = char('A' + Pick(26));
+        }
+        prefix[prefixLength] = 0;
+        char a[48], b[48];
+        const size_t fits = length + 1 + Pick(8), joined = prefixLength + length + 1 + Pick(8);
+        memset(a, '#', sizeof(a));
+        memset(b, '#', sizeof(b));
+        check("strcpy_s", strcpy_s(a, fits, source) == WitCrt::Strcpy_s(b, fits, source) && !memcmp(a, b, sizeof(a)));
+        memset(a, '#', sizeof(a));
+        memset(b, '#', sizeof(b));
+        memcpy(a, prefix, prefixLength + 1);
+        memcpy(b, prefix, prefixLength + 1);
+        check(
+            "strcat_s", strcat_s(a, joined, source) == WitCrt::Strcat_s(b, joined, source) && !memcmp(a, b, sizeof(a)));
+        const size_t count = Pick(4) ? Pick(unsigned(length + 3)) : _TRUNCATE;
+        const size_t copied = count == _TRUNCATE ? length : (count < length ? count : length);
+        const size_t size = count == _TRUNCATE ? 1 + Pick(unsigned(length + 4)) : copied + 1 + Pick(6);
+        memset(a, '#', sizeof(a));
+        memset(b, '#', sizeof(b));
+        check("strncpy_s",
+            strncpy_s(a, size, source, count) == WitCrt::Strncpy_s(b, size, source, count) && !memcmp(a, b, sizeof(a)));
+        memset(a, '#', sizeof(a));
+        memset(b, '#', sizeof(b));
+        memcpy(a, prefix, prefixLength + 1);
+        memcpy(b, prefix, prefixLength + 1);
+        const size_t room =
+            count == _TRUNCATE ? prefixLength + 1 + Pick(unsigned(length + 4)) : prefixLength + copied + 1 + Pick(6);
+        check("strncat_s",
+            strncat_s(a, room, source, count) == WitCrt::Strncat_s(b, room, source, count) && !memcmp(a, b, sizeof(a)));
+        wchar_t wsource[20], wprefix[8], wa[48], wb[48];
+        for (size_t j = 0; j <= length; ++j) {
+            wsource[j] = wchar_t((unsigned char)source[j]);
+        }
+        for (size_t j = 0; j <= prefixLength; ++j) {
+            wprefix[j] = wchar_t((unsigned char)prefix[j]);
+        }
+        wmemset(wa, L'#', 48);
+        wmemset(wb, L'#', 48);
+        check("wcscpy_s", wcscpy_s(wa, fits, wsource) == WitCrt::Wcscpy_s(wb, fits, wsource) && !wmemcmp(wa, wb, 48));
+        wmemset(wa, L'#', 48);
+        wmemset(wb, L'#', 48);
+        wmemcpy(wa, wprefix, prefixLength + 1);
+        wmemcpy(wb, wprefix, prefixLength + 1);
+        check(
+            "wcscat_s", wcscat_s(wa, joined, wsource) == WitCrt::Wcscat_s(wb, joined, wsource) && !wmemcmp(wa, wb, 48));
+        wmemset(wa, L'#', 48);
+        wmemset(wb, L'#', 48);
+        check("wcsncpy_s",
+            wcsncpy_s(wa, size, wsource, count) == WitCrt::Wcsncpy_s(wb, size, wsource, count) && !wmemcmp(wa, wb, 48));
+        wmemset(wa, L'#', 48);
+        wmemset(wb, L'#', 48);
+        wmemcpy(wa, wprefix, prefixLength + 1);
+        wmemcpy(wb, wprefix, prefixLength + 1);
+        check("wcsncat_s",
+            wcsncat_s(wa, room, wsource, count) == WitCrt::Wcsncat_s(wb, room, wsource, count) && !wmemcmp(wa, wb, 48));
+        // Lengths, copies, case and comparison.
+        const size_t limit = Pick(20);
+        check("strnlen", strnlen(source, limit) == WitCrt::Strnlen(source, limit));
+        char *copy1 = _strdup(source), *copy2 = WitCrt::Strdup(source);
+        check("_strdup", copy1 && copy2 && !strcmp(copy1, copy2));
+        free(copy1);
+        WitCrt::Free(copy2);
+        char mixed1[24], mixed2[24];
+        for (size_t j = 0; j < length; ++j) {
+            mixed1[j] = Pick(2) ? char(toupper(source[j])) : source[j];
+        }
+        mixed1[length] = 0;
+        memcpy(mixed2, mixed1, length + 1);
+        check("_strupr_s",
+            _strupr_s(mixed1, length + 1 + Pick(4)) == WitCrt::Strupr_s(mixed2, length + 1) && !strcmp(mixed1, mixed2));
+        check("_strnicmp",
+            _strnicmp(source, prefix, limit) == WitCrt::Strnicmp(source, prefix, limit) &&
+                _strnicmp(source, mixed1, limit) == WitCrt::Strnicmp(source, mixed1, limit));
+        wchar_t wmixed1[24], wmixed2[24];
+        for (size_t j = 0; j <= length; ++j) {
+            wmixed1[j] = wmixed2[j] = wchar_t((unsigned char)mixed1[j]);
+        }
+        check("_wcslwr_s",
+            _wcslwr_s(wmixed1, length + 1) == WitCrt::Wcslwr_s(wmixed2, length + 1) && !wcscmp(wmixed1, wmixed2));
+    }
+    // Tokens: the offsets of every token and of the context, over the same buffers.
+    for (unsigned i = 0; i < 50000; ++i) {
+        char text1[32], text2[32], delimiters[5];
+        const size_t length = Pick(30), count = Pick(4);
+        for (size_t j = 0; j < length; ++j) {
+            text1[j] = "ab,; c"[Pick(6)];
+        }
+        text1[length] = 0;
+        memcpy(text2, text1, length + 1);
+        for (size_t j = 0; j < count; ++j) {
+            delimiters[j] = ",; "[Pick(3)];
+        }
+        delimiters[count] = 0;
+        char *context1 = nullptr, *context2 = nullptr;
+        char *token1 = strtok_s(text1, delimiters, &context1), *token2 = WitCrt::Strtok_s(text2, delimiters, &context2);
+        for (int round = 0; round < 40; ++round) {
+            const bool same = (!token1 && !token2) || (token1 && token2 && token1 - text1 == token2 - text2);
+            check("strtok_s", same && context1 - text1 == context2 - text2 && !memcmp(text1, text2, length + 1));
+            if (!token1 || !token2) {
+                break;
+            }
+            token1 = strtok_s(nullptr, delimiters, &context1);
+            token2 = WitCrt::Strtok_s(nullptr, delimiters, &context2);
+        }
+    }
+    // The environment as the process started with it.
+    for (const char *name : {"PATH", "path", "Path", "WINDIR", "SystemRoot", "TEMP", "NO_SUCH_WITOS_VARIABLE", "PAT",
+             "", "=C:", "=Z:", "ComSpec"}) {
+#pragma warning(suppress : 4996) // getenv itself is what is compared
+        const char *expected = getenv(name);
+        const char *actual = WitCrt::Getenv(name);
+        check("getenv", (!expected && !actual) || (expected && actual && !strcmp(expected, actual)));
+    }
+    // Sorting, duplicates included.
+    for (unsigned i = 0; i < 2000; ++i) {
+        int first[64], second[64];
+        const size_t count = Pick(64);
+        for (size_t j = 0; j < count; ++j) {
+            first[j] = second[j] = int(Pick(Pick(2) ? 8 : 1000)) - 4;
+        }
+        qsort(first, count, sizeof(int), CompareInts);
+        WitCrt::Qsort(second, count, sizeof(int), CompareInts);
+        check("qsort", !memcmp(first, second, count * sizeof(int)));
+    }
+}
+
 int wmain(int count, wchar_t **arguments)
 {
     if (count < 2) {
@@ -1384,6 +1601,9 @@ int wmain(int count, wchar_t **arguments)
         return 2;
     }
     verbose = count > 2 && !wcscmp(arguments[2], L"--verbose");
+    // A drive's current directory, as a command shell records it, before either narrow environment is made: getenv
+    // leaves such entries out.
+    SetEnvironmentVariableW(L"=Z:", L"Z:\\witos");
     _set_invalid_parameter_handler(Handler);
     setvbuf(stdout, nullptr, _IONBF, 0); // the phase lines survive a crash
     const Locales c = {nullptr, nullptr};
@@ -1418,6 +1638,8 @@ int wmain(int count, wchar_t **arguments)
     printf("locales and helpers done: %llu compared\n", compared);
     CeilCases();
     HeapCases();
+    CoreClrCases();
+    printf("coreclr functions done: %llu compared\n", compared);
     printf("%s: %llu compared, %llu skipped as invalid, %llu skipped for UCRT's precision defect, %llu failed\n",
         failures ? "FAIL" : "PASS", compared, skipped, precisionSkipped, failures);
     return failures ? 1 : 0;
