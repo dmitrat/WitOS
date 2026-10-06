@@ -107,6 +107,86 @@ short Dclass(double value)
     return FP_NORMAL;
 }
 
+/* getenv (P6.4.k3a2): a narrow copy of the process's environment, made at the first call in the platform's ANSI code
+ * page, as UCRT makes the narrow environment of a library; later changes to the process's environment are not in it,
+ * as in UCRT, which only _putenv updates. A name matches without regard to ASCII case, the empty name the entries that
+ * begin with '='. The copy lives as long as the module. */
+namespace {
+Platform::Lock environmentLock;
+char *environment;
+bool environmentMade;
+
+void Swap(char *first, char *second, size_t width)
+{
+    for (size_t i = 0; i < width; ++i) {
+        const char value = first[i];
+        first[i] = second[i];
+        second[i] = value;
+    }
+}
+
+void Sift(char *base, size_t root, size_t count, size_t width, int(__cdecl *compare)(const void *, const void *))
+{
+    for (;;) {
+        size_t child = 2 * root + 1;
+        if (child >= count) {
+            return;
+        }
+        if (child + 1 < count && compare(base + child * width, base + (child + 1) * width) < 0) {
+            ++child;
+        }
+        if (compare(base + root * width, base + child * width) >= 0) {
+            return;
+        }
+        Swap(base + root * width, base + child * width, width);
+        root = child;
+    }
+}
+} // namespace
+
+char *Getenv(const char *name)
+{
+    if (!name) {
+        InvalidParameter();
+    }
+    size_t length = 0;
+    while (name[length]) {
+        if (++length >= 32767) { // _MAX_ENV
+            InvalidParameter();
+        }
+    }
+    Platform::Acquire(environmentLock);
+    if (!environmentMade) {
+        environment = Platform::NarrowEnvironment();
+        environmentMade = true;
+    }
+    char *result = nullptr;
+    for (char *entry = environment; entry && *entry; entry += strlen(entry) + 1) {
+        if (!Strnicmp(entry, name, length) && entry[length] == '=') {
+            result = entry + length + 1;
+            break;
+        }
+    }
+    Platform::Release(environmentLock);
+    return result;
+}
+
+/* qsort (P6.4.k3a2) as a heap sort: the order of equal elements is unspecified, as the C standard leaves it. */
+void Qsort(void *base, size_t count, size_t width, int(__cdecl *compare)(const void *, const void *))
+{
+    if ((!base && count) || !width || !compare) {
+        InvalidParameter();
+    }
+    auto *bytes = static_cast<char *>(base);
+    for (size_t i = count / 2; i-- > 0;) {
+        Sift(bytes, i, count, width, compare);
+    }
+    for (size_t end = count; end-- > 1;) {
+        Swap(bytes, bytes + end * width, width);
+        Sift(bytes, 0, end, width, compare);
+    }
+}
+
 } // namespace WitCrt
 
 #ifndef WITCRT_REFERENCE
@@ -189,5 +269,21 @@ extern "C" float __cdecl strtof(const char *, char **)
 extern "C" __declspec(noreturn) void __cdecl terminate() noexcept
 {
     WitCrt::Platform::Fatal();
+}
+
+extern "C" char *__cdecl getenv(const char *name)
+{
+    return WitCrt::Getenv(name);
+}
+
+extern "C" void __cdecl qsort(void *base, size_t count, size_t width, int(__cdecl *compare)(const void *, const void *))
+{
+    WitCrt::Qsort(base, count, width, compare);
+}
+
+/* The invalid-parameter report of UCRT's inline functions, which ends the process like every invalid parameter. */
+extern "C" void __cdecl _invalid_parameter_noinfo(void)
+{
+    WitCrt::InvalidParameter();
 }
 #endif

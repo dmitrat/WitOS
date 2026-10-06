@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <limits.h>
 #include "crt.h"
+#include "../Runtime.NativeAot/native_ctype.witos.h"
 
 /* Wide strings, C-locale characters, integer parsing and error messages (P6.4.h), and the string functions and
  * character classes the STL's locale sources call (P6.4.i3). The comparisons, case mappings and classes are the C
@@ -360,6 +361,455 @@ errno_t Wcserror_s(wchar_t *buffer, size_t count, int error)
     return 0;
 }
 
+/* The rest of the C runtime CoreCLR calls (P6.4.k3a2). Narrow parsing reads the C locale's white space and ASCII
+ * digits, as UCRT's strtol family does; the wide classes of Latin-1 come from Windows' CT_CTYPE1 table, which UCRT's
+ * _pwctype equals, and beyond it from the platform, where the guest ends the process: it has no Unicode character
+ * database. Case changes only A-Z and a-z, as in the C locale. The secure functions follow UCRT's rules, and their
+ * violations end the process as UCRT's default invalid-parameter handler does. */
+namespace {
+
+bool NarrowSpace(char value)
+{
+    return value == ' ' || (value >= '\t' && value <= '\r');
+}
+
+int NarrowDigit(char value)
+{
+    if (value >= '0' && value <= '9') {
+        return value - '0';
+    }
+    if (value >= 'A' && value <= 'Z') {
+        return value - 'A' + 10;
+    }
+    if (value >= 'a' && value <= 'z') {
+        return value - 'a' + 10;
+    }
+    return -1;
+}
+
+/* Parses a narrow integer as the wide Parse does, over the narrow classes. */
+bool ParseNarrow(const char *text, char **end, int base, unsigned long long limit, unsigned long long &magnitude,
+    bool &negative, bool &overflow)
+{
+    const char *p = text;
+    while (NarrowSpace(*p)) {
+        ++p;
+    }
+    negative = *p == '-';
+    if (*p == '-' || *p == '+') {
+        ++p;
+    }
+    if ((base == 0 || base == 16) && p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
+        p += 2;
+        base = 16;
+    } else if (base == 0) {
+        base = p[0] == '0' ? 8 : 10;
+    }
+    magnitude = 0;
+    overflow = false;
+    const char *first = p;
+    for (int digit; (digit = NarrowDigit(*p)) >= 0 && digit < base; ++p) {
+        if (magnitude > (limit - unsigned(digit)) / unsigned(base)) {
+            overflow = true;
+        } else {
+            magnitude = magnitude * unsigned(base) + unsigned(digit);
+        }
+    }
+    if (p == first) {
+        if (end) {
+            *end = const_cast<char *>(text);
+        }
+        return false;
+    }
+    if (end) {
+        *end = const_cast<char *>(p);
+    }
+    return true;
+}
+
+/* A signed narrow integer of `bits` bits, as strtol and _strtoi64 form it. */
+long long ParseSigned(const char *text, char **end, int base, long long maximum)
+{
+    if (end) {
+        *end = const_cast<char *>(text);
+    }
+    if (!text || (base != 0 && (base < 2 || base > 36))) {
+        InvalidParameter();
+    }
+    unsigned long long magnitude;
+    bool negative, overflow;
+    if (!ParseNarrow(text, end, base, (unsigned long long)maximum + 1, magnitude, negative, overflow)) {
+        return 0;
+    }
+    if (overflow || (!negative && magnitude > (unsigned long long)maximum)) {
+        errno = ERANGE;
+        return negative ? -maximum - 1 : maximum;
+    }
+    return negative ? (long long)(0 - magnitude) : (long long)magnitude;
+}
+
+template <typename Char> errno_t Copy(Char *destination, size_t size, const Char *source)
+{
+    if (!destination || !size) {
+        InvalidParameter();
+    }
+    if (!source) {
+        destination[0] = 0;
+        InvalidParameter();
+    }
+    Char *p = destination;
+    size_t available = size;
+    while ((*p++ = *source++) != 0 && --available > 0) {
+    }
+    if (!available) {
+        destination[0] = 0;
+        InvalidParameter();
+    }
+    return 0;
+}
+
+template <typename Char> errno_t Append(Char *destination, size_t size, const Char *source)
+{
+    if (!destination || !size) {
+        InvalidParameter();
+    }
+    if (!source) {
+        destination[0] = 0;
+        InvalidParameter();
+    }
+    Char *p = destination;
+    size_t available = size;
+    while (available > 0 && *p != 0) {
+        ++p;
+        --available;
+    }
+    if (!available) {
+        destination[0] = 0; // not terminated
+        InvalidParameter();
+    }
+    while ((*p++ = *source++) != 0 && --available > 0) {
+    }
+    if (!available) {
+        destination[0] = 0;
+        InvalidParameter();
+    }
+    return 0;
+}
+
+template <typename Char> errno_t CopyCount(Char *destination, size_t size, const Char *source, size_t count)
+{
+    if (!count && !destination && !size) {
+        return 0;
+    }
+    if (!destination || !size) {
+        InvalidParameter();
+    }
+    if (!count) {
+        destination[0] = 0;
+        return 0;
+    }
+    if (!source) {
+        destination[0] = 0;
+        InvalidParameter();
+    }
+    Char *p = destination;
+    size_t available = size;
+    if (count == _TRUNCATE) {
+        while ((*p++ = *source++) != 0 && --available > 0) {
+        }
+    } else {
+        while ((*p++ = *source++) != 0 && --available > 0 && --count > 0) {
+        }
+        if (!count) {
+            *p = 0;
+        }
+    }
+    if (!available) {
+        if (count == _TRUNCATE) {
+            destination[size - 1] = 0;
+            return STRUNCATE;
+        }
+        destination[0] = 0;
+        InvalidParameter();
+    }
+    return 0;
+}
+
+template <typename Char> errno_t AppendCount(Char *destination, size_t size, const Char *source, size_t count)
+{
+    if (!count && !destination && !size) {
+        return 0;
+    }
+    if (!destination || !size) {
+        InvalidParameter();
+    }
+    if (count && !source) {
+        destination[0] = 0;
+        InvalidParameter();
+    }
+    Char *p = destination;
+    size_t available = size;
+    while (available > 0 && *p != 0) {
+        ++p;
+        --available;
+    }
+    if (!available) {
+        destination[0] = 0; // not terminated
+        InvalidParameter();
+    }
+    if (count == _TRUNCATE) {
+        while ((*p++ = *source++) != 0 && --available > 0) {
+        }
+    } else {
+        while (count > 0 && (*p++ = *source++) != 0 && --available > 0) {
+            --count;
+        }
+        if (!count) {
+            *p = 0;
+        }
+    }
+    if (!available) {
+        if (count == _TRUNCATE) {
+            destination[size - 1] = 0;
+            return STRUNCATE;
+        }
+        destination[0] = 0;
+        InvalidParameter();
+    }
+    return 0;
+}
+
+} // namespace
+
+int Isalpha(int value)
+{
+    return Isctype(value, _ALPHA);
+}
+
+int Isdigit(int value)
+{
+    return Isctype(value, _DIGIT);
+}
+
+int Iswctype(wint_t value, unsigned short mask)
+{
+    if (value == WEOF) {
+        return 0;
+    }
+    return (value < 256 ? wit_native_ctype1(value) : Platform::CharacterType(wchar_t(value))) & mask;
+}
+
+int Iswascii(wint_t value)
+{
+    return value < 0x80;
+}
+
+wint_t Towlower(wint_t value)
+{
+    return value >= L'A' && value <= L'Z' ? wint_t(value - L'A' + L'a') : value;
+}
+
+wint_t Towupper(wint_t value)
+{
+    return value >= L'a' && value <= L'z' ? wint_t(value - L'a' + L'A') : value;
+}
+
+long Strtol(const char *text, char **end, int base)
+{
+    return long(ParseSigned(text, end, base, LONG_MAX));
+}
+
+long Atol(const char *text)
+{
+    return long(ParseSigned(text, nullptr, 10, LONG_MAX));
+}
+
+long long Atoi64(const char *text)
+{
+    return ParseSigned(text, nullptr, 10, LLONG_MAX);
+}
+
+unsigned long long Wcstoui64(const wchar_t *text, wchar_t **end, int base)
+{
+    if (end) {
+        *end = const_cast<wchar_t *>(text);
+    }
+    if (!text || (base != 0 && (base < 2 || base > 36))) {
+        InvalidParameter();
+    }
+    unsigned long long magnitude;
+    bool negative, overflow;
+    if (!Parse(text, end, base, ULLONG_MAX, magnitude, negative, overflow)) {
+        return 0;
+    }
+    if (overflow) {
+        errno = ERANGE;
+        return ULLONG_MAX;
+    }
+    return negative ? 0ULL - magnitude : magnitude;
+}
+
+errno_t Ltow_s(long value, wchar_t *buffer, size_t size, int radix)
+{
+    if (!buffer || !size) {
+        InvalidParameter();
+    }
+    buffer[0] = 0;
+    if (radix < 2 || radix > 36) {
+        InvalidParameter();
+    }
+    const bool negative = radix == 10 && value < 0;
+    if (size <= size_t(negative ? 2 : 1)) {
+        InvalidParameter();
+    }
+    unsigned long magnitude = negative ? 0UL - (unsigned long)value : (unsigned long)value;
+    wchar_t digits[40];
+    size_t count = 0;
+    do {
+        const unsigned digit = unsigned(magnitude % unsigned(radix));
+        magnitude /= unsigned(radix);
+        digits[count++] = wchar_t(digit < 10 ? L'0' + digit : L'a' + digit - 10);
+    } while (magnitude);
+    if (count + (negative ? 1 : 0) >= size) {
+        buffer[0] = 0;
+        InvalidParameter();
+    }
+    size_t at = 0;
+    if (negative) {
+        buffer[at++] = L'-';
+    }
+    while (count) {
+        buffer[at++] = digits[--count];
+    }
+    buffer[at] = 0;
+    return 0;
+}
+
+size_t Strnlen(const char *text, size_t count)
+{
+    return Strncnt(text, count);
+}
+
+char *Strdup(const char *text)
+{
+    if (!text) {
+        return nullptr;
+    }
+    size_t length = 0;
+    while (text[length]) {
+        ++length;
+    }
+    auto *copy = static_cast<char *>(Malloc(length + 1));
+    if (copy) {
+        for (size_t i = 0; i <= length; ++i) {
+            copy[i] = text[i];
+        }
+    }
+    return copy;
+}
+
+int Strnicmp(const char *first, const char *second, size_t count)
+{
+    if (!count) {
+        return 0;
+    }
+    if (!first || !second) {
+        InvalidParameter();
+    }
+    int left, right;
+    do {
+        left = Tolower((unsigned char)*first++);
+        right = Tolower((unsigned char)*second++);
+    } while (--count && left && left == right);
+    return left - right;
+}
+
+errno_t Strupr_s(char *text, size_t size)
+{
+    if (!text || Strncnt(text, size) >= size) {
+        InvalidParameter();
+    }
+    for (; *text; ++text) {
+        *text = char(Toupper((unsigned char)*text));
+    }
+    return 0;
+}
+
+errno_t Wcslwr_s(wchar_t *text, size_t size)
+{
+    if (!text || Wcsnlen(text, size) >= size) {
+        InvalidParameter();
+    }
+    for (; *text; ++text) {
+        *text = wchar_t(Towlower(*text));
+    }
+    return 0;
+}
+
+char *Strtok_s(char *text, const char *delimiters, char **context)
+{
+    if (!context || !delimiters || (!text && !*context)) {
+        InvalidParameter();
+    }
+    char *p = text ? text : *context;
+    while (*p && Strchr(delimiters, *p)) {
+        ++p;
+    }
+    if (!*p) {
+        *context = p;
+        return nullptr;
+    }
+    char *token = p;
+    while (*p && !Strchr(delimiters, *p)) {
+        ++p;
+    }
+    if (*p) {
+        *p++ = 0;
+    }
+    *context = p;
+    return token;
+}
+
+errno_t Strcpy_s(char *destination, size_t size, const char *source)
+{
+    return Copy(destination, size, source);
+}
+
+errno_t Strcat_s(char *destination, size_t size, const char *source)
+{
+    return Append(destination, size, source);
+}
+
+errno_t Strncpy_s(char *destination, size_t size, const char *source, size_t count)
+{
+    return CopyCount(destination, size, source, count);
+}
+
+errno_t Strncat_s(char *destination, size_t size, const char *source, size_t count)
+{
+    return AppendCount(destination, size, source, count);
+}
+
+errno_t Wcscpy_s(wchar_t *destination, size_t size, const wchar_t *source)
+{
+    return Copy(destination, size, source);
+}
+
+errno_t Wcscat_s(wchar_t *destination, size_t size, const wchar_t *source)
+{
+    return Append(destination, size, source);
+}
+
+errno_t Wcsncpy_s(wchar_t *destination, size_t size, const wchar_t *source, size_t count)
+{
+    return CopyCount(destination, size, source, count);
+}
+
+errno_t Wcsncat_s(wchar_t *destination, size_t size, const wchar_t *source, size_t count)
+{
+    return AppendCount(destination, size, source, count);
+}
+
 } // namespace WitCrt
 
 #ifndef WITCRT_REFERENCE
@@ -473,5 +923,140 @@ extern "C" int __cdecl _wtoi(const wchar_t *text)
 extern "C" errno_t __cdecl _wcserror_s(wchar_t *buffer, size_t count, int error)
 {
     return WitCrt::Wcserror_s(buffer, count, error);
+}
+
+extern "C" int __cdecl isalpha(int value)
+{
+    return WitCrt::Isalpha(value);
+}
+
+extern "C" int __cdecl isdigit(int value)
+{
+    return WitCrt::Isdigit(value);
+}
+
+extern "C" int __cdecl iswalpha(wint_t value)
+{
+    return WitCrt::Iswctype(value, _ALPHA);
+}
+
+extern "C" int __cdecl iswspace(wint_t value)
+{
+    return WitCrt::Iswctype(value, _SPACE);
+}
+
+extern "C" int __cdecl iswupper(wint_t value)
+{
+    return WitCrt::Iswctype(value, _UPPER);
+}
+
+extern "C" int __cdecl iswascii(wint_t value)
+{
+    return WitCrt::Iswascii(value);
+}
+
+extern "C" wint_t __cdecl towlower(wint_t value)
+{
+    return WitCrt::Towlower(value);
+}
+
+extern "C" wint_t __cdecl towupper(wint_t value)
+{
+    return WitCrt::Towupper(value);
+}
+
+extern "C" long __cdecl strtol(const char *text, char **end, int base)
+{
+    return WitCrt::Strtol(text, end, base);
+}
+
+extern "C" long __cdecl atol(const char *text)
+{
+    return WitCrt::Atol(text);
+}
+
+extern "C" long long __cdecl _atoi64(const char *text)
+{
+    return WitCrt::Atoi64(text);
+}
+
+extern "C" unsigned long long __cdecl _wcstoui64(const wchar_t *text, wchar_t **end, int base)
+{
+    return WitCrt::Wcstoui64(text, end, base);
+}
+
+extern "C" errno_t __cdecl _ltow_s(long value, wchar_t *buffer, size_t size, int radix)
+{
+    return WitCrt::Ltow_s(value, buffer, size, radix);
+}
+
+extern "C" size_t __cdecl strnlen(const char *text, size_t count)
+{
+    return WitCrt::Strnlen(text, count);
+}
+
+extern "C" char *__cdecl _strdup(const char *text)
+{
+    return WitCrt::Strdup(text);
+}
+
+extern "C" int __cdecl _strnicmp(const char *first, const char *second, size_t count)
+{
+    return WitCrt::Strnicmp(first, second, count);
+}
+
+extern "C" errno_t __cdecl _strupr_s(char *text, size_t size)
+{
+    return WitCrt::Strupr_s(text, size);
+}
+
+extern "C" errno_t __cdecl _wcslwr_s(wchar_t *text, size_t size)
+{
+    return WitCrt::Wcslwr_s(text, size);
+}
+
+extern "C" char *__cdecl strtok_s(char *text, const char *delimiters, char **context)
+{
+    return WitCrt::Strtok_s(text, delimiters, context);
+}
+
+extern "C" errno_t __cdecl strcpy_s(char *destination, rsize_t size, const char *source)
+{
+    return WitCrt::Strcpy_s(destination, size, source);
+}
+
+extern "C" errno_t __cdecl strcat_s(char *destination, rsize_t size, const char *source)
+{
+    return WitCrt::Strcat_s(destination, size, source);
+}
+
+extern "C" errno_t __cdecl strncpy_s(char *destination, rsize_t size, const char *source, rsize_t count)
+{
+    return WitCrt::Strncpy_s(destination, size, source, count);
+}
+
+extern "C" errno_t __cdecl strncat_s(char *destination, rsize_t size, const char *source, rsize_t count)
+{
+    return WitCrt::Strncat_s(destination, size, source, count);
+}
+
+extern "C" errno_t __cdecl wcscpy_s(wchar_t *destination, rsize_t size, const wchar_t *source)
+{
+    return WitCrt::Wcscpy_s(destination, size, source);
+}
+
+extern "C" errno_t __cdecl wcscat_s(wchar_t *destination, rsize_t size, const wchar_t *source)
+{
+    return WitCrt::Wcscat_s(destination, size, source);
+}
+
+extern "C" errno_t __cdecl wcsncpy_s(wchar_t *destination, rsize_t size, const wchar_t *source, rsize_t count)
+{
+    return WitCrt::Wcsncpy_s(destination, size, source, count);
+}
+
+extern "C" errno_t __cdecl wcsncat_s(wchar_t *destination, rsize_t size, const wchar_t *source, rsize_t count)
+{
+    return WitCrt::Wcsncat_s(destination, size, source, count);
 }
 #endif

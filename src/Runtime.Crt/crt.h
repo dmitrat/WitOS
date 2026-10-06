@@ -129,6 +129,36 @@ wchar_t *Wcsstr(const wchar_t *text, const wchar_t *part);
 wchar_t *Wcsdup(const wchar_t *text);
 int Isctype(int value, unsigned short mask); // islower, isupper and isspace in the C locale
 
+/* The rest of the C runtime CoreCLR calls (P6.4.k3a2): character classes, integer parsing and formatting, and the
+ * secure string functions (string.cpp), and the environment and sorting (runtime.cpp). */
+int Isalpha(int value);
+int Isdigit(int value);
+int Iswctype(wint_t value, unsigned short mask); // Latin-1 from its table, beyond it the platform's classes
+int Iswascii(wint_t value);
+wint_t Towlower(wint_t value);
+wint_t Towupper(wint_t value);
+long Strtol(const char *text, char **end, int base);
+long Atol(const char *text);
+long long Atoi64(const char *text);
+unsigned long long Wcstoui64(const wchar_t *text, wchar_t **end, int base);
+errno_t Ltow_s(long value, wchar_t *buffer, size_t size, int radix);
+size_t Strnlen(const char *text, size_t count);
+char *Strdup(const char *text);
+int Strnicmp(const char *first, const char *second, size_t count);
+errno_t Strupr_s(char *text, size_t size);
+errno_t Wcslwr_s(wchar_t *text, size_t size);
+char *Strtok_s(char *text, const char *delimiters, char **context);
+errno_t Strcpy_s(char *destination, size_t size, const char *source);
+errno_t Strcat_s(char *destination, size_t size, const char *source);
+errno_t Strncpy_s(char *destination, size_t size, const char *source, size_t count);
+errno_t Strncat_s(char *destination, size_t size, const char *source, size_t count);
+errno_t Wcscpy_s(wchar_t *destination, size_t size, const wchar_t *source);
+errno_t Wcscat_s(wchar_t *destination, size_t size, const wchar_t *source);
+errno_t Wcsncpy_s(wchar_t *destination, size_t size, const wchar_t *source, size_t count);
+errno_t Wcsncat_s(wchar_t *destination, size_t size, const wchar_t *source, size_t count);
+char *Getenv(const char *name);
+void Qsort(void *base, size_t count, size_t width, int(__cdecl *compare)(const void *, const void *));
+
 /* Time (time.cpp). There is no time zone. The names are the C locale's: _Gettnames hands out the subset's own record
  * of them, which only _Strftime and _Wcsftime read, and the day and month lists are UCRT's colon-separated strings.
  * Formatting with such a record (`record`) takes %c and %r from its Windows date and time formats, as UCRT does. */
@@ -181,6 +211,10 @@ void *AllocateZeroed(size_t size);
 void *Reallocate(void *block, size_t size);
 void Free(void *block);
 bool UtcNow(__time64_t &seconds); // false without a UTC clock
+/* A copy of the process's environment block in the platform's ANSI code page, owned by the caller; null on failure. */
+char *NarrowEnvironment();
+/* The CT_CTYPE1 classes of a character beyond Latin-1. */
+unsigned short CharacterType(wchar_t value);
 /* A platform thread running start(argument): its handle, or null with errno set. The flags are CreateThread's. */
 void *CreateThread(
     void *security, unsigned stack, _beginthreadex_proc_type start, void *argument, unsigned flags, unsigned *id);
