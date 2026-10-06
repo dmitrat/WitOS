@@ -1,10 +1,12 @@
 # WitOS  
 ## Implementation Strategy & Milestone Plan  
-### Draft v0.1
+### Draft v0.2
 
 ## 1. Status
 
-Draft.
+Draft v0.1 of 2026-09, revised 2026-10-06 by §157 after [ADR 0024](Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md)
+(plan step A4). Sections keep their numbers because other documents cite them; the revision is appended as §157 and
+noted in the sections it affects (§13, §23, §28, §54, §151). The program is tracked in [PLAN.md](../PLAN.md).
 
 This document defines the initial implementation strategy for WitOS.
 
@@ -338,6 +340,10 @@ M10 — Distributed Resources
 
 Each milestone has a strict Definition of Done.
 
+Revision 2026-10-06: the milestones remain the goals and keep their definitions of done; the work toward them is
+tracked in the phases of PLAN.md, mapped in §157. The order M4, M5, then M6 is restored after the implementation had
+departed from it (§157).
+
 ---
 
 # 14. M0 — Boot
@@ -501,6 +507,9 @@ The first version may use only the bootstrap processor.
 
 However, implementation should avoid unnecessary assumptions that only one processor can ever exist.
 
+Revision 2026-10-06: the implemented kernel did acquire single-processor invariants; §157 records how plan steps K7
+and phase P remove them.
+
 ---
 
 # 24. M1 Definition of Done
@@ -575,6 +584,9 @@ CapabilityClose
 ```
 
 Exact ABI is deferred.
+
+Revision 2026-10-06: [RFC 0011 v3](RFC-0011-Kernel-Architecture-and-ABI.md) §7 defines ABI-1, the kernel's call
+families; this list stands as its sketch.
 
 ---
 
@@ -952,6 +964,10 @@ standard BCL
 through a WitOS platform port.
 
 The objective is upstream-compatible .NET rather than a WitOS-specific CLR fork.
+
+Revision 2026-10-06: [RFC 0015 v2](RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md) defines the port: the
+Unix form of upstream .NET as `TargetOS=witos`, with a recorded patch set and a compatibility contract for unchanged
+portable binaries.
 
 ---
 
@@ -2519,6 +2535,9 @@ minimal user ABI
 
 It should not attempt to fully specify every future kernel mechanism.
 
+Revision 2026-10-06: M0–M3 are done and RFC 0011 v3 specifies ABI-1 in full; the next work is the phases of PLAN.md
+(§157).
+
 ---
 
 # 152. Initial Implementation Sequence
@@ -2647,6 +2666,95 @@ Standard .NET compatibility should be reached before substantial graphical work.
 The graphical shell should come after graphical application infrastructure, not before it.
 
 Distributed resource execution should eventually demonstrate the architectural reason WitOS exists.
+
+---
+
+# 157. Revision 2026-10-06: The Three-Layer Program
+
+## What happened
+
+M0–M3 were implemented in the order of §13 between 2026-09-16 and 2026-09-20: the kernel boots through UEFI on x64
+and later ARM64, runs isolated components, and upstream .NET 10.0.8 NativeAOT with the standard CoreLib passed the M3
+acceptance (GC, exceptions, finalization, threads and TLS, waits) in the guest.
+
+After M3 the work went to M6 before M4 and M5, because the first JIT run looked closest. Without the device manager
+and the storage services that M4 and M5 would have built, the kernel took over what those services should hold: a PE
+loader with import resolution and the DLL lifecycle, a file namespace over the boot package, the environment and the
+current directory. About 3,900 of the common kernel's 9,241 lines became policy, against §8 of RFC 0001 and
+Invariant 8 of §150. The runtime work settled on the Windows form of upstream .NET, and supplying its imports built a
+Win32 facade of about 11,000 lines.
+
+[ADR 0024](Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md) records the hypothesis, its failure and the
+reset, as §121 and §122 require. The review §153 asks for after the first managed program found what it was meant to
+find, kernel complexity and an awkward managed/native boundary; it found it late, and the correction follows the
+sequence §153 prescribes: fix the fundamentals before devices and storage.
+
+## The order restored
+
+M4 and M5 come before M6, as §13 says. The milestones stay the goals with their definitions of done (§45, §52, §60);
+PLAN.md tracks the work in phases, each with steps such as `K2.1`:
+
+| Milestone | Plan phase | Note |
+|---|---|---|
+| M0–M3 | done | M3 passed in the Windows form; it is passed again in the Unix form at step R2 |
+| kernel of mechanisms | K | the policy leaves the kernel; channels, device delegation, processes, UTC, SMP groundwork join it |
+| toolchain | T | clang and lld, ELF, the SysV and Itanium ABIs; builds on Linux and Windows hosts |
+| system layer | S | libc (musl), pthreads, minimal signals, libunwind and libc++, `ld.so`, the root task and process manager |
+| runtime port | R | upstream .NET in its Unix form, `TargetOS=witos`; step R6 is the first IL through the JIT |
+| M4, M5 | D | after steps K3 and R2: the device manager and drivers are NativeAOT components |
+| M6 | N | after R and D: the compatibility suite of §57, representative libraries, several runtimes, the application environment |
+| RISC-V (§131) | V | the third ISA; it proves that a platform costs a kernel port and a recompilation |
+| SMP scheduler | P | after the first pass of N |
+| M7–M10 | W | detailed after N |
+
+Phase R is infrastructure of both M4/M5 and M6 and runs in parallel with D rather than after it: D1 needs R2
+because the device manager is a NativeAOT component, and N needs D5 because `System.IO` reaches files through the
+namespace service. The first IL through the JIT (R6) is not the definition of done of M6; §60 is, and it follows D.
+
+## Layers and interfaces
+
+The architecture is three layers with two interfaces (ADR 0024, RFC 0011 v3): a nano-kernel of mechanisms whose
+hardware part is the UHI of RFC 0007; a user-space system layer that owns loading, process state and the runtime
+substrate; unchanged upstream .NET in its Unix form (RFC 0015 v2). ABI-1 between the first two is narrow and
+versioned; ABI-2 between the last two is the C library and WitOS's capability API and stays compatible for years.
+Neither Win32 nor POSIX is an external contract of WitOS. The native code budget of §133 is met by shrinking the kernel
+(step K8) and by taking the substrate from pinned open code rather than writing it.
+
+## SMP
+
+§23 allows M1 to run on the bootstrap processor and forbids assuming that one processor is all there is. The
+implemented kernel did assume it: the process write barrier, code publication and every system call rely on one
+online processor with interrupts disabled. SMP is not a milestone of §13; it is a cross-cutting concern in two
+halves. Plan step K7 lays the groundwork inside the kernel: per-CPU state, secondary processor start (MADT on q35,
+PSCI on virt), inter-processor interrupts, remote fencing for the process barrier instead of the single-processor
+invariant, TLB shootdown, and a `PROCESSOR_QUERY` that reports topology (RFC 0011 §7.9); the scheduler stays on one
+CPU. Phase P, after the first pass of M6, adds the scheduler on N CPUs, affinity by RFC 0005, and the runtime's server
+GC and ThreadPool scaling under the compatibility suite.
+
+## UTC
+
+No milestone of §13 names wall-clock time, and the implemented kernel has monotonic clocks alone (HPET on q35, the
+generic counter on virt). M5 needs file timestamps, M6 needs `DateTime.UtcNow`, M7 needs certificate validity. Plan
+step K6 adds a UTC source through the UHI (RTC on q35, PL031 on virt) and the `UTC` clock of `CLOCK_READ` (RFC 0011
+§7.10): nanoseconds since 1970 as read at boot plus the monotonic delta; the libc serves it as `CLOCK_REALTIME`
+(RFC 0015 §5). Monotonic and wall-clock time stay distinct, as RFC 0007 §43–§44 require. Setting the clock is a
+policy with a capability; time zones come later from tzdata in a package.
+
+## Several .NET versions
+
+Goal 5 of ADR 0024 is that several .NET versions are installed and used at once. The mechanism is the ordinary
+shared-framework layout under `/dotnet` with `hostfxr` roll-forward selection by `runtimeconfig.json` (RFC 0015 §7);
+the precondition is ABI-2 stability (RFC 0011 §10.2): every runtime links the same libc and `libwitos`, and an older
+runtime never needs a symbol the system layer lacks. Each release branch of dotnet/runtime carries its own patch set.
+Plan step N3 proves it with .NET 8 LTS and .NET 10 in one image; step R8 rehearses the cost of a new release (goal 4)
+by rebasing the patch set on the next 10.0.x and on a .NET 11 preview and measuring the effort.
+
+## Documents
+
+RFC 0011 v3 (kernel architecture, ABI-1 and ABI-2) and RFC 0015 v2 (runtime port and compatibility contract) are
+the specifications phases K, S, R and N implement; ADR 0024 is the decision; PLAN.md is the tracker;
+`Implementation/Plan-Archive-2026-10-06.md` keeps the plan this revision replaced and `Implementation/P6.4-Plan.md`
+the frozen Windows-form line, which stays in the tree until step R2 and is then removed.
 
 The implementation philosophy is:
 
