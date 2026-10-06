@@ -161,6 +161,20 @@ private:
     const Locale &locale_;
 };
 
+/* Narrow formatted output: its bytes as they are, text mode adding CR before LF. */
+class NarrowStreamOutput final : public NarrowOutput {
+public:
+    explicit NarrowStreamOutput(Writer &writer) : writer_(writer) {}
+
+    bool Write(const char *text, size_t count) override
+    {
+        return writer_.Put(text, count);
+    }
+
+private:
+    Writer &writer_;
+};
+
 } // namespace
 
 FILE *Iob(unsigned index)
@@ -388,6 +402,105 @@ int Wrename(const wchar_t *from, const wchar_t *to)
     return Platform::Rename(from, to) ? 0 : -1;
 }
 
+/* The narrow and descriptor functions CoreCLR calls (P6.4.k3a4): fprintf for container assertions, fopen and _wfopen
+ * for the GC's and PGO's diagnostic files, _fileno and _write for minipal's error log, _flushall before a debug break. */
+int Vfprintf(unsigned long long options, FILE *file, const char *format, _locale_t locale, va_list args)
+{
+    Stream &stream = From(file);
+    if (!format) {
+        InvalidParameter();
+    }
+    const Locale &resolved = Resolve(locale);
+    Platform::Acquire(stream.Lock);
+    Writer writer(stream);
+    NarrowStreamOutput output(writer);
+    int result = Format(output, options, false, format, resolved, args);
+    if (!writer.Finish()) {
+        result = -1;
+    }
+    Platform::Release(stream.Lock);
+    return result;
+}
+
+/* fopen and _wfopen open as _fsopen and _wfsopen with _SH_DENYNO, as in UCRT; a narrow path is in the platform's ANSI
+ * code page. */
+FILE *Fopen(const char *path, const char *mode)
+{
+    if (!path || !mode || !*path) {
+        InvalidParameter();
+    }
+    wchar_t wideMode[16];
+    size_t length = 0;
+    for (; mode[length]; ++length) {
+        if (length + 1 == sizeof(wideMode) / sizeof(wideMode[0]) || static_cast<unsigned char>(mode[length]) > 0x7F) {
+            InvalidParameter(); // no mode the subset implements has more or other characters
+        }
+        wideMode[length] = wchar_t(mode[length]);
+    }
+    wideMode[length] = 0;
+    wchar_t *widePath = Platform::WidePath(path);
+    if (!widePath) {
+        return nullptr;
+    }
+    FILE *file = Wfsopen(widePath, wideMode, _SH_DENYNO);
+    const int error = errno;
+    Platform::Free(widePath);
+    errno = error;
+    return file;
+}
+
+FILE *Wfopen(const wchar_t *path, const wchar_t *mode)
+{
+    return Wfsopen(path, mode, _SH_DENYNO);
+}
+
+/* The standard streams are descriptors 0 to 2. Files have no descriptors here: asking for one is not implemented. */
+int Fileno(FILE *file)
+{
+    Stream &stream = From(file);
+    if (!stream.Standard) {
+        InvalidParameter();
+    }
+    return int(stream.Standard - 1);
+}
+
+/* _write to standard output or error, in the text mode UCRT opens them in: CR before every LF; the result counts the
+ * caller's bytes. The standard streams are unbuffered, so their order with stdio holds. Other descriptors are not
+ * implemented. */
+int WriteDescriptor(int descriptor, const void *data, unsigned count)
+{
+    if (descriptor != 1 && descriptor != 2) {
+        InvalidParameter();
+    }
+    if (!count) {
+        return 0;
+    }
+    if (!data) {
+        InvalidParameter();
+    }
+    Stream &stream = standard[descriptor];
+    Platform::Acquire(stream.Lock);
+    Writer writer(stream);
+    const bool written = writer.Put(static_cast<const char *>(data), count) && writer.Finish();
+    Platform::Release(stream.Lock);
+    return written ? int(count) : -1;
+}
+
+/* Flushes every file and counts the open streams, the three standard ones and the files, as UCRT does. */
+int Flushall()
+{
+    int count = 3;
+    Platform::Acquire(filesLock);
+    for (Stream *stream = files; stream; stream = stream->Next) {
+        Platform::Acquire(stream->Lock);
+        (void)FlushLocked(*stream);
+        Platform::Release(stream->Lock);
+        ++count;
+    }
+    Platform::Release(filesLock);
+    return count;
+}
+
 void InitializeStdioOptions()
 {
     // What the startup code of a UCRT module sets: legacy wide specifiers and standard rounding for printf, legacy
@@ -459,6 +572,43 @@ extern "C" int __cdecl _wremove(const wchar_t *path)
 extern "C" int __cdecl _wrename(const wchar_t *from, const wchar_t *to)
 {
     return WitCrt::Wrename(from, to);
+}
+
+extern "C" int __cdecl __stdio_common_vfprintf(
+    unsigned __int64 options, FILE *stream, const char *format, _locale_t locale, va_list args)
+{
+    return WitCrt::Vfprintf(options, stream, format, locale, args);
+}
+
+extern "C" FILE *__cdecl fopen(const char *path, const char *mode)
+{
+    return WitCrt::Fopen(path, mode);
+}
+
+extern "C" FILE *__cdecl _wfopen(const wchar_t *path, const wchar_t *mode)
+{
+    return WitCrt::Wfopen(path, mode);
+}
+
+extern "C" int __cdecl _fileno(FILE *stream)
+{
+    return WitCrt::Fileno(stream);
+}
+
+extern "C" int __cdecl _write(int descriptor, const void *data, unsigned count)
+{
+    return WitCrt::WriteDescriptor(descriptor, data, count);
+}
+
+extern "C" int __cdecl _flushall(void)
+{
+    return WitCrt::Flushall();
+}
+
+/* Reading is not implemented. */
+extern "C" char *__cdecl fgets(char *, int, FILE *)
+{
+    WitCrt::InvalidParameter();
 }
 
 /* Called by the module's startup before any formatted output. */

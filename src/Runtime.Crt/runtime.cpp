@@ -265,6 +265,19 @@ extern "C" float __cdecl strtof(const char *, char **)
     WitCrt::InvalidParameter();
 }
 
+/* CoreCLR imports wcstod and scanf only from code it does not run here (P6.4.k3a4): wcstod with u16_strtod, which
+ * only ilasm calls, and sscanf_s with the reading of PGO text files, which needs reading streams. Both are unimplemented
+ * and end the process. */
+extern "C" double __cdecl wcstod(const wchar_t *, wchar_t **)
+{
+    WitCrt::InvalidParameter();
+}
+
+extern "C" int __cdecl __stdio_common_vsscanf(unsigned __int64, const char *, size_t, const char *, _locale_t, va_list)
+{
+    WitCrt::InvalidParameter();
+}
+
 /* std::terminate without terminate handlers, like the C++ runtime's __std_terminate. */
 extern "C" __declspec(noreturn) void __cdecl terminate() noexcept
 {

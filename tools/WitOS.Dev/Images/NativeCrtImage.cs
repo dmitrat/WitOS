@@ -18,7 +18,7 @@ internal static class NativeCrtImage
     /// and the mathematics.
     /// </summary>
     public const string WINDOWS_TRACE = "o1:36 o2:2 o3:0 o4:28 o5:46 o6:10 o7:0 o8:0 o9:17 o10:1 o11:42 o12:2 o13:0 " +
-        "o14:13 o15:0 o16:10 " +
+        "o14:13 o15:0 o16:10 o17:28 o18:1 o19:2 o20:12 o21:3 " +
         "f1:93:0:wide|narrow|N|w|n|___42|ff___|010|+7|0000000000001234|%|-0042|005|-1234567890123|abcdef012345 " +
         "f2:88:0:[_____1][2___][0003][0ab_____][44][4464][18446744073709551615][0XBEEF][long][pr][___pad] " +
         "f3:-1:0:12345 f4:-1:0:abc f5:-1:0:123 f6:5:0:12345## f7:3:0:123 f8:8 f9:19:0:[(null)][(null)][\\u00E9] " +
@@ -42,12 +42,13 @@ internal static class NativeCrtImage
     /// <summary>
     /// The lines the scenarios print on standard output and standard error, in text mode.
     /// </summary>
-    public const string STANDARD_OUTPUT = "[CRT-STDOUT] wide narrow 42\r\n.\r\n?\r\n[CRT-FWRITE]\r\n[CRT-FPUTS]\r\n";
+    public const string STANDARD_OUTPUT =
+        "[CRT-STDOUT] wide narrow 42\r\n.\r\n?\r\n[CRT-FWRITE]\r\n[CRT-FPUTS]\r\n[CRT-FPRINTF] narrow 7 wide\r\n";
 
     /// <summary>
     /// The line the scenarios print on standard error.
     /// </summary>
-    public const string STANDARD_ERROR = "[CRT-STDERR] err\r\n";
+    public const string STANDARD_ERROR = "[CRT-STDERR] err\r\n[CRT-WRITE]\r\n";
 
     /// <summary>
     /// Sources of the WitOS UCRT subset.

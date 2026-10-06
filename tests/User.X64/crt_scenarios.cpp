@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <fenv.h>
 #include <float.h>
+#include <io.h>
 #include <limits.h>
 #include <locale.h>
 #include <math.h>
@@ -477,6 +478,12 @@ void Streams()
     Number("o14", (long long)fwrite("[CRT-FWRITE]\n", 1, 13, stdout));
     Number("o15", fputs("[CRT-FPUTS]", stdout));
     Number("o16", fputc('\n' + 256, stdout)); // the low byte
+    // The narrow and descriptor functions CoreCLR calls (P6.4.k3a4).
+    Number("o17", fprintf(stdout, "[CRT-FPRINTF] %s %d %ls\n", "narrow", 7, L"wide"));
+    Number("o18", _fileno(stdout));
+    Number("o19", _fileno(stderr));
+    Number("o20", _write(2, "[CRT-WRITE]\n", 12));
+    Number("o21", _flushall());
 }
 
 } // namespace

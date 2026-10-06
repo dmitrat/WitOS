@@ -139,6 +139,26 @@ char *NarrowEnvironment()
     return narrow;
 }
 
+wchar_t *WidePath(const char *path)
+{
+    const int units = MultiByteToWideChar(CP_ACP, MB_ERR_INVALID_CHARS, path, -1, nullptr, 0);
+    if (units <= 0) {
+        errno = EILSEQ;
+        return nullptr;
+    }
+    auto *wide = static_cast<wchar_t *>(Allocate(size_t(units) * sizeof(wchar_t)));
+    if (!wide) {
+        errno = ENOMEM;
+        return nullptr;
+    }
+    if (MultiByteToWideChar(CP_ACP, MB_ERR_INVALID_CHARS, path, -1, wide, units) != units) {
+        Free(wide);
+        errno = EILSEQ;
+        return nullptr;
+    }
+    return wide;
+}
+
 unsigned short CharacterType(wchar_t value)
 {
     WORD type = 0;
