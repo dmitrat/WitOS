@@ -14,7 +14,8 @@ namespace WitOS.Dev.CoreClr;
 /// as a WitOS C++ library links, without default libraries, over the WitOS C++ runtime, UCRT subset, STL sources and
 /// the guest's native support, with upstream's own static libraries. The Windows libraries upstream links are left
 /// out; what they would supply is the image's unresolved externals, which must equal the recorded expectation in both
-/// directions. A link with none is not yet a runtime that runs in the guest.
+/// directions. The inventory includes the references only code generation makes (P6.4.k3a3a). A link with none is not
+/// yet a runtime that runs in the guest.
 /// </summary>
 internal static class CoreClrGuest
 {
@@ -73,8 +74,12 @@ internal static class CoreClrGuest
         var upstream = edge.Libraries.Where(name => name.Contains('\\')).ToArray();
         var windows = edge.Libraries.Where(name => !name.Contains('\\')).Distinct(StringComparer.OrdinalIgnoreCase).Append("ucrt.lib").ToArray();
         var image = Path.Combine(output, "coreclr.dll");
+        // Link-time code generation makes the calls to the compiler's intrinsic functions (the mathematics, strncmp,
+        // strncpy) only after its first pass, which stops at that pass's unresolved externals. The link forces past
+        // them to reach code generation and its references; the forced image is deleted, never published or loaded.
+        // Like the host, the image carries no CFG or EH continuation metadata, which WitOS does not enforce.
         string[] arguments = ["/nologo", "/dll", "/entry:wit_library_cxx_entry", "/include:_tls_used", "/nodefaultlib",
-            "/machine:x64", "/LTCG", "/OPT:REF", "/OPT:ICF", "/guard:cf", "/guard:ehcont", "/DEF:" + edge.Definition,
+            "/machine:x64", "/LTCG", "/OPT:REF", "/OPT:ICF", "/FORCE:UNRESOLVED", "/DEF:" + edge.Definition,
             "/out:" + image, .. edge.Objects, .. upstream, .. runtimes, .. library];
         var response = Path.Combine(output, "coreclr.rsp");
         await File.WriteAllLinesAsync(response, arguments.Select(argument => argument.Contains(' ') ? '"' + argument + '"' : argument));
@@ -82,16 +87,22 @@ internal static class CoreClrGuest
         var result = await Processes.RunAsync(linker, ["@" + response], tree, 1800);
         var log = result.Output + result.Error;
         await File.WriteAllTextAsync(Path.Combine(output, "coreclr.link.log"), log);
+        File.Delete(image);
         if (result.TimedOut)
             throw new TimeoutException("Linking coreclr.dll timed out.");
-        var unresolved = new SortedSet<string>(StringComparer.Ordinal);
-        foreach (Match match in UNRESOLVED.Matches(log))
-            unresolved.Add(match.Groups["decorated"].Success ? match.Groups["decorated"].Value : match.Groups["name"].Value);
         var other = log.Split('\n').Where(line => line.Contains(" error LNK", StringComparison.Ordinal) &&
-            !line.Contains("LNK2001", StringComparison.Ordinal) && !line.Contains("LNK2019", StringComparison.Ordinal) &&
-            !line.Contains("LNK1120", StringComparison.Ordinal)).ToArray();
-        if (other.Length > 0 || (result.ExitCode != 0 && unresolved.Count == 0))
+            !line.Contains("LNK2001", StringComparison.Ordinal) && !line.Contains("LNK2019", StringComparison.Ordinal)).ToArray();
+        var generating = log.IndexOf("Generating code", StringComparison.Ordinal);
+        var generated = log.IndexOf("Finished generating code", StringComparison.Ordinal);
+        if (other.Length > 0 || result.ExitCode != 0 || generating < 0 || generated < generating)
             throw new InvalidDataException($"Linking coreclr.dll failed beyond unresolved externals:\n{string.Join('\n', other)}\n{log}");
+        // Code generation reports the first pass's externals again, through their imports.
+        var first = Unresolved(log[..generating]).ToHashSet(StringComparer.Ordinal);
+        var unresolved = new SortedSet<string>(first, StringComparer.Ordinal);
+        var known = first.Select(Bare).ToHashSet(StringComparer.Ordinal);
+        foreach (var symbol in Unresolved(log[generated..]))
+            if (known.Add(Bare(symbol)))
+                unresolved.Add(symbol);
 
         // Each external by the Windows or CRT library upstream takes it from, for the report.
         var owners = await OwnersAsync(Path.GetDirectoryName(linker)!, msvc, windows);
@@ -126,12 +137,14 @@ internal static class CoreClrGuest
             upstreamLibraries = upstream,
             replacedLibraries = windows,
             unresolved = unresolved.Count,
+            revealedByCodeGeneration = unresolved.Count - first.Count,
             byLibrary = groups,
             expectedSha256 = Hash(Path.Combine(root, EXPECTED)),
             scope = "Upstream CoreCLR objects of the pinned reference build linked for the guest over WitOS's runtimes; " +
                 "unresolved externals inventory, not a runtime that runs in the guest"
         });
-        Console.WriteLine($"[CORECLR-GUEST] coreclr: {unresolved.Count} unresolved externals, as expected.");
+        Console.WriteLine($"[CORECLR-GUEST] coreclr: {unresolved.Count} unresolved externals, as expected " +
+            $"({unresolved.Count - first.Count} revealed by code generation).");
         foreach (var (owner, count) in groups)
             Console.WriteLine($"[CORECLR-GUEST]   {count,4} {owner}");
     }
@@ -155,6 +168,14 @@ internal static class CoreClrGuest
         }
         return owners;
     }
+
+    // The unresolved externals a part of a link log reports, by their decorated names.
+    private static IEnumerable<string> Unresolved(string log) => UNRESOLVED.Matches(log)
+        .Select(match => match.Groups["decorated"].Success ? match.Groups["decorated"].Value : match.Groups["name"].Value);
+
+    // A symbol without its import prefix.
+    private static string Bare(string symbol) =>
+        symbol.StartsWith("__imp_", StringComparison.Ordinal) ? symbol["__imp_".Length..] : symbol;
 
     // "unresolved external symbol name" or "unresolved external symbol "undecorated" (decorated)".
     private static readonly Regex UNRESOLVED = new(

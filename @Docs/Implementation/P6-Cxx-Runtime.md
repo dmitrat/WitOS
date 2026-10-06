@@ -107,6 +107,7 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
     kernel's limits, threads in libraries, the TEB and one exception dispatcher.
     - [x] **P6.4.k3a1** vcruntime's searches and range-check report.
     - [x] **P6.4.k3a2** UCRT's classes, integers, secure strings, environment and sorting.
+    - [x] **P6.4.k3a3a** The inventory that code generation reveals.
 
 ## P6.4.e: the exception runtime on Windows
 
@@ -1113,4 +1114,33 @@ Evidence. A new section of the in-process differential compares each function wi
 
 That adds 5.1 million comparisons to the 13.4 million before, with none failing. The inventory falls from 271 to
 241; ucrt's share from 54 to 24, which are formatting and scanning, mathematics, `wcstod`, `_controlfp_s` and files.
+
+#### P6.4.k3a3a: what code generation reveals
+
+The inventory was incomplete. CoreCLR's objects carry link-time code generation. The linker reports unresolved
+externals after its first pass, before it generates code. A call to a function the compiler treats as intrinsic, such
+as `sin` or `pow`, becomes a reference only when code is generated, and the link stopped before that point.
+
+A small test shows the effect. An object that calls `sin`, `acosh`, `pow` and `floor`, compiled with `/GL`, reports
+only `acosh` and the GS check. Compiled without `/GL`, it reports all four functions and `_fltused`.
+
+`coreclr-guest` now forces the link past the first pass's unresolved externals (`/FORCE:UNRESOLVED`), so the link
+reaches code generation. The command collects what each stage reports and deletes the forced image, which is never
+published or loaded. The gate still passes only when the inventory equals the recorded one. Code generation reports
+the first pass's externals again, through their imports (`__imp_acosh` for `acosh`). A symbol joins the inventory from
+code generation only when it is new.
+
+The link also drops `/guard:cf` and `/guard:ehcont`, as the host's link does. Upstream links CoreCLR with them for
+Windows' Control Flow Guard and CET, and WitOS enforces neither. EH continuation metadata also needs every module
+compiled with `/guard:ehcont`, which the WitOS runtimes are not: the forced link stopped with LNK2047 after generating
+code.
+
+The inventory grows from 241 to 280. The new symbols are 37 mathematical functions, double and float (`acos` to
+`tanhf`, including `fma`, `fmod`, `pow` and `sqrt`), plus `strncmp` and `strncpy`. UCRT's share is now 63:
+
+- 48 mathematical functions;
+- the formatting and scanning entries;
+- `wcstod` and `_controlfp_s`;
+- the file functions;
+- the two string functions.
 
