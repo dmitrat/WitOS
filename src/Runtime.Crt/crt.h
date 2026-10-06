@@ -184,6 +184,70 @@ short Dclass(double value);
 double Fabs(double value);
 long long Llabs(long long value); // the most negative value stays itself, as in UCRT
 
+/* Mathematics (math.cpp): OpenLibm's double functions with UCRT's errno; each float function is its double function
+ * rounded once to float, except fmaf, OpenLibm's own. The lists name the C function and the subset's: X(c, Subset),
+ * and for float the double function it rounds. */
+#define WITCRT_MATH_UNARY(X) \
+    X(acos, Acos) \
+    X(asin, Asin) \
+    X(atan, Atan) \
+    X(ceil, Ceil) \
+    X(cos, Cos) \
+    X(cosh, Cosh) \
+    X(exp, Exp) \
+    X(log, Log) \
+    X(log10, Log10) \
+    X(log2, Log2) \
+    X(sin, Sin) \
+    X(sinh, Sinh) \
+    X(sqrt, Sqrt) \
+    X(tan, Tan) \
+    X(tanh, Tanh) \
+    X(acosh, Acosh) \
+    X(asinh, Asinh) \
+    X(atanh, Atanh) \
+    X(cbrt, Cbrt) \
+    X(round, Round)
+#define WITCRT_MATH_BINARY(X) \
+    X(atan2, Atan2) \
+    X(pow, Pow) \
+    X(fmod, Fmod)
+#define WITCRT_MATH_UNARY_FLOAT(X) \
+    X(acosf, Acosf, acos) \
+    X(asinf, Asinf, asin) \
+    X(atanf, Atanf, atan) \
+    X(cosf, Cosf, cos) \
+    X(coshf, Coshf, cosh) \
+    X(expf, Expf, exp) \
+    X(log10f, Log10f, log10) \
+    X(log2f, Log2f, log2) \
+    X(logf, Logf, log) \
+    X(sinf, Sinf, sin) \
+    X(sinhf, Sinhf, sinh) \
+    X(tanf, Tanf, tan) \
+    X(tanhf, Tanhf, tanh) \
+    X(acoshf, Acoshf, acosh) \
+    X(asinhf, Asinhf, asinh) \
+    X(atanhf, Atanhf, atanh) \
+    X(cbrtf, Cbrtf, cbrt) \
+    X(roundf, Roundf, round)
+#define WITCRT_MATH_BINARY_FLOAT(X) \
+    X(atan2f, Atan2f, atan2) \
+    X(powf, Powf, pow) \
+    X(fmodf, Fmodf, fmod)
+#define WITCRT_DECLARE_UNARY(c, Subset) double Subset(double x);
+#define WITCRT_DECLARE_BINARY(c, Subset) double Subset(double x, double y);
+#define WITCRT_DECLARE_UNARY_FLOAT(c, Subset, of) float Subset(float x);
+#define WITCRT_DECLARE_BINARY_FLOAT(c, Subset, of) float Subset(float x, float y);
+WITCRT_MATH_UNARY(WITCRT_DECLARE_UNARY)
+WITCRT_MATH_BINARY(WITCRT_DECLARE_BINARY)
+WITCRT_MATH_UNARY_FLOAT(WITCRT_DECLARE_UNARY_FLOAT)
+WITCRT_MATH_BINARY_FLOAT(WITCRT_DECLARE_BINARY_FLOAT)
+double Fma(double x, double y, double z);
+float Fmaf(float x, float y, float z);
+double Modf(double x, double *integer);
+float Modff(float x, float *integer);
+
 /* The floating-point environment (fenv.cpp): MXCSR's, as in UCRT on x64. */
 int Controlfp_s(unsigned *current, unsigned value, unsigned mask);
 int Fegetround();

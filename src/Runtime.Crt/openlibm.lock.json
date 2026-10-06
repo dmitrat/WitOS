@@ -1,0 +1,207 @@
+{
+  "repository": "https://github.com/JuliaMath/openlibm",
+  "revision": "9fbeafcd4f1b6ef6aa3946c1c8faead50f38a94d",
+  "tag": "v0.8.7",
+  "sources": [
+    {
+      "path": "include/openlibm_defs.h",
+      "sha256": "3967372af64f76527304d752755b4ccaa2c23f8797e92413899111553df26931"
+    },
+    {
+      "path": "include/openlibm_fenv.h",
+      "sha256": "07e8af057dc146a44d07e5afffc953cec665f20f1bd52cd7fe9f5f2a4eccc7ab"
+    },
+    {
+      "path": "include/openlibm_math.h",
+      "sha256": "0330f443aadc9016e6722912f83f1512fea7da9e533d09e8ea890c94879b964f"
+    },
+    {
+      "path": "src/cdefs-compat.h",
+      "sha256": "0735fe65ceaee64ac4eb45576682b7d64b410838ae33253b9b7c775f55ccbc93"
+    },
+    {
+      "path": "src/e_acos.c",
+      "sha256": "16487816411d2c9179ec3218f0c909d2aecd1f780b9f03a1bea1995f82b831d2"
+    },
+    {
+      "path": "src/e_acosh.c",
+      "sha256": "c2148cbb765d5c63cdddb94cbc466f31c422ecf43db7583119d906c617d71370"
+    },
+    {
+      "path": "src/e_asin.c",
+      "sha256": "87820acf0d37ab8c16790a77d71d619cd71d83b797e8384f65f7cc844ac8bf55"
+    },
+    {
+      "path": "src/e_atan2.c",
+      "sha256": "56780ad4087137c9e745b12fe9fd1b87bc36b8c85ea8d40b0c7fec316491ed52"
+    },
+    {
+      "path": "src/e_atanh.c",
+      "sha256": "251c2115e236a51393ccf92edab364cc741c6f650ac3936f22c1e7088e07416c"
+    },
+    {
+      "path": "src/e_cosh.c",
+      "sha256": "8eed480b4e3eae08b480200bf3adc8584f4f7c24e90e081edb6f0e5f8cadc6aa"
+    },
+    {
+      "path": "src/e_exp.c",
+      "sha256": "870c86c084296ef8838377c53ffc32cf0131e559e5188d400c0c2199b57670ca"
+    },
+    {
+      "path": "src/e_fmod.c",
+      "sha256": "0ebe01d28c7c2756efa99eef9cd8d5ec66a843bc12c2a3c5639639d522c0fe67"
+    },
+    {
+      "path": "src/e_log.c",
+      "sha256": "8996b789a4cbbcef7cf7d568c1be558ce9110900a40ca6c46fb4ed46c343cafd"
+    },
+    {
+      "path": "src/e_log10.c",
+      "sha256": "96346b524dda8bcecd4ee690577efee9b4a5e4fca83b00e7adf2eeb2430c0989"
+    },
+    {
+      "path": "src/e_log2.c",
+      "sha256": "bda62faa51891879040614ea0762d335e9f2c96397cefcd5d8268b3bee5e3acb"
+    },
+    {
+      "path": "src/e_pow.c",
+      "sha256": "13c580f60a6e2f48ef36ff1e9c46cdd394c9cd9c0fceb18f2526404fcb949ec7"
+    },
+    {
+      "path": "src/e_rem_pio2.c",
+      "sha256": "70218a9f96dde3f3045521600330d9c46040212c617a1bfd539cc1e766e6660b"
+    },
+    {
+      "path": "src/e_sinh.c",
+      "sha256": "54200dd914722f8305c04142955d027bc83630321b31ca2fa26bce7f38163ec1"
+    },
+    {
+      "path": "src/fpmath.h",
+      "sha256": "49bce4b53605cf4886fa6d4abe7e5b18cb5d61a235d9a0f203d131cc770c731b"
+    },
+    {
+      "path": "src/k_cos.c",
+      "sha256": "3d7fce5fa51a8469bf69ff3757109986872f889b73efecd2a9787f0584797cb3"
+    },
+    {
+      "path": "src/k_exp.c",
+      "sha256": "dba02ac48adf69aef595a33e78c381fb3e5add695e6b9d11afb4231f73b0ec8b"
+    },
+    {
+      "path": "src/k_log.h",
+      "sha256": "739f9832a62c487c2b511ab6dca4a728ecc1cfec2bf896cc828fbd964f77ca13"
+    },
+    {
+      "path": "src/k_rem_pio2.c",
+      "sha256": "ade789bf2edce95bcbe7582caf9978c4b0759891c1f5e4fca9278bd4715de2a8"
+    },
+    {
+      "path": "src/k_sin.c",
+      "sha256": "1c9ab096c98e3f589aeb7a14619fb82e4b63e82f6ee9be8349af8c96de2a3e7a"
+    },
+    {
+      "path": "src/k_tan.c",
+      "sha256": "064042ee5d51dd4aa7ecfb21ea20e941565a21475d156a80ecacb1db0aa3771a"
+    },
+    {
+      "path": "src/math_private.h",
+      "sha256": "676892059a7f8139b161450e63c257171cae9611f5d7f80739d3448635562db2"
+    },
+    {
+      "path": "src/math_private_openbsd.h",
+      "sha256": "c27fb884f372de93426727e6674f592bf29c21b2c72463a6ce4bc47f57c7ba2c"
+    },
+    {
+      "path": "src/s_asinh.c",
+      "sha256": "9f05b813e32cfcff59fc312aaac010db4c56f4c9845a8571e034cb7f2379c662"
+    },
+    {
+      "path": "src/s_atan.c",
+      "sha256": "2e987a843fa83c0a3d96dbca9a041a917b4c50449bdb3605142bca1697ff9075"
+    },
+    {
+      "path": "src/s_cbrt.c",
+      "sha256": "1d5d0f3219c5ffaf844c673ebd17c6bca77a3e4f027fd142c510989fd3a6e95b"
+    },
+    {
+      "path": "src/s_ceil.c",
+      "sha256": "7cf460d28b750b22e36fcf493a6ab0b7ea227ddc835d07308c3e8535592eb889"
+    },
+    {
+      "path": "src/s_copysign.c",
+      "sha256": "63c7a66c6b27b9a3eb790eab9701bfa08c24630c0c6cd425f59d3537df2baa25"
+    },
+    {
+      "path": "src/s_cos.c",
+      "sha256": "e3e86b502f3629cd6cb14f83585266b43e2595646ad62fbbbebd0a349c34458c"
+    },
+    {
+      "path": "src/s_expm1.c",
+      "sha256": "da4d89a2060253bd4b6a63b3c0357ce16f569f68512cc54c6563ea639c21ec8d"
+    },
+    {
+      "path": "src/s_fabs.c",
+      "sha256": "415e917c6f14d72a76706714cbd37a1e0e4cd5baf3a79978c3d9c820351227af"
+    },
+    {
+      "path": "src/s_floor.c",
+      "sha256": "27e086e84c6f5264530025d72dca9fdbee455a0696c234f6fceedb97f021b9d1"
+    },
+    {
+      "path": "src/s_fma.c",
+      "sha256": "119d8652ad3bfc338f4e6e059a4fb31acc889d0396b175be2d26d532f460636b"
+    },
+    {
+      "path": "src/s_fmaf.c",
+      "sha256": "ea67773ba9799ea897a14afb3321551a1e48f6114f7a649d84e3f3449915d996"
+    },
+    {
+      "path": "src/s_frexp.c",
+      "sha256": "87512b7faf236e28b8593e4c5fc35cc0af680ac0a10cbed363b2ff8f37e956fe"
+    },
+    {
+      "path": "src/s_ilogb.c",
+      "sha256": "f89546a1c7c1ad2a88a1e10ce796481de680c6e2c6a82335bfb216ed6f89b3ca"
+    },
+    {
+      "path": "src/s_log1p.c",
+      "sha256": "ecfe40ddb4e7063ca176992a333411a6d1e778fa418891ab396f57ea320db04e"
+    },
+    {
+      "path": "src/s_modf.c",
+      "sha256": "d948ae9a289ba3e2ac38da302aac2794fe1464c42d986be58b5095a0ed49a4db"
+    },
+    {
+      "path": "src/s_nextafter.c",
+      "sha256": "8d1676cd4260408218e43de088c923a7616e68dc8da88c5a566334fef1c1ad9f"
+    },
+    {
+      "path": "src/s_round.c",
+      "sha256": "fe07e78825657cf873881bec20af8897939829482e0919a4c5701b28450d1d92"
+    },
+    {
+      "path": "src/s_scalbn.c",
+      "sha256": "f528db57150cb0457e3ab9ddb24c6b38e33fa06814cf2f9005653f354eb216d1"
+    },
+    {
+      "path": "src/s_sin.c",
+      "sha256": "c6a867fea444a062615ea521c6f307531baf35d03b039615cb7fcdaf3775e6ee"
+    },
+    {
+      "path": "src/s_tan.c",
+      "sha256": "e2f7ff6a0ae13c287d53b401d1c395936701f28ea8a368cd1e8ab65103414ee7"
+    },
+    {
+      "path": "src/s_tanh.c",
+      "sha256": "4a1d91c374982102e1ddddf6e9867003a69fcccb310ea0dd11decb1e5c1b53fc"
+    },
+    {
+      "path": "src/types-compat.h",
+      "sha256": "9160de0e95c492f7ae07a2f5b3f3a32b199b21e40aee2ccf3e4900af7f9c116c"
+    },
+    {
+      "path": "LICENSE.md",
+      "sha256": "b1843fbf5b03f519a5f0a44fce751bdd1022ae7148614923f9d6293e17a18b17"
+    }
+  ]
+}

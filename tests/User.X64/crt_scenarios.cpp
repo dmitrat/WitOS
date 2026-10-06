@@ -291,6 +291,41 @@ void Memory()
     crt_trace(token);
 }
 
+/* Mathematics (P6.4.k3a3c): exact results, errno for a pole, a domain error and an overflow, and the high bits of
+ * transcendental results, on which UCRT and OpenLibm agree. Volatile arguments keep the compiler from folding. */
+void Mathematics()
+{
+    volatile double one = 1.0, two = 2.0, half = 0.5, ten = 10.0, zero = 0.0;
+    volatile float onef = 1.0f, halff = 2.5f;
+    const auto bits = [](double value) {
+        unsigned long long word;
+        memcpy(&word, &value, sizeof(word));
+        return (long long)(word >> 20);
+    };
+    double whole = 0;
+    const double fraction = modf(3.75 * one, &whole);
+    Begin("fp2");
+    errno = 0;
+    const double pole = log(zero);
+    const int poleErrno = errno;
+    errno = 0;
+    const double domain = acos(two);
+    const int domainErrno = errno;
+    errno = 0;
+    const double overflow = exp(1000 * one);
+    const int overflowErrno = errno;
+    for (const long long field : {(long long)cbrt(27 * one), (long long)pow(two, ten),
+             (long long)(fmod(10.5 * one, 3.0) * 2), (long long)round(-2.5 * one), (long long)roundf(halff),
+             (long long)whole, (long long)(fraction * 4), (long long)sqrt(16 * one), bits(fma(0.1 * one, ten, -one)),
+             (long long)(pole < 0 && pole * 0 != 0), (long long)poleErrno, (long long)(domain != domain),
+             (long long)domainErrno, (long long)(overflow > 1e308), (long long)overflowErrno, bits(sin(half)),
+             bits(atan2(one, one)), bits(log(ten)), bits(double(expf(onef))), bits(double(sinf(onef)))}) {
+        AddNumber(field);
+        Add(',');
+    }
+    crt_trace(token);
+}
+
 void AddNarrow(const char *text)
 {
     static const char hex[] = "0123456789ABCDEF";
@@ -453,5 +488,6 @@ extern "C" void crt_scenarios_run()
     Strings();
     Time();
     Memory();
+    Mathematics();
     Locales();
 }

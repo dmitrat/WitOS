@@ -239,9 +239,9 @@ internal static class HostRuntimeImage
 
     /// <summary>
     /// Compiles what every guest C++ module links besides the guest's native support: the WitOS C++ runtime with its
-    /// guest platform and processor level (P6.4.e-g), the UCRT subset over the guest (P6.4.h), the separately compiled
-    /// sources of the pinned STL with the STL's own options (P6.4.i), the Win32 bindings of the adapters and the x64
-    /// stack probe for frames larger than a page.
+    /// guest platform and processor level (P6.4.e-g), the UCRT subset over the guest (P6.4.h) with OpenLibm's
+    /// mathematics (P6.4.k3a3c), the separately compiled sources of the pinned STL with the STL's own options (P6.4.i),
+    /// the Win32 bindings of the adapters and the x64 stack probe for frames larger than a page.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="output">Output directory.</param>
@@ -274,6 +274,7 @@ internal static class HostRuntimeImage
                 "/I" + Path.Combine(root, "src/Runtime.Native"), "/I" + Path.Combine(root, "src/Runtime.Crt")],
                 Path.Combine(root, file));
         }
+        objects.AddRange(await CrtMathSources.CompileAsync(root, output, msvc));
         foreach (var file in NativeStlImage.SOURCES)
         {
             await Compile("stl_", [.. StlSources.CompileOptions(root, stl), .. includes], Path.Combine(stl, file));

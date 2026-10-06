@@ -17,12 +17,13 @@
 #include <wchar.h>
 #include <xmmintrin.h>
 #include <initializer_list>
+#include <type_traits>
 #include "crt.h"
 
 /* The WitOS UCRT subset against UCRT in one process (P6.4.h, hosted). The subset is compiled with WITCRT_REFERENCE,
  * which leaves its exported names out, and every case calls both with the same input: printf over generated
  * specifications, options, locales and buffer contracts; streams into files; strings, parsing, messages, time,
- * locales, ceilf, the heap and the floating-point environment. A case UCRT reports to the invalid-parameter handler is not compared: there the subset
+ * locales, ceilf, the heap, the floating-point environment and the mathematics. A case UCRT reports to the invalid-parameter handler is not compared: there the subset
  * ends the process, as UCRT's default handler does. The first differences are printed; the last line counts the
  * compared cases. */
 namespace {
@@ -1673,6 +1674,206 @@ void FenvCases()
     }
 }
 
+/* Mathematics (P6.4.k3a3c): every function against UCRT's over special and random arguments. Results compare bit for
+ * bit with three accepted differences: two NaNs are equal (the libraries choose different signs and payloads, and
+ * UCRT returns some signaling arguments unchanged); an inexact result of a transcendental function may differ by up to
+ * four units in the last place: each library is within about 1.5 units of the exact value, and UCRT's own
+ * builds differ among themselves; UCRT's pow and powf report ERANGE for some results that
+ * underflow to zero, and its fmodf EDOM for an infinite dividend with a NaN divisor, where the subset sets no errno.
+ * errno compares otherwise. */
+struct MathTally {
+    unsigned long long Calls, Nans, Units[3], Accepted;
+};
+
+template <typename T> long long Units(T a, T b)
+{
+    using Bits = typename std::conditional<sizeof(T) == 8, int64_t, int32_t>::type;
+    Bits x, y;
+    memcpy(&x, &a, sizeof(x));
+    memcpy(&y, &b, sizeof(y));
+    const Bits sign = Bits(1) << (sizeof(T) * 8 - 1);
+    const long long p = x < 0 ? (long long)(sign - x) : (long long)x; // signed magnitude as a monotonic integer
+    const long long q = y < 0 ? (long long)(sign - y) : (long long)y;
+    return p > q ? p - q : q - p;
+}
+
+template <typename T>
+void MathCompare(
+    const char *name, MathTally &tally, bool exact, bool recorded, T a, int ea, T b, int eb, double x, double y)
+{
+    char detail[160];
+    ++compared;
+    ++tally.Calls;
+    if (a != a && b != b) {
+        ++tally.Nans;
+    } else {
+        const long long units = Units(a, b);
+        if (units > (exact ? 0 : 4)) {
+            sprintf_s(detail, "(%a, %a) -> %a / %a: %lld units", x, y, double(a), double(b), units);
+            Report(name, L"", detail);
+            return;
+        }
+        if (a == a) {
+            ++tally.Units[units];
+        }
+    }
+    if (ea != eb) {
+        const bool underflow = strncmp(name, "pow", 3) == 0 && ea == ERANGE && !eb && a == 0;
+        const bool infinite = !strcmp(name, "fmodf") && ea == EDOM && !eb && isinf(x) && isnan(y);
+        if (recorded && (underflow || infinite)) {
+            ++tally.Accepted;
+        } else {
+            sprintf_s(detail, "(%a, %a) -> errno %d / %d", x, y, ea, eb);
+            Report(name, L"", detail);
+        }
+    }
+}
+
+double MathArgument(unsigned kind)
+{
+    static const double specials[] = {0.0, -0.0, 1.0, -1.0, 0.5, -0.5, 2.0, 3.0, 27.0, -27.0, 10.0, 0.1, 100.0, 1e22,
+        1e-300, 1e300, -1e300, 4.9e-324, -4.9e-324, 2.2250738585072014e-308, 1.5707963267948966, 3.141592653589793,
+        709.78, 710.0, -745.2, -746.0, 88.7, 89.0, -103.0, -104.0, 0.999999, 1.000001, 1e38, 1e-40, HUGE_VAL, -HUGE_VAL,
+        NAN, -NAN};
+    const uint64_t bits = Next();
+    double value;
+    switch (kind % 6) {
+    case 0:
+        return specials[Pick(sizeof(specials) / sizeof(specials[0]))];
+    case 1:
+        memcpy(&value, &bits, sizeof(value));
+        return value;
+    case 2:
+        return double(bits >> 11) / 9007199254740992.0 * 20.0 - 10.0;
+    case 3:
+        return double(bits >> 11) / 9007199254740992.0 * 2.0 - 1.0;
+    case 4:
+        return double(bits >> 11) / 9007199254740992.0 * 1600.0 - 800.0;
+    default:
+        return ldexp(double(bits >> 40) / 16777216.0 + 1.0, int(bits % 2100) - 1075) * (bits >> 39 & 1 ? -1 : 1);
+    }
+}
+
+void MathCases()
+{
+    constexpr unsigned count = 100000;
+    const auto exact = [](const char *name) {
+        for (const char *e : {"ceil", "round", "sqrt", "fmod", "roundf", "fmodf"}) {
+            if (!strcmp(name, e)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    const auto print = [](const char *name, const MathTally &t) {
+        printf("  %-7s %7llu calls: %llu exact, %llu one unit, %llu two units, %llu NaN pairs%s", name, t.Calls,
+            t.Units[0], t.Units[1], t.Units[2], t.Nans, t.Accepted ? "" : "\n");
+        if (t.Accepted) {
+            printf(", %llu recorded errno differences\n", t.Accepted);
+        }
+    };
+    const auto recorded = [](const char *name) {
+        return !strcmp(name, "pow") || !strcmp(name, "powf") || !strcmp(name, "fmodf");
+    };
+#define WIT_MATH_UNARY_CASE(c, Subset) \
+    { \
+        MathTally tally = {}; \
+        for (unsigned i = 0; i < count; ++i) { \
+            const double x = MathArgument(i); \
+            errno = 0; \
+            const double a = c(x); \
+            const int ea = errno; \
+            errno = 0; \
+            const double b = WitCrt::Subset(x); \
+            MathCompare(#c, tally, exact(#c), false, a, ea, b, errno, x, 0); \
+        } \
+        print(#c, tally); \
+    }
+#define WIT_MATH_BINARY_CASE(c, Subset) \
+    { \
+        MathTally tally = {}; \
+        for (unsigned i = 0; i < count; ++i) { \
+            const double x = MathArgument(i), y = MathArgument(i / 6 + Pick(6)); \
+            errno = 0; \
+            const double a = c(x, y); \
+            const int ea = errno; \
+            errno = 0; \
+            const double b = WitCrt::Subset(x, y); \
+            MathCompare(#c, tally, exact(#c), recorded(#c), a, ea, b, errno, x, y); \
+        } \
+        print(#c, tally); \
+    }
+#define WIT_MATH_UNARY_FLOAT_CASE(c, Subset, of) \
+    { \
+        MathTally tally = {}; \
+        for (unsigned i = 0; i < count; ++i) { \
+            const float x = float(MathArgument(i)); \
+            errno = 0; \
+            const float a = c(x); \
+            const int ea = errno; \
+            errno = 0; \
+            const float b = WitCrt::Subset(x); \
+            MathCompare(#c, tally, exact(#c), false, a, ea, b, errno, x, 0); \
+        } \
+        print(#c, tally); \
+    }
+#define WIT_MATH_BINARY_FLOAT_CASE(c, Subset, of) \
+    { \
+        MathTally tally = {}; \
+        for (unsigned i = 0; i < count; ++i) { \
+            const float x = float(MathArgument(i)), y = float(MathArgument(i / 6 + Pick(6))); \
+            errno = 0; \
+            const float a = c(x, y); \
+            const int ea = errno; \
+            errno = 0; \
+            const float b = WitCrt::Subset(x, y); \
+            MathCompare(#c, tally, exact(#c), recorded(#c), a, ea, b, errno, x, y); \
+        } \
+        print(#c, tally); \
+    }
+    WITCRT_MATH_UNARY(WIT_MATH_UNARY_CASE)
+    WITCRT_MATH_BINARY(WIT_MATH_BINARY_CASE)
+    WITCRT_MATH_UNARY_FLOAT(WIT_MATH_UNARY_FLOAT_CASE)
+    WITCRT_MATH_BINARY_FLOAT(WIT_MATH_BINARY_FLOAT_CASE)
+    // Fused operations round once: exact. modf splits exactly.
+    MathTally fused = {}, fusedFloat = {}, split = {}, splitFloat = {};
+    for (unsigned i = 0; i < count; ++i) {
+        const double x = MathArgument(i), y = MathArgument(i / 6 + Pick(6)), z = MathArgument(i / 36 + Pick(36));
+        errno = 0;
+        const double a = fma(x, y, z);
+        const int ea = errno;
+        errno = 0;
+        const double b = WitCrt::Fma(x, y, z);
+        MathCompare("fma", fused, true, false, a, ea, b, errno, x, y);
+        errno = 0;
+        const float af = fmaf(float(x), float(y), float(z));
+        const int eaf = errno;
+        errno = 0;
+        const float bf = WitCrt::Fmaf(float(x), float(y), float(z));
+        MathCompare("fmaf", fusedFloat, true, false, af, eaf, bf, errno, x, y);
+        double wa = 0, wb = 0;
+        errno = 0;
+        const double fa = modf(x, &wa);
+        const int ema = errno;
+        errno = 0;
+        const double fb = WitCrt::Modf(x, &wb);
+        MathCompare("modf", split, true, false, fa, ema, fb, errno, x, 0);
+        MathCompare("modf whole", split, true, false, wa, 0, wb, 0, x, 0);
+        float va = 0, vb = 0;
+        errno = 0;
+        const float ga = modff(float(x), &va);
+        const int emf = errno;
+        errno = 0;
+        const float gb = WitCrt::Modff(float(x), &vb);
+        MathCompare("modff", splitFloat, true, false, ga, emf, gb, errno, x, 0);
+        MathCompare("modff whole", splitFloat, true, false, va, 0, vb, 0, x, 0);
+    }
+    print("fma", fused);
+    print("fmaf", fusedFloat);
+    print("modf", split);
+    print("modff", splitFloat);
+}
+
 int wmain(int count, wchar_t **arguments)
 {
     if (count < 2) {
@@ -1721,6 +1922,8 @@ int wmain(int count, wchar_t **arguments)
     printf("coreclr functions done: %llu compared\n", compared);
     FenvCases();
     printf("floating-point environment done: %llu compared\n", compared);
+    MathCases();
+    printf("mathematics done: %llu compared\n", compared);
     printf("%s: %llu compared, %llu skipped as invalid, %llu skipped for UCRT's precision defect, %llu failed\n",
         failures ? "FAIL" : "PASS", compared, skipped, precisionSkipped, failures);
     return failures ? 1 : 0;
