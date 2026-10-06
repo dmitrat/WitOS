@@ -126,6 +126,7 @@ internal static class NativeStlImage
                 .Select(source => Path.Combine(root, source)));
         await Compile("crt", [.. NativeCrtImage.OPTIONS, .. includes, "/I" + Path.Combine(root, "src/Runtime.Crt")],
             NativeCrtImage.RUNTIME.Append(NativeCrtImage.WINDOWS_PLATFORM).Select(source => Path.Combine(root, source)));
+        compiled.AddRange(await CrtMathSources.CompileAsync(root, objects, msvc));
         // The guest's own memory routines; Windows has no import library that exports them.
         await Compile("memory", ["/TC", "/std:c17", "/Zl", "/GS-", "/O2", "/W4", "/WX", .. includes],
             [Path.Combine(root, MEMORY)]);

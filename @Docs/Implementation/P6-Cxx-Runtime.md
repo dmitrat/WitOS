@@ -109,6 +109,7 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
     - [x] **P6.4.k3a2** UCRT's classes, integers, secure strings, environment and sorting.
     - [x] **P6.4.k3a3a** The inventory that code generation reveals.
     - [x] **P6.4.k3a3b** The floating-point environment.
+    - [x] **P6.4.k3a3c** The mathematics, from OpenLibm.
 
 ## P6.4.e: the exception runtime on Windows
 
@@ -1175,4 +1176,74 @@ Evidence:
   set.
 
 The inventory falls from 280 to 279.
+
+#### P6.4.k3a3c: the mathematics, from OpenLibm
+
+CoreCLR's `Math` and `MathF` call 48 functions of the C runtime: 25 in double and 23 in float. The subset takes them
+from OpenLibm, the suitable open library the NativeAOT overlay already takes its logarithm from, at the same pinned
+revision.
+
+**Sources.**
+
+- `src/Runtime.Crt/openlibm.lock.json` pins 50 files by the SHA-256 of their canonical bytes: 40 C sources, 9 headers
+  and `LICENSE.md`.
+- `CrtMathSources` downloads the files once into `.tools/math-audit`, verifies them on every use and prepares them in
+  `artifacts/openlibm` with five patches of `patches/openlibm`, applied through `UpstreamPatches`. The patches change
+  glue, not the algorithms:
+  - `OPENLIBM_STATIC` declares the functions without a DLL storage class;
+  - empty symbol aliases for compilers other than GCC and Clang;
+  - the complex declarations and `__ldexp_cexp` are left out, since MSVC's C has no `_Complex`;
+  - `__ieee754_rem_pio2` gets an external definition, which MSVC does not derive from C99's inline rule.
+- The sources compile as C with MSVC.
+  - The options are `/fp:strict`, upstream's strict exception behavior. `s_fma.c` uses `/fp:precise`, because its
+    static initializers are floating-point expressions that `/fp:strict` does not fold.
+  - A forced header, `openlibm_names.witos.h`, gives every OpenLibm function a private name. OpenLibm's functions then
+    meet neither UCRT's in the differential nor the subset's own exports.
+- OpenLibm officially builds only with GCC and Clang. The patches are what MSVC needs.
+
+**Functions** (`math.cpp`).
+
+- The double functions are OpenLibm's. `sqrt` is SSE2's `sqrtsd`, correctly rounded as the standard requires.
+- Each float function is its double function rounded once to float, which is all but always the correctly rounded
+  result. OpenLibm's own float functions measured up to two units in the last place from the correctly rounded value.
+  UCRT's float results agree with the double route in all but a few cases, and in those UCRT's own result is the less
+  accurate one.
+- `fmaf` is OpenLibm's own: a fused operation must round once.
+- `errno` follows the IEEE exceptions an evaluation raises, as UCRT sets it:
+  - `EDOM` for an invalid operation;
+  - `ERANGE` for a pole or an overflow;
+  - nothing for an underflow, and nothing when an argument is a NaN;
+  - `fma` and `fmaf` set none, like UCRT's.
+- The evaluation runs with MXCSR's flags clear, and the flags raised before stay raised.
+
+**Accepted differences from UCRT**, recorded as the subset's rule requires:
+
+- **Accuracy.** Inexact results of transcendental functions differ by up to two units in the last place. Against
+  60-digit references, every result where the libraries differ by more than one unit is within 2.05 units for
+  OpenLibm and 1.77 units for UCRT. OpenLibm is the closer one for `cbrt` and UCRT for `tanh` and `sinh`. glibc, which
+  .NET uses on Linux, documents errors of the same size.
+- **NaNs.** NaN results may differ in sign and payload. For domain errors of `acosh`, `atanh` and `fmod`, UCRT returns
+  the positive quiet NaN and OpenLibm the negative one. UCRT returns some signaling arguments unchanged, while OpenLibm
+  quiets them.
+- **`pow` and `powf`.** UCRT reports `ERANGE` for some results that underflow to zero: those where y·ln|x| is at least
+  about -1024, on its main path. The subset never reports an underflow.
+- **`fmodf`.** UCRT reports `EDOM` for an infinite dividend even with a NaN divisor. The subset sets no `errno` for a
+  NaN argument.
+
+**Evidence.**
+
+- The differential compares the 48 functions with UCRT's over 5,000,000 calls of special and random arguments.
+  - Exact functions agree bit for bit: `ceil`, `round(f)`, `sqrt`, `fmod(f)`, `fma(f)`, `modf(f)`.
+  - For the transcendental double functions, between 0.1 and 29 percent of results differ by one unit. Two units occur
+    in `cosh` (3 per 100,000), `sinh` (32), `tanh` (257), `atanh` (75) and `cbrt` (30).
+  - Among the float functions, two units occur only in `asinhf` (8), `atanhf` (20) and `cbrtf` (15), where UCRT's
+    float result is the one farther from the correctly rounded value.
+  - Every errno agrees except the 564 calls of the two recorded cases.
+- A new scenario line, compared with UCRT on Windows and in the guest, covers:
+  - exact results;
+  - `errno` for a pole, a domain error and an overflow;
+  - the bits of transcendental results.
+
+The inventory falls from 279 to 231. UCRT's share is now 14: the formatting and scanning entries, `wcstod`, the file
+functions and `strncmp` and `strncpy`.
 

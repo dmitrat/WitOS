@@ -117,9 +117,13 @@ public sealed class UpstreamPatchesTests
         var pins = RuntimeExperiment.ReadLock(root).Sources.ToDictionary(source => ("runtime", source.Path), source => source.Sha256);
         var host = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "experiments", "CoreClrHost", "host-files.lock.json"))).RootElement;
         pins[("runtime", host.GetProperty("path").GetString()!)] = host.GetProperty("sha256").GetString()!;
-        var math = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "src", "Runtime.NativeAot", "math.lock.json"))).RootElement;
-        foreach (var source in math.GetProperty("sources").EnumerateArray())
-            pins[("openlibm", source.GetProperty("path").GetString()!)] = source.GetProperty("sha256").GetString()!;
+        // The NativeAOT overlay's logarithm and the UCRT subset's mathematics pin the same OpenLibm revision.
+        foreach (var lockFile in new[] { "src/Runtime.NativeAot/math.lock.json", "src/Runtime.Crt/openlibm.lock.json" })
+        {
+            var math = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, lockFile))).RootElement;
+            foreach (var source in math.GetProperty("sources").EnumerateArray())
+                pins[("openlibm", source.GetProperty("path").GetString()!)] = source.GetProperty("sha256").GetString()!;
+        }
         return pins;
     }
 

@@ -1,0 +1,22 @@
+Source: include/openlibm_defs.h
+Output: openlibm_defs.h
+Before: 3967372af64f76527304d752755b4ccaa2c23f8797e92413899111553df26931
+After: 2b1032fa1b8bd97a6a8baf13eaef62cc43ed10de4e2ef0bfd32d049e72866a0f
+
+OPENLIBM_STATIC declares the functions without a DLL storage class. On Windows upstream marks them
+__declspec(dllexport) or dllimport; the UCRT subset links them statically into each module and exports
+only the C runtime's own names.
+
+--- a/include/openlibm_defs.h
++++ b/include/openlibm_defs.h
+@@ -1,7 +1,9 @@
+ #ifndef OPENLIBM_DEFS_H_
+ #define OPENLIBM_DEFS_H_
+ 
+-#ifdef _WIN32
++#ifdef OPENLIBM_STATIC
++#define OLM_DLLEXPORT
++#elif defined(_WIN32)
+ # ifdef IMPORT_EXPORTS
+ #  define OLM_DLLEXPORT __declspec(dllimport)
+ # else
