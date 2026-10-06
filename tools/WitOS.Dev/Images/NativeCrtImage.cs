@@ -14,7 +14,7 @@ internal static class NativeCrtImage
     /// The trace UCRT produces for the scenarios on Windows. The WitOS subset must produce it without UCRT on Windows
     /// and in the guest: formatting with UCRT's options and legacy wide specifiers and its buffer contracts, narrow
     /// strings in the C and UTF-8 locales, the standard streams, wide strings, C-locale case, Unicode white space and
-    /// digits in parsing, error messages, calendar time, locale data, the heap and ceilf.
+    /// digits in parsing, error messages, calendar time, locale data, the heap, ceilf and the floating-point environment.
     /// </summary>
     public const string WINDOWS_TRACE = "o1:36 o2:2 o3:0 o4:28 o5:46 o6:10 o7:0 o8:0 o9:17 o10:1 o11:42 o12:2 o13:0 " +
         "o14:13 o15:0 o16:10 " +
@@ -28,6 +28,7 @@ internal static class NativeCrtImage
         "t2:125,9,4,14,16,21,6,276,0, t3:28:0:Sat_Oct__4_14:16:21_2025_GMT " +
         "t4:73:0:2025-10-04T14:16:21|277|39|39|40|2025|6|02PM|Saturday,_October_04,_2025|4 t5:0:34: t6:22 t7:-1 t8:0 " +
         "t9:364 m1:1 m2:1 m3:1 m4:1 m5:1 m6:12 m7:1 l1:1,0,4,65001,129,616,32768, l2:1 c1:2 c2:-1 c3:2147483648 " +
+        "fp1:0,524831,512,6,0,5,1,0,0,524319, " +
         "n1:65:0:0xff|+42|18446744073709551615|0000000000001234|___ab|wd__|q|%|end n2:C,C n3:.,0,127,. " +
         "n4:1,0,0,1,129,72,0, " +
         "n5::Sun:Sunday:Mon:Monday:Tue:Tuesday:Wed:Wednesday:Thu:Thursday:Fri:Friday:Sat:Saturday " +
@@ -51,7 +52,7 @@ internal static class NativeCrtImage
     public static readonly string[] RUNTIME = ["src/Runtime.Crt/format.cpp", "src/Runtime.Crt/stdio.cpp",
         "src/Runtime.Crt/locale.cpp", "src/Runtime.Crt/string.cpp", "src/Runtime.Crt/time.cpp",
         "src/Runtime.Crt/heap.cpp", "src/Runtime.Crt/runtime.cpp", "src/Runtime.Crt/errno.cpp",
-        "src/Runtime.Crt/thread.cpp"];
+        "src/Runtime.Crt/thread.cpp", "src/Runtime.Crt/fenv.cpp"];
 
     /// <summary>
     /// The subset's platform source on Windows.

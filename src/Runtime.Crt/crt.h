@@ -184,6 +184,11 @@ short Dclass(double value);
 double Fabs(double value);
 long long Llabs(long long value); // the most negative value stays itself, as in UCRT
 
+/* The floating-point environment (fenv.cpp): MXCSR's, as in UCRT on x64. */
+int Controlfp_s(unsigned *current, unsigned value, unsigned mask);
+int Fegetround();
+int Fesetround(int round);
+
 /* Threads (thread.cpp). */
 uintptr_t Beginthreadex(
     void *security, unsigned stack, _beginthreadex_proc_type start, void *argument, unsigned flags, unsigned *id);

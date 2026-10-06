@@ -221,7 +221,6 @@
     "__stdio_common_vsprintf",
     "__stdio_common_vsscanf",
     "__stdio_common_vswprintf_s",
-    "_controlfp_s",
     "_fileno",
     "_flushall",
     "_wfopen",
