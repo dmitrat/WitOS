@@ -1218,9 +1218,11 @@ revision.
 
 **Accepted differences from UCRT**, recorded as the subset's rule requires:
 
-- **Accuracy.** Inexact results of transcendental functions differ by up to two units in the last place. Against
+- **Accuracy.** Inexact results of transcendental functions differ by up to four units in the last place. Against
   60-digit references, every result where the libraries differ by more than one unit is within 2.05 units for
-  OpenLibm and 1.77 units for UCRT. OpenLibm is the closer one for `cbrt` and UCRT for `tanh` and `sinh`. glibc, which
+  OpenLibm and 1.77 units for UCRT. OpenLibm is the closer one for `cbrt` and UCRT for `tanh` and `sinh`. UCRT's
+  builds differ among themselves: for `atanh(0x1.e9ca626a506b0p-4)` the UCRT of Windows Server 2025 (the CI runner) is
+  1.47 units below the exact value where a current UCRT is 0.53 above it, so it meets OpenLibm's 1.53 at three units. glibc, which
   .NET uses on Linux, documents errors of the same size.
 - **NaNs.** NaN results may differ in sign and payload. For domain errors of `acosh`, `atanh` and `fmod`, UCRT returns
   the positive quiet NaN and OpenLibm the negative one. UCRT returns some signaling arguments unchanged, while OpenLibm
