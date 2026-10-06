@@ -5,7 +5,7 @@ P6.4.i (microsoft/STL: exceptions, algorithms, threads, locales and streams), P6
 its inventory), P6.4.j2 (the rest of the PAL), P6.4.j3a (process state in the kernel), P6.4.j3b (module paths)
 P6.4.j3c1 (a C++ library's startup; both host libraries link with no unresolved symbol), P6.4.j3c2 (C++
 exceptions in a library) and P6.4.j3c3 (the host libraries in the guest) complete, and with them P6.4.j. In P6.4.k,
-k1 (`hostfxr_main` up to CoreCLR) is complete; k2 (the guest's `coreclr.dll`) is next.
+k1 (`hostfxr_main` up to CoreCLR) and k2 (the inventory of the guest's `coreclr.dll`) are complete; k3 is next.
 
 ## Decision
 
@@ -101,7 +101,7 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
   reaches `coreclr_initialize`/`coreclr_execute_assembly`.
   - [x] **P6.4.k1** `dotnet /app/CoreClrProbe.dll` in the guest: the muxer, the framework from the runtimeconfig,
     hostpolicy, the deps and their assets, up to resolving CoreCLR, which the guest does not have yet.
-  - [ ] **P6.4.k2** The guest's `coreclr.dll`: upstream CoreCLR built for the guest and its unresolved inventory.
+  - [x] **P6.4.k2** The guest's `coreclr.dll`: upstream CoreCLR built for the guest and its unresolved inventory.
 
 ## P6.4.e: the exception runtime on Windows
 
@@ -976,4 +976,49 @@ reads `\dotnet` and reports the framework at `\dotnet\shared\Microsoft.NETCore.A
 The framework's deps are Windows', so the native assets they list are the `win-x64` runtime pack's. The boot package
 delivers none of them, and the host does not check a framework asset's existence. The guest's own native assets
 begin with `coreclr.dll` (k2).
+
+### P6.4.k2: the inventory of the guest's `coreclr.dll`
+
+`coreclr-guest` takes upstream CoreCLR from the reference build that `coreclr-source` makes from the verified
+checkout: its 452 inputs are taken unchanged, objects and resources, as the build's link step for `coreclr.dll` in
+`build.ninja` lists them, with the module definition file. Upstream's own static libraries stay:
+`System.Globalization.Native-Static`, `coreclrminipal`, `gc_pal`, `minipal`. The Windows and CRT libraries upstream
+links are left out, and in their place the image links what every WitOS C++ library links:
+
+- the C++ runtime, the UCRT subset and the STL's sources;
+- the guest's native support and adapters, as a library links them;
+- the library startup as its entry point.
+
+The objects carry link-time code generation, so the reference build's own linker links them, the one `CMakeCache.txt`
+names. A different toolset's linker refuses them.
+
+The image's unresolved externals are the inventory, `experiments/CoreClr/guest-link.json`. The command enforces it in
+both directions, as `coreclr-host-guest` does the host's. There are 276 symbols. The report counts them by the library
+upstream would have taken them from, a library's public symbols as `dumpbin /linkermember:1` lists them:
+
+| Library | Symbols |
+|---|---:|
+| kernel32 | 124 |
+| ucrt (the dynamic UCRT, which upstream links instead of the static one) | 54 |
+| oleaut32 | 29 |
+| uuid (COM interface identifiers) | 23 |
+| advapi32 | 17 |
+| ole32 | 17 |
+| libvcruntime (`longjmp`, `strchr`, `strrchr`, `wcsrchr`, `wcsstr`) | 5 |
+| version | 3 |
+| runtimeobject | 2 |
+| libcmt (`__report_rangecheckfailure`) | 1 |
+| user32 | 1 |
+
+That is the size of the platform CoreCLR asks for beyond what the host needed. The C++ runtime is nearly complete for
+it: five string and jump functions and one GS report. Win32 is the bulk. COM, OLE automation and WinRT are a
+quarter, and need an explicit decision about what a WitOS process offers rather than adapters that pretend.
+
+Linking is not running. These obstacles stand before the image can load, and each is its own slice:
+
+- `coreclr.dll` is 5.4 MB, beyond the kernel's limits for a PE image (1 MiB of file, 1088 KiB of image).
+- Its owned pages would exceed the full profile's 8 MiB before the JIT and the GC heap.
+- CoreCLR creates threads, which a library cannot yet.
+- It reads the Windows TEB (`NtCurrentTeb`, `ThreadLocalStoragePointer`).
+- Its exceptions cross modules, which need one dispatcher for the process.
 
