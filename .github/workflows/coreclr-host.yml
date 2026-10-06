@@ -6,6 +6,7 @@ on:
     paths:
       - 'experiments/CoreClrProbe/**'
       - 'experiments/CoreClrHost/**'
+      - 'experiments/CoreClr/**'
       - 'experiments/NativeAotProbe/upstream.lock.json'
       - 'tools/WitOS.Dev/**'
       - 'src/Runtime.Native/**'
@@ -22,6 +23,7 @@ on:
     paths:
       - 'experiments/CoreClrProbe/**'
       - 'experiments/CoreClrHost/**'
+      - 'experiments/CoreClr/**'
       - 'experiments/NativeAotProbe/upstream.lock.json'
       - 'tools/WitOS.Dev/**'
       - 'src/Runtime.Native/**'
@@ -65,6 +67,8 @@ jobs:
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- coreclr-host-files
       - name: Build the upstream host for the guest and check its unresolved externals
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- coreclr-host-guest
+      - name: Link upstream CoreCLR for the guest and check its unresolved externals
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- coreclr-guest
       - name: Upload source and binding evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -82,3 +86,6 @@ jobs:
             artifacts/coreclr-host-guest/current-run.json
             artifacts/coreclr-host-guest/runs/*/guest-link.json
             artifacts/coreclr-host-guest/runs/*/build/*.link.log
+            artifacts/coreclr-guest/current-run.json
+            artifacts/coreclr-guest/runs/*/guest-link.json
+            artifacts/coreclr-guest/runs/*/build/coreclr.link.log
