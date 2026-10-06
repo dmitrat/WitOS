@@ -98,8 +98,12 @@ UHI для x64 и ARM64 (порт ARM64 стоил ~2 300 строк и пере
   (§8: 37 остаются, 13 сливаются в них, 6 удаляются, 13 уходят в слой 2, `CODE_MEMORY` делится); состав, аудитории и
   модель процессов ABI-2 (§9); правила версионирования обоих ABI (§10); решения (§11: APC остаются как активации,
   имена потоков и окружение уходят в слой 2) и открытые вопросы (§12), перенесённые в раздел 7 этого плана.
-- [ ] **A3** Ревизия RFC-0015: Unix-форма, патч-набор, идентичность платформы, несколько версий, субстрат как внутренняя
-  деталь слоя 2.
+- [x] **A3** [RFC-0015 v2](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md) (2026-10-06): контракт
+  совместимости (§1); Unix-форма и её части в upstream (§2); идентичность платформы — `OSPlatformName`, граф RID,
+  `TargetOS` ILC, файлы сборки (§3); патч-набор — бюджет портов FreeBSD/Haiku, порядок предпочтений, ожидаемые места
+  (§4); таблица «что зовёт upstream → ABI-2 → ABI-1» и правила субстрата (§5); семантика памяти, потоков и исключений в
+  терминах Unix-формы (§6); несколько версий рядом через `/etc/dotnet/install_location` и патч-наборы по веткам (§7);
+  профиль возможностей по фазам (§8); гейты R1–R8 и N1–N4 (§9); доказательства замороженной линии (§10).
 - [ ] **A4** Implementation Strategy: порядок M4/M5 → M6 восстановлен; разделы SMP, UTC, многоверсионность; README
   указывает на ADR и план.
 - [ ] **A5** AGENTS.md: правила Windows-линии помечены замороженными и удаляются вместе с её кодом после R2.
@@ -186,22 +190,32 @@ UHI для x64 и ARM64 (порт ARM64 стоил ~2 300 строк и пере
 
 ### R — Рантайм .NET Unix-формы
 
-- [ ] **R1** Инфраструктура сборки dotnet/runtime: `TargetOS=witos` в cmake и props; RID `witos-x64` и `witos-arm64`;
-  `OSPlatformName`; патч-набор в `patches/runtime`; сборка на Linux-хосте; воспроизводимость переезжает из
-  `runtime-source`.
-- [ ] **R2** NativeAOT Unix-формы: PAL `unix` с witos-спецификой; ILC с ELF-выводом; повторение приёмки M3 (GC,
-  исключения, финализация, потоки и TLS, ожидания) на новом субстрате. **После R2 Windows-линия удаляется (K8).**
-- [ ] **R3** CoreCLR: PAL `witos` минимальными правками, `gcenv.unix` без cgroups и `/proc`, clrjit Unix x64;
-  `coreclr_initialize` в госте.
-- [ ] **R4** `System.Native` для witos: файлы над пакетом, затем над сервисом хранилища (D5); время; процессы без
-  `fork`/`exec` на первом шаге; `System.Globalization.Native` в invariant-режиме; криптография — явный отказ до
-  провайдера.
-- [ ] **R5** Хосты Unix-формы: `dotnet`, `hostfxr`, `hostpolicy`; раскладка shared framework в пакете; `dotnet App.dll`.
-- [ ] **R6** Первый IL через JIT: приложение, собранное в Visual Studio на Windows (`dotnet publish` без RID), работает
-  без изменений — бывший P6.5.
-- [ ] **R7** Тесты upstream в QEMU: PAL-тесты CoreCLR, срезы `src/tests` (JIT, GC, EH), срезы тестов библиотек;
+Каждый шаг реализует названные разделы [RFC-0015 v2](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md).
+
+- [ ] **R1** Инфраструктура сборки dotnet/runtime (RFC-0015 §3–§4): `TargetOS=witos` в `eng/build.sh`,
+  `configureplatform.cmake` и props; `TARGET_WITOS` в `System.Private.CoreLib.Shared.projitems` и `OSPlatformName`;
+  RID `witos-x64` и `witos-arm64` в графе RID; `TargetOS.WitOS` в ILC и триплет в `Microsoft.NETCore.Native.Unix.targets`;
+  патч-набор в `patches/runtime` начинается пустым и измеряется против бюджета FreeBSD/Haiku; сборка на Linux-хосте;
+  воспроизводимость переезжает из `runtime-source`.
+- [ ] **R2** NativeAOT Unix-формы (RFC-0015 §2, §9): upstream `Runtime/unix` над libc слоя 2; ILC с ELF-выводом и линк
+  через clang/lld с sysroot WitOS; повторение приёмки M3 (GC, исключения, финализация, потоки и TLS, ожидания) пробами
+  `NativeAotBoot` на обеих ISA. **После R2 Windows-линия удаляется (K8).**
+- [ ] **R3** CoreCLR (RFC-0015 §5–§6): PAL upstream над libc с минимальными `TARGET_WITOS`-ветками; `gcenv.unix` без
+  cgroups и `/proc`, цифры памяти и CPU из `sysconf`; двойное отображение W^X через объект памяти
+  (`minipal/Unix/doublemapping.cpp`); барьер процесса через `libwitos`; маскирование ISA-расширений профилем контекста
+  ядра; clrjit Unix x64 и ARM64; `coreclr_initialize` и managed `Main` в госте.
+- [ ] **R4** `System.Native` для witos (RFC-0015 §5, §8): файлы над пакетом (`mmap` файла — `ENODEV` до сервиса), затем
+  над сервисом хранилища (D5); время; окружение; процессы без `fork`/`exec` на первом шаге (`Process.Start` —
+  `PlatformNotSupportedException`); терминальные сигналы устанавливаются и не поднимаются; `System.Globalization.Native`
+  в invariant-режиме; криптография — явный отказ до провайдера; список различий ведётся.
+- [ ] **R5** Хосты Unix-формы (RFC-0015 §7): `dotnet`, `libhostfxr.so`, `libhostpolicy.so`; раскладка shared framework
+  под `/dotnet` и файлы `/etc/dotnet/install_location*` в пакете вместо патча `pal.unix.cpp`; `dotnet App.dll`.
+- [ ] **R6** Первый IL через JIT (RFC-0015 §1, §9): приложение, собранное в Visual Studio на Windows (`dotnet publish`
+  без RID), работает без изменений — бывший P6.5.
+- [ ] **R7** Тесты upstream в QEMU (RFC-0015 §9): `palsuite`, срезы `src/tests` (JIT, GC, EH), срезы тестов библиотек;
   инфраструктура запуска и отчёт.
-- [ ] **R8** Репетиция апгрейда: rebase патч-набора на следующий 10.0.x и на preview .NET 11 с измерением объёма.
+- [ ] **R8** Репетиция апгрейда (RFC-0015 §4): rebase патч-набора на следующий 10.0.x и на preview .NET 11 с измерением
+  объёма.
 
 Готово, когда R6 и R7 зелёные на x64, а R2–R3 — и на ARM64.
 
@@ -221,12 +235,13 @@ UHI для x64 и ARM64 (порт ARM64 стоил ~2 300 строк и пере
 
 ### N — Стандартный .NET (M6)
 
-- [ ] **N1** Compatibility suite `tests/DotNetCompatibility/` (Strategy §57: Console, Tasks, Threads, Timers, Exceptions,
-  Reflection, FileIO, AssemblyLoading, GC, Synchronization), запускаемый на Windows, Linux и WitOS; различия
-  намеренны и записаны.
+- [ ] **N1** Compatibility suite `tests/DotNetCompatibility/` (Strategy §57; RFC-0015 §1, §8: Console, Tasks, Threads,
+  Timers, Exceptions, Reflection, FileIO, AssemblyLoading, GC, Synchronization), запускаемый на Windows, Linux и WitOS;
+  различия намеренны и записаны, включая «не Linux и не macOS — значит Windows».
 - [ ] **N2** Представительные библиотеки NuGet: NUnit, xUnit, MessagePack, MemoryPack, Math.NET, Roslyn.
-- [ ] **N3** Несколько версий рядом: .NET 8 LTS и 10 в одном образе, патч-наборы на ветках релизов, выбор через
-  `rollForward`.
+- [ ] **N3** Несколько версий рядом (RFC-0015 §7): .NET 8 LTS и 10 в одном образе под `/dotnet`, патч-наборы по веткам
+  релизов в `patches/runtime/<branch>/` (для 8.0 — backport цели `witos`), выбор через `rollForward`; ABI-2 объявляется
+  1.0.
 - [ ] **N4** Среда приложения: UTC (K6), окружение и процесс (`Environment`, частично `Process`), консоль по RFC-0020.
 
 Готово по M6 §60 и Ц2; после этого — заявка «WitOS runs .NET» (Strategy §61).
@@ -273,4 +288,6 @@ UHI для x64 и ARM64 (порт ARM64 стоил ~2 300 строк и пере
 - Доставка записи фаулта: по токену, как сейчас (умолчание), или на альтернативный стек обработчика (K1).
 - Нужен ли `CODE_PUBLISH` на ARM64 после включения EL0 cache maintenance (`SCTLR_EL1.UCI`), или он остаётся единой
   формой для всех ISA (K5).
+- Как рантайм узнаёт профиль контекста ядра, чтобы маскировать ISA-расширения CPUID: через `sysconf`, auxv-эквивалент
+  или `libwitos` (R3).
 - Когда подавать `TargetOS=witos` в upstream: после R7 или после N1.

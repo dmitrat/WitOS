@@ -23,7 +23,7 @@ WitOS has three layers and two interfaces (ADR 0024). This RFC fixes:
 - the boot contract and the root task handoff (§7.11).
 
 It does not specify service protocols above channels (RFC 0006 §54 onward), the driver model (RFC 0012, future), the
-storage architecture (RFC 0008 and the storage document) or the runtime port (RFC 0015, revised in step A3).
+storage architecture (RFC 0008 and the storage document) or the runtime port (RFC 0015 v2).
 
 ## 2. Terms
 
