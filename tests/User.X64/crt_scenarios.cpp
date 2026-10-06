@@ -1,6 +1,8 @@
 #define _CRT_SECURE_NO_WARNINGS // the scenarios call the legacy functions the host calls
 #include <ctype.h>
 #include <errno.h>
+#include <fenv.h>
+#include <float.h>
 #include <limits.h>
 #include <locale.h>
 #include <math.h>
@@ -268,6 +270,25 @@ void Memory()
     unsigned bits;
     memcpy(&bits, &zero, sizeof(bits));
     Number("c3", (long long)bits);
+    // The floating-point environment (P6.4.k3a3b): a third rounded up and to nearest differs in its last bit, and the
+    // thread keeps the rounding it set. CoreCLR resets the rounding with _controlfp_s as the last call does.
+    const auto third = [] {
+        volatile double value = 1.0;
+        const double result = value / 3.0;
+        unsigned long long word;
+        memcpy(&word, &result, sizeof(word));
+        return (long long)(word & 0xF);
+    };
+    unsigned control = 0;
+    Begin("fp1");
+    for (const long long field : {(long long)_controlfp_s(&control, _RC_UP, _MCW_RC), (long long)control,
+             (long long)fegetround(), third(), (long long)fesetround(FE_TONEAREST), third(), (long long)fesetround(7),
+             (long long)_controlfp_s(nullptr, _RC_NEAR, _RC_CHOP | _RC_UP | _RC_DOWN | _RC_NEAR),
+             (long long)_controlfp_s(&control, 0, 0), (long long)control}) {
+        AddNumber(field);
+        Add(',');
+    }
+    crt_trace(token);
 }
 
 void AddNarrow(const char *text)

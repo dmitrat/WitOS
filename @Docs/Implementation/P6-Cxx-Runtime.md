@@ -108,6 +108,7 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
     - [x] **P6.4.k3a1** vcruntime's searches and range-check report.
     - [x] **P6.4.k3a2** UCRT's classes, integers, secure strings, environment and sorting.
     - [x] **P6.4.k3a3a** The inventory that code generation reveals.
+    - [x] **P6.4.k3a3b** The floating-point environment.
 
 ## P6.4.e: the exception runtime on Windows
 
@@ -1143,4 +1144,35 @@ The inventory grows from 241 to 280. The new symbols are 37 mathematical functio
 - `wcstod` and `_controlfp_s`;
 - the file functions;
 - the two string functions.
+
+#### P6.4.k3a3b: the floating-point environment
+
+CoreCLR calls `_controlfp_s` once for every thread it starts, to set rounding to nearest (`vm/threads.cpp`).
+OpenLibm's `fma` and `fmaf`, which the next slice brings, read and set the rounding through `fegetround` and
+`fesetround`. The three functions join the subset in `fenv.cpp`.
+
+On x64, UCRT's floating-point environment is MXCSR. `_controlfp_s` and `fesetround` never touch the x87 control word,
+which x64 code does not use. Measured against UCRT, the subset keeps its details:
+
+- **`_controlfp_s`** maps the exception masks, the rounding and the denormal control; `_DN_*` maps to MXCSR's
+  flush-to-zero and denormals-are-zero bits.
+  - It ignores the x87 precision and infinity controls and the mask of the denormal exception, which only `_control87`
+    changes.
+  - A value bit under the mask outside the defined controls is an invalid parameter.
+  - It writes MXCSR only when the control word changes, and the write clears the exception flags.
+- **`fesetround`** changes the rounding bits alone and keeps the flags. A value other than the four roundings returns
+  1.
+- **`feraiseexcept`** is not a library function. UCRT's `fenv.h` defines it inline and raises each exception by a
+  division, so OpenLibm's calls compile to that.
+
+Evidence:
+
+- The differential compares 131,972 calls from random MXCSR states, values and masks. Each comparison covers the
+  result, the reported control word and the MXCSR the call leaves. Another 108,424 calls, which UCRT reports as invalid
+  parameters, are not compared.
+- A new line of the scenario trace rounds a division up and to nearest through these calls and ends with CoreCLR's
+  call. The trace is compared with UCRT on Windows and in the guest, where it shows that a thread keeps the rounding it
+  set.
+
+The inventory falls from 280 to 279.
 

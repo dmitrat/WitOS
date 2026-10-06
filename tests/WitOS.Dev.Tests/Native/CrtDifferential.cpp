@@ -1,6 +1,8 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <errno.h>
+#include <fenv.h>
+#include <float.h>
 #include <limits.h>
 #include <locale.h>
 #include <malloc.h>
@@ -13,13 +15,14 @@
 #include <string.h>
 #include <time.h>
 #include <wchar.h>
+#include <xmmintrin.h>
 #include <initializer_list>
 #include "crt.h"
 
 /* The WitOS UCRT subset against UCRT in one process (P6.4.h, hosted). The subset is compiled with WITCRT_REFERENCE,
  * which leaves its exported names out, and every case calls both with the same input: printf over generated
  * specifications, options, locales and buffer contracts; streams into files; strings, parsing, messages, time,
- * locales, ceilf and the heap. A case UCRT reports to the invalid-parameter handler is not compared: there the subset
+ * locales, ceilf, the heap and the floating-point environment. A case UCRT reports to the invalid-parameter handler is not compared: there the subset
  * ends the process, as UCRT's default handler does. The first differences are printed; the last line counts the
  * compared cases. */
 namespace {
@@ -1594,6 +1597,82 @@ void CoreClrCases()
     }
 }
 
+/* The floating-point environment (P6.4.k3a3b): every call starts both sides from the same MXCSR and compares the
+ * result, the reported control word and the MXCSR it leaves. Only MXCSR's defined bits are set. */
+void FenvCases()
+{
+    constexpr unsigned initial = 0x1F80;
+    char detail[128];
+    const auto state = [] {
+        return unsigned(Next()) & 0xFFFF;
+    };
+    const auto controlfp = [&](unsigned start, unsigned value, unsigned mask, bool output) {
+        unsigned a = 0xDEAD, b = 0xDEAD;
+        const int before = invalids;
+        _mm_setcsr(start);
+        const errno_t x = _controlfp_s(output ? &a : nullptr, value, mask);
+        const unsigned ma = _mm_getcsr();
+        if (invalids != before) {
+            _mm_setcsr(initial);
+            ++skipped;
+            return;
+        }
+        _mm_setcsr(start);
+        const int y = WitCrt::Controlfp_s(output ? &b : nullptr, value, mask);
+        const unsigned mb = _mm_getcsr();
+        _mm_setcsr(initial);
+        ++compared;
+        if (x != y || a != b || ma != mb) {
+            sprintf_s(detail, "%04X %08X %08X -> %d %08X %04X / %d %08X %04X", start, value, mask, x, a, ma, y, b, mb);
+            Report("_controlfp_s", L"", detail);
+        }
+    };
+    static const unsigned masks[] = {0, _MCW_EM, _MCW_RC, _MCW_DN, _MCW_PC, _MCW_IC, _MCW_EM | _MCW_RC | _MCW_DN,
+        _RC_CHOP | _RC_UP | _RC_DOWN | _RC_NEAR, _EM_ZERODIVIDE, _EM_DENORMAL, 0xFFFFFFFFu};
+    static const unsigned values[] = {0, _RC_NEAR, _RC_UP, _RC_DOWN, _RC_CHOP, _MCW_EM, _DN_FLUSH,
+        _DN_FLUSH_OPERANDS_SAVE_RESULTS, _DN_SAVE_OPERANDS_FLUSH_RESULTS, _PC_24, _IC_AFFINE, 0xFFFFFFFFu};
+    for (const unsigned mask : masks) {
+        for (const unsigned value : values) {
+            controlfp(initial, value, mask, true);
+            controlfp(state(), value, mask, true);
+            controlfp(state(), value, mask, false);
+        }
+    }
+    for (unsigned i = 0; i < 200000; ++i) {
+        const unsigned mask = Pick(2) ? unsigned(Next()) : masks[Pick(sizeof(masks) / sizeof(masks[0]))];
+        controlfp(state(), unsigned(Next()), mask, Pick(4) != 0);
+    }
+    for (unsigned i = 0; i < 20000; ++i) {
+        const unsigned start = state();
+        _mm_setcsr(start);
+        const int a = fegetround();
+        const int b = WitCrt::Fegetround();
+        _mm_setcsr(initial);
+        ++compared;
+        if (a != b) {
+            sprintf_s(detail, "%04X -> %X / %X", start, a, b);
+            Report("fegetround", L"", detail);
+        }
+    }
+    static const int rounds[] = {FE_TONEAREST, FE_UPWARD, FE_DOWNWARD, FE_TOWARDZERO, 1, 7, 0x400, 0x301, -1, INT_MIN};
+    for (unsigned i = 0; i < 20000; ++i) {
+        const unsigned start = state();
+        const int round = Pick(3) ? rounds[Pick(sizeof(rounds) / sizeof(rounds[0]))] : int(Next());
+        _mm_setcsr(start);
+        const int a = fesetround(round);
+        const unsigned ma = _mm_getcsr();
+        _mm_setcsr(start);
+        const int b = WitCrt::Fesetround(round);
+        const unsigned mb = _mm_getcsr();
+        _mm_setcsr(initial);
+        ++compared;
+        if (a != b || ma != mb) {
+            sprintf_s(detail, "%04X %X -> %d %04X / %d %04X", start, unsigned(round), a, ma, b, mb);
+            Report("fesetround", L"", detail);
+        }
+    }
+}
+
 int wmain(int count, wchar_t **arguments)
 {
     if (count < 2) {
@@ -1640,6 +1719,8 @@ int wmain(int count, wchar_t **arguments)
     HeapCases();
     CoreClrCases();
     printf("coreclr functions done: %llu compared\n", compared);
+    FenvCases();
+    printf("floating-point environment done: %llu compared\n", compared);
     printf("%s: %llu compared, %llu skipped as invalid, %llu skipped for UCRT's precision defect, %llu failed\n",
         failures ? "FAIL" : "PASS", compared, skipped, precisionSkipped, failures);
     return failures ? 1 : 0;
