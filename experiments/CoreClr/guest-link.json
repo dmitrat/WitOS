@@ -216,20 +216,6 @@
     "__imp_VirtualUnlock",
     "__imp_WaitForMultipleObjects",
     "__imp_WriteFile",
-    "__stdio_common_vfprintf",
-    "__stdio_common_vsnprintf_s",
-    "__stdio_common_vsprintf",
-    "__stdio_common_vsscanf",
-    "__stdio_common_vswprintf_s",
-    "_fileno",
-    "_flushall",
-    "_wfopen",
-    "_write",
-    "fgets",
-    "fopen",
-    "longjmp",
-    "strncmp",
-    "strncpy",
-    "wcstod"
+    "longjmp"
   ]
 }

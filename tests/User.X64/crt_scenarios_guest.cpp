@@ -61,5 +61,15 @@ extern "C" WitU64 wit_crt_scenarios_probe()
     if (_wremove(L"boot:/crt.txt") != -1 || errno != EACCES || _wrename(L"boot:/a", L"boot:/b") != -1) {
         return 2203;
     }
+    errno = 0;
+#pragma warning(suppress : 4996) // fopen itself is what is checked
+    if (fopen("boot:/crt.txt", "w") || errno != EACCES) { // a narrow path in the guest's code page (P6.4.k3a4)
+        return 2204;
+    }
+    errno = 0;
+#pragma warning(suppress : 4996)
+    if (_wfopen(L"boot:/crt.txt", L"wb") || errno != EACCES) {
+        return 2205;
+    }
     return 42;
 }

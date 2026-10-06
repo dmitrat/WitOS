@@ -1,6 +1,8 @@
 #include <ctype.h>
 #include <errno.h>
+#include <intrin.h>
 #include <limits.h>
+#include <string.h>
 #include "crt.h"
 #include "../Runtime.NativeAot/native_ctype.witos.h"
 
@@ -724,6 +726,35 @@ int Strnicmp(const char *first, const char *second, size_t count)
     return left - right;
 }
 
+/* strncmp and strncpy (P6.4.k3a4), which CoreCLR's configuration and event pipe call. */
+int Strncmp(const char *first, const char *second, size_t count)
+{
+    if (!count) {
+        return 0;
+    }
+    if (!first || !second) {
+        InvalidParameter();
+    }
+    int left, right;
+    do {
+        left = (unsigned char)*first++;
+        right = (unsigned char)*second++;
+    } while (--count && left && left == right);
+    return left < right ? -1 : left > right; // UCRT's strncmp returns the sign, unlike its _strnicmp
+}
+
+char *Strncpy(char *destination, const char *source, size_t count)
+{
+    size_t i = 0;
+    for (; i < count && source[i]; ++i) {
+        destination[i] = source[i];
+    }
+    if (i < count) {
+        __stosb(reinterpret_cast<unsigned char *>(destination + i), 0, count - i); // a loop would become memset
+    }
+    return destination;
+}
+
 errno_t Strupr_s(char *text, size_t size)
 {
     if (!text || Strncnt(text, size) >= size) {
@@ -1003,6 +1034,18 @@ extern "C" char *__cdecl _strdup(const char *text)
 extern "C" int __cdecl _strnicmp(const char *first, const char *second, size_t count)
 {
     return WitCrt::Strnicmp(first, second, count);
+}
+
+#pragma function(strncmp, strncpy)
+
+extern "C" int __cdecl strncmp(const char *first, const char *second, size_t count)
+{
+    return WitCrt::Strncmp(first, second, count);
+}
+
+extern "C" char *__cdecl strncpy(char *destination, const char *source, size_t count)
+{
+    return WitCrt::Strncpy(destination, source, count);
 }
 
 extern "C" errno_t __cdecl _strupr_s(char *text, size_t size)

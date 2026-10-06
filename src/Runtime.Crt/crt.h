@@ -62,6 +62,13 @@ template <typename Char> class __declspec(novtable) BasicOutput {
 public:
     virtual bool Write(const Char *text, size_t count) = 0;
 
+    /* Whether a write was refused in a way that ends the format before its next character or specification, as a
+     * full buffer of UCRT's counted contracts does. */
+    virtual bool Failed() const
+    {
+        return false;
+    }
+
 protected:
     ~BasicOutput() = default;
 };
@@ -83,6 +90,12 @@ int Vsnwprintf_s(unsigned long long options, wchar_t *buffer, size_t size, size_
     _locale_t locale, va_list args);
 int Vsprintf_s(
     unsigned long long options, char *buffer, size_t size, const char *format, _locale_t locale, va_list args);
+int Vsprintf(
+    unsigned long long options, char *buffer, size_t count, const char *format, _locale_t locale, va_list args);
+int Vsnprintf_s(unsigned long long options, char *buffer, size_t size, size_t limit, const char *format,
+    _locale_t locale, va_list args);
+int Vswprintf_s(
+    unsigned long long options, wchar_t *buffer, size_t size, const wchar_t *format, _locale_t locale, va_list args);
 
 /* The global locale (locale.cpp), always the C locale: setlocale and the queries UCRT's headers and the STL make. The
  * locale lock is recursive, as UCRT's is: the STL takes it again while it holds it. */
@@ -106,6 +119,12 @@ int Fclose(FILE *stream);
 int Wremove(const wchar_t *path);
 int Wrename(const wchar_t *from, const wchar_t *to);
 void InitializeStdioOptions();
+int Vfprintf(unsigned long long options, FILE *stream, const char *format, _locale_t locale, va_list args);
+FILE *Fopen(const char *path, const char *mode);
+FILE *Wfopen(const wchar_t *path, const wchar_t *mode);
+int Fileno(FILE *stream);
+int WriteDescriptor(int descriptor, const void *data, unsigned count); // _write
+int Flushall();
 
 /* Strings, characters and numbers (string.cpp). */
 size_t Wcslen(const wchar_t *text);
@@ -145,6 +164,8 @@ errno_t Ltow_s(long value, wchar_t *buffer, size_t size, int radix);
 size_t Strnlen(const char *text, size_t count);
 char *Strdup(const char *text);
 int Strnicmp(const char *first, const char *second, size_t count);
+int Strncmp(const char *first, const char *second, size_t count);
+char *Strncpy(char *destination, const char *source, size_t count); // pads with terminators, as the standard says
 errno_t Strupr_s(char *text, size_t size);
 errno_t Wcslwr_s(wchar_t *text, size_t size);
 char *Strtok_s(char *text, const char *delimiters, char **context);
@@ -282,6 +303,8 @@ void Free(void *block);
 bool UtcNow(__time64_t &seconds); // false without a UTC clock
 /* A copy of the process's environment block in the platform's ANSI code page, owned by the caller; null on failure. */
 char *NarrowEnvironment();
+/* A path in the platform's ANSI code page as a wide string owned by the caller; null with errno set on failure. */
+wchar_t *WidePath(const char *path);
 /* The CT_CTYPE1 classes of a character beyond Latin-1. */
 unsigned short CharacterType(wchar_t value);
 /* A platform thread running start(argument): its handle, or null with errno set. The flags are CreateThread's. */

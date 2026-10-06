@@ -110,6 +110,7 @@ context. A `throw;` rethrows the current exception; an exception that leaves a `
     - [x] **P6.4.k3a3a** The inventory that code generation reveals.
     - [x] **P6.4.k3a3b** The floating-point environment.
     - [x] **P6.4.k3a3c** The mathematics, from OpenLibm.
+    - [x] **P6.4.k3a4** The last UCRT functions.
 
 ## P6.4.e: the exception runtime on Windows
 
@@ -1248,4 +1249,62 @@ revision.
 
 The inventory falls from 279 to 231. UCRT's share is now 14: the formatting and scanning entries, `wcstod`, the file
 functions and `strncmp` and `strncpy`.
+
+#### P6.4.k3a4: the last UCRT functions
+
+The 14 UCRT functions left in the inventory join the subset. Each is classified by its call sites in CoreCLR, as the
+binding rule of P6.4.k3 requires.
+
+**Real.**
+
+- printf's other widths:
+  - `__stdio_common_vsprintf`, which the event pipe calls;
+  - `__stdio_common_vsnprintf_s`, for error messages;
+  - `__stdio_common_vswprintf_s`, for the debugger's pipe names;
+  - `__stdio_common_vfprintf`, for container assertions on standard error.
+
+  They share the buffer contracts of the existing functions, which become templates over the character type.
+- `strncmp`, for the configuration, and `strncpy`, for the event pipe. `strncpy` pads with `rep stosb`, since a loop
+  would become a call to `memset`.
+- `_fileno` and `_write`, for minipal's error log on standard error, and `_flushall`, before a debug break.
+- `fopen`, for the GC's log, and `_wfopen`, for PGO data. Files open for writing, like the subset's other streams, and
+  a narrow path converts in the platform's ANSI code page.
+
+**Explicit failure** (unimplemented features end the process):
+
+- `fgets` and `__stdio_common_vsscanf`. Only the reading of PGO text files calls them, and reading needs streams the
+  subset does not have.
+- `wcstod`. Only `u16_strtod` calls it, and only ilasm calls that.
+- `_fileno` of a file, and `_write` to descriptors other than 1 and 2.
+
+The narrow forms expose UCRT rules of the counted and truncating contracts, because their conversions can fail. The
+differential found four, now kept by both widths:
+
+- A full buffer refuses characters but lets the character or specification being written finish, so its conversions
+  still set `errno`. The next character or specification is not begun. The secure contracts without truncation stop
+  at once.
+- Under the standard snprintf contract, a failure empties the string instead of terminating the buffer.
+- A truncating secure call that fails terminates where the output stopped, then empties the string.
+- `strncmp` returns the sign, unlike `_strnicmp`.
+
+**Recorded difference.** A wide character the UTF-8 locale cannot convert, a surrogate alone, ends the process in
+narrow output. UCRT's secure functions report an invalid parameter there. Its other functions write padding past the
+width, and they fail in a buffer but not when counting.
+
+**Evidence.**
+
+- The differential compares 27.8 million cases, none failing:
+  - the print cases double to 7.6 million, since every generated case also runs the three new contracts;
+  - the stream script writes narrow formatted output in every file mode;
+  - `fopen` and `_wfopen` open and fail as UCRT's;
+  - 400,000 `strncmp` and `strncpy` comparisons.
+- The scenario trace adds `fprintf`, `_fileno`, `_write` and `_flushall`, compared with UCRT on Windows and in the
+  guest.
+- The guest checks `fopen` and `_wfopen` on its read-only storage.
+
+The inventory falls from 231 to 217, and UCRT's share to none. What remains:
+
+- Win32: kernel32 124, advapi32 17, version 3, user32 1;
+- COM, OLE and WinRT: oleaut32 29, uuid 23, ole32 17, runtimeobject 2;
+- vcruntime's `longjmp`.
 

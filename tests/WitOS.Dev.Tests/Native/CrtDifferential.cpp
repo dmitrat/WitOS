@@ -42,6 +42,9 @@ const char *crashed;
 unsigned long crashCode;
 // What the current print case passes besides the format, for the reports.
 char note[64];
+// A character case with a surrogate alone in the UTF-8 locale: the narrow functions other than the secure ones are not
+// compared, since UCRT's results there are not reproduced and the subset ends the process.
+bool loneSurrogate;
 
 void Handler(const wchar_t *, const wchar_t *, const wchar_t *, unsigned, uintptr_t)
 {
@@ -178,6 +181,87 @@ int WitPrintN(unsigned long long options, char *buffer, size_t size, const char 
     return result;
 }
 
+/* The other widths of the three buffer contracts, which CoreCLR calls (P6.4.k3a4). */
+int UcrtPrintNC(unsigned long long options, char *buffer, size_t count, const char *format, _locale_t locale, ...)
+{
+    va_list args;
+    va_start(args, locale);
+    int result = INT_MIN;
+    __try {
+        result = __stdio_common_vsprintf(options, buffer, count, format, locale, args);
+    } __except (Crashed("ucrt", GetExceptionCode())) {
+    }
+    va_end(args);
+    return result;
+}
+
+int WitPrintNC(unsigned long long options, char *buffer, size_t count, const char *format, _locale_t locale, ...)
+{
+    va_list args;
+    va_start(args, locale);
+    int result = INT_MIN;
+    __try {
+        result = WitCrt::Vsprintf(options, buffer, count, format, locale, args);
+    } __except (Crashed("wit", GetExceptionCode())) {
+    }
+    va_end(args);
+    return result;
+}
+
+int UcrtPrintNS(
+    unsigned long long options, char *buffer, size_t size, size_t limit, const char *format, _locale_t locale, ...)
+{
+    va_list args;
+    va_start(args, locale);
+    int result = INT_MIN;
+    __try {
+        result = __stdio_common_vsnprintf_s(options, buffer, size, limit, format, locale, args);
+    } __except (Crashed("ucrt", GetExceptionCode())) {
+    }
+    va_end(args);
+    return result;
+}
+
+int WitPrintNS(
+    unsigned long long options, char *buffer, size_t size, size_t limit, const char *format, _locale_t locale, ...)
+{
+    va_list args;
+    va_start(args, locale);
+    int result = INT_MIN;
+    __try {
+        result = WitCrt::Vsnprintf_s(options, buffer, size, limit, format, locale, args);
+    } __except (Crashed("wit", GetExceptionCode())) {
+    }
+    va_end(args);
+    return result;
+}
+
+int UcrtPrintWS(unsigned long long options, wchar_t *buffer, size_t size, const wchar_t *format, _locale_t locale, ...)
+{
+    va_list args;
+    va_start(args, locale);
+    int result = INT_MIN;
+    __try {
+        result = __stdio_common_vswprintf_s(options, buffer, size, format, locale, args);
+    } __except (Crashed("ucrt", GetExceptionCode())) {
+    }
+    va_end(args);
+    return result;
+}
+
+int WitPrintWS(unsigned long long options, wchar_t *buffer, size_t size, const wchar_t *format, _locale_t locale, ...)
+{
+    va_list args;
+    va_start(args, locale);
+    int result = INT_MIN;
+    __try {
+        result = WitCrt::Vswprintf_s(options, buffer, size, format, locale, args);
+    } __except (Crashed("wit", GetExceptionCode())) {
+    }
+    va_end(args);
+    return result;
+}
+
 struct Locales {
     _locale_t Ucrt, Wit;
 };
@@ -300,6 +384,36 @@ void PrintWide(const wchar_t *format, const Locales &locales, const uint64_t (&a
                 }
             }
         }
+        for (const size_t size : {size_t(1), size_t(2), size_t(3), size_t(5), size_t(16), size_t(64), size_t(300)}) {
+            Fill(ucrt);
+            Fill(wit);
+            invalids = 0;
+            errno = 71;
+            const int expected = UcrtPrintWS(options, ucrt, size, format, locales.Ucrt, a[0], a[1], a[2], a[3]);
+            const int expectedErrno = errno;
+            if (CrashReported(format, "vswprintf_s", options, size, 0)) {
+                return;
+            }
+            if (invalids) {
+                ++skipped;
+                continue;
+            }
+            errno = 71;
+            const int actual = WitPrintWS(options, wit, size, format, locales.Wit, a[0], a[1], a[2], a[3]);
+            if (CrashReported(format, "vswprintf_s", options, size, 0)) {
+                return;
+            }
+            ++compared;
+            if (!Agree(expected, expectedErrno, actual, errno, ucrt, wit, relaxed)) {
+                char detail[1024], u[256], w[256];
+                Escape(u, sizeof(u), ucrt, size < 40 ? size : 40);
+                Escape(w, sizeof(w), wit, size < 40 ? size : 40);
+                sprintf_s(detail, "vswprintf_s options=%llx size=%zu %s ucrt=%d/%d [%s] wit=%d/%d [%s]", options, size,
+                    note, expected, expectedErrno, u, actual, errno, w);
+                Report("print_ws", format, detail);
+                return;
+            }
+        }
     }
 }
 
@@ -359,6 +473,88 @@ void PrintNarrow(const wchar_t *wideFormat, const Locales &locales, const uint64
                     note, expected, expectedErrno, u, actual, errno, w);
                 Report("print_narrow", wideFormat, detail);
                 return;
+            }
+        }
+    }
+    // The narrow forms of the counted and limited contracts (P6.4.k3a4), as the wide case runs them.
+    if (loneSurrogate) {
+        ++skipped;
+        return;
+    }
+    const auto agree = [&](int expected, int expectedErrno, int actual, int actualErrno) {
+        return relaxed && expected < 0
+            ? actual < 0 && actualErrno == expectedErrno
+            : actual == expected && actualErrno == expectedErrno && !memcmp(ucrt, wit, BUFFER);
+    };
+    const auto report = [&](const char *call, unsigned long long options, size_t size, size_t limit, int expected,
+                            int expectedErrno, int actual, int actualErrno) {
+        char detail[1024], u[256], w[256];
+        EscapeNarrow(u, sizeof(u), ucrt, size < 40 ? size : 40);
+        EscapeNarrow(w, sizeof(w), wit, size < 40 ? size : 40);
+        sprintf_s(detail, "%s options=%llx size=%zu limit=%zd %s ucrt=%d/%d [%s] wit=%d/%d [%s]", call, options, size,
+            (ptrdiff_t)limit, note, expected, expectedErrno, u, actual, actualErrno, w);
+        Report("print_narrow", wideFormat, detail);
+    };
+    for (const unsigned long long options : {0x24ULL, 0x25ULL, 0x26ULL, 0x04ULL, 0x00ULL}) {
+        for (size_t count :
+            {size_t(0), SIZE_MAX, size_t(1), size_t(2), size_t(3), size_t(7), size_t(16), size_t(64), size_t(300)}) {
+            const bool counting = !count;
+            count = count == SIZE_MAX ? 0 : count;
+            memset(ucrt, 0xA5, BUFFER);
+            memset(wit, 0xA5, BUFFER);
+            invalids = 0;
+            errno = 71;
+            const int expected =
+                UcrtPrintNC(options, counting ? nullptr : ucrt, count, format, locales.Ucrt, a[0], a[1], a[2], a[3]);
+            const int expectedErrno = errno;
+            if (CrashReported(wideFormat, "vsprintf", options, count, 0)) {
+                return;
+            }
+            if (invalids) {
+                ++skipped;
+                return;
+            }
+            errno = 71;
+            const int actual =
+                WitPrintNC(options, counting ? nullptr : wit, count, format, locales.Wit, a[0], a[1], a[2], a[3]);
+            if (CrashReported(wideFormat, "vsprintf", options, count, 0)) {
+                return;
+            }
+            ++compared;
+            if (!agree(expected, expectedErrno, actual, errno)) {
+                report("vsprintf", options, count, 0, expected, expectedErrno, actual, errno);
+                return;
+            }
+        }
+        if (options != 0x24 && options != 0) {
+            continue;
+        }
+        for (const size_t size : {size_t(1), size_t(2), size_t(5), size_t(16), size_t(300)}) {
+            for (const size_t limit : {size_t(0), size_t(1), size_t(3), size - 1, size, size_t(15), _TRUNCATE}) {
+                memset(ucrt, 0xA5, BUFFER);
+                memset(wit, 0xA5, BUFFER);
+                invalids = 0;
+                errno = 71;
+                const int expected =
+                    UcrtPrintNS(options, ucrt, size, limit, format, locales.Ucrt, a[0], a[1], a[2], a[3]);
+                const int expectedErrno = errno;
+                if (CrashReported(wideFormat, "vsnprintf_s", options, size, limit)) {
+                    return;
+                }
+                if (invalids) {
+                    ++skipped;
+                    continue;
+                }
+                errno = 71;
+                const int actual = WitPrintNS(options, wit, size, limit, format, locales.Wit, a[0], a[1], a[2], a[3]);
+                if (CrashReported(wideFormat, "vsnprintf_s", options, size, limit)) {
+                    return;
+                }
+                ++compared;
+                if (!agree(expected, expectedErrno, actual, errno)) {
+                    report("vsnprintf_s", options, size, limit, expected, expectedErrno, actual, errno);
+                    return;
+                }
             }
         }
     }
@@ -446,6 +642,7 @@ void TextCase(const Locales &locales)
     if (conversion == L'c' || conversion == L'C') {
         a[used] = CHARACTERS[Pick(sizeof(CHARACTERS) / sizeof(CHARACTERS[0]))];
         sprintf_s(note, "%s char %llX", locale, a[used]);
+        loneSurrogate = locales.Wit && a[used] >= 0xD800 && a[used] <= 0xDFFF;
     } else {
         // The width of the string depends on the options and length; give each case both kinds by trying both.
         if (precisionDefect && locales.Wit && precision[0]) {
@@ -464,6 +661,7 @@ void TextCase(const Locales &locales)
         return;
     }
     Print(format, locales, a);
+    loneSurrogate = false;
 }
 
 void PrintCases(const Locales &c, const Locales &utf8)
@@ -509,6 +707,7 @@ void PrintCases(const Locales &c, const Locales &utf8)
 struct Api {
     FILE *(*Open)(const wchar_t *, const wchar_t *, int);
     int (*Vfwprintf)(unsigned long long, FILE *, const wchar_t *, _locale_t, va_list);
+    int (*Vfprintf)(unsigned long long, FILE *, const char *, _locale_t, va_list);
     wint_t (*Putwc)(wchar_t, FILE *);
     int (*Putc)(int, FILE *);
     int (*Puts)(const char *, FILE *);
@@ -529,6 +728,11 @@ FILE *UcrtOpen(const wchar_t *path, const wchar_t *mode, int share)
 int UcrtVfwprintf(unsigned long long options, FILE *stream, const wchar_t *format, _locale_t locale, va_list args)
 {
     return __stdio_common_vfwprintf(options, stream, format, locale, args);
+}
+
+int UcrtVfprintf(unsigned long long options, FILE *stream, const char *format, _locale_t locale, va_list args)
+{
+    return __stdio_common_vfprintf(options, stream, format, locale, args);
 }
 
 wint_t UcrtPutwc(wchar_t value, FILE *stream)
@@ -601,6 +805,18 @@ int StreamPrint(
     return result;
 }
 
+int StreamPrintNarrow(
+    const Api &api, Log &log, FILE *stream, unsigned long long options, _locale_t locale, const char *format, ...)
+{
+    va_list args;
+    va_start(args, format);
+    errno = 0;
+    const int result = api.Vfprintf(options, stream, format, locale, args);
+    va_end(args);
+    log.Add(result);
+    return result;
+}
+
 void Script(const Api &api, Log &log, const wchar_t *path, const wchar_t *mode, unsigned buffering)
 {
     errno = 0;
@@ -655,6 +871,11 @@ void Script(const Api &api, Log &log, const wchar_t *path, const wchar_t *mode, 
     StreamPrint(api, log, stream, 0x24, api.Utf8, L"[%hs]", "\xC3");
     StreamPrint(api, log, stream, 0x00, nullptr, L"[%s|%S]\n", "iso", L"wide");
     StreamPrint(api, log, stream, 0x24, nullptr, L"%c%c", 0, L'z');
+    StreamPrintNarrow(api, log, stream, 0x24, nullptr, "narrow %d|%s|%ls|%c\n", 2, "bytes", L"wide", 'n');
+    StreamPrintNarrow(api, log, stream, 0x24, nullptr, "[%s]", "a\nb\r\nc\xE9");
+    StreamPrintNarrow(api, log, stream, 0x24, nullptr, "[%ls]", L"\x00E9\x20AC");
+    StreamPrintNarrow(api, log, stream, 0x24, api.Utf8, "[%ls|%lc]\n", L"\x00E9\x20AC\xD83D\xDE00", L'\x00FF');
+    StreamPrintNarrow(api, log, stream, 0x00, nullptr, "[%S|%hs|%-5d|%05x]\n", L"legacy", "short", 3, 0xab);
     wchar_t large[3000];
     for (int i = 0; i < 2999; ++i) {
         large[i] = i % 61 == 60 ? L'\n' : wchar_t(L'a' + i % 26);
@@ -695,10 +916,10 @@ void WriteFileBytes(const wchar_t *path, const char *bytes)
 
 void StreamCases(const wchar_t *directory, _locale_t ucrtUtf8, _locale_t witUtf8)
 {
-    const Api ucrt = {UcrtOpen, UcrtVfwprintf, UcrtPutwc, UcrtPutc, UcrtPuts, UcrtWrite, UcrtFlush, UcrtSetvbuf,
-        UcrtClose, UcrtRemove, UcrtRename, ucrtUtf8};
-    const Api wit = {WitCrt::Wfsopen, WitCrt::Vfwprintf, WitCrt::Fputwc, WitCrt::Fputc, WitCrt::Fputs, WitCrt::Fwrite,
-        WitCrt::Fflush, WitCrt::Setvbuf, WitCrt::Fclose, WitCrt::Wremove, WitCrt::Wrename, witUtf8};
+    const Api ucrt = {UcrtOpen, UcrtVfwprintf, UcrtVfprintf, UcrtPutwc, UcrtPutc, UcrtPuts, UcrtWrite, UcrtFlush,
+        UcrtSetvbuf, UcrtClose, UcrtRemove, UcrtRename, ucrtUtf8};
+    const Api wit = {WitCrt::Wfsopen, WitCrt::Vfwprintf, WitCrt::Vfprintf, WitCrt::Fputwc, WitCrt::Fputc, WitCrt::Fputs,
+        WitCrt::Fwrite, WitCrt::Fflush, WitCrt::Setvbuf, WitCrt::Fclose, WitCrt::Wremove, WitCrt::Wrename, witUtf8};
     static char a[65536], b[65536];
     unsigned index = 0;
     for (const wchar_t *mode : {L"w", L"wb", L"wt", L"a", L"ab", L"at"}) {
@@ -796,6 +1017,63 @@ void StreamCases(const wchar_t *directory, _locale_t ucrtUtf8, _locale_t witUtf8
     errno = 0;
     w = WitCrt::Wremove(moved);
     check("remove", 0, 0, w, errno);
+    // fopen and _wfopen (P6.4.k3a4): narrow paths in the ANSI code page, the failures of opening, and a file each
+    // writes, compared byte for byte.
+    char narrowDirectory[MAX_PATH];
+    if (!WideCharToMultiByte(CP_ACP, 0, directory, -1, narrowDirectory, MAX_PATH, nullptr, nullptr)) {
+        Report("files", directory, "the directory has no ANSI name");
+        return;
+    }
+    char narrowMissing[MAX_PATH], narrowInvalid[MAX_PATH], ucrtNarrow[MAX_PATH], witNarrow[MAX_PATH];
+    sprintf_s(narrowMissing, "%s\\missing\\file.txt", narrowDirectory);
+    sprintf_s(narrowInvalid, "%s\\a<b.txt", narrowDirectory);
+    sprintf_s(ucrtNarrow, "%s\\ucrt-fopen.txt", narrowDirectory);
+    sprintf_s(witNarrow, "%s\\wit-fopen.txt", narrowDirectory);
+    for (const char *path : {(const char *)narrowMissing, (const char *)narrowDirectory, (const char *)narrowInvalid}) {
+        errno = 0;
+#pragma warning(suppress : 4996) // fopen itself is what is compared
+        FILE *uf = fopen(path, "w");
+        const int ufe = errno;
+        errno = 0;
+        FILE *wf = WitCrt::Fopen(path, "w");
+        check("fopen", uf != nullptr, ufe, wf != nullptr, errno);
+    }
+    errno = 0;
+#pragma warning(suppress : 4996) // _wfopen itself is what is compared
+    FILE *uw = _wfopen(missing, L"wb");
+    const int uwe = errno;
+    errno = 0;
+    FILE *ww = WitCrt::Wfopen(missing, L"wb");
+    check("_wfopen", uw != nullptr, uwe, ww != nullptr, errno);
+    static Log fopenExpected, fopenActual;
+    fopenExpected.Used = fopenActual.Used = 0;
+    for (const char *mode : {"w", "wb", "wt", "a", "ab"}) {
+#pragma warning(suppress : 4996)
+        FILE *uf = fopen(ucrtNarrow, mode);
+        FILE *wf = WitCrt::Fopen(witNarrow, mode);
+        fopenExpected.Add(uf != nullptr);
+        fopenActual.Add(wf != nullptr);
+        if (!uf || !wf) {
+            break;
+        }
+        StreamPrintNarrow(ucrt, fopenExpected, uf, 0x24, nullptr, "%s|%d\n", mode, _flushall());
+        StreamPrintNarrow(wit, fopenActual, wf, 0x24, nullptr, "%s|%d\n", mode, WitCrt::Flushall());
+        fopenExpected.Add(fclose(uf));
+        fopenActual.Add(WitCrt::Fclose(wf));
+    }
+    size_t aSize = 0, bSize = 0;
+    wchar_t ucrtWide[MAX_PATH], witWide[MAX_PATH];
+    swprintf_s(ucrtWide, L"%s\\ucrt-fopen.txt", directory);
+    swprintf_s(witWide, L"%s\\wit-fopen.txt", directory);
+    ReadFileBytes(ucrtWide, a, sizeof(a), aSize);
+    ReadFileBytes(witWide, b, sizeof(b), bSize);
+    ++compared;
+    fopenExpected.Text[fopenExpected.Used] = fopenActual.Text[fopenActual.Used] = 0;
+    if (strcmp(fopenExpected.Text, fopenActual.Text) || aSize != bSize || memcmp(a, b, aSize)) {
+        char detail[1024];
+        sprintf_s(detail, "ucrt=[%s] wit=[%s] sizes %zu/%zu", fopenExpected.Text, fopenActual.Text, aSize, bSize);
+        Report("fopen", L"", detail);
+    }
 }
 
 /* Strings, parsing and messages */
@@ -1754,6 +2032,45 @@ double MathArgument(unsigned kind)
     }
 }
 
+/* strncmp and strncpy (P6.4.k3a4) over random strings with early terminators and counts beyond them. */
+void NarrowStringCases()
+{
+    static const char letters[] = "abcABC\xE9\xFF";
+    char first[24], second[24], ucrt[40], wit[40];
+    for (unsigned i = 0; i < 200000; ++i) {
+        for (char *text : {first, second}) {
+            const size_t length = Pick(20);
+            for (size_t j = 0; j < length; ++j) {
+                text[j] = letters[Pick(sizeof(letters) - 1)];
+            }
+            text[length] = 0;
+        }
+        if (Pick(3) == 0) {
+            memcpy(second, first, sizeof(first));
+            second[Pick(20)] = letters[Pick(sizeof(letters) - 1)];
+        }
+        const size_t count = Pick(26);
+        const int a = strncmp(first, second, count), b = WitCrt::Strncmp(first, second, count);
+        ++compared;
+        if (a != b) {
+            char detail[128];
+            sprintf_s(detail, "[%s] [%s] %zu -> %d / %d", first, second, count, a, b);
+            Report("strncmp", L"", detail);
+        }
+        memset(ucrt, 0x5A, sizeof(ucrt));
+        memset(wit, 0x5A, sizeof(wit));
+#pragma warning(suppress : 4996) // strncpy itself is what is compared
+        const char *x = strncpy(ucrt, first, count);
+        const char *y = WitCrt::Strncpy(wit, first, count);
+        ++compared;
+        if ((x == ucrt) != (y == wit) || memcmp(ucrt, wit, sizeof(ucrt))) {
+            char detail[128];
+            sprintf_s(detail, "[%s] %zu", first, count);
+            Report("strncpy", L"", detail);
+        }
+    }
+}
+
 void MathCases()
 {
     constexpr unsigned count = 100000;
@@ -1924,6 +2241,8 @@ int wmain(int count, wchar_t **arguments)
     printf("floating-point environment done: %llu compared\n", compared);
     MathCases();
     printf("mathematics done: %llu compared\n", compared);
+    NarrowStringCases();
+    printf("narrow strings done: %llu compared\n", compared);
     printf("%s: %llu compared, %llu skipped as invalid, %llu skipped for UCRT's precision defect, %llu failed\n",
         failures ? "FAIL" : "PASS", compared, skipped, precisionSkipped, failures);
     return failures ? 1 : 0;

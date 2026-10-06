@@ -5,7 +5,9 @@
 
 /* The printf engine (P6.4.h, P6.4.i3), wide and narrow: UCRT's flags, widths, precisions, lengths, integer,
  * character, string and pointer conversions and legacy wide specifiers, under the buffer contracts of
- * __stdio_common_vswprintf, __stdio_common_vsnwprintf_s and __stdio_common_vsprintf_s. As in UCRT, %n and the w, L and
+ * __stdio_common_vswprintf, __stdio_common_vsnwprintf_s and __stdio_common_vsprintf_s, and of their other widths,
+ * which CoreCLR calls (P6.4.k3a4): __stdio_common_vsprintf, __stdio_common_vsnprintf_s and
+ * __stdio_common_vswprintf_s. As in UCRT, %n and the w, L and
  * T lengths on integers are invalid parameters; the secure functions also reject an unknown conversion, modifiers on
  * %% and a specification the format ends in, which the others write literally, as %, or not at all. Floating-point
  * conversions and %Z end the process as unimplemented. A width, precision or count beyond INT_MAX fails with -1 and
@@ -53,6 +55,9 @@ public:
     int Run(const Char *format)
     {
         while (*format) {
+            if (output_.Failed()) {
+                return -1;
+            }
             if (*format != '%') {
                 const Char *start = format;
                 while (*format && *format != '%') {
@@ -405,8 +410,13 @@ private:
             if (Wide(spec)) {
                 wchar_t pending = 0;
                 produced = FromWide(locale_, wchar_t(argument), pending, text);
+                if (produced < 0 && locale_.Utf8) {
+                    // A surrogate alone: UCRT's secure functions report an invalid parameter, its others write
+                    // padding past the width and fail in a buffer but not when counting. The subset ends the process.
+                    InvalidParameter();
+                }
                 if (produced < 0) {
-                    errno = EILSEQ; // UCRT writes nothing for a character its locale cannot convert, and goes on
+                    errno = EILSEQ; // the C locale writes nothing for a character it cannot convert, and goes on
                     return true;
                 }
             } else {
@@ -526,22 +536,35 @@ private:
     }
 };
 
-/* A bounded buffer. A secure function stops at the first character that does not fit, as UCRT's does: the rest of
- * the format is then neither written nor parsed. The others go on counting. */
+/* What a bounded buffer does with a character that does not fit, as UCRT's contracts do. */
+enum class Overflow {
+    Stop, // the secure contracts without truncation: the rest of the format is neither written nor parsed
+    Element, // the counted and truncating contracts: the character or specification being written goes on, so its
+    // conversions still set errno, and the next one is not begun
+    Count // the standard snprintf contract and counting without a buffer: the whole format is counted
+};
+
 template <typename Char> class BufferOutput final : public BasicOutput<Char> {
 public:
-    BufferOutput(Char *buffer, size_t capacity, bool stop) : buffer_(buffer), capacity_(capacity), stop_(stop) {}
+    BufferOutput(Char *buffer, size_t capacity, Overflow overflow)
+        : buffer_(buffer), capacity_(capacity), overflow_(overflow)
+    {}
 
     bool Write(const Char *text, size_t count) override
     {
         for (size_t i = 0; i < count; ++i) {
             if (written_ == capacity_) {
                 overflowed_ = true;
-                return !stop_;
+                return overflow_ != Overflow::Stop;
             }
             buffer_[written_++] = text[i];
         }
         return true;
+    }
+
+    bool Failed() const override
+    {
+        return overflowed_ && overflow_ == Overflow::Element;
     }
 
     bool Full() const
@@ -562,7 +585,7 @@ public:
 private:
     Char *buffer_;
     size_t capacity_;
-    bool stop_;
+    Overflow overflow_;
     size_t written_ = 0;
     bool overflowed_ = false;
 };
@@ -583,15 +606,20 @@ int Format(NarrowOutput &output, unsigned long long options, bool secure, const 
     return formatter.Run(format);
 }
 
-int Vswprintf(
-    unsigned long long options, wchar_t *buffer, size_t count, const wchar_t *format, _locale_t locale, va_list args)
+namespace {
+
+/* vswprintf and vsprintf: UCRT's common form, whose options choose the contract of a full buffer. */
+template <typename Char>
+int PrintCounted(
+    unsigned long long options, Char *buffer, size_t count, const Char *format, _locale_t locale, va_list args)
 {
     if (!format || (!buffer && count)) {
         InvalidParameter();
     }
-    // Only the standard snprintf contract needs the whole length past a full buffer; the others stop there.
+    // Only counting and the standard snprintf contract need the whole length past a full buffer.
     const bool counting = !buffer;
-    BufferOutput<wchar_t> output(buffer, count, !counting && !(options & PRINTF_STANDARD_SNPRINTF));
+    BufferOutput<Char> output(
+        buffer, count, counting || (options & PRINTF_STANDARD_SNPRINTF) ? Overflow::Count : Overflow::Element);
     const int result = Format(output, options, false, format, Resolve(locale), args);
     if (counting) {
         return result;
@@ -604,12 +632,12 @@ int Vswprintf(
     }
     if (options & PRINTF_STANDARD_SNPRINTF) {
         if (count) {
-            buffer[count - 1] = 0;
+            buffer[result < 0 ? 0 : count - 1] = 0; // a failure empties the string
         }
         return result;
     }
     if (options & PRINTF_LEGACY_NULL_TERMINATION) {
-        return result >= 0 ? result : -1; // it fit exactly, without a terminator
+        return result >= 0 && !output.Overflowed() ? result : -1; // it fit exactly, without a terminator
     }
     if (!count) {
         return -1;
@@ -618,7 +646,9 @@ int Vswprintf(
     return -2; // too small; the headers report -1
 }
 
-int Vsnwprintf_s(unsigned long long options, wchar_t *buffer, size_t size, size_t limit, const wchar_t *format,
+/* _vsnwprintf_s and _vsnprintf_s: the secure format with a limit, which _TRUNCATE makes the buffer. */
+template <typename Char>
+int PrintLimited(unsigned long long options, Char *buffer, size_t size, size_t limit, const Char *format,
     _locale_t locale, va_list args)
 {
     if (!format) {
@@ -633,13 +663,19 @@ int Vsnwprintf_s(unsigned long long options, wchar_t *buffer, size_t size, size_
     if (limit >= size) {
         buffer[size - 1] = 0; // UCRT terminates the whole buffer first unless the limit is shorter
     }
-    // The characters allowed before the terminator; one more may be written, and the next one stops the format.
+    // The characters allowed before the terminator; one more may be written. With truncation, UCRT formats as the
+    // counted contract does; without it, the first character that does not fit stops the format.
     const size_t allowed = limit < size ? limit : size - 1;
-    BufferOutput<wchar_t> output(buffer, allowed + 1, true);
+    const bool truncating = limit == _TRUNCATE || limit < size;
+    BufferOutput<Char> output(buffer, allowed + 1, truncating ? Overflow::Element : Overflow::Stop);
     const int result = Format(output, options, true, format, Resolve(locale), args);
     if (!output.Overflowed() && output.Written() <= allowed) {
-        buffer[result < 0 ? 0 : output.Written()] = 0; // a failure empties the string
-        return result < 0 ? -1 : result;
+        buffer[output.Written()] = 0;
+        if (result < 0) {
+            buffer[0] = 0; // a failure ends what it wrote and empties the string
+            return -1;
+        }
+        return result;
     }
     if (limit == _TRUNCATE || limit < size) {
         buffer[allowed] = 0;
@@ -649,14 +685,15 @@ int Vsnwprintf_s(unsigned long long options, wchar_t *buffer, size_t size, size_
     InvalidParameter(); // too small, and truncation was not requested
 }
 
-/* sprintf_s: the secure format into a buffer that must hold the whole result and its terminator. */
-int Vsprintf_s(
-    unsigned long long options, char *buffer, size_t size, const char *format, _locale_t locale, va_list args)
+/* sprintf_s and swprintf_s: the secure format into a buffer that must hold the whole result and its terminator. */
+template <typename Char>
+int PrintSecure(
+    unsigned long long options, Char *buffer, size_t size, const Char *format, _locale_t locale, va_list args)
 {
     if (!format || !buffer || !size) {
         InvalidParameter();
     }
-    BufferOutput<char> output(buffer, size, true);
+    BufferOutput<Char> output(buffer, size, Overflow::Stop);
     const int result = Format(output, options, true, format, Resolve(locale), args);
     if (!output.Overflowed() && output.Written() < size) {
         buffer[output.Written()] = 0;
@@ -668,6 +705,43 @@ int Vsprintf_s(
     }
     buffer[0] = 0;
     InvalidParameter(); // too small
+}
+
+} // namespace
+
+int Vswprintf(
+    unsigned long long options, wchar_t *buffer, size_t count, const wchar_t *format, _locale_t locale, va_list args)
+{
+    return PrintCounted(options, buffer, count, format, locale, args);
+}
+
+int Vsprintf(unsigned long long options, char *buffer, size_t count, const char *format, _locale_t locale, va_list args)
+{
+    return PrintCounted(options, buffer, count, format, locale, args);
+}
+
+int Vsnwprintf_s(unsigned long long options, wchar_t *buffer, size_t size, size_t limit, const wchar_t *format,
+    _locale_t locale, va_list args)
+{
+    return PrintLimited(options, buffer, size, limit, format, locale, args);
+}
+
+int Vsnprintf_s(unsigned long long options, char *buffer, size_t size, size_t limit, const char *format,
+    _locale_t locale, va_list args)
+{
+    return PrintLimited(options, buffer, size, limit, format, locale, args);
+}
+
+int Vsprintf_s(
+    unsigned long long options, char *buffer, size_t size, const char *format, _locale_t locale, va_list args)
+{
+    return PrintSecure(options, buffer, size, format, locale, args);
+}
+
+int Vswprintf_s(
+    unsigned long long options, wchar_t *buffer, size_t size, const wchar_t *format, _locale_t locale, va_list args)
+{
+    return PrintSecure(options, buffer, size, format, locale, args);
 }
 } // namespace WitCrt
 
@@ -688,5 +762,23 @@ extern "C" int __cdecl __stdio_common_vsprintf_s(
     unsigned __int64 options, char *buffer, size_t size, const char *format, _locale_t locale, va_list args)
 {
     return WitCrt::Vsprintf_s(options, buffer, size, format, locale, args);
+}
+
+extern "C" int __cdecl __stdio_common_vsprintf(
+    unsigned __int64 options, char *buffer, size_t count, const char *format, _locale_t locale, va_list args)
+{
+    return WitCrt::Vsprintf(options, buffer, count, format, locale, args);
+}
+
+extern "C" int __cdecl __stdio_common_vsnprintf_s(unsigned __int64 options, char *buffer, size_t size, size_t limit,
+    const char *format, _locale_t locale, va_list args)
+{
+    return WitCrt::Vsnprintf_s(options, buffer, size, limit, format, locale, args);
+}
+
+extern "C" int __cdecl __stdio_common_vswprintf_s(
+    unsigned __int64 options, wchar_t *buffer, size_t size, const wchar_t *format, _locale_t locale, va_list args)
+{
+    return WitCrt::Vswprintf_s(options, buffer, size, format, locale, args);
 }
 #endif
