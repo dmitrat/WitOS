@@ -109,8 +109,8 @@ short Dclass(double value)
 
 /* getenv (P6.4.k3a2): a narrow copy of the process's environment, made at the first call in the platform's ANSI code
  * page, as UCRT makes the narrow environment of a library; later changes to the process's environment are not in it,
- * as in UCRT, which only _putenv updates. A name matches without regard to ASCII case, the empty name the entries that
- * begin with '='. The copy lives as long as the module. */
+ * as in UCRT, which only _putenv updates. Like UCRT's, the copy leaves out the entries that begin with '=' (the current
+ * directories of drives); a name matches without regard to ASCII case. The copy lives as long as the module. */
 namespace {
 Platform::Lock environmentLock;
 char *environment;
@@ -162,7 +162,7 @@ char *Getenv(const char *name)
     }
     char *result = nullptr;
     for (char *entry = environment; entry && *entry; entry += strlen(entry) + 1) {
-        if (!Strnicmp(entry, name, length) && entry[length] == '=') {
+        if (*entry != '=' && !Strnicmp(entry, name, length) && entry[length] == '=') {
             result = entry + length + 1;
             break;
         }

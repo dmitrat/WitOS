@@ -1575,7 +1575,7 @@ void CoreClrCases()
     }
     // The environment as the process started with it.
     for (const char *name : {"PATH", "path", "Path", "WINDIR", "SystemRoot", "TEMP", "NO_SUCH_WITOS_VARIABLE", "PAT",
-             "", "=C:", "ComSpec"}) {
+             "", "=C:", "=Z:", "ComSpec"}) {
 #pragma warning(suppress : 4996) // getenv itself is what is compared
         const char *expected = getenv(name);
         const char *actual = WitCrt::Getenv(name);
@@ -1601,6 +1601,9 @@ int wmain(int count, wchar_t **arguments)
         return 2;
     }
     verbose = count > 2 && !wcscmp(arguments[2], L"--verbose");
+    // A drive's current directory, as a command shell records it, before either narrow environment is made: getenv
+    // leaves such entries out.
+    SetEnvironmentVariableW(L"=Z:", L"Z:\\witos");
     _set_invalid_parameter_handler(Handler);
     setvbuf(stdout, nullptr, _IONBF, 0); // the phase lines survive a crash
     const Locales c = {nullptr, nullptr};

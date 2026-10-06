@@ -1093,7 +1093,8 @@ the process, as UCRT's default handler does:
   `strnlen`, `_strdup`, `_strnicmp` (ASCII case), `_strupr_s`, `_wcslwr_s` and `strtok_s`.
 - **Environment.** `getenv` reads a narrow copy of the process's environment, made at the first call in the platform's
   ANSI code page (UTF-8 in the guest). UCRT makes a library's narrow environment the same way. Later changes to the
-  process's environment are not in the copy, as in UCRT, which updates it only for `_putenv`. Names compare without
+  process's environment are not in the copy, as in UCRT, which updates it only for `_putenv`. Like UCRT's, the copy
+  leaves out the entries that begin with `=`, which record the current directories of drives. Names compare without
   ASCII case.
 - **Sorting.** `qsort` is a heap sort; the C standard leaves the order of equal elements unspecified.
 - **Invalid parameters.** `_invalid_parameter_noinfo`, the report of UCRT's inline functions, ends the process.
