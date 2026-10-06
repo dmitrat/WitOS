@@ -1,5 +1,6 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <cstdio>
 #include <cwchar>
 #include "hostfxr.h"
 #include "host_libraries.h"
@@ -45,7 +46,7 @@ void HOSTFXR_CALLTYPE on_environment(const hostfxr_dotnet_environment_info *info
             !std::wcscmp(framework.name, L"Microsoft.NETCore.App") &&
             !std::wcscmp(framework.version, WIT_HOST_RUNTIME_VERSION) &&
             // The host is built for Windows and joins paths with '\', which WitOS's paths accept as a separator.
-            !std::wcscmp(framework.path, L"/\\shared\\Microsoft.NETCore.App");
+            !std::wcscmp(framework.path, L"\\dotnet\\shared\\Microsoft.NETCore.App");
     }
 }
 
@@ -74,7 +75,7 @@ WitU64 load(const char *path, WitU64 *library)
 extern "C" WitU64 wit_host_libraries_probe()
 {
     WitU64 hostfxr = 0;
-    if (load("/host/fxr/" WIT_HOST_RUNTIME_VERSION_UTF8 "/hostfxr.dll", &hostfxr) != WIT_STATUS_OK) {
+    if (load("/dotnet/host/fxr/" WIT_HOST_RUNTIME_VERSION_UTF8 "/hostfxr.dll", &hostfxr) != WIT_STATUS_OK) {
         return 2850;
     }
     const auto set_error_writer = symbol<hostfxr_set_error_writer_fn>(hostfxr, "hostfxr_set_error_writer");
@@ -85,7 +86,7 @@ extern "C" WitU64 wit_host_libraries_probe()
     }
     // The .NET root of the boot package: one framework and no SDK.
     Environment result = {};
-    if (environment_info(L"/", nullptr, &on_environment, &result) != 0 ||
+    if (environment_info(L"\\dotnet", nullptr, &on_environment, &result) != 0 ||
         result.Calls != 1 ||
         result.Sdks ||
         result.Frameworks != 1 ||
@@ -98,7 +99,7 @@ extern "C" WitU64 wit_host_libraries_probe()
         return 2853;
     }
     result = {};
-    if (environment_info(L"/", &result, &on_environment, &result) != (int32_t)0x80008081 ||
+    if (environment_info(L"\\dotnet", &result, &on_environment, &result) != (int32_t)0x80008081 ||
         result.Calls ||
         errors != 1 ||
         std::wcscmp(last_error,
@@ -110,7 +111,7 @@ extern "C" WitU64 wit_host_libraries_probe()
     }
     // hostpolicy's startup and teardown, from the framework's directory.
     WitU64 hostpolicy = 0;
-    if (load("/shared/Microsoft.NETCore.App/" WIT_HOST_RUNTIME_VERSION_UTF8 "/hostpolicy.dll", &hostpolicy) !=
+    if (load("/dotnet/shared/Microsoft.NETCore.App/" WIT_HOST_RUNTIME_VERSION_UTF8 "/hostpolicy.dll", &hostpolicy) !=
             WIT_STATUS_OK ||
         !symbol<void *>(hostpolicy, "corehost_main") ||
         wit_native_library_unload(hostpolicy) != WIT_STATUS_OK) {
@@ -118,6 +119,66 @@ extern "C" WitU64 wit_host_libraries_probe()
     }
     if (wit_native_library_unload(hostfxr) != WIT_STATUS_OK) {
         return 2857;
+    }
+    return WIT_TEST_EXIT_CODE;
+}
+
+/* The muxer (P6.4.k1), mode 29: the kernel created this component from the boot package's /dotnet/dotnet, and
+ * hostfxr_main runs `dotnet /app/CoreClrProbe.dll` over the delivered framework and application. hostfxr resolves the
+ * framework from the application's runtimeconfig and loads hostpolicy from it; hostpolicy reads the application's and
+ * the framework's deps and resolves their assets, and then finds no CoreCLR: the guest has none yet. Its message reaches
+ * the writer installed here, which hostfxr hands on to hostpolicy. */
+namespace {
+wchar_t messages[1024];
+size_t message_units;
+
+void HOSTFXR_CALLTYPE on_message(const char_t *message)
+{
+    for (size_t i = 0; message[i] && message_units + 1 < sizeof(messages) / sizeof(messages[0]); ++i) {
+        messages[message_units++] = message[i];
+    }
+    if (message_units + 1 < sizeof(messages) / sizeof(messages[0])) {
+        messages[message_units++] = L'\n';
+    }
+    messages[message_units] = 0;
+}
+
+bool contains(const wchar_t *text, const wchar_t *part)
+{
+    for (; *text; ++text) {
+        size_t i = 0;
+        while (part[i] && text[i] == part[i]) {
+            ++i;
+        }
+        if (!part[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+} // namespace
+
+extern "C" WitU64 wit_host_muxer_probe()
+{
+    WitU64 hostfxr = 0;
+    if (load("/dotnet/host/fxr/" WIT_HOST_RUNTIME_VERSION_UTF8 "/hostfxr.dll", &hostfxr) != WIT_STATUS_OK) {
+        return 2860;
+    }
+    const auto main = symbol<hostfxr_main_fn>(hostfxr, "hostfxr_main");
+    const auto set_error_writer = symbol<hostfxr_set_error_writer_fn>(hostfxr, "hostfxr_set_error_writer");
+    if (!main || !set_error_writer) {
+        return 2861;
+    }
+    set_error_writer(&on_message);
+    const char_t *arguments[] = {L"/dotnet/dotnet", L"/app/CoreClrProbe.dll"};
+    const int32_t status = main(2, arguments);
+    if (status != (int32_t)0x80008087) { // CoreClrResolveFailure
+        std::fwprintf(stdout, L"hostfxr_main 0x%08X: %ls", (unsigned)status, messages);
+        std::fflush(stdout);
+        return 2862;
+    }
+    if (!contains(messages, L"Could not resolve CoreCLR path.")) {
+        return 2863;
     }
     return WIT_TEST_EXIT_CODE;
 }

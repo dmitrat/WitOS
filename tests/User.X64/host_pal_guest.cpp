@@ -79,7 +79,7 @@ WitU64 policy()
     pal::string_t location = L"keep";
     std::vector<pal::string_t> global{L"keep"};
     if (!pal::get_default_installation_dir(&location) ||
-        location != L"/" ||
+        location != L"\\dotnet" ||
         pal::get_global_dotnet_dirs(&global) ||
         global.size() != 1 ||
         pal::get_dotnet_self_registered_dir(&location) ||
@@ -89,7 +89,7 @@ WitU64 policy()
     if (pal::get_default_breadcrumb_store(&location) ||
         pal::get_default_bundle_extraction_base_dir(location) ||
         !pal::get_default_servicing_directory(&location) ||
-        location != L"/") {
+        location != L"\\") {
         return 2713;
     }
     SetLastError(0x2468);
@@ -153,11 +153,11 @@ WitU64 process_state()
     }
     pal::string_t directory;
     if (!pal::getcwd(&directory) ||
-        directory != L"/" ||
+        directory != L"\\" ||
         wit_native_cwd_set("/", 1) != WIT_STATUS_OK ||
         wit_native_cwd_set("/missing", 8) != WIT_STATUS_NOT_FOUND ||
         !pal::getcwd(&directory) ||
-        directory != L"/") {
+        directory != L"\\") {
         return 2736;
     }
     return 0;
@@ -170,7 +170,7 @@ int image_data = 1;
 
 WitU64 module_paths()
 {
-    const pal::string_t own = L"/host/HostRuntimeFixture.pe";
+    const pal::string_t own = L"\\host\\HostRuntimeFixture.pe";
     pal::string_t path;
     SetLastError(0x2468);
     if (!pal::get_own_executable_path(&path) ||
@@ -190,7 +190,8 @@ WitU64 module_paths()
         path != own) {
         return 2742;
     }
-    const pal::string_t libraryPath = L"/native/lib.dll";
+    // Loaded by its WitOS path; named as the Windows API would name it (P6.4.k1).
+    const pal::string_t libraryPath = L"/native/lib.dll", libraryName = L"\\native\\lib.dll";
     pal::dll_t library = nullptr;
     if (!pal::load_library(&libraryPath, &library)) {
         return 2743;
@@ -200,9 +201,9 @@ WitU64 module_paths()
     const bool named = symbol &&
         data &&
         pal::get_method_module_path(&path, reinterpret_cast<void *>(symbol)) &&
-        path == libraryPath &&
+        path == libraryName &&
         pal::get_method_module_path(&path, reinterpret_cast<void *>(data)) &&
-        path == libraryPath;
+        path == libraryName;
     pal::unload_library(library);
     if (!named) {
         return 2744;

@@ -408,6 +408,27 @@ void wit_user_file_self_test(WitPageAllocator *pages)
     }
     require(recovered && failures == 20 && childFailures == 20,
         "DLL TLS worker rollback missed stack/header/module block boundaries");
+    {
+        /* The .NET host's muxer (P6.4.k1): the kernel creates the component from the package's /dotnet, the host
+         * runtime fixture, whose mode 29 runs hostfxr_main over the delivered framework and application. */
+        const WitU64 free = wit_pages_free_count(pages);
+        require(wit_user_create_package_pe(&process, pages, 0, "dotnet/dotnet", WIT_USER_IMAGE_BASE,
+                    WIT_PE_UNWIND_RUNTIME | WIT_PE_RUNTIME_FULL) == WitPeOk,
+            "dotnet load failed");
+        ((WitUserTestConfig *)wit_user_space_physical(&process.Space, WIT_USER_INFO, 0, 0))->Mode = 29;
+        process.TickLimit = WIT_RUNTIME_TICK_BUDGET;
+        wit_user_run(&process);
+        if (process.State != WitUserExited || process.ExitCode != 42) {
+            wit_console_write("dotnet state/code: ");
+            wit_console_write_u64(process.State);
+            wit_console_write("/");
+            wit_console_write_hex(process.ExitCode);
+            wit_console_write("\n");
+            wit_panic("hostfxr_main did not complete");
+        }
+        wit_user_destroy(&process);
+        require(wit_pages_free_count(pages) == free, "dotnet teardown leaked pages");
+    }
     wit_console_write(
         "[TEST-PASS] Storage.AssemblyBytes\n[TEST-PASS] Storage.AtomicReadAndSeek\n[TEST-PASS] "
         "Storage.HandlesAndQuotas\n[TEST-PASS] Storage.NamespaceQueries\n[TEST-PASS] Storage.FileViews\n[TEST-PASS] "
@@ -416,7 +437,7 @@ void wit_user_file_self_test(WitPageAllocator *pages)
         "Storage.LibraryDependencies\n[TEST-PASS] Storage.LibraryReaders\n[TEST-PASS] "
         "Storage.LibraryLifecycle\n[TEST-PASS] Storage.LibraryShutdown\n[TEST-PASS] "
         "Storage.LibraryThreadNotifications\n[TEST-PASS] Storage.LibraryStaticTls\n[TEST-PASS] "
-        "Storage.LibraryTlsCallbacks\n[TEST-PASS] "
+        "Storage.LibraryTlsCallbacks\n[TEST-PASS] Storage.HostfxrMain\n[TEST-PASS] "
         "Storage.FileViewRollback\n[TEST-PASS] Storage.Isolation\n[TEST-PASS] Storage.Teardown\n");
 }
 #else

@@ -96,6 +96,12 @@ internal static class KernelImageBuilder
         {
             await CoreClrMemoryImage.BuildAsync(root, output, msvc);
         }
+        if (scenario == "coreclr-storage")
+        {
+            // The .NET host over the delivered framework and application (P6.4.k1): the fixture boots as /dotnet.
+            await CoreClrMemoryImage.BuildHostRuntimeAsync(root, output, msvc,
+                await CoreClrMemoryImage.BuildSupportAsync(root, output, msvc));
+        }
         if (scenario == "runtime-config")
         {
             await RuntimeConfigProbe.BuildImageAsync(root, output, msvc);

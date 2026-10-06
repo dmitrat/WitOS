@@ -98,10 +98,10 @@ extern "C" int host_pal_contracts()
     }
     pal::string_t location = L"keep";
     if (!pal::get_default_installation_dir(&location) ||
-        location != L"/" ||
+        location != L"\\dotnet" ||
         pal::get_default_installation_dir_for_arch(pal::architecture::arm64, &location) ||
         pal::get_dotnet_self_registered_config_location(pal::architecture::x64) !=
-            L"/etc/dotnet/install_location_x64") {
+            L"\\etc\\dotnet\\install_location_x64") {
         return 112;
     }
     std::vector<pal::string_t> global{L"keep"};
@@ -143,7 +143,7 @@ extern "C" int host_pal_contracts()
     }
     if (!SetEnvironmentVariableW(L"CORE_SERVICING", L"/dir") ||
         !pal::get_default_servicing_directory(&location) ||
-        location != L"/dir" ||
+        location != L"\\dir" ||
         !SetEnvironmentVariableW(L"CORE_SERVICING", nullptr)) {
         return 119;
     }

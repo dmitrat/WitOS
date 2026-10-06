@@ -20,10 +20,11 @@ extern "C" {
 namespace {
 constexpr pal::architecture CURRENT = pal::architecture::x64;
 
-// The package's own .NET: the boot package places shared/Microsoft.NETCore.App at its root, as an installation does.
-constexpr const pal::char_t *INSTALLATION = _X("/");
-constexpr const pal::char_t *REGISTRATION = _X("/etc/dotnet/install_location");
-constexpr const pal::char_t *SERVICING = _X("/opt/coreservicing");
+// The package's own .NET: the boot package installs it in /dotnet, a directory as every installation is, since upstream
+// drops a root's trailing separator (P6.4.k1). Paths are presented in the Windows host's separator.
+constexpr const pal::char_t *INSTALLATION = _X("\\dotnet");
+constexpr const pal::char_t *REGISTRATION = _X("\\etc\\dotnet\\install_location");
+constexpr const pal::char_t *SERVICING = _X("\\opt\\coreservicing");
 
 // Whether the path resolves to an entry of the package, and the entry if so.
 bool stat(const pal::string_t &path, WitStorageInfo &info)
