@@ -8,15 +8,20 @@
  * EL0t with its frame at the top of its own kernel stack. System calls: SVC #0 with the number in x8 and the
  * arguments in x0-x2; the status returns in x0 and the value in x1. The raw TLS base is TPIDRRO_EL0, which EL0
  * cannot change, and the compiler TLS block is x18, the platform register, which the kernel sets on every
- * return to EL0. Thread contexts and exception callbacks need the ARM64 context layout of A3 and are not
- * offered: wit_arch_context_supported is zero and the common kernel answers UNSUPPORTED before any of the
- * context functions below can run. */
+ * return to EL0. A thread context is the AArch64 block of witos/thread_context.h (plan step K1.4): X0-X30, SP,
+ * PC, PSTATE as the condition flags alone, the 32 vector registers, FPCR within the probed mask and FPSR; the fault
+ * callback receives it for the EL0 exception classes below and for activations. */
 
 #define CLASS_UNKNOWN 0x00U
 #define CLASS_SVC64 0x15U
+#define CLASS_SYSTEM_REGISTER 0x18U
 #define CLASS_USER_INSTRUCTION_ABORT 0x20U
 #define CLASS_PC_ALIGNMENT 0x22U
 #define CLASS_USER_DATA_ABORT 0x24U
+#define CLASS_SP_ALIGNMENT 0x26U
+#define CLASS_BREAKPOINT 0x3CU
+/* FPSR bits user code can set: the cumulative exception flags, QC and the AArch32 condition flags. */
+#define FPSR_USER 0xF80000DFULL
 #define ESR_ISS_IMMEDIATE 0xFFFFULL
 #define ESR_FAR_NOT_VALID (1ULL << 10) /* FnV of instruction and data aborts. */
 #define ESR_WRITE (1ULL << 6) /* WnR of data aborts. */
@@ -30,11 +35,6 @@ static WitU64 compiler_tls;
 static WitU64 stack_low(WitU32 slot, WitU32 thread)
 {
     return (WitU64)wit_a64_user_kernel_stacks[slot][thread] + 4096;
-}
-
-static WIT_NORETURN void contexts_unsupported(void)
-{
-    wit_panic("ARM64 thread contexts arrive with A3");
 }
 
 void wit_arch_select_thread_stack(WitU32 slot, WitU32 thread)
@@ -198,72 +198,102 @@ void wit_arch_frame_describe(const WitArchFrame *frame)
     }
 }
 
+/* Contexts exist once the FPCR mask was probed at boot (context.c). */
 int wit_arch_context_supported(void)
 {
-    return 0;
+    return wit_a64_float_control_mask() != 0;
 }
 
 WitU32 wit_arch_context_profile(void)
 {
-    contexts_unsupported();
+    return WIT_THREAD_CONTEXT_FPSIMD;
 }
 
 void wit_arch_context_describe(WitThreadContext *context)
 {
-    (void)context;
-    contexts_unsupported();
+    (void)context; /* The AArch64 block carries no mask of its own; CONTEXT_PROFILE reports the FPCR mask. */
+}
+
+static void copy_vectors(WitU8 *output, const WitU8 *input)
+{
+    for (WitU32 i = 0; i < 512; ++i) {
+        output[i] = input[i];
+    }
 }
 
 void wit_arch_context_capture(WitThreadContext *context, const WitArchFrame *frame)
 {
-    (void)context;
-    (void)frame;
-    contexts_unsupported();
+    for (WitU32 i = 0; i < 31; ++i) {
+        context->X[i] = frame->X[i];
+    }
+    context->Sp = frame->Sp;
+    context->Pc = frame->Elr;
+    context->Pstate = frame->Spsr & WIT_CONTEXT_USER_PSTATE;
+    context->Fpcr = frame->Fpcr & wit_a64_float_control_mask();
+    context->Fpsr = frame->Fpsr & FPSR_USER;
+    copy_vectors(context->V, (const WitU8 *)frame->Q);
 }
 
 int wit_arch_context_registers_valid(const WitThreadContext *context)
 {
-    (void)context;
-    contexts_unsupported();
+    return !(context->Pstate & ~WIT_CONTEXT_USER_PSTATE);
 }
 
 int wit_arch_context_state_valid(const WitThreadContext *context)
 {
-    (void)context;
-    contexts_unsupported();
+    return !(context->Fpcr & ~wit_a64_float_control_mask()) && !(context->Fpsr & ~FPSR_USER);
 }
 
 WitU64 wit_arch_context_pc(const WitThreadContext *context)
 {
-    (void)context;
-    contexts_unsupported();
+    return context->Pc;
 }
 
 WitU64 wit_arch_context_sp(const WitThreadContext *context)
 {
-    (void)context;
-    contexts_unsupported();
+    return context->Sp;
 }
 
+/* TPIDR_EL0 stays the frame's; x18 is replaced by the compiler TLS on resume (wit_a64_prepare_resume). */
 void wit_arch_context_apply(WitArchFrame *frame, const WitThreadContext *context)
 {
-    (void)frame;
-    (void)context;
-    contexts_unsupported();
+    for (WitU32 i = 0; i < 31; ++i) {
+        frame->X[i] = context->X[i];
+    }
+    frame->Sp = context->Sp;
+    frame->Elr = context->Pc;
+    frame->Spsr = context->Pstate; /* EL0t, every exception unmasked, the condition flags of the context. */
+    frame->Fpcr = context->Fpcr;
+    frame->Fpsr = context->Fpsr;
+    copy_vectors((WitU8 *)frame->Q, context->V);
 }
 
 void wit_arch_cpu_context_describe(WitCpuContextInfo *info, const WitArchFrame *frame)
 {
-    (void)info;
-    (void)frame;
-    contexts_unsupported();
+    if (!frame || !wit_arch_frame_returns_to_user(frame)) {
+        wit_panic("CPU profile lost the current EL0 frame");
+    }
+    info->Version = WIT_CPU_CONTEXT_VERSION;
+    info->Size = sizeof(*info);
+    info->EnabledState = WIT_CPU_CONTEXT_FPSIMD;
+    info->LegacySaveBytes = sizeof(frame->Q);
+    info->CodeSelector = 0;
+    info->StackSelector = 0;
+    info->DebugPolicy = WIT_CPU_DEBUG_DISABLED;
+    info->FloatControlMask = (WitU32)wit_a64_float_control_mask();
 }
 
-/* Exception callbacks deliver a thread context, so no EL0 exception is deliverable before A3. */
+/* The EL0 exception classes the fault callback receives: undefined instructions, trapped system register accesses,
+ * instruction and data aborts, PC and SP alignment faults and BRK. */
 int wit_arch_exception_deliverable(WitU64 vector)
 {
-    (void)vector;
-    return 0;
+    return vector == CLASS_UNKNOWN ||
+        vector == CLASS_SYSTEM_REGISTER ||
+        vector == CLASS_USER_INSTRUCTION_ABORT ||
+        vector == CLASS_PC_ALIGNMENT ||
+        vector == CLASS_USER_DATA_ABORT ||
+        vector == CLASS_SP_ALIGNMENT ||
+        vector == CLASS_BREAKPOINT;
 }
 
 /* vector is the exception class, error the syndrome (ESR_EL1) and address the fault address. */
@@ -278,19 +308,17 @@ WitArchExceptionKind wit_arch_exception_kind(WitU64 vector, WitU64 error, WitU64
     return WitArchExceptionOther; /* Integer division by zero does not trap on ARM64. */
 }
 
+/* The trap entry passes the fault address of aborts and alignment faults and zero for the other classes. */
 void wit_arch_exception_record(WitUserExceptionInfo *info, const WitArchFrame *frame, WitU64 address)
 {
-    (void)info;
-    (void)frame;
-    (void)address;
-    contexts_unsupported();
+    info->Address = address;
+    info->RawState = frame->Spsr;
 }
 
 void wit_arch_exception_record_software(WitUserExceptionInfo *info, const WitThreadContext *context)
 {
-    (void)info;
-    (void)context;
-    contexts_unsupported();
+    info->Address = context->Pc;
+    info->RawState = context->Pstate;
 }
 
 void wit_arch_fault_from_frame(WitArchFaultState *state, const WitArchFrame *frame)
@@ -300,11 +328,11 @@ void wit_arch_fault_from_frame(WitArchFaultState *state, const WitArchFrame *fra
     state->Esr = frame->Esr;
 }
 
-void wit_arch_fault_from_context(WitArchFaultState *state, const WitThreadContext *context)
+void wit_arch_fault_from_record(WitArchFaultState *state, const WitUserExceptionInfo *record)
 {
-    (void)state;
-    (void)context;
-    contexts_unsupported();
+    state->Elr = record->Context.Pc;
+    state->Spsr = record->Context.Pstate;
+    state->Esr = record->Error; /* The syndrome of the delivered fault; zero for a software record. */
 }
 
 int wit_arch_fault_from_user(const WitArchFaultState *state)

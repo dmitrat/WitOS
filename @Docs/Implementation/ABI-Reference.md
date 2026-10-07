@@ -1,6 +1,6 @@
 # Справочник пользовательского ABI ядра WitOS
 
-Версии: **user ABI v54**, **boot ABI v4**. Источник истины — заголовки `src/Kernel/include/witos/*.h`; этот документ их описывает и проверяется хостовым тестом: каждый `WIT_CALL_*` из `user_abi.h` обязан встречаться здесь. Раскладка вызовов — ABI-1 по [RFC-0011 v3 §7](../RFC-0011-Kernel-Architecture-and-ABI.md), введённая шагом K1.1 плана; судьба каждого прежнего вызова — в [RFC-0011 v3 §8](../RFC-0011-Kernel-Architecture-and-ABI.md). ABI экспериментален до шага K8, но с K1.1 номер вызова, значение статуса и бит права никогда не переиспользуются (RFC-0011 §10.1).
+Версии: **user ABI v55**, **boot ABI v4**. Источник истины — заголовки `src/Kernel/include/witos/*.h`; этот документ их описывает и проверяется хостовым тестом: каждый `WIT_CALL_*` из `user_abi.h` обязан встречаться здесь. Раскладка вызовов — ABI-1 по [RFC-0011 v3 §7](../RFC-0011-Kernel-Architecture-and-ABI.md), введённая шагом K1.1 плана; судьба каждого прежнего вызова — в [RFC-0011 v3 §8](../RFC-0011-Kernel-Architecture-and-ABI.md). ABI экспериментален до шага K8, но с K1.1 номер вызова, значение статуса и бит права никогда не переиспользуются (RFC-0011 §10.1).
 
 ## Классы
 
@@ -78,9 +78,9 @@
 | 34 | `WIT_CALL_THREAD_QUERY` | thread handle или `WIT_THREAD_SELF`, buffer, 96 | 96; `Version` 4 и `Size` в буфере задаёт вызывающий; право `QUERY` или право на контекст | целевой |
 | 35 | `WIT_CALL_THREAD_SUSPEND` | thread handle | предыдущий счётчик | целевой |
 | 36 | `WIT_CALL_THREAD_RESUME` | thread handle | предыдущий счётчик | целевой |
-| 37 | `WIT_CALL_THREAD_CONTEXT_GET` | thread handle или `WIT_THREAD_SELF`, buffer, 720 | 0 | целевой |
-| 38 | `WIT_CALL_THREAD_CONTEXT_SET` | thread handle, buffer, 720 | 0 | целевой |
-| 39 | `WIT_CALL_CONTEXT_PROFILE` | buffer, 32, version 2 | 0 | целевой |
+| 37 | `WIT_CALL_THREAD_CONTEXT_GET` | thread handle или `WIT_THREAD_SELF`, buffer, 720 (x64) или 848 (ARM64) | 0 | целевой |
+| 38 | `WIT_CALL_THREAD_CONTEXT_SET` | thread handle, buffer, 720 (x64) или 848 (ARM64) | 0 | целевой |
+| 39 | `WIT_CALL_CONTEXT_PROFILE` | buffer, 32, version 2 | 0; `EnabledState` — `LEGACY` (x64, FXSAVE64) или `FPSIMD` (ARM64), `FloatControlMask` — маска MXCSR или реализованные биты FPCR | целевой |
 | 40 | `WIT_CALL_THREAD_ACTIVATE` | thread handle или `WIT_THREAD_SELF`, callback, argument | 0; право `ACTIVATE`; доставка через callback исключений (см. «Активации») | целевой |
 | 50 | `WIT_CALL_EVENT_CREATE` | flags (`MANUAL_RESET`, `INITIAL_SIGNALED`), rights (0 — `WAIT` и `SIGNAL`), 0 | event handle | целевой |
 | 51 | `WIT_CALL_EVENT_SET` | handle | 0 | целевой |
@@ -91,8 +91,8 @@
 | 56 | `WIT_CALL_CLOCK_FREQUENCY` | clock | частота, Гц | целевой |
 | 57 | `WIT_CALL_RANDOM` | buffer, size ≤ 65536, 0 | size | целевой |
 | 60 | `WIT_CALL_EXCEPTION_REGISTER` | callback или 0, version 1, flags 0 | 0 | целевой |
-| 61 | `WIT_CALL_EXCEPTION_QUERY` | token, buffer, 768 | 0 | целевой |
-| 62 | `WIT_CALL_EXCEPTION_CONTINUE` | token, `WitUserExceptionTransfer`, 736 | не возвращается при успехе | целевой |
+| 61 | `WIT_CALL_EXCEPTION_QUERY` | token, buffer, 768 (x64) или 896 (ARM64) | 0 | целевой |
+| 62 | `WIT_CALL_EXCEPTION_CONTINUE` | token, `WitUserExceptionTransfer`, 736 (x64) или 864 (ARM64) | не возвращается при успехе | целевой |
 | 63 | `WIT_CALL_EXCEPTION_REJECT` | token | не возвращается; компонент завершается | целевой |
 | 93 | `WIT_CALL_PROCESSOR_QUERY` | buffer, 4, 0 | 4 | целевой |
 | 94 | `WIT_CALL_PROCESS_WRITE_BARRIER` | — | 0 | целевой |
@@ -105,13 +105,13 @@
 | --- | --- | --- | --- | --- |
 | 207 | `WIT_CALL_MONOTONIC_QUERY` | buffer, 8, selector (`COUNTER` или `HZ`) | 8 | транзитный, K6 |
 | 208 | `WIT_CALL_CPU_CACHE_SIZE` | — | байт крупнейшего кэша | транзитный, K7 |
-| 209 | `WIT_CALL_THREAD_CONTEXT_RESTORE` | buffer, 720, version 2 | не возвращается при успехе | транзитный, K8 |
+| 209 | `WIT_CALL_THREAD_CONTEXT_RESTORE` | buffer, 720 (x64) или 848 (ARM64), version 2 | не возвращается при успехе | транзитный, K8 |
 | 210 | `WIT_CALL_STACK_LEASE_ACQUIRE` | thread handle, buffer, 48 | 0 | транзитный, K8 |
 | 211 | `WIT_CALL_STACK_LEASE_QUERY` | token, buffer, 48 | 0 | транзитный, K8 |
 | 212 | `WIT_CALL_STACK_LEASE_RELEASE` | token | 0 | транзитный, K8 |
-| 213 | `WIT_CALL_EXCEPTION_BEGIN` | `WitThreadContext`, 720, 32-битный код | token | транзитный, K8 |
+| 213 | `WIT_CALL_EXCEPTION_BEGIN` | `WitThreadContext`, 720 (x64) или 848 (ARM64), 32-битный код | token | транзитный, K8 |
 | 214 | `WIT_CALL_FATAL_ARM` | 32-битный код по умолчанию | 0 | транзитный, K8 |
-| 215 | `WIT_CALL_FATAL_REPORT` | `WitUserFatalInfo`, 872, version 1 | 0 | транзитный, K8 |
+| 215 | `WIT_CALL_FATAL_REPORT` | `WitUserFatalInfo`, 872 (x64) или 1000 (ARM64), version 1 | 0 | транзитный, K8 |
 | 216 | `WIT_CALL_THREAD_NAME_SET` | UTF-16 pointer, units < 128, flags 0 | 0 | транзитный, K8 |
 | 217 | `WIT_CALL_THREAD_NAME_QUERY` | buffer, 280, version 1 | 0 | транзитный, K8 |
 | 218 | `WIT_CALL_CODE_MEMORY` | `WitCodeMemoryRequest`, 64, 0 | база для `RESERVE`, иначе 0 | транзитный, K5 и K8 |
@@ -156,7 +156,11 @@
 
 ### Активации
 
-`THREAD_ACTIVATE(thread handle или WIT_THREAD_SELF, callback, argument)` помечает поток-цель (RFC 0011 §7.5). При следующем возврате цели в пользовательский режим — из вызова, по тику или из ожидания — ядро входит в callback процесса (`EXCEPTION_REGISTER`) с записью `WitUserExceptionInfo`, у которой `Vector` = `WIT_EXCEPTION_ACTIVATION_VECTOR` (~1), `Address` — callback активации, `Error` — её аргумент, `Context` — прерванный контекст; обработчик выполняет callback и продолжает контекст через `EXCEPTION_CONTINUE`. Ожидание или сон, в котором цель припаркована, завершается `INTERRUPTED` после того, как обработчик продолжил контекст. До четырёх активаций ждут доставки у одного потока и доставляются по порядку, по одной на каждый возврат (пятая — `NO_MEMORY`); поток внутри доставки (исключения или активации) или приостановленный держит их до продолжения или возобновления. Всё проверяется до пометки: хэндл с правом `ACTIVATE` (`DENIED`), исполняемый и незаписываемый callback (`BAD_ADDRESS`), зарегистрированный callback процесса (`NOT_FOUND`); пока активация ждёт доставки, `EXCEPTION_REGISTER` отвечает `BUSY`. Стек, в котором нет места для кадра callback, завершает компонент как отказ потока с вектором активации. На ARM64 до K1.4 нет контекста потока, и вызов отвечает `UNSUPPORTED`.
+`THREAD_ACTIVATE(thread handle или WIT_THREAD_SELF, callback, argument)` помечает поток-цель (RFC 0011 §7.5). При следующем возврате цели в пользовательский режим — из вызова, по тику или из ожидания — ядро входит в callback процесса (`EXCEPTION_REGISTER`) с записью `WitUserExceptionInfo`, у которой `Vector` = `WIT_EXCEPTION_ACTIVATION_VECTOR` (~1), `Address` — callback активации, `Error` — её аргумент, `Context` — прерванный контекст; обработчик выполняет callback и продолжает контекст через `EXCEPTION_CONTINUE`. Ожидание или сон, в котором цель припаркована, завершается `INTERRUPTED` после того, как обработчик продолжил контекст. До четырёх активаций ждут доставки у одного потока и доставляются по порядку, по одной на каждый возврат (пятая — `NO_MEMORY`); поток внутри доставки (исключения или активации) или приостановленный держит их до продолжения или возобновления. Всё проверяется до пометки: хэндл с правом `ACTIVATE` (`DENIED`), исполняемый и незаписываемый callback (`BAD_ADDRESS`), зарегистрированный callback процесса (`NOT_FOUND`); пока активация ждёт доставки, `EXCEPTION_REGISTER` отвечает `BUSY`. Стек, в котором нет места для кадра callback, завершает компонент как отказ потока с вектором активации. Доставка одинакова на обеих ISA; различается только регистровый блок контекста (см. «Контексты»).
+
+### Контексты
+
+`WitThreadContext` (RFC 0011 §7.3) — общий префикс (`Version` 2, `Size`, `ThreadId`, `StackLow`, `StackHigh`, `State`, `Flags`) и регистровый блок своей ISA: на x64 — общие регистры, `RIP`, `RSP`, `RFLAGS`, селекторы и образ FXSAVE64 (флаг `FXSAVE64`, 720 байт); на ARM64 — `X0`–`X30`, `SP`, `PC`, `PSTATE`, 32 векторных регистра `V`, `FPCR` и `FPSR` (флаг `FPSIMD`, 848 байт). `CONTEXT_PROFILE` сообщает блок и состояние с плавающей точкой; `WIT_THREAD_CONTEXT_SIZE_X64` и `WIT_THREAD_CONTEXT_SIZE_ARM64` именуют оба размера, `WIT_THREAD_CONTEXT_SIZE` — размер собственной ISA, от него зависят `WitUserExceptionInfo` (+48), `WitUserExceptionTransfer` (+16) и `WitUserFatalInfo` (+152). Проверка контекста на `THREAD_CONTEXT_SET` и `EXCEPTION_CONTINUE` держит пользовательский профиль: на x64 — селекторы `CS`/`SS`, маска `RFLAGS` и каноническая форма FXSAVE64 с маской MXCSR; на ARM64 — `PSTATE` только из флагов условий NZCV (режим EL0t, исключения размаскированы), `FPCR` в пределах реализованных аппаратурой битов, которые ядро измеряет при загрузке, `FPSR` в пределах архитектурных. `TPIDR_EL0` — состояние кадра потока вне контекста; `x18` (compiler TLS) контекст показывает, но ядро задаёт его при каждом возврате в EL0. Callback исключений на ARM64 получает классы EL0: неопределённую инструкцию (0x00), перехваченный доступ к системному регистру (0x18), аборты инструкции (0x20) и данных (0x24), ошибки выравнивания PC (0x22) и SP (0x26) и `BRK` (0x3C); `Vector` записи — класс исключения, `Error` — синдром ESR, `Address` — FAR для абортов и ошибок выравнивания, `RawState` — SPSR кадра (на x64 — RFLAGS).
 
 ## Структуры
 
@@ -169,10 +173,10 @@
 | `WitThreadCreateRequest` | `thread_reference.h` | 48 | 1 |
 | `WitUserWaitRequest` | `wait_objects.h` | 32 | 1 |
 | `WitStackLeaseInfo` | `stack_lease.h` | 48 | 1 |
-| `WitThreadContext` | `thread_context.h` | 720 | 2 |
-| `WitUserExceptionInfo` | `exception.h` | 768 | 1 |
-| `WitUserExceptionTransfer` | `exception.h` | 736 | 1 |
-| `WitUserFatalInfo` | `fatal_info.h` | 872 | 1 |
+| `WitThreadContext` | `thread_context.h` | 720 (x64), 848 (ARM64) | 2 |
+| `WitUserExceptionInfo` | `exception.h` | 768 (x64), 896 (ARM64) | 1 |
+| `WitUserExceptionTransfer` | `exception.h` | 736 (x64), 864 (ARM64) | 1 |
+| `WitUserFatalInfo` | `fatal_info.h` | 872 (x64), 1000 (ARM64) | 1 |
 | `WitCpuContextInfo` | `cpu_context_info.h` | 32 | 2 |
 | `WitThreadNameInfo` | `thread_name.h` | 280 | 1 |
 | `WitCodeMemoryRequest` | `code_memory.h` | 64 | 1 |

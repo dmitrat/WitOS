@@ -22,7 +22,7 @@ static bool state()
         info.CodeSelector != wit_test_context_cs() ||
         info.StackSelector != wit_test_context_ss() ||
         (info.DebugPolicy != WIT_CPU_DEBUG_DISABLED) ||
-        !info.MxcsrMask ||
+        !info.FloatControlMask ||
         PalAreShadowStacksEnabled() ||
         PalGetHijackTarget(hijack_target) != hijack_target ||
         PalGetHijackTarget(nullptr)) {

@@ -100,6 +100,16 @@ WitU64 wit_a64_translation_base(void);
 /* Invalidates the translation of one page for every address space after a descriptor changed. */
 void wit_a64_invalidate_page(WitU64 virtual_address);
 
+/* Floating-point control (FPCR) of the running code and the monitor debug control MDSCR_EL1. */
+WitU64 wit_a64_float_control(void);
+void wit_a64_set_float_control(WitU64 value);
+WitU64 wit_a64_debug_control(void);
+
+/* Probes the FPCR bits the hardware implements and checks that hardware debug is off (context.c); the mask is zero
+ * until then, and thread contexts are unsupported without it. */
+void wit_a64_context_initialize(void);
+WitU64 wit_a64_float_control_mask(void);
+
 /* Thread pointer that EL0 reads but cannot write (TPIDRRO_EL0): the raw TLS base of the running user thread. */
 void wit_a64_set_thread_pointer(WitU64 value);
 WitU64 wit_a64_thread_pointer(void);

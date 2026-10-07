@@ -94,7 +94,7 @@ void wit_arch_cpu_context_describe(WitCpuContextInfo *info, const WitArchFrame *
     info->Size = sizeof(*info);
     info->EnabledState = WIT_CPU_CONTEXT_LEGACY;
     info->DebugPolicy = WIT_CPU_DEBUG_DISABLED;
-    info->MxcsrMask = mxcsr_mask;
+    info->FloatControlMask = mxcsr_mask;
     info->LegacySaveBytes = sizeof(frame->FxState);
     info->CodeSelector = (WitU16)frame->Cs;
     info->StackSelector = (WitU16)frame->Ss;

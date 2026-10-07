@@ -104,7 +104,9 @@ WitArchExceptionKind wit_arch_exception_kind(WitU64 vector, WitU64 error, WitU64
 void wit_arch_exception_record(WitUserExceptionInfo *info, const WitArchFrame *frame, WitU64 address);
 void wit_arch_exception_record_software(WitUserExceptionInfo *info, const WitThreadContext *context);
 void wit_arch_fault_from_frame(WitArchFaultState *state, const WitArchFrame *frame);
-void wit_arch_fault_from_context(WitArchFaultState *state, const WitThreadContext *context);
+/* The fault state of a delivered record the handler rejected: its context and, where the ISA reports one, its
+ * syndrome. */
+void wit_arch_fault_from_record(WitArchFaultState *state, const WitUserExceptionInfo *record);
 int wit_arch_fault_from_user(const WitArchFaultState *state);
 void wit_arch_fault_describe(const WitArchFaultState *state);
 

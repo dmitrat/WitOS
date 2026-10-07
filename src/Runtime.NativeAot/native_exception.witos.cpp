@@ -1031,7 +1031,7 @@ extern "C" void __cdecl wit_native_raise_exception(
     if (wit_native_context_prefix((WitU64)WIT_THREAD_REFERENCE_CURRENT, &info.Context) != WIT_STATUS_OK) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
-    captured->FltSave.MxCsr_Mask = cpu.MxcsrMask;
+    captured->FltSave.MxCsr_Mask = cpu.FloatControlMask;
     captured->EFlags = (captured->EFlags & 0x200CD5U) | 0x202;
     if (!WitContext::flags(captured) || !WitContext::decode(*captured, info.Context, cpu, true)) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
@@ -1088,7 +1088,7 @@ extern "C" void __cdecl wit_native_local_unwind(CONTEXT *captured, WitU64 target
     if (wit_native_context_prefix((WitU64)WIT_THREAD_REFERENCE_CURRENT, &info.Context) != WIT_STATUS_OK) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
-    captured->FltSave.MxCsr_Mask = cpu.MxcsrMask;
+    captured->FltSave.MxCsr_Mask = cpu.FloatControlMask;
     captured->EFlags = (captured->EFlags & 0x200CD5U) | 0x202;
     if (!WitContext::flags(captured) || !WitContext::decode(*captured, info.Context, cpu, true)) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
@@ -1166,7 +1166,7 @@ extern "C" void __cdecl wit_native_rtl_unwind(CONTEXT *captured, WitU64 targetFr
     if (wit_native_context_prefix((WitU64)WIT_THREAD_REFERENCE_CURRENT, &info.Context) != WIT_STATUS_OK) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
-    captured->FltSave.MxCsr_Mask = cpu.MxcsrMask;
+    captured->FltSave.MxCsr_Mask = cpu.FloatControlMask;
     captured->EFlags = (captured->EFlags & 0x200CD5U) | 0x202;
     if (!WitContext::flags(captured) || !WitContext::decode(*captured, info.Context, cpu, true)) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);

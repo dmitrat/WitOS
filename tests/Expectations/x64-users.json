@@ -52,6 +52,8 @@
     "[TEST-PASS] User.WaitRights",
     "[TEST-PASS] User.WaitActiveTimeout",
     "[TEST-PASS] User.WaitJoinChain",
+    "[TEST-PASS] User.ExceptionCallbackAndContext",
+    "[TEST-PASS] User.ExceptionReject",
     "[TEST-PASS] User.ImageHeadersAndBounds",
     "[TEST-PASS] User.ImageUnsupportedFeatures",
     "[TEST-PASS] User.ImageSectionsAndEntry",

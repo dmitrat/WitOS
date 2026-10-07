@@ -40,7 +40,7 @@ public sealed class KernelLayeringTests
     ];
 
     private static readonly Regex ARCHITECTURE_NAME = new(
-        @"\bwit_x64_\w+|\b(?:R[a-d]x|R[sd]i|Rbp|Rsp|Rip|R(?:8|9|1[0-5])|Rflags|RawRflags|Cs|Ss|FxState)\b|" +
+        @"\bwit_x64_\w+|\b(?:R[a-d]x|R[sd]i|Rbp|Rsp|Rip|R(?:8|9|1[0-5])|Rflags|Cs|Ss|FxState)\b|" +
         @"\b(?:__readmsr|__writemsr|__readcr\d|__writecr\d|_enable|_disable|__halt|__cpuid|__outbyte|__inbyte)\b|" +
         @"\b(?:WIT_USER_CS|WIT_USER_SS|WitInterruptContext|WitExceptionFrame)\b|" +
         @"\bwit_a64_\w+|\b(?:WIT_ARCH_X64|WIT_ARCH_ARM64|x86_64|aarch64|0x8664|0xAA64)\b");

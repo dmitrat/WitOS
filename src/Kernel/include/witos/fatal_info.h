@@ -2,7 +2,7 @@
 #define WITOS_FATAL_INFO_H
 #include "thread_context.h"
 #define WIT_FATAL_INFO_VERSION 1U
-#define WIT_FATAL_INFO_SIZE 872U
+#define WIT_FATAL_INFO_SIZE (WIT_THREAD_CONTEXT_SIZE + 152U)
 #define WIT_FATAL_PARAMETER_CAPACITY 15U
 
 /* Opaque diagnostic code/parameters. Context is evidence, never resume authority. */

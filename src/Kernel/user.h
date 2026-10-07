@@ -308,6 +308,7 @@ void wit_user_thread_self_test(WitPageAllocator *pages);
 void wit_user_native_id_self_test(void);
 void wit_user_runtime_unwind_metadata_self_test(WitPageAllocator *);
 void wit_user_wait_self_test(WitPageAllocator *pages);
+void wit_user_exception_self_test(WitPageAllocator *pages);
 void wit_user_image_self_test(WitPageAllocator *pages);
 void wit_user_bootstrap_self_test(WitPageAllocator *pages);
 void wit_user_gc_self_test(WitPageAllocator *pages);

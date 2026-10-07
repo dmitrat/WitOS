@@ -671,7 +671,7 @@ WitArchFrame *wit_user_exception_trap(WitArchFrame *context, WitU64 vector, WitU
     WitArchFaultState state;
     if (thread->Exception.Token && thread->Exception.Vector != WIT_EXCEPTION_ACTIVATION_VECTOR) {
         const WitUserExceptionInfo *original = &thread->Exception;
-        wit_arch_fault_from_context(&state, &original->Context);
+        wit_arch_fault_from_record(&state, original);
         vector = original->Vector;
         error = original->Error;
         address = original->Address;
