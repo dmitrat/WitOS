@@ -9,6 +9,12 @@ static WitU64 raw(WitU64 op, WitU64 a = 0, WitU64 b = 0, WitU64 c = 0, WitU64 *r
     return wit_native_call(op, a, b, c, result);
 }
 
+static WitU64 wait(WitU64 handle, WitU64 deadline, WitU64 reserved = 0)
+{
+    WitUserWaitRequest request = {WIT_WAIT_OBJECTS_VERSION, sizeof(request), (WitU64)&handle, 1, 0, deadline};
+    return raw(WIT_CALL_OBJECT_WAIT, (WitU64)&request, sizeof(request), reserved);
+}
+
 static WitU64 now()
 {
     return (WitU64)OS::QueryPerformanceCounter();
@@ -99,7 +105,7 @@ WitU64 wit_gc_time(const WitUserStartup *startup, WitU64 mode)
         WitU64 thread = 0, code = 0;
         signal = &event;
         if (!event.CreateAutoEventNoThrow(false) ||
-            raw(WIT_CALL_THREAD_CREATE, (uintptr_t)signal_later, 0, 0, &thread) != WIT_STATUS_OK) {
+            raw(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)signal_later, 0, 0, &thread) != WIT_STATUS_OK) {
             return 220;
         }
         if (event.Wait(INFINITE - 1, false) != WAIT_OBJECT_0 ||
@@ -121,10 +127,10 @@ WitU64 wit_gc_time(const WitUserStartup *startup, WitU64 mode)
         }
         WitU64 handle = 0;
         if (raw(WIT_CALL_EVENT_CREATE, WIT_EVENT_INITIAL_SIGNALED, 0, 0, &handle) != WIT_STATUS_OK ||
-            raw(WIT_CALL_EVENT_WAIT_UNTIL, handle, WIT_MONOTONIC_MAX + 1) != WIT_STATUS_INVALID_ARGUMENT ||
-            raw(WIT_CALL_EVENT_WAIT_UNTIL, handle, 0, 1) != WIT_STATUS_INVALID_ARGUMENT ||
-            raw(WIT_CALL_EVENT_WAIT_UNTIL, handle, 0) != WIT_STATUS_OK ||
-            raw(WIT_CALL_EVENT_WAIT_UNTIL, handle, 0) != WIT_STATUS_TIMED_OUT ||
+            wait(handle, WIT_MONOTONIC_MAX + 1) != WIT_STATUS_INVALID_ARGUMENT ||
+            wait(handle, 0, 1) != WIT_STATUS_INVALID_ARGUMENT ||
+            wait(handle, 0) != WIT_STATUS_OK ||
+            wait(handle, 0) != WIT_STATUS_TIMED_OUT ||
             raw(WIT_CALL_CLOSE, handle) != WIT_STATUS_OK) {
             return 231;
         }

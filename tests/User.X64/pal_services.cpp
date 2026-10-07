@@ -55,7 +55,7 @@ static void worker(WitU64 index)
 
 static bool spawn(WitU64 index, WitU64 *handle)
 {
-    return wit_native_call(WIT_CALL_THREAD_CREATE, (uintptr_t)worker, index, 0, handle) == WIT_STATUS_OK;
+    return wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)worker, index, 0, handle) == WIT_STATUS_OK;
 }
 
 static bool join(WitU64 handle)

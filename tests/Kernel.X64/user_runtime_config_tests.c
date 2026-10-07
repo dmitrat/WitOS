@@ -271,18 +271,37 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
             wit_console_write_hex(process.ExitCode);
             wit_console_write("\n");
         }
-        require(report &&
-                report[0] == mode &&
-                report[1] == 281474976710656ULL &&
-                !report[2] &&
-                process.State == WitUserExited &&
-                process.ExitCode == expected &&
-                !process.Handles.Count &&
-                !process.Events.Count &&
-                process.Space.OwnedCount == owned &&
-                !process.FatalArmed &&
-                process.Fatal.Code == expected,
-            "Native fail-fast exit/cleanup contract failed");
+        const int failFast = report &&
+            report[0] == mode &&
+            report[1] == 281474976710656ULL &&
+            !report[2] &&
+            process.State == WitUserExited &&
+            process.ExitCode == expected &&
+            !process.Handles.Count &&
+            !process.Events.Count &&
+            process.Space.OwnedCount == owned &&
+            !process.FatalArmed &&
+            process.Fatal.Code == expected;
+        if (!failFast) {
+            wit_console_write("Fail-fast report/cleanups/handles/events/owned/expected/armed/code: ");
+            wit_console_write_u64(report ? report[0] : 0);
+            wit_console_write("/");
+            wit_console_write_u64(report ? report[2] : 0);
+            wit_console_write("/");
+            wit_console_write_u64(process.Handles.Count);
+            wit_console_write("/");
+            wit_console_write_u64(process.Events.Count);
+            wit_console_write("/");
+            wit_console_write_u64(process.Space.OwnedCount);
+            wit_console_write("/");
+            wit_console_write_u64(owned);
+            wit_console_write("/");
+            wit_console_write_u64(process.FatalArmed);
+            wit_console_write("/");
+            wit_console_write_hex(process.Fatal.Code);
+            wit_console_write("\n");
+        }
+        require(failFast, "Native fail-fast exit/cleanup contract failed");
         if (mode == 129 || mode == 131 || mode == 132) {
             require(process.Fatal.Address >= process.ImageBase &&
                     process.Fatal.Address < process.ImageBase + process.ImageSize,

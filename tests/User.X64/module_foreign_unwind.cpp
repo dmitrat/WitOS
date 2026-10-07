@@ -54,7 +54,7 @@ extern "C" WitU64 wit_foreign_module_unwind_probe(WitU64 root, WitU64 pc, WitU64
     released.store(0, std::memory_order_relaxed);
     reference = 0;
     WitU64 thread = 0, previous = 99, result = 0;
-    if (wit_native_call(WIT_CALL_THREAD_CREATE, (WitU64)worker, pc, 0, &thread) != WIT_STATUS_OK) {
+    if (wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)worker, pc, 0, &thread) != WIT_STATUS_OK) {
         return 3122;
     }
     while (!ready.load(std::memory_order_acquire)) {

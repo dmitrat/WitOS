@@ -44,6 +44,15 @@ void wit_native_unlock(volatile WitU32 *state);
 WIT_NORETURN void wit_native_fail_fast(WitU64 code);
 WitU64 wit_native_call(WitU64 call, WitU64 argument0, WitU64 argument1, WitU64 argument2, WitU64 *result);
 
+/* The helpers below keep a kernel request record on the stack. Under MSVC's /GS a record without pointers is a GS
+ * buffer, and the frozen record probe links no security cookie, so the helpers and their callers in that probe opt
+ * out: the kernel validates every record it reads, and the buffers never receive user input. */
+#if defined(_MSC_VER) && !defined(__clang__)
+#define WIT_NATIVE_SAFEBUFFERS __declspec(safebuffers)
+#else
+#define WIT_NATIVE_SAFEBUFFERS
+#endif
+
 /* The one blocking form of the lock above: contenders yield until the owner
  * releases it, and a failed yield is fatal. */
 static inline void wit_native_lock(volatile WitU32 *state)
@@ -69,13 +78,57 @@ static inline int wit_native_thread_info(WitUserThreadInfo *info)
         info->ThreadId;
 }
 
-/* Generation-bearing identity of the calling thread; a failed query is fatal. */
-static inline WitU64 wit_native_thread_identity(void)
+/* Generation-bearing identity of the calling thread from its kernel record; a failed query is fatal. */
+WIT_NATIVE_SAFEBUFFERS static inline WitU64 wit_native_thread_identity(void)
 {
-    WitU64 identity = 0;
-    if (wit_native_call(WIT_CALL_THREAD_CURRENT, 0, 0, 0, &identity) != WIT_STATUS_OK || !identity) {
+    WitUserThreadInfo info;
+    if (!wit_native_thread_info(&info)) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
-    return identity;
+    return info.ThreadId;
+}
+
+/* The one wait of ABI-1 (RFC 0011 section 7.4) on several handles or one; the deadline is an absolute monotonic
+ * count, WIT_WAIT_INFINITE waits forever and zero polls. The winner's index is optional. */
+WIT_NATIVE_SAFEBUFFERS static inline WitU64 wit_native_wait_any(
+    const WitU64 *handles, WitU32 count, WitU64 deadline, WitU64 *index)
+{
+    WitUserWaitRequest request = {WIT_WAIT_OBJECTS_VERSION, sizeof(request), (WitU64)handles, count, 0, deadline};
+    WitU64 winner = 0;
+    const WitU64 status = wit_native_call(WIT_CALL_OBJECT_WAIT, (WitU64)&request, sizeof(request), 0, &winner);
+    if (index) {
+        *index = winner;
+    }
+    return status;
+}
+
+static inline WitU64 wit_native_wait_one(WitU64 handle, WitU64 deadline)
+{
+    return wit_native_wait_any(&handle, 1, deadline, 0);
+}
+
+/* The monotonic clock, and the counts of a number of 10 ms scheduler ticks, in which the fixtures measure delays. */
+static inline WitU64 wit_native_clock_read(WitU64 *now)
+{
+    return wit_native_call(WIT_CALL_CLOCK_READ, WIT_CLOCK_MONOTONIC, 0, 0, now);
+}
+
+static inline WitU64 wit_native_tick_counts(WitU64 ticks)
+{
+    WitU64 frequency = 0;
+    if (wit_native_call(WIT_CALL_CLOCK_FREQUENCY, WIT_CLOCK_MONOTONIC, 0, 0, &frequency) != WIT_STATUS_OK ||
+        !frequency) {
+        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+    }
+    return frequency / 100 * ticks;
+}
+
+static inline WitU64 wit_native_sleep_ticks(WitU64 ticks)
+{
+    WitU64 now = 0;
+    const WitU64 status = wit_native_clock_read(&now);
+    return status != WIT_STATUS_OK
+        ? status
+        : wit_native_call(WIT_CALL_SLEEP_UNTIL, now + wit_native_tick_counts(ticks), 0, 0, 0);
 }
 #endif

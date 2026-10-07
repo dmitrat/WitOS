@@ -23,7 +23,7 @@
     adr x0, $target
     mov x1, $argument
     mov x2, #0
-    SYSCALL WIT_CALL_THREAD_CREATE
+    SYSCALL WIT_CALL_THREAD_CREATE_SIMPLE
     MEND
 
     MACRO
@@ -68,17 +68,17 @@ wit_user_start PROC
     JOIN x9
     EXPECT WIT_STATUS_DEADLOCK
     ldr x0, [x22, #WIT_TLS_HANDLE_OFFSET]
-    SYSCALL WIT_CALL_CLOSE
+    SYSCALL WIT_CALL_HANDLE_CLOSE
     EXPECT WIT_STATUS_BUSY
     ldr x0, =WIT_USER_DATA
     mov x1, #0
     mov x2, #0
-    SYSCALL WIT_CALL_THREAD_CREATE
+    SYSCALL WIT_CALL_THREAD_CREATE_SIMPLE
     EXPECT WIT_STATUS_BAD_ADDRESS
     adr x0, worker
     mov x1, #0
     mov x2, #4 ; bit 2 is reserved; bits 0 and 1 select detached and library lifecycle
-    SYSCALL WIT_CALL_THREAD_CREATE
+    SYSCALL WIT_CALL_THREAD_CREATE_SIMPLE
     EXPECT WIT_STATUS_INVALID_ARGUMENT
     cbnz x1, failed
     ; A component cannot remove the TLS of an active thread through memory calls.
@@ -130,7 +130,7 @@ close_finished
     SYSCALL WIT_CALL_THREAD_YIELD
     EXPECT WIT_STATUS_OK
     mov x0, x24
-    SYSCALL WIT_CALL_CLOSE
+    SYSCALL WIT_CALL_HANDLE_CLOSE
     cmp x0, #WIT_STATUS_BUSY
     b.eq close_finished
     EXPECT WIT_STATUS_OK
@@ -327,7 +327,7 @@ thread_process_exit
 failed
     mov x0, #241
 process_exit
-    SYSCALL WIT_CALL_EXIT
+    SYSCALL WIT_CALL_PROCESS_EXIT
     DCD 0x00000000 ; UDF #0
 thread_exit
     SYSCALL WIT_CALL_THREAD_EXIT

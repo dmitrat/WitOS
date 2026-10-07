@@ -43,7 +43,7 @@ static void worker(WitU64 index)
             if (!preserved(value) || wit_native_call(WIT_CALL_CLOCK_READ, 0, 0, 0, &now) != WIT_STATUS_OK) {
                 result = 1403;
             }
-        } while (now - start < 2);
+        } while (now - start < wit_native_tick_counts(2));
     }
     PalSleep(1);
     if (!preserved(value)) {
@@ -93,7 +93,7 @@ static WitU64 state()
     PalSetLastError(0x76543210);
     WitU64 handles[2], code;
     for (WitU64 i = 0; i < 2; ++i) {
-        if (wit_native_call(WIT_CALL_THREAD_CREATE, (uintptr_t)worker, i, 0, &handles[i]) != WIT_STATUS_OK) {
+        if (wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)worker, i, 0, &handles[i]) != WIT_STATUS_OK) {
             return 1416;
         }
     }
@@ -107,7 +107,7 @@ static WitU64 state()
             return 1417;
         }
     }
-    if (wit_native_call(WIT_CALL_THREAD_CREATE, (uintptr_t)worker, 2, 0, &handles[0]) != WIT_STATUS_OK ||
+    if (wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)worker, 2, 0, &handles[0]) != WIT_STATUS_OK ||
         wit_native_call(WIT_CALL_THREAD_JOIN, handles[0], 0, 0, &code) != WIT_STATUS_OK ||
         code != WIT_TEST_EXIT_CODE ||
         identities[0] >= identities[2] ||
@@ -189,10 +189,8 @@ static WitU64 failures()
     if (PalCloseHandle((HANDLE)(uintptr_t)id) || GetLastError() != ERROR_INVALID_HANDLE) {
         return 1428;
     }
-    WitU64 ownership = 0;
-    if (wit_native_call(WIT_CALL_THREAD_CURRENT, 0, 0, 0, &ownership) != WIT_STATUS_OK ||
-        PalCloseHandle((HANDLE)(uintptr_t)ownership) ||
-        GetLastError() != ERROR_BUSY) {
+    const WitU64 ownership = wit_native_thread_identity();
+    if (PalCloseHandle((HANDLE)(uintptr_t)ownership) || GetLastError() != ERROR_BUSY) {
         return 1428;
     }
     void *low = (void *)1;

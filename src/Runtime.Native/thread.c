@@ -62,8 +62,8 @@ retry:
     starts[slot].Entry = entry;
     // ThreadCreate does not park. Keep this slot locked through success/failure
     // publication so a preempted creator cannot erase a slot already reused.
-    status =
-        wit_native_call(WIT_CALL_THREAD_CREATE, (WitU64)run, slot, flags | WIT_THREAD_LIBRARY_NOTIFICATIONS, handle);
+    status = wit_native_call(
+        WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)run, slot, flags | WIT_THREAD_LIBRARY_NOTIFICATIONS, handle);
     if (status != WIT_STATUS_OK) {
         starts[slot].Entry = 0;
     }

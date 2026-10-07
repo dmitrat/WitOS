@@ -32,7 +32,7 @@ WitU64 wit_user_apc_queue(WitUserProcess *process, WitU64 reference, WitU64 call
     ++target->ApcCount;
     // An already completed event/timeout result is never overwritten.
     if (target->State == WitThreadWaiting && target->WaitAlertable) {
-        wit_user_wait_complete(target, WIT_STATUS_APC_PENDING, 0);
+        wit_user_wait_complete(target, WIT_STATUS_INTERRUPTED, 0);
     }
     return WIT_STATUS_OK;
 }

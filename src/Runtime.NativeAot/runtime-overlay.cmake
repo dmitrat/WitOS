@@ -124,15 +124,19 @@ function(witos_select_gc_environment)
         message(FATAL_ERROR "Missing or ambiguous native last-error ABI offset")
     endif()
     string(REGEX REPLACE "^#define WIT_TLS_LAST_ERROR_OFFSET ([0-9]+)U$" "\\1" error_offset "${error_line}")
-    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/witos-abi")
-    file(WRITE "${CMAKE_BINARY_DIR}/witos-abi/user_abi.inc" "WIT_TLS_LAST_ERROR_OFFSET EQU ${error_offset}\n")
     file(STRINGS "${WITOS_SOURCE_ROOT}/src/Kernel/include/witos/user_abi.h" fatal_line REGEX "^#define WIT_CALL_FATAL_ARM [0-9]+U$")
     list(LENGTH fatal_line fatal_lines)
     if(NOT fatal_lines EQUAL 1)
         message(FATAL_ERROR "Missing or ambiguous fatal arm ABI")
     endif()
     string(REGEX REPLACE "^#define WIT_CALL_FATAL_ARM ([0-9]+)U$" "\\1" fatal_call "${fatal_line}")
-    file(APPEND "${CMAKE_BINARY_DIR}/witos-abi/user_abi.inc" "WIT_CALL_FATAL_ARM EQU ${fatal_call}\n")
+    # The header is a configure input: a changed constant regenerates the include, and the include changes only
+    # when its content does, so the assembly objects that depend on it rebuild exactly then.
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${WITOS_SOURCE_ROOT}/src/Kernel/include/witos/user_abi.h")
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/witos-abi")
+    file(WRITE "${CMAKE_BINARY_DIR}/witos-abi/user_abi.inc.in"
+        "WIT_TLS_LAST_ERROR_OFFSET EQU ${error_offset}\nWIT_CALL_FATAL_ARM EQU ${fatal_call}\n")
+    configure_file("${CMAKE_BINARY_DIR}/witos-abi/user_abi.inc.in" "${CMAKE_BINARY_DIR}/witos-abi/user_abi.inc" COPYONLY)
     set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Runtime.Pal.Win32/X64/native_exception.asm"
         "${WITOS_SOURCE_ROOT}/src/Runtime.Pal.Win32/X64/native_suspend.asm"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/X64/gc_policy.asm"
@@ -155,7 +159,7 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/src/Runtime.Pal.Win32/X64/native_environment.asm"
         "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/chkstk.asm"
         TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES LANGUAGE ASM_MASM
-        COMPILE_OPTIONS "/I${CMAKE_BINARY_DIR}/witos-abi")
+        COMPILE_OPTIONS "/I${CMAKE_BINARY_DIR}/witos-abi" OBJECT_DEPENDS "${CMAKE_BINARY_DIR}/witos-abi/user_abi.inc")
     set(old_config "${CLR_DIR}/nativeaot/Runtime/RhConfig.cpp")
     list(FIND sources "${old_config}" config_index)
     if(config_index EQUAL -1)

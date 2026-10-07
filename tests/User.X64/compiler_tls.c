@@ -47,17 +47,18 @@ static void worker(WitU64 index)
     addresses[index] = wit_tls_address();
     wit_tls_write(100 + index);
     if (index < 2) {
-        if (call(WIT_CALL_CLOCK_READ, 0, 0, &start) != WIT_STATUS_OK) {
+        const WitU64 spin = wit_native_tick_counts(2);
+        if (wit_native_clock_read(&start) != WIT_STATUS_OK) {
             done(902);
         }
         do {
             if (wit_tls_read() != 100 + index || wit_tls_pointer() != (WitU64)&tls_marker) {
                 done(903);
             }
-            if (call(WIT_CALL_CLOCK_READ, 0, 0, &now) != WIT_STATUS_OK) {
+            if (wit_native_clock_read(&now) != WIT_STATUS_OK) {
                 done(904);
             }
-        } while (now - start < 2);
+        } while (now - start < spin);
     }
     tls_zero = 999;
     done(WIT_TEST_EXIT_CODE);
@@ -90,7 +91,7 @@ WitU64 wit_native_main(const WitUserStartup *startup)
     }
     wit_tls_write(77);
     for (WitU64 i = 0; i < 2; ++i) {
-        if (call(WIT_CALL_THREAD_CREATE, (WitU64)worker, i, &handles[i]) != WIT_STATUS_OK) {
+        if (call(WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)worker, i, &handles[i]) != WIT_STATUS_OK) {
             return 908;
         }
     }
@@ -106,15 +107,15 @@ WitU64 wit_native_main(const WitUserStartup *startup)
         wit_tls_zeros()) {
         return 910;
     }
-    if (call(WIT_CALL_THREAD_CREATE, (WitU64)worker, 2, &handles[0]) != WIT_STATUS_OK ||
+    if (call(WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)worker, 2, &handles[0]) != WIT_STATUS_OK ||
         call(WIT_CALL_THREAD_JOIN, handles[0], 0, &result) != WIT_STATUS_OK ||
         result != WIT_TEST_EXIT_CODE ||
         addresses[2] != addresses[0]) {
         return 911;
     }
     // Parking the only runnable thread exercises GS restoration after kernel idle.
-    if (call(WIT_CALL_CLOCK_READ, 0, 0, &result) != WIT_STATUS_OK ||
-        call(WIT_CALL_THREAD_SLEEP, result + 1, 0, 0) != WIT_STATUS_OK ||
+    if (wit_native_clock_read(&result) != WIT_STATUS_OK ||
+        call(WIT_CALL_SLEEP_UNTIL, result + wit_native_tick_counts(1), 0, 0) != WIT_STATUS_OK ||
         wit_tls_read() != 77) {
         return 912;
     }

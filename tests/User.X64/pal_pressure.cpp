@@ -70,10 +70,9 @@ static void worker(WitU64)
 
 static WitU64 start_worker()
 {
-    WitU64 handle, ticks;
-    check(wit_native_call(WIT_CALL_THREAD_CREATE, (uintptr_t)worker, 0, 0, &handle) == WIT_STATUS_OK);
-    check(wit_native_call(WIT_CALL_CLOCK_READ, 0, 0, 0, &ticks) == WIT_STATUS_OK);
-    check(wit_native_call(WIT_CALL_THREAD_SLEEP, ticks + 2, 0, 0, nullptr) == WIT_STATUS_OK);
+    WitU64 handle;
+    check(wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)worker, 0, 0, &handle) == WIT_STATUS_OK);
+    check(wit_native_sleep_ticks(2) == WIT_STATUS_OK);
     return handle;
 }
 

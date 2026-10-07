@@ -1,6 +1,7 @@
 #ifndef WITOS_UNWIND_SCOPE_H
 #define WITOS_UNWIND_SCOPE_H
 #include "witos/user_abi.h"
+#include "witos/user_abi_frozen.h"
 
 /* Enclose the entire walk and all uses of returned original-stack pointers.
  * Foreign references must already be suspended. No implicit stop/resume.

@@ -173,22 +173,22 @@ extern "C" WitU64 wit_test_console(const WitUserStartup *startup, WitU64 mode)
         return 2924;
     }
     if (tls) {
-        if (wit_native_call(WIT_CALL_MEMORY_RESERVE, WIT_CONSOLE_MAX_WRITE, 4096, 0, &arena) != WIT_STATUS_OK ||
-            wit_native_call(WIT_CALL_MEMORY_COMMIT, arena, WIT_CONSOLE_MAX_WRITE, 3, nullptr) != WIT_STATUS_OK) {
+        if (wit_native_call(WIT_CALL_MEMORY_RESERVE, WIT_DEBUG_WRITE_MAX, 4096, 0, &arena) != WIT_STATUS_OK ||
+            wit_native_call(WIT_CALL_MEMORY_COMMIT, arena, WIT_DEBUG_WRITE_MAX, 3, nullptr) != WIT_STATUS_OK) {
             return 2925;
         }
         auto maximum = (char *)arena;
-        for (unsigned i = 0; i < WIT_CONSOLE_MAX_WRITE; ++i) {
+        for (unsigned i = 0; i < WIT_DEBUG_WRITE_MAX; ++i) {
             maximum[i] = 'x';
         }
-        maximum[WIT_CONSOLE_MAX_WRITE - 1] = '\n';
-        if (!output(3, handle, maximum, WIT_CONSOLE_MAX_WRITE) ||
+        maximum[WIT_DEBUG_WRITE_MAX - 1] = '\n';
+        if (!output(3, handle, maximum, WIT_DEBUG_WRITE_MAX) ||
             wit_native_call(WIT_CALL_MEMORY_RELEASE, arena, 0, 0, nullptr) != WIT_STATUS_OK) {
             return 2926;
         }
     }
     done = 99;
-    if (WriteFile(handle, text, WIT_CONSOLE_MAX_WRITE + 1, &done, nullptr) ||
+    if (WriteFile(handle, text, WIT_DEBUG_WRITE_MAX + 1, &done, nullptr) ||
         done ||
         GetLastError() != ERROR_NOT_ENOUGH_QUOTA ||
         WriteFile(handle, text, sizeof(text) - 1, nullptr, nullptr) ||

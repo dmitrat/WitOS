@@ -1,55 +1,37 @@
 #include "user.h"
 #include "witos/platform.h"
 
-/* Completion writes target only the caller's validated DWORD. No console data
- * is emitted until the handle and complete source range are validated. */
-WitU64 wit_user_console_write(WitUserProcess *process, WitU64 address, WitU64 size, WitU64 reserved)
+/* DEBUG_WRITE: the kernel's last-resort output through the board console. The handle and the complete source range
+ * are validated before any byte is emitted; the kernel copies in bounded steps and never interprets the bytes. */
+WitU64 wit_user_debug_write(WitUserProcess *process, WitU64 handle, WitU64 buffer, WitU64 length, WitU64 *written)
 {
-    WitConsoleWriteRequest request;
-    WitU8 buffer[WIT_ABI_MAX_WRITE];
-    WitU32 written = 0;
-    if (reserved || size != sizeof(request)) {
-        return WIT_STATUS_INVALID_ARGUMENT;
-    }
-    if (!wit_user_copy_from(&process->Space, address, (WitU8 *)&request, sizeof(request))) {
-        return WIT_STATUS_BAD_ADDRESS;
-    }
-    if (request.Version != WIT_CONSOLE_WRITE_VERSION || request.Size != sizeof(request)) {
-        return WIT_STATUS_UNSUPPORTED;
-    }
-    if (!wit_user_buffer_writable(&process->Space, request.Written, sizeof(written))) {
-        return WIT_STATUS_BAD_ADDRESS;
-    }
-    if (!wit_user_copy_to(&process->Space, request.Written, (const WitU8 *)&written, sizeof(written))) {
-        wit_panic("Console completion validation changed");
-    }
-    const WitU64 status = wit_handle_check(&process->Handles, request.Handle, WIT_HANDLE_CONSOLE, WIT_RIGHT_WRITE);
+    WitU8 chunk[WIT_ABI_MAX_WRITE];
+    *written = 0;
+    const WitU64 status = wit_handle_check(&process->Handles, handle, WIT_HANDLE_CONSOLE, WIT_RIGHT_WRITE);
     if (status != WIT_STATUS_OK) {
         return status;
     }
-    if (request.Length > WIT_CONSOLE_MAX_WRITE) {
+    if (length > WIT_DEBUG_WRITE_MAX) {
         return WIT_STATUS_TOO_LARGE;
     }
-    if (!wit_user_buffer_readable(&process->Space, request.Buffer, (WitU32)request.Length)) {
+    if (!wit_user_buffer_readable(&process->Space, buffer, (WitU32)length)) {
         return WIT_STATUS_BAD_ADDRESS;
     }
-    if (request.Length) {
+    if (length) {
         wit_console_write("[USER] ");
-        while (written < (WitU32)request.Length) {
-            WitU32 count = (WitU32)request.Length - written;
-            if (count > sizeof(buffer)) {
-                count = sizeof(buffer);
+        for (WitU32 offset = 0; offset < (WitU32)length;) {
+            WitU32 count = (WitU32)length - offset;
+            if (count > sizeof(chunk)) {
+                count = sizeof(chunk);
             }
-            if (!wit_user_copy_from(&process->Space, request.Buffer + written, buffer, count)) {
-                wit_panic("Validated console source changed");
+            if (!wit_user_copy_from(&process->Space, buffer + offset, chunk, count)) {
+                wit_panic("Validated debug write source changed");
             }
-            wit_console_write_buffer(buffer, count);
-            written += count;
+            wit_console_write_buffer(chunk, count);
+            offset += count;
         }
         ++process->Writes;
     }
-    if (!wit_user_copy_to(&process->Space, request.Written, (const WitU8 *)&written, sizeof(written))) {
-        wit_panic("Console completion copy failed");
-    }
+    *written = length;
     return WIT_STATUS_OK;
 }

@@ -1,6 +1,7 @@
 #ifndef WITOS_USER_TEST_PROTOCOL_H
 #define WITOS_USER_TEST_PROTOCOL_H
 #include "witos/user_abi.h"
+#include "witos/user_abi_frozen.h"
 
 /* Test-only extension after the public startup prefix. */
 #define WIT_TEST_NORMAL 0U

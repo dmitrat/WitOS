@@ -128,7 +128,7 @@ extern "C" void minipal_mutex_enter(minipal_mutex *mutex)
         ++state->Waiters;
         const WitU64 event = state->Event;
         unlock();
-        const WitU64 status = wit_native_call(WIT_CALL_EVENT_WAIT_UNTIL, event, WIT_WAIT_INFINITE, 0, nullptr);
+        const WitU64 status = wit_native_wait_one(event, WIT_WAIT_INFINITE);
         if (status != WIT_STATUS_OK) {
             fatal();
         }

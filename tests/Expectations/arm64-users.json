@@ -39,7 +39,7 @@
     "[TEST-PASS] User.ThreadBadReturn",
     "[TEST-PASS] User.ThreadProcessExit",
     "[TEST-PASS] User.WaitQueueSemantics",
-    "[TEST-PASS] User.WaitClockDomains",
+    "[TEST-PASS] User.WaitDeadlines",
     "[TEST-PASS] User.WaitResourceLimits",
     "[TEST-PASS] User.WaitSignalState",
     "[TEST-PASS] User.WaitClockAndIdle",

@@ -167,7 +167,7 @@ WitU64 wit_file_views_test(WitU64 mode)
             wit_native_file_unview(&reused) == WIT_STATUS_OK,
         2233);
     WitU64 worker = 0, workerResult = 0;
-    CHECK(wit_native_call(WIT_CALL_THREAD_CREATE, (WitU64)view_worker, 0, 0, &worker) == WIT_STATUS_OK, 2246);
+    CHECK(wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)view_worker, 0, 0, &worker) == WIT_STATUS_OK, 2246);
     CHECK(wit_native_call(WIT_CALL_THREAD_JOIN, worker, 0, 0, &workerResult) == WIT_STATUS_OK && workerResult == 42,
         2247);
     CHECK(

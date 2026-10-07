@@ -60,7 +60,7 @@ wit_pe_start PROC
     mov rcx, [r15 + 8]
     lea rdx, message
     mov r8d, message_end - message
-    mov eax, WIT_CALL_WRITE
+    mov eax, WIT_CALL_DEBUG_WRITE
     int 80h
     test rax, rax
     jne failed
@@ -98,7 +98,7 @@ read_gap:
 failed:
     mov ecx, 241
 exit_component:
-    mov eax, WIT_CALL_EXIT
+    mov eax, WIT_CALL_PROCESS_EXIT
     int 80h
     ud2
 helper::

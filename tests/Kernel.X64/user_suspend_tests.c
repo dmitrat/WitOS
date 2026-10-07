@@ -11,9 +11,8 @@ void wit_user_suspend_deadline_self_test(void)
     thread->State = WitThreadWaiting;
     thread->WaitKind = WitWaitSleep;
     thread->Deadline = 10;
-    thread->MonotonicWait = 1;
     thread->SuspendCount = 1;
-    wit_user_wait_expire_time(&model, 10);
+    wit_user_wait_expire(&model, 10);
     if (thread->State != WitThreadReady ||
         thread->SuspendCount != 1 ||
         thread->WaitKind != WitWaitNone ||
@@ -22,10 +21,9 @@ void wit_user_suspend_deadline_self_test(void)
         wit_panic("Deadline changed suspension state");
     }
     thread->State = WitThreadWaiting;
-    thread->WaitKind = WitWaitEvent;
+    thread->WaitKind = WitWaitObjects;
     thread->Deadline = 20;
-    thread->MonotonicWait = 1;
-    wit_user_wait_expire_time(&model, 20);
+    wit_user_wait_expire(&model, 20);
     if (thread->State != WitThreadReady ||
         thread->SuspendCount != 1 ||
         frame.Rax != WIT_STATUS_TIMED_OUT ||

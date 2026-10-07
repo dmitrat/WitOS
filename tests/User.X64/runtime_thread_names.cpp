@@ -9,10 +9,9 @@ static volatile WitU32 callbackGate;
 
 static bool query(WitThreadNameInfo &info)
 {
-    WitU64 id = 0;
+    const WitU64 id = wit_native_thread_identity();
     return wit_native_call(WIT_CALL_THREAD_NAME_QUERY, (WitU64)&info, sizeof(info), WIT_THREAD_NAME_VERSION, nullptr) ==
         WIT_STATUS_OK &&
-        wit_native_call(WIT_CALL_THREAD_CURRENT, 0, 0, 0, &id) == WIT_STATUS_OK &&
         info.Version == WIT_THREAD_NAME_VERSION &&
         info.Size == sizeof(info) &&
         info.ThreadId == id &&

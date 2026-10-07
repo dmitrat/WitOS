@@ -38,8 +38,17 @@ static void mapper_adapter(WitPageAllocator *pages)
         wit_user_run(&process);
         const WitU64 expected = run >= 7 ? 0xFFFF0001ULL : 42;
         if (!run) {
-            require(process.ExceptionContinuations == 3 && process.HardwareNullReads == 5,
-                "Dynamic fault did not continue through actual exception dispatch");
+            /* Five null reads: three continue at the faulting site and four RtlUnwind transfers reach their landing
+             * pads; since K1.1 every EXCEPTION_CONTINUE counts, the transfers included. */
+            const int dispatched = process.ExceptionContinuations == 7 && process.HardwareNullReads == 5;
+            if (!dispatched) {
+                wit_console_write("Dynamic dispatch continuations/null reads: ");
+                wit_console_write_u64(process.ExceptionContinuations);
+                wit_console_write("/");
+                wit_console_write_u64(process.HardwareNullReads);
+                wit_console_write("\n");
+            }
+            require(dispatched, "Dynamic fault did not continue through actual exception dispatch");
         }
         if (run >= 7) {
             const WitU64 *report = (const WitU64 *)wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);

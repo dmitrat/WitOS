@@ -1,6 +1,9 @@
 #include "user_abi_a64.h"
-; ARM64 event, sleep and wait fixture, the port of tests/User.X64/waits.asm. Registers: x20 startup block,
-; x21 test mode, x22 the shared data page, x23 to x25 handles, counters and deadlines.
+; ARM64 event, sleep and wait fixture, the port of tests/User.X64/waits.asm: one OBJECT_WAIT for every object,
+; absolute monotonic deadlines, EVENT_CREATE with rights 0 (WAIT and SIGNAL). Delays are scheduler ticks of 10 ms
+; converted through CLOCK_FREQUENCY. The wait and the deadline arithmetic are subroutines so that the fixture stays
+; within its one page of code. Registers: x20 startup block, x21 test mode, x22 the shared data page, x23 to x25
+; handles, counters and deadlines.
 
     AREA |.text|, CODE, READONLY
 
@@ -16,9 +19,30 @@
     b.ne failed
     MEND
 
+    ; Monotonic clock: the counter or the frequency into x1.
+    MACRO
+    CLOCK_READ
+    mov x0, #0
+    mov x1, #0
+    mov x2, #0
+    SYSCALL WIT_CALL_CLOCK_READ
+    EXPECT WIT_STATUS_OK
+    MEND
+
+    MACRO
+    CLOCK_FREQUENCY
+    mov x0, #0
+    mov x1, #0
+    mov x2, #0
+    SYSCALL WIT_CALL_CLOCK_FREQUENCY
+    EXPECT WIT_STATUS_OK
+    MEND
+
     MACRO
     CREATE_EVENT $flags
     mov x0, $flags
+    mov x1, #0 ; rights 0: WAIT and SIGNAL
+    mov x2, #0
     SYSCALL WIT_CALL_EVENT_CREATE
     EXPECT WIT_STATUS_OK
     MEND
@@ -30,17 +54,18 @@
     EXPECT WIT_STATUS_OK
     MEND
 
+    ; OBJECT_WAIT on one handle; x0 is the status and x1 the winner index afterward.
     MACRO
     WAIT_EVENT $handle, $deadline
     mov x0, $handle
     mov x1, $deadline
-    SYSCALL WIT_CALL_EVENT_WAIT
+    bl wait_object
     MEND
 
     MACRO
     CLOSE $handle
     mov x0, $handle
-    SYSCALL WIT_CALL_CLOSE
+    SYSCALL WIT_CALL_HANDLE_CLOSE
     EXPECT WIT_STATUS_OK
     MEND
 
@@ -49,7 +74,7 @@
     adr x0, $target
     mov x1, $argument
     mov x2, #0
-    SYSCALL WIT_CALL_THREAD_CREATE
+    SYSCALL WIT_CALL_THREAD_CREATE_SIMPLE
     EXPECT WIT_STATUS_OK
     MEND
 
@@ -62,12 +87,20 @@
     b.ne failed
     MEND
 
+    ; Absolute deadline the given number of ticks from now into x9.
+    MACRO
+    DEADLINE_TICKS $ticks
+    mov x0, #$ticks
+    bl deadline_ticks
+    MEND
+
     MACRO
     SLEEP_TICKS $ticks
-    SYSCALL WIT_CALL_CLOCK_READ
-    EXPECT WIT_STATUS_OK
-    add x0, x1, #$ticks
-    SYSCALL WIT_CALL_THREAD_SLEEP
+    DEADLINE_TICKS $ticks
+    mov x0, x9
+    mov x1, #0
+    mov x2, #0
+    SYSCALL WIT_CALL_SLEEP_UNTIL
     EXPECT WIT_STATUS_OK
     MEND
 
@@ -106,6 +139,14 @@ wit_user_start PROC
     b.ne failed
 
     ldr x0, =0x100000000 ; reject unknown high flag bits
+    mov x1, #0
+    mov x2, #0
+    SYSCALL WIT_CALL_EVENT_CREATE
+    EXPECT WIT_STATUS_INVALID_ARGUMENT
+    cbnz x1, failed
+    mov x0, #0
+    mov x1, #16 ; rights outside WAIT and SIGNAL
+    mov x2, #0
     SYSCALL WIT_CALL_EVENT_CREATE
     EXPECT WIT_STATUS_INVALID_ARGUMENT
     cbnz x1, failed
@@ -142,35 +183,48 @@ wit_user_start PROC
     b passed
 
 clock_test
-    SYSCALL WIT_CALL_CLOCK_FREQUENCY
-    EXPECT WIT_STATUS_OK
-    cmp x1, #WIT_CLOCK_FREQUENCY
-    b.ne failed
+    CLOCK_FREQUENCY
+    cbz x1, failed ; the monotonic clock reports its frequency
+    mov x0, #WIT_CLOCK_UTC ; UTC arrives with plan step K6
+    mov x1, #0
+    mov x2, #0
     SYSCALL WIT_CALL_CLOCK_READ
-    EXPECT WIT_STATUS_OK
+    EXPECT WIT_STATUS_UNSUPPORTED
+    mov x0, #2 ; no third clock
+    mov x1, #0
+    mov x2, #0
+    SYSCALL WIT_CALL_CLOCK_READ
+    EXPECT WIT_STATUS_INVALID_ARGUMENT
+    CLOCK_READ
     mov x25, x1
-    add x24, x1, #2
+    DEADLINE_TICKS 2
+    mov x24, x9
     mov x0, x24
-    SYSCALL WIT_CALL_THREAD_SLEEP
+    mov x1, #0
+    mov x2, #0
+    SYSCALL WIT_CALL_SLEEP_UNTIL
     EXPECT WIT_STATUS_OK
-    SYSCALL WIT_CALL_CLOCK_READ
-    EXPECT WIT_STATUS_OK
+    CLOCK_READ
     cmp x1, x24
     b.lo failed
     mov x0, x25 ; past deadlines complete immediately
-    SYSCALL WIT_CALL_THREAD_SLEEP
+    mov x1, #0
+    mov x2, #0
+    SYSCALL WIT_CALL_SLEEP_UNTIL
     EXPECT WIT_STATUS_OK
-    mov x0, #-1 ; WIT_WAIT_INFINITE
-    SYSCALL WIT_CALL_THREAD_SLEEP
+    mov x0, #0x8000000000000000 ; beyond WIT_MONOTONIC_MAX and not infinite
+    mov x1, #0
+    mov x2, #0
+    SYSCALL WIT_CALL_SLEEP_UNTIL
     EXPECT WIT_STATUS_INVALID_ARGUMENT
     CREATE_EVENT #0
     mov x23, x1
-    SYSCALL WIT_CALL_CLOCK_READ
-    add x24, x1, #2
+    DEADLINE_TICKS 2
+    mov x24, x9
     WAIT_EVENT x23, x24
     EXPECT WIT_STATUS_TIMED_OUT
     cbnz x1, failed
-    SYSCALL WIT_CALL_CLOCK_READ
+    CLOCK_READ
     cmp x1, x24
     b.lo failed
     CLOSE x23
@@ -182,6 +236,8 @@ wake_test
     b.ne make_wake_event
     mov x0, #WIT_EVENT_MANUAL_RESET
 make_wake_event
+    mov x1, #0
+    mov x2, #0
     SYSCALL WIT_CALL_EVENT_CREATE
     EXPECT WIT_STATUS_OK
     str x1, [x22, #0x80]
@@ -311,8 +367,7 @@ handoff_child_loop
 deadline_test
     CREATE_EVENT #0
     str x1, [x22, #0x80]
-    SYSCALL WIT_CALL_CLOCK_READ
-    add x9, x1, #2
+    DEADLINE_TICKS 2
     str x9, [x22, #0x90]
     CREATE_THREAD deadline_signaler, #0
     mov x24, x1
@@ -330,7 +385,9 @@ deadline_test
 deadline_signaler
     ldr x22, =WIT_USER_DATA
     ldr x0, [x22, #0x90]
-    SYSCALL WIT_CALL_THREAD_SLEEP
+    mov x1, #0
+    mov x2, #0
+    SYSCALL WIT_CALL_SLEEP_UNTIL
     EXPECT WIT_STATUS_OK
     ldr x9, [x22, #0x80]
     SET_EVENT x9
@@ -341,8 +398,8 @@ active_timeout_test
     str x1, [x22, #0x80]
     CREATE_THREAD spin_worker, #0
     mov x24, x1
-    SYSCALL WIT_CALL_CLOCK_READ
-    add x23, x1, #2
+    DEADLINE_TICKS 2
+    mov x23, x9
     ldr x9, [x22, #0x80]
     WAIT_EVENT x9, x23
     EXPECT WIT_STATUS_TIMED_OUT
@@ -413,13 +470,48 @@ rights_test
     EXPECT WIT_STATUS_BAD_HANDLE
     b passed
 
+; OBJECT_WAIT on one handle: x0 handle, x1 deadline; x0 status, x1 winner. The request and its handle array live
+; on the caller's own stack, so concurrent waiters never share them. Clobbers x2, x8 and x11 to x13.
+wait_object
+    sub sp, sp, #48
+    str x0, [sp, #40]
+    add x11, sp, #40
+    mov w13, #WIT_WAIT_OBJECTS_VERSION
+    str w13, [sp]
+    mov w13, #32
+    str w13, [sp, #4]
+    str x11, [sp, #8]
+    mov w13, #1
+    str w13, [sp, #16]
+    str wzr, [sp, #20]
+    str x1, [sp, #24]
+    mov x0, sp
+    mov x1, #32
+    mov x2, #0
+    SYSCALL WIT_CALL_OBJECT_WAIT
+    add sp, sp, #48
+    ret
+
+; Absolute monotonic deadline x0 ticks of 10 ms from now, into x9. Clobbers x0 to x2, x8 and x10 to x12.
+deadline_ticks
+    mov x12, x30
+    mov x11, x0
+    CLOCK_FREQUENCY
+    mov x10, #100
+    udiv x9, x1, x10
+    mul x9, x9, x11
+    CLOCK_READ
+    add x9, x9, x1
+    mov x30, x12
+    ret
+
 failed
     mov x0, #241
     b exit_process
 passed
     mov x0, #WIT_TEST_EXIT_CODE
 exit_process
-    SYSCALL WIT_CALL_EXIT
+    SYSCALL WIT_CALL_PROCESS_EXIT
     DCD 0x00000000 ; UDF #0
 thread_passed
     mov x0, #WIT_TEST_EXIT_CODE

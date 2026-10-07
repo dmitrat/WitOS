@@ -96,7 +96,6 @@ WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code)
             current_user->Threads[i].WaitHandles[w] = 0;
         }
         current_user->Threads[i].Deadline = WIT_WAIT_INFINITE;
-        current_user->Threads[i].MonotonicWait = 0;
     }
     wit_handles_close_all(&current_user->Handles);
     wit_files_initialize(&current_user->Files);
@@ -206,8 +205,7 @@ static WitU32 thread_index(WitU64 handle)
 
 static void expire_waits(void)
 {
-    wit_user_wait_expire(current_user, wit_arch_clock_ticks());
-    wit_user_wait_expire_time(current_user, wit_platform_monotonic_read());
+    wit_user_wait_expire(current_user, wit_platform_monotonic_read());
     wit_user_pressure_update(current_user);
 }
 

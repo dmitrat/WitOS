@@ -13,167 +13,189 @@
 #include "fatal_info.h"
 #include "thread_reference.h"
 #include "wait_objects.h"
-#include "console_info.h"
 #include "code_memory.h"
 #include "file_io.h"
 #include "storage_query.h"
 #include "library.h"
 #include "process_state.h"
 
-/* Experimental x64 interrupt ABI, not a stable public SDK.
- * INT 0x80: RAX=call, RCX/RDX/R8=arguments; RAX=status, RDX=result.
- * Other GPRs and baseline x87/SSE state survive; flags are reset to 0x202. */
-#define WIT_ABI_VERSION 51U
+/* ABI-1 of RFC 0011 v3 (sections 6 and 7): the system calls between the nano-kernel and the system layer.
+ * The ABI is experimental until plan step K8 declares 1.0; since step K1 a call number, a status value and a rights
+ * bit are never reused (RFC 0011 section 10.1). Transport (section 6.1): on x64 INT 0x80 with RAX=call, RCX/RDX/R8
+ * arguments, RAX=status and RDX=result, other GPRs and x87/SSE state preserved, RFLAGS reset to 0x202; on ARM64
+ * SVC #0 with x8=call, x0-x2 arguments, x0=status and x1=result. A structure passed by pointer starts with Version
+ * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
+#define WIT_ABI_VERSION 52U
+/* QUERY result: the low 32 bits are WIT_ABI_VERSION, the high 32 bits the mask of the families present. */
+#define WIT_ABI_FEATURE_CHANNELS 1U
+#define WIT_ABI_FEATURE_DEVICES 2U
+#define WIT_ABI_FEATURE_PROCESSES 4U
+#define WIT_ABI_FEATURE_UTC 8U
+#define WIT_ABI_FEATURE_SMP 16U
+#define WIT_ABI_FEATURES 0U
 #define WIT_ABI_STARTUP_SIZE 24U
-/* Existing single-module compiler TLS page layout; not a Windows TEB. */
+/* Existing single-module compiler TLS page layout of the frozen line; not a Windows TEB. */
 #define WIT_COMPILER_TLS_DATA_OFFSET 256U
-/* Set current diagnostic UTF-16 name(pointer, units, flags=0); query whole snapshot. */
-#define WIT_CALL_THREAD_NAME_SET 43U
-#define WIT_CALL_THREAD_NAME_QUERY 44U
-/* Atomic current CPU preservation/selector snapshot (buffer, size, version). */
-#define WIT_CALL_CPU_CONTEXT_QUERY 45U
-/* Snapshot(reference or current pseudo, destination, exact size); no suspension. */
-#define WIT_CALL_THREAD_CONTEXT_GET 46U
-#define WIT_CALL_THREAD_SUSPEND 47U
-#define WIT_CALL_THREAD_RESUME 48U
-#define WIT_CALL_THREAD_CONTEXT_SET 49U
-#define WIT_CALL_THREAD_CONTEXT_RESTORE 50U
-#define WIT_CALL_THREAD_CONTEXT_METADATA 51U
-/* Acquire(reference, output, size), query(token, output, size), release(token,0,0). */
-#define WIT_CALL_STACK_LEASE_ACQUIRE 52U
-#define WIT_CALL_STACK_LEASE_QUERY 53U
-#define WIT_CALL_STACK_LEASE_RELEASE 54U
-/* Register(callback or zero, version, flags=0); query(token, out, size);
- * continue(token, context, size) transfers execution; reject(token,0,0) is fatal. */
-#define WIT_CALL_EXCEPTION_REGISTER 55U
-#define WIT_CALL_EXCEPTION_QUERY 56U
-#define WIT_CALL_EXCEPTION_CONTINUE 57U
-#define WIT_CALL_EXCEPTION_REJECT 58U
-/* Begin a software scope (validated caller context, size, opaque 32-bit code) -> token. */
-#define WIT_CALL_EXCEPTION_BEGIN 59U
-/* Arm(default opaque code,0,0), then publish diagnostic snapshot(pointer,size,version). */
-#define WIT_CALL_FATAL_ARM 60U
-#define WIT_CALL_FATAL_REPORT 61U
-/* Unwind(current token, complete transfer request, exact size). */
-#define WIT_CALL_EXCEPTION_UNWIND 62U
-/* Lifecycle-aware current-thread completion(code,0,0). User space runs its
- * TLS/runtime notifications first; the kernel never performs managed cleanup.
- * This is a completion assertion, not authority over another thread. */
-#define WIT_CALL_THREAD_COMPLETE 63U
-/* Create(request, exact size, reserved=0) -> independently closable reference. */
-#define WIT_CALL_THREAD_CREATE_REFERENCE 64U
-#define WIT_CALL_CODE_MEMORY 65U
-#define WIT_CALL_FILE 66U
-#define WIT_CALL_STORAGE_QUERY 67U
-#define WIT_CALL_LIBRARY 68U
-/* Request(process_state.h), exact size, reserved=0 -> the environment or current directory every module shares. */
-#define WIT_CALL_PROCESS_STATE 69U
-#define WIT_PROCESS_ABRUPT_THREAD_EXIT 0xFFFF0002ULL
+
+/* Kernel, handles and the own process (RFC 0011 section 7.1). */
+/* Query(0, 0, 0) -> version and feature mask. */
 #define WIT_CALL_QUERY 0U
-#define WIT_CALL_WRITE 1U
-#define WIT_CALL_EXIT 2U
-#define WIT_CALL_CLOSE 3U
-/* Memory calls operate only on the current component's dynamic arena.
- * Reserve(size, alignment) returns a base; commit/protect(base, size, protection),
- * decommit(base, size), release(exact reservation base) return zero result.
- * Nonzero sizes and addresses are page-aligned; alignment is a power of two >= 4 KiB.
- * Commit preserves existing pages and rolls back all additions on failure.
- * Protect is all-or-nothing; decommit is idempotent within one reservation. */
-#define WIT_CALL_MEMORY_RESERVE 4U
-#define WIT_CALL_MEMORY_COMMIT 5U
-#define WIT_CALL_MEMORY_DECOMMIT 6U
-#define WIT_CALL_MEMORY_PROTECT 7U
-#define WIT_CALL_MEMORY_RELEASE 8U
-/* Create(entry, argument, flags=0) -> join handle. DETACHED returns zero,
- * retains a private identity while live, and automatically reaps on exit.
- * Join consumes a joinable handle. Raw exit is local in the ordinary native
- * profile. Coordinated full-runtime admission makes raw exit component-fatal;
- * orderly user-space lifecycle uses THREAD_COMPLETE. */
+/* Exit(code, 0, 0): every thread of the process ends; does not return. */
+#define WIT_CALL_PROCESS_EXIT 1U
+/* Close(handle, 0, 0). Closing never terminates an object's activity. */
+#define WIT_CALL_HANDLE_CLOSE 2U
+/* Duplicate(handle or WIT_THREAD_SELF, output pointer, rights; 0 = the same) -> 8 bytes written.
+ * Rights may only be removed. Thread handles today; events join in step K1.2, channel endpoints in K2. */
+#define WIT_CALL_HANDLE_DUPLICATE 3U
+/* Write(kernel-log handle, buffer, length <= WIT_DEBUG_WRITE_MAX) -> bytes written. The kernel's last-resort
+ * output through the board console; it is not the terminal of RFC 0020. */
+#define WIT_CALL_DEBUG_WRITE 4U
+
+/* Memory (RFC 0011 section 7.2). Calls operate on the current process's dynamic arena. Reserve(size, alignment)
+ * returns a base; commit/protect(base, size, protection), decommit(base, size), release(exact reservation base)
+ * return zero. Nonzero sizes and addresses are page-aligned; alignment is a power of two >= 4 KiB. Commit preserves
+ * existing pages and rolls back all additions on failure; protect is all-or-nothing; decommit is idempotent within
+ * one reservation. */
+#define WIT_CALL_MEMORY_RESERVE 10U
+#define WIT_CALL_MEMORY_COMMIT 11U
+#define WIT_CALL_MEMORY_DECOMMIT 12U
+#define WIT_CALL_MEMORY_PROTECT 13U
+#define WIT_CALL_MEMORY_RELEASE 14U
+/* Reset(base, size, 0) eagerly zeroes committed dynamic pages after validating the whole range; commitment,
+ * ownership and protection are retained. */
+#define WIT_CALL_MEMORY_RESET 15U
+/* Query(buffer, exact size, version) atomically copies WitUserMemoryInfo; the result is the bytes copied. */
+#define WIT_CALL_MEMORY_QUERY 16U
+/* Create(0, 0, 0) -> a kernel-controlled manual event, set under physical or quota pressure, waitable only. */
+#define WIT_CALL_MEMORY_PRESSURE_EVENT 17U
+/* 18 MEMORY_OBJECT_CREATE, 19 MEMORY_OBJECT_MAP and 20 CODE_PUBLISH arrive with plan step K5. */
+
+/* Threads and contexts (RFC 0011 section 7.3). */
+/* Create(WitThreadCreateRequest, exact size, 0) -> thread handle with every thread right; the thread observes its
+ * lifetime through the handle and is reaped once it exits with no handle left. */
+#define WIT_CALL_THREAD_CREATE 30U
+/* Exit(code, 0, 0): the current thread ends; does not return. Lifecycle notifications are user space's business. */
+#define WIT_CALL_THREAD_EXIT 31U
+/* Yield(0, 0, 0) -> 1 when this call selected another thread, otherwise 0. */
+#define WIT_CALL_THREAD_YIELD 32U
+/* 33 THREAD_SET_TLS arrives with plan step K5. */
+/* Query(buffer, exact size, version) copies one atomic snapshot of the current thread (WitUserThreadInfo); the result
+ * is the bytes copied. Step K1.2 makes the first argument a thread handle or WIT_THREAD_SELF. */
+#define WIT_CALL_THREAD_QUERY 34U
+/* Suspend/resume(thread handle, 0, 0) -> the previous suspend count. */
+#define WIT_CALL_THREAD_SUSPEND 35U
+#define WIT_CALL_THREAD_RESUME 36U
+/* Get/set(thread handle or WIT_THREAD_SELF for get, WitThreadContext, exact size). Set requires a suspended target. */
+#define WIT_CALL_THREAD_CONTEXT_GET 37U
+#define WIT_CALL_THREAD_CONTEXT_SET 38U
+/* Query(buffer, exact size, version) copies the processor's context profile (WitCpuContextInfo): the register block
+ * and floating-point state a thread context carries. */
+#define WIT_CALL_CONTEXT_PROFILE 39U
+/* Activate(thread handle, callback, argument): make the target run the callback. Step K1.1 queues it for the target's
+ * next alertable wait (dequeued through the transitional APC_DEQUEUE); step K1.3 delivers it through the fault
+ * callback with the interrupted context. */
+#define WIT_CALL_THREAD_ACTIVATE 40U
+/* 41 THREAD_AFFINITY arrives with plan step K7. */
+
+/* Events, waits, time and entropy (RFC 0011 section 7.4). */
+/* Create(flags, rights, 0) -> event handle. Rights 0 means WAIT and SIGNAL. */
+#define WIT_CALL_EVENT_CREATE 50U
+#define WIT_CALL_EVENT_SET 51U
+#define WIT_CALL_EVENT_RESET 52U
+/* Wait(WitUserWaitRequest, exact size, 0) -> index of the object that completed. The one wait: every handle is
+ * validated before any signal is consumed, and one winner is published atomically. */
+#define WIT_CALL_OBJECT_WAIT 53U
+/* Sleep(absolute monotonic deadline, 0, 0). */
+#define WIT_CALL_SLEEP_UNTIL 54U
+/* Read/frequency(clock, 0, 0) -> the counter value or its frequency in counts per second. Deadlines use the
+ * monotonic clock; all ones means infinite. UTC arrives with plan step K6. */
+#define WIT_CALL_CLOCK_READ 55U
+#define WIT_CALL_CLOCK_FREQUENCY 56U
+/* Random(buffer, size <= WIT_ABI_MAX_RANDOM, 0) -> bytes written; the whole destination is validated first. */
+#define WIT_CALL_RANDOM 57U
+
+/* Faults (RFC 0011 section 7.5). Register(callback or zero, version, flags=0); query(token, buffer, exact size)
+ * copies the WitUserExceptionInfo of the current delivery; continue(token, WitUserExceptionTransfer, exact size)
+ * resumes the validated context and retires the record and the abandoned ancestors through RetireThroughToken;
+ * reject(token, 0, 0) ends the process with the original fault. Continue does not return on success. */
+#define WIT_CALL_EXCEPTION_REGISTER 60U
+#define WIT_CALL_EXCEPTION_QUERY 61U
+#define WIT_CALL_EXCEPTION_CONTINUE 62U
+#define WIT_CALL_EXCEPTION_REJECT 63U
+/* 70-72 channels (K2), 80-85 devices (K3), 90-92 processes (K5). */
+
+/* Processors (RFC 0011 section 7.9). Query(buffer, exact 4 bytes, 0): the current processor as
+ * {group:u16, number:u8, reserved:u8}; topology arrives with plan step K7. */
+#define WIT_CALL_PROCESSOR_QUERY 93U
+/* Barrier(0, 0, 0): a process data-memory barrier on the sole online processor; unsupported topology fails. */
+#define WIT_CALL_PROCESS_WRITE_BARRIER 94U
+
+/* Transitional calls of the current implementation. RFC 0011 section 8 merges, removes or moves each of them in the
+ * plan step named; a retired number is never reused. */
+/* Create(entry, argument, flags) -> thread handle, or zero for DETACHED; the request form above replaces it (K1.2). */
+#define WIT_CALL_THREAD_CREATE_SIMPLE 200U
+/* Join(thread handle, 0, 0) -> exit code; consumes the handle. Becomes a wait and a query (K1.2). */
+#define WIT_CALL_THREAD_JOIN 201U
+/* Complete(code, 0, 0): the orderly exit of a coordinated full-runtime component; merges into THREAD_EXIT (K1.2). */
+#define WIT_CALL_THREAD_COMPLETE 202U
+/* Query(thread handle, buffer, exact size) copies WitThreadReferenceInfo; merges into THREAD_QUERY (K1.2). */
+#define WIT_CALL_THREAD_REFERENCE_QUERY 203U
+/* NativeId(0, 0, 0) -> the current thread's 32-bit native id; merges into THREAD_QUERY (K1.2). */
+#define WIT_CALL_THREAD_NATIVE_ID 204U
+/* Metadata(thread handle, buffer, exact size) copies a thread's context prefix without registers (K1.2). */
+#define WIT_CALL_THREAD_CONTEXT_METADATA 205U
+/* Dequeue(buffer, exact size, 0) -> one queued activation; delivery becomes push (K1.3). */
+#define WIT_CALL_APC_DEQUEUE 206U
+/* Query(buffer, exact 8 bytes, selector) copies the monotonic counter or frequency; merges into CLOCK_READ (K6). */
+#define WIT_CALL_MONOTONIC_QUERY 207U
+/* CacheSize(0, 0, 0) -> the largest architecturally reported cache; merges into PROCESSOR_QUERY (K7). */
+#define WIT_CALL_CPU_CACHE_SIZE 208U
+/* Restore(WitThreadContext, exact size, version) of the current thread; user-space code after K8. */
+#define WIT_CALL_THREAD_CONTEXT_RESTORE 209U
+/* Stack leases, software exception scopes and fatal reports leave with the Windows-form line (K8). */
+#define WIT_CALL_STACK_LEASE_ACQUIRE 210U
+#define WIT_CALL_STACK_LEASE_QUERY 211U
+#define WIT_CALL_STACK_LEASE_RELEASE 212U
+#define WIT_CALL_EXCEPTION_BEGIN 213U
+#define WIT_CALL_FATAL_ARM 214U
+#define WIT_CALL_FATAL_REPORT 215U
+/* Thread names leave for the libc (K8). */
+#define WIT_CALL_THREAD_NAME_SET 216U
+#define WIT_CALL_THREAD_NAME_QUERY 217U
+/* Code memory dissolves into memory objects (K5); its unwind validation leaves (K8). */
+#define WIT_CALL_CODE_MEMORY 218U
+/* The file namespace, the boot package, native libraries and the process state leave for the system layer (K8). */
+#define WIT_CALL_FILE 219U
+#define WIT_CALL_STORAGE_QUERY 220U
+#define WIT_CALL_LIBRARY 221U
+#define WIT_CALL_PROCESS_STATE 222U
+
+#define WIT_PROCESS_ABRUPT_THREAD_EXIT 0xFFFF0002ULL
+/* Flags of the transitional simple creation: DETACHED returns zero and reaps automatically on exit;
+ * LIBRARY_NOTIFICATIONS follows the frozen line's DLL thread lifecycle. */
 #define WIT_THREAD_DETACHED 1U
 #define WIT_THREAD_LIBRARY_NOTIFICATIONS 2U
-#define WIT_CALL_THREAD_CREATE 9U
-/* Yield result is 1 if this call selected another thread, otherwise 0. */
-#define WIT_CALL_THREAD_YIELD 10U
-#define WIT_CALL_THREAD_EXIT 11U
-#define WIT_CALL_THREAD_JOIN 12U
-#define WIT_CALL_CLOCK_READ 13U
-#define WIT_CALL_CLOCK_FREQUENCY 14U
-#define WIT_CALL_THREAD_SLEEP 15U
-#define WIT_CALL_EVENT_CREATE 16U
-#define WIT_CALL_EVENT_SET 17U
-#define WIT_CALL_EVENT_RESET 18U
-#define WIT_CALL_EVENT_WAIT 19U
-/* Query(buffer, exact size, version) atomically copies WitUserMemoryInfo.
- * The whole buffer must be writable. Result is bytes copied, or zero on failure. */
-#define WIT_CALL_MEMORY_QUERY 20U
-/* A separate, interrupt-independent monotonic domain. Counts are nonnegative
- * signed-64 compatible; frequency is counts/second. Absolute deadlines use
- * this counter, never the delivered-PIT clock. All-ones means infinite. */
-#define WIT_CALL_MONOTONIC_READ 21U
-#define WIT_CALL_MONOTONIC_FREQUENCY 22U
-#define WIT_CALL_SLEEP_UNTIL 23U
-#define WIT_CALL_EVENT_WAIT_UNTIL 24U
-/* Borrow the current thread's existing generation-bearing handle. No new
- * handle is granted; identity comes from kernel state, not writable raw TLS. */
-#define WIT_CALL_THREAD_CURRENT 25U
-/* Reset(base, size, flags=0) eagerly zeroes committed dynamic pages.
- * Validate the whole range first; retain commitment, ownership and protection. */
-#define WIT_CALL_MEMORY_RESET 26U
-/* ThreadQuery(buffer, exact size, version) copies one atomic current-thread
- * snapshot. Result is bytes copied, or zero; no handle is allocated. */
-#define WIT_CALL_THREAD_QUERY 27U
-/* Process data-memory barrier: all arguments zero; no allocation or parking.
- * Current UP backend only. Unsupported CPU topology must never report success. */
-#define WIT_CALL_PROCESS_WRITE_BARRIER 28U
-/* Largest architecturally reported CPU cache bytes; zero arguments.
- * Unsupported/unknown discovery returns UNSUPPORTED and zero result. */
-#define WIT_CALL_CPU_CACHE_SIZE 29U
-/* WaitAnyUntil(user handle array, count, absolute monotonic deadline).
- * All handles are validated before consuming one signal. Result is winner index. */
-#define WIT_CALL_EVENT_WAIT_ANY_UNTIL 30U
-/* Create a kernel-controlled manual memory-pressure event; all arguments zero.
- * Returned handle permits waiting and closing, never user signaling/reset. */
-#define WIT_CALL_MEMORY_PRESSURE_EVENT 31U
-/* Copy a uint64 monotonic value to a completely writable user buffer.
- * Query(buffer, exact size=8, selector); IF-disabled validation/copy-out.
- * Result is 8 bytes copied on success, zero on failure. No TLS/heap required. */
-#define WIT_CALL_MONOTONIC_QUERY 32U
-/* Random(buffer, size, reserved=0): validate the entire destination with IF
- * clear before consuming generator state or writing. Zero is a no-op.
- * A finite work quota bounds nonpreemptible generation per syscall. */
-#define WIT_CALL_RANDOM 33U
-/* Duplicate(current pseudo or reference, output token pointer, rights; 0=same).
- * Snapshot(reference, output, exact sizeof(WitThreadReferenceInfo)). */
-#define WIT_CALL_THREAD_REFERENCE_DUPLICATE 34U
-#define WIT_CALL_THREAD_REFERENCE_QUERY 35U
-/* Scalar current native DWORD ID, zero arguments, no writable TLS authority. */
-#define WIT_CALL_THREAD_NATIVE_ID 36U
-#define WIT_CALL_OBJECT_WAIT 37U
-#define WIT_CALL_APC_QUEUE 38U
-#define WIT_CALL_APC_DEQUEUE 39U
-#define WIT_CALL_EVENT_CREATE_RIGHTS 40U
-#define WIT_CALL_CONSOLE_WRITE 41U
-/* Current processor: exact 4-byte {group:u16, number:u8, reserved:u8}. */
-#define WIT_CALL_PROCESSOR_QUERY 42U
 #define WIT_EVENT_ACCESS_WAIT 4U
 #define WIT_EVENT_ACCESS_SIGNAL 8U
+/* Clocks of CLOCK_READ and CLOCK_FREQUENCY. UTC is UNSUPPORTED until plan step K6. */
+#define WIT_CLOCK_MONOTONIC 0U
+#define WIT_CLOCK_UTC 1U
+/* Selectors of the transitional MONOTONIC_QUERY. */
 #define WIT_MONOTONIC_COUNTER 0U
 #define WIT_MONOTONIC_HZ 1U
+/* Monotonic counts are nonnegative signed-64 compatible; a deadline of all ones waits forever. */
 #define WIT_MONOTONIC_MAX 0x7FFFFFFFFFFFFFFFULL
-/* Legacy calls 13-19 use absolute delivered PIT ticks. Zero polls; all-ones waits forever.
- * The frequency is nominal; this bootstrap clock pauses while IRQ0 is disabled. */
-#define WIT_CLOCK_FREQUENCY 100ULL
 #define WIT_WAIT_INFINITE 0xFFFFFFFFFFFFFFFFULL
 #define WIT_EVENT_MANUAL_RESET 1ULL
 #define WIT_EVENT_INITIAL_SIGNALED 2ULL
-/* Kernel-selected FS base: self pointer, thread handle, initial argument,
- * 32-bit native last-error, 32-bit reserved zero, then application storage.
- * The error word is caller-writable state, never authority or kernel status. */
+/* Kernel-selected raw TLS block of the frozen line (leaves with it at K8): self pointer, thread handle, initial
+ * argument, 32-bit native last-error, 32-bit reserved zero, then application storage. */
 #define WIT_TLS_SELF_OFFSET 0U
 #define WIT_TLS_HANDLE_OFFSET 8U
 #define WIT_TLS_ARGUMENT_OFFSET 16U
 #define WIT_TLS_LAST_ERROR_OFFSET 24U
 #define WIT_TLS_DATA_OFFSET 32U
+/* Statuses (RFC 0011 section 6.2). 17 is retired with the library family at K8; 18 PEER_CLOSED arrives with K2. */
 #define WIT_STATUS_OK 0U
 #define WIT_STATUS_UNSUPPORTED 1U
 #define WIT_STATUS_BAD_HANDLE 2U
@@ -189,7 +211,8 @@
 #define WIT_STATUS_BUSY 12U
 #define WIT_STATUS_TIMED_OUT 13U
 #define WIT_STATUS_CLOSED 14U
-#define WIT_STATUS_APC_PENDING 15U
+/* A wait ended because an activation was delivered to the thread. */
+#define WIT_STATUS_INTERRUPTED 15U
 #define WIT_STATUS_NOT_FOUND 16U
 #define WIT_STATUS_INITIALIZATION_FAILED 17U
 #define WIT_MEMORY_NONE 0U

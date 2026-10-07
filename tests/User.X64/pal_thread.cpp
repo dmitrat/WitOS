@@ -91,7 +91,7 @@ static void worker(WitU64 index)
             if (!check(observed[index]) || wit_native_call(WIT_CALL_CLOCK_READ, 0, 0, 0, &now) != WIT_STATUS_OK) {
                 done(1103);
             }
-        } while (now - start < 2);
+        } while (now - start < wit_native_tick_counts(2));
     }
     done(WIT_TEST_EXIT_CODE);
 }
@@ -192,7 +192,7 @@ extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
     }
     WitU64 handles[2], code;
     for (WitU64 i = 0; i < 2; ++i) {
-        if (wit_native_call(WIT_CALL_THREAD_CREATE, (uintptr_t)worker, i, 0, &handles[i]) != WIT_STATUS_OK) {
+        if (wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)worker, i, 0, &handles[i]) != WIT_STATUS_OK) {
             return 1122;
         }
     }
@@ -212,7 +212,7 @@ extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
         !check(*original)) {
         return 1124;
     }
-    if (wit_native_call(WIT_CALL_THREAD_CREATE, (uintptr_t)worker, 2, 0, &handles[0]) != WIT_STATUS_OK ||
+    if (wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)worker, 2, 0, &handles[0]) != WIT_STATUS_OK ||
         wit_native_call(WIT_CALL_THREAD_JOIN, handles[0], 0, 0, &code) != WIT_STATUS_OK ||
         code != WIT_TEST_EXIT_CODE ||
         observed[2].NativeId <= observed[1].NativeId ||
@@ -224,7 +224,7 @@ extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
     if (wit_native_call(WIT_CALL_CLOCK_READ, 0, 0, 0, &code) != WIT_STATUS_OK) {
         return 1126;
     }
-    const WitU64 sleep_deadline = code + 1;
+    const WitU64 sleep_deadline = code + wit_native_tick_counts(1);
     if (config->Mode == 4) {
         // Force the valid race from CI: the absolute deadline expires before
         // the sleep syscall is entered. This must not require kernel idle.
@@ -236,7 +236,7 @@ extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
     }
     const WitU64 before_sleep = code;
     WitU64 after_sleep = 0;
-    if (wit_native_call(WIT_CALL_THREAD_SLEEP, sleep_deadline, 0, 0, nullptr) != WIT_STATUS_OK ||
+    if (wit_native_call(WIT_CALL_SLEEP_UNTIL, sleep_deadline, 0, 0, nullptr) != WIT_STATUS_OK ||
         wit_native_call(WIT_CALL_CLOCK_READ, 0, 0, 0, &after_sleep) != WIT_STATUS_OK ||
         after_sleep < sleep_deadline ||
         !check(*original)) {

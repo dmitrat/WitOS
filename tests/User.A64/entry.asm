@@ -44,7 +44,7 @@ wit_user_start PROC
 
     SYSCALL WIT_CALL_QUERY
     EXPECT WIT_STATUS_OK
-    cmp x1, #WIT_ABI_VERSION
+    cmp w1, #WIT_ABI_VERSION ; the high half is the feature mask
     b.ne failed
 
     ldr x21, [x20, #WIT_TEST_MODE_OFFSET]
@@ -100,32 +100,32 @@ wit_user_start PROC
 
     ldr x0, [x20, #8]
     adr x1, message
-    mov x2, #WIT_ABI_MAX_WRITE + 1
-    SYSCALL WIT_CALL_WRITE
+    ldr x2, =WIT_DEBUG_WRITE_MAX + 1
+    SYSCALL WIT_CALL_DEBUG_WRITE
     EXPECT WIT_STATUS_TOO_LARGE
 
     ldr x0, [x20, #8]
     mov x1, #-2
     mov x2, #8
-    SYSCALL WIT_CALL_WRITE
+    SYSCALL WIT_CALL_DEBUG_WRITE
     EXPECT WIT_STATUS_BAD_ADDRESS
 
     ldr x0, [x20, #8]
     ldr x1, [x20, #WIT_TEST_KERNEL_OFFSET]
     mov x2, #8
-    SYSCALL WIT_CALL_WRITE
+    SYSCALL WIT_CALL_DEBUG_WRITE
     EXPECT WIT_STATUS_BAD_ADDRESS
 
     ldr x0, [x20, #8]
     ldr x1, =WIT_USER_DATA_END - 2
     mov x2, #8
-    SYSCALL WIT_CALL_WRITE
+    SYSCALL WIT_CALL_DEBUG_WRITE
     EXPECT WIT_STATUS_BAD_ADDRESS
 
     ldr x0, [x20, #8]
     mov x1, #0
     mov x2, #0
-    SYSCALL WIT_CALL_WRITE
+    SYSCALL WIT_CALL_DEBUG_WRITE
     EXPECT WIT_STATUS_OK
     cbnz x1, failed
 
@@ -143,19 +143,19 @@ wit_user_start PROC
     ldr x0, [x20, #8]
     mov x1, x22
     mov x2, #8
-    SYSCALL WIT_CALL_WRITE
+    SYSCALL WIT_CALL_DEBUG_WRITE
     EXPECT WIT_STATUS_OK
     cmp x1, #8
     b.ne failed
 
     ldr x0, [x20, #8]
-    SYSCALL WIT_CALL_CLOSE
+    SYSCALL WIT_CALL_HANDLE_CLOSE
     EXPECT WIT_STATUS_OK
     ldr x0, [x20, #8]
     bl try_write
     EXPECT WIT_STATUS_BAD_HANDLE
     ldr x0, [x20, #8]
-    SYSCALL WIT_CALL_CLOSE
+    SYSCALL WIT_CALL_HANDLE_CLOSE
     EXPECT WIT_STATUS_BAD_HANDLE
 
     bl expect_state
@@ -301,7 +301,7 @@ memory_start
     ldr x0, [x20, #8]
     add x1, x22, #4092
     mov x2, #8
-    SYSCALL WIT_CALL_WRITE
+    SYSCALL WIT_CALL_DEBUG_WRITE
     EXPECT WIT_STATUS_OK
     cmp x1, #8
     b.ne failed
@@ -341,7 +341,7 @@ memory_bad_buffer
     ldr x0, [x20, #8]
     mov x1, x22
     mov x2, #8
-    SYSCALL WIT_CALL_WRITE
+    SYSCALL WIT_CALL_DEBUG_WRITE
     EXPECT WIT_STATUS_BAD_ADDRESS
     cbnz x1, failed
     ret
@@ -398,7 +398,7 @@ expect_state
 try_write
     adr x1, message
     mov x2, #message_end - message
-    SYSCALL WIT_CALL_WRITE
+    SYSCALL WIT_CALL_DEBUG_WRITE
     ret
 
 kernel_read
@@ -476,7 +476,7 @@ spin_forever
 failed
     mov x0, #241
 exit_component
-    SYSCALL WIT_CALL_EXIT
+    SYSCALL WIT_CALL_PROCESS_EXIT
     DCD 0x00000000 ; UDF #0
     LTORG
 message

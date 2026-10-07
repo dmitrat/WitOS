@@ -33,7 +33,7 @@ wit_user_start PROC
     mov rax, WIT_CALL_QUERY
     int 80h
     EXPECT WIT_STATUS_OK
-    cmp rdx, WIT_ABI_VERSION
+    cmp edx, WIT_ABI_VERSION ; the high half is the feature mask
     jne failed
 
     mov r14, [r15 + WIT_TEST_MODE_OFFSET]
@@ -90,36 +90,36 @@ wit_user_start PROC
 
     mov rcx, [r15 + 8]
     lea rdx, message
-    mov r8, WIT_ABI_MAX_WRITE + 1
-    mov rax, WIT_CALL_WRITE
+    mov r8, WIT_DEBUG_WRITE_MAX + 1
+    mov rax, WIT_CALL_DEBUG_WRITE
     int 80h
     EXPECT WIT_STATUS_TOO_LARGE
 
     mov rcx, [r15 + 8]
     mov rdx, -2
     mov r8, 8
-    mov rax, WIT_CALL_WRITE
+    mov rax, WIT_CALL_DEBUG_WRITE
     int 80h
     EXPECT WIT_STATUS_BAD_ADDRESS
 
     mov rcx, [r15 + 8]
     mov rdx, [r15 + WIT_TEST_KERNEL_OFFSET]
     mov r8, 8
-    mov rax, WIT_CALL_WRITE
+    mov rax, WIT_CALL_DEBUG_WRITE
     int 80h
     EXPECT WIT_STATUS_BAD_ADDRESS
 
     mov rcx, [r15 + 8]
     mov rdx, WIT_USER_DATA_END - 2
     mov r8, 8
-    mov rax, WIT_CALL_WRITE
+    mov rax, WIT_CALL_DEBUG_WRITE
     int 80h
     EXPECT WIT_STATUS_BAD_ADDRESS
 
     mov rcx, [r15 + 8]
     xor edx, edx
     xor r8d, r8d
-    mov rax, WIT_CALL_WRITE
+    mov rax, WIT_CALL_DEBUG_WRITE
     int 80h
     EXPECT WIT_STATUS_OK
     test rdx, rdx
@@ -137,21 +137,21 @@ wit_user_start PROC
     mov rcx, [r15 + 8]
     mov rdx, rbx
     mov r8, 8
-    mov rax, WIT_CALL_WRITE
+    mov rax, WIT_CALL_DEBUG_WRITE
     int 80h
     EXPECT WIT_STATUS_OK
     cmp rdx, 8
     jne failed
 
     mov rcx, [r15 + 8]
-    mov rax, WIT_CALL_CLOSE
+    mov rax, WIT_CALL_HANDLE_CLOSE
     int 80h
     EXPECT WIT_STATUS_OK
     mov rcx, [r15 + 8]
     call try_write
     EXPECT WIT_STATUS_BAD_HANDLE
     mov rcx, [r15 + 8]
-    mov rax, WIT_CALL_CLOSE
+    mov rax, WIT_CALL_HANDLE_CLOSE
     int 80h
     EXPECT WIT_STATUS_BAD_HANDLE
 
@@ -329,7 +329,7 @@ memory_start:
     mov rcx, [r15 + 8]
     lea rdx, [rbx + 4092]
     mov r8d, 8
-    mov eax, WIT_CALL_WRITE
+    mov eax, WIT_CALL_DEBUG_WRITE
     int 80h
     EXPECT WIT_STATUS_OK
     cmp rdx, 8
@@ -380,7 +380,7 @@ memory_bad_buffer:
     mov rcx, [r15 + 8]
     mov rdx, rbx
     mov r8d, 8
-    mov eax, WIT_CALL_WRITE
+    mov eax, WIT_CALL_DEBUG_WRITE
     int 80h
     EXPECT WIT_STATUS_BAD_ADDRESS
     test rdx, rdx
@@ -400,7 +400,7 @@ memory_execute_fault:
 try_write:
     lea rdx, message
     mov r8, message_end - message
-    mov rax, WIT_CALL_WRITE
+    mov rax, WIT_CALL_DEBUG_WRITE
     int 80h
     ret
 
@@ -473,7 +473,7 @@ spin_forever:
 failed:
     mov ecx, 241
 exit_component:
-    mov rax, WIT_CALL_EXIT
+    mov rax, WIT_CALL_PROCESS_EXIT
     int 80h
     ud2
 message BYTE 'Hello from ring 3.', 10

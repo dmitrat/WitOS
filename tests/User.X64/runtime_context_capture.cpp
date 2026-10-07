@@ -65,7 +65,11 @@ static WitU64 worker(WitU64)
         return 3601;
     }
     targetReference = reference;
-    if (wit_test_context_registers(WIT_CALL_EVENT_WAIT_UNTIL, (WitU64)eventHandle, WIT_WAIT_INFINITE, 0) !=
+    static WitU64 waitHandle;
+    static WitUserWaitRequest waitRequest;
+    waitHandle = (WitU64)eventHandle;
+    waitRequest = {WIT_WAIT_OBJECTS_VERSION, sizeof(waitRequest), (WitU64)&waitHandle, 1, 0, WIT_WAIT_INFINITE};
+    if (wit_test_context_registers(WIT_CALL_OBJECT_WAIT, (WitU64)&waitRequest, sizeof(waitRequest), 0) !=
         WIT_STATUS_OK) {
         return 3602;
     }

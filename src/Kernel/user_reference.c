@@ -26,7 +26,7 @@ static WitUserThreadReference *lookup(WitUserProcess *p, WitU64 handle)
 WitU64 wit_user_reference_target(WitUserProcess *p, WitU64 handle, WitU32 rights, WitUserThread **target)
 {
     *target = 0;
-    if (handle == WIT_THREAD_REFERENCE_CURRENT) {
+    if (handle == WIT_THREAD_SELF) {
         *target = &p->Threads[p->CurrentThread];
         return WIT_STATUS_OK;
     }
@@ -87,7 +87,7 @@ WitU64 wit_user_reference_duplicate(WitUserProcess *p, WitU64 source, WitU64 out
     if (requested & ~(WitU64)WIT_THREAD_REFERENCE_ALL) {
         return WIT_STATUS_UNSUPPORTED;
     }
-    if (source == WIT_THREAD_REFERENCE_CURRENT) {
+    if (source == WIT_THREAD_SELF) {
         const WitUserThread *t = &p->Threads[p->CurrentThread];
         snapshot.ThreadId = t->Handle;
         snapshot.ExitCode = 0;

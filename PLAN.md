@@ -1,6 +1,6 @@
 # План WitOS
 
-Обновлено: **2026-10-06**. Upstream .NET: **10.0.8**. Текущая реализация: user ABI v51, boot ABI v4, ядро и UHI для
+Обновлено: **2026-10-07**. Upstream .NET: **10.0.8**. Текущая реализация: user ABI v52, boot ABI v4, ядро и UHI для
 x64 (QEMU q35) и ARM64 (QEMU virt). Архитектурное решение: [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md).
 Прежний план с историей M0–M3, P1–P6.4, Q0–Q2, A0–A2 и T1 — в [архиве](@Docs/Implementation/Plan-Archive-2026-10-06.md);
 замороженная линия хоста P6.4 — в [P6.4-Plan.md](@Docs/Implementation/P6.4-Plan.md).
@@ -119,14 +119,26 @@ UHI для x64 и ARM64 (порт ARM64 стоил ~2 300 строк и пере
 
 Каждый шаг реализует названные разделы [RFC-0011 v3](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md).
 
-- [ ] **K1** Инвентарь ABI-1 в коде (RFC-0011 §7–§8, §10.1): 37 вызовов остаются под целевыми именами, 13 сливаются в
-  них, 6 удаляются (домен тиков PIT, `THREAD_CURRENT`, `APC_DEQUEUE`); `OBJECT_WAIT` — единственное ожидание, прерываемое
-  активацией (`INTERRUPTED` вместо `APC_PENDING`, без `ALERTABLE`); `THREAD_ACTIVATE` доставляется через callback
-  исключений с прерванным контекстом; `HANDLE_DUPLICATE` для всех видов объектов; `EXCEPTION_CONTINUE` поглощает
-  `EXCEPTION_UNWIND`; `CONTEXT_PROFILE` вместо `CPU_CONTEXT_QUERY` и `THREAD_CONTEXT_METADATA`; `QUERY` возвращает версию
-  и маску семейств; ARM64-блок регистров `WitThreadContext` и доставка исключений на ARM64. Последняя перенумерация:
-  после K1 номера, статусы и биты прав не переиспользуются. 13 уходящих вызовов остаются до K8. Протокол фикстур и
-  ABI-Reference обновлены.
+- [ ] **K1** Инвентарь ABI-1 в коде (RFC-0011 §7–§8, §10.1), четырьмя срезами: 37 вызовов остаются под целевыми
+  именами, 13 сливаются в них, 6 удаляются; 13 уходящих вызовов остаются до K8 в транзитном диапазоне 200+. K1.1 —
+  последняя перенумерация: после неё номера, статусы и биты прав не переиспользуются.
+  - [x] **K1.1** Раскладка ([K1-ABI-Inventory.md](@Docs/Implementation/K1-ABI-Inventory.md), ABI v52): финальные номера и
+    имена целевого набора (§7.12), транзитные вызовы в 200+; `QUERY` возвращает версию и маску семейств; `DEBUG_WRITE`
+    вместо `WRITE` и `CONSOLE_WRITE`; `EVENT_CREATE` с правами (0 — `WAIT` и `SIGNAL`); `CLOCK_READ` и `CLOCK_FREQUENCY` с
+    идентификатором часов; домен тиков PIT удалён (`CLOCK_READ`/`CLOCK_FREQUENCY` в тиках, `THREAD_SLEEP`, `EVENT_WAIT`);
+    `OBJECT_WAIT` поглощает `EVENT_WAIT_UNTIL` и `EVENT_WAIT_ANY_UNTIL`; `THREAD_CURRENT` заменён константой
+    `WIT_THREAD_SELF`; `EXCEPTION_CONTINUE` поглощает `EXCEPTION_UNWIND`; `HANDLE_DUPLICATE`, `CONTEXT_PROFILE` и
+    `THREAD_ACTIVATE` как имена; имена замороженной линии живут в `user_abi_frozen.h`, который ядро не включает; фикстуры
+    обеих ISA считают задержки в тиках через `CLOCK_FREQUENCY`; ABI-Reference переписан.
+  - [ ] **K1.2** Потоки: `THREAD_CREATE` одной формы (`THREAD_CREATE_SIMPLE` уходит); join — `OBJECT_WAIT` плюс
+    `THREAD_QUERY` по хэндлу или `WIT_THREAD_SELF` с единой структурой, поглощающей `THREAD_REFERENCE_QUERY`,
+    `THREAD_NATIVE_ID` и `THREAD_CONTEXT_METADATA`; `THREAD_COMPLETE` сливается в `THREAD_EXIT`; `HANDLE_DUPLICATE` для
+    событий; вид хэндла `THREAD` и право `JOIN` уходят.
+  - [ ] **K1.3** Активации: `THREAD_ACTIVATE` доставляется через callback исключений с прерванным контекстом; любое
+    ожидание прерывается `INTERRUPTED`; `ALERTABLE` и `APC_DEQUEUE` уходят; замороженный PAL (QueueUserAPC,
+    alertable-ожидания) переведён на активации.
+  - [ ] **K1.4** ARM64: регистровый блок `WitThreadContext` для AArch64, `CONTEXT_PROFILE` по ISA, контексты и доставка
+    исключений на ARM64; фикстуры исключений на обеих ISA. Протокол фикстур обновлён.
 - [ ] **K2** Каналы (RFC-0006 §11–13; RFC-0011 §7.6): `CHANNEL_CREATE`, `CHANNEL_SEND`, `CHANNEL_RECEIVE`; инлайн-данные
   и перемещение capability атомарно с сообщением; право `TRANSFER`, ослабление через `HANDLE_DUPLICATE`; конечная точка
   как объект ожидания в `OBJECT_WAIT`; `PEER_CLOSED`; квоты глубины очереди и байтов; фикстуры на обеих ISA.

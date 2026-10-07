@@ -54,46 +54,9 @@ WitU64 wit_user_exception_query(WitUserProcess *p, WitU64 token, WitU64 output, 
                                                                                    : WIT_STATUS_BAD_ADDRESS;
 }
 
+/* CONTINUE: resumes the validated context of the current delivery and retires the record together with the
+ * abandoned ancestors through RetireThroughToken (the current token retires the current record alone). */
 WitU64 wit_user_exception_continue(WitUserProcess *p, WitU64 token, WitU64 input, WitU64 size)
-{
-    WitUserThread *t = &p->Threads[p->CurrentThread];
-    if (size != sizeof(WitThreadContext)) {
-        return WIT_STATUS_INVALID_ARGUMENT;
-    }
-    if (!token || t->Exception.Token != token) {
-        return WIT_STATUS_BAD_HANDLE;
-    }
-    if (t->State != WitThreadRunning ||
-        t->SuspendCount ||
-        t->WaitKind != WitWaitNone ||
-        (wit_user_stack_leased(p, t->Handle, 0) || wit_user_stack_leases_owned(p, t->Handle))) {
-        return WIT_STATUS_BUSY;
-    }
-    if (!wit_arch_context_supported()) {
-        return WIT_STATUS_UNSUPPORTED;
-    }
-    WitThreadContext context;
-    if (!wit_user_copy_from(&p->Space, input, (WitU8 *)&context, sizeof(context))) {
-        return WIT_STATUS_BAD_ADDRESS;
-    }
-    const WitU64 status = wit_user_context_validate(p, t, &context, 1);
-    if (status != WIT_STATUS_OK) {
-        return status;
-    }
-    wit_arch_context_apply(t->Context, &context);
-    ++p->ExceptionContinuations;
-    if (t->ExceptionDepth) {
-        t->Exception = t->ExceptionParents[--t->ExceptionDepth];
-        for (WitU32 i = 0; i < sizeof(t->Exception); ++i) {
-            ((WitU8 *)&t->ExceptionParents[t->ExceptionDepth])[i] = 0;
-        }
-    } else {
-        wit_user_exception_clear(t);
-    }
-    return WIT_STATUS_OK;
-}
-
-WitU64 wit_user_exception_unwind(WitUserProcess *p, WitU64 token, WitU64 input, WitU64 size)
 {
     WitUserThread *t = &p->Threads[p->CurrentThread];
     if (size != sizeof(WitUserExceptionTransfer)) {
@@ -140,6 +103,7 @@ WitU64 wit_user_exception_unwind(WitUserProcess *p, WitU64 token, WitU64 input, 
     /* IF is clear: commit registers and retire exactly the selected suffix only
      * after validating the full copied request and current-thread token chain. */
     wit_arch_context_apply(t->Context, &request.Context);
+    ++p->ExceptionContinuations;
     if (!retire) {
         wit_user_exception_clear(t);
     } else {
