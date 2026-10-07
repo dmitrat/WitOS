@@ -155,6 +155,8 @@ typedef struct WitUserProcess {
     WitEventTable Events;
     WitChannelTable Channels;
     WitMemoryObjectTable MemoryObjects;
+    /* Per device descriptor: the handles of this component to it, in the table or in flight (K3.1). */
+    WitU32 DeviceReferences[WIT_DEVICE_CAPACITY];
     WitU32 Id;
     WitU32 Slot;
     WitUserState State;
@@ -297,12 +299,27 @@ WitU64 wit_user_memory_object_close(WitUserProcess *, WitU64);
 WitU64 wit_user_memory_object_duplicate(WitUserProcess *, WitU64, WitU64, WitU64);
 void wit_user_memory_object_release(WitUserProcess *, WitU64);
 int wit_user_memory_object_handle(WitUserProcess *, WitU64);
+int wit_user_memory_object_adopt(WitUserProcess *, WitU32, const WitU64 *, WitU32, WitU32, WitU32 *);
+WitU32 wit_user_memory_object_kind(WitUserProcess *, WitU64);
+
+/* Devices (RFC 0011 section 7.7, K3.1): the table as a memory object of the component, acquisition, a region as
+ * a memory object, the device handle's close, duplication, the reference a dropped message held, whether a handle
+ * is a device's, and the release of every device at the component's end. */
+WitU64 wit_user_device_table_grant(WitUserProcess *, WitU32);
+WitU64 wit_user_device_acquire(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
+WitU64 wit_user_device_memory(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
+WitU64 wit_user_device_close(WitUserProcess *, WitU64);
+WitU64 wit_user_device_duplicate(WitUserProcess *, WitU64, WitU64, WitU64);
+void wit_user_device_release(WitUserProcess *, WitU64);
+int wit_user_device_handle(WitUserProcess *, WitU64);
+void wit_user_devices_reset(WitUserProcess *);
 
 /* The address space's part: pages without an address of their own, a mapping of an object's pages as a reservation
  * at a chosen or fixed address, and the object a reservation maps. */
 int wit_user_space_allocate_pages(WitUserSpace *, WitU64 *, WitU32);
 void wit_user_space_free_pages(WitUserSpace *, const WitU64 *, WitU32);
-WitU64 wit_user_space_map_object(WitUserSpace *, WitU64, WitU64, const WitU64 *, WitU64, WitU32, WitU32, WitU64 *);
+WitU64 wit_user_space_map_object(
+    WitUserSpace *, WitU64, WitU64, const WitU64 *, WitU64, WitU32, WitU32, WitU32, WitU64 *);
 int wit_user_space_mapping_object(const WitUserSpace *, WitU64, WitU64 *);
 
 WitU64 wit_user_space_take_table(WitUserSpace *space);
@@ -352,6 +369,7 @@ void wit_user_wait_self_test(WitPageAllocator *pages);
 void wit_user_exception_self_test(WitPageAllocator *pages);
 void wit_user_channel_self_test(WitPageAllocator *pages);
 void wit_user_memory_object_self_test(WitPageAllocator *pages);
+void wit_user_device_self_test(WitPageAllocator *pages);
 void wit_user_image_self_test(WitPageAllocator *pages);
 void wit_user_bootstrap_self_test(WitPageAllocator *pages);
 void wit_user_gc_self_test(WitPageAllocator *pages);

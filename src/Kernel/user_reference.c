@@ -255,8 +255,8 @@ static WitU64 duplicate_event(WitUserProcess *p, WitU64 source, WitU64 output, W
     return WIT_STATUS_OK;
 }
 
-/* HANDLE_DUPLICATE: a thread handle (or WIT_THREAD_SELF), an event, a channel endpoint or a memory object, with the
- * same or fewer rights. */
+/* HANDLE_DUPLICATE: a thread handle (or WIT_THREAD_SELF), an event, a channel endpoint, a memory object or a device,
+ * with the same or fewer rights. */
 WitU64 wit_user_handle_duplicate(WitUserProcess *p, WitU64 source, WitU64 output, WitU64 requested)
 {
     if (source == WIT_THREAD_SELF ||
@@ -268,6 +268,9 @@ WitU64 wit_user_handle_duplicate(WitUserProcess *p, WitU64 source, WitU64 output
     }
     if (wit_user_memory_object_handle(p, source)) {
         return wit_user_memory_object_duplicate(p, source, output, requested);
+    }
+    if (wit_user_device_handle(p, source)) {
+        return wit_user_device_duplicate(p, source, output, requested);
     }
     return duplicate_event(p, source, output, requested);
 }

@@ -16,6 +16,7 @@
 #define WIT_HANDLE_LIBRARY_LIFECYCLE 9U
 #define WIT_HANDLE_CHANNEL_ENDPOINT 10U
 #define WIT_HANDLE_MEMORY_OBJECT 11U
+#define WIT_HANDLE_DEVICE 12U
 /* The rights are the ABI's (user_abi.h); READ of a lifecycle handle is the QUERY bit. */
 #define WIT_RIGHT_READ WIT_RIGHT_QUERY
 

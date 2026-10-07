@@ -63,6 +63,8 @@
     "[TEST-PASS] User.MemoryObjectCode",
     "[TEST-PASS] User.MemoryObjectTransfer",
     "[TEST-PASS] User.MemoryObjectLimits",
+    "[TEST-PASS] User.DeviceTable",
+    "[TEST-PASS] User.DeviceAuthority",
     "[TEST-PASS] User.ImageHeadersAndBounds",
     "[TEST-PASS] User.ImageUnsupportedFeatures",
     "[TEST-PASS] User.ImageSectionsAndEntry",

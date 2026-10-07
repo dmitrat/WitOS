@@ -1,11 +1,12 @@
 {
   "name": "kernel-platform-q35",
-  "description": "q35 board behind witos/platform.h: COM1 console, QEMU test exit, HPET clock, PIC and PIT tick source.",
+  "description": "q35 board behind witos/platform.h: COM1 console, QEMU test exit, HPET clock, PIC and PIT tick source, PCI enumeration through the configuration ports.",
   "includes": [],
   "sources": [
     "src/Kernel.Platform.Q35/console.c",
     "src/Kernel.Platform.Q35/hpet.c",
-    "src/Kernel.Platform.Q35/interrupts.c"
+    "src/Kernel.Platform.Q35/interrupts.c",
+    "src/Kernel.Platform.Q35/devices.c"
   ],
   "assembly": []
 }

@@ -68,6 +68,11 @@ typedef struct EfiBootServicesPrefix {
     EfiLocateProtocol LocateProtocol;
 } EfiBootServicesPrefix;
 
+typedef struct EfiConfigurationTable {
+    EfiGuid VendorGuid;
+    void *VendorTable;
+} EfiConfigurationTable;
+
 typedef struct EfiSystemTable {
     EfiTableHeader Header;
     void *FirmwareVendor;
@@ -84,5 +89,6 @@ _Static_assert(sizeof(EfiTableHeader) == 24, "UEFI header layout");
 _Static_assert(sizeof(EfiMemoryDescriptor) == 40, "UEFI descriptor layout");
 _Static_assert(sizeof(EfiBootServicesPrefix) == 328, "UEFI services prefix layout");
 _Static_assert(sizeof(EfiSystemTable) == 120, "UEFI system table layout");
+_Static_assert(sizeof(EfiConfigurationTable) == 24, "UEFI configuration table layout");
 
 #endif

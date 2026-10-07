@@ -4,7 +4,7 @@
 #include "types.h"
 
 #define WIT_BOOT_MAGIC 0x574954424F4F5430ULL
-#define WIT_BOOT_VERSION 4U
+#define WIT_BOOT_VERSION 5U
 #define WIT_BOOT_SEED_BYTES 32U
 #define WIT_ARCH_X64 1U
 #define WIT_ARCH_ARM64 2U
@@ -59,11 +59,16 @@ typedef struct WitBootInfo {
     const WitBootStorageExtent *StorageExtents;
     WitU64 StorageBytes;
     WitU32 StorageExtentCount, StorageReserved;
+    /* Firmware tables the configuration table published, as physical addresses, zero when absent: the ACPI 2.0
+     * RSDP and the flattened device tree. The common kernel never reads them; the platform enumerates its devices
+     * from whichever it understands (plan step K3.1). */
+    WitU64 AcpiRsdp;
+    WitU64 DeviceTree;
 } WitBootInfo;
 
 _Static_assert(sizeof(void *) == 8, "The boot contract requires a 64-bit target");
 _Static_assert(sizeof(WitMemoryRegion) == 24, "Memory region ABI");
-_Static_assert(sizeof(WitBootInfo) == 112, "Boot info ABI");
+_Static_assert(sizeof(WitBootInfo) == 128, "Boot info ABI");
 
 WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot);
 

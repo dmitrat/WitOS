@@ -17,6 +17,7 @@ void __cpuid(int[4], int);
 /* Software bit: a committed leaf retains its frame even with no access. */
 #define PAGE_OWNED 0x200ULL
 #define PAGE_ALIAS 0x400ULL
+#define PAGE_DEVICE 0x18ULL /* PCD|PWT: PAT entry 3, verified UC when paging starts. */
 #define PAGE_NX (1ULL << 63)
 #define PAGE_ADDRESS 0x000FFFFFFFFFF000ULL
 
@@ -28,7 +29,8 @@ WitU64 wit_arch_page_entry_make(WitU64 physical, WitU32 flags)
         ((flags & WIT_PAGE_WRITE) ? PAGE_WRITE : 0) |
         ((flags & WIT_PAGE_EXECUTE) ? 0 : PAGE_NX) |
         ((flags & WIT_PAGE_OWNED) ? PAGE_OWNED : 0) |
-        ((flags & WIT_PAGE_ALIAS) ? PAGE_ALIAS : 0);
+        ((flags & WIT_PAGE_ALIAS) ? PAGE_ALIAS : 0) |
+        ((flags & WIT_PAGE_DEVICE) ? PAGE_DEVICE : 0);
 }
 
 WitU32 wit_arch_page_entry_flags(WitU64 entry)
@@ -37,7 +39,8 @@ WitU32 wit_arch_page_entry_flags(WitU64 entry)
         ((entry & PAGE_WRITE) ? WIT_PAGE_WRITE : 0) |
         ((entry & PAGE_NX) ? 0 : WIT_PAGE_EXECUTE) |
         ((entry & PAGE_OWNED) ? WIT_PAGE_OWNED : 0) |
-        ((entry & PAGE_ALIAS) ? WIT_PAGE_ALIAS : 0);
+        ((entry & PAGE_ALIAS) ? WIT_PAGE_ALIAS : 0) |
+        ((entry & PAGE_DEVICE) == PAGE_DEVICE ? WIT_PAGE_DEVICE : 0);
 }
 
 WitU64 wit_arch_page_entry_physical(WitU64 entry)

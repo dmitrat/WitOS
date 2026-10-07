@@ -156,6 +156,9 @@ void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator
     require((cpu[3] & (1 << 20)) != 0, "NX is required");
     require((cr4 & ((1ULL << 22) | (1ULL << 23) | (1ULL << 25))) == 0, "Inherited PKE/CET/UINTR state is unsupported");
     require((cr4 & ((1ULL << 12) | (1ULL << 17))) == 0, "LA57/PCID are unsupported");
+    __cpuid(cpu, 1);
+    require((cpu[3] & (1 << 16)) && ((__readmsr(0x277) >> 24) & 255) == 0,
+        "Device mappings require PAT entry 3 to be UC"); /* User aliases of device regions select it (K3.1). */
     require(boot->ImageBase != 0 &&
             (boot->ImageBase & 4095) == 0 &&
             boot->ImageSize != 0 &&

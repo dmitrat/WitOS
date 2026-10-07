@@ -1,4 +1,5 @@
 #include "witos/boot.h"
+#include "witos/devices.h"
 #include "witos/storage.h"
 #include "witos/memory.h"
 #include "witos/random.h"
@@ -137,6 +138,7 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
     }
     consume_entropy(boot);
     wit_platform_clock_initialize(boot);
+    wit_devices_initialize(boot, &physical_pages);
 #if defined(WITOS_SELFTEST)
     wit_kernel_self_test(boot, &physical_pages);
 #endif

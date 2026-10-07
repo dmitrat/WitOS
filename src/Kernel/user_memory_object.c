@@ -25,6 +25,8 @@ void wit_memory_objects_initialize(WitMemoryObjectTable *table)
         table->Entries[i].Kind = 0;
         table->Entries[i].References = 0;
         table->Entries[i].PageCount = 0;
+        table->Entries[i].Owned = 0;
+        table->Entries[i].Device = 0;
     }
 }
 
@@ -59,10 +61,14 @@ static void release_object(WitUserProcess *p, WitU64 object)
     WitMemoryObject *entry = slot(p, object);
     require(entry != 0 && entry->References != 0, "Released memory object reference has no object");
     if (--entry->References == 0) {
-        wit_user_space_free_pages(&p->Space, entry->Pages, entry->PageCount);
+        if (entry->Owned) {
+            wit_user_space_free_pages(&p->Space, entry->Pages, entry->PageCount);
+        }
         entry->Live = 0;
         entry->Kind = 0;
         entry->PageCount = 0;
+        entry->Owned = 0;
+        entry->Device = 0;
         --p->MemoryObjects.Count;
     }
 }
@@ -93,6 +99,8 @@ WitU64 wit_user_memory_object_create(WitUserProcess *p, WitU64 size, WitU64 flag
         entry->Kind = WIT_MEMORY_OBJECT_ANONYMOUS;
         entry->PageCount = pages;
         entry->References = 1;
+        entry->Owned = 1;
+        entry->Device = 0;
         entry->Live = 1;
         ++p->MemoryObjects.Count;
         *result = handle;
@@ -146,8 +154,9 @@ WitU64 wit_user_memory_object_map(WitUserProcess *p, WitU64 address, WitU64 size
         request.Bytes > (WitU64)entry->PageCount * 4096 - request.Offset) {
         return WIT_STATUS_TOO_LARGE;
     }
-    const WitU64 mapped = wit_user_space_map_object(&p->Space, request.Address, request.Bytes,
-        &entry->Pages[request.Offset / 4096], request.Protection, (WitU32)object, granted, result);
+    const WitU64 mapped =
+        wit_user_space_map_object(&p->Space, request.Address, request.Bytes, &entry->Pages[request.Offset / 4096],
+            request.Protection, (WitU32)object, granted, entry->Kind == WIT_MEMORY_OBJECT_DEVICE, result);
     if (mapped != WIT_STATUS_OK) {
         return mapped;
     }
@@ -217,6 +226,42 @@ WitU64 wit_user_memory_object_duplicate(WitUserProcess *p, WitU64 source, WitU64
 void wit_user_memory_object_release(WitUserProcess *p, WitU64 object)
 {
     release_object(p, object);
+}
+
+/* An object over pages the component does not own (a device region, the device table; K3.1): one reference, the
+ * caller's. Returns the object number, zero when the table is full. */
+int wit_user_memory_object_adopt(
+    WitUserProcess *p, WitU32 kind, const WitU64 *pages, WitU32 count, WitU32 device, WitU32 *object)
+{
+    *object = 0;
+    if (!count || count > WIT_MEMORY_OBJECT_PAGES || kind == WIT_MEMORY_OBJECT_ANONYMOUS) {
+        return 0;
+    }
+    for (WitU32 i = 0; i < p->MemoryObjects.Limit; ++i) {
+        WitMemoryObject *entry = &p->MemoryObjects.Entries[i];
+        if (entry->Live) {
+            continue;
+        }
+        for (WitU32 k = 0; k < count; ++k) {
+            entry->Pages[k] = pages[k];
+        }
+        entry->Kind = kind;
+        entry->PageCount = count;
+        entry->References = 1;
+        entry->Owned = 0;
+        entry->Device = device;
+        entry->Live = 1;
+        ++p->MemoryObjects.Count;
+        *object = i + 1;
+        return 1;
+    }
+    return 0;
+}
+
+WitU32 wit_user_memory_object_kind(WitUserProcess *p, WitU64 object)
+{
+    const WitMemoryObject *entry = slot(p, object);
+    return entry ? entry->Kind : 0;
 }
 
 int wit_user_memory_object_handle(WitUserProcess *p, WitU64 handle)

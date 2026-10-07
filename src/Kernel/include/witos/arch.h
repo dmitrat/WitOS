@@ -120,6 +120,7 @@ void wit_arch_fault_describe(const WitArchFaultState *state);
 #define WIT_PAGE_EXECUTE 4U
 #define WIT_PAGE_OWNED 8U /* Committed backing owned by the space, even with no access. */
 #define WIT_PAGE_ALIAS 16U /* Code view of backing owned elsewhere in the same space. */
+#define WIT_PAGE_DEVICE 32U /* Uncached: an alias of a device region (K3.1). */
 
 struct WitUserSpace;
 WitU64 wit_arch_page_entry_make(WitU64 physical, WitU32 flags);

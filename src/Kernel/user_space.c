@@ -153,7 +153,7 @@ static int destination_view(const WitUserSpace *space, WitU64 address, WitU64 si
     return 0;
 }
 
-static int map_alias_page(WitUserSpace *space, WitU64 destination, WitU64 physical, WitU64 protection)
+static int map_alias_page(WitUserSpace *space, WitU64 destination, WitU64 physical, WitU64 protection, WitU32 device)
 {
     if (space->AliasCount >= space->PageLimit) {
         return 0;
@@ -166,7 +166,8 @@ static int map_alias_page(WitUserSpace *space, WitU64 destination, WitU64 physic
     if (*output) {
         return 0;
     }
-    *output = wit_arch_page_entry_make(physical, (protection_flags(protection) & ~WIT_PAGE_OWNED) | WIT_PAGE_ALIAS);
+    *output = wit_arch_page_entry_make(
+        physical, (protection_flags(protection) & ~WIT_PAGE_OWNED) | WIT_PAGE_ALIAS | (device ? WIT_PAGE_DEVICE : 0));
     space->AliasVirtual[space->AliasCount] = destination;
     space->AliasPhysical[space->AliasCount++] = physical;
     invalidate(space, destination);
@@ -615,7 +616,8 @@ static WitU64 memory_commit(WitUserSpace *space, WitU64 address, WitU64 size, Wi
             if (present && (entry_flags(*present) & WIT_PAGE_ALIAS)) {
                 continue; // Preserve existing protection and bytes.
             }
-            if (mappingCount == WIT_RUNTIME_PAGE_CAPACITY || !map_alias_page(space, target, physical, v->Protection)) {
+            if (mappingCount == WIT_RUNTIME_PAGE_CAPACITY ||
+                !map_alias_page(space, target, physical, v->Protection, 0)) {
                 goto failed;
             }
             mapped[mappingCount++] = target;
@@ -747,7 +749,7 @@ static WitU64 protect(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 p
     }
     for (WitU64 p = address; p < address + size; p += 4096) {
         WitU64 *entry = leaf(space, p, 0);
-        const WitU32 kept = entry_flags(*entry) & (WIT_PAGE_OWNED | WIT_PAGE_ALIAS);
+        const WitU32 kept = entry_flags(*entry) & (WIT_PAGE_OWNED | WIT_PAGE_ALIAS | WIT_PAGE_DEVICE);
         *entry =
             wit_arch_page_entry_make(entry_physical(*entry), kept | (protection_flags(protection) & ~WIT_PAGE_OWNED));
         invalidate(space, p);
@@ -881,7 +883,7 @@ WitU64 wit_user_code_map_sparse(WitUserSpace *space, WitU64 destination, WitU64 
             continue;
         }
         const WitU64 target = destination + address - source;
-        if (!map_alias_page(space, target, space->OwnedPages[i], protection)) {
+        if (!map_alias_page(space, target, space->OwnedPages[i], protection, 0)) {
             while (count) {
                 unmap_page(space, mapped[--count]);
             }
@@ -1069,7 +1071,7 @@ void wit_user_space_free_pages(WitUserSpace *space, const WitU64 *pages, WitU32 
 }
 
 WitU64 wit_user_space_map_object(WitUserSpace *space, WitU64 address, WitU64 size, const WitU64 *pages,
-    WitU64 protection, WitU32 object, WitU32 rights, WitU64 *result)
+    WitU64 protection, WitU32 object, WitU32 rights, WitU32 device, WitU64 *result)
 {
     WitU64 base = 0;
     WitU32 slot;
@@ -1112,7 +1114,7 @@ WitU64 wit_user_space_map_object(WitUserSpace *space, WitU64 address, WitU64 siz
         return WIT_STATUS_NO_MEMORY;
     }
     for (WitU64 offset = 0; offset < size; offset += 4096) {
-        if (!map_alias_page(space, base + offset, pages[offset / 4096], protection)) {
+        if (!map_alias_page(space, base + offset, pages[offset / 4096], protection, device)) {
             while (offset) {
                 offset -= 4096;
                 unmap_page(space, base + offset);

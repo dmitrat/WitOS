@@ -25,14 +25,14 @@
  * arguments, RAX=status and RDX=result, other GPRs and x87/SSE state preserved, RFLAGS reset to 0x202; on ARM64
  * SVC #0 with x8=call, x0-x2 arguments, x0=status and x1=result. A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
-#define WIT_ABI_VERSION 57U
+#define WIT_ABI_VERSION 58U
 /* QUERY result: the low 32 bits are WIT_ABI_VERSION, the high 32 bits the mask of the families present. */
 #define WIT_ABI_FEATURE_CHANNELS 1U
 #define WIT_ABI_FEATURE_DEVICES 2U
 #define WIT_ABI_FEATURE_PROCESSES 4U
 #define WIT_ABI_FEATURE_UTC 8U
 #define WIT_ABI_FEATURE_SMP 16U
-#define WIT_ABI_FEATURES WIT_ABI_FEATURE_CHANNELS
+#define WIT_ABI_FEATURES (WIT_ABI_FEATURE_CHANNELS | WIT_ABI_FEATURE_DEVICES)
 #define WIT_ABI_STARTUP_SIZE 24U
 /* Existing single-module compiler TLS page layout of the frozen line; not a Windows TEB. */
 #define WIT_COMPILER_TLS_DATA_OFFSET 256U
@@ -154,6 +154,17 @@
  * when it is empty and the peer is closed, TOO_LARGE when a buffer is smaller than the message, NO_MEMORY when the
  * handles would not fit the table; a refused message stays queued. */
 #define WIT_CALL_CHANNEL_RECEIVE 72U
+
+/* Devices (RFC 0011 section 7.7, plan step K3.1). The board's devices are the descriptors of the read-only device
+ * table, a memory object (witos/device.h) whose handle carries ACQUIRE for whoever may take devices: the root task
+ * after K4, a kernel test's component until then. Acquire(table handle, descriptor index, 0) -> device handle with
+ * BIND, QUERY, DUPLICATE and TRANSFER; a device is held by one component at a time (BUSY) and is free again when
+ * its last handle closes. */
+#define WIT_CALL_DEVICE_ACQUIRE 80U
+/* Memory(device handle, region index, 0) -> handle to a memory object of the region: uncached, mappable READ or
+ * READ|WRITE through MEMORY_OBJECT_MAP, never executable; a port region is UNSUPPORTED. */
+#define WIT_CALL_DEVICE_MEMORY 81U
+/* 82 INTERRUPT_BIND, 83 INTERRUPT_ACK, 84 DMA_PIN and 85 DMA_UNPIN arrive with plan step K3.2. */
 /* 80-85 devices (K3), 90-92 processes (K5). */
 
 /* Processors (RFC 0011 section 7.9). Query(buffer, exact 4 bytes, 0): the current processor as
@@ -200,8 +211,8 @@
 /* Rights (RFC 0011 section 6.1): a bit is never reused, and 2 (the join right of the retired join capability) is
  * retired. WAIT and SIGNAL belong to events and the kernel log; QUERY, GET_CONTEXT, SET_CONTEXT, SUSPEND_RESUME and
  * ACTIVATE to threads; SEND and RECEIVE to channel endpoints; MAP, WRITE and EXECUTE to memory objects (a mapping
- * with that access); DUPLICATE (HANDLE_DUPLICATE of an endpoint or an object) and TRANSFER (moving the handle in a
- * message) to every kind a message can carry. */
+ * with that access); ACQUIRE to the device table and BIND to devices; DUPLICATE (HANDLE_DUPLICATE of an endpoint,
+ * an object or a device) and TRANSFER (moving the handle in a message) to every kind a message can carry. */
 #define WIT_RIGHT_WRITE 1U
 #define WIT_RIGHT_WAIT 4U
 #define WIT_RIGHT_SIGNAL 8U
@@ -216,6 +227,8 @@
 #define WIT_RIGHT_TRANSFER 4096U
 #define WIT_RIGHT_MAP 8192U
 #define WIT_RIGHT_EXECUTE 16384U
+#define WIT_RIGHT_ACQUIRE 32768U /* of the device table: DEVICE_ACQUIRE */
+#define WIT_RIGHT_BIND 65536U /* of a device: DEVICE_MEMORY now, INTERRUPT_BIND with K3.2 */
 #define WIT_RIGHT_THREAD_ALL 6644U
 #define WIT_EVENT_ACCESS_WAIT WIT_RIGHT_WAIT
 #define WIT_EVENT_ACCESS_SIGNAL WIT_RIGHT_SIGNAL
