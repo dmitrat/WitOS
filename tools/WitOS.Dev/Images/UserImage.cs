@@ -25,6 +25,7 @@ internal static class UserImage
         "src/Kernel/include/witos/exception.h",
         "src/Kernel/include/witos/cpu_context_info.h",
         "src/Kernel/include/witos/channels.h",
+        "src/Kernel/include/witos/memory_object.h",
         "src/Kernel/include/witos/user_layout.h",
         "src/Kernel/include/witos/limits.h",
         "tests/User/protocol.h"
@@ -48,6 +49,7 @@ internal static class UserImage
         await BuildFixtureAsync(root, output, msvc, constants, "waits", "WaitFixture", "wit_user_wait_image", "user_wait_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "exceptions", "ExceptionFixture", "wit_user_exception_image", "user_exception_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "channels", "ChannelFixture", "wit_user_channel_image", "user_channel_image.h");
+        await BuildFixtureAsync(root, output, msvc, constants, "memory_objects", "MemoryObjectFixture", "wit_user_memory_object_image", "user_memory_object_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "coreclr_memory", "CoreClrMemoryFixture", "wit_coreclr_memory_image", "coreclr_memory_image.h");
         await UserPeImage.BuildAsync(root, output, msvc, constants);
         await UserBootstrapImage.BuildAsync(root, output, msvc);
@@ -100,6 +102,7 @@ internal static class UserImage
         await BuildArm64FixtureAsync(root, output, msvc, constants, "waits", "WaitFixture", "wit_user_wait_image", "user_wait_image.h");
         await BuildArm64FixtureAsync(root, output, msvc, constants, "exceptions", "ExceptionFixture", "wit_user_exception_image", "user_exception_image.h");
         await BuildArm64FixtureAsync(root, output, msvc, constants, "channels", "ChannelFixture", "wit_user_channel_image", "user_channel_image.h");
+        await BuildArm64FixtureAsync(root, output, msvc, constants, "memory_objects", "MemoryObjectFixture", "wit_user_memory_object_image", "user_memory_object_image.h");
         await UserPeImage.BuildArm64Async(root, output, msvc, constants);
     }
 
