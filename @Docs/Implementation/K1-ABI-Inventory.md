@@ -279,3 +279,70 @@ exception scenarios with the raw activation contract), `runtime-boot-run` (four 
 unchanged), `coreclr-memory` and `coreclr-storage` (two boots each) and `coreclr-host-guest` (no unresolved
 external). The host tests check the call table and the ABI reference against the header and the platform object
 groups, and `format-check` is clean.
+
+## K1.4 — ARM64 contexts (ABI v55)
+
+### What changed
+
+**The AArch64 register block.** `WitThreadContext` keeps its common prefix and gains the AArch64 block beside the
+x64 one (RFC 0011 §7.3: only the block differs between ISAs): `X0`–`X30`, `SP`, `PC`, `PSTATE`, the 32 vector
+registers as 16-byte lanes of `V`, `FPCR` and `FPSR`, 848 bytes against x64's 720. `thread_context.h` selects the
+block of the compiling ISA, names both sizes (`WIT_THREAD_CONTEXT_SIZE_X64`, `WIT_THREAD_CONTEXT_SIZE_ARM64`) and
+derives `WIT_THREAD_CONTEXT_SIZE`, from which the exception record (+48), the transfer (+16) and the frozen line's
+fatal record (+152) follow. `TPIDR_EL0` is per-thread frame state outside the context; x18 is reported but reset to
+the compiler TLS on every return to EL0, so a context cannot change it.
+
+**Validation.** The user profile of a context on ARM64: `PSTATE` carries the condition flags NZCV alone (EL0t, every
+exception unmasked), `FPCR` stays within the bits the hardware implements, which the kernel probes once at boot as
+x64 probes the MXCSR mask (`context.c`), and `FPSR` within the architectural bits; a context outside the profile is
+`INVALID_ARGUMENT`. Hardware debug must be off (MDSCR_EL1 without MDE and KDE), which the boot check enforces and
+`CONTEXT_PROFILE` reports as `WIT_CPU_DEBUG_DISABLED`.
+
+**CONTEXT_PROFILE per ISA.** `EnabledState` is `LEGACY` (x87 and SSE, the FXSAVE64 image) on x64 and the new
+`FPSIMD` on ARM64; `LegacySaveBytes` is the floating-point block (512 on both); the selectors are zero on ARM64; the
+field `MxcsrMask` became `FloatControlMask`, the MXCSR mask on x64 and the implemented FPCR bits on ARM64. The
+exception record's `RawRflags` became `RawState`: the RFLAGS or SPSR of the interrupted frame as saved.
+
+**Delivery on ARM64.** The fault callback receives the EL0 exception classes undefined instruction (0x00), trapped
+system register access (0x18), instruction abort (0x20), PC alignment (0x22), data abort (0x24), SP alignment (0x26)
+and `BRK` (0x3C); `Vector` is the class, `Error` the syndrome, `Address` the fault address of aborts and alignment
+faults. Activations and `EXCEPTION_CONTINUE` work as on x64; `THREAD_ACTIVATE` no longer answers `UNSUPPORTED`.
+
+### Kernel
+
+- `thread_context.h`, `exception.h`, `fatal_info.h`, `cpu_context_info.h`: the per-ISA block and sizes, `RawState`,
+  `FloatControlMask`, `WIT_CPU_CONTEXT_FPSIMD`, `WIT_THREAD_CONTEXT_FPSIMD`.
+- `Kernel.Arch.A64/frame.c`: the context functions of `witos/arch.h` (capture, validation, apply, the profile, the
+  exception records and the fault state from a context) and the deliverable classes; `context.c`: the FPCR probe and
+  the debug check at boot; `entry.asm`: `fpcr` and `mdscr_el1` access.
+- Nothing in `src/Kernel`: the common kernel delivers, validates and continues through `witos/arch.h` as before.
+
+### Fixtures and the frozen line
+
+- `tests/User.X64/exceptions.asm` and `tests/User.A64/exceptions.asm`, driven by the common
+  `tests/Kernel/user_exception_tests.c`: `EXCEPTION_REGISTER`, a read fault at address zero delivered with the
+  interrupted context, the record checked field by field (class, syndrome or error code, address, PC, a marked
+  register, PSTATE or RFLAGS), a wrong size, a foreign token and a privileged PSTATE or IOPL refused,
+  `EXCEPTION_CONTINUE` to a landing with the marked register changed, `THREAD_ACTIVATE` of the own thread through the
+  same callback, `CONTEXT_PROFILE` and `THREAD_CONTEXT_GET` of the own thread, `THREAD_CONTEXT_SET` of the running
+  thread `BUSY`; the second mode rejects the fault and the kernel reports the original one. Markers
+  `User.ExceptionCallbackAndContext` and `User.ExceptionReject` on both ISAs; the ARM64 thread fixture's
+  `UNSUPPORTED` check of K1.3 is gone. The fixture headers `thread_context.h`, `exception.h` and
+  `cpu_context_info.h` join the ABI constants of the assembly fixtures.
+- The frozen line renames `MxcsrMask` to `FloatControlMask` in the context conversion, the dispatcher and the
+  context storage adapter; nothing else changes for x64.
+
+### Not in this slice
+
+ARM64 unwind metadata (PE unwind validation is K8 policy; `wit_test_exception_directory_status` stays
+`WitPeUnsupportedImage`), the alternate stack of `EXCEPTION_REGISTER`, and the frozen Windows-form user space on
+ARM64, which never existed.
+
+### Evidence
+
+Guest acceptance on both ISAs: `test` (x64, QEMU q35, 20 scenarios) and `test --arch arm64` (QEMU virt, 14 scenarios)
+pass with the exception suite on both (`User.ExceptionCallbackAndContext`, `User.ExceptionReject`; the rejected
+fault's line on ARM64 carries the class, the syndrome and the EL0 PSTATE the host validator checks). The frozen
+line's chains pass over the renamed profile field: `runtime-config` (four boots), `runtime-boot-run` (four boots),
+`coreclr-memory` and `coreclr-storage` (two boots each) and `coreclr-host-guest` (no unresolved external). The host
+tests check the call table and the ABI reference against the header, and `format-check` is clean.

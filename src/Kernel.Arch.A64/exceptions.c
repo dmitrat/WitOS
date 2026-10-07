@@ -111,6 +111,7 @@ void wit_arch_initialize(void)
         wit_panic("Exception vectors were not installed");
     }
     configure_user_mode();
+    wit_a64_context_initialize();
     wit_console_write("[TEST-PASS] Cpu.ExceptionTables\n");
 }
 

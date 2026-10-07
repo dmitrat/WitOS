@@ -17,7 +17,7 @@ inline bool profile(WitCpuContextInfo &info)
         info.EnabledState == WIT_CPU_CONTEXT_LEGACY &&
         info.DebugPolicy == WIT_CPU_DEBUG_DISABLED &&
         info.LegacySaveBytes == 512 &&
-        info.MxcsrMask;
+        info.FloatControlMask;
 }
 
 inline bool error(DWORD code)
@@ -61,7 +61,7 @@ inline bool decode(const CONTEXT &c, WitThreadContext &w, const WitCpuContextInf
             return error(ERROR_NOT_SUPPORTED);
         }
     }
-    if (c.MxCsr != c.FltSave.MxCsr || c.FltSave.MxCsr_Mask != info.MxcsrMask) {
+    if (c.MxCsr != c.FltSave.MxCsr || c.FltSave.MxCsr_Mask != info.FloatControlMask) {
         return error(ERROR_INVALID_PARAMETER);
     }
     w.Rip = c.Rip;

@@ -8,7 +8,7 @@ User ABI v30 and CPU-profile snapshot v2 expose a checked inactive-debug policy 
 
 At boot the x64 backend rejects non-neutral inherited DR7 control, clears inactive DR0-DR3 address slots and verifies their state. Every context-profile query checks that hardware breakpoint control remains disabled and the address slots remain zero. The native context's zero debug fields represent the supported disabled per-thread debug configuration; raw DR6 reserved/status bits are not advertised as a debugger API. Programming nonzero debug registers, branch tracing/vector controls and XSTATE is unsupported and rejected.
 
-The CPU snapshot remains 32 bytes and now reports DebugPolicy and MxcsrMask. Windows CONTEXT declarations stay in the native adapter. Kernel headers and register operations retain their own architecture contract.
+The CPU snapshot remains 32 bytes and now reports DebugPolicy and FloatControlMask (MxcsrMask until K1.4). Windows CONTEXT declarations stay in the native adapter. Kernel headers and register operations retain their own architecture contract.
 
 ## Get, set and restore
 

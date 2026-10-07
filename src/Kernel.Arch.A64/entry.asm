@@ -27,6 +27,9 @@ host_stack DCQ 0 ; SP of wit_a64_run_user while a component runs
     EXPORT wit_a64_set_system_control
     EXPORT wit_a64_fp_access
     EXPORT wit_a64_set_fp_access
+    EXPORT wit_a64_float_control
+    EXPORT wit_a64_set_float_control
+    EXPORT wit_a64_debug_control
     EXPORT wit_a64_set_thread_pointer
     EXPORT wit_a64_thread_pointer
     EXPORT wit_a64_run_user
@@ -147,6 +150,21 @@ wit_a64_fp_access PROC
 wit_a64_set_fp_access PROC
     msr cpacr_el1, x0
     isb
+    ret
+    ENDP
+
+wit_a64_float_control PROC
+    mrs x0, fpcr
+    ret
+    ENDP
+
+wit_a64_set_float_control PROC
+    msr fpcr, x0
+    ret
+    ENDP
+
+wit_a64_debug_control PROC
+    mrs x0, mdscr_el1
     ret
     ENDP
 

@@ -13,7 +13,7 @@ bool cpu_state(WitCpuContextInfo &info)
         info.Version == WIT_CPU_CONTEXT_VERSION &&
         info.Size == sizeof(info) &&
         info.DebugPolicy == WIT_CPU_DEBUG_DISABLED &&
-        info.MxcsrMask &&
+        info.FloatControlMask &&
         info.EnabledState == WIT_CPU_CONTEXT_LEGACY &&
         info.LegacySaveBytes == 512 &&
         (info.CodeSelector & 3) == 3 &&

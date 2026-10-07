@@ -45,8 +45,11 @@ const WitUserFaultCase wit_test_thread_faults[] = {
     {WIT_THREAD_TEST_GUARD_HIGH, "User.ThreadGuardHigh", DATA, 0x92000047U, WIT_USER_STACK_TOP + WIT_USER_THREAD_STRIDE,
         1, 0}};
 const WitU32 wit_test_thread_fault_count = sizeof(wit_test_thread_faults) / sizeof(wit_test_thread_faults[0]);
+const WitUserFaultCase wit_test_exception_fault = {
+    WIT_EXCEPTION_TEST_REJECT, "User.ExceptionReject", DATA, 0x92000006U, 0, 1, 0};
 
-/* No ARM64 unwind validator exists before A3, so any exception directory is unsupported. */
+/* No ARM64 unwind validator exists (PE unwind validation is policy that leaves at K8), so any exception directory is
+ * unsupported. */
 const WitU16 wit_test_foreign_machine = 0x8664;
 const WitPeStatus wit_test_exception_directory_status = WitPeUnsupportedImage;
 const WitUserFaultCase wit_test_image_faults[3] = {{0, "write", DATA, 0x9200004FU, 0, 0, 0},

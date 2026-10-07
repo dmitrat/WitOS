@@ -184,14 +184,14 @@ WitArchExceptionKind wit_arch_exception_kind(WitU64 vector, WitU64 error, WitU64
 void wit_arch_exception_record(WitUserExceptionInfo *info, const WitArchFrame *frame, WitU64 address)
 {
     info->Address = info->Vector == 14 ? address : 0;
-    info->RawRflags = frame->Rflags;
+    info->RawState = frame->Rflags;
     info->Context.Rflags = (info->Context.Rflags & USER_FLAGS) | USER_FLAGS_FIXED;
 }
 
 void wit_arch_exception_record_software(WitUserExceptionInfo *info, const WitThreadContext *context)
 {
     info->Address = context->Rip;
-    info->RawRflags = context->Rflags;
+    info->RawState = context->Rflags;
 }
 
 void wit_arch_fault_from_frame(WitArchFaultState *state, const WitArchFrame *frame)
@@ -201,11 +201,11 @@ void wit_arch_fault_from_frame(WitArchFaultState *state, const WitArchFrame *fra
     state->Ss = frame->Ss;
 }
 
-void wit_arch_fault_from_context(WitArchFaultState *state, const WitThreadContext *context)
+void wit_arch_fault_from_record(WitArchFaultState *state, const WitUserExceptionInfo *record)
 {
-    state->Rip = context->Rip;
-    state->Cs = context->Cs;
-    state->Ss = context->Ss;
+    state->Rip = record->Context.Rip;
+    state->Cs = record->Context.Cs;
+    state->Ss = record->Context.Ss;
 }
 
 int wit_arch_fault_from_user(const WitArchFaultState *state)
