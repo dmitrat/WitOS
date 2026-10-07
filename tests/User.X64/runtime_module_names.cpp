@@ -203,7 +203,7 @@ extern "C" WitU64 wit_test_module_names(const WitUserStartup *startup, WitU64 mo
         for (WitU64 i = 0; i < 3; ++i) {
             WitU64 handle = 0, result = 0;
             if (wit_native_thread_create(worker, i, &handle) != WIT_STATUS_OK ||
-                wit_native_call(WIT_CALL_THREAD_JOIN, handle, 0, 0, &result) != WIT_STATUS_OK ||
+                wit_native_thread_join(handle, &result) != WIT_STATUS_OK ||
                 result != WIT_TEST_EXIT_CODE) {
                 return 3004;
             }

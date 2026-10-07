@@ -1,21 +1,26 @@
 option casemap:none
 include user_abi.inc
 
+; Thread fixture over the ABI-1 thread family of RFC 0011 v3 (plan step K1.2): THREAD_CREATE is the one form, a join
+; is OBJECT_WAIT on the thread handle followed by THREAD_QUERY for the exit code and HANDLE_CLOSE, and closing the
+; handle of a live thread detaches it. The creation and the join are subroutines so that the fixture stays within
+; its one page of code.
+
 EXPECT MACRO value
     cmp rax, value
     jne failed
 ENDM
+; Create a thread: entry, argument -> rax status, rdx handle.
 CREATE MACRO target, argument
     lea rcx, target
     mov rdx, argument
     xor r8d, r8d
-    mov eax, WIT_CALL_THREAD_CREATE_SIMPLE
-    int 80h
+    call thread_create
 ENDM
+; Join: handle -> rax status; rdx exit code and the handle closed on success.
 JOIN MACRO handle
     mov rcx, handle
-    mov eax, WIT_CALL_THREAD_JOIN
-    int 80h
+    call thread_join
 ENDM
 
 .code
@@ -31,20 +36,18 @@ wit_user_start PROC
     cmp QWORD PTR fs:[WIT_TLS_ARGUMENT_OFFSET], r15
     jne failed
     mov r14, [r15 + WIT_TEST_MODE_OFFSET]
-    cmp r14, WIT_THREAD_TEST_CYCLE
-    je cycle_main
     cmp r14, WIT_THREAD_TEST_CAPACITY
     je capacity_main
     cmp r14, WIT_THREAD_TEST_FAULT
     jae fault_main
 
-    ; Wrong type, foreign/stale handles, self-join and live close are errors.
+    ; Wrong type, foreign handles, the private identity and closing it are errors.
     JOIN QWORD PTR [r15 + 8]
     EXPECT WIT_STATUS_WRONG_TYPE
     JOIN QWORD PTR [r15 + WIT_TEST_FOREIGN_OFFSET]
     EXPECT WIT_STATUS_BAD_HANDLE
     JOIN QWORD PTR fs:[WIT_TLS_HANDLE_OFFSET]
-    EXPECT WIT_STATUS_DEADLOCK
+    EXPECT WIT_STATUS_WRONG_TYPE
     mov rcx, QWORD PTR fs:[WIT_TLS_HANDLE_OFFSET]
     mov eax, WIT_CALL_HANDLE_CLOSE
     int 80h
@@ -52,13 +55,12 @@ wit_user_start PROC
     mov rcx, WIT_USER_DATA
     xor edx, edx
     xor r8d, r8d
-    mov eax, WIT_CALL_THREAD_CREATE_SIMPLE
-    int 80h
+    call thread_create
     EXPECT WIT_STATUS_BAD_ADDRESS
     lea rcx, worker
-    mov r8d, 4 ; bit 2 is reserved; bits 0/1 select detached/library lifecycle
-    mov eax, WIT_CALL_THREAD_CREATE_SIMPLE
-    int 80h
+    xor edx, edx
+    mov r8d, 4 ; bit 2 is reserved; bits 0 and 1 are START_SUSPENDED and LIBRARY_NOTIFICATIONS
+    call thread_create
     EXPECT WIT_STATUS_INVALID_ARGUMENT
     test rdx, rdx
     jne failed
@@ -86,7 +88,7 @@ wit_user_start PROC
     jne failed
     cmp QWORD PTR fs:[WIT_TLS_DATA_OFFSET], 9876h
     jne failed
-    ; Reuse a joined slot: fresh TLS/stack and a different handle generation.
+    ; Reuse a reaped slot: fresh TLS/stack and a different handle generation.
     CREATE worker, 3
     EXPECT WIT_STATUS_OK
     mov r13, rdx
@@ -103,21 +105,19 @@ wit_user_start PROC
     jne failed
     JOIN r13
     EXPECT WIT_STATUS_BAD_HANDLE
+    ; Closing the handle of a live thread detaches it; the thread runs to its exit and is reaped there.
     CREATE worker, 4
     EXPECT WIT_STATUS_OK
     mov r13, rdx
-close_finished:
-    mov eax, WIT_CALL_THREAD_YIELD
-    int 80h
-    EXPECT WIT_STATUS_OK
     mov rcx, r13
     mov eax, WIT_CALL_HANDLE_CLOSE
     int 80h
-    cmp rax, WIT_STATUS_BUSY
-    je close_finished
     EXPECT WIT_STATUS_OK
     JOIN r13
     EXPECT WIT_STATUS_BAD_HANDLE
+    mov eax, WIT_CALL_THREAD_YIELD
+    int 80h
+    EXPECT WIT_STATUS_OK
     mov ecx, WIT_TEST_EXIT_CODE
     jmp process_exit
 
@@ -186,31 +186,6 @@ worker_b:
     je worker_loop
 worker_exit:
     lea rcx, [r12 + 100]
-    jmp thread_exit
-
-cycle_main:
-    CREATE cycle_worker, QWORD PTR fs:[WIT_TLS_HANDLE_OFFSET]
-    EXPECT WIT_STATUS_OK
-    JOIN rdx
-    cmp rax, WIT_STATUS_DEADLOCK
-    je cycle_parent_exit
-    EXPECT WIT_STATUS_OK
-    cmp rdx, 43
-    jne failed
-    mov ecx, 43
-    jmp thread_exit
-cycle_parent_exit:
-    mov ecx, 42
-    jmp thread_exit
-cycle_worker:
-    JOIN rcx
-    cmp rax, WIT_STATUS_DEADLOCK
-    je cycle_worker_exit
-    EXPECT WIT_STATUS_OK
-    cmp rdx, 42
-    jne failed
-cycle_worker_exit:
-    mov ecx, 43
     jmp thread_exit
 
 capacity_main:
@@ -287,6 +262,63 @@ thread_bad_return:
 thread_process_exit:
     mov ecx, WIT_TEST_EXIT_CODE
     jmp process_exit
+
+; THREAD_CREATE with a request on the stack: rcx entry, rdx argument, r8 flags -> rax status, rdx handle.
+thread_create:
+    sub rsp, 56
+    mov DWORD PTR [rsp], WIT_THREAD_CREATE_VERSION
+    mov DWORD PTR [rsp + 4], 48
+    mov [rsp + 8], rcx
+    mov [rsp + 16], rdx
+    xor eax, eax
+    mov [rsp + 24], rax
+    mov [rsp + 32], rax
+    mov [rsp + 40], r8d
+    mov DWORD PTR [rsp + 44], 0
+    mov rcx, rsp
+    mov edx, 48
+    xor r8d, r8d
+    mov eax, WIT_CALL_THREAD_CREATE
+    int 80h
+    add rsp, 56
+    ret
+
+; Wait for the thread, read its exit code and close the handle: rcx handle -> rax status, rdx exit code. A failed
+; wait returns its status and leaves the handle.
+thread_join:
+    sub rsp, 152
+    mov [rsp + 32], rcx
+    lea rax, [rsp + 32]
+    mov DWORD PTR [rsp], WIT_WAIT_OBJECTS_VERSION
+    mov DWORD PTR [rsp + 4], 32
+    mov [rsp + 8], rax
+    mov DWORD PTR [rsp + 16], 1
+    mov DWORD PTR [rsp + 20], 0
+    mov rax, WIT_WAIT_INFINITE
+    mov [rsp + 24], rax
+    mov rcx, rsp
+    mov edx, 32
+    xor r8d, r8d
+    mov eax, WIT_CALL_OBJECT_WAIT
+    int 80h
+    test rax, rax
+    jne thread_join_done
+    mov DWORD PTR [rsp + 40], WIT_THREAD_INFO_VERSION
+    mov DWORD PTR [rsp + 44], WIT_THREAD_INFO_SIZE
+    mov rcx, [rsp + 32]
+    lea rdx, [rsp + 40]
+    mov r8d, WIT_THREAD_INFO_SIZE
+    mov eax, WIT_CALL_THREAD_QUERY
+    int 80h
+    test rax, rax
+    jne thread_join_done
+    mov rcx, [rsp + 32]
+    mov eax, WIT_CALL_HANDLE_CLOSE
+    int 80h
+    mov rdx, [rsp + 40 + 72] ; ExitCode
+thread_join_done:
+    add rsp, 152
+    ret
 
 failed:
     mov ecx, 241

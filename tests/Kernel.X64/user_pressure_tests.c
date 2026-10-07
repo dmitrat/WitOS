@@ -42,7 +42,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
         "Pressure lifecycle or accounting failed");
     if (mode == 61) {
         require(process.ThreadCreates == 3 &&
-                process.ThreadJoins == 2 &&
                 process.ThreadReaps == 2 &&
                 process.EventParks == 2 &&
                 process.EventWakes == 1 &&

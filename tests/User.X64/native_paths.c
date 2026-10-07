@@ -88,9 +88,8 @@ WitU64 wit_native_paths_test(void)
             equal(&value, "/"),
         2414);
     WitU64 worker = 0, result = 0;
-    CHECK(
-        wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)directory_worker, 0, 0, &worker) == WIT_STATUS_OK, 2415);
-    CHECK(wit_native_call(WIT_CALL_THREAD_JOIN, worker, 0, 0, &result) == WIT_STATUS_OK && result == 42, 2416);
+    CHECK(wit_native_thread_start((WitU64)directory_worker, 0, 0, &worker) == WIT_STATUS_OK, 2415);
+    CHECK(wit_native_thread_join(worker, &result) == WIT_STATUS_OK && result == 42, 2416);
     CHECK(wit_native_cwd_get(&value) == WIT_STATUS_OK && equal(&value, "/app"), 2417);
     CHECK(wit_native_cwd_set("/", 1) == WIT_STATUS_OK, 2418);
     return 42;

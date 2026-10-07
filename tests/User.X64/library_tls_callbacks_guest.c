@@ -75,14 +75,13 @@ static WitU64 before_body(void)
 static WIT_NORETURN void child(WitU64 before)
 {
     const WitU64 code = before ? before_body() : child_body();
-    (void)wit_native_call(WIT_CALL_THREAD_COMPLETE, code, 0, 0, 0);
+    (void)wit_native_call(WIT_CALL_THREAD_EXIT, code, 0, 0, 0);
     wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
 }
 
 static WitU64 start(WitU64 before, WitU64 *thread)
 {
-    return wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)child, before,
-        notifications ? WIT_THREAD_LIBRARY_NOTIFICATIONS : 0, thread);
+    return wit_native_thread_start((WitU64)child, before, notifications ? WIT_THREAD_LIBRARY_NOTIFICATIONS : 0, thread);
 }
 
 static void put(WitU32 *at, char value)
@@ -194,11 +193,11 @@ static WitU64 scenario(const char *libraryName, WitU32 nameBytes, const char *ex
         step(4);
     }
     CHECK(start(0, &thread) == WIT_STATUS_OK, base + 7);
-    CHECK(wit_native_call(WIT_CALL_THREAD_JOIN, thread, 0, 0, &result) == WIT_STATUS_OK, base + 8);
+    CHECK(wit_native_thread_join(thread, &result) == WIT_STATUS_OK, base + 8);
     CHECK(result == 42, base + result);
     step(4 + shift);
     CHECK(wit_native_call(WIT_CALL_EVENT_SET, go, 0, 0, 0) == WIT_STATUS_OK &&
-            wit_native_call(WIT_CALL_THREAD_JOIN, before, 0, 0, &result) == WIT_STATUS_OK,
+            wit_native_thread_join(before, &result) == WIT_STATUS_OK,
         base + 15);
     CHECK(result == 42, base + 60 + result);
     CHECK(wit_native_call(WIT_CALL_CLOSE, ready, 0, 0, 0) == WIT_STATUS_OK &&

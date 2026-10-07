@@ -133,8 +133,7 @@ extern "C" WitU64 wit_test_com_lifecycle(const WitUserStartup *startup)
         return 3310;
     }
     WitUserThreadInfo info;
-    if (wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&info, sizeof(info), WIT_THREAD_INFO_VERSION, nullptr) !=
-        WIT_STATUS_OK) {
+    if (wit_native_thread_query(WIT_THREAD_SELF, &info) != WIT_STATUS_OK) {
         return 3311;
     }
     auto raw = (WitU64 *)info.RawTls;
@@ -173,7 +172,7 @@ extern "C" WitU64 wit_test_com_lifecycle(const WitUserStartup *startup)
         CoUninitialize();
         if (!apartment(S_OK, APTTYPEQUALIFIER_IMPLICIT_MTA) ||
             !SetEvent(leaveEvent) ||
-            wit_native_call(WIT_CALL_THREAD_JOIN, handle, 0, 0, &result) != WIT_STATUS_OK ||
+            wit_native_thread_join(handle, &result) != WIT_STATUS_OK ||
             result != WIT_TEST_EXIT_CODE ||
             !apartment(CO_E_NOTINITIALIZED) ||
             observed != pass + 1) {

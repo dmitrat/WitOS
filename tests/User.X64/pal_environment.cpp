@@ -424,13 +424,12 @@ extern "C" WitU64 wit_environment_program()
         }
     }
     for (size_t i = 0; i < 2; ++i) {
-        if (wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &result) != WIT_STATUS_OK ||
-            result != WIT_TEST_EXIT_CODE) {
+        if (wit_native_thread_join(handles[i], &result) != WIT_STATUS_OK || result != WIT_TEST_EXIT_CODE) {
             return 1541;
         }
     }
     if (wit_native_thread_create(worker, 2, &handles[0]) != WIT_STATUS_OK ||
-        wit_native_call(WIT_CALL_THREAD_JOIN, handles[0], 0, 0, &result) != WIT_STATUS_OK ||
+        wit_native_thread_join(handles[0], &result) != WIT_STATUS_OK ||
         result != WIT_TEST_EXIT_CODE ||
         constructed != 4 ||
         destroyed != 3) {

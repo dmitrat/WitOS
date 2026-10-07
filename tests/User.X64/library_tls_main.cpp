@@ -48,8 +48,7 @@ extern "C" WitU64 wit_library_tls_main_probe(unsigned mode, WitU64 remainingPage
     if (_tls_index ||
         mainValue != 911 ||
         !snapshot(baseline) ||
-        wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&initial, sizeof(initial), WIT_THREAD_INFO_VERSION, nullptr) !=
-            WIT_STATUS_OK ||
+        wit_native_thread_query(WIT_THREAD_SELF, &initial) != WIT_STATUS_OK ||
         !initial.CompilerTls) {
         return 3503;
     }
@@ -126,13 +125,12 @@ extern "C" WitU64 wit_library_tls_main_probe(unsigned mode, WitU64 remainingPage
     if (created != WIT_STATUS_OK || !thread || !id) {
         return 3511;
     }
-    WitThreadReferenceInfo state;
+    WitUserThreadInfo state;
     for (;;) {
-        if (wit_native_call(WIT_CALL_THREAD_REFERENCE_QUERY, thread, (WitU64)&state, sizeof(state), nullptr) !=
-            WIT_STATUS_OK) {
+        if (wit_native_thread_query((WitU64)thread, &state) != WIT_STATUS_OK) {
             return 3512;
         }
-        if (state.State == WIT_THREAD_REFERENCE_EXITED) {
+        if (state.State == WIT_THREAD_STATE_EXITED) {
             break;
         }
         (void)wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr);
@@ -147,8 +145,7 @@ extern "C" WitU64 wit_library_tls_main_probe(unsigned mode, WitU64 remainingPage
         return 3519;
     }
     if (wit_native_library_unload(module) != WIT_STATUS_OK ||
-        wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&after, sizeof(after), WIT_THREAD_INFO_VERSION, nullptr) !=
-            WIT_STATUS_OK ||
+        wit_native_thread_query(WIT_THREAD_SELF, &after) != WIT_STATUS_OK ||
         after.CompilerTls != initial.CompilerTls ||
         ((WitU64 *)after.CompilerTls)[0x80 / 8] != mainSlot ||
         _tls_index ||

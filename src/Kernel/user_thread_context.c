@@ -15,6 +15,16 @@ static WitArchFrame *owned_context(WitUserProcess *process, WitUserThread *targe
     return saved;
 }
 
+/* The flags a context of the thread carries: the register profile and the thread's suspension, wait and fault state;
+ * THREAD_QUERY reports the same word so user space can build a context prefix. */
+WitU32 wit_user_context_flags(const WitUserThread *target)
+{
+    return wit_arch_context_profile() |
+        (target->SuspendCount ? WIT_THREAD_CONTEXT_SUSPENDED : 0) |
+        (target->WaitKind != WitWaitNone ? WIT_THREAD_CONTEXT_SERVICE_ACTIVE : 0) |
+        (target->Exception.Token ? WIT_THREAD_CONTEXT_EXCEPTION_ACTIVE : 0);
+}
+
 static void describe(WitThreadContext *snapshot, const WitUserThread *target)
 {
     snapshot->Version = WIT_THREAD_CONTEXT_VERSION;
@@ -26,10 +36,7 @@ static void describe(WitThreadContext *snapshot, const WitUserThread *target)
         : target->State == WitThreadWaiting             ? WIT_THREAD_CONTEXT_WAITING
                                                         : WIT_THREAD_CONTEXT_READY;
     snapshot->SuspendCount = target->SuspendCount;
-    snapshot->Flags = wit_arch_context_profile() |
-        (target->SuspendCount ? WIT_THREAD_CONTEXT_SUSPENDED : 0) |
-        (target->WaitKind != WitWaitNone ? WIT_THREAD_CONTEXT_SERVICE_ACTIVE : 0) |
-        (target->Exception.Token ? WIT_THREAD_CONTEXT_EXCEPTION_ACTIVE : 0);
+    snapshot->Flags = wit_user_context_flags(target);
     wit_arch_context_describe(snapshot);
 }
 
@@ -48,7 +55,7 @@ WitU64 wit_user_thread_context_get(WitUserProcess *process, WitU64 reference, Wi
     if (size != sizeof(WitThreadContext)) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
-    const WitU64 status = wit_user_reference_target(process, reference, WIT_THREAD_REFERENCE_GET_CONTEXT, &target);
+    const WitU64 status = wit_user_reference_target(process, reference, WIT_RIGHT_GET_CONTEXT, &target);
     if (status != WIT_STATUS_OK) {
         return status;
     }
@@ -100,7 +107,7 @@ WitU64 wit_user_thread_context_set(WitUserProcess *process, WitU64 reference, Wi
     if (size != sizeof(WitThreadContext)) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
-    WitU64 status = wit_user_reference_target(process, reference, WIT_THREAD_REFERENCE_SET_CONTEXT, &target);
+    WitU64 status = wit_user_reference_target(process, reference, WIT_RIGHT_SET_CONTEXT, &target);
     if (status != WIT_STATUS_OK) {
         return status;
     }
@@ -158,27 +165,6 @@ WitU64 wit_user_thread_context_restore(WitUserProcess *process, WitU64 address, 
     }
     wit_arch_context_apply(owned_context(process, target), &input);
     return WIT_STATUS_OK;
-}
-
-WitU64 wit_user_thread_context_metadata(WitUserProcess *process, WitU64 reference, WitU64 address, WitU64 size)
-{
-    WitUserThread *target = 0;
-    if (size != sizeof(WitThreadContext)) {
-        return WIT_STATUS_INVALID_ARGUMENT;
-    }
-    const WitU64 status = wit_user_reference_target(process, reference, WIT_THREAD_REFERENCE_SET_CONTEXT, &target);
-    if (status != WIT_STATUS_OK) {
-        return status;
-    }
-    if (!wit_arch_context_supported()) {
-        return WIT_STATUS_UNSUPPORTED;
-    }
-    WitThreadContext metadata = {0};
-    describe(&metadata, target);
-    // SET-only capability exposes validation metadata, never another thread's registers.
-    return wit_user_copy_to(&process->Space, address, (const WitU8 *)&metadata, sizeof(metadata))
-        ? WIT_STATUS_OK
-        : WIT_STATUS_BAD_ADDRESS;
 }
 
 WitU64 wit_user_cpu_context_query(WitUserProcess *process, WitU64 address, WitU64 size, WitU64 version)

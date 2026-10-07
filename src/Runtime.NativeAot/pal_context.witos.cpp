@@ -36,8 +36,7 @@ bool PalSetThreadContext(HANDLE handle, NATIVE_CONTEXT *input)
         return error(ERROR_NOT_SUPPORTED);
     }
     WitThreadContext w;
-    const auto status =
-        wit_native_call(WIT_CALL_THREAD_CONTEXT_METADATA, (WitU64)handle, (WitU64)&w, sizeof(w), nullptr);
+    const auto status = wit_native_context_prefix((WitU64)handle, &w);
     if (!wit_pal_result(status)) {
         return false;
     }
@@ -64,8 +63,7 @@ void PalRestoreContext(NATIVE_CONTEXT *input)
         SetLastError(ERROR_NOT_SUPPORTED);
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
-    const auto metadata =
-        wit_native_call(WIT_CALL_THREAD_CONTEXT_METADATA, WIT_THREAD_REFERENCE_CURRENT, (WitU64)&w, sizeof(w), nullptr);
+    const auto metadata = wit_native_context_prefix((WitU64)WIT_THREAD_REFERENCE_CURRENT, &w);
     if (metadata != WIT_STATUS_OK) {
         wit_pal_set_status(metadata);
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);

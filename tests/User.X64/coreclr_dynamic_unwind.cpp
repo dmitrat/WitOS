@@ -98,8 +98,7 @@ static bool foreign_walk(unsigned char *rx)
     foreignReady = foreignRelease = 0;
     foreignReference = 0;
     WitU64 thread = 0, previous = 99, result = 0;
-    if (wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)foreign_worker, (WitU64)rx, 0, &thread) !=
-        WIT_STATUS_OK) {
+    if (wit_native_thread_start((WitU64)foreign_worker, (WitU64)rx, 0, &thread) != WIT_STATUS_OK) {
         return false;
     }
     while (!foreignReady) {
@@ -124,7 +123,7 @@ static bool foreign_walk(unsigned char *rx)
         return false;
     }
     foreignRelease = 1;
-    return wit_native_call(WIT_CALL_THREAD_JOIN, thread, 0, 0, &result) == WIT_STATUS_OK &&
+    return wit_native_thread_join(thread, &result) == WIT_STATUS_OK &&
         result == 42 &&
         wit_native_call(WIT_CALL_CLOSE, foreignReference, 0, 0, nullptr) == WIT_STATUS_OK;
 }
@@ -224,8 +223,7 @@ static bool exception_dispatch_probe()
             return false;
         }
         WitThreadContext metadata;
-        if (wit_native_call(WIT_CALL_THREAD_CONTEXT_METADATA, WIT_THREAD_REFERENCE_CURRENT, (WitU64)&metadata,
-                sizeof(metadata), nullptr) != WIT_STATUS_OK ||
+        if (wit_native_context_prefix((WitU64)WIT_THREAD_REFERENCE_CURRENT, &metadata) != WIT_STATUS_OK ||
             (metadata.Flags & WIT_THREAD_CONTEXT_EXCEPTION_ACTIVE)) {
             return false;
         }
@@ -292,8 +290,7 @@ static EXCEPTION_DISPOSITION __cdecl nested_handler(
         }
         if (failureMode == 8) {
             WitUserThreadInfo owner = {};
-            if (wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&owner, sizeof(owner), WIT_THREAD_INFO_VERSION,
-                    nullptr) != WIT_STATUS_OK) {
+            if (wit_native_thread_query(WIT_THREAD_SELF, &owner) != WIT_STATUS_OK) {
                 wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
             }
             dispatcher->ContextRecord = (CONTEXT *)(owner.StackHigh - 8);
@@ -450,8 +447,7 @@ extern "C" bool wit_dynamic_unwind_probe(unsigned mode)
                     return false;
                 }
                 WitThreadContext metadata;
-                if (wit_native_call(WIT_CALL_THREAD_CONTEXT_METADATA, WIT_THREAD_REFERENCE_CURRENT, (WitU64)&metadata,
-                        sizeof(metadata), nullptr) != WIT_STATUS_OK ||
+                if (wit_native_context_prefix((WitU64)WIT_THREAD_REFERENCE_CURRENT, &metadata) != WIT_STATUS_OK ||
                     (metadata.Flags & WIT_THREAD_CONTEXT_EXCEPTION_ACTIVE)) {
                     return false;
                 }

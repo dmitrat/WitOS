@@ -45,13 +45,14 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
             wit_console_write("\n");
             wit_panic("Detached PAL worker lifecycle failed");
         }
+        /* Every exited thread is reaped at its exit (K1.2): in mode 6 the main thread leaves through THREAD_EXIT before
+         * the last worker, so its stack and TLS pages go as well. */
         const WitU64 detached = mode == 0 ? 12 : mode == 1 ? 4 : 1;
+        const WitU32 mainPages =
+            mode == 6 ? (WIT_USER_STACK_TOP - WIT_USER_STACK_BOTTOM) / 4096 + 1 + (process.TlsBytes ? 1U : 0U) : 0U;
         require(process.ThreadCreates == detached + 1 &&
-                process.DetachedCreates == detached &&
-                process.ThreadReaps == detached &&
-                process.DetachedReaps == detached &&
-                process.ThreadJoins == 0 &&
-                process.Space.OwnedCount == owned,
+                process.ThreadReaps == detached + (mode == 6 ? 1U : 0U) &&
+                process.Space.OwnedCount + mainPages == owned,
             "Detached worker resources were not automatically reaped");
         if (mode == 2) {
             require(report[3] == (WIT_USER_STACK_TOP - WIT_USER_STACK_BOTTOM) / 4096 + 2,
@@ -71,7 +72,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
             require(!process.Space.Reservations[i].Size, "PAL worker TLS cleanup leaked a reservation");
         }
     } else {
-        require(process.DetachedCreates == 1 && process.DetachedReaps == 0 && process.Space.OwnedCount > owned,
+        require(process.ThreadCreates == 2 && process.ThreadReaps == 0 && process.Space.OwnedCount > owned,
             "PAL worker failure did not exercise a live detached thread");
         if (mode == 5) {
             require(process.State == WitUserExited && process.ExitCode == WIT_GC_TEST_FAIL_FAST_EXIT,

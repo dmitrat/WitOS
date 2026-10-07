@@ -1,6 +1,6 @@
 # Справочник пользовательского ABI ядра WitOS
 
-Версии: **user ABI v52**, **boot ABI v4**. Источник истины — заголовки `src/Kernel/include/witos/*.h`; этот документ их описывает и проверяется хостовым тестом: каждый `WIT_CALL_*` из `user_abi.h` обязан встречаться здесь. Раскладка вызовов — ABI-1 по [RFC-0011 v3 §7](../RFC-0011-Kernel-Architecture-and-ABI.md), введённая шагом K1.1 плана; судьба каждого прежнего вызова — в [RFC-0011 v3 §8](../RFC-0011-Kernel-Architecture-and-ABI.md). ABI экспериментален до шага K8, но с K1.1 номер вызова, значение статуса и бит права никогда не переиспользуются (RFC-0011 §10.1).
+Версии: **user ABI v53**, **boot ABI v4**. Источник истины — заголовки `src/Kernel/include/witos/*.h`; этот документ их описывает и проверяется хостовым тестом: каждый `WIT_CALL_*` из `user_abi.h` обязан встречаться здесь. Раскладка вызовов — ABI-1 по [RFC-0011 v3 §7](../RFC-0011-Kernel-Architecture-and-ABI.md), введённая шагом K1.1 плана; судьба каждого прежнего вызова — в [RFC-0011 v3 §8](../RFC-0011-Kernel-Architecture-and-ABI.md). ABI экспериментален до шага K8, но с K1.1 номер вызова, значение статуса и бит права никогда не переиспользуются (RFC-0011 §10.1).
 
 ## Классы
 
@@ -42,7 +42,7 @@
 | 8 | `WIT_STATUS_NO_MEMORY` | Квота или физическая память исчерпаны |
 | 9 | `WIT_STATUS_NOT_RESERVED` | Адрес вне резервирования |
 | 10 | `WIT_STATUS_NOT_COMMITTED` | Страница не закоммичена |
-| 11 | `WIT_STATUS_DEADLOCK` | Цикл ожидания join или повторный вход владельца lifecycle |
+| 11 | `WIT_STATUS_DEADLOCK` | Повторный вход владельца lifecycle библиотеки (проверка цикла join ушла на K1.2) |
 | 12 | `WIT_STATUS_BUSY` | Ресурс занят; можно повторить |
 | 13 | `WIT_STATUS_TIMED_OUT` | Дедлайн истёк или нет сигнала при опросе |
 | 14 | `WIT_STATUS_CLOSED` | Ожидаемый объект закрыт; ссылка на завершённый поток |
@@ -62,7 +62,7 @@
 | 0 | `WIT_CALL_QUERY` | — | версия ABI и маска семейств | целевой |
 | 1 | `WIT_CALL_PROCESS_EXIT` | exit code | не возвращается | целевой |
 | 2 | `WIT_CALL_HANDLE_CLOSE` | handle | 0 | целевой |
-| 3 | `WIT_CALL_HANDLE_DUPLICATE` | thread handle или `WIT_THREAD_SELF`, указатель вывода, rights (0 — те же) | 8; события — K1.2, каналы — K2 | целевой |
+| 3 | `WIT_CALL_HANDLE_DUPLICATE` | thread handle, `WIT_THREAD_SELF` или event handle, указатель вывода, rights (0 — те же) | 8; каналы — K2 | целевой |
 | 4 | `WIT_CALL_DEBUG_WRITE` | console handle, buffer, length ≤ 65536 | записано байт | целевой |
 | 10 | `WIT_CALL_MEMORY_RESERVE` | size, alignment ≥ 4 КиБ | base | целевой |
 | 11 | `WIT_CALL_MEMORY_COMMIT` | base, size, protection | 0 | целевой |
@@ -73,9 +73,9 @@
 | 16 | `WIT_CALL_MEMORY_QUERY` | buffer, 112, version 2 | 112 | целевой |
 | 17 | `WIT_CALL_MEMORY_PRESSURE_EVENT` | — | event handle только для ожидания | целевой |
 | 30 | `WIT_CALL_THREAD_CREATE` | `WitThreadCreateRequest`, 48, 0 | thread handle | целевой |
-| 31 | `WIT_CALL_THREAD_EXIT` | exit code | не возвращается; в скоординированном профиле завершает компонент до K1.2 | целевой |
+| 31 | `WIT_CALL_THREAD_EXIT` | exit code, 0, 0 | не возвращается; единственный выход потока, его стек и TLS освобождаются | целевой |
 | 32 | `WIT_CALL_THREAD_YIELD` | — | 1, если выбран другой поток | целевой |
-| 34 | `WIT_CALL_THREAD_QUERY` | buffer, 72, version 3 | 72; с K1.2 первый аргумент — thread handle или `WIT_THREAD_SELF` | целевой |
+| 34 | `WIT_CALL_THREAD_QUERY` | thread handle или `WIT_THREAD_SELF`, buffer, 96 | 96; `Version` 4 и `Size` в буфере задаёт вызывающий; право `QUERY` или право на контекст | целевой |
 | 35 | `WIT_CALL_THREAD_SUSPEND` | thread handle | предыдущий счётчик | целевой |
 | 36 | `WIT_CALL_THREAD_RESUME` | thread handle | предыдущий счётчик | целевой |
 | 37 | `WIT_CALL_THREAD_CONTEXT_GET` | thread handle или `WIT_THREAD_SELF`, buffer, 720 | 0 | целевой |
@@ -103,12 +103,6 @@
 
 | № | Вызов | Аргументы | Результат | Класс |
 | --- | --- | --- | --- | --- |
-| 200 | `WIT_CALL_THREAD_CREATE_SIMPLE` | entry, argument, flags (`DETACHED`, `LIBRARY_NOTIFICATIONS`) | thread handle или 0 для detached | транзитный, K1.2 |
-| 201 | `WIT_CALL_THREAD_JOIN` | thread handle | exit code; хэндл потребляется | транзитный, K1.2 |
-| 202 | `WIT_CALL_THREAD_COMPLETE` | exit code | не возвращается; упорядоченное завершение после TLS и runtime-уведомлений | транзитный, K1.2 |
-| 203 | `WIT_CALL_THREAD_REFERENCE_QUERY` | thread handle, buffer, 56 | 56 | транзитный, K1.2 |
-| 204 | `WIT_CALL_THREAD_NATIVE_ID` | — | 32-битный native ID | транзитный, K1.2 |
-| 205 | `WIT_CALL_THREAD_CONTEXT_METADATA` | thread handle, buffer, 720 | 0 | транзитный, K1.2 |
 | 206 | `WIT_CALL_APC_DEQUEUE` | buffer, 16, 0 | 16 | транзитный, K1.3 |
 | 207 | `WIT_CALL_MONOTONIC_QUERY` | buffer, 8, selector (`COUNTER` или `HZ`) | 8 | транзитный, K6 |
 | 208 | `WIT_CALL_CPU_CACHE_SIZE` | — | байт крупнейшего кэша | транзитный, K7 |
@@ -127,9 +121,17 @@
 | 221 | `WIT_CALL_LIBRARY` | `WitLibraryRequest`, 64, 0 | зависит от операции | транзитный, K8 |
 | 222 | `WIT_CALL_PROCESS_STATE` | `WitProcessStateRequest`, 64, 0 | размер значения, блока или каталога | транзитный, K8 |
 
+Отозваны на K1.2 и не переиспользуются: 200 `THREAD_CREATE_SIMPLE`, 201 `THREAD_JOIN`, 202 `THREAD_COMPLETE` (слились в
+`THREAD_CREATE`, `OBJECT_WAIT` и `THREAD_EXIT`), 203 `THREAD_REFERENCE_QUERY`, 204 `THREAD_NATIVE_ID`, 205
+`THREAD_CONTEXT_METADATA` (слились в `THREAD_QUERY`). Присоединение к потоку — `OBJECT_WAIT` по его хэндлу, затем
+`THREAD_QUERY` за кодом выхода и `HANDLE_CLOSE`; закрытие хэндла живого потока отсоединяет его.
+
 Следующий свободный номер: **223**.
 
-Слившиеся на K1.1 вызовы и имена, которыми замороженная Windows-линия продолжает пользоваться через `user_abi_frozen.h` (ядро этот заголовок не включает; удаляется на K8): `EXIT`, `CLOSE`, `WRITE`, `THREAD_CREATE_REFERENCE`, `THREAD_REFERENCE_DUPLICATE`, `CPU_CONTEXT_QUERY`, `APC_QUEUE`, `EVENT_CREATE_RIGHTS`, `MONOTONIC_READ`, `MONOTONIC_FREQUENCY`, `WIT_STATUS_APC_PENDING`, `WIT_THREAD_REFERENCE_CURRENT`. Без замены ушли домен тиков PIT (`CLOCK_READ`/`CLOCK_FREQUENCY` в тиках, `THREAD_SLEEP`, `EVENT_WAIT`), `THREAD_CURRENT` (константа `WIT_THREAD_SELF` и `THREAD_QUERY`), `EVENT_WAIT_UNTIL` и `EVENT_WAIT_ANY_UNTIL` (`OBJECT_WAIT`), `EXCEPTION_UNWIND` (`EXCEPTION_CONTINUE` с запросом переноса), `CONSOLE_WRITE` (`DEBUG_WRITE`).
+Слившиеся на K1.1 вызовы и имена, которыми замороженная Windows-линия продолжает пользоваться через `user_abi_frozen.h` (ядро этот заголовок не включает; удаляется на K8): `EXIT`, `CLOSE`, `WRITE`, `THREAD_CREATE_REFERENCE`, `THREAD_REFERENCE_DUPLICATE`, `CPU_CONTEXT_QUERY`, `APC_QUEUE`, `EVENT_CREATE_RIGHTS`, `MONOTONIC_READ`, `MONOTONIC_FREQUENCY`, `WIT_STATUS_APC_PENDING`, `WIT_THREAD_REFERENCE_CURRENT`. Без замены ушли домен тиков PIT (`CLOCK_READ`/`CLOCK_FREQUENCY` в тиках, `THREAD_SLEEP`, `EVENT_WAIT`), `THREAD_CURRENT` (константа `WIT_THREAD_SELF` и `THREAD_QUERY`), `EVENT_WAIT_UNTIL` и `EVENT_WAIT_ANY_UNTIL` (`OBJECT_WAIT`), `EXCEPTION_UNWIND` (`EXCEPTION_CONTINUE` с запросом переноса), `CONSOLE_WRITE` (`DEBUG_WRITE`). На K1.2 к псевдонимам добавились
+права хэндла потока под старыми именами (`WIT_THREAD_REFERENCE_WAIT`, `QUERY`, `GET_CONTEXT`, `SET_CONTEXT`, `SUSPEND_RESUME`, `ALL` →
+`WIT_RIGHT_*`) и `WIT_THREAD_CREATE_REFERENCE_VERSION` (`WIT_THREAD_CREATE_VERSION`); права объявлены в `user_abi.h`, бит 2 (бывшее право
+`JOIN`) отозван.
 
 ### Операции составных вызовов
 
@@ -156,8 +158,7 @@
 | `WitUserStartup` | `user_abi.h` | 24 | равна `WIT_ABI_VERSION` |
 | `WitUserImageInfo` | `image_info.h` | 568 | 2 |
 | `WitUserMemoryInfo` | `memory_info.h` | 112 | 2 |
-| `WitUserThreadInfo` | `thread_info.h` | 72 | 3 |
-| `WitThreadReferenceInfo` | `thread_reference.h` | 56 | 3 |
+| `WitUserThreadInfo` | `thread_info.h` | 96 | 4 |
 | `WitThreadCreateRequest` | `thread_reference.h` | 48 | 1 |
 | `WitUserWaitRequest` | `wait_objects.h` | 32 | 1 |
 | `WitUserApc` | `wait_objects.h` | 16 | — |
@@ -188,9 +189,9 @@
 | --- | --- | --- |
 | `CONSOLE` | 1 | `WRITE` 1 |
 | `SELF` | 2 | — |
-| `THREAD` | 3 | `JOIN` 2 (уходит на K1.2 вместе с `THREAD_JOIN`) |
-| `EVENT` | 4 | `WAIT` 4, `SIGNAL` 8 |
-| `THREAD_REFERENCE` | 5 | `WAIT` 4, `QUERY` 16, `GET_CONTEXT` 32, `SET_CONTEXT` 64, `SUSPEND_RESUME` 128 |
+| `THREAD_IDENTITY` | 3 | — (приватная идентичность потока: пользователю не выдаётся, `HANDLE_CLOSE` — `BUSY`, исчезает с потоком) |
+| `EVENT` | 4 | `WAIT` 4, `SIGNAL` 8; несколько хэндлов одного события через `HANDLE_DUPLICATE` |
+| `THREAD_REFERENCE` | 5 | `WAIT` 4, `QUERY` 16, `GET_CONTEXT` 32, `SET_CONTEXT` 64, `SUSPEND_RESUME` 128 (хэндл потока) |
 | `FILE` | 6 | `READ` 16 |
 | `LIBRARY` | 7 | `READ` 16 |
 | `LIBRARY_READER` | 8 | `READ` 16 |
@@ -245,7 +246,7 @@ Compiler TLS адресуется через GS. Страница содержи
 | Байт в одном `DEBUG_WRITE` | 65536 | 65536 |
 | Окружение процесса | 4096 UTF-16 единиц, 64 переменные | 4096 UTF-16 единиц, 64 переменные |
 | Текущий каталог | 1025 байт UTF-8 | 1025 байт UTF-8 |
-| PE-образ | 256 КиБ, 128 unwind | 1088 КиБ, 4096 unwind |
+| PE-образ | 256 КиБ, 160 unwind | 1088 КиБ, 4096 unwind |
 | PE-образ библиотеки | 256 КиБ, 320 unwind | 1088 КиБ, 4096 unwind |
 
 ## Стартовый контракт компонента

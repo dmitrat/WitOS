@@ -1,6 +1,5 @@
 #include "user.h"
 #include "witos/platform.h"
-#define NO_THREAD WIT_USER_THREAD_CAPACITY
 _Static_assert(WIT_COMPILER_TLS_DATA_OFFSET + WIT_PE_TLS_MAX_BYTES <= 4096, "Compiler TLS page bound");
 
 static void require(int condition, const char *message)
@@ -90,7 +89,6 @@ static WitU64 reset_thread(WitUserProcess *process, WitUserThread *thread, WitU6
     for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
         thread->LibraryTls[i] = 0;
     }
-    thread->Detached = 0;
     return WIT_STATUS_OK;
 }
 
@@ -232,7 +230,7 @@ static void unmap_thread(
 
 /* Fills the raw TLS block, creates the initial frame and makes the thread Ready. */
 static void start_thread(WitUserProcess *process, WitU32 index, WitUserThread *thread, const ThreadPages *pages,
-    WitU64 handle, WitU64 entry, WitU64 argument, WitU64 flags)
+    WitU64 handle, WitU64 entry, WitU64 argument)
 {
     WitU64 *tls = (WitU64 *)wit_user_space_physical(&process->Space, pages->Tls, 1, 0);
     tls[0] = pages->Tls;
@@ -246,8 +244,6 @@ static void start_thread(WitUserProcess *process, WitU32 index, WitUserThread *t
     thread->Tls = pages->Tls;
     thread->ExitCode = 0;
     thread->Context = context;
-    thread->WaitingOn = NO_THREAD;
-    thread->Joiner = NO_THREAD;
     thread->WaitKind = WitWaitNone;
     thread->WaitHandle = 0;
     thread->WaitCount = 0;
@@ -259,14 +255,12 @@ static void start_thread(WitUserProcess *process, WitU32 index, WitUserThread *t
     }
     thread->Deadline = WIT_WAIT_INFINITE;
     thread->WaitOrder = 0;
-    thread->Detached = (flags & WIT_THREAD_DETACHED) != 0;
     thread->State = WitThreadReady;
-    if (thread->Detached) {
-        ++process->DetachedCreates;
-    }
     ++process->ThreadCreates;
 }
 
+/* Maps and starts a thread in a free slot. Its private identity is a handle-table entry user space never receives as
+ * a capability (closing it is BUSY); the thread's stack and TLS are reclaimed at its exit. */
 WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument, WitU64 flags)
 {
     const WitU64 admission = wit_user_library_thread_admission(process, flags);
@@ -280,8 +274,7 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 ent
     if (reset != WIT_STATUS_OK) {
         return reset;
     }
-    const WitU64 handle =
-        wit_handle_grant(&process->Handles, WIT_HANDLE_THREAD, flags & WIT_THREAD_DETACHED ? 0 : WIT_RIGHT_JOIN);
+    const WitU64 handle = wit_handle_grant(&process->Handles, WIT_HANDLE_THREAD_IDENTITY, 0);
     if (!handle) {
         return WIT_STATUS_NO_MEMORY;
     }
@@ -289,38 +282,13 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 ent
         unmap_thread(process, index, thread, &pages, handle);
         return WIT_STATUS_NO_MEMORY;
     }
-    start_thread(process, index, thread, &pages, handle, entry, argument, flags);
+    start_thread(process, index, thread, &pages, handle, entry, argument);
     return WIT_STATUS_OK;
 }
 
-WitU64 wit_user_thread_query(const WitUserProcess *process, WitU64 address, WitU64 size, WitU64 version)
-{
-    const WitUserThread *thread = &process->Threads[process->CurrentThread];
-    WitUserThreadInfo info;
-    if (version != WIT_THREAD_INFO_VERSION) {
-        return WIT_STATUS_UNSUPPORTED;
-    }
-    if (size != sizeof(info)) {
-        return WIT_STATUS_INVALID_ARGUMENT;
-    }
-    info.Version = WIT_THREAD_INFO_VERSION;
-    info.Size = sizeof(info);
-    info.ThreadId = thread->Handle;
-    info.StackLow = thread->StackBottom;
-    info.StackHigh = thread->StackTop;
-    info.RawTls = thread->Tls;
-    info.CompilerTls = process->TlsBytes ? thread->CompilerTls : 0;
-    info.CompilerTlsHeader = thread->CompilerTls;
-    info.ProcessId = process->Id;
-    info.NativeId = thread->NativeId;
-    info.Reserved = 0;
-    info.ProcessorCount = WIT_USER_PROCESSOR_COUNT; // The supported backend brings up one processor.
-    // IF remains clear through snapshot and whole-buffer validation/copy.
-    return wit_user_copy_to(&process->Space, address, (const WitU8 *)&info, sizeof(info)) ? WIT_STATUS_OK
-                                                                                          : WIT_STATUS_BAD_ADDRESS;
-}
-
-WitU64 wit_user_thread_create_reference(WitUserProcess *p, WitU64 input, WitU64 size, WitU64 *result)
+/* THREAD_CREATE: the one form. The request is validated as a whole, the thread handle is reserved first, and nothing
+ * is published before the identity, stacks, TLS and initial suspend state all exist. */
+WitU64 wit_user_thread_create(WitUserProcess *p, WitU64 input, WitU64 size, WitU64 *result)
 {
     *result = 0;
     if (size != sizeof(WitThreadCreateRequest)) {
@@ -330,7 +298,7 @@ WitU64 wit_user_thread_create_reference(WitUserProcess *p, WitU64 input, WitU64 
     if (!wit_user_copy_from(&p->Space, input, (WitU8 *)&request, sizeof(request))) {
         return WIT_STATUS_BAD_ADDRESS;
     }
-    if (request.Version != WIT_THREAD_CREATE_REFERENCE_VERSION) {
+    if (request.Version != WIT_THREAD_CREATE_VERSION) {
         return WIT_STATUS_UNSUPPORTED;
     }
     if (request.Size != sizeof(request) ||
@@ -363,17 +331,15 @@ WitU64 wit_user_thread_create_reference(WitUserProcess *p, WitU64 input, WitU64 
     if (!reference) {
         return WIT_STATUS_NO_MEMORY;
     }
-    // Reserve the observer first. No user-visible publication occurs before
-    // the private thread identity, stacks/TLS and suspend state all exist.
-    const WitU64 handle = wit_handle_grant(&p->Handles, WIT_HANDLE_THREAD_REFERENCE, WIT_THREAD_REFERENCE_ALL);
+    const WitU64 handle = wit_handle_grant(&p->Handles, WIT_HANDLE_THREAD_REFERENCE, WIT_RIGHT_THREAD_ALL);
     if (!handle) {
         return WIT_STATUS_NO_MEMORY;
     }
-    const WitU64 status = wit_user_prepare_thread(p, index, request.Entry, request.Argument,
-        WIT_THREAD_DETACHED | (request.Flags & WIT_THREAD_LIBRARY_NOTIFICATIONS));
+    const WitU64 status = wit_user_prepare_thread(
+        p, index, request.Entry, request.Argument, request.Flags & WIT_THREAD_LIBRARY_NOTIFICATIONS);
     if (status != WIT_STATUS_OK) {
         if (wit_handle_close(&p->Handles, handle) != WIT_STATUS_OK) {
-            wit_panic("Create reference rollback failed");
+            wit_panic("Thread creation rollback failed");
         }
         return status;
     }
@@ -382,7 +348,7 @@ WitU64 wit_user_thread_create_reference(WitUserProcess *p, WitU64 input, WitU64 
     reference->Handle = handle;
     reference->ThreadId = thread->Handle;
     reference->ExitCode = 0;
-    reference->Rights = WIT_THREAD_REFERENCE_ALL;
+    reference->Rights = WIT_RIGHT_THREAD_ALL;
     reference->Exited = 0;
     // The syscall is serialized with IF clear. Allocation did not remove or
     // change the prevalidated destination's existing mapping.

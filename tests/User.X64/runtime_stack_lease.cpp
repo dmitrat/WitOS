@@ -43,12 +43,11 @@ static WitU64 target(WitU64)
 static bool parked(HANDLE &handle)
 {
     for (unsigned i = 0; i < 10000; ++i) {
-        WitThreadReferenceInfo info;
+        WitUserThreadInfo info;
         handle = targetReference;
         if (handle &&
-            wit_native_call(WIT_CALL_THREAD_REFERENCE_QUERY, (WitU64)handle, (WitU64)&info, sizeof(info), nullptr) ==
-                WIT_STATUS_OK &&
-            info.State == WIT_THREAD_REFERENCE_WAITING) {
+            wit_native_thread_query((WitU64)handle, &info) == WIT_STATUS_OK &&
+            info.State == WIT_THREAD_STATE_WAITING) {
             return true;
         }
         yield();
@@ -220,7 +219,7 @@ static WitU64 scope_test(WitU64 mode, WitU64 *report)
             foreignScope = &targetScope;
             WitU64 other = 0;
             if (wit_native_thread_create(scope_intruder, 0, &other) != WIT_STATUS_OK ||
-                wit_native_call(WIT_CALL_THREAD_JOIN, other, 0, 0, &result) != WIT_STATUS_OK ||
+                wit_native_thread_join(other, &result) != WIT_STATUS_OK ||
                 result != WIT_TEST_EXIT_CODE) {
                 return 3959;
             }
@@ -240,7 +239,7 @@ static WitU64 scope_test(WitU64 mode, WitU64 *report)
         if (WitNativeUnwindScope::Current((WitU64)&output, &output) != WIT_STATUS_OK ||
             output.Token != parent.Token ||
             ResumeThread(controller) != 1 ||
-            wit_native_call(WIT_CALL_THREAD_JOIN, join, 0, 0, &result) != WIT_STATUS_OK ||
+            wit_native_thread_join(join, &result) != WIT_STATUS_OK ||
             result != WIT_TEST_EXIT_CODE ||
             !CloseHandle(controller) ||
             !CloseHandle(eventHandle)) {
@@ -294,8 +293,7 @@ extern "C" WitU64 wit_test_stack_lease(const WitUserStartup *startup, WitU64 mod
         }
     }
     WitUserThreadInfo self;
-    if (wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&self, sizeof(self), WIT_THREAD_INFO_VERSION, nullptr) !=
-        WIT_STATUS_OK) {
+    if (wit_native_thread_query(WIT_THREAD_SELF, &self) != WIT_STATUS_OK) {
         return 3910;
     }
     for (unsigned i = 0; i < WIT_STACK_LEASE_CAPACITY; ++i) {
@@ -434,7 +432,7 @@ extern "C" WitU64 wit_test_stack_lease(const WitUserStartup *startup, WitU64 mod
     orphanToken = orphanSelfToken = 0;
     WitU64 intruderJoin = 0;
     if (wit_native_thread_create(intruder, (WitU64)controller, &intruderJoin) != WIT_STATUS_OK ||
-        wit_native_call(WIT_CALL_THREAD_JOIN, intruderJoin, 0, 0, &exitCode) != WIT_STATUS_OK ||
+        wit_native_thread_join(intruderJoin, &exitCode) != WIT_STATUS_OK ||
         exitCode != WIT_TEST_EXIT_CODE ||
         !orphanToken ||
         !orphanSelfToken ||
@@ -446,7 +444,7 @@ extern "C" WitU64 wit_test_stack_lease(const WitUserStartup *startup, WitU64 mod
         wit_native_call(WIT_CALL_THREAD_RESUME, (WitU64)controller, 0, 0, nullptr) != WIT_STATUS_BUSY ||
         release(leases[1].Token) != WIT_STATUS_OK ||
         ResumeThread(controller) != 1 ||
-        wit_native_call(WIT_CALL_THREAD_JOIN, join, 0, 0, &exitCode) != WIT_STATUS_OK ||
+        wit_native_thread_join(join, &exitCode) != WIT_STATUS_OK ||
         exitCode != WIT_TEST_EXIT_CODE) {
         return 3930;
     }
@@ -465,7 +463,7 @@ extern "C" WitU64 wit_test_stack_lease(const WitUserStartup *startup, WitU64 mod
         release(snapshot.Token) != WIT_STATUS_OK ||
         !SetEvent(eventHandle) ||
         ResumeThread(handle) != 1 ||
-        wit_native_call(WIT_CALL_THREAD_JOIN, join, 0, 0, &exitCode) != WIT_STATUS_OK ||
+        wit_native_thread_join(join, &exitCode) != WIT_STATUS_OK ||
         exitCode != WIT_TEST_EXIT_CODE ||
         !CloseHandle(handle) ||
         !CloseHandle(eventHandle)) {

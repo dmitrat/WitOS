@@ -33,8 +33,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
             wit_console_write("\n");
             wit_panic("PAL module discovery failed");
         }
-        require(process.ThreadCreates == 4 && process.ThreadJoins == 3 && process.ThreadReaps == 3,
-            "PAL module discovery missed thread reuse");
+        require(process.ThreadCreates == 4 && process.ThreadReaps == 3, "PAL module discovery missed thread reuse");
     } else {
         require(process.State == WitUserExited &&
                 process.ExitCode == WIT_GC_TEST_FAIL_FAST_EXIT &&

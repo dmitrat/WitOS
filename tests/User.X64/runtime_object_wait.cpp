@@ -36,22 +36,19 @@ static bool duplicate(HANDLE source, HANDLE *output, DWORD access = 0, DWORD opt
     return DuplicateHandle(GetCurrentProcess(), source, GetCurrentProcess(), output, access, FALSE, options) != 0;
 }
 
-static bool snapshot(HANDLE handle, WitThreadReferenceInfo &info)
+static bool snapshot(HANDLE handle, WitUserThreadInfo &info)
 {
-    WitU64 copied = 0;
-    return wit_native_call(WIT_CALL_THREAD_REFERENCE_QUERY, (WitU64)handle, (WitU64)&info, sizeof(info), &copied) ==
-        WIT_STATUS_OK &&
-        copied == sizeof(info);
+    return wit_native_thread_query((WitU64)handle, &info) == WIT_STATUS_OK;
 }
 
 static bool parked(HANDLE handle)
 {
     for (;;) {
-        WitThreadReferenceInfo info;
-        if (!snapshot(handle, info) || info.State == WIT_THREAD_REFERENCE_EXITED) {
+        WitUserThreadInfo info;
+        if (!snapshot(handle, info) || info.State == WIT_THREAD_STATE_EXITED) {
             return false;
         }
-        if (info.State == WIT_THREAD_REFERENCE_WAITING) {
+        if (info.State == WIT_THREAD_STATE_WAITING) {
             return true;
         }
         Sleep(0);
@@ -297,8 +294,8 @@ extern "C" WitU64 wit_test_object_wait(const WitUserStartup *startup, WitU64 mod
                 if (!QueueUserAPC(callback, reference, 7)) {
                     return 2816;
                 }
-                WitThreadReferenceInfo info;
-                if (!snapshot(reference, info) || info.State != WIT_THREAD_REFERENCE_WAITING || callbacks) {
+                WitUserThreadInfo info;
+                if (!snapshot(reference, info) || info.State != WIT_THREAD_STATE_WAITING || callbacks) {
                     return 2817;
                 }
                 if (!SetEvent(events[0]) || !CloseHandle(events[0])) {
@@ -319,9 +316,9 @@ extern "C" WitU64 wit_test_object_wait(const WitUserStartup *startup, WitU64 mod
                 if (!SetEvent(captured)) {
                     return 2820;
                 }
-                WitThreadReferenceInfo info;
+                WitUserThreadInfo info;
                 if (!snapshot(reference, info) ||
-                    info.State != WIT_THREAD_REFERENCE_WAITING ||
+                    info.State != WIT_THREAD_STATE_WAITING ||
                     WaitForMultipleObjectsEx(1, &captured, FALSE, 0, FALSE) != WAIT_OBJECT_0 ||
                     !SetEvent(captured) ||
                     !SetEvent(events[1]) ||
@@ -347,8 +344,7 @@ extern "C" WitU64 wit_test_object_wait(const WitUserStartup *startup, WitU64 mod
                 }
                 proceed = 1;
             }
-            if (wit_native_call(WIT_CALL_THREAD_JOIN, join, 0, 0, &result) != WIT_STATUS_OK ||
-                result != WIT_TEST_EXIT_CODE) {
+            if (wit_native_thread_join(join, &result) != WIT_STATUS_OK || result != WIT_TEST_EXIT_CODE) {
                 return 2825;
             }
             if (callbacks != (kind == 3 ? 0U : 1U) ||
@@ -394,9 +390,9 @@ extern "C" WitU64 wit_test_object_wait(const WitUserStartup *startup, WitU64 mod
             if (outcome != (close ? WAIT_FAILED : WAIT_OBJECT_0) || (close && GetLastError() != ERROR_INVALID_HANDLE)) {
                 return 2848;
             }
-            if (wit_native_call(WIT_CALL_THREAD_JOIN, joined, 0, 0, &result) != WIT_STATUS_OK ||
+            if (wit_native_thread_join(joined, &result) != WIT_STATUS_OK ||
                 result != WIT_TEST_EXIT_CODE ||
-                wit_native_call(WIT_CALL_THREAD_JOIN, controller, 0, 0, &result) != WIT_STATUS_OK ||
+                wit_native_thread_join(controller, &result) != WIT_STATUS_OK ||
                 result != WIT_TEST_EXIT_CODE) {
                 return 2849;
             }

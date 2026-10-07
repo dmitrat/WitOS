@@ -32,10 +32,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
         wit_console_write("\n");
         wit_panic("PAL environment contract failed");
     }
-    require(process.ThreadCreates == 4 &&
-            process.ThreadJoins == 3 &&
-            process.ThreadReaps == 3 &&
-            process.ThreadSwitches > 0,
+    require(process.ThreadCreates == 4 && process.ThreadReaps == 3 && process.ThreadSwitches > 0,
         "PAL environment missed worker switching/reuse");
     require(process.Space.OwnedCount == owned && !process.Handles.Count && !process.Events.Count,
         "PAL environment fixture leaked owned resources");

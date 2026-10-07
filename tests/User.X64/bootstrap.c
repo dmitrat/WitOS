@@ -153,12 +153,12 @@ WitU64 wit_native_main(const WitUserStartup *startup)
         WitU64 handles[2], code;
         worker_results[0] = worker_results[1] = 100;
         for (WitU64 i = 0; i < 2; ++i) {
-            if (call(WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)worker, i, 0, &handles[i]) != WIT_STATUS_OK) {
+            if (wit_native_thread_start((WitU64)worker, i, 0, &handles[i]) != WIT_STATUS_OK) {
                 return 241;
             }
         }
         for (WitU32 i = 0; i < 2; ++i) {
-            if (call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &code) != WIT_STATUS_OK || code != WIT_TEST_EXIT_CODE) {
+            if (wit_native_thread_join(handles[i], &code) != WIT_STATUS_OK || code != WIT_TEST_EXIT_CODE) {
                 return 241;
             }
         }

@@ -86,13 +86,13 @@ WitU64 wit_user_stack_lease_acquire(WitUserProcess *p, WitU64 reference, WitU64 
         return WIT_STATUS_INVALID_ARGUMENT;
     }
     WitUserThread *target = 0;
-    WitU64 status = wit_user_reference_target(p, reference, WIT_THREAD_REFERENCE_GET_CONTEXT, &target);
+    WitU64 status = wit_user_reference_target(p, reference, WIT_RIGHT_GET_CONTEXT, &target);
     if (status != WIT_STATUS_OK) {
         return status;
     }
     const WitUserThread *caller = &p->Threads[p->CurrentThread];
     if (target != caller) {
-        status = wit_user_reference_target(p, reference, WIT_THREAD_REFERENCE_SUSPEND_RESUME, &target);
+        status = wit_user_reference_target(p, reference, WIT_RIGHT_SUSPEND_RESUME, &target);
         if (status != WIT_STATUS_OK) {
             return status;
         }

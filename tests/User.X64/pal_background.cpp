@@ -81,7 +81,7 @@ static bool same(const WitUserMemoryInfo &a, const WitUserMemoryInfo &b)
 
 static uint32_t callback(void *context)
 {
-    const auto index = (WitU64)(uintptr_t)context;
+    const auto index = (WitU64)context;
     if (index >= 3 || constructions != 1 || index_value != 3) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
@@ -93,7 +93,7 @@ static uint32_t callback(void *context)
     if (!nativeId ||
         nativeId == root_id ||
         !ids[index] ||
-        wit_native_call(WIT_CALL_THREAD_JOIN, ids[index], 0, 0, &result) != WIT_STATUS_DENIED ||
+        wit_native_thread_join(ids[index], &result) != WIT_STATUS_WRONG_TYPE || // An identity is no capability.
         result ||
         wit_native_call(WIT_CALL_CLOSE, ids[index], 0, 0, nullptr) != WIT_STATUS_BUSY) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
@@ -147,7 +147,7 @@ static bool wait_for_reap(unsigned index)
     WitU64 result = 99;
     return saw_cleanup &&
         dtor_done[index] &&
-        wit_native_call(WIT_CALL_THREAD_JOIN, ids[index], 0, 0, &result) == WIT_STATUS_BAD_HANDLE &&
+        wit_native_thread_join(ids[index], &result) == WIT_STATUS_BAD_HANDLE &&
         !result;
 }
 
@@ -182,13 +182,11 @@ extern "C" WitU64 wit_background_program(const WitUserStartup *startup)
         }
     }
     WitU64 result = 99;
-    if (wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)callback, 0, 4, &result) !=
-            WIT_STATUS_INVALID_ARGUMENT ||
+    if (wit_native_thread_start((uintptr_t)callback, 0, 4, &result) != WIT_STATUS_INVALID_ARGUMENT ||
         result ||
-        wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)callback, 0, 1ULL << 32, &result) !=
-            WIT_STATUS_INVALID_ARGUMENT ||
+        wit_native_thread_start((uintptr_t)callback, 0, 1ULL << 32, &result) != WIT_STATUS_INVALID_ARGUMENT ||
         result ||
-        wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, 0, 0, WIT_THREAD_DETACHED, &result) != WIT_STATUS_BAD_ADDRESS ||
+        wit_native_thread_start(0, 0, 0, &result) != WIT_STATUS_BAD_ADDRESS ||
         result ||
         PalStartBackgroundGCThread(nullptr, nullptr) ||
         PalStartFinalizerThread((BackgroundCallback)startup, nullptr)) {
@@ -271,8 +269,7 @@ extern "C" WitU64 wit_background_program(const WitUserStartup *startup)
         }
     } else if (mode == 2) {
         WitUserThreadInfo thread;
-        if (wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&thread, sizeof(thread), WIT_THREAD_INFO_VERSION, nullptr) !=
-            WIT_STATUS_OK) {
+        if (wit_native_thread_query(WIT_THREAD_SELF, &thread) != WIT_STATUS_OK) {
             return 1329;
         }
         const WitU64 childPages = (thread.StackHigh - thread.StackLow) / 4096 + 2;

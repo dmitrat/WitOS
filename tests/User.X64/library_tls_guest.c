@@ -63,7 +63,7 @@ static WIT_NORETURN void child(WitU64 unused)
 {
     (void)unused;
     const WitU64 code = child_body();
-    (void)wit_native_call(WIT_CALL_THREAD_COMPLETE, code, 0, 0, 0);
+    (void)wit_native_call(WIT_CALL_THREAD_EXIT, code, 0, 0, 0);
     wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
 }
 
@@ -72,10 +72,7 @@ WitU64 wit_native_library_tls_test(WitU64 mode)
     WitUserMemoryInfo before, after;
     WitUserThreadInfo threadInfo;
     CHECK(snapshot(&before), 3401);
-    CHECK(wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&threadInfo, sizeof(threadInfo), WIT_THREAD_INFO_VERSION, 0) ==
-                WIT_STATUS_OK &&
-            !threadInfo.CompilerTls,
-        3402);
+    CHECK(wit_native_thread_query(WIT_THREAD_SELF, &threadInfo) == WIT_STATUS_OK && !threadInfo.CompilerTls, 3402);
     const char first[] = "/native/statictls.dll", second[] = "/native/tlssecond.dll";
     modules[0].Handle = 99;
     const WitU64 loaded = wit_native_library_load(first, sizeof(first) - 1, &modules[0].Handle);
@@ -105,14 +102,12 @@ WitU64 wit_native_library_tls_test(WitU64 mode)
     CHECK(indexes[0] != indexes[1] && mainAddresses[0] != mainAddresses[1], 3415);
     for (WitU32 run = 0; run < 2; ++run) {
         WitU64 handle = 0, result = 0;
-        CHECK(wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)child, 0, WIT_THREAD_LIBRARY_NOTIFICATIONS,
-                  &handle) == WIT_STATUS_OK,
+        CHECK(wit_native_thread_start((WitU64)child, 0, WIT_THREAD_LIBRARY_NOTIFICATIONS, &handle) == WIT_STATUS_OK,
             3416);
-        CHECK(wit_native_call(WIT_CALL_THREAD_JOIN, handle, 0, 0, &result) == WIT_STATUS_OK && result == 42, 3417);
+        CHECK(wit_native_thread_join(handle, &result) == WIT_STATUS_OK && result == 42, 3417);
     }
     CHECK(((int (*)(void))modules[0].Value)() == 25 && ((int (*)(void))modules[1].Value)() == 26, 3418);
-    CHECK(wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&threadInfo, sizeof(threadInfo), WIT_THREAD_INFO_VERSION, 0) ==
-                WIT_STATUS_OK &&
+    CHECK(wit_native_thread_query(WIT_THREAD_SELF, &threadInfo) == WIT_STATUS_OK &&
             !threadInfo.CompilerTls &&
             threadInfo.CompilerTlsHeader,
         3419);
@@ -122,8 +117,7 @@ WitU64 wit_native_library_tls_test(WitU64 mode)
     CHECK(wit_native_library_unload(modules[0].Handle) == WIT_STATUS_OK &&
             wit_native_library_unload(modules[1].Handle) == WIT_STATUS_OK,
         3420);
-    CHECK(wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&threadInfo, sizeof(threadInfo), WIT_THREAD_INFO_VERSION, 0) ==
-                WIT_STATUS_OK &&
+    CHECK(wit_native_thread_query(WIT_THREAD_SELF, &threadInfo) == WIT_STATUS_OK &&
             !threadInfo.CompilerTls &&
             !threadInfo.CompilerTlsHeader,
         3421);

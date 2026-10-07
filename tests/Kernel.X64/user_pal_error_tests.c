@@ -50,7 +50,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, int tls, WitU64 base)
         }
         if (mode == 30) {
             require(process.ThreadCreates == 4 &&
-                    process.ThreadJoins == 3 &&
                     process.ThreadReaps == 3 &&
                     process.ThreadTimerSwitches > 0 &&
                     process.IdleHalts > 0,

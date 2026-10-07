@@ -294,16 +294,11 @@ extern "C" BOOL WINAPI wit_native_thread_exit_code(HANDLE thread, LPDWORD code)
     if (!code) {
         return (BOOL)fail(ERROR_INVALID_PARAMETER);
     }
-    WitThreadReferenceInfo info;
-    WitU64 copied = 0;
-    if (!wit_pal_result(
-            wit_native_call(WIT_CALL_THREAD_REFERENCE_QUERY, (WitU64)thread, (WitU64)&info, sizeof(info), &copied))) {
+    WitUserThreadInfo info;
+    if (!wit_pal_result(wit_native_thread_query((WitU64)thread, &info))) {
         return FALSE;
     }
-    if (copied != sizeof(info) || info.Version != WIT_THREAD_REFERENCE_VERSION || info.Size != sizeof(info)) {
-        fatal();
-    }
-    *code = info.State == WIT_THREAD_REFERENCE_EXITED ? (DWORD)info.ExitCode : STILL_ACTIVE;
+    *code = info.State == WIT_THREAD_STATE_EXITED ? (DWORD)info.ExitCode : STILL_ACTIVE;
     return TRUE;
 }
 

@@ -267,16 +267,15 @@ void wit_user_wait_self_test(WitPageAllocator *pages)
         if (mode == WIT_WAIT_TEST_AUTO || mode == WIT_WAIT_TEST_MANUAL) {
             require(process->EventParks == 3 &&
                     process->EventWakes == 3 &&
-                    process->ThreadJoins == 3 &&
                     process->Space.OwnedCount == 9 + (WIT_USER_STACK_TOP - WIT_USER_STACK_BOTTOM) / 4096,
                 "Event wake/join accounting failed");
         }
         if (mode == WIT_WAIT_TEST_CLOSE) {
-            require(process->WaitCloses == 3 && process->ThreadJoins == 3, "Close did not wake blocked threads");
+            require(process->WaitCloses == 3 && process->ThreadReaps == 3, "Close did not wake blocked threads");
         }
         if (mode == WIT_WAIT_TEST_HANDOFF) {
             require(
-                process->EventParks >= 32 && process->EventParks == process->EventWakes && process->ThreadJoins == 1,
+                process->EventParks >= 32 && process->EventParks == process->EventWakes && process->ThreadReaps == 1,
                 "Event handoff lost wakeups");
         }
         if (mode == WIT_WAIT_TEST_DEADLINE) {
@@ -284,15 +283,14 @@ void wit_user_wait_self_test(WitPageAllocator *pages)
                 "Deadline did not precede signal");
         }
         if (mode == WIT_WAIT_TEST_EXIT) {
-            require(process->EventParks == 3 && process->ThreadJoins == 0, "Exit-with-waiters setup failed");
+            require(process->EventParks == 3 && process->ThreadReaps == 0, "Exit-with-waiters setup failed");
         }
         if (mode == WIT_WAIT_TEST_ACTIVE_TIMEOUT) {
             require(process->WaitTimeouts == 1 && process->IdleTicks == 0 && process->ThreadTimerSwitches != 0,
                 "Active timeout did not use user preemption");
         }
         if (mode == WIT_WAIT_TEST_JOIN_CHAIN) {
-            require(process->ThreadJoins == 2 && process->ThreadDeadlocks == 0 && process->IdleTicks >= 1,
-                "Join/event/sleep chain did not wake");
+            require(process->ThreadReaps == 2 && process->IdleTicks >= 1, "Join/event/sleep chain did not wake");
         }
         if (mode == WIT_WAIT_TEST_RIGHTS) {
             WitEvent *event;

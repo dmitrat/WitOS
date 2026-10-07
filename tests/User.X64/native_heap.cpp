@@ -250,13 +250,13 @@ WitU64 wit_native_heap(WitU64 mode)
     } else if (mode == WIT_NATIVE_TEST_HEAP_THREADS) {
         WitU64 handles[2];
         for (size_t i = 0; i < 2; ++i) {
-            if (wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)worker, i, 0, &handles[i]) != WIT_STATUS_OK) {
+            if (wit_native_thread_start((uintptr_t)worker, i, 0, &handles[i]) != WIT_STATUS_OK) {
                 return 830;
             }
         }
         for (size_t i = 0; i < 2; ++i) {
             WitU64 code = 0;
-            if (wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &code) != WIT_STATUS_OK ||
+            if (wit_native_thread_join(handles[i], &code) != WIT_STATUS_OK ||
                 code != WIT_TEST_EXIT_CODE ||
                 !equal(cross_thread[i], 33, (unsigned char)(0xA0 + i))) {
                 return 831;

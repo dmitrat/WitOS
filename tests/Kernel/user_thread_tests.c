@@ -24,6 +24,17 @@ static void create(WitPageAllocator *pages, WitU64 mode)
     info->ForeignHandle = 0xFFFFFFFF00010001ULL;
 }
 
+/* THREAD_CREATE from the kernel side of a test: the request is placed at the bottom page of the main thread's stack,
+ * which every component maps and no running code of the fixture reaches. */
+static WitU64 start_thread(WitU64 entry, WitU64 argument, WitU64 *result)
+{
+    const WitU64 address = process.Threads[0].StackBottom;
+    WitThreadCreateRequest request = {WIT_THREAD_CREATE_VERSION, sizeof(request), entry, argument, 0, 0, 0, 0};
+    require(wit_user_copy_to(&process.Space, address, (const WitU8 *)&request, sizeof(request)),
+        "Thread request setup failed");
+    return wit_user_thread_create(&process, address, sizeof(request), result);
+}
+
 static void recovery(WitPageAllocator *pages)
 {
     const WitU64 before = wit_pages_free_count(pages);
@@ -72,7 +83,7 @@ static void allocation_failure(WitPageAllocator *pages)
                 process.Space.OwnedCount == WIT_USER_PAGE_CAPACITY - remaining,
             "Thread OOM setup failed");
         before = wit_pages_free_count(pages);
-        require(wit_user_thread_create(&process, WIT_USER_CODE, WIT_USER_INFO, &result) == WIT_STATUS_NO_MEMORY &&
+        require(start_thread(WIT_USER_CODE, WIT_USER_INFO, &result) == WIT_STATUS_NO_MEMORY &&
                 result == 0 &&
                 process.Threads[1].State == WitThreadEmpty &&
                 process.ThreadCreates == 1 &&
@@ -85,19 +96,30 @@ static void allocation_failure(WitPageAllocator *pages)
                 process.Space.OwnedCount == 9 + (WIT_USER_STACK_TOP - WIT_USER_STACK_BOTTOM) / 4096,
             "Thread OOM recovery leaked");
     }
+    /* The thread handle is reserved before the identity: with one handle slot left, the identity fails and the handle
+     * is rolled back; with none left, the handle fails. */
     while (process.Handles.Count < WIT_HANDLE_CAPACITY) {
         handles[count++] = wit_handle_grant(&process.Handles, WIT_HANDLE_SELF, 0);
     }
     before = wit_pages_free_count(pages);
-    require(wit_user_thread_create(&process, WIT_USER_CODE, 0, &result) == WIT_STATUS_NO_MEMORY &&
+    require(start_thread(WIT_USER_CODE, 0, &result) == WIT_STATUS_NO_MEMORY &&
             result == 0 &&
+            process.Handles.Count == WIT_HANDLE_CAPACITY &&
             wit_pages_free_count(pages) == before,
         "Handle exhaustion allocated a thread");
+    require(
+        wit_handle_close(&process.Handles, handles[--count]) == WIT_STATUS_OK, "Thread OOM test handle close failed");
+    require(start_thread(WIT_USER_CODE, 0, &result) == WIT_STATUS_NO_MEMORY &&
+            result == 0 &&
+            process.Handles.Count == WIT_HANDLE_CAPACITY - 1 &&
+            process.Threads[1].State == WitThreadEmpty &&
+            wit_pages_free_count(pages) == before,
+        "Identity exhaustion left a thread handle");
     while (count) {
         require(wit_handle_close(&process.Handles, handles[--count]) == WIT_STATUS_OK,
             "Thread OOM test handle close failed");
     }
-    require(wit_user_thread_create(&process, WIT_USER_CODE, WIT_USER_INFO, &result) == WIT_STATUS_OK &&
+    require(start_thread(WIT_USER_CODE, WIT_USER_INFO, &result) == WIT_STATUS_OK &&
             result != 0 &&
             process.Space.OwnedCount == 10 + 2 * (WIT_USER_STACK_TOP - WIT_USER_STACK_BOTTOM) / 4096,
         "Thread creation failed after resource recovery");
@@ -114,9 +136,7 @@ void wit_user_thread_self_test(WitPageAllocator *pages)
     wit_user_run(&process);
     check_exit(WIT_TEST_EXIT_CODE);
     require(process.ThreadCreates == 5 &&
-            process.ThreadJoins == 3 &&
             process.ThreadReaps == 4 &&
-            process.ThreadDeadlocks == 1 &&
             process.ThreadTimerSwitches >= 2 &&
             process.ThreadSwitches >= 6 &&
             process.Space.OwnedCount == 9 + (WIT_USER_STACK_TOP - WIT_USER_STACK_BOTTOM) / 4096,
@@ -126,23 +146,14 @@ void wit_user_thread_self_test(WitPageAllocator *pages)
     wit_console_write("\n");
     wit_user_destroy(&process);
     require(wit_pages_free_count(pages) == before, "Thread lifecycle leaked");
-    wit_console_write("[TEST-PASS] User.ThreadPreemptionAndTls\n[TEST-PASS] User.ThreadJoinAndReuse\n");
-
-    create(pages, WIT_THREAD_TEST_CYCLE);
-    wit_user_run(&process);
-    check_exit(43);
-    require(process.ThreadDeadlocks == 1 && process.ThreadJoins == 1 && process.ThreadReaps == 1,
-        "Join cycle was not rejected");
-    wit_user_destroy(&process);
-    require(wit_pages_free_count(pages) == before, "Join cycle leaked");
-    wit_console_write("[TEST-PASS] User.ThreadJoinCycle\n");
+    wit_console_write("[TEST-PASS] User.ThreadPreemptionAndTls\n[TEST-PASS] User.ThreadWaitAndReuse\n");
 
     create(pages, WIT_THREAD_TEST_CAPACITY);
     wit_user_run(&process);
     check_exit(WIT_TEST_EXIT_CODE);
     require(process.ThreadCreates == 4 &&
-            process.ThreadJoins == 3 &&
             process.ThreadReaps == 3 &&
+            process.ReferenceThreadCapacityFailures == 1 &&
             process.Space.OwnedCount == 9 + (WIT_USER_STACK_TOP - WIT_USER_STACK_BOTTOM) / 4096,
         "Thread quota/recovery failed");
     wit_user_destroy(&process);

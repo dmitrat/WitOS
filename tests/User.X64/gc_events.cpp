@@ -16,12 +16,12 @@ static WitU64 call(WitU64 op, WitU64 a = 0, WitU64 b = 0, WitU64 c = 0, WitU64 *
 static bool join(WitU64 handle)
 {
     WitU64 code = 0;
-    return call(WIT_CALL_THREAD_JOIN, handle, 0, 0, &code) == WIT_STATUS_OK && code == WIT_TEST_EXIT_CODE;
+    return wit_native_thread_join(handle, &code) == WIT_STATUS_OK && code == WIT_TEST_EXIT_CODE;
 }
 
 static bool start(void (*entry)(WitU64), WitU64 argument, WitU64 *handle)
 {
-    return call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)entry, argument, 0, handle) == WIT_STATUS_OK;
+    return wit_native_thread_start((uintptr_t)entry, argument, 0, handle) == WIT_STATUS_OK;
 }
 
 static void done(WitU64 code = WIT_TEST_EXIT_CODE)

@@ -46,7 +46,7 @@ static WIT_NORETURN void notified_worker(WitU64 value)
     if (wit_native_library_thread_leave() != WIT_STATUS_OK) {
         code = 2;
     }
-    (void)wit_native_call(WIT_CALL_THREAD_COMPLETE, code, 0, 0, 0);
+    (void)wit_native_call(WIT_CALL_THREAD_EXIT, code, 0, 0, 0);
     wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
 }
 
@@ -77,8 +77,7 @@ WitU64 wit_native_library_lifecycle_test(WitU64 mode)
          * and a failed load leaves it free to leave and complete. 44 reports a failed thread creation. */
         WitU64 peer = 0, peerResult = 0;
         workerGate = 1;
-        WitU64 status = wit_native_call(
-            WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)notified_worker, 0, WIT_THREAD_LIBRARY_NOTIFICATIONS, &peer);
+        WitU64 status = wit_native_thread_start((WitU64)notified_worker, 0, WIT_THREAD_LIBRARY_NOTIFICATIONS, &peer);
         if (status != WIT_STATUS_OK) {
             CHECK(status == WIT_STATUS_NO_MEMORY, 3235);
             CHECK(snapshot(&after) && same(&before, &after), 3236);
@@ -87,8 +86,7 @@ WitU64 wit_native_library_lifecycle_test(WitU64 mode)
         status = LOAD("/native/init.dll", &root);
         CHECK(status == WIT_STATUS_OK || (status == WIT_STATUS_NO_MEMORY && root == 99), 3237);
         wit_native_unlock(&workerGate);
-        CHECK(
-            wit_native_call(WIT_CALL_THREAD_JOIN, peer, 0, 0, &peerResult) == WIT_STATUS_OK && peerResult == 42, 3238);
+        CHECK(wit_native_thread_join(peer, &peerResult) == WIT_STATUS_OK && peerResult == 42, 3238);
         CHECK(status != WIT_STATUS_OK || wit_native_library_unload(root) == WIT_STATUS_OK, 3239);
         CHECK(snapshot(&after) && same(&before, &after), 3240);
         return status == WIT_STATUS_OK ? 42 : 43;
@@ -99,10 +97,10 @@ WitU64 wit_native_library_lifecycle_test(WitU64 mode)
     *trace = 731;
     WitU64 peer = 0, peerResult = 0;
     workerGate = 1;
-    CHECK(wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)wait_worker, 0, 0, &peer) == WIT_STATUS_OK, 3232);
+    CHECK(wit_native_thread_start((WitU64)wait_worker, 0, 0, &peer) == WIT_STATUS_OK, 3232);
     CHECK(LOAD("/native/init.dll", &root) == WIT_STATUS_UNSUPPORTED && root == 99 && *trace == 731, 3233);
     wit_native_unlock(&workerGate);
-    CHECK(wit_native_call(WIT_CALL_THREAD_JOIN, peer, 0, 0, &peerResult) == WIT_STATUS_OK && peerResult == 42, 3234);
+    CHECK(wit_native_thread_join(peer, &peerResult) == WIT_STATUS_OK && peerResult == 42, 3234);
     WitU64 status = LOAD("/native/init.dll", &root);
     if (status != WIT_STATUS_OK) {
         return 3300 + status;
@@ -111,9 +109,7 @@ WitU64 wit_native_library_lifecycle_test(WitU64 mode)
     CHECK(LOAD("/native/init.dll", &second) == WIT_STATUS_OK && second == root && *trace == 7311, 3208);
     CHECK(wit_native_library_unload(second) == WIT_STATUS_OK && *trace == 7311, 3209);
     WitU64 thread = 0;
-    CHECK(
-        wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)never_started, 0, 0, &thread) == WIT_STATUS_UNSUPPORTED,
-        3210);
+    CHECK(wit_native_thread_start((WitU64)never_started, 0, 0, &thread) == WIT_STATUS_UNSUPPORTED, 3210);
     CHECK(wit_native_library_unload(root) == WIT_STATUS_OK && *trace == 73112, 3211);
     *trace = 731;
     root = 99;

@@ -1,6 +1,9 @@
 #include "user.h"
 #include "witos/platform.h"
 
+/* Thread handles. A record per handle keeps the thread's identity and, after its exit, the exit code; the thread's
+ * own stack and TLS are reclaimed at its exit regardless of the handles. */
+
 void wit_user_references_initialize(WitUserProcess *p)
 {
     for (WitU32 i = 0; i < WIT_RUNTIME_HANDLE_CAPACITY; ++i) {
@@ -23,6 +26,34 @@ static WitUserThreadReference *lookup(WitUserProcess *p, WitU64 handle)
     return 0;
 }
 
+static WitUserThread *live_target(WitUserProcess *p, WitU64 identity)
+{
+    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+        if (p->Threads[i].State != WitThreadEmpty &&
+            p->Threads[i].State != WitThreadExited &&
+            p->Threads[i].Handle == identity) {
+            return &p->Threads[i];
+        }
+    }
+    return 0;
+}
+
+WitU64 wit_user_reference_describe(
+    WitUserProcess *p, WitU64 handle, WitU32 rights, const WitUserThreadReference **reference)
+{
+    *reference = 0;
+    const WitU64 status = wit_handle_check(&p->Handles, handle, WIT_HANDLE_THREAD_REFERENCE, rights);
+    if (status != WIT_STATUS_OK) {
+        return status;
+    }
+    const WitUserThreadReference *r = lookup(p, handle);
+    if (!r) {
+        wit_panic("Missing thread reference record");
+    }
+    *reference = r;
+    return WIT_STATUS_OK;
+}
+
 WitU64 wit_user_reference_target(WitUserProcess *p, WitU64 handle, WitU32 rights, WitUserThread **target)
 {
     *target = 0;
@@ -30,38 +61,28 @@ WitU64 wit_user_reference_target(WitUserProcess *p, WitU64 handle, WitU32 rights
         *target = &p->Threads[p->CurrentThread];
         return WIT_STATUS_OK;
     }
-    const WitU64 status = wit_handle_check(&p->Handles, handle, WIT_HANDLE_THREAD_REFERENCE, rights);
+    const WitUserThreadReference *r;
+    const WitU64 status = wit_user_reference_describe(p, handle, rights, &r);
     if (status != WIT_STATUS_OK) {
         return status;
-    }
-    const WitUserThreadReference *r = lookup(p, handle);
-    if (!r) {
-        wit_panic("Missing target thread reference");
     }
     if (r->Exited) {
         return WIT_STATUS_CLOSED;
     }
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
-        if (p->Threads[i].State != WitThreadEmpty &&
-            p->Threads[i].State != WitThreadExited &&
-            p->Threads[i].Handle == r->ThreadId) {
-            *target = &p->Threads[i];
-            return WIT_STATUS_OK;
-        }
+    *target = live_target(p, r->ThreadId);
+    if (!*target) {
+        wit_panic("Live reference has no target");
     }
-    wit_panic("Live reference has no target");
+    return WIT_STATUS_OK;
 }
 
 WitU64 wit_user_reference_signaled(WitUserProcess *p, WitU64 handle, int *signaled)
 {
+    const WitUserThreadReference *r;
     *signaled = 0;
-    const WitU64 status = wit_handle_check(&p->Handles, handle, WIT_HANDLE_THREAD_REFERENCE, WIT_THREAD_REFERENCE_WAIT);
+    const WitU64 status = wit_user_reference_describe(p, handle, WIT_RIGHT_WAIT, &r);
     if (status != WIT_STATUS_OK) {
         return status;
-    }
-    const WitUserThreadReference *r = lookup(p, handle);
-    if (!r) {
-        wit_panic("Missing waited thread reference");
     }
     *signaled = r->Exited != 0;
     return WIT_STATUS_OK;
@@ -79,12 +100,87 @@ void wit_user_references_exit(WitUserProcess *p, WitU64 identity, WitU64 code)
     wit_user_wait_objects_changed(p);
 }
 
-WitU64 wit_user_reference_duplicate(WitUserProcess *p, WitU64 source, WitU64 output, WitU64 requested)
+/* THREAD_QUERY: one snapshot of the thread a handle or WIT_THREAD_SELF names. The caller's Version and Size select
+ * the record; the whole destination is validated before the snapshot is taken and copied. */
+WitU64 wit_user_thread_query(WitUserProcess *p, WitU64 handle, WitU64 address, WitU64 size)
+{
+    WitUserThreadInfo info;
+    WitU32 header[2];
+    const WitUserThread *target = 0;
+    const WitUserThreadReference *reference = 0;
+    if (size != sizeof(info)) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    if (!wit_user_buffer_writable(&p->Space, address, sizeof(info)) ||
+        !wit_user_copy_from(&p->Space, address, (WitU8 *)header, sizeof(header))) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    if (header[0] != WIT_THREAD_INFO_VERSION) {
+        return WIT_STATUS_UNSUPPORTED;
+    }
+    if (header[1] != sizeof(info)) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    for (WitU32 i = 0; i < sizeof(info); ++i) {
+        ((WitU8 *)&info)[i] = 0;
+    }
+    info.Version = WIT_THREAD_INFO_VERSION;
+    info.Size = sizeof(info);
+    info.ProcessId = p->Id;
+    info.ProcessorCount = WIT_USER_PROCESSOR_COUNT; // The supported backend brings up one processor.
+    if (handle == WIT_THREAD_SELF) {
+        target = &p->Threads[p->CurrentThread];
+        info.Rights = WIT_RIGHT_THREAD_ALL;
+    } else {
+        /* The QUERY right, or a context right: a context carries the same prefix, and a thread that may have its
+         * context set must be able to build one from the record. */
+        const WitU64 status = wit_user_reference_describe(p, handle, 0, &reference);
+        if (status != WIT_STATUS_OK) {
+            return status;
+        }
+        if (!(reference->Rights & (WIT_RIGHT_QUERY | WIT_RIGHT_GET_CONTEXT | WIT_RIGHT_SET_CONTEXT))) {
+            return WIT_STATUS_DENIED;
+        }
+        info.Rights = reference->Rights;
+        if (reference->Exited) {
+            info.ThreadId = reference->ThreadId;
+            info.ExitCode = reference->ExitCode;
+            info.State = WIT_THREAD_STATE_EXITED;
+        } else {
+            target = live_target(p, reference->ThreadId);
+            if (!target) {
+                wit_panic("Live reference has no target");
+            }
+        }
+    }
+    if (target) {
+        info.ThreadId = target->Handle;
+        info.StackLow = target->StackBottom;
+        info.StackHigh = target->StackTop;
+        info.RawTls = target->Tls;
+        info.CompilerTls = p->TlsBytes ? target->CompilerTls : 0;
+        info.CompilerTlsHeader = target->CompilerTls;
+        info.NativeId = target->NativeId;
+        info.SuspendCount = target->SuspendCount;
+        info.ContextFlags = wit_user_context_flags(target);
+        info.State = target->SuspendCount       ? WIT_THREAD_STATE_SUSPENDED
+            : target->State == WitThreadRunning ? WIT_THREAD_STATE_RUNNING
+            : target->State == WitThreadWaiting ? WIT_THREAD_STATE_WAITING
+                                                : WIT_THREAD_STATE_READY;
+    }
+    // IF remains clear through snapshot and whole-buffer validation/copy.
+    if (!wit_user_copy_to(&p->Space, address, (const WitU8 *)&info, sizeof(info))) {
+        wit_panic("Validated thread query destination changed");
+    }
+    return WIT_STATUS_OK;
+}
+
+static WitU64 duplicate_thread(WitUserProcess *p, WitU64 source, WitU64 output, WitU64 requested)
 {
     WitUserThreadReference snapshot;
     WitUserThreadReference *destination = 0;
-    WitU64 status, handle;
-    if (requested & ~(WitU64)WIT_THREAD_REFERENCE_ALL) {
+    WitU64 handle;
+    if (requested & ~(WitU64)WIT_RIGHT_THREAD_ALL) {
         return WIT_STATUS_UNSUPPORTED;
     }
     if (source == WIT_THREAD_SELF) {
@@ -92,15 +188,12 @@ WitU64 wit_user_reference_duplicate(WitUserProcess *p, WitU64 source, WitU64 out
         snapshot.ThreadId = t->Handle;
         snapshot.ExitCode = 0;
         snapshot.Exited = 0;
-        snapshot.Rights = WIT_THREAD_REFERENCE_ALL;
+        snapshot.Rights = WIT_RIGHT_THREAD_ALL;
     } else {
-        status = wit_handle_check(&p->Handles, source, WIT_HANDLE_THREAD_REFERENCE, 0);
+        const WitUserThreadReference *original;
+        const WitU64 status = wit_user_reference_describe(p, source, 0, &original);
         if (status != WIT_STATUS_OK) {
             return status;
-        }
-        const WitUserThreadReference *original = lookup(p, source);
-        if (!original) {
-            wit_panic("Missing thread reference record");
         }
         snapshot = *original;
     }
@@ -139,54 +232,36 @@ WitU64 wit_user_reference_duplicate(WitUserProcess *p, WitU64 source, WitU64 out
     return WIT_STATUS_OK;
 }
 
-WitU64 wit_user_reference_query(WitUserProcess *p, WitU64 handle, WitU64 output, WitU64 size)
+static WitU64 duplicate_event(WitUserProcess *p, WitU64 source, WitU64 output, WitU64 requested)
 {
-    WitThreadReferenceInfo info;
-    if (size != sizeof(info)) {
-        return WIT_STATUS_INVALID_ARGUMENT;
+    WitU64 handle = 0;
+    if (requested & ~(WitU64)(WIT_RIGHT_WAIT | WIT_RIGHT_SIGNAL)) {
+        return WIT_STATUS_UNSUPPORTED;
     }
-    const WitU64 status =
-        wit_handle_check(&p->Handles, handle, WIT_HANDLE_THREAD_REFERENCE, WIT_THREAD_REFERENCE_QUERY);
+    if (!wit_user_buffer_writable(&p->Space, output, sizeof(handle))) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    const WitU64 status = wit_event_duplicate(&p->Events, &p->Handles, source, (WitU32)requested, &handle);
     if (status != WIT_STATUS_OK) {
         return status;
     }
-    const WitUserThreadReference *reference = lookup(p, handle);
-    if (!reference) {
-        wit_panic("Missing queried thread reference");
+    if (!wit_user_copy_to(&p->Space, output, (const WitU8 *)&handle, sizeof(handle))) {
+        if (wit_event_remove(&p->Events, &p->Handles, handle) != WIT_STATUS_OK) {
+            wit_panic("Event handle rollback failed");
+        }
+        return WIT_STATUS_BAD_ADDRESS;
     }
-    info.Version = WIT_THREAD_REFERENCE_VERSION;
-    info.Size = sizeof(info);
-    info.ThreadId = reference->ThreadId;
-    info.ExitCode = reference->ExitCode;
-    info.Rights = reference->Rights;
-    info.StackLow = 0;
-    info.StackHigh = 0;
-    info.SuspendCount = 0;
-    info.Reserved = 0;
-    info.State = reference->Exited ? WIT_THREAD_REFERENCE_EXITED : WIT_THREAD_REFERENCE_LIVE;
-    if (!reference->Exited) {
-        const WitUserThread *target = 0;
-        for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
-            if (p->Threads[i].State != WitThreadEmpty && p->Threads[i].Handle == reference->ThreadId) {
-                target = &p->Threads[i];
-                break;
-            }
-        }
-        if (!target || target->State == WitThreadExited) {
-            wit_panic("Live thread reference lost its target");
-        }
-        if (target->State == WitThreadWaiting) {
-            info.State = WIT_THREAD_REFERENCE_WAITING;
-        }
-        info.SuspendCount = target->SuspendCount;
-        if (target->SuspendCount) {
-            info.State = WIT_THREAD_REFERENCE_SUSPENDED;
-        }
-        info.StackLow = target->StackBottom;
-        info.StackHigh = target->StackTop;
+    return WIT_STATUS_OK;
+}
+
+/* HANDLE_DUPLICATE: a thread handle (or WIT_THREAD_SELF) or an event handle, with the same or fewer rights. */
+WitU64 wit_user_handle_duplicate(WitUserProcess *p, WitU64 source, WitU64 output, WitU64 requested)
+{
+    if (source == WIT_THREAD_SELF ||
+        wit_handle_check(&p->Handles, source, WIT_HANDLE_THREAD_REFERENCE, 0) != WIT_STATUS_WRONG_TYPE) {
+        return duplicate_thread(p, source, output, requested);
     }
-    return wit_user_copy_to(&p->Space, output, (const WitU8 *)&info, sizeof(info)) ? WIT_STATUS_OK
-                                                                                   : WIT_STATUS_BAD_ADDRESS;
+    return duplicate_event(p, source, output, requested);
 }
 
 WitU64 wit_user_reference_close(WitUserProcess *p, WitU64 handle)

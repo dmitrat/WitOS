@@ -139,8 +139,7 @@ static WitU64 notify_ids[3], main_id;
 static WitUserThreadInfo current_thread()
 {
     WitUserThreadInfo info;
-    require(wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&info, sizeof(info), WIT_THREAD_INFO_VERSION, nullptr) ==
-        WIT_STATUS_OK);
+    require(wit_native_thread_query(WIT_THREAD_SELF, &info) == WIT_STATUS_OK);
     require(info.ThreadId && info.CompilerTls);
     return info;
 }
@@ -204,8 +203,7 @@ static void notification_workers()
     WitU64 handles[3], result;
     if (mode == 15) {
         require(wit_native_thread_create(notification_worker, 0, &handles[0]) == WIT_STATUS_OK);
-        require(wit_native_call(WIT_CALL_THREAD_JOIN, handles[0], 0, 0, &result) == WIT_STATUS_OK &&
-            result == WIT_TEST_EXIT_CODE);
+        require(wit_native_thread_join(handles[0], &result) == WIT_STATUS_OK && result == WIT_TEST_EXIT_CODE);
         require(!notify_ready[0] && !notify_done[0]);
         return;
     }
@@ -225,9 +223,10 @@ static void notification_workers()
                 require(notify_ids[i] != previous[j]);
             }
             if (mode == 11) {
+                // The identity a detached worker reports is no capability: it cannot be closed or waited for.
+                result = 0;
                 require(wit_native_call(WIT_CALL_CLOSE, notify_ids[i], 0, 0, nullptr) == WIT_STATUS_BUSY);
-                require(wit_native_call(WIT_CALL_THREAD_JOIN, notify_ids[i], 0, 0, &result) == WIT_STATUS_DENIED &&
-                    !result);
+                require(wit_native_thread_join(notify_ids[i], &result) == WIT_STATUS_WRONG_TYPE && !result);
             }
             notify_release[i] = 1;
         }
@@ -242,8 +241,7 @@ static void notification_workers()
                     tick();
                 }
             } else {
-                require(wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &result) == WIT_STATUS_OK &&
-                    result == WIT_TEST_EXIT_CODE);
+                require(wit_native_thread_join(handles[i], &result) == WIT_STATUS_OK && result == WIT_TEST_EXIT_CODE);
             }
             require(notify_done[i]);
             previous[i] = notify_ids[i];
@@ -326,8 +324,7 @@ extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
             require(wit_native_thread_create(worker, 0, &handles[i]) == WIT_STATUS_OK);
         }
         for (WitU32 i = 0; i < 3; ++i) {
-            require(wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &result) == WIT_STATUS_OK &&
-                result == WIT_TEST_EXIT_CODE);
+            require(wit_native_thread_join(handles[i], &result) == WIT_STATUS_OK && result == WIT_TEST_EXIT_CODE);
         }
         require(called == 0); // Individual thread exit must not drain process callbacks.
     } else if (mode == 4) {
@@ -356,8 +353,7 @@ extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
         require(called == (mode == 2 ? 32U : 24U));
     }
     if (mode == 8) {
-        require(wit_native_call(WIT_CALL_THREAD_JOIN, handles[0], 0, 0, &result) == WIT_STATUS_OK &&
-            result == WIT_TEST_EXIT_CODE);
+        require(wit_native_thread_join(handles[0], &result) == WIT_STATUS_OK && result == WIT_TEST_EXIT_CODE);
     }
     report()[3] = called;
     report()[4] = 1;

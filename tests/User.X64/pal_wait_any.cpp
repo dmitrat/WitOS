@@ -100,8 +100,7 @@ WitU64 wit_pal_wait_any(const WitUserStartup *startup)
         captured[0] = events[0];
         captured[1] = events[1];
         for (WitU32 i = 0; i < count; ++i) {
-            check(
-                wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)worker, i, 0, &handles[i]) == WIT_STATUS_OK);
+            check(wit_native_thread_start((uintptr_t)worker, i, 0, &handles[i]) == WIT_STATUS_OK);
             if (mode == 56) {
                 let_workers_park();
             }
@@ -147,8 +146,7 @@ WitU64 wit_pal_wait_any(const WitUserStartup *startup)
             check(PalSetEvent(events[1]));
         }
         for (WitU32 i = 0; i < count; ++i) {
-            check(wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &code) == WIT_STATUS_OK &&
-                code == WIT_TEST_EXIT_CODE);
+            check(wit_native_thread_join(handles[i], &code) == WIT_STATUS_OK && code == WIT_TEST_EXIT_CODE);
             check(done[i] &&
                 outcomes[i] ==
                     (mode == 53                                      ? WAIT_FAILED

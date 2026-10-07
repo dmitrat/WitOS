@@ -24,8 +24,7 @@ static void worker(WitU64 index)
         result = 1401;
     }
     WitUserThreadInfo info;
-    if (wit_native_call(WIT_CALL_THREAD_QUERY, (uintptr_t)&info, sizeof(info), WIT_THREAD_INFO_VERSION, nullptr) !=
-        WIT_STATUS_OK) {
+    if (wit_native_thread_query(WIT_THREAD_SELF, &info) != WIT_STATUS_OK) {
         result = 1405;
     } else {
         ownerships[index] = info.ThreadId;
@@ -59,8 +58,7 @@ static WitU64 state()
         return 1410;
     }
     WitUserThreadInfo info;
-    if (wit_native_call(WIT_CALL_THREAD_QUERY, (uintptr_t)&info, sizeof(info), WIT_THREAD_INFO_VERSION, nullptr) !=
-        WIT_STATUS_OK) {
+    if (wit_native_thread_query(WIT_THREAD_SELF, &info) != WIT_STATUS_OK) {
         return 1411;
     }
     auto raw = (volatile WitU32 *)(uintptr_t)info.RawTls;
@@ -92,23 +90,28 @@ static WitU64 state()
     raw[WIT_TLS_LAST_ERROR_OFFSET / 4 + 1] = 0;
     PalSetLastError(0x76543210);
     WitU64 handles[2], code;
+    WitU64 expected[2];
     for (WitU64 i = 0; i < 2; ++i) {
-        if (wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)worker, i, 0, &handles[i]) != WIT_STATUS_OK) {
+        WitUserThreadInfo record;
+        if (wit_native_thread_start((uintptr_t)worker, i, 0, &handles[i]) != WIT_STATUS_OK ||
+            wit_native_thread_query(handles[i], &record) != WIT_STATUS_OK) {
             return 1416;
         }
+        expected[i] = record.ThreadId; // The handle is a capability; the worker sees the identity of the record.
     }
     for (unsigned i = 0; i < 2; ++i) {
-        if (wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &code) != WIT_STATUS_OK ||
+        if (wit_native_thread_join(handles[i], &code) != WIT_STATUS_OK ||
             code != WIT_TEST_EXIT_CODE ||
-            ownerships[i] != handles[i] ||
+            ownerships[i] != expected[i] ||
+            expected[i] == handles[i] ||
             !identities[i] ||
             identities[i] == info.NativeId ||
             !preserved(0x76543210)) {
             return 1417;
         }
     }
-    if (wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)worker, 2, 0, &handles[0]) != WIT_STATUS_OK ||
-        wit_native_call(WIT_CALL_THREAD_JOIN, handles[0], 0, 0, &code) != WIT_STATUS_OK ||
+    if (wit_native_thread_start((uintptr_t)worker, 2, 0, &handles[0]) != WIT_STATUS_OK ||
+        wit_native_thread_join(handles[0], &code) != WIT_STATUS_OK ||
         code != WIT_TEST_EXIT_CODE ||
         identities[0] >= identities[2] ||
         identities[0] == identities[1] ||

@@ -7,10 +7,17 @@ WitU64 wit_pal_wait_any(const WitUserStartup *startup);
 WitU64 wit_pal_pressure(const WitUserStartup *startup);
 static WitUserThreadInfo observed[3];
 
-static WitU64 query(void *p, WitU64 size = sizeof(WitUserThreadInfo), WitU64 version = WIT_THREAD_INFO_VERSION)
+// The caller's Version and Size in the buffer select the record; a destination the test cannot write keeps none.
+static void header(void *p, WitU32 version = WIT_THREAD_INFO_VERSION, WitU32 size = sizeof(WitUserThreadInfo))
+{
+    ((volatile WitU32 *)p)[0] = version;
+    ((volatile WitU32 *)p)[1] = size;
+}
+
+static WitU64 query(void *p, WitU64 size = sizeof(WitUserThreadInfo), WitU64 handle = WIT_THREAD_SELF)
 {
     WitU64 copied = 99;
-    const auto status = wit_native_call(WIT_CALL_THREAD_QUERY, (uintptr_t)p, size, version, &copied);
+    const auto status = wit_native_call(WIT_CALL_THREAD_QUERY, handle, (uintptr_t)p, size, &copied);
     return copied == (status == WIT_STATUS_OK ? sizeof(WitUserThreadInfo) : 0) ? status : 999;
 }
 
@@ -50,6 +57,7 @@ static bool check(const WitUserThreadInfo &info)
 {
     void *low = nullptr, *high = nullptr;
     WitUserThreadInfo local;
+    header(&local);
     if (query(&local) != WIT_STATUS_OK ||
         !equal(info, local) ||
         !PalGetMaximumStackBounds(&low, &high) ||
@@ -79,6 +87,7 @@ static void done(WitU64 code)
 
 static void worker(WitU64 index)
 {
+    header(&observed[index]);
     if (query(&observed[index]) != WIT_STATUS_OK || !check(observed[index])) {
         done(1101);
     }
@@ -114,6 +123,7 @@ extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
     auto original = (WitUserThreadInfo *)WIT_GC_INFO_REPORT;
     auto cross = (WitUserThreadInfo *)(WIT_GC_INFO_REPORT + 4096 - 16);
     WitUserThreadInfo current;
+    header(original);
     if (query(original) != WIT_STATUS_OK ||
         !check(*original) ||
         original->Version != WIT_THREAD_INFO_VERSION ||
@@ -149,6 +159,7 @@ extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
         }
         control[1] = control[2] = control[6] = 0;
     }
+    header(cross);
     if (query(cross) != WIT_STATUS_OK || !equal(*original, *cross)) {
         return 1115;
     }
@@ -157,9 +168,24 @@ extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
         query(&current, sizeof(current) - 1) != WIT_STATUS_INVALID_ARGUMENT ||
         query(&current, sizeof(current) + 1) != WIT_STATUS_INVALID_ARGUMENT ||
         query(&current, ~0ULL) != WIT_STATUS_INVALID_ARGUMENT ||
-        query(&current, sizeof(current), 0) != WIT_STATUS_UNSUPPORTED ||
         !untouched(&current, sizeof(current))) {
         return 1116;
+    }
+    // A foreign version or size in the header fails before anything beyond the header changes; so does a thread
+    // handle that names no thread.
+    header(&current, 0);
+    if (query(&current) != WIT_STATUS_UNSUPPORTED || !untouched((char *)&current + 8, sizeof(current) - 8)) {
+        return 1130;
+    }
+    header(&current, WIT_THREAD_INFO_VERSION, sizeof(current) - 8);
+    if (query(&current) != WIT_STATUS_INVALID_ARGUMENT || !untouched((char *)&current + 8, sizeof(current) - 8)) {
+        return 1131;
+    }
+    header(&current);
+    if (query(&current, sizeof(current), config->ForeignHandle) != WIT_STATUS_BAD_HANDLE ||
+        query(&current, sizeof(current), startup->ConsoleHandle) != WIT_STATUS_WRONG_TYPE ||
+        !untouched((char *)&current + 8, sizeof(current) - 8)) {
+        return 1132;
     }
     if (query(nullptr) != WIT_STATUS_BAD_ADDRESS ||
         query((void *)startup) != WIT_STATUS_BAD_ADDRESS ||
@@ -190,16 +216,20 @@ extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
         before.ReservedBytes != after.ReservedBytes) {
         return 1121;
     }
-    WitU64 handles[2], code;
+    WitU64 handles[2], identities[2], code;
+    WitUserThreadInfo record;
     for (WitU64 i = 0; i < 2; ++i) {
-        if (wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)worker, i, 0, &handles[i]) != WIT_STATUS_OK) {
+        if (wit_native_thread_start((uintptr_t)worker, i, 0, &handles[i]) != WIT_STATUS_OK ||
+            wit_native_thread_query(handles[i], &record) != WIT_STATUS_OK) {
             return 1122;
         }
+        identities[i] = record.ThreadId; // The handle is a capability; the record names the identity the worker sees.
     }
     for (size_t i = 0; i < 2; ++i) {
-        if (wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &code) != WIT_STATUS_OK ||
+        if (wit_native_thread_join(handles[i], &code) != WIT_STATUS_OK ||
             code != WIT_TEST_EXIT_CODE ||
-            observed[i].ThreadId != handles[i] ||
+            observed[i].ThreadId != identities[i] ||
+            identities[i] == handles[i] ||
             observed[i].ProcessId != original->ProcessId ||
             observed[i].StackLow == original->StackLow ||
             observed[i].RawTls == original->RawTls) {
@@ -212,12 +242,13 @@ extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
         !check(*original)) {
         return 1124;
     }
-    if (wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)worker, 2, 0, &handles[0]) != WIT_STATUS_OK ||
-        wit_native_call(WIT_CALL_THREAD_JOIN, handles[0], 0, 0, &code) != WIT_STATUS_OK ||
+    if (wit_native_thread_start((uintptr_t)worker, 2, 0, &handles[0]) != WIT_STATUS_OK ||
+        wit_native_thread_query(handles[0], &record) != WIT_STATUS_OK ||
+        wit_native_thread_join(handles[0], &code) != WIT_STATUS_OK ||
         code != WIT_TEST_EXIT_CODE ||
         observed[2].NativeId <= observed[1].NativeId ||
         observed[2].ThreadId == observed[0].ThreadId ||
-        observed[2].ThreadId != handles[0] ||
+        observed[2].ThreadId != record.ThreadId ||
         observed[2].StackLow != observed[0].StackLow) {
         return 1125;
     }

@@ -22,7 +22,7 @@ static void require(int condition, const char *message)
 /* Diagnostics of a runtime component that exhausted its tick budget: every live thread and its stack. */
 static void report_budget(WitUserState state)
 {
-    if (state == WitUserBudgetExpired && current_user->RequireThreadCompletion) {
+    if (state == WitUserBudgetExpired && current_user->RuntimeProfile) {
         wit_console_write("Runtime budget ticks/idle: ");
         wit_console_write_u64(current_user->Ticks);
         wit_console_write("/");
@@ -84,8 +84,6 @@ WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code)
         }
         current_user->Threads[i].SuspendCount = 0;
         wit_user_thread_name_clear(&current_user->Threads[i]);
-        current_user->Threads[i].WaitingOn = NO_THREAD;
-        current_user->Threads[i].Joiner = NO_THREAD;
         current_user->Threads[i].WaitKind = WitWaitNone;
         current_user->Threads[i].WaitHandle = 0;
         current_user->Threads[i].WaitCount = 0;
@@ -125,39 +123,11 @@ static void validate_return(WitArchFrame *frame, WitU32 index, int syscall)
     wit_arch_frame_prepare_return(frame, syscall);
 }
 
-WitU64 wit_user_thread_create(WitUserProcess *process, WitU64 entry, WitU64 argument, WitU64 *result)
-{
-    return wit_user_thread_create_flags(process, entry, argument, 0, result);
-}
-
-WitU64 wit_user_thread_create_flags(
-    WitUserProcess *process, WitU64 entry, WitU64 argument, WitU64 flags, WitU64 *result)
-{
-    *result = 0;
-    if (flags & ~(WitU64)(WIT_THREAD_DETACHED | WIT_THREAD_LIBRARY_NOTIFICATIONS)) {
-        return WIT_STATUS_INVALID_ARGUMENT;
-    }
-    if (!wit_user_space_physical(&process->Space, entry, 0, 1)) {
-        return WIT_STATUS_BAD_ADDRESS;
-    }
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
-        WitU64 status;
-        if (process->Threads[i].State != WitThreadEmpty) {
-            continue;
-        }
-        status = wit_user_prepare_thread(process, i, entry, argument, flags);
-        if (status == WIT_STATUS_OK && !(flags & WIT_THREAD_DETACHED)) {
-            *result = process->Threads[i].Handle;
-        }
-        return status;
-    }
-    return WIT_STATUS_NO_MEMORY;
-}
-
+/* Reclaims an exited thread's stack, TLS and private identity; the handles that observed it keep its exit code. */
 static void reap(WitU32 index)
 {
     WitUserThread *thread = &current_user->Threads[index];
-    require(thread->State == WitThreadExited && thread->Joiner == NO_THREAD, "Reaping live/joined thread");
+    require(thread->State == WitThreadExited, "Reaping live thread");
     require(!wit_user_stack_leased(current_user, thread->Handle, 0), "Reaping leased stack");
     for (WitU64 p = thread->StackBottom; p < thread->StackTop; p += 4096) {
         require(wit_user_space_unmap_fixed(&current_user->Space, p), "Thread stack ownership lost");
@@ -185,22 +155,8 @@ static void reap(WitU32 index)
     thread->NativeId = 0;
     thread->SuspendCount = 0;
     wit_user_thread_name_clear(thread);
-    if (thread->Detached) {
-        ++current_user->DetachedReaps;
-    }
-    thread->Detached = 0;
     thread->State = WitThreadEmpty;
     ++current_user->ThreadReaps;
-}
-
-static WitU32 thread_index(WitU64 handle)
-{
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
-        if (current_user->Threads[i].State != WitThreadEmpty && current_user->Threads[i].Handle == handle) {
-            return i;
-        }
-    }
-    wit_panic("Live thread handle without thread");
 }
 
 static void expire_waits(void)
@@ -264,68 +220,10 @@ WitArchFrame *wit_user_exit_thread(WitU64 code)
     thread->WaitAll = 0;
     thread->WaitAlertable = 0;
     wit_user_apc_initialize(thread);
+    /* The handles that observe the thread learn its exit (and wake their waiters) before its pages go. */
     wit_user_references_exit(current_user, thread->Handle, code);
-    if (thread->Detached) {
-        require(thread->Joiner == NO_THREAD, "Detached thread acquired a joiner");
-        reap(index);
-    } else if (thread->Joiner != NO_THREAD) {
-        WitUserThread *waiter = &current_user->Threads[thread->Joiner];
-        require(waiter->State == WitThreadWaiting && waiter->WaitingOn == index, "Invalid thread waiter");
-        wit_arch_frame_set_result(waiter->Context, WIT_STATUS_OK, code);
-        waiter->WaitingOn = NO_THREAD;
-        waiter->WaitKind = WitWaitNone;
-        waiter->State = WitThreadReady;
-        thread->Joiner = NO_THREAD;
-        ++current_user->ThreadJoins;
-        reap(index);
-    }
+    reap(index);
     return dispatch(0, code);
-}
-
-WitArchFrame *wit_user_join_thread(WitArchFrame *frame, WitU64 handle)
-{
-    WitU32 target, walk;
-    WitUserThread *thread, *caller;
-    WitU64 *status = wit_arch_frame_status(frame);
-    *status = wit_handle_check(&current_user->Handles, handle, WIT_HANDLE_THREAD, WIT_RIGHT_JOIN);
-    if (*status != WIT_STATUS_OK) {
-        return frame;
-    }
-    target = thread_index(handle);
-    thread = &current_user->Threads[target];
-    walk = target;
-    /* Edges and wakeup publication are serialized under the interrupt gate.
-     * Reject self-join and any cycle before installing a wait edge. */
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
-        if (walk == current_user->CurrentThread) {
-            ++current_user->ThreadDeadlocks;
-            *status = WIT_STATUS_DEADLOCK;
-            return frame;
-        }
-        if (current_user->Threads[walk].State != WitThreadWaiting ||
-            current_user->Threads[walk].WaitKind != WitWaitJoin) {
-            break;
-        }
-        walk = current_user->Threads[walk].WaitingOn;
-        require(walk < WIT_USER_THREAD_CAPACITY, "Invalid join edge");
-    }
-    if (thread->Joiner != NO_THREAD) {
-        *status = WIT_STATUS_BUSY;
-        return frame;
-    }
-    if (thread->State == WitThreadExited) {
-        *wit_arch_frame_value(frame) = thread->ExitCode;
-        ++current_user->ThreadJoins;
-        reap(target);
-        return frame;
-    }
-    caller = &current_user->Threads[current_user->CurrentThread];
-    caller->State = WitThreadWaiting;
-    caller->WaitingOn = target;
-    caller->WaitKind = WitWaitJoin;
-    caller->Deadline = WIT_WAIT_INFINITE;
-    thread->Joiner = current_user->CurrentThread;
-    return dispatch(0, 0);
 }
 
 WitU64 wit_user_close_handle(WitU64 handle)
@@ -343,21 +241,16 @@ WitU64 wit_user_close_handle(WitU64 handle)
     if (reference != WIT_STATUS_WRONG_TYPE) {
         return reference;
     }
-    const WitU64 status = wit_handle_check(&current_user->Handles, handle, WIT_HANDLE_THREAD, 0);
-    WitU32 index;
-    if (status == WIT_STATUS_WRONG_TYPE) {
-        const WitU64 event_status = wit_user_event_close(current_user, handle);
-        return event_status == WIT_STATUS_WRONG_TYPE ? wit_handle_close(&current_user->Handles, handle) : event_status;
-    }
-    if (status != WIT_STATUS_OK) {
-        return status;
-    }
-    index = thread_index(handle);
-    if (current_user->Threads[index].State != WitThreadExited || current_user->Threads[index].Joiner != NO_THREAD) {
+    /* A thread's private identity is not a capability user space can release: it ends with the thread. */
+    const WitU64 status = wit_handle_check(&current_user->Handles, handle, WIT_HANDLE_THREAD_IDENTITY, 0);
+    if (status == WIT_STATUS_OK) {
         return WIT_STATUS_BUSY;
     }
-    reap(index);
-    return WIT_STATUS_OK;
+    if (status != WIT_STATUS_WRONG_TYPE) {
+        return status;
+    }
+    const WitU64 event_status = wit_user_event_close(current_user, handle);
+    return event_status == WIT_STATUS_WRONG_TYPE ? wit_handle_close(&current_user->Handles, handle) : event_status;
 }
 
 static int can_create(const WitUserProcess *process, WitU32 slot)
@@ -378,7 +271,7 @@ static void reset_counters(WitUserProcess *process)
     process->Writes = 0;
     process->RandomRequests = 0;
     process->RandomBytes = 0;
-    process->OrderlyThreadExits = 0;
+    process->ThreadExits = 0;
     process->MemoryCommitFailures = 0;
     process->ForeignObjectWaitSuspends = 0;
     process->ReferenceThreadCapacityFailures = 0;
@@ -391,13 +284,11 @@ static void reset_counters(WitUserProcess *process)
     process->ThreadCreates = 0;
     process->ThreadSwitches = 0;
     process->ThreadTimerSwitches = 0;
-    process->ThreadJoins = 0;
     process->ThreadReaps = 0;
-    process->DetachedCreates = 0;
-    process->DetachedReaps = 0;
-    process->ThreadDeadlocks = 0;
     process->EventParks = 0;
     process->EventWakes = 0;
+    process->ThreadWaitParks = 0;
+    process->ThreadWaitWakes = 0;
     process->WaitTimeouts = 0;
     process->WaitCloses = 0;
     process->IdleHalts = 0;
@@ -420,7 +311,7 @@ static void reset_process(WitUserProcess *process, WitU32 slot, WitU32 code_size
         ((WitU8 *)&process->Fatal)[i] = 0;
     }
     reset_counters(process);
-    process->RequireThreadCompletion = runtime;
+    process->RuntimeProfile = runtime;
     process->AbruptThreadId = 0;
     process->AbruptThreadCode = 0;
     process->Ticks = 0;

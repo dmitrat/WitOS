@@ -130,7 +130,8 @@ internal static class RuntimeBootProtocol
             var report = block.Select((line, index) => (line, index)).Where(x => x.line.StartsWith("Runtime abrupt exit/report: ", StringComparison.Ordinal)).ToArray();
             var done = block.Select((line, index) => (line, index)).Where(x => x.line == "[TEST-PASS] Runtime.AbruptWorkerContained").ToArray();
             var entered = block.Select((line, index) => (line, index)).Where(x => x.line == "[USER] [RUNTIME] entering upstream wmain").ToArray();
-            var expected = mode < 2 ? "0x00000000FFFF0002" : "0x00000000C000001D";
+            // A raw worker exit is the runtime's own fail-fast (K1.2: the kernel no longer polices it); a fault is the kernel's.
+            var expected = mode < 2 ? "0x00000000FFFF0103" : "0x00000000C000001D";
             if (report.Length != 1 || done.Length != 1 || entered.Length != 1 || entered[0].index >= report[0].index || report[0].index >= done[0].index ||
                 report[0].line != $"Runtime abrupt exit/report: {expected}/1/0/0/0" || block.Contains(WORKER) ||
                 block.Any(l => l.StartsWith("[USER] [RUNTIME] wmain returned", StringComparison.Ordinal)))
@@ -248,7 +249,7 @@ internal static class RuntimeBootProtocol
             var parked = block.Where(l => l.StartsWith("Runtime parked foreign object waits: ", StringComparison.Ordinal)).ToArray();
             if (parked.Length != 1 || !Regex.IsMatch(parked[0], @"^Runtime parked foreign object waits: [1-9][0-9]*$"))
                 return false;
-            if (block.Count(l => l == "Runtime managed thread capacity failures: 4") != 1)
+            if (block.Count(l => l == "Runtime thread capacity failures: 6") != 1)
                 return false;
             var budgets = block.Where(l => l.StartsWith("Runtime execution ticks/limit: ", StringComparison.Ordinal)).ToArray();
             if (budgets.Length != 1)
@@ -256,8 +257,8 @@ internal static class RuntimeBootProtocol
             var budget = Regex.Match(budgets[0], @"^Runtime execution ticks/limit: ([0-9]+)/3000$");
             if (!budget.Success || !ulong.TryParse(budget.Groups[1].Value, out var usedTicks) || usedTicks >= 3000)
                 return false;
-            var orderly = block.Select((line, index) => (line, index)).Where(x => x.line.StartsWith("Runtime orderly thread completions: ", StringComparison.Ordinal)).ToArray();
-            if (orderly.Length != 1 || orderly[0].index <= failedCommits[0].index || orderly[0].line != $"Runtime orderly thread completions: {WORKERS_PER_EXECUTION}")
+            var orderly = block.Select((line, index) => (line, index)).Where(x => x.line.StartsWith("Runtime thread exits: ", StringComparison.Ordinal)).ToArray();
+            if (orderly.Length != 1 || orderly[0].index <= failedCommits[0].index || orderly[0].line != $"Runtime thread exits: {WORKERS_PER_EXECUTION}")
                 return false;
         }
         // No extra workload claims outside either validated execution block.

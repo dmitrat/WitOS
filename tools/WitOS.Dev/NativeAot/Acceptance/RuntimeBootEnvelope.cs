@@ -93,8 +93,8 @@ internal static class RuntimeBootEnvelope
                     !cursor.Exact(RuntimeBootProtocol.THREAD_QUOTA) || !cursor.Prefix(USER + "wmain returned ") ||
                     !cursor.Prefix("Runtime boot state/exit/rip/owned: ") || !cursor.Prefix("Runtime hardware faults ") ||
                     !cursor.Prefix("Runtime managed commit failures: ") || !cursor.Prefix("Runtime parked foreign object waits: ") ||
-                    !cursor.Exact("Runtime managed thread capacity failures: 4") ||
-                    !cursor.Prefix("Runtime orderly thread completions: ") || !cursor.Prefix("Runtime execution ticks/limit: "))
+                    !cursor.Exact("Runtime thread capacity failures: 6") ||
+                    !cursor.Prefix("Runtime thread exits: ") || !cursor.Prefix("Runtime execution ticks/limit: "))
                     return false;
             }
             return cursor.Exact("[TEST-PASS] Runtime.ManagedBootAndGc") &&

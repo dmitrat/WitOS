@@ -57,19 +57,17 @@ static void run(WitPageAllocator *pages, int tls, WitU64 base, WitU64 mode)
         }
         require(process.ProcessWriteBarriers == 2, "PAL process barrier count or argument validation failed");
         const WitU64 *sleep = (const WitU64 *)(report + 1);
-        const int valid_counts = process.ThreadCreates == 4 && process.ThreadJoins == 3 && process.ThreadReaps == 3;
+        const int valid_counts = process.ThreadCreates == 4 && process.ThreadReaps == 3;
         if (!valid_counts ||
             !process.ThreadTimerSwitches ||
             process.Space.OwnedCount != owned ||
             (mode == 4 && process.IdleHalts)) {
-            wit_console_write("PAL mode/tls/create/join/reap/timer/idle/owned/expected: ");
+            wit_console_write("PAL mode/tls/create/reap/timer/idle/owned/expected: ");
             wit_console_write_u64(mode);
             wit_console_write("/");
             wit_console_write_u64((WitU64)tls);
             wit_console_write("/");
             wit_console_write_u64(process.ThreadCreates);
-            wit_console_write("/");
-            wit_console_write_u64(process.ThreadJoins);
             wit_console_write("/");
             wit_console_write_u64(process.ThreadReaps);
             wit_console_write("/");

@@ -133,8 +133,7 @@ extern "C" bool wit_test_runtime_allocator()
             }
         }
         for (size_t i = 0; i < 3; ++i) {
-            if (wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &code) != WIT_STATUS_OK ||
-                code != WIT_TEST_EXIT_CODE) {
+            if (wit_native_thread_join(handles[i], &code) != WIT_STATUS_OK || code != WIT_TEST_EXIT_CODE) {
                 return false;
             }
         }

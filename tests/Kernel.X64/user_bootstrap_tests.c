@@ -200,7 +200,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                         : 1U),
             "Invalid bootstrap reached application entry");
         if (mode == WIT_BOOTSTRAP_TEST_CONCURRENT) {
-            require(process.ThreadCreates == 3 && process.ThreadJoins == 2 && process.ThreadReaps == 2,
+            require(process.ThreadCreates == 3 && process.ThreadReaps == 2,
                 "Concurrent native startup did not run both threads");
         }
     }

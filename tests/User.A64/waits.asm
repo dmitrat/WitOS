@@ -69,19 +69,21 @@
     EXPECT WIT_STATUS_OK
     MEND
 
+    ; THREAD_CREATE: x1 receives the thread handle.
     MACRO
     CREATE_THREAD $target, $argument
     adr x0, $target
     mov x1, $argument
     mov x2, #0
-    SYSCALL WIT_CALL_THREAD_CREATE_SIMPLE
+    bl thread_create
     EXPECT WIT_STATUS_OK
     MEND
 
+    ; Wait for the thread, read its exit code and close the handle.
     MACRO
     JOIN $handle
     mov x0, $handle
-    SYSCALL WIT_CALL_THREAD_JOIN
+    bl thread_join
     EXPECT WIT_STATUS_OK
     cmp x1, #WIT_TEST_EXIT_CODE
     b.ne failed
@@ -469,6 +471,62 @@ rights_test
     WAIT_EVENT x9, #0
     EXPECT WIT_STATUS_BAD_HANDLE
     b passed
+
+; THREAD_CREATE with a request on the stack: x0 entry, x1 argument, x2 flags -> x0 status, x1 handle.
+thread_create
+    sub sp, sp, #48
+    mov w9, #WIT_THREAD_CREATE_VERSION
+    str w9, [sp]
+    mov w9, #48
+    str w9, [sp, #4]
+    str x0, [sp, #8]
+    str x1, [sp, #16]
+    str xzr, [sp, #24]
+    str xzr, [sp, #32]
+    str w2, [sp, #40]
+    str wzr, [sp, #44]
+    mov x0, sp
+    mov x1, #48
+    mov x2, #0
+    SYSCALL WIT_CALL_THREAD_CREATE
+    add sp, sp, #48
+    ret
+
+; Wait for the thread, read its exit code and close the handle: x0 handle -> x0 status, x1 exit code.
+thread_join
+    sub sp, sp, #144
+    str x0, [sp, #32]
+    add x9, sp, #32
+    mov w10, #WIT_WAIT_OBJECTS_VERSION
+    str w10, [sp]
+    mov w10, #32
+    str w10, [sp, #4]
+    str x9, [sp, #8]
+    mov w10, #1
+    str w10, [sp, #16]
+    str wzr, [sp, #20]
+    mov x10, #-1
+    str x10, [sp, #24]
+    mov x0, sp
+    mov x1, #32
+    mov x2, #0
+    SYSCALL WIT_CALL_OBJECT_WAIT
+    cbnz x0, thread_join_done
+    mov w10, #WIT_THREAD_INFO_VERSION
+    str w10, [sp, #40]
+    mov w10, #WIT_THREAD_INFO_SIZE
+    str w10, [sp, #44]
+    ldr x0, [sp, #32]
+    add x1, sp, #40
+    mov x2, #WIT_THREAD_INFO_SIZE
+    SYSCALL WIT_CALL_THREAD_QUERY
+    cbnz x0, thread_join_done
+    ldr x0, [sp, #32]
+    SYSCALL WIT_CALL_HANDLE_CLOSE
+    ldr x1, [sp, #40 + 72] ; ExitCode
+thread_join_done
+    add sp, sp, #144
+    ret
 
 ; OBJECT_WAIT on one handle: x0 handle, x1 deadline; x0 status, x1 winner. The request and its handle array live
 ; on the caller's own stack, so concurrent waiters never share them. Clobbers x2, x8 and x11 to x13.

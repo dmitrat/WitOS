@@ -54,15 +54,11 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
             wit_panic("Native process exit lifecycle failed");
         }
         if (mode == 10 || mode == 11) {
-            require(report[6] == 12 &&
-                    process.ThreadCreates == 13 &&
-                    process.ThreadJoins == (mode == 10 ? 12U : 0U) &&
-                    process.ThreadReaps == 12,
+            require(report[6] == 12 && process.ThreadCreates == 13 && process.ThreadReaps == 12,
                 "Thread notifications lost cleanup or reused live resources");
         }
         if (mode == 15) {
-            require(!report[6] && process.ThreadJoins == 1 && process.ThreadReaps == 1,
-                "Raw thread exit unexpectedly invoked notification");
+            require(!report[6] && process.ThreadReaps == 1, "Raw thread exit unexpectedly invoked notification");
         }
         if (mode != 7) {
             require(report[7] == 1, "Process thread notification missing");
@@ -74,11 +70,10 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
             require(report[3] == (mode == 2 ? 32U : 24U), "Exit registrations lost or duplicated");
         }
         if (mode == 3) {
-            require(process.ThreadCreates == 4 && process.ThreadJoins == 3 && process.ThreadReaps == 3,
-                "Process callbacks missed worker exit");
+            require(process.ThreadCreates == 4 && process.ThreadReaps == 3, "Process callbacks missed worker exit");
         }
         if (mode == 8) {
-            require(report[2] == 1 && process.ThreadJoins == 1 && process.ThreadReaps == 1,
+            require(report[2] == 1 && process.ThreadReaps == 1,
                 "Foreign registration was not rejected outside the callback gate");
         }
         if (mode == 7) {

@@ -25,10 +25,10 @@ static void require(int condition, const char *message)
 static void reference_creation_rollback(WitPageAllocator *pages)
 {
     const WitU32 owned = process.Space.OwnedCount, limit = process.Space.PageLimit, handles = process.Handles.Count;
-    const WitU64 creates = process.ThreadCreates, detached = process.DetachedCreates;
+    const WitU64 creates = process.ThreadCreates;
     const WitU64 requestAddress = process.Threads[0].StackBottom, idAddress = requestAddress + 64;
-    WitThreadCreateRequest request = {WIT_THREAD_CREATE_REFERENCE_VERSION, sizeof(request), process.ImageEntry, 0, 0,
-        idAddress, WIT_THREAD_START_SUSPENDED, 0};
+    WitThreadCreateRequest request = {
+        WIT_THREAD_CREATE_VERSION, sizeof(request), process.ImageEntry, 0, 0, idAddress, WIT_THREAD_START_SUSPENDED, 0};
     const WitU32 sentinel = 0xA5A5A5A5U;
     require(process.TlsBytes != 0, "Reference rollback requires actual compiler TLS");
     require(wit_user_copy_to(&process.Space, requestAddress, (const WitU8 *)&request, sizeof(request)) &&
@@ -40,13 +40,11 @@ static void reference_creation_rollback(WitPageAllocator *pages)
         const WitU64 freeBefore = wit_pages_free_count(pages);
         WitU64 result = 99;
         WitU32 after = 0;
-        require(wit_user_thread_create_reference(&process, requestAddress, sizeof(request), &result) ==
-                    WIT_STATUS_NO_MEMORY &&
+        require(wit_user_thread_create(&process, requestAddress, sizeof(request), &result) == WIT_STATUS_NO_MEMORY &&
                 !result &&
                 process.Space.OwnedCount == owned &&
                 process.Handles.Count == handles &&
                 process.ThreadCreates == creates &&
-                process.DetachedCreates == detached &&
                 process.Threads[1].State == WitThreadEmpty &&
                 wit_pages_free_count(pages) == freeBefore &&
                 !wit_user_space_physical(&process.Space, WIT_USER_STACK_BOTTOM + WIT_USER_THREAD_STRIDE, 0, 0) &&
@@ -185,9 +183,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 process.State == WitUserExited &&
                 process.ExitCode == WIT_TEST_EXIT_CODE &&
                 process.ThreadCreates == 7 &&
-                process.DetachedCreates == 6 &&
-                process.DetachedReaps == 6 &&
-                process.OrderlyThreadExits == 6 &&
+                process.ThreadExits == 6 &&
                 process.Space.OwnedCount == owned &&
                 !process.Handles.Count &&
                 !process.Events.Count,
@@ -432,8 +428,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                     process.ExitCode == WIT_TEST_EXIT_CODE &&
                     report[2] == (mode == 110 ? 7U : 6U) &&
                     report[3] == 1 &&
-                    process.ThreadCreates == (mode == 110 ? 2U : 1U) &&
-                    process.ThreadJoins == (mode == 110 ? 1U : 0U),
+                    process.ThreadCreates == (mode == 110 ? 2U : 1U),
                 "Exception continuation failed");
         } else {
             require(wit_test_faulted(&process) &&
@@ -476,9 +471,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 !process.Writes &&
                 process.Space.OwnedCount == owned,
             "Actual archived guest unwinder failed");
-        require(process.ThreadCreates == (mode == 109 ? 2U : 1U) &&
-                process.ThreadJoins == (mode == 109 ? 1U : 0U) &&
-                process.ThreadReaps == (mode == 109 ? 1U : 0U),
+        require(process.ThreadCreates == (mode == 109 ? 2U : 1U) && process.ThreadReaps == (mode == 109 ? 1U : 0U),
             "Guest unwind thread lifecycle failed");
         require(report[4] &&
                 wit_user_space_physical(&process.Space, report[4], 0, 0) &&
@@ -511,7 +504,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 !process.Writes &&
                 process.Space.OwnedCount == owned &&
                 process.ThreadCreates == (mode == 103 ? 3U : 1U) &&
-                process.ThreadJoins == (mode == 103 ? 2U : 0U) &&
                 process.ThreadReaps == (mode == 103 ? 2U : 0U),
             "Native unwind scope lifecycle failed");
         for (WitU32 i = 0; i < WIT_STACK_LEASE_CAPACITY; ++i) {
@@ -542,7 +534,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 !process.Writes &&
                 process.Space.OwnedCount == owned &&
                 process.ThreadCreates == (mode == 100 ? 4U : 1U) &&
-                process.ThreadJoins == (mode == 100 ? 3U : 0U) &&
                 process.ThreadReaps == (mode == 100 ? 3U : 0U),
             "Stack lease lifecycle failed");
         for (WitU32 i = 0; i < WIT_STACK_LEASE_CAPACITY; ++i) {
@@ -590,7 +581,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 !process.Writes &&
                 process.Space.OwnedCount == owned &&
                 process.ThreadCreates == (threaded ? 2U : 1U) &&
-                process.ThreadJoins == (threaded ? 1U : 0U) &&
                 process.ThreadReaps == (threaded ? 1U : 0U),
             "Context mutation contract failed");
         wit_user_destroy(&process);
@@ -620,7 +610,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
             require(process.State == WitUserExited &&
                     process.ExitCode == WIT_TEST_EXIT_CODE &&
                     process.ThreadCreates == (mode == 91 ? 4U : 1U) &&
-                    process.ThreadJoins == (mode == 91 ? 3U : 0U) &&
                     process.ThreadReaps == (mode == 91 ? 3U : 0U),
                 "Suspension lifecycle failed");
         }
@@ -649,7 +638,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 !process.Writes &&
                 process.Space.OwnedCount == owned &&
                 process.ThreadCreates == (mode == 89 ? 4U : 1U) &&
-                process.ThreadJoins == (mode == 89 ? 3U : 0U) &&
                 process.ThreadReaps == (mode == 89 ? 3U : 0U),
             "Register snapshot contract failed");
         wit_user_destroy(&process);
@@ -667,7 +655,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 !process.Writes &&
                 process.Space.OwnedCount == owned &&
                 process.ThreadCreates == (mode == 86 ? 4U : 1U) &&
-                process.ThreadJoins == (mode == 86 ? 3U : 0U) &&
                 process.ThreadReaps == (mode == 86 ? 3U : 0U),
             "Native context storage/profile failed");
         if (mode == 88) {
@@ -707,7 +694,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                     process.ExitCode == WIT_TEST_EXIT_CODE &&
                     process.Space.OwnedCount == owned &&
                     process.ThreadCreates == (mode == 82 ? 4U : 1U) &&
-                    process.ThreadJoins == (mode == 82 ? 3U : 0U) &&
                     process.ThreadReaps == (mode == 82 ? 3U : 0U),
                 "GC optional memory policy failed");
         }
@@ -738,7 +724,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 !process.Writes &&
                 process.Space.OwnedCount == owned &&
                 process.ThreadCreates == (mode <= 79 ? 4U : 1U) &&
-                process.ThreadJoins == (mode <= 79 ? 3U : 0U) &&
                 process.ThreadReaps == (mode <= 79 ? 3U : 0U),
             "Native MTA lifecycle failed");
         wit_user_destroy(&process);
@@ -757,7 +742,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 !process.Writes &&
                 process.Space.OwnedCount == owned &&
                 process.ThreadCreates == (mode == 76 ? 4U : 1U) &&
-                process.ThreadJoins == (mode == 76 ? 3U : 0U) &&
                 process.ThreadReaps == (mode == 76 ? 3U : 0U),
             "Native diagnostic services contract failed");
         wit_user_destroy(&process);
@@ -776,7 +760,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 !process.Writes &&
                 process.Space.OwnedCount == owned &&
                 process.ThreadCreates == (mode == 74 ? 5U : 1U) &&
-                process.ThreadJoins == (mode == 74 ? 4U : 0U) &&
                 process.ThreadReaps == (mode == 74 ? 4U : 0U),
             "Native thread name contract failed");
         for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
@@ -801,7 +784,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 !process.Writes &&
                 process.Space.OwnedCount == owned &&
                 process.ThreadCreates == (mode == 71 ? 4U : 1U) &&
-                process.ThreadJoins == (mode == 71 ? 3U : 0U) &&
                 process.ThreadReaps == (mode == 71 ? 3U : 0U),
             "Native module/name contract failed");
         wit_user_destroy(&process);
@@ -827,7 +809,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                     process.Writes == report[2] &&
                     process.Space.OwnedCount == owned &&
                     process.ThreadCreates == (mode == 68 ? 4U : 1U) &&
-                    process.ThreadJoins == (mode == 68 ? 3U : 0U) &&
                     process.ThreadReaps == (mode == 68 ? 3U : 0U),
                 "Console count/resources contract failed");
         }
@@ -843,7 +824,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 process.ExitCode == WIT_TEST_EXIT_CODE &&
                 process.Space.OwnedCount == owned &&
                 process.ThreadCreates == (mode == 66 ? 10U : 1U) &&
-                process.ThreadJoins == (mode == 66 ? 9U : 0U) &&
                 process.ThreadReaps == (mode == 66 ? 9U : 0U) &&
                 !process.Handles.Count &&
                 !process.Events.Count,
@@ -853,7 +833,11 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 "APC/wait state leaked");
         }
         if (mode == 66) {
-            require(process.EventParks >= 8 && process.WaitTimeouts && process.WaitCloses,
+            // Waits on events and on thread handles are counted apart since K1.2; the scenario exercises both.
+            require(process.EventParks + process.ThreadWaitParks >= 8 &&
+                    process.ThreadWaitParks &&
+                    process.WaitTimeouts &&
+                    process.WaitCloses,
                 "Object wait paths were not exercised");
         }
         wit_user_destroy(&process);
@@ -869,7 +853,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 process.ExitCode == WIT_TEST_EXIT_CODE &&
                 process.Space.OwnedCount == owned &&
                 process.ThreadCreates == (mode == 64 ? 4U : 1U) &&
-                process.ThreadJoins == (mode == 64 ? 3U : 0U) &&
                 process.ThreadReaps == (mode == 64 ? 3U : 0U) &&
                 !process.Handles.Count &&
                 !process.Events.Count,
@@ -889,7 +872,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 process.ExitCode == WIT_TEST_EXIT_CODE &&
                 process.Space.OwnedCount == owned &&
                 process.ThreadCreates == (mode == 62 ? 4U : 1U) &&
-                process.ThreadJoins == (mode == 62 ? 3U : 0U) &&
                 process.ThreadReaps == (mode == 62 ? 3U : 0U) &&
                 (process.Threads[0].CompilerTls != 0) == (mode == 62) &&
                 !process.Writes &&
@@ -908,7 +890,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 process.ExitCode == WIT_TEST_EXIT_CODE &&
                 process.Space.OwnedCount == owned &&
                 process.ThreadCreates == (mode == 60 ? 4U : 1U) &&
-                process.ThreadJoins == (mode == 60 ? 3U : 0U) &&
                 process.ThreadReaps == (mode == 60 ? 3U : 0U) &&
                 (process.Threads[0].CompilerTls != 0) == (mode == 60) &&
                 !process.Writes &&
@@ -933,7 +914,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 wit_random_generation() - generation == report[4] + seeds &&
                 process.Space.OwnedCount == owned &&
                 process.ThreadCreates == (mode == 58 ? 4U : 1U) &&
-                process.ThreadJoins == (mode == 58 ? 3U : 0U) &&
                 process.ThreadReaps == (mode == 58 ? 3U : 0U) &&
                 (process.Threads[0].CompilerTls != 0) == (mode == 58) &&
                 !process.Writes &&
@@ -953,7 +933,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 process.ExitCode == (success ? WIT_TEST_EXIT_CODE : WIT_NATIVE_GS_FAILURE_EXIT) &&
                 process.Space.OwnedCount == owned &&
                 process.ThreadCreates == (mode == 45 ? 4U : 1U) &&
-                process.ThreadJoins == (mode == 45 ? 3U : 0U) &&
                 process.ThreadReaps == (mode == 45 ? 3U : 0U) &&
                 (process.Threads[0].CompilerTls != 0) == (mode != 54) &&
                 !process.Writes &&
@@ -972,7 +951,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 process.ExitCode == WIT_TEST_EXIT_CODE &&
                 process.Space.OwnedCount == owned &&
                 process.ThreadCreates == (mode == 43 ? 4U : 1U) &&
-                process.ThreadJoins == (mode == 43 ? 3U : 0U) &&
                 process.ThreadReaps == (mode == 43 ? 3U : 0U) &&
                 !process.Writes &&
                 !process.Handles.Count &&
@@ -990,7 +968,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 process.ExitCode == WIT_TEST_EXIT_CODE &&
                 process.Space.OwnedCount == owned &&
                 process.ThreadCreates == (mode == 41 ? 4U : 1U) &&
-                process.ThreadJoins == (mode == 41 ? 3U : 0U) &&
                 process.ThreadReaps == (mode == 41 ? 3U : 0U) &&
                 !process.Writes &&
                 !process.Handles.Count &&
@@ -1008,7 +985,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 process.ExitCode == WIT_TEST_EXIT_CODE &&
                 process.Space.OwnedCount == owned &&
                 process.ThreadCreates == (mode == 39 ? 4U : 1U) &&
-                process.ThreadJoins == (mode == 39 ? 3U : 0U) &&
                 process.ThreadReaps == (mode == 39 ? 3U : 0U) &&
                 !process.Writes &&
                 !process.Handles.Count &&
@@ -1033,7 +1009,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 process.Space.OwnedCount == owned &&
                 process.Writes == (mode <= 30 ? 3U : (mode == 31 || mode == 32 ? 1U : 0U)) &&
                 process.ThreadCreates == 1 &&
-                !process.ThreadJoins &&
                 !process.ThreadReaps &&
                 (process.Threads[0].CompilerTls != 0) == (mode != 30) &&
                 !process.Handles.Count &&
@@ -1051,7 +1026,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 process.ExitCode == WIT_TEST_EXIT_CODE &&
                 process.Space.OwnedCount == owned &&
                 process.ThreadCreates == (mode == 27 ? 4U : 1U) &&
-                process.ThreadJoins == (mode == 27 ? 3U : 0U) &&
                 process.ThreadReaps == (mode == 27 ? 3U : 0U) &&
                 (process.Threads[0].CompilerTls != 0) == (mode == 27) &&
                 !process.Handles.Count &&
@@ -1081,7 +1055,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
             require(process.State == WitUserExited &&
                     process.ExitCode == WIT_TEST_EXIT_CODE &&
                     process.ThreadCreates == (mode == 24 ? 4U : 1U) &&
-                    process.ThreadJoins == (mode == 24 ? 3U : 0U) &&
                     process.ThreadReaps == (mode == 24 ? 3U : 0U) &&
                     (process.Threads[0].CompilerTls != 0) == (mode == 24),
                 "Minipal CPU discovery/instruction/thread test failed");
@@ -1144,7 +1117,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 report[0] == mode &&
                 report[1] == 1048576 &&
                 process.ThreadCreates == (mode == 20 ? 7U : 1U) &&
-                process.ThreadJoins == (mode == 20 ? 6U : 0U) &&
                 process.ThreadReaps == (mode == 20 ? 6U : 0U) &&
                 (process.Threads[0].CompilerTls != 0) == (mode == 20) &&
                 process.Space.OwnedCount == owned &&
@@ -1160,7 +1132,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 report[0] == mode &&
                 report[1] == 524288 &&
                 process.ThreadCreates == (mode == 18 ? 1U : 7U) &&
-                process.ThreadJoins == (mode == 18 ? 0U : 6U) &&
                 process.ThreadReaps == (mode == 18 ? 0U : 6U) &&
                 (process.Threads[0].CompilerTls != 0) == (mode == 19) &&
                 process.Space.OwnedCount == owned &&
@@ -1176,7 +1147,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 report[0] == mode &&
                 report[1] == 262144 &&
                 process.ThreadCreates == (mode == 16 ? 1U : 7U) &&
-                process.ThreadJoins == (mode == 16 ? 0U : 6U) &&
                 process.ThreadReaps == (mode == 16 ? 0U : 6U) &&
                 (process.Threads[0].CompilerTls != 0) == (mode != 16) &&
                 process.Space.OwnedCount == owned &&
@@ -1193,7 +1163,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 report[1] == 65536 &&
                 process.ProcessWriteBarriers == (mode == 12 ? 50U : 2U) &&
                 process.ThreadCreates == (mode == 12 ? 4U : 1U) &&
-                process.ThreadJoins == (mode == 12 ? 3U : 0U) &&
                 process.ThreadReaps == (mode == 12 ? 3U : 0U) &&
                 (process.Threads[0].CompilerTls != 0) == (mode == 12) &&
                 process.Space.OwnedCount == owned &&
@@ -1208,7 +1177,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
         require(report && report[0] == mode && report[1] == (mode == 9 ? 8192U : (mode == 14 ? 155648U : 24576U)),
             "Runtime startup report mismatch");
         require(process.ThreadCreates == (mode == 9 ? 1U : (mode == 14 ? 17U : 4U)) &&
-                process.ThreadJoins == (mode == 9 ? 0U : (mode == 14 ? 16U : 3U)) &&
                 process.ThreadReaps == (mode == 9 ? 0U : (mode == 14 ? 16U : 3U)),
             "Runtime startup thread lifecycle counts mismatch");
         require(process.Space.OwnedCount > owned, "Interface dispatch initialization missed real allocations");
@@ -1230,7 +1198,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 report[1] ==
                     ((mode == 8 || mode == 11 || mode == 13 || mode == 16 || mode == 18 || mode == 23) ? 2048 : 1089) &&
                 process.ThreadCreates == 1 &&
-                !process.ThreadJoins &&
                 !process.ThreadReaps &&
                 (process.Threads[0].CompilerTls != 0) == (mode != 8),
             "PAL initialization rejection missed its intended boundary");
@@ -1239,7 +1206,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 report[0] == mode &&
                 report[1] == 5119 &&
                 process.ThreadCreates == 7 &&
-                process.ThreadJoins == 6 &&
                 process.ThreadReaps == 6 &&
                 process.ThreadSwitches,
             "Runtime configuration missed required checks or thread reuse");

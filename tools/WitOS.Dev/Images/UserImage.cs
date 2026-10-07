@@ -19,6 +19,8 @@ internal static class UserImage
         "src/Kernel/include/witos/user_abi.h",
         "src/Kernel/include/witos/user_abi_frozen.h",
         "src/Kernel/include/witos/wait_objects.h",
+        "src/Kernel/include/witos/thread_info.h",
+        "src/Kernel/include/witos/thread_reference.h",
         "src/Kernel/include/witos/user_layout.h",
         "src/Kernel/include/witos/limits.h",
         "tests/User/protocol.h"

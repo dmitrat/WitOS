@@ -350,8 +350,12 @@ void wit_user_runtime_boot_test(WitPageAllocator *pages)
                 wit_console_write_u64(report[n]);
                 wit_console_write(n == 3 ? "\n" : "/");
             }
+            /* A raw exit of an attached worker is an ordinary exit to the kernel since K1.2 (THREAD_COMPLETE merged
+             * into THREAD_EXIT); the frozen runtime notices the dead record through the observer handle and fails
+             * fast itself (0xFFFF0103), with no TLS, cleanup or atexit callback run. A fault still ends the
+             * component through the kernel's fatal path. */
             const int contained = process.State == WitUserExited &&
-                process.ExitCode == (mode < 2 ? WIT_PROCESS_ABRUPT_THREAD_EXIT : 0xC000001DULL) &&
+                process.ExitCode == (mode < 2 ? 0xFFFF0103ULL : 0xC000001DULL) &&
                 copied &&
                 report[0] == 1 &&
                 !report[1] &&
@@ -359,9 +363,8 @@ void wit_user_runtime_boot_test(WitPageAllocator *pages)
                 !report[3] &&
                 !process.Handles.Count &&
                 !process.Events.Count &&
-                (mode < 2 ? (process.AbruptThreadId &&
-                                process.AbruptThreadId != process.Threads[0].Handle &&
-                                process.AbruptThreadCode == 0x1234)
+                !process.AbruptThreadId &&
+                (mode < 2 ? process.ThreadExits == 1
                           : (process.Fatal.Code == 0xC000001DU &&
                                 process.Fatal.Context.ThreadId != process.Threads[0].Handle &&
                                 process.HardwareIllegalFaults == 1));
@@ -430,14 +433,16 @@ void wit_user_runtime_boot_test(WitPageAllocator *pages)
         wit_console_write("Runtime parked foreign object waits: ");
         wit_console_write_u64(process.ForeignObjectWaitSuspends);
         wit_console_write("\n");
-        wit_console_write("Runtime managed thread capacity failures: ");
+        /* Every creation is the one form since K1.2, so the count covers the four managed Thread.Start failures of the
+         * quota test and the two native creations the runtime attempts while the quota is exhausted. */
+        wit_console_write("Runtime thread capacity failures: ");
         wit_console_write_u64(process.ReferenceThreadCapacityFailures);
         wit_console_write("\n");
-        const int capacityFailure = process.ReferenceThreadCapacityFailures == 4;
+        const int capacityFailure = process.ReferenceThreadCapacityFailures == 6;
         const int parked = process.ForeignObjectWaitSuspends > 0;
-        const int orderly = process.OrderlyThreadExits == 43;
-        wit_console_write("Runtime orderly thread completions: ");
-        wit_console_write_u64(process.OrderlyThreadExits);
+        const int orderly = process.ThreadExits == 43;
+        wit_console_write("Runtime thread exits: ");
+        wit_console_write_u64(process.ThreadExits);
         wit_console_write("\n");
         wit_console_write("Runtime execution ticks/limit: ");
         wit_console_write_u64(process.Ticks);

@@ -3,29 +3,29 @@
 #include "user_abi.h"
 #include "limits.h"
 
+/* Kinds are kernel-internal. THREAD_IDENTITY is a thread's private generation-bearing identity: never granted to user
+ * space as a capability, closing it is BUSY, and it ends with the thread. THREAD_REFERENCE is the thread handle. */
 #define WIT_HANDLE_CONSOLE 1U
 #define WIT_HANDLE_SELF 2U
-#define WIT_HANDLE_THREAD 3U
+#define WIT_HANDLE_THREAD_IDENTITY 3U
 #define WIT_HANDLE_EVENT 4U
 #define WIT_HANDLE_THREAD_REFERENCE 5U
 #define WIT_HANDLE_FILE 6U
 #define WIT_HANDLE_LIBRARY 7U
 #define WIT_HANDLE_LIBRARY_READER 8U
 #define WIT_HANDLE_LIBRARY_LIFECYCLE 9U
-#define WIT_RIGHT_READ 16U
-#define WIT_RIGHT_WAIT 4U
-#define WIT_RIGHT_SIGNAL 8U
-WIT_STATIC_ASSERT(
-    WIT_RIGHT_WAIT == WIT_EVENT_ACCESS_WAIT && WIT_RIGHT_SIGNAL == WIT_EVENT_ACCESS_SIGNAL, "Event access ABI");
-#define WIT_RIGHT_JOIN 2U
-#define WIT_RIGHT_WRITE 1U
+/* The rights are the ABI's (user_abi.h); READ of a lifecycle handle is the QUERY bit. */
+#define WIT_RIGHT_READ WIT_RIGHT_QUERY
 
+/* Object names the object an entry refers to within its kind (an event slot, a thread identity); zero when the kind
+ * has one object per handle. */
 typedef struct WitHandleEntry {
     WitU64 Token;
     WitU32 Kind;
     WitU32 Rights;
     WitU32 Generation;
     WitU32 Live;
+    WitU64 Object;
 } WitHandleEntry;
 
 typedef struct WitHandleTable {
@@ -37,7 +37,10 @@ typedef struct WitHandleTable {
 
 void wit_handles_initialize(WitHandleTable *table, WitU32 owner);
 WitU64 wit_handle_grant(WitHandleTable *table, WitU32 kind, WitU32 rights);
+WitU64 wit_handle_grant_object(WitHandleTable *table, WitU32 kind, WitU32 rights, WitU64 object);
 WitU64 wit_handle_check(WitHandleTable *table, WitU64 token, WitU32 kind, WitU32 rights);
+/* The object and rights of a live handle of the kind; zero object and rights when there is none. */
+int wit_handle_describe(const WitHandleTable *table, WitU64 token, WitU32 kind, WitU64 *object, WitU32 *rights);
 WitU64 wit_handle_close(WitHandleTable *table, WitU64 token);
 void wit_handles_close_all(WitHandleTable *table);
 #endif

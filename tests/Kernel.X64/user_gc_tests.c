@@ -78,32 +78,26 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 "Guest memory snapshot disagrees with allocator");
         }
         if (mode == WIT_GC_TEST_EVENT_MANUAL || mode == WIT_GC_TEST_EVENT_AUTO || mode == WIT_GC_TEST_EVENT_CLOSE) {
-            require(process.ThreadCreates == 3 && process.ThreadJoins == 2 && process.ThreadReaps == 2,
-                "GC event workers were not joined and reaped");
+            require(
+                process.ThreadCreates == 3 && process.ThreadReaps == 2, "GC event workers were not joined and reaped");
         }
         if (mode == WIT_GC_TEST_EVENT_CONTENTION) {
-            require(process.ThreadCreates == 4 &&
-                    process.ThreadJoins == 3 &&
-                    process.ThreadReaps == 3 &&
-                    process.ThreadSwitches >= 2,
+            require(process.ThreadCreates == 4 && process.ThreadReaps == 3 && process.ThreadSwitches >= 2,
                 "GC native lock did not exercise a yielding contender");
         }
         if (mode == WIT_GC_TEST_TIMED_SIGNAL) {
-            require(process.ThreadCreates == 2 && process.ThreadJoins == 1 && process.ThreadReaps == 1,
-                "Timed GC signal worker leaked");
+            require(process.ThreadCreates == 2 && process.ThreadReaps == 1, "Timed GC signal worker leaked");
         }
         if (mode == WIT_GC_TEST_THREAD_ID) {
             const WitU64 report = wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 0, 0);
             require(report &&
                     *(const WitU64 *)report == process.Threads[0].Handle &&
                     process.ThreadCreates == 3 &&
-                    process.ThreadJoins == 2 &&
                     process.ThreadReaps == 2,
                 "Kernel thread identity or slot reuse failed");
         }
         if (mode == WIT_GC_TEST_MUTEX_BLOCKING) {
             require(process.ThreadCreates == 2 &&
-                    process.ThreadJoins == 1 &&
                     process.ThreadReaps == 1 &&
                     process.EventParks > 0 &&
                     process.EventWakes > 0,
@@ -111,17 +105,13 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
         }
         if (mode == WIT_GC_TEST_MUTEX_STRESS) {
             require(process.ThreadCreates == 3 &&
-                    process.ThreadJoins == 2 &&
                     process.ThreadReaps == 2 &&
                     process.EventParks > 0 &&
                     process.EventWakes > 0,
                 "Mutex stress did not block contenders");
         }
         if (mode == WIT_NATIVE_TEST_HEAP_THREADS) {
-            require(process.ThreadCreates == 3 &&
-                    process.ThreadJoins == 2 &&
-                    process.ThreadReaps == 2 &&
-                    process.ThreadSwitches >= 2,
+            require(process.ThreadCreates == 3 && process.ThreadReaps == 2 && process.ThreadSwitches >= 2,
                 "Native heap workers were not switched/joined/reaped");
         }
         require(process.Space.OwnedCount == owned, "GC adapter leaked backing or private page tables");

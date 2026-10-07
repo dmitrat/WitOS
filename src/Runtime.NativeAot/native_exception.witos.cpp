@@ -1024,8 +1024,7 @@ extern "C" void __cdecl wit_native_raise_exception(
         exception.ExceptionInformation[i] = arguments[i];
     }
     // Kernel metadata supplies identity, bounds and the current nesting state.
-    if (wit_native_call(WIT_CALL_THREAD_CONTEXT_METADATA, WIT_THREAD_REFERENCE_CURRENT, (WitU64)&info.Context,
-            sizeof(info.Context), nullptr) != WIT_STATUS_OK) {
+    if (wit_native_context_prefix((WitU64)WIT_THREAD_REFERENCE_CURRENT, &info.Context) != WIT_STATUS_OK) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
     captured->FltSave.MxCsr_Mask = cpu.MxcsrMask;
@@ -1056,8 +1055,7 @@ extern "C" [[noreturn]] void wit_native_consolidate_finish(void *value, WitU64 c
         !current(owner) ||
         !WitContext::profile(cpu) ||
         !code(continuation) ||
-        wit_native_call(WIT_CALL_THREAD_CONTEXT_METADATA, WIT_THREAD_REFERENCE_CURRENT, (WitU64)&context,
-            sizeof(context), nullptr) != WIT_STATUS_OK) {
+        wit_native_context_prefix((WitU64)WIT_THREAD_REFERENCE_CURRENT, &context) != WIT_STATUS_OK) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
     request->Target.Rip = continuation;
@@ -1083,8 +1081,7 @@ extern "C" void __cdecl wit_native_local_unwind(CONTEXT *captured, WitU64 target
         targetFrame >= owner.StackHigh) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
-    if (wit_native_call(WIT_CALL_THREAD_CONTEXT_METADATA, WIT_THREAD_REFERENCE_CURRENT, (WitU64)&info.Context,
-            sizeof(info.Context), nullptr) != WIT_STATUS_OK) {
+    if (wit_native_context_prefix((WitU64)WIT_THREAD_REFERENCE_CURRENT, &info.Context) != WIT_STATUS_OK) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
     captured->FltSave.MxCsr_Mask = cpu.MxcsrMask;
@@ -1162,8 +1159,7 @@ extern "C" void __cdecl wit_native_rtl_unwind(CONTEXT *captured, WitU64 targetFr
             wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
         }
     }
-    if (wit_native_call(WIT_CALL_THREAD_CONTEXT_METADATA, WIT_THREAD_REFERENCE_CURRENT, (WitU64)&info.Context,
-            sizeof(info.Context), nullptr) != WIT_STATUS_OK) {
+    if (wit_native_context_prefix((WitU64)WIT_THREAD_REFERENCE_CURRENT, &info.Context) != WIT_STATUS_OK) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
     captured->FltSave.MxCsr_Mask = cpu.MxcsrMask;

@@ -329,7 +329,7 @@ extern "C" WitU64 wit_test_context_mutation(const WitUserStartup *startup, WitU6
             }
         }
         if (ResumeThread(target) != 1 ||
-            wit_native_call(WIT_CALL_THREAD_JOIN, join, 0, 0, &result) != WIT_STATUS_OK ||
+            wit_native_thread_join(join, &result) != WIT_STATUS_OK ||
             result != WIT_TEST_EXIT_CODE ||
             wit_context_spin_result != 0x778899AABBCCDD11ULL ||
             wit_context_spin_xmm != 0x66778899AABBCCDDULL ||

@@ -52,16 +52,18 @@ CLOSE MACRO handle
     CALL0 WIT_CALL_HANDLE_CLOSE
     EXPECT WIT_STATUS_OK
 ENDM
+; THREAD_CREATE: rdx receives the thread handle.
 CREATE_THREAD MACRO target, argument
     lea rcx, target
     mov rdx, argument
     xor r8d, r8d
-    CALL0 WIT_CALL_THREAD_CREATE_SIMPLE
+    call thread_create
     EXPECT WIT_STATUS_OK
 ENDM
+; Wait for the thread, read its exit code and close the handle.
 JOIN MACRO handle
     mov rcx, handle
-    CALL0 WIT_CALL_THREAD_JOIN
+    call thread_join
     EXPECT WIT_STATUS_OK
     cmp rdx, WIT_TEST_EXIT_CODE
     jne failed
@@ -410,6 +412,58 @@ rights_test:
     WAIT_EVENT QWORD PTR [r15 + WIT_TEST_RO_OFFSET], 0
     EXPECT WIT_STATUS_BAD_HANDLE
     jmp passed
+
+; THREAD_CREATE with a request on the stack: rcx entry, rdx argument, r8 flags -> rax status, rdx handle.
+thread_create:
+    sub rsp, 56
+    mov DWORD PTR [rsp], WIT_THREAD_CREATE_VERSION
+    mov DWORD PTR [rsp + 4], 48
+    mov [rsp + 8], rcx
+    mov [rsp + 16], rdx
+    xor eax, eax
+    mov [rsp + 24], rax
+    mov [rsp + 32], rax
+    mov [rsp + 40], r8d
+    mov DWORD PTR [rsp + 44], 0
+    mov rcx, rsp
+    mov edx, 48
+    xor r8d, r8d
+    CALL0 WIT_CALL_THREAD_CREATE
+    add rsp, 56
+    ret
+
+; Wait for the thread, read its exit code and close the handle: rcx handle -> rax status, rdx exit code.
+thread_join:
+    sub rsp, 152
+    mov [rsp + 32], rcx
+    lea rax, [rsp + 32]
+    mov DWORD PTR [rsp], WIT_WAIT_OBJECTS_VERSION
+    mov DWORD PTR [rsp + 4], 32
+    mov [rsp + 8], rax
+    mov DWORD PTR [rsp + 16], 1
+    mov DWORD PTR [rsp + 20], 0
+    mov rax, WIT_WAIT_INFINITE
+    mov [rsp + 24], rax
+    mov rcx, rsp
+    mov edx, 32
+    xor r8d, r8d
+    CALL0 WIT_CALL_OBJECT_WAIT
+    test rax, rax
+    jne thread_join_done
+    mov DWORD PTR [rsp + 40], WIT_THREAD_INFO_VERSION
+    mov DWORD PTR [rsp + 44], WIT_THREAD_INFO_SIZE
+    mov rcx, [rsp + 32]
+    lea rdx, [rsp + 40]
+    mov r8d, WIT_THREAD_INFO_SIZE
+    CALL0 WIT_CALL_THREAD_QUERY
+    test rax, rax
+    jne thread_join_done
+    mov rcx, [rsp + 32]
+    CALL0 WIT_CALL_HANDLE_CLOSE
+    mov rdx, [rsp + 40 + 72] ; ExitCode
+thread_join_done:
+    add rsp, 152
+    ret
 
 ; OBJECT_WAIT on one handle: rcx handle, rdx deadline; rax status, rdx winner. The request and its handle array live
 ; on the caller's own stack, so concurrent waiters never share them. Clobbers r8 and r9.

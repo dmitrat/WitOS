@@ -157,7 +157,7 @@ extern "C" WitU64 wit_dynamic_program(const WitUserStartup *startup)
         return 1016;
     }
     for (WitU64 i = 0; i < 3; ++i) {
-        if (wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &result) != WIT_STATUS_OK ||
+        if (wit_native_thread_join(handles[i], &result) != WIT_STATUS_OK ||
             result != WIT_TEST_EXIT_CODE ||
             reports[i + 1] != (mode == 8 ? 12291U : 1221U)) {
             return 1017;
@@ -165,7 +165,7 @@ extern "C" WitU64 wit_dynamic_program(const WitUserStartup *startup)
     }
     reports[1] = 0;
     if (wit_native_thread_create(worker, 1, &handles[0]) != WIT_STATUS_OK ||
-        wit_native_call(WIT_CALL_THREAD_JOIN, handles[0], 0, 0, &result) != WIT_STATUS_OK ||
+        wit_native_thread_join(handles[0], &result) != WIT_STATUS_OK ||
         result != WIT_TEST_EXIT_CODE ||
         reports[1] != (mode == 8 ? 12291U : 1221U) ||
         constructed != 2 ||
@@ -174,9 +174,8 @@ extern "C" WitU64 wit_dynamic_program(const WitUserStartup *startup)
         return 1018;
     }
     reports[2] = 0;
-    if (wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)wit_dynamic_lazy_entry, 2, 0, &handles[0]) !=
-            WIT_STATUS_OK ||
-        wit_native_call(WIT_CALL_THREAD_JOIN, handles[0], 0, 0, &result) != WIT_STATUS_OK ||
+    if (wit_native_thread_start((WitU64)wit_dynamic_lazy_entry, 2, 0, &handles[0]) != WIT_STATUS_OK ||
+        wit_native_thread_join(handles[0], &result) != WIT_STATUS_OK ||
         result != WIT_TEST_EXIT_CODE ||
         reports[2] != (mode == 8 ? 12291U : 1221U)) {
         return 1021;

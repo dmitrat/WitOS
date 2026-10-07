@@ -19,13 +19,13 @@ static WitU64 identity()
 
 static bool spawn(void (*entry)(WitU64), WitU64 argument, WitU64 *handle)
 {
-    return call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)entry, argument, 0, handle) == WIT_STATUS_OK;
+    return wit_native_thread_start((uintptr_t)entry, argument, 0, handle) == WIT_STATUS_OK;
 }
 
 static bool join(WitU64 handle)
 {
     WitU64 code = 0;
-    return call(WIT_CALL_THREAD_JOIN, handle, 0, 0, &code) == WIT_STATUS_OK && code == WIT_TEST_EXIT_CODE;
+    return wit_native_thread_join(handle, &code) == WIT_STATUS_OK && code == WIT_TEST_EXIT_CODE;
 }
 
 static void done(WitU64 code = WIT_TEST_EXIT_CODE)
@@ -123,7 +123,15 @@ WitU64 wit_gc_mutex(const WitUserStartup *startup, WitU64 mode)
             return 303;
         }
         for (size_t i = 0; i < 2; ++i) {
-            if (!spawn(identify, i, &handle) || !join(handle) || thread_ids[i] != handle || handle == self) {
+            // The handle is a capability distinct from the identity the worker reads; the record names the identity.
+            WitUserThreadInfo info;
+            if (!spawn(identify, i, &handle) ||
+                wit_native_thread_query(handle, &info) != WIT_STATUS_OK ||
+                handle == self ||
+                handle == info.ThreadId ||
+                !join(handle) ||
+                thread_ids[i] != info.ThreadId ||
+                thread_ids[i] == self) {
                 return 304;
             }
         }

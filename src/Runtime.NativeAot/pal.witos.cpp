@@ -25,13 +25,11 @@ static bool current(WitUserThreadInfo *info)
 
 uint64_t PalGetCurrentOSThreadId()
 {
-    WitU64 identity = 0;
-    if (wit_native_call(WIT_CALL_THREAD_NATIVE_ID, 0, 0, 0, &identity) != WIT_STATUS_OK ||
-        !identity ||
-        identity > UINT32_MAX) {
+    WitUserThreadInfo info;
+    if (!wit_native_thread_info(&info) || !info.NativeId) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
-    return identity;
+    return info.NativeId;
 }
 
 bool PalGetMaximumStackBounds(void **low, void **high)

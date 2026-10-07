@@ -68,7 +68,7 @@ extern "C" bool wit_test_barrier_threads()
         }
     }
     for (WitU64 i = 0; i < 3; ++i) {
-        if (wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &code) != WIT_STATUS_OK ||
+        if (wit_native_thread_join(handles[i], &code) != WIT_STATUS_OK ||
             code != WIT_TEST_EXIT_CODE ||
             values[i] != i * 100 + 7) {
             return false;
