@@ -88,7 +88,7 @@ static WitArchFrame *memory_protect(WitUserCall *call)
 
 static WitArchFrame *memory_release(WitUserCall *call)
 {
-    *call->Status = wit_user_memory_release(&call->Process->Space, call->Argument0);
+    *call->Status = wit_user_memory_unmap(call->Process, call->Argument0);
     return 0;
 }
 
@@ -316,6 +316,27 @@ static WitArchFrame *object_wait(WitUserCall *call)
 {
     *call->Status = wit_user_object_wait(
         call->Process, call->Argument0, call->Argument1, call->Argument2, wit_platform_monotonic_read(), call->Value);
+    return 0;
+}
+
+static WitArchFrame *memory_object_create(WitUserCall *call)
+{
+    *call->Status =
+        wit_user_memory_object_create(call->Process, call->Argument0, call->Argument1, call->Argument2, call->Value);
+    return 0;
+}
+
+static WitArchFrame *memory_object_map(WitUserCall *call)
+{
+    *call->Status =
+        wit_user_memory_object_map(call->Process, call->Argument0, call->Argument1, call->Argument2, call->Value);
+    return 0;
+}
+
+static WitArchFrame *code_publish(WitUserCall *call)
+{
+    *call->Status = call->Argument2 ? WIT_STATUS_INVALID_ARGUMENT
+                                    : wit_user_code_publish(&call->Process->Space, call->Argument0, call->Argument1);
     return 0;
 }
 
@@ -582,6 +603,9 @@ static WitArchFrame *(*const handlers[CALL_COUNT])(WitUserCall *) = {
     [WIT_CALL_MEMORY_RESET] = memory_reset,
     [WIT_CALL_MEMORY_QUERY] = memory_query,
     [WIT_CALL_MEMORY_PRESSURE_EVENT] = memory_pressure_event,
+    [WIT_CALL_MEMORY_OBJECT_CREATE] = memory_object_create,
+    [WIT_CALL_MEMORY_OBJECT_MAP] = memory_object_map,
+    [WIT_CALL_CODE_PUBLISH] = code_publish,
     [WIT_CALL_THREAD_CREATE] = thread_create,
     [WIT_CALL_THREAD_EXIT] = thread_exit,
     [WIT_CALL_THREAD_YIELD] = thread_yield,

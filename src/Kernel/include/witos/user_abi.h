@@ -25,7 +25,7 @@
  * arguments, RAX=status and RDX=result, other GPRs and x87/SSE state preserved, RFLAGS reset to 0x202; on ARM64
  * SVC #0 with x8=call, x0-x2 arguments, x0=status and x1=result. A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
-#define WIT_ABI_VERSION 56U
+#define WIT_ABI_VERSION 57U
 /* QUERY result: the low 32 bits are WIT_ABI_VERSION, the high 32 bits the mask of the families present. */
 #define WIT_ABI_FEATURE_CHANNELS 1U
 #define WIT_ABI_FEATURE_DEVICES 2U
@@ -68,7 +68,18 @@
 #define WIT_CALL_MEMORY_QUERY 16U
 /* Create(0, 0, 0) -> a kernel-controlled manual event, set under physical or quota pressure, waitable only. */
 #define WIT_CALL_MEMORY_PRESSURE_EVENT 17U
-/* 18 MEMORY_OBJECT_CREATE, 19 MEMORY_OBJECT_MAP and 20 CODE_PUBLISH arrive with plan step K5. */
+/* Memory objects (RFC 0011 section 7.2). Create(size, 0, 0) -> handle to an anonymous object of size (page
+ * multiple, up to WIT_MEMORY_OBJECT_PAGES pages) with MAP, WRITE, EXECUTE, QUERY, DUPLICATE and TRANSFER; its pages
+ * count toward the component's page quota and are zero. */
+#define WIT_CALL_MEMORY_OBJECT_CREATE 18U
+/* Map(WitMemoryMapRequest, 56, 0) -> address: a window of the object as a reservation at the requested or a chosen
+ * address under NONE, READ, READ|WRITE (the WRITE right) or READ|EXECUTE (the EXECUTE right); the mapping shares the
+ * object's pages, follows MEMORY_PROTECT within the handle's rights, refuses commit, decommit and reset, and ends
+ * with MEMORY_RELEASE; the object ends with its last handle or mapping. The target is WIT_PROCESS_SELF until K5.2. */
+#define WIT_CALL_MEMORY_OBJECT_MAP 19U
+/* Publish(base, size, 0): makes code written through a writable mapping visible to instruction fetch through the
+ * executable mapping of the same pages; every page of the range must be mapped READ|EXECUTE. */
+#define WIT_CALL_CODE_PUBLISH 20U
 
 /* Threads and contexts (RFC 0011 section 7.3). */
 /* Create(WitThreadCreateRequest, exact size, 0) -> thread handle with every thread right: the one form. The handle
@@ -188,8 +199,9 @@
 #define WIT_THREAD_LIBRARY_NOTIFICATIONS 2U
 /* Rights (RFC 0011 section 6.1): a bit is never reused, and 2 (the join right of the retired join capability) is
  * retired. WAIT and SIGNAL belong to events and the kernel log; QUERY, GET_CONTEXT, SET_CONTEXT, SUSPEND_RESUME and
- * ACTIVATE to threads; SEND and RECEIVE to channel endpoints; DUPLICATE (HANDLE_DUPLICATE of an endpoint) and
- * TRANSFER (moving the handle in a message) to every kind a message can carry. */
+ * ACTIVATE to threads; SEND and RECEIVE to channel endpoints; MAP, WRITE and EXECUTE to memory objects (a mapping
+ * with that access); DUPLICATE (HANDLE_DUPLICATE of an endpoint or an object) and TRANSFER (moving the handle in a
+ * message) to every kind a message can carry. */
 #define WIT_RIGHT_WRITE 1U
 #define WIT_RIGHT_WAIT 4U
 #define WIT_RIGHT_SIGNAL 8U
@@ -202,6 +214,8 @@
 #define WIT_RIGHT_RECEIVE 1024U
 #define WIT_RIGHT_DUPLICATE 2048U
 #define WIT_RIGHT_TRANSFER 4096U
+#define WIT_RIGHT_MAP 8192U
+#define WIT_RIGHT_EXECUTE 16384U
 #define WIT_RIGHT_THREAD_ALL 6644U
 #define WIT_EVENT_ACCESS_WAIT WIT_RIGHT_WAIT
 #define WIT_EVENT_ACCESS_SIGNAL WIT_RIGHT_SIGNAL
@@ -248,6 +262,9 @@
 #define WIT_MEMORY_NONE 0U
 #define WIT_MEMORY_READ 1U
 #define WIT_MEMORY_WRITE 2U
+#define WIT_MEMORY_EXECUTE 4U /* With READ alone, for a mapping of a memory object; never with WRITE. */
+/* The own process as the target of a mapping; other targets (a process handle) arrive with K5.2. */
+#define WIT_PROCESS_SELF (~2ULL)
 
 typedef struct WitUserStartup {
     WitU32 Version;

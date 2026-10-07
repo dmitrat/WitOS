@@ -8,6 +8,7 @@
 #include "witos/files.h"
 #include "witos/events.h"
 #include "witos/channels.h"
+#include "witos/memory_object.h"
 #include "witos/memory.h"
 #include "witos/pe.h"
 #include "witos/virtual_gap.h"
@@ -34,6 +35,10 @@ typedef struct WitUserSpace {
     WitU32 AliasCount;
     WitCodeView CodeViews[WIT_CODE_VIEW_CAPACITY];
     WitUserReservation Reservations[WIT_RUNTIME_RESERVATION_CAPACITY];
+    /* Per reservation: the memory object it maps (its nonzero number; zero for a plain reservation) and the rights
+     * of the handle that mapped it, which bound its protection. */
+    WitU32 MappedObjects[WIT_RUNTIME_RESERVATION_CAPACITY];
+    WitU32 MappedRights[WIT_RUNTIME_RESERVATION_CAPACITY];
     WitVirtualRange LibraryRanges[WIT_LIBRARY_CAPACITY + 1];
     WitU32 OwnedCount, PageLimit, ReservationLimit;
     WitU64 FixedLimit;
@@ -149,6 +154,7 @@ typedef struct WitUserProcess {
     WitUserLibraryReader LibraryReaders[WIT_LIBRARY_READER_CAPACITY];
     WitEventTable Events;
     WitChannelTable Channels;
+    WitMemoryObjectTable MemoryObjects;
     WitU32 Id;
     WitU32 Slot;
     WitUserState State;
@@ -282,6 +288,23 @@ int wit_user_channel_handle(WitUserProcess *, WitU64);
 /* A thread exited: the thread handles in flight in messages learn the exit as the records in the table do. */
 void wit_user_channels_thread_exited(WitUserProcess *, WitU64, WitU64);
 
+/* Memory objects (RFC 0011 section 7.2): creation, mapping, the release of a mapping or a plain reservation, the
+ * object's close, duplication, the reference a dropped message held, and whether a handle is an object's. */
+WitU64 wit_user_memory_object_create(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
+WitU64 wit_user_memory_object_map(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
+WitU64 wit_user_memory_unmap(WitUserProcess *, WitU64);
+WitU64 wit_user_memory_object_close(WitUserProcess *, WitU64);
+WitU64 wit_user_memory_object_duplicate(WitUserProcess *, WitU64, WitU64, WitU64);
+void wit_user_memory_object_release(WitUserProcess *, WitU64);
+int wit_user_memory_object_handle(WitUserProcess *, WitU64);
+
+/* The address space's part: pages without an address of their own, a mapping of an object's pages as a reservation
+ * at a chosen or fixed address, and the object a reservation maps. */
+int wit_user_space_allocate_pages(WitUserSpace *, WitU64 *, WitU32);
+void wit_user_space_free_pages(WitUserSpace *, const WitU64 *, WitU32);
+WitU64 wit_user_space_map_object(WitUserSpace *, WitU64, WitU64, const WitU64 *, WitU64, WitU32, WitU32, WitU64 *);
+int wit_user_space_mapping_object(const WitUserSpace *, WitU64, WitU64 *);
+
 WitU64 wit_user_space_take_table(WitUserSpace *space);
 void wit_user_space_release_table(WitUserSpace *space, WitU64 page);
 int wit_user_space_create_profile(WitUserSpace *, WitPageAllocator *, int);
@@ -328,6 +351,7 @@ void wit_user_runtime_unwind_metadata_self_test(WitPageAllocator *);
 void wit_user_wait_self_test(WitPageAllocator *pages);
 void wit_user_exception_self_test(WitPageAllocator *pages);
 void wit_user_channel_self_test(WitPageAllocator *pages);
+void wit_user_memory_object_self_test(WitPageAllocator *pages);
 void wit_user_image_self_test(WitPageAllocator *pages);
 void wit_user_bootstrap_self_test(WitPageAllocator *pages);
 void wit_user_gc_self_test(WitPageAllocator *pages);

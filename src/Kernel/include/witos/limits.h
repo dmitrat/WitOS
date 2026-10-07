@@ -19,6 +19,8 @@
 #define WIT_CHANNEL_QUEUE_BYTES 1024U /* inline bytes queued for one endpoint */
 #define WIT_CHANNEL_MESSAGE_BYTES 256U /* inline bytes of one message */
 #define WIT_CHANNEL_MESSAGE_HANDLES 4U /* capabilities moved by one message */
+#define WIT_MEMORY_OBJECT_CAPACITY 8U /* memory objects of a component */
+#define WIT_MEMORY_OBJECT_PAGES 64U /* pages of one memory object */
 #define WIT_LIBRARY_CAPACITY 4U /* loaded native libraries */
 #define WIT_LIBRARY_READER_CAPACITY 16U /* module reader handles */
 #define WIT_STACK_LEASE_CAPACITY 4U

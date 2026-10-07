@@ -1,5 +1,5 @@
 {
-  "description": "ARM64 isolation, thread, wait, exception, channel and image suites in order; every contained EL0 fault of them.",
+  "description": "ARM64 isolation, thread, wait, exception, channel, memory object and image suites in order; every contained EL0 fault of them.",
   "markers": [
     "[TEST-PASS] User.UnprivilegedMode",
     "[TEST-PASS] User.AbiAndHandles",
@@ -59,6 +59,10 @@
     "[TEST-PASS] User.ChannelTransfer",
     "[TEST-PASS] User.ChannelLimits",
     "[TEST-PASS] User.ChannelDrop",
+    "[TEST-PASS] User.MemoryObjectViews",
+    "[TEST-PASS] User.MemoryObjectCode",
+    "[TEST-PASS] User.MemoryObjectTransfer",
+    "[TEST-PASS] User.MemoryObjectLimits",
     "[TEST-PASS] User.ImageHeadersAndBounds",
     "[TEST-PASS] User.ImageUnsupportedFeatures",
     "[TEST-PASS] User.ImageSectionsAndEntry",

@@ -274,8 +274,10 @@ int wit_user_space_create_profile(WitUserSpace *space, WitPageAllocator *allocat
         space->CodeViews[i] = (WitCodeView){0};
     }
     space->Root = 0;
-    for (WitU32 i = 0; i < space->ReservationLimit; ++i) {
+    for (WitU32 i = 0; i < WIT_RUNTIME_RESERVATION_CAPACITY; ++i) {
         space->Reservations[i].Size = 0;
+        space->MappedObjects[i] = 0;
+        space->MappedRights[i] = 0;
     }
     if (!wit_arch_space_kernel_ready()) {
         return 0;
@@ -446,6 +448,31 @@ static int valid_protection(WitU64 protection)
         protection == (WIT_MEMORY_READ | WIT_MEMORY_WRITE);
 }
 
+/* The reservation a page-aligned range lies within, or the limit. */
+static WitU32 reservation_of(const WitUserSpace *space, WitU64 address, WitU64 size)
+{
+    for (WitU32 i = 0; i < space->ReservationLimit; ++i) {
+        const WitUserReservation *r = &space->Reservations[i];
+        if (r->Size && address >= r->Base && address - r->Base < r->Size && size <= r->Size - (address - r->Base)) {
+            return i;
+        }
+    }
+    return space->ReservationLimit;
+}
+
+/* A range within a mapping of a memory object: its pages are the object's, so commit, decommit and reset are
+ * refused, and a protection change stays within the rights the mapping was made with. */
+static int object_mapping(const WitUserSpace *space, WitU64 address, WitU64 size, WitU32 *rights)
+{
+    const WitU32 slot = reservation_of(space, address, size);
+    *rights = 0;
+    if (slot == space->ReservationLimit || !space->MappedObjects[slot]) {
+        return 0;
+    }
+    *rights = space->MappedRights[slot];
+    return 1;
+}
+
 static WitU64 reserved_range(const WitUserSpace *space, WitU64 address, WitU64 size)
 {
     if (!size || (address & 4095) || (size & 4095)) {
@@ -522,6 +549,7 @@ WitU64 wit_user_code_reserve(
 
 static WitU64 memory_commit(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection)
 {
+    WitU32 rights;
     if (library_range(space, address, size)) {
         return WIT_STATUS_DENIED;
     }
@@ -530,6 +558,9 @@ static WitU64 memory_commit(WitUserSpace *space, WitU64 address, WitU64 size, Wi
     WitU64 status = reserved_range(space, address, size);
     if (status != WIT_STATUS_OK) {
         return status;
+    }
+    if (object_mapping(space, address, size, &rights)) {
+        return WIT_STATUS_DENIED;
     }
     if (!valid_protection(protection)) {
         return WIT_STATUS_INVALID_ARGUMENT;
@@ -629,6 +660,10 @@ static void decommit_range(WitUserSpace *space, WitU64 address, WitU64 size)
 
 static WitU64 memory_decommit(WitUserSpace *space, WitU64 address, WitU64 size)
 {
+    WitU32 rights;
+    if (object_mapping(space, address, size, &rights)) {
+        return WIT_STATUS_DENIED;
+    }
     if (library_range(space, address, size)) {
         return WIT_STATUS_DENIED;
     }
@@ -647,6 +682,10 @@ static WitU64 memory_decommit(WitUserSpace *space, WitU64 address, WitU64 size)
 
 static WitU64 memory_reset(WitUserSpace *space, WitU64 address, WitU64 size)
 {
+    WitU32 rights;
+    if (object_mapping(space, address, size, &rights)) {
+        return WIT_STATUS_DENIED;
+    }
     if (library_range(space, address, size)) {
         return WIT_STATUS_DENIED;
     }
@@ -680,6 +719,7 @@ static WitU64 memory_reset(WitUserSpace *space, WitU64 address, WitU64 size)
 
 static WitU64 protect(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection, int code)
 {
+    WitU32 rights = 0;
     if (library_range(space, address, size)) {
         return WIT_STATUS_DENIED;
     }
@@ -687,8 +727,14 @@ static WitU64 protect(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 p
     if (status != WIT_STATUS_OK) {
         return status;
     }
-    if (!valid_protection(protection) && !(code && protection == (WIT_MEMORY_READ | WIT_CODE_EXECUTE))) {
+    const int mapping = object_mapping(space, address, size, &rights);
+    if (!valid_protection(protection) && !((code || mapping) && protection == (WIT_MEMORY_READ | WIT_CODE_EXECUTE))) {
         return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    if (mapping &&
+        (((protection & WIT_MEMORY_WRITE) && !(rights & WIT_RIGHT_WRITE)) ||
+            ((protection & WIT_CODE_EXECUTE) && !(rights & WIT_RIGHT_EXECUTE)))) {
+        return WIT_STATUS_DENIED;
     }
     if (size / 4096 > space->PageLimit) {
         return WIT_STATUS_NOT_COMMITTED;
@@ -988,9 +1034,110 @@ static WitU64 release_reservation(WitUserSpace *space, WitU64 address, int libra
         }
         decommit_range(space, r->Base, r->Size);
         r->Size = 0;
+        space->MappedObjects[i] = 0;
+        space->MappedRights[i] = 0;
         return WIT_STATUS_OK;
     }
     return WIT_STATUS_NOT_RESERVED;
+}
+
+/* Memory objects (plan step K5.1): pages a component owns without a virtual address of their own (tagged zero like
+ * the table pages), mapped as alias entries of a reservation that remembers the object's nonzero number and the
+ * rights it may take. */
+int wit_user_space_allocate_pages(WitUserSpace *space, WitU64 *pages, WitU32 count)
+{
+    for (WitU32 i = 0; i < count; ++i) {
+        pages[i] = allocate(space, 0);
+        if (!pages[i]) {
+            while (i) {
+                free_owned(space, pages[--i]);
+            }
+            return 0;
+        }
+    }
+    return 1;
+}
+
+void wit_user_space_free_pages(WitUserSpace *space, const WitU64 *pages, WitU32 count)
+{
+    for (WitU32 i = 0; i < count; ++i) {
+        if (aliased(space, pages[i])) {
+            wit_panic("Freeing memory object pages with live mappings");
+        }
+        free_owned(space, pages[i]);
+    }
+}
+
+WitU64 wit_user_space_map_object(WitUserSpace *space, WitU64 address, WitU64 size, const WitU64 *pages,
+    WitU64 protection, WitU32 object, WitU32 rights, WitU64 *result)
+{
+    WitU64 base = 0;
+    WitU32 slot;
+    *result = 0;
+    if (!space->Root || !size || (size & 4095) || (address & 4095)) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    if (address) {
+        const WitU64 limit = dynamic_limit(address);
+        if (!limit || size > limit - address) {
+            return WIT_STATUS_BAD_ADDRESS;
+        }
+        if (library_range(space, address, size)) {
+            return WIT_STATUS_DENIED;
+        }
+        slot = space->ReservationLimit;
+        for (WitU32 i = 0; i < space->ReservationLimit; ++i) {
+            const WitUserReservation *r = &space->Reservations[i];
+            if (r->Size && overlaps(address, size, r->Base, r->Size)) {
+                return WIT_STATUS_BUSY;
+            }
+            if (!r->Size && slot == space->ReservationLimit) {
+                slot = i;
+            }
+        }
+        if (slot == space->ReservationLimit) {
+            return WIT_STATUS_NO_MEMORY;
+        }
+        space->Reservations[slot] = (WitUserReservation){address, size};
+        base = address;
+    } else {
+        const WitU64 status = reserve_within(space, size, 4096, WIT_USER_MEMORY_BASE, WIT_USER_MEMORY_LIMIT, &base);
+        if (status != WIT_STATUS_OK) {
+            return status;
+        }
+        slot = reservation_of(space, base, size);
+    }
+    if (space->AliasCount > space->PageLimit || size / 4096 > space->PageLimit - space->AliasCount) {
+        space->Reservations[slot].Size = 0;
+        return WIT_STATUS_NO_MEMORY;
+    }
+    for (WitU64 offset = 0; offset < size; offset += 4096) {
+        if (!map_alias_page(space, base + offset, pages[offset / 4096], protection)) {
+            while (offset) {
+                offset -= 4096;
+                unmap_page(space, base + offset);
+            }
+            space->Reservations[slot].Size = 0;
+            return WIT_STATUS_NO_MEMORY;
+        }
+    }
+    space->MappedObjects[slot] = object;
+    space->MappedRights[slot] = rights;
+    *result = base;
+    return WIT_STATUS_OK;
+}
+
+int wit_user_space_mapping_object(const WitUserSpace *space, WitU64 base, WitU64 *object)
+{
+    *object = 0;
+    for (WitU32 i = 0; i < space->ReservationLimit; ++i) {
+        const WitUserReservation *r = &space->Reservations[i];
+        if (r->Size && r->Base == base && space->MappedObjects[i]) {
+            *object = space->MappedObjects[i];
+            return 1;
+        }
+    }
+    return 0;
 }
 
 static WitU64 memory_release(WitUserSpace *space, WitU64 address)
@@ -1022,8 +1169,10 @@ void wit_user_space_destroy(WitUserSpace *space)
     for (WitU32 i = 0; i < WIT_CODE_VIEW_CAPACITY; ++i) {
         space->CodeViews[i] = (WitCodeView){0};
     }
-    for (WitU32 i = 0; i < space->ReservationLimit; ++i) {
+    for (WitU32 i = 0; i < WIT_RUNTIME_RESERVATION_CAPACITY; ++i) {
         space->Reservations[i].Size = 0;
+        space->MappedObjects[i] = 0;
+        space->MappedRights[i] = 0;
     }
 }
 
