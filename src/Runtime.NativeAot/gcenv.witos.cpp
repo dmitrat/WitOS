@@ -37,7 +37,7 @@ bool GCToOSInterface::Initialize()
     WitU64 version = 0;
     WitUserMemoryInfo info;
     if (wit_native_call(WIT_CALL_QUERY, 0, 0, 0, &version) != WIT_STATUS_OK ||
-        version != WIT_ABI_VERSION ||
+        (WitU32)version != WIT_ABI_VERSION || // The high half is the feature mask.
         !read_information(&info)) {
         return false;
     }

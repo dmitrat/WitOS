@@ -97,6 +97,7 @@ void wit_user_references_exit(WitUserProcess *p, WitU64 identity, WitU64 code)
             r->Exited = 1;
         }
     }
+    wit_user_channels_thread_exited(p, identity, code);
     wit_user_wait_objects_changed(p);
 }
 
@@ -235,7 +236,7 @@ static WitU64 duplicate_thread(WitUserProcess *p, WitU64 source, WitU64 output, 
 static WitU64 duplicate_event(WitUserProcess *p, WitU64 source, WitU64 output, WitU64 requested)
 {
     WitU64 handle = 0;
-    if (requested & ~(WitU64)(WIT_RIGHT_WAIT | WIT_RIGHT_SIGNAL)) {
+    if (requested & ~(WitU64)(WIT_RIGHT_WAIT | WIT_RIGHT_SIGNAL | WIT_RIGHT_DUPLICATE | WIT_RIGHT_TRANSFER)) {
         return WIT_STATUS_UNSUPPORTED;
     }
     if (!wit_user_buffer_writable(&p->Space, output, sizeof(handle))) {
@@ -254,12 +255,16 @@ static WitU64 duplicate_event(WitUserProcess *p, WitU64 source, WitU64 output, W
     return WIT_STATUS_OK;
 }
 
-/* HANDLE_DUPLICATE: a thread handle (or WIT_THREAD_SELF) or an event handle, with the same or fewer rights. */
+/* HANDLE_DUPLICATE: a thread handle (or WIT_THREAD_SELF), an event handle or a channel endpoint, with the same or
+ * fewer rights. */
 WitU64 wit_user_handle_duplicate(WitUserProcess *p, WitU64 source, WitU64 output, WitU64 requested)
 {
     if (source == WIT_THREAD_SELF ||
         wit_handle_check(&p->Handles, source, WIT_HANDLE_THREAD_REFERENCE, 0) != WIT_STATUS_WRONG_TYPE) {
         return duplicate_thread(p, source, output, requested);
+    }
+    if (wit_user_channel_handle(p, source)) {
+        return wit_user_channel_duplicate(p, source, output, requested);
     }
     return duplicate_event(p, source, output, requested);
 }
@@ -284,5 +289,42 @@ WitU64 wit_user_reference_close(WitUserProcess *p, WitU64 handle)
     r->ExitCode = 0;
     r->Rights = 0;
     r->Exited = 0;
+    return WIT_STATUS_OK;
+}
+
+WitU32 wit_user_reference_free_count(const WitUserProcess *p)
+{
+    WitU32 free = 0;
+    for (WitU32 i = 0; i < p->Handles.Limit; ++i) {
+        if (!p->ThreadReferences[i].Handle) {
+            ++free;
+        }
+    }
+    return free;
+}
+
+WitU64 wit_user_reference_attach(WitUserProcess *p, const WitUserThreadReference *snapshot, WitU64 *handle)
+{
+    WitUserThreadReference *destination = 0;
+    *handle = 0;
+    for (WitU32 i = 0; i < p->Handles.Limit; ++i) {
+        if (!p->ThreadReferences[i].Handle) {
+            destination = &p->ThreadReferences[i];
+            break;
+        }
+    }
+    if (!destination) {
+        return WIT_STATUS_NO_MEMORY;
+    }
+    const WitU64 granted = wit_handle_grant(&p->Handles, WIT_HANDLE_THREAD_REFERENCE, snapshot->Rights);
+    if (!granted) {
+        return WIT_STATUS_NO_MEMORY;
+    }
+    destination->Handle = granted;
+    destination->ThreadId = snapshot->ThreadId;
+    destination->ExitCode = snapshot->ExitCode;
+    destination->Exited = snapshot->Exited;
+    destination->Rights = snapshot->Rights;
+    *handle = granted;
     return WIT_STATUS_OK;
 }

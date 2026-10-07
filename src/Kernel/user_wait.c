@@ -76,11 +76,13 @@ WitU64 wit_user_sleep_until(WitUserProcess *process, WitU64 deadline, WitU64 now
     return WIT_STATUS_OK;
 }
 
-/* A wait set with at least one event is accounted as an event wait; a set of thread handles alone is a join. */
+/* A wait set with at least one event or endpoint is accounted as an object wait; a set of thread handles alone is a
+ * join. */
 static int waits_on_event(WitUserProcess *process, const WitU64 *handles, WitU32 count)
 {
     for (WitU32 i = 0; i < count; ++i) {
-        if (wit_handle_check(&process->Handles, handles[i], WIT_HANDLE_EVENT, 0) == WIT_STATUS_OK) {
+        if (wit_handle_check(&process->Handles, handles[i], WIT_HANDLE_EVENT, 0) == WIT_STATUS_OK ||
+            wit_handle_check(&process->Handles, handles[i], WIT_HANDLE_CHANNEL_ENDPOINT, 0) == WIT_STATUS_OK) {
             return 1;
         }
     }

@@ -14,6 +14,7 @@
 #define WIT_HANDLE_LIBRARY 7U
 #define WIT_HANDLE_LIBRARY_READER 8U
 #define WIT_HANDLE_LIBRARY_LIFECYCLE 9U
+#define WIT_HANDLE_CHANNEL_ENDPOINT 10U
 /* The rights are the ABI's (user_abi.h); READ of a lifecycle handle is the QUERY bit. */
 #define WIT_RIGHT_READ WIT_RIGHT_QUERY
 
@@ -42,5 +43,7 @@ WitU64 wit_handle_check(WitHandleTable *table, WitU64 token, WitU32 kind, WitU32
 /* The object and rights of a live handle of the kind; zero object and rights when there is none. */
 int wit_handle_describe(const WitHandleTable *table, WitU64 token, WitU32 kind, WitU64 *object, WitU32 *rights);
 WitU64 wit_handle_close(WitHandleTable *table, WitU64 token);
+/* Entries a grant can still take. */
+WitU32 wit_handles_free_count(const WitHandleTable *table);
 void wit_handles_close_all(WitHandleTable *table);
 #endif

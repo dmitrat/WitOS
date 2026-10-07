@@ -7,6 +7,7 @@
 #include "witos/limits.h"
 #include "witos/files.h"
 #include "witos/events.h"
+#include "witos/channels.h"
 #include "witos/memory.h"
 #include "witos/pe.h"
 #include "witos/virtual_gap.h"
@@ -147,6 +148,7 @@ typedef struct WitUserProcess {
     WitU32 LibraryShutdown;
     WitUserLibraryReader LibraryReaders[WIT_LIBRARY_READER_CAPACITY];
     WitEventTable Events;
+    WitChannelTable Channels;
     WitU32 Id;
     WitU32 Slot;
     WitUserState State;
@@ -199,6 +201,7 @@ typedef struct WitUserProcess {
     WitU64 WaitCloses;
     WitU64 WaitInterruptions; /* Waits and sleeps an activation ended. */
     WitU64 ActivationDeliveries;
+    WitU64 ChannelSends, ChannelReceives, ChannelDrops; /* Messages queued, delivered and dropped with an endpoint. */
     WitU64 IdleHalts;
     WitU64 IdleTicks;
     /* The state every module shares (P6.4.j3a): the environment's records and their final terminator, and the
@@ -260,9 +263,24 @@ void wit_user_references_initialize(WitUserProcess *);
 void wit_user_references_exit(WitUserProcess *, WitU64, WitU64);
 /* The record behind a thread handle, after the handle check for the rights. */
 WitU64 wit_user_reference_describe(WitUserProcess *, WitU64, WitU32, const WitUserThreadReference **);
-/* HANDLE_DUPLICATE of a thread handle, WIT_THREAD_SELF or an event handle. */
+/* HANDLE_DUPLICATE of a thread handle, WIT_THREAD_SELF, an event handle or a channel endpoint. */
 WitU64 wit_user_handle_duplicate(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_reference_close(WitUserProcess *, WitU64);
+/* Free thread handle records, and a new handle with a record copied from a snapshot (a moved thread handle). */
+WitU32 wit_user_reference_free_count(const WitUserProcess *);
+WitU64 wit_user_reference_attach(WitUserProcess *, const WitUserThreadReference *, WitU64 *);
+
+/* Channels (RFC 0011 section 7.6): the three calls, the endpoint's close and duplication, its readiness for
+ * OBJECT_WAIT (a message queued or the peer closed) and whether a handle is an endpoint's. */
+WitU64 wit_user_channel_create(WitUserProcess *, WitU64, WitU64, WitU64);
+WitU64 wit_user_channel_send(WitUserProcess *, WitU64, WitU64, WitU64);
+WitU64 wit_user_channel_receive(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
+WitU64 wit_user_channel_close(WitUserProcess *, WitU64);
+WitU64 wit_user_channel_duplicate(WitUserProcess *, WitU64, WitU64, WitU64);
+WitU64 wit_user_channel_signaled(WitUserProcess *, WitU64, int *);
+int wit_user_channel_handle(WitUserProcess *, WitU64);
+/* A thread exited: the thread handles in flight in messages learn the exit as the records in the table do. */
+void wit_user_channels_thread_exited(WitUserProcess *, WitU64, WitU64);
 
 WitU64 wit_user_space_take_table(WitUserSpace *space);
 void wit_user_space_release_table(WitUserSpace *space, WitU64 page);
@@ -309,6 +327,7 @@ void wit_user_native_id_self_test(void);
 void wit_user_runtime_unwind_metadata_self_test(WitPageAllocator *);
 void wit_user_wait_self_test(WitPageAllocator *pages);
 void wit_user_exception_self_test(WitPageAllocator *pages);
+void wit_user_channel_self_test(WitPageAllocator *pages);
 void wit_user_image_self_test(WitPageAllocator *pages);
 void wit_user_bootstrap_self_test(WitPageAllocator *pages);
 void wit_user_gc_self_test(WitPageAllocator *pages);

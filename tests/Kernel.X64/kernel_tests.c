@@ -18,6 +18,7 @@ void wit_kernel_self_test(const WitBootInfo *boot, WitPageAllocator *pages)
     wit_user_thread_self_test(pages);
     wit_user_wait_self_test(pages);
     wit_user_exception_self_test(pages);
+    wit_user_channel_self_test(pages);
     wit_user_image_self_test(pages);
     wit_user_bootstrap_self_test(pages);
     wit_user_gc_self_test(pages);

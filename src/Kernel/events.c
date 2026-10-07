@@ -1,4 +1,5 @@
 #include "witos/events.h"
+#include "witos/platform.h"
 
 void wit_events_initialize(WitEventTable *table)
 {
@@ -16,7 +17,7 @@ WitU64 wit_event_create(WitEventTable *table, WitHandleTable *handles, WitU64 fl
 {
     *result = 0;
     if ((flags & ~(WIT_EVENT_MANUAL_RESET | WIT_EVENT_INITIAL_SIGNALED)) ||
-        (rights & ~(WIT_RIGHT_WAIT | WIT_RIGHT_SIGNAL))) {
+        (rights & ~(WIT_RIGHT_WAIT | WIT_RIGHT_SIGNAL | WIT_RIGHT_DUPLICATE | WIT_RIGHT_TRANSFER))) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
     for (WitU32 i = 0; i < table->Limit; ++i) {
@@ -120,4 +121,18 @@ WitU64 wit_event_remove(WitEventTable *table, WitHandleTable *handles, WitU64 ha
         --table->Count;
     }
     return WIT_STATUS_OK;
+}
+
+void wit_event_release(WitEventTable *table, WitU64 object)
+{
+    WitEvent *event = slot(table, object);
+    if (!event || !event->Handles) {
+        wit_panic("Released event reference has no event");
+    }
+    if (--event->Handles == 0) {
+        event->Live = 0;
+        event->Signaled = 0;
+        event->ManualReset = 0;
+        --table->Count;
+    }
 }

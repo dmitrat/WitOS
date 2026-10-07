@@ -24,6 +24,8 @@ WitU64 wit_event_get(WitEventTable *table, WitHandleTable *handles, WitU64 handl
 WitU64 wit_event_duplicate(
     WitEventTable *table, WitHandleTable *handles, WitU64 source, WitU32 requested, WitU64 *result);
 int wit_event_consume(WitEvent *event);
+/* A reference a message carried and dropped: the event ends with its last. */
+void wit_event_release(WitEventTable *table, WitU64 object);
 /* Closes one handle; the event ends with its last handle. */
 WitU64 wit_event_remove(WitEventTable *table, WitHandleTable *handles, WitU64 handle);
 #endif
