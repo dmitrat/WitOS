@@ -1,4 +1,5 @@
 #include "gcenv.witos.h"
+#include "bootstrap.h"
 #include "../Runtime.Native/native_limits.h"
 
 /* Bounded bootstrap storage. No native heap, C++ static constructors or
@@ -129,7 +130,7 @@ uint32_t GCEvent::Wait(uint32_t timeout, bool alertable)
     }
     // The handle includes its generation. Never hold Gate while parked and
     // never touch Impl after returning: Close may already have reused its slot.
-    const WitU64 status = wit_native_call(WIT_CALL_EVENT_WAIT_UNTIL, handle, deadline, 0, nullptr);
+    const WitU64 status = wit_native_wait_one(handle, deadline);
     if (status == WIT_STATUS_OK) {
         return WAIT_OBJECT_0;
     }

@@ -75,7 +75,7 @@ bss_zero
     ldr x0, [x20, #8]
     adr x1, message
     mov x2, #message_end - message
-    mov x8, #WIT_CALL_WRITE
+    mov x8, #WIT_CALL_DEBUG_WRITE
     svc #0
     cbnz x0, failed
     cmp x1, #message_end - message
@@ -115,7 +115,7 @@ read_gap
 failed
     mov x0, #241
 exit_component
-    mov x8, #WIT_CALL_EXIT
+    mov x8, #WIT_CALL_PROCESS_EXIT
     svc #0
     DCD 0x00000000 ; UDF #0
 helper

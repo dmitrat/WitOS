@@ -21,9 +21,7 @@ static void yield()
 
 static void let_workers_park()
 {
-    WitU64 now;
-    check(wit_native_call(WIT_CALL_CLOCK_READ, 0, 0, 0, &now) == WIT_STATUS_OK);
-    check(wit_native_call(WIT_CALL_THREAD_SLEEP, now + 2, 0, 0, nullptr) == WIT_STATUS_OK);
+    check(wit_native_sleep_ticks(2) == WIT_STATUS_OK);
 }
 
 static void worker(WitU64 index)
@@ -60,8 +58,8 @@ static void basic()
     check(PalSetEvent(events[0]));
     HANDLE duplicate[] = {events[0], events[0]};
     HANDLE invalid[] = {events[0], (HANDLE)(uintptr_t)PalGetCurrentOSThreadId()};
-    check(PalCompatibleWaitAny(FALSE, 0, 2, duplicate, FALSE) == WAIT_FAILED &&
-        GetLastError() == ERROR_INVALID_PARAMETER);
+    check(PalCompatibleWaitAny(FALSE, 0, 2, duplicate, FALSE) == WAIT_OBJECT_0); // Twice is valid in an any wait.
+    check(PalSetEvent(events[0]));
     check(PalCompatibleWaitAny(FALSE, 0, 2, invalid, FALSE) == WAIT_FAILED && GetLastError() == ERROR_INVALID_HANDLE);
     check(PalCompatibleWaitAny(FALSE, 0, 0, list, FALSE) == WAIT_FAILED && GetLastError() == ERROR_INVALID_PARAMETER);
     check(
@@ -70,8 +68,7 @@ static void basic()
     check(PalCompatibleWaitAny(TRUE, 0, 1, list, FALSE) == WAIT_FAILED && GetLastError() == ERROR_NOT_SUPPORTED);
     check(PalCompatibleWaitAny(FALSE, 0, 1, list, TRUE) == WAIT_FAILED && GetLastError() == ERROR_NOT_SUPPORTED);
     WitU64 index = 99;
-    check(wit_native_call(WIT_CALL_EVENT_WAIT_ANY_UNTIL, (uintptr_t)list, 1, WIT_MONOTONIC_MAX + 1, &index) ==
-            WIT_STATUS_INVALID_ARGUMENT &&
+    check(wit_native_wait_any((const WitU64 *)list, 1, WIT_MONOTONIC_MAX + 1, &index) == WIT_STATUS_INVALID_ARGUMENT &&
         !index);
     auto buffer = (uint8_t *)PalVirtualAlloc(8192, PAGE_READWRITE);
     check(buffer != nullptr);
@@ -103,7 +100,8 @@ WitU64 wit_pal_wait_any(const WitUserStartup *startup)
         captured[0] = events[0];
         captured[1] = events[1];
         for (WitU32 i = 0; i < count; ++i) {
-            check(wit_native_call(WIT_CALL_THREAD_CREATE, (uintptr_t)worker, i, 0, &handles[i]) == WIT_STATUS_OK);
+            check(
+                wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)worker, i, 0, &handles[i]) == WIT_STATUS_OK);
             if (mode == 56) {
                 let_workers_park();
             }

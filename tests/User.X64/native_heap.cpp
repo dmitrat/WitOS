@@ -250,7 +250,7 @@ WitU64 wit_native_heap(WitU64 mode)
     } else if (mode == WIT_NATIVE_TEST_HEAP_THREADS) {
         WitU64 handles[2];
         for (size_t i = 0; i < 2; ++i) {
-            if (wit_native_call(WIT_CALL_THREAD_CREATE, (uintptr_t)worker, i, 0, &handles[i]) != WIT_STATUS_OK) {
+            if (wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)worker, i, 0, &handles[i]) != WIT_STATUS_OK) {
                 return 830;
             }
         }

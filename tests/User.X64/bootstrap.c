@@ -111,9 +111,7 @@ static WitU64 application(WitNativeModule *current)
         return 201;
     }
     if (mode != WIT_BOOTSTRAP_TEST_EMPTY &&
-        (trace != 123 ||
-            *(WitU64 *)allocation != 0xABCD ||
-            call(WIT_CALL_EVENT_WAIT, event_handle, 0, 0, 0) != WIT_STATUS_OK)) {
+        (trace != 123 || *(WitU64 *)allocation != 0xABCD || wit_native_wait_one(event_handle, 0) != WIT_STATUS_OK)) {
         return 202;
     }
     mark(4);
@@ -155,7 +153,7 @@ WitU64 wit_native_main(const WitUserStartup *startup)
         WitU64 handles[2], code;
         worker_results[0] = worker_results[1] = 100;
         for (WitU64 i = 0; i < 2; ++i) {
-            if (call(WIT_CALL_THREAD_CREATE, (WitU64)worker, i, 0, &handles[i]) != WIT_STATUS_OK) {
+            if (call(WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)worker, i, 0, &handles[i]) != WIT_STATUS_OK) {
                 return 241;
             }
         }

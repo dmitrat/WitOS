@@ -365,17 +365,12 @@ struct UnwindWalk {
         reject(token);
     }
     seh = state.Previous;
-    if (state.RetireThrough) {
-        WitUserExceptionTransfer transfer = {};
-        transfer.Version = WIT_EXCEPTION_TRANSFER_VERSION;
-        transfer.Size = sizeof(transfer);
-        transfer.RetireThroughToken = state.RetireThrough;
-        transfer.Context = state.Info->Context;
-        wit_native_call(WIT_CALL_EXCEPTION_UNWIND, token, (WitU64)&transfer, sizeof(transfer), nullptr);
-    } else {
-        wit_native_call(
-            WIT_CALL_EXCEPTION_CONTINUE, token, (WitU64)&state.Info->Context, sizeof(state.Info->Context), nullptr);
-    }
+    WitUserExceptionTransfer transfer = {};
+    transfer.Version = WIT_EXCEPTION_TRANSFER_VERSION;
+    transfer.Size = sizeof(transfer);
+    transfer.RetireThroughToken = state.RetireThrough ? state.RetireThrough : token;
+    transfer.Context = state.Info->Context;
+    wit_native_call(WIT_CALL_EXCEPTION_CONTINUE, token, (WitU64)&transfer, sizeof(transfer), nullptr);
     reject(token);
 }
 
@@ -476,7 +471,7 @@ __declspec(noinline) WitU64 caller_stack()
     transfer.Size = sizeof(transfer);
     transfer.RetireThroughToken = search ? search->Info->Token : token;
     transfer.Context = state.Info->Context;
-    wit_native_call(WIT_CALL_EXCEPTION_UNWIND, token, (WitU64)&transfer, sizeof(transfer), nullptr);
+    wit_native_call(WIT_CALL_EXCEPTION_CONTINUE, token, (WitU64)&transfer, sizeof(transfer), nullptr);
     reject(token);
 }
 #endif
@@ -717,7 +712,12 @@ LONG frames(EXCEPTION_RECORD &record, CONTEXT &original, WitUserExceptionInfo &i
         !WitContext::decode(context, info.Context, cpu, true)) {
         reject(info.Token);
     }
-    wit_native_call(WIT_CALL_EXCEPTION_CONTINUE, info.Token, (WitU64)&info.Context, sizeof(info.Context), nullptr);
+    WitUserExceptionTransfer transfer = {};
+    transfer.Version = WIT_EXCEPTION_TRANSFER_VERSION;
+    transfer.Size = sizeof(transfer);
+    transfer.RetireThroughToken = info.Token;
+    transfer.Context = info.Context;
+    wit_native_call(WIT_CALL_EXCEPTION_CONTINUE, info.Token, (WitU64)&transfer, sizeof(transfer), nullptr);
     reject(info.Token);
 }
 

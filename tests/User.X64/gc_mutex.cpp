@@ -13,16 +13,13 @@ static WitU64 call(WitU64 op, WitU64 a = 0, WitU64 b = 0, WitU64 c = 0, WitU64 *
 
 static WitU64 identity()
 {
-    WitU64 id = 0;
-    if (call(WIT_CALL_THREAD_CURRENT, 0, 0, 0, &id) != WIT_STATUS_OK) {
-        return 0;
-    }
-    return id;
+    WitUserThreadInfo info;
+    return wit_native_thread_info(&info) ? info.ThreadId : 0;
 }
 
 static bool spawn(void (*entry)(WitU64), WitU64 argument, WitU64 *handle)
 {
-    return call(WIT_CALL_THREAD_CREATE, (uintptr_t)entry, argument, 0, handle) == WIT_STATUS_OK;
+    return call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)entry, argument, 0, handle) == WIT_STATUS_OK;
 }
 
 static bool join(WitU64 handle)
@@ -107,7 +104,7 @@ WitU64 wit_gc_mutex(const WitUserStartup *startup, WitU64 mode)
 {
     if (mode == WIT_GC_TEST_THREAD_ID) {
         const auto self = identity();
-        WitU64 handle, invalid = 9;
+        WitU64 handle;
         auto tls = (volatile WitU64 *)(uintptr_t)((const WitUserTestConfig *)startup)->KernelProbe;
         if (!self || tls[WIT_TLS_HANDLE_OFFSET / 8] != self) {
             return 300;
@@ -122,10 +119,7 @@ WitU64 wit_gc_mutex(const WitUserStartup *startup, WitU64 mode)
                 return 302;
             }
         }
-        if (call(WIT_CALL_THREAD_CURRENT, 1, 0, 0, &invalid) != WIT_STATUS_INVALID_ARGUMENT ||
-            invalid ||
-            call(WIT_CALL_CLOSE, self) != WIT_STATUS_BUSY ||
-            !all_events_available()) {
+        if (call(WIT_CALL_CLOSE, self) != WIT_STATUS_BUSY || !all_events_available()) {
             return 303;
         }
         for (size_t i = 0; i < 2; ++i) {

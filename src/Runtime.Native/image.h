@@ -1,6 +1,7 @@
 #ifndef WITOS_NATIVE_IMAGE_H
 #define WITOS_NATIVE_IMAGE_H
 #include "witos/user_abi.h"
+#include "witos/user_abi_frozen.h"
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -87,10 +87,7 @@ static uint32_t callback(void *context)
     }
     index_value = index;
     const auto nativeId = PalGetCurrentOSThreadId();
-    WitU64 identity = 0;
-    if (wit_native_call(WIT_CALL_THREAD_CURRENT, 0, 0, 0, &identity) != WIT_STATUS_OK) {
-        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
-    }
+    const WitU64 identity = wit_native_thread_identity();
     ids[index] = identity; // Lifetime checks use kernel identity, never the native DWORD ID.
     WitU64 result = 99;
     if (!nativeId ||
@@ -185,12 +182,13 @@ extern "C" WitU64 wit_background_program(const WitUserStartup *startup)
         }
     }
     WitU64 result = 99;
-    if (wit_native_call(WIT_CALL_THREAD_CREATE, (uintptr_t)callback, 0, 4, &result) != WIT_STATUS_INVALID_ARGUMENT ||
-        result ||
-        wit_native_call(WIT_CALL_THREAD_CREATE, (uintptr_t)callback, 0, 1ULL << 32, &result) !=
+    if (wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)callback, 0, 4, &result) !=
             WIT_STATUS_INVALID_ARGUMENT ||
         result ||
-        wit_native_call(WIT_CALL_THREAD_CREATE, 0, 0, WIT_THREAD_DETACHED, &result) != WIT_STATUS_BAD_ADDRESS ||
+        wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)callback, 0, 1ULL << 32, &result) !=
+            WIT_STATUS_INVALID_ARGUMENT ||
+        result ||
+        wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, 0, 0, WIT_THREAD_DETACHED, &result) != WIT_STATUS_BAD_ADDRESS ||
         result ||
         PalStartBackgroundGCThread(nullptr, nullptr) ||
         PalStartFinalizerThread((BackgroundCallback)startup, nullptr)) {

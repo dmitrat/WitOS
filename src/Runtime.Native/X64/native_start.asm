@@ -12,7 +12,7 @@ wit_native_start PROC FRAME
     call wit_native_main
     add rsp, 40
     mov rcx, rax
-    mov eax, WIT_CALL_EXIT
+    mov eax, WIT_CALL_PROCESS_EXIT
     int 80h
     ud2
 wit_native_start ENDP
@@ -48,7 +48,7 @@ wit_native_unlock ENDP
 
 PUBLIC wit_native_fail_fast
 wit_native_fail_fast PROC
-    mov eax, WIT_CALL_EXIT
+    mov eax, WIT_CALL_PROCESS_EXIT
     int 80h
     ud2
 wit_native_fail_fast ENDP

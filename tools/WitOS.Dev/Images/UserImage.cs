@@ -17,6 +17,8 @@ internal static class UserImage
     private static readonly string[] ABI_HEADERS =
     [
         "src/Kernel/include/witos/user_abi.h",
+        "src/Kernel/include/witos/user_abi_frozen.h",
+        "src/Kernel/include/witos/wait_objects.h",
         "src/Kernel/include/witos/user_layout.h",
         "src/Kernel/include/witos/limits.h",
         "tests/User/protocol.h"
@@ -109,6 +111,18 @@ internal static class UserImage
                     ? ulong.Parse(literal[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture)
                     : ulong.Parse(literal, CultureInfo.InvariantCulture);
                 constants.Add(match.Groups[1].Value, value);
+            }
+        }
+        // The frozen line's names are aliases of the kernel's constants (user_abi_frozen.h).
+        foreach (var header in ABI_HEADERS)
+        {
+            var source = await File.ReadAllTextAsync(Path.Combine(root, header));
+            foreach (Match match in Regex.Matches(source, @"^#define\s+(WIT_[A-Z0-9_]+)\s+(WIT_[A-Z0-9_]+)\s*$", RegexOptions.Multiline))
+            {
+                if (constants.TryGetValue(match.Groups[2].Value, out var value))
+                {
+                    constants.Add(match.Groups[1].Value, value);
+                }
             }
         }
         return constants;

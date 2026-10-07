@@ -105,8 +105,8 @@ WitU64 wit_native_library_tls_test(WitU64 mode)
     CHECK(indexes[0] != indexes[1] && mainAddresses[0] != mainAddresses[1], 3415);
     for (WitU32 run = 0; run < 2; ++run) {
         WitU64 handle = 0, result = 0;
-        CHECK(wit_native_call(WIT_CALL_THREAD_CREATE, (WitU64)child, 0, WIT_THREAD_LIBRARY_NOTIFICATIONS, &handle) ==
-                WIT_STATUS_OK,
+        CHECK(wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)child, 0, WIT_THREAD_LIBRARY_NOTIFICATIONS,
+                  &handle) == WIT_STATUS_OK,
             3416);
         CHECK(wit_native_call(WIT_CALL_THREAD_JOIN, handle, 0, 0, &result) == WIT_STATUS_OK && result == 42, 3417);
     }

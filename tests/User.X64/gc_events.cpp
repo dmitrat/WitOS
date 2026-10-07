@@ -21,7 +21,7 @@ static bool join(WitU64 handle)
 
 static bool start(void (*entry)(WitU64), WitU64 argument, WitU64 *handle)
 {
-    return call(WIT_CALL_THREAD_CREATE, (uintptr_t)entry, argument, 0, handle) == WIT_STATUS_OK;
+    return call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)entry, argument, 0, handle) == WIT_STATUS_OK;
 }
 
 static void done(WitU64 code = WIT_TEST_EXIT_CODE)

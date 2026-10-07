@@ -77,8 +77,8 @@ internal static class RuntimeReadiness
         var libraries = captured.Select(p => Path.Combine(nativeSdk, Path.GetFileName(p))).ToArray();
         if (libraries.Any(p => !File.Exists(p)))
             throw new InvalidDataException("Missing source-built minimal runtime input.");
-        var exitCall = Constant(root, "src/Kernel/include/witos/user_abi.h", "WIT_CALL_EXIT");
-        await File.WriteAllTextAsync(Path.Combine(output, "user_abi.inc"), $"WIT_CALL_EXIT EQU {exitCall}\n", Encoding.ASCII);
+        var exitCall = Constant(root, "src/Kernel/include/witos/user_abi.h", "WIT_CALL_PROCESS_EXIT");
+        await File.WriteAllTextAsync(Path.Combine(output, "user_abi.inc"), $"WIT_CALL_PROCESS_EXIT EQU {exitCall}\n", Encoding.ASCII);
         var transport = Path.Combine(output, "native_transport.obj");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
             ["/nologo", "/c", "/DWITOS_NATIVE_TRANSPORT_ONLY", "/I" + output, "/Fo" + transport,

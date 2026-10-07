@@ -2,9 +2,10 @@
 #include "witos/platform.h"
 #include "witos/random.h"
 
-/* System call table of the running component. Each handler receives the call and its arguments, writes the
- * status and value of the caller's frame and returns 0 to finish through the common path of wit_user_syscall,
- * or the frame to resume as it is: a restored context, a dispatched thread or the caller after a yield. */
+/* System call table of the running component: ABI-1 of RFC 0011 v3 section 7 in the layout of user_abi.h. Each
+ * handler receives the call and its arguments, writes the status and value of the caller's frame and returns 0
+ * to finish through the common path of wit_user_syscall, or the frame to resume as it is: a restored context, a
+ * dispatched thread or the caller after a yield. The table is sparse: the transitional calls sit from 200. */
 
 #define CALL_COUNT (WIT_CALL_PROCESS_STATE + 1U)
 
@@ -38,33 +39,7 @@ static WitArchFrame *resume_restored(WitUserCall *call, WitU64 status)
 
 static WitArchFrame *query(WitUserCall *call)
 {
-    *call->Value = WIT_ABI_VERSION;
-    return 0;
-}
-
-static WitArchFrame *write(WitUserCall *call)
-{
-    WitU8 buffer[WIT_ABI_MAX_WRITE];
-    WitUserProcess *process = call->Process;
-    const WitU64 status = wit_handle_check(&process->Handles, call->Argument0, WIT_HANDLE_CONSOLE, WIT_RIGHT_WRITE);
-    if (status != WIT_STATUS_OK) {
-        *call->Status = status;
-        return 0;
-    }
-    if (call->Argument2 > WIT_ABI_MAX_WRITE) {
-        *call->Status = WIT_STATUS_TOO_LARGE;
-        return 0;
-    }
-    if (!wit_user_copy_from(&process->Space, call->Argument1, buffer, (WitU32)call->Argument2)) {
-        *call->Status = WIT_STATUS_BAD_ADDRESS;
-        return 0;
-    }
-    if (call->Argument2) {
-        wit_console_write("[USER] ");
-        wit_console_write_buffer(buffer, (WitU32)call->Argument2);
-        ++process->Writes;
-    }
-    *call->Value = call->Argument2;
+    *call->Value = WIT_ABI_VERSION | ((WitU64)WIT_ABI_FEATURES << 32);
     return 0;
 }
 
@@ -140,14 +115,14 @@ static WitArchFrame *memory_pressure_event(WitUserCall *call)
     return 0;
 }
 
-static WitArchFrame *thread_create(WitUserCall *call)
+static WitArchFrame *thread_create_simple(WitUserCall *call)
 {
     *call->Status =
         wit_user_thread_create_flags(call->Process, call->Argument0, call->Argument1, call->Argument2, call->Value);
     return 0;
 }
 
-static WitArchFrame *thread_create_reference(WitUserCall *call)
+static WitArchFrame *thread_create(WitUserCall *call)
 {
     *call->Status = call->Argument2
         ? WIT_STATUS_INVALID_ARGUMENT
@@ -203,16 +178,6 @@ static WitArchFrame *thread_join(WitUserCall *call)
     return 0;
 }
 
-static WitArchFrame *thread_current(WitUserCall *call)
-{
-    if (has_arguments(call)) {
-        *call->Status = WIT_STATUS_INVALID_ARGUMENT;
-    } else {
-        *call->Value = caller(call)->Handle;
-    }
-    return 0;
-}
-
 static WitArchFrame *thread_native_id(WitUserCall *call)
 {
     if (has_arguments(call)) {
@@ -233,7 +198,7 @@ static WitArchFrame *thread_query(WitUserCall *call)
     return 0;
 }
 
-static WitArchFrame *thread_reference_duplicate(WitUserCall *call)
+static WitArchFrame *handle_duplicate(WitUserCall *call)
 {
     *call->Status = wit_user_reference_duplicate(call->Process, call->Argument0, call->Argument1, call->Argument2);
     if (*call->Status == WIT_STATUS_OK) {
@@ -295,39 +260,9 @@ static WitArchFrame *thread_context_metadata(WitUserCall *call)
     return 0;
 }
 
-static WitArchFrame *cpu_context_query(WitUserCall *call)
+static WitArchFrame *context_profile(WitUserCall *call)
 {
     *call->Status = wit_user_cpu_context_query(call->Process, call->Argument0, call->Argument1, call->Argument2);
-    return 0;
-}
-
-static WitArchFrame *clock_read(WitUserCall *call)
-{
-    *call->Value = wit_arch_clock_ticks();
-    return 0;
-}
-
-static WitArchFrame *clock_frequency(WitUserCall *call)
-{
-    *call->Value = WIT_CLOCK_FREQUENCY;
-    return 0;
-}
-
-static WitArchFrame *thread_sleep(WitUserCall *call)
-{
-    *call->Status = wit_user_sleep(call->Process, call->Argument0, wit_arch_clock_ticks());
-    return 0;
-}
-
-static WitArchFrame *monotonic_read(WitUserCall *call)
-{
-    *call->Value = wit_platform_monotonic_read();
-    return 0;
-}
-
-static WitArchFrame *monotonic_frequency(WitUserCall *call)
-{
-    *call->Value = wit_platform_monotonic_frequency();
     return 0;
 }
 
@@ -360,11 +295,14 @@ static WitArchFrame *sleep_until(WitUserCall *call)
     return 0;
 }
 
+/* Rights 0 grant WAIT and SIGNAL. A failure of a runtime-profile component is reported for its tests. */
 static WitArchFrame *event_create(WitUserCall *call)
 {
     WitUserProcess *process = call->Process;
-    *call->Status = wit_event_create(
-        &process->Events, &process->Handles, call->Argument0, WIT_RIGHT_WAIT | WIT_RIGHT_SIGNAL, call->Value);
+    const WitU32 rights = call->Argument1 ? (WitU32)call->Argument1 : (WIT_RIGHT_WAIT | WIT_RIGHT_SIGNAL);
+    *call->Status = (call->Argument2 || call->Argument1 > 0xFFFFFFFFULL)
+        ? WIT_STATUS_INVALID_ARGUMENT
+        : wit_event_create(&process->Events, &process->Handles, call->Argument0, rights, call->Value);
     if (*call->Status != WIT_STATUS_OK && process->Space.PageLimit > WIT_USER_PAGE_CAPACITY) {
         wit_console_write("[RUNTIME-RESOURCE] event failure status/events/handles: ");
         wit_console_write_u64(*call->Status);
@@ -377,12 +315,34 @@ static WitArchFrame *event_create(WitUserCall *call)
     return 0;
 }
 
-static WitArchFrame *event_create_rights(WitUserCall *call)
+/* The monotonic clock; UTC arrives with plan step K6. */
+static WitArchFrame *clock_read(WitUserCall *call)
 {
-    WitUserProcess *process = call->Process;
-    *call->Status = (call->Argument2 || call->Argument1 > 0xFFFFFFFFULL)
-        ? WIT_STATUS_INVALID_ARGUMENT
-        : wit_event_create(&process->Events, &process->Handles, call->Argument0, (WitU32)call->Argument1, call->Value);
+    if (call->Argument1 || call->Argument2) {
+        *call->Status = WIT_STATUS_INVALID_ARGUMENT;
+    } else if (call->Argument0 == WIT_CLOCK_MONOTONIC) {
+        *call->Value = wit_platform_monotonic_read();
+    } else {
+        *call->Status = call->Argument0 == WIT_CLOCK_UTC ? WIT_STATUS_UNSUPPORTED : WIT_STATUS_INVALID_ARGUMENT;
+    }
+    return 0;
+}
+
+static WitArchFrame *clock_frequency(WitUserCall *call)
+{
+    if (call->Argument1 || call->Argument2) {
+        *call->Status = WIT_STATUS_INVALID_ARGUMENT;
+    } else if (call->Argument0 == WIT_CLOCK_MONOTONIC) {
+        *call->Value = wit_platform_monotonic_frequency();
+    } else {
+        *call->Status = call->Argument0 == WIT_CLOCK_UTC ? WIT_STATUS_UNSUPPORTED : WIT_STATUS_INVALID_ARGUMENT;
+    }
+    return 0;
+}
+
+static WitArchFrame *debug_write(WitUserCall *call)
+{
+    *call->Status = wit_user_debug_write(call->Process, call->Argument0, call->Argument1, call->Argument2, call->Value);
     return 0;
 }
 
@@ -398,27 +358,6 @@ static WitArchFrame *event_reset(WitUserCall *call)
     return 0;
 }
 
-static WitArchFrame *event_wait(WitUserCall *call)
-{
-    *call->Status = wit_user_event_wait(call->Process, call->Argument0, call->Argument1, wit_arch_clock_ticks());
-    return 0;
-}
-
-static WitArchFrame *event_wait_until(WitUserCall *call)
-{
-    *call->Status = call->Argument2
-        ? WIT_STATUS_INVALID_ARGUMENT
-        : wit_user_event_wait_until(call->Process, call->Argument0, call->Argument1, wit_platform_monotonic_read());
-    return 0;
-}
-
-static WitArchFrame *event_wait_any_until(WitUserCall *call)
-{
-    *call->Status = wit_user_event_wait_any_until(
-        call->Process, call->Argument0, call->Argument1, call->Argument2, wit_platform_monotonic_read(), call->Value);
-    return 0;
-}
-
 static WitArchFrame *object_wait(WitUserCall *call)
 {
     *call->Status = wit_user_object_wait(
@@ -426,7 +365,7 @@ static WitArchFrame *object_wait(WitUserCall *call)
     return 0;
 }
 
-static WitArchFrame *apc_queue(WitUserCall *call)
+static WitArchFrame *thread_activate(WitUserCall *call)
 {
     *call->Status = wit_user_apc_queue(call->Process, call->Argument0, call->Argument1, call->Argument2);
     return 0;
@@ -529,12 +468,6 @@ static WitArchFrame *random(WitUserCall *call)
     return 0;
 }
 
-static WitArchFrame *console_write(WitUserCall *call)
-{
-    *call->Status = wit_user_console_write(call->Process, call->Argument0, call->Argument1, call->Argument2);
-    return 0;
-}
-
 static WitArchFrame *stack_lease_acquire(WitUserCall *call)
 {
     *call->Status = wit_user_stack_lease_acquire(call->Process, call->Argument0, call->Argument1, call->Argument2);
@@ -573,12 +506,10 @@ static WitArchFrame *exception_begin(WitUserCall *call)
     return 0;
 }
 
-static WitArchFrame *exception_resume(WitUserCall *call)
+static WitArchFrame *exception_continue(WitUserCall *call)
 {
-    return resume_restored(call,
-        call->Number == WIT_CALL_EXCEPTION_CONTINUE
-            ? wit_user_exception_continue(call->Process, call->Argument0, call->Argument1, call->Argument2)
-            : wit_user_exception_unwind(call->Process, call->Argument0, call->Argument1, call->Argument2));
+    return resume_restored(
+        call, wit_user_exception_continue(call->Process, call->Argument0, call->Argument1, call->Argument2));
 }
 
 static WitArchFrame *exception_reject(WitUserCall *call)
@@ -676,70 +607,60 @@ static WitArchFrame *process_state(WitUserCall *call)
 
 static WitArchFrame *(*const handlers[CALL_COUNT])(WitUserCall *) = {
     [WIT_CALL_QUERY] = query,
-    [WIT_CALL_WRITE] = write,
-    [WIT_CALL_EXIT] = process_exit,
-    [WIT_CALL_CLOSE] = close,
+    [WIT_CALL_PROCESS_EXIT] = process_exit,
+    [WIT_CALL_HANDLE_CLOSE] = close,
+    [WIT_CALL_HANDLE_DUPLICATE] = handle_duplicate,
+    [WIT_CALL_DEBUG_WRITE] = debug_write,
     [WIT_CALL_MEMORY_RESERVE] = memory_reserve,
     [WIT_CALL_MEMORY_COMMIT] = memory_commit,
     [WIT_CALL_MEMORY_DECOMMIT] = memory_decommit,
     [WIT_CALL_MEMORY_PROTECT] = memory_protect,
     [WIT_CALL_MEMORY_RELEASE] = memory_release,
+    [WIT_CALL_MEMORY_RESET] = memory_reset,
+    [WIT_CALL_MEMORY_QUERY] = memory_query,
+    [WIT_CALL_MEMORY_PRESSURE_EVENT] = memory_pressure_event,
     [WIT_CALL_THREAD_CREATE] = thread_create,
-    [WIT_CALL_THREAD_YIELD] = thread_yield,
     [WIT_CALL_THREAD_EXIT] = thread_exit,
-    [WIT_CALL_THREAD_JOIN] = thread_join,
-    [WIT_CALL_CLOCK_READ] = clock_read,
-    [WIT_CALL_CLOCK_FREQUENCY] = clock_frequency,
-    [WIT_CALL_THREAD_SLEEP] = thread_sleep,
+    [WIT_CALL_THREAD_YIELD] = thread_yield,
+    [WIT_CALL_THREAD_QUERY] = thread_query,
+    [WIT_CALL_THREAD_SUSPEND] = thread_suspend,
+    [WIT_CALL_THREAD_RESUME] = thread_suspend,
+    [WIT_CALL_THREAD_CONTEXT_GET] = thread_context_get,
+    [WIT_CALL_THREAD_CONTEXT_SET] = thread_context_set,
+    [WIT_CALL_CONTEXT_PROFILE] = context_profile,
+    [WIT_CALL_THREAD_ACTIVATE] = thread_activate,
     [WIT_CALL_EVENT_CREATE] = event_create,
     [WIT_CALL_EVENT_SET] = event_set,
     [WIT_CALL_EVENT_RESET] = event_reset,
-    [WIT_CALL_EVENT_WAIT] = event_wait,
-    [WIT_CALL_MEMORY_QUERY] = memory_query,
-    [WIT_CALL_MONOTONIC_READ] = monotonic_read,
-    [WIT_CALL_MONOTONIC_FREQUENCY] = monotonic_frequency,
+    [WIT_CALL_OBJECT_WAIT] = object_wait,
     [WIT_CALL_SLEEP_UNTIL] = sleep_until,
-    [WIT_CALL_EVENT_WAIT_UNTIL] = event_wait_until,
-    [WIT_CALL_THREAD_CURRENT] = thread_current,
-    [WIT_CALL_MEMORY_RESET] = memory_reset,
-    [WIT_CALL_THREAD_QUERY] = thread_query,
-    [WIT_CALL_PROCESS_WRITE_BARRIER] = process_write_barrier,
-    [WIT_CALL_CPU_CACHE_SIZE] = cpu_cache_size,
-    [WIT_CALL_EVENT_WAIT_ANY_UNTIL] = event_wait_any_until,
-    [WIT_CALL_MEMORY_PRESSURE_EVENT] = memory_pressure_event,
-    [WIT_CALL_MONOTONIC_QUERY] = monotonic_query,
+    [WIT_CALL_CLOCK_READ] = clock_read,
+    [WIT_CALL_CLOCK_FREQUENCY] = clock_frequency,
     [WIT_CALL_RANDOM] = random,
-    [WIT_CALL_THREAD_REFERENCE_DUPLICATE] = thread_reference_duplicate,
+    [WIT_CALL_EXCEPTION_REGISTER] = exception_register,
+    [WIT_CALL_EXCEPTION_QUERY] = exception_query,
+    [WIT_CALL_EXCEPTION_CONTINUE] = exception_continue,
+    [WIT_CALL_EXCEPTION_REJECT] = exception_reject,
+    [WIT_CALL_PROCESSOR_QUERY] = processor_query,
+    [WIT_CALL_PROCESS_WRITE_BARRIER] = process_write_barrier,
+    [WIT_CALL_THREAD_CREATE_SIMPLE] = thread_create_simple,
+    [WIT_CALL_THREAD_JOIN] = thread_join,
+    [WIT_CALL_THREAD_COMPLETE] = thread_complete,
     [WIT_CALL_THREAD_REFERENCE_QUERY] = thread_reference_query,
     [WIT_CALL_THREAD_NATIVE_ID] = thread_native_id,
-    [WIT_CALL_OBJECT_WAIT] = object_wait,
-    [WIT_CALL_APC_QUEUE] = apc_queue,
-    [WIT_CALL_APC_DEQUEUE] = apc_dequeue,
-    [WIT_CALL_EVENT_CREATE_RIGHTS] = event_create_rights,
-    [WIT_CALL_CONSOLE_WRITE] = console_write,
-    [WIT_CALL_PROCESSOR_QUERY] = processor_query,
-    [WIT_CALL_THREAD_NAME_SET] = thread_name_set,
-    [WIT_CALL_THREAD_NAME_QUERY] = thread_name_query,
-    [WIT_CALL_CPU_CONTEXT_QUERY] = cpu_context_query,
-    [WIT_CALL_THREAD_CONTEXT_GET] = thread_context_get,
-    [WIT_CALL_THREAD_SUSPEND] = thread_suspend,
-    [WIT_CALL_THREAD_RESUME] = thread_suspend,
-    [WIT_CALL_THREAD_CONTEXT_SET] = thread_context_set,
-    [WIT_CALL_THREAD_CONTEXT_RESTORE] = thread_context_restore,
     [WIT_CALL_THREAD_CONTEXT_METADATA] = thread_context_metadata,
+    [WIT_CALL_APC_DEQUEUE] = apc_dequeue,
+    [WIT_CALL_MONOTONIC_QUERY] = monotonic_query,
+    [WIT_CALL_CPU_CACHE_SIZE] = cpu_cache_size,
+    [WIT_CALL_THREAD_CONTEXT_RESTORE] = thread_context_restore,
     [WIT_CALL_STACK_LEASE_ACQUIRE] = stack_lease_acquire,
     [WIT_CALL_STACK_LEASE_QUERY] = stack_lease_query,
     [WIT_CALL_STACK_LEASE_RELEASE] = stack_lease_release,
-    [WIT_CALL_EXCEPTION_REGISTER] = exception_register,
-    [WIT_CALL_EXCEPTION_QUERY] = exception_query,
-    [WIT_CALL_EXCEPTION_CONTINUE] = exception_resume,
-    [WIT_CALL_EXCEPTION_REJECT] = exception_reject,
     [WIT_CALL_EXCEPTION_BEGIN] = exception_begin,
     [WIT_CALL_FATAL_ARM] = fatal_arm,
     [WIT_CALL_FATAL_REPORT] = fatal_report,
-    [WIT_CALL_EXCEPTION_UNWIND] = exception_resume,
-    [WIT_CALL_THREAD_COMPLETE] = thread_complete,
-    [WIT_CALL_THREAD_CREATE_REFERENCE] = thread_create_reference,
+    [WIT_CALL_THREAD_NAME_SET] = thread_name_set,
+    [WIT_CALL_THREAD_NAME_QUERY] = thread_name_query,
     [WIT_CALL_CODE_MEMORY] = code_memory,
     [WIT_CALL_FILE] = file,
     [WIT_CALL_STORAGE_QUERY] = storage_query,

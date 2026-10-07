@@ -35,8 +35,8 @@
 #define WIT_RUNTIME_TICK_BUDGET 3000U
 
 /* Bytes one call moves. */
-#define WIT_ABI_MAX_WRITE 256U /* debug write */
-#define WIT_CONSOLE_MAX_WRITE 65536U
+#define WIT_DEBUG_WRITE_MAX 65536U /* one DEBUG_WRITE */
+#define WIT_ABI_MAX_WRITE 256U /* bytes the kernel copies per step of a write; frozen-line callers size buffers by it */
 #define WIT_FILE_MAX_READ 65536U
 #define WIT_ABI_MAX_RANDOM 65536U
 

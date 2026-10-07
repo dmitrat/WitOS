@@ -3,7 +3,8 @@
 #include "types.h"
 #include "limits.h"
 #define WIT_THREAD_REFERENCE_VERSION 3U
-#define WIT_THREAD_REFERENCE_CURRENT (~1ULL)
+/* Pseudo-handle of the calling thread for every call that takes a thread handle. */
+#define WIT_THREAD_SELF (~1ULL)
 #define WIT_THREAD_REFERENCE_QUERY 16U
 #define WIT_THREAD_REFERENCE_WAIT 4U
 #define WIT_THREAD_REFERENCE_GET_CONTEXT 32U

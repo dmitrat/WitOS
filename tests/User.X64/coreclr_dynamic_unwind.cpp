@@ -98,7 +98,8 @@ static bool foreign_walk(unsigned char *rx)
     foreignReady = foreignRelease = 0;
     foreignReference = 0;
     WitU64 thread = 0, previous = 99, result = 0;
-    if (wit_native_call(WIT_CALL_THREAD_CREATE, (WitU64)foreign_worker, (WitU64)rx, 0, &thread) != WIT_STATUS_OK) {
+    if (wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)foreign_worker, (WitU64)rx, 0, &thread) !=
+        WIT_STATUS_OK) {
         return false;
     }
     while (!foreignReady) {

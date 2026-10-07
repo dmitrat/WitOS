@@ -1,4 +1,5 @@
 #include "pal.witos.h"
+#include "bootstrap.h"
 
 static WitU64 deadline(uint32_t milliseconds)
 {
@@ -59,8 +60,7 @@ uint32_t PalWaitForSingleObjectEx(HANDLE handle, uint32_t milliseconds, UInt32_B
         SetLastError(ERROR_NOT_SUPPORTED);
         return WAIT_FAILED;
     } // No APC/reentrant wait machinery exists yet.
-    const WitU64 status =
-        wit_native_call(WIT_CALL_EVENT_WAIT_UNTIL, (uintptr_t)handle, deadline(milliseconds), 0, nullptr);
+    const WitU64 status = wit_native_wait_one((uintptr_t)handle, deadline(milliseconds));
     if (status == WIT_STATUS_OK) {
         return WAIT_OBJECT_0;
     }
@@ -71,7 +71,8 @@ uint32_t PalWaitForSingleObjectEx(HANDLE handle, uint32_t milliseconds, UInt32_B
     return WAIT_FAILED;
 }
 
-uint32_t PalCompatibleWaitAny(
+// The wait request lives in this frame; the record probe links no security cookie (see bootstrap.h).
+WIT_NATIVE_SAFEBUFFERS uint32_t PalCompatibleWaitAny(
     UInt32_BOOL alertable, uint32_t timeout, uint32_t count, HANDLE *handles, UInt32_BOOL reentrant)
 {
     static_assert(sizeof(HANDLE) == sizeof(WitU64));
@@ -84,8 +85,7 @@ uint32_t PalCompatibleWaitAny(
         return WAIT_FAILED;
     }
     WitU64 index = 0;
-    const WitU64 status =
-        wit_native_call(WIT_CALL_EVENT_WAIT_ANY_UNTIL, (uintptr_t)handles, count, deadline(timeout), &index);
+    const WitU64 status = wit_native_wait_any((const WitU64 *)handles, (WitU32)count, deadline(timeout), &index);
     if (status == WIT_STATUS_OK) {
         if (index >= count) {
             wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);

@@ -30,12 +30,23 @@ static void fail(WitU64 code)
     wit_native_fail_fast(code);
 }
 
+/* CONTINUE through the transfer request; the current token retires the current record alone. */
+static WitU64 resume(WitU64 token, const WitThreadContext *context)
+{
+    WitUserExceptionTransfer transfer = {};
+    transfer.Version = WIT_EXCEPTION_TRANSFER_VERSION;
+    transfer.Size = sizeof(transfer);
+    transfer.RetireThroughToken = token;
+    transfer.Context = *context;
+    return wit_native_call(WIT_CALL_EXCEPTION_CONTINUE, token, (WitU64)&transfer, sizeof(transfer), nullptr);
+}
+
 static WitU64 intruder(WitU64 token)
 {
     WitUserExceptionInfo info;
     memset(&info, 0xA5, sizeof(info));
     if (query(token, info) != WIT_STATUS_BAD_HANDLE ||
-        wit_native_call(WIT_CALL_EXCEPTION_CONTINUE, token, 0, sizeof(WitThreadContext), nullptr) !=
+        wit_native_call(WIT_CALL_EXCEPTION_CONTINUE, token, 0, sizeof(WitUserExceptionTransfer), nullptr) !=
             WIT_STATUS_BAD_HANDLE) {
         return 4101;
     }
@@ -144,9 +155,8 @@ extern "C" void wit_test_exception_callback(WitU64 token, WitU64 vector, WitU64 
     if (wit_native_call(WIT_CALL_EXCEPTION_REGISTER, 0, WIT_EXCEPTION_VERSION, 0, nullptr) != WIT_STATUS_BUSY ||
         wit_native_call(WIT_CALL_THREAD_CONTEXT_RESTORE, (WitU64)&info.Context, sizeof(info.Context),
             WIT_THREAD_CONTEXT_VERSION, nullptr) != WIT_STATUS_BUSY ||
-        wit_native_call(WIT_CALL_EXCEPTION_CONTINUE, token + 1, (WitU64)&info.Context, sizeof(info.Context), nullptr) !=
-            WIT_STATUS_BAD_HANDLE ||
-        wit_native_call(WIT_CALL_EXCEPTION_CONTINUE, token, arena + 4092, sizeof(info.Context), nullptr) !=
+        resume(token + 1, &info.Context) != WIT_STATUS_BAD_HANDLE ||
+        wit_native_call(WIT_CALL_EXCEPTION_CONTINUE, token, arena + 4092, sizeof(WitUserExceptionTransfer), nullptr) !=
             WIT_STATUS_BAD_ADDRESS) {
         return fail(4110);
     }
@@ -181,7 +191,7 @@ extern "C" void wit_test_exception_callback(WitU64 token, WitU64 vector, WitU64 
             input.Flags &= ~WIT_THREAD_CONTEXT_EXCEPTION_ACTIVE;
             break;
         }
-        if (wit_native_call(WIT_CALL_EXCEPTION_CONTINUE, token, (WitU64)&input, sizeof(input), nullptr) != expected ||
+        if (resume(token, &input) != expected ||
             query(token, after) != WIT_STATUS_OK ||
             memcmp(&info, &after, sizeof(info))) {
             return fail(4112 + i);
@@ -190,8 +200,7 @@ extern "C" void wit_test_exception_callback(WitU64 token, WitU64 vector, WitU64 
     WitStackLeaseInfo lease;
     if (wit_native_call(WIT_CALL_STACK_LEASE_ACQUIRE, WIT_THREAD_REFERENCE_CURRENT, (WitU64)&lease, sizeof(lease),
             nullptr) != WIT_STATUS_OK ||
-        wit_native_call(WIT_CALL_EXCEPTION_CONTINUE, token, (WitU64)&info.Context, sizeof(info.Context), nullptr) !=
-            WIT_STATUS_BUSY ||
+        resume(token, &info.Context) != WIT_STATUS_BUSY ||
         wit_native_call(WIT_CALL_STACK_LEASE_RELEASE, lease.Token, 0, 0, nullptr) != WIT_STATUS_OK) {
         return fail(4118);
     }
@@ -217,7 +226,7 @@ extern "C" void wit_test_exception_callback(WitU64 token, WitU64 vector, WitU64 
     input.R12 = 0x778899AABBCCDD11ULL;
     input.Rflags = 0x247;
     *(WitU64 *)&input.FxState[256] = input.R12;
-    wit_native_call(WIT_CALL_EXCEPTION_CONTINUE, token, (WitU64)&input, sizeof(input), nullptr);
+    resume(token, &input);
     fail(4120);
 }
 

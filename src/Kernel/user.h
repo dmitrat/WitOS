@@ -59,9 +59,7 @@ typedef enum WitUserThreadState {
 typedef enum WitUserWaitKind {
     WitWaitNone,
     WitWaitJoin,
-    WitWaitEvent,
     WitWaitSleep,
-    WitWaitEvents,
     WitWaitObjects
 } WitUserWaitKind;
 
@@ -85,8 +83,7 @@ typedef struct WitUserThread {
     WitU32 WaitAll, WaitAlertable;
     WitUserApc Apcs[WIT_APC_CAPACITY];
     WitU32 ApcCount;
-    WitU64 Deadline;
-    WitU32 MonotonicWait; /* 0: delivered PIT ticks; 1: monotonic counter. */
+    WitU64 Deadline; /* Absolute monotonic deadline of a parked wait or sleep; all ones waits forever. */
     WitU64 WaitOrder;
     WitU64 Handle;
     WitU64 StackBottom;
@@ -216,7 +213,6 @@ WitU64 wit_user_exception_begin(WitUserProcess *, WitU64, WitU64, WitU64, WitU64
 WitU64 wit_user_exception_register(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_exception_query(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_exception_continue(WitUserProcess *, WitU64, WitU64, WitU64);
-WitU64 wit_user_exception_unwind(WitUserProcess *, WitU64, WitU64, WitU64);
 int wit_user_exception_deliver(WitUserProcess *, WitArchFrame *, WitU64, WitU64, WitU64);
 WitArchFrame *wit_user_exception_trap(WitArchFrame *, WitU64, WitU64, WitU64);
 void wit_user_context_snapshot(WitThreadContext *, const WitUserThread *, const WitArchFrame *);
@@ -246,6 +242,8 @@ WitU64 wit_user_apc_queue(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_apc_dequeue(WitUserProcess *, WitU64, WitU64);
 WitU64 wit_user_objects_poll(WitUserProcess *, const WitU64 *, WitU32, int, int, WitU64 *);
 WitU64 wit_user_object_wait(WitUserProcess *, WitU64, WitU64, WitU64, WitU64, WitU64 *);
+/* The process-internal object wait on copied handles: consumes a ready object, times out or parks the current thread. */
+WitU64 wit_user_wait_objects(WitUserProcess *, const WitU64 *, WitU32, int, WitU64, WitU64, WitU64 *);
 WitU64 wit_user_reference_target(WitUserProcess *, WitU64, WitU32, WitUserThread **);
 WitU64 wit_user_reference_signaled(WitUserProcess *, WitU64, int *);
 void wit_user_references_initialize(WitUserProcess *);
@@ -262,7 +260,7 @@ int wit_user_space_map(WitUserSpace *space, WitU64 address, int writable, int ex
 WitU64 wit_user_space_physical(const WitUserSpace *space, WitU64 address, int write, int execute);
 void wit_user_space_publish_code(WitUserSpace *space, WitU64 address, WitU64 size);
 int wit_user_copy_from(const WitUserSpace *space, WitU64 address, WitU8 *buffer, WitU32 size);
-WitU64 wit_user_console_write(WitUserProcess *, WitU64, WitU64, WitU64);
+WitU64 wit_user_debug_write(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
 int wit_user_buffer_readable(const WitUserSpace *, WitU64, WitU32);
 int wit_user_buffer_writable(const WitUserSpace *, WitU64, WitU32);
 int wit_user_copy_to(const WitUserSpace *space, WitU64 address, const WitU8 *buffer, WitU32 size);
@@ -346,14 +344,9 @@ int wit_user_is_active(void);
 void wit_user_pressure_update(WitUserProcess *process);
 WitU64 wit_user_pressure_create(WitUserProcess *process, WitU64 *handle);
 WitU64 wit_user_event_notify(WitUserProcess *process, WitU64 handle, int signaled);
+/* Completes every parked wait and sleep whose monotonic deadline has passed. */
 void wit_user_wait_expire(WitUserProcess *process, WitU64 now);
-void wit_user_wait_expire_time(WitUserProcess *process, WitU64 now);
 WitU64 wit_user_sleep_until(WitUserProcess *process, WitU64 deadline, WitU64 now);
-WitU64 wit_user_event_wait_any_until(
-    WitUserProcess *process, WitU64 address, WitU64 count, WitU64 deadline, WitU64 now, WitU64 *index);
-WitU64 wit_user_event_wait_until(WitUserProcess *process, WitU64 handle, WitU64 deadline, WitU64 now);
-WitU64 wit_user_sleep(WitUserProcess *process, WitU64 deadline, WitU64 now);
-WitU64 wit_user_event_wait(WitUserProcess *process, WitU64 handle, WitU64 deadline, WitU64 now);
 WitU64 wit_user_event_set(WitUserProcess *process, WitU64 handle);
 WitU64 wit_user_event_reset(WitUserProcess *process, WitU64 handle);
 WitU64 wit_user_event_close(WitUserProcess *process, WitU64 handle);

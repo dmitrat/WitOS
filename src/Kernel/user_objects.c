@@ -26,7 +26,7 @@ WitU64 wit_user_objects_poll(
         if (all) {
             for (WitU32 j = 0; j < i; ++j) {
                 if (handles[j] == handles[i]) {
-                    return WIT_STATUS_INVALID_ARGUMENT;
+                    return WIT_STATUS_INVALID_ARGUMENT; // Each object once when all must be consumed, as Windows.
                 }
             }
         }
@@ -58,6 +58,8 @@ WitU64 wit_user_objects_poll(
     return WIT_STATUS_OK;
 }
 
+/* OBJECT_WAIT: copies and validates the request, then waits through the process-internal object wait. An alertable
+ * request with a queued activation returns INTERRUPTED before any signal is consumed (transitional until K1.3). */
 WitU64 wit_user_object_wait(WitUserProcess *p, WitU64 address, WitU64 size, WitU64 reserved, WitU64 now, WitU64 *winner)
 {
     WitUserWaitRequest request;
@@ -90,30 +92,11 @@ WitU64 wit_user_object_wait(WitUserProcess *p, WitU64 address, WitU64 size, WitU
     }
     if ((request.Flags & WIT_WAIT_OBJECTS_ALERTABLE) && thread->ApcCount) {
         *winner = 0;
-        return WIT_STATUS_APC_PENDING;
+        return WIT_STATUS_INTERRUPTED;
     }
-    if (status == WIT_STATUS_OK) {
-        return wit_user_objects_poll(p, handles, request.Count, all, 1, winner);
+    const WitU64 result = wit_user_wait_objects(p, handles, request.Count, all, request.Deadline, now, winner);
+    if (result == WIT_STATUS_OK && thread->State == WitThreadWaiting) {
+        thread->WaitAlertable = (request.Flags & WIT_WAIT_OBJECTS_ALERTABLE) != 0;
     }
-    if (request.Deadline != WIT_WAIT_INFINITE && request.Deadline <= now) {
-        ++p->WaitTimeouts;
-        return WIT_STATUS_TIMED_OUT;
-    }
-    if (p->NextWaitOrder == ~0ULL) {
-        return WIT_STATUS_NO_MEMORY;
-    }
-    for (WitU32 i = 0; i < WIT_WAIT_ANY_CAPACITY; ++i) {
-        thread->WaitHandles[i] = i < request.Count ? handles[i] : 0;
-    }
-    thread->WaitCount = request.Count;
-    thread->WaitHandle = 0;
-    thread->WaitKind = WitWaitObjects;
-    thread->WaitAll = all;
-    thread->WaitAlertable = (request.Flags & WIT_WAIT_OBJECTS_ALERTABLE) != 0;
-    thread->Deadline = request.Deadline;
-    thread->MonotonicWait = 1;
-    thread->WaitOrder = ++p->NextWaitOrder;
-    thread->State = WitThreadWaiting;
-    ++p->EventParks;
-    return WIT_STATUS_OK;
+    return result;
 }

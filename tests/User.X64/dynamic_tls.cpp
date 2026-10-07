@@ -80,7 +80,6 @@ extern "C" void wit_dynamic_configure(const WitUserStartup *startup)
 
 static WitU64 worker(WitU64 index)
 {
-    WitU64 ignored;
     report_index = index;
     if (constructed != 2 || sequence != 12 || primitive != 77) {
         return 1001;
@@ -91,8 +90,7 @@ static WitU64 worker(WitU64 index)
         return 1002;
     }
     primitive = 100 + index;
-    if (wit_native_call(WIT_CALL_EVENT_WAIT, release_event, WIT_WAIT_INFINITE, 0, &ignored) != WIT_STATUS_OK ||
-        primitive != 100 + index) {
+    if (wit_native_wait_one(release_event, WIT_WAIT_INFINITE) != WIT_STATUS_OK || primitive != 100 + index) {
         return 1003;
     }
     if (mode == 1) {
@@ -176,7 +174,8 @@ extern "C" WitU64 wit_dynamic_program(const WitUserStartup *startup)
         return 1018;
     }
     reports[2] = 0;
-    if (wit_native_call(WIT_CALL_THREAD_CREATE, (WitU64)wit_dynamic_lazy_entry, 2, 0, &handles[0]) != WIT_STATUS_OK ||
+    if (wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)wit_dynamic_lazy_entry, 2, 0, &handles[0]) !=
+            WIT_STATUS_OK ||
         wit_native_call(WIT_CALL_THREAD_JOIN, handles[0], 0, 0, &result) != WIT_STATUS_OK ||
         result != WIT_TEST_EXIT_CODE ||
         reports[2] != (mode == 8 ? 12291U : 1221U)) {

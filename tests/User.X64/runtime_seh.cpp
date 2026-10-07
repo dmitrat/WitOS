@@ -442,7 +442,7 @@ extern "C" void wit_test_exception_transfer_prepare(WitThreadContext *captured)
                 invalid.Context.FxState[511] = 1;
                 break;
             }
-            if (wit_native_call(WIT_CALL_EXCEPTION_UNWIND, selected, address, size, nullptr) != expected ||
+            if (wit_native_call(WIT_CALL_EXCEPTION_CONTINUE, selected, address, size, nullptr) != expected ||
                 wit_native_call(WIT_CALL_EXCEPTION_QUERY, token, (WitU64)&after, sizeof(after), nullptr) !=
                     WIT_STATUS_OK ||
                 memcmp(&before, &after, sizeof(before))) {
@@ -452,7 +452,7 @@ extern "C" void wit_test_exception_transfer_prepare(WitThreadContext *captured)
         WitStackLeaseInfo lease;
         if (wit_native_call(WIT_CALL_STACK_LEASE_ACQUIRE, WIT_THREAD_REFERENCE_CURRENT, (WitU64)&lease, sizeof(lease),
                 nullptr) != WIT_STATUS_OK ||
-            wit_native_call(WIT_CALL_EXCEPTION_UNWIND, token, (WitU64)&request, sizeof(request), nullptr) !=
+            wit_native_call(WIT_CALL_EXCEPTION_CONTINUE, token, (WitU64)&request, sizeof(request), nullptr) !=
                 WIT_STATUS_BUSY ||
             wit_native_call(WIT_CALL_EXCEPTION_QUERY, token, (WitU64)&after, sizeof(after), nullptr) != WIT_STATUS_OK ||
             memcmp(&before, &after, sizeof(before)) ||
@@ -460,7 +460,7 @@ extern "C" void wit_test_exception_transfer_prepare(WitThreadContext *captured)
             wit_native_fail_fast(4536);
         }
     }
-    wit_native_call(WIT_CALL_EXCEPTION_UNWIND, token, (WitU64)&request, sizeof(request), nullptr);
+    wit_native_call(WIT_CALL_EXCEPTION_CONTINUE, token, (WitU64)&request, sizeof(request), nullptr);
     wit_native_fail_fast(4537);
 }
 

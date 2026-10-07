@@ -75,11 +75,11 @@ static void deadline_order(WitPageAllocator *pages)
             WIT_STATUS_OK,
         "Deadline fixture event creation failed");
     *(WitU64 *)wit_user_space_physical(&process.Space, WIT_GC_INFO_REPORT, 1, 0) = handle;
-    require(wit_user_event_wait_any_until(&process, WIT_GC_INFO_REPORT, 1, 10, 1, &index) == WIT_STATUS_OK && !index,
+    require(wit_user_wait_objects(&process, &handle, 1, 0, 10, 1, &index) == WIT_STATUS_OK && !index,
         "Deadline wait did not publish");
-    wit_user_wait_expire(&process, 1000); // Legacy ticks must not expire a monotonic wait.
-    require(process.Threads[0].State == WitThreadWaiting, "Mixed deadline domains");
-    wit_user_wait_expire_time(&process, 10);
+    wit_user_wait_expire(&process, 9);
+    require(process.Threads[0].State == WitThreadWaiting, "Deadline expired early");
+    wit_user_wait_expire(&process, 10);
     require(process.Threads[0].State == WitThreadReady &&
             process.Threads[0].Context->Rax == WIT_STATUS_TIMED_OUT &&
             !process.Threads[0].WaitCount &&
@@ -89,7 +89,7 @@ static void deadline_order(WitPageAllocator *pages)
             !process.EventWakes &&
             process.Threads[0].Context->Rax == WIT_STATUS_TIMED_OUT,
         "Late signal replaced timeout completion");
-    require(wit_user_event_wait_any_until(&process, WIT_GC_INFO_REPORT, 1, 0, 10, &index) == WIT_STATUS_OK && !index,
+    require(wit_user_wait_objects(&process, &handle, 1, 0, 0, 10, &index) == WIT_STATUS_OK && !index,
         "Late signal was lost instead of retained for the next wait");
     wit_user_destroy(&process);
     require(wit_pages_free_count(pages) == before, "Deadline state-test teardown leaked pages");

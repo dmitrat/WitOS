@@ -31,9 +31,20 @@ extern "C" BOOL WINAPI wit_native_write_file(
         SetLastError(ERROR_INVALID_PARAMETER);
         return FALSE;
     }
-    WitConsoleWriteRequest request = {
-        WIT_CONSOLE_WRITE_VERSION, sizeof(request), (WitU64)handle, (WitU64)buffer, bytes, (WitU64)written};
-    const auto status = wit_native_call(WIT_CALL_CONSOLE_WRITE, (WitU64)&request, sizeof(request), 0, nullptr);
+    // The count's destination is validated as a whole before anything changes, as the kernel's former CONSOLE_WRITE
+    // validated its output pointer: a readonly or partly unmapped destination fails and no byte is written.
+    WitCodeMemoryRequest probe = {WIT_CODE_MEMORY_VERSION, sizeof(probe), WIT_CODE_VALIDATE,
+        WIT_MEMORY_READ | WIT_MEMORY_WRITE, (WitU64)written, 0, sizeof(*written), 0, 0, 0};
+    if (wit_native_call(WIT_CALL_CODE_MEMORY, (WitU64)&probe, sizeof(probe), 0, nullptr) != WIT_STATUS_OK) {
+        SetLastError(ERROR_INVALID_ADDRESS);
+        return FALSE;
+    }
+    *written = 0;
+    WitU64 count = 0;
+    const auto status = wit_native_call(WIT_CALL_DEBUG_WRITE, (WitU64)handle, (WitU64)buffer, bytes, &count);
+    if (status == WIT_STATUS_OK) {
+        *written = (DWORD)count;
+    }
     if (status == WIT_STATUS_TOO_LARGE) {
         SetLastError(ERROR_NOT_ENOUGH_QUOTA);
         return FALSE;

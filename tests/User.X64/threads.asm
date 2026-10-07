@@ -9,7 +9,7 @@ CREATE MACRO target, argument
     lea rcx, target
     mov rdx, argument
     xor r8d, r8d
-    mov eax, WIT_CALL_THREAD_CREATE
+    mov eax, WIT_CALL_THREAD_CREATE_SIMPLE
     int 80h
 ENDM
 JOIN MACRO handle
@@ -46,18 +46,18 @@ wit_user_start PROC
     JOIN QWORD PTR fs:[WIT_TLS_HANDLE_OFFSET]
     EXPECT WIT_STATUS_DEADLOCK
     mov rcx, QWORD PTR fs:[WIT_TLS_HANDLE_OFFSET]
-    mov eax, WIT_CALL_CLOSE
+    mov eax, WIT_CALL_HANDLE_CLOSE
     int 80h
     EXPECT WIT_STATUS_BUSY
     mov rcx, WIT_USER_DATA
     xor edx, edx
     xor r8d, r8d
-    mov eax, WIT_CALL_THREAD_CREATE
+    mov eax, WIT_CALL_THREAD_CREATE_SIMPLE
     int 80h
     EXPECT WIT_STATUS_BAD_ADDRESS
     lea rcx, worker
     mov r8d, 4 ; bit 2 is reserved; bits 0/1 select detached/library lifecycle
-    mov eax, WIT_CALL_THREAD_CREATE
+    mov eax, WIT_CALL_THREAD_CREATE_SIMPLE
     int 80h
     EXPECT WIT_STATUS_INVALID_ARGUMENT
     test rdx, rdx
@@ -111,7 +111,7 @@ close_finished:
     int 80h
     EXPECT WIT_STATUS_OK
     mov rcx, r13
-    mov eax, WIT_CALL_CLOSE
+    mov eax, WIT_CALL_HANDLE_CLOSE
     int 80h
     cmp rax, WIT_STATUS_BUSY
     je close_finished
@@ -291,7 +291,7 @@ thread_process_exit:
 failed:
     mov ecx, 241
 process_exit:
-    mov eax, WIT_CALL_EXIT
+    mov eax, WIT_CALL_PROCESS_EXIT
     int 80h
     ud2
 thread_exit:
