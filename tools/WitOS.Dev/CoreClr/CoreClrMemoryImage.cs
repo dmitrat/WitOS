@@ -88,7 +88,7 @@ internal static class CoreClrMemoryImage
             "src/Runtime.Native/library.c","src/Runtime.Native/library_lifecycle.c","src/Runtime.Native/path.c","src/Runtime.Native/current_directory.c","src/Runtime.Native/file.c",
             "src/Runtime.NativeAot/crt_memory.witos.c","src/Runtime.NativeAot/crt_config.witos.cpp",
             "src/Runtime.Native/tls_metadata.c","src/Runtime.Native/image.c","src/Runtime.NativeAot/unwind_checked.witos.cpp","src/Runtime.NativeAot/unwind_validation.witos.cpp",
-            "src/Runtime.NativeAot/unwind_scope.witos.cpp","src/Runtime.NativeAot/unwind_guest.witos.cpp","src/Runtime.NativeAot/native_exception.witos.cpp","src/Runtime.NativeAot/seh_scope.witos.cpp",
+            "src/Runtime.NativeAot/unwind_scope.witos.cpp","src/Runtime.NativeAot/unwind_guest.witos.cpp","src/Runtime.NativeAot/native_exception.witos.cpp","src/Runtime.NativeAot/native_activation.witos.cpp","src/Runtime.NativeAot/seh_scope.witos.cpp",
             "src/Runtime.NativeAot/seh_validation.witos.cpp","src/Runtime.NativeAot/seh_security.witos.cpp","src/Runtime.NativeAot/security_handler.witos.cpp",
             "src/Runtime.NativeAot/security_cookie.witos.cpp","src/Runtime.NativeAot/failfast_exception.witos.cpp","src/Runtime.NativeAot/pal_error.witos.cpp","src/Runtime.NativeAot/native_new.witos.cpp",
             "src/Runtime.NativeAot/X64/native_exception_x64.cpp","artifacts/runtime-unwind/unwinder.checked.cpp"})

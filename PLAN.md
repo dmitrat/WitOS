@@ -1,6 +1,6 @@
 # План WitOS
 
-Обновлено: **2026-10-07**. Upstream .NET: **10.0.8**. Текущая реализация: user ABI v53, boot ABI v4, ядро и UHI для
+Обновлено: **2026-10-07**. Upstream .NET: **10.0.8**. Текущая реализация: user ABI v54, boot ABI v4, ядро и UHI для
 x64 (QEMU q35) и ARM64 (QEMU virt). Архитектурное решение: [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md).
 Прежний план с историей M0–M3, P1–P6.4, Q0–Q2, A0–A2 и T1 — в [архиве](@Docs/Implementation/Plan-Archive-2026-10-06.md);
 замороженная линия хоста P6.4 — в [P6.4-Plan.md](@Docs/Implementation/P6.4-Plan.md).
@@ -134,9 +134,10 @@ UHI для x64 и ARM64 (порт ARM64 стоил ~2 300 строк и пере
     `THREAD_QUERY` по хэндлу или `WIT_THREAD_SELF` с единой структурой, поглощающей `THREAD_REFERENCE_QUERY`,
     `THREAD_NATIVE_ID` и `THREAD_CONTEXT_METADATA`; `THREAD_COMPLETE` сливается в `THREAD_EXIT`; `HANDLE_DUPLICATE` для
     событий; вид хэндла `THREAD` и право `JOIN` уходят.
-  - [ ] **K1.3** Активации: `THREAD_ACTIVATE` доставляется через callback исключений с прерванным контекстом; любое
-    ожидание прерывается `INTERRUPTED`; `ALERTABLE` и `APC_DEQUEUE` уходят; замороженный PAL (QueueUserAPC,
-    alertable-ожидания) переведён на активации.
+  - [x] **K1.3** Активации (ABI v54): `THREAD_ACTIVATE` доставляется через callback исключений с прерванным контекстом
+    при следующем возврате цели в пользовательский режим; любое ожидание и сон прерываются `INTERRUPTED`; `ALERTABLE` и
+    `APC_DEQUEUE` отозваны; право `ACTIVATE`; замороженный PAL (QueueUserAPC, alertable-ожидания) переведён на активации
+    и перезапускает прерванные ожидания; на ARM64 вызов `UNSUPPORTED` до K1.4.
   - [ ] **K1.4** ARM64: регистровый блок `WitThreadContext` для AArch64, `CONTEXT_PROFILE` по ISA, контексты и доставка
     исключений на ARM64; фикстуры исключений на обеих ISA. Протокол фикстур обновлён.
 - [ ] **K2** Каналы (RFC-0006 §11–13; RFC-0011 §7.6): `CHANNEL_CREATE`, `CHANNEL_SEND`, `CHANNEL_RECEIVE`; инлайн-данные

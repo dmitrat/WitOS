@@ -1,4 +1,5 @@
 #include "pal.witos.h"
+#include "native_activation.witos.h"
 
 static WitU64 deadline(DWORD milliseconds)
 {
@@ -50,6 +51,10 @@ extern "C" BOOL WINAPI wit_native_set_event(HANDLE handle)
     return (BOOL)PalSetEvent(handle);
 }
 
+// An activation (a queued user APC of this binding) runs its callback through the process's fault callback at the
+// target's next return to user mode and ends the wait the target is parked in with INTERRUPTED (RFC 0011 section
+// 7.5). An alertable wait reports that as WAIT_IO_COMPLETION, the callback having run; a non-alertable wait restarts
+// at its absolute deadline, as a libc restarts a wait a signal interrupted.
 extern "C" DWORD WINAPI wit_native_wait_multiple(
     DWORD count, const HANDLE *handles, BOOL all, DWORD timeout, BOOL alertable)
 {
@@ -63,48 +68,41 @@ extern "C" DWORD WINAPI wit_native_wait_multiple(
         return WAIT_FAILED;
     }
     WitUserWaitRequest request = {WIT_WAIT_OBJECTS_VERSION, sizeof(request), (WitU64)handles, count,
-        (all ? WIT_WAIT_OBJECTS_ALL : 0U) | (alertable ? WIT_WAIT_OBJECTS_ALERTABLE : 0U), deadline(timeout)};
-    WitU64 index = 0;
-    const auto status = wit_native_call(WIT_CALL_OBJECT_WAIT, (WitU64)&request, sizeof(request), 0, &index);
-    if (status == WIT_STATUS_OK) {
-        if (index >= count || (all && index)) {
-            wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
-        }
-        return WAIT_OBJECT_0 + (DWORD)index;
-    }
-    if (status == WIT_STATUS_TIMED_OUT) {
-        return WAIT_TIMEOUT;
-    }
-    if (status == WIT_STATUS_APC_PENDING) {
-        if (!alertable) {
-            wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
-        }
-        bool delivered = false;
-        for (;;) {
-            WitUserApc apc;
-            WitU64 copied = 0;
-            const auto next = wit_native_call(WIT_CALL_APC_DEQUEUE, (WitU64)&apc, sizeof(apc), 0, &copied);
-            if (next == WIT_STATUS_TIMED_OUT && delivered && !copied) {
-                break;
-            }
-            if (next != WIT_STATUS_OK || copied != sizeof(apc) || !apc.Callback) {
+        all ? WIT_WAIT_OBJECTS_ALL : 0U, deadline(timeout)};
+    for (;;) {
+        WitU64 index = 0;
+        const auto status = wit_native_call(WIT_CALL_OBJECT_WAIT, (WitU64)&request, sizeof(request), 0, &index);
+        if (status == WIT_STATUS_OK) {
+            if (index >= count || (all && index)) {
                 wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
             }
-            // FIFO callbacks execute with no kernel gate held. They may queue
-            // more work or enter another alertable wait; normal user preemption
-            // and the component CPU budget still apply during this dispatch.
-            delivered = true;
-            ((PAPCFUNC)(uintptr_t)apc.Callback)((ULONG_PTR)apc.Argument);
+            return WAIT_OBJECT_0 + (DWORD)index;
         }
-        return WAIT_IO_COMPLETION;
+        if (status == WIT_STATUS_TIMED_OUT) {
+            return WAIT_TIMEOUT;
+        }
+        if (status == WIT_STATUS_INTERRUPTED) {
+            if (alertable) {
+                return WAIT_IO_COMPLETION;
+            }
+            continue;
+        }
+        wit_pal_set_status(status);
+        return WAIT_FAILED;
     }
-    wit_pal_set_status(status);
-    return WAIT_FAILED;
 }
 
+// The kernel delivers an activation only to a process with a registered fault callback, so the dispatcher of this
+// module is installed before the first activation; the dispatcher runs the callback and continues the context.
 extern "C" DWORD WINAPI wit_native_queue_apc(PAPCFUNC callback, HANDLE thread, ULONG_PTR argument)
 {
-    return wit_pal_result(wit_native_call(WIT_CALL_APC_QUEUE, (WitU64)thread, (WitU64)callback, argument, nullptr))
+    const auto installed = wit_native_activation_install();
+    if (installed != WIT_STATUS_OK) {
+        wit_pal_set_status(installed);
+        return 0;
+    }
+    return wit_pal_result(
+               wit_native_call(WIT_CALL_THREAD_ACTIVATE, (WitU64)thread, (WitU64)callback, argument, nullptr))
         ? 1U
         : 0U;
 }

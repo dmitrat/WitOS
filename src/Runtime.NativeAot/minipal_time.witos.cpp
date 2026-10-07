@@ -46,7 +46,7 @@ extern "C" void minipal_microdelay(uint32_t usecs, uint32_t *usecsSinceYield)
     const WitU64 frequency = (WitU64)minipal_hires_tick_frequency();
     const WitU64 deadline = wit_minipal_deadline_at(usecs, (WitU64)minipal_hires_ticks(), frequency);
     if (usecs > WIT_MINIPAL_SPIN_MAX_US) {
-        if (wit_native_call(WIT_CALL_SLEEP_UNTIL, deadline, 0, 0, nullptr) != WIT_STATUS_OK) {
+        if (wit_native_sleep_until(deadline) != WIT_STATUS_OK) {
             wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
         }
         // As in upstream, the sleeping branch clears busy-loop accounting.

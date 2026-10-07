@@ -59,7 +59,7 @@ extern "C" BOOL WINAPI wit_native_duplicate_handle(HANDLE sourceProcess, HANDLE 
             rights |= WIT_THREAD_REFERENCE_SUSPEND_RESUME;
         }
         if (access & THREAD_SET_CONTEXT) {
-            rights |= WIT_THREAD_REFERENCE_SET_CONTEXT;
+            rights |= WIT_THREAD_REFERENCE_SET_CONTEXT | WIT_RIGHT_ACTIVATE; // QueueUserAPC needs THREAD_SET_CONTEXT.
         }
         if (!rights) {
             SetLastError(ERROR_NOT_SUPPORTED);

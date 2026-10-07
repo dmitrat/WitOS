@@ -16,6 +16,10 @@ static volatile DWORD expectedThread;
 static HANDLE mainReference;
 static volatile bool closeReference;
 
+// A queued user APC is an activation (RFC 0011 section 7.5): the kernel runs this callback on the target thread
+// through the process's fault callback at the target's next return to user mode, before the target's own code
+// resumes, and a wait the target was parked in reports the interruption. A callback may queue another activation,
+// which follows after this one continues.
 static void CALLBACK callback(ULONG_PTR value)
 {
     ++callbacks;
@@ -55,6 +59,14 @@ static bool parked(HANDLE handle)
     }
 }
 
+static bool reached(volatile WitU64 &flag)
+{
+    while (!flag) {
+        Sleep(0);
+    }
+    return true;
+}
+
 static WitU64 reference_target(WitU64)
 {
     HANDLE reference = nullptr;
@@ -88,7 +100,8 @@ static WitU64 worker(WitU64 mode)
     const bool alertable = mode == 0 || mode == 4;
     const DWORD result = WaitForMultipleObjectsEx(all ? 2 : 1, events, all, mode == 4 ? 1 : INFINITE, alertable);
     if (mode == 0) {
-        if (result != WAIT_IO_COMPLETION) {
+        // Activated while parked in an alertable wait: the callback ran, the wait reports it.
+        if (result != WAIT_IO_COMPLETION || callbacks != 1) {
             return 2802;
         }
     } else if (mode == 3) {
@@ -96,28 +109,46 @@ static WitU64 worker(WitU64 mode)
             return 2803;
         }
         phase = 1;
-        while (!proceed) {
-            Sleep(0);
+        reached(proceed);
+        // The activation queued after the close is delivered at this thread's next return to user mode; the poll
+        // itself has nothing to report.
+        if (WaitForMultipleObjectsEx(1, &events[1], FALSE, 0, TRUE) != WAIT_TIMEOUT || callbacks != 1) {
+            return 2805;
         }
-        return WIT_TEST_EXIT_CODE;
     } else {
-        if (result != (mode == 4 ? WAIT_TIMEOUT : WAIT_OBJECT_0)) {
+        // Mode 1: the activation interrupted the non-alertable wait, the callback ran and the wait restarted until
+        // the event was set. Mode 2: the activation queued after the wait-all completed ran before this code resumed.
+        // Mode 4: the alertable wait timed out before any activation.
+        if (result != (mode == 4 ? WAIT_TIMEOUT : WAIT_OBJECT_0) || callbacks != (mode == 4 ? 0U : 1U)) {
             return 2804;
         }
         phase = 1;
         if (mode == 4) {
-            while (!proceed) {
-                Sleep(0);
-            }
+            reached(proceed);
         }
         if (WaitForMultipleObjectsEx(1, &events[1], FALSE, INFINITE, TRUE) != WAIT_IO_COMPLETION) {
-            return 2805;
+            return 2807;
         }
     }
     if (callbackThread != expectedThread) {
         return 2806;
     }
     return WIT_TEST_EXIT_CODE;
+}
+
+// Suspended with four activations pending, then resumed: the four run in order before the wait reports them.
+static WitU64 queued_worker(WitU64)
+{
+    HANDLE reference = nullptr;
+    if (!duplicate(GetCurrentThread(), &reference)) {
+        return 2860;
+    }
+    expectedThread = GetCurrentThreadId();
+    target = reference;
+    if (WaitForMultipleObjectsEx(1, &events[1], FALSE, INFINITE, TRUE) != WAIT_IO_COMPLETION) {
+        return 2861;
+    }
+    return callbacks == 4 && sequence == 1234 && callbackThread == expectedThread ? WIT_TEST_EXIT_CODE : 2862;
 }
 
 static bool basic()
@@ -129,32 +160,24 @@ static bool basic()
     }
     callbacks = sequence = 0;
     const DWORD self = GetCurrentThreadId();
-    if (!wit_apc_direct(callback, GetCurrentThread(), 1) ||
-        wit_wait_direct(1, events, FALSE, 0, FALSE) != WAIT_OBJECT_0 ||
-        callbacks) {
+    // A self-activation is delivered at the return of the activating call itself; a later non-alertable wait sees
+    // nothing of it, and an alertable poll with no activation pending times out.
+    if (!wit_apc_direct(callback, GetCurrentThread(), 1) || callbacks != 1 || sequence != 1 || callbackThread != self) {
         return false;
     }
-    if (WaitForMultipleObjectsEx(1, events, FALSE, 0, TRUE) != WAIT_IO_COMPLETION ||
-        callbacks != 1 ||
-        sequence != 1 ||
-        callbackThread != self) {
+    if (wit_wait_direct(1, events, FALSE, 0, FALSE) != WAIT_OBJECT_0 || callbacks != 1) {
         return false;
     }
+    if (WaitForMultipleObjectsEx(1, events, FALSE, 0, TRUE) != WAIT_TIMEOUT || callbacks != 1) {
+        return false;
+    }
+    // A callback that activates its own thread again: the second runs after the first continues, in order.
     callbacks = sequence = 0;
     requeue = true;
-    for (ULONG_PTR i = 1; i <= 4; ++i) {
-        if (!QueueUserAPC(callback, GetCurrentThread(), i)) {
-            return false;
-        }
-    }
-    if (QueueUserAPC(callback, GetCurrentThread(), 5) || GetLastError() != ERROR_NOT_ENOUGH_MEMORY) {
+    if (!QueueUserAPC(callback, GetCurrentThread(), 1) || callbacks != 2 || sequence != 15 || callbackThread != self) {
         return false;
     }
-    WitUserApc record;
-    WitU64 copied = 99;
-    if (wit_native_call(WIT_CALL_APC_DEQUEUE, 0, sizeof(record), 0, &copied) != WIT_STATUS_BAD_ADDRESS || copied) {
-        return false;
-    }
+    requeue = false;
     WitU64 arena = 0;
     if (wit_native_call(WIT_CALL_MEMORY_RESERVE, 8192, 4096, 0, &arena) != WIT_STATUS_OK ||
         wit_native_call(WIT_CALL_MEMORY_COMMIT, arena, 4096, 3, nullptr) != WIT_STATUS_OK) {
@@ -165,38 +188,19 @@ static bool basic()
     if (!SetEvent(events[0]) ||
         WaitForMultipleObjectsEx(2, (HANDLE *)edge, FALSE, 0, TRUE) != WAIT_FAILED ||
         GetLastError() != ERROR_INVALID_ADDRESS ||
-        callbacks) {
+        callbacks != 2) {
         return false;
-    }
-    for (unsigned i = 0; i < 8; ++i) {
-        edge[i] = 0xa5;
-    }
-    if (wit_native_call(WIT_CALL_APC_DEQUEUE, (WitU64)edge, sizeof(record), 0, &copied) != WIT_STATUS_BAD_ADDRESS ||
-        copied) {
-        return false;
-    }
-    for (unsigned i = 0; i < 8; ++i) {
-        if (edge[i] != 0xa5) {
-            return false;
-        }
     }
     if (wit_native_call(WIT_CALL_MEMORY_RELEASE, arena, 0, 0, nullptr) != WIT_STATUS_OK) {
         return false;
     }
     HANDLE invalid[2] = {events[0], INVALID_HANDLE_VALUE};
-    if (!SetEvent(events[0]) ||
-        WaitForMultipleObjectsEx(2, invalid, FALSE, 0, TRUE) != WAIT_FAILED ||
-        callbacks ||
-        GetLastError() != ERROR_INVALID_HANDLE) {
-        return false;
-    }
-    if (WaitForMultipleObjectsEx(1, events, FALSE, 0, TRUE) != WAIT_IO_COMPLETION ||
-        callbacks != 5 ||
-        sequence != 12345 ||
+    if (WaitForMultipleObjectsEx(2, invalid, FALSE, 0, TRUE) != WAIT_FAILED ||
+        callbacks != 2 ||
+        GetLastError() != ERROR_INVALID_HANDLE ||
         WaitForMultipleObjectsEx(1, events, FALSE, 0, FALSE) != WAIT_OBJECT_0) {
         return false;
     }
-    requeue = false;
     if (!wit_set_direct(events[0]) ||
         WaitForMultipleObjectsEx(2, events, TRUE, 0, FALSE) != WAIT_TIMEOUT ||
         WaitForMultipleObjectsEx(1, events, FALSE, 0, FALSE) != WAIT_OBJECT_0) {
@@ -219,12 +223,15 @@ static bool basic()
     if (!waitOnly || SetEvent(waitOnly) || GetLastError() != ERROR_ACCESS_DENIED || !CloseHandle(waitOnly)) {
         return false;
     }
+    // The callback must be executable and not writable; the kernel validates it before it marks the thread.
     if (QueueUserAPC(nullptr, GetCurrentThread(), 0) ||
         GetLastError() != ERROR_INVALID_ADDRESS ||
         QueueUserAPC((PAPCFUNC)(uintptr_t)events, GetCurrentThread(), 0) ||
-        GetLastError() != ERROR_INVALID_ADDRESS) {
+        GetLastError() != ERROR_INVALID_ADDRESS ||
+        callbacks != 2) {
         return false;
     }
+    WitU64 copied = 99;
     const void *binding = __imp_WaitForMultipleObjectsEx;
     if (wit_native_call(WIT_CALL_MONOTONIC_QUERY, (WitU64)&__imp_WaitForMultipleObjectsEx, 8, WIT_MONOTONIC_COUNTER,
             &copied) != WIT_STATUS_BAD_ADDRESS ||
@@ -273,6 +280,7 @@ extern "C" WitU64 wit_test_object_wait(const WitUserStartup *startup, WitU64 mod
                 return 2813;
             }
             if (kind == 0) {
+                // THREAD_SET_CONTEXT carries the ACTIVATE right; query and get-context handles do not.
                 HANDLE queryOnly = nullptr;
                 if (!duplicate(reference, &queryOnly, THREAD_QUERY_INFORMATION, 0)) {
                     return 2814;
@@ -291,19 +299,20 @@ extern "C" WitU64 wit_test_object_wait(const WitUserStartup *startup, WitU64 mod
                     return 2831;
                 }
             } else if (kind == 1) {
+                // The activation ends the parked non-alertable wait; the worker has not run yet, so its callback is
+                // still to come, and the restarted wait consumes the event set afterwards.
                 if (!QueueUserAPC(callback, reference, 7)) {
                     return 2816;
                 }
                 WitUserThreadInfo info;
-                if (!snapshot(reference, info) || info.State != WIT_THREAD_STATE_WAITING || callbacks) {
+                if (!snapshot(reference, info) || info.State == WIT_THREAD_STATE_WAITING || callbacks) {
                     return 2817;
                 }
-                if (!SetEvent(events[0]) || !CloseHandle(events[0])) {
+                if (!SetEvent(events[0]) ||
+                    !reached(phase) ||
+                    !parked(reference) ||
+                    !QueueUserAPC(callback, reference, 7)) {
                     return 2818;
-                }
-                events[0] = event();
-                if (!events[0]) {
-                    return 2819;
                 }
             } else if (kind == 2) {
                 const HANDLE captured = events[0];
@@ -326,6 +335,9 @@ extern "C" WitU64 wit_test_object_wait(const WitUserStartup *startup, WitU64 mod
                     !CloseHandle(captured)) {
                     return 2821;
                 }
+                if (!reached(phase) || !parked(reference) || !QueueUserAPC(callback, reference, 7)) {
+                    return 2832;
+                }
             } else if (kind == 3) {
                 if (!CloseHandle(events[0]) || !QueueUserAPC(callback, reference, 7)) {
                     return 2822;
@@ -336,18 +348,20 @@ extern "C" WitU64 wit_test_object_wait(const WitUserStartup *startup, WitU64 mod
                 }
                 proceed = 1;
             } else {
-                while (!phase) {
-                    Sleep(0);
-                }
+                reached(phase);
                 if (callbacks || !QueueUserAPC(callback, reference, 7)) {
                     return 2824;
                 }
                 proceed = 1;
+                if (!parked(reference) || !QueueUserAPC(callback, reference, 7)) {
+                    return 2833;
+                }
             }
             if (wit_native_thread_join(join, &result) != WIT_STATUS_OK || result != WIT_TEST_EXIT_CODE) {
                 return 2825;
             }
-            if (callbacks != (kind == 3 ? 0U : 1U) ||
+            const WitU64 expected[] = {1, 2, 2, 1, 2};
+            if (callbacks != expected[kind] ||
                 WaitForMultipleObjectsEx(1, &reference, FALSE, 0, FALSE) != WAIT_OBJECT_0 ||
                 QueueUserAPC(callback, reference, 8) ||
                 GetLastError() != ERROR_INVALID_HANDLE) {
@@ -363,6 +377,49 @@ extern "C" WitU64 wit_test_object_wait(const WitUserStartup *startup, WitU64 mod
             if (!CloseHandle(reference) || !CloseHandle(events[0]) || !CloseHandle(events[1])) {
                 return 2828;
             }
+        }
+    }
+    if (tls) {
+        // Four activations stay pending on a suspended thread, the fifth is refused, and the four are delivered in
+        // order when the thread resumes.
+        events[1] = event();
+        if (!events[1]) {
+            return 2851;
+        }
+        target = nullptr;
+        callbacks = sequence = callbackThread = 0;
+        WitU64 join, result;
+        if (wit_native_thread_create(queued_worker, 0, &join) != WIT_STATUS_OK) {
+            return 2852;
+        }
+        while (!target) {
+            Sleep(0);
+        }
+        HANDLE reference = target;
+        if (!parked(reference) || SuspendThread(reference) != 0) {
+            return 2853;
+        }
+        for (ULONG_PTR i = 1; i <= 4; ++i) {
+            if (!QueueUserAPC(callback, reference, i)) {
+                return 2854;
+            }
+        }
+        WitUserThreadInfo info;
+        if (QueueUserAPC(callback, reference, 5) ||
+            GetLastError() != ERROR_NOT_ENOUGH_MEMORY ||
+            !snapshot(reference, info) ||
+            info.State != WIT_THREAD_STATE_SUSPENDED ||
+            callbacks) {
+            return 2855;
+        }
+        if (ResumeThread(reference) != 1 ||
+            wit_native_thread_join(join, &result) != WIT_STATUS_OK ||
+            result != WIT_TEST_EXIT_CODE ||
+            callbacks != 4) {
+            return 2856;
+        }
+        if (!CloseHandle(reference) || !CloseHandle(events[1])) {
+            return 2857;
         }
     }
     if (tls) {

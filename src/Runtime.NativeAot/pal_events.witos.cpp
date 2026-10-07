@@ -59,7 +59,7 @@ uint32_t PalWaitForSingleObjectEx(HANDLE handle, uint32_t milliseconds, UInt32_B
     if (alertable) {
         SetLastError(ERROR_NOT_SUPPORTED);
         return WAIT_FAILED;
-    } // No APC/reentrant wait machinery exists yet.
+    } // The PAL's own waits are never alertable; an activation restarts them (bootstrap.h).
     const WitU64 status = wit_native_wait_one((uintptr_t)handle, deadline(milliseconds));
     if (status == WIT_STATUS_OK) {
         return WAIT_OBJECT_0;
@@ -119,7 +119,7 @@ void PalSleep(uint32_t milliseconds)
         (void)PalSwitchToThread();
         return;
     }
-    if (wit_native_call(WIT_CALL_SLEEP_UNTIL, deadline(milliseconds), 0, 0, nullptr) != WIT_STATUS_OK) {
+    if (wit_native_sleep_until(deadline(milliseconds)) != WIT_STATUS_OK) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
 }

@@ -4,6 +4,7 @@
 #include "seh_scope.witos.h"
 #include "security_handler.witos.h"
 #include "exception_classification.h"
+#include "native_activation.witos.h"
 #include "../Runtime.Native/native_limits.h"
 #if defined(WITOS_DYNAMIC_CODE)
 #include <intrin.h>
@@ -904,8 +905,8 @@ extern "C" PVOID __cdecl wit_native_add_vectored_exception_handler(ULONG first, 
         return nullptr;
     }
     if (!installed) {
-        const auto status = wit_native_call(
-            WIT_CALL_EXCEPTION_REGISTER, (WitU64)&wit_native_exception_entry, WIT_EXCEPTION_VERSION, 0, nullptr);
+        // The dispatcher takes the process's fault callback over the activation-only entry of native_activation.
+        const auto status = wit_native_fault_callback_register((WitU64)&wit_native_exception_entry);
         if (status != WIT_STATUS_OK) {
             leave();
             wit_pal_set_status(status);
@@ -978,6 +979,9 @@ extern "C" ULONG __cdecl wit_native_remove_vectored_exception_handler(PVOID hand
 
 extern "C" void wit_native_exception_entry(WitU64 token, WitU64 vector, WitU64 address)
 {
+    if (vector == WIT_EXCEPTION_ACTIVATION_VECTOR) {
+        wit_native_activation_dispatch(token, address); // Runs the callback and continues; needs no compiler TLS.
+    }
     WitUserExceptionInfo info;
     WitUserThreadInfo owner;
     WitCpuContextInfo cpu;

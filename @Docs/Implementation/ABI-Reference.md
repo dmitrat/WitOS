@@ -1,6 +1,6 @@
 # Справочник пользовательского ABI ядра WitOS
 
-Версии: **user ABI v53**, **boot ABI v4**. Источник истины — заголовки `src/Kernel/include/witos/*.h`; этот документ их описывает и проверяется хостовым тестом: каждый `WIT_CALL_*` из `user_abi.h` обязан встречаться здесь. Раскладка вызовов — ABI-1 по [RFC-0011 v3 §7](../RFC-0011-Kernel-Architecture-and-ABI.md), введённая шагом K1.1 плана; судьба каждого прежнего вызова — в [RFC-0011 v3 §8](../RFC-0011-Kernel-Architecture-and-ABI.md). ABI экспериментален до шага K8, но с K1.1 номер вызова, значение статуса и бит права никогда не переиспользуются (RFC-0011 §10.1).
+Версии: **user ABI v54**, **boot ABI v4**. Источник истины — заголовки `src/Kernel/include/witos/*.h`; этот документ их описывает и проверяется хостовым тестом: каждый `WIT_CALL_*` из `user_abi.h` обязан встречаться здесь. Раскладка вызовов — ABI-1 по [RFC-0011 v3 §7](../RFC-0011-Kernel-Architecture-and-ABI.md), введённая шагом K1.1 плана; судьба каждого прежнего вызова — в [RFC-0011 v3 §8](../RFC-0011-Kernel-Architecture-and-ABI.md). ABI экспериментален до шага K8, но с K1.1 номер вызова, значение статуса и бит права никогда не переиспользуются (RFC-0011 §10.1).
 
 ## Классы
 
@@ -46,7 +46,7 @@
 | 12 | `WIT_STATUS_BUSY` | Ресурс занят; можно повторить |
 | 13 | `WIT_STATUS_TIMED_OUT` | Дедлайн истёк или нет сигнала при опросе |
 | 14 | `WIT_STATUS_CLOSED` | Ожидаемый объект закрыт; ссылка на завершённый поток |
-| 15 | `WIT_STATUS_INTERRUPTED` | Ожидание прервано активацией (до K1.3 — alertable-ожидание с очередью APC) |
+| 15 | `WIT_STATUS_INTERRUPTED` | Ожидание или сон прерваны активацией потока; её callback уже выполнен |
 | 16 | `WIT_STATUS_NOT_FOUND` | Файл, модуль или символ отсутствует |
 | 17 | `WIT_STATUS_INITIALIZATION_FAILED` | Пользовательский attach DLL вернул отказ; уходит вместе с `LIBRARY` на K8 |
 | 18 | — | Зарезервирован для `PEER_CLOSED` каналов (K2) |
@@ -81,7 +81,7 @@
 | 37 | `WIT_CALL_THREAD_CONTEXT_GET` | thread handle или `WIT_THREAD_SELF`, buffer, 720 | 0 | целевой |
 | 38 | `WIT_CALL_THREAD_CONTEXT_SET` | thread handle, buffer, 720 | 0 | целевой |
 | 39 | `WIT_CALL_CONTEXT_PROFILE` | buffer, 32, version 2 | 0 | целевой |
-| 40 | `WIT_CALL_THREAD_ACTIVATE` | thread handle, callback, argument | 0; до K1.3 — постановка в очередь APC | целевой |
+| 40 | `WIT_CALL_THREAD_ACTIVATE` | thread handle или `WIT_THREAD_SELF`, callback, argument | 0; право `ACTIVATE`; доставка через callback исключений (см. «Активации») | целевой |
 | 50 | `WIT_CALL_EVENT_CREATE` | flags (`MANUAL_RESET`, `INITIAL_SIGNALED`), rights (0 — `WAIT` и `SIGNAL`), 0 | event handle | целевой |
 | 51 | `WIT_CALL_EVENT_SET` | handle | 0 | целевой |
 | 52 | `WIT_CALL_EVENT_RESET` | handle | 0 | целевой |
@@ -103,7 +103,6 @@
 
 | № | Вызов | Аргументы | Результат | Класс |
 | --- | --- | --- | --- | --- |
-| 206 | `WIT_CALL_APC_DEQUEUE` | buffer, 16, 0 | 16 | транзитный, K1.3 |
 | 207 | `WIT_CALL_MONOTONIC_QUERY` | buffer, 8, selector (`COUNTER` или `HZ`) | 8 | транзитный, K6 |
 | 208 | `WIT_CALL_CPU_CACHE_SIZE` | — | байт крупнейшего кэша | транзитный, K7 |
 | 209 | `WIT_CALL_THREAD_CONTEXT_RESTORE` | buffer, 720, version 2 | не возвращается при успехе | транзитный, K8 |
@@ -126,12 +125,16 @@
 `THREAD_CONTEXT_METADATA` (слились в `THREAD_QUERY`). Присоединение к потоку — `OBJECT_WAIT` по его хэндлу, затем
 `THREAD_QUERY` за кодом выхода и `HANDLE_CLOSE`; закрытие хэндла живого потока отсоединяет его.
 
+Отозван на K1.3 и не переиспользуется: 206 `APC_DEQUEUE` — активация доставляется ядром через callback исключений, а не
+извлекается из очереди.
+
 Следующий свободный номер: **223**.
 
-Слившиеся на K1.1 вызовы и имена, которыми замороженная Windows-линия продолжает пользоваться через `user_abi_frozen.h` (ядро этот заголовок не включает; удаляется на K8): `EXIT`, `CLOSE`, `WRITE`, `THREAD_CREATE_REFERENCE`, `THREAD_REFERENCE_DUPLICATE`, `CPU_CONTEXT_QUERY`, `APC_QUEUE`, `EVENT_CREATE_RIGHTS`, `MONOTONIC_READ`, `MONOTONIC_FREQUENCY`, `WIT_STATUS_APC_PENDING`, `WIT_THREAD_REFERENCE_CURRENT`. Без замены ушли домен тиков PIT (`CLOCK_READ`/`CLOCK_FREQUENCY` в тиках, `THREAD_SLEEP`, `EVENT_WAIT`), `THREAD_CURRENT` (константа `WIT_THREAD_SELF` и `THREAD_QUERY`), `EVENT_WAIT_UNTIL` и `EVENT_WAIT_ANY_UNTIL` (`OBJECT_WAIT`), `EXCEPTION_UNWIND` (`EXCEPTION_CONTINUE` с запросом переноса), `CONSOLE_WRITE` (`DEBUG_WRITE`). На K1.2 к псевдонимам добавились
+Слившиеся на K1.1 вызовы и имена, которыми замороженная Windows-линия продолжает пользоваться через `user_abi_frozen.h` (ядро этот заголовок не включает; удаляется на K8): `EXIT`, `CLOSE`, `WRITE`, `THREAD_CREATE_REFERENCE`, `THREAD_REFERENCE_DUPLICATE`, `CPU_CONTEXT_QUERY`, `EVENT_CREATE_RIGHTS`, `MONOTONIC_READ`, `MONOTONIC_FREQUENCY`, `WIT_THREAD_REFERENCE_CURRENT`. Без замены ушли домен тиков PIT (`CLOCK_READ`/`CLOCK_FREQUENCY` в тиках, `THREAD_SLEEP`, `EVENT_WAIT`), `THREAD_CURRENT` (константа `WIT_THREAD_SELF` и `THREAD_QUERY`), `EVENT_WAIT_UNTIL` и `EVENT_WAIT_ANY_UNTIL` (`OBJECT_WAIT`), `EXCEPTION_UNWIND` (`EXCEPTION_CONTINUE` с запросом переноса), `CONSOLE_WRITE` (`DEBUG_WRITE`). На K1.2 к псевдонимам добавились
 права хэндла потока под старыми именами (`WIT_THREAD_REFERENCE_WAIT`, `QUERY`, `GET_CONTEXT`, `SET_CONTEXT`, `SUSPEND_RESUME`, `ALL` →
 `WIT_RIGHT_*`) и `WIT_THREAD_CREATE_REFERENCE_VERSION` (`WIT_THREAD_CREATE_VERSION`); права объявлены в `user_abi.h`, бит 2 (бывшее право
-`JOIN`) отозван.
+`JOIN`) отозван. На K1.3 псевдонимы `APC_QUEUE` и `WIT_STATUS_APC_PENDING` удалены: `QueueUserAPC` замороженной линии вызывает
+`THREAD_ACTIVATE`, а прерванное ожидание она перезапускает; добавлено право `ACTIVATE` (256), и `WIT_RIGHT_THREAD_ALL` стало 500.
 
 ### Операции составных вызовов
 
@@ -149,7 +152,11 @@
 
 ### Ожидание
 
-`OBJECT_WAIT` — единственное ожидание: события и хэндлы потоков в одном массиве (до четырёх), абсолютный монотонный дедлайн (`WIT_WAIT_INFINITE` — бесконечно, 0 — опрос), все хэндлы проверяются до потребления сигнала, победитель публикуется атомически. Флаг `ALL` реализован для замороженной линии и уходит вместе с ней (в целевом ABI RFC 0011 §7.4 он `UNSUPPORTED`); хэндл, повторённый в массиве, недопустим только в режиме `ALL`, как в Windows. Флаг `ALERTABLE` до K1.3 возвращает `INTERRUPTED` при очереди APC. Истёкшие дедлайны обрабатываются раньше последующих сигналов и закрытий. Домена тиков PIT в ABI больше нет: таймер лишь продвигает проверку монотонных дедлайнов.
+`OBJECT_WAIT` — единственное ожидание: события и хэндлы потоков в одном массиве (до четырёх), абсолютный монотонный дедлайн (`WIT_WAIT_INFINITE` — бесконечно, 0 — опрос), все хэндлы проверяются до потребления сигнала, победитель публикуется атомически. Флаг `ALL` реализован для замороженной линии и уходит вместе с ней (в целевом ABI RFC 0011 §7.4 он `UNSUPPORTED`); хэндл, повторённый в массиве, недопустим только в режиме `ALL`, как в Windows. Бит 1 (бывший `ALERTABLE`) отозван на K1.3 и не переиспользуется: любое ожидание и `SLEEP_UNTIL` завершаются `INTERRUPTED`, когда потоку доставлена активация (её callback уже выполнен); замороженная линия перезапускает прерванное ожидание по его абсолютному дедлайну. Истёкшие дедлайны обрабатываются раньше последующих сигналов и закрытий. Домена тиков PIT в ABI больше нет: таймер лишь продвигает проверку монотонных дедлайнов.
+
+### Активации
+
+`THREAD_ACTIVATE(thread handle или WIT_THREAD_SELF, callback, argument)` помечает поток-цель (RFC 0011 §7.5). При следующем возврате цели в пользовательский режим — из вызова, по тику или из ожидания — ядро входит в callback процесса (`EXCEPTION_REGISTER`) с записью `WitUserExceptionInfo`, у которой `Vector` = `WIT_EXCEPTION_ACTIVATION_VECTOR` (~1), `Address` — callback активации, `Error` — её аргумент, `Context` — прерванный контекст; обработчик выполняет callback и продолжает контекст через `EXCEPTION_CONTINUE`. Ожидание или сон, в котором цель припаркована, завершается `INTERRUPTED` после того, как обработчик продолжил контекст. До четырёх активаций ждут доставки у одного потока и доставляются по порядку, по одной на каждый возврат (пятая — `NO_MEMORY`); поток внутри доставки (исключения или активации) или приостановленный держит их до продолжения или возобновления. Всё проверяется до пометки: хэндл с правом `ACTIVATE` (`DENIED`), исполняемый и незаписываемый callback (`BAD_ADDRESS`), зарегистрированный callback процесса (`NOT_FOUND`); пока активация ждёт доставки, `EXCEPTION_REGISTER` отвечает `BUSY`. Стек, в котором нет места для кадра callback, завершает компонент как отказ потока с вектором активации. На ARM64 до K1.4 нет контекста потока, и вызов отвечает `UNSUPPORTED`.
 
 ## Структуры
 
@@ -161,7 +168,6 @@
 | `WitUserThreadInfo` | `thread_info.h` | 96 | 4 |
 | `WitThreadCreateRequest` | `thread_reference.h` | 48 | 1 |
 | `WitUserWaitRequest` | `wait_objects.h` | 32 | 1 |
-| `WitUserApc` | `wait_objects.h` | 16 | — |
 | `WitStackLeaseInfo` | `stack_lease.h` | 48 | 1 |
 | `WitThreadContext` | `thread_context.h` | 720 | 2 |
 | `WitUserExceptionInfo` | `exception.h` | 768 | 1 |
@@ -238,7 +244,7 @@ Compiler TLS адресуется через GS. Страница содержи
 | Резервирования | 8 | 32 |
 | Бюджет тиков | 10 | 3000 |
 | Хэндлы в `OBJECT_WAIT` | 4 | 4 |
-| APC в очереди потока | 4 | 4 |
+| Активаций в ожидании доставки у потока | 4 | 4 |
 | Stack leases | 4 | 4 |
 | Глубина вложенных исключений | 4 | 4 |
 | DLL в графе | 4 | 4 |

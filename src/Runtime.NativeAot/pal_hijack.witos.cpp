@@ -16,7 +16,8 @@ WitHijackEvidence wit_pal_hijack_evidence()
 }
 
 // WitOS uses the pinned PalMinWin suspend/context fallback. Special asynchronous
-// Windows APC delivery is absent; ordinary alertable APCs are not a substitute.
+// Windows APC delivery is absent; the kernel's activations (THREAD_ACTIVATE) are
+// not wired into this frozen path.
 // ThreadStore serializes the caller. The return-address walk itself owns a
 // stack lease; Redirect must remain free to perform validated context mutation.
 void PalHijack(Thread *target)

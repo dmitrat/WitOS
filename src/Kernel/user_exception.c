@@ -28,8 +28,9 @@ WitU64 wit_user_exception_register(WitUserProcess *p, WitU64 callback, WitU64 ve
     if (flags) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
+    /* A delivery in flight or an activation waiting for its delivery binds the registered callback. */
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
-        if (p->Threads[i].Exception.Token) {
+        if (p->Threads[i].Exception.Token || p->Threads[i].ActivationCount) {
             return WIT_STATUS_BUSY;
         }
     }
@@ -162,17 +163,12 @@ WitU64 wit_user_exception_begin(WitUserProcess *p, WitU64 input, WitU64 size, Wi
     return WIT_STATUS_OK;
 }
 
-int wit_user_exception_deliver(WitUserProcess *p, WitArchFrame *frame, WitU64 vector, WitU64 error, WitU64 address)
+/* The one entry into the fault callback for faults and activations: the callback frame goes below the interrupted
+ * stack pointer with WIT_EXCEPTION_STACK_MINIMUM of room, the record is published on the thread and the frame enters
+ * the callback with the token, the vector and the address. Everything is validated before any byte is written. */
+int wit_user_exception_enter(WitUserProcess *p, WitUserThread *t, WitArchFrame *frame, WitUserExceptionInfo *info)
 {
-    WitUserThread *t = &p->Threads[p->CurrentThread];
-    if (!p->ExceptionCallback ||
-        t->Exception.Token ||
-        !next_exception_token ||
-        t->State != WitThreadRunning ||
-        t->SuspendCount ||
-        t->WaitKind != WitWaitNone ||
-        !wit_arch_exception_deliverable(vector) ||
-        !wit_arch_context_supported()) {
+    if (!p->ExceptionCallback || t->Exception.Token || !next_exception_token || !wit_arch_context_supported()) {
         return 0;
     }
     const WitU64 sp = wit_arch_frame_sp(frame);
@@ -190,20 +186,37 @@ int wit_user_exception_deliver(WitUserProcess *p, WitArchFrame *frame, WitU64 ve
         !wit_user_space_physical(&p->Space, p->ExceptionCallback, 0, 1)) {
         return 0;
     }
+    info->Token = next_exception_token;
+    if (!wit_user_copy_to(&p->Space, callbackStack, callFrame, callFrameBytes)) {
+        return 0;
+    }
+    t->Exception = *info;
+    ++next_exception_token;
+    wit_arch_frame_enter_callback(frame, p->ExceptionCallback, callbackStack, info->Token, info->Vector, info->Address);
+    return 1;
+}
+
+int wit_user_exception_deliver(WitUserProcess *p, WitArchFrame *frame, WitU64 vector, WitU64 error, WitU64 address)
+{
+    WitUserThread *t = &p->Threads[p->CurrentThread];
+    if (t->State != WitThreadRunning ||
+        t->SuspendCount ||
+        t->WaitKind != WitWaitNone ||
+        !wit_arch_exception_deliverable(vector) ||
+        !wit_arch_context_supported()) {
+        return 0;
+    }
     WitUserExceptionInfo info = {0};
     info.Version = WIT_EXCEPTION_VERSION;
     info.Size = sizeof(info);
-    info.Token = next_exception_token;
     info.Vector = vector;
     info.Error = error;
     wit_user_context_snapshot(&info.Context, t, frame);
     info.Context.Flags |= WIT_THREAD_CONTEXT_EXCEPTION_ACTIVE;
     wit_arch_exception_record(&info, frame, address);
-    if (!wit_user_copy_to(&p->Space, callbackStack, callFrame, callFrameBytes)) {
+    if (!wit_user_exception_enter(p, t, frame, &info)) {
         return 0;
     }
-    t->Exception = info;
-    ++next_exception_token;
     switch (wit_arch_exception_kind(vector, error, address)) {
     case WitArchExceptionNullWrite:
         ++p->HardwareNullWrites;
@@ -220,6 +233,5 @@ int wit_user_exception_deliver(WitUserProcess *p, WitArchFrame *frame, WitU64 ve
     default:
         break;
     }
-    wit_arch_frame_enter_callback(frame, p->ExceptionCallback, callbackStack, info.Token, vector, info.Address);
     return 1;
 }

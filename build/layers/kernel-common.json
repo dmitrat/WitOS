@@ -18,7 +18,7 @@
     "src/Kernel/user_thread_context.c",
     "src/Kernel/user_thread_name.c",
     "src/Kernel/user_console.c",
-    "src/Kernel/user_apc.c",
+    "src/Kernel/user_activation.c",
     "src/Kernel/user_objects.c",
     "src/Kernel/user_reference.c",
     "src/Kernel/handles.c",

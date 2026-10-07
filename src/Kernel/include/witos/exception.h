@@ -6,9 +6,12 @@
 #define WIT_EXCEPTION_SIZE 768U
 #define WIT_EXCEPTION_STACK_MINIMUM 4096U
 #define WIT_EXCEPTION_SOFTWARE_VECTOR (~0ULL)
+/* An activation (THREAD_ACTIVATE): Address is the requester's callback, Error its argument and Context the context
+ * the delivery interrupted; EXCEPTION_CONTINUE with that context resumes the thread where it was. */
+#define WIT_EXCEPTION_ACTIVATION_VECTOR (~1ULL)
 #define WIT_EXCEPTION_SOFTWARE_FAILURE_EXIT 0xFFFF0006ULL
 
-/* Kernel-owned pending fault, queried by its interrupted thread. RawRflags is
+/* Kernel-owned pending fault or activation, queried by its interrupted thread. RawRflags is
  * diagnostic; Context.Rflags follows the existing validated return profile. */
 typedef struct WitUserExceptionInfo {
     WitU32 Version, Size;

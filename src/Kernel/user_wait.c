@@ -11,12 +11,23 @@ void wit_user_wait_complete(WitUserThread *thread, WitU64 status, WitU64 index)
     thread->WaitHandle = 0;
     thread->WaitCount = 0;
     thread->WaitAll = 0;
-    thread->WaitAlertable = 0;
     for (WitU32 i = 0; i < WIT_WAIT_ANY_CAPACITY; ++i) {
         thread->WaitHandles[i] = 0;
     }
     thread->Deadline = WIT_WAIT_INFINITE;
     thread->State = WitThreadReady;
+}
+
+/* An activation ends the wait or sleep its target is parked in (RFC 0011 section 7.5): the target is made Ready with
+ * INTERRUPTED, which it sees after the handler continues the interrupted context. A completed wait is never
+ * overwritten; a running or ready target has nothing to interrupt. */
+void wit_user_wait_interrupt(WitUserProcess *process, WitUserThread *thread)
+{
+    if (thread->State != WitThreadWaiting || (thread->WaitKind != WitWaitObjects && thread->WaitKind != WitWaitSleep)) {
+        return;
+    }
+    ++process->WaitInterruptions;
+    wit_user_wait_complete(thread, WIT_STATUS_INTERRUPTED, 0);
 }
 
 /* Expired deadlines complete before any later signal or close, so a timeout is never overwritten. */
@@ -57,7 +68,6 @@ WitU64 wit_user_sleep_until(WitUserProcess *process, WitU64 deadline, WitU64 now
     thread->WaitHandle = 0;
     thread->WaitCount = 0;
     thread->WaitAll = 0;
-    thread->WaitAlertable = 0;
     for (WitU32 i = 0; i < WIT_WAIT_ANY_CAPACITY; ++i) {
         thread->WaitHandles[i] = 0;
     }
@@ -105,7 +115,6 @@ WitU64 wit_user_wait_objects(
     thread->WaitHandle = 0;
     thread->WaitKind = WitWaitObjects;
     thread->WaitAll = all;
-    thread->WaitAlertable = 0;
     thread->Deadline = deadline;
     thread->WaitOrder = ++process->NextWaitOrder;
     thread->State = WitThreadWaiting;

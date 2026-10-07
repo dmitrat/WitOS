@@ -207,3 +207,75 @@ including the thread and wait suites) pass. The frozen line's chains pass over t
 `runtime-boot-run` (four boots, the runtime-boot protocol with the new abrupt expectations), `coreclr-memory` and
 `coreclr-storage` (two boots each) and `coreclr-host-guest` (no unresolved external). The host tests check the call
 table and the ABI reference against the header, and `format-check` is clean.
+
+## K1.3 — Activations (ABI v54)
+
+### What changed
+
+**Push delivery.** `THREAD_ACTIVATE(thread handle or WIT_THREAD_SELF, callback, argument)` marks the target thread; at
+the target's next return to user mode (from a call, a tick or a wait) the kernel enters the process's fault callback
+(`EXCEPTION_REGISTER`) with a record whose `Vector` is `WIT_EXCEPTION_ACTIVATION_VECTOR` (~1), whose `Address` is the
+callback, whose `Error` is the argument and whose `Context` is the interrupted one; the handler runs the callback and
+`EXCEPTION_CONTINUE` resumes the context (RFC 0011 §7.5). The transitional pull queue is gone: `APC_DEQUEUE` (206) is
+retired and never reused, and a self-activation is delivered at the return of the activating call itself.
+
+**Interruptible waits.** A wait or sleep the target is parked in ends with `INTERRUPTED` after the handler continues
+the interrupted context; `SLEEP_UNTIL` returns it too. Flag 1 of `WitUserWaitRequest` (`ALERTABLE`) is retired and
+never reused; `ALL` stays. The kernel counts the interruptions (`WaitInterruptions`) and the deliveries
+(`ActivationDeliveries`).
+
+**Validation and quota.** Everything is checked before the target is marked: the handle's `ACTIVATE` right (the new
+bit 256; `WIT_RIGHT_THREAD_ALL` is 500), an executable and not writable callback (`BAD_ADDRESS`), a registered fault
+callback (`NOT_FOUND`) and the per-thread quota `WIT_ACTIVATION_CAPACITY` of four pending activations (`NO_MEMORY`),
+delivered in order, one per return to user mode. A thread inside a delivery (a fault's or an activation's handler) or
+suspended keeps its activations pending; `EXCEPTION_REGISTER` answers `BUSY` while one is pending, so the callback
+cannot be dropped under it. A stack with no room for the callback frame ends the component as a fault of the thread
+with the activation vector, as a POSIX process ends when its signal frame does not fit. A fault inside an activation's
+handler is reported as that fault, not as the activation. On ARM64 the call is `UNSUPPORTED` until the context block of
+K1.4 exists.
+
+### Kernel
+
+- `user_activation.c` (replaces `user_apc.c`): `wit_user_thread_activate`, `wit_user_activation_deliver` and the
+  per-thread pending list.
+- `user_exception.c`: `wit_user_exception_enter`, the one entry into the fault callback for faults and activations;
+  `EXCEPTION_REGISTER` is `BUSY` while an activation is pending.
+- `user.c`: `resume_current`, the one point where a frame about to return to user mode delivers a pending activation
+  (the scheduler's dispatch, the plain return of a call and the frame a call restored); `wit_user_fault_state`.
+- `user_wait.c`: `wit_user_wait_interrupt`; `user_objects.c`: the `ALERTABLE` path is gone; `user_calls.c`: the
+  `APC_DEQUEUE` handler is gone.
+
+### Fixtures and the frozen line
+
+- `native_activation.witos.cpp`: the activation-only fault callback and the registry of the process's one callback;
+  it yields to the exception dispatcher where one is linked (`native_exception.witos.cpp` registers through it and
+  dispatches the activation vector before anything that needs compiler TLS). It is linked wherever `native_wait` or
+  the dispatcher is: the overlay archive, the CPU and thread probe images (the COM probe takes every platform object)
+  and the guest support objects of the CoreCLR images.
+- `native_wait.witos.cpp`: `QueueUserAPC` installs the activation callback and calls `THREAD_ACTIVATE`; an alertable
+  `WaitForMultipleObjectsEx` reports a delivered activation as `WAIT_IO_COMPLETION`, a non-alertable one restarts at
+  its absolute deadline. `bootstrap.h` restarts `wit_native_wait_any` and the new `wit_native_sleep_until` the same
+  way, which covers the PAL's events, mutexes, sleeps and the GC's and minipal's sleeps. `THREAD_SET_CONTEXT` maps to
+  `SET_CONTEXT | ACTIVATE` (QueueUserAPC needs it on Windows).
+- `runtime_object_wait.cpp`: the push semantics (a self-activation runs before the activating call returns, a parked
+  alertable wait reports it, a non-alertable wait restarts, a suspended thread holds four and refuses the fifth, the
+  rights of query and get-context handles); `runtime_exception.cpp`: the raw contract (the record, `NOT_FOUND`,
+  `BAD_ADDRESS`, `BAD_HANDLE`, `DENIED`, `CLOSED`, `NO_MEMORY`, `BUSY` of `EXCEPTION_REGISTER`, an interrupted wait and
+  sleep, order on a resumed thread). `User.AlertableObjectWaits` became `User.ActivationsAndObjectWaits` and
+  `User.ApcWithoutCompilerTls` `User.ActivationsWithoutCompilerTls`; the ARM64 thread fixture checks `UNSUPPORTED`.
+
+### Not in this slice
+
+Delivery on ARM64 (K1.4, with the context block); the alternate stack of `EXCEPTION_REGISTER` (RFC 0011 §7.5 lists it
+for K1; it waits for a consumer); the frozen PAL's suspend-and-context hijack path stays as it is, and
+`PalWaitForSingleObjectEx` keeps refusing alertable waits.
+
+### Evidence
+
+Guest acceptance on both ISAs: `test` (x64, QEMU q35, 20 scenarios) and `test --arch arm64` (QEMU virt, 14 scenarios,
+the thread fixture's `UNSUPPORTED` check included) pass. The frozen line's chains pass over the new ABI:
+`runtime-config` (four boots; `User.ActivationsAndObjectWaits`, `User.ActivationsWithoutCompilerTls` and the
+exception scenarios with the raw activation contract), `runtime-boot-run` (four boots, the runtime-boot protocol
+unchanged), `coreclr-memory` and `coreclr-storage` (two boots each) and `coreclr-host-guest` (no unresolved
+external). The host tests check the call table and the ABI reference against the header and the platform object
+groups, and `format-check` is clean.
