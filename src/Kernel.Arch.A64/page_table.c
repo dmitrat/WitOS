@@ -22,6 +22,7 @@
 /* Software bits, ignored by the walker: a committed leaf retains its frame even with no access. */
 #define DESC_OWNED (1ULL << 55)
 #define DESC_ALIAS (1ULL << 56)
+#define DESC_DEVICE (1ULL << 2) /* AttrIndx 1: device-nGnRnE in the MAIR paging.c installs. */
 #define TABLE_UXN (1ULL << 60)
 #define TABLE_NO_EL0 (1ULL << 61) /* APTable[0]. */
 #define DESC_ADDRESS 0x0000FFFFFFFFF000ULL
@@ -38,7 +39,8 @@ WitU64 wit_arch_page_entry_make(WitU64 physical, WitU32 flags)
         ((flags & WIT_PAGE_WRITE) ? 0 : DESC_READ_ONLY) |
         ((flags & WIT_PAGE_EXECUTE) ? 0 : DESC_UXN) |
         ((flags & WIT_PAGE_OWNED) ? DESC_OWNED : 0) |
-        ((flags & WIT_PAGE_ALIAS) ? DESC_ALIAS : 0);
+        ((flags & WIT_PAGE_ALIAS) ? DESC_ALIAS : 0) |
+        ((flags & WIT_PAGE_DEVICE) ? DESC_DEVICE : 0);
 }
 
 WitU32 wit_arch_page_entry_flags(WitU64 entry)
@@ -50,7 +52,8 @@ WitU32 wit_arch_page_entry_flags(WitU64 entry)
         ((entry & DESC_READ_ONLY) ? 0 : WIT_PAGE_WRITE) |
         ((entry & DESC_UXN) ? 0 : WIT_PAGE_EXECUTE) |
         ((entry & DESC_OWNED) ? WIT_PAGE_OWNED : 0) |
-        ((entry & DESC_ALIAS) ? WIT_PAGE_ALIAS : 0);
+        ((entry & DESC_ALIAS) ? WIT_PAGE_ALIAS : 0) |
+        ((entry & DESC_DEVICE) ? WIT_PAGE_DEVICE : 0);
 }
 
 WitU64 wit_arch_page_entry_physical(WitU64 entry)

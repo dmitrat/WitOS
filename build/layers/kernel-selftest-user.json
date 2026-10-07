@@ -13,6 +13,7 @@
     "tests/Kernel/user_exception_tests.c",
     "tests/Kernel/user_channel_tests.c",
     "tests/Kernel/user_memory_object_tests.c",
+    "tests/Kernel/user_device_tests.c",
     "tests/Kernel/user_image_tests.c",
     "tests/Kernel/test_summary.c"
   ],

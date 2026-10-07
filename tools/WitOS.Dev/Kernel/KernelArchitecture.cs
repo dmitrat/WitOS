@@ -35,11 +35,12 @@ internal sealed record KernelArchitecture(string Name, string MsvcTarget, string
         "qemu64");
 
     /// <summary>
-    /// The ARM64 kernel on the QEMU virt board with GICv3; the exit is Arm semihosting.
+    /// The ARM64 kernel on the QEMU virt board with GICv3; the exit is Arm semihosting. The board runs without ACPI
+    /// so that the firmware publishes the device tree the platform enumerates its devices from (plan step K3.1).
     /// </summary>
     public static readonly KernelArchitecture Arm64 = new("arm64", "arm64",
         "Microsoft.VisualStudio.Component.VC.Tools.ARM64", "armasm64.exe", Machine.Arm64, "BOOTAA64.EFI",
-        "qemu-system-aarch64.exe", "virt,gic-version=3", ["-semihosting-config", "enable=on,target=native"], [],
+        "qemu-system-aarch64.exe", "virt,gic-version=3,acpi=off", ["-semihosting-config", "enable=on,target=native"], [],
         "edk2-aarch64-code.fd", "edk2-arm-vars.fd", "cortex-a72");
 
     #endregion

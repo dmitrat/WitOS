@@ -340,6 +340,20 @@ static WitArchFrame *code_publish(WitUserCall *call)
     return 0;
 }
 
+static WitArchFrame *device_acquire(WitUserCall *call)
+{
+    *call->Status =
+        wit_user_device_acquire(call->Process, call->Argument0, call->Argument1, call->Argument2, call->Value);
+    return 0;
+}
+
+static WitArchFrame *device_memory(WitUserCall *call)
+{
+    *call->Status =
+        wit_user_device_memory(call->Process, call->Argument0, call->Argument1, call->Argument2, call->Value);
+    return 0;
+}
+
 static WitArchFrame *channel_create(WitUserCall *call)
 {
     *call->Status = wit_user_channel_create(call->Process, call->Argument0, call->Argument1, call->Argument2);
@@ -619,6 +633,8 @@ static WitArchFrame *(*const handlers[CALL_COUNT])(WitUserCall *) = {
     [WIT_CALL_CHANNEL_CREATE] = channel_create,
     [WIT_CALL_CHANNEL_SEND] = channel_send,
     [WIT_CALL_CHANNEL_RECEIVE] = channel_receive,
+    [WIT_CALL_DEVICE_ACQUIRE] = device_acquire,
+    [WIT_CALL_DEVICE_MEMORY] = device_memory,
     [WIT_CALL_EVENT_CREATE] = event_create,
     [WIT_CALL_EVENT_SET] = event_set,
     [WIT_CALL_EVENT_RESET] = event_reset,

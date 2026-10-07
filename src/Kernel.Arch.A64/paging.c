@@ -379,7 +379,8 @@ void wit_arch_map_device_page(const WitBootInfo *boot, WitU64 physical)
 {
     WitU64 *entry;
     require(active, "Device mapping before kernel paging");
-    require((physical & 4095) == 0 && physical != 0 && physical < WIT_PHYSICAL_LIMIT, "Invalid device page");
+    /* The virt board's ECAM window lies above 4 GiB; the identity map spans 48 bits. */
+    require((physical & 4095) == 0 && physical != 0 && physical < (1ULL << 48), "Invalid device page");
     require(boot->ImageBase >= physical + 4096 || boot->ImageBase + boot->ImageSize <= physical,
         "Device page overlaps kernel image or guards");
     require(!overlaps_usable(boot, physical), "Device page overlaps usable RAM");

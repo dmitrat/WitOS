@@ -57,6 +57,8 @@
 #define WIT_MEMORY_OBJECT_TEST_CODE 1U
 #define WIT_MEMORY_OBJECT_TEST_TRANSFER 2U
 #define WIT_MEMORY_OBJECT_TEST_LIMITS 3U
+#define WIT_DEVICE_TEST_TABLE 0U
+#define WIT_DEVICE_TEST_AUTHORITY 1U
 #define WIT_IMAGE_TEST_NORMAL 0U
 #define WIT_IMAGE_TEST_WRITE_CODE 1U
 #define WIT_IMAGE_TEST_WRITE_RO 2U
@@ -135,7 +137,9 @@ typedef struct WitUserTestConfig {
     WitU64 Mode;
     WitU64 KernelProbe;
     WitU64 InstanceId;
+    WitU64 TableHandle; /* the device table with ACQUIRE (K3.1) */
 } WitUserTestConfig;
 
-WIT_STATIC_ASSERT(sizeof(WitUserTestConfig) == 72, "User test config layout");
+WIT_STATIC_ASSERT(sizeof(WitUserTestConfig) == 80, "User test config layout");
+#define WIT_TEST_TABLE_OFFSET 72U
 #endif

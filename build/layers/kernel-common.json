@@ -1,6 +1,6 @@
 {
   "name": "kernel-common",
-  "description": "Architecture-independent kernel objects and user-mode policy: handles, events, channels, memory objects, files, PE validation, processes, threads, waits and libraries.",
+  "description": "Architecture-independent kernel objects and user-mode policy: handles, events, channels, memory objects, devices, files, PE validation, processes, threads, waits and libraries.",
   "includes": [],
   "sources": [
     "src/Kernel/files.c",
@@ -28,8 +28,10 @@
     "src/Kernel/user_thread.c",
     "src/Kernel/events.c",
     "src/Kernel/channels.c",
+    "src/Kernel/devices.c",
     "src/Kernel/user_channel.c",
     "src/Kernel/user_memory_object.c",
+    "src/Kernel/user_device.c",
     "src/Kernel/user_wait.c",
     "src/Kernel/user_pressure.c",
     "src/Kernel/pe.c",
