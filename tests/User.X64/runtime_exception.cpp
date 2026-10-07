@@ -213,7 +213,7 @@ extern "C" void wit_test_exception_callback(WitU64 token, WitU64 vector, WitU64 
             wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr);
         }
         if (!workerDone ||
-            wit_native_call(WIT_CALL_THREAD_JOIN, join, 0, 0, &result) != WIT_STATUS_OK ||
+            wit_native_thread_join(join, &result) != WIT_STATUS_OK ||
             result != WIT_TEST_EXIT_CODE ||
             query(token, after) != WIT_STATUS_OK ||
             memcmp(&info, &after, sizeof(info))) {
@@ -247,8 +247,7 @@ extern "C" WitU64 wit_test_exception(const WitUserStartup *startup, WitU64 selec
         wit_native_tls_initialize(startup);
     }
     WitUserThreadInfo own;
-    if (wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&own, sizeof(own), WIT_THREAD_INFO_VERSION, nullptr) !=
-        WIT_STATUS_OK) {
+    if (wit_native_thread_query(WIT_THREAD_SELF, &own) != WIT_STATUS_OK) {
         return 4135;
     }
     mainIdentity = own.ThreadId;

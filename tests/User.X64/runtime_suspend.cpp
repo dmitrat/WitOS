@@ -14,10 +14,9 @@ static bool duplicate(HANDLE source, HANDLE *output, DWORD access = 0, DWORD opt
     return DuplicateHandle(GetCurrentProcess(), source, GetCurrentProcess(), output, access, FALSE, options) != 0;
 }
 
-static bool info(HANDLE handle, WitThreadReferenceInfo &value)
+static bool info(HANDLE handle, WitUserThreadInfo &value)
 {
-    return wit_native_call(WIT_CALL_THREAD_REFERENCE_QUERY, (WitU64)handle, (WitU64)&value, sizeof(value), nullptr) ==
-        WIT_STATUS_OK;
+    return wit_native_thread_query((WitU64)handle, &value) == WIT_STATUS_OK;
 }
 
 static void yield()
@@ -28,9 +27,9 @@ static void yield()
 static bool parked(HANDLE *result)
 {
     for (unsigned i = 0; i < 10000; ++i) {
-        WitThreadReferenceInfo value;
+        WitUserThreadInfo value;
         const HANDLE found = reference;
-        if (found && info(found, value) && value.State == WIT_THREAD_REFERENCE_WAITING) {
+        if (found && info(found, value) && value.State == WIT_THREAD_STATE_WAITING) {
             *result = found;
             return true;
         }
@@ -57,7 +56,7 @@ static WitU64 waiter(WitU64 closed)
 static WitU64 resumer(WitU64 target)
 {
     for (unsigned i = 0; i < 10000; ++i) {
-        WitThreadReferenceInfo value;
+        WitUserThreadInfo value;
         if (info((HANDLE)target, value) && value.SuspendCount == 1) {
             return ResumeThread((HANDLE)target) == 1 ? WIT_TEST_EXIT_CODE : 3703;
         }
@@ -124,12 +123,12 @@ extern "C" WitU64 wit_test_suspension(const WitUserStartup *startup, WitU64 mode
             if (wit_test_suspend(controller) != 0 || SuspendThread(controller) != 1) {
                 return 3711;
             }
-            WitThreadReferenceInfo value;
+            WitUserThreadInfo value;
             WitThreadContext before, after;
             if (!info(controller, value) ||
-                value.Version != WIT_THREAD_REFERENCE_VERSION ||
+                value.Version != WIT_THREAD_INFO_VERSION ||
                 value.SuspendCount != 2 ||
-                value.State != WIT_THREAD_REFERENCE_SUSPENDED ||
+                value.State != WIT_THREAD_STATE_SUSPENDED ||
                 value.Reserved ||
                 wit_native_call(WIT_CALL_THREAD_CONTEXT_GET, (WitU64)controller, (WitU64)&before, sizeof(before),
                     nullptr) != WIT_STATUS_OK ||
@@ -198,7 +197,7 @@ extern "C" WitU64 wit_test_suspension(const WitUserStartup *startup, WitU64 mode
             if (completed || !info(controller, value) || value.SuspendCount != 1 || ResumeThread(controller) != 1) {
                 return 3722;
             }
-            if (wit_native_call(WIT_CALL_THREAD_JOIN, join, 0, 0, &result) != WIT_STATUS_OK ||
+            if (wit_native_thread_join(join, &result) != WIT_STATUS_OK ||
                 result != WIT_TEST_EXIT_CODE ||
                 completed != 1) {
                 return 3723;
@@ -227,7 +226,7 @@ extern "C" WitU64 wit_test_suspension(const WitUserStartup *startup, WitU64 mode
         }
         if (SuspendThread(GetCurrentThread()) != 0 ||
             ResumeThread(self) != 0 ||
-            wit_native_call(WIT_CALL_THREAD_JOIN, join, 0, 0, &result) != WIT_STATUS_OK ||
+            wit_native_thread_join(join, &result) != WIT_STATUS_OK ||
             result != WIT_TEST_EXIT_CODE ||
             !CloseHandle(self)) {
             return 3728;

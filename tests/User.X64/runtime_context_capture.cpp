@@ -92,8 +92,7 @@ extern "C" WitU64 wit_test_context_capture(const WitUserStartup *startup, WitU64
         errno = 237;
     }
     WitUserThreadInfo thread;
-    if (wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&thread, sizeof(thread), WIT_THREAD_INFO_VERSION, nullptr) !=
-        WIT_STATUS_OK) {
+    if (wit_native_thread_query(WIT_THREAD_SELF, &thread) != WIT_STATUS_OK) {
         return 3603;
     }
     WitThreadContext c;
@@ -183,14 +182,13 @@ extern "C" WitU64 wit_test_context_capture(const WitUserStartup *startup, WitU64
             if (wit_native_thread_create(worker, 0, &join) != WIT_STATUS_OK) {
                 return 3614;
             }
-            WitThreadReferenceInfo target = {};
+            WitUserThreadInfo target = {};
             bool parked = false;
             for (unsigned attempt = 0; attempt < 10000; ++attempt) {
                 const HANDLE reference = targetReference;
                 if (reference &&
-                    wit_native_call(WIT_CALL_THREAD_REFERENCE_QUERY, (WitU64)reference, (WitU64)&target, sizeof(target),
-                        nullptr) == WIT_STATUS_OK &&
-                    target.State == WIT_THREAD_REFERENCE_WAITING) {
+                    wit_native_thread_query((WitU64)reference, &target) == WIT_STATUS_OK &&
+                    target.State == WIT_THREAD_STATE_WAITING) {
                     parked = true;
                     break;
                 }
@@ -213,7 +211,7 @@ extern "C" WitU64 wit_test_context_capture(const WitUserStartup *startup, WitU64
                 return 3616;
             }
             if (!SetEvent(eventHandle) ||
-                wit_native_call(WIT_CALL_THREAD_JOIN, join, 0, 0, &result) != WIT_STATUS_OK ||
+                wit_native_thread_join(join, &result) != WIT_STATUS_OK ||
                 result != WIT_TEST_EXIT_CODE) {
                 return 3617;
             }

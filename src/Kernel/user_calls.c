@@ -115,18 +115,11 @@ static WitArchFrame *memory_pressure_event(WitUserCall *call)
     return 0;
 }
 
-static WitArchFrame *thread_create_simple(WitUserCall *call)
-{
-    *call->Status =
-        wit_user_thread_create_flags(call->Process, call->Argument0, call->Argument1, call->Argument2, call->Value);
-    return 0;
-}
-
 static WitArchFrame *thread_create(WitUserCall *call)
 {
     *call->Status = call->Argument2
         ? WIT_STATUS_INVALID_ARGUMENT
-        : wit_user_thread_create_reference(call->Process, call->Argument0, call->Argument1, call->Value);
+        : wit_user_thread_create(call->Process, call->Argument0, call->Argument1, call->Value);
     return 0;
 }
 
@@ -137,8 +130,8 @@ static WitArchFrame *thread_yield(WitUserCall *call)
     return next;
 }
 
-/* A coordinated worker must never free its TLS and stack while peers' user-space runtime may still hold its
- * record or GC roots: a raw or premature exit ends the whole component. */
+/* DLL lifecycle policy (leaves at K8): a thread that still owes its library notifications, or that owns the library
+ * lifecycle, must not exit while the library's code may run on its record; such an exit ends the component. */
 static WIT_NORETURN void exit_abruptly(WitUserCall *call)
 {
     call->Process->AbruptThreadId = caller(call)->Handle;
@@ -151,15 +144,8 @@ static int owns_library_lifecycle(WitUserCall *call)
     return call->Process->LibraryLifecycle.Token && call->Process->LibraryLifecycle.Owner == caller(call)->Handle;
 }
 
+/* THREAD_EXIT: the one exit. Whether a runtime's thread detached from its runtime first is layer 2's lifecycle. */
 static WitArchFrame *thread_exit(WitUserCall *call)
-{
-    if (call->Process->RequireThreadCompletion || caller(call)->LibraryRequired || owns_library_lifecycle(call)) {
-        exit_abruptly(call);
-    }
-    return wit_user_exit_thread(call->Argument0);
-}
-
-static WitArchFrame *thread_complete(WitUserCall *call)
 {
     if (call->Argument1 || call->Argument2) {
         *call->Status = WIT_STATUS_INVALID_ARGUMENT;
@@ -168,25 +154,8 @@ static WitArchFrame *thread_complete(WitUserCall *call)
     if ((caller(call)->LibraryRequired && caller(call)->LibraryPhase != 4) || owns_library_lifecycle(call)) {
         exit_abruptly(call);
     }
-    ++call->Process->OrderlyThreadExits;
+    ++call->Process->ThreadExits;
     return wit_user_exit_thread(call->Argument0);
-}
-
-static WitArchFrame *thread_join(WitUserCall *call)
-{
-    call->Context = wit_user_join_thread(call->Context, call->Argument0);
-    return 0;
-}
-
-static WitArchFrame *thread_native_id(WitUserCall *call)
-{
-    if (has_arguments(call)) {
-        *call->Status = WIT_STATUS_INVALID_ARGUMENT;
-    } else {
-        require(caller(call)->NativeId != 0, "Current thread has no native ID");
-        *call->Value = caller(call)->NativeId;
-    }
-    return 0;
 }
 
 static WitArchFrame *thread_query(WitUserCall *call)
@@ -200,18 +169,9 @@ static WitArchFrame *thread_query(WitUserCall *call)
 
 static WitArchFrame *handle_duplicate(WitUserCall *call)
 {
-    *call->Status = wit_user_reference_duplicate(call->Process, call->Argument0, call->Argument1, call->Argument2);
+    *call->Status = wit_user_handle_duplicate(call->Process, call->Argument0, call->Argument1, call->Argument2);
     if (*call->Status == WIT_STATUS_OK) {
         *call->Value = sizeof(WitU64);
-    }
-    return 0;
-}
-
-static WitArchFrame *thread_reference_query(WitUserCall *call)
-{
-    *call->Status = wit_user_reference_query(call->Process, call->Argument0, call->Argument1, call->Argument2);
-    if (*call->Status == WIT_STATUS_OK) {
-        *call->Value = sizeof(WitThreadReferenceInfo);
     }
     return 0;
 }
@@ -252,12 +212,6 @@ static WitArchFrame *thread_context_restore(WitUserCall *call)
 {
     return resume_restored(
         call, wit_user_thread_context_restore(call->Process, call->Argument0, call->Argument1, call->Argument2));
-}
-
-static WitArchFrame *thread_context_metadata(WitUserCall *call)
-{
-    *call->Status = wit_user_thread_context_metadata(call->Process, call->Argument0, call->Argument1, call->Argument2);
-    return 0;
 }
 
 static WitArchFrame *context_profile(WitUserCall *call)
@@ -643,12 +597,6 @@ static WitArchFrame *(*const handlers[CALL_COUNT])(WitUserCall *) = {
     [WIT_CALL_EXCEPTION_REJECT] = exception_reject,
     [WIT_CALL_PROCESSOR_QUERY] = processor_query,
     [WIT_CALL_PROCESS_WRITE_BARRIER] = process_write_barrier,
-    [WIT_CALL_THREAD_CREATE_SIMPLE] = thread_create_simple,
-    [WIT_CALL_THREAD_JOIN] = thread_join,
-    [WIT_CALL_THREAD_COMPLETE] = thread_complete,
-    [WIT_CALL_THREAD_REFERENCE_QUERY] = thread_reference_query,
-    [WIT_CALL_THREAD_NATIVE_ID] = thread_native_id,
-    [WIT_CALL_THREAD_CONTEXT_METADATA] = thread_context_metadata,
     [WIT_CALL_APC_DEQUEUE] = apc_dequeue,
     [WIT_CALL_MONOTONIC_QUERY] = monotonic_query,
     [WIT_CALL_CPU_CACHE_SIZE] = cpu_cache_size,

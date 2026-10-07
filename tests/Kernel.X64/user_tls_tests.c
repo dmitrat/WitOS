@@ -10,6 +10,18 @@ static WitPeImage plan;
 static WitPageAllocator limited;
 static WitU8 changed[16384];
 
+static void require(int condition, const char *message);
+
+/* THREAD_CREATE from the kernel side: the request sits at the bottom page of the main thread's stack. */
+static WitU64 start_thread(WitU64 entry, WitU64 argument, WitU64 *result)
+{
+    const WitU64 address = process.Threads[0].StackBottom;
+    WitThreadCreateRequest request = {WIT_THREAD_CREATE_VERSION, sizeof(request), entry, argument, 0, 0, 0, 0};
+    require(wit_user_copy_to(&process.Space, address, (const WitU8 *)&request, sizeof(request)),
+        "Thread request setup failed");
+    return wit_user_thread_create(&process, address, sizeof(request), result);
+}
+
 static void require(int condition, const char *message)
 {
     if (!condition) {
@@ -177,7 +189,6 @@ static void run(WitPageAllocator *pages, WitU64 base, WitU64 mode)
             wit_panic("Compiled TLS execution failed");
         }
         require(process.ThreadCreates == 4 &&
-                process.ThreadJoins == 3 &&
                 process.ThreadReaps == 3 &&
                 process.ThreadTimerSwitches > 0 &&
                 process.IdleHalts > 0 &&
@@ -252,7 +263,7 @@ static void rollback(WitPageAllocator *pages)
                 "TLS OOM decommit failed");
         }
         free_before = wit_pages_free_count(pages);
-        require(wit_user_thread_create(&process, process.ImageEntry, WIT_USER_INFO, &result) == WIT_STATUS_NO_MEMORY &&
+        require(start_thread(process.ImageEntry, WIT_USER_INFO, &result) == WIT_STATUS_NO_MEMORY &&
                 !result &&
                 process.Handles.Count == 2 &&
                 process.Threads[1].State == WitThreadEmpty &&

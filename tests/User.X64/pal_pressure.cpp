@@ -71,7 +71,7 @@ static void worker(WitU64)
 static WitU64 start_worker()
 {
     WitU64 handle;
-    check(wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)worker, 0, 0, &handle) == WIT_STATUS_OK);
+    check(wit_native_thread_start((uintptr_t)worker, 0, 0, &handle) == WIT_STATUS_OK);
     check(wit_native_sleep_ticks(2) == WIT_STATUS_OK);
     return handle;
 }
@@ -79,7 +79,7 @@ static WitU64 start_worker()
 static void join(WitU64 handle, uint32_t expected, uint32_t expected_error)
 {
     WitU64 code;
-    check(wit_native_call(WIT_CALL_THREAD_JOIN, handle, 0, 0, &code) == WIT_STATUS_OK && code == WIT_TEST_EXIT_CODE);
+    check(wit_native_thread_join(handle, &code) == WIT_STATUS_OK && code == WIT_TEST_EXIT_CODE);
     check(outcome == expected && error == expected_error);
 }
 

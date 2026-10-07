@@ -155,8 +155,7 @@ extern "C" WitU64 wit_test_raise(const WitUserStartup *startup, WitU64 selected)
         WitU64 token = 99;
         if (wit_native_call(WIT_CALL_EXCEPTION_BEGIN, (WitU64)&invalid, sizeof(invalid), Outer, &token) != expected ||
             token ||
-            wit_native_call(WIT_CALL_THREAD_CONTEXT_METADATA, WIT_THREAD_REFERENCE_CURRENT, (WitU64)&after,
-                sizeof(after), nullptr) != WIT_STATUS_OK ||
+            wit_native_context_prefix((WitU64)WIT_THREAD_REFERENCE_CURRENT, &after) != WIT_STATUS_OK ||
             (after.Flags & WIT_THREAD_CONTEXT_EXCEPTION_ACTIVE)) {
             return 4314;
         }

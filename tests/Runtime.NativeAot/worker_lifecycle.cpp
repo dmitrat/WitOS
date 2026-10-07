@@ -119,9 +119,8 @@ void cleanup(void *context)
     if (alloc->alloc_ptr) {
         check(((Object *)alloc->alloc_ptr)->RawGetMethodTable() == GCToEEInterface::GetFreeObjectMethodTable());
     }
-    WitThreadReferenceInfo info = {};
-    check(wit_native_call(WIT_CALL_THREAD_REFERENCE_QUERY, (WitU64)state.runtimeHandle, (WitU64)&info, sizeof(info),
-              nullptr) == WIT_STATUS_BAD_HANDLE);
+    WitUserThreadInfo info = {};
+    check(wit_native_thread_query((WitU64)state.runtimeHandle, &info) == WIT_STATUS_BAD_HANDLE);
     state.cleaned = true;
 }
 
@@ -173,12 +172,11 @@ WitU64 worker(WitU64 argument)
 
 void service_guard(State &state)
 {
-    WitThreadReferenceInfo info = {};
+    WitUserThreadInfo info = {};
     bool parked = false;
     for (unsigned attempt = 0; attempt < 64; ++attempt) {
-        check(wit_native_call(WIT_CALL_THREAD_REFERENCE_QUERY, (WitU64)state.observer, (WitU64)&info, sizeof(info),
-                  nullptr) == WIT_STATUS_OK);
-        if (info.State == WIT_THREAD_REFERENCE_WAITING) {
+        check(wit_native_thread_query((WitU64)state.observer, &info) == WIT_STATUS_OK);
+        if (info.State == WIT_THREAD_STATE_WAITING) {
             parked = true;
             break;
         }
@@ -207,9 +205,7 @@ void service_guard(State &state)
     check(last.Redirects == first.Redirects && last.ReturnHijacks == first.ReturnHijacks);
     check(PalGetCompleteThreadContext(state.runtimeHandle, &after));
     check(memcmp(&before.ctx, &after.ctx, sizeof(before.ctx)) == 0);
-    check(wit_native_call(WIT_CALL_THREAD_REFERENCE_QUERY, (WitU64)state.observer, (WitU64)&info, sizeof(info),
-              nullptr) == WIT_STATUS_OK &&
-        info.SuspendCount == 1);
+    check(wit_native_thread_query((WitU64)state.observer, &info) == WIT_STATUS_OK && info.SuspendCount == 1);
     check(ResumeThread(state.runtimeHandle) == 1);
 }
 
@@ -237,13 +233,12 @@ void finish(State &state, WitU64 join)
     // not just execution of our callback. It works for detached workers too.
     check(WaitForMultipleObjectsEx(1, &state.observer, FALSE, 10000, FALSE) == WAIT_OBJECT_0);
     check(state.cleaned);
-    WitThreadReferenceInfo info = {};
-    check(wit_native_call(WIT_CALL_THREAD_REFERENCE_QUERY, (WitU64)state.observer, (WitU64)&info, sizeof(info),
-              nullptr) == WIT_STATUS_OK);
-    check(info.State == WIT_THREAD_REFERENCE_EXITED && info.ExitCode == 42);
+    WitUserThreadInfo info = {};
+    check(wit_native_thread_query((WitU64)state.observer, &info) == WIT_STATUS_OK);
+    check(info.State == WIT_THREAD_STATE_EXITED && info.ExitCode == 42);
     if (join) {
         WitU64 code = 0;
-        check(wit_native_call(WIT_CALL_THREAD_JOIN, join, 0, 0, &code) == WIT_STATUS_OK && code == 42);
+        check(wit_native_thread_join(join, &code) == WIT_STATUS_OK && code == 42);
         check(wit_native_call(WIT_CALL_CLOSE, join, 0, 0, nullptr) ==
             WIT_STATUS_BAD_HANDLE); // Join consumes its capability.
     }
@@ -288,8 +283,8 @@ extern "C" int wit_runtime_worker_acceptance(Callback callback)
     }
     check(wit_native_tls_code_pointer((WitU64)callback) != 0);
     check(!ThreadStore::GetCurrentThread()->IsCurrentThreadInCooperativeMode());
-    check(wit_native_call(WIT_CALL_THREAD_COMPLETE, 0xBAD, 1, 0, nullptr) == WIT_STATUS_INVALID_ARGUMENT);
-    check(wit_native_call(WIT_CALL_THREAD_COMPLETE, 0xBAD, 0, 1, nullptr) == WIT_STATUS_INVALID_ARGUMENT);
+    check(wit_native_call(WIT_CALL_THREAD_EXIT, 0xBAD, 1, 0, nullptr) == WIT_STATUS_INVALID_ARGUMENT);
+    check(wit_native_call(WIT_CALL_THREAD_EXIT, 0xBAD, 0, 1, nullptr) == WIT_STATUS_INVALID_ARGUMENT);
     State held = {};
     held.callback = callback;
     held.value = 199;

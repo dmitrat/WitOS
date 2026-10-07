@@ -58,14 +58,12 @@ typedef enum WitUserThreadState {
 
 typedef enum WitUserWaitKind {
     WitWaitNone,
-    WitWaitJoin,
     WitWaitSleep,
     WitWaitObjects
 } WitUserWaitKind;
 
 typedef struct WitUserThread {
     WitUserThreadState State;
-    WitU32 Detached;
     WitU32 LibraryNotifications, LibraryPhase, LibraryRequired;
     WitU32 NativeId;
     WitU32 SuspendCount;
@@ -74,8 +72,6 @@ typedef struct WitUserThread {
     WitU32 ExceptionDepth;
     WitU32 NameLength;
     WitU16 Name[WIT_THREAD_NAME_CAPACITY];
-    WitU32 WaitingOn;
-    WitU32 Joiner;
     WitUserWaitKind WaitKind;
     WitU64 WaitHandle;
     WitU64 WaitHandles[WIT_WAIT_ANY_CAPACITY];
@@ -170,8 +166,8 @@ typedef struct WitUserProcess {
     WitUserThread Threads[WIT_USER_THREAD_CAPACITY];
     WitUserThreadReference ThreadReferences[WIT_RUNTIME_HANDLE_CAPACITY];
     WitU64 ExceptionCallback;
-    WitU32 RequireThreadCompletion;
-    WitU64 AbruptThreadId, AbruptThreadCode, OrderlyThreadExits;
+    WitU32 RuntimeProfile; /* The full runtime profile: budget diagnostics only. */
+    WitU64 AbruptThreadId, AbruptThreadCode, ThreadExits;
     WitU64 MemoryCommitFailures;
     WitU64 ForeignObjectWaitSuspends;
     WitU64 ReferenceThreadCapacityFailures;
@@ -185,16 +181,15 @@ typedef struct WitUserProcess {
     WitU64 ThreadCreates;
     WitU64 ThreadSwitches;
     WitU64 ThreadTimerSwitches;
-    WitU64 ThreadJoins;
     WitU64 ThreadReaps;
-    WitU64 DetachedCreates;
-    WitU64 DetachedReaps;
-    WitU64 ThreadDeadlocks;
     WitU64 NextWaitOrder;
     WitU32 MemoryPressureLow;
     WitU64 MemoryPressureEvents[WIT_RUNTIME_EVENT_CAPACITY];
     WitU64 EventParks;
     WitU64 EventWakes;
+    /* Parks and wakes of waits on thread handles alone (joins); waits that include an event count above. */
+    WitU64 ThreadWaitParks;
+    WitU64 ThreadWaitWakes;
     WitU64 WaitTimeouts;
     WitU64 WaitCloses;
     WitU64 IdleHalts;
@@ -224,7 +219,6 @@ int wit_user_stack_leased(const WitUserProcess *, WitU64, int);
 WitU64 wit_user_stack_lease_acquire(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_stack_lease_query(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_stack_lease_release(WitUserProcess *, WitU64);
-WitU64 wit_user_thread_context_metadata(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_thread_context_set(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_thread_context_restore(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_thread_context_get(WitUserProcess *, WitU64, WitU64, WitU64);
@@ -248,8 +242,10 @@ WitU64 wit_user_reference_target(WitUserProcess *, WitU64, WitU32, WitUserThread
 WitU64 wit_user_reference_signaled(WitUserProcess *, WitU64, int *);
 void wit_user_references_initialize(WitUserProcess *);
 void wit_user_references_exit(WitUserProcess *, WitU64, WitU64);
-WitU64 wit_user_reference_duplicate(WitUserProcess *, WitU64, WitU64, WitU64);
-WitU64 wit_user_reference_query(WitUserProcess *, WitU64, WitU64, WitU64);
+/* The record behind a thread handle, after the handle check for the rights. */
+WitU64 wit_user_reference_describe(WitUserProcess *, WitU64, WitU32, const WitUserThreadReference **);
+/* HANDLE_DUPLICATE of a thread handle, WIT_THREAD_SELF or an event handle. */
+WitU64 wit_user_handle_duplicate(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_reference_close(WitUserProcess *, WitU64);
 
 WitU64 wit_user_space_take_table(WitUserSpace *space);
@@ -301,13 +297,17 @@ void wit_user_bootstrap_self_test(WitPageAllocator *pages);
 void wit_user_gc_self_test(WitPageAllocator *pages);
 void wit_user_tls_self_test(WitPageAllocator *pages);
 void wit_user_dynamic_tls_self_test(WitPageAllocator *pages);
-WitU64 wit_user_thread_query(const WitUserProcess *process, WitU64 address, WitU64 size, WitU64 version);
+/* THREAD_QUERY by handle or WIT_THREAD_SELF; the caller's Version and Size in the buffer select the record. */
+WitU64 wit_user_thread_query(WitUserProcess *process, WitU64 handle, WitU64 address, WitU64 size);
+/* The WIT_THREAD_CONTEXT_* flags of a thread's context. */
+WitU32 wit_user_context_flags(const WitUserThread *target);
 void wit_user_pal_self_test(WitPageAllocator *pages);
 void wit_user_pal_services_self_test(WitPageAllocator *pages);
 void wit_user_wait_any_self_test(WitPageAllocator *pages);
 void wit_user_pressure_self_test(WitPageAllocator *pages);
 int wit_user_capture_tls(WitUserProcess *process, const WitPeImage *image);
-WitU64 wit_user_thread_create_reference(WitUserProcess *process, WitU64 input, WitU64 size, WitU64 *result);
+/* THREAD_CREATE: the one form, from a WitThreadCreateRequest in the process's memory. */
+WitU64 wit_user_thread_create(WitUserProcess *process, WitU64 input, WitU64 size, WitU64 *result);
 WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument, WitU64 flags);
 WitU64 wit_virtual_kernel_root(void);
 
@@ -323,14 +323,11 @@ WitPeStatus wit_user_create_package_pe(
 WitPeStatus wit_user_create_pe(
     WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const WitU8 *file, WitU32 size, WitU64 base);
 int wit_user_image_map(WitUserSpace *space, const WitU8 *file, const WitPeImage *plan, WitU64 base);
-WitU64 wit_user_thread_create(WitUserProcess *process, WitU64 entry, WitU64 argument, WitU64 *result);
 /* Before the attach of a library with an entry point: every live thread that follows the notification protocol and
  * has not left gets the notification page and handles it lacks, as a thread created after the load would, so its exit
  * detaches the library. Returns the mask of threads that received them; fails with all of them released. */
 WitU64 wit_user_thread_require_notifications(WitUserProcess *process, WitU32 *reserved);
 void wit_user_thread_release_notifications(WitUserProcess *process, WitU32 reserved);
-WitU64 wit_user_thread_create_flags(
-    WitUserProcess *process, WitU64 entry, WitU64 argument, WitU64 flags, WitU64 *result);
 void wit_user_pal_module_self_test(WitPageAllocator *pages);
 void wit_user_pal_environment_self_test(WitPageAllocator *pages);
 void wit_user_process_exit_self_test(WitPageAllocator *pages);
@@ -373,7 +370,6 @@ WitUserProcess *wit_user_current(void);
 WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code);
 WitArchFrame *wit_user_yield(void);
 WitArchFrame *wit_user_exit_thread(WitU64 code);
-WitArchFrame *wit_user_join_thread(WitArchFrame *frame, WitU64 handle);
 WitU64 wit_user_close_handle(WitU64 handle);
 WitArchFrame *wit_user_timer_tick(WitArchFrame *frame);
 WIT_NORETURN void wit_user_fault(

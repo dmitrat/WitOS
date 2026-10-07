@@ -75,16 +75,11 @@ extern "C" BOOL WINAPI wit_native_set_thread_priority(HANDLE handle, int priorit
             return FALSE;
         }
     } else {
-        WitThreadReferenceInfo info;
-        WitU64 copied = 0;
-        if (!wit_pal_result(wit_native_call(
-                WIT_CALL_THREAD_REFERENCE_QUERY, (WitU64)handle, (WitU64)&info, sizeof(info), &copied))) {
+        WitUserThreadInfo info;
+        if (!wit_pal_result(wit_native_thread_query((WitU64)handle, &info))) {
             return FALSE;
         }
-        if (copied != sizeof(info) || info.Version != WIT_THREAD_REFERENCE_VERSION || info.Size != sizeof(info)) {
-            wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
-        }
-        if (info.State == WIT_THREAD_REFERENCE_EXITED) {
+        if (info.State == WIT_THREAD_STATE_EXITED) {
             SetLastError(ERROR_INVALID_HANDLE);
             return FALSE;
         }

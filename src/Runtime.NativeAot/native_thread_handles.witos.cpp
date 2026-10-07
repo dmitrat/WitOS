@@ -2,13 +2,11 @@
 
 extern "C" DWORD WINAPI wit_native_thread_id()
 {
-    WitU64 identity = 0;
-    if (wit_native_call(WIT_CALL_THREAD_NATIVE_ID, 0, 0, 0, &identity) != WIT_STATUS_OK ||
-        !identity ||
-        identity > UINT32_MAX) {
+    WitUserThreadInfo info;
+    if (!wit_native_thread_info(&info) || !info.NativeId) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
-    return (DWORD)identity;
+    return info.NativeId;
 }
 
 extern "C" HANDLE WINAPI wit_native_current_process()
@@ -79,22 +77,15 @@ extern "C" BOOL WINAPI wit_native_duplicate_handle(HANDLE sourceProcess, HANDLE 
 
 extern "C" int WINAPI wit_native_thread_priority(HANDLE handle)
 {
-    WitThreadReferenceInfo info;
-    WitU64 copied = 0;
+    WitUserThreadInfo info;
     if (handle == (HANDLE)(intptr_t)-2) {
-        WitUserThreadInfo current;
-        if (!wit_native_thread_info(&current)) {
+        if (!wit_native_thread_info(&info)) {
             wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
         }
         return THREAD_PRIORITY_NORMAL;
     }
-    const auto status =
-        wit_native_call(WIT_CALL_THREAD_REFERENCE_QUERY, (uintptr_t)handle, (uintptr_t)&info, sizeof(info), &copied);
-    if (!wit_pal_result(status)) {
+    if (!wit_pal_result(wit_native_thread_query((WitU64)handle, &info))) {
         return THREAD_PRIORITY_ERROR_RETURN;
-    }
-    if (copied != sizeof(info) || info.Version != WIT_THREAD_REFERENCE_VERSION || info.Size != sizeof(info)) {
-        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
     // Every thread in the supported scheduler has the normal fixed priority.
     return THREAD_PRIORITY_NORMAL;

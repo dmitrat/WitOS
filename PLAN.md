@@ -1,6 +1,6 @@
 # План WitOS
 
-Обновлено: **2026-10-07**. Upstream .NET: **10.0.8**. Текущая реализация: user ABI v52, boot ABI v4, ядро и UHI для
+Обновлено: **2026-10-07**. Upstream .NET: **10.0.8**. Текущая реализация: user ABI v53, boot ABI v4, ядро и UHI для
 x64 (QEMU q35) и ARM64 (QEMU virt). Архитектурное решение: [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md).
 Прежний план с историей M0–M3, P1–P6.4, Q0–Q2, A0–A2 и T1 — в [архиве](@Docs/Implementation/Plan-Archive-2026-10-06.md);
 замороженная линия хоста P6.4 — в [P6.4-Plan.md](@Docs/Implementation/P6.4-Plan.md).
@@ -130,7 +130,7 @@ UHI для x64 и ARM64 (порт ARM64 стоил ~2 300 строк и пере
     `WIT_THREAD_SELF`; `EXCEPTION_CONTINUE` поглощает `EXCEPTION_UNWIND`; `HANDLE_DUPLICATE`, `CONTEXT_PROFILE` и
     `THREAD_ACTIVATE` как имена; имена замороженной линии живут в `user_abi_frozen.h`, который ядро не включает; фикстуры
     обеих ISA считают задержки в тиках через `CLOCK_FREQUENCY`; ABI-Reference переписан.
-  - [ ] **K1.2** Потоки: `THREAD_CREATE` одной формы (`THREAD_CREATE_SIMPLE` уходит); join — `OBJECT_WAIT` плюс
+  - [x] **K1.2** Потоки: `THREAD_CREATE` одной формы (`THREAD_CREATE_SIMPLE` уходит); join — `OBJECT_WAIT` плюс
     `THREAD_QUERY` по хэндлу или `WIT_THREAD_SELF` с единой структурой, поглощающей `THREAD_REFERENCE_QUERY`,
     `THREAD_NATIVE_ID` и `THREAD_CONTEXT_METADATA`; `THREAD_COMPLETE` сливается в `THREAD_EXIT`; `HANDLE_DUPLICATE` для
     событий; вид хэндла `THREAD` и право `JOIN` уходят.

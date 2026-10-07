@@ -36,7 +36,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base, int tls)
     require(report && report[0] == mode && report[1] == 1, "Wait-any checks incomplete");
     const WitU64 workers = mode == 50 ? 0 : (mode >= 54 && mode != 56) ? 1 : 2;
     require(process.ThreadCreates == workers + 1 &&
-            process.ThreadJoins == workers &&
             process.ThreadReaps == workers &&
             process.Space.OwnedCount == owned &&
             !process.Handles.Count &&

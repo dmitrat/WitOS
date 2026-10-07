@@ -23,19 +23,12 @@ bool PalInit()
     // Do not access compiler TLS (including errno) until kernel state confirms
     // it exists. Writable FS/GS hints never determine the CPU count or identity.
     WitUserThreadInfo info;
-    WitU64 copied = 0;
-    const auto status =
-        wit_native_call(WIT_CALL_THREAD_QUERY, (uintptr_t)&info, sizeof(info), WIT_THREAD_INFO_VERSION, &copied);
+    const auto status = wit_native_thread_query(WIT_THREAD_SELF, &info);
     if (status != WIT_STATUS_OK) {
         wit_pal_set_status(status);
         return false;
     }
-    if (copied != sizeof(info) ||
-        info.Version != WIT_THREAD_INFO_VERSION ||
-        info.Size != sizeof(info) ||
-        !info.ThreadId ||
-        !info.ProcessId ||
-        !info.RawTls) {
+    if (!info.ProcessId || !info.RawTls) {
         SetLastError(ERROR_GEN_FAILURE);
         return false;
     }

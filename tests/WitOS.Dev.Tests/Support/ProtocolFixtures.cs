@@ -42,8 +42,8 @@ Runtime boot state/exit/rip/owned: 3/0x000000000000002A/0x0000000000000000/435
 Runtime hardware faults read/write/divide/continue: 12/12/12/36
 Runtime managed commit failures: 2
 Runtime parked foreign object waits: 2
-Runtime managed thread capacity failures: 4
-Runtime orderly thread completions: 43
+Runtime thread capacity failures: 6
+Runtime thread exits: 43
 Runtime execution ticks/limit: 120/3000
 """;
 
@@ -100,7 +100,7 @@ Runtime abrupt mode/base: {mode}/{address}
 [USER] [RUNTIME] native initializers ready
 [USER] [RUNTIME] entering upstream wmain
 {(mode >= 2 ? "[USER] [NATIVE-FAIL-FAST] code=0xC000001D address=0x0000008000102D00 rip=0x0000008000102D00" : "")}
-Runtime abrupt exit/report: {(mode < 2 ? "0x00000000FFFF0002" : "0x00000000C000001D")}/1/0/0/0
+Runtime abrupt exit/report: {(mode < 2 ? "0x00000000FFFF0103" : "0x00000000C000001D")}/1/0/0/0
 [TEST-PASS] Runtime.AbruptWorkerContained
 """;
 

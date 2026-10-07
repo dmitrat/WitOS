@@ -46,7 +46,6 @@ static void run(WitPageAllocator *pages, WitU64 base, WitU64 mode)
             wit_panic("Dynamic C++ TLS lifecycle failed");
         }
         require(process.ThreadCreates == 6 &&
-                process.ThreadJoins == 5 &&
                 process.ThreadReaps == 5 &&
                 process.ThreadSwitches >= 4 &&
                 process.Space.OwnedCount == owned,

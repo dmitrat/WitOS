@@ -105,11 +105,11 @@ WitU64 wit_gc_time(const WitUserStartup *startup, WitU64 mode)
         WitU64 thread = 0, code = 0;
         signal = &event;
         if (!event.CreateAutoEventNoThrow(false) ||
-            raw(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)signal_later, 0, 0, &thread) != WIT_STATUS_OK) {
+            wit_native_thread_start((uintptr_t)signal_later, 0, 0, &thread) != WIT_STATUS_OK) {
             return 220;
         }
         if (event.Wait(INFINITE - 1, false) != WAIT_OBJECT_0 ||
-            raw(WIT_CALL_THREAD_JOIN, thread, 0, 0, &code) != WIT_STATUS_OK ||
+            wit_native_thread_join(thread, &code) != WIT_STATUS_OK ||
             code != WIT_TEST_EXIT_CODE ||
             event.Wait(0, false) != WAIT_TIMEOUT) {
             return 221;

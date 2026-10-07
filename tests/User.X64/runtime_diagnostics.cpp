@@ -248,7 +248,7 @@ extern "C" WitU64 wit_test_diagnostics(const WitUserStartup *startup, WitU64 mod
             }
         }
         for (unsigned i = 0; i < 3; ++i) {
-            if (wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &value) != WIT_STATUS_OK || value < 0x10000) {
+            if (wit_native_thread_join(handles[i], &value) != WIT_STATUS_OK || value < 0x10000) {
                 return 3223;
             }
             if (!same((const wchar_t *)value, L"The resource is currently in use.") || LocalFree((HLOCAL)value)) {

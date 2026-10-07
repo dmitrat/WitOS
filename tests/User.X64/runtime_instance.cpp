@@ -22,8 +22,7 @@ static Thread *main_record;
 
 static bool query(WitUserThreadInfo &info)
 {
-    return wit_native_call(WIT_CALL_THREAD_QUERY, (uintptr_t)&info, sizeof(info), WIT_THREAD_INFO_VERSION, nullptr) ==
-        WIT_STATUS_OK;
+    return wit_native_thread_query(WIT_THREAD_SELF, &info) == WIT_STATUS_OK;
 }
 
 static bool snapshot(WitUserMemoryInfo &info)
@@ -146,8 +145,7 @@ extern "C" bool wit_test_runtime_instance()
         }
     }
     for (size_t i = 0; i < 3; ++i) {
-        if (wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &code) != WIT_STATUS_OK ||
-            code != WIT_TEST_EXIT_CODE) {
+        if (wit_native_thread_join(handles[i], &code) != WIT_STATUS_OK || code != WIT_TEST_EXIT_CODE) {
             return false;
         }
     }
@@ -184,9 +182,8 @@ static bool construct_record()
     if (!capability || capability == INVALID_HANDLE_VALUE || capability == GetCurrentThread()) {
         return false;
     }
-    WitThreadReferenceInfo reference;
-    if (wit_native_call(WIT_CALL_THREAD_REFERENCE_QUERY, (WitU64)capability, (WitU64)&reference, sizeof(reference),
-            nullptr) != WIT_STATUS_OK ||
+    WitUserThreadInfo reference;
+    if (wit_native_thread_query((WitU64)capability, &reference) != WIT_STATUS_OK ||
         reference.ThreadId != info.ThreadId ||
         reference.Rights != WIT_THREAD_REFERENCE_ALL) {
         return false;
@@ -312,8 +309,7 @@ extern "C" bool wit_test_runtime_thread_record()
         }
         record_release = 1;
         for (unsigned i = 0; i < 3; ++i) {
-            if (wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &result) != WIT_STATUS_OK ||
-                result != WIT_TEST_EXIT_CODE) {
+            if (wit_native_thread_join(handles[i], &result) != WIT_STATUS_OK || result != WIT_TEST_EXIT_CODE) {
                 return false;
             }
             prior_ids[i] = record_ids[i];
@@ -324,7 +320,7 @@ extern "C" bool wit_test_runtime_thread_record()
     }
     WitU64 exhaustion, result;
     if (wit_native_thread_create(record_exhaustion_worker, 0, &exhaustion) != WIT_STATUS_OK ||
-        wit_native_call(WIT_CALL_THREAD_JOIN, exhaustion, 0, 0, &result) != WIT_STATUS_OK ||
+        wit_native_thread_join(exhaustion, &result) != WIT_STATUS_OK ||
         result != WIT_TEST_EXIT_CODE ||
         !snapshot(after) ||
         !equal(before, after)) {
@@ -390,8 +386,7 @@ extern "C" bool wit_test_runtime_random_tls()
         }
         random_release = 1;
         for (unsigned i = 0; i < 3; ++i) {
-            if (wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &result) != WIT_STATUS_OK ||
-                result != WIT_TEST_EXIT_CODE) {
+            if (wit_native_thread_join(handles[i], &result) != WIT_STATUS_OK || result != WIT_TEST_EXIT_CODE) {
                 return false;
             }
         }

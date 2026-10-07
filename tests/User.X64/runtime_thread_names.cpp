@@ -99,8 +99,7 @@ extern "C" WitU64 wit_test_thread_names(const WitUserStartup *startup, WitU64 mo
         return 3104;
     }
     WitUserThreadInfo thread;
-    if (wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&thread, sizeof(thread), WIT_THREAD_INFO_VERSION, nullptr) !=
-        WIT_STATUS_OK) {
+    if (wit_native_thread_query(WIT_THREAD_SELF, &thread) != WIT_STATUS_OK) {
         return 3105;
     }
     auto raw = (WitU64 *)thread.RawTls;
@@ -215,13 +214,12 @@ extern "C" WitU64 wit_test_thread_names(const WitUserStartup *startup, WitU64 mo
             }
         }
         for (unsigned i = 0; i < 3; ++i) {
-            if (wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &result) != WIT_STATUS_OK ||
-                result != WIT_TEST_EXIT_CODE) {
+            if (wit_native_thread_join(handles[i], &result) != WIT_STATUS_OK || result != WIT_TEST_EXIT_CODE) {
                 return 3122;
             }
         }
         if (wit_native_thread_create(worker, 3, &handles[0]) != WIT_STATUS_OK ||
-            wit_native_call(WIT_CALL_THREAD_JOIN, handles[0], 0, 0, &result) != WIT_STATUS_OK ||
+            wit_native_thread_join(handles[0], &result) != WIT_STATUS_OK ||
             result != WIT_TEST_EXIT_CODE ||
             callbacks != 4) {
             return 3123;

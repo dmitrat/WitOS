@@ -478,9 +478,7 @@ extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
     report()[1] |= 4;
     WitUserMemoryInfo before_init, after_init;
     WitUserThreadInfo info;
-    if (!snapshot(&before_init) ||
-        wit_native_call(WIT_CALL_THREAD_QUERY, (uintptr_t)&info, sizeof(info), WIT_THREAD_INFO_VERSION, nullptr) !=
-            WIT_STATUS_OK) {
+    if (!snapshot(&before_init) || wit_native_thread_query(WIT_THREAD_SELF, &info) != WIT_STATUS_OK) {
         return 1685;
     }
     auto raw = (WitU64 *)(uintptr_t)info.RawTls;
@@ -545,13 +543,12 @@ extern "C" WitU64 wit_native_main(const WitUserStartup *startup)
         }
     }
     for (size_t i = 0; i < 2; ++i) {
-        if (wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &result) != WIT_STATUS_OK ||
-            result != WIT_TEST_EXIT_CODE) {
+        if (wit_native_thread_join(handles[i], &result) != WIT_STATUS_OK || result != WIT_TEST_EXIT_CODE) {
             return 1651;
         }
     }
     if (wit_native_thread_create(worker, 2, &handles[0]) != WIT_STATUS_OK ||
-        wit_native_call(WIT_CALL_THREAD_JOIN, handles[0], 0, 0, &result) != WIT_STATUS_OK ||
+        wit_native_thread_join(handles[0], &result) != WIT_STATUS_OK ||
         result != WIT_TEST_EXIT_CODE ||
         errno != 42) {
         return 1652;

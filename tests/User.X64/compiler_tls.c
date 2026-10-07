@@ -91,12 +91,12 @@ WitU64 wit_native_main(const WitUserStartup *startup)
     }
     wit_tls_write(77);
     for (WitU64 i = 0; i < 2; ++i) {
-        if (call(WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)worker, i, &handles[i]) != WIT_STATUS_OK) {
+        if (wit_native_thread_start((WitU64)worker, i, 0, &handles[i]) != WIT_STATUS_OK) {
             return 908;
         }
     }
     for (WitU64 i = 0; i < 2; ++i) {
-        if (call(WIT_CALL_THREAD_JOIN, handles[i], 0, &result) != WIT_STATUS_OK || result != WIT_TEST_EXIT_CODE) {
+        if (wit_native_thread_join(handles[i], &result) != WIT_STATUS_OK || result != WIT_TEST_EXIT_CODE) {
             return 909;
         }
     }
@@ -107,8 +107,8 @@ WitU64 wit_native_main(const WitUserStartup *startup)
         wit_tls_zeros()) {
         return 910;
     }
-    if (call(WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)worker, 2, &handles[0]) != WIT_STATUS_OK ||
-        call(WIT_CALL_THREAD_JOIN, handles[0], 0, &result) != WIT_STATUS_OK ||
+    if (wit_native_thread_start((WitU64)worker, 2, 0, &handles[0]) != WIT_STATUS_OK ||
+        wit_native_thread_join(handles[0], &result) != WIT_STATUS_OK ||
         result != WIT_TEST_EXIT_CODE ||
         addresses[2] != addresses[0]) {
         return 911;

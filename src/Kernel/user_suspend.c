@@ -7,7 +7,7 @@ WitU64 wit_user_thread_suspend(WitUserProcess *process, WitU64 handle, int resum
     if (WIT_USER_PROCESSOR_COUNT != 1) {
         return WIT_STATUS_UNSUPPORTED;
     }
-    const WitU64 status = wit_user_reference_target(process, handle, WIT_THREAD_REFERENCE_SUSPEND_RESUME, &target);
+    const WitU64 status = wit_user_reference_target(process, handle, WIT_RIGHT_SUSPEND_RESUME, &target);
     if (status != WIT_STATUS_OK) {
         return status;
     }

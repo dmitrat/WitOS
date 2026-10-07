@@ -15,14 +15,9 @@ static bool duplicate(HANDLE source, HANDLE *result, DWORD access = 0, DWORD opt
     return DuplicateHandle(GetCurrentProcess(), source, GetCurrentProcess(), result, access, FALSE, options) != 0;
 }
 
-static bool query(HANDLE handle, WitThreadReferenceInfo &info)
+static bool query(HANDLE handle, WitUserThreadInfo &info)
 {
-    WitU64 copied = 0;
-    return wit_native_call(WIT_CALL_THREAD_REFERENCE_QUERY, (WitU64)handle, (WitU64)&info, sizeof(info), &copied) ==
-        WIT_STATUS_OK &&
-        copied == sizeof(info) &&
-        info.Version == WIT_THREAD_REFERENCE_VERSION &&
-        info.Size == sizeof(info);
+    return wit_native_thread_query((WitU64)handle, &info) == WIT_STATUS_OK;
 }
 
 static WitU64 worker(WitU64 index)
@@ -74,16 +69,17 @@ extern "C" WitU64 wit_test_references(const WitUserStartup *startup, WitU64 mode
         first == second) {
         return 2703;
     }
-    WitThreadReferenceInfo a, b;
+    WitUserThreadInfo a, b;
     WitUserThreadInfo current;
     WitU64 copied = 0;
-    if (wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&current, sizeof(current), WIT_THREAD_INFO_VERSION, &copied) !=
-            WIT_STATUS_OK ||
+    if (!wit_native_thread_info(&current) ||
         !query(first, a) ||
         !query(second, b) ||
         a.ThreadId != current.ThreadId ||
         a.ThreadId != b.ThreadId ||
-        a.State != WIT_THREAD_REFERENCE_LIVE ||
+        a.State != WIT_THREAD_STATE_RUNNING ||
+        a.Rights != WIT_RIGHT_THREAD_ALL ||
+        current.Rights != WIT_RIGHT_THREAD_ALL ||
         a.StackLow != current.StackLow ||
         a.StackHigh != current.StackHigh ||
         first == (HANDLE)a.ThreadId ||
@@ -112,8 +108,9 @@ extern "C" WitU64 wit_test_references(const WitUserStartup *startup, WitU64 mode
     for (unsigned i = 0; i < 4; ++i) {
         edge[i] = 0xa5;
     }
+    // The whole destination is validated before the header is read or anything is written.
     copied = 99;
-    if (wit_native_call(WIT_CALL_THREAD_REFERENCE_QUERY, (WitU64)first, (WitU64)edge, sizeof(a), &copied) !=
+    if (wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)first, (WitU64)edge, sizeof(a), &copied) !=
             WIT_STATUS_BAD_ADDRESS ||
         copied) {
         return 2719;
@@ -123,10 +120,28 @@ extern "C" WitU64 wit_test_references(const WitUserStartup *startup, WitU64 mode
             return 2720;
         }
     }
-    if (wit_native_call(WIT_CALL_MEMORY_COMMIT, arena + 4096, 4096, 3, nullptr) != WIT_STATUS_OK ||
-        wit_native_call(WIT_CALL_THREAD_REFERENCE_QUERY, (WitU64)first, (WitU64)edge, sizeof(a), &copied) !=
-            WIT_STATUS_OK ||
+    if (wit_native_call(WIT_CALL_MEMORY_COMMIT, arena + 4096, 4096, 3, nullptr) != WIT_STATUS_OK) {
+        return 2721;
+    }
+    // A writable destination with a foreign header is UNSUPPORTED (version) or INVALID_ARGUMENT (size), untouched.
+    if (wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)first, (WitU64)edge, sizeof(a), &copied) !=
+            WIT_STATUS_UNSUPPORTED ||
+        copied ||
+        edge[0] != 0xa5) {
+        return 2729;
+    }
+    ((WitU32 *)edge)[0] = WIT_THREAD_INFO_VERSION;
+    ((WitU32 *)edge)[1] = sizeof(a) - 8;
+    if (wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)first, (WitU64)edge, sizeof(a), &copied) !=
+            WIT_STATUS_INVALID_ARGUMENT ||
+        copied ||
+        ((WitU32 *)edge)[1] != sizeof(a) - 8) {
+        return 2730;
+    }
+    ((WitU32 *)edge)[1] = sizeof(a);
+    if (wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)first, (WitU64)edge, sizeof(a), &copied) != WIT_STATUS_OK ||
         copied != sizeof(a) ||
+        ((const WitUserThreadInfo *)edge)->ThreadId != a.ThreadId ||
         wit_native_call(WIT_CALL_MEMORY_RELEASE, arena, 0, 0, nullptr) != WIT_STATUS_OK) {
         return 2721;
     }
@@ -145,8 +160,11 @@ extern "C" WitU64 wit_test_references(const WitUserStartup *startup, WitU64 mode
     if (stillCurrent != current.NativeId) {
         return 2724;
     }
+    // A query of the wrong size changes nothing; the identity never comes from a size the kernel did not validate.
     copied = 99;
-    if (wit_native_call(WIT_CALL_THREAD_NATIVE_ID, 1, 0, 0, &copied) != WIT_STATUS_INVALID_ARGUMENT || copied) {
+    if (wit_native_call(WIT_CALL_THREAD_QUERY, WIT_THREAD_SELF, (WitU64)&a, sizeof(a) - 8, &copied) !=
+            WIT_STATUS_INVALID_ARGUMENT ||
+        copied) {
         return 2725;
     }
     if (!CloseHandle(first) ||
@@ -188,7 +206,7 @@ extern "C" WitU64 wit_test_references(const WitUserStartup *startup, WitU64 mode
         for (unsigned i = 0; i < 3; ++i) {
             worker_reference = nullptr;
             if (wit_native_thread_create(worker, i, &join) != WIT_STATUS_OK ||
-                wit_native_call(WIT_CALL_THREAD_JOIN, join, 0, 0, &result) != WIT_STATUS_OK ||
+                wit_native_thread_join(join, &result) != WIT_STATUS_OK ||
                 result != 42 + i) {
                 return 2713;
             }
@@ -197,7 +215,7 @@ extern "C" WitU64 wit_test_references(const WitUserStartup *startup, WitU64 mode
             }
             HANDLE exited = worker_reference;
             if (!query(exited, a) ||
-                a.State != WIT_THREAD_REFERENCE_EXITED ||
+                a.State != WIT_THREAD_STATE_EXITED ||
                 a.ExitCode != 42 + i ||
                 a.StackLow ||
                 a.StackHigh ||
@@ -207,7 +225,7 @@ extern "C" WitU64 wit_test_references(const WitUserStartup *startup, WitU64 mode
             if (previous) {
                 if (!query(previous, b) ||
                     b.ThreadId != previousId ||
-                    b.State != WIT_THREAD_REFERENCE_EXITED ||
+                    b.State != WIT_THREAD_STATE_EXITED ||
                     !CloseHandle(previous)) {
                     return 2715;
                 }
@@ -335,9 +353,9 @@ extern "C" WitU64 wit_test_thread_create(const WitUserStartup *startup, WitU64 m
         if (!thread || !id || id == caller || GetLastError() != 0x57321468) {
             return 4210;
         }
-        WitThreadReferenceInfo info;
+        WitUserThreadInfo info;
         if (!query(thread, info) ||
-            info.State != WIT_THREAD_REFERENCE_SUSPENDED ||
+            info.State != WIT_THREAD_STATE_SUSPENDED ||
             info.SuspendCount != 1 ||
             info.StackHigh - info.StackLow != 65536 ||
             info.Rights != WIT_THREAD_REFERENCE_ALL) {
@@ -369,7 +387,7 @@ extern "C" WitU64 wit_test_thread_create(const WitUserStartup *startup, WitU64 m
             return 4216;
         }
         if (!query(observer, info) ||
-            info.State != WIT_THREAD_REFERENCE_EXITED ||
+            info.State != WIT_THREAD_STATE_EXITED ||
             info.ExitCode != 42 + round ||
             info.StackLow ||
             info.StackHigh ||

@@ -212,8 +212,7 @@ extern "C" WitU64 wit_test_console(const WitUserStartup *startup, WitU64 mode)
             }
         }
         for (unsigned i = 0; i < 3; ++i) {
-            if (wit_native_call(WIT_CALL_THREAD_JOIN, handles[i], 0, 0, &result) != WIT_STATUS_OK ||
-                result != WIT_TEST_EXIT_CODE) {
+            if (wit_native_thread_join(handles[i], &result) != WIT_STATUS_OK || result != WIT_TEST_EXIT_CODE) {
                 return 2921;
             }
         }

@@ -15,7 +15,7 @@ void wit_user_apc_initialize(WitUserThread *thread)
 WitU64 wit_user_apc_queue(WitUserProcess *process, WitU64 reference, WitU64 callback, WitU64 argument)
 {
     WitUserThread *target = 0;
-    const WitU64 status = wit_user_reference_target(process, reference, WIT_THREAD_REFERENCE_SET_CONTEXT, &target);
+    const WitU64 status = wit_user_reference_target(process, reference, WIT_RIGHT_SET_CONTEXT, &target);
     if (status != WIT_STATUS_OK) {
         return status;
     }

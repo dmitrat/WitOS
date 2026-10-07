@@ -25,7 +25,7 @@
  * arguments, RAX=status and RDX=result, other GPRs and x87/SSE state preserved, RFLAGS reset to 0x202; on ARM64
  * SVC #0 with x8=call, x0-x2 arguments, x0=status and x1=result. A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
-#define WIT_ABI_VERSION 52U
+#define WIT_ABI_VERSION 53U
 /* QUERY result: the low 32 bits are WIT_ABI_VERSION, the high 32 bits the mask of the families present. */
 #define WIT_ABI_FEATURE_CHANNELS 1U
 #define WIT_ABI_FEATURE_DEVICES 2U
@@ -45,7 +45,7 @@
 /* Close(handle, 0, 0). Closing never terminates an object's activity. */
 #define WIT_CALL_HANDLE_CLOSE 2U
 /* Duplicate(handle or WIT_THREAD_SELF, output pointer, rights; 0 = the same) -> 8 bytes written.
- * Rights may only be removed. Thread handles today; events join in step K1.2, channel endpoints in K2. */
+ * Rights may only be removed. Thread and event handles; channel endpoints join in step K2. */
 #define WIT_CALL_HANDLE_DUPLICATE 3U
 /* Write(kernel-log handle, buffer, length <= WIT_DEBUG_WRITE_MAX) -> bytes written. The kernel's last-resort
  * output through the board console; it is not the terminal of RFC 0020. */
@@ -71,16 +71,20 @@
 /* 18 MEMORY_OBJECT_CREATE, 19 MEMORY_OBJECT_MAP and 20 CODE_PUBLISH arrive with plan step K5. */
 
 /* Threads and contexts (RFC 0011 section 7.3). */
-/* Create(WitThreadCreateRequest, exact size, 0) -> thread handle with every thread right; the thread observes its
- * lifetime through the handle and is reaped once it exits with no handle left. */
+/* Create(WitThreadCreateRequest, exact size, 0) -> thread handle with every thread right: the one form. The handle
+ * observes the thread's lifetime (OBJECT_WAIT, THREAD_QUERY); closing it detaches, and the thread's stack and TLS are
+ * reclaimed when it exits. */
 #define WIT_CALL_THREAD_CREATE 30U
-/* Exit(code, 0, 0): the current thread ends; does not return. Lifecycle notifications are user space's business. */
+/* Exit(code, 0, 0): the current thread ends; does not return. The one exit: lifecycle notifications and the orderly
+ * completion of a runtime's thread are user space's business. */
 #define WIT_CALL_THREAD_EXIT 31U
 /* Yield(0, 0, 0) -> 1 when this call selected another thread, otherwise 0. */
 #define WIT_CALL_THREAD_YIELD 32U
 /* 33 THREAD_SET_TLS arrives with plan step K5. */
-/* Query(buffer, exact size, version) copies one atomic snapshot of the current thread (WitUserThreadInfo); the result
- * is the bytes copied. Step K1.2 makes the first argument a thread handle or WIT_THREAD_SELF. */
+/* Query(thread handle or WIT_THREAD_SELF, buffer, exact size) copies one atomic snapshot of the thread
+ * (WitUserThreadInfo: identity, stack, state, exit code, suspend count, the handle's rights); the caller's Version
+ * and Size in the buffer select the record, and the result is the bytes copied. The QUERY right, or a context right:
+ * a context carries the same prefix. */
 #define WIT_CALL_THREAD_QUERY 34U
 /* Suspend/resume(thread handle, 0, 0) -> the previous suspend count. */
 #define WIT_CALL_THREAD_SUSPEND 35U
@@ -132,18 +136,9 @@
 
 /* Transitional calls of the current implementation. RFC 0011 section 8 merges, removes or moves each of them in the
  * plan step named; a retired number is never reused. */
-/* Create(entry, argument, flags) -> thread handle, or zero for DETACHED; the request form above replaces it (K1.2). */
-#define WIT_CALL_THREAD_CREATE_SIMPLE 200U
-/* Join(thread handle, 0, 0) -> exit code; consumes the handle. Becomes a wait and a query (K1.2). */
-#define WIT_CALL_THREAD_JOIN 201U
-/* Complete(code, 0, 0): the orderly exit of a coordinated full-runtime component; merges into THREAD_EXIT (K1.2). */
-#define WIT_CALL_THREAD_COMPLETE 202U
-/* Query(thread handle, buffer, exact size) copies WitThreadReferenceInfo; merges into THREAD_QUERY (K1.2). */
-#define WIT_CALL_THREAD_REFERENCE_QUERY 203U
-/* NativeId(0, 0, 0) -> the current thread's 32-bit native id; merges into THREAD_QUERY (K1.2). */
-#define WIT_CALL_THREAD_NATIVE_ID 204U
-/* Metadata(thread handle, buffer, exact size) copies a thread's context prefix without registers (K1.2). */
-#define WIT_CALL_THREAD_CONTEXT_METADATA 205U
+/* 200-205 were retired at step K1.2: THREAD_CREATE_SIMPLE, THREAD_JOIN and THREAD_COMPLETE folded into
+ * THREAD_CREATE, OBJECT_WAIT and THREAD_EXIT; THREAD_REFERENCE_QUERY, THREAD_NATIVE_ID and THREAD_CONTEXT_METADATA
+ * into THREAD_QUERY. */
 /* Dequeue(buffer, exact size, 0) -> one queued activation; delivery becomes push (K1.3). */
 #define WIT_CALL_APC_DEQUEUE 206U
 /* Query(buffer, exact 8 bytes, selector) copies the monotonic counter or frequency; merges into CLOCK_READ (K6). */
@@ -164,19 +159,30 @@
 #define WIT_CALL_THREAD_NAME_QUERY 217U
 /* Code memory dissolves into memory objects (K5); its unwind validation leaves (K8). */
 #define WIT_CALL_CODE_MEMORY 218U
-/* The file namespace, the boot package, native libraries and the process state leave for the system layer (K8). */
+/* The file namespace, the boot package, native libraries and the process state leave for the system layer (K8). A
+ * thread that exits while it owes the DLL lifecycle its notifications ends the component with this code. */
+#define WIT_PROCESS_ABRUPT_THREAD_EXIT 0xFFFF0002ULL
 #define WIT_CALL_FILE 219U
 #define WIT_CALL_STORAGE_QUERY 220U
 #define WIT_CALL_LIBRARY 221U
 #define WIT_CALL_PROCESS_STATE 222U
 
-#define WIT_PROCESS_ABRUPT_THREAD_EXIT 0xFFFF0002ULL
-/* Flags of the transitional simple creation: DETACHED returns zero and reaps automatically on exit;
- * LIBRARY_NOTIFICATIONS follows the frozen line's DLL thread lifecycle. */
-#define WIT_THREAD_DETACHED 1U
+/* Flags of WitThreadCreateRequest beside START_SUSPENDED (1): LIBRARY_NOTIFICATIONS follows the frozen line's DLL
+ * thread lifecycle and leaves with it (K8). */
 #define WIT_THREAD_LIBRARY_NOTIFICATIONS 2U
-#define WIT_EVENT_ACCESS_WAIT 4U
-#define WIT_EVENT_ACCESS_SIGNAL 8U
+/* Rights (RFC 0011 section 6.1): a bit is never reused, and 2 (the join right of the retired join capability) is
+ * retired. WAIT and SIGNAL belong to events and the kernel log; QUERY, GET_CONTEXT, SET_CONTEXT and SUSPEND_RESUME to
+ * threads; ACTIVATE arrives with K1.3, DUPLICATE and TRANSFER with K2. */
+#define WIT_RIGHT_WRITE 1U
+#define WIT_RIGHT_WAIT 4U
+#define WIT_RIGHT_SIGNAL 8U
+#define WIT_RIGHT_QUERY 16U
+#define WIT_RIGHT_GET_CONTEXT 32U
+#define WIT_RIGHT_SET_CONTEXT 64U
+#define WIT_RIGHT_SUSPEND_RESUME 128U
+#define WIT_RIGHT_THREAD_ALL 244U
+#define WIT_EVENT_ACCESS_WAIT WIT_RIGHT_WAIT
+#define WIT_EVENT_ACCESS_SIGNAL WIT_RIGHT_SIGNAL
 /* Clocks of CLOCK_READ and CLOCK_FREQUENCY. UTC is UNSUPPORTED until plan step K6. */
 #define WIT_CLOCK_MONOTONIC 0U
 #define WIT_CLOCK_UTC 1U
@@ -207,7 +213,7 @@
 #define WIT_STATUS_NO_MEMORY 8U
 #define WIT_STATUS_NOT_RESERVED 9U
 #define WIT_STATUS_NOT_COMMITTED 10U
-#define WIT_STATUS_DEADLOCK 11U
+#define WIT_STATUS_DEADLOCK 11U /* The join cycle check left at K1.2; the DLL lifecycle still returns it (K8). */
 #define WIT_STATUS_BUSY 12U
 #define WIT_STATUS_TIMED_OUT 13U
 #define WIT_STATUS_CLOSED 14U

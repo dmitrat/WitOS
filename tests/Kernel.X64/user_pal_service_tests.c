@@ -40,7 +40,6 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
         }
         if (mode == 13) {
             require(process.ThreadCreates == 5 &&
-                    process.ThreadJoins == 4 &&
                     process.ThreadReaps == 4 &&
                     process.EventParks > 0 &&
                     process.EventWakes > 0,
@@ -50,10 +49,7 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
             require(process.IdleHalts > 0 && process.WaitTimeouts > 0, "PAL finite waits did not use idle/deadlines");
         }
         if (mode == 15) {
-            require(process.ThreadCreates == 2 &&
-                    process.ThreadJoins == 1 &&
-                    process.ThreadReaps == 1 &&
-                    process.WaitCloses == 1,
+            require(process.ThreadCreates == 2 && process.ThreadReaps == 1 && process.WaitCloses == 1,
                 "PAL close did not cancel the parked generation");
         }
     } else if (mode == 20) {

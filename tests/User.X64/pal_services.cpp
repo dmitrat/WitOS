@@ -55,13 +55,13 @@ static void worker(WitU64 index)
 
 static bool spawn(WitU64 index, WitU64 *handle)
 {
-    return wit_native_call(WIT_CALL_THREAD_CREATE_SIMPLE, (uintptr_t)worker, index, 0, handle) == WIT_STATUS_OK;
+    return wit_native_thread_start((uintptr_t)worker, index, 0, handle) == WIT_STATUS_OK;
 }
 
 static bool join(WitU64 handle)
 {
     WitU64 code = 0;
-    return wit_native_call(WIT_CALL_THREAD_JOIN, handle, 0, 0, &code) == WIT_STATUS_OK && code == WIT_TEST_EXIT_CODE;
+    return wit_native_thread_join(handle, &code) == WIT_STATUS_OK && code == WIT_TEST_EXIT_CODE;
 }
 
 static WitU64 memory()

@@ -62,8 +62,7 @@ retry:
     starts[slot].Entry = entry;
     // ThreadCreate does not park. Keep this slot locked through success/failure
     // publication so a preempted creator cannot erase a slot already reused.
-    status = wit_native_call(
-        WIT_CALL_THREAD_CREATE_SIMPLE, (WitU64)run, slot, flags | WIT_THREAD_LIBRARY_NOTIFICATIONS, handle);
+    status = wit_native_thread_start((WitU64)run, slot, flags | WIT_THREAD_LIBRARY_NOTIFICATIONS, handle);
     if (status != WIT_STATUS_OK) {
         starts[slot].Entry = 0;
     }
@@ -82,11 +81,12 @@ WitU64 wit_native_thread_create(WitNativeThreadMain entry, WitU64 argument, WitU
     return create(entry, argument, 0, handle);
 }
 
+/* Detached: the creator closes the handle at once; the thread is reaped at its exit. */
 WitU64 wit_native_thread_create_detached(WitNativeThreadMain entry, WitU64 argument)
 {
-    WitU64 result = 0;
-    const WitU64 status = create(entry, argument, WIT_THREAD_DETACHED, &result);
-    if (result) {
+    WitU64 handle = 0;
+    const WitU64 status = create(entry, argument, 0, &handle);
+    if (status == WIT_STATUS_OK && wit_native_call(WIT_CALL_HANDLE_CLOSE, handle, 0, 0, 0) != WIT_STATUS_OK) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
     return status;
@@ -99,7 +99,7 @@ WIT_NORETURN void wit_native_thread_exit(WitU64 code)
     if (wit_native_library_thread_leave() != WIT_STATUS_OK) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
-    (void)wit_native_call(WIT_CALL_THREAD_COMPLETE, code, 0, 0, 0);
+    (void)wit_native_call(WIT_CALL_THREAD_EXIT, code, 0, 0, 0);
     wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
 }
 

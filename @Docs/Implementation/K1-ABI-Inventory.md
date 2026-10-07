@@ -113,3 +113,97 @@ table and the ABI reference against the header, and `format-check` is clean.
 Join as a wait, the unified `THREAD_QUERY`, the merge of `THREAD_COMPLETE` and `HANDLE_DUPLICATE` for events (K1.2);
 activations delivered through the fault callback and the end of `ALERTABLE` and `APC_DEQUEUE` (K1.3); the ARM64
 context block and fault delivery (K1.4). The transitional calls keep their current contracts until their steps.
+
+## K1.2 — Threads (ABI v53)
+
+### What changed
+
+**One creation.** `THREAD_CREATE(WitThreadCreateRequest, 48, 0)` is the one form (`WIT_THREAD_CREATE_VERSION` 1,
+flags `START_SUSPENDED` and, for the frozen line's DLL lifecycle, `LIBRARY_NOTIFICATIONS`). It returns a thread handle
+with every thread right; closing the handle detaches the thread, and a thread's stack, TLS and private identity are
+reclaimed when it exits whatever handles remain. `THREAD_CREATE_SIMPLE` (200) and its `DETACHED` flag are retired.
+
+**Join is a wait.** `THREAD_JOIN` (201) is retired: a join is `OBJECT_WAIT` on the thread handle, `THREAD_QUERY` for
+the exit code and `HANDLE_CLOSE`. The kernel keeps no join edges, so the join-cycle check and its `DEADLOCK` result
+leave with it (`WIT_STATUS_DEADLOCK` stays for the DLL lifecycle until K8); two threads waiting on each other park
+until the component's budget ends, as two POSIX threads joining each other would.
+
+**One exit.** `THREAD_COMPLETE` (202) is retired and `THREAD_EXIT(code, 0, 0)` is the one exit. The kernel no longer
+ends a full-runtime component whose thread exits "raw" (RFC 0011 §8: the coordinated-profile distinction is layer
+2's lifecycle); the DLL lifecycle's own check (a thread that still owes its library notifications, or owns the
+lifecycle, ends the component with `WIT_PROCESS_ABRUPT_THREAD_EXIT`) stays until K8. The counter of orderly
+completions became the count of thread exits (`ThreadExits`; the runtime-boot log line is `Runtime thread exits: N`),
+and the capacity-failure counter covers every creation: the runtime-boot scenario reports six (the four managed
+`Thread.Start` failures of the quota test and the two native creations the runtime attempts while the quota is
+exhausted) where it reported the four managed ones.
+
+**One query.** `THREAD_QUERY(thread handle or WIT_THREAD_SELF, buffer, 96)` copies `WitUserThreadInfo` version 4:
+identity, stack bounds, state (`WIT_THREAD_STATE_RUNNING`, `READY`, `WAITING`, `SUSPENDED`, `EXITED`), exit code,
+suspend count, the rights of the handle used, the context flags a context of the thread carries, and the frozen
+line's TLS fields (they leave at K8). The handle needs the `QUERY` right or a context right: a context carries the
+same prefix, and a handle that may set a thread's context must be able to build one from the record. The caller writes `Version` and `Size` into the buffer; the kernel validates the
+whole destination before it reads the header, rejects a foreign version (`UNSUPPORTED`) or size (`INVALID_ARGUMENT`)
+and copies one atomic snapshot. It absorbs `THREAD_REFERENCE_QUERY` (203), `THREAD_NATIVE_ID` (204) and
+`THREAD_CONTEXT_METADATA` (205): the frozen line builds a context prefix from the record (`wit_native_context_prefix`).
+
+**Rights and kinds.** The rights are declared once in `user_abi.h` (`WIT_RIGHT_WRITE` 1, `WAIT` 4, `SIGNAL` 8, `QUERY`
+16, `GET_CONTEXT` 32, `SET_CONTEXT` 64, `SUSPEND_RESUME` 128, `WIT_RIGHT_THREAD_ALL` 244); bit 2, the join right of the
+retired join capability, is never reused. The kernel-internal `THREAD` handle kind became `THREAD_IDENTITY`: a
+thread's private generation-bearing identity that user space never receives as a capability and cannot close
+(`BUSY`).
+
+**Events.** `HANDLE_DUPLICATE` duplicates event handles with the same or fewer rights (`WAIT`, `SIGNAL`): a handle
+entry now names its object, several handles refer to one event, and the event ends with its last handle. Closing one
+handle completes only the waits parked on that handle.
+
+**Diagnostics.** The kernel's counters of parked and woken waits split by the wait set: `EventParks` and
+`EventWakes` count waits that include an event, `ThreadWaitParks` and `ThreadWaitWakes` waits on thread handles alone
+(joins), so the event expectations of the kernel tests stay what they were. A thread whose handle was closed is
+reaped at its exit, and so is a main thread that leaves through `THREAD_EXIT` before its workers: the tests that
+measured owned pages after such an exit account for the reclaimed stack and TLS.
+
+### Kernel
+
+- `handles.c`: `Object` in the handle entry, `wit_handle_grant_object` and `wit_handle_describe`.
+- `events.c`: events live while a handle refers to them; `wit_event_duplicate`.
+- `user_thread.c`: `wit_user_thread_create` is the one form; `wit_user_prepare_thread` grants the private identity.
+- `user_reference.c`: `wit_user_thread_query` by handle or self, `wit_user_handle_duplicate` for threads and events,
+  `wit_user_reference_describe` for the record behind a handle.
+- `user.c`: a thread is reaped at its exit after the handles that observe it learn the exit code; the join path, the
+  join wait kind and the counters `ThreadJoins`, `DetachedCreates`, `DetachedReaps` and `ThreadDeadlocks` are gone.
+- `user_calls.c`: one `thread_exit` (the DLL lifecycle check kept, the runtime-profile policy removed); the six
+  handlers of 200–205 removed.
+- `user_thread_context.c`: `wit_user_context_flags` shared by the context snapshot and the thread query.
+
+### Fixtures and the frozen line
+
+- `bootstrap.h`: `wit_native_thread_query`, `wit_native_thread_start` (flags wider than the request's 32 bits are
+  `INVALID_ARGUMENT`), `wit_native_thread_join` (wait, query, close; a failed wait leaves the handle and a zero code)
+  and `wit_native_context_prefix`; `wit_native_thread_info` is the query of `WIT_THREAD_SELF`. The query helper is
+  always inlined and the self query is a macro: the default-profile probe images sit at the kernel's 128-unwind-record
+  quota, and at `/Od` every static helper with a call costs a record per translation unit, so only the helpers that
+  hold a request record of their own (start, join, context prefix, identity) have frames. The COM probe image stood
+  exactly at the quota of 128 records and the one-form creation and the join each add a frame to it, so
+  `WIT_PE_MAX_UNWIND_ENTRIES` is 160: the loader's unwind validation stays bounded by the quota, which only sizes a
+  loop; the PE loader itself leaves at K8.
+- Fixtures that compared a worker's identity with its handle compare it with the handle's record instead: the handle
+  is a capability, the identity is what the thread itself reports, and the two differ. Waiting on or closing an
+  identity is `WRONG_TYPE` or `BUSY`; it never was a capability.
+- `thread.c`: the one creation; detached creation closes the handle; the exit is `THREAD_EXIT`.
+- `patches/runtime/threadstore.witos.cpp.patch`: the DAC TLS metadata reads the thread record through the self query
+  of `bootstrap.h`; the patch's `After` hash follows the new text (the startup object slice is cut from the patched
+  file, so it changes with it).
+- The PAL and the fixtures that queried references, the native id or the context metadata use the record; the
+  thread and wait fixtures of both ISAs create through the request and join through `OBJECT_WAIT`, `THREAD_QUERY` and
+  `HANDLE_CLOSE` in subroutines.
+- The kernel tests assert `ThreadReaps` where they asserted joins; the thread fixture's join-cycle mode is gone
+  (`User.ThreadJoinCycle`), `User.ThreadJoinAndReuse` became `User.ThreadWaitAndReuse`; the runtime-boot abrupt
+  scenarios expect the frozen runtime's own fail-fast (`0xFFFF0103`) where the kernel used to end the component.
+
+### Evidence
+
+Guest acceptance on both ISAs: `test` (x64, QEMU q35, 20 scenarios) and `test --arch arm64` (QEMU virt, 14 scenarios
+including the thread and wait suites) pass. The frozen line's chains pass over the new ABI: `runtime-config` (four boots),
+`runtime-boot-run` (four boots, the runtime-boot protocol with the new abrupt expectations), `coreclr-memory` and
+`coreclr-storage` (two boots each) and `coreclr-host-guest` (no unresolved external). The host tests check the call
+table and the ABI reference against the header, and `format-check` is clean.

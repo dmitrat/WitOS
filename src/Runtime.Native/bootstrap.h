@@ -49,8 +49,10 @@ WitU64 wit_native_call(WitU64 call, WitU64 argument0, WitU64 argument1, WitU64 a
  * out: the kernel validates every record it reads, and the buffers never receive user input. */
 #if defined(_MSC_VER) && !defined(__clang__)
 #define WIT_NATIVE_SAFEBUFFERS __declspec(safebuffers)
+#define WIT_NATIVE_FORCEINLINE static __forceinline
 #else
 #define WIT_NATIVE_SAFEBUFFERS
+#define WIT_NATIVE_FORCEINLINE static inline __attribute__((always_inline))
 #endif
 
 /* The one blocking form of the lock above: contenders yield until the owner
@@ -64,18 +66,96 @@ static inline void wit_native_lock(volatile WitU32 *state)
     }
 }
 
-/* Kernel record of the calling thread. Nonzero only for a complete record of
- * this ABI version with a thread identity; writable FS/GS data never defines
- * identity or stack bounds. Callers check the further fields they rely on. */
-static inline int wit_native_thread_info(WitUserThreadInfo *info)
+/* THREAD_QUERY of a thread handle or WIT_THREAD_SELF: the caller's Version and Size select the record. Always
+ * inlined: it holds no buffer of its own, and a frame of its own in every translation unit would cost the
+ * default-profile probes their 128-unwind-record quota. */
+WIT_NATIVE_FORCEINLINE WitU64 wit_native_thread_query(WitU64 handle, WitUserThreadInfo *info)
 {
     WitU64 copied = 0;
-    return wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)info, sizeof(*info), WIT_THREAD_INFO_VERSION, &copied) ==
-        WIT_STATUS_OK &&
-        copied == sizeof(*info) &&
-        info->Version == WIT_THREAD_INFO_VERSION &&
-        info->Size == sizeof(*info) &&
-        info->ThreadId;
+    info->Version = WIT_THREAD_INFO_VERSION;
+    info->Size = sizeof(*info);
+    const WitU64 status = wit_native_call(WIT_CALL_THREAD_QUERY, handle, (WitU64)info, sizeof(*info), &copied);
+    if (status == WIT_STATUS_OK &&
+        (copied != sizeof(*info) ||
+            info->Version != WIT_THREAD_INFO_VERSION ||
+            info->Size != sizeof(*info) ||
+            !info->ThreadId)) {
+        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+    }
+    return status;
+}
+
+/* Kernel record of the calling thread. Nonzero only for a complete record of this ABI version with a thread
+ * identity; writable FS/GS data never defines identity or stack bounds. Callers check the further fields they rely
+ * on. A macro, not a function: the default-profile probes sit at the 128-unwind-record limit, and at /Od every
+ * static function with a call adds a record per translation unit. */
+#define wit_native_thread_info(info) (wit_native_thread_query(WIT_THREAD_SELF, (info)) == WIT_STATUS_OK)
+
+/* THREAD_CREATE, the one form, with the fixed stack and no native-id output; flags are the request's 32 bits, and
+ * a wider value is as invalid as an unknown bit. */
+WIT_NATIVE_SAFEBUFFERS static inline WitU64 wit_native_thread_start(
+    WitU64 entry, WitU64 argument, WitU64 flags, WitU64 *handle)
+{
+    WitThreadCreateRequest request = {
+        WIT_THREAD_CREATE_VERSION, sizeof(request), entry, argument, 0, 0, (WitU32)flags, 0};
+    if (flags >> 32) {
+        if (handle) {
+            *handle = 0;
+        }
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    return wit_native_call(WIT_CALL_THREAD_CREATE, (WitU64)&request, sizeof(request), 0, handle);
+}
+
+/* Join: wait for the thread the handle observes, read its exit code and close the handle. A failed wait leaves the
+ * handle to the caller and a zero code; the code pointer is optional. */
+WIT_NATIVE_SAFEBUFFERS static inline WitU64 wit_native_thread_join(WitU64 handle, WitU64 *code)
+{
+    WitUserWaitRequest wait = {WIT_WAIT_OBJECTS_VERSION, sizeof(wait), (WitU64)&handle, 1, 0, WIT_WAIT_INFINITE};
+    WitUserThreadInfo info;
+    if (code) {
+        *code = 0;
+    }
+    WitU64 status = wit_native_call(WIT_CALL_OBJECT_WAIT, (WitU64)&wait, sizeof(wait), 0, 0);
+    if (status != WIT_STATUS_OK) {
+        return status;
+    }
+    status = wit_native_thread_query(handle, &info);
+    if (status != WIT_STATUS_OK) {
+        return status;
+    }
+    if (info.State != WIT_THREAD_STATE_EXITED) {
+        wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
+    }
+    if (code) {
+        *code = info.ExitCode;
+    }
+    return wit_native_call(WIT_CALL_HANDLE_CLOSE, handle, 0, 0, 0);
+}
+
+/* The prefix of a thread context (identity, stack bounds, state, flags) from the thread's record, for the frozen
+ * line's context conversions; the registers stay zero. */
+WIT_NATIVE_SAFEBUFFERS static inline WitU64 wit_native_context_prefix(WitU64 handle, WitThreadContext *context)
+{
+    WitUserThreadInfo info;
+    const WitU64 status = wit_native_thread_query(handle, &info);
+    if (status != WIT_STATUS_OK) {
+        return status;
+    }
+    for (WitU32 i = 0; i < sizeof(*context); ++i) {
+        ((WitU8 *)context)[i] = 0;
+    }
+    context->Version = WIT_THREAD_CONTEXT_VERSION;
+    context->Size = sizeof(*context);
+    context->ThreadId = info.ThreadId;
+    context->StackLow = info.StackLow;
+    context->StackHigh = info.StackHigh;
+    context->State = info.State == WIT_THREAD_STATE_RUNNING ? WIT_THREAD_CONTEXT_RUNNING
+        : info.State == WIT_THREAD_STATE_WAITING            ? WIT_THREAD_CONTEXT_WAITING
+                                                            : WIT_THREAD_CONTEXT_READY;
+    context->Flags = info.ContextFlags;
+    context->SuspendCount = info.SuspendCount;
+    return WIT_STATUS_OK;
 }
 
 /* Generation-bearing identity of the calling thread from its kernel record; a failed query is fatal. */

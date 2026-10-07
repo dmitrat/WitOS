@@ -8,8 +8,7 @@ static __declspec(thread) WitNativeUnwindScope *active;
 
 WitU64 current(WitUserThreadInfo &info)
 {
-    const WitU64 result =
-        wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&info, sizeof(info), WIT_THREAD_INFO_VERSION, nullptr);
+    const WitU64 result = wit_native_thread_query(WIT_THREAD_SELF, &info);
     if (result != WIT_STATUS_OK) {
         return result;
     }

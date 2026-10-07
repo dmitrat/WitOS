@@ -68,7 +68,7 @@ public sealed class RuntimeBootProtocolTests
             good.Replace(RuntimeBootProtocol.LIFECYCLE_AUDIT+"\n"+RuntimeBootProtocol.CYCLE,RuntimeBootProtocol.CYCLE+"\n"+RuntimeBootProtocol.LIFECYCLE_AUDIT),
             good.Replace("Runtime execution ticks/limit: 120/3000","Runtime execution ticks/limit: 3000/3000"),
             good.Replace(RuntimeBootProtocol.THREAD_QUOTA,""),
-            good.Replace("Runtime managed thread capacity failures: 4","Runtime managed thread capacity failures: 0"),
+            good.Replace("Runtime thread capacity failures: 6","Runtime thread capacity failures: 0"),
             good.Replace("[TEST-PASS] Runtime.ManagedStackOverflowContained",""),
             good.Replace("[USER] [RUNTIME] managed stack frame",""),
             good.Replace("/0x0000008000015000","/0x0000008000025000"),
@@ -92,9 +92,9 @@ public sealed class RuntimeBootProtocolTests
             good.Replace("[USER] [RUNTIME] managed OOM recovery passed: 3 hard-limit + 1 backing-pressure", ""),
             good.Replace("Runtime init failure exit/commits: 0x00000000FFFFFFFF/1","Runtime init failure exit/commits: 0x00000000FFFFFFFF/0"),
             good.Replace("[USER] WitOS GC startup failure: hr = g_pGCHeap->Initialize();", ""),
-            good.Replace("Runtime abrupt exit/report: 0x00000000FFFF0002/1/0/0/0","Runtime abrupt exit/report: 0x00000000FFFF0002/1/1/0/0"),
+            good.Replace("Runtime abrupt exit/report: 0x00000000FFFF0103/1/0/0/0","Runtime abrupt exit/report: 0x00000000FFFF0103/1/1/0/0"),
             good.Replace("[TEST-PASS] Runtime.AbruptWorkerContained", ""),
-            good.Replace("Runtime orderly thread completions: 43","Runtime orderly thread completions: 0"),
+            good.Replace("Runtime thread exits: 43","Runtime thread exits: 0"),
             good.Replace("[TEST-PASS] Runtime.RelocationAndTeardown", "")];
         foreach (var mutation in mutations)
             Assert.That(!Accept(mutation), Is.True, "Malformed protocol accepted");
@@ -118,17 +118,17 @@ public sealed class RuntimeBootProtocolTests
         }
         foreach (var original in inputs)
         {
-            var good = original.Replace("Runtime orderly thread completions: 41", "Runtime orderly thread completions: 43")
+            var good = original.Replace("Runtime thread exits: 41", "Runtime thread exits: 43")
                 .Replace("0000000000000002/0000000000000001/0000000000000000/0000000000000001", "0000000000000003/0000000000000001/0000000000000001/0000000000000001");
             Assert.That(RuntimeBootEnvelope.Validate(good.Split('\n'), out var diagnostic), Is.True, diagnostic);
             Assert.That(RuntimeBootProtocol.Validate(good, 33, false), Is.True, "Baseline semantic protocol rejected");
             const string verdict = "[TEST-PASS] Runtime.NativeFaultContained\n";
-            const string capacity = "Runtime managed thread capacity failures: 4";
+            const string capacity = "Runtime thread capacity failures: 6";
             var start = good.IndexOf("Runtime boot image base:", StringComparison.Ordinal);
             var afterHeader = good.IndexOf('\n', start) + 1;
             string[] bad = [
                 good.Insert(afterHeader, "[USER] [NATIVE-FAIL-FAST] code=0xC000001D address=0x0000008000100000 rip=0x0000008000100000\n"),
-                good.Replace(capacity, capacity + "\nRuntime managed thread capacity failures: 0"),
+                good.Replace(capacity, capacity + "\nRuntime thread capacity failures: 0"),
                 good.Replace(verdict, "") + verdict + verdict,
                 good + RuntimeBootProtocol.FINALIZATION + "\n",
                 RuntimeBootProtocol.FINALIZATION + "\n" + good,

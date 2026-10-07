@@ -40,10 +40,7 @@ static void require(bool v)
 static WitUserThreadInfo current()
 {
     WitUserThreadInfo i;
-    require(wit_native_call(WIT_CALL_THREAD_QUERY, (WitU64)&i, sizeof(i), WIT_THREAD_INFO_VERSION, nullptr) ==
-            WIT_STATUS_OK &&
-        i.ThreadId &&
-        i.CompilerTls);
+    require(wit_native_thread_query(WIT_THREAD_SELF, &i) == WIT_STATUS_OK && i.ThreadId && i.CompilerTls);
     return i;
 }
 
@@ -87,19 +84,18 @@ static WitU64 worker(WitU64)
     require(wit_native_thread_on_exit(runtime_exit, nullptr) == WIT_STATUS_OK);
     if (probeMode == 18 || probeMode == 19) {
         report()[11] = i.ThreadId;
-        (void)wit_native_call(probeMode == 18 ? WIT_CALL_THREAD_EXIT : WIT_CALL_THREAD_COMPLETE, 77, 0, 0, nullptr);
+        (void)wit_native_call(probeMode == 18 ? WIT_CALL_THREAD_EXIT : WIT_CALL_THREAD_EXIT, 77, 0, 0, nullptr);
         require(false);
     }
     return 42;
 }
 
-static WitThreadReferenceInfo await_exit(WitU64 handle)
+static WitUserThreadInfo await_exit(WitU64 handle)
 {
-    WitThreadReferenceInfo info;
+    WitUserThreadInfo info;
     for (;;) {
-        require(wit_native_call(WIT_CALL_THREAD_REFERENCE_QUERY, handle, (WitU64)&info, sizeof(info), nullptr) ==
-            WIT_STATUS_OK);
-        if (info.State == WIT_THREAD_REFERENCE_EXITED) {
+        require(wit_native_thread_query((WitU64)handle, &info) == WIT_STATUS_OK);
+        if (info.State == WIT_THREAD_STATE_EXITED) {
             return info;
         }
         yield();
@@ -120,12 +116,15 @@ extern "C" WitU64 wit_library_threads_probe(unsigned mode)
     auto counts = (unsigned (*)(void))get;
     require(!counts());
     WitU64 handle = 0, result = 0;
+    WitUserThreadInfo first;
     require(wit_native_thread_create(worker, 0, &handle) == WIT_STATUS_OK);
-    require(wit_native_call(WIT_CALL_THREAD_JOIN, handle, 0, 0, &result) == WIT_STATUS_OK && result == 42);
+    // The handle is a capability distinct from the identity the notifications see; the record names the identity.
+    require(wit_native_thread_query(handle, &first) == WIT_STATUS_OK && first.ThreadId && first.ThreadId != handle);
+    require(wit_native_thread_join(handle, &result) == WIT_STATUS_OK && result == 42);
     require(mode == 17 &&
         counts() == 0x10001 &&
-        attached.load(std::memory_order_acquire) == handle &&
-        detached.load(std::memory_order_acquire) == handle);
+        attached.load(std::memory_order_acquire) == first.ThreadId &&
+        detached.load(std::memory_order_acquire) == first.ThreadId);
     WitU32 id = 0;
     WitU64 previous = 0;
     require(wit_native_thread_create_reference(worker, 0, 0, WIT_THREAD_START_SUSPENDED, (WitU64)&id, &handle) ==

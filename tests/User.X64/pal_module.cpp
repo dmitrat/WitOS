@@ -65,8 +65,7 @@ static WitU64 worker(WitU64 argument)
         return 1401;
     }
     WitUserThreadInfo info;
-    if (wit_native_call(WIT_CALL_THREAD_QUERY, (uintptr_t)&info, sizeof(info), WIT_THREAD_INFO_VERSION, nullptr) !=
-            WIT_STATUS_OK ||
+    if (wit_native_thread_query(WIT_THREAD_SELF, &info) != WIT_STATUS_OK ||
         !absent((uintptr_t)&info) ||
         !absent(info.RawTls) ||
         !absent(info.CompilerTls)) {
@@ -192,7 +191,7 @@ extern "C" WitU64 wit_module_program(void)
         WitU64 handle = 0, result = 0;
         SetLastError(0x10203040);
         if (wit_native_thread_create(worker, 73, &handle) != WIT_STATUS_OK ||
-            wit_native_call(WIT_CALL_THREAD_JOIN, handle, 0, 0, &result) != WIT_STATUS_OK ||
+            wit_native_thread_join(handle, &result) != WIT_STATUS_OK ||
             result != 73 ||
             wit_native_call(WIT_CALL_CLOSE, handle, 0, 0, nullptr) != WIT_STATUS_BAD_HANDLE ||
             constructions != i + 2 ||

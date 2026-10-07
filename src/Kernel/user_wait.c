@@ -66,6 +66,17 @@ WitU64 wit_user_sleep_until(WitUserProcess *process, WitU64 deadline, WitU64 now
     return WIT_STATUS_OK;
 }
 
+/* A wait set with at least one event is accounted as an event wait; a set of thread handles alone is a join. */
+static int waits_on_event(WitUserProcess *process, const WitU64 *handles, WitU32 count)
+{
+    for (WitU32 i = 0; i < count; ++i) {
+        if (wit_handle_check(&process->Handles, handles[i], WIT_HANDLE_EVENT, 0) == WIT_STATUS_OK) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* The one wait, after its request was copied and validated: consume a ready object now, time out at a past deadline,
  * or park the current thread on the copied handles. */
 WitU64 wit_user_wait_objects(
@@ -98,7 +109,11 @@ WitU64 wit_user_wait_objects(
     thread->Deadline = deadline;
     thread->WaitOrder = ++process->NextWaitOrder;
     thread->State = WitThreadWaiting;
-    ++process->EventParks;
+    if (waits_on_event(process, handles, count)) {
+        ++process->EventParks;
+    } else {
+        ++process->ThreadWaitParks;
+    }
     return WIT_STATUS_OK;
 }
 
@@ -143,8 +158,12 @@ void wit_user_wait_objects_changed(WitUserProcess *process)
             WIT_STATUS_OK) {
             wit_panic("Ready object wait changed under serialization");
         }
+        if (waits_on_event(process, first->WaitHandles, first->WaitCount)) {
+            ++process->EventWakes;
+        } else {
+            ++process->ThreadWaitWakes;
+        }
         wit_user_wait_complete(first, WIT_STATUS_OK, winner);
-        ++process->EventWakes;
     }
 }
 

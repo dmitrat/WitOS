@@ -206,12 +206,11 @@ static WitU64 foreign_test(WitU64 *report)
     bool waiting = false;
     for (unsigned i = 0; i < 10000; ++i) {
         target = foreignReference;
-        WitThreadReferenceInfo info;
+        WitUserThreadInfo info;
         if (target &&
             foreignContext &&
-            wit_native_call(WIT_CALL_THREAD_REFERENCE_QUERY, (WitU64)target, (WitU64)&info, sizeof(info), nullptr) ==
-                WIT_STATUS_OK &&
-            info.State == WIT_THREAD_REFERENCE_WAITING) {
+            wit_native_thread_query((WitU64)target, &info) == WIT_STATUS_OK &&
+            info.State == WIT_THREAD_STATE_WAITING) {
             waiting = true;
             break;
         }
@@ -263,7 +262,7 @@ static WitU64 foreign_test(WitU64 *report)
     }
     if (!SetEvent(foreignEvent) ||
         ResumeThread(target) != 1 ||
-        wit_native_call(WIT_CALL_THREAD_JOIN, thread, 0, 0, &result) != WIT_STATUS_OK ||
+        wit_native_thread_join(thread, &result) != WIT_STATUS_OK ||
         result != WIT_TEST_EXIT_CODE ||
         !CloseHandle(target) ||
         !CloseHandle(foreignEvent) ||
