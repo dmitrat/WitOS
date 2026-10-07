@@ -25,7 +25,7 @@
  * arguments, RAX=status and RDX=result, other GPRs and x87/SSE state preserved, RFLAGS reset to 0x202; on ARM64
  * SVC #0 with x8=call, x0-x2 arguments, x0=status and x1=result. A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
-#define WIT_ABI_VERSION 53U
+#define WIT_ABI_VERSION 54U
 /* QUERY result: the low 32 bits are WIT_ABI_VERSION, the high 32 bits the mask of the families present. */
 #define WIT_ABI_FEATURE_CHANNELS 1U
 #define WIT_ABI_FEATURE_DEVICES 2U
@@ -95,9 +95,13 @@
 /* Query(buffer, exact size, version) copies the processor's context profile (WitCpuContextInfo): the register block
  * and floating-point state a thread context carries. */
 #define WIT_CALL_CONTEXT_PROFILE 39U
-/* Activate(thread handle, callback, argument): make the target run the callback. Step K1.1 queues it for the target's
- * next alertable wait (dequeued through the transitional APC_DEQUEUE); step K1.3 delivers it through the fault
- * callback with the interrupted context. */
+/* Activate(thread handle or WIT_THREAD_SELF, callback, argument): at the target's next return to user mode the kernel
+ * enters the process's fault callback (EXCEPTION_REGISTER) with a record whose Vector is
+ * WIT_EXCEPTION_ACTIVATION_VECTOR, whose Address is the callback, whose Error is the argument and whose Context is the
+ * interrupted one; the handler runs the callback and EXCEPTION_CONTINUE resumes the context. A wait or sleep the target
+ * is parked in ends with INTERRUPTED. The handle needs the ACTIVATE right; the callback must be executable and not
+ * writable (BAD_ADDRESS); NOT_FOUND when the process registered no fault callback; up to WIT_ACTIVATION_CAPACITY
+ * activations are pending per thread, delivered in order (NO_MEMORY beyond). */
 #define WIT_CALL_THREAD_ACTIVATE 40U
 /* 41 THREAD_AFFINITY arrives with plan step K7. */
 
@@ -139,8 +143,7 @@
 /* 200-205 were retired at step K1.2: THREAD_CREATE_SIMPLE, THREAD_JOIN and THREAD_COMPLETE folded into
  * THREAD_CREATE, OBJECT_WAIT and THREAD_EXIT; THREAD_REFERENCE_QUERY, THREAD_NATIVE_ID and THREAD_CONTEXT_METADATA
  * into THREAD_QUERY. */
-/* Dequeue(buffer, exact size, 0) -> one queued activation; delivery becomes push (K1.3). */
-#define WIT_CALL_APC_DEQUEUE 206U
+/* 206 was retired at step K1.3: APC_DEQUEUE; an activation is delivered through the fault callback, not dequeued. */
 /* Query(buffer, exact 8 bytes, selector) copies the monotonic counter or frequency; merges into CLOCK_READ (K6). */
 #define WIT_CALL_MONOTONIC_QUERY 207U
 /* CacheSize(0, 0, 0) -> the largest architecturally reported cache; merges into PROCESSOR_QUERY (K7). */
@@ -171,8 +174,8 @@
  * thread lifecycle and leaves with it (K8). */
 #define WIT_THREAD_LIBRARY_NOTIFICATIONS 2U
 /* Rights (RFC 0011 section 6.1): a bit is never reused, and 2 (the join right of the retired join capability) is
- * retired. WAIT and SIGNAL belong to events and the kernel log; QUERY, GET_CONTEXT, SET_CONTEXT and SUSPEND_RESUME to
- * threads; ACTIVATE arrives with K1.3, DUPLICATE and TRANSFER with K2. */
+ * retired. WAIT and SIGNAL belong to events and the kernel log; QUERY, GET_CONTEXT, SET_CONTEXT, SUSPEND_RESUME and
+ * ACTIVATE to threads; DUPLICATE and TRANSFER arrive with K2. */
 #define WIT_RIGHT_WRITE 1U
 #define WIT_RIGHT_WAIT 4U
 #define WIT_RIGHT_SIGNAL 8U
@@ -180,7 +183,8 @@
 #define WIT_RIGHT_GET_CONTEXT 32U
 #define WIT_RIGHT_SET_CONTEXT 64U
 #define WIT_RIGHT_SUSPEND_RESUME 128U
-#define WIT_RIGHT_THREAD_ALL 244U
+#define WIT_RIGHT_ACTIVATE 256U
+#define WIT_RIGHT_THREAD_ALL 500U
 #define WIT_EVENT_ACCESS_WAIT WIT_RIGHT_WAIT
 #define WIT_EVENT_ACCESS_SIGNAL WIT_RIGHT_SIGNAL
 /* Clocks of CLOCK_READ and CLOCK_FREQUENCY. UTC is UNSUPPORTED until plan step K6. */

@@ -28,7 +28,7 @@ public sealed class NativePlatformObjectsTests
         }).Reverse().ToArray(); // Enumeration order must not alter semantic link groups.
         var objects = new NativePlatformObjects(entries);
         Assert.That(objects.Record.Select(Path.GetFileName).SequenceEqual(new[] { "native_services.witos.cpp.obj", "native_services.asm.obj", "pal_events.witos.cpp.obj", "native_thread_handles.witos.cpp.obj", "native_thread_handles.asm.obj" }), Is.True, "Record group depends on manifest order");
-        Assert.That(objects.Thread.Length == 30 && objects.Cpu.Length == 18 && objects.Com.Length == 34, Is.True, "Native group membership changed");
+        Assert.That(objects.Thread.Length == 31 && objects.Cpu.Length == 19 && objects.Com.Length == 35, Is.True, "Native group membership changed");
         using var json = JsonDocument.Parse(JsonSerializer.Serialize(objects.CopyTo(output)));
         var loaded = NativePlatformObjects.Read(output, json.RootElement);
         Assert.That(loaded.All.Select(Path.GetFileName).SequenceEqual(objects.All.Select(Path.GetFileName)), Is.True, "Named manifest roundtrip changed objects");

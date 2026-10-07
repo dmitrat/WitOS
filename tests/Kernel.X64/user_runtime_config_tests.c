@@ -428,7 +428,9 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                     process.ExitCode == WIT_TEST_EXIT_CODE &&
                     report[2] == (mode == 110 ? 7U : 6U) &&
                     report[3] == 1 &&
-                    process.ThreadCreates == (mode == 110 ? 2U : 1U),
+                    process.ThreadCreates == (mode == 110 ? 6U : 1U) &&
+                    process.ActivationDeliveries == (mode == 110 ? 7U : 1U) &&
+                    process.WaitInterruptions == (mode == 110 ? 3U : 0U),
                 "Exception continuation failed");
         } else {
             require(wit_test_faulted(&process) &&
@@ -823,15 +825,22 @@ static void run(WitPageAllocator *pages, WitU64 mode, WitU64 base)
                 process.State == WitUserExited &&
                 process.ExitCode == WIT_TEST_EXIT_CODE &&
                 process.Space.OwnedCount == owned &&
-                process.ThreadCreates == (mode == 66 ? 10U : 1U) &&
-                process.ThreadReaps == (mode == 66 ? 9U : 0U) &&
+                process.ThreadCreates == (mode == 66 ? 11U : 1U) &&
+                process.ThreadReaps == (mode == 66 ? 10U : 0U) &&
                 !process.Handles.Count &&
                 !process.Events.Count,
-            "Native APC/object wait contract failed");
+            "Native activation/object wait contract failed");
         for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
-            require(!process.Threads[i].ApcCount && !process.Threads[i].WaitCount && !process.Threads[i].WaitAlertable,
-                "APC/wait state leaked");
+            require(!process.Threads[i].ActivationCount &&
+                    !process.Threads[i].WaitCount &&
+                    !process.Threads[i].Exception.Token,
+                "Activation/wait state leaked");
         }
+        /* Activations (K1.3): three self-activations in the common part; with threads, the five worker kinds add
+         * eight deliveries and the suspended worker four, and six of them end a parked wait. */
+        require(process.ActivationDeliveries == (mode == 66 ? 15U : 3U) &&
+                process.WaitInterruptions == (mode == 66 ? 6U : 0U),
+            "Activation deliveries or wait interruptions differ");
         if (mode == 66) {
             // Waits on events and on thread handles are counted apart since K1.2; the scenario exercises both.
             require(process.EventParks + process.ThreadWaitParks >= 8 &&
@@ -1346,9 +1355,9 @@ void wit_user_runtime_config_self_test(WitPageAllocator *pages)
     wit_console_write("[TEST-PASS] User.ThreadReferencesWithoutCompilerTls\n");
     run(pages, 66, WIT_USER_IMAGE_BASE);
     run(pages, 66, WIT_USER_IMAGE_ALTERNATE);
-    wit_console_write("[TEST-PASS] User.AlertableObjectWaits\n");
+    wit_console_write("[TEST-PASS] User.ActivationsAndObjectWaits\n");
     run(pages, 67, WIT_USER_IMAGE_BASE);
-    wit_console_write("[TEST-PASS] User.ApcWithoutCompilerTls\n");
+    wit_console_write("[TEST-PASS] User.ActivationsWithoutCompilerTls\n");
     run(pages, 68, WIT_USER_IMAGE_BASE);
     run(pages, 68, WIT_USER_IMAGE_ALTERNATE);
     run(pages, 69, WIT_USER_IMAGE_BASE);

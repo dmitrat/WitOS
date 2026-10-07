@@ -248,8 +248,7 @@ static void start_thread(WitUserProcess *process, WitU32 index, WitUserThread *t
     thread->WaitHandle = 0;
     thread->WaitCount = 0;
     thread->WaitAll = 0;
-    thread->WaitAlertable = 0;
-    wit_user_apc_initialize(thread);
+    wit_user_activations_clear(thread);
     for (WitU32 w = 0; w < WIT_WAIT_ANY_CAPACITY; ++w) {
         thread->WaitHandles[w] = 0;
     }

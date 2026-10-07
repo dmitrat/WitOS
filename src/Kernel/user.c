@@ -88,8 +88,7 @@ WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code)
         current_user->Threads[i].WaitHandle = 0;
         current_user->Threads[i].WaitCount = 0;
         current_user->Threads[i].WaitAll = 0;
-        current_user->Threads[i].WaitAlertable = 0;
-        wit_user_apc_initialize(&current_user->Threads[i]);
+        wit_user_activations_clear(&current_user->Threads[i]);
         for (WitU32 w = 0; w < WIT_WAIT_ANY_CAPACITY; ++w) {
             current_user->Threads[i].WaitHandles[w] = 0;
         }
@@ -165,6 +164,19 @@ static void expire_waits(void)
     wit_user_pressure_update(current_user);
 }
 
+/* The running thread's frame is about to return to user mode (RFC 0011 section 7.5: from a call, a tick or a wait): a
+ * pending activation enters the fault callback first, and the frame it leaves is validated like any user return. */
+static WitArchFrame *resume_current(WitArchFrame *frame)
+{
+    const WitU32 index = current_user->CurrentThread;
+    WitUserThread *thread = &current_user->Threads[index];
+    require(frame == thread->Context, "Resuming a frame the current thread does not own");
+    if (wit_user_activation_deliver(current_user, thread)) {
+        validate_return(frame, index, 0);
+    }
+    return frame;
+}
+
 static WitArchFrame *dispatch(int timer, WitU64 last_exit)
 {
     const WitU32 previous = current_user->CurrentThread;
@@ -191,7 +203,7 @@ static WitArchFrame *dispatch(int timer, WitU64 last_exit)
             thread->State = WitThreadRunning;
             wit_arch_select_thread_stack(current_user->Slot, index);
             wit_arch_set_user_tls(thread->Tls, thread->CompilerTls);
-            return thread->Context;
+            return resume_current(thread->Context);
         }
         if (!waiting) {
             wit_user_finish(WitUserExited, last_exit);
@@ -218,8 +230,7 @@ WitArchFrame *wit_user_exit_thread(WitU64 code)
     thread->State = WitThreadExited;
     thread->ExitCode = code;
     thread->WaitAll = 0;
-    thread->WaitAlertable = 0;
-    wit_user_apc_initialize(thread);
+    wit_user_activations_clear(thread);
     /* The handles that observe the thread learn its exit (and wake their waiters) before its pages go. */
     wit_user_references_exit(current_user, thread->Handle, code);
     reap(index);
@@ -291,6 +302,8 @@ static void reset_counters(WitUserProcess *process)
     process->ThreadWaitWakes = 0;
     process->WaitTimeouts = 0;
     process->WaitCloses = 0;
+    process->WaitInterruptions = 0;
+    process->ActivationDeliveries = 0;
     process->IdleHalts = 0;
     process->IdleTicks = 0;
 }
@@ -605,7 +618,7 @@ WitArchFrame *wit_user_syscall(
     wit_arch_frame_set_result(context, WIT_STATUS_OK, 0);
     WitArchFrame *const resume = wit_user_call(&call);
     if (resume) {
-        return resume;
+        return resume_current(resume);
     }
     context = call.Context; /* A join may have switched the current thread. */
     // Publish settled memory pressure, after expiring both deadline domains.
@@ -619,10 +632,9 @@ WitArchFrame *wit_user_syscall(
     if (current_user->Threads[current_user->CurrentThread].State != WitThreadRunning) {
         return dispatch(0, 0);
     }
-    /* Join may have switched current thread; nonblocking calls retain the caller. */
     wit_arch_set_user_tls(current_user->Threads[current_user->CurrentThread].Tls,
         current_user->Threads[current_user->CurrentThread].CompilerTls);
-    return context;
+    return resume_current(context);
 }
 
 WitArchFrame *wit_user_exception_trap(WitArchFrame *context, WitU64 vector, WitU64 error, WitU64 address)
@@ -654,8 +666,10 @@ WitArchFrame *wit_user_exception_trap(WitArchFrame *context, WitU64 vector, WitU
         wit_console_write("\n");
         wit_user_finish(WitUserExited, WIT_EXCEPTION_SOFTWARE_FAILURE_EXIT);
     }
+    /* A fault inside the handler of a fault reports the original fault; a fault inside the handler of an activation is
+     * the thread's own fault and is reported as such. */
     WitArchFaultState state;
-    if (thread->Exception.Token) {
+    if (thread->Exception.Token && thread->Exception.Vector != WIT_EXCEPTION_ACTIVATION_VECTOR) {
         const WitUserExceptionInfo *original = &thread->Exception;
         wit_arch_fault_from_context(&state, &original->Context);
         vector = original->Vector;
@@ -671,9 +685,14 @@ WIT_NORETURN void wit_user_fault(
     const void *trap, WitU64 trap_size, WitU64 vector, WitU64 error, WitU64 address, const WitArchFaultState *state)
 {
     require(current_user != 0 &&
-            wit_arch_kernel_stack_contains(current_user->Slot, current_user->CurrentThread, trap, trap_size) &&
-            wit_arch_fault_from_user(state),
+            wit_arch_kernel_stack_contains(current_user->Slot, current_user->CurrentThread, trap, trap_size),
         "Invalid user fault frame");
+    wit_user_fault_state(vector, error, address, state);
+}
+
+WIT_NORETURN void wit_user_fault_state(WitU64 vector, WitU64 error, WitU64 address, const WitArchFaultState *state)
+{
+    require(current_user != 0 && wit_arch_fault_from_user(state), "Invalid user fault state");
     current_user->FaultThread = current_user->CurrentThread;
     current_user->FaultVector = vector;
     current_user->FaultError = error;

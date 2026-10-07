@@ -19,6 +19,8 @@ static WitU64 mode, kind, arena, imageInfo, lastToken;
 static volatile WitU64 calls, workerDone;
 static WitU64 mainIdentity;
 static HANDLE mainReference;
+static volatile WitU64 activations, activationSequence, activationThread;
+static WitU64 sleeperIdentity;
 
 static WitU64 query(WitU64 token, WitUserExceptionInfo &info)
 {
@@ -88,8 +90,106 @@ static WitU64 intruder(WitU64 token)
     return WIT_TEST_EXIT_CODE;
 }
 
+// The requester's callback of an activation: runs on the activated thread inside the fault callback.
+static void activation_target(WitU64 argument)
+{
+    ++activations;
+    activationSequence = activationSequence * 16 + (argument & 0xF);
+    WitUserThreadInfo self;
+    if (wit_native_thread_query(WIT_THREAD_SELF, &self) != WIT_STATUS_OK) {
+        fail(4141);
+    }
+    activationThread = self.ThreadId;
+}
+
+/* An activation record (RFC 0011 section 7.5): the vector names it, Address is the callback, Error the argument and
+ * the context the interrupted one; the handler runs the callback and continues the context unchanged. */
+static void activation(WitU64 token, WitU64 vector, WitU64 address)
+{
+    WitUserExceptionInfo info;
+    WitUserThreadInfo self;
+    if (query(token, info) != WIT_STATUS_OK ||
+        info.Version != WIT_EXCEPTION_VERSION ||
+        info.Size != sizeof(info) ||
+        info.Token != token ||
+        token <= lastToken ||
+        info.Vector != vector ||
+        info.Address != address ||
+        address != (WitU64)&activation_target ||
+        (info.Error >> 4) != 0x515 ||
+        wit_native_thread_query(WIT_THREAD_SELF, &self) != WIT_STATUS_OK ||
+        info.Context.ThreadId != self.ThreadId ||
+        info.Context.State != WIT_THREAD_CONTEXT_RUNNING ||
+        info.Context.Flags != (WIT_THREAD_CONTEXT_FXSAVE64 | WIT_THREAD_CONTEXT_EXCEPTION_ACTIVE) ||
+        info.Context.SuspendCount ||
+        info.Context.StackLow != self.StackLow ||
+        info.Context.StackHigh != self.StackHigh ||
+        info.Context.Rsp < self.StackLow ||
+        info.Context.Rsp >= self.StackHigh) {
+        fail(4142);
+    }
+    lastToken = token;
+    // A self-activation interrupts the return of the activating call itself (RAX is its status); an activation of a
+    // parked thread interrupts its wait or sleep.
+    if (info.Context.Rax != (info.Error == 0x5150 ? WIT_STATUS_OK : WIT_STATUS_INTERRUPTED)) {
+        fail(4143);
+    }
+    ((void (*)(WitU64))info.Address)(info.Error);
+    if (wit_native_call(WIT_CALL_EXCEPTION_REGISTER, 0, WIT_EXCEPTION_VERSION, 0, nullptr) != WIT_STATUS_BUSY) {
+        fail(4144);
+    }
+    resume(token, &info.Context);
+    fail(4145);
+}
+
+// Activates the main thread once it is parked (argument 0: in a wait, 1: in a sleep).
+static WitU64 activator(WitU64 argument)
+{
+    for (;;) {
+        WitUserThreadInfo info;
+        if (wit_native_thread_query((WitU64)mainReference, &info) != WIT_STATUS_OK) {
+            return 4150;
+        }
+        if (info.State == WIT_THREAD_STATE_WAITING) {
+            break;
+        }
+        wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr);
+    }
+    return wit_native_call(WIT_CALL_THREAD_ACTIVATE, (WitU64)mainReference, (WitU64)&activation_target,
+               0x5151 + argument, nullptr) == WIT_STATUS_OK
+        ? WIT_TEST_EXIT_CODE
+        : 4151;
+}
+
+// Parks in a wait; suspended and activated four times, it sees the four callbacks in order, then INTERRUPTED.
+static WitU64 sleeper(WitU64 event)
+{
+    WitUserThreadInfo self;
+    if (wit_native_thread_query(WIT_THREAD_SELF, &self) != WIT_STATUS_OK) {
+        return 4152;
+    }
+    sleeperIdentity = self.ThreadId;
+    const WitU64 before = activations;
+    WitUserWaitRequest request = {WIT_WAIT_OBJECTS_VERSION, sizeof(request), (WitU64)&event, 1, 0, WIT_WAIT_INFINITE};
+    if (wit_native_call(WIT_CALL_OBJECT_WAIT, (WitU64)&request, sizeof(request), 0, nullptr) !=
+        WIT_STATUS_INTERRUPTED) {
+        return 4153;
+    }
+    return activations == before + 4 && (activationSequence & 0xFFFF) == 0x3456 && activationThread == sleeperIdentity
+        ? WIT_TEST_EXIT_CODE
+        : 4154;
+}
+
+static WitU64 exiter(WitU64)
+{
+    return WIT_TEST_EXIT_CODE;
+}
+
 extern "C" void wit_test_exception_callback(WitU64 token, WitU64 vector, WitU64 address)
 {
+    if (vector == WIT_EXCEPTION_ACTIVATION_VECTOR) {
+        activation(token, vector, address);
+    }
     ++calls;
     auto report = (WitU64 *)WIT_GC_INFO_REPORT;
     report[2] = calls;
@@ -261,6 +361,11 @@ extern "C" WitU64 wit_test_exception(const WitUserStartup *startup, WitU64 selec
     if (mode == 110) {
         errno = 297;
     }
+    // No fault callback yet: an activation has nowhere to go.
+    if (wit_native_call(WIT_CALL_THREAD_ACTIVATE, WIT_THREAD_SELF, (WitU64)&activation_target, 0x5150, nullptr) !=
+        WIT_STATUS_NOT_FOUND) {
+        return 4160;
+    }
     if (wit_native_call(WIT_CALL_EXCEPTION_REGISTER, imageInfo, WIT_EXCEPTION_VERSION, 0, nullptr) !=
             WIT_STATUS_BAD_ADDRESS ||
         wit_native_call(WIT_CALL_EXCEPTION_REGISTER, (WitU64)&wit_test_exception_callback, 0, 0, nullptr) !=
@@ -301,6 +406,111 @@ extern "C" WitU64 wit_test_exception(const WitUserStartup *startup, WitU64 selec
                 sizeof(context), nullptr) != WIT_STATUS_OK ||
             (context.Flags & WIT_THREAD_CONTEXT_EXCEPTION_ACTIVE)) {
             return 4127;
+        }
+    }
+    activations = activationSequence = activationThread = 0;
+    // A self-activation is delivered at the return of the activating call through the registered callback; the
+    // callback must be executable and the handle a thread's.
+    if (wit_native_call(WIT_CALL_THREAD_ACTIVATE, WIT_THREAD_SELF, imageInfo, 0x5150, nullptr) !=
+            WIT_STATUS_BAD_ADDRESS ||
+        wit_native_call(WIT_CALL_THREAD_ACTIVATE, 0x7777, (WitU64)&activation_target, 0x5150, nullptr) !=
+            WIT_STATUS_BAD_HANDLE ||
+        wit_native_call(WIT_CALL_THREAD_ACTIVATE, WIT_THREAD_SELF, (WitU64)&activation_target, 0x5150, nullptr) !=
+            WIT_STATUS_OK ||
+        activations != 1 ||
+        activationThread != mainIdentity) {
+        return 4161;
+    }
+    WitThreadContext settled;
+    if (wit_native_call(WIT_CALL_THREAD_CONTEXT_GET, WIT_THREAD_REFERENCE_CURRENT, (WitU64)&settled, sizeof(settled),
+            nullptr) != WIT_STATUS_OK ||
+        (settled.Flags & WIT_THREAD_CONTEXT_EXCEPTION_ACTIVE)) {
+        return 4162;
+    }
+    if (mode == 110) {
+        WitU64 event = 0, handle = 0, result = 0;
+        if (wit_native_call(WIT_CALL_EVENT_CREATE, 0, 0, 0, &event) != WIT_STATUS_OK) {
+            return 4163;
+        }
+        // A wait and a sleep end with INTERRUPTED once the activation's callback ran on this thread.
+        WitUserWaitRequest request = {
+            WIT_WAIT_OBJECTS_VERSION, sizeof(request), (WitU64)&event, 1, 0, WIT_WAIT_INFINITE};
+        if (wit_native_thread_create(activator, 0, &handle) != WIT_STATUS_OK ||
+            wit_native_call(WIT_CALL_OBJECT_WAIT, (WitU64)&request, sizeof(request), 0, nullptr) !=
+                WIT_STATUS_INTERRUPTED ||
+            activations != 2 ||
+            activationThread != mainIdentity ||
+            wit_native_thread_join(handle, &result) != WIT_STATUS_OK ||
+            result != WIT_TEST_EXIT_CODE) {
+            return 4164;
+        }
+        WitU64 now = 0;
+        if (wit_native_clock_read(&now) != WIT_STATUS_OK ||
+            wit_native_thread_create(activator, 1, &handle) != WIT_STATUS_OK ||
+            wit_native_call(WIT_CALL_SLEEP_UNTIL, now + wit_native_tick_counts(1000), 0, 0, nullptr) !=
+                WIT_STATUS_INTERRUPTED ||
+            activations != 3 ||
+            wit_native_thread_join(handle, &result) != WIT_STATUS_OK ||
+            result != WIT_TEST_EXIT_CODE) {
+            return 4165;
+        }
+        // A handle without the ACTIVATE right is refused; an exited thread is closed to activation.
+        WitU64 limited = 0, copied = 0;
+        if (wit_native_call(WIT_CALL_HANDLE_DUPLICATE, WIT_THREAD_SELF, (WitU64)&limited,
+                WIT_RIGHT_QUERY | WIT_RIGHT_WAIT, &copied) != WIT_STATUS_OK ||
+            wit_native_call(WIT_CALL_THREAD_ACTIVATE, limited, (WitU64)&activation_target, 0x5150, nullptr) !=
+                WIT_STATUS_DENIED ||
+            wit_native_call(WIT_CALL_HANDLE_CLOSE, limited, 0, 0, nullptr) != WIT_STATUS_OK) {
+            return 4166;
+        }
+        if (wit_native_thread_create(exiter, 0, &handle) != WIT_STATUS_OK ||
+            wit_native_wait_one(handle, WIT_WAIT_INFINITE) != WIT_STATUS_OK ||
+            wit_native_call(WIT_CALL_THREAD_ACTIVATE, handle, (WitU64)&activation_target, 0x5150, nullptr) !=
+                WIT_STATUS_CLOSED ||
+            wit_native_call(WIT_CALL_HANDLE_CLOSE, handle, 0, 0, nullptr) != WIT_STATUS_OK) {
+            return 4167;
+        }
+        // Four activations stay pending on a suspended thread, the fifth is refused, the callback cannot be dropped
+        // while they wait, and the four are delivered in order when the thread resumes.
+        WitU64 previous = 0;
+        if (wit_native_thread_create(sleeper, event, &handle) != WIT_STATUS_OK) {
+            return 4168;
+        }
+        for (;;) {
+            WitUserThreadInfo info;
+            if (wit_native_thread_query(handle, &info) != WIT_STATUS_OK || info.State == WIT_THREAD_STATE_EXITED) {
+                return 4169;
+            }
+            if (info.State == WIT_THREAD_STATE_WAITING) {
+                break;
+            }
+            wit_native_call(WIT_CALL_THREAD_YIELD, 0, 0, 0, nullptr);
+        }
+        if (wit_native_call(WIT_CALL_THREAD_SUSPEND, handle, 0, 0, &previous) != WIT_STATUS_OK || previous) {
+            return 4170;
+        }
+        for (WitU64 i = 0; i < 4; ++i) {
+            if (wit_native_call(WIT_CALL_THREAD_ACTIVATE, handle, (WitU64)&activation_target, 0x5153 + i, nullptr) !=
+                WIT_STATUS_OK) {
+                return 4171;
+            }
+        }
+        WitUserThreadInfo parked;
+        if (wit_native_call(WIT_CALL_THREAD_ACTIVATE, handle, (WitU64)&activation_target, 0x5157, nullptr) !=
+                WIT_STATUS_NO_MEMORY ||
+            wit_native_call(WIT_CALL_EXCEPTION_REGISTER, 0, WIT_EXCEPTION_VERSION, 0, nullptr) != WIT_STATUS_BUSY ||
+            wit_native_thread_query(handle, &parked) != WIT_STATUS_OK ||
+            parked.State != WIT_THREAD_STATE_SUSPENDED ||
+            activations != 3) {
+            return 4172;
+        }
+        if (wit_native_call(WIT_CALL_THREAD_RESUME, handle, 0, 0, &previous) != WIT_STATUS_OK ||
+            previous != 1 ||
+            wit_native_thread_join(handle, &result) != WIT_STATUS_OK ||
+            result != WIT_TEST_EXIT_CODE ||
+            activations != 7 ||
+            wit_native_call(WIT_CALL_HANDLE_CLOSE, event, 0, 0, nullptr) != WIT_STATUS_OK) {
+            return 4173;
         }
     }
     if (GetLastError() != 0xD2345678 ||

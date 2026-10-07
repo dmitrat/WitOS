@@ -13,7 +13,7 @@
 #define WIT_EVENT_CAPACITY 4U
 #define WIT_RUNTIME_EVENT_CAPACITY 16U
 #define WIT_WAIT_ANY_CAPACITY 4U /* handles in one wait-any call */
-#define WIT_APC_CAPACITY 4U /* queued user APCs */
+#define WIT_ACTIVATION_CAPACITY 4U /* activations pending on one thread */
 #define WIT_LIBRARY_CAPACITY 4U /* loaded native libraries */
 #define WIT_LIBRARY_READER_CAPACITY 16U /* module reader handles */
 #define WIT_STACK_LEASE_CAPACITY 4U

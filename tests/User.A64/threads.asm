@@ -72,6 +72,12 @@ wit_user_start PROC
     ldr x0, [x22, #WIT_TLS_HANDLE_OFFSET]
     SYSCALL WIT_CALL_HANDLE_CLOSE
     EXPECT WIT_STATUS_BUSY
+    ; An activation is delivered through a thread context; ARM64 has none until plan step K1.4.
+    ldr x0, =0xFFFFFFFFFFFFFFFE ; WIT_THREAD_SELF
+    adr x1, worker
+    mov x2, #0
+    SYSCALL WIT_CALL_THREAD_ACTIVATE
+    EXPECT WIT_STATUS_UNSUPPORTED
     ldr x0, =WIT_USER_DATA
     mov x1, #0
     mov x2, #0

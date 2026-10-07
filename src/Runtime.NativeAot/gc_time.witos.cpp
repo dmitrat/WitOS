@@ -56,7 +56,7 @@ void GCToOSInterface::Sleep(uint32_t milliseconds)
         YieldThread(0);
         return;
     }
-    if (wit_native_call(WIT_CALL_SLEEP_UNTIL, wit_gc_deadline(milliseconds), 0, 0, nullptr) != WIT_STATUS_OK) {
+    if (wit_native_sleep_until(wit_gc_deadline(milliseconds)) != WIT_STATUS_OK) {
         wit_native_fail_fast(WIT_NATIVE_FAIL_FAST_EXIT);
     }
 }

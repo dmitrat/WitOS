@@ -169,13 +169,19 @@ WIT_NATIVE_SAFEBUFFERS static inline WitU64 wit_native_thread_identity(void)
 }
 
 /* The one wait of ABI-1 (RFC 0011 section 7.4) on several handles or one; the deadline is an absolute monotonic
- * count, WIT_WAIT_INFINITE waits forever and zero polls. The winner's index is optional. */
+ * count, WIT_WAIT_INFINITE waits forever and zero polls. The winner's index is optional. An activation delivered to
+ * the thread ends the wait with INTERRUPTED after its handler ran; the frozen line restarts the wait at its absolute
+ * deadline, as a libc restarts a wait a signal interrupted. */
 WIT_NATIVE_SAFEBUFFERS static inline WitU64 wit_native_wait_any(
     const WitU64 *handles, WitU32 count, WitU64 deadline, WitU64 *index)
 {
     WitUserWaitRequest request = {WIT_WAIT_OBJECTS_VERSION, sizeof(request), (WitU64)handles, count, 0, deadline};
     WitU64 winner = 0;
-    const WitU64 status = wit_native_call(WIT_CALL_OBJECT_WAIT, (WitU64)&request, sizeof(request), 0, &winner);
+    WitU64 status;
+    do {
+        winner = 0;
+        status = wit_native_call(WIT_CALL_OBJECT_WAIT, (WitU64)&request, sizeof(request), 0, &winner);
+    } while (status == WIT_STATUS_INTERRUPTED);
     if (index) {
         *index = winner;
     }
@@ -203,12 +209,20 @@ static inline WitU64 wit_native_tick_counts(WitU64 ticks)
     return frequency / 100 * ticks;
 }
 
+/* Sleeps to an absolute deadline; a sleep an activation interrupted is restarted at the same deadline. */
+static inline WitU64 wit_native_sleep_until(WitU64 deadline)
+{
+    WitU64 status;
+    do {
+        status = wit_native_call(WIT_CALL_SLEEP_UNTIL, deadline, 0, 0, 0);
+    } while (status == WIT_STATUS_INTERRUPTED);
+    return status;
+}
+
 static inline WitU64 wit_native_sleep_ticks(WitU64 ticks)
 {
     WitU64 now = 0;
     const WitU64 status = wit_native_clock_read(&now);
-    return status != WIT_STATUS_OK
-        ? status
-        : wit_native_call(WIT_CALL_SLEEP_UNTIL, now + wit_native_tick_counts(ticks), 0, 0, 0);
+    return status != WIT_STATUS_OK ? status : wit_native_sleep_until(now + wit_native_tick_counts(ticks));
 }
 #endif

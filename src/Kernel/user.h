@@ -62,6 +62,11 @@ typedef enum WitUserWaitKind {
     WitWaitObjects
 } WitUserWaitKind;
 
+/* A pending activation: the requester's callback and argument (RFC 0011 section 7.5). */
+typedef struct WitUserActivation {
+    WitU64 Callback, Argument;
+} WitUserActivation;
+
 typedef struct WitUserThread {
     WitUserThreadState State;
     WitU32 LibraryNotifications, LibraryPhase, LibraryRequired;
@@ -76,9 +81,9 @@ typedef struct WitUserThread {
     WitU64 WaitHandle;
     WitU64 WaitHandles[WIT_WAIT_ANY_CAPACITY];
     WitU32 WaitCount;
-    WitU32 WaitAll, WaitAlertable;
-    WitUserApc Apcs[WIT_APC_CAPACITY];
-    WitU32 ApcCount;
+    WitU32 WaitAll;
+    WitUserActivation Activations[WIT_ACTIVATION_CAPACITY]; /* Pending, oldest first. */
+    WitU32 ActivationCount;
     WitU64 Deadline; /* Absolute monotonic deadline of a parked wait or sleep; all ones waits forever. */
     WitU64 WaitOrder;
     WitU64 Handle;
@@ -192,6 +197,8 @@ typedef struct WitUserProcess {
     WitU64 ThreadWaitWakes;
     WitU64 WaitTimeouts;
     WitU64 WaitCloses;
+    WitU64 WaitInterruptions; /* Waits and sleeps an activation ended. */
+    WitU64 ActivationDeliveries;
     WitU64 IdleHalts;
     WitU64 IdleTicks;
     /* The state every module shares (P6.4.j3a): the environment's records and their final terminator, and the
@@ -209,7 +216,12 @@ WitU64 wit_user_exception_register(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_exception_query(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_exception_continue(WitUserProcess *, WitU64, WitU64, WitU64);
 int wit_user_exception_deliver(WitUserProcess *, WitArchFrame *, WitU64, WitU64, WitU64);
+/* Enters the fault callback with a record on the thread's user-returning frame and publishes the record; 0 leaves the
+ * frame, the record and the token sequence unchanged (no callback, a delivery in flight, no room on the stack). */
+int wit_user_exception_enter(WitUserProcess *, WitUserThread *, WitArchFrame *, WitUserExceptionInfo *);
 WitArchFrame *wit_user_exception_trap(WitArchFrame *, WitU64, WitU64, WitU64);
+/* Ends the component as a contained fault of the current thread described by the state. */
+WIT_NORETURN void wit_user_fault_state(WitU64, WitU64, WitU64, const WitArchFaultState *);
 void wit_user_context_snapshot(WitThreadContext *, const WitUserThread *, const WitArchFrame *);
 WitU64 wit_user_context_validate(WitUserProcess *, WitUserThread *, const WitThreadContext *, int);
 void wit_user_stack_leases_initialize(WitUserProcess *);
@@ -231,9 +243,13 @@ WitU64 wit_user_thread_suspend(WitUserProcess *, WitU64, int, WitU64 *);
 void wit_user_wait_complete(WitUserThread *, WitU64, WitU64);
 void wit_user_wait_objects_changed(WitUserProcess *);
 void wit_user_wait_handle_closed(WitUserProcess *, WitU64);
-void wit_user_apc_initialize(WitUserThread *);
-WitU64 wit_user_apc_queue(WitUserProcess *, WitU64, WitU64, WitU64);
-WitU64 wit_user_apc_dequeue(WitUserProcess *, WitU64, WitU64);
+void wit_user_activations_clear(WitUserThread *);
+WitU64 wit_user_thread_activate(WitUserProcess *, WitU64, WitU64, WitU64);
+/* Delivers the oldest pending activation of the running thread before its frame returns to user mode: 1 when the
+ * frame now enters the fault callback. An activation the thread's stack cannot take ends the component as a fault. */
+int wit_user_activation_deliver(WitUserProcess *, WitUserThread *);
+/* Ends the wait or sleep the thread is parked in with INTERRUPTED (an activation was delivered to it). */
+void wit_user_wait_interrupt(WitUserProcess *, WitUserThread *);
 WitU64 wit_user_objects_poll(WitUserProcess *, const WitU64 *, WitU32, int, int, WitU64 *);
 WitU64 wit_user_object_wait(WitUserProcess *, WitU64, WitU64, WitU64, WitU64, WitU64 *);
 /* The process-internal object wait on copied handles: consumes a ready object, times out or parks the current thread. */

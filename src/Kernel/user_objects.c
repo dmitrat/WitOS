@@ -58,13 +58,12 @@ WitU64 wit_user_objects_poll(
     return WIT_STATUS_OK;
 }
 
-/* OBJECT_WAIT: copies and validates the request, then waits through the process-internal object wait. An alertable
- * request with a queued activation returns INTERRUPTED before any signal is consumed (transitional until K1.3). */
+/* OBJECT_WAIT: copies and validates the request, then waits through the process-internal object wait. A parked wait
+ * ends with INTERRUPTED when an activation is delivered to the thread (RFC 0011 section 7.4). */
 WitU64 wit_user_object_wait(WitUserProcess *p, WitU64 address, WitU64 size, WitU64 reserved, WitU64 now, WitU64 *winner)
 {
     WitUserWaitRequest request;
     WitU64 handles[WIT_WAIT_ANY_CAPACITY];
-    WitUserThread *thread = &p->Threads[p->CurrentThread];
     *winner = 0;
     if (reserved || size != sizeof(request)) {
         return WIT_STATUS_INVALID_ARGUMENT;
@@ -74,7 +73,7 @@ WitU64 wit_user_object_wait(WitUserProcess *p, WitU64 address, WitU64 size, WitU
     }
     if (request.Version != WIT_WAIT_OBJECTS_VERSION ||
         request.Size != sizeof(request) ||
-        (request.Flags & ~(WIT_WAIT_OBJECTS_ALERTABLE | WIT_WAIT_OBJECTS_ALL))) {
+        (request.Flags & ~WIT_WAIT_OBJECTS_ALL)) {
         return WIT_STATUS_UNSUPPORTED;
     }
     if (!request.Count ||
@@ -90,13 +89,5 @@ WitU64 wit_user_object_wait(WitUserProcess *p, WitU64 address, WitU64 size, WitU
     if (status != WIT_STATUS_OK && status != WIT_STATUS_TIMED_OUT) {
         return status;
     }
-    if ((request.Flags & WIT_WAIT_OBJECTS_ALERTABLE) && thread->ApcCount) {
-        *winner = 0;
-        return WIT_STATUS_INTERRUPTED;
-    }
-    const WitU64 result = wit_user_wait_objects(p, handles, request.Count, all, request.Deadline, now, winner);
-    if (result == WIT_STATUS_OK && thread->State == WitThreadWaiting) {
-        thread->WaitAlertable = (request.Flags & WIT_WAIT_OBJECTS_ALERTABLE) != 0;
-    }
-    return result;
+    return wit_user_wait_objects(p, handles, request.Count, all, request.Deadline, now, winner);
 }

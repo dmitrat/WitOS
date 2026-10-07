@@ -321,17 +321,7 @@ static WitArchFrame *object_wait(WitUserCall *call)
 
 static WitArchFrame *thread_activate(WitUserCall *call)
 {
-    *call->Status = wit_user_apc_queue(call->Process, call->Argument0, call->Argument1, call->Argument2);
-    return 0;
-}
-
-static WitArchFrame *apc_dequeue(WitUserCall *call)
-{
-    *call->Status = call->Argument2 ? WIT_STATUS_INVALID_ARGUMENT
-                                    : wit_user_apc_dequeue(call->Process, call->Argument0, call->Argument1);
-    if (*call->Status == WIT_STATUS_OK) {
-        *call->Value = sizeof(WitUserApc);
-    }
+    *call->Status = wit_user_thread_activate(call->Process, call->Argument0, call->Argument1, call->Argument2);
     return 0;
 }
 
@@ -597,7 +587,6 @@ static WitArchFrame *(*const handlers[CALL_COUNT])(WitUserCall *) = {
     [WIT_CALL_EXCEPTION_REJECT] = exception_reject,
     [WIT_CALL_PROCESSOR_QUERY] = processor_query,
     [WIT_CALL_PROCESS_WRITE_BARRIER] = process_write_barrier,
-    [WIT_CALL_APC_DEQUEUE] = apc_dequeue,
     [WIT_CALL_MONOTONIC_QUERY] = monotonic_query,
     [WIT_CALL_CPU_CACHE_SIZE] = cpu_cache_size,
     [WIT_CALL_THREAD_CONTEXT_RESTORE] = thread_context_restore,
