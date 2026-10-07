@@ -25,14 +25,14 @@
  * arguments, RAX=status and RDX=result, other GPRs and x87/SSE state preserved, RFLAGS reset to 0x202; on ARM64
  * SVC #0 with x8=call, x0-x2 arguments, x0=status and x1=result. A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
-#define WIT_ABI_VERSION 55U
+#define WIT_ABI_VERSION 56U
 /* QUERY result: the low 32 bits are WIT_ABI_VERSION, the high 32 bits the mask of the families present. */
 #define WIT_ABI_FEATURE_CHANNELS 1U
 #define WIT_ABI_FEATURE_DEVICES 2U
 #define WIT_ABI_FEATURE_PROCESSES 4U
 #define WIT_ABI_FEATURE_UTC 8U
 #define WIT_ABI_FEATURE_SMP 16U
-#define WIT_ABI_FEATURES 0U
+#define WIT_ABI_FEATURES WIT_ABI_FEATURE_CHANNELS
 #define WIT_ABI_STARTUP_SIZE 24U
 /* Existing single-module compiler TLS page layout of the frozen line; not a Windows TEB. */
 #define WIT_COMPILER_TLS_DATA_OFFSET 256U
@@ -130,7 +130,20 @@
 #define WIT_CALL_EXCEPTION_QUERY 61U
 #define WIT_CALL_EXCEPTION_CONTINUE 62U
 #define WIT_CALL_EXCEPTION_REJECT 63U
-/* 70-72 channels (K2), 80-85 devices (K3), 90-92 processes (K5). */
+/* Channels (RFC 0011 section 7.6). Create(output for two handles, 0, 0): two endpoint handles with WAIT, SEND, RECEIVE,
+ * DUPLICATE and TRANSFER, written to the 16-byte output; the channel ends when both endpoints are closed, and an
+ * endpoint is closed when its last handle is. */
+#define WIT_CALL_CHANNEL_CREATE 70U
+/* Send(endpoint, WitChannelMessage, 40): up to WIT_CHANNEL_MESSAGE_BYTES inline bytes and WIT_CHANNEL_MESSAGE_HANDLES
+ * handles, each with the TRANSFER right, moved out of the sender's table atomically with the message; TOO_LARGE
+ * beyond the quotas, BUSY when the peer's queue is full, PEER_CLOSED when the peer endpoint is closed. */
+#define WIT_CALL_CHANNEL_SEND 71U
+/* Receive(endpoint, WitChannelMessage, 40) -> bytes received in the low 32 bits, handles received in the high 32:
+ * the oldest message's bytes and handles go to the request's buffers; TIMED_OUT when the queue is empty, PEER_CLOSED
+ * when it is empty and the peer is closed, TOO_LARGE when a buffer is smaller than the message, NO_MEMORY when the
+ * handles would not fit the table; a refused message stays queued. */
+#define WIT_CALL_CHANNEL_RECEIVE 72U
+/* 80-85 devices (K3), 90-92 processes (K5). */
 
 /* Processors (RFC 0011 section 7.9). Query(buffer, exact 4 bytes, 0): the current processor as
  * {group:u16, number:u8, reserved:u8}; topology arrives with plan step K7. */
@@ -175,7 +188,8 @@
 #define WIT_THREAD_LIBRARY_NOTIFICATIONS 2U
 /* Rights (RFC 0011 section 6.1): a bit is never reused, and 2 (the join right of the retired join capability) is
  * retired. WAIT and SIGNAL belong to events and the kernel log; QUERY, GET_CONTEXT, SET_CONTEXT, SUSPEND_RESUME and
- * ACTIVATE to threads; DUPLICATE and TRANSFER arrive with K2. */
+ * ACTIVATE to threads; SEND and RECEIVE to channel endpoints; DUPLICATE (HANDLE_DUPLICATE of an endpoint) and
+ * TRANSFER (moving the handle in a message) to every kind a message can carry. */
 #define WIT_RIGHT_WRITE 1U
 #define WIT_RIGHT_WAIT 4U
 #define WIT_RIGHT_SIGNAL 8U
@@ -184,7 +198,11 @@
 #define WIT_RIGHT_SET_CONTEXT 64U
 #define WIT_RIGHT_SUSPEND_RESUME 128U
 #define WIT_RIGHT_ACTIVATE 256U
-#define WIT_RIGHT_THREAD_ALL 500U
+#define WIT_RIGHT_SEND 512U
+#define WIT_RIGHT_RECEIVE 1024U
+#define WIT_RIGHT_DUPLICATE 2048U
+#define WIT_RIGHT_TRANSFER 4096U
+#define WIT_RIGHT_THREAD_ALL 6644U
 #define WIT_EVENT_ACCESS_WAIT WIT_RIGHT_WAIT
 #define WIT_EVENT_ACCESS_SIGNAL WIT_RIGHT_SIGNAL
 /* Clocks of CLOCK_READ and CLOCK_FREQUENCY. UTC is UNSUPPORTED until plan step K6. */
@@ -205,7 +223,7 @@
 #define WIT_TLS_ARGUMENT_OFFSET 16U
 #define WIT_TLS_LAST_ERROR_OFFSET 24U
 #define WIT_TLS_DATA_OFFSET 32U
-/* Statuses (RFC 0011 section 6.2). 17 is retired with the library family at K8; 18 PEER_CLOSED arrives with K2. */
+/* Statuses (RFC 0011 section 6.2). 17 is retired with the library family at K8. */
 #define WIT_STATUS_OK 0U
 #define WIT_STATUS_UNSUPPORTED 1U
 #define WIT_STATUS_BAD_HANDLE 2U
@@ -225,6 +243,8 @@
 #define WIT_STATUS_INTERRUPTED 15U
 #define WIT_STATUS_NOT_FOUND 16U
 #define WIT_STATUS_INITIALIZATION_FAILED 17U
+/* The channel peer is closed: a send has no receiver, an empty queue gets no more messages. */
+#define WIT_STATUS_PEER_CLOSED 18U
 #define WIT_MEMORY_NONE 0U
 #define WIT_MEMORY_READ 1U
 #define WIT_MEMORY_WRITE 2U

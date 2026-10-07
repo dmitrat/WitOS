@@ -101,3 +101,14 @@ void wit_handles_close_all(WitHandleTable *table)
         }
     }
 }
+
+WitU32 wit_handles_free_count(const WitHandleTable *table)
+{
+    WitU32 free = 0;
+    for (WitU32 i = 0; i < table->Limit; ++i) {
+        if (!table->Entries[i].Live && table->Entries[i].Generation <= 0xFFFF) {
+            ++free;
+        }
+    }
+    return free;
+}

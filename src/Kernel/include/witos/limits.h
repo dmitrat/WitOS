@@ -14,6 +14,11 @@
 #define WIT_RUNTIME_EVENT_CAPACITY 16U
 #define WIT_WAIT_ANY_CAPACITY 4U /* handles in one wait-any call */
 #define WIT_ACTIVATION_CAPACITY 4U /* activations pending on one thread */
+#define WIT_CHANNEL_CAPACITY 4U /* channels of a component */
+#define WIT_CHANNEL_QUEUE_DEPTH 4U /* messages queued for one endpoint */
+#define WIT_CHANNEL_QUEUE_BYTES 1024U /* inline bytes queued for one endpoint */
+#define WIT_CHANNEL_MESSAGE_BYTES 256U /* inline bytes of one message */
+#define WIT_CHANNEL_MESSAGE_HANDLES 4U /* capabilities moved by one message */
 #define WIT_LIBRARY_CAPACITY 4U /* loaded native libraries */
 #define WIT_LIBRARY_READER_CAPACITY 16U /* module reader handles */
 #define WIT_STACK_LEASE_CAPACITY 4U

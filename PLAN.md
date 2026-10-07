@@ -1,6 +1,6 @@
 # План WitOS
 
-Обновлено: **2026-10-07**. Upstream .NET: **10.0.8**. Текущая реализация: user ABI v55, boot ABI v4, ядро и UHI для
+Обновлено: **2026-10-07**. Upstream .NET: **10.0.8**. Текущая реализация: user ABI v56, boot ABI v4, ядро и UHI для
 x64 (QEMU q35) и ARM64 (QEMU virt). Архитектурное решение: [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md).
 Прежний план с историей M0–M3, P1–P6.4, Q0–Q2, A0–A2 и T1 — в [архиве](@Docs/Implementation/Plan-Archive-2026-10-06.md);
 замороженная линия хоста P6.4 — в [P6.4-Plan.md](@Docs/Implementation/P6.4-Plan.md).
@@ -142,9 +142,12 @@ UHI для x64 и ARM64 (порт ARM64 стоил ~2 300 строк и пере
     `V0`–`V31`, `FPCR`, `FPSR`; 848 байт), `CONTEXT_PROFILE` по ISA (`FPSIMD`, маска FPCR), контексты, активации и
     доставка исключений EL0 через callback на ARM64; общая фикстура исключений на обеих ISA (callback, запись, продолжение
     изменённого контекста, активация, профиль, отказ). Протокол фикстур обновлён.
-- [ ] **K2** Каналы (RFC-0006 §11–13; RFC-0011 §7.6): `CHANNEL_CREATE`, `CHANNEL_SEND`, `CHANNEL_RECEIVE`; инлайн-данные
-  и перемещение capability атомарно с сообщением; право `TRANSFER`, ослабление через `HANDLE_DUPLICATE`; конечная точка
-  как объект ожидания в `OBJECT_WAIT`; `PEER_CLOSED`; квоты глубины очереди и байтов; фикстуры на обеих ISA.
+- [x] **K2** Каналы ([K2-Channels.md](@Docs/Implementation/K2-Channels.md), ABI v56; RFC-0006 §11–13; RFC-0011 §7.6):
+  `CHANNEL_CREATE`, `CHANNEL_SEND`, `CHANNEL_RECEIVE`; инлайн-данные и перемещение capability (события, концы каналов,
+  хэндлы потоков) атомарно с сообщением и с доставкой; права `SEND`, `RECEIVE`, `DUPLICATE`, `TRANSFER`, ослабление через
+  `HANDLE_DUPLICATE`; конец канала как объект ожидания в `OBJECT_WAIT`; `PEER_CLOSED`; квоты каналов, глубины очереди,
+  байтов и хэндлов; сброс очереди с capability при закрытии конца; `QUERY` сообщает семейство `CHANNELS`; фикстуры на
+  обеих ISA. Ожидание записываемости полной очереди не моделируется (отправитель повторяет попытку).
 - [ ] **K3** Делегирование устройств (RFC-0007 §10, §13–14, M4 §43; RFC-0011 §7.7): UHI перечисляет регионы и линии
   прерываний (PCI/ECAM на q35, device tree на virt), ядро публикует корневой задаче read-only таблицу дескрипторов;
   `DEVICE_ACQUIRE`, `DEVICE_MEMORY` (объект памяти устройства: uncached, без EXECUTE), `INTERRUPT_BIND` к событию и

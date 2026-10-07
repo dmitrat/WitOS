@@ -319,6 +319,25 @@ static WitArchFrame *object_wait(WitUserCall *call)
     return 0;
 }
 
+static WitArchFrame *channel_create(WitUserCall *call)
+{
+    *call->Status = wit_user_channel_create(call->Process, call->Argument0, call->Argument1, call->Argument2);
+    return 0;
+}
+
+static WitArchFrame *channel_send(WitUserCall *call)
+{
+    *call->Status = wit_user_channel_send(call->Process, call->Argument0, call->Argument1, call->Argument2);
+    return 0;
+}
+
+static WitArchFrame *channel_receive(WitUserCall *call)
+{
+    *call->Status =
+        wit_user_channel_receive(call->Process, call->Argument0, call->Argument1, call->Argument2, call->Value);
+    return 0;
+}
+
 static WitArchFrame *thread_activate(WitUserCall *call)
 {
     *call->Status = wit_user_thread_activate(call->Process, call->Argument0, call->Argument1, call->Argument2);
@@ -573,6 +592,9 @@ static WitArchFrame *(*const handlers[CALL_COUNT])(WitUserCall *) = {
     [WIT_CALL_THREAD_CONTEXT_SET] = thread_context_set,
     [WIT_CALL_CONTEXT_PROFILE] = context_profile,
     [WIT_CALL_THREAD_ACTIVATE] = thread_activate,
+    [WIT_CALL_CHANNEL_CREATE] = channel_create,
+    [WIT_CALL_CHANNEL_SEND] = channel_send,
+    [WIT_CALL_CHANNEL_RECEIVE] = channel_receive,
     [WIT_CALL_EVENT_CREATE] = event_create,
     [WIT_CALL_EVENT_SET] = event_set,
     [WIT_CALL_EVENT_RESET] = event_reset,

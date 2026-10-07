@@ -95,6 +95,7 @@ WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code)
         current_user->Threads[i].Deadline = WIT_WAIT_INFINITE;
     }
     wit_handles_close_all(&current_user->Handles);
+    wit_channels_initialize(&current_user->Channels);
     wit_files_initialize(&current_user->Files);
     wit_user_library_initialize(current_user);
     wit_user_references_initialize(current_user);
@@ -252,6 +253,10 @@ WitU64 wit_user_close_handle(WitU64 handle)
     if (reference != WIT_STATUS_WRONG_TYPE) {
         return reference;
     }
+    const WitU64 channel = wit_user_channel_close(current_user, handle);
+    if (channel != WIT_STATUS_WRONG_TYPE) {
+        return channel;
+    }
     /* A thread's private identity is not a capability user space can release: it ends with the thread. */
     const WitU64 status = wit_handle_check(&current_user->Handles, handle, WIT_HANDLE_THREAD_IDENTITY, 0);
     if (status == WIT_STATUS_OK) {
@@ -304,6 +309,9 @@ static void reset_counters(WitUserProcess *process)
     process->WaitCloses = 0;
     process->WaitInterruptions = 0;
     process->ActivationDeliveries = 0;
+    process->ChannelSends = 0;
+    process->ChannelReceives = 0;
+    process->ChannelDrops = 0;
     process->IdleHalts = 0;
     process->IdleTicks = 0;
 }
@@ -347,6 +355,7 @@ static void reset_process(WitUserProcess *process, WitU32 slot, WitU32 code_size
         process->MemoryPressureEvents[i] = 0;
     }
     wit_events_initialize(&process->Events);
+    wit_channels_initialize(&process->Channels);
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
         process->Threads[i].State = WitThreadEmpty;
         process->Threads[i].SuspendCount = 0;
@@ -542,6 +551,7 @@ void wit_user_destroy(WitUserProcess *process)
     wit_user_stack_leases_initialize(process);
     wit_user_exception_initialize(process);
     wit_events_initialize(&process->Events);
+    wit_channels_initialize(&process->Channels);
     wit_user_process_state_reset(process);
     wit_user_space_destroy(&process->Space);
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {

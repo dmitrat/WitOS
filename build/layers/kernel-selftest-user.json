@@ -11,6 +11,7 @@
     "tests/Kernel/user_thread_tests.c",
     "tests/Kernel/user_wait_tests.c",
     "tests/Kernel/user_exception_tests.c",
+    "tests/Kernel/user_channel_tests.c",
     "tests/Kernel/user_image_tests.c",
     "tests/Kernel/test_summary.c"
   ],
