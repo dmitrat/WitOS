@@ -257,7 +257,7 @@ UHI для x64 и ARM64 (порт ARM64 стоил ~2 300 строк и пере
 
 ### S — Субстрат прослойки
 
-- [ ] **S1** libc: musl по пину с патчами через `UpstreamPatches`; `sysdeps` над ABI-1: память (`mmap`/`mprotect`/`madvise`
+- [x] **S1** libc: musl по пину с патчами через `UpstreamPatches`; `sysdeps` над ABI-1: память (`mmap`/`mprotect`/`madvise`
   над reserve/commit), файлы (сначала read-only пакет), время, случайность, выход; libc-test из musl и дифференциальные
   тесты против musl на Linux, где это возможно.
   - [x] **S1.1** musl над ABI-1 ([S1.1-Musl-Over-ABI-1.md](@Docs/Implementation/S1.1-Musl-Over-ABI-1.md)): релиз 1.2.5 по
@@ -280,8 +280,13 @@ UHI для x64 и ARM64 (порт ARM64 стоил ~2 300 строк и пере
     `faccessat`/`access`, `getdents64` (`.`, `..`, дети префикса по порядку таблицы), `getcwd` = `/`, `fcntl`
     `F_GETFL`/`F_GETFD`/`F_SETFD`, `readlinkat` — `EINVAL`; пакет сценария `libc` несёт `test/hello.txt`, `test/dir/a.txt`,
     `test/dir/b.txt`; тест вырос до 55 проверок (stdio чтения, `stat`, `opendir`/`readdir`, отказы записи) на обеих ISA.
-  - [ ] **S1.3** Приёмка: подмножество libc-test (string, stdio, stdlib, math, time, ctype) как корневая задача на обеих ISA;
-    дифференциальный прогон против musl на Linux — вместе с Linux-хостом сборки (T2).
+  - [x] **S1.3** Приёмка ([S1.3-Libc-Test.md](@Docs/Implementation/S1.3-Libc-Test.md)): libc-test musl по коммиту
+    (`src/Substrate/libc-test.lock.json`, checkout через git в `setup`), 76 functional/regression-тестов из
+    `tests/User/libc-test.json` без изменений одной статической программой (`main` переименован, драйвер
+    `tests/User/libc_test_driver.c`) — корневая задача сценария `libc-test` обеих ISA, строка `all 76 tests passed`;
+    исключённые тесты названы с причинами (потоки S2, сигналы S3, процессы S6, записываемые файлы D5, dlopen S5,
+    rlimit/OOM, musl новее 1.2.5; math — позже); корневая задача получила ёмкости полного профиля (2048 страниц,
+    32 резервации, окно 4 МиБ), `/dev/zero`; дифференциальный прогон против musl на Linux — с T2.
 - [ ] **S2** Потоки: pthreads над потоками ядра, эквивалент futex над событиями и ожиданиями; ELF TLS через FS;
   `errno` на поток; `__cxa_thread_atexit`.
 - [ ] **S3** Минимальные сигналы (RFC-0011 §7.5, §9.3): синхронные (`SIGSEGV`, `SIGFPE`, `SIGILL`, `SIGBUS`, `SIGTRAP`)

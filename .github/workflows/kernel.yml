@@ -57,12 +57,13 @@ jobs:
           path: |
             .tools/downloads/musl-1.2.5.tar.gz
             .tools/compiler-rt
-          key: substrate-pins-${{ hashFiles('src/Substrate/compiler-rt.lock.json') }}-musl-1.2.5
+            .tools/libc-test
+          key: substrate-pins-${{ hashFiles('src/Substrate/compiler-rt.lock.json', 'src/Substrate/libc-test.lock.json') }}-musl-1.2.5
 
       - name: Check source formatting
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- format-check
 
-      - name: Extract verified QEMU, clang and musl
+      - name: Extract verified QEMU, clang, musl and libc-test
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
 
       - name: Check environment
@@ -145,12 +146,13 @@ jobs:
           path: |
             .tools/downloads/musl-1.2.5.tar.gz
             .tools/compiler-rt
-          key: substrate-pins-${{ hashFiles('src/Substrate/compiler-rt.lock.json') }}-musl-1.2.5
+            .tools/libc-test
+          key: substrate-pins-${{ hashFiles('src/Substrate/compiler-rt.lock.json', 'src/Substrate/libc-test.lock.json') }}-musl-1.2.5
 
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
 
-      - name: Extract verified QEMU, clang and musl
+      - name: Extract verified QEMU, clang, musl and libc-test
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
 
       - name: ARM64 boot-only scenarios on QEMU virt

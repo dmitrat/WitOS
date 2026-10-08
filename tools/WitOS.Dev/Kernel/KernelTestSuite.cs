@@ -84,6 +84,12 @@ internal static class KernelTestSuite
         {
             RequiredLines = [KernelArchitecture.X64.LibcPassedLine]
         });
+        // musl's own tests (S1.3): the selected functional and regression tests as one program.
+        var libcTest = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.LIBC_TEST_SCENARIO);
+        await BootScenarioRunner.RunAsync(root, libcTest, new BootRequest("libc-test", 256, 120, ExpectedOutcome.Success)
+        {
+            RequiredLines = [KernelArchitecture.X64.LibcTestPassedLine]
+        });
         await BootScenarioRunner.RunAsync(root, image, new BootRequest("no-rng", 256, 60, ExpectedOutcome.EntropyUnavailable));
         await BootScenarioRunner.RunAsync(root, image, new BootRequest("no-hpet", 256, 60, ExpectedOutcome.ClockUnavailable));
         var panic = await KernelImageBuilder.BuildAsync(root, "invalid-boot-info");
@@ -101,7 +107,7 @@ internal static class KernelTestSuite
         var timeout = await KernelImageBuilder.BuildAsync(root, "timeout");
         await BootScenarioRunner.RunAsync(root, timeout,
             new BootRequest("timeout", 256, SELFTEST_HANG, ExpectedOutcome.Timeout));
-        Console.WriteLine("PASS: all 22 kernel integration scenarios.");
+        Console.WriteLine("PASS: all 23 kernel integration scenarios.");
     }
 
     /// <summary>
@@ -132,6 +138,9 @@ internal static class KernelTestSuite
         var libc = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.LIBC_SCENARIO, architecture: architecture);
         await BootScenarioRunner.RunAsync(root, libc,
             Request("libc", 256, FOUNDATION_TIMEOUT, ExpectedOutcome.Success) with { RequiredLines = [architecture.LibcPassedLine] });
+        var libcTest = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.LIBC_TEST_SCENARIO, architecture: architecture);
+        await BootScenarioRunner.RunAsync(root, libcTest,
+            Request("libc-test", 256, 120, ExpectedOutcome.Success) with { RequiredLines = [architecture.LibcTestPassedLine] });
         var panic = await KernelImageBuilder.BuildAsync(root, "invalid-boot-info", architecture: architecture);
         await BootScenarioRunner.RunAsync(root, panic,
             Request("invalid-boot-info", 256, FOUNDATION_TIMEOUT, ExpectedOutcome.InvalidBootInfo));
@@ -146,7 +155,7 @@ internal static class KernelTestSuite
         }
         var timeout = await KernelImageBuilder.BuildAsync(root, "timeout", architecture: architecture);
         await BootScenarioRunner.RunAsync(root, timeout, Request("timeout", 256, FOUNDATION_HANG, ExpectedOutcome.Timeout));
-        Console.WriteLine($"PASS: all {7 + A64_FAULT_SCENARIOS.Length} {architecture.Name} foundation scenarios.");
+        Console.WriteLine($"PASS: all {8 + A64_FAULT_SCENARIOS.Length} {architecture.Name} foundation scenarios.");
     }
 
     #endregion

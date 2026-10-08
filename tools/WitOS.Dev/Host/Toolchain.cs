@@ -322,6 +322,7 @@ internal static class Toolchain
         Console.WriteLine($"Ready: {await PrepareClangAsync(root)}");
         Console.WriteLine($"Ready: {await Substrate.MuslLibc.PrepareAsync(root)}");
         Console.WriteLine($"Ready: {await Substrate.CompilerRtBuiltins.PrepareAsync(root)}");
+        Console.WriteLine($"Ready: {await Substrate.LibcTestSuite.PrepareAsync(root)}");
     }
 
     #endregion
