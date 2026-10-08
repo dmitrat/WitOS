@@ -49,6 +49,7 @@ void wit_a64_stack_guards(WitU64 guards[WIT_A64_STACK_GUARD_COUNT]);
 
 /* Boot storage window in the TTBR1 half, at the same address as the x64 storage slot. */
 #define WIT_A64_STORAGE_BASE 0xFFFFA00000000000ULL
+#define WIT_A64_ROOT_BASE (WIT_A64_STORAGE_BASE + (128ULL << 20)) /* the root task image after the package window */
 
 /* Exception vector table of vectors.asm, 2 KiB aligned. */
 extern const WitU8 wit_a64_vectors[];

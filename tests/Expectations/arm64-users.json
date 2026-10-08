@@ -1,5 +1,5 @@
 {
-  "description": "ARM64 isolation, thread, wait, exception, channel, memory object, device, interrupt and image suites in order; every contained EL0 fault of them.",
+  "description": "ARM64 isolation, thread, wait, exception, channel, memory object, device, interrupt, root task and image suites in order; every contained EL0 fault of them.",
   "markers": [
     "[TEST-PASS] User.UnprivilegedMode",
     "[TEST-PASS] User.AbiAndHandles",
@@ -68,6 +68,8 @@
     "[TEST-PASS] User.InterruptBind",
     "[TEST-PASS] User.DmaPin",
     "[TEST-PASS] User.VirtioBlock",
+    "[TEST-PASS] Root.Started",
+    "[TEST-PASS] Root.ImageValidation",
     "[TEST-PASS] User.ImageHeadersAndBounds",
     "[TEST-PASS] User.ImageUnsupportedFeatures",
     "[TEST-PASS] User.ImageSectionsAndEntry",

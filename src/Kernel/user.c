@@ -1,4 +1,5 @@
 #include "user.h"
+#include "root_task.h"
 #include "witos/package.h"
 #include "witos/platform.h"
 #include "witos/storage.h"
@@ -494,6 +495,57 @@ int wit_user_create(
         return 0;
     }
     return create_process(process, allocator, slot, code, code_size, 0, 0, 0, 0) == WitPeOk;
+}
+
+int wit_user_create_flat(WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const WitFlatLayout *layout)
+{
+    if (!can_create(process, slot)) {
+        return 0;
+    }
+    reset_process(process, slot, 0, 0, 0);
+    slot_owners[slot] = process;
+    process->ImageBase = layout->Segments[0].Address;
+    process->ImageEntry = layout->Entry;
+    process->ImageSize = 0;
+    if (!wit_user_space_create_profile(&process->Space, allocator, 0) ||
+        !wit_user_capture_tls(process, 0) ||
+        !wit_user_space_map(&process->Space, WIT_USER_INFO, 0, 0)) {
+        goto failed;
+    }
+    for (WitU64 page = WIT_USER_DATA; page < WIT_USER_DATA_END; page += 4096) {
+        if (!wit_user_space_map(&process->Space, page, 1, 0)) {
+            goto failed;
+        }
+    }
+    for (WitU32 i = 0; i < layout->SegmentCount; ++i) {
+        const WitFlatSegment *s = &layout->Segments[i];
+        const int writable = (s->Protection & WIT_MEMORY_WRITE) != 0,
+                  executable = (s->Protection & WIT_MEMORY_EXECUTE) != 0;
+        for (WitU64 offset = 0; offset < s->MemorySize; offset += 4096) {
+            if (!wit_user_space_map(&process->Space, s->Address + offset, writable, executable)) {
+                goto failed;
+            }
+            WitU8 *page = (WitU8 *)wit_user_space_physical(&process->Space, s->Address + offset, 0, 0);
+            const WitU64 copy = offset < s->FileSize ? (s->FileSize - offset < 4096 ? s->FileSize - offset : 4096) : 0;
+            for (WitU64 k = 0; k < copy; ++k) {
+                page[k] = layout->File[s->FileOffset + offset + k];
+            }
+        }
+        if (executable) {
+            wit_user_space_publish_code(&process->Space, s->Address, s->MemorySize);
+        }
+        if (s->Address + s->MemorySize - process->ImageBase > process->ImageSize) {
+            process->ImageSize = (WitU32)(s->Address + s->MemorySize - process->ImageBase);
+        }
+    }
+    if (wit_user_prepare_thread(process, 0, layout->Entry, WIT_USER_INFO, 0) != WIT_STATUS_OK) {
+        goto failed;
+    }
+    process->State = WitUserReady;
+    return 1;
+failed:
+    wit_user_destroy(process);
+    return 0;
 }
 
 WitPeStatus wit_user_create_pe(

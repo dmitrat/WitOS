@@ -1,3 +1,4 @@
+using WitOS.Dev.Kernel;
 using System.Globalization;
 using System.Reflection.PortableExecutable;
 using System.Text;
@@ -28,6 +29,8 @@ internal static class UserImage
         "src/Kernel/include/witos/memory_object.h",
         "src/Kernel/include/witos/device.h",
         "src/Kernel/include/witos/dma.h",
+        "src/Kernel/include/witos/root.h",
+        "src/Kernel/include/witos/flat.h",
         "src/Kernel/include/witos/user_layout.h",
         "src/Kernel/include/witos/limits.h",
         "tests/User/protocol.h"
@@ -177,13 +180,45 @@ internal static class UserImage
     }
 
     private static Task LinkFixtureAsync(string root, string msvc, Dictionary<string, ulong> constants,
-        string machine, string[] options, string obj, string image) =>
+        string machine, string[] options, string obj, string image, string baseKey = "WIT_USER_BASE") =>
         Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
         [
             "/nologo", "/subsystem:native", "/entry:wit_user_start", "/nodefaultlib", $"/machine:{machine}",
             .. options, "/incremental:no", "/Brepro",
-            $"/base:0x{constants["WIT_USER_BASE"]:X}", $"/out:{image}", obj
+            $"/base:0x{constants[baseKey]:X}", $"/out:{image}", obj
         ], root);
+
+    /// <summary>
+    /// Builds the root task fixture of the architecture as a flat image (plan step K4): assembled like the other
+    /// fixtures, linked at the component's image window and converted by <see cref="FlatImage"/>; also embedded as
+    /// a C array for the kernel self-test. Built for every scenario, since the release kernel starts it.
+    /// </summary>
+    /// <returns>Path of the flat image to place on the boot disk.</returns>
+    public static async Task<string> BuildRootAsync(string root, string output, string msvc, KernelArchitecture architecture)
+    {
+        var constants = await ReadConstantsAsync(root);
+        var obj = Path.Combine(output, "RootFixture.obj");
+        var image = Path.Combine(output, "RootFixture.pe");
+        if (architecture == KernelArchitecture.X64)
+        {
+            var includes = string.Join("\n", constants.Select(item => $"{item.Key} EQU 0{item.Value:X}h")) + "\n";
+            await File.WriteAllTextAsync(Path.Combine(output, "user_abi.inc"), includes, Encoding.ASCII);
+            await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
+                ["/nologo", "/c", $"/I{output}", $"/Fo{obj}", Path.Combine(root, "tests", "User.X64", "root.asm")], root);
+            await LinkFixtureAsync(root, msvc, constants, "x64", ["/fixed", "/dynamicbase:no"], obj, image, "WIT_USER_IMAGE_BASE");
+        }
+        else
+        {
+            var defines = string.Join("\n", constants.Select(item => $"#define {item.Key} 0x{item.Value:X}")) + "\n";
+            await File.WriteAllTextAsync(Path.Combine(output, "user_abi_a64.h"), defines, Encoding.ASCII);
+            var preprocessed = Path.Combine(output, "RootFixture.asm");
+            await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"),
+                ["/nologo", "/EP", "/P", $"/Fi{preprocessed}", $"/I{output}", "/Tc", Path.Combine(root, "tests", "User.A64", "root.asm")], root);
+            await Processes.RequireSuccessAsync(Path.Combine(msvc, "armasm64.exe"), ["-nologo", "-o", obj, preprocessed], root);
+            await LinkFixtureAsync(root, msvc, constants, "arm64", [], obj, image, "WIT_USER_IMAGE_BASE");
+        }
+        return await FlatImage.FromPeAsync(output, architecture.Machine, image, "RootFixture", "wit_user_root_image", "user_root_image.h");
+    }
 
     // Checks that the fixture is one fixed page of RX code at WIT_USER_CODE and embeds that page as a C array.
     private static async Task EmbedFixtureAsync(string output, Dictionary<string, ulong> constants, Machine machine,

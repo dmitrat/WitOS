@@ -68,6 +68,8 @@
     "[TEST-PASS] User.InterruptBind",
     "[TEST-PASS] User.DmaPin",
     "[TEST-PASS] User.VirtioBlock",
+    "[TEST-PASS] Root.Started",
+    "[TEST-PASS] Root.ImageValidation",
     "[TEST-PASS] User.ImageHeadersAndBounds",
     "[TEST-PASS] User.ImageUnsupportedFeatures",
     "[TEST-PASS] User.ImageSectionsAndEntry",

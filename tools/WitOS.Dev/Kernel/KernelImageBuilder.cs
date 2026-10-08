@@ -112,6 +112,8 @@ internal static class KernelImageBuilder
         }
 
         var bootPackage = await BootPackage.BuildAsync(root, output, scenario == "coreclr-storage", scenario == "coreclr-memory");
+        // The root task's flat image (K4): every kernel, release or self-test, starts it from the boot disk.
+        var rootTask = await UserImage.BuildRootAsync(root, output, msvc, architecture);
         if (scenario == "coreclr-storage")
         {
             await CoreClrStorageImage.BuildAsync(root, output, msvc);
@@ -124,7 +126,7 @@ internal static class KernelImageBuilder
         }
 
         var disk = Path.Combine(output, $"WitOS-{architecture.Name}.img");
-        FatImage.Create(disk, await File.ReadAllBytesAsync(efi), bootPackage, architecture.EfiName);
+        FatImage.Create(disk, await File.ReadAllBytesAsync(efi), bootPackage, architecture.EfiName, await File.ReadAllBytesAsync(rootTask));
         await File.WriteAllTextAsync(Path.Combine(output, "build.txt"),
             $"Build: {buildId}\nScenario: {scenario}\nCompiler: {msvc}\nQEMU: {Toolchain.QEMU_VERSION}\n");
         Console.WriteLine($"Built {scenario}: {disk}");

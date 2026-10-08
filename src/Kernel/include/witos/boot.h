@@ -4,7 +4,7 @@
 #include "types.h"
 
 #define WIT_BOOT_MAGIC 0x574954424F4F5430ULL
-#define WIT_BOOT_VERSION 5U
+#define WIT_BOOT_VERSION 6U
 #define WIT_BOOT_SEED_BYTES 32U
 #define WIT_ARCH_X64 1U
 #define WIT_ARCH_ARM64 2U
@@ -14,6 +14,7 @@
 #define WIT_MEMORY_USABLE 1U
 #define WIT_MAX_IMAGE_SECTIONS 16U
 #define WIT_MAX_STORAGE_EXTENTS 128U
+#define WIT_MAX_ROOT_EXTENTS 4U /* the root task image: at most 4 MiB in extents of a MiB */
 #define WIT_IMAGE_READ 1U
 #define WIT_IMAGE_WRITE 2U
 #define WIT_IMAGE_EXECUTE 4U
@@ -64,11 +65,16 @@ typedef struct WitBootInfo {
      * from whichever it understands (plan step K3.1). */
     WitU64 AcpiRsdp;
     WitU64 DeviceTree;
+    /* The root task's flat image (RFC 0011 section 7.11, plan step K4), read like the package into extents the
+     * kernel maps; absent when the boot volume has no image (zero count and bytes). */
+    const WitBootStorageExtent *RootTaskExtents;
+    WitU64 RootTaskBytes;
+    WitU32 RootTaskExtentCount, RootTaskReserved;
 } WitBootInfo;
 
 _Static_assert(sizeof(void *) == 8, "The boot contract requires a 64-bit target");
 _Static_assert(sizeof(WitMemoryRegion) == 24, "Memory region ABI");
-_Static_assert(sizeof(WitBootInfo) == 128, "Boot info ABI");
+_Static_assert(sizeof(WitBootInfo) == 152, "Boot info ABI");
 
 WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot);
 
