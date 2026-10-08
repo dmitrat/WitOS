@@ -6,7 +6,8 @@
 ; its argument, stack pointer and TLS bases, writes TPIDR_EL0 and sees it preserved across a yield, and exits naming
 ; the reservation; the creator joins it and finds the reservation released. Broken requests are refused whole. The
 ; data page: the request at 16, the wait request at 128, the thread info at 256, the reservation base at 3072, the
-; status of a failed check at 1304 and the number of checks passed at 1312.
+; status of a failed check at 1304 and the number of checks passed at 1312; the exit request at 3080, its word at 3112
+; and the event handle at 3120 (S2.1).
 
     AREA |.text|, CODE, READONLY
 
@@ -89,6 +90,16 @@ wit_user_start PROC
     mov x2, #0
     SYSCALL WIT_CALL_THREAD_EXIT
     EXPECT WIT_STATUS_INVALID_ARGUMENT
+    ; An event and a word for the worker's exit request (S2.1): the kernel zeroes the word and sets the event once the
+    ; worker no longer runs.
+    mov x0, #0
+    mov x1, #0
+    mov x2, #0
+    SYSCALL WIT_CALL_EVENT_CREATE
+    EXPECT WIT_STATUS_OK
+    str x1, [x22, #3120]
+    mov x9, #1
+    str x9, [x22, #3112]
     ; The worker on our stack with our TLS base; its argument is 0x77.
     CREATE2 x10, x11, x12, 2, 0
     EXPECT WIT_STATUS_OK
@@ -98,6 +109,15 @@ wit_user_start PROC
     EXPECT WIT_STATUS_OK
     cmp x1, #42
     b.ne failed
+    ; The exit request was served: the word is zero and the event is set.
+    ldr w9, [x22, #3112]
+    cbnz w9, failed
+    ldr x0, [x22, #3120]
+    bl object_wait
+    EXPECT WIT_STATUS_OK
+    ldr x0, [x22, #3120]
+    SYSCALL WIT_CALL_HANDLE_CLOSE
+    EXPECT WIT_STATUS_OK
     ; The worker's exit released the reservation.
     mov x0, x23
     mov x1, #0
@@ -144,9 +164,49 @@ worker_continue
     SYSCALL WIT_CALL_THREAD_EXIT
     cmp x0, #WIT_STATUS_NOT_RESERVED
     b.ne worker_failed
+    ; Exit requests refused whole (S2.1): a foreign version, a word outside user space, an unknown event.
+    mov w9, #2
+    str w9, [x22, #3080]
+    mov w9, #24
+    str w9, [x22, #3084]
+    add x9, x22, #3112
+    str x9, [x22, #3088]
+    ldr x9, [x22, #3120]
+    str x9, [x22, #3096]
+    mov x0, #42
+    ldr x1, [x22, #3072]
+    add x2, x22, #3080
+    SYSCALL WIT_CALL_THREAD_EXIT
+    cmp x0, #WIT_STATUS_UNSUPPORTED
+    b.ne worker_failed
+    mov w9, #WIT_THREAD_EXIT_VERSION
+    str w9, [x22, #3080]
+    ldr x9, =0xFFFF800000000000
+    str x9, [x22, #3088]
+    mov x0, #42
+    ldr x1, [x22, #3072]
+    add x2, x22, #3080
+    SYSCALL WIT_CALL_THREAD_EXIT
+    cmp x0, #WIT_STATUS_BAD_ADDRESS
+    b.ne worker_failed
+    add x9, x22, #3112
+    str x9, [x22, #3088]
+    ldr x9, =0x12345
+    str x9, [x22, #3096]
+    mov x0, #42
+    ldr x1, [x22, #3072]
+    add x2, x22, #3080
+    SYSCALL WIT_CALL_THREAD_EXIT
+    cmp x0, #WIT_STATUS_BAD_HANDLE
+    b.ne worker_failed
+    ldr x9, [x22, #3120]
+    str x9, [x22, #3096]
+    ldr x9, [x22, #3112]
+    cmp x9, #1 ; nothing of a refused request was served
+    b.ne worker_failed
     mov x0, #42
     ldr x1, [x22, #3072] ; the kernel releases the stack's reservation once this thread no longer runs on it
-    mov x2, #0
+    add x2, x22, #3080 ; and zeroes the word and sets the event
     SYSCALL WIT_CALL_THREAD_EXIT
     DCD 0x00000000
 worker_failed
@@ -175,6 +235,27 @@ thread_create2
     mov x1, #48
     mov x2, #0
     SYSCALL WIT_CALL_THREAD_CREATE
+    ret
+
+; Wait for one object with no deadline: x0 handle -> x0 status.
+object_wait
+    str x0, [x22, #(128 + 32)]
+    add x9, x22, #128
+    mov w10, #WIT_WAIT_OBJECTS_VERSION
+    str w10, [x9]
+    mov w10, #32
+    str w10, [x9, #4]
+    add x10, x9, #32
+    str x10, [x9, #8]
+    mov w10, #1
+    str w10, [x9, #16]
+    str wzr, [x9, #20]
+    mov x10, #-1
+    str x10, [x9, #24]
+    mov x0, x9
+    mov x1, #32
+    mov x2, #0
+    SYSCALL WIT_CALL_OBJECT_WAIT
     ret
 
 ; Wait for the thread, read its exit code and close the handle: x0 handle -> x0 status, x1 exit code.

@@ -9,7 +9,8 @@ include user_abi.inc
 ; choosing; the worker checks its argument, stack and TLS, changes its TLS, and exits naming the reservation; the
 ; creator joins it and finds the reservation released. Broken requests are refused whole. The data page: the
 ; request at 16, the wait request at 128, the thread info at 256, the TLS blocks at 2048 and 2560, the reservation
-; base at 3072, the status of a failed check at 1304 and the number of checks passed at 1312.
+; base at 3072, the status of a failed check at 1304 and the number of checks passed at 1312; the exit request at
+; 3080, its word at 3112 and the event handle at 3120 (S2.1).
 
 EXPECT MACRO value
     inc QWORD PTR [rbx + 1312]
@@ -115,6 +116,15 @@ wit_user_start PROC
     xor edx, edx
     CALL0 WIT_CALL_THREAD_EXIT
     EXPECT WIT_STATUS_INVALID_ARGUMENT
+    ; An event and a word for the worker's exit request (S2.1): the kernel zeroes the word and sets the event once the
+    ; worker no longer runs.
+    xor edi, edi
+    xor esi, esi
+    xor edx, edx
+    CALL0 WIT_CALL_EVENT_CREATE
+    EXPECT WIT_STATUS_OK
+    mov [rbx + 3120], rdx
+    mov QWORD PTR [rbx + 3112], 1
     ; The worker on our stack with our TLS base; its argument is 77h.
     lea r8, worker
     lea r9, [r12 + 65536]
@@ -128,6 +138,14 @@ wit_user_start PROC
     EXPECT WIT_STATUS_OK
     cmp edx, 42
     jne failed
+    ; The exit request was served: the word is zero and the event is set.
+    cmp DWORD PTR [rbx + 3112], 0
+    jne failed
+    mov rdi, [rbx + 3120]
+    call object_wait
+    EXPECT WIT_STATUS_OK
+    CLOSE [rbx + 3120]
+    EXPECT WIT_STATUS_OK
     ; The worker's exit released the reservation.
     mov rdi, r12
     xor esi, esi
@@ -167,9 +185,44 @@ worker:
     CALL0 WIT_CALL_THREAD_EXIT
     cmp eax, WIT_STATUS_NOT_RESERVED
     jne worker_failed
+    ; Exit requests refused whole (S2.1): a foreign version, a word outside user space, an unknown event.
+    mov DWORD PTR [rbx + 3080], 2
+    mov DWORD PTR [rbx + 3084], 24
+    lea rax, [rbx + 3112]
+    mov [rbx + 3088], rax
+    mov rax, [rbx + 3120]
+    mov [rbx + 3096], rax
+    mov edi, 42
+    mov rsi, [rbx + 3072]
+    lea rdx, [rbx + 3080]
+    CALL0 WIT_CALL_THREAD_EXIT
+    cmp eax, WIT_STATUS_UNSUPPORTED
+    jne worker_failed
+    mov DWORD PTR [rbx + 3080], WIT_THREAD_EXIT_VERSION
+    mov rax, 0FFFF800000000000h
+    mov [rbx + 3088], rax
+    mov edi, 42
+    mov rsi, [rbx + 3072]
+    lea rdx, [rbx + 3080]
+    CALL0 WIT_CALL_THREAD_EXIT
+    cmp eax, WIT_STATUS_BAD_ADDRESS
+    jne worker_failed
+    lea rax, [rbx + 3112]
+    mov [rbx + 3088], rax
+    mov QWORD PTR [rbx + 3096], 12345h
+    mov edi, 42
+    mov rsi, [rbx + 3072]
+    lea rdx, [rbx + 3080]
+    CALL0 WIT_CALL_THREAD_EXIT
+    cmp eax, WIT_STATUS_BAD_HANDLE
+    jne worker_failed
+    mov rax, [rbx + 3120]
+    mov [rbx + 3096], rax
+    cmp QWORD PTR [rbx + 3112], 1 ; nothing of a refused request was served
+    jne worker_failed
     mov edi, 42
     mov rsi, [rbx + 3072] ; the kernel releases the stack's reservation once this thread no longer runs on it
-    xor edx, edx
+    lea rdx, [rbx + 3080] ; and zeroes the word and sets the event
     CALL0 WIT_CALL_THREAD_EXIT
     ud2
 worker_failed:
@@ -196,6 +249,24 @@ thread_create2:
     mov esi, 48
     xor edx, edx
     CALL0 WIT_CALL_THREAD_CREATE
+    ret
+
+; Wait for one object with no deadline: rdi handle -> rax status.
+object_wait:
+    mov [rbx + 128 + 32], rdi
+    lea rax, [rbx + 128]
+    mov DWORD PTR [rax], WIT_WAIT_OBJECTS_VERSION
+    mov DWORD PTR [rax + 4], 32
+    lea r8, [rax + 32]
+    mov [rax + 8], r8
+    mov DWORD PTR [rax + 16], 1
+    mov DWORD PTR [rax + 20], 0
+    mov r8, WIT_WAIT_INFINITE
+    mov [rax + 24], r8
+    mov rdi, rax
+    mov esi, 32
+    xor edx, edx
+    CALL0 WIT_CALL_OBJECT_WAIT
     ret
 
 ; Wait for the thread, read its exit code and close the handle: rdi handle -> rax status, rdx exit code.

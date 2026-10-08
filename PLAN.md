@@ -1,6 +1,6 @@
 # План WitOS
 
-Обновлено: **2026-10-08**. Upstream .NET: **10.0.8**. Текущая реализация: user ABI v64, boot ABI v6, ядро и UHI для
+Обновлено: **2026-10-08**. Upstream .NET: **10.0.8**. Текущая реализация: user ABI v65, boot ABI v6, ядро и UHI для
 x64 (QEMU q35) и ARM64 (QEMU virt). Архитектурное решение: [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md).
 Прежний план с историей M0–M3, P1–P6.4, Q0–Q2, A0–A2 и T1 — в [архиве](@Docs/Implementation/Plan-Archive-2026-10-06.md);
 замороженная линия хоста P6.4 — в [P6.4-Plan.md](@Docs/Implementation/P6.4-Plan.md).
@@ -287,8 +287,16 @@ UHI для x64 и ARM64 (порт ARM64 стоил ~2 300 строк и пере
     исключённые тесты названы с причинами (потоки S2, сигналы S3, процессы S6, записываемые файлы D5, dlopen S5,
     rlimit/OOM, musl новее 1.2.5; math — позже); корневая задача получила ёмкости полного профиля (2048 страниц,
     32 резервации, окно 4 МиБ), `/dev/zero`; дифференциальный прогон против musl на Linux — с T2.
-- [ ] **S2** Потоки: pthreads над потоками ядра, эквивалент futex над событиями и ожиданиями; ELF TLS через FS;
-  `errno` на поток; `__cxa_thread_atexit`.
+- [x] **S2** Потоки ([S2-Threads.md](@Docs/Implementation/S2-Threads.md), ABI v65): `THREAD_EXIT` принимает запрос
+  выхода (`WitThreadExitRequest`: слово, которое ядро обнуляет, и событие, которое поднимает после остановки потока —
+  аналог `CLONE_CHILD_CLEARTID`, нужный списку потоков musl); `__clone` musl → `THREAD_CREATE` единой формы с
+  трамплином (TLS-база ядром на x64, `tpidr_el0` трамплином на ARM64), `__unmapself` → `THREAD_EXIT` с резервацией
+  стека, tid — номера библиотеки; futex — слоты ожидающих с собственными auto-reset-событиями под одной блокировкой
+  (пробуждение доходит только до ожидающих этого слова и не теряется; слово, которое ядро обнуляет при выходе, ждут на
+  одном событии), WAIT/WAKE/REQUEUE, абсолютные дедлайны через монотонные часы и UTC; `libc_hello` — 74 проверки
+  (mutex, cond, tsd, `__thread` и `errno` на поток, detached, semaphore), libc-test — ещё 6 pthread/tls-тестов на
+  обеих ISA. Квота ядра — 4 потока на процесс (прототип; `sem_init` и `tls_init` ждут её пересмотра, `pthread_mutex` —
+  процесса на тест); cancel/`pthread_kill` — с сигналами S3; `__cxa_thread_atexit` — с C++-рантаймом S4.
 - [ ] **S3** Минимальные сигналы (RFC-0011 §7.5, §9.3): синхронные (`SIGSEGV`, `SIGFPE`, `SIGILL`, `SIGBUS`, `SIGTRAP`)
   из доставки исключений ядра с `ucontext`; `pthread_kill` для инъекции активации через `THREAD_ACTIVATE`;
   `sigaltstack`; без терминальных и job-control сигналов.

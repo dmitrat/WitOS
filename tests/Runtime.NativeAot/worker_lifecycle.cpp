@@ -284,7 +284,8 @@ extern "C" int wit_runtime_worker_acceptance(Callback callback)
     check(wit_native_tls_code_pointer((WitU64)callback) != 0);
     check(!ThreadStore::GetCurrentThread()->IsCurrentThreadInCooperativeMode());
     check(wit_native_call(WIT_CALL_THREAD_EXIT, 0xBAD, 1, 0, nullptr) == WIT_STATUS_INVALID_ARGUMENT);
-    check(wit_native_call(WIT_CALL_THREAD_EXIT, 0xBAD, 0, 1, nullptr) == WIT_STATUS_INVALID_ARGUMENT);
+    /* The third argument is the exit request since S2.1 (ABI v65): an unreadable one is BAD_ADDRESS. */
+    check(wit_native_call(WIT_CALL_THREAD_EXIT, 0xBAD, 0, 1, nullptr) == WIT_STATUS_BAD_ADDRESS);
     State held = {};
     held.callback = callback;
     held.value = 199;

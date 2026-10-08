@@ -43,4 +43,14 @@ long __wit_getcwd(char *buffer, long size);
 long __wit_fcntl(long fd, long command, long argument);
 int __wit_is_file_descriptor(long fd);
 
+/* Threads and the futex equivalent (thread.c, futex.c, S2). */
+struct timespec;
+long __wit_gettid(void);
+long __wit_set_tid_address(int *address);
+long __wit_thread_exit(long code, WitU64 reservation);
+int __wit_is_exit_word(const volatile void *address);
+WitU64 __wit_futex_exit_event(void);
+long __wit_futex(
+    volatile int *address, int operation, int value, const struct timespec *timeout, volatile int *second, int third);
+
 #endif

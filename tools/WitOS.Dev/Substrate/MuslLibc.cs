@@ -56,8 +56,9 @@ internal static class MuslLibc
         "src/thread/x86_64/syscall_cp.s", "src/signal/x86_64/restore.s", "src/process/x86_64/vfork.s",
         "src/thread/aarch64/__unmapself.s", "src/thread/aarch64/clone.s", "src/thread/aarch64/syscall_cp.s",
         "src/signal/aarch64/restore.s", "src/process/aarch64/vfork.s",
-        // WitOS sets the x64 thread pointer through THREAD_SET_TLS (src/Substrate/libc/thread.c).
-        "src/thread/__set_thread_area.c"
+        // WitOS sets the x64 thread pointer through THREAD_SET_TLS, creates threads through THREAD_CREATE and ends them
+        // through THREAD_EXIT (src/Substrate/libc/thread.c), in place of the generic stubs.
+        "src/thread/__set_thread_area.c", "src/thread/clone.c", "src/thread/__unmapself.c"
     ];
 
     // The patched upstream files: the per-architecture system call stubs become calls into WitOS's dispatch.

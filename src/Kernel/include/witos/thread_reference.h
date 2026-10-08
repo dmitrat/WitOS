@@ -46,4 +46,18 @@ typedef struct WitThreadCreateRequest3 {
 WIT_STATIC_ASSERT(sizeof(WitThreadCreateRequest3) == 56, "Thread create request 3 ABI");
 
 WIT_STATIC_ASSERT(sizeof(WitThreadCreateRequest) == 48, "Thread create request ABI");
+
+/* The exit request (S2.1): THREAD_EXIT's third argument, zero or this structure. After the thread no longer runs,
+ * the kernel writes zero to the 4-byte word at ClearAddress (a writable user word, aligned) when it is nonzero and
+ * sets Event (an event handle of the caller's with SIGNAL) when it is nonzero: what a libc's thread list needs to
+ * learn that a thread is gone, as Linux's CLONE_CHILD_CLEARTID does. The request is validated whole before the
+ * exit, and a refused request returns. */
+#define WIT_THREAD_EXIT_VERSION 1U
+
+typedef struct WitThreadExitRequest {
+    WitU32 Version, Size;
+    WitU64 ClearAddress, Event;
+} WitThreadExitRequest;
+
+WIT_STATIC_ASSERT(sizeof(WitThreadExitRequest) == 24, "Thread exit request ABI");
 #endif

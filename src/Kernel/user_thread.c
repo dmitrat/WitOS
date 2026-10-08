@@ -245,6 +245,8 @@ static void start_thread(WitUserProcess *process, WitU32 index, WitUserThread *t
     thread->Tls = pages->Tls;
     thread->OwnsStack = 1;
     thread->ExitReservation = 0;
+    thread->ExitClear = 0;
+    thread->ExitEvent = 0;
     thread->ExitCode = 0;
     thread->Context = context;
     thread->WaitKind = WitWaitNone;
@@ -349,6 +351,8 @@ static WitU64 create_in(
     thread->CompilerTls = 0;
     thread->OwnsStack = 0;
     thread->ExitReservation = 0;
+    thread->ExitClear = 0;
+    thread->ExitEvent = 0;
     thread->ExitCode = 0;
     thread->Context = context;
     thread->WaitKind = WitWaitNone;

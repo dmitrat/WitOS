@@ -104,6 +104,7 @@ typedef struct WitUserThread {
      * caller's reservation and may name it at THREAD_EXIT for release once it no longer runs there (K5.2a). */
     WitU32 OwnsStack, Reserved2;
     WitU64 ExitReservation;
+    WitU64 ExitClear, ExitEvent; /* the exit request (S2.1): zeroed and set after the thread no longer runs */
     WitU64 Affinity; /* the processors the thread may run on (K7.1): bit n is processor n */
     WitU64 LibraryTls[WIT_LIBRARY_CAPACITY];
     WitU64 LibraryNotificationPage, LibraryNotificationHandles[2];
@@ -549,7 +550,7 @@ WitArchFrame *wit_user_call(WitUserCall *call);
 WitUserProcess *wit_user_current(void);
 WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code);
 WitArchFrame *wit_user_yield(void);
-WitArchFrame *wit_user_exit_thread(WitU64 code, WitU64 reservation);
+WitArchFrame *wit_user_exit_thread(WitU64 code, WitU64 reservation, WitU64 clear, WitU64 event);
 /* The reservation holding an address: its base and size, for a version 2 thread's stack and THREAD_EXIT. */
 int wit_user_space_reservation_bounds(const WitUserSpace *space, WitU64 address, WitU64 *base, WitU64 *size);
 WitU64 wit_user_close_handle(WitU64 handle);

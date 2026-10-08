@@ -275,11 +275,15 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
     (void)a5;
     (void)a6;
     switch (n) {
-    case SYS_exit:
     case SYS_exit_group:
         for (;;) {
             wit_syscall(WIT_CALL_PROCESS_EXIT, (WitU64)(a1 & 0xFF), 0, 0, &result);
         }
+    case SYS_exit: /* one thread (S2): the last thread's exit ends the process with its code */
+        return __wit_thread_exit(a1, 0);
+    case SYS_futex:
+        return __wit_futex(
+            (volatile int *)a1, (int)a2, (int)a3, (const struct timespec *)a4, (volatile int *)a5, (int)a6);
     case SYS_write:
         return __wit_is_file_descriptor(a1) ? __wit_write_file(a1, a3)
                                             : write_log(a1, (const void *)a2, (unsigned long)a3);
@@ -363,7 +367,9 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
         wit_syscall(WIT_CALL_THREAD_YIELD, 0, 0, 0, &result);
         return 0;
     case SYS_set_tid_address:
+        return __wit_set_tid_address((int *)a1);
     case SYS_gettid:
+        return __wit_gettid();
     case SYS_getpid:
         return TID;
     case SYS_getppid:
