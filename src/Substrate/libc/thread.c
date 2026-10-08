@@ -198,8 +198,7 @@ long __wit_thread_exit(long code, WitU64 reservation)
     char text[] = "[LIBC] the kernel refused a thread's exit: status 0x00\n";
     text[sizeof(text) - 4] = hex[(status >> 4) & 15];
     text[sizeof(text) - 3] = hex[status & 15];
-    wit_syscall(
-        WIT_CALL_DEBUG_WRITE, __wit_startup->Handles[WIT_ROOT_HANDLE_LOG], (WitU64)text, sizeof(text) - 1, &result);
+    wit_syscall(WIT_CALL_DEBUG_WRITE, __wit_process.Log, (WitU64)text, sizeof(text) - 1, &result);
     for (;;) {
         wit_syscall(WIT_CALL_PROCESS_EXIT, 128 + 6, 0, 0, &result); /* as an abort would report it */
     }

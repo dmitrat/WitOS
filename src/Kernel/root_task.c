@@ -39,7 +39,9 @@ int wit_root_task_create(WitUserProcess *process, WitPageAllocator *allocator, W
     startup->CodeBase = WIT_USER_CODE_BASE;
     startup->CodeLimit = WIT_USER_CODE_LIMIT;
     startup->PackageBytes = boot->StorageBytes;
-    startup->Handles[WIT_ROOT_HANDLE_LOG] = wit_handle_grant(&process->Handles, WIT_HANDLE_CONSOLE, WIT_RIGHT_WRITE);
+    /* The kernel log (S5.2): the root task's output, which it may delegate to the processes it starts. */
+    startup->Handles[WIT_ROOT_HANDLE_LOG] = wit_handle_grant(
+        &process->Handles, WIT_HANDLE_CONSOLE, WIT_RIGHT_WRITE | WIT_RIGHT_DUPLICATE | WIT_RIGHT_TRANSFER);
     if (wit_user_memory_object_adopt_extents(process, WIT_MEMORY_OBJECT_PACKAGE, boot->StorageExtents,
             boot->StorageExtentCount, boot->StorageBytes, &package)) {
         startup->Handles[WIT_ROOT_HANDLE_PACKAGE] = wit_handle_grant_object(&process->Handles, WIT_HANDLE_MEMORY_OBJECT,

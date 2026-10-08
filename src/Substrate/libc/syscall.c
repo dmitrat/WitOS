@@ -12,12 +12,12 @@
 
 /* The dispatch of Linux system calls over ABI-1 (plan step S1.1): what musl asks for, by number, becomes the
  * kernel's calls or an honest -ENOSYS. The standard descriptors are the kernel log: writes to 1 and 2 go through
- * DEBUG_WRITE on the startup descriptor's log handle, reads from 0 end the input, and TIOCGWINSZ succeeds so that
+ * DEBUG_WRITE on the process's log handle, reads from 0 end the input, and TIOCGWINSZ succeeds so that
  * musl line-buffers standard output and every line reaches the log whole. Files (S1.2, files.c), threads (S2,
  * thread.c, futex.c) and signals (S3, signal.c) have their own files; what none of them serves returns -ENOSYS and
  * nothing pretends to have succeeded. */
 
-#define LOG_HANDLE (__wit_startup->Handles[WIT_ROOT_HANDLE_LOG])
+#define LOG_HANDLE (__wit_process.Log)
 #define DEBUG_WRITE_MAX 65536UL /* WIT_DEBUG_WRITE_MAX of one call */
 #define TID 1L
 

@@ -21,9 +21,11 @@ internal static class BootPackage
     /// <param name="output">Output directory.</param>
     /// <param name="assemblies">Whether to include the unchanged guest assemblies.</param>
     /// <param name="nativeLibraries">Whether to include the native library fixtures.</param>
+    /// <param name="libcFiles">Whether to include the files the libc programs read.</param>
+    /// <param name="programs">Programs a root task starts from the package (S5.2): package paths and files.</param>
     /// <returns>Package bytes.</returns>
     internal static async Task<byte[]> BuildAsync(string root, string output, bool assemblies, bool nativeLibraries = false,
-        bool libcFiles = false)
+        bool libcFiles = false, IReadOnlyList<(string Name, string Source)>? programs = null)
     {
         var files = new List<(string Name, ReadOnlyMemory<byte> Bytes)>();
         var manifest = new List<object>();
@@ -123,6 +125,8 @@ internal static class BootPackage
             files.Add(("test/code.bin", code));
             manifest.Add(new { name = "test/code.bin", source = (string?)null, bytes = code.Length, sha256 = Convert.ToHexString(SHA256.HashData(code)).ToLowerInvariant() });
         }
+        foreach (var (name, source) in programs ?? [])
+            await Add(name, source);
         if (assemblies)
         {
             // The muxer in the .NET root, as dotnet is installed (P6.4.k1): the host runtime fixture.

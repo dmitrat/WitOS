@@ -250,8 +250,9 @@ static WitU64 duplicate_thread(WitUserProcess *p, WitU64 source, WitU64 output, 
     return WIT_STATUS_OK;
 }
 
-/* The clock capability (K6): the handle is the authority, with no record behind it; the same or fewer rights. */
-static WitU64 duplicate_clock(WitUserProcess *p, WitU64 source, WitU64 output, WitU64 requested)
+/* A capability that is the handle itself, with no record behind it — the clock (K6) and the kernel log (S5.2) — with
+ * the same or fewer rights. */
+static WitU64 duplicate_plain(WitUserProcess *p, WitU32 kind, WitU64 source, WitU64 output, WitU64 requested)
 {
     WitU64 object = 0, handle = 0;
     WitU32 granted = 0;
@@ -259,12 +260,12 @@ static WitU64 duplicate_clock(WitUserProcess *p, WitU64 source, WitU64 output, W
     if (requested & ~(WitU64)all) {
         return WIT_STATUS_UNSUPPORTED;
     }
-    const WitU64 status = wit_handle_check(&p->Handles, source, WIT_HANDLE_CLOCK, WIT_RIGHT_DUPLICATE);
+    const WitU64 status = wit_handle_check(&p->Handles, source, kind, WIT_RIGHT_DUPLICATE);
     if (status != WIT_STATUS_OK) {
         return status;
     }
-    if (!wit_handle_describe(&p->Handles, source, WIT_HANDLE_CLOCK, &object, &granted)) {
-        wit_panic("Clock handle lost its entry");
+    if (!wit_handle_describe(&p->Handles, source, kind, &object, &granted)) {
+        wit_panic("Capability handle lost its entry");
     }
     const WitU32 rights = requested ? (WitU32)requested : granted;
     if ((rights & granted) != rights) {
@@ -273,7 +274,7 @@ static WitU64 duplicate_clock(WitUserProcess *p, WitU64 source, WitU64 output, W
     if (!wit_user_buffer_writable(&p->Space, output, sizeof(handle))) {
         return WIT_STATUS_BAD_ADDRESS;
     }
-    handle = wit_handle_grant_object(&p->Handles, WIT_HANDLE_CLOCK, rights, object);
+    handle = wit_handle_grant_object(&p->Handles, kind, rights, object);
     if (!handle) {
         return WIT_STATUS_NO_MEMORY;
     }
@@ -306,7 +307,7 @@ static WitU64 duplicate_event(WitUserProcess *p, WitU64 source, WitU64 output, W
 }
 
 /* HANDLE_DUPLICATE: a thread handle (or WIT_THREAD_SELF), an event, a channel endpoint, a memory object, a device,
- * an interrupt binding or a pin, with the same or fewer rights. */
+ * an interrupt binding, a pin, a process, the clock or the kernel log, with the same or fewer rights. */
 WitU64 wit_user_handle_duplicate(WitUserProcess *p, WitU64 source, WitU64 output, WitU64 requested)
 {
     if (source == WIT_THREAD_SELF ||
@@ -332,7 +333,10 @@ WitU64 wit_user_handle_duplicate(WitUserProcess *p, WitU64 source, WitU64 output
         return wit_user_process_duplicate(p, source, output, requested);
     }
     if (wit_handle_check(&p->Handles, source, WIT_HANDLE_CLOCK, 0) != WIT_STATUS_WRONG_TYPE) {
-        return duplicate_clock(p, source, output, requested);
+        return duplicate_plain(p, WIT_HANDLE_CLOCK, source, output, requested);
+    }
+    if (wit_handle_check(&p->Handles, source, WIT_HANDLE_CONSOLE, 0) != WIT_STATUS_WRONG_TYPE) {
+        return duplicate_plain(p, WIT_HANDLE_CONSOLE, source, output, requested);
     }
     return duplicate_event(p, source, output, requested);
 }

@@ -50,6 +50,12 @@ internal static class CommandLine
         new CommandScenario("cxx", "Build the pinned LLVM C++ runtime over the libc and boot the C++ scenarios as the root task (S4)",
             KernelImageBuilder.CXX_SCENARIO,
             architecture => [new BootRequest("cxx-256", 256, 120, ExpectedOutcome.Success) { RequiredLines = [architecture.CxxPassedLine] }]),
+        new CommandScenario("spawn", "Build libwitos and boot a root task that starts static programs of the boot package (S5.2)",
+            KernelImageBuilder.SPAWN_SCENARIO,
+            architecture => [new BootRequest("spawn-256", 256, 60, ExpectedOutcome.Success)
+            {
+                RequiredLines = [architecture.SpawnChildLine, architecture.SpawnPassedLine]
+            }]),
         new CommandFormat(check: false),
         new CommandFormat(check: true),
         new CommandFingerprint(),

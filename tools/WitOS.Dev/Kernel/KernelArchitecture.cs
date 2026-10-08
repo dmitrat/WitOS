@@ -85,6 +85,17 @@ internal sealed record KernelArchitecture(string Name, string MsvcTarget, string
     public string CxxPassedLine => $"[CXX] C++ runtime on {Triple[..Triple.IndexOf('-')]}: ";
 
     /// <summary>
+    /// The line the root task of the spawn scenario prints when every started program ended as it should (S5.2).
+    /// </summary>
+    public string SpawnPassedLine => $"[SPAWN] static loader on {Triple[..Triple.IndexOf('-')]}: ";
+
+    /// <summary>
+    /// The first line of the program the spawn scenario starts: a static position-independent program relocated at its
+    /// start, with its arguments, in a process of its own (S5.2).
+    /// </summary>
+    public string SpawnChildLine => $"[CHILD] started on {Triple[..Triple.IndexOf('-')]} with 3 arguments";
+
+    /// <summary>
     /// Finds the MSVC tools that build this architecture.
     /// </summary>
     /// <param name="root">Repository root.</param>

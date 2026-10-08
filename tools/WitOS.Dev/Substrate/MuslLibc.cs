@@ -164,7 +164,8 @@ internal static class MuslLibc
         Directory.CreateDirectory(output);
         var generated = Path.Combine(output, "generated");
         var overlay = Path.Combine(output, "overlay");
-        var build = new LibcBuild(Path.Combine(output, "libc.a"), Path.Combine(output, "crt1.o"), Path.Combine(output, "static.ld"),
+        var build = new LibcBuild(Path.Combine(output, "libc.a"), Path.Combine(output, "crt1.o"), Path.Combine(output, "rcrt1.o"),
+            Path.Combine(output, "static.ld"),
             [overlay, Path.Combine(generated, "include"), Path.Combine(sources, "include"), Path.Combine(sources, "arch", arch),
                 Path.Combine(sources, "arch", "generic")]);
 
@@ -174,7 +175,8 @@ internal static class MuslLibc
             [VERSION, TARBALL_SHA256, Toolchain.LLVM_VERSION, architecture.Triple, .. architecture.ClangOptions, .. OMITTED,
                 .. patchTexts, .. sysdeps.Select(File.ReadAllText), string.Join(' ', LibcOptions(architecture, build.Includes, sources, generated))])))).ToLowerInvariant();
         var stampPath = Path.Combine(output, "stamp.txt");
-        if (File.Exists(build.Library) && File.Exists(build.Crt1) && File.Exists(build.LinkerScript) && File.Exists(stampPath) &&
+        if (File.Exists(build.Library) && File.Exists(build.Crt1) && File.Exists(build.Rcrt1) && File.Exists(build.LinkerScript) &&
+            File.Exists(stampPath) &&
             await File.ReadAllTextAsync(stampPath) == stamp)
             return build;
         File.Delete(stampPath);
@@ -202,6 +204,14 @@ internal static class MuslLibc
             "-I", Path.Combine(root, "src", "Sysroot", "include"), "-I", Path.Combine(root, "src", "Kernel", "include")];
         foreach (var file in sysdeps.Where(path => path.EndsWith(".c", StringComparison.Ordinal)))
         {
+            if (Path.GetFileName(file) == "rcrt1.c")
+            {
+                // The startup of a started program (S5.2) is musl's dlstart.c, compiled as musl compiles its startup
+                // files: the library's options with -DCRT and -fPIC.
+                await Processes.RequireSuccessAsync(clang,
+                    [.. options, "-DCRT", "-fPIC", "-I", Path.Combine(sources, "ldso"), "-c", file, "-o", build.Rcrt1], root);
+                continue;
+            }
             var obj = Path.Combine(objects, "witos_" + Path.GetFileNameWithoutExtension(file) + ".o");
             await Processes.RequireSuccessAsync(clang, [.. sysdepOptions, "-c", file, "-o", obj], root);
             if (Path.GetFileName(file) == "crt1.c")
@@ -286,6 +296,34 @@ internal static class MuslLibc
             "--gc-sections", "--eh-frame-hdr", "-e", "_start", "-T", build.LinkerScript, build.Crt1, .. objects, .. libraries ?? [],
             build.Library, builtins
         ], root);
+        return image;
+    }
+
+    /// <summary>
+    /// Links objects with rcrt1, libc.a and the compiler's builtins into a static position-independent executable, the
+    /// program another process starts (plan step S5.2, witos/start.h): ELF type ET_DYN with a dynamic section and no
+    /// interpreter, whose relocations are all relative ones, which musl's dlstart.c applies at the program's start.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="output">Directory for the executable.</param>
+    /// <param name="name">Program name (the executable is name.elf).</param>
+    /// <param name="objects">Object files.</param>
+    /// <param name="libraries">Archives linked between the objects and libc.a.</param>
+    /// <returns>Path of the executable.</returns>
+    public static async Task<string> LinkStartedProgramAsync(string root, KernelArchitecture architecture, string output, string name,
+        IEnumerable<string> objects, IEnumerable<string>? libraries = null)
+    {
+        var build = await BuildAsync(root, architecture);
+        var builtins = await CompilerRtBuiltins.BuildAsync(root, architecture, build.Includes.Skip(1));
+        var image = Path.Combine(output, name + ".elf");
+        await Processes.RequireSuccessAsync(Toolchain.Lld(root),
+        [
+            "-o", image, "-static", "-pie", "--no-dynamic-linker", "-z", "text", "--build-id=none", "-z", "max-page-size=4096",
+            "-z", "norelro", "--gc-sections", "--eh-frame-hdr", "-e", "_start", build.Rcrt1, .. objects, .. libraries ?? [],
+            build.Library, builtins
+        ], root);
+        StartedProgram.Validate(await File.ReadAllBytesAsync(image), architecture.ElfMachine);
         return image;
     }
 
@@ -452,8 +490,9 @@ internal static class MuslLibc
 /// The products of a libc build.
 /// </summary>
 /// <param name="Library">libc.a.</param>
-/// <param name="Crt1">WitOS's program startup object.</param>
+/// <param name="Crt1">WitOS's startup object of the root task.</param>
+/// <param name="Rcrt1">The startup object of a program another process starts: musl's dlstart.c and WitOS's start (S5.2).</param>
 /// <param name="LinkerScript">The linker script of a static program at the image window.</param>
 /// <param name="Includes">Include directories in search order: the patched overlay, the generated headers, musl's
 /// public headers, the architecture's bits and the generic bits.</param>
-internal sealed record LibcBuild(string Library, string Crt1, string LinkerScript, IReadOnlyList<string> Includes);
+internal sealed record LibcBuild(string Library, string Crt1, string Rcrt1, string LinkerScript, IReadOnlyList<string> Includes);

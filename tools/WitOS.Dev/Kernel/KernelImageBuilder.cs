@@ -38,6 +38,12 @@ internal static class KernelImageBuilder
     /// </summary>
     public const string CXX_SCENARIO = "cxx";
 
+    /// <summary>
+    /// The scenario whose root task starts a static program of the boot package in a new process with libwitos's
+    /// loader (plan step S5.2).
+    /// </summary>
+    public const string SPAWN_SCENARIO = "spawn";
+
     #endregion
 
     #region Fields
@@ -127,12 +133,15 @@ internal static class KernelImageBuilder
             await EmbedRuntimeImageAsync(root, output);
         }
 
+        // The programs a root task starts from the package (S5.2).
+        var programs = scenario == SPAWN_SCENARIO ? await Substrate.LibWitos.BuildProgramsAsync(root, output, architecture) : [];
         var bootPackage = await BootPackage.BuildAsync(root, output, scenario == "coreclr-storage", scenario == "coreclr-memory",
-            scenario == LIBC_SCENARIO);
+            scenario == LIBC_SCENARIO || scenario == SPAWN_SCENARIO, programs);
         // The root task's flat image (K4): every kernel, release or self-test, starts it from the boot disk.
         var rootTask = scenario == LIBC_SCENARIO ? await Substrate.MuslLibc.BuildRootAsync(root, output, architecture, "libc_hello.c")
             : scenario == LIBC_TEST_SCENARIO ? await Substrate.LibcTestSuite.BuildRootAsync(root, output, architecture)
             : scenario == CXX_SCENARIO ? await Substrate.LlvmRuntimes.BuildRootAsync(root, output, architecture)
+            : scenario == SPAWN_SCENARIO ? await Substrate.LibWitos.BuildRootAsync(root, output, architecture)
             : await UserImage.BuildRootAsync(root, output, architecture);
         if (scenario == "coreclr-storage")
         {
