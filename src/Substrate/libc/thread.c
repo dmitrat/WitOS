@@ -56,14 +56,20 @@ static WitU64 current_identity(void)
     return info.ThreadId;
 }
 
-static Thread *find_identity(WitU64 identity)
+static Thread *find_exact(WitU64 identity)
 {
     for (unsigned i = 0; i < THREADS; ++i) {
         if (threads[i].Tid && threads[i].Identity == identity) {
             return &threads[i];
         }
     }
-    return &threads[0]; /* a thread the library did not create runs as the main thread */
+    return 0;
+}
+
+static Thread *find_identity(WitU64 identity)
+{
+    Thread *thread = find_exact(identity);
+    return thread ? thread : &threads[0]; /* a thread the library did not create runs as the main thread */
 }
 
 static Thread *find_current(void)
@@ -162,12 +168,16 @@ long __wit_set_tid_address(int *address)
 
 /* The exit of the calling thread (SYS_exit, or __unmapself with the stack's reservation): the kernel clears the
  * thread's word and sets the exit word's event once the thread no longer runs. The record and the handle go first;
- * closing a reference never ends the thread. */
+ * closing a reference never ends the thread. The request and the reservation are the library's own, so a refused
+ * exit is a defect: the process ends with a report rather than spin in musl's exit loop without its record. */
 long __wit_thread_exit(long code, WitU64 reservation)
 {
     WitThreadExitRequest request;
     WitU64 result = 0;
-    Thread *thread = find_current();
+    Thread *thread = find_exact(current_identity());
+    if (!thread) {
+        thread = &threads[0];
+    }
     int *word = thread->ClearWord;
     request.Version = WIT_THREAD_EXIT_VERSION;
     request.Size = sizeof(request);
@@ -184,7 +194,15 @@ long __wit_thread_exit(long code, WitU64 reservation)
         memset(&thread->Signals, 0, sizeof(thread->Signals));
     }
     const WitU64 status = wit_syscall(WIT_CALL_THREAD_EXIT, (WitU64)code, reservation, (WitU64)&request, &result);
-    return __wit_errno(status); /* a refused exit returns to the caller, which loops on SYS_exit */
+    static const char hex[] = "0123456789abcdef";
+    char text[] = "[LIBC] the kernel refused a thread's exit: status 0x00\n";
+    text[sizeof(text) - 4] = hex[(status >> 4) & 15];
+    text[sizeof(text) - 3] = hex[status & 15];
+    wit_syscall(
+        WIT_CALL_DEBUG_WRITE, __wit_startup->Handles[WIT_ROOT_HANDLE_LOG], (WitU64)text, sizeof(text) - 1, &result);
+    for (;;) {
+        wit_syscall(WIT_CALL_PROCESS_EXIT, 128 + 6, 0, 0, &result); /* as an abort would report it */
+    }
 }
 
 /* musl's __clone(start, stack, flags, argument, parent tid, thread pointer, child tid word). */
@@ -274,9 +292,8 @@ int __clone(int (*function)(void *), void *stack, int flags, void *argument, ...
 void __unmapself(void *base, size_t size)
 {
     (void)size;
-    for (;;) {
-        __wit_thread_exit(0, (WitU64)base);
-    }
+    __wit_thread_exit(0, (WitU64)base);
+    __builtin_unreachable();
 }
 
 /* musl's cancellation point (pthread_cancel.c calls __syscall_cp_asm with the thread's cancel word): the flag is

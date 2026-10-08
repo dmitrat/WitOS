@@ -56,7 +56,7 @@ struct timespec;
 void __wit_thread_init(void);
 long __wit_gettid(void);
 long __wit_set_tid_address(int *address);
-long __wit_thread_exit(long code, WitU64 reservation);
+__attribute__((__noreturn__)) long __wit_thread_exit(long code, WitU64 reservation);
 int __wit_is_exit_word(const volatile void *address);
 WitU64 __wit_futex_exit_event(void);
 long __wit_futex(

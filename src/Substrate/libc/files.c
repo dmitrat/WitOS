@@ -15,7 +15,8 @@
  * library maps the header and the table once, read-only, and validates them as the kernel's loader does; a read
  * maps the window of the bytes it needs, copies and releases it, so a file of any size is readable through a
  * mapping of at most 64 pages. The namespace is the package's: "/" is its root, a name is a file, a prefix of a name
- * up to '/' is a directory, "/dev/null" and "/dev/zero" are the devices; nothing is writable (EROFS), there is no current
+ * up to '/' is a directory, "/dev/null" and "/dev/zero" are the devices, and "/dev/urandom" and "/dev/random" read the
+ * kernel's entropy (RANDOM; libc++'s random_device opens them, S4); nothing is writable (EROFS), there is no current
  * directory but "/" (S6 moves it to the library), and no symbolic links. Descriptors 3 and above are the files;
  * 0–2 stay the kernel log. */
 
@@ -36,7 +37,8 @@ typedef enum Kind {
     KindFile,
     KindDirectory,
     KindNull, /* /dev/null: reads nothing, accepts writes */
-    KindZero /* /dev/zero: reads zeros, accepts writes */
+    KindZero, /* /dev/zero: reads zeros, accepts writes */
+    KindRandom /* /dev/urandom and /dev/random: read the kernel's entropy, accept writes, as Linux's do */
 } Kind;
 
 typedef struct Descriptor {
@@ -222,6 +224,28 @@ static long normalize(const char *path, unsigned char *out, WitU32 *out_length)
 }
 
 /* The entry of a name, or the first entry under a directory's prefix; -1 when neither. */
+static int is_random_device(const unsigned char *name, WitU32 length)
+{
+    return (length == 11 && memcmp(name, "dev/urandom", 11) == 0) ||
+        (length == 10 && memcmp(name, "dev/random", 10) == 0);
+}
+
+/* The kernel's entropy, in as many calls as the per-call limit needs. */
+static long read_random(void *buffer, long bytes)
+{
+    long done = 0;
+    while (done < bytes) {
+        WitU64 result = 0;
+        const WitU64 count = (WitU64)(bytes - done) > WIT_ABI_MAX_RANDOM ? WIT_ABI_MAX_RANDOM : (WitU64)(bytes - done);
+        const WitU64 status = wit_syscall(WIT_CALL_RANDOM, (WitU64)buffer + (WitU64)done, count, 0, &result);
+        if (status != WIT_STATUS_OK || result == 0) {
+            return done ? done : __wit_errno(status);
+        }
+        done += (long)result;
+    }
+    return done;
+}
+
 static long lookup(const unsigned char *name, WitU32 length, Kind *kind, WitU32 *index)
 {
     if (length == 0) {
@@ -353,6 +377,9 @@ long __wit_openat(long dirfd, const char *path, long flags, long mode)
     if (length == 8 && memcmp(name, "dev/zero", 8) == 0) {
         return open_descriptor(KindZero, 0, 0, (int)flags);
     }
+    if (is_random_device(name, length)) {
+        return open_descriptor(KindRandom, 0, 0, (int)flags);
+    }
     if ((flags & O_ACCMODE) != O_RDONLY) {
         return -EROFS;
     }
@@ -430,6 +457,9 @@ long __wit_read(long fd, void *buffer, long bytes)
         memset(buffer, 0, (unsigned long)bytes);
         return bytes;
     }
+    if (d->Kind == KindRandom) {
+        return read_random(buffer, bytes);
+    }
     const long read = read_file(d, buffer, (WitU64)bytes, d->Offset);
     if (read > 0) {
         d->Offset += (WitU64)read;
@@ -455,6 +485,9 @@ long __wit_pread(long fd, void *buffer, long bytes, long offset)
     if (d->Kind == KindZero) {
         memset(buffer, 0, (unsigned long)bytes);
         return bytes;
+    }
+    if (d->Kind == KindRandom) {
+        return read_random(buffer, bytes);
     }
     return read_file(d, buffer, (WitU64)bytes, (WitU64)offset);
 }
@@ -487,7 +520,8 @@ long __wit_write_file(long fd, long bytes)
     if (!d) {
         return -EBADF;
     }
-    return d->Kind == KindNull || d->Kind == KindZero ? bytes : -EBADF; /* files are read-only descriptors */
+    /* Files are read-only descriptors; the devices accept writes. */
+    return d->Kind == KindNull || d->Kind == KindZero || d->Kind == KindRandom ? bytes : -EBADF;
 }
 
 long __wit_lseek(long fd, long offset, long whence)
@@ -580,7 +614,8 @@ long __wit_fstatat(long dirfd, const char *path, struct kstat *st, long flags)
     if ((status = resolve(dirfd, path, name, &length)) < 0) {
         return status;
     }
-    if (length == 8 && (memcmp(name, "dev/null", 8) == 0 || memcmp(name, "dev/zero", 8) == 0)) {
+    if ((length == 8 && (memcmp(name, "dev/null", 8) == 0 || memcmp(name, "dev/zero", 8) == 0)) ||
+        is_random_device(name, length)) {
         fill_stat(st, KindNull, 0, 0);
         return 0;
     }
@@ -614,7 +649,8 @@ long __wit_faccessat(long dirfd, const char *path, long mode)
     if ((status = resolve(dirfd, path, name, &length)) < 0) {
         return status;
     }
-    if (length == 8 && (memcmp(name, "dev/null", 8) == 0 || memcmp(name, "dev/zero", 8) == 0)) {
+    if ((length == 8 && (memcmp(name, "dev/null", 8) == 0 || memcmp(name, "dev/zero", 8) == 0)) ||
+        is_random_device(name, length)) {
         return 0;
     }
     if ((status = lookup(name, length, &kind, &index)) < 0) {

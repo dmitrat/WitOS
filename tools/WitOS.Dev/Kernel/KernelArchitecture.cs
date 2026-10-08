@@ -80,6 +80,11 @@ internal sealed record KernelArchitecture(string Name, string MsvcTarget, string
     public string LibcTestPassedLine => $"[LIBC-TEST] musl {Substrate.MuslLibc.VERSION} on {Triple[..Triple.IndexOf('-')]}: all ";
 
     /// <summary>
+    /// The line the C++ program of the cxx scenario prints when its checks ran (S4).
+    /// </summary>
+    public string CxxPassedLine => $"[CXX] C++ runtime on {Triple[..Triple.IndexOf('-')]}: ";
+
+    /// <summary>
     /// Finds the MSVC tools that build this architecture.
     /// </summary>
     /// <param name="root">Repository root.</param>

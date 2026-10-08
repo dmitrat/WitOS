@@ -1151,7 +1151,7 @@ int wit_user_space_reservation_bounds(const WitUserSpace *space, WitU64 address,
     *size = 0;
     for (WitU32 i = 0; i < space->ReservationLimit; ++i) {
         const WitUserReservation *r = &space->Reservations[i];
-        if (r->Size && address >= r->Base && address - r->Base <= r->Size) {
+        if (r->Size && address >= r->Base && address - r->Base < r->Size) {
             *base = r->Base;
             *size = r->Size;
             return 1;

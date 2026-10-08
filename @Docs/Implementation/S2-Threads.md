@@ -68,7 +68,8 @@ within the root task's quota of sixteen; the private flag changes nothing and pr
   deadlocked on a mutex of a returned stack frame by design, which the next test's frames then overwrite — both
   wait for the process per test.
 - No cancellation or `pthread_kill` (signals, S3), no robust or priority-inheriting mutexes (`ENOSYS`), no
-  `set_robust_list`; `clone` serves threads of this process alone, never a new address space.
+  `set_robust_list`; `clone` serves threads of this process alone, never a new address space. `__cxa_thread_atexit`
+  arrived with the C++ runtime (S4, libc++abi's fallback over pthread keys).
 - Eight futex slots: a ninth concurrent waiter (impossible with the kernel's four threads) gets `ENOMEM`, which
   musl's loops treat as a spurious wake-up. The exit word's waiters share one event, so a wake of that word with
   several parked wakes one of them, who wakes the next (musl's protocol). The slot lock spins with `THREAD_YIELD`.

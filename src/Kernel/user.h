@@ -556,7 +556,9 @@ WitUserProcess *wit_user_current(void);
 WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code);
 WitArchFrame *wit_user_yield(void);
 WitArchFrame *wit_user_exit_thread(WitU64 code, WitU64 reservation, WitU64 clear, WitU64 event);
-/* The reservation holding an address: its base and size, for a version 2 thread's stack and THREAD_EXIT. */
+/* The reservation holding an address, strictly inside [base, base + size): its base and size, for a version 2
+ * thread's stack (looked up by the byte below the stack pointer, since a stack's top is the next reservation's base
+ * when two lie side by side) and THREAD_EXIT (by the base itself). */
 int wit_user_space_reservation_bounds(const WitUserSpace *space, WitU64 address, WitU64 *base, WitU64 *size);
 WitU64 wit_user_close_handle(WitU64 handle);
 WitArchFrame *wit_user_timer_tick(WitArchFrame *frame);

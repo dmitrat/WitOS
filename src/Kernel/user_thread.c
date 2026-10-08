@@ -310,7 +310,9 @@ static WitU64 create_in(
     if (!wit_user_space_physical(&target->Space, request->Entry, 0, 1)) {
         return WIT_STATUS_BAD_ADDRESS;
     }
-    if (!wit_user_space_reservation_bounds(&target->Space, request->StackPointer, &base, &bytes) ||
+    /* The reservation of the byte below the stack pointer: a stack's top may be another reservation's base. */
+    if (!request->StackPointer ||
+        !wit_user_space_reservation_bounds(&target->Space, request->StackPointer - 1, &base, &bytes) ||
         request->StackPointer <= base ||
         !wit_user_space_physical(&target->Space, request->StackPointer - 8, 1, 0)) {
         return WIT_STATUS_BAD_ADDRESS;
