@@ -26,7 +26,7 @@ internal static class CommandLine
     private static readonly IReadOnlyList<ICommand> COMMANDS =
     [
         new CommandDoctor(),
-        new CommandAction("setup", "Download and verify pinned QEMU and clang into .tools", Toolchain.SetupAsync),
+        new CommandAction("setup", "Download and verify pinned QEMU, clang and musl into .tools", Toolchain.SetupAsync),
         new CommandArchitecture("build", "Build the UEFI image (no VM)",
             (root, architecture) => KernelImageBuilder.BuildAsync(root, "boot", architecture: architecture)),
         new CommandScenario("run", "Build and boot headlessly in QEMU", "boot",
@@ -41,6 +41,9 @@ internal static class CommandLine
             new BootRequest("release-128", 128, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release },
             new BootRequest("release-512", 512, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release }
         ]),
+        new CommandScenario("libc", "Build the pinned musl over ABI-1 and boot the first libc program as the root task (S1.1)",
+            KernelImageBuilder.LIBC_SCENARIO,
+            [new BootRequest("libc-256", 256, 60, ExpectedOutcome.Success) { RequiredLines = [KernelArchitecture.X64.LibcPassedLine] }]),
         new CommandFormat(check: false),
         new CommandFormat(check: true),
         new CommandFingerprint(),

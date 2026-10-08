@@ -260,6 +260,22 @@ UHI для x64 и ARM64 (порт ARM64 стоил ~2 300 строк и пере
 - [ ] **S1** libc: musl по пину с патчами через `UpstreamPatches`; `sysdeps` над ABI-1: память (`mmap`/`mprotect`/`madvise`
   над reserve/commit), файлы (сначала read-only пакет), время, случайность, выход; libc-test из musl и дифференциальные
   тесты против musl на Linux, где это возможно.
+  - [x] **S1.1** musl над ABI-1 ([S1.1-Musl-Over-ABI-1.md](@Docs/Implementation/S1.1-Musl-Over-ABI-1.md)): релиз 1.2.5 по
+    хэшу тарбола (`setup` качает и распаковывает в `.tools/musl-1.2.5`), сборка средствами WitOS.Dev по правилам Makefile
+    musl (выбор источников, генерация `bits/alltypes.h`, `bits/syscall.h`, `version.h`, флаги musl плюс `-fPIE` и
+    `-ffixed-x18`) запинованным clang для обоих триплетов, `libc.a` через llvm-ar; два патча `patches/musl`
+    (`syscall_arch.h` x86_64 и aarch64: inline-stubs → `__wit_syscall`, без vDSO); ассемблер Linux-вызовов опущен в пользу
+    generic C; soft-float builtins binary128 для aarch64 — подмножество compiler-rt по хэшу на теге тулчейна
+    (`src/Substrate/compiler-rt.lock.json`, `builtins.a` после `libc.a`); sysdeps `src/Substrate/libc` — диспетчер Linux-номеров над ABI-1 (выход, запись в журнал ядра с объединением
+    векторов, TIOCGWINSZ, mmap/munmap/mprotect/madvise над reserve/commit/protect/decommit/reset, часы, сон, случайность,
+    yield, идентичность, uname, `arch_prctl` → `THREAD_SET_TLS`; остальное — честный `ENOSYS`), `crt1` со стеком argc/argv/
+    auxv (`AT_PHDR` из заголовков ELF в первом сегменте, `AT_RANDOM` из ядра), `static.ld`; первая программа
+    `tests/User/libc_hello.c` (32 проверки: stdio, malloc/qsort, строки, конверсии, setjmp, mmap, часы, `nanosleep`,
+    `getrandom`, `__thread`, `isatty`, `uname`, `atexit`) — корневая задача сценария `libc` обеих ISA; команда `libc`.
+  - [ ] **S1.2** Файлы над read-only пакетом: `open`/`read`/`pread`/`lseek`/`fstat`/`stat`/`close`/`getdents64` над объектом
+    пакета (формат `witos/package.h` разбирается в sysdeps), `/dev/null`; stdio чтения в тесте.
+  - [ ] **S1.3** Приёмка: подмножество libc-test (string, stdio, stdlib, math, time, ctype) как корневая задача на обеих ISA;
+    дифференциальный прогон против musl на Linux — вместе с Linux-хостом сборки (T2).
 - [ ] **S2** Потоки: pthreads над потоками ядра, эквивалент futex над событиями и ожиданиями; ELF TLS через FS;
   `errno` на поток; `__cxa_thread_atexit`.
 - [ ] **S3** Минимальные сигналы (RFC-0011 §7.5, §9.3): синхронные (`SIGSEGV`, `SIGFPE`, `SIGILL`, `SIGBUS`, `SIGTRAP`)

@@ -51,10 +51,18 @@ jobs:
           path: .tools/downloads/LLVM-20.1.8-win64.exe
           key: llvm-20.1.8-win64-3197846a2b190636
 
+      - name: Cache pinned musl tarball and compiler-rt builtins
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .tools/downloads/musl-1.2.5.tar.gz
+            .tools/compiler-rt
+          key: substrate-pins-${{ hashFiles('src/Substrate/compiler-rt.lock.json') }}-musl-1.2.5
+
       - name: Check source formatting
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- format-check
 
-      - name: Extract verified QEMU and clang
+      - name: Extract verified QEMU, clang and musl
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
 
       - name: Check environment
@@ -131,10 +139,18 @@ jobs:
           path: .tools/downloads/LLVM-20.1.8-win64.exe
           key: llvm-20.1.8-win64-3197846a2b190636
 
+      - name: Cache pinned musl tarball and compiler-rt builtins
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .tools/downloads/musl-1.2.5.tar.gz
+            .tools/compiler-rt
+          key: substrate-pins-${{ hashFiles('src/Substrate/compiler-rt.lock.json') }}-musl-1.2.5
+
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
 
-      - name: Extract verified QEMU and clang
+      - name: Extract verified QEMU, clang and musl
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
 
       - name: ARM64 boot-only scenarios on QEMU virt
