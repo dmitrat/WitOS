@@ -4,8 +4,9 @@ include user_abi.inc
 ; Root task fixture (RFC 0011 v3 section 7.11, plan step K4): the first component the kernel starts from the boot
 ; disk's flat image, with nothing but its startup descriptor (witos/root.h) in RCX. It checks the descriptor,
 ; writes to the kernel log through the log handle, maps the first page of the boot package and checks its magic,
-; maps the device table and checks that the board published devices, then exits with the test code. The data
-; page holds the map request at 16, the log lines at 256 and the status of a failed check at 1304.
+; maps the device table and checks that the board published devices, reads UTC and sets it through the clock
+; capability (K6), then exits with the test code. The data page holds the map request at 16, the log lines at 256
+; and the status of a failed check at 1304.
 
 EXPECT MACRO value
     inc QWORD PTR [rbx + 1312]
@@ -63,7 +64,7 @@ wit_user_start PROC
     jne failed
     cmp QWORD PTR [r15 + 48], 0 ; PackageBytes
     je failed
-    cmp DWORD PTR [r15 + 56], 3 ; HandleCount: the log, the package and the device table
+    cmp DWORD PTR [r15 + 56], 4 ; HandleCount: the log, the package, the device table and the clock
     jb failed
     ; "[ROOT] started" through the log handle.
     mov DWORD PTR [rbx + 256], 4F4F525Bh ; "[ROO"
@@ -102,6 +103,47 @@ wit_user_start PROC
     mov DWORD PTR [rbx + 276], 63697665h ; "evic"
     mov DWORD PTR [rbx + 280], 0A207365h ; "es \n"
     LOG 28
+    ; UTC (K6): its frequency, a plausible reading, a set through the clock capability that the next reading
+    ; continues from, and the refusals of another handle and of the monotonic clock.
+    mov ecx, WIT_CLOCK_UTC
+    xor edx, edx
+    xor r8d, r8d
+    CALL0 WIT_CALL_CLOCK_FREQUENCY
+    EXPECT WIT_STATUS_OK
+    mov rax, 1000000000
+    cmp rdx, rax
+    jne failed
+    mov ecx, WIT_CLOCK_UTC
+    xor edx, edx
+    xor r8d, r8d
+    CALL0 WIT_CALL_CLOCK_READ
+    EXPECT WIT_STATUS_OK
+    mov rax, 1767225600000000000 ; 2026-01-01
+    cmp rdx, rax
+    jb failed
+    mov rcx, [r15 + 64 + 8 * WIT_ROOT_HANDLE_CLOCK]
+    mov edx, WIT_CLOCK_UTC
+    mov r8, 1893456000000000000 ; 2030-01-01
+    CALL0 WIT_CALL_CLOCK_SET
+    EXPECT WIT_STATUS_OK
+    mov ecx, WIT_CLOCK_UTC
+    xor edx, edx
+    xor r8d, r8d
+    CALL0 WIT_CALL_CLOCK_READ
+    EXPECT WIT_STATUS_OK
+    mov rax, 1893456000000000000
+    cmp rdx, rax
+    jb failed
+    mov rcx, [r15 + 64 + 8 * WIT_ROOT_HANDLE_LOG]
+    mov edx, WIT_CLOCK_UTC
+    mov r8, 1893456000000000000
+    CALL0 WIT_CALL_CLOCK_SET
+    EXPECT WIT_STATUS_WRONG_TYPE
+    mov rcx, [r15 + 64 + 8 * WIT_ROOT_HANDLE_CLOCK]
+    mov edx, WIT_CLOCK_MONOTONIC
+    mov r8, 1893456000000000000
+    CALL0 WIT_CALL_CLOCK_SET
+    EXPECT WIT_STATUS_INVALID_ARGUMENT
     xor ecx, ecx ; a root task exits with zero; the kernel treats anything else as failure
     jmp exit_process
 

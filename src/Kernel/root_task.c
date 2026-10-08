@@ -50,11 +50,15 @@ int wit_root_task_create(WitUserProcess *process, WitPageAllocator *allocator, W
     }
     startup->Handles[WIT_ROOT_HANDLE_DEVICES] = wit_user_device_table_grant(
         process, WIT_RIGHT_MAP | WIT_RIGHT_QUERY | WIT_RIGHT_DUPLICATE | WIT_RIGHT_TRANSFER | WIT_RIGHT_ACQUIRE);
-    startup->HandleCount = 3;
+    /* The clock capability (K6): the authority to set UTC, the root task's to keep or to hand on. */
+    startup->Handles[WIT_ROOT_HANDLE_CLOCK] = wit_handle_grant(
+        &process->Handles, WIT_HANDLE_CLOCK, WIT_RIGHT_WRITE | WIT_RIGHT_DUPLICATE | WIT_RIGHT_TRANSFER);
+    startup->HandleCount = 4;
     (void)table;
     if (!startup->Handles[WIT_ROOT_HANDLE_LOG] ||
         !startup->Handles[WIT_ROOT_HANDLE_PACKAGE] ||
-        !startup->Handles[WIT_ROOT_HANDLE_DEVICES]) {
+        !startup->Handles[WIT_ROOT_HANDLE_DEVICES] ||
+        !startup->Handles[WIT_ROOT_HANDLE_CLOCK]) {
         wit_user_destroy(process);
         return 0;
     }

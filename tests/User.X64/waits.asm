@@ -165,11 +165,14 @@ clock_test:
     CLOCK_FREQUENCY
     test rdx, rdx ; the monotonic clock reports its frequency
     je failed
-    mov ecx, WIT_CLOCK_UTC ; UTC arrives with plan step K6
+    mov ecx, WIT_CLOCK_UTC ; UTC (K6): nanoseconds since 1970, past 2026-01-01 on a board whose clock is set
     xor edx, edx
     xor r8d, r8d
     CALL0 WIT_CALL_CLOCK_READ
-    EXPECT WIT_STATUS_UNSUPPORTED
+    EXPECT WIT_STATUS_OK
+    mov rax, 1767225600000000000
+    cmp rdx, rax
+    jb failed
     mov ecx, 2 ; no third clock
     xor edx, edx
     xor r8d, r8d

@@ -1,11 +1,12 @@
 {
   "name": "kernel-selftest-shared",
-  "description": "Architecture-independent kernel self-tests shared by every target: the physical page allocator.",
+  "description": "Architecture-independent kernel self-tests shared by every target: the physical page allocator and the UTC clock.",
   "includes": [
     "tests/Kernel"
   ],
   "sources": [
-    "tests/Kernel/memory_tests.c"
+    "tests/Kernel/memory_tests.c",
+    "tests/Kernel/clock_tests.c"
   ],
   "assembly": []
 }

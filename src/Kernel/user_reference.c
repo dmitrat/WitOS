@@ -249,6 +249,39 @@ static WitU64 duplicate_thread(WitUserProcess *p, WitU64 source, WitU64 output, 
     return WIT_STATUS_OK;
 }
 
+/* The clock capability (K6): the handle is the authority, with no record behind it; the same or fewer rights. */
+static WitU64 duplicate_clock(WitUserProcess *p, WitU64 source, WitU64 output, WitU64 requested)
+{
+    WitU64 object = 0, handle = 0;
+    WitU32 granted = 0;
+    const WitU32 all = WIT_RIGHT_WRITE | WIT_RIGHT_DUPLICATE | WIT_RIGHT_TRANSFER;
+    if (requested & ~(WitU64)all) {
+        return WIT_STATUS_UNSUPPORTED;
+    }
+    const WitU64 status = wit_handle_check(&p->Handles, source, WIT_HANDLE_CLOCK, WIT_RIGHT_DUPLICATE);
+    if (status != WIT_STATUS_OK) {
+        return status;
+    }
+    if (!wit_handle_describe(&p->Handles, source, WIT_HANDLE_CLOCK, &object, &granted)) {
+        wit_panic("Clock handle lost its entry");
+    }
+    const WitU32 rights = requested ? (WitU32)requested : granted;
+    if ((rights & granted) != rights) {
+        return WIT_STATUS_DENIED;
+    }
+    if (!wit_user_buffer_writable(&p->Space, output, sizeof(handle))) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    handle = wit_handle_grant_object(&p->Handles, WIT_HANDLE_CLOCK, rights, object);
+    if (!handle) {
+        return WIT_STATUS_NO_MEMORY;
+    }
+    if (!wit_user_copy_to(&p->Space, output, (const WitU8 *)&handle, sizeof(handle))) {
+        wit_panic("Validated duplicate output changed");
+    }
+    return WIT_STATUS_OK;
+}
+
 static WitU64 duplicate_event(WitUserProcess *p, WitU64 source, WitU64 output, WitU64 requested)
 {
     WitU64 handle = 0;
@@ -296,6 +329,9 @@ WitU64 wit_user_handle_duplicate(WitUserProcess *p, WitU64 source, WitU64 output
     }
     if (wit_user_process_handle(p, source)) {
         return wit_user_process_duplicate(p, source, output, requested);
+    }
+    if (wit_handle_check(&p->Handles, source, WIT_HANDLE_CLOCK, 0) != WIT_STATUS_WRONG_TYPE) {
+        return duplicate_clock(p, source, output, requested);
     }
     return duplicate_event(p, source, output, requested);
 }

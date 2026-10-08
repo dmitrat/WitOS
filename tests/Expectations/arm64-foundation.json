@@ -12,6 +12,7 @@
     "[TEST-PASS] Random.ChaCha20Vector",
     "[TEST-PASS] Clock.Counter64",
     "[TEST-PASS] Clock.IrqIndependent",
+    "[TEST-PASS] Clock.Utc",
     "[TEST-PASS] Memory.PhysicalPages",
     "[TEST-PASS] Memory.Exhaustion",
     "[TEST-PASS] Memory.InvalidMaps",

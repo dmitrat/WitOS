@@ -79,8 +79,8 @@ wit_user_start PROC
     b.ne failed
     ldr x9, [x20, #48] ; PackageBytes
     cbz x9, failed
-    ldr w9, [x20, #56] ; HandleCount: the log, the package and the device table
-    cmp w9, #3
+    ldr w9, [x20, #56] ; HandleCount: the log, the package, the device table and the clock
+    cmp w9, #4
     b.lo failed
     ; "[ROOT] started" through the log handle.
     ldr w9, =0x4F4F525B ; "[ROO"
@@ -135,6 +135,47 @@ wit_user_start PROC
     ldr w9, =0x0A207365 ; "es \n"
     str w9, [x22, #280]
     LOG 28
+    ; UTC (K6): its frequency, a plausible reading, a set through the clock capability that the next reading
+    ; continues from, and the refusals of another handle and of the monotonic clock.
+    mov x0, #WIT_CLOCK_UTC
+    mov x1, #0
+    mov x2, #0
+    SYSCALL WIT_CALL_CLOCK_FREQUENCY
+    EXPECT WIT_STATUS_OK
+    ldr x10, =1000000000
+    cmp x1, x10
+    b.ne failed
+    mov x0, #WIT_CLOCK_UTC
+    mov x1, #0
+    mov x2, #0
+    SYSCALL WIT_CALL_CLOCK_READ
+    EXPECT WIT_STATUS_OK
+    ldr x10, =1767225600000000000 ; 2026-01-01
+    cmp x1, x10
+    b.lo failed
+    ldr x0, [x20, #(64 + 8 * WIT_ROOT_HANDLE_CLOCK)]
+    mov x1, #WIT_CLOCK_UTC
+    ldr x2, =1893456000000000000 ; 2030-01-01
+    SYSCALL WIT_CALL_CLOCK_SET
+    EXPECT WIT_STATUS_OK
+    mov x0, #WIT_CLOCK_UTC
+    mov x1, #0
+    mov x2, #0
+    SYSCALL WIT_CALL_CLOCK_READ
+    EXPECT WIT_STATUS_OK
+    ldr x10, =1893456000000000000
+    cmp x1, x10
+    b.lo failed
+    ldr x0, [x20, #(64 + 8 * WIT_ROOT_HANDLE_LOG)]
+    mov x1, #WIT_CLOCK_UTC
+    ldr x2, =1893456000000000000
+    SYSCALL WIT_CALL_CLOCK_SET
+    EXPECT WIT_STATUS_WRONG_TYPE
+    ldr x0, [x20, #(64 + 8 * WIT_ROOT_HANDLE_CLOCK)]
+    mov x1, #WIT_CLOCK_MONOTONIC
+    ldr x2, =1893456000000000000
+    SYSCALL WIT_CALL_CLOCK_SET
+    EXPECT WIT_STATUS_INVALID_ARGUMENT
     mov x0, #0 ; a root task exits with zero; the kernel treats anything else as failure
     b exit_process
 
