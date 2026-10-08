@@ -59,8 +59,11 @@ wit_user_start PROC
     jne failed
     cmp DWORD PTR [rbx + 76], 1 ; Count
     jb failed
-    cmp DWORD PTR [rbx + 80], 1 ; Online
-    jne failed
+    mov eax, [rbx + 80] ; Online: at least the boot processor, at most the count
+    cmp eax, 1
+    jb failed
+    cmp eax, [rbx + 76]
+    ja failed
     cmp DWORD PTR [rbx + 88 + 8], WIT_PROCESSOR_ONLINE + WIT_PROCESSOR_BOOT ; the first record's flags
     jne failed
     cmp WORD PTR [rbx + 88 + 14], 0 ; its number

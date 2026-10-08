@@ -66,11 +66,11 @@ internal static class KernelTestSuite
         var image = await KernelImageBuilder.BuildAsync(root, "boot");
         await BootScenarioRunner.RunAsync(root, image, new BootRequest("boot-128", 128, 60, ExpectedOutcome.Success));
         await BootScenarioRunner.RunAsync(root, image, new BootRequest("boot-512", 512, 60, ExpectedOutcome.Success));
-        // Two processors: the table names both, the boot processor alone is online (K7.1).
+        // Two processors: the table names both and both come online, the second idling for inter-processor interrupts (K7.2).
         await BootScenarioRunner.RunAsync(root, image, new BootRequest("boot-smp2", 256, 60, ExpectedOutcome.Success)
         {
             Processors = 2,
-            RequiredLines = ["Processors present/online: 2/1"]
+            RequiredLines = ["Processors present/online: 2/2"]
         });
         await BootScenarioRunner.RunAsync(root, image,
             new BootRequest("boot-intel", 256, 60, ExpectedOutcome.Success) { CpuModel = "Nehalem" });
@@ -116,7 +116,7 @@ internal static class KernelTestSuite
             Request("boot-smp2", 256, FOUNDATION_TIMEOUT, ExpectedOutcome.Success) with
             {
                 Processors = 2,
-                RequiredLines = ["Processors present/online: 2/1"]
+                RequiredLines = ["Processors present/online: 2/2"]
             });
         var panic = await KernelImageBuilder.BuildAsync(root, "invalid-boot-info", architecture: architecture);
         await BootScenarioRunner.RunAsync(root, panic,

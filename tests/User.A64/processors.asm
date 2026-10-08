@@ -71,9 +71,12 @@ wit_user_start PROC
     ldr w9, [x22, #76] ; Count
     cmp w9, #1
     b.lo failed
-    ldr w9, [x22, #80] ; Online
+    ldr w9, [x22, #80] ; Online: at least the boot processor, at most the count
     cmp w9, #1
-    b.ne failed
+    b.lo failed
+    ldr w10, [x22, #76]
+    cmp w9, w10
+    b.hi failed
     ldr w9, [x22, #(88 + 8)] ; the first record's flags
     cmp w9, #(WIT_PROCESSOR_ONLINE + WIT_PROCESSOR_BOOT)
     b.ne failed

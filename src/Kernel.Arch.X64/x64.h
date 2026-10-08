@@ -97,6 +97,16 @@ void wit_x64_fxsave(void *state);
 WitU64 wit_x64_read_flags(void);
 WIT_NORETURN void wit_x64_worker(WitU32 index);
 void wit_x64_load_tables(const WitDescriptorPointer *gdt, const WitDescriptorPointer *idt);
+void wit_x64_tables(const WitDescriptorPointer **gdt, const WitDescriptorPointer **idt);
+/* Secondary processors (K7.2): secondary.c, secondary_entry.asm. */
+void wit_x64_secondary_entry(void);
+void wit_x64_ipi_entry(void);
+extern WitU32 wit_x64_ipi_vector;
+extern WitU64 wit_x64_boot_cr0, wit_x64_boot_cr4;
+int wit_x64_lapic_enabled(void);
+WIT_NORETURN void wit_x64_secondary_main(WitU32 index);
+WitInterruptContext *wit_x64_ipi_interrupt(WitInterruptContext *context);
+void wit_x64_page_executable(WitU64 address);
 WitU64 wit_x64_stack_pointer(void);
 WIT_NORETURN void wit_x64_exception(const WitExceptionFrame *frame, WitU64 fault_address);
 void wit_x64_trigger_breakpoint(void);

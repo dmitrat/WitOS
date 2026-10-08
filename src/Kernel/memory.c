@@ -118,6 +118,28 @@ int wit_page_free(WitPageAllocator *allocator, WitU64 physical_address)
     return 1;
 }
 
+/* Takes one named eligible free page: the start of secondary processors (K7.2) needs a page below 1 MiB. */
+int wit_page_claim(WitPageAllocator *allocator, WitU64 physical_address)
+{
+    WitU64 page;
+    WitU64 mask;
+    if (allocator == 0 ||
+        !allocator->Initialized ||
+        physical_address == 0 ||
+        physical_address >= WIT_PHYSICAL_LIMIT ||
+        (physical_address & (WIT_PAGE_SIZE - 1)) != 0) {
+        return 0;
+    }
+    page = physical_address / WIT_PAGE_SIZE;
+    mask = 1ULL << (page % 64);
+    if ((allocator->Eligible[page / 64] & mask) == 0 || (allocator->Allocated[page / 64] & mask) != 0) {
+        return 0;
+    }
+    allocator->Allocated[page / 64] |= mask;
+    --allocator->FreePages;
+    return 1;
+}
+
 int wit_page_is_allocated(const WitPageAllocator *allocator, WitU64 address)
 {
     WitU64 page;

@@ -1,5 +1,6 @@
 #include "witos/arch.h"
 #include "witos/platform.h"
+#include "witos/cpu.h"
 #include "user.h"
 #include "a64.h"
 
@@ -76,6 +77,12 @@ WitA64Frame *wit_a64_interrupt(WitA64Frame *frame)
         wit_platform_line_mask(line);
         wit_platform_line_complete(line);
         return wit_user_interrupt(frame, line);
+    }
+    if (claimed == 3) {
+        /* An inter-processor interrupt on a secondary processor (K7.2): served and acknowledged, then back to idle. */
+        wit_cpus_ipi_received(line == 0 ? WIT_IPI_FENCE : WIT_IPI_INVALIDATE);
+        wit_platform_ipi_complete(line);
+        return frame;
     }
     if (timer_ticks < ~0ULL - 1) {
         ++timer_ticks; /* Saturate; never wrap deadlines. */

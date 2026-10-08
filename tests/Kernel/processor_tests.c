@@ -1,4 +1,5 @@
 #include "witos/processor.h"
+#include "witos/cpu.h"
 #include "witos/arch.h"
 #include "witos/platform.h"
 #include "self_test.h"
@@ -21,8 +22,10 @@ void wit_processor_self_test(void)
     WitProcessorRecord boot, other;
     const WitU32 count = wit_processors_count();
     require(count >= 1 && count <= WIT_PROCESSOR_CAPACITY, "Processor table is empty or oversized");
-    require(wit_processors_online() == 1 && wit_processors_current() == 0,
-        "More than the boot processor is online before K7.2");
+    require(wit_processors_online() == wit_cpus_online() &&
+            wit_processors_current() == 0 &&
+            wit_processors_scheduling() == 1,
+        "The online count or the scheduling processor is wrong");
     require(wit_processors_record(0, &boot) &&
             boot.Flags == (WIT_PROCESSOR_ONLINE | WIT_PROCESSOR_BOOT) &&
             boot.HardwareId == wit_arch_processor_id() &&
@@ -33,11 +36,11 @@ void wit_processor_self_test(void)
         "The boot processor's record is wrong");
     for (WitU32 i = 1; i < count; ++i) {
         require(wit_processors_record(i, &other) &&
-                other.Flags == 0 &&
+                (other.Flags & WIT_PROCESSOR_BOOT) == 0 &&
+                ((other.Flags & WIT_PROCESSOR_ONLINE) != 0) == wit_cpus_is_online(i) &&
                 other.Number == i &&
                 other.HardwareId != boot.HardwareId &&
-                other.CacheBytes == 0 &&
-                other.Features == 0,
+                (wit_cpus_is_online(i) || (other.CacheBytes == 0 && other.Features == 0)),
             "A present processor's record is wrong");
     }
     require(!wit_processors_record(count, &other), "A record beyond the table was reported");

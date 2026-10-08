@@ -11,6 +11,8 @@
     "[TEST-PASS] Clock.IrqIndependent",
     "[TEST-PASS] Clock.Utc",
     "[TEST-PASS] Processors.Topology",
+    "[TEST-PASS] Smp.Online",
+    "[TEST-PASS] Smp.Ipi",
     "[TEST-PASS] Memory.PhysicalPages",
     "[TEST-PASS] Memory.Exhaustion",
     "[TEST-PASS] Memory.InvalidMaps",

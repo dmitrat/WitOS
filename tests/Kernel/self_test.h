@@ -12,6 +12,8 @@ void wit_arch_scheduler_self_test(void);
 void wit_clock_self_test(void);
 /* The processor table (K7.1): the boot processor first and online, the others present. */
 void wit_processor_self_test(void);
+/* The processors as the kernel runs them (K7.2): every present one online, fences and invalidations acknowledged. */
+void wit_smp_self_test(void);
 
 /* User isolation tests shared by every architecture; the architecture's kernel_tests.c runs its other user
  * suites between the two halves, and the end restores the page count that the beginning returned. */

@@ -5,6 +5,7 @@
   "sources": [
     "src/Kernel.Arch.A64/identity.c",
     "src/Kernel.Arch.A64/processor.c",
+    "src/Kernel.Arch.A64/secondary.c",
     "src/Kernel.Arch.A64/bringup.c",
     "src/Kernel.Arch.A64/exceptions.c",
     "src/Kernel.Arch.A64/paging.c",
@@ -17,6 +18,7 @@
     "src/Kernel.Arch.A64/entry.asm",
     "src/Kernel.Arch.A64/vectors.asm",
     "src/Kernel.Arch.A64/compiler.asm",
-    "src/Kernel.Arch.A64/processor_registers.asm"
+    "src/Kernel.Arch.A64/processor_registers.asm",
+    "src/Kernel.Arch.A64/secondary_entry.asm"
   ]
 }

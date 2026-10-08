@@ -9,6 +9,7 @@ void wit_kernel_self_test(const WitBootInfo *boot, WitPageAllocator *pages)
     WitU64 before;
     wit_clock_self_test(); /* The clock markers precede the memory markers in the foundation order. */
     wit_processor_self_test();
+    wit_smp_self_test();
     wit_memory_self_test(boot, pages);
     wit_virtual_self_test(pages);
     wit_virtual_fault_test();

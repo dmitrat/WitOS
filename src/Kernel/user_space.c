@@ -411,7 +411,8 @@ WitU64 wit_user_memory_query(const WitUserSpace *space, WitU64 address, WitU64 s
     info.Version = WIT_MEMORY_INFO_VERSION;
     info.Size = sizeof(info);
     info.PageSize = (WitU32)WIT_PAGE_SIZE;
-    info.ProcessorCount = wit_processors_online();
+    /* The processors this process's threads run on: the boot processor until phase P. */
+    info.ProcessorCount = wit_processors_scheduling();
     info.PhysicalTotalBytes = space->Allocator->TotalPages * WIT_PAGE_SIZE;
     info.PhysicalAvailableBytes = wit_pages_free_count(space->Allocator) * WIT_PAGE_SIZE;
     info.OwnedLimitBytes = space->PageLimit * WIT_PAGE_SIZE;
@@ -980,7 +981,7 @@ void wit_user_space_publish_code(WitUserSpace *space, WitU64 address, WitU64 siz
 
 WitU64 wit_user_code_publish(WitUserSpace *space, WitU64 address, WitU64 size)
 {
-    if (wit_processors_online() != 1) {
+    if (wit_processors_scheduling() != 1) {
         return WIT_STATUS_UNSUPPORTED;
     }
     const WitU64 limit = dynamic_limit(address);

@@ -4,6 +4,7 @@
 
     EXPORT wit_virt_gic_cpu_enable
     EXPORT wit_virt_gic_acknowledge
+    EXPORT wit_virt_gic_send_sgi
     EXPORT wit_virt_gic_complete
     EXPORT wit_virt_timer_arm
     EXPORT wit_virt_timer_disable
@@ -24,6 +25,13 @@ wit_virt_gic_cpu_enable PROC
     ENDP
 
 ; Returns the INTID of the highest-priority pending group 1 interrupt.
+wit_virt_gic_send_sgi PROC
+    dsb ishst
+    msr ICC_SGI1R_EL1, x0
+    isb
+    ret
+    ENDP
+
 wit_virt_gic_acknowledge PROC
     mrs x0, ICC_IAR1_EL1
     dsb sy
