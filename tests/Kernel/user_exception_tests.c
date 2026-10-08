@@ -7,8 +7,10 @@
 
 /* The fault callback and the thread contexts of ABI-1 (RFC 0011 sections 7.3 and 7.5) from user mode on both ISAs.
  * The exception fixture registers a callback, takes a read fault at address zero, inspects the record the callback
- * receives, continues a changed context, activates its own thread through the same callback, queries CONTEXT_PROFILE
- * and its own context; its second mode rejects the fault, which the kernel then reports as the original fault. */
+ * receives, continues a changed context, activates its own thread through the same callback, registers an alternate
+ * stack and takes a second read fault with no room below its stack pointer, delivered on that stack (S3.1), queries
+ * CONTEXT_PROFILE and its own context; its second mode rejects the fault, which the kernel then reports as the
+ * original fault. */
 
 static WitUserProcess process;
 
@@ -42,10 +44,11 @@ void wit_user_exception_self_test(WitPageAllocator *pages)
         wit_console_write("\n");
         wit_panic("User exception test failed");
     }
-    /* One delivered read fault and one activation, each continued once; nothing of either survives the component. */
+    /* Two delivered read faults (the second on the alternate stack) and one activation, each continued once; nothing
+     * of them survives the component. */
     require(process.Handles.Count == 0 &&
-            process.HardwareNullReads == 1 &&
-            process.ExceptionContinuations == 2 &&
+            process.HardwareNullReads == 2 &&
+            process.ExceptionContinuations == 3 &&
             process.ActivationDeliveries == 1 &&
             !process.WaitInterruptions &&
             !process.ExceptionCallback,

@@ -2,14 +2,17 @@
 ; ARM64 exception fixture, the port of tests/User.X64/exceptions.asm over the fault callback and the thread contexts
 ; of ABI-1 (RFC 0011 v3 sections 7.3 and 7.5, plan step K1.4): EXCEPTION_REGISTER, a read fault at address zero
 ; delivered to the callback with the interrupted AArch64 context, EXCEPTION_QUERY and EXCEPTION_CONTINUE with a
-; changed context, THREAD_ACTIVATE of the own thread through the same callback, CONTEXT_PROFILE and
-; THREAD_CONTEXT_GET of the own thread. The record lives in the data page, the transfer 1024 bytes above it, the
-; activation counter at 2048 and the profile at 2112. Registers: x20 startup block, x21 test mode, x22 the marked
-; register, x23 token, x24 vector, x25 address, x26 the record.
+; changed context, THREAD_ACTIVATE of the own thread through the same callback, the alternate stack of the thread
+; (THREAD_STACK_ALTERNATE, S3.1: refusals, a fault with no room below the stack pointer delivered on it, BUSY while
+; on it, cleared), CONTEXT_PROFILE and THREAD_CONTEXT_GET of the own thread. The record lives in the data page, the
+; transfer 1024 bytes above it, the activation counter at 2048, the profile at 2112, the alternate stack request at
+; 2176 and the saved stack pointer at 2208. Registers: x20 startup block, x21 test mode, x22 the marked register,
+; x23 token, x24 vector, x25 address, x26 the record, x27 the alternate stack base.
 
 #define CONTEXT_SIZE WIT_THREAD_CONTEXT_SIZE_ARM64
 #define RECORD_SIZE (CONTEXT_SIZE + 48)
 #define TRANSFER_SIZE (CONTEXT_SIZE + 16)
+#define ALT_BYTES 16384
 
     AREA |.text|, CODE, READONLY
 
@@ -64,6 +67,101 @@ landing
     ldr x9, [x9]
     cmp x9, #1
     b.ne failed
+    ; The alternate stack (S3.1): 16 KiB committed at the start of a 64 KiB reservation.
+    mov x0, #65536
+    mov x1, #4096
+    mov x2, #0
+    SYSCALL WIT_CALL_MEMORY_RESERVE
+    EXPECT WIT_STATUS_OK
+    mov x27, x1
+    mov x0, x27
+    mov x1, #ALT_BYTES
+    mov x2, #(WIT_MEMORY_READ + WIT_MEMORY_WRITE)
+    SYSCALL WIT_CALL_MEMORY_COMMIT
+    EXPECT WIT_STATUS_OK
+    ; THREAD_STACK_ALTERNATE: refused whole before anything changes, then installed.
+    ldr x9, =WIT_USER_DATA + 2176
+    mov w10, #2 ; a foreign version
+    str w10, [x9]
+    mov w10, #24
+    str w10, [x9, #4]
+    str x27, [x9, #8] ; Base
+    mov x10, #ALT_BYTES
+    str x10, [x9, #16] ; Bytes
+    bl alternate_call
+    EXPECT WIT_STATUS_UNSUPPORTED
+    ldr x9, =WIT_USER_DATA + 2176
+    mov w10, #WIT_THREAD_ALTERNATE_STACK_VERSION
+    str w10, [x9]
+    mov x0, x9 ; a wrong size
+    mov x1, #23
+    mov x2, #0
+    SYSCALL WIT_CALL_THREAD_STACK_ALTERNATE
+    EXPECT WIT_STATUS_INVALID_ARGUMENT
+    ldr x9, =WIT_USER_DATA + 2176
+    add x10, x27, #8 ; an unaligned base
+    str x10, [x9, #8]
+    bl alternate_call
+    EXPECT WIT_STATUS_INVALID_ARGUMENT
+    ldr x9, =WIT_USER_DATA + 2176
+    str x27, [x9, #8]
+    mov x10, #4080 ; too small
+    str x10, [x9, #16]
+    bl alternate_call
+    EXPECT WIT_STATUS_INVALID_ARGUMENT
+    ldr x9, =WIT_USER_DATA + 2176
+    mov x10, #ALT_BYTES
+    str x10, [x9, #16]
+    ldr x10, =WIT_USER_STACK_BOTTOM ; the thread's own stack
+    str x10, [x9, #8]
+    bl alternate_call
+    EXPECT WIT_STATUS_INVALID_ARGUMENT
+    ldr x9, =WIT_USER_DATA + 2176
+    ldr x10, =0xFFFF800000000000 ; not a user address
+    str x10, [x9, #8]
+    bl alternate_call
+    EXPECT WIT_STATUS_BAD_ADDRESS
+    ldr x9, =WIT_USER_DATA + 2176
+    mov x10, #ALT_BYTES
+    add x10, x27, x10 ; reserved, not committed
+    str x10, [x9, #8]
+    bl alternate_call
+    EXPECT WIT_STATUS_BAD_ADDRESS
+    ldr x9, =WIT_USER_DATA + 2176
+    str x27, [x9, #8]
+    bl alternate_call
+    EXPECT WIT_STATUS_OK
+    ; A fault with no room below the stack pointer: delivered on the alternate stack, continued at the second
+    ; landing with the saved stack pointer.
+    ldr x9, =WIT_USER_DATA + 2208
+    mov x10, sp
+    str x10, [x9]
+    ldr x10, =WIT_USER_STACK_BOTTOM + 16
+    mov sp, x10
+    mov x9, #0
+fault_site2
+    ldr x9, [x9]
+    b failed
+landing2
+    ldr x9, =WIT_USER_DATA + 2208
+    ldr x10, [x9]
+    mov x11, sp
+    cmp x10, x11
+    b.ne failed
+    ; On the alternate stack the thread cannot change it; off it, the stack is cleared.
+    mov x10, #(ALT_BYTES - 64)
+    add x10, x27, x10
+    mov sp, x10
+    bl alternate_call
+    EXPECT WIT_STATUS_BUSY
+    ldr x9, =WIT_USER_DATA + 2208
+    ldr x10, [x9]
+    mov sp, x10
+    ldr x9, =WIT_USER_DATA + 2176
+    str xzr, [x9, #8]
+    str xzr, [x9, #16]
+    bl alternate_call
+    EXPECT WIT_STATUS_OK
     ; CONTEXT_PROFILE: the AArch64 block with the FP/SIMD state.
     ldr x0, =WIT_USER_DATA + 2112
     mov x1, #32
@@ -164,6 +262,9 @@ callback
     b.ne failed
     cbnz x25, failed
     ldr x9, [x26, #48 + 296] ; Context.Pc
+    adr x10, fault_site2
+    cmp x9, x10
+    b.eq alt_fault ; the second fault, from the alternate stack
     adr x10, fault_site
     cmp x9, x10
     b.ne failed
@@ -212,6 +313,28 @@ continue_changed
     ldr x9, =WIT_USER_DATA + 1024
     str x10, [x9, #16 + 304]
     b continue_transfer
+alt_fault
+    ; The second fault had no room below its stack pointer: the callback runs on the alternate stack, the record
+    ; keeps the interrupted stack pointer, and the context continues at the second landing with the saved one.
+    mov x9, sp
+    cmp x9, x27
+    b.lo failed
+    mov x10, #ALT_BYTES
+    add x10, x27, x10
+    cmp x9, x10
+    b.hs failed
+    ldr x9, [x26, #48 + 288] ; Context.Sp
+    ldr x10, =WIT_USER_STACK_BOTTOM + 16
+    cmp x9, x10
+    b.ne failed
+    bl build_transfer
+    ldr x9, =WIT_USER_DATA + 1024
+    adr x10, landing2
+    str x10, [x9, #16 + 296] ; Context.Pc
+    ldr x10, =WIT_USER_DATA + 2208
+    ldr x10, [x10]
+    str x10, [x9, #16 + 288] ; Context.Sp
+    b continue_transfer
 activation
     ; The activation record: Address is the callback and Error its argument; the callback runs here and the context
     ; then continues as it was.
@@ -248,6 +371,14 @@ copy_context
     stp x13, x14, [x10], #16
     subs x12, x12, #1
     b.ne copy_context
+    ret
+
+; THREAD_STACK_ALTERNATE with the request in the data page; x0 is the status.
+alternate_call
+    ldr x0, =WIT_USER_DATA + 2176
+    mov x1, #24
+    mov x2, #0
+    SYSCALL WIT_CALL_THREAD_STACK_ALTERNATE
     ret
 
 activation_target

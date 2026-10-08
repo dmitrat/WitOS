@@ -105,6 +105,7 @@ typedef struct WitUserThread {
     WitU32 OwnsStack, Reserved2;
     WitU64 ExitReservation;
     WitU64 ExitClear, ExitEvent; /* the exit request (S2.1): zeroed and set after the thread no longer runs */
+    WitU64 AlternateBottom, AlternateTop; /* the thread's alternate stack (S3.1); zero when none */
     WitU64 Affinity; /* the processors the thread may run on (K7.1): bit n is processor n */
     WitU64 LibraryTls[WIT_LIBRARY_CAPACITY];
     WitU64 LibraryNotificationPage, LibraryNotificationHandles[2];
@@ -274,6 +275,10 @@ void wit_user_suspend_deadline_self_test(void);
 WitU64 wit_user_thread_suspend(WitUserProcess *, WitU64, int, WitU64 *);
 /* THREAD_AFFINITY (K7.1): the processors a thread may run on, read with QUERY and set with AFFINITY. */
 WitU64 wit_user_thread_affinity(WitUserProcess *, WitU64, WitU64, WitU64);
+/* THREAD_STACK_ALTERNATE (S3.1): the calling thread's alternate stack; the frame is the caller's. */
+WitU64 wit_user_thread_alternate_stack(WitUserProcess *, const WitArchFrame *, WitU64, WitU64, WitU64);
+/* The range, the thread's stack or its alternate stack, that holds a stack pointer (bottom <= sp <= top). */
+int wit_user_thread_stack_range(const WitUserThread *, WitU64, WitU64 *, WitU64 *);
 void wit_user_wait_complete(WitUserThread *, WitU64, WitU64);
 void wit_user_wait_objects_changed(WitUserProcess *);
 void wit_user_wait_handle_closed(WitUserProcess *, WitU64);

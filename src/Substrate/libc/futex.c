@@ -35,17 +35,35 @@ static Waiter waiters[WAITERS];
 static WitU64 exit_event; /* the one event of the exit word's waiters */
 static volatile int lock;
 
-static void acquire(void)
+/* A library lock is held with the thread's signals held (signal.c): a handler that interrupted the holder and
+ * posted a semaphore would otherwise spin on the lock its own thread holds. */
+void __wit_lock(volatile int *word)
 {
     WitU64 result = 0;
-    while (__atomic_exchange_n(&lock, 1, __ATOMIC_ACQUIRE)) {
+    if (__wit_tls_ready) {
+        __wit_signal_hold_enter();
+    }
+    while (__atomic_exchange_n(word, 1, __ATOMIC_ACQUIRE)) {
         wit_syscall(WIT_CALL_THREAD_YIELD, 0, 0, 0, &result); /* the holder runs on the one processor */
     }
 }
 
+void __wit_unlock(volatile int *word)
+{
+    __atomic_store_n(word, 0, __ATOMIC_RELEASE);
+    if (__wit_tls_ready) {
+        __wit_signal_hold_leave();
+    }
+}
+
+static void acquire(void)
+{
+    __wit_lock(&lock);
+}
+
 static void release(void)
 {
-    __atomic_store_n(&lock, 0, __ATOMIC_RELEASE);
+    __wit_unlock(&lock);
 }
 
 static WitU64 create_event(void)
@@ -138,6 +156,12 @@ static long result_of(WitU64 status)
 
 /* The exit word: its waiters share the event the kernel sets; the token of a set with nobody parked wakes the next
  * parker, and a woken waiter wakes the next one itself (musl's __tl_sync and __tl_unlock). */
+/* A cancellation point about to park with its cancel word set does not park: musl cancels on the EINTR (thread.c). */
+static int cancelled(void)
+{
+    return __wit_tls_ready && __wit_cancel_requested();
+}
+
 static long wait_exit_word(volatile int *address, int value, WitU64 deadline)
 {
     const WitU64 handle = __wit_futex_exit_event();
@@ -146,6 +170,9 @@ static long wait_exit_word(volatile int *address, int value, WitU64 deadline)
     }
     if (*address != value) {
         return -EAGAIN;
+    }
+    if (cancelled()) {
+        return -EINTR;
     }
     return result_of(object_wait(handle, deadline));
 }
@@ -167,6 +194,10 @@ static long wait_slot(volatile int *address, int value, WitU64 deadline)
     if (!slot || (!slot->Event && !(slot->Event = create_event()))) {
         release();
         return -ENOMEM;
+    }
+    if (cancelled()) {
+        release();
+        return -EINTR;
     }
     slot->Busy = 1;
     slot->Address = address;

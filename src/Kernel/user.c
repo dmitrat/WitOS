@@ -210,13 +210,15 @@ WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code)
 static void validate_return(WitArchFrame *frame, WitU32 index, int syscall)
 {
     const WitUserThread *thread = &current_user->Threads[index];
+    WitU64 bottom = 0, top = 0;
     require(wit_arch_frame_owned(frame, current_user->Slot, index), "User trap outside owning kernel stack");
     const WitU64 sp = wit_arch_frame_sp(frame);
-    /* An empty stack sits at its top (the one thread form starts there); the page probed is the one a push writes. */
-    const WitU64 probe = sp == thread->StackTop ? sp - 1 : sp;
+    /* The stack pointer lies in the thread's stack or its alternate stack (S3.1). An empty stack sits at its top
+     * (the one thread form starts there); the page probed is the one a push writes. */
+    const int held = wit_user_thread_stack_range(thread, sp, &bottom, &top);
+    const WitU64 probe = held && sp == top ? sp - 1 : sp;
     if (!wit_arch_frame_returns_to_user(frame) ||
-        sp < thread->StackBottom ||
-        sp > thread->StackTop ||
+        !held ||
         !wit_user_space_physical(&current_user->Space, probe, 1, 0) ||
         !wit_user_space_physical(&current_user->Space, wit_arch_frame_pc(frame), 0, 1)) {
         wit_user_finish(WitUserBadReturn, 0);

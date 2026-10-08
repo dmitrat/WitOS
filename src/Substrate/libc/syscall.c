@@ -13,8 +13,9 @@
 /* The dispatch of Linux system calls over ABI-1 (plan step S1.1): what musl asks for, by number, becomes the
  * kernel's calls or an honest -ENOSYS. The standard descriptors are the kernel log: writes to 1 and 2 go through
  * DEBUG_WRITE on the startup descriptor's log handle, reads from 0 end the input, and TIOCGWINSZ succeeds so that
- * musl line-buffers standard output and every line reaches the log whole. Files (S1.2), threads (S2) and signals
- * (S3) are not here yet; their calls return -ENOSYS and nothing pretends to have succeeded. */
+ * musl line-buffers standard output and every line reaches the log whole. Files (S1.2, files.c), threads (S2,
+ * thread.c, futex.c) and signals (S3, signal.c) have their own files; what none of them serves returns -ENOSYS and
+ * nothing pretends to have succeeded. */
 
 #define LOG_HANDLE (__wit_startup->Handles[WIT_ROOT_HANDLE_LOG])
 #define DEBUG_WRITE_MAX 65536UL /* WIT_DEBUG_WRITE_MAX of one call */
@@ -242,7 +243,25 @@ static long sleep_for(long clock, long flags, const struct timespec *request, st
     } else {
         counts += now;
     }
+    if (__wit_tls_ready && __wit_cancel_requested()) {
+        return -EINTR; /* a cancellation point about to park with its cancel word set (thread.c) */
+    }
     const WitU64 status = wit_syscall(WIT_CALL_SLEEP_UNTIL, counts, 0, 0, &result);
+    if (status == WIT_STATUS_INTERRUPTED) {
+        /* A signal handler ran (S3): the sleep ends early with the time that was left, as nanosleep reports it. */
+        if (remaining &&
+            !(flags & 1) &&
+            wit_syscall(WIT_CALL_CLOCK_READ, WIT_CLOCK_MONOTONIC, 0, 0, &now) == WIT_STATUS_OK &&
+            counts > now) {
+            const WitU64 left = counts - now;
+            remaining->tv_sec = (time_t)(left / frequency);
+            remaining->tv_nsec = (long)((left % frequency) * 1000000000ULL / frequency);
+        } else if (remaining) {
+            remaining->tv_sec = 0;
+            remaining->tv_nsec = 0;
+        }
+        return -EINTR;
+    }
     if (status != WIT_STATUS_OK && status != WIT_STATUS_TIMED_OUT) {
         return __wit_errno(status);
     }
@@ -268,7 +287,59 @@ static long system_name(struct utsname *name)
     return 0;
 }
 
+/* The calls that change or read the library's shared tables — the mappings (memory.c) and the descriptors and the
+ * package (files.c), the log descriptors included — run under one lock, since threads (S2) share them. The calls
+ * that wait, sleep, exit or signal never take it. */
+static volatile int tables;
+
+static int uses_tables(long n)
+{
+    switch (n) {
+    case SYS_exit_group:
+    case SYS_exit:
+    case SYS_futex:
+    case SYS_clock_gettime:
+    case SYS_clock_getres:
+    case SYS_clock_nanosleep:
+    case SYS_nanosleep:
+    case SYS_getrandom:
+    case SYS_sched_yield:
+    case SYS_set_tid_address:
+    case SYS_gettid:
+    case SYS_rt_sigaction:
+    case SYS_rt_sigprocmask:
+    case SYS_rt_sigpending:
+    case SYS_rt_sigsuspend:
+    case SYS_sigaltstack:
+    case SYS_tkill:
+    case SYS_tgkill:
+    case SYS_kill:
+    case SYS_ppoll:
+#if defined(SYS_pause)
+    case SYS_pause:
+#endif
+    case SYS_getpid:
+    case SYS_uname:
+        return 0;
+    default:
+        return 1;
+    }
+}
+
+static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a6);
+
 long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
+{
+    if (!uses_tables(n)) {
+        return dispatch(n, a1, a2, a3, a4, a5, a6);
+    }
+    __wit_lock(&tables);
+    const long r = dispatch(n, a1, a2, a3, a4, a5, a6);
+    __wit_unlock(&tables);
+    return r;
+}
+
+static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a6)
 {
     WitU64 result = 0;
     (void)a4;
@@ -370,6 +441,34 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
         return __wit_set_tid_address((int *)a1);
     case SYS_gettid:
         return __wit_gettid();
+    /* Signals (S3, signal.c). */
+    case SYS_rt_sigaction:
+        return __wit_rt_sigaction((int)a1, (const struct k_sigaction *)a2, (struct k_sigaction *)a3, a4);
+    case SYS_rt_sigprocmask:
+        return __wit_rt_sigprocmask((int)a1, (const unsigned long *)a2, (unsigned long *)a3, a4);
+    case SYS_rt_sigpending:
+        return __wit_rt_sigpending((unsigned long *)a1, a2);
+    case SYS_rt_sigsuspend:
+        return __wit_rt_sigsuspend((const unsigned long *)a1, a2);
+    case SYS_sigaltstack:
+        return __wit_sigaltstack((const struct sigaltstack *)a1, (struct sigaltstack *)a2);
+    case SYS_tkill:
+        return __wit_tkill((int)a1, (int)a2);
+    case SYS_tgkill:
+        return __wit_tgkill((int)a1, (int)a2, (int)a3);
+    case SYS_kill:
+        return __wit_kill((int)a1, (int)a2);
+    case SYS_rt_sigreturn:
+        return -EINVAL; /* a handler returns through the trampoline, never through a kernel restorer */
+#if defined(SYS_pause)
+    case SYS_pause:
+        return __wit_pause();
+#endif
+    case SYS_ppoll: /* musl's pause() where the kernel has no pause: no descriptors, no timeout */
+        return (a1 == 0 && a2 == 0 && a3 == 0) ? __wit_pause() : -ENOSYS;
+    case SYS_rt_sigqueueinfo:
+    case SYS_rt_sigtimedwait:
+        return -ENOSYS; /* queued values and synchronous waits for signals are not there yet */
     case SYS_getpid:
         return TID;
     case SYS_getppid:

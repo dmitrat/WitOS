@@ -15,6 +15,9 @@ void __writemsr(unsigned long, unsigned __int64);
 #define USER_FLAGS 0x200CD5ULL
 #define USER_FLAGS_FIXED 0x202ULL
 #define CALL_FRAME_BYTES 40U /* Win64 return address plus the ABI shadow space. */
+/* The SysV red zone below a layer-2 stack pointer (S3.1): a leaf function keeps data there without moving RSP, so
+ * a delivery that interrupts it must leave those bytes intact. */
+#define RED_ZONE_BYTES 128U
 
 static WitU64 stack_low(WitU32 slot, WitU32 thread)
 {
@@ -173,7 +176,7 @@ void wit_arch_frame_set_result(WitArchFrame *frame, WitU64 status, WitU64 value)
 WitU64 wit_arch_callback_stack(WitU64 sp, WitU32 *call_frame_bytes)
 {
     *call_frame_bytes = CALL_FRAME_BYTES;
-    return (sp & ~15ULL) - CALL_FRAME_BYTES;
+    return ((sp - RED_ZONE_BYTES) & ~15ULL) - CALL_FRAME_BYTES;
 }
 
 void wit_arch_frame_enter_callback(

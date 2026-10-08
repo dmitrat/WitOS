@@ -164,22 +164,37 @@ WitU64 wit_user_exception_begin(WitUserProcess *p, WitU64 input, WitU64 size, Wi
 }
 
 /* The one entry into the fault callback for faults and activations: the callback frame goes below the interrupted
- * stack pointer with WIT_EXCEPTION_STACK_MINIMUM of room, the record is published on the thread and the frame enters
- * the callback with the token, the vector and the address. Everything is validated before any byte is written. */
+ * stack pointer with WIT_EXCEPTION_STACK_MINIMUM of room, or at the top of the thread's alternate stack when the
+ * interrupted stack has no such room and the thread is not on the alternate stack already (S3.1); the record is
+ * published on the thread and the frame enters the callback with the token, the vector and the address.
+ * Everything is validated before any byte is written. */
 int wit_user_exception_enter(WitUserProcess *p, WitUserThread *t, WitArchFrame *frame, WitUserExceptionInfo *info)
 {
     if (!p->ExceptionCallback || t->Exception.Token || !next_exception_token || !wit_arch_context_supported()) {
         return 0;
     }
     const WitU64 sp = wit_arch_frame_sp(frame);
-    if (!wit_arch_frame_returns_to_user(frame) || sp < t->StackBottom || sp >= t->StackTop) {
+    WitU64 bottom = 0, top = 0;
+    if (!wit_arch_frame_returns_to_user(frame) || !wit_user_thread_stack_range(t, sp, &bottom, &top) || sp == top) {
         return 0;
     }
     WitU32 callFrameBytes;
-    const WitU64 callbackStack = wit_arch_callback_stack(sp, &callFrameBytes);
+    WitU64 callbackStack = wit_arch_callback_stack(sp, &callFrameBytes);
     static const WitU8 callFrame[64] = {0};
-    if (callFrameBytes > sizeof(callFrame) || callbackStack < t->StackBottom + WIT_EXCEPTION_STACK_MINIMUM) {
+    if (callFrameBytes > sizeof(callFrame)) {
         return 0;
+    }
+    if (callbackStack < bottom + WIT_EXCEPTION_STACK_MINIMUM) {
+        /* No room on the interrupted stack: the alternate stack takes the callback when there is one and the
+         * thread is not on it; otherwise the delivery is refused and the component ends. */
+        if (!t->AlternateTop || bottom == t->AlternateBottom) {
+            return 0;
+        }
+        bottom = t->AlternateBottom;
+        callbackStack = wit_arch_callback_stack(t->AlternateTop, &callFrameBytes);
+        if (callbackStack < bottom + WIT_EXCEPTION_STACK_MINIMUM) {
+            return 0;
+        }
     }
     if (!wit_user_buffer_writable(
             &p->Space, callbackStack - WIT_EXCEPTION_STACK_MINIMUM, WIT_EXCEPTION_STACK_MINIMUM + callFrameBytes) ||

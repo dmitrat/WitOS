@@ -7,6 +7,7 @@
 #include <sched.h>
 #include <semaphore.h>
 #include <setjmp.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -102,6 +103,77 @@ static void *detached_worker(void *argument)
 {
     (void)argument;
     sem_post(&shared.Done);
+    return 0;
+}
+
+/* Signals (S3): handlers record what they saw; the alternate stack is a static buffer the kernel accepts. */
+static char alternate_stack[16384];
+static volatile sig_atomic_t signal_seen, signal_on_alternate, signal_flags_on_alternate, signal_nested, signal_order;
+static volatile sig_atomic_t fault_code;
+static volatile void *fault_address;
+static volatile char *guarded_page;
+static sigjmp_buf escape;
+static volatile int worker_interrupted;
+
+static void record_handler(int sig)
+{
+    char here;
+    stack_t query;
+    signal_seen = sig;
+    signal_on_alternate = &here >= alternate_stack && &here < alternate_stack + sizeof(alternate_stack);
+    signal_flags_on_alternate = sigaltstack(0, &query) == 0 && query.ss_flags == SS_ONSTACK;
+}
+
+static void inner_handler(int sig)
+{
+    (void)sig;
+    signal_order = signal_order * 10 + 2;
+}
+
+static void outer_handler(int sig)
+{
+    (void)sig;
+    signal_order = signal_order * 10 + 1;
+    raise(SIGUSR2); /* unblocked inside this handler: its handler runs now */
+    signal_order = signal_order * 10 + 3;
+    signal_nested = 1;
+}
+
+static void repair_handler(int sig, siginfo_t *info, void *context)
+{
+    (void)sig;
+    (void)context;
+    fault_code = info->si_code;
+    fault_address = info->si_addr;
+    mprotect((void *)guarded_page, 4096, PROT_READ | PROT_WRITE); /* the faulting store then completes */
+}
+
+static void escape_handler(int sig, siginfo_t *info, void *context)
+{
+    (void)context;
+    fault_code = info->si_code;
+    signal_seen = sig;
+    siglongjmp(escape, 1);
+}
+
+static void *interruptible_worker(void *argument)
+{
+    sem_t *gate = argument;
+    sem_post(gate); /* ready */
+    while (sem_wait(gate + 1) != 0) {
+        if (errno == EINTR) {
+            worker_interrupted = 1;
+            return 0;
+        }
+    }
+    return 0;
+}
+
+static void *late_signaller(void *argument)
+{
+    struct timespec delay = {0, 2000000};
+    nanosleep(&delay, 0);
+    pthread_kill(*(pthread_t *)argument, SIGUSR1);
     return 0;
 }
 
@@ -282,6 +354,85 @@ int main(void)
         "pthread_self differs from a worker");
     struct timespec settle = {0, 5000000};
     nanosleep(&settle, 0); /* the detached thread's exit is served after its post */
+
+    /* Signals (S3): dispositions, masks, the alternate stack, faults repaired or escaped, signals between threads. */
+    struct sigaction action, previous;
+    stack_t alternate = {alternate_stack, 0, sizeof(alternate_stack)};
+    check(sigaltstack(&alternate, 0) == 0, "sigaltstack");
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = record_handler;
+    action.sa_flags = SA_ONSTACK;
+    sigemptyset(&action.sa_mask);
+    check(sigaction(SIGUSR1, &action, &previous) == 0 && previous.sa_handler == SIG_DFL, "sigaction installs");
+    check(raise(SIGUSR1) == 0 && signal_seen == SIGUSR1, "raise runs the handler");
+    check(signal_on_alternate && signal_flags_on_alternate, "the handler ran on the alternate stack");
+    sigset_t block, pending, saved;
+    sigemptyset(&block);
+    sigaddset(&block, SIGUSR1);
+    signal_seen = 0;
+    check(sigprocmask(SIG_BLOCK, &block, &saved) == 0 && raise(SIGUSR1) == 0 && signal_seen == 0,
+        "a blocked signal waits");
+    check(sigpending(&pending) == 0 && sigismember(&pending, SIGUSR1) == 1, "sigpending shows it");
+    check(sigprocmask(SIG_SETMASK, &saved, 0) == 0 && signal_seen == SIGUSR1, "unblocking delivers it");
+    action.sa_handler = outer_handler;
+    action.sa_flags = 0;
+    check(sigaction(SIGUSR1, &action, 0) == 0, "sigaction replaces");
+    action.sa_handler = inner_handler;
+    check(sigaction(SIGUSR2, &action, 0) == 0 && raise(SIGUSR1) == 0 && signal_nested && signal_order == 123,
+        "a handler raising another signal nests");
+    action.sa_handler = SIG_IGN;
+    signal_order = 0;
+    check(sigaction(SIGUSR2, &action, 0) == 0 && raise(SIGUSR2) == 0 && signal_order == 0, "SIG_IGN ignores");
+    guarded_page = mmap(0, 4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    check(guarded_page != MAP_FAILED, "a no-access page");
+    memset(&action, 0, sizeof(action));
+    action.sa_sigaction = repair_handler;
+    action.sa_flags = SA_SIGINFO;
+    check(sigaction(SIGSEGV, &action, 0) == 0, "SIGSEGV handler");
+    guarded_page[8] = 7; /* faults, the handler repairs the page, the store completes */
+    check(guarded_page[8] == 7 && fault_address == guarded_page + 8, "a repaired fault resumes the store");
+    check(fault_code == SEGV_MAPERR || fault_code == SEGV_ACCERR, "SIGSEGV code");
+    check(munmap((void *)guarded_page, 4096) == 0, "the page unmapped");
+    action.sa_sigaction = escape_handler;
+    check(sigaction(SIGILL, &action, 0) == 0, "SIGILL handler");
+    signal_seen = 0;
+    if (sigsetjmp(escape, 1) == 0) {
+#if defined(__x86_64__)
+        __asm__ volatile("ud2");
+#else
+        __asm__ volatile(".inst 0x00000000");
+#endif
+    }
+    check(signal_seen == SIGILL && (fault_code == ILL_ILLOPN || fault_code == ILL_ILLOPC),
+        "siglongjmp out of a SIGILL handler");
+#if defined(__x86_64__)
+    check(sigaction(SIGFPE, &action, 0) == 0, "SIGFPE handler");
+    signal_seen = 0;
+    if (sigsetjmp(escape, 1) == 0) {
+        /* An explicit idiv: the compiler turns 1 / x into a select without a division. */
+        __asm__ volatile("xor %%ecx, %%ecx\n\tmov $1, %%eax\n\tcltd\n\tidivl %%ecx" ::: "eax", "ecx", "edx");
+    }
+    check(signal_seen == SIGFPE && fault_code == FPE_INTDIV, "siglongjmp out of a SIGFPE handler");
+#endif
+    sem_t gates[2];
+    pthread_t sleeper, signaller;
+    check(sem_init(&gates[0], 0, 0) == 0 && sem_init(&gates[1], 0, 0) == 0, "signal gates");
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = record_handler;
+    check(sigaction(SIGUSR1, &action, 0) == 0, "SIGUSR1 without SA_RESTART");
+    check(pthread_create(&sleeper, 0, interruptible_worker, gates) == 0 && sem_wait(&gates[0]) == 0,
+        "a worker parked in sem_wait");
+    check(pthread_kill(sleeper, SIGUSR1) == 0 && pthread_join(sleeper, 0) == 0 && worker_interrupted,
+        "pthread_kill interrupts its wait with EINTR");
+    check(sigprocmask(SIG_BLOCK, &block, &saved) == 0, "block SIGUSR1 before sigsuspend");
+    pthread_t self = pthread_self();
+    signal_seen = 0;
+    check(pthread_create(&signaller, 0, late_signaller, &self) == 0, "a late signaller");
+    sigset_t none;
+    sigemptyset(&none);
+    check(sigsuspend(&none) == -1 && errno == EINTR && signal_seen == SIGUSR1, "sigsuspend returns after the handler");
+    check(pthread_join(signaller, 0) == 0 && sigprocmask(SIG_SETMASK, &saved, 0) == 0, "the signaller joined");
+    check(kill(getpid(), 0) == 0 && kill(getpid() + 1, 0) == -1 && errno == ESRCH, "kill reaches the own process only");
 
     /* Clocks and entropy. */
     check(clock_gettime(CLOCK_MONOTONIC, &monotonic) == 0 && (monotonic.tv_sec > 0 || monotonic.tv_nsec > 0),
