@@ -53,7 +53,7 @@ void wit_user_memory_object_self_test(WitPageAllocator *pages)
         require(process.Handles.Count == 0 &&
                 wit_memory_objects_live() == 0 &&
                 process.Space.ChargedPages == 0 &&
-                process.Channels.Count == 0 &&
+                wit_channels_live() == 0 &&
                 process.Space.AliasCount == 0,
             "Memory object scenario left objects, mappings or pages behind");
         for (WitU32 i = 0; i < WIT_RUNTIME_RESERVATION_CAPACITY; ++i) {
@@ -70,7 +70,7 @@ void wit_user_memory_object_self_test(WitPageAllocator *pages)
      * its handle alone. The exit releases the handles and drops the message, so the second object ends at once and
      * the first keeps the view's reference, charged to the component; the teardown ends it and returns its page. */
     run(pages, WIT_MEMORY_OBJECT_TEST_EXIT);
-    require(process.Handles.Count == 0 && process.Channels.Count == 0 && process.ChannelDrops == 1,
+    require(process.Handles.Count == 0 && wit_channels_live() == 0 && process.ChannelDrops == 1,
         "The exit left handles or channels behind");
     require(wit_memory_objects_live() == 1 &&
             wit_memory_objects_charged(&process) == 1 &&

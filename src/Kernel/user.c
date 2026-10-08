@@ -104,7 +104,6 @@ WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code)
     wit_user_devices_reset(current_user);
     wit_user_memory_objects_release_handles(current_user);
     wit_handles_close_all(&current_user->Handles);
-    wit_channels_initialize(&current_user->Channels);
     wit_files_initialize(&current_user->Files);
     wit_user_library_initialize(current_user);
     wit_user_references_initialize(current_user);
@@ -394,8 +393,8 @@ static void reset_process(WitUserProcess *process, WitU32 slot, WitU32 code_size
     wit_user_pins_reset(process);
     process->InterruptsDelivered = 0;
     wit_events_initialize(&process->Events);
-    wit_channels_initialize(&process->Channels);
-    require(wit_memory_objects_charged(process) == 0, "A fresh component inherits memory objects");
+    require(wit_memory_objects_charged(process) == 0 && wit_channels_charged(process) == 0,
+        "A fresh component inherits memory objects or channels");
     wit_user_devices_reset(process);
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
         process->Threads[i].State = WitThreadEmpty;
@@ -649,10 +648,10 @@ void wit_user_destroy(WitUserProcess *process)
     wit_user_stack_leases_initialize(process);
     wit_user_exception_initialize(process);
     wit_events_initialize(&process->Events);
-    wit_channels_initialize(&process->Channels);
-    /* The mappings' references and the charges of the objects the component created end with its address space. */
+    /* The mappings' references and the charges of the objects and channels the component created end with it. */
     wit_user_memory_objects_release_mappings(process);
     wit_memory_objects_orphan(process);
+    wit_channels_orphan(process);
     wit_user_process_state_reset(process);
     wit_user_space_destroy(&process->Space);
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
@@ -680,6 +679,31 @@ int wit_user_is_active(void)
 WitUserProcess *wit_user_current(void)
 {
     return current_user;
+}
+
+WitUserProcess *wit_user_process_at(WitU32 index)
+{
+    return index < sizeof(slot_owners) / sizeof(slot_owners[0]) ? slot_owners[index] : 0;
+}
+
+WitUserProcess *wit_user_process_by_id(WitU32 id)
+{
+    for (WitU32 i = 0; i < sizeof(slot_owners) / sizeof(slot_owners[0]); ++i) {
+        if (slot_owners[i] && slot_owners[i]->Id == id) {
+            return slot_owners[i];
+        }
+    }
+    return 0;
+}
+
+/* A kernel object changed (an endpoint's queue or peer): the parked waits of every component may be ready. */
+void wit_user_wait_objects_changed_all(void)
+{
+    for (WitU32 i = 0; i < sizeof(slot_owners) / sizeof(slot_owners[0]); ++i) {
+        if (slot_owners[i] && slot_owners[i]->State == WitUserRunning) {
+            wit_user_wait_objects_changed(slot_owners[i]);
+        }
+    }
 }
 
 WitU64 wit_user_contained_faults(void)

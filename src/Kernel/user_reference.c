@@ -97,7 +97,7 @@ void wit_user_references_exit(WitUserProcess *p, WitU64 identity, WitU64 code)
             r->Exited = 1;
         }
     }
-    wit_user_channels_thread_exited(p, identity, code);
+    wit_user_channels_thread_exited(identity, code);
     wit_user_wait_objects_changed(p);
 }
 

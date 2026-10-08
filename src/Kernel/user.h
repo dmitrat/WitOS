@@ -164,7 +164,6 @@ typedef struct WitUserProcess {
     WitU32 LibraryShutdown;
     WitUserLibraryReader LibraryReaders[WIT_LIBRARY_READER_CAPACITY];
     WitEventTable Events;
-    WitChannelTable Channels;
     /* Per device descriptor: the handles of this component to it, in the table or in flight (K3.1). */
     WitU32 DeviceReferences[WIT_DEVICE_CAPACITY];
     /* Per interrupt binding: the handles of this component to it (K3.2); the pins of the component; interrupts
@@ -302,10 +301,16 @@ WitU64 wit_user_channel_close(WitUserProcess *, WitU64);
 WitU64 wit_user_channel_duplicate(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_channel_signaled(WitUserProcess *, WitU64, int *);
 int wit_user_channel_handle(WitUserProcess *, WitU64);
-/* A thread exited: the thread handles in flight in messages learn the exit as the records in the table do. */
-void wit_user_channels_thread_exited(WitUserProcess *, WitU64, WitU64);
-/* The component ends: its messages' capabilities return to their objects and its endpoints close (K5.2b). */
+/* A thread exited: the thread handles in flight in messages learn the exit as the records in the tables do. */
+void wit_user_channels_thread_exited(WitU64, WitU64);
+/* The component ends: its capabilities in flight are voided, its endpoint handles released, garbage ends collected. */
 void wit_user_channels_drop(WitUserProcess *);
+
+/* The registry of components (K5.2c): by index (zero beyond the registry or for an empty entry), by Id, and the
+ * re-evaluation of every component's parked waits after a kernel object changed. */
+WitUserProcess *wit_user_process_at(WitU32 index);
+WitUserProcess *wit_user_process_by_id(WitU32 id);
+void wit_user_wait_objects_changed_all(void);
 
 /* Memory objects (RFC 0011 section 7.2): creation, mapping, the release of a mapping or a plain reservation, the
  * object's close, duplication, the reference a dropped message or a pin held, whether a handle is an object's, and

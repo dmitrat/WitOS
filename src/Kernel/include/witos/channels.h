@@ -25,12 +25,16 @@ typedef struct WitChannelMessage {
 WIT_STATIC_ASSERT(sizeof(WitChannelMessage) == WIT_CHANNEL_MESSAGE_SIZE, "Channel message request ABI");
 
 /* Kernel-internal: a capability in flight, as the receiver's table will hold it; a thread handle carries its
- * record. */
+ * record. Origin is the Id of the process whose table it left: a capability of a kind whose record belongs to that
+ * process (an event, a device, an interrupt binding, a pin) is received by that process alone and returns to it when
+ * dropped (K5.2c); a voided capability (Kind zero) delivers nothing. */
+struct WitUserProcess;
+
 typedef struct WitChannelCapability {
     WitU32 Kind, Rights;
     WitU64 Object;
     WitU64 ThreadId, ExitCode;
-    WitU32 Exited, Reserved;
+    WitU32 Exited, Origin;
 } WitChannelCapability;
 
 typedef struct WitChannelQueued {
@@ -46,23 +50,35 @@ typedef struct WitChannelEndpoint {
     WitChannelQueued Queue[WIT_CHANNEL_QUEUE_DEPTH];
 } WitChannelEndpoint;
 
+/* A channel is charged to the process that created it while that process lives (Creator; zero once it is torn
+ * down, K5.2c). */
 typedef struct WitChannel {
     WitU32 Live, Reserved;
+    struct WitUserProcess *Creator;
     WitChannelEndpoint Ends[2];
 } WitChannel;
 
+/* The table is the kernel's (K5.2c): one number names an endpoint in every process. */
 typedef struct WitChannelTable {
-    WitChannel Entries[WIT_CHANNEL_CAPACITY];
-    WitU32 Count, Limit;
+    WitChannel Entries[WIT_CHANNEL_TABLE_CAPACITY];
+    WitU32 Count, Reserved;
 } WitChannelTable;
 
-/* Serialized, component-local state; the handle's Object names the endpoint: channel index times two plus the end
- * plus one. */
-void wit_channels_initialize(WitChannelTable *table);
+/* Serialized kernel state; the handle's Object names the endpoint: channel index times two plus the end plus one. */
 WitU64 wit_channel_object(WitU32 channel, WitU32 end);
-/* The channel and end behind a live handle of the endpoint kind with the rights. */
-WitU64 wit_channel_get(
-    WitChannelTable *table, WitHandleTable *handles, WitU64 handle, WitU32 rights, WitChannel **channel, WitU32 *end);
+/* A channel record by index, live or not; zero beyond the table. */
+WitChannel *wit_channel_at(WitU32 index);
 /* The channel and end an object number names, or zero. */
-WitChannel *wit_channel_slot(WitChannelTable *table, WitU64 object, WitU32 *end);
+WitChannel *wit_channel_slot(WitU64 object, WitU32 *end);
+/* The channel and end behind a live handle of the endpoint kind with the rights. */
+WitU64 wit_channel_get(WitHandleTable *handles, WitU64 handle, WitU32 rights, WitChannel **channel, WitU32 *end);
+/* A free record within the creator's quota of live channels (WIT_CHANNEL_CAPACITY), or zero; its publication with
+ * both ends live and one handle each; its retirement once both ends are closed. */
+WitChannel *wit_channel_reserve(struct WitUserProcess *creator, WitU32 *index);
+void wit_channel_publish(WitChannel *channel, struct WitUserProcess *creator);
+void wit_channel_retire(WitChannel *channel);
+/* The live channels kernel-wide, those a process created and still live, and the end of that charge. */
+WitU32 wit_channels_live(void);
+WitU32 wit_channels_charged(const struct WitUserProcess *creator);
+void wit_channels_orphan(struct WitUserProcess *creator);
 #endif
