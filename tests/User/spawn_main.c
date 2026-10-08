@@ -119,6 +119,15 @@ int main(void)
     info = finish(start(command_args, 0));
     check(info.State == WIT_PROCESS_STATE_EXITED && info.ExitCode == 6, "the dynamic linker as a command");
 
+    /* The acceptance of phase S (S5.4): a dynamic C++ program with its library over the shared C++ runtime, and the
+     * C++ scenarios of S4 as a dynamic program. */
+    static char *acceptance_args[] = {"/bin/acceptance", 0};
+    info = finish(start(acceptance_args, 0));
+    check(info.State == WIT_PROCESS_STATE_EXITED && info.ExitCode == 0, "the dynamic C++ program");
+    static char *cxx_args[] = {"/bin/cxx", 0};
+    info = finish(start(cxx_args, 0));
+    check(info.State == WIT_PROCESS_STATE_EXITED && info.ExitCode == 0, "the C++ scenarios as a dynamic program");
+
     /* The creator ends a waiting program with PROCESS_KILL, once it had the time to start and wait. */
     process = start(wait_args, 0);
     const struct timespec pause_time = {0, 50000000};

@@ -340,7 +340,25 @@ internal static class LlvmRuntimes
     /// <param name="root">Repository root.</param>
     /// <param name="architecture">Target architecture.</param>
     /// <returns>The build.</returns>
-    public static async Task<CxxBuild> BuildAsync(string root, KernelArchitecture architecture)
+    public static Task<CxxBuild> BuildAsync(string root, KernelArchitecture architecture) => BuildVariantAsync(root, architecture, false);
+
+    /// <summary>
+    /// Builds libunwind.so.1, libc++abi.so.1 and libc++.so.1 of an architecture under
+    /// artifacts/substrate/&lt;architecture&gt;/cxx-shared (plan step S5.4): the same sources and options as the static
+    /// libraries, position-independent, each linked as a shared library with its soname against libc.so and the ones
+    /// below it, as the runtimes' CMake links them for Linux (libc++ on libc++abi and libunwind, whose _Unwind_Resume
+    /// its cleanups call, libc++abi on libunwind).
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>The build; its library paths are the shared libraries.</returns>
+    public static async Task<CxxBuild> BuildSharedAsync(string root, KernelArchitecture architecture)
+    {
+        await BuildAsync(root, architecture); // the configured headers the shared build compiles against
+        return await BuildVariantAsync(root, architecture, true);
+    }
+
+    private static async Task<CxxBuild> BuildVariantAsync(string root, KernelArchitecture architecture, bool shared)
     {
         var pin = await ReadPinAsync(root);
         RequireSources(root, pin);
@@ -354,11 +372,16 @@ internal static class LlvmRuntimes
         var unwind = SourceDirectory(root, "libunwind");
         var cxxabi = SourceDirectory(root, "libcxxabi");
         var cxx = SourceDirectory(root, "libcxx");
-        var build = new CxxBuild(Path.Combine(output, "libunwind.a"), Path.Combine(output, "libc++abi.a"), Path.Combine(output, "libc++.a"),
-            [generated, Path.Combine(cxx, "include"), Path.Combine(cxxabi, "include"), Path.Combine(unwind, "include"), .. libc.Includes.Skip(1)]);
+        var libraries = shared ? Path.Combine(output, "cxx-shared") : output;
+        System.IO.Directory.CreateDirectory(libraries);
+        var build = shared
+            ? new CxxBuild(Path.Combine(libraries, "libunwind.so.1"), Path.Combine(libraries, "libc++abi.so.1"), Path.Combine(libraries, "libc++.so.1"),
+                [generated, Path.Combine(cxx, "include"), Path.Combine(cxxabi, "include"), Path.Combine(unwind, "include"), .. libc.Includes.Skip(1)])
+            : new CxxBuild(Path.Combine(output, "libunwind.a"), Path.Combine(output, "libc++abi.a"), Path.Combine(output, "libc++.a"),
+                [generated, Path.Combine(cxx, "include"), Path.Combine(cxxabi, "include"), Path.Combine(unwind, "include"), .. libc.Includes.Skip(1)]);
         string[] common =
         [
-            $"--target={architecture.Triple}", .. architecture.ClangOptions, "-O2", "-nostdlibinc", "-fPIE", "-fno-plt",
+            $"--target={architecture.Triple}", .. architecture.ClangOptions, "-O2", "-nostdlibinc", shared ? "-fPIC" : "-fPIE", "-fno-plt",
             "-ffunction-sections", "-fdata-sections", "-funwind-tables", "-fstrict-aliasing", "-DNDEBUG", "-w",
             .. build.Includes.SelectMany(include => new[] { "-isystem", include }),
             .. kernelHeaders.SelectMany(include => new[] { "-isystem", include })
@@ -376,21 +399,24 @@ internal static class LlvmRuntimes
             "-I", Path.Combine(LibcDirectory(root), "libc"), "-DLIBC_NAMESPACE=__llvm_libc_common_utils"];
 
         var stamp = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n',
-            [Toolchain.LLVM_VERSION, headers.Sha256, .. pin.Tarballs.Select(tarball => tarball.Sha256), .. pin.Libc.Select(source => source.Sha256), File.ReadAllText(Path.Combine(output, "stamp.txt")),
+            [shared ? "shared" : "static", Toolchain.LLVM_VERSION, headers.Sha256, .. pin.Tarballs.Select(tarball => tarball.Sha256), .. pin.Libc.Select(source => source.Sha256), File.ReadAllText(Path.Combine(output, "stamp.txt")),
                 .. unwindCxx, .. unwindC, .. unwindAsm, .. cxxabiOptions, .. cxxOptions, .. CXX_SOURCES, .. CXXABI_SOURCES,
                 .. CONFIG_SITE.Select(entry => entry.Key + "=" + entry.Value)])))).ToLowerInvariant();
-        var stampPath = Path.Combine(output, "cxx-stamp.txt");
+        var stampPath = Path.Combine(libraries, shared ? "stamp.txt" : "cxx-stamp.txt");
         if (File.Exists(build.Unwind) && File.Exists(build.CxxAbi) && File.Exists(build.Cxx) && File.Exists(stampPath) &&
             await File.ReadAllTextAsync(stampPath) == stamp)
             return build;
         File.Delete(stampPath);
 
-        if (System.IO.Directory.Exists(generated))
-            System.IO.Directory.Delete(generated, recursive: true);
-        System.IO.Directory.CreateDirectory(generated);
-        await File.WriteAllTextAsync(Path.Combine(generated, "__config_site"),
-            ConfigureSite(await File.ReadAllTextAsync(Path.Combine(cxx, "include", "__config_site.in"))));
-        File.Copy(Path.Combine(cxx, "vendor", "llvm", "default_assertion_handler.in"), Path.Combine(generated, "__assertion_handler"));
+        if (!shared)
+        {
+            if (System.IO.Directory.Exists(generated))
+                System.IO.Directory.Delete(generated, recursive: true);
+            System.IO.Directory.CreateDirectory(generated);
+            await File.WriteAllTextAsync(Path.Combine(generated, "__config_site"),
+                ConfigureSite(await File.ReadAllTextAsync(Path.Combine(cxx, "include", "__config_site.in"))));
+            File.Copy(Path.Combine(cxx, "vendor", "llvm", "default_assertion_handler.in"), Path.Combine(generated, "__assertion_handler"));
+        }
 
         var jobs = new List<(string Source, string[] Options, string Archive)>();
         jobs.AddRange(UNWIND_CXX_SOURCES.Select(file => (Path.Combine(unwind, "src", file), unwindCxx, build.Unwind)));
@@ -398,7 +424,7 @@ internal static class LlvmRuntimes
         jobs.AddRange(UNWIND_ASM_SOURCES.Select(file => (Path.Combine(unwind, "src", file), unwindAsm, build.Unwind)));
         jobs.AddRange(CXXABI_SOURCES.Select(file => (Path.Combine(cxxabi, "src", file), cxxabiOptions, build.CxxAbi)));
         jobs.AddRange(CXX_SOURCES.Select(file => (Path.Combine(cxx, "src", file), cxxOptions, build.Cxx)));
-        var objects = Path.Combine(output, "cxx-obj");
+        var objects = Path.Combine(output, shared ? "cxx-shared-obj" : "cxx-obj");
         if (System.IO.Directory.Exists(objects))
             System.IO.Directory.Delete(objects, recursive: true);
         System.IO.Directory.CreateDirectory(objects);
@@ -419,7 +445,15 @@ internal static class LlvmRuntimes
                 lock (produced)
                     produced[job.Archive].Add(obj);
             });
-        foreach (var (archive, members) in produced)
+        if (shared)
+        {
+            // Each library on the ones below it, as the runtimes' CMake links them for Linux.
+            List<string> Members(string library) => produced[library].OrderBy(path => path, StringComparer.Ordinal).ToList();
+            await MuslLibc.LinkSharedLibraryAsync(root, architecture, libraries, Path.GetFileName(build.Unwind), Members(build.Unwind));
+            await MuslLibc.LinkSharedLibraryAsync(root, architecture, libraries, Path.GetFileName(build.CxxAbi), Members(build.CxxAbi), [build.Unwind]);
+            await MuslLibc.LinkSharedLibraryAsync(root, architecture, libraries, Path.GetFileName(build.Cxx), Members(build.Cxx), [build.CxxAbi, build.Unwind]);
+        }
+        foreach (var (archive, members) in produced.Where(_ => !shared))
         {
             File.Delete(archive);
             var list = archive + ".rsp";
@@ -427,7 +461,7 @@ internal static class LlvmRuntimes
             await Processes.RequireSuccessAsync(Toolchain.LlvmAr(root), ["rcs", archive, "@" + list], root);
         }
         await File.WriteAllTextAsync(stampPath, stamp);
-        Console.WriteLine($"LLVM runtimes {pin.Version} for {architecture.Triple}: libunwind {produced[build.Unwind].Count}, " +
+        Console.WriteLine($"LLVM runtimes {pin.Version} for {architecture.Triple}{(shared ? " (shared)" : "")}: libunwind {produced[build.Unwind].Count}, " +
             $"libc++abi {produced[build.CxxAbi].Count}, libc++ {produced[build.Cxx].Count} objects.");
         return build;
     }

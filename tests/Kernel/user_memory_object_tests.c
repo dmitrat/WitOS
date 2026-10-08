@@ -56,7 +56,7 @@ void wit_user_memory_object_self_test(WitPageAllocator *pages)
                 wit_channels_live() == 0 &&
                 process.Space.AliasCount == 0,
             "Memory object scenario left objects, mappings or pages behind");
-        for (WitU32 i = 0; i < WIT_RUNTIME_RESERVATION_CAPACITY; ++i) {
+        for (WitU32 i = 0; i < WIT_PROCESS_RESERVATION_CAPACITY; ++i) {
             require(!process.Space.MappedObjects[i] && !process.Space.MappedRights[i],
                 "A mapping record survived its release");
         }

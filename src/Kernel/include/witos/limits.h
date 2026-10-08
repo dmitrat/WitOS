@@ -39,6 +39,10 @@
 #define WIT_USER_RESERVATION_CAPACITY 8U
 #define WIT_USER_PAGE_CAPACITY 128U
 #define WIT_RUNTIME_RESERVATION_CAPACITY 32U
+/* Reservations of the system layer's processes, the root task and the processes it creates (S5.4): every mapping of
+ * a dynamic program's libraries, every split of a library's span and every thread stack takes one. The frozen line's
+ * full profile keeps WIT_RUNTIME_RESERVATION_CAPACITY. The largest table, the size of every space's arrays. */
+#define WIT_PROCESS_RESERVATION_CAPACITY 256U
 #define WIT_RUNTIME_PAGE_CAPACITY 2048U
 /* Memory-pressure hysteresis, in allocatable pages of global RAM and of the component quota. */
 #define WIT_PRESSURE_LOW_PAGES 16U

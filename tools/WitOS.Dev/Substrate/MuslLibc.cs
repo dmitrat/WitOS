@@ -425,8 +425,8 @@ internal static class MuslLibc
     public static string InterpreterPath(KernelArchitecture architecture) => $"/lib/ld-musl-{MuslArchitecture(architecture)}.so.1";
 
     /// <summary>
-    /// Links objects into a dynamic position-independent executable (plan step S5.3): musl's Scrt1.o, the shared
-    /// libraries the program needs and libc.so, recorded as DT_NEEDED "libc.so", which musl's dynamic linker resolves
+    /// Links objects into a dynamic position-independent executable (plan step S5.3): musl's Scrt1.o, compiler-rt's
+    /// crtbeginS.o (S5.4), the shared libraries the program needs and libc.so, recorded as DT_NEEDED "libc.so", which musl's dynamic linker resolves
     /// to itself; PT_INTERP names the dynamic linker.
     /// </summary>
     /// <param name="root">Repository root.</param>
@@ -442,18 +442,20 @@ internal static class MuslLibc
         var build = await BuildAsync(root, architecture);
         var shared = await BuildSharedAsync(root, architecture);
         var builtins = await CompilerRtBuiltins.BuildAsync(root, architecture, build.Includes.Skip(1));
+        var crtBegin = await CompilerRtBuiltins.BuildCrtBeginAsync(root, architecture, build.Includes.Skip(1));
         var image = Path.Combine(output, name + ".elf");
         await Processes.RequireSuccessAsync(Toolchain.Lld(root),
         [
             "-o", image, "-pie", "--dynamic-linker=" + InterpreterPath(architecture), .. SEPARATE_SEGMENTS, "--eh-frame-hdr",
-            "--build-id=none", "--gc-sections", "-e", "_start", shared.Scrt1, .. objects, .. libraries ?? [], "-L", shared.Directory, "-lc",
-            builtins
+            "--build-id=none", "--gc-sections", "-e", "_start", shared.Scrt1, crtBegin, .. objects, .. libraries ?? [], "-L", shared.Directory,
+            "-lc", builtins
         ], root);
         return image;
     }
 
     /// <summary>
-    /// Links position-independent objects into a shared library with its soname, against libc.so (plan step S5.3).
+    /// Links position-independent objects into a shared library with its soname, against libc.so (plan step S5.3),
+    /// after compiler-rt's crtbeginS.o, which gives the library its own __dso_handle (S5.4).
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="architecture">Target architecture.</param>
@@ -468,11 +470,14 @@ internal static class MuslLibc
         var build = await BuildAsync(root, architecture);
         var shared = await BuildSharedAsync(root, architecture);
         var builtins = await CompilerRtBuiltins.BuildAsync(root, architecture, build.Includes.Skip(1));
+        var crtBegin = await CompilerRtBuiltins.BuildCrtBeginAsync(root, architecture, build.Includes.Skip(1));
         var library = Path.Combine(output, soname);
+        var list = library + ".rsp";
+        await File.WriteAllLinesAsync(list, objects.Select(path => '"' + path.Replace('\\', '/') + '"'));
         await Processes.RequireSuccessAsync(Toolchain.Lld(root),
         [
             "-o", library, "-shared", "-soname", soname, .. SEPARATE_SEGMENTS, "--eh-frame-hdr", "--build-id=none", "--gc-sections",
-            "--no-undefined", .. objects, .. libraries ?? [], "-L", shared.Directory, "-lc", builtins
+            "--no-undefined", crtBegin, "@" + list, .. libraries ?? [], "-L", shared.Directory, "-lc", builtins
         ], root);
         return library;
     }

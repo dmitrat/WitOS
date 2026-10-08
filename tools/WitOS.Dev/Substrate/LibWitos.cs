@@ -88,10 +88,31 @@ internal static class LibWitos
         var library = await MuslLibc.LinkSharedLibraryAsync(root, architecture, output, "libdynamic.so", [await Compile("dynamic_library", "-fPIC")]);
         var plugin = await MuslLibc.LinkSharedLibraryAsync(root, architecture, output, "libplugin.so", [await Compile("dynamic_plugin", "-fPIC")]);
         var dynamic = await MuslLibc.LinkDynamicProgramAsync(root, architecture, output, "dynamic", [await Compile("dynamic_main")], [library]);
+
+        // The shared C++ runtime and the acceptance of phase S (S5.4): a C++ library and its program, and the C++
+        // scenarios of S4 as a dynamic program.
+        var cxx = await LlvmRuntimes.BuildSharedAsync(root, architecture);
+        string[] runtime = [cxx.Cxx, cxx.CxxAbi, cxx.Unwind];
+        async Task<string> CompileCxx(string directory, string name, params string[] options)
+        {
+            var obj = Path.Combine(output, name + ".o");
+            await LlvmRuntimes.CompileAsync(root, architecture, Path.Combine(root, "tests", directory, name + ".cpp"), obj, options);
+            return obj;
+        }
+        string[] strict = ["-std=c++20", "-Wall", "-Wextra", "-Werror", .. Options(root).Skip(4)];
+        var acceptanceLibrary = await MuslLibc.LinkSharedLibraryAsync(root, architecture, output, "libacceptance.so",
+            [await CompileCxx("User", "acceptance_library", [.. strict, "-fPIC"])], runtime);
+        var acceptance = await MuslLibc.LinkDynamicProgramAsync(root, architecture, output, "acceptance",
+            [await CompileCxx("User", "acceptance_main", strict)], [acceptanceLibrary, .. runtime]);
+        var cxxProgram = await MuslLibc.LinkDynamicProgramAsync(root, architecture, output, "cxx",
+            [await CompileCxx("User.X64", "cxx_exceptions", "-std=c++20", "-fdeclspec", "-w"), await CompileCxx("User", "cxx_main", strict)],
+            runtime);
         return
         [
             (CHILD_PATH, child), ("bin/dynamic", dynamic), ("lib/libdynamic.so", library), ("lib/libplugin.so", plugin),
-            (MuslLibc.InterpreterPath(architecture).TrimStart('/'), shared.Library)
+            (MuslLibc.InterpreterPath(architecture).TrimStart('/'), shared.Library), ("bin/acceptance", acceptance), ("bin/cxx", cxxProgram),
+            ("lib/libacceptance.so", acceptanceLibrary), ("lib/" + Path.GetFileName(cxx.Cxx), cxx.Cxx),
+            ("lib/" + Path.GetFileName(cxx.CxxAbi), cxx.CxxAbi), ("lib/" + Path.GetFileName(cxx.Unwind), cxx.Unwind)
         ];
     }
 

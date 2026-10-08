@@ -388,8 +388,8 @@ void wit_user_memory_objects_release_handles(WitUserProcess *p)
 
 void wit_user_memory_objects_release_mappings(WitUserProcess *p)
 {
-    WitU32 mapped[WIT_RUNTIME_RESERVATION_CAPACITY];
-    const WitU32 count = wit_user_space_take_mapped_objects(&p->Space, mapped, WIT_RUNTIME_RESERVATION_CAPACITY);
+    WitU32 mapped[WIT_PROCESS_RESERVATION_CAPACITY];
+    const WitU32 count = wit_user_space_take_mapped_objects(&p->Space, mapped, WIT_PROCESS_RESERVATION_CAPACITY);
     for (WitU32 i = 0; i < count; ++i) {
         release_object(mapped[i]);
     }
