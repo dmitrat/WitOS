@@ -89,7 +89,8 @@ internal static class BootValidation
     }
 
     /// <summary>
-    /// Decides whether a release kernel booted: the boot contract, paging, exception tables and clock are ready,
+    /// Decides whether a release kernel booted: the boot contract, paging, exception tables and clock are ready, the
+    /// root task ran to its exit,
     /// the kernel reports Hello and finishes with success, and no self-test or user component ran.
     /// </summary>
     /// <param name="root">Repository root, used to read the expected kernel banner.</param>
@@ -102,9 +103,10 @@ internal static class BootValidation
         var banner = Regex.IsMatch(output, "^" + Regex.Escape(KernelAbi.Banner(root)) + @"\r?$", RegexOptions.Multiline);
         var ready = MarkersInOrder(output, "[TEST-PASS] Boot.Contract", "[TEST-PASS] Cpu.ExceptionTables",
             "[TEST-PASS] Memory.KernelPaging", "[TEST-PASS] Clock.IrqIndependent", "Kernel initialized.",
-            "[TEST-PASS] Boot.Hello");
-        string[] forbidden = ["[PANIC]", "[EXCEPTION]", "[USER", "[TEST-BEGIN] User.", "Scheduler.", "Random.ChaCha20Vector",
-            "Memory.VirtualMappings", "Cpu.ContextStateProfile"];
+            "[TEST-PASS] Boot.Hello", "[TEST-PASS] Boot.RootTask");
+        // The root task (K4) writes to the kernel log as a user component; user self-tests and faults stay forbidden.
+        string[] forbidden = ["[PANIC]", "[EXCEPTION]", "[USER-FAULT]", "[TEST-BEGIN] User.", "[TEST-PASS] User.", "Scheduler.",
+            "Random.ChaCha20Vector", "Memory.VirtualMappings", "Cpu.ContextStateProfile"];
         var clean = forbidden.All(marker => !output.Contains(marker, StringComparison.Ordinal));
         var passed = request.Expected == ExpectedOutcome.Success && !result.TimedOut && result.ExitCode == 33 &&
             banner && ready && clean;
