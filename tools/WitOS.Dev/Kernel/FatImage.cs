@@ -42,8 +42,9 @@ internal static class FatImage
     /// <param name="executable">UEFI loader bytes.</param>
     /// <param name="package">Boot package, or an empty package when null.</param>
     /// <param name="bootName">8.3 removable-media boot file name, such as BOOTX64.EFI or BOOTAA64.EFI.</param>
+    /// <param name="rootTask">The root task's flat image, written as WITROOT.BIN beside the package (K4); none when null.</param>
     public static void Create(string destination, byte[] executable, byte[]? package = null,
-        string bootName = "BOOTX64.EFI")
+        string bootName = "BOOTX64.EFI", byte[]? rootTask = null)
     {
         var parts = bootName.Split('.');
         if (parts.Length != 2 || parts[0].Length is 0 or > 8 || parts[1].Length is 0 or > 3)
@@ -52,14 +53,16 @@ internal static class FatImage
         // Preserve the existing 32 MiB layout. Assembly packages use a 128 MiB
         // FAT16 volume with 8 KiB clusters, retaining the bounded FAT capacity.
         package ??= AssemblyPackage.Create(Array.Empty<(string, ReadOnlyMemory<byte>)>());
-        var large = (long)executable.Length + package.Length + CLUSTER_SIZE > (CLUSTER_COUNT - 2) * CLUSTER_SIZE;
+        rootTask ??= [];
+        var large = (long)executable.Length + package.Length + rootTask.Length + 2 * CLUSTER_SIZE > (CLUSTER_COUNT - 2) * CLUSTER_SIZE;
         var totalSectors = large ? 262144 : TOTAL_SECTORS;
         var sectorsPerCluster = large ? 16 : SECTORS_PER_CLUSTER;
         var clusterSize = sectorsPerCluster * SECTOR_SIZE;
         var clusterCount = (totalSectors - DATA_START) / sectorsPerCluster;
         var fileClusters = checked((executable.Length + clusterSize - 1) / clusterSize);
         var packageClusters = checked((package.Length + clusterSize - 1) / clusterSize);
-        if (fileClusters == 0 || packageClusters == 0 || fileClusters + packageClusters + 2 > clusterCount)
+        var rootClusters = checked((rootTask.Length + clusterSize - 1) / clusterSize);
+        if (fileClusters == 0 || packageClusters == 0 || fileClusters + packageClusters + rootClusters + 2 > clusterCount)
             throw new InvalidOperationException("EFI image does not fit in the M0 FAT16 volume.");
 
         using var stream = File.Create(destination);
@@ -98,6 +101,9 @@ internal static class FatImage
         var packageFirst = 4 + fileClusters;
         for (var i = 0; i < packageClusters; ++i)
             Put16(fat, (packageFirst + i) * 2, i == packageClusters - 1 ? 0xFFFF : packageFirst + i + 1);
+        var rootFirst = packageFirst + packageClusters;
+        for (var i = 0; i < rootClusters; ++i)
+            Put16(fat, (rootFirst + i) * 2, i == rootClusters - 1 ? 0xFFFF : rootFirst + i + 1);
         stream.Position = SECTOR_SIZE;
         stream.Write(fat);
         stream.Write(fat);
@@ -105,6 +111,8 @@ internal static class FatImage
         var root = new byte[ROOT_SECTORS * SECTOR_SIZE];
         Entry(root, 0, "EFI        ", 0x10, 2, 0);
         Entry(root, 1, "WITOS   PAK", 0x20, packageFirst, package.Length);
+        if (rootClusters > 0)
+            Entry(root, 2, "WITROOT BIN", 0x20, rootFirst, rootTask.Length);
         stream.Position = ROOT_START * SECTOR_SIZE;
         stream.Write(root);
 
@@ -123,6 +131,11 @@ internal static class FatImage
         stream.Write(executable);
         stream.Position = (long)DATA_START * SECTOR_SIZE + (long)(packageFirst - 2) * clusterSize;
         stream.Write(package);
+        if (rootClusters > 0)
+        {
+            stream.Position = (long)DATA_START * SECTOR_SIZE + (long)(rootFirst - 2) * clusterSize;
+            stream.Write(rootTask);
+        }
     }
 
     #endregion

@@ -1,5 +1,6 @@
 #include "user.h"
 #include "witos/platform.h"
+#include "witos/boot.h"
 
 /* Memory objects (RFC 0011 section 7.2): MEMORY_OBJECT_CREATE and MEMORY_OBJECT_MAP, the object's close,
  * duplication and transfer, and the release of a mapping through MEMORY_RELEASE. Every call validates its whole
@@ -27,7 +28,26 @@ void wit_memory_objects_initialize(WitMemoryObjectTable *table)
         table->Entries[i].PageCount = 0;
         table->Entries[i].Owned = 0;
         table->Entries[i].Device = 0;
+        table->Entries[i].Extents = 0;
+        table->Entries[i].ExtentCount = 0;
     }
+}
+
+/* The physical page at an index of an object: from its page array or, for an object over extents, from them. */
+static WitU64 object_page(const WitMemoryObject *entry, WitU32 index)
+{
+    if (!entry->Extents) {
+        return entry->Pages[index];
+    }
+    WitU64 skipped = 0;
+    for (WitU32 i = 0; i < entry->ExtentCount; ++i) {
+        const WitU64 pages = entry->Extents[i].Length / 4096;
+        if (index - skipped < pages) {
+            return entry->Extents[i].Base + (WitU64)(index - skipped) * 4096;
+        }
+        skipped += pages;
+    }
+    wit_panic("Memory object page beyond its extents");
 }
 
 static WitMemoryObject *slot(WitUserProcess *p, WitU64 object)
@@ -69,6 +89,8 @@ static void release_object(WitUserProcess *p, WitU64 object)
         entry->PageCount = 0;
         entry->Owned = 0;
         entry->Device = 0;
+        entry->Extents = 0;
+        entry->ExtentCount = 0;
         --p->MemoryObjects.Count;
     }
 }
@@ -101,6 +123,8 @@ WitU64 wit_user_memory_object_create(WitUserProcess *p, WitU64 size, WitU64 flag
         entry->References = 1;
         entry->Owned = 1;
         entry->Device = 0;
+        entry->Extents = 0;
+        entry->ExtentCount = 0;
         entry->Live = 1;
         ++p->MemoryObjects.Count;
         *result = handle;
@@ -151,12 +175,16 @@ WitU64 wit_user_memory_object_map(WitUserProcess *p, WitU64 address, WitU64 size
         return WIT_STATUS_INVALID_ARGUMENT;
     }
     if (request.Offset > (WitU64)entry->PageCount * 4096 ||
-        request.Bytes > (WitU64)entry->PageCount * 4096 - request.Offset) {
-        return WIT_STATUS_TOO_LARGE;
+        request.Bytes > (WitU64)entry->PageCount * 4096 - request.Offset ||
+        request.Bytes / 4096 > WIT_MEMORY_OBJECT_PAGES) {
+        return WIT_STATUS_TOO_LARGE; /* One mapping covers at most the pages of one anonymous object. */
     }
-    const WitU64 mapped =
-        wit_user_space_map_object(&p->Space, request.Address, request.Bytes, &entry->Pages[request.Offset / 4096],
-            request.Protection, (WitU32)object, granted, entry->Kind == WIT_MEMORY_OBJECT_DEVICE, result);
+    WitU64 window[WIT_MEMORY_OBJECT_PAGES];
+    for (WitU64 i = 0; i < request.Bytes / 4096; ++i) {
+        window[i] = object_page(entry, (WitU32)(request.Offset / 4096 + i));
+    }
+    const WitU64 mapped = wit_user_space_map_object(&p->Space, request.Address, request.Bytes, window,
+        request.Protection, (WitU32)object, granted, entry->Kind == WIT_MEMORY_OBJECT_DEVICE, result);
     if (mapped != WIT_STATUS_OK) {
         return mapped;
     }
@@ -250,6 +278,37 @@ int wit_user_memory_object_adopt(
         entry->References = 1;
         entry->Owned = 0;
         entry->Device = device;
+        entry->Extents = 0;
+        entry->ExtentCount = 0;
+        entry->Live = 1;
+        ++p->MemoryObjects.Count;
+        *object = i + 1;
+        return 1;
+    }
+    return 0;
+}
+
+/* An object over physical extents the component does not own (the boot package, K4): one reference, the caller's;
+ * the page count is the size rounded up to pages. */
+int wit_user_memory_object_adopt_extents(
+    WitUserProcess *p, WitU32 kind, const WitBootStorageExtent *extents, WitU32 count, WitU64 bytes, WitU32 *object)
+{
+    *object = 0;
+    if (!extents || !count || !bytes || kind == WIT_MEMORY_OBJECT_ANONYMOUS) {
+        return 0;
+    }
+    for (WitU32 i = 0; i < p->MemoryObjects.Limit; ++i) {
+        WitMemoryObject *entry = &p->MemoryObjects.Entries[i];
+        if (entry->Live) {
+            continue;
+        }
+        entry->Kind = kind;
+        entry->PageCount = (WitU32)((bytes + 4095) / 4096);
+        entry->References = 1;
+        entry->Owned = 0;
+        entry->Device = 0;
+        entry->Extents = extents;
+        entry->ExtentCount = count;
         entry->Live = 1;
         ++p->MemoryObjects.Count;
         *object = i + 1;
@@ -281,5 +340,5 @@ WitU64 wit_user_memory_object_pages(WitUserProcess *p, WitU64 object, WitU32 ind
 {
     const WitMemoryObject *entry = slot(p, object);
     require(entry != 0 && (!physical || index < entry->PageCount), "Memory object page query out of range");
-    return physical ? entry->Pages[index] : entry->PageCount;
+    return physical ? object_page(entry, index) : entry->PageCount;
 }

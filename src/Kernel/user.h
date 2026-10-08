@@ -328,6 +328,9 @@ WitU64 wit_user_device_index(WitUserProcess *, WitU64, WitU32, WitU32 *);
 void wit_user_device_reference(WitUserProcess *, WitU32);
 void wit_user_device_unreference(WitUserProcess *, WitU32);
 void wit_user_memory_object_retain(WitUserProcess *, WitU64);
+struct WitBootStorageExtent;
+int wit_user_memory_object_adopt_extents(
+    WitUserProcess *, WitU32, const struct WitBootStorageExtent *, WitU32, WitU64, WitU32 *);
 WitU64 wit_user_memory_object_pages(WitUserProcess *, WitU64, WitU32, int);
 void wit_user_event_signal_object(WitUserProcess *, WitU64);
 
@@ -410,6 +413,8 @@ void wit_user_channel_self_test(WitPageAllocator *pages);
 void wit_user_memory_object_self_test(WitPageAllocator *pages);
 void wit_user_device_self_test(WitPageAllocator *pages);
 void wit_user_interrupt_self_test(WitPageAllocator *pages);
+struct WitBootInfo;
+void wit_root_task_self_test(const struct WitBootInfo *boot, WitPageAllocator *pages);
 void wit_user_image_self_test(WitPageAllocator *pages);
 void wit_user_bootstrap_self_test(WitPageAllocator *pages);
 void wit_user_gc_self_test(WitPageAllocator *pages);
@@ -431,6 +436,11 @@ WitU64 wit_virtual_kernel_root(void);
 
 int wit_user_create(
     WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const WitU8 *code, WitU32 code_size);
+/* A component from a validated flat image (K4): its segments mapped at their addresses in the image window, the
+ * first thread at the entry with WIT_USER_INFO in its argument register; the caller fills the startup block. */
+struct WitFlatLayout;
+int wit_user_create_flat(
+    WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const struct WitFlatLayout *layout);
 WitPeStatus wit_user_create_pe_profile(
     WitUserProcess *, WitPageAllocator *, WitU32, const WitU8 *, WitU32, WitU64, const char *, WitU32);
 WitPeStatus wit_user_create_named_pe(WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot,

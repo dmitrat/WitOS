@@ -7,6 +7,7 @@
 
 #define WIT_X64_STORAGE_BASE 0xFFFFA00000000000ULL
 #define WIT_X64_STORAGE_SLOT 320U
+#define WIT_X64_ROOT_BASE (WIT_X64_STORAGE_BASE + (128ULL << 20)) /* the root task image after the package window */
 /* User-mode code and stack selectors of the kernel GDT. */
 #define WIT_USER_CS 0x33U
 #define WIT_USER_SS 0x2BU

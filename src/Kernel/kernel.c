@@ -1,5 +1,6 @@
 #include "witos/boot.h"
 #include "witos/devices.h"
+#include "root_task.h"
 #include "witos/storage.h"
 #include "witos/memory.h"
 #include "witos/random.h"
@@ -10,6 +11,7 @@
 #include "build_info.h"
 
 static WitPageAllocator physical_pages;
+static const WitBootInfo *boot_info;
 #if defined(WITOS_SELFTEST)
 void wit_kernel_self_test(const WitBootInfo *boot, WitPageAllocator *pages);
 #endif
@@ -26,6 +28,14 @@ static WIT_NORETURN void finish(void)
 {
     wit_console_write("Kernel initialized.\nHello from WitOS.\n");
     wit_console_write("[TEST-PASS] Boot.Hello\n");
+    /* The root task (K4): the first component of the new direction, when the boot volume carries its image. */
+    WitU64 exit_code = 0;
+    if (wit_root_task_run(boot_info, &physical_pages, &exit_code)) {
+        if (exit_code != 0) {
+            wit_panic("Root task exited with a nonzero code");
+        }
+        wit_console_write("[TEST-PASS] Boot.RootTask\n");
+    }
 
 #ifdef WITOS_TEST_HANG
     for (;;) {
@@ -116,6 +126,7 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
     wit_console_write(" | Debug\n");
     wit_console_write("[TEST-BEGIN] Boot.Contract\n");
     usable = validate_contract(boot, arch);
+    boot_info = boot;
     wit_console_write("[TEST-PASS] Boot.Contract\n");
     wit_arch_initialize();
     wit_console_write("CPU: ");

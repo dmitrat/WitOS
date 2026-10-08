@@ -222,6 +222,8 @@ static void map_image(const WitBootInfo *boot)
     }
 }
 
+static int root_task_mapped;
+
 static void map_storage(const WitBootInfo *boot)
 {
     const WitU64 table = (WitU64)boot->StorageExtents;
@@ -262,6 +264,45 @@ static void map_storage(const WitBootInfo *boot)
         mapped += extent->Length;
     }
     require(mapped == ((boot->StorageBytes + 4095) & ~4095ULL), "Incomplete boot storage mapping");
+    /* The root task image (K4): optional, validated like the package, mapped read-only after its window. */
+    require(!boot->RootTaskReserved &&
+            boot->RootTaskExtentCount <= WIT_MAX_ROOT_EXTENTS &&
+            (boot->RootTaskExtentCount == 0) == (boot->RootTaskBytes == 0) &&
+            (boot->RootTaskExtentCount == 0) == (boot->RootTaskExtents == 0) &&
+            boot->RootTaskBytes <= (4ULL << 20),
+        "Invalid root task descriptor");
+    if (boot->RootTaskExtentCount) {
+        const WitU64 rootTable = (WitU64)boot->RootTaskExtents;
+        require(rootTable >= boot->ImageBase &&
+                rootTable - boot->ImageBase <= boot->ImageSize &&
+                (WitU64)boot->RootTaskExtentCount * sizeof(WitBootStorageExtent) <=
+                    boot->ImageSize - (rootTable - boot->ImageBase),
+            "Invalid root task descriptor");
+        WitU64 root_mapped = 0;
+        for (WitU32 i = 0; i < boot->RootTaskExtentCount; ++i) {
+            const WitBootStorageExtent *extent = &boot->RootTaskExtents[i];
+            require(extent->Base &&
+                    !(extent->Base & 4095) &&
+                    extent->Length &&
+                    !(extent->Length & 4095) &&
+                    extent->Length <= 1024 * 1024 &&
+                    extent->Base < WIT_PHYSICAL_LIMIT &&
+                    extent->Length <= WIT_PHYSICAL_LIMIT - extent->Base &&
+                    (extent->Base >= boot->ImageBase + boot->ImageSize ||
+                        boot->ImageBase >= extent->Base + extent->Length) &&
+                    root_mapped <= ((boot->RootTaskBytes + 4095) & ~4095ULL) &&
+                    extent->Length <= ((boot->RootTaskBytes + 4095) & ~4095ULL) - root_mapped,
+                "Invalid root task extent");
+            for (WitU64 offset = 0; offset < extent->Length; offset += 4096) {
+                require(reserved_image_page(boot, extent->Base + offset),
+                    "Root task image overlaps usable or absent memory");
+                set_page(WIT_A64_ROOT_BASE + root_mapped + offset, page_descriptor(extent->Base + offset, 0, 0, 0));
+            }
+            root_mapped += extent->Length;
+        }
+        require(root_mapped == ((boot->RootTaskBytes + 4095) & ~4095ULL), "Incomplete root task mapping");
+        root_task_mapped = 1;
+    }
 }
 
 /* Devices the board needs before it can map pages on demand, such as its console. */
@@ -481,4 +522,9 @@ void wit_virtual_fault_test(void)
 const WitU8 *wit_virtual_boot_storage(void)
 {
     return active ? (const WitU8 *)WIT_A64_STORAGE_BASE : 0;
+}
+
+const WitU8 *wit_virtual_root_task(void)
+{
+    return active && root_task_mapped ? (const WitU8 *)WIT_A64_ROOT_BASE : 0;
 }

@@ -8,6 +8,8 @@
 #define WIT_VM_SCRATCH_SIZE 0x1000000ULL
 
 const WitU8 *wit_virtual_boot_storage(void);
+/* The root task image the boot contract carries, mapped read-only beside the package; zero without one (K4). */
+const WitU8 *wit_virtual_root_task(void);
 void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator);
 int wit_virtual_map(WitU64 virtual_address, WitU64 physical_address, int writable);
 int wit_virtual_protect(WitU64 virtual_address, int writable);

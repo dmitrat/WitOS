@@ -15,6 +15,7 @@
     "tests/Kernel/user_memory_object_tests.c",
     "tests/Kernel/user_device_tests.c",
     "tests/Kernel/user_interrupt_tests.c",
+    "tests/Kernel/root_task_tests.c",
     "tests/Kernel/user_image_tests.c",
     "tests/Kernel/test_summary.c"
   ],

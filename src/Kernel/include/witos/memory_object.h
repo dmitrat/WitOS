@@ -13,6 +13,7 @@
 #define WIT_MEMORY_OBJECT_ANONYMOUS 1U
 #define WIT_MEMORY_OBJECT_DEVICE 2U /* a device's memory region: uncached, never executable (DEVICE_MEMORY, K3.1) */
 #define WIT_MEMORY_OBJECT_TABLE 3U /* the kernel's device descriptor table: read-only (K3.1) */
+#define WIT_MEMORY_OBJECT_PACKAGE 4U /* the boot package over its extents: read-only (K4) */
 
 /* MEMORY_OBJECT_MAP: the object, the page-aligned window of it, the address (0: the kernel chooses one in the data
  * arena; otherwise a free page-aligned address of an arena), the protection (NONE, READ, READ|WRITE or
@@ -32,10 +33,16 @@ WIT_STATIC_ASSERT(sizeof(WitMemoryMapRequest) == WIT_MEMORY_MAP_SIZE, "Memory ma
 /* Kernel-internal: an object's pages and the handles and mappings that refer to it. Owned pages came from the
  * component's quota and return to it with the object; the pages of a device region or the table are not the
  * component's. Device is the descriptor index plus one of a device region's object, whose mappings are uncached. */
+struct WitBootStorageExtent;
+
 typedef struct WitMemoryObject {
     WitU32 Live, Kind, References, PageCount;
     WitU32 Owned, Device;
     WitU64 Pages[WIT_MEMORY_OBJECT_PAGES];
+    /* An object over physical extents (the boot package, K4) has no page array: its pages are the extents' in order
+     * and PageCount may exceed the array. */
+    const struct WitBootStorageExtent *Extents;
+    WitU32 ExtentCount, ExtentReserved;
 } WitMemoryObject;
 
 typedef struct WitMemoryObjectTable {
