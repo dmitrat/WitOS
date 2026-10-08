@@ -7,8 +7,8 @@ _Static_assert(WIT_PRESSURE_LOW_PAGES < WIT_PRESSURE_HIGH_PAGES && WIT_PRESSURE_
 void wit_user_pressure_update(WitUserProcess *process)
 {
     const WitU64 physical = wit_pages_free_count(process->Space.Allocator);
-    const WitU64 quota =
-        process->Space.OwnedCount < process->Space.PageLimit ? process->Space.PageLimit - process->Space.OwnedCount : 0;
+    const WitU64 taken = (WitU64)process->Space.OwnedCount + process->Space.ChargedPages;
+    const WitU64 quota = taken < process->Space.PageLimit ? process->Space.PageLimit - taken : 0;
     const WitU64 available = physical < quota ? physical : quota;
     if (available <= WIT_PRESSURE_LOW_PAGES) {
         process->MemoryPressureLow = 1;

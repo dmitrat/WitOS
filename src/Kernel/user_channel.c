@@ -38,7 +38,7 @@ static void release_capability(WitUserProcess *p, const WitChannelCapability *ca
             close_endpoint(p, channel, end);
         }
     } else if (capability->Kind == WIT_HANDLE_MEMORY_OBJECT) {
-        wit_user_memory_object_release(p, capability->Object);
+        wit_user_memory_object_release(capability->Object);
     } else if (capability->Kind == WIT_HANDLE_DEVICE) {
         wit_user_device_release(p, capability->Object);
     } else if (capability->Kind == WIT_HANDLE_INTERRUPT) {
@@ -48,6 +48,28 @@ static void release_capability(WitUserProcess *p, const WitChannelCapability *ca
     }
 }
 
+/* The queue of an end is dropped with what the messages carried. A message leaves the queue before its capabilities
+ * are released, because a release may close another end whose queue drops within, and may come back to this one. */
+static void drop_queue(WitUserProcess *p, WitChannelEndpoint *endpoint)
+{
+    while (endpoint->Count) {
+        WitChannelCapability moved[WIT_CHANNEL_MESSAGE_HANDLES];
+        const WitChannelQueued *message = &endpoint->Queue[endpoint->Head];
+        const WitU32 count = message->HandleCount;
+        for (WitU32 i = 0; i < count; ++i) {
+            moved[i] = message->Handles[i];
+        }
+        endpoint->Head = (endpoint->Head + 1) % WIT_CHANNEL_QUEUE_DEPTH;
+        --endpoint->Count;
+        ++p->ChannelDrops;
+        for (WitU32 i = 0; i < count; ++i) {
+            release_capability(p, &moved[i]);
+        }
+    }
+    endpoint->Head = 0;
+    endpoint->Bytes = 0;
+}
+
 /* The last handle of an end is gone: its queue is dropped with what the messages carried, the peer's waiters learn
  * PEER_CLOSED, and the channel ends with its second end. */
 static void close_endpoint(WitUserProcess *p, WitChannel *channel, WitU32 end)
@@ -55,17 +77,7 @@ static void close_endpoint(WitUserProcess *p, WitChannel *channel, WitU32 end)
     WitChannelEndpoint *endpoint = &channel->Ends[end];
     require(endpoint->Live && !endpoint->Handles, "Closing an endpoint that is still referenced");
     endpoint->Live = 0;
-    while (endpoint->Count) {
-        const WitChannelQueued *message = &endpoint->Queue[endpoint->Head];
-        for (WitU32 i = 0; i < message->HandleCount; ++i) {
-            release_capability(p, &message->Handles[i]);
-        }
-        endpoint->Head = (endpoint->Head + 1) % WIT_CHANNEL_QUEUE_DEPTH;
-        --endpoint->Count;
-        ++p->ChannelDrops;
-    }
-    endpoint->Head = 0;
-    endpoint->Bytes = 0;
+    drop_queue(p, endpoint);
     if (!peer_of(channel, end)->Live) {
         channel->Live = 0;
         --p->Channels.Count;
@@ -390,6 +402,30 @@ WitU64 wit_user_channel_signaled(WitUserProcess *p, WitU64 handle, int *signaled
 int wit_user_channel_handle(WitUserProcess *p, WitU64 handle)
 {
     return wit_handle_check(&p->Handles, handle, WIT_HANDLE_CHANNEL_ENDPOINT, 0) != WIT_STATUS_WRONG_TYPE;
+}
+
+/* The component ends (K5.2b): what its messages carried goes back to its objects first, with every end still live,
+ * so that a capability to an end of this component finds its record; then every end its handles kept closes. The
+ * handle table and the channel table are wiped afterwards by the caller. */
+void wit_user_channels_drop(WitUserProcess *p)
+{
+    for (WitU32 c = 0; c < p->Channels.Limit; ++c) {
+        WitChannel *channel = &p->Channels.Entries[c];
+        for (WitU32 end = 0; end < 2; ++end) {
+            if (channel->Live && channel->Ends[end].Live) {
+                drop_queue(p, &channel->Ends[end]);
+            }
+        }
+    }
+    for (WitU32 c = 0; c < p->Channels.Limit; ++c) {
+        WitChannel *channel = &p->Channels.Entries[c];
+        for (WitU32 end = 0; end < 2; ++end) {
+            if (channel->Live && channel->Ends[end].Live) {
+                channel->Ends[end].Handles = 0;
+                close_endpoint(p, channel, end);
+            }
+        }
+    }
 }
 
 void wit_user_channels_thread_exited(WitUserProcess *p, WitU64 thread_id, WitU64 code)

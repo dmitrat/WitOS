@@ -75,6 +75,8 @@ wit_user_start PROC
     je transfer_test
     cmp r14, WIT_MEMORY_OBJECT_TEST_LIMITS
     je limits_test
+    cmp r14, WIT_MEMORY_OBJECT_TEST_EXIT
+    je exit_test
     cmp r14, WIT_MEMORY_OBJECT_TEST_BASIC
     jne failed
 
@@ -321,6 +323,30 @@ release_mappings:
     cmp edi, WIT_USER_RESERVATION_CAPACITY
     jb release_mappings
     CLOSE r12
+    EXPECT WIT_STATUS_OK
+    jmp passed
+
+exit_test:
+    ; The component exits with everything live: an object behind a view, its duplicate handle in flight in a
+    ; channel, and a second object behind its handle alone. The kernel releases the handles and the capability at
+    ; the exit, the view at the teardown.
+    CREATE 4096
+    EXPECT WIT_STATUS_OK
+    mov r12, rdx
+    MAP r12, 0, 4096, 0, READ_WRITE
+    EXPECT WIT_STATUS_OK
+    DUPLICATE r12, 0
+    EXPECT WIT_STATUS_OK
+    mov [rbx + 768], rdx
+    mov rcx, rbx
+    xor edx, edx
+    xor r8d, r8d
+    CALL0 WIT_CALL_CHANNEL_CREATE
+    EXPECT WIT_STATUS_OK
+    mov rcx, [rbx]
+    call send_handle
+    EXPECT WIT_STATUS_OK
+    CREATE 8192
     EXPECT WIT_STATUS_OK
     jmp passed
 

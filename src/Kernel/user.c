@@ -95,12 +95,16 @@ WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code)
         }
         current_user->Threads[i].Deadline = WIT_WAIT_INFINITE;
     }
+    /* The component's references end (K5.2b): what its channels carried first, so that the capabilities in flight
+     * return to their objects before the records that count them are reset; then its pins, its devices and its
+     * handles. Its mappings keep their objects until the teardown. */
+    wit_user_channels_drop(current_user);
     wit_user_interrupts_reset(current_user);
     wit_user_pins_reset(current_user);
     wit_user_devices_reset(current_user);
+    wit_user_memory_objects_release_handles(current_user);
     wit_handles_close_all(&current_user->Handles);
     wit_channels_initialize(&current_user->Channels);
-    wit_memory_objects_initialize(&current_user->MemoryObjects);
     wit_files_initialize(&current_user->Files);
     wit_user_library_initialize(current_user);
     wit_user_references_initialize(current_user);
@@ -391,7 +395,7 @@ static void reset_process(WitUserProcess *process, WitU32 slot, WitU32 code_size
     process->InterruptsDelivered = 0;
     wit_events_initialize(&process->Events);
     wit_channels_initialize(&process->Channels);
-    wit_memory_objects_initialize(&process->MemoryObjects);
+    require(wit_memory_objects_charged(process) == 0, "A fresh component inherits memory objects");
     wit_user_devices_reset(process);
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
         process->Threads[i].State = WitThreadEmpty;
@@ -632,18 +636,23 @@ void wit_user_run(WitUserProcess *process)
 void wit_user_destroy(WitUserProcess *process)
 {
     require(current_user != process && process->State != WitUserRunning, "Destroying running component");
+    /* A component torn down without an exit still holds its references; the order is the exit's (K5.2b). */
+    wit_user_channels_drop(process);
+    wit_user_interrupts_reset(process);
+    wit_user_pins_reset(process);
+    wit_user_devices_reset(process);
+    wit_user_memory_objects_release_handles(process);
     wit_handles_close_all(&process->Handles);
     wit_files_initialize(&process->Files);
     wit_user_library_initialize(process);
     wit_user_references_initialize(process);
     wit_user_stack_leases_initialize(process);
     wit_user_exception_initialize(process);
-    wit_user_interrupts_reset(process);
-    wit_user_pins_reset(process);
     wit_events_initialize(&process->Events);
     wit_channels_initialize(&process->Channels);
-    wit_memory_objects_initialize(&process->MemoryObjects);
-    wit_user_devices_reset(process);
+    /* The mappings' references and the charges of the objects the component created end with its address space. */
+    wit_user_memory_objects_release_mappings(process);
+    wit_memory_objects_orphan(process);
     wit_user_process_state_reset(process);
     wit_user_space_destroy(&process->Space);
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {

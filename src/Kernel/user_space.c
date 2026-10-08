@@ -34,7 +34,7 @@ const WitMemoryJournalEntry *wit_user_memory_journal(WitU64 *count, WitU32 *capa
 static WitU64 allocate(WitUserSpace *space, WitU64 address)
 {
     WitU64 page = 0;
-    if (space->OwnedCount >= space->PageLimit || !wit_page_allocate(space->Allocator, &page)) {
+    if (space->OwnedCount + space->ChargedPages >= space->PageLimit || !wit_page_allocate(space->Allocator, &page)) {
         return 0;
     }
     space->OwnedPages[space->OwnedCount] = page;
@@ -267,6 +267,7 @@ int wit_user_space_create_profile(WitUserSpace *space, WitPageAllocator *allocat
     space->ReservationLimit = full ? WIT_RUNTIME_RESERVATION_CAPACITY : WIT_USER_RESERVATION_CAPACITY;
     space->FixedLimit = full ? WIT_RUNTIME_USER_LIMIT : WIT_USER_LIMIT;
     space->OwnedCount = 0;
+    space->ChargedPages = 0;
     space->AliasCount = 0;
     for (WitU32 i = 0; i <= WIT_LIBRARY_CAPACITY; ++i) {
         space->LibraryRanges[i] = (WitVirtualRange){0};
@@ -414,7 +415,7 @@ WitU64 wit_user_memory_query(const WitUserSpace *space, WitU64 address, WitU64 s
     info.PhysicalTotalBytes = space->Allocator->TotalPages * WIT_PAGE_SIZE;
     info.PhysicalAvailableBytes = wit_pages_free_count(space->Allocator) * WIT_PAGE_SIZE;
     info.OwnedLimitBytes = space->PageLimit * WIT_PAGE_SIZE;
-    info.OwnedBytes = space->OwnedCount * WIT_PAGE_SIZE;
+    info.OwnedBytes = ((WitU64)space->OwnedCount + space->ChargedPages) * WIT_PAGE_SIZE;
     info.VirtualBase = WIT_USER_MEMORY_BASE;
     info.VirtualBytes = WIT_USER_MEMORY_LIMIT - WIT_USER_MEMORY_BASE;
     info.CodeVirtualBase = WIT_USER_CODE_BASE;
@@ -1046,28 +1047,42 @@ static WitU64 release_reservation(WitUserSpace *space, WitU64 address, int libra
 /* Memory objects (plan step K5.1): pages a component owns without a virtual address of their own (tagged zero like
  * the table pages), mapped as alias entries of a reservation that remembers the object's nonzero number and the
  * rights it may take. */
-int wit_user_space_allocate_pages(WitUserSpace *space, WitU64 *pages, WitU32 count)
+/* The pages of a memory object the component creates count against its page quota beside the pages it owns, all
+ * or nothing (K5.2b); the object's end, or the component's teardown, takes the charge off. */
+int wit_user_space_charge(WitUserSpace *space, WitU32 pages)
 {
-    for (WitU32 i = 0; i < count; ++i) {
-        pages[i] = allocate(space, 0);
-        if (!pages[i]) {
-            while (i) {
-                free_owned(space, pages[--i]);
-            }
-            return 0;
-        }
+    if (pages > space->PageLimit || space->OwnedCount + space->ChargedPages > space->PageLimit - pages) {
+        return 0;
     }
+    space->ChargedPages += pages;
     return 1;
 }
 
-void wit_user_space_free_pages(WitUserSpace *space, const WitU64 *pages, WitU32 count)
+void wit_user_space_uncharge(WitUserSpace *space, WitU32 pages)
 {
-    for (WitU32 i = 0; i < count; ++i) {
-        if (aliased(space, pages[i])) {
-            wit_panic("Freeing memory object pages with live mappings");
-        }
-        free_owned(space, pages[i]);
+    if (space->ChargedPages < pages) {
+        wit_panic("Memory object charge accounting corrupted");
     }
+    space->ChargedPages -= pages;
+}
+
+/* The teardown's part: the object of every mapping, taken off its reservation; the reservations and their alias
+ * entries go with the space. */
+WitU32 wit_user_space_take_mapped_objects(WitUserSpace *space, WitU32 *objects, WitU32 capacity)
+{
+    WitU32 count = 0;
+    for (WitU32 i = 0; i < space->ReservationLimit; ++i) {
+        if (!space->Reservations[i].Size || !space->MappedObjects[i]) {
+            continue;
+        }
+        if (count == capacity) {
+            wit_panic("More mappings than reservations");
+        }
+        objects[count++] = space->MappedObjects[i];
+        space->MappedObjects[i] = 0;
+        space->MappedRights[i] = 0;
+    }
+    return count;
 }
 
 WitU64 wit_user_space_map_object(WitUserSpace *space, WitU64 address, WitU64 size, const WitU64 *pages,
@@ -1180,6 +1195,7 @@ void wit_user_space_destroy(WitUserSpace *space)
     }
     space->Root = 0;
     space->AliasCount = 0;
+    space->ChargedPages = 0;
     for (WitU32 i = 0; i <= WIT_LIBRARY_CAPACITY; ++i) {
         space->LibraryRanges[i] = (WitVirtualRange){0};
     }

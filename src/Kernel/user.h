@@ -40,7 +40,9 @@ typedef struct WitUserSpace {
     WitU32 MappedObjects[WIT_RUNTIME_RESERVATION_CAPACITY];
     WitU32 MappedRights[WIT_RUNTIME_RESERVATION_CAPACITY];
     WitVirtualRange LibraryRanges[WIT_LIBRARY_CAPACITY + 1];
-    WitU32 OwnedCount, PageLimit, ReservationLimit;
+    /* OwnedCount pages are the space's own; ChargedPages are the pages of the live memory objects the component
+     * created (K5.2b), which the kernel's table owns: together they are bounded by PageLimit. */
+    WitU32 OwnedCount, ChargedPages, PageLimit, ReservationLimit;
     WitU64 FixedLimit;
 } WitUserSpace;
 
@@ -163,7 +165,6 @@ typedef struct WitUserProcess {
     WitUserLibraryReader LibraryReaders[WIT_LIBRARY_READER_CAPACITY];
     WitEventTable Events;
     WitChannelTable Channels;
-    WitMemoryObjectTable MemoryObjects;
     /* Per device descriptor: the handles of this component to it, in the table or in flight (K3.1). */
     WitU32 DeviceReferences[WIT_DEVICE_CAPACITY];
     /* Per interrupt binding: the handles of this component to it (K3.2); the pins of the component; interrupts
@@ -303,18 +304,25 @@ WitU64 wit_user_channel_signaled(WitUserProcess *, WitU64, int *);
 int wit_user_channel_handle(WitUserProcess *, WitU64);
 /* A thread exited: the thread handles in flight in messages learn the exit as the records in the table do. */
 void wit_user_channels_thread_exited(WitUserProcess *, WitU64, WitU64);
+/* The component ends: its messages' capabilities return to their objects and its endpoints close (K5.2b). */
+void wit_user_channels_drop(WitUserProcess *);
 
 /* Memory objects (RFC 0011 section 7.2): creation, mapping, the release of a mapping or a plain reservation, the
- * object's close, duplication, the reference a dropped message held, and whether a handle is an object's. */
+ * object's close, duplication, the reference a dropped message or a pin held, whether a handle is an object's, and
+ * the end of a component's references (K5.2b): its handles at the exit, its mappings and its charges at the
+ * teardown. */
 WitU64 wit_user_memory_object_create(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
 WitU64 wit_user_memory_object_map(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
 WitU64 wit_user_memory_unmap(WitUserProcess *, WitU64);
 WitU64 wit_user_memory_object_close(WitUserProcess *, WitU64);
 WitU64 wit_user_memory_object_duplicate(WitUserProcess *, WitU64, WitU64, WitU64);
-void wit_user_memory_object_release(WitUserProcess *, WitU64);
+void wit_user_memory_object_release(WitU64);
 int wit_user_memory_object_handle(WitUserProcess *, WitU64);
 int wit_user_memory_object_adopt(WitUserProcess *, WitU32, const WitU64 *, WitU32, WitU32, WitU32 *);
-WitU32 wit_user_memory_object_kind(WitUserProcess *, WitU64);
+WitU32 wit_user_memory_object_kind(WitU64);
+void wit_user_memory_objects_release_handles(WitUserProcess *);
+void wit_user_memory_objects_release_mappings(WitUserProcess *);
+void wit_memory_objects_orphan(WitUserProcess *);
 
 /* Devices (RFC 0011 section 7.7, K3.1): the table as a memory object of the component, acquisition, a region as
  * a memory object, the device handle's close, duplication, the reference a dropped message held, whether a handle
@@ -331,11 +339,11 @@ WitU64 wit_user_owner_token(const WitUserProcess *);
 WitU64 wit_user_device_index(WitUserProcess *, WitU64, WitU32, WitU32 *);
 void wit_user_device_reference(WitUserProcess *, WitU32);
 void wit_user_device_unreference(WitUserProcess *, WitU32);
-void wit_user_memory_object_retain(WitUserProcess *, WitU64);
+void wit_user_memory_object_retain(WitU64);
 struct WitBootStorageExtent;
 int wit_user_memory_object_adopt_extents(
     WitUserProcess *, WitU32, const struct WitBootStorageExtent *, WitU32, WitU64, WitU32 *);
-WitU64 wit_user_memory_object_pages(WitUserProcess *, WitU64, WitU32, int);
+WitU64 wit_user_memory_object_pages(WitU64, WitU32, int);
 void wit_user_event_signal_object(WitUserProcess *, WitU64);
 
 /* Interrupts and DMA (RFC 0011 section 7.7, K3.2): a line bound to an event, its acknowledgement, delivery from
@@ -360,13 +368,15 @@ void wit_user_pins_reset(WitUserProcess *);
 /* A device line was raised (the architecture masked and completed it): deliver and dispatch like a timer tick. */
 WitArchFrame *wit_user_interrupt(WitArchFrame *, WitU32);
 
-/* The address space's part: pages without an address of their own, a mapping of an object's pages as a reservation
- * at a chosen or fixed address, and the object a reservation maps. */
-int wit_user_space_allocate_pages(WitUserSpace *, WitU64 *, WitU32);
-void wit_user_space_free_pages(WitUserSpace *, const WitU64 *, WitU32);
+/* The address space's part: the charge of an object's pages against the page quota (all or nothing), a mapping of
+ * an object's pages as a reservation at a chosen or fixed address, the object a reservation maps, and the objects
+ * of every mapping taken off their reservations at the teardown. */
+int wit_user_space_charge(WitUserSpace *, WitU32);
+void wit_user_space_uncharge(WitUserSpace *, WitU32);
 WitU64 wit_user_space_map_object(
     WitUserSpace *, WitU64, WitU64, const WitU64 *, WitU64, WitU32, WitU32, WitU32, WitU64 *);
 int wit_user_space_mapping_object(const WitUserSpace *, WitU64, WitU64 *);
+WitU32 wit_user_space_take_mapped_objects(WitUserSpace *, WitU32 *, WitU32);
 
 WitU64 wit_user_space_take_table(WitUserSpace *space);
 void wit_user_space_release_table(WitUserSpace *space, WitU64 page);

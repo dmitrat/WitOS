@@ -39,7 +39,7 @@ WitU64 wit_user_device_table_grant(WitUserProcess *p, WitU32 rights)
     }
     const WitU64 handle = wit_handle_grant_object(&p->Handles, WIT_HANDLE_MEMORY_OBJECT, rights, object);
     if (!handle) {
-        wit_user_memory_object_release(p, object);
+        wit_user_memory_object_release(object);
         return 0;
     }
     return handle;
@@ -85,7 +85,7 @@ WitU64 wit_user_device_acquire(WitUserProcess *p, WitU64 table, WitU64 index, Wi
         return status;
     }
     if (!wit_handle_describe(&p->Handles, table, WIT_HANDLE_MEMORY_OBJECT, &object, &granted) ||
-        wit_user_memory_object_kind(p, object) != WIT_MEMORY_OBJECT_TABLE) {
+        wit_user_memory_object_kind(object) != WIT_MEMORY_OBJECT_TABLE) {
         return WIT_STATUS_BAD_HANDLE;
     }
     if (index >= wit_devices_count()) {

@@ -45,7 +45,7 @@ static void release_pin(WitUserProcess *p, WitU64 object)
     WitUserPin *pin = slot(p, object);
     require(pin != 0 && pin->References != 0, "Released pin reference has no pin");
     if (--pin->References == 0) {
-        wit_user_memory_object_release(p, pin->Object);
+        wit_user_memory_object_release(pin->Object);
         pin->Live = 0;
         pin->Object = 0;
         pin->PageFirst = 0;
@@ -86,10 +86,10 @@ WitU64 wit_user_dma_pin(WitUserProcess *p, WitU64 address, WitU64 size, WitU64 r
     if (!wit_handle_describe(&p->Handles, request.Object, WIT_HANDLE_MEMORY_OBJECT, &object, &object_rights)) {
         return WIT_STATUS_BAD_HANDLE;
     }
-    if (wit_user_memory_object_kind(p, object) != WIT_MEMORY_OBJECT_ANONYMOUS) {
+    if (wit_user_memory_object_kind(object) != WIT_MEMORY_OBJECT_ANONYMOUS) {
         return WIT_STATUS_INVALID_ARGUMENT; /* A device's registers or the device table are not DMA memory. */
     }
-    const WitU64 pages = wit_user_memory_object_pages(p, object, 0, 0);
+    const WitU64 pages = wit_user_memory_object_pages(object, 0, 0);
     if (!request.Bytes || (request.Bytes & 4095) || (request.Offset & 4095)) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
@@ -105,7 +105,7 @@ WitU64 wit_user_dma_pin(WitUserProcess *p, WitU64 address, WitU64 size, WitU64 r
         ranges[i].Size = 0;
     }
     for (WitU32 i = 0; i < page_count; ++i) {
-        const WitU64 physical = wit_user_memory_object_pages(p, object, first + i, 1);
+        const WitU64 physical = wit_user_memory_object_pages(object, first + i, 1);
         if (count && ranges[count - 1].Address + ranges[count - 1].Size == physical) {
             ranges[count - 1].Size += 4096;
             continue;
@@ -128,7 +128,7 @@ WitU64 wit_user_dma_pin(WitUserProcess *p, WitU64 address, WitU64 size, WitU64 r
     }
     const WitU64 handle = wit_handle_grant_object(&p->Handles, WIT_HANDLE_PIN, PIN_RIGHTS, free + 1);
     require(handle != 0, "Pin handle grant failed after the free slot check");
-    wit_user_memory_object_retain(p, object);
+    wit_user_memory_object_retain(object);
     p->Pins[free].Object = (WitU32)object;
     p->Pins[free].PageFirst = first;
     p->Pins[free].PageCount = page_count;
@@ -207,6 +207,9 @@ int wit_user_pin_handle(WitUserProcess *p, WitU64 handle)
 void wit_user_pins_reset(WitUserProcess *p)
 {
     for (WitU32 i = 0; i < WIT_PIN_CAPACITY; ++i) {
+        if (p->Pins[i].Live) {
+            wit_user_memory_object_release(p->Pins[i].Object); /* The pin's reference ends with the component. */
+        }
         p->Pins[i].Live = 0;
         p->Pins[i].Object = 0;
         p->Pins[i].PageFirst = 0;
