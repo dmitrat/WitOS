@@ -247,6 +247,8 @@ static void start_thread(WitUserProcess *process, WitU32 index, WitUserThread *t
     thread->ExitReservation = 0;
     thread->ExitClear = 0;
     thread->ExitEvent = 0;
+    thread->AlternateBottom = 0;
+    thread->AlternateTop = 0;
     thread->ExitCode = 0;
     thread->Context = context;
     thread->WaitKind = WitWaitNone;
@@ -353,6 +355,8 @@ static WitU64 create_in(
     thread->ExitReservation = 0;
     thread->ExitClear = 0;
     thread->ExitEvent = 0;
+    thread->AlternateBottom = 0;
+    thread->AlternateTop = 0;
     thread->ExitCode = 0;
     thread->Context = context;
     thread->WaitKind = WitWaitNone;
@@ -409,6 +413,69 @@ WitU64 wit_user_thread_affinity(WitUserProcess *p, WitU64 handle, WitU64 address
         return valid;
     }
     target->Affinity = mask;
+    return WIT_STATUS_OK;
+}
+
+int wit_user_thread_stack_range(const WitUserThread *t, WitU64 sp, WitU64 *bottom, WitU64 *top)
+{
+    if (sp >= t->StackBottom && sp <= t->StackTop) {
+        *bottom = t->StackBottom;
+        *top = t->StackTop;
+        return 1;
+    }
+    if (t->AlternateTop && sp >= t->AlternateBottom && sp <= t->AlternateTop) {
+        *bottom = t->AlternateBottom;
+        *top = t->AlternateTop;
+        return 1;
+    }
+    return 0;
+}
+
+/* THREAD_STACK_ALTERNATE (S3.1): validated whole before the thread's record changes. The range must be 16-byte
+ * aligned, at least the callback frame's minimum, committed and writable in the caller's space (a mapping of the
+ * image or a reservation alike) and apart from the thread's stack; a zero request clears it; a caller whose stack
+ * pointer is inside the current alternate range cannot change it. */
+WitU64 wit_user_thread_alternate_stack(
+    WitUserProcess *p, const WitArchFrame *frame, WitU64 address, WitU64 size, WitU64 reserved)
+{
+    WitUserThread *t = &p->Threads[p->CurrentThread];
+    WitThreadAlternateStackRequest request;
+    if (reserved) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    if (!wit_user_copy_from(&p->Space, address, (WitU8 *)&request, sizeof(request))) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    if (request.Version != WIT_THREAD_ALTERNATE_STACK_VERSION) {
+        return WIT_STATUS_UNSUPPORTED;
+    }
+    if (size != sizeof(request) || request.Size != sizeof(request)) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    const WitU64 sp = wit_arch_frame_sp(frame);
+    if (t->AlternateTop && sp >= t->AlternateBottom && sp <= t->AlternateTop) {
+        return WIT_STATUS_BUSY;
+    }
+    if (!request.Base && !request.Bytes) {
+        t->AlternateBottom = 0;
+        t->AlternateTop = 0;
+        return WIT_STATUS_OK;
+    }
+    if ((request.Base & 15) ||
+        (request.Bytes & 15) ||
+        request.Bytes < WIT_EXCEPTION_STACK_MINIMUM ||
+        request.Bytes > 0xFFFFFFFFULL ||
+        request.Base + request.Bytes < request.Base) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    if (request.Base < t->StackTop && request.Base + request.Bytes > t->StackBottom) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    if (!wit_user_buffer_writable(&p->Space, request.Base, (WitU32)request.Bytes)) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    t->AlternateBottom = request.Base;
+    t->AlternateTop = request.Base + request.Bytes;
     return WIT_STATUS_OK;
 }
 

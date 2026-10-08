@@ -5,10 +5,12 @@ static WitArchFrame *owned_context(WitUserProcess *process, WitUserThread *targe
 {
     const WitU32 index = (WitU32)(target - process->Threads);
     WitArchFrame *saved = target->Context;
+    WitU64 bottom = 0, top = 0;
+    /* The saved stack pointer lies in the thread's stack or its alternate stack (S3.1), below the top. */
     if (!wit_arch_frame_owned(saved, process->Slot, index) ||
         !wit_arch_frame_returns_to_user(saved) ||
-        wit_arch_frame_sp(saved) < target->StackBottom ||
-        wit_arch_frame_sp(saved) >= target->StackTop ||
+        !wit_user_thread_stack_range(target, wit_arch_frame_sp(saved), &bottom, &top) ||
+        wit_arch_frame_sp(saved) == top ||
         !wit_user_space_physical(&process->Space, wit_arch_frame_pc(saved), 0, 1)) {
         wit_panic("Context snapshot lost owning kernel/user frame");
     }
@@ -92,8 +94,10 @@ WitU64 wit_user_context_validate(
         return WIT_STATUS_INVALID_ARGUMENT;
     }
     const WitU64 sp = wit_arch_context_sp(input);
-    if (sp < target->StackBottom ||
-        sp >= target->StackTop ||
+    WitU64 bottom = 0, top = 0;
+    /* The stack pointer lies in the thread's stack or its alternate stack (S3.1), below the top. */
+    if (!wit_user_thread_stack_range(target, sp, &bottom, &top) ||
+        sp == top ||
         !wit_user_space_physical(&process->Space, sp, 1, 0) ||
         !wit_user_space_physical(&process->Space, wit_arch_context_pc(input), 0, 1)) {
         return WIT_STATUS_BAD_ADDRESS;

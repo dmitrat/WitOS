@@ -581,6 +581,13 @@ static WitArchFrame *thread_affinity(WitUserCall *call)
     return 0;
 }
 
+static WitArchFrame *thread_stack_alternate(WitUserCall *call)
+{
+    *call->Status = wit_user_thread_alternate_stack(
+        call->Process, call->Context, call->Argument0, call->Argument1, call->Argument2);
+    return 0;
+}
+
 static WitArchFrame *random(WitUserCall *call)
 {
     WitU8 block[WIT_RANDOM_BLOCK_BYTES];
@@ -786,6 +793,7 @@ static WitArchFrame *(*const handlers[CALL_COUNT])(WitUserCall *) = {
     [WIT_CALL_CONTEXT_PROFILE] = context_profile,
     [WIT_CALL_THREAD_ACTIVATE] = thread_activate,
     [WIT_CALL_THREAD_AFFINITY] = thread_affinity,
+    [WIT_CALL_THREAD_STACK_ALTERNATE] = thread_stack_alternate,
     [WIT_CALL_CHANNEL_CREATE] = channel_create,
     [WIT_CALL_CHANNEL_SEND] = channel_send,
     [WIT_CALL_CHANNEL_RECEIVE] = channel_receive,

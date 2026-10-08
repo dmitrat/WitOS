@@ -43,8 +43,17 @@ long __wit_getcwd(char *buffer, long size);
 long __wit_fcntl(long fd, long command, long argument);
 int __wit_is_file_descriptor(long fd);
 
+/* The signal state of one thread (signal.c, S3): the blocked and pending signals as bits sig - 1, and the
+ * alternate stack sigaltstack recorded (the kernel holds the same range as the thread's alternate stack). */
+typedef struct WitSignalState {
+    unsigned long Mask, Pending;
+    void *AlternateBase;
+    unsigned long AlternateBytes;
+} WitSignalState;
+
 /* Threads and the futex equivalent (thread.c, futex.c, S2). */
 struct timespec;
+void __wit_thread_init(void);
 long __wit_gettid(void);
 long __wit_set_tid_address(int *address);
 long __wit_thread_exit(long code, WitU64 reservation);
@@ -52,5 +61,38 @@ int __wit_is_exit_word(const volatile void *address);
 WitU64 __wit_futex_exit_event(void);
 long __wit_futex(
     volatile int *address, int operation, int value, const struct timespec *timeout, volatile int *second, int third);
+WitSignalState *__wit_signal_state(void);
+WitSignalState *__wit_signal_state_of(WitU64 identity);
+long __wit_thread_signal(int tid, int sig);
+/* Whether the calling thread is in a cancellation point (musl's __syscall_cp_asm) whose cancel word is set: a path
+ * about to park checks it (thread.c). Called only once __wit_tls_ready is set. */
+int __wit_cancel_requested(void);
+
+/* Signals (signal.c, S3). A thread holding a library lock that a handler's async-signal-safe calls also take (the
+ * futex lock) holds its signals: they wait pending meanwhile and are re-armed when the last such lock goes. */
+void __wit_signal_hold_enter(void);
+void __wit_signal_hold_leave(void);
+/* Set once musl installed the main thread's pointer (a constructor of signal.c): thread-local state may be used.
+ * Before it — musl maps the static TLS block through mmap — the library has one thread and holds nothing. The
+ * thread-local state lives behind calls into other files, so that no compiler hoists a thread-local load above
+ * this check (it treats thread-local variables as always dereferenceable). */
+extern int __wit_tls_ready;
+/* A library lock (futex.c): a word taken by exchange, yielding while another thread holds it, with the holder's
+ * signals held; never held across a wait or an exit. */
+void __wit_lock(volatile int *word);
+void __wit_unlock(volatile int *word);
+struct k_sigaction;
+struct sigaltstack;
+void __wit_signal_init(void);
+void __wit_signal_activation(void);
+long __wit_rt_sigaction(int sig, const struct k_sigaction *act, struct k_sigaction *old, long size);
+long __wit_rt_sigprocmask(int how, const unsigned long *set, unsigned long *old, long size);
+long __wit_rt_sigpending(unsigned long *set, long size);
+long __wit_rt_sigsuspend(const unsigned long *set, long size);
+long __wit_sigaltstack(const struct sigaltstack *ss, struct sigaltstack *old);
+long __wit_tkill(int tid, int sig);
+long __wit_tgkill(int tgid, int tid, int sig);
+long __wit_kill(int pid, int sig);
+long __wit_pause(void);
 
 #endif

@@ -4,7 +4,9 @@
 #include "limits.h"
 #define WIT_EXCEPTION_VERSION 1U
 #define WIT_EXCEPTION_SIZE (WIT_THREAD_CONTEXT_SIZE + 48U)
-#define WIT_EXCEPTION_STACK_MINIMUM 4096U
+/* The room a delivery needs below the interrupted stack pointer, and the least alternate stack (S3.1): a libc's
+ * signal frame with the ucontext of either ISA fits in it. */
+#define WIT_EXCEPTION_STACK_MINIMUM 8192U
 #define WIT_EXCEPTION_SOFTWARE_VECTOR (~0ULL)
 /* An activation (THREAD_ACTIVATE): Address is the requester's callback, Error its argument and Context the context
  * the delivery interrupted; EXCEPTION_CONTINUE with that context resumes the thread where it was. */

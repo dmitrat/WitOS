@@ -60,4 +60,15 @@ typedef struct WitThreadExitRequest {
 } WitThreadExitRequest;
 
 WIT_STATIC_ASSERT(sizeof(WitThreadExitRequest) == 24, "Thread exit request ABI");
+
+/* The alternate stack of the calling thread (THREAD_STACK_ALTERNATE, S3.1): the range [Base, Base + Bytes), both
+ * zero to clear it. */
+#define WIT_THREAD_ALTERNATE_STACK_VERSION 1U
+
+typedef struct WitThreadAlternateStackRequest {
+    WitU32 Version, Size;
+    WitU64 Base, Bytes;
+} WitThreadAlternateStackRequest;
+
+WIT_STATIC_ASSERT(sizeof(WitThreadAlternateStackRequest) == 24, "Thread alternate stack request ABI");
 #endif

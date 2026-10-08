@@ -14,15 +14,19 @@
  * trampoline that installs the thread pointer where the kernel cannot (TPIDR_EL0 on ARM64) and calls the start
  * function; a thread's exit is THREAD_EXIT with the exit request naming that word and the futex event behind it, so
  * that the kernel serves the clear and the wake after the thread stopped running — never from the thread itself,
- * whose stack a joiner may then free. Thread ids are the library's own small integers; the main thread is 1. */
+ * whose stack a joiner may then free. Thread ids are the library's own small integers; the main thread is 1 and the
+ * first record. The library keeps each thread's kernel handle while the thread lives (S3: pthread_kill is
+ * THREAD_ACTIVATE of that handle) and the thread's signal state (signal.c). */
 
 #define THREADS 64
 #define MAIN_TID 1
 
 typedef struct Thread {
     WitU64 Identity; /* the kernel's thread identity, from THREAD_QUERY */
+    WitU64 Handle; /* the kernel's reference handle, closed by the thread at its exit */
     int Tid;
     int *ClearWord; /* CLONE_CHILD_CLEARTID: zeroed by the kernel at the exit */
+    WitSignalState Signals;
 } Thread;
 
 typedef struct Launch {
@@ -31,11 +35,13 @@ typedef struct Launch {
     void *ThreadPointer;
 } Launch;
 
-static Thread threads[THREADS];
+static Thread threads[THREADS]; /* threads[0] is the main thread */
 static int next_tid = MAIN_TID + 1;
-static int *main_clear_word;
+
+static __thread volatile int *cancel_point; /* the cancel word of a cancellation point in flight */
 
 void __wit_thread_entry(void); /* the trampoline below */
+long __cancel(void); /* musl's cancellation (pthread_cancel.c) */
 
 static WitU64 current_identity(void)
 {
@@ -50,21 +56,86 @@ static WitU64 current_identity(void)
     return info.ThreadId;
 }
 
-static Thread *find_current(void)
+static Thread *find_identity(WitU64 identity)
 {
-    const WitU64 identity = current_identity();
     for (unsigned i = 0; i < THREADS; ++i) {
         if (threads[i].Tid && threads[i].Identity == identity) {
+            return &threads[i];
+        }
+    }
+    return &threads[0]; /* a thread the library did not create runs as the main thread */
+}
+
+static Thread *find_current(void)
+{
+    return find_identity(current_identity());
+}
+
+static Thread *find_tid(int tid)
+{
+    for (unsigned i = 0; i < THREADS; ++i) {
+        if (threads[i].Tid == tid) {
             return &threads[i];
         }
     }
     return 0;
 }
 
+/* The main thread's record, before the library starts (crt1): its identity and a handle of its own. */
+void __wit_thread_init(void)
+{
+    Thread *main = &threads[0];
+    WitU64 handle = 0, result = 0;
+    main->Tid = MAIN_TID;
+    main->Identity = current_identity();
+    if (wit_syscall(WIT_CALL_HANDLE_DUPLICATE, WIT_THREAD_SELF, (WitU64)&handle, 0, &result) == WIT_STATUS_OK) {
+        main->Handle = handle;
+    }
+}
+
 long __wit_gettid(void)
 {
-    const Thread *thread = find_current();
-    return thread ? thread->Tid : MAIN_TID;
+    return find_current()->Tid;
+}
+
+WitSignalState *__wit_signal_state(void)
+{
+    return &find_current()->Signals;
+}
+
+WitSignalState *__wit_signal_state_of(WitU64 identity)
+{
+    return &find_identity(identity)->Signals;
+}
+
+/* A signal for the thread with the id: THREAD_ACTIVATE of its handle (the own thread by WIT_THREAD_SELF) with the
+ * signal library's marker callback and the signal as the argument (signal.c); zero checks the thread exists. */
+long __wit_thread_signal(int tid, int sig)
+{
+    WitU64 result = 0;
+    const Thread *target = find_tid(tid);
+    if (!target) {
+        return -ESRCH;
+    }
+    if (!sig) {
+        return 0;
+    }
+    const WitU64 handle = target == find_current() ? WIT_THREAD_SELF : target->Handle;
+    if (!handle) {
+        return -ESRCH;
+    }
+    const WitU64 status =
+        wit_syscall(WIT_CALL_THREAD_ACTIVATE, handle, (WitU64)__wit_signal_activation, (WitU64)sig, &result);
+    switch (status) {
+    case WIT_STATUS_OK:
+        return 0;
+    case WIT_STATUS_BAD_HANDLE:
+        return -ESRCH;
+    case WIT_STATUS_NO_MEMORY:
+        return -EAGAIN; /* the kernel's pending activations of the thread are all taken */
+    default:
+        return __wit_errno(status);
+    }
 }
 
 /* Whether a word is one the exit request clears (musl: the thread list lock, named by every thread and by
@@ -73,9 +144,6 @@ int __wit_is_exit_word(const volatile void *address)
 {
     if (!address) {
         return 0;
-    }
-    if (address == (const volatile void *)main_clear_word) {
-        return 1;
     }
     for (unsigned i = 0; i < THREADS; ++i) {
         if (threads[i].Tid && (const volatile void *)threads[i].ClearWord == address) {
@@ -88,30 +156,32 @@ int __wit_is_exit_word(const volatile void *address)
 long __wit_set_tid_address(int *address)
 {
     Thread *thread = find_current();
-    if (thread) {
-        thread->ClearWord = address;
-        return thread->Tid;
-    }
-    main_clear_word = address;
-    return MAIN_TID;
+    thread->ClearWord = address;
+    return thread->Tid;
 }
 
 /* The exit of the calling thread (SYS_exit, or __unmapself with the stack's reservation): the kernel clears the
- * thread's word and sets the exit word's event once the thread no longer runs. */
+ * thread's word and sets the exit word's event once the thread no longer runs. The record and the handle go first;
+ * closing a reference never ends the thread. */
 long __wit_thread_exit(long code, WitU64 reservation)
 {
     WitThreadExitRequest request;
     WitU64 result = 0;
     Thread *thread = find_current();
-    int *word = thread ? thread->ClearWord : main_clear_word;
+    int *word = thread->ClearWord;
     request.Version = WIT_THREAD_EXIT_VERSION;
     request.Size = sizeof(request);
     request.ClearAddress = (WitU64)word;
     request.Event = word ? __wit_futex_exit_event() : 0;
-    if (thread) {
+    if (thread->Handle) {
+        wit_syscall(WIT_CALL_HANDLE_CLOSE, thread->Handle, 0, 0, &result);
+        thread->Handle = 0;
+    }
+    if (thread != &threads[0]) {
         thread->Tid = 0; /* the record is free once the kernel has the exit; the identity stays in the kernel */
         thread->Identity = 0;
         thread->ClearWord = 0;
+        memset(&thread->Signals, 0, sizeof(thread->Signals));
     }
     const WitU64 status = wit_syscall(WIT_CALL_THREAD_EXIT, (WitU64)code, reservation, (WitU64)&request, &result);
     return __wit_errno(status); /* a refused exit returns to the caller, which loops on SYS_exit */
@@ -143,7 +213,7 @@ int __clone(int (*function)(void *), void *stack, int flags, void *argument, ...
         return -EINVAL; /* only a thread of this process: no fork, no new address space */
     }
     Thread *record = 0;
-    for (unsigned i = 0; i < THREADS; ++i) {
+    for (unsigned i = 1; i < THREADS; ++i) {
         if (!threads[i].Tid) {
             record = &threads[i];
             break;
@@ -181,15 +251,19 @@ int __clone(int (*function)(void *), void *stack, int flags, void *argument, ...
         return (int)__wit_errno(status);
     }
     const int tid = next_tid++;
+    memset(&record->Signals, 0, sizeof(record->Signals));
+    record->Signals.Mask = find_current()->Signals.Mask; /* inherited, as musl's start() then sets it */
     record->Identity = info.ThreadId;
+    record->Handle = handle;
     record->Tid = tid;
     record->ClearWord = child_tid;
     if (parent_tid) {
         *parent_tid = tid;
     }
     status = wit_syscall(WIT_CALL_THREAD_RESUME, handle, 0, 0, &result);
-    wit_syscall(WIT_CALL_HANDLE_CLOSE, handle, 0, 0, &result); /* the library tracks the thread itself */
     if (status != WIT_STATUS_OK) {
+        wit_syscall(WIT_CALL_HANDLE_CLOSE, handle, 0, 0, &result);
+        record->Handle = 0;
         record->Tid = 0;
         return (int)__wit_errno(status);
     }
@@ -205,6 +279,28 @@ void __unmapself(void *base, size_t size)
     }
 }
 
+/* musl's cancellation point (pthread_cancel.c calls __syscall_cp_asm with the thread's cancel word): the flag is
+ * checked first, as musl's assembly does, and the call runs with the word published so that a blocking path that is
+ * about to park checks it again (futex.c, syscall.c) — Linux closes that window with the atomic system call
+ * instruction, WitOS with the check before the kernel wait. The window symbols musl's cancel handler compares the
+ * interrupted PC against are empty here: a cancellation arriving in a blocking call ends the wait INTERRUPTED and
+ * __syscall_cp_c cancels on the EINTR it sees. */
+long __syscall_cp_asm(volatile void *cancel, long nr, long a, long b, long c, long d, long e, long f)
+{
+    if (*(volatile int *)cancel) {
+        return __cancel();
+    }
+    cancel_point = (volatile int *)cancel;
+    const long r = __wit_syscall(nr, a, b, c, d, e, f);
+    cancel_point = 0;
+    return r;
+}
+
+int __wit_cancel_requested(void)
+{
+    return cancel_point && *cancel_point;
+}
+
 #if defined(__x86_64__)
 /* The thread pointer (FS base) came from the request; RDI is the launch block, RSP its address. */
 __asm__(".text\n"
@@ -215,7 +311,18 @@ __asm__(".text\n"
         "    mov 8(%rdi), %rdi\n"
         "    and $-16, %rsp\n"
         "    call *%rax\n"
-        "    ud2\n");
+        "    ud2\n"
+        ".global __cp_begin\n"
+        ".hidden __cp_begin\n"
+        ".global __cp_end\n"
+        ".hidden __cp_end\n"
+        ".global __cp_cancel\n"
+        ".hidden __cp_cancel\n"
+        "__cp_begin:\n"
+        "__cp_end:\n"
+        "    ret\n"
+        "__cp_cancel:\n"
+        "    jmp __cancel\n");
 
 /* musl sets the main thread's pointer once (__init_tp); on x64 that is the FS base, which the kernel sets. */
 __attribute__((__visibility__("hidden"))) int __set_thread_area(void *p)
@@ -237,7 +344,18 @@ __asm__(".text\n"
         "    mov x29, #0\n"
         "    mov x30, #0\n"
         "    blr x9\n"
-        "    brk #0\n");
+        "    brk #0\n"
+        ".global __cp_begin\n"
+        ".hidden __cp_begin\n"
+        ".global __cp_end\n"
+        ".hidden __cp_end\n"
+        ".global __cp_cancel\n"
+        ".hidden __cp_cancel\n"
+        "__cp_begin:\n"
+        "__cp_end:\n"
+        "    ret\n"
+        "__cp_cancel:\n"
+        "    b __cancel\n");
 #else
 #error "WitOS threads: unsupported architecture"
 #endif

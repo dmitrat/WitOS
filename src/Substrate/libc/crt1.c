@@ -25,6 +25,8 @@ __attribute__((__noreturn__, __used__)) void _start_c(const WitRootStartup *star
 {
     WitU64 result;
     __wit_startup = startup;
+    __wit_thread_init(); /* the main thread's record and handle (S2, S3) */
+    __wit_signal_init(); /* the fault callback every signal arrives through (S3) */
     wit_syscall(WIT_CALL_RANDOM, (WitU64)random_bytes, sizeof(random_bytes), 0, &result);
     long *p = stack_image;
     *p++ = 1; /* argc */

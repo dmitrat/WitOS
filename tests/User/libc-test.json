@@ -1,5 +1,5 @@
 {
-  "purpose": "The libc-test programs the libc-test scenario runs (S1.3, S2): those whose needs the substrate has (threads and futex-equivalent waits, but no signals, processes, sockets, writable files or resource limits; at most four threads of a process, one process for every test). Every listed test must pass on both ISAs; the reasons for the rest are in S1.3-Libc-Test.md and S2-Threads.md.",
+  "purpose": "The libc-test programs the libc-test scenario runs (S1.3, S2, S3): those whose needs the substrate has (threads, futex-equivalent waits and signals of the own process, but no processes, sockets, writable files or resource limits; at most four threads of a process, one process for every test). Every listed test must pass on both ISAs; the reasons for the rest are in S1.3-Libc-Test.md and S2-Threads.md.",
   "support": [
     "src/common/print.c",
     "src/common/rand.c",
@@ -30,6 +30,7 @@
     "functional/search_insque",
     "functional/search_lsearch",
     "functional/search_tsearch",
+    "functional/setjmp",
     "functional/snprintf",
     "functional/sscanf",
     "functional/strftime",
@@ -86,6 +87,9 @@
     "regression/scanf-match-literal-eof",
     "regression/scanf-nullbyte-char",
     "regression/setvbuf-unget",
+    "regression/sigaltstack",
+    "regression/sigprocmask-internal",
+    "regression/sigreturn",
     "regression/sscanf-eof",
     "regression/strverscmp",
     "regression/syscall-sign-extend",

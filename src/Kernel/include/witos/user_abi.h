@@ -25,7 +25,7 @@
  * arguments, RAX=status and RDX=result, other GPRs and x87/SSE state preserved, RFLAGS reset to 0x202; on ARM64
  * SVC #0 with x8=call, x0-x2 arguments, x0=status and x1=result. A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
-#define WIT_ABI_VERSION 65U
+#define WIT_ABI_VERSION 66U
 /* QUERY result: the low 32 bits are WIT_ABI_VERSION, the high 32 bits the mask of the families present. */
 #define WIT_ABI_FEATURE_CHANNELS 1U
 #define WIT_ABI_FEATURE_DEVICES 2U
@@ -134,6 +134,14 @@
  * processor (UNSUPPORTED otherwise): the boot processor alone runs threads until phase P places them elsewhere. */
 #define WIT_CALL_THREAD_AFFINITY 41U
 /* 41 THREAD_AFFINITY arrives with plan step K7. */
+/* Alternate(WitThreadAlternateStackRequest, exact size, 0) -> 0 (RFC 0011 section 7.5, S3.1): the alternate stack
+ * of the calling thread, a 16-byte aligned range of at least WIT_EXCEPTION_STACK_MINIMUM bytes, committed and
+ * writable in the caller's space and apart from its stack (INVALID_ARGUMENT or BAD_ADDRESS otherwise); a zero
+ * base and size clears it; BUSY while the caller's stack pointer is inside the alternate
+ * range. The kernel accepts the thread's stack pointer in either range at every return to user mode and in
+ * every context it validates, and enters the fault callback on the alternate stack when the interrupted stack
+ * has no room for the callback frame and the thread is not on the alternate stack already. */
+#define WIT_CALL_THREAD_STACK_ALTERNATE 42U
 
 /* Events, waits, time and entropy (RFC 0011 section 7.4). */
 /* Create(flags, rights, 0) -> event handle. Rights 0 means WAIT and SIGNAL. */
