@@ -28,4 +28,7 @@ int wit_event_consume(WitEvent *event);
 void wit_event_release(WitEventTable *table, WitU64 object);
 /* Closes one handle; the event ends with its last handle. */
 WitU64 wit_event_remove(WitEventTable *table, WitHandleTable *handles, WitU64 handle);
+/* A reference by object number: the kernel's own (an interrupt binding, K3.2). */
+WitEvent *wit_event_lookup(WitEventTable *table, WitU64 object);
+void wit_event_retain(WitEventTable *table, WitU64 object);
 #endif

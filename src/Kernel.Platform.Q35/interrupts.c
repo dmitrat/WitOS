@@ -15,6 +15,9 @@ static void require(int condition, const char *message)
     }
 }
 
+/* The interrupt mask registers as written: IRQ0 alone until a device line is bound (plan step K3.2). */
+static WitU8 mask_master = 0xFF, mask_slave = 0xFF;
+
 static void io_wait(void)
 {
     __outbyte(0x80, 0);
@@ -51,14 +54,66 @@ void wit_platform_timer_start(void)
     __outbyte(0x43, 0x34);
     __outbyte(0x40, (WitU8)(11932 & 255));
     __outbyte(0x40, (WitU8)(11932 >> 8));
-    __outbyte(0x21, 0xFE); /* Only IRQ0. */
+    mask_master = 0xFE; /* Only IRQ0. */
+    mask_slave = 0xFF;
+    __outbyte(0x21, mask_master);
+    __outbyte(0xA1, mask_slave);
 }
 
 void wit_platform_timer_stop(void)
 {
     _disable();
-    __outbyte(0x21, 0xFF);
-    __outbyte(0xA1, 0xFF);
+    mask_master = 0xFF;
+    mask_slave = 0xFF;
+    __outbyte(0x21, mask_master);
+    __outbyte(0xA1, mask_slave);
+}
+
+/* Device lines are the PIC inputs 1 to 15 except the cascade; a slave line needs the cascade input open. */
+int wit_platform_line_valid(WitU32 line)
+{
+    return line < 16 && line != 0 && line != 2;
+}
+
+static void write_masks(void)
+{
+    if (mask_slave != 0xFF) {
+        mask_master &= 0xFBU; /* the cascade input open */
+    } else {
+        mask_master |= 4U;
+    }
+    __outbyte(0x21, mask_master);
+    __outbyte(0xA1, mask_slave);
+}
+
+void wit_platform_line_unmask(WitU32 line)
+{
+    require(wit_platform_line_valid(line), "Unmasking an invalid PIC line");
+    if (line < 8) {
+        mask_master &= (WitU8)(0xFFU ^ (1U << line));
+    } else {
+        mask_slave &= (WitU8)(0xFFU ^ (1U << (line - 8)));
+    }
+    write_masks();
+}
+
+void wit_platform_line_mask(WitU32 line)
+{
+    require(wit_platform_line_valid(line), "Masking an invalid PIC line");
+    if (line < 8) {
+        mask_master |= (WitU8)(1U << line);
+    } else {
+        mask_slave |= (WitU8)(1U << (line - 8));
+    }
+    write_masks();
+}
+
+void wit_platform_line_complete(WitU32 line)
+{
+    if (line >= 8) {
+        __outbyte(0xA0, 0x20); /* Non-specific EOI to the slave, then the master. */
+    }
+    __outbyte(0x20, 0x20);
 }
 
 void wit_platform_timer_acknowledge(void)

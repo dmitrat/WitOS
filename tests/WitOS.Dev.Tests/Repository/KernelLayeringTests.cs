@@ -33,7 +33,7 @@ public sealed class KernelLayeringTests
     // Policy moved out of the architecture directory in Q2.5, including the address-space accounting.
     private static readonly string[] POLICY_FILES =
     [
-        "user.c", "user_activation.c", "user_channel.c", "user_code.c", "user_console.c", "user_device.c", "user_exception.c", "user_files.c", "user_image.c",
+        "user.c", "user_activation.c", "user_channel.c", "user_code.c", "user_console.c", "user_device.c", "user_dma.c", "user_exception.c", "user_files.c", "user_image.c", "user_interrupt.c",
         "user_library.c", "user_library_lifecycle.c", "user_library_readers.c", "user_library_tls.c", "user_memory_object.c", "user_objects.c",
         "user_pressure.c", "user_reference.c", "user_space.c", "user_stack_lease.c", "user_suspend.c", "user_thread.c",
         "user_thread_context.c", "user_thread_name.c", "user_wait.c", "user.h"

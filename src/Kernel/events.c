@@ -136,3 +136,18 @@ void wit_event_release(WitEventTable *table, WitU64 object)
         --table->Count;
     }
 }
+
+/* A kernel-held reference (an interrupt binding, K3.2) counts like a handle: the event lives until it is released. */
+WitEvent *wit_event_lookup(WitEventTable *table, WitU64 object)
+{
+    return slot(table, object);
+}
+
+void wit_event_retain(WitEventTable *table, WitU64 object)
+{
+    WitEvent *event = slot(table, object);
+    if (!event) {
+        wit_panic("Retained event reference has no event");
+    }
+    ++event->Handles;
+}

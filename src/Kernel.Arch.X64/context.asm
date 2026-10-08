@@ -1,6 +1,7 @@
 option casemap:none
 
 EXTERN wit_x64_timer_interrupt:PROC
+EXTERN wit_x64_device_interrupt:PROC
 
 .code
 PUBLIC wit_x64_timer_entry
@@ -32,6 +33,35 @@ wit_x64_timer_entry PROC
     mov rsp, rax
     jmp wit_x64_restore_context
 wit_x64_timer_entry ENDP
+
+; A device line's interrupt (K3.2): the same frame as the timer's, delivered by wit_x64_device_interrupt.
+PUBLIC wit_x64_device_entry
+wit_x64_device_entry PROC
+    push rax
+    push rbx
+    push rcx
+    push rdx
+    push rbp
+    push rdi
+    push rsi
+    push r8
+    push r9
+    push r10
+    push r11
+    push r12
+    push r13
+    push r14
+    push r15
+    cld
+    sub rsp, 512
+    db 048h
+    fxsave [rsp]
+    mov rcx, rsp
+    sub rsp, 32
+    call wit_x64_device_interrupt
+    mov rsp, rax
+    jmp wit_x64_restore_context
+wit_x64_device_entry ENDP
 
 PUBLIC wit_x64_restore_context
 wit_x64_restore_context PROC

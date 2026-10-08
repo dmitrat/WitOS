@@ -184,6 +184,16 @@ static void signal(WitUserProcess *process, WitEvent *event)
     wit_user_wait_objects_changed(process);
 }
 
+/* A kernel-side signal of an event by its object number: an interrupt binding's (K3.2). */
+void wit_user_event_signal_object(WitUserProcess *process, WitU64 object)
+{
+    WitEvent *event = wit_event_lookup(&process->Events, object);
+    if (!event) {
+        wit_panic("Signalled event object does not exist");
+    }
+    signal(process, event);
+}
+
 void wit_user_wait_handle_closed(WitUserProcess *process, WitU64 handle)
 {
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {

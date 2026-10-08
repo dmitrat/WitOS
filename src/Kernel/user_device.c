@@ -209,3 +209,27 @@ void wit_user_devices_reset(WitUserProcess *p)
         }
     }
 }
+
+/* For bindings and pins (K3.2): the component's token, an acquired device's index behind a handle with the rights,
+ * and references to a device beyond its handles. */
+WitU64 wit_user_owner_token(const WitUserProcess *p)
+{
+    return owner_token(p);
+}
+
+WitU64 wit_user_device_index(WitUserProcess *p, WitU64 handle, WitU32 rights, WitU32 *index)
+{
+    WitU32 granted = 0;
+    return get(p, handle, rights, index, &granted);
+}
+
+void wit_user_device_reference(WitUserProcess *p, WitU32 index)
+{
+    require(index < WIT_DEVICE_CAPACITY && p->DeviceReferences[index], "Referenced device is not the component's");
+    ++p->DeviceReferences[index];
+}
+
+void wit_user_device_unreference(WitUserProcess *p, WitU32 index)
+{
+    release_device(p, index);
+}
