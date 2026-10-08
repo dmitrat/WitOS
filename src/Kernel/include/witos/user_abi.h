@@ -25,7 +25,7 @@
  * arguments, RAX=status and RDX=result, other GPRs and x87/SSE state preserved, RFLAGS reset to 0x202; on ARM64
  * SVC #0 with x8=call, x0-x2 arguments, x0=status and x1=result. A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
-#define WIT_ABI_VERSION 62U
+#define WIT_ABI_VERSION 63U
 /* QUERY result: the low 32 bits are WIT_ABI_VERSION, the high 32 bits the mask of the families present. */
 #define WIT_ABI_FEATURE_CHANNELS 1U
 #define WIT_ABI_FEATURE_DEVICES 2U
@@ -122,6 +122,11 @@
  * writable (BAD_ADDRESS); NOT_FOUND when the process registered no fault callback; up to WIT_ACTIVATION_CAPACITY
  * activations are pending per thread, delivered in order (NO_MEMORY beyond). */
 #define WIT_CALL_THREAD_ACTIVATE 40U
+/* Affinity(thread handle or WIT_THREAD_SELF, mask pointer (8 bytes), 0 get / 1 set) -> 0 (RFC 0011 section 7.9,
+ * K7.1): the processors the thread may run on, bit n for processor n of PROCESSOR_QUERY. Get needs QUERY, set
+ * AFFINITY; a set mask must be nonzero and within the processors present (INVALID_ARGUMENT) and name an online
+ * processor (UNSUPPORTED otherwise): the boot processor alone runs threads until phase P places them elsewhere. */
+#define WIT_CALL_THREAD_AFFINITY 41U
 /* 41 THREAD_AFFINITY arrives with plan step K7. */
 
 /* Events, waits, time and entropy (RFC 0011 section 7.4). */
@@ -206,8 +211,10 @@
  * live threads; the handle's waiters (OBJECT_WAIT) are ready once the process ended. */
 #define WIT_CALL_PROCESS_QUERY 92U
 
-/* Processors (RFC 0011 section 7.9). Query(buffer, exact 4 bytes, 0): the current processor as
- * {group:u16, number:u8, reserved:u8}; topology arrives with plan step K7. */
+/* Processors (RFC 0011 section 7.9). Query(buffer, 4, 0): the current processor as {group:u16, number:u8,
+ * reserved:u8}, the frozen line's form until K8; Query(WitProcessorInfo, 280, 0) with the caller's Version and
+ * Size (witos/processor.h, K7.1): the current processor, the processors present and online and one record per
+ * processor, the boot processor first. */
 #define WIT_CALL_PROCESSOR_QUERY 93U
 /* Barrier(0, 0, 0): a process data-memory barrier on the sole online processor; unsupported topology fails. */
 #define WIT_CALL_PROCESS_WRITE_BARRIER 94U
@@ -273,7 +280,9 @@
 #define WIT_RIGHT_ACK 131072U /* of an interrupt binding: INTERRUPT_ACK */
 #define WIT_RIGHT_KILL 262144U /* of a process: PROCESS_KILL (K5.2c) */
 #define WIT_RIGHT_MANAGE 524288U /* of a process: MEMORY_OBJECT_MAP into it and THREAD_CREATE in it (K5.2c) */
-#define WIT_RIGHT_THREAD_ALL 6644U
+#define WIT_RIGHT_AFFINITY 1048576U /* of a thread: THREAD_AFFINITY set (K7.1) */
+#define WIT_RIGHT_THREAD_ALL \
+    1055220U /* WAIT, QUERY, the context rights, SUSPEND_RESUME, ACTIVATE, DUPLICATE, TRANSFER, AFFINITY */
 #define WIT_EVENT_ACCESS_WAIT WIT_RIGHT_WAIT
 #define WIT_EVENT_ACCESS_SIGNAL WIT_RIGHT_SIGNAL
 /* Clocks of CLOCK_READ, CLOCK_FREQUENCY and CLOCK_SET (K6). */

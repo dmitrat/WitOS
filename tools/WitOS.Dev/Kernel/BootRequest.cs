@@ -37,6 +37,16 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public BootSuite Suite { get; init; } = BootSuite.Kernel;
 
     /// <summary>
+    /// Processors QEMU gives the board; one unless a scenario asks for more.
+    /// </summary>
+    public int Processors { get; init; } = 1;
+
+    /// <summary>
+    /// Lines the serial output must contain for a successful boot, beyond the suite's markers.
+    /// </summary>
+    public string[] RequiredLines { get; init; } = [];
+
+    /// <summary>
     /// Log directory; the shared artifacts/logs directory when null.
     /// </summary>
     public string? LogDirectory { get; init; }

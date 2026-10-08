@@ -23,6 +23,7 @@ internal static class UserImage
         "src/Kernel/include/witos/thread_info.h",
         "src/Kernel/include/witos/thread_reference.h",
         "src/Kernel/include/witos/process.h",
+        "src/Kernel/include/witos/processor.h",
         "src/Kernel/include/witos/thread_context.h",
         "src/Kernel/include/witos/exception.h",
         "src/Kernel/include/witos/cpu_context_info.h",
@@ -61,6 +62,7 @@ internal static class UserImage
         await BuildFixtureAsync(root, output, msvc, constants, "virtio", "VirtioFixture", "wit_user_virtio_image", "user_virtio_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "threads2", "Thread2Fixture", "wit_user_thread2_image", "user_thread2_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "processes", "ProcessFixture", "wit_user_process_image", "user_process_image.h");
+        await BuildFixtureAsync(root, output, msvc, constants, "processors", "ProcessorFixture", "wit_user_processor_image", "user_processor_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "coreclr_memory", "CoreClrMemoryFixture", "wit_coreclr_memory_image", "coreclr_memory_image.h");
         await UserPeImage.BuildAsync(root, output, msvc, constants);
         await UserBootstrapImage.BuildAsync(root, output, msvc);
@@ -119,6 +121,7 @@ internal static class UserImage
         await BuildArm64FixtureAsync(root, output, msvc, constants, "virtio", "VirtioFixture", "wit_user_virtio_image", "user_virtio_image.h");
         await BuildArm64FixtureAsync(root, output, msvc, constants, "threads2", "Thread2Fixture", "wit_user_thread2_image", "user_thread2_image.h");
         await BuildArm64FixtureAsync(root, output, msvc, constants, "processes", "ProcessFixture", "wit_user_process_image", "user_process_image.h");
+        await BuildArm64FixtureAsync(root, output, msvc, constants, "processors", "ProcessorFixture", "wit_user_processor_image", "user_processor_image.h");
         await UserPeImage.BuildArm64Async(root, output, msvc, constants);
     }
 

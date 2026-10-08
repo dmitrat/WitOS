@@ -2,6 +2,7 @@
 #include "witos/boot.h"
 #include "witos/device.h"
 #include "witos/platform.h"
+#include "witos/processor.h"
 
 /* QEMU virt device enumeration (plan step K3.1): the PCI functions behind the generic ECAM host bridge the
  * flattened device tree describes (compatible "pci-host-ecam-generic": reg, bus-range, interrupt-map), read
@@ -383,4 +384,102 @@ WitU32 wit_platform_devices(const WitBootInfo *boot, WitDeviceDescriptor *table,
         return 0;
     }
     return describe_bus(boot, &bridge, bridge.BusFirst, 0, table, 0, capacity);
+}
+
+/* The processors of the virt board (plan step K7.1): the children of /cpus whose device_type is "cpu", each with its
+ * reg (the MPIDR affinity in one or two cells, as the parent's #address-cells says) and, when present, a status other
+ * than "okay" that marks it unusable. The tree's blocks are mapped as for the devices; the walk is the same. */
+WitU32 wit_platform_processors(const WitBootInfo *boot, WitProcessorDescriptor *out, WitU32 capacity)
+{
+    const WitU8 *tree = (const WitU8 *)boot->DeviceTree;
+    WitU32 count = 0;
+    if (!boot->DeviceTree || (boot->DeviceTree & 7) || !capacity) {
+        return 0;
+    }
+    map_once(boot, boot->DeviceTree & ~4095ULL);
+    if (be32(tree) != FDT_MAGIC) {
+        return 0;
+    }
+    const WitU32 total = be32(tree + 4), structure = be32(tree + 8), strings = be32(tree + 12);
+    const WitU32 version = be32(tree + 20), strings_size = be32(tree + 32), structure_size = be32(tree + 36);
+    if (version < 17 ||
+        total > FDT_MAX_BYTES ||
+        structure >= total ||
+        strings >= total ||
+        structure_size > total - structure ||
+        strings_size > total - strings ||
+        structure_size > FDT_BLOCK_BYTES ||
+        strings_size > FDT_BLOCK_BYTES) {
+        return 0;
+    }
+    map_range(boot, boot->DeviceTree + structure, structure_size);
+    map_range(boot, boot->DeviceTree + strings, strings_size);
+    const WitU32 limit = structure + structure_size, strings_limit = strings + strings_size;
+    WitU32 offset = structure, depth = 0, address_cells = 1;
+    int in_cpus = 0, is_cpu = 0, has_reg = 0, disabled = 0;
+    WitU64 reg = 0;
+    while (offset + 4 <= limit) {
+        const WitU32 token = be32(tree + offset);
+        offset += 4;
+        if (token == FDT_BEGIN_NODE) {
+            WitU32 length = 0;
+            while (offset + length < limit && tree[offset + length]) {
+                ++length;
+            }
+            const char *name = (const char *)tree + offset;
+            offset = (offset + length + 1 + 3) & ~3U;
+            ++depth;
+            if (depth == 2) { /* the root node is depth 1 */
+                in_cpus = same(name, "cpus");
+                address_cells = 1;
+            } else if (depth == 3 && in_cpus) {
+                is_cpu = 0;
+                has_reg = 0;
+                disabled = 0;
+                reg = 0;
+            }
+        } else if (token == FDT_END_NODE) {
+            if (depth == 3 && in_cpus && is_cpu && has_reg && count < capacity) {
+                out[count].HardwareId = reg;
+                out[count].Enabled = !disabled;
+                out[count].Reserved = 0;
+                ++count;
+            }
+            if (depth == 2) {
+                in_cpus = 0;
+            }
+            if (depth) {
+                --depth;
+            }
+        } else if (token == FDT_PROP) {
+            if (offset + 8 > limit) {
+                return count;
+            }
+            const WitU32 length = be32(tree + offset), name_offset = be32(tree + offset + 4);
+            offset += 8;
+            if (offset + length > limit || strings + name_offset >= strings_limit) {
+                return count;
+            }
+            const char *name = (const char *)tree + strings + name_offset;
+            const WitU8 *value = tree + offset;
+            offset = (offset + length + 3) & ~3U;
+            if (!in_cpus) {
+                continue;
+            }
+            if (depth == 2 && same(name, "#address-cells") && length >= 4) {
+                address_cells = be32(value);
+            } else if (depth == 3 && same(name, "device_type") && length >= 4) {
+                is_cpu = same((const char *)value, "cpu");
+            } else if (depth == 3 && same(name, "reg") && length >= address_cells * 4 && address_cells <= 2) {
+                reg = address_cells == 2 ? be64(value) : be32(value);
+                has_reg = 1;
+            } else if (depth == 3 && same(name, "status") && length >= 5) {
+                disabled = !same((const char *)value, "okay");
+            }
+        } else if (token == FDT_NOP) {
+        } else {
+            break; /* FDT_END or an unknown token. */
+        }
+    }
+    return count;
 }

@@ -78,6 +78,7 @@ static WitU64 reset_thread(WitUserProcess *process, WitUserThread *thread, WitU6
     }
     thread->NativeId = 0;
     thread->SuspendCount = 0;
+    thread->Affinity = 1; /* The boot processor, the one online (K7.1). */
     wit_user_exception_clear(thread);
     wit_user_thread_name_clear(thread);
     if (next_native_id > 0xFFFFFFFFULL) {
@@ -369,6 +370,41 @@ static WitU64 create_in(
     reference->Rights = WIT_RIGHT_THREAD_ALL;
     reference->Exited = 0;
     *result = handle;
+    return WIT_STATUS_OK;
+}
+
+/* THREAD_AFFINITY (RFC 0011 section 7.9, K7.1): the processors a thread may run on. Get needs QUERY, set AFFINITY;
+ * the mask is validated whole (nonzero, within the processors present, with an online processor) before it changes,
+ * and the boot processor stays the one online until phase P. */
+WitU64 wit_user_thread_affinity(WitUserProcess *p, WitU64 handle, WitU64 address, WitU64 flags)
+{
+    WitUserThread *target;
+    WitU64 mask = 0;
+    if (flags != WIT_THREAD_AFFINITY_GET && flags != WIT_THREAD_AFFINITY_SET) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    const WitU64 status = wit_user_reference_target(
+        p, handle, flags == WIT_THREAD_AFFINITY_SET ? WIT_RIGHT_AFFINITY : WIT_RIGHT_QUERY, &target);
+    if (status != WIT_STATUS_OK) {
+        return status;
+    }
+    if (flags == WIT_THREAD_AFFINITY_GET) {
+        if (!wit_user_buffer_writable(&p->Space, address, sizeof(mask))) {
+            return WIT_STATUS_BAD_ADDRESS;
+        }
+        mask = target->Affinity;
+        require(
+            wit_user_copy_to(&p->Space, address, (const WitU8 *)&mask, sizeof(mask)), "Validated mask output changed");
+        return WIT_STATUS_OK;
+    }
+    if (!wit_user_copy_from(&p->Space, address, (WitU8 *)&mask, sizeof(mask))) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    const WitU64 valid = wit_processors_affinity_status(mask);
+    if (valid != WIT_STATUS_OK) {
+        return valid;
+    }
+    target->Affinity = mask;
     return WIT_STATUS_OK;
 }
 

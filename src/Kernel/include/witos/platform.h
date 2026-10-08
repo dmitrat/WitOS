@@ -50,6 +50,10 @@ WitU64 wit_platform_monotonic_frequency(void);
 /* The board's real-time clock once, after the clock initialization: seconds since 1970-01-01 UTC; 0 when the board
  * has none or its value is implausible (K6). */
 int wit_platform_realtime_seconds(WitU64 *seconds);
+/* The board's processors once at boot (K7.1): their hardware identities and whether the firmware marks them
+ * usable, in the firmware's order; the count enumerated, at most the capacity. */
+struct WitProcessorDescriptor;
+WitU32 wit_platform_processors(const struct WitBootInfo *boot, struct WitProcessorDescriptor *table, WitU32 capacity);
 
 /* Test exit device; halts where it is absent. */
 WIT_NORETURN void wit_platform_finish(WitU32 code);

@@ -1,10 +1,6 @@
 #ifndef WITOS_USER_LAYOUT_H
 #define WITOS_USER_LAYOUT_H
 #include "limits.h"
-/* Only the bootstrap logical processor is brought online. Shared by discovery
- * and process-wide operations; SMP requires a real remote-CPU rendezvous. */
-#define WIT_USER_PROCESSOR_COUNT 1U
-
 /* Fixed addresses for the controlled M2 image, not an application ABI promise. */
 #define WIT_USER_BASE 0x0000008000000000ULL
 #define WIT_USER_LIMIT 0x0000008000200000ULL

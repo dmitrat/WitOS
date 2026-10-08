@@ -4,7 +4,7 @@ WitU64 wit_user_thread_suspend(WitUserProcess *process, WitU64 handle, int resum
 {
     WitUserThread *target = 0;
     *previous = 0;
-    if (WIT_USER_PROCESSOR_COUNT != 1) {
+    if (wit_processors_online() != 1) {
         return WIT_STATUS_UNSUPPORTED;
     }
     const WitU64 status = wit_user_reference_target(process, handle, WIT_RIGHT_SUSPEND_RESUME, &target);

@@ -144,7 +144,7 @@ WitU64 wit_user_thread_query(WitUserProcess *p, WitU64 handle, WitU64 address, W
     info.Version = WIT_THREAD_INFO_VERSION;
     info.Size = sizeof(info);
     info.ProcessId = p->Id;
-    info.ProcessorCount = WIT_USER_PROCESSOR_COUNT; // The supported backend brings up one processor.
+    info.ProcessorCount = wit_processors_online();
     if (handle == WIT_THREAD_SELF) {
         target = &p->Threads[p->CurrentThread];
         info.Rights = WIT_RIGHT_THREAD_ALL;
