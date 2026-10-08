@@ -150,9 +150,34 @@ static int owns_library_lifecycle(WitUserCall *call)
 static WitArchFrame *thread_exit(WitUserCall *call)
 {
     WitU64 base = 0, bytes = 0;
+    WitThreadExitRequest exit = {0};
     if (call->Argument2) {
-        *call->Status = WIT_STATUS_INVALID_ARGUMENT;
-        return 0;
+        /* The exit request (S2.1): the word and the event the kernel serves after the thread stopped, validated
+         * whole. */
+        if (!wit_user_copy_from(&call->Process->Space, call->Argument2, (WitU8 *)&exit, sizeof(exit))) {
+            *call->Status = WIT_STATUS_BAD_ADDRESS;
+            return 0;
+        }
+        if (exit.Version != WIT_THREAD_EXIT_VERSION) {
+            *call->Status = WIT_STATUS_UNSUPPORTED;
+            return 0;
+        }
+        if (exit.Size != sizeof(exit) || (exit.ClearAddress & 3)) {
+            *call->Status = WIT_STATUS_INVALID_ARGUMENT;
+            return 0;
+        }
+        if (exit.ClearAddress && !wit_user_buffer_writable(&call->Process->Space, exit.ClearAddress, 4)) {
+            *call->Status = WIT_STATUS_BAD_ADDRESS;
+            return 0;
+        }
+        if (exit.Event) {
+            const WitU64 checked =
+                wit_handle_check(&call->Process->Handles, exit.Event, WIT_HANDLE_EVENT, WIT_RIGHT_SIGNAL);
+            if (checked != WIT_STATUS_OK) {
+                *call->Status = checked;
+                return 0;
+            }
+        }
     }
     if (call->Argument1) {
         /* The stack's reservation to release after the exit (K5.2a): exactly a reservation base of the caller's. */
@@ -170,7 +195,7 @@ static WitArchFrame *thread_exit(WitUserCall *call)
         exit_abruptly(call);
     }
     ++call->Process->ThreadExits;
-    return wit_user_exit_thread(call->Argument0, call->Argument1);
+    return wit_user_exit_thread(call->Argument0, call->Argument1, exit.ClearAddress, exit.Event);
 }
 
 static WitArchFrame *thread_set_tls(WitUserCall *call)

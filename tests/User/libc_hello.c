@@ -3,6 +3,9 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <math.h>
+#include <pthread.h>
+#include <sched.h>
+#include <semaphore.h>
 #include <setjmp.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -19,7 +22,9 @@
  * dispatch, started by the kernel as the root task. It exercises what S1.1 brings: stdio to the kernel log,
  * malloc over mmap, strings and formatting, conversions, sorting, setjmp, errno from an unsupported call, time and
  * entropy from the kernel's clocks, thread-local storage of the main thread, atexit, and (S1.2) the files of the
- * read-only boot package: stdio, stat, directories, the refusals of writing; then it exits with zero. The
+ * read-only boot package: stdio, stat, directories, the refusals of writing, and (S2) threads: creation and join,
+ * a mutex, a condition variable, thread-specific data, thread-local storage and errno per thread, a detached
+ * thread and a semaphore; then it exits with zero. The
  * last line names the library and the ISA for the boot scenario's check. */
 
 #if defined(__x86_64__)
@@ -47,6 +52,57 @@ static int compare_ints(const void *left, const void *right)
 {
     const int a = *(const int *)left, b = *(const int *)right;
     return (a > b) - (a < b);
+}
+
+static struct Shared {
+    pthread_mutex_t Lock;
+    pthread_cond_t Ready;
+    pthread_key_t Key;
+    sem_t Done;
+    int Counter, Flag, Destructors, WorkerErrno;
+} shared;
+
+static void key_destructor(void *value)
+{
+    (void)value;
+    __sync_fetch_and_add(&shared.Destructors, 1);
+}
+
+static void *counting_worker(void *argument)
+{
+    const long id = (long)argument;
+    thread_local_value = (int)id; /* the main thread keeps its own copy */
+    errno = EPIPE;
+    pthread_setspecific(shared.Key, &shared);
+    for (int i = 0; i < 1000; ++i) {
+        pthread_mutex_lock(&shared.Lock);
+        shared.Counter++;
+        pthread_mutex_unlock(&shared.Lock);
+        if ((i & 63) == 0) {
+            sched_yield();
+        }
+    }
+    shared.WorkerErrno = errno;
+    pthread_exit((void *)(id * 10));
+}
+
+static void *condition_worker(void *argument)
+{
+    (void)argument;
+    pthread_mutex_lock(&shared.Lock);
+    while (!shared.Flag) {
+        pthread_cond_wait(&shared.Ready, &shared.Lock);
+    }
+    shared.Flag = 2;
+    pthread_mutex_unlock(&shared.Lock);
+    return 0;
+}
+
+static void *detached_worker(void *argument)
+{
+    (void)argument;
+    sem_post(&shared.Done);
+    return 0;
 }
 
 static void at_exit(void)
@@ -187,6 +243,45 @@ int main(void)
     if (null_device >= 0) {
         close(null_device);
     }
+
+    /* Threads over the kernel's (S2): creation and join, a mutex, a condition variable, thread-specific data with its
+     * destructor, thread-local storage and errno per thread, a detached thread signalling a semaphore, pthread_exit's
+     * value. The kernel runs at most four threads of a process, so at most three run here beside the main one. */
+    pthread_t workers[2];
+    check(pthread_mutex_init(&shared.Lock, 0) == 0 && pthread_cond_init(&shared.Ready, 0) == 0,
+        "mutex and condition init");
+    check(pthread_key_create(&shared.Key, key_destructor) == 0, "pthread_key_create");
+    check(sem_init(&shared.Done, 0, 0) == 0, "sem_init");
+    shared.Counter = 0;
+    for (int i = 0; i < 2; ++i) {
+        check(pthread_create(&workers[i], 0, counting_worker, (void *)(long)(i + 1)) == 0, "pthread_create");
+    }
+    for (int i = 0; i < 2; ++i) {
+        void *value = 0;
+        check(pthread_join(workers[i], &value) == 0 && (long)value == (i + 1) * 10, "pthread_join and the exit value");
+    }
+    check(shared.Counter == 2 * 1000, "the mutex serialized the counters");
+    check(shared.Destructors == 2, "the key destructor ran for every thread");
+    check(thread_local_value == 41, "the main thread's thread-local value is its own"); /* incremented later */
+    errno = 0;
+    check(errno == 0 && shared.WorkerErrno == EPIPE, "errno is per thread");
+    pthread_t waiter;
+    shared.Flag = 0;
+    check(pthread_create(&waiter, 0, condition_worker, 0) == 0, "pthread_create for the condition");
+    check(pthread_mutex_lock(&shared.Lock) == 0, "lock before signalling");
+    shared.Flag = 1;
+    check(pthread_cond_signal(&shared.Ready) == 0 && pthread_mutex_unlock(&shared.Lock) == 0, "signal");
+    check(pthread_join(waiter, 0) == 0 && shared.Flag == 2, "the waiter saw the flag");
+    pthread_attr_t detached;
+    pthread_t background;
+    check(pthread_attr_init(&detached) == 0 && pthread_attr_setdetachstate(&detached, PTHREAD_CREATE_DETACHED) == 0,
+        "detached attribute");
+    check(pthread_create(&background, &detached, detached_worker, 0) == 0, "detached pthread_create");
+    check(sem_wait(&shared.Done) == 0, "the detached thread posted the semaphore");
+    check(pthread_attr_destroy(&detached) == 0 && !pthread_equal(pthread_self(), background),
+        "pthread_self differs from a worker");
+    struct timespec settle = {0, 5000000};
+    nanosleep(&settle, 0); /* the detached thread's exit is served after its post */
 
     /* Clocks and entropy. */
     check(clock_gettime(CLOCK_MONOTONIC, &monotonic) == 0 && (monotonic.tv_sec > 0 || monotonic.tv_nsec > 0),

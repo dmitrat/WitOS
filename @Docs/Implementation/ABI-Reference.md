@@ -1,6 +1,6 @@
 # Справочник пользовательского ABI ядра WitOS
 
-Версии: **user ABI v64**, **boot ABI v6**. Источник истины — заголовки `src/Kernel/include/witos/*.h`; этот документ их описывает и проверяется хостовым тестом: каждый `WIT_CALL_*` из `user_abi.h` обязан встречаться здесь. Раскладка вызовов — ABI-1 по [RFC-0011 v3 §7](../RFC-0011-Kernel-Architecture-and-ABI.md), введённая шагом K1.1 плана; судьба каждого прежнего вызова — в [RFC-0011 v3 §8](../RFC-0011-Kernel-Architecture-and-ABI.md). ABI экспериментален до шага K8, но с K1.1 номер вызова, значение статуса и бит права никогда не переиспользуются (RFC-0011 §10.1).
+Версии: **user ABI v65**, **boot ABI v6**. Источник истины — заголовки `src/Kernel/include/witos/*.h`; этот документ их описывает и проверяется хостовым тестом: каждый `WIT_CALL_*` из `user_abi.h` обязан встречаться здесь. Раскладка вызовов — ABI-1 по [RFC-0011 v3 §7](../RFC-0011-Kernel-Architecture-and-ABI.md), введённая шагом K1.1 плана; судьба каждого прежнего вызова — в [RFC-0011 v3 §8](../RFC-0011-Kernel-Architecture-and-ABI.md). ABI экспериментален до шага K8, но с K1.1 номер вызова, значение статуса и бит права никогда не переиспользуются (RFC-0011 §10.1).
 
 ## Классы
 
@@ -77,7 +77,7 @@
 | 19 | `WIT_CALL_MEMORY_OBJECT_MAP` | `WitMemoryMapRequest`, 56, 0 | адрес отображения; `DENIED` вне прав хэндла, `BUSY` по занятому фиксированному адресу, `TOO_LARGE` за окном объекта | целевой |
 | 20 | `WIT_CALL_CODE_PUBLISH` | base, size, 0 | 0; каждая страница отображена `READ|EXECUTE`, иначе `DENIED` или `NOT_COMMITTED` | целевой |
 | 30 | `WIT_CALL_THREAD_CREATE` | `WitThreadCreateRequest`, 48 или 56, 0: версия 2 — указатель стека и база TLS вызывающего (единая форма), версия 3 (56 байт) — та же форма с хэндлом процесса (`MANAGE`) или `WIT_PROCESS_SELF`, в котором стартует поток, версия 1 — стек и TLS ядра (замороженная линия) | thread handle | целевой |
-| 31 | `WIT_CALL_THREAD_EXIT` | exit code, база резервирования или 0, 0 | не возвращается; названное резервирование (стек потока версии 2) ядро освобождает, когда поток на нём не бежит; не резервирование — `NOT_RESERVED` возвращается; стек и TLS потока версии 1 освобождаются ядром | целевой |
+| 31 | `WIT_CALL_THREAD_EXIT` | exit code, база резервирования или 0, `WitThreadExitRequest` или 0 | не возвращается; названное резервирование (стек потока версии 2) ядро освобождает, когда поток на нём не бежит; не резервирование — `NOT_RESERVED` возвращается; запрос выхода (S2.1): после остановки потока ядро обнуляет 4-байтовое слово `ClearAddress` (ненулевое, выровненное, записываемое) и поднимает событие `Event` (ненулевое, хэндл события с `SIGNAL`) — проверяется целиком до выхода, отказ возвращается (`UNSUPPORTED` — чужая версия, `INVALID_ARGUMENT` — размер или выравнивание, `BAD_ADDRESS`, `BAD_HANDLE`/`DENIED`); стек и TLS потока версии 1 освобождаются ядром | целевой |
 | 32 | `WIT_CALL_THREAD_YIELD` | — | 1, если выбран другой поток | целевой |
 | 33 | `WIT_CALL_THREAD_SET_TLS` | base, 0, 0 | 0; база raw TLS текущего потока (FS на x64) со следующего возврата; ARM64 — `UNSUPPORTED` (TPIDR_EL0 пишет сам EL0) | целевой |
 | 34 | `WIT_CALL_THREAD_QUERY` | thread handle или `WIT_THREAD_SELF`, buffer, 96 | 96; `Version` 4 и `Size` в буфере задаёт вызывающий; право `QUERY` или право на контекст | целевой |
@@ -224,6 +224,7 @@
 | `WitThreadCreateRequest` | `thread_reference.h` | 48 | 1 (`Entry`, `Argument`, `StackBytes`, `NativeIdOutput`, `Flags`) |
 | `WitThreadCreateRequest2` | `thread_reference.h` | 48 | 2 (`Entry`, `Argument`, `StackPointer`, `TlsBase`, `Flags`) |
 | `WitThreadCreateRequest3` | `thread_reference.h` | 56 | 3 (версия 2 и `Process`) |
+| `WitThreadExitRequest` | `thread_reference.h` | 24 | 1 (`ClearAddress`, `Event`; S2.1) |
 | `WitProcessCreateRequest` | `process.h` | 32 | 1 (`Endpoint`, `Pages`, `Flags`) |
 | `WitProcessInfo` | `process.h` | 40 | 1 (`State`, `Threads`, `ExitCode`, `ChargedPages`) |
 | `WitProcessorInfo` | `processor.h` | 280 | 1 (`Current`, `Count`, `Online`, записи) |

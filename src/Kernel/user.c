@@ -350,11 +350,14 @@ static WitArchFrame *dispatch(int timer, WitU64 last_exit)
     }
 }
 
-WitArchFrame *wit_user_exit_thread(WitU64 code, WitU64 reservation)
+WitArchFrame *wit_user_exit_thread(WitU64 code, WitU64 reservation, WitU64 clear, WitU64 event)
 {
+    static const WitU8 zero[4] = {0};
     const WitU32 index = current_user->CurrentThread;
     WitUserThread *thread = &current_user->Threads[index];
     thread->ExitReservation = thread->OwnsStack ? 0 : reservation;
+    thread->ExitClear = clear;
+    thread->ExitEvent = event;
     wit_user_exception_clear(thread);
     wit_user_stack_leases_exit(current_user, thread->Handle);
     require(!wit_user_stack_leased(current_user, thread->Handle, 0), "Exiting foreign-leased stack");
@@ -366,6 +369,16 @@ WitArchFrame *wit_user_exit_thread(WitU64 code, WitU64 reservation)
     /* The handles that observe the thread, in every component, learn its exit (and wake their waiters) before its
      * pages go; the last thread's exit ends the component with its code. */
     wit_user_references_exit(thread->Handle, code);
+    /* The exit request (S2.1): the thread no longer runs and this path is not interrupted, so its word is zeroed and
+     * its event set now, before the reap releases the stack reservation the word may lie in; both were validated at
+     * the call and nothing else ran since. The woken waiters run after the reap. */
+    if (clear) {
+        require(
+            wit_user_copy_to(&current_user->Space, clear, zero, sizeof(zero)), "Exit word vanished before the exit");
+    }
+    if (event) {
+        require(wit_user_event_set(current_user, event) == WIT_STATUS_OK, "Exit event vanished before the exit");
+    }
     reap(index);
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
         if (current_user->Threads[i].State != WitThreadEmpty) {
