@@ -42,8 +42,8 @@ address pushed. `tests/User/root.ld` links it as a static `ET_EXEC` at the compo
 **ELF to flat.** `FlatImage.FromElfAsync` reads a 64-bit little-endian `ET_EXEC` of the architecture's machine and
 turns its loadable segments into the flat segments the kernel validates (`witos/flat.h`): one to four `PT_LOAD`
 entries at page-aligned addresses, each readable and never both writable and executable, memory sizes rounded to
-pages, the entry inside an executable segment; a `PT_INTERP`, `PT_DYNAMIC` or `PT_TLS` entry is refused, as is a
-file range beyond the image. The flat writer is shared with the PE path, which stays for the fixtures of the frozen
+pages, the entry inside an executable segment; a `PT_INTERP` or `PT_DYNAMIC` entry is refused, as is a file range
+beyond the image (a `PT_TLS` entry, descriptive of bytes a loadable segment carries, is accepted since S1.1). The flat writer is shared with the PE path, which stays for the fixtures of the frozen
 line. The kernel still knows no ELF: the flat format remains the boot format of the root task, and the ELF loader is
 step S5's.
 

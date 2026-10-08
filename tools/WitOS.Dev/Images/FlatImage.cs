@@ -29,7 +29,6 @@ internal static class FlatImage
     private const uint PT_LOAD = 1;
     private const uint PT_DYNAMIC = 2;
     private const uint PT_INTERP = 3;
-    private const uint PT_TLS = 7;
     private const uint PF_X = 1;
     private const uint PF_W = 2;
     private const uint PF_R = 4;
@@ -42,8 +41,8 @@ internal static class FlatImage
     /// Builds the flat image of a static ELF executable and writes it beside the ELF; also embeds it as a C array so
     /// the kernel self-test can start the root task without the boot disk. The executable must be a 64-bit
     /// little-endian ET_EXEC of the machine with one to four loadable segments at page-aligned addresses, each
-    /// readable and not both writable and executable, no interpreter, no dynamic section and no TLS segment, and its
-    /// entry inside an executable segment.
+    /// readable and not both writable and executable, no interpreter and no dynamic section (a PT_TLS entry describes
+    /// bytes a loadable segment carries and is accepted, S1.1), and its entry inside an executable segment.
     /// </summary>
     /// <param name="output">Artifact directory.</param>
     /// <param name="machine">Expected ELF machine (e_machine).</param>
@@ -98,8 +97,8 @@ internal static class FlatImage
             var address = BinaryPrimitives.ReadUInt64LittleEndian(phdr[16..]);
             var fileSize = BinaryPrimitives.ReadUInt64LittleEndian(phdr[32..]);
             var memorySize = BinaryPrimitives.ReadUInt64LittleEndian(phdr[40..]);
-            if (segmentType is PT_DYNAMIC or PT_INTERP or PT_TLS)
-                throw new InvalidDataException("Root task must be static: no interpreter, dynamic section or TLS segment.");
+            if (segmentType is PT_DYNAMIC or PT_INTERP)
+                throw new InvalidDataException("Root task must be static: no interpreter or dynamic section.");
             if (segmentType != PT_LOAD || memorySize == 0)
                 continue;
             var execute = (flags & PF_X) != 0;

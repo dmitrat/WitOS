@@ -70,6 +70,11 @@ internal sealed record KernelArchitecture(string Name, string MsvcTarget, string
     public string RootStartedLine => $"[ROOT] started by clang {Toolchain.LLVM_VERSION} for {Triple[..Triple.IndexOf('-')]}";
 
     /// <summary>
+    /// The last log line of the first libc program (tests/User/libc_hello.c) when every check passed.
+    /// </summary>
+    public string LibcPassedLine => $"[LIBC] musl {Substrate.MuslLibc.VERSION} on {Triple[..Triple.IndexOf('-')]}: ";
+
+    /// <summary>
     /// Finds the MSVC tools that build this architecture.
     /// </summary>
     /// <param name="root">Repository root.</param>

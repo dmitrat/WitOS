@@ -66,9 +66,9 @@ public sealed class FlatImageTests
         Assert.That(() => FlatImage.ParseElf(Elf(ET_EXEC, EM_X86_64, BASE, (PT_LOAD, 5u, BASE, code, 32UL),
                 (PT_INTERP, 4u, BASE + PAGE, [1], 1UL)), EM_X86_64),
             Throws.TypeOf<InvalidDataException>(), "Interpreter accepted");
-        Assert.That(() => FlatImage.ParseElf(Elf(ET_EXEC, EM_X86_64, BASE, (PT_LOAD, 5u, BASE, code, 32UL),
-                (PT_TLS, 4u, BASE + PAGE, [1], 1UL)), EM_X86_64),
-            Throws.TypeOf<InvalidDataException>(), "TLS segment accepted");
+        Assert.That(FlatImage.ParseElf(Elf(ET_EXEC, EM_X86_64, BASE, (PT_LOAD, 5u, BASE, code, 32UL),
+                (PT_TLS, 4u, BASE + PAGE, [1], 1UL)), EM_X86_64).Segments, Has.Count.EqualTo(1),
+            "A TLS segment is descriptive and does not add a flat segment (S1.1)");
         Assert.That(() => FlatImage.ParseElf(Elf(ET_EXEC, EM_X86_64, BASE, (PT_LOAD, 7u, BASE, code, 32UL)), EM_X86_64),
             Throws.TypeOf<InvalidDataException>(), "Writable executable segment accepted");
         Assert.That(() => FlatImage.ParseElf(Elf(ET_EXEC, EM_X86_64, BASE, (PT_LOAD, 1u, BASE, code, 32UL)), EM_X86_64),

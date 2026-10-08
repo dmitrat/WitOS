@@ -1,0 +1,131 @@
+{
+  "repository": "https://github.com/llvm/llvm-project",
+  "tag": "llvmorg-20.1.8",
+  "purpose": "The IEEE binary128 helpers that clang emits for long double on aarch64 (musl's printf, strtod and the long double mathematics): compiler-rt's generic soft-float builtins, compiled for the system layer because the pinned LLVM package ships no builtins for the Linux triples.",
+  "sources": [
+    {
+      "path": "compiler-rt/LICENSE.TXT",
+      "sha256": "1a8f1058753f1ba890de984e48f0242a3a5c29a6a8f2ed9fd813f36985387e8d"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/fp_lib.h",
+      "sha256": "8edc3d7debe27cb64355bbcd1d3d18390da20f7bf1358586ece770714bcfdc5e"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/int_lib.h",
+      "sha256": "b31130f10484636895daa13b91b63d47ea82b45547f29e4dd136b48a67854d30"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/int_types.h",
+      "sha256": "b4b768e1b2251df4c0161b4c1f120417500ff4883b7008120104d042eeb2151f"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/int_endianness.h",
+      "sha256": "ec5175561075845b7b16a92ad5ecdfd42a284de2736dd07e4ca7011b75c37709"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/int_util.h",
+      "sha256": "63d06198ab720a75c20bfd84be895c2746581b129168bae6201e7384bbb0473b"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/int_math.h",
+      "sha256": "42d83ee41543909de016379a8251e211a6890cbc7945c433bb30f4ba29d7b10c"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/fp_mode.h",
+      "sha256": "874aa9eee8990ae2a6f48127ddb48c3198a8fa741f634f93053ebac3f89e1e83"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/fp_add_impl.inc",
+      "sha256": "327276adbb45d7e2cb2da1cf98b508da00b43b0cb84d4883d07878a0a9a1cd07"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/fp_mul_impl.inc",
+      "sha256": "5fd5ec9eaf57c983ed521f3501346660221d6f2d49d48d186b2046702b54d8c3"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/fp_div_impl.inc",
+      "sha256": "2d1d901e87805e0bb2f3a3ab951b29224a59a761d6f292c3bd86f35368186fdd"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/fp_extend.h",
+      "sha256": "b3da60a65ab5aca4b93ddd36df8af90051912d1c455c4cea2de0e50ce37c526d"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/fp_extend_impl.inc",
+      "sha256": "63f9cd801c0c2a04e8becbd22f189eaaa47b5466bc098acc214fe69fd525f92a"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/fp_trunc.h",
+      "sha256": "90626a0811dcf96be507daa5d7fe872d1efae2c388af4c48eaba45101856be23"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/fp_trunc_impl.inc",
+      "sha256": "17098ba776ada9f2cc568a02cf34317bb0b59b8a603ff8a92ea909b7bc8c214b"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/fp_compare_impl.inc",
+      "sha256": "b3a602d7e840571537aef20a2ad57ad124f2efc7f0a456a37bece30e9dde6394"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/fp_fixint_impl.inc",
+      "sha256": "9f783582b31c028721a14561f2c5741b5bb19befa557a4575e1436381f966f4e"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/fp_fixuint_impl.inc",
+      "sha256": "fc0d0b1b6fd1b3ec61ed3cd96e634de9f380eb76b7161fea91ddbddece71ac09"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/addtf3.c",
+      "sha256": "b23037fd20a30845a5c19414659ac2820de33a5ea4abf65c2aceaa8ba94fd102"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/subtf3.c",
+      "sha256": "e68ff5c165411378b63779937f24ac7b7b9e15d76387187e3fd5e1673e946600"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/multf3.c",
+      "sha256": "29ae4d98ff8bfb7226abfe9fe6a90c4b818196bc0ef736f981343aee2648864a"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/divtf3.c",
+      "sha256": "c792ed3e30ca8f451bcbca0f655859090c87aac4ee94e174423891cf0b8ff223"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/comparetf2.c",
+      "sha256": "4656413b5b87c11855a053a55f1c1fb8c483c1b6c5183b5e70ba1ca6e939819d"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/extenddftf2.c",
+      "sha256": "d5d52fd1e14e5db84c99319cd3aa363de68cbfbd5fe290c73b39a3acc541cf20"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/extendsftf2.c",
+      "sha256": "48fb287875d8831c08b6a820f2a152705b1ad00d7615a8150e11475ce2c202c2"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/fixtfsi.c",
+      "sha256": "f095391826740e76b2bc6e119c90b90d3c0e8f39df5d2774a24b1b07ba528124"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/fixunstfsi.c",
+      "sha256": "425fc324122745b1c33e67f5d333645b54584a58e2f689dd1dadb2fb0564257f"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/floatsitf.c",
+      "sha256": "b0227a97e438ae8b0f2d61b979379446dd9bfbcb252a1e8073938b4ac89e2649"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/floatunsitf.c",
+      "sha256": "9418e6093a593268f15220553fd35bdfd25a1fd94ecaf23b0ceba54c36445efb"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/trunctfdf2.c",
+      "sha256": "46a8ca78c3d3c44a0eb8eff7a86739349cbd26cb7f61e3b5784fb096a5420871"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/aarch64/fp_mode.c",
+      "sha256": "17850b3a2e6f20c20e91927e4aca19b7b87f29f3f5ffb5fa5e6ab197d73d9351"
+    }
+  ]
+}

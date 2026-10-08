@@ -61,9 +61,12 @@ public sealed class UpstreamPatchesTests
         foreach (var (repository, output) in Patches(root))
         {
             var patch = UpstreamPatches.Read(root, repository, output);
-            var cache = repository == "runtime"
-                ? Path.Combine(root, ".tools", "runtime-audit", "runtime", runtime)
-                : Path.Combine(root, ".tools", "math-audit", math);
+            var cache = repository switch
+            {
+                "runtime" => Path.Combine(root, ".tools", "runtime-audit", "runtime", runtime),
+                "musl" => WitOS.Dev.Substrate.MuslLibc.SourceDirectory(root),
+                _ => Path.Combine(root, ".tools", "math-audit", math)
+            };
             var source = Path.Combine(cache, patch.Source);
             if (!File.Exists(source))
                 continue;
@@ -124,6 +127,10 @@ public sealed class UpstreamPatchesTests
             foreach (var source in math.GetProperty("sources").EnumerateArray())
                 pins[("openlibm", source.GetProperty("path").GetString()!)] = source.GetProperty("sha256").GetString()!;
         }
+        // The C library of the system layer: the files WitOS patches, by their bytes in the pinned tarball (S1.1).
+        var musl = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, WitOS.Dev.Substrate.MuslLibc.LOCK))).RootElement;
+        foreach (var source in musl.GetProperty("sources").EnumerateArray())
+            pins[("musl", source.GetProperty("path").GetString()!)] = source.GetProperty("sha256").GetString()!;
         return pins;
     }
 
