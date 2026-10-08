@@ -268,3 +268,18 @@ int wit_user_memory_object_handle(WitUserProcess *p, WitU64 handle)
 {
     return wit_handle_check(&p->Handles, handle, WIT_HANDLE_MEMORY_OBJECT, 0) != WIT_STATUS_WRONG_TYPE;
 }
+
+/* For pins (K3.2): a reference beyond handles and mappings, and the pages of an object. */
+void wit_user_memory_object_retain(WitUserProcess *p, WitU64 object)
+{
+    WitMemoryObject *entry = slot(p, object);
+    require(entry != 0, "Retained memory object reference has no object");
+    ++entry->References;
+}
+
+WitU64 wit_user_memory_object_pages(WitUserProcess *p, WitU64 object, WitU32 index, int physical)
+{
+    const WitMemoryObject *entry = slot(p, object);
+    require(entry != 0 && (!physical || index < entry->PageCount), "Memory object page query out of range");
+    return physical ? entry->Pages[index] : entry->PageCount;
+}

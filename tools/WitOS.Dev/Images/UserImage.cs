@@ -27,6 +27,7 @@ internal static class UserImage
         "src/Kernel/include/witos/channels.h",
         "src/Kernel/include/witos/memory_object.h",
         "src/Kernel/include/witos/device.h",
+        "src/Kernel/include/witos/dma.h",
         "src/Kernel/include/witos/user_layout.h",
         "src/Kernel/include/witos/limits.h",
         "tests/User/protocol.h"
@@ -52,6 +53,8 @@ internal static class UserImage
         await BuildFixtureAsync(root, output, msvc, constants, "channels", "ChannelFixture", "wit_user_channel_image", "user_channel_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "memory_objects", "MemoryObjectFixture", "wit_user_memory_object_image", "user_memory_object_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "devices", "DeviceFixture", "wit_user_device_image", "user_device_image.h");
+        await BuildFixtureAsync(root, output, msvc, constants, "interrupts", "InterruptFixture", "wit_user_interrupt_image", "user_interrupt_image.h");
+        await BuildFixtureAsync(root, output, msvc, constants, "virtio", "VirtioFixture", "wit_user_virtio_image", "user_virtio_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "coreclr_memory", "CoreClrMemoryFixture", "wit_coreclr_memory_image", "coreclr_memory_image.h");
         await UserPeImage.BuildAsync(root, output, msvc, constants);
         await UserBootstrapImage.BuildAsync(root, output, msvc);
@@ -106,6 +109,8 @@ internal static class UserImage
         await BuildArm64FixtureAsync(root, output, msvc, constants, "channels", "ChannelFixture", "wit_user_channel_image", "user_channel_image.h");
         await BuildArm64FixtureAsync(root, output, msvc, constants, "memory_objects", "MemoryObjectFixture", "wit_user_memory_object_image", "user_memory_object_image.h");
         await BuildArm64FixtureAsync(root, output, msvc, constants, "devices", "DeviceFixture", "wit_user_device_image", "user_device_image.h");
+        await BuildArm64FixtureAsync(root, output, msvc, constants, "interrupts", "InterruptFixture", "wit_user_interrupt_image", "user_interrupt_image.h");
+        await BuildArm64FixtureAsync(root, output, msvc, constants, "virtio", "VirtioFixture", "wit_user_virtio_image", "user_virtio_image.h");
         await UserPeImage.BuildArm64Async(root, output, msvc, constants);
     }
 

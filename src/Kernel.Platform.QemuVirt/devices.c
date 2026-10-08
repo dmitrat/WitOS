@@ -76,9 +76,17 @@ typedef struct EcamBridge {
     const WitU8 *InterruptMap;
     WitU32 InterruptMapBytes;
     WitU32 MapMask[4]; /* interrupt-map-mask: three address cells and the pin */
-    WitU32 InterruptCells; /* of the interrupt parent (the GIC: 3) */
     int Found;
 } EcamBridge;
+
+/* An interrupt controller the map's entries name by phandle: its address and interrupt cells size each entry. */
+typedef struct InterruptController {
+    WitU32 Phandle, AddressCells, InterruptCells, Live;
+} InterruptController;
+
+#define CONTROLLER_CAPACITY 4U
+#define NODE_DEPTH 8U
+static InterruptController controllers[CONTROLLER_CAPACITY];
 
 /* Walks the tree once; the first node compatible with the generic ECAM bridge wins. */
 static void read_tree(const WitBootInfo *boot, EcamBridge *bridge)
@@ -108,6 +116,7 @@ static void read_tree(const WitBootInfo *boot, EcamBridge *bridge)
     WitU32 offset = structure, depth = 0;
     int in_bridge = 0, compatible_seen = 0;
     EcamBridge candidate = {0};
+    InterruptController node[NODE_DEPTH + 1] = {{0}}; /* the controller properties of the open nodes, by depth */
     while (offset + 4 <= limit) {
         const WitU32 token = be32(tree + offset);
         offset += 4;
@@ -119,6 +128,9 @@ static void read_tree(const WitBootInfo *boot, EcamBridge *bridge)
             const char *name = (const char *)tree + offset;
             offset = (offset + length + 1 + 3) & ~3U;
             ++depth;
+            if (depth <= NODE_DEPTH) {
+                node[depth] = (InterruptController){0};
+            }
             if (depth == 2 && !bridge->Found) {
                 in_bridge = 1;
                 compatible_seen = 0;
@@ -133,6 +145,14 @@ static void read_tree(const WitBootInfo *boot, EcamBridge *bridge)
                 bridge->Found = 1;
             }
             in_bridge = 0;
+            if (depth && depth <= NODE_DEPTH && node[depth].Live) {
+                for (WitU32 i = 0; i < CONTROLLER_CAPACITY; ++i) {
+                    if (!controllers[i].Live) {
+                        controllers[i] = node[depth];
+                        break;
+                    }
+                }
+            }
             if (depth) {
                 --depth;
             }
@@ -148,6 +168,17 @@ static void read_tree(const WitBootInfo *boot, EcamBridge *bridge)
             const char *name = (const char *)tree + strings + name_offset;
             const WitU8 *value = tree + offset;
             offset = (offset + length + 3) & ~3U;
+            if (depth <= NODE_DEPTH) {
+                if (same(name, "phandle") && length >= 4) {
+                    node[depth].Phandle = be32(value);
+                } else if (same(name, "#address-cells") && length >= 4) {
+                    node[depth].AddressCells = be32(value);
+                } else if (same(name, "#interrupt-cells") && length >= 4) {
+                    node[depth].InterruptCells = be32(value);
+                } else if (same(name, "interrupt-controller")) {
+                    node[depth].Live = 1;
+                }
+            }
             if (!in_bridge || depth != 2) {
                 continue;
             }
@@ -182,25 +213,45 @@ static void read_tree(const WitBootInfo *boot, EcamBridge *bridge)
     }
 }
 
-/* The GIC INTID of a function's INTx pin from the interrupt map: child unit address (3 cells: bus/device/function
- * in the PCI unit address format, two zero cells), the pin, the parent phandle, then the parent's cells (3 for
- * the GIC: type 0 = SPI, number, flags). Entries are matched under the mask like the Open Firmware binding. */
+static const InterruptController *controller(WitU32 phandle)
+{
+    for (WitU32 i = 0; i < CONTROLLER_CAPACITY; ++i) {
+        if (controllers[i].Live && controllers[i].Phandle == phandle) {
+            return &controllers[i];
+        }
+    }
+    return 0;
+}
+
+/* The GIC INTID of a function's INTx pin from the interrupt map: each entry is the child unit address (three
+ * cells: the PCI unit address, two zero cells), the pin, the parent phandle, then the parent's address cells and
+ * its interrupt cells (the GIC: type 0 = SPI, number, flags); entries are matched under the mask like the Open
+ * Firmware binding, and the parent's cell counts come from its node. */
 static int map_interrupt(const EcamBridge *bridge, WitU32 bus, WitU32 device, WitU32 pin, WitU32 *intid)
 {
-    const WitU32 entry = (4 + 1 + 3) * 4; /* child address 3 cells + pin 1 cell + phandle 1 cell + parent 3 cells */
     if (!bridge->InterruptMap) {
         return 0;
     }
     const WitU32 address = (bus << 16) | (device << 11);
-    for (WitU32 at = 0; at + entry <= bridge->InterruptMapBytes; at += entry) {
+    for (WitU32 at = 0; at + 24 <= bridge->InterruptMapBytes;) {
         const WitU8 *e = bridge->InterruptMap + at;
+        const InterruptController *parent = controller(be32(e + 16));
+        if (!parent || parent->InterruptCells < 2 || parent->AddressCells > 4) {
+            return 0;
+        }
+        const WitU32 entry = (3 + 1 + 1 + parent->AddressCells + parent->InterruptCells) * 4;
+        if (at + entry > bridge->InterruptMapBytes) {
+            return 0;
+        }
         const WitU32 child = be32(e) & bridge->MapMask[0];
         const WitU32 child_pin = be32(e + 12) & bridge->MapMask[3];
         if (child == (address & bridge->MapMask[0]) && child_pin == (pin & bridge->MapMask[3])) {
-            const WitU32 type = be32(e + 20), number = be32(e + 24);
+            const WitU8 *cells = e + 20 + parent->AddressCells * 4;
+            const WitU32 type = be32(cells), number = be32(cells + 4);
             *intid = (type == 0 ? 32 : 16) + number; /* SPI INTIDs start at 32, PPIs at 16. */
             return 1;
         }
+        at += entry;
     }
     return 0;
 }

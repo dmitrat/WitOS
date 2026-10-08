@@ -25,7 +25,7 @@
  * arguments, RAX=status and RDX=result, other GPRs and x87/SSE state preserved, RFLAGS reset to 0x202; on ARM64
  * SVC #0 with x8=call, x0-x2 arguments, x0=status and x1=result. A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
-#define WIT_ABI_VERSION 58U
+#define WIT_ABI_VERSION 59U
 /* QUERY result: the low 32 bits are WIT_ABI_VERSION, the high 32 bits the mask of the families present. */
 #define WIT_ABI_FEATURE_CHANNELS 1U
 #define WIT_ABI_FEATURE_DEVICES 2U
@@ -164,7 +164,19 @@
 /* Memory(device handle, region index, 0) -> handle to a memory object of the region: uncached, mappable READ or
  * READ|WRITE through MEMORY_OBJECT_MAP, never executable; a port region is UNSUPPORTED. */
 #define WIT_CALL_DEVICE_MEMORY 81U
-/* 82 INTERRUPT_BIND, 83 INTERRUPT_ACK, 84 DMA_PIN and 85 DMA_UNPIN arrive with plan step K3.2. */
+/* Bind(device handle with BIND, line index, event handle with SIGNAL) -> interrupt handle with ACK, QUERY, DUPLICATE
+ * and TRANSFER: on each interrupt of the line the kernel masks the line and sets the event; the line stays masked
+ * until INTERRUPT_ACK. One binding per line (BUSY); the binding holds the device and the event and ends with its
+ * last handle, masking the line. */
+#define WIT_CALL_INTERRUPT_BIND 82U
+/* Ack(interrupt handle with ACK, 0, 0) -> 0: unmasks the line. */
+#define WIT_CALL_INTERRUPT_ACK 83U
+/* Pin(WitDmaPinRequest, 56, 0) -> pin handle with QUERY, DUPLICATE and TRANSFER: the holder of a device (BIND) pins
+ * a page-aligned window of an anonymous memory object it holds with MAP; the object lives while pinned and its
+ * pages never move; the physical ranges of the window are written to the request's buffer (witos/dma.h). */
+#define WIT_CALL_DMA_PIN 84U
+/* Unpin(pin handle, 0, 0) -> 0: closes the handle; the pin ends with its last handle. */
+#define WIT_CALL_DMA_UNPIN 85U
 /* 80-85 devices (K3), 90-92 processes (K5). */
 
 /* Processors (RFC 0011 section 7.9). Query(buffer, exact 4 bytes, 0): the current processor as
@@ -211,8 +223,9 @@
 /* Rights (RFC 0011 section 6.1): a bit is never reused, and 2 (the join right of the retired join capability) is
  * retired. WAIT and SIGNAL belong to events and the kernel log; QUERY, GET_CONTEXT, SET_CONTEXT, SUSPEND_RESUME and
  * ACTIVATE to threads; SEND and RECEIVE to channel endpoints; MAP, WRITE and EXECUTE to memory objects (a mapping
- * with that access); ACQUIRE to the device table and BIND to devices; DUPLICATE (HANDLE_DUPLICATE of an endpoint,
- * an object or a device) and TRANSFER (moving the handle in a message) to every kind a message can carry. */
+ * with that access); ACQUIRE to the device table, BIND to devices and ACK to interrupt bindings; DUPLICATE
+ * (HANDLE_DUPLICATE of an endpoint, an object, a device, a binding or a pin) and TRANSFER (moving the handle in a
+ * message) to every kind a message can carry. */
 #define WIT_RIGHT_WRITE 1U
 #define WIT_RIGHT_WAIT 4U
 #define WIT_RIGHT_SIGNAL 8U
@@ -228,7 +241,8 @@
 #define WIT_RIGHT_MAP 8192U
 #define WIT_RIGHT_EXECUTE 16384U
 #define WIT_RIGHT_ACQUIRE 32768U /* of the device table: DEVICE_ACQUIRE */
-#define WIT_RIGHT_BIND 65536U /* of a device: DEVICE_MEMORY now, INTERRUPT_BIND with K3.2 */
+#define WIT_RIGHT_BIND 65536U /* of a device: DEVICE_MEMORY, INTERRUPT_BIND and DMA_PIN */
+#define WIT_RIGHT_ACK 131072U /* of an interrupt binding: INTERRUPT_ACK */
 #define WIT_RIGHT_THREAD_ALL 6644U
 #define WIT_EVENT_ACCESS_WAIT WIT_RIGHT_WAIT
 #define WIT_EVENT_ACCESS_SIGNAL WIT_RIGHT_SIGNAL

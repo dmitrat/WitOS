@@ -11,6 +11,9 @@ void _disable(void);
 
 static volatile WitU64 timer_ticks;
 
+/* The vector of the device interrupt being entered (entry.asm): one processor, interrupts disabled (K3.2). */
+WitU32 wit_x64_device_vector;
+
 #if defined(WITOS_SELFTEST)
 /* Kernel-worker preemption test: two workers on private kernel stacks and the bootstrap context. */
 volatile WitU64 wit_worker_iterations[2];
@@ -61,6 +64,16 @@ static WitInterruptContext *prepare_thread(WitU32 index)
     return context;
 }
 #endif
+
+/* A device line's vector (0x21 to 0x2F: the PIC inputs 1 to 15): the line is masked and completed, then the kernel
+ * delivers it to the bound event of the running component and dispatches. */
+WitInterruptContext *wit_x64_device_interrupt(WitInterruptContext *context)
+{
+    const WitU32 line = wit_x64_device_vector - 32;
+    wit_platform_line_mask(line);
+    wit_platform_line_complete(line);
+    return wit_user_interrupt(context, line);
+}
 
 WitInterruptContext *wit_x64_timer_interrupt(WitInterruptContext *context)
 {

@@ -41,6 +41,10 @@ static void release_capability(WitUserProcess *p, const WitChannelCapability *ca
         wit_user_memory_object_release(p, capability->Object);
     } else if (capability->Kind == WIT_HANDLE_DEVICE) {
         wit_user_device_release(p, capability->Object);
+    } else if (capability->Kind == WIT_HANDLE_INTERRUPT) {
+        wit_user_interrupt_release(p, capability->Object);
+    } else if (capability->Kind == WIT_HANDLE_PIN) {
+        wit_user_pin_release(p, capability->Object);
     }
 }
 
@@ -154,6 +158,10 @@ static WitU64 inspect_capability(WitUserProcess *p, const WitU64 *handles, WitU3
         out->Kind = WIT_HANDLE_MEMORY_OBJECT;
     } else if (wit_handle_describe(&p->Handles, handle, WIT_HANDLE_DEVICE, &object, &rights)) {
         out->Kind = WIT_HANDLE_DEVICE;
+    } else if (wit_handle_describe(&p->Handles, handle, WIT_HANDLE_INTERRUPT, &object, &rights)) {
+        out->Kind = WIT_HANDLE_INTERRUPT;
+    } else if (wit_handle_describe(&p->Handles, handle, WIT_HANDLE_PIN, &object, &rights)) {
+        out->Kind = WIT_HANDLE_PIN;
     } else if (wit_handle_describe(&p->Handles, handle, WIT_HANDLE_THREAD_REFERENCE, &object, &rights)) {
         const WitUserThreadReference *reference;
         require(wit_user_reference_describe(p, handle, 0, &reference) == WIT_STATUS_OK, "Thread handle lost record");

@@ -142,6 +142,11 @@ typedef struct WitUserLibraryTls {
     WitU8 Data[WIT_PE_TLS_MAX_BYTES];
 } WitUserLibraryTls;
 
+/* A DMA pin (K3.2): a reference to an anonymous memory object over a page window; ends with its last handle. */
+typedef struct WitUserPin {
+    WitU32 Live, Object, PageFirst, PageCount, References, Reserved;
+} WitUserPin;
+
 typedef struct WitUserProcess {
     WitUserSpace Space;
     WitHandleTable Handles;
@@ -157,6 +162,11 @@ typedef struct WitUserProcess {
     WitMemoryObjectTable MemoryObjects;
     /* Per device descriptor: the handles of this component to it, in the table or in flight (K3.1). */
     WitU32 DeviceReferences[WIT_DEVICE_CAPACITY];
+    /* Per interrupt binding: the handles of this component to it (K3.2); the pins of the component; interrupts
+     * delivered to its events. */
+    WitU32 InterruptReferences[WIT_INTERRUPT_CAPACITY];
+    WitUserPin Pins[WIT_PIN_CAPACITY];
+    WitU64 InterruptsDelivered;
     WitU32 Id;
     WitU32 Slot;
     WitUserState State;
@@ -313,6 +323,35 @@ WitU64 wit_user_device_duplicate(WitUserProcess *, WitU64, WitU64, WitU64);
 void wit_user_device_release(WitUserProcess *, WitU64);
 int wit_user_device_handle(WitUserProcess *, WitU64);
 void wit_user_devices_reset(WitUserProcess *);
+WitU64 wit_user_owner_token(const WitUserProcess *);
+WitU64 wit_user_device_index(WitUserProcess *, WitU64, WitU32, WitU32 *);
+void wit_user_device_reference(WitUserProcess *, WitU32);
+void wit_user_device_unreference(WitUserProcess *, WitU32);
+void wit_user_memory_object_retain(WitUserProcess *, WitU64);
+WitU64 wit_user_memory_object_pages(WitUserProcess *, WitU64, WitU32, int);
+void wit_user_event_signal_object(WitUserProcess *, WitU64);
+
+/* Interrupts and DMA (RFC 0011 section 7.7, K3.2): a line bound to an event, its acknowledgement, delivery from
+ * the architecture's interrupt path, the binding handle's lifecycle; a pin of an anonymous object for a device and
+ * the pin handle's lifecycle; the component's reset of both. */
+WitU64 wit_user_interrupt_bind(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
+WitU64 wit_user_interrupt_ack(WitUserProcess *, WitU64, WitU64, WitU64);
+void wit_user_interrupt_raised(WitUserProcess *, WitU32);
+WitU64 wit_user_interrupt_close(WitUserProcess *, WitU64);
+WitU64 wit_user_interrupt_duplicate(WitUserProcess *, WitU64, WitU64, WitU64);
+void wit_user_interrupt_release(WitUserProcess *, WitU64);
+int wit_user_interrupt_handle(WitUserProcess *, WitU64);
+void wit_user_interrupts_reset(WitUserProcess *);
+WitU32 wit_user_interrupts_bound(void);
+WitU64 wit_user_dma_pin(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
+WitU64 wit_user_dma_unpin(WitUserProcess *, WitU64, WitU64, WitU64);
+WitU64 wit_user_pin_close(WitUserProcess *, WitU64);
+WitU64 wit_user_pin_duplicate(WitUserProcess *, WitU64, WitU64, WitU64);
+void wit_user_pin_release(WitUserProcess *, WitU64);
+int wit_user_pin_handle(WitUserProcess *, WitU64);
+void wit_user_pins_reset(WitUserProcess *);
+/* A device line was raised (the architecture masked and completed it): deliver and dispatch like a timer tick. */
+WitArchFrame *wit_user_interrupt(WitArchFrame *, WitU32);
 
 /* The address space's part: pages without an address of their own, a mapping of an object's pages as a reservation
  * at a chosen or fixed address, and the object a reservation maps. */
@@ -370,6 +409,7 @@ void wit_user_exception_self_test(WitPageAllocator *pages);
 void wit_user_channel_self_test(WitPageAllocator *pages);
 void wit_user_memory_object_self_test(WitPageAllocator *pages);
 void wit_user_device_self_test(WitPageAllocator *pages);
+void wit_user_interrupt_self_test(WitPageAllocator *pages);
 void wit_user_image_self_test(WitPageAllocator *pages);
 void wit_user_bootstrap_self_test(WitPageAllocator *pages);
 void wit_user_gc_self_test(WitPageAllocator *pages);

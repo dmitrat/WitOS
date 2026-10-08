@@ -66,8 +66,16 @@ static WitU64 stack_begin(WitU32 thread)
 
 WitA64Frame *wit_a64_interrupt(WitA64Frame *frame)
 {
-    if (!wit_platform_interrupt_claim()) {
+    WitU32 line = 0;
+    const int claimed = wit_platform_interrupt_claim(&line);
+    if (claimed == 0) {
         return frame;
+    }
+    if (claimed == 2) {
+        /* A device line: masked and completed here, delivered to the bound event by the kernel (K3.2). */
+        wit_platform_line_mask(line);
+        wit_platform_line_complete(line);
+        return wit_user_interrupt(frame, line);
     }
     if (timer_ticks < ~0ULL - 1) {
         ++timer_ticks; /* Saturate; never wrap deadlines. */

@@ -31,10 +31,19 @@ void wit_platform_timer_start(void);
 void wit_platform_timer_stop(void);
 void wit_platform_timer_acknowledge(void);
 
-/* Boards whose interrupts share one processor vector (Arm GIC): claims the pending interrupt and returns nonzero
- * when it is the scheduler timer, which wit_platform_timer_acknowledge then completes; other interrupts are
- * completed here. Boards with one vector per interrupt need not provide it. */
-int wit_platform_interrupt_claim(void);
+/* Boards whose interrupts share one processor vector (Arm GIC): claims the pending interrupt and returns 1 when it
+ * is the scheduler timer, which wit_platform_timer_acknowledge then completes, 2 when it is a device line, written
+ * to *line for the kernel to mask, complete and deliver, and 0 for anything else, completed here. Boards with one
+ * vector per interrupt need not provide it. */
+int wit_platform_interrupt_claim(WitU32 *line);
+
+/* Interrupt lines of devices (plan step K3.2), numbered as the board's descriptors name them (WitDeviceLine): a
+ * valid line can be bound; unmask enables its delivery, mask disables it, complete acknowledges the controller
+ * after the kernel took the interrupt. All run with interrupts disabled. */
+int wit_platform_line_valid(WitU32 line);
+void wit_platform_line_unmask(WitU32 line);
+void wit_platform_line_mask(WitU32 line);
+void wit_platform_line_complete(WitU32 line);
 void wit_platform_clock_initialize(const struct WitBootInfo *boot);
 WitU64 wit_platform_monotonic_read(void);
 WitU64 wit_platform_monotonic_frequency(void);

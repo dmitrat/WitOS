@@ -22,6 +22,8 @@
 #define WIT_MEMORY_OBJECT_CAPACITY 8U /* memory objects of a component */
 #define WIT_MEMORY_OBJECT_PAGES 64U /* pages of one memory object */
 #define WIT_DEVICE_CAPACITY 16U /* device descriptors the kernel publishes; the table fits one page */
+#define WIT_INTERRUPT_CAPACITY 8U /* interrupt bindings, kernel-wide: one per line */
+#define WIT_PIN_CAPACITY 8U /* DMA pins of a component */
 #define WIT_LIBRARY_CAPACITY 4U /* loaded native libraries */
 #define WIT_LIBRARY_READER_CAPACITY 16U /* module reader handles */
 #define WIT_STACK_LEASE_CAPACITY 4U

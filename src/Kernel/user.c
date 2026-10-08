@@ -94,6 +94,8 @@ WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code)
         }
         current_user->Threads[i].Deadline = WIT_WAIT_INFINITE;
     }
+    wit_user_interrupts_reset(current_user);
+    wit_user_pins_reset(current_user);
     wit_user_devices_reset(current_user);
     wit_handles_close_all(&current_user->Handles);
     wit_channels_initialize(&current_user->Channels);
@@ -267,6 +269,14 @@ WitU64 wit_user_close_handle(WitU64 handle)
     if (device != WIT_STATUS_WRONG_TYPE) {
         return device;
     }
+    const WitU64 interrupt = wit_user_interrupt_close(current_user, handle);
+    if (interrupt != WIT_STATUS_WRONG_TYPE) {
+        return interrupt;
+    }
+    const WitU64 pin = wit_user_pin_close(current_user, handle);
+    if (pin != WIT_STATUS_WRONG_TYPE) {
+        return pin;
+    }
     /* A thread's private identity is not a capability user space can release: it ends with the thread. */
     const WitU64 status = wit_handle_check(&current_user->Handles, handle, WIT_HANDLE_THREAD_IDENTITY, 0);
     if (status == WIT_STATUS_OK) {
@@ -364,6 +374,9 @@ static void reset_process(WitUserProcess *process, WitU32 slot, WitU32 code_size
     for (WitU32 i = 0; i < WIT_RUNTIME_EVENT_CAPACITY; ++i) {
         process->MemoryPressureEvents[i] = 0;
     }
+    wit_user_interrupts_reset(process);
+    wit_user_pins_reset(process);
+    process->InterruptsDelivered = 0;
     wit_events_initialize(&process->Events);
     wit_channels_initialize(&process->Channels);
     wit_memory_objects_initialize(&process->MemoryObjects);
@@ -562,6 +575,8 @@ void wit_user_destroy(WitUserProcess *process)
     wit_user_references_initialize(process);
     wit_user_stack_leases_initialize(process);
     wit_user_exception_initialize(process);
+    wit_user_interrupts_reset(process);
+    wit_user_pins_reset(process);
     wit_events_initialize(&process->Events);
     wit_channels_initialize(&process->Channels);
     wit_memory_objects_initialize(&process->MemoryObjects);
@@ -624,6 +639,31 @@ WitArchFrame *wit_user_timer_tick(WitArchFrame *context)
     if (++current_user->Ticks >= current_user->TickLimit) {
         wit_user_finish(WitUserBudgetExpired, 0);
     }
+    if (user_idle) {
+        return context; /* Resume CLI/RET and recheck ready threads. */
+    }
+    return dispatch(1, 0);
+}
+
+/* A device line, masked and completed by the architecture: the bound event of the running component is set and
+ * the ready threads are dispatched as after a tick; without a component the line stays masked. */
+WitArchFrame *wit_user_interrupt(WitArchFrame *context, WitU32 line)
+{
+    if (!current_user || current_user->State != WitUserRunning) {
+        return context;
+    }
+    if (user_idle) {
+        require(wit_arch_frame_owned(context, current_user->Slot, current_user->CurrentThread) &&
+                wit_arch_frame_is_idle(context, current_user->Slot, current_user->CurrentThread),
+            "Device interrupt did not interrupt the kernel idle path");
+    } else {
+        WitUserThread *thread = &current_user->Threads[current_user->CurrentThread];
+        validate_return(context, current_user->CurrentThread, 0);
+        thread->Context = context;
+        thread->State = WitThreadReady;
+    }
+    wit_user_interrupt_raised(current_user, line);
+    expire_waits();
     if (user_idle) {
         return context; /* Resume CLI/RET and recheck ready threads. */
     }
