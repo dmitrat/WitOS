@@ -1,0 +1,6 @@
+{
+  "name": "linux-headers-4.19.88-2",
+  "url": "https://github.com/sabotage-linux/kernel-headers/releases/download/v4.19.88-2/linux-headers-4.19.88-2.tar.xz",
+  "sha256": "dc7abf734487553644258a3822cfd429d74656749e309f2b25f09f4282e05588",
+  "purpose": "The Linux UAPI headers the C++ runtime's build includes for its linux-musl triple (plan step S4): libc++'s atomic waits include <linux/futex.h> and call SYS_futex, which the libc's dispatch serves over kernel events. sabotage-linux's sanitized headers of kernel 4.19.88, the set musl-cross-make uses, by the SHA-256 of the release tarball; only generic/include and the asm directories of x86 and arm64 are extracted, and only the runtimes' build sees them, never a program."
+}

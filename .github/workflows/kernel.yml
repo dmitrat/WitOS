@@ -51,19 +51,24 @@ jobs:
           path: .tools/downloads/LLVM-20.1.8-win64.exe
           key: llvm-20.1.8-win64-3197846a2b190636
 
-      - name: Cache pinned musl tarball and compiler-rt builtins
+      - name: Cache pinned musl tarball, compiler-rt builtins and the LLVM C++ runtime sources
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             .tools/downloads/musl-1.2.5.tar.gz
+            .tools/downloads/libunwind-20.1.8.src.tar.xz
+            .tools/downloads/libcxxabi-20.1.8.src.tar.xz
+            .tools/downloads/libcxx-20.1.8.src.tar.xz
+            .tools/downloads/linux-headers-4.19.88-2.tar.xz
+            .tools/llvm-runtimes-20.1.8/llvm-project
             .tools/compiler-rt
             .tools/libc-test
-          key: substrate-pins-${{ hashFiles('src/Substrate/compiler-rt.lock.json', 'src/Substrate/libc-test.lock.json') }}-musl-1.2.5
+          key: substrate-pins-${{ hashFiles('src/Substrate/compiler-rt.lock.json', 'src/Substrate/libc-test.lock.json', 'src/Substrate/llvm-runtimes.lock.json', 'src/Substrate/linux-headers.lock.json') }}-musl-1.2.5
 
       - name: Check source formatting
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- format-check
 
-      - name: Extract verified QEMU, clang, musl and libc-test
+      - name: Extract verified QEMU, clang, musl, libc-test and the LLVM C++ runtimes
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
 
       - name: Check environment
@@ -116,6 +121,21 @@ jobs:
             artifacts/x64/boot/build.txt
             artifacts/logs/
 
+  itanium-reference:
+    # The oracle of the cxx scenario (S4): tests/User/cxx_main.cpp built natively on Linux with the host's clang and C++
+    # library must print the Itanium trace that tests/User/cxx_itanium_trace.h records and that the guest must match.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Build the C++ scenarios natively
+        run: clang++ --version && clang++ -std=c++20 -O2 -fdeclspec -w -pthread tests/User.X64/cxx_exceptions.cpp tests/User/cxx_main.cpp -o cxx_main
+
+      - name: Run them against the recorded Itanium trace
+        run: ./cxx_main
+
   boot-arm64:
     runs-on: windows-2025
     timeout-minutes: 30
@@ -140,19 +160,24 @@ jobs:
           path: .tools/downloads/LLVM-20.1.8-win64.exe
           key: llvm-20.1.8-win64-3197846a2b190636
 
-      - name: Cache pinned musl tarball and compiler-rt builtins
+      - name: Cache pinned musl tarball, compiler-rt builtins and the LLVM C++ runtime sources
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             .tools/downloads/musl-1.2.5.tar.gz
+            .tools/downloads/libunwind-20.1.8.src.tar.xz
+            .tools/downloads/libcxxabi-20.1.8.src.tar.xz
+            .tools/downloads/libcxx-20.1.8.src.tar.xz
+            .tools/downloads/linux-headers-4.19.88-2.tar.xz
+            .tools/llvm-runtimes-20.1.8/llvm-project
             .tools/compiler-rt
             .tools/libc-test
-          key: substrate-pins-${{ hashFiles('src/Substrate/compiler-rt.lock.json', 'src/Substrate/libc-test.lock.json') }}-musl-1.2.5
+          key: substrate-pins-${{ hashFiles('src/Substrate/compiler-rt.lock.json', 'src/Substrate/libc-test.lock.json', 'src/Substrate/llvm-runtimes.lock.json', 'src/Substrate/linux-headers.lock.json') }}-musl-1.2.5
 
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
 
-      - name: Extract verified QEMU, clang, musl and libc-test
+      - name: Extract verified QEMU, clang, musl, libc-test and the LLVM C++ runtimes
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
 
       - name: ARM64 boot-only scenarios on QEMU virt

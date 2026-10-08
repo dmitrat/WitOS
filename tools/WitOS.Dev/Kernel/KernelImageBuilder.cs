@@ -32,6 +32,12 @@ internal static class KernelImageBuilder
     /// </summary>
     public const string LIBC_TEST_SCENARIO = "libc-test";
 
+    /// <summary>
+    /// The scenario whose root task runs the C++ exception scenarios and libc++ checks over the C++ runtime (plan step
+    /// S4).
+    /// </summary>
+    public const string CXX_SCENARIO = "cxx";
+
     #endregion
 
     #region Fields
@@ -126,6 +132,7 @@ internal static class KernelImageBuilder
         // The root task's flat image (K4): every kernel, release or self-test, starts it from the boot disk.
         var rootTask = scenario == LIBC_SCENARIO ? await Substrate.MuslLibc.BuildRootAsync(root, output, architecture, "libc_hello.c")
             : scenario == LIBC_TEST_SCENARIO ? await Substrate.LibcTestSuite.BuildRootAsync(root, output, architecture)
+            : scenario == CXX_SCENARIO ? await Substrate.LlvmRuntimes.BuildRootAsync(root, output, architecture)
             : await UserImage.BuildRootAsync(root, output, architecture);
         if (scenario == "coreclr-storage")
         {

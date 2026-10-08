@@ -271,8 +271,10 @@ internal static class MuslLibc
     /// <param name="output">Directory for the executable.</param>
     /// <param name="name">Program name (the executable is name.elf).</param>
     /// <param name="objects">Object files.</param>
+    /// <param name="libraries">Archives linked between the objects and libc.a (the C++ runtime, S4).</param>
     /// <returns>Path of the executable.</returns>
-    public static async Task<string> LinkAsync(string root, KernelArchitecture architecture, string output, string name, IEnumerable<string> objects)
+    public static async Task<string> LinkAsync(string root, KernelArchitecture architecture, string output, string name, IEnumerable<string> objects,
+        IEnumerable<string>? libraries = null)
     {
         var build = await BuildAsync(root, architecture);
         // clang emits calls to compiler-rt's soft-float helpers for long double on aarch64; the pinned subset supplies them.
@@ -281,7 +283,8 @@ internal static class MuslLibc
         await Processes.RequireSuccessAsync(Toolchain.Lld(root),
         [
             "-o", image, "-static", "--no-dynamic-linker", "--build-id=none", "-z", "max-page-size=4096", "-z", "norelro",
-            "--gc-sections", "-e", "_start", "-T", build.LinkerScript, build.Crt1, .. objects, build.Library, builtins
+            "--gc-sections", "--eh-frame-hdr", "-e", "_start", "-T", build.LinkerScript, build.Crt1, .. objects, .. libraries ?? [],
+            build.Library, builtins
         ], root);
         return image;
     }
