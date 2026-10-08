@@ -17,6 +17,7 @@ WitU64 wit_user_objects_poll(
         WitU64 status = wit_event_get(&p->Events, &p->Handles, handles[i], WIT_RIGHT_WAIT, &events[i]);
         if (status == WIT_STATUS_WRONG_TYPE) {
             status = wit_user_channel_handle(p, handles[i]) ? wit_user_channel_signaled(p, handles[i], &ready[i])
+                : wit_user_process_handle(p, handles[i])    ? wit_user_process_signaled(p, handles[i], &ready[i])
                                                             : wit_user_reference_signaled(p, handles[i], &ready[i]);
         } else if (status == WIT_STATUS_OK) {
             ready[i] = events[i]->Signaled != 0;

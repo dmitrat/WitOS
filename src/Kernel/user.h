@@ -164,7 +164,6 @@ typedef struct WitUserProcess {
     WitU32 LibraryShutdown;
     WitUserLibraryReader LibraryReaders[WIT_LIBRARY_READER_CAPACITY];
     WitEventTable Events;
-    WitChannelTable Channels;
     /* Per device descriptor: the handles of this component to it, in the table or in flight (K3.1). */
     WitU32 DeviceReferences[WIT_DEVICE_CAPACITY];
     /* Per interrupt binding: the handles of this component to it (K3.2); the pins of the component; interrupts
@@ -227,6 +226,10 @@ typedef struct WitUserProcess {
     WitU64 ChannelSends, ChannelReceives, ChannelDrops; /* Messages queued, delivered and dropped with an endpoint. */
     WitU64 IdleHalts;
     WitU64 IdleTicks;
+    /* Processes (K5.2c): Holders counts the process handles that refer to this record in every table and in flight;
+     * Pooled marks a record of the kernel's pool of created processes; Retired marks a pooled record torn down
+     * while handles still refer to it (PROCESS_QUERY reads its state and exit code until the last one goes). */
+    WitU32 Holders, Pooled, Retired, Reserved3;
     /* The state every module shares (P6.4.j3a): the environment's records and their final terminator, and the
      * current directory, canonical UTF-8 from '/'. */
     WitU32 EnvironmentVariables, EnvironmentUnits;
@@ -283,7 +286,7 @@ WitU64 wit_user_wait_objects(WitUserProcess *, const WitU64 *, WitU32, int, WitU
 WitU64 wit_user_reference_target(WitUserProcess *, WitU64, WitU32, WitUserThread **);
 WitU64 wit_user_reference_signaled(WitUserProcess *, WitU64, int *);
 void wit_user_references_initialize(WitUserProcess *);
-void wit_user_references_exit(WitUserProcess *, WitU64, WitU64);
+void wit_user_references_exit(WitU64, WitU64);
 /* The record behind a thread handle, after the handle check for the rights. */
 WitU64 wit_user_reference_describe(WitUserProcess *, WitU64, WitU32, const WitUserThreadReference **);
 /* HANDLE_DUPLICATE of a thread handle, WIT_THREAD_SELF, an event handle or a channel endpoint. */
@@ -302,10 +305,38 @@ WitU64 wit_user_channel_close(WitUserProcess *, WitU64);
 WitU64 wit_user_channel_duplicate(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_channel_signaled(WitUserProcess *, WitU64, int *);
 int wit_user_channel_handle(WitUserProcess *, WitU64);
-/* A thread exited: the thread handles in flight in messages learn the exit as the records in the table do. */
-void wit_user_channels_thread_exited(WitUserProcess *, WitU64, WitU64);
-/* The component ends: its messages' capabilities return to their objects and its endpoints close (K5.2b). */
+/* A thread exited: the thread handles in flight in messages learn the exit as the records in the tables do. */
+void wit_user_channels_thread_exited(WitU64, WitU64);
+/* The component ends: its capabilities in flight are voided, its endpoint handles released, garbage ends collected. */
 void wit_user_channels_drop(WitUserProcess *);
+
+/* The registry of components (K5.2c): by index (zero beyond the registry or for an empty entry), by Id, and the
+ * re-evaluation of every component's parked waits after a kernel object changed. */
+WitUserProcess *wit_user_process_at(WitU32 index);
+WitUserProcess *wit_user_process_by_id(WitU32 id);
+void wit_user_wait_objects_changed_all(void);
+
+/* Processes (RFC 0011 section 7.8, K5.2c). In user.c: an empty process on a record of the pool, in a free registry
+ * slot, with the full profile's quotas bounded by the page quota asked and the creator's tick budget; the end of a
+ * process other than the running one (killed, or orphaned by the root's end): its references released, its address
+ * space torn down, its handles' waiters woken, its record freed with its last handle. In user_process.c: the pool,
+ * the three calls, the handle's close, duplication and the reference a dropped message held, whether a handle is a
+ * process's, readiness for OBJECT_WAIT (the process ended), the process a handle or WIT_PROCESS_SELF names with the
+ * rights (CLOSED once it ended), the release of a component's process handles at its end, and the live records. */
+int wit_user_create_empty(WitUserProcess *, WitPageAllocator *, WitU32, WitU64);
+void wit_user_end(WitUserProcess *, WitUserState, WitU64);
+WitU64 wit_user_process_create(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
+WitU64 wit_user_process_kill(WitUserProcess *, WitU64, WitU64, WitU64);
+WitU64 wit_user_process_query(WitUserProcess *, WitU64, WitU64, WitU64);
+WitU64 wit_user_process_close(WitUserProcess *, WitU64);
+WitU64 wit_user_process_duplicate(WitUserProcess *, WitU64, WitU64, WitU64);
+void wit_user_process_release(WitU64);
+int wit_user_process_handle(WitUserProcess *, WitU64);
+WitU64 wit_user_process_signaled(WitUserProcess *, WitU64, int *);
+WitU64 wit_user_process_target(WitUserProcess *, WitU64, WitU32, WitUserProcess **);
+void wit_user_process_handles_release(WitUserProcess *);
+void wit_user_process_retired(WitUserProcess *);
+WitU32 wit_user_processes_pooled(void);
 
 /* Memory objects (RFC 0011 section 7.2): creation, mapping, the release of a mapping or a plain reservation, the
  * object's close, duplication, the reference a dropped message or a pin held, whether a handle is an object's, and
@@ -351,7 +382,7 @@ void wit_user_event_signal_object(WitUserProcess *, WitU64);
  * the pin handle's lifecycle; the component's reset of both. */
 WitU64 wit_user_interrupt_bind(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
 WitU64 wit_user_interrupt_ack(WitUserProcess *, WitU64, WitU64, WitU64);
-void wit_user_interrupt_raised(WitUserProcess *, WitU32);
+void wit_user_interrupt_raised(WitU32);
 WitU64 wit_user_interrupt_close(WitUserProcess *, WitU64);
 WitU64 wit_user_interrupt_duplicate(WitUserProcess *, WitU64, WitU64, WitU64);
 void wit_user_interrupt_release(WitUserProcess *, WitU64);

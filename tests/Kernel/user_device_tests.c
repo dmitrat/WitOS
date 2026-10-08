@@ -76,7 +76,7 @@ void wit_user_device_self_test(WitPageAllocator *pages)
          * component owns the pages it owned before: the table's and the device's pages were never its own. */
         require(process.Handles.Count == 0 &&
                 wit_memory_objects_live() == 0 &&
-                process.Channels.Count == 0 &&
+                wit_channels_live() == 0 &&
                 process.Space.AliasCount == 0 &&
                 process.Space.OwnedCount == owned,
             "Device scenario left objects, mappings or pages behind");

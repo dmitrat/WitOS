@@ -46,12 +46,13 @@ void wit_user_channel_self_test(WitPageAllocator *pages)
             wit_console_write("\n");
             wit_panic("User channel test failed");
         }
-        require(process.Handles.Count == 0 && process.Events.Count == 0 && process.Channels.Count == 0,
+        require(process.Handles.Count == 0 &&
+                process.Events.Count == 0 &&
+                wit_channels_live() == 0 &&
+                wit_channels_charged(&process) == 0,
             "Channel scenario left objects behind");
-        for (WitU32 i = 0; i < WIT_CHANNEL_CAPACITY; ++i) {
-            require(!process.Channels.Entries[i].Live &&
-                    !process.Channels.Entries[i].Ends[0].Live &&
-                    !process.Channels.Entries[i].Ends[1].Live,
+        for (WitU32 i = 0; i < WIT_CHANNEL_TABLE_CAPACITY; ++i) {
+            require(!wit_channel_at(i)->Live && !wit_channel_at(i)->Ends[0].Live && !wit_channel_at(i)->Ends[1].Live,
                 "Channel slot survived its last handle");
         }
         if (mode == WIT_CHANNEL_TEST_BASIC) {

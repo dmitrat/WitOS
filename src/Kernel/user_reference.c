@@ -26,8 +26,13 @@ static WitUserThreadReference *lookup(WitUserProcess *p, WitU64 handle)
     return 0;
 }
 
+/* The thread an identity names, in the process whose table minted the identity (the high word of the token). */
 static WitUserThread *live_target(WitUserProcess *p, WitU64 identity)
 {
+    p = wit_user_process_by_id((WitU32)(identity >> 32));
+    if (!p) {
+        return 0;
+    }
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
         if (p->Threads[i].State != WitThreadEmpty &&
             p->Threads[i].State != WitThreadExited &&
@@ -69,6 +74,9 @@ WitU64 wit_user_reference_target(WitUserProcess *p, WitU64 handle, WitU32 rights
     if (r->Exited) {
         return WIT_STATUS_CLOSED;
     }
+    if ((WitU32)(r->ThreadId >> 32) != p->Id) {
+        return WIT_STATUS_UNSUPPORTED; /* A thread of another process is waited for and queried, not driven (K5.2c). */
+    }
     *target = live_target(p, r->ThreadId);
     if (!*target) {
         wit_panic("Live reference has no target");
@@ -88,17 +96,25 @@ WitU64 wit_user_reference_signaled(WitUserProcess *p, WitU64 handle, int *signal
     return WIT_STATUS_OK;
 }
 
-void wit_user_references_exit(WitUserProcess *p, WitU64 identity, WitU64 code)
+/* A thread exited: the records that observe it in every component's table and in flight learn the exit, and the
+ * waits on them complete (K5.2c: a thread handle may be held by another process than the thread's). */
+void wit_user_references_exit(WitU64 identity, WitU64 code)
 {
-    for (WitU32 i = 0; i < p->Handles.Limit; ++i) {
-        WitUserThreadReference *r = &p->ThreadReferences[i];
-        if (r->Handle && r->ThreadId == identity) {
-            r->ExitCode = code;
-            r->Exited = 1;
+    for (WitU32 n = 0; n < WIT_PROCESS_CAPACITY; ++n) {
+        WitUserProcess *p = wit_user_process_at(n);
+        if (!p) {
+            continue;
+        }
+        for (WitU32 i = 0; i < p->Handles.Limit; ++i) {
+            WitUserThreadReference *r = &p->ThreadReferences[i];
+            if (r->Handle && r->ThreadId == identity) {
+                r->ExitCode = code;
+                r->Exited = 1;
+            }
         }
     }
-    wit_user_channels_thread_exited(p, identity, code);
-    wit_user_wait_objects_changed(p);
+    wit_user_channels_thread_exited(identity, code);
+    wit_user_wait_objects_changed_all();
 }
 
 /* THREAD_QUERY: one snapshot of the thread a handle or WIT_THREAD_SELF names. The caller's Version and Size select
@@ -277,6 +293,9 @@ WitU64 wit_user_handle_duplicate(WitUserProcess *p, WitU64 source, WitU64 output
     }
     if (wit_user_pin_handle(p, source)) {
         return wit_user_pin_duplicate(p, source, output, requested);
+    }
+    if (wit_user_process_handle(p, source)) {
+        return wit_user_process_duplicate(p, source, output, requested);
     }
     return duplicate_event(p, source, output, requested);
 }

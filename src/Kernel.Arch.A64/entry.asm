@@ -32,6 +32,7 @@ host_stack DCQ 0 ; SP of wit_a64_run_user while a component runs
     EXPORT wit_a64_debug_control
     EXPORT wit_a64_set_thread_pointer
     EXPORT wit_a64_thread_pointer
+    EXPORT wit_a64_switch_translation
     EXPORT wit_a64_run_user
     EXPORT wit_a64_leave_user
     EXPORT wit_arch_idle_once
@@ -118,6 +119,18 @@ wit_a64_install_tables PROC
 
 wit_a64_translation_base PROC
     mrs x0, ttbr0_el1
+    ret
+    ENDP
+
+; x0 = TTBR0 of another process within a run (K5.2c): the table stores reach the walker, the base changes, and every
+; translation of the previous space goes; the kernel is identity-mapped in both tables.
+wit_a64_switch_translation PROC
+    dsb ishst
+    msr ttbr0_el1, x0
+    isb
+    tlbi vmalle1
+    dsb ish
+    isb
     ret
     ENDP
 

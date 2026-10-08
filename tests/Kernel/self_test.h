@@ -14,6 +14,9 @@ void wit_arch_scheduler_self_test(void);
 WitU64 wit_user_isolation_begin_self_test(WitPageAllocator *pages);
 void wit_user_isolation_end_self_test(WitPageAllocator *pages, WitU64 before);
 
+/* Processes (K5.2c): a component creates, places, starts, waits for, queries and kills created processes. */
+void wit_user_process_self_test(WitPageAllocator *pages);
+
 /* Whether a component ended in a contained fault; a fault a test accepts this way counts toward the summary. */
 struct WitUserProcess;
 int wit_test_faulted(const struct WitUserProcess *process);

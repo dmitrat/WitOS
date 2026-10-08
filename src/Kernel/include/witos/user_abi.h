@@ -25,14 +25,14 @@
  * arguments, RAX=status and RDX=result, other GPRs and x87/SSE state preserved, RFLAGS reset to 0x202; on ARM64
  * SVC #0 with x8=call, x0-x2 arguments, x0=status and x1=result. A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
-#define WIT_ABI_VERSION 60U
+#define WIT_ABI_VERSION 61U
 /* QUERY result: the low 32 bits are WIT_ABI_VERSION, the high 32 bits the mask of the families present. */
 #define WIT_ABI_FEATURE_CHANNELS 1U
 #define WIT_ABI_FEATURE_DEVICES 2U
 #define WIT_ABI_FEATURE_PROCESSES 4U
 #define WIT_ABI_FEATURE_UTC 8U
 #define WIT_ABI_FEATURE_SMP 16U
-#define WIT_ABI_FEATURES (WIT_ABI_FEATURE_CHANNELS | WIT_ABI_FEATURE_DEVICES)
+#define WIT_ABI_FEATURES (WIT_ABI_FEATURE_CHANNELS | WIT_ABI_FEATURE_DEVICES | WIT_ABI_FEATURE_PROCESSES)
 #define WIT_ABI_STARTUP_SIZE 24U
 /* Existing single-module compiler TLS page layout of the frozen line; not a Windows TEB. */
 #define WIT_COMPILER_TLS_DATA_OFFSET 256U
@@ -75,17 +75,19 @@
 /* Map(WitMemoryMapRequest, 56, 0) -> address: a window of the object as a reservation at the requested or a chosen
  * address under NONE, READ, READ|WRITE (the WRITE right) or READ|EXECUTE (the EXECUTE right); the mapping shares the
  * object's pages, follows MEMORY_PROTECT within the handle's rights, refuses commit, decommit and reset, and ends
- * with MEMORY_RELEASE; the object ends with its last handle or mapping. The target is WIT_PROCESS_SELF until K5.2. */
+ * with MEMORY_RELEASE; the object ends with its last handle or mapping. The target is WIT_PROCESS_SELF or a process
+ * handle with MANAGE (K5.2c): the mapping is then the target's reservation, at an address of the target's arenas. */
 #define WIT_CALL_MEMORY_OBJECT_MAP 19U
 /* Publish(base, size, 0): makes code written through a writable mapping visible to instruction fetch through the
  * executable mapping of the same pages; every page of the range must be mapped READ|EXECUTE. */
 #define WIT_CALL_CODE_PUBLISH 20U
 
 /* Threads and contexts (RFC 0011 section 7.3). */
-/* Create(WitThreadCreateRequest, 48, 0) -> thread handle with every thread right. Version 2 is the one form (RFC
- * 0011 section 7.3): the caller's stack pointer and TLS base, nothing mapped by the kernel. Version 1 keeps the
- * kernel's stack and TLS for the frozen line until K8. The handle observes the thread's lifetime (OBJECT_WAIT,
- * THREAD_QUERY); closing it detaches. */
+/* Create(WitThreadCreateRequest, 48 or 56, 0) -> thread handle with every thread right. Version 2 is the one form
+ * (RFC 0011 section 7.3): the caller's stack pointer and TLS base, nothing mapped by the kernel; version 3 (56
+ * bytes) is the same form naming the process the thread starts in, WIT_PROCESS_SELF or a process handle with MANAGE
+ * (K5.2c), whose reservations hold the stack. Version 1 keeps the kernel's stack and TLS for the frozen line until
+ * K8. The handle observes the thread's lifetime (OBJECT_WAIT, THREAD_QUERY); closing it detaches. */
 #define WIT_CALL_THREAD_CREATE 30U
 /* Exit(code, reservation or 0, 0): the current thread ends; does not return. A nonzero second argument names a
  * reservation of the caller (its stack) that the kernel releases once the thread no longer runs; it is checked
@@ -182,7 +184,20 @@
 #define WIT_CALL_DMA_PIN 84U
 /* Unpin(pin handle, 0, 0) -> 0: closes the handle; the pin ends with its last handle. */
 #define WIT_CALL_DMA_UNPIN 85U
-/* 80-85 devices (K3), 90-92 processes (K5). */
+/* 80-85 devices (K3). */
+
+/* Processes (RFC 0011 section 7.8, plan step K5.2c). Create(WitProcessCreateRequest, 32, output pointer) -> process
+ * handle with WAIT, QUERY, KILL, MANAGE, DUPLICATE and TRANSFER: a new process is an empty address space with one
+ * capability, the channel endpoint the request names (a handle with TRANSFER, moved into the child), whose
+ * child-local handle value is written to the 8-byte output; the creator maps the image and the first stack into it
+ * with MEMORY_OBJECT_MAP and starts the first thread with THREAD_CREATE version 3 (witos/process.h). */
+#define WIT_CALL_PROCESS_CREATE 90U
+/* Kill(process handle with KILL, code, 0) -> 0: every thread of the process ends and the process exits with the code;
+ * WIT_PROCESS_SELF ends the caller like PROCESS_EXIT and does not return. */
+#define WIT_CALL_PROCESS_KILL 91U
+/* Query(process handle with QUERY, WitProcessInfo, 40) -> 40: the state, the exit code, the pages charged and the
+ * live threads; the handle's waiters (OBJECT_WAIT) are ready once the process ended. */
+#define WIT_CALL_PROCESS_QUERY 92U
 
 /* Processors (RFC 0011 section 7.9). Query(buffer, exact 4 bytes, 0): the current processor as
  * {group:u16, number:u8, reserved:u8}; topology arrives with plan step K7. */
@@ -228,9 +243,10 @@
 /* Rights (RFC 0011 section 6.1): a bit is never reused, and 2 (the join right of the retired join capability) is
  * retired. WAIT and SIGNAL belong to events and the kernel log; QUERY, GET_CONTEXT, SET_CONTEXT, SUSPEND_RESUME and
  * ACTIVATE to threads; SEND and RECEIVE to channel endpoints; MAP, WRITE and EXECUTE to memory objects (a mapping
- * with that access); ACQUIRE to the device table, BIND to devices and ACK to interrupt bindings; DUPLICATE
- * (HANDLE_DUPLICATE of an endpoint, an object, a device, a binding or a pin) and TRANSFER (moving the handle in a
- * message) to every kind a message can carry. */
+ * with that access); ACQUIRE to the device table, BIND to devices and ACK to interrupt bindings; KILL (PROCESS_KILL)
+ * and MANAGE (MEMORY_OBJECT_MAP into the process, THREAD_CREATE in it) to processes; DUPLICATE (HANDLE_DUPLICATE of
+ * an endpoint, an object, a device, a binding, a pin or a process) and TRANSFER (moving the handle in a message) to
+ * every kind a message can carry. */
 #define WIT_RIGHT_WRITE 1U
 #define WIT_RIGHT_WAIT 4U
 #define WIT_RIGHT_SIGNAL 8U
@@ -248,6 +264,8 @@
 #define WIT_RIGHT_ACQUIRE 32768U /* of the device table: DEVICE_ACQUIRE */
 #define WIT_RIGHT_BIND 65536U /* of a device: DEVICE_MEMORY, INTERRUPT_BIND and DMA_PIN */
 #define WIT_RIGHT_ACK 131072U /* of an interrupt binding: INTERRUPT_ACK */
+#define WIT_RIGHT_KILL 262144U /* of a process: PROCESS_KILL (K5.2c) */
+#define WIT_RIGHT_MANAGE 524288U /* of a process: MEMORY_OBJECT_MAP into it and THREAD_CREATE in it (K5.2c) */
 #define WIT_RIGHT_THREAD_ALL 6644U
 #define WIT_EVENT_ACCESS_WAIT WIT_RIGHT_WAIT
 #define WIT_EVENT_ACCESS_SIGNAL WIT_RIGHT_SIGNAL
@@ -295,7 +313,7 @@
 #define WIT_MEMORY_READ 1U
 #define WIT_MEMORY_WRITE 2U
 #define WIT_MEMORY_EXECUTE 4U /* With READ alone, for a mapping of a memory object; never with WRITE. */
-/* The own process as the target of a mapping; other targets (a process handle) arrive with K5.2. */
+/* The own process as the target of a mapping or a thread, where a process handle with MANAGE names another (K5.2c). */
 #define WIT_PROCESS_SELF (~2ULL)
 
 typedef struct WitUserStartup {

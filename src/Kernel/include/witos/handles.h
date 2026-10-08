@@ -19,6 +19,8 @@
 #define WIT_HANDLE_DEVICE 12U
 #define WIT_HANDLE_INTERRUPT 13U
 #define WIT_HANDLE_PIN 14U
+#define WIT_HANDLE_PROCESS \
+    15U /* a process (K5.2c); Object is its Id in the high word and registry slot plus one in the low */
 /* The rights are the ABI's (user_abi.h); READ of a lifecycle handle is the QUERY bit. */
 #define WIT_RIGHT_READ WIT_RIGHT_QUERY
 

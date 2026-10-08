@@ -36,15 +36,15 @@ typedef struct WitArchFrame {
  * translation tables. */
 #define WIT_A64_KERNEL_STACK_SIZE (64U * 1024U)
 #define WIT_A64_STACK_REGION_SIZE (WIT_A64_KERNEL_STACK_SIZE + 8192U)
-#define WIT_A64_STACK_GUARD_COUNT (6U + 4U * WIT_USER_THREAD_CAPACITY)
+#define WIT_A64_STACK_GUARD_COUNT (6U + 2U * WIT_PROCESS_CAPACITY * WIT_USER_THREAD_CAPACITY)
 extern WitU8 wit_a64_kernel_stack[WIT_A64_STACK_REGION_SIZE];
 
 /* Stacks of the two kernel workers of the preemption self-test. */
 extern WitU8 wit_a64_worker_stacks[2][WIT_A64_STACK_REGION_SIZE];
 
-/* Kernel stack of each user thread of the two component slots; a thread's frame sits at the top of its stack
+/* Kernel stack of each user thread of every registry slot (K5.2c); a thread's frame sits at the top of its stack
  * whenever it runs at EL0, so that SP_EL1 receives its next exception there. */
-extern WitU8 wit_a64_user_kernel_stacks[2][WIT_USER_THREAD_CAPACITY][WIT_A64_STACK_REGION_SIZE];
+extern WitU8 wit_a64_user_kernel_stacks[WIT_PROCESS_CAPACITY][WIT_USER_THREAD_CAPACITY][WIT_A64_STACK_REGION_SIZE];
 void wit_a64_stack_guards(WitU64 guards[WIT_A64_STACK_GUARD_COUNT]);
 
 /* Boot storage window in the TTBR1 half, at the same address as the x64 storage slot. */
@@ -98,6 +98,10 @@ void wit_a64_install_tables(WitU64 ttbr0, WitU64 ttbr1, WitU64 tcr, WitU64 mair)
 /* Current TTBR0_EL1. */
 WitU64 wit_a64_translation_base(void);
 
+/* Another TTBR0_EL1 within a run, with every translation of the previous one invalidated; the kernel is identity
+ * mapped in both (K5.2c). */
+void wit_a64_switch_translation(WitU64 ttbr0);
+
 /* Invalidates the translation of one page for every address space after a descriptor changed. */
 void wit_a64_invalidate_page(WitU64 virtual_address);
 
@@ -143,5 +147,7 @@ WitA64Frame *wit_a64_user_trap(WitA64Frame *frame);
 /* Final check before a frame is resumed: an EL0 frame must sit at the top of the selected kernel stack and
  * receives the compiler TLS register x18. */
 WitA64Frame *wit_a64_prepare_resume(WitA64Frame *frame);
+/* Restores a prepared frame on its own kernel stack and returns to its mode (vectors.asm); never returns (K5.2c). */
+WIT_NORETURN void wit_a64_resume_frame(WitA64Frame *frame);
 
 #endif

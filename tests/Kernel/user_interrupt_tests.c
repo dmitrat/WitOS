@@ -73,7 +73,7 @@ void wit_user_interrupt_self_test(WitPageAllocator *pages)
         require(process.Handles.Count == 0 &&
                 wit_memory_objects_live() == 0 &&
                 process.Events.Count == 0 &&
-                process.Channels.Count == 0 &&
+                wit_channels_live() == 0 &&
                 process.Space.AliasCount == 0 &&
                 process.Space.OwnedCount == owned,
             "Interrupt scenario left objects, mappings or pages behind");

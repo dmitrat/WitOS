@@ -59,6 +59,10 @@ void wit_arch_map_device_page(const struct WitBootInfo *boot, WitU64 physical);
 /* Switching between kernel and user mode. */
 void wit_arch_run_user(WitArchFrame *frame, WitU64 root);
 WIT_NORETURN void wit_arch_leave_user(void);
+/* Within a run: the address space of another process (or the kernel's root) becomes current, with the translations
+ * of the previous one gone; and a dispatched frame on its own kernel stack resumes without returning (K5.2c). */
+void wit_arch_space_switch(WitU64 root);
+WIT_NORETURN void wit_arch_resume_frame(WitArchFrame *frame);
 void wit_arch_select_thread_stack(WitU32 slot, WitU32 thread);
 void wit_arch_select_boot_stack(void);
 void wit_arch_set_user_tls(WitU64 address, WitU64 compiler_address);

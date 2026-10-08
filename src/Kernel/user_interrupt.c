@@ -147,13 +147,15 @@ WitU64 wit_user_interrupt_ack(WitUserProcess *p, WitU64 handle, WitU64 reserved0
 
 /* A line was raised (the architecture masked and completed it): the bound event of the running component is set.
  * An unbound line, or one bound by another component, stays masked. */
-void wit_user_interrupt_raised(WitUserProcess *p, WitU32 line)
+void wit_user_interrupt_raised(WitU32 line)
 {
     for (WitU32 i = 0; i < WIT_INTERRUPT_CAPACITY; ++i) {
         if (bindings[i].Live && bindings[i].Line == line) {
-            if (p && bindings[i].Owner == wit_user_owner_token(p)) {
-                wit_user_event_signal_object(p, bindings[i].Event);
-                ++p->InterruptsDelivered;
+            /* The binding's owner, whatever process runs (K5.2c): the token's high word is its Id. */
+            WitUserProcess *owner = wit_user_process_by_id((WitU32)(bindings[i].Owner >> 32));
+            if (owner && bindings[i].Owner == wit_user_owner_token(owner)) {
+                wit_user_event_signal_object(owner, bindings[i].Event);
+                ++owner->InterruptsDelivered;
             }
             return;
         }

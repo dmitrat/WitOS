@@ -292,7 +292,7 @@ static bool creation_bad_requests()
         !creation_reject((WitU64)&request, sizeof(request) - 1, 0, WIT_STATUS_INVALID_ARGUMENT, id)) {
         return false;
     }
-    request.Version = 3; // Version 2 is the one thread form since K5.2a; 3 is foreign.
+    request.Version = 4; // Versions 2 and 3 are the one thread form since K5.2a and K5.2c; 4 is foreign.
     if (!creation_reject((WitU64)&request, sizeof(request), 0, WIT_STATUS_UNSUPPORTED, id)) {
         return false;
     }

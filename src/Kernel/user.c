@@ -3,11 +3,13 @@
 #include "witos/package.h"
 #include "witos/platform.h"
 #include "witos/storage.h"
+#include "witos/virtual.h"
 
 #define NO_THREAD WIT_USER_THREAD_CAPACITY
 
 static WitUserProcess *current_user;
-static WitUserProcess *slot_owners[2];
+static WitUserProcess *slot_owners[WIT_PROCESS_CAPACITY]; /* the registry: the component of each slot (K5.2c) */
+static WitUserProcess *root_user; /* the component wit_user_run launched; its end ends the run */
 static WitU32 next_id = 1;
 static volatile WitU32 user_idle;
 static WitU64 contained_faults;
@@ -64,56 +66,144 @@ static void report_budget(WitUserState state)
 }
 #endif
 
+/* The component's references end (K5.2b): what its channels carried first, so that the capabilities in flight
+ * return to their objects before the records that count them are reset; then its bindings, pins, devices, memory
+ * objects and processes; then the table. Its mappings keep their objects until the teardown. */
+static void release_references(WitUserProcess *p)
+{
+    wit_user_channels_drop(p);
+    wit_user_interrupts_reset(p);
+    wit_user_pins_reset(p);
+    wit_user_devices_reset(p);
+    wit_user_memory_objects_release_handles(p);
+    wit_user_process_handles_release(p);
+    wit_handles_close_all(&p->Handles);
+    wit_files_initialize(&p->Files);
+    wit_user_library_initialize(p);
+    wit_user_references_initialize(p);
+    wit_user_stack_leases_initialize(p);
+    wit_user_exception_initialize(p);
+    wit_events_initialize(&p->Events);
+}
+
+/* A component ended: its state and exit code are recorded, every thread is over and its references are released. */
+static void settle(WitUserProcess *p, WitUserState state, WitU64 code)
+{
+    if (p->FatalArmed) {
+        state = WitUserExited;
+        code = p->Fatal.Code;
+    }
+    p->FatalArmed = 0;
+    p->FatalOwner = 0;
+    p->State = state;
+    p->ExitCode = code;
+    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+        if (p->Threads[i].State != WitThreadEmpty && p->Threads[i].State != WitThreadExited) {
+            /* The handles that observe a thread the end cuts short learn its exit with the component's code. */
+            p->Threads[i].State = WitThreadExited;
+            wit_user_references_exit(p->Threads[i].Handle, code);
+        }
+        p->Threads[i].SuspendCount = 0;
+        wit_user_thread_name_clear(&p->Threads[i]);
+        p->Threads[i].WaitKind = WitWaitNone;
+        p->Threads[i].WaitHandle = 0;
+        p->Threads[i].WaitCount = 0;
+        p->Threads[i].WaitAll = 0;
+        wit_user_activations_clear(&p->Threads[i]);
+        for (WitU32 w = 0; w < WIT_WAIT_ANY_CAPACITY; ++w) {
+            p->Threads[i].WaitHandles[w] = 0;
+        }
+        p->Threads[i].Deadline = WIT_WAIT_INFINITE;
+    }
+    release_references(p);
+}
+
+/* The rest of a component's record goes: the mappings' references and the charges of what it created, the address
+ * space (inactive by now), the threads and the image fields. The registry slot is the caller's to free. */
+static void teardown(WitUserProcess *process)
+{
+    wit_user_memory_objects_release_mappings(process);
+    wit_memory_objects_orphan(process);
+    wit_channels_orphan(process);
+    wit_user_process_state_reset(process);
+    wit_user_space_destroy(&process->Space);
+    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+        process->Threads[i].State = WitThreadEmpty;
+        process->Threads[i].SuspendCount = 0;
+        wit_user_thread_name_clear(&process->Threads[i]);
+    }
+    process->ImageBase = 0;
+    process->ImageEntry = 0;
+    process->ImageSize = 0;
+    process->ImageNameBytes = 0;
+    process->ImageNameOffset = 0;
+    process->TlsBytes = 0;
+}
+
+static void unregister(WitUserProcess *process)
+{
+    if (process->Slot < WIT_PROCESS_CAPACITY && slot_owners[process->Slot] == process) {
+        slot_owners[process->Slot] = 0;
+    }
+}
+
+/* A created process ended (K5.2c): torn down at once, off the registry, the waiters of its handles woken; the record
+ * stays for PROCESS_QUERY while handles refer to it, and user_process.c frees it with the last one. The ending
+ * process may be the running one, on whose kernel stack this runs: its address space leaves first. */
+static void retire(WitUserProcess *process)
+{
+    require(process->Pooled && process->State != WitUserRunning, "Retiring a live or unpooled process");
+    if (wit_arch_space_active(process->Space.Root)) {
+        wit_arch_space_switch(wit_virtual_kernel_root());
+    }
+    teardown(process);
+    unregister(process);
+    process->Retired = 1;
+    wit_user_wait_objects_changed_all();
+    wit_user_process_retired(process);
+}
+
+void wit_user_end(WitUserProcess *process, WitUserState state, WitU64 code)
+{
+    require(process != current_user && process->Pooled && process->State == WitUserRunning,
+        "Ending a process that is not another live created process");
+    settle(process, state, code);
+    retire(process);
+}
+
+/* The root's end ends every created process still alive; nothing of the pool survives the run. */
+static void end_children(void)
+{
+    for (WitU32 i = 0; i < WIT_PROCESS_CAPACITY; ++i) {
+        WitUserProcess *q = slot_owners[i];
+        if (q && q != root_user && q->Pooled && q->State == WitUserRunning) {
+            wit_user_end(q, WitUserExited, 0);
+        }
+    }
+    require(wit_user_processes_pooled() == 0, "A created process survived the root's end");
+}
+
+static WitArchFrame *dispatch(int timer, WitU64 last_exit);
+
 WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code)
 {
     require(current_user != 0 && current_user->State == WitUserRunning, "No current user component");
-    wit_platform_timer_stop();
 #if defined(WITOS_TEST_RUNTIME_BOOT)
     report_budget(state);
 #endif
-    if (current_user->FatalArmed) {
-        state = WitUserExited;
-        code = current_user->Fatal.Code;
+    WitUserProcess *p = current_user;
+    settle(p, state, code);
+    if (p != root_user) {
+        /* A created process ended: the run goes on with the others, and the resume abandons this kernel stack. */
+        retire(p);
+        wit_arch_resume_frame(dispatch(0, code));
     }
-    current_user->FatalArmed = 0;
-    current_user->FatalOwner = 0;
-    current_user->State = state;
-    current_user->ExitCode = code;
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
-        if (current_user->Threads[i].State != WitThreadEmpty) {
-            current_user->Threads[i].State = WitThreadExited;
-        }
-        current_user->Threads[i].SuspendCount = 0;
-        wit_user_thread_name_clear(&current_user->Threads[i]);
-        current_user->Threads[i].WaitKind = WitWaitNone;
-        current_user->Threads[i].WaitHandle = 0;
-        current_user->Threads[i].WaitCount = 0;
-        current_user->Threads[i].WaitAll = 0;
-        wit_user_activations_clear(&current_user->Threads[i]);
-        for (WitU32 w = 0; w < WIT_WAIT_ANY_CAPACITY; ++w) {
-            current_user->Threads[i].WaitHandles[w] = 0;
-        }
-        current_user->Threads[i].Deadline = WIT_WAIT_INFINITE;
-    }
-    /* The component's references end (K5.2b): what its channels carried first, so that the capabilities in flight
-     * return to their objects before the records that count them are reset; then its pins, its devices and its
-     * handles. Its mappings keep their objects until the teardown. */
-    wit_user_channels_drop(current_user);
-    wit_user_interrupts_reset(current_user);
-    wit_user_pins_reset(current_user);
-    wit_user_devices_reset(current_user);
-    wit_user_memory_objects_release_handles(current_user);
-    wit_handles_close_all(&current_user->Handles);
-    wit_channels_initialize(&current_user->Channels);
-    wit_files_initialize(&current_user->Files);
-    wit_user_library_initialize(current_user);
-    wit_user_references_initialize(current_user);
-    wit_user_stack_leases_initialize(current_user);
-    wit_user_exception_initialize(current_user);
-    wit_events_initialize(&current_user->Events);
+    wit_platform_timer_stop();
+    end_children();
     user_idle = 0;
     wit_arch_reset_user_tls();
     current_user = 0;
+    root_user = 0;
     wit_arch_leave_user();
 }
 
@@ -178,10 +268,17 @@ static void reap(WitU32 index)
     ++current_user->ThreadReaps;
 }
 
+/* Every live component's deadlines and pressure; the one clock read serves them all. */
 static void expire_waits(void)
 {
-    wit_user_wait_expire(current_user, wit_platform_monotonic_read());
-    wit_user_pressure_update(current_user);
+    const WitU64 now = wit_platform_monotonic_read();
+    for (WitU32 i = 0; i < WIT_PROCESS_CAPACITY; ++i) {
+        WitUserProcess *q = slot_owners[i];
+        if (q && q->State == WitUserRunning) {
+            wit_user_wait_expire(q, now);
+            wit_user_pressure_update(q);
+        }
+    }
 }
 
 /* The running thread's frame is about to return to user mode (RFC 0011 section 7.5: from a call, a tick or a wait): a
@@ -197,37 +294,51 @@ static WitArchFrame *resume_current(WitArchFrame *frame)
     return frame;
 }
 
+/* The next thread to run, round-robin over the live components from the current one and over each component's
+ * threads from the one that ran last (K5.2c). Another component's thread means its address space, its kernel stack
+ * and its TLS; a component with no ready thread but a waiting or suspended one keeps the processor idle until a tick
+ * or a device line changes something. The component whose last thread exited ended in wit_user_exit_thread. */
 static WitArchFrame *dispatch(int timer, WitU64 last_exit)
 {
-    const WitU32 previous = current_user->CurrentThread;
+    (void)last_exit;
     for (;;) {
         int waiting = 0;
         expire_waits();
-        for (WitU32 offset = 1; offset <= WIT_USER_THREAD_CAPACITY; ++offset) {
-            const WitU32 index = (previous + offset) % WIT_USER_THREAD_CAPACITY;
-            WitUserThread *thread = &current_user->Threads[index];
-            if (thread->State == WitThreadWaiting || thread->SuspendCount) {
-                waiting = 1;
-            }
-            if (thread->State != WitThreadReady || thread->SuspendCount) {
+        const WitU32 first = current_user ? current_user->Slot : 0;
+        for (WitU32 n = 0; n < WIT_PROCESS_CAPACITY; ++n) {
+            WitUserProcess *q = slot_owners[(first + n) % WIT_PROCESS_CAPACITY];
+            if (!q || q->State != WitUserRunning) {
                 continue;
             }
-            validate_return(thread->Context, index, 0);
-            if (index != previous) {
-                ++current_user->ThreadSwitches;
-                if (timer) {
-                    ++current_user->ThreadTimerSwitches;
+            const WitU32 previous = q->CurrentThread;
+            for (WitU32 offset = 1; offset <= WIT_USER_THREAD_CAPACITY; ++offset) {
+                const WitU32 index = (previous + offset) % WIT_USER_THREAD_CAPACITY;
+                WitUserThread *thread = &q->Threads[index];
+                if (thread->State == WitThreadWaiting || thread->SuspendCount) {
+                    waiting = 1;
                 }
+                if (thread->State != WitThreadReady || thread->SuspendCount) {
+                    continue;
+                }
+                if (q != current_user) {
+                    wit_arch_space_switch(q->Space.Root);
+                    current_user = q;
+                }
+                validate_return(thread->Context, index, 0);
+                if (index != previous) {
+                    ++q->ThreadSwitches;
+                    if (timer) {
+                        ++q->ThreadTimerSwitches;
+                    }
+                }
+                q->CurrentThread = index;
+                thread->State = WitThreadRunning;
+                wit_arch_select_thread_stack(q->Slot, index);
+                wit_arch_set_user_tls(thread->Tls, thread->CompilerTls);
+                return resume_current(thread->Context);
             }
-            current_user->CurrentThread = index;
-            thread->State = WitThreadRunning;
-            wit_arch_select_thread_stack(current_user->Slot, index);
-            wit_arch_set_user_tls(thread->Tls, thread->CompilerTls);
-            return resume_current(thread->Context);
         }
-        if (!waiting) {
-            wit_user_finish(WitUserExited, last_exit);
-        }
+        require(waiting, "No thread of any component to run or to wait for");
         /* Remain on this kernel stack until an IRQ returns to the instruction
          * after HLT. The nested IRQ never replaces any saved user context. */
         require(!wit_arch_interrupts_enabled(), "Idle entered with interrupts enabled");
@@ -252,10 +363,16 @@ WitArchFrame *wit_user_exit_thread(WitU64 code, WitU64 reservation)
     thread->ExitCode = code;
     thread->WaitAll = 0;
     wit_user_activations_clear(thread);
-    /* The handles that observe the thread learn its exit (and wake their waiters) before its pages go. */
-    wit_user_references_exit(current_user, thread->Handle, code);
+    /* The handles that observe the thread, in every component, learn its exit (and wake their waiters) before its
+     * pages go; the last thread's exit ends the component with its code. */
+    wit_user_references_exit(thread->Handle, code);
     reap(index);
-    return dispatch(0, code);
+    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+        if (current_user->Threads[i].State != WitThreadEmpty) {
+            return dispatch(0, code);
+        }
+    }
+    wit_user_finish(WitUserExited, code);
 }
 
 WitU64 wit_user_close_handle(WitU64 handle)
@@ -293,6 +410,10 @@ WitU64 wit_user_close_handle(WitU64 handle)
     if (pin != WIT_STATUS_WRONG_TYPE) {
         return pin;
     }
+    const WitU64 process_status = wit_user_process_close(current_user, handle);
+    if (process_status != WIT_STATUS_WRONG_TYPE) {
+        return process_status;
+    }
     /* A thread's private identity is not a capability user space can release: it ends with the thread. */
     const WitU64 status = wit_handle_check(&current_user->Handles, handle, WIT_HANDLE_THREAD_IDENTITY, 0);
     if (status == WIT_STATUS_OK) {
@@ -305,15 +426,24 @@ WitU64 wit_user_close_handle(WitU64 handle)
     return event_status == WIT_STATUS_WRONG_TYPE ? wit_handle_close(&current_user->Handles, handle) : event_status;
 }
 
+static int registered(const WitUserProcess *process)
+{
+    for (WitU32 i = 0; i < WIT_PROCESS_CAPACITY; ++i) {
+        if (slot_owners[i] == process) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int can_create(const WitUserProcess *process, WitU32 slot)
 {
     return process &&
         !current_user &&
-        slot < 2 &&
+        slot < WIT_PROCESS_CAPACITY &&
         !slot_owners[slot] &&
         next_id &&
-        slot_owners[0] != process &&
-        slot_owners[1] != process &&
+        !registered(process) &&
         !wit_arch_interrupts_enabled();
 }
 
@@ -394,8 +524,8 @@ static void reset_process(WitUserProcess *process, WitU32 slot, WitU32 code_size
     wit_user_pins_reset(process);
     process->InterruptsDelivered = 0;
     wit_events_initialize(&process->Events);
-    wit_channels_initialize(&process->Channels);
-    require(wit_memory_objects_charged(process) == 0, "A fresh component inherits memory objects");
+    require(wit_memory_objects_charged(process) == 0 && wit_channels_charged(process) == 0,
+        "A fresh component inherits memory objects or channels");
     wit_user_devices_reset(process);
     for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
         process->Threads[i].State = WitThreadEmpty;
@@ -607,15 +737,49 @@ WitPeStatus wit_user_create_pe_profile(WitUserProcess *process, WitPageAllocator
     return create_process(process, allocator, slot, file, size, &image, base, resource, resource_length);
 }
 
+/* An empty process for PROCESS_CREATE (K5.2c): a record of the pool in a free registry slot, the full profile's
+ * quotas with the page quota asked and the creator's tick budget, no thread yet; it is part of the schedule from
+ * now on. Unlike the components the host creates, it is created while a component runs. */
+int wit_user_create_empty(WitUserProcess *process, WitPageAllocator *allocator, WitU32 pages, WitU64 ticks)
+{
+    WitU32 slot = 0;
+    while (slot < WIT_PROCESS_CAPACITY && slot_owners[slot]) {
+        ++slot;
+    }
+    if (slot == WIT_PROCESS_CAPACITY ||
+        !process ||
+        registered(process) ||
+        !next_id ||
+        !pages ||
+        wit_arch_interrupts_enabled()) {
+        return 0;
+    }
+    reset_process(process, slot, 0, 0, 0);
+    process->Handles.Limit = WIT_RUNTIME_HANDLE_CAPACITY;
+    process->Events.Limit = WIT_RUNTIME_EVENT_CAPACITY;
+    process->TickLimit = ticks;
+    slot_owners[slot] = process;
+    if (!wit_user_space_create_profile(&process->Space, allocator, 1) || !wit_user_capture_tls(process, 0)) {
+        wit_user_destroy(process);
+        return 0;
+    }
+    process->Space.PageLimit = pages;
+    process->State = WitUserRunning;
+    return 1;
+}
+
 void wit_user_run(WitUserProcess *process)
 {
     require(!current_user &&
+            !root_user &&
             !user_idle &&
             process->State == WitUserReady &&
             slot_owners[process->Slot] == process &&
             !wit_arch_interrupts_enabled() &&
             wit_arch_user_tls_is_reset(),
         "Invalid user launch");
+    require(wit_user_processes_pooled() == 0, "A created process survived the previous run");
+    root_user = process;
     current_user = process;
     process->State = WitUserRunning;
     process->Threads[0].State = WitThreadRunning;
@@ -625,6 +789,7 @@ void wit_user_run(WitUserProcess *process)
     wit_arch_set_user_tls(process->Threads[0].Tls, process->Threads[0].CompilerTls);
     wit_arch_run_user(process->Threads[0].Context, process->Space.Root);
     require(!current_user &&
+            !root_user &&
             process->State != WitUserRunning &&
             wit_arch_kernel_space_active() &&
             !wit_arch_interrupts_enabled() &&
@@ -637,39 +802,10 @@ void wit_user_destroy(WitUserProcess *process)
 {
     require(current_user != process && process->State != WitUserRunning, "Destroying running component");
     /* A component torn down without an exit still holds its references; the order is the exit's (K5.2b). */
-    wit_user_channels_drop(process);
-    wit_user_interrupts_reset(process);
-    wit_user_pins_reset(process);
-    wit_user_devices_reset(process);
-    wit_user_memory_objects_release_handles(process);
-    wit_handles_close_all(&process->Handles);
-    wit_files_initialize(&process->Files);
-    wit_user_library_initialize(process);
-    wit_user_references_initialize(process);
-    wit_user_stack_leases_initialize(process);
-    wit_user_exception_initialize(process);
-    wit_events_initialize(&process->Events);
-    wit_channels_initialize(&process->Channels);
-    /* The mappings' references and the charges of the objects the component created end with its address space. */
-    wit_user_memory_objects_release_mappings(process);
-    wit_memory_objects_orphan(process);
-    wit_user_process_state_reset(process);
-    wit_user_space_destroy(&process->Space);
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
-        process->Threads[i].State = WitThreadEmpty;
-        process->Threads[i].SuspendCount = 0;
-        wit_user_thread_name_clear(&process->Threads[i]);
-    }
-    if (process->Slot < 2 && slot_owners[process->Slot] == process) {
-        slot_owners[process->Slot] = 0;
-    }
+    release_references(process);
+    teardown(process);
+    unregister(process);
     process->State = WitUserEmpty;
-    process->ImageBase = 0;
-    process->ImageEntry = 0;
-    process->ImageSize = 0;
-    process->ImageNameBytes = 0;
-    process->ImageNameOffset = 0;
-    process->TlsBytes = 0;
 }
 
 int wit_user_is_active(void)
@@ -680,6 +816,31 @@ int wit_user_is_active(void)
 WitUserProcess *wit_user_current(void)
 {
     return current_user;
+}
+
+WitUserProcess *wit_user_process_at(WitU32 index)
+{
+    return index < sizeof(slot_owners) / sizeof(slot_owners[0]) ? slot_owners[index] : 0;
+}
+
+WitUserProcess *wit_user_process_by_id(WitU32 id)
+{
+    for (WitU32 i = 0; i < sizeof(slot_owners) / sizeof(slot_owners[0]); ++i) {
+        if (slot_owners[i] && slot_owners[i]->Id == id) {
+            return slot_owners[i];
+        }
+    }
+    return 0;
+}
+
+/* A kernel object changed (an endpoint's queue or peer): the parked waits of every component may be ready. */
+void wit_user_wait_objects_changed_all(void)
+{
+    for (WitU32 i = 0; i < sizeof(slot_owners) / sizeof(slot_owners[0]); ++i) {
+        if (slot_owners[i] && slot_owners[i]->State == WitUserRunning) {
+            wit_user_wait_objects_changed(slot_owners[i]);
+        }
+    }
 }
 
 WitU64 wit_user_contained_faults(void)
@@ -708,7 +869,8 @@ WitArchFrame *wit_user_timer_tick(WitArchFrame *context)
         thread->State = WitThreadReady;
     }
     expire_waits();
-    if (++current_user->Ticks >= current_user->TickLimit) {
+    /* The budget is the running component's; the idle path after a created process's end charges nobody. */
+    if (current_user->State == WitUserRunning && ++current_user->Ticks >= current_user->TickLimit) {
         wit_user_finish(WitUserBudgetExpired, 0);
     }
     if (user_idle) {
@@ -721,7 +883,7 @@ WitArchFrame *wit_user_timer_tick(WitArchFrame *context)
  * the ready threads are dispatched as after a tick; without a component the line stays masked. */
 WitArchFrame *wit_user_interrupt(WitArchFrame *context, WitU32 line)
 {
-    if (!current_user || current_user->State != WitUserRunning) {
+    if (!current_user) {
         return context;
     }
     if (user_idle) {
@@ -729,12 +891,13 @@ WitArchFrame *wit_user_interrupt(WitArchFrame *context, WitU32 line)
                 wit_arch_frame_is_idle(context, current_user->Slot, current_user->CurrentThread),
             "Device interrupt did not interrupt the kernel idle path");
     } else {
+        require(current_user->State == WitUserRunning, "Device interrupt outside a running component");
         WitUserThread *thread = &current_user->Threads[current_user->CurrentThread];
         validate_return(context, current_user->CurrentThread, 0);
         thread->Context = context;
         thread->State = WitThreadReady;
     }
-    wit_user_interrupt_raised(current_user, line);
+    wit_user_interrupt_raised(line); /* To the binding's owner, whichever component that is (K5.2c). */
     expire_waits();
     if (user_idle) {
         return context; /* Resume CLI/RET and recheck ready threads. */
