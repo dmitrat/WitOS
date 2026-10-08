@@ -152,6 +152,9 @@ WitU64 wit_arch_clock_ticks(void);
 
 /* Processor services. */
 WitU64 wit_arch_cache_size(void);
+/* The running processor's hardware identity (the APIC id; the MPIDR affinity) and its ISA feature words (K7.1). */
+WitU64 wit_arch_processor_id(void);
+WitU64 wit_arch_processor_features(void);
 void wit_arch_process_write_barrier(void);
 
 #endif

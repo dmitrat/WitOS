@@ -34,6 +34,7 @@
     "src/Kernel/user_channel.c",
     "src/Kernel/user_process.c",
     "src/Kernel/clock.c",
+    "src/Kernel/processors.c",
     "src/Kernel/user_memory_object.c",
     "src/Kernel/user_device.c",
     "src/Kernel/user_interrupt.c",

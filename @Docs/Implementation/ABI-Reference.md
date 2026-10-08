@@ -1,6 +1,6 @@
 # Справочник пользовательского ABI ядра WitOS
 
-Версии: **user ABI v62**, **boot ABI v6**. Источник истины — заголовки `src/Kernel/include/witos/*.h`; этот документ их описывает и проверяется хостовым тестом: каждый `WIT_CALL_*` из `user_abi.h` обязан встречаться здесь. Раскладка вызовов — ABI-1 по [RFC-0011 v3 §7](../RFC-0011-Kernel-Architecture-and-ABI.md), введённая шагом K1.1 плана; судьба каждого прежнего вызова — в [RFC-0011 v3 §8](../RFC-0011-Kernel-Architecture-and-ABI.md). ABI экспериментален до шага K8, но с K1.1 номер вызова, значение статуса и бит права никогда не переиспользуются (RFC-0011 §10.1).
+Версии: **user ABI v63**, **boot ABI v6**. Источник истины — заголовки `src/Kernel/include/witos/*.h`; этот документ их описывает и проверяется хостовым тестом: каждый `WIT_CALL_*` из `user_abi.h` обязан встречаться здесь. Раскладка вызовов — ABI-1 по [RFC-0011 v3 §7](../RFC-0011-Kernel-Architecture-and-ABI.md), введённая шагом K1.1 плана; судьба каждого прежнего вызова — в [RFC-0011 v3 §8](../RFC-0011-Kernel-Architecture-and-ABI.md). ABI экспериментален до шага K8, но с K1.1 номер вызова, значение статуса и бит права никогда не переиспользуются (RFC-0011 §10.1).
 
 ## Классы
 
@@ -87,6 +87,7 @@
 | 38 | `WIT_CALL_THREAD_CONTEXT_SET` | thread handle, buffer, 720 (x64) или 848 (ARM64) | 0 | целевой |
 | 39 | `WIT_CALL_CONTEXT_PROFILE` | buffer, 32, version 2 | 0; `EnabledState` — `LEGACY` (x64, FXSAVE64) или `FPSIMD` (ARM64), `FloatControlMask` — маска MXCSR или реализованные биты FPCR | целевой |
 | 40 | `WIT_CALL_THREAD_ACTIVATE` | thread handle или `WIT_THREAD_SELF`, callback, argument | 0; право `ACTIVATE`; доставка через callback исключений (см. «Активации») | целевой |
+| 41 | `WIT_CALL_THREAD_AFFINITY` | thread handle или `WIT_THREAD_SELF`, указатель маски (8 байт), 0 — чтение / 1 — запись | 0; чтение — право `QUERY`, запись — `AFFINITY`; маска ненулевая и в пределах таблицы процессоров (`INVALID_ARGUMENT`), без online-процессора — `UNSUPPORTED` (K7.1) | целевой |
 | 50 | `WIT_CALL_EVENT_CREATE` | flags (`MANUAL_RESET`, `INITIAL_SIGNALED`), rights (0 — `WAIT` и `SIGNAL`), 0 | event handle | целевой |
 | 51 | `WIT_CALL_EVENT_SET` | handle | 0 | целевой |
 | 52 | `WIT_CALL_EVENT_RESET` | handle | 0 | целевой |
@@ -112,17 +113,17 @@
 | 90 | `WIT_CALL_PROCESS_CREATE` | `WitProcessCreateRequest`, 32, указатель вывода (8 байт) | process handle с `WAIT`, `QUERY`, `KILL`, `MANAGE`, `DUPLICATE`, `TRANSFER`; в вывод записан хэндл конца канала в таблице потомка | целевой |
 | 91 | `WIT_CALL_PROCESS_KILL` | process handle (`KILL`) или `WIT_PROCESS_SELF`, code, 0 | 0; все потоки процесса кончаются; для собственного процесса не возвращает | целевой |
 | 92 | `WIT_CALL_PROCESS_QUERY` | process handle (`QUERY`), `WitProcessInfo`, 40 | 40 | целевой |
-| 93 | `WIT_CALL_PROCESSOR_QUERY` | buffer, 4, 0 | 4 | целевой |
+| 93 | `WIT_CALL_PROCESSOR_QUERY` | buffer, 4, 0 — текущий процессор `{group:u16, number:u8, reserved:u8}` (форма замороженной линии, до K8); `WitProcessorInfo`, 280, 0 — таблица процессоров (K7.1) | 4 или 280 | целевой |
 | 94 | `WIT_CALL_PROCESS_WRITE_BARRIER` | — | 0 | целевой |
 
-Зарезервированы: 41 (`THREAD_AFFINITY`, K7).
+Зарезервированных номеров ниже следующего свободного не осталось.
 
 ### Транзитные вызовы
 
 | № | Вызов | Аргументы | Результат | Класс |
 | --- | --- | --- | --- | --- |
 | 207 | `WIT_CALL_MONOTONIC_QUERY` | buffer, 8, selector (`COUNTER` или `HZ`) | 8 | транзитный, K6 |
-| 208 | `WIT_CALL_CPU_CACHE_SIZE` | — | байт крупнейшего кэша | транзитный, K7 |
+| 208 | `WIT_CALL_CPU_CACHE_SIZE` | — | байт крупнейшего кэша | транзитный, K8 (поглощён записью `PROCESSOR_QUERY`, остаётся у замороженной линии) |
 | 209 | `WIT_CALL_THREAD_CONTEXT_RESTORE` | buffer, 720 (x64) или 848 (ARM64), version 2 | не возвращается при успехе | транзитный, K8 |
 | 210 | `WIT_CALL_STACK_LEASE_ACQUIRE` | thread handle, buffer, 48 | 0 | транзитный, K8 |
 | 211 | `WIT_CALL_STACK_LEASE_QUERY` | token, buffer, 48 | 0 | транзитный, K8 |
@@ -200,6 +201,10 @@
 
 Платформа один раз при загрузке перечисляет устройства платы (RFC 0011 §7.7, RFC 0007 §13–14): на q35 — функции PCI через конфигурационные порты, с окном ECAM из PCIEXBAR хост-моста; на virt — функции за мостом `pci-host-ecam-generic` из device tree (прошивка публикует дерево только при `acpi=off`), с линиями INTx из `interrupt-map`. Ядро кладёт дескрипторы (`WitDeviceDescriptor`: шина, адрес функции, четыре непрозрачных слова идентичности — vendor/device, class/revision, subsystem, тип заголовка, — до 7 регионов: регион 0 — страница конфигурации функции, далее BAR с базами, назначенными прошивкой, и размерами, измеренными платформой, порт-BAR описаны с флагом `PORT`; до 2 линий прерываний) в одну страницу — таблицу (`WitDeviceTable`, до 16 дескрипторов) — и ничего в них не читает. Таблица — объект памяти вида `TABLE`: только чтение по правам, плюс право `ACQUIRE` у того, кому можно брать устройства (до K4 — компоненту теста ядра, затем корневой задаче через стартовый дескриптор). `DEVICE_ACQUIRE(таблица, индекс, 0)` проверяет право `ACQUIRE`, индекс и свободность дескриптора и выдаёт device handle с `BIND`, `QUERY`, `DUPLICATE`, `TRANSFER`; устройство держит один компонент (`BUSY`), пока жив хотя бы один его хэндл — в таблице или в пути по каналу; конец компонента освобождает всё. `DEVICE_MEMORY(устройство, регион, 0)` требует `BIND`, индекс в пределах дескриптора и memory-регион (порт — `UNSUPPORTED`, больше 64 страниц — `TOO_LARGE`) и выдаёт объект памяти вида `DEVICE` над физическими страницами региона с правами `MAP`, `WRITE`, `QUERY`, `DUPLICATE`, `TRANSFER` — без `EXECUTE`. Отображение такого объекта — alias с флагом страницы `DEVICE`: PAT-запись 3 (UC, проверенная при старте paging) на x64, атрибут device-nGnRnE на ARM64; `MEMORY_PROTECT` сохраняет флаг и остаётся в правах. `QUERY` сообщает семейство `DEVICES`.
 
+### Процессоры
+
+Таблицу процессоров (RFC 0011 §7.9, K7.1) платформа перечисляет один раз при загрузке: на q35 — из MADT по RSDP загрузчика (записи Local APIC и Local x2APIC; пригоден процессор с флагом enabled или online capable), на virt — из узлов `/cpus/cpu@*` device tree (`reg` — MPIDR по `#address-cells`, `status`). Ядро проверяет, что таблица называет загрузочный процессор (иначе паника), что идентичности не повторяются, и нумерует загрузочный процессор первым; до K7.2 online только он. `PROCESSOR_QUERY(buffer, 4, 0)` — форма замороженной линии (текущий процессор как `{group:u16, number:u8, reserved:u8}`); `PROCESSOR_QUERY(WitProcessorInfo, 280, 0)` с `Version` 1 и `Size` от вызывающего копирует `Current`, `Count`, `Online` и по записи на процессор: `HardwareId` (APIC id / поля affinity MPIDR), `Flags` (`ONLINE` 1, `BOOT` 2), `Group`/`Number`, `CacheBytes` и `Features` (x64 — CPUID.1 ECX и EDX; ARM64 — младшие слова ID_AA64ISAR0_EL1 и ID_AA64PFR0_EL1) — у offline-процессора нули; чужой размер — `INVALID_ARGUMENT`, чужая версия — `UNSUPPORTED`. `THREAD_AFFINITY(thread handle, mask, 0|1)` читает (право `QUERY`) или записывает (право `AFFINITY`) маску процессоров потока, по умолчанию — бит загрузочного процессора; записываемая маска ненулевая и в пределах таблицы (`INVALID_ARGUMENT`), а без online-процессора — `UNSUPPORTED`: размещение не на загрузочном процессоре появится с фазой P. `CPU_CACHE_SIZE` (208) и 4-байтовая форма остаются у замороженной линии до K8.
+
 ### Часы
 
 `CLOCK_READ(clock, 0, 0)` и `CLOCK_FREQUENCY(clock, 0, 0)` (RFC 0011 §7.10) обслуживают два домена: `WIT_CLOCK_MONOTONIC` — счётчик платформы (HPET на q35, generic counter на virt), не UTC и не счёт тиков; `WIT_CLOCK_UTC` (K6) — наносекунды с 1970-01-01, как часы реального времени платы (CMOS RTC на q35, PL031 на virt) показали их один раз при загрузке, плюс монотонное время с тех пор; частота 10^9. Плата без часов реального времени отвечает `UNSUPPORTED`. `CLOCK_SET(clock handle, WIT_CLOCK_UTC, ns)` требует хэндл вида `CLOCK` с правом `WRITE` (у корневой задачи он в стартовой таблице, индекс 3) и переустанавливает UTC так, что следующие чтения продолжаются от заданного значения; монотонные часы не устанавливаются, значение раньше момента загрузки или за 2^63 — `INVALID_ARGUMENT`. Хэндл часов дублируется с ослаблением и переносится по каналу в другой процесс. Ни коррекции хода, ни високосных секунд, ни TAI нет: часы реального времени читаются один раз, единственная поправка — `CLOCK_SET`.
@@ -221,6 +226,8 @@
 | `WitThreadCreateRequest3` | `thread_reference.h` | 56 | 3 (версия 2 и `Process`) |
 | `WitProcessCreateRequest` | `process.h` | 32 | 1 (`Endpoint`, `Pages`, `Flags`) |
 | `WitProcessInfo` | `process.h` | 40 | 1 (`State`, `Threads`, `ExitCode`, `ChargedPages`) |
+| `WitProcessorInfo` | `processor.h` | 280 | 1 (`Current`, `Count`, `Online`, записи) |
+| `WitProcessorRecord` | `processor.h` | 32 | — (`HardwareId`, `Flags`, `Group`, `Number`, `CacheBytes`, `Features`) |
 | `WitUserWaitRequest` | `wait_objects.h` | 32 | 1 |
 | `WitChannelMessage` | `channels.h` | 40 | 1 |
 | `WitMemoryMapRequest` | `memory_object.h` | 56 | 1 |
@@ -262,7 +269,7 @@
 | `SELF` | 2 | — |
 | `THREAD_IDENTITY` | 3 | — (приватная идентичность потока: пользователю не выдаётся, `HANDLE_CLOSE` — `BUSY`, исчезает с потоком) |
 | `EVENT` | 4 | `WAIT` 4, `SIGNAL` 8; несколько хэндлов одного события через `HANDLE_DUPLICATE` |
-| `THREAD_REFERENCE` | 5 | `WAIT` 4, `QUERY` 16, `GET_CONTEXT` 32, `SET_CONTEXT` 64, `SUSPEND_RESUME` 128 (хэндл потока) |
+| `THREAD_REFERENCE` | 5 | `WAIT` 4, `QUERY` 16, `GET_CONTEXT` 32, `SET_CONTEXT` 64, `SUSPEND_RESUME` 128, `ACTIVATE` 256, `DUPLICATE` 2048, `TRANSFER` 4096, `AFFINITY` 1048576 (хэндл потока; все вместе — `WIT_RIGHT_THREAD_ALL` 1055220) |
 | `FILE` | 6 | `READ` 16 |
 | `LIBRARY` | 7 | `READ` 16 |
 | `LIBRARY_READER` | 8 | `READ` 16 |
@@ -322,6 +329,7 @@ Compiler TLS адресуется через GS. Страница содержи
 | Хэндлов в сообщении | 4 | 4 |
 | Объекты памяти, созданные компонентом и живые (таблица ядра — 64) | 8 | 8 |
 | Процессы (реестр и пул созданных, на всё ядро) | 8 | 8 |
+| Процессоры в таблице ядра | 8 | 8 |
 | Страниц в объекте памяти | 64 | 64 |
 | Дескрипторов устройств в таблице | 16 | 16 |
 | Привязок прерываний (на всё ядро) | 8 | 8 |

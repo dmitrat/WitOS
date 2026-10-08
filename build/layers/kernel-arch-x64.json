@@ -4,6 +4,7 @@
   "includes": [],
   "sources": [
     "src/Kernel.Arch.X64/identity.c",
+    "src/Kernel.Arch.X64/processor.c",
     "src/Kernel.Arch.X64/frame.c",
     "src/Kernel.Arch.X64/frame_context.c",
     "src/Kernel.Arch.X64/user_cpu_context.c",

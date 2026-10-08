@@ -1,6 +1,6 @@
 # План WitOS
 
-Обновлено: **2026-10-08**. Upstream .NET: **10.0.8**. Текущая реализация: user ABI v62, boot ABI v6, ядро и UHI для
+Обновлено: **2026-10-08**. Upstream .NET: **10.0.8**. Текущая реализация: user ABI v63, boot ABI v6, ядро и UHI для
 x64 (QEMU q35) и ARM64 (QEMU virt). Архитектурное решение: [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md).
 Прежний план с историей M0–M3, P1–P6.4, Q0–Q2, A0–A2 и T1 — в [архиве](@Docs/Implementation/Plan-Archive-2026-10-06.md);
 замороженная линия хоста P6.4 — в [P6.4-Plan.md](@Docs/Implementation/P6.4-Plan.md).
@@ -212,10 +212,16 @@ UHI для x64 и ARM64 (порт ARM64 стоил ~2 300 строк и пере
   хэндл корневой задачи (`WIT_ROOT_HANDLE_CLOCK`, `HandleCount` 4); маска семейств сообщает `UTC`; self-test
   `Clock.Utc` и проверки в фикстуре корня на обеих ISA. Без коррекции хода, високосных секунд и TAI; тиковые часы
   замороженной линии (`MONOTONIC_QUERY` 207) уходят с ней на K8.
-- [ ] **K7** Задел SMP (RFC-0011 §7.9): per-CPU состояние, запуск вторичных процессоров (MADT, PSCI), IPI,
-  `PROCESS_WRITE_BARRIER` через удалённое fencing вместо UP-инварианта, TLB shootdown; `PROCESSOR_QUERY` с топологией,
-  кэшами и признаками ISA (поглощает `CPU_CACHE_SIZE`); `THREAD_AFFINITY`; планировщик остаётся на одном CPU до фазы P,
-  инварианты «один CPU» удалены.
+- [x] **K7.1** Топология процессоров ([K7.1-Processor-Topology.md](@Docs/Implementation/K7.1-Processor-Topology.md),
+  ABI v63; RFC-0011 §7.9): платформа перечисляет процессоры (q35 — MADT по RSDP загрузчика, virt — `/cpus` device
+  tree), ядро держит таблицу до 8 с загрузочным процессором первым и проверяет её; `PROCESSOR_QUERY` в форме записи
+  (`WitProcessorInfo`: текущий, присутствующие, online, записи с идентичностью, флагами, кэшем и признаками ISA) рядом
+  с 4-байтовой формой замороженной линии; `THREAD_AFFINITY` (41) с правом `AFFINITY`; константа «один процессор»
+  заменена online-счётчиком таблицы; сценарий `boot-smp2` с двумя процессорами на обеих ISA (таблица — 2, online — 1).
+- [ ] **K7.2** Механизмы SMP (RFC-0011 §7.9): per-CPU состояние, запуск вторичных процессоров (INIT-SIPI по LAPIC с
+  трамплином в нижней памяти от загрузчика; PSCI CPU_ON на virt), IPI (LAPIC ICR; SGI GICv3) с подтверждениями,
+  `PROCESS_WRITE_BARRIER` через удалённое fencing вместо UP-инварианта, TLB shootdown; инварианты «один CPU» уходят;
+  планировщик остаётся на загрузочном процессоре до фазы P.
 - [ ] **K8** Удаление политики из ядра после того, как слой 2 (S5–S6) принял её функции (RFC-0011 §8: 13 уходящих
   вызовов и `CODE_MEMORY.VALIDATE`): `pe*`, `user_library*`, `package`, `files`, `user_files`, `user_process_state`,
   `user_thread_name`, `user_stack_lease`, fatal-путь и программные исключения в `user_exception`, восстановление

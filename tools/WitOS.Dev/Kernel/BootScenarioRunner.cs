@@ -45,7 +45,7 @@ internal static class BootScenarioRunner
         var machine = request.Expected == ExpectedOutcome.ClockUnavailable ? "q35,hpet=off" : architecture.QemuMachine;
         var arguments = new List<string>
         {
-            "-machine", machine, "-accel", "tcg,thread=single", "-icount", VIRTUAL_TIME, "-cpu", cpu, "-smp", "1",
+            "-machine", machine, "-accel", "tcg,thread=single", "-icount", VIRTUAL_TIME, "-cpu", cpu, "-smp", request.Processors.ToString(),
             "-m", request.MemoryMiB.ToString(), "-display", "none", "-monitor", "none", "-qmp", qmpControl.Argument,
             "-serial", "file:" + QemuPath(serialPath), "-nic", "none", "-no-reboot",
             "-drive", $"if=pflash,unit=0,format=raw,readonly=on,file={QemuPath(architecture.FirmwarePath(root))}",
@@ -58,7 +58,7 @@ internal static class BootScenarioRunner
         {
             arguments.AddRange(["-object", "rng-builtin,id=entropy0", "-device", "virtio-rng-pci,rng=entropy0"]);
         }
-        Console.WriteLine($"Booting {name} ({request.MemoryMiB} MiB, {cpu}, TCG, no networking)...");
+        Console.WriteLine($"Booting {name} ({request.MemoryMiB} MiB, {cpu}, {request.Processors} processor(s), TCG, no networking)...");
         ProcessResult monitorResult;
         try
         {

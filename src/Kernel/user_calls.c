@@ -464,12 +464,12 @@ static WitArchFrame *thread_activate(WitUserCall *call)
     return 0;
 }
 
-/* Processor services exist only for the sole online processor. */
+/* Processor services exist only while the boot processor is the one online (K7.2 starts the others). */
 static WitArchFrame *process_write_barrier(WitUserCall *call)
 {
     if (has_arguments(call)) {
         *call->Status = WIT_STATUS_INVALID_ARGUMENT;
-    } else if (WIT_USER_PROCESSOR_COUNT != 1) {
+    } else if (wit_processors_online() != 1) {
         *call->Status = WIT_STATUS_UNSUPPORTED;
     } else {
         wit_arch_process_write_barrier();
@@ -482,7 +482,7 @@ static WitArchFrame *cpu_cache_size(WitUserCall *call)
 {
     if (has_arguments(call)) {
         *call->Status = WIT_STATUS_INVALID_ARGUMENT;
-    } else if (WIT_USER_PROCESSOR_COUNT != 1) {
+    } else if (wit_processors_online() != 1) {
         *call->Status = WIT_STATUS_UNSUPPORTED;
     } else {
         *call->Value = wit_arch_cache_size();
@@ -493,22 +493,64 @@ static WitArchFrame *cpu_cache_size(WitUserCall *call)
     return 0;
 }
 
+/* PROCESSOR_QUERY (RFC 0011 section 7.9): the 4-byte form of the frozen line (the current processor as {group:u16,
+ * number:u8, reserved:u8}), or the record form (K7.1) with the caller's Version and Size: the processor table, the
+ * boot processor first. The whole destination is validated before it is written. */
 static WitArchFrame *processor_query(WitUserCall *call)
 {
-    const WitU32 processor = 0; // Sole online BSP: group 0, number 0, reserved 0.
-    if (call->Argument1 != sizeof(processor) || call->Argument2) {
+    WitUserSpace *space = &call->Process->Space;
+    WitU32 header[2];
+    WitProcessorInfo info;
+    if (call->Argument2) {
         *call->Status = WIT_STATUS_INVALID_ARGUMENT;
         return 0;
     }
-    if (WIT_USER_PROCESSOR_COUNT != 1) {
+    if (call->Argument1 == 4) {
+        const WitU32 processor = wit_processors_current(); /* group 0, the kernel's number */
+        if (!wit_user_copy_to(space, call->Argument0, (const WitU8 *)&processor, sizeof(processor))) {
+            *call->Status = WIT_STATUS_BAD_ADDRESS;
+        } else {
+            *call->Value = sizeof(processor);
+        }
+        return 0;
+    }
+    if (call->Argument1 != sizeof(info)) {
+        *call->Status = WIT_STATUS_INVALID_ARGUMENT;
+        return 0;
+    }
+    if (!wit_user_buffer_writable(space, call->Argument0, sizeof(info)) ||
+        !wit_user_copy_from(space, call->Argument0, (WitU8 *)header, sizeof(header))) {
+        *call->Status = WIT_STATUS_BAD_ADDRESS;
+        return 0;
+    }
+    if (header[0] != WIT_PROCESSOR_INFO_VERSION) {
         *call->Status = WIT_STATUS_UNSUPPORTED;
         return 0;
     }
-    if (!wit_user_copy_to(&call->Process->Space, call->Argument0, (const WitU8 *)&processor, sizeof(processor))) {
-        *call->Status = WIT_STATUS_BAD_ADDRESS;
-    } else {
-        *call->Value = sizeof(processor);
+    if (header[1] != sizeof(info)) {
+        *call->Status = WIT_STATUS_INVALID_ARGUMENT;
+        return 0;
     }
+    for (WitU32 i = 0; i < sizeof(info); ++i) {
+        ((WitU8 *)&info)[i] = 0;
+    }
+    info.Version = WIT_PROCESSOR_INFO_VERSION;
+    info.Size = sizeof(info);
+    info.Current = wit_processors_current();
+    info.Count = wit_processors_count();
+    info.Online = wit_processors_online();
+    for (WitU32 i = 0; i < info.Count && i < WIT_PROCESSOR_CAPACITY; ++i) {
+        require(wit_processors_record(i, &info.Processors[i]), "Processor table shrank under its count");
+    }
+    require(wit_user_copy_to(space, call->Argument0, (const WitU8 *)&info, sizeof(info)),
+        "Validated processor info changed");
+    *call->Value = sizeof(info);
+    return 0;
+}
+
+static WitArchFrame *thread_affinity(WitUserCall *call)
+{
+    *call->Status = wit_user_thread_affinity(call->Process, call->Argument0, call->Argument1, call->Argument2);
     return 0;
 }
 
@@ -716,6 +758,7 @@ static WitArchFrame *(*const handlers[CALL_COUNT])(WitUserCall *) = {
     [WIT_CALL_THREAD_CONTEXT_SET] = thread_context_set,
     [WIT_CALL_CONTEXT_PROFILE] = context_profile,
     [WIT_CALL_THREAD_ACTIVATE] = thread_activate,
+    [WIT_CALL_THREAD_AFFINITY] = thread_affinity,
     [WIT_CALL_CHANNEL_CREATE] = channel_create,
     [WIT_CALL_CHANNEL_SEND] = channel_send,
     [WIT_CALL_CHANNEL_RECEIVE] = channel_receive,

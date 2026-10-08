@@ -176,7 +176,7 @@ WitU64 wit_user_cpu_context_query(WitUserProcess *process, WitU64 address, WitU6
     if (size != sizeof(info)) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
-    if (!wit_arch_context_supported() || WIT_USER_PROCESSOR_COUNT != 1) {
+    if (!wit_arch_context_supported() || wit_processors_online() != 1) {
         return WIT_STATUS_UNSUPPORTED;
     }
     wit_arch_cpu_context_describe(&info, process->Threads[process->CurrentThread].Context);

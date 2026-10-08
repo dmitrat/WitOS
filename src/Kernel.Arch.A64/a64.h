@@ -84,6 +84,10 @@ WitU64 wit_a64_vectors_base(void);
 
 /* Memory model feature register ID_AA64MMFR0_EL1. */
 WitU64 wit_a64_memory_features(void);
+/* MPIDR_EL1, ID_AA64ISAR0_EL1 and ID_AA64PFR0_EL1 of the running processor (processor_registers.asm, K7.1). */
+WitU64 wit_a64_processor_id(void);
+WitU64 wit_a64_isa_features(void);
+WitU64 wit_a64_processor_features(void);
 
 /* System control (SCTLR_EL1) and FP/SIMD access control (CPACR_EL1). */
 WitU64 wit_a64_system_control(void);

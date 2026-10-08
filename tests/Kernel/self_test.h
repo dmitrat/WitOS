@@ -10,6 +10,8 @@ void wit_arch_fault_self_test(void);
 void wit_arch_scheduler_self_test(void);
 /* The UTC clock (K6): plausible at boot, monotonic, settable within its range. */
 void wit_clock_self_test(void);
+/* The processor table (K7.1): the boot processor first and online, the others present. */
+void wit_processor_self_test(void);
 
 /* User isolation tests shared by every architecture; the architecture's kernel_tests.c runs its other user
  * suites between the two halves, and the end restores the page count that the beginning returned. */

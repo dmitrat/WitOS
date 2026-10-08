@@ -9,6 +9,7 @@
 #include "witos/events.h"
 #include "witos/channels.h"
 #include "witos/memory_object.h"
+#include "witos/processor.h"
 #include "witos/memory.h"
 #include "witos/pe.h"
 #include "witos/virtual_gap.h"
@@ -103,6 +104,7 @@ typedef struct WitUserThread {
      * caller's reservation and may name it at THREAD_EXIT for release once it no longer runs there (K5.2a). */
     WitU32 OwnsStack, Reserved2;
     WitU64 ExitReservation;
+    WitU64 Affinity; /* the processors the thread may run on (K7.1): bit n is processor n */
     WitU64 LibraryTls[WIT_LIBRARY_CAPACITY];
     WitU64 LibraryNotificationPage, LibraryNotificationHandles[2];
     WitU64 ExitCode;
@@ -269,6 +271,8 @@ WitU64 wit_user_thread_name_set(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_thread_name_query(WitUserProcess *, WitU64, WitU64, WitU64);
 void wit_user_suspend_deadline_self_test(void);
 WitU64 wit_user_thread_suspend(WitUserProcess *, WitU64, int, WitU64 *);
+/* THREAD_AFFINITY (K7.1): the processors a thread may run on, read with QUERY and set with AFFINITY. */
+WitU64 wit_user_thread_affinity(WitUserProcess *, WitU64, WitU64, WitU64);
 void wit_user_wait_complete(WitUserThread *, WitU64, WitU64);
 void wit_user_wait_objects_changed(WitUserProcess *);
 void wit_user_wait_handle_closed(WitUserProcess *, WitU64);
@@ -459,6 +463,7 @@ void wit_user_memory_object_self_test(WitPageAllocator *pages);
 void wit_user_device_self_test(WitPageAllocator *pages);
 void wit_user_interrupt_self_test(WitPageAllocator *pages);
 void wit_user_thread2_self_test(WitPageAllocator *pages);
+void wit_user_processor_self_test(WitPageAllocator *pages);
 struct WitBootInfo;
 void wit_root_task_self_test(const struct WitBootInfo *boot, WitPageAllocator *pages);
 void wit_user_image_self_test(WitPageAllocator *pages);

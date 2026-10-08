@@ -61,7 +61,8 @@ internal static class BootValidation
             : bannerReady && foundationReady && schedulerReady && usersReady && helloReady && !panic && !exception;
         var diagnostics = $"banner={bannerReady} foundation={foundationReady} scheduler={schedulerReady} " +
             $"users={usersReady} hello={helloReady} panic={panic} exception={exception}";
-        booted = booted && SuiteReady(root, request, result);
+        booted = booted && SuiteReady(root, request, result) &&
+            request.RequiredLines.All(line => output.Contains(line, StringComparison.Ordinal));
 
         var failedBeforeContract = !result.TimedOut && result.ExitCode == 35 && exitedFirmware >= 0 && contract < 0 && hello < 0;
         var passed = request.Expected switch

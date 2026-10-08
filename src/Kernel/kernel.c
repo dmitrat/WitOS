@@ -6,6 +6,7 @@
 #include "witos/random.h"
 #include "witos/virtual.h"
 #include "witos/clock.h"
+#include "witos/processor.h"
 #include "witos/arch.h"
 #include "witos/platform.h"
 #include "witos/user_abi.h"
@@ -151,6 +152,7 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
     consume_entropy(boot);
     wit_platform_clock_initialize(boot);
     wit_clock_initialize();
+    wit_processors_initialize(boot);
     wit_devices_initialize(boot, &physical_pages);
 #if defined(WITOS_SELFTEST)
     wit_kernel_self_test(boot, &physical_pages);

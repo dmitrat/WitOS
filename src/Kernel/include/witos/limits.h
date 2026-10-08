@@ -17,6 +17,7 @@
 #define WIT_CHANNEL_CAPACITY 4U /* live channels created by one component */
 #define WIT_CHANNEL_TABLE_CAPACITY 32U /* channels kernel-wide */
 #define WIT_PROCESS_CAPACITY 8U /* components kernel-wide: the registry and the pool of created processes (K5.2c) */
+#define WIT_PROCESSOR_CAPACITY 8U /* processors of the kernel's table (K7.1) */
 #define WIT_CHANNEL_QUEUE_DEPTH 4U /* messages queued for one endpoint */
 #define WIT_CHANNEL_QUEUE_BYTES 1024U /* inline bytes queued for one endpoint */
 #define WIT_CHANNEL_MESSAGE_BYTES 256U /* inline bytes of one message */
