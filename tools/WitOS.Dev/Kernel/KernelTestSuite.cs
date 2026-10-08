@@ -100,7 +100,8 @@ internal static class KernelTestSuite
         var spawn = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.SPAWN_SCENARIO);
         await BootScenarioRunner.RunAsync(root, spawn, new BootRequest("spawn", 256, 60, ExpectedOutcome.Success)
         {
-            RequiredLines = [KernelArchitecture.X64.SpawnChildLine, KernelArchitecture.X64.SpawnPassedLine]
+            RequiredLines = [KernelArchitecture.X64.SpawnChildLine, KernelArchitecture.X64.DynamicPassedLine,
+                KernelArchitecture.X64.SpawnPassedLine]
         });
         await BootScenarioRunner.RunAsync(root, image, new BootRequest("no-rng", 256, 60, ExpectedOutcome.EntropyUnavailable));
         await BootScenarioRunner.RunAsync(root, image, new BootRequest("no-hpet", 256, 60, ExpectedOutcome.ClockUnavailable));
@@ -160,7 +161,7 @@ internal static class KernelTestSuite
         await BootScenarioRunner.RunAsync(root, spawn,
             Request("spawn", 256, FOUNDATION_TIMEOUT, ExpectedOutcome.Success) with
             {
-                RequiredLines = [architecture.SpawnChildLine, architecture.SpawnPassedLine]
+                RequiredLines = [architecture.SpawnChildLine, architecture.DynamicPassedLine, architecture.SpawnPassedLine]
             });
         var panic = await KernelImageBuilder.BuildAsync(root, "invalid-boot-info", architecture: architecture);
         await BootScenarioRunner.RunAsync(root, panic,

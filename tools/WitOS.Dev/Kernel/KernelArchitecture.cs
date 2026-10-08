@@ -85,9 +85,15 @@ internal sealed record KernelArchitecture(string Name, string MsvcTarget, string
     public string CxxPassedLine => $"[CXX] C++ runtime on {Triple[..Triple.IndexOf('-')]}: ";
 
     /// <summary>
-    /// The line the root task of the spawn scenario prints when every started program ended as it should (S5.2).
+    /// The line the root task of the spawn scenario prints when every started program ended as it should (S5.2, S5.3).
     /// </summary>
-    public string SpawnPassedLine => $"[SPAWN] static loader on {Triple[..Triple.IndexOf('-')]}: ";
+    public string SpawnPassedLine => $"[SPAWN] ELF loader on {Triple[..Triple.IndexOf('-')]}: ";
+
+    /// <summary>
+    /// The line the dynamic program of the spawn scenario prints when its checks passed: libraries, dlopen and TLS
+    /// modules under musl's dynamic linker (S5.3).
+    /// </summary>
+    public string DynamicPassedLine => $"[DYNAMIC] dynamic program on {Triple[..Triple.IndexOf('-')]}: ";
 
     /// <summary>
     /// The first line of the program the spawn scenario starts: a static position-independent program relocated at its

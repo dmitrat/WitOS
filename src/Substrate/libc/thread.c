@@ -24,9 +24,11 @@
 typedef struct Thread {
     WitU64 Identity; /* the kernel's thread identity, from THREAD_QUERY */
     WitU64 Handle; /* the kernel's reference handle, closed by the thread at its exit */
+    WitU64 Pointer; /* the thread pointer it was created with; zero for the main thread, whose pointer musl moves */
     int Tid;
     int *ClearWord; /* CLONE_CHILD_CLEARTID: zeroed by the kernel at the exit */
     WitSignalState Signals;
+    WitThreadLocal Local;
 } Thread;
 
 typedef struct Launch {
@@ -35,10 +37,14 @@ typedef struct Launch {
     void *ThreadPointer;
 } Launch;
 
-static Thread threads[THREADS]; /* threads[0] is the main thread */
+/* threads[0] is the main thread, whose id holds from the start: musl's dynamic linker installs the main thread's
+ * pointer and reads its id (set_tid_address) before the start message arrives and its record is complete (S5.3). */
+static Thread threads[THREADS] = {[0] = {.Tid = MAIN_TID}};
 static int next_tid = MAIN_TID + 1;
 
-static __thread volatile int *cancel_point; /* the cancel word of a cancellation point in flight */
+#if defined(__x86_64__)
+static volatile int pointer_set; /* musl installed the main thread's pointer (__set_thread_area, below) */
+#endif
 
 void __wit_thread_entry(void); /* the trampoline below */
 long __cancel(void); /* musl's cancellation (pthread_cancel.c) */
@@ -97,6 +103,37 @@ void __wit_thread_init(void)
     if (wit_syscall(WIT_CALL_HANDLE_DUPLICATE, WIT_THREAD_SELF, (WitU64)&handle, 0, &result) == WIT_STATUS_OK) {
         main->Handle = handle;
     }
+}
+
+/* The calling thread's pointer, zero before musl installed the main thread's: the FS base's first word, which musl's
+ * thread structure points at itself, on x64; TPIDR_EL0, which the thread writes itself, on ARM64. */
+static WitU64 current_pointer(void)
+{
+    WitU64 pointer = 0;
+#if defined(__x86_64__)
+    if (pointer_set) {
+        __asm__ volatile("mov %%fs:0, %0" : "=r"(pointer));
+    }
+#else
+    __asm__ volatile("mrs %0, tpidr_el0" : "=r"(pointer));
+#endif
+    return pointer;
+}
+
+/* The record of a thread the library created is found by the pointer it was created with; every other pointer is
+ * the main thread's. */
+WitThreadLocal *__wit_thread_local(void)
+{
+    const WitU64 pointer = current_pointer();
+    if (!pointer) {
+        return 0;
+    }
+    for (unsigned i = 1; i < THREADS; ++i) {
+        if (threads[i].Tid && threads[i].Pointer == pointer) {
+            return &threads[i].Local;
+        }
+    }
+    return &threads[0].Local;
 }
 
 long __wit_gettid(void)
@@ -190,8 +227,10 @@ long __wit_thread_exit(long code, WitU64 reservation)
     if (thread != &threads[0]) {
         thread->Tid = 0; /* the record is free once the kernel has the exit; the identity stays in the kernel */
         thread->Identity = 0;
+        thread->Pointer = 0;
         thread->ClearWord = 0;
         memset(&thread->Signals, 0, sizeof(thread->Signals));
+        memset(&thread->Local, 0, sizeof(thread->Local));
     }
     const WitU64 status = wit_syscall(WIT_CALL_THREAD_EXIT, (WitU64)code, reservation, (WitU64)&request, &result);
     static const char hex[] = "0123456789abcdef";
@@ -270,8 +309,10 @@ int __clone(int (*function)(void *), void *stack, int flags, void *argument, ...
     const int tid = next_tid++;
     memset(&record->Signals, 0, sizeof(record->Signals));
     record->Signals.Mask = find_current()->Signals.Mask; /* inherited, as musl's start() then sets it */
+    memset(&record->Local, 0, sizeof(record->Local));
     record->Identity = info.ThreadId;
     record->Handle = handle;
+    record->Pointer = (WitU64)thread_pointer;
     record->Tid = tid;
     record->ClearWord = child_tid;
     if (parent_tid) {
@@ -306,15 +347,21 @@ long __syscall_cp_asm(volatile void *cancel, long nr, long a, long b, long c, lo
     if (*(volatile int *)cancel) {
         return __cancel();
     }
-    cancel_point = (volatile int *)cancel;
+    WitThreadLocal *local = __wit_thread_local();
+    if (local) {
+        local->CancelPoint = (volatile int *)cancel;
+    }
     const long r = __wit_syscall(nr, a, b, c, d, e, f);
-    cancel_point = 0;
+    if (local) {
+        local->CancelPoint = 0;
+    }
     return r;
 }
 
 int __wit_cancel_requested(void)
 {
-    return cancel_point && *cancel_point;
+    const WitThreadLocal *local = __wit_thread_local();
+    return local && local->CancelPoint && *local->CancelPoint;
 }
 
 #if defined(__x86_64__)
@@ -345,7 +392,11 @@ __attribute__((__visibility__("hidden"))) int __set_thread_area(void *p)
 {
     WitU64 result = 0;
     const WitU64 status = wit_syscall(WIT_CALL_THREAD_SET_TLS, (WitU64)p, 0, 0, &result);
-    return status == WIT_STATUS_OK ? 0 : (int)__wit_errno(status);
+    if (status != WIT_STATUS_OK) {
+        return (int)__wit_errno(status);
+    }
+    pointer_set = 1;
+    return 0;
 }
 #elif defined(__aarch64__)
 /* TPIDR_EL0 is the thread's own register at EL0: the trampoline installs the thread pointer, then calls. */

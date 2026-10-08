@@ -66,7 +66,9 @@ internal static class LibWitos
     ];
 
     /// <summary>
-    /// The programs the spawn scenario's package carries: tests/User/spawn_child.c as a started program.
+    /// The programs the spawn scenario's package carries: tests/User/spawn_child.c as a static started program (S5.2),
+    /// and tests/User/dynamic_main.c as a dynamic one with its library, the library it opens and musl's libc.so as its
+    /// dynamic linker (S5.3).
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="output">Artifact directory of the scenario.</param>
@@ -75,10 +77,22 @@ internal static class LibWitos
     public static async Task<IReadOnlyList<(string Name, string Source)>> BuildProgramsAsync(string root, string output,
         KernelArchitecture architecture)
     {
-        var obj = Path.Combine(output, "spawn_child.o");
-        await MuslLibc.CompileAsync(root, architecture, Path.Combine(root, "tests", "User", "spawn_child.c"), obj, Options(root));
-        var image = await MuslLibc.LinkStartedProgramAsync(root, architecture, output, "spawn_child", [obj]);
-        return [(CHILD_PATH, image)];
+        async Task<string> Compile(string name, params string[] extra)
+        {
+            var obj = Path.Combine(output, name + ".o");
+            await MuslLibc.CompileAsync(root, architecture, Path.Combine(root, "tests", "User", name + ".c"), obj, [.. Options(root), .. extra]);
+            return obj;
+        }
+        var child = await MuslLibc.LinkStartedProgramAsync(root, architecture, output, "spawn_child", [await Compile("spawn_child")]);
+        var shared = await MuslLibc.BuildSharedAsync(root, architecture);
+        var library = await MuslLibc.LinkSharedLibraryAsync(root, architecture, output, "libdynamic.so", [await Compile("dynamic_library", "-fPIC")]);
+        var plugin = await MuslLibc.LinkSharedLibraryAsync(root, architecture, output, "libplugin.so", [await Compile("dynamic_plugin", "-fPIC")]);
+        var dynamic = await MuslLibc.LinkDynamicProgramAsync(root, architecture, output, "dynamic", [await Compile("dynamic_main")], [library]);
+        return
+        [
+            (CHILD_PATH, child), ("bin/dynamic", dynamic), ("lib/libdynamic.so", library), ("lib/libplugin.so", plugin),
+            (MuslLibc.InterpreterPath(architecture).TrimStart('/'), shared.Library)
+        ];
     }
 
     /// <summary>

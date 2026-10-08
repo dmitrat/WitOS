@@ -47,24 +47,6 @@ typedef struct SignalFrame {
 
 static Action actions[SIGNALS + 1];
 
-static __thread int hold; /* library locks the thread holds that handlers may take (futex.c) */
-static __thread int held_pending; /* a signal arrived while held */
-int __wit_tls_ready;
-
-/* musl runs the constructors after it installed the main thread's pointer: thread-local state works from here. The
- * store is volatile: an optimizer that evaluates constructors at compile time would otherwise fold it into the
- * flag's initial value and drop the constructor, so that the flag were set before musl's own startup. */
-__attribute__((__constructor__)) static void tls_ready(void)
-{
-    *(volatile int *)&__wit_tls_ready = 1;
-}
-
-/* The hold count of the calling thread; a call, so that its thread-local load stays behind __wit_tls_ready. */
-static __attribute__((__noinline__)) int held(void)
-{
-    return hold;
-}
-
 void __wit_signal_entry(void); /* the kernel's fault callback, below */
 void __wit_signal_trampoline(void); /* enters the handler with the frame, below */
 void __wit_signal_activation(void); /* the marker callback THREAD_ACTIVATE carries */
@@ -417,9 +399,10 @@ void __wit_signal_deliver(WitU64 token, WitU64 vector, WitU64 address)
         state->Pending |= bit;
         continue_unchanged(token, info);
     }
-    if (activation && __wit_tls_ready && held()) {
+    WitThreadLocal *local = activation ? __wit_thread_local() : 0;
+    if (local && local->Hold) {
         state->Pending |= bit; /* the thread holds a lock a handler may take: the signal waits for its release */
-        held_pending = 1;
+        local->HeldPending = 1;
         continue_unchanged(token, info);
     }
     void (*handler)(int) = actions[sig].Handler;
@@ -460,14 +443,18 @@ void __wit_signal_rearm(WitSignalState *state)
 
 void __wit_signal_hold_enter(void)
 {
-    ++hold;
+    WitThreadLocal *local = __wit_thread_local();
+    if (local) {
+        ++local->Hold;
+    }
 }
 
 /* The thread released a library lock its handlers may take; at the last one, what arrived meanwhile is re-armed. */
 void __wit_signal_hold_leave(void)
 {
-    if (--hold == 0 && held_pending) {
-        held_pending = 0;
+    WitThreadLocal *local = __wit_thread_local();
+    if (local && --local->Hold == 0 && local->HeldPending) {
+        local->HeldPending = 0;
         __wit_signal_rearm(__wit_signal_state());
     }
 }

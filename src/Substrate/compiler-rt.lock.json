@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/llvm/llvm-project",
   "tag": "llvmorg-20.1.8",
-  "purpose": "The IEEE binary128 helpers that clang emits for long double on aarch64 (musl's printf, strtod and the long double mathematics): compiler-rt's generic soft-float builtins, compiled for the system layer because the pinned LLVM package ships no builtins for the Linux triples.",
+  "purpose": "The helpers clang emits calls to and the pinned LLVM package does not ship for the Linux triples: the IEEE binary128 soft-float builtins for long double on aarch64 (musl's printf, strtod and the long double mathematics, S1.1) and the complex multiplication builtins musl's complex functions need, which libc.so links whole (S5.3); compiled for the system layer from compiler-rt's generic sources.",
   "sources": [
     {
       "path": "compiler-rt/LICENSE.TXT",
@@ -146,6 +146,25 @@
     {
       "path": "compiler-rt/lib/builtins/floatunditf.c",
       "sha256": "24a32bf0ac8589d0c0c2fb68c01d94cb24d3e580648da7374013d82a08c6ceaa"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/mulsc3.c",
+      "sha256": "ced55a7c473dbde086ca3649c431dc198348cf66d612eec2316862837a84b14a"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/muldc3.c",
+      "sha256": "6b5c3fba3f59901c717168ba3a51dab26674541ac16a7b870ce7af0f3e339644"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/mulxc3.c",
+      "sha256": "9de668cf8933db694755bbe4c68d0908c304c0dbbb25aee99e688cdd57d1f09c",
+      "architectures": [
+        "x86_64"
+      ]
+    },
+    {
+      "path": "compiler-rt/lib/builtins/multc3.c",
+      "sha256": "826cabd0ba1ac5a249b1ff5661b26a98aba7ebcbc251fdaebed64c20216e968c"
     }
   ]
 }

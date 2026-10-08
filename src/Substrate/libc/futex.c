@@ -40,9 +40,7 @@ static volatile int lock;
 void __wit_lock(volatile int *word)
 {
     WitU64 result = 0;
-    if (__wit_tls_ready) {
-        __wit_signal_hold_enter();
-    }
+    __wit_signal_hold_enter();
     while (__atomic_exchange_n(word, 1, __ATOMIC_ACQUIRE)) {
         wit_syscall(WIT_CALL_THREAD_YIELD, 0, 0, 0, &result); /* the holder runs on the one processor */
     }
@@ -51,9 +49,7 @@ void __wit_lock(volatile int *word)
 void __wit_unlock(volatile int *word)
 {
     __atomic_store_n(word, 0, __ATOMIC_RELEASE);
-    if (__wit_tls_ready) {
-        __wit_signal_hold_leave();
-    }
+    __wit_signal_hold_leave();
 }
 
 static void acquire(void)
@@ -159,7 +155,7 @@ static long result_of(WitU64 status)
 /* A cancellation point about to park with its cancel word set does not park: musl cancels on the EINTR (thread.c). */
 static int cancelled(void)
 {
-    return __wit_tls_ready && __wit_cancel_requested();
+    return __wit_cancel_requested();
 }
 
 static long wait_exit_word(volatile int *address, int value, WitU64 deadline)

@@ -9,12 +9,14 @@
 #include <string.h>
 #include <time.h>
 
-/* The root task of the spawn scenario (plan step S5.2): libwitos's static ELF loader starts the package's program
- * (tests/User/spawn_child.c) in processes of their own. A program with arguments and an environment exits with the
- * code it was told, two run at once, one aborts, one is killed; a missing file, a file that is no program and
- * arguments beyond the first stack are refused before any process exists; and once every process ended and its
- * handle is closed, the kernel's free memory and the root task's reservations are what they were. The last line
- * names the ISA and the count of checks. */
+/* The root task of the spawn scenario (plan steps S5.2 and S5.3): libwitos's ELF loader starts the package's
+ * programs in processes of their own. A static program (tests/User/spawn_child.c) with arguments and an environment
+ * exits with the code it was told, two run at once, one aborts, one is killed; a dynamic program
+ * (tests/User/dynamic_main.c) runs under musl's dynamic linker, once mapped by the loader with its interpreter and
+ * once loaded by the linker run as a command; a missing file, a file that is no program and arguments beyond the
+ * first stack are refused before any process exists; and once every process ended and its handle is closed, the
+ * kernel's free memory and the root task's reservations are what they were. The last line names the ISA and the
+ * count of checks. */
 
 #if defined(__x86_64__)
 #define ISA_NAME "x86_64"
@@ -23,6 +25,8 @@
 #endif
 
 #define CHILD "/bin/child"
+#define DYNAMIC "/bin/dynamic"
+#define INTERPRETER "/lib/ld-musl-" ISA_NAME ".so.1"
 
 static int checks;
 
@@ -38,7 +42,7 @@ static void check(int condition, const char *what)
 static WitU64 start(char *const argv[], char *const envp[])
 {
     WitU64 process = 0;
-    const int error = witos_spawn(&process, CHILD, argv, envp);
+    const int error = witos_spawn(&process, argv[0], argv, envp);
     if (error) {
         printf("[SPAWN] witos_spawn: %s\n", strerror(error));
     }
@@ -105,6 +109,16 @@ int main(void)
     info = finish(start(abort_args, 0));
     check(info.State == WIT_PROCESS_STATE_EXITED && info.ExitCode == 128 + 6, "an aborted program");
 
+    /* A dynamic program (S5.3): the loader maps it and its interpreter, which loads the program's library. */
+    static char *dynamic_args[] = {DYNAMIC, "5", 0};
+    info = finish(start(dynamic_args, environment));
+    check(info.State == WIT_PROCESS_STATE_EXITED && info.ExitCode == 5, "a dynamic program");
+
+    /* The dynamic linker run as a command: a static image for the loader, which maps the program itself. */
+    static char *command_args[] = {INTERPRETER, DYNAMIC, "6", 0};
+    info = finish(start(command_args, 0));
+    check(info.State == WIT_PROCESS_STATE_EXITED && info.ExitCode == 6, "the dynamic linker as a command");
+
     /* The creator ends a waiting program with PROCESS_KILL, once it had the time to start and wait. */
     process = start(wait_args, 0);
     const struct timespec pause_time = {0, 50000000};
@@ -118,6 +132,6 @@ int main(void)
     const WitUserMemoryInfo after = memory();
     check(after.PhysicalAvailableBytes == before.PhysicalAvailableBytes, "the kernel's free memory");
     check(after.ReservationCount == before.ReservationCount, "the root task's reservations");
-    printf("[SPAWN] static loader on " ISA_NAME ": %d checks passed\n", checks);
+    printf("[SPAWN] ELF loader on " ISA_NAME ": %d checks passed\n", checks);
     return 0;
 }

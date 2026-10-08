@@ -10,10 +10,11 @@
 #include "witos/syscall.h"
 #include "witos/libc_context.h"
 
-/* The start of a program another process started (start.c), called by its startup (rcrt1.c) once its relocations
- * are applied and before musl's __libc_start_main: the process context from the start message, then the main
- * thread's record and the fault callback, as crt1 sets them up for the root task. */
-void __wit_start_program(const unsigned long *stack);
+/* The start of a program another process started (start.c): the process context from the start message, then the
+ * main thread's record and the fault callback, as crt1 sets them up for the root task. A static program's startup
+ * (rcrt1.c) calls it once its relocations are applied and before musl's __libc_start_main; the dynamic linker's third
+ * stage (patches/musl/dynlink.c.patch, S5.3) calls it before it opens a library. */
+__attribute__((__visibility__("hidden"))) void __wit_start_program(const unsigned long *stack);
 
 /* musl's __syscallN (the patched arch/<arch>/syscall_arch.h) call this: a Linux system call number with its
  * arguments, returning the Linux result convention (a value, or a negative errno). */
@@ -65,18 +66,25 @@ WitSignalState *__wit_signal_state(void);
 WitSignalState *__wit_signal_state_of(WitU64 identity);
 long __wit_thread_signal(int tid, int sig);
 /* Whether the calling thread is in a cancellation point (musl's __syscall_cp_asm) whose cancel word is set: a path
- * about to park checks it (thread.c). Called only once __wit_tls_ready is set. */
+ * about to park checks it (thread.c). */
 int __wit_cancel_requested(void);
+
+/* The library's state of one thread that no thread-local variable holds: libc.so has no TLS of its own, since musl's
+ * dynamic linker gives none to itself (S5.3). thread.c keeps it in the thread's record, found by the thread pointer
+ * without a system call; zero before musl installed the main thread's pointer (__init_tp) — musl maps the static TLS
+ * block through mmap before it — while the library has one thread and holds nothing. */
+typedef struct WitThreadLocal {
+    int Hold; /* library locks the thread holds that handlers may take (futex.c) */
+    int HeldPending; /* a signal arrived while they were held */
+    volatile int *CancelPoint; /* the cancel word of a cancellation point in flight */
+} WitThreadLocal;
+
+WitThreadLocal *__wit_thread_local(void);
 
 /* Signals (signal.c, S3). A thread holding a library lock that a handler's async-signal-safe calls also take (the
  * futex lock) holds its signals: they wait pending meanwhile and are re-armed when the last such lock goes. */
 void __wit_signal_hold_enter(void);
 void __wit_signal_hold_leave(void);
-/* Set once musl installed the main thread's pointer (a constructor of signal.c): thread-local state may be used.
- * Before it — musl maps the static TLS block through mmap — the library has one thread and holds nothing. The
- * thread-local state lives behind calls into other files, so that no compiler hoists a thread-local load above
- * this check (it treats thread-local variables as always dereferenceable). */
-extern int __wit_tls_ready;
 /* A library lock (futex.c): a word taken by exchange, yielding while another thread holds it, with the holder's
  * signals held; never held across a wait or an exit. */
 void __wit_lock(volatile int *word);

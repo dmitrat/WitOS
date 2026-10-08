@@ -12,7 +12,7 @@ int main();
 weak void _init();
 weak void _fini();
 int __libc_start_main(int (*)(), int, char **, void (*)(), void (*)(), void (*)());
-void __wit_start_program(const unsigned long *stack);
+hidden void __wit_start_program(const unsigned long *stack);
 
 hidden void __dls2(unsigned char *base, size_t *sp)
 {
