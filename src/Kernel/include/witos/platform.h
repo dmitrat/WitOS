@@ -54,6 +54,13 @@ int wit_platform_realtime_seconds(WitU64 *seconds);
  * usable, in the firmware's order; the count enumerated, at most the capacity. */
 struct WitProcessorDescriptor;
 WitU32 wit_platform_processors(const struct WitBootInfo *boot, struct WitProcessorDescriptor *table, WitU32 capacity);
+/* Secondary processors (K7.2): the boot processor maps a processor's interrupt controller frames before the start;
+ * the started processor enables its own interrupts; an inter-processor interrupt of a kind of witos/cpu.h goes to a
+ * processor by its hardware identity, and the receiver completes it by the number the claim returned (3). */
+void wit_platform_processor_prepare(const struct WitBootInfo *boot, WitU32 index, WitU64 hardware_id);
+void wit_platform_processor_interrupts_enable(WitU32 index, WitU64 hardware_id);
+void wit_platform_ipi(WitU64 hardware_id, WitU32 kind);
+void wit_platform_ipi_complete(WitU32 number);
 
 /* Test exit device; halts where it is absent. */
 WIT_NORETURN void wit_platform_finish(WitU32 code);

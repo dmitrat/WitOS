@@ -56,6 +56,11 @@ WitU32 wit_processors_online(void);
 WitU32 wit_processors_current(void);
 /* The record of a processor by the kernel's number; 0 beyond the table. */
 int wit_processors_record(WitU32 index, WitProcessorRecord *record);
+/* The processors threads run on: the boot processor alone until phase P. */
+WitU32 wit_processors_scheduling(void);
+/* A started processor reports the features and cache it read on itself (K7.2); the boot log line present/online. */
+void wit_processors_set_features(WitU32 index, WitU64 features, WitU64 cache_bytes);
+void wit_processors_report(void);
 /* A valid affinity mask for a thread: nonzero, within the processors present, and with an online processor. */
 WitU64 wit_processors_affinity_status(WitU64 mask);
 #endif

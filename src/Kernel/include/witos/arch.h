@@ -155,6 +155,13 @@ WitU64 wit_arch_cache_size(void);
 /* The running processor's hardware identity (the APIC id; the MPIDR affinity) and its ISA feature words (K7.1). */
 WitU64 wit_arch_processor_id(void);
 WitU64 wit_arch_processor_features(void);
+/* Secondary processors (K7.2): the boot processor prepares one (its stack, its interrupt frames, the registers it
+ * copies), starts it toward the architecture's entry with the kernel's number, and addresses it with an
+ * inter-processor interrupt of a kind of witos/cpu.h; a processor invalidates one translation of its own. */
+void wit_arch_secondary_prepare(const struct WitBootInfo *boot, WitU32 index, WitU64 hardware_id);
+int wit_arch_secondary_start(WitU32 index, WitU64 hardware_id);
+void wit_arch_ipi(WitU64 hardware_id, WitU32 kind);
+void wit_arch_invalidate_local(WitU64 address);
 void wit_arch_process_write_barrier(void);
 
 #endif

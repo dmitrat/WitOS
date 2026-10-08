@@ -1,3 +1,5 @@
+#include "witos/boot.h"
+#include "witos/cpu.h"
 #include "witos/platform.h"
 
 /* q35 legacy interrupt routing: the 8259 PIC pair and the 8254 PIT as the scheduler tick source. */
@@ -27,9 +29,12 @@ void wit_platform_timer_start(void)
 {
     const WitU64 apic = __readmsr(0x1B);
     require((apic & (1ULL << 10)) == 0, "x2APIC is unsupported by the bootstrap timer");
-    /* The controlled one-CPU PC backend uses the legacy PIC/PIT path.
-     * Disable local APIC delivery so it does not retain firmware routing. */
-    __writemsr(0x1B, apic & ~(1ULL << 11));
+    /* The PC backend uses the legacy PIC/PIT path. With one processor the local APIC is disabled so that it
+     * does not retain firmware routing; with secondary processors online (K7.2) the architecture enabled it
+     * with the PIC's line through LINT0, and it carries the inter-processor interrupts. */
+    if (wit_cpus_online() == 1) {
+        __writemsr(0x1B, apic & ~(1ULL << 11));
+    }
     __outbyte(0x21, 0xFF);
     __outbyte(0xA1, 0xFF);
     __outbyte(0x20, 0x11);
@@ -119,4 +124,32 @@ void wit_platform_line_complete(WitU32 line)
 void wit_platform_timer_acknowledge(void)
 {
     __outbyte(0x20, 0x20); /* Non-specific EOI to the master PIC. */
+}
+
+/* Secondary processors (K7.2): q35's inter-processor interrupts are the local APIC's, the architecture's business;
+ * the PIC path has nothing to prepare or enable per processor. */
+void wit_platform_processor_prepare(const WitBootInfo *boot, WitU32 index, WitU64 hardware_id)
+{
+    (void)boot;
+    (void)index;
+    (void)hardware_id;
+}
+
+void wit_platform_processor_interrupts_enable(WitU32 index, WitU64 hardware_id)
+{
+    (void)index;
+    (void)hardware_id;
+}
+
+void wit_platform_ipi(WitU64 hardware_id, WitU32 kind)
+{
+    (void)hardware_id;
+    (void)kind;
+    wit_panic("The q35 platform has no inter-processor interrupt of its own");
+}
+
+void wit_platform_ipi_complete(WitU32 number)
+{
+    (void)number;
+    wit_panic("The q35 platform has no inter-processor interrupt of its own");
 }

@@ -24,6 +24,8 @@ int wit_pages_initialize(WitPageAllocator *allocator, const WitMemoryRegion *reg
 int wit_page_allocate(WitPageAllocator *allocator, WitU64 *physical_address);
 int wit_page_free(WitPageAllocator *allocator, WitU64 physical_address);
 int wit_page_is_allocated(const WitPageAllocator *allocator, WitU64 physical_address);
+int wit_page_claim(WitPageAllocator *allocator, WitU64 physical_address);
+WitPageAllocator *wit_physical_pages(void);
 WitU64 wit_pages_free_count(const WitPageAllocator *allocator);
 void wit_memory_self_test(const WitBootInfo *boot, WitPageAllocator *allocator);
 

@@ -7,7 +7,8 @@
   "sources": [
     "tests/Kernel/memory_tests.c",
     "tests/Kernel/clock_tests.c",
-    "tests/Kernel/processor_tests.c"
+    "tests/Kernel/processor_tests.c",
+    "tests/Kernel/smp_tests.c"
   ],
   "assembly": []
 }

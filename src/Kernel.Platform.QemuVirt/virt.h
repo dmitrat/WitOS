@@ -10,6 +10,8 @@
 #define WIT_VIRT_GICD_BASE 0x08000000ULL
 #define WIT_VIRT_GICR_BASE 0x080A0000ULL /* Redistributor of the boot processor. */
 #define WIT_VIRT_GICR_SGI_BASE 0x080B0000ULL
+#define WIT_VIRT_GICR_STRIDE 0x20000ULL /* the two frames of each processor's redistributor (K7.2) */
+#define WIT_VIRT_GICR_SGI_OFFSET 0x10000ULL
 
 struct WitBootInfo;
 
@@ -25,6 +27,8 @@ void wit_virt_interrupts_map(const struct WitBootInfo *boot);
 
 /* GICv3 CPU interface and EL1 virtual timer (gic.asm). */
 void wit_virt_gic_cpu_enable(void);
+/* ICC_SGI1R_EL1: a software-generated interrupt to the processors the value names (K7.2). */
+void wit_virt_gic_send_sgi(WitU64 value);
 WitU64 wit_virt_gic_acknowledge(void);
 void wit_virt_gic_complete(WitU64 interrupt);
 void wit_virt_timer_arm(WitU64 ticks);

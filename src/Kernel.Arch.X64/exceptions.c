@@ -10,6 +10,8 @@ void _disable(void);
 __declspec(align(16)) static WitU64 gdt[7];
 __declspec(align(16)) static WitInterruptGate idt[256];
 static WitTaskState task_state;
+static WitDescriptorPointer gdt_pointer; /* loaded by every processor (K7.2) */
+static WitDescriptorPointer idt_pointer;
 
 void wit_arch_initialize(void)
 {
@@ -17,8 +19,6 @@ void wit_arch_initialize(void)
     const WitU64 stack_begin = (WitU64)wit_x64_kernel_stack + 4096;
     const WitU64 tss_base = (WitU64)&task_state;
     const WitU64 tss_limit = sizeof(task_state) - 1;
-    WitDescriptorPointer gdt_pointer;
-    WitDescriptorPointer idt_pointer;
 
     if (stack_pointer < stack_begin || stack_pointer >= stack_begin + WIT_KERNEL_STACK_SIZE) {
         wit_panic("Not running on kernel stack");
@@ -63,6 +63,13 @@ void wit_arch_initialize(void)
     wit_x64_load_tables(&gdt_pointer, &idt_pointer);
     wit_x64_enable_syscall();
     wit_console_write("[TEST-PASS] Cpu.ExceptionTables\n");
+}
+
+/* The kernel's tables for a secondary processor's entry: it loads them without a task register (K7.2). */
+void wit_x64_tables(const WitDescriptorPointer **gdt_out, const WitDescriptorPointer **idt_out)
+{
+    *gdt_out = &gdt_pointer;
+    *idt_out = &idt_pointer;
 }
 
 void wit_x64_set_kernel_stack(WitU64 top)

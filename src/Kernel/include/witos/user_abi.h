@@ -25,7 +25,7 @@
  * arguments, RAX=status and RDX=result, other GPRs and x87/SSE state preserved, RFLAGS reset to 0x202; on ARM64
  * SVC #0 with x8=call, x0-x2 arguments, x0=status and x1=result. A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
-#define WIT_ABI_VERSION 63U
+#define WIT_ABI_VERSION 64U
 /* QUERY result: the low 32 bits are WIT_ABI_VERSION, the high 32 bits the mask of the families present. */
 #define WIT_ABI_FEATURE_CHANNELS 1U
 #define WIT_ABI_FEATURE_DEVICES 2U
@@ -33,7 +33,11 @@
 #define WIT_ABI_FEATURE_UTC 8U
 #define WIT_ABI_FEATURE_SMP 16U
 #define WIT_ABI_FEATURES \
-    (WIT_ABI_FEATURE_CHANNELS | WIT_ABI_FEATURE_DEVICES | WIT_ABI_FEATURE_PROCESSES | WIT_ABI_FEATURE_UTC)
+    (WIT_ABI_FEATURE_CHANNELS | \
+        WIT_ABI_FEATURE_DEVICES | \
+        WIT_ABI_FEATURE_PROCESSES | \
+        WIT_ABI_FEATURE_UTC | \
+        WIT_ABI_FEATURE_SMP)
 #define WIT_ABI_STARTUP_SIZE 24U
 /* Existing single-module compiler TLS page layout of the frozen line; not a Windows TEB. */
 #define WIT_COMPILER_TLS_DATA_OFFSET 256U

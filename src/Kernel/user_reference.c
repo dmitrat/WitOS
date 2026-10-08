@@ -144,7 +144,8 @@ WitU64 wit_user_thread_query(WitUserProcess *p, WitU64 handle, WitU64 address, W
     info.Version = WIT_THREAD_INFO_VERSION;
     info.Size = sizeof(info);
     info.ProcessId = p->Id;
-    info.ProcessorCount = wit_processors_online();
+    /* The processors this process's threads run on: the boot processor until phase P. */
+    info.ProcessorCount = wit_processors_scheduling();
     if (handle == WIT_THREAD_SELF) {
         target = &p->Threads[p->CurrentThread];
         info.Rights = WIT_RIGHT_THREAD_ALL;

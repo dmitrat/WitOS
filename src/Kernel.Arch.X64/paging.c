@@ -344,6 +344,17 @@ void wit_arch_map_device_page(const WitBootInfo *boot, WitU64 physical)
         "Device page permissions failed");
 }
 
+/* The trampoline page of secondary processors (K7.2): one usable page below 1 MiB that must execute. */
+void wit_x64_page_executable(WitU64 address)
+{
+    WitU64 *entry;
+    require(active && address < 0x100000ULL && (address & 4095) == 0, "Invalid trampoline page");
+    entry = leaf(address, 0);
+    require(entry != 0 && (*entry & PTE_PRESENT), "Trampoline page is not mapped");
+    *entry &= ~PTE_NX;
+    __invlpg((void *)address);
+}
+
 WitU64 wit_virtual_kernel_root(void)
 {
     return root_table;

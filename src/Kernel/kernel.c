@@ -7,12 +7,19 @@
 #include "witos/virtual.h"
 #include "witos/clock.h"
 #include "witos/processor.h"
+#include "witos/cpu.h"
 #include "witos/arch.h"
 #include "witos/platform.h"
 #include "witos/user_abi.h"
 #include "build_info.h"
 
 static WitPageAllocator physical_pages;
+
+WitPageAllocator *wit_physical_pages(void)
+{
+    return &physical_pages;
+}
+
 static const WitBootInfo *boot_info;
 #if defined(WITOS_SELFTEST)
 void wit_kernel_self_test(const WitBootInfo *boot, WitPageAllocator *pages);
@@ -153,6 +160,7 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
     wit_platform_clock_initialize(boot);
     wit_clock_initialize();
     wit_processors_initialize(boot);
+    wit_cpus_initialize(boot);
     wit_devices_initialize(boot, &physical_pages);
 #if defined(WITOS_SELFTEST)
     wit_kernel_self_test(boot, &physical_pages);

@@ -2,6 +2,7 @@
 #include "witos/platform.h"
 #include "witos/random.h"
 #include "witos/clock.h"
+#include "witos/cpu.h"
 
 /* System call table of the running component: ABI-1 of RFC 0011 v3 section 7 in the layout of user_abi.h. Each
  * handler receives the call and its arguments, writes the status and value of the caller's frame and returns 0
@@ -464,25 +465,26 @@ static WitArchFrame *thread_activate(WitUserCall *call)
     return 0;
 }
 
-/* Processor services exist only while the boot processor is the one online (K7.2 starts the others). */
+/* PROCESS_WRITE_BARRIER (RFC 0011 section 7.9): a fence on every online processor — this one, and the others through
+ * the inter-processor interrupt the boot processor waits for (K7.2). */
 static WitArchFrame *process_write_barrier(WitUserCall *call)
 {
     if (has_arguments(call)) {
         *call->Status = WIT_STATUS_INVALID_ARGUMENT;
-    } else if (wit_processors_online() != 1) {
-        *call->Status = WIT_STATUS_UNSUPPORTED;
     } else {
         wit_arch_process_write_barrier();
+        wit_cpus_fence_all();
         ++call->Process->ProcessWriteBarriers;
     }
     return 0;
 }
 
+/* The frozen line's cache size: the one processor its threads run on. */
 static WitArchFrame *cpu_cache_size(WitUserCall *call)
 {
     if (has_arguments(call)) {
         *call->Status = WIT_STATUS_INVALID_ARGUMENT;
-    } else if (wit_processors_online() != 1) {
+    } else if (wit_processors_scheduling() != 1) {
         *call->Status = WIT_STATUS_UNSUPPORTED;
     } else {
         *call->Value = wit_arch_cache_size();

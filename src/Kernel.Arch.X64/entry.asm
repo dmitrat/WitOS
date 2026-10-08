@@ -8,6 +8,8 @@ EXTERN wit_x64_restore_context:PROC
 EXTERN wit_x64_timer_entry:PROC
 EXTERN wit_x64_user_syscall_entry:PROC
 EXTERN wit_x64_device_entry:PROC
+EXTERN wit_x64_ipi_entry:PROC
+EXTERN wit_x64_ipi_vector:DWORD
 EXTERN wit_x64_device_vector:DWORD
 
 EXTERN wit_x64_kernel_stack:BYTE
@@ -62,6 +64,10 @@ isr&number PROC
         ; A PIC input of a device line (K3.2): the vector is noted for the one processor with interrupts disabled.
         mov DWORD PTR [wit_x64_device_vector], number
         jmp wit_x64_device_entry
+    ELSEIF (number EQ 240) OR (number EQ 241)
+        ; An inter-processor interrupt on a secondary processor (K7.2): one in flight at a time.
+        mov DWORD PTR [wit_x64_ipi_vector], number
+        jmp wit_x64_ipi_entry
     ELSE
     ; These CPU exceptions push an error code; all other vectors need a zero.
     IF (number NE 8) AND (number NE 10) AND (number NE 11) AND (number NE 12) AND (number NE 13) AND (number NE 14) AND (number NE 17) AND (number NE 21) AND (number NE 29) AND (number NE 30)
