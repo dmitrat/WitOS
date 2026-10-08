@@ -22,7 +22,8 @@ internal static class BootPackage
     /// <param name="assemblies">Whether to include the unchanged guest assemblies.</param>
     /// <param name="nativeLibraries">Whether to include the native library fixtures.</param>
     /// <returns>Package bytes.</returns>
-    internal static async Task<byte[]> BuildAsync(string root, string output, bool assemblies, bool nativeLibraries = false)
+    internal static async Task<byte[]> BuildAsync(string root, string output, bool assemblies, bool nativeLibraries = false,
+        bool libcFiles = false)
     {
         var files = new List<(string Name, ReadOnlyMemory<byte> Bytes)>();
         var manifest = new List<object>();
@@ -102,6 +103,16 @@ internal static class BootPackage
                     "dotnet/shared/Microsoft.NETCore.App", version);
                 await Add("dotnet/shared/Microsoft.NETCore.App/" + version + "/Microsoft.NETCore.App.deps.json",
                     Path.Combine(installed, "Microsoft.NETCore.App.deps.json"));
+            }
+        }
+        if (libcFiles)
+        {
+            // The files the first libc program reads through the package (S1.2): a text file and a directory of two.
+            foreach (var (name, text) in new[] { ("test/hello.txt", "Hello, package!\nsecond line\n"), ("test/dir/a.txt", "a\n"), ("test/dir/b.txt", "bb\n") })
+            {
+                var bytes = Encoding.ASCII.GetBytes(text);
+                files.Add((name, bytes));
+                manifest.Add(new { name, source = (string?)null, bytes = bytes.Length, sha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant() });
             }
         }
         if (assemblies)
