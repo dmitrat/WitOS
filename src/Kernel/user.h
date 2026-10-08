@@ -35,11 +35,11 @@ typedef struct WitUserSpace {
     WitU64 AliasPhysical[WIT_RUNTIME_PAGE_CAPACITY];
     WitU32 AliasCount;
     WitCodeView CodeViews[WIT_CODE_VIEW_CAPACITY];
-    WitUserReservation Reservations[WIT_RUNTIME_RESERVATION_CAPACITY];
+    WitUserReservation Reservations[WIT_PROCESS_RESERVATION_CAPACITY]; /* ReservationLimit of them in use */
     /* Per reservation: the memory object it maps (its nonzero number; zero for a plain reservation) and the rights
      * of the handle that mapped it, which bound its protection. */
-    WitU32 MappedObjects[WIT_RUNTIME_RESERVATION_CAPACITY];
-    WitU32 MappedRights[WIT_RUNTIME_RESERVATION_CAPACITY];
+    WitU32 MappedObjects[WIT_PROCESS_RESERVATION_CAPACITY];
+    WitU32 MappedRights[WIT_PROCESS_RESERVATION_CAPACITY];
     WitVirtualRange LibraryRanges[WIT_LIBRARY_CAPACITY + 1];
     /* OwnedCount pages are the space's own; ChargedPages are the pages of the live memory objects the component
      * created (K5.2b), which the kernel's table owns: together they are bounded by PageLimit. */

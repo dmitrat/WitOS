@@ -276,7 +276,7 @@ int wit_user_space_create_profile(WitUserSpace *space, WitPageAllocator *allocat
         space->CodeViews[i] = (WitCodeView){0};
     }
     space->Root = 0;
-    for (WitU32 i = 0; i < WIT_RUNTIME_RESERVATION_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_RESERVATION_CAPACITY; ++i) {
         space->Reservations[i].Size = 0;
         space->MappedObjects[i] = 0;
         space->MappedRights[i] = 0;
@@ -1311,7 +1311,7 @@ void wit_user_space_destroy(WitUserSpace *space)
     for (WitU32 i = 0; i < WIT_CODE_VIEW_CAPACITY; ++i) {
         space->CodeViews[i] = (WitCodeView){0};
     }
-    for (WitU32 i = 0; i < WIT_RUNTIME_RESERVATION_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_RESERVATION_CAPACITY; ++i) {
         space->Reservations[i].Size = 0;
         space->MappedObjects[i] = 0;
         space->MappedRights[i] = 0;

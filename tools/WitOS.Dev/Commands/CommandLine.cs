@@ -54,7 +54,11 @@ internal static class CommandLine
             KernelImageBuilder.SPAWN_SCENARIO,
             architecture => [new BootRequest("spawn-256", 256, 60, ExpectedOutcome.Success)
             {
-                RequiredLines = [architecture.SpawnChildLine, architecture.DynamicPassedLine, architecture.SpawnPassedLine]
+                RequiredLines =
+                [
+                    architecture.SpawnChildLine, architecture.DynamicPassedLine, architecture.PhaseSPassedLine,
+                    architecture.CxxPassedLine, architecture.SpawnPassedLine
+                ]
             }]),
         new CommandFormat(check: false),
         new CommandFormat(check: true),

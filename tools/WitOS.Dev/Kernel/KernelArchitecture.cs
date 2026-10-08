@@ -96,6 +96,12 @@ internal sealed record KernelArchitecture(string Name, string MsvcTarget, string
     public string DynamicPassedLine => $"[DYNAMIC] dynamic program on {Triple[..Triple.IndexOf('-')]}: ";
 
     /// <summary>
+    /// The line the acceptance program of phase S prints when its checks passed: a dynamic C++ program with threads,
+    /// exceptions across modules and a signal over the shared C++ runtime (S5.4).
+    /// </summary>
+    public string PhaseSPassedLine => $"[PHASE-S] dynamic C++ program on {Triple[..Triple.IndexOf('-')]}: ";
+
+    /// <summary>
     /// The first line of the program the spawn scenario starts: a static position-independent program relocated at its
     /// start, with its arguments, in a process of its own (S5.2).
     /// </summary>

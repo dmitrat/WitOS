@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/llvm/llvm-project",
   "tag": "llvmorg-20.1.8",
-  "purpose": "The helpers clang emits calls to and the pinned LLVM package does not ship for the Linux triples: the IEEE binary128 soft-float builtins for long double on aarch64 (musl's printf, strtod and the long double mathematics, S1.1) and the complex multiplication builtins musl's complex functions need, which libc.so links whole (S5.3); compiled for the system layer from compiler-rt's generic sources.",
+  "purpose": "The helpers clang emits calls to and the pinned LLVM package does not ship for the Linux triples: the IEEE binary128 soft-float builtins for long double on aarch64 (musl's printf, strtod and the long double mathematics, S1.1), the complex multiplication builtins musl's complex functions need, which libc.so links whole (S5.3), the 128-bit integer division builtins libc++'s filesystem clock needs, which libc++.so links whole, and crtbegin.c, the start object of every dynamic image, which gives a module its hidden __dso_handle (S5.4); compiled for the system layer from compiler-rt's sources.",
   "sources": [
     {
       "path": "compiler-rt/LICENSE.TXT",
@@ -165,6 +165,34 @@
     {
       "path": "compiler-rt/lib/builtins/multc3.c",
       "sha256": "826cabd0ba1ac5a249b1ff5661b26a98aba7ebcbc251fdaebed64c20216e968c"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/crtbegin.c",
+      "sha256": "e2f5ef3d814f49a371b9f34c4a6272e0f9b9e47e55c7d73e8ccf6415bff4c12a"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/int_div_impl.inc",
+      "sha256": "833906405d418f0f421d6155acc5abf79d9902ed37a44903d01c95ff55d3a010"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/udivmodti4.c",
+      "sha256": "2cfaca7399d1392c92ec4dd6458da22933b4ad2e0cd58769f22b52be98116760"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/udivti3.c",
+      "sha256": "c0b20f06f6e0e8a6b5423ca6674cf0c57219d07554f6f35c9ecc36bf28915355"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/umodti3.c",
+      "sha256": "3d88088419d87b486858a4bf54ff08209944ae526c77b8dc5e0c0b6b8001c1e9"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/divti3.c",
+      "sha256": "b8392be2b070cda2a01bc33c7912e06ab83ce9a1ec7995fe0acbe44540cf92ae"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/modti3.c",
+      "sha256": "23b5f5af57a8a3ccdab785eec6e486bffef932cee87ff1152b3beedaa6296414"
     }
   ]
 }

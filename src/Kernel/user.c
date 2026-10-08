@@ -663,8 +663,9 @@ int wit_user_create_flat(WitUserProcess *process, WitPageAllocator *allocator, W
         return 0;
     }
     reset_process(process, slot, 0, 0, 0);
-    /* The root task is the system layer (S1.3): the full profile's handles, events, pages, reservations and the
-     * wider fixed window, as a created process gets them, so that a libc program and later the runtime fit. */
+    /* The root task is the system layer (S1.3): the full profile's handles, events, pages and the wider fixed window,
+     * as a created process gets them, so that a libc program and later the runtime fit, and the system layer's
+     * reservation table (S5.4). */
     process->Handles.Limit = WIT_RUNTIME_HANDLE_CAPACITY;
     process->Events.Limit = WIT_RUNTIME_EVENT_CAPACITY;
     process->TickLimit = WIT_RUNTIME_TICK_BUDGET;
@@ -677,6 +678,7 @@ int wit_user_create_flat(WitUserProcess *process, WitPageAllocator *allocator, W
         !wit_user_space_map(&process->Space, WIT_USER_INFO, 0, 0)) {
         goto failed;
     }
+    process->Space.ReservationLimit = WIT_PROCESS_RESERVATION_CAPACITY;
     for (WitU64 page = WIT_USER_DATA; page < WIT_USER_DATA_END; page += 4096) {
         if (!wit_user_space_map(&process->Space, page, 1, 0)) {
             goto failed;
@@ -784,6 +786,7 @@ int wit_user_create_empty(WitUserProcess *process, WitPageAllocator *allocator, 
         return 0;
     }
     process->Space.PageLimit = pages;
+    process->Space.ReservationLimit = WIT_PROCESS_RESERVATION_CAPACITY; /* the system layer's table (S5.4) */
     process->State = WitUserRunning;
     return 1;
 }

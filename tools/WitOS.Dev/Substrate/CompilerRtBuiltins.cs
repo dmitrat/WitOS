@@ -9,9 +9,11 @@ namespace WitOS.Dev.Substrate;
 
 /// <summary>
 /// The compiler's runtime helpers a program needs beside the libc (plan step S1.1): compiler-rt's generic soft-float
-/// builtins for IEEE binary128, which clang emits for <c>long double</c> on aarch64, and the complex multiplication
-/// builtins musl's complex functions call, which libc.so links whole (S5.3); the pinned LLVM package ships none of
-/// them for the Linux triples. The files are pinned by SHA-256 at the toolchain's own tag in
+/// builtins for IEEE binary128, which clang emits for <c>long double</c> on aarch64, the complex multiplication
+/// builtins musl's complex functions call, which libc.so links whole (S5.3), the 128-bit integer division builtins
+/// libc++.so needs (S5.4), and crtbegin.c, built apart as
+/// crtbeginS.o, the start object clang's driver links into every dynamic image for its hidden __dso_handle (S5.4);
+/// the pinned LLVM package ships none of them for the Linux triples. The files are pinned by SHA-256 at the toolchain's own tag in
 /// src/Substrate/compiler-rt.lock.json, downloaded once into .tools/compiler-rt, verified on every use and compiled
 /// unchanged with the pinned clang into builtins.a for each architecture.
 /// </summary>
@@ -25,6 +27,8 @@ internal static class CompilerRtBuiltins
     public const string LOCK = "src/Substrate/compiler-rt.lock.json";
 
     private const string REPOSITORY = "https://github.com/llvm/llvm-project";
+
+    private const string CRT_BEGIN = "/crtbegin.c";
 
     #endregion
 
@@ -110,7 +114,7 @@ internal static class CompilerRtBuiltins
         File.Delete(stampPath);
         var arch = MuslLibc.MuslArchitecture(architecture);
         var objects = new List<string>();
-        foreach (var source in pin.Sources.Where(source => source.Path.EndsWith(".c", StringComparison.Ordinal)))
+        foreach (var source in pin.Sources.Where(source => source.Path.EndsWith(".c", StringComparison.Ordinal) && !source.Path.EndsWith(CRT_BEGIN, StringComparison.Ordinal)))
         {
             // An architecture directory holds that architecture's file alone, and a file compiler-rt's CMake lists for some
             // architectures names them (mulxc3.c: x86's 80-bit long double); the rest is generic.
@@ -132,6 +136,34 @@ internal static class CompilerRtBuiltins
         await File.WriteAllTextAsync(stampPath, stamp);
         Console.WriteLine($"compiler-rt builtins {pin.Tag} for {architecture.Triple}: {objects.Count} objects.");
         return archive;
+    }
+
+    /// <summary>
+    /// Compiles compiler-rt's crtbegin.c into crtbeginS.o, the first object of every dynamic image (S5.4): a module's
+    /// hidden __dso_handle, which C++ code passes to __cxa_atexit, and the module's finalization through
+    /// __cxa_finalize. Built as compiler-rt's CMake builds its CRT objects for a target with init and fini arrays, and
+    /// position-independent; without the frame registry, since every image carries .eh_frame_hdr.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="includes">Include directories of the C library.</param>
+    /// <returns>Path of the object.</returns>
+    public static async Task<string> BuildCrtBeginAsync(string root, KernelArchitecture architecture, IEnumerable<string> includes)
+    {
+        var pin = await ReadPinAsync(root);
+        var cache = await PrepareAsync(root);
+        var source = pin.Sources.Single(entry => entry.Path.EndsWith(CRT_BEGIN, StringComparison.Ordinal));
+        var output = Path.Combine(root, "artifacts", "substrate", architecture.Name, "builtins");
+        Directory.CreateDirectory(output);
+        var obj = Path.Combine(output, "crtbeginS.o");
+        await Processes.RequireSuccessAsync(Toolchain.Clang(root),
+        [
+            $"--target={architecture.Triple}", "-std=c11", "-O2", "-ffreestanding", "-fPIC", "-fno-stack-protector",
+            "-fno-unwind-tables", "-fno-asynchronous-unwind-tables", "-DCRT_HAS_INITFINI_ARRAY", "-nostdlibinc", "-w",
+            .. architecture.ClangOptions, .. includes.SelectMany(include => new[] { "-isystem", include }),
+            "-c", Path.Combine(cache, source.Path), "-o", obj
+        ], root);
+        return obj;
     }
 
     #endregion

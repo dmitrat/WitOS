@@ -4,6 +4,7 @@
 #include "witos/memory_object.h"
 #include "witos/device.h"
 #include "witos/channels.h"
+#include "witos/memory_info.h"
 #include "witos/syscall.h"
 
 /* The root task fixture (RFC 0011 v3 section 7.11, plan steps K4 and T1): the first component the kernel starts
@@ -173,5 +174,10 @@ ENTRY_ATTRIBUTES WIT_NORETURN void wit_user_start(const WitRootStartup *startup)
     expect(WIT_CALL_HANDLE_CLOSE, fixed, 0, 0, WIT_STATUS_OK);
     expect(WIT_CALL_HANDLE_CLOSE, ends[0], 0, 0, WIT_STATUS_OK);
     expect(WIT_CALL_HANDLE_CLOSE, ends[1], 0, 0, WIT_STATUS_OK);
+
+    /* The system layer's reservation table (S5.4): what a dynamic program's mappings and threads need. */
+    WitUserMemoryInfo memory;
+    expect(WIT_CALL_MEMORY_QUERY, (WitU64)&memory, sizeof(memory), WIT_MEMORY_INFO_VERSION, WIT_STATUS_OK);
+    check(memory.ReservationCapacity == WIT_PROCESS_RESERVATION_CAPACITY, 16);
     exit_process(0); /* a root task exits with zero; the kernel treats anything else as failure */
 }
