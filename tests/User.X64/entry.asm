@@ -171,6 +171,7 @@ wit_user_start PROC
 memory_start:
     mov rcx, 0800000000h ; 32 GiB reservation
     mov edx, 0200000h
+    xor r8d, r8d ; no fixed address (S5.1)
     mov eax, WIT_CALL_MEMORY_RESERVE
     int 80h
     EXPECT WIT_STATUS_OK
@@ -288,6 +289,7 @@ memory_start:
     jne failed
     mov QWORD PTR [rbx], 2222h
     mov rcx, rbx
+    xor edx, edx ; the whole reservation (S5.1)
     mov eax, WIT_CALL_MEMORY_RELEASE
     int 80h
     EXPECT WIT_STATUS_OK
@@ -301,12 +303,14 @@ memory_start:
     int 80h
     EXPECT WIT_STATUS_NOT_RESERVED
     mov rcx, rbx
+    xor edx, edx ; the whole reservation (S5.1)
     mov eax, WIT_CALL_MEMORY_RELEASE
     int 80h
     EXPECT WIT_STATUS_NOT_RESERVED
 
     mov ecx, 8192
     mov edx, 4096
+    xor r8d, r8d ; no fixed address (S5.1)
     mov eax, WIT_CALL_MEMORY_RESERVE
     int 80h
     EXPECT WIT_STATUS_OK
@@ -361,12 +365,14 @@ memory_start:
     EXPECT WIT_STATUS_BAD_ADDRESS
     mov ecx, 4096
     mov edx, 12288
+    xor r8d, r8d ; no fixed address (S5.1)
     mov eax, WIT_CALL_MEMORY_RESERVE
     int 80h
     EXPECT WIT_STATUS_INVALID_ARGUMENT
     test rdx, rdx
     jne failed
     mov rcx, rbx
+    xor edx, edx ; the whole reservation (S5.1)
     mov eax, WIT_CALL_MEMORY_RELEASE
     int 80h
     EXPECT WIT_STATUS_OK

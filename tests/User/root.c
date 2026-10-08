@@ -109,7 +109,11 @@ ENTRY_ATTRIBUTES WIT_NORETURN void wit_user_start(const WitRootStartup *startup)
     const WitU64 header = map_object(package, 4096, WIT_MEMORY_READ, WIT_STATUS_OK);
     check(*(const volatile WitU64 *)header == PACKAGE_MAGIC, 10);
     map_object(package, 4096, WIT_MEMORY_READ | WIT_MEMORY_WRITE, WIT_STATUS_DENIED);
-    expect(WIT_CALL_MEMORY_RELEASE, header, 0, 0, WIT_STATUS_OK);
+    expect(WIT_CALL_MEMORY_RELEASE, header, 4096, 0, WIT_STATUS_OK); /* a mapping's own size releases it whole */
+    /* Code loads from the package (S5.1): an executable view is granted and published, never a writable one. */
+    const WitU64 code = map_object(package, 4096, WIT_MEMORY_READ | WIT_MEMORY_EXECUTE, WIT_STATUS_OK);
+    expect(WIT_CALL_CODE_PUBLISH, code, 4096, 0, WIT_STATUS_OK);
+    expect(WIT_CALL_MEMORY_RELEASE, code, 0, 0, WIT_STATUS_OK);
 
     /* The device table: a version 1 table with at least one descriptor. */
     const WitU64 table = map_object(startup->Handles[WIT_ROOT_HANDLE_DEVICES], 4096, WIT_MEMORY_READ, WIT_STATUS_OK);

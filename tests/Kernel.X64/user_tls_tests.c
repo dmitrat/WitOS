@@ -251,7 +251,7 @@ static void rollback(WitPageAllocator *pages)
         WitU64 arena, result = 99;
         WitU32 count = 0;
         WitU64 free_before;
-        require(wit_user_memory_reserve(&process.Space, 128 * 4096, 4096, &arena) == WIT_STATUS_OK,
+        require(wit_user_memory_reserve(&process.Space, 128 * 4096, 4096, 0, &arena) == WIT_STATUS_OK,
             "TLS OOM reserve failed");
         while (wit_user_memory_commit(&process.Space, arena + count * 4096ULL, 4096, 3) == WIT_STATUS_OK) {
             ++count;
@@ -272,7 +272,8 @@ static void rollback(WitPageAllocator *pages)
         require(!wit_user_space_physical(&process.Space, WIT_USER_TLS + WIT_USER_THREAD_STRIDE, 0, 0) &&
                 !wit_user_space_physical(&process.Space, WIT_USER_TLS + WIT_USER_THREAD_STRIDE + 4096, 0, 0),
             "TLS rollback retained mapping");
-        require(wit_user_memory_release(&process.Space, arena) == WIT_STATUS_OK && process.Space.OwnedCount == required,
+        require(
+            wit_user_memory_release(&process.Space, arena, 0) == WIT_STATUS_OK && process.Space.OwnedCount == required,
             "TLS OOM cleanup failed");
     }
     wit_user_destroy(&process);

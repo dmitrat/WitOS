@@ -187,7 +187,7 @@ static void memory_profile(WitPageAllocator *pages)
     require(process.Handles.Count == handles && !process.Events.Count, "Runtime resource quota probe leaked");
     WitU64 base = 0;
     const WitU64 span = WIT_RUNTIME_PAGE_CAPACITY * 4096ULL;
-    require(wit_user_memory_reserve(&process.Space, span, 4096, &base) == WIT_STATUS_OK &&
+    require(wit_user_memory_reserve(&process.Space, span, 4096, 0, &base) == WIT_STATUS_OK &&
             wit_pages_free_count(pages) == before,
         "Runtime reserve consumed backing pages");
     require(wit_user_memory_commit(&process.Space, base, span, 3) == WIT_STATUS_NO_MEMORY &&
@@ -208,7 +208,7 @@ static void memory_profile(WitPageAllocator *pages)
             info->DynamicCommittedBytes == 129 * 4096ULL,
         "Runtime memory quotas/accounting were hidden");
     require(wit_user_memory_reset(&process.Space, base, 129 * 4096ULL) == WIT_STATUS_OK &&
-            wit_user_memory_release(&process.Space, base) == WIT_STATUS_OK &&
+            wit_user_memory_release(&process.Space, base, 0) == WIT_STATUS_OK &&
             process.Space.OwnedCount == owned &&
             wit_pages_free_count(pages) == before,
         "Runtime reset/release leaked backing");

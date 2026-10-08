@@ -25,7 +25,7 @@
  * arguments, RAX=status and RDX=result, other GPRs and x87/SSE state preserved, RFLAGS reset to 0x202; on ARM64
  * SVC #0 with x8=call, x0-x2 arguments, x0=status and x1=result. A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
-#define WIT_ABI_VERSION 66U
+#define WIT_ABI_VERSION 67U
 /* QUERY result: the low 32 bits are WIT_ABI_VERSION, the high 32 bits the mask of the families present. */
 #define WIT_ABI_FEATURE_CHANNELS 1U
 #define WIT_ABI_FEATURE_DEVICES 2U
@@ -56,11 +56,14 @@
  * output through the board console; it is not the terminal of RFC 0020. */
 #define WIT_CALL_DEBUG_WRITE 4U
 
-/* Memory (RFC 0011 section 7.2). Calls operate on the current process's dynamic arena. Reserve(size, alignment)
- * returns a base; commit/protect(base, size, protection), decommit(base, size), release(exact reservation base)
- * return zero. Nonzero sizes and addresses are page-aligned; alignment is a power of two >= 4 KiB. Commit preserves
- * existing pages and rolls back all additions on failure; protect is all-or-nothing; decommit is idempotent within
- * one reservation. */
+/* Memory (RFC 0011 section 7.2). Calls operate on the current process's dynamic arena. Reserve(size, alignment,
+ * address or 0) returns a base: a nonzero address (S5.1) reserves exactly there, aligned as asked, in one arena and
+ * overlapping nothing (BUSY), DENIED over a library range; commit/protect(base, size, protection), decommit(base,
+ * size), release(base, size or 0) return zero: release of size 0 takes the whole reservation at its exact base, a
+ * nonzero size (S5.1) a part of one plain reservation, which shrinks or splits in two (NO_MEMORY without a free
+ * slot); a mapping of an object is released whole (DENIED otherwise). Nonzero sizes and addresses are page-aligned;
+ * alignment is a power of two >= 4 KiB. Commit preserves existing pages and rolls back all additions on failure;
+ * protect is all-or-nothing; decommit is idempotent within one reservation. */
 #define WIT_CALL_MEMORY_RESERVE 10U
 #define WIT_CALL_MEMORY_COMMIT 11U
 #define WIT_CALL_MEMORY_DECOMMIT 12U

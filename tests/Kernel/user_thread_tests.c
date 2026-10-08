@@ -78,7 +78,7 @@ static void allocation_failure(WitPageAllocator *pages)
      * private paging levels back the otherwise empty dynamic arena. */
     for (WitU32 remaining = 0; remaining < stackPages + 1; ++remaining) {
         const WitU64 size = (WIT_USER_PAGE_CAPACITY - baseline - 3ULL - remaining) * 4096;
-        require(wit_user_memory_reserve(&process.Space, size, 4096, &base) == WIT_STATUS_OK &&
+        require(wit_user_memory_reserve(&process.Space, size, 4096, 0, &base) == WIT_STATUS_OK &&
                 wit_user_memory_commit(&process.Space, base, size, 3) == WIT_STATUS_OK &&
                 process.Space.OwnedCount == WIT_USER_PAGE_CAPACITY - remaining,
             "Thread OOM setup failed");
@@ -92,7 +92,7 @@ static void allocation_failure(WitPageAllocator *pages)
                 !wit_user_space_physical(&process.Space, WIT_USER_STACK_BOTTOM + WIT_USER_THREAD_STRIDE, 0, 0) &&
                 !wit_user_space_physical(&process.Space, WIT_USER_TLS + WIT_USER_THREAD_STRIDE, 0, 0),
             "Partial thread creation leaked");
-        require(wit_user_memory_release(&process.Space, base) == WIT_STATUS_OK &&
+        require(wit_user_memory_release(&process.Space, base, 0) == WIT_STATUS_OK &&
                 process.Space.OwnedCount == 9 + (WIT_USER_STACK_TOP - WIT_USER_STACK_BOTTOM) / 4096,
             "Thread OOM recovery leaked");
     }

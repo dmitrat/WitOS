@@ -239,9 +239,9 @@ static void sparse_views(WitPageAllocator *pages)
     WitUserSpace *space = &process.Space;
     WitU64 backing = 0, rx = 0, rw = 0;
     const WitU32 initial = space->OwnedCount, limit = space->PageLimit;
-    require(wit_user_memory_reserve(space, 65536, 65536, &backing) == WIT_STATUS_OK &&
+    require(wit_user_memory_reserve(space, 65536, 65536, 0, &backing) == WIT_STATUS_OK &&
             wit_user_code_reserve(space, 65536, 65536, 0, ~0ULL, &rx) == WIT_STATUS_OK &&
-            wit_user_memory_reserve(space, 65536, 65536, &rw) == WIT_STATUS_OK,
+            wit_user_memory_reserve(space, 65536, 65536, 0, &rw) == WIT_STATUS_OK,
         "Sparse reservations failed");
     const WitU64 free = wit_pages_free_count(pages);
     require(wit_user_code_map_sparse(space, rx, backing, 65536, 5) == WIT_STATUS_OK &&
@@ -250,7 +250,7 @@ static void sparse_views(WitPageAllocator *pages)
             !space->AliasCount &&
             wit_pages_free_count(pages) == free,
         "Sparse views consumed backing/tables");
-    require(wit_user_memory_release(space, backing) == WIT_STATUS_BUSY &&
+    require(wit_user_memory_release(space, backing, 0) == WIT_STATUS_BUSY &&
             wit_user_memory_commit(space, rx, 4096, 3) == WIT_STATUS_DENIED,
         "Sparse ownership contract bypassed");
     int committed = 0;
@@ -291,13 +291,13 @@ static void sparse_views(WitPageAllocator *pages)
             *(WitU8 *)wit_user_space_physical(space, rx, 0, 0) == 0xB8,
         "Late failed commit changed existing backing");
     space->PageLimit = limit;
-    require(
-        wit_user_memory_release(space, rw) == WIT_STATUS_OK && space->AliasCount == 2, "RW sparse view release failed");
+    require(wit_user_memory_release(space, rw, 0) == WIT_STATUS_OK && space->AliasCount == 2,
+        "RW sparse view release failed");
     require(wit_user_memory_commit(space, backing + 8192, 4096, 0) == WIT_STATUS_OK &&
             space->AliasCount == 3 &&
             wit_user_space_physical(space, rx + 8192, 0, 1),
         "Late commit did not update surviving RX view");
-    require(wit_user_memory_reserve(space, 65536, 65536, &rw) == WIT_STATUS_OK &&
+    require(wit_user_memory_reserve(space, 65536, 65536, 0, &rw) == WIT_STATUS_OK &&
             wit_user_code_map_sparse(space, rw, backing, 65536, 3) == WIT_STATUS_OK &&
             space->AliasCount == 6 &&
             wit_user_space_physical(space, rx + 8192, 0, 1) == wit_user_space_physical(space, rw + 8192, 1, 0),
@@ -310,10 +310,10 @@ static void sparse_views(WitPageAllocator *pages)
         "Sparse fixture input failed");
     wit_user_run(&process);
     require(process.State == WitUserExited && process.ExitCode == 42, "Sparse committed code did not execute");
-    require(wit_user_memory_release(space, backing) == WIT_STATUS_BUSY &&
-            wit_user_memory_release(space, rw) == WIT_STATUS_OK &&
-            wit_user_memory_release(space, rx) == WIT_STATUS_OK &&
-            wit_user_memory_release(space, backing) == WIT_STATUS_OK &&
+    require(wit_user_memory_release(space, backing, 0) == WIT_STATUS_BUSY &&
+            wit_user_memory_release(space, rw, 0) == WIT_STATUS_OK &&
+            wit_user_memory_release(space, rx, 0) == WIT_STATUS_OK &&
+            wit_user_memory_release(space, backing, 0) == WIT_STATUS_OK &&
             space->OwnedCount == initial &&
             !space->AliasCount,
         "Sparse view/backing teardown leaked");
@@ -340,14 +340,14 @@ void wit_user_code_self_test(WitPageAllocator *pages)
                     space->OwnedCount == fixedOwned &&
                     wit_pages_free_count(pages) == gapFree,
                 "Bounded code reservation consumed backing or missed alignment");
-            require(wit_user_memory_release(space, near) == WIT_STATUS_OK, "Bounded reservation release failed");
+            require(wit_user_memory_release(space, near, 0) == WIT_STATUS_OK, "Bounded reservation release failed");
             near = 99;
             require(wit_user_code_reserve(space, 8192, 4096, WIT_USER_CODE_BASE, WIT_USER_CODE_BASE + 4096, &near) ==
                         WIT_STATUS_NO_MEMORY &&
                     !near &&
                     space->OwnedCount == fixedOwned,
                 "Out-of-window reservation mutated ownership");
-            require(wit_user_memory_reserve(space, 8192, 4096, &address) == WIT_STATUS_OK, "Code reserve failed");
+            require(wit_user_memory_reserve(space, 8192, 4096, 0, &address) == WIT_STATUS_OK, "Code reserve failed");
             require(wit_user_memory_commit(space, address, 4096, 3) == WIT_STATUS_OK,
                 "Code initial writable commit failed");
             const WitU8 code[] = {0xB8, 42, 0, 0, 0, 0xC3}; // mov eax,42; ret -- x64 fixture, not a JIT claim.
@@ -407,7 +407,7 @@ void wit_user_code_self_test(WitPageAllocator *pages)
                     wit_user_code_alias(space, entryAddress + 8192, entryAddress, 4096, 5) == WIT_STATUS_NOT_COMMITTED,
                     "Alias chain accepted");
                 require(wit_user_memory_decommit(space, address, 8192) == WIT_STATUS_BUSY &&
-                        wit_user_memory_release(space, address) == WIT_STATUS_BUSY,
+                        wit_user_memory_release(space, address, 0) == WIT_STATUS_BUSY,
                     "Aliased backing was released");
                 ((WitU8 *)physical)[1] = 17;
                 require(((WitU8 *)wit_user_space_physical(space, entryAddress, 0, 0))[1] == 17,
@@ -462,12 +462,12 @@ void wit_user_code_self_test(WitPageAllocator *pages)
             }
             require(!process.Handles.Count && !process.Events.Count, "Code fixture handles leaked");
             if (aliases) {
-                require(wit_user_memory_release(space, address) == WIT_STATUS_BUSY,
+                require(wit_user_memory_release(space, address, 0) == WIT_STATUS_BUSY,
                     "Live alias lost its owner after execution");
-                require(wit_user_memory_release(space, aliasReservation) == WIT_STATUS_OK && !space->AliasCount,
+                require(wit_user_memory_release(space, aliasReservation, 0) == WIT_STATUS_OK && !space->AliasCount,
                     "Alias view teardown failed");
             }
-            require(wit_user_memory_release(space, address) == WIT_STATUS_OK && space->OwnedCount == fixedOwned,
+            require(wit_user_memory_release(space, address, 0) == WIT_STATUS_OK && space->OwnedCount == fixedOwned,
                 "Backing/table ownership was not restored exactly");
             wit_user_destroy(&process);
             require(wit_pages_free_count(pages) == before, "Code fixture leaked backing/tables");

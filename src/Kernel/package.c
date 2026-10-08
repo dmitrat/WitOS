@@ -100,9 +100,9 @@ static int find_index(const WitU8 *data, WitU32 count, const WitU8 *name, WitU32
     return 0;
 }
 
-static int zero_padding(const WitU8 *data, WitU64 size, WitU64 *cursor)
+static int zero_padding_to(const WitU8 *data, WitU64 size, WitU64 *cursor, WitU64 alignment)
 {
-    const WitU64 end = (*cursor + 7) & ~7ULL; /* cursor is already bounded by 128 MiB. */
+    const WitU64 end = (*cursor + alignment - 1) & ~(alignment - 1); /* cursor is already bounded by 128 MiB. */
     if (end > size) {
         return 0;
     }
@@ -113,6 +113,11 @@ static int zero_padding(const WitU8 *data, WitU64 size, WitU64 *cursor)
     }
     *cursor = end;
     return 1;
+}
+
+static int zero_padding(const WitU8 *data, WitU64 size, WitU64 *cursor)
+{
+    return zero_padding_to(data, size, cursor, 8);
 }
 
 WitPackageStatus wit_package_open(const WitU8 *data, WitU64 size, WitPackage *output)
@@ -173,6 +178,11 @@ WitPackageStatus wit_package_open(const WitU8 *data, WitU64 size, WitPackage *ou
     for (WitU32 i = 0; i < count; ++i) {
         const WitU8 *entry = data + 32 + (WitU64)i * 32;
         const WitU64 at = read64(entry + 8), length = read64(entry + 16);
+        /* A file of at least a page starts at a page boundary (S5.1), after zero padding, so that a loader maps its
+         * pages without a copy. */
+        if (length >= 4096 && !zero_padding_to(data, size, &cursor, 4096)) {
+            return WitPackageInvalid;
+        }
         if (at != cursor || length > size - cursor) {
             return WitPackageInvalid;
         }

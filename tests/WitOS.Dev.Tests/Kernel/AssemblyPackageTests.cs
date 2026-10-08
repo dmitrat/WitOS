@@ -42,6 +42,8 @@ public sealed class AssemblyPackageTests
             var dataAt = (int)BinaryPrimitives.ReadUInt64LittleEndian(package.AsSpan(at + 8));
             var dataBytes = (int)BinaryPrimitives.ReadUInt64LittleEndian(package.AsSpan(at + 16));
             Assert.That(Encoding.UTF8.GetString(package, nameAt, nameBytes) == file.Name && (dataAt & 7) == 0 && dataBytes == file.Bytes.Length, Is.True, "Wire index/name/alignment mismatch.");
+            // A file of at least a page starts at a page boundary (S5.1), so that a loader maps it without a copy.
+            Assert.That(file.Bytes.Length < AssemblyPackage.PAGE_BYTES || (dataAt & (AssemblyPackage.PAGE_BYTES - 1)) == 0, Is.True, "Page-sized file is not page-aligned.");
             Assert.That(SHA256.HashData(package.AsSpan(dataAt, dataBytes)).AsSpan().SequenceEqual(SHA256.HashData(file.Bytes.Span)), Is.True, "Packaged file bytes changed.");
             Assert.That(BinaryPrimitives.ReadUInt64LittleEndian(package.AsSpan(at + 24)) == 0, Is.True, "Reserved index fields are nonzero.");
         }

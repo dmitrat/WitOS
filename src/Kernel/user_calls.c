@@ -58,7 +58,8 @@ static WitArchFrame *close(WitUserCall *call)
 
 static WitArchFrame *memory_reserve(WitUserCall *call)
 {
-    *call->Status = wit_user_memory_reserve(&call->Process->Space, call->Argument0, call->Argument1, call->Value);
+    *call->Status =
+        wit_user_memory_reserve(&call->Process->Space, call->Argument0, call->Argument1, call->Argument2, call->Value);
     return 0;
 }
 
@@ -90,7 +91,7 @@ static WitArchFrame *memory_protect(WitUserCall *call)
 
 static WitArchFrame *memory_release(WitUserCall *call)
 {
-    *call->Status = wit_user_memory_unmap(call->Process, call->Argument0);
+    *call->Status = wit_user_memory_unmap(call->Process, call->Argument0, call->Argument1);
     return 0;
 }
 

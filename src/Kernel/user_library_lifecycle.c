@@ -113,7 +113,7 @@ static WitU64 begin_thread_notification(WitUserProcess *p, WitUserLibraryLifecyc
 /* Other lifecycles publish their plan on a fresh read-only page behind a lifecycle handle. */
 static WitU64 publish_plan(WitUserProcess *p, WitUserLibraryLifecycle *life, WitU64 root, WitU64 *address)
 {
-    WitU64 status = wit_user_memory_reserve(&p->Space, 4096, 4096, &life->Address);
+    WitU64 status = wit_user_memory_reserve(&p->Space, 4096, 4096, 0, &life->Address);
     if (status != WIT_STATUS_OK) {
         return status;
     }
@@ -140,7 +140,7 @@ static WitU64 publish_plan(WitUserProcess *p, WitUserLibraryLifecycle *life, Wit
         if (life->Token && wit_handle_close(&p->Handles, life->Token) != WIT_STATUS_OK) {
             wit_panic("Lifecycle handle rollback failed");
         }
-        if (wit_user_memory_release(&p->Space, life->Address) != WIT_STATUS_OK) {
+        if (wit_user_memory_release(&p->Space, life->Address, 0) != WIT_STATUS_OK) {
             wit_panic("Lifecycle page rollback failed");
         }
         return status;
