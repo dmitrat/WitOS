@@ -26,7 +26,7 @@ internal static class CommandLine
     private static readonly IReadOnlyList<ICommand> COMMANDS =
     [
         new CommandDoctor(),
-        new CommandAction("setup", "Download and verify pinned QEMU into .tools", Toolchain.SetupAsync),
+        new CommandAction("setup", "Download and verify pinned QEMU and clang into .tools", Toolchain.SetupAsync),
         new CommandArchitecture("build", "Build the UEFI image (no VM)",
             (root, architecture) => KernelImageBuilder.BuildAsync(root, "boot", architecture: architecture)),
         new CommandScenario("run", "Build and boot headlessly in QEMU", "boot",

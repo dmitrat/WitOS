@@ -135,6 +135,64 @@ internal static class Toolchain
     }
 
     /// <summary>
+    /// Directory of the pinned clang, lld and LLVM resource headers that build layer 2 (plan step T1).
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Directory path.</returns>
+    public static string ClangDirectory(string root) => Path.Combine(root, ".tools", $"clang-{LLVM_VERSION}");
+
+    /// <summary>
+    /// Path of the pinned clang driver.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Executable path.</returns>
+    public static string Clang(string root) => Path.Combine(ClangDirectory(root), "bin", "clang.exe");
+
+    /// <summary>
+    /// Path of the pinned ELF linker.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Executable path.</returns>
+    public static string Lld(string root) => Path.Combine(ClangDirectory(root), "bin", "ld.lld.exe");
+
+    /// <summary>
+    /// Requires the pinned clang and lld that <c>setup</c> extracts.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <exception cref="InvalidOperationException">The tools are missing.</exception>
+    public static void RequireClang(string root)
+    {
+        if (!File.Exists(Clang(root)) || !File.Exists(Lld(root)) ||
+            !Directory.Exists(Path.Combine(ClangDirectory(root), "lib", "clang", LLVM_VERSION.Split('.')[0], "include")))
+            throw new InvalidOperationException($"Pinned clang {LLVM_VERSION} is missing. Run: dotnet run --project tools/WitOS.Dev -- setup");
+    }
+
+    /// <summary>
+    /// Extracts the pinned clang, lld, llvm-objcopy, llvm-readobj and the compiler's own headers (stdint.h and the
+    /// like, which freestanding layer 2 code includes) from the verified LLVM installer; the installer is not executed.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>clang path.</returns>
+    public static async Task<string> PrepareClangAsync(string root)
+    {
+        var installer = await RequireLlvmInstallerAsync(root);
+        var directory = ClangDirectory(root);
+        var major = LLVM_VERSION.Split('.')[0];
+        var extraction = await Processes.RunAsync(SevenZip(),
+        [
+            "x", installer, @"bin\clang.exe", @"bin\ld.lld.exe", @"bin\llvm-objcopy.exe", @"bin\llvm-readobj.exe",
+            $@"lib\clang\{major}\include", $"-o{directory}", "-y", "-bso0", "-bsp0"
+        ], root, 180);
+        if (extraction.TimedOut || extraction.ExitCode != 0)
+            throw new InvalidOperationException($"clang extraction failed. {extraction.Error}");
+        RequireClang(root);
+        var version = await Processes.RunAsync(Clang(root), ["--version"], root);
+        if (version.ExitCode != 0 || !version.Output.Contains($"clang version {LLVM_VERSION}", StringComparison.Ordinal))
+            throw new InvalidDataException($"Unexpected clang version: {version.Output.Trim()}");
+        return Clang(root);
+    }
+
+    /// <summary>
     /// Environment for NativeAOT publish children, with vswhere on the path.
     /// </summary>
     /// <returns>Environment variables to add.</returns>
@@ -253,6 +311,8 @@ internal static class Toolchain
             throw new InvalidOperationException($"QEMU extraction failed. {extraction.Error}");
         RequireQemu(root);
         Console.WriteLine($"Ready: {Qemu(root)}");
+        Console.WriteLine($"Extracting clang {LLVM_VERSION} and lld for layer 2 from the verified LLVM installer...");
+        Console.WriteLine($"Ready: {await PrepareClangAsync(root)}");
     }
 
     #endregion

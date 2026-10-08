@@ -64,7 +64,11 @@ internal static class KernelTestSuite
     {
         Toolchain.RequireQemu(root);
         var image = await KernelImageBuilder.BuildAsync(root, "boot");
-        await BootScenarioRunner.RunAsync(root, image, new BootRequest("boot-128", 128, 60, ExpectedOutcome.Success));
+        // The root task is the clang and lld build of layer 2 (T1); its first log line names the compiler and the ISA.
+        await BootScenarioRunner.RunAsync(root, image, new BootRequest("boot-128", 128, 60, ExpectedOutcome.Success)
+        {
+            RequiredLines = [KernelArchitecture.X64.RootStartedLine]
+        });
         await BootScenarioRunner.RunAsync(root, image, new BootRequest("boot-512", 512, 60, ExpectedOutcome.Success));
         // Two processors: the table names both and both come online, the second idling for inter-processor interrupts (K7.2).
         await BootScenarioRunner.RunAsync(root, image, new BootRequest("boot-smp2", 256, 60, ExpectedOutcome.Success)
@@ -110,7 +114,8 @@ internal static class KernelTestSuite
             new(prefix + name, memory, timeout, expected) { Architecture = architecture, Suite = BootSuite.Foundation };
 
         var image = await KernelImageBuilder.BuildAsync(root, "boot", architecture: architecture);
-        await BootScenarioRunner.RunAsync(root, image, Request("boot-128", 128, FOUNDATION_TIMEOUT, ExpectedOutcome.Success));
+        await BootScenarioRunner.RunAsync(root, image,
+            Request("boot-128", 128, FOUNDATION_TIMEOUT, ExpectedOutcome.Success) with { RequiredLines = [architecture.RootStartedLine] });
         await BootScenarioRunner.RunAsync(root, image, Request("boot-512", 512, FOUNDATION_TIMEOUT, ExpectedOutcome.Success));
         await BootScenarioRunner.RunAsync(root, image,
             Request("boot-smp2", 256, FOUNDATION_TIMEOUT, ExpectedOutcome.Success) with
