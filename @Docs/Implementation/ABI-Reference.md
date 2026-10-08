@@ -1,6 +1,6 @@
 # Справочник пользовательского ABI ядра WitOS
 
-Версии: **user ABI v66**, **boot ABI v6**. Источник истины — заголовки `src/Kernel/include/witos/*.h`; этот документ их описывает и проверяется хостовым тестом: каждый `WIT_CALL_*` из `user_abi.h` обязан встречаться здесь. Раскладка вызовов — ABI-1 по [RFC-0011 v3 §7](../RFC-0011-Kernel-Architecture-and-ABI.md), введённая шагом K1.1 плана; судьба каждого прежнего вызова — в [RFC-0011 v3 §8](../RFC-0011-Kernel-Architecture-and-ABI.md). ABI экспериментален до шага K8, но с K1.1 номер вызова, значение статуса и бит права никогда не переиспользуются (RFC-0011 §10.1).
+Версии: **user ABI v67**, **boot ABI v6**. Источник истины — заголовки `src/Kernel/include/witos/*.h`; этот документ их описывает и проверяется хостовым тестом: каждый `WIT_CALL_*` из `user_abi.h` обязан встречаться здесь. Раскладка вызовов — ABI-1 по [RFC-0011 v3 §7](../RFC-0011-Kernel-Architecture-and-ABI.md), введённая шагом K1.1 плана; судьба каждого прежнего вызова — в [RFC-0011 v3 §8](../RFC-0011-Kernel-Architecture-and-ABI.md). ABI экспериментален до шага K8, но с K1.1 номер вызова, значение статуса и бит права никогда не переиспользуются (RFC-0011 §10.1).
 
 ## Классы
 
@@ -65,11 +65,11 @@
 | 2 | `WIT_CALL_HANDLE_CLOSE` | handle | 0 | целевой |
 | 3 | `WIT_CALL_HANDLE_DUPLICATE` | thread handle, `WIT_THREAD_SELF`, event, endpoint, memory object, device, interrupt или pin handle, указатель вывода, rights (0 — те же) | 8 | целевой |
 | 4 | `WIT_CALL_DEBUG_WRITE` | console handle, buffer, length ≤ 65536 | записано байт | целевой |
-| 10 | `WIT_CALL_MEMORY_RESERVE` | size, alignment ≥ 4 КиБ | base | целевой |
+| 10 | `WIT_CALL_MEMORY_RESERVE` | size, alignment ≥ 4 КиБ, адрес или 0 | base; ненулевой адрес (S5.1) резервирует ровно там, выровненный как просили, внутри одной арены: пересечение — `BUSY`, диапазон библиотеки — `DENIED`, вне арен — `BAD_ADDRESS` | целевой |
 | 11 | `WIT_CALL_MEMORY_COMMIT` | base, size, protection | 0 | целевой |
 | 12 | `WIT_CALL_MEMORY_DECOMMIT` | base, size | 0 | целевой |
 | 13 | `WIT_CALL_MEMORY_PROTECT` | base, size, protection | 0 | целевой |
-| 14 | `WIT_CALL_MEMORY_RELEASE` | точная база резервирования | 0 | целевой |
+| 14 | `WIT_CALL_MEMORY_RELEASE` | база, размер или 0 | 0; размер 0 — всё резервирование по его точной базе; ненулевой размер (S5.1) — часть одного обычного резервирования: страницы освобождаются, резервирование сжимается с конца или делится надвое (нужен свободный слот, иначе `NO_MEMORY`); за концом — `INVALID_ARGUMENT`; отображение объекта памяти освобождается только целиком (`DENIED`) | целевой |
 | 15 | `WIT_CALL_MEMORY_RESET` | base, size, 0 | 0 | целевой |
 | 16 | `WIT_CALL_MEMORY_QUERY` | buffer, 112, version 2 | 112 | целевой |
 | 17 | `WIT_CALL_MEMORY_PRESSURE_EVENT` | — | event handle только для ожидания | целевой |

@@ -532,8 +532,52 @@ static WitU64 reserve_within(
     return WIT_STATUS_OK;
 }
 
-static WitU64 memory_reserve(WitUserSpace *space, WitU64 size, WitU64 alignment, WitU64 *result)
+/* A reservation at a fixed address (S5.1, RFC 0011 section 7.2): page-aligned and aligned as asked, inside one
+ * dynamic arena, overlapping no reservation, mapping or library range. A loader places an image's segments this way
+ * and a runtime takes its own address space back after a partial release. */
+static WitU64 reserve_fixed(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 alignment, WitU64 *result)
 {
+    WitU32 slot = space->ReservationLimit;
+    *result = 0;
+    if (!space->Root ||
+        !size ||
+        (size & 4095) ||
+        alignment < 4096 ||
+        (alignment & (alignment - 1)) ||
+        (address & (alignment - 1))) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    const WitU64 limit = dynamic_limit(address);
+    if (!limit || size > limit - address) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    if (library_range(space, address, size)) {
+        return WIT_STATUS_DENIED;
+    }
+    for (WitU32 i = 0; i < space->ReservationLimit; ++i) {
+        const WitUserReservation *r = &space->Reservations[i];
+        if (r->Size && overlaps(address, size, r->Base, r->Size)) {
+            return WIT_STATUS_BUSY;
+        }
+        if (!r->Size && slot == space->ReservationLimit) {
+            slot = i;
+        }
+    }
+    if (slot == space->ReservationLimit) {
+        return WIT_STATUS_NO_MEMORY;
+    }
+    space->Reservations[slot] = (WitUserReservation){address, size};
+    space->MappedObjects[slot] = 0;
+    space->MappedRights[slot] = 0;
+    *result = address;
+    return WIT_STATUS_OK;
+}
+
+static WitU64 memory_reserve(WitUserSpace *space, WitU64 size, WitU64 alignment, WitU64 address, WitU64 *result)
+{
+    if (address) {
+        return reserve_fixed(space, address, size, alignment, result);
+    }
     return reserve_within(space, size, alignment, WIT_USER_MEMORY_BASE, WIT_USER_MEMORY_LIMIT, result);
 }
 
@@ -1173,9 +1217,73 @@ int wit_user_space_mapping_object(const WitUserSpace *space, WitU64 base, WitU64
     return 0;
 }
 
-static WitU64 memory_release(WitUserSpace *space, WitU64 address)
+/* A part of one plain reservation (S5.1): its committed pages are freed and the reservation shrinks, or splits in
+ * two around a middle part (a free slot is needed, NO_MEMORY otherwise). A mapping of an object, a library range and
+ * a range a view reads stay whole. Linux's munmap of a part, and a loader's segments over the span it reserved. */
+static WitU64 release_part(WitUserSpace *space, WitU64 address, WitU64 size)
 {
-    return release_reservation(space, address, 0);
+    if ((address & 4095) || (size & 4095)) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    if (!dynamic_limit(address)) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    for (WitU32 i = 0; i < space->ReservationLimit; ++i) {
+        WitUserReservation *r = &space->Reservations[i];
+        if (!r->Size || address < r->Base || address - r->Base >= r->Size) {
+            continue;
+        }
+        const WitU64 end = r->Base + r->Size;
+        if (size > end - address) {
+            return WIT_STATUS_INVALID_ARGUMENT;
+        }
+        if (address == r->Base && size == r->Size) {
+            return release_reservation(space, address, 0);
+        }
+        if (space->MappedObjects[i] || library_range(space, address, size)) {
+            return WIT_STATUS_DENIED;
+        }
+        if (source_view(space, address, size) || aliased_range(space, address, size)) {
+            return WIT_STATUS_BUSY;
+        }
+        WitU32 slot = space->ReservationLimit;
+        if (address > r->Base && address + size < end) {
+            for (WitU32 j = 0; j < space->ReservationLimit; ++j) {
+                if (!space->Reservations[j].Size) {
+                    slot = j;
+                    break;
+                }
+            }
+            if (slot == space->ReservationLimit) {
+                return WIT_STATUS_NO_MEMORY;
+            }
+        }
+        for (WitU32 v = 0; v < WIT_CODE_VIEW_CAPACITY; ++v) {
+            WitCodeView *view = &space->CodeViews[v];
+            if (view->Size && view->Destination >= address && view->Destination - address < size) {
+                *view = (WitCodeView){0};
+            }
+        }
+        decommit_range(space, address, size);
+        if (address == r->Base) {
+            r->Base += size;
+            r->Size -= size;
+        } else if (address + size == end) {
+            r->Size -= size;
+        } else {
+            space->Reservations[slot] = (WitUserReservation){address + size, end - address - size};
+            space->MappedObjects[slot] = 0;
+            space->MappedRights[slot] = 0;
+            r->Size = address - r->Base;
+        }
+        return WIT_STATUS_OK;
+    }
+    return WIT_STATUS_NOT_RESERVED;
+}
+
+static WitU64 memory_release(WitUserSpace *space, WitU64 address, WitU64 size)
+{
+    return size ? release_part(space, address, size) : release_reservation(space, address, 0);
 }
 
 WitU64 wit_user_library_release(WitUserSpace *space, WitU64 address)
@@ -1210,9 +1318,9 @@ void wit_user_space_destroy(WitUserSpace *space)
     }
 }
 
-WitU64 wit_user_memory_reserve(WitUserSpace *space, WitU64 size, WitU64 alignment, WitU64 *result)
+WitU64 wit_user_memory_reserve(WitUserSpace *space, WitU64 size, WitU64 alignment, WitU64 address, WitU64 *result)
 {
-    const WitU64 status = memory_reserve(space, size, alignment, result);
+    const WitU64 status = memory_reserve(space, size, alignment, address, result);
     return journal(WIT_MEMORY_JOURNAL_RESERVE, status == WIT_STATUS_OK ? *result : 0, size, status);
 }
 
@@ -1236,7 +1344,7 @@ WitU64 wit_user_memory_protect(WitUserSpace *space, WitU64 address, WitU64 size,
     return journal(WIT_MEMORY_JOURNAL_PROTECT, address, size, memory_protect(space, address, size, protection));
 }
 
-WitU64 wit_user_memory_release(WitUserSpace *space, WitU64 address)
+WitU64 wit_user_memory_release(WitUserSpace *space, WitU64 address, WitU64 size)
 {
-    return journal(WIT_MEMORY_JOURNAL_RELEASE, address, 0, memory_release(space, address));
+    return journal(WIT_MEMORY_JOURNAL_RELEASE, address, size, memory_release(space, address, size));
 }

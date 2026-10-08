@@ -354,7 +354,7 @@ WitU32 wit_user_processes_pooled(void);
  * teardown. */
 WitU64 wit_user_memory_object_create(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
 WitU64 wit_user_memory_object_map(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
-WitU64 wit_user_memory_unmap(WitUserProcess *, WitU64);
+WitU64 wit_user_memory_unmap(WitUserProcess *, WitU64, WitU64);
 WitU64 wit_user_memory_object_close(WitUserProcess *, WitU64);
 WitU64 wit_user_memory_object_duplicate(WitUserProcess *, WitU64, WitU64, WitU64);
 void wit_user_memory_object_release(WitU64);
@@ -434,12 +434,12 @@ int wit_user_copy_to(const WitUserSpace *space, WitU64 address, const WitU8 *buf
 WitU64 wit_user_memory_query(const WitUserSpace *space, WitU64 address, WitU64 size, WitU64 version);
 void wit_user_space_destroy(WitUserSpace *space);
 int wit_user_space_unmap_fixed(WitUserSpace *space, WitU64 address);
-WitU64 wit_user_memory_reserve(WitUserSpace *space, WitU64 size, WitU64 alignment, WitU64 *result);
+WitU64 wit_user_memory_reserve(WitUserSpace *space, WitU64 size, WitU64 alignment, WitU64 address, WitU64 *result);
 WitU64 wit_user_memory_commit(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection);
 WitU64 wit_user_memory_reset(WitUserSpace *space, WitU64 address, WitU64 size);
 WitU64 wit_user_memory_decommit(WitUserSpace *space, WitU64 address, WitU64 size);
 WitU64 wit_user_memory_protect(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection);
-WitU64 wit_user_memory_release(WitUserSpace *space, WitU64 address);
+WitU64 wit_user_memory_release(WitUserSpace *space, WitU64 address, WitU64 size);
 
 /* Kinds of the self-test memory journal; only runtime-boot kernels record it. */
 #define WIT_MEMORY_JOURNAL_RESERVE 1U

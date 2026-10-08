@@ -795,3 +795,23 @@ int __wit_is_file_descriptor(long fd)
 {
     return descriptor(fd) != 0;
 }
+
+/* What mmap (memory.c, S5.1) maps for a descriptor: a package file's data offset in the package and its length
+ * (0), or /dev/zero, which maps as anonymous memory (1); nothing else is mappable. */
+long __wit_file_map_source(long fd, WitU64 *source, WitU64 *length)
+{
+    const Descriptor *d = descriptor(fd);
+    if (!d) {
+        return -EBADF;
+    }
+    if (d->Kind == KindZero) {
+        return 1;
+    }
+    if (d->Kind != KindFile) {
+        return -ENODEV;
+    }
+    const unsigned char *name;
+    WitU32 name_length;
+    entry(d->Index, &name, &name_length, source, length);
+    return 0;
+}

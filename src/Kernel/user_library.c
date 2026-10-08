@@ -45,7 +45,7 @@ static WitU64 pe_status(WitPeStatus status)
 
 static void rollback(WitUserSpace *space, WitU64 base)
 {
-    if (base && wit_user_memory_release(space, base) != WIT_STATUS_OK) {
+    if (base && wit_user_memory_release(space, base, 0) != WIT_STATUS_OK) {
         wit_panic("Unpublished library rollback failed");
     }
 }

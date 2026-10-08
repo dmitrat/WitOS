@@ -42,6 +42,7 @@ long __wit_getdents(long fd, unsigned char *buffer, long bytes);
 long __wit_getcwd(char *buffer, long size);
 long __wit_fcntl(long fd, long command, long argument);
 int __wit_is_file_descriptor(long fd);
+long __wit_file_map_source(long fd, WitU64 *source, WitU64 *length);
 
 /* The signal state of one thread (signal.c, S3): the blocked and pending signals as bits sig - 1, and the
  * alternate stack sigaltstack recorded (the kernel holds the same range as the thread's alternate stack). */

@@ -240,7 +240,7 @@ static void reap(WitU32 index)
     } else if (thread->ExitReservation) {
         /* The one thread form (K5.2a): the exiting thread named its stack's reservation, validated at the exit; the
          * thread no longer runs on it. */
-        require(wit_user_memory_unmap(current_user, thread->ExitReservation) == WIT_STATUS_OK,
+        require(wit_user_memory_unmap(current_user, thread->ExitReservation, 0) == WIT_STATUS_OK,
             "Exit reservation vanished before its release");
         thread->ExitReservation = 0;
     }

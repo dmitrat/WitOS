@@ -169,6 +169,7 @@ wit_user_start PROC
 memory_start
     ldr x0, =0x800000000 ; 32 GiB reservation
     mov x1, #0x200000
+    mov x2, #0 ; no fixed address (S5.1)
     SYSCALL WIT_CALL_MEMORY_RESERVE
     EXPECT WIT_STATUS_OK
     mov x22, x1
@@ -266,6 +267,7 @@ memory_start
     mov x9, #0x2222
     str x9, [x22]
     mov x0, x22
+    mov x1, #0 ; the whole reservation (S5.1)
     SYSCALL WIT_CALL_MEMORY_RELEASE
     EXPECT WIT_STATUS_OK
     cmp x21, #WIT_TEST_MEMORY_RELEASED
@@ -277,11 +279,13 @@ memory_start
     SYSCALL WIT_CALL_MEMORY_COMMIT
     EXPECT WIT_STATUS_NOT_RESERVED
     mov x0, x22
+    mov x1, #0 ; the whole reservation (S5.1)
     SYSCALL WIT_CALL_MEMORY_RELEASE
     EXPECT WIT_STATUS_NOT_RESERVED
 
     mov x0, #8192
     mov x1, #4096
+    mov x2, #0 ; no fixed address (S5.1)
     SYSCALL WIT_CALL_MEMORY_RESERVE
     EXPECT WIT_STATUS_OK
     cmp x1, x22
@@ -327,10 +331,12 @@ memory_start
     EXPECT WIT_STATUS_BAD_ADDRESS
     mov x0, #4096
     mov x1, #12288
+    mov x2, #0 ; no fixed address (S5.1)
     SYSCALL WIT_CALL_MEMORY_RESERVE
     EXPECT WIT_STATUS_INVALID_ARGUMENT
     cbnz x1, failed
     mov x0, x22
+    mov x1, #0 ; the whole reservation (S5.1)
     SYSCALL WIT_CALL_MEMORY_RELEASE
     EXPECT WIT_STATUS_OK
     bl expect_state

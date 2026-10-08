@@ -242,15 +242,19 @@ WitU64 wit_user_memory_object_map(WitUserProcess *p, WitU64 address, WitU64 size
     return WIT_STATUS_OK;
 }
 
-/* MEMORY_RELEASE: a mapping of an object releases the reservation and the object's reference; a plain reservation
- * goes its ordinary way. */
-WitU64 wit_user_memory_unmap(WitUserProcess *p, WitU64 address)
+/* MEMORY_RELEASE: a mapping of an object releases the reservation and the object's reference, whole; a plain
+ * reservation goes its ordinary way, whole or a part of it (S5.1). */
+WitU64 wit_user_memory_unmap(WitUserProcess *p, WitU64 address, WitU64 size)
 {
     WitU64 object = 0;
     if (!wit_user_space_mapping_object(&p->Space, address, &object)) {
-        return wit_user_memory_release(&p->Space, address);
+        return wit_user_memory_release(&p->Space, address, size);
     }
-    const WitU64 status = wit_user_memory_release(&p->Space, address);
+    WitU64 base = 0, bytes = 0;
+    if (size && (!wit_user_space_reservation_bounds(&p->Space, address, &base, &bytes) || size != bytes)) {
+        return WIT_STATUS_DENIED; /* a mapping of an object is released whole */
+    }
+    const WitU64 status = wit_user_memory_release(&p->Space, address, 0);
     if (status == WIT_STATUS_OK) {
         release_object(object);
     }

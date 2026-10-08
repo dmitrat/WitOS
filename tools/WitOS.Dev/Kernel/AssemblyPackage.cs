@@ -14,6 +14,7 @@ internal static class AssemblyPackage
     internal const int HEADER_BYTES = 32, ENTRY_BYTES = 32, MAXIMUM_FILES = 1024;
 
     internal const int MAXIMUM_NAME_BYTES = 1024, MAXIMUM_BYTES = 128 * 1024 * 1024;
+    internal const int PAGE_BYTES = 4096;
 
     #endregion
 
@@ -63,7 +64,7 @@ internal static class AssemblyPackage
         long size = Align(namesEnd);
         foreach (var entry in entries)
         {
-            size = Align(checked(size + entry.Bytes.Length));
+            size = Align(checked(Place(size, entry.Bytes.Length) + entry.Bytes.Length));
             if (size > MAXIMUM_BYTES)
                 throw new InvalidDataException("Assembly package byte quota exceeded.");
         }
@@ -79,6 +80,7 @@ internal static class AssemblyPackage
         for (var i = 0; i < entries.Count; ++i)
         {
             var (name, data) = entries[i];
+            dataAt = checked((int)Place(dataAt, data.Length));
             var at = HEADER_BYTES + i * ENTRY_BYTES;
             Put32(output, at, nameAt);
             Put32(output, at + 4, name.Length);
@@ -98,6 +100,10 @@ internal static class AssemblyPackage
     #region Tools
 
     private static long Align(long value) => checked(value + 7) & ~7L;
+
+    // A file of at least a page starts at a page boundary (S5.1), so that a loader maps its pages from the package
+    // object without a copy; the gap stays zero. Smaller files follow at the next 8-byte boundary.
+    private static long Place(long cursor, int length) => length >= PAGE_BYTES ? checked(cursor + PAGE_BYTES - 1) & ~(PAGE_BYTES - 1L) : cursor;
 
     private static void Put32(byte[] output, int offset, int value) => BinaryPrimitives.WriteUInt32LittleEndian(output.AsSpan(offset), checked((uint)value));
 

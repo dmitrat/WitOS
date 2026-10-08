@@ -25,6 +25,7 @@
     "[TEST-PASS] User.MemorySparseAndPrivate",
     "[TEST-PASS] User.MemoryQuotaRollback",
     "[TEST-PASS] User.MemoryReservationErrors",
+    "[TEST-PASS] User.MemoryFixedAndPartial",
     "[TEST-PASS] User.MemoryPhysicalOom",
     "[TEST-PASS] User.MemoryLifecycle",
     "[TEST-PASS] User.NativeThreadIdExhaustion",

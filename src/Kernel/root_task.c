@@ -43,7 +43,7 @@ int wit_root_task_create(WitUserProcess *process, WitPageAllocator *allocator, W
     if (wit_user_memory_object_adopt_extents(process, WIT_MEMORY_OBJECT_PACKAGE, boot->StorageExtents,
             boot->StorageExtentCount, boot->StorageBytes, &package)) {
         startup->Handles[WIT_ROOT_HANDLE_PACKAGE] = wit_handle_grant_object(&process->Handles, WIT_HANDLE_MEMORY_OBJECT,
-            WIT_RIGHT_MAP | WIT_RIGHT_QUERY | WIT_RIGHT_DUPLICATE | WIT_RIGHT_TRANSFER, package);
+            WIT_RIGHT_MAP | WIT_RIGHT_EXECUTE | WIT_RIGHT_QUERY | WIT_RIGHT_DUPLICATE | WIT_RIGHT_TRANSFER, package);
         if (!startup->Handles[WIT_ROOT_HANDLE_PACKAGE]) {
             wit_user_memory_object_release(package);
         }

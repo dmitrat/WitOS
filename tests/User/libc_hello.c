@@ -244,6 +244,62 @@ int main(void)
             errno == EACCES,
         "executable anonymous memory refused");
 
+    /* Linux's mapping semantics over the kernel's reservations (S5.1): MAP_FIXED replaces what lies in its range,
+     * munmap takes any part of a mapping, and a part given back can be taken again at its address. */
+    unsigned char *region = mmap(0, 8 * 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    check(region != MAP_FAILED, "an eight-page mapping");
+    if (region != MAP_FAILED) {
+        memset(region, 7, 8 * 4096);
+        check(mmap(region + 2 * 4096, 2 * 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1,
+                  0) == region + 2 * 4096,
+            "MAP_FIXED over the own mapping");
+        check(region[2 * 4096] == 0 && region[4 * 4096 - 1] == 0 && region[0] == 7 && region[4 * 4096] == 7,
+            "MAP_FIXED replaced its range alone");
+        check(mmap(region + 4096, 4096, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0) ==
+                    MAP_FAILED &&
+                errno == EEXIST,
+            "MAP_FIXED_NOREPLACE refuses an occupied range");
+        check(munmap(region + 5 * 4096, 2 * 4096) == 0, "munmap of a middle part");
+        check(mmap(region + 5 * 4096, 2 * 4096, PROT_READ | PROT_WRITE,
+                  MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0) == region + 5 * 4096 &&
+                region[5 * 4096] == 0 &&
+                region[7 * 4096] == 7,
+            "the part given back is taken again at its address");
+        check(munmap(region, 8 * 4096) == 0, "munmap across several mappings");
+    }
+
+    /* Files of the package (S5.1): a private copy that may be written, and a file's code mapped without a copy and
+     * executed; code.bin holds a function returning 42 for x64 in its first page and for ARM64 in its second. */
+    int text_fd = open("/test/hello.txt", O_RDONLY);
+    char *text = text_fd >= 0 ? mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE, text_fd, 0) : MAP_FAILED;
+    check(text != MAP_FAILED && memcmp(text, "Hello, package!", 15) == 0 && text[28] == 0,
+        "a file mapped as a private copy");
+    if (text != MAP_FAILED) {
+        text[0] = 'J';
+        check(text[0] == 'J' && munmap(text, 4096) == 0, "the private copy is writable");
+    }
+    close(text_fd);
+    int code_fd = open("/test/code.bin", O_RDONLY);
+#if defined(__x86_64__)
+    const off_t code_page = 0;
+#else
+    const off_t code_page = 4096;
+#endif
+    void *code = code_fd >= 0 ? mmap(0, 4096, PROT_READ | PROT_EXEC, MAP_PRIVATE, code_fd, code_page) : MAP_FAILED;
+    check(code != MAP_FAILED, "a file's code mapped executable");
+    if (code != MAP_FAILED) {
+        int (*answer)(void) = (int (*)(void))code;
+        check(answer() == 42, "the mapped code runs");
+        check(mprotect(code, 4096, PROT_READ | PROT_WRITE) == -1 && errno == EACCES, "a file's code is never writable");
+        check(
+            mprotect(code, 4096, PROT_READ) == 0 && mprotect(code, 4096, PROT_READ | PROT_EXEC) == 0 && answer() == 42,
+            "the code's protection changes within its rights");
+        check(munmap(code, 4096) == 0, "the code unmapped");
+    }
+    check(mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, code_fd, 0) == MAP_FAILED && errno == EACCES,
+        "a shared writable mapping of the package refused");
+    close(code_fd);
+
     /* setjmp and longjmp. */
     volatile int jumped = 0;
     if (setjmp(jump) == 0) {
