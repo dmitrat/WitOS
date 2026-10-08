@@ -17,6 +17,11 @@ WIT_STATIC_ASSERT(sizeof(WitU16) == 2, "WitU16 width");
 WIT_STATIC_ASSERT(sizeof(WitU32) == 4, "WitU32 width");
 WIT_STATIC_ASSERT(sizeof(WitU64) == 8, "WitU64 width");
 
+/* The ABI headers are read by the kernel's MSVC build and by layer 2's clang build (plan step T1). */
+#if defined(_MSC_VER)
 #define WIT_NORETURN __declspec(noreturn)
+#else
+#define WIT_NORETURN __attribute__((noreturn))
+#endif
 
 #endif

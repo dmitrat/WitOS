@@ -113,7 +113,7 @@ internal static class KernelImageBuilder
 
         var bootPackage = await BootPackage.BuildAsync(root, output, scenario == "coreclr-storage", scenario == "coreclr-memory");
         // The root task's flat image (K4): every kernel, release or self-test, starts it from the boot disk.
-        var rootTask = await UserImage.BuildRootAsync(root, output, msvc, architecture);
+        var rootTask = await UserImage.BuildRootAsync(root, output, architecture);
         if (scenario == "coreclr-storage")
         {
             await CoreClrStorageImage.BuildAsync(root, output, msvc);

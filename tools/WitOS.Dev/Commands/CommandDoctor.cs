@@ -1,3 +1,4 @@
+using WitOS.Dev.Kernel;
 using WitOS.Dev.Host;
 using WitOS.Dev.Interfaces;
 
@@ -15,6 +16,13 @@ internal sealed class CommandDoctor : ICommand
     {
         Console.WriteLine($"Root: {root}");
         Console.WriteLine($"MSVC: {await Toolchain.FindMsvcAsync(root)}");
+        Toolchain.RequireClang(root);
+        var clang = await Processes.RunAsync(Toolchain.Clang(root), ["--version"], root);
+        if (clang.ExitCode != 0 || clang.TimedOut)
+        {
+            throw new InvalidOperationException($"clang could not start. {clang.Error}");
+        }
+        Console.WriteLine($"clang: {clang.Output.Split('\n')[0].Trim()} (layer 2: {KernelArchitecture.X64.Triple}, {KernelArchitecture.Arm64.Triple})");
         Toolchain.RequireQemu(root);
         var version = await Processes.RunAsync(Toolchain.Qemu(root), ["--version"], root);
         if (version.ExitCode != 0 || version.TimedOut)

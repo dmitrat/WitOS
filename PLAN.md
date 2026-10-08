@@ -120,7 +120,7 @@ UHI для x64 и ARM64 (порт ARM64 стоил ~2 300 строк и пере
 
 Каждый шаг реализует названные разделы [RFC-0011 v3](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md).
 
-- [ ] **K1** Инвентарь ABI-1 в коде (RFC-0011 §7–§8, §10.1), четырьмя срезами: 37 вызовов остаются под целевыми
+- [x] **K1** Инвентарь ABI-1 в коде (RFC-0011 §7–§8, §10.1), четырьмя срезами: 37 вызовов остаются под целевыми
   именами, 13 сливаются в них, 6 удаляются; 13 уходящих вызовов остаются до K8 в транзитном диапазоне 200+. K1.1 —
   последняя перенумерация: после неё номера, статусы и биты прав не переиспользуются.
   - [x] **K1.1** Раскладка ([K1-ABI-Inventory.md](@Docs/Implementation/K1-ABI-Inventory.md), ABI v52): финальные номера и
@@ -239,8 +239,16 @@ UHI для x64 и ARM64 (порт ARM64 стоил ~2 300 строк и пере
 
 ### T — Тулчейн
 
-- [ ] **T1** clang и lld для слоя 2: ELF, SysV x64, Itanium C++ ABI; первая ступень — триплет `x86_64-unknown-linux-musl`
-  с собственным sysroot; ARM64 аналогично.
+- [x] **T1** clang и lld для слоя 2 ([T1-Toolchain.md](@Docs/Implementation/T1-Toolchain.md)): LLVM 20.1.8 по тому же
+  хэшу инсталлятора, что у clang-format; `setup` извлекает clang, ld.lld, llvm-objcopy, llvm-readobj и заголовки
+  компилятора в `.tools/clang-20.1.8`, `doctor` их показывает; триплеты `x86_64-unknown-linux-musl` и
+  `aarch64-unknown-linux-musl` (ELF, SysV, Itanium C++ ABI) в `KernelArchitecture`; первый sysroot —
+  `src/Sysroot/include/witos/syscall.h`, транспорт ABI-1 на inline-asm (SYSCALL и SVC с регистрами Linux) над
+  заголовками ABI-1 ядра, которые теперь компилируются и MSVC, и clang; корневая задача — один C-источник
+  `tests/User/root.c` для обеих ISA без libc, слинкованный lld в статический ELF по `root.ld` и переведённый в
+  плоский формат конвертером ELF→flat (`FlatImage.FromElfAsync`, host-тесты); MASM/armasm64-варианты удалены; строка
+  `[ROOT] started by clang 20.1.8 for <isa>` обязательна в `boot-128` обеих ISA. Собственный триплет
+  `*-unknown-witos` — T4; libc, C++-рантайм и ELF-загрузчик — S1, S4, S5.
 - [ ] **T2** Сборка ОС на Linux-хосте с паритетом Windows; CI на обоих.
 - [ ] **T3** Ядро на clang для x64 и ARM64; отказ от MSVC, MASM и armasm64; `format` остаётся на clang-format.
 - [ ] **T4** Собственный триплет `*-unknown-witos` в LLVM (патч-набор, как у Fuchsia и Managarm), когда sysroot устоится.
