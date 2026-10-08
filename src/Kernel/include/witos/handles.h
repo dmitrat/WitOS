@@ -21,6 +21,7 @@
 #define WIT_HANDLE_PIN 14U
 #define WIT_HANDLE_PROCESS \
     15U /* a process (K5.2c); Object is its Id in the high word and registry slot plus one in the low */
+#define WIT_HANDLE_CLOCK 16U /* the authority to set UTC (CLOCK_SET, K6): the handle is the capability, no record */
 /* The rights are the ABI's (user_abi.h); READ of a lifecycle handle is the QUERY bit. */
 #define WIT_RIGHT_READ WIT_RIGHT_QUERY
 

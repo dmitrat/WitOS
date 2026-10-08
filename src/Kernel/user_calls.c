@@ -1,6 +1,7 @@
 #include "user.h"
 #include "witos/platform.h"
 #include "witos/random.h"
+#include "witos/clock.h"
 
 /* System call table of the running component: ABI-1 of RFC 0011 v3 section 7 in the layout of user_abi.h. Each
  * handler receives the call and its arguments, writes the status and value of the caller's frame and returns 0
@@ -289,12 +290,16 @@ static WitArchFrame *event_create(WitUserCall *call)
 }
 
 /* The monotonic clock; UTC arrives with plan step K6. */
+/* CLOCK_READ and CLOCK_FREQUENCY: the monotonic domain of the platform, or UTC (K6) where the board has a real-time
+ * clock; an unknown clock is INVALID_ARGUMENT, UTC without a clock UNSUPPORTED. */
 static WitArchFrame *clock_read(WitUserCall *call)
 {
     if (call->Argument1 || call->Argument2) {
         *call->Status = WIT_STATUS_INVALID_ARGUMENT;
     } else if (call->Argument0 == WIT_CLOCK_MONOTONIC) {
         *call->Value = wit_platform_monotonic_read();
+    } else if (call->Argument0 == WIT_CLOCK_UTC && wit_clock_utc_available()) {
+        *call->Value = wit_clock_utc_read();
     } else {
         *call->Status = call->Argument0 == WIT_CLOCK_UTC ? WIT_STATUS_UNSUPPORTED : WIT_STATUS_INVALID_ARGUMENT;
     }
@@ -307,8 +312,22 @@ static WitArchFrame *clock_frequency(WitUserCall *call)
         *call->Status = WIT_STATUS_INVALID_ARGUMENT;
     } else if (call->Argument0 == WIT_CLOCK_MONOTONIC) {
         *call->Value = wit_platform_monotonic_frequency();
+    } else if (call->Argument0 == WIT_CLOCK_UTC && wit_clock_utc_available()) {
+        *call->Value = WIT_CLOCK_UTC_FREQUENCY;
     } else {
         *call->Status = call->Argument0 == WIT_CLOCK_UTC ? WIT_STATUS_UNSUPPORTED : WIT_STATUS_INVALID_ARGUMENT;
+    }
+    return 0;
+}
+
+/* CLOCK_SET (K6): the clock capability with WRITE, UTC alone, a value within the range and after the boot. */
+static WitArchFrame *clock_set(WitUserCall *call)
+{
+    const WitU64 status = wit_handle_check(&call->Process->Handles, call->Argument0, WIT_HANDLE_CLOCK, WIT_RIGHT_WRITE);
+    if (status != WIT_STATUS_OK) {
+        *call->Status = status;
+    } else if (call->Argument1 != WIT_CLOCK_UTC || !wit_clock_utc_set(call->Argument2)) {
+        *call->Status = WIT_STATUS_INVALID_ARGUMENT;
     }
     return 0;
 }
@@ -716,6 +735,7 @@ static WitArchFrame *(*const handlers[CALL_COUNT])(WitUserCall *) = {
     [WIT_CALL_SLEEP_UNTIL] = sleep_until,
     [WIT_CALL_CLOCK_READ] = clock_read,
     [WIT_CALL_CLOCK_FREQUENCY] = clock_frequency,
+    [WIT_CALL_CLOCK_SET] = clock_set,
     [WIT_CALL_RANDOM] = random,
     [WIT_CALL_EXCEPTION_REGISTER] = exception_register,
     [WIT_CALL_EXCEPTION_QUERY] = exception_query,

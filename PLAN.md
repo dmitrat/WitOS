@@ -1,6 +1,6 @@
 # План WitOS
 
-Обновлено: **2026-10-08**. Upstream .NET: **10.0.8**. Текущая реализация: user ABI v61, boot ABI v6, ядро и UHI для
+Обновлено: **2026-10-08**. Upstream .NET: **10.0.8**. Текущая реализация: user ABI v62, boot ABI v6, ядро и UHI для
 x64 (QEMU q35) и ARM64 (QEMU virt). Архитектурное решение: [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md).
 Прежний план с историей M0–M3, P1–P6.4, Q0–Q2, A0–A2 и T1 — в [архиве](@Docs/Implementation/Plan-Archive-2026-10-06.md);
 замороженная линия хоста P6.4 — в [P6.4-Plan.md](@Docs/Implementation/P6.4-Plan.md).
@@ -204,9 +204,14 @@ UHI для x64 и ARM64 (порт ARM64 стоил ~2 300 строк и пере
   разбирается сразу, запись живёт до последнего хэндла; конец корня завершает потомков; фикстуры на обеих ISA.
   Остаётся явно: стеки ядра статические на слот, иерархические квоты открыты (§12), события/устройства/привязки/pin
   не пересекают границу процесса, `CODE_MEMORY` замороженной линии уходит с ней на K8.
-- [ ] **K6** Время (RFC-0011 §7.10): источник UTC через UHI (RTC на q35, PL031 на virt); `CLOCK_READ` и
-  `CLOCK_FREQUENCY` с идентификатором часов `MONOTONIC`/`UTC`; монотонный домен без изменений; установка UTC — по
-  открытому вопросу раздела 7.
+- [x] **K6** Время ([K6-UTC-Clock.md](@Docs/Implementation/K6-UTC-Clock.md), ABI v62; RFC-0011 §7.10): источник UTC
+  через UHI — CMOS RTC на q35 (порты 0x70/0x71, BCD/12-часовой режим по регистру B, век из 0x32) и PL031 на virt по
+  фиксированному адресу профиля; UTC = показание при загрузке плюс монотонное время, частота 10^9; `CLOCK_READ` и
+  `CLOCK_FREQUENCY` с `WIT_CLOCK_UTC`, без часов на плате — `UNSUPPORTED`; монотонный домен без изменений; установка —
+  `CLOCK_SET` (58) по capability часов (вид `CLOCK` 16, права `WRITE`/`DUPLICATE`/`TRANSFER`), четвёртый начальный
+  хэндл корневой задачи (`WIT_ROOT_HANDLE_CLOCK`, `HandleCount` 4); маска семейств сообщает `UTC`; self-test
+  `Clock.Utc` и проверки в фикстуре корня на обеих ISA. Без коррекции хода, високосных секунд и TAI; тиковые часы
+  замороженной линии (`MONOTONIC_QUERY` 207) уходят с ней на K8.
 - [ ] **K7** Задел SMP (RFC-0011 §7.9): per-CPU состояние, запуск вторичных процессоров (MADT, PSCI), IPI,
   `PROCESS_WRITE_BARRIER` через удалённое fencing вместо UP-инварианта, TLB shootdown; `PROCESSOR_QUERY` с топологией,
   кэшами и признаками ISA (поглощает `CPU_CACHE_SIZE`); `THREAD_AFFINITY`; планировщик остаётся на одном CPU до фазы P,

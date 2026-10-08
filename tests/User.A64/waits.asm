@@ -187,11 +187,14 @@ wit_user_start PROC
 clock_test
     CLOCK_FREQUENCY
     cbz x1, failed ; the monotonic clock reports its frequency
-    mov x0, #WIT_CLOCK_UTC ; UTC arrives with plan step K6
+    mov x0, #WIT_CLOCK_UTC ; UTC (K6): nanoseconds since 1970, past 2026-01-01 on a board whose clock is set
     mov x1, #0
     mov x2, #0
     SYSCALL WIT_CALL_CLOCK_READ
-    EXPECT WIT_STATUS_UNSUPPORTED
+    EXPECT WIT_STATUS_OK
+    ldr x10, =1767225600000000000
+    cmp x1, x10
+    b.lo failed
     mov x0, #2 ; no third clock
     mov x1, #0
     mov x2, #0

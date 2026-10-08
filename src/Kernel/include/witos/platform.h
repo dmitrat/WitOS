@@ -47,6 +47,9 @@ void wit_platform_line_complete(WitU32 line);
 void wit_platform_clock_initialize(const struct WitBootInfo *boot);
 WitU64 wit_platform_monotonic_read(void);
 WitU64 wit_platform_monotonic_frequency(void);
+/* The board's real-time clock once, after the clock initialization: seconds since 1970-01-01 UTC; 0 when the board
+ * has none or its value is implausible (K6). */
+int wit_platform_realtime_seconds(WitU64 *seconds);
 
 /* Test exit device; halts where it is absent. */
 WIT_NORETURN void wit_platform_finish(WitU32 code);

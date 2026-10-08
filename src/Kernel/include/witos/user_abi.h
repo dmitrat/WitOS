@@ -25,14 +25,15 @@
  * arguments, RAX=status and RDX=result, other GPRs and x87/SSE state preserved, RFLAGS reset to 0x202; on ARM64
  * SVC #0 with x8=call, x0-x2 arguments, x0=status and x1=result. A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
-#define WIT_ABI_VERSION 61U
+#define WIT_ABI_VERSION 62U
 /* QUERY result: the low 32 bits are WIT_ABI_VERSION, the high 32 bits the mask of the families present. */
 #define WIT_ABI_FEATURE_CHANNELS 1U
 #define WIT_ABI_FEATURE_DEVICES 2U
 #define WIT_ABI_FEATURE_PROCESSES 4U
 #define WIT_ABI_FEATURE_UTC 8U
 #define WIT_ABI_FEATURE_SMP 16U
-#define WIT_ABI_FEATURES (WIT_ABI_FEATURE_CHANNELS | WIT_ABI_FEATURE_DEVICES | WIT_ABI_FEATURE_PROCESSES)
+#define WIT_ABI_FEATURES \
+    (WIT_ABI_FEATURE_CHANNELS | WIT_ABI_FEATURE_DEVICES | WIT_ABI_FEATURE_PROCESSES | WIT_ABI_FEATURE_UTC)
 #define WIT_ABI_STARTUP_SIZE 24U
 /* Existing single-module compiler TLS page layout of the frozen line; not a Windows TEB. */
 #define WIT_COMPILER_TLS_DATA_OFFSET 256U
@@ -134,11 +135,17 @@
 /* Sleep(absolute monotonic deadline, 0, 0). */
 #define WIT_CALL_SLEEP_UNTIL 54U
 /* Read/frequency(clock, 0, 0) -> the counter value or its frequency in counts per second. Deadlines use the
- * monotonic clock; all ones means infinite. UTC arrives with plan step K6. */
+ * monotonic clock; all ones means infinite. UTC (RFC 0011 section 7.10, plan step K6) is nanoseconds since
+ * 1970-01-01 as the board's real-time clock reported it at boot plus the monotonic time since, frequency 10^9;
+ * UNSUPPORTED on a board without a real-time clock. */
 #define WIT_CALL_CLOCK_READ 55U
 #define WIT_CALL_CLOCK_FREQUENCY 56U
 /* Random(buffer, size <= WIT_ABI_MAX_RANDOM, 0) -> bytes written; the whole destination is validated first. */
 #define WIT_CALL_RANDOM 57U
+/* Set(clock handle with WRITE, WIT_CLOCK_UTC, nanoseconds since 1970) -> 0: UTC continues from the value given; the
+ * monotonic clock cannot be set (INVALID_ARGUMENT), nor can UTC move before the boot (INVALID_ARGUMENT). The clock
+ * handle is the root task's initial capability (witos/root.h), duplicable and transferable (K6). */
+#define WIT_CALL_CLOCK_SET 58U
 
 /* Faults (RFC 0011 section 7.5). Register(callback or zero, version, flags=0); query(token, buffer, exact size)
  * copies the WitUserExceptionInfo of the current delivery; continue(token, WitUserExceptionTransfer, exact size)
@@ -269,7 +276,7 @@
 #define WIT_RIGHT_THREAD_ALL 6644U
 #define WIT_EVENT_ACCESS_WAIT WIT_RIGHT_WAIT
 #define WIT_EVENT_ACCESS_SIGNAL WIT_RIGHT_SIGNAL
-/* Clocks of CLOCK_READ and CLOCK_FREQUENCY. UTC is UNSUPPORTED until plan step K6. */
+/* Clocks of CLOCK_READ, CLOCK_FREQUENCY and CLOCK_SET (K6). */
 #define WIT_CLOCK_MONOTONIC 0U
 #define WIT_CLOCK_UTC 1U
 /* Selectors of the transitional MONOTONIC_QUERY. */

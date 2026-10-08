@@ -6,6 +6,7 @@
 /* QEMU virt board: device addresses and the semihosting entry, used only by this directory. */
 
 #define WIT_VIRT_PL011_BASE 0x09000000ULL
+#define WIT_VIRT_PL031_BASE 0x09010000ULL /* the real-time clock of the QEMU virt profile (K6) */
 #define WIT_VIRT_GICD_BASE 0x08000000ULL
 #define WIT_VIRT_GICR_BASE 0x080A0000ULL /* Redistributor of the boot processor. */
 #define WIT_VIRT_GICR_SGI_BASE 0x080B0000ULL
