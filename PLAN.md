@@ -272,8 +272,14 @@ UHI для x64 и ARM64 (порт ARM64 стоил ~2 300 строк и пере
     auxv (`AT_PHDR` из заголовков ELF в первом сегменте, `AT_RANDOM` из ядра), `static.ld`; первая программа
     `tests/User/libc_hello.c` (32 проверки: stdio, malloc/qsort, строки, конверсии, setjmp, mmap, часы, `nanosleep`,
     `getrandom`, `__thread`, `isatty`, `uname`, `atexit`) — корневая задача сценария `libc` обеих ISA; команда `libc`.
-  - [ ] **S1.2** Файлы над read-only пакетом: `open`/`read`/`pread`/`lseek`/`fstat`/`stat`/`close`/`getdents64` над объектом
-    пакета (формат `witos/package.h` разбирается в sysdeps), `/dev/null`; stdio чтения в тесте.
+  - [x] **S1.2** Файлы над read-only пакетом ([S1.2-Files-Over-The-Package.md](@Docs/Implementation/S1.2-Files-Over-The-Package.md)):
+    `files.c` в sysdeps разбирает объект пакета (формат `witos/package.h`, проверка как у загрузчика ядра; таблица
+    отображена один раз, данные — окнами до 64 страниц на чтение); пространство имён — пакет: `/`, файлы, каталоги как
+    префиксы, `/dev/null`; `openat`/`open` (любая запись — `EROFS`, `O_DIRECTORY` на файле — `ENOTDIR`), `close`,
+    `read`/`readv`/`pread64`, `lseek`, `fstat`/`fstatat`/`stat` (`struct kstat` архитектуры; `statx` — `ENOSYS`),
+    `faccessat`/`access`, `getdents64` (`.`, `..`, дети префикса по порядку таблицы), `getcwd` = `/`, `fcntl`
+    `F_GETFL`/`F_GETFD`/`F_SETFD`, `readlinkat` — `EINVAL`; пакет сценария `libc` несёт `test/hello.txt`, `test/dir/a.txt`,
+    `test/dir/b.txt`; тест вырос до 55 проверок (stdio чтения, `stat`, `opendir`/`readdir`, отказы записи) на обеих ISA.
   - [ ] **S1.3** Приёмка: подмножество libc-test (string, stdio, stdlib, math, time, ctype) как корневая задача на обеих ISA;
     дифференциальный прогон против musl на Linux — вместе с Linux-хостом сборки (T2).
 - [ ] **S2** Потоки: pthreads над потоками ядра, эквивалент futex над событиями и ожиданиями; ELF TLS через FS;

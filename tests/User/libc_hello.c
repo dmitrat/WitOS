@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <math.h>
@@ -9,6 +10,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/random.h>
+#include <sys/stat.h>
 #include <sys/utsname.h>
 #include <time.h>
 #include <unistd.h>
@@ -16,7 +18,8 @@
 /* The first libc program on WitOS (RFC 0011 section 9.1, plan step S1.1): unchanged musl over the system layer's
  * dispatch, started by the kernel as the root task. It exercises what S1.1 brings: stdio to the kernel log,
  * malloc over mmap, strings and formatting, conversions, sorting, setjmp, errno from an unsupported call, time and
- * entropy from the kernel's clocks, thread-local storage of the main thread, atexit; then it exits with zero. The
+ * entropy from the kernel's clocks, thread-local storage of the main thread, atexit, and (S1.2) the files of the
+ * read-only boot package: stdio, stat, directories, the refusals of writing; then it exits with zero. The
  * last line names the library and the ISA for the boot scenario's check. */
 
 #if defined(__x86_64__)
@@ -125,7 +128,65 @@ int main(void)
     /* errno from a call the system layer does not have yet: honest ENOSYS, nothing pretended. */
     errno = 0;
     check(getppid() == 0, "getppid");
-    check(open("/missing", 0) == -1 && errno == ENOSYS, "open before files reports ENOSYS, not a missing file");
+    check(open("/missing", 0) == -1 && errno == ENOENT, "open of a missing file");
+
+    /* Files over the read-only boot package (S1.2): the package's files are the namespace, nothing is writable. */
+    FILE *file = fopen("/test/hello.txt", "r");
+    check(file != 0, "fopen a package file");
+    if (file) {
+        check(fgets(buffer, sizeof(buffer), file) != 0 && strcmp(buffer, "Hello, package!\n") == 0, "fgets first line");
+        check(fgets(buffer, sizeof(buffer), file) != 0 && strcmp(buffer, "second line\n") == 0, "fgets second line");
+        check(fgets(buffer, sizeof(buffer), file) == 0 && feof(file), "end of file");
+        check(fseek(file, 7, SEEK_SET) == 0 && fread(buffer, 1, 8, file) == 8 && memcmp(buffer, "package!", 8) == 0,
+            "fseek and fread");
+        check(ftell(file) == 15, "ftell");
+        check(fseek(file, 0, SEEK_END) == 0 && ftell(file) == 28, "fseek to the end");
+        check(fclose(file) == 0, "fclose");
+    }
+    struct stat st;
+    check(stat("/test/hello.txt", &st) == 0 && S_ISREG(st.st_mode) && st.st_size == 28, "stat of a file");
+    check(stat("/test/dir", &st) == 0 && S_ISDIR(st.st_mode), "stat of a directory");
+    check(stat("/test/dir/", &st) == 0 && S_ISDIR(st.st_mode), "stat of a directory with a trailing slash");
+    check(stat("/test/nothing", &st) == -1 && errno == ENOENT, "stat of a missing file");
+    check(open("/test/hello.txt", O_WRONLY) == -1 && errno == EROFS, "the package is read-only");
+    check(open("/test/new.txt", O_WRONLY | O_CREAT, 0644) == -1 && errno == EROFS, "no file is created");
+    check(open("/test/hello.txt", O_RDONLY | O_DIRECTORY) == -1 && errno == ENOTDIR, "a file is not a directory");
+    int directory = open("/test/dir", O_RDONLY);
+    check(
+        directory >= 0 && read(directory, buffer, 1) == -1 && errno == EISDIR, "a directory is not readable as bytes");
+    if (directory >= 0) {
+        close(directory);
+    }
+    check(access("/test/dir/a.txt", R_OK) == 0 && access("/test/dir/a.txt", W_OK) == -1 && errno == EROFS, "access");
+    DIR *listing = opendir("/test/dir");
+    check(listing != 0, "opendir");
+    if (listing) {
+        const char *names[8] = {0};
+        int entries = 0;
+        for (struct dirent *entry; (entry = readdir(listing)) != 0 && entries < 8; ++entries) {
+            names[entries] = strdup(entry->d_name);
+        }
+        check(entries == 4 &&
+                strcmp(names[0], ".") == 0 &&
+                strcmp(names[1], "..") == 0 &&
+                strcmp(names[2], "a.txt") == 0 &&
+                strcmp(names[3], "b.txt") == 0,
+            "readdir lists the directory in order");
+        check(closedir(listing) == 0, "closedir");
+    }
+    int fd = open("/test/dir/b.txt", O_RDONLY);
+    check(
+        fd >= 0 && pread(fd, buffer, 2, 0) == 2 && buffer[0] == 'b' && buffer[1] == 'b' && lseek(fd, 0, SEEK_CUR) == 0,
+        "pread");
+    if (fd >= 0) {
+        close(fd);
+    }
+    check(getcwd(buffer, sizeof(buffer)) != 0 && strcmp(buffer, "/") == 0, "the current directory is the root");
+    int null_device = open("/dev/null", O_RDWR);
+    check(null_device >= 0 && write(null_device, "x", 1) == 1 && read(null_device, buffer, 1) == 0, "/dev/null");
+    if (null_device >= 0) {
+        close(null_device);
+    }
 
     /* Clocks and entropy. */
     check(clock_gettime(CLOCK_MONOTONIC, &monotonic) == 0 && (monotonic.tv_sec > 0 || monotonic.tv_nsec > 0),

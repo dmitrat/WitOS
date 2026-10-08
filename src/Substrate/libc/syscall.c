@@ -1,8 +1,10 @@
 #define _GNU_SOURCE
 #include "witos_libc.h"
 #include <errno.h>
+#include <fcntl.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
 #include <sys/utsname.h>
@@ -116,6 +118,18 @@ static long writev_log(long fd, const struct iovec *vectors, long count)
         }
     }
     return written_total;
+}
+
+static long writev_total(const struct iovec *vectors, long count)
+{
+    long total = 0;
+    if (count < 0 || count > 1024) {
+        return -EINVAL;
+    }
+    for (long i = 0; i < count; ++i) {
+        total += (long)vectors[i].iov_len;
+    }
+    return total;
 }
 
 static long terminal_ioctl(long fd, long request, void *argument)
@@ -267,14 +281,59 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
             wit_syscall(WIT_CALL_PROCESS_EXIT, (WitU64)(a1 & 0xFF), 0, 0, &result);
         }
     case SYS_write:
-        return write_log(a1, (const void *)a2, (unsigned long)a3);
+        return __wit_is_file_descriptor(a1) ? __wit_write_file(a1, a3)
+                                            : write_log(a1, (const void *)a2, (unsigned long)a3);
     case SYS_writev:
-        return writev_log(a1, (const struct iovec *)a2, a3);
+        return __wit_is_file_descriptor(a1) ? __wit_write_file(a1, writev_total((const struct iovec *)a2, a3))
+                                            : writev_log(a1, (const struct iovec *)a2, a3);
     case SYS_read:
+        return a1 == 0 ? 0 : __wit_read(a1, (void *)a2, a3);
     case SYS_readv:
-        return a1 == 0 ? 0 : -EBADF; /* nothing to read from the terminal yet; no other descriptors */
+        return a1 == 0 ? 0 : __wit_readv(a1, (const struct iovec *)a2, a3);
+    case SYS_pread64:
+        return __wit_pread(a1, (void *)a2, a3, a4);
     case SYS_ioctl:
-        return terminal_ioctl(a1, a2, (void *)a3);
+        return __wit_is_file_descriptor(a1) ? -ENOTTY : terminal_ioctl(a1, a2, (void *)a3);
+    case SYS_openat:
+        return __wit_openat(a1, (const char *)a2, a3, a4);
+    case SYS_close:
+        return __wit_close(a1);
+    case SYS_lseek:
+        return __wit_lseek(a1, a2, a3);
+    case SYS_fstat:
+        return __wit_fstatat(a1, "", (struct kstat *)a2, AT_EMPTY_PATH);
+#if defined(SYS_fstatat)
+    case SYS_fstatat:
+        return __wit_fstatat(a1, (const char *)a2, (struct kstat *)a3, a4);
+#endif
+#if defined(SYS_newfstatat)
+    case SYS_newfstatat:
+        return __wit_fstatat(a1, (const char *)a2, (struct kstat *)a3, a4);
+#endif
+    case SYS_faccessat:
+        return __wit_faccessat(a1, (const char *)a2, a3);
+    case SYS_getdents64:
+        return __wit_getdents(a1, (unsigned char *)a2, a3);
+    case SYS_getcwd:
+        return __wit_getcwd((char *)a1, a2);
+    case SYS_fcntl:
+        return __wit_fcntl(a1, a2, a3);
+#if defined(SYS_open)
+    case SYS_open:
+        return __wit_openat(AT_FDCWD, (const char *)a1, a2, a3);
+#endif
+#if defined(SYS_access)
+    case SYS_access:
+        return __wit_faccessat(AT_FDCWD, (const char *)a1, a2);
+#endif
+#if defined(SYS_stat)
+    case SYS_stat:
+        return __wit_fstatat(AT_FDCWD, (const char *)a1, (struct kstat *)a2, 0);
+#endif
+    case SYS_readlinkat:
+        return -EINVAL; /* the package has no symbolic links */
+    case SYS_statx:
+        return -ENOSYS; /* musl falls back to fstatat */
     case SYS_mmap:
         return __wit_mmap(a1, a2, a3, a4, a5, a6);
     case SYS_munmap:

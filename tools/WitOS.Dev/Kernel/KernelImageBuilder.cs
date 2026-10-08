@@ -116,7 +116,8 @@ internal static class KernelImageBuilder
             await EmbedRuntimeImageAsync(root, output);
         }
 
-        var bootPackage = await BootPackage.BuildAsync(root, output, scenario == "coreclr-storage", scenario == "coreclr-memory");
+        var bootPackage = await BootPackage.BuildAsync(root, output, scenario == "coreclr-storage", scenario == "coreclr-memory",
+            scenario == LIBC_SCENARIO);
         // The root task's flat image (K4): every kernel, release or self-test, starts it from the boot disk.
         var rootTask = scenario == LIBC_SCENARIO
             ? await Substrate.MuslLibc.BuildRootAsync(root, output, architecture, "libc_hello.c")

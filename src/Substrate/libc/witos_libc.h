@@ -26,4 +26,21 @@ long __wit_munmap(long address, long length);
 long __wit_mprotect(long address, long length, long protection);
 long __wit_madvise(long address, long length, long advice);
 
+/* Files over the read-only boot package (files.c, S1.2). */
+struct kstat;
+struct iovec;
+long __wit_openat(long dirfd, const char *path, long flags, long mode);
+long __wit_close(long fd);
+long __wit_read(long fd, void *buffer, long bytes);
+long __wit_pread(long fd, void *buffer, long bytes, long offset);
+long __wit_readv(long fd, const struct iovec *vectors, long count);
+long __wit_write_file(long fd, long bytes);
+long __wit_lseek(long fd, long offset, long whence);
+long __wit_fstatat(long dirfd, const char *path, struct kstat *st, long flags);
+long __wit_faccessat(long dirfd, const char *path, long mode);
+long __wit_getdents(long fd, unsigned char *buffer, long bytes);
+long __wit_getcwd(char *buffer, long size);
+long __wit_fcntl(long fd, long command, long argument);
+int __wit_is_file_descriptor(long fd);
+
 #endif
