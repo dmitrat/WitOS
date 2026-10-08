@@ -125,7 +125,7 @@ wit_user_start PROC
     CREATE 8192
     EXPECT WIT_STATUS_OK
     mov x23, x1
-    ; The map request: a foreign version, a wrong size, a foreign target, WRITE with EXECUTE, a window beyond the
+    ; The map request: a foreign version, a wrong size, an absent target, WRITE with EXECUTE, a window beyond the
     ; object and an empty window are refused before any reservation is taken.
     MAPVIEW x23, 0, 8192, 0, READ_WRITE
     EXPECT WIT_STATUS_OK ; the first view, at an address the kernel chose in the data arena
@@ -140,10 +140,10 @@ wit_user_start PROC
     EXPECT WIT_STATUS_UNSUPPORTED
     mov w9, #WIT_MEMORY_MAP_VERSION
     str w9, [x22, #16]
-    str xzr, [x22, #16 + 48] ; a foreign target
+    str xzr, [x22, #16 + 48] ; a target that is no handle of ours (a process handle names another, K5.2c)
     mov x1, #56
     bl raw_map
-    EXPECT WIT_STATUS_UNSUPPORTED
+    EXPECT WIT_STATUS_BAD_HANDLE
     mov x9, #-3 ; WIT_PROCESS_SELF
     str x9, [x22, #16 + 48]
     mov x1, #55 ; a wrong size

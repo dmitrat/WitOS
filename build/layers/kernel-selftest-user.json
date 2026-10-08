@@ -17,6 +17,7 @@
     "tests/Kernel/user_interrupt_tests.c",
     "tests/Kernel/root_task_tests.c",
     "tests/Kernel/user_thread2_tests.c",
+    "tests/Kernel/user_process_tests.c",
     "tests/Kernel/user_image_tests.c",
     "tests/Kernel/test_summary.c"
   ],

@@ -72,6 +72,14 @@ wit_arch_run_user PROC
     jmp wit_x64_restore_context
 wit_arch_run_user ENDP
 
+; rcx = a frame on the kernel stack of the thread it belongs to (K5.2c): abandons the current kernel stack and
+; restores the frame as the trap return path would; DS and ES stay the user selectors of the run.
+PUBLIC wit_arch_resume_frame
+wit_arch_resume_frame PROC
+    mov rsp, rcx
+    jmp wit_x64_restore_context
+wit_arch_resume_frame ENDP
+
 PUBLIC wit_arch_leave_user
 wit_arch_leave_user PROC
     cli

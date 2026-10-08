@@ -82,6 +82,23 @@ WIT_NORETURN void wit_arch_leave_user(void)
     wit_a64_leave_user();
 }
 
+void wit_arch_space_switch(WitU64 root)
+{
+    if (wit_a64_translation_base() != root) {
+        wit_a64_switch_translation(root);
+    }
+}
+
+/* A dispatched frame of another thread, on that thread's own kernel stack, resumes here without returning: the
+ * current kernel stack is abandoned (K5.2c). */
+WIT_NORETURN void wit_arch_resume_frame(WitArchFrame *frame)
+{
+    if (wit_arch_interrupts_enabled() || !wit_arch_frame_returns_to_user(frame)) {
+        wit_panic("Frame resume needs IRQ masked and an EL0 frame");
+    }
+    wit_a64_resume_frame(wit_a64_prepare_resume(frame));
+}
+
 WitA64Frame *wit_a64_prepare_resume(WitA64Frame *frame)
 {
     if ((frame->Spsr & WIT_A64_SPSR_MODE) == 0) {

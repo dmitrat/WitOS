@@ -11,7 +11,7 @@
  * be held by different processes, and a change of an end wakes the waiters of every process. A process is charged for
  * the channels it created while it lives. A capability of a kind whose record belongs to one process — an event, a
  * device, an interrupt binding, a pin — carries the Id of the process it left and is received by that process alone;
- * endpoints, memory objects and thread handles cross processes. A process's end voids the capabilities of its own
+ * endpoints, memory objects, process handles and thread handles cross processes. A process's end voids the capabilities of its own
  * kinds still in flight, releases every endpoint handle it held, and collects the ends nothing reachable refers to. */
 
 #define ENDPOINT_RIGHTS (WIT_RIGHT_WAIT | WIT_RIGHT_SEND | WIT_RIGHT_RECEIVE | WIT_RIGHT_DUPLICATE | WIT_RIGHT_TRANSFER)
@@ -53,6 +53,8 @@ static void release_capability(WitUserProcess *p, const WitChannelCapability *ca
         }
     } else if (capability->Kind == WIT_HANDLE_MEMORY_OBJECT) {
         wit_user_memory_object_release(capability->Object);
+    } else if (capability->Kind == WIT_HANDLE_PROCESS) {
+        wit_user_process_release(capability->Object);
     } else if (process_bound(capability->Kind)) {
         WitUserProcess *origin = wit_user_process_by_id(capability->Origin);
         require(origin != 0, "Capability in flight outlived its process");
@@ -177,6 +179,8 @@ static WitU64 inspect_capability(WitUserProcess *p, const WitU64 *handles, WitU3
         out->Kind = WIT_HANDLE_INTERRUPT;
     } else if (wit_handle_describe(&p->Handles, handle, WIT_HANDLE_PIN, &object, &rights)) {
         out->Kind = WIT_HANDLE_PIN;
+    } else if (wit_handle_describe(&p->Handles, handle, WIT_HANDLE_PROCESS, &object, &rights)) {
+        out->Kind = WIT_HANDLE_PROCESS;
     } else if (wit_handle_describe(&p->Handles, handle, WIT_HANDLE_THREAD_REFERENCE, &object, &rights)) {
         const WitUserThreadReference *reference;
         require(wit_user_reference_describe(p, handle, 0, &reference) == WIT_STATUS_OK, "Thread handle lost record");

@@ -6,9 +6,10 @@
  * Table pages are owned and accounted by the common address-space code through its table callbacks. */
 
 unsigned __int64 __readcr3(void);
+void __writecr3(unsigned __int64);
 void __invlpg(void *);
 void __cpuid(int[4], int);
-#pragma intrinsic(__readcr3, __invlpg, __cpuid)
+#pragma intrinsic(__readcr3, __writecr3, __invlpg, __cpuid)
 
 #define PAGE_PRESENT 1ULL
 #define PAGE_WRITE 2ULL
@@ -151,6 +152,15 @@ void wit_arch_space_install_kernel(WitU64 root)
 int wit_arch_space_active(WitU64 root)
 {
     return (__readcr3() & PAGE_ADDRESS) == root;
+}
+
+/* Another process's root (or the kernel's) within a run: loading CR3 flushes the previous non-global translations;
+ * the kernel's own mappings are in every root (wit_arch_space_install_kernel). */
+void wit_arch_space_switch(WitU64 root)
+{
+    if ((__readcr3() & PAGE_ADDRESS) != root) {
+        __writecr3(root);
+    }
 }
 
 void wit_arch_publish_code_page(WitU64 physical)

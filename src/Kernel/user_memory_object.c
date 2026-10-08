@@ -207,10 +207,13 @@ WitU64 wit_user_memory_object_map(WitUserProcess *p, WitU64 address, WitU64 size
     if (request.Size != sizeof(request) || request.Flags || !valid_protection(request.Protection)) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
-    if (request.Target != WIT_PROCESS_SELF) {
-        return WIT_STATUS_UNSUPPORTED; /* Another process arrives with K5.2c. */
+    /* The target: the caller, or a live process a handle with MANAGE names (K5.2c); the mapping is the target's. */
+    WitUserProcess *target = 0;
+    WitU64 status = wit_user_process_target(p, request.Target, WIT_RIGHT_MANAGE, &target);
+    if (status != WIT_STATUS_OK) {
+        return status;
     }
-    const WitU64 status = get(p, request.Object, WIT_RIGHT_MAP, &entry, &object, &granted);
+    status = get(p, request.Object, WIT_RIGHT_MAP, &entry, &object, &granted);
     if (status != WIT_STATUS_OK) {
         return status;
     }
@@ -230,7 +233,7 @@ WitU64 wit_user_memory_object_map(WitUserProcess *p, WitU64 address, WitU64 size
     for (WitU64 i = 0; i < request.Bytes / 4096; ++i) {
         window[i] = object_page(entry, (WitU32)(request.Offset / 4096 + i));
     }
-    const WitU64 mapped = wit_user_space_map_object(&p->Space, request.Address, request.Bytes, window,
+    const WitU64 mapped = wit_user_space_map_object(&target->Space, request.Address, request.Bytes, window,
         request.Protection, (WitU32)object, granted, entry->Kind == WIT_MEMORY_OBJECT_DEVICE, result);
     if (mapped != WIT_STATUS_OK) {
         return mapped;

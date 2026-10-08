@@ -287,32 +287,35 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 ent
     return WIT_STATUS_OK;
 }
 
-/* The one form (version 2, K5.2a): a thread on the caller's stack with the caller's TLS base; the kernel maps nothing
- * for it. The stack pointer must be 16-byte aligned inside a committed writable reservation, whose bounds become the
- * thread's; the TLS base is a user address or zero. */
-static WitU64 create_on_caller_stack(WitUserProcess *p, const WitThreadCreateRequest2 *request, WitU64 *result)
+/* The one form (version 2, K5.2a; version 3 names the process, K5.2c): a thread of the target process on a stack of
+ * the target's with the TLS base asked; the kernel maps nothing for it. The stack pointer must be 16-byte aligned
+ * inside a committed writable reservation of the target (a mapping the creator made into it), whose bounds become
+ * the thread's; the entry is executable in the target; the TLS base is a user address or zero. The thread handle and
+ * its record go to the caller, the thread's identity to the target. */
+static WitU64 create_in(
+    WitUserProcess *p, WitUserProcess *target, const WitThreadCreateRequest2 *request, WitU64 size, WitU64 *result)
 {
     WitU64 base = 0, bytes = 0;
-    if (request->Size != sizeof(*request) || request->Reserved || (request->Flags & ~WIT_THREAD_START_SUSPENDED)) {
+    if (request->Size != size || request->Reserved || (request->Flags & ~WIT_THREAD_START_SUSPENDED)) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
     if ((request->StackPointer & 15) || request->TlsBase >= 0x0000800000000000ULL) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
-    if (!wit_user_space_physical(&p->Space, request->Entry, 0, 1)) {
+    if (!wit_user_space_physical(&target->Space, request->Entry, 0, 1)) {
         return WIT_STATUS_BAD_ADDRESS;
     }
-    if (!wit_user_space_reservation_bounds(&p->Space, request->StackPointer, &base, &bytes) ||
+    if (!wit_user_space_reservation_bounds(&target->Space, request->StackPointer, &base, &bytes) ||
         request->StackPointer <= base ||
-        !wit_user_space_physical(&p->Space, request->StackPointer - 8, 1, 0)) {
+        !wit_user_space_physical(&target->Space, request->StackPointer - 8, 1, 0)) {
         return WIT_STATUS_BAD_ADDRESS;
     }
     WitU32 index = 0;
-    while (index < WIT_USER_THREAD_CAPACITY && p->Threads[index].State != WitThreadEmpty) {
+    while (index < WIT_USER_THREAD_CAPACITY && target->Threads[index].State != WitThreadEmpty) {
         ++index;
     }
     if (index == WIT_USER_THREAD_CAPACITY) {
-        ++p->ReferenceThreadCapacityFailures;
+        ++target->ReferenceThreadCapacityFailures;
         return WIT_STATUS_NO_MEMORY;
     }
     WitUserThreadReference *reference = 0;
@@ -322,19 +325,21 @@ static WitU64 create_on_caller_stack(WitUserProcess *p, const WitThreadCreateReq
             break;
         }
     }
-    if (!reference || wit_handles_free_count(&p->Handles) < 2) {
+    if (!reference ||
+        wit_handles_free_count(&p->Handles) < (target == p ? 2U : 1U) ||
+        !wit_handles_free_count(&target->Handles)) {
         return WIT_STATUS_NO_MEMORY;
     }
-    WitUserThread *thread = &p->Threads[index];
-    const WitU64 reset = reset_thread(p, thread, 0);
+    WitUserThread *thread = &target->Threads[index];
+    const WitU64 reset = reset_thread(target, thread, 0);
     if (reset != WIT_STATUS_OK) {
         return reset;
     }
     const WitU64 handle = wit_handle_grant(&p->Handles, WIT_HANDLE_THREAD_REFERENCE, WIT_RIGHT_THREAD_ALL);
-    const WitU64 identity = wit_handle_grant(&p->Handles, WIT_HANDLE_THREAD_IDENTITY, 0);
+    const WitU64 identity = wit_handle_grant(&target->Handles, WIT_HANDLE_THREAD_IDENTITY, 0);
     require(handle != 0 && identity != 0, "Thread handles failed after the free slot check");
     WitArchFrame *context =
-        wit_arch_frame_create_at(p->Slot, index, request->Entry, request->Argument, request->StackPointer);
+        wit_arch_frame_create_at(target->Slot, index, request->Entry, request->Argument, request->StackPointer);
     require(take_native_id(&next_native_id, &thread->NativeId), "Serialized native ID allocation failed");
     thread->Handle = identity;
     thread->StackBottom = base;
@@ -357,7 +362,7 @@ static WitU64 create_on_caller_stack(WitUserProcess *p, const WitThreadCreateReq
     thread->WaitOrder = 0;
     thread->SuspendCount = (request->Flags & WIT_THREAD_START_SUSPENDED) ? 1U : 0U;
     thread->State = WitThreadReady;
-    ++p->ThreadCreates;
+    ++target->ThreadCreates;
     reference->Handle = handle;
     reference->ThreadId = identity;
     reference->ExitCode = 0;
@@ -386,6 +391,34 @@ WitU64 wit_user_thread_set_tls(WitUserProcess *p, WitU64 base, WitU64 reserved0,
 WitU64 wit_user_thread_create(WitUserProcess *p, WitU64 input, WitU64 size, WitU64 *result)
 {
     *result = 0;
+    if (size == sizeof(WitThreadCreateRequest3)) {
+        /* Version 3 (K5.2c): the one form into the process the request names. */
+        WitThreadCreateRequest3 request3;
+        WitThreadCreateRequest2 form;
+        WitUserProcess *target = 0;
+        if (!wit_user_copy_from(&p->Space, input, (WitU8 *)&request3, sizeof(request3))) {
+            return WIT_STATUS_BAD_ADDRESS;
+        }
+        if (request3.Version != WIT_THREAD_CREATE_VERSION_3) {
+            return WIT_STATUS_UNSUPPORTED;
+        }
+        if (request3.Size != sizeof(request3)) {
+            return WIT_STATUS_INVALID_ARGUMENT;
+        }
+        const WitU64 status = wit_user_process_target(p, request3.Process, WIT_RIGHT_MANAGE, &target);
+        if (status != WIT_STATUS_OK) {
+            return status;
+        }
+        form.Version = WIT_THREAD_CREATE_VERSION_2;
+        form.Size = sizeof(request3);
+        form.Entry = request3.Entry;
+        form.Argument = request3.Argument;
+        form.StackPointer = request3.StackPointer;
+        form.TlsBase = request3.TlsBase;
+        form.Flags = request3.Flags;
+        form.Reserved = request3.Reserved;
+        return create_in(p, target, &form, sizeof(request3), result);
+    }
     if (size != sizeof(WitThreadCreateRequest)) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
@@ -394,7 +427,7 @@ WitU64 wit_user_thread_create(WitUserProcess *p, WitU64 input, WitU64 size, WitU
         return WIT_STATUS_BAD_ADDRESS;
     }
     if (request.Version == WIT_THREAD_CREATE_VERSION_2) {
-        return create_on_caller_stack(p, (const WitThreadCreateRequest2 *)&request, result);
+        return create_in(p, p, (const WitThreadCreateRequest2 *)&request, sizeof(request), result);
     }
     if (request.Version != WIT_THREAD_CREATE_VERSION) {
         return WIT_STATUS_UNSUPPORTED;

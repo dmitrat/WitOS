@@ -30,5 +30,20 @@ typedef struct WitThreadCreateRequest2 {
 
 WIT_STATIC_ASSERT(sizeof(WitThreadCreateRequest2) == 48, "Thread create request 2 ABI");
 
+/* Version 3 (56 bytes, K5.2c): version 2 naming the process the thread starts in. Process is WIT_PROCESS_SELF or a
+ * process handle of the caller with MANAGE; the stack pointer lies in a committed writable reservation of that
+ * process (a mapping the creator made into it), the entry is executable there, and the thread handle goes to the
+ * caller's table while the thread runs in the named process. */
+#define WIT_THREAD_CREATE_VERSION_3 3U
+
+typedef struct WitThreadCreateRequest3 {
+    WitU32 Version, Size;
+    WitU64 Entry, Argument, StackPointer, TlsBase;
+    WitU64 Process;
+    WitU32 Flags, Reserved;
+} WitThreadCreateRequest3;
+
+WIT_STATIC_ASSERT(sizeof(WitThreadCreateRequest3) == 56, "Thread create request 3 ABI");
+
 WIT_STATIC_ASSERT(sizeof(WitThreadCreateRequest) == 48, "Thread create request ABI");
 #endif

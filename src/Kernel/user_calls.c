@@ -384,6 +384,28 @@ static WitArchFrame *dma_unpin(WitUserCall *call)
     return 0;
 }
 
+static WitArchFrame *process_create(WitUserCall *call)
+{
+    *call->Status =
+        wit_user_process_create(call->Process, call->Argument0, call->Argument1, call->Argument2, call->Value);
+    return 0;
+}
+
+static WitArchFrame *process_kill(WitUserCall *call)
+{
+    *call->Status = wit_user_process_kill(call->Process, call->Argument0, call->Argument1, call->Argument2);
+    return 0;
+}
+
+static WitArchFrame *process_query(WitUserCall *call)
+{
+    *call->Status = wit_user_process_query(call->Process, call->Argument0, call->Argument1, call->Argument2);
+    if (*call->Status == WIT_STATUS_OK) {
+        *call->Value = call->Argument2;
+    }
+    return 0;
+}
+
 static WitArchFrame *device_acquire(WitUserCall *call)
 {
     *call->Status =
@@ -684,6 +706,9 @@ static WitArchFrame *(*const handlers[CALL_COUNT])(WitUserCall *) = {
     [WIT_CALL_INTERRUPT_ACK] = interrupt_ack,
     [WIT_CALL_DMA_PIN] = dma_pin,
     [WIT_CALL_DMA_UNPIN] = dma_unpin,
+    [WIT_CALL_PROCESS_CREATE] = process_create,
+    [WIT_CALL_PROCESS_KILL] = process_kill,
+    [WIT_CALL_PROCESS_QUERY] = process_query,
     [WIT_CALL_EVENT_CREATE] = event_create,
     [WIT_CALL_EVENT_SET] = event_set,
     [WIT_CALL_EVENT_RESET] = event_reset,
