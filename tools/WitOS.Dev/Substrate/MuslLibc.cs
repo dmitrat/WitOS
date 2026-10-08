@@ -65,8 +65,18 @@ internal static class MuslLibc
     private static readonly Dictionary<string, string> PATCHED = new(StringComparer.Ordinal)
     {
         ["arch/x86_64/syscall_arch.h"] = "syscall_arch.x86_64.h",
-        ["arch/aarch64/syscall_arch.h"] = "syscall_arch.aarch64.h"
+        ["arch/aarch64/syscall_arch.h"] = "syscall_arch.aarch64.h",
+        // The dynamic linker takes the start message before it opens a library (S5.3).
+        ["ldso/dynlink.c"] = "dynlink.c"
     };
+
+    // An image another component maps from the boot package (S5.3): every loadable segment starts a page of the file,
+    // so that a file with code is at least a page long and lies at a page boundary of the package, and an executable
+    // mapping shows the package's pages without a copy and without data beside the code.
+    private static readonly string[] SEPARATE_SEGMENTS = ["-z", "max-page-size=4096", "-z", "separate-loadable-segments"];
+
+    // The startup objects of static programs, which libc.so leaves out.
+    private static readonly string[] STATIC_STARTUP = ["crt1.c", "rcrt1.c"];
 
     private static readonly Regex TYPEDEF = new(@"^TYPEDEF (.*) ([^ ]*);$");
     private static readonly Regex STRUCT = new(@"^STRUCT * ([^ ]*) (.*);$");
@@ -230,6 +240,86 @@ internal static class MuslLibc
     }
 
     /// <summary>
+    /// Builds musl as libc.so, which is also the dynamic linker, and Scrt1.o, the startup of a dynamic program (plan
+    /// step S5.3), under artifacts/substrate/&lt;architecture&gt;/shared, once per set of inputs. As musl's Makefile
+    /// does, every source of libc.a is compiled again with -fPIC, ldso/dlstart.c and ldso/dynlink.c join them (the
+    /// latter with WitOS's start hook, patches/musl/dynlink.c.patch), and the objects are linked with -shared,
+    /// -e _dlstart and musl's linker options; WitOS's part of the library joins with -fPIC, less the startup objects of
+    /// static programs.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>The build.</returns>
+    public static async Task<SharedLibcBuild> BuildSharedAsync(string root, KernelArchitecture architecture)
+    {
+        var build = await BuildAsync(root, architecture);
+        var sources = RequireSources(root);
+        var arch = MuslArchitecture(architecture);
+        var substrate = Path.Combine(root, "artifacts", "substrate", architecture.Name);
+        var output = Path.Combine(substrate, "shared");
+        Directory.CreateDirectory(output);
+        var shared = new SharedLibcBuild(output, Path.Combine(output, "libc.so"), Path.Combine(output, "Scrt1.o"));
+        var options = LibcOptions(architecture, build.Includes, sources, Path.Combine(substrate, "generated"))
+            .Select(option => option == "-fPIE" ? "-fPIC" : option).ToArray();
+        var stamp = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n',
+            [await File.ReadAllTextAsync(Path.Combine(substrate, "stamp.txt")), .. options, .. SharedLinkOptions(sources)])))).ToLowerInvariant();
+        var stampPath = Path.Combine(output, "stamp.txt");
+        if (File.Exists(shared.Library) && File.Exists(shared.Scrt1) && File.Exists(stampPath) && await File.ReadAllTextAsync(stampPath) == stamp)
+            return shared;
+        File.Delete(stampPath);
+
+        var objects = Path.Combine(output, "obj");
+        if (Directory.Exists(objects))
+            Directory.Delete(objects, recursive: true);
+        Directory.CreateDirectory(objects);
+        var patched = Path.Combine(output, "patched");
+        Directory.CreateDirectory(patched);
+        var dynlink = Path.Combine(patched, "dynlink.c");
+        await File.WriteAllTextAsync(dynlink, await PatchedAsync(root, sources, "ldso/dynlink.c"));
+        var clang = Toolchain.Clang(root);
+        var produced = new List<string>();
+        var files = SelectSources(sources, arch).Append(Path.Combine(sources, "ldso", "dlstart.c")).Append(dynlink).ToList();
+        await Parallel.ForEachAsync(files, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
+            async (file, _) =>
+            {
+                var relative = file == dynlink ? "ldso/dynlink.c" : Path.GetRelativePath(sources, file).Replace('\\', '/');
+                var obj = Path.Combine(objects, relative.Replace('/', '_') + ".lo");
+                await Processes.RequireSuccessAsync(clang, [.. options, "-c", file, "-o", obj], root);
+                lock (produced)
+                    produced.Add(obj);
+            });
+        string[] sysdepOptions = [.. options.Where(option => option != "-w"), "-Wall", "-Wextra", "-Werror",
+            "-I", Path.Combine(root, "src", "Sysroot", "include"), "-I", Path.Combine(root, "src", "Kernel", "include")];
+        foreach (var file in Directory.GetFiles(Path.Combine(root, SYSDEPS), "*.c").Order(StringComparer.Ordinal)
+            .Where(path => !STATIC_STARTUP.Contains(Path.GetFileName(path))))
+        {
+            var obj = Path.Combine(objects, "witos_" + Path.GetFileNameWithoutExtension(file) + ".lo");
+            await Processes.RequireSuccessAsync(clang, [.. sysdepOptions, "-c", file, "-o", obj], root);
+            produced.Add(obj);
+        }
+        // musl's startup of a dynamic program: crt1.c compiled position-independent (crt/Scrt1.c).
+        await Processes.RequireSuccessAsync(clang,
+            [.. options, "-DCRT", "-c", Path.Combine(sources, "crt", "Scrt1.c"), "-o", shared.Scrt1], root);
+        var builtins = await CompilerRtBuiltins.BuildAsync(root, architecture, build.Includes.Skip(1));
+        var list = Path.Combine(output, "objects.rsp");
+        await File.WriteAllLinesAsync(list, produced.OrderBy(path => path, StringComparer.Ordinal).Select(path => '"' + path.Replace('\\', '/') + '"'));
+        await Processes.RequireSuccessAsync(Toolchain.Lld(root),
+            ["-o", shared.Library, .. SharedLinkOptions(sources), "@" + list, builtins], root);
+        await File.WriteAllTextAsync(stampPath, stamp);
+        Console.WriteLine($"musl {VERSION} for {architecture.Triple}: {produced.Count} objects in libc.so.");
+        return shared;
+    }
+
+    // musl's link of libc.so (its Makefile and the LDFLAGS its configure finds for lld), and WitOS's page size, unwind
+    // index and no build id.
+    private static string[] SharedLinkOptions(string sources) =>
+    [
+        "-shared", "-e", "_dlstart", "--sort-section=alignment", "--sort-common", "--gc-sections", "--hash-style=both",
+        "--no-undefined", "--exclude-libs=ALL", "--dynamic-list=" + Path.Combine(sources, "dynamic.list").Replace('\\', '/'),
+        "-z", "max-page-size=4096", "--eh-frame-hdr", "--build-id=none"
+    ];
+
+    /// <summary>
     /// Compiles C sources against the library's headers and links them with crt1 and libc.a into a static ELF
     /// executable at the component's image window.
     /// </summary>
@@ -325,6 +415,66 @@ internal static class MuslLibc
         ], root);
         StartedProgram.Validate(await File.ReadAllBytesAsync(image), architecture.ElfMachine);
         return image;
+    }
+
+    /// <summary>
+    /// The dynamic linker's path in a dynamic program's PT_INTERP and in the boot package: musl's LDSO_PATHNAME.
+    /// </summary>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>The absolute path.</returns>
+    public static string InterpreterPath(KernelArchitecture architecture) => $"/lib/ld-musl-{MuslArchitecture(architecture)}.so.1";
+
+    /// <summary>
+    /// Links objects into a dynamic position-independent executable (plan step S5.3): musl's Scrt1.o, the shared
+    /// libraries the program needs and libc.so, recorded as DT_NEEDED "libc.so", which musl's dynamic linker resolves
+    /// to itself; PT_INTERP names the dynamic linker.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="output">Directory for the executable.</param>
+    /// <param name="name">Program name (the executable is name.elf).</param>
+    /// <param name="objects">Object files.</param>
+    /// <param name="libraries">Shared libraries the program needs, by path; DT_NEEDED records their sonames.</param>
+    /// <returns>Path of the executable.</returns>
+    public static async Task<string> LinkDynamicProgramAsync(string root, KernelArchitecture architecture, string output, string name,
+        IEnumerable<string> objects, IEnumerable<string>? libraries = null)
+    {
+        var build = await BuildAsync(root, architecture);
+        var shared = await BuildSharedAsync(root, architecture);
+        var builtins = await CompilerRtBuiltins.BuildAsync(root, architecture, build.Includes.Skip(1));
+        var image = Path.Combine(output, name + ".elf");
+        await Processes.RequireSuccessAsync(Toolchain.Lld(root),
+        [
+            "-o", image, "-pie", "--dynamic-linker=" + InterpreterPath(architecture), .. SEPARATE_SEGMENTS, "--eh-frame-hdr",
+            "--build-id=none", "--gc-sections", "-e", "_start", shared.Scrt1, .. objects, .. libraries ?? [], "-L", shared.Directory, "-lc",
+            builtins
+        ], root);
+        return image;
+    }
+
+    /// <summary>
+    /// Links position-independent objects into a shared library with its soname, against libc.so (plan step S5.3).
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="output">Directory for the library.</param>
+    /// <param name="soname">The library's soname and file name.</param>
+    /// <param name="objects">Object files compiled with -fPIC.</param>
+    /// <param name="libraries">Shared libraries the library needs, by path.</param>
+    /// <returns>Path of the library.</returns>
+    public static async Task<string> LinkSharedLibraryAsync(string root, KernelArchitecture architecture, string output, string soname,
+        IEnumerable<string> objects, IEnumerable<string>? libraries = null)
+    {
+        var build = await BuildAsync(root, architecture);
+        var shared = await BuildSharedAsync(root, architecture);
+        var builtins = await CompilerRtBuiltins.BuildAsync(root, architecture, build.Includes.Skip(1));
+        var library = Path.Combine(output, soname);
+        await Processes.RequireSuccessAsync(Toolchain.Lld(root),
+        [
+            "-o", library, "-shared", "-soname", soname, .. SEPARATE_SEGMENTS, "--eh-frame-hdr", "--build-id=none", "--gc-sections",
+            "--no-undefined", .. objects, .. libraries ?? [], "-L", shared.Directory, "-lc", builtins
+        ], root);
+        return library;
     }
 
     /// <summary>
@@ -472,7 +622,12 @@ internal static class MuslLibc
         await File.WriteAllTextAsync(Path.Combine(bits, "syscall.h"),
             SyscallNumbers(await File.ReadAllTextAsync(Path.Combine(sources, "arch", arch, "bits", "syscall.h.in"))));
         await File.WriteAllTextAsync(Path.Combine(generated, "src", "internal", "version.h"), $"#define VERSION \"{VERSION}\"\n");
-        var source = $"arch/{arch}/syscall_arch.h";
+        await File.WriteAllTextAsync(Path.Combine(overlay, "syscall_arch.h"), await PatchedAsync(root, sources, $"arch/{arch}/syscall_arch.h"));
+    }
+
+    // The text of a pinned upstream file with its patch applied: the file's bytes must be the ones the lock pins.
+    private static async Task<string> PatchedAsync(string root, string sources, string source)
+    {
         var bytes = await File.ReadAllBytesAsync(Path.Combine(sources, source));
         var pinned = System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(root, LOCK))).RootElement;
         if (pinned.GetProperty("sha256").GetString() != TARBALL_SHA256 || pinned.GetProperty("version").GetString() != VERSION ||
@@ -480,7 +635,7 @@ internal static class MuslLibc
                 entry.GetProperty("sha256").GetString() == Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant()))
             throw new InvalidDataException($"{LOCK} does not pin {source} as extracted from the tarball.");
         var text = Encoding.UTF8.GetString(bytes).Replace("\r\n", "\n");
-        await File.WriteAllTextAsync(Path.Combine(overlay, "syscall_arch.h"), UpstreamPatches.Apply(root, "musl", source, PATCHED[source], text));
+        return UpstreamPatches.Apply(root, "musl", source, PATCHED[source], text);
     }
 
     #endregion
@@ -496,3 +651,11 @@ internal static class MuslLibc
 /// <param name="Includes">Include directories in search order: the patched overlay, the generated headers, musl's
 /// public headers, the architecture's bits and the generic bits.</param>
 internal sealed record LibcBuild(string Library, string Crt1, string Rcrt1, string LinkerScript, IReadOnlyList<string> Includes);
+
+/// <summary>
+/// The products of the shared libc build (plan step S5.3).
+/// </summary>
+/// <param name="Directory">The directory a link searches for libc.so (-L).</param>
+/// <param name="Library">libc.so, which is also the dynamic linker.</param>
+/// <param name="Scrt1">musl's startup object of a dynamic program.</param>
+internal sealed record SharedLibcBuild(string Directory, string Library, string Scrt1);

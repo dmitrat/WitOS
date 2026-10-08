@@ -8,9 +8,10 @@ using WitOS.Dev.Kernel;
 namespace WitOS.Dev.Substrate;
 
 /// <summary>
-/// The compiler's runtime helpers a static program needs beside the libc (plan step S1.1): compiler-rt's generic
-/// soft-float builtins for IEEE binary128, which clang emits for <c>long double</c> on aarch64 and the pinned LLVM
-/// package does not ship for the Linux triples. The files are pinned by SHA-256 at the toolchain's own tag in
+/// The compiler's runtime helpers a program needs beside the libc (plan step S1.1): compiler-rt's generic soft-float
+/// builtins for IEEE binary128, which clang emits for <c>long double</c> on aarch64, and the complex multiplication
+/// builtins musl's complex functions call, which libc.so links whole (S5.3); the pinned LLVM package ships none of
+/// them for the Linux triples. The files are pinned by SHA-256 at the toolchain's own tag in
 /// src/Substrate/compiler-rt.lock.json, downloaded once into .tools/compiler-rt, verified on every use and compiled
 /// unchanged with the pinned clang into builtins.a for each architecture.
 /// </summary>
@@ -101,7 +102,8 @@ internal static class CompilerRtBuiltins
         Directory.CreateDirectory(output);
         var archive = Path.Combine(output, "builtins.a");
         var stamp = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n',
-            [pin.Tag, Toolchain.LLVM_VERSION, architecture.Triple, .. architecture.ClangOptions, .. pin.Sources.Select(source => source.Sha256)])))).ToLowerInvariant();
+            [pin.Tag, Toolchain.LLVM_VERSION, architecture.Triple, .. architecture.ClangOptions,
+                .. pin.Sources.Select(source => source.Sha256 + string.Join(',', source.Architectures ?? []))])))).ToLowerInvariant();
         var stampPath = Path.Combine(output, "stamp.txt");
         if (File.Exists(archive) && File.Exists(stampPath) && await File.ReadAllTextAsync(stampPath) == stamp)
             return archive;
@@ -110,9 +112,10 @@ internal static class CompilerRtBuiltins
         var objects = new List<string>();
         foreach (var source in pin.Sources.Where(source => source.Path.EndsWith(".c", StringComparison.Ordinal)))
         {
-            // An architecture directory holds that architecture's file alone; the rest is generic.
+            // An architecture directory holds that architecture's file alone, and a file compiler-rt's CMake lists for some
+            // architectures names them (mulxc3.c: x86's 80-bit long double); the rest is generic.
             var parts = source.Path.Split('/');
-            if (parts.Length == 5 && parts[3] != arch)
+            if ((parts.Length == 5 && parts[3] != arch) || (source.Architectures is { } only && !only.Contains(arch)))
                 continue;
             var obj = Path.Combine(output, string.Join('_', parts[3..]) + ".o");
             await Processes.RequireSuccessAsync(Toolchain.Clang(root),
@@ -158,4 +161,5 @@ internal sealed record CompilerRtPin(string Repository, string Tag, string Purpo
 /// </summary>
 /// <param name="Path">Path within llvm-project.</param>
 /// <param name="Sha256">SHA-256 of its canonical bytes.</param>
-internal sealed record CompilerRtSource(string Path, string Sha256);
+/// <param name="Architectures">The musl architectures a generic file is compiled for, null for every one.</param>
+internal sealed record CompilerRtSource(string Path, string Sha256, string[]? Architectures = null);

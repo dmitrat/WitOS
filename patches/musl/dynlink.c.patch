@@ -1,0 +1,30 @@
+Source: ldso/dynlink.c
+Output: dynlink.c
+Before: 7d6d6bfd3aafc7eb3331c37752a37fcf1e568452d2ca5be9009669386571cbbb
+After: e3ad1e464287376045361cf2b0a9a5d959089a6dffb572f71731dd3512d4abe3
+
+WitOS starts a dynamic program as a static one: its creator maps it and its interpreter, builds the Linux stack image and sends the process's capabilities (the kernel log and the boot package) in a start message on the channel endpoint the auxiliary vector names (witos/start.h). The dynamic linker opens libraries and may write a diagnostic before the program's own startup runs, so its third stage takes the start message first, as rcrt1.c does for a static program before __libc_start_main.
+
+--- a/ldso/dynlink.c
++++ b/ldso/dynlink.c
+@@ -1796,6 +1796,9 @@
+  * process dependencies and relocations for the main application and
+  * transfer control to its entry point. */
+ 
++/* WitOS (plan step S5.3): the start of a process in src/Substrate/libc/start.c. */
++hidden void __wit_start_program(const unsigned long *);
++
+ void __dls3(size_t *sp, size_t *auxv)
+ {
+ 	static struct dso app, vdso;
+@@ -1818,6 +1821,10 @@
+ 	libc.page_size = aux[AT_PAGESZ];
+ 	libc.secure = ((aux[0]&0x7800)!=0x7800 || aux[AT_UID]!=aux[AT_EUID]
+ 		|| aux[AT_GID]!=aux[AT_EGID] || aux[AT_SECURE]);
++
++	/* WitOS (plan step S5.3): the capabilities of the process arrive in its creator's start
++	 * message before the loader opens a library or writes a diagnostic. */
++	__wit_start_program((const unsigned long *)sp);
+ 
+ 	/* Only trust user/env if kernel says we're not suid/sgid */
+ 	if (!libc.secure) {

@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/membarrier.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
@@ -243,7 +244,7 @@ static long sleep_for(long clock, long flags, const struct timespec *request, st
     } else {
         counts += now;
     }
-    if (__wit_tls_ready && __wit_cancel_requested()) {
+    if (__wit_cancel_requested()) {
         return -EINTR; /* a cancellation point about to park with its cancel word set (thread.c) */
     }
     const WitU64 status = wit_syscall(WIT_CALL_SLEEP_UNTIL, counts, 0, 0, &result);
@@ -287,6 +288,27 @@ static long system_name(struct utsname *name)
     return 0;
 }
 
+/* membarrier (S5.3): the private expedited barrier is the kernel's process write barrier, which fences every
+ * online processor (PROCESS_WRITE_BARRIER); musl's dynamic linker issues it when dlopen installs a module's TLS for
+ * the threads that exist. Registration needs nothing, and the barriers that reach other processes are not there. */
+static long process_barrier(long command, long flags)
+{
+    WitU64 result = 0;
+    if (flags) {
+        return -EINVAL;
+    }
+    switch (command) {
+    case MEMBARRIER_CMD_QUERY:
+        return MEMBARRIER_CMD_PRIVATE_EXPEDITED | MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED;
+    case MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED:
+        return 0;
+    case MEMBARRIER_CMD_PRIVATE_EXPEDITED:
+        return __wit_errno(wit_syscall(WIT_CALL_PROCESS_WRITE_BARRIER, 0, 0, 0, &result));
+    default:
+        return -EINVAL;
+    }
+}
+
 /* The calls that change or read the library's shared tables — the mappings (memory.c) and the descriptors and the
  * package (files.c), the log descriptors included — run under one lock, since threads (S2) share them. The calls
  * that wait, sleep, exit or signal never take it. */
@@ -320,6 +342,7 @@ static int uses_tables(long n)
 #endif
     case SYS_getpid:
     case SYS_uname:
+    case SYS_membarrier:
         return 0;
     default:
         return 1;
@@ -479,6 +502,8 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
         return 0;
     case SYS_uname:
         return system_name((struct utsname *)a1);
+    case SYS_membarrier:
+        return process_barrier(a1, a2);
 #if defined(SYS_arch_prctl)
     case SYS_arch_prctl:
         if (a1 == 0x1002) { /* ARCH_SET_FS: the thread pointer of the calling thread */

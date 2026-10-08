@@ -15,31 +15,36 @@
 #include <string.h>
 #include <unistd.h>
 
-/* The static ELF loader of the root task (plan step S5.2). A program is a static position-independent executable in
- * the boot package: its header and program headers are read through the libc's descriptor, every rule below is
- * checked before anything is created, and only then does the process exist (PROCESS_CREATE with one end of a new
- * channel). The program lies at the start of the new process's code arena, where the kernel places no reservation
- * of its own: a segment that is not writable is a mapping of the package's pages themselves (at most 64 pages per
- * mapping, the executable ones published to instruction fetch through a view of the loader's own first), a writable
- * one is anonymous memory objects the loader fills with the file's bytes and zeroes, mapped into the process and
- * left to it. The first stack is one object of 64 pages at the top of the code arena, with nothing mapped below it,
- * on which the loader builds what a Linux kernel builds: argc, argv, envp and the auxiliary vector with AT_PHDR,
- * AT_ENTRY, AT_RANDOM and WIT_AT_START (no AT_BASE: musl's dlstart.c finds the base through PT_DYNAMIC). The start
- * message goes out before the thread starts (witos/start.h): duplicates of the loader's log, WRITE alone, and of the
- * package, MAP, EXECUTE and QUERY, both with TRANSFER, as a capability moves. The objects are charged to the loader
- * while it lives; the process's own memory to the process. A failed start closes what it made: the threadless
- * process ends with its last handle and takes its mappings along. */
+/* The ELF loader of the root task (plan steps S5.2 and S5.3). A program is a position-independent executable in the
+ * boot package: a static one (S5.2) or a dynamic one whose PT_INTERP names its dynamic linker in the package, musl's
+ * libc.so (S5.3). The headers of the program and of its interpreter are read through the libc's descriptors, every
+ * rule below is checked before anything is created, and only then does the process exist (PROCESS_CREATE with one
+ * end of a new channel). The program lies at the start of the new process's code arena and its interpreter 64 MiB
+ * above it, where the kernel places no reservation of its own: a segment that is not writable is a mapping of the
+ * package's pages themselves (at most 64 pages per mapping, the executable ones published to instruction fetch
+ * through a view of the loader's own first), a writable one is anonymous memory objects the loader fills with the
+ * file's bytes and zeroes, mapped into the process and left to it. The first stack is one object of 64 pages at the
+ * top of the code arena, with nothing mapped below it, on which the loader builds what a Linux kernel builds: argc,
+ * argv, envp and the auxiliary vector with AT_PHDR, AT_ENTRY (the program's), AT_BASE (the interpreter's base, for a
+ * dynamic program alone: musl's dlstart.c of a static one finds its base through PT_DYNAMIC), AT_RANDOM and
+ * WIT_AT_START. The thread starts at the interpreter's entry, or the program's without one. The start message goes
+ * out before the thread starts (witos/start.h): duplicates of the loader's log, WRITE alone, and of the package, MAP,
+ * EXECUTE and QUERY, both with TRANSFER, as a capability moves. The objects are charged to the loader while it lives;
+ * the process's own memory to the process. A failed start closes what it made: the threadless process ends with its
+ * last handle and takes its mappings along. */
 
 #define PAGE 4096ULL
 #define CHUNK (WIT_MEMORY_OBJECT_PAGES * PAGE) /* one object and one mapping cover at most 64 pages */
 #define MAX_SEGMENTS 16U
-#define IMAGE_BASE WIT_USER_CODE_BASE
-#define IMAGE_SPAN (64ULL << 20) /* the program's segments, from address zero of the file */
+#define IMAGE_SPAN (64ULL << 20) /* an image's segments, from address zero of its file */
+#define PROGRAM_BASE WIT_USER_CODE_BASE
+#define INTERPRETER_BASE (PROGRAM_BASE + IMAGE_SPAN)
+#define INTERPRETER_PATH 256U /* PT_INTERP with its terminating zero */
 #define STACK_BYTES CHUNK
 #define STACK_TOP WIT_USER_CODE_LIMIT
 #define STACK_BASE (STACK_TOP - STACK_BYTES)
 #define ARGUMENT_BYTES (STACK_BYTES / 4) /* the strings and pointers of argv and envp */
-#define AUXILIARY_PAIRS 14U
+#define AUXILIARY_PAIRS 15U
 #define LOG_RIGHTS (WIT_RIGHT_WRITE | WIT_RIGHT_TRANSFER)
 #define PACKAGE_RIGHTS (WIT_RIGHT_MAP | WIT_RIGHT_EXECUTE | WIT_RIGHT_QUERY | WIT_RIGHT_TRANSFER)
 
@@ -54,9 +59,11 @@
 typedef struct Program {
     int File;
     WitU64 Source, Length; /* the file's bytes in the package */
+    WitU64 Base; /* where the image lies in the process */
     Elf64_Ehdr Header;
     Elf64_Phdr Segments[MAX_SEGMENTS];
     WitU64 Headers; /* the address of the program headers relative to the base */
+    char Interpreter[INTERPRETER_PATH]; /* PT_INTERP, empty for a static program */
 } Program;
 
 static WitU64 round_up(WitU64 value)
@@ -99,15 +106,32 @@ static int read_exact(int file, void *buffer, WitU64 bytes, WitU64 offset)
     return pread(file, buffer, bytes, (off_t)offset) == (ssize_t)bytes;
 }
 
-/* The header and the program headers of a static position-independent executable of this ISA: loadable segments
- * readable, never writable and executable at once, ascending on distinct pages within the image span, congruent to
- * their file offsets modulo the page, inside the file, zero-filled only where writable; a dynamic section and no
- * interpreter; the entry in an executable segment; the program headers inside a loaded segment (AT_PHDR). */
-static int read_program(Program *p)
+/* The interpreter's path: inside the file, terminated by its last byte and by no earlier one, absolute. */
+static int read_interpreter(Program *p, const Elf64_Phdr *s)
+{
+    if (s->p_filesz < 2 ||
+        s->p_filesz > INTERPRETER_PATH ||
+        s->p_offset > p->Length ||
+        s->p_filesz > p->Length - s->p_offset ||
+        !read_exact(p->File, p->Interpreter, s->p_filesz, s->p_offset) ||
+        p->Interpreter[s->p_filesz - 1] != 0 ||
+        strlen(p->Interpreter) != s->p_filesz - 1 ||
+        p->Interpreter[0] != '/') {
+        return ENOEXEC;
+    }
+    return 0;
+}
+
+/* The header and the program headers of a position-independent executable of this ISA: loadable segments readable,
+ * never writable and executable at once, ascending on distinct pages within the image span, congruent to their file
+ * offsets modulo the page, inside the file, zero-filled only where writable; a dynamic section; an interpreter only
+ * where one is allowed, and then PT_PHDR, which musl's dynamic linker finds the program's base by; the entry in an
+ * executable segment; the program headers inside a loaded segment (AT_PHDR). */
+static int read_program(Program *p, int interpreter_allowed)
 {
     const Elf64_Ehdr *h = &p->Header;
     WitU64 end = 0, headers_bytes;
-    int dynamic = 0, entry = 0, headers = 0;
+    int dynamic = 0, entry = 0, headers = 0, phdr = 0;
     if (!read_exact(p->File, &p->Header, sizeof(p->Header), 0) ||
         memcmp(h->e_ident, ELFMAG, SELFMAG) != 0 ||
         h->e_ident[EI_CLASS] != ELFCLASS64 ||
@@ -130,10 +154,15 @@ static int read_program(Program *p)
     for (unsigned i = 0; i < h->e_phnum; ++i) {
         const Elf64_Phdr *s = &p->Segments[i];
         if (s->p_type == PT_INTERP) {
-            return ENOEXEC; /* a dynamic program: ld.so's (S5.3) */
+            if (!interpreter_allowed || p->Interpreter[0] || read_interpreter(p, s) != 0) {
+                return ENOEXEC;
+            }
         }
         if (s->p_type == PT_DYNAMIC) {
             dynamic = 1;
+        }
+        if (s->p_type == PT_PHDR) {
+            phdr = 1;
         }
         if (s->p_type == PT_GNU_STACK && (s->p_flags & PF_X)) {
             return ENOEXEC;
@@ -163,7 +192,18 @@ static int read_program(Program *p)
             headers = 1;
         }
     }
-    return dynamic && entry && headers ? 0 : ENOEXEC;
+    return dynamic && entry && headers && (phdr || !p->Interpreter[0]) ? 0 : ENOEXEC;
+}
+
+/* Opens an image of the package and checks it; the descriptor stays open for the mapping. */
+static int open_program(Program *p, const char *path, WitU64 base, int interpreter_allowed)
+{
+    p->Base = base;
+    p->File = open(path, O_RDONLY | O_CLOEXEC);
+    if (p->File < 0) {
+        return errno;
+    }
+    return __wit_file_map_source(p->File, &p->Source, &p->Length) == 0 ? read_program(p, interpreter_allowed) : ENOEXEC;
 }
 
 /* A segment that is not writable: the package's own pages, mapped READ or READ|EXECUTE in windows of 64 pages. */
@@ -171,7 +211,7 @@ static int map_package(const Program *p, const Elf64_Phdr *s, WitU64 process)
 {
     const WitU64 first = s->p_offset & ~(PAGE - 1);
     const WitU64 bytes = round_up(s->p_offset + s->p_filesz) - first;
-    const WitU64 address = IMAGE_BASE + (s->p_vaddr & ~(PAGE - 1));
+    const WitU64 address = p->Base + (s->p_vaddr & ~(PAGE - 1));
     const WitU32 protection = (s->p_flags & PF_X) ? WIT_MEMORY_READ | WIT_MEMORY_EXECUTE : WIT_MEMORY_READ;
     for (WitU64 done = 0; done < bytes; done += CHUNK) {
         const WitU64 part = bytes - done < CHUNK ? bytes - done : CHUNK;
@@ -225,8 +265,7 @@ static int map_copy(const Program *p, const Elf64_Phdr *s, WitU64 process)
             wit_syscall(WIT_CALL_MEMORY_RELEASE, view, 0, 0, &result);
         }
         if (status == WIT_STATUS_OK) {
-            status =
-                map(object, 0, part, IMAGE_BASE + low + done, WIT_MEMORY_READ | WIT_MEMORY_WRITE, process, &mapped);
+            status = map(object, 0, part, p->Base + low + done, WIT_MEMORY_READ | WIT_MEMORY_WRITE, process, &mapped);
         }
         close_handle(object); /* the process's mapping keeps the object */
         if (status != WIT_STATUS_OK) {
@@ -234,6 +273,18 @@ static int map_copy(const Program *p, const Elf64_Phdr *s, WitU64 process)
         }
     }
     return 0;
+}
+
+static int map_image(const Program *p, WitU64 process)
+{
+    int error = 0;
+    for (unsigned i = 0; i < p->Header.e_phnum && !error; ++i) {
+        const Elf64_Phdr *s = &p->Segments[i];
+        if (s->p_type == PT_LOAD) {
+            error = (s->p_flags & PF_W) ? map_copy(p, s, process) : map_package(p, s, process);
+        }
+    }
+    return error;
 }
 
 static int count_strings(char *const list[], WitU64 *count, WitU64 *bytes)
@@ -261,10 +312,28 @@ static WitU64 *put_strings(char *const list[], WitU64 count, WitU64 *word, unsig
     return word;
 }
 
+/* The auxiliary vector: the program's headers and entry, the interpreter's base when there is one, the 16 random
+ * bytes, the ids, the start endpoint. */
+static WitU64 *put_auxiliary(WitU64 *word, const Program *p, const Program *interpreter, WitU64 random, WitU64 endpoint)
+{
+    const WitU64 pairs[] = {AT_PHDR, p->Base + p->Headers, AT_PHENT, sizeof(Elf64_Phdr), AT_PHNUM, p->Header.e_phnum,
+        AT_PAGESZ, PAGE, AT_ENTRY, p->Base + p->Header.e_entry, AT_RANDOM, random, AT_UID, 0, AT_EUID, 0, AT_GID, 0,
+        AT_EGID, 0, AT_SECURE, 0, AT_HWCAP, 0, WIT_AT_START, endpoint};
+    memcpy(word, pairs, sizeof(pairs));
+    word += sizeof(pairs) / sizeof(pairs[0]);
+    if (interpreter) {
+        *word++ = AT_BASE;
+        *word++ = interpreter->Base;
+    }
+    *word++ = AT_NULL;
+    *word++ = 0;
+    return word;
+}
+
 /* The first stack: argc, argv, envp and the auxiliary vector at a 16-byte aligned stack pointer, the strings and the
  * 16 random bytes above them, as a Linux kernel lays them out. */
-static int build_stack(
-    const Program *p, char *const argv[], char *const envp[], WitU64 endpoint, WitU64 process, WitU64 *stack_pointer)
+static int build_stack(const Program *p, const Program *interpreter, char *const argv[], char *const envp[],
+    WitU64 endpoint, WitU64 process, WitU64 *stack_pointer)
 {
     WitU64 argc = 0, envc = 0, string_bytes = 0, object = 0, view = 0, mapped = 0, result = 0;
     int error = count_strings(argv, &argc, &string_bytes);
@@ -297,11 +366,7 @@ static int build_stack(
         *word++ = argc;
         word = put_strings(argv, argc, word, bytes, &cursor);
         word = put_strings(envp, envc, word, bytes, &cursor);
-        const WitU64 auxiliary[AUXILIARY_PAIRS * 2] = {AT_PHDR, IMAGE_BASE + p->Headers, AT_PHENT, sizeof(Elf64_Phdr),
-            AT_PHNUM, p->Header.e_phnum, AT_PAGESZ, PAGE, AT_ENTRY, IMAGE_BASE + p->Header.e_entry, AT_RANDOM, random,
-            AT_UID, 0, AT_EUID, 0, AT_GID, 0, AT_EGID, 0, AT_SECURE, 0, AT_HWCAP, 0, WIT_AT_START, endpoint, AT_NULL,
-            0};
-        memcpy(word, auxiliary, sizeof(auxiliary));
+        put_auxiliary(word, p, interpreter, random, endpoint);
         *stack_pointer = sp;
         wit_syscall(WIT_CALL_MEMORY_RELEASE, view, 0, 0, &result);
     }
@@ -346,13 +411,13 @@ static int send_start(WitU64 endpoint)
     return 0;
 }
 
-static int start_thread(const Program *p, WitU64 process, WitU64 stack_pointer)
+static int start_thread(WitU64 entry, WitU64 process, WitU64 stack_pointer)
 {
     WitThreadCreateRequest3 request;
     WitU64 thread = 0;
     request.Version = WIT_THREAD_CREATE_VERSION_3;
     request.Size = sizeof(request);
-    request.Entry = IMAGE_BASE + p->Header.e_entry;
+    request.Entry = entry;
     request.Argument = 0;
     request.StackPointer = stack_pointer;
     request.TlsBase = 0;
@@ -367,38 +432,39 @@ static int start_thread(const Program *p, WitU64 process, WitU64 stack_pointer)
     return 0;
 }
 
-/* Everything after PROCESS_CREATE: the segments, the stack, the start message, the thread. */
-static int load(Program *p, char *const argv[], char *const envp[], WitU64 process, WitU64 endpoint, WitU64 child)
+/* Everything after PROCESS_CREATE: the images, the stack, the start message, the thread. */
+static int load(const Program *p, const Program *interpreter, char *const argv[], char *const envp[], WitU64 process,
+    WitU64 endpoint, WitU64 child)
 {
     WitU64 stack_pointer = 0;
-    int error = 0;
-    for (unsigned i = 0; i < p->Header.e_phnum && !error; ++i) {
-        const Elf64_Phdr *s = &p->Segments[i];
-        if (s->p_type == PT_LOAD) {
-            error = (s->p_flags & PF_W) ? map_copy(p, s, process) : map_package(p, s, process);
-        }
+    int error = map_image(p, process);
+    if (!error && interpreter) {
+        error = map_image(interpreter, process);
     }
     if (!error) {
-        error = build_stack(p, argv, envp, child, process, &stack_pointer);
+        error = build_stack(p, interpreter, argv, envp, child, process, &stack_pointer);
     }
     if (!error) {
         error = send_start(endpoint);
     }
-    return error ? error : start_thread(p, process, stack_pointer);
+    const Program *entry = interpreter ? interpreter : p;
+    return error ? error : start_thread(entry->Base + entry->Header.e_entry, process, stack_pointer);
 }
 
 int witos_spawn(WitU64 *process, const char *path, char *const argv[], char *const envp[])
 {
-    Program program;
+    Program program, interpreter;
     WitU64 ends[2] = {0, 0}, handle = 0, child = 0, result = 0;
     memset(&program, 0, sizeof(program));
+    memset(&interpreter, 0, sizeof(interpreter));
+    program.File = interpreter.File = -1;
     *process = 0;
-    program.File = open(path, O_RDONLY | O_CLOEXEC);
-    if (program.File < 0) {
-        return errno;
+    int error = open_program(&program, path, PROGRAM_BASE, 1);
+    if (!error && program.Interpreter[0]) {
+        /* The dynamic linker: an image of the package itself, with no interpreter of its own. */
+        error = open_program(&interpreter, program.Interpreter, INTERPRETER_BASE, 0);
+        error = error == ENOENT ? ENOEXEC : error;
     }
-    int error =
-        __wit_file_map_source(program.File, &program.Source, &program.Length) == 0 ? read_program(&program) : ENOEXEC;
     if (!error) {
         const WitU64 status = wit_syscall(WIT_CALL_CHANNEL_CREATE, (WitU64)ends, 0, 0, &result);
         error = status == WIT_STATUS_OK ? 0 : failure(status);
@@ -415,14 +481,19 @@ int witos_spawn(WitU64 *process, const char *path, char *const argv[], char *con
             wit_syscall(WIT_CALL_PROCESS_CREATE, (WitU64)&request, sizeof(request), (WitU64)&child, &handle);
         if (status == WIT_STATUS_OK) {
             ends[1] = 0; /* moved into the process */
-            error = load(&program, argv, envp, handle, ends[0], child);
+            error = load(&program, program.Interpreter[0] ? &interpreter : 0, argv, envp, handle, ends[0], child);
         } else {
             error = failure(status);
         }
     }
     close_handle(ends[0]);
     close_handle(ends[1]);
-    close(program.File);
+    if (program.File >= 0) {
+        close(program.File);
+    }
+    if (interpreter.File >= 0) {
+        close(interpreter.File);
+    }
     if (error) {
         close_handle(handle); /* a process without a thread ends with its last handle */
         return error;
