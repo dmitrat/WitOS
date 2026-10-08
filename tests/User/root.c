@@ -3,6 +3,7 @@
 #include "witos/user_layout.h"
 #include "witos/memory_object.h"
 #include "witos/device.h"
+#include "witos/channels.h"
 #include "witos/syscall.h"
 
 /* The root task fixture (RFC 0011 v3 section 7.11, plan steps K4 and T1): the first component the kernel starts
@@ -11,7 +12,8 @@
  * image window (tests/User/root.ld): no libc, no runtime, the ABI-1 transport of witos/syscall.h alone. It checks
  * the descriptor, writes to the kernel log through the log handle, maps the first page of the boot package and
  * checks its magic, maps the device table and checks that the board published devices, reads UTC and sets it through
- * the clock capability (K6), then exits with zero; a failed check exits with 241. The data page holds the status of a
+ * the clock capability (K6), delegates the log over a channel (S5.2), then exits with zero; a failed check exits
+ * with 241. The data page holds the status of a
  * failed check at 1304 and the count of checks at 1312 for the kernel self-test's diagnostics. */
 
 #define STRINGIZE(x) #x
@@ -34,6 +36,7 @@
 static const char started[] = "[ROOT] started by clang " STRING(__clang_major__) "." STRING(__clang_minor__) "." STRING(
     __clang_patchlevel__) " for " ISA_NAME "\n";
 static const char mapped[] = "[ROOT] package and devices \n";
+static const char delegated[] = "[ROOT] log delegated\n";
 
 static WIT_NORETURN void exit_process(WitU64 code)
 {
@@ -73,6 +76,19 @@ static void log_line(const WitRootStartup *startup, const char *text, WitU64 len
     const WitU64 written =
         expect(WIT_CALL_DEBUG_WRITE, startup->Handles[WIT_ROOT_HANDLE_LOG], (WitU64)text, length, WIT_STATUS_OK);
     check(written == length, 1);
+}
+
+/* A channel message that carries one handle and no bytes. */
+static void handle_message(WitChannelMessage *message, WitU64 *handle)
+{
+    message->Version = WIT_CHANNEL_MESSAGE_VERSION;
+    message->Size = sizeof(*message);
+    message->Data = 0;
+    message->Handles = (WitU64)handle;
+    message->Bytes = 0;
+    message->HandleCount = 1;
+    message->Flags = 0;
+    message->Reserved = 0;
 }
 
 /* MEMORY_OBJECT_MAP of the first bytes of an object at an address the kernel chooses. */
@@ -132,5 +148,30 @@ ENTRY_ATTRIBUTES WIT_NORETURN void wit_user_start(const WitRootStartup *startup)
     check(expect(WIT_CALL_CLOCK_READ, WIT_CLOCK_UTC, 0, 0, WIT_STATUS_OK) >= UTC_2030, 13);
     expect(WIT_CALL_CLOCK_SET, startup->Handles[WIT_ROOT_HANDLE_LOG], WIT_CLOCK_UTC, UTC_2030, WIT_STATUS_WRONG_TYPE);
     expect(WIT_CALL_CLOCK_SET, clock, WIT_CLOCK_MONOTONIC, UTC_2030, WIT_STATUS_INVALID_ARGUMENT);
+
+    /* The kernel log is delegable (S5.2): a duplicate with WRITE and TRANSFER moves over a channel and writes from
+     * where it arrives; a duplicate without TRANSFER stays, and one without DUPLICATE has no duplicates. */
+    const WitU64 log = startup->Handles[WIT_ROOT_HANDLE_LOG];
+    WitU64 ends[2] = {0, 0}, movable = 0, fixed = 0, received = 0, again = 0;
+    WitChannelMessage message;
+    expect(WIT_CALL_HANDLE_DUPLICATE, log, (WitU64)&movable, WIT_RIGHT_WRITE | WIT_RIGHT_TRANSFER, WIT_STATUS_OK);
+    expect(WIT_CALL_HANDLE_DUPLICATE, log, (WitU64)&fixed, WIT_RIGHT_WRITE, WIT_STATUS_OK);
+    expect(WIT_CALL_HANDLE_DUPLICATE, movable, (WitU64)&again, 0, WIT_STATUS_DENIED);
+    expect(WIT_CALL_CHANNEL_CREATE, (WitU64)ends, 0, 0, WIT_STATUS_OK);
+    handle_message(&message, &fixed);
+    expect(WIT_CALL_CHANNEL_SEND, ends[0], (WitU64)&message, sizeof(message), WIT_STATUS_DENIED);
+    handle_message(&message, &movable);
+    expect(WIT_CALL_CHANNEL_SEND, ends[0], (WitU64)&message, sizeof(message), WIT_STATUS_OK);
+    expect(WIT_CALL_DEBUG_WRITE, movable, (WitU64)delegated, sizeof(delegated) - 1, WIT_STATUS_BAD_HANDLE);
+    handle_message(&message, &received);
+    check(
+        expect(WIT_CALL_CHANNEL_RECEIVE, ends[1], (WitU64)&message, sizeof(message), WIT_STATUS_OK) == 1ULL << 32, 14);
+    check(expect(WIT_CALL_DEBUG_WRITE, received, (WitU64)delegated, sizeof(delegated) - 1, WIT_STATUS_OK) ==
+            sizeof(delegated) - 1,
+        15);
+    expect(WIT_CALL_HANDLE_CLOSE, received, 0, 0, WIT_STATUS_OK);
+    expect(WIT_CALL_HANDLE_CLOSE, fixed, 0, 0, WIT_STATUS_OK);
+    expect(WIT_CALL_HANDLE_CLOSE, ends[0], 0, 0, WIT_STATUS_OK);
+    expect(WIT_CALL_HANDLE_CLOSE, ends[1], 0, 0, WIT_STATUS_OK);
     exit_process(0); /* a root task exits with zero; the kernel treats anything else as failure */
 }

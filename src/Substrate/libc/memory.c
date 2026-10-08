@@ -35,7 +35,7 @@ typedef struct Mapping {
 static Mapping mappings[MAPPINGS];
 static unsigned count;
 
-#define PACKAGE_HANDLE (__wit_startup->Handles[WIT_ROOT_HANDLE_PACKAGE])
+#define PACKAGE_HANDLE (__wit_process.Package)
 
 static WitU64 round_up(unsigned long length)
 {

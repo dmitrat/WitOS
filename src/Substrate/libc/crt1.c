@@ -1,15 +1,15 @@
 #include "witos_libc.h"
+#include "witos/root.h"
 #include <elf.h>
 
-/* The startup of a static program on WitOS (plan step S1.1): the kernel enters the first thread with the startup
- * descriptor in the argument register and a stack of its own, not with a Linux process stack. _start saves the
- * descriptor, then the C part hands musl's __libc_start_main a program stack image of the shape it reads: argc,
- * argv, a null, envp (empty), a null and the auxiliary vector, whose AT_PHDR points at the program headers that the
- * linker script maps with the first segment (static TLS needs PT_TLS) and whose AT_RANDOM carries the kernel's
- * entropy for the stack protector. The vector says the process is not set-uid, so musl does not poll the standard
- * descriptors; page size and the ELF header come from the image itself. */
-
-const WitRootStartup *__wit_startup;
+/* The startup of the root task over the libc (plan step S1.1): the kernel enters the first thread with the startup
+ * descriptor in the argument register and a stack of its own, not with a Linux process stack. The C part takes the
+ * log and the package into the process context (S5.2) and hands musl's __libc_start_main a program stack image of
+ * the shape it reads: argc, argv, a null, envp (empty), a null and the auxiliary vector, whose AT_PHDR points at the
+ * program headers that the linker script maps with the first segment (static TLS needs PT_TLS) and whose AT_RANDOM
+ * carries the kernel's entropy for the stack protector. The vector says the process is not set-uid, so musl does not
+ * poll the standard descriptors; page size and the ELF header come from the image itself. A program another process
+ * starts enters through rcrt1.c instead. */
 
 extern const Elf64_Ehdr __ehdr_start; /* lld's symbol for the ELF header at the image base */
 int main();
@@ -24,7 +24,9 @@ static char program_name[] = "root";
 __attribute__((__noreturn__, __used__)) void _start_c(const WitRootStartup *startup)
 {
     WitU64 result;
-    __wit_startup = startup;
+    __wit_process.Log = startup->Handles[WIT_ROOT_HANDLE_LOG];
+    __wit_process.Package = startup->Handles[WIT_ROOT_HANDLE_PACKAGE];
+    __wit_process.PackageBytes = startup->PackageBytes;
     __wit_thread_init(); /* the main thread's record and handle (S2, S3) */
     __wit_signal_init(); /* the fault callback every signal arrives through (S3) */
     wit_syscall(WIT_CALL_RANDOM, (WitU64)random_bytes, sizeof(random_bytes), 0, &result);

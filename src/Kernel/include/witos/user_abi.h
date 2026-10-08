@@ -25,7 +25,7 @@
  * arguments, RAX=status and RDX=result, other GPRs and x87/SSE state preserved, RFLAGS reset to 0x202; on ARM64
  * SVC #0 with x8=call, x0-x2 arguments, x0=status and x1=result. A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
-#define WIT_ABI_VERSION 67U
+#define WIT_ABI_VERSION 68U
 /* QUERY result: the low 32 bits are WIT_ABI_VERSION, the high 32 bits the mask of the families present. */
 #define WIT_ABI_FEATURE_CHANNELS 1U
 #define WIT_ABI_FEATURE_DEVICES 2U
@@ -50,10 +50,12 @@
 /* Close(handle, 0, 0). Closing never terminates an object's activity. */
 #define WIT_CALL_HANDLE_CLOSE 2U
 /* Duplicate(handle or WIT_THREAD_SELF, output pointer, rights; 0 = the same) -> 8 bytes written.
- * Rights may only be removed. Thread and event handles; channel endpoints join in step K2. */
+ * Rights may only be removed. Every kind a channel moves: threads, events, endpoints, memory objects, devices,
+ * interrupt bindings, pins, processes, the clock and the kernel log (S5.2). */
 #define WIT_CALL_HANDLE_DUPLICATE 3U
 /* Write(kernel-log handle, buffer, length <= WIT_DEBUG_WRITE_MAX) -> bytes written. The kernel's last-resort
- * output through the board console; it is not the terminal of RFC 0020. */
+ * output through the board console; it is not the terminal of RFC 0020. The root task's log handle carries WRITE,
+ * DUPLICATE and TRANSFER (S5.2): it delegates its output to the processes it starts until a console service exists. */
 #define WIT_CALL_DEBUG_WRITE 4U
 
 /* Memory (RFC 0011 section 7.2). Calls operate on the current process's dynamic arena. Reserve(size, alignment,

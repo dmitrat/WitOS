@@ -20,7 +20,7 @@
  * directory but "/" (S6 moves it to the library), and no symbolic links. Descriptors 3 and above are the files;
  * 0–2 stay the kernel log. */
 
-#define PACKAGE_HANDLE (__wit_startup->Handles[WIT_ROOT_HANDLE_PACKAGE])
+#define PACKAGE_HANDLE (__wit_process.Package)
 #define PAGE 4096ULL
 #define WINDOW_PAGES 64ULL /* one mapping of an object covers at most 64 pages */
 #define WINDOW_BYTES (WINDOW_PAGES * PAGE)
@@ -118,7 +118,7 @@ static int compare(const unsigned char *a, WitU32 a_length, const unsigned char 
 static long mount(void)
 {
     static const unsigned char magic[8] = {'W', 'I', 'T', 'P', 'A', 'K', '0', '1'};
-    WitU64 address = 0, bytes = __wit_startup->PackageBytes;
+    WitU64 address = 0, bytes = __wit_process.PackageBytes;
     if (mounted) {
         return broken ? -EIO : 0;
     }
@@ -419,7 +419,7 @@ static long read_file(const Descriptor *d, unsigned char *buffer, WitU64 bytes, 
         const WitU64 absolute = data + position + done;
         const WitU64 window_start = absolute & ~(PAGE - 1);
         WitU64 window_bytes = WINDOW_BYTES, address = 0;
-        const WitU64 object_bytes = (__wit_startup->PackageBytes + PAGE - 1) & ~(PAGE - 1);
+        const WitU64 object_bytes = (__wit_process.PackageBytes + PAGE - 1) & ~(PAGE - 1);
         if (window_start + window_bytes > object_bytes) {
             window_bytes = object_bytes - window_start;
         }
@@ -797,7 +797,8 @@ int __wit_is_file_descriptor(long fd)
 }
 
 /* What mmap (memory.c, S5.1) maps for a descriptor: a package file's data offset in the package and its length
- * (0), or /dev/zero, which maps as anonymous memory (1); nothing else is mappable. */
+ * (0), or /dev/zero, which maps as anonymous memory (1); nothing else is mappable. libwitos's loader reads the
+ * same (S5.2). */
 long __wit_file_map_source(long fd, WitU64 *source, WitU64 *length)
 {
     const Descriptor *d = descriptor(fd);

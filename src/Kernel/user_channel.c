@@ -183,6 +183,8 @@ static WitU64 inspect_capability(WitUserProcess *p, const WitU64 *handles, WitU3
         out->Kind = WIT_HANDLE_PROCESS;
     } else if (wit_handle_describe(&p->Handles, handle, WIT_HANDLE_CLOCK, &object, &rights)) {
         out->Kind = WIT_HANDLE_CLOCK;
+    } else if (wit_handle_describe(&p->Handles, handle, WIT_HANDLE_CONSOLE, &object, &rights)) {
+        out->Kind = WIT_HANDLE_CONSOLE; /* the kernel log, delegated by the root task to its children (S5.2) */
     } else if (wit_handle_describe(&p->Handles, handle, WIT_HANDLE_THREAD_REFERENCE, &object, &rights)) {
         const WitUserThreadReference *reference;
         require(wit_user_reference_describe(p, handle, 0, &reference) == WIT_STATUS_OK, "Thread handle lost record");
@@ -191,8 +193,8 @@ static WitU64 inspect_capability(WitUserProcess *p, const WitU64 *handles, WitU3
         out->ExitCode = reference->ExitCode;
         out->Exited = reference->Exited;
     } else {
-        /* An absent handle, or a kind that is never moved (the frozen line's files and libraries, the private thread
-         * identity and the console): the right decides first where the handle exists. */
+        /* An absent handle, or a kind that is never moved (the frozen line's files and libraries and the private
+         * thread identity): the right decides first where the handle exists. */
         WitU64 status = wit_handle_check(&p->Handles, handle, 0, WIT_RIGHT_TRANSFER);
         return status == WIT_STATUS_BAD_HANDLE ? status : status == WIT_STATUS_DENIED ? status : WIT_STATUS_UNSUPPORTED;
     }

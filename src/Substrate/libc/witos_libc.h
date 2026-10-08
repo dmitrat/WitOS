@@ -2,23 +2,23 @@
 #define WITOS_LIBC_H
 /* WitOS's part of the C library (RFC 0011 section 9.1, plan step S1): what musl's Linux system calls become over
  * ABI-1. These files compile inside the libc build with musl's internal headers and the kernel's ABI headers; nothing
- * here is an application API. The process context is the root startup descriptor until the process manager (S6)
- * hands a started process its first message. */
+ * here is an application API. The process context (witos/libc_context.h) holds the capabilities the process started
+ * with: crt1 takes them from the root task's startup descriptor, start.c from the start message of a program another
+ * process started (S5.2). */
 #include "witos/types.h"
 #include "witos/user_abi.h"
-#include "witos/root.h"
 #include "witos/syscall.h"
+#include "witos/libc_context.h"
 
-/* The startup descriptor the kernel handed the first thread; set by crt1 before the library starts. */
-extern const WitRootStartup *__wit_startup;
+/* The start of a program another process started (start.c), called by its startup (rcrt1.c) once its relocations
+ * are applied and before musl's __libc_start_main: the process context from the start message, then the main
+ * thread's record and the fault callback, as crt1 sets them up for the root task. */
+void __wit_start_program(const unsigned long *stack);
 
 /* musl's __syscallN (the patched arch/<arch>/syscall_arch.h) call this: a Linux system call number with its
  * arguments, returning the Linux result convention (a value, or a negative errno). */
 __attribute__((__visibility__("hidden"))) long __wit_syscall(
     long n, long a1, long a2, long a3, long a4, long a5, long a6);
-
-/* An ABI-1 status as a negative errno. */
-long __wit_errno(WitU64 status);
 
 /* Linux memory calls over reserve/commit (memory.c). */
 long __wit_mmap(long address, long length, long protection, long flags, long fd, long offset);
@@ -42,7 +42,6 @@ long __wit_getdents(long fd, unsigned char *buffer, long bytes);
 long __wit_getcwd(char *buffer, long size);
 long __wit_fcntl(long fd, long command, long argument);
 int __wit_is_file_descriptor(long fd);
-long __wit_file_map_source(long fd, WitU64 *source, WitU64 *length);
 
 /* The signal state of one thread (signal.c, S3): the blocked and pending signals as bits sig - 1, and the
  * alternate stack sigaltstack recorded (the kernel holds the same range as the thread's alternate stack). */

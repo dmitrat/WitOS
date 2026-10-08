@@ -96,7 +96,7 @@ static int on_alternate(const WitSignalState *state, WitU64 sp)
 static __attribute__((__noreturn__)) void fail_fast(const char *text)
 {
     WitU64 result = 0;
-    wit_syscall(WIT_CALL_DEBUG_WRITE, __wit_startup->Handles[WIT_ROOT_HANDLE_LOG], (WitU64)text, strlen(text), &result);
+    wit_syscall(WIT_CALL_DEBUG_WRITE, __wit_process.Log, (WitU64)text, strlen(text), &result);
     for (;;) {
         wit_syscall(WIT_CALL_PROCESS_EXIT, 128 + SIGABRT, 0, 0, &result);
     }
