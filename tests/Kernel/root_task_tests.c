@@ -68,7 +68,7 @@ void wit_root_task_self_test(const WitBootInfo *boot, WitPageAllocator *pages)
     expect_invalid(copy, sizeof(copy), 24, 0, 4, "Empty image accepted");
     expect_invalid(copy, sizeof(copy), 24, 5, 4, "Too many segments accepted");
     expect_invalid(copy, sizeof(copy), 64, WIT_USER_DATA, 8, "Segment over the kernel's pages accepted");
-    expect_invalid(copy, sizeof(copy), 64, WIT_USER_LIMIT - 4096 * 0, 8, "Segment at the limit accepted");
+    expect_invalid(copy, sizeof(copy), 64, WIT_RUNTIME_USER_LIMIT, 8, "Segment at the limit accepted");
     expect_invalid(copy, sizeof(copy), 64 + 8, sizeof(copy) + 4096, 8, "File range beyond the image accepted");
     expect_invalid(copy, sizeof(copy), 64 + 16, 0xFFFFFFFFULL, 4, "File size beyond memory size accepted");
     expect_invalid(copy, sizeof(copy), 64 + 24, WIT_MEMORY_READ | WIT_MEMORY_WRITE | WIT_MEMORY_EXECUTE, 4,

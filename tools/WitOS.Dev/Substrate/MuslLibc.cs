@@ -231,22 +231,51 @@ internal static class MuslLibc
     public static async Task<string> LinkProgramAsync(string root, KernelArchitecture architecture, string output, string name,
         IEnumerable<string> sources)
     {
-        var build = await BuildAsync(root, architecture);
-        // clang emits calls to compiler-rt's soft-float helpers for long double on aarch64; the pinned subset supplies them.
-        var builtins = await CompilerRtBuiltins.BuildAsync(root, architecture, build.Includes.Skip(1));
         var objects = new List<string>();
         foreach (var source in sources)
         {
             var obj = Path.Combine(output, name + "." + Path.GetFileNameWithoutExtension(source) + ".o");
-            await Processes.RequireSuccessAsync(Toolchain.Clang(root),
-            [
-                $"--target={architecture.Triple}", "-std=c11", "-O2", "-nostdlibinc", "-fPIE", "-fno-plt", "-fno-stack-protector",
-                "-fno-asynchronous-unwind-tables", "-fno-unwind-tables", "-Wall", "-Wextra", "-Werror", .. architecture.ClangOptions,
-                .. build.Includes.Skip(1).SelectMany(include => new[] { "-isystem", include }),
-                "-c", source, "-o", obj
-            ], root);
+            await CompileAsync(root, architecture, source, obj, ["-std=c11", "-Wall", "-Wextra", "-Werror"]);
             objects.Add(obj);
         }
+        return await LinkAsync(root, architecture, output, name, objects);
+    }
+
+    /// <summary>
+    /// Compiles one C source against the library's headers: optimized, position-independent code for the fixed link,
+    /// no stack protector or unwind tables, with the caller's dialect and warning options.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="source">C source file.</param>
+    /// <param name="obj">Object file to write.</param>
+    /// <param name="options">Dialect, warning and definition options.</param>
+    public static async Task CompileAsync(string root, KernelArchitecture architecture, string source, string obj, IEnumerable<string> options)
+    {
+        var build = await BuildAsync(root, architecture);
+        await Processes.RequireSuccessAsync(Toolchain.Clang(root),
+        [
+            $"--target={architecture.Triple}", "-O2", "-nostdlibinc", "-fPIE", "-fno-plt", "-fno-stack-protector",
+            "-fno-asynchronous-unwind-tables", "-fno-unwind-tables", .. options, .. architecture.ClangOptions,
+            .. build.Includes.Skip(1).SelectMany(include => new[] { "-isystem", include }),
+            "-c", source, "-o", obj
+        ], root);
+    }
+
+    /// <summary>
+    /// Links objects with crt1, libc.a and the compiler's builtins into a static ELF executable at the image window.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="output">Directory for the executable.</param>
+    /// <param name="name">Program name (the executable is name.elf).</param>
+    /// <param name="objects">Object files.</param>
+    /// <returns>Path of the executable.</returns>
+    public static async Task<string> LinkAsync(string root, KernelArchitecture architecture, string output, string name, IEnumerable<string> objects)
+    {
+        var build = await BuildAsync(root, architecture);
+        // clang emits calls to compiler-rt's soft-float helpers for long double on aarch64; the pinned subset supplies them.
+        var builtins = await CompilerRtBuiltins.BuildAsync(root, architecture, build.Includes.Skip(1));
         var image = Path.Combine(output, name + ".elf");
         await Processes.RequireSuccessAsync(Toolchain.Lld(root),
         [

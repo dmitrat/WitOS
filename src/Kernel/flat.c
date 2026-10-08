@@ -72,8 +72,8 @@ int wit_flat_validate(const WitU8 *file, WitU64 size, WitFlatLayout *layout)
         }
         /* The fixed region above the kernel's pages (startup block, data, stacks, TLS) and below its limit. */
         if (out->Address < WIT_USER_FLAT_BASE ||
-            out->Address >= WIT_USER_LIMIT ||
-            out->MemorySize > WIT_USER_LIMIT - out->Address) {
+            out->Address >= WIT_RUNTIME_USER_LIMIT || /* the root task's window: the full profile's (S1.3) */
+            out->MemorySize > WIT_RUNTIME_USER_LIMIT - out->Address) {
             return 0;
         }
         for (WitU32 k = 0; k < i; ++k) {

@@ -1,0 +1,5 @@
+{
+  "repository": "https://repo.or.cz/libc-test",
+  "commit": "7b95dfa5f5d5ca4d949221e0228ccc290bacc14e",
+  "purpose": "musl's own test suite (plan step S1.3): the functional and regression tests tests/User/libc-test.json selects run unchanged as one static program, the root task of the libc-test scenario, on both ISAs."
+}

@@ -126,6 +126,26 @@
     {
       "path": "compiler-rt/lib/builtins/aarch64/fp_mode.c",
       "sha256": "17850b3a2e6f20c20e91927e4aca19b7b87f29f3f5ffb5fa5e6ab197d73d9351"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/trunctfsf2.c",
+      "sha256": "6d1cf89c99ca23deb573fda82b729105cc8d8a44643a47d3377a8636f5bb2998"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/fixtfdi.c",
+      "sha256": "f3beb07a867f62ae6867eded8ef8f36a70251da2c40049390fa3cea88ad3a062"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/fixunstfdi.c",
+      "sha256": "ff89c13b098b55aed90473cde432df5b3009e867558c9fa9a6fd3789fc5b0e6d"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/floatditf.c",
+      "sha256": "7c879c64362b2c233c647550b31e14b9684daede36adbdc63a58f6c672c74d04"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/floatunditf.c",
+      "sha256": "24a32bf0ac8589d0c0c2fb68c01d94cb24d3e580648da7374013d82a08c6ceaa"
     }
   ]
 }

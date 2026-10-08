@@ -15,7 +15,7 @@
  * library maps the header and the table once, read-only, and validates them as the kernel's loader does; a read
  * maps the window of the bytes it needs, copies and releases it, so a file of any size is readable through a
  * mapping of at most 64 pages. The namespace is the package's: "/" is its root, a name is a file, a prefix of a name
- * up to '/' is a directory, "/dev/null" is the empty device; nothing is writable (EROFS), there is no current
+ * up to '/' is a directory, "/dev/null" and "/dev/zero" are the devices; nothing is writable (EROFS), there is no current
  * directory but "/" (S6 moves it to the library), and no symbolic links. Descriptors 3 and above are the files;
  * 0–2 stay the kernel log. */
 
@@ -35,7 +35,8 @@ typedef enum Kind {
     KindClosed,
     KindFile,
     KindDirectory,
-    KindNull
+    KindNull, /* /dev/null: reads nothing, accepts writes */
+    KindZero /* /dev/zero: reads zeros, accepts writes */
 } Kind;
 
 typedef struct Descriptor {
@@ -349,6 +350,9 @@ long __wit_openat(long dirfd, const char *path, long flags, long mode)
     if (length == 8 && memcmp(name, "dev/null", 8) == 0) {
         return open_descriptor(KindNull, 0, 0, (int)flags); /* readable and writable, like the device */
     }
+    if (length == 8 && memcmp(name, "dev/zero", 8) == 0) {
+        return open_descriptor(KindZero, 0, 0, (int)flags);
+    }
     if ((flags & O_ACCMODE) != O_RDONLY) {
         return -EROFS;
     }
@@ -422,6 +426,10 @@ long __wit_read(long fd, void *buffer, long bytes)
     if (d->Kind == KindNull) {
         return 0;
     }
+    if (d->Kind == KindZero) {
+        memset(buffer, 0, (unsigned long)bytes);
+        return bytes;
+    }
     const long read = read_file(d, buffer, (WitU64)bytes, d->Offset);
     if (read > 0) {
         d->Offset += (WitU64)read;
@@ -443,6 +451,10 @@ long __wit_pread(long fd, void *buffer, long bytes, long offset)
     }
     if (d->Kind == KindNull) {
         return 0;
+    }
+    if (d->Kind == KindZero) {
+        memset(buffer, 0, (unsigned long)bytes);
+        return bytes;
     }
     return read_file(d, buffer, (WitU64)bytes, (WitU64)offset);
 }
@@ -475,7 +487,7 @@ long __wit_write_file(long fd, long bytes)
     if (!d) {
         return -EBADF;
     }
-    return d->Kind == KindNull ? bytes : -EBADF; /* read-only descriptors */
+    return d->Kind == KindNull || d->Kind == KindZero ? bytes : -EBADF; /* files are read-only descriptors */
 }
 
 long __wit_lseek(long fd, long offset, long whence)
@@ -568,7 +580,7 @@ long __wit_fstatat(long dirfd, const char *path, struct kstat *st, long flags)
     if ((status = resolve(dirfd, path, name, &length)) < 0) {
         return status;
     }
-    if (length == 8 && memcmp(name, "dev/null", 8) == 0) {
+    if (length == 8 && (memcmp(name, "dev/null", 8) == 0 || memcmp(name, "dev/zero", 8) == 0)) {
         fill_stat(st, KindNull, 0, 0);
         return 0;
     }
@@ -602,7 +614,7 @@ long __wit_faccessat(long dirfd, const char *path, long mode)
     if ((status = resolve(dirfd, path, name, &length)) < 0) {
         return status;
     }
-    if (length == 8 && memcmp(name, "dev/null", 8) == 0) {
+    if (length == 8 && (memcmp(name, "dev/null", 8) == 0 || memcmp(name, "dev/zero", 8) == 0)) {
         return 0;
     }
     if ((status = lookup(name, length, &kind, &index)) < 0) {

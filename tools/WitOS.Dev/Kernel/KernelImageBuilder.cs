@@ -27,6 +27,11 @@ internal static class KernelImageBuilder
     /// </summary>
     public const string LIBC_SCENARIO = "libc";
 
+    /// <summary>
+    /// The scenario whose root task is musl's libc-test (plan step S1.3).
+    /// </summary>
+    public const string LIBC_TEST_SCENARIO = "libc-test";
+
     #endregion
 
     #region Fields
@@ -119,8 +124,8 @@ internal static class KernelImageBuilder
         var bootPackage = await BootPackage.BuildAsync(root, output, scenario == "coreclr-storage", scenario == "coreclr-memory",
             scenario == LIBC_SCENARIO);
         // The root task's flat image (K4): every kernel, release or self-test, starts it from the boot disk.
-        var rootTask = scenario == LIBC_SCENARIO
-            ? await Substrate.MuslLibc.BuildRootAsync(root, output, architecture, "libc_hello.c")
+        var rootTask = scenario == LIBC_SCENARIO ? await Substrate.MuslLibc.BuildRootAsync(root, output, architecture, "libc_hello.c")
+            : scenario == LIBC_TEST_SCENARIO ? await Substrate.LibcTestSuite.BuildRootAsync(root, output, architecture)
             : await UserImage.BuildRootAsync(root, output, architecture);
         if (scenario == "coreclr-storage")
         {

@@ -648,11 +648,16 @@ int wit_user_create_flat(WitUserProcess *process, WitPageAllocator *allocator, W
         return 0;
     }
     reset_process(process, slot, 0, 0, 0);
+    /* The root task is the system layer (S1.3): the full profile's handles, events, pages, reservations and the
+     * wider fixed window, as a created process gets them, so that a libc program and later the runtime fit. */
+    process->Handles.Limit = WIT_RUNTIME_HANDLE_CAPACITY;
+    process->Events.Limit = WIT_RUNTIME_EVENT_CAPACITY;
+    process->TickLimit = WIT_RUNTIME_TICK_BUDGET;
     slot_owners[slot] = process;
     process->ImageBase = layout->Segments[0].Address;
     process->ImageEntry = layout->Entry;
     process->ImageSize = 0;
-    if (!wit_user_space_create_profile(&process->Space, allocator, 0) ||
+    if (!wit_user_space_create_profile(&process->Space, allocator, 1) ||
         !wit_user_capture_tls(process, 0) ||
         !wit_user_space_map(&process->Space, WIT_USER_INFO, 0, 0)) {
         goto failed;
