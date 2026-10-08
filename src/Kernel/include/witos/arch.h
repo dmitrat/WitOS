@@ -70,6 +70,10 @@ void wit_arch_idle_once(void);
 
 /* Thread frames. */
 WitArchFrame *wit_arch_frame_create(WitU32 slot, WitU32 thread, WitU64 entry, WitU64 argument, WitU64 stack_top);
+/* The same frame with the stack pointer exactly as given (the one thread form, K5.2a). */
+WitArchFrame *wit_arch_frame_create_at(WitU32 slot, WitU32 thread, WitU64 entry, WitU64 argument, WitU64 stack_pointer);
+/* Whether THREAD_SET_TLS can set the raw TLS base of a thread from the kernel (x64 FS); ARM64's TPIDR_EL0 is EL0's. */
+int wit_arch_user_tls_settable(void);
 int wit_arch_kernel_stack_contains(WitU32 slot, WitU32 thread, const void *object, WitU64 size);
 int wit_arch_frame_owned(const WitArchFrame *frame, WitU32 slot, WitU32 thread);
 int wit_arch_frame_from_user(const WitArchFrame *frame);

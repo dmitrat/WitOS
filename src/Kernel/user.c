@@ -118,10 +118,12 @@ static void validate_return(WitArchFrame *frame, WitU32 index, int syscall)
     const WitUserThread *thread = &current_user->Threads[index];
     require(wit_arch_frame_owned(frame, current_user->Slot, index), "User trap outside owning kernel stack");
     const WitU64 sp = wit_arch_frame_sp(frame);
+    /* An empty stack sits at its top (the one thread form starts there); the page probed is the one a push writes. */
+    const WitU64 probe = sp == thread->StackTop ? sp - 1 : sp;
     if (!wit_arch_frame_returns_to_user(frame) ||
         sp < thread->StackBottom ||
-        sp >= thread->StackTop ||
-        !wit_user_space_physical(&current_user->Space, sp, 1, 0) ||
+        sp > thread->StackTop ||
+        !wit_user_space_physical(&current_user->Space, probe, 1, 0) ||
         !wit_user_space_physical(&current_user->Space, wit_arch_frame_pc(frame), 0, 1)) {
         wit_user_finish(WitUserBadReturn, 0);
     }
@@ -134,10 +136,18 @@ static void reap(WitU32 index)
     WitUserThread *thread = &current_user->Threads[index];
     require(thread->State == WitThreadExited, "Reaping live thread");
     require(!wit_user_stack_leased(current_user, thread->Handle, 0), "Reaping leased stack");
-    for (WitU64 p = thread->StackBottom; p < thread->StackTop; p += 4096) {
-        require(wit_user_space_unmap_fixed(&current_user->Space, p), "Thread stack ownership lost");
+    if (thread->OwnsStack) {
+        for (WitU64 p = thread->StackBottom; p < thread->StackTop; p += 4096) {
+            require(wit_user_space_unmap_fixed(&current_user->Space, p), "Thread stack ownership lost");
+        }
+        require(wit_user_space_unmap_fixed(&current_user->Space, thread->Tls), "Thread TLS ownership lost");
+    } else if (thread->ExitReservation) {
+        /* The one thread form (K5.2a): the exiting thread named its stack's reservation, validated at the exit; the
+         * thread no longer runs on it. */
+        require(wit_user_memory_unmap(current_user, thread->ExitReservation) == WIT_STATUS_OK,
+            "Exit reservation vanished before its release");
+        thread->ExitReservation = 0;
     }
-    require(wit_user_space_unmap_fixed(&current_user->Space, thread->Tls), "Thread TLS ownership lost");
     for (WitU32 n = 0; n < 2; ++n) {
         if (thread->LibraryNotificationHandles[n]) {
             require(wit_handle_close(&current_user->Handles, thread->LibraryNotificationHandles[n]) == WIT_STATUS_OK,
@@ -225,10 +235,11 @@ static WitArchFrame *dispatch(int timer, WitU64 last_exit)
     }
 }
 
-WitArchFrame *wit_user_exit_thread(WitU64 code)
+WitArchFrame *wit_user_exit_thread(WitU64 code, WitU64 reservation)
 {
     const WitU32 index = current_user->CurrentThread;
     WitUserThread *thread = &current_user->Threads[index];
+    thread->ExitReservation = thread->OwnsStack ? 0 : reservation;
     wit_user_exception_clear(thread);
     wit_user_stack_leases_exit(current_user, thread->Handle);
     require(!wit_user_stack_leased(current_user, thread->Handle, 0), "Exiting foreign-leased stack");
