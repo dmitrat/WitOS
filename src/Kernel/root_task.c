@@ -45,7 +45,7 @@ int wit_root_task_create(WitUserProcess *process, WitPageAllocator *allocator, W
         startup->Handles[WIT_ROOT_HANDLE_PACKAGE] = wit_handle_grant_object(&process->Handles, WIT_HANDLE_MEMORY_OBJECT,
             WIT_RIGHT_MAP | WIT_RIGHT_QUERY | WIT_RIGHT_DUPLICATE | WIT_RIGHT_TRANSFER, package);
         if (!startup->Handles[WIT_ROOT_HANDLE_PACKAGE]) {
-            wit_user_memory_object_release(process, package);
+            wit_user_memory_object_release(package);
         }
     }
     startup->Handles[WIT_ROOT_HANDLE_DEVICES] = wit_user_device_table_grant(

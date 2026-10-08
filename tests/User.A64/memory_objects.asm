@@ -107,6 +107,8 @@ wit_user_start PROC
     b.eq transfer_test
     cmp x21, #WIT_MEMORY_OBJECT_TEST_LIMITS
     b.eq limits_test
+    cmp x21, #WIT_MEMORY_OBJECT_TEST_EXIT
+    b.eq exit_test
     cmp x21, #WIT_MEMORY_OBJECT_TEST_BASIC
     b.ne failed
 
@@ -386,6 +388,32 @@ release_mappings
     cmp x27, #WIT_USER_RESERVATION_CAPACITY
     b.lo release_mappings
     CLOSE x23
+    EXPECT WIT_STATUS_OK
+    b passed
+
+exit_test
+    ; The component exits with everything live: an object behind a view, its duplicate handle in flight in a
+    ; channel, and a second object behind its handle alone. The kernel releases the handles and the capability at
+    ; the exit, the view at the teardown.
+    CREATE 4096
+    EXPECT WIT_STATUS_OK
+    mov x23, x1
+    MAPVIEW x23, 0, 4096, 0, READ_WRITE
+    EXPECT WIT_STATUS_OK
+    DUPLICATE x23, 0
+    EXPECT WIT_STATUS_OK
+    str x1, [x22, #768]
+    mov x0, x22
+    mov x1, #0
+    mov x2, #0
+    SYSCALL WIT_CALL_CHANNEL_CREATE
+    EXPECT WIT_STATUS_OK
+    ldr x0, [x22]
+    add x3, x22, #768
+    bl channel_request
+    SYSCALL WIT_CALL_CHANNEL_SEND
+    EXPECT WIT_STATUS_OK
+    CREATE 8192
     EXPECT WIT_STATUS_OK
     b passed
 

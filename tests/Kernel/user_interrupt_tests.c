@@ -71,7 +71,7 @@ void wit_user_interrupt_self_test(WitPageAllocator *pages)
         /* Every binding, pin, device, object and mapping ended with the component's last handle, and the component
          * owns the pages it owned before. */
         require(process.Handles.Count == 0 &&
-                process.MemoryObjects.Count == 0 &&
+                wit_memory_objects_live() == 0 &&
                 process.Events.Count == 0 &&
                 process.Channels.Count == 0 &&
                 process.Space.AliasCount == 0 &&
