@@ -23,6 +23,10 @@
 #define WIT_CHANNEL_MESSAGE_BYTES 256U /* inline bytes of one message */
 #define WIT_CHANNEL_MESSAGE_HANDLES 4U /* capabilities moved by one message */
 #define WIT_MEMORY_OBJECT_CAPACITY 8U /* live memory objects created by one component */
+/* Live memory objects a system layer process creates, the root task and the processes it creates (S6.1): the
+ * process manager creates the writable segments and the first stack of every process it starts, two objects or
+ * more while each lives. */
+#define WIT_PROCESS_OBJECT_CAPACITY 32U
 #define WIT_MEMORY_OBJECT_TABLE_CAPACITY 64U /* memory objects kernel-wide */
 #define WIT_MEMORY_OBJECT_PAGES 64U /* pages of one memory object */
 #define WIT_DEVICE_CAPACITY 16U /* device descriptors the kernel publishes; the table fits one page */

@@ -182,6 +182,8 @@ typedef struct WitUserProcess {
     WitU32 RandomRequests;
     WitU64 RandomBytes;
     WitU64 Ticks, TickLimit;
+    WitU32 ObjectLimit; /* live memory objects it may create: WIT_MEMORY_OBJECT_CAPACITY, or the system layer's */
+    WitU32 ObjectReserved;
     WitU64 ExitCode;
     WitU64 ImageBase;
     WitU64 ImageEntry;

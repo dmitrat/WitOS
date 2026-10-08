@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "witos_libc.h"
+#include "witos/manager.h"
 #include "witos/exception.h"
 #include "witos/thread_context.h"
 #include "witos/thread_reference.h"
@@ -80,12 +81,13 @@ static __attribute__((__noreturn__)) void fail_fast(const char *text)
     WitU64 result = 0;
     wit_syscall(WIT_CALL_DEBUG_WRITE, __wit_process.Log, (WitU64)text, strlen(text), &result);
     for (;;) {
-        wit_syscall(WIT_CALL_PROCESS_EXIT, 128 + SIGABRT, 0, 0, &result);
+        wit_syscall(WIT_CALL_PROCESS_EXIT, WIT_EXIT_SIGNAL(SIGABRT), 0, 0, &result);
     }
 }
 
-/* The default action of a signal raised by tkill: ignored, or the process ends with 128 + the signal, as a shell
- * reports a death by signal; stop and continue signals are refused at the raise. */
+/* The default action of a signal raised by tkill: ignored, or the process ends with WIT_EXIT_SIGNAL(sig), which waitpid
+ * reports as a death by that signal (S6.1; a shell shows 128 + the signal); stop and continue signals are refused at
+ * the raise. */
 static int default_ignores(int sig)
 {
     return sig == SIGCHLD || sig == SIGURG || sig == SIGWINCH || sig == SIGCONT;
@@ -420,7 +422,7 @@ void __wit_signal_deliver(WitU64 token, WitU64 vector, WitU64 address)
             continue_unchanged(token, info);
         }
         for (;;) {
-            wit_syscall(WIT_CALL_PROCESS_EXIT, (WitU64)(128 + sig), 0, 0, &result);
+            wit_syscall(WIT_CALL_PROCESS_EXIT, WIT_EXIT_SIGNAL(sig), 0, 0, &result); /* waitpid: WIFSIGNALED (S6.1) */
         }
     }
     run_handler(token, &frame, state, sig, code, fault_address);

@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "witos/manager.h"
 #include "witos/memory_info.h"
 #include "witos/spawn.h"
 #include "witos/syscall.h"
@@ -107,7 +108,7 @@ int main(void)
 
     /* abort() ends the process as the libc's default action reports SIGABRT. */
     info = finish(start(abort_args, 0));
-    check(info.State == WIT_PROCESS_STATE_EXITED && info.ExitCode == 128 + 6, "an aborted program");
+    check(info.State == WIT_PROCESS_STATE_EXITED && info.ExitCode == WIT_EXIT_SIGNAL(6), "an aborted program");
 
     /* A dynamic program (S5.3): the loader maps it and its interpreter, which loads the program's library. */
     static char *dynamic_args[] = {DYNAMIC, "5", 0};
