@@ -93,7 +93,7 @@ WitA64Frame *wit_a64_prepare_resume(WitA64Frame *frame)
     return frame;
 }
 
-WitArchFrame *wit_arch_frame_create(WitU32 slot, WitU32 thread, WitU64 entry, WitU64 argument, WitU64 stack_top)
+static WitArchFrame *build_frame(WitU32 slot, WitU32 thread, WitU64 entry, WitU64 argument, WitU64 stack_pointer)
 {
     WitArchFrame *frame = (WitArchFrame *)(stack_low(slot, thread) + WIT_A64_KERNEL_STACK_SIZE - WIT_A64_FRAME_SIZE);
     for (WitU32 i = 0; i < sizeof(*frame); ++i) {
@@ -102,8 +102,24 @@ WitArchFrame *wit_arch_frame_create(WitU32 slot, WitU32 thread, WitU64 entry, Wi
     frame->X[0] = argument;
     frame->Elr = entry;
     frame->Spsr = 0; /* EL0t with every exception unmasked; a zero link register traps an accidental RET. */
-    frame->Sp = (stack_top & ~15ULL) - CALL_FRAME_BYTES;
+    frame->Sp = stack_pointer;
     return frame;
+}
+
+WitArchFrame *wit_arch_frame_create(WitU32 slot, WitU32 thread, WitU64 entry, WitU64 argument, WitU64 stack_top)
+{
+    return build_frame(slot, thread, entry, argument, (stack_top & ~15ULL) - CALL_FRAME_BYTES);
+}
+
+WitArchFrame *wit_arch_frame_create_at(WitU32 slot, WitU32 thread, WitU64 entry, WitU64 argument, WitU64 stack_pointer)
+{
+    return build_frame(slot, thread, entry, argument, stack_pointer);
+}
+
+/* TPIDR_EL0 is written at EL0 and preserved in the frame; the kernel sets only TPIDRRO_EL0 (RFC 0011 section 7.3). */
+int wit_arch_user_tls_settable(void)
+{
+    return 0;
 }
 
 int wit_arch_kernel_stack_contains(WitU32 slot, WitU32 thread, const void *object, WitU64 size)

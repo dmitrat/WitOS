@@ -1129,6 +1129,21 @@ WitU64 wit_user_space_map_object(WitUserSpace *space, WitU64 address, WitU64 siz
     return WIT_STATUS_OK;
 }
 
+int wit_user_space_reservation_bounds(const WitUserSpace *space, WitU64 address, WitU64 *base, WitU64 *size)
+{
+    *base = 0;
+    *size = 0;
+    for (WitU32 i = 0; i < space->ReservationLimit; ++i) {
+        const WitUserReservation *r = &space->Reservations[i];
+        if (r->Size && address >= r->Base && address - r->Base <= r->Size) {
+            *base = r->Base;
+            *size = r->Size;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int wit_user_space_mapping_object(const WitUserSpace *space, WitU64 base, WitU64 *object)
 {
     *object = 0;

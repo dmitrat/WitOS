@@ -242,6 +242,8 @@ static void start_thread(WitUserProcess *process, WitU32 index, WitUserThread *t
     thread->StackBottom = pages->Bottom;
     thread->StackTop = pages->Top;
     thread->Tls = pages->Tls;
+    thread->OwnsStack = 1;
+    thread->ExitReservation = 0;
     thread->ExitCode = 0;
     thread->Context = context;
     thread->WaitKind = WitWaitNone;
@@ -285,8 +287,102 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 ent
     return WIT_STATUS_OK;
 }
 
-/* THREAD_CREATE: the one form. The request is validated as a whole, the thread handle is reserved first, and nothing
- * is published before the identity, stacks, TLS and initial suspend state all exist. */
+/* The one form (version 2, K5.2a): a thread on the caller's stack with the caller's TLS base; the kernel maps nothing
+ * for it. The stack pointer must be 16-byte aligned inside a committed writable reservation, whose bounds become the
+ * thread's; the TLS base is a user address or zero. */
+static WitU64 create_on_caller_stack(WitUserProcess *p, const WitThreadCreateRequest2 *request, WitU64 *result)
+{
+    WitU64 base = 0, bytes = 0;
+    if (request->Size != sizeof(*request) || request->Reserved || (request->Flags & ~WIT_THREAD_START_SUSPENDED)) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    if ((request->StackPointer & 15) || request->TlsBase >= 0x0000800000000000ULL) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    if (!wit_user_space_physical(&p->Space, request->Entry, 0, 1)) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    if (!wit_user_space_reservation_bounds(&p->Space, request->StackPointer, &base, &bytes) ||
+        request->StackPointer <= base ||
+        !wit_user_space_physical(&p->Space, request->StackPointer - 8, 1, 0)) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    WitU32 index = 0;
+    while (index < WIT_USER_THREAD_CAPACITY && p->Threads[index].State != WitThreadEmpty) {
+        ++index;
+    }
+    if (index == WIT_USER_THREAD_CAPACITY) {
+        ++p->ReferenceThreadCapacityFailures;
+        return WIT_STATUS_NO_MEMORY;
+    }
+    WitUserThreadReference *reference = 0;
+    for (WitU32 n = 0; n < p->Handles.Limit; ++n) {
+        if (!p->ThreadReferences[n].Handle) {
+            reference = &p->ThreadReferences[n];
+            break;
+        }
+    }
+    if (!reference || wit_handles_free_count(&p->Handles) < 2) {
+        return WIT_STATUS_NO_MEMORY;
+    }
+    WitUserThread *thread = &p->Threads[index];
+    const WitU64 reset = reset_thread(p, thread, 0);
+    if (reset != WIT_STATUS_OK) {
+        return reset;
+    }
+    const WitU64 handle = wit_handle_grant(&p->Handles, WIT_HANDLE_THREAD_REFERENCE, WIT_RIGHT_THREAD_ALL);
+    const WitU64 identity = wit_handle_grant(&p->Handles, WIT_HANDLE_THREAD_IDENTITY, 0);
+    require(handle != 0 && identity != 0, "Thread handles failed after the free slot check");
+    WitArchFrame *context =
+        wit_arch_frame_create_at(p->Slot, index, request->Entry, request->Argument, request->StackPointer);
+    require(take_native_id(&next_native_id, &thread->NativeId), "Serialized native ID allocation failed");
+    thread->Handle = identity;
+    thread->StackBottom = base;
+    thread->StackTop = base + bytes;
+    thread->Tls = request->TlsBase;
+    thread->CompilerTls = 0;
+    thread->OwnsStack = 0;
+    thread->ExitReservation = 0;
+    thread->ExitCode = 0;
+    thread->Context = context;
+    thread->WaitKind = WitWaitNone;
+    thread->WaitHandle = 0;
+    thread->WaitCount = 0;
+    thread->WaitAll = 0;
+    wit_user_activations_clear(thread);
+    for (WitU32 w = 0; w < WIT_WAIT_ANY_CAPACITY; ++w) {
+        thread->WaitHandles[w] = 0;
+    }
+    thread->Deadline = WIT_WAIT_INFINITE;
+    thread->WaitOrder = 0;
+    thread->SuspendCount = (request->Flags & WIT_THREAD_START_SUSPENDED) ? 1U : 0U;
+    thread->State = WitThreadReady;
+    ++p->ThreadCreates;
+    reference->Handle = handle;
+    reference->ThreadId = identity;
+    reference->ExitCode = 0;
+    reference->Rights = WIT_RIGHT_THREAD_ALL;
+    reference->Exited = 0;
+    *result = handle;
+    return WIT_STATUS_OK;
+}
+
+/* THREAD_SET_TLS: the raw TLS base of the current thread, applied at its next return to user mode. */
+WitU64 wit_user_thread_set_tls(WitUserProcess *p, WitU64 base, WitU64 reserved0, WitU64 reserved1)
+{
+    if (reserved0 || reserved1 || base >= 0x0000800000000000ULL) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    if (!wit_arch_user_tls_settable()) {
+        return WIT_STATUS_UNSUPPORTED;
+    }
+    p->Threads[p->CurrentThread].Tls = base;
+    return WIT_STATUS_OK;
+}
+
+/* THREAD_CREATE: version 1 maps the kernel's stack and TLS (the frozen line), version 2 is the one form. The request
+ * is validated as a whole, the thread handle is reserved first, and nothing is published before the identity,
+ * stacks, TLS and initial suspend state all exist. */
 WitU64 wit_user_thread_create(WitUserProcess *p, WitU64 input, WitU64 size, WitU64 *result)
 {
     *result = 0;
@@ -296,6 +392,9 @@ WitU64 wit_user_thread_create(WitUserProcess *p, WitU64 input, WitU64 size, WitU
     WitThreadCreateRequest request;
     if (!wit_user_copy_from(&p->Space, input, (WitU8 *)&request, sizeof(request))) {
         return WIT_STATUS_BAD_ADDRESS;
+    }
+    if (request.Version == WIT_THREAD_CREATE_VERSION_2) {
+        return create_on_caller_stack(p, (const WitThreadCreateRequest2 *)&request, result);
     }
     if (request.Version != WIT_THREAD_CREATE_VERSION) {
         return WIT_STATUS_UNSUPPORTED;

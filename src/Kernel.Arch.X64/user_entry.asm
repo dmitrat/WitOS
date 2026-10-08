@@ -1,10 +1,16 @@
 option casemap:none
 EXTERN wit_x64_user_syscall:PROC
+EXTERN wit_x64_user_syscall_sysv:PROC
 EXTERN wit_x64_restore_context:PROC
 
 .data
 host_rsp QWORD 0
 host_cr3 QWORD 0
+; The kernel stack of the selected thread (TSS.RSP0's value) and the caller's RSP across the SYSCALL entry: one
+; processor, interrupts masked by SFMASK (K5.2a).
+PUBLIC wit_x64_syscall_kernel_rsp
+wit_x64_syscall_kernel_rsp QWORD 0
+syscall_user_rsp QWORD 0
 
 .code
 PUBLIC wit_arch_idle_once
@@ -122,4 +128,41 @@ wit_x64_user_syscall_entry PROC
     mov rsp, rax
     jmp wit_x64_restore_context
 wit_x64_user_syscall_entry ENDP
+
+; SYSCALL entry (RFC 0011 section 6.1): RCX holds the return RIP, R11 the RFLAGS, RSP is still the caller's. The
+; frame built here equals the interrupt gate's, so one restore path (IRETQ) serves both transports.
+PUBLIC wit_x64_syscall_entry
+wit_x64_syscall_entry PROC
+    mov QWORD PTR syscall_user_rsp, rsp
+    mov rsp, QWORD PTR wit_x64_syscall_kernel_rsp
+    push 2Bh ; SS
+    push QWORD PTR syscall_user_rsp
+    push r11 ; RFLAGS
+    push 33h ; CS
+    push rcx ; RIP
+    push rax
+    push rbx
+    push rcx
+    push rdx
+    push rbp
+    push rdi
+    push rsi
+    push r8
+    push r9
+    push r10
+    push r11
+    push r12
+    push r13
+    push r14
+    push r15
+    cld
+    sub rsp, 512
+    db 048h
+    fxsave [rsp]
+    mov rcx, rsp
+    sub rsp, 32
+    call wit_x64_user_syscall_sysv
+    mov rsp, rax
+    jmp wit_x64_restore_context
+wit_x64_syscall_entry ENDP
 END

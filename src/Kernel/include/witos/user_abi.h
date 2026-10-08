@@ -25,7 +25,7 @@
  * arguments, RAX=status and RDX=result, other GPRs and x87/SSE state preserved, RFLAGS reset to 0x202; on ARM64
  * SVC #0 with x8=call, x0-x2 arguments, x0=status and x1=result. A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
-#define WIT_ABI_VERSION 59U
+#define WIT_ABI_VERSION 60U
 /* QUERY result: the low 32 bits are WIT_ABI_VERSION, the high 32 bits the mask of the families present. */
 #define WIT_ABI_FEATURE_CHANNELS 1U
 #define WIT_ABI_FEATURE_DEVICES 2U
@@ -82,16 +82,21 @@
 #define WIT_CALL_CODE_PUBLISH 20U
 
 /* Threads and contexts (RFC 0011 section 7.3). */
-/* Create(WitThreadCreateRequest, exact size, 0) -> thread handle with every thread right: the one form. The handle
- * observes the thread's lifetime (OBJECT_WAIT, THREAD_QUERY); closing it detaches, and the thread's stack and TLS are
- * reclaimed when it exits. */
+/* Create(WitThreadCreateRequest, 48, 0) -> thread handle with every thread right. Version 2 is the one form (RFC
+ * 0011 section 7.3): the caller's stack pointer and TLS base, nothing mapped by the kernel. Version 1 keeps the
+ * kernel's stack and TLS for the frozen line until K8. The handle observes the thread's lifetime (OBJECT_WAIT,
+ * THREAD_QUERY); closing it detaches. */
 #define WIT_CALL_THREAD_CREATE 30U
-/* Exit(code, 0, 0): the current thread ends; does not return. The one exit: lifecycle notifications and the orderly
- * completion of a runtime's thread are user space's business. */
+/* Exit(code, reservation or 0, 0): the current thread ends; does not return. A nonzero second argument names a
+ * reservation of the caller (its stack) that the kernel releases once the thread no longer runs; it is checked
+ * before the exit and NOT_RESERVED returns. A version 1 thread's kernel stack and TLS are reclaimed with it. */
 #define WIT_CALL_THREAD_EXIT 31U
 /* Yield(0, 0, 0) -> 1 when this call selected another thread, otherwise 0. */
 #define WIT_CALL_THREAD_YIELD 32U
-/* 33 THREAD_SET_TLS arrives with plan step K5. */
+/* SetTls(base, 0, 0) -> 0: the raw TLS base of the current thread (FS on x64) from its next return to user mode; a
+ * user address or zero. ARM64 reports UNSUPPORTED: TPIDR_EL0 is the thread's own register, written at EL0 and
+ * preserved across the kernel's returns. */
+#define WIT_CALL_THREAD_SET_TLS 33U
 /* Query(thread handle or WIT_THREAD_SELF, buffer, exact size) copies one atomic snapshot of the thread
  * (WitUserThreadInfo: identity, stack, state, exit code, suspend count, the handle's rights); the caller's Version
  * and Size in the buffer select the record, and the result is the bytes copied. The QUERY right, or a context right:

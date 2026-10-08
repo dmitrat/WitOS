@@ -52,7 +52,9 @@ int wit_arch_interrupts_enabled(void)
     return (wit_x64_read_flags() & 0x200) != 0;
 }
 
-WitArchFrame *wit_arch_frame_create(WitU32 slot, WitU32 thread, WitU64 entry, WitU64 argument, WitU64 stack_top)
+/* The argument travels in RCX (Microsoft x64) and RDI (SysV) alike: the frozen line's entries and the system
+ * layer's read the same value (RFC 0011 section 6.1). */
+static WitArchFrame *build_frame(WitU32 slot, WitU32 thread, WitU64 entry, WitU64 argument, WitU64 stack_pointer)
 {
     WitArchFrame *frame = (WitArchFrame *)(stack_low(slot, thread) + WIT_KERNEL_STACK_SIZE - 4096);
     for (WitU32 i = 0; i < sizeof(*frame); ++i) {
@@ -63,12 +65,46 @@ WitArchFrame *wit_arch_frame_create(WitU32 slot, WitU32 thread, WitU64 entry, Wi
     frame->FxState[24] = 0x80;
     frame->FxState[25] = 0x1F;
     frame->Rcx = argument;
+    frame->Rdi = argument;
     frame->Rip = entry;
     frame->Cs = WIT_USER_CS;
     frame->Ss = WIT_USER_SS;
     frame->Rflags = USER_FLAGS_FIXED;
-    frame->Rsp = stack_top - CALL_FRAME_BYTES; /* Aligned ABI entry, zero return address traps accidental RET. */
+    frame->Rsp = stack_pointer;
     return frame;
+}
+
+WitArchFrame *wit_arch_frame_create(WitU32 slot, WitU32 thread, WitU64 entry, WitU64 argument, WitU64 stack_top)
+{
+    /* Aligned ABI entry, zero return address traps accidental RET. */
+    return build_frame(slot, thread, entry, argument, stack_top - CALL_FRAME_BYTES);
+}
+
+WitArchFrame *wit_arch_frame_create_at(WitU32 slot, WitU32 thread, WitU64 entry, WitU64 argument, WitU64 stack_pointer)
+{
+    return build_frame(slot, thread, entry, argument, stack_pointer);
+}
+
+int wit_arch_user_tls_settable(void)
+{
+    return 1;
+}
+
+/* SYSCALL (RFC 0011 section 6.1, K5.2a): the SysV argument registers; INT 0x80 with RCX, RDX and R8 stays for the
+ * frozen line until K8. The entry (user_entry.asm) builds the same frame as the interrupt gate's. */
+WitInterruptContext *wit_x64_user_syscall_sysv(WitInterruptContext *context)
+{
+    return wit_user_syscall(context, context->Rax, context->Rdi, context->Rsi, context->Rdx);
+}
+
+/* Enables SYSCALL: EFER.SCE; STAR's kernel selectors 8/0x10 and the SYSRET base 0x23 (SS 0x2B, CS 0x33); LSTAR the
+ * entry; SFMASK clears IF, TF, DF and AC on entry as the interrupt gate does. */
+void wit_x64_enable_syscall(void)
+{
+    __writemsr(0xC0000080, __readmsr(0xC0000080) | 1ULL);
+    __writemsr(0xC0000081, (0x23ULL << 48) | (0x08ULL << 32));
+    __writemsr(0xC0000082, (WitU64)wit_x64_syscall_entry);
+    __writemsr(0xC0000084, 0x40700ULL);
 }
 
 int wit_arch_kernel_stack_contains(WitU32 slot, WitU32 thread, const void *object, WitU64 size)

@@ -1,6 +1,6 @@
 # Справочник пользовательского ABI ядра WitOS
 
-Версии: **user ABI v59**, **boot ABI v6**. Источник истины — заголовки `src/Kernel/include/witos/*.h`; этот документ их описывает и проверяется хостовым тестом: каждый `WIT_CALL_*` из `user_abi.h` обязан встречаться здесь. Раскладка вызовов — ABI-1 по [RFC-0011 v3 §7](../RFC-0011-Kernel-Architecture-and-ABI.md), введённая шагом K1.1 плана; судьба каждого прежнего вызова — в [RFC-0011 v3 §8](../RFC-0011-Kernel-Architecture-and-ABI.md). ABI экспериментален до шага K8, но с K1.1 номер вызова, значение статуса и бит права никогда не переиспользуются (RFC-0011 §10.1).
+Версии: **user ABI v60**, **boot ABI v6**. Источник истины — заголовки `src/Kernel/include/witos/*.h`; этот документ их описывает и проверяется хостовым тестом: каждый `WIT_CALL_*` из `user_abi.h` обязан встречаться здесь. Раскладка вызовов — ABI-1 по [RFC-0011 v3 §7](../RFC-0011-Kernel-Architecture-and-ABI.md), введённая шагом K1.1 плана; судьба каждого прежнего вызова — в [RFC-0011 v3 §8](../RFC-0011-Kernel-Architecture-and-ABI.md). ABI экспериментален до шага K8, но с K1.1 номер вызова, значение статуса и бит права никогда не переиспользуются (RFC-0011 §10.1).
 
 ## Классы
 
@@ -13,10 +13,11 @@
 
 | ISA | Инструкция | Номер | Аргументы | Статус | Результат | После возврата |
 | --- | --- | --- | --- | --- | --- | --- |
-| x64 | `INT 0x80`, DPL3 | RAX | RCX, RDX, R8 | RAX | RDX | Остальные GPR и x87/SSE сохраняются; RFLAGS = 0x202 |
+| x64, `SYSCALL` (K5.2a) | `SYSCALL` | RAX | RDI, RSI, RDX | RAX | RDX | Остальные GPR и x87/SSE сохраняются; RCX и R11 затирает сама инструкция; RFLAGS = 0x202 |
+| x64, замороженная линия | `INT 0x80`, DPL3 | RAX | RCX, RDX, R8 | RAX | RDX | Остальные GPR и x87/SSE сохраняются; RFLAGS = 0x202 |
 | ARM64 | `SVC #0` | x8 | x0, x1, x2 | x0 | x1 | Остальные регистры и FP/SIMD сохраняются; флаги PSTATE сброшены |
 
-На x64 шаг K5.2 переводит транспорт на `SYSCALL` с аргументами в RDI, RSI, RDX (RFC-0011 §6.1).
+На x64 ядро принимает оба транспорта: `SYSCALL` с аргументами в RDI, RSI, RDX (RFC-0011 §6.1; K5.2a) для новых компонентов и `INT 0x80` с RCX, RDX, R8 для замороженной линии до K8; кадр и путь возврата у них одни. Первый поток компонента получает аргумент и в RCX, и в RDI (обе конвенции входа).
 
 Общие правила для всех вызовов:
 
@@ -75,9 +76,10 @@
 | 18 | `WIT_CALL_MEMORY_OBJECT_CREATE` | size (кратен странице, до 64 страниц), 0, 0 | memory object handle со всеми правами объекта; `TOO_LARGE`, `NO_MEMORY` | целевой |
 | 19 | `WIT_CALL_MEMORY_OBJECT_MAP` | `WitMemoryMapRequest`, 56, 0 | адрес отображения; `DENIED` вне прав хэндла, `BUSY` по занятому фиксированному адресу, `TOO_LARGE` за окном объекта | целевой |
 | 20 | `WIT_CALL_CODE_PUBLISH` | base, size, 0 | 0; каждая страница отображена `READ|EXECUTE`, иначе `DENIED` или `NOT_COMMITTED` | целевой |
-| 30 | `WIT_CALL_THREAD_CREATE` | `WitThreadCreateRequest`, 48, 0 | thread handle | целевой |
-| 31 | `WIT_CALL_THREAD_EXIT` | exit code, 0, 0 | не возвращается; единственный выход потока, его стек и TLS освобождаются | целевой |
+| 30 | `WIT_CALL_THREAD_CREATE` | `WitThreadCreateRequest`, 48, 0: версия 2 — указатель стека и база TLS вызывающего (единая форма), версия 1 — стек и TLS ядра (замороженная линия) | thread handle | целевой |
+| 31 | `WIT_CALL_THREAD_EXIT` | exit code, база резервирования или 0, 0 | не возвращается; названное резервирование (стек потока версии 2) ядро освобождает, когда поток на нём не бежит; не резервирование — `NOT_RESERVED` возвращается; стек и TLS потока версии 1 освобождаются ядром | целевой |
 | 32 | `WIT_CALL_THREAD_YIELD` | — | 1, если выбран другой поток | целевой |
+| 33 | `WIT_CALL_THREAD_SET_TLS` | base, 0, 0 | 0; база raw TLS текущего потока (FS на x64) со следующего возврата; ARM64 — `UNSUPPORTED` (TPIDR_EL0 пишет сам EL0) | целевой |
 | 34 | `WIT_CALL_THREAD_QUERY` | thread handle или `WIT_THREAD_SELF`, buffer, 96 | 96; `Version` 4 и `Size` в буфере задаёт вызывающий; право `QUERY` или право на контекст | целевой |
 | 35 | `WIT_CALL_THREAD_SUSPEND` | thread handle | предыдущий счётчик | целевой |
 | 36 | `WIT_CALL_THREAD_RESUME` | thread handle | предыдущий счётчик | целевой |
@@ -109,7 +111,7 @@
 | 93 | `WIT_CALL_PROCESSOR_QUERY` | buffer, 4, 0 | 4 | целевой |
 | 94 | `WIT_CALL_PROCESS_WRITE_BARRIER` | — | 0 | целевой |
 
-Зарезервированы: 33 (`THREAD_SET_TLS`, K5.2), 41 (`THREAD_AFFINITY`, K7), 90–92 (процессы, K5.2).
+Зарезервированы: 41 (`THREAD_AFFINITY`, K7), 90–92 (процессы, K5.2b).
 
 ### Транзитные вызовы
 
@@ -202,7 +204,8 @@
 | `WitUserImageInfo` | `image_info.h` | 568 | 2 |
 | `WitUserMemoryInfo` | `memory_info.h` | 112 | 2 |
 | `WitUserThreadInfo` | `thread_info.h` | 96 | 4 |
-| `WitThreadCreateRequest` | `thread_reference.h` | 48 | 1 |
+| `WitThreadCreateRequest` | `thread_reference.h` | 48 | 1 (`Entry`, `Argument`, `StackBytes`, `NativeIdOutput`, `Flags`) |
+| `WitThreadCreateRequest2` | `thread_reference.h` | 48 | 2 (`Entry`, `Argument`, `StackPointer`, `TlsBase`, `Flags`) |
 | `WitUserWaitRequest` | `wait_objects.h` | 32 | 1 |
 | `WitChannelMessage` | `channels.h` | 40 | 1 |
 | `WitMemoryMapRequest` | `memory_object.h` | 56 | 1 |

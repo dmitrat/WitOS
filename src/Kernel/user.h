@@ -97,6 +97,10 @@ typedef struct WitUserThread {
     WitU64 StackTop;
     WitU64 Tls;
     WitU64 CompilerTls;
+    /* A version 1 thread owns its kernel-mapped stack and TLS pages (reaped with it); a version 2 thread runs on the
+     * caller's reservation and may name it at THREAD_EXIT for release once it no longer runs there (K5.2a). */
+    WitU32 OwnsStack, Reserved2;
+    WitU64 ExitReservation;
     WitU64 LibraryTls[WIT_LIBRARY_CAPACITY];
     WitU64 LibraryNotificationPage, LibraryNotificationHandles[2];
     WitU64 ExitCode;
@@ -413,6 +417,7 @@ void wit_user_channel_self_test(WitPageAllocator *pages);
 void wit_user_memory_object_self_test(WitPageAllocator *pages);
 void wit_user_device_self_test(WitPageAllocator *pages);
 void wit_user_interrupt_self_test(WitPageAllocator *pages);
+void wit_user_thread2_self_test(WitPageAllocator *pages);
 struct WitBootInfo;
 void wit_root_task_self_test(const struct WitBootInfo *boot, WitPageAllocator *pages);
 void wit_user_image_self_test(WitPageAllocator *pages);
@@ -431,6 +436,7 @@ void wit_user_pressure_self_test(WitPageAllocator *pages);
 int wit_user_capture_tls(WitUserProcess *process, const WitPeImage *image);
 /* THREAD_CREATE: the one form, from a WitThreadCreateRequest in the process's memory. */
 WitU64 wit_user_thread_create(WitUserProcess *process, WitU64 input, WitU64 size, WitU64 *result);
+WitU64 wit_user_thread_set_tls(WitUserProcess *process, WitU64 base, WitU64 reserved0, WitU64 reserved1);
 WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument, WitU64 flags);
 WitU64 wit_virtual_kernel_root(void);
 
@@ -497,7 +503,9 @@ WitArchFrame *wit_user_call(WitUserCall *call);
 WitUserProcess *wit_user_current(void);
 WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code);
 WitArchFrame *wit_user_yield(void);
-WitArchFrame *wit_user_exit_thread(WitU64 code);
+WitArchFrame *wit_user_exit_thread(WitU64 code, WitU64 reservation);
+/* The reservation holding an address: its base and size, for a version 2 thread's stack and THREAD_EXIT. */
+int wit_user_space_reservation_bounds(const WitUserSpace *space, WitU64 address, WitU64 *base, WitU64 *size);
 WitU64 wit_user_close_handle(WitU64 handle);
 WitArchFrame *wit_user_timer_tick(WitArchFrame *frame);
 WIT_NORETURN void wit_user_fault(

@@ -34,6 +34,7 @@ void wit_arch_initialize(void)
     gdt[1] = 0x00AF9A000000FFFFULL; /* ring 0, present, long-mode code */
     gdt[2] = 0x00CF92000000FFFFULL; /* ring 0 data */
     task_state.Rsp[0] = stack_begin + WIT_KERNEL_STACK_SIZE;
+    wit_x64_syscall_kernel_rsp = task_state.Rsp[0];
     task_state.Ist[0] = (WitU64)wit_x64_double_fault_stack + 4096 + WIT_EMERGENCY_STACK_SIZE;
     task_state.IoMapBase = sizeof(task_state);
     gdt[3] = (tss_limit & 0xFFFFULL) |
@@ -60,12 +61,14 @@ void wit_arch_initialize(void)
     idt_pointer.Limit = sizeof(idt) - 1;
     idt_pointer.Base = (WitU64)idt;
     wit_x64_load_tables(&gdt_pointer, &idt_pointer);
+    wit_x64_enable_syscall();
     wit_console_write("[TEST-PASS] Cpu.ExceptionTables\n");
 }
 
 void wit_x64_set_kernel_stack(WitU64 top)
 {
     task_state.Rsp[0] = top;
+    wit_x64_syscall_kernel_rsp = top; /* SYSCALL switches no stack; the entry loads this one (K5.2a). */
 }
 
 static const char *exception_name(WitU64 vector)

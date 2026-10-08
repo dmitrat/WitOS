@@ -147,15 +147,34 @@ static int owns_library_lifecycle(WitUserCall *call)
 /* THREAD_EXIT: the one exit. Whether a runtime's thread detached from its runtime first is layer 2's lifecycle. */
 static WitArchFrame *thread_exit(WitUserCall *call)
 {
-    if (call->Argument1 || call->Argument2) {
+    WitU64 base = 0, bytes = 0;
+    if (call->Argument2) {
         *call->Status = WIT_STATUS_INVALID_ARGUMENT;
         return 0;
+    }
+    if (call->Argument1) {
+        /* The stack's reservation to release after the exit (K5.2a): exactly a reservation base of the caller's. */
+        if (caller(call)->OwnsStack) {
+            *call->Status = WIT_STATUS_INVALID_ARGUMENT;
+            return 0;
+        }
+        if (!wit_user_space_reservation_bounds(&call->Process->Space, call->Argument1, &base, &bytes) ||
+            base != call->Argument1) {
+            *call->Status = WIT_STATUS_NOT_RESERVED;
+            return 0;
+        }
     }
     if ((caller(call)->LibraryRequired && caller(call)->LibraryPhase != 4) || owns_library_lifecycle(call)) {
         exit_abruptly(call);
     }
     ++call->Process->ThreadExits;
-    return wit_user_exit_thread(call->Argument0);
+    return wit_user_exit_thread(call->Argument0, call->Argument1);
+}
+
+static WitArchFrame *thread_set_tls(WitUserCall *call)
+{
+    *call->Status = wit_user_thread_set_tls(call->Process, call->Argument0, call->Argument1, call->Argument2);
+    return 0;
 }
 
 static WitArchFrame *thread_query(WitUserCall *call)
@@ -648,6 +667,7 @@ static WitArchFrame *(*const handlers[CALL_COUNT])(WitUserCall *) = {
     [WIT_CALL_THREAD_CREATE] = thread_create,
     [WIT_CALL_THREAD_EXIT] = thread_exit,
     [WIT_CALL_THREAD_YIELD] = thread_yield,
+    [WIT_CALL_THREAD_SET_TLS] = thread_set_tls,
     [WIT_CALL_THREAD_QUERY] = thread_query,
     [WIT_CALL_THREAD_SUSPEND] = thread_suspend,
     [WIT_CALL_THREAD_RESUME] = thread_suspend,
