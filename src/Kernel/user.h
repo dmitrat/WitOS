@@ -183,6 +183,7 @@ typedef struct WitUserProcess {
     WitU64 RandomBytes;
     WitU64 Ticks, TickLimit;
     WitU32 ObjectLimit; /* live memory objects it may create: WIT_MEMORY_OBJECT_CAPACITY, or the system layer's */
+    WitU32 ThreadLimit; /* threads it may run: WIT_USER_THREAD_CAPACITY, or the system layer's (K5.3) */
     WitU32 ObjectReserved;
     WitU64 ExitCode;
     WitU64 ImageBase;
@@ -198,8 +199,8 @@ typedef struct WitUserProcess {
     WitU64 FaultAddress;
     WitArchFaultState FaultState;
     WitUserStackLease StackLeases[WIT_STACK_LEASE_CAPACITY];
-    WitUserThread Threads[WIT_USER_THREAD_CAPACITY];
-    WitUserThreadReference ThreadReferences[WIT_RUNTIME_HANDLE_CAPACITY];
+    WitUserThread Threads[WIT_PROCESS_THREAD_CAPACITY]; /* ThreadLimit of them in use */
+    WitUserThreadReference ThreadReferences[WIT_PROCESS_HANDLE_CAPACITY];
     WitU64 ExceptionCallback;
     WitU32 RuntimeProfile; /* The full runtime profile: budget diagnostics only. */
     WitU64 AbruptThreadId, AbruptThreadCode, ThreadExits;
@@ -219,7 +220,7 @@ typedef struct WitUserProcess {
     WitU64 ThreadReaps;
     WitU64 NextWaitOrder;
     WitU32 MemoryPressureLow;
-    WitU64 MemoryPressureEvents[WIT_RUNTIME_EVENT_CAPACITY];
+    WitU64 MemoryPressureEvents[WIT_PROCESS_EVENT_CAPACITY];
     WitU64 EventParks;
     WitU64 EventWakes;
     /* Parks and wakes of waits on thread handles alone (joins); waits that include an event count above. */

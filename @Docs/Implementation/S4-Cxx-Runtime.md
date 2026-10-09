@@ -79,4 +79,4 @@ opens on a Linux triple, as .NET's native layer will.
   C frame of the libc, such as a throwing `qsort` comparator; C++ code throwing through its own frames works.
 - libc++'s time zone database is off (`_LIBCPP_HAS_TIME_ZONE_DATABASE` 0); the filesystem works on the read-only
   package (every write fails with `EROFS`); locales are musl's C and UTF-8.
-- The kernel's quota of four threads of a process bounds `std::thread` and `std::async` alike.
+- The kernel's quota of four threads of a process bounds `std::thread` and `std::async` alike (sixteen since K5.3).

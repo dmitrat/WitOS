@@ -5,7 +5,7 @@
 #include "witos/storage.h"
 #include "witos/virtual.h"
 
-#define NO_THREAD WIT_USER_THREAD_CAPACITY
+#define NO_THREAD WIT_PROCESS_THREAD_CAPACITY
 
 static WitUserProcess *current_user;
 static WitUserProcess *slot_owners[WIT_PROCESS_CAPACITY]; /* the registry: the component of each slot (K5.2c) */
@@ -31,7 +31,7 @@ static void report_budget(WitUserState state)
         wit_console_write("/");
         wit_console_write_u64(current_user->IdleTicks);
         wit_console_write("\n");
-        for (WitU32 n = 0; n < WIT_USER_THREAD_CAPACITY; ++n) {
+        for (WitU32 n = 0; n < WIT_PROCESS_THREAD_CAPACITY; ++n) {
             const WitUserThread *t = &current_user->Threads[n];
             if (t->State == WitThreadEmpty) {
                 continue;
@@ -97,7 +97,7 @@ static void settle(WitUserProcess *p, WitUserState state, WitU64 code)
     p->FatalOwner = 0;
     p->State = state;
     p->ExitCode = code;
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         if (p->Threads[i].State != WitThreadEmpty && p->Threads[i].State != WitThreadExited) {
             /* The handles that observe a thread the end cuts short learn its exit with the component's code. */
             p->Threads[i].State = WitThreadExited;
@@ -127,7 +127,7 @@ static void teardown(WitUserProcess *process)
     wit_channels_orphan(process);
     wit_user_process_state_reset(process);
     wit_user_space_destroy(&process->Space);
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         process->Threads[i].State = WitThreadEmpty;
         process->Threads[i].SuspendCount = 0;
         wit_user_thread_name_clear(&process->Threads[i]);
@@ -313,8 +313,8 @@ static WitArchFrame *dispatch(int timer, WitU64 last_exit)
                 continue;
             }
             const WitU32 previous = q->CurrentThread;
-            for (WitU32 offset = 1; offset <= WIT_USER_THREAD_CAPACITY; ++offset) {
-                const WitU32 index = (previous + offset) % WIT_USER_THREAD_CAPACITY;
+            for (WitU32 offset = 1; offset <= WIT_PROCESS_THREAD_CAPACITY; ++offset) {
+                const WitU32 index = (previous + offset) % WIT_PROCESS_THREAD_CAPACITY;
                 WitUserThread *thread = &q->Threads[index];
                 if (thread->State == WitThreadWaiting || thread->SuspendCount) {
                     waiting = 1;
@@ -382,7 +382,7 @@ WitArchFrame *wit_user_exit_thread(WitU64 code, WitU64 reservation, WitU64 clear
         require(wit_user_event_set(current_user, event) == WIT_STATUS_OK, "Exit event vanished before the exit");
     }
     reap(index);
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         if (current_user->Threads[i].State != WitThreadEmpty) {
             return dispatch(0, code);
         }
@@ -519,6 +519,7 @@ static void reset_process(WitUserProcess *process, WitU32 slot, WitU32 code_size
     process->Ticks = 0;
     process->TickLimit = runtime ? WIT_RUNTIME_TICK_BUDGET : WIT_USER_TICK_BUDGET;
     process->ObjectLimit = WIT_MEMORY_OBJECT_CAPACITY;
+    process->ThreadLimit = WIT_USER_THREAD_CAPACITY;
     process->ExitCode = 0;
     process->ImageBase = image ? base : WIT_USER_CODE;
     process->ImageEntry = image ? base + image->EntryRva : WIT_USER_CODE;
@@ -533,7 +534,7 @@ static void reset_process(WitUserProcess *process, WitU32 slot, WitU32 code_size
     process->FaultThread = NO_THREAD;
     process->NextWaitOrder = 0;
     process->MemoryPressureLow = 0;
-    for (WitU32 i = 0; i < WIT_RUNTIME_EVENT_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_EVENT_CAPACITY; ++i) {
         process->MemoryPressureEvents[i] = 0;
     }
     wit_user_interrupts_reset(process);
@@ -543,7 +544,7 @@ static void reset_process(WitUserProcess *process, WitU32 slot, WitU32 code_size
     require(wit_memory_objects_charged(process) == 0 && wit_channels_charged(process) == 0,
         "A fresh component inherits memory objects or channels");
     wit_user_devices_reset(process);
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         process->Threads[i].State = WitThreadEmpty;
         process->Threads[i].SuspendCount = 0;
         wit_user_thread_name_clear(&process->Threads[i]);
@@ -664,11 +665,12 @@ int wit_user_create_flat(WitUserProcess *process, WitPageAllocator *allocator, W
         return 0;
     }
     reset_process(process, slot, 0, 0, 0);
-    /* The root task is the system layer (S1.3): the full profile's handles, events, pages and the wider fixed window,
-     * as a created process gets them, so that a libc program and later the runtime fit, and the system layer's
-     * reservation table (S5.4). */
-    process->Handles.Limit = WIT_RUNTIME_HANDLE_CAPACITY;
-    process->Events.Limit = WIT_RUNTIME_EVENT_CAPACITY;
+    /* The root task is the system layer (S1.3): the full profile's pages and the wider fixed window, as a created
+     * process gets them, so that a libc program and the runtime fit, and the system layer's reservation table (S5.4)
+     * and threads, handles and events (K5.3). */
+    process->Handles.Limit = WIT_PROCESS_HANDLE_CAPACITY;
+    process->Events.Limit = WIT_PROCESS_EVENT_CAPACITY;
+    process->ThreadLimit = WIT_PROCESS_THREAD_CAPACITY;
     process->TickLimit = WIT_RUNTIME_TICK_BUDGET;
     slot_owners[slot] = process;
     process->ImageBase = layout->Segments[0].Address;
@@ -779,8 +781,9 @@ int wit_user_create_empty(WitUserProcess *process, WitPageAllocator *allocator, 
         return 0;
     }
     reset_process(process, slot, 0, 0, 0);
-    process->Handles.Limit = WIT_RUNTIME_HANDLE_CAPACITY;
-    process->Events.Limit = WIT_RUNTIME_EVENT_CAPACITY;
+    process->Handles.Limit = WIT_PROCESS_HANDLE_CAPACITY; /* the system layer's threads, handles and events (K5.3) */
+    process->Events.Limit = WIT_PROCESS_EVENT_CAPACITY;
+    process->ThreadLimit = WIT_PROCESS_THREAD_CAPACITY;
     process->TickLimit = ticks;
     slot_owners[slot] = process;
     if (!wit_user_space_create_profile(&process->Space, allocator, 1) || !wit_user_capture_tls(process, 0)) {

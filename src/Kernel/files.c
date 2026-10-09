@@ -2,7 +2,7 @@
 
 void wit_files_initialize(WitFileTable *files)
 {
-    for (WitU32 i = 0; i < WIT_RUNTIME_HANDLE_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_HANDLE_CAPACITY; ++i) {
         const WitFile empty = {0};
         files->Entries[i] = empty;
     }

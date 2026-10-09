@@ -154,7 +154,7 @@ static void release_notifications(WitUserProcess *process, WitUserThread *thread
 WitU64 wit_user_thread_require_notifications(WitUserProcess *process, WitU32 *reserved)
 {
     *reserved = 0;
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         WitUserThread *thread = &process->Threads[i];
         if (thread->State == WitThreadEmpty ||
             thread->State == WitThreadExited ||
@@ -178,7 +178,7 @@ WitU64 wit_user_thread_require_notifications(WitUserProcess *process, WitU32 *re
 
 void wit_user_thread_release_notifications(WitUserProcess *process, WitU32 reserved)
 {
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         if (reserved & (1U << i)) {
             release_notifications(process, &process->Threads[i]);
             process->Threads[i].LibraryRequired = 0;
@@ -318,10 +318,10 @@ static WitU64 create_in(
         return WIT_STATUS_BAD_ADDRESS;
     }
     WitU32 index = 0;
-    while (index < WIT_USER_THREAD_CAPACITY && target->Threads[index].State != WitThreadEmpty) {
+    while (index < target->ThreadLimit && target->Threads[index].State != WitThreadEmpty) {
         ++index;
     }
-    if (index == WIT_USER_THREAD_CAPACITY) {
+    if (index == target->ThreadLimit) {
         ++target->ReferenceThreadCapacityFailures;
         return WIT_STATUS_NO_MEMORY;
     }
@@ -553,6 +553,8 @@ WitU64 wit_user_thread_create(WitUserProcess *p, WitU64 input, WitU64 size, WitU
         (request.NativeIdOutput && !wit_user_buffer_writable(&p->Space, request.NativeIdOutput, sizeof(WitU32)))) {
         return WIT_STATUS_BAD_ADDRESS;
     }
+    /* A version 1 thread's stack and TLS sit in the window of its index (user_layout.h), which holds the first
+     * WIT_USER_THREAD_CAPACITY threads of any process. */
     WitU32 index = 0;
     while (index < WIT_USER_THREAD_CAPACITY && p->Threads[index].State != WitThreadEmpty) {
         ++index;

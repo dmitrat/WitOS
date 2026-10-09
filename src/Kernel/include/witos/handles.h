@@ -40,7 +40,7 @@ typedef struct WitHandleTable {
     WitU32 Owner;
     WitU32 Count;
     WitU32 Limit;
-    WitHandleEntry Entries[WIT_RUNTIME_HANDLE_CAPACITY];
+    WitHandleEntry Entries[WIT_PROCESS_HANDLE_CAPACITY];
 } WitHandleTable;
 
 void wit_handles_initialize(WitHandleTable *table, WitU32 owner);

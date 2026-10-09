@@ -62,7 +62,7 @@ static WitU64 lookup(WitUserProcess *p, WitU64 token, WitUserStackLease **result
 
 static WitUserThread *live_target(WitUserProcess *p, const WitUserStackLease *l)
 {
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         WitUserThread *t = &p->Threads[i];
         if (t->State != WitThreadEmpty && t->State != WitThreadExited && t->Handle == l->ThreadId) {
             if (l->OwnerId != l->ThreadId && !t->SuspendCount) {

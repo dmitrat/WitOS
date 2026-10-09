@@ -36,7 +36,7 @@ typedef struct WitArchFrame {
  * translation tables. */
 #define WIT_A64_KERNEL_STACK_SIZE (64U * 1024U)
 #define WIT_A64_STACK_REGION_SIZE (WIT_A64_KERNEL_STACK_SIZE + 8192U)
-#define WIT_A64_STACK_GUARD_COUNT (6U + 2U * WIT_PROCESS_CAPACITY * WIT_USER_THREAD_CAPACITY)
+#define WIT_A64_STACK_GUARD_COUNT (6U + 2U * WIT_PROCESS_CAPACITY * WIT_PROCESS_THREAD_CAPACITY)
 extern WitU8 wit_a64_kernel_stack[WIT_A64_STACK_REGION_SIZE];
 
 /* Stacks of the two kernel workers of the preemption self-test. */
@@ -44,7 +44,7 @@ extern WitU8 wit_a64_worker_stacks[2][WIT_A64_STACK_REGION_SIZE];
 
 /* Kernel stack of each user thread of every registry slot (K5.2c); a thread's frame sits at the top of its stack
  * whenever it runs at EL0, so that SP_EL1 receives its next exception there. */
-extern WitU8 wit_a64_user_kernel_stacks[WIT_PROCESS_CAPACITY][WIT_USER_THREAD_CAPACITY][WIT_A64_STACK_REGION_SIZE];
+extern WitU8 wit_a64_user_kernel_stacks[WIT_PROCESS_CAPACITY][WIT_PROCESS_THREAD_CAPACITY][WIT_A64_STACK_REGION_SIZE];
 void wit_a64_stack_guards(WitU64 guards[WIT_A64_STACK_GUARD_COUNT]);
 
 /* Boot storage window in the TTBR1 half, at the same address as the x64 storage slot. */

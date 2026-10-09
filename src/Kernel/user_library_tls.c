@@ -59,6 +59,9 @@ static int add_block(WitUserProcess *p, WitU32 threadIndex, WitU32 slot)
     if (!seed->Bytes) {
         return 1;
     }
+    if (threadIndex >= WIT_USER_THREAD_CAPACITY) {
+        return 0; /* the TLS windows hold the first WIT_USER_THREAD_CAPACITY threads */
+    }
     require(!thread->LibraryTls[slot], "DLL TLS slot already owned");
     if (!thread->CompilerTls) {
         const WitU64 address = WIT_USER_TLS + threadIndex * WIT_USER_THREAD_STRIDE + 4096;
@@ -87,7 +90,7 @@ static int add_block(WitUserProcess *p, WitU32 threadIndex, WitU32 slot)
 
 void wit_user_library_tls_remove(WitUserProcess *p, WitU32 slot)
 {
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         remove_block(p, &p->Threads[i], slot);
     }
     p->LibraryTls[slot] = (WitUserLibraryTls){0};
@@ -105,7 +108,7 @@ int wit_user_library_tls_install(WitUserProcess *p, WitU32 slot, const WitPeImag
         return 0;
     }
     seed->Bytes = image->TlsInitialized + image->TlsZeroFill;
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         if (p->Threads[i].State != WitThreadEmpty && p->Threads[i].State != WitThreadExited) {
             if (!add_block(p, i, slot)) {
                 wit_user_library_tls_remove(p, slot);

@@ -12,7 +12,7 @@ typedef struct WitEvent {
 } WitEvent;
 
 typedef struct WitEventTable {
-    WitEvent Entries[WIT_RUNTIME_EVENT_CAPACITY];
+    WitEvent Entries[WIT_PROCESS_EVENT_CAPACITY];
     WitU32 Count, Limit;
 } WitEventTable;
 

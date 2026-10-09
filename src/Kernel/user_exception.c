@@ -15,7 +15,7 @@ void wit_user_exception_clear(WitUserThread *thread)
 void wit_user_exception_initialize(WitUserProcess *p)
 {
     p->ExceptionCallback = 0;
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         wit_user_exception_clear(&p->Threads[i]);
     }
 }
@@ -29,7 +29,7 @@ WitU64 wit_user_exception_register(WitUserProcess *p, WitU64 callback, WitU64 ve
         return WIT_STATUS_INVALID_ARGUMENT;
     }
     /* A delivery in flight or an activation waiting for its delivery binds the registered callback. */
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         if (p->Threads[i].Exception.Token || p->Threads[i].ActivationCount) {
             return WIT_STATUS_BUSY;
         }

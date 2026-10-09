@@ -7,8 +7,8 @@
 
 __declspec(align(4096)) WitU8 wit_a64_kernel_stack[WIT_A64_STACK_REGION_SIZE];
 __declspec(align(4096)) WitU8 wit_a64_worker_stacks[2][WIT_A64_STACK_REGION_SIZE];
-__declspec(align(
-    4096)) WitU8 wit_a64_user_kernel_stacks[WIT_PROCESS_CAPACITY][WIT_USER_THREAD_CAPACITY][WIT_A64_STACK_REGION_SIZE];
+__declspec(align(4096)) WitU8
+    wit_a64_user_kernel_stacks[WIT_PROCESS_CAPACITY][WIT_PROCESS_THREAD_CAPACITY][WIT_A64_STACK_REGION_SIZE];
 
 static WIT_NORETURN void enter_kernel(const void *boot)
 {
@@ -24,8 +24,8 @@ void wit_a64_stack_guards(WitU64 guards[WIT_A64_STACK_GUARD_COUNT])
         guards[3 + i * 2] = guards[2 + i * 2] + 4096 + WIT_A64_KERNEL_STACK_SIZE;
     }
     for (WitU32 i = 0; i < WIT_PROCESS_CAPACITY; ++i) {
-        for (WitU32 t = 0; t < WIT_USER_THREAD_CAPACITY; ++t) {
-            const WitU32 index = 6 + (i * WIT_USER_THREAD_CAPACITY + t) * 2;
+        for (WitU32 t = 0; t < WIT_PROCESS_THREAD_CAPACITY; ++t) {
+            const WitU32 index = 6 + (i * WIT_PROCESS_THREAD_CAPACITY + t) * 2;
             guards[index] = (WitU64)wit_a64_user_kernel_stacks[i][t];
             guards[index + 1] = guards[index] + 4096 + WIT_A64_KERNEL_STACK_SIZE;
         }

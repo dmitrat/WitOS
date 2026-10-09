@@ -6,7 +6,7 @@ __declspec(align(4096)) WitU8 wit_x64_worker_stacks[2][WIT_KERNEL_STACK_REGION_S
 
 /* One kernel stack per thread slot of every registry slot (K5.2c): a thread's frame lives on its own stack. */
 __declspec(align(4096)) WitU8
-    wit_x64_user_kernel_stacks[WIT_PROCESS_CAPACITY][WIT_USER_THREAD_CAPACITY][WIT_KERNEL_STACK_REGION_SIZE];
+    wit_x64_user_kernel_stacks[WIT_PROCESS_CAPACITY][WIT_PROCESS_THREAD_CAPACITY][WIT_KERNEL_STACK_REGION_SIZE];
 
 void wit_x64_stack_guards(WitU64 guards[WIT_STACK_GUARD_COUNT])
 {
@@ -19,8 +19,8 @@ void wit_x64_stack_guards(WitU64 guards[WIT_STACK_GUARD_COUNT])
         guards[5 + i * 2] = guards[4 + i * 2] + 4096 + WIT_KERNEL_STACK_SIZE;
     }
     for (WitU32 i = 0; i < WIT_PROCESS_CAPACITY; ++i) {
-        for (WitU32 t = 0; t < WIT_USER_THREAD_CAPACITY; ++t) {
-            const WitU32 index = 8 + (i * WIT_USER_THREAD_CAPACITY + t) * 2;
+        for (WitU32 t = 0; t < WIT_PROCESS_THREAD_CAPACITY; ++t) {
+            const WitU32 index = 8 + (i * WIT_PROCESS_THREAD_CAPACITY + t) * 2;
             guards[index] = (WitU64)wit_x64_user_kernel_stacks[i][t];
             guards[index + 1] = guards[index] + 4096 + WIT_KERNEL_STACK_SIZE;
         }

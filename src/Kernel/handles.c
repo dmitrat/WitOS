@@ -5,7 +5,7 @@ void wit_handles_initialize(WitHandleTable *table, WitU32 owner)
     table->Owner = owner;
     table->Count = 0;
     table->Limit = WIT_HANDLE_CAPACITY;
-    for (WitU32 i = 0; i < WIT_RUNTIME_HANDLE_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_HANDLE_CAPACITY; ++i) {
         table->Entries[i].Token = 0;
         table->Entries[i].Kind = 0;
         table->Entries[i].Rights = 0;

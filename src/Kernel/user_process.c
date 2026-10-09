@@ -87,7 +87,7 @@ static void release(WitUserProcess *process)
         free_record(process);
         return;
     }
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         if (process->Threads[i].State != WitThreadEmpty) {
             return;
         }
@@ -235,7 +235,7 @@ WitU64 wit_user_process_query(WitUserProcess *p, WitU64 handle, WitU64 address, 
         : target->State == WitUserFaulted        ? WIT_PROCESS_STATE_FAULTED
                                                  : WIT_PROCESS_STATE_EXITED;
     info.Threads = 0;
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         if (target->Threads[i].State != WitThreadEmpty && target->Threads[i].State != WitThreadExited) {
             ++info.Threads;
         }
