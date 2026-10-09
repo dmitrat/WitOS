@@ -46,6 +46,7 @@ public sealed class StlTests
     }
 
     [Test]
+    [Platform(Include = TestPlatforms.WINDOWS, Reason = TestPlatforms.MSVC)]
     public async Task GuestCharacterClassesMatchWindowsTest()
     {
         var root = TestEnvironment.Root;
@@ -62,6 +63,7 @@ public sealed class StlTests
     }
 
     [Test]
+    [Platform(Include = TestPlatforms.WINDOWS, Reason = TestPlatforms.MSVC)]
     public async Task PinnedStlMatchesMsvcpTest()
     {
         var root = TestEnvironment.Root;

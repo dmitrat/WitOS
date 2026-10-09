@@ -10,6 +10,7 @@ namespace WitOS.Dev.Tests.Native;
 /// Windows reference for static TLS in a native DLL built from the guest fixture (hosted).
 /// </summary>
 [TestFixture]
+[Platform(Include = TestPlatforms.WINDOWS, Reason = TestPlatforms.MSVC)]
 public sealed class LibraryTlsTests
 {
     #region Functions

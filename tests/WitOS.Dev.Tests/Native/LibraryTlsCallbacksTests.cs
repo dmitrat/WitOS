@@ -10,6 +10,7 @@ namespace WitOS.Dev.Tests.Native;
 /// Windows reference for the order of PE TLS callbacks and DLL entry calls, built from the guest fixtures (hosted).
 /// </summary>
 [TestFixture]
+[Platform(Include = TestPlatforms.WINDOWS, Reason = TestPlatforms.MSVC)]
 public sealed class LibraryTlsCallbacksTests
 {
     #region Functions

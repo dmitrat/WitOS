@@ -1,4 +1,5 @@
 using WitOS.Dev.Host;
+using WitOS.Dev.Tests.Support;
 
 namespace WitOS.Dev.Tests.Host;
 
@@ -6,6 +7,7 @@ namespace WitOS.Dev.Tests.Host;
 /// Windows command-line quoting and parsing round trips.
 /// </summary>
 [TestFixture]
+[Platform(Include = TestPlatforms.WINDOWS, Reason = TestPlatforms.WINDOWS_API)]
 public sealed class WindowsCommandLineTests
 {
     #region Functions

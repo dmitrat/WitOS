@@ -3,7 +3,9 @@ using System.Security.Cryptography;
 namespace WitOS.Dev.Host;
 
 /// <summary>
-/// Locates and verifies the pinned host tools: QEMU, firmware, MSVC, LLVM clang-format and 7-Zip.
+/// Locates and verifies the pinned host tools: QEMU, firmware, MSVC, LLVM and 7-Zip. A Windows host extracts QEMU and
+/// LLVM from their pinned Windows installers with 7-Zip; a Linux host (plan step T2.1a) extracts LLVM from its pinned
+/// Linux archive and builds QEMU from its pinned source release, whose firmware is the same EDK II builds.
 /// </summary>
 internal static class Toolchain
 {
@@ -15,10 +17,37 @@ internal static class Toolchain
 
     private const string QEMU_SHA512 = "5bcf9eed634e8575a37b74f445af41a2fe4106da512d0c30c368301d4c105037fdfab40a5287367a28a957624cddebbc8c07e16c88ab6634f554cdf3d16bf543";
 
+    // QEMU's source release for a Linux host, by the SHA-256 of download.qemu.org's bytes (plan step T2.1a).
+    private const string QEMU_SOURCE = "qemu-" + QEMU_VERSION + ".tar.xz";
+
+    private const string QEMU_SOURCE_SHA256 = "6ee1d1a61f68212476b27108c26da5f449dc09b626d42f8279ba0dc2e08fa858";
+
+    // The two system emulators WitOS boots and the options of their build: no documentation, no tools, no user-mode
+    // emulation, warnings not fatal for the host compiler, and the device tree library QEMU carries.
+    private static readonly string[] QEMU_CONFIGURE =
+    [
+        "--target-list=x86_64-softmmu,aarch64-softmmu", "--disable-docs", "--disable-tools", "--disable-user",
+        "--disable-werror", "--enable-fdt=internal"
+    ];
+
     // Official LLVM release used for coverage, sanitizers and clang-format.
     public const string LLVM_VERSION = "20.1.8";
 
     public const string LLVM_INSTALLER_SHA256 = "3197846a2b19063687dd56e93e34cd941e3548d907f23a6131571321bdf9fe7b";
+
+    // The same release's Linux x64 archive (plan step T2.1a).
+    public const string LLVM_LINUX_ARCHIVE_SHA256 = "1ead36b3dfcb774b57be530df42bec70ab2d239fbce9889447c7a29a4ddc1ae6";
+
+    // The archive's bin/clang-format by its own bytes: decompressing one member of the 2 GiB archive takes minutes.
+    private const string LLVM_LINUX_CLANG_FORMAT_SHA256 = "8ded0cd6430fa0d3422217e81d2d9a72647e18bb329dacdb691b8bff61bd2deb";
+
+    // The archive's members setup extracts: the tools layer 2, the kernel and the formatter need, the targets of their
+    // symbolic links, and the compiler's own headers.
+    private static readonly string[] LLVM_LINUX_MEMBERS =
+    [
+        "bin/clang", "bin/clang-20", "bin/lld", "bin/ld.lld", "bin/lld-link", "bin/llvm-ar", "bin/llvm-objcopy",
+        "bin/llvm-readobj", "bin/clang-format", "lib/clang/20/include"
+    ];
 
     #endregion
 
@@ -32,25 +61,68 @@ internal static class Toolchain
     public static string QemuDirectory(string root) => Path.Combine(root, ".tools", $"qemu-{QEMU_VERSION}");
 
     /// <summary>
+    /// A host executable's file name: with .exe on Windows, as is elsewhere.
+    /// </summary>
+    /// <param name="name">Name without an extension.</param>
+    /// <returns>File name.</returns>
+    public static string Executable(string name) => OperatingSystem.IsWindows() ? name + ".exe" : name;
+
+    /// <summary>
+    /// Path of one of the pinned QEMU's programs: beside the package's files on Windows, in bin of the built prefix on
+    /// a Linux host.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="name">Program name without an extension.</param>
+    /// <returns>Executable path.</returns>
+    public static string QemuExecutable(string root, string name) => OperatingSystem.IsWindows()
+        ? Path.Combine(QemuDirectory(root), Executable(name))
+        : Path.Combine(QemuDirectory(root), "bin", name);
+
+    /// <summary>
+    /// Directory of the pinned QEMU's firmware: share in the Windows package, share/qemu of the built prefix.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Directory path.</returns>
+    public static string QemuShareDirectory(string root) => OperatingSystem.IsWindows()
+        ? Path.Combine(QemuDirectory(root), "share")
+        : Path.Combine(QemuDirectory(root), "share", "qemu");
+
+    /// <summary>
     /// Path of the pinned QEMU x86_64 system emulator.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <returns>Executable path.</returns>
-    public static string Qemu(string root) => Path.Combine(QemuDirectory(root), "qemu-system-x86_64.exe");
+    public static string Qemu(string root) => QemuExecutable(root, "qemu-system-x86_64");
 
     /// <summary>
     /// Path of the EDK II x86_64 firmware code image.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <returns>Firmware path.</returns>
-    public static string Firmware(string root) => Path.Combine(QemuDirectory(root), "share", "edk2-x86_64-code.fd");
+    public static string Firmware(string root) => Path.Combine(QemuShareDirectory(root), "edk2-x86_64-code.fd");
 
     /// <summary>
     /// Path of the EDK II firmware variables template.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <returns>Template path.</returns>
-    public static string FirmwareVariables(string root) => Path.Combine(QemuDirectory(root), "share", "edk2-i386-vars.fd");
+    public static string FirmwareVariables(string root) => Path.Combine(QemuShareDirectory(root), "edk2-i386-vars.fd");
+
+    /// <summary>
+    /// The host's tar: Windows' own bsdtar, the one on the path elsewhere.
+    /// </summary>
+    /// <returns>Executable path or name.</returns>
+    public static string Tar() => OperatingSystem.IsWindows()
+        ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "tar.exe")
+        : "tar";
+
+    /// <summary>
+    /// Path of the cached pinned LLVM Linux archive (plan step T2.1a).
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Archive path.</returns>
+    public static string LlvmLinuxArchive(string root)
+        => Path.Combine(root, ".tools", "downloads", $"LLVM-{LLVM_VERSION}-Linux-X64.tar.xz");
 
     /// <summary>
     /// Path of the cached pinned LLVM installer.
@@ -121,11 +193,30 @@ internal static class Toolchain
     /// <returns>clang-format path.</returns>
     public static async Task<string> PrepareClangFormatAsync(string root)
     {
-        var installer = await RequireLlvmInstallerAsync(root);
         var directory = Path.Combine(root, ".tools", $"clang-format-{LLVM_VERSION}");
-        await Processes.RequireSuccessAsync(SevenZip(),
-            ["e", installer, @"bin\clang-format.exe", $"-o{directory}", "-y", "-bso0", "-bsp0"], root);
-        var formatter = Path.Combine(directory, "clang-format.exe");
+        if (OperatingSystem.IsWindows())
+        {
+            var installer = await RequireLlvmInstallerAsync(root);
+            await Processes.RequireSuccessAsync(SevenZip(),
+                ["e", installer, @"bin\clang-format.exe", $"-o{directory}", "-y", "-bso0", "-bsp0"], root);
+        }
+        else
+        {
+            // A Linux host (plan step T2.1a): the binary is pinned by its own hash, so a copy extracted earlier is used
+            // only while its bytes are the pinned ones.
+            Directory.CreateDirectory(directory);
+            var copy = Path.Combine(directory, "clang-format");
+            if (!File.Exists(copy) || await FileSha256Async(copy) != LLVM_LINUX_CLANG_FORMAT_SHA256)
+            {
+                var unpacked = await Processes.RunAsync(Tar(), ["-xJf", await RequireLlvmLinuxArchiveAsync(root), "-C", directory,
+                    "--strip-components=2", $"LLVM-{LLVM_VERSION}-Linux-X64/bin/clang-format"], root, 600);
+                if (unpacked.TimedOut || unpacked.ExitCode != 0)
+                    throw new InvalidOperationException($"clang-format extraction failed. {unpacked.Error}");
+                if (await FileSha256Async(copy) != LLVM_LINUX_CLANG_FORMAT_SHA256)
+                    throw new InvalidDataException($"clang-format hash mismatch: {copy}");
+            }
+        }
+        var formatter = Path.Combine(directory, Executable("clang-format"));
         var version = await Processes.RunAsync(formatter, ["--version"], root);
         if (version.ExitCode != 0 || !version.Output.Contains($"clang-format version {LLVM_VERSION}", StringComparison.Ordinal))
         {
@@ -146,28 +237,28 @@ internal static class Toolchain
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <returns>Executable path.</returns>
-    public static string Clang(string root) => Path.Combine(ClangDirectory(root), "bin", "clang.exe");
+    public static string Clang(string root) => Path.Combine(ClangDirectory(root), "bin", Executable("clang"));
 
     /// <summary>
     /// Path of the pinned ELF linker.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <returns>Executable path.</returns>
-    public static string Lld(string root) => Path.Combine(ClangDirectory(root), "bin", "ld.lld.exe");
+    public static string Lld(string root) => Path.Combine(ClangDirectory(root), "bin", Executable("ld.lld"));
 
     /// <summary>
     /// Path of the pinned PE/COFF linker, which links the kernel's EFI image (plan step T3.1).
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <returns>Executable path.</returns>
-    public static string LldLink(string root) => Path.Combine(ClangDirectory(root), "bin", "lld-link.exe");
+    public static string LldLink(string root) => Path.Combine(ClangDirectory(root), "bin", Executable("lld-link"));
 
     /// <summary>
     /// Path of the pinned archiver.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <returns>Executable path.</returns>
-    public static string LlvmAr(string root) => Path.Combine(ClangDirectory(root), "bin", "llvm-ar.exe");
+    public static string LlvmAr(string root) => Path.Combine(ClangDirectory(root), "bin", Executable("llvm-ar"));
 
     /// <summary>
     /// Requires the pinned clang and lld that <c>setup</c> extracts.
@@ -190,9 +281,19 @@ internal static class Toolchain
     /// <returns>clang path.</returns>
     public static async Task<string> PrepareClangAsync(string root)
     {
-        var installer = await RequireLlvmInstallerAsync(root);
         var directory = ClangDirectory(root);
         var major = LLVM_VERSION.Split('.')[0];
+        if (!OperatingSystem.IsWindows())
+        {
+            Directory.CreateDirectory(directory);
+            var prefix = $"LLVM-{LLVM_VERSION}-Linux-X64/";
+            var unpacked = await Processes.RunAsync(Tar(), ["-xJf", await RequireLlvmLinuxArchiveAsync(root), "-C", directory,
+                "--strip-components=1", .. LLVM_LINUX_MEMBERS.Select(member => prefix + member)], root, 600);
+            if (unpacked.TimedOut || unpacked.ExitCode != 0)
+                throw new InvalidOperationException($"clang extraction failed. {unpacked.Error}");
+            return await RequireClangVersionAsync(root);
+        }
+        var installer = await RequireLlvmInstallerAsync(root);
         var extraction = await Processes.RunAsync(SevenZip(),
         [
             "x", installer, @"bin\clang.exe", @"bin\ld.lld.exe", @"bin\lld-link.exe", @"bin\llvm-ar.exe", @"bin\llvm-objcopy.exe",
@@ -201,6 +302,11 @@ internal static class Toolchain
         ], root, 180);
         if (extraction.TimedOut || extraction.ExitCode != 0)
             throw new InvalidOperationException($"clang extraction failed. {extraction.Error}");
+        return await RequireClangVersionAsync(root);
+    }
+
+    private static async Task<string> RequireClangVersionAsync(string root)
+    {
         RequireClang(root);
         var version = await Processes.RunAsync(Clang(root), ["--version"], root);
         if (version.ExitCode != 0 || !version.Output.Contains($"clang version {LLVM_VERSION}", StringComparison.Ordinal))
@@ -245,6 +351,9 @@ internal static class Toolchain
     /// <exception cref="InvalidOperationException">Visual Studio or the tools are not installed.</exception>
     public static async Task<string> FindMsvcAsync(string root, string target, string component, string assembler)
     {
+        if (!OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException(
+                "MSVC builds the frozen line's fixtures on a Windows host until plan step K8 (T2.2); this needs them.");
         var vswhere = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
             "Microsoft Visual Studio", "Installer", "vswhere.exe");
         if (!File.Exists(vswhere))
@@ -298,6 +407,12 @@ internal static class Toolchain
     /// <param name="root">Repository root.</param>
     public static async Task SetupAsync(string root)
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            await BuildQemuAsync(root);
+            await PrepareSubstrateAsync(root);
+            return;
+        }
         var sevenZip = SevenZip();
 
         var downloads = Path.Combine(root, ".tools", "downloads");
@@ -327,12 +442,101 @@ internal static class Toolchain
             throw new InvalidOperationException($"QEMU extraction failed. {extraction.Error}");
         RequireQemu(root);
         Console.WriteLine($"Ready: {Qemu(root)}");
-        Console.WriteLine($"Extracting clang {LLVM_VERSION} and lld for layer 2 from the verified LLVM installer...");
+        await PrepareSubstrateAsync(root);
+    }
+
+    // The pinned LLVM tools, the musl tarball, compiler-rt, the LLVM runtimes and libc-test, on either host.
+    private static async Task PrepareSubstrateAsync(string root)
+    {
+        Console.WriteLine($"Extracting clang {LLVM_VERSION} and lld from the verified LLVM release...");
         Console.WriteLine($"Ready: {await PrepareClangAsync(root)}");
         Console.WriteLine($"Ready: {await Substrate.MuslLibc.PrepareAsync(root)}");
         Console.WriteLine($"Ready: {await Substrate.CompilerRtBuiltins.PrepareAsync(root)}");
         Console.WriteLine($"Ready: {await Substrate.LlvmRuntimes.PrepareAsync(root)}");
         Console.WriteLine($"Ready: {await Substrate.LibcTestSuite.PrepareAsync(root)}");
+    }
+
+    /// <summary>
+    /// Downloads the pinned LLVM Linux archive when missing and verifies its SHA-256 (plan step T2.1a).
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Archive path.</returns>
+    public static async Task<string> RequireLlvmLinuxArchiveAsync(string root)
+        => await RequireDownloadAsync(LlvmLinuxArchive(root),
+            $"https://github.com/llvm/llvm-project/releases/download/llvmorg-{LLVM_VERSION}/LLVM-{LLVM_VERSION}-Linux-X64.tar.xz",
+            LLVM_LINUX_ARCHIVE_SHA256);
+
+    // QEMU on a Linux host (plan step T2.1a): the pinned source release configured for the two system emulators and
+    // installed into .tools/qemu-<version>, whose share/qemu holds the EDK II images the release carries. A stamp of the
+    // source hash and the options keeps a finished build; anything else rebuilds from a clean tree.
+    private static async Task BuildQemuAsync(string root)
+    {
+        var source = await RequireDownloadAsync(Path.Combine(root, ".tools", "downloads", QEMU_SOURCE),
+            $"https://download.qemu.org/{QEMU_SOURCE}", QEMU_SOURCE_SHA256);
+        var prefix = QemuDirectory(root);
+        var stamp = Path.Combine(prefix, "witos-build.txt");
+        var expected = string.Join('\n', [QEMU_SOURCE_SHA256, .. QEMU_CONFIGURE]) + "\n";
+        if (File.Exists(stamp) && await File.ReadAllTextAsync(stamp) == expected && File.Exists(Qemu(root)))
+        {
+            RequireQemu(root);
+            Console.WriteLine($"Ready: {Qemu(root)}");
+            return;
+        }
+        var build = Path.Combine(root, ".tools", "qemu-build");
+        if (Directory.Exists(build))
+            Directory.Delete(build, recursive: true);
+        if (Directory.Exists(prefix))
+            Directory.Delete(prefix, recursive: true);
+        Directory.CreateDirectory(build);
+        Console.WriteLine($"Building QEMU {QEMU_VERSION} from its verified source release...");
+        await Processes.RequireSuccessAsync(Tar(), ["-xJf", source, "-C", build, "--strip-components=1"], root);
+        await RequireBuildStepAsync("./configure", ["--prefix=" + prefix, .. QEMU_CONFIGURE], build, 900);
+        await RequireBuildStepAsync("make", ["-j" + Environment.ProcessorCount], build, 3600);
+        await RequireBuildStepAsync("make", ["install"], build, 900);
+        RequireQemu(root);
+        await File.WriteAllTextAsync(stamp, expected);
+        Directory.Delete(build, recursive: true);
+        Console.WriteLine($"Ready: {Qemu(root)}");
+    }
+
+    private static async Task RequireBuildStepAsync(string executable, string[] arguments, string directory, int timeoutSeconds)
+    {
+        var result = await Processes.RunAsync(executable, arguments, directory, timeoutSeconds);
+        if (result.TimedOut || result.ExitCode != 0)
+            throw new InvalidOperationException($"{executable} {string.Join(' ', arguments)} failed (exit {result.ExitCode}, " +
+                $"timeout={result.TimedOut}).\n{Tail(result.Output)}\n{Tail(result.Error)}");
+    }
+
+    private static string Tail(string text) => text.Length <= 4000 ? text : text[^4000..];
+
+    private static async Task<string> FileSha256Async(string path)
+    {
+        await using var stream = File.OpenRead(path);
+        return Convert.ToHexString(await SHA256.HashDataAsync(stream)).ToLowerInvariant();
+    }
+
+    // A pinned download: fetched when missing, its SHA-256 always checked.
+    private static async Task<string> RequireDownloadAsync(string path, string url, string sha256)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        if (!File.Exists(path))
+        {
+            Console.WriteLine($"Downloading {Path.GetFileName(path)}...");
+            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+            using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+            var partial = path + ".partial";
+            await using (var stream = File.Create(partial))
+                await response.Content.CopyToAsync(stream);
+            File.Move(partial, path, overwrite: true);
+        }
+        await using (var stream = File.OpenRead(path))
+        {
+            var digest = Convert.ToHexString(await SHA256.HashDataAsync(stream)).ToLowerInvariant();
+            if (digest != sha256)
+                throw new InvalidDataException($"{Path.GetFileName(path)} hash mismatch. Remove the invalid download: {path}");
+        }
+        return path;
     }
 
     #endregion

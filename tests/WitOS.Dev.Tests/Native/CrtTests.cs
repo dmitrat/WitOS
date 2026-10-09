@@ -13,6 +13,7 @@ namespace WitOS.Dev.Tests.Native;
 /// of UCRT's headers, and the subset's functions next to UCRT's in one process.
 /// </summary>
 [TestFixture]
+[Platform(Include = TestPlatforms.WINDOWS, Reason = TestPlatforms.MSVC)]
 public sealed class CrtTests
 {
     #region Constants

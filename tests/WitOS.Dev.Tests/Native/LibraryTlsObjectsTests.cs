@@ -10,6 +10,7 @@ namespace WitOS.Dev.Tests.Native;
 /// Windows reference for C++ thread_local objects in a DLL: the WitOS dynamic TLS support against the MSVC CRT (hosted).
 /// </summary>
 [TestFixture]
+[Platform(Include = TestPlatforms.WINDOWS, Reason = TestPlatforms.MSVC)]
 public sealed class LibraryTlsObjectsTests
 {
     #region Functions

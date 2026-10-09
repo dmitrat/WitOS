@@ -1,4 +1,5 @@
 using WitOS.Dev.NativeAot;
+using WitOS.Dev.Tests.Support;
 
 namespace WitOS.Dev.Tests.NativeAot;
 
@@ -6,6 +7,7 @@ namespace WitOS.Dev.Tests.NativeAot;
 /// Compile profile extraction from recorded compiler command lines.
 /// </summary>
 [TestFixture]
+[Platform(Include = TestPlatforms.WINDOWS, Reason = TestPlatforms.MSVC)]
 public sealed class RuntimeGuestDriverTests
 {
     #region Functions

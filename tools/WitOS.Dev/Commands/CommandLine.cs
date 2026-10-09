@@ -161,12 +161,6 @@ internal static class CommandLine
             {
                 throw new ArgumentException("This command takes no options. Run help for the command list and their options.");
             }
-            if (!OperatingSystem.IsWindows())
-            {
-                throw new PlatformNotSupportedException(
-                    "The current development host is Windows x64 with Visual Studio C++ tools. The guest does not use Windows.");
-            }
-
             var root = FindRoot();
             if (name == HELP_COMMAND)
             {

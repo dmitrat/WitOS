@@ -7,6 +7,7 @@ namespace WitOS.Dev.Tests.Native;
 /// Native UTF-8 path normalization on guard-boundary inputs (hosted).
 /// </summary>
 [TestFixture]
+[Platform(Include = TestPlatforms.WINDOWS, Reason = TestPlatforms.MSVC)]
 public sealed class NativePathsTests
 {
     #region Functions

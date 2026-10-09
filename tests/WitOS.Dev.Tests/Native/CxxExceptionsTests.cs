@@ -10,6 +10,7 @@ namespace WitOS.Dev.Tests.Native;
 /// C++ exceptions on the WitOS C++ runtime against vcruntime, both on Windows' own dispatcher and unwinder (hosted).
 /// </summary>
 [TestFixture]
+[Platform(Include = TestPlatforms.WINDOWS, Reason = TestPlatforms.MSVC)]
 public sealed class CxxExceptionsTests
 {
     #region Functions

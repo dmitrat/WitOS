@@ -8,6 +8,7 @@ namespace WitOS.Dev.Tests.Native;
 /// Native boot package parser and firmware transport on guarded and fault-injected inputs (hosted).
 /// </summary>
 [TestFixture]
+[Platform(Include = TestPlatforms.WINDOWS, Reason = TestPlatforms.MSVC)]
 public sealed class AssemblyPackageNativeTests
 {
     #region Functions

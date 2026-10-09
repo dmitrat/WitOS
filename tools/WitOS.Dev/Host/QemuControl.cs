@@ -75,12 +75,19 @@ internal sealed class QemuControl : IDisposable
             await stream.WriteAsync(Encoding.UTF8.GetBytes(line + "\n"), token);
             await stream.FlushAsync(token);
         }
-        async Task Reply(string id)
+        // The reply to a command; for quit, QEMU's SHUTDOWN event for it acknowledges too, since QEMU may close the
+        // connection before the reply leaves (seen on a Linux host, plan step T2.1a).
+        async Task Reply(string id, bool shutdownAcknowledges = false)
         {
             for (var count = 0; count < 32; ++count)
             {
                 using var message = await Read();
                 var value = message.RootElement;
+                if (shutdownAcknowledges && value.TryGetProperty("event", out var name) && name.ValueKind == JsonValueKind.String &&
+                    name.GetString() == "SHUTDOWN" && value.TryGetProperty("data", out var data) &&
+                    data.ValueKind == JsonValueKind.Object && data.TryGetProperty("reason", out var reason) &&
+                    reason.ValueKind == JsonValueKind.String && reason.GetString() == "host-qmp-quit")
+                    return;
                 if (value.TryGetProperty("id", out var field) && field.ValueKind == JsonValueKind.String && field.GetString() == id)
                 {
                     if (!value.TryGetProperty("return", out _) || value.TryGetProperty("error", out _))
@@ -96,7 +103,7 @@ internal sealed class QemuControl : IDisposable
         await Send("qmp_capabilities", "witos-capabilities");
         await Reply("witos-capabilities");
         await Send("quit", "witos-quit");
-        await Reply("witos-quit");
+        await Reply("witos-quit", shutdownAcknowledges: true);
         QuitAcknowledged = true;
     }
 
