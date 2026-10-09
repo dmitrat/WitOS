@@ -16,9 +16,11 @@
  * maps the window of the bytes it needs, copies and releases it, so a file of any size is readable through a
  * mapping of at most 64 pages. The namespace is the package's: "/" is its root, a name is a file, a prefix of a name
  * up to '/' is a directory, "/dev/null" and "/dev/zero" are the devices, and "/dev/urandom" and "/dev/random" read the
- * kernel's entropy (RANDOM; libc++'s random_device opens them, S4); nothing is writable (EROFS), there is no current
- * directory but "/" (S6 moves it to the library), and no symbolic links. Descriptors 3 and above are the files;
- * 0–2 stay the kernel log. */
+ * kernel's entropy (RANDOM; libc++'s random_device opens them, S4); nothing is writable (EROFS), and there are no
+ * symbolic links. The current directory is the library's (S6.2): a relative path joins the current directory or a
+ * directory descriptor and is normalized with it, so ".." climbs out of it; chdir and fchdir accept a directory of
+ * the package, and a process starts in the directory its start message names. Descriptors 3 and above are the files;
+ * 0–2 are the standard streams over the kernel log (syscall.c), which close takes away one by one. */
 
 #define PACKAGE_HANDLE (__wit_process.Package)
 #define PAGE 4096ULL
@@ -50,6 +52,8 @@ typedef struct Descriptor {
 } Descriptor;
 
 static Descriptor descriptors[DESCRIPTORS];
+static unsigned char directory[NAME_MAX_BYTES]; /* the current directory: a name prefix without slashes at its ends */
+static WitU32 directory_length; /* zero for the root */
 static const unsigned char *table; /* the mapped header and table window */
 static WitU64 table_window_bytes;
 static WitU32 count;
@@ -208,6 +212,9 @@ static long normalize(const char *path, unsigned char *out, WitU32 *out_length)
             while (length > 0 && out[length - 1] != '/') {
                 --length;
             }
+            if (length > 0) {
+                --length; /* the separator before the name ".." removed */
+            }
             continue;
         }
         if (length + part + 1 >= NAME_MAX_BYTES) {
@@ -310,19 +317,46 @@ static long open_descriptor(Kind kind, WitU32 index, WitU32 prefix_length, int f
     return -EMFILE;
 }
 
-/* The path relative to a directory descriptor, AT_FDCWD being the root. */
+/* The name of a directory descriptor: its prefix without the trailing '/', empty for the root. */
+static WitU32 directory_name(const Descriptor *d, unsigned char *name)
+{
+    if (!d->PrefixLength) {
+        return 0;
+    }
+    const unsigned char *first;
+    WitU32 first_length;
+    WitU64 data, data_length;
+    entry(d->Index, &first, &first_length, &data, &data_length);
+    memcpy(name, first, d->PrefixLength - 1);
+    return d->PrefixLength - 1;
+}
+
+/* An absolute path alone, or a relative one after a base name, normalized together (S6.2). */
+static long join(
+    const unsigned char *base, WitU32 base_length, const char *path, unsigned char *name, WitU32 *name_length)
+{
+    char combined[2 * NAME_MAX_BYTES + 2];
+    if (!path) {
+        return -EFAULT;
+    }
+    if (path[0] == '/') {
+        return normalize(path, name, name_length);
+    }
+    const size_t length = strlen(path);
+    if (base_length + 1 + length + 1 > sizeof(combined)) {
+        return -ENAMETOOLONG;
+    }
+    memcpy(combined, base, base_length);
+    combined[base_length] = '/';
+    memcpy(combined + base_length + 1, path, length + 1);
+    return normalize(combined, name, name_length);
+}
+
+/* The name a path gives from a directory descriptor, AT_FDCWD being the current directory. */
 static long resolve(long dirfd, const char *path, unsigned char *name, WitU32 *name_length)
 {
-    unsigned char relative[NAME_MAX_BYTES];
-    WitU32 relative_length = 0;
-    const long normalized = normalize(path, relative, &relative_length);
-    if (normalized < 0) {
-        return normalized;
-    }
     if (dirfd == AT_FDCWD || (path && path[0] == '/')) {
-        memcpy(name, relative, relative_length);
-        *name_length = relative_length;
-        return 0;
+        return join(directory, directory_length, path, name, name_length);
     }
     const Descriptor *d = descriptor(dirfd);
     if (!d) {
@@ -331,27 +365,109 @@ static long resolve(long dirfd, const char *path, unsigned char *name, WitU32 *n
     if (d->Kind != KindDirectory) {
         return -ENOTDIR;
     }
-    if (d->PrefixLength + relative_length >= NAME_MAX_BYTES) {
+    unsigned char base[NAME_MAX_BYTES];
+    const WitU32 base_length = directory_name(d, base);
+    return join(base, base_length, path, name, name_length);
+}
+
+/* Whether a name is a directory of the package: the root, or a prefix of names. */
+static long require_directory(const unsigned char *name, WitU32 length)
+{
+    Kind kind;
+    WitU32 index;
+    if (!length) {
+        return 0;
+    }
+    const long status = lookup(name, length, &kind, &index);
+    if (status < 0) {
+        return status;
+    }
+    return kind == KindDirectory ? 0 : -ENOTDIR;
+}
+
+static long absolute(const unsigned char *name, WitU32 length, char *out, long size)
+{
+    if ((long)length + 2 > size) {
         return -ENAMETOOLONG;
     }
+    out[0] = '/';
+    memcpy(out + 1, name, length);
+    out[length + 1] = 0;
+    return (long)length + 1;
+}
+
+long __wit_chdir(const char *path)
+{
+    unsigned char name[NAME_MAX_BYTES];
     WitU32 length = 0;
-    if (d->PrefixLength) {
-        const unsigned char *first;
-        WitU32 first_length;
-        WitU64 data, data_length;
-        entry(d->Index, &first, &first_length, &data, &data_length);
-        memcpy(name, first, d->PrefixLength - 1);
-        length = d->PrefixLength - 1;
+    long status;
+    if ((status = mount()) < 0 ||
+        (status = resolve(AT_FDCWD, path, name, &length)) < 0 ||
+        (status = require_directory(name, length)) < 0) {
+        return status;
     }
-    if (relative_length) {
-        if (length) {
-            name[length++] = '/';
-        }
-        memcpy(name + length, relative, relative_length);
-        length += relative_length;
-    }
-    *name_length = length;
+    memcpy(directory, name, length);
+    directory_length = length;
     return 0;
+}
+
+long __wit_fchdir(long fd)
+{
+    const Descriptor *d = descriptor(fd);
+    if (!d) {
+        return -EBADF;
+    }
+    if (d->Kind != KindDirectory) {
+        return -ENOTDIR;
+    }
+    directory_length = directory_name(d, directory);
+    return 0;
+}
+
+long __wit_directory_resolve(const char *base, const char *path, char *out, long size)
+{
+    unsigned char base_name[NAME_MAX_BYTES], name[NAME_MAX_BYTES];
+    WitU32 base_length = directory_length, length = 0;
+    long status;
+    if ((status = mount()) < 0) {
+        return status;
+    }
+    if (base) {
+        if ((status = normalize(base, base_name, &base_length)) < 0) {
+            return status;
+        }
+    } else {
+        memcpy(base_name, directory, directory_length);
+    }
+    if ((status = join(base_name, base_length, path, name, &length)) < 0 ||
+        (status = require_directory(name, length)) < 0) {
+        return status;
+    }
+    return absolute(name, length, out, size);
+}
+
+long __wit_descriptor_directory(long fd, char *out, long size)
+{
+    unsigned char name[NAME_MAX_BYTES];
+    const Descriptor *d = descriptor(fd);
+    if (!d) {
+        return -EBADF;
+    }
+    if (d->Kind != KindDirectory) {
+        return -ENOTDIR;
+    }
+    return absolute(name, directory_name(d, name), out, size);
+}
+
+long __wit_set_directory(const char *path, long bytes)
+{
+    char terminated[NAME_MAX_BYTES];
+    if (bytes < 0 || bytes >= (long)sizeof(terminated)) {
+        return -ENAMETOOLONG;
+    }
+    memcpy(terminated, path, (size_t)bytes);
+    terminated[bytes] = 0;
+    return bytes ? normalize(terminated, directory, &directory_length) : 0;
 }
 
 long __wit_openat(long dirfd, const char *path, long flags, long mode)
@@ -396,7 +512,11 @@ long __wit_close(long fd)
 {
     Descriptor *d = descriptor(fd);
     if (!d) {
-        return fd >= 0 && fd < FIRST_DESCRIPTOR ? 0 : -EBADF;
+        if (fd < 0 || fd >= FIRST_DESCRIPTOR || (__wit_process.ClosedStreams & (1U << fd))) {
+            return -EBADF;
+        }
+        __wit_process.ClosedStreams |= 1U << fd; /* a standard stream goes for good (S6.2) */
+        return 0;
     }
     d->Kind = KindClosed;
     return 0;
@@ -589,7 +709,7 @@ long __wit_fstatat(long dirfd, const char *path, struct kstat *st, long flags)
         return status;
     }
     if ((flags & AT_EMPTY_PATH) && (!path || !path[0])) {
-        if (dirfd >= 0 && dirfd < FIRST_DESCRIPTOR) {
+        if (dirfd >= 0 && dirfd < FIRST_DESCRIPTOR && !(__wit_process.ClosedStreams & (1U << dirfd))) {
             memset(st, 0, sizeof(*st));
             st->st_dev = 1;
             st->st_ino = 3;
@@ -760,12 +880,11 @@ long __wit_getdents(long fd, unsigned char *buffer, long bytes)
 
 long __wit_getcwd(char *buffer, long size)
 {
-    if (size < 2) {
+    if (size < (long)directory_length + 2) {
         return -ERANGE;
     }
-    buffer[0] = '/';
-    buffer[1] = 0;
-    return 2;
+    return absolute(directory, directory_length, buffer, size) +
+        1; /* the bytes with the terminator, as Linux returns */
 }
 
 long __wit_fcntl(long fd, long command, long argument)
@@ -773,7 +892,7 @@ long __wit_fcntl(long fd, long command, long argument)
     Descriptor *d = descriptor(fd);
     (void)argument;
     if (!d) {
-        if (fd >= 0 && fd < FIRST_DESCRIPTOR) {
+        if (fd >= 0 && fd < FIRST_DESCRIPTOR && !(__wit_process.ClosedStreams & (1U << fd))) {
             return command == F_GETFL ? (fd == 0 ? O_RDONLY : O_WRONLY)
                                       : (command == F_GETFD || command == F_SETFD ? 0 : -EINVAL);
         }

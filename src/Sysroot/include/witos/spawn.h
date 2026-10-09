@@ -16,9 +16,11 @@
  * (processes, channels, memory objects, pages, handles); nothing of a failed start remains. */
 int witos_spawn(WitU64 *process, const char *path, char *const argv[], char *const envp[]);
 
-/* What a start passes beyond the program, its arguments and its environment (S6.1). */
+/* What a start passes beyond the program, its arguments and its environment (S6.1, S6.2). */
 typedef struct witos_spawn_options {
     WitU64 manager; /* the process manager's endpoint, duplicated with SEND into the process; zero for none */
+    const char *directory; /* the initial directory, an absolute path of the package; null for "/" */
+    WitU32 closed_streams; /* bit n: the process starts without standard descriptor n */
 } witos_spawn_options;
 
 /* witos_spawn with options; null options are witos_spawn's. */

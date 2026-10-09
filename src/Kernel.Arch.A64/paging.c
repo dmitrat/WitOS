@@ -224,6 +224,27 @@ static void map_image(const WitBootInfo *boot)
 
 static int root_task_mapped;
 
+/* The windows of the boot package's extents, for the kernel's view of a package page a user mapping shows (S6.2). */
+static struct {
+    WitU64 Base, Length, Window;
+} storage_windows[WIT_MAX_STORAGE_EXTENTS];
+
+static WitU32 storage_window_count;
+
+WitU8 *wit_virtual_view(WitU64 physical)
+{
+    if (!physical) {
+        return 0;
+    }
+    for (WitU32 i = 0; i < storage_window_count; ++i) {
+        if (physical - storage_windows[i].Base < storage_windows[i].Length) {
+            return (WitU8 *)(storage_windows[i].Window + (physical - storage_windows[i].Base));
+        }
+    }
+    const WitU64 *entry = leaf(physical, 0);
+    return entry && (*entry & DESC_VALID) && (*entry & DESC_ADDRESS) == (physical & ~4095ULL) ? (WitU8 *)physical : 0;
+}
+
 static void map_storage(const WitBootInfo *boot)
 {
     const WitU64 table = (WitU64)boot->StorageExtents;
@@ -261,6 +282,10 @@ static void map_storage(const WitBootInfo *boot)
             require(reserved_image_page(boot, extent->Base + offset), "Boot storage overlaps usable or absent memory");
             set_page(WIT_A64_STORAGE_BASE + mapped + offset, page_descriptor(extent->Base + offset, 0, 0, 0));
         }
+        storage_windows[i].Base = extent->Base;
+        storage_windows[i].Length = extent->Length;
+        storage_windows[i].Window = WIT_A64_STORAGE_BASE + mapped;
+        storage_window_count = i + 1;
         mapped += extent->Length;
     }
     require(mapped == ((boot->StorageBytes + 4095) & ~4095ULL), "Incomplete boot storage mapping");

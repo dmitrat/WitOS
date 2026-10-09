@@ -12,21 +12,27 @@
  * musl's own startup ignores it; getauxval reads it. Version 2 (S6.1) adds the process manager's endpoint as an
  * optional third capability: a process the process manager starts may ask it to start others (witos/manager.h). The
  * arguments and the environment stay on the stack, where musl reads them and a message of 256 bytes could not hold
- * them. */
+ * them. Version 3 (S6.2) adds the standard streams the process starts without and its initial directory, whose bytes
+ * follow the structure in the message. */
 #define WIT_AT_START 0x57490001UL
 
-#define WIT_START_VERSION 2U
-#define WIT_START_SIZE 16U
+#define WIT_START_VERSION 3U
+#define WIT_START_SIZE 24U
+#define WIT_START_DIRECTORY_MAXIMUM 232U /* the rest of a channel message's 256 bytes */
 #define WIT_START_HANDLE_LOG 0U /* the kernel log: DEBUG_WRITE, standard output and error */
 #define WIT_START_HANDLE_PACKAGE 1U /* the boot package object: MAP, EXECUTE and QUERY */
 #define WIT_START_HANDLE_MANAGER 2U /* the process manager's endpoint: SEND (S6.1), absent without a manager */
 #define WIT_START_HANDLES 2U /* the capabilities every start message carries */
 #define WIT_START_HANDLES_MAXIMUM 3U
 
-/* The bytes of the start message. */
+/* The bytes of the start message, followed by DirectoryBytes of the initial directory. */
 typedef struct WitStartMessage {
     WitU32 Version, Size;
     WitU64 PackageBytes; /* the size of the boot package object */
+    WitU32
+        ClosedStreams; /* bit n: standard descriptor n is closed; the others are the log (1, 2) and empty input (0) */
+    WitU32
+        DirectoryBytes; /* an absolute path without a terminator, at most WIT_START_DIRECTORY_MAXIMUM; zero for "/" */
 } WitStartMessage;
 
 WIT_STATIC_ASSERT(sizeof(WitStartMessage) == WIT_START_SIZE, "Start message");

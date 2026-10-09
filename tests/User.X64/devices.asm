@@ -132,6 +132,12 @@ wit_user_start PROC
     EXPECT WIT_STATUS_OK
     cmp DWORD PTR [r14], VIRTIO_BLOCK
     jne failed
+    ; A call's buffer in a device region is refused: the kernel has no view of device memory (S6.2).
+    mov rcx, r14
+    mov edx, 56
+    xor r8d, r8d
+    CALL0 WIT_CALL_MEMORY_OBJECT_MAP
+    EXPECT WIT_STATUS_BAD_ADDRESS
     RELEASE r14
     EXPECT WIT_STATUS_OK
     CLOSE r12

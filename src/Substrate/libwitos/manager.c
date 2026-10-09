@@ -15,7 +15,8 @@
  * channel: it receives on one end and every process it starts gets a duplicate of the other end with SEND alone, so
  * that all of them share one queue the manager waits on beside its first process, without a wait for each process.
  * A request is checked whole before anything starts: the message, the memory object it maps read-only, and every
- * offset and string of the spawn request inside the request's bytes. The new process is started with the loader
+ * offset and string of the spawn request inside the request's bytes, the initial directory and the closed standard
+ * streams the requester chose (S6.2) among them. The new process is started with the loader
  * (witos_spawn_ex) and the manager's endpoint, and its handle moves back over the requester's reply endpoint without
  * MANAGE; the manager keeps no handle of it, so the requester alone waits for it. The manager knows no requester: a
  * request is the capabilities it carries. */
@@ -65,7 +66,7 @@ static int strings(const char *base, WitU64 begin, WitU64 end, WitU32 count, cha
 static int spawn_request(const char *base, WitU64 bytes, WitU64 manager, WitU64 *process)
 {
     const WitSpawnRequest *request = (const WitSpawnRequest *)base;
-    char **argv = 0, **envp = 0, **path = 0;
+    char **argv = 0, **envp = 0, **path = 0, **directory = 0;
     if (bytes < sizeof(*request) ||
         request->Version != WIT_MANAGER_VERSION ||
         request->Size != sizeof(*request) ||
@@ -73,8 +74,11 @@ static int spawn_request(const char *base, WitU64 bytes, WitU64 manager, WitU64 
         request->PathOffset != sizeof(*request) ||
         request->ArgumentsOffset <= request->PathOffset ||
         request->EnvironmentOffset < request->ArgumentsOffset ||
-        request->Bytes < request->EnvironmentOffset ||
-        request->ArgumentCount == 0) {
+        request->DirectoryOffset < request->EnvironmentOffset ||
+        request->Bytes <= request->DirectoryOffset ||
+        request->ArgumentCount == 0 ||
+        (request->ClosedStreams & ~7U) ||
+        request->Reserved) {
         return EINVAL;
     }
     int error = strings(base, request->PathOffset, request->ArgumentsOffset, 1, &path);
@@ -82,15 +86,22 @@ static int spawn_request(const char *base, WitU64 bytes, WitU64 manager, WitU64 
         error = strings(base, request->ArgumentsOffset, request->EnvironmentOffset, request->ArgumentCount, &argv);
     }
     if (!error) {
-        error = strings(base, request->EnvironmentOffset, request->Bytes, request->EnvironmentCount, &envp);
+        error = strings(base, request->EnvironmentOffset, request->DirectoryOffset, request->EnvironmentCount, &envp);
     }
     if (!error) {
-        const witos_spawn_options options = {manager};
+        error = strings(base, request->DirectoryOffset, request->Bytes, 1, &directory);
+    }
+    if (!error && directory[0][0] != '/') {
+        error = EINVAL;
+    }
+    if (!error) {
+        const witos_spawn_options options = {manager, directory[0], request->ClosedStreams};
         error = witos_spawn_ex(process, path[0], argv, envp, &options);
     }
     free(path);
     free(argv);
     free(envp);
+    free(directory);
     return error;
 }
 
@@ -177,7 +188,7 @@ int witos_manager_run(const char *path, char *const argv[], char *const envp[], 
     if (status != WIT_STATUS_OK) {
         return (int)-__wit_errno(status);
     }
-    const witos_spawn_options options = {ends[1]};
+    const witos_spawn_options options = {ends[1], 0, 0};
     int error = witos_spawn_ex(&first, path, argv, envp, &options);
     if (!error) {
         WitU64 waited[2] = {ends[0], first};

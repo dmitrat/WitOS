@@ -9,6 +9,7 @@
 #include <limits.h>
 #include <signal.h>
 #include <spawn.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>
@@ -22,8 +23,12 @@
  * on their handles: OBJECT_WAIT for up to four at a time, a short deadline and another round beyond that, and
  * PROCESS_QUERY for how each ended. An exit code from 0 to 255 is an exit status; WIT_EXIT_SIGNAL(sig), which the
  * library's default signal actions exit with, is a death by that signal; a fault the process's handlers did not take
- * ends it as the kernel's fault report, which waitpid reports as SIGSEGV. File actions, process groups, sessions and
- * scheduling attributes are not there, and a request for them fails with ENOSYS; a process without a manager — the
+ * ends it as the kernel's fault report, which waitpid reports as SIGSEGV. A child starts in the caller's current
+ * directory with the caller's standard streams (S6.2); the file actions change what it starts with, applied in order
+ * as a child would apply them: a chdir or fchdir moves its directory, closing a standard descriptor leaves it without
+ * that stream, a dup2 among standard output and error binds one like the other, and closing any other descriptor does
+ * nothing, since a child inherits none. A file or a pipe as a stream (open, dup2 of another descriptor), process
+ * groups, sessions and scheduling attributes are not there and fail with ENOSYS; a process without a manager — the
  * root task — gets ENOSYS too. */
 
 #define CHILDREN 64
@@ -44,6 +49,21 @@ static int next_pid = FIRST_PID;
 static volatile int lock;
 
 int __execvpe(const char *, char *const[], char *const[]); /* posix_spawnp's marker in the attributes (musl) */
+
+/* musl's record of a file action (src/process/fdop.h): posix_spawn_file_actions_add* put the newest first. */
+struct fdop {
+    struct fdop *next, *prev;
+    int cmd, fd, srcfd, oflag;
+    mode_t mode;
+    char path[];
+};
+
+#define FDOP_CLOSE 1
+#define FDOP_DUP2 2
+#define FDOP_OPEN 3
+#define FDOP_CHDIR 4
+#define FDOP_FCHDIR 5
+#define STANDARD(fd) ((fd) >= 0 && (fd) <= 2)
 
 static int errno_of(WitU64 status)
 {
@@ -78,8 +98,57 @@ static WitU64 put_strings(unsigned char *base, WitU64 offset, char *const list[]
     return offset;
 }
 
-/* The request in a fresh memory object: the header, the path, the arguments and the environment. */
-static int build_request(const char *path, char *const argv[], char *const envp[], WitU64 *object, WitU64 *bytes)
+/* What the child starts with: the caller's directory and streams, changed by the file actions in their order. */
+static int apply_actions(const posix_spawn_file_actions_t *actions, char *directory, long size, WitU32 *closed)
+{
+    long length = __wit_directory_resolve(0, ".", directory, size);
+    *closed = __wit_process.ClosedStreams;
+    if (length < 0) {
+        return (int)-length;
+    }
+    if (!actions || !actions->__actions) {
+        return 0;
+    }
+    const struct fdop *op = actions->__actions;
+    while (op->next) {
+        op = op->next;
+    }
+    for (; op; op = op->prev) {
+        switch (op->cmd) {
+        case FDOP_CLOSE:
+            if (STANDARD(op->fd)) {
+                *closed |= 1U << op->fd;
+            }
+            break;
+        case FDOP_DUP2:
+            if (!STANDARD(op->srcfd) || !STANDARD(op->fd) || (op->srcfd != op->fd && (op->srcfd == 0 || op->fd == 0))) {
+                return ENOSYS; /* a file, a pipe or the empty input as another stream */
+            }
+            if (*closed & (1U << op->srcfd)) {
+                return EBADF;
+            }
+            *closed &= ~(1U << op->fd);
+            break;
+        case FDOP_CHDIR:
+            if ((length = __wit_directory_resolve(directory, op->path, directory, size)) < 0) {
+                return (int)-length;
+            }
+            break;
+        case FDOP_FCHDIR:
+            if ((length = __wit_descriptor_directory(op->fd, directory, size)) < 0) {
+                return (int)-length;
+            }
+            break;
+        default:
+            return ENOSYS;
+        }
+    }
+    return 0;
+}
+
+/* The request in a fresh memory object: the header, the path, the arguments, the environment and the directory. */
+static int build_request(const char *path, char *const argv[], char *const envp[], const char *directory, WitU32 closed,
+    WitU64 *object, WitU64 *bytes)
 {
     WitSpawnRequest header;
     WitU64 address = 0, result = 0;
@@ -89,7 +158,9 @@ static int build_request(const char *path, char *const argv[], char *const envp[
     header.PathOffset = sizeof(header);
     header.ArgumentsOffset = header.PathOffset + strlen(path) + 1;
     header.EnvironmentOffset = header.ArgumentsOffset + strings_bytes(argv, &header.ArgumentCount);
-    header.Bytes = header.EnvironmentOffset + strings_bytes(envp, &header.EnvironmentCount);
+    header.DirectoryOffset = header.EnvironmentOffset + strings_bytes(envp, &header.EnvironmentCount);
+    header.Bytes = header.DirectoryOffset + strlen(directory) + 1;
+    header.ClosedStreams = closed;
     if (header.Bytes > REQUEST_LIMIT) {
         return E2BIG;
     }
@@ -116,6 +187,7 @@ static int build_request(const char *path, char *const argv[], char *const envp[
     memcpy(base + header.PathOffset, path, strlen(path) + 1);
     put_strings(base, header.ArgumentsOffset, argv, header.ArgumentCount);
     put_strings(base, header.EnvironmentOffset, envp, header.EnvironmentCount);
+    memcpy(base + header.DirectoryOffset, directory, strlen(directory) + 1);
     wit_syscall(WIT_CALL_MEMORY_RELEASE, address, 0, 0, &result);
     *bytes = header.Bytes;
     return 0;
@@ -236,9 +308,10 @@ int posix_spawn(pid_t *restrict result, const char *restrict path, const posix_s
     /* Attributes a new process satisfies by itself — default dispositions, an empty mask, the one user — pass; the
      * rest has no meaning here yet. */
     const int satisfied = POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_RESETIDS | POSIX_SPAWN_USEVFORK;
-    char found[PATH_MAX];
+    char found[PATH_MAX], directory[PATH_MAX];
+    WitU32 closed = 0;
     WitU64 object = 0, bytes = 0, process = 0, killed = 0;
-    if (!__wit_process.Manager || (actions && actions->__actions)) {
+    if (!__wit_process.Manager) {
         return ENOSYS;
     }
     if (attributes &&
@@ -253,7 +326,19 @@ int posix_spawn(pid_t *restrict result, const char *restrict path, const posix_s
         }
         path = found;
     }
-    int error = build_request(path, argv, envp, &object, &bytes);
+    int error = apply_actions(actions, directory, sizeof(directory), &closed);
+    char program[PATH_MAX];
+    if (!error && path[0] != '/') {
+        /* A relative path names the program from the directory the child starts in, as exec after the actions would. */
+        const int length = snprintf(program, sizeof(program), "%s/%s", directory, path);
+        if (length < 0 || (size_t)length >= sizeof(program)) {
+            error = ENAMETOOLONG;
+        }
+        path = program;
+    }
+    if (!error) {
+        error = build_request(path, argv, envp, directory, closed, &object, &bytes);
+    }
     if (!error) {
         error = ask_manager(object, bytes, &process);
     }

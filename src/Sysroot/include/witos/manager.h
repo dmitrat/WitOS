@@ -8,7 +8,7 @@
  * carries its data in a memory object, since a message holds 256 bytes, and the end of a channel the requester made
  * for the reply; the reply moves the new process's handle back. The libc's posix_spawn and waitpid speak it
  * (src/Substrate/libc/process.c); nothing of it is an application API. */
-#define WIT_MANAGER_VERSION 1U
+#define WIT_MANAGER_VERSION 2U
 #define WIT_MANAGER_SPAWN 1U /* start a program of the boot package */
 
 /* A request: the bytes of the message, with the request's memory object (MAP, TRANSFER) and the reply endpoint
@@ -31,16 +31,18 @@ typedef struct WitManagerReply {
 
 WIT_STATIC_ASSERT(sizeof(WitManagerReply) == 16, "Manager reply");
 
-/* The bytes of a spawn request: the program's path and the arguments and environment, each a run of zero-terminated
- * strings, at offsets from the start of the request and inside its Bytes. */
+/* The bytes of a spawn request: the program's path, the arguments and the environment, each a run of zero-terminated
+ * strings, and the initial directory, an absolute path (version 2, S6.2), at offsets from the start of the request
+ * and inside its Bytes; and the standard streams the process starts without (WitStartMessage's ClosedStreams). */
 typedef struct WitSpawnRequest {
     WitU32 Version, Size;
     WitU32 ArgumentCount, EnvironmentCount;
     WitU64 Bytes;
-    WitU64 PathOffset, ArgumentsOffset, EnvironmentOffset;
+    WitU64 PathOffset, ArgumentsOffset, EnvironmentOffset, DirectoryOffset;
+    WitU32 ClosedStreams, Reserved;
 } WitSpawnRequest;
 
-WIT_STATIC_ASSERT(sizeof(WitSpawnRequest) == 48, "Spawn request");
+WIT_STATIC_ASSERT(sizeof(WitSpawnRequest) == 64, "Spawn request");
 
 /* The exit code with which the libc ends a process whose signal's default action terminates it (S6.1): waitpid
  * reports it as WIFSIGNALED with the signal. Codes 0 to 255 are exit statuses. */

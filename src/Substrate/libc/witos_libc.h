@@ -43,6 +43,13 @@ long __wit_getdents(long fd, unsigned char *buffer, long bytes);
 long __wit_getcwd(char *buffer, long size);
 long __wit_fcntl(long fd, long command, long argument);
 int __wit_is_file_descriptor(long fd);
+/* The current directory (files.c, S6.2): chdir, fchdir; the absolute directory a path names from a base directory
+ * (the current one when null) or a directory descriptor names, which must exist, for posix_spawn; the directory the
+ * start message names. */
+long __wit_chdir(const char *path);
+long __wit_fchdir(long fd);
+long __wit_descriptor_directory(long fd, char *out, long size);
+long __wit_set_directory(const char *path, long bytes);
 
 /* Child processes through the process manager (process.c, S6.1): wait4 over the children posix_spawn started. */
 struct rusage;

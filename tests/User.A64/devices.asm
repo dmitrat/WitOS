@@ -162,6 +162,12 @@ wit_user_start PROC
     ldr w10, =VIRTIO_BLOCK
     cmp w9, w10
     b.ne failed
+    ; A call's buffer in a device region is refused: the kernel has no view of device memory (S6.2).
+    mov x0, x28
+    mov x1, #56
+    mov x2, #0
+    SYSCALL WIT_CALL_MEMORY_OBJECT_MAP
+    EXPECT WIT_STATUS_BAD_ADDRESS
     RELEASE x28
     EXPECT WIT_STATUS_OK
     CLOSE x26
