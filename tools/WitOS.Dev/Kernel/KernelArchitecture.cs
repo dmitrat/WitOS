@@ -117,6 +117,12 @@ internal sealed record KernelArchitecture(string Name, string MsvcTarget, string
     public string SysrootPassedLine => $"[SYSROOT] clang driver program on {Triple[..Triple.IndexOf('-')]}: ";
 
     /// <summary>
+    /// The last line of NativeAOT's M3 acceptance (tests/Runtime.Witos/Acceptance) when every run passed (R2.2).
+    /// </summary>
+    public string AcceptancePassedLine =>
+        $"[M3] NativeAOT on {Triple[..Triple.IndexOf('-')]}: {Runtime.RuntimeWitos.ACCEPTANCE_RUNS} runs passed, 0 failed";
+
+    /// <summary>
     /// The line the system layer's root task prints when /bin/init ended with zero (S6.1).
     /// </summary>
     public string RootTaskPassedLine => "[ROOT-TASK] /bin/init exited with 0";

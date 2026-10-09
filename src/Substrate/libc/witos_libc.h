@@ -34,6 +34,8 @@ long __wit_sched_getaffinity(long tid, long size, unsigned char *mask);
 /* Linux memory calls over reserve/commit (memory.c). */
 long __wit_mmap(long address, long length, long protection, long flags, long fd, long offset);
 long __wit_munmap(long address, long length);
+void __wit_mapping_forget(WitU64 base); /* memory.c, under the table lock */
+void __wit_mapping_forget_locked(WitU64 base); /* syscall.c: takes the table lock */
 long __wit_mprotect(long address, long length, long protection);
 long __wit_madvise(long address, long length, long advice);
 long __wit_mremap(long address, long old_length, long new_length, long flags);

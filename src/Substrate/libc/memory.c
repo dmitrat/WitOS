@@ -77,6 +77,19 @@ static void untrack(unsigned i)
     mappings[i] = mappings[--count];
 }
 
+/* A mapping the kernel releases itself: the stack an exiting detached thread names to THREAD_EXIT (__unmapself),
+ * released once the thread no longer runs. It leaves the table without a release, so that a later mapping in its
+ * range meets no stale entry, which munmap would otherwise release in its place (R2.2). Called under the table lock. */
+void __wit_mapping_forget(WitU64 base)
+{
+    for (unsigned i = 0; i < count; ++i) {
+        if (mappings[i].Base == base && mappings[i].Kind == MapPlain) {
+            untrack(i);
+            return;
+        }
+    }
+}
+
 static WitU64 release(WitU64 base, WitU64 size)
 {
     WitU64 result = 0;
