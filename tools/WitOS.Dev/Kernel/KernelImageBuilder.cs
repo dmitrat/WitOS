@@ -103,7 +103,10 @@ internal static class KernelImageBuilder
     {
         architecture ??= KernelArchitecture.X64;
         var target = KernelManifest.ReadTarget(root, architecture.Name);
-        var msvc = await architecture.FindMsvcAsync(root);
+        // MSVC builds the frozen line's fixtures alone, found when a scenario needs them (plan step T2.1a): a host
+        // without it builds the release kernel.
+        string? found = null;
+        async Task<string> Msvc() => found ??= await architecture.FindMsvcAsync(root);
         var output = outputDirectory ?? Path.Combine(root, "artifacts", architecture.Name, scenario);
         Directory.CreateDirectory(output);
         var buildId = fixedBuildId ?? await BuildIdAsync(root);
@@ -115,25 +118,25 @@ internal static class KernelImageBuilder
         // Every x64 user fixture; ARM64 builds the fixtures that A2 has ported so far.
         if (selfTest && architecture == KernelArchitecture.X64)
         {
-            await UserImage.BuildAsync(root, output, msvc);
+            await UserImage.BuildAsync(root, output, await Msvc());
         }
         else if (selfTest)
         {
-            await UserImage.BuildArm64Async(root, output, msvc);
+            await UserImage.BuildArm64Async(root, output, await Msvc());
         }
         if (scenario == "coreclr-memory")
         {
-            await CoreClrMemoryImage.BuildAsync(root, output, msvc);
+            await CoreClrMemoryImage.BuildAsync(root, output, await Msvc());
         }
         if (scenario == "coreclr-storage")
         {
             // The .NET host over the delivered framework and application (P6.4.k1): the fixture boots as /dotnet.
-            await CoreClrMemoryImage.BuildHostRuntimeAsync(root, output, msvc,
-                await CoreClrMemoryImage.BuildSupportAsync(root, output, msvc));
+            await CoreClrMemoryImage.BuildHostRuntimeAsync(root, output, await Msvc(),
+                await CoreClrMemoryImage.BuildSupportAsync(root, output, await Msvc()));
         }
         if (scenario == "runtime-config")
         {
-            await RuntimeConfigProbe.BuildImageAsync(root, output, msvc);
+            await RuntimeConfigProbe.BuildImageAsync(root, output, await Msvc());
         }
         if (scenario == "runtime-boot")
         {
@@ -156,7 +159,7 @@ internal static class KernelImageBuilder
             : await UserImage.BuildRootAsync(root, output, architecture);
         if (scenario == "coreclr-storage")
         {
-            await CoreClrStorageImage.BuildAsync(root, output, msvc);
+            await CoreClrStorageImage.BuildAsync(root, output, await Msvc());
         }
         var objects = await CompileKernelAsync(root, output, scenario, selfTest, target, architecture);
         var efi = await LinkKernelAsync(root, output, objects, architecture);
@@ -168,7 +171,7 @@ internal static class KernelImageBuilder
         var disk = Path.Combine(output, $"WitOS-{architecture.Name}.img");
         FatImage.Create(disk, await File.ReadAllBytesAsync(efi), bootPackage, architecture.EfiName, await File.ReadAllBytesAsync(rootTask));
         await File.WriteAllTextAsync(Path.Combine(output, "build.txt"),
-            $"Build: {buildId}\nScenario: {scenario}\nKernel compiler: {KernelCompiler(architecture)}\nFixtures: {msvc}\n" +
+            $"Build: {buildId}\nScenario: {scenario}\nKernel compiler: {KernelCompiler(architecture)}\nFixtures: {found ?? "none"}\n" +
             $"QEMU: {Toolchain.QEMU_VERSION}\n");
         Console.WriteLine($"Built {scenario}: {disk}");
         return disk;
@@ -233,10 +236,12 @@ internal static class KernelImageBuilder
         KernelArchitecture architecture)
     {
         var efi = Path.Combine(output, architecture.EfiName);
+        // /pdbaltpath:%_PDB% records the PDB's name alone, so that an image does not depend on the directory or the
+        // host it was built on (plan step T2.1a).
         List<string> linkArgs =
         [
             "/nologo", "/subsystem:efi_application", "/entry:efi_main", "/nodefaultlib", $"/machine:{architecture.MsvcTarget}",
-            "/fixed:no", .. architecture.LinkOptions, "/incremental:no", "/debug:full", "/Brepro",
+            "/fixed:no", .. architecture.LinkOptions, "/incremental:no", "/debug:full", "/Brepro", "/pdbaltpath:%_PDB%",
             $"/out:{efi}", $"/pdb:{Path.Combine(output, "WitOS.pdb")}", $"/map:{Path.Combine(output, "WitOS.map")}"
         ];
         linkArgs.AddRange(objects);

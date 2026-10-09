@@ -223,8 +223,7 @@ internal static class LlvmRuntimes
                 continue;
             if (System.IO.Directory.Exists(tree))
                 System.IO.Directory.Delete(tree, recursive: true);
-            var tar = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "tar.exe");
-            await Processes.RequireSuccessAsync(tar, ["-xf", file, "-C", Directory(root)], root);
+            await Processes.RequireSuccessAsync(Toolchain.Tar(), ["-xf", file, "-C", Directory(root)], root);
             if (!System.IO.Directory.Exists(Path.Combine(tree, "src")))
                 throw new InvalidDataException($"The {tarball.Name} tarball does not hold {Path.GetFileName(tree)}.");
             await File.WriteAllTextAsync(stamp, tarball.Sha256 + "\n");
@@ -249,8 +248,7 @@ internal static class LlvmRuntimes
             if (System.IO.Directory.Exists(headersTree))
                 System.IO.Directory.Delete(headersTree, recursive: true);
             // The per-architecture directories link to generic/include; only the real directories are extracted.
-            var tar = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "tar.exe");
-            await Processes.RequireSuccessAsync(tar, ["-xf", headersFile, "-C", Directory(root), headers.Name + "/generic/include",
+            await Processes.RequireSuccessAsync(Toolchain.Tar(), ["-xf", headersFile, "-C", Directory(root), headers.Name + "/generic/include",
                 headers.Name + "/x86/include/asm", headers.Name + "/arm64/include/asm"], root);
             if (!File.Exists(Path.Combine(headersTree, "generic", "include", "linux", "futex.h")))
                 throw new InvalidDataException($"The {headers.Name} tarball does not hold linux/futex.h.");

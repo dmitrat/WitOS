@@ -7,6 +7,7 @@ namespace WitOS.Dev.Tests.Native;
 /// Native directory enumeration and pattern matching (hosted).
 /// </summary>
 [TestFixture]
+[Platform(Include = TestPlatforms.WINDOWS, Reason = TestPlatforms.MSVC)]
 public sealed class NativeDirectoryTests
 {
     #region Functions

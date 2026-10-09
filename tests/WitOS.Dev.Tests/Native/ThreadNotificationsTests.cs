@@ -10,6 +10,7 @@ namespace WitOS.Dev.Tests.Native;
 /// Windows reference for DLL thread attach/detach notifications on normal and suspended threads (hosted).
 /// </summary>
 [TestFixture]
+[Platform(Include = TestPlatforms.WINDOWS, Reason = TestPlatforms.MSVC)]
 public sealed class ThreadNotificationsTests
 {
     #region Functions

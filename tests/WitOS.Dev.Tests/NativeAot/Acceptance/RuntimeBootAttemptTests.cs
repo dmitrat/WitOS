@@ -99,6 +99,7 @@ public sealed class RuntimeBootAttemptTests
     }
 
     [Test]
+    [Platform(Include = TestPlatforms.WINDOWS, Reason = TestPlatforms.MSVC)]
     public async Task PublicationFailureStagesTest()
     {
         var scratch = TestEnvironment.Scratch();

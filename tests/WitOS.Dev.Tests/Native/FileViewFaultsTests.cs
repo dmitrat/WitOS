@@ -7,6 +7,7 @@ namespace WitOS.Dev.Tests.Native;
 /// Native file-view adapter under deterministic syscall failures (hosted).
 /// </summary>
 [TestFixture]
+[Platform(Include = TestPlatforms.WINDOWS, Reason = TestPlatforms.MSVC)]
 public sealed class FileViewFaultsTests
 {
     #region Functions

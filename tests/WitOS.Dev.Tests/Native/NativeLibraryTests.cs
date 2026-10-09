@@ -8,6 +8,7 @@ namespace WitOS.Dev.Tests.Native;
 /// Export parser on guarded inputs and comparisons with LoadLibrary/GetProcAddress (hosted).
 /// </summary>
 [TestFixture]
+[Platform(Include = TestPlatforms.WINDOWS, Reason = TestPlatforms.MSVC)]
 public sealed class NativeLibraryTests
 {
     #region Functions

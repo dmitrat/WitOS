@@ -5,7 +5,8 @@ using System.Runtime.InteropServices;
 namespace WitOS.Dev.Tests.Child;
 
 /// <summary>
-/// Changes the ownership of this process's standard output and error handles for the pipe cleanup tests.
+/// Changes the ownership of this process's standard output and error handles for the pipe cleanup tests. On a Unix host
+/// (plan step T2.1a) they are descriptors 1 and 2: close-on-exec keeps them out of the programs the process starts.
 /// </summary>
 internal static class ChildHandles
 {
@@ -21,6 +22,12 @@ internal static class ChildHandles
 
     private const uint DUPLICATE_SAME_ACCESS = 2;
 
+    private const int F_SETFD = 2;
+
+    private const int FD_CLOEXEC = 1;
+
+    private static readonly int[] UNIX_OUTPUT = [1, 2];
+
     #endregion
 
     #region Functions
@@ -31,6 +38,17 @@ internal static class ChildHandles
     /// <exception cref="Win32Exception">The handle flags could not be changed.</exception>
     public static void MakeOutputNonInheritable()
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            foreach (var descriptor in UNIX_OUTPUT)
+            {
+                if (fcntl(descriptor, F_SETFD, FD_CLOEXEC) != 0)
+                {
+                    throw new Win32Exception(Marshal.GetLastPInvokeError());
+                }
+            }
+            return;
+        }
         foreach (var kind in new[] { STD_OUTPUT_HANDLE, STD_ERROR_HANDLE })
         {
             if (!SetHandleInformation(GetStdHandle(kind), HANDLE_FLAG_INHERIT, 0))
@@ -45,6 +63,14 @@ internal static class ChildHandles
     /// </summary>
     public static void CloseOutput()
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            foreach (var descriptor in UNIX_OUTPUT)
+            {
+                close(descriptor);
+            }
+            return;
+        }
         CloseHandle(GetStdHandle(STD_OUTPUT_HANDLE));
         CloseHandle(GetStdHandle(STD_ERROR_HANDLE));
     }
@@ -88,6 +114,12 @@ internal static class ChildHandles
     #endregion
 
     #region Tools
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int fcntl(int descriptor, int command, int argument);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int close(int descriptor);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);

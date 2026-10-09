@@ -15,7 +15,10 @@ internal sealed class CommandDoctor : ICommand
     public async Task RunAsync(string root, IReadOnlyList<string> arguments)
     {
         Console.WriteLine($"Root: {root}");
-        Console.WriteLine($"MSVC: {await Toolchain.FindMsvcAsync(root)}");
+        // A Linux host builds everything but the frozen line's fixtures (plan step T2.1a).
+        Console.WriteLine(OperatingSystem.IsWindows()
+            ? $"MSVC: {await Toolchain.FindMsvcAsync(root)}"
+            : "MSVC: none on this host; the frozen line's fixtures build on Windows until K8");
         Toolchain.RequireClang(root);
         var clang = await Processes.RunAsync(Toolchain.Clang(root), ["--version"], root);
         if (clang.ExitCode != 0 || clang.TimedOut)

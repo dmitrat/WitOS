@@ -50,6 +50,7 @@ public sealed class ProcessesTests
     }
 
     [Test]
+    [Platform(Include = TestPlatforms.WINDOWS, Reason = TestPlatforms.WINDOWS_API)]
     public async Task ExitedJobWithExternalPipeOwnerTest()
     {
         var root = TestEnvironment.Root;

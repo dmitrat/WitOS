@@ -257,7 +257,17 @@ Unix-формы (фаза R).
   плоский формат конвертером ELF→flat (`FlatImage.FromElfAsync`, host-тесты); MASM/armasm64-варианты удалены; строка
   `[ROOT] started by clang 20.1.8 for <isa>` обязательна в `boot-128` обеих ISA. Собственный триплет
   `*-unknown-witos` — T4; libc, C++-рантайм и ELF-загрузчик — S1, S4, S5.
-- [ ] **T2** Сборка ОС на Linux-хосте с паритетом Windows; CI на обоих.
+- [ ] **T2** Сборка ОС на Linux-хосте с паритетом Windows; CI на обоих. Полный паритет ждёт K8: каждое самотестовое
+  ядро встраивает фикстуры замороженной линии, которые собирает MSVC. Тремя срезами:
+  - [x] **T2.1a** Linux-хост инструмента ([T2.1a-Linux-Host.md](@Docs/Implementation/T2.1a-Linux-Host.md)): процессы
+    под `setsid` своей группой (граница, как у job object), `setup` извлекает закреплённый архив LLVM для Linux и
+    собирает QEMU 11.1.0 из закреплённого исходного релиза (прошивки EDK II совпадают с Windows-пакетом байт в байт);
+    MSVC ищется лишь для фикстур; ядро линкуется с `/pdbaltpath:%_PDB%`, и секции релизного ядра x64 и образ корневой
+    задачи с обоих хостов совпадают; Windows-тесты помечены платформой; образ `build/linux/Dockerfile` и задание CI
+    `linux-host`: хост-тесты, очистка QEMU по QMP, `setup`, оба релизных ядра, `format-check`.
+  - [ ] **T2.1b** Сценарии слоя 2 (`libc`, `libc-test`, `cxx`, `spawn`, `process`) на релизном ядре на обоих хостах;
+    `linux-host` гоняет их.
+  - [ ] **T2.2** Полный паритет после K8: самотестовые сценарии без фикстур MSVC.
 - [x] **T3** Ядро на clang для x64 и ARM64; отказ от MSVC, MASM и armasm64; `format` остаётся на clang-format. Двумя срезами:
   - [x] **T3.1** Ядро x64 на clang ([T3.1-Kernel-On-Clang-X64.md](@Docs/Implementation/T3.1-Kernel-On-Clang-X64.md)):
     ядро и EFI-загрузчик x64 компилирует закреплённый clang для `x86_64-unknown-windows` (PE/COFF, соглашение

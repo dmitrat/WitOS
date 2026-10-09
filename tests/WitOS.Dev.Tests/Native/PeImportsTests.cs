@@ -15,6 +15,7 @@ public sealed class PeImportsTests
     #region Functions
 
     [Test]
+    [Platform(Include = TestPlatforms.WINDOWS, Reason = TestPlatforms.MSVC)]
     public Task NativeImportDescriptorsTest() => RunAsync(TestEnvironment.Root, TestEnvironment.Scratch());
 
     [Test]
