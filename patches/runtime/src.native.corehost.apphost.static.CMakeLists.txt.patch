@@ -1,0 +1,39 @@
+Source: src/native/corehost/apphost/static/CMakeLists.txt
+Output: src.native.corehost.apphost.static.CMakeLists.txt
+Before: af3a84b22806adcfc8b950390c477373e1481300bc7c1d81c64858f1aac582bf
+After: 73a0eeae1373b77a26a442916a5f5cb2f9e6db493b67ea0791c137a74af7c754
+
+The single-file host on witos (plan step R1.2b): it links neither the GSSAPI nor the OpenSSL shim, which witos does
+not build.
+
+--- a/src/native/corehost/apphost/static/CMakeLists.txt
++++ b/src/native/corehost/apphost/static/CMakeLists.txt
+@@ -165,7 +165,9 @@
+         System.Native-Static
+     )
+ 
+-    if(NOT CLR_CMAKE_TARGET_ANDROID)
++    if(CLR_CMAKE_TARGET_WITOS)
++        # WitOS has no GSSAPI and no OpenSSL.
++    elseif(NOT CLR_CMAKE_TARGET_ANDROID)
+         list(APPEND NATIVE_LIBS System.Net.Security.Native-Static)
+ 
+         if(NOT CLR_CMAKE_TARGET_APPLE)
+@@ -195,7 +197,7 @@
+     include(${CLR_SRC_NATIVE_DIR}/libs/System.IO.Compression.Native/extra_libs.cmake)
+     append_extra_compression_libs(NATIVE_LIBS)
+ 
+-    if (NOT CLR_CMAKE_TARGET_TVOS AND NOT CLR_CMAKE_TARGET_ANDROID AND NOT CLR_CMAKE_TARGET_BROWSER) # no gssapi on tvOS, see https://developer.apple.com/documentation/gss
++    if (NOT CLR_CMAKE_TARGET_TVOS AND NOT CLR_CMAKE_TARGET_ANDROID AND NOT CLR_CMAKE_TARGET_BROWSER AND NOT CLR_CMAKE_TARGET_WITOS) # no gssapi on tvOS, see https://developer.apple.com/documentation/gss
+         # Additional requirements for System.Net.Security.Native
+         include(${CLR_SRC_NATIVE_DIR}/libs/System.Net.Security.Native/extra_libs.cmake)
+         append_extra_security_libs(NATIVE_LIBS)
+@@ -205,7 +207,7 @@
+     include(${CLR_SRC_NATIVE_DIR}/libs/System.Native/extra_libs.cmake)
+     append_extra_system_libs(NATIVE_LIBS)
+ 
+-    if(NOT CLR_CMAKE_TARGET_APPLE AND NOT CLR_CMAKE_TARGET_ANDROID AND NOT CLR_CMAKE_TARGET_BROWSER)
++    if(NOT CLR_CMAKE_TARGET_APPLE AND NOT CLR_CMAKE_TARGET_ANDROID AND NOT CLR_CMAKE_TARGET_BROWSER AND NOT CLR_CMAKE_TARGET_WITOS)
+         # Additional requirements for System.Security.Cryptography.Native.OpenSsl
+         include(${CLR_SRC_NATIVE_DIR}/libs/System.Security.Cryptography.Native/extra_libs.cmake)
+         append_extra_cryptography_libs(NATIVE_LIBS)

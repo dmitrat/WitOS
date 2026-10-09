@@ -1,0 +1,20 @@
+Source: src/native/libs/System.Globalization.Native/CMakeLists.txt
+Output: src.native.libs.System.Globalization.Native.CMakeLists.txt
+Before: add856b14ea991fd9373b217e8a62156872762266f4b4153ae315da50a4f20b1
+After: e98d2bb61e910785ad7b3214a6f471ca6ae63ff1ee2861ad1e3c3ddbf19be074
+
+Globalization on witos (plan step R1.2b, RFC 0015 section 8): the sysroot carries ICU's headers alone, so the
+configure looks for no ICU library; the shim loads ICU at run time, reports its absence, and .NET runs in invariant
+mode until ICU joins the system layer.
+
+--- a/src/native/libs/System.Globalization.Native/CMakeLists.txt
++++ b/src/native/libs/System.Globalization.Native/CMakeLists.txt
+@@ -38,6 +38,8 @@
+         if(CLR_CMAKE_TARGET_OSX)
+             add_definitions(-DOSX_ICU_LIBRARY_PATH="/usr/lib/libicucore.dylib")
+             add_definitions(-DU_DISABLE_RENAMING)
++        elseif(CLR_CMAKE_TARGET_WITOS)
++            # WitOS's sysroot has ICU's headers alone: the shim loads ICU at run time and reports its absence.
+         else()
+             find_library(ICUUC icuuc)
+             if(ICUUC STREQUAL ICUUC-NOTFOUND)

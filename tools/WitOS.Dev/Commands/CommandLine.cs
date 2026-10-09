@@ -76,8 +76,9 @@ internal static class CommandLine
                 Suite = BootSuite.Release,
                 RequiredLines = [architecture.SysrootPassedLine, architecture.RootTaskPassedLine]
             }]),
-        new CommandArchitecture("runtime-witos", "Apply the witos patch set to the pinned dotnet/runtime and build System.Private.CoreLib for TargetOS=witos on a Linux host (R1.1)",
-            RuntimeWitos.BuildCoreLibAsync),
+        new CommandArchitecture("runtime-witos",
+            "Apply the witos patch set to the pinned dotnet/runtime on a Linux host; build CoreLib, then NativeAOT's native part and CoreLib against the sysroot, and measure the configure's try_run answers in the guest (R1.1, R1.2b)",
+            RuntimeWitos.BuildAsync),
         new CommandFormat(check: false),
         new CommandFormat(check: true),
         new CommandFingerprint(),

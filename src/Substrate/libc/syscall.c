@@ -158,6 +158,9 @@ static void counts_to_timespec(WitU64 counts, WitU64 frequency, struct timespec 
     ts->tv_nsec = (long)((counts % frequency) * 1000000000ULL / frequency);
 }
 
+/* The clocks ABI-1 has: UTC and the monotonic domain. The processor-time clocks are not among them, since the kernel
+ * reports no thread's or process's processor time; they are refused with EINVAL, as Linux refuses a clock it lacks,
+ * never answered with elapsed time (R1.2b: the runtime's configure measures CLOCK_THREAD_CPUTIME_ID). */
 static long clock_read(long clock, struct timespec *ts)
 {
     WitU64 value = 0, frequency = 0, status;
@@ -175,8 +178,6 @@ static long clock_read(long clock, struct timespec *ts)
     case CLOCK_MONOTONIC_RAW:
     case CLOCK_MONOTONIC_COARSE:
     case CLOCK_BOOTTIME:
-    case CLOCK_PROCESS_CPUTIME_ID:
-    case CLOCK_THREAD_CPUTIME_ID:
         status = wit_syscall(WIT_CALL_CLOCK_READ, WIT_CLOCK_MONOTONIC, 0, 0, &value);
         if (status != WIT_STATUS_OK) {
             return __wit_errno(status);
@@ -205,8 +206,6 @@ static long clock_resolution(long clock, struct timespec *ts)
     case CLOCK_MONOTONIC_RAW:
     case CLOCK_MONOTONIC_COARSE:
     case CLOCK_BOOTTIME:
-    case CLOCK_PROCESS_CPUTIME_ID:
-    case CLOCK_THREAD_CPUTIME_ID:
         if (wit_syscall(WIT_CALL_CLOCK_FREQUENCY, WIT_CLOCK_MONOTONIC, 0, 0, &frequency) != WIT_STATUS_OK ||
             frequency == 0) {
             return -EINVAL;
@@ -434,7 +433,11 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
         return __wit_fstatat(AT_FDCWD, (const char *)a1, (struct kstat *)a2, 0);
 #endif
     case SYS_readlinkat:
-        return -EINVAL; /* the package has no symbolic links */
+        return __wit_readlinkat(a1, (const char *)a2, a4);
+#if defined(SYS_readlink)
+    case SYS_readlink:
+        return __wit_readlinkat(AT_FDCWD, (const char *)a1, a3);
+#endif
     case SYS_statx:
         return -ENOSYS; /* musl falls back to fstatat */
     case SYS_mmap:

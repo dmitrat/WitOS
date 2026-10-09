@@ -56,6 +56,10 @@ musl 1.2.5 над ABI-1 с файлами загрузочного пакета 
 текущий каталог и стандартные потоки (S6); libc-test, включая математический набор, — процессом на тест, и сценарии
 C++ проходят на обеих ISA (S7). Фаза S завершена.
 
+**Рантайм начат.** Закреплённый dotnet/runtime 10.0.8 с патч-набором `witos` собирается на Linux-хосте: CoreLib
+(R1.1); sysroot слоя 2 в раскладке rootfs (R1.2a); нативная часть NativeAOT и её CoreLib против sysroot, с ответами
+try_run, измеренными в госте (R1.2b). В госте .NET ещё не исполняется ничего.
+
 **Переносится как знание.** Адаптеры GC и PAL NativeAOT (написаны против Windows-формы PAL, нужны против Unix-формы);
 диспетчер раскрутки (таблицы станут DWARF); порядок инициализации рантайма; протоколы приёмки M3 и P5.
 
@@ -65,8 +69,8 @@ C++ проходят на обеих ISA (S7). Фаза S завершена.
 закрытие истории; новых срезов нет.
 
 **Ещё нет, хотя требуется документами:** планировщик на N процессоров (фаза P: вторичные процессоры запущены и
-обслуживают межпроцессорные запросы, но потоки на них не исполняются); записываемое хранилище и драйверы; рантайм
-Unix-формы (фаза R).
+обслуживают межпроцессорные запросы, но потоки на них не исполняются); записываемое хранилище и драйверы; .NET
+Unix-формы в госте (фаза R, с R2).
 
 ## 4. Решения
 
@@ -442,7 +446,7 @@ Unix-формы (фаза R).
     `OSPlatformName` "WITOS", `Environment.WitOS.cs`, RID `witos-x64`/`witos-arm64`; команда `runtime-witos` на
     Linux-хосте собирает `System.Private.CoreLib` для обеих ISA и проверяет имя платформы; 7 файлов, CoreCLR 0 из 31
     (FreeBSD) и 18 (Haiku), нативные библиотеки 0 из 62 и 11; CI `linux-host` гоняет сборку.
-  - [ ] **R1.2** Нативная сборка против sysroot слоя 2. Двумя срезами (CoreLib NativeAOT требует `AsmOffsets`,
+  - [x] **R1.2** Нативная сборка против sysroot слоя 2. Двумя срезами (CoreLib NativeAOT требует `AsmOffsets`,
     которые даёт нативная сборка цели, поэтому ILC — после неё):
     - [x] **R1.2a** Sysroot ([R1.2a-Sysroot.md](@Docs/Implementation/R1.2a-Sysroot.md)): подложка в раскладке rootfs
       Linux musl под `artifacts/sysroot/<arch>` — заголовки musl, `witos/`, libunwind и `c++/v1`; `Scrt1.o`,
@@ -451,10 +455,19 @@ Unix-формы (фаза R).
       `clang_rt.crtbegin.o`/`crtend.o` (`crtend.c` вошёл в пин compiler-rt); маркер `etc/witos-release`;
       `Sysroot.DriverOptions`; сценарий `sysroot` — программа на C++, собранная обычным драйвером clang, работает
       `/bin/init` на обеих ISA и обоих хостах.
-    - [ ] **R1.2b** `CLR_CMAKE_TARGET_WITOS` в `configureplatform.cmake`, ветка `witos` в `toolchain.cmake` и
-      `tryrun.cmake`; конфигурация нативной части NativeAOT против sysroot, `AsmOffsets` и CoreLib NativeAOT для
-      `witos`; хостовые JIT и ILC закреплённым clang.
-  - [ ] **R1.3** ILC: `TargetOS.WitOS`, `--targetos witos`, ELF-объект программы против CoreLib NativeAOT для `witos`.
+    - [x] **R1.2b** Нативная конфигурация ([R1.2b-Native-Configuration.md](@Docs/Implementation/R1.2b-Native-Configuration.md)):
+      система CMake `WitOS` (модули платформы в sysroot, правила ELF от Linux, `LINUX` не задан), ветка `witos` в
+      `toolchain.cmake` (маркер sysroot, триплет слоя 2, libc++ через существующую ручку, x18 на ARM64, lld с
+      раскладкой загрузчика), `CLR_CMAKE_HOST_WITOS`/`CLR_CMAKE_TARGET_WITOS`/`TARGET_WITOS`; без GSSAPI и OpenSSL;
+      в sysroot — только заголовки ICU 78.3; `membarrier` GC из musl. Ответы `tryrun.cmake` для witos измерены в
+      госте: конфигурация с `tryrun-measure.cmake` сохраняет 16 проб, сценарий `runtime-tryrun` запускает их под
+      корневой задачей, `runtime-witos` требует совпадения (16 проб на x64, 15 на ARM64). Измерение нашло в libc две
+      ошибки: часы процессорного времени отвечали монотонным временем — теперь `EINVAL`; `readlink` отвечал на двух ISA
+      по-разному (`realpath` на x64 не работал вовсе) — теперь `EINVAL` для существующего пути и `ENOENT` для
+      отсутствующего. Нативная часть NativeAOT, `AsmOffsets.cs` и CoreLib NativeAOT собираются для обеих ISA;
+      патч-набор — 15 файлов, CoreCLR 1 из 31 (FreeBSD) и 18 (Haiku), нативные библиотеки 2 из 62 и 11.
+  - [ ] **R1.3** ILC: `TargetOS.WitOS`, `--targetos witos`, хостовые JIT и ILC закреплённым clang, ELF-объект
+    программы против CoreLib NativeAOT для `witos`.
 - [ ] **R2** NativeAOT Unix-формы (RFC-0015 §2, §9): upstream `Runtime/unix` над libc слоя 2; ILC с ELF-выводом и линк
   через clang/lld с sysroot WitOS; повторение приёмки M3 (GC, исключения, финализация, потоки и TLS, ожидания) пробами
   `NativeAotBoot` на обеих ISA. **После R2 Windows-линия удаляется (K8).**

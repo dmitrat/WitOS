@@ -785,6 +785,17 @@ long __wit_faccessat(long dirfd, const char *path, long mode)
     return 0;
 }
 
+/* The package has no symbolic links: a path that names a file or a directory is not a link (EINVAL), and one that
+ * names nothing is ENOENT, as Linux answers. musl's realpath tells the two apart (R1.2b). */
+long __wit_readlinkat(long dirfd, const char *path, long size)
+{
+    if (size <= 0) {
+        return -EINVAL;
+    }
+    const long status = __wit_faccessat(dirfd, path, F_OK);
+    return status < 0 ? status : -EINVAL;
+}
+
 /* The children of a directory in table order: a file as itself, a subdirectory once at its first entry. The
  * cursor is the next table index; "." and ".." come first as on Linux. */
 long __wit_getdents(long fd, unsigned char *buffer, long bytes)

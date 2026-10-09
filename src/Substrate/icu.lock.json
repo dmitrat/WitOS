@@ -1,0 +1,6 @@
+{
+  "name": "icu4c-78.3",
+  "url": "https://github.com/unicode-org/icu/releases/download/release-78.3/icu4c-78.3-sources.tgz",
+  "sha256": "3a2e7a47604ba702f345878308e6fefeca612ee895cf4a5f222e7955fabfe0c0",
+  "purpose": "ICU's public headers in the system layer's sysroot (plan step R1.2b): System.Globalization.Native, which CoreCLR links on every platform, compiles against them as on Linux and loads ICU's libraries at run time. WitOS has no ICU library yet, so the shim reports its absence and .NET runs in invariant mode (RFC 0015 section 8). ICU4C 78.3, the latest stable release, by the SHA-256 of its source tarball; only the unicode/ headers of the common and i18n libraries are extracted."
+}

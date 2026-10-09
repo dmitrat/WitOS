@@ -46,7 +46,11 @@ internal static class Toolchain
     private static readonly string[] LLVM_LINUX_MEMBERS =
     [
         "bin/clang", "bin/clang-20", "bin/lld", "bin/ld.lld", "bin/lld-link", "bin/llvm-ar", "bin/llvm-objcopy",
-        "bin/llvm-readobj", "bin/clang-format", "lib/clang/20/include"
+        "bin/llvm-readobj", "bin/clang-format", "lib/clang/20/include",
+        // The C++ driver and the tools upstream dotnet/runtime's native build requires beside the compiler
+        // (eng/native/configuretools.cmake, plan step R1.2b).
+        "bin/clang++", "bin/llvm-nm", "bin/llvm-ranlib", "bin/llvm-strings", "bin/llvm-link", "bin/llvm-objdump",
+        "bin/llvm-readelf"
     ];
 
     #endregion
@@ -275,7 +279,8 @@ internal static class Toolchain
     /// <summary>
     /// Extracts the pinned clang, lld (as ld.lld and lld-link), llvm-ar, llvm-objcopy, llvm-readobj and the compiler's own
     /// headers (stdint.h and the like, which freestanding layer 2 code includes) from the verified LLVM installer; the
-    /// installer is not executed.
+    /// installer is not executed. A Linux host also gets clang++ and the LLVM tools dotnet/runtime's native build
+    /// requires (plan step R1.2b).
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <returns>clang path.</returns>
@@ -445,7 +450,8 @@ internal static class Toolchain
         await PrepareSubstrateAsync(root);
     }
 
-    // The pinned LLVM tools, the musl tarball, compiler-rt, the LLVM runtimes and libc-test, on either host.
+    // The pinned LLVM tools, the musl tarball, compiler-rt, the LLVM runtimes, libc-test and ICU's headers, on either
+    // host.
     private static async Task PrepareSubstrateAsync(string root)
     {
         Console.WriteLine($"Extracting clang {LLVM_VERSION} and lld from the verified LLVM release...");
@@ -454,6 +460,7 @@ internal static class Toolchain
         Console.WriteLine($"Ready: {await Substrate.CompilerRtBuiltins.PrepareAsync(root)}");
         Console.WriteLine($"Ready: {await Substrate.LlvmRuntimes.PrepareAsync(root)}");
         Console.WriteLine($"Ready: {await Substrate.LibcTestSuite.PrepareAsync(root)}");
+        Console.WriteLine($"Ready: {await Substrate.IcuHeaders.PrepareAsync(root)}");
     }
 
     /// <summary>
@@ -465,6 +472,36 @@ internal static class Toolchain
         => await RequireDownloadAsync(LlvmLinuxArchive(root),
             $"https://github.com/llvm/llvm-project/releases/download/llvmorg-{LLVM_VERSION}/LLVM-{LLVM_VERSION}-Linux-X64.tar.xz",
             LLVM_LINUX_ARCHIVE_SHA256);
+
+    /// <summary>
+    /// A pinned download: fetched when missing, its SHA-256 always checked.
+    /// </summary>
+    /// <param name="path">Where the download is kept, under .tools/downloads.</param>
+    /// <param name="url">Where it is fetched from.</param>
+    /// <param name="sha256">The SHA-256 of its bytes.</param>
+    /// <returns>The path.</returns>
+    public static async Task<string> RequireDownloadAsync(string path, string url, string sha256)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        if (!File.Exists(path))
+        {
+            Console.WriteLine($"Downloading {Path.GetFileName(path)}...");
+            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+            using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+            var partial = path + ".partial";
+            await using (var stream = File.Create(partial))
+                await response.Content.CopyToAsync(stream);
+            File.Move(partial, path, overwrite: true);
+        }
+        await using (var stream = File.OpenRead(path))
+        {
+            var digest = Convert.ToHexString(await SHA256.HashDataAsync(stream)).ToLowerInvariant();
+            if (digest != sha256)
+                throw new InvalidDataException($"{Path.GetFileName(path)} hash mismatch. Remove the invalid download: {path}");
+        }
+        return path;
+    }
 
     // QEMU on a Linux host (plan step T2.1a): the pinned source release configured for the two system emulators and
     // installed into .tools/qemu-<version>, whose share/qemu holds the EDK II images the release carries. A stamp of the
@@ -513,30 +550,6 @@ internal static class Toolchain
     {
         await using var stream = File.OpenRead(path);
         return Convert.ToHexString(await SHA256.HashDataAsync(stream)).ToLowerInvariant();
-    }
-
-    // A pinned download: fetched when missing, its SHA-256 always checked.
-    private static async Task<string> RequireDownloadAsync(string path, string url, string sha256)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        if (!File.Exists(path))
-        {
-            Console.WriteLine($"Downloading {Path.GetFileName(path)}...");
-            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
-            using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
-            response.EnsureSuccessStatusCode();
-            var partial = path + ".partial";
-            await using (var stream = File.Create(partial))
-                await response.Content.CopyToAsync(stream);
-            File.Move(partial, path, overwrite: true);
-        }
-        await using (var stream = File.OpenRead(path))
-        {
-            var digest = Convert.ToHexString(await SHA256.HashDataAsync(stream)).ToLowerInvariant();
-            if (digest != sha256)
-                throw new InvalidDataException($"{Path.GetFileName(path)} hash mismatch. Remove the invalid download: {path}");
-        }
-        return path;
     }
 
     #endregion

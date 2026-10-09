@@ -139,7 +139,8 @@ jobs:
   linux-host:
     # The Linux development host (plan steps T2.1a and T2.1b): the tool, its process runner and host tests, the pinned
     # LLVM and QEMU (built from its source release), and the release kernels of both ISAs with the layer-2 scenarios on
-    # them. The frozen line's MSVC fixtures, and with them the self-test scenarios, stay on the Windows jobs until K8.
+    # them; then the Unix-form runtime for witos (phase R). The frozen line's MSVC fixtures, and with them the self-test
+    # scenarios, stay on the Windows jobs until K8.
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -151,10 +152,10 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Install what building QEMU and running LLVM need
+      - name: Install what building QEMU, running LLVM and driving dotnet/runtime's native build need
         run: >-
           sudo apt-get update && sudo apt-get install -y --no-install-recommends
-          bison bzip2 flex g++ gcc libglib2.0-dev libpixman-1-dev libxml2 make ninja-build pkg-config python3
+          bison bzip2 cmake flex g++ gcc libglib2.0-dev libpixman-1-dev libxml2 make ninja-build pkg-config python3
           python3-venv xz-utils
 
       - name: Cache the pinned LLVM and QEMU releases and the built QEMU
@@ -199,7 +200,7 @@ jobs:
             dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- "$scenario" --arch arm64
           done
 
-      - name: CoreLib of the Unix-form runtime for witos-x64 and witos-arm64
+      - name: The Unix-form runtime for witos-x64 and witos-arm64 (CoreLib, NativeAOT's native part, try_run in the guest)
         run: |
           dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-witos
           dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-witos --arch arm64
@@ -219,6 +220,7 @@ jobs:
             artifacts/x64/release/build.txt
             artifacts/arm64/release/build.txt
             artifacts/runtime-witos/patch-set.json
+            artifacts/runtime-witos/tryrun-*.json
 
   boot-arm64:
     runs-on: windows-2025
