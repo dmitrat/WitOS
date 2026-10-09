@@ -1,9 +1,6 @@
-using WitOS.Dev.CoreClr;
 using WitOS.Dev.Host;
 using WitOS.Dev.Interfaces;
 using WitOS.Dev.Kernel;
-using WitOS.Dev.NativeAot;
-using WitOS.Dev.NativeAot.References;
 using WitOS.Dev.Runtime;
 
 namespace WitOS.Dev.Commands;
@@ -81,78 +78,7 @@ internal static class CommandLine
             RuntimeWitos.BuildAsync),
         new CommandFormat(check: false),
         new CommandFormat(check: true),
-        new CommandFingerprint(),
-        new CommandScenario("coreclr-memory", "Test owned executable memory backend (not guest CoreCLR)", "coreclr-memory",
-        [
-            new BootRequest("coreclr-memory-128", 128, 120, ExpectedOutcome.Success) { Suite = BootSuite.CoreClrMemory },
-            new BootRequest("coreclr-memory-512", 512, 120, ExpectedOutcome.Success) { Suite = BootSuite.CoreClrMemory, CpuModel = "max" }
-        ]),
-        new CommandScenario("coreclr-storage",
-            "Test unchanged assembly delivery and readonly guest IO (not guest CoreCLR)", "coreclr-storage",
-        [
-            new BootRequest("coreclr-storage-128", 128, 120, ExpectedOutcome.Success) { Suite = BootSuite.CoreClrStorage },
-            new BootRequest("coreclr-storage-512", 512, 120, ExpectedOutcome.Success) { Suite = BootSuite.CoreClrStorage }
-        ]),
-        new CommandAction("coreclr-source", "Build pinned CoreCLR/JIT Windows reference and inventory platform imports",
-            CoreClrExperiment.RunAsync),
-        new CommandAction("coreclr-host", "Build upstream Windows host and verify standard runtimeconfig/deps binding",
-            CoreClrHostReference.RunAsync),
-        new CommandAction("coreclr-host-files", "Verify pinned hosting PAL file contracts with a hosted syscall model",
-            CoreClrHostFilePal.RunAsync),
-        new CommandAction("coreclr-host-guest",
-            "Build upstream hostfxr and hostpolicy for the guest and check their unresolved externals",
-            CoreClrHostGuest.RunAsync),
-        new CommandAction("coreclr-guest",
-            "Link upstream CoreCLR for the guest from the reference build's objects and check its unresolved externals",
-            CoreClrGuest.RunAsync),
-        new CommandAction("coreclr-functions",
-            "Compare dynamic function-table registration and target unwind with Windows (hosted)",
-            CoreClrFunctionTableReference.RunAsync),
-        new CommandAction("runtime-audit", "Verify pinned NativeAOT sources and package provenance", RuntimeExperiment.AuditAsync),
-        new CommandAction("runtime-probe", "Publish and execute a hosted NativeAOT dependency probe", RuntimeExperiment.ProbeAsync),
-        new CommandAction("runtime-target",
-            "Inspect NativeAOT objects and test native-host bootstrap / strict link boundaries", RuntimeTargetExperiment.RunAsync),
-        new CommandScenario("runtime-port", "Build pinned GC memory adapter and execute guest checks in QEMU", "runtime-port",
-            [new BootRequest("runtime-port-256", 256, 60, ExpectedOutcome.Success)]),
-        new CommandAction("runtime-source", "Build full upstream native libraries and verify the WitOS source overlay",
-            RuntimeSourceBuild.RunAsync),
-        new CommandRuntimeBoot(rebuildRuntime: false),
-        new CommandRuntimeBoot(rebuildRuntime: true),
-        new CommandAction("runtime-readiness", "Build source runtime and audit minimal standard-CoreLib executable startup",
-            RuntimeSourceBuild.RunAsync),
-        new CommandAction("runtime-unwind", "Compare the pinned AMD64 unwinder with Windows (hosted)", async root =>
-        {
-            await RuntimeExperiment.AuditAsync(root);
-            await RuntimeUnwindReference.RunAsync(root, await Toolchain.FindMsvcAsync(root));
-        }),
-        new CommandAction("runtime-exception", "Verify Windows exception/VEH reference semantics (hosted)",
-            async root => await RuntimeExceptionReference.RunAsync(root, await Toolchain.FindMsvcAsync(root))),
-        new CommandAction("runtime-gp", "Verify Windows x64 general-protection translation (hosted)",
-            async root => await RuntimeGpReference.RunAsync(root, await Toolchain.FindMsvcAsync(root))),
-        new CommandAction("runtime-failfast", "Verify Windows fail-fast debugger record/context (hosted)",
-            async root => await RuntimeFailFastReference.RunAsync(root, await Toolchain.FindMsvcAsync(root))),
-        new CommandAction("runtime-seh", "Verify compiler scope tables and real filter/finally ABI (hosted)",
-            async root => await RuntimeSehReference.RunAsync(root, await Toolchain.FindMsvcAsync(root))),
-        new CommandAction("runtime-gc-policy", "Audit write-watch exclusion in existing source-built GC objects",
-            RuntimeGcPolicy.ExistingAsync),
-        new CommandAction("runtime-encoding", "Compare UTF conversions with Windows APIs (hosted)",
-            async root => await RuntimeEncodingReference.RunAsync(root, await Toolchain.FindMsvcAsync(root))),
-        new CommandScenario("runtime-config",
-            "Build upstream configuration/startup sources and execute their guest probe", "runtime-config",
-        [
-            new BootRequest("runtime-config-128", 128, 120, ExpectedOutcome.Success) { Suite = BootSuite.RuntimeConfig },
-            new BootRequest("runtime-config-512", 512, 120, ExpectedOutcome.Success) { Suite = BootSuite.RuntimeConfig },
-            new BootRequest("runtime-config-intel", 256, 120, ExpectedOutcome.Success)
-            {
-                Suite = BootSuite.RuntimeConfig,
-                CpuModel = "Nehalem"
-            },
-            new BootRequest("runtime-config-avx", 256, 120, ExpectedOutcome.Success)
-            {
-                Suite = BootSuite.RuntimeConfig,
-                CpuModel = "max"
-            }
-        ], RuntimeSourceBuild.RunAsync)
+        new CommandFingerprint()
     ];
 
     #endregion

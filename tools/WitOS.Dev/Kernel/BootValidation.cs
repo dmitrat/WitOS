@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using WitOS.Dev.Host;
-using WitOS.Dev.NativeAot.Acceptance;
 
 namespace WitOS.Dev.Kernel;
 
@@ -61,8 +60,7 @@ internal static class BootValidation
             : bannerReady && foundationReady && schedulerReady && usersReady && helloReady && !panic && !exception;
         var diagnostics = $"banner={bannerReady} foundation={foundationReady} scheduler={schedulerReady} " +
             $"users={usersReady} hello={helloReady} panic={panic} exception={exception}";
-        booted = booted && SuiteReady(root, request, result) &&
-            request.RequiredLines.All(line => output.Contains(line, StringComparison.Ordinal));
+        booted = booted && request.RequiredLines.All(line => output.Contains(line, StringComparison.Ordinal));
 
         var failedBeforeContract = !result.TimedOut && result.ExitCode == 35 && exitedFirmware >= 0 && contract < 0 && hello < 0;
         var passed = request.Expected switch
@@ -228,31 +226,6 @@ internal static class BootValidation
             Hex(frame, 4) != 0 && (Hex(frame, 6) & 0xF) == 5 && sp > Hex(stack, 1) && sp <= Hex(stack, 2) &&
             frame.Groups[8].Value == "kernel" && (!expected.FaultAddress || Hex(frame, 5) == FAULT_PROBE) &&
             (!expected.Probe || Hex(frame, 5) == Hex(probe, 1));
-    }
-
-    private static bool SuiteReady(string root, BootRequest request, ProcessResult result)
-    {
-        var output = result.Output;
-        switch (request.Suite)
-        {
-            case BootSuite.CoreClrMemory:
-                // The STL's vectorized algorithms run at SSE4.2 where the processor has it, never at AVX (the kernel
-                // keeps OSXSAVE clear), and otherwise at the SSE2 baseline.
-                var stlLevel = request.CpuModel is "max" or "Nehalem" ? 2 : 1;
-                return MarkersInOrder(output, BootExpectations.Read(root, BootExpectations.CORECLR_MEMORY).Markers) &&
-                    output.Contains($"[STL-ISA] {stlLevel}", StringComparison.Ordinal);
-            case BootSuite.CoreClrStorage:
-                return MarkersInOrder(output, BootExpectations.Read(root, BootExpectations.CORECLR_STORAGE).Markers);
-            case BootSuite.RuntimeBoot:
-                return RuntimeBootProtocol.Validate(output, result.ExitCode, result.TimedOut);
-            case BootSuite.RuntimeConfig:
-                var cpuMarker = request.CpuModel == "max" ? "features=513; avx-hardware=1" :
-                    request.CpuModel == "Nehalem" ? "features=1; avx-hardware=0" : "features=0; avx-hardware=0";
-                return MarkersInOrder(output, BootExpectations.Read(root, BootExpectations.RUNTIME_CONFIG).Markers) &&
-                    output.Contains("[MINIPAL-CPU] " + cpuMarker, StringComparison.Ordinal);
-            default:
-                return true;
-        }
     }
 
     private static bool ValidateScheduler(string output)

@@ -33,12 +33,6 @@ jobs:
           path: .tools/downloads
           key: qemu-windows-x64-20260811-5bcf9eed634e8575
 
-      - name: Cache pinned microsoft/STL sources
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: .tools/stl
-          key: stl-${{ hashFiles('src/Runtime.Cxx/stl.lock.json') }}
-
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
 
@@ -97,24 +91,9 @@ jobs:
             artifacts/x64/boot/PeFixture.map
             artifacts/x64/boot/PeFixedFixture.map
             artifacts/x64/boot/BootstrapFixture.pe
-            artifacts/x64/boot/GcMemoryFixture.pe
-            artifacts/x64/boot/GcMemoryFixture.map
-            artifacts/x64/boot/gc-memory-build.json
-            artifacts/x64/boot/gc-missing-link.log
             artifacts/x64/boot/TlsFixture.pe
             artifacts/x64/boot/compiler-tls-build.json
             artifacts/x64/boot/compiler-tls-disassembly.log
-            artifacts/x64/boot/DynamicTlsFixture.pe
-            artifacts/x64/boot/DynamicTlsFixture.map
-            artifacts/x64/boot/dynamic-tls-build.json
-            artifacts/x64/boot/dynamic-tls-symbols.log
-            artifacts/x64/boot/PalPlainFixture.pe
-            artifacts/x64/boot/PalThreadFixture.pe
-            artifacts/x64/boot/pal-build.json
-            artifacts/x64/boot/PalModuleFixture.pe
-            artifacts/x64/boot/pal-module-build.json
-            artifacts/x64/boot/PalBackgroundFixture.pe
-            artifacts/x64/boot/pal-background-build.json
             artifacts/x64/boot/WitOS-x64.img
             artifacts/x64/boot/WitOS.pdb
             artifacts/x64/boot/WitOS.map
@@ -131,7 +110,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Build the C++ scenarios natively
-        run: clang++ --version && clang++ -std=c++20 -O2 -fdeclspec -w -pthread tests/User.X64/cxx_exceptions.cpp tests/User/cxx_main.cpp -o cxx_main
+        run: clang++ --version && clang++ -std=c++20 -O2 -fdeclspec -w -pthread tests/User/cxx_exceptions.cpp tests/User/cxx_main.cpp -o cxx_main
 
       - name: Run them against the recorded Itanium trace
         run: ./cxx_main

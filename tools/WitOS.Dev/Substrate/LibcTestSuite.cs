@@ -1,9 +1,9 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using WitOS.Dev.Host;
 using WitOS.Dev.Images;
 using WitOS.Dev.Kernel;
-using WitOS.Dev.NativeAot;
 
 namespace WitOS.Dev.Substrate;
 
@@ -70,8 +70,8 @@ internal static class LibcTestSuite
             if (Directory.Exists(source) && Directory.EnumerateFileSystemEntries(source).Any())
                 throw new InvalidOperationException("libc-test source directory exists without Git metadata; refusing to overwrite it.");
             Directory.CreateDirectory(source);
-            await RuntimeSourceCheckout.GitAsync(source, ["init"]);
-            await RuntimeSourceCheckout.GitAsync(source, ["remote", "add", "origin", repository + ".git"]);
+            await Git.RunAsync(source, ["init"]);
+            await Git.RunAsync(source, ["remote", "add", "origin", repository + ".git"]);
             // repo.or.cz answers unreliably: the fetch of the one commit retries over HTTPS, then over the Git protocol.
             var transports = new[] { repository + ".git", "git://" + repository["https://".Length..] + ".git" };
             Exception? failure = null;
@@ -79,7 +79,7 @@ internal static class LibcTestSuite
             {
                 try
                 {
-                    await RuntimeSourceCheckout.GitAsync(source, ["fetch", "--depth=1", transports[attempt / 3], commit], 600);
+                    await Git.RunAsync(source, ["fetch", "--depth=1", transports[attempt / 3], commit], 600);
                     failure = null;
                     break;
                 }
@@ -91,13 +91,13 @@ internal static class LibcTestSuite
             }
             if (failure is not null)
                 throw new InvalidOperationException("libc-test could not be fetched from " + repository + " after six attempts.", failure);
-            await RuntimeSourceCheckout.GitAsync(source, ["checkout", "--detach", commit], 600);
+            await Git.RunAsync(source, ["checkout", "--detach", commit], 600);
         }
-        var revision = (await RuntimeSourceCheckout.GitAsync(source, ["rev-parse", "HEAD"])).Trim();
-        var remote = (await RuntimeSourceCheckout.GitAsync(source, ["remote", "get-url", "origin"])).Trim();
+        var revision = (await Git.RunAsync(source, ["rev-parse", "HEAD"])).Trim();
+        var remote = (await Git.RunAsync(source, ["remote", "get-url", "origin"])).Trim();
         if (revision != commit || (remote.TrimEnd('/') != repository && remote.TrimEnd('/') != repository + ".git"))
             throw new InvalidDataException("Existing libc-test checkout differs from the pinned repository/commit; it was not changed.");
-        await RuntimeSourceCheckout.RequireCleanAsync(source);
+        await Git.RequireCleanAsync(source);
         return source;
     }
 

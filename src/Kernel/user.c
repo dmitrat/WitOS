@@ -21,51 +21,6 @@ static void require(int condition, const char *message)
     }
 }
 
-#if defined(WITOS_TEST_RUNTIME_BOOT)
-/* Diagnostics of a runtime component that exhausted its tick budget: every live thread and its stack. */
-static void report_budget(WitUserState state)
-{
-    if (state == WitUserBudgetExpired && current_user->RuntimeProfile) {
-        wit_console_write("Runtime budget ticks/idle: ");
-        wit_console_write_u64(current_user->Ticks);
-        wit_console_write("/");
-        wit_console_write_u64(current_user->IdleTicks);
-        wit_console_write("\n");
-        for (WitU32 n = 0; n < WIT_PROCESS_THREAD_CAPACITY; ++n) {
-            const WitUserThread *t = &current_user->Threads[n];
-            if (t->State == WitThreadEmpty) {
-                continue;
-            }
-            wit_console_write("Runtime budget thread/state/wait/suspend: ");
-            wit_console_write_u64(n);
-            wit_console_write("/");
-            wit_console_write_u64(t->State);
-            wit_console_write("/");
-            wit_console_write_u64(t->WaitKind);
-            wit_console_write("/");
-            wit_console_write_u64(t->SuspendCount);
-            wit_console_write("\n");
-            const WitArchFrame *c = t->Context;
-            if (c) {
-                wit_console_write("Runtime budget ");
-                wit_arch_frame_describe(c);
-                WitU64 stack[16] = {0};
-                const WitU64 sp = wit_arch_frame_sp(c);
-                if (sp >= t->StackBottom &&
-                    sp <= t->StackTop - sizeof(stack) &&
-                    wit_user_copy_from(&current_user->Space, sp, (WitU8 *)stack, sizeof(stack))) {
-                    wit_console_write("Runtime budget stack: ");
-                    for (WitU32 j = 0; j < 16; ++j) {
-                        wit_console_write_hex(stack[j]);
-                        wit_console_write(j == 15 ? "\n" : "/");
-                    }
-                }
-            }
-        }
-    }
-}
-#endif
-
 /* The component's references end (K5.2b): what its channels carried first, so that the capabilities in flight
  * return to their objects before the records that count them are reset; then its bindings, pins, devices, memory
  * objects and processes; then the table. Its mappings keep their objects until the teardown. */
@@ -188,9 +143,6 @@ static WitArchFrame *dispatch(int timer, WitU64 last_exit);
 WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code)
 {
     require(current_user != 0 && current_user->State == WitUserRunning, "No current user component");
-#if defined(WITOS_TEST_RUNTIME_BOOT)
-    report_budget(state);
-#endif
     WitUserProcess *p = current_user;
     settle(p, state, code);
     if (p != root_user) {

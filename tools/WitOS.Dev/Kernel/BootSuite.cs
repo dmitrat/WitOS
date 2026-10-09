@@ -6,10 +6,6 @@ namespace WitOS.Dev.Kernel;
 internal enum BootSuite
 {
     Kernel,
-    RuntimeConfig,
-    RuntimeBoot,
-    CoreClrMemory,
-    CoreClrStorage,
     Release,
     Foundation
 }

@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 using WitOS.Dev.Host;
 using WitOS.Dev.Images;
 using WitOS.Dev.Kernel;
-using WitOS.Dev.NativeAot;
+using WitOS.Dev.Upstream;
 
 namespace WitOS.Dev.Substrate;
 

@@ -122,7 +122,7 @@ public sealed class ConsistencyTests
     public void ToolSourcePathsExistTest()
     {
         var root = TestEnvironment.Root;
-        var pattern = @"""((?:src/(?:Boot\.Uefi|Kernel[A-Za-z0-9.]*|Runtime\.[A-Za-z]+|System\.Native)|tools|tests|experiments)/" +
+        var pattern = @"""((?:src/(?:Boot\.Uefi|Kernel[A-Za-z0-9.]*|Runtime\.[A-Za-z]+|System\.Native)|tools|tests)/" +
             @"[A-Za-z0-9_./-]+\.(?:cs|c|h|cpp|asm|cmake|json|csproj))""";
         var checkedPaths = 0;
         var sources = Directory.EnumerateFiles(Path.Combine(root, "tools"), "*.cs", SearchOption.AllDirectories)

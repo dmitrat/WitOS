@@ -2,7 +2,7 @@
 
 Plan step S4 gives layer 2 its C++ runtime ([RFC 0011 v3 §9.1](../RFC-0011-Kernel-Architecture-and-ABI.md)): LLVM's
 libunwind, libc++abi and libc++ at the toolchain's release, built over the musl of S1 for both triples, with C++
-exceptions in an ELF program. The exception scenarios of `tests/User.X64/cxx_exceptions.cpp`, compiled unchanged in
+exceptions in an ELF program. The exception scenarios of `tests/User/cxx_exceptions.cpp`, compiled unchanged in
 their Itanium form, print the trace Linux prints, on x64 and ARM64, and libc++ serves the containers, streams, threads
 and the rest that the runtime port will need.
 
@@ -56,7 +56,7 @@ opens on a Linux triple, as .NET's native layer will.
 
 ## Tests
 
-- The `cxx` scenario of both suites boots `tests/User/cxx_main.cpp` with `tests/User.X64/cxx_exceptions.cpp` as the
+- The `cxx` scenario of both suites boots `tests/User/cxx_main.cpp` with `tests/User/cxx_exceptions.cpp` as the
   root task and requires `[CXX] C++ runtime on <isa>: `; the program exits nonzero on any failed check. It runs the
   21 exception scenarios and requires their trace to equal `tests/User/cxx_itanium_trace.h` and every exception
   object to be destroyed, then checks libc++: strings, vector with sort and accumulate, map, unordered_map with

@@ -73,6 +73,12 @@ internal sealed record KernelArchitecture(string Name, string MsvcTarget, string
     public string RootStartedLine => $"[ROOT] started by clang {Toolchain.LLVM_VERSION} for {Triple[..Triple.IndexOf('-')]}";
 
     /// <summary>
+    /// The root task fixture's line after the mechanisms no other part of layer 2 uses yet passed
+    /// (tests/User/root_mechanisms.c, plan step K8.2).
+    /// </summary>
+    public string RootMechanismsLine => "[ROOT] waits, suspension, activation, pressure and reset";
+
+    /// <summary>
     /// The last log line of the first libc program (tests/User/libc_hello.c) when every check passed.
     /// </summary>
     public string LibcPassedLine => $"[LIBC] musl {Substrate.MuslLibc.VERSION} on {Triple[..Triple.IndexOf('-')]}: ";

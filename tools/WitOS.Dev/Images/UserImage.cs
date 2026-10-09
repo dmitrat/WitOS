@@ -4,7 +4,6 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.RegularExpressions;
 using WitOS.Dev.Host;
-using WitOS.Dev.NativeAot;
 
 namespace WitOS.Dev.Images;
 
@@ -38,6 +37,9 @@ internal static class UserImage
         "tests/User/protocol.h"
     ];
 
+    // The root task fixture's sources in tests/User, linked in this order.
+    private static readonly string[] ROOT_SOURCES = ["root.c", "root_mechanisms.c"];
+
     #endregion
 
     #region Functions
@@ -50,7 +52,7 @@ internal static class UserImage
     /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
     public static async Task BuildAsync(string root, string output, string msvc)
     {
-        var constants = await PrepareAbiAsync(root, output, msvc);
+        var constants = await PrepareAbiAsync(root, output);
         await BuildFixtureAsync(root, output, msvc, constants, "entry", "UserFixture", "wit_user_test_image", "user_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "threads", "ThreadFixture", "wit_user_thread_image", "user_thread_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "waits", "WaitFixture", "wit_user_wait_image", "user_wait_image.h");
@@ -63,35 +65,22 @@ internal static class UserImage
         await BuildFixtureAsync(root, output, msvc, constants, "threads2", "Thread2Fixture", "wit_user_thread2_image", "user_thread2_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "processes", "ProcessFixture", "wit_user_process_image", "user_process_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "processors", "ProcessorFixture", "wit_user_processor_image", "user_processor_image.h");
-        await BuildFixtureAsync(root, output, msvc, constants, "coreclr_memory", "CoreClrMemoryFixture", "wit_coreclr_memory_image", "coreclr_memory_image.h");
         await UserPeImage.BuildAsync(root, output, msvc, constants);
         await UserBootstrapImage.BuildAsync(root, output, msvc);
-        await RuntimePortImage.BuildAsync(root, output, msvc);
         await UserTlsImage.BuildAsync(root, output, msvc);
-        await UserDynamicTlsImage.BuildAsync(root, output, msvc);
-        await UserPalImage.BuildAsync(root, output, msvc);
-        await PalFixtureImage.BuildAsync(root, output, msvc, "pal-background");
-        await PalFixtureImage.BuildAsync(root, output, msvc, "pal-module");
-        await PalFixtureImage.BuildAsync(root, output, msvc, "pal-environment");
-        await PalFixtureImage.BuildAsync(root, output, msvc, "process-exit");
     }
 
     /// <summary>
-    /// Generates user_abi.inc, the ABI constants for x64 assembly, and assembles the native last-error object every
-    /// x64 module links.
+    /// Generates user_abi.inc, the ABI constants for x64 assembly.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="output">Output directory.</param>
-    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
     /// <returns>The ABI constants.</returns>
-    public static async Task<Dictionary<string, ulong>> PrepareAbiAsync(string root, string output, string msvc)
+    public static async Task<Dictionary<string, ulong>> PrepareAbiAsync(string root, string output)
     {
         var constants = await ReadConstantsAsync(root);
         var includes = string.Join("\n", constants.Select(item => $"{item.Key} EQU 0{item.Value:X}h")) + "\n";
         await File.WriteAllTextAsync(Path.Combine(output, "user_abi.inc"), includes, Encoding.ASCII);
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
-            ["/nologo", "/c", $"/I{output}", $"/Fo{Path.Combine(output, "native_error.obj")}",
-                Path.Combine(root, "src", "Runtime.Pal.Win32", "X64", "native_error.asm")], root);
         return constants;
     }
 
@@ -197,8 +186,9 @@ internal static class UserImage
         ], root);
 
     /// <summary>
-    /// Builds the root task fixture of the architecture as a flat image (plan steps K4 and T1): one C source
-    /// (tests/User/root.c) compiled by the pinned clang for the architecture's triple against the sysroot's ABI-1
+    /// Builds the root task fixture of the architecture as a flat image (plan steps K4 and T1): its C sources
+    /// (tests/User/root.c and, since K8.2, root_mechanisms.c) compiled by the pinned clang for the architecture's
+    /// triple against the sysroot's ABI-1
     /// transport header and the kernel's ABI headers, with no libc and no runtime, linked by lld as a static ELF at
     /// the component's image window (tests/User/root.ld) and converted by <see cref="FlatImage"/>; also embedded
     /// as a C array for the kernel self-test. Built for every scenario, since the release kernel starts it.
@@ -206,20 +196,25 @@ internal static class UserImage
     /// <returns>Path of the flat image to place on the boot disk.</returns>
     public static async Task<string> BuildRootAsync(string root, string output, KernelArchitecture architecture)
     {
-        var obj = Path.Combine(output, "RootFixture.o");
         var image = Path.Combine(output, "RootFixture.elf");
-        await Processes.RequireSuccessAsync(Toolchain.Clang(root),
-        [
-            $"--target={architecture.Triple}", "-std=c11", "-O2", "-ffreestanding", "-fno-builtin", "-nostdlib", "-nostdlibinc",
-            "-fPIE", "-fno-plt", "-fno-stack-protector", "-fno-asynchronous-unwind-tables", "-fno-unwind-tables",
-            "-Wall", "-Wextra", "-Werror", .. architecture.ClangOptions,
-            "-I", Path.Combine(root, "src", "Sysroot", "include"), "-I", Path.Combine(root, "src", "Kernel", "include"),
-            "-c", Path.Combine(root, "tests", "User", "root.c"), "-o", obj
-        ], root);
+        var objects = new List<string>();
+        foreach (var source in ROOT_SOURCES)
+        {
+            var obj = Path.Combine(output, "RootFixture." + Path.GetFileNameWithoutExtension(source) + ".o");
+            await Processes.RequireSuccessAsync(Toolchain.Clang(root),
+            [
+                $"--target={architecture.Triple}", "-std=c11", "-O2", "-ffreestanding", "-fno-builtin", "-nostdlib", "-nostdlibinc",
+                "-fPIE", "-fno-plt", "-fno-stack-protector", "-fno-asynchronous-unwind-tables", "-fno-unwind-tables",
+                "-Wall", "-Wextra", "-Werror", .. architecture.ClangOptions,
+                "-I", Path.Combine(root, "src", "Sysroot", "include"), "-I", Path.Combine(root, "src", "Kernel", "include"),
+                "-c", Path.Combine(root, "tests", "User", source), "-o", obj
+            ], root);
+            objects.Add(obj);
+        }
         await Processes.RequireSuccessAsync(Toolchain.Lld(root),
         [
             "-o", image, "-static", "--no-dynamic-linker", "--build-id=none", "-z", "max-page-size=4096", "-z", "norelro",
-            "--gc-sections", "-T", Path.Combine(root, "tests", "User", "root.ld"), obj
+            "--gc-sections", "-T", Path.Combine(root, "tests", "User", "root.ld"), .. objects
         ], root);
         return await FlatImage.FromElfAsync(output, architecture.ElfMachine, image, "RootFixture", "wit_user_root_image", "user_root_image.h");
     }

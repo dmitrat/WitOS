@@ -1,7 +1,6 @@
 using WitOS.Dev.Host;
 using WitOS.Dev.Images;
 using WitOS.Dev.Kernel;
-using WitOS.Dev.NativeAot;
 
 namespace WitOS.Dev.Substrate;
 
@@ -105,7 +104,7 @@ internal static class LibWitos
         var acceptance = await MuslLibc.LinkDynamicProgramAsync(root, architecture, output, "acceptance",
             [await CompileCxx("User", "acceptance_main", strict)], [acceptanceLibrary, .. runtime]);
         var cxxProgram = await MuslLibc.LinkDynamicProgramAsync(root, architecture, output, "cxx",
-            [await CompileCxx("User.X64", "cxx_exceptions", "-std=c++20", "-fdeclspec", "-w"), await CompileCxx("User", "cxx_main", strict)],
+            [await CompileCxx("User", "cxx_exceptions", "-std=c++20", "-fdeclspec", "-w"), await CompileCxx("User", "cxx_main", strict)],
             runtime);
         return
         [

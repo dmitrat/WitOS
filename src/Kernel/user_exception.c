@@ -175,7 +175,8 @@ int wit_user_exception_enter(WitUserProcess *p, WitUserThread *t, WitArchFrame *
     }
     const WitU64 sp = wit_arch_frame_sp(frame);
     WitU64 bottom = 0, top = 0;
-    if (!wit_arch_frame_returns_to_user(frame) || !wit_user_thread_stack_range(t, sp, &bottom, &top) || sp == top) {
+    /* An empty stack sits at its top (K8.2); the callback frame goes below the stack pointer either way. */
+    if (!wit_arch_frame_returns_to_user(frame) || !wit_user_thread_stack_range(t, sp, &bottom, &top)) {
         return 0;
     }
     WitU32 callFrameBytes;
