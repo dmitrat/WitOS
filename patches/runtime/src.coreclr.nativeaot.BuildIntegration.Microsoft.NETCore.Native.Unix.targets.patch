@@ -1,0 +1,52 @@
+Source: src/coreclr/nativeaot/BuildIntegration/Microsoft.NETCore.Native.Unix.targets
+Output: src.coreclr.nativeaot.BuildIntegration.Microsoft.NETCore.Native.Unix.targets
+Before: cec7dfe627fa35b719cc6049f09732b2dcfc0470cced3fc646a689a2c419f28e
+After: e8d6effc8159918aec8e5a5089362156ecbb7f17b2e5c05019d8d5ebf1db83ab
+
+NativeAOT's link for witos through the SDK's targets (plan step R2.3b, RFC 0015 section 9): the system layer's
+toolchain is clang with lld for the triple <arch>-unknown-linux-musl, as for FreeBSD's branch; WitOS builds no GSSAPI
+and no OpenSSL shim, so System.Net.Security.Native and System.Security.Cryptography.Native.OpenSsl are not linked; the
+runtime is built against libc++ (CLR_CMAKE_CXX_STANDARD_LIBRARY, R1.2b), so the program links libc++, whose ABI
+library has the __cxa_thread_atexit the runtime's thread_local destructors call.
+
+--- a/src/coreclr/nativeaot/BuildIntegration/Microsoft.NETCore.Native.Unix.targets
++++ b/src/coreclr/nativeaot/BuildIntegration/Microsoft.NETCore.Native.Unix.targets
+@@ -21,6 +21,7 @@
+     <CppLibCreator>ar</CppLibCreator>
+     <_SymbolPrefix Condition="'$(_IsApplePlatform)' == 'true'">_</_SymbolPrefix>
+     <LinkerFlavor Condition="'$(LinkerFlavor)' == '' and '$(_targetOS)' == 'freebsd'">lld</LinkerFlavor>
++    <LinkerFlavor Condition="'$(LinkerFlavor)' == '' and '$(_targetOS)' == 'witos'">lld</LinkerFlavor>
+     <LinkerFlavor Condition="'$(LinkerFlavor)' == '' and '$(_linuxLibcFlavor)' == 'bionic'">lld</LinkerFlavor>
+     <LinkerFlavor Condition="'$(LinkerFlavor)' == '' and '$(_targetOS)' == 'android'">lld</LinkerFlavor>
+     <LinkerFlavor Condition="'$(LinkerFlavor)' == '' and '$(_targetOS)' == 'linux'">bfd</LinkerFlavor>
+@@ -64,6 +65,7 @@
+       <TargetTriple Condition="'$(CrossCompileArch)' != '' and '$(_IsAlpineExitCode)' != '0'">$(CrossCompileArch)-linux-$(CrossCompileAbi)</TargetTriple>
+       <TargetTriple Condition="'$(CrossCompileArch)' != '' and '$(_IsAlpineExitCode)' == '0'">$(CrossCompileArch)-alpine-linux-$(CrossCompileAbi)</TargetTriple>
+       <TargetTriple Condition="'$(CrossCompileArch)' != '' and ($(CrossCompileRid.StartsWith('freebsd')))">$(CrossCompileArch)-unknown-freebsd12</TargetTriple>
++      <TargetTriple Condition="'$(CrossCompileArch)' != '' and ($(CrossCompileRid.StartsWith('witos')))">$(CrossCompileArch)-unknown-linux-musl</TargetTriple>
+ 
+       <SharedLibraryInstallName Condition="'$(SharedLibraryInstallName)' == '' and '$(_IsApplePlatform)' == 'true' and '$(NativeLib)' == 'Shared'">@rpath/$(TargetName)$(NativeBinaryExt)</SharedLibraryInstallName>
+ 
+@@ -140,10 +142,11 @@
+       <NetCoreAppNativeLibrary Include="System.Native" />
+       <NetCoreAppNativeLibrary Include="System.Globalization.Native" Condition="'$(StaticICULinking)' != 'true' and '$(InvariantGlobalization)' != 'true'" />
+       <NetCoreAppNativeLibrary Include="System.IO.Compression.Native" />
+-      <NetCoreAppNativeLibrary Include="System.Net.Security.Native" Condition="!$(_targetOS.StartsWith('tvos')) and '$(_linuxLibcFlavor)' != 'bionic'" />
++      <!-- No GSSAPI and no OpenSSL on witos -->
++      <NetCoreAppNativeLibrary Include="System.Net.Security.Native" Condition="!$(_targetOS.StartsWith('tvos')) and '$(_linuxLibcFlavor)' != 'bionic' and '$(_targetOS)' != 'witos'" />
+       <NetCoreAppNativeLibrary Include="System.Security.Cryptography.Native.Apple" Condition="'$(_IsApplePlatform)' == 'true'" />
+       <!-- No OpenSSL on Apple platforms or Android -->
+-      <NetCoreAppNativeLibrary Include="System.Security.Cryptography.Native.OpenSsl" Condition="'$(StaticOpenSslLinking)' != 'true' and '$(_IsApplePlatform)' != 'true' and '$(_targetOS)' != 'android'" />
++      <NetCoreAppNativeLibrary Include="System.Security.Cryptography.Native.OpenSsl" Condition="'$(StaticOpenSslLinking)' != 'true' and '$(_IsApplePlatform)' != 'true' and '$(_targetOS)' != 'android' and '$(_targetOS)' != 'witos'" />
+       <NetCoreAppNativeLibrary Include="System.Security.Cryptography.Native.Android" Condition="'$(_targetOS)' == 'android'" />
+     </ItemGroup>
+ 
+@@ -263,6 +266,8 @@
+       <LinkerArg Include="-L&quot;$(SysRoot)/usr/local/lib&quot; -lgssapi_krb5" Condition="'$(_targetOS)' == 'freebsd'" />
+       <!-- FreeBSD's inotify is an installed package and not found in default libraries  -->
+       <LinkerArg Include="-L&quot;$(SysRoot)/usr/local/lib&quot; -linotify" Condition="'$(_targetOS)' == 'freebsd'" />
++      <!-- The runtime is built against libc++ on witos; its ABI library has __cxa_thread_atexit -->
++      <LinkerArg Include="-lc++" Condition="'$(_targetOS)' == 'witos'" />
+       <LinkerArg Include="@(ExtraLinkerArg->'-Wl,%(Identity)')" />
+       <LinkerArg Include="@(NativeFramework->'-framework %(Identity)')" Condition="'$(_IsApplePlatform)' == 'true'" />
+       <LinkerArg Include="-Wl,--eh-frame-hdr" Condition="'$(_IsApplePlatform)' != 'true'" />

@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Security;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -60,6 +61,11 @@ internal static class RuntimeWitos
     public const int ACCEPTANCE_RUNS = 32;
 
     /// <summary>
+    /// WitOS's part of a program's project that the SDK's targets build for witos (R2.3b).
+    /// </summary>
+    public const string PROGRAM_TARGETS = "build/runtime/witos.targets";
+
+    /// <summary>
     /// The switches the SDK passes ILC for a NativeAOT publish (R2.1).
     /// </summary>
     public const string PUBLISH_SWITCHES = "build/runtime/nativeaot-publish.json";
@@ -102,7 +108,10 @@ internal static class RuntimeWitos
         // ILC's target WitOS (R1.3).
         ["src/coreclr/tools/Common/TypeSystem/Common/TargetDetails.cs"] =
             "src.coreclr.tools.Common.TypeSystem.Common.TargetDetails.cs",
-        ["src/coreclr/tools/Common/CommandLineHelpers.cs"] = "src.coreclr.tools.Common.CommandLineHelpers.cs"
+        ["src/coreclr/tools/Common/CommandLineHelpers.cs"] = "src.coreclr.tools.Common.CommandLineHelpers.cs",
+        // NativeAOT's link for witos through the SDK's targets (R2.3b).
+        ["src/coreclr/nativeaot/BuildIntegration/Microsoft.NETCore.Native.Unix.targets"] =
+            "src.coreclr.nativeaot.BuildIntegration.Microsoft.NETCore.Native.Unix.targets"
     };
 
     #endregion
@@ -157,6 +166,14 @@ internal static class RuntimeWitos
             throw new InvalidDataException($"The shared framework for witos-{architecture.Name} left no System.Console or reference pack ({framework}).");
         Console.WriteLine($"The shared framework for witos-{architecture.Name}: {Directory.GetFiles(framework, "*.dll").Length} libraries ({framework}).");
 
+        // NativeAOT's runtime pack for the architecture (R2.3b), as upstream packs it: the SDK's targets take it for a
+        // publish with PublishAot.
+        DropPackages(tree, $"Microsoft.NETCore.App.Runtime.NativeAOT.witos-{architecture.Name}");
+        await RunBuildAsync(tree,
+            ["--projects", Path.Combine(tree, "src", "installer", "pkg", "sfx", "Microsoft.NETCore.App", "Microsoft.NETCore.App.Runtime.NativeAOT.sfxproj"),
+                "-os", "witos", "-arch", architecture.Name, "-c", "Release", "-cross"],
+            environment);
+
         var answers = await ReadAnswersAsync(objects, probes);
         var measured = await MeasureProbesAsync(root, architecture, probes);
         var report = Path.Combine(root, "artifacts", "runtime-witos", $"tryrun-{architecture.Name}.json");
@@ -169,6 +186,9 @@ internal static class RuntimeWitos
         Console.WriteLine($"tryrun.cmake answers the {probes.Count} probes of the native configure as witos-{architecture.Name} does ({report}).");
 
         var ilc = await BuildCompilerAsync(root, tree);
+        await PackCompilerAsync(root, tree);
+        var version = PackageVersion(tree, architecture);
+        Console.WriteLine($"NativeAOT's packages for witos-{architecture.Name}: {version} ({PackageFeed(tree)}).");
         var aotsdk = Path.Combine(output, "aotsdk");
         var directory = ProgramDirectory(root, architecture);
         if (Directory.Exists(directory))
@@ -188,14 +208,17 @@ internal static class RuntimeWitos
         });
         Console.WriteLine($"NativeAOT on witos-{architecture.Name}: {PLATFORM_PROGRAM} ran in the guest as /bin/init and exited with 0 ({executable}).");
 
-        // The M3 acceptance (R2.2), compiled against the reference pack as an SDK build compiles a program, and by ILC with
-        // the shared framework's libraries (R2.3a): its output goes through System.Console, its native pages and the
-        // thread's id through the libc as a direct P/Invoke.
-        var sources = Directory.GetFiles(Path.Combine(root, ACCEPTANCE_PROGRAM), "*.cs").Order(StringComparer.Ordinal).ToArray();
-        var acceptance = await CompileProgramAsync(root, tree, ilc, aotsdk, architecture, "Acceptance", sources,
-            Directory.GetFiles(references, "*.dll").Order(StringComparer.Ordinal).ToArray(), [Path.Combine(framework, "*.dll")],
-            ["--directpinvoke:libc"]);
-        var acceptanceExecutable = await LinkProgramAsync(root, tree, acceptance, aotsdk, architecture, ACCEPTANCE_EXECUTABLE);
+        // The M3 acceptance (R2.2), built by the SDK's targets (R2.3b): dotnet publish of a project with PublishAot for
+        // witos-<arch>, against the shared framework (R2.3a); its output goes through System.Console, its native pages and
+        // the thread's id through the libc as a direct P/Invoke.
+        var published = await PublishProgramAsync(root, tree, architecture, "Acceptance", Path.Combine(root, ACCEPTANCE_PROGRAM), version,
+            """
+                <ItemGroup>
+                  <DirectPInvoke Include="libc" />
+                </ItemGroup>
+            """);
+        var acceptanceExecutable = Path.Combine(ProgramDirectory(root, architecture), ACCEPTANCE_EXECUTABLE);
+        File.Copy(published, acceptanceExecutable, overwrite: true);
         image = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_ACCEPTANCE_SCENARIO, architecture: architecture);
         await BootScenarioRunner.RunAsync(root, image, new BootRequest($"{architecture.Name}-runtime-acceptance-256", 256, 900, ExpectedOutcome.Success)
         {
@@ -509,6 +532,139 @@ internal static class RuntimeWitos
             "--driver-mode=g++", .. Sysroot.DriverOptions(root, architecture), program, Path.Combine(native, "libSystem.Native.a"),
             .. runtime.Select(library => Path.Combine(sdk, library)), "-lpthread", "-ldl", "-lm", "-o", executable
         ], tree);
+        return executable;
+    }
+
+    // The ILCompiler packages of the Linux host (R2.3b), as upstream packs them from the witos tree: the targets package
+    // Microsoft.DotNet.ILCompiler and runtime.linux-x64.Microsoft.DotNet.ILCompiler with the host's ILC, which knows
+    // witos (R1.3). Their project resolves the host's own libraries, so the host's native libraries and shared framework
+    // are built first.
+    private static async Task PackCompilerAsync(string root, string tree)
+    {
+        var environment = NativeEnvironment(root, null);
+        await RunBuildAsync(tree, ["libs.native+libs.sfx", "-os", "linux", "-arch", "x64", "-c", "Release"], environment);
+        var project = Path.Combine(tree, "src", "installer", "pkg", "projects", "Microsoft.DotNet.ILCompiler", "Microsoft.DotNet.ILCompiler.pkgproj");
+        DropPackages(tree, "Microsoft.DotNet.ILCompiler");
+        DropPackages(tree, "runtime.linux-x64.Microsoft.DotNet.ILCompiler");
+        await RunBuildAsync(tree, ["--projects", project, "-os", "linux", "-arch", "x64", "-c", "Release"], environment);
+        await RunBuildAsync(tree, ["--projects", project, "-os", "linux", "-arch", "x64", "-c", "Release", "/p:PackageTargetRuntime=linux-x64"],
+            environment);
+    }
+
+    // The packages' feed: what the witos tree's build packed.
+    private static string PackageFeed(string tree) => Path.Combine(tree, "artifacts", "packages", "Release", "Shipping");
+
+    // A package of the feed goes before it is packed again: the packaging skips a package whose file is there, though
+    // what it packs changed (the patched targets, a rebuilt runtime).
+    private static void DropPackages(string tree, string id)
+    {
+        var feed = PackageFeed(tree);
+        if (!Directory.Exists(feed))
+            return;
+        foreach (var package in Directory.GetFiles(feed, id + ".*.nupkg"))
+        {
+            var version = Path.GetFileName(package)[(id.Length + 1)..];
+            if (char.IsAsciiDigit(version[0]))
+                File.Delete(package);
+        }
+    }
+
+    // The one version of the three packages a witos publish needs, read from the feed.
+    private static string PackageVersion(string tree, KernelArchitecture architecture)
+    {
+        const string TARGETS = "Microsoft.DotNet.ILCompiler.";
+        var feed = PackageFeed(tree);
+        var versions = Directory.GetFiles(feed, TARGETS + "*.nupkg").Select(Path.GetFileName)
+            .Where(name => !name!.EndsWith(".symbols.nupkg", StringComparison.Ordinal))
+            .Select(name => name![TARGETS.Length..^".nupkg".Length]).ToArray();
+        if (versions.Length != 1)
+            throw new InvalidDataException($"The feed {feed} holds not one Microsoft.DotNet.ILCompiler: {string.Join(", ", versions)}.");
+        var version = versions[0];
+        foreach (var package in new[] { "runtime.linux-x64.Microsoft.DotNet.ILCompiler", $"Microsoft.NETCore.App.Runtime.NativeAOT.witos-{architecture.Name}" })
+        {
+            if (!File.Exists(Path.Combine(feed, $"{package}.{version}.nupkg")))
+                throw new InvalidDataException($"The feed {feed} holds no {package} {version}.");
+        }
+        return version;
+    }
+
+    // A program built by the SDK's targets (R2.3b): a project of its own under artifacts, apart from the repository's SDK
+    // pin and build properties, whose sources are the program's directory, published with PublishAot for witos-<arch>
+    // by the witos tree's SDK from the feed of the packages the tree built, through build/runtime/witos.targets with the
+    // sysroot's link options. The packages keep one version from build to build, so their copies in the project's NuGet
+    // cache are dropped first. Returns the published executable.
+    private static async Task<string> PublishProgramAsync(string root, string tree, KernelArchitecture architecture, string name,
+        string sources, string version, string items)
+    {
+        var project = Path.Combine(root, "artifacts", "runtime-witos", "publish", architecture.Name, name);
+        if (Directory.Exists(project))
+            Directory.Delete(project, recursive: true);
+        Directory.CreateDirectory(project);
+        var sdk = Path.GetFileName(Directory.GetDirectories(Path.Combine(tree, ".dotnet", "sdk")).Single());
+        await File.WriteAllTextAsync(Path.Combine(project, "global.json"), $"{{ \"sdk\": {{ \"version\": \"{sdk}\" }} }}\n");
+        await File.WriteAllTextAsync(Path.Combine(project, "Directory.Build.props"), "<Project />\n");
+        await File.WriteAllTextAsync(Path.Combine(project, "Directory.Build.targets"), "<Project />\n");
+        await File.WriteAllTextAsync(Path.Combine(project, "nuget.config"), $$"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="witos" value="{{SecurityElement.Escape(PackageFeed(tree))}}" />
+                <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+              </packageSources>
+            </configuration>
+
+            """);
+        string Property(string value) => SecurityElement.Escape(value)!.Replace(";", "%3B", StringComparison.Ordinal);
+        await File.WriteAllTextAsync(Path.Combine(project, name + ".csproj"), $$"""
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <OutputType>Exe</OutputType>
+                <TargetFramework>net10.0</TargetFramework>
+                <AssemblyName>{{name}}</AssemblyName>
+                <RuntimeIdentifier>witos-{{architecture.Name}}</RuntimeIdentifier>
+                <PublishAot>true</PublishAot>
+                <InvariantGlobalization>true</InvariantGlobalization>
+                <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+                <Nullable>enable</Nullable>
+                <ImplicitUsings>disable</ImplicitUsings>
+                <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+                <WitOSPackageVersion>{{Property(version)}}</WitOSPackageVersion>
+                <WitOSRuntimeGraph>{{Property(Path.Combine(tree, "src", "libraries", "Microsoft.NETCore.Platforms", "src", "PortableRuntimeIdentifierGraph.json"))}}</WitOSRuntimeGraph>
+                <WitOSSysroot>{{Property(Sysroot.Directory(root, architecture))}}</WitOSSysroot>
+                <WitOSClang>{{Property(Toolchain.Clang(root))}}</WitOSClang>
+                <WitOSLinkerOptions>{{string.Join(";", Sysroot.LinkOptions(root, architecture).Select(SecurityElement.Escape))}}</WitOSLinkerOptions>
+              </PropertyGroup>
+              <ItemGroup>
+                <Compile Include="{{SecurityElement.Escape(Path.Combine(sources, "*.cs"))}}" />
+              </ItemGroup>
+            {{items}}
+              <Import Project="{{SecurityElement.Escape(Path.Combine(root, PROGRAM_TARGETS))}}" />
+            </Project>
+
+            """);
+        var cache = Path.Combine(root, "artifacts", "runtime-witos", "nuget");
+        foreach (var package in new[] { "microsoft.dotnet.ilcompiler", "runtime.linux-x64.microsoft.dotnet.ilcompiler",
+            $"microsoft.netcore.app.runtime.nativeaot.witos-{architecture.Name}" })
+        {
+            var copy = Path.Combine(cache, package, version);
+            if (Directory.Exists(copy))
+                Directory.Delete(copy, recursive: true);
+        }
+        var environment = NativeEnvironment(root, null);
+        environment["NUGET_PACKAGES"] = cache;
+        environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
+        environment["DOTNET_NOLOGO"] = "1";
+        var output = Path.Combine(project, "publish");
+        var publish = await Processes.RunAsync(Path.Combine(tree, ".dotnet", "dotnet"),
+            ["publish", Path.Combine(project, name + ".csproj"), "-c", "Release", "-o", output, "-nologo"], project, 1800, environment);
+        if (publish.TimedOut || publish.ExitCode != 0)
+            throw new InvalidOperationException($"dotnet publish of {name} for witos-{architecture.Name} failed (exit {publish.ExitCode}, " +
+                $"timeout={publish.TimedOut}).\n{Tail(publish.Output)}\n{Tail(publish.Error)}");
+        var executable = Path.Combine(output, name);
+        if (!File.Exists(executable))
+            throw new InvalidDataException($"dotnet publish of {name} for witos-{architecture.Name} left no {executable}.");
+        Console.WriteLine($"dotnet publish -r witos-{architecture.Name}: {name} ({new FileInfo(executable).Length} bytes, {executable}).");
         return executable;
     }
 

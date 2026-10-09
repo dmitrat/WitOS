@@ -1,0 +1,29 @@
+<Project>
+  <!-- WitOS's part of building a .NET program for witos with the SDK's targets (plan step R2.3b): a publish with
+       PublishAot and a witos-<arch> runtime identifier takes NativeAOT's packs built from the witos tree, the runtime
+       identifier graph that knows witos, and the system layer's sysroot and toolchain for the link. The project gives:
+
+         WitOSPackageVersion  the version of Microsoft.DotNet.ILCompiler, runtime.<host>.Microsoft.DotNet.ILCompiler
+                              and Microsoft.NETCore.App.Runtime.NativeAOT.witos-<arch> in its package feed;
+         WitOSRuntimeGraph    the patched PortableRuntimeIdentifierGraph.json of the witos tree;
+         WitOSSysroot         the system layer's sysroot of the architecture (Substrate.Sysroot);
+         WitOSClang           the pinned clang;
+         WitOSLinkerOptions   the sysroot's link options beyond the target and the sysroot (Sysroot.LinkOptions).
+
+       runtime-witos generates such a project for the M3 acceptance. -->
+  <PropertyGroup>
+    <RuntimeIdentifierGraphPath>$(WitOSRuntimeGraph)</RuntimeIdentifierGraphPath>
+    <SysRoot>$(WitOSSysroot)</SysRoot>
+    <CppCompilerAndLinker>$(WitOSClang)</CppCompilerAndLinker>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <KnownILCompilerPack Update="Microsoft.DotNet.ILCompiler"
+                         ILCompilerPackVersion="$(WitOSPackageVersion)"
+                         ILCompilerRuntimeIdentifiers="%(ILCompilerRuntimeIdentifiers);witos-x64;witos-arm64" />
+    <KnownRuntimePack Update="Microsoft.NETCore.App"
+                      LatestRuntimeFrameworkVersion="$(WitOSPackageVersion)"
+                      RuntimePackRuntimeIdentifiers="%(RuntimePackRuntimeIdentifiers);witos-x64;witos-arm64" />
+    <LinkerArg Include="$(WitOSLinkerOptions)" />
+  </ItemGroup>
+</Project>

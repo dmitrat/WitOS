@@ -61,7 +61,8 @@ C++ проходят на обеих ISA (S7). Фаза S завершена.
 try_run, измеренными в госте (R1.2b); ILC компилирует программу для `witos` в ELF-объект (R1.3); первая программа
 NativeAOT работает в госте на обеих ISA и возвращает 0 (R2.1); приёмка M3 — пробы `NativeAotBoot`, перенесённые на
 Unix-форму, и пробы пула потоков, ожиданий и нехватки памяти — проходит на обеих ISA (R2.2, после K5.3); библиотеки
-классов upstream собираются для `witos`, и приёмка печатает через `System.Console` (R2.3a).
+классов upstream собираются для `witos`, и приёмка печатает через `System.Console` (R2.3a); программы собираются
+`dotnet publish -r witos-<arch>` целями SDK (R2.3b). Фаза R2 завершена.
 
 **Переносится как знание.** Адаптеры GC и PAL NativeAOT (написаны против Windows-формы PAL, нужны против Unix-формы);
 диспетчер раскрутки (таблицы станут DWARF); порядок инициализации рантайма; протоколы приёмки M3 и P5.
@@ -73,7 +74,7 @@ Unix-форму, и пробы пула потоков, ожиданий и не
 
 **Ещё нет, хотя требуется документами:** планировщик на N процессоров (фаза P: вторичные процессоры запущены и
 обслуживают межпроцессорные запросы, но потоки на них не исполняются); записываемое хранилище и драйверы; .NET
-Unix-формы в госте сверх приёмки M3 (цели SDK — R2.3b, CoreCLR — R3).
+Unix-формы в госте сверх NativeAOT (CoreCLR — R3, хосты — R5).
 
 ## 4. Решения
 
@@ -487,7 +488,7 @@ Unix-формы в госте сверх приёмки M3 (цели SDK — R2.
     CoreCLR 3 из 31 (FreeBSD) и 18 (Haiku). Пробная компоновка для R2 нашла, что `sys/membarrier.h` musl объявляет
     функцию без `extern "C"`, и GC ссылался на искажённое имя: патч musl добавляет защиту, sysroot ставит
     исправленный заголовок.
-- [ ] **R2** NativeAOT Unix-формы (RFC-0015 §2, §9): upstream `Runtime/unix` над libc слоя 2; ILC с ELF-выводом и линк
+- [x] **R2** NativeAOT Unix-формы (RFC-0015 §2, §9): upstream `Runtime/unix` над libc слоя 2; ILC с ELF-выводом и линк
   через clang/lld с sysroot WitOS (триплет `witos` в `Microsoft.NETCore.Native.Unix.targets`); повторение приёмки M3
   (GC, исключения, финализация, потоки и TLS, ожидания) пробами `NativeAotBoot` на обеих ISA. **После R2
   Windows-линия удаляется (K8).** Срезами:
@@ -519,8 +520,14 @@ Unix-формы в госте сверх приёмки M3 (цели SDK — R2.
     атомарность `PIPE_BUF`, `O_NONBLOCK`, `FIONREAD`); проверки — в `libc_hello.c` обеих ISA; в libc-test вернулись
     `rewind-clear-error` и `fgetwc-buffering`. Остаётся явно: `poll`/`select` не видят дескрипторов, каналы не
     пересекают процесс.
-  - [ ] **R2.3b** Сборка программ целями SDK (`dotnet publish -r witos-<arch>`: `Microsoft.NETCore.Native.Unix.targets`
-    с триплетом `witos`, пак рантайма и ILCompiler для `witos`) вместо прямого вызова csc, ILC и линка.
+  - [x] **R2.3b** Сборка программ целями SDK ([R2.3b-SDK-Targets.md](@Docs/Implementation/R2.3b-SDK-Targets.md)):
+    `runtime-witos` упаковывает, как upstream, `Microsoft.NETCore.App.Runtime.NativeAOT.witos-<arch>` и для Linux-хоста
+    `Microsoft.DotNet.ILCompiler` с `runtime.linux-x64.Microsoft.DotNet.ILCompiler` (ILC, знающий `witos`) в фид дерева;
+    патч `Microsoft.NETCore.Native.Unix.targets` — ветка `witos` рядом с FreeBSD (lld, тройка
+    `<arch>-unknown-linux-musl`, без шимов GSSAPI/OpenSSL, `-lc++`); `build/runtime/witos.targets` — часть WitOS
+    в проекте программы (RID `witos-*` в известных паках, граф RID, sysroot, clang, `Sysroot.LinkOptions`); приёмка
+    собирается `dotnet publish -r witos-<arch>` сгенерированного проекта и проходит на обеих ISA. Патч-набор — 18
+    файлов (CoreCLR 4 из 31 у FreeBSD).
 - [ ] **R3** CoreCLR (RFC-0015 §5–§6): PAL upstream над libc с минимальными `TARGET_WITOS`-ветками; `gcenv.unix` без
   cgroups и `/proc`, цифры памяти и CPU из `sysconf`; двойное отображение W^X через объект памяти
   (`minipal/Unix/doublemapping.cpp`); барьер процесса через `libwitos`; маскирование ISA-расширений профилем контекста
