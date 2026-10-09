@@ -472,7 +472,9 @@ Unix-формы в госте (фаза R, с R2).
     файла, остальное ILC уже делает для любой цели не Windows и не Apple (ELF, регистры System V, Unix-JIT);
     хостовые JIT и ILC (`clr.alljits+clr.tools -os linux`) собирает закреплённый clang; программа
     `tests/Runtime.Witos/Platform.cs`, собранная против одной CoreLib `witos`, становится ELF-объектом для обеих
-    ISA, и её `Main` свёрнут JIT в `return 0` — идентичность `WITOS` дошла до кода; патч-набор — 17 файлов, CoreCLR 3 из 31 (FreeBSD) и 18 (Haiku).
+    ISA, и её `Main` свёрнут JIT в `return 0` — идентичность `WITOS` дошла до кода; патч-набор — 17 файлов, CoreCLR 3 из 31 (FreeBSD) и 18 (Haiku). Пробная
+    компоновка для R2 нашла, что `sys/membarrier.h` musl объявляет функцию без `extern "C"`, и GC ссылался на
+    искажённое имя: патч musl добавляет защиту, sysroot ставит исправленный заголовок.
 - [ ] **R2** NativeAOT Unix-формы (RFC-0015 §2, §9): upstream `Runtime/unix` над libc слоя 2; ILC с ELF-выводом и линк
   через clang/lld с sysroot WitOS (триплет `witos` в `Microsoft.NETCore.Native.Unix.targets`); повторение приёмки M3 (GC, исключения, финализация, потоки и TLS, ожидания) пробами
   `NativeAotBoot` на обеих ISA. **После R2 Windows-линия удаляется (K8).**

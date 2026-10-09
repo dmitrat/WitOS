@@ -32,6 +32,10 @@
     {
       "path": "src/math/x86_64/expl.s",
       "sha256": "0ef3d9ddf89a06262bf61026e4788e7849c3ae339cbb42738b854d7b22997c4c"
+    },
+    {
+      "path": "include/sys/membarrier.h",
+      "sha256": "6372eb814b5d9e062b18e32c98c9333819cae8a28f464b2f17bb39f06f0a97f0"
     }
   ]
 }
