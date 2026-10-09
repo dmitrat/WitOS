@@ -3,17 +3,20 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using WitOS.Dev.Host;
 using WitOS.Dev.Kernel;
 using WitOS.Dev.NativeAot;
+using WitOS.Dev.Substrate;
 
 namespace WitOS.Dev.Runtime;
 
 /// <summary>
 /// The Unix form of upstream .NET for TargetOS=witos (plan phase R, RFC 0015) on a Linux host: the pinned dotnet/runtime
-/// checkout, a work tree with the witos patch set applied, the runtime's own build script and the measure of the patch
+/// checkout, a work tree with the witos patch set applied, the runtime's own build scripts and the measure of the patch
 /// set against the FreeBSD and Haiku ports. Step R1.1 builds System.Private.CoreLib for witos-x64 and witos-arm64 and
-/// checks the platform's name in it.
+/// checks the platform's name in it; step R1.2b builds NativeAOT's native part and its CoreLib against the system layer's
+/// sysroot and measures in the guest the answers the native configure takes from eng/native/tryrun.cmake.
 /// </summary>
 internal static class RuntimeWitos
 {
@@ -23,6 +26,11 @@ internal static class RuntimeWitos
     /// The pin: the commit, the bytes of every upstream file the patch set changes and the ports' budget.
     /// </summary>
     public const string LOCK = "build/runtime/runtime.lock.json";
+
+    /// <summary>
+    /// The initial cache of the try_run measurement, which forgets tryrun.cmake's answers.
+    /// </summary>
+    public const string TRYRUN_MEASURE = "build/runtime/tryrun-measure.cmake";
 
     #endregion
 
@@ -45,7 +53,17 @@ internal static class RuntimeWitos
         ["src/libraries/Microsoft.NETCore.Platforms/src/runtime.json"] =
             "src.libraries.Microsoft.NETCore.Platforms.src.runtime.json",
         ["src/libraries/Microsoft.NETCore.Platforms/src/PortableRuntimeIdentifierGraph.json"] =
-            "src.libraries.Microsoft.NETCore.Platforms.src.PortableRuntimeIdentifierGraph.json"
+            "src.libraries.Microsoft.NETCore.Platforms.src.PortableRuntimeIdentifierGraph.json",
+        // The native build against the system layer's sysroot (R1.2b, RFC 0015 section 4).
+        ["eng/common/cross/toolchain.cmake"] = "eng.common.cross.toolchain.cmake",
+        ["eng/native/configureplatform.cmake"] = "eng.native.configureplatform.cmake",
+        ["eng/native/configurecompiler.cmake"] = "eng.native.configurecompiler.cmake",
+        ["eng/native/tryrun.cmake"] = "eng.native.tryrun.cmake",
+        ["src/coreclr/gc/unix/gcenv.unix.cpp"] = "src.coreclr.gc.unix.gcenv.unix.cpp",
+        ["src/native/libs/CMakeLists.txt"] = "src.native.libs.CMakeLists.txt",
+        ["src/native/libs/System.Globalization.Native/CMakeLists.txt"] =
+            "src.native.libs.System.Globalization.Native.CMakeLists.txt",
+        ["src/native/corehost/apphost/static/CMakeLists.txt"] = "src.native.corehost.apphost.static.CMakeLists.txt"
     };
 
     #endregion
@@ -53,28 +71,98 @@ internal static class RuntimeWitos
     #region Functions
 
     /// <summary>
-    /// Applies the patch set to the pinned tree and builds System.Private.CoreLib for TargetOS=witos (plan step R1.1).
+    /// Applies the patch set to the pinned tree, builds System.Private.CoreLib for TargetOS=witos (plan step R1.1), then
+    /// NativeAOT's native part and its CoreLib against the sysroot, and requires that the guest answers every try_run
+    /// probe of the native configure as tryrun.cmake does (plan step R1.2b).
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="architecture">x64 or arm64.</param>
-    public static async Task BuildCoreLibAsync(string root, KernelArchitecture architecture)
+    public static async Task BuildAsync(string root, KernelArchitecture architecture)
     {
         if (!OperatingSystem.IsLinux())
             throw new PlatformNotSupportedException("dotnet/runtime builds for TargetOS=witos on a Linux host (plan steps T2.1a, R1.1).");
         var pin = ReadLock(root);
         var checkout = await PrepareCheckoutAsync(root, pin);
         var tree = await PrepareTreeAsync(root, checkout, pin);
-        var build = await Processes.RunAsync(Path.Combine(tree, "build.sh"),
-            ["clr.corelib", "-os", "witos", "-arch", architecture.Name, "-c", "Release"], tree, 3600);
-        if (build.TimedOut || build.ExitCode != 0)
-            throw new InvalidOperationException($"build.sh failed (exit {build.ExitCode}, timeout={build.TimedOut}).\n" +
-                $"{Tail(build.Output)}\n{Tail(build.Error)}");
-        var corelib = Path.Combine(tree, "artifacts", "bin", "coreclr", $"witos.{architecture.Name}.Release", "IL",
-            "System.Private.CoreLib.dll");
+
+        await RunBuildAsync(tree, ["clr.corelib", "-os", "witos", "-arch", architecture.Name, "-c", "Release"], null);
+        var output = Path.Combine(tree, "artifacts", "bin", "coreclr", $"witos.{architecture.Name}.Release");
+        var corelib = Path.Combine(output, "IL", "System.Private.CoreLib.dll");
         if (!HasUserString(corelib, "WITOS"))
             throw new InvalidDataException($"{corelib} does not name its platform WITOS.");
         Console.WriteLine($"System.Private.CoreLib for witos-{architecture.Name}: OperatingSystem names WITOS ({corelib}).");
+
+        // The native build cross-compiles with the pinned clang and lld against the sysroot, which the toolchain file
+        // recognizes by its marker (ROOTFS_DIR).
+        var sysroot = await Sysroot.BuildAsync(root, architecture);
+        var environment = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["PATH"] = Path.Combine(Toolchain.ClangDirectory(root), "bin") + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH"),
+            ["CLR_CC"] = Toolchain.Clang(root),
+            ["CLR_CXX"] = Path.Combine(Toolchain.ClangDirectory(root), "bin", "clang++"),
+            ["ROOTFS_DIR"] = sysroot
+        };
+        var probes = await CollectProbesAsync(root, tree, architecture, environment);
+        await RunBuildAsync(tree, ["clr.nativeaotruntime+clr.nativeaotlibs", "-os", "witos", "-arch", architecture.Name, "-c", "Release", "-cross"],
+            environment);
+        var objects = ObjectDirectory(tree, architecture);
+        var offsets = Path.Combine(objects, "nativeaot", "Runtime", "Full", "AsmOffsets.cs");
+        var aotCoreLib = Path.Combine(output, "aotsdk", "System.Private.CoreLib.dll");
+        if (!File.Exists(offsets) || !File.Exists(Path.Combine(output, "aotsdk", "libRuntime.WorkstationGC.a")))
+            throw new InvalidDataException($"NativeAOT's native build for witos-{architecture.Name} left no AsmOffsets.cs or runtime library.");
+        if (!HasUserString(aotCoreLib, "WITOS"))
+            throw new InvalidDataException($"{aotCoreLib} does not name its platform WITOS.");
+        Console.WriteLine($"NativeAOT for witos-{architecture.Name}: the native runtime, AsmOffsets.cs and CoreLib ({Path.Combine(output, "aotsdk")}).");
+
+        var answers = await ReadAnswersAsync(objects, probes);
+        var measured = await MeasureProbesAsync(root, architecture, probes);
+        var report = Path.Combine(root, "artifacts", "runtime-witos", $"tryrun-{architecture.Name}.json");
+        await File.WriteAllTextAsync(report, JsonSerializer.Serialize(probes.ToDictionary(probe => probe,
+            probe => new { tryrun = answers[probe], guest = measured[probe] }), new JsonSerializerOptions { WriteIndented = true }));
+        var differing = probes.Where(probe => answers[probe] != measured[probe]).ToList();
+        if (differing.Count > 0)
+            throw new InvalidDataException($"tryrun.cmake answers {differing.Count} of {probes.Count} probes otherwise than witos-{architecture.Name}: " +
+                string.Join(", ", differing.Select(probe => $"{probe} = {answers[probe]}, the guest {measured[probe]}")) + $" ({report}).");
+        Console.WriteLine($"tryrun.cmake answers the {probes.Count} probes of the native configure as witos-{architecture.Name} does ({report}).");
         Console.WriteLine(await MeasureAsync(root, pin));
+    }
+
+    /// <summary>
+    /// The package of the try_run measurement: tests/User/tryrun_init.c, which clang's driver builds against the sysroot,
+    /// as /bin/init, the probes the configure kept under /tryrun with their names in /tryrun/probes, musl's libc.so as
+    /// the dynamic linker and the shared C++ runtime in /lib.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Artifact directory of the scenario.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>Package paths and the files to place there.</returns>
+    public static async Task<IReadOnlyList<(string Name, string Source)>> BuildProbeProgramsAsync(string root, string output,
+        KernelArchitecture architecture)
+    {
+        var directory = ProbeDirectory(root, architecture);
+        var probes = Directory.Exists(directory)
+            ? Directory.EnumerateFiles(directory).Select(Path.GetFileName).OfType<string>().Order(StringComparer.Ordinal).ToList()
+            : [];
+        if (probes.Count == 0)
+            throw new InvalidOperationException($"No try_run probe in {directory}. Run: dotnet run --project tools/WitOS.Dev -- runtime-witos --arch {architecture.Name}");
+        var sysroot = Sysroot.Directory(root, architecture);
+        var init = Path.Combine(output, "tryrun_init.elf");
+        // The program is C: the driver's C++ library option would be an unused argument.
+        await Processes.RequireSuccessAsync(Toolchain.Clang(root),
+        [
+            .. Sysroot.DriverOptions(root, architecture).Where(option => option != "-stdlib=libc++"), "-std=c17", "-O2", "-Wall",
+            "-Wextra", "-Werror", Path.Combine(root, "tests", "User", "tryrun_init.c"), "-o", init
+        ], root);
+        var list = Path.Combine(output, "tryrun-probes.txt");
+        await File.WriteAllTextAsync(list, string.Join("\n", probes) + "\n");
+        var lib = Path.Combine(sysroot, "usr", "lib");
+        return
+        [
+            ("bin/init", init), ("tryrun/probes", list), .. probes.Select(probe => ($"tryrun/{probe}", Path.Combine(directory, probe))),
+            (MuslLibc.InterpreterPath(architecture).TrimStart('/'), Path.Combine(lib, "libc.so")),
+            ("lib/libc++.so.1", Path.Combine(lib, "libc++.so.1")), ("lib/libc++abi.so.1", Path.Combine(lib, "libc++abi.so.1")),
+            ("lib/libunwind.so.1", Path.Combine(lib, "libunwind.so.1"))
+        ];
     }
 
     /// <summary>
@@ -109,6 +197,41 @@ internal static class RuntimeWitos
         : path.StartsWith("src/native/corehost/", StringComparison.Ordinal) ? "hosts"
         : path.StartsWith("src/libraries/", StringComparison.Ordinal) ? "libraries"
         : "build";
+
+    /// <summary>
+    /// Reads the probes of TryRunResults.cmake: each try_run variable and the executable CMake kept for it, in the order
+    /// the file lists them.
+    /// </summary>
+    /// <param name="text">The file's text.</param>
+    /// <returns>Each variable and its executable.</returns>
+    public static IReadOnlyList<(string Variable, string Executable)> ParseTryRunResults(string text)
+    {
+        var executables = Regex.Matches(text, @"^# Executable\s*:\s*(\S+)\s*$", RegexOptions.Multiline).Select(match => match.Groups[1].Value).ToList();
+        var variables = Regex.Matches(text, @"^set\(\s*([A-Z0-9_]+_EXITCODE)\s*$", RegexOptions.Multiline).Select(match => match.Groups[1].Value).ToList();
+        if (executables.Count != variables.Count ||
+            executables.Zip(variables).Any(pair => !Path.GetFileName(pair.First).EndsWith("-" + pair.Second, StringComparison.Ordinal)))
+            throw new InvalidDataException("TryRunResults.cmake does not pair each try_run variable with its executable.");
+        return variables.Zip(executables).ToList();
+    }
+
+    /// <summary>
+    /// Reads the guest's answers from the serial log of the measurement, whose user lines the kernel marks [USER]: a
+    /// probe that exited answers its status, one that a signal ended FAILED_TO_RUN, as CMake records a probe that could
+    /// not run.
+    /// </summary>
+    /// <param name="lines">The serial log.</param>
+    /// <returns>Each probe's answer.</returns>
+    public static IReadOnlyDictionary<string, string> ParseGuestAnswers(IEnumerable<string> lines)
+    {
+        var answers = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var line in lines)
+        {
+            var match = Regex.Match(line, @"^(?:\[USER\] )?\[TRYRUN\] ([A-Z0-9_]+_EXITCODE) (exit|signal) ([0-9]+)\s*$");
+            if (match.Success && !answers.TryAdd(match.Groups[1].Value, match.Groups[2].Value == "exit" ? match.Groups[3].Value : "FAILED_TO_RUN"))
+                throw new InvalidDataException($"The guest answered {match.Groups[1].Value} twice.");
+        }
+        return answers;
+    }
 
     #endregion
 
@@ -170,6 +293,86 @@ internal static class RuntimeWitos
         Console.WriteLine($"Applied the witos patch set: {PATCHES.Count} files of dotnet/runtime {pin.Tag}.");
         return tree;
     }
+
+    // The runtime's own build script in the work tree.
+    private static async Task RunBuildAsync(string tree, string[] arguments, IReadOnlyDictionary<string, string>? environment)
+    {
+        var build = await Processes.RunAsync(Path.Combine(tree, "build.sh"), arguments, tree, 3600, environment);
+        if (build.TimedOut || build.ExitCode != 0)
+            throw new InvalidOperationException($"build.sh {arguments[0]} failed (exit {build.ExitCode}, timeout={build.TimedOut}).\n" +
+                $"{Tail(build.Output)}\n{Tail(build.Error)}");
+    }
+
+    // The try_run measurement's first half: a configure of CoreCLR for witos whose initial cache forgets tryrun.cmake's
+    // answers, so that CMake keeps every probe it compiled for the target and lists it in TryRunResults.cmake. The
+    // configure stops for want of the answers and for no other reason; the probes are copied out and the build
+    // directory, whose cache holds the unanswered checks, is removed before the build configures again.
+    private static async Task<IReadOnlyList<string>> CollectProbesAsync(string root, string tree, KernelArchitecture architecture,
+        IReadOnlyDictionary<string, string> environment)
+    {
+        var objects = ObjectDirectory(tree, architecture);
+        if (Directory.Exists(objects))
+            Directory.Delete(objects, recursive: true);
+        var configure = await Processes.RunAsync(Path.Combine(tree, "src", "coreclr", "build-runtime.sh"),
+            [$"-{architecture.Name}", "-release", "-cross", "-os", "witos", "-configureonly", "-cmakeargs", "-C " + Path.Combine(root, TRYRUN_MEASURE)],
+            tree, 1800, environment);
+        var results = Path.Combine(objects, "TryRunResults.cmake");
+        if (configure.TimedOut || !File.Exists(results) || configure.Output.Contains("CMake Error at", StringComparison.Ordinal) ||
+            configure.Error.Contains("CMake Error at", StringComparison.Ordinal))
+            throw new InvalidOperationException($"The measuring configure of witos-{architecture.Name} failed otherwise than for want of " +
+                $"try_run answers (exit {configure.ExitCode}, timeout={configure.TimedOut}).\n{Tail(configure.Output)}\n{Tail(configure.Error)}");
+        var probes = ParseTryRunResults(await File.ReadAllTextAsync(results));
+        if (probes.Count == 0)
+            throw new InvalidDataException($"The configure of witos-{architecture.Name} ran no try_run probe.");
+        var directory = ProbeDirectory(root, architecture);
+        if (Directory.Exists(directory))
+            Directory.Delete(directory, recursive: true);
+        Directory.CreateDirectory(directory);
+        foreach (var (variable, executable) in probes)
+            File.Copy(executable, Path.Combine(directory, variable));
+        Directory.Delete(objects, recursive: true);
+        Console.WriteLine($"The native configure of witos-{architecture.Name} asks {probes.Count} try_run questions: {directory}.");
+        return probes.Select(probe => probe.Variable).ToList();
+    }
+
+    // tryrun.cmake's answers, as the build's cache holds them.
+    private static async Task<IReadOnlyDictionary<string, string>> ReadAnswersAsync(string objects, IReadOnlyList<string> probes)
+    {
+        var cache = (await File.ReadAllLinesAsync(Path.Combine(objects, "CMakeCache.txt")))
+            .Select(line => Regex.Match(line, @"^([A-Z0-9_]+_EXITCODE):[A-Z]+=(.*)$")).Where(match => match.Success)
+            .ToDictionary(match => match.Groups[1].Value, match => match.Groups[2].Value.Trim(), StringComparer.Ordinal);
+        var missing = probes.Where(probe => !cache.ContainsKey(probe)).ToList();
+        if (missing.Count > 0)
+            throw new InvalidDataException($"tryrun.cmake answers no {string.Join(", ", missing)} for witos.");
+        return probes.ToDictionary(probe => probe, probe => cache[probe], StringComparer.Ordinal);
+    }
+
+    // The try_run measurement's second half: the release kernel boots the system layer's root task, whose /bin/init runs
+    // every probe; the guest's answers come from the serial log.
+    private static async Task<IReadOnlyDictionary<string, string>> MeasureProbesAsync(string root, KernelArchitecture architecture,
+        IReadOnlyList<string> probes)
+    {
+        var image = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_TRYRUN_SCENARIO, architecture: architecture);
+        var name = $"{architecture.Name}-runtime-tryrun-256";
+        var isa = architecture.Triple[..architecture.Triple.IndexOf('-')];
+        await BootScenarioRunner.RunAsync(root, image, new BootRequest(name, 256, 300, ExpectedOutcome.Success)
+        {
+            Architecture = architecture,
+            Suite = BootSuite.Release,
+            RequiredLines = [$"[TRYRUN] {probes.Count} probes on {isa}: {probes.Count} ran", architecture.RootTaskPassedLine]
+        });
+        var answers = ParseGuestAnswers(await File.ReadAllLinesAsync(Path.Combine(root, "artifacts", "logs", name + ".serial.log")));
+        var missing = probes.Where(probe => !answers.ContainsKey(probe)).ToList();
+        if (missing.Count > 0)
+            throw new InvalidDataException($"witos-{architecture.Name} did not answer {string.Join(", ", missing)}.");
+        return answers;
+    }
+
+    private static string ObjectDirectory(string tree, KernelArchitecture architecture) =>
+        Path.Combine(tree, "artifacts", "obj", "coreclr", $"witos.{architecture.Name}.Release");
+
+    private static string ProbeDirectory(string root, KernelArchitecture architecture) =>
+        Path.Combine(root, "artifacts", "runtime-witos", "tryrun", architecture.Name);
 
     // Whether CoreLib's code loads a string: OperatingSystem.OSPlatformName, the one place CoreLib spells its platform
     // (RFC 0015 section 3), is a constant the trimmed CoreLib keeps only where IsOSPlatform loads it.

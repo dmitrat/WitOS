@@ -39,6 +39,7 @@ long __wit_write_file(long fd, long bytes);
 long __wit_lseek(long fd, long offset, long whence);
 long __wit_fstatat(long dirfd, const char *path, struct kstat *st, long flags);
 long __wit_faccessat(long dirfd, const char *path, long mode);
+long __wit_readlinkat(long dirfd, const char *path, long size);
 long __wit_getdents(long fd, unsigned char *buffer, long bytes);
 long __wit_getcwd(char *buffer, long size);
 long __wit_fcntl(long fd, long command, long argument);

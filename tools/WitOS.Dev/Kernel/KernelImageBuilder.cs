@@ -57,6 +57,13 @@ internal static class KernelImageBuilder
     /// </summary>
     public const string SYSROOT_SCENARIO = "sysroot";
 
+    /// <summary>
+    /// The try_run measurement of the runtime's native configure (R1.2b): the system layer's root task starts
+    /// tests/User/tryrun_init.c as /bin/init, which runs every probe runtime-witos kept; not a suite scenario, since the
+    /// probes come from the runtime's build on a Linux host.
+    /// </summary>
+    public const string RUNTIME_TRYRUN_SCENARIO = "runtime-tryrun";
+
     #endregion
 
     #region Fields
@@ -66,7 +73,8 @@ internal static class KernelImageBuilder
     /// which need no self-test and so none of the frozen line's MSVC fixtures, and build on every host.
     /// </summary>
     public static readonly string[] RELEASE_KERNEL_SCENARIOS =
-        [RELEASE_SCENARIO, LIBC_SCENARIO, LIBC_TEST_SCENARIO, CXX_SCENARIO, SPAWN_SCENARIO, PROCESS_SCENARIO, SYSROOT_SCENARIO];
+        [RELEASE_SCENARIO, LIBC_SCENARIO, LIBC_TEST_SCENARIO, CXX_SCENARIO, SPAWN_SCENARIO, PROCESS_SCENARIO, SYSROOT_SCENARIO,
+            RUNTIME_TRYRUN_SCENARIO];
 
     // A release map must not name self-test code: test objects, self-test functions, fault triggers or workers.
     private static readonly Regex SELF_TEST_SYMBOL = new(
@@ -162,6 +170,7 @@ internal static class KernelImageBuilder
             : scenario == PROCESS_SCENARIO ? await Substrate.LibWitos.BuildProcessProgramsAsync(root, output, architecture)
             : scenario == SYSROOT_SCENARIO ? await Substrate.Sysroot.BuildScenarioProgramsAsync(root, output, architecture)
             : scenario == LIBC_TEST_SCENARIO ? await Substrate.LibcTestSuite.BuildProgramsAsync(root, output, architecture)
+            : scenario == RUNTIME_TRYRUN_SCENARIO ? await Runtime.RuntimeWitos.BuildProbeProgramsAsync(root, output, architecture)
             : [];
         var bootPackage = await BootPackage.BuildAsync(root, output, scenario == "coreclr-storage", scenario == "coreclr-memory",
             scenario is LIBC_SCENARIO or SPAWN_SCENARIO or PROCESS_SCENARIO, programs);
@@ -170,7 +179,8 @@ internal static class KernelImageBuilder
             : scenario == LIBC_TEST_SCENARIO ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
             : scenario == CXX_SCENARIO ? await Substrate.LlvmRuntimes.BuildRootAsync(root, output, architecture)
             : scenario == SPAWN_SCENARIO ? await Substrate.LibWitos.BuildRootAsync(root, output, architecture)
-            : scenario is PROCESS_SCENARIO or SYSROOT_SCENARIO ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
+            : scenario is PROCESS_SCENARIO or SYSROOT_SCENARIO or RUNTIME_TRYRUN_SCENARIO
+                ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
             : await UserImage.BuildRootAsync(root, output, architecture);
         if (scenario == "coreclr-storage")
         {

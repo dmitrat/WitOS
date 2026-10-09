@@ -6,8 +6,9 @@ namespace WitOS.Dev.Substrate;
 /// <summary>
 /// The system layer's sysroot (plan step R1.2a): layer 2's C library, C++ runtime and WitOS headers in the layout a
 /// Linux rootfs has, so that clang's own driver and the upstream builds that cross-compile against a rootfs (ROOTFS_DIR)
-/// build WitOS programs and libraries as they build Linux musl ones. Everything in it comes from the substrate's own
-/// builds; nothing is a system copy.
+/// build WitOS programs and libraries as they build Linux musl ones. Step R1.2b adds ICU's headers and CMake's platform
+/// modules for the system WitOS. Everything in it comes from the substrate's own builds and pins; nothing is a system
+/// copy.
 /// </summary>
 internal static class Sysroot
 {
@@ -103,6 +104,12 @@ internal static class Sysroot
         CopyTree(cxx.Includes[1], cxxInclude);
         CopyFiles(cxx.Includes[2], cxxInclude, "*.h");
         CopyFiles(cxx.Includes[0], cxxInclude, "*");
+        // ICU's headers (R1.2b), which System.Globalization.Native compiles against: no ICU library is there, and the
+        // shim, which loads ICU at run time, reports its absence.
+        var icu = await IcuHeaders.ReadPinAsync(root);
+        IcuHeaders.Require(root, icu);
+        foreach (var directory in IcuHeaders.HeaderDirectories(root, icu))
+            CopyFiles(directory, Path.Combine(include, "unicode"), "*.h");
 
         // The startup objects of WitOS programs (no crt1.o: a program another component starts is position-independent,
         // S5.2), crti.o and crtn.o, which the driver links around every image, and the libraries.
@@ -139,6 +146,10 @@ internal static class Sysroot
         File.Copy(builtins, Path.Combine(runtime, "libclang_rt.builtins.a"));
         File.Copy(crtBegin, Path.Combine(runtime, "clang_rt.crtbegin.o"));
         File.Copy(crtEnd, Path.Combine(runtime, "clang_rt.crtend.o"));
+
+        // CMake's platform modules for the system WitOS (R1.2b), which a cross build's toolchain file adds to its module
+        // path: Linux's rules for ELF images, with CMAKE_SYSTEM_NAME WitOS.
+        CopyTree(Path.Combine(root, "src", "Sysroot", "cmake"), Path.Combine(sysroot, "usr", "share", "cmake"));
 
         var marker = Path.Combine(sysroot, MARKER);
         System.IO.Directory.CreateDirectory(Path.GetDirectoryName(marker)!);

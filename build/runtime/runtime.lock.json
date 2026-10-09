@@ -43,6 +43,38 @@
     {
       "path": "src/libraries/Microsoft.NETCore.Platforms/src/PortableRuntimeIdentifierGraph.json",
       "sha256": "2057797fe984cf7beb26911f3bf7eb58b6854b403563aa661196a2fd16a77be9"
+    },
+    {
+      "path": "eng/common/cross/toolchain.cmake",
+      "sha256": "933795d271403062d7d010e54d6994af76ec0288dc4bea4e4fde26e26ddf940a"
+    },
+    {
+      "path": "eng/native/configureplatform.cmake",
+      "sha256": "d113163aef442bb4143347cf6755912c7f962d14d170023406f3c82be8d499d1"
+    },
+    {
+      "path": "eng/native/configurecompiler.cmake",
+      "sha256": "e08e42fc098c6b8d9406ce63eef2dd7008b53637421bc3bedd63bad1834159f4"
+    },
+    {
+      "path": "eng/native/tryrun.cmake",
+      "sha256": "f04ed39aecde347ee190c6a5eae5622e1a606bd2e9b1d51c4dc7ac13096dd1f6"
+    },
+    {
+      "path": "src/coreclr/gc/unix/gcenv.unix.cpp",
+      "sha256": "d8affa44a7ec61c37cfe5ef6c7463095d4decf3275b536965b1dbfbc3dc4840d"
+    },
+    {
+      "path": "src/native/libs/CMakeLists.txt",
+      "sha256": "c24b1413cf8bba18d4e231f615cc613cbfbd93771c8b7c5399fea3f33b393dbd"
+    },
+    {
+      "path": "src/native/libs/System.Globalization.Native/CMakeLists.txt",
+      "sha256": "add856b14ea991fd9373b217e8a62156872762266f4b4153ae315da50a4f20b1"
+    },
+    {
+      "path": "src/native/corehost/apphost/static/CMakeLists.txt",
+      "sha256": "af3a84b22806adcfc8b950390c477373e1481300bc7c1d81c64858f1aac582bf"
     }
   ]
 }

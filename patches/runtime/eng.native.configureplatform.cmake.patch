@@ -1,0 +1,42 @@
+Source: eng/native/configureplatform.cmake
+Output: eng.native.configureplatform.cmake
+Before: d113163aef442bb4143347cf6755912c7f962d14d170023406f3c82be8d499d1
+After: 6aa210d50d0c3c1cf444a4862d204dd7b9e8ac6af75af20d610a9b7f8db0088c
+
+The platform witos (plan step R1.2b, RFC 0015 section 3): CLR_CMAKE_HOST_WITOS for code built to run on WitOS (x64 and
+ARM64) and CLR_CMAKE_TARGET_WITOS with CLR_CMAKE_TARGET_UNIX, beside Haiku's branches; WitOS is a Unix target and
+never Linux.
+
+--- a/eng/native/configureplatform.cmake
++++ b/eng/native/configureplatform.cmake
+@@ -218,6 +218,18 @@
+     set(CLR_CMAKE_HOST_UNIX_AMD64 1)
+     set(CLR_CMAKE_HOST_HAIKU 1)
+ endif(CLR_CMAKE_HOST_OS STREQUAL haiku)
++
++if(CLR_CMAKE_HOST_OS STREQUAL witos)
++    set(CLR_CMAKE_HOST_UNIX 1)
++    if(CMAKE_SYSTEM_PROCESSOR STREQUAL x86_64)
++        set(CLR_CMAKE_HOST_UNIX_AMD64 1)
++    elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL aarch64)
++        set(CLR_CMAKE_HOST_UNIX_ARM64 1)
++    else()
++        clr_unknown_arch()
++    endif()
++    set(CLR_CMAKE_HOST_WITOS 1)
++endif(CLR_CMAKE_HOST_OS STREQUAL witos)
+ 
+ if(CLR_CMAKE_HOST_OS STREQUAL windows)
+     set(CLR_CMAKE_HOST_WIN32 1)
+@@ -434,6 +446,11 @@
+     set(CLR_CMAKE_TARGET_HAIKU 1)
+ endif(CLR_CMAKE_TARGET_OS STREQUAL haiku)
+ 
++if(CLR_CMAKE_TARGET_OS STREQUAL witos)
++    set(CLR_CMAKE_TARGET_UNIX 1)
++    set(CLR_CMAKE_TARGET_WITOS 1)
++endif(CLR_CMAKE_TARGET_OS STREQUAL witos)
++
+ if(CLR_CMAKE_TARGET_OS STREQUAL emscripten OR CLR_CMAKE_TARGET_OS STREQUAL browser)
+     set(CLR_CMAKE_TARGET_UNIX 1)
+     set(CLR_CMAKE_TARGET_BROWSER 1)

@@ -1,0 +1,30 @@
+Source: src/coreclr/gc/unix/gcenv.unix.cpp
+Output: src.coreclr.gc.unix.gcenv.unix.cpp
+Before: d8affa44a7ec61c37cfe5ef6c7463095d4decf3275b536965b1dbfbc3dc4840d
+After: 3914a97a9f5469f6121f841645d45250591bfa6b57a2b6f775a79638e9a29fdc
+
+The process-wide barrier of the GC on witos (plan step R1.2b): the layer-2 triple defines __linux__, but WitOS has no
+Linux UAPI headers; the GC takes musl's <sys/membarrier.h>, as it takes FreeBSD's, and musl's membarrier(cmd, flags),
+which has no processor argument. The system layer serves the private expedited barrier with the kernel's process write
+barrier.
+
+--- a/src/coreclr/gc/unix/gcenv.unix.cpp
++++ b/src/coreclr/gc/unix/gcenv.unix.cpp
+@@ -30,7 +30,7 @@
+ #include <sys/swap.h>
+ #endif
+ 
+-#ifdef __linux__
++#if defined(__linux__) && !defined(TARGET_WITOS)
+ #include <linux/membarrier.h>
+ #include <sys/syscall.h>
+ #define membarrier(...) syscall(__NR_membarrier, __VA_ARGS__)
+@@ -38,6 +38,8 @@
+ #include <sys/membarrier.h>
+ #ifdef TARGET_BROWSER
+ #define membarrier(cmd, flags, cpu_id) 0 // browser/wasm is currently single threaded
++#elif defined(TARGET_WITOS)
++#define membarrier(cmd, flags, cpu_id) membarrier(cmd, flags) // musl's membarrier has no processor argument
+ #endif
+ #endif
+ 

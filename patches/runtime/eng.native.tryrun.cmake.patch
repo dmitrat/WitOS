@@ -1,0 +1,46 @@
+Source: eng/native/tryrun.cmake
+Output: eng.native.tryrun.cmake
+Before: f04ed39aecde347ee190c6a5eae5622e1a606bd2e9b1d51c4dc7ac13096dd1f6
+After: 9ad6d7586d850585c4f9cd41e6bec4512ac50bae7946aef97098be30b8e101bc
+
+The answers witos gives the configure's try_run probes (plan step R1.2b), which a cross build cannot run:
+runtime-witos measures them in the guest, running every probe the configure compiled for witos under the system layer,
+and requires that this file answers as the guest does.
+
+--- a/eng/native/tryrun.cmake
++++ b/eng/native/tryrun.cmake
+@@ -46,6 +46,8 @@
+   elseif(EXISTS ${CROSS_ROOTFS}/boot/system/develop/headers/config/HaikuConfig.h)
+     set(HAIKU 1)
+     set(CLR_CMAKE_TARGET_OS haiku)
++  elseif(EXISTS ${CROSS_ROOTFS}/etc/witos-release)
++    set(WITOS 1)
+   endif()
+ endif()
+ 
+@@ -132,3 +134,25 @@
+ if(TARGET_ARCH_NAME MATCHES "^(x86|x64|s390x|armv6|loongarch64|riscv64|ppc64le)$")
+   set_cache_value(HAVE_FUNCTIONAL_PTHREAD_ROBUST_MUTEXES_EXITCODE 0)
+ endif()
++
++if(WITOS)
++  # WitOS's answers, measured in the guest (plan step R1.2b): runtime-witos runs every probe the configure compiles for
++  # witos under the system layer and requires that this block answers as the guest does. WitOS has no /proc, no fork
++  # and no writable file yet, and reports neither processor time nor scheduling priorities.
++  set_cache_value(HAS_POSIX_SEMAPHORES_EXITCODE 0)
++  set_cache_value(HAVE_CLOCK_MONOTONIC_EXITCODE 0)
++  set_cache_value(HAVE_CLOCK_REALTIME_EXITCODE 0)
++  set_cache_value(HAVE_CLOCK_THREAD_CPUTIME_EXITCODE 255)
++  set_cache_value(HAVE_FUNCTIONAL_PTHREAD_ROBUST_MUTEXES_EXITCODE 1)
++  set_cache_value(HAVE_PROCFS_CTL_EXITCODE 1)
++  set_cache_value(HAVE_PROCFS_STAT_EXITCODE 1)
++  set_cache_value(HAVE_PROCFS_STATM_EXITCODE 1)
++  set_cache_value(HAVE_SCHED_GET_PRIORITY_EXITCODE 1)
++  set_cache_value(HAVE_SHM_OPEN_THAT_WORKS_WELL_ENOUGH_WITH_MMAP_EXITCODE 255)
++  set_cache_value(HAVE_WORKING_CLOCK_GETTIME_EXITCODE 0)
++  set_cache_value(HAVE_WORKING_GETTIMEOFDAY_EXITCODE 0)
++  set_cache_value(ONE_SHARED_MAPPING_PER_FILEREGION_PER_PROCESS_EXITCODE 1)
++  set_cache_value(PTHREAD_CREATE_MODIFIES_ERRNO_EXITCODE 1)
++  set_cache_value(REALPATH_SUPPORTS_NONEXISTENT_FILES_EXITCODE 1)
++  set_cache_value(SEM_INIT_MODIFIES_ERRNO_EXITCODE 1)
++endif()
