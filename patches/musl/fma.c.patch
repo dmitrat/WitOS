@@ -1,0 +1,21 @@
+Source: src/math/fma.c
+Output: fma.c
+Before: f15e2db8c727f6cb3886dbc8817bebfcd7afff155b284be409fb961e0b985894
+After: f3e328da492e4818f83737bab2b8b7d8cf281c4ce3730773c99ab8c7efc41dc7
+
+musl's commit 9683bd62 ("math: fix fma(x,y,0) when x*y rounds to -0", 2024-03-14, after the 1.2.5 release), backported
+unchanged: with x and y nonzero and z zero, fma(x, y, z) is x*y in every rounding mode, while adding z turns a product
+that rounds to -0 into +0. libc-test's math/fma checks it on x86_64, where musl uses this generic fma (plan step
+S7.2).
+
+--- a/src/math/fma.c
++++ b/src/math/fma.c
+@@ -53,7 +53,7 @@
+ 		return x*y + z;
+ 	if (nz.e >= ZEROINFNAN) {
+ 		if (nz.e > ZEROINFNAN) /* z==0 */
+-			return x*y + z;
++			return x*y;
+ 		return z;
+ 	}
+ 

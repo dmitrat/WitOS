@@ -1,0 +1,23 @@
+Source: src/math/powl.c
+Output: powl.c
+Before: b1c9f5993fe37ce04e4291cdeaa8d690587f25076525a417c9657f082b7ae987
+After: ec0049712f8eba087d34c4cfc71f458bd8d3c82c125af1872367e08901b52ad9
+
+musl's commit ec9daea2 ("math: fix powl(x<0,oddint) for some over/underflow cases", 2026-08-25, after the 1.2.5
+release), backported unchanged: an overflow or underflow of a negative x raised to an odd integer keeps its sign.
+libc-test's math/powl checks it on x86_64, whose long double is the 80-bit format of this powl (plan step S7.2).
+
+--- a/src/math/powl.c
++++ b/src/math/powl.c
+@@ -376,9 +376,9 @@
+ 
+ 	/* Test the power of 2 for overflow */
+ 	if (w > MEXP)
+-		return huge * huge;  /* overflow */
++		return (nflg ? -1 : 1) * huge * huge; /* overflow */
+ 	if (w < MNEXP)
+-		return twom10000 * twom10000;  /* underflow */
++		return (nflg ? -1 : 1) * twom10000 * twom10000; /* underflow */
+ 
+ 	e = w;
+ 	Hb = H - Ha;

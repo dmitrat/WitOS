@@ -69,7 +69,12 @@ internal static class MuslLibc
         ["arch/x86_64/syscall_arch.h"] = "syscall_arch.x86_64.h",
         ["arch/aarch64/syscall_arch.h"] = "syscall_arch.aarch64.h",
         // The dynamic linker takes the start message before it opens a library (S5.3).
-        ["ldso/dynlink.c"] = "dynlink.c"
+        ["ldso/dynlink.c"] = "dynlink.c",
+        // musl's own fixes after 1.2.5 that libc-test's math suite checks (S7.2), backported unchanged.
+        ["src/math/fma.c"] = "fma.c",
+        ["src/math/fmaf.c"] = "fmaf.c",
+        ["src/math/powl.c"] = "powl.c",
+        ["src/math/x86_64/expl.s"] = "expl.x86_64.s"
     };
 
     // An image another component maps from the boot package (S5.3): every loadable segment starts a page of the file,
@@ -198,16 +203,15 @@ internal static class MuslLibc
         if (Directory.Exists(objects))
             Directory.Delete(objects, recursive: true);
         Directory.CreateDirectory(objects);
-        var files = SelectSources(sources, arch);
+        var files = await LibrarySourcesAsync(root, sources, arch, Path.Combine(output, "patched"));
         var clang = Toolchain.Clang(root);
         var options = LibcOptions(architecture, build.Includes, sources, generated);
         var produced = new List<string>();
         await Parallel.ForEachAsync(files, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
-            async (file, _) =>
+            async (source, _) =>
             {
-                var relative = Path.GetRelativePath(sources, file).Replace('\\', '/');
-                var obj = Path.Combine(objects, relative.Replace('/', '_') + ".o");
-                await Processes.RequireSuccessAsync(clang, [.. options, "-c", file, "-o", obj], root);
+                var obj = Path.Combine(objects, source.Relative.Replace('/', '_') + ".o");
+                await Processes.RequireSuccessAsync(clang, [.. options, "-c", source.File, "-o", obj], root);
                 lock (produced)
                     produced.Add(obj);
             });
@@ -280,13 +284,14 @@ internal static class MuslLibc
         await File.WriteAllTextAsync(dynlink, await PatchedAsync(root, sources, "ldso/dynlink.c"));
         var clang = Toolchain.Clang(root);
         var produced = new List<string>();
-        var files = SelectSources(sources, arch).Append(Path.Combine(sources, "ldso", "dlstart.c")).Append(dynlink).ToList();
+        var files = (await LibrarySourcesAsync(root, sources, arch, Path.Combine(substrate, "patched")))
+            .Append((File: Path.Combine(sources, "ldso", "dlstart.c"), Relative: "ldso/dlstart.c"))
+            .Append((File: dynlink, Relative: "ldso/dynlink.c")).ToList();
         await Parallel.ForEachAsync(files, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
-            async (file, _) =>
+            async (source, _) =>
             {
-                var relative = file == dynlink ? "ldso/dynlink.c" : Path.GetRelativePath(sources, file).Replace('\\', '/');
-                var obj = Path.Combine(objects, relative.Replace('/', '_') + ".lo");
-                await Processes.RequireSuccessAsync(clang, [.. options, "-c", file, "-o", obj], root);
+                var obj = Path.Combine(objects, source.Relative.Replace('/', '_') + ".lo");
+                await Processes.RequireSuccessAsync(clang, [.. options, "-c", source.File, "-o", obj], root);
                 lock (produced)
                     produced.Add(obj);
             });
@@ -543,6 +548,43 @@ internal static class MuslLibc
         return selected;
     }
 
+    // The sources of the library, each with its path in musl's tree: a file patches/musl changes is compiled from
+    // its patched text, written under the directory given at the same relative path (S7.2), and its includes are
+    // musl's include directories. An architecture's file that replaces a patched generic one is compiled from an
+    // unchanged copy beside the patched text, since it includes the generic file by its relative path where the
+    // architecture lacks the instruction (x86_64's fma.c includes "../fma.c" without FMA).
+    private static async Task<List<(string File, string Relative)>> LibrarySourcesAsync(
+        string root, string sources, string arch, string patched)
+    {
+        async Task<string> WriteAsync(string relative, string text)
+        {
+            var copy = Path.Combine(patched, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(copy)!);
+            await File.WriteAllTextAsync(copy, text);
+            return copy;
+        }
+
+        var files = new List<(string File, string Relative)>();
+        foreach (var file in SelectSources(sources, arch))
+        {
+            var relative = Path.GetRelativePath(sources, file).Replace('\\', '/');
+            var directory = Path.GetDirectoryName(relative)!.Replace('\\', '/');
+            var generic = Path.GetFileName(directory) == arch
+                ? Path.GetDirectoryName(directory)!.Replace('\\', '/') + "/" + Path.GetFileName(relative)
+                : null;
+            if (PATCHED.ContainsKey(relative))
+                files.Add((await WriteAsync(relative, await PatchedAsync(root, sources, relative)), relative));
+            else if (generic is not null && PATCHED.ContainsKey(generic))
+            {
+                await WriteAsync(generic, await PatchedAsync(root, sources, generic));
+                files.Add((await WriteAsync(relative, await File.ReadAllTextAsync(file)), relative));
+            }
+            else
+                files.Add((file, relative));
+        }
+        return files;
+    }
+
     /// <summary>
     /// musl's tools/mkalltypes.sed as a function: TYPEDEF, STRUCT and UNION lines become guarded definitions.
     /// </summary>
@@ -608,9 +650,13 @@ internal static class MuslLibc
     }
 
     // musl's configure and Makefile options in clang's terms, less GCC-only tuning; warnings off for upstream code.
+    // -std=c99 keeps GCC, musl's compiler, from contracting a*b+c into a fused multiply-add, while clang contracts in
+    // every mode: -ffp-contract=off gives clang GCC's meaning of musl's options, as the configure change proposed on
+    // musl's list in 2025 does. Contracted, atanh and yn of aarch64 miss libc-test's bounds (S7.2).
     private static string[] LibcOptions(KernelArchitecture architecture, IReadOnlyList<string> includes, string sources, string generated) =>
     [
         $"--target={architecture.Triple}", "-std=c99", "-nostdinc", "-ffreestanding", "-fexcess-precision=standard", "-frounding-math",
+        "-ffp-contract=off",
         "-fno-strict-aliasing", "-Wa,--noexecstack", "-fno-stack-protector", "-D_XOPEN_SOURCE=700", "-Os", "-fomit-frame-pointer",
         "-fno-unwind-tables", "-fno-asynchronous-unwind-tables", "-ffunction-sections", "-fdata-sections", "-fPIE", "-fno-plt",
         "-w", "-Qunused-arguments", .. architecture.ClangOptions,

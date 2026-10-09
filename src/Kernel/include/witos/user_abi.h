@@ -25,7 +25,7 @@
  * arguments, RAX=status and RDX=result, other GPRs and x87/SSE state preserved, RFLAGS reset to 0x202; on ARM64
  * SVC #0 with x8=call, x0-x2 arguments, x0=status and x1=result. A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
-#define WIT_ABI_VERSION 68U
+#define WIT_ABI_VERSION 69U
 /* QUERY result: the low 32 bits are WIT_ABI_VERSION, the high 32 bits the mask of the families present. */
 #define WIT_ABI_FEATURE_CHANNELS 1U
 #define WIT_ABI_FEATURE_DEVICES 2U
@@ -65,7 +65,8 @@
  * nonzero size (S5.1) a part of one plain reservation, which shrinks or splits in two (NO_MEMORY without a free
  * slot); a mapping of an object is released whole (DENIED otherwise). Nonzero sizes and addresses are page-aligned;
  * alignment is a power of two >= 4 KiB. Commit preserves existing pages and rolls back all additions on failure;
- * protect is all-or-nothing; decommit is idempotent within one reservation. */
+ * protect covers one reservation or a run of adjacent ones (S7.2) and is all-or-nothing; decommit is idempotent
+ * within one reservation. */
 #define WIT_CALL_MEMORY_RESERVE 10U
 #define WIT_CALL_MEMORY_COMMIT 11U
 #define WIT_CALL_MEMORY_DECOMMIT 12U
