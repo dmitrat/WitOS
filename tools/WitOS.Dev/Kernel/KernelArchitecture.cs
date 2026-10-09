@@ -75,7 +75,8 @@ internal sealed record KernelArchitecture(string Name, string MsvcTarget, string
     public string LibcPassedLine => $"[LIBC] musl {Substrate.MuslLibc.VERSION} on {Triple[..Triple.IndexOf('-')]}: ";
 
     /// <summary>
-    /// The summary line of the libc-test program (tests/User/libc_test_driver.c) when every selected test passed.
+    /// The summary line of the libc-test runner (tests/User/libc_test_runner.c) when every run of every selected test
+    /// passed (S1.3, S7.1).
     /// </summary>
     public string LibcTestPassedLine => $"[LIBC-TEST] musl {Substrate.MuslLibc.VERSION} on {Triple[..Triple.IndexOf('-')]}: all ";
 

@@ -1,5 +1,5 @@
 {
-  "purpose": "The libc-test programs the libc-test scenario runs (S1.3, S2, S3): those whose needs the substrate has (threads, futex-equivalent waits and signals of the own process, but no processes, sockets, writable files or resource limits; at most four threads of a process, one process for every test). Every listed test must pass on both ISAs; the reasons for the rest are in S1.3-Libc-Test.md and S2-Threads.md.",
+  "purpose": "The libc-test programs the libc-test scenario runs (S1.3, S2, S3, S7.1): those whose needs the substrate has (threads, futex-equivalent waits and signals of the own process, dynamic loading, but no fork, pipes, sockets, writable files or resource limits; at most four threads of a process). Every test runs in a process of its own, built statically and dynamically as libc-test builds it; the dynamic-only tests open a shared library of libc-test with dlopen. Every listed run must pass on both ISAs; the reasons for the rest are in S1.3-Libc-Test.md, S2-Threads.md and S7.1-Libc-Test-Processes.md.",
   "support": [
     "src/common/print.c",
     "src/common/rand.c",
@@ -23,6 +23,7 @@
     "functional/mbc",
     "functional/memstream",
     "functional/pthread_cond",
+    "functional/pthread_mutex",
     "functional/pthread_tsd",
     "functional/qsort",
     "functional/random",
@@ -49,6 +50,7 @@
     "functional/swprintf",
     "functional/tgmath",
     "functional/time",
+    "functional/tls_align",
     "functional/tls_local_exec",
     "functional/udiv",
     "functional/wcsstr",
@@ -96,5 +98,23 @@
     "regression/uselocale-0",
     "regression/wcsncpy-read-overflow",
     "regression/wcsstr-false-negative"
+  ],
+  "dynamicOnly": [
+    "functional/dlopen",
+    "functional/tls_align_dlopen",
+    "functional/tls_init_dlopen"
+  ],
+  "libraries": [
+    "functional/dlopen_dso",
+    "functional/tls_align_dso",
+    "functional/tls_init_dso"
+  ],
+  "linkLibraries": {
+    "functional/tls_align": [
+      "functional/tls_align_dso"
+    ]
+  },
+  "exportDynamic": [
+    "functional/dlopen"
   ]
 }

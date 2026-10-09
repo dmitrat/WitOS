@@ -28,7 +28,8 @@ internal static class KernelImageBuilder
     public const string LIBC_SCENARIO = "libc";
 
     /// <summary>
-    /// The scenario whose root task is musl's libc-test (plan step S1.3).
+    /// The scenario that runs musl's libc-test (plan steps S1.3, S7.1): the system layer's root task, whose /bin/init
+    /// starts every selected test in a process of its own, statically and dynamically linked.
     /// </summary>
     public const string LIBC_TEST_SCENARIO = "libc-test";
 
@@ -142,12 +143,13 @@ internal static class KernelImageBuilder
         // The programs a root task starts from the package (S5.2).
         var programs = scenario == SPAWN_SCENARIO ? await Substrate.LibWitos.BuildProgramsAsync(root, output, architecture)
             : scenario == PROCESS_SCENARIO ? await Substrate.LibWitos.BuildProcessProgramsAsync(root, output, architecture)
+            : scenario == LIBC_TEST_SCENARIO ? await Substrate.LibcTestSuite.BuildProgramsAsync(root, output, architecture)
             : [];
         var bootPackage = await BootPackage.BuildAsync(root, output, scenario == "coreclr-storage", scenario == "coreclr-memory",
             scenario is LIBC_SCENARIO or SPAWN_SCENARIO or PROCESS_SCENARIO, programs);
         // The root task's flat image (K4): every kernel, release or self-test, starts it from the boot disk.
         var rootTask = scenario == LIBC_SCENARIO ? await Substrate.MuslLibc.BuildRootAsync(root, output, architecture, "libc_hello.c")
-            : scenario == LIBC_TEST_SCENARIO ? await Substrate.LibcTestSuite.BuildRootAsync(root, output, architecture)
+            : scenario == LIBC_TEST_SCENARIO ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
             : scenario == CXX_SCENARIO ? await Substrate.LlvmRuntimes.BuildRootAsync(root, output, architecture)
             : scenario == SPAWN_SCENARIO ? await Substrate.LibWitos.BuildRootAsync(root, output, architecture)
             : scenario == PROCESS_SCENARIO ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
