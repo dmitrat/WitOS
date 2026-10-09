@@ -158,8 +158,8 @@ internal static class KernelImageBuilder
         {
             await CoreClrStorageImage.BuildAsync(root, output, msvc);
         }
-        var objects = await CompileKernelAsync(root, output, msvc, scenario, selfTest, target, architecture);
-        var efi = await LinkKernelAsync(root, output, msvc, objects, architecture);
+        var objects = await CompileKernelAsync(root, output, scenario, selfTest, target, architecture);
+        var efi = await LinkKernelAsync(root, output, objects, architecture);
         if (!selfTest)
         {
             await RequireReleaseMapAsync(Path.Combine(output, "WitOS.map"));
@@ -168,7 +168,7 @@ internal static class KernelImageBuilder
         var disk = Path.Combine(output, $"WitOS-{architecture.Name}.img");
         FatImage.Create(disk, await File.ReadAllBytesAsync(efi), bootPackage, architecture.EfiName, await File.ReadAllBytesAsync(rootTask));
         await File.WriteAllTextAsync(Path.Combine(output, "build.txt"),
-            $"Build: {buildId}\nScenario: {scenario}\nKernel compiler: {KernelCompiler(architecture, msvc)}\nFixtures: {msvc}\n" +
+            $"Build: {buildId}\nScenario: {scenario}\nKernel compiler: {KernelCompiler(architecture)}\nFixtures: {msvc}\n" +
             $"QEMU: {Toolchain.QEMU_VERSION}\n");
         Console.WriteLine($"Built {scenario}: {disk}");
         return disk;
@@ -178,65 +178,15 @@ internal static class KernelImageBuilder
 
     #region Tools
 
-    private static async Task<List<string>> CompileKernelAsync(string root, string output, string msvc, string scenario,
-        bool selfTest, KernelTarget target, KernelArchitecture architecture)
-    {
-        var layers = KernelManifest.ReadLayers(root, target, selfTest);
-        SCENARIO_DEFINES.TryGetValue(scenario, out var define);
-        var objects = new List<string>();
-        if (architecture.KernelTriple is not null)
-        {
-            return await CompileKernelClangAsync(root, output, scenario, selfTest, target, architecture, layers, define);
-        }
-        foreach (var layer in layers)
-        {
-            foreach (var source in layer.Sources)
-            {
-                var obj = Path.Combine(output, $"{layer.Name}.{Path.GetFileNameWithoutExtension(source)}.obj");
-                objects.Add(obj);
-                // /Z7 keeps each object's debug records in the object; the linker writes the only PDB. A shared
-                // compiler PDB was locked between compilations on this host (C1041), even with /FS.
-                var arguments = new List<string>
-                {
-                    "/nologo", "/c", "/TC", "/std:c17", "/W4", "/WX", "/GS-", "/Zl", "/Oi", "/Od", "/Z7"
-                };
-                arguments.AddRange(target.Includes.Concat(layer.Includes).Select(include => $"/I{Path.Combine(root, include)}"));
-                arguments.AddRange([$"/I{output}", $"/Fo{obj}"]);
-                if (selfTest)
-                {
-                    arguments.Add("/DWITOS_SELFTEST=1");
-                }
-                arguments.AddRange((target.Defines ?? []).Select(symbol => $"/D{symbol}=1"));
-                if (define is not null)
-                {
-                    arguments.Add($"/D{define}=1");
-                }
-                arguments.Add(Path.Combine(root, source));
-                await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), arguments, root);
-            }
-        }
-        foreach (var layer in layers)
-        {
-            foreach (var source in layer.Assembly)
-            {
-                var obj = Path.Combine(output, $"{layer.Name}.{Path.GetFileNameWithoutExtension(source)}.obj");
-                string[] assemble = architecture.Assembler == "armasm64.exe"
-                    ? ["-nologo", "-g", "-o", obj, Path.Combine(root, source)]
-                    : ["/nologo", "/c", "/Zi", $"/Fo{obj}", Path.Combine(root, source)];
-                await Processes.RequireSuccessAsync(Path.Combine(msvc, architecture.Assembler), assemble, root);
-                objects.Add(obj);
-            }
-        }
-        return objects;
-    }
-
-    // The kernel on clang (plan step T3): C17 for the kernel's triple, freestanding with no header but the kernel's own,
-    // the compiler's helpers in assembly (compiler.S), no optimization as MSVC's /Od, CodeView debug records for the
-    // linker's PDB; the assembly is GNU syntax through clang's integrated assembler.
-    private static async Task<List<string>> CompileKernelClangAsync(string root, string output, string scenario, bool selfTest,
-        KernelTarget target, KernelArchitecture architecture, IReadOnlyList<KernelLayer> layers, string? define)
+    // The kernel on clang (plan step T3): C17 for the architecture's kernel triple, freestanding with no header but the
+    // kernel's own, the compiler's helpers in assembly (compiler.S), no optimization as MSVC's /Od was, CodeView debug
+    // records for the linker's PDB; the assembly is GNU syntax through clang's integrated assembler.
+    private static async Task<List<string>> CompileKernelAsync(string root, string output, string scenario, bool selfTest,
+        KernelTarget target, KernelArchitecture architecture)
     {
         Toolchain.RequireClang(root);
+        var layers = KernelManifest.ReadLayers(root, target, selfTest);
+        SCENARIO_DEFINES.TryGetValue(scenario, out var define);
         var objects = new List<string>();
         foreach (var layer in layers)
         {
@@ -267,8 +217,8 @@ internal static class KernelImageBuilder
         return objects;
     }
 
-    private static string KernelCompiler(KernelArchitecture architecture, string msvc) =>
-        architecture.KernelTriple is null ? msvc : $"clang {Toolchain.LLVM_VERSION} for {architecture.KernelTriple}, lld-link";
+    private static string KernelCompiler(KernelArchitecture architecture) =>
+        $"clang {Toolchain.LLVM_VERSION} for {architecture.KernelTriple}, lld-link";
 
     private static async Task RequireReleaseMapAsync(string map)
     {
@@ -279,7 +229,7 @@ internal static class KernelImageBuilder
         }
     }
 
-    private static async Task<string> LinkKernelAsync(string root, string output, string msvc, List<string> objects,
+    private static async Task<string> LinkKernelAsync(string root, string output, List<string> objects,
         KernelArchitecture architecture)
     {
         var efi = Path.Combine(output, architecture.EfiName);
@@ -290,9 +240,8 @@ internal static class KernelImageBuilder
             $"/out:{efi}", $"/pdb:{Path.Combine(output, "WitOS.pdb")}", $"/map:{Path.Combine(output, "WitOS.map")}"
         ];
         linkArgs.AddRange(objects);
-        // lld-link takes link.exe's options; a kernel clang compiled links with the pinned lld (plan step T3).
-        var linker = architecture.KernelTriple is null ? Path.Combine(msvc, "link.exe") : Toolchain.LldLink(root);
-        await Processes.RequireSuccessAsync(linker, linkArgs, root);
+        // The pinned lld-link takes link.exe's options (plan step T3).
+        await Processes.RequireSuccessAsync(Toolchain.LldLink(root), linkArgs, root);
 
         using var file = File.OpenRead(efi);
         using var pe = new PEReader(file);

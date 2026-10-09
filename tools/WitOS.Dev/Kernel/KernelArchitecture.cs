@@ -4,8 +4,8 @@ using WitOS.Dev.Host;
 namespace WitOS.Dev.Kernel;
 
 /// <summary>
-/// What differs between the kernel's target architectures in the tools: the kernel's compiler, MSVC tools, EFI file, PE
-/// machine and the QEMU board that boots it.
+/// What differs between the kernel's target architectures in the tools: the kernel's triple, the MSVC tools of the
+/// frozen line's fixtures, EFI file, PE machine and the QEMU board that boots it.
 /// </summary>
 /// <param name="Name">Architecture name of build/kernel-&lt;name&gt;.json.</param>
 /// <param name="MsvcTarget">Directory of the cross tools under MSVC bin/Hostx64; also the link /machine value.</param>
@@ -24,10 +24,10 @@ namespace WitOS.Dev.Kernel;
 /// <param name="ElfMachine">ELF e_machine of that triple.</param>
 /// <param name="ClangOptions">Architecture-specific clang options of layer 2 code.</param>
 /// <param name="KernelTriple">clang target triple of the kernel and its EFI loader (plan step T3): PE/COFF and the
-/// Microsoft calling convention, linked by lld-link; null while MSVC still builds the architecture's kernel.</param>
+/// Microsoft calling convention, linked by lld-link.</param>
 internal sealed record KernelArchitecture(string Name, string MsvcTarget, string MsvcComponent, string Assembler,
     Machine Machine, string EfiName, string Qemu, string QemuMachine, string[] ExitDevice, string[] LinkOptions, string Firmware,
-    string FirmwareVariables, string DefaultCpu, string Triple, ushort ElfMachine, string[] ClangOptions, string? KernelTriple)
+    string FirmwareVariables, string DefaultCpu, string Triple, ushort ElfMachine, string[] ClangOptions, string KernelTriple)
 {
     #region Fields
 
@@ -48,7 +48,7 @@ internal sealed record KernelArchitecture(string Name, string MsvcTarget, string
         "qemu-system-aarch64.exe", "virt,gic-version=3,acpi=off", ["-semihosting-config", "enable=on,target=native"], [],
         "edk2-aarch64-code.fd", "edk2-arm-vars.fd", "cortex-a72", "aarch64-unknown-linux-musl", 183,
         ["-ffixed-x18"], // x18 is the kernel's compiler TLS register, set on every return to EL0
-        null);
+        "aarch64-unknown-windows");
 
     #endregion
 

@@ -12,6 +12,6 @@
     "tests/Kernel.A64/user_arch_tests.c"
   ],
   "assembly": [
-    "tests/Kernel.A64/self_test.asm"
+    "tests/Kernel.A64/self_test.S"
   ]
 }

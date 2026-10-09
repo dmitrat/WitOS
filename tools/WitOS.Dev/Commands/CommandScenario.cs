@@ -5,7 +5,8 @@ namespace WitOS.Dev.Commands;
 
 /// <summary>
 /// Builds one kernel scenario image and boots it in each listed machine profile, for x64 or, with
-/// <c>--arch arm64</c>, for ARM64 as a foundation-suite boot.
+/// <c>--arch arm64</c>, for ARM64 as a foundation-suite boot; the release kernel's suite is the same on both ISAs
+/// (plan step T3.2), since a release kernel prints no foundation self-tests.
 /// </summary>
 internal sealed class CommandScenario : ICommand
 {
@@ -61,7 +62,7 @@ internal sealed class CommandScenario : ICommand
             {
                 Name = architecture.Name + "-" + request.Name,
                 Architecture = architecture,
-                Suite = BootSuite.Foundation
+                Suite = request.Suite == BootSuite.Release ? BootSuite.Release : BootSuite.Foundation
             });
         }
     }
