@@ -83,6 +83,10 @@
     {
       "path": "src/coreclr/tools/Common/CommandLineHelpers.cs",
       "sha256": "1e76a64cf06b20ed12917d4e63009860bf4948f26a176b8a8449a7065683d7a4"
+    },
+    {
+      "path": "src/coreclr/nativeaot/BuildIntegration/Microsoft.NETCore.Native.Unix.targets",
+      "sha256": "cec7dfe627fa35b719cc6049f09732b2dcfc0470cced3fc646a689a2c419f28e"
     }
   ]
 }

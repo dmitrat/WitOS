@@ -55,9 +55,22 @@ internal static class Sysroot
     /// <returns>The options.</returns>
     public static string[] DriverOptions(string root, KernelArchitecture architecture) =>
     [
-        $"--target={architecture.Triple}", $"--sysroot={Directory(root, architecture)}",
-        $"-resource-dir={ResourceDirectory(root, architecture)}", "--rtlib=compiler-rt", "--unwindlib=libunwind", "-stdlib=libc++",
-        "-fuse-ld=lld", "-Wl,-z,max-page-size=4096", "-Wl,-z,separate-loadable-segments", .. architecture.ClangOptions
+        $"--target={architecture.Triple}", $"--sysroot={Directory(root, architecture)}", "-stdlib=libc++", "-fuse-ld=lld",
+        .. LinkOptions(root, architecture)
+    ];
+
+    /// <summary>
+    /// The driver options of DriverOptions that a build with its own choice of target, sysroot, linker and C++ library
+    /// still needs (R2.3b: the SDK's NativeAOT targets): the sysroot's resource directory, compiler-rt, libunwind, the
+    /// layout every image another component maps needs, and the architecture's options.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>The options.</returns>
+    public static string[] LinkOptions(string root, KernelArchitecture architecture) =>
+    [
+        $"-resource-dir={ResourceDirectory(root, architecture)}", "--rtlib=compiler-rt", "--unwindlib=libunwind",
+        "-Wl,-z,max-page-size=4096", "-Wl,-z,separate-loadable-segments", .. architecture.ClangOptions
     ];
 
     /// <summary>
