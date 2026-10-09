@@ -1,0 +1,23 @@
+Source: src/libraries/System.Private.CoreLib/src/System/Environment.WitOS.cs
+Output: src.libraries.System.Private.CoreLib.src.System.Environment.WitOS.cs
+Before: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+After: 2ef74c716d477f4d0b8f1e801e6417523fdfd97a71c40ceed0d08cc29b76d328
+
+Environment's per-platform members for WitOS (plan step R1.1), as Environment.FreeBSD.cs holds FreeBSD's. WorkingSet
+is 0, what the Unix form returns where it cannot read a resident set, until System.Native reports WitOS's memory
+figures; WitOS has no /proc to read.
+
+--- a/src/libraries/System.Private.CoreLib/src/System/Environment.WitOS.cs
++++ b/src/libraries/System.Private.CoreLib/src/System/Environment.WitOS.cs
+@@ -0,0 +1,11 @@
++// Licensed to the .NET Foundation under one or more agreements.
++// The .NET Foundation licenses this file to you under the MIT license.
++
++namespace System
++{
++    public static partial class Environment
++    {
++        // WitOS has no resident-set figure for a process yet; 0 is what the Unix form returns where it cannot read one.
++        public static long WorkingSet => 0;
++    }
++}

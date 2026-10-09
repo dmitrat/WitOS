@@ -199,6 +199,11 @@ jobs:
             dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- "$scenario" --arch arm64
           done
 
+      - name: CoreLib of the Unix-form runtime for witos-x64 and witos-arm64
+        run: |
+          dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-witos
+          dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-witos --arch arm64
+
       - name: Source style
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- format-check
 
@@ -213,6 +218,7 @@ jobs:
             artifacts/logs
             artifacts/x64/release/build.txt
             artifacts/arm64/release/build.txt
+            artifacts/runtime-witos/patch-set.json
 
   boot-arm64:
     runs-on: windows-2025

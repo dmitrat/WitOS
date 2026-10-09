@@ -1,0 +1,19 @@
+Source: src/libraries/System.Private.CoreLib/src/System/OperatingSystem.cs
+Output: src.libraries.System.Private.CoreLib.src.System.OperatingSystem.cs
+Before: 42be2b23362fc01d13299e237e5406801b09fdd509b6b83df80579cb53252da9
+After: 3665b5773b057caa6182c7600d077c488aa59e33c75eb1025d7fde80773e9b75
+
+The platform's name (plan step R1.1, RFC 0015 section 3): OperatingSystem.IsOSPlatform("WitOS") is true and every
+Is<Platform>() is false. The name is spelled here alone; there is no public IsWitOS().
+
+--- a/src/libraries/System.Private.CoreLib/src/System/OperatingSystem.cs
++++ b/src/libraries/System.Private.CoreLib/src/System/OperatingSystem.cs
+@@ -32,6 +32,8 @@
+         "LINUX"
+ #elif TARGET_FREEBSD
+         "FREEBSD"
++#elif TARGET_WITOS
++        "WITOS"
+ #elif TARGET_NETBSD
+         "NETBSD"
+ #elif TARGET_ILLUMOS

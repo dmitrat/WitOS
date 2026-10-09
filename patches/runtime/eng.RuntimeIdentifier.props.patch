@@ -1,0 +1,27 @@
+Source: eng/RuntimeIdentifier.props
+Output: eng.RuntimeIdentifier.props
+Before: d5b8330e3e5e078f1842c56b9a06cb5a74b2d81c8e5e45364f535e116c43cb56
+After: c52521e701ba08b4318ef4e4c1ea1735a810ad061b239f0aaab2332c94d8d327
+
+TargetOS witos (plan step R1.1): TargetsWitOS, a Unix target beside FreeBSD and Haiku. Its portable RID comes from
+TargetOS as witos-<arch>.
+
+--- a/eng/RuntimeIdentifier.props
++++ b/eng/RuntimeIdentifier.props
+@@ -50,6 +50,7 @@
+     <Targetsillumos Condition="'$(TargetOS)' == 'illumos'">true</Targetsillumos>
+     <TargetsSolaris Condition="'$(TargetOS)' == 'solaris'">true</TargetsSolaris>
+     <TargetsHaiku Condition="'$(TargetOS)' == 'haiku'">true</TargetsHaiku>
++    <TargetsWitOS Condition="'$(TargetOS)' == 'witos'">true</TargetsWitOS>
+     <TargetsLinux Condition="'$(TargetOS)' == 'linux' or '$(TargetOS)' == 'android'">true</TargetsLinux>
+     <TargetsLinuxBionic Condition="'$(PortableOS)' == 'linux-bionic'">true</TargetsLinuxBionic>
+     <TargetsLinuxMusl Condition="'$(PortableOS)' == 'linux-musl'">true</TargetsLinuxMusl>
+@@ -65,7 +66,7 @@
+     <TargetsBrowser Condition="'$(TargetOS)' == 'browser'">true</TargetsBrowser>
+     <TargetsWasi Condition="'$(TargetOS)' == 'wasi'">true</TargetsWasi>
+     <TargetsWindows Condition="'$(TargetOS)' == 'windows'">true</TargetsWindows>
+-    <TargetsUnix Condition="'$(TargetsFreeBSD)' == 'true' or '$(Targetsillumos)' == 'true' or '$(TargetsSolaris)' == 'true' or '$(TargetsHaiku)' == 'true' or '$(TargetsLinux)' == 'true' or '$(TargetsNetBSD)' == 'true' or '$(TargetsOSX)' == 'true' or '$(TargetsMacCatalyst)' == 'true' or '$(TargetstvOS)' == 'true' or '$(TargetsiOS)' == 'true' or '$(TargetsAndroid)' == 'true'">true</TargetsUnix>
++    <TargetsUnix Condition="'$(TargetsFreeBSD)' == 'true' or '$(Targetsillumos)' == 'true' or '$(TargetsSolaris)' == 'true' or '$(TargetsHaiku)' == 'true' or '$(TargetsWitOS)' == 'true' or '$(TargetsLinux)' == 'true' or '$(TargetsNetBSD)' == 'true' or '$(TargetsOSX)' == 'true' or '$(TargetsMacCatalyst)' == 'true' or '$(TargetstvOS)' == 'true' or '$(TargetsiOS)' == 'true' or '$(TargetsAndroid)' == 'true'">true</TargetsUnix>
+   </PropertyGroup>
+   <PropertyGroup>
+     <_ImportedRuntimeIdentifierProps>true</_ImportedRuntimeIdentifierProps>

@@ -61,16 +61,20 @@ public sealed class UpstreamPatchesTests
         foreach (var (repository, output) in Patches(root))
         {
             var patch = UpstreamPatches.Read(root, repository, output);
+            // The witos patch set's sources are in its own pinned checkout (R1.1); a file it adds starts from no text.
             var cache = repository switch
             {
+                "runtime" when WitOS.Dev.Runtime.RuntimeWitos.PATCHES.ContainsKey(patch.Source) =>
+                    Path.Combine(root, ".tools", "upstream", $"runtime-witos-{WitOS.Dev.Runtime.RuntimeWitos.ReadLock(root).Version}"),
                 "runtime" => Path.Combine(root, ".tools", "runtime-audit", "runtime", runtime),
                 "musl" => WitOS.Dev.Substrate.MuslLibc.SourceDirectory(root),
                 _ => Path.Combine(root, ".tools", "math-audit", math)
             };
             var source = Path.Combine(cache, patch.Source);
-            if (!File.Exists(source))
+            var added = patch.Before == UpstreamPatches.Hash("");
+            if (!added && !File.Exists(source))
                 continue;
-            var text = UpstreamPatches.Apply(patch, File.ReadAllText(source).Replace("\r\n", "\n"));
+            var text = UpstreamPatches.Apply(patch, added ? "" : File.ReadAllText(source).Replace("\r\n", "\n"));
             Assert.That(UpstreamPatches.Hash(text), Is.EqualTo(patch.After));
             ++applied;
         }
@@ -91,6 +95,31 @@ public sealed class UpstreamPatchesTests
         // A hunk that no longer matches fails even when the base hash is forged to agree.
         var moved = patch with { Before = UpstreamPatches.Hash("zero\ntwo\nthree\n") };
         Assert.Throws<InvalidDataException>(() => UpstreamPatches.Apply(moved, "zero\ntwo\nthree\n"));
+    }
+
+    // A file WitOS adds to an upstream tree is a patch from no text (R1.1); any existing text is refused.
+    [Test]
+    public void ApplyCreatesAnAddedFileTest()
+    {
+        const string after = "one\ntwo\n";
+        var patch = UpstreamPatches.Parse(
+            $"Source: src/added.c\nOutput: added.c\nBefore: {UpstreamPatches.Hash("")}\nAfter: {UpstreamPatches.Hash(after)}\n\n" +
+            "Adds a file.\n\n--- a/src/added.c\n+++ b/src/added.c\n@@ -0,0 +1,2 @@\n+one\n+two\n");
+        Assert.That(UpstreamPatches.Apply(patch, ""), Is.EqualTo(after));
+        Assert.Throws<InvalidDataException>(() => UpstreamPatches.Apply(patch, "existing\n"));
+    }
+
+    // An upstream text without a final line end keeps it missing (R1.1); a hunk that reaches that last line is refused.
+    [Test]
+    public void ApplyKeepsAMissingFinalLineEndTest()
+    {
+        const string before = "one\ntwo\nthree\nfour";
+        const string after = "one\nTWO\nthree\nfour";
+        var patch = UpstreamPatches.Parse(string.Format(SAMPLE, UpstreamPatches.Hash(before), UpstreamPatches.Hash(after)));
+        Assert.That(UpstreamPatches.Apply(patch, before), Is.EqualTo(after));
+        const string threeLines = "one\ntwo\nthree";
+        var last = patch with { Before = UpstreamPatches.Hash(threeLines) };
+        Assert.Throws<InvalidDataException>(() => UpstreamPatches.Apply(last, threeLines));
     }
 
     [Test]
@@ -127,6 +156,9 @@ public sealed class UpstreamPatchesTests
             foreach (var source in math.GetProperty("sources").EnumerateArray())
                 pins[("openlibm", source.GetProperty("path").GetString()!)] = source.GetProperty("sha256").GetString()!;
         }
+        // The Unix-form runtime's patch set: the files it changes, by their bytes at the pinned commit (R1.1).
+        foreach (var (path, sha256) in WitOS.Dev.Runtime.RuntimeWitos.ReadLock(root).Sources)
+            pins[("runtime", path)] = sha256;
         // The C library of the system layer: the files WitOS patches, by their bytes in the pinned tarball (S1.1).
         var musl = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, WitOS.Dev.Substrate.MuslLibc.LOCK))).RootElement;
         foreach (var source in musl.GetProperty("sources").EnumerateArray())

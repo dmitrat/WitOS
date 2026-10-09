@@ -1,0 +1,26 @@
+Source: src/libraries/System.Private.CoreLib/src/System.Private.CoreLib.Shared.projitems
+Output: src.libraries.System.Private.CoreLib.src.System.Private.CoreLib.Shared.projitems
+Before: f4235874ab414596562b74ffed7b7083811059f8fcdb31b0041f5cffa82b86c8
+After: d9f0a9408555624b213d5ff8b94f06b6405d873810044f10d4b7e75dd7984044
+
+CoreLib for TargetOS witos (plan step R1.1): TARGET_WITOS beside TARGET_FREEBSD and TARGET_HAIKU, and
+Environment.WitOS.cs for the members each Unix platform implements on its own.
+
+--- a/src/libraries/System.Private.CoreLib/src/System.Private.CoreLib.Shared.projitems
++++ b/src/libraries/System.Private.CoreLib/src/System.Private.CoreLib.Shared.projitems
+@@ -48,6 +48,7 @@
+     <DefineConstants Condition="'$(Targetsillumos)' == 'true'">$(DefineConstants);TARGET_ILLUMOS</DefineConstants>
+     <DefineConstants Condition="'$(TargetsSolaris)' == 'true'">$(DefineConstants);TARGET_SOLARIS</DefineConstants>
+     <DefineConstants Condition="'$(TargetsHaiku)' == 'true'">$(DefineConstants);TARGET_HAIKU</DefineConstants>
++    <DefineConstants Condition="'$(TargetsWitOS)' == 'true'">$(DefineConstants);TARGET_WITOS</DefineConstants>
+   </PropertyGroup>
+   <ItemGroup>
+     <ApiCompatSuppressionFile Include="$(MSBuildThisFileDirectory)CompatibilitySuppressions.xml" />
+@@ -2637,6 +2638,7 @@
+     <Compile Include="$(MSBuildThisFileDirectory)System\Environment.iOS.cs" Condition="'$(IsiOSLike)' == 'true'" />
+     <Compile Include="$(MSBuildThisFileDirectory)System\Environment.OSVersion.Unix.cs" Condition="'$(IsApplePlatform)' != 'true'" />
+     <Compile Include="$(MSBuildThisFileDirectory)System\Environment.SunOS.cs" Condition="'$(Targetsillumos)' == 'true' or '$(TargetsSolaris)' == 'true'" />
++    <Compile Include="$(MSBuildThisFileDirectory)System\Environment.WitOS.cs" Condition="'$(TargetsWitOS)' == 'true'" />
+     <Compile Include="$(MSBuildThisFileDirectory)System\TimeZoneInfo.FullGlobalizationData.Unix.cs" Condition="'$(UseMinimalGlobalizationData)' != 'true'" />
+     <Compile Include="$(MSBuildThisFileDirectory)System\IO\DriveInfoInternal.Unix.cs" />
+     <Compile Include="$(MSBuildThisFileDirectory)System\IO\PersistedFiles.Unix.cs" />
