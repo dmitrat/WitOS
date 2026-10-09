@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/llvm/llvm-project",
   "tag": "llvmorg-20.1.8",
-  "purpose": "The helpers clang emits calls to and the pinned LLVM package does not ship for the Linux triples: the IEEE binary128 soft-float builtins for long double on aarch64 (musl's printf, strtod and the long double mathematics, S1.1), the complex multiplication builtins musl's complex functions need, which libc.so links whole (S5.3), the 128-bit integer division builtins libc++'s filesystem clock needs, which libc++.so links whole, and crtbegin.c, the start object of every dynamic image, which gives a module its hidden __dso_handle (S5.4); compiled for the system layer from compiler-rt's sources.",
+  "purpose": "The helpers clang emits calls to and the pinned LLVM package does not ship for the Linux triples: the IEEE binary128 soft-float builtins for long double on aarch64 (musl's printf, strtod and the long double mathematics, S1.1), the complex multiplication builtins musl's complex functions need, which libc.so links whole (S5.3), the 128-bit integer division builtins libc++'s filesystem clock needs, which libc++.so links whole, crtbegin.c, the start object of every dynamic image, which gives a module its hidden __dso_handle (S5.4), and crtend.c, its end object, which the clang driver links after an image's own objects (the sysroot, R1.2a); compiled for the system layer from compiler-rt's sources.",
   "sources": [
     {
       "path": "compiler-rt/LICENSE.TXT",
@@ -169,6 +169,10 @@
     {
       "path": "compiler-rt/lib/builtins/crtbegin.c",
       "sha256": "e2f5ef3d814f49a371b9f34c4a6272e0f9b9e47e55c7d73e8ccf6415bff4c12a"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/crtend.c",
+      "sha256": "6d5a61b8f2f6fa541a12ec52aea40b5085e40fcf8626984d318523cb30335d06"
     },
     {
       "path": "compiler-rt/lib/builtins/int_div_impl.inc",

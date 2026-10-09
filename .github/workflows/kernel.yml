@@ -189,13 +189,13 @@ jobs:
 
       - name: Layer-2 scenarios on the x64 release kernel
         run: |
-          for scenario in libc libc-test cxx spawn process; do
+          for scenario in libc libc-test cxx spawn process sysroot; do
             dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- "$scenario"
           done
 
       - name: Layer-2 scenarios on the ARM64 release kernel
         run: |
-          for scenario in libc libc-test cxx spawn process; do
+          for scenario in libc libc-test cxx spawn process sysroot; do
             dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- "$scenario" --arch arm64
           done
 

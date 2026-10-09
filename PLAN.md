@@ -442,9 +442,19 @@ Unix-формы (фаза R).
     `OSPlatformName` "WITOS", `Environment.WitOS.cs`, RID `witos-x64`/`witos-arm64`; команда `runtime-witos` на
     Linux-хосте собирает `System.Private.CoreLib` для обеих ISA и проверяет имя платформы; 7 файлов, CoreCLR 0 из 31
     (FreeBSD) и 18 (Haiku), нативные библиотеки 0 из 62 и 11; CI `linux-host` гоняет сборку.
-  - [ ] **R1.2** ILC: `TargetOS.WitOS`, `--targetos witos`, ELF-вывод и триплет в `Microsoft.NETCore.Native.Unix.targets`.
-  - [ ] **R1.3** Нативная сборка: `CLR_CMAKE_TARGET_WITOS` в `configureplatform.cmake`, toolchain-файл для sysroot
-    WitOS; конфигурация CoreCLR, нативных библиотек и хостов читает sysroot.
+  - [ ] **R1.2** Нативная сборка против sysroot слоя 2. Двумя срезами (CoreLib NativeAOT требует `AsmOffsets`,
+    которые даёт нативная сборка цели, поэтому ILC — после неё):
+    - [x] **R1.2a** Sysroot ([R1.2a-Sysroot.md](@Docs/Implementation/R1.2a-Sysroot.md)): подложка в раскладке rootfs
+      Linux musl под `artifacts/sysroot/<arch>` — заголовки musl, `witos/`, libunwind и `c++/v1`; `Scrt1.o`,
+      `rcrt1.o`, `crti.o`, `crtn.o`, libc, пустые библиотеки musl, C++-рантайм (`libc++.so` —
+      `INPUT(libc++.so.1 -lc++abi)`), `libwitos.a`; свой каталог ресурсов clang с builtins и
+      `clang_rt.crtbegin.o`/`crtend.o` (`crtend.c` вошёл в пин compiler-rt); маркер `etc/witos-release`;
+      `Sysroot.DriverOptions`; сценарий `sysroot` — программа на C++, собранная обычным драйвером clang, работает
+      `/bin/init` на обеих ISA и обоих хостах.
+    - [ ] **R1.2b** `CLR_CMAKE_TARGET_WITOS` в `configureplatform.cmake`, ветка `witos` в `toolchain.cmake` и
+      `tryrun.cmake`; конфигурация нативной части NativeAOT против sysroot, `AsmOffsets` и CoreLib NativeAOT для
+      `witos`; хостовые JIT и ILC закреплённым clang.
+  - [ ] **R1.3** ILC: `TargetOS.WitOS`, `--targetos witos`, ELF-объект программы против CoreLib NativeAOT для `witos`.
 - [ ] **R2** NativeAOT Unix-формы (RFC-0015 §2, §9): upstream `Runtime/unix` над libc слоя 2; ILC с ELF-выводом и линк
   через clang/lld с sysroot WitOS; повторение приёмки M3 (GC, исключения, финализация, потоки и TLS, ожидания) пробами
   `NativeAotBoot` на обеих ISA. **После R2 Windows-линия удаляется (K8).**

@@ -69,6 +69,13 @@ internal static class CommandLine
                     architecture.CxxPassedLine, architecture.SpawnPassedLine
                 ]
             }]),
+        new CommandScenario("sysroot", "Build layer 2's sysroot and boot a C++ program clang's driver built against it as /bin/init (R1.2a)",
+            KernelImageBuilder.SYSROOT_SCENARIO,
+            architecture => [new BootRequest("sysroot-256", 256, 60, ExpectedOutcome.Success)
+            {
+                Suite = BootSuite.Release,
+                RequiredLines = [architecture.SysrootPassedLine, architecture.RootTaskPassedLine]
+            }]),
         new CommandArchitecture("runtime-witos", "Apply the witos patch set to the pinned dotnet/runtime and build System.Private.CoreLib for TargetOS=witos on a Linux host (R1.1)",
             RuntimeWitos.BuildCoreLibAsync),
         new CommandFormat(check: false),
