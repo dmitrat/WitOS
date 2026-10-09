@@ -69,11 +69,17 @@ internal static class UpstreamPatches
     /// <exception cref="InvalidDataException">The text, a hunk or the result differs from the patch.</exception>
     public static string Apply(UpstreamPatch patch, string text)
     {
+        // A file WitOS adds to an upstream tree is made from no text (plan step R1.1): its patch starts from the hash of
+        // the empty string and holds one hunk of added lines. A text without a final line end keeps it missing, and no
+        // hunk may reach its last line, whose end a unified diff would have to mark.
         var before = Hash(text);
-        if (before != patch.Before || !text.EndsWith('\n'))
+        if (before != patch.Before)
             throw new InvalidDataException(
                 $"{patch.Output}: {patch.Source} has sha256 {before}; the patch was made from {patch.Before}.");
-        var old = text[..^1].Split('\n');
+        var finalLineEnd = text.Length == 0 || text.EndsWith('\n');
+        string[] old = text.Length == 0 ? [] : finalLineEnd ? text[..^1].Split('\n') : text.Split('\n');
+        if (!finalLineEnd && patch.Hunks.Any(hunk => hunk.OldStart - 1 + hunk.OldCount >= old.Length))
+            throw new InvalidDataException($"{patch.Output}: a hunk reaches the last line of {patch.Source}, which has no line end.");
         var result = new List<string>(old.Length);
         var cursor = 0;
         foreach (var hunk in patch.Hunks)
@@ -100,7 +106,7 @@ internal static class UpstreamPatches
             }
         }
         result.AddRange(old[cursor..]);
-        var patched = string.Join('\n', result) + "\n";
+        var patched = string.Join('\n', result) + (finalLineEnd ? "\n" : "");
         var after = Hash(patched);
         if (after != patch.After)
             throw new InvalidDataException($"{patch.Output}: the patched text has sha256 {after}; recorded {patch.After}.");

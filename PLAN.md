@@ -435,7 +435,16 @@ Unix-формы (фаза R).
   `configureplatform.cmake` и props; `TARGET_WITOS` в `System.Private.CoreLib.Shared.projitems` и `OSPlatformName`;
   RID `witos-x64` и `witos-arm64` в графе RID; `TargetOS.WitOS` в ILC и триплет в `Microsoft.NETCore.Native.Unix.targets`;
   патч-набор в `patches/runtime` начинается пустым и измеряется против бюджета FreeBSD/Haiku; сборка на Linux-хосте;
-  воспроизводимость переезжает из `runtime-source`.
+  воспроизводимость переезжает из `runtime-source`. Тремя срезами:
+  - [x] **R1.1** Сборка и идентичность ([R1.1-Runtime-Identity.md](@Docs/Implementation/R1.1-Runtime-Identity.md)):
+    пин `build/runtime/runtime.lock.json` (v10.0.8, `b82454ca`, байты каждого меняемого файла, бюджет портов);
+    патч-набор `witos` в `patches/runtime` по пути файла — `--os witos`, `TargetsWitOS`, `TARGET_WITOS`,
+    `OSPlatformName` "WITOS", `Environment.WitOS.cs`, RID `witos-x64`/`witos-arm64`; команда `runtime-witos` на
+    Linux-хосте собирает `System.Private.CoreLib` для обеих ISA и проверяет имя платформы; 7 файлов, CoreCLR 0 из 31
+    (FreeBSD) и 18 (Haiku), нативные библиотеки 0 из 62 и 11; CI `linux-host` гоняет сборку.
+  - [ ] **R1.2** ILC: `TargetOS.WitOS`, `--targetos witos`, ELF-вывод и триплет в `Microsoft.NETCore.Native.Unix.targets`.
+  - [ ] **R1.3** Нативная сборка: `CLR_CMAKE_TARGET_WITOS` в `configureplatform.cmake`, toolchain-файл для sysroot
+    WitOS; конфигурация CoreCLR, нативных библиотек и хостов читает sysroot.
 - [ ] **R2** NativeAOT Unix-формы (RFC-0015 §2, §9): upstream `Runtime/unix` над libc слоя 2; ILC с ELF-выводом и линк
   через clang/lld с sysroot WitOS; повторение приёмки M3 (GC, исключения, финализация, потоки и TLS, ожидания) пробами
   `NativeAotBoot` на обеих ISA. **После R2 Windows-линия удаляется (K8).**

@@ -1,0 +1,48 @@
+{
+  "repository": "https://github.com/dotnet/runtime",
+  "tag": "v10.0.8",
+  "version": "10.0.8",
+  "commit": "b82454cad0aaaae3db2cf18fbf2cccc36e201ccc",
+  "purpose": "The Unix form of upstream .NET for TargetOS=witos (RFC 0015, plan phase R): the dotnet/runtime commit the witos patch set applies to, and the bytes of every file it changes there; a file WitOS adds is pinned by the hash of no bytes. Built on a Linux host by runtime-witos.",
+  "budget": {
+    "purpose": "The size of the FreeBSD and Haiku ports in 10.0.8 (ADR 0024, RFC 0015 section 4), in files of CoreCLR and of the native libraries; the witos patch set is measured against it at every R step.",
+    "freebsd": {
+      "coreclr": 31,
+      "nativeLibraries": 62
+    },
+    "haiku": {
+      "coreclr": 18,
+      "nativeLibraries": 11
+    }
+  },
+  "sources": [
+    {
+      "path": "eng/build.sh",
+      "sha256": "3aef55237a8e61dd4e9d503c54a4fb1b47c60c2568d123248406a9e162404591"
+    },
+    {
+      "path": "eng/RuntimeIdentifier.props",
+      "sha256": "d5b8330e3e5e078f1842c56b9a06cb5a74b2d81c8e5e45364f535e116c43cb56"
+    },
+    {
+      "path": "src/libraries/System.Private.CoreLib/src/System.Private.CoreLib.Shared.projitems",
+      "sha256": "f4235874ab414596562b74ffed7b7083811059f8fcdb31b0041f5cffa82b86c8"
+    },
+    {
+      "path": "src/libraries/System.Private.CoreLib/src/System/OperatingSystem.cs",
+      "sha256": "42be2b23362fc01d13299e237e5406801b09fdd509b6b83df80579cb53252da9"
+    },
+    {
+      "path": "src/libraries/System.Private.CoreLib/src/System/Environment.WitOS.cs",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "src/libraries/Microsoft.NETCore.Platforms/src/runtime.json",
+      "sha256": "8b35feaf33af3d4b0192e683950fb621791e01769d0123f6d82a2864bdc408b4"
+    },
+    {
+      "path": "src/libraries/Microsoft.NETCore.Platforms/src/PortableRuntimeIdentifierGraph.json",
+      "sha256": "2057797fe984cf7beb26911f3bf7eb58b6854b403563aa661196a2fd16a77be9"
+    }
+  ]
+}

@@ -4,6 +4,7 @@ using WitOS.Dev.Interfaces;
 using WitOS.Dev.Kernel;
 using WitOS.Dev.NativeAot;
 using WitOS.Dev.NativeAot.References;
+using WitOS.Dev.Runtime;
 
 namespace WitOS.Dev.Commands;
 
@@ -68,6 +69,8 @@ internal static class CommandLine
                     architecture.CxxPassedLine, architecture.SpawnPassedLine
                 ]
             }]),
+        new CommandArchitecture("runtime-witos", "Apply the witos patch set to the pinned dotnet/runtime and build System.Private.CoreLib for TargetOS=witos on a Linux host (R1.1)",
+            RuntimeWitos.BuildCoreLibAsync),
         new CommandFormat(check: false),
         new CommandFormat(check: true),
         new CommandFingerprint(),
