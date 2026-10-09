@@ -352,6 +352,14 @@ static int uses_tables(long n)
 
 static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a6);
 
+/* The stack of an exiting detached thread leaves the mapping table under the table lock (__unmapself). */
+void __wit_mapping_forget_locked(WitU64 base)
+{
+    __wit_lock(&tables);
+    __wit_mapping_forget(base);
+    __wit_unlock(&tables);
+}
+
 long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
 {
     if (!uses_tables(n)) {

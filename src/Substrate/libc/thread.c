@@ -354,10 +354,12 @@ long __wit_prctl(long option, unsigned long argument)
     return -ENOSYS;
 }
 
-/* musl's __unmapself(base, size): the exiting detached thread's stack goes with the thread. */
+/* musl's __unmapself(base, size): the exiting detached thread's stack goes with the thread. The kernel releases the
+ * reservation once the thread no longer runs, so the library's table forgets the mapping first. */
 void __unmapself(void *base, size_t size)
 {
     (void)size;
+    __wit_mapping_forget_locked((WitU64)base);
     __wit_thread_exit(0, (WitU64)base);
     __builtin_unreachable();
 }

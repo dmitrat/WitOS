@@ -61,6 +61,7 @@ static struct Shared {
     pthread_key_t Key;
     sem_t Done;
     sem_t Gate;
+    void *DetachedStack;
     int Counter, Flag, Destructors, WorkerErrno, Arrived;
 } shared;
 
@@ -103,6 +104,12 @@ static void *condition_worker(void *argument)
 static void *detached_worker(void *argument)
 {
     (void)argument;
+    pthread_attr_t attributes;
+    size_t size = 0;
+    if (pthread_getattr_np(pthread_self(), &attributes) == 0) {
+        pthread_attr_getstack(&attributes, &shared.DetachedStack, &size);
+        pthread_attr_destroy(&attributes);
+    }
     sem_post(&shared.Done);
     return 0;
 }
@@ -423,6 +430,19 @@ int main(void)
         "pthread_self differs from a worker");
     struct timespec settle = {0, 5000000};
     nanosleep(&settle, 0); /* the detached thread's exit is served after its post */
+    /* Its stack went with it (__unmapself), and the library forgot the mapping the kernel released: a page mapped
+     * there again unmaps alone (R2.2). */
+    void *const old_stack = (void *)(((uintptr_t)shared.DetachedStack + 4095) & ~(uintptr_t)4095);
+    void *stack_page = MAP_FAILED;
+    for (int i = 0; i < 20 && shared.DetachedStack && stack_page == MAP_FAILED; ++i) {
+        stack_page =
+            mmap(old_stack, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+        if (stack_page == MAP_FAILED) {
+            nanosleep(&settle, 0);
+        }
+    }
+    check(
+        stack_page == old_stack && munmap(stack_page, 4096) == 0, "a page where a detached thread's stack was unmaps");
 
     /* The system layer's threads of a process (K5.3): fifteen beside the main one park on one semaphore together, each
      * in a futex slot of its own, and a seventeenth thread is EAGAIN, the kernel's refusal. */
