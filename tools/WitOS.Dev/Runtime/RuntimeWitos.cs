@@ -148,6 +148,15 @@ internal static class RuntimeWitos
             throw new InvalidDataException($"{aotCoreLib} does not name its platform WITOS.");
         Console.WriteLine($"NativeAOT for witos-{architecture.Name}: the native runtime, AsmOffsets.cs and CoreLib ({Path.Combine(output, "aotsdk")}).");
 
+        // The class libraries above CoreLib (R2.3a): upstream's shared framework for witos, which takes the libraries' Unix
+        // flavors, and the reference pack programs compile against.
+        await RunBuildAsync(tree, ["libs.sfx", "-os", "witos", "-arch", architecture.Name, "-c", "Release"], environment);
+        var framework = FrameworkDirectory(tree, architecture);
+        var references = Path.Combine(tree, "artifacts", "bin", "microsoft.netcore.app.ref", "ref", "net10.0");
+        if (!File.Exists(Path.Combine(framework, "System.Console.dll")) || !File.Exists(Path.Combine(references, "System.Runtime.dll")))
+            throw new InvalidDataException($"The shared framework for witos-{architecture.Name} left no System.Console or reference pack ({framework}).");
+        Console.WriteLine($"The shared framework for witos-{architecture.Name}: {Directory.GetFiles(framework, "*.dll").Length} libraries ({framework}).");
+
         var answers = await ReadAnswersAsync(objects, probes);
         var measured = await MeasureProbesAsync(root, architecture, probes);
         var report = Path.Combine(root, "artifacts", "runtime-witos", $"tryrun-{architecture.Name}.json");
@@ -165,7 +174,8 @@ internal static class RuntimeWitos
         if (Directory.Exists(directory))
             Directory.Delete(directory, recursive: true);
         Directory.CreateDirectory(directory);
-        var program = await CompileProgramAsync(root, tree, ilc, aotsdk, architecture, "Platform", [Path.Combine(root, PLATFORM_PROGRAM)], []);
+        var program = await CompileProgramAsync(root, tree, ilc, aotsdk, architecture, "Platform", [Path.Combine(root, PLATFORM_PROGRAM)],
+            [Path.Combine(aotsdk, "System.Private.CoreLib.dll")], [], []);
         await RequireConstantMainAsync(root, tree, program, architecture);
         Console.WriteLine($"ILC for witos-{architecture.Name}: {PLATFORM_PROGRAM} is an ELF object whose Main returns the constant 0 ({program}).");
         var executable = await LinkProgramAsync(root, tree, program, aotsdk, architecture, PLATFORM_EXECUTABLE);
@@ -178,10 +188,13 @@ internal static class RuntimeWitos
         });
         Console.WriteLine($"NativeAOT on witos-{architecture.Name}: {PLATFORM_PROGRAM} ran in the guest as /bin/init and exited with 0 ({executable}).");
 
-        // The M3 acceptance (R2.2): its output goes through the libc's write, bound as a direct P/Invoke, until the class
-        // libraries above CoreLib are built for witos.
+        // The M3 acceptance (R2.2), compiled against the reference pack as an SDK build compiles a program, and by ILC with
+        // the shared framework's libraries (R2.3a): its output goes through System.Console, its native pages and the
+        // thread's id through the libc as a direct P/Invoke.
         var sources = Directory.GetFiles(Path.Combine(root, ACCEPTANCE_PROGRAM), "*.cs").Order(StringComparer.Ordinal).ToArray();
-        var acceptance = await CompileProgramAsync(root, tree, ilc, aotsdk, architecture, "Acceptance", sources, ["--directpinvoke:libc"]);
+        var acceptance = await CompileProgramAsync(root, tree, ilc, aotsdk, architecture, "Acceptance", sources,
+            Directory.GetFiles(references, "*.dll").Order(StringComparer.Ordinal).ToArray(), [Path.Combine(framework, "*.dll")],
+            ["--directpinvoke:libc"]);
         var acceptanceExecutable = await LinkProgramAsync(root, tree, acceptance, aotsdk, architecture, ACCEPTANCE_EXECUTABLE);
         image = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_ACCEPTANCE_SCENARIO, architecture: architecture);
         await BootScenarioRunner.RunAsync(root, image, new BootRequest($"{architecture.Name}-runtime-acceptance-256", 256, 900, ExpectedOutcome.Success)
@@ -420,12 +433,13 @@ internal static class RuntimeWitos
         return ilc;
     }
 
-    // The program (R1.3): the SDK's C# compiler builds it against the witos CoreLib alone, and ILC compiles it for the
-    // architecture with the NativeAOT class libraries, with the arguments a publish passes (R2.1): those
+    // A program: the SDK's C# compiler builds it against the references (the witos CoreLib alone for the first program,
+    // R1.3; the reference pack for the acceptance, R2.3a), and ILC compiles it for the architecture with the NativeAOT
+    // class libraries and the libraries given (the shared framework's), with the arguments a publish passes (R2.1): those
     // Microsoft.NETCore.Native.targets gives a program by default, the libraries witos builds as direct P/Invokes, the
     // program's own (extra), and the SDK's switches. The object must be a relocatable ELF object for the architecture.
     private static async Task<string> CompileProgramAsync(string root, string tree, string ilc, string sdk, KernelArchitecture architecture,
-        string name, string[] sources, string[] extra)
+        string name, string[] sources, string[] references, string[] libraries, string[] extra)
     {
         var directory = ProgramDirectory(root, architecture);
         var sdks = Directory.GetDirectories(Path.Combine(tree, ".dotnet", "sdk"));
@@ -435,14 +449,15 @@ internal static class RuntimeWitos
         await RunToolAsync(Path.Combine(tree, ".dotnet", "dotnet"),
         [
             Path.Combine(sdks[0], "Roslyn", "bincore", "csc.dll"), "-nologo", "-noconfig", "-nostdlib", "-deterministic", "-optimize+",
-            "-unsafe", "-nullable:enable", "-target:exe", $"-r:{Path.Combine(sdk, "System.Private.CoreLib.dll")}", $"-out:{assembly}",
+            "-unsafe", "-nullable:enable", "-target:exe", .. references.Select(reference => $"-r:{reference}"), $"-out:{assembly}",
             .. sources
         ], tree);
         var program = Path.Combine(directory, name + ".o");
         using var switches = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(root, PUBLISH_SWITCHES)));
         await RunToolAsync(ilc,
         [
-            assembly, $"-o:{program}", $"-r:{Path.Combine(sdk, "*.dll")}", "--targetos:witos", $"--targetarch:{architecture.Name}",
+            assembly, $"-o:{program}", $"-r:{Path.Combine(sdk, "*.dll")}", .. libraries.Select(library => $"-r:{library}"),
+            "--targetos:witos", $"--targetarch:{architecture.Name}",
             "--dehydrate", "-O", "-g", "--export-dynamic-symbol:DotNetRuntimeDebugHeader",
             "--initassembly:System.Private.CoreLib", "--initassembly:System.Private.StackTraceMetadata",
             "--initassembly:System.Private.TypeLoader", "--initassembly:System.Private.Reflection.Execution",
@@ -496,6 +511,11 @@ internal static class RuntimeWitos
         ], tree);
         return executable;
     }
+
+    // The shared framework's libraries for the architecture (R2.3a): the runtime pack's lib directory.
+    private static string FrameworkDirectory(string tree, KernelArchitecture architecture) =>
+        Path.Combine(tree, "artifacts", "bin", $"microsoft.netcore.app.runtime.witos-{architecture.Name}", "Release", "runtimes",
+            $"witos-{architecture.Name}", "lib", "net10.0");
 
     private static string ProgramDirectory(string root, KernelArchitecture architecture) =>
         Path.Combine(root, "artifacts", "runtime-witos", "ilc", architecture.Name);

@@ -4,11 +4,11 @@ using System.Runtime.InteropServices;
 namespace WitOS.Acceptance;
 
 /// <summary>
-/// The libc functions the acceptance calls: output to the log, a page of native memory and the thread's id.
+/// The libc functions the acceptance calls: a page of native memory and the thread's id.
 /// </summary>
 /// <remarks>
 /// runtime-witos binds them as direct P/Invokes (--directpinvoke:libc), so the linker resolves them in the system
-/// layer's libc; the class libraries above CoreLib are not built for witos yet.
+/// layer's libc. The carried probes made the same calls to kernel32.
 /// </remarks>
 internal static unsafe class Libc
 {
@@ -21,21 +21,6 @@ internal static unsafe class Libc
     #endregion
 
     #region Functions
-
-    /// <summary>
-    /// Writes one line to standard output, which the system layer gives the kernel log.
-    /// </summary>
-    /// <param name="text">ASCII text without the newline.</param>
-    /// <returns>True when every byte was written.</returns>
-    internal static bool Line(string text)
-    {
-        var bytes = new byte[text.Length + 1];
-        for (int i = 0; i < text.Length; ++i)
-            bytes[i] = text[i] < 128 ? (byte)text[i] : (byte)'?';
-        bytes[^1] = (byte)'\n';
-        fixed (byte* pointer = bytes)
-            return Write(1, pointer, bytes.Length) == bytes.Length;
-    }
 
     /// <summary>
     /// Maps anonymous readable and writable memory.
@@ -65,9 +50,6 @@ internal static unsafe class Libc
     #endregion
 
     #region Tools
-
-    [DllImport("libc", EntryPoint = "write", ExactSpelling = true)]
-    private static extern nint Write(int descriptor, byte* bytes, nint count);
 
     [DllImport("libc", EntryPoint = "mmap", ExactSpelling = true)]
     private static extern void* MemoryMap(void* address, nuint bytes, int protection, int flags, int descriptor, nint offset);

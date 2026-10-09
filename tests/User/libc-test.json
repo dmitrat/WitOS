@@ -1,5 +1,5 @@
 {
-  "purpose": "The libc-test programs the libc-test scenario runs (S1.3, S2, S3, S7.1, S7.2, K5.3): those whose needs the substrate has (threads, futex-equivalent waits and signals of the own process, dynamic loading, but no fork, pipes, sockets, writable files or resource limits; at most sixteen threads of a process, K5.3). Every test runs in a process of its own, built statically and dynamically as libc-test builds it; the dynamic-only tests open a shared library of libc-test with dlopen, and the math suite is built dynamically alone, as libc-test builds it. mathExcluded names the math tests left out on an ISA. Every listed run must pass on both ISAs; the reasons for the rest are in S1.3-Libc-Test.md, S2-Threads.md, S7.1-Libc-Test-Processes.md and S7.2-Libc-Test-Math.md.",
+  "purpose": "The libc-test programs the libc-test scenario runs (S1.3, S2, S3, S7.1, S7.2, K5.3): those whose needs the substrate has (threads, futex-equivalent waits and signals of the own process, dynamic loading, pipes within a process (R2.3a), but no fork, sockets, writable files or resource limits; at most sixteen threads of a process, K5.3). Every test runs in a process of its own, built statically and dynamically as libc-test builds it; the dynamic-only tests open a shared library of libc-test with dlopen, and the math suite is built dynamically alone, as libc-test builds it. mathExcluded names the math tests left out on an ISA. Every listed run must pass on both ISAs; the reasons for the rest are in S1.3-Libc-Test.md, S2-Threads.md, S7.1-Libc-Test-Processes.md and S7.2-Libc-Test-Math.md.",
   "support": [
     "src/common/print.c",
     "src/common/rand.c",
@@ -60,6 +60,7 @@
     "functional/wcstol",
     "regression/dn_expand-empty",
     "regression/dn_expand-ptr-0",
+    "regression/fgetwc-buffering",
     "regression/fgets-eof",
     "regression/fpclassify-invalid-ld80",
     "regression/iconv-roundtrips",
@@ -89,6 +90,7 @@
     "regression/regex-escaped-high-byte",
     "regression/regex-negated-range",
     "regression/regexec-nosub",
+    "regression/rewind-clear-error",
     "regression/scanf-bytes-consumed",
     "regression/scanf-match-literal-eof",
     "regression/scanf-nullbyte-char",

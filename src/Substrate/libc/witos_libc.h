@@ -57,6 +57,21 @@ long __wit_getdents(long fd, unsigned char *buffer, long bytes);
 long __wit_getcwd(char *buffer, long size);
 long __wit_fcntl(long fd, long command, long argument);
 int __wit_is_file_descriptor(long fd);
+long __wit_stream_of(long fd); /* the standard stream fd stands for, -1 for none (R2.3a) */
+long __wit_dup(long fd, long lowest, int close_on_exec);
+long __wit_dup3(long fd, long target, long flags); /* flags -1: dup2 */
+long __wit_pipe2(int *fds, long flags);
+int __wit_pipe_of(long fd, WitU32 *index, int *write_end, int *nonblocking);
+long __wit_pipe_bytes(long fd);
+
+/* Pipes within the process (pipe.c, R2.3a). */
+long __wit_pipe_create(WitU32 *index);
+void __wit_pipe_reference(WitU32 index);
+void __wit_pipe_release(WitU32 index);
+void __wit_pipe_end(WitU32 index, int write_end, int delta);
+long __wit_pipe_read(WitU32 index, unsigned char *buffer, unsigned long bytes, int nonblocking);
+long __wit_pipe_write(WitU32 index, const unsigned char *buffer, unsigned long bytes, int nonblocking);
+long __wit_pipe_available(WitU32 index);
 /* The current directory (files.c, S6.2): chdir, fchdir; the absolute directory a path names from a base directory
  * (the current one when null) or a directory descriptor names, which must exist, for posix_spawn; the directory the
  * start message names. */

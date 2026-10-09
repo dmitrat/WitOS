@@ -2,6 +2,7 @@
 #include "witos_libc.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/membarrier.h>
@@ -52,19 +53,17 @@ long __wit_errno(WitU64 status)
     }
 }
 
-/* A standard descriptor that is open: the start message or a close may have taken one away (S6.2). */
-static int standard_descriptor(long fd)
+/* The output stream fd stands for: a standard descriptor that is open, which the start message or a close may have
+ * taken away (S6.2), or a duplicate of one (R2.3a); standard input is no output. */
+static int output_stream(long fd)
 {
-    return fd >= 0 && fd <= 2 && !(__wit_process.ClosedStreams & (1U << fd));
+    return __wit_stream_of(fd) > 0;
 }
 
 static long write_log(long fd, const void *buffer, unsigned long length)
 {
     unsigned long written = 0;
-    if (!standard_descriptor(fd)) {
-        return -EBADF;
-    }
-    if (fd == 0) {
+    if (!output_stream(fd)) {
         return -EBADF;
     }
     while (written < length) {
@@ -91,7 +90,7 @@ static long writev_log(long fd, const struct iovec *vectors, long count)
     if (count < 0 || count > 1024) {
         return -EINVAL;
     }
-    if (!standard_descriptor(fd) || fd == 0) {
+    if (!output_stream(fd)) {
         return -EBADF;
     }
     for (long i = 0; i < count; ++i) {
@@ -137,8 +136,15 @@ static long writev_total(const struct iovec *vectors, long count)
 
 static long terminal_ioctl(long fd, long request, void *argument)
 {
-    if (!standard_descriptor(fd)) {
-        return -EBADF;
+    if (__wit_stream_of(fd) < 0) {
+        if (request == FIONREAD) {
+            const long bytes = __wit_pipe_bytes(fd); /* the bytes a pipe's read end holds */
+            if (bytes >= 0) {
+                *(int *)argument = (int)bytes;
+                return 0;
+            }
+        }
+        return __wit_fcntl(fd, F_GETFD, 0) < 0 ? -EBADF : -ENOTTY;
     }
     if (request == TIOCGWINSZ) {
         struct winsize *size = argument;
@@ -352,6 +358,77 @@ static int uses_tables(long n)
 
 static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a6);
 
+#define NOT_A_PIPE (-0x10000L) /* outside the errno range */
+
+/* readv and writev on a pipe: vector by vector, except that a write of at most PIPE_BUF bytes in all is joined first,
+ * so that it stays one atomic write (musl's stdio flushes its buffer and the new bytes as two vectors). */
+static long pipe_vectors(WitU32 index, int write_end, int nonblocking, const struct iovec *vectors, long count)
+{
+    long total = 0;
+    if (count < 0 || count > 1024) {
+        return -EINVAL;
+    }
+    if (write_end) {
+        unsigned long all = 0;
+        for (long i = 0; i < count; ++i) {
+            all += vectors[i].iov_len;
+        }
+        if (all <= PIPE_BUF) {
+            unsigned char joined[PIPE_BUF];
+            unsigned long filled = 0;
+            for (long i = 0; i < count; ++i) {
+                memcpy(joined + filled, vectors[i].iov_base, vectors[i].iov_len);
+                filled += vectors[i].iov_len;
+            }
+            return filled ? __wit_pipe_write(index, joined, filled, nonblocking) : 0;
+        }
+    }
+    for (long i = 0; i < count; ++i) {
+        if (vectors[i].iov_len == 0) {
+            continue;
+        }
+        const long moved = write_end ? __wit_pipe_write(index, vectors[i].iov_base, vectors[i].iov_len, nonblocking)
+                                     : __wit_pipe_read(index, vectors[i].iov_base, vectors[i].iov_len, nonblocking);
+        if (moved < 0) {
+            return total ? total : moved;
+        }
+        total += moved;
+        if ((unsigned long)moved < vectors[i].iov_len) {
+            break;
+        }
+    }
+    return total;
+}
+
+/* A transfer on a pipe's end (pipe.c) runs outside the table lock, since it may park until another thread moves
+ * bytes: the lock is held only to find the pipe and take a reference, and again to drop it. NOT_A_PIPE otherwise. */
+static long pipe_transfer(long n, long fd, long a2, long a3)
+{
+    WitU32 index;
+    int write_end, nonblocking;
+    __wit_lock(&tables);
+    const int found = __wit_pipe_of(fd, &index, &write_end, &nonblocking);
+    __wit_unlock(&tables);
+    if (!found) {
+        return NOT_A_PIPE;
+    }
+    const int writing = n == SYS_write || n == SYS_writev;
+    long r;
+    if (writing != write_end) {
+        r = -EBADF;
+    } else if (n == SYS_read) {
+        r = a3 < 0 ? -EINVAL : __wit_pipe_read(index, (unsigned char *)a2, (unsigned long)a3, nonblocking);
+    } else if (n == SYS_write) {
+        r = a3 < 0 ? -EINVAL : __wit_pipe_write(index, (const unsigned char *)a2, (unsigned long)a3, nonblocking);
+    } else {
+        r = pipe_vectors(index, write_end, nonblocking, (const struct iovec *)a2, a3);
+    }
+    __wit_lock(&tables);
+    __wit_pipe_release(index);
+    __wit_unlock(&tables);
+    return r;
+}
+
 /* The stack of an exiting detached thread leaves the mapping table under the table lock (__unmapself). */
 void __wit_mapping_forget_locked(WitU64 base)
 {
@@ -364,6 +441,12 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
 {
     if (!uses_tables(n)) {
         return dispatch(n, a1, a2, a3, a4, a5, a6);
+    }
+    if (n == SYS_read || n == SYS_readv || n == SYS_write || n == SYS_writev) {
+        const long transferred = pipe_transfer(n, a1, a2, a3);
+        if (transferred != NOT_A_PIPE) {
+            return transferred;
+        }
     }
     __wit_lock(&tables);
     const long r = dispatch(n, a1, a2, a3, a4, a5, a6);
@@ -392,14 +475,15 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
     case SYS_writev:
         return __wit_is_file_descriptor(a1) ? __wit_write_file(a1, writev_total((const struct iovec *)a2, a3))
                                             : writev_log(a1, (const struct iovec *)a2, a3);
-    case SYS_read:
-        return a1 == 0 ? (standard_descriptor(0) ? 0 : -EBADF) : __wit_read(a1, (void *)a2, a3);
+    case SYS_read: /* standard input ends at once; an output stream is not for reading */
+        return __wit_stream_of(a1) >= 0 ? (__wit_stream_of(a1) == 0 ? 0 : -EBADF) : __wit_read(a1, (void *)a2, a3);
     case SYS_readv:
-        return a1 == 0 ? (standard_descriptor(0) ? 0 : -EBADF) : __wit_readv(a1, (const struct iovec *)a2, a3);
+        return __wit_stream_of(a1) >= 0 ? (__wit_stream_of(a1) == 0 ? 0 : -EBADF)
+                                        : __wit_readv(a1, (const struct iovec *)a2, a3);
     case SYS_pread64:
         return __wit_pread(a1, (void *)a2, a3, a4);
     case SYS_ioctl:
-        return __wit_is_file_descriptor(a1) ? -ENOTTY : terminal_ioctl(a1, a2, (void *)a3);
+        return terminal_ioctl(a1, a2, (void *)a3);
     case SYS_openat:
         return __wit_openat(a1, (const char *)a2, a3, a4);
     case SYS_close:
@@ -428,6 +512,20 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
         return __wit_fchdir(a1);
     case SYS_fcntl:
         return __wit_fcntl(a1, a2, a3);
+    case SYS_dup:
+        return __wit_dup(a1, 0, 0);
+    case SYS_dup3:
+        return __wit_dup3(a1, a2, a3);
+#if defined(SYS_dup2)
+    case SYS_dup2:
+        return __wit_dup3(a1, a2, -1);
+#endif
+    case SYS_pipe2:
+        return __wit_pipe2((int *)a1, a2);
+#if defined(SYS_pipe)
+    case SYS_pipe:
+        return __wit_pipe2((int *)a1, 0);
+#endif
 #if defined(SYS_open)
     case SYS_open:
         return __wit_openat(AT_FDCWD, (const char *)a1, a2, a3);

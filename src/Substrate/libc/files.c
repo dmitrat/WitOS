@@ -20,7 +20,15 @@
  * symbolic links. The current directory is the library's (S6.2): a relative path joins the current directory or a
  * directory descriptor and is normalized with it, so ".." climbs out of it; chdir and fchdir accept a directory of
  * the package, and a process starts in the directory its start message names. Descriptors 3 and above are the files;
- * 0–2 are the standard streams over the kernel log (syscall.c), which close takes away one by one. */
+ * 0–2 are the standard streams over the kernel log (syscall.c), which close takes away one by one.
+ *
+ * Duplicates (R2.3a): dup, dup2, dup3 and F_DUPFD give a descriptor the same open file description, as Linux does,
+ * so the duplicates share one position and one set of status flags (O_NONBLOCK) and keep their own FD_CLOEXEC. A
+ * duplicate of a standard stream is a stream descriptor that writes to the log as 1 and 2 do. Descriptors 0–2 are
+ * slots of the same table: an empty slot is its standard stream until closed, a closed one is free for the lowest
+ * descriptor an open or a dup takes, and dup2 may put a file, a pipe or another stream there, which then stands for
+ * that descriptor within this process (a started process gets the log for each standard stream the caller has open
+ * as the log, and no other). The ends of a pipe (pipe.c) are descriptors too. */
 
 #define PACKAGE_HANDLE (__wit_process.Package)
 #define PAGE 4096ULL
@@ -40,18 +48,31 @@ typedef enum Kind {
     KindDirectory,
     KindNull, /* /dev/null: reads nothing, accepts writes */
     KindZero, /* /dev/zero: reads zeros, accepts writes */
-    KindRandom /* /dev/urandom and /dev/random: read the kernel's entropy, accept writes, as Linux's do */
+    KindRandom, /* /dev/urandom and /dev/random: read the kernel's entropy, accept writes, as Linux's do */
+    KindStream, /* a duplicate of standard stream Index (0, 1 or 2) */
+    KindPipeRead, /* the read end of pipe Index (pipe.c) */
+    KindPipeWrite /* the write end of pipe Index */
 } Kind;
 
 typedef struct Descriptor {
     Kind Kind;
-    WitU32 Index; /* the entry of a file; the first entry under a directory's prefix */
+    WitU32 Index; /* the entry of a file; the first entry under a directory's prefix; a stream; a pipe */
     WitU32 PrefixLength; /* of a directory: the name prefix including the trailing '/', 0 for the root */
-    WitU64 Offset; /* the file position; a directory's reading cursor */
-    int Flags;
+    WitU32 Description; /* the open file description it shares with its duplicates */
+    int CloseOnExec; /* FD_CLOEXEC, the descriptor's own */
 } Descriptor;
 
+/* An open file description: what an open made and its duplicates share. */
+typedef struct Description {
+    WitU64 Offset; /* the file position; a directory's reading cursor */
+    int StatusFlags; /* the open's flags but O_CLOEXEC; F_SETFL changes O_NONBLOCK */
+    WitU32 References; /* the descriptors that share it; zero when free */
+} Description;
+
 static Descriptor descriptors[DESCRIPTORS];
+static Description descriptions[DESCRIPTORS];
+
+#define POSITION(d) (descriptions[(d)->Description].Offset)
 static unsigned char directory[NAME_MAX_BYTES]; /* the current directory: a name prefix without slashes at its ends */
 static WitU32 directory_length; /* zero for the root */
 static const unsigned char *table; /* the mapped header and table window */
@@ -294,27 +315,55 @@ static long lookup(const unsigned char *name, WitU32 length, Kind *kind, WitU32 
     return -ENOENT;
 }
 
+/* An open descriptor of the table; a standard descriptor that is still its stream has none. */
 static Descriptor *descriptor(long fd)
 {
-    if (fd < FIRST_DESCRIPTOR || fd >= DESCRIPTORS || descriptors[fd].Kind == KindClosed) {
+    if (fd < 0 || fd >= DESCRIPTORS || descriptors[fd].Kind == KindClosed) {
         return 0;
     }
     return &descriptors[fd];
 }
 
-static long open_descriptor(Kind kind, WitU32 index, WitU32 prefix_length, int flags)
+/* A slot a new descriptor may take: empty, and below 3 only once its standard stream is closed. */
+static int slot_free(long fd)
 {
-    for (long fd = FIRST_DESCRIPTOR; fd < DESCRIPTORS; ++fd) {
-        if (descriptors[fd].Kind == KindClosed) {
-            descriptors[fd].Kind = kind;
-            descriptors[fd].Index = index;
-            descriptors[fd].PrefixLength = prefix_length;
-            descriptors[fd].Offset = 0;
-            descriptors[fd].Flags = flags;
+    return descriptors[fd].Kind == KindClosed && (fd >= FIRST_DESCRIPTOR || (__wit_process.ClosedStreams & (1U << fd)));
+}
+
+static long free_descriptor(long lowest)
+{
+    for (long fd = lowest < 0 ? 0 : lowest; fd < DESCRIPTORS; ++fd) {
+        if (slot_free(fd)) {
             return fd;
         }
     }
     return -EMFILE;
+}
+
+static long open_descriptor(Kind kind, WitU32 index, WitU32 prefix_length, int flags)
+{
+    const long fd = free_descriptor(0);
+    if (fd < 0) {
+        return fd;
+    }
+    WitU32 description = 0;
+    while (descriptions[description].References) {
+        ++description; /* a free description exists: each one in use has a descriptor of its own */
+    }
+    descriptions[description] = (Description){0, flags & ~O_CLOEXEC, 1};
+    descriptors[fd] = (Descriptor){kind, index, prefix_length, description, (flags & O_CLOEXEC) != 0};
+    return fd;
+}
+
+/* A descriptor goes; its description and a pipe's end go with the last one. */
+static void close_descriptor(Descriptor *d)
+{
+    if (d->Kind == KindPipeRead || d->Kind == KindPipeWrite) {
+        __wit_pipe_end(d->Index, d->Kind == KindPipeWrite, -1);
+        __wit_pipe_release(d->Index);
+    }
+    --descriptions[d->Description].References;
+    d->Kind = KindClosed;
 }
 
 /* The name of a directory descriptor: its prefix without the trailing '/', empty for the root. */
@@ -515,10 +564,10 @@ long __wit_close(long fd)
         if (fd < 0 || fd >= FIRST_DESCRIPTOR || (__wit_process.ClosedStreams & (1U << fd))) {
             return -EBADF;
         }
-        __wit_process.ClosedStreams |= 1U << fd; /* a standard stream goes for good (S6.2) */
+        __wit_process.ClosedStreams |= 1U << fd; /* a standard stream goes until a dup or dup2 fills the slot (S6.2) */
         return 0;
     }
-    d->Kind = KindClosed;
+    close_descriptor(d);
     return 0;
 }
 
@@ -580,9 +629,12 @@ long __wit_read(long fd, void *buffer, long bytes)
     if (d->Kind == KindRandom) {
         return read_random(buffer, bytes);
     }
-    const long read = read_file(d, buffer, (WitU64)bytes, d->Offset);
+    if (d->Kind != KindFile) {
+        return -EBADF; /* a stream or a pipe never reaches here (syscall.c) */
+    }
+    const long read = read_file(d, buffer, (WitU64)bytes, POSITION(d));
     if (read > 0) {
-        d->Offset += (WitU64)read;
+        POSITION(d) += (WitU64)read;
     }
     return read;
 }
@@ -608,6 +660,9 @@ long __wit_pread(long fd, void *buffer, long bytes, long offset)
     }
     if (d->Kind == KindRandom) {
         return read_random(buffer, bytes);
+    }
+    if (d->Kind != KindFile) {
+        return -ESPIPE;
     }
     return read_file(d, buffer, (WitU64)bytes, (WitU64)offset);
 }
@@ -648,7 +703,10 @@ long __wit_lseek(long fd, long offset, long whence)
 {
     Descriptor *d = descriptor(fd);
     if (!d) {
-        return fd >= 0 && fd < FIRST_DESCRIPTOR ? -ESPIPE : -EBADF;
+        return __wit_stream_of(fd) >= 0 ? -ESPIPE : -EBADF;
+    }
+    if (d->Kind == KindStream || d->Kind == KindPipeRead || d->Kind == KindPipeWrite) {
+        return -ESPIPE;
     }
     WitU64 length = 0;
     if (d->Kind == KindFile) {
@@ -663,7 +721,7 @@ long __wit_lseek(long fd, long offset, long whence)
         base = 0;
         break;
     case SEEK_CUR:
-        base = d->Offset;
+        base = POSITION(d);
         break;
     case SEEK_END:
         base = length;
@@ -674,8 +732,8 @@ long __wit_lseek(long fd, long offset, long whence)
     if (offset < 0 && (WitU64)(-offset) > base) {
         return -EINVAL;
     }
-    d->Offset = base + (WitU64)offset;
-    return (long)d->Offset;
+    POSITION(d) = base + (WitU64)offset;
+    return (long)POSITION(d);
 }
 
 static void fill_stat(struct kstat *st, Kind kind, WitU32 index, WitU64 length)
@@ -692,6 +750,13 @@ static void fill_stat(struct kstat *st, Kind kind, WitU32 index, WitU64 length)
     } else if (kind == KindDirectory) {
         st->st_ino = (ino_t)(DIRECTORY_INODE_BASE + index);
         st->st_mode = S_IFDIR | 0555;
+    } else if (kind == KindPipeRead || kind == KindPipeWrite) {
+        st->st_dev = 2;
+        st->st_ino = (ino_t)index + 1;
+        st->st_mode = S_IFIFO | 0600;
+    } else if (kind == KindStream) {
+        st->st_ino = 3; /* the standard streams' device */
+        st->st_mode = S_IFCHR | 0666;
     } else {
         st->st_ino = 2;
         st->st_mode = S_IFCHR | 0666;
@@ -814,13 +879,13 @@ long __wit_getdents(long fd, unsigned char *buffer, long bytes)
         unsigned char type = DT_DIR;
         WitU64 inode = 0;
         WitU32 next;
-        if (d->Offset == 0 || d->Offset == 1) {
-            child = (const unsigned char *)(d->Offset == 0 ? "." : "..");
-            child_length = d->Offset == 0 ? 1 : 2;
+        if (POSITION(d) == 0 || POSITION(d) == 1) {
+            child = (const unsigned char *)(POSITION(d) == 0 ? "." : "..");
+            child_length = POSITION(d) == 0 ? 1 : 2;
             inode = DIRECTORY_INODE_BASE + d->Index;
-            next = (WitU32)d->Offset + 1;
+            next = (WitU32)POSITION(d) + 1;
         } else {
-            WitU32 i = (WitU32)(d->Offset - 2);
+            WitU32 i = (WitU32)(POSITION(d) - 2);
             if (i < d->Index) {
                 i = d->Index;
             }
@@ -884,7 +949,7 @@ long __wit_getdents(long fd, unsigned char *buffer, long bytes)
         out[18] = type; /* d_type */
         memcpy(out + 19, child, child_length);
         filled += record;
-        d->Offset = next;
+        POSITION(d) = next;
     }
     return filled;
 }
@@ -898,32 +963,189 @@ long __wit_getcwd(char *buffer, long size)
         1; /* the bytes with the terminator, as Linux returns */
 }
 
+/* The standard stream fd stands for: itself while open, a stream duplicate's own; -1 for anything else. */
+long __wit_stream_of(long fd)
+{
+    const Descriptor *d = descriptor(fd);
+    if (d) {
+        return d->Kind == KindStream ? (long)d->Index : -1;
+    }
+    return fd >= 0 && fd < FIRST_DESCRIPTOR && !(__wit_process.ClosedStreams & (1U << fd)) ? fd : -1;
+}
+
+/* The pipe an end descriptor names, with a reference for the transfer the caller makes outside the table lock. */
+int __wit_pipe_of(long fd, WitU32 *index, int *write_end, int *nonblocking)
+{
+    const Descriptor *d = descriptor(fd);
+    if (!d || (d->Kind != KindPipeRead && d->Kind != KindPipeWrite)) {
+        return 0;
+    }
+    *index = d->Index;
+    *write_end = d->Kind == KindPipeWrite;
+    *nonblocking = (descriptions[d->Description].StatusFlags & O_NONBLOCK) != 0;
+    __wit_pipe_reference(d->Index);
+    return 1;
+}
+
+/* pipe2: two descriptors over a new pipe, the read end first. */
+long __wit_pipe2(int *fds, long flags)
+{
+    WitU32 index;
+    if (flags & ~(O_CLOEXEC | O_NONBLOCK)) {
+        return -EINVAL;
+    }
+    const long reader = free_descriptor(0);
+    if (reader < 0) {
+        return reader;
+    }
+    descriptors[reader].Kind = KindPipeRead; /* held while the second is found */
+    const long writer = free_descriptor(0);
+    descriptors[reader].Kind = KindClosed;
+    if (writer < 0) {
+        return writer;
+    }
+    const long created = __wit_pipe_create(&index);
+    if (created < 0) {
+        return created;
+    }
+    const long read_end = open_descriptor(KindPipeRead, index, 0, (int)(O_RDONLY | flags));
+    const long write_end = open_descriptor(KindPipeWrite, index, 0, (int)(O_WRONLY | flags));
+    fds[0] = (int)read_end;
+    fds[1] = (int)write_end;
+    return 0;
+}
+
+/* What fd names, as a source of a duplicate: a stream (its number) or a descriptor; -EBADF for neither. */
+static long duplicate_source(long fd, const Descriptor **source)
+{
+    *source = 0;
+    const long stream = __wit_stream_of(fd);
+    if (stream >= 0) {
+        return stream;
+    }
+    *source = descriptor(fd);
+    return *source ? 3 : -EBADF;
+}
+
+/* Makes the free slot target a duplicate of the source. A standard descriptor given its own stream back, or an output
+ * given an output (both are the log), is that stream again; any other duplicate there stands for it within this
+ * process. */
+static void duplicate_into(long target, long stream, const Descriptor *source, int close_on_exec)
+{
+    if (target < FIRST_DESCRIPTOR) {
+        if (!source && (stream == target || (stream > 0 && target > 0))) {
+            __wit_process.ClosedStreams &= ~(1U << target);
+            return;
+        }
+        __wit_process.ClosedStreams |= 1U << target; /* closing the duplicate there leaves the descriptor closed */
+    }
+    if (!source) {
+        WitU32 description = 0;
+        while (descriptions[description].References) {
+            ++description;
+        }
+        descriptions[description] = (Description){0, stream == 0 ? O_RDONLY : O_WRONLY, 1};
+        descriptors[target] = (Descriptor){KindStream, (WitU32)stream, 0, description, close_on_exec};
+        return;
+    }
+    descriptors[target] = *source;
+    descriptors[target].CloseOnExec = close_on_exec;
+    ++descriptions[source->Description].References;
+    if (source->Kind == KindPipeRead || source->Kind == KindPipeWrite) {
+        __wit_pipe_reference(source->Index);
+        __wit_pipe_end(source->Index, source->Kind == KindPipeWrite, 1);
+    }
+}
+
+/* dup and F_DUPFD: the lowest free descriptor at or above lowest. */
+long __wit_dup(long fd, long lowest, int close_on_exec)
+{
+    const Descriptor *source;
+    const long stream = duplicate_source(fd, &source);
+    if (stream < 0) {
+        return stream;
+    }
+    if (lowest < 0) {
+        return -EINVAL;
+    }
+    const long target = free_descriptor(lowest);
+    if (target < 0) {
+        return target;
+    }
+    duplicate_into(target, stream, source, close_on_exec);
+    return target;
+}
+
+/* dup2 (flags -1) and dup3: target becomes fd's duplicate, closed first when open. */
+long __wit_dup3(long fd, long target, long flags)
+{
+    const Descriptor *source;
+    const long stream = duplicate_source(fd, &source);
+    if (stream < 0) {
+        return stream;
+    }
+    if (flags != -1 && (flags & ~O_CLOEXEC)) {
+        return -EINVAL;
+    }
+    if (target == fd) {
+        return flags == -1 ? target : -EINVAL;
+    }
+    if (target < 0 || target >= DESCRIPTORS) {
+        return -EBADF;
+    }
+    Descriptor *old = descriptor(target);
+    if (old) {
+        close_descriptor(old);
+    } else if (target < FIRST_DESCRIPTOR) {
+        __wit_process.ClosedStreams |= 1U << target; /* the standard stream there is replaced */
+    }
+    duplicate_into(target, stream, source, flags != -1 && (flags & O_CLOEXEC));
+    return target;
+}
+
 long __wit_fcntl(long fd, long command, long argument)
 {
+    if (command == F_DUPFD || command == F_DUPFD_CLOEXEC) {
+        return __wit_dup(fd, argument, command == F_DUPFD_CLOEXEC);
+    }
     Descriptor *d = descriptor(fd);
-    (void)argument;
     if (!d) {
         if (fd >= 0 && fd < FIRST_DESCRIPTOR && !(__wit_process.ClosedStreams & (1U << fd))) {
             return command == F_GETFL ? (fd == 0 ? O_RDONLY : O_WRONLY)
-                                      : (command == F_GETFD || command == F_SETFD ? 0 : -EINVAL);
+                                      : (command == F_GETFD || command == F_SETFD || command == F_SETFL ? 0 : -EINVAL);
         }
         return -EBADF;
     }
+    Description *description = &descriptions[d->Description];
     switch (command) {
     case F_GETFL:
-        return d->Flags & (O_ACCMODE | O_DIRECTORY | O_NOFOLLOW);
+        return description->StatusFlags & (O_ACCMODE | O_DIRECTORY | O_NOFOLLOW | O_NONBLOCK);
+    case F_SETFL:
+        /* Linux changes O_APPEND, O_ASYNC, O_DIRECT, O_NOATIME and O_NONBLOCK here; only O_NONBLOCK means anything. */
+        description->StatusFlags = (description->StatusFlags & ~O_NONBLOCK) | ((int)argument & O_NONBLOCK);
+        return 0;
     case F_GETFD:
-        return (d->Flags & O_CLOEXEC) ? FD_CLOEXEC : 0;
+        return d->CloseOnExec ? FD_CLOEXEC : 0;
     case F_SETFD:
+        d->CloseOnExec = (argument & FD_CLOEXEC) != 0;
         return 0;
     default:
         return -EINVAL;
     }
 }
 
+/* A descriptor of the package or a device: what files.c reads and writes itself. */
 int __wit_is_file_descriptor(long fd)
 {
-    return descriptor(fd) != 0;
+    const Descriptor *d = descriptor(fd);
+    return d && d->Kind != KindStream && d->Kind != KindPipeRead && d->Kind != KindPipeWrite;
+}
+
+/* FIONREAD of a pipe's read end: -ENOTTY for anything else. */
+long __wit_pipe_bytes(long fd)
+{
+    const Descriptor *d = descriptor(fd);
+    return d && d->Kind == KindPipeRead ? __wit_pipe_available(d->Index) : -ENOTTY;
 }
 
 /* What mmap (memory.c, S5.1) maps for a descriptor: a package file's data offset in the package and its length

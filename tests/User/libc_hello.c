@@ -12,9 +12,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/random.h>
 #include <sys/stat.h>
+#include <sys/uio.h>
 #include <sys/utsname.h>
 #include <time.h>
 #include <unistd.h>
@@ -25,7 +27,8 @@
  * entropy from the kernel's clocks, thread-local storage of the main thread, atexit, and (S1.2) the files of the
  * read-only boot package: stdio, stat, directories, the refusals of writing, and (S2) threads: creation and join,
  * a mutex, a condition variable, thread-specific data, thread-local storage and errno per thread, a detached
- * thread and a semaphore, and (K5.3) the system layer's sixteen threads of a process; then it exits with zero. The
+ * thread and a semaphore, (K5.3) the system layer's sixteen threads of a process, and (R2.3a) duplicates and pipes;
+ * then it exits with zero. The
  * last line names the library and the ISA for the boot scenario's check. */
 
 #if defined(__x86_64__)
@@ -62,6 +65,7 @@ static struct Shared {
     sem_t Done;
     sem_t Gate;
     void *DetachedStack;
+    int PipeEnd;
     int Counter, Flag, Destructors, WorkerErrno, Arrived;
 } shared;
 
@@ -124,6 +128,27 @@ static void *gated_worker(void *argument)
 static void *brief_worker(void *argument)
 {
     return argument;
+}
+
+#define PIPE_TRANSFER 40000 /* more than a pipe's buffer holds */
+
+/* Writes PIPE_TRANSFER bytes into a pipe after the reader parked, then closes its end. */
+static void *pipe_worker(void *argument)
+{
+    static char chunk[1000];
+    struct timespec pause = {0, 10000000};
+    (void)argument;
+    nanosleep(&pause, 0);
+    for (int sent = 0; sent < PIPE_TRANSFER; sent += (int)sizeof(chunk)) {
+        for (int i = 0; i < (int)sizeof(chunk); ++i) {
+            chunk[i] = (char)((sent + i) % 251);
+        }
+        if (write(shared.PipeEnd, chunk, sizeof(chunk)) != (long)sizeof(chunk)) {
+            return (void *)1;
+        }
+    }
+    close(shared.PipeEnd);
+    return 0;
 }
 
 /* Signals (S3): handlers record what they saw; the alternate stack is a static buffer the kernel accepts. */
@@ -392,6 +417,44 @@ int main(void)
         close(null_device);
     }
 
+    /* Duplicates (R2.3a): a standard stream's duplicate writes to the log, a file's shares its position and outlives
+     * it, F_DUPFD takes the lowest free descriptor at or above its argument, and dup2 reopens a closed standard stream
+     * from another. */
+    static const char through[] = "[LIBC] written through a duplicate of standard output\n";
+    const int out = dup(1);
+    check(out > 2 && write(out, through, sizeof(through) - 1) == (long)sizeof(through) - 1 && fcntl(out, F_GETFD) == 0,
+        "a duplicate of standard output writes to the log");
+    const int high = fcntl(1, F_DUPFD_CLOEXEC, 20);
+    check(high >= 20 && fcntl(high, F_GETFD) == FD_CLOEXEC && close(high) == 0 && close(out) == 0,
+        "F_DUPFD_CLOEXEC from 20");
+    const int first = open("/test/hello.txt", O_RDONLY);
+    const int second = first >= 0 ? dup(first) : -1;
+    char word[8] = {0};
+    check(second > first &&
+            read(first, word, 6) == 6 &&
+            memcmp(word, "Hello,", 6) == 0 &&
+            read(second, word, 8) == 8 &&
+            memcmp(word, " package", 8) == 0 &&
+            lseek(first, 0, SEEK_CUR) == 14,
+        "a file's duplicate shares its position");
+    struct stat duplicate_stat;
+    check(fstat(second, &duplicate_stat) == 0 &&
+            S_ISREG(duplicate_stat.st_mode) &&
+            close(first) == 0 &&
+            read(second, word, 1) == 1 &&
+            word[0] == '!' &&
+            close(second) == 0,
+        "a duplicate outlives the original");
+    const int spare = dup(2);
+    check(spare > 2 &&
+            close(2) == 0 &&
+            write(2, "x", 1) == -1 &&
+            errno == EBADF &&
+            dup2(spare, 2) == 2 &&
+            write(2, "", 0) == 0 &&
+            close(spare) == 0,
+        "dup2 reopens a closed standard stream");
+
     /* Threads over the kernel's (S2): creation and join, a mutex, a condition variable, thread-specific data with its
      * destructor, thread-local storage and errno per thread, a detached thread signalling a semaphore, pthread_exit's
      * value. */
@@ -480,6 +543,89 @@ int main(void)
     }
     check(joined == THREAD_CAPACITY - 1 && sem_destroy(&shared.Gate) == 0 && pthread_attr_destroy(&compact) == 0,
         "the fifteen threads passed the gate and joined");
+
+    /* Pipes within the process (R2.3a): bytes in order, a FIFO with FIONREAD and no position, a reader parked until a
+     * writer comes and given the end of the file once it closed, more bytes than the buffer holds, O_NONBLOCK's
+     * EAGAIN on both ends, and EPIPE once no reader is left. */
+    int ends[2], queued = 0;
+    char got[64];
+    struct stat pipe_stat;
+    check(pipe(ends) == 0 &&
+            write(ends[1], "abc", 3) == 3 &&
+            read(ends[0], got, sizeof(got)) == 3 &&
+            memcmp(got, "abc", 3) == 0,
+        "a pipe carries bytes in order");
+    check(fstat(ends[0], &pipe_stat) == 0 &&
+            S_ISFIFO(pipe_stat.st_mode) &&
+            write(ends[1], "de", 2) == 2 &&
+            ioctl(ends[0], FIONREAD, &queued) == 0 &&
+            queued == 2 &&
+            read(ends[0], got, 2) == 2 &&
+            lseek(ends[0], 0, SEEK_CUR) == -1 &&
+            errno == ESPIPE,
+        "a pipe is a FIFO with FIONREAD");
+    struct iovec parts[2] = {{(void *)"he", 2}, {(void *)"llo", 3}};
+    check(writev(ends[1], parts, 2) == 5 && read(ends[0], got, sizeof(got)) == 5 && memcmp(got, "hello", 5) == 0,
+        "writev on a pipe, one write");
+    pthread_t pipe_writer;
+    long total = 0, moved;
+    unsigned long sum = 0, expected = 0;
+    shared.PipeEnd = ends[1];
+    check(pthread_create(&pipe_writer, 0, pipe_worker, 0) == 0, "the pipe's writer thread");
+    while ((moved = read(ends[0], got, sizeof(got))) > 0) {
+        for (long i = 0; i < moved; ++i) {
+            sum += (unsigned char)got[i];
+        }
+        total += moved;
+    }
+    for (long i = 0; i < PIPE_TRANSFER; ++i) {
+        expected += (unsigned long)(i % 251);
+    }
+    void *writer_result = (void *)1;
+    check(moved == 0 &&
+            total == PIPE_TRANSFER &&
+            sum == expected &&
+            pthread_join(pipe_writer, &writer_result) == 0 &&
+            writer_result == 0 &&
+            close(ends[0]) == 0,
+        "a reader parks for the writer and reads the end of the file once it closed");
+    static char filler[4096];
+    int full[2];
+    check(pipe2(full, O_NONBLOCK | O_CLOEXEC) == 0 &&
+            read(full[0], got, 1) == -1 &&
+            errno == EAGAIN &&
+            (fcntl(full[1], F_GETFL) & O_NONBLOCK) &&
+            fcntl(full[1], F_GETFD) == FD_CLOEXEC,
+        "O_NONBLOCK: an empty pipe answers EAGAIN");
+    int written_blocks = 0;
+    while (written_blocks < 8 && write(full[1], filler, sizeof(filler)) == (long)sizeof(filler)) {
+        ++written_blocks;
+    }
+    check(written_blocks == 4 && write(full[1], filler, 1) == -1 && errno == EAGAIN,
+        "O_NONBLOCK: a full pipe answers EAGAIN");
+    signal(SIGPIPE, SIG_IGN);
+    check(close(full[0]) == 0 && write(full[1], "x", 1) == -1 && errno == EPIPE && close(full[1]) == 0,
+        "a pipe without a reader answers EPIPE");
+    signal(SIGPIPE, SIG_DFL);
+
+    /* The standard descriptors are slots of the same table: dup takes the closed input, the lowest free descriptor,
+     * and a pipe stands for standard input until dup2 gives the stream back. */
+    const int input = dup(0);
+    int feed[2];
+    char in = 0;
+    check(input > 2 && close(0) == 0 && dup(input) == 0 && read(0, &in, 1) == 0,
+        "dup takes a closed standard descriptor");
+    check(pipe(feed) == 0 &&
+            write(feed[1], "z", 1) == 1 &&
+            dup2(feed[0], 0) == 0 &&
+            read(0, &in, 1) == 1 &&
+            in == 'z' &&
+            dup2(input, 0) == 0 &&
+            read(0, &in, 1) == 0 &&
+            close(feed[0]) == 0 &&
+            close(feed[1]) == 0 &&
+            close(input) == 0,
+        "a pipe stands for standard input until dup2 gives the stream back");
 
     /* Signals (S3): dispositions, masks, the alternate stack, faults repaired or escaped, signals between threads. */
     struct sigaction action, previous;
