@@ -15,10 +15,10 @@
     "src/Kernel.Arch.A64/page_table.c"
   ],
   "assembly": [
-    "src/Kernel.Arch.A64/entry.asm",
-    "src/Kernel.Arch.A64/vectors.asm",
-    "src/Kernel.Arch.A64/compiler.asm",
-    "src/Kernel.Arch.A64/processor_registers.asm",
-    "src/Kernel.Arch.A64/secondary_entry.asm"
+    "src/Kernel.Arch.A64/entry.S",
+    "src/Kernel.Arch.A64/vectors.S",
+    "src/Kernel.Arch.A64/compiler.S",
+    "src/Kernel.Arch.A64/processor_registers.S",
+    "src/Kernel.Arch.A64/secondary_entry.S"
   ]
 }

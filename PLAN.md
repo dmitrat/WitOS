@@ -258,14 +258,19 @@ Unix-формы (фаза R).
   `[ROOT] started by clang 20.1.8 for <isa>` обязательна в `boot-128` обеих ISA. Собственный триплет
   `*-unknown-witos` — T4; libc, C++-рантайм и ELF-загрузчик — S1, S4, S5.
 - [ ] **T2** Сборка ОС на Linux-хосте с паритетом Windows; CI на обоих.
-- [ ] **T3** Ядро на clang для x64 и ARM64; отказ от MSVC, MASM и armasm64; `format` остаётся на clang-format. Двумя срезами:
+- [x] **T3** Ядро на clang для x64 и ARM64; отказ от MSVC, MASM и armasm64; `format` остаётся на clang-format. Двумя срезами:
   - [x] **T3.1** Ядро x64 на clang ([T3.1-Kernel-On-Clang-X64.md](@Docs/Implementation/T3.1-Kernel-On-Clang-X64.md)):
     ядро и EFI-загрузчик x64 компилирует закреплённый clang для `x86_64-unknown-windows` (PE/COFF, соглашение
     Microsoft, C17, `-O0` как прежний `/Od`, `-Werror`), линкует закреплённый `lld-link`; MASM ядра переписан в
     синтаксис GNU (`.S`); интринсики MSVC заменены inline-функциями `witos/x64_instructions.h`; `memcpy`, `memset`
     и `__chkstk` ядра — в `compiler.S`; пользовательский `chkstk.asm` замороженной линии переехал в
     `src/Runtime.Native/X64`; набор x64 проходит целиком.
-  - [ ] **T3.2** Ядро ARM64 на clang: `aarch64-unknown-windows`, armasm64 → ассемблер GNU, MSVC уходит из ядра.
+  - [x] **T3.2** Ядро ARM64 на clang ([T3.2-Kernel-On-Clang-Arm64.md](@Docs/Implementation/T3.2-Kernel-On-Clang-Arm64.md)):
+    ядро и EFI-загрузчик ARM64 компилирует clang для `aarch64-unknown-windows`, линкует `lld-link`; armasm64 ядра
+    переписан в синтаксис GNU, и объекты обоих ассемблеров совпадают по инструкциям (разнятся лишь порядок
+    литерального пула и заполнение между векторами); путь MSVC удалён из сборки ядра — MSVC остаётся на хосте только
+    для фикстур замороженной линии до K8; `release --arch arm64` проверяет релизное ядро ARM64 (в CI тоже); наборы
+    обеих ISA проходят.
 - [ ] **T4** Собственный триплет `*-unknown-witos` в LLVM (патч-набор, как у Fuchsia и Managarm), когда sysroot устоится.
 
 Готово, когда один тулчейн собирает ядро, слой 2 и тесты, а CI зелёный на обоих хостах.

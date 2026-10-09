@@ -39,7 +39,7 @@ static WitPageAllocator *pages;
 static WitU64 low_root;
 static WitU64 high_root;
 static int active;
-#if defined(WITOS_SELFTEST)
+#if defined(WITOS_SELFTEST) && defined(WITOS_TEST_EXECUTE_DATA)
 /* Executable-data probe of the execute-data fault test: a RET that must never run. */
 __declspec(align(4096)) static WitU32 nx_probe[1024] = {0xD65F03C0U};
 #endif
@@ -538,8 +538,6 @@ void wit_virtual_fault_test(void)
     *(volatile WitU8 *)target = 0x90;
 #endif
     wit_panic("Memory fault injection returned");
-#else
-    (void)nx_probe;
 #endif
 }
 #endif

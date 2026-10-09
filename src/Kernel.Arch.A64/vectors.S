@@ -1,28 +1,27 @@
-; ARM64 exception vectors (VBAR_EL1), AAPCS64. Each entry saves x0 and x1, passes its index in x0 and joins the
-; common path, which stores a WitArchFrame on the SP_EL1 stack (general, special, thread and SIMD registers) and
-; calls wit_a64_exception. The handler returns the frame to resume, possibly on another thread's kernel stack.
-; A frame from EL0 records SP_EL0; a frame from EL1 records its own address plus FRAME_SIZE, the interrupted SP.
+// ARM64 exception vectors (VBAR_EL1), AAPCS64. Each entry saves x0 and x1, passes its index in x0 and joins the
+// common path, which stores a WitArchFrame on the SP_EL1 stack (general, special, thread and SIMD registers) and
+// calls wit_a64_exception. The handler returns the frame to resume, possibly on another thread's kernel stack.
+// A frame from EL0 records SP_EL0; a frame from EL1 records its own address plus FRAME_SIZE, the interrupted SP.
 
-FRAME_SIZE EQU 832
+    .equ FRAME_SIZE, 832
 
-    AREA |.text|, CODE, READONLY, ALIGN=11
+    .text
+    .p2align 11
 
-    EXPORT wit_a64_vectors
-    EXPORT wit_a64_resume_frame
-    IMPORT wit_a64_exception
+    .globl wit_a64_vectors
+    .globl wit_a64_resume_frame
 
-    MACRO
-    VECTOR $index
+    .macro VECTOR index
     sub sp, sp, #FRAME_SIZE
     stp x0, x1, [sp]
-    mov x0, #$index
+    mov x0, #\index
     b save_frame
-    ALIGN 128
-    MEND
+    .balign 128
+    .endm
 
-; Current EL with SP_EL0, current EL with SP_ELx, lower EL AArch64, lower EL AArch32;
-; synchronous, IRQ, FIQ and SError in each group.
-wit_a64_vectors
+// Current EL with SP_EL0, current EL with SP_ELx, lower EL AArch64, lower EL AArch32;
+// synchronous, IRQ, FIQ and SError in each group.
+wit_a64_vectors:
     VECTOR 0
     VECTOR 1
     VECTOR 2
@@ -40,8 +39,8 @@ wit_a64_vectors
     VECTOR 14
     VECTOR 15
 
-; x0 = vector index; x0 and x1 of the interrupted code are at [sp].
-save_frame
+// x0 = vector index; x0 and x1 of the interrupted code are at [sp].
+save_frame:
     stp x2, x3, [sp, #16]
     stp x4, x5, [sp, #32]
     stp x6, x7, [sp, #48]
@@ -61,7 +60,7 @@ save_frame
     cmp x0, #8
     b.lo save_special
     mrs x2, sp_el0
-save_special
+save_special:
     mrs x3, elr_el1
     stp x2, x3, [sp, #248]
     mrs x4, spsr_el1
@@ -94,9 +93,9 @@ save_special
     mov x0, sp
     bl wit_a64_exception
 
-; x0 = frame to resume. The stack pointer after ERET is the frame address plus FRAME_SIZE, so a frame that
-; returns to EL0 must sit at the top of its thread's kernel stack.
-wit_a64_resume_frame
+// x0 = frame to resume. The stack pointer after ERET is the frame address plus FRAME_SIZE, so a frame that
+// returns to EL0 must sit at the top of its thread's kernel stack.
+wit_a64_resume_frame:
     mov sp, x0
     ldp q0, q1, [sp, #320]
     ldp q2, q3, [sp, #352]
@@ -126,7 +125,7 @@ wit_a64_resume_frame
     b.ne resume_registers
     ldr x2, [sp, #248]
     msr sp_el0, x2
-resume_registers
+resume_registers:
     ldp x2, x3, [sp, #16]
     ldp x4, x5, [sp, #32]
     ldp x6, x7, [sp, #48]
@@ -144,7 +143,5 @@ resume_registers
     ldr x30, [sp, #240]
     ldp x0, x1, [sp]
     add sp, sp, #FRAME_SIZE
-    clrex ; an exclusive load of the interrupted thread must not pair with a store after a switch
+    clrex // an exclusive load of the interrupted thread must not pair with a store after a switch
     eret
-
-    END

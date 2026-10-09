@@ -24,7 +24,6 @@ void wit_a64_worker(WitU64 index);
 
 /* EL1h with debug, SError and FIQ masked and IRQ enabled. */
 #define WORKER_SPSR 0x345ULL
-#endif
 
 static void require(int condition, const char *message)
 {
@@ -32,6 +31,7 @@ static void require(int condition, const char *message)
         wit_panic(message);
     }
 }
+#endif
 
 WitU64 wit_arch_clock_ticks(void)
 {

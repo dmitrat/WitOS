@@ -9,8 +9,8 @@
     "src/Kernel.Platform.QemuVirt/devices.c"
   ],
   "assembly": [
-    "src/Kernel.Platform.QemuVirt/semihosting.asm",
-    "src/Kernel.Platform.QemuVirt/counter.asm",
-    "src/Kernel.Platform.QemuVirt/gic.asm"
+    "src/Kernel.Platform.QemuVirt/semihosting.S",
+    "src/Kernel.Platform.QemuVirt/counter.S",
+    "src/Kernel.Platform.QemuVirt/gic.S"
   ]
 }

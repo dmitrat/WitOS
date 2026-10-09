@@ -23,7 +23,7 @@ internal sealed class CommandDoctor : ICommand
             throw new InvalidOperationException($"clang could not start. {clang.Error}");
         }
         Console.WriteLine($"clang: {clang.Output.Split('\n')[0].Trim()} (layer 2: {KernelArchitecture.X64.Triple}, {KernelArchitecture.Arm64.Triple}; " +
-            $"kernel: {string.Join(", ", new[] { KernelArchitecture.X64, KernelArchitecture.Arm64 }.Select(a => $"{a.Name} {a.KernelTriple ?? "MSVC"}"))})");
+            $"kernel: {KernelArchitecture.X64.KernelTriple}, {KernelArchitecture.Arm64.KernelTriple})");
         Toolchain.RequireQemu(root);
         var version = await Processes.RunAsync(Toolchain.Qemu(root), ["--version"], root);
         if (version.ExitCode != 0 || version.TimedOut)

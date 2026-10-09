@@ -183,6 +183,9 @@ jobs:
       - name: ARM64 boot-only scenarios on QEMU virt
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- test --arch arm64
 
+      - name: ARM64 release kernel without self-tests
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- release --arch arm64
+
       - name: Upload ARM64 boot image and diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
