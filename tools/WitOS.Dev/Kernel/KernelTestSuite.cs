@@ -82,24 +82,28 @@ internal static class KernelTestSuite
         var libc = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.LIBC_SCENARIO);
         await BootScenarioRunner.RunAsync(root, libc, new BootRequest("libc", 256, 60, ExpectedOutcome.Success)
         {
+            Suite = BootSuite.Release,
             RequiredLines = [KernelArchitecture.X64.LibcPassedLine]
         });
         // musl's own tests (S1.3): the selected functional and regression tests as one program.
         var libcTest = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.LIBC_TEST_SCENARIO);
         await BootScenarioRunner.RunAsync(root, libcTest, new BootRequest("libc-test", 256, 120, ExpectedOutcome.Success)
         {
+            Suite = BootSuite.Release,
             RequiredLines = [KernelArchitecture.X64.LibcTestPassedLine]
         });
         // The C++ runtime (S4): the exception scenarios in their Itanium form and the libc++ checks.
         var cxx = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.CXX_SCENARIO);
         await BootScenarioRunner.RunAsync(root, cxx, new BootRequest("cxx", 256, 120, ExpectedOutcome.Success)
         {
+            Suite = BootSuite.Release,
             RequiredLines = [KernelArchitecture.X64.CxxPassedLine]
         });
         // The static ELF loader (S5.2): programs of the package started in processes of their own.
         var spawn = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.SPAWN_SCENARIO);
         await BootScenarioRunner.RunAsync(root, spawn, new BootRequest("spawn", 256, 60, ExpectedOutcome.Success)
         {
+            Suite = BootSuite.Release,
             RequiredLines =
             [
                 KernelArchitecture.X64.SpawnChildLine, KernelArchitecture.X64.DynamicPassedLine, KernelArchitecture.X64.PhaseSPassedLine,
@@ -110,6 +114,7 @@ internal static class KernelTestSuite
         var process = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.PROCESS_SCENARIO);
         await BootScenarioRunner.RunAsync(root, process, new BootRequest("process", 256, 60, ExpectedOutcome.Success)
         {
+            Suite = BootSuite.Release,
             RequiredLines = [KernelArchitecture.X64.InitPassedLine, KernelArchitecture.X64.RootTaskPassedLine]
         });
         await BootScenarioRunner.RunAsync(root, image, new BootRequest("no-rng", 256, 60, ExpectedOutcome.EntropyUnavailable));
@@ -159,17 +164,18 @@ internal static class KernelTestSuite
             });
         var libc = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.LIBC_SCENARIO, architecture: architecture);
         await BootScenarioRunner.RunAsync(root, libc,
-            Request("libc", 256, FOUNDATION_TIMEOUT, ExpectedOutcome.Success) with { RequiredLines = [architecture.LibcPassedLine] });
+            Request("libc", 256, FOUNDATION_TIMEOUT, ExpectedOutcome.Success) with { Suite = BootSuite.Release, RequiredLines = [architecture.LibcPassedLine] });
         var libcTest = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.LIBC_TEST_SCENARIO, architecture: architecture);
         await BootScenarioRunner.RunAsync(root, libcTest,
-            Request("libc-test", 256, 120, ExpectedOutcome.Success) with { RequiredLines = [architecture.LibcTestPassedLine] });
+            Request("libc-test", 256, 120, ExpectedOutcome.Success) with { Suite = BootSuite.Release, RequiredLines = [architecture.LibcTestPassedLine] });
         var cxx = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.CXX_SCENARIO, architecture: architecture);
         await BootScenarioRunner.RunAsync(root, cxx,
-            Request("cxx", 256, 120, ExpectedOutcome.Success) with { RequiredLines = [architecture.CxxPassedLine] });
+            Request("cxx", 256, 120, ExpectedOutcome.Success) with { Suite = BootSuite.Release, RequiredLines = [architecture.CxxPassedLine] });
         var spawn = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.SPAWN_SCENARIO, architecture: architecture);
         await BootScenarioRunner.RunAsync(root, spawn,
             Request("spawn", 256, FOUNDATION_TIMEOUT, ExpectedOutcome.Success) with
             {
+                Suite = BootSuite.Release,
                 RequiredLines =
                 [
                     architecture.SpawnChildLine, architecture.DynamicPassedLine, architecture.PhaseSPassedLine,
@@ -180,6 +186,7 @@ internal static class KernelTestSuite
         await BootScenarioRunner.RunAsync(root, process,
             Request("process", 256, FOUNDATION_TIMEOUT, ExpectedOutcome.Success) with
             {
+                Suite = BootSuite.Release,
                 RequiredLines = [architecture.InitPassedLine, architecture.RootTaskPassedLine]
             });
         var panic = await KernelImageBuilder.BuildAsync(root, "invalid-boot-info", architecture: architecture);

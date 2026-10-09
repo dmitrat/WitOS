@@ -26,7 +26,7 @@ Development host for this first slice:
 - Git.
 - 7-Zip at its normal installation location, for extracting QEMU.
 
-A Linux x64 host (plan step T2.1a) builds and boots everything but the frozen line's fixtures, which need MSVC: the release kernels of both ISAs and, with T2.1b, the layer-2 scenarios. `build/linux/Dockerfile` describes it (the .NET SDK on Ubuntu 24.04 and what building QEMU needs); `setup` there extracts the pinned LLVM Linux archive and builds QEMU from its pinned source release. See `@Docs/Implementation/T2.1a-Linux-Host.md`.
+A Linux x64 host (plan step T2.1a) builds and boots everything but the frozen line's fixtures, which need MSVC: the release kernels of both ISAs and the layer-2 scenarios on them (T2.1b). `build/linux/Dockerfile` describes it (the .NET SDK on Ubuntu 24.04 and what building QEMU needs); `setup` there extracts the pinned LLVM Linux archive and builds QEMU from its pinned source release. See `@Docs/Implementation/T2.1a-Linux-Host.md`.
 
 On some Windows hosts, process creation stalls system-wide for up to about 20 seconds while the host process tests create and kill job trees: an unrelated process start waits while the CPU stays idle. The timing-bounded host process tests (`ProcessesTests`) then fail with cleanup or deadline errors; rerun them alone before suspecting the tool. Excluding the repository from Microsoft Defender real-time scanning still helps build speed, because Defender inspects every new binary under `artifacts/` and `.tools/`, but it did not remove these stalls.
 

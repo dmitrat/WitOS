@@ -265,8 +265,9 @@ Unix-формы (фаза R).
     MSVC ищется лишь для фикстур; ядро линкуется с `/pdbaltpath:%_PDB%`, и секции релизного ядра x64 и образ корневой
     задачи с обоих хостов совпадают; Windows-тесты помечены платформой; образ `build/linux/Dockerfile` и задание CI
     `linux-host`: хост-тесты, очистка QEMU по QMP, `setup`, оба релизных ядра, `format-check`.
-  - [ ] **T2.1b** Сценарии слоя 2 (`libc`, `libc-test`, `cxx`, `spawn`, `process`) на релизном ядре на обоих хостах;
-    `linux-host` гоняет их.
+  - [x] **T2.1b** Сценарии слоя 2 на релизном ядре ([T2.1b-Layer2-On-Release-Kernel.md](@Docs/Implementation/T2.1b-Layer2-On-Release-Kernel.md)):
+    `libc`, `libc-test`, `cxx`, `spawn` и `process` загружают релизное ядро без самотестов и фикстур на обоих хостах,
+    их судит релизный набор вместе с обязательными строками корневой задачи; `linux-host` гоняет их на обеих ISA.
   - [ ] **T2.2** Полный паритет после K8: самотестовые сценарии без фикстур MSVC.
 - [x] **T3** Ядро на clang для x64 и ARM64; отказ от MSVC, MASM и armasm64; `format` остаётся на clang-format. Двумя срезами:
   - [x] **T3.1** Ядро x64 на clang ([T3.1-Kernel-On-Clang-X64.md](@Docs/Implementation/T3.1-Kernel-On-Clang-X64.md)):

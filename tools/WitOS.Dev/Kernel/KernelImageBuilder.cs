@@ -55,6 +55,13 @@ internal static class KernelImageBuilder
 
     #region Fields
 
+    /// <summary>
+    /// Scenarios whose kernel is the release kernel: the release itself and the layer-2 scenarios (plan step T2.1b),
+    /// which need no self-test and so none of the frozen line's MSVC fixtures, and build on every host.
+    /// </summary>
+    public static readonly string[] RELEASE_KERNEL_SCENARIOS =
+        [RELEASE_SCENARIO, LIBC_SCENARIO, LIBC_TEST_SCENARIO, CXX_SCENARIO, SPAWN_SCENARIO, PROCESS_SCENARIO];
+
     // A release map must not name self-test code: test objects, self-test functions, fault triggers or workers.
     private static readonly Regex SELF_TEST_SYMBOL = new(
         @"self_test|selftest|_tests\.obj|wit_(?:x64|a64)_trigger_|wit_x64_worker\b|wit_worker_|fixture", RegexOptions.IgnoreCase);
@@ -113,8 +120,9 @@ internal static class KernelImageBuilder
         await File.WriteAllTextAsync(Path.Combine(output, "build_info.h"), $"#define WITOS_BUILD_ID \"{buildId}\"\n",
             Encoding.ASCII);
 
-        // Every scenario kernel is a self-test kernel where the target has self-test layers; the release kernel never is.
-        var selfTest = scenario != RELEASE_SCENARIO && target.SelfTestLayers.Length > 0;
+        // A scenario kernel is a self-test kernel where the target has self-test layers, except the release kernel's
+        // scenarios.
+        var selfTest = !RELEASE_KERNEL_SCENARIOS.Contains(scenario) && target.SelfTestLayers.Length > 0;
         // Every x64 user fixture; ARM64 builds the fixtures that A2 has ported so far.
         if (selfTest && architecture == KernelArchitecture.X64)
         {

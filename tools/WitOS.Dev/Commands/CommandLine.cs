@@ -43,23 +43,25 @@ internal static class CommandLine
         ]),
         new CommandScenario("libc", "Build the pinned musl over ABI-1 and boot the first libc program as the root task (S1.1)",
             KernelImageBuilder.LIBC_SCENARIO,
-            architecture => [new BootRequest("libc-256", 256, 60, ExpectedOutcome.Success) { RequiredLines = [architecture.LibcPassedLine] }]),
+            architecture => [new BootRequest("libc-256", 256, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release, RequiredLines = [architecture.LibcPassedLine] }]),
         new CommandScenario("libc-test", "Build the selected musl libc-test programs, static and dynamic, and boot them a process each under the root task (S1.3, S7.1)",
             KernelImageBuilder.LIBC_TEST_SCENARIO,
-            architecture => [new BootRequest("libc-test-256", 256, 120, ExpectedOutcome.Success) { RequiredLines = [architecture.LibcTestPassedLine] }]),
+            architecture => [new BootRequest("libc-test-256", 256, 120, ExpectedOutcome.Success) { Suite = BootSuite.Release, RequiredLines = [architecture.LibcTestPassedLine] }]),
         new CommandScenario("cxx", "Build the pinned LLVM C++ runtime over the libc and boot the C++ scenarios as the root task (S4)",
             KernelImageBuilder.CXX_SCENARIO,
-            architecture => [new BootRequest("cxx-256", 256, 120, ExpectedOutcome.Success) { RequiredLines = [architecture.CxxPassedLine] }]),
+            architecture => [new BootRequest("cxx-256", 256, 120, ExpectedOutcome.Success) { Suite = BootSuite.Release, RequiredLines = [architecture.CxxPassedLine] }]),
         new CommandScenario("process", "Boot the system layer's root task, whose process manager serves /bin/init's posix_spawn (S6.1)",
             KernelImageBuilder.PROCESS_SCENARIO,
             architecture => [new BootRequest("process-256", 256, 60, ExpectedOutcome.Success)
             {
+                Suite = BootSuite.Release,
                 RequiredLines = [architecture.InitPassedLine, architecture.RootTaskPassedLine]
             }]),
         new CommandScenario("spawn", "Build libwitos and libc.so and boot a root task that starts static and dynamic programs of the boot package (S5.2, S5.3)",
             KernelImageBuilder.SPAWN_SCENARIO,
             architecture => [new BootRequest("spawn-256", 256, 60, ExpectedOutcome.Success)
             {
+                Suite = BootSuite.Release,
                 RequiredLines =
                 [
                     architecture.SpawnChildLine, architecture.DynamicPassedLine, architecture.PhaseSPassedLine,
