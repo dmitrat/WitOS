@@ -258,6 +258,28 @@ Unix-формы в госте сверх NativeAOT (CoreCLR — R3, хосты �
   `user_thread_name`, `user_stack_lease`, fatal-путь и программные исключения в `user_exception`, восстановление
   контекста в `user_thread_context`; сырой TLS-блок и страница compiler TLS, `WitUserStartup` и `WitUserImageInfo`;
   `limits.h` сокращён до механизмов; самотестовое ядро получает 16 потоков процесса (K5.3); объявляется ABI-1 1.0.
+  Вместе с ним уходит замороженная Windows-линия (R2 завершён). Срезами:
+  - [x] **K8.1** `sigreturn` без `THREAD_CONTEXT_RESTORE` ([K8.1-Sigreturn.md](@Docs/Implementation/K8.1-Sigreturn.md)):
+    libc возобновляет прерванный контекст доставкой собственной активации с маркером `__wit_sigreturn_activation`,
+    продолжая её через `EXCEPTION_CONTINUE` (на ARM64 пользовательский код не восстановит `x16`/`x17`); сигналы потока
+    удерживаются до доставки, кадр — в записи потока; обработчик на альтернативном стеке возвращается со стека
+    прерванного контекста ниже red zone, потому что колбэку нужно `WIT_EXCEPTION_STACK_MINIMUM`. Слой 2 больше не
+    использует ни одного уходящего вызова; libc, libc-test и приёмка .NET на обеих ISA.
+  - [ ] **K8.2** Замороженная линия уходит: `src/Runtime.{Cxx,Crt,NativeAot,Pal.Win32,CoreClr}`, `experiments/*`,
+    `tests/Runtime.NativeAot`, PAL- и runtime-фикстуры x64 с их самотестами и маркерами, сценарии и команды
+    `coreclr-*` и `runtime-*` (кроме `runtime-witos`), каталоги `CoreClr`, `Pe`, замороженная часть `NativeAot` и
+    `Images` инструмента (общие `UpstreamPatches` и помощники Git переезжают), их хост-тесты, оверлей-патчи
+    `patches/runtime` и `patches/openlibm`, workflows `nativeaot.yml` и `coreclr-host.yml`; `cxx_exceptions.cpp`
+    переезжает к слою 2. Покрытие, которое давали только замороженные фикстуры (`MEMORY_PRESSURE_EVENT`,
+    `THREAD_SUSPEND`, WaitAny на четыре дескриптора), переходит в проверки слоя 2. `src/Runtime.Native` —
+    пользовательская сторона политики ядра, и её фикстуры проверяют эту политику: она уходит с ней в K8.4.
+  - [ ] **K8.3** Фикстуры механизмов без MSVC и PE (это и есть T2.2): 12 фикстур x64 на MASM и 12 ARM64 на armasm
+    переписываются для clang и загружаются без PE-загрузчика; потоки версии 2 вместо версии 1, без сырого TLS-блока и
+    без 4-байтовой формы `PROCESSOR_QUERY`.
+  - [ ] **K8.4** Политика уходит из ядра: файлы и вызовы RFC-0011 §8, `WitUserStartup`/`WitUserImageInfo`, версия 1
+    `THREAD_CREATE`, сырой TLS и compiler TLS (x18 больше не сбрасывается), новая форма первого потока корневой задачи
+    и процессов; с ними `src/Runtime.Native`, фикстуры политики и `user_image_tests`; `limits.h` — только механизмы;
+    самотестовое ядро — 16 потоков; ABI-1 1.0.
 
 Готово, когда ядро не знает PE и ELF, имён файлов и окружения; каналы и устройства доказаны фикстурами; все сценарии
 проходят на x64 и ARM64 на 128 и 512 МиБ.

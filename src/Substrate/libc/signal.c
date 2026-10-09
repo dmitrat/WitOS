@@ -20,9 +20,11 @@
  * siginfo_t) on the thread's stack or on its alternate stack, then continues the interrupted context changed to enter
  * the trampoline with the frame: the delivery is retired before the handler runs, so a handler may fault, longjmp out
  * or be interrupted itself. The trampoline calls the handler and then __wit_sigreturn, which carries the handler's
- * changes to the general registers back into the saved context, restores the mask, re-arms pending signals as
- * activations of the own thread and resumes the saved context through THREAD_CONTEXT_RESTORE. Signals are per thread
- * here: a process-directed kill reaches the calling thread. */
+ * changes to the general registers back into the saved context, restores the mask and resumes the saved context
+ * through a delivery of its own (plan step K8.1; RFC 0011 section 8: THREAD_CONTEXT_RESTORE leaves ABI-1): an
+ * activation of the own thread with the sigreturn marker, whose delivery continues into the saved context, and
+ * pending signals are re-armed as activations that follow it. Signals are per thread here: a process-directed kill
+ * reaches the calling thread. */
 
 #define SIGNALS 64
 #define SIGNAL_BIT(sig) (1UL << ((sig) - 1))
@@ -51,14 +53,19 @@ static Action actions[SIGNALS + 1];
 void __wit_signal_entry(void); /* the kernel's fault callback, below */
 void __wit_signal_trampoline(void); /* enters the handler with the frame, below */
 void __wit_signal_activation(void); /* the marker callback THREAD_ACTIVATE carries */
+void __wit_sigreturn_activation(void); /* the marker of sigreturn's own activation */
 void __wit_signal_deliver(WitU64 token, WitU64 vector, WitU64 address);
 void __wit_sigreturn(SignalFrame *frame);
+__attribute__((__noreturn__)) void __wit_sigreturn_switch(WitU64 sp); /* raise_marker on the stack sp, below */
+__attribute__((__noreturn__)) void __wit_sigreturn_raise(void);
 
 #if defined(__x86_64__)
 #define CONTEXT_PROFILE WIT_THREAD_CONTEXT_FXSAVE64
 #define CONTEXT_SP(c) ((c)->Rsp)
 #define CONTEXT_PC(c) ((c)->Rip)
+#define RED_ZONE 128U /* the SysV bytes below the stack pointer a leaf function keeps */
 #else
+#define RED_ZONE 0U
 #define CONTEXT_PROFILE WIT_THREAD_CONTEXT_FPSIMD
 #define CONTEXT_SP(c) ((c)->Sp)
 #define CONTEXT_PC(c) ((c)->Pc)
@@ -363,9 +370,45 @@ static __attribute__((__noreturn__)) void run_handler(
     reject(token);
 }
 
-/* The fault callback in C: entered on the interrupted thread with the kernel's record to read into the frame a
- * handler may run above. */
+/* sigreturn's own activation (K8.1): its delivery continues into the context the frame holds, which carries the
+ * handler's changes, and so ends the signal. It takes no stack beyond the callback's frame, since it may run on an
+ * alternate stack the signal frame already fills: the frame comes from the thread's record, where sigreturn left it
+ * while holding the thread's signals, and the transfer is the frame's own. The hold ends here; the signals that arrived
+ * meanwhile are re-armed and follow this delivery. */
+void __wit_signal_rearm(WitSignalState *state);
+
+static __attribute__((__noreturn__, __noinline__)) void resume_frame(WitU64 token)
+{
+    WitU64 result = 0;
+    WitThreadLocal *local = __wit_thread_local();
+    SignalFrame *frame = local ? (SignalFrame *)local->Resuming : 0;
+    if (!frame) {
+        reject(token); /* a sigreturn marker no sigreturn raised */
+    }
+    local->Resuming = 0;
+    frame->Transfer.RetireThroughToken = token;
+    if (--local->Hold == 0 && local->HeldPending) {
+        local->HeldPending = 0;
+        __wit_signal_rearm(frame->State);
+    }
+    wit_syscall(WIT_CALL_EXCEPTION_CONTINUE, token, (WitU64)&frame->Transfer, sizeof(frame->Transfer), &result);
+    fail_fast("[LIBC] the context of an interrupted thread could not be resumed\n");
+}
+
+static void deliver(WitU64 token, WitU64 vector, WitU64 address);
+
+/* The fault callback in C: sigreturn's own activation resumes its frame; anything else is a fault or a signal. */
 void __wit_signal_deliver(WitU64 token, WitU64 vector, WitU64 address)
+{
+    if (vector == WIT_EXCEPTION_ACTIVATION_VECTOR && address == (WitU64)__wit_sigreturn_activation) {
+        resume_frame(token);
+    }
+    deliver(token, vector, address);
+}
+
+/* A fault or a signal, entered on the interrupted thread with the kernel's record to read into the frame a handler may
+ * run above. */
+static __attribute__((__noinline__)) void deliver(WitU64 token, WitU64 vector, WitU64 address)
 {
     SignalFrame frame;
     WitUserExceptionInfo *info = &frame.Record;
@@ -461,7 +504,10 @@ void __wit_signal_hold_leave(void)
     }
 }
 
-/* After the handler: the saved context, with the handler's changes and the mask it left, resumes. */
+/* After the handler: the saved context, with the handler's changes and the mask it left, resumes through an activation
+ * of the own thread (K8.1), whose delivery resume_frame continues into it. The thread's signals are held from here to
+ * that delivery, so that no handler run meanwhile takes the frame's place in the thread's record; a full activation
+ * queue drains one activation per return to user mode, so the marker waits for room. */
 void __wit_sigreturn(SignalFrame *frame)
 {
     WitU64 result = 0;
@@ -472,12 +518,43 @@ void __wit_sigreturn(SignalFrame *frame)
     saved->Version = WIT_THREAD_CONTEXT_VERSION;
     saved->Size = sizeof(*saved);
     saved->State = WIT_THREAD_CONTEXT_RUNNING;
-    saved->Flags = CONTEXT_PROFILE; /* the delivery is over: no longer EXCEPTION_ACTIVE */
+    saved->Flags = CONTEXT_PROFILE | WIT_THREAD_CONTEXT_EXCEPTION_ACTIVE; /* as the marker's delivery continues it */
     saved->SuspendCount = 0;
     saved->Reserved = 0;
-    __wit_signal_rearm(state);
-    wit_syscall(WIT_CALL_THREAD_CONTEXT_RESTORE, (WitU64)saved, sizeof(*saved), WIT_THREAD_CONTEXT_VERSION, &result);
-    fail_fast("[LIBC] the context of an interrupted thread could not be restored\n");
+    WitUserExceptionTransfer *transfer = &frame->Transfer;
+    memset(transfer, 0, sizeof(*transfer));
+    transfer->Version = WIT_EXCEPTION_TRANSFER_VERSION;
+    transfer->Size = sizeof(*transfer);
+    transfer->Context = *saved;
+    WitThreadLocal *local = __wit_thread_local();
+    if (!local) {
+        fail_fast("[LIBC] a signal returned on a thread without its record\n");
+    }
+    __wit_signal_hold_enter();
+    local->Resuming = frame;
+    if (state->Pending & ~state->Mask) {
+        local->HeldPending = 1; /* the mask the handler left lets them through: re-armed behind the marker */
+    }
+    /* The marker's delivery needs WIT_EXCEPTION_STACK_MINIMUM below the stack it is raised on, which an alternate stack
+     * holding the frame may not have: a handler that ran there returns from the interrupted stack, below its red zone. */
+    const WitU64 interrupted = CONTEXT_SP(saved);
+    if (on_alternate(state, current_sp()) && !on_alternate(state, interrupted)) {
+        __wit_sigreturn_switch((interrupted - RED_ZONE) & ~15ULL);
+    }
+    (void)result;
+    __wit_sigreturn_raise();
+}
+
+/* sigreturn's own activation, raised until the queue has room: a full queue drains one activation per return to user
+ * mode. Its delivery never comes back here. */
+void __wit_sigreturn_raise(void)
+{
+    WitU64 result = 0;
+    while (wit_syscall(WIT_CALL_THREAD_ACTIVATE, WIT_THREAD_SELF, (WitU64)__wit_sigreturn_activation, 0, &result) ==
+        WIT_STATUS_NO_MEMORY) {
+        wit_syscall(WIT_CALL_THREAD_YIELD, 0, 0, 0, &result);
+    }
+    fail_fast("[LIBC] the context of an interrupted thread could not be resumed\n");
 }
 
 /* rt_sigaction(sig, act, old, 8): musl's k_sigaction; the kernel restorer is never used here. */
@@ -696,7 +773,18 @@ __asm__(".text\n"
         ".global __wit_signal_activation\n"
         ".type __wit_signal_activation,@function\n"
         "__wit_signal_activation:\n"
-        "    ret\n");
+        "    ret\n"
+        ".global __wit_sigreturn_activation\n"
+        ".type __wit_sigreturn_activation,@function\n"
+        "__wit_sigreturn_activation:\n"
+        "    ret\n"
+        ".global __wit_sigreturn_switch\n"
+        ".type __wit_sigreturn_switch,@function\n"
+        "__wit_sigreturn_switch:\n"
+        "    mov %rdi, %rsp\n"
+        "    xor %ebp, %ebp\n"
+        "    call __wit_sigreturn_raise\n"
+        "    ud2\n");
 #else
 /* The fault callback: x0 the token, x1 the vector, x2 the address, on a 16-byte aligned stack with x30 zero. The
  * trampoline is entered with x0 the signal, x1 the siginfo, x2 the ucontext, x3 the frame and x4 the handler; the
@@ -721,5 +809,17 @@ __asm__(".text\n"
         ".global __wit_signal_activation\n"
         ".type __wit_signal_activation,%function\n"
         "__wit_signal_activation:\n"
-        "    ret\n");
+        "    ret\n"
+        ".global __wit_sigreturn_activation\n"
+        ".type __wit_sigreturn_activation,%function\n"
+        "__wit_sigreturn_activation:\n"
+        "    ret\n"
+        ".global __wit_sigreturn_switch\n"
+        ".type __wit_sigreturn_switch,%function\n"
+        "__wit_sigreturn_switch:\n"
+        "    mov sp, x0\n"
+        "    mov x29, #0\n"
+        "    mov x30, #0\n"
+        "    bl __wit_sigreturn_raise\n"
+        "    brk #0\n");
 #endif

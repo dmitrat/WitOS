@@ -118,6 +118,7 @@ typedef struct WitThreadLocal {
     int Hold; /* library locks the thread holds that handlers may take (futex.c) */
     int HeldPending; /* a signal arrived while they were held */
     volatile int *CancelPoint; /* the cancel word of a cancellation point in flight */
+    void *Resuming; /* the signal frame sigreturn resumes through its own activation (signal.c, K8.1) */
 } WitThreadLocal;
 
 WitThreadLocal *__wit_thread_local(void);
