@@ -1,0 +1,39 @@
+Source: src/math/fmaf.c
+Output: fmaf.c
+Before: e5baf54228b74b036da629902d811f9f57de26133a03ce290879b5ec6de04433
+After: a313da499bfe727145374d4886c35eea32b25f4ae5e06a73bd9baf198761e408
+
+musl's commit a9764402 ("math: fix fmaf subnormal double rounding", 2026-08-11, after the 1.2.5 release), backported
+unchanged: the halfway check of an inexact result counts the float's subnormal precision, so a result in the subnormal
+range is not rounded twice. libc-test's math/fmaf checks it on x86_64, where musl uses this generic fmaf (plan step
+S7.2).
+
+--- a/src/math/fmaf.c
++++ b/src/math/fmaf.c
+@@ -41,14 +41,24 @@
+ 	#pragma STDC FENV_ACCESS ON
+ 	double xy, result;
+ 	union {double f; uint64_t i;} u;
+-	int e;
++	int e, halfway;
+ 
+ 	xy = (double)x * y;
+ 	result = xy + z;
+ 	u.f = result;
+ 	e = u.i>>52 & 0x7ff;
++	halfway = (u.i & 0x1fffffff) == 0x10000000;
++
++	/* subnormal range */
++	if (e < 0x3ff-126 && e >= 0x3ff-149) {
++		/* fix halfway for subnormals */
++		uint64_t m = 1;
++		m <<= 52 + 0x3ff-149 - e;
++		halfway = (u.i & m-1) == m/2;
++	}
++
+ 	/* Common case: The double precision result is fine. */
+-	if ((u.i & 0x1fffffff) != 0x10000000 || /* not a halfway case */
++	if (!halfway ||
+ 		e == 0x7ff ||                   /* NaN */
+ 		(result - xy == z && result - z == xy) || /* exact */
+ 		fegetround() != FE_TONEAREST)       /* not round-to-nearest */

@@ -13,8 +13,8 @@
  * image window (tests/User/root.ld): no libc, no runtime, the ABI-1 transport of witos/syscall.h alone. It checks
  * the descriptor, writes to the kernel log through the log handle, maps the first page of the boot package and
  * checks its magic, maps the device table and checks that the board published devices, reads UTC and sets it through
- * the clock capability (K6), delegates the log over a channel (S5.2), then exits with zero; a failed check exits
- * with 241. The data page holds the status of a
+ * the clock capability (K6), delegates the log over a channel (S5.2), protects a run of adjacent reservations
+ * (S7.2), then exits with zero; a failed check exits with 241. The data page holds the status of a
  * failed check at 1304 and the count of checks at 1312 for the kernel self-test's diagnostics. */
 
 #define STRINGIZE(x) #x
@@ -121,8 +121,8 @@ static void package_round_trip(WitU64 header)
     expect(WIT_CALL_HANDLE_CLOSE, ends[1], 0, 0, WIT_STATUS_OK);
 }
 
-/* MEMORY_OBJECT_MAP of the first bytes of an object at an address the kernel chooses. */
-static WitU64 map_object(WitU64 handle, WitU64 bytes, WitU32 protection, WitU64 expected)
+/* MEMORY_OBJECT_MAP of the first bytes of an object at an address, zero for the kernel's choice. */
+static WitU64 map_object_at(WitU64 handle, WitU64 bytes, WitU32 protection, WitU64 address, WitU64 expected)
 {
     WitMemoryMapRequest request;
     request.Version = WIT_MEMORY_MAP_VERSION;
@@ -130,11 +130,49 @@ static WitU64 map_object(WitU64 handle, WitU64 bytes, WitU32 protection, WitU64 
     request.Object = handle;
     request.Offset = 0;
     request.Bytes = bytes;
-    request.Address = 0;
+    request.Address = address;
     request.Protection = protection;
     request.Flags = 0;
     request.Target = WIT_PROCESS_SELF;
     return expect(WIT_CALL_MEMORY_OBJECT_MAP, (WitU64)&request, sizeof(request), 0, expected);
+}
+
+static WitU64 map_object(WitU64 handle, WitU64 bytes, WitU32 protection, WitU64 expected)
+{
+    return map_object_at(handle, bytes, protection, 0, expected);
+}
+
+/* MEMORY_PROTECT over a run of adjacent reservations (S7.2), as a loader's segment of several object mappings
+ * needs: two plain pages and a mapping of an object after them change together or not at all. MEMORY_QUERY into the
+ * first page shows whether it is writable. */
+static void protect_run(void)
+{
+    WitUserMemoryInfo *info = 0;
+    WitU64 reader = 0;
+    const WitU64 base = expect(WIT_CALL_MEMORY_RESERVE, 3 * 4096, 4096, 0, WIT_STATUS_OK);
+    info = (WitUserMemoryInfo *)base;
+    expect(WIT_CALL_MEMORY_RELEASE, base + 2 * 4096, 4096, 0, WIT_STATUS_OK);
+    expect(WIT_CALL_MEMORY_COMMIT, base, 2 * 4096, WIT_MEMORY_READ, WIT_STATUS_OK);
+    const WitU64 object = expect(WIT_CALL_MEMORY_OBJECT_CREATE, 4096, 0, 0, WIT_STATUS_OK);
+    expect(WIT_CALL_HANDLE_DUPLICATE, object, (WitU64)&reader, WIT_RIGHT_MAP, WIT_STATUS_OK);
+    const WitU64 mapping = map_object_at(reader, 4096, WIT_MEMORY_READ, base + 2 * 4096, WIT_STATUS_OK);
+    check(mapping == base + 2 * 4096, 19);
+    /* The mapping lacks WRITE, so nothing of the run changes. */
+    expect(WIT_CALL_MEMORY_PROTECT, base, 3 * 4096, WIT_MEMORY_READ | WIT_MEMORY_WRITE, WIT_STATUS_DENIED);
+    expect(WIT_CALL_MEMORY_QUERY, (WitU64)info, sizeof(*info), WIT_MEMORY_INFO_VERSION, WIT_STATUS_BAD_ADDRESS);
+    expect(WIT_CALL_MEMORY_PROTECT, base, 3 * 4096, WIT_MEMORY_NONE, WIT_STATUS_OK);
+    expect(WIT_CALL_MEMORY_PROTECT, base, 3 * 4096, WIT_MEMORY_READ, WIT_STATUS_OK);
+    expect(WIT_CALL_MEMORY_PROTECT, base, 2 * 4096, WIT_MEMORY_READ | WIT_MEMORY_WRITE, WIT_STATUS_OK);
+    expect(WIT_CALL_MEMORY_QUERY, (WitU64)info, sizeof(*info), WIT_MEMORY_INFO_VERSION, WIT_STATUS_OK);
+    /* A gap in the run: refused whole, the plain pages stay writable. */
+    expect(WIT_CALL_MEMORY_RELEASE, mapping, 0, 0, WIT_STATUS_OK);
+    expect(WIT_CALL_MEMORY_PROTECT, base, 3 * 4096, WIT_MEMORY_READ, WIT_STATUS_NOT_RESERVED);
+    check(expect(WIT_CALL_MEMORY_QUERY, (WitU64)info, sizeof(*info), WIT_MEMORY_INFO_VERSION, WIT_STATUS_OK) ==
+            sizeof(*info),
+        20);
+    expect(WIT_CALL_MEMORY_RELEASE, base, 0, 0, WIT_STATUS_OK);
+    expect(WIT_CALL_HANDLE_CLOSE, reader, 0, 0, WIT_STATUS_OK);
+    expect(WIT_CALL_HANDLE_CLOSE, object, 0, 0, WIT_STATUS_OK);
 }
 
 ENTRY_ATTRIBUTES WIT_NORETURN void wit_user_start(const WitRootStartup *startup)
@@ -210,5 +248,6 @@ ENTRY_ATTRIBUTES WIT_NORETURN void wit_user_start(const WitRootStartup *startup)
     WitUserMemoryInfo memory;
     expect(WIT_CALL_MEMORY_QUERY, (WitU64)&memory, sizeof(memory), WIT_MEMORY_INFO_VERSION, WIT_STATUS_OK);
     check(memory.ReservationCapacity == WIT_PROCESS_RESERVATION_CAPACITY, 16);
+    protect_run();
     exit_process(0); /* a root task exits with zero; the kernel treats anything else as failure */
 }

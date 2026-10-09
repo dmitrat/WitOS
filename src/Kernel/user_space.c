@@ -781,24 +781,52 @@ static WitU64 memory_reset(WitUserSpace *space, WitU64 address, WitU64 size)
     return WIT_STATUS_OK;
 }
 
+/* The reservation that holds [address, end) or its start: its slot and the end of the part it holds. */
+static WitU32 reservation_part(const WitUserSpace *space, WitU64 address, WitU64 end, WitU64 *part_end)
+{
+    const WitU32 slot = reservation_of(space, address, 4096);
+    if (slot != space->ReservationLimit) {
+        const WitUserReservation *r = &space->Reservations[slot];
+        *part_end = end - r->Base < r->Size ? end : r->Base + r->Size;
+    }
+    return slot;
+}
+
+/* A protection change covers one reservation or a run of adjacent ones (S7.2), as Linux's mprotect covers adjacent
+ * mappings: a loader maps a large segment as several object mappings of 64 pages. Every part is validated, each
+ * mapping within its own rights, before any page changes. */
 static WitU64 protect(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection, int code)
 {
-    WitU32 rights = 0;
     if (library_range(space, address, size)) {
         return WIT_STATUS_DENIED;
     }
-    WitU64 status = reserved_range(space, address, size);
-    if (status != WIT_STATUS_OK) {
-        return status;
-    }
-    const int mapping = object_mapping(space, address, size, &rights);
-    if (!valid_protection(protection) && !((code || mapping) && protection == (WIT_MEMORY_READ | WIT_CODE_EXECUTE))) {
+    if (!size || (address & 4095) || (size & 4095)) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
-    if (mapping &&
-        (((protection & WIT_MEMORY_WRITE) && !(rights & WIT_RIGHT_WRITE)) ||
-            ((protection & WIT_CODE_EXECUTE) && !(rights & WIT_RIGHT_EXECUTE)))) {
-        return WIT_STATUS_DENIED;
+    const WitU64 limit = dynamic_limit(address);
+    if (!limit || size > limit - address) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    const WitU64 end = address + size;
+    WitU64 part_end = 0;
+    for (WitU64 p = address; p < end; p = part_end) {
+        if (reservation_part(space, p, end, &part_end) == space->ReservationLimit) {
+            return WIT_STATUS_NOT_RESERVED;
+        }
+    }
+    for (WitU64 p = address; p < end; p = part_end) {
+        const WitU32 slot = reservation_part(space, p, end, &part_end);
+        const int mapping = space->MappedObjects[slot] != 0;
+        const WitU32 rights = mapping ? space->MappedRights[slot] : 0;
+        if (!valid_protection(protection) &&
+            !((code || mapping) && protection == (WIT_MEMORY_READ | WIT_CODE_EXECUTE))) {
+            return WIT_STATUS_INVALID_ARGUMENT;
+        }
+        if (mapping &&
+            (((protection & WIT_MEMORY_WRITE) && !(rights & WIT_RIGHT_WRITE)) ||
+                ((protection & WIT_CODE_EXECUTE) && !(rights & WIT_RIGHT_EXECUTE)))) {
+            return WIT_STATUS_DENIED;
+        }
     }
     if (size / 4096 > space->PageLimit) {
         return WIT_STATUS_NOT_COMMITTED;

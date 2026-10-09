@@ -134,7 +134,18 @@ internal static class LibcTestSuite
             selection.TryGetProperty(name, out var value) ? value.EnumerateArray().Select(entry => entry.GetString()!).ToArray() : [];
         var support = Strings("support");
         var tests = Strings("tests");
-        var dynamicOnly = Strings("dynamicOnly");
+        // libc-test builds the math suite dynamically alone (S7.2), like the tests that open a library; a math test
+        // mathExcluded names for this ISA stays out, with its reason in the S7.2 document.
+        var isa = architecture.Triple.Split('-')[0];
+        var math = Strings("math");
+        var mathExcluded = selection.TryGetProperty("mathExcluded", out var excluded)
+            ? excluded.EnumerateObject().ToDictionary(entry => entry.Name, entry => entry.Value.EnumerateArray().Select(item => item.GetString()!).ToArray())
+            : new Dictionary<string, string[]>(StringComparer.Ordinal);
+        if (mathExcluded.Any(entry => !math.Contains(entry.Key) || entry.Value.Length == 0 ||
+                entry.Value.Any(name => name is not ("x86_64" or "aarch64"))))
+            throw new InvalidDataException("Invalid libc-test math exclusions.");
+        var dynamicOnly = Strings("dynamicOnly")
+            .Concat(math.Where(test => !mathExcluded.TryGetValue(test, out var isas) || !isas.Contains(isa))).ToArray();
         var libraries = Strings("libraries");
         var exportDynamic = Strings("exportDynamic");
         var linkLibraries = selection.TryGetProperty("linkLibraries", out var links)

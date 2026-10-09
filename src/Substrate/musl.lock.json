@@ -16,6 +16,22 @@
     {
       "path": "ldso/dynlink.c",
       "sha256": "7d6d6bfd3aafc7eb3331c37752a37fcf1e568452d2ca5be9009669386571cbbb"
+    },
+    {
+      "path": "src/math/fma.c",
+      "sha256": "f15e2db8c727f6cb3886dbc8817bebfcd7afff155b284be409fb961e0b985894"
+    },
+    {
+      "path": "src/math/fmaf.c",
+      "sha256": "e5baf54228b74b036da629902d811f9f57de26133a03ce290879b5ec6de04433"
+    },
+    {
+      "path": "src/math/powl.c",
+      "sha256": "b1c9f5993fe37ce04e4291cdeaa8d690587f25076525a417c9657f082b7ae987"
+    },
+    {
+      "path": "src/math/x86_64/expl.s",
+      "sha256": "0ef3d9ddf89a06262bf61026e4788e7849c3ae339cbb42738b854d7b22997c4c"
     }
   ]
 }
