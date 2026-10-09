@@ -5,7 +5,7 @@ void wit_events_initialize(WitEventTable *table)
 {
     table->Count = 0;
     table->Limit = WIT_EVENT_CAPACITY;
-    for (WitU32 i = 0; i < WIT_RUNTIME_EVENT_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_EVENT_CAPACITY; ++i) {
         table->Entries[i].Live = 0;
         table->Entries[i].Handles = 0;
         table->Entries[i].ManualReset = 0;

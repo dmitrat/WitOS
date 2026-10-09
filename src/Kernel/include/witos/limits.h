@@ -12,6 +12,22 @@
 #define WIT_RUNTIME_HANDLE_CAPACITY 32U
 #define WIT_EVENT_CAPACITY 4U
 #define WIT_RUNTIME_EVENT_CAPACITY 16U
+/* Threads, handles and events of a system layer process, the root task and the processes it creates (K5.3): a .NET
+ * program runs its main thread, the finalizer, the thread pool's workers and gate thread and its own threads; each
+ * thread takes a handle for its identity and the libc keeps another for it, and the libc's futex slots each hold an
+ * event. Version 1 threads, whose stacks and TLS sit in user_layout.h's windows, stay within the first
+ * WIT_USER_THREAD_CAPACITY. The largest tables, the size of every process's arrays. The self-test kernel keeps four
+ * threads of a process until K8: a kernel stack per thread of every registry slot is part of its image, which also
+ * carries the frozen line's fixtures, and coreclr-storage's 65 MB boot package must still load beside it in 128 MiB;
+ * the layer-2 scenarios run on the release kernel. */
+#define WIT_SYSTEM_THREAD_CAPACITY 16U
+#if defined(WITOS_SELFTEST)
+#define WIT_PROCESS_THREAD_CAPACITY (WIT_USER_THREAD_CAPACITY)
+#else
+#define WIT_PROCESS_THREAD_CAPACITY (WIT_SYSTEM_THREAD_CAPACITY)
+#endif
+#define WIT_PROCESS_HANDLE_CAPACITY 64U
+#define WIT_PROCESS_EVENT_CAPACITY 32U
 #define WIT_WAIT_ANY_CAPACITY 4U /* handles in one wait-any call */
 #define WIT_ACTIVATION_CAPACITY 4U /* activations pending on one thread */
 #define WIT_CHANNEL_CAPACITY 4U /* live channels created by one component */

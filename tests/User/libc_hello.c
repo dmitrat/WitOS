@@ -25,7 +25,7 @@
  * entropy from the kernel's clocks, thread-local storage of the main thread, atexit, and (S1.2) the files of the
  * read-only boot package: stdio, stat, directories, the refusals of writing, and (S2) threads: creation and join,
  * a mutex, a condition variable, thread-specific data, thread-local storage and errno per thread, a detached
- * thread and a semaphore; then it exits with zero. The
+ * thread and a semaphore, and (K5.3) the system layer's sixteen threads of a process; then it exits with zero. The
  * last line names the library and the ISA for the boot scenario's check. */
 
 #if defined(__x86_64__)
@@ -60,7 +60,8 @@ static struct Shared {
     pthread_cond_t Ready;
     pthread_key_t Key;
     sem_t Done;
-    int Counter, Flag, Destructors, WorkerErrno;
+    sem_t Gate;
+    int Counter, Flag, Destructors, WorkerErrno, Arrived;
 } shared;
 
 static void key_destructor(void *value)
@@ -104,6 +105,18 @@ static void *detached_worker(void *argument)
     (void)argument;
     sem_post(&shared.Done);
     return 0;
+}
+
+static void *gated_worker(void *argument)
+{
+    (void)argument;
+    __sync_fetch_and_add(&shared.Arrived, 1);
+    return sem_wait(&shared.Gate) == 0 ? argument : (void *)1;
+}
+
+static void *brief_worker(void *argument)
+{
+    return argument;
 }
 
 /* Signals (S3): handlers record what they saw; the alternate stack is a static buffer the kernel accepts. */
@@ -374,7 +387,7 @@ int main(void)
 
     /* Threads over the kernel's (S2): creation and join, a mutex, a condition variable, thread-specific data with its
      * destructor, thread-local storage and errno per thread, a detached thread signalling a semaphore, pthread_exit's
-     * value. The kernel runs at most four threads of a process, so at most three run here beside the main one. */
+     * value. */
     pthread_t workers[2];
     check(pthread_mutex_init(&shared.Lock, 0) == 0 && pthread_cond_init(&shared.Ready, 0) == 0,
         "mutex and condition init");
@@ -410,6 +423,43 @@ int main(void)
         "pthread_self differs from a worker");
     struct timespec settle = {0, 5000000};
     nanosleep(&settle, 0); /* the detached thread's exit is served after its post */
+
+    /* The system layer's threads of a process (K5.3): fifteen beside the main one park on one semaphore together, each
+     * in a futex slot of its own, and a seventeenth thread is EAGAIN, the kernel's refusal. */
+    enum {
+        THREAD_CAPACITY = 16
+    };
+
+    pthread_t crowd[THREAD_CAPACITY - 1], extra;
+    pthread_attr_t compact;
+    int created = 0, joined = 0;
+    shared.Arrived = 0;
+    check(sem_init(&shared.Gate, 0, 0) == 0 &&
+            pthread_attr_init(&compact) == 0 &&
+            pthread_attr_setstacksize(&compact, 65536) == 0,
+        "the gate and the stack size");
+    for (int i = 0; i < THREAD_CAPACITY - 1; ++i) {
+        created += pthread_create(&crowd[created], &compact, gated_worker, 0) == 0;
+    }
+    check(created == THREAD_CAPACITY - 1, "fifteen threads beside the main one");
+    const int refused = pthread_create(&extra, &compact, brief_worker, 0);
+    check(refused == EAGAIN, "a seventeenth thread is EAGAIN");
+    if (refused == 0) {
+        pthread_join(extra, 0);
+    }
+    while (__atomic_load_n(&shared.Arrived, __ATOMIC_ACQUIRE) < created) {
+        sched_yield();
+    }
+    nanosleep(&settle, 0); /* every worker parks */
+    for (int i = 0; i < created; ++i) {
+        sem_post(&shared.Gate);
+    }
+    for (int i = 0; i < created; ++i) {
+        void *value = (void *)1;
+        joined += pthread_join(crowd[i], &value) == 0 && value == 0;
+    }
+    check(joined == THREAD_CAPACITY - 1 && sem_destroy(&shared.Gate) == 0 && pthread_attr_destroy(&compact) == 0,
+        "the fifteen threads passed the gate and joined");
 
     /* Signals (S3): dispositions, masks, the alternate stack, faults repaired or escaped, signals between threads. */
     struct sigaction action, previous;

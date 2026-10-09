@@ -63,7 +63,8 @@ within the root task's quota of sixteen; the private flag changes nothing and pr
 - The kernel runs at most four threads of a process (`WIT_USER_THREAD_CAPACITY`, a prototype quota bound to the
   frozen line's fixed TLS windows): a fourth `pthread_create` beside the main thread fails with `EAGAIN`, so `sem_init`
   (three workers at once, then a fourth), `tls_init` (five at once) and `pthread_cond-smasher` wait for the quota's
-  rework. libc-test's own runner forks a process per test, this one does not yet (S6): a program that mistakes a
+  rework. K5.3 gives the system layer's processes sixteen threads and brings them back
+  ([K5.3-Process-Capacities.md](K5.3-Process-Capacities.md)). libc-test's own runner forks a process per test, this one does not yet (S6): a program that mistakes a
   failed creation for a thread and joins it faults or corrupts the process, and `pthread_mutex` leaves a thread
   deadlocked on a mutex of a returned stack frame by design, which the next test's frames then overwrite — both
   wait for the process per test.
@@ -71,7 +72,7 @@ within the root task's quota of sixteen; the private flag changes nothing and pr
   `set_robust_list`; `clone` serves threads of this process alone, never a new address space. `__cxa_thread_atexit`
   arrived with the C++ runtime (S4, libc++abi's fallback over pthread keys).
 - Eight futex slots: a ninth concurrent waiter (impossible with the kernel's four threads) gets `ENOMEM`, which
-  musl's loops treat as a spurious wake-up. The exit word's waiters share one event, so a wake of that word with
+  musl's loops treat as a spurious wake-up. K5.3 makes them sixteen, as many as its threads of a process. The exit word's waiters share one event, so a wake of that word with
   several parked wakes one of them, who wakes the next (musl's protocol). The slot lock spins with `THREAD_YIELD`.
 - Thread ids are the library's small integers, not kernel identities; the library keeps at most 64 live threads'
   records.

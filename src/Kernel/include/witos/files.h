@@ -8,7 +8,7 @@ typedef struct WitFile {
 } WitFile;
 
 typedef struct WitFileTable {
-    WitFile Entries[WIT_RUNTIME_HANDLE_CAPACITY];
+    WitFile Entries[WIT_PROCESS_HANDLE_CAPACITY];
 } WitFileTable;
 
 void wit_files_initialize(WitFileTable *files);

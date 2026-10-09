@@ -33,7 +33,7 @@ void wit_user_wait_interrupt(WitUserProcess *process, WitUserThread *thread)
 /* Expired deadlines complete before any later signal or close, so a timeout is never overwritten. */
 void wit_user_wait_expire(WitUserProcess *process, WitU64 now)
 {
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         WitUserThread *thread = &process->Threads[i];
         if (thread->State != WitThreadWaiting ||
             (thread->WaitKind != WitWaitObjects && thread->WaitKind != WitWaitSleep) ||
@@ -146,7 +146,7 @@ void wit_user_wait_objects_changed(WitUserProcess *process)
 {
     for (;;) {
         WitUserThread *first = 0;
-        for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+        for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
             WitUserThread *thread = &process->Threads[i];
             WitU64 winner = 0;
             if (thread->State != WitThreadWaiting || thread->WaitKind != WitWaitObjects) {
@@ -196,7 +196,7 @@ void wit_user_event_signal_object(WitUserProcess *process, WitU64 object)
 
 void wit_user_wait_handle_closed(WitUserProcess *process, WitU64 handle)
 {
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         if (waits_on(&process->Threads[i], handle)) {
             wit_user_wait_complete(&process->Threads[i], WIT_STATUS_CLOSED, 0);
             ++process->WaitCloses;

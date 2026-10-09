@@ -16,7 +16,7 @@ void wit_user_library_initialize(WitUserProcess *process)
         process->Libraries[i] = (WitUserLibrary){0};
         process->LibraryTls[i] = (WitUserLibraryTls){0};
     }
-    for (WitU32 t = 0; t < WIT_USER_THREAD_CAPACITY; ++t) {
+    for (WitU32 t = 0; t < WIT_PROCESS_THREAD_CAPACITY; ++t) {
         for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
             process->Threads[t].LibraryTls[i] = 0;
         }
@@ -261,7 +261,7 @@ static WitU64 check_callbacks(const WitUserProcess *process, int *callbacks, int
             *entries = 1;
         }
     }
-    for (WitU32 i = 0; *entries && i < WIT_USER_THREAD_CAPACITY; ++i) {
+    for (WitU32 i = 0; *entries && i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         const WitUserThread *thread = &process->Threads[i];
         if (i != process->CurrentThread &&
             thread->State != WitThreadEmpty &&

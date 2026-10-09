@@ -6,7 +6,7 @@
 
 void wit_user_references_initialize(WitUserProcess *p)
 {
-    for (WitU32 i = 0; i < WIT_RUNTIME_HANDLE_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_HANDLE_CAPACITY; ++i) {
         WitUserThreadReference *r = &p->ThreadReferences[i];
         r->Handle = 0;
         r->ThreadId = 0;
@@ -33,7 +33,7 @@ static WitUserThread *live_target(WitUserProcess *p, WitU64 identity)
     if (!p) {
         return 0;
     }
-    for (WitU32 i = 0; i < WIT_USER_THREAD_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         if (p->Threads[i].State != WitThreadEmpty &&
             p->Threads[i].State != WitThreadExited &&
             p->Threads[i].Handle == identity) {
