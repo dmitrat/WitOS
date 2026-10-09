@@ -1,14 +1,25 @@
 Source: src/native/libs/CMakeLists.txt
 Output: src.native.libs.CMakeLists.txt
 Before: c24b1413cf8bba18d4e231f615cc613cbfbd93771c8b7c5399fea3f33b393dbd
-After: 85e333c1e0356309e7f6599471f9ff73a7f5107ce304b1da41f3222e0a6a908d
+After: 2c5bbf52fe162569cc166fc3ef45879d8bc70547c9f9c8d728c1d273420c6f5c
 
-The native libraries on witos (plan step R1.2b, RFC 0015 section 8): WitOS has no GSSAPI and no OpenSSL, so
+The native libraries on witos (plan steps R1.2b and R2.1, RFC 0015 section 8): WitOS has no GSSAPI and no OpenSSL, so
 System.Net.Security.Native and System.Security.Cryptography.Native are not built; Negotiate authentication and
-cryptography fail explicitly until a provider exists.
+cryptography fail explicitly until a provider exists. _GNU_SOURCE is defined as on Linux and Haiku: the system layer's
+libc is musl, which declares its GNU functions (sched_getaffinity, struct ucred and the rest) only under it, and
+System.Native does not build without them.
 
 --- a/src/native/libs/CMakeLists.txt
 +++ b/src/native/libs/CMakeLists.txt
+@@ -102,7 +102,7 @@
+         add_definitions(-D__APPLE_USE_RFC_3542)
+     endif ()
+ 
+-    if (CLR_CMAKE_TARGET_LINUX OR CLR_CMAKE_TARGET_HAIKU)
++    if (CLR_CMAKE_TARGET_LINUX OR CLR_CMAKE_TARGET_HAIKU OR CLR_CMAKE_TARGET_WITOS)
+         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_GNU_SOURCE")
+     endif ()
+ else ()
 @@ -156,6 +156,9 @@
          endif ()
  

@@ -1,0 +1,35 @@
+{
+  "purpose": "The switches the .NET SDK passes ILC for a NativeAOT publish with its default settings and invariant globalization (plan step R2.1): captured from Platform.ilc.rsp of `dotnet publish -r linux-x64 -c Release -p:PublishAot=true -p:InvariantGlobalization=true` of the SDK's console template with the SDK global.json pins. Each of `switches` is passed as --feature and as --runtimeknob, as the SDK passes it; each of `featuresOnly` as --feature alone. runtime-witos compiles witos programs with them, so that ILC sees what a publish shows it; recapture them when the SDK changes.",
+  "sdk": "10.0.300",
+  "switches": {
+    "Microsoft.Extensions.DependencyInjection.VerifyOpenGenericServiceTrimmability": "true",
+    "System.ComponentModel.DefaultValueAttribute.IsSupported": "false",
+    "System.ComponentModel.Design.IDesignerHost.IsSupported": "false",
+    "System.ComponentModel.TypeConverter.EnableUnsafeBinaryFormatterInDesigntimeLicenseContextSerialization": "false",
+    "System.ComponentModel.TypeDescriptor.IsComObjectDescriptorSupported": "false",
+    "System.Data.DataSet.XmlSerializationIsSupported": "false",
+    "System.Diagnostics.Tracing.EventSource.IsSupported": "false",
+    "System.Globalization.Invariant": "true",
+    "System.Globalization.PredefinedCulturesOnly": "true",
+    "System.Linq.Enumerable.IsSizeOptimized": "true",
+    "System.Net.Security.UseManagedNtlm": "false",
+    "System.Net.SocketsHttpHandler.Http3Support": "false",
+    "System.Reflection.Metadata.MetadataUpdater.IsSupported": "false",
+    "System.Resources.ResourceManager.AllowCustomResourceTypes": "false",
+    "System.Resources.UseSystemResourceKeys": "false",
+    "System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported": "false",
+    "System.Runtime.InteropServices.BuiltInComInterop.IsSupported": "false",
+    "System.Runtime.InteropServices.EnableConsumingManagedCodeFromNativeHosting": "false",
+    "System.Runtime.InteropServices.EnableCppCLIHostActivation": "false",
+    "System.Runtime.InteropServices.Marshalling.EnableGeneratedComInterfaceComImportInterop": "false",
+    "System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization": "false",
+    "System.StartupHookProvider.IsSupported": "false",
+    "System.Text.Encoding.EnableUnsafeUTF7Encoding": "false",
+    "System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault": "false",
+    "System.Threading.Thread.EnableAutoreleasePool": "false",
+    "System.Linq.Expressions.CanEmitObjectArrayDelegate": "false"
+  },
+  "featuresOnly": {
+    "System.Diagnostics.Debugger.IsSupported": "false"
+  }
+}

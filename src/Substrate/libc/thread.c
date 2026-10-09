@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <sched.h>
 #include <string.h>
+#include <sys/prctl.h>
 
 /* Threads (plan step S2): musl's pthreads over the kernel's threads. musl prepares a thread's stack and TLS itself
  * and calls __clone with the start function, the stack pointer, the thread pointer and two words: the parent's copy
@@ -30,6 +31,7 @@ typedef struct Thread {
     int *ClearWord; /* CLONE_CHILD_CLEARTID: zeroed by the kernel at the exit */
     WitSignalState Signals;
     WitThreadLocal Local;
+    char Name[16]; /* the thread's name (prctl PR_SET_NAME), the library's as its id is; a new thread inherits it */
 } Thread;
 
 typedef struct Launch {
@@ -316,6 +318,7 @@ int __clone(int (*function)(void *), void *stack, int flags, void *argument, ...
     record->Pointer = (WitU64)thread_pointer;
     record->Tid = tid;
     record->ClearWord = child_tid;
+    memcpy(record->Name, find_current()->Name, sizeof(record->Name));
     if (parent_tid) {
         *parent_tid = tid;
     }
@@ -327,6 +330,28 @@ int __clone(int (*function)(void *), void *stack, int flags, void *argument, ...
         return (int)__wit_errno(status);
     }
     return tid;
+}
+
+/* prctl (R2.1): a thread's name, PR_SET_NAME and PR_GET_NAME of the calling thread, which musl's pthread_setname_np
+ * and pthread_getname_np use for the own thread; the kernel knows no thread's name. Every other option is ENOSYS. */
+long __wit_prctl(long option, unsigned long argument)
+{
+    Thread *thread = find_current();
+    if (option == PR_SET_NAME) {
+        const char *name = (const char *)argument;
+        size_t length = 0;
+        while (length < sizeof(thread->Name) - 1 && name[length]) {
+            ++length;
+        }
+        memcpy(thread->Name, name, length);
+        memset(thread->Name + length, 0, sizeof(thread->Name) - length);
+        return 0;
+    }
+    if (option == PR_GET_NAME) {
+        memcpy((char *)argument, thread->Name, sizeof(thread->Name));
+        return 0;
+    }
+    return -ENOSYS;
 }
 
 /* musl's __unmapself(base, size): the exiting detached thread's stack goes with the thread. */

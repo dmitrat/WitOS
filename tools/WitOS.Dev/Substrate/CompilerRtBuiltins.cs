@@ -11,11 +11,11 @@ namespace WitOS.Dev.Substrate;
 /// The compiler's runtime helpers a program needs beside the libc (plan step S1.1): compiler-rt's generic soft-float
 /// builtins for IEEE binary128, which clang emits for <c>long double</c> on aarch64, the complex multiplication
 /// builtins musl's complex functions call, which libc.so links whole (S5.3), the 128-bit integer division builtins
-/// libc++.so needs (S5.4), and crtbegin.c, built apart as
-/// crtbeginS.o, the start object clang's driver links into every dynamic image for its hidden __dso_handle (S5.4);
-/// the pinned LLVM package ships none of them for the Linux triples. The files are pinned by SHA-256 at the toolchain's own tag in
-/// src/Substrate/compiler-rt.lock.json, downloaded once into .tools/compiler-rt, verified on every use and compiled
-/// unchanged with the pinned clang into builtins.a for each architecture.
+/// libc++.so needs (S5.4), clear_cache.c, whose __clear_cache NativeAOT's runtime calls on aarch64 (R2.1), and
+/// crtbegin.c, built apart as crtbeginS.o, the start object clang's driver links into every dynamic image for its hidden
+/// __dso_handle (S5.4); the pinned LLVM package ships none of them for the Linux triples. The files are pinned by SHA-256
+/// at the toolchain's own tag in src/Substrate/compiler-rt.lock.json, downloaded once into .tools/compiler-rt, verified on
+/// every use and compiled unchanged with the pinned clang into builtins.a for each architecture.
 /// </summary>
 internal static class CompilerRtBuiltins
 {

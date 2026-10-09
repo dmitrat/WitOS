@@ -21,11 +21,22 @@ __attribute__((__visibility__("hidden"))) void __wit_start_program(const unsigne
 __attribute__((__visibility__("hidden"))) long __wit_syscall(
     long n, long a1, long a2, long a3, long a4, long a5, long a6);
 
+/* The process's id, its main thread's: getpid (syscall.c) and the calls that name the own process (system.c). */
+#define WIT_LIBC_PROCESS_ID 1L
+
+/* What the system layer knows of the machine and of the process's limits (system.c, R2.1). */
+struct sysinfo;
+struct rlimit;
+long __wit_sysinfo(struct sysinfo *out);
+long __wit_prlimit(long pid, long resource, const struct rlimit *limit, struct rlimit *old);
+long __wit_sched_getaffinity(long tid, long size, unsigned char *mask);
+
 /* Linux memory calls over reserve/commit (memory.c). */
 long __wit_mmap(long address, long length, long protection, long flags, long fd, long offset);
 long __wit_munmap(long address, long length);
 long __wit_mprotect(long address, long length, long protection);
 long __wit_madvise(long address, long length, long advice);
+long __wit_mremap(long address, long old_length, long new_length, long flags);
 
 /* Files over the read-only boot package (files.c, S1.2). */
 struct kstat;
@@ -68,6 +79,7 @@ typedef struct WitSignalState {
 struct timespec;
 void __wit_thread_init(void);
 long __wit_gettid(void);
+long __wit_prctl(long option, unsigned long argument);
 long __wit_set_tid_address(int *address);
 __attribute__((__noreturn__)) long __wit_thread_exit(long code, WitU64 reservation);
 int __wit_is_exit_word(const volatile void *address);
