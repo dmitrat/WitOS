@@ -1,0 +1,21 @@
+Source: src/coreclr/tools/Common/TypeSystem/Common/TargetDetails.cs
+Output: src.coreclr.tools.Common.TypeSystem.Common.TargetDetails.cs
+Before: aa81c37ea6e0d288ec58a3582a214bb51d3717183d94abcaa3b1811892ce2f66
+After: c79bd6cb8b5ecd7f8b21956b4dfac39bacba1f8585f8c0054ec7f9111740a9a3
+
+ILC's target WitOS (plan step R1.3, RFC 0015 section 3): TargetOS.WitOS beside the other operating systems. The
+compiler treats it as every target that is neither Windows nor Apple: ELF objects, the System V registers on x64 and
+the Unix JIT; thread statics are not inlined, as on FreeBSD.
+
+--- a/src/coreclr/tools/Common/TypeSystem/Common/TargetDetails.cs
++++ b/src/coreclr/tools/Common/TypeSystem/Common/TargetDetails.cs
+@@ -23,7 +23,8 @@
+         FreeBSD,
+         NetBSD,
+         SunOS,
+-        WebAssembly
++        WebAssembly,
++        WitOS
+     }
+ 
+     public enum TargetAbi

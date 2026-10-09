@@ -58,7 +58,8 @@ C++ проходят на обеих ISA (S7). Фаза S завершена.
 
 **Рантайм начат.** Закреплённый dotnet/runtime 10.0.8 с патч-набором `witos` собирается на Linux-хосте: CoreLib
 (R1.1); sysroot слоя 2 в раскладке rootfs (R1.2a); нативная часть NativeAOT и её CoreLib против sysroot, с ответами
-try_run, измеренными в госте (R1.2b). В госте .NET ещё не исполняется ничего.
+try_run, измеренными в госте (R1.2b); ILC компилирует программу для `witos` в ELF-объект (R1.3). В госте .NET ещё
+не исполняется ничего.
 
 **Переносится как знание.** Адаптеры GC и PAL NativeAOT (написаны против Windows-формы PAL, нужны против Unix-формы);
 диспетчер раскрутки (таблицы станут DWARF); порядок инициализации рантайма; протоколы приёмки M3 и P5.
@@ -435,9 +436,10 @@ Unix-формы в госте (фаза R, с R2).
 
 Каждый шаг реализует названные разделы [RFC-0015 v2](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md).
 
-- [ ] **R1** Инфраструктура сборки dotnet/runtime (RFC-0015 §3–§4): `TargetOS=witos` в `eng/build.sh`,
+- [x] **R1** Инфраструктура сборки dotnet/runtime (RFC-0015 §3–§4): `TargetOS=witos` в `eng/build.sh`,
   `configureplatform.cmake` и props; `TARGET_WITOS` в `System.Private.CoreLib.Shared.projitems` и `OSPlatformName`;
-  RID `witos-x64` и `witos-arm64` в графе RID; `TargetOS.WitOS` в ILC и триплет в `Microsoft.NETCore.Native.Unix.targets`;
+  RID `witos-x64` и `witos-arm64` в графе RID; `TargetOS.WitOS` в ILC (триплет в `Microsoft.NETCore.Native.Unix.targets`
+  ушёл в R2, где линк);
   патч-набор в `patches/runtime` начинается пустым и измеряется против бюджета FreeBSD/Haiku; сборка на Linux-хосте;
   воспроизводимость переезжает из `runtime-source`. Тремя срезами:
   - [x] **R1.1** Сборка и идентичность ([R1.1-Runtime-Identity.md](@Docs/Implementation/R1.1-Runtime-Identity.md)):
@@ -466,10 +468,13 @@ Unix-формы в госте (фаза R, с R2).
       по-разному (`realpath` на x64 не работал вовсе) — теперь `EINVAL` для существующего пути и `ENOENT` для
       отсутствующего. Нативная часть NativeAOT, `AsmOffsets.cs` и CoreLib NativeAOT собираются для обеих ISA;
       патч-набор — 15 файлов, CoreCLR 1 из 31 (FreeBSD) и 18 (Haiku), нативные библиотеки 2 из 62 и 11.
-  - [ ] **R1.3** ILC: `TargetOS.WitOS`, `--targetos witos`, хостовые JIT и ILC закреплённым clang, ELF-объект
-    программы против CoreLib NativeAOT для `witos`.
+  - [x] **R1.3** ILC ([R1.3-ILC.md](@Docs/Implementation/R1.3-ILC.md)): `TargetOS.WitOS` и `--targetos witos` — два
+    файла, остальное ILC уже делает для любой цели не Windows и не Apple (ELF, регистры System V, Unix-JIT);
+    хостовые JIT и ILC (`clr.alljits+clr.tools -os linux`) собирает закреплённый clang; программа
+    `tests/Runtime.Witos/Platform.cs`, собранная против одной CoreLib `witos`, становится ELF-объектом для обеих
+    ISA, и её `Main` свёрнут JIT в `return 0` — идентичность `WITOS` дошла до кода; патч-набор — 17 файлов, CoreCLR 3 из 31 (FreeBSD) и 18 (Haiku).
 - [ ] **R2** NativeAOT Unix-формы (RFC-0015 §2, §9): upstream `Runtime/unix` над libc слоя 2; ILC с ELF-выводом и линк
-  через clang/lld с sysroot WitOS; повторение приёмки M3 (GC, исключения, финализация, потоки и TLS, ожидания) пробами
+  через clang/lld с sysroot WitOS (триплет `witos` в `Microsoft.NETCore.Native.Unix.targets`); повторение приёмки M3 (GC, исключения, финализация, потоки и TLS, ожидания) пробами
   `NativeAotBoot` на обеих ISA. **После R2 Windows-линия удаляется (K8).**
 - [ ] **R3** CoreCLR (RFC-0015 §5–§6): PAL upstream над libc с минимальными `TARGET_WITOS`-ветками; `gcenv.unix` без
   cgroups и `/proc`, цифры памяти и CPU из `sysconf`; двойное отображение W^X через объект памяти

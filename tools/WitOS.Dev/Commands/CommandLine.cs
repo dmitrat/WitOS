@@ -77,7 +77,7 @@ internal static class CommandLine
                 RequiredLines = [architecture.SysrootPassedLine, architecture.RootTaskPassedLine]
             }]),
         new CommandArchitecture("runtime-witos",
-            "Apply the witos patch set to the pinned dotnet/runtime on a Linux host; build CoreLib, then NativeAOT's native part and CoreLib against the sysroot, and measure the configure's try_run answers in the guest (R1.1, R1.2b)",
+            "Apply the witos patch set to the pinned dotnet/runtime on a Linux host; build CoreLib, then NativeAOT's native part and CoreLib against the sysroot, measure the configure's try_run answers in the guest, and compile a program for witos with ILC (R1.1, R1.2b, R1.3)",
             RuntimeWitos.BuildAsync),
         new CommandFormat(check: false),
         new CommandFormat(check: true),

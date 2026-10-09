@@ -1,0 +1,17 @@
+Source: src/coreclr/tools/Common/CommandLineHelpers.cs
+Output: src.coreclr.tools.Common.CommandLineHelpers.cs
+Before: 1e76a64cf06b20ed12917d4e63009860bf4948f26a176b8a8449a7065683d7a4
+After: 816ad0279ce75d1e2a0d735160f92cb51e50f9b5eccaf7c7b91bb928d798e87a
+
+--targetos witos (plan step R1.3): the compilers' command line names TargetOS.WitOS.
+
+--- a/src/coreclr/tools/Common/CommandLineHelpers.cs
++++ b/src/coreclr/tools/Common/CommandLineHelpers.cs
+@@ -77,6 +77,7 @@
+                 "win" or "windows" => TargetOS.Windows,
+                 "osx" => TargetOS.OSX,
+                 "freebsd" => TargetOS.FreeBSD,
++                "witos" => TargetOS.WitOS,
+                 "maccatalyst" => TargetOS.MacCatalyst,
+                 "iossimulator" => TargetOS.iOSSimulator,
+                 "ios" => TargetOS.iOS,

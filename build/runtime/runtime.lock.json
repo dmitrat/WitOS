@@ -75,6 +75,14 @@
     {
       "path": "src/native/corehost/apphost/static/CMakeLists.txt",
       "sha256": "af3a84b22806adcfc8b950390c477373e1481300bc7c1d81c64858f1aac582bf"
+    },
+    {
+      "path": "src/coreclr/tools/Common/TypeSystem/Common/TargetDetails.cs",
+      "sha256": "aa81c37ea6e0d288ec58a3582a214bb51d3717183d94abcaa3b1811892ce2f66"
+    },
+    {
+      "path": "src/coreclr/tools/Common/CommandLineHelpers.cs",
+      "sha256": "1e76a64cf06b20ed12917d4e63009860bf4948f26a176b8a8449a7065683d7a4"
     }
   ]
 }
