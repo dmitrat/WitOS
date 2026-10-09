@@ -11,6 +11,7 @@ typedef struct WitProcessContext {
     WitU64 Log; /* the kernel log: standard output and error (DEBUG_WRITE) */
     WitU64 Package; /* the boot package object: the files and their executable mappings */
     WitU64 PackageBytes; /* the size of the package */
+    WitU64 Manager; /* the process manager's endpoint (S6.1); zero in the root task and without a manager */
 } WitProcessContext;
 
 extern WitProcessContext __wit_process;

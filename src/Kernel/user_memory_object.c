@@ -71,7 +71,7 @@ WitU32 wit_memory_objects_charged(const WitUserProcess *p)
 static WitMemoryObject *reserve_entry(const WitUserProcess *p, WitU32 *object)
 {
     *object = 0;
-    if (wit_memory_objects_charged(p) >= WIT_MEMORY_OBJECT_CAPACITY) {
+    if (wit_memory_objects_charged(p) >= p->ObjectLimit) {
         return 0;
     }
     for (WitU32 i = 0; i < WIT_MEMORY_OBJECT_TABLE_CAPACITY; ++i) {

@@ -56,7 +56,7 @@ typedef struct WitMemoryObjectTable {
     WitU32 Count, Reserved;
 } WitMemoryObjectTable;
 
-/* The live objects kernel-wide, and those a process created and still live (its quota of WIT_MEMORY_OBJECT_CAPACITY). */
+/* The live objects kernel-wide, and those a process created and still live (its quota, ObjectLimit). */
 WitU32 wit_memory_objects_live(void);
 WitU32 wit_memory_objects_charged(const struct WitUserProcess *process);
 #endif

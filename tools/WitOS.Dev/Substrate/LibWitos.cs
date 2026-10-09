@@ -117,6 +117,54 @@ internal static class LibWitos
     }
 
     /// <summary>
+    /// The system layer's root task (plan step S6.1).
+    /// </summary>
+    public const string ROOT_TASK = "src/RootTask";
+
+    /// <summary>
+    /// Builds the system layer's root task (src/RootTask over the libc and libwitos), the process manager that starts
+    /// /bin/init, as the flat image (plan step S6.1).
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Artifact directory of the scenario.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>Path of the flat image.</returns>
+    public static async Task<string> BuildRootTaskAsync(string root, string output, KernelArchitecture architecture)
+    {
+        var library = await BuildAsync(root, architecture);
+        var objects = new List<string>();
+        foreach (var source in Directory.GetFiles(Path.Combine(root, ROOT_TASK), "*.c").Order(StringComparer.Ordinal))
+        {
+            var obj = Path.Combine(output, "RootTask." + Path.GetFileNameWithoutExtension(source) + ".o");
+            await MuslLibc.CompileAsync(root, architecture, source, obj, Options(root));
+            objects.Add(obj);
+        }
+        var image = await MuslLibc.LinkAsync(root, architecture, output, "RootFixture", objects, [library]);
+        return await FlatImage.FromElfAsync(output, architecture.ElfMachine, image, "RootFixture", "wit_user_root_image",
+            "user_root_image.h");
+    }
+
+    /// <summary>
+    /// The programs the process scenario's package carries (S6.1): tests/User/process_init.c as /bin/init and
+    /// tests/User/process_child.c as /bin/child, static programs the root task's process manager starts.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Artifact directory of the scenario.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>Package paths and the files to place there.</returns>
+    public static async Task<IReadOnlyList<(string Name, string Source)>> BuildProcessProgramsAsync(string root, string output,
+        KernelArchitecture architecture)
+    {
+        async Task<string> Program(string name)
+        {
+            var obj = Path.Combine(output, name + ".o");
+            await MuslLibc.CompileAsync(root, architecture, Path.Combine(root, "tests", "User", name + ".c"), obj, Options(root));
+            return await MuslLibc.LinkStartedProgramAsync(root, architecture, output, name, [obj]);
+        }
+        return [("bin/init", await Program("process_init")), ("bin/child", await Program("process_child"))];
+    }
+
+    /// <summary>
     /// Builds the root task of the spawn scenario (tests/User/spawn_main.c over the libc and libwitos) as the flat image.
     /// </summary>
     /// <param name="root">Repository root.</param>

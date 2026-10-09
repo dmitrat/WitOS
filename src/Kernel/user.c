@@ -518,6 +518,7 @@ static void reset_process(WitUserProcess *process, WitU32 slot, WitU32 code_size
     process->AbruptThreadCode = 0;
     process->Ticks = 0;
     process->TickLimit = runtime ? WIT_RUNTIME_TICK_BUDGET : WIT_USER_TICK_BUDGET;
+    process->ObjectLimit = WIT_MEMORY_OBJECT_CAPACITY;
     process->ExitCode = 0;
     process->ImageBase = image ? base : WIT_USER_CODE;
     process->ImageEntry = image ? base + image->EntryRva : WIT_USER_CODE;
@@ -679,6 +680,7 @@ int wit_user_create_flat(WitUserProcess *process, WitPageAllocator *allocator, W
         goto failed;
     }
     process->Space.ReservationLimit = WIT_PROCESS_RESERVATION_CAPACITY;
+    process->ObjectLimit = WIT_PROCESS_OBJECT_CAPACITY;
     for (WitU64 page = WIT_USER_DATA; page < WIT_USER_DATA_END; page += 4096) {
         if (!wit_user_space_map(&process->Space, page, 1, 0)) {
             goto failed;
@@ -787,6 +789,7 @@ int wit_user_create_empty(WitUserProcess *process, WitPageAllocator *allocator, 
     }
     process->Space.PageLimit = pages;
     process->Space.ReservationLimit = WIT_PROCESS_RESERVATION_CAPACITY; /* the system layer's table (S5.4) */
+    process->ObjectLimit = WIT_PROCESS_OBJECT_CAPACITY; /* and its objects (S6.1) */
     process->State = WitUserRunning;
     return 1;
 }

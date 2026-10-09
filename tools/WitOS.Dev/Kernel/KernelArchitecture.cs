@@ -102,6 +102,16 @@ internal sealed record KernelArchitecture(string Name, string MsvcTarget, string
     public string PhaseSPassedLine => $"[PHASE-S] dynamic C++ program on {Triple[..Triple.IndexOf('-')]}: ";
 
     /// <summary>
+    /// The line /bin/init of the process scenario prints when its children started and ended as they should (S6.1).
+    /// </summary>
+    public string InitPassedLine => $"[INIT] process manager on {Triple[..Triple.IndexOf('-')]}: ";
+
+    /// <summary>
+    /// The line the system layer's root task prints when /bin/init ended with zero (S6.1).
+    /// </summary>
+    public string RootTaskPassedLine => "[ROOT-TASK] /bin/init exited with 0";
+
+    /// <summary>
     /// The first line of the program the spawn scenario starts: a static position-independent program relocated at its
     /// start, with its arguments, in a process of its own (S5.2).
     /// </summary>

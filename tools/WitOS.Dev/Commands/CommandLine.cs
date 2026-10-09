@@ -50,6 +50,12 @@ internal static class CommandLine
         new CommandScenario("cxx", "Build the pinned LLVM C++ runtime over the libc and boot the C++ scenarios as the root task (S4)",
             KernelImageBuilder.CXX_SCENARIO,
             architecture => [new BootRequest("cxx-256", 256, 120, ExpectedOutcome.Success) { RequiredLines = [architecture.CxxPassedLine] }]),
+        new CommandScenario("process", "Boot the system layer's root task, whose process manager serves /bin/init's posix_spawn (S6.1)",
+            KernelImageBuilder.PROCESS_SCENARIO,
+            architecture => [new BootRequest("process-256", 256, 60, ExpectedOutcome.Success)
+            {
+                RequiredLines = [architecture.InitPassedLine, architecture.RootTaskPassedLine]
+            }]),
         new CommandScenario("spawn", "Build libwitos and libc.so and boot a root task that starts static and dynamic programs of the boot package (S5.2, S5.3)",
             KernelImageBuilder.SPAWN_SCENARIO,
             architecture => [new BootRequest("spawn-256", 256, 60, ExpectedOutcome.Success)

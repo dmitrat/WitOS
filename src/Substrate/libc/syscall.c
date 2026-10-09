@@ -343,6 +343,7 @@ static int uses_tables(long n)
     case SYS_getpid:
     case SYS_uname:
     case SYS_membarrier:
+    case SYS_wait4:
         return 0;
     default:
         return 1;
@@ -365,7 +366,6 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
 static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a6)
 {
     WitU64 result = 0;
-    (void)a4;
     (void)a5;
     (void)a6;
     switch (n) {
@@ -504,6 +504,8 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
         return system_name((struct utsname *)a1);
     case SYS_membarrier:
         return process_barrier(a1, a2);
+    case SYS_wait4:
+        return __wit_wait4(a1, (int *)a2, a3, (struct rusage *)a4);
 #if defined(SYS_arch_prctl)
     case SYS_arch_prctl:
         if (a1 == 0x1002) { /* ARCH_SET_FS: the thread pointer of the calling thread */

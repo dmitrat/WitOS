@@ -44,6 +44,10 @@ long __wit_getcwd(char *buffer, long size);
 long __wit_fcntl(long fd, long command, long argument);
 int __wit_is_file_descriptor(long fd);
 
+/* Child processes through the process manager (process.c, S6.1): wait4 over the children posix_spawn started. */
+struct rusage;
+long __wit_wait4(long pid, int *status, long options, struct rusage *usage);
+
 /* The signal state of one thread (signal.c, S3): the blocked and pending signals as bits sig - 1, and the
  * alternate stack sigaltstack recorded (the kernel holds the same range as the thread's alternate stack). */
 typedef struct WitSignalState {

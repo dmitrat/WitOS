@@ -28,8 +28,9 @@
  * argv, envp and the auxiliary vector with AT_PHDR, AT_ENTRY (the program's), AT_BASE (the interpreter's base, for a
  * dynamic program alone: musl's dlstart.c of a static one finds its base through PT_DYNAMIC), AT_RANDOM and
  * WIT_AT_START. The thread starts at the interpreter's entry, or the program's without one. The start message goes
- * out before the thread starts (witos/start.h): duplicates of the loader's log, WRITE alone, and of the package, MAP,
- * EXECUTE and QUERY, both with TRANSFER, as a capability moves. The objects are charged to the loader while it lives;
+ * out before the thread starts (witos/start.h): duplicates of the loader's log, WRITE alone, of the package, MAP,
+ * EXECUTE and QUERY, and of the process manager's endpoint, SEND alone, when the start names one (S6.1), each with
+ * TRANSFER, as a capability moves. The objects are charged to the loader while it lives;
  * the process's own memory to the process. A failed start closes what it made: the threadless process ends with its
  * last handle and takes its mappings along. */
 
@@ -46,6 +47,7 @@
 #define ARGUMENT_BYTES (STACK_BYTES / 4) /* the strings and pointers of argv and envp */
 #define AUXILIARY_PAIRS 15U
 #define LOG_RIGHTS (WIT_RIGHT_WRITE | WIT_RIGHT_TRANSFER)
+#define MANAGER_RIGHTS (WIT_RIGHT_SEND | WIT_RIGHT_TRANSFER)
 #define PACKAGE_RIGHTS (WIT_RIGHT_MAP | WIT_RIGHT_EXECUTE | WIT_RIGHT_QUERY | WIT_RIGHT_TRANSFER)
 
 #if defined(__x86_64__)
@@ -377,10 +379,11 @@ static int build_stack(const Program *p, const Program *interpreter, char *const
     return status == WIT_STATUS_OK ? 0 : failure(status);
 }
 
-/* The start message: the package's size and duplicates of the log and the package, moved by the send. */
-static int send_start(WitU64 endpoint)
+/* The start message: the package's size and duplicates of the log, the package and the manager's endpoint when there
+ * is one (S6.1), moved by the send. */
+static int send_start(WitU64 endpoint, WitU64 manager)
 {
-    WitU64 handles[WIT_START_HANDLES] = {0, 0}, result = 0;
+    WitU64 handles[WIT_START_HANDLES_MAXIMUM] = {0, 0, 0}, result = 0;
     WitStartMessage message;
     WitChannelMessage request;
     WitU64 status = wit_syscall(
@@ -388,6 +391,10 @@ static int send_start(WitU64 endpoint)
     if (status == WIT_STATUS_OK) {
         status = wit_syscall(WIT_CALL_HANDLE_DUPLICATE, __wit_process.Package,
             (WitU64)&handles[WIT_START_HANDLE_PACKAGE], PACKAGE_RIGHTS, &result);
+    }
+    if (status == WIT_STATUS_OK && manager) {
+        status = wit_syscall(
+            WIT_CALL_HANDLE_DUPLICATE, manager, (WitU64)&handles[WIT_START_HANDLE_MANAGER], MANAGER_RIGHTS, &result);
     }
     if (status == WIT_STATUS_OK) {
         message.Version = WIT_START_VERSION;
@@ -398,7 +405,7 @@ static int send_start(WitU64 endpoint)
         request.Data = (WitU64)&message;
         request.Handles = (WitU64)handles;
         request.Bytes = sizeof(message);
-        request.HandleCount = WIT_START_HANDLES;
+        request.HandleCount = manager ? WIT_START_HANDLES_MAXIMUM : WIT_START_HANDLES;
         request.Flags = 0;
         request.Reserved = 0;
         status = wit_syscall(WIT_CALL_CHANNEL_SEND, endpoint, (WitU64)&request, sizeof(request), &result);
@@ -406,6 +413,7 @@ static int send_start(WitU64 endpoint)
     if (status != WIT_STATUS_OK) {
         close_handle(handles[WIT_START_HANDLE_LOG]);
         close_handle(handles[WIT_START_HANDLE_PACKAGE]);
+        close_handle(handles[WIT_START_HANDLE_MANAGER]);
         return failure(status);
     }
     return 0;
@@ -434,7 +442,7 @@ static int start_thread(WitU64 entry, WitU64 process, WitU64 stack_pointer)
 
 /* Everything after PROCESS_CREATE: the images, the stack, the start message, the thread. */
 static int load(const Program *p, const Program *interpreter, char *const argv[], char *const envp[], WitU64 process,
-    WitU64 endpoint, WitU64 child)
+    WitU64 endpoint, WitU64 child, WitU64 manager)
 {
     WitU64 stack_pointer = 0;
     int error = map_image(p, process);
@@ -445,13 +453,19 @@ static int load(const Program *p, const Program *interpreter, char *const argv[]
         error = build_stack(p, interpreter, argv, envp, child, process, &stack_pointer);
     }
     if (!error) {
-        error = send_start(endpoint);
+        error = send_start(endpoint, manager);
     }
     const Program *entry = interpreter ? interpreter : p;
     return error ? error : start_thread(entry->Base + entry->Header.e_entry, process, stack_pointer);
 }
 
 int witos_spawn(WitU64 *process, const char *path, char *const argv[], char *const envp[])
+{
+    return witos_spawn_ex(process, path, argv, envp, 0);
+}
+
+int witos_spawn_ex(
+    WitU64 *process, const char *path, char *const argv[], char *const envp[], const witos_spawn_options *options)
 {
     Program program, interpreter;
     WitU64 ends[2] = {0, 0}, handle = 0, child = 0, result = 0;
@@ -481,7 +495,8 @@ int witos_spawn(WitU64 *process, const char *path, char *const argv[], char *con
             wit_syscall(WIT_CALL_PROCESS_CREATE, (WitU64)&request, sizeof(request), (WitU64)&child, &handle);
         if (status == WIT_STATUS_OK) {
             ends[1] = 0; /* moved into the process */
-            error = load(&program, program.Interpreter[0] ? &interpreter : 0, argv, envp, handle, ends[0], child);
+            error = load(&program, program.Interpreter[0] ? &interpreter : 0, argv, envp, handle, ends[0], child,
+                options ? options->manager : 0);
         } else {
             error = failure(status);
         }

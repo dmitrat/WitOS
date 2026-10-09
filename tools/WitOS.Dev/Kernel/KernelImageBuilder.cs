@@ -44,6 +44,12 @@ internal static class KernelImageBuilder
     /// </summary>
     public const string SPAWN_SCENARIO = "spawn";
 
+    /// <summary>
+    /// The scenario whose root task is the system layer's, the process manager, and whose /bin/init starts children
+    /// with posix_spawn (plan step S6.1).
+    /// </summary>
+    public const string PROCESS_SCENARIO = "process";
+
     #endregion
 
     #region Fields
@@ -134,14 +140,17 @@ internal static class KernelImageBuilder
         }
 
         // The programs a root task starts from the package (S5.2).
-        var programs = scenario == SPAWN_SCENARIO ? await Substrate.LibWitos.BuildProgramsAsync(root, output, architecture) : [];
+        var programs = scenario == SPAWN_SCENARIO ? await Substrate.LibWitos.BuildProgramsAsync(root, output, architecture)
+            : scenario == PROCESS_SCENARIO ? await Substrate.LibWitos.BuildProcessProgramsAsync(root, output, architecture)
+            : [];
         var bootPackage = await BootPackage.BuildAsync(root, output, scenario == "coreclr-storage", scenario == "coreclr-memory",
-            scenario == LIBC_SCENARIO || scenario == SPAWN_SCENARIO, programs);
+            scenario is LIBC_SCENARIO or SPAWN_SCENARIO or PROCESS_SCENARIO, programs);
         // The root task's flat image (K4): every kernel, release or self-test, starts it from the boot disk.
         var rootTask = scenario == LIBC_SCENARIO ? await Substrate.MuslLibc.BuildRootAsync(root, output, architecture, "libc_hello.c")
             : scenario == LIBC_TEST_SCENARIO ? await Substrate.LibcTestSuite.BuildRootAsync(root, output, architecture)
             : scenario == CXX_SCENARIO ? await Substrate.LlvmRuntimes.BuildRootAsync(root, output, architecture)
             : scenario == SPAWN_SCENARIO ? await Substrate.LibWitos.BuildRootAsync(root, output, architecture)
+            : scenario == PROCESS_SCENARIO ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
             : await UserImage.BuildRootAsync(root, output, architecture);
         if (scenario == "coreclr-storage")
         {

@@ -16,6 +16,20 @@
  * (processes, channels, memory objects, pages, handles); nothing of a failed start remains. */
 int witos_spawn(WitU64 *process, const char *path, char *const argv[], char *const envp[]);
 
+/* What a start passes beyond the program, its arguments and its environment (S6.1). */
+typedef struct witos_spawn_options {
+    WitU64 manager; /* the process manager's endpoint, duplicated with SEND into the process; zero for none */
+} witos_spawn_options;
+
+/* witos_spawn with options; null options are witos_spawn's. */
+int witos_spawn_ex(
+    WitU64 *process, const char *path, char *const argv[], char *const envp[], const witos_spawn_options *options);
+
+/* The process manager (S6.1, witos/manager.h): starts the program at path with argv and envp as the first process,
+ * serves the spawn requests of every process it starts and of theirs, until the first process ends, and copies that
+ * process's record to *info. Returns 0 or an errno value of the first start; the root task runs it. */
+int witos_manager_run(const char *path, char *const argv[], char *const envp[], WitProcessInfo *info);
+
 /* Waits until the process ended and copies its record: State EXITED with ExitCode, or FAULTED. Returns 0 or an errno
  * value (EBADF for a handle that names no process); the handle stays open, and its close releases the record. */
 int witos_wait(WitU64 process, WitProcessInfo *info);

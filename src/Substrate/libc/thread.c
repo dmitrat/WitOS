@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "witos_libc.h"
+#include "witos/manager.h"
 #include "witos/thread_info.h"
 #include "witos/thread_reference.h"
 #include <errno.h>
@@ -239,7 +240,7 @@ long __wit_thread_exit(long code, WitU64 reservation)
     text[sizeof(text) - 3] = hex[status & 15];
     wit_syscall(WIT_CALL_DEBUG_WRITE, __wit_process.Log, (WitU64)text, sizeof(text) - 1, &result);
     for (;;) {
-        wit_syscall(WIT_CALL_PROCESS_EXIT, 128 + 6, 0, 0, &result); /* as an abort would report it */
+        wit_syscall(WIT_CALL_PROCESS_EXIT, WIT_EXIT_SIGNAL(6), 0, 0, &result); /* as an abort would report it */
     }
 }
 
