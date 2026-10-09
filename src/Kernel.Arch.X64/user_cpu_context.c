@@ -1,13 +1,7 @@
 #include "x64.h"
 #include "user.h"
 #include "witos/platform.h"
-unsigned __int64 __readcr0(void);
-unsigned __int64 __readcr4(void);
-unsigned __int64 __readmsr(unsigned long);
-unsigned __int64 __readdr(unsigned int);
-void __writedr(unsigned int, unsigned __int64);
-void __cpuid(int[4], int);
-#pragma intrinsic(__readcr0, __readcr4, __readmsr, __readdr, __writedr, __cpuid)
+#include "witos/x64_instructions.h"
 static WitU32 mxcsr_mask;
 
 WitU32 wit_x64_mxcsr_mask(void)
@@ -25,29 +19,33 @@ static int profile(WitU64 cr0, WitU64 cr4, WitU64 efer)
 
 static int debug_disabled(void)
 {
-    return !(__readdr(7) & ~0x400ULL) && !__readdr(0) && !__readdr(1) && !__readdr(2) && !__readdr(3);
+    return !(wit_x64_read_dr(7) & ~0x400ULL) &&
+        !wit_x64_read_dr(0) &&
+        !wit_x64_read_dr(1) &&
+        !wit_x64_read_dr(2) &&
+        !wit_x64_read_dr(3);
 }
 
 int wit_arch_context_supported(void)
 {
-    return profile(__readcr0(), __readcr4(), __readmsr(0xC0000080)) && debug_disabled();
+    return profile(wit_x64_read_cr0(), wit_x64_read_cr4(), wit_x64_read_msr(0xC0000080)) && debug_disabled();
 }
 
 void wit_x64_context_profile_initialize(void)
 {
     int cpu[4];
-    __cpuid(cpu, 1);
+    wit_x64_cpuid(cpu, 1);
     if ((cpu[3] & ((1 << 24) | (1 << 25) | (1 << 26))) != ((1 << 24) | (1 << 25) | (1 << 26)) ||
-        !profile(__readcr0(), __readcr4(), __readmsr(0xC0000080))) {
+        !profile(wit_x64_read_cr0(), wit_x64_read_cr4(), wit_x64_read_msr(0xC0000080))) {
         wit_panic("Unsupported CPU context preservation profile");
     }
-    if (__readdr(7) & ~0x400ULL) {
+    if (wit_x64_read_dr(7) & ~0x400ULL) {
         wit_panic("Inherited hardware debug control is unsupported");
     }
-    __writedr(0, 0);
-    __writedr(1, 0);
-    __writedr(2, 0);
-    __writedr(3, 0);
+    wit_x64_write_dr(0, 0);
+    wit_x64_write_dr(1, 0);
+    wit_x64_write_dr(2, 0);
+    wit_x64_write_dr(3, 0);
     if (!debug_disabled()) {
         wit_panic("Hardware breakpoints were not disabled");
     }

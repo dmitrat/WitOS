@@ -219,7 +219,7 @@ experiments/NativeAotTarget/ Native bootstrap and target artifact evidence
 .github/workflows/           Automated native build and VM tests
 ```
 
-The core kernel does not include UEFI structures. The output is a freestanding PE/COFF EFI image with no Windows or C-runtime imports. MSVC is a host compiler, not a guest dependency. The `src/Runtime.*` directories, the `experiments/` probes and the PE loader, file, library and process-state code of `src/Kernel` belong to the frozen Windows-form line of ADR 0024; they are removed after plan step R2 (kernel step K8).
+The core kernel does not include UEFI structures. The output is a freestanding PE/COFF EFI image with no Windows or C-runtime imports. The x64 kernel is compiled by the pinned clang and linked by its lld-link (plan step T3.1); the ARM64 kernel and the frozen line's fixtures still use MSVC, a host compiler and never a guest dependency. The `src/Runtime.*` directories, the `experiments/` probes and the PE loader, file, library and process-state code of `src/Kernel` belong to the frozen Windows-form line of ADR 0024; they are removed after plan step R2 (kernel step K8).
 
 ## Scope and next work
 

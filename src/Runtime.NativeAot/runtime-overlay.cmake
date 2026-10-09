@@ -115,7 +115,7 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/src/Runtime.Pal.Win32/X64/native_clock.asm"
         "${WITOS_SOURCE_ROOT}/src/Runtime.Pal.Win32/X64/native_error.asm"
         "${WITOS_SOURCE_ROOT}/src/Runtime.Pal.Win32/X64/native_environment.asm"
-        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/chkstk.asm")
+        "${WITOS_SOURCE_ROOT}/src/Runtime.Native/X64/chkstk.asm")
     set_source_files_properties("${WITOS_SOURCE_ROOT}/src/Runtime.Native/thread.c"
         "${WITOS_SOURCE_ROOT}/src/Runtime.Native/image.c" TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES COMPILE_OPTIONS "/std:c17")
     file(STRINGS "${WITOS_SOURCE_ROOT}/src/Kernel/include/witos/user_abi.h" error_line
@@ -158,7 +158,7 @@ function(witos_select_gc_environment)
         "${WITOS_SOURCE_ROOT}/src/Runtime.Pal.Win32/X64/native_clock.asm"
         "${WITOS_SOURCE_ROOT}/src/Runtime.NativeAot/X64/native_format.asm"
         "${WITOS_SOURCE_ROOT}/src/Runtime.Pal.Win32/X64/native_environment.asm"
-        "${WITOS_SOURCE_ROOT}/src/Kernel.Arch.X64/chkstk.asm"
+        "${WITOS_SOURCE_ROOT}/src/Runtime.Native/X64/chkstk.asm"
         TARGET_DIRECTORY Runtime.WorkstationGC PROPERTIES LANGUAGE ASM_MASM
         COMPILE_OPTIONS "/I${CMAKE_BINARY_DIR}/witos-abi" OBJECT_DEPENDS "${CMAKE_BINARY_DIR}/witos-abi/user_abi.inc")
     set(old_config "${CLR_DIR}/nativeaot/Runtime/RhConfig.cpp")

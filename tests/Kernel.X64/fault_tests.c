@@ -1,17 +1,15 @@
 #include "x64.h"
 #include "witos/platform.h"
 #include "self_test.h"
+#include "witos/x64_instructions.h"
 
 /* CPU fault injection scenarios; each WITOS_TEST_* build expects one fatal kernel exception. */
-
-unsigned __int64 __readcr3(void);
-#pragma intrinsic(__readcr3)
 
 void wit_arch_fault_self_test(void)
 {
 #if defined(WITOS_TEST_PAGE_FAULT) || defined(WITOS_TEST_DOUBLE_FAULT)
     /* The kernel's own page tables must leave the fault probe absent. */
-    const WitU64 *pml4 = (const WitU64 *)(__readcr3() & 0x000FFFFFFFFFF000ULL);
+    const WitU64 *pml4 = (const WitU64 *)(wit_x64_read_cr3() & 0x000FFFFFFFFFF000ULL);
     if ((pml4[(WIT_PAGE_FAULT_PROBE >> 39) & 511] & 1) != 0) {
         wit_panic("Page fault probe is mapped");
     }

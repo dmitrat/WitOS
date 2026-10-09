@@ -47,7 +47,7 @@ internal static class CoreClrStorageImage
                 "/I"+Path.Combine(root,"src/Runtime.Native"),"/I"+Path.Combine(root,"src/Kernel/include"),"/Fo"+obj,Path.Combine(root,source)], root);
         }
         var stackProbe = Path.Combine(output, "storage_chkstk.obj");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + stackProbe, Path.Combine(root, "src/Kernel.Arch.X64/chkstk.asm")], root);
+        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"), ["/nologo", "/c", "/Fo" + stackProbe, Path.Combine(root, "src/Runtime.Native/X64/chkstk.asm")], root);
         objects.Add(stackProbe);
         objects.Add(Path.Combine(output, "native_error.obj"));
         var file = Path.Combine(output, "CoreClrStorageFixture.pe");

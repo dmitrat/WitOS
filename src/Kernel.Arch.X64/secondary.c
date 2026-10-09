@@ -6,25 +6,15 @@
 #include "witos/processor.h"
 #include "user.h"
 #include "x64.h"
+#include "witos/x64_instructions.h"
 
 /* Secondary processors of x64 (plan step K7.2) through the local APIC. The boot processor enables its own APIC in
  * xAPIC mode with the PIC's line kept open (LINT0 as ExtINT, so the PIT tick still arrives), claims one page of
  * usable memory below 1 MiB for the trampoline a processor starts in (real mode at the page, protected mode, long
- * mode with the kernel's root table, then the 64-bit entry of secondary_entry.asm with the kernel's number), and
+ * mode with the kernel's root table, then the 64-bit entry of secondary_entry.S with the kernel's number), and
  * sends INIT and two startup interrupts. A started processor loads the kernel's tables without a task register,
  * copies the boot processor's control registers, enables its APIC with every local vector masked, reports itself
  * ready and halts with interrupts enabled; the two inter-processor vectors (0xF0 fence, 0xF1 invalidate) wake it. */
-
-unsigned __int64 __readmsr(unsigned long);
-void __writemsr(unsigned long, unsigned __int64);
-unsigned __int64 __readcr0(void);
-unsigned __int64 __readcr4(void);
-void __writecr0(unsigned __int64);
-void __writecr4(unsigned __int64);
-void __invlpg(void *);
-void __halt(void);
-void _enable(void);
-#pragma intrinsic(__readmsr, __writemsr, __readcr0, __readcr4, __writecr0, __writecr4, __invlpg, __halt, _enable)
 
 #define APIC_BASE_MSR 0x1BU
 #define APIC_BASE_ENABLE (1ULL << 11)
@@ -140,9 +130,9 @@ static void delay_microseconds(WitU64 microseconds)
  * on the boot processor (virtual wire, so the PIT tick still arrives); the task priority accepts everything. */
 static void enable_local_apic(int boot_processor)
 {
-    const WitU64 base = __readmsr(APIC_BASE_MSR);
+    const WitU64 base = wit_x64_read_msr(APIC_BASE_MSR);
     require((base & APIC_BASE_X2APIC) == 0, "x2APIC mode is not the profile's");
-    __writemsr(APIC_BASE_MSR, base | APIC_BASE_ENABLE);
+    wit_x64_write_msr(APIC_BASE_MSR, base | APIC_BASE_ENABLE);
     *apic(APIC_SPURIOUS) = 0x1FFU; /* software enabled, spurious vector 0xFF */
     *apic(APIC_LVT_TIMER) = LVT_MASKED;
     *apic(APIC_LVT_ERROR) = LVT_MASKED;
@@ -193,11 +183,11 @@ void wit_arch_secondary_prepare(const WitBootInfo *boot, WitU32 index, WitU64 ha
     require(index != 0 && index < WIT_PROCESSOR_CAPACITY, "Secondary processor index out of range");
     require(hardware_id < 256, "An APIC id beyond the xAPIC destination field");
     if (!apic_enabled) {
-        apic_base = __readmsr(APIC_BASE_MSR) & APIC_BASE_ADDRESS;
+        apic_base = wit_x64_read_msr(APIC_BASE_MSR) & APIC_BASE_ADDRESS;
         wit_arch_map_device_page(boot, apic_base);
         enable_local_apic(1);
-        wit_x64_boot_cr0 = __readcr0();
-        wit_x64_boot_cr4 = __readcr4();
+        wit_x64_boot_cr0 = wit_x64_read_cr0();
+        wit_x64_boot_cr4 = wit_x64_read_cr4();
         trampoline_page = claim_trampoline_page(boot);
         for (WitU32 i = 0; i < 4096; ++i) {
             ((WitU8 *)trampoline_page)[i] = i < sizeof(trampoline) ? trampoline[i] : 0;
@@ -246,7 +236,7 @@ void wit_arch_ipi(WitU64 hardware_id, WitU32 kind)
 
 void wit_arch_invalidate_local(WitU64 address)
 {
-    __invlpg((void *)address);
+    wit_x64_invlpg((void *)address);
 }
 
 int wit_x64_lapic_enabled(void)
@@ -258,14 +248,14 @@ int wit_x64_lapic_enabled(void)
  * processor's, its APIC comes up masked, it reports its features and itself, and halts for interrupts. */
 WIT_NORETURN void wit_x64_secondary_main(WitU32 index)
 {
-    __writecr4(wit_x64_boot_cr4);
-    __writecr0(wit_x64_boot_cr0);
+    wit_x64_write_cr4(wit_x64_boot_cr4);
+    wit_x64_write_cr0(wit_x64_boot_cr0);
     enable_local_apic(0);
     wit_processors_set_features(index, wit_arch_processor_features(), wit_arch_cache_size());
     wit_cpus_secondary_ready(index);
-    _enable();
+    wit_x64_enable_interrupts();
     for (;;) {
-        __halt();
+        wit_x64_halt();
     }
 }
 

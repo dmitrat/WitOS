@@ -1,16 +1,13 @@
 #include "witos/boot.h"
 #include "witos/device.h"
 #include "witos/platform.h"
+#include "witos/x64_instructions.h"
 
 /* q35 device enumeration (plan step K3.1): the PCI functions of the board through configuration mechanism #1
  * (ports 0xCF8 and 0xCFC), which needs no mapping; the ECAM window whose base the host bridge's PCIEXBAR register
  * holds is published as each function's configuration region but never read here. The firmware assigned the BARs
  * and routed INTx through the PIC: the Interrupt Line register holds the PIC input. Nothing here knows a device
  * class; the descriptors carry the identity words as the bus reports them. */
-
-unsigned long __indword(unsigned short);
-void __outdword(unsigned short, unsigned long);
-#pragma intrinsic(__indword, __outdword)
 
 #define CONFIG_ADDRESS 0xCF8U
 #define CONFIG_DATA 0xCFCU
@@ -20,14 +17,14 @@ void __outdword(unsigned short, unsigned long);
 
 static WitU32 config_read(WitU32 bus, WitU32 device, WitU32 function, WitU32 offset)
 {
-    __outdword(CONFIG_ADDRESS, CONFIG_ENABLE | (bus << 16) | (device << 11) | (function << 8) | (offset & 0xFCU));
-    return __indword(CONFIG_DATA);
+    wit_x64_out32(CONFIG_ADDRESS, CONFIG_ENABLE | (bus << 16) | (device << 11) | (function << 8) | (offset & 0xFCU));
+    return wit_x64_in32(CONFIG_DATA);
 }
 
 static void config_write(WitU32 bus, WitU32 device, WitU32 function, WitU32 offset, WitU32 value)
 {
-    __outdword(CONFIG_ADDRESS, CONFIG_ENABLE | (bus << 16) | (device << 11) | (function << 8) | (offset & 0xFCU));
-    __outdword(CONFIG_DATA, value);
+    wit_x64_out32(CONFIG_ADDRESS, CONFIG_ENABLE | (bus << 16) | (device << 11) | (function << 8) | (offset & 0xFCU));
+    wit_x64_out32(CONFIG_DATA, value);
 }
 
 /* PCIEXBAR of the q35 host bridge (D0:F0, offset 0x60): bits 35:28 the base, bits 2:1 the length, bit 0 enable. */

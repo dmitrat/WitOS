@@ -33,6 +33,6 @@
     "tests/Kernel.X64/fault_tests.c"
   ],
   "assembly": [
-    "tests/Kernel.X64/self_test.asm"
+    "tests/Kernel.X64/self_test.S"
   ]
 }

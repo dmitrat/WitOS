@@ -1,13 +1,10 @@
 #include "witos/platform.h"
+#include "witos/x64_instructions.h"
 
 /* The MC146818 real-time clock of the q35 board (plan step K6), at the CMOS index and data ports, read once for the
  * UTC domain. QEMU keeps the clock in UTC (its default -rtc base), in BCD unless status register B says binary, in
  * 24-hour form unless B says 12-hour, and the century in CMOS index 0x32. A reading waits for the update-in-progress
  * flag to clear and repeats until two consecutive readings agree; an implausible date reports no clock. */
-
-unsigned char __inbyte(unsigned short port);
-void __outbyte(unsigned short port, unsigned char value);
-#pragma intrinsic(__inbyte, __outbyte)
 
 #define CMOS_INDEX 0x70U
 #define CMOS_DATA 0x71U
@@ -27,8 +24,8 @@ void __outbyte(unsigned short port, unsigned char value);
 
 static WitU8 cmos_read(WitU8 index)
 {
-    __outbyte(CMOS_INDEX, index);
-    return __inbyte(CMOS_DATA);
+    wit_x64_out8(CMOS_INDEX, index);
+    return wit_x64_in8(CMOS_DATA);
 }
 
 static void read_fields(WitU8 fields[FIELD_COUNT])
