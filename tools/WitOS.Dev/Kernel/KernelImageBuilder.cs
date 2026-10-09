@@ -168,7 +168,8 @@ internal static class KernelImageBuilder
         var disk = Path.Combine(output, $"WitOS-{architecture.Name}.img");
         FatImage.Create(disk, await File.ReadAllBytesAsync(efi), bootPackage, architecture.EfiName, await File.ReadAllBytesAsync(rootTask));
         await File.WriteAllTextAsync(Path.Combine(output, "build.txt"),
-            $"Build: {buildId}\nScenario: {scenario}\nCompiler: {msvc}\nQEMU: {Toolchain.QEMU_VERSION}\n");
+            $"Build: {buildId}\nScenario: {scenario}\nKernel compiler: {KernelCompiler(architecture, msvc)}\nFixtures: {msvc}\n" +
+            $"QEMU: {Toolchain.QEMU_VERSION}\n");
         Console.WriteLine($"Built {scenario}: {disk}");
         return disk;
     }
@@ -183,6 +184,10 @@ internal static class KernelImageBuilder
         var layers = KernelManifest.ReadLayers(root, target, selfTest);
         SCENARIO_DEFINES.TryGetValue(scenario, out var define);
         var objects = new List<string>();
+        if (architecture.KernelTriple is not null)
+        {
+            return await CompileKernelClangAsync(root, output, scenario, selfTest, target, architecture, layers, define);
+        }
         foreach (var layer in layers)
         {
             foreach (var source in layer.Sources)
@@ -225,6 +230,46 @@ internal static class KernelImageBuilder
         return objects;
     }
 
+    // The kernel on clang (plan step T3): C17 for the kernel's triple, freestanding with no header but the kernel's own,
+    // the compiler's helpers in assembly (compiler.S), no optimization as MSVC's /Od, CodeView debug records for the
+    // linker's PDB; the assembly is GNU syntax through clang's integrated assembler.
+    private static async Task<List<string>> CompileKernelClangAsync(string root, string output, string scenario, bool selfTest,
+        KernelTarget target, KernelArchitecture architecture, IReadOnlyList<KernelLayer> layers, string? define)
+    {
+        Toolchain.RequireClang(root);
+        var objects = new List<string>();
+        foreach (var layer in layers)
+        {
+            List<string> options =
+            [
+                $"--target={architecture.KernelTriple}", "-c", "-ffreestanding", "-nostdinc", "-fno-stack-protector", "-O0", "-g",
+                "-gcodeview", "-Wall", "-Wextra", "-Werror"
+            ];
+            options.AddRange(target.Includes.Concat(layer.Includes).Select(include => "-I" + Path.Combine(root, include)));
+            options.Add("-I" + output);
+            if (selfTest)
+            {
+                options.Add("-DWITOS_SELFTEST=1");
+            }
+            options.AddRange((target.Defines ?? []).Select(symbol => $"-D{symbol}=1"));
+            if (define is not null)
+            {
+                options.Add($"-D{define}=1");
+            }
+            foreach (var source in layer.Sources.Concat(layer.Assembly))
+            {
+                var obj = Path.Combine(output, $"{layer.Name}.{Path.GetFileNameWithoutExtension(source)}.obj");
+                objects.Add(obj);
+                string[] language = source.EndsWith(".c", StringComparison.Ordinal) ? ["-std=c17"] : [];
+                await Processes.RequireSuccessAsync(Toolchain.Clang(root), [.. options, .. language, Path.Combine(root, source), "-o", obj], root);
+            }
+        }
+        return objects;
+    }
+
+    private static string KernelCompiler(KernelArchitecture architecture, string msvc) =>
+        architecture.KernelTriple is null ? msvc : $"clang {Toolchain.LLVM_VERSION} for {architecture.KernelTriple}, lld-link";
+
     private static async Task RequireReleaseMapAsync(string map)
     {
         var symbols = (await File.ReadAllLinesAsync(map)).Where(line => SELF_TEST_SYMBOL.IsMatch(line)).Take(5).ToList();
@@ -245,7 +290,9 @@ internal static class KernelImageBuilder
             $"/out:{efi}", $"/pdb:{Path.Combine(output, "WitOS.pdb")}", $"/map:{Path.Combine(output, "WitOS.map")}"
         ];
         linkArgs.AddRange(objects);
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"), linkArgs, root);
+        // lld-link takes link.exe's options; a kernel clang compiled links with the pinned lld (plan step T3).
+        var linker = architecture.KernelTriple is null ? Path.Combine(msvc, "link.exe") : Toolchain.LldLink(root);
+        await Processes.RequireSuccessAsync(linker, linkArgs, root);
 
         using var file = File.OpenRead(efi);
         using var pe = new PEReader(file);

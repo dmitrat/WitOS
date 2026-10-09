@@ -7,5 +7,6 @@ namespace WitOS.Dev.Kernel;
 /// <param name="Description">What the layer contains.</param>
 /// <param name="Includes">Include directories added for this layer's C sources only.</param>
 /// <param name="Sources">Repository-relative C sources in link order.</param>
-/// <param name="Assembly">Repository-relative MASM sources in link order.</param>
+/// <param name="Assembly">Repository-relative assembly sources in link order: GNU syntax (.S) for a kernel clang builds,
+/// MASM or armasm64 for one MSVC still builds (plan step T3).</param>
 internal sealed record KernelLayer(string Name, string Description, string[] Includes, string[] Sources, string[] Assembly);

@@ -1,11 +1,7 @@
 #include "x64.h"
 #include "user.h"
 #include "witos/platform.h"
-
-unsigned __int64 __readcr3(void);
-void __halt(void);
-void _disable(void);
-#pragma intrinsic(__readcr3, __halt, _disable)
+#include "witos/x64_instructions.h"
 
 __declspec(align(16)) static WitU64 gdt[7];
 __declspec(align(16)) static WitInterruptGate idt[256];
@@ -131,13 +127,13 @@ WIT_NORETURN void wit_x64_exception(const WitExceptionFrame *frame, WitU64 fault
 
 void wit_arch_disable_interrupts(void)
 {
-    _disable();
+    wit_x64_disable_interrupts();
 }
 
 WIT_NORETURN void wit_arch_halt(void)
 {
-    _disable();
+    wit_x64_disable_interrupts();
     for (;;) {
-        __halt();
+        wit_x64_halt();
     }
 }

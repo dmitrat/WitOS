@@ -156,6 +156,13 @@ internal static class Toolchain
     public static string Lld(string root) => Path.Combine(ClangDirectory(root), "bin", "ld.lld.exe");
 
     /// <summary>
+    /// Path of the pinned PE/COFF linker, which links the kernel's EFI image (plan step T3.1).
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Executable path.</returns>
+    public static string LldLink(string root) => Path.Combine(ClangDirectory(root), "bin", "lld-link.exe");
+
+    /// <summary>
     /// Path of the pinned archiver.
     /// </summary>
     /// <param name="root">Repository root.</param>
@@ -169,14 +176,15 @@ internal static class Toolchain
     /// <exception cref="InvalidOperationException">The tools are missing.</exception>
     public static void RequireClang(string root)
     {
-        if (!File.Exists(Clang(root)) || !File.Exists(Lld(root)) || !File.Exists(LlvmAr(root)) ||
+        if (!File.Exists(Clang(root)) || !File.Exists(Lld(root)) || !File.Exists(LldLink(root)) || !File.Exists(LlvmAr(root)) ||
             !Directory.Exists(Path.Combine(ClangDirectory(root), "lib", "clang", LLVM_VERSION.Split('.')[0], "include")))
             throw new InvalidOperationException($"Pinned clang {LLVM_VERSION} is missing. Run: dotnet run --project tools/WitOS.Dev -- setup");
     }
 
     /// <summary>
-    /// Extracts the pinned clang, lld, llvm-ar, llvm-objcopy, llvm-readobj and the compiler's own headers (stdint.h and the
-    /// like, which freestanding layer 2 code includes) from the verified LLVM installer; the installer is not executed.
+    /// Extracts the pinned clang, lld (as ld.lld and lld-link), llvm-ar, llvm-objcopy, llvm-readobj and the compiler's own
+    /// headers (stdint.h and the like, which freestanding layer 2 code includes) from the verified LLVM installer; the
+    /// installer is not executed.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <returns>clang path.</returns>
@@ -187,7 +195,8 @@ internal static class Toolchain
         var major = LLVM_VERSION.Split('.')[0];
         var extraction = await Processes.RunAsync(SevenZip(),
         [
-            "x", installer, @"bin\clang.exe", @"bin\ld.lld.exe", @"bin\llvm-ar.exe", @"bin\llvm-objcopy.exe", @"bin\llvm-readobj.exe",
+            "x", installer, @"bin\clang.exe", @"bin\ld.lld.exe", @"bin\lld-link.exe", @"bin\llvm-ar.exe", @"bin\llvm-objcopy.exe",
+            @"bin\llvm-readobj.exe",
             $@"lib\clang\{major}\include", $"-o{directory}", "-y", "-bso0", "-bsp0"
         ], root, 180);
         if (extraction.TimedOut || extraction.ExitCode != 0)

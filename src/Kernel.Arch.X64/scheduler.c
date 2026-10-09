@@ -1,17 +1,11 @@
 #include "x64.h"
 #include "user.h"
 #include "witos/platform.h"
-
-unsigned __int64 __readmsr(unsigned long);
-void __writemsr(unsigned long, unsigned __int64);
-void __halt(void);
-void _enable(void);
-void _disable(void);
-#pragma intrinsic(__readmsr, __writemsr, __halt, _enable, _disable)
+#include "witos/x64_instructions.h"
 
 static volatile WitU64 timer_ticks;
 
-/* The vector of the device interrupt being entered (entry.asm): one processor, interrupts disabled (K3.2). */
+/* The vector of the device interrupt being entered (entry.S): one processor, interrupts disabled (K3.2). */
 WitU32 wit_x64_device_vector;
 
 #if defined(WITOS_SELFTEST)
@@ -25,7 +19,6 @@ static WitInterruptContext *saved[3];
 static volatile WitU32 scheduling;
 static WitU32 current = 2;
 static WitU64 switches;
-#endif
 
 static void require(int condition, const char *message)
 {
@@ -33,6 +26,7 @@ static void require(int condition, const char *message)
         wit_panic(message);
     }
 }
+#endif
 
 WitU64 wit_arch_clock_ticks(void)
 {
@@ -137,9 +131,9 @@ void wit_arch_scheduler_self_test(void)
     switches = 0;
     wit_console_write("[TEST-BEGIN] Scheduler.Preemption\n");
     wit_platform_timer_start();
-    _enable();
+    wit_x64_enable_interrupts();
     while (scheduling) {
-        __halt();
+        wit_x64_halt();
     }
     wit_platform_timer_stop();
 

@@ -1,15 +1,10 @@
 #include "x64.h"
 #include "user.h"
 #include "witos/platform.h"
+#include "witos/x64_instructions.h"
 
 /* x64 four-level page tables of user address spaces: entry encoding, walks, pruning and TLB coherence.
  * Table pages are owned and accounted by the common address-space code through its table callbacks. */
-
-unsigned __int64 __readcr3(void);
-void __writecr3(unsigned __int64);
-void __invlpg(void *);
-void __cpuid(int[4], int);
-#pragma intrinsic(__readcr3, __writecr3, __invlpg, __cpuid)
 
 #define PAGE_PRESENT 1ULL
 #define PAGE_WRITE 2ULL
@@ -52,8 +47,8 @@ WitU64 wit_arch_page_entry_physical(WitU64 entry)
 void wit_arch_page_invalidate(const WitUserSpace *space, WitU64 address)
 {
     /* No PCID, global user mappings or second CPU. Inactive CR3s are flushed on entry. */
-    if ((__readcr3() & PAGE_ADDRESS) == space->Root) {
-        __invlpg((void *)address);
+    if ((wit_x64_read_cr3() & PAGE_ADDRESS) == space->Root) {
+        wit_x64_invlpg((void *)address);
     }
 }
 
@@ -151,15 +146,15 @@ void wit_arch_space_install_kernel(WitU64 root)
 
 int wit_arch_space_active(WitU64 root)
 {
-    return (__readcr3() & PAGE_ADDRESS) == root;
+    return (wit_x64_read_cr3() & PAGE_ADDRESS) == root;
 }
 
 /* Another process's root (or the kernel's) within a run: loading CR3 flushes the previous non-global translations;
  * the kernel's own mappings are in every root (wit_arch_space_install_kernel). */
 void wit_arch_space_switch(WitU64 root)
 {
-    if ((__readcr3() & PAGE_ADDRESS) != root) {
-        __writecr3(root);
+    if ((wit_x64_read_cr3() & PAGE_ADDRESS) != root) {
+        wit_x64_write_cr3(root);
     }
 }
 
@@ -173,5 +168,5 @@ void wit_arch_publish_code(void)
     // CPUID is a real serializing instruction on the sole online x64 CPU.
     // This is instruction publication; the existing data-fence API is separate.
     int cpu[4];
-    __cpuid(cpu, 0);
+    wit_x64_cpuid(cpu, 0);
 }

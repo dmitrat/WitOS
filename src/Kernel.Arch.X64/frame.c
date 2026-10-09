@@ -2,13 +2,9 @@
 #include "user.h"
 #include "witos/arch_types.h"
 #include "witos/platform.h"
+#include "witos/x64_instructions.h"
 
 /* x64 implementation of the thread-frame part of witos/arch.h and the user trap entries. */
-
-unsigned __int64 __readcr3(void);
-unsigned __int64 __readmsr(unsigned long);
-void __writemsr(unsigned long, unsigned __int64);
-#pragma intrinsic(__readcr3, __readmsr, __writemsr)
 
 #define FS_BASE 0xC0000100UL
 #define GS_BASE 0xC0000101UL
@@ -36,18 +32,18 @@ void wit_arch_select_boot_stack(void)
 
 void wit_arch_reset_user_tls(void)
 {
-    __writemsr(FS_BASE, 0); /* Kernel C has no segment-based TLS. */
-    __writemsr(GS_BASE, 0);
+    wit_x64_write_msr(FS_BASE, 0); /* Kernel C has no segment-based TLS. */
+    wit_x64_write_msr(GS_BASE, 0);
 }
 
 int wit_arch_user_tls_is_reset(void)
 {
-    return __readmsr(FS_BASE) == 0 && __readmsr(GS_BASE) == 0;
+    return wit_x64_read_msr(FS_BASE) == 0 && wit_x64_read_msr(GS_BASE) == 0;
 }
 
 int wit_arch_kernel_space_active(void)
 {
-    return (__readcr3() & 0x000FFFFFFFFFF000ULL) == wit_virtual_kernel_root();
+    return (wit_x64_read_cr3() & 0x000FFFFFFFFFF000ULL) == wit_virtual_kernel_root();
 }
 
 int wit_arch_interrupts_enabled(void)
@@ -94,7 +90,7 @@ int wit_arch_user_tls_settable(void)
 }
 
 /* SYSCALL (RFC 0011 section 6.1, K5.2a): the SysV argument registers; INT 0x80 with RCX, RDX and R8 stays for the
- * frozen line until K8. The entry (user_entry.asm) builds the same frame as the interrupt gate's. */
+ * frozen line until K8. The entry (user_entry.S) builds the same frame as the interrupt gate's. */
 WitInterruptContext *wit_x64_user_syscall_sysv(WitInterruptContext *context)
 {
     return wit_user_syscall(context, context->Rax, context->Rdi, context->Rsi, context->Rdx);
@@ -104,10 +100,10 @@ WitInterruptContext *wit_x64_user_syscall_sysv(WitInterruptContext *context)
  * entry; SFMASK clears IF, TF, DF and AC on entry as the interrupt gate does. */
 void wit_x64_enable_syscall(void)
 {
-    __writemsr(0xC0000080, __readmsr(0xC0000080) | 1ULL);
-    __writemsr(0xC0000081, (0x23ULL << 48) | (0x08ULL << 32));
-    __writemsr(0xC0000082, (WitU64)wit_x64_syscall_entry);
-    __writemsr(0xC0000084, 0x40700ULL);
+    wit_x64_write_msr(0xC0000080, wit_x64_read_msr(0xC0000080) | 1ULL);
+    wit_x64_write_msr(0xC0000081, (0x23ULL << 48) | (0x08ULL << 32));
+    wit_x64_write_msr(0xC0000082, (WitU64)wit_x64_syscall_entry);
+    wit_x64_write_msr(0xC0000084, 0x40700ULL);
 }
 
 int wit_arch_kernel_stack_contains(WitU32 slot, WitU32 thread, const void *object, WitU64 size)

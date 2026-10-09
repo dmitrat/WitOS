@@ -280,7 +280,7 @@ internal static class HostRuntimeImage
             await Compile("stl_", [.. StlSources.CompileOptions(root, stl), .. includes], Path.Combine(stl, file));
         }
         foreach (var (file, name) in BINDINGS.Select(binding => ($"src/Runtime.Pal.Win32/X64/{binding}.asm", $"host_{binding}.obj"))
-                     .Prepend((NativeCxxExceptionImage.GUARD, "cxx_guard_dispatch.obj")).Append(("src/Kernel.Arch.X64/chkstk.asm", "chkstk.obj")))
+                     .Prepend((NativeCxxExceptionImage.GUARD, "cxx_guard_dispatch.obj")).Append(("src/Runtime.Native/X64/chkstk.asm", "chkstk.obj")))
         {
             var obj = Path.Combine(output, name);
             await Processes.RequireSuccessAsync(ml, ["/nologo", "/c", "/Fo" + obj, Path.Combine(root, file)], root);

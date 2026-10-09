@@ -98,7 +98,7 @@ WitU64 wit_x64_read_flags(void);
 WIT_NORETURN void wit_x64_worker(WitU32 index);
 void wit_x64_load_tables(const WitDescriptorPointer *gdt, const WitDescriptorPointer *idt);
 void wit_x64_tables(const WitDescriptorPointer **gdt, const WitDescriptorPointer **idt);
-/* Secondary processors (K7.2): secondary.c, secondary_entry.asm. */
+/* Secondary processors (K7.2): secondary.c, secondary_entry.S. */
 void wit_x64_secondary_entry(void);
 void wit_x64_ipi_entry(void);
 extern WitU32 wit_x64_ipi_vector;

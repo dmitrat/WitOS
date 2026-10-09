@@ -258,7 +258,14 @@ Unix-формы (фаза R).
   `[ROOT] started by clang 20.1.8 for <isa>` обязательна в `boot-128` обеих ISA. Собственный триплет
   `*-unknown-witos` — T4; libc, C++-рантайм и ELF-загрузчик — S1, S4, S5.
 - [ ] **T2** Сборка ОС на Linux-хосте с паритетом Windows; CI на обоих.
-- [ ] **T3** Ядро на clang для x64 и ARM64; отказ от MSVC, MASM и armasm64; `format` остаётся на clang-format.
+- [ ] **T3** Ядро на clang для x64 и ARM64; отказ от MSVC, MASM и armasm64; `format` остаётся на clang-format. Двумя срезами:
+  - [x] **T3.1** Ядро x64 на clang ([T3.1-Kernel-On-Clang-X64.md](@Docs/Implementation/T3.1-Kernel-On-Clang-X64.md)):
+    ядро и EFI-загрузчик x64 компилирует закреплённый clang для `x86_64-unknown-windows` (PE/COFF, соглашение
+    Microsoft, C17, `-O0` как прежний `/Od`, `-Werror`), линкует закреплённый `lld-link`; MASM ядра переписан в
+    синтаксис GNU (`.S`); интринсики MSVC заменены inline-функциями `witos/x64_instructions.h`; `memcpy`, `memset`
+    и `__chkstk` ядра — в `compiler.S`; пользовательский `chkstk.asm` замороженной линии переехал в
+    `src/Runtime.Native/X64`; набор x64 проходит целиком.
+  - [ ] **T3.2** Ядро ARM64 на clang: `aarch64-unknown-windows`, armasm64 → ассемблер GNU, MSVC уходит из ядра.
 - [ ] **T4** Собственный триплет `*-unknown-witos` в LLVM (патч-набор, как у Fuchsia и Managarm), когда sysroot устоится.
 
 Готово, когда один тулчейн собирает ядро, слой 2 и тесты, а CI зелёный на обоих хостах.

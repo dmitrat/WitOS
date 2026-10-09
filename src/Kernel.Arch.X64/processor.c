@@ -1,15 +1,13 @@
 #include "witos/arch.h"
+#include "witos/x64_instructions.h"
 
 /* The identity and the features of the running x64 processor (plan step K7.1), from CPUID: the x2APIC id of leaf
  * 0xB where the leaf exists, else the initial APIC id of leaf 1; the feature words of leaf 1. */
 
-void __cpuidex(int registers[4], int leaf, int subleaf);
-#pragma intrinsic(__cpuidex)
-
 static void cpuid(WitU32 leaf, WitU32 subleaf, WitU32 registers[4])
 {
     int raw[4];
-    __cpuidex(raw, (int)leaf, (int)subleaf);
+    wit_x64_cpuidex(raw, (int)leaf, (int)subleaf);
     for (WitU32 i = 0; i < 4; ++i) {
         registers[i] = (WitU32)raw[i];
     }

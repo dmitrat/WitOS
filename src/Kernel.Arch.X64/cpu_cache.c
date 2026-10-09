@@ -1,12 +1,10 @@
 #include "cpu_cache.h"
-
-void __cpuidex(int registers[4], int leaf, int subleaf);
-#pragma intrinsic(__cpuidex)
+#include "witos/x64_instructions.h"
 
 static void hardware(WitU32 leaf, WitU32 subleaf, WitU32 registers[4])
 {
     int raw[4];
-    __cpuidex(raw, (int)leaf, (int)subleaf);
+    wit_x64_cpuidex(raw, (int)leaf, (int)subleaf);
     for (WitU32 i = 0; i < 4; ++i) {
         registers[i] = (WitU32)raw[i];
     }
@@ -45,7 +43,7 @@ static WitU64 deterministic(WitCpuidReader read, WitU32 leaf)
 
 static int legacy_associativity(WitU32 field)
 {
-    return field == 1 || field == 2 || field == 4 || field == 6 || field >= 8 && field != 9;
+    return field == 1 || field == 2 || field == 4 || field == 6 || (field >= 8 && field != 9);
 }
 
 static WitU64 legacy_amd(WitCpuidReader read, WitU32 maximum_leaf)

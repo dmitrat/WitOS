@@ -1,13 +1,11 @@
-option casemap:none
+// The timer's and the device lines' interrupt entries and the one restore path of a saved frame.
+    .intel_syntax noprefix
 
-EXTERN wit_x64_timer_interrupt:PROC
-EXTERN wit_x64_device_interrupt:PROC
-
-.code
-PUBLIC wit_x64_timer_entry
-wit_x64_timer_entry PROC
-    ; Long-mode hardware has already saved RIP/CS/RFLAGS/RSP/SS and aligned
-    ; the frame. Save all GPRs, including the caller-saved registers.
+    .text
+    .globl wit_x64_timer_entry
+wit_x64_timer_entry:
+    // Long-mode hardware has already saved RIP/CS/RFLAGS/RSP/SS and aligned
+    // the frame. Save all GPRs, including the caller-saved registers.
     push rax
     push rbx
     push rcx
@@ -25,18 +23,16 @@ wit_x64_timer_entry PROC
     push r15
     cld
     sub rsp, 512
-    db 048h
-    fxsave [rsp]
+    fxsave64 [rsp]
     mov rcx, rsp
     sub rsp, 32
     call wit_x64_timer_interrupt
     mov rsp, rax
     jmp wit_x64_restore_context
-wit_x64_timer_entry ENDP
 
-; A device line's interrupt (K3.2): the same frame as the timer's, delivered by wit_x64_device_interrupt.
-PUBLIC wit_x64_device_entry
-wit_x64_device_entry PROC
+// A device line's interrupt (K3.2): the same frame as the timer's, delivered by wit_x64_device_interrupt.
+    .globl wit_x64_device_entry
+wit_x64_device_entry:
     push rax
     push rbx
     push rcx
@@ -54,19 +50,16 @@ wit_x64_device_entry PROC
     push r15
     cld
     sub rsp, 512
-    db 048h
-    fxsave [rsp]
+    fxsave64 [rsp]
     mov rcx, rsp
     sub rsp, 32
     call wit_x64_device_interrupt
     mov rsp, rax
     jmp wit_x64_restore_context
-wit_x64_device_entry ENDP
 
-PUBLIC wit_x64_restore_context
-wit_x64_restore_context PROC
-    db 048h
-    fxrstor [rsp]
+    .globl wit_x64_restore_context
+wit_x64_restore_context:
+    fxrstor64 [rsp]
     add rsp, 512
     pop r15
     pop r14
@@ -84,21 +77,14 @@ wit_x64_restore_context PROC
     pop rbx
     pop rax
     iretq
-wit_x64_restore_context ENDP
 
-PUBLIC wit_x64_fxsave
-wit_x64_fxsave PROC
-    db 048h
-    fxsave [rcx]
+    .globl wit_x64_fxsave
+wit_x64_fxsave:
+    fxsave64 [rcx]
     ret
-wit_x64_fxsave ENDP
 
-PUBLIC wit_x64_read_flags
-wit_x64_read_flags PROC
+    .globl wit_x64_read_flags
+wit_x64_read_flags:
     pushfq
     pop rax
     ret
-wit_x64_read_flags ENDP
-
-
-END

@@ -1,19 +1,7 @@
 #include "x64.h"
 #include "witos/platform.h"
 #include "witos/virtual.h"
-
-unsigned __int64 __readcr0(void);
-unsigned __int64 __readcr3(void);
-unsigned __int64 __readcr4(void);
-unsigned __int64 __readmsr(unsigned long);
-void __writecr0(unsigned __int64);
-void __writecr3(unsigned __int64);
-void __writecr4(unsigned __int64);
-void __writemsr(unsigned long, unsigned __int64);
-void __invlpg(void *);
-void __cpuid(int[4], int);
-#pragma intrinsic( \
-    __readcr0, __readcr3, __readcr4, __readmsr, __writecr0, __writecr3, __writecr4, __writemsr, __invlpg, __cpuid)
+#include "witos/x64_instructions.h"
 
 #define PTE_PRESENT 1ULL
 #define PTE_WRITE 2ULL
@@ -23,7 +11,7 @@ void __cpuid(int[4], int);
 static WitPageAllocator *pages;
 static WitU64 root_table;
 static int active;
-#if defined(WITOS_SELFTEST)
+#if defined(WITOS_SELFTEST) && defined(WITOS_TEST_EXECUTE_DATA)
 /* Executable-data probe of the execute-data fault test. */
 __declspec(align(4096)) static WitU8 nx_probe[4096] = {0xC3};
 #endif
@@ -67,7 +55,7 @@ static void set_page(WitU64 virtual_address, WitU64 physical_address, WitU64 fla
 {
     *leaf(virtual_address, 1) = physical_address | flags | PTE_PRESENT;
     if (active) {
-        __invlpg((void *)virtual_address);
+        wit_x64_invlpg((void *)virtual_address);
     }
 }
 
@@ -78,7 +66,7 @@ static void remove_page(WitU64 address)
         *entry = 0;
     }
     if (active) {
-        __invlpg((void *)address);
+        wit_x64_invlpg((void *)address);
     }
 }
 
@@ -115,7 +103,7 @@ int wit_virtual_protect(WitU64 address, int writable)
         return 0;
     }
     *entry = (*entry & PTE_ADDRESS) | PTE_PRESENT | PTE_NX | (writable ? PTE_WRITE : 0);
-    __invlpg((void *)address);
+    wit_x64_invlpg((void *)address);
     return 1;
 }
 
@@ -171,16 +159,16 @@ void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator
 {
     int cpu[4];
     WitU64 guards[WIT_STACK_GUARD_COUNT];
-    const WitU64 old_root = __readcr3() & PTE_ADDRESS;
-    const WitU64 cr4 = __readcr4();
-    __cpuid(cpu, (int)0x80000000U);
+    const WitU64 old_root = wit_x64_read_cr3() & PTE_ADDRESS;
+    const WitU64 cr4 = wit_x64_read_cr4();
+    wit_x64_cpuid(cpu, (int)0x80000000U);
     require((WitU32)cpu[0] >= 0x80000001U, "Extended CPU features unavailable");
-    __cpuid(cpu, (int)0x80000001U);
+    wit_x64_cpuid(cpu, (int)0x80000001U);
     require((cpu[3] & (1 << 20)) != 0, "NX is required");
     require((cr4 & ((1ULL << 22) | (1ULL << 23) | (1ULL << 25))) == 0, "Inherited PKE/CET/UINTR state is unsupported");
     require((cr4 & ((1ULL << 12) | (1ULL << 17))) == 0, "LA57/PCID are unsupported");
-    __cpuid(cpu, 1);
-    require((cpu[3] & (1 << 16)) && ((__readmsr(0x277) >> 24) & 255) == 0,
+    wit_x64_cpuid(cpu, 1);
+    require((cpu[3] & (1 << 16)) && ((wit_x64_read_msr(0x277) >> 24) & 255) == 0,
         "Device mappings require PAT entry 3 to be UC"); /* User aliases of device regions select it (K3.1). */
     require(boot->ImageBase != 0 &&
             (boot->ImageBase & 4095) == 0 &&
@@ -319,20 +307,20 @@ void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator
     }
 
     /* Flush inherited global entries as well as ordinary translations. */
-    __writemsr(0xC0000080, __readmsr(0xC0000080) | (1ULL << 11));
-    __writecr4(cr4 & ~((1ULL << 7) | (1ULL << 16) | (1ULL << 18))); /* No global pages, FSGSBASE or OSXSAVE. */
-    require((__readcr4() & ((1ULL << 16) | (1ULL << 18))) == 0, "Unsupported user extended CPU state enabled");
-    __writecr3(root_table);
-    __writecr0(__readcr0() | (1ULL << 16));
+    wit_x64_write_msr(0xC0000080, wit_x64_read_msr(0xC0000080) | (1ULL << 11));
+    wit_x64_write_cr4(cr4 & ~((1ULL << 7) | (1ULL << 16) | (1ULL << 18))); /* No global pages, FSGSBASE or OSXSAVE. */
+    require((wit_x64_read_cr4() & ((1ULL << 16) | (1ULL << 18))) == 0, "Unsupported user extended CPU state enabled");
+    wit_x64_write_cr3(root_table);
+    wit_x64_write_cr0(wit_x64_read_cr0() | (1ULL << 16));
     wit_x64_context_profile_initialize();
 #if defined(WITOS_SELFTEST)
     wit_x64_context_profile_self_test();
 #endif
     active = 1;
-    require((__readcr3() & PTE_ADDRESS) == root_table &&
+    require((wit_x64_read_cr3() & PTE_ADDRESS) == root_table &&
             root_table != old_root &&
-            (__readcr0() & (1ULL << 16)) &&
-            (__readmsr(0xC0000080) & (1ULL << 11)),
+            (wit_x64_read_cr0() & (1ULL << 16)) &&
+            (wit_x64_read_msr(0xC0000080) & (1ULL << 11)),
         "Kernel paging activation failed");
     wit_console_write("Kernel CR3: ");
     wit_console_write_hex(root_table);
@@ -352,9 +340,9 @@ void wit_arch_map_device_page(const WitBootInfo *boot, WitU64 physical)
     require(active, "Device mapping before kernel paging");
     require(boot->ImageBase >= physical + 4096 || boot->ImageBase + boot->ImageSize <= physical,
         "Device page overlaps kernel image or guards");
-    __cpuid(cpu, 1);
-    require(
-        (cpu[3] & (1 << 16)) && ((__readmsr(0x277) >> 24) & 255) == 0, "Device mapping requires PAT entry 3 to be UC");
+    wit_x64_cpuid(cpu, 1);
+    require((cpu[3] & (1 << 16)) && ((wit_x64_read_msr(0x277) >> 24) & 255) == 0,
+        "Device mapping requires PAT entry 3 to be UC");
     for (WitU32 i = 0; i < boot->MemoryRegionCount; ++i) {
         const WitMemoryRegion *r = &boot->MemoryRegions[i];
         require(r->Kind != WIT_MEMORY_USABLE || r->Base >= physical + 4096 || r->Base + r->Length <= physical,
@@ -377,7 +365,7 @@ void wit_x64_page_executable(WitU64 address)
     entry = leaf(address, 0);
     require(entry != 0 && (*entry & PTE_PRESENT), "Trampoline page is not mapped");
     *entry &= ~PTE_NX;
-    __invlpg((void *)address);
+    wit_x64_invlpg((void *)address);
 }
 
 WitU64 wit_virtual_kernel_root(void)
@@ -467,8 +455,6 @@ void wit_virtual_fault_test(void)
     *(volatile WitU8 *)target = 0x90;
 #endif
     wit_panic("Memory fault injection returned");
-#else
-    (void)nx_probe;
 #endif
 }
 #endif
