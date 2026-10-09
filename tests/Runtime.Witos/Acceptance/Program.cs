@@ -9,8 +9,10 @@ namespace WitOS.Acceptance;
 /// <remarks>
 /// Four cycles run the probes of the frozen line's acceptance (hardware faults, exception dispatch, finalization,
 /// managed threads, thread creation beside parked threads) and three of the Unix form's (an allocation the GC cannot
-/// serve, the thread pool, waits). Each run prints one line through the libc's write; the last line counts the runs,
-/// and Main returns 0 only when every run passed and the program's roots survived.
+/// serve, the thread pool, waits). The program is built against the reference pack and the shared framework for witos
+/// (R2.3a): the first line names the platform as the class libraries see it, each run prints one line through
+/// System.Console, the last line counts the runs, and Main returns 0 only when every run passed and the program's
+/// roots survived.
 /// </remarks>
 internal static class Program
 {
@@ -40,6 +42,8 @@ internal static class Program
     {
         if (RuntimeFeature.IsDynamicCodeSupported)
             return 101;
+        Console.WriteLine($"[M3] {RuntimeInformation.OSDescription}, {RuntimeInformation.RuntimeIdentifier}, " +
+            $"{Environment.ProcessorCount} processor(s)");
         var local = Make(42);
         var bytes = new byte[4096];
         bytes[0] = 17;
@@ -62,7 +66,7 @@ internal static class Program
         GC.KeepAlive(bytes);
         if (!roots)
             ++m_failed;
-        Libc.Line($"[M3] NativeAOT on {Isa()}: {m_passed} runs passed, {m_failed} failed");
+        Console.WriteLine($"[M3] NativeAOT on {Isa()}: {m_passed} runs passed, {m_failed} failed");
         return m_failed == 0 ? 0 : 1;
     }
 
@@ -88,7 +92,7 @@ internal static class Program
             ++m_passed;
         else
             ++m_failed;
-        Libc.Line($"[M3] cycle {cycle} {name}: {result}");
+        Console.WriteLine($"[M3] cycle {cycle} {name}: {result}");
     }
 
     private static string Isa() => RuntimeInformation.ProcessArchitecture switch
