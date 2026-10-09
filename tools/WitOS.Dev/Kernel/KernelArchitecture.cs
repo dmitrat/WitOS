@@ -111,6 +111,12 @@ internal sealed record KernelArchitecture(string Name, string MsvcTarget, string
     public string InitPassedLine => $"[INIT] process manager on {Triple[..Triple.IndexOf('-')]}: ";
 
     /// <summary>
+    /// The line /bin/init of the sysroot scenario prints when its checks ran: a C++ program clang's driver built against
+    /// the system layer's sysroot (R1.2a).
+    /// </summary>
+    public string SysrootPassedLine => $"[SYSROOT] clang driver program on {Triple[..Triple.IndexOf('-')]}: ";
+
+    /// <summary>
     /// The line the system layer's root task prints when /bin/init ended with zero (S6.1).
     /// </summary>
     public string RootTaskPassedLine => "[ROOT-TASK] /bin/init exited with 0";

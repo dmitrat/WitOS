@@ -28,7 +28,8 @@ internal static class CompilerRtBuiltins
 
     private const string REPOSITORY = "https://github.com/llvm/llvm-project";
 
-    private const string CRT_BEGIN = "/crtbegin.c";
+    // The CRT objects, built on their own rather than into builtins.a (S5.4, R1.2a).
+    private static readonly string[] CRT_OBJECTS = ["/crtbegin.c", "/crtend.c"];
 
     #endregion
 
@@ -114,7 +115,8 @@ internal static class CompilerRtBuiltins
         File.Delete(stampPath);
         var arch = MuslLibc.MuslArchitecture(architecture);
         var objects = new List<string>();
-        foreach (var source in pin.Sources.Where(source => source.Path.EndsWith(".c", StringComparison.Ordinal) && !source.Path.EndsWith(CRT_BEGIN, StringComparison.Ordinal)))
+        foreach (var source in pin.Sources.Where(source => source.Path.EndsWith(".c", StringComparison.Ordinal) &&
+            !CRT_OBJECTS.Any(crt => source.Path.EndsWith(crt, StringComparison.Ordinal))))
         {
             // An architecture directory holds that architecture's file alone, and a file compiler-rt's CMake lists for some
             // architectures names them (mulxc3.c: x86's 80-bit long double); the rest is generic.
@@ -148,14 +150,29 @@ internal static class CompilerRtBuiltins
     /// <param name="architecture">Target architecture.</param>
     /// <param name="includes">Include directories of the C library.</param>
     /// <returns>Path of the object.</returns>
-    public static async Task<string> BuildCrtBeginAsync(string root, KernelArchitecture architecture, IEnumerable<string> includes)
+    public static Task<string> BuildCrtBeginAsync(string root, KernelArchitecture architecture, IEnumerable<string> includes)
+        => BuildCrtAsync(root, architecture, includes, "crtbegin");
+
+    /// <summary>
+    /// Compiles compiler-rt's crtend.c into crtendS.o, the end object the clang driver links after an image's own
+    /// objects (the sysroot, plan step R1.2a): the terminator of the image's .eh_frame list. Built as crtbeginS.o is.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="includes">Include directories of the C library.</param>
+    /// <returns>Path of the object.</returns>
+    public static Task<string> BuildCrtEndAsync(string root, KernelArchitecture architecture, IEnumerable<string> includes)
+        => BuildCrtAsync(root, architecture, includes, "crtend");
+
+    private static async Task<string> BuildCrtAsync(string root, KernelArchitecture architecture, IEnumerable<string> includes,
+        string name)
     {
         var pin = await ReadPinAsync(root);
         var cache = await PrepareAsync(root);
-        var source = pin.Sources.Single(entry => entry.Path.EndsWith(CRT_BEGIN, StringComparison.Ordinal));
+        var source = pin.Sources.Single(entry => entry.Path.EndsWith("/" + name + ".c", StringComparison.Ordinal));
         var output = Path.Combine(root, "artifacts", "substrate", architecture.Name, "builtins");
         Directory.CreateDirectory(output);
-        var obj = Path.Combine(output, "crtbeginS.o");
+        var obj = Path.Combine(output, name + "S.o");
         await Processes.RequireSuccessAsync(Toolchain.Clang(root),
         [
             $"--target={architecture.Triple}", "-std=c11", "-O2", "-ffreestanding", "-fPIC", "-fno-stack-protector",
