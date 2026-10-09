@@ -1,0 +1,27 @@
+Source: include/sys/membarrier.h
+Output: membarrier.h
+Before: 6372eb814b5d9e062b18e32c98c9333819cae8a28f464b2f17bb39f06f0a97f0
+After: 0c6f31d73a5e314a4255e62c8774f6079255ddd14708c5dc86869bc274d71676
+
+C linkage for membarrier (plan step R1.3): sys/membarrier.h is the one musl header that declares a function without
+the extern "C" guards the others carry, as musl's master still is in 2026-10, so C++ code that calls membarrier
+references a mangled name libc.so does not define. The runtime's GC takes its process-wide barrier from this header on
+witos (R1.2b). The guards are spelled as in sys/mman.h; the change belongs upstream.
+
+--- a/include/sys/membarrier.h
++++ b/include/sys/membarrier.h
+@@ -16,6 +16,14 @@
+ 
+ #define MEMBARRIER_CMD_FLAG_CPU 1
+ 
++#ifdef __cplusplus
++extern "C" {
++#endif
++
+ int membarrier(int, int);
+ 
++#ifdef __cplusplus
++}
+ #endif
++
++#endif

@@ -16,7 +16,8 @@ namespace WitOS.Dev.Runtime;
 /// checkout, a work tree with the witos patch set applied, the runtime's own build scripts and the measure of the patch
 /// set against the FreeBSD and Haiku ports. Step R1.1 builds System.Private.CoreLib for witos-x64 and witos-arm64 and
 /// checks the platform's name in it; step R1.2b builds NativeAOT's native part and its CoreLib against the system layer's
-/// sysroot and measures in the guest the answers the native configure takes from eng/native/tryrun.cmake.
+/// sysroot and measures in the guest the answers the native configure takes from eng/native/tryrun.cmake; step R1.3
+/// builds the host's JITs and ILC with the pinned clang and compiles a program for witos into an ELF object.
 /// </summary>
 internal static class RuntimeWitos
 {
@@ -31,6 +32,14 @@ internal static class RuntimeWitos
     /// The initial cache of the try_run measurement, which forgets tryrun.cmake's answers.
     /// </summary>
     public const string TRYRUN_MEASURE = "build/runtime/tryrun-measure.cmake";
+
+    /// <summary>
+    /// The first program ILC compiles for witos (R1.3).
+    /// </summary>
+    public const string PLATFORM_PROGRAM = "tests/Runtime.Witos/Platform.cs";
+
+    // The symbol ILC gives the program's Main: the assembly, the type and the method.
+    private const string PLATFORM_MAIN = "Platform_Program__Main";
 
     #endregion
 
@@ -63,7 +72,11 @@ internal static class RuntimeWitos
         ["src/native/libs/CMakeLists.txt"] = "src.native.libs.CMakeLists.txt",
         ["src/native/libs/System.Globalization.Native/CMakeLists.txt"] =
             "src.native.libs.System.Globalization.Native.CMakeLists.txt",
-        ["src/native/corehost/apphost/static/CMakeLists.txt"] = "src.native.corehost.apphost.static.CMakeLists.txt"
+        ["src/native/corehost/apphost/static/CMakeLists.txt"] = "src.native.corehost.apphost.static.CMakeLists.txt",
+        // ILC's target WitOS (R1.3).
+        ["src/coreclr/tools/Common/TypeSystem/Common/TargetDetails.cs"] =
+            "src.coreclr.tools.Common.TypeSystem.Common.TargetDetails.cs",
+        ["src/coreclr/tools/Common/CommandLineHelpers.cs"] = "src.coreclr.tools.Common.CommandLineHelpers.cs"
     };
 
     #endregion
@@ -95,13 +108,7 @@ internal static class RuntimeWitos
         // The native build cross-compiles with the pinned clang and lld against the sysroot, which the toolchain file
         // recognizes by its marker (ROOTFS_DIR).
         var sysroot = await Sysroot.BuildAsync(root, architecture);
-        var environment = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["PATH"] = Path.Combine(Toolchain.ClangDirectory(root), "bin") + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH"),
-            ["CLR_CC"] = Toolchain.Clang(root),
-            ["CLR_CXX"] = Path.Combine(Toolchain.ClangDirectory(root), "bin", "clang++"),
-            ["ROOTFS_DIR"] = sysroot
-        };
+        var environment = NativeEnvironment(root, sysroot);
         var probes = await CollectProbesAsync(root, tree, architecture, environment);
         await RunBuildAsync(tree, ["clr.nativeaotruntime+clr.nativeaotlibs", "-os", "witos", "-arch", architecture.Name, "-c", "Release", "-cross"],
             environment);
@@ -124,6 +131,10 @@ internal static class RuntimeWitos
             throw new InvalidDataException($"tryrun.cmake answers {differing.Count} of {probes.Count} probes otherwise than witos-{architecture.Name}: " +
                 string.Join(", ", differing.Select(probe => $"{probe} = {answers[probe]}, the guest {measured[probe]}")) + $" ({report}).");
         Console.WriteLine($"tryrun.cmake answers the {probes.Count} probes of the native configure as witos-{architecture.Name} does ({report}).");
+
+        var ilc = await BuildCompilerAsync(root, tree);
+        var program = await CompileProgramAsync(root, tree, ilc, Path.Combine(output, "aotsdk"), architecture);
+        Console.WriteLine($"ILC for witos-{architecture.Name}: {PLATFORM_PROGRAM} is an ELF object whose Main returns the constant 0 ({program}).");
         Console.WriteLine(await MeasureAsync(root, pin));
     }
 
@@ -301,6 +312,85 @@ internal static class RuntimeWitos
         if (build.TimedOut || build.ExitCode != 0)
             throw new InvalidOperationException($"build.sh {arguments[0]} failed (exit {build.ExitCode}, timeout={build.TimedOut}).\n" +
                 $"{Tail(build.Output)}\n{Tail(build.Error)}");
+    }
+
+    // What upstream's native build runs with: the pinned clang and its LLVM tools first on the path, as the compilers,
+    // and the sysroot for a cross build (none for the host).
+    private static Dictionary<string, string> NativeEnvironment(string root, string? sysroot)
+    {
+        var environment = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["PATH"] = Path.Combine(Toolchain.ClangDirectory(root), "bin") + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH"),
+            ["CLR_CC"] = Toolchain.Clang(root),
+            ["CLR_CXX"] = Path.Combine(Toolchain.ClangDirectory(root), "bin", "clang++")
+        };
+        if (sysroot is not null)
+            environment["ROOTFS_DIR"] = sysroot;
+        return environment;
+    }
+
+    // The host's JITs and ILC (R1.3): upstream's build of the x64 Linux host, the only host the pinned LLVM release
+    // serves, by the pinned clang and lld as an ordinary Linux build; ILC is the published compiler beside its JITs.
+    private static async Task<string> BuildCompilerAsync(string root, string tree)
+    {
+        await RunBuildAsync(tree, ["clr.alljits+clr.tools", "-os", "linux", "-arch", "x64", "-c", "Release"], NativeEnvironment(root, null));
+        var published = Path.Combine(tree, "artifacts", "bin", "coreclr", "linux.x64.Release", "ilc-published");
+        var ilc = Path.Combine(published, "ilc");
+        if (!File.Exists(ilc) || !File.Exists(Path.Combine(published, "libclrjit_unix_x64_x64.so")) ||
+            !File.Exists(Path.Combine(published, "libclrjit_universal_arm64_x64.so")))
+            throw new InvalidDataException($"The host build left no ILC with its x64 and ARM64 JITs in {published}.");
+        return ilc;
+    }
+
+    // The program (R1.3): the SDK's C# compiler builds it against the witos CoreLib alone, and ILC compiles it for the
+    // architecture with the NativeAOT class libraries. The object must be a relocatable ELF object for the architecture,
+    // and its Main the code the JIT folds it to: the return register zeroed, nothing called.
+    private static async Task<string> CompileProgramAsync(string root, string tree, string ilc, string sdk, KernelArchitecture architecture)
+    {
+        var directory = Path.Combine(root, "artifacts", "runtime-witos", "ilc", architecture.Name);
+        if (Directory.Exists(directory))
+            Directory.Delete(directory, recursive: true);
+        Directory.CreateDirectory(directory);
+        var sdks = Directory.GetDirectories(Path.Combine(tree, ".dotnet", "sdk"));
+        if (sdks.Length != 1)
+            throw new InvalidDataException($"The runtime's own .NET SDK is not one SDK: {string.Join(", ", sdks)}.");
+        var assembly = Path.Combine(directory, "Platform.dll");
+        await RunToolAsync(Path.Combine(tree, ".dotnet", "dotnet"),
+        [
+            Path.Combine(sdks[0], "Roslyn", "bincore", "csc.dll"), "-nologo", "-noconfig", "-nostdlib", "-deterministic", "-optimize+",
+            "-target:exe", $"-r:{Path.Combine(sdk, "System.Private.CoreLib.dll")}", $"-out:{assembly}", Path.Combine(root, PLATFORM_PROGRAM)
+        ], tree);
+        var program = Path.Combine(directory, "Platform.o");
+        await RunToolAsync(ilc,
+        [
+            assembly, $"-o:{program}", $"-r:{Path.Combine(sdk, "*.dll")}", "--systemmodule:System.Private.CoreLib", "--targetos:witos",
+            $"--targetarch:{architecture.Name}", "-O"
+        ], tree);
+
+        var header = new byte[20];
+        await using (var stream = File.OpenRead(program))
+            await stream.ReadExactlyAsync(header);
+        var machine = architecture == KernelArchitecture.X64 ? 62 : 183;
+        if (header[0] != 0x7F || header[1] != (byte)'E' || header[2] != (byte)'L' || header[3] != (byte)'F' || header[4] != 2 ||
+            header[5] != 1 || BitConverter.ToUInt16(header, 16) != 1 || BitConverter.ToUInt16(header, 18) != machine)
+            throw new InvalidDataException($"{program} is not a relocatable ELF64 object for {architecture.Name} (machine {machine}).");
+        var main = await Processes.RunAsync(Path.Combine(Toolchain.ClangDirectory(root), "bin", "llvm-objdump"),
+            ["-d", $"--disassemble-symbols={PLATFORM_MAIN}", program], tree, 600);
+        var zeroed = architecture == KernelArchitecture.X64 ? @"\bxorl\s+%eax, %eax" : @"\bmov\s+w0, wzr";
+        var call = architecture == KernelArchitecture.X64 ? @"\bcall" : @"\bblr?\s";
+        if (main.ExitCode != 0 || !main.Output.Contains($"<{PLATFORM_MAIN}>:", StringComparison.Ordinal) ||
+            !Regex.IsMatch(main.Output, zeroed) || Regex.IsMatch(main.Output, call))
+            throw new InvalidDataException($"{PLATFORM_MAIN} of {program} is not the constant 0 for witos-{architecture.Name}:\n{main.Output}\n{main.Error}");
+        return program;
+    }
+
+    // A tool of the build that may run for minutes.
+    private static async Task RunToolAsync(string executable, string[] arguments, string directory)
+    {
+        var result = await Processes.RunAsync(executable, arguments, directory, 1800);
+        if (result.TimedOut || result.ExitCode != 0)
+            throw new InvalidOperationException($"{Path.GetFileName(executable)} failed (exit {result.ExitCode}, timeout={result.TimedOut}).\n" +
+                $"{Tail(result.Output)}\n{Tail(result.Error)}");
     }
 
     // The try_run measurement's first half: a configure of CoreCLR for witos whose initial cache forgets tryrun.cmake's

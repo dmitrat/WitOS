@@ -93,6 +93,10 @@ internal static class Sysroot
         CopyFiles(Path.Combine(musl, "arch", "generic", "bits"), Path.Combine(include, "bits"), "*.h");
         CopyFiles(Path.Combine(musl, "arch", arch, "bits"), Path.Combine(include, "bits"), "*.h");
         CopyFiles(Path.Combine(libc.Includes[1], "bits"), Path.Combine(include, "bits"), "*.h");
+        // The headers WitOS patches (R1.3: sys/membarrier.h's C linkage), from the build's generated headers over musl's
+        // own.
+        foreach (var header in MuslLibc.PatchedHeaders())
+            File.Copy(Path.Combine(libc.Includes[1], header), Path.Combine(include, header), overwrite: true);
         // WitOS's own headers: the system layer's (libwitos, the start and manager protocols) and the kernel's ABI-1
         // headers they include.
         CopyTree(Path.Combine(root, "src", "Sysroot", "include", "witos"), Path.Combine(include, "witos"));

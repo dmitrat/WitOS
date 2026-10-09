@@ -74,7 +74,9 @@ internal static class MuslLibc
         ["src/math/fma.c"] = "fma.c",
         ["src/math/fmaf.c"] = "fmaf.c",
         ["src/math/powl.c"] = "powl.c",
-        ["src/math/x86_64/expl.s"] = "expl.x86_64.s"
+        ["src/math/x86_64/expl.s"] = "expl.x86_64.s",
+        // The C linkage guards sys/membarrier.h lacks, which C++ code needs (R1.3).
+        ["include/sys/membarrier.h"] = "membarrier.h"
     };
 
     // An image another component maps from the boot package (S5.3): every loadable segment starts a page of the file,
@@ -191,6 +193,9 @@ internal static class MuslLibc
         var stamp = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n',
             [VERSION, TARBALL_SHA256, Toolchain.LLVM_VERSION, architecture.Triple, .. architecture.ClangOptions, .. OMITTED,
                 .. patchTexts, .. sysdeps.Select(File.ReadAllText), string.Join(' ', LibcOptions(architecture, build.Includes, sources, generated))])))).ToLowerInvariant();
+        // The generated and patched headers are written on every call, whatever the stamp says, so that the headers the
+        // build hands its users always follow the tool.
+        await GenerateHeadersAsync(root, sources, arch, generated, overlay);
         var stampPath = Path.Combine(output, "stamp.txt");
         if (File.Exists(build.Library) && File.Exists(build.Crt1) && File.Exists(build.Rcrt1) && File.Exists(build.LinkerScript) &&
             File.Exists(stampPath) &&
@@ -198,7 +203,6 @@ internal static class MuslLibc
             return build;
         File.Delete(stampPath);
 
-        await GenerateHeadersAsync(root, sources, arch, generated, overlay);
         var objects = Path.Combine(output, "obj");
         if (Directory.Exists(objects))
             Directory.Delete(objects, recursive: true);
@@ -513,6 +517,14 @@ internal static class MuslLibc
     public static string MuslArchitecture(KernelArchitecture architecture) => architecture.Triple[..architecture.Triple.IndexOf('-')];
 
     /// <summary>
+    /// musl's installed headers WitOS patches, by their path under include: the build's generated headers hold their
+    /// patched text, which the sysroot installs over musl's own (R1.3).
+    /// </summary>
+    /// <returns>The paths.</returns>
+    public static IEnumerable<string> PatchedHeaders() =>
+        PATCHED.Keys.Where(path => path.StartsWith("include/", StringComparison.Ordinal)).Select(path => path["include/".Length..]);
+
+    /// <summary>
     /// The sources of one architecture as musl's Makefile selects them: every generic C file whose name no
     /// architecture file replaces, and the architecture files, less the omitted ones.
     /// </summary>
@@ -677,6 +689,15 @@ internal static class MuslLibc
             SyscallNumbers(await File.ReadAllTextAsync(Path.Combine(sources, "arch", arch, "bits", "syscall.h.in"))));
         await File.WriteAllTextAsync(Path.Combine(generated, "src", "internal", "version.h"), $"#define VERSION \"{VERSION}\"\n");
         await File.WriteAllTextAsync(Path.Combine(overlay, "syscall_arch.h"), await PatchedAsync(root, sources, $"arch/{arch}/syscall_arch.h"));
+        // A patched installed header joins the generated ones, where musl's build has obj/include: after musl's internal
+        // wrappers (src/include), which include the original by its relative path, and before musl's include, so that
+        // every program sees the patched text.
+        foreach (var header in PatchedHeaders())
+        {
+            var target = Path.Combine(generated, "include", header);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            await File.WriteAllTextAsync(target, await PatchedAsync(root, sources, "include/" + header));
+        }
     }
 
     // The text of a pinned upstream file with its patch applied: the file's bytes must be the ones the lock pins.
