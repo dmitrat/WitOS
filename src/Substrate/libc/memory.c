@@ -2,6 +2,7 @@
 #include "witos_libc.h"
 #include "witos/limits.h"
 #include "witos/memory_object.h"
+#include "witos/thread_info.h"
 #include <errno.h>
 #include <sys/mman.h>
 
@@ -347,6 +348,34 @@ long __wit_mprotect(long address, long length, long protection)
     /* Memory the library did not map (a stack, the image): the kernel decides. */
     const WitU64 status = wit_syscall(WIT_CALL_MEMORY_PROTECT, start, end - start, kernel_protection, &result);
     return status == WIT_STATUS_OK ? 0 : (status == WIT_STATUS_NOT_COMMITTED ? -ENOMEM : __wit_errno(status));
+}
+
+/* mremap (R2.1): no mapping grows where it lies, since each is one kernel reservation with nothing reserved after it
+ * for it, and moving one is not implemented. Growing in place a range inside one of the library's mappings or inside
+ * the calling thread's stack is ENOMEM, as Linux answers a mapping that cannot grow there; musl measures the main
+ * thread's stack that way (pthread_getattr_np), down to the first range that is neither. Everything else is ENOSYS:
+ * musl's realloc copies instead. */
+long __wit_mremap(long address, long old_length, long new_length, long flags)
+{
+    if (flags != 0 || old_length <= 0 || new_length <= old_length || ((unsigned long)address & (PAGE - 1))) {
+        return -ENOSYS;
+    }
+    const WitU64 start = (WitU64)address, end = start + round_up((unsigned long)old_length);
+    for (unsigned i = 0; i < count; ++i) {
+        if (mappings[i].Base <= start && end <= mappings[i].Base + mappings[i].Size) {
+            return -ENOMEM;
+        }
+    }
+    WitUserThreadInfo info;
+    WitU64 result = 0;
+    info.Version = WIT_THREAD_INFO_VERSION;
+    info.Size = sizeof(info);
+    if (wit_syscall(WIT_CALL_THREAD_QUERY, WIT_THREAD_SELF, (WitU64)&info, sizeof(info), &result) == WIT_STATUS_OK &&
+        info.StackLow <= start &&
+        end <= info.StackHigh) {
+        return -ENOMEM;
+    }
+    return -ENOSYS;
 }
 
 long __wit_madvise(long address, long length, long advice)

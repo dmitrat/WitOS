@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/llvm/llvm-project",
   "tag": "llvmorg-20.1.8",
-  "purpose": "The helpers clang emits calls to and the pinned LLVM package does not ship for the Linux triples: the IEEE binary128 soft-float builtins for long double on aarch64 (musl's printf, strtod and the long double mathematics, S1.1), the complex multiplication builtins musl's complex functions need, which libc.so links whole (S5.3), the 128-bit integer division builtins libc++'s filesystem clock needs, which libc++.so links whole, crtbegin.c, the start object of every dynamic image, which gives a module its hidden __dso_handle (S5.4), and crtend.c, its end object, which the clang driver links after an image's own objects (the sysroot, R1.2a); compiled for the system layer from compiler-rt's sources.",
+  "purpose": "The helpers clang emits calls to and the pinned LLVM package does not ship for the Linux triples: the IEEE binary128 soft-float builtins for long double on aarch64 (musl's printf, strtod and the long double mathematics, S1.1), the complex multiplication builtins musl's complex functions need, which libc.so links whole (S5.3), the 128-bit integer division builtins libc++'s filesystem clock needs, which libc++.so links whole, crtbegin.c, the start object of every dynamic image, which gives a module its hidden __dso_handle (S5.4), crtend.c, its end object, which the clang driver links after an image's own objects (the sysroot, R1.2a), and clear_cache.c, the __clear_cache NativeAOT's runtime calls to publish generated code on aarch64 (R2.1); compiled for the system layer from compiler-rt's sources.",
   "sources": [
     {
       "path": "compiler-rt/LICENSE.TXT",
@@ -197,6 +197,10 @@
     {
       "path": "compiler-rt/lib/builtins/modti3.c",
       "sha256": "23b5f5af57a8a3ccdab785eec6e486bffef932cee87ff1152b3beedaa6296414"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/clear_cache.c",
+      "sha256": "2bcbcc8d1dd2f0b417186132ec88557fd4f7db8bfd893b6a78d335dd04686567"
     }
   ]
 }

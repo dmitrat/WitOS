@@ -20,7 +20,7 @@
 
 #define LOG_HANDLE (__wit_process.Log)
 #define DEBUG_WRITE_MAX 65536UL /* WIT_DEBUG_WRITE_MAX of one call */
-#define TID 1L
+#define TID WIT_LIBC_PROCESS_ID
 
 long __wit_errno(WitU64 status)
 {
@@ -440,6 +440,12 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
 #endif
     case SYS_statx:
         return -ENOSYS; /* musl falls back to fstatat */
+    case SYS_sysinfo:
+        return __wit_sysinfo((struct sysinfo *)a1);
+    case SYS_prlimit64:
+        return __wit_prlimit(a1, a2, (const struct rlimit *)a3, (struct rlimit *)a4);
+    case SYS_sched_getaffinity:
+        return __wit_sched_getaffinity(a1, a2, (unsigned char *)a3);
     case SYS_mmap:
         return __wit_mmap(a1, a2, a3, a4, a5, a6);
     case SYS_munmap:
@@ -449,7 +455,7 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
     case SYS_madvise:
         return __wit_madvise(a1, a2, a3);
     case SYS_mremap:
-        return -ENOSYS; /* musl's realloc copies instead */
+        return __wit_mremap(a1, a2, a3, a4);
     case SYS_brk:
         return -ENOMEM; /* musl's allocators fall back to mmap */
     case SYS_clock_gettime:
@@ -472,6 +478,8 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
         return __wit_set_tid_address((int *)a1);
     case SYS_gettid:
         return __wit_gettid();
+    case SYS_prctl:
+        return __wit_prctl(a1, (unsigned long)a2);
     /* Signals (S3, signal.c). */
     case SYS_rt_sigaction:
         return __wit_rt_sigaction((int)a1, (const struct k_sigaction *)a2, (struct k_sigaction *)a3, a4);

@@ -2,11 +2,17 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <pthread.h>
+#include <sched.h>
 #include <signal.h>
 #include <spawn.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <sys/resource.h>
+#include <sys/sysinfo.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -17,8 +23,11 @@
  * refusals of a missing file and a file that is no program (S6.1); its own current directory through chdir and fchdir,
  * a child that inherits it or starts where a chdir action puts it, a program path relative to that directory, and the
  * standard streams a child starts without or rebinds through file actions, with the actions that are not there refused
- * (S6.2). The last line names the ISA and the checks; a failed check exits with 1, which the root task reports as a
- * failed boot. */
+ * (S6.2). What the system layer reports of the machine and of the process (R2.1): the physical memory through sysinfo
+ * and sysconf, the address space of anonymous memory as RLIMIT_AS, the processors threads run on, the main thread's
+ * stack as musl measures it, a thread's name, and a read-only page of the program made writable, as NativeAOT's runtime
+ * makes the page of its GS cookie. The last line names the ISA and the checks; a failed check exits with 1, which the
+ * root task reports as a failed boot. */
 
 #if defined(__x86_64__)
 #define ISA_NAME "x86_64"
@@ -195,6 +204,48 @@ int main(void)
     status = finish(start(closed_input, environ));
     check(WIFEXITED(status) && WEXITSTATUS(status) == 0, "a child inherits the closed input");
     check(waitpid(-1, &status, WNOHANG) == -1 && errno == ECHILD, "no child left");
+
+    /* The system layer's figures (R2.1). */
+    struct sysinfo memory;
+    check(sysinfo(&memory) == 0 &&
+            memory.mem_unit == 1 &&
+            memory.totalram > 0 &&
+            memory.freeram > 0 &&
+            memory.freeram <= memory.totalram &&
+            memory.totalswap == 0,
+        "sysinfo");
+    check(sysconf(_SC_PHYS_PAGES) == (long)(memory.totalram / (unsigned long)sysconf(_SC_PAGESIZE)),
+        "sysconf(_SC_PHYS_PAGES)");
+    struct rlimit limit;
+    check(getrlimit(RLIMIT_AS, &limit) == 0 && limit.rlim_cur == limit.rlim_max && limit.rlim_cur >= (1UL << 30),
+        "getrlimit(RLIMIT_AS)");
+    check(getrlimit(RLIMIT_NOFILE, &limit) == -1 && errno == ENOSYS, "a limit the system layer does not report");
+    cpu_set_t processors;
+    check(sched_getaffinity(0, sizeof(processors), &processors) == 0 &&
+            CPU_ISSET(0, &processors) &&
+            sysconf(_SC_NPROCESSORS_ONLN) == CPU_COUNT(&processors),
+        "sched_getaffinity");
+    pthread_attr_t attributes;
+    void *stack = 0;
+    size_t stack_size = 0;
+    check(pthread_getattr_np(pthread_self(), &attributes) == 0 &&
+            pthread_attr_getstack(&attributes, &stack, &stack_size) == 0 &&
+            stack_size >= 64 * 1024 &&
+            (char *)&attributes > (char *)stack &&
+            (char *)&attributes < (char *)stack + stack_size,
+        "the main thread's stack");
+    char name[16];
+    check(pthread_setname_np(pthread_self(), "init-main") == 0 &&
+            pthread_getname_np(pthread_self(), name, sizeof(name)) == 0 &&
+            strcmp(name, "init-main") == 0,
+        "a thread's name");
+    static const int constant = 42;
+    const uintptr_t page = (uintptr_t)sysconf(_SC_PAGESIZE);
+    void *readonly = (void *)((uintptr_t)&constant & ~(page - 1));
+    check(mprotect(readonly, page, PROT_READ | PROT_WRITE) == 0 &&
+            mprotect(readonly, page, PROT_READ) == 0 &&
+            *(const volatile int *)&constant == 42,
+        "a read-only page of the program made writable");
 
     printf("[INIT] process manager on " ISA_NAME ": %d checks passed\n", checks);
     return 0;
