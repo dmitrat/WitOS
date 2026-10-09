@@ -52,9 +52,10 @@ long __wit_errno(WitU64 status)
     }
 }
 
+/* A standard descriptor that is open: the start message or a close may have taken one away (S6.2). */
 static int standard_descriptor(long fd)
 {
-    return fd >= 0 && fd <= 2;
+    return fd >= 0 && fd <= 2 && !(__wit_process.ClosedStreams & (1U << fd));
 }
 
 static long write_log(long fd, const void *buffer, unsigned long length)
@@ -385,9 +386,9 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
         return __wit_is_file_descriptor(a1) ? __wit_write_file(a1, writev_total((const struct iovec *)a2, a3))
                                             : writev_log(a1, (const struct iovec *)a2, a3);
     case SYS_read:
-        return a1 == 0 ? 0 : __wit_read(a1, (void *)a2, a3);
+        return a1 == 0 ? (standard_descriptor(0) ? 0 : -EBADF) : __wit_read(a1, (void *)a2, a3);
     case SYS_readv:
-        return a1 == 0 ? 0 : __wit_readv(a1, (const struct iovec *)a2, a3);
+        return a1 == 0 ? (standard_descriptor(0) ? 0 : -EBADF) : __wit_readv(a1, (const struct iovec *)a2, a3);
     case SYS_pread64:
         return __wit_pread(a1, (void *)a2, a3, a4);
     case SYS_ioctl:
@@ -414,6 +415,10 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
         return __wit_getdents(a1, (unsigned char *)a2, a3);
     case SYS_getcwd:
         return __wit_getcwd((char *)a1, a2);
+    case SYS_chdir:
+        return __wit_chdir((const char *)a1);
+    case SYS_fchdir:
+        return __wit_fchdir(a1);
     case SYS_fcntl:
         return __wit_fcntl(a1, a2, a3);
 #if defined(SYS_open)

@@ -92,6 +92,35 @@ static void handle_message(WitChannelMessage *message, WitU64 *handle)
     message->Reserved = 0;
 }
 
+/* A channel message that carries bytes and no handle. */
+static void bytes_message(WitChannelMessage *message, WitU64 data, WitU32 bytes)
+{
+    message->Version = WIT_CHANNEL_MESSAGE_VERSION;
+    message->Size = sizeof(*message);
+    message->Data = data;
+    message->Handles = 0;
+    message->Bytes = bytes;
+    message->HandleCount = 0;
+    message->Flags = 0;
+    message->Reserved = 0;
+}
+
+/* The package's magic over a channel straight from its mapping, and back intact: CHANNEL_SEND copies a buffer the
+ * package's own pages show, which the kernel sees through its storage window alone (S6.2). */
+static void package_round_trip(WitU64 header)
+{
+    WitU64 ends[2] = {0, 0}, copy = 0;
+    WitChannelMessage message;
+    expect(WIT_CALL_CHANNEL_CREATE, (WitU64)ends, 0, 0, WIT_STATUS_OK);
+    bytes_message(&message, header, 8);
+    expect(WIT_CALL_CHANNEL_SEND, ends[0], (WitU64)&message, sizeof(message), WIT_STATUS_OK);
+    bytes_message(&message, (WitU64)&copy, 8);
+    check(expect(WIT_CALL_CHANNEL_RECEIVE, ends[1], (WitU64)&message, sizeof(message), WIT_STATUS_OK) == 8, 17);
+    check(copy == PACKAGE_MAGIC, 18);
+    expect(WIT_CALL_HANDLE_CLOSE, ends[0], 0, 0, WIT_STATUS_OK);
+    expect(WIT_CALL_HANDLE_CLOSE, ends[1], 0, 0, WIT_STATUS_OK);
+}
+
 /* MEMORY_OBJECT_MAP of the first bytes of an object at an address the kernel chooses. */
 static WitU64 map_object(WitU64 handle, WitU64 bytes, WitU32 protection, WitU64 expected)
 {
@@ -125,6 +154,8 @@ ENTRY_ATTRIBUTES WIT_NORETURN void wit_user_start(const WitRootStartup *startup)
     const WitU64 package = startup->Handles[WIT_ROOT_HANDLE_PACKAGE];
     const WitU64 header = map_object(package, 4096, WIT_MEMORY_READ, WIT_STATUS_OK);
     check(*(const volatile WitU64 *)header == PACKAGE_MAGIC, 10);
+    /* A call reads a buffer the package's pages show through the kernel's storage window (S6.2). */
+    package_round_trip(header);
     map_object(package, 4096, WIT_MEMORY_READ | WIT_MEMORY_WRITE, WIT_STATUS_DENIED);
     expect(WIT_CALL_MEMORY_RELEASE, header, 4096, 0, WIT_STATUS_OK); /* a mapping's own size releases it whole */
     /* Code loads from the package (S5.1): an executable view is granted and published, never a writable one. */

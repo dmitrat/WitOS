@@ -1,5 +1,7 @@
 #define _GNU_SOURCE
 #include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <signal.h>
 #include <spawn.h>
 #include <stdio.h>
@@ -12,8 +14,11 @@
  * starts /bin/child (tests/User/process_child.c) with posix_spawn and posix_spawnp and waits with waitpid and wait:
  * exit statuses, the environment it passes, a grandchild started through a child's own capability to the manager, a
  * death by SIGABRT, more children at once than one kernel wait holds, a WNOHANG poll of a running child, and the
- * refusals of a missing file, a file that is no program and file actions. The last line names the ISA and the checks;
- * a failed check exits with 1, which the root task reports as a failed boot. */
+ * refusals of a missing file and a file that is no program (S6.1); its own current directory through chdir and fchdir,
+ * a child that inherits it or starts where a chdir action puts it, a program path relative to that directory, and the
+ * standard streams a child starts without or rebinds through file actions, with the actions that are not there refused
+ * (S6.2). The last line names the ISA and the checks; a failed check exits with 1, which the root task reports as a
+ * failed boot. */
 
 #if defined(__x86_64__)
 #define ISA_NAME "x86_64"
@@ -112,11 +117,83 @@ int main(void)
     /* Refusals. */
     check(posix_spawn(&pid, "/bin/none", 0, 0, exit_zero, environ) == ENOENT, "a missing file");
     check(posix_spawn(&pid, "/test/hello.txt", 0, 0, exit_zero, environ) == ENOEXEC, "a file that is no program");
+
+    /* The current directory (S6.2): chdir, relative paths and "..", fchdir, and the refusals. */
+    char directory[PATH_MAX];
+    check(getcwd(directory, sizeof(directory)) && strcmp(directory, "/") == 0, "the initial directory");
+    check(chdir("/test") == 0 && getcwd(directory, sizeof(directory)) && strcmp(directory, "/test") == 0, "chdir");
+    check(access("hello.txt", F_OK) == 0 && access("dir/a.txt", F_OK) == 0, "relative paths");
+    check(chdir("dir") == 0 && access("../hello.txt", F_OK) == 0 && chdir("..") == 0, "a relative chdir and ..");
+    check(chdir("hello.txt") == -1 && errno == ENOTDIR && chdir("/none") == -1 && errno == ENOENT, "chdir refusals");
+    const int dir = open("/test/dir", O_RDONLY | O_DIRECTORY);
+    check(dir >= 0 &&
+            fchdir(dir) == 0 &&
+            getcwd(directory, sizeof(directory)) &&
+            strcmp(directory, "/test/dir") == 0 &&
+            chdir("/test") == 0,
+        "fchdir");
+    check(openat(dir, "../hello.txt", O_RDONLY) >= 0, "a path from a directory descriptor through ..");
+
+    /* A child inherits the directory, a chdir or fchdir action moves it, and a relative program path starts there. */
+    char *in_test[] = {"child", "cwd", "/test", "hello.txt", 0};
+    status = finish(start(in_test, environ));
+    check(WIFEXITED(status) && WEXITSTATUS(status) == 0, "a child in the inherited directory");
     posix_spawn_file_actions_t actions;
-    check(posix_spawn_file_actions_init(&actions) == 0 && posix_spawn_file_actions_adddup2(&actions, 1, 2) == 0,
-        "file actions");
-    check(posix_spawn(&pid, CHILD, &actions, 0, exit_zero, environ) == ENOSYS, "file actions refused");
+    char *in_dir[] = {"child", "cwd", "/test/dir", "a.txt", 0};
+    check(posix_spawn_file_actions_init(&actions) == 0 &&
+            posix_spawn_file_actions_addchdir_np(&actions, "dir") == 0 &&
+            posix_spawn(&pid, CHILD, &actions, 0, in_dir, environ) == 0,
+        "a chdir action");
     posix_spawn_file_actions_destroy(&actions);
+    status = finish(pid);
+    check(WIFEXITED(status) && WEXITSTATUS(status) == 0, "a child where the chdir action put it");
+    const int root = open("/", O_RDONLY | O_DIRECTORY);
+    char *in_root[] = {"child", "cwd", "/", "bin/child", 0};
+    check(root >= 0 &&
+            posix_spawn_file_actions_init(&actions) == 0 &&
+            posix_spawn_file_actions_addfchdir_np(&actions, root) == 0 &&
+            posix_spawn(&pid, "bin/child", &actions, 0, in_root, environ) == 0,
+        "an fchdir action and a program path relative to it");
+    posix_spawn_file_actions_destroy(&actions);
+    status = finish(pid);
+    check(WIFEXITED(status) && WEXITSTATUS(status) == 0, "a child in the root through a relative program path");
+
+    /* Standard streams as the log capability, one by one: closed, rebound, and the actions that are not there. */
+    char *streams[] = {"child", "streams", 0};
+    status = finish(start(streams, environ));
+    check(WIFEXITED(status) && WEXITSTATUS(status) == 0, "both streams inherited");
+    check(posix_spawn_file_actions_init(&actions) == 0 &&
+            posix_spawn_file_actions_addclose(&actions, 1) == 0 &&
+            posix_spawn_file_actions_addclose(&actions, 7) == 0 &&
+            posix_spawn(&pid, CHILD, &actions, 0, streams, environ) == 0,
+        "a closed output");
+    posix_spawn_file_actions_destroy(&actions);
+    status = finish(pid);
+    check(WIFEXITED(status) && WEXITSTATUS(status) == 1, "a child without standard output");
+    check(posix_spawn_file_actions_init(&actions) == 0 &&
+            posix_spawn_file_actions_addclose(&actions, 2) == 0 &&
+            posix_spawn_file_actions_adddup2(&actions, 1, 2) == 0 &&
+            posix_spawn(&pid, CHILD, &actions, 0, streams, environ) == 0,
+        "an error rebound to the output");
+    posix_spawn_file_actions_destroy(&actions);
+    status = finish(pid);
+    check(WIFEXITED(status) && WEXITSTATUS(status) == 0, "a child with its error rebound");
+    check(posix_spawn_file_actions_init(&actions) == 0 &&
+            posix_spawn_file_actions_adddup2(&actions, dir, 1) == 0 &&
+            posix_spawn(&pid, CHILD, &actions, 0, streams, environ) == ENOSYS,
+        "a descriptor as a stream refused");
+    posix_spawn_file_actions_destroy(&actions);
+    check(posix_spawn_file_actions_init(&actions) == 0 &&
+            posix_spawn_file_actions_addopen(&actions, 0, "/test/hello.txt", O_RDONLY, 0) == 0 &&
+            posix_spawn(&pid, CHILD, &actions, 0, streams, environ) == ENOSYS,
+        "a file as a stream refused");
+    posix_spawn_file_actions_destroy(&actions);
+    char byte;
+    check(close(0) == 0 && read(0, &byte, 1) == -1 && errno == EBADF && close(0) == -1 && errno == EBADF,
+        "the own standard input closed");
+    char *closed_input[] = {"child", "stdin", 0};
+    status = finish(start(closed_input, environ));
+    check(WIFEXITED(status) && WEXITSTATUS(status) == 0, "a child inherits the closed input");
     check(waitpid(-1, &status, WNOHANG) == -1 && errno == ECHILD, "no child left");
 
     printf("[INIT] process manager on " ISA_NAME ": %d checks passed\n", checks);

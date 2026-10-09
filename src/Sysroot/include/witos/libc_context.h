@@ -12,6 +12,8 @@ typedef struct WitProcessContext {
     WitU64 Package; /* the boot package object: the files and their executable mappings */
     WitU64 PackageBytes; /* the size of the package */
     WitU64 Manager; /* the process manager's endpoint (S6.1); zero in the root task and without a manager */
+    WitU32 ClosedStreams; /* bit n: standard descriptor n is closed (S6.2) */
+    WitU32 Reserved;
 } WitProcessContext;
 
 extern WitProcessContext __wit_process;
@@ -22,4 +24,8 @@ long __wit_file_map_source(long fd, WitU64 *source, WitU64 *length);
 
 /* An ABI-1 status as a negative errno. */
 long __wit_errno(WitU64 status);
+
+/* The absolute directory a path names from a base directory, an absolute path or the current directory when null,
+ * written to out (S6.2): the directory must exist; the length without the terminator, or a negative errno. */
+long __wit_directory_resolve(const char *base, const char *path, char *out, long size);
 #endif

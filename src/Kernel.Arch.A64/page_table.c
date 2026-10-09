@@ -1,5 +1,6 @@
 #include "witos/arch.h"
 #include "witos/platform.h"
+#include "witos/virtual.h"
 #include "user.h"
 #include "a64.h"
 
@@ -157,7 +158,11 @@ WitU64 wit_arch_page_translate(WitU64 root, WitU64 address, int write, int execu
 
 void wit_arch_publish_code_page(WitU64 physical)
 {
-    wit_a64_clean_data(physical, 4096); /* The kernel's identity view of the frame. */
+    /* The kernel's view of the frame (S6.2): the identity map, or the storage window for a page of the boot package. */
+    const WitU8 *view = wit_virtual_view(physical);
+    if (view) {
+        wit_a64_clean_data((WitU64)view, 4096);
+    }
 }
 
 void wit_arch_publish_code(void)

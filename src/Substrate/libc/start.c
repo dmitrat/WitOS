@@ -3,6 +3,7 @@
 #include "witos/start.h"
 #include "witos/wait_objects.h"
 #include <elf.h>
+#include <string.h>
 
 /* The process context (witos/libc_context.h) and the start of a program another process started (plan step S5.2).
  * The creator mapped the program and its first stack and built on the stack what a Linux kernel builds: argc, argv,
@@ -42,7 +43,13 @@ void __wit_start_program(const unsigned long *stack)
 {
     WitU64 endpoint = start_endpoint(stack), result = 0, status;
     WitU64 handles[WIT_START_HANDLES_MAXIMUM] = {0, 0, 0};
-    WitStartMessage message = {0, 0, 0};
+
+    union {
+        WitStartMessage Header;
+        unsigned char Bytes[WIT_START_SIZE + WIT_START_DIRECTORY_MAXIMUM];
+    } received;
+
+    WitStartMessage message;
     WitChannelMessage request;
     WitUserWaitRequest wait;
     if (!endpoint) {
@@ -50,9 +57,9 @@ void __wit_start_program(const unsigned long *stack)
     }
     request.Version = WIT_CHANNEL_MESSAGE_VERSION;
     request.Size = sizeof(request);
-    request.Data = (WitU64)&message;
+    request.Data = (WitU64)&received;
     request.Handles = (WitU64)handles;
-    request.Bytes = sizeof(message);
+    request.Bytes = sizeof(received);
     request.HandleCount = WIT_START_HANDLES_MAXIMUM;
     request.Flags = 0;
     request.Reserved = 0;
@@ -69,17 +76,23 @@ void __wit_start_program(const unsigned long *stack)
             refuse();
         }
     }
+    memcpy(&message, &received.Header, sizeof(message));
     if (status != WIT_STATUS_OK ||
-        (result & 0xFFFFFFFFULL) != sizeof(message) ||
+        (result & 0xFFFFFFFFULL) < sizeof(message) ||
         (result >> 32) < WIT_START_HANDLES ||
         message.Version != WIT_START_VERSION ||
-        message.Size != sizeof(message)) {
+        message.Size != sizeof(message) ||
+        message.DirectoryBytes > WIT_START_DIRECTORY_MAXIMUM ||
+        (result & 0xFFFFFFFFULL) != sizeof(message) + message.DirectoryBytes ||
+        (message.ClosedStreams & ~7U) ||
+        __wit_set_directory((const char *)received.Bytes + sizeof(message), message.DirectoryBytes) < 0) {
         refuse();
     }
     __wit_process.Log = handles[WIT_START_HANDLE_LOG];
     __wit_process.Package = handles[WIT_START_HANDLE_PACKAGE];
     __wit_process.PackageBytes = message.PackageBytes;
     __wit_process.Manager = handles[WIT_START_HANDLE_MANAGER];
+    __wit_process.ClosedStreams = message.ClosedStreams;
     wit_syscall(WIT_CALL_HANDLE_CLOSE, endpoint, 0, 0, &result);
     __wit_thread_init(); /* the main thread's record and handle (S2, S3) */
     __wit_signal_init(); /* the fault callback every signal arrives through (S3) */

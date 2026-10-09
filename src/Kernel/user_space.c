@@ -1,4 +1,5 @@
 #include "user.h"
+#include "witos/virtual.h"
 #include "witos/platform.h"
 
 /* User address-space policy: ownership accounting, reservations, commitments, code views and user copies.
@@ -332,6 +333,19 @@ WitU64 wit_user_space_physical(const WitUserSpace *space, WitU64 address, int wr
     return wit_arch_page_translate(space->Root, address, write, execute);
 }
 
+/* The kernel's view of a user page a call reads or writes; zero when there is none (S6.2). A device region's page is
+ * never a call's buffer, even where the kernel maps the region for itself, since a read of device memory has effects;
+ * a page of the boot package is seen through the storage window. */
+static WitU8 *buffer_view(const WitUserSpace *space, WitU64 address, int write)
+{
+    const WitU64 physical = wit_user_space_physical(space, address, write, 0);
+    const WitU64 *entry = physical ? leaf((WitUserSpace *)space, address & ~4095ULL, 0) : 0;
+    if (!entry || (entry_flags(*entry) & WIT_PAGE_DEVICE)) {
+        return 0;
+    }
+    return wit_virtual_view(physical);
+}
+
 int wit_user_buffer_readable(const WitUserSpace *space, WitU64 address, WitU32 size)
 {
     const WitU64 limit = address_limit(space, address);
@@ -341,9 +355,10 @@ int wit_user_buffer_readable(const WitUserSpace *space, WitU64 address, WitU32 s
     if (!limit || size > limit - address) {
         return 0;
     }
-    /* Validate everything before output; operations are serialized with IF clear. */
+    /* Validate everything before output; operations are serialized with IF clear. A page the kernel has no view of
+     * (a device region) is no buffer of a call (S6.2). */
     for (WitU64 p = address & ~4095ULL; p <= ((address + size - 1) & ~4095ULL); p += 4096) {
-        if (!wit_user_space_physical(space, p, 0, 0)) {
+        if (!buffer_view(space, p, 0)) {
             return 0;
         }
     }
@@ -355,9 +370,10 @@ int wit_user_copy_from(const WitUserSpace *space, WitU64 address, WitU8 *buffer,
     if (!wit_user_buffer_readable(space, address, size)) {
         return 0;
     }
-    /* One translation per page: a page is contiguous in the kernel's view of physical memory. */
+    /* One translation per page: a page is contiguous in the kernel's view of it, which is the identity map for usable
+     * memory and the storage window for a page of the boot package (S6.2). */
     for (WitU32 done = 0; done < size;) {
-        const WitU8 *source = (const WitU8 *)wit_user_space_physical(space, address + done, 0, 0);
+        const WitU8 *source = buffer_view(space, address + done, 0);
         const WitU32 span = (WitU32)(4096 - ((address + done) & 4095));
         for (WitU32 i = 0; i < span && done < size; ++i) {
             buffer[done++] = source[i];
@@ -375,9 +391,9 @@ int wit_user_buffer_writable(const WitUserSpace *space, WitU64 address, WitU32 s
     if (!limit || size > limit - address) {
         return 0;
     }
-    /* Mapping and copy operations stay serialized with IF clear. */
+    /* Mapping and copy operations stay serialized with IF clear; a page without the kernel's view is refused. */
     for (WitU64 p = address & ~4095ULL; p <= ((address + size - 1) & ~4095ULL); p += 4096) {
-        if (!wit_user_space_physical(space, p, 1, 0)) {
+        if (!buffer_view(space, p, 1)) {
             return 0;
         }
     }
@@ -390,7 +406,7 @@ int wit_user_copy_to(const WitUserSpace *space, WitU64 address, const WitU8 *buf
         return 0;
     }
     for (WitU32 done = 0; done < size;) {
-        WitU8 *target = (WitU8 *)wit_user_space_physical(space, address + done, 1, 0);
+        WitU8 *target = buffer_view(space, address + done, 1);
         const WitU32 span = (WitU32)(4096 - ((address + done) & 4095));
         for (WitU32 i = 0; i < span && done < size; ++i) {
             target[i] = buffer[done++];

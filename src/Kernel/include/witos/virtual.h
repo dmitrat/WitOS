@@ -8,6 +8,10 @@
 #define WIT_VM_SCRATCH_SIZE 0x1000000ULL
 
 const WitU8 *wit_virtual_boot_storage(void);
+/* The kernel's view of a physical page a user mapping shows (S6.2): usable memory through the identity map, a page of
+ * the boot package through the storage window; zero for anything the kernel does not map, a device region among them,
+ * which the kernel then never copies from or to. */
+WitU8 *wit_virtual_view(WitU64 physical);
 /* The root task image the boot contract carries, mapped read-only beside the package; zero without one (K4). */
 const WitU8 *wit_virtual_root_task(void);
 void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator);

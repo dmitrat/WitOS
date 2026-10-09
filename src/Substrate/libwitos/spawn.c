@@ -379,12 +379,25 @@ static int build_stack(const Program *p, const Program *interpreter, char *const
     return status == WIT_STATUS_OK ? 0 : failure(status);
 }
 
-/* The start message: the package's size and duplicates of the log, the package and the manager's endpoint when there
- * is one (S6.1), moved by the send. */
-static int send_start(WitU64 endpoint, WitU64 manager)
+/* What the start message says beyond the capabilities (S6.2): the initial directory, an absolute path, and the
+ * standard streams the process starts without. */
+typedef struct StartState {
+    char Directory[WIT_START_DIRECTORY_MAXIMUM + 2];
+    WitU32 DirectoryBytes;
+    WitU32 ClosedStreams;
+} StartState;
+
+/* The start message: the package's size, the closed streams and the initial directory, and duplicates of the log,
+ * the package and the manager's endpoint when there is one (S6.1), moved by the send. */
+static int send_start(WitU64 endpoint, WitU64 manager, const StartState *state)
 {
     WitU64 handles[WIT_START_HANDLES_MAXIMUM] = {0, 0, 0}, result = 0;
-    WitStartMessage message;
+
+    union {
+        WitStartMessage Header;
+        unsigned char Bytes[WIT_START_SIZE + WIT_START_DIRECTORY_MAXIMUM];
+    } message;
+
     WitChannelMessage request;
     WitU64 status = wit_syscall(
         WIT_CALL_HANDLE_DUPLICATE, __wit_process.Log, (WitU64)&handles[WIT_START_HANDLE_LOG], LOG_RIGHTS, &result);
@@ -397,14 +410,17 @@ static int send_start(WitU64 endpoint, WitU64 manager)
             WIT_CALL_HANDLE_DUPLICATE, manager, (WitU64)&handles[WIT_START_HANDLE_MANAGER], MANAGER_RIGHTS, &result);
     }
     if (status == WIT_STATUS_OK) {
-        message.Version = WIT_START_VERSION;
-        message.Size = sizeof(message);
-        message.PackageBytes = __wit_process.PackageBytes;
+        message.Header.Version = WIT_START_VERSION;
+        message.Header.Size = sizeof(message.Header);
+        message.Header.PackageBytes = __wit_process.PackageBytes;
+        message.Header.ClosedStreams = state->ClosedStreams;
+        message.Header.DirectoryBytes = state->DirectoryBytes;
+        memcpy(message.Bytes + sizeof(message.Header), state->Directory, state->DirectoryBytes);
         request.Version = WIT_CHANNEL_MESSAGE_VERSION;
         request.Size = sizeof(request);
         request.Data = (WitU64)&message;
         request.Handles = (WitU64)handles;
-        request.Bytes = sizeof(message);
+        request.Bytes = (WitU32)sizeof(message.Header) + state->DirectoryBytes;
         request.HandleCount = manager ? WIT_START_HANDLES_MAXIMUM : WIT_START_HANDLES;
         request.Flags = 0;
         request.Reserved = 0;
@@ -442,7 +458,7 @@ static int start_thread(WitU64 entry, WitU64 process, WitU64 stack_pointer)
 
 /* Everything after PROCESS_CREATE: the images, the stack, the start message, the thread. */
 static int load(const Program *p, const Program *interpreter, char *const argv[], char *const envp[], WitU64 process,
-    WitU64 endpoint, WitU64 child, WitU64 manager)
+    WitU64 endpoint, WitU64 child, WitU64 manager, const StartState *state)
 {
     WitU64 stack_pointer = 0;
     int error = map_image(p, process);
@@ -453,7 +469,7 @@ static int load(const Program *p, const Program *interpreter, char *const argv[]
         error = build_stack(p, interpreter, argv, envp, child, process, &stack_pointer);
     }
     if (!error) {
-        error = send_start(endpoint, manager);
+        error = send_start(endpoint, manager, state);
     }
     const Program *entry = interpreter ? interpreter : p;
     return error ? error : start_thread(entry->Base + entry->Header.e_entry, process, stack_pointer);
@@ -468,11 +484,25 @@ int witos_spawn_ex(
     WitU64 *process, const char *path, char *const argv[], char *const envp[], const witos_spawn_options *options)
 {
     Program program, interpreter;
+    StartState state;
     WitU64 ends[2] = {0, 0}, handle = 0, child = 0, result = 0;
     memset(&program, 0, sizeof(program));
     memset(&interpreter, 0, sizeof(interpreter));
+    memset(&state, 0, sizeof(state));
     program.File = interpreter.File = -1;
     *process = 0;
+    /* The initial directory, canonical and existing, and the closed streams, checked before anything opens (S6.2). */
+    if (options && (options->closed_streams & ~7U)) {
+        return EINVAL;
+    }
+    if (options && options->directory) {
+        const long length = __wit_directory_resolve(0, options->directory, state.Directory, sizeof(state.Directory));
+        if (length < 0) {
+            return (int)-length;
+        }
+        state.DirectoryBytes = length > 1 ? (WitU32)length : 0; /* an absolute path; the root is no bytes */
+    }
+    state.ClosedStreams = options ? options->closed_streams : 0;
     int error = open_program(&program, path, PROGRAM_BASE, 1);
     if (!error && program.Interpreter[0]) {
         /* The dynamic linker: an image of the package itself, with no interpreter of its own. */
@@ -496,7 +526,7 @@ int witos_spawn_ex(
         if (status == WIT_STATUS_OK) {
             ends[1] = 0; /* moved into the process */
             error = load(&program, program.Interpreter[0] ? &interpreter : 0, argv, envp, handle, ends[0], child,
-                options ? options->manager : 0);
+                options ? options->manager : 0, &state);
         } else {
             error = failure(status);
         }
