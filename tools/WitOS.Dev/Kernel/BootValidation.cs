@@ -109,9 +109,11 @@ internal static class BootValidation
         string[] forbidden = ["[PANIC]", "[EXCEPTION]", "[USER-FAULT]", "[TEST-BEGIN] User.", "[TEST-PASS] User.", "Scheduler.",
             "Random.ChaCha20Vector", "Memory.VirtualMappings", "Cpu.ContextStateProfile"];
         var clean = forbidden.All(marker => !output.Contains(marker, StringComparison.Ordinal));
+        // A layer-2 scenario on the release kernel (plan step T2.1b) names the lines its root task must print.
+        var required = request.RequiredLines.All(line => output.Contains(line, StringComparison.Ordinal));
         var passed = request.Expected == ExpectedOutcome.Success && !result.TimedOut && result.ExitCode == 33 &&
-            banner && ready && clean;
-        return new BootVerdict(passed, $"banner={banner} ready={ready} clean={clean}");
+            banner && ready && clean && required;
+        return new BootVerdict(passed, $"banner={banner} ready={ready} clean={clean} required={required}");
     }
 
     /// <summary>
