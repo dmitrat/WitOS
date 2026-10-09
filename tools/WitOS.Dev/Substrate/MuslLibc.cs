@@ -437,9 +437,10 @@ internal static class MuslLibc
     /// <param name="name">Program name (the executable is name.elf).</param>
     /// <param name="objects">Object files.</param>
     /// <param name="libraries">Shared libraries the program needs, by path; DT_NEEDED records their sonames.</param>
+    /// <param name="options">Further linker options (libc-test's -rdynamic, S7.1).</param>
     /// <returns>Path of the executable.</returns>
     public static async Task<string> LinkDynamicProgramAsync(string root, KernelArchitecture architecture, string output, string name,
-        IEnumerable<string> objects, IEnumerable<string>? libraries = null)
+        IEnumerable<string> objects, IEnumerable<string>? libraries = null, IEnumerable<string>? options = null)
     {
         var build = await BuildAsync(root, architecture);
         var shared = await BuildSharedAsync(root, architecture);
@@ -449,8 +450,8 @@ internal static class MuslLibc
         await Processes.RequireSuccessAsync(Toolchain.Lld(root),
         [
             "-o", image, "-pie", "--dynamic-linker=" + InterpreterPath(architecture), .. SEPARATE_SEGMENTS, "--eh-frame-hdr",
-            "--build-id=none", "--gc-sections", "-e", "_start", shared.Scrt1, crtBegin, .. objects, .. libraries ?? [], "-L", shared.Directory,
-            "-lc", builtins
+            "--build-id=none", "--gc-sections", "-e", "_start", .. options ?? [], shared.Scrt1, crtBegin, .. objects, .. libraries ?? [],
+            "-L", shared.Directory, "-lc", builtins
         ], root);
         return image;
     }

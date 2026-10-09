@@ -8,10 +8,10 @@ using WitOS.Dev.NativeAot;
 namespace WitOS.Dev.Substrate;
 
 /// <summary>
-/// musl's libc-test on WitOS (plan step S1.3): the pinned revision (src/Substrate/libc-test.lock.json) checked out
-/// once with Git under .tools/libc-test, the tests tests/User/libc-test.json selects compiled unchanged with musl's
-/// options and their main renamed, and linked with the driver into one static program, the root task of the
-/// libc-test scenario. Nothing of libc-test is patched.
+/// musl's libc-test on WitOS (plan steps S1.3, S7.1): the pinned revision (src/Substrate/libc-test.lock.json) checked
+/// out once with Git under .tools/libc-test, the tests tests/User/libc-test.json selects compiled unchanged with musl's
+/// options, each a program of the boot package linked statically and dynamically, started in a process of its own by
+/// the runner (tests/User/libc_test_runner.c) under the system layer's root task. Nothing of libc-test is patched.
 /// </summary>
 internal static class LibcTestSuite
 {
@@ -116,20 +116,34 @@ internal static class LibcTestSuite
     }
 
     /// <summary>
-    /// Builds the selected tests and the driver as the root task's flat image.
+    /// Builds the programs of the libc-test scenario (plan step S7.1) for the system layer's root task: every selected
+    /// test compiled unchanged with musl's options and linked twice, as a static program and as a dynamic one against
+    /// libc.so, as libc-test's Makefile builds it; the shared libraries of libc-test's tests beside them; and the runner
+    /// as /bin/init, which starts every run in a process of its own.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="output">Artifact directory of the scenario.</param>
     /// <param name="architecture">Target architecture.</param>
-    /// <returns>Path of the flat image.</returns>
-    public static async Task<string> BuildRootAsync(string root, string output, KernelArchitecture architecture)
+    /// <returns>Package paths and the files to place there.</returns>
+    public static async Task<IReadOnlyList<(string Name, string Source)>> BuildProgramsAsync(string root, string output,
+        KernelArchitecture architecture)
     {
         var source = await RequireSourcesAsync(root);
         var selection = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(root, SELECTION))).RootElement;
-        var support = selection.GetProperty("support").EnumerateArray().Select(entry => entry.GetString()!).ToArray();
-        var tests = selection.GetProperty("tests").EnumerateArray().Select(entry => entry.GetString()!).ToArray();
-        if (tests.Length == 0 || tests.Distinct(StringComparer.Ordinal).Count() != tests.Length ||
-            tests.Any(test => test.Contains("..", StringComparison.Ordinal) || test.Contains('\\')))
+        string[] Strings(string name) =>
+            selection.TryGetProperty(name, out var value) ? value.EnumerateArray().Select(entry => entry.GetString()!).ToArray() : [];
+        var support = Strings("support");
+        var tests = Strings("tests");
+        var dynamicOnly = Strings("dynamicOnly");
+        var libraries = Strings("libraries");
+        var exportDynamic = Strings("exportDynamic");
+        var linkLibraries = selection.TryGetProperty("linkLibraries", out var links)
+            ? links.EnumerateObject().ToDictionary(entry => entry.Name, entry => entry.Value.EnumerateArray().Select(item => item.GetString()!).ToArray())
+            : new Dictionary<string, string[]>(StringComparer.Ordinal);
+        string[] all = [.. tests, .. dynamicOnly, .. libraries];
+        if (tests.Length == 0 || all.Distinct(StringComparer.Ordinal).Count() != all.Length ||
+            all.Any(test => test.Contains("..", StringComparison.Ordinal) || test.Contains('\\')) ||
+            linkLibraries.Values.SelectMany(list => list).Any(library => !libraries.Contains(library)))
             throw new InvalidDataException("Invalid libc-test selection.");
         var directory = Path.Combine(output, "libc-test");
         Directory.CreateDirectory(directory);
@@ -139,34 +153,66 @@ internal static class LibcTestSuite
             "-std=c99", "-D_POSIX_C_SOURCE=200809L", "-D_FILE_OFFSET_BITS=64", "-fno-builtin", "-frounding-math", "-w",
             "-I", Path.Combine(source, "src", "common")
         ];
-        var objects = new List<string>();
+        string Object(string name) => Path.Combine(directory, Regex.Replace(name, "[^A-Za-z0-9]", "_"));
+        var supportObjects = new List<string>();
         foreach (var file in support)
         {
-            var obj = Path.Combine(directory, "support_" + Path.GetFileNameWithoutExtension(file) + ".o");
+            var obj = Object(file) + ".o";
             await MuslLibc.CompileAsync(root, architecture, Path.Combine(source, file), obj, options);
-            objects.Add(obj);
+            supportObjects.Add(obj);
         }
-        var table = new StringBuilder();
-        var entries = new StringBuilder();
-        foreach (var test in tests)
+        // The dynamic runs' interpreter, musl's libc.so (S5.3).
+        var package = new List<(string Name, string Source)>
         {
-            var identifier = "libc_test_" + Regex.Replace(test, "[^A-Za-z0-9]", "_");
-            var obj = Path.Combine(directory, identifier + ".o");
-            await MuslLibc.CompileAsync(root, architecture, Path.Combine(source, "src", test + ".c"), obj, [.. options, "-Dmain=" + identifier]);
-            objects.Add(obj);
-            table.Append($"int {identifier}();\n");
-            entries.Append($"    {{\"{test}\", (int (*)(int, char **)){identifier}}},\n");
+            (MuslLibc.InterpreterPath(architecture).TrimStart('/'), (await MuslLibc.BuildSharedAsync(root, architecture)).Library)
+        };
+        // The tests' shared libraries, and their objects for the static form of a test that links one.
+        var sharedLibraries = new Dictionary<string, string>(StringComparer.Ordinal);
+        var libraryObjects = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var library in libraries)
+        {
+            var pic = Object(library) + ".lo";
+            await MuslLibc.CompileAsync(root, architecture, Path.Combine(source, "src", library + ".c"), pic, [.. options, "-fPIC"]);
+            var obj = Object(library) + ".o";
+            await MuslLibc.CompileAsync(root, architecture, Path.Combine(source, "src", library + ".c"), obj, options);
+            var libraryDirectory = Path.Combine(directory, Path.GetDirectoryName(library)!);
+            Directory.CreateDirectory(libraryDirectory);
+            sharedLibraries[library] = await MuslLibc.LinkSharedLibraryAsync(root, architecture, libraryDirectory,
+                Path.GetFileName(library) + ".so", [pic]);
+            libraryObjects[library] = obj;
+            package.Add(("libc-test/src/" + library + ".so", sharedLibraries[library]));
         }
-        table.Append("static const Test libc_tests[] = {\n").Append(entries).Append("};\n");
-        table.Append($"#define LIBC_TEST_COUNT {tests.Length}\n");
-        await File.WriteAllTextAsync(Path.Combine(directory, "libc_test_table.h"), table.ToString(), Encoding.ASCII);
-        var driver = Path.Combine(directory, "driver.o");
-        await MuslLibc.CompileAsync(root, architecture, Path.Combine(root, "tests", "User", "libc_test_driver.c"), driver,
+        var runs = new StringBuilder("static const Run libc_runs[] = {\n");
+        var count = 0;
+        foreach (var test in tests.Concat(dynamicOnly))
+        {
+            var obj = Object(test) + ".o";
+            await MuslLibc.CompileAsync(root, architecture, Path.Combine(source, "src", test + ".c"), obj, options);
+            var linked = linkLibraries.GetValueOrDefault(test, []);
+            var testDirectory = Path.Combine(directory, Path.GetDirectoryName(test)!);
+            Directory.CreateDirectory(testDirectory);
+            var name = Path.GetFileName(test);
+            var dynamic = await MuslLibc.LinkDynamicProgramAsync(root, architecture, testDirectory, name, [obj, .. supportObjects],
+                linked.Select(library => sharedLibraries[library]), exportDynamic.Contains(test) ? ["--export-dynamic"] : null);
+            package.Add(($"libc-test/src/{test}.exe", dynamic));
+            runs.Append($"    {{\"{test}\", \"dynamic\", \"/libc-test/src/{test}.exe\"}},\n");
+            ++count;
+            if (dynamicOnly.Contains(test))
+                continue;
+            var staticProgram = await MuslLibc.LinkStartedProgramAsync(root, architecture, testDirectory, name + "-static",
+                [obj, .. supportObjects, .. linked.Select(library => libraryObjects[library])]);
+            package.Add(($"libc-test/src/{test}-static.exe", staticProgram));
+            runs.Append($"    {{\"{test}\", \"static\", \"/libc-test/src/{test}-static.exe\"}},\n");
+            ++count;
+        }
+        runs.Append("};\n").Append($"#define LIBC_RUN_COUNT {count}\n");
+        await File.WriteAllTextAsync(Path.Combine(directory, "libc_test_runs.h"), runs.ToString(), Encoding.ASCII);
+        var runner = Path.Combine(directory, "runner.o");
+        await MuslLibc.CompileAsync(root, architecture, Path.Combine(root, "tests", "User", "libc_test_runner.c"), runner,
             ["-std=c11", "-Wall", "-Wextra", "-Werror", "-I", directory]);
-        objects.Add(driver);
-        var image = await MuslLibc.LinkAsync(root, architecture, output, "RootFixture", objects);
-        Console.WriteLine($"libc-test: {tests.Length} tests for {architecture.Triple}.");
-        return await FlatImage.FromElfAsync(output, architecture.ElfMachine, image, "RootFixture", "wit_user_root_image", "user_root_image.h");
+        package.Add(("bin/init", await MuslLibc.LinkStartedProgramAsync(root, architecture, directory, "libc_test_runner", [runner])));
+        Console.WriteLine($"libc-test: {tests.Length + dynamicOnly.Length} tests, {count} runs for {architecture.Triple}.");
+        return package;
     }
 
     #endregion
