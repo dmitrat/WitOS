@@ -13,35 +13,6 @@ public sealed class WorkflowTests
 {
     #region Functions
 
-    [Test]
-    public void CoreClrHostCiPrerequisitesTest()
-    {
-        var root = TestEnvironment.Root;
-        var ci = File.ReadAllText(Path.Combine(root, ".github/workflows/coreclr-host.yml"));
-        var pr = ci.IndexOf("  pull_request:", StringComparison.Ordinal);
-        var permissions = ci.IndexOf("permissions:", StringComparison.Ordinal);
-        Assert.That(pr > 0 && permissions > pr, Is.True, "Hosting CI trigger sections missing");
-        foreach (var section in new[] { ci[..pr], ci[pr..permissions] })
-            Assert.That(section.Contains("experiments/CoreClrHost/**", StringComparison.Ordinal) && section.Contains("upstream.lock.json", StringComparison.Ordinal), Is.True, "Hosting/pin changes do not select CI");
-        var source = ci.IndexOf("-- coreclr-source", StringComparison.Ordinal);
-        Assert.That(source >= 0 && ci.IndexOf("-- coreclr-host", StringComparison.Ordinal) > source, Is.True, "Hosting reference lacks its source-built runtime prerequisite");
-        Assert.That(ci.Contains("-- coreclr-host-files", StringComparison.Ordinal), Is.True, "Hosting PAL contract CI gate missing");
-    }
-
-    [Test]
-    public void BootChangesSelectManagedCiTest()
-    {
-        var root = TestEnvironment.Root;
-        var ci = File.ReadAllText(Path.Combine(root, ".github/workflows/nativeaot.yml"));
-        var pr = ci.IndexOf("  pull_request:", StringComparison.Ordinal);
-        var dispatch = ci.IndexOf("  workflow_dispatch:", StringComparison.Ordinal);
-        Assert.That(pr > 0 && dispatch > pr, Is.True, "CI trigger sections missing");
-        foreach (var section in new[] { ci[..pr], ci[pr..dispatch] })
-            Assert.That(section.Contains("- 'src/Boot.Uefi/**'", StringComparison.Ordinal) && section.Contains("- 'tests/WitOS.Dev.Tests/**'", StringComparison.Ordinal) && section.Contains("- 'tests/WitOS.Dev.Tests.Child/**'", StringComparison.Ordinal) && section.Contains("- 'src/Runtime.CoreClr/**'", StringComparison.Ordinal), Is.True, "Boot/tool/CoreCLR paths missing from a trigger");
-        foreach (var command in new[] { "runtime-source", "runtime-config", "runtime-boot-run", "-- test", "TestCategory=PeCoverage", "TestCategory=PeFuzz", "coreclr-functions", "coreclr-memory", "coreclr-storage" })
-            Assert.That(ci.Contains(command, StringComparison.Ordinal), Is.True, "Required M3 CI gate missing: " + command);
-    }
-
     // Every dev tool command a CI workflow invokes must exist in the command catalog.
     [Test]
     public void WorkflowCommandsExistTest()

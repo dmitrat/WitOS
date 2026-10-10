@@ -6,6 +6,7 @@
 #include "witos/channels.h"
 #include "witos/memory_info.h"
 #include "witos/syscall.h"
+#include "root.h"
 
 /* The root task fixture (RFC 0011 v3 section 7.11, plan steps K4 and T1): the first component the kernel starts
  * from the boot disk's flat image, with nothing but its startup descriptor (witos/root.h) in the argument register.
@@ -14,17 +15,16 @@
  * the descriptor, writes to the kernel log through the log handle, maps the first page of the boot package and
  * checks its magic, maps the device table and checks that the board published devices, reads UTC and sets it through
  * the clock capability (K6), delegates the log over a channel (S5.2), protects a run of adjacent reservations
- * (S7.2), then exits with zero; a failed check exits with 241. The data page holds the status of a
- * failed check at 1304 and the count of checks at 1312 for the kernel self-test's diagnostics. */
+ * (S7.2), checks the mechanisms no other part of layer 2 uses yet (root_mechanisms.c, K8.2), then exits with zero; a
+ * failed check exits with 241. The data page holds the status of a failed check at 1304 and the count of checks at
+ * 1312 for the kernel self-test's diagnostics. */
 
 #define STRINGIZE(x) #x
 #define STRING(x) STRINGIZE(x)
 #if defined(__x86_64__)
 #define ISA_NAME "x86_64"
-#define ENTRY_ATTRIBUTES __attribute__((force_align_arg_pointer))
 #else
 #define ISA_NAME "aarch64"
-#define ENTRY_ATTRIBUTES
 #endif
 
 #define FAILED_STATUS ((volatile WitU64 *)(WIT_USER_DATA + 1304))
@@ -38,6 +38,7 @@ static const char started[] = "[ROOT] started by clang " STRING(__clang_major__)
     __clang_patchlevel__) " for " ISA_NAME "\n";
 static const char mapped[] = "[ROOT] package and devices \n";
 static const char delegated[] = "[ROOT] log delegated\n";
+static const char mechanisms[] = "[ROOT] waits, suspension, activation, pressure and reset\n";
 
 static WIT_NORETURN void exit_process(WitU64 code)
 {
@@ -47,14 +48,14 @@ static WIT_NORETURN void exit_process(WitU64 code)
     }
 }
 
-static WIT_NORETURN void failed(WitU64 status)
+WIT_NORETURN void failed(WitU64 status)
 {
     *FAILED_STATUS = status;
     exit_process(FAILURE_EXIT_CODE);
 }
 
 /* A system call whose status must be the expected one; the check is counted. */
-static WitU64 expect(WitU64 number, WitU64 a0, WitU64 a1, WitU64 a2, WitU64 expected)
+WitU64 expect(WitU64 number, WitU64 a0, WitU64 a1, WitU64 a2, WitU64 expected)
 {
     WitU64 result = 0;
     const WitU64 status = wit_syscall(number, a0, a1, a2, &result);
@@ -65,7 +66,7 @@ static WitU64 expect(WitU64 number, WitU64 a0, WitU64 a1, WitU64 a2, WitU64 expe
     return result;
 }
 
-static void check(int condition, WitU64 code)
+void check(int condition, WitU64 code)
 {
     if (!condition) {
         failed(code);
@@ -249,5 +250,7 @@ ENTRY_ATTRIBUTES WIT_NORETURN void wit_user_start(const WitRootStartup *startup)
     expect(WIT_CALL_MEMORY_QUERY, (WitU64)&memory, sizeof(memory), WIT_MEMORY_INFO_VERSION, WIT_STATUS_OK);
     check(memory.ReservationCapacity == WIT_PROCESS_RESERVATION_CAPACITY, 16);
     protect_run();
+    root_mechanisms();
+    log_line(startup, mechanisms, sizeof(mechanisms) - 1);
     exit_process(0); /* a root task exits with zero; the kernel treats anything else as failure */
 }

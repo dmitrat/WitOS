@@ -5,33 +5,6 @@
 /* User address-space policy: ownership accounting, reservations, commitments, code views and user copies.
  * Entry encoding, table walks and translation caches belong to the architecture (witos/arch.h). */
 
-#if defined(WITOS_TEST_RUNTIME_BOOT)
-/* The runtime acceptance prints the last user memory operations after an unexpected runtime failure (D1). */
-#define JOURNAL_CAPACITY 256U
-static WitMemoryJournalEntry journal_entries[JOURNAL_CAPACITY];
-static WitU64 journal_count;
-
-static WitU64 journal(WitU32 kind, WitU64 address, WitU64 size, WitU64 status)
-{
-    WitMemoryJournalEntry *entry = &journal_entries[journal_count % JOURNAL_CAPACITY];
-    entry->Sequence = ++journal_count;
-    entry->Kind = kind;
-    entry->Status = (WitU32)status;
-    entry->Address = address;
-    entry->Size = size;
-    return status;
-}
-
-const WitMemoryJournalEntry *wit_user_memory_journal(WitU64 *count, WitU32 *capacity)
-{
-    *count = journal_count;
-    *capacity = JOURNAL_CAPACITY;
-    return journal_entries;
-}
-#else
-#define journal(kind, address, size, status) (status)
-#endif
-
 static WitU64 allocate(WitUserSpace *space, WitU64 address)
 {
     WitU64 page = 0;
@@ -1364,31 +1337,30 @@ void wit_user_space_destroy(WitUserSpace *space)
 
 WitU64 wit_user_memory_reserve(WitUserSpace *space, WitU64 size, WitU64 alignment, WitU64 address, WitU64 *result)
 {
-    const WitU64 status = memory_reserve(space, size, alignment, address, result);
-    return journal(WIT_MEMORY_JOURNAL_RESERVE, status == WIT_STATUS_OK ? *result : 0, size, status);
+    return memory_reserve(space, size, alignment, address, result);
 }
 
 WitU64 wit_user_memory_commit(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection)
 {
-    return journal(WIT_MEMORY_JOURNAL_COMMIT, address, size, memory_commit(space, address, size, protection));
+    return memory_commit(space, address, size, protection);
 }
 
 WitU64 wit_user_memory_decommit(WitUserSpace *space, WitU64 address, WitU64 size)
 {
-    return journal(WIT_MEMORY_JOURNAL_DECOMMIT, address, size, memory_decommit(space, address, size));
+    return memory_decommit(space, address, size);
 }
 
 WitU64 wit_user_memory_reset(WitUserSpace *space, WitU64 address, WitU64 size)
 {
-    return journal(WIT_MEMORY_JOURNAL_RESET, address, size, memory_reset(space, address, size));
+    return memory_reset(space, address, size);
 }
 
 WitU64 wit_user_memory_protect(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection)
 {
-    return journal(WIT_MEMORY_JOURNAL_PROTECT, address, size, memory_protect(space, address, size, protection));
+    return memory_protect(space, address, size, protection);
 }
 
 WitU64 wit_user_memory_release(WitUserSpace *space, WitU64 address, WitU64 size)
 {
-    return journal(WIT_MEMORY_JOURNAL_RELEASE, address, size, memory_release(space, address, size));
+    return memory_release(space, address, size);
 }

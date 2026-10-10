@@ -499,7 +499,7 @@ internal static class LlvmRuntimes
     }
 
     /// <summary>
-    /// Builds the root task of the cxx scenario (S4): tests/User.X64/cxx_exceptions.cpp, unchanged in its Itanium form
+    /// Builds the root task of the cxx scenario (S4): tests/User/cxx_exceptions.cpp, unchanged in its Itanium form
     /// (its <c>__declspec</c> is accepted with -fdeclspec), and tests/User/cxx_main.cpp, which runs it, compares its
     /// trace with Linux's and checks libc++.
     /// </summary>
@@ -510,7 +510,7 @@ internal static class LlvmRuntimes
     public static async Task<string> BuildRootAsync(string root, string output, KernelArchitecture architecture)
     {
         var scenario = Path.Combine(output, "cxx_exceptions.o");
-        await CompileAsync(root, architecture, Path.Combine(root, "tests", "User.X64", "cxx_exceptions.cpp"), scenario,
+        await CompileAsync(root, architecture, Path.Combine(root, "tests", "User", "cxx_exceptions.cpp"), scenario,
             ["-std=c++20", "-fdeclspec", "-w"]);
         var program = Path.Combine(output, "cxx_main.o");
         await CompileAsync(root, architecture, Path.Combine(root, "tests", "User", "cxx_main.cpp"), program,

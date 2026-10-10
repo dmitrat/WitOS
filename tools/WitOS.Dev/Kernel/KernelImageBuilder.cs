@@ -1,12 +1,8 @@
 using System.Reflection.PortableExecutable;
-using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using System.Text.RegularExpressions;
-using WitOS.Dev.CoreClr;
 using WitOS.Dev.Host;
 using WitOS.Dev.Images;
-using WitOS.Dev.NativeAot;
 
 namespace WitOS.Dev.Kernel;
 
@@ -110,11 +106,7 @@ internal static class KernelImageBuilder
         ["guard-high"] = "WITOS_TEST_GUARD_HIGH",
         ["readonly-alias"] = "WITOS_TEST_READONLY_ALIAS",
         ["unmapped-alias"] = "WITOS_TEST_UNMAPPED_ALIAS",
-        ["timeout"] = "WITOS_TEST_HANG",
-        ["runtime-config"] = "WITOS_TEST_RUNTIME_CONFIG",
-        ["runtime-boot"] = "WITOS_TEST_RUNTIME_BOOT",
-        ["coreclr-memory"] = "WITOS_TEST_CORECLR_MEMORY",
-        ["coreclr-storage"] = "WITOS_TEST_CORECLR_STORAGE"
+        ["timeout"] = "WITOS_TEST_HANG"
     };
 
     #endregion
@@ -158,24 +150,6 @@ internal static class KernelImageBuilder
         {
             await UserImage.BuildArm64Async(root, output, await Msvc());
         }
-        if (scenario == "coreclr-memory")
-        {
-            await CoreClrMemoryImage.BuildAsync(root, output, await Msvc());
-        }
-        if (scenario == "coreclr-storage")
-        {
-            // The .NET host over the delivered framework and application (P6.4.k1): the fixture boots as /dotnet.
-            await CoreClrMemoryImage.BuildHostRuntimeAsync(root, output, await Msvc(),
-                await CoreClrMemoryImage.BuildSupportAsync(root, output, await Msvc()));
-        }
-        if (scenario == "runtime-config")
-        {
-            await RuntimeConfigProbe.BuildImageAsync(root, output, await Msvc());
-        }
-        if (scenario == "runtime-boot")
-        {
-            await EmbedRuntimeImageAsync(root, output);
-        }
 
         // The programs a root task starts from the package (S5.2).
         var programs = scenario == SPAWN_SCENARIO ? await Substrate.LibWitos.BuildProgramsAsync(root, output, architecture)
@@ -186,8 +160,8 @@ internal static class KernelImageBuilder
             : scenario == RUNTIME_PROGRAM_SCENARIO ? Runtime.RuntimeWitos.ProgramPackage(root, architecture, Runtime.RuntimeWitos.PLATFORM_EXECUTABLE)
             : scenario == RUNTIME_ACCEPTANCE_SCENARIO ? Runtime.RuntimeWitos.ProgramPackage(root, architecture, Runtime.RuntimeWitos.ACCEPTANCE_EXECUTABLE)
             : [];
-        var bootPackage = await BootPackage.BuildAsync(root, output, scenario == "coreclr-storage", scenario == "coreclr-memory",
-            scenario is LIBC_SCENARIO or SPAWN_SCENARIO or PROCESS_SCENARIO, programs);
+        var bootPackage = await BootPackage.BuildAsync(output, scenario is LIBC_SCENARIO or SPAWN_SCENARIO or PROCESS_SCENARIO,
+            programs);
         // The root task's flat image (K4): every kernel, release or self-test, starts it from the boot disk.
         var rootTask = scenario == LIBC_SCENARIO ? await Substrate.MuslLibc.BuildRootAsync(root, output, architecture, "libc_hello.c")
             : scenario == LIBC_TEST_SCENARIO ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
@@ -196,10 +170,6 @@ internal static class KernelImageBuilder
             : scenario is PROCESS_SCENARIO or SYSROOT_SCENARIO or RUNTIME_TRYRUN_SCENARIO or RUNTIME_PROGRAM_SCENARIO or RUNTIME_ACCEPTANCE_SCENARIO
                 ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
             : await UserImage.BuildRootAsync(root, output, architecture);
-        if (scenario == "coreclr-storage")
-        {
-            await CoreClrStorageImage.BuildAsync(root, output, await Msvc());
-        }
         var objects = await CompileKernelAsync(root, output, scenario, selfTest, target, architecture);
         var efi = await LinkKernelAsync(root, output, objects, architecture);
         if (!selfTest)
@@ -296,41 +266,6 @@ internal static class KernelImageBuilder
             throw new InvalidOperationException($"Output must be an {architecture.Name} EFI image with no imported OS/CRT functions.");
         }
         return efi;
-    }
-
-    // The runtime-boot kernel embeds the hash-verified prepared runtime image.
-    private static async Task EmbedRuntimeImageAsync(string root, string output)
-    {
-        var driver = Path.Combine(root, "artifacts/runtime-readiness/guest-driver/WitOS.NativeAotBoot.pe");
-        var bytes = await File.ReadAllBytesAsync(driver);
-        var evidenceText = await File.ReadAllTextAsync(Path.Combine(Path.GetDirectoryName(driver)!, "image.json"));
-        using (var evidence = JsonDocument.Parse(evidenceText))
-        {
-            var hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-            if (hash != evidence.RootElement.GetProperty("sha256").GetString())
-            {
-                throw new InvalidDataException("Prepared runtime image hash changed; rebuild runtime-boot.");
-            }
-            var reportRva = evidence.RootElement.GetProperty("abruptReportRva").GetUInt32();
-            await File.WriteAllTextAsync(Path.Combine(output, "runtime_report.h"),
-                $"#define WIT_RUNTIME_ABRUPT_REPORT_RVA {reportRva}U\n", Encoding.ASCII);
-            await File.WriteAllTextAsync(Path.Combine(output, "runtime-input.json"), JsonSerializer.Serialize(new
-            {
-                file = driver,
-                sha256 = hash,
-                fileBytes = bytes.Length,
-                buildEvidence = evidence.RootElement.Clone()
-            }, new JsonSerializerOptions { WriteIndented = true }));
-        }
-
-        await File.WriteAllBytesAsync(Path.Combine(output, "runtime-image.pe"), bytes);
-        var header = new StringBuilder("static const unsigned char wit_runtime_boot_image[] = {\n");
-        for (var i = 0; i < bytes.Length; i += 16)
-        {
-            header.AppendLine("    " + string.Join(", ", bytes.Skip(i).Take(16).Select(b => $"0x{b:X2}")) + ",");
-        }
-        header.AppendLine("};");
-        await File.WriteAllTextAsync(Path.Combine(output, "runtime_boot_image.h"), header.ToString(), Encoding.ASCII);
     }
 
     private static async Task<string> BuildIdAsync(string root)

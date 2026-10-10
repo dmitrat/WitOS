@@ -2,6 +2,6 @@ WitOS
 Copyright 2026 Dmitry Ratner
 
 This product includes software developed by the WitOS project.
-Third-party components are downloaded at build time from their pinned upstream sources; their licenses and notices
-are recorded beside the pins: src/Runtime.NativeAot/THIRD-PARTY-NOTICES.md, src/Runtime.Cxx/THIRD-PARTY-NOTICES.md,
-src/Runtime.Crt/THIRD-PARTY-NOTICES.md.
+Third-party components are downloaded at build time from their pinned upstream sources (the lock files in
+src/Substrate and build/runtime, and the pinned toolchain and QEMU of tools/WitOS.Dev); each keeps the license and
+notices of its own distribution, and WitOS's changes to them are the patches in patches/.

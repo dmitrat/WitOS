@@ -444,23 +444,6 @@ WitU64 wit_user_memory_decommit(WitUserSpace *space, WitU64 address, WitU64 size
 WitU64 wit_user_memory_protect(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection);
 WitU64 wit_user_memory_release(WitUserSpace *space, WitU64 address, WitU64 size);
 
-/* Kinds of the self-test memory journal; only runtime-boot kernels record it. */
-#define WIT_MEMORY_JOURNAL_RESERVE 1U
-#define WIT_MEMORY_JOURNAL_COMMIT 2U
-#define WIT_MEMORY_JOURNAL_DECOMMIT 3U
-#define WIT_MEMORY_JOURNAL_RESET 4U
-#define WIT_MEMORY_JOURNAL_PROTECT 5U
-#define WIT_MEMORY_JOURNAL_RELEASE 6U
-#if defined(WITOS_TEST_RUNTIME_BOOT)
-typedef struct WitMemoryJournalEntry {
-    WitU64 Sequence;
-    WitU32 Kind, Status;
-    WitU64 Address, Size;
-} WitMemoryJournalEntry;
-
-/* The ring of the last operations; entry Sequence - 1 sits at index (Sequence - 1) % capacity. */
-const WitMemoryJournalEntry *wit_user_memory_journal(WitU64 *count, WitU32 *capacity);
-#endif
 void wit_user_memory_self_test(WitPageAllocator *pages);
 void wit_user_thread_self_test(WitPageAllocator *pages);
 void wit_user_native_id_self_test(void);
@@ -477,17 +460,11 @@ struct WitBootInfo;
 void wit_root_task_self_test(const struct WitBootInfo *boot, WitPageAllocator *pages);
 void wit_user_image_self_test(WitPageAllocator *pages);
 void wit_user_bootstrap_self_test(WitPageAllocator *pages);
-void wit_user_gc_self_test(WitPageAllocator *pages);
 void wit_user_tls_self_test(WitPageAllocator *pages);
-void wit_user_dynamic_tls_self_test(WitPageAllocator *pages);
 /* THREAD_QUERY by handle or WIT_THREAD_SELF; the caller's Version and Size in the buffer select the record. */
 WitU64 wit_user_thread_query(WitUserProcess *process, WitU64 handle, WitU64 address, WitU64 size);
 /* The WIT_THREAD_CONTEXT_* flags of a thread's context. */
 WitU32 wit_user_context_flags(const WitUserThread *target);
-void wit_user_pal_self_test(WitPageAllocator *pages);
-void wit_user_pal_services_self_test(WitPageAllocator *pages);
-void wit_user_wait_any_self_test(WitPageAllocator *pages);
-void wit_user_pressure_self_test(WitPageAllocator *pages);
 int wit_user_capture_tls(WitUserProcess *process, const WitPeImage *image);
 /* THREAD_CREATE: the one form, from a WitThreadCreateRequest in the process's memory. */
 WitU64 wit_user_thread_create(WitUserProcess *process, WitU64 input, WitU64 size, WitU64 *result);
@@ -517,13 +494,6 @@ int wit_user_image_map(WitUserSpace *space, const WitU8 *file, const WitPeImage 
  * detaches the library. Returns the mask of threads that received them; fails with all of them released. */
 WitU64 wit_user_thread_require_notifications(WitUserProcess *process, WitU32 *reserved);
 void wit_user_thread_release_notifications(WitUserProcess *process, WitU32 reserved);
-void wit_user_pal_module_self_test(WitPageAllocator *pages);
-void wit_user_pal_environment_self_test(WitPageAllocator *pages);
-void wit_user_process_exit_self_test(WitPageAllocator *pages);
-void wit_user_runtime_config_self_test(WitPageAllocator *pages);
-void wit_user_runtime_boot_test(WitPageAllocator *pages);
-void wit_user_pal_background_self_test(WitPageAllocator *pages);
-void wit_user_pal_error_self_test(WitPageAllocator *pages);
 void wit_user_run(WitUserProcess *process);
 void wit_user_destroy(WitUserProcess *process);
 int wit_user_is_active(void);
@@ -578,7 +548,6 @@ WitU64 wit_user_code_map_sparse(WitUserSpace *, WitU64, WitU64, WitU64, WitU64);
 WitU64 wit_user_code_alias(WitUserSpace *, WitU64, WitU64, WitU64, WitU64);
 WitU64 wit_user_code_protect(WitUserSpace *, WitU64, WitU64, WitU64);
 WitU64 wit_user_code_publish(WitUserSpace *, WitU64, WitU64);
-void wit_user_code_self_test(WitPageAllocator *);
 
 WitU64 wit_user_library_call(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
 WitU64 wit_user_library_release(WitUserSpace *, WitU64);
@@ -604,5 +573,4 @@ void wit_user_process_state_reset(WitUserProcess *);
 WitU64 wit_user_environment_set(
     WitUserProcess *, const WitU16 *name, WitU32 nameUnits, const WitU16 *value, WitU32 valueUnits);
 WitU64 wit_user_file_call(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
-void wit_user_file_self_test(WitPageAllocator *);
 #endif

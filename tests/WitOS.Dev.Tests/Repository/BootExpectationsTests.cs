@@ -14,7 +14,7 @@ public sealed class BootExpectationsTests
 {
     #region Fields
 
-    private static readonly string[] SOURCE_DIRECTORIES = ["src", "tests", "experiments"];
+    private static readonly string[] SOURCE_DIRECTORIES = ["src", "tests"];
 
     private static readonly string[] SOURCE_EXTENSIONS = [".c", ".cpp", ".h", ".asm"];
 

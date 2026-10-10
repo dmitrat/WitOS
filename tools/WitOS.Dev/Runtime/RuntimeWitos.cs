@@ -7,7 +7,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using WitOS.Dev.Host;
 using WitOS.Dev.Kernel;
-using WitOS.Dev.NativeAot;
+using WitOS.Dev.Upstream;
 using WitOS.Dev.Substrate;
 
 namespace WitOS.Dev.Runtime;

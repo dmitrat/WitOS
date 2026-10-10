@@ -12,8 +12,7 @@ public sealed class VirtualGapTests
     #region Functions
 
     [Test]
-    [Category(TestCategories.PE)]
-    [Explicit("Needs the runtime-source image")]
+    [Platform(Include = TestPlatforms.WINDOWS, Reason = TestPlatforms.MSVC)]
     public Task VirtualGapPropertyCasesTest() => RunAsync(TestEnvironment.Root, TestEnvironment.Scratch());
 
     #endregion

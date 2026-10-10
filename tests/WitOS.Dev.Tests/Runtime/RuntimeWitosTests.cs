@@ -1,6 +1,6 @@
-using WitOS.Dev.NativeAot;
 using WitOS.Dev.Runtime;
 using WitOS.Dev.Tests.Support;
+using WitOS.Dev.Upstream;
 
 namespace WitOS.Dev.Tests.Runtime;
 

@@ -1,4 +1,4 @@
-// The C++ runtime of the system layer (plan step S4): the exception scenarios of tests/User.X64/cxx_exceptions.cpp,
+// The C++ runtime of the system layer (plan step S4): the exception scenarios of tests/User/cxx_exceptions.cpp,
 // compiled unchanged in their Itanium form, must print the trace Linux prints (cxx_itanium_trace.h, which the
 // itanium-reference job of CI checks by building this same program natively on Linux), and libc++ must work for
 // what the runtime port needs: strings and containers, algorithms, smart pointers, std::function, streams, threads

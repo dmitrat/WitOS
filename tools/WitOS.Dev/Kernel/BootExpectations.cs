@@ -29,21 +29,6 @@ internal static class BootExpectations
     /// </summary>
     public const string ARM64_USERS = "arm64-users";
 
-    /// <summary>
-    /// CoreCLR executable-memory backend suite.
-    /// </summary>
-    public const string CORECLR_MEMORY = "coreclr-memory";
-
-    /// <summary>
-    /// CoreCLR assembly delivery and readonly guest IO suite.
-    /// </summary>
-    public const string CORECLR_STORAGE = "coreclr-storage";
-
-    /// <summary>
-    /// Upstream configuration and startup probes.
-    /// </summary>
-    public const string RUNTIME_CONFIG = "runtime-config";
-
     #endregion
 
     #region Fields

@@ -1,5 +1,5 @@
 #pragma once
-/* The trace of tests/User.X64/cxx_exceptions.cpp in its Itanium form (plan step S4), as Linux prints it: the
+/* The trace of tests/User/cxx_exceptions.cpp in its Itanium form (plan step S4), as Linux prints it: the
  * itanium-reference job of CI builds tests/User/cxx_main.cpp natively on Linux with the host's clang and C++ library
  * and requires this trace, and the cxx scenario requires the same in the guest on both ISAs. It differs from
  * vcruntime's trace (NativeCxxExceptionImage.WINDOWS_TRACE) where the ABIs differ: an Itanium catch parameter is
