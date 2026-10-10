@@ -4,15 +4,15 @@ using System.Runtime.InteropServices;
 namespace WitOS.Acceptance;
 
 /// <summary>
-/// The M3 acceptance of NativeAOT's Unix form on WitOS (plan step R2.2), against the NativeAOT CoreLib for witos alone.
+/// The M3 acceptance of the Unix form on WitOS: NativeAOT's (plan step R2.2) and CoreCLR's with its JIT (R3.3).
 /// </summary>
 /// <remarks>
 /// Four cycles run the probes of the frozen line's acceptance (hardware faults, exception dispatch, finalization,
 /// managed threads, thread creation beside parked threads) and three of the Unix form's (an allocation the GC cannot
 /// serve, the thread pool, waits). The program is built against the reference pack and the shared framework for witos
 /// (R2.3a): the first line names the platform as the class libraries see it, each run prints one line through
-/// System.Console, the last line counts the runs, and Main returns 0 only when every run passed and the program's
-/// roots survived.
+/// System.Console, the last line names the runtime (NativeAOT compiles no code at run time, CoreCLR's JIT does) and
+/// counts the runs, and Main returns 0 only when every run passed and the program's roots survived.
 /// </remarks>
 internal static class Program
 {
@@ -40,8 +40,7 @@ internal static class Program
 
     private static int Main()
     {
-        if (RuntimeFeature.IsDynamicCodeSupported)
-            return 101;
+        string runtime = RuntimeFeature.IsDynamicCodeCompiled ? "CoreCLR" : "NativeAOT";
         Console.WriteLine($"[M3] {RuntimeInformation.OSDescription}, {RuntimeInformation.RuntimeIdentifier}, " +
             $"{Environment.ProcessorCount} processor(s)");
         var local = Make(42);
@@ -66,7 +65,7 @@ internal static class Program
         GC.KeepAlive(bytes);
         if (!roots)
             ++m_failed;
-        Console.WriteLine($"[M3] NativeAOT on {Isa()}: {m_passed} runs passed, {m_failed} failed");
+        Console.WriteLine($"[M3] {runtime} on {Isa()}: {m_passed} runs passed, {m_failed} failed");
         return m_failed == 0 ? 0 : 1;
     }
 

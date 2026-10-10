@@ -64,7 +64,8 @@ Unix-форму, и пробы пула потоков, ожиданий и не
 классов upstream собираются для `witos`, и приёмка печатает через `System.Console` (R2.3a); программы собираются
 `dotnet publish -r witos-<arch>` целями SDK (R2.3b). Фаза R2 завершена. CoreCLR: нативная часть собирается для
 `witos` и загружается в госте (R3.1), а upstream `corerun` выполняет managed `Main` через JIT на обеих ISA — код в
-двойном отображении разделяемой памяти над объектами памяти (R3.2).
+двойном отображении разделяемой памяти над объектами памяти (R3.2), и приёмка M3 под CoreCLR проходит на обеих ISA
+(R3.3). Фаза R3 завершена.
 
 **Переносится как знание.** Адаптеры GC и PAL NativeAOT (написаны против Windows-формы PAL, нужны против Unix-формы);
 диспетчер раскрутки (таблицы станут DWARF); порядок инициализации рантайма; протоколы приёмки M3 и P5.
@@ -79,8 +80,8 @@ Windows-сборки хоста и `coreclr.dll`, Win32-адаптеры с их
 
 **Ещё нет, хотя требуется документами:** планировщик на N процессоров (фаза P: вторичные процессоры запущены и
 обслуживают межпроцессорные запросы, но потоки на них не исполняются); записываемое хранилище и драйверы; .NET
-Unix-формы в госте сверх NativeAOT и первого managed `Main` под CoreCLR через JIT (R3.2b; приёмка M3 под CoreCLR —
-R3.3, хосты — R5).
+Unix-формы в госте сверх NativeAOT и CoreCLR под `corerun` (хосты `dotnet` — R5, `System.Native` над файлами и
+сервисами — R4).
 
 ## 4. Решения
 
@@ -332,7 +333,7 @@ R3.3, хосты — R5).
       отказывается от чужого major; callback сбоев x64 получает аргументы в регистрах SysV, как вход потока; 4-байтовая
       форма `PROCESSOR_QUERY` ушла; `limits.h` — только механизмы двух профилей (фикстура и процесс системного слоя),
       «runtime»-константы переименованы в `WIT_PROCESS_*`; самотестовое ядро — 16 потоков процесса, как релизное.
-      `-ffixed-x18` слоя 2 и патча тулчейна рантайма уходит с пересборкой рантайма в R3.
+      `-ffixed-x18` слоя 2 и патча тулчейна рантайма ушёл с пересборкой рантайма на R3.3.
 - [x] **K9** Учёт памяти по таблицам страниц ([K9-Page-Table-Accounting.md](@Docs/Implementation/K9-Page-Table-Accounting.md)):
   четыре массива пространства (собственные кадры с адресами, алиасы с кадрами) по квоте страниц уходят — запись о
   страницах теперь сами листья с программными битами `OWNED` и `ALIAS`, у пространства только счётчики (собственные,
@@ -617,7 +618,7 @@ R3.3, хосты — R5).
     в проекте программы (RID `witos-*` в известных паках, граф RID, sysroot, clang, `Sysroot.LinkOptions`); приёмка
     собирается `dotnet publish -r witos-<arch>` сгенерированного проекта и проходит на обеих ISA. Патч-набор — 18
     файлов (CoreCLR 4 из 31 у FreeBSD).
-- [ ] **R3** CoreCLR (RFC-0015 §5–§6): PAL upstream над libc с минимальными `TARGET_WITOS`-ветками; `gcenv.unix` без
+- [x] **R3** CoreCLR (RFC-0015 §5–§6): PAL upstream над libc с минимальными `TARGET_WITOS`-ветками; `gcenv.unix` без
   cgroups и `/proc`, цифры памяти и CPU из `sysconf`; двойное отображение W^X через объект памяти
   (`minipal/Unix/doublemapping.cpp`); барьер процесса через `libwitos`; маскирование ISA-расширений профилем контекста
   ядра; clrjit Unix x64 и ARM64; `coreclr_initialize` и managed `Main` в госте. Слой 2 и патч тулчейна рантайма
@@ -657,7 +658,17 @@ R3.3, хосты — R5).
       `[CORERUN] managed Main through the JIT on X64`/`Arm64` на обеих ISA, `runtime-witos` загружает его после
       shared framework; Hello World берёт 13 чанков (3,25 МиБ). Проверки — в `libc_hello.c` обеих ISA: код, записанный
       через RW-вид на границе двух чанков, исполняется через RX-вид.
-  - [ ] **R3.3** Приёмка M3 под CoreCLR (GC, исключения, финализация, потоки) на обеих ISA; снятие `-ffixed-x18`.
+  - [x] **R3.3** Приёмка M3 под CoreCLR и x18 ([R3.3-CoreCLR-Acceptance.md](@Docs/Implementation/R3.3-CoreCLR-Acceptance.md)):
+    исходники приёмки M3 (R2.2) собираются C#-компилятором SDK против ref-пака и выполняются upstream `corerun` —
+    JIT компилирует каждый метод; программа называет рантайм (`RuntimeFeature.IsDynamicCodeCompiled`), строка NativeAOT
+    не изменилась; сценарий `runtime-coreclr-acceptance` требует `[M3] CoreCLR on <isa>: 32 runs passed, 0 failed` на
+    обеих ISA, `runtime-witos` загружает его после `runtime-corerun`. Пакет `corerun` несёт библиотеки фреймворка по
+    транзитивному замыканию ссылок программы (метаданные через `System.Reflection.Metadata`), `corerun` получает
+    свойства runtimeconfig в командной строке: `System.Globalization.Invariant=true` (ICU в системном слое нет,
+    RFC-0015 §8) и `RUNTIME_IDENTIFIER=witos-<arch>`. Нашлось одно: без invariant-режима `FailFast` при загрузке
+    ресурсов сообщения `NullReferenceException`. `-ffixed-x18` снят со слоя 2 (`KernelArchitecture.ClangOptions`
+    пуст) и с патча тулчейна рантайма: с K8.4b x18 — обычный регистр. Расширения ISA сверх контекста ядра скрыты
+    конструкцией: на x64 `CR4.OSXSAVE` сброшен (AVX не используется), на ARM64 `AT_HWCAP` — 0. Фаза R3 завершена.
 - [ ] **R4** `System.Native` для witos (RFC-0015 §5, §8): файлы над пакетом (`mmap` файла — `ENODEV` до сервиса), затем
   над сервисом хранилища (D5); время; окружение; процессы без `fork`/`exec` на первом шаге (`Process.Start` —
   `PlatformNotSupportedException`); терминальные сигналы устанавливаются и не поднимаются; `System.Globalization.Native`

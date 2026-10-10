@@ -98,16 +98,6 @@ internal static class RuntimeWitos
     private static readonly string[] CORECLR_IMAGES = ["libcoreclr.so", "libclrjit.so", "corerun"];
 
     /// <summary>
-    /// The framework's libraries the corerun program needs beside CoreLib (R3.2): corerun's TPA list is every assembly
-    /// of its directory.
-    /// </summary>
-    private static readonly string[] CORERUN_LIBRARIES =
-    [
-        "System.Runtime", "System.Console", "System.Threading", "System.Text.Encoding.Extensions", "System.Runtime.InteropServices",
-        "Microsoft.Win32.Primitives", "System.Collections", "System.Memory"
-    ];
-
-    /// <summary>
     /// The witos patch set: each upstream path and the name of its patch in patches/runtime, its path with '/' as '.'.
     /// </summary>
     public static readonly IReadOnlyDictionary<string, string> PATCHES = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -232,6 +222,18 @@ internal static class RuntimeWitos
         });
         Console.WriteLine($"CoreCLR for witos-{architecture.Name}: corerun runs a managed Main through the JIT.");
 
+        // CoreCLR's M3 acceptance (R3.3): the probes NativeAOT's acceptance runs, every method JIT-compiled.
+        var coreclrAcceptance = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_CORECLR_ACCEPTANCE_SCENARIO,
+            architecture: architecture);
+        await BootScenarioRunner.RunAsync(root, coreclrAcceptance,
+            new BootRequest($"{architecture.Name}-runtime-coreclr-acceptance-256", 256, 1800, ExpectedOutcome.Success)
+            {
+                Architecture = architecture,
+                Suite = BootSuite.Release,
+                RequiredLines = [architecture.CoreClrAcceptancePassedLine, architecture.RootTaskPassedLine]
+            });
+        Console.WriteLine($"CoreCLR for witos-{architecture.Name}: the M3 acceptance passed its {ACCEPTANCE_RUNS} runs in the guest.");
+
         // NativeAOT's runtime pack for the architecture (R2.3b), as upstream packs it: the SDK's targets take it for a
         // publish with PublishAot.
         DropPackages(tree, $"Microsoft.NETCore.App.Runtime.NativeAOT.witos-{architecture.Name}");
@@ -351,17 +353,35 @@ internal static class RuntimeWitos
     }
 
     /// <summary>
-    /// The package of the CoreCLR host check (R3.2): tests/User/corerun_init.c as /bin/init; under /coreclr upstream's
-    /// corerun, CoreCLR's runtime and JIT, CoreLib, the framework's libraries the program needs with System.Native, and the
-    /// program, which the SDK's C# compiler builds against the reference pack; musl's libc.so as the dynamic linker and the
-    /// shared C++ runtime in /lib.
+    /// The package of the CoreCLR host check (R3.2): corerun on tests/Runtime.Witos/CoreRun/CoreRun.cs.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="output">Artifact directory of the scenario.</param>
     /// <param name="architecture">Target architecture.</param>
     /// <returns>Package paths and the files to place there.</returns>
-    public static async Task<IReadOnlyList<(string Name, string Source)>> BuildCoreRunPackageAsync(string root, string output,
-        KernelArchitecture architecture)
+    public static Task<IReadOnlyList<(string Name, string Source)>> BuildCoreRunPackageAsync(string root, string output,
+        KernelArchitecture architecture) =>
+        BuildCoreRunPackageAsync(root, output, architecture, "CoreRun", [Path.Combine(root, CORERUN_ASSEMBLY)]);
+
+    /// <summary>
+    /// The package of CoreCLR's M3 acceptance (R3.3): corerun on tests/Runtime.Witos/Acceptance, the program NativeAOT's
+    /// acceptance compiles ahead of time, every method of which the JIT compiles here.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Artifact directory of the scenario.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>Package paths and the files to place there.</returns>
+    public static Task<IReadOnlyList<(string Name, string Source)>> BuildCoreClrAcceptancePackageAsync(string root, string output,
+        KernelArchitecture architecture) =>
+        BuildCoreRunPackageAsync(root, output, architecture, "Acceptance",
+            Directory.GetFiles(Path.Combine(root, ACCEPTANCE_PROGRAM), "*.cs").Order(StringComparer.Ordinal).ToArray());
+
+    // A corerun package: tests/User/corerun_init.c as /bin/init, naming the program; under /coreclr upstream's corerun,
+    // CoreCLR's runtime and JIT, CoreLib, the framework's libraries the program reaches with System.Native, and the program,
+    // which the SDK's C# compiler builds against the reference pack; musl's libc.so as the dynamic linker and the shared
+    // C++ runtime in /lib.
+    private static async Task<IReadOnlyList<(string Name, string Source)>> BuildCoreRunPackageAsync(string root, string output,
+        KernelArchitecture architecture, string name, string[] sources)
     {
         var tree = Path.Combine(root, "artifacts", "runtime-witos", "src");
         var coreclr = Path.Combine(tree, "artifacts", "bin", "coreclr", $"witos.{architecture.Name}.Release");
@@ -373,19 +393,19 @@ internal static class RuntimeWitos
         var sdks = Directory.GetDirectories(Path.Combine(tree, ".dotnet", "sdk"));
         if (sdks.Length != 1)
             throw new InvalidDataException($"The runtime's own .NET SDK is not one SDK: {string.Join(", ", sdks)}.");
-        var assembly = Path.Combine(output, "CoreRun.dll");
+        var assembly = Path.Combine(output, name + ".dll");
         await RunToolAsync(Path.Combine(tree, ".dotnet", "dotnet"),
         [
             Path.Combine(sdks[0], "Roslyn", "bincore", "csc.dll"), "-nologo", "-noconfig", "-nostdlib", "-deterministic", "-optimize+",
-            "-target:exe", .. Directory.GetFiles(references, "*.dll").Select(reference => $"-r:{reference}"), $"-out:{assembly}",
-            Path.Combine(root, CORERUN_ASSEMBLY)
+            "-unsafe", "-nullable:enable", "-target:exe", .. Directory.GetFiles(references, "*.dll").Select(reference => $"-r:{reference}"),
+            $"-out:{assembly}", .. sources
         ], tree);
         var sysroot = await Sysroot.BuildAsync(root, architecture);
         var program = Path.Combine(output, "corerun_init.elf");
         await Processes.RequireSuccessAsync(Toolchain.Clang(root),
         [
             .. Sysroot.DriverOptions(root, architecture), "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
-            Path.Combine(root, CORERUN_PROGRAM), "-o", program
+            $"-DCORERUN_ASSEMBLY=\"/coreclr/{name}.dll\"", Path.Combine(root, CORERUN_PROGRAM), "-o", program
         ], root);
         var lib = Path.Combine(sysroot, "usr", "lib");
         return
@@ -397,9 +417,31 @@ internal static class RuntimeWitos
             ("coreclr/libcoreclr.so", Path.Combine(coreclr, "libcoreclr.so")), ("coreclr/libclrjit.so", Path.Combine(coreclr, "libclrjit.so")),
             ("coreclr/System.Private.CoreLib.dll", Path.Combine(coreclr, "IL", "System.Private.CoreLib.dll")),
             ("coreclr/libSystem.Native.so", Path.Combine(native, "libSystem.Native.so")),
-            ("coreclr/CoreRun.dll", assembly),
-            .. CORERUN_LIBRARIES.Select(name => ($"coreclr/{name}.dll", Path.Combine(framework, name + ".dll")))
+            ($"coreclr/{name}.dll", assembly),
+            .. FrameworkClosure(framework, assembly).Select(library => ($"coreclr/{library}.dll", Path.Combine(framework, library + ".dll")))
         ];
+    }
+
+    // The framework's libraries a program reaches through its references and theirs (R3.3): corerun's TPA list is every
+    // assembly of its directory, and the package carries those alone; CoreLib, which every one references, comes apart.
+    private static IReadOnlyList<string> FrameworkClosure(string framework, string program)
+    {
+        var found = new SortedSet<string>(StringComparer.Ordinal);
+        var pending = new Queue<string>([program]);
+        while (pending.Count > 0)
+        {
+            using var stream = File.OpenRead(pending.Dequeue());
+            using var reader = new PEReader(stream);
+            var metadata = reader.GetMetadataReader();
+            foreach (var handle in metadata.AssemblyReferences)
+            {
+                var library = metadata.GetString(metadata.GetAssemblyReference(handle).Name);
+                var path = Path.Combine(framework, library + ".dll");
+                if (File.Exists(path) && found.Add(library))
+                    pending.Enqueue(path);
+            }
+        }
+        return [.. found];
     }
 
     /// <summary>
