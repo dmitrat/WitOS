@@ -43,12 +43,14 @@
 #define WIT_THREAD_SUSPEND_MAX 127U /* suspend count of one thread */
 
 /* Physical pages a component owns and its dynamic reservations. A system layer process's reservations cover every
- * mapping of a dynamic program's libraries, every split of a library's span and every thread stack (S5.4); its page
- * quota and reservation table size every space's arrays. */
+ * mapping of a dynamic program's libraries, every split of a library's span and every thread stack (S5.4), and its
+ * reservation table sizes every space's arrays. The page tables record which pages a space owns and aliases (K9), so
+ * the page quota sizes no array: a system layer process may own 256 MiB, and the guest's physical memory, which the
+ * memory-pressure event reports, is what binds it first. */
 #define WIT_USER_RESERVATION_CAPACITY 8U
 #define WIT_USER_PAGE_CAPACITY 128U
 #define WIT_PROCESS_RESERVATION_CAPACITY 256U
-#define WIT_PROCESS_PAGE_CAPACITY 2048U
+#define WIT_PROCESS_PAGE_CAPACITY 65536U
 /* Memory-pressure hysteresis, in allocatable pages of global RAM and of the component quota. */
 #define WIT_PRESSURE_LOW_PAGES 16U
 #define WIT_PRESSURE_HIGH_PAGES 32U

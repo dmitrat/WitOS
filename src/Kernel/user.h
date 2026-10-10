@@ -19,11 +19,9 @@ typedef WitVirtualRange WitUserReservation;
 typedef struct WitUserSpace {
     WitPageAllocator *Allocator;
     WitU64 Root;
-    WitU64 OwnedPages[WIT_PROCESS_PAGE_CAPACITY];
-    WitU64 OwnedVirtual[WIT_PROCESS_PAGE_CAPACITY]; /* Zero for page tables. */
-    WitU64 AliasVirtual[WIT_PROCESS_PAGE_CAPACITY];
-    WitU64 AliasPhysical[WIT_PROCESS_PAGE_CAPACITY];
-    WitU32 AliasCount;
+    /* The page tables record the leaves (K9): AliasCount counts the alias entries, OwnedCount the frames the space
+     * owns, TableCount of them its page tables and DynamicCount its leaves in the dynamic arenas. */
+    WitU32 AliasCount, TableCount, DynamicCount;
     WitUserReservation Reservations[WIT_PROCESS_RESERVATION_CAPACITY]; /* ReservationLimit of them in use */
     /* Per reservation: the memory object it maps (its nonzero number; zero for a plain reservation) and the rights
      * of the handle that mapped it, which bound its protection. */

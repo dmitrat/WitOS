@@ -132,6 +132,39 @@ void wit_arch_page_prune(WitUserSpace *space, WitU64 address)
     }
 }
 
+WitU64 wit_arch_page_next(const WitUserSpace *space, WitU64 address, WitU64 end)
+{
+    const WitU32 shifts[4] = {39, 30, 21, 12};
+    address &= ~4095ULL;
+    if (end > (1ULL << 48)) {
+        end = 1ULL << 48;
+    }
+    while (space->Root && address < end) {
+        const WitU64 *table = (const WitU64 *)space->Root;
+        WitU32 level = 0;
+        for (;; ++level) {
+            const WitU64 entry = table[(address >> shifts[level]) & 511];
+            if (level == 3) {
+                if (entry) {
+                    return address;
+                }
+                break;
+            }
+            if (!user_table(entry)) {
+                break;
+            }
+            table = (const WitU64 *)(entry & DESC_ADDRESS);
+        }
+        const WitU64 span = 1ULL << shifts[level];
+        const WitU64 next = (address & ~(span - 1)) + span;
+        if (next <= address) {
+            break;
+        }
+        address = next;
+    }
+    return end;
+}
+
 WitU64 wit_arch_page_translate(WitU64 root, WitU64 address, int write, int execute)
 {
     const WitU32 shifts[4] = {39, 30, 21, 12};

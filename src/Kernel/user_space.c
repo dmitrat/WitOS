@@ -3,37 +3,51 @@
 #include "witos/platform.h"
 
 /* User address spaces: ownership accounting, reservations, commitments, object mappings and user copies.
- * Entry encoding, table walks and translation caches belong to the architecture (witos/arch.h). */
+ * Entry encoding, table walks and translation caches belong to the architecture (witos/arch.h). The page tables are
+ * the record of what a space holds (K9): a leaf marked OWNED holds a frame of the space, one marked ALIAS a page of a
+ * memory object; the space keeps counts, and a walk that skips absent tables (wit_arch_page_next) finds the leaves
+ * of a range or of the whole space. */
 
+/* The user range every walk of a whole space covers: the fixed window, the code arena and the data arena. */
+#define SPACE_LOW WIT_USER_BASE
+#define SPACE_HIGH WIT_USER_MEMORY_LIMIT
+
+static WitU64 dynamic_limit(WitU64 address);
+
+/* A zeroed frame for the space: a leaf at the address, or a page table for address zero. */
 static WitU64 allocate(WitUserSpace *space, WitU64 address)
 {
     WitU64 page = 0;
     if (space->OwnedCount + space->ChargedPages >= space->PageLimit || !wit_page_allocate(space->Allocator, &page)) {
         return 0;
     }
-    space->OwnedPages[space->OwnedCount] = page;
-    space->OwnedVirtual[space->OwnedCount++] = address;
+    ++space->OwnedCount;
+    if (!address) {
+        ++space->TableCount;
+    } else if (dynamic_limit(address)) {
+        ++space->DynamicCount;
+    }
     for (WitU32 i = 0; i < 512; ++i) {
         ((WitU64 *)page)[i] = 0;
     }
     return page;
 }
 
-static void free_owned(WitUserSpace *space, WitU64 page)
+/* A frame of the space goes back to the allocator: a leaf at the address, or a page table for address zero. */
+static void free_owned(WitUserSpace *space, WitU64 page, WitU64 address)
 {
-    for (WitU32 i = 0; i < space->OwnedCount; ++i) {
-        if (space->OwnedPages[i] != page) {
-            continue;
-        }
-        if (!wit_page_free(space->Allocator, page)) {
+    if (!space->OwnedCount || (!address && !space->TableCount) || !wit_page_free(space->Allocator, page)) {
+        wit_panic("User page ownership corrupted");
+    }
+    --space->OwnedCount;
+    if (!address) {
+        --space->TableCount;
+    } else if (dynamic_limit(address)) {
+        if (!space->DynamicCount) {
             wit_panic("User page ownership corrupted");
         }
-        --space->OwnedCount;
-        space->OwnedPages[i] = space->OwnedPages[space->OwnedCount];
-        space->OwnedVirtual[i] = space->OwnedVirtual[space->OwnedCount];
-        return;
+        --space->DynamicCount;
     }
-    wit_panic("Freeing unowned user page");
 }
 
 WitU64 wit_user_space_take_table(WitUserSpace *space)
@@ -43,7 +57,7 @@ WitU64 wit_user_space_take_table(WitUserSpace *space)
 
 void wit_user_space_release_table(WitUserSpace *space, WitU64 page)
 {
-    free_owned(space, page);
+    free_owned(space, page, 0);
 }
 
 static void invalidate(const WitUserSpace *space, WitU64 address)
@@ -105,11 +119,10 @@ static int overlaps(WitU64 base, WitU64 size, WitU64 other, WitU64 length)
     return size && length && base < other + length && other < base + size;
 }
 
+/* An alias entry costs the space no frame, only its tables: an object mapping is bounded by the object's size and the
+ * reservations, not by the page quota (K9). */
 static int map_alias_page(WitUserSpace *space, WitU64 destination, WitU64 physical, WitU64 protection, WitU32 device)
 {
-    if (space->AliasCount >= space->PageLimit) {
-        return 0;
-    }
     WitU64 *output = leaf(space, destination, 1);
     if (!output) {
         prune(space, destination);
@@ -120,8 +133,7 @@ static int map_alias_page(WitUserSpace *space, WitU64 destination, WitU64 physic
     }
     *output = wit_arch_page_entry_make(
         physical, (protection_flags(protection) & ~WIT_PAGE_OWNED) | WIT_PAGE_ALIAS | (device ? WIT_PAGE_DEVICE : 0));
-    space->AliasVirtual[space->AliasCount] = destination;
-    space->AliasPhysical[space->AliasCount++] = physical;
+    ++space->AliasCount;
     invalidate(space, destination);
     return 1;
 }
@@ -137,18 +149,12 @@ static void unmap_page(WitUserSpace *space, WitU64 address)
     *entry = 0;
     invalidate(space, address);
     if (alias) {
-        WitU32 i = 0;
-        while (i < space->AliasCount && space->AliasVirtual[i] != address) {
-            ++i;
-        }
-        if (i == space->AliasCount || space->AliasPhysical[i] != page) {
+        if (!space->AliasCount) {
             wit_panic("Alias ownership lost");
         }
         --space->AliasCount;
-        space->AliasVirtual[i] = space->AliasVirtual[space->AliasCount];
-        space->AliasPhysical[i] = space->AliasPhysical[space->AliasCount];
     } else {
-        free_owned(space, page);
+        free_owned(space, page, address);
     }
     prune(space, address);
 }
@@ -179,6 +185,8 @@ int wit_user_space_create_profile(WitUserSpace *space, WitPageAllocator *allocat
     space->ReservationLimit = system ? WIT_PROCESS_RESERVATION_CAPACITY : WIT_USER_RESERVATION_CAPACITY;
     space->FixedLimit = system ? WIT_PROCESS_USER_LIMIT : WIT_USER_LIMIT;
     space->OwnedCount = 0;
+    space->TableCount = 0;
+    space->DynamicCount = 0;
     space->ChargedPages = 0;
     space->AliasCount = 0;
     space->Root = 0;
@@ -343,22 +351,14 @@ WitU64 wit_user_memory_query(const WitUserSpace *space, WitU64 address, WitU64 s
     info.CodeVirtualBase = WIT_USER_CODE_BASE;
     info.CodeVirtualBytes = WIT_USER_CODE_LIMIT - WIT_USER_CODE_BASE;
     info.ReservedBytes = 0;
-    info.DynamicCommittedBytes = 0;
-    info.PrivatePageTableBytes = 0;
+    info.DynamicCommittedBytes = (WitU64)space->DynamicCount * WIT_PAGE_SIZE;
+    info.PrivatePageTableBytes = (WitU64)space->TableCount * WIT_PAGE_SIZE;
     info.ReservationCount = 0;
     info.ReservationCapacity = space->ReservationLimit;
     for (WitU32 i = 0; i < space->ReservationLimit; ++i) {
         info.ReservedBytes += space->Reservations[i].Size;
         if (space->Reservations[i].Size) {
             ++info.ReservationCount;
-        }
-    }
-    for (WitU32 i = 0; i < space->OwnedCount; ++i) {
-        const WitU64 address_owned = space->OwnedVirtual[i];
-        if (!address_owned) {
-            info.PrivatePageTableBytes += WIT_PAGE_SIZE;
-        } else if (dynamic_limit(address_owned)) {
-            info.DynamicCommittedBytes += WIT_PAGE_SIZE;
         }
     }
     return wit_user_copy_to(space, address, (const WitU8 *)&info, sizeof(info)) ? WIT_STATUS_OK
@@ -499,11 +499,13 @@ static WitU64 memory_reserve(WitUserSpace *space, WitU64 size, WitU64 alignment,
     return reserve_within(space, size, alignment, WIT_USER_MEMORY_BASE, WIT_USER_MEMORY_LIMIT, result);
 }
 
+/* The pages one commit added, one bit per page of its range, for the rollback: memory calls run one at a time with
+ * interrupts disabled on the one processor that takes calls, and a range has at most a page quota of pages. */
+static WitU64 committed[WIT_PROCESS_PAGE_CAPACITY / 64];
+
 static WitU64 memory_commit(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection)
 {
     WitU32 rights;
-    WitU64 added[WIT_PROCESS_PAGE_CAPACITY];
-    WitU32 count = 0;
     WitU64 status = reserved_range(space, address, size);
     if (status != WIT_STATUS_OK) {
         return status;
@@ -517,46 +519,36 @@ static WitU64 memory_commit(WitUserSpace *space, WitU64 address, WitU64 size, Wi
     if (size / 4096 > space->PageLimit) {
         return WIT_STATUS_NO_MEMORY;
     }
-    for (WitU64 p = address; p < address + size; p += 4096) {
+    const WitU64 pages = size / 4096;
+    for (WitU64 i = 0; i < (pages + 63) / 64; ++i) {
+        committed[i] = 0;
+    }
+    for (WitU64 i = 0; i < pages; ++i) {
+        const WitU64 p = address + i * 4096;
         WitU64 *entry = leaf(space, p, 0);
         if (!entry || !(entry_flags(*entry) & (WIT_PAGE_OWNED | WIT_PAGE_ALIAS))) {
             if (!map_page(space, p, protection_flags(protection))) {
-                goto failed;
+                /* Every page this commit added goes again; the pages it found stay as they were. */
+                for (WitU64 k = 0; k < i; ++k) {
+                    if (committed[k / 64] & (1ULL << (k % 64))) {
+                        unmap_page(space, address + k * 4096);
+                    }
+                }
+                return WIT_STATUS_NO_MEMORY;
             }
-            added[count++] = p;
+            committed[i / 64] |= 1ULL << (i % 64);
         }
     }
     return WIT_STATUS_OK;
-failed:
-    while (count) {
-        unmap_page(space, added[--count]);
-    }
-    return WIT_STATUS_NO_MEMORY;
 }
 
 static void decommit_range(WitUserSpace *space, WitU64 address, WitU64 size)
 {
-    /* Walk committed frames, not potentially billions of reserved pages.
-     * Unmapping may compact ownership records for both frames and tables. */
-    WitU32 i = 0;
-    while (i < space->AliasCount) {
-        const WitU64 p = space->AliasVirtual[i];
-        if (p >= address && p - address < size) {
-            unmap_page(space, p);
-            i = 0;
-        } else {
-            ++i;
-        }
-    }
-    i = 0;
-    while (i < space->OwnedCount) {
-        const WitU64 p = space->OwnedVirtual[i];
-        if (p >= address && p - address < size) {
-            unmap_page(space, p);
-            i = 0;
-        } else {
-            ++i;
-        }
+    /* The leaves of the range, found by a walk that skips absent tables: the cost is the populated part, not the
+     * potentially billions of reserved pages. Unmapping prunes the tables it empties. */
+    const WitU64 end = address + size;
+    for (WitU64 p = wit_arch_page_next(space, address, end); p < end; p = wit_arch_page_next(space, p + 4096, end)) {
+        unmap_page(space, p);
     }
 }
 
@@ -572,6 +564,13 @@ static WitU64 memory_decommit(WitUserSpace *space, WitU64 address, WitU64 size)
     }
     decommit_range(space, address, size);
     return WIT_STATUS_OK;
+}
+
+/* The most pages a committed range holds: the space's own and the alias entries of its object mappings, each of at most
+ * WIT_MEMORY_OBJECT_PAGES. A longer range has a page that is not committed, which bounds a walk of its leaves. */
+static WitU64 committed_limit(const WitUserSpace *space)
+{
+    return (WitU64)space->PageLimit + (WitU64)space->ReservationLimit * WIT_MEMORY_OBJECT_PAGES;
 }
 
 static WitU64 memory_reset(WitUserSpace *space, WitU64 address, WitU64 size)
@@ -651,7 +650,7 @@ static WitU64 protect(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 p
             return WIT_STATUS_DENIED;
         }
     }
-    if (size / 4096 > space->PageLimit) {
+    if (size / 4096 > committed_limit(space)) {
         return WIT_STATUS_NOT_COMMITTED;
     }
     for (WitU64 p = address; p < address + size; p += 4096) {
@@ -705,7 +704,7 @@ WitU64 wit_user_code_publish(WitUserSpace *space, WitU64 address, WitU64 size)
     if (status != WIT_STATUS_OK) {
         return status;
     }
-    if ((high - low) / 4096 > space->PageLimit) {
+    if ((high - low) / 4096 > committed_limit(space)) {
         return WIT_STATUS_NOT_COMMITTED;
     }
     for (WitU64 page = low; page < high; page += 4096) {
@@ -822,10 +821,6 @@ WitU64 wit_user_space_map_object(WitUserSpace *space, WitU64 address, WitU64 siz
         }
         slot = reservation_of(space, base, size);
     }
-    if (space->AliasCount > space->PageLimit || size / 4096 > space->PageLimit - space->AliasCount) {
-        space->Reservations[slot].Size = 0;
-        return WIT_STATUS_NO_MEMORY;
-    }
     for (WitU64 offset = 0; offset < size; offset += 4096) {
         if (!map_alias_page(space, base + offset, pages[offset / 4096], protection, device)) {
             while (offset) {
@@ -934,9 +929,14 @@ void wit_user_space_destroy(WitUserSpace *space)
     if (space->Root && wit_arch_space_active(space->Root)) {
         wit_panic("Destroying active user address space");
     }
-    while (space->OwnedCount != 0) {
-        const WitU64 page = space->OwnedPages[--space->OwnedCount];
-        if (!wit_page_free(space->Allocator, page)) {
+    if (space->Root) {
+        /* Every leaf goes, owned frames back to the allocator and the tables they empty with them; the root last. */
+        for (WitU64 p = wit_arch_page_next(space, SPACE_LOW, SPACE_HIGH); p < SPACE_HIGH;
+            p = wit_arch_page_next(space, p + 4096, SPACE_HIGH)) {
+            unmap_page(space, p);
+        }
+        free_owned(space, space->Root, 0);
+        if (space->OwnedCount || space->TableCount || space->DynamicCount || space->AliasCount) {
             wit_panic("User page ownership corrupted");
         }
     }
