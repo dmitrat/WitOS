@@ -65,7 +65,8 @@ Unix-форму, и пробы пула потоков, ожиданий и не
 `dotnet publish -r witos-<arch>` целями SDK (R2.3b). Фаза R2 завершена. CoreCLR: нативная часть собирается для
 `witos` и загружается в госте (R3.1), а upstream `corerun` выполняет managed `Main` через JIT на обеих ISA — код в
 двойном отображении разделяемой памяти над объектами памяти (R3.2), и приёмка M3 под CoreCLR проходит на обеих ISA
-(R3.3). Фаза R3 завершена.
+(R3.3). Фаза R3 завершена. `System.Native` над пакетом, время, окружение, invariant-глобализация и явные отказы
+проверены из управляемого кода на обеих ISA, различия совместимости ведутся списком (R4.1).
 
 **Переносится как знание.** Адаптеры GC и PAL NativeAOT (написаны против Windows-формы PAL, нужны против Unix-формы);
 диспетчер раскрутки (таблицы станут DWARF); порядок инициализации рантайма; протоколы приёмки M3 и P5.
@@ -672,7 +673,19 @@ Unix-формы в госте сверх NativeAOT и CoreCLR под `corerun` (
 - [ ] **R4** `System.Native` для witos (RFC-0015 §5, §8): файлы над пакетом (`mmap` файла — `ENODEV` до сервиса), затем
   над сервисом хранилища (D5); время; окружение; процессы без `fork`/`exec` на первом шаге (`Process.Start` —
   `PlatformNotSupportedException`); терминальные сигналы устанавливаются и не поднимаются; `System.Globalization.Native`
-  в invariant-режиме; криптография — явный отказ до провайдера; список различий ведётся.
+  в invariant-режиме; криптография — явный отказ до провайдера; список различий ведётся. Срезами:
+  - [x] **R4.1** `System.Native` над системным слоем ([R4.1-System-Native.md](@Docs/Implementation/R4.1-System-Native.md)):
+    `tests/Runtime.Witos/SystemNative` под `corerun` проверяет двенадцать областей — файлы пакета, отказ записи,
+    текущий каталог, время, окружение, invariant-глобализацию, случайные байты, консоль, сигналы, отказ
+    `Process.Start`, хэши и отказ RSA; сценарий `runtime-system-native` требует `12 areas passed, 0 failed` на обеих ISA,
+    `runtime-witos` загружает его после приёмки CoreCLR. Найдено и сделано: `flock` над описанием открытого файла
+    (`FileStream` эмулирует `FileShare`), `lstat` (x64), `mkdir`/`mkdirat` (`EEXIST`/`EROFS`), стандартный ввод — не
+    терминал (`isatty` в musl — `TIOCGWINSZ`, .NET читал «терминал» вечно), криптография без OpenSSL — патч проекта
+    `System.Security.Cryptography`: для `TargetOS=witos` unix-вариант берёт набор браузера (случайные байты
+    System.Native, управляемые SHA, HMAC, HKDF, PBKDF2; остальное — `PlatformNotSupportedException`), защита страниц
+    разделяемой памяти хранится по странице (постраничный коммит JIT раздробил отображения до 795 кусков). Список
+    различий — [Compatibility-Differences.md](@Docs/Implementation/Compatibility-Differences.md). Патч-набор — 24 файла.
+  - [ ] **R4.2** Файлы над сервисом пространства имён (после D5): `mmap` файла — объект памяти от сервиса.
 - [ ] **R5** Хосты Unix-формы (RFC-0015 §7): `dotnet`, `libhostfxr.so`, `libhostpolicy.so`; раскладка shared framework
   под `/dotnet` и файлы `/etc/dotnet/install_location*` в пакете вместо патча `pal.unix.cpp`; `dotnet App.dll`.
 - [ ] **R6** Первый IL через JIT (RFC-0015 §1, §9): приложение, собранное в Visual Studio на Windows (`dotnet publish`

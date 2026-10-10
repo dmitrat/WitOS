@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/uio.h>
@@ -45,6 +46,8 @@
 #define DESCRIPTORS 64
 #define NAME_MAX_BYTES 1024U
 #define DIRECTORY_INODE_BASE 0x10000ULL
+#define FUTEX_WAKE 1
+#define FUTEX_PRIVATE 128
 
 typedef enum Kind {
     KindClosed,
@@ -72,10 +75,12 @@ typedef struct Description {
     WitU64 Offset; /* the file position; a directory's reading cursor */
     int StatusFlags; /* the open's flags but O_CLOEXEC; F_SETFL changes O_NONBLOCK */
     WitU32 References; /* the descriptors that share it; zero when free */
+    int Lock; /* flock's lock it holds (R4.1): 0, LOCK_SH or LOCK_EX */
 } Description;
 
 static Descriptor descriptors[DESCRIPTORS];
 static Description descriptions[DESCRIPTORS];
+static volatile int lock_sequence; /* bumped and woken whenever a flock lock goes (R4.1) */
 
 #define POSITION(d) (descriptions[(d)->Description].Offset)
 static unsigned char directory[NAME_MAX_BYTES]; /* the current directory: a name prefix without slashes at its ends */
@@ -355,9 +360,19 @@ static long open_descriptor(Kind kind, WitU32 index, WitU32 prefix_length, int f
     while (descriptions[description].References) {
         ++description; /* a free description exists: each one in use has a descriptor of its own */
     }
-    descriptions[description] = (Description){0, flags & ~O_CLOEXEC, 1};
+    descriptions[description] = (Description){0, flags & ~O_CLOEXEC, 1, 0};
     descriptors[fd] = (Descriptor){kind, index, prefix_length, description, (flags & O_CLOEXEC) != 0};
     return fd;
+}
+
+/* A flock lock goes: whoever waits for it looks again. */
+static void unlock_description(Description *description)
+{
+    if (description->Lock) {
+        description->Lock = 0;
+        __atomic_add_fetch(&lock_sequence, 1, __ATOMIC_RELEASE);
+        __wit_futex(&lock_sequence, FUTEX_WAKE | FUTEX_PRIVATE, 0x7FFFFFFF, 0, 0, 0);
+    }
 }
 
 /* A descriptor goes; its description and a pipe's end go with the last one. */
@@ -370,7 +385,9 @@ static void close_descriptor(Descriptor *d)
     if (d->Kind == KindShared) {
         __wit_shared_release(d->Index);
     }
-    --descriptions[d->Description].References;
+    if (--descriptions[d->Description].References == 0) {
+        unlock_description(&descriptions[d->Description]); /* a description's lock ends with its last descriptor */
+    }
     d->Kind = KindClosed;
 }
 
@@ -599,6 +616,68 @@ long __wit_close(long fd)
 static int shared_name(const unsigned char *name, WitU32 length)
 {
     return length > 8 && memcmp(name, "dev/shm/", 8) == 0;
+}
+
+/* flock (R4.1): a lock of the open file description, shared or exclusive, as Linux's flock: descriptions of the same
+ * file conflict, its duplicates share it, and it ends with the description's last descriptor. -EWOULDBLOCK when another
+ * description holds a conflicting lock; the caller (syscall.c) waits for lock_sequence when LOCK_NB was not asked.
+ * A standard stream is a file of its own; the locks never cross a process. */
+long __wit_flock(long fd, long operation)
+{
+    const long kind = operation & ~(long)LOCK_NB;
+    if (kind != LOCK_SH && kind != LOCK_EX && kind != LOCK_UN) {
+        return -EINVAL;
+    }
+    const Descriptor *d = descriptor(fd);
+    if (!d) {
+        return __wit_stream_of(fd) >= 0 ? 0 : -EBADF;
+    }
+    Description *own = &descriptions[d->Description];
+    if (kind == LOCK_UN) {
+        unlock_description(own);
+        return 0;
+    }
+    for (long i = 0; i < DESCRIPTORS; ++i) {
+        const Descriptor *other = &descriptors[i];
+        if (other->Kind != d->Kind || other->Index != d->Index || other->Description == d->Description) {
+            continue;
+        }
+        const int held = descriptions[other->Description].Lock;
+        if (held == LOCK_EX || (held == LOCK_SH && kind == LOCK_EX)) {
+            return -EWOULDBLOCK;
+        }
+    }
+    if (own->Lock == LOCK_EX && kind == LOCK_SH) {
+        unlock_description(own); /* a conversion lets the waiters in */
+    }
+    own->Lock = (int)kind;
+    return 0;
+}
+
+int __wit_lock_sequence(void)
+{
+    return __atomic_load_n(&lock_sequence, __ATOMIC_ACQUIRE);
+}
+
+volatile int *__wit_lock_sequence_word(void)
+{
+    return &lock_sequence;
+}
+
+/* mkdirat: a name that exists is EEXIST, anything else EROFS, since the package is read-only (R4.1). */
+long __wit_mkdirat(long dirfd, const char *path)
+{
+    unsigned char name[NAME_MAX_BYTES];
+    WitU32 length = 0, index = 0;
+    Kind kind;
+    long status;
+    if ((status = mount()) < 0) {
+        return status;
+    }
+    if ((status = resolve(dirfd, path, name, &length)) < 0) {
+        return status;
+    }
+    return lookup(name, length, &kind, &index) == 0 || shared_name(name, length) ? -EEXIST : -EROFS;
 }
 
 /* memfd_create: an anonymous shared memory file, read and written through its mappings (R3.2b). */
@@ -1159,7 +1238,7 @@ static void duplicate_into(long target, long stream, const Descriptor *source, i
         while (descriptions[description].References) {
             ++description;
         }
-        descriptions[description] = (Description){0, stream == 0 ? O_RDONLY : O_WRONLY, 1};
+        descriptions[description] = (Description){0, stream == 0 ? O_RDONLY : O_WRONLY, 1, 0};
         descriptors[target] = (Descriptor){KindStream, (WitU32)stream, 0, description, close_on_exec};
         return;
     }

@@ -71,6 +71,16 @@ internal static class RuntimeWitos
     public const string CORERUN_ASSEMBLY = "tests/Runtime.Witos/CoreRun/CoreRun.cs";
 
     /// <summary>
+    /// The managed check of System.Native for witos (R4): files, time, the environment and the recorded refusals.
+    /// </summary>
+    public const string SYSTEM_NATIVE_PROGRAM = "tests/Runtime.Witos/SystemNative/SystemNative.cs";
+
+    /// <summary>
+    /// The areas System.Native's check prints a line for (R4).
+    /// </summary>
+    public const int SYSTEM_NATIVE_AREAS = 12;
+
+    /// <summary>
     /// The runs of the acceptance: four cycles of its eight probes (R2.2).
     /// </summary>
     public const int ACCEPTANCE_RUNS = 32;
@@ -137,7 +147,10 @@ internal static class RuntimeWitos
         ["src/coreclr/dlls/mscordac/CMakeLists.txt"] = "src.coreclr.dlls.mscordac.CMakeLists.txt",
         ["src/coreclr/pal/src/thread/process.cpp"] = "src.coreclr.pal.src.thread.process.cpp",
         ["src/coreclr/vm/gcenv.ee.cpp"] = "src.coreclr.vm.gcenv.ee.cpp",
-        ["src/native/external/libunwind.cmake"] = "src.native.external.libunwind.cmake"
+        ["src/native/external/libunwind.cmake"] = "src.native.external.libunwind.cmake",
+        // System.Native's profile for witos (R4.1): cryptography without OpenSSL.
+        ["src/libraries/System.Security.Cryptography/src/System.Security.Cryptography.csproj"] =
+            "src.libraries.System.Security.Cryptography.src.System.Security.Cryptography.csproj"
     };
 
     #endregion
@@ -233,6 +246,19 @@ internal static class RuntimeWitos
                 RequiredLines = [architecture.CoreClrAcceptancePassedLine, architecture.RootTaskPassedLine]
             });
         Console.WriteLine($"CoreCLR for witos-{architecture.Name}: the M3 acceptance passed its {ACCEPTANCE_RUNS} runs in the guest.");
+
+        // System.Native for witos (R4): files of the package, time, the environment, invariant globalization and the
+        // refusals the compatibility contract records, checked from managed code under corerun.
+        var systemNative = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_SYSTEM_NATIVE_SCENARIO,
+            architecture: architecture);
+        await BootScenarioRunner.RunAsync(root, systemNative,
+            new BootRequest($"{architecture.Name}-runtime-system-native-256", 256, 900, ExpectedOutcome.Success)
+            {
+                Architecture = architecture,
+                Suite = BootSuite.Release,
+                RequiredLines = [architecture.SystemNativePassedLine, architecture.RootTaskPassedLine]
+            });
+        Console.WriteLine($"CoreCLR for witos-{architecture.Name}: System.Native's {SYSTEM_NATIVE_AREAS} areas passed in the guest.");
 
         // NativeAOT's runtime pack for the architecture (R2.3b), as upstream packs it: the SDK's targets take it for a
         // publish with PublishAot.
@@ -375,6 +401,26 @@ internal static class RuntimeWitos
         KernelArchitecture architecture) =>
         BuildCoreRunPackageAsync(root, output, architecture, "Acceptance",
             Directory.GetFiles(Path.Combine(root, ACCEPTANCE_PROGRAM), "*.cs").Order(StringComparer.Ordinal).ToArray());
+
+    /// <summary>
+    /// The package of System.Native's check (R4): corerun on tests/Runtime.Witos/SystemNative with the text files the
+    /// libc's own checks read under /test.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Artifact directory of the scenario.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>Package paths and the files to place there.</returns>
+    public static async Task<IReadOnlyList<(string Name, string Source)>> BuildSystemNativePackageAsync(string root, string output,
+        KernelArchitecture architecture)
+    {
+        var files = await BuildCoreRunPackageAsync(root, output, architecture, "SystemNative", [Path.Combine(root, SYSTEM_NATIVE_PROGRAM)]);
+        var test = Path.Combine(output, "test");
+        Directory.CreateDirectory(Path.Combine(test, "dir"));
+        (string Name, string Text)[] texts = [("hello.txt", "Hello, package!\nsecond line\n"), ("dir/a.txt", "a\n"), ("dir/b.txt", "bb\n")];
+        foreach (var (name, text) in texts)
+            await File.WriteAllTextAsync(Path.Combine(test, name), text);
+        return [.. files, .. texts.Select(entry => ($"test/{entry.Name}", Path.Combine(test, entry.Name)))];
+    }
 
     // A corerun package: tests/User/corerun_init.c as /bin/init, naming the program; under /coreclr upstream's corerun,
     // CoreCLR's runtime and JIT, CoreLib, the framework's libraries the program reaches with System.Native, and the program,

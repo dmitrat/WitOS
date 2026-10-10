@@ -130,6 +130,12 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
         $"[M3] CoreCLR on {Triple[..Triple.IndexOf('-')]}: {Runtime.RuntimeWitos.ACCEPTANCE_RUNS} runs passed, 0 failed";
 
     /// <summary>
+    /// The last line of System.Native's check under corerun when every area passed (R4).
+    /// </summary>
+    public string SystemNativePassedLine =>
+        $"[R4] System.Native under CoreCLR on {(this == X64 ? "X64" : "Arm64")}: {Runtime.RuntimeWitos.SYSTEM_NATIVE_AREAS} areas passed, 0 failed";
+
+    /// <summary>
     /// The line the managed program under corerun prints (R3.2): RuntimeInformation.OSArchitecture names the ISA.
     /// </summary>
     public string CoreRunLine => $"[CORERUN] managed Main through the JIT on {(this == X64 ? "X64" : "Arm64")}";

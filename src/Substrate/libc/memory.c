@@ -18,9 +18,9 @@
  * plain part is released from its reservation (the kernel splits it), a package mapping that is only partly covered
  * is mapped again around the range; munmap of any range does the same, and mprotect changes every mapping the range
  * touches. A shared mapping of a shared memory file (shared.c, R3.2b) is made of mappings of its chunk objects, one
- * per chunk it covers, at consecutive addresses; every mapping of the same offsets shows the same pages, and mprotect
- * splits a chunk's mapping where its range ends, so that each mapping has one protection and an unmapping that leaves
- * part of one maps that part again as it was. Shared writable mappings of the package and files other than the
+ * per chunk it covers, at consecutive addresses; every mapping of the same offsets shows the same pages, the library
+ * keeps each page's protection (mprotect changes pages within a mapping, as CoreCLR commits its executable memory page
+ * by page, R4.1), and an unmapping that leaves part of one maps that part again with its pages' protections. Shared writable mappings of the package and files other than the
  * package's, /dev/zero and shared memory files are not here. The table lock of __wit_syscall serializes every call. */
 
 #define PAGE 4096UL
@@ -36,9 +36,10 @@ typedef enum MapKind {
 typedef struct Mapping {
     WitU64 Base, Size;
     WitU64 Source; /* a package mapping: the package offset that Base shows; a shared one: the file's offset */
-    WitU64 Protection; /* a package mapping: the kernel protection it was mapped with; a shared one: its protection */
+    WitU64 Protection; /* a package mapping: the kernel protection it was mapped with */
     MapKind Kind;
     WitU32 File; /* a shared mapping: the shared memory file, which the mapping holds a reference of */
+    WitU64 Pages[2]; /* a shared mapping: two bits per page of the chunk, its protection (see page_code) */
 } Mapping;
 
 static Mapping mappings[MAPPINGS];
@@ -76,8 +77,34 @@ static long track(WitU64 base, WitU64 size, MapKind kind, WitU64 source, WitU64 
     if (count == MAPPINGS) {
         return -ENOMEM;
     }
-    mappings[count++] = (Mapping){base, size, source, protection, kind, 0};
+    mappings[count++] = (Mapping){base, size, source, protection, kind, 0, {0, 0}};
     return 0;
+}
+
+/* A shared mapping's pages keep their protections in two bits each: NONE, READ, READ|WRITE, READ|EXECUTE. */
+static unsigned page_code(WitU64 protection)
+{
+    return (protection & WIT_MEMORY_EXECUTE) ? 3U
+        : (protection & WIT_MEMORY_WRITE)    ? 2U
+        : (protection & WIT_MEMORY_READ)     ? 1U
+                                             : 0U;
+}
+
+static WitU64 code_protection(unsigned code)
+{
+    static const WitU64 protections[4] = {
+        WIT_MEMORY_NONE, WIT_MEMORY_READ, WIT_MEMORY_READ | WIT_MEMORY_WRITE, WIT_MEMORY_READ | WIT_MEMORY_EXECUTE};
+    return protections[code & 3U];
+}
+
+static unsigned page_get(const Mapping *m, WitU64 page)
+{
+    return (unsigned)(m->Pages[page / 32] >> (2 * (page % 32))) & 3U;
+}
+
+static void page_set(Mapping *m, WitU64 page, unsigned code)
+{
+    m->Pages[page / 32] = (m->Pages[page / 32] & ~(3ULL << (2 * (page % 32)))) | ((WitU64)code << (2 * (page % 32)));
 }
 
 static void untrack(unsigned i)
@@ -152,7 +179,39 @@ static long map_chunk(WitU32 file, WitU64 offset, WitU64 address, WitU64 size, W
         return -ENOMEM;
     }
     mappings[count - 1].File = file;
+    for (WitU64 page = 0; page < size / PAGE; ++page) {
+        page_set(&mappings[count - 1], page, page_code(protection));
+    }
     __wit_shared_reference(file);
+    return 0;
+}
+
+/* The part of a shared chunk mapping that remains after an unmapping, mapped again with the protections its pages had:
+ * mapped without access, then given each run of equal protections. */
+static long remap_chunk(const Mapping *old, WitU64 low, WitU64 high)
+{
+    long status = map_chunk(old->File, old->Source + (low - old->Base), low, high - low, WIT_MEMORY_NONE);
+    if (status < 0) {
+        return status;
+    }
+    Mapping *m = &mappings[count - 1];
+    WitU64 result = 0;
+    for (WitU64 page = 0; page < (high - low) / PAGE;) {
+        const unsigned code = page_get(old, (low - old->Base) / PAGE + page);
+        WitU64 run = 1;
+        while (page + run < (high - low) / PAGE && page_get(old, (low - old->Base) / PAGE + page + run) == code) {
+            ++run;
+        }
+        if (code &&
+            wit_syscall(WIT_CALL_MEMORY_PROTECT, low + page * PAGE, run * PAGE, code_protection(code), &result) !=
+                WIT_STATUS_OK) {
+            return -ENOMEM;
+        }
+        for (WitU64 i = 0; i < run; ++i) {
+            page_set(m, page + i, code);
+        }
+        page += run;
+    }
     return 0;
 }
 
@@ -181,15 +240,15 @@ static long remove_range(WitU64 start, WitU64 size)
         }
         const WitU64 low = m.Base > start ? m.Base : start, high = m_end < end ? m_end : end;
         if (m.Kind == MapShared) {
-            /* A shared chunk mapping partly covered: it goes whole, and its uncovered sides are mapped again with its
-             * one protection, holding the file while they are. */
+            /* A shared chunk mapping partly covered: it goes whole, and its uncovered sides are mapped again with their
+             * pages' protections, holding the file while they are. */
             __wit_shared_reference(m.File);
             long status = unmap_shared(i);
             if (status == 0 && low > m.Base) {
-                status = map_chunk(m.File, m.Source, m.Base, low - m.Base, m.Protection);
+                status = remap_chunk(&m, m.Base, low);
             }
             if (status == 0 && high < m_end) {
-                status = map_chunk(m.File, m.Source + (high - m.Base), high, m_end - high, m.Protection);
+                status = remap_chunk(&m, high, m_end);
             }
             __wit_shared_release(m.File);
             if (status < 0) {
@@ -359,29 +418,6 @@ static long map_shared_file(WitU64 address, WitU64 size, WitU64 protection, WitU
     return (long)base;
 }
 
-/* mprotect's range ends inside no shared chunk mapping afterwards: one that crosses an end is mapped again as two
- * with its protection, so that a mapping in the range changes whole (R3.2b). */
-static long split_shared(WitU64 edge)
-{
-    for (unsigned i = 0; i < count; ++i) {
-        const Mapping m = mappings[i];
-        if (m.Kind != MapShared || edge <= m.Base || edge >= m.Base + m.Size) {
-            continue;
-        }
-        __wit_shared_reference(m.File);
-        long status = unmap_shared(i);
-        if (status == 0) {
-            status = map_chunk(m.File, m.Source, m.Base, edge - m.Base, m.Protection);
-        }
-        if (status == 0) {
-            status = map_chunk(m.File, m.Source + (edge - m.Base), edge, m.Base + m.Size - edge, m.Protection);
-        }
-        __wit_shared_release(m.File);
-        return status;
-    }
-    return 0;
-}
-
 long __wit_mmap(long address, long length, long protection, long flags, long fd, long offset)
 {
     WitU64 kernel_protection;
@@ -502,9 +538,6 @@ long __wit_mprotect(long address, long length, long protection)
     if ((kernel_protection & WIT_MEMORY_WRITE) && (converted = privatize(start, end)) < 0) {
         return converted;
     }
-    if ((converted = split_shared(start)) < 0 || (converted = split_shared(end)) < 0) {
-        return converted;
-    }
     int touched = 0;
     for (unsigned i = 0; i < count; ++i) {
         Mapping *m = &mappings[i];
@@ -527,7 +560,9 @@ long __wit_mprotect(long address, long length, long protection)
                                                       : (status == WIT_STATUS_DENIED ? -EACCES : __wit_errno(status));
         }
         if (m->Kind == MapShared) {
-            m->Protection = kernel_protection; /* whole, since split_shared cut it at the range's ends */
+            for (WitU64 page = (low - m->Base) / PAGE; page < (high - m->Base) / PAGE; ++page) {
+                page_set(m, page, page_code(kernel_protection));
+            }
         }
         touched = 1;
     }

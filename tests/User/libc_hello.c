@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/random.h>
@@ -406,6 +407,37 @@ int main(void)
     check(stat("/test/dir/", &st) == 0 && S_ISDIR(st.st_mode), "stat of a directory with a trailing slash");
     check(stat("/test/nothing", &st) == -1 && errno == ENOENT, "stat of a missing file");
     check(open("/test/hello.txt", O_WRONLY) == -1 && errno == EROFS, "the package is read-only");
+    /* R4.1: lstat sees what stat sees, since the package has no symbolic links; mkdir is EEXIST for a name and EROFS
+     * otherwise; flock locks an open file description as Linux does. */
+    struct stat link_stat;
+    check(lstat("/test/hello.txt", &link_stat) == 0 &&
+            S_ISREG(link_stat.st_mode) &&
+            link_stat.st_size == 28 &&
+            lstat("/test/none", &link_stat) == -1 &&
+            errno == ENOENT,
+        "lstat of the package");
+    check(mkdir("/test/dir", 0755) == -1 && errno == EEXIST && mkdir("/test/new", 0755) == -1 && errno == EROFS,
+        "mkdir: EEXIST and EROFS");
+    const int locked = open("/test/hello.txt", O_RDONLY), locking = open("/test/hello.txt", O_RDONLY);
+    const int shared_copy = dup(locked);
+    check(locked >= 0 &&
+            locking >= 0 &&
+            shared_copy >= 0 &&
+            flock(locked, LOCK_SH | LOCK_NB) == 0 &&
+            flock(locking, LOCK_SH | LOCK_NB) == 0 &&
+            flock(locking, LOCK_EX | LOCK_NB) == -1 &&
+            errno == EWOULDBLOCK &&
+            flock(shared_copy, LOCK_UN) == 0 &&
+            flock(locking, LOCK_EX | LOCK_NB) == 0 &&
+            flock(locked, LOCK_SH | LOCK_NB) == -1 &&
+            errno == EWOULDBLOCK &&
+            close(locking) == 0 &&
+            flock(locked, LOCK_EX | LOCK_NB) == 0 &&
+            flock(locked, 7) == -1 &&
+            errno == EINVAL &&
+            close(shared_copy) == 0 &&
+            close(locked) == 0,
+        "flock: shared and exclusive locks of open file descriptions");
     check(open("/test/new.txt", O_WRONLY | O_CREAT, 0644) == -1 && errno == EROFS, "no file is created");
     check(open("/test/hello.txt", O_RDONLY | O_DIRECTORY) == -1 && errno == ENOTDIR, "a file is not a directory");
     int directory = open("/test/dir", O_RDONLY);
@@ -879,7 +911,8 @@ int main(void)
     /* Thread-local storage of the main thread, the terminal check and the system name. */
     thread_local_value += 1;
     check(thread_local_value == 42, "thread-local variable");
-    check(isatty(1) == 1 && isatty(7) == 0, "standard output is the log terminal");
+    check(isatty(1) == 1 && isatty(2) == 1 && isatty(0) == 0 && isatty(7) == 0,
+        "standard output and error are the log terminal, standard input is none");
     check(uname(&name) == 0 && strcmp(name.sysname, "WitOS") == 0 && strcmp(name.machine, ISA_NAME) == 0, "uname");
     fprintf(stderr, "[LIBC] standard error reaches the log too\n");
     return failures ? 1 : 0;

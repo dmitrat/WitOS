@@ -1,0 +1,31 @@
+Source: src/libraries/System.Security.Cryptography/src/System.Security.Cryptography.csproj
+Output: src.libraries.System.Security.Cryptography.src.System.Security.Cryptography.csproj
+Before: c19093d9923e5d153a62550fe9b4f0319899b6d77ab40b1eeb47f59c0fc0144c
+After: 58b12bce7410b4144ae5084fdbb66d31a3504ba9e92c7774d26310ebc826def2
+
+Cryptography for witos (plan step R4.1, RFC 0015 section 8): the system layer has no OpenSSL, so the unix flavour built
+for TargetOS=witos takes the set the browser builds instead of the OpenSSL one: System.Native's random bytes, the
+managed SHA hashes, HMAC, HKDF, PBKDF2 and SP 800-108, and PlatformNotSupportedException for every other algorithm and
+for X.509, until a provider is decided with the storage of keys and the network.
+
+--- a/src/libraries/System.Security.Cryptography/src/System.Security.Cryptography.csproj
++++ b/src/libraries/System.Security.Cryptography/src/System.Security.Cryptography.csproj
+@@ -17,7 +17,8 @@
+     <GeneratePlatformNotSupportedAssemblyMessage Condition="'$(TargetPlatformIdentifier)' == ''">SR.SystemSecurityCryptography_PlatformNotSupported</GeneratePlatformNotSupportedAssemblyMessage>
+     <UseAndroidCrypto Condition="'$(TargetPlatformIdentifier)' == 'android'">true</UseAndroidCrypto>
+     <UseAppleCrypto Condition="'$(TargetPlatformIdentifier)' == 'osx' or '$(TargetPlatformIdentifier)' == 'ios' or '$(TargetPlatformIdentifier)' == 'tvos'">true</UseAppleCrypto>
+-    <UseOpenSsl Condition="'$(TargetPlatformIdentifier)' == 'unix'">true</UseOpenSsl>
++    <UseManagedCrypto Condition="'$(TargetPlatformIdentifier)' == 'browser' or ('$(TargetPlatformIdentifier)' == 'unix' and '$(TargetOS)' == 'witos')">true</UseManagedCrypto>
++    <UseOpenSsl Condition="'$(TargetPlatformIdentifier)' == 'unix' and '$(TargetOS)' != 'witos'">true</UseOpenSsl>
+     <DefineConstants Condition="'$(Configuration)' == 'Debug'">$(DefineConstants);DESIGNTIMEINTERFACES</DefineConstants>
+   </PropertyGroup>
+ 
+@@ -822,7 +823,7 @@
+     </Compile>
+   </ItemGroup>
+ 
+-  <ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'browser'">
++  <ItemGroup Condition="'$(UseManagedCrypto)' == 'true'">
+     <!-- GetRandomBytes is identical on Unix and Browser -->
+     <Compile Include="$(CommonPath)Interop\Unix\System.Native\Interop.GetRandomBytes.cs"
+              Link="Common\Interop\Unix\System.Native\Interop.GetRandomBytes.cs" />

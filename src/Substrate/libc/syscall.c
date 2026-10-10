@@ -5,6 +5,7 @@
 #include <limits.h>
 #include <poll.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/ioctl.h>
 #include <sys/membarrier.h>
 #include <sys/stat.h>
@@ -15,8 +16,8 @@
 
 /* The dispatch of Linux system calls over ABI-1 (plan step S1.1): what musl asks for, by number, becomes the
  * kernel's calls or an honest -ENOSYS. The standard descriptors are the kernel log: writes to 1 and 2 go through
- * DEBUG_WRITE on the process's log handle, reads from 0 end the input, and TIOCGWINSZ succeeds so that
- * musl line-buffers standard output and every line reaches the log whole. Files (S1.2, files.c), threads (S2,
+ * DEBUG_WRITE on the process's log handle, reads from 0 end the input, and TIOCGWINSZ succeeds on an output stream so
+ * that musl line-buffers standard output and every line reaches the log whole (standard input is no terminal). Files (S1.2, files.c), threads (S2,
  * thread.c, futex.c) and signals (S3, signal.c) have their own files; what none of them serves returns -ENOSYS and
  * nothing pretends to have succeeded. */
 
@@ -147,7 +148,9 @@ static long terminal_ioctl(long fd, long request, void *argument)
         }
         return __wit_fcntl(fd, F_GETFD, 0) < 0 ? -EBADF : -ENOTTY;
     }
-    if (request == TIOCGWINSZ) {
+    /* An output stream is the log's terminal, so that musl line-buffers it; standard input is none, since its reads end
+     * at once (isatty is TIOCGWINSZ in musl, and .NET reads a terminal until a key comes, R4.1). */
+    if (request == TIOCGWINSZ && __wit_stream_of(fd) != 0) {
         struct winsize *size = argument;
         size->ws_row = 25;
         size->ws_col = 80;
@@ -344,6 +347,7 @@ static int uses_tables(long n)
     case SYS_tgkill:
     case SYS_kill:
     case SYS_ppoll:
+    case SYS_flock:
 #if defined(SYS_poll)
     case SYS_poll:
 #endif
@@ -470,6 +474,25 @@ static long poll_descriptors(struct pollfd *fds, unsigned long count, const stru
     }
 }
 
+/* flock (R4.1): the lock under the table lock; when another description holds a conflicting one and LOCK_NB was not
+ * asked, a park until a lock goes, the sequence read before the attempt, then the attempt again. */
+static long flock_descriptor(long fd, long operation)
+{
+    for (;;) {
+        const int seen = __wit_lock_sequence();
+        __wit_lock(&tables);
+        const long r = __wit_flock(fd, operation);
+        __wit_unlock(&tables);
+        if (r != -EWOULDBLOCK || (operation & LOCK_NB)) {
+            return r;
+        }
+        const long waited = __wit_futex_wait_until(__wit_lock_sequence_word(), seen, WIT_WAIT_INFINITE);
+        if (waited == -EINTR) {
+            return -EINTR;
+        }
+    }
+}
+
 /* The stack of an exiting detached thread leaves the mapping table under the table lock (__unmapself). */
 void __wit_mapping_forget_locked(WitU64 base)
 {
@@ -565,6 +588,18 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
         return __wit_pipe2((int *)a1, a2);
     case SYS_memfd_create:
         return __wit_memfd_create((const char *)a1, a2);
+    case SYS_flock:
+        return flock_descriptor(a1, a2);
+    case SYS_mkdirat:
+        return __wit_mkdirat(a1, (const char *)a2);
+#if defined(SYS_mkdir)
+    case SYS_mkdir:
+        return __wit_mkdirat(AT_FDCWD, (const char *)a1);
+#endif
+#if defined(SYS_lstat)
+    case SYS_lstat: /* the package has no symbolic links */
+        return __wit_fstatat(AT_FDCWD, (const char *)a1, (struct kstat *)a2, AT_SYMLINK_NOFOLLOW);
+#endif
     case SYS_ftruncate:
         return __wit_ftruncate(a1, a2);
     case SYS_unlinkat:
