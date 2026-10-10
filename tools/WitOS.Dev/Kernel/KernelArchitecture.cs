@@ -42,7 +42,7 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     public static readonly KernelArchitecture Arm64 = new("arm64", "arm64", Machine.Arm64, "BOOTAA64.EFI",
         "qemu-system-aarch64", "virt,gic-version=3,acpi=off", ["-semihosting-config", "enable=on,target=native"], [],
         "edk2-aarch64-code.fd", "edk2-arm-vars.fd", "cortex-a72", "aarch64-unknown-linux-musl", 183,
-        ["-ffixed-x18"], // x18 was the kernel's compiler TLS register until K8.4b; layer 2 frees it with the runtime at K8.4d
+        [], // x18 is an ordinary register of layer 2 since R3.3: the kernel stopped resetting it at K8.4b
         "aarch64-unknown-windows");
 
     #endregion
@@ -122,6 +122,12 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     /// </summary>
     public string AcceptancePassedLine =>
         $"[M3] NativeAOT on {Triple[..Triple.IndexOf('-')]}: {Runtime.RuntimeWitos.ACCEPTANCE_RUNS} runs passed, 0 failed";
+
+    /// <summary>
+    /// The last line of CoreCLR's M3 acceptance under corerun when every run passed (R3.3).
+    /// </summary>
+    public string CoreClrAcceptancePassedLine =>
+        $"[M3] CoreCLR on {Triple[..Triple.IndexOf('-')]}: {Runtime.RuntimeWitos.ACCEPTANCE_RUNS} runs passed, 0 failed";
 
     /// <summary>
     /// The line the managed program under corerun prints (R3.2): RuntimeInformation.OSArchitecture names the ISA.
