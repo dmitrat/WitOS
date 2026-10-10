@@ -6,10 +6,6 @@ void wit_user_exception_clear(WitUserThread *thread)
     for (WitU32 i = 0; i < sizeof(thread->Exception); ++i) {
         ((WitU8 *)&thread->Exception)[i] = 0;
     }
-    for (WitU32 i = 0; i < sizeof(thread->ExceptionParents); ++i) {
-        ((WitU8 *)thread->ExceptionParents)[i] = 0;
-    }
-    thread->ExceptionDepth = 0;
 }
 
 void wit_user_exception_initialize(WitUserProcess *p)
@@ -55,8 +51,8 @@ WitU64 wit_user_exception_query(WitUserProcess *p, WitU64 token, WitU64 output, 
                                                                                    : WIT_STATUS_BAD_ADDRESS;
 }
 
-/* CONTINUE: resumes the validated context of the current delivery and retires the record together with the
- * abandoned ancestors through RetireThroughToken (the current token retires the current record alone). */
+/* CONTINUE: resumes the validated context of the current delivery and retires its record, which
+ * RetireThroughToken names. */
 WitU64 wit_user_exception_continue(WitUserProcess *p, WitU64 token, WitU64 input, WitU64 size)
 {
     WitUserThread *t = &p->Threads[p->CurrentThread];
@@ -66,11 +62,7 @@ WitU64 wit_user_exception_continue(WitUserProcess *p, WitU64 token, WitU64 input
     if (!token || t->Exception.Token != token) {
         return WIT_STATUS_BAD_HANDLE;
     }
-    if (t->State != WitThreadRunning ||
-        t->SuspendCount ||
-        t->WaitKind != WitWaitNone ||
-        wit_user_stack_leased(p, t->Handle, 0) ||
-        wit_user_stack_leases_owned(p, t->Handle)) {
+    if (t->State != WitThreadRunning || t->SuspendCount || t->WaitKind != WitWaitNone) {
         return WIT_STATUS_BUSY;
     }
     if (!wit_arch_context_supported()) {
@@ -86,80 +78,17 @@ WitU64 wit_user_exception_continue(WitUserProcess *p, WitU64 token, WitU64 input
     if (request.Size != sizeof(request)) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
-    WitU32 retire = t->ExceptionDepth;
     if (request.RetireThroughToken != token) {
-        for (retire = 0; retire < t->ExceptionDepth; ++retire) {
-            if (t->ExceptionParents[retire].Token == request.RetireThroughToken) {
-                break;
-            }
-        }
-        if (retire == t->ExceptionDepth) {
-            return WIT_STATUS_BAD_HANDLE;
-        }
+        return WIT_STATUS_BAD_HANDLE;
     }
     const WitU64 status = wit_user_context_validate(p, t, &request.Context, 1);
     if (status != WIT_STATUS_OK) {
         return status;
     }
-    /* IF is clear: commit registers and retire exactly the selected suffix only
-     * after validating the full copied request and current-thread token chain. */
+    /* IF is clear: commit the registers and retire the record only after validating the whole copied request. */
     wit_arch_context_apply(t->Context, &request.Context);
     ++p->ExceptionContinuations;
-    if (!retire) {
-        wit_user_exception_clear(t);
-    } else {
-        t->Exception = t->ExceptionParents[retire - 1];
-        for (WitU32 i = retire - 1; i < t->ExceptionDepth; ++i) {
-            for (WitU32 j = 0; j < sizeof(t->ExceptionParents[i]); ++j) {
-                ((WitU8 *)&t->ExceptionParents[i])[j] = 0;
-            }
-        }
-        t->ExceptionDepth = retire - 1;
-    }
-    return WIT_STATUS_OK;
-}
-
-WitU64 wit_user_exception_begin(WitUserProcess *p, WitU64 input, WitU64 size, WitU64 code, WitU64 *result)
-{
-    *result = 0;
-    WitUserThread *t = &p->Threads[p->CurrentThread];
-    if (size != sizeof(WitThreadContext) || code > 0xFFFFFFFFULL) {
-        return WIT_STATUS_INVALID_ARGUMENT;
-    }
-    if (t->State != WitThreadRunning ||
-        t->SuspendCount ||
-        t->WaitKind != WitWaitNone ||
-        wit_user_stack_leases_owned(p, t->Handle)) {
-        return WIT_STATUS_BUSY;
-    }
-    if (!next_exception_token || t->ExceptionDepth + (t->Exception.Token ? 1U : 0U) >= WIT_EXCEPTION_MAX_DEPTH) {
-        return WIT_STATUS_NO_MEMORY;
-    }
-    if (!wit_arch_context_supported()) {
-        return WIT_STATUS_UNSUPPORTED;
-    }
-    WitThreadContext context;
-    if (!wit_user_copy_from(&p->Space, input, (WitU8 *)&context, sizeof(context))) {
-        return WIT_STATUS_BAD_ADDRESS;
-    }
-    const WitU64 status = wit_user_context_validate(p, t, &context, 1);
-    if (status != WIT_STATUS_OK) {
-        return status;
-    }
-    WitUserExceptionInfo info = {0};
-    info.Version = WIT_EXCEPTION_VERSION;
-    info.Size = sizeof(info);
-    info.Token = next_exception_token++;
-    info.Vector = WIT_EXCEPTION_SOFTWARE_VECTOR;
-    info.Error = code;
-    wit_arch_exception_record_software(&info, &context);
-    info.Context = context;
-    info.Context.Flags |= WIT_THREAD_CONTEXT_EXCEPTION_ACTIVE;
-    if (t->Exception.Token) {
-        t->ExceptionParents[t->ExceptionDepth++] = t->Exception;
-    }
-    t->Exception = info;
-    *result = info.Token;
+    wit_user_exception_clear(t);
     return WIT_STATUS_OK;
 }
 

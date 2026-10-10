@@ -12,7 +12,8 @@
 /* Files over the read-only boot package (RFC 0011 section 9.3, plan step S1.2). The package is the root task's
  * initial capability: a memory object the kernel never parses for it, in the format of witos/package.h — a header,
  * a sorted table of entries (name offset and length, data offset and length), the names, then the data. The
- * library maps the header and the table once, read-only, and validates them as the kernel's loader does; a read
+ * library maps the header and the table once, read-only, and validates them, since the kernel never parses them
+ * (K8.4a); a read
  * maps the window of the bytes it needs, copies and releases it, so a file of any size is readable through a
  * mapping of at most 64 pages. The namespace is the package's: "/" is its root, a name is a file, a prefix of a name
  * up to '/' is a directory, "/dev/null" and "/dev/zero" are the devices, and "/dev/urandom" and "/dev/random" read the
@@ -138,7 +139,7 @@ static int compare(const unsigned char *a, WitU32 a_length, const unsigned char 
     return a_length < b_length ? -1 : (a_length > b_length ? 1 : 0);
 }
 
-/* Maps and validates the header and the table (the kernel's rules: magic, version, sizes, count, names within the
+/* Maps and validates the header and the table (the format's rules: magic, version, sizes, count, names within the
  * window, sorted and valid); a package that fails is reported as an unreadable volume. */
 static long mount(void)
 {

@@ -1,22 +1,12 @@
 {
   "name": "kernel-common",
-  "description": "Architecture-independent kernel objects and user-mode policy: handles, events, channels, memory objects, devices, interrupts, DMA pins, the root task, files, PE validation, processes, threads, waits and libraries.",
+  "description": "Architecture-independent kernel objects and their calls: handles, events, channels, memory objects, devices, interrupts, DMA pins, the root task, processes, threads, waits, faults and activations.",
   "includes": [],
   "sources": [
-    "src/Kernel/files.c",
-    "src/Kernel/user_files.c",
-    "src/Kernel/user_process_state.c",
-    "src/Kernel/user_library.c",
-    "src/Kernel/user_library_readers.c",
-    "src/Kernel/user_library_tls.c",
-    "src/Kernel/user_library_lifecycle.c",
-    "src/Kernel/user_code.c",
     "src/Kernel/virtual_gap.c",
     "src/Kernel/user_exception.c",
-    "src/Kernel/user_stack_lease.c",
     "src/Kernel/user_suspend.c",
     "src/Kernel/user_thread_context.c",
-    "src/Kernel/user_thread_name.c",
     "src/Kernel/user_console.c",
     "src/Kernel/user_activation.c",
     "src/Kernel/user_objects.c",
@@ -41,11 +31,7 @@
     "src/Kernel/user_interrupt.c",
     "src/Kernel/user_dma.c",
     "src/Kernel/user_wait.c",
-    "src/Kernel/user_pressure.c",
-    "src/Kernel/pe.c",
-    "src/Kernel/pe_imports.c",
-    "src/Kernel/pe_exports.c",
-    "src/Kernel/user_image.c"
+    "src/Kernel/user_pressure.c"
   ],
   "assembly": []
 }

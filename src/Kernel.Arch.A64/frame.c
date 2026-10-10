@@ -348,12 +348,6 @@ void wit_arch_exception_record(WitUserExceptionInfo *info, const WitArchFrame *f
     info->RawState = frame->Spsr;
 }
 
-void wit_arch_exception_record_software(WitUserExceptionInfo *info, const WitThreadContext *context)
-{
-    info->Address = context->Pc;
-    info->RawState = context->Pstate;
-}
-
 void wit_arch_fault_from_frame(WitArchFaultState *state, const WitArchFrame *frame)
 {
     state->Elr = frame->Elr;

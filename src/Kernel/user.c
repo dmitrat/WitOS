@@ -1,8 +1,6 @@
 #include "user.h"
 #include "root_task.h"
-#include "witos/package.h"
 #include "witos/platform.h"
-#include "witos/storage.h"
 #include "witos/virtual.h"
 
 #define NO_THREAD WIT_PROCESS_THREAD_CAPACITY
@@ -33,10 +31,7 @@ static void release_references(WitUserProcess *p)
     wit_user_memory_objects_release_handles(p);
     wit_user_process_handles_release(p);
     wit_handles_close_all(&p->Handles);
-    wit_files_initialize(&p->Files);
-    wit_user_library_initialize(p);
     wit_user_references_initialize(p);
-    wit_user_stack_leases_initialize(p);
     wit_user_exception_initialize(p);
     wit_events_initialize(&p->Events);
 }
@@ -44,12 +39,6 @@ static void release_references(WitUserProcess *p)
 /* A component ended: its state and exit code are recorded, every thread is over and its references are released. */
 static void settle(WitUserProcess *p, WitUserState state, WitU64 code)
 {
-    if (p->FatalArmed) {
-        state = WitUserExited;
-        code = p->Fatal.Code;
-    }
-    p->FatalArmed = 0;
-    p->FatalOwner = 0;
     p->State = state;
     p->ExitCode = code;
     for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
@@ -59,7 +48,6 @@ static void settle(WitUserProcess *p, WitUserState state, WitU64 code)
             wit_user_references_exit(p->Threads[i].Handle, code);
         }
         p->Threads[i].SuspendCount = 0;
-        wit_user_thread_name_clear(&p->Threads[i]);
         p->Threads[i].WaitKind = WitWaitNone;
         p->Threads[i].WaitHandle = 0;
         p->Threads[i].WaitCount = 0;
@@ -80,19 +68,14 @@ static void teardown(WitUserProcess *process)
     wit_user_memory_objects_release_mappings(process);
     wit_memory_objects_orphan(process);
     wit_channels_orphan(process);
-    wit_user_process_state_reset(process);
     wit_user_space_destroy(&process->Space);
     for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         process->Threads[i].State = WitThreadEmpty;
         process->Threads[i].SuspendCount = 0;
-        wit_user_thread_name_clear(&process->Threads[i]);
     }
     process->ImageBase = 0;
     process->ImageEntry = 0;
     process->ImageSize = 0;
-    process->ImageNameBytes = 0;
-    process->ImageNameOffset = 0;
-    process->TlsBytes = 0;
 }
 
 static void unregister(WitUserProcess *process)
@@ -183,7 +166,6 @@ static void reap(WitU32 index)
 {
     WitUserThread *thread = &current_user->Threads[index];
     require(thread->State == WitThreadExited, "Reaping live thread");
-    require(!wit_user_stack_leased(current_user, thread->Handle, 0), "Reaping leased stack");
     if (thread->OwnsStack) {
         for (WitU64 p = thread->StackBottom; p < thread->StackTop; p += 4096) {
             require(wit_user_space_unmap_fixed(&current_user->Space, p), "Thread stack ownership lost");
@@ -196,28 +178,11 @@ static void reap(WitU32 index)
             "Exit reservation vanished before its release");
         thread->ExitReservation = 0;
     }
-    for (WitU32 n = 0; n < 2; ++n) {
-        if (thread->LibraryNotificationHandles[n]) {
-            require(wit_handle_close(&current_user->Handles, thread->LibraryNotificationHandles[n]) == WIT_STATUS_OK,
-                "Thread notification handle lost");
-            thread->LibraryNotificationHandles[n] = 0;
-        }
-    }
-    if (thread->LibraryNotificationPage) {
-        require(wit_user_space_unmap_fixed(&current_user->Space, thread->LibraryNotificationPage),
-            "Thread notification page lost");
-        thread->LibraryNotificationPage = 0;
-    }
-    wit_user_library_tls_reap_thread(current_user, index);
-    if (thread->CompilerTls) {
-        require(wit_user_space_unmap_fixed(&current_user->Space, thread->CompilerTls), "Compiler TLS ownership lost");
-    }
     thread->CompilerTls = 0;
     require(wit_handle_close(&current_user->Handles, thread->Handle) == WIT_STATUS_OK, "Thread handle lost");
     thread->Handle = 0;
     thread->NativeId = 0;
     thread->SuspendCount = 0;
-    wit_user_thread_name_clear(thread);
     thread->State = WitThreadEmpty;
     ++current_user->ThreadReaps;
 }
@@ -313,9 +278,6 @@ WitArchFrame *wit_user_exit_thread(WitU64 code, WitU64 reservation, WitU64 clear
     thread->ExitClear = clear;
     thread->ExitEvent = event;
     wit_user_exception_clear(thread);
-    wit_user_stack_leases_exit(current_user, thread->Handle);
-    require(!wit_user_stack_leased(current_user, thread->Handle, 0), "Exiting foreign-leased stack");
-    wit_user_thread_name_clear(thread);
     thread->State = WitThreadExited;
     thread->ExitCode = code;
     thread->WaitAll = 0;
@@ -344,15 +306,6 @@ WitArchFrame *wit_user_exit_thread(WitU64 code, WitU64 reservation, WitU64 clear
 
 WitU64 wit_user_close_handle(WitU64 handle)
 {
-    if (wit_handle_check(&current_user->Handles, handle, WIT_HANDLE_LIBRARY, 0) == WIT_STATUS_OK ||
-        wit_handle_check(&current_user->Handles, handle, WIT_HANDLE_LIBRARY_READER, 0) == WIT_STATUS_OK ||
-        wit_handle_check(&current_user->Handles, handle, WIT_HANDLE_LIBRARY_LIFECYCLE, 0) == WIT_STATUS_OK) {
-        return WIT_STATUS_WRONG_TYPE;
-    }
-    const WitU64 file = wit_file_close(&current_user->Files, &current_user->Handles, handle);
-    if (file != WIT_STATUS_WRONG_TYPE) {
-        return file;
-    }
     const WitU64 reference = wit_user_reference_close(current_user, handle);
     if (reference != WIT_STATUS_WRONG_TYPE) {
         return reference;
@@ -449,35 +402,21 @@ static void reset_counters(WitUserProcess *process)
     process->IdleTicks = 0;
 }
 
-/* Gives a fresh component its identity, profile, image placement and empty threads, objects and handles. */
-static void reset_process(WitUserProcess *process, WitU32 slot, WitU32 code_size, const WitPeImage *image, WitU64 base)
+/* Gives a fresh component its identity, quotas, image placement and empty threads, objects and handles. */
+static void reset_process(WitUserProcess *process, WitU32 slot, WitU32 code_size)
 {
-    const int runtime = image && (image->Profile & WIT_PE_RUNTIME_FULL);
-    wit_files_initialize(&process->Files);
-    wit_user_library_initialize(process);
-    wit_user_process_state_reset(process);
     process->Id = next_id++;
     process->Slot = slot;
     process->State = WitUserEmpty;
-    process->FatalArmed = 0;
-    process->FatalOwner = 0;
-    for (WitU32 i = 0; i < sizeof(process->Fatal); ++i) {
-        ((WitU8 *)&process->Fatal)[i] = 0;
-    }
     reset_counters(process);
-    process->RuntimeProfile = runtime;
-    process->AbruptThreadId = 0;
-    process->AbruptThreadCode = 0;
     process->Ticks = 0;
-    process->TickLimit = runtime ? WIT_RUNTIME_TICK_BUDGET : WIT_USER_TICK_BUDGET;
+    process->TickLimit = WIT_USER_TICK_BUDGET;
     process->ObjectLimit = WIT_MEMORY_OBJECT_CAPACITY;
     process->ThreadLimit = WIT_USER_THREAD_CAPACITY;
     process->ExitCode = 0;
-    process->ImageBase = image ? base : WIT_USER_CODE;
-    process->ImageEntry = image ? base + image->EntryRva : WIT_USER_CODE;
-    process->ImageSize = image ? image->ImageSize : code_size;
-    process->ImageNameBytes = 0;
-    process->ImageNameOffset = 0;
+    process->ImageBase = WIT_USER_CODE;
+    process->ImageEntry = WIT_USER_CODE;
+    process->ImageSize = code_size;
     process->FaultVector = 0;
     process->FaultError = 0;
     process->FaultAddress = 0;
@@ -499,37 +438,24 @@ static void reset_process(WitUserProcess *process, WitU32 slot, WitU32 code_size
     for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         process->Threads[i].State = WitThreadEmpty;
         process->Threads[i].SuspendCount = 0;
-        wit_user_thread_name_clear(&process->Threads[i]);
     }
     wit_handles_initialize(&process->Handles, process->Id);
-    if (runtime) {
-        process->Handles.Limit = WIT_RUNTIME_HANDLE_CAPACITY;
-        process->Events.Limit = WIT_RUNTIME_EVENT_CAPACITY;
-    }
     wit_user_references_initialize(process);
-    wit_user_stack_leases_initialize(process);
     wit_user_exception_initialize(process);
 }
 
-/* Builds the address space: the image or the fixed code page, TLS, the startup page and the data pages. */
-static int map_process(WitUserProcess *process, WitPageAllocator *allocator, const WitU8 *code, WitU32 code_size,
-    const WitPeImage *image, WitU64 base)
+/* Builds the address space: the code pages, the startup page and the data pages. */
+static int map_process(WitUserProcess *process, WitPageAllocator *allocator, const WitU8 *code, WitU32 code_size)
 {
-    if (!wit_user_space_create_profile(&process->Space, allocator, image && (image->Profile & WIT_PE_RUNTIME_FULL))) {
+    if (!wit_user_space_create_profile(&process->Space, allocator, 0)) {
         return 0;
     }
-    if (image) {
-        if (!wit_user_image_map(&process->Space, code, image, base)) {
+    for (WitU64 offset = 0; offset < code_size; offset += 4096) {
+        if (!wit_user_space_map(&process->Space, WIT_USER_CODE + offset, 0, 1)) {
             return 0;
         }
-    } else {
-        for (WitU64 offset = 0; offset < code_size; offset += 4096) {
-            if (!wit_user_space_map(&process->Space, WIT_USER_CODE + offset, 0, 1)) {
-                return 0;
-            }
-        }
     }
-    if (!wit_user_capture_tls(process, image) || !wit_user_space_map(&process->Space, WIT_USER_INFO, 0, 0)) {
+    if (!wit_user_space_map(&process->Space, WIT_USER_INFO, 0, 0)) {
         return 0;
     }
     for (WitU64 page = WIT_USER_DATA; page < WIT_USER_DATA_END; page += 4096) {
@@ -537,87 +463,45 @@ static int map_process(WitUserProcess *process, WitPageAllocator *allocator, con
             return 0;
         }
     }
-    if (!image) {
-        /* Page by page: the code's pages need not be contiguous in physical memory. */
-        for (WitU32 offset = 0; offset < code_size; offset += 4096) {
-            WitU8 *page = (WitU8 *)wit_user_space_physical(&process->Space, WIT_USER_CODE + offset, 0, 1);
-            const WitU32 bytes = code_size - offset < 4096 ? code_size - offset : 4096;
-            for (WitU32 i = 0; i < bytes; ++i) {
-                page[i] = code[offset + i];
-            }
+    /* Page by page: the code's pages need not be contiguous in physical memory. */
+    for (WitU32 offset = 0; offset < code_size; offset += 4096) {
+        WitU8 *page = (WitU8 *)wit_user_space_physical(&process->Space, WIT_USER_CODE + offset, 0, 1);
+        const WitU32 bytes = code_size - offset < 4096 ? code_size - offset : 4096;
+        for (WitU32 i = 0; i < bytes; ++i) {
+            page[i] = code[offset + i];
         }
-        wit_user_space_publish_code(&process->Space, WIT_USER_CODE, code_size);
     }
+    wit_user_space_publish_code(&process->Space, WIT_USER_CODE, code_size);
     return 1;
-}
-
-/* Describes the image after the startup block: placement, sections, unwind directory and resource name. */
-static void write_image_info(
-    WitUserProcess *process, WitUserStartup *startup, const WitPeImage *image, const WitU16 *resource, WitU32 length)
-{
-    WitUserImageInfo *info = (WitUserImageInfo *)((WitU8 *)startup + WIT_USER_IMAGE_INFO_OFFSET);
-    info->Version = WIT_IMAGE_INFO_VERSION;
-    info->Size = sizeof(*info);
-    info->Base = process->ImageBase;
-    info->Entry = process->ImageEntry;
-    info->ImageSize = process->ImageSize;
-    info->RangeCount = image->SectionCount;
-    info->HeadersSize = image->HeadersSize;
-    info->UnwindRva = image->UnwindRva;
-    info->UnwindSize = image->UnwindSize;
-    info->ResourceNameLength = length;
-    for (WitU32 i = 0; i < length; ++i) {
-        info->ResourceName[i] = resource[i];
-    }
-    for (WitU32 i = 0; i < image->SectionCount; ++i) {
-        const WitPeSection *s = &image->Sections[i];
-        info->Ranges[i].Rva = s->Rva;
-        info->Ranges[i].Size = s->VirtualSize;
-        info->Ranges[i].InitializedSize = s->RawSize < s->VirtualSize ? s->RawSize : s->VirtualSize;
-        info->Ranges[i].Flags = s->Flags;
-    }
-    startup->ImageInfo = WIT_USER_INFO + WIT_USER_IMAGE_INFO_OFFSET;
-}
-
-static WitPeStatus create_process(WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const WitU8 *code,
-    WitU32 code_size, const WitPeImage *image, WitU64 base, const WitU16 *resource, WitU32 resource_length)
-{
-    WitUserStartup *startup;
-    if (!can_create(process, slot)) {
-        return WitPeBusy;
-    }
-    reset_process(process, slot, code_size, image, base);
-    slot_owners[slot] = process;
-    if (!map_process(process, allocator, code, code_size, image, base)) {
-        goto failed;
-    }
-    startup = (WitUserStartup *)wit_user_space_physical(&process->Space, WIT_USER_INFO, 0, 0);
-    startup->Version = WIT_ABI_VERSION;
-    startup->Size = sizeof(*startup);
-    startup->ImageInfo = 0;
-    if (image) {
-        write_image_info(process, startup, image, resource, resource_length);
-    }
-    startup->ConsoleHandle = wit_handle_grant(&process->Handles, WIT_HANDLE_CONSOLE, WIT_RIGHT_WRITE);
-    if (!startup->ConsoleHandle ||
-        wit_user_prepare_thread(process, 0, process->ImageEntry, WIT_USER_INFO, 0) != WIT_STATUS_OK) {
-        goto failed;
-    }
-    process->State = WitUserReady;
-    return WitPeOk;
-failed:
-    wit_user_destroy(process);
-    return WitPeNoMemory;
 }
 
 int wit_user_create(
     WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const WitU8 *code, WitU32 code_size)
 {
+    WitUserStartup *startup;
     /* The code window of a fixed component: the pages from WIT_USER_CODE to the startup block (K8.3). */
-    if (!code || !code_size || code_size > WIT_USER_INFO - WIT_USER_CODE) {
+    if (!code || !code_size || code_size > WIT_USER_INFO - WIT_USER_CODE || !can_create(process, slot)) {
         return 0;
     }
-    return create_process(process, allocator, slot, code, code_size, 0, 0, 0, 0) == WitPeOk;
+    reset_process(process, slot, code_size);
+    slot_owners[slot] = process;
+    if (!map_process(process, allocator, code, code_size)) {
+        goto failed;
+    }
+    startup = (WitUserStartup *)wit_user_space_physical(&process->Space, WIT_USER_INFO, 0, 0);
+    startup->Version = WIT_ABI_VERSION;
+    startup->Size = sizeof(*startup);
+    startup->Reserved = 0;
+    startup->ConsoleHandle = wit_handle_grant(&process->Handles, WIT_HANDLE_CONSOLE, WIT_RIGHT_WRITE);
+    if (!startup->ConsoleHandle ||
+        wit_user_prepare_thread(process, 0, process->ImageEntry, WIT_USER_INFO) != WIT_STATUS_OK) {
+        goto failed;
+    }
+    process->State = WitUserReady;
+    return 1;
+failed:
+    wit_user_destroy(process);
+    return 0;
 }
 
 int wit_user_create_flat(WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const WitFlatLayout *layout)
@@ -625,7 +509,7 @@ int wit_user_create_flat(WitUserProcess *process, WitPageAllocator *allocator, W
     if (!can_create(process, slot)) {
         return 0;
     }
-    reset_process(process, slot, 0, 0, 0);
+    reset_process(process, slot, 0);
     /* The root task is the system layer (S1.3): the full profile's pages and the wider fixed window, as a created
      * process gets them, so that a libc program and the runtime fit, and the system layer's reservation table (S5.4)
      * and threads, handles and events (K5.3). */
@@ -638,7 +522,6 @@ int wit_user_create_flat(WitUserProcess *process, WitPageAllocator *allocator, W
     process->ImageEntry = layout->Entry;
     process->ImageSize = 0;
     if (!wit_user_space_create_profile(&process->Space, allocator, 1) ||
-        !wit_user_capture_tls(process, 0) ||
         !wit_user_space_map(&process->Space, WIT_USER_INFO, 0, 0)) {
         goto failed;
     }
@@ -670,7 +553,7 @@ int wit_user_create_flat(WitUserProcess *process, WitPageAllocator *allocator, W
             process->ImageSize = (WitU32)(s->Address + s->MemorySize - process->ImageBase);
         }
     }
-    if (wit_user_prepare_thread(process, 0, layout->Entry, WIT_USER_INFO, 0) != WIT_STATUS_OK) {
+    if (wit_user_prepare_thread(process, 0, layout->Entry, WIT_USER_INFO) != WIT_STATUS_OK) {
         goto failed;
     }
     process->State = WitUserReady;
@@ -678,50 +561,6 @@ int wit_user_create_flat(WitUserProcess *process, WitPageAllocator *allocator, W
 failed:
     wit_user_destroy(process);
     return 0;
-}
-
-WitPeStatus wit_user_create_pe(
-    WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const WitU8 *file, WitU32 size, WitU64 base)
-{
-    return wit_user_create_named_pe(process, allocator, slot, file, size, base, 0);
-}
-
-WitPeStatus wit_user_create_pe_profile(WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot,
-    const WitU8 *file, WitU32 size, WitU64 base, const char *resource_name, WitU32 profile)
-{
-    if (profile & WIT_PE_LIBRARY) {
-        return WitPeUnsupportedImage; // Libraries never enter the component-main path.
-    }
-    WitPeImage image;
-    WitPeStatus status;
-    WitU16 resource[WIT_IMAGE_RESOURCE_CAPACITY] = {0};
-    WitU32 resource_length = 0;
-    /* Trusted kernel resource label is bounded and copied before allocation.
-     * No user-controlled path or pointer crosses this private loader interface. */
-    if (resource_name) {
-        while (resource_length < WIT_IMAGE_RESOURCE_CAPACITY && resource_name[resource_length]) {
-            resource[resource_length] = (WitU8)resource_name[resource_length];
-            ++resource_length;
-        }
-        if (!resource_length || !wit_image_resource_valid(resource, resource_length)) {
-            return WitPeInvalidImage;
-        }
-    }
-    if (!can_create(process, slot)) {
-        return WitPeBusy;
-    }
-    status = wit_pe_validate_profile(file, size, &image, profile);
-    if (status != WitPeOk) {
-        return status;
-    }
-    const WitU64 limit = (profile & WIT_PE_RUNTIME_FULL) ? WIT_RUNTIME_USER_LIMIT : WIT_USER_LIMIT;
-    if ((base & 65535) || base < WIT_USER_IMAGE_BASE || base >= limit || image.ImageSize > limit - base) {
-        return WitPeBadBase;
-    }
-    if (base != image.PreferredBase && !image.RelocSize) {
-        return WitPeUnsupportedImage;
-    }
-    return create_process(process, allocator, slot, file, size, &image, base, resource, resource_length);
 }
 
 /* An empty process for PROCESS_CREATE (K5.2c): a record of the pool in a free registry slot, the full profile's
@@ -741,13 +580,13 @@ int wit_user_create_empty(WitUserProcess *process, WitPageAllocator *allocator, 
         wit_arch_interrupts_enabled()) {
         return 0;
     }
-    reset_process(process, slot, 0, 0, 0);
+    reset_process(process, slot, 0);
     process->Handles.Limit = WIT_PROCESS_HANDLE_CAPACITY; /* the system layer's threads, handles and events (K5.3) */
     process->Events.Limit = WIT_PROCESS_EVENT_CAPACITY;
     process->ThreadLimit = WIT_PROCESS_THREAD_CAPACITY;
     process->TickLimit = ticks;
     slot_owners[slot] = process;
-    if (!wit_user_space_create_profile(&process->Space, allocator, 1) || !wit_user_capture_tls(process, 0)) {
+    if (!wit_user_space_create_profile(&process->Space, allocator, 1)) {
         wit_user_destroy(process);
         return 0;
     }
@@ -935,25 +774,10 @@ WitArchFrame *wit_user_exception_trap(WitArchFrame *context, WitU64 vector, WitU
         "Invalid resumable user fault context");
     WitUserThread *thread = &current_user->Threads[current_user->CurrentThread];
     thread->Context = context;
-    if (current_user->FatalArmed) {
-        wit_user_finish(WitUserExited, current_user->Fatal.Code);
-    }
     if (wit_user_exception_deliver(current_user, context, vector, error, address)) {
         validate_return(context, current_user->CurrentThread, 0);
         wit_arch_set_user_tls(thread->Tls, thread->CompilerTls);
         return context;
-    }
-    if (thread->Exception.Token && thread->Exception.Vector == WIT_EXCEPTION_SOFTWARE_VECTOR) {
-        wit_console_write("[USER-SOFTWARE-FAIL] code=");
-        wit_console_write_hex(thread->Exception.Error);
-        wit_console_write(" rip=");
-        wit_console_write_hex(wit_arch_context_pc(&thread->Exception.Context));
-        wit_console_write(" nested-vector=");
-        wit_console_write_u64(vector);
-        wit_console_write(" address=");
-        wit_console_write_hex(address);
-        wit_console_write("\n");
-        wit_user_finish(WitUserExited, WIT_EXCEPTION_SOFTWARE_FAILURE_EXIT);
     }
     /* A fault inside the handler of a fault reports the original fault; a fault inside the handler of an activation is
      * the thread's own fault and is reported as such. */
@@ -999,35 +823,4 @@ WIT_NORETURN void wit_user_fault_state(WitU64 vector, WitU64 error, WitU64 addre
     wit_arch_fault_describe(state);
     wit_console_write("\n");
     wit_user_finish(WitUserFaulted, 0);
-}
-
-WitPeStatus wit_user_create_named_pe(WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot,
-    const WitU8 *file, WitU32 size, WitU64 base, const char *resource_name)
-{
-    return wit_user_create_pe_profile(process, allocator, slot, file, size, base, resource_name, 0);
-}
-
-WitPeStatus wit_user_create_package_pe(
-    WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const char *name, WitU64 base, WitU32 profile)
-{
-    const WitPackage *package = wit_storage_package();
-    WitU32 length = 0;
-    while (name && length < WIT_PACKAGE_MAX_NAME && name[length]) {
-        ++length;
-    }
-    WitPackageFile file;
-    if (!package ||
-        !length ||
-        wit_package_find(package, (const WitU8 *)name, length, &file) != WitPackageOk ||
-        file.Length > 0xFFFFFFFFULL) {
-        return WitPeInvalidImage;
-    }
-    /* The package's bytes are immutable and kernel-owned for the boot's lifetime, as a loaded library's are. */
-    const WitPeStatus status = wit_user_create_pe_profile(
-        process, allocator, slot, package->Data + file.Offset, (WitU32)file.Length, base, 0, profile);
-    if (status == WitPeOk) {
-        process->ImageNameOffset = (WitU64)(file.Name - package->Data);
-        process->ImageNameBytes = file.NameLength;
-    }
-    return status;
 }

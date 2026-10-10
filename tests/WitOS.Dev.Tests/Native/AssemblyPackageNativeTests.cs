@@ -5,7 +5,7 @@ using WitOS.Dev.Tests.Support;
 namespace WitOS.Dev.Tests.Native;
 
 /// <summary>
-/// Native boot package parser and firmware transport on guarded and fault-injected inputs (hosted).
+/// The reference reader of the boot package and the firmware transport on guarded and fault-injected inputs (hosted).
 /// </summary>
 [TestFixture]
 [Platform(Include = TestPlatforms.WINDOWS, Reason = TestPlatforms.MSVC)]
@@ -43,7 +43,7 @@ public sealed class AssemblyPackageNativeTests
         var exe = Path.Combine(output, "assembly-package.exe");
         await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"), ["/nologo","/MD","/TC","/std:c17","/W4","/WX","/O2",
             "/I"+Path.Combine(vc,"include"),"/I"+Path.Combine(sdk,"Include",version,"ucrt"),"/I"+Path.Combine(sdk,"Include",version,"um"),"/I"+Path.Combine(sdk,"Include",version,"shared"),"/I"+Path.Combine(root,"src/Kernel/include"),
-            "/Fo"+output+"/","/Fe"+exe,Path.Combine(root,"src/Kernel/package.c"),Path.Combine(root,"tests/WitOS.Dev.Tests/Native/AssemblyPackageNative.c"),Path.Combine(root,"tests/WitOS.Dev.Tests/Native/BootPackageFirmware.c"),
+            "/Fo"+output+"/","/Fe"+exe,Path.Combine(root,"tests/WitOS.Dev.Tests/Native/PackageReader.c"),Path.Combine(root,"tests/WitOS.Dev.Tests/Native/AssemblyPackageNative.c"),Path.Combine(root,"tests/WitOS.Dev.Tests/Native/BootPackageFirmware.c"),
             "/link","/LIBPATH:"+Path.Combine(vc,"lib/x64"),"/LIBPATH:"+Path.Combine(sdk,"Lib",version,"ucrt/x64"),
             "/LIBPATH:"+Path.Combine(sdk,"Lib",version,"um/x64"),"kernel32.lib"], root);
         var run = await Processes.RunAsync(exe, [package, small, firmware, hierarchy], output, 30);

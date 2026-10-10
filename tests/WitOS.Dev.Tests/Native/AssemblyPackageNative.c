@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "witos/package.h"
+#include "PackageReader.h"
 static unsigned cases;
 static unsigned char *allocation;
 static const size_t capacity = 65536;

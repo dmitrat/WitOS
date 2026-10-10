@@ -1,4 +1,4 @@
-#include "witos/package.h"
+#include "PackageReader.h"
 
 static WitU32 read32(const WitU8 *p)
 {

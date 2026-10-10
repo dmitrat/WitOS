@@ -7,9 +7,9 @@
 /* System call table of the running component: ABI-1 of RFC 0011 v3 section 7 in the layout of user_abi.h. Each
  * handler receives the call and its arguments, writes the status and value of the caller's frame and returns 0
  * to finish through the common path of wit_user_syscall, or the frame to resume as it is: a restored context, a
- * dispatched thread or the caller after a yield. The table is sparse: the transitional calls sit from 200. */
+ * dispatched thread or the caller after a yield. */
 
-#define CALL_COUNT (WIT_CALL_PROCESS_STATE + 1U)
+#define CALL_COUNT (WIT_CALL_PROCESS_WRITE_BARRIER + 1U)
 
 static void require(int condition, const char *message)
 {
@@ -133,20 +133,6 @@ static WitArchFrame *thread_yield(WitUserCall *call)
     return next;
 }
 
-/* DLL lifecycle policy (leaves at K8): a thread that still owes its library notifications, or that owns the library
- * lifecycle, must not exit while the library's code may run on its record; such an exit ends the component. */
-static WIT_NORETURN void exit_abruptly(WitUserCall *call)
-{
-    call->Process->AbruptThreadId = caller(call)->Handle;
-    call->Process->AbruptThreadCode = call->Argument0;
-    wit_user_finish(WitUserExited, WIT_PROCESS_ABRUPT_THREAD_EXIT);
-}
-
-static int owns_library_lifecycle(WitUserCall *call)
-{
-    return call->Process->LibraryLifecycle.Token && call->Process->LibraryLifecycle.Owner == caller(call)->Handle;
-}
-
 /* THREAD_EXIT: the one exit. Whether a runtime's thread detached from its runtime first is layer 2's lifecycle. */
 static WitArchFrame *thread_exit(WitUserCall *call)
 {
@@ -192,9 +178,6 @@ static WitArchFrame *thread_exit(WitUserCall *call)
             return 0;
         }
     }
-    if ((caller(call)->LibraryRequired && caller(call)->LibraryPhase != 4) || owns_library_lifecycle(call)) {
-        exit_abruptly(call);
-    }
     ++call->Process->ThreadExits;
     return wit_user_exit_thread(call->Argument0, call->Argument1, exit.ClearAddress, exit.Event);
 }
@@ -231,18 +214,6 @@ static WitArchFrame *thread_suspend(WitUserCall *call)
     return 0;
 }
 
-static WitArchFrame *thread_name_set(WitUserCall *call)
-{
-    *call->Status = wit_user_thread_name_set(call->Process, call->Argument0, call->Argument1, call->Argument2);
-    return 0;
-}
-
-static WitArchFrame *thread_name_query(WitUserCall *call)
-{
-    *call->Status = wit_user_thread_name_query(call->Process, call->Argument0, call->Argument1, call->Argument2);
-    return 0;
-}
-
 static WitArchFrame *thread_context_get(WitUserCall *call)
 {
     *call->Status = wit_user_thread_context_get(call->Process, call->Argument0, call->Argument1, call->Argument2);
@@ -255,36 +226,9 @@ static WitArchFrame *thread_context_set(WitUserCall *call)
     return 0;
 }
 
-static WitArchFrame *thread_context_restore(WitUserCall *call)
-{
-    return resume_restored(
-        call, wit_user_thread_context_restore(call->Process, call->Argument0, call->Argument1, call->Argument2));
-}
-
 static WitArchFrame *context_profile(WitUserCall *call)
 {
     *call->Status = wit_user_cpu_context_query(call->Process, call->Argument0, call->Argument1, call->Argument2);
-    return 0;
-}
-
-static WitArchFrame *monotonic_query(WitUserCall *call)
-{
-    if (call->Argument1 != sizeof(WitU64)) {
-        *call->Status = WIT_STATUS_INVALID_ARGUMENT;
-        return 0;
-    }
-    if (call->Argument2 > WIT_MONOTONIC_HZ) {
-        *call->Status = WIT_STATUS_UNSUPPORTED;
-        return 0;
-    }
-    const WitU64 sample =
-        call->Argument2 == WIT_MONOTONIC_COUNTER ? wit_platform_monotonic_read() : wit_platform_monotonic_frequency();
-    // The dispatcher keeps IF clear through sampling and whole-buffer copy.
-    if (!wit_user_copy_to(&call->Process->Space, call->Argument0, (const WitU8 *)&sample, sizeof(sample))) {
-        *call->Status = WIT_STATUS_BAD_ADDRESS;
-    } else {
-        *call->Value = sizeof(sample);
-    }
     return 0;
 }
 
@@ -505,22 +449,6 @@ static WitArchFrame *process_write_barrier(WitUserCall *call)
     return 0;
 }
 
-/* The frozen line's cache size: the one processor its threads run on. */
-static WitArchFrame *cpu_cache_size(WitUserCall *call)
-{
-    if (has_arguments(call)) {
-        *call->Status = WIT_STATUS_INVALID_ARGUMENT;
-    } else if (wit_processors_scheduling() != 1) {
-        *call->Status = WIT_STATUS_UNSUPPORTED;
-    } else {
-        *call->Value = wit_arch_cache_size();
-        if (!*call->Value) {
-            *call->Status = WIT_STATUS_UNSUPPORTED;
-        }
-    }
-    return 0;
-}
-
 /* PROCESSOR_QUERY (RFC 0011 section 7.9): the 4-byte form of the frozen line (the current processor as {group:u16,
  * number:u8, reserved:u8}), or the record form (K7.1) with the caller's Version and Size: the processor table, the
  * boot processor first. The whole destination is validated before it is written. */
@@ -628,25 +556,6 @@ static WitArchFrame *random(WitUserCall *call)
     return 0;
 }
 
-static WitArchFrame *stack_lease_acquire(WitUserCall *call)
-{
-    *call->Status = wit_user_stack_lease_acquire(call->Process, call->Argument0, call->Argument1, call->Argument2);
-    return 0;
-}
-
-static WitArchFrame *stack_lease_query(WitUserCall *call)
-{
-    *call->Status = wit_user_stack_lease_query(call->Process, call->Argument0, call->Argument1, call->Argument2);
-    return 0;
-}
-
-static WitArchFrame *stack_lease_release(WitUserCall *call)
-{
-    *call->Status = (call->Argument1 || call->Argument2) ? WIT_STATUS_INVALID_ARGUMENT
-                                                         : wit_user_stack_lease_release(call->Process, call->Argument0);
-    return 0;
-}
-
 static WitArchFrame *exception_register(WitUserCall *call)
 {
     *call->Status = wit_user_exception_register(call->Process, call->Argument0, call->Argument1, call->Argument2);
@@ -656,13 +565,6 @@ static WitArchFrame *exception_register(WitUserCall *call)
 static WitArchFrame *exception_query(WitUserCall *call)
 {
     *call->Status = wit_user_exception_query(call->Process, call->Argument0, call->Argument1, call->Argument2);
-    return 0;
-}
-
-static WitArchFrame *exception_begin(WitUserCall *call)
-{
-    *call->Status =
-        wit_user_exception_begin(call->Process, call->Argument0, call->Argument1, call->Argument2, call->Value);
     return 0;
 }
 
@@ -682,87 +584,8 @@ static WitArchFrame *exception_reject(WitUserCall *call)
         *call->Status = WIT_STATUS_BAD_HANDLE;
         return 0;
     }
-    (void)wit_user_exception_trap(call->Context, ~0ULL, 0, 0); // Pending original fault is retained by the fatal path.
+    (void)wit_user_exception_trap(call->Context, ~0ULL, 0, 0); // The trap reports the pending original fault.
     wit_panic("Rejected exception unexpectedly resumed");
-}
-
-static WitArchFrame *fatal_arm(WitUserCall *call)
-{
-    WitUserProcess *process = call->Process;
-    if (call->Argument0 > 0xFFFFFFFFULL || call->Argument1 || call->Argument2) {
-        *call->Status = WIT_STATUS_INVALID_ARGUMENT;
-        return 0;
-    }
-    if (process->FatalArmed) {
-        *call->Status = WIT_STATUS_BUSY;
-        return 0;
-    }
-    process->Fatal = (WitUserFatalInfo){0};
-    process->Fatal.Version = WIT_FATAL_INFO_VERSION;
-    process->Fatal.Size = sizeof(process->Fatal);
-    process->Fatal.Code = (WitU32)call->Argument0;
-    process->FatalOwner = caller(call)->Handle;
-    process->FatalArmed = 1;
-    return 0;
-}
-
-static WitArchFrame *fatal_report(WitUserCall *call)
-{
-    WitUserProcess *process = call->Process;
-    WitUserFatalInfo info;
-    if (!process->FatalArmed || process->FatalOwner != caller(call)->Handle) {
-        *call->Status = WIT_STATUS_DENIED;
-        return 0;
-    }
-    if (call->Argument1 != sizeof(WitUserFatalInfo) || call->Argument2 != WIT_FATAL_INFO_VERSION) {
-        *call->Status = WIT_STATUS_INVALID_ARGUMENT;
-        return 0;
-    }
-    if (!wit_user_copy_from(&process->Space, call->Argument0, (WitU8 *)&info, sizeof(info))) {
-        *call->Status = WIT_STATUS_BAD_ADDRESS;
-        return 0;
-    }
-    if (info.Version != WIT_FATAL_INFO_VERSION ||
-        info.Size != sizeof(info) ||
-        info.ParameterCount > WIT_FATAL_PARAMETER_CAPACITY) {
-        *call->Status = WIT_STATUS_INVALID_ARGUMENT;
-        return 0;
-    }
-    process->Fatal = info;
-    return 0;
-}
-
-static WitArchFrame *code_memory(WitUserCall *call)
-{
-    *call->Status = wit_user_code_call(call->Process, call->Argument0, call->Argument1, call->Argument2, call->Value);
-    return 0;
-}
-
-static WitArchFrame *file(WitUserCall *call)
-{
-    *call->Status = wit_user_file_call(call->Process, call->Argument0, call->Argument1, call->Argument2, call->Value);
-    return 0;
-}
-
-static WitArchFrame *storage_query(WitUserCall *call)
-{
-    *call->Status =
-        wit_user_storage_query(call->Process, call->Argument0, call->Argument1, call->Argument2, call->Value);
-    return 0;
-}
-
-static WitArchFrame *library(WitUserCall *call)
-{
-    *call->Status =
-        wit_user_library_call(call->Process, call->Argument0, call->Argument1, call->Argument2, call->Value);
-    return 0;
-}
-
-static WitArchFrame *process_state(WitUserCall *call)
-{
-    *call->Status =
-        wit_user_process_state(call->Process, call->Argument0, call->Argument1, call->Argument2, call->Value);
-    return 0;
 }
 
 static WitArchFrame *(*const handlers[CALL_COUNT])(WitUserCall *) = {
@@ -822,22 +645,6 @@ static WitArchFrame *(*const handlers[CALL_COUNT])(WitUserCall *) = {
     [WIT_CALL_EXCEPTION_REJECT] = exception_reject,
     [WIT_CALL_PROCESSOR_QUERY] = processor_query,
     [WIT_CALL_PROCESS_WRITE_BARRIER] = process_write_barrier,
-    [WIT_CALL_MONOTONIC_QUERY] = monotonic_query,
-    [WIT_CALL_CPU_CACHE_SIZE] = cpu_cache_size,
-    [WIT_CALL_THREAD_CONTEXT_RESTORE] = thread_context_restore,
-    [WIT_CALL_STACK_LEASE_ACQUIRE] = stack_lease_acquire,
-    [WIT_CALL_STACK_LEASE_QUERY] = stack_lease_query,
-    [WIT_CALL_STACK_LEASE_RELEASE] = stack_lease_release,
-    [WIT_CALL_EXCEPTION_BEGIN] = exception_begin,
-    [WIT_CALL_FATAL_ARM] = fatal_arm,
-    [WIT_CALL_FATAL_REPORT] = fatal_report,
-    [WIT_CALL_THREAD_NAME_SET] = thread_name_set,
-    [WIT_CALL_THREAD_NAME_QUERY] = thread_name_query,
-    [WIT_CALL_CODE_MEMORY] = code_memory,
-    [WIT_CALL_FILE] = file,
-    [WIT_CALL_STORAGE_QUERY] = storage_query,
-    [WIT_CALL_LIBRARY] = library,
-    [WIT_CALL_PROCESS_STATE] = process_state,
 };
 
 WitArchFrame *wit_user_call(WitUserCall *call)

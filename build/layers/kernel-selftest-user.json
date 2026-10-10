@@ -1,6 +1,6 @@
 {
   "name": "kernel-selftest-user",
-  "description": "Architecture-independent user-mode self-tests: component isolation, contained faults, user memory, threads, TLS, events and waits, PE image loading, teardown and the closing summary of contained faults. The expected faults come from the architecture's self-test layer.",
+  "description": "Architecture-independent user-mode self-tests: component isolation, contained faults, user memory, threads, TLS, events and waits, channels, memory objects, devices, processes, the root task, teardown and the closing summary of contained faults. The expected faults come from the architecture's self-test layer.",
   "includes": [
     "tests/User",
     "tests/Kernel"
@@ -19,7 +19,6 @@
     "tests/Kernel/user_thread2_tests.c",
     "tests/Kernel/user_process_tests.c",
     "tests/Kernel/user_processor_tests.c",
-    "tests/Kernel/user_image_tests.c",
     "tests/Kernel/test_summary.c"
   ],
   "assembly": []

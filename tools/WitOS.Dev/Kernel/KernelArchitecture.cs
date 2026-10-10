@@ -4,13 +4,11 @@ using WitOS.Dev.Host;
 namespace WitOS.Dev.Kernel;
 
 /// <summary>
-/// What differs between the kernel's target architectures in the tools: the kernel's triple, the MSVC tools of the
-/// frozen line's fixtures, EFI file, PE machine and the QEMU board that boots it.
+/// What differs between the kernel's target architectures in the tools: the kernel's and layer 2's triples, the EFI
+/// file, the PE machine and the QEMU board that boots it.
 /// </summary>
 /// <param name="Name">Architecture name of build/kernel-&lt;name&gt;.json.</param>
-/// <param name="MsvcTarget">Directory of the cross tools under MSVC bin/Hostx64; also the link /machine value.</param>
-/// <param name="MsvcComponent">Visual Studio component that installs those tools.</param>
-/// <param name="Assembler">Assembler executable in that directory.</param>
+/// <param name="LinkMachine">The lld-link /machine value.</param>
 /// <param name="Machine">PE machine of the linked EFI image.</param>
 /// <param name="EfiName">Removable-media boot file name under EFI/BOOT.</param>
 /// <param name="Qemu">System emulator of the pinned QEMU, without an extension.</param>
@@ -25,8 +23,7 @@ namespace WitOS.Dev.Kernel;
 /// <param name="ClangOptions">Architecture-specific clang options of layer 2 code.</param>
 /// <param name="KernelTriple">clang target triple of the kernel and its EFI loader (plan step T3): PE/COFF and the
 /// Microsoft calling convention, linked by lld-link.</param>
-internal sealed record KernelArchitecture(string Name, string MsvcTarget, string MsvcComponent, string Assembler,
-    Machine Machine, string EfiName, string Qemu, string QemuMachine, string[] ExitDevice, string[] LinkOptions, string Firmware,
+internal sealed record KernelArchitecture(string Name, string LinkMachine, Machine Machine, string EfiName, string Qemu, string QemuMachine, string[] ExitDevice, string[] LinkOptions, string Firmware,
     string FirmwareVariables, string DefaultCpu, string Triple, ushort ElfMachine, string[] ClangOptions, string KernelTriple)
 {
     #region Fields
@@ -34,8 +31,7 @@ internal sealed record KernelArchitecture(string Name, string MsvcTarget, string
     /// <summary>
     /// The x64 kernel on the q35 board; the exit is QEMU's isa-debug-exit port.
     /// </summary>
-    public static readonly KernelArchitecture X64 = new("x64", "x64", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
-        "ml64.exe", Machine.Amd64, "BOOTX64.EFI", "qemu-system-x86_64", "q35,hpet=on",
+    public static readonly KernelArchitecture X64 = new("x64", "x64", Machine.Amd64, "BOOTX64.EFI", "qemu-system-x86_64", "q35,hpet=on",
         ["-device", "isa-debug-exit,iobase=0xf4,iosize=0x04"], ["/dynamicbase:no"], "edk2-x86_64-code.fd", "edk2-i386-vars.fd",
         "qemu64", "x86_64-unknown-linux-musl", 62, [], "x86_64-unknown-windows");
 
@@ -43,8 +39,7 @@ internal sealed record KernelArchitecture(string Name, string MsvcTarget, string
     /// The ARM64 kernel on the QEMU virt board with GICv3; the exit is Arm semihosting. The board runs without ACPI
     /// so that the firmware publishes the device tree the platform enumerates its devices from (plan step K3.1).
     /// </summary>
-    public static readonly KernelArchitecture Arm64 = new("arm64", "arm64",
-        "Microsoft.VisualStudio.Component.VC.Tools.ARM64", "armasm64.exe", Machine.Arm64, "BOOTAA64.EFI",
+    public static readonly KernelArchitecture Arm64 = new("arm64", "arm64", Machine.Arm64, "BOOTAA64.EFI",
         "qemu-system-aarch64", "virt,gic-version=3,acpi=off", ["-semihosting-config", "enable=on,target=native"], [],
         "edk2-aarch64-code.fd", "edk2-arm-vars.fd", "cortex-a72", "aarch64-unknown-linux-musl", 183,
         ["-ffixed-x18"], // x18 is the kernel's compiler TLS register, set on every return to EL0
@@ -138,13 +133,6 @@ internal sealed record KernelArchitecture(string Name, string MsvcTarget, string
     /// start, with its arguments, in a process of its own (S5.2).
     /// </summary>
     public string SpawnChildLine => $"[CHILD] started on {Triple[..Triple.IndexOf('-')]} with 3 arguments";
-
-    /// <summary>
-    /// Finds the MSVC tools that build this architecture.
-    /// </summary>
-    /// <param name="root">Repository root.</param>
-    /// <returns>Tool directory with cl, link and the assembler.</returns>
-    public Task<string> FindMsvcAsync(string root) => Toolchain.FindMsvcAsync(root, MsvcTarget, MsvcComponent, Assembler);
 
     /// <summary>
     /// Path of the QEMU system emulator.

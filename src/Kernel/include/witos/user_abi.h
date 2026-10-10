@@ -2,22 +2,13 @@
 #define WITOS_USER_ABI_H
 #include "types.h"
 #include "limits.h"
-#include "image_info.h"
 #include "memory_info.h"
 #include "thread_info.h"
-#include "thread_name.h"
 #include "cpu_context_info.h"
 #include "thread_context.h"
-#include "stack_lease.h"
 #include "exception.h"
-#include "fatal_info.h"
 #include "thread_reference.h"
 #include "wait_objects.h"
-#include "code_memory.h"
-#include "file_io.h"
-#include "storage_query.h"
-#include "library.h"
-#include "process_state.h"
 
 /* ABI-1 of RFC 0011 v3 (sections 6 and 7): the system calls between the nano-kernel and the system layer.
  * The ABI is experimental until plan step K8 declares 1.0; since step K1 a call number, a status value and a rights
@@ -25,7 +16,7 @@
  * arguments, RAX=status and RDX=result, other GPRs and x87/SSE state preserved, RFLAGS reset to 0x202; on ARM64
  * SVC #0 with x8=call, x0-x2 arguments, x0=status and x1=result. A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
-#define WIT_ABI_VERSION 69U
+#define WIT_ABI_VERSION 70U
 /* QUERY result: the low 32 bits are WIT_ABI_VERSION, the high 32 bits the mask of the families present. */
 #define WIT_ABI_FEATURE_CHANNELS 1U
 #define WIT_ABI_FEATURE_DEVICES 2U
@@ -39,8 +30,6 @@
         WIT_ABI_FEATURE_UTC | \
         WIT_ABI_FEATURE_SMP)
 #define WIT_ABI_STARTUP_SIZE 24U
-/* Existing single-module compiler TLS page layout of the frozen line; not a Windows TEB. */
-#define WIT_COMPILER_TLS_DATA_OFFSET 256U
 
 /* Kernel, handles and the own process (RFC 0011 section 7.1). */
 /* Query(0, 0, 0) -> version and feature mask. */
@@ -60,7 +49,7 @@
 
 /* Memory (RFC 0011 section 7.2). Calls operate on the current process's dynamic arena. Reserve(size, alignment,
  * address or 0) returns a base: a nonzero address (S5.1) reserves exactly there, aligned as asked, in one arena and
- * overlapping nothing (BUSY), DENIED over a library range; commit/protect(base, size, protection), decommit(base,
+ * overlapping nothing (BUSY); commit/protect(base, size, protection), decommit(base,
  * size), release(base, size or 0) return zero: release of size 0 takes the whole reservation at its exact base, a
  * nonzero size (S5.1) a part of one plain reservation, which shrinks or splits in two (NO_MEMORY without a free
  * slot); a mapping of an object is released whole (DENIED otherwise). Nonzero sizes and addresses are page-aligned;
@@ -174,7 +163,7 @@
 
 /* Faults (RFC 0011 section 7.5). Register(callback or zero, version, flags=0); query(token, buffer, exact size)
  * copies the WitUserExceptionInfo of the current delivery; continue(token, WitUserExceptionTransfer, exact size)
- * resumes the validated context and retires the record and the abandoned ancestors through RetireThroughToken;
+ * resumes the validated context and retires the record, which RetireThroughToken names;
  * reject(token, 0, 0) ends the process with the original fault. Continue does not return on success. */
 #define WIT_CALL_EXCEPTION_REGISTER 60U
 #define WIT_CALL_EXCEPTION_QUERY 61U
@@ -245,35 +234,14 @@
  * THREAD_CREATE, OBJECT_WAIT and THREAD_EXIT; THREAD_REFERENCE_QUERY, THREAD_NATIVE_ID and THREAD_CONTEXT_METADATA
  * into THREAD_QUERY. */
 /* 206 was retired at step K1.3: APC_DEQUEUE; an activation is delivered through the fault callback, not dequeued. */
-/* Query(buffer, exact 8 bytes, selector) copies the monotonic counter or frequency; merges into CLOCK_READ (K6). */
-#define WIT_CALL_MONOTONIC_QUERY 207U
-/* CacheSize(0, 0, 0) -> the largest architecturally reported cache; merges into PROCESSOR_QUERY (K7). */
-#define WIT_CALL_CPU_CACHE_SIZE 208U
-/* Restore(WitThreadContext, exact size, version) of the current thread; user-space code after K8. */
-#define WIT_CALL_THREAD_CONTEXT_RESTORE 209U
-/* Stack leases, software exception scopes and fatal reports leave with the Windows-form line (K8). */
-#define WIT_CALL_STACK_LEASE_ACQUIRE 210U
-#define WIT_CALL_STACK_LEASE_QUERY 211U
-#define WIT_CALL_STACK_LEASE_RELEASE 212U
-#define WIT_CALL_EXCEPTION_BEGIN 213U
-#define WIT_CALL_FATAL_ARM 214U
-#define WIT_CALL_FATAL_REPORT 215U
-/* Thread names leave for the libc (K8). */
-#define WIT_CALL_THREAD_NAME_SET 216U
-#define WIT_CALL_THREAD_NAME_QUERY 217U
-/* Code memory dissolves into memory objects (K5); its unwind validation leaves (K8). */
-#define WIT_CALL_CODE_MEMORY 218U
-/* The file namespace, the boot package, native libraries and the process state leave for the system layer (K8). A
- * thread that exits while it owes the DLL lifecycle its notifications ends the component with this code. */
-#define WIT_PROCESS_ABRUPT_THREAD_EXIT 0xFFFF0002ULL
-#define WIT_CALL_FILE 219U
-#define WIT_CALL_STORAGE_QUERY 220U
-#define WIT_CALL_LIBRARY 221U
-#define WIT_CALL_PROCESS_STATE 222U
+/* 207-222 were retired at step K8.4a with the kernel policy of RFC 0011 section 8: MONOTONIC_QUERY into CLOCK_READ
+ * and CLOCK_FREQUENCY; CPU_CACHE_SIZE into PROCESSOR_QUERY; THREAD_CONTEXT_RESTORE into a delivery of the own
+ * thread (K8.1); STACK_LEASE_ACQUIRE, STACK_LEASE_QUERY, STACK_LEASE_RELEASE, EXCEPTION_BEGIN, FATAL_ARM and
+ * FATAL_REPORT with the Windows-form line; THREAD_NAME_SET and THREAD_NAME_QUERY into the libc; CODE_MEMORY into
+ * memory objects; FILE, STORAGE_QUERY, LIBRARY and PROCESS_STATE into the system layer. */
 
-/* Flags of WitThreadCreateRequest beside START_SUSPENDED (1): LIBRARY_NOTIFICATIONS follows the frozen line's DLL
- * thread lifecycle and leaves with it (K8). */
-#define WIT_THREAD_LIBRARY_NOTIFICATIONS 2U
+/* Flags of WitThreadCreateRequest: START_SUSPENDED (1); 2 (LIBRARY_NOTIFICATIONS, the DLL thread lifecycle) was
+ * retired at step K8.4a. */
 /* Rights (RFC 0011 section 6.1): a bit is never reused, and 2 (the join right of the retired join capability) is
  * retired. WAIT and SIGNAL belong to events and the kernel log; QUERY, GET_CONTEXT, SET_CONTEXT, SUSPEND_RESUME and
  * ACTIVATE to threads; SEND and RECEIVE to channel endpoints; MAP, WRITE and EXECUTE to memory objects (a mapping
@@ -308,9 +276,6 @@
 /* Clocks of CLOCK_READ, CLOCK_FREQUENCY and CLOCK_SET (K6). */
 #define WIT_CLOCK_MONOTONIC 0U
 #define WIT_CLOCK_UTC 1U
-/* Selectors of the transitional MONOTONIC_QUERY. */
-#define WIT_MONOTONIC_COUNTER 0U
-#define WIT_MONOTONIC_HZ 1U
 /* Monotonic counts are nonnegative signed-64 compatible; a deadline of all ones waits forever. */
 #define WIT_MONOTONIC_MAX 0x7FFFFFFFFFFFFFFFULL
 #define WIT_WAIT_INFINITE 0xFFFFFFFFFFFFFFFFULL
@@ -323,7 +288,7 @@
 #define WIT_TLS_ARGUMENT_OFFSET 16U
 #define WIT_TLS_LAST_ERROR_OFFSET 24U
 #define WIT_TLS_DATA_OFFSET 32U
-/* Statuses (RFC 0011 section 6.2). 17 is retired with the library family at K8. */
+/* Statuses (RFC 0011 section 6.2): a value is never reused. */
 #define WIT_STATUS_OK 0U
 #define WIT_STATUS_UNSUPPORTED 1U
 #define WIT_STATUS_BAD_HANDLE 2U
@@ -335,14 +300,14 @@
 #define WIT_STATUS_NO_MEMORY 8U
 #define WIT_STATUS_NOT_RESERVED 9U
 #define WIT_STATUS_NOT_COMMITTED 10U
-#define WIT_STATUS_DEADLOCK 11U /* The join cycle check left at K1.2; the DLL lifecycle still returns it (K8). */
+/* 11 (DEADLOCK: the join cycle check, then the DLL lifecycle) was retired at step K8.4a. */
 #define WIT_STATUS_BUSY 12U
 #define WIT_STATUS_TIMED_OUT 13U
 #define WIT_STATUS_CLOSED 14U
 /* A wait ended because an activation was delivered to the thread. */
 #define WIT_STATUS_INTERRUPTED 15U
 #define WIT_STATUS_NOT_FOUND 16U
-#define WIT_STATUS_INITIALIZATION_FAILED 17U
+/* 17 (INITIALIZATION_FAILED, a library's attach) was retired at step K8.4a. */
 /* The channel peer is closed: a send has no receiver, an empty queue gets no more messages. */
 #define WIT_STATUS_PEER_CLOSED 18U
 #define WIT_MEMORY_NONE 0U
@@ -356,7 +321,7 @@ typedef struct WitUserStartup {
     WitU32 Version;
     WitU32 Size;
     WitU64 ConsoleHandle;
-    WitU64 ImageInfo; /* Immutable WitUserImageInfo for PE images; zero for raw fixtures. */
+    WitU64 Reserved; /* zero: the image information left with the PE loader (K8.4a) */
 } WitUserStartup;
 
 WIT_STATIC_ASSERT(sizeof(WitUserStartup) == WIT_ABI_STARTUP_SIZE, "User startup ABI");

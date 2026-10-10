@@ -36,17 +36,14 @@ typedef enum WitArchExceptionKind {
 
 struct WitBootInfo;
 
-/* What the boot contract, the image check and the banner say about this architecture. */
+/* What the boot contract, the loader's image check and the banner say about this architecture. */
 typedef struct WitArchIdentity {
     WitU32 BootArchitecture; /* WIT_ARCH_* in WitBootInfo. */
-    WitU16 PeMachine; /* Machine field of the kernel's PE image and of the user images it loads. */
-    WitU16 Capabilities; /* WIT_ARCH_* capability flags below. */
+    WitU16 PeMachine; /* Machine field of the kernel's own PE image, which the loader checks. */
+    WitU16 Reserved;
     const char *Name; /* Short name, such as x64. */
     const char *Processor; /* Processor family, such as x86_64. */
 } WitArchIdentity;
-
-/* The kernel validates the unwind metadata (exception directory) of this machine's images. */
-#define WIT_ARCH_PE_UNWIND 1U
 
 /* Identity, bring-up, interrupt flag and halting. */
 const WitArchIdentity *wit_arch_identity(void);
@@ -110,7 +107,6 @@ void wit_arch_cpu_context_describe(WitCpuContextInfo *info, const WitArchFrame *
 int wit_arch_exception_deliverable(WitU64 vector);
 WitArchExceptionKind wit_arch_exception_kind(WitU64 vector, WitU64 error, WitU64 address);
 void wit_arch_exception_record(WitUserExceptionInfo *info, const WitArchFrame *frame, WitU64 address);
-void wit_arch_exception_record_software(WitUserExceptionInfo *info, const WitThreadContext *context);
 void wit_arch_fault_from_frame(WitArchFaultState *state, const WitArchFrame *frame);
 /* The fault state of a delivered record the handler rejected: its context and, where the ISA reports one, its
  * syndrome. */

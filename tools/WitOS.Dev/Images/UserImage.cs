@@ -7,33 +7,17 @@ using WitOS.Dev.Host;
 namespace WitOS.Dev.Images;
 
 /// <summary>
-/// Builds the ABI include files and every ring-3 test fixture embedded in the kernel test image.
+/// Builds the ring-3 test fixtures a self-test kernel embeds and the root task fixture.
 /// </summary>
 internal static class UserImage
 {
     #region Constants
 
+    // The headers whose constants place a fixture: the code window (user_layout.h) and the protections (user_abi.h).
     private static readonly string[] ABI_HEADERS =
     [
         "src/Kernel/include/witos/user_abi.h",
-        "src/Kernel/include/witos/user_abi_frozen.h",
-        "src/Kernel/include/witos/wait_objects.h",
-        "src/Kernel/include/witos/thread_info.h",
-        "src/Kernel/include/witos/thread_reference.h",
-        "src/Kernel/include/witos/process.h",
-        "src/Kernel/include/witos/processor.h",
-        "src/Kernel/include/witos/thread_context.h",
-        "src/Kernel/include/witos/exception.h",
-        "src/Kernel/include/witos/cpu_context_info.h",
-        "src/Kernel/include/witos/channels.h",
-        "src/Kernel/include/witos/memory_object.h",
-        "src/Kernel/include/witos/device.h",
-        "src/Kernel/include/witos/dma.h",
-        "src/Kernel/include/witos/root.h",
-        "src/Kernel/include/witos/flat.h",
-        "src/Kernel/include/witos/user_layout.h",
-        "src/Kernel/include/witos/limits.h",
-        "tests/User/protocol.h"
+        "src/Kernel/include/witos/user_layout.h"
     ];
 
     // The root task fixture's sources in tests/User, linked in this order.
@@ -62,54 +46,14 @@ internal static class UserImage
     #region Functions
 
     /// <summary>
-    /// Generates the ABI include files and builds every x64 user fixture: the mechanism fixtures in C (plan step K8.3)
-    /// and the PE fixtures of the kernel policy, which MSVC builds until plan step K8.4.
+    /// Builds the mechanism fixtures of the architecture (plan step K8.3): each source of tests/User/Fixtures compiled
+    /// by the pinned clang, linked by lld at WIT_USER_CODE and embedded as the C array its kernel self-test includes.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="output">Output directory.</param>
-    /// <param name="msvc">Directory of the MSVC x64 host tools.</param>
-    public static async Task BuildAsync(string root, string output, string msvc)
-    {
-        var constants = await PrepareAbiAsync(root, output);
-        await BuildClangFixturesAsync(root, output, KernelArchitecture.X64, constants);
-        await UserPeImage.BuildAsync(root, output, msvc, constants);
-        await UserBootstrapImage.BuildAsync(root, output, msvc);
-        await UserTlsImage.BuildAsync(root, output, msvc);
-    }
-
-    /// <summary>
-    /// Generates user_abi.inc, the ABI constants for x64 assembly.
-    /// </summary>
-    /// <param name="root">Repository root.</param>
-    /// <param name="output">Output directory.</param>
-    /// <returns>The ABI constants.</returns>
-    public static async Task<Dictionary<string, ulong>> PrepareAbiAsync(string root, string output)
-    {
-        var constants = await ReadConstantsAsync(root);
-        var includes = string.Join("\n", constants.Select(item => $"{item.Key} EQU 0{item.Value:X}h")) + "\n";
-        await File.WriteAllTextAsync(Path.Combine(output, "user_abi.inc"), includes, Encoding.ASCII);
-        return constants;
-    }
-
-    /// <summary>
-    /// Generates the ABI header for ARM64 assembly and builds the ARM64 user fixtures: the mechanism fixtures in C (plan
-    /// step K8.3) and the PE fixture of the kernel policy.
-    /// </summary>
-    /// <remarks>
-    /// armasm64 limits EQU to 32 bits, so the C preprocessor expands the ABI constants into each fixture before
-    /// assembly, as the Windows SDK does for ARM64 assembly.
-    /// </remarks>
-    /// <param name="root">Repository root.</param>
-    /// <param name="output">Output directory.</param>
-    /// <param name="msvc">Directory of the MSVC ARM64 cross tools.</param>
-    public static async Task BuildArm64Async(string root, string output, string msvc)
-    {
-        var constants = await ReadConstantsAsync(root);
-        var defines = string.Join("\n", constants.Select(item => $"#define {item.Key} 0x{item.Value:X}")) + "\n";
-        await File.WriteAllTextAsync(Path.Combine(output, "user_abi_a64.h"), defines, Encoding.ASCII);
-        await BuildClangFixturesAsync(root, output, KernelArchitecture.Arm64, constants);
-        await UserPeImage.BuildArm64Async(root, output, msvc, constants);
-    }
+    /// <param name="architecture">Target architecture.</param>
+    public static async Task BuildFixturesAsync(string root, string output, KernelArchitecture architecture) =>
+        await BuildClangFixturesAsync(root, output, architecture, await ReadConstantsAsync(root));
 
     #endregion
 
@@ -129,18 +73,6 @@ internal static class UserImage
                     ? ulong.Parse(literal[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture)
                     : ulong.Parse(literal, CultureInfo.InvariantCulture);
                 constants.Add(match.Groups[1].Value, value);
-            }
-        }
-        // The frozen line's names are aliases of the kernel's constants (user_abi_frozen.h).
-        foreach (var header in ABI_HEADERS)
-        {
-            var source = await File.ReadAllTextAsync(Path.Combine(root, header));
-            foreach (Match match in Regex.Matches(source, @"^#define\s+(WIT_[A-Z0-9_]+)\s+(WIT_[A-Z0-9_]+)\s*$", RegexOptions.Multiline))
-            {
-                if (constants.TryGetValue(match.Groups[2].Value, out var value))
-                {
-                    constants.Add(match.Groups[1].Value, value);
-                }
             }
         }
         return constants;

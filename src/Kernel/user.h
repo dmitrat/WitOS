@@ -5,26 +5,16 @@
 #include "witos/user_layout.h"
 #include "witos/handles.h"
 #include "witos/limits.h"
-#include "witos/files.h"
 #include "witos/events.h"
 #include "witos/channels.h"
 #include "witos/memory_object.h"
 #include "witos/processor.h"
 #include "witos/memory.h"
-#include "witos/pe.h"
 #include "witos/virtual_gap.h"
 
 _Static_assert(WIT_WAIT_ANY_CAPACITY == WIT_EVENT_CAPACITY, "Wait-any event capacity");
-_Static_assert(WIT_PE_MAX_SECTIONS == WIT_IMAGE_INFO_MAX_RANGES, "Image range capacities");
-_Static_assert(WIT_USER_IMAGE_INFO_OFFSET + WIT_IMAGE_INFO_SIZE <= 4096, "Image information page bound");
 
-/* Private code-mapping backend; not enabled by ordinary memory syscalls. */
-#define WIT_CODE_EXECUTE 4ULL
 typedef WitVirtualRange WitUserReservation;
-
-typedef struct WitCodeView {
-    WitU64 Destination, Source, Size, Protection;
-} WitCodeView;
 
 typedef struct WitUserSpace {
     WitPageAllocator *Allocator;
@@ -34,13 +24,11 @@ typedef struct WitUserSpace {
     WitU64 AliasVirtual[WIT_RUNTIME_PAGE_CAPACITY];
     WitU64 AliasPhysical[WIT_RUNTIME_PAGE_CAPACITY];
     WitU32 AliasCount;
-    WitCodeView CodeViews[WIT_CODE_VIEW_CAPACITY];
     WitUserReservation Reservations[WIT_PROCESS_RESERVATION_CAPACITY]; /* ReservationLimit of them in use */
     /* Per reservation: the memory object it maps (its nonzero number; zero for a plain reservation) and the rights
      * of the handle that mapped it, which bound its protection. */
     WitU32 MappedObjects[WIT_PROCESS_RESERVATION_CAPACITY];
     WitU32 MappedRights[WIT_PROCESS_RESERVATION_CAPACITY];
-    WitVirtualRange LibraryRanges[WIT_LIBRARY_CAPACITY + 1];
     /* OwnedCount pages are the space's own; ChargedPages are the pages of the live memory objects the component
      * created (K5.2b), which the kernel's table owns: together they are bounded by PageLimit. */
     WitU32 OwnedCount, ChargedPages, PageLimit, ReservationLimit;
@@ -78,14 +66,9 @@ typedef struct WitUserActivation {
 
 typedef struct WitUserThread {
     WitUserThreadState State;
-    WitU32 LibraryNotifications, LibraryPhase, LibraryRequired;
     WitU32 NativeId;
     WitU32 SuspendCount;
     WitUserExceptionInfo Exception;
-    WitUserExceptionInfo ExceptionParents[WIT_EXCEPTION_MAX_DEPTH - 1];
-    WitU32 ExceptionDepth;
-    WitU32 NameLength;
-    WitU16 Name[WIT_THREAD_NAME_CAPACITY];
     WitUserWaitKind WaitKind;
     WitU64 WaitHandle;
     WitU64 WaitHandles[WIT_WAIT_ANY_CAPACITY];
@@ -107,8 +90,6 @@ typedef struct WitUserThread {
     WitU64 ExitClear, ExitEvent; /* the exit request (S2.1): zeroed and set after the thread no longer runs */
     WitU64 AlternateBottom, AlternateTop; /* the thread's alternate stack (S3.1); zero when none */
     WitU64 Affinity; /* the processors the thread may run on (K7.1): bit n is processor n */
-    WitU64 LibraryTls[WIT_LIBRARY_CAPACITY];
-    WitU64 LibraryNotificationPage, LibraryNotificationHandles[2];
     WitU64 ExitCode;
     WitArchFrame *Context;
 } WitUserThread;
@@ -119,39 +100,6 @@ typedef struct WitUserThreadReference {
     WitU32 Rights, Exited;
 } WitUserThreadReference;
 
-typedef struct WitUserStackLease {
-    WitU64 Token, OwnerId, ThreadId;
-} WitUserStackLease;
-
-typedef struct WitUserLibrary {
-    WitU64 Token, Base, ImageBytes, FileOffset, FileBytes;
-    WitU32 EntryRva, UnwindRva, UnwindBytes, References;
-    WitU64 NameOffset;
-    WitU32 NameBytes, Dependencies, Readers;
-    WitU64 AttachOrder;
-    WitU32 TlsCallbacksRva, TlsCallbackCount;
-} WitUserLibrary;
-
-/* A library with an entry point takes thread notifications and the detach; one with an entry point or PE TLS callbacks
- * takes the process attach. */
-int wit_user_library_participates(const WitUserLibrary *library);
-int wit_user_library_attaches(const WitUserLibrary *library);
-
-typedef struct WitUserLibraryReader {
-    WitU64 Token, ModuleToken;
-    WitU32 Slot;
-} WitUserLibraryReader;
-
-typedef struct WitUserLibraryLifecycle {
-    WitU64 Token, Owner, Address, Origin;
-    WitU32 Mask, Attach, ReaderRelease, Shutdown, ThreadNotify, ThreadReserved, Count, Order[WIT_LIBRARY_CAPACITY];
-} WitUserLibraryLifecycle;
-
-typedef struct WitUserLibraryTls {
-    WitU32 Bytes;
-    WitU8 Data[WIT_PE_TLS_MAX_BYTES];
-} WitUserLibraryTls;
-
 /* A DMA pin (K3.2): a reference to an anonymous memory object over a page window; ends with its last handle. */
 typedef struct WitUserPin {
     WitU32 Live, Object, PageFirst, PageCount, References, Reserved;
@@ -160,13 +108,6 @@ typedef struct WitUserPin {
 typedef struct WitUserProcess {
     WitUserSpace Space;
     WitHandleTable Handles;
-    WitFileTable Files;
-    WitUserLibrary Libraries[WIT_LIBRARY_CAPACITY];
-    WitUserLibraryTls LibraryTls[WIT_LIBRARY_CAPACITY];
-    WitUserLibraryLifecycle LibraryLifecycle;
-    WitU64 NextLibraryAttach;
-    WitU32 LibraryShutdown;
-    WitUserLibraryReader LibraryReaders[WIT_LIBRARY_READER_CAPACITY];
     WitEventTable Events;
     /* Per device descriptor: the handles of this component to it, in the table or in flight (K3.1). */
     WitU32 DeviceReferences[WIT_DEVICE_CAPACITY];
@@ -189,28 +130,18 @@ typedef struct WitUserProcess {
     WitU64 ImageBase;
     WitU64 ImageEntry;
     WitU32 ImageSize;
-    /* The package file the main image came from (P6.4.j3b): its name's offset in the package, 0 bytes for none. */
-    WitU32 ImageNameBytes;
-    WitU64 ImageNameOffset;
-    WitU32 TlsBytes;
-    WitU8 TlsTemplate[WIT_PE_TLS_MAX_BYTES];
     WitU64 FaultVector;
     WitU64 FaultError;
     WitU64 FaultAddress;
     WitArchFaultState FaultState;
-    WitUserStackLease StackLeases[WIT_STACK_LEASE_CAPACITY];
     WitUserThread Threads[WIT_PROCESS_THREAD_CAPACITY]; /* ThreadLimit of them in use */
     WitUserThreadReference ThreadReferences[WIT_PROCESS_HANDLE_CAPACITY];
     WitU64 ExceptionCallback;
-    WitU32 RuntimeProfile; /* The full runtime profile: budget diagnostics only. */
-    WitU64 AbruptThreadId, AbruptThreadCode, ThreadExits;
+    WitU64 ThreadExits;
     WitU64 MemoryCommitFailures;
     WitU64 ForeignObjectWaitSuspends;
     WitU64 ReferenceThreadCapacityFailures;
     WitU64 HardwareNullReads, HardwareNullWrites, HardwareDivideFaults, HardwareIllegalFaults, ExceptionContinuations;
-    WitU64 FatalOwner;
-    WitUserFatalInfo Fatal;
-    WitU32 FatalArmed;
     WitU32 CurrentThread;
     WitU32 FaultThread;
     WitU64 ProcessWriteBarriers;
@@ -237,17 +168,10 @@ typedef struct WitUserProcess {
      * Pooled marks a record of the kernel's pool of created processes; Retired marks a pooled record torn down
      * while handles still refer to it (PROCESS_QUERY reads its state and exit code until the last one goes). */
     WitU32 Holders, Pooled, Retired, Reserved3;
-    /* The state every module shares (P6.4.j3a): the environment's records and their final terminator, and the
-     * current directory, canonical UTF-8 from '/'. */
-    WitU32 EnvironmentVariables, EnvironmentUnits;
-    WitU16 Environment[WIT_ENVIRONMENT_UNITS + 1];
-    WitU32 DirectoryBytes;
-    WitU8 Directory[WIT_PROCESS_PATH_BYTES];
 } WitUserProcess;
 
 void wit_user_exception_initialize(WitUserProcess *);
 void wit_user_exception_clear(WitUserThread *);
-WitU64 wit_user_exception_begin(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
 WitU64 wit_user_exception_register(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_exception_query(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_exception_continue(WitUserProcess *, WitU64, WitU64, WitU64);
@@ -260,20 +184,9 @@ WitArchFrame *wit_user_exception_trap(WitArchFrame *, WitU64, WitU64, WitU64);
 WIT_NORETURN void wit_user_fault_state(WitU64, WitU64, WitU64, const WitArchFaultState *);
 void wit_user_context_snapshot(WitThreadContext *, const WitUserThread *, const WitArchFrame *);
 WitU64 wit_user_context_validate(WitUserProcess *, WitUserThread *, const WitThreadContext *, int);
-void wit_user_stack_leases_initialize(WitUserProcess *);
-void wit_user_stack_leases_exit(WitUserProcess *, WitU64);
-int wit_user_stack_leases_owned(const WitUserProcess *, WitU64);
-int wit_user_stack_leased(const WitUserProcess *, WitU64, int);
-WitU64 wit_user_stack_lease_acquire(WitUserProcess *, WitU64, WitU64, WitU64);
-WitU64 wit_user_stack_lease_query(WitUserProcess *, WitU64, WitU64, WitU64);
-WitU64 wit_user_stack_lease_release(WitUserProcess *, WitU64);
 WitU64 wit_user_thread_context_set(WitUserProcess *, WitU64, WitU64, WitU64);
-WitU64 wit_user_thread_context_restore(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_thread_context_get(WitUserProcess *, WitU64, WitU64, WitU64);
 WitU64 wit_user_cpu_context_query(WitUserProcess *, WitU64, WitU64, WitU64);
-void wit_user_thread_name_clear(WitUserThread *);
-WitU64 wit_user_thread_name_set(WitUserProcess *, WitU64, WitU64, WitU64);
-WitU64 wit_user_thread_name_query(WitUserProcess *, WitU64, WitU64, WitU64);
 void wit_user_suspend_deadline_self_test(void);
 WitU64 wit_user_thread_suspend(WitUserProcess *, WitU64, int, WitU64 *);
 /* THREAD_AFFINITY (K7.1): the processors a thread may run on, read with QUERY and set with AFFINITY. */
@@ -429,6 +342,8 @@ int wit_user_space_create(WitUserSpace *space, WitPageAllocator *allocator);
 int wit_user_space_map(WitUserSpace *space, WitU64 address, int writable, int executable);
 WitU64 wit_user_space_physical(const WitUserSpace *space, WitU64 address, int write, int execute);
 void wit_user_space_publish_code(WitUserSpace *space, WitU64 address, WitU64 size);
+/* CODE_PUBLISH: the executable, unwritable pages of a range made visible to instruction fetch. */
+WitU64 wit_user_code_publish(WitUserSpace *space, WitU64 address, WitU64 size);
 int wit_user_copy_from(const WitUserSpace *space, WitU64 address, WitU8 *buffer, WitU32 size);
 WitU64 wit_user_debug_write(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
 int wit_user_buffer_readable(const WitUserSpace *, WitU64, WitU32);
@@ -447,7 +362,6 @@ WitU64 wit_user_memory_release(WitUserSpace *space, WitU64 address, WitU64 size)
 void wit_user_memory_self_test(WitPageAllocator *pages);
 void wit_user_thread_self_test(WitPageAllocator *pages);
 void wit_user_native_id_self_test(void);
-void wit_user_runtime_unwind_metadata_self_test(WitPageAllocator *);
 void wit_user_wait_self_test(WitPageAllocator *pages);
 void wit_user_exception_self_test(WitPageAllocator *pages);
 void wit_user_channel_self_test(WitPageAllocator *pages);
@@ -458,18 +372,14 @@ void wit_user_thread2_self_test(WitPageAllocator *pages);
 void wit_user_processor_self_test(WitPageAllocator *pages);
 struct WitBootInfo;
 void wit_root_task_self_test(const struct WitBootInfo *boot, WitPageAllocator *pages);
-void wit_user_image_self_test(WitPageAllocator *pages);
-void wit_user_bootstrap_self_test(WitPageAllocator *pages);
-void wit_user_tls_self_test(WitPageAllocator *pages);
 /* THREAD_QUERY by handle or WIT_THREAD_SELF; the caller's Version and Size in the buffer select the record. */
 WitU64 wit_user_thread_query(WitUserProcess *process, WitU64 handle, WitU64 address, WitU64 size);
 /* The WIT_THREAD_CONTEXT_* flags of a thread's context. */
 WitU32 wit_user_context_flags(const WitUserThread *target);
-int wit_user_capture_tls(WitUserProcess *process, const WitPeImage *image);
 /* THREAD_CREATE: the one form, from a WitThreadCreateRequest in the process's memory. */
 WitU64 wit_user_thread_create(WitUserProcess *process, WitU64 input, WitU64 size, WitU64 *result);
 WitU64 wit_user_thread_set_tls(WitUserProcess *process, WitU64 base, WitU64 reserved0, WitU64 reserved1);
-WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument, WitU64 flags);
+WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument);
 WitU64 wit_virtual_kernel_root(void);
 
 int wit_user_create(
@@ -479,21 +389,6 @@ int wit_user_create(
 struct WitFlatLayout;
 int wit_user_create_flat(
     WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const struct WitFlatLayout *layout);
-WitPeStatus wit_user_create_pe_profile(
-    WitUserProcess *, WitPageAllocator *, WitU32, const WitU8 *, WitU32, WitU64, const char *, WitU32);
-WitPeStatus wit_user_create_named_pe(WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot,
-    const WitU8 *file, WitU32 size, WitU64 base, const char *resource_name);
-/* Creates a component from a file of the boot package, which the component's module queries then name. */
-WitPeStatus wit_user_create_package_pe(
-    WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const char *name, WitU64 base, WitU32 profile);
-WitPeStatus wit_user_create_pe(
-    WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const WitU8 *file, WitU32 size, WitU64 base);
-int wit_user_image_map(WitUserSpace *space, const WitU8 *file, const WitPeImage *plan, WitU64 base);
-/* Before the attach of a library with an entry point: every live thread that follows the notification protocol and
- * has not left gets the notification page and handles it lacks, as a thread created after the load would, so its exit
- * detaches the library. Returns the mask of threads that received them; fails with all of them released. */
-WitU64 wit_user_thread_require_notifications(WitUserProcess *process, WitU32 *reserved);
-void wit_user_thread_release_notifications(WitUserProcess *process, WitU32 reserved);
 void wit_user_run(WitUserProcess *process);
 void wit_user_destroy(WitUserProcess *process);
 int wit_user_is_active(void);
@@ -539,38 +434,4 @@ WIT_NORETURN void wit_user_fault(
     const void *trap, WitU64 trap_size, WitU64 vector, WitU64 error, WitU64 address, const WitArchFaultState *state);
 /* Contained user faults since boot, one per [USER-FAULT] line. */
 WitU64 wit_user_contained_faults(void);
-
-WitU64 wit_user_code_call(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
-WitU64 wit_user_code_reserve(WitUserSpace *, WitU64, WitU64, WitU64, WitU64, WitU64 *);
-WitU64 wit_user_code_validate(WitUserSpace *, WitU64, WitU64, WitU64);
-WitU64 wit_user_code_reset_sparse(WitUserSpace *, WitU64, WitU64);
-WitU64 wit_user_code_map_sparse(WitUserSpace *, WitU64, WitU64, WitU64, WitU64);
-WitU64 wit_user_code_alias(WitUserSpace *, WitU64, WitU64, WitU64, WitU64);
-WitU64 wit_user_code_protect(WitUserSpace *, WitU64, WitU64, WitU64);
-WitU64 wit_user_code_publish(WitUserSpace *, WitU64, WitU64);
-
-WitU64 wit_user_library_call(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
-WitU64 wit_user_library_release(WitUserSpace *, WitU64);
-void wit_user_library_initialize(WitUserProcess *);
-void wit_user_library_collect(WitUserProcess *);
-int wit_user_library_tls_install(WitUserProcess *, WitU32, const WitPeImage *, WitU64);
-void wit_user_library_tls_remove(WitUserProcess *, WitU32);
-int wit_user_library_tls_create_thread(WitUserProcess *, WitU32);
-void wit_user_library_tls_reap_thread(WitUserProcess *, WitU32);
-void wit_user_library_tls_refresh(WitUserProcess *);
-WitU32 wit_user_library_reachable(const WitUserProcess *);
-WitU64 wit_user_library_thread_admission(const WitUserProcess *, WitU64);
-WitU64 wit_user_library_thread_notify(WitUserProcess *, const WitLibraryRequest *);
-WitU64 wit_user_library_begin_lifecycle(WitUserProcess *, WitU32, int, WitU64, int, WitU64, WitU64 *);
-WitU64 wit_user_library_finish_lifecycle(WitUserProcess *, const WitLibraryRequest *);
-WitU64 wit_user_library_shutdown(WitUserProcess *, const WitLibraryRequest *);
-WitU64 wit_user_library_release_plan(WitUserProcess *, WitUserLibrary *, WitU64, int, WitU32, WitU64 *);
-WitU64 wit_user_library_reader_call(WitUserProcess *, const WitLibraryRequest *, WitU64 *);
-WitU64 wit_user_storage_query(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
-WitU64 wit_user_process_state(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
-void wit_user_process_state_reset(WitUserProcess *);
-/* Sets (value non-zero) or removes a variable of a component its creator prepares; the kernel's own strings. */
-WitU64 wit_user_environment_set(
-    WitUserProcess *, const WitU16 *name, WitU32 nameUnits, const WitU16 *value, WitU32 valueUnits);
-WitU64 wit_user_file_call(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
 #endif

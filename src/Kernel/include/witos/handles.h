@@ -10,10 +10,7 @@
 #define WIT_HANDLE_THREAD_IDENTITY 3U
 #define WIT_HANDLE_EVENT 4U
 #define WIT_HANDLE_THREAD_REFERENCE 5U
-#define WIT_HANDLE_FILE 6U
-#define WIT_HANDLE_LIBRARY 7U
-#define WIT_HANDLE_LIBRARY_READER 8U
-#define WIT_HANDLE_LIBRARY_LIFECYCLE 9U
+/* 6-9 (a file, a library, a module reader, a library lifecycle) left with the kernel policy at K8.4a. */
 #define WIT_HANDLE_CHANNEL_ENDPOINT 10U
 #define WIT_HANDLE_MEMORY_OBJECT 11U
 #define WIT_HANDLE_DEVICE 12U
@@ -22,8 +19,8 @@
 #define WIT_HANDLE_PROCESS \
     15U /* a process (K5.2c); Object is its Id in the high word and registry slot plus one in the low */
 #define WIT_HANDLE_CLOCK 16U /* the authority to set UTC (CLOCK_SET, K6): the handle is the capability, no record */
-/* The rights are the ABI's (user_abi.h); READ of a lifecycle handle is the QUERY bit. */
-#define WIT_RIGHT_READ WIT_RIGHT_QUERY
+
+/* The rights are the ABI's (user_abi.h). */
 
 /* Object names the object an entry refers to within its kind (an event slot, a thread identity); zero when the kind
  * has one object per handle. */

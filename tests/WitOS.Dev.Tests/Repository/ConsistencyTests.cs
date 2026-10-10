@@ -93,7 +93,16 @@ public sealed class ConsistencyTests
         }
         var rows = Regex.Matches(reference, @"^\| \d+ \| `(WIT_CALL_[A-Z0-9_]+)` \|", RegexOptions.Multiline);
         Assert.That(rows.Count == calls.Count, Is.True, $"ABI reference has {rows.Count} call rows for {calls.Count} calls");
-        var next = calls.Values.Max() + 1;
+        // A retired number is never reused (RFC 0011 section 10.1): no call carries one, the reference names each with
+        // the call it was, and the next free number follows both.
+        var retired = KernelAbi.RetiredCalls(root);
+        Assert.That(retired, Is.Not.Empty, "No retired call numbers were found");
+        foreach (var number in retired)
+        {
+            Assert.That(calls.Values, Does.Not.Contain(number), $"Call number {number} is retired");
+            Assert.That(Regex.IsMatch(reference, $@"\b{number}\s+`[A-Z0-9_]+`"), Is.True, $"ABI reference does not name retired call {number}");
+        }
+        var next = Math.Max(calls.Values.Max(), retired.Max()) + 1;
         Assert.That(reference.Contains($"Следующий свободный номер: **{next}**", StringComparison.Ordinal), Is.True, "ABI reference names a stale next free call number");
         Assert.That(reference.Contains($"**user ABI v{KernelAbi.UserVersion(root)}**", StringComparison.Ordinal) &&
             reference.Contains($"**boot ABI v{KernelAbi.BootVersion(root)}**", StringComparison.Ordinal), Is.True, "ABI reference names stale versions");

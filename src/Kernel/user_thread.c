@@ -1,6 +1,5 @@
 #include "user.h"
 #include "witos/platform.h"
-_Static_assert(WIT_COMPILER_TLS_DATA_OFFSET + WIT_PE_TLS_MAX_BYTES <= 4096, "Compiler TLS page bound");
 
 static void require(int condition, const char *message)
 {
@@ -40,56 +39,17 @@ void wit_user_native_id_self_test(void)
 }
 #endif
 
-/* Capture the relocated initial template before publishing the component.
- * Later user writes to its PE image cannot change the seed for future threads. */
-int wit_user_capture_tls(WitUserProcess *process, const WitPeImage *image)
+/* Resets a free thread slot for a new thread. Fails when native thread identifiers are exhausted. */
+static WitU64 reset_thread(WitUserThread *thread)
 {
-    const WitU32 index = 0; /* One static module per component. */
-    process->TlsBytes = 0;
-    if (!image || !image->TlsSize) {
-        return 1;
-    }
-    if (!wit_user_copy_from(
-            &process->Space, process->ImageBase + image->TlsTemplateRva, process->TlsTemplate, image->TlsInitialized) ||
-        !wit_user_copy_to(
-            &process->Space, process->ImageBase + image->TlsIndexRva, (const WitU8 *)&index, sizeof(index))) {
-        return 0;
-    }
-    process->TlsBytes = image->TlsInitialized + image->TlsZeroFill;
-    for (WitU32 i = image->TlsInitialized; i < process->TlsBytes; ++i) {
-        process->TlsTemplate[i] = 0;
-    }
-    return 1;
-}
-
-/* Resets a free thread slot for a new thread. Library notifications are required when a loaded library has an
- * entry point. Fails when native thread identifiers are exhausted. */
-static WitU64 reset_thread(WitUserProcess *process, WitUserThread *thread, WitU64 flags)
-{
-    thread->LibraryNotifications = (flags & WIT_THREAD_LIBRARY_NOTIFICATIONS) != 0;
-    thread->LibraryPhase = thread->LibraryNotifications ? 1U : 0U;
-    thread->LibraryRequired = 0;
-    if (thread->LibraryNotifications) {
-        for (WitU32 n = 0; n < WIT_LIBRARY_CAPACITY; ++n) {
-            if (process->Libraries[n].Token && wit_user_library_participates(&process->Libraries[n])) {
-                thread->LibraryRequired = 1;
-            }
-        }
-    }
     thread->NativeId = 0;
     thread->SuspendCount = 0;
     thread->Affinity = 1; /* The boot processor, the one online (K7.1). */
     wit_user_exception_clear(thread);
-    wit_user_thread_name_clear(thread);
     if (next_native_id > 0xFFFFFFFFULL) {
         return WIT_STATUS_NO_MEMORY;
     }
-    thread->LibraryNotificationPage = 0;
-    thread->LibraryNotificationHandles[0] = thread->LibraryNotificationHandles[1] = 0;
     thread->CompilerTls = 0;
-    for (WitU32 i = 0; i < WIT_LIBRARY_CAPACITY; ++i) {
-        thread->LibraryTls[i] = 0;
-    }
     return WIT_STATUS_OK;
 }
 
@@ -100,95 +60,8 @@ typedef struct ThreadPages {
     int RawMapped;
 } ThreadPages;
 
-/* The compiler TLS page: the TEB-style self pointer at 0x58, the TLS array at 0x80 and the image template. */
-static int map_compiler_tls(WitUserProcess *process, WitUserThread *thread, WitU64 address)
-{
-    if (!wit_user_space_map(&process->Space, address, 1, 0)) {
-        return 0;
-    }
-    const WitU64 physical = wit_user_space_physical(&process->Space, address, 1, 0);
-    ((WitU64 *)physical)[0x58 / 8] = address + 0x80;
-    ((WitU64 *)physical)[0x80 / 8] = address + WIT_COMPILER_TLS_DATA_OFFSET;
-    for (WitU32 i = 0; i < process->TlsBytes; ++i) {
-        ((WitU8 *)physical)[WIT_COMPILER_TLS_DATA_OFFSET + i] = process->TlsTemplate[i];
-    }
-    thread->CompilerTls = address;
-    return 1;
-}
-
-/* Maps the library notification page and grants the lifecycle handles the thread still needs: the attach handle only
- * before its library enter. */
-static int reserve_notifications(WitUserProcess *process, WitU32 index, WitUserThread *thread)
-{
-    const WitU64 address = WIT_USER_TLS + index * WIT_USER_THREAD_STRIDE + (WIT_LIBRARY_CAPACITY + 2) * 4096;
-    if (!wit_user_space_map(&process->Space, address, 0, 0)) {
-        return 0;
-    }
-    thread->LibraryNotificationPage = address;
-    for (WitU32 n = thread->LibraryPhase == 1 ? 0U : 1U; n < 2; ++n) {
-        thread->LibraryNotificationHandles[n] =
-            wit_handle_grant(&process->Handles, WIT_HANDLE_LIBRARY_LIFECYCLE, WIT_RIGHT_READ);
-        if (!thread->LibraryNotificationHandles[n]) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
-static void release_notifications(WitUserProcess *process, WitUserThread *thread)
-{
-    for (WitU32 n = 0; n < 2; ++n) {
-        if (thread->LibraryNotificationHandles[n]) {
-            require(wit_handle_close(&process->Handles, thread->LibraryNotificationHandles[n]) == WIT_STATUS_OK,
-                "Thread notification handle rollback failed");
-            thread->LibraryNotificationHandles[n] = 0;
-        }
-    }
-    if (thread->LibraryNotificationPage) {
-        require(wit_user_space_unmap_fixed(&process->Space, thread->LibraryNotificationPage),
-            "Thread notification page rollback failed");
-        thread->LibraryNotificationPage = 0;
-    }
-}
-
-WitU64 wit_user_thread_require_notifications(WitUserProcess *process, WitU32 *reserved)
-{
-    *reserved = 0;
-    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
-        WitUserThread *thread = &process->Threads[i];
-        if (thread->State == WitThreadEmpty ||
-            thread->State == WitThreadExited ||
-            !thread->LibraryNotifications ||
-            thread->LibraryRequired ||
-            (thread->LibraryPhase != 1 && thread->LibraryPhase != 2)) {
-            continue;
-        }
-        require(!thread->LibraryNotificationPage, "Unrequired thread owns notification resources");
-        if (!reserve_notifications(process, i, thread)) {
-            release_notifications(process, thread);
-            wit_user_thread_release_notifications(process, *reserved);
-            *reserved = 0;
-            return WIT_STATUS_NO_MEMORY;
-        }
-        thread->LibraryRequired = 1;
-        *reserved |= 1U << i;
-    }
-    return WIT_STATUS_OK;
-}
-
-void wit_user_thread_release_notifications(WitUserProcess *process, WitU32 reserved)
-{
-    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
-        if (reserved & (1U << i)) {
-            release_notifications(process, &process->Threads[i]);
-            process->Threads[i].LibraryRequired = 0;
-        }
-    }
-}
-
-/* Maps the stack, raw TLS, compiler TLS, library TLS and, when required, the library notification page and its
- * two lifecycle handles. */
-static int map_thread(WitUserProcess *process, WitU32 index, WitUserThread *thread, ThreadPages *pages)
+/* Maps the stack and the raw TLS page. */
+static int map_thread(WitUserProcess *process, ThreadPages *pages)
 {
     for (WitU64 page = pages->Bottom; page < pages->Top; page += 4096) {
         if (!wit_user_space_map(&process->Space, page, 1, 0)) {
@@ -200,24 +73,11 @@ static int map_thread(WitUserProcess *process, WitU32 index, WitUserThread *thre
         return 0;
     }
     pages->RawMapped = 1;
-    if (process->TlsBytes && !map_compiler_tls(process, thread, pages->Tls + 4096)) {
-        return 0;
-    }
-    if (!wit_user_library_tls_create_thread(process, index)) {
-        return 0;
-    }
-    return !thread->LibraryRequired || reserve_notifications(process, index, thread);
+    return 1;
 }
 
-static void unmap_thread(
-    WitUserProcess *process, WitU32 index, WitUserThread *thread, const ThreadPages *pages, WitU64 handle)
+static void unmap_thread(WitUserProcess *process, const ThreadPages *pages, WitU64 handle)
 {
-    release_notifications(process, thread);
-    wit_user_library_tls_reap_thread(process, index);
-    if (thread->CompilerTls) {
-        require(wit_user_space_unmap_fixed(&process->Space, thread->CompilerTls), "Compiler TLS rollback lost page");
-        thread->CompilerTls = 0;
-    }
     if (pages->RawMapped) {
         require(wit_user_space_unmap_fixed(&process->Space, pages->Tls), "Raw TLS rollback failed");
     }
@@ -267,16 +127,12 @@ static void start_thread(WitUserProcess *process, WitU32 index, WitUserThread *t
 
 /* Maps and starts a thread in a free slot. Its private identity is a handle-table entry user space never receives as
  * a capability (closing it is BUSY); the thread's stack and TLS are reclaimed at its exit. */
-WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument, WitU64 flags)
+WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument)
 {
-    const WitU64 admission = wit_user_library_thread_admission(process, flags);
-    if (admission != WIT_STATUS_OK) {
-        return admission;
-    }
     WitUserThread *thread = &process->Threads[index];
     ThreadPages pages = {WIT_USER_STACK_BOTTOM + index * WIT_USER_THREAD_STRIDE,
         WIT_USER_STACK_TOP + index * WIT_USER_THREAD_STRIDE, WIT_USER_TLS + index * WIT_USER_THREAD_STRIDE, 0, 0};
-    const WitU64 reset = reset_thread(process, thread, flags);
+    const WitU64 reset = reset_thread(thread);
     if (reset != WIT_STATUS_OK) {
         return reset;
     }
@@ -284,8 +140,8 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 ent
     if (!handle) {
         return WIT_STATUS_NO_MEMORY;
     }
-    if (!map_thread(process, index, thread, &pages)) {
-        unmap_thread(process, index, thread, &pages, handle);
+    if (!map_thread(process, &pages)) {
+        unmap_thread(process, &pages, handle);
         return WIT_STATUS_NO_MEMORY;
     }
     start_thread(process, index, thread, &pages, handle, entry, argument);
@@ -338,7 +194,7 @@ static WitU64 create_in(
         return WIT_STATUS_NO_MEMORY;
     }
     WitUserThread *thread = &target->Threads[index];
-    const WitU64 reset = reset_thread(target, thread, 0);
+    const WitU64 reset = reset_thread(thread);
     if (reset != WIT_STATUS_OK) {
         return reset;
     }
@@ -541,9 +397,7 @@ WitU64 wit_user_thread_create(WitUserProcess *p, WitU64 input, WitU64 size, WitU
     if (request.Version != WIT_THREAD_CREATE_VERSION) {
         return WIT_STATUS_UNSUPPORTED;
     }
-    if (request.Size != sizeof(request) ||
-        request.Reserved ||
-        (request.Flags & ~(WIT_THREAD_START_SUSPENDED | WIT_THREAD_LIBRARY_NOTIFICATIONS))) {
+    if (request.Size != sizeof(request) || request.Reserved || (request.Flags & ~WIT_THREAD_START_SUSPENDED)) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
     if (request.StackBytes > WIT_USER_STACK_TOP - WIT_USER_STACK_BOTTOM) {
@@ -577,8 +431,7 @@ WitU64 wit_user_thread_create(WitUserProcess *p, WitU64 input, WitU64 size, WitU
     if (!handle) {
         return WIT_STATUS_NO_MEMORY;
     }
-    const WitU64 status = wit_user_prepare_thread(
-        p, index, request.Entry, request.Argument, request.Flags & WIT_THREAD_LIBRARY_NOTIFICATIONS);
+    const WitU64 status = wit_user_prepare_thread(p, index, request.Entry, request.Argument);
     if (status != WIT_STATUS_OK) {
         if (wit_handle_close(&p->Handles, handle) != WIT_STATUS_OK) {
             wit_panic("Thread creation rollback failed");

@@ -1,7 +1,6 @@
 #include "witos/boot.h"
 #include "witos/devices.h"
 #include "root_task.h"
-#include "witos/storage.h"
 #include "witos/memory.h"
 #include "witos/random.h"
 #include "witos/virtual.h"
@@ -153,9 +152,6 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
     wit_console_write_u64(wit_pages_free_count(&physical_pages));
     wit_console_write("\n");
     wit_virtual_initialize(boot, &physical_pages);
-    if (!wit_storage_initialize(boot)) {
-        wit_panic("Invalid readonly boot package");
-    }
     consume_entropy(boot);
     wit_platform_clock_initialize(boot);
     wit_clock_initialize();
