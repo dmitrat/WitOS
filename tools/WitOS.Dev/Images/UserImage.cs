@@ -40,6 +40,21 @@ internal static class UserImage
     // The root task fixture's sources in tests/User, linked in this order.
     private static readonly string[] ROOT_SOURCES = ["root.c", "root_mechanisms.c"];
 
+    // The mechanism fixtures in C (plan step K8.3), one source in tests/User/Fixtures for both ISAs: the source, the
+    // fixture's name, the C array the kernel self-test embeds and the header that holds it.
+    private static readonly (string Source, string Name, string Symbol, string Header)[] CLANG_FIXTURES =
+    [
+        ("channels", "ChannelFixture", "wit_user_channel_image", "user_channel_image.h"),
+        ("exceptions", "ExceptionFixture", "wit_user_exception_image", "user_exception_image.h"),
+        ("memory_objects", "MemoryObjectFixture", "wit_user_memory_object_image", "user_memory_object_image.h"),
+        ("devices", "DeviceFixture", "wit_user_device_image", "user_device_image.h"),
+        ("interrupts", "InterruptFixture", "wit_user_interrupt_image", "user_interrupt_image.h"),
+        ("virtio", "VirtioFixture", "wit_user_virtio_image", "user_virtio_image.h"),
+        ("threads2", "Thread2Fixture", "wit_user_thread2_image", "user_thread2_image.h"),
+        ("processes", "ProcessFixture", "wit_user_process_image", "user_process_image.h"),
+        ("processors", "ProcessorFixture", "wit_user_processor_image", "user_processor_image.h")
+    ];
+
     #endregion
 
     #region Functions
@@ -56,15 +71,7 @@ internal static class UserImage
         await BuildFixtureAsync(root, output, msvc, constants, "entry", "UserFixture", "wit_user_test_image", "user_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "threads", "ThreadFixture", "wit_user_thread_image", "user_thread_image.h");
         await BuildFixtureAsync(root, output, msvc, constants, "waits", "WaitFixture", "wit_user_wait_image", "user_wait_image.h");
-        await BuildFixtureAsync(root, output, msvc, constants, "exceptions", "ExceptionFixture", "wit_user_exception_image", "user_exception_image.h");
-        await BuildFixtureAsync(root, output, msvc, constants, "channels", "ChannelFixture", "wit_user_channel_image", "user_channel_image.h");
-        await BuildFixtureAsync(root, output, msvc, constants, "memory_objects", "MemoryObjectFixture", "wit_user_memory_object_image", "user_memory_object_image.h");
-        await BuildFixtureAsync(root, output, msvc, constants, "devices", "DeviceFixture", "wit_user_device_image", "user_device_image.h");
-        await BuildFixtureAsync(root, output, msvc, constants, "interrupts", "InterruptFixture", "wit_user_interrupt_image", "user_interrupt_image.h");
-        await BuildFixtureAsync(root, output, msvc, constants, "virtio", "VirtioFixture", "wit_user_virtio_image", "user_virtio_image.h");
-        await BuildFixtureAsync(root, output, msvc, constants, "threads2", "Thread2Fixture", "wit_user_thread2_image", "user_thread2_image.h");
-        await BuildFixtureAsync(root, output, msvc, constants, "processes", "ProcessFixture", "wit_user_process_image", "user_process_image.h");
-        await BuildFixtureAsync(root, output, msvc, constants, "processors", "ProcessorFixture", "wit_user_processor_image", "user_processor_image.h");
+        await BuildClangFixturesAsync(root, output, KernelArchitecture.X64, constants);
         await UserPeImage.BuildAsync(root, output, msvc, constants);
         await UserBootstrapImage.BuildAsync(root, output, msvc);
         await UserTlsImage.BuildAsync(root, output, msvc);
@@ -102,15 +109,7 @@ internal static class UserImage
         await BuildArm64FixtureAsync(root, output, msvc, constants, "entry", "UserFixture", "wit_user_test_image", "user_image.h");
         await BuildArm64FixtureAsync(root, output, msvc, constants, "threads", "ThreadFixture", "wit_user_thread_image", "user_thread_image.h");
         await BuildArm64FixtureAsync(root, output, msvc, constants, "waits", "WaitFixture", "wit_user_wait_image", "user_wait_image.h");
-        await BuildArm64FixtureAsync(root, output, msvc, constants, "exceptions", "ExceptionFixture", "wit_user_exception_image", "user_exception_image.h");
-        await BuildArm64FixtureAsync(root, output, msvc, constants, "channels", "ChannelFixture", "wit_user_channel_image", "user_channel_image.h");
-        await BuildArm64FixtureAsync(root, output, msvc, constants, "memory_objects", "MemoryObjectFixture", "wit_user_memory_object_image", "user_memory_object_image.h");
-        await BuildArm64FixtureAsync(root, output, msvc, constants, "devices", "DeviceFixture", "wit_user_device_image", "user_device_image.h");
-        await BuildArm64FixtureAsync(root, output, msvc, constants, "interrupts", "InterruptFixture", "wit_user_interrupt_image", "user_interrupt_image.h");
-        await BuildArm64FixtureAsync(root, output, msvc, constants, "virtio", "VirtioFixture", "wit_user_virtio_image", "user_virtio_image.h");
-        await BuildArm64FixtureAsync(root, output, msvc, constants, "threads2", "Thread2Fixture", "wit_user_thread2_image", "user_thread2_image.h");
-        await BuildArm64FixtureAsync(root, output, msvc, constants, "processes", "ProcessFixture", "wit_user_process_image", "user_process_image.h");
-        await BuildArm64FixtureAsync(root, output, msvc, constants, "processors", "ProcessorFixture", "wit_user_processor_image", "user_processor_image.h");
+        await BuildClangFixturesAsync(root, output, KernelArchitecture.Arm64, constants);
         await UserPeImage.BuildArm64Async(root, output, msvc, constants);
     }
 
@@ -176,6 +175,49 @@ internal static class UserImage
         await EmbedFixtureAsync(output, constants, Machine.Arm64, image, name, symbol, header);
     }
 
+    // A mechanism fixture of tests/User/Fixtures built by the pinned clang and lld (plan step K8.3): one executable
+    // segment at WIT_USER_CODE whose first byte is the entry, within the code window wit_user_create maps (up to the
+    // startup block at WIT_USER_INFO), embedded as a C array.
+    private static async Task BuildClangFixturesAsync(string root, string output, KernelArchitecture architecture,
+        Dictionary<string, ulong> constants)
+    {
+        var code = constants["WIT_USER_CODE"];
+        var window = constants["WIT_USER_INFO"] - code;
+        var executable = (uint)(constants["WIT_MEMORY_READ"] | constants["WIT_MEMORY_EXECUTE"]);
+        foreach (var (source, name, symbol, header) in CLANG_FIXTURES)
+        {
+            var obj = Path.Combine(output, name + ".o");
+            var image = Path.Combine(output, name + ".elf");
+            // Optimized for size: a fixture lives in the code window below the startup block.
+            await CompileFreestandingAsync(root, architecture, Path.Combine(root, "tests", "User", "Fixtures", source + ".c"), obj,
+                "-Os", "-I", Path.Combine(root, "tests", "User"));
+            await Processes.RequireSuccessAsync(Toolchain.Lld(root),
+            [
+                "-o", image, "-static", "--no-dynamic-linker", "--build-id=none", "-z", "max-page-size=4096", "-z", "norelro",
+                "--gc-sections", "-T", Path.Combine(root, "tests", "User", "Fixtures", "fixture.ld"), obj
+            ], root);
+            var (entry, segments) = FlatImage.ParseElf(await File.ReadAllBytesAsync(image), architecture.ElfMachine);
+            if (segments.Count != 1 || segments[0].Address != code || entry != code || segments[0].Protection != executable ||
+                segments[0].Data.Length == 0 || segments[0].MemorySize > window)
+                throw new InvalidDataException(
+                    $"{name} must be executable code at WIT_USER_CODE within the code window that starts with its entry, and no data.");
+            await EmbedAsync(output, segments[0].Data, name, symbol, header);
+        }
+    }
+
+    // A freestanding layer-2 compilation by the pinned clang for the architecture's triple: no libc and no runtime, the
+    // ABI-1 transport of the sysroot and the kernel's ABI headers, and the options given, which come last.
+    private static Task CompileFreestandingAsync(string root, KernelArchitecture architecture, string source, string obj,
+        params string[] options) =>
+        Processes.RequireSuccessAsync(Toolchain.Clang(root),
+        [
+            $"--target={architecture.Triple}", "-std=c11", "-O2", "-ffreestanding", "-fno-builtin", "-nostdlib", "-nostdlibinc",
+            "-fPIE", "-fno-plt", "-fno-stack-protector", "-fno-asynchronous-unwind-tables", "-fno-unwind-tables",
+            "-Wall", "-Wextra", "-Werror", .. architecture.ClangOptions,
+            "-I", Path.Combine(root, "src", "Sysroot", "include"), "-I", Path.Combine(root, "src", "Kernel", "include"),
+            .. options, "-c", source, "-o", obj
+        ], root);
+
     private static Task LinkFixtureAsync(string root, string msvc, Dictionary<string, ulong> constants,
         string machine, string[] options, string obj, string image, string baseKey = "WIT_USER_BASE") =>
         Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
@@ -201,14 +243,7 @@ internal static class UserImage
         foreach (var source in ROOT_SOURCES)
         {
             var obj = Path.Combine(output, "RootFixture." + Path.GetFileNameWithoutExtension(source) + ".o");
-            await Processes.RequireSuccessAsync(Toolchain.Clang(root),
-            [
-                $"--target={architecture.Triple}", "-std=c11", "-O2", "-ffreestanding", "-fno-builtin", "-nostdlib", "-nostdlibinc",
-                "-fPIE", "-fno-plt", "-fno-stack-protector", "-fno-asynchronous-unwind-tables", "-fno-unwind-tables",
-                "-Wall", "-Wextra", "-Werror", .. architecture.ClangOptions,
-                "-I", Path.Combine(root, "src", "Sysroot", "include"), "-I", Path.Combine(root, "src", "Kernel", "include"),
-                "-c", Path.Combine(root, "tests", "User", source), "-o", obj
-            ], root);
+            await CompileFreestandingAsync(root, architecture, Path.Combine(root, "tests", "User", source), obj);
             objects.Add(obj);
         }
         await Processes.RequireSuccessAsync(Toolchain.Lld(root),
@@ -241,7 +276,12 @@ internal static class UserImage
             throw new InvalidDataException(
                 $"User fixture must be a fixed {machine} native image with one-page RX code and no imports/relocations.");
 
-        var payload = bytes.AsSpan(code.PointerToRawData, code.VirtualSize).ToArray();
+        await EmbedAsync(output, bytes.AsSpan(code.PointerToRawData, code.VirtualSize).ToArray(), name, symbol, header);
+    }
+
+    // Writes a fixture's code as the C array the kernel self-test embeds.
+    private static async Task EmbedAsync(string output, byte[] payload, string name, string symbol, string header)
+    {
         var generated = new StringBuilder("/* Generated from the separately linked user fixture; do not edit. */\nstatic const unsigned char " + symbol + "[] = {\n");
         for (var index = 0; index < payload.Length; index += 16)
             generated.AppendLine("    " + string.Join(", ", payload.Skip(index).Take(16).Select(value => $"0x{value:X2}")) + ",");
