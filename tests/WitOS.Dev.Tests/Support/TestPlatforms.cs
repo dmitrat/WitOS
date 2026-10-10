@@ -13,12 +13,6 @@ internal static class TestPlatforms
     public const string WINDOWS = "Win";
 
     /// <summary>
-    /// The native harnesses of the kernel and of its policy are built by MSVC and run on Windows: the policy's until plan
-    /// step K8.4 removes it.
-    /// </summary>
-    public const string MSVC = "Builds or runs native harnesses with MSVC on Windows (the kernel policy's until plan step K8.4).";
-
-    /// <summary>
     /// A contract of the Windows API itself: job objects, handle inheritance and command-line quoting.
     /// </summary>
     public const string WINDOWS_API = "Tests a contract of the Windows API.";

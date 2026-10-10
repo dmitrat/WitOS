@@ -1,5 +1,10 @@
+#define _CRT_SECURE_NO_WARNINGS /* fopen and the rest of standard C on MSVC */
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include <sys/mman.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,6 +12,42 @@
 static unsigned cases;
 static unsigned char *allocation;
 static const size_t capacity = 65536;
+
+/* The guarded window (plan step T2.2: Windows or POSIX memory calls): the capacity between two pages without access,
+ * read-only while the reader runs. */
+static int window_create(void)
+{
+#if defined(_WIN32)
+    allocation = (unsigned char *)VirtualAlloc(0, capacity + 8192, MEM_RESERVE, PAGE_NOACCESS);
+    return allocation && VirtualAlloc(allocation + 4096, capacity, MEM_COMMIT, PAGE_READWRITE);
+#else
+    void *base = mmap(0, capacity + 8192, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (base == MAP_FAILED) {
+        return 0;
+    }
+    allocation = (unsigned char *)base;
+    return mprotect(allocation + 4096, capacity, PROT_READ | PROT_WRITE) == 0;
+#endif
+}
+
+static int window_protect(int writable)
+{
+#if defined(_WIN32)
+    DWORD old;
+    return VirtualProtect(allocation + 4096, capacity, writable ? PAGE_READWRITE : PAGE_READONLY, &old) != 0;
+#else
+    return mprotect(allocation + 4096, capacity, writable ? PROT_READ | PROT_WRITE : PROT_READ) == 0;
+#endif
+}
+
+static void window_release(void)
+{
+#if defined(_WIN32)
+    VirtualFree(allocation, 0, MEM_RELEASE);
+#else
+    munmap(allocation, capacity + 8192);
+#endif
+}
 
 static unsigned get32(const unsigned char *p)
 {
@@ -22,15 +63,14 @@ static void put32(unsigned char *p, unsigned value)
 
 static int check(const unsigned char *source, size_t size, int expected, const char *label)
 {
-    DWORD old;
-    if (size > capacity || !VirtualProtect(allocation + 4096, capacity, PAGE_READWRITE, &old)) {
+    if (size > capacity || !window_protect(1)) {
         return 0;
     }
     unsigned char *data = allocation + 4096 + capacity - size;
     if (size) {
         memcpy(data, source, size);
     }
-    if (!VirtualProtect(allocation + 4096, capacity, PAGE_READONLY, &old)) {
+    if (!window_protect(0)) {
         return 0;
     }
     WitPackage output;
@@ -74,8 +114,8 @@ static int check(const unsigned char *source, size_t size, int expected, const c
 
 static unsigned char *load(const char *path, size_t *size)
 {
-    FILE *file = 0;
-    if (fopen_s(&file, path, "rb") || !file) {
+    FILE *file = fopen(path, "rb");
+    if (!file) {
         return 0;
     }
     if (fseek(file, 0, SEEK_END)) {
@@ -118,8 +158,7 @@ int main(int argc, char **argv)
     if (!data || !small || smallSize != 128) {
         return 2;
     }
-    allocation = (unsigned char *)VirtualAlloc(0, capacity + 8192, MEM_RESERVE, PAGE_NOACCESS);
-    if (!allocation || !VirtualAlloc(allocation + 4096, capacity, MEM_COMMIT, PAGE_READWRITE)) {
+    if (!window_create()) {
         return 3;
     }
     if (!check(data, size, WitPackageOk, "writer package") || !check(small, smallSize, WitPackageOk, "two entries")) {
@@ -290,19 +329,20 @@ int main(int argc, char **argv)
     for (unsigned i = 0; i < package.Count; ++i) {
         WitPackageFile file;
         char path[40];
-        FILE *output = 0;
+        FILE *output;
         if (wit_package_get(&package, i, &file) != WitPackageOk) {
             return 10;
         }
-        sprintf_s(path, sizeof(path), "package-roundtrip-%u.bin", i);
-        if (fopen_s(&output, path, "wb") || !output) {
+        snprintf(path, sizeof(path), "package-roundtrip-%u.bin", i);
+        output = fopen(path, "wb");
+        if (!output) {
             return 11;
         }
         if (fwrite(data + file.Offset, 1, (size_t)file.Length, output) != (size_t)file.Length || fclose(output)) {
             return 12;
         }
     }
-    VirtualFree(allocation, 0, MEM_RELEASE);
+    window_release();
     free(data);
     free(small);
     printf("PASS: %u readonly guard-boundary package cases, native lookup and exact payload extraction\n", cases);

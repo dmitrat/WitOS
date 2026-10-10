@@ -15,10 +15,11 @@ internal sealed class CommandDoctor : ICommand
     public async Task RunAsync(string root, IReadOnlyList<string> arguments)
     {
         Console.WriteLine($"Root: {root}");
-        // A Linux host builds everything but the frozen line's fixtures (plan step T2.1a).
+        // MSVC builds the native host harnesses on Windows alone; a Linux host builds them with the pinned clang and needs
+        // no MSVC anywhere (plan step T2.2).
         Console.WriteLine(OperatingSystem.IsWindows()
-            ? $"MSVC: {await Toolchain.FindMsvcAsync(root)}"
-            : "MSVC: none on this host; the frozen line's fixtures build on Windows until K8");
+            ? $"MSVC: {await Toolchain.FindMsvcAsync(root)} (the native host harnesses)"
+            : "MSVC: not needed on this host; the pinned clang builds the native host harnesses");
         Toolchain.RequireClang(root);
         var clang = await Processes.RunAsync(Toolchain.Clang(root), ["--version"], root);
         if (clang.ExitCode != 0 || clang.TimedOut)

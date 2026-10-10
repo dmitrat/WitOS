@@ -117,9 +117,8 @@ jobs:
 
   linux-host:
     # The Linux development host (plan steps T2.1a and T2.1b): the tool, its process runner and host tests, the pinned
-    # LLVM and QEMU (built from its source release), and the release kernels of both ISAs with the layer-2 scenarios on
-    # them; then the Unix-form runtime for witos (phase R). The self-test kernels need no MSVC since K8.4a; their scenarios
-    # stay on the Windows jobs until T2.2 moves them here.
+    # LLVM and QEMU (built from its source release), the release kernels of both ISAs and the Unix-form runtime for
+    # witos (phase R). The scenarios of `test`, the layer-2 ones among them, run in linux-selftest (T2.2).
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -149,14 +148,14 @@ jobs:
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
 
-      - name: Host tests that need no Windows host
-        run: dotnet test tests/WitOS.Dev.Tests --configuration Release --no-build
-
       - name: Extract verified LLVM, build QEMU, fetch musl, compiler-rt, the LLVM runtimes and libc-test
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
 
       - name: Check environment
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- doctor
+
+      - name: Host tests, whose native harnesses the pinned clang builds
+        run: dotnet test tests/WitOS.Dev.Tests --configuration Release --no-build
 
       - name: QEMU timeout cleanup through QMP
         run: dotnet test tests/WitOS.Dev.Tests --configuration Release --no-build --filter TestCategory=QemuCleanup
@@ -166,18 +165,6 @@ jobs:
 
       - name: ARM64 release kernel without self-tests
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- release --arch arm64
-
-      - name: Layer-2 scenarios on the x64 release kernel
-        run: |
-          for scenario in libc libc-test cxx spawn process sysroot; do
-            dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- "$scenario"
-          done
-
-      - name: Layer-2 scenarios on the ARM64 release kernel
-        run: |
-          for scenario in libc libc-test cxx spawn process sysroot; do
-            dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- "$scenario" --arch arm64
-          done
 
       - name: The Unix-form runtime for witos-x64 and witos-arm64 (CoreLib, NativeAOT's native part, try_run, ILC)
         run: |
@@ -265,3 +252,54 @@ jobs:
             artifacts/arm64/boot/WitOS.map
             artifacts/arm64/boot/build.txt
             artifacts/logs/arm64-*
+
+  linux-selftest:
+    # The Linux host's parity with Windows (plan step T2.2): every scenario of `test` on both ISAs, the self-test kernels
+    # with the mechanism fixtures (clang's since K8.3, no MSVC since K8.4a) and the layer-2 scenarios on the release
+    # kernel, as the Windows jobs run them.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          global-json-file: global.json
+
+      - name: Install what building QEMU and running LLVM need
+        run: >-
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends
+          bison bzip2 cmake flex g++ gcc libglib2.0-dev libpixman-1-dev make ninja-build pkg-config python3 python3-venv
+          xz-utils zlib1g-dev
+
+      - name: Cache the pinned LLVM and QEMU releases and the built QEMU
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .tools/downloads/LLVM-20.1.8-Linux-X64.tar.xz
+            .tools/downloads/qemu-11.1.0.tar.xz
+            .tools/qemu-11.1.0
+          key: linux-ubuntu-24.04-llvm-20.1.8-1ead36b3dfcb774b-qemu-11.1.0-6ee1d1a61f682124
+
+      - name: Build host tools
+        run: dotnet build WitOS.slnx --configuration Release
+
+      - name: Extract verified LLVM, build QEMU, fetch musl, compiler-rt, the LLVM runtimes and libc-test
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
+
+      - name: The x64 suite
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- test
+
+      - name: The ARM64 suite
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- test --arch arm64
+
+      - name: Upload Linux self-test diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: witos-linux-selftest
+          if-no-files-found: warn
+          retention-days: 14
+          path: artifacts/logs
