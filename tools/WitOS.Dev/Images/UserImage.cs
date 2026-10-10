@@ -1,6 +1,5 @@
 using WitOS.Dev.Kernel;
 using System.Globalization;
-using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.RegularExpressions;
 using WitOS.Dev.Host;
@@ -52,6 +51,9 @@ internal static class UserImage
         ("virtio", "VirtioFixture", "wit_user_virtio_image", "user_virtio_image.h"),
         ("threads2", "Thread2Fixture", "wit_user_thread2_image", "user_thread2_image.h"),
         ("processes", "ProcessFixture", "wit_user_process_image", "user_process_image.h"),
+        ("waits", "WaitFixture", "wit_user_wait_image", "user_wait_image.h"),
+        ("entry", "UserFixture", "wit_user_test_image", "user_image.h"),
+        ("threads", "ThreadFixture", "wit_user_thread_image", "user_thread_image.h"),
         ("processors", "ProcessorFixture", "wit_user_processor_image", "user_processor_image.h")
     ];
 
@@ -60,7 +62,8 @@ internal static class UserImage
     #region Functions
 
     /// <summary>
-    /// Generates the ABI include files and builds every user fixture.
+    /// Generates the ABI include files and builds every x64 user fixture: the mechanism fixtures in C (plan step K8.3)
+    /// and the PE fixtures of the kernel policy, which MSVC builds until plan step K8.4.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="output">Output directory.</param>
@@ -68,9 +71,6 @@ internal static class UserImage
     public static async Task BuildAsync(string root, string output, string msvc)
     {
         var constants = await PrepareAbiAsync(root, output);
-        await BuildFixtureAsync(root, output, msvc, constants, "entry", "UserFixture", "wit_user_test_image", "user_image.h");
-        await BuildFixtureAsync(root, output, msvc, constants, "threads", "ThreadFixture", "wit_user_thread_image", "user_thread_image.h");
-        await BuildFixtureAsync(root, output, msvc, constants, "waits", "WaitFixture", "wit_user_wait_image", "user_wait_image.h");
         await BuildClangFixturesAsync(root, output, KernelArchitecture.X64, constants);
         await UserPeImage.BuildAsync(root, output, msvc, constants);
         await UserBootstrapImage.BuildAsync(root, output, msvc);
@@ -92,7 +92,8 @@ internal static class UserImage
     }
 
     /// <summary>
-    /// Generates the ABI header for ARM64 assembly and builds the ARM64 user fixtures.
+    /// Generates the ABI header for ARM64 assembly and builds the ARM64 user fixtures: the mechanism fixtures in C (plan
+    /// step K8.3) and the PE fixture of the kernel policy.
     /// </summary>
     /// <remarks>
     /// armasm64 limits EQU to 32 bits, so the C preprocessor expands the ABI constants into each fixture before
@@ -106,9 +107,6 @@ internal static class UserImage
         var constants = await ReadConstantsAsync(root);
         var defines = string.Join("\n", constants.Select(item => $"#define {item.Key} 0x{item.Value:X}")) + "\n";
         await File.WriteAllTextAsync(Path.Combine(output, "user_abi_a64.h"), defines, Encoding.ASCII);
-        await BuildArm64FixtureAsync(root, output, msvc, constants, "entry", "UserFixture", "wit_user_test_image", "user_image.h");
-        await BuildArm64FixtureAsync(root, output, msvc, constants, "threads", "ThreadFixture", "wit_user_thread_image", "user_thread_image.h");
-        await BuildArm64FixtureAsync(root, output, msvc, constants, "waits", "WaitFixture", "wit_user_wait_image", "user_wait_image.h");
         await BuildClangFixturesAsync(root, output, KernelArchitecture.Arm64, constants);
         await UserPeImage.BuildArm64Async(root, output, msvc, constants);
     }
@@ -146,33 +144,6 @@ internal static class UserImage
             }
         }
         return constants;
-    }
-
-    private static async Task BuildFixtureAsync(string root, string output, string msvc,
-        Dictionary<string, ulong> constants, string source, string name, string symbol, string header)
-    {
-        var obj = Path.Combine(output, name + ".obj");
-        var image = Path.Combine(output, name + ".pe");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "ml64.exe"),
-            ["/nologo", "/c", $"/I{output}", $"/Fo{obj}", Path.Combine(root, "tests", "User.X64", source + ".asm")], root);
-        await LinkFixtureAsync(root, msvc, constants, "x64", ["/fixed", "/dynamicbase:no"], obj, image);
-        await EmbedFixtureAsync(output, constants, Machine.Amd64, image, name, symbol, header);
-    }
-
-    private static async Task BuildArm64FixtureAsync(string root, string output, string msvc,
-        Dictionary<string, ulong> constants, string source, string name, string symbol, string header)
-    {
-        var preprocessed = Path.Combine(output, name + ".asm");
-        var obj = Path.Combine(output, name + ".obj");
-        var image = Path.Combine(output, name + ".pe");
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "cl.exe"),
-            ["/nologo", "/EP", "/P", $"/Fi{preprocessed}", $"/I{output}", "/Tc",
-                Path.Combine(root, "tests", "User.A64", source + ".asm")], root);
-        await Processes.RequireSuccessAsync(Path.Combine(msvc, "armasm64.exe"),
-            ["-nologo", "-o", obj, preprocessed], root);
-        // ARM64 images are always relocatable; the fixture holds no absolute address, so it has no relocations.
-        await LinkFixtureAsync(root, msvc, constants, "arm64", [], obj, image);
-        await EmbedFixtureAsync(output, constants, Machine.Arm64, image, name, symbol, header);
     }
 
     // A mechanism fixture of tests/User/Fixtures built by the pinned clang and lld (plan step K8.3): one executable
@@ -218,15 +189,6 @@ internal static class UserImage
             .. options, "-c", source, "-o", obj
         ], root);
 
-    private static Task LinkFixtureAsync(string root, string msvc, Dictionary<string, ulong> constants,
-        string machine, string[] options, string obj, string image, string baseKey = "WIT_USER_BASE") =>
-        Processes.RequireSuccessAsync(Path.Combine(msvc, "link.exe"),
-        [
-            "/nologo", "/subsystem:native", "/entry:wit_user_start", "/nodefaultlib", $"/machine:{machine}",
-            .. options, "/incremental:no", "/Brepro",
-            $"/base:0x{constants[baseKey]:X}", $"/out:{image}", obj
-        ], root);
-
     /// <summary>
     /// Builds the root task fixture of the architecture as a flat image (plan steps K4 and T1): its C sources
     /// (tests/User/root.c and, since K8.2, root_mechanisms.c) compiled by the pinned clang for the architecture's
@@ -252,31 +214,6 @@ internal static class UserImage
             "--gc-sections", "-T", Path.Combine(root, "tests", "User", "root.ld"), .. objects
         ], root);
         return await FlatImage.FromElfAsync(output, architecture.ElfMachine, image, "RootFixture", "wit_user_root_image", "user_root_image.h");
-    }
-
-    // Checks that the fixture is one fixed page of RX code at WIT_USER_CODE and embeds that page as a C array.
-    private static async Task EmbedFixtureAsync(string output, Dictionary<string, ulong> constants, Machine machine,
-        string image, string name, string symbol, string header)
-    {
-        var bytes = await File.ReadAllBytesAsync(image);
-        using var stream = new MemoryStream(bytes, writable: false);
-        using var pe = new PEReader(stream);
-        var headerInfo = pe.PEHeaders.PEHeader ?? throw new InvalidDataException("User PE header missing.");
-        var code = pe.PEHeaders.SectionHeaders.Single(section => section.Name == ".text");
-        if (pe.PEHeaders.CoffHeader.Machine != machine || pe.PEHeaders.CorHeader is not null ||
-            headerInfo.Subsystem != Subsystem.Native ||
-            headerInfo.ImageBase != constants["WIT_USER_BASE"] ||
-            headerInfo.ImageBase + (uint)headerInfo.AddressOfEntryPoint != constants["WIT_USER_CODE"] ||
-            headerInfo.AddressOfEntryPoint != code.VirtualAddress ||
-            headerInfo.ImportTableDirectory.Size != 0 || headerInfo.BaseRelocationTableDirectory.Size != 0 ||
-            code.VirtualSize <= 0 || code.VirtualSize > 4096 || code.VirtualSize > code.SizeOfRawData ||
-            !code.SectionCharacteristics.HasFlag(SectionCharacteristics.MemExecute) ||
-            !code.SectionCharacteristics.HasFlag(SectionCharacteristics.MemRead) ||
-            code.SectionCharacteristics.HasFlag(SectionCharacteristics.MemWrite))
-            throw new InvalidDataException(
-                $"User fixture must be a fixed {machine} native image with one-page RX code and no imports/relocations.");
-
-        await EmbedAsync(output, bytes.AsSpan(code.PointerToRawData, code.VirtualSize).ToArray(), name, symbol, header);
     }
 
     // Writes a fixture's code as the C array the kernel self-test embeds.
