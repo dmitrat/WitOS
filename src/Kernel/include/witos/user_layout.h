@@ -4,7 +4,6 @@
 /* Fixed addresses for the controlled M2 image, not an application ABI promise. */
 #define WIT_USER_BASE 0x0000008000000000ULL
 #define WIT_USER_LIMIT 0x0000008000200000ULL
-#define WIT_USER_CODE 0x0000008000001000ULL
 #define WIT_USER_INFO 0x0000008000004000ULL
 #define WIT_USER_DATA 0x0000008000008000ULL
 #define WIT_USER_DATA_END 0x000000800000A000ULL
@@ -12,7 +11,8 @@
 #define WIT_USER_STACK_BOTTOM 0x0000008000015000ULL
 #define WIT_USER_STACK_TOP 0x0000008000025000ULL
 #define WIT_USER_PEER_PAGE 0x0000008000030000ULL
-/* The root task's image window, separate from fixed startup/data/thread regions. */
+/* The image window of a flat image (the root task and the fixtures), separate from the startup, data and stack
+ * pages. */
 #define WIT_USER_IMAGE_BASE 0x0000008000100000ULL
 /* Separate PML4 slot: 64 GiB of sparse VA, bounded prototype metadata/frames. */
 /* The code arena: a process's images and code mappings, disjoint from the image window, the stacks and the data

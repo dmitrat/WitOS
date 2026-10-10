@@ -142,9 +142,9 @@ static WitU64 create(WitU64 entry, WitU64 sp, WitU64 tls, WitU32 version, WitU32
     return fixture_expect(WIT_CALL_THREAD_CREATE, (WitU64)&request, sizeof(request), 0, expected);
 }
 
-C_ENTRY void threads2_main(const WitUserStartup *startup)
+C_ENTRY void threads2_main(const WitRootStartup *startup)
 {
-    fixture_check(startup->Version == WIT_ABI_VERSION, 2);
+    fixture_check(startup->AbiVersion == WIT_ABI_VERSION, 2);
     /* QUERY: the ABI version in the low half of the value. */
     fixture_check((WitU32)fixture_expect(WIT_CALL_QUERY, 0, 0, 0, WIT_STATUS_OK) == WIT_ABI_VERSION, 3);
     *(volatile WitU64 *)TLS_FIRST = 0x1234;

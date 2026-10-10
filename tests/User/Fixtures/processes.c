@@ -159,11 +159,11 @@ static WitU64 map_into(WitU64 object, WitU64 bytes, WitU64 address, WitU32 prote
     return fixture_expect(WIT_CALL_MEMORY_OBJECT_MAP, (WitU64)&request, sizeof(request), 0, expected);
 }
 
-FIXTURE_ENTRY void wit_user_start(const WitUserStartup *startup)
+FIXTURE_ENTRY void wit_user_start(const WitRootStartup *startup)
 {
     WitU64 first[2] = {0, 0}, second[2] = {0, 0}, local = 0;
     WitProcessInfo info;
-    fixture_check(startup->Version == WIT_ABI_VERSION, 1);
+    fixture_check(startup->AbiVersion == WIT_ABI_VERSION, 1);
     /* QUERY reports the process family. */
     fixture_check((fixture_expect(WIT_CALL_QUERY, 0, 0, 0, WIT_STATUS_OK) >> 32) & WIT_ABI_FEATURE_PROCESSES, 2);
     /* A channel: the first end stays here, the second goes to the child. */

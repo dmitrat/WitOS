@@ -17,7 +17,7 @@
  * preserved, RFLAGS reset to 0x202 (INT 0x80 left at step K8.4b); on ARM64 SVC #0 with x8=call, x0-x2 arguments,
  * x0=status and x1=result, every other register preserved, x18 included (K8.4b). A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
-#define WIT_ABI_VERSION 71U
+#define WIT_ABI_VERSION 72U
 /* QUERY result: the low 32 bits are WIT_ABI_VERSION, the high 32 bits the mask of the families present. */
 #define WIT_ABI_FEATURE_CHANNELS 1U
 #define WIT_ABI_FEATURE_DEVICES 2U
@@ -30,7 +30,6 @@
         WIT_ABI_FEATURE_PROCESSES | \
         WIT_ABI_FEATURE_UTC | \
         WIT_ABI_FEATURE_SMP)
-#define WIT_ABI_STARTUP_SIZE 24U
 
 /* Kernel, handles and the own process (RFC 0011 section 7.1). */
 /* Query(0, 0, 0) -> version and feature mask. */
@@ -311,12 +310,6 @@
 /* The own process as the target of a mapping or a thread, where a process handle with MANAGE names another (K5.2c). */
 #define WIT_PROCESS_SELF (~2ULL)
 
-typedef struct WitUserStartup {
-    WitU32 Version;
-    WitU32 Size;
-    WitU64 ConsoleHandle;
-    WitU64 Reserved; /* zero: the image information left with the PE loader (K8.4a) */
-} WitUserStartup;
-
-WIT_STATIC_ASSERT(sizeof(WitUserStartup) == WIT_ABI_STARTUP_SIZE, "User startup ABI");
+/* WitUserStartup (version, size, console handle, image information) left at step K8.4c: every component the kernel
+ * builds starts with the startup descriptor of witos/root.h. */
 #endif

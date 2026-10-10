@@ -1,7 +1,4 @@
 using WitOS.Dev.Kernel;
-using System.Globalization;
-using System.Text;
-using System.Text.RegularExpressions;
 using WitOS.Dev.Host;
 
 namespace WitOS.Dev.Images;
@@ -12,13 +9,6 @@ namespace WitOS.Dev.Images;
 internal static class UserImage
 {
     #region Constants
-
-    // The headers whose constants place a fixture: the code window (user_layout.h) and the protections (user_abi.h).
-    private static readonly string[] ABI_HEADERS =
-    [
-        "src/Kernel/include/witos/user_abi.h",
-        "src/Kernel/include/witos/user_layout.h"
-    ];
 
     // The root task fixture's sources in tests/User, linked in this order.
     private static readonly string[] ROOT_SOURCES = ["root.c", "root_mechanisms.c"];
@@ -46,52 +36,21 @@ internal static class UserImage
     #region Functions
 
     /// <summary>
-    /// Builds the mechanism fixtures of the architecture (plan step K8.3): each source of tests/User/Fixtures compiled
-    /// by the pinned clang, linked by lld at WIT_USER_CODE and embedded as the C array its kernel self-test includes.
+    /// Builds the mechanism fixtures of the architecture (plan steps K8.3 and K8.4c): each source of tests/User/Fixtures
+    /// compiled by the pinned clang, linked by lld at the image window as one executable segment that starts with the
+    /// entry, converted to a flat image by <see cref="FlatImage"/> and embedded as the C array its kernel self-test
+    /// includes.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="output">Output directory.</param>
     /// <param name="architecture">Target architecture.</param>
-    public static async Task BuildFixturesAsync(string root, string output, KernelArchitecture architecture) =>
-        await BuildClangFixturesAsync(root, output, architecture, await ReadConstantsAsync(root));
-
-    #endregion
-
-    #region Tools
-
-    private static async Task<Dictionary<string, ulong>> ReadConstantsAsync(string root)
+    public static async Task BuildFixturesAsync(string root, string output, KernelArchitecture architecture)
     {
-        var constants = new Dictionary<string, ulong>(StringComparer.Ordinal);
-        foreach (var header in ABI_HEADERS)
-        {
-            var source = await File.ReadAllTextAsync(Path.Combine(root, header));
-            foreach (Match match in Regex.Matches(source,
-                @"^#define\s+(WIT_[A-Z0-9_]+)\s+(0x[0-9A-Fa-f]+|[0-9]+)(?:ULL|U)?\s*(?:/\*.*\*/)?\s*$", RegexOptions.Multiline))
-            {
-                var literal = match.Groups[2].Value;
-                var value = literal.StartsWith("0x", StringComparison.Ordinal)
-                    ? ulong.Parse(literal[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture)
-                    : ulong.Parse(literal, CultureInfo.InvariantCulture);
-                constants.Add(match.Groups[1].Value, value);
-            }
-        }
-        return constants;
-    }
-
-    // A mechanism fixture of tests/User/Fixtures built by the pinned clang and lld (plan step K8.3): one executable
-    // segment at WIT_USER_CODE whose first byte is the entry, within the code window wit_user_create maps (up to the
-    // startup block at WIT_USER_INFO), embedded as a C array.
-    private static async Task BuildClangFixturesAsync(string root, string output, KernelArchitecture architecture,
-        Dictionary<string, ulong> constants)
-    {
-        var code = constants["WIT_USER_CODE"];
-        var window = constants["WIT_USER_INFO"] - code;
-        var executable = (uint)(constants["WIT_MEMORY_READ"] | constants["WIT_MEMORY_EXECUTE"]);
         foreach (var (source, name, symbol, header) in CLANG_FIXTURES)
         {
             var obj = Path.Combine(output, name + ".o");
             var image = Path.Combine(output, name + ".elf");
-            // Optimized for size: a fixture lives in the code window below the startup block.
+            // Optimized for size: every fixture is one segment of a few pages.
             await CompileFreestandingAsync(root, architecture, Path.Combine(root, "tests", "User", "Fixtures", source + ".c"), obj,
                 "-Os", "-I", Path.Combine(root, "tests", "User"));
             await Processes.RequireSuccessAsync(Toolchain.Lld(root),
@@ -100,13 +59,15 @@ internal static class UserImage
                 "--gc-sections", "-T", Path.Combine(root, "tests", "User", "Fixtures", "fixture.ld"), obj
             ], root);
             var (entry, segments) = FlatImage.ParseElf(await File.ReadAllBytesAsync(image), architecture.ElfMachine);
-            if (segments.Count != 1 || segments[0].Address != code || entry != code || segments[0].Protection != executable ||
-                segments[0].Data.Length == 0 || segments[0].MemorySize > window)
-                throw new InvalidDataException(
-                    $"{name} must be executable code at WIT_USER_CODE within the code window that starts with its entry, and no data.");
-            await EmbedAsync(output, segments[0].Data, name, symbol, header);
+            if (segments.Count != 1 || entry != segments[0].Address)
+                throw new InvalidDataException($"{name} must be one executable segment that starts with its entry, and no data.");
+            await FlatImage.FromElfAsync(output, architecture.ElfMachine, image, name, symbol, header);
         }
     }
+
+    #endregion
+
+    #region Tools
 
     // A freestanding layer-2 compilation by the pinned clang for the architecture's triple: no libc and no runtime, the
     // ABI-1 transport of the sysroot and the kernel's ABI headers, and the options given, which come last.
@@ -146,17 +107,6 @@ internal static class UserImage
             "--gc-sections", "-T", Path.Combine(root, "tests", "User", "root.ld"), .. objects
         ], root);
         return await FlatImage.FromElfAsync(output, architecture.ElfMachine, image, "RootFixture", "wit_user_root_image", "user_root_image.h");
-    }
-
-    // Writes a fixture's code as the C array the kernel self-test embeds.
-    private static async Task EmbedAsync(string output, byte[] payload, string name, string symbol, string header)
-    {
-        var generated = new StringBuilder("/* Generated from the separately linked user fixture; do not edit. */\nstatic const unsigned char " + symbol + "[] = {\n");
-        for (var index = 0; index < payload.Length; index += 16)
-            generated.AppendLine("    " + string.Join(", ", payload.Skip(index).Take(16).Select(value => $"0x{value:X2}")) + ",");
-        generated.AppendLine("};");
-        await File.WriteAllTextAsync(Path.Combine(output, header), generated.ToString(), Encoding.ASCII);
-        Console.WriteLine($"{name}: {payload.Length} bytes of separately linked native code.");
     }
 
     #endregion

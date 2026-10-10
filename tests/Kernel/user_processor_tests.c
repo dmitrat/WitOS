@@ -21,7 +21,7 @@ static void require(int condition, const char *message)
 void wit_user_processor_self_test(WitPageAllocator *pages)
 {
     const WitU64 before = wit_pages_free_count(pages);
-    require(wit_user_create(&process, pages, 0, wit_user_processor_image, sizeof(wit_user_processor_image)),
+    require(wit_test_create_fixture(&process, pages, 0, wit_user_processor_image, sizeof(wit_user_processor_image)),
         "Processor test component creation failed");
     const WitU32 owned = process.Space.OwnedCount;
     wit_user_run(&process);

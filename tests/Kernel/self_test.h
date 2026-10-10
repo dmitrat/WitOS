@@ -23,8 +23,13 @@ void wit_user_isolation_end_self_test(WitPageAllocator *pages, WitU64 before);
 /* Processes (K5.2c): a component creates, places, starts, waits for, queries and kills created processes. */
 void wit_user_process_self_test(WitPageAllocator *pages);
 
-/* Whether a component ended in a contained fault; a fault a test accepts this way counts toward the summary. */
+/* A mechanism fixture from its flat image (K8.4c): validated whole, created with the fixture profile, its startup
+ * descriptor holding the kernel log; zero when the image or the creation fails. */
 struct WitUserProcess;
+int wit_test_create_fixture(
+    struct WitUserProcess *process, WitPageAllocator *pages, WitU32 slot, const WitU8 *image, WitU32 size);
+
+/* Whether a component ended in a contained fault; a fault a test accepts this way counts toward the summary. */
 int wit_test_faulted(const struct WitUserProcess *process);
 
 /* Last line of the self-tests: "[TEST-SUMMARY] faults=<contained> checked=<accepted>"; the host requires both to

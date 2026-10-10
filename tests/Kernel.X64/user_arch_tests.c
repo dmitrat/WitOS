@@ -13,7 +13,7 @@ const WitUserFaultCase wit_test_user_faults[] = {
     {WIT_TEST_EXECUTE_DATA, "User.Nx", 14, 21, WIT_USER_DATA, 1, 0},
     {WIT_TEST_GUARD_LOW, "User.GuardLow", 14, 6, WIT_USER_STACK_BOTTOM - 1, 1, 0},
     {WIT_TEST_GUARD_HIGH, "User.GuardHigh", 14, 6, WIT_USER_STACK_TOP, 1, 0},
-    {WIT_TEST_WRITE_CODE, "User.WriteCode", 14, 7, WIT_USER_CODE, 1, 0},
+    {WIT_TEST_WRITE_CODE, "User.WriteCode", 14, 7, WIT_USER_IMAGE_BASE, 1, 0},
     {WIT_TEST_WRITE_INFO, "User.WriteInfo", 14, 7, WIT_USER_INFO, 1, 0},
     {WIT_TEST_NULL_READ, "User.NullRead", 14, 4, 0, 1, 0},
     {WIT_TEST_INVALID_OPCODE, "User.InvalidOpcode", 6, 0, 0, 0, 0},

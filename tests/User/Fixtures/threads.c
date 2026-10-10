@@ -265,7 +265,7 @@ static WitU64 start(FixtureThread entry, WitU32 index, WitU64 expected)
 static void normal_test(const WitUserTestConfig *config)
 {
     /* A wait on what is no thread or on a foreign handle; a creation with an entry outside the code or a reserved flag. */
-    const WitU64 console = config->Startup.ConsoleHandle, foreign = FOREIGN_HANDLE;
+    const WitU64 console = config->Startup.Handles[WIT_ROOT_HANDLE_LOG], foreign = FOREIGN_HANDLE;
     fixture_wait(&console, 1, WIT_WAIT_INFINITE, WIT_STATUS_WRONG_TYPE);
     fixture_wait(&foreign, 1, WIT_WAIT_INFINITE, WIT_STATUS_BAD_HANDLE);
     const WitU64 stack = fixture_stack(0);
@@ -306,10 +306,10 @@ static void capacity_test(void)
     }
 }
 
-FIXTURE_ENTRY void wit_user_start(const WitUserStartup *startup)
+FIXTURE_ENTRY void wit_user_start(const WitRootStartup *startup)
 {
     const WitUserTestConfig *config = fixture_config(startup);
-    fixture_check(startup->Version == WIT_ABI_VERSION, 1);
+    fixture_check(startup->AbiVersion == WIT_ABI_VERSION, 1);
     if (config->Mode == WIT_THREAD_TEST_NORMAL) {
         normal_test(config);
     } else if (config->Mode == WIT_THREAD_TEST_CAPACITY) {

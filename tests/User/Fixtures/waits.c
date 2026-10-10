@@ -331,7 +331,7 @@ static void chain_test(void)
 
 static void rights_test(const WitUserTestConfig *config)
 {
-    wait_one(config->Startup.ConsoleHandle, 0, WIT_STATUS_WRONG_TYPE);
+    wait_one(config->Startup.Handles[WIT_ROOT_HANDLE_LOG], 0, WIT_STATUS_WRONG_TYPE);
     fixture_expect(WIT_CALL_EVENT_SET, config->ReadOnlyHandle, 0, 0, WIT_STATUS_DENIED);
     fixture_expect(WIT_CALL_EVENT_RESET, config->ReadOnlyHandle, 0, 0, WIT_STATUS_DENIED);
     wait_one(config->ReadOnlyHandle, 0, WIT_STATUS_TIMED_OUT);
@@ -342,10 +342,10 @@ static void rights_test(const WitUserTestConfig *config)
     wait_one(config->ReadOnlyHandle, 0, WIT_STATUS_BAD_HANDLE);
 }
 
-FIXTURE_ENTRY void wit_user_start(const WitUserStartup *startup)
+FIXTURE_ENTRY void wit_user_start(const WitRootStartup *startup)
 {
     const WitUserTestConfig *config = fixture_config(startup);
-    fixture_check(startup->Version == WIT_ABI_VERSION, 1);
+    fixture_check(startup->AbiVersion == WIT_ABI_VERSION, 1);
     STATE->Mode = config->Mode;
     switch (config->Mode) {
     case WIT_WAIT_TEST_SIGNAL_STATE:

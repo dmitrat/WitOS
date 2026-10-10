@@ -1,4 +1,5 @@
 #include "user.h"
+#include "self_test.h"
 #include "witos/platform.h"
 #include "protocol.h"
 #include "user_arch_tests.h"
@@ -18,7 +19,7 @@ static void require(int condition, const char *message)
 static void create(WitPageAllocator *pages, WitU64 mode)
 {
     WitUserTestConfig *info;
-    require(wit_user_create(&process, pages, 0, wit_user_thread_image, sizeof(wit_user_thread_image)),
+    require(wit_test_create_fixture(&process, pages, 0, wit_user_thread_image, sizeof(wit_user_thread_image)),
         "Thread test process creation failed");
     info = (WitUserTestConfig *)wit_user_space_physical(&process.Space, WIT_USER_INFO, 0, 0);
     info->Mode = mode;
@@ -41,7 +42,7 @@ static void recovery(WitPageAllocator *pages)
 {
     const WitU64 before = wit_pages_free_count(pages);
     WitUserTestConfig *info;
-    require(wit_user_create(&process, pages, 0, wit_user_test_image, sizeof(wit_user_test_image)),
+    require(wit_test_create_fixture(&process, pages, 0, wit_user_test_image, sizeof(wit_user_test_image)),
         "Thread recovery process creation failed");
     info = (WitUserTestConfig *)wit_user_space_physical(&process.Space, WIT_USER_INFO, 0, 0);
     info->ReadOnlyHandle = wit_handle_grant(&process.Handles, WIT_HANDLE_CONSOLE, 0);
@@ -82,21 +83,21 @@ static void allocation_failure(WitPageAllocator *pages)
         "Thread rollback stack setup failed");
     const WitU64 before = wit_pages_free_count(pages);
     const WitU32 owned = process.Space.OwnedCount;
-    require(start_thread(1, WIT_USER_CODE, WIT_USER_INFO, &result) == WIT_STATUS_UNSUPPORTED &&
+    require(start_thread(1, WIT_USER_IMAGE_BASE, WIT_USER_INFO, &result) == WIT_STATUS_UNSUPPORTED &&
             result == 0 &&
             process.Handles.Count == 2,
         "Version 1 thread creation accepted");
     while (process.Handles.Count < WIT_HANDLE_CAPACITY) {
         handles[count++] = wit_handle_grant(&process.Handles, WIT_HANDLE_SELF, 0);
     }
-    require(start_thread(WIT_THREAD_CREATE_VERSION_2, WIT_USER_CODE, 0, &result) == WIT_STATUS_NO_MEMORY &&
+    require(start_thread(WIT_THREAD_CREATE_VERSION_2, WIT_USER_IMAGE_BASE, 0, &result) == WIT_STATUS_NO_MEMORY &&
             result == 0 &&
             process.Handles.Count == WIT_HANDLE_CAPACITY &&
             process.Threads[1].State == WitThreadEmpty,
         "Handle exhaustion allocated a thread");
     require(wit_handle_close(&process.Handles, handles[--count]) == WIT_STATUS_OK,
         "Thread rollback test handle close failed");
-    require(start_thread(WIT_THREAD_CREATE_VERSION_2, WIT_USER_CODE, 0, &result) == WIT_STATUS_NO_MEMORY &&
+    require(start_thread(WIT_THREAD_CREATE_VERSION_2, WIT_USER_IMAGE_BASE, 0, &result) == WIT_STATUS_NO_MEMORY &&
             result == 0 &&
             process.Handles.Count == WIT_HANDLE_CAPACITY - 1 &&
             process.Threads[1].State == WitThreadEmpty,
@@ -107,7 +108,7 @@ static void allocation_failure(WitPageAllocator *pages)
     }
     require(process.ThreadCreates == 1 && wit_pages_free_count(pages) == before && process.Space.OwnedCount == owned,
         "Refused thread creations changed the component");
-    require(start_thread(WIT_THREAD_CREATE_VERSION_2, WIT_USER_CODE, WIT_USER_INFO, &result) == WIT_STATUS_OK &&
+    require(start_thread(WIT_THREAD_CREATE_VERSION_2, WIT_USER_IMAGE_BASE, WIT_USER_INFO, &result) == WIT_STATUS_OK &&
             result != 0 &&
             process.ThreadCreates == 2 &&
             process.Threads[1].State == WitThreadReady &&

@@ -44,7 +44,7 @@ ASSEMBLY WIT_NORETURN void entry_bad_return(WitU64 number);
 /* Spins with the sentinel in a GPR, a SIMD register (and TPIDR_EL0 on ARM64) and equal condition flags; a lost value
  * fails. */
 ASSEMBLY WIT_NORETURN void entry_preemption_state(void);
-ASSEMBLY WIT_NORETURN void entry_main(const WitUserStartup *startup);
+ASSEMBLY WIT_NORETURN void entry_main(const WitRootStartup *startup);
 ASSEMBLY WIT_NORETURN void entry_initial_failed(void);
 ASSEMBLY WIT_NORETURN void entry_state_lost(void);
 
@@ -301,7 +301,7 @@ static WIT_NORETURN void run_at(WitU64 address)
 
 static void normal_test(const WitUserTestConfig *config)
 {
-    const WitU64 console = config->Startup.ConsoleHandle;
+    const WitU64 console = config->Startup.Handles[WIT_ROOT_HANDLE_LOG];
     fixture_expect(0xFFFF, 0, 0, 0, WIT_STATUS_UNSUPPORTED);
     try_write(config->ReadOnlyHandle, WIT_STATUS_DENIED);
     try_write(config->SelfHandle, WIT_STATUS_WRONG_TYPE);
@@ -410,7 +410,7 @@ static void memory_test(WitU64 mode, WitU64 console)
     fixture_check(write(console, address + 4092, 8, WIT_STATUS_OK) == 8, 29);
     /* Refusals: the fixed code, an unaligned range, an executable dynamic protection, a wrapped size, an alignment
      * below the size. */
-    memory(WIT_CALL_MEMORY_PROTECT, WIT_USER_CODE, 4096, READ_WRITE, WIT_STATUS_BAD_ADDRESS);
+    memory(WIT_CALL_MEMORY_PROTECT, WIT_USER_IMAGE_BASE, 4096, READ_WRITE, WIT_STATUS_BAD_ADDRESS);
     memory(WIT_CALL_MEMORY_DECOMMIT, address + 1, 4096, 0, WIT_STATUS_INVALID_ARGUMENT);
     memory(WIT_CALL_MEMORY_PROTECT, address, 4096, WIT_MEMORY_READ | WIT_MEMORY_EXECUTE, WIT_STATUS_INVALID_ARGUMENT);
     memory(WIT_CALL_MEMORY_COMMIT, address, ~4095ULL, READ_WRITE, WIT_STATUS_BAD_ADDRESS);
@@ -418,12 +418,16 @@ static void memory_test(WitU64 mode, WitU64 console)
     memory(WIT_CALL_MEMORY_RELEASE, address, 0, 0, WIT_STATUS_OK);
 }
 
-JUMPED void entry_main(const WitUserStartup *startup)
+JUMPED void entry_main(const WitRootStartup *startup)
 {
     const WitUserTestConfig *config = fixture_config(startup);
     /* Zero data pages, before the fixture writes anything there. */
     check_zero(WIT_USER_DATA, DATA_QWORDS, 2);
-    fixture_check(startup->Version == WIT_ABI_VERSION && startup->Size == WIT_ABI_STARTUP_SIZE, 1);
+    fixture_check(startup->Version == WIT_ROOT_STARTUP_VERSION &&
+            startup->Size == WIT_ROOT_STARTUP_SIZE &&
+            startup->AbiVersion == WIT_ABI_VERSION &&
+            startup->HandleCount == 1,
+        1);
     /* QUERY: the ABI version in the low half of the value, the registers a call keeps intact. */
     fixture_check((WitU32)preserved(WIT_CALL_QUERY, 0, 0, 0, WIT_STATUS_OK) == WIT_ABI_VERSION, 3);
     switch (config->Mode) {
@@ -446,7 +450,7 @@ JUMPED void entry_main(const WitUserStartup *startup)
         entry_write(WIT_USER_STACK_TOP, 1);
         break;
     case WIT_TEST_WRITE_CODE:
-        entry_write(WIT_USER_CODE, 0x90);
+        entry_write(WIT_USER_IMAGE_BASE, 0x90);
         break;
     case WIT_TEST_WRITE_INFO:
         entry_write(WIT_USER_INFO, 0);
@@ -471,7 +475,7 @@ JUMPED void entry_main(const WitUserStartup *startup)
         fixture_exit(WIT_TEST_EXIT_CODE);
     default:
         if (config->Mode >= WIT_TEST_MEMORY_LIFECYCLE) {
-            memory_test(config->Mode, startup->ConsoleHandle);
+            memory_test(config->Mode, startup->Handles[WIT_ROOT_HANDLE_LOG]);
             fixture_exit(WIT_TEST_EXIT_CODE);
         }
     }

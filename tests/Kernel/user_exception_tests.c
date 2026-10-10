@@ -24,7 +24,7 @@ static void require(int condition, const char *message)
 static void create(WitPageAllocator *pages, WitU64 mode)
 {
     WitUserTestConfig *info;
-    require(wit_user_create(&process, pages, 0, wit_user_exception_image, sizeof(wit_user_exception_image)),
+    require(wit_test_create_fixture(&process, pages, 0, wit_user_exception_image, sizeof(wit_user_exception_image)),
         "Exception test process creation failed");
     info = (WitUserTestConfig *)wit_user_space_physical(&process.Space, WIT_USER_INFO, 0, 0);
     info->Mode = mode;

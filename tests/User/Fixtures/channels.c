@@ -276,11 +276,11 @@ static void drop_test(const WitU8 *payload)
     fixture_close(ends[0]);
 }
 
-FIXTURE_ENTRY void wit_user_start(const WitUserStartup *startup)
+FIXTURE_ENTRY void wit_user_start(const WitRootStartup *startup)
 {
     const WitUserTestConfig *config = fixture_config(startup);
     WitU8 payload[256];
-    fixture_check(startup->Version == WIT_ABI_VERSION, 1);
+    fixture_check(startup->AbiVersion == WIT_ABI_VERSION, 1);
     fill(payload);
     switch (config->Mode) {
     case WIT_CHANNEL_TEST_BASIC:

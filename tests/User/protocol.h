@@ -1,8 +1,9 @@
 #ifndef WITOS_USER_TEST_PROTOCOL_H
 #define WITOS_USER_TEST_PROTOCOL_H
 #include "witos/user_abi.h"
+#include "witos/root.h"
 
-/* Test-only extension after the public startup prefix. */
+/* The configuration a kernel test writes after the startup descriptor (witos/root.h, K8.4c). */
 #define WIT_TEST_NORMAL 0U
 #define WIT_TEST_KERNEL_READ 1U
 #define WIT_TEST_KERNEL_WRITE 2U
@@ -67,15 +68,9 @@
 #define WIT_INTERRUPT_TEST_DMA 1U
 #define WIT_INTERRUPT_TEST_VIRTIO 2U
 #define WIT_TEST_EXIT_CODE 42U
-#define WIT_TEST_RO_OFFSET 24U
-#define WIT_TEST_SELF_OFFSET 32U
-#define WIT_TEST_FOREIGN_OFFSET 40U
-#define WIT_TEST_MODE_OFFSET 48U
-#define WIT_TEST_KERNEL_OFFSET 56U
-#define WIT_TEST_INSTANCE_OFFSET 64U
 
 typedef struct WitUserTestConfig {
-    WitUserStartup Startup;
+    WitRootStartup Startup; /* the log alone: Handles[WIT_ROOT_HANDLE_LOG] */
     WitU64 ReadOnlyHandle;
     WitU64 SelfHandle;
     WitU64 ForeignHandle;
@@ -85,6 +80,5 @@ typedef struct WitUserTestConfig {
     WitU64 TableHandle; /* the device table with ACQUIRE (K3.1) */
 } WitUserTestConfig;
 
-WIT_STATIC_ASSERT(sizeof(WitUserTestConfig) == 80, "User test config layout");
-#define WIT_TEST_TABLE_OFFSET 72U
+WIT_STATIC_ASSERT(sizeof(WitUserTestConfig) == WIT_ROOT_STARTUP_SIZE + 56, "User test config layout");
 #endif

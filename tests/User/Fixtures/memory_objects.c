@@ -189,10 +189,10 @@ static void exit_test(void)
     create(8192, WIT_STATUS_OK);
 }
 
-FIXTURE_ENTRY void wit_user_start(const WitUserStartup *startup)
+FIXTURE_ENTRY void wit_user_start(const WitRootStartup *startup)
 {
     const WitUserTestConfig *config = fixture_config(startup);
-    fixture_check(startup->Version == WIT_ABI_VERSION, 1);
+    fixture_check(startup->AbiVersion == WIT_ABI_VERSION, 1);
     switch (config->Mode) {
     case WIT_MEMORY_OBJECT_TEST_BASIC:
         basic_test();

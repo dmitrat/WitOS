@@ -6,6 +6,7 @@
     "tests/Kernel"
   ],
   "sources": [
+    "tests/Kernel/user_fixture.c",
     "tests/Kernel/user_tests.c",
     "tests/Kernel/user_memory_tests.c",
     "tests/Kernel/user_thread_tests.c",

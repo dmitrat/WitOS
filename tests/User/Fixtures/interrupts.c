@@ -109,10 +109,10 @@ static void dma_test(WitU64 device)
     fixture_close(device);
 }
 
-FIXTURE_ENTRY void wit_user_start(const WitUserStartup *startup)
+FIXTURE_ENTRY void wit_user_start(const WitRootStartup *startup)
 {
     const WitUserTestConfig *config = fixture_config(startup);
-    fixture_check(startup->Version == WIT_ABI_VERSION, 1);
+    fixture_check(startup->AbiVersion == WIT_ABI_VERSION, 1);
     const WitU64 table = config->TableHandle;
     WitU64 mapped = 0;
     WitU32 index = 0;

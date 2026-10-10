@@ -399,8 +399,8 @@ static void reset_counters(WitUserProcess *process)
     process->IdleTicks = 0;
 }
 
-/* Gives a fresh component its identity, quotas, image placement and empty threads, objects and handles. */
-static void reset_process(WitUserProcess *process, WitU32 slot, WitU32 code_size)
+/* Gives a fresh component its identity, the fixture profile's quotas and empty threads, objects and handles. */
+static void reset_process(WitUserProcess *process, WitU32 slot)
 {
     process->Id = next_id++;
     process->Slot = slot;
@@ -411,9 +411,9 @@ static void reset_process(WitUserProcess *process, WitU32 slot, WitU32 code_size
     process->ObjectLimit = WIT_MEMORY_OBJECT_CAPACITY;
     process->ThreadLimit = WIT_USER_THREAD_CAPACITY;
     process->ExitCode = 0;
-    process->ImageBase = WIT_USER_CODE;
-    process->ImageEntry = WIT_USER_CODE;
-    process->ImageSize = code_size;
+    process->ImageBase = 0;
+    process->ImageEntry = 0;
+    process->ImageSize = 0;
     process->FaultVector = 0;
     process->FaultError = 0;
     process->FaultAddress = 0;
@@ -441,89 +441,44 @@ static void reset_process(WitUserProcess *process, WitU32 slot, WitU32 code_size
     wit_user_exception_initialize(process);
 }
 
-/* Builds the address space: the code pages, the startup page and the data pages. */
-static int map_process(WitUserProcess *process, WitPageAllocator *allocator, const WitU8 *code, WitU32 code_size)
-{
-    if (!wit_user_space_create_profile(&process->Space, allocator, 0)) {
-        return 0;
-    }
-    for (WitU64 offset = 0; offset < code_size; offset += 4096) {
-        if (!wit_user_space_map(&process->Space, WIT_USER_CODE + offset, 0, 1)) {
-            return 0;
-        }
-    }
-    if (!wit_user_space_map(&process->Space, WIT_USER_INFO, 0, 0)) {
-        return 0;
-    }
-    for (WitU64 page = WIT_USER_DATA; page < WIT_USER_DATA_END; page += 4096) {
-        if (!wit_user_space_map(&process->Space, page, 1, 0)) {
-            return 0;
-        }
-    }
-    /* Page by page: the code's pages need not be contiguous in physical memory. */
-    for (WitU32 offset = 0; offset < code_size; offset += 4096) {
-        WitU8 *page = (WitU8 *)wit_user_space_physical(&process->Space, WIT_USER_CODE + offset, 0, 1);
-        const WitU32 bytes = code_size - offset < 4096 ? code_size - offset : 4096;
-        for (WitU32 i = 0; i < bytes; ++i) {
-            page[i] = code[offset + i];
-        }
-    }
-    wit_user_space_publish_code(&process->Space, WIT_USER_CODE, code_size);
-    return 1;
-}
-
-int wit_user_create(
-    WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const WitU8 *code, WitU32 code_size)
-{
-    WitUserStartup *startup;
-    /* The code window of a fixed component: the pages from WIT_USER_CODE to the startup block (K8.3). */
-    if (!code || !code_size || code_size > WIT_USER_INFO - WIT_USER_CODE || !can_create(process, slot)) {
-        return 0;
-    }
-    reset_process(process, slot, code_size);
-    slot_owners[slot] = process;
-    if (!map_process(process, allocator, code, code_size)) {
-        goto failed;
-    }
-    startup = (WitUserStartup *)wit_user_space_physical(&process->Space, WIT_USER_INFO, 0, 0);
-    startup->Version = WIT_ABI_VERSION;
-    startup->Size = sizeof(*startup);
-    startup->Reserved = 0;
-    startup->ConsoleHandle = wit_handle_grant(&process->Handles, WIT_HANDLE_CONSOLE, WIT_RIGHT_WRITE);
-    if (!startup->ConsoleHandle ||
-        wit_user_prepare_thread(process, process->ImageEntry, WIT_USER_INFO) != WIT_STATUS_OK) {
-        goto failed;
-    }
-    process->State = WitUserReady;
-    return 1;
-failed:
-    wit_user_destroy(process);
-    return 0;
-}
-
-int wit_user_create_flat(WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const WitFlatLayout *layout)
+/* A component from a validated flat image (K4; the fixtures too since K8.4c): its segments mapped at their addresses
+ * and copied page by page, the startup page and the data pages, and the first thread at the entry with WIT_USER_INFO
+ * in its argument register; the caller fills the startup descriptor. The system layer's profile (the root task,
+ * S1.3) has the full profile's pages and the wider fixed window, as a created process gets them, so that a libc
+ * program and the runtime fit, and the system layer's reservation table (S5.4), threads, handles and events (K5.3)
+ * and objects (S6.1); a fixture keeps the default quotas its tests exhaust, and its segments must lie in the fixed
+ * window of that profile. */
+int wit_user_create_flat(
+    WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const WitFlatLayout *layout, int system)
 {
     if (!can_create(process, slot)) {
         return 0;
     }
-    reset_process(process, slot, 0);
-    /* The root task is the system layer (S1.3): the full profile's pages and the wider fixed window, as a created
-     * process gets them, so that a libc program and the runtime fit, and the system layer's reservation table (S5.4)
-     * and threads, handles and events (K5.3). */
-    process->Handles.Limit = WIT_PROCESS_HANDLE_CAPACITY;
-    process->Events.Limit = WIT_PROCESS_EVENT_CAPACITY;
-    process->ThreadLimit = WIT_PROCESS_THREAD_CAPACITY;
-    process->TickLimit = WIT_RUNTIME_TICK_BUDGET;
+    reset_process(process, slot);
+    if (system) {
+        process->Handles.Limit = WIT_PROCESS_HANDLE_CAPACITY;
+        process->Events.Limit = WIT_PROCESS_EVENT_CAPACITY;
+        process->ThreadLimit = WIT_PROCESS_THREAD_CAPACITY;
+        process->TickLimit = WIT_RUNTIME_TICK_BUDGET;
+    }
     slot_owners[slot] = process;
     process->ImageBase = layout->Segments[0].Address;
     process->ImageEntry = layout->Entry;
     process->ImageSize = 0;
-    if (!wit_user_space_create_profile(&process->Space, allocator, 1) ||
+    if (!wit_user_space_create_profile(&process->Space, allocator, system) ||
         !wit_user_space_map(&process->Space, WIT_USER_INFO, 0, 0)) {
         goto failed;
     }
-    process->Space.ReservationLimit = WIT_PROCESS_RESERVATION_CAPACITY;
-    process->ObjectLimit = WIT_PROCESS_OBJECT_CAPACITY;
+    if (system) {
+        process->Space.ReservationLimit = WIT_PROCESS_RESERVATION_CAPACITY;
+        process->ObjectLimit = WIT_PROCESS_OBJECT_CAPACITY;
+    }
+    for (WitU32 i = 0; i < layout->SegmentCount; ++i) {
+        if (layout->Segments[i].Address >= process->Space.FixedLimit ||
+            layout->Segments[i].MemorySize > process->Space.FixedLimit - layout->Segments[i].Address) {
+            goto failed;
+        }
+    }
     for (WitU64 page = WIT_USER_DATA; page < WIT_USER_DATA_END; page += 4096) {
         if (!wit_user_space_map(&process->Space, page, 1, 0)) {
             goto failed;
@@ -577,7 +532,7 @@ int wit_user_create_empty(WitUserProcess *process, WitPageAllocator *allocator, 
         wit_arch_interrupts_enabled()) {
         return 0;
     }
-    reset_process(process, slot, 0);
+    reset_process(process, slot);
     process->Handles.Limit = WIT_PROCESS_HANDLE_CAPACITY; /* the system layer's threads, handles and events (K5.3) */
     process->Events.Limit = WIT_PROCESS_EVENT_CAPACITY;
     process->ThreadLimit = WIT_PROCESS_THREAD_CAPACITY;
