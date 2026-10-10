@@ -19,10 +19,10 @@ typedef WitVirtualRange WitUserReservation;
 typedef struct WitUserSpace {
     WitPageAllocator *Allocator;
     WitU64 Root;
-    WitU64 OwnedPages[WIT_RUNTIME_PAGE_CAPACITY];
-    WitU64 OwnedVirtual[WIT_RUNTIME_PAGE_CAPACITY]; /* Zero for page tables. */
-    WitU64 AliasVirtual[WIT_RUNTIME_PAGE_CAPACITY];
-    WitU64 AliasPhysical[WIT_RUNTIME_PAGE_CAPACITY];
+    WitU64 OwnedPages[WIT_PROCESS_PAGE_CAPACITY];
+    WitU64 OwnedVirtual[WIT_PROCESS_PAGE_CAPACITY]; /* Zero for page tables. */
+    WitU64 AliasVirtual[WIT_PROCESS_PAGE_CAPACITY];
+    WitU64 AliasPhysical[WIT_PROCESS_PAGE_CAPACITY];
     WitU32 AliasCount;
     WitUserReservation Reservations[WIT_PROCESS_RESERVATION_CAPACITY]; /* ReservationLimit of them in use */
     /* Per reservation: the memory object it maps (its nonzero number; zero for a plain reservation) and the rights
@@ -241,7 +241,7 @@ WitUserProcess *wit_user_process_by_id(WitU32 id);
 void wit_user_wait_objects_changed_all(void);
 
 /* Processes (RFC 0011 section 7.8, K5.2c). In user.c: an empty process on a record of the pool, in a free registry
- * slot, with the full profile's quotas bounded by the page quota asked and the creator's tick budget; the end of a
+ * slot, with the system layer's quotas bounded by the page quota asked and the creator's tick budget; the end of a
  * process other than the running one (killed, or orphaned by the root's end): its references released, its address
  * space torn down, its handles' waiters woken, its record freed with its last handle. In user_process.c: the pool,
  * the three calls, the handle's close, duplication and the reference a dropped message held, whether a handle is a

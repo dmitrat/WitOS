@@ -30,7 +30,7 @@ static void create(WitPageAllocator *pages, WitU64 mode)
         "Interrupt test process creation failed");
     if (driver) {
         /* The driver waits for the device; the host's block I/O takes wall-clock time the budget must cover. */
-        process.TickLimit = WIT_RUNTIME_TICK_BUDGET;
+        process.TickLimit = WIT_PROCESS_TICK_BUDGET;
     }
     info = (WitUserTestConfig *)wit_user_space_physical(&process.Space, WIT_USER_INFO, 0, 0);
     info->Mode = mode;

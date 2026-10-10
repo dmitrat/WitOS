@@ -179,9 +179,9 @@ void wit_arch_frame_enter_callback(
     frame->Rip = entry;
     frame->Rsp = stack;
     frame->Rflags = USER_FLAGS_FIXED;
-    frame->Rcx = argument0;
-    frame->Rdx = argument1;
-    frame->R8 = argument2;
+    frame->Rdi = argument0; /* the SysV argument registers, as a thread's entry (K8.4d) */
+    frame->Rsi = argument1;
+    frame->Rdx = argument2;
 }
 
 void wit_arch_frame_describe(const WitArchFrame *frame)

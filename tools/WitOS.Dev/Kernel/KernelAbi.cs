@@ -19,11 +19,12 @@ internal static partial class KernelAbi
     #region Functions
 
     /// <summary>
-    /// Reads the user ABI version from the shared header.
+    /// Reads the user ABI version from the shared header as major.minor (ABI-1 1.0 since plan step K8.4d).
     /// </summary>
     /// <param name="root">Repository root.</param>
-    /// <returns>WIT_ABI_VERSION.</returns>
-    public static int UserVersion(string root) => ReadDefine(root, USER_ABI_HEADER, "WIT_ABI_VERSION");
+    /// <returns>WIT_ABI_VERSION_MAJOR and WIT_ABI_VERSION_MINOR, such as 1.0.</returns>
+    public static string UserVersion(string root) =>
+        $"{ReadDefine(root, USER_ABI_HEADER, "WIT_ABI_VERSION_MAJOR")}.{ReadDefine(root, USER_ABI_HEADER, "WIT_ABI_VERSION_MINOR")}";
 
     /// <summary>
     /// Reads the boot ABI version from the boot header.
@@ -40,7 +41,7 @@ internal static partial class KernelAbi
     /// </remarks>
     /// <param name="root">Repository root.</param>
     /// <returns>Banner text.</returns>
-    public static string Banner(string root) => $"WitOS user ABI v{UserVersion(root)}, boot ABI v{BootVersion(root)}";
+    public static string Banner(string root) => $"WitOS user ABI {UserVersion(root)}, boot ABI v{BootVersion(root)}";
 
     /// <summary>
     /// Reads every user ABI call number from the shared header.

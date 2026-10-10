@@ -181,7 +181,7 @@ ENTRY_ATTRIBUTES WIT_NORETURN void wit_user_start(const WitRootStartup *startup)
     const WitU64 features = WIT_ABI_FEATURE_CHANNELS | WIT_ABI_FEATURE_DEVICES;
     check(startup->Version == WIT_ROOT_STARTUP_VERSION, 2);
     check(startup->Size == WIT_ROOT_STARTUP_SIZE, 3);
-    check(startup->AbiVersion == WIT_ABI_VERSION, 4);
+    check(WIT_ABI_MAJOR(startup->AbiVersion) == WIT_ABI_VERSION_MAJOR && startup->AbiVersion == WIT_ABI_VERSION, 4);
     check((startup->Features & features) == features, 5);
     check(startup->MemoryBase == WIT_USER_MEMORY_BASE, 6);
     check(startup->CodeBase == WIT_USER_CODE_BASE, 7);

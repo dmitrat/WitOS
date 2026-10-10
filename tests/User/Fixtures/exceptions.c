@@ -36,8 +36,9 @@ typedef struct State {
 #define CONTEXT_PC(c) ((c)->Rip)
 #define CONTEXT_SP(c) ((c)->Rsp)
 #define CONTEXT_MARKED(c) ((c)->R12)
-/* The fault callback is entered in the kernel's convention, the Microsoft one on x64. */
-#define CALLBACK __attribute__((ms_abi, force_align_arg_pointer, noreturn))
+/* The fault callback is entered with the token, the vector and the address in the SysV argument registers (K8.4d) and
+ * no return address. */
+#define CALLBACK __attribute__((force_align_arg_pointer, noreturn))
 #else
 #define FAULT_VECTOR 0x24U /* a data abort from EL0 */
 #define FAULT_ERROR 0x92000006U /* its translation-fault syndrome */

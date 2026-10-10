@@ -24,6 +24,13 @@ static char program_name[] = "root";
 __attribute__((__noreturn__, __used__)) void _start_c(const WitRootStartup *startup)
 {
     WitU64 result;
+    /* ABI-1 (RFC 0011 section 10.1): a kernel of another major version is refused before anything else runs. */
+    if (startup->Version != WIT_ROOT_STARTUP_VERSION || WIT_ABI_MAJOR(startup->AbiVersion) != WIT_ABI_VERSION_MAJOR) {
+        static const char refused[] = "[LIBC] the kernel's ABI-1 major version is not this library's\n";
+        wit_syscall(
+            WIT_CALL_DEBUG_WRITE, startup->Handles[WIT_ROOT_HANDLE_LOG], (WitU64)refused, sizeof(refused) - 1, &result);
+        wit_syscall(WIT_CALL_PROCESS_EXIT, 127, 0, 0, &result);
+    }
     __wit_process.Log = startup->Handles[WIT_ROOT_HANDLE_LOG];
     __wit_process.Package = startup->Handles[WIT_ROOT_HANDLE_PACKAGE];
     __wit_process.PackageBytes = startup->PackageBytes;

@@ -172,12 +172,12 @@ static WitU64 address_limit(const WitUserSpace *space, WitU64 address)
     return dynamic_limit(address);
 }
 
-int wit_user_space_create_profile(WitUserSpace *space, WitPageAllocator *allocator, int full)
+int wit_user_space_create_profile(WitUserSpace *space, WitPageAllocator *allocator, int system)
 {
     space->Allocator = allocator;
-    space->PageLimit = full ? WIT_RUNTIME_PAGE_CAPACITY : WIT_USER_PAGE_CAPACITY;
-    space->ReservationLimit = full ? WIT_RUNTIME_RESERVATION_CAPACITY : WIT_USER_RESERVATION_CAPACITY;
-    space->FixedLimit = full ? WIT_RUNTIME_USER_LIMIT : WIT_USER_LIMIT;
+    space->PageLimit = system ? WIT_PROCESS_PAGE_CAPACITY : WIT_USER_PAGE_CAPACITY;
+    space->ReservationLimit = system ? WIT_PROCESS_RESERVATION_CAPACITY : WIT_USER_RESERVATION_CAPACITY;
+    space->FixedLimit = system ? WIT_PROCESS_USER_LIMIT : WIT_USER_LIMIT;
     space->OwnedCount = 0;
     space->ChargedPages = 0;
     space->AliasCount = 0;
@@ -502,7 +502,7 @@ static WitU64 memory_reserve(WitUserSpace *space, WitU64 size, WitU64 alignment,
 static WitU64 memory_commit(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection)
 {
     WitU32 rights;
-    WitU64 added[WIT_RUNTIME_PAGE_CAPACITY];
+    WitU64 added[WIT_PROCESS_PAGE_CAPACITY];
     WitU32 count = 0;
     WitU64 status = reserved_range(space, address, size);
     if (status != WIT_STATUS_OK) {

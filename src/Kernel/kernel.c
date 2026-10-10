@@ -124,8 +124,10 @@ WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot)
     WitU64 usable = 0;
 
     /* Versions come from the ABI headers; the host runner checks this line. */
-    wit_console_write("WitOS user ABI v");
-    wit_console_write_u64(WIT_ABI_VERSION);
+    wit_console_write("WitOS user ABI ");
+    wit_console_write_u64(WIT_ABI_VERSION_MAJOR);
+    wit_console_write(".");
+    wit_console_write_u64(WIT_ABI_VERSION_MINOR);
     wit_console_write(", boot ABI v");
     wit_console_write_u64(WIT_BOOT_VERSION);
     wit_console_write("\n");

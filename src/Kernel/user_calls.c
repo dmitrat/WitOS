@@ -449,9 +449,8 @@ static WitArchFrame *process_write_barrier(WitUserCall *call)
     return 0;
 }
 
-/* PROCESSOR_QUERY (RFC 0011 section 7.9): the 4-byte form of the frozen line (the current processor as {group:u16,
- * number:u8, reserved:u8}), or the record form (K7.1) with the caller's Version and Size: the processor table, the
- * boot processor first. The whole destination is validated before it is written. */
+/* PROCESSOR_QUERY (RFC 0011 section 7.9): the record form (K7.1) with the caller's Version and Size: the processor
+ * table, the boot processor first. The whole destination is validated before it is written. */
 static WitArchFrame *processor_query(WitUserCall *call)
 {
     WitUserSpace *space = &call->Process->Space;
@@ -459,15 +458,6 @@ static WitArchFrame *processor_query(WitUserCall *call)
     WitProcessorInfo info;
     if (call->Argument2) {
         *call->Status = WIT_STATUS_INVALID_ARGUMENT;
-        return 0;
-    }
-    if (call->Argument1 == 4) {
-        const WitU32 processor = wit_processors_current(); /* group 0, the kernel's number */
-        if (!wit_user_copy_to(space, call->Argument0, (const WitU8 *)&processor, sizeof(processor))) {
-            *call->Status = WIT_STATUS_BAD_ADDRESS;
-        } else {
-            *call->Value = sizeof(processor);
-        }
         return 0;
     }
     if (call->Argument1 != sizeof(info)) {

@@ -59,24 +59,28 @@ public sealed class ConsistencyTests
         var root = TestEnvironment.Root;
         var user = KernelAbi.UserVersion(root);
         var boot = KernelAbi.BootVersion(root);
-        Assert.That(KernelAbi.Banner(root) == $"WitOS user ABI v{user}, boot ABI v{boot}", Is.True, "Unexpected banner format");
+        Assert.That(KernelAbi.Banner(root) == $"WitOS user ABI {user}, boot ABI v{boot}", Is.True, "Unexpected banner format");
         var kernel = File.ReadAllText(Path.Combine(root, "src/Kernel/kernel.c"));
         Assert.That(!Regex.IsMatch(kernel, @"WitOS \d+\.\d+\.\d+"), Is.True, "kernel.c prints a hardcoded product version");
-        Assert.That(kernel.Contains("wit_console_write_u64(WIT_ABI_VERSION);", StringComparison.Ordinal) &&
+        Assert.That(kernel.Contains("wit_console_write_u64(WIT_ABI_VERSION_MAJOR);", StringComparison.Ordinal) &&
+            kernel.Contains("wit_console_write_u64(WIT_ABI_VERSION_MINOR);", StringComparison.Ordinal) &&
             kernel.Contains("wit_console_write_u64(WIT_BOOT_VERSION);", StringComparison.Ordinal), Is.True, "kernel.c banner does not print the header versions");
 
         // README describes only the current state: every ABI version it names is current.
         var readme = File.ReadAllText(Path.Combine(root, "README.md"));
-        foreach (Match match in Regex.Matches(readme, @"\b(user|boot)?\s*ABI v(\d+)", RegexOptions.IgnoreCase))
+        foreach (Match match in Regex.Matches(readme, @"\bboot ABI v(\d+)", RegexOptions.IgnoreCase))
         {
-            var expected = match.Groups[1].Value.Equals("boot", StringComparison.OrdinalIgnoreCase) ? boot : user;
-            Assert.That(int.Parse(match.Groups[2].Value) == expected, Is.True, $"README names a stale ABI version: {match.Value}");
+            Assert.That(int.Parse(match.Groups[1].Value) == boot, Is.True, $"README names a stale boot ABI version: {match.Value}");
+        }
+        foreach (Match match in Regex.Matches(readme, @"\buser ABI v?(\d+(?:\.\d+)?)", RegexOptions.IgnoreCase))
+        {
+            Assert.That(match.Groups[1].Value == user, Is.True, $"README names a stale user ABI version: {match.Value}");
         }
         Assert.That(readme.Contains(KernelAbi.Banner(root), StringComparison.Ordinal), Is.True, "README shows a stale kernel banner");
 
         // PLAN keeps history; its header must name the current versions.
         var header = string.Join("\n", File.ReadLines(Path.Combine(root, "PLAN.md")).Take(5));
-        Assert.That(header.Contains($"user ABI v{user}", StringComparison.Ordinal), Is.True, "PLAN header lacks the current user ABI");
+        Assert.That(header.Contains($"user ABI {user}", StringComparison.Ordinal), Is.True, "PLAN header lacks the current user ABI");
         Assert.That(header.Contains($"boot ABI v{boot}", StringComparison.Ordinal), Is.True, "PLAN header lacks the current boot ABI");
     }
 
@@ -104,7 +108,7 @@ public sealed class ConsistencyTests
         }
         var next = Math.Max(calls.Values.Max(), retired.Max()) + 1;
         Assert.That(reference.Contains($"Следующий свободный номер: **{next}**", StringComparison.Ordinal), Is.True, "ABI reference names a stale next free call number");
-        Assert.That(reference.Contains($"**user ABI v{KernelAbi.UserVersion(root)}**", StringComparison.Ordinal) &&
+        Assert.That(reference.Contains($"**user ABI {KernelAbi.UserVersion(root)}**", StringComparison.Ordinal) &&
             reference.Contains($"**boot ABI v{KernelAbi.BootVersion(root)}**", StringComparison.Ordinal), Is.True, "ABI reference names stale versions");
     }
 
