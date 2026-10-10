@@ -27,9 +27,9 @@
 #define PATTERN 0x5A5A5A5A5A5A5A5AULL
 
 #if defined(__x86_64__)
-/* The fault callback is entered in the kernel's convention: the Microsoft one on x64, the token, the vector and the
- * address in RCX, RDX and R8. */
-#define CALLBACK_ATTRIBUTES __attribute__((ms_abi, force_align_arg_pointer))
+/* The fault callback is entered with the token, the vector and the address in the SysV argument registers (K8.4d) and
+ * no return address. */
+#define CALLBACK_ATTRIBUTES __attribute__((force_align_arg_pointer))
 #else
 #define CALLBACK_ATTRIBUTES
 #endif

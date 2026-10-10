@@ -142,7 +142,7 @@ WitU64 wit_user_process_create(WitUserProcess *p, WitU64 address, WitU64 size, W
     if (request.Size != sizeof(request) || request.Flags || request.Reserved) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
-    if (request.Pages > WIT_RUNTIME_PAGE_CAPACITY) {
+    if (request.Pages > WIT_PROCESS_PAGE_CAPACITY) {
         return WIT_STATUS_TOO_LARGE;
     }
     if (!wit_user_buffer_writable(&p->Space, output, sizeof(WitU64))) {
@@ -166,7 +166,7 @@ WitU64 wit_user_process_create(WitUserProcess *p, WitU64 address, WitU64 size, W
     if (!child) {
         return WIT_STATUS_NO_MEMORY;
     }
-    const WitU32 pages = request.Pages ? (WitU32)request.Pages : WIT_RUNTIME_PAGE_CAPACITY;
+    const WitU32 pages = request.Pages ? (WitU32)request.Pages : WIT_PROCESS_PAGE_CAPACITY;
     if (!wit_user_create_empty(child, p->Space.Allocator, pages, p->TickLimit)) {
         return WIT_STATUS_NO_MEMORY;
     }

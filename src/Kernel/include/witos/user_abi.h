@@ -11,13 +11,20 @@
 #include "wait_objects.h"
 
 /* ABI-1 of RFC 0011 v3 (sections 6 and 7): the system calls between the nano-kernel and the system layer.
- * The ABI is experimental until plan step K8 declares 1.0; since step K1 a call number, a status value and a rights
- * bit are never reused (RFC 0011 section 10.1). Transport (section 6.1): on x64 SYSCALL with RAX=call, RDI/RSI/RDX
+ * ABI-1 1.0 since plan step K8.4d (RFC 0011 section 10.1): a call number, a status value and a rights bit are never
+ * reused (since step K1), changes are additive (a call, an operation, an appended field under a new structure
+ * version, a feature bit) and raise the minor version, and removing or changing the meaning of anything needs a new
+ * major version and an ADR. Transport (section 6.1): on x64 SYSCALL with RAX=call, RDI/RSI/RDX
  * arguments, RAX=status and RDX=result, RCX and R11 clobbered by the instruction, other GPRs and x87/SSE state
  * preserved, RFLAGS reset to 0x202 (INT 0x80 left at step K8.4b); on ARM64 SVC #0 with x8=call, x0-x2 arguments,
  * x0=status and x1=result, every other register preserved, x18 included (K8.4b). A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
-#define WIT_ABI_VERSION 72U
+#define WIT_ABI_VERSION_MAJOR 1U
+#define WIT_ABI_VERSION_MINOR 0U
+/* The version QUERY reports and the startup descriptor carries: the major version in the high 16 bits, the minor in
+ * the low 16 (the draft counters of phase K ran from 1 to 72 with major 0). A system layer refuses another major. */
+#define WIT_ABI_VERSION ((WIT_ABI_VERSION_MAJOR << 16) | WIT_ABI_VERSION_MINOR)
+#define WIT_ABI_MAJOR(version) ((version) >> 16)
 /* QUERY result: the low 32 bits are WIT_ABI_VERSION, the high 32 bits the mask of the families present. */
 #define WIT_ABI_FEATURE_CHANNELS 1U
 #define WIT_ABI_FEATURE_DEVICES 2U
@@ -220,10 +227,9 @@
  * live threads; the handle's waiters (OBJECT_WAIT) are ready once the process ended. */
 #define WIT_CALL_PROCESS_QUERY 92U
 
-/* Processors (RFC 0011 section 7.9). Query(buffer, 4, 0): the current processor as {group:u16, number:u8,
- * reserved:u8}, the frozen line's form until K8; Query(WitProcessorInfo, 280, 0) with the caller's Version and
- * Size (witos/processor.h, K7.1): the current processor, the processors present and online and one record per
- * processor, the boot processor first. */
+/* Processors (RFC 0011 section 7.9). Query(WitProcessorInfo, 280, 0) with the caller's Version and Size
+ * (witos/processor.h, K7.1): the current processor, the processors present and online and one record per processor,
+ * the boot processor first. The frozen line's 4-byte form left at step K8.4d. */
 #define WIT_CALL_PROCESSOR_QUERY 93U
 /* Barrier(0, 0, 0): a process data-memory barrier on the sole online processor; unsupported topology fails. */
 #define WIT_CALL_PROCESS_WRITE_BARRIER 94U

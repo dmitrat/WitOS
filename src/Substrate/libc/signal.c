@@ -745,8 +745,8 @@ long __wit_pause(void)
 }
 
 #if defined(__x86_64__)
-/* The fault callback: the kernel enters with the token, the vector and the address in RCX, RDX and R8 (its calling
- * convention) on a 16-byte aligned stack; the C delivery takes them in the SysV registers. The trampoline is entered
+/* The fault callback: the kernel enters with the token, the vector and the address in RDI, RSI and RDX (the SysV
+ * argument registers, K8.4d) on a 16-byte aligned stack, as the C delivery takes them. The trampoline is entered
  * by EXCEPTION_CONTINUE with RDI the signal, RSI the siginfo, RDX the ucontext, RCX the frame and R8 the handler on
  * the 16-byte aligned frame; the frame survives in RBX across the handler. musl's kernel restorers are never
  * installed (musl's generic restore.c stays, unused): a handler returns to the trampoline. */
@@ -754,9 +754,6 @@ __asm__(".text\n"
         ".global __wit_signal_entry\n"
         ".type __wit_signal_entry,@function\n"
         "__wit_signal_entry:\n"
-        "    mov %rcx, %rdi\n"
-        "    mov %rdx, %rsi\n"
-        "    mov %r8, %rdx\n"
         "    xor %ebp, %ebp\n"
         "    and $-16, %rsp\n"
         "    call __wit_signal_deliver\n"

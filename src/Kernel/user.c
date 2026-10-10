@@ -444,7 +444,7 @@ static void reset_process(WitUserProcess *process, WitU32 slot)
 /* A component from a validated flat image (K4; the fixtures too since K8.4c): its segments mapped at their addresses
  * and copied page by page, the startup page and the data pages, and the first thread at the entry with WIT_USER_INFO
  * in its argument register; the caller fills the startup descriptor. The system layer's profile (the root task,
- * S1.3) has the full profile's pages and the wider fixed window, as a created process gets them, so that a libc
+ * S1.3) has the system layer's pages and the wider fixed window, as a created process gets them, so that a libc
  * program and the runtime fit, and the system layer's reservation table (S5.4), threads, handles and events (K5.3)
  * and objects (S6.1); a fixture keeps the default quotas its tests exhaust, and its segments must lie in the fixed
  * window of that profile. */
@@ -459,7 +459,7 @@ int wit_user_create_flat(
         process->Handles.Limit = WIT_PROCESS_HANDLE_CAPACITY;
         process->Events.Limit = WIT_PROCESS_EVENT_CAPACITY;
         process->ThreadLimit = WIT_PROCESS_THREAD_CAPACITY;
-        process->TickLimit = WIT_RUNTIME_TICK_BUDGET;
+        process->TickLimit = WIT_PROCESS_TICK_BUDGET;
     }
     slot_owners[slot] = process;
     process->ImageBase = layout->Segments[0].Address;
@@ -470,7 +470,6 @@ int wit_user_create_flat(
         goto failed;
     }
     if (system) {
-        process->Space.ReservationLimit = WIT_PROCESS_RESERVATION_CAPACITY;
         process->ObjectLimit = WIT_PROCESS_OBJECT_CAPACITY;
     }
     for (WitU32 i = 0; i < layout->SegmentCount; ++i) {
@@ -515,7 +514,7 @@ failed:
     return 0;
 }
 
-/* An empty process for PROCESS_CREATE (K5.2c): a record of the pool in a free registry slot, the full profile's
+/* An empty process for PROCESS_CREATE (K5.2c): a record of the pool in a free registry slot, the system layer's
  * quotas with the page quota asked and the creator's tick budget, no thread yet; it is part of the schedule from
  * now on. Unlike the components the host creates, it is created while a component runs. */
 int wit_user_create_empty(WitUserProcess *process, WitPageAllocator *allocator, WitU32 pages, WitU64 ticks)
@@ -543,8 +542,7 @@ int wit_user_create_empty(WitUserProcess *process, WitPageAllocator *allocator, 
         return 0;
     }
     process->Space.PageLimit = pages;
-    process->Space.ReservationLimit = WIT_PROCESS_RESERVATION_CAPACITY; /* the system layer's table (S5.4) */
-    process->ObjectLimit = WIT_PROCESS_OBJECT_CAPACITY; /* and its objects (S6.1) */
+    process->ObjectLimit = WIT_PROCESS_OBJECT_CAPACITY; /* the system layer's objects (S6.1) */
     process->State = WitUserRunning;
     return 1;
 }
