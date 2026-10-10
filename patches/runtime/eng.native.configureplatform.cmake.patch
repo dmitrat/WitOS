@@ -1,11 +1,12 @@
 Source: eng/native/configureplatform.cmake
 Output: eng.native.configureplatform.cmake
 Before: d113163aef442bb4143347cf6755912c7f962d14d170023406f3c82be8d499d1
-After: 6aa210d50d0c3c1cf444a4862d204dd7b9e8ac6af75af20d610a9b7f8db0088c
+After: 481240971e68fd0ceb813b18994f83b0498276aa4f1c38ebf3edca94946833e2
 
 The platform witos (plan step R1.2b, RFC 0015 section 3): CLR_CMAKE_HOST_WITOS for code built to run on WitOS (x64 and
-ARM64) and CLR_CMAKE_TARGET_WITOS with CLR_CMAKE_TARGET_UNIX, beside Haiku's branches; WitOS is a Unix target and
-never Linux.
+ARM64) and CLR_CMAKE_TARGET_WITOS with CLR_CMAKE_TARGET_UNIX, beside Haiku's branches; WitOS is a Unix target and never
+Linux. R3.1: CoreCLR's build tools (ilasm, ildasm) are not built for witos, as for Android and the browser: the host's
+own tools serve the build, and ilasm's signing needs OpenSSL's headers, which the sysroot does not have.
 
 --- a/eng/native/configureplatform.cmake
 +++ b/eng/native/configureplatform.cmake
@@ -40,3 +41,12 @@ never Linux.
  if(CLR_CMAKE_TARGET_OS STREQUAL emscripten OR CLR_CMAKE_TARGET_OS STREQUAL browser)
      set(CLR_CMAKE_TARGET_UNIX 1)
      set(CLR_CMAKE_TARGET_BROWSER 1)
+@@ -522,7 +539,7 @@
+     set(CLR_CMAKE_USE_SYSTEM_ZLIB 1)
+ endif()
+ 
+-if (NOT CLR_CMAKE_TARGET_ANDROID AND NOT CLR_CMAKE_TARGET_BROWSER)
++if (NOT CLR_CMAKE_TARGET_ANDROID AND NOT CLR_CMAKE_TARGET_BROWSER AND NOT CLR_CMAKE_TARGET_WITOS)
+     # opt into building tools like ildasm/ilasm
+     set(CLR_CMAKE_BUILD_TOOLS 1)
+ endif()

@@ -56,6 +56,11 @@ internal static class RuntimeWitos
     public const string ACCEPTANCE_EXECUTABLE = "acceptance";
 
     /// <summary>
+    /// The CoreCLR load check (R3.1), the runtime-coreclr scenario's /bin/init.
+    /// </summary>
+    public const string CORECLR_PROGRAM = "tests/User/coreclr_init.c";
+
+    /// <summary>
     /// The runs of the acceptance: four cycles of its eight probes (R2.2).
     /// </summary>
     public const int ACCEPTANCE_RUNS = 32;
@@ -76,6 +81,11 @@ internal static class RuntimeWitos
     #endregion
 
     #region Fields
+
+    /// <summary>
+    /// CoreCLR's native images for witos (R3.1): the runtime, the JIT and the host that loads them.
+    /// </summary>
+    private static readonly string[] CORECLR_IMAGES = ["libcoreclr.so", "libclrjit.so", "corerun"];
 
     /// <summary>
     /// The witos patch set: each upstream path and the name of its patch in patches/runtime, its path with '/' as '.'.
@@ -111,7 +121,13 @@ internal static class RuntimeWitos
         ["src/coreclr/tools/Common/CommandLineHelpers.cs"] = "src.coreclr.tools.Common.CommandLineHelpers.cs",
         // NativeAOT's link for witos through the SDK's targets (R2.3b).
         ["src/coreclr/nativeaot/BuildIntegration/Microsoft.NETCore.Native.Unix.targets"] =
-            "src.coreclr.nativeaot.BuildIntegration.Microsoft.NETCore.Native.Unix.targets"
+            "src.coreclr.nativeaot.BuildIntegration.Microsoft.NETCore.Native.Unix.targets",
+        // CoreCLR's native part: the runtime, the JIT, the DAC and corerun (R3.1).
+        ["src/coreclr/CMakeLists.txt"] = "src.coreclr.CMakeLists.txt",
+        ["src/coreclr/dlls/mscordac/CMakeLists.txt"] = "src.coreclr.dlls.mscordac.CMakeLists.txt",
+        ["src/coreclr/pal/src/thread/process.cpp"] = "src.coreclr.pal.src.thread.process.cpp",
+        ["src/coreclr/vm/gcenv.ee.cpp"] = "src.coreclr.vm.gcenv.ee.cpp",
+        ["src/native/external/libunwind.cmake"] = "src.native.external.libunwind.cmake"
     };
 
     #endregion
@@ -156,6 +172,24 @@ internal static class RuntimeWitos
         if (!HasUserString(aotCoreLib, "WITOS"))
             throw new InvalidDataException($"{aotCoreLib} does not name its platform WITOS.");
         Console.WriteLine($"NativeAOT for witos-{architecture.Name}: the native runtime, AsmOffsets.cs and CoreLib ({Path.Combine(output, "aotsdk")}).");
+
+        // CoreCLR's native part (R3.1): the runtime, the JIT and corerun, cross-compiled against the sysroot as dynamic
+        // images for musl's dynamic linker; the guest loads the runtime and the JIT and resolves their entry points.
+        await RunBuildAsync(tree, ["clr.runtime+clr.jit", "-os", "witos", "-arch", architecture.Name, "-c", "Release", "-cross"],
+            environment);
+        foreach (var coreclrFile in CORECLR_IMAGES)
+        {
+            if (!File.Exists(Path.Combine(output, coreclrFile)))
+                throw new InvalidDataException($"CoreCLR's native build for witos-{architecture.Name} left no {coreclrFile} in {output}.");
+        }
+        var coreclrImage = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_CORECLR_SCENARIO, architecture: architecture);
+        await BootScenarioRunner.RunAsync(root, coreclrImage, new BootRequest($"{architecture.Name}-runtime-coreclr-256", 256, 300, ExpectedOutcome.Success)
+        {
+            Architecture = architecture,
+            Suite = BootSuite.Release,
+            RequiredLines = [KernelArchitecture.CoreClrLoadedLine, architecture.RootTaskPassedLine]
+        });
+        Console.WriteLine($"CoreCLR for witos-{architecture.Name}: {string.Join(", ", CORECLR_IMAGES)}; the runtime and the JIT load in the guest ({output}).");
 
         // The class libraries above CoreLib (R2.3a): upstream's shared framework for witos, which takes the libraries' Unix
         // flavors, and the reference pack programs compile against.
@@ -249,6 +283,38 @@ internal static class RuntimeWitos
             ("bin/init", executable), (MuslLibc.InterpreterPath(architecture).TrimStart('/'), Path.Combine(lib, "libc.so")),
             ("lib/libc++.so.1", Path.Combine(lib, "libc++.so.1")), ("lib/libc++abi.so.1", Path.Combine(lib, "libc++abi.so.1")),
             ("lib/libunwind.so.1", Path.Combine(lib, "libunwind.so.1"))
+        ];
+    }
+
+    /// <summary>
+    /// The package of the CoreCLR load check (R3.1): tests/User/coreclr_init.c, which clang's driver builds against the
+    /// sysroot, as /bin/init, CoreCLR's runtime and JIT for witos under /coreclr, musl's libc.so as the dynamic linker and
+    /// the shared C++ runtime in /lib.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Artifact directory of the scenario.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>Package paths and the files to place there.</returns>
+    public static async Task<IReadOnlyList<(string Name, string Source)>> BuildCoreClrPackageAsync(string root, string output,
+        KernelArchitecture architecture)
+    {
+        var coreclr = Path.Combine(root, "artifacts", "runtime-witos", "src", "artifacts", "bin", "coreclr", $"witos.{architecture.Name}.Release");
+        if (!File.Exists(Path.Combine(coreclr, "libcoreclr.so")))
+            throw new InvalidOperationException($"No CoreCLR for witos in {coreclr}. Run: dotnet run --project tools/WitOS.Dev -- runtime-witos --arch {architecture.Name}");
+        var sysroot = await Sysroot.BuildAsync(root, architecture);
+        var program = Path.Combine(output, "coreclr_init.elf");
+        await Processes.RequireSuccessAsync(Toolchain.Clang(root),
+        [
+            .. Sysroot.DriverOptions(root, architecture), "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
+            Path.Combine(root, CORECLR_PROGRAM), "-o", program
+        ], root);
+        var lib = Path.Combine(sysroot, "usr", "lib");
+        return
+        [
+            ("bin/init", program), (MuslLibc.InterpreterPath(architecture).TrimStart('/'), Path.Combine(lib, "libc.so")),
+            ("lib/libc++.so.1", Path.Combine(lib, "libc++.so.1")), ("lib/libc++abi.so.1", Path.Combine(lib, "libc++abi.so.1")),
+            ("lib/libunwind.so.1", Path.Combine(lib, "libunwind.so.1")),
+            ("coreclr/libcoreclr.so", Path.Combine(coreclr, "libcoreclr.so")), ("coreclr/libclrjit.so", Path.Combine(coreclr, "libclrjit.so"))
         ];
     }
 

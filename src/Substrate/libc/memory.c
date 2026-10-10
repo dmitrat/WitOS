@@ -4,18 +4,21 @@
 #include "witos/memory_object.h"
 #include "witos/thread_info.h"
 #include <errno.h>
+#include <string.h>
 #include <sys/mman.h>
 
 /* Linux memory calls over ABI-1 (plan steps S1.1 and S5.1). The library keeps a table of its mappings, each one kernel
- * reservation: a plain reservation, whose pages are committed under the requested protection and, for a file, filled
- * with the file's bytes; or a mapping of the boot package object, which shows a file's pages without a copy and is the
- * only way a file's code executes (plain memory never does; the pages are published for instruction fetch). A file of
- * at least a page starts at a page boundary in the package (S5.1), and an executable mapping is made of package
- * mappings of at most WIT_MEMORY_OBJECT_PAGES pages at consecutive addresses. MAP_FIXED replaces whatever of the
- * library's mappings lies in its range, as Linux does: a plain part is released from its reservation (the kernel splits
- * it), a package mapping that is only partly covered is mapped again around the range; munmap of any range does the
- * same, and mprotect changes every mapping the range touches. Shared writable mappings and files other than the
- * package's and /dev/zero are not here. The table lock of __wit_syscall serializes every call. */
+ * reservation: a plain reservation, whose pages are committed under the requested protection and, for a writable
+ * private mapping of a file, filled with the file's bytes; or a mapping of the boot package object, which shows a
+ * file's pages without a copy (every private mapping that is not writable, R3.1) and is the only way a file's code
+ * executes (plain memory never does; the pages are published for instruction fetch). A file of at least a page
+ * starts at a page boundary in the package (S5.1), and a mapping of it without a copy is made of package mappings of
+ * at most WIT_MEMORY_OBJECT_PAGES pages at consecutive addresses; mprotect that makes such pages writable gives them
+ * a private copy first. MAP_FIXED replaces whatever of the library's mappings lies in its range, as Linux does: a
+ * plain part is released from its reservation (the kernel splits it), a package mapping that is only partly covered
+ * is mapped again around the range; munmap of any range does the same, and mprotect changes every mapping the range
+ * touches. Shared writable mappings and files other than the package's and /dev/zero are not here. The table lock of
+ * __wit_syscall serializes every call. */
 
 #define PAGE 4096UL
 #define MAPPINGS 256U
@@ -303,7 +306,9 @@ long __wit_mmap(long address, long length, long protection, long flags, long fd,
         return -EACCES; /* the package is read-only */
     }
     const int aligned = !((source + (WitU64)offset) & (PAGE - 1));
-    if (!(protection & PROT_WRITE) && aligned && (protection & PROT_EXEC)) {
+    /* A private mapping that is not writable shows the package's pages without a copy (R3.1): code and read-only data
+     * cost no pages of the process, as musl's dynamic linker maps a whole library read-only first. */
+    if (!(protection & PROT_WRITE) && aligned) {
         const WitU64 file_pages = (WitU64)offset < file_length ? round_up(file_length - (WitU64)offset) : 0;
         return map_shared_pages(place, size, kernel_protection, source + (WitU64)offset, file_pages);
     }
@@ -316,6 +321,46 @@ long __wit_munmap(long address, long length)
         return -EINVAL;
     }
     return remove_range((WitU64)address, round_up((unsigned long)length));
+}
+
+/* Copy-on-write, made eager (R3.1): the part of a package mapping in [start, end) that mprotect makes writable becomes
+ * plain memory holding the same bytes, as a private mapping of a file does on Linux; the package stays read-only. The
+ * bytes are read through a window of the package, since the mapping itself may be PROT_NONE. A mapping made with
+ * PROT_EXEC stays the package's: plain memory never executes, so its code would not run again, and the kernel refuses
+ * the write instead (EACCES). */
+static long privatize(WitU64 start, WitU64 end)
+{
+    for (;;) {
+        unsigned i = 0;
+        while (i < count &&
+            (mappings[i].Kind != MapPackage ||
+                (mappings[i].Protection & WIT_MEMORY_EXECUTE) ||
+                mappings[i].Base + mappings[i].Size <= start ||
+                mappings[i].Base >= end)) {
+            ++i;
+        }
+        if (i == count) {
+            return 0;
+        }
+        const Mapping m = mappings[i];
+        const WitU64 low = m.Base > start ? m.Base : start;
+        const WitU64 high = m.Base + m.Size < end ? m.Base + m.Size : end;
+        WitU64 window = 0;
+        if (map_package(0, m.Source + (low - m.Base), high - low, WIT_MEMORY_READ, &window) != WIT_STATUS_OK) {
+            return -ENOMEM;
+        }
+        long status = remove_range(low, high - low);
+        if (status >= 0) {
+            status = map_anonymous(low, high - low, WIT_MEMORY_READ | WIT_MEMORY_WRITE);
+        }
+        if (status >= 0) {
+            memcpy((void *)low, (const void *)window, high - low);
+        }
+        release(window, 0);
+        if (status < 0) {
+            return status;
+        }
+    }
 }
 
 long __wit_mprotect(long address, long length, long protection)
@@ -332,6 +377,9 @@ long __wit_mprotect(long address, long length, long protection)
         return converted;
     }
     const WitU64 start = (WitU64)address, end = start + round_up((unsigned long)length);
+    if ((kernel_protection & WIT_MEMORY_WRITE) && (converted = privatize(start, end)) < 0) {
+        return converted;
+    }
     int touched = 0;
     for (unsigned i = 0; i < count; ++i) {
         const Mapping *m = &mappings[i];

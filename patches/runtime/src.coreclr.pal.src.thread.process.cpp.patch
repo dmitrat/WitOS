@@ -1,0 +1,30 @@
+Source: src/coreclr/pal/src/thread/process.cpp
+Output: src.coreclr.pal.src.thread.process.cpp
+Before: fcf6c0e63e76baa3dc39b6d86970d5db68f9254c55c46489b81907397a6d4b80
+After: dca4e1ef8440d838a0643608e3df34de667412c623dc9cee0d6dba7d1ba3a39b
+
+CoreCLR's PAL on witos (plan step R3.1, RFC 0015 section 5): the layer-2 triple defines __linux__, but the sysroot
+carries no Linux kernel headers, so <linux/membarrier.h> stays Linux's; musl declares membarrier with two arguments, so
+the PAL's call drops the processor argument, beside the browser's branch. The libc serves the private expedited barrier
+with PROCESS_WRITE_BARRIER (S5.3).
+
+--- a/src/coreclr/pal/src/thread/process.cpp
++++ b/src/coreclr/pal/src/thread/process.cpp
+@@ -62,7 +62,7 @@
+ #include <limits.h>
+ #include <vector>
+ 
+-#ifdef __linux__
++#if defined(__linux__) && !defined(TARGET_WITOS)
+ #include <linux/membarrier.h>
+ #include <sys/syscall.h>
+ #define membarrier(...) syscall(__NR_membarrier, __VA_ARGS__)
+@@ -70,6 +70,8 @@
+ #include <sys/membarrier.h>
+ #ifdef TARGET_BROWSER
+ #define membarrier(cmd, flags, cpu_id) 0 // browser/wasm is currently single threaded
++#elif defined(TARGET_WITOS)
++#define membarrier(cmd, flags, cpu_id) membarrier(cmd, flags) // musl's membarrier has no processor argument
+ #endif
+ #endif
+ 

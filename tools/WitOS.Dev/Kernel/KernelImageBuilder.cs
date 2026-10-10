@@ -72,6 +72,13 @@ internal static class KernelImageBuilder
     /// </summary>
     public const string RUNTIME_ACCEPTANCE_SCENARIO = "runtime-acceptance";
 
+    /// <summary>
+    /// CoreCLR's runtime and JIT built for witos (R3.1): the system layer's root task starts tests/User/coreclr_init.c as
+    /// /bin/init, which loads both with musl's dynamic linker from /coreclr; not a suite scenario, since the libraries come
+    /// from the runtime's build on a Linux host.
+    /// </summary>
+    public const string RUNTIME_CORECLR_SCENARIO = "runtime-coreclr";
+
     #endregion
 
     #region Fields
@@ -82,7 +89,7 @@ internal static class KernelImageBuilder
     /// </summary>
     public static readonly string[] RELEASE_KERNEL_SCENARIOS =
         [RELEASE_SCENARIO, LIBC_SCENARIO, LIBC_TEST_SCENARIO, CXX_SCENARIO, SPAWN_SCENARIO, PROCESS_SCENARIO, SYSROOT_SCENARIO,
-            RUNTIME_TRYRUN_SCENARIO, RUNTIME_PROGRAM_SCENARIO, RUNTIME_ACCEPTANCE_SCENARIO];
+            RUNTIME_TRYRUN_SCENARIO, RUNTIME_PROGRAM_SCENARIO, RUNTIME_ACCEPTANCE_SCENARIO, RUNTIME_CORECLR_SCENARIO];
 
     // A release map must not name self-test code: test objects, self-test functions, fault triggers or workers.
     private static readonly Regex SELF_TEST_SYMBOL = new(
@@ -151,6 +158,7 @@ internal static class KernelImageBuilder
             : scenario == RUNTIME_TRYRUN_SCENARIO ? await Runtime.RuntimeWitos.BuildProbeProgramsAsync(root, output, architecture)
             : scenario == RUNTIME_PROGRAM_SCENARIO ? Runtime.RuntimeWitos.ProgramPackage(root, architecture, Runtime.RuntimeWitos.PLATFORM_EXECUTABLE)
             : scenario == RUNTIME_ACCEPTANCE_SCENARIO ? Runtime.RuntimeWitos.ProgramPackage(root, architecture, Runtime.RuntimeWitos.ACCEPTANCE_EXECUTABLE)
+            : scenario == RUNTIME_CORECLR_SCENARIO ? await Runtime.RuntimeWitos.BuildCoreClrPackageAsync(root, output, architecture)
             : [];
         var bootPackage = await BootPackage.BuildAsync(output, scenario is LIBC_SCENARIO or SPAWN_SCENARIO or PROCESS_SCENARIO,
             programs);
@@ -160,6 +168,7 @@ internal static class KernelImageBuilder
             : scenario == CXX_SCENARIO ? await Substrate.LlvmRuntimes.BuildRootAsync(root, output, architecture)
             : scenario == SPAWN_SCENARIO ? await Substrate.LibWitos.BuildRootAsync(root, output, architecture)
             : scenario is PROCESS_SCENARIO or SYSROOT_SCENARIO or RUNTIME_TRYRUN_SCENARIO or RUNTIME_PROGRAM_SCENARIO or RUNTIME_ACCEPTANCE_SCENARIO
+                or RUNTIME_CORECLR_SCENARIO
                 ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
             : await UserImage.BuildRootAsync(root, output, architecture);
         var objects = await CompileKernelAsync(root, output, scenario, selfTest, target, architecture);

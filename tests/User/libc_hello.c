@@ -341,6 +341,24 @@ int main(void)
             "the code's protection changes within its rights");
         check(munmap(code, 4096) == 0, "the code unmapped");
     }
+    /* A read-only private mapping of a page-aligned file shows the package's pages without a copy, and mprotect that
+     * makes it writable gives it a copy first (R3.1): the write stays the process's, and the package keeps its bytes. */
+    unsigned char *shown = code_fd >= 0 ? mmap(0, 8192, PROT_READ, MAP_PRIVATE, code_fd, 0) : MAP_FAILED;
+    unsigned char *other = code_fd >= 0 ? mmap(0, 8192, PROT_READ, MAP_PRIVATE, code_fd, 0) : MAP_FAILED;
+    check(shown != MAP_FAILED && other != MAP_FAILED && memcmp(shown, other, 8192) == 0, "a file mapped read-only");
+    if (shown != MAP_FAILED && other != MAP_FAILED) {
+        const unsigned char first = shown[4096];
+        check(mprotect(shown + 4096, 4096, PROT_READ | PROT_WRITE) == 0, "a read-only file mapping made writable");
+        shown[4096] = (unsigned char)~first;
+        check(shown[4096] == (unsigned char)~first &&
+                other[4096] == first &&
+                memcmp(shown, other, 4096) == 0 &&
+                memcmp(shown + 4097, other + 4097, 4095) == 0,
+            "the page made writable became a private copy");
+        check(munmap(shown, 8192) == 0 && munmap(other, 8192) == 0, "the copy and the mapping unmapped");
+        shown = mmap(0, 8192, PROT_READ, MAP_PRIVATE, code_fd, 0);
+        check(shown != MAP_FAILED && shown[4096] == first && munmap(shown, 8192) == 0, "the package keeps its bytes");
+    }
     check(mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, code_fd, 0) == MAP_FAILED && errno == EACCES,
         "a shared writable mapping of the package refused");
     close(code_fd);

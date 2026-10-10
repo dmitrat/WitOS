@@ -1,0 +1,20 @@
+Source: src/native/external/libunwind.cmake
+Output: src.native.external.libunwind.cmake
+Before: c87fe321817a5f2ce1eb75b515cbd01d9da8ea0129b020e7c488a6197839b55a
+After: 43b01be57743fb13502bb591241a39ac877b3685e9338761487ac238a6cedf60
+
+CoreCLR's copy of libunwind on witos (plan step R3.1): the PAL unwinds native frames through it, and its stepper calls
+the OS part (os-linux.c), which Linux builds; witos builds the same source, whose /proc reader for the image of an
+address fails explicitly there.
+
+--- a/src/native/external/libunwind.cmake
++++ b/src/native/external/libunwind.cmake
+@@ -72,7 +72,7 @@
+ # Nothing
+ )
+ 
+-if(CLR_CMAKE_TARGET_LINUX)
++if(CLR_CMAKE_TARGET_LINUX OR CLR_CMAKE_TARGET_WITOS)
+     set(libunwind_la_SOURCES_os                 ${libunwind_la_SOURCES_os_linux})
+     set(libunwind_la_SOURCES_os_local           ${libunwind_la_SOURCES_os_linux_local})
+     set(libunwind_la_SOURCES_x86_os             x86/Gos-linux.c)

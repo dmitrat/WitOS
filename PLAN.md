@@ -77,7 +77,8 @@ Windows-сборки хоста и `coreclr.dll`, Win32-адаптеры с их
 
 **Ещё нет, хотя требуется документами:** планировщик на N процессоров (фаза P: вторичные процессоры запущены и
 обслуживают межпроцессорные запросы, но потоки на них не исполняются); записываемое хранилище и драйверы; .NET
-Unix-формы в госте сверх NativeAOT (CoreCLR — R3, хосты — R5).
+Unix-формы в госте сверх NativeAOT (CoreCLR — R3: нативная часть собирается и загружается с R3.1, managed-код ещё
+не исполняется; хосты — R5).
 
 ## 4. Решения
 
@@ -618,7 +619,20 @@ Unix-формы в госте сверх NativeAOT (CoreCLR — R3, хосты �
   cgroups и `/proc`, цифры памяти и CPU из `sysconf`; двойное отображение W^X через объект памяти
   (`minipal/Unix/doublemapping.cpp`); барьер процесса через `libwitos`; маскирование ISA-расширений профилем контекста
   ядра; clrjit Unix x64 и ARM64; `coreclr_initialize` и managed `Main` в госте. Слой 2 и патч тулчейна рантайма
-  снимают `-ffixed-x18`: с K8.4b x18 — обычный регистр потока.
+  снимают `-ffixed-x18`: с K8.4b x18 — обычный регистр потока. Срезами:
+  - [x] **R3.1** Нативная часть CoreCLR ([R3.1-CoreCLR-Native.md](@Docs/Implementation/R3.1-CoreCLR-Native.md), после
+    K9): `runtime-witos` собирает `clr.runtime+clr.jit` для `witos` — `libcoreclr.so`, `libclrjit.so`, DAC и
+    `corerun` динамическими образами для `ld.so` musl, без инструментов сборки CoreCLR и single-file хоста; пять новых
+    патчей и ветка в `configureplatform.cmake`: тройка слоя 2 определяет `__linux__`, поэтому места, где upstream имеет
+    в виду ядро Linux (`linux/membarrier.h`, LTTng и user_events), получают `!defined(TARGET_WITOS)`, `membarrier`
+    musl — без аргумента процессора, OS-часть libunwind — линуксовая, экспорт DAC — как у остальных Unix. libc
+    отображает приватное незаписываемое отображение файла пакета без копии, а `mprotect` с записью сначала даёт части
+    свою копию. Сценарий `runtime-coreclr`: `tests/User/coreclr_init.c` загружает рантайм и JIT из `/coreclr` и
+    находит точки входа хоста и JIT на обеих ISA. Нашёл K9: `dlopen` JIT упирался в 2048 записей алиасов. Патч-набор
+    — 23 файла (CoreCLR 8 из 31 у FreeBSD и 18 у Haiku).
+  - [ ] **R3.2** `corerun` и managed `Main` через JIT: CoreLib CoreCLR для `witos`, `coreclr_initialize` с TPA,
+    исполняемая память JIT через объекты памяти (двойное отображение W^X), инициализация PAL без `/proc`.
+  - [ ] **R3.3** Приёмка M3 под CoreCLR (GC, исключения, финализация, потоки) на обеих ISA; снятие `-ffixed-x18`.
 - [ ] **R4** `System.Native` для witos (RFC-0015 §5, §8): файлы над пакетом (`mmap` файла — `ENODEV` до сервиса), затем
   над сервисом хранилища (D5); время; окружение; процессы без `fork`/`exec` на первом шаге (`Process.Start` —
   `PlatformNotSupportedException`); терминальные сигналы устанавливаются и не поднимаются; `System.Globalization.Native`

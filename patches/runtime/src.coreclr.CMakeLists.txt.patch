@@ -1,0 +1,19 @@
+Source: src/coreclr/CMakeLists.txt
+Output: src.coreclr.CMakeLists.txt
+Before: 10333a3ed6f11b9caab4366990275f09ff7edec031a6336e777142d163f8091f
+After: e87e7ed8719e71caf75da550ffffce6b8fa55f82f1cc21f17533caf6a7db4c98
+
+CoreCLR on witos (plan step R3.1): the single-file host is not built for witos, as for the Apple mobile targets and
+WebAssembly; it links the static cryptography shim, and witos builds no OpenSSL shim (R2.3b).
+
+--- a/src/coreclr/CMakeLists.txt
++++ b/src/coreclr/CMakeLists.txt
+@@ -67,7 +67,7 @@
+ #---------------------------
+ # Build the single file host
+ #---------------------------
+-if(NOT CLR_CROSS_COMPONENTS_BUILD AND NOT CLR_CMAKE_TARGET_MACCATALYST AND NOT CLR_CMAKE_TARGET_IOS AND NOT CLR_CMAKE_TARGET_TVOS AND NOT CLR_CMAKE_TARGET_ARCH_WASM)
++if(NOT CLR_CROSS_COMPONENTS_BUILD AND NOT CLR_CMAKE_TARGET_MACCATALYST AND NOT CLR_CMAKE_TARGET_IOS AND NOT CLR_CMAKE_TARGET_TVOS AND NOT CLR_CMAKE_TARGET_ARCH_WASM AND NOT CLR_CMAKE_TARGET_WITOS)
+   set(CLR_SINGLE_FILE_HOST_ONLY 1)
+   add_subdirectory(${CLR_SRC_NATIVE_DIR}/corehost/apphost/static Corehost.Static)
+   add_dependencies(runtime singlefilehost)

@@ -1,0 +1,22 @@
+Source: src/coreclr/dlls/mscordac/CMakeLists.txt
+Output: src.coreclr.dlls.mscordac.CMakeLists.txt
+Before: edd2155d08dcce98385aa41219eadcba9fb4f5245ff220647f0e4b590b79d9b4
+After: 86e6ce5e01a5ec860a366afc958b0eeba0218c8a6c9ab3260453bd6dca13c883
+
+The DAC's exports on witos (plan step R3.1): witos is not Linux, so the exports file comes from the export list as on
+the other Unix hosts, and the DAC links with it.
+
+--- a/src/coreclr/dlls/mscordac/CMakeLists.txt
++++ b/src/coreclr/dlls/mscordac/CMakeLists.txt
+@@ -31,9 +31,9 @@
+     # Add dependency on export file
+     add_custom_target(mscordaccore_exports DEPENDS ${EXPORTS_FILE})
+ 
+-    if(CLR_CMAKE_HOST_APPLE OR CLR_CMAKE_HOST_FREEBSD OR CLR_CMAKE_HOST_NETBSD OR CLR_CMAKE_HOST_SUNOS OR CLR_CMAKE_HOST_HAIKU)
++    if(CLR_CMAKE_HOST_APPLE OR CLR_CMAKE_HOST_FREEBSD OR CLR_CMAKE_HOST_NETBSD OR CLR_CMAKE_HOST_SUNOS OR CLR_CMAKE_HOST_HAIKU OR CLR_CMAKE_HOST_WITOS)
+         generate_exports_file(${DEF_SOURCES} ${EXPORTS_FILE})
+-    endif(CLR_CMAKE_HOST_APPLE OR CLR_CMAKE_HOST_FREEBSD OR CLR_CMAKE_HOST_NETBSD OR CLR_CMAKE_HOST_SUNOS OR CLR_CMAKE_HOST_HAIKU)
++    endif(CLR_CMAKE_HOST_APPLE OR CLR_CMAKE_HOST_FREEBSD OR CLR_CMAKE_HOST_NETBSD OR CLR_CMAKE_HOST_SUNOS OR CLR_CMAKE_HOST_HAIKU OR CLR_CMAKE_HOST_WITOS)
+ 
+     if(CORECLR_SET_RPATH AND CLR_CMAKE_HOST_OSX AND CLR_CMAKE_HOST_ARCH_ARM64)
+       set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
