@@ -148,14 +148,14 @@ jobs:
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
 
-      - name: Host tests that need no Windows host
-        run: dotnet test tests/WitOS.Dev.Tests --configuration Release --no-build
-
       - name: Extract verified LLVM, build QEMU, fetch musl, compiler-rt, the LLVM runtimes and libc-test
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
 
       - name: Check environment
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- doctor
+
+      - name: Host tests, whose native harnesses the pinned clang builds
+        run: dotnet test tests/WitOS.Dev.Tests --configuration Release --no-build
 
       - name: QEMU timeout cleanup through QMP
         run: dotnet test tests/WitOS.Dev.Tests --configuration Release --no-build --filter TestCategory=QemuCleanup
