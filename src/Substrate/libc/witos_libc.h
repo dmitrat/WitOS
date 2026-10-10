@@ -77,6 +77,17 @@ short __wit_pipe_poll(WitU32 index, int write_end, short events);
 int __wit_pipe_sequence(void);
 long __wit_pipe_wait(int seen, WitU64 deadline);
 short __wit_descriptor_poll(long fd, short events);
+long __wit_memfd_create(const char *name, long flags);
+long __wit_ftruncate(long fd, long size);
+long __wit_unlinkat(long dirfd, const char *path, long flags);
+long __wit_shared_open(const unsigned char *name, WitU32 length, long flags, WitU32 *index);
+long __wit_shared_anonymous(WitU32 *index);
+long __wit_shared_unlink(const unsigned char *name, WitU32 length);
+void __wit_shared_reference(WitU32 index);
+void __wit_shared_release(WitU32 index);
+WitU64 __wit_shared_size(WitU32 index);
+long __wit_shared_truncate(WitU32 index, WitU64 size);
+long __wit_shared_chunk(WitU32 index, WitU64 offset, WitU64 *handle);
 /* The current directory (files.c, S6.2): chdir, fchdir; the absolute directory a path names from a base directory
  * (the current one when null) or a directory descriptor names, which must exist, for posix_spawn; the directory the
  * start message names. */

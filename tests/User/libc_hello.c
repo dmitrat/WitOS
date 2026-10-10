@@ -673,6 +673,80 @@ int main(void)
             closed.revents == POLLNVAL,
         "poll: a pipe without a writer hangs up, a closed descriptor is invalid");
 
+    /* Shared memory (R3.2b): shm_open and memfd_create give files ftruncate sizes, and every shared mapping of the same
+     * offsets shows the same pages. Code written through a writable view runs through an executable one, as CoreCLR's
+     * JIT writes it, across the boundary of two chunks (64 pages each); mprotect and munmap of part of a chunk's
+     * mapping leave the rest as it was. */
+    const int shm = shm_open("/witos-test", O_RDWR | O_CREAT | O_EXCL, 0600);
+    check(shm >= 0 &&
+            shm_open("/witos-test", O_RDWR | O_CREAT | O_EXCL, 0600) == -1 &&
+            errno == EEXIST &&
+            shm_unlink("/witos-test") == 0 &&
+            shm_open("/witos-test", O_RDWR, 0) == -1 &&
+            errno == ENOENT,
+        "shm_open creates a file and shm_unlink takes its name");
+    struct stat shm_stat;
+    const long chunk = 64 * 4096;
+    check(ftruncate(shm, 2 * chunk) == 0 &&
+            fstat(shm, &shm_stat) == 0 &&
+            S_ISREG(shm_stat.st_mode) &&
+            shm_stat.st_size == 2 * chunk,
+        "ftruncate sizes a shared memory file");
+    unsigned char *writable = mmap(0, 4 * 4096, PROT_READ | PROT_WRITE, MAP_SHARED, shm, chunk - 4096);
+    unsigned char *executable = mmap(0, 4 * 4096, PROT_READ | PROT_EXEC, MAP_SHARED, shm, chunk - 4096);
+    check(writable != MAP_FAILED && executable != MAP_FAILED, "two shared mappings across a chunk boundary");
+    if (writable != MAP_FAILED && executable != MAP_FAILED) {
+#if defined(__x86_64__)
+        static const unsigned char answer_code[] = {0xB8, 0x2A, 0x00, 0x00, 0x00, 0xC3}; /* mov eax, 42; ret */
+#else
+        static const unsigned char answer_code[] = {
+            0x40, 0x05, 0x80, 0x52, 0xC0, 0x03, 0x5F, 0xD6}; /* mov w0, #42; ret */
+#endif
+        writable[0] = 0x5A;
+        writable[3 * 4096] = 0xA5;
+        check(executable[0] == 0x5A && executable[3 * 4096] == 0xA5, "both mappings show the same pages");
+        memcpy(writable + 2 * 4096, answer_code, sizeof(answer_code));
+        __builtin___clear_cache((char *)executable + 2 * 4096, (char *)executable + 2 * 4096 + sizeof(answer_code));
+        int (*shared_answer)(void) = (int (*)(void))(void *)(executable + 2 * 4096);
+        check(shared_answer() == 42, "code written through one mapping runs through the other");
+        check(mprotect(executable + 2 * 4096, 4096, PROT_NONE) == 0 &&
+                executable[3 * 4096] == 0xA5 &&
+                executable[4096] == 0 &&
+                mprotect(executable + 2 * 4096, 4096, PROT_READ | PROT_EXEC) == 0 &&
+                shared_answer() == 42,
+            "mprotect of part of a chunk's mapping");
+        check(munmap(writable + 4096, 4096) == 0 &&
+                writable[0] == 0x5A &&
+                writable[3 * 4096] == 0xA5 &&
+                mprotect(writable + 2 * 4096, 4096, PROT_READ | PROT_EXEC) == 0 &&
+                ((int (*)(void))(void *)(writable + 2 * 4096))() == 42,
+            "munmap of part of a chunk's mapping");
+        check(munmap(writable, 4 * 4096) == 0 && munmap(executable, 4 * 4096) == 0, "the shared mappings unmapped");
+    }
+    check(mmap(0, 4096, PROT_READ, MAP_PRIVATE, shm, 0) == MAP_FAILED &&
+            errno == ENOSYS &&
+            mmap(0, 2 * 4096, PROT_READ, MAP_SHARED, shm, 2 * chunk - 4096) == MAP_FAILED &&
+            errno == ENXIO &&
+            read(shm, got, 1) == -1 &&
+            errno == EINVAL &&
+            close(shm) == 0,
+        "no private mapping, nothing past the end and no read of a shared memory file");
+    const int anonymous = memfd_create("jit", MFD_CLOEXEC);
+    unsigned char *shared_first = MAP_FAILED, *shared_second = MAP_FAILED;
+    if (anonymous >= 0 && ftruncate(anonymous, 4096) == 0) {
+        shared_first = mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, anonymous, 0);
+        shared_second = mmap(0, 4096, PROT_READ, MAP_SHARED, anonymous, 0);
+    }
+    check(anonymous >= 0 &&
+            fcntl(anonymous, F_GETFD) == FD_CLOEXEC &&
+            shared_first != MAP_FAILED &&
+            shared_second != MAP_FAILED &&
+            close(anonymous) == 0 &&
+            (shared_first[100] = 7, shared_second[100] == 7) &&
+            munmap(shared_first, 4096) == 0 &&
+            munmap(shared_second, 4096) == 0,
+        "memfd_create: an anonymous file whose mappings outlive its descriptor");
+
     /* The standard descriptors are slots of the same table: dup takes the closed input, the lowest free descriptor,
      * and a pipe stands for standard input until dup2 gives the stream back. */
     const int input = dup(0);

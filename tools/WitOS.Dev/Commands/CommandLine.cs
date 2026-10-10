@@ -84,7 +84,7 @@ internal static class CommandLine
         new CommandScenario("runtime-corerun",
             "Boot upstream's corerun on a managed program with the CoreCLR runtime-witos built (R3.2)",
             KernelImageBuilder.RUNTIME_CORERUN_SCENARIO,
-            architecture => [new BootRequest("runtime-corerun-256", 256, 3000, ExpectedOutcome.Success)
+            architecture => [new BootRequest("runtime-corerun-256", 256, 600, ExpectedOutcome.Success)
             {
                 Suite = BootSuite.Release,
                 RequiredLines = [architecture.CoreRunLine, architecture.RootTaskPassedLine]

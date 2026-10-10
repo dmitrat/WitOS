@@ -563,6 +563,16 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
 #endif
     case SYS_pipe2:
         return __wit_pipe2((int *)a1, a2);
+    case SYS_memfd_create:
+        return __wit_memfd_create((const char *)a1, a2);
+    case SYS_ftruncate:
+        return __wit_ftruncate(a1, a2);
+    case SYS_unlinkat:
+        return __wit_unlinkat(a1, (const char *)a2, a3);
+#if defined(SYS_unlink)
+    case SYS_unlink:
+        return __wit_unlinkat(AT_FDCWD, (const char *)a1, 0);
+#endif
 #if defined(SYS_pipe)
     case SYS_pipe:
         return __wit_pipe2((int *)a1, 0);

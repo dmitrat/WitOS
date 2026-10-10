@@ -68,17 +68,23 @@ static int on_kernel_stack(WitU64 address)
 }
 
 /* EL0 may not mask interrupts (UMA), wait for interrupts or events (nTWI, nTWE) or use a misaligned stack
- * (SA0); it may use FP/SIMD without traps (CPACR_EL1.FPEN). */
+ * (SA0); it may use FP/SIMD without traps (CPACR_EL1.FPEN). It may read the cache type (UCT) and clean and invalidate
+ * caches by address to the point of unification (UCI), as Linux allows, so that a JIT publishes the code it wrote
+ * through a writable view without a call (R3.2b): CoreCLR's images carry compiler-rt's __clear_cache, which does it
+ * itself. The operations act on addresses EL0 may read; DC ZVA stays refused (DZE). */
 #define SCTLR_SA0 (1ULL << 4)
 #define SCTLR_UMA (1ULL << 9)
+#define SCTLR_UCT (1ULL << 15)
 #define SCTLR_NTWI (1ULL << 16)
 #define SCTLR_NTWE (1ULL << 18)
 #define SCTLR_E0E (1ULL << 24)
+#define SCTLR_UCI (1ULL << 26)
 #define CPACR_FPEN (3ULL << 20)
 
 static void configure_user_mode(void)
 {
-    const WitU64 control = (wit_a64_system_control() & ~(SCTLR_UMA | SCTLR_NTWI | SCTLR_NTWE)) | SCTLR_SA0;
+    const WitU64 control =
+        (wit_a64_system_control() & ~(SCTLR_UMA | SCTLR_NTWI | SCTLR_NTWE)) | SCTLR_SA0 | SCTLR_UCT | SCTLR_UCI;
     wit_a64_set_system_control(control);
     wit_a64_set_fp_access(wit_a64_fp_access() | CPACR_FPEN);
     if (wit_a64_system_control() != control ||
