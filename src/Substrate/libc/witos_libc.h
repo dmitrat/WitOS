@@ -30,6 +30,7 @@ struct rlimit;
 long __wit_sysinfo(struct sysinfo *out);
 long __wit_prlimit(long pid, long resource, const struct rlimit *limit, struct rlimit *old);
 long __wit_sched_getaffinity(long tid, long size, unsigned char *mask);
+long __wit_sched_setaffinity(long tid, long size, const unsigned char *mask);
 
 /* Linux memory calls over reserve/commit (memory.c). */
 long __wit_mmap(long address, long length, long protection, long flags, long fd, long offset);
@@ -72,6 +73,10 @@ void __wit_pipe_end(WitU32 index, int write_end, int delta);
 long __wit_pipe_read(WitU32 index, unsigned char *buffer, unsigned long bytes, int nonblocking);
 long __wit_pipe_write(WitU32 index, const unsigned char *buffer, unsigned long bytes, int nonblocking);
 long __wit_pipe_available(WitU32 index);
+short __wit_pipe_poll(WitU32 index, int write_end, short events);
+int __wit_pipe_sequence(void);
+long __wit_pipe_wait(int seen, WitU64 deadline);
+short __wit_descriptor_poll(long fd, short events);
 /* The current directory (files.c, S6.2): chdir, fchdir; the absolute directory a path names from a base directory
  * (the current one when null) or a directory descriptor names, which must exist, for posix_spawn; the directory the
  * start message names. */
@@ -101,6 +106,8 @@ long __wit_set_tid_address(int *address);
 __attribute__((__noreturn__)) long __wit_thread_exit(long code, WitU64 reservation);
 int __wit_is_exit_word(const volatile void *address);
 WitU64 __wit_futex_exit_event(void);
+long __wit_futex_deadline(const struct timespec *relative, WitU64 *deadline);
+long __wit_futex_wait_until(volatile int *address, int value, WitU64 deadline);
 long __wit_futex(
     volatile int *address, int operation, int value, const struct timespec *timeout, volatile int *second, int third);
 WitSignalState *__wit_signal_state(void);

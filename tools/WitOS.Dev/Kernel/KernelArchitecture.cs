@@ -124,6 +124,11 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
         $"[M3] NativeAOT on {Triple[..Triple.IndexOf('-')]}: {Runtime.RuntimeWitos.ACCEPTANCE_RUNS} runs passed, 0 failed";
 
     /// <summary>
+    /// The line the managed program under corerun prints (R3.2): RuntimeInformation.OSArchitecture names the ISA.
+    /// </summary>
+    public string CoreRunLine => $"[CORERUN] managed Main through the JIT on {(this == X64 ? "X64" : "Arm64")}";
+
+    /// <summary>
     /// The line tests/User/coreclr_init.c prints when CoreCLR's runtime and JIT loaded with their entry points (R3.1).
     /// </summary>
     public static string CoreClrLoadedLine => "[CORECLR] libcoreclr.so and libclrjit.so loaded with their entry points";

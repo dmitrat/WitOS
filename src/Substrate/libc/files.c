@@ -4,6 +4,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/uio.h>
@@ -972,6 +973,22 @@ long __wit_stream_of(long fd)
         return d->Kind == KindStream ? (long)d->Index : -1;
     }
     return fd >= 0 && fd < FIRST_DESCRIPTOR && !(__wit_process.ClosedStreams & (1U << fd)) ? fd : -1;
+}
+
+/* poll's readiness of a descriptor (R3.2), under the table lock: a pipe end as its pipe reports it; a file, a directory,
+ * a device or a standard stream ready for what was asked, as a regular file is on Linux (a stream's reads end the
+ * input at once); POLLNVAL for a descriptor that is not open. */
+short __wit_descriptor_poll(long fd, short events)
+{
+    const short asked = (short)(events & (POLLIN | POLLOUT | POLLRDNORM | POLLWRNORM));
+    const Descriptor *d = descriptor(fd);
+    if (!d) {
+        return __wit_stream_of(fd) >= 0 ? asked : POLLNVAL;
+    }
+    if (d->Kind == KindPipeRead || d->Kind == KindPipeWrite) {
+        return __wit_pipe_poll(d->Index, d->Kind == KindPipeWrite, events);
+    }
+    return asked;
 }
 
 /* The pipe an end descriptor names, with a reference for the transfer the caller makes outside the table lock. */

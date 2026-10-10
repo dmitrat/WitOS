@@ -145,8 +145,8 @@ internal static class BootValidation
     public static bool ValidateUserFaults(string output)
     {
         var faults = Regex.Matches(output,
-            @"(?m)^\[USER-FAULT\] id=(\d+) vector=(\d+) error=(0x[0-9A-F]{16}) address=(0x[0-9A-F]{16}) cs=(0x[0-9A-F]{16})\r?$");
-        return SummaryAccounts(output, faults) && faults.All(m => Convert.ToUInt64(m.Groups[5].Value[2..], 16) == 0x33);
+            @"(?m)^\[USER-FAULT\] id=(\d+) vector=(\d+) error=(0x[0-9A-F]{16}) address=(0x[0-9A-F]{16}) rip=(0x[0-9A-F]{16}) cs=(0x[0-9A-F]{16})\r?$");
+        return SummaryAccounts(output, faults) && faults.All(m => Convert.ToUInt64(m.Groups[6].Value[2..], 16) == 0x33);
     }
 
     /// <summary>

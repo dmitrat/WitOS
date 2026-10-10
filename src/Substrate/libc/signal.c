@@ -644,20 +644,32 @@ long __wit_sigaltstack(const stack_t *ss, stack_t *old)
         return -EINVAL;
     }
     WitThreadAlternateStackRequest request;
-    WitU64 result = 0;
+    WitU64 result = 0, base = 0, end = 0;
     memset(&request, 0, sizeof(request));
     request.Version = WIT_THREAD_ALTERNATE_STACK_VERSION;
     request.Size = sizeof(request);
     if (!(ss->ss_flags & SS_DISABLE)) {
-        const WitU64 base = ((WitU64)ss->ss_sp + 15) & ~15ULL;
-        const WitU64 end = ((WitU64)ss->ss_sp + ss->ss_size) & ~15ULL;
+        base = ((WitU64)ss->ss_sp + 15) & ~15ULL;
+        end = ((WitU64)ss->ss_sp + ss->ss_size) & ~15ULL;
         if (end <= base || end - base < WIT_EXCEPTION_STACK_MINIMUM) {
             return -ENOMEM; /* the kernel's callback frame needs this much; MINSIGSTKSZ is smaller */
         }
         request.Base = base;
         request.Bytes = end - base;
     }
-    const WitU64 status = wit_syscall(WIT_CALL_THREAD_STACK_ALTERNATE, (WitU64)&request, sizeof(request), 0, &result);
+    WitU64 status = wit_syscall(WIT_CALL_THREAD_STACK_ALTERNATE, (WitU64)&request, sizeof(request), 0, &result);
+    /* A guard page at the bottom of the range, which CoreCLR's PAL makes PROT_NONE (R3.2), is no room for the kernel's
+     * callback frame: the kernel takes the writable part above it, page by page while enough is left, and the library
+     * keeps the whole range, whose top its handlers use. */
+    while (status == WIT_STATUS_BAD_ADDRESS && request.Bytes) {
+        const WitU64 next = (request.Base & ~4095ULL) + 4096;
+        if (next >= end || end - next < WIT_EXCEPTION_STACK_MINIMUM) {
+            break;
+        }
+        request.Base = next;
+        request.Bytes = end - next;
+        status = wit_syscall(WIT_CALL_THREAD_STACK_ALTERNATE, (WitU64)&request, sizeof(request), 0, &result);
+    }
     if (status == WIT_STATUS_INVALID_ARGUMENT) {
         return -EINVAL;
     }
@@ -670,8 +682,8 @@ long __wit_sigaltstack(const stack_t *ss, stack_t *old)
     if (status != WIT_STATUS_OK) {
         return __wit_errno(status);
     }
-    state->AlternateBase = request.Bytes ? (void *)request.Base : 0;
-    state->AlternateBytes = request.Bytes;
+    state->AlternateBase = request.Bytes ? (void *)base : 0;
+    state->AlternateBytes = request.Bytes ? end - base : 0;
     return 0;
 }
 

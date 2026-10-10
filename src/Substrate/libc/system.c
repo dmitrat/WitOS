@@ -12,8 +12,10 @@
  * sysinfo reports the physical memory and the time since boot as CLOCK_BOOTTIME has it; there is no swap, no load
  * average and no count of processes, which stay zero. getrlimit reports RLIMIT_AS, the address space that anonymous
  * memory takes: the data arena mmap reserves in. sched_getaffinity reports the processors threads run on, the first
- * ones of the kernel's table. Every other limit, setting a limit and the limits of another process are ENOSYS, never
- * an invented answer. */
+ * ones of the kernel's table, and sched_setaffinity accepts a mask that holds every one of them, which changes nothing
+ * (R3.2: CoreCLR's PAL gives each new thread the process's mask), refuses one that holds none with EINVAL, as Linux
+ * does, and one that holds some alone with ENOSYS until threads run on several processors (phase P). Every other
+ * limit, setting a limit and the limits of another process are ENOSYS, never an invented answer. */
 
 static long memory_info(WitUserMemoryInfo *info)
 {
@@ -81,4 +83,27 @@ long __wit_sched_getaffinity(long tid, long size, unsigned char *mask)
         mask[processor / 8] |= (unsigned char)(1U << (processor % 8));
     }
     return (long)bytes;
+}
+
+long __wit_sched_setaffinity(long tid, long size, const unsigned char *mask)
+{
+    WitUserMemoryInfo info;
+    long status;
+    if (size < 0) {
+        return -EINVAL;
+    }
+    if (tid != 0 && (status = __wit_thread_signal((int)tid, 0)) < 0) {
+        return status;
+    }
+    if ((status = memory_info(&info)) < 0) {
+        return status;
+    }
+    /* The processors threads run on that the mask holds; a byte past the mask's size holds none, as on Linux. */
+    WitU32 held = 0;
+    for (WitU32 processor = 0; processor < info.ProcessorCount; ++processor) {
+        if (processor / 8 < (unsigned long)size && (mask[processor / 8] & (1U << (processor % 8)))) {
+            ++held;
+        }
+    }
+    return held == info.ProcessorCount ? 0 : (held == 0 ? -EINVAL : -ENOSYS);
 }

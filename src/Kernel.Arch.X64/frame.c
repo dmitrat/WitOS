@@ -242,6 +242,8 @@ int wit_arch_fault_from_user(const WitArchFaultState *state)
 
 void wit_arch_fault_describe(const WitArchFaultState *state)
 {
+    wit_console_write(" rip=");
+    wit_console_write_hex(state->Rip);
     wit_console_write(" cs=");
     wit_console_write_hex(state->Cs);
 }

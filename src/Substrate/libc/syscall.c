@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <poll.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/membarrier.h>
@@ -343,6 +344,9 @@ static int uses_tables(long n)
     case SYS_tgkill:
     case SYS_kill:
     case SYS_ppoll:
+#if defined(SYS_poll)
+    case SYS_poll:
+#endif
 #if defined(SYS_pause)
     case SYS_pause:
 #endif
@@ -427,6 +431,43 @@ static long pipe_transfer(long n, long fd, long a2, long a3)
     __wit_pipe_release(index);
     __wit_unlock(&tables);
     return r;
+}
+
+/* poll and ppoll (R3.2): the readiness of every descriptor under the table lock, then, when none is ready and the
+ * timeout allows, a park until a pipe changes, the deadline or a signal handler; the sequence is read before the
+ * readiness, so that a change between the two wakes the park at once. A signal mask for the wait is not there. */
+static long poll_descriptors(struct pollfd *fds, unsigned long count, const struct timespec *timeout)
+{
+    WitU64 deadline = WIT_WAIT_INFINITE;
+    if (timeout) {
+        const long converted = __wit_futex_deadline(timeout, &deadline);
+        if (converted < 0) {
+            return converted;
+        }
+    }
+    if (count > (unsigned long)INT_MAX) {
+        return -EINVAL;
+    }
+    for (;;) {
+        const int seen = __wit_pipe_sequence();
+        long ready = 0;
+        __wit_lock(&tables);
+        for (unsigned long i = 0; i < count; ++i) {
+            fds[i].revents = fds[i].fd < 0 ? 0 : __wit_descriptor_poll(fds[i].fd, fds[i].events);
+            ready += fds[i].revents != 0;
+        }
+        __wit_unlock(&tables);
+        if (ready || (timeout && !timeout->tv_sec && !timeout->tv_nsec)) {
+            return ready;
+        }
+        const long waited = __wit_pipe_wait(seen, deadline);
+        if (waited == -ETIMEDOUT) {
+            return 0;
+        }
+        if (waited < 0) {
+            return waited;
+        }
+    }
 }
 
 /* The stack of an exiting detached thread leaves the mapping table under the table lock (__unmapself). */
@@ -552,6 +593,8 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
         return __wit_prlimit(a1, a2, (const struct rlimit *)a3, (struct rlimit *)a4);
     case SYS_sched_getaffinity:
         return __wit_sched_getaffinity(a1, a2, (unsigned char *)a3);
+    case SYS_sched_setaffinity:
+        return __wit_sched_setaffinity(a1, a2, (const unsigned char *)a3);
     case SYS_mmap:
         return __wit_mmap(a1, a2, a3, a4, a5, a6);
     case SYS_munmap:
@@ -610,7 +653,16 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
         return __wit_pause();
 #endif
     case SYS_ppoll: /* musl's pause() where the kernel has no pause: no descriptors, no timeout */
-        return (a1 == 0 && a2 == 0 && a3 == 0) ? __wit_pause() : -ENOSYS;
+        if (a1 == 0 && a2 == 0 && a3 == 0) {
+            return __wit_pause();
+        }
+        return a4 ? -ENOSYS : poll_descriptors((struct pollfd *)a1, (unsigned long)a2, (const struct timespec *)a3);
+#if defined(SYS_poll)
+    case SYS_poll: {
+        const struct timespec timeout = {(int)a3 / 1000, (long)((int)a3 % 1000) * 1000000L};
+        return poll_descriptors((struct pollfd *)a1, (unsigned long)a2, (int)a3 < 0 ? 0 : &timeout);
+    }
+#endif
     case SYS_rt_sigqueueinfo:
     case SYS_rt_sigtimedwait:
         return -ENOSYS; /* queued values and synchronous waits for signals are not there yet */
