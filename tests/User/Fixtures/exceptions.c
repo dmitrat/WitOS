@@ -247,12 +247,12 @@ static void alternate(WitThreadAlternateStackRequest *request, WitU32 size, WitU
     fixture_expect(WIT_CALL_THREAD_STACK_ALTERNATE, (WitU64)request, size, 0, expected);
 }
 
-FIXTURE_ENTRY void wit_user_start(const WitUserStartup *startup)
+FIXTURE_ENTRY void wit_user_start(const WitRootStartup *startup)
 {
     const WitUserTestConfig *config = fixture_config(startup);
     WitThreadAlternateStackRequest request;
     WitCpuContextInfo profile;
-    fixture_check(startup->Version == WIT_ABI_VERSION, 1);
+    fixture_check(startup->AbiVersion == WIT_ABI_VERSION, 1);
     STATE->Activations = 0;
     STATE->Mode = config->Mode;
 

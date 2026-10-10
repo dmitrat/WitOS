@@ -97,10 +97,10 @@ static void authority_test(WitU64 table, const volatile WitDeviceDescriptor *blo
     fixture_close(ends[0]);
 }
 
-FIXTURE_ENTRY void wit_user_start(const WitUserStartup *startup)
+FIXTURE_ENTRY void wit_user_start(const WitRootStartup *startup)
 {
     const WitUserTestConfig *config = fixture_config(startup);
-    fixture_check(startup->Version == WIT_ABI_VERSION, 1);
+    fixture_check(startup->AbiVersion == WIT_ABI_VERSION, 1);
     /* The table, mapped read-only: its header, then the block function among its descriptors. */
     const WitU64 table = config->TableHandle;
     WitU64 mapped = 0;

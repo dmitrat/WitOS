@@ -380,13 +380,12 @@ WitU64 wit_user_thread_set_tls(WitUserProcess *process, WitU64 base, WitU64 rese
 WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU64 entry, WitU64 argument);
 WitU64 wit_virtual_kernel_root(void);
 
-int wit_user_create(
-    WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const WitU8 *code, WitU32 code_size);
 /* A component from a validated flat image (K4): its segments mapped at their addresses in the image window, the
- * first thread at the entry with WIT_USER_INFO in its argument register; the caller fills the startup block. */
+ * first thread at the entry with WIT_USER_INFO in its argument register; the caller fills the startup descriptor.
+ * Nonzero system gives it the system layer's profile (the root task), zero the fixture profile (K8.4c). */
 struct WitFlatLayout;
 int wit_user_create_flat(
-    WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const struct WitFlatLayout *layout);
+    WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const struct WitFlatLayout *layout, int system);
 void wit_user_run(WitUserProcess *process);
 void wit_user_destroy(WitUserProcess *process);
 int wit_user_is_active(void);

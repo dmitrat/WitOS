@@ -23,7 +23,7 @@ int wit_root_task_create(WitUserProcess *process, WitPageAllocator *allocator, W
     const WitFlatLayout *layout)
 {
     WitU32 package = 0, table = 0;
-    if (!wit_user_create_flat(process, allocator, slot, layout)) {
+    if (!wit_user_create_flat(process, allocator, slot, layout, 1)) {
         return 0;
     }
     WitRootStartup *startup = (WitRootStartup *)wit_user_space_physical(&process->Space, WIT_USER_INFO, 0, 0);

@@ -1,4 +1,5 @@
 #include "user.h"
+#include "self_test.h"
 #include "witos/platform.h"
 #include "protocol.h"
 #include "user_arch_tests.h"
@@ -209,7 +210,7 @@ static void resource_limits(void)
 static WitUserTestConfig *create(WitPageAllocator *pages, WitU32 slot, WitU64 mode)
 {
     WitUserTestConfig *info;
-    require(wit_user_create(&processes[slot], pages, slot, wit_user_wait_image, sizeof(wit_user_wait_image)),
+    require(wit_test_create_fixture(&processes[slot], pages, slot, wit_user_wait_image, sizeof(wit_user_wait_image)),
         "Wait process creation failed");
     info = (WitUserTestConfig *)wit_user_space_physical(&processes[slot].Space, WIT_USER_INFO, 0, 0);
     info->Mode = mode;

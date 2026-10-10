@@ -18,11 +18,11 @@ static void affinity(WitU64 thread, WitU64 *mask, WitU64 flags, WitU64 expected)
     fixture_expect(WIT_CALL_THREAD_AFFINITY, thread, (WitU64)mask, flags, expected);
 }
 
-FIXTURE_ENTRY void wit_user_start(const WitUserStartup *startup)
+FIXTURE_ENTRY void wit_user_start(const WitRootStartup *startup)
 {
     WitProcessorInfo info;
     WitU64 mask = 0, reader = 0;
-    fixture_check(startup->Version == WIT_ABI_VERSION, 1);
+    fixture_check(startup->AbiVersion == WIT_ABI_VERSION, 1);
 
     /* The record form: the boot processor first, online, among the processors present. */
     info.Version = WIT_PROCESSOR_INFO_VERSION;

@@ -12,11 +12,11 @@
 #include "protocol.h"
 
 /* What the mechanism fixtures share (plan step K8.3). A fixture is one C source for both ISAs, compiled by the pinned
- * clang for the layer-2 triple and linked by lld into the component's code window at WIT_USER_CODE
- * (tests/User/Fixtures/fixture.ld): code and constants in one executable segment, no writable data, the entry
- * first. Its state lives in the component's data page at fixed offsets the kernel self-test reads: the status of a
+ * clang for the layer-2 triple, linked by lld at the image window (tests/User/Fixtures/fixture.ld: code and constants
+ * in one executable segment, no writable data, the entry first) and converted to a flat image as the root task is
+ * (K8.4c). Its state lives in the component's data page at fixed offsets the kernel self-test reads: the status of a
  * failed check at 1304 and the number of checks passed at 1312. The first thread enters wit_user_start with the
- * startup block at WIT_USER_INFO in its argument register, as the kernel prepares a component's first thread. */
+ * startup descriptor (witos/root.h) at WIT_USER_INFO in its argument register, the test's configuration after it. */
 
 #define FIXTURE_FAILED_STATUS (*(volatile WitU64 *)(WIT_USER_DATA + 1304))
 #define FIXTURE_CHECKS (*(volatile WitU64 *)(WIT_USER_DATA + 1312))
@@ -82,8 +82,8 @@ static inline void fixture_check(int condition, WitU64 code)
     }
 }
 
-/* The startup block's test extension (tests/User/protocol.h). */
-static inline const WitUserTestConfig *fixture_config(const WitUserStartup *startup)
+/* The test's configuration after the startup descriptor (tests/User/protocol.h). */
+static inline const WitUserTestConfig *fixture_config(const WitRootStartup *startup)
 {
     return (const WitUserTestConfig *)startup;
 }

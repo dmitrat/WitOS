@@ -185,7 +185,7 @@ void wit_user_memory_self_test(WitPageAllocator *pages)
     expect(wit_user_memory_commit(&spaces[0], held[0], 4096, 2), WIT_STATUS_INVALID_ARGUMENT);
     expect(wit_user_memory_commit(&spaces[0], held[0], 4096, 5), WIT_STATUS_INVALID_ARGUMENT);
     expect(wit_user_memory_decommit(&spaces[0], WIT_USER_DATA, 4096), WIT_STATUS_BAD_ADDRESS);
-    expect(wit_user_memory_protect(&spaces[0], WIT_USER_CODE, 4096, 3), WIT_STATUS_BAD_ADDRESS);
+    expect(wit_user_memory_protect(&spaces[0], WIT_USER_IMAGE_BASE, 4096, 3), WIT_STATUS_BAD_ADDRESS);
     expect(wit_user_memory_release(&spaces[0], held[0] + 4096, 0), WIT_STATUS_NOT_RESERVED);
     require(spaces[0].OwnedCount == 1, "Rejected request consumed frames");
     for (WitU32 i = 0; i < WIT_USER_RESERVATION_CAPACITY; ++i) {

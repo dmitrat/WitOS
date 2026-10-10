@@ -26,7 +26,7 @@ static void create(WitPageAllocator *pages, WitU32 slot, WitU64 mode)
 {
     WitUserProcess *process = &components[slot];
     WitUserTestConfig *info;
-    require(wit_user_create(process, pages, slot, wit_user_test_image, sizeof(wit_user_test_image)),
+    require(wit_test_create_fixture(process, pages, slot, wit_user_test_image, sizeof(wit_user_test_image)),
         "User component creation failed");
     info = config(process);
     info->ReadOnlyHandle = wit_handle_grant(&process->Handles, WIT_HANDLE_CONSOLE, 0);
@@ -69,7 +69,7 @@ int wit_test_user_fault_contained(const WitUserProcess *process, const WitUserFa
         (!expected->CheckAddress || process->FaultAddress == expected->Address) &&
         wit_test_user_fault_state(&process->FaultState, &pc) &&
         (!check_pc ||
-            (pc >= WIT_USER_CODE && pc < WIT_USER_LIMIT) ||
+            (pc >= WIT_USER_BASE && pc < WIT_USER_LIMIT) ||
             (expected->PcAtAddress && pc == expected->Address)) &&
         process->Handles.Count == 0;
 }
@@ -83,8 +83,8 @@ WitU64 wit_user_isolation_begin_self_test(WitPageAllocator *pages)
     wit_console_write("[TEST-BEGIN] User.Isolation\n");
     create(pages, 0, WIT_TEST_NORMAL);
     create(pages, 1, WIT_TEST_NORMAL);
-    config(&components[0])->ForeignHandle = config(&components[1])->Startup.ConsoleHandle;
-    config(&components[1])->ForeignHandle = config(&components[0])->Startup.ConsoleHandle;
+    config(&components[0])->ForeignHandle = config(&components[1])->Startup.Handles[WIT_ROOT_HANDLE_LOG];
+    config(&components[1])->ForeignHandle = config(&components[0])->Startup.Handles[WIT_ROOT_HANDLE_LOG];
     data_a = wit_user_space_physical(&components[0].Space, WIT_USER_DATA, 0, 0);
     data_b = wit_user_space_physical(&components[1].Space, WIT_USER_DATA, 0, 0);
     require(components[0].Space.Root != components[1].Space.Root && data_a != data_b,
@@ -181,7 +181,7 @@ void wit_user_isolation_end_self_test(WitPageAllocator *pages, WitU64 before)
 
     create(pages, 0, WIT_TEST_NORMAL);
     old_data = wit_user_space_physical(&components[0].Space, WIT_USER_DATA, 0, 0);
-    old_console = config(&components[0])->Startup.ConsoleHandle;
+    old_console = config(&components[0])->Startup.Handles[WIT_ROOT_HANDLE_LOG];
     for (WitU32 i = 0; i < 4096; ++i) {
         ((WitU8 *)old_data)[i] = 0xA5;
     }

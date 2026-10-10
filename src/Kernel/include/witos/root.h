@@ -2,9 +2,10 @@
 #define WITOS_ROOT_H
 #include "types.h"
 
-/* The startup descriptor of the root task (RFC 0011 section 7.11, plan step K4): what the kernel hands the first
- * thread in its argument register, at WIT_USER_INFO. Everything else the system layer builds for itself. The
- * handles are the root task's initial capabilities: the kernel log (DEBUG_WRITE), the boot package as a read-only
+/* The startup descriptor of a component the kernel builds from a flat image (RFC 0011 section 7.11, plan step K4):
+ * what the kernel hands the first thread in its argument register, at WIT_USER_INFO. Everything else the system layer
+ * builds for itself. A self-test kernel's fixtures start with it too (K8.4c), holding the log alone. The handles are
+ * the root task's initial capabilities: the kernel log (DEBUG_WRITE), the boot package as a read-only
  * memory object, the device descriptor table with the authority to acquire devices, and the clock capability that
  * sets UTC (K6); the table carries its count so that later steps append. */
 #define WIT_ROOT_STARTUP_VERSION 1U

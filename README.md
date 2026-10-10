@@ -12,7 +12,7 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 by the pinned clang on both, and keeps the mechanisms of ABI-1 ([RFC 0011 v3](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md)): processes with private
 address spaces, the one thread form, memory objects, channels that carry capabilities, events and the one wait with
 absolute deadlines, faults and activations delivered to user space, device descriptors with interrupt bindings and DMA
-pins, UTC and the started secondary processors. User ABI v71 and boot ABI v6 are printed by the kernel banner from the
+pins, UTC and the started secondary processors. User ABI v72 and boot ABI v6 are printed by the kernel banner from the
 headers. Above it the system layer (phase S) runs on both ISAs: the pinned musl over ABI-1 with threads, signals and its
 dynamic linker, LLVM's C++ runtime, a process manager with `posix_spawn`, and musl's libc-test, its math suite included,
 with every test run as a process of its own. Upstream .NET 10 runs in its Unix form (`TargetOS=witos`, phase R): NativeAOT
@@ -64,7 +64,7 @@ Expected guest output includes:
 ```text
 [BOOT] UEFI x64 adapter
 [BOOT] ExitBootServices OK
-WitOS user ABI v71, boot ABI v6
+WitOS user ABI v72, boot ABI v6
 Build: <git-revision> | x64 | Debug
 [TEST-BEGIN] Boot.Contract
 [TEST-PASS] Boot.Contract
@@ -134,7 +134,7 @@ artifacts/x64/boot/WitOS-x64.img    Bootable FAT16 disk image
 artifacts/x64/boot/WitOS.pdb        Native symbols
 artifacts/x64/boot/WitOS.map        Native link map
 artifacts/x64/boot/build.txt        Source revision and toolchain
-artifacts/x64/boot/UserFixture.elf  The isolation and memory fixture as lld linked it (one per mechanism)
+artifacts/x64/boot/UserFixture.flat The isolation and memory fixture as a flat image (one per mechanism)
 artifacts/x64/boot/RootFixture.elf  The root task, before its conversion to the flat image
 artifacts/logs/                   Serial, stderr and outcome logs
 ```

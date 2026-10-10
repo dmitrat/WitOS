@@ -25,7 +25,7 @@ static void create(WitPageAllocator *pages, WitU64 mode)
 {
     WitUserTestConfig *info;
     const int driver = mode == WIT_INTERRUPT_TEST_VIRTIO;
-    require(wit_user_create(&process, pages, 0, driver ? wit_user_virtio_image : wit_user_interrupt_image,
+    require(wit_test_create_fixture(&process, pages, 0, driver ? wit_user_virtio_image : wit_user_interrupt_image,
                 driver ? sizeof(wit_user_virtio_image) : sizeof(wit_user_interrupt_image)),
         "Interrupt test process creation failed");
     if (driver) {
