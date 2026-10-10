@@ -87,6 +87,26 @@
     {
       "path": "src/coreclr/nativeaot/BuildIntegration/Microsoft.NETCore.Native.Unix.targets",
       "sha256": "cec7dfe627fa35b719cc6049f09732b2dcfc0470cced3fc646a689a2c419f28e"
+    },
+    {
+      "path": "src/coreclr/CMakeLists.txt",
+      "sha256": "10333a3ed6f11b9caab4366990275f09ff7edec031a6336e777142d163f8091f"
+    },
+    {
+      "path": "src/coreclr/dlls/mscordac/CMakeLists.txt",
+      "sha256": "edd2155d08dcce98385aa41219eadcba9fb4f5245ff220647f0e4b590b79d9b4"
+    },
+    {
+      "path": "src/coreclr/pal/src/thread/process.cpp",
+      "sha256": "fcf6c0e63e76baa3dc39b6d86970d5db68f9254c55c46489b81907397a6d4b80"
+    },
+    {
+      "path": "src/coreclr/vm/gcenv.ee.cpp",
+      "sha256": "3207e7ca63b1c560b33293f0ca6390d6387aea76b80d6434f4f8c7e41f8128c9"
+    },
+    {
+      "path": "src/native/external/libunwind.cmake",
+      "sha256": "c87fe321817a5f2ce1eb75b515cbd01d9da8ea0129b020e7c488a6197839b55a"
     }
   ]
 }
