@@ -28,7 +28,6 @@
     "[TEST-PASS] User.MemoryFixedAndPartial",
     "[TEST-PASS] User.MemoryPhysicalOom",
     "[TEST-PASS] User.MemoryLifecycle",
-    "[TEST-PASS] User.NativeThreadIdExhaustion",
     "[TEST-PASS] User.ThreadPreemptionAndTls",
     "[TEST-PASS] User.ThreadWaitAndReuse",
     "[TEST-PASS] User.ThreadCapacity",

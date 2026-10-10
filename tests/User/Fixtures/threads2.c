@@ -1,8 +1,9 @@
 #include "fixture.h"
 
 /* Thread form and transport fixture (RFC 0011 v3 sections 7.3 and 6.1, plan steps K5.2a and K8.3). Every call travels
- * through the layer-2 transport (witos/syscall.h): SYSCALL with the SysV registers on x64, SVC on ARM64. The first
- * thread checks that its argument arrived in both entry conventions on x64; THREAD_SET_TLS changes its FS base on x64
+ * through the layer-2 transport (witos/syscall.h): SYSCALL with the SysV registers on x64, SVC on ARM64. A thread's
+ * argument arrives in the first argument register of the SysV convention alone (K8.4b); THREAD_SET_TLS changes the
+ * first thread's FS base on x64
  * and is UNSUPPORTED on ARM64, whose TPIDR_EL0 belongs to EL0; a stack of the fixture's own is reserved and committed;
  * THREAD_CREATE with the version 2 request starts a worker on it with a TLS base of the fixture's choosing; the worker
  * checks its argument, stack and TLS, changes its TLS where the ISA lets it, and exits naming the reservation with an
@@ -27,32 +28,28 @@
 #define C_ENTRY __attribute__((noreturn, used))
 #endif
 
-/* The entry points the kernel enters: wit_user_start hands the startup block of RDI and RCX (x0 and x0 on ARM64) to
- * threads2_main; worker hands its argument registers and its stack pointer to threads2_worker. */
+/* The entry points the kernel enters: wit_user_start hands the startup block (RDI, x0) to threads2_main; worker hands
+ * its argument and its stack pointer to threads2_worker. */
 __attribute__((visibility("hidden"))) void worker(void);
 #if defined(__x86_64__)
 __asm__(".section .text.entry,\"ax\",@progbits\n"
         ".globl wit_user_start\n"
         "wit_user_start:\n"
-        "    mov %rcx, %rsi\n"
         "    jmp threads2_main\n"
         ".text\n"
         ".globl worker\n.hidden worker\n"
         "worker:\n"
-        "    mov %rcx, %rsi\n"
-        "    mov %rsp, %rdx\n"
+        "    mov %rsp, %rsi\n"
         "    jmp threads2_worker\n");
 #else
 __asm__(".section .text.entry,\"ax\",%progbits\n"
         ".globl wit_user_start\n"
         "wit_user_start:\n"
-        "    mov x1, x0\n"
         "    b threads2_main\n"
         ".text\n"
         ".globl worker\n.hidden worker\n"
         "worker:\n"
-        "    mov x1, x0\n"
-        "    mov x2, sp\n"
+        "    mov x1, sp\n"
         "    b threads2_worker\n");
 #endif
 
@@ -88,11 +85,10 @@ static WitU64 worker_call(WitU64 number, WitU64 a0, WitU64 a1, WitU64 a2)
     return wit_syscall(number, a0, a1, a2, &result);
 }
 
-/* The worker: its argument in both registers on x64, the stack pointer exactly the one requested, the TLS base its
- * creator chose. */
-C_ENTRY void threads2_worker(WitU64 argument, WitU64 second, WitU64 sp)
+/* The worker: its argument, the stack pointer exactly the one requested, the TLS base its creator chose. */
+C_ENTRY void threads2_worker(WitU64 argument, WitU64 sp)
 {
-    worker_check(argument == ARGUMENT && second == ARGUMENT);
+    worker_check(argument == ARGUMENT);
     worker_check(sp == STACK_BASE + STACK_BYTES);
 #if defined(__x86_64__)
     worker_check(tls_read() == 0x1234);
@@ -146,9 +142,8 @@ static WitU64 create(WitU64 entry, WitU64 sp, WitU64 tls, WitU32 version, WitU32
     return fixture_expect(WIT_CALL_THREAD_CREATE, (WitU64)&request, sizeof(request), 0, expected);
 }
 
-C_ENTRY void threads2_main(const WitUserStartup *startup, const WitUserStartup *second)
+C_ENTRY void threads2_main(const WitUserStartup *startup)
 {
-    fixture_check(startup == second, 1); /* the startup block in both entry conventions on x64 */
     fixture_check(startup->Version == WIT_ABI_VERSION, 2);
     /* QUERY: the ABI version in the low half of the value. */
     fixture_check((WitU32)fixture_expect(WIT_CALL_QUERY, 0, 0, 0, WIT_STATUS_OK) == WIT_ABI_VERSION, 3);

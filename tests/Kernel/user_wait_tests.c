@@ -267,7 +267,7 @@ void wit_user_wait_self_test(WitPageAllocator *pages)
         if (mode == WIT_WAIT_TEST_AUTO || mode == WIT_WAIT_TEST_MANUAL) {
             require(process->EventParks == 3 &&
                     process->EventWakes == 3 &&
-                    process->Space.OwnedCount == 9 + (WIT_USER_STACK_TOP - WIT_USER_STACK_BOTTOM) / 4096,
+                    process->Space.OwnedCount == 8 + (WIT_USER_STACK_TOP - WIT_USER_STACK_BOTTOM) / 4096,
                 "Event wake/join accounting failed");
         }
         if (mode == WIT_WAIT_TEST_CLOSE) {

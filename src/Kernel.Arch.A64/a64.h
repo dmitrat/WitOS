@@ -156,8 +156,7 @@ WitA64Frame *wit_a64_interrupt(WitA64Frame *frame);
 /* Synchronous exception from EL0: a system call or a user fault for the common kernel. */
 WitA64Frame *wit_a64_user_trap(WitA64Frame *frame);
 
-/* Final check before a frame is resumed: an EL0 frame must sit at the top of the selected kernel stack and
- * receives the compiler TLS register x18. */
+/* Final check before a frame is resumed: an EL0 frame must sit at the top of the selected kernel stack. */
 WitA64Frame *wit_a64_prepare_resume(WitA64Frame *frame);
 /* Restores a prepared frame on its own kernel stack and returns to its mode (vectors.asm); never returns (K5.2c). */
 WIT_NORETURN void wit_a64_resume_frame(WitA64Frame *frame);

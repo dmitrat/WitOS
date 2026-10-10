@@ -8,101 +8,44 @@ static void require(int condition, const char *message)
     }
 }
 
-static WitU64 next_native_id = 1;
-
-static int take_native_id(WitU64 *next, WitU32 *output)
+/* Resets a free thread slot for a new thread. */
+static void reset_thread(WitUserThread *thread)
 {
-    if (!*next || *next > 0xFFFFFFFFULL) {
-        return 0;
-    }
-    *output = (WitU32)*next;
-    ++*next;
-    return 1;
-}
-
-#if defined(WITOS_SELFTEST)
-/* Native ID exhaustion check; take_native_id is private to this file. */
-void wit_user_native_id_self_test(void)
-{
-    WitU64 cursor = 1;
-    WitU32 value = 0;
-    require(take_native_id(&cursor, &value) && value == 1 && cursor == 2, "Native ID initial allocation failed");
-    cursor = 0xFFFFFFFFULL;
-    require(take_native_id(&cursor, &value) && value == 0xFFFFFFFFU && cursor == 0x100000000ULL,
-        "Native ID final allocation failed");
-    value = 17;
-    require(
-        !take_native_id(&cursor, &value) && value == 17 && cursor == 0x100000000ULL, "Native ID wrapped on exhaustion");
-    cursor = 0;
-    require(!take_native_id(&cursor, &value) && value == 17, "Native ID accepted zero cursor");
-    wit_console_write("[TEST-PASS] User.NativeThreadIdExhaustion\n");
-}
-#endif
-
-/* Resets a free thread slot for a new thread. Fails when native thread identifiers are exhausted. */
-static WitU64 reset_thread(WitUserThread *thread)
-{
-    thread->NativeId = 0;
     thread->SuspendCount = 0;
     thread->Affinity = 1; /* The boot processor, the one online (K7.1). */
     wit_user_exception_clear(thread);
-    if (next_native_id > 0xFFFFFFFFULL) {
+}
+
+/* The first thread of a component the kernel builds (a fixture or the root task): its stack is the fixed window
+ * [WIT_USER_STACK_BOTTOM, WIT_USER_STACK_TOP), mapped page by page, and it has no TLS base (K8.4b). Its private
+ * identity is a handle-table entry user space never receives as a capability (closing it is BUSY); the stack is
+ * reclaimed at its exit. A failure releases every page and the identity. */
+WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU64 entry, WitU64 argument)
+{
+    WitUserThread *thread = &process->Threads[0];
+    WitU32 mapped = 0;
+    reset_thread(thread);
+    const WitU64 handle = wit_handle_grant(&process->Handles, WIT_HANDLE_THREAD_IDENTITY, 0);
+    if (!handle) {
         return WIT_STATUS_NO_MEMORY;
     }
-    thread->CompilerTls = 0;
-    return WIT_STATUS_OK;
-}
-
-/* Pages of one thread under construction, for rollback. */
-typedef struct ThreadPages {
-    WitU64 Bottom, Top, Tls;
-    WitU32 Mapped;
-    int RawMapped;
-} ThreadPages;
-
-/* Maps the stack and the raw TLS page. */
-static int map_thread(WitUserProcess *process, ThreadPages *pages)
-{
-    for (WitU64 page = pages->Bottom; page < pages->Top; page += 4096) {
+    for (WitU64 page = WIT_USER_STACK_BOTTOM; page < WIT_USER_STACK_TOP; page += 4096) {
         if (!wit_user_space_map(&process->Space, page, 1, 0)) {
-            return 0;
+            while (mapped) {
+                --mapped;
+                require(wit_user_space_unmap_fixed(&process->Space, WIT_USER_STACK_BOTTOM + mapped * 4096ULL),
+                    "First thread rollback lost a stack page");
+            }
+            require(
+                wit_handle_close(&process->Handles, handle) == WIT_STATUS_OK, "First thread handle rollback failed");
+            return WIT_STATUS_NO_MEMORY;
         }
-        ++pages->Mapped;
+        ++mapped;
     }
-    if (!wit_user_space_map(&process->Space, pages->Tls, 1, 0)) {
-        return 0;
-    }
-    pages->RawMapped = 1;
-    return 1;
-}
-
-static void unmap_thread(WitUserProcess *process, const ThreadPages *pages, WitU64 handle)
-{
-    if (pages->RawMapped) {
-        require(wit_user_space_unmap_fixed(&process->Space, pages->Tls), "Raw TLS rollback failed");
-    }
-    for (WitU32 mapped = pages->Mapped; mapped;) {
-        --mapped;
-        require(wit_user_space_unmap_fixed(&process->Space, pages->Bottom + mapped * 4096ULL),
-            "Thread creation rollback lost a stack page");
-    }
-    require(wit_handle_close(&process->Handles, handle) == WIT_STATUS_OK, "Thread handle rollback failed");
-}
-
-/* Fills the raw TLS block, creates the initial frame and makes the thread Ready. */
-static void start_thread(WitUserProcess *process, WitU32 index, WitUserThread *thread, const ThreadPages *pages,
-    WitU64 handle, WitU64 entry, WitU64 argument)
-{
-    WitU64 *tls = (WitU64 *)wit_user_space_physical(&process->Space, pages->Tls, 1, 0);
-    tls[0] = pages->Tls;
-    tls[1] = handle;
-    tls[2] = argument;
-    WitArchFrame *context = wit_arch_frame_create(process->Slot, index, entry, argument, pages->Top);
-    require(take_native_id(&next_native_id, &thread->NativeId), "Serialized native ID allocation failed");
     thread->Handle = handle;
-    thread->StackBottom = pages->Bottom;
-    thread->StackTop = pages->Top;
-    thread->Tls = pages->Tls;
+    thread->StackBottom = WIT_USER_STACK_BOTTOM;
+    thread->StackTop = WIT_USER_STACK_TOP;
+    thread->Tls = 0;
     thread->OwnsStack = 1;
     thread->ExitReservation = 0;
     thread->ExitClear = 0;
@@ -110,7 +53,7 @@ static void start_thread(WitUserProcess *process, WitU32 index, WitUserThread *t
     thread->AlternateBottom = 0;
     thread->AlternateTop = 0;
     thread->ExitCode = 0;
-    thread->Context = context;
+    thread->Context = wit_arch_frame_create(process->Slot, 0, entry, argument, WIT_USER_STACK_TOP);
     thread->WaitKind = WitWaitNone;
     thread->WaitHandle = 0;
     thread->WaitCount = 0;
@@ -123,28 +66,6 @@ static void start_thread(WitUserProcess *process, WitU32 index, WitUserThread *t
     thread->WaitOrder = 0;
     thread->State = WitThreadReady;
     ++process->ThreadCreates;
-}
-
-/* Maps and starts a thread in a free slot. Its private identity is a handle-table entry user space never receives as
- * a capability (closing it is BUSY); the thread's stack and TLS are reclaimed at its exit. */
-WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument)
-{
-    WitUserThread *thread = &process->Threads[index];
-    ThreadPages pages = {WIT_USER_STACK_BOTTOM + index * WIT_USER_THREAD_STRIDE,
-        WIT_USER_STACK_TOP + index * WIT_USER_THREAD_STRIDE, WIT_USER_TLS + index * WIT_USER_THREAD_STRIDE, 0, 0};
-    const WitU64 reset = reset_thread(thread);
-    if (reset != WIT_STATUS_OK) {
-        return reset;
-    }
-    const WitU64 handle = wit_handle_grant(&process->Handles, WIT_HANDLE_THREAD_IDENTITY, 0);
-    if (!handle) {
-        return WIT_STATUS_NO_MEMORY;
-    }
-    if (!map_thread(process, &pages)) {
-        unmap_thread(process, &pages, handle);
-        return WIT_STATUS_NO_MEMORY;
-    }
-    start_thread(process, index, thread, &pages, handle, entry, argument);
     return WIT_STATUS_OK;
 }
 
@@ -194,21 +115,16 @@ static WitU64 create_in(
         return WIT_STATUS_NO_MEMORY;
     }
     WitUserThread *thread = &target->Threads[index];
-    const WitU64 reset = reset_thread(thread);
-    if (reset != WIT_STATUS_OK) {
-        return reset;
-    }
+    reset_thread(thread);
     const WitU64 handle = wit_handle_grant(&p->Handles, WIT_HANDLE_THREAD_REFERENCE, WIT_RIGHT_THREAD_ALL);
     const WitU64 identity = wit_handle_grant(&target->Handles, WIT_HANDLE_THREAD_IDENTITY, 0);
     require(handle != 0 && identity != 0, "Thread handles failed after the free slot check");
     WitArchFrame *context =
         wit_arch_frame_create_at(target->Slot, index, request->Entry, request->Argument, request->StackPointer);
-    require(take_native_id(&next_native_id, &thread->NativeId), "Serialized native ID allocation failed");
     thread->Handle = identity;
     thread->StackBottom = base;
     thread->StackTop = base + bytes;
     thread->Tls = request->TlsBase;
-    thread->CompilerTls = 0;
     thread->OwnsStack = 0;
     thread->ExitReservation = 0;
     thread->ExitClear = 0;
@@ -350,9 +266,9 @@ WitU64 wit_user_thread_set_tls(WitUserProcess *p, WitU64 base, WitU64 reserved0,
     return WIT_STATUS_OK;
 }
 
-/* THREAD_CREATE: version 1 maps the kernel's stack and TLS (the frozen line), version 2 is the one form. The request
- * is validated as a whole, the thread handle is reserved first, and nothing is published before the identity,
- * stacks, TLS and initial suspend state all exist. */
+/* THREAD_CREATE: the one form, version 2 in the caller's process or version 3 in the process it names (version 1, the
+ * kernel's stack and TLS, was retired at K8.4b). The request is validated as a whole and nothing is published before
+ * the handle, the identity and the initial suspend state all exist. */
 WitU64 wit_user_thread_create(WitUserProcess *p, WitU64 input, WitU64 size, WitU64 *result)
 {
     *result = 0;
@@ -384,74 +300,15 @@ WitU64 wit_user_thread_create(WitUserProcess *p, WitU64 input, WitU64 size, WitU
         form.Reserved = request3.Reserved;
         return create_in(p, target, &form, sizeof(request3), result);
     }
-    if (size != sizeof(WitThreadCreateRequest)) {
+    if (size != sizeof(WitThreadCreateRequest2)) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
-    WitThreadCreateRequest request;
+    WitThreadCreateRequest2 request;
     if (!wit_user_copy_from(&p->Space, input, (WitU8 *)&request, sizeof(request))) {
         return WIT_STATUS_BAD_ADDRESS;
     }
-    if (request.Version == WIT_THREAD_CREATE_VERSION_2) {
-        return create_in(p, p, (const WitThreadCreateRequest2 *)&request, sizeof(request), result);
-    }
-    if (request.Version != WIT_THREAD_CREATE_VERSION) {
+    if (request.Version != WIT_THREAD_CREATE_VERSION_2) {
         return WIT_STATUS_UNSUPPORTED;
     }
-    if (request.Size != sizeof(request) || request.Reserved || (request.Flags & ~WIT_THREAD_START_SUSPENDED)) {
-        return WIT_STATUS_INVALID_ARGUMENT;
-    }
-    if (request.StackBytes > WIT_USER_STACK_TOP - WIT_USER_STACK_BOTTOM) {
-        return WIT_STATUS_UNSUPPORTED;
-    }
-    if (!wit_user_space_physical(&p->Space, request.Entry, 0, 1) ||
-        (request.NativeIdOutput && !wit_user_buffer_writable(&p->Space, request.NativeIdOutput, sizeof(WitU32)))) {
-        return WIT_STATUS_BAD_ADDRESS;
-    }
-    /* A version 1 thread's stack and TLS sit in the window of its index (user_layout.h), which holds the first
-     * WIT_USER_THREAD_CAPACITY threads of any process. */
-    WitU32 index = 0;
-    while (index < WIT_USER_THREAD_CAPACITY && p->Threads[index].State != WitThreadEmpty) {
-        ++index;
-    }
-    if (index == WIT_USER_THREAD_CAPACITY) {
-        ++p->ReferenceThreadCapacityFailures;
-        return WIT_STATUS_NO_MEMORY;
-    }
-    WitUserThreadReference *reference = 0;
-    for (WitU32 n = 0; n < p->Handles.Limit; ++n) {
-        if (!p->ThreadReferences[n].Handle) {
-            reference = &p->ThreadReferences[n];
-            break;
-        }
-    }
-    if (!reference) {
-        return WIT_STATUS_NO_MEMORY;
-    }
-    const WitU64 handle = wit_handle_grant(&p->Handles, WIT_HANDLE_THREAD_REFERENCE, WIT_RIGHT_THREAD_ALL);
-    if (!handle) {
-        return WIT_STATUS_NO_MEMORY;
-    }
-    const WitU64 status = wit_user_prepare_thread(p, index, request.Entry, request.Argument);
-    if (status != WIT_STATUS_OK) {
-        if (wit_handle_close(&p->Handles, handle) != WIT_STATUS_OK) {
-            wit_panic("Thread creation rollback failed");
-        }
-        return status;
-    }
-    WitUserThread *thread = &p->Threads[index];
-    thread->SuspendCount = (request.Flags & WIT_THREAD_START_SUSPENDED) ? 1U : 0U;
-    reference->Handle = handle;
-    reference->ThreadId = thread->Handle;
-    reference->ExitCode = 0;
-    reference->Rights = WIT_RIGHT_THREAD_ALL;
-    reference->Exited = 0;
-    // The syscall is serialized with IF clear. Allocation did not remove or
-    // change the prevalidated destination's existing mapping.
-    if (request.NativeIdOutput &&
-        !wit_user_copy_to(
-            &p->Space, request.NativeIdOutput, (const WitU8 *)&thread->NativeId, sizeof(thread->NativeId))) {
-        wit_panic("Validated thread native ID output changed");
-    }
-    *result = handle;
-    return WIT_STATUS_OK;
+    return create_in(p, p, &request, sizeof(request), result);
 }

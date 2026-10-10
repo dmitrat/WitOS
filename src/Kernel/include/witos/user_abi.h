@@ -12,11 +12,12 @@
 
 /* ABI-1 of RFC 0011 v3 (sections 6 and 7): the system calls between the nano-kernel and the system layer.
  * The ABI is experimental until plan step K8 declares 1.0; since step K1 a call number, a status value and a rights
- * bit are never reused (RFC 0011 section 10.1). Transport (section 6.1): on x64 INT 0x80 with RAX=call, RCX/RDX/R8
- * arguments, RAX=status and RDX=result, other GPRs and x87/SSE state preserved, RFLAGS reset to 0x202; on ARM64
- * SVC #0 with x8=call, x0-x2 arguments, x0=status and x1=result. A structure passed by pointer starts with Version
+ * bit are never reused (RFC 0011 section 10.1). Transport (section 6.1): on x64 SYSCALL with RAX=call, RDI/RSI/RDX
+ * arguments, RAX=status and RDX=result, RCX and R11 clobbered by the instruction, other GPRs and x87/SSE state
+ * preserved, RFLAGS reset to 0x202 (INT 0x80 left at step K8.4b); on ARM64 SVC #0 with x8=call, x0-x2 arguments,
+ * x0=status and x1=result, every other register preserved, x18 included (K8.4b). A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
-#define WIT_ABI_VERSION 70U
+#define WIT_ABI_VERSION 71U
 /* QUERY result: the low 32 bits are WIT_ABI_VERSION, the high 32 bits the mask of the families present. */
 #define WIT_ABI_FEATURE_CHANNELS 1U
 #define WIT_ABI_FEATURE_DEVICES 2U
@@ -83,17 +84,17 @@
 #define WIT_CALL_CODE_PUBLISH 20U
 
 /* Threads and contexts (RFC 0011 section 7.3). */
-/* Create(WitThreadCreateRequest, 48 or 56, 0) -> thread handle with every thread right. Version 2 is the one form
- * (RFC 0011 section 7.3): the caller's stack pointer and TLS base, nothing mapped by the kernel; version 3 (56
+/* Create(WitThreadCreateRequest2 or 3, 48 or 56, 0) -> thread handle with every thread right. Version 2 is the one
+ * form (RFC 0011 section 7.3): the caller's stack pointer and TLS base, nothing mapped by the kernel; version 3 (56
  * bytes) is the same form naming the process the thread starts in, WIT_PROCESS_SELF or a process handle with MANAGE
- * (K5.2c), whose reservations hold the stack. Version 1 keeps the kernel's stack and TLS for the frozen line until
- * K8. The handle observes the thread's lifetime (OBJECT_WAIT, THREAD_QUERY); closing it detaches. */
+ * (K5.2c), whose reservations hold the stack. Version 1, the kernel's stack and TLS, was retired at step K8.4b.
+ * The handle observes the thread's lifetime (OBJECT_WAIT, THREAD_QUERY); closing it detaches. */
 #define WIT_CALL_THREAD_CREATE 30U
 /* Exit(code, reservation or 0, WitThreadExitRequest or 0): the current thread ends; does not return. A nonzero second
  * argument names a reservation of the caller (its stack) that the kernel releases once the thread no longer runs;
  * it is checked before the exit and NOT_RESERVED returns. A nonzero third argument (S2.1) names a word the kernel
  * zeroes and an event it sets once the thread no longer runs; it is validated whole before the exit and a refusal
- * returns. A version 1 thread's kernel stack and TLS are reclaimed with it. */
+ * returns. A component's first thread's stack window is reclaimed with it. */
 #define WIT_CALL_THREAD_EXIT 31U
 /* Yield(0, 0, 0) -> 1 when this call selected another thread, otherwise 0. */
 #define WIT_CALL_THREAD_YIELD 32U
@@ -240,7 +241,7 @@
  * FATAL_REPORT with the Windows-form line; THREAD_NAME_SET and THREAD_NAME_QUERY into the libc; CODE_MEMORY into
  * memory objects; FILE, STORAGE_QUERY, LIBRARY and PROCESS_STATE into the system layer. */
 
-/* Flags of WitThreadCreateRequest: START_SUSPENDED (1); 2 (LIBRARY_NOTIFICATIONS, the DLL thread lifecycle) was
+/* Flags of THREAD_CREATE's request: START_SUSPENDED (1); 2 (LIBRARY_NOTIFICATIONS, the DLL thread lifecycle) was
  * retired at step K8.4a. */
 /* Rights (RFC 0011 section 6.1): a bit is never reused, and 2 (the join right of the retired join capability) is
  * retired. WAIT and SIGNAL belong to events and the kernel log; QUERY, GET_CONTEXT, SET_CONTEXT, SUSPEND_RESUME and
@@ -281,13 +282,6 @@
 #define WIT_WAIT_INFINITE 0xFFFFFFFFFFFFFFFFULL
 #define WIT_EVENT_MANUAL_RESET 1ULL
 #define WIT_EVENT_INITIAL_SIGNALED 2ULL
-/* Kernel-selected raw TLS block of the frozen line (leaves with it at K8): self pointer, thread handle, initial
- * argument, 32-bit native last-error, 32-bit reserved zero, then application storage. */
-#define WIT_TLS_SELF_OFFSET 0U
-#define WIT_TLS_HANDLE_OFFSET 8U
-#define WIT_TLS_ARGUMENT_OFFSET 16U
-#define WIT_TLS_LAST_ERROR_OFFSET 24U
-#define WIT_TLS_DATA_OFFSET 32U
 /* Statuses (RFC 0011 section 6.2): a value is never reused. */
 #define WIT_STATUS_OK 0U
 #define WIT_STATUS_UNSUPPORTED 1U

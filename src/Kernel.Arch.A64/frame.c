@@ -6,9 +6,8 @@
 
 /* ARM64 implementation of the thread-frame part of witos/arch.h and the EL0 trap entry. A user thread runs at
  * EL0t with its frame at the top of its own kernel stack. System calls: SVC #0 with the number in x8 and the
- * arguments in x0-x2; the status returns in x0 and the value in x1. The raw TLS base is TPIDRRO_EL0, which EL0
- * cannot change, and the compiler TLS block is x18, the platform register, which the kernel sets on every
- * return to EL0. A thread context is the AArch64 block of witos/thread_context.h (plan step K1.4): X0-X30, SP,
+ * arguments in x0-x2; the status returns in x0 and the value in x1. The TLS base is TPIDRRO_EL0, which EL0
+ * cannot change; x18 is the thread's like every other register (K8.4b). A thread context is the AArch64 block of witos/thread_context.h (plan step K1.4): X0-X30, SP,
  * PC, PSTATE as the condition flags alone, the 32 vector registers, FPCR within the probed mask and FPSR; the fault
  * callback receives it for the EL0 exception classes below and for activations. */
 
@@ -30,7 +29,6 @@
 #define CALL_FRAME_BYTES 16U
 
 static WitU64 selected_top;
-static WitU64 compiler_tls;
 
 static WitU64 stack_low(WitU32 slot, WitU32 thread)
 {
@@ -47,21 +45,19 @@ void wit_arch_select_boot_stack(void)
     selected_top = (WitU64)wit_a64_kernel_stack + 4096 + WIT_A64_KERNEL_STACK_SIZE;
 }
 
-void wit_arch_set_user_tls(WitU64 address, WitU64 compiler_address)
+void wit_arch_set_user_tls(WitU64 address)
 {
     wit_a64_set_thread_pointer(address);
-    compiler_tls = compiler_address;
 }
 
 void wit_arch_reset_user_tls(void)
 {
-    wit_a64_set_thread_pointer(0); /* Kernel C uses neither thread register. */
-    compiler_tls = 0;
+    wit_a64_set_thread_pointer(0); /* Kernel C uses no thread register. */
 }
 
 int wit_arch_user_tls_is_reset(void)
 {
-    return wit_a64_thread_pointer() == 0 && compiler_tls == 0;
+    return wit_a64_thread_pointer() == 0;
 }
 
 int wit_arch_kernel_space_active(void)
@@ -105,7 +101,6 @@ WitA64Frame *wit_a64_prepare_resume(WitA64Frame *frame)
         if ((WitU64)frame + WIT_A64_FRAME_SIZE != selected_top) {
             wit_panic("EL0 frame is not at the top of the selected kernel stack");
         }
-        frame->X[18] = compiler_tls;
     }
     return frame;
 }
@@ -287,7 +282,7 @@ WitU64 wit_arch_context_sp(const WitThreadContext *context)
     return context->Sp;
 }
 
-/* TPIDR_EL0 stays the frame's; x18 is replaced by the compiler TLS on resume (wit_a64_prepare_resume). */
+/* TPIDR_EL0 stays the frame's; x18 is applied like every other general register. */
 void wit_arch_context_apply(WitArchFrame *frame, const WitThreadContext *context)
 {
     for (WitU32 i = 0; i < 31; ++i) {

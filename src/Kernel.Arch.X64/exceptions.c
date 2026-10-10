@@ -47,7 +47,7 @@ void wit_arch_initialize(void)
         idt[i].OffsetLow = (WitU16)address;
         idt[i].Selector = 8;
         idt[i].Ist = i == 8 ? 1 : 0;
-        idt[i].Attributes = (i == 3 || i == 128) ? 0xEE : 0x8E; /* User INT3 trap and syscall gate only. */
+        idt[i].Attributes = i == 3 ? 0xEE : 0x8E; /* User INT3 alone; calls enter through SYSCALL (K8.4b). */
         idt[i].OffsetMiddle = (WitU16)(address >> 16);
         idt[i].OffsetHigh = (WitU32)(address >> 32);
         idt[i].Reserved = 0;
