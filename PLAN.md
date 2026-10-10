@@ -631,7 +631,23 @@ Unix-формы в госте сверх NativeAOT (CoreCLR — R3: нативн
     находит точки входа хоста и JIT на обеих ISA. Нашёл K9: `dlopen` JIT упирался в 2048 записей алиасов. Патч-набор
     — 23 файла (CoreCLR 8 из 31 у FreeBSD и 18 у Haiku).
   - [ ] **R3.2** `corerun` и managed `Main` через JIT: CoreLib CoreCLR для `witos`, `coreclr_initialize` с TPA,
-    исполняемая память JIT через объекты памяти (двойное отображение W^X), инициализация PAL без `/proc`.
+    исполняемая память JIT через объекты памяти (двойное отображение W^X), инициализация PAL без `/proc`. Срезами:
+    - [x] **R3.2a** Что нужно PAL CoreCLR от системного слоя ([R3.2a-PAL-Prerequisites.md](@Docs/Implementation/R3.2a-PAL-Prerequisites.md)):
+      сценарий `runtime-corerun` — `tests/User/corerun_init.c` запускает upstream `corerun` из `/coreclr` на
+      `tests/Runtime.Witos/CoreRun/CoreRun.cs` с IL-CoreLib CoreCLR и нужными библиотеками фреймворка (все сборки
+      `witos` — чистый IL, JIT компилирует всё); трассой отказавших вызовов libc (только в контейнере) найдено и
+      сделано: `AT_EXECFN` в стеке запускаемой программы (путь к исполняемому файлу .NET берёт из `/proc/self/exe`, а
+      без него — из `AT_EXECFN`; без обоих `corerun` падал на `std::string(nullptr)`), `sched_setaffinity` (PAL сбрасывает
+      маску каждого нового потока, `ENOSYS` давал `ERROR_INTERNAL_ERROR` в `coreclr_initialize`), `poll`/`ppoll` над
+      каналами (поток синхронизации PAL ждёт на своём канале), альтернативный стек со сторожевой страницей внизу (PAL
+      делает её `PROT_NONE`, ядро отказывало целиком); строка сбоя x64 называет RIP, как ARM64 — ELR. Проверки — в
+      `libc_hello.c` и `process_init.c` обеих ISA. `coreclr_initialize` теперь доходит до двойного отображения: `shm_open`
+      отказывает (`EROFS`), а без W^X нужна память RWX, которую WitOS не даёт, — это R3.2b.
+    - [ ] **R3.2b** Исполняемая память JIT: разделяемая память POSIX в libc (`shm_open`/`memfd`, `ftruncate`, `mmap`
+      `MAP_SHARED`) над объектами памяти — RX- и RW-виды одних страниц, как требует RFC-0011 §7.2; квоты объектов,
+      хэндлов и резервирований процесса под JIT; на ARM64 EL0 обслуживает кэши по VA (`SCTLR_EL1.UCT`/`UCI`, как в
+      Linux), потому что `__clear_cache` в образах CoreCLR выполняет `DC CVAU`/`IC IVAU` сам.
+    - [ ] **R3.2c** managed `Main` через JIT на обеих ISA.
   - [ ] **R3.3** Приёмка M3 под CoreCLR (GC, исключения, финализация, потоки) на обеих ISA; снятие `-ffixed-x18`.
 - [ ] **R4** `System.Native` для witos (RFC-0015 §5, §8): файлы над пакетом (`mmap` файла — `ENODEV` до сервиса), затем
   над сервисом хранилища (D5); время; окружение; процессы без `fork`/`exec` на первом шаге (`Process.Start` —

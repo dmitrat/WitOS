@@ -28,8 +28,9 @@
  * runtime does with the page of its GS cookie at startup, which a mapping of the package never allows. The first stack is one object of 64 pages at the
  * top of the code arena, with nothing mapped below it, on which the loader builds what a Linux kernel builds: argc,
  * argv, envp and the auxiliary vector with AT_PHDR, AT_ENTRY (the program's), AT_BASE (the interpreter's base, for a
- * dynamic program alone: musl's dlstart.c of a static one finds its base through PT_DYNAMIC), AT_RANDOM and
- * WIT_AT_START. The thread starts at the interpreter's entry, or the program's without one. The start message goes
+ * dynamic program alone: musl's dlstart.c of a static one finds its base through PT_DYNAMIC), AT_RANDOM, AT_EXECFN
+ * (the program's path as the caller named it, at the top of the stack, which .NET's minipal_getexepath reads where
+ * Linux has /proc/self/exe, R3.2) and WIT_AT_START. The thread starts at the interpreter's entry, or the program's without one. The start message goes
  * out before the thread starts (witos/start.h): duplicates of the loader's log, WRITE alone, of the package, MAP,
  * EXECUTE and QUERY, and of the process manager's endpoint, SEND alone, when the start names one (S6.1), each with
  * TRANSFER, as a capability moves. The objects are charged to the loader while it lives;
@@ -47,7 +48,7 @@
 #define STACK_TOP WIT_USER_CODE_LIMIT
 #define STACK_BASE (STACK_TOP - STACK_BYTES)
 #define ARGUMENT_BYTES (STACK_BYTES / 4) /* the strings and pointers of argv and envp */
-#define AUXILIARY_PAIRS 15U
+#define AUXILIARY_PAIRS 16U
 #define LOG_RIGHTS (WIT_RIGHT_WRITE | WIT_RIGHT_TRANSFER)
 #define MANAGER_RIGHTS (WIT_RIGHT_SEND | WIT_RIGHT_TRANSFER)
 #define PACKAGE_RIGHTS (WIT_RIGHT_MAP | WIT_RIGHT_EXECUTE | WIT_RIGHT_QUERY | WIT_RIGHT_TRANSFER)
@@ -316,12 +317,13 @@ static WitU64 *put_strings(char *const list[], WitU64 count, WitU64 *word, unsig
 }
 
 /* The auxiliary vector: the program's headers and entry, the interpreter's base when there is one, the 16 random
- * bytes, the ids, the start endpoint. */
-static WitU64 *put_auxiliary(WitU64 *word, const Program *p, const Program *interpreter, WitU64 random, WitU64 endpoint)
+ * bytes, the program's path, the ids, the start endpoint. */
+static WitU64 *put_auxiliary(
+    WitU64 *word, const Program *p, const Program *interpreter, WitU64 random, WitU64 path, WitU64 endpoint)
 {
     const WitU64 pairs[] = {AT_PHDR, p->Base + p->Headers, AT_PHENT, sizeof(Elf64_Phdr), AT_PHNUM, p->Header.e_phnum,
-        AT_PAGESZ, PAGE, AT_ENTRY, p->Base + p->Header.e_entry, AT_RANDOM, random, AT_UID, 0, AT_EUID, 0, AT_GID, 0,
-        AT_EGID, 0, AT_SECURE, 0, AT_HWCAP, 0, WIT_AT_START, endpoint};
+        AT_PAGESZ, PAGE, AT_ENTRY, p->Base + p->Header.e_entry, AT_RANDOM, random, AT_EXECFN, path, AT_UID, 0, AT_EUID,
+        0, AT_GID, 0, AT_EGID, 0, AT_SECURE, 0, AT_HWCAP, 0, WIT_AT_START, endpoint};
     memcpy(word, pairs, sizeof(pairs));
     word += sizeof(pairs) / sizeof(pairs[0]);
     if (interpreter) {
@@ -333,12 +335,12 @@ static WitU64 *put_auxiliary(WitU64 *word, const Program *p, const Program *inte
     return word;
 }
 
-/* The first stack: argc, argv, envp and the auxiliary vector at a 16-byte aligned stack pointer, the strings and the
- * 16 random bytes above them, as a Linux kernel lays them out. */
-static int build_stack(const Program *p, const Program *interpreter, char *const argv[], char *const envp[],
-    WitU64 endpoint, WitU64 process, WitU64 *stack_pointer)
+/* The first stack: argc, argv, envp and the auxiliary vector at a 16-byte aligned stack pointer, the strings, the
+ * program's path and the 16 random bytes above them, as a Linux kernel lays them out. */
+static int build_stack(const Program *p, const Program *interpreter, const char *path, char *const argv[],
+    char *const envp[], WitU64 endpoint, WitU64 process, WitU64 *stack_pointer)
 {
-    WitU64 argc = 0, envc = 0, string_bytes = 0, object = 0, view = 0, mapped = 0, result = 0;
+    WitU64 argc = 0, envc = 0, string_bytes = strlen(path) + 1, object = 0, view = 0, mapped = 0, result = 0;
     int error = count_strings(argv, &argc, &string_bytes);
     if (!error) {
         error = count_strings(envp, &envc, &string_bytes);
@@ -354,7 +356,9 @@ static int build_stack(const Program *p, const Program *interpreter, char *const
     if (status == WIT_STATUS_OK) {
         unsigned char *bytes = (unsigned char *)view;
         const WitU64 random = STACK_TOP - 16;
-        WitU64 cursor = random;
+        const WitU64 execfn = random - (strlen(path) + 1);
+        memcpy(bytes + (execfn - STACK_BASE), path, strlen(path) + 1);
+        WitU64 cursor = execfn;
         const WitU64 words = 1 + argc + 1 + envc + 1 + 2 * AUXILIARY_PAIRS;
         status = wit_syscall(WIT_CALL_RANDOM, view + (random - STACK_BASE), 16, 0, &result);
         WitU64 strings = cursor;
@@ -369,7 +373,7 @@ static int build_stack(const Program *p, const Program *interpreter, char *const
         *word++ = argc;
         word = put_strings(argv, argc, word, bytes, &cursor);
         word = put_strings(envp, envc, word, bytes, &cursor);
-        put_auxiliary(word, p, interpreter, random, endpoint);
+        put_auxiliary(word, p, interpreter, random, execfn, endpoint);
         *stack_pointer = sp;
         wit_syscall(WIT_CALL_MEMORY_RELEASE, view, 0, 0, &result);
     }
@@ -458,8 +462,8 @@ static int start_thread(WitU64 entry, WitU64 process, WitU64 stack_pointer)
 }
 
 /* Everything after PROCESS_CREATE: the images, the stack, the start message, the thread. */
-static int load(const Program *p, const Program *interpreter, char *const argv[], char *const envp[], WitU64 process,
-    WitU64 endpoint, WitU64 child, WitU64 manager, const StartState *state)
+static int load(const Program *p, const Program *interpreter, const char *path, char *const argv[], char *const envp[],
+    WitU64 process, WitU64 endpoint, WitU64 child, WitU64 manager, const StartState *state)
 {
     WitU64 stack_pointer = 0;
     int error = map_image(p, process);
@@ -467,7 +471,7 @@ static int load(const Program *p, const Program *interpreter, char *const argv[]
         error = map_image(interpreter, process);
     }
     if (!error) {
-        error = build_stack(p, interpreter, argv, envp, child, process, &stack_pointer);
+        error = build_stack(p, interpreter, path, argv, envp, child, process, &stack_pointer);
     }
     if (!error) {
         error = send_start(endpoint, manager, state);
@@ -526,7 +530,7 @@ int witos_spawn_ex(
             wit_syscall(WIT_CALL_PROCESS_CREATE, (WitU64)&request, sizeof(request), (WitU64)&child, &handle);
         if (status == WIT_STATUS_OK) {
             ends[1] = 0; /* moved into the process */
-            error = load(&program, program.Interpreter[0] ? &interpreter : 0, argv, envp, handle, ends[0], child,
+            error = load(&program, program.Interpreter[0] ? &interpreter : 0, path, argv, envp, handle, ends[0], child,
                 options ? options->manager : 0, &state);
         } else {
             error = failure(status);

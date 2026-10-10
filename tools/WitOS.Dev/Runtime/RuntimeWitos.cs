@@ -61,6 +61,16 @@ internal static class RuntimeWitos
     public const string CORECLR_PROGRAM = "tests/User/coreclr_init.c";
 
     /// <summary>
+    /// The CoreCLR host check (R3.2), the runtime-corerun scenario's /bin/init, which starts corerun.
+    /// </summary>
+    public const string CORERUN_PROGRAM = "tests/User/corerun_init.c";
+
+    /// <summary>
+    /// The managed program corerun runs (R3.2).
+    /// </summary>
+    public const string CORERUN_ASSEMBLY = "tests/Runtime.Witos/CoreRun/CoreRun.cs";
+
+    /// <summary>
     /// The runs of the acceptance: four cycles of its eight probes (R2.2).
     /// </summary>
     public const int ACCEPTANCE_RUNS = 32;
@@ -86,6 +96,16 @@ internal static class RuntimeWitos
     /// CoreCLR's native images for witos (R3.1): the runtime, the JIT and the host that loads them.
     /// </summary>
     private static readonly string[] CORECLR_IMAGES = ["libcoreclr.so", "libclrjit.so", "corerun"];
+
+    /// <summary>
+    /// The framework's libraries the corerun program needs beside CoreLib (R3.2): corerun's TPA list is every assembly
+    /// of its directory.
+    /// </summary>
+    private static readonly string[] CORERUN_LIBRARIES =
+    [
+        "System.Runtime", "System.Console", "System.Threading", "System.Text.Encoding.Extensions", "System.Runtime.InteropServices",
+        "Microsoft.Win32.Primitives", "System.Collections", "System.Memory"
+    ];
 
     /// <summary>
     /// The witos patch set: each upstream path and the name of its patch in patches/runtime, its path with '/' as '.'.
@@ -315,6 +335,58 @@ internal static class RuntimeWitos
             ("lib/libc++.so.1", Path.Combine(lib, "libc++.so.1")), ("lib/libc++abi.so.1", Path.Combine(lib, "libc++abi.so.1")),
             ("lib/libunwind.so.1", Path.Combine(lib, "libunwind.so.1")),
             ("coreclr/libcoreclr.so", Path.Combine(coreclr, "libcoreclr.so")), ("coreclr/libclrjit.so", Path.Combine(coreclr, "libclrjit.so"))
+        ];
+    }
+
+    /// <summary>
+    /// The package of the CoreCLR host check (R3.2): tests/User/corerun_init.c as /bin/init; under /coreclr upstream's
+    /// corerun, CoreCLR's runtime and JIT, CoreLib, the framework's libraries the program needs with System.Native, and the
+    /// program, which the SDK's C# compiler builds against the reference pack; musl's libc.so as the dynamic linker and the
+    /// shared C++ runtime in /lib.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Artifact directory of the scenario.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>Package paths and the files to place there.</returns>
+    public static async Task<IReadOnlyList<(string Name, string Source)>> BuildCoreRunPackageAsync(string root, string output,
+        KernelArchitecture architecture)
+    {
+        var tree = Path.Combine(root, "artifacts", "runtime-witos", "src");
+        var coreclr = Path.Combine(tree, "artifacts", "bin", "coreclr", $"witos.{architecture.Name}.Release");
+        var framework = FrameworkDirectory(tree, architecture);
+        var native = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(framework)!)!, "native");
+        var references = Path.Combine(tree, "artifacts", "bin", "microsoft.netcore.app.ref", "ref", "net10.0");
+        if (!File.Exists(Path.Combine(coreclr, "corerun")) || !File.Exists(Path.Combine(framework, "System.Console.dll")))
+            throw new InvalidOperationException($"No CoreCLR or shared framework for witos in {tree}. Run: dotnet run --project tools/WitOS.Dev -- runtime-witos --arch {architecture.Name}");
+        var sdks = Directory.GetDirectories(Path.Combine(tree, ".dotnet", "sdk"));
+        if (sdks.Length != 1)
+            throw new InvalidDataException($"The runtime's own .NET SDK is not one SDK: {string.Join(", ", sdks)}.");
+        var assembly = Path.Combine(output, "CoreRun.dll");
+        await RunToolAsync(Path.Combine(tree, ".dotnet", "dotnet"),
+        [
+            Path.Combine(sdks[0], "Roslyn", "bincore", "csc.dll"), "-nologo", "-noconfig", "-nostdlib", "-deterministic", "-optimize+",
+            "-target:exe", .. Directory.GetFiles(references, "*.dll").Select(reference => $"-r:{reference}"), $"-out:{assembly}",
+            Path.Combine(root, CORERUN_ASSEMBLY)
+        ], tree);
+        var sysroot = await Sysroot.BuildAsync(root, architecture);
+        var program = Path.Combine(output, "corerun_init.elf");
+        await Processes.RequireSuccessAsync(Toolchain.Clang(root),
+        [
+            .. Sysroot.DriverOptions(root, architecture), "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
+            Path.Combine(root, CORERUN_PROGRAM), "-o", program
+        ], root);
+        var lib = Path.Combine(sysroot, "usr", "lib");
+        return
+        [
+            ("bin/init", program), (MuslLibc.InterpreterPath(architecture).TrimStart('/'), Path.Combine(lib, "libc.so")),
+            ("lib/libc++.so.1", Path.Combine(lib, "libc++.so.1")), ("lib/libc++abi.so.1", Path.Combine(lib, "libc++abi.so.1")),
+            ("lib/libunwind.so.1", Path.Combine(lib, "libunwind.so.1")),
+            ("coreclr/corerun", Path.Combine(coreclr, "corerun")),
+            ("coreclr/libcoreclr.so", Path.Combine(coreclr, "libcoreclr.so")), ("coreclr/libclrjit.so", Path.Combine(coreclr, "libclrjit.so")),
+            ("coreclr/System.Private.CoreLib.dll", Path.Combine(coreclr, "IL", "System.Private.CoreLib.dll")),
+            ("coreclr/libSystem.Native.so", Path.Combine(native, "libSystem.Native.so")),
+            ("coreclr/CoreRun.dll", assembly),
+            .. CORERUN_LIBRARIES.Select(name => ($"coreclr/{name}.dll", Path.Combine(framework, name + ".dll")))
         ];
     }
 

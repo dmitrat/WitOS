@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <math.h>
+#include <poll.h>
 #include <pthread.h>
 #include <sched.h>
 #include <semaphore.h>
@@ -149,6 +150,15 @@ static void *pipe_worker(void *argument)
     }
     close(shared.PipeEnd);
     return 0;
+}
+
+/* Writes one byte into the pipe poll waits on after the poller parked (R3.2). */
+static void *poll_worker(void *argument)
+{
+    struct timespec pause = {0, 10000000};
+    (void)argument;
+    nanosleep(&pause, 0);
+    return write(shared.PipeEnd, "p", 1) == 1 ? 0 : (void *)1;
 }
 
 /* Signals (S3): handlers record what they saw; the alternate stack is a static buffer the kernel accepts. */
@@ -626,6 +636,43 @@ int main(void)
         "a pipe without a reader answers EPIPE");
     signal(SIGPIPE, SIG_DFL);
 
+    /* poll (R3.2): a pipe end's readiness, every other descriptor ready, a timeout, and a poller parked until a writer
+     * comes. */
+    int polled[2];
+    check(pipe(polled) == 0, "a pipe to poll");
+    struct pollfd waits[4] = {{polled[0], POLLIN, -1}, {polled[1], POLLOUT, -1}, {1, POLLOUT, -1}, {-1, POLLIN, -1}};
+    check(poll(waits, 4, 0) == 2 &&
+            waits[0].revents == 0 &&
+            waits[1].revents == POLLOUT &&
+            waits[2].revents == POLLOUT &&
+            waits[3].revents == 0,
+        "poll: an empty pipe is not readable, its write end and a stream are writable");
+    struct timespec poll_start, poll_end;
+    clock_gettime(CLOCK_MONOTONIC, &poll_start);
+    const int timed_out = poll(waits, 1, 20);
+    clock_gettime(CLOCK_MONOTONIC, &poll_end);
+    check(timed_out == 0 &&
+            (poll_end.tv_sec - poll_start.tv_sec) * 1000000000L + (poll_end.tv_nsec - poll_start.tv_nsec) >= 20000000L,
+        "poll: a timeout passes in full");
+    pthread_t poll_writer;
+    void *poll_result = (void *)1;
+    shared.PipeEnd = polled[1];
+    check(pthread_create(&poll_writer, 0, poll_worker, 0) == 0 &&
+            poll(waits, 1, -1) == 1 &&
+            waits[0].revents == POLLIN &&
+            pthread_join(poll_writer, &poll_result) == 0 &&
+            poll_result == 0,
+        "poll: a poller parks until a writer comes");
+    struct pollfd closed = {polled[0], POLLIN, 0};
+    check(read(polled[0], got, 1) == 1 &&
+            close(polled[1]) == 0 &&
+            poll(&closed, 1, -1) == 1 &&
+            closed.revents == POLLHUP &&
+            close(polled[0]) == 0 &&
+            poll(&closed, 1, 0) == 1 &&
+            closed.revents == POLLNVAL,
+        "poll: a pipe without a writer hangs up, a closed descriptor is invalid");
+
     /* The standard descriptors are slots of the same table: dup takes the closed input, the lowest free descriptor,
      * and a pipe stands for standard input until dup2 gives the stream back. */
     const int input = dup(0);
@@ -656,6 +703,18 @@ int main(void)
     check(sigaction(SIGUSR1, &action, &previous) == 0 && previous.sa_handler == SIG_DFL, "sigaction installs");
     check(raise(SIGUSR1) == 0 && signal_seen == SIGUSR1, "raise runs the handler");
     check(signal_on_alternate && signal_flags_on_alternate, "the handler ran on the alternate stack");
+    /* An alternate stack with a guard page at its bottom, as CoreCLR's PAL makes one (R3.2), is accepted whole. */
+    char *guarded_stack = mmap(0, 4 * 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    stack_t guarded = {guarded_stack, 0, 4 * 4096}, current;
+    check(guarded_stack != MAP_FAILED &&
+            mprotect(guarded_stack, 4096, PROT_NONE) == 0 &&
+            sigaltstack(&guarded, 0) == 0 &&
+            sigaltstack(0, &current) == 0 &&
+            current.ss_sp == guarded_stack &&
+            current.ss_size == 4 * 4096 &&
+            sigaltstack(&alternate, 0) == 0 &&
+            munmap(guarded_stack, 4 * 4096) == 0,
+        "an alternate stack with a guard page at its bottom");
     sigset_t block, pending, saved;
     sigemptyset(&block);
     sigaddset(&block, SIGUSR1);

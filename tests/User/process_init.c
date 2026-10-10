@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/auxv.h>
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/sysinfo.h>
@@ -73,6 +74,14 @@ int main(void)
 {
     printf("[INIT] started on " ISA_NAME "\n");
     check(getenv("PATH") && strcmp(getenv("PATH"), "/bin:/usr/bin") == 0, "the root task's environment");
+    /* The program's path in the auxiliary vector (R3.2), where .NET looks for its executable without /proc. */
+    const char *executable = (const char *)getauxval(AT_EXECFN);
+    char resolved[PATH_MAX];
+    check(executable &&
+            strcmp(executable, "/bin/init") == 0 &&
+            realpath(executable, resolved) &&
+            strcmp(resolved, "/bin/init") == 0,
+        "AT_EXECFN names the program");
 
     /* An exit status. */
     char *exit_three[] = {"child", "exit", "3", 0};
@@ -225,6 +234,14 @@ int main(void)
             CPU_ISSET(0, &processors) &&
             sysconf(_SC_NPROCESSORS_ONLN) == CPU_COUNT(&processors),
         "sched_getaffinity");
+    /* The mask the process has is accepted, a mask of no processor threads run on is not (R3.2). */
+    cpu_set_t none;
+    CPU_ZERO(&none);
+    CPU_SET(CPU_SETSIZE - 1, &none);
+    check(sched_setaffinity(0, sizeof(processors), &processors) == 0 &&
+            sched_setaffinity(0, sizeof(none), &none) == -1 &&
+            errno == EINVAL,
+        "sched_setaffinity");
     pthread_attr_t attributes;
     void *stack = 0;
     size_t stack_size = 0;

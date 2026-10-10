@@ -264,6 +264,18 @@ static long wake(volatile int *address, int count, volatile int *requeue, int re
     return woken;
 }
 
+/* The monotonic deadline a relative timeout ends at, and a park on a word until it changes from the value, a wake, a
+ * signal handler (-EINTR) or that deadline (-ETIMEDOUT): poll's wait (R3.2). */
+long __wit_futex_deadline(const struct timespec *relative, WitU64 *deadline)
+{
+    return deadline_of(FUTEX_WAIT, relative, deadline);
+}
+
+long __wit_futex_wait_until(volatile int *address, int value, WitU64 deadline)
+{
+    return __wit_is_exit_word(address) ? wait_exit_word(address, value, deadline) : wait_slot(address, value, deadline);
+}
+
 long __wit_futex(
     volatile int *address, int operation, int value, const struct timespec *timeout, volatile int *second, int third)
 {

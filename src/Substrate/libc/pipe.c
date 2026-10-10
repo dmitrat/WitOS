@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "witos_libc.h"
 #include <errno.h>
+#include <poll.h>
 #include <signal.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -15,7 +16,8 @@
  * lock guards its bytes and the counts of open ends. The table lock comes first; a transfer holds neither while it
  * parks. Linux's semantics: a read of an empty pipe whose writers are all closed is the end of the file, a write to a
  * pipe without a reader fails with EPIPE after raising SIGPIPE, writes of at most PIPE_BUF bytes are atomic, and an
- * end opened with O_NONBLOCK answers EAGAIN instead of parking. */
+ * end opened with O_NONBLOCK answers EAGAIN instead of parking. poll (R3.2) reads an end's readiness as Linux reports
+ * it and parks on one word that every change of every pipe bumps, since pipes are the only descriptors that wait. */
 
 #define PIPES 16U
 #define PIPE_BYTES 16384U /* Linux's PIPE_BUF (4096) fits four times */
@@ -34,11 +36,14 @@ typedef struct Pipe {
 } Pipe;
 
 static Pipe pipes[PIPES];
+static volatile int poll_sequence; /* bumped and woken on every change of any pipe */
 
 static void changed(Pipe *p)
 {
     __atomic_add_fetch(&p->Sequence, 1, __ATOMIC_RELEASE);
     __wit_futex(&p->Sequence, FUTEX_WAKE | FUTEX_PRIVATE, 0x7FFFFFFF, 0, 0, 0);
+    __atomic_add_fetch(&poll_sequence, 1, __ATOMIC_RELEASE);
+    __wit_futex(&poll_sequence, FUTEX_WAKE | FUTEX_PRIVATE, 0x7FFFFFFF, 0, 0, 0);
 }
 
 /* Parks until the sequence moves on from what the caller saw under the lock: -EINTR when a signal ran a handler. */
@@ -176,6 +181,36 @@ long __wit_pipe_write(WitU32 index, const unsigned char *buffer, unsigned long b
         }
     }
     return (long)done;
+}
+
+/* An end's readiness for poll, as Linux reports a pipe's: the read end is readable with bytes and hung up once no
+ * writer is left; the write end is writable while PIPE_BUF bytes fit and in error once no reader is left. */
+short __wit_pipe_poll(WitU32 index, int write_end, short events)
+{
+    Pipe *p = &pipes[index];
+    short ready = 0;
+    __wit_lock(&p->Lock);
+    if (write_end) {
+        ready = (short)((PIPE_BYTES - p->Count >= PIPE_ATOMIC ? events & (POLLOUT | POLLWRNORM) : 0) |
+            (p->Readers ? 0 : POLLERR));
+    } else {
+        ready = (short)((p->Count ? events & (POLLIN | POLLRDNORM) : 0) | (p->Writers ? 0 : POLLHUP));
+    }
+    __wit_unlock(&p->Lock);
+    return ready;
+}
+
+/* The word poll parks on: read before the readiness so that a change between the two is not lost. */
+int __wit_pipe_sequence(void)
+{
+    return __atomic_load_n(&poll_sequence, __ATOMIC_ACQUIRE);
+}
+
+/* Parks until a pipe changed after the sequence the caller saw: 0, -ETIMEDOUT at the deadline, -EINTR after a handler. */
+long __wit_pipe_wait(int seen, WitU64 deadline)
+{
+    const long r = __wit_futex_wait_until(&poll_sequence, seen, deadline);
+    return r == -EAGAIN ? 0 : r;
 }
 
 /* Bytes a read would take now (FIONREAD). */

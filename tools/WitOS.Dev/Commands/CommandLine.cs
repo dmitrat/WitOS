@@ -81,6 +81,14 @@ internal static class CommandLine
                 Suite = BootSuite.Release,
                 RequiredLines = [KernelArchitecture.CoreClrLoadedLine, architecture.RootTaskPassedLine]
             }]),
+        new CommandScenario("runtime-corerun",
+            "Boot upstream's corerun on a managed program with the CoreCLR runtime-witos built (R3.2)",
+            KernelImageBuilder.RUNTIME_CORERUN_SCENARIO,
+            architecture => [new BootRequest("runtime-corerun-256", 256, 3000, ExpectedOutcome.Success)
+            {
+                Suite = BootSuite.Release,
+                RequiredLines = [architecture.CoreRunLine, architecture.RootTaskPassedLine]
+            }]),
         new CommandArchitecture("runtime-witos",
             "Apply the witos patch set to the pinned dotnet/runtime on a Linux host; build CoreLib, then NativeAOT's native part and CoreLib against the sysroot, measure the configure's try_run answers in the guest, compile programs for witos with ILC and run the first program and the M3 acceptance in the guest (R1.1, R1.2b, R1.3, R2.1, R2.2)",
             RuntimeWitos.BuildAsync),

@@ -11,7 +11,7 @@ public sealed class BootValidationTests
     #region Constants
 
     private const string FAULT =
-        "[USER-FAULT] id=1 vector=14 error=0x0000000000000004 address=0x0000008000014E10 cs=0x0000000000000033\n";
+        "[USER-FAULT] id=1 vector=14 error=0x0000000000000004 address=0x0000008000014E10 rip=0x0000008000101234 cs=0x0000000000000033\n";
 
     #endregion
 
