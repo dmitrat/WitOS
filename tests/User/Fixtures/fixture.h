@@ -38,8 +38,15 @@
 /* The stack of a fixture's thread: four pages of a reservation of its own. */
 #define FIXTURE_STACK_BYTES (4 * 4096ULL)
 
-/* A thread's entry: the base of its stack's reservation in the argument register. */
-typedef void (*FixtureThread)(WitU64 stack);
+/* A thread's entry: its argument in the argument register (the base of its stack's reservation for
+ * fixture_thread_create). */
+typedef void (*FixtureThread)(WitU64 argument);
+
+/* What a thread of fixture_thread finds through its argument when its creator gives it more than a stack: the base of
+ * its stack's reservation, its index and a word the creator or the thread uses, often the thread's TLS. */
+typedef struct FixtureThreadRecord {
+    WitU64 Stack, Index, Value, Reserved;
+} FixtureThreadRecord;
 
 static inline WIT_NORETURN void fixture_exit(WitU64 code)
 {
@@ -153,28 +160,62 @@ FIXTURE_CALL WitU64 fixture_wait(const WitU64 *handles, WitU32 count, WitU64 dea
     return fixture_expect(WIT_CALL_OBJECT_WAIT, (WitU64)&request, sizeof(request), 0, expected);
 }
 
-/* THREAD_CREATE of the one form (version 2) on a stack of a reservation the component makes for it, whose base is the
- * thread's argument and lands in *stack; the thread's exit names it for the kernel to release (fixture_thread_exit). A
- * refused creation releases the reservation. */
-FIXTURE_CALL WitU64 fixture_thread_create(FixtureThread entry, WitU64 *stack, WitU32 flags, WitU64 expected)
+/* A thread's stack: a reservation of FIXTURE_STACK_BYTES, committed writable, at the address given or where the kernel
+ * chooses (zero); its base. */
+FIXTURE_CALL WitU64 fixture_stack(WitU64 address)
 {
-    *stack = fixture_expect(WIT_CALL_MEMORY_RESERVE, FIXTURE_STACK_BYTES, 4096, 0, WIT_STATUS_OK);
+    const WitU64 stack = fixture_expect(WIT_CALL_MEMORY_RESERVE, FIXTURE_STACK_BYTES, 4096, address, WIT_STATUS_OK);
     fixture_expect(
-        WIT_CALL_MEMORY_COMMIT, *stack, FIXTURE_STACK_BYTES, WIT_MEMORY_READ | WIT_MEMORY_WRITE, WIT_STATUS_OK);
+        WIT_CALL_MEMORY_COMMIT, stack, FIXTURE_STACK_BYTES, WIT_MEMORY_READ | WIT_MEMORY_WRITE, WIT_STATUS_OK);
+    return stack;
+}
+
+/* THREAD_CREATE of the one form (version 2): the entry with its argument on the stack of fixture_stack, at its top, with
+ * the TLS base given. */
+FIXTURE_CALL WitU64 fixture_thread(
+    FixtureThread entry, WitU64 argument, WitU64 stack, WitU64 tls, WitU32 flags, WitU64 expected)
+{
     WitThreadCreateRequest2 request;
     request.Version = WIT_THREAD_CREATE_VERSION_2;
     request.Size = sizeof(request);
     request.Entry = (WitU64)entry;
-    request.Argument = *stack;
-    request.StackPointer = *stack + FIXTURE_STACK_BYTES;
-    request.TlsBase = 0;
+    request.Argument = argument;
+    request.StackPointer = stack + FIXTURE_STACK_BYTES;
+    request.TlsBase = tls;
     request.Flags = flags;
     request.Reserved = 0;
-    const WitU64 thread = fixture_expect(WIT_CALL_THREAD_CREATE, (WitU64)&request, sizeof(request), 0, expected);
+    return fixture_expect(WIT_CALL_THREAD_CREATE, (WitU64)&request, sizeof(request), 0, expected);
+}
+
+/* A thread on a stack of its own whose base is its argument and lands in *stack; the thread's exit names it for the
+ * kernel to release (fixture_thread_exit). A refused creation releases the reservation. */
+FIXTURE_CALL WitU64 fixture_thread_create(FixtureThread entry, WitU64 *stack, WitU32 flags, WitU64 expected)
+{
+    *stack = fixture_stack(0);
+    const WitU64 thread = fixture_thread(entry, *stack, *stack, 0, flags, expected);
     if (expected != WIT_STATUS_OK) {
         fixture_expect(WIT_CALL_MEMORY_RELEASE, *stack, 0, 0, WIT_STATUS_OK);
     }
     return thread;
+}
+
+/* A thread whose argument is its record, which receives its stack before the thread starts. */
+FIXTURE_CALL WitU64 fixture_thread_start(
+    FixtureThread entry, volatile FixtureThreadRecord *record, WitU64 tls, WitU64 expected)
+{
+    record->Stack = fixture_stack(0);
+    const WitU64 thread = fixture_thread(entry, (WitU64)record, record->Stack, tls, 0, expected);
+    if (expected != WIT_STATUS_OK) {
+        fixture_expect(WIT_CALL_MEMORY_RELEASE, record->Stack, 0, 0, WIT_STATUS_OK);
+    }
+    return thread;
+}
+
+/* An absolute monotonic deadline the given number of 10 ms scheduler ticks from now, through CLOCK_FREQUENCY. */
+FIXTURE_CALL WitU64 fixture_deadline_ticks(WitU64 ticks)
+{
+    const WitU64 frequency = fixture_expect(WIT_CALL_CLOCK_FREQUENCY, WIT_CLOCK_MONOTONIC, 0, 0, WIT_STATUS_OK);
+    return fixture_expect(WIT_CALL_CLOCK_READ, WIT_CLOCK_MONOTONIC, 0, 0, WIT_STATUS_OK) + frequency / 100 * ticks;
 }
 
 /* THREAD_EXIT with the code, naming the stack the thread runs on for the kernel to release after it stops. */

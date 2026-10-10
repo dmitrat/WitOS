@@ -40,10 +40,9 @@ const WitUserFaultCase wit_test_user_peer_fault = {
 
 const WitUserFaultCase wit_test_thread_faults[] = {
     {WIT_THREAD_TEST_FAULT, "User.ThreadFault", UNDEFINED, 0x02000000U, 0, 0, 0},
-    {WIT_THREAD_TEST_GUARD_LOW, "User.ThreadGuardLow", DATA, 0x92000047U,
-        WIT_USER_STACK_BOTTOM + WIT_USER_THREAD_STRIDE - 1, 1, 0},
-    {WIT_THREAD_TEST_GUARD_HIGH, "User.ThreadGuardHigh", DATA, 0x92000047U, WIT_USER_STACK_TOP + WIT_USER_THREAD_STRIDE,
-        1, 0}};
+    {WIT_THREAD_TEST_GUARD_LOW, "User.ThreadGuardLow", DATA, 0x92000047U, WIT_THREAD_TEST_STACK - 1, 1, 0},
+    {WIT_THREAD_TEST_GUARD_HIGH, "User.ThreadGuardHigh", DATA, 0x92000047U,
+        WIT_THREAD_TEST_STACK + WIT_THREAD_TEST_STACK_BYTES, 1, 0}};
 const WitU32 wit_test_thread_fault_count = sizeof(wit_test_thread_faults) / sizeof(wit_test_thread_faults[0]);
 const WitUserFaultCase wit_test_exception_fault = {
     WIT_EXCEPTION_TEST_REJECT, "User.ExceptionReject", DATA, 0x92000006U, 0, 1, 0};

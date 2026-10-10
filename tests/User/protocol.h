@@ -34,6 +34,10 @@
 #define WIT_THREAD_TEST_GUARD_HIGH 5U
 #define WIT_THREAD_TEST_BAD_RETURN 6U
 #define WIT_THREAD_TEST_PROCESS_EXIT 7U
+/* The stack of the thread fixture's faulting thread (K8.3b): a reservation the fixture makes at this address of the data
+ * arena, inside one 2 MiB region, so that the pages below and above it are known addresses with their page table. */
+#define WIT_THREAD_TEST_STACK 0x0000010000210000ULL
+#define WIT_THREAD_TEST_STACK_BYTES 16384U
 #define WIT_WAIT_TEST_SIGNAL_STATE 0U
 #define WIT_WAIT_TEST_CLOCK 1U
 #define WIT_WAIT_TEST_AUTO 2U
