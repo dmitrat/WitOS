@@ -2,7 +2,7 @@
 #include "witos/virtual.h"
 #include "witos/platform.h"
 
-/* User address-space policy: ownership accounting, reservations, commitments, code views and user copies.
+/* User address spaces: ownership accounting, reservations, commitments, object mappings and user copies.
  * Entry encoding, table walks and translation caches belong to the architecture (witos/arch.h). */
 
 static WitU64 allocate(WitUserSpace *space, WitU64 address)
@@ -74,7 +74,7 @@ static void prune(WitUserSpace *space, WitU64 address)
 static WitU32 protection_flags(WitU64 protection)
 {
     return WIT_PAGE_OWNED |
-        ((protection & WIT_CODE_EXECUTE) ? WIT_PAGE_EXECUTE : 0) |
+        ((protection & WIT_MEMORY_EXECUTE) ? WIT_PAGE_EXECUTE : 0) |
         (protection & WIT_MEMORY_READ ? WIT_PAGE_READ : 0) |
         (protection & WIT_MEMORY_WRITE ? WIT_PAGE_WRITE : 0);
 }
@@ -105,28 +105,6 @@ static int overlaps(WitU64 base, WitU64 size, WitU64 other, WitU64 length)
     return size && length && base < other + length && other < base + size;
 }
 
-static int source_view(const WitUserSpace *space, WitU64 address, WitU64 size)
-{
-    for (WitU32 i = 0; i < WIT_CODE_VIEW_CAPACITY; ++i) {
-        const WitCodeView *v = &space->CodeViews[i];
-        if (overlaps(address, size, v->Source, v->Size)) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
-static int destination_view(const WitUserSpace *space, WitU64 address, WitU64 size)
-{
-    for (WitU32 i = 0; i < WIT_CODE_VIEW_CAPACITY; ++i) {
-        const WitCodeView *v = &space->CodeViews[i];
-        if (overlaps(address, size, v->Destination, v->Size)) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
 static int map_alias_page(WitUserSpace *space, WitU64 destination, WitU64 physical, WitU64 protection, WitU32 device)
 {
     if (space->AliasCount >= space->PageLimit) {
@@ -148,27 +126,6 @@ static int map_alias_page(WitUserSpace *space, WitU64 destination, WitU64 physic
     return 1;
 }
 
-static int aliased(const WitUserSpace *space, WitU64 physical)
-{
-    for (WitU32 i = 0; i < space->AliasCount; ++i) {
-        if (space->AliasPhysical[i] == physical) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
-static int aliased_range(const WitUserSpace *space, WitU64 address, WitU64 size)
-{
-    for (WitU32 i = 0; i < space->OwnedCount; ++i) {
-        const WitU64 p = space->OwnedVirtual[i];
-        if (p >= address && p - address < size && aliased(space, space->OwnedPages[i])) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
 static void unmap_page(WitUserSpace *space, WitU64 address)
 {
     WitU64 *entry = leaf(space, address, 0);
@@ -177,9 +134,6 @@ static void unmap_page(WitUserSpace *space, WitU64 address)
     }
     const WitU64 page = entry_physical(*entry);
     const int alias = (entry_flags(*entry) & WIT_PAGE_ALIAS) != 0;
-    if (!alias && aliased(space, page)) {
-        wit_panic("Freeing backing with live code aliases");
-    }
     *entry = 0;
     invalidate(space, address);
     if (alias) {
@@ -188,7 +142,7 @@ static void unmap_page(WitUserSpace *space, WitU64 address)
             ++i;
         }
         if (i == space->AliasCount || space->AliasPhysical[i] != page) {
-            wit_panic("Code alias ownership lost");
+            wit_panic("Alias ownership lost");
         }
         --space->AliasCount;
         space->AliasVirtual[i] = space->AliasVirtual[space->AliasCount];
@@ -197,22 +151,6 @@ static void unmap_page(WitUserSpace *space, WitU64 address)
         free_owned(space, page);
     }
     prune(space, address);
-}
-
-static int library_range(const WitUserSpace *space, WitU64 address, WitU64 bytes)
-{
-    if (!bytes) {
-        return 0;
-    }
-    for (WitU32 i = 0; i <= WIT_LIBRARY_CAPACITY; ++i) {
-        const WitVirtualRange *range = &space->LibraryRanges[i];
-        if (range->Size &&
-            address < range->Base + range->Size &&
-            (address >= range->Base || bytes > range->Base - address)) {
-            return 1;
-        }
-    }
-    return 0;
 }
 
 static WitU64 dynamic_limit(WitU64 address)
@@ -243,12 +181,6 @@ int wit_user_space_create_profile(WitUserSpace *space, WitPageAllocator *allocat
     space->OwnedCount = 0;
     space->ChargedPages = 0;
     space->AliasCount = 0;
-    for (WitU32 i = 0; i <= WIT_LIBRARY_CAPACITY; ++i) {
-        space->LibraryRanges[i] = (WitVirtualRange){0};
-    }
-    for (WitU32 i = 0; i < WIT_CODE_VIEW_CAPACITY; ++i) {
-        space->CodeViews[i] = (WitCodeView){0};
-    }
     space->Root = 0;
     for (WitU32 i = 0; i < WIT_PROCESS_RESERVATION_CAPACITY; ++i) {
         space->Reservations[i].Size = 0;
@@ -522,7 +454,7 @@ static WitU64 reserve_within(
 }
 
 /* A reservation at a fixed address (S5.1, RFC 0011 section 7.2): page-aligned and aligned as asked, inside one
- * dynamic arena, overlapping no reservation, mapping or library range. A loader places an image's segments this way
+ * dynamic arena, overlapping no reservation or mapping. A loader places an image's segments this way
  * and a runtime takes its own address space back after a partial release. */
 static WitU64 reserve_fixed(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 alignment, WitU64 *result)
 {
@@ -539,9 +471,6 @@ static WitU64 reserve_fixed(WitUserSpace *space, WitU64 address, WitU64 size, Wi
     const WitU64 limit = dynamic_limit(address);
     if (!limit || size > limit - address) {
         return WIT_STATUS_BAD_ADDRESS;
-    }
-    if (library_range(space, address, size)) {
-        return WIT_STATUS_DENIED;
     }
     for (WitU32 i = 0; i < space->ReservationLimit; ++i) {
         const WitUserReservation *r = &space->Reservations[i];
@@ -570,27 +499,11 @@ static WitU64 memory_reserve(WitUserSpace *space, WitU64 size, WitU64 alignment,
     return reserve_within(space, size, alignment, WIT_USER_MEMORY_BASE, WIT_USER_MEMORY_LIMIT, result);
 }
 
-/* Bounds are explicit and upper-exclusive, clipped to the separate near arena. */
-WitU64 wit_user_code_reserve(
-    WitUserSpace *space, WitU64 size, WitU64 alignment, WitU64 low, WitU64 high, WitU64 *result)
-{
-    if (low < WIT_USER_CODE_BASE) {
-        low = WIT_USER_CODE_BASE;
-    }
-    if (high > WIT_USER_CODE_LIMIT) {
-        high = WIT_USER_CODE_LIMIT;
-    }
-    return reserve_within(space, size, alignment, low, high, result);
-}
-
 static WitU64 memory_commit(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection)
 {
     WitU32 rights;
-    if (library_range(space, address, size)) {
-        return WIT_STATUS_DENIED;
-    }
-    WitU64 added[WIT_RUNTIME_PAGE_CAPACITY], mapped[WIT_RUNTIME_PAGE_CAPACITY];
-    WitU32 count = 0, mappingCount = 0;
+    WitU64 added[WIT_RUNTIME_PAGE_CAPACITY];
+    WitU32 count = 0;
     WitU64 status = reserved_range(space, address, size);
     if (status != WIT_STATUS_OK) {
         return status;
@@ -604,33 +517,6 @@ static WitU64 memory_commit(WitUserSpace *space, WitU64 address, WitU64 size, Wi
     if (size / 4096 > space->PageLimit) {
         return WIT_STATUS_NO_MEMORY;
     }
-    if (destination_view(space, address, size)) {
-        return WIT_STATUS_DENIED;
-    }
-    // Validate every prospective destination before committing any backing.
-    for (WitU32 i = 0; i < WIT_CODE_VIEW_CAPACITY; ++i) {
-        const WitCodeView *v = &space->CodeViews[i];
-        if (!overlaps(address, size, v->Source, v->Size)) {
-            continue;
-        }
-        const WitU64 low = address > v->Source ? address : v->Source;
-        const WitU64 high = address + size < v->Source + v->Size ? address + size : v->Source + v->Size;
-        for (WitU64 p = low; p < high; p += 4096) {
-            const WitU64 *input = leaf(space, p, 0);
-            const WitU64 *output = leaf(space, v->Destination + p - v->Source, 0);
-            if (input && *input && !(entry_flags(*input) & WIT_PAGE_OWNED)) {
-                return WIT_STATUS_DENIED;
-            }
-            if (output &&
-                *output &&
-                (!input ||
-                    !(entry_flags(*input) & WIT_PAGE_OWNED) ||
-                    !(entry_flags(*output) & WIT_PAGE_ALIAS) ||
-                    entry_physical(*output) != entry_physical(*input))) {
-                return WIT_STATUS_BUSY;
-            }
-        }
-    }
     for (WitU64 p = address; p < address + size; p += 4096) {
         WitU64 *entry = leaf(space, p, 0);
         if (!entry || !(entry_flags(*entry) & (WIT_PAGE_OWNED | WIT_PAGE_ALIAS))) {
@@ -638,31 +524,10 @@ static WitU64 memory_commit(WitUserSpace *space, WitU64 address, WitU64 size, Wi
                 goto failed;
             }
             added[count++] = p;
-            entry = leaf(space, p, 0);
-        }
-        const WitU64 physical = entry_physical(*entry);
-        for (WitU32 i = 0; i < WIT_CODE_VIEW_CAPACITY; ++i) {
-            const WitCodeView *v = &space->CodeViews[i];
-            if (!v->Size || p < v->Source || p - v->Source >= v->Size) {
-                continue;
-            }
-            const WitU64 target = v->Destination + p - v->Source;
-            const WitU64 *present = leaf(space, target, 0);
-            if (present && (entry_flags(*present) & WIT_PAGE_ALIAS)) {
-                continue; // Preserve existing protection and bytes.
-            }
-            if (mappingCount == WIT_RUNTIME_PAGE_CAPACITY ||
-                !map_alias_page(space, target, physical, v->Protection, 0)) {
-                goto failed;
-            }
-            mapped[mappingCount++] = target;
         }
     }
     return WIT_STATUS_OK;
 failed:
-    while (mappingCount) {
-        unmap_page(space, mapped[--mappingCount]);
-    }
     while (count) {
         unmap_page(space, added[--count]);
     }
@@ -701,17 +566,9 @@ static WitU64 memory_decommit(WitUserSpace *space, WitU64 address, WitU64 size)
     if (object_mapping(space, address, size, &rights)) {
         return WIT_STATUS_DENIED;
     }
-    if (library_range(space, address, size)) {
-        return WIT_STATUS_DENIED;
-    }
     const WitU64 status = reserved_range(space, address, size);
     if (status != WIT_STATUS_OK) {
         return status;
-    }
-    if (source_view(space, address, size) ||
-        destination_view(space, address, size) ||
-        aliased_range(space, address, size)) {
-        return WIT_STATUS_BUSY;
     }
     decommit_range(space, address, size);
     return WIT_STATUS_OK;
@@ -721,9 +578,6 @@ static WitU64 memory_reset(WitUserSpace *space, WitU64 address, WitU64 size)
 {
     WitU32 rights;
     if (object_mapping(space, address, size, &rights)) {
-        return WIT_STATUS_DENIED;
-    }
-    if (library_range(space, address, size)) {
         return WIT_STATUS_DENIED;
     }
     const WitU64 status = reserved_range(space, address, size);
@@ -768,11 +622,8 @@ static WitU32 reservation_part(const WitUserSpace *space, WitU64 address, WitU64
 /* A protection change covers one reservation or a run of adjacent ones (S7.2), as Linux's mprotect covers adjacent
  * mappings: a loader maps a large segment as several object mappings of 64 pages. Every part is validated, each
  * mapping within its own rights, before any page changes. */
-static WitU64 protect(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection, int code)
+static WitU64 protect(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection)
 {
-    if (library_range(space, address, size)) {
-        return WIT_STATUS_DENIED;
-    }
     if (!size || (address & 4095) || (size & 4095)) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
@@ -791,13 +642,12 @@ static WitU64 protect(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 p
         const WitU32 slot = reservation_part(space, p, end, &part_end);
         const int mapping = space->MappedObjects[slot] != 0;
         const WitU32 rights = mapping ? space->MappedRights[slot] : 0;
-        if (!valid_protection(protection) &&
-            !((code || mapping) && protection == (WIT_MEMORY_READ | WIT_CODE_EXECUTE))) {
+        if (!valid_protection(protection) && !(mapping && protection == (WIT_MEMORY_READ | WIT_MEMORY_EXECUTE))) {
             return WIT_STATUS_INVALID_ARGUMENT;
         }
         if (mapping &&
             (((protection & WIT_MEMORY_WRITE) && !(rights & WIT_RIGHT_WRITE)) ||
-                ((protection & WIT_CODE_EXECUTE) && !(rights & WIT_RIGHT_EXECUTE)))) {
+                ((protection & WIT_MEMORY_EXECUTE) && !(rights & WIT_RIGHT_EXECUTE)))) {
             return WIT_STATUS_DENIED;
         }
     }
@@ -820,209 +670,10 @@ static WitU64 protect(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 p
     return WIT_STATUS_OK;
 }
 
-WitU64 wit_user_code_validate(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection)
-{
-    if (!size || address > ~0ULL - size) {
-        return WIT_STATUS_BAD_ADDRESS;
-    }
-    if (protection == 0) {
-        const WitU64 low = address & ~4095ULL;
-        if (address + size > ~0ULL - 4095) {
-            return WIT_STATUS_BAD_ADDRESS;
-        }
-        return reserved_range(space, low, ((address + size + 4095) & ~4095ULL) - low);
-    }
-    if (protection != 1 && protection != 3 && protection != 5) {
-        return WIT_STATUS_INVALID_ARGUMENT;
-    }
-    if (size > space->PageLimit * 4096ULL) {
-        return WIT_STATUS_BAD_ADDRESS;
-    }
-    if (protection == 3 ? !wit_user_buffer_writable(space, address, (WitU32)size)
-                        : !wit_user_buffer_readable(space, address, (WitU32)size)) {
-        return WIT_STATUS_BAD_ADDRESS;
-    }
-    if (protection == 5) {
-        for (WitU64 p = address & ~4095ULL; p <= ((address + size - 1) & ~4095ULL); p += 4096) {
-            if (!wit_user_space_physical(space, p, 0, 1)) {
-                return WIT_STATUS_DENIED;
-            }
-        }
-    }
-    return WIT_STATUS_OK;
-}
-
-/* Unmapped code-block recycle: zero existing private backing only. Untouched
- * sparse pages remain uncommitted and will be zero-filled on a later commit. */
-WitU64 wit_user_code_reset_sparse(WitUserSpace *space, WitU64 address, WitU64 size)
-{
-    if (library_range(space, address, size)) {
-        return WIT_STATUS_DENIED;
-    }
-    const WitU64 status = reserved_range(space, address, size);
-    if (status != WIT_STATUS_OK) {
-        return status;
-    }
-    if (source_view(space, address, size) ||
-        destination_view(space, address, size) ||
-        aliased_range(space, address, size)) {
-        return WIT_STATUS_BUSY;
-    }
-    for (WitU32 i = 0; i < space->OwnedCount; ++i) {
-        const WitU64 p = space->OwnedVirtual[i];
-        if (p < address || p - address >= size) {
-            continue;
-        }
-        const WitU64 *entry = leaf(space, p, 0);
-        if (!entry || !(entry_flags(*entry) & WIT_PAGE_OWNED) || (entry_flags(*entry) & WIT_PAGE_EXECUTE)) {
-            return WIT_STATUS_DENIED;
-        }
-    }
-    for (WitU32 i = 0; i < space->OwnedCount; ++i) {
-        const WitU64 p = space->OwnedVirtual[i];
-        if (p < address || p - address >= size) {
-            continue;
-        }
-        volatile WitU64 *data = (volatile WitU64 *)space->OwnedPages[i];
-        for (WitU32 word = 0; word < 512; ++word) {
-            data[word] = 0;
-        }
-    }
-    return WIT_STATUS_OK;
-}
-
-/* Register an initially sparse view. Existing backing is mapped now; later
- * commits publish all overlapping views in the same IF-disabled transaction. */
-WitU64 wit_user_code_map_sparse(WitUserSpace *space, WitU64 destination, WitU64 source, WitU64 size, WitU64 protection)
-{
-    if (library_range(space, source, size) || library_range(space, destination, size)) {
-        return WIT_STATUS_DENIED;
-    }
-    WitU64 status = reserved_range(space, source, size);
-    if (status != WIT_STATUS_OK) {
-        return status;
-    }
-    status = reserved_range(space, destination, size);
-    if (status != WIT_STATUS_OK) {
-        return status;
-    }
-    if (protection != 3 && protection != 5) {
-        return WIT_STATUS_INVALID_ARGUMENT;
-    }
-    if (overlaps(source, size, destination, size) ||
-        destination_view(space, source, size) ||
-        destination_view(space, destination, size) ||
-        source_view(space, destination, size)) {
-        return WIT_STATUS_INVALID_ARGUMENT;
-    }
-    WitU32 slot = WIT_CODE_VIEW_CAPACITY;
-    for (WitU32 i = 0; i < WIT_CODE_VIEW_CAPACITY; ++i) {
-        if (!space->CodeViews[i].Size) {
-            slot = i;
-            break;
-        }
-    }
-    if (slot == WIT_CODE_VIEW_CAPACITY) {
-        return WIT_STATUS_NO_MEMORY;
-    }
-    // Scan settled ownership, not the potentially huge uncommitted VA span.
-    for (WitU32 i = 0; i < space->AliasCount; ++i) {
-        if (overlaps(space->AliasVirtual[i], 4096, source, size) ||
-            overlaps(space->AliasVirtual[i], 4096, destination, size)) {
-            return WIT_STATUS_BUSY;
-        }
-    }
-    for (WitU32 i = 0; i < space->OwnedCount; ++i) {
-        if (space->OwnedVirtual[i] && overlaps(space->OwnedVirtual[i], 4096, destination, size)) {
-            return WIT_STATUS_BUSY;
-        }
-    }
-    WitU64 mapped[WIT_RUNTIME_PAGE_CAPACITY];
-    WitU32 count = 0;
-    // New private tables may append ownership entries; their virtual tag is zero.
-    for (WitU32 i = 0; i < space->OwnedCount; ++i) {
-        const WitU64 address = space->OwnedVirtual[i];
-        if (address < source || address - source >= size) {
-            continue;
-        }
-        const WitU64 target = destination + address - source;
-        if (!map_alias_page(space, target, space->OwnedPages[i], protection, 0)) {
-            while (count) {
-                unmap_page(space, mapped[--count]);
-            }
-            return WIT_STATUS_NO_MEMORY;
-        }
-        mapped[count++] = target;
-    }
-    space->CodeViews[slot] = (WitCodeView){destination, source, size, protection};
-    return WIT_STATUS_OK;
-}
-
-/* Private same-component aliases: source backing stays uniquely owned. No
- * physical address, fixed image or supervisor mapping is accepted from callers.
- * Destination reservation remains sparse on failure; empty tables are pruned. */
-WitU64 wit_user_code_alias(WitUserSpace *space, WitU64 destination, WitU64 source, WitU64 size, WitU64 protection)
-{
-    if (library_range(space, source, size) || library_range(space, destination, size)) {
-        return WIT_STATUS_DENIED;
-    }
-    WitU64 status = reserved_range(space, source, size);
-    if (status != WIT_STATUS_OK) {
-        return status;
-    }
-    status = reserved_range(space, destination, size);
-    if (status != WIT_STATUS_OK) {
-        return status;
-    }
-    if (protection != 3 && protection != 5) {
-        return WIT_STATUS_INVALID_ARGUMENT;
-    }
-    if (destination < source + size && source < destination + size) {
-        return WIT_STATUS_INVALID_ARGUMENT;
-    }
-    if (space->AliasCount > space->PageLimit || size / 4096 > space->PageLimit - space->AliasCount) {
-        return WIT_STATUS_NO_MEMORY;
-    }
-    for (WitU64 offset = 0; offset < size; offset += 4096) {
-        const WitU64 *input = leaf(space, source + offset, 0);
-        const WitU64 *output = leaf(space, destination + offset, 0);
-        if (!input || !(entry_flags(*input) & WIT_PAGE_OWNED) || (entry_flags(*input) & WIT_PAGE_ALIAS)) {
-            return WIT_STATUS_NOT_COMMITTED;
-        }
-        if (output && *output) {
-            return WIT_STATUS_BUSY;
-        }
-    }
-    WitU64 added = 0;
-    for (; added < size; added += 4096) {
-        WitU64 *output = leaf(space, destination + added, 1);
-        if (!output) {
-            prune(space, destination + added);
-            while (added) {
-                added -= 4096;
-                unmap_page(space, destination + added);
-            }
-            return WIT_STATUS_NO_MEMORY;
-        }
-        const WitU64 physical = entry_physical(*leaf(space, source + added, 0));
-        *output = wit_arch_page_entry_make(physical, (protection_flags(protection) & ~WIT_PAGE_OWNED) | WIT_PAGE_ALIAS);
-        space->AliasVirtual[space->AliasCount] = destination + added;
-        space->AliasPhysical[space->AliasCount++] = physical;
-        invalidate(space, destination + added);
-    }
-    return WIT_STATUS_OK;
-}
-
-/* Code backend only. The ordinary memory syscall still rejects EXECUTE.
- * This is the first building block for the component-owned JIT mapper. */
+/* Plain memory never executes: EXECUTE is accepted with READ alone for a mapping of an object with that right. */
 static WitU64 memory_protect(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection)
 {
-    return protect(space, address, size, protection, 0);
-}
-
-WitU64 wit_user_code_protect(WitUserSpace *space, WitU64 address, WitU64 size, WitU64 protection)
-{
-    return protect(space, address, size, protection, 1);
+    return protect(space, address, size, protection);
 }
 
 /* Makes instructions written to the executable owned or aliased pages of [address, address + size) visible to
@@ -1072,7 +723,7 @@ WitU64 wit_user_code_publish(WitUserSpace *space, WitU64 address, WitU64 size)
     return WIT_STATUS_OK;
 }
 
-static WitU64 release_reservation(WitUserSpace *space, WitU64 address, int library)
+static WitU64 release_reservation(WitUserSpace *space, WitU64 address)
 {
     if (address & 4095) {
         return WIT_STATUS_INVALID_ARGUMENT;
@@ -1084,18 +735,6 @@ static WitU64 release_reservation(WitUserSpace *space, WitU64 address, int libra
         WitUserReservation *r = &space->Reservations[i];
         if (!r->Size || r->Base != address) {
             continue;
-        }
-        if (!library && library_range(space, r->Base, r->Size)) {
-            return WIT_STATUS_DENIED;
-        }
-        if (source_view(space, r->Base, r->Size) || aliased_range(space, r->Base, r->Size)) {
-            return WIT_STATUS_BUSY;
-        }
-        for (WitU32 v = 0; v < WIT_CODE_VIEW_CAPACITY; ++v) {
-            WitCodeView *view = &space->CodeViews[v];
-            if (view->Size && view->Destination >= r->Base && view->Destination - r->Base < r->Size) {
-                *view = (WitCodeView){0};
-            }
         }
         decommit_range(space, r->Base, r->Size);
         r->Size = 0;
@@ -1160,9 +799,6 @@ WitU64 wit_user_space_map_object(WitUserSpace *space, WitU64 address, WitU64 siz
         const WitU64 limit = dynamic_limit(address);
         if (!limit || size > limit - address) {
             return WIT_STATUS_BAD_ADDRESS;
-        }
-        if (library_range(space, address, size)) {
-            return WIT_STATUS_DENIED;
         }
         slot = space->ReservationLimit;
         for (WitU32 i = 0; i < space->ReservationLimit; ++i) {
@@ -1235,8 +871,7 @@ int wit_user_space_mapping_object(const WitUserSpace *space, WitU64 base, WitU64
 }
 
 /* A part of one plain reservation (S5.1): its committed pages are freed and the reservation shrinks, or splits in
- * two around a middle part (a free slot is needed, NO_MEMORY otherwise). A mapping of an object, a library range and
- * a range a view reads stay whole. Linux's munmap of a part, and a loader's segments over the span it reserved. */
+ * two around a middle part (a free slot is needed, NO_MEMORY otherwise). A mapping of an object stays whole. Linux's munmap of a part, and a loader's segments over the span it reserved. */
 static WitU64 release_part(WitUserSpace *space, WitU64 address, WitU64 size)
 {
     if ((address & 4095) || (size & 4095)) {
@@ -1255,13 +890,10 @@ static WitU64 release_part(WitUserSpace *space, WitU64 address, WitU64 size)
             return WIT_STATUS_INVALID_ARGUMENT;
         }
         if (address == r->Base && size == r->Size) {
-            return release_reservation(space, address, 0);
+            return release_reservation(space, address);
         }
-        if (space->MappedObjects[i] || library_range(space, address, size)) {
+        if (space->MappedObjects[i]) {
             return WIT_STATUS_DENIED;
-        }
-        if (source_view(space, address, size) || aliased_range(space, address, size)) {
-            return WIT_STATUS_BUSY;
         }
         WitU32 slot = space->ReservationLimit;
         if (address > r->Base && address + size < end) {
@@ -1273,12 +905,6 @@ static WitU64 release_part(WitUserSpace *space, WitU64 address, WitU64 size)
             }
             if (slot == space->ReservationLimit) {
                 return WIT_STATUS_NO_MEMORY;
-            }
-        }
-        for (WitU32 v = 0; v < WIT_CODE_VIEW_CAPACITY; ++v) {
-            WitCodeView *view = &space->CodeViews[v];
-            if (view->Size && view->Destination >= address && view->Destination - address < size) {
-                *view = (WitCodeView){0};
             }
         }
         decommit_range(space, address, size);
@@ -1300,12 +926,7 @@ static WitU64 release_part(WitUserSpace *space, WitU64 address, WitU64 size)
 
 static WitU64 memory_release(WitUserSpace *space, WitU64 address, WitU64 size)
 {
-    return size ? release_part(space, address, size) : release_reservation(space, address, 0);
-}
-
-WitU64 wit_user_library_release(WitUserSpace *space, WitU64 address)
-{
-    return release_reservation(space, address, 1);
+    return size ? release_part(space, address, size) : release_reservation(space, address);
 }
 
 void wit_user_space_destroy(WitUserSpace *space)
@@ -1322,12 +943,6 @@ void wit_user_space_destroy(WitUserSpace *space)
     space->Root = 0;
     space->AliasCount = 0;
     space->ChargedPages = 0;
-    for (WitU32 i = 0; i <= WIT_LIBRARY_CAPACITY; ++i) {
-        space->LibraryRanges[i] = (WitVirtualRange){0};
-    }
-    for (WitU32 i = 0; i < WIT_CODE_VIEW_CAPACITY; ++i) {
-        space->CodeViews[i] = (WitCodeView){0};
-    }
     for (WitU32 i = 0; i < WIT_PROCESS_RESERVATION_CAPACITY; ++i) {
         space->Reservations[i].Size = 0;
         space->MappedObjects[i] = 0;

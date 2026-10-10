@@ -128,10 +128,6 @@ internal static class KernelImageBuilder
     {
         architecture ??= KernelArchitecture.X64;
         var target = KernelManifest.ReadTarget(root, architecture.Name);
-        // MSVC builds the frozen line's fixtures alone, found when a scenario needs them (plan step T2.1a): a host
-        // without it builds the release kernel.
-        string? found = null;
-        async Task<string> Msvc() => found ??= await architecture.FindMsvcAsync(root);
         var output = outputDirectory ?? Path.Combine(root, "artifacts", architecture.Name, scenario);
         Directory.CreateDirectory(output);
         var buildId = fixedBuildId ?? await BuildIdAsync(root);
@@ -141,14 +137,10 @@ internal static class KernelImageBuilder
         // A scenario kernel is a self-test kernel where the target has self-test layers, except the release kernel's
         // scenarios.
         var selfTest = !RELEASE_KERNEL_SCENARIOS.Contains(scenario) && target.SelfTestLayers.Length > 0;
-        // Every x64 user fixture; ARM64 builds the fixtures that A2 has ported so far.
-        if (selfTest && architecture == KernelArchitecture.X64)
+        // The mechanism fixtures a self-test kernel embeds, built by the pinned clang for both ISAs (plan step K8.3).
+        if (selfTest)
         {
-            await UserImage.BuildAsync(root, output, await Msvc());
-        }
-        else if (selfTest)
-        {
-            await UserImage.BuildArm64Async(root, output, await Msvc());
+            await UserImage.BuildFixturesAsync(root, output, architecture);
         }
 
         // The programs a root task starts from the package (S5.2).
@@ -180,7 +172,7 @@ internal static class KernelImageBuilder
         var disk = Path.Combine(output, $"WitOS-{architecture.Name}.img");
         FatImage.Create(disk, await File.ReadAllBytesAsync(efi), bootPackage, architecture.EfiName, await File.ReadAllBytesAsync(rootTask));
         await File.WriteAllTextAsync(Path.Combine(output, "build.txt"),
-            $"Build: {buildId}\nScenario: {scenario}\nKernel compiler: {KernelCompiler(architecture)}\nFixtures: {found ?? "none"}\n" +
+            $"Build: {buildId}\nScenario: {scenario}\nKernel compiler: {KernelCompiler(architecture)}\n" +
             $"QEMU: {Toolchain.QEMU_VERSION}\n");
         Console.WriteLine($"Built {scenario}: {disk}");
         return disk;
@@ -249,7 +241,7 @@ internal static class KernelImageBuilder
         // host it was built on (plan step T2.1a).
         List<string> linkArgs =
         [
-            "/nologo", "/subsystem:efi_application", "/entry:efi_main", "/nodefaultlib", $"/machine:{architecture.MsvcTarget}",
+            "/nologo", "/subsystem:efi_application", "/entry:efi_main", "/nodefaultlib", $"/machine:{architecture.LinkMachine}",
             "/fixed:no", .. architecture.LinkOptions, "/incremental:no", "/debug:full", "/Brepro", "/pdbaltpath:%_PDB%",
             $"/out:{efi}", $"/pdb:{Path.Combine(output, "WitOS.pdb")}", $"/map:{Path.Combine(output, "WitOS.map")}"
         ];

@@ -57,6 +57,27 @@ internal static partial class KernelAbi
         return calls;
     }
 
+    /// <summary>
+    /// Reads the retired call numbers from the shared header: a comment "N was retired at step S" or "N-M were retired
+    /// at step S" retires each number of the range for good (RFC 0011 section 10.1).
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Retired call numbers in ascending order.</returns>
+    public static IReadOnlyList<int> RetiredCalls(string root)
+    {
+        var retired = new SortedSet<int>();
+        foreach (Match match in RetiredComment().Matches(File.ReadAllText(Path.Combine(root, USER_ABI_HEADER))))
+        {
+            var first = int.Parse(match.Groups[1].Value);
+            var last = match.Groups[2].Success ? int.Parse(match.Groups[2].Value) : first;
+            for (var number = first; number <= last; ++number)
+            {
+                retired.Add(number);
+            }
+        }
+        return [.. retired];
+    }
+
     #endregion
 
     #region Tools
@@ -74,6 +95,9 @@ internal static partial class KernelAbi
 
     [GeneratedRegex(@"^#define (WIT_CALL_[A-Z0-9_]+) (\d+)U\r?$", RegexOptions.Multiline)]
     private static partial Regex CallDefine();
+
+    [GeneratedRegex(@"/\*\s*(\d+)(?:-(\d+))?\s+(?:was|were)\s+retired at step")]
+    private static partial Regex RetiredComment();
 
     #endregion
 }

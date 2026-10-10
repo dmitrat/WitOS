@@ -121,7 +121,7 @@ WitU64 wit_user_thread_context_set(WitUserProcess *process, WitU64 reference, Wi
         target->WaitKind != WitWaitNone) {
         return WIT_STATUS_BUSY;
     }
-    if (target->Exception.Token || wit_user_stack_leased(process, target->Handle, 0)) {
+    if (target->Exception.Token) {
         return WIT_STATUS_BUSY;
     }
     if (!wit_arch_context_supported()) {
@@ -132,38 +132,6 @@ WitU64 wit_user_thread_context_set(WitUserProcess *process, WitU64 reference, Wi
         return WIT_STATUS_BAD_ADDRESS;
     }
     status = wit_user_context_validate(process, target, &input, 0);
-    if (status != WIT_STATUS_OK) {
-        return status;
-    }
-    wit_arch_context_apply(owned_context(process, target), &input);
-    return WIT_STATUS_OK;
-}
-
-WitU64 wit_user_thread_context_restore(WitUserProcess *process, WitU64 address, WitU64 size, WitU64 version)
-{
-    WitUserThread *target = &process->Threads[process->CurrentThread];
-    if (version != WIT_THREAD_CONTEXT_VERSION) {
-        return WIT_STATUS_UNSUPPORTED;
-    }
-    if (size != sizeof(WitThreadContext)) {
-        return WIT_STATUS_INVALID_ARGUMENT;
-    }
-    if (target->SuspendCount || target->State != WitThreadRunning || target->WaitKind != WitWaitNone) {
-        return WIT_STATUS_BUSY;
-    }
-    if (target->Exception.Token ||
-        wit_user_stack_leased(process, target->Handle, 0) ||
-        wit_user_stack_leases_owned(process, target->Handle)) {
-        return WIT_STATUS_BUSY;
-    }
-    if (!wit_arch_context_supported()) {
-        return WIT_STATUS_UNSUPPORTED;
-    }
-    WitThreadContext input;
-    if (!wit_user_copy_from(&process->Space, address, (WitU8 *)&input, sizeof(input))) {
-        return WIT_STATUS_BAD_ADDRESS;
-    }
-    const WitU64 status = wit_user_context_validate(process, target, &input, 1);
     if (status != WIT_STATUS_OK) {
         return status;
     }

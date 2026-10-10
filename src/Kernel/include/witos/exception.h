@@ -7,11 +7,9 @@
 /* The room a delivery needs below the interrupted stack pointer, and the least alternate stack (S3.1): a libc's
  * signal frame with the ucontext of either ISA fits in it. */
 #define WIT_EXCEPTION_STACK_MINIMUM 8192U
-#define WIT_EXCEPTION_SOFTWARE_VECTOR (~0ULL)
 /* An activation (THREAD_ACTIVATE): Address is the requester's callback, Error its argument and Context the context
  * the delivery interrupted; EXCEPTION_CONTINUE with that context resumes the thread where it was. */
 #define WIT_EXCEPTION_ACTIVATION_VECTOR (~1ULL)
-#define WIT_EXCEPTION_SOFTWARE_FAILURE_EXIT 0xFFFF0006ULL
 
 /* Kernel-owned pending fault or activation, queried by its interrupted thread. RawState is diagnostic: the RFLAGS
  * or SPSR of the interrupted frame as the hardware saved it; the context carries the validated user profile. */
@@ -22,9 +20,8 @@ typedef struct WitUserExceptionInfo {
 } WitUserExceptionInfo;
 
 WIT_STATIC_ASSERT(sizeof(WitUserExceptionInfo) == WIT_EXCEPTION_SIZE, "User exception snapshot ABI");
-/* Atomically continue the current exception while retiring abandoned parents.
- * RetireThroughToken identifies the current record or a pending ancestor to
- * retire inclusively. Older records remain intact. Validate before mutation. */
+/* Continues the current delivery: RetireThroughToken names its record, the one a thread has (the nested records of
+ * EXCEPTION_BEGIN and its vector ~0 left at step K8.4a). Validated whole before anything changes. */
 #define WIT_EXCEPTION_TRANSFER_VERSION 1U
 #define WIT_EXCEPTION_TRANSFER_SIZE (WIT_THREAD_CONTEXT_SIZE + 16U)
 

@@ -10,9 +10,7 @@
   "sources": [
     "tests/Kernel.X64/user_suspend_tests.c",
     "tests/Kernel.X64/cpu_cache_tests.c",
-    "tests/Kernel.X64/user_tls_tests.c",
     "tests/Kernel.X64/user_arch_tests.c",
-    "tests/Kernel.X64/user_bootstrap_tests.c",
     "tests/Kernel.X64/kernel_tests.c",
     "tests/Kernel.X64/fault_tests.c"
   ],

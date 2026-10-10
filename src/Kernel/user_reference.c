@@ -176,7 +176,7 @@ WitU64 wit_user_thread_query(WitUserProcess *p, WitU64 handle, WitU64 address, W
         info.StackLow = target->StackBottom;
         info.StackHigh = target->StackTop;
         info.RawTls = target->Tls;
-        info.CompilerTls = p->TlsBytes ? target->CompilerTls : 0;
+        info.CompilerTls = target->CompilerTls;
         info.CompilerTlsHeader = target->CompilerTls;
         info.NativeId = target->NativeId;
         info.SuspendCount = target->SuspendCount;

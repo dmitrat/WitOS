@@ -14,9 +14,6 @@ WitU64 wit_user_thread_suspend(WitUserProcess *process, WitU64 handle, int resum
     if (!resume && target->SuspendCount == WIT_THREAD_SUSPEND_MAX) {
         return WIT_STATUS_TOO_LARGE;
     }
-    if (resume && target->SuspendCount == 1 && wit_user_stack_leased(process, target->Handle, 1)) {
-        return WIT_STATUS_BUSY;
-    }
     *previous = target->SuspendCount;
     // Diagnostic evidence of an actual parked foreign context, not a user
     // readiness flag. Exclude the main thread's ordinary join waits.

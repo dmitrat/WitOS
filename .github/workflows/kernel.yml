@@ -118,8 +118,8 @@ jobs:
   linux-host:
     # The Linux development host (plan steps T2.1a and T2.1b): the tool, its process runner and host tests, the pinned
     # LLVM and QEMU (built from its source release), and the release kernels of both ISAs with the layer-2 scenarios on
-    # them; then the Unix-form runtime for witos (phase R). The frozen line's MSVC fixtures, and with them the self-test
-    # scenarios, stay on the Windows jobs until K8.
+    # them; then the Unix-form runtime for witos (phase R). The self-test kernels need no MSVC since K8.4a; their scenarios
+    # stay on the Windows jobs until T2.2 moves them here.
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:

@@ -29,19 +29,6 @@ extern const WitU32 wit_test_thread_fault_count;
 /* The read at address zero of the exception fixture, which its reject mode hands back to the kernel. */
 extern const WitUserFaultCase wit_test_exception_fault;
 
-/* PE image tests: a machine other than the kernel's, the status of an image whose exception directory holds
- * no valid metadata, and the faults of writing protected image pages, executing image data and reading outside
- * the mapped image (Vector and Error only, indexed by WitImageFaultKind). */
-typedef enum WitImageFaultKind {
-    WitImageFaultWrite,
-    WitImageFaultExecute,
-    WitImageFaultRead
-} WitImageFaultKind;
-
-extern const WitU16 wit_test_foreign_machine;
-extern const WitPeStatus wit_test_exception_directory_status;
-extern const WitUserFaultCase wit_test_image_faults[3];
-
 /* Nonzero when the fault was taken in user mode; stores the faulting program counter. */
 int wit_test_user_fault_state(const WitArchFaultState *state, WitU64 *pc);
 

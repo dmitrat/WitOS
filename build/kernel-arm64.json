@@ -1,7 +1,7 @@
 {
   "architecture": "arm64",
   "status": "active",
-  "description": "ARM64 kernel on the QEMU virt board: boot contract, exception vectors, kernel translation tables, boot storage, randomness, the generic counter, the GICv3 timer, kernel-thread preemption and EL0 components through the common policy.",
+  "description": "ARM64 kernel on the QEMU virt board: boot contract, exception vectors, kernel translation tables, the boot package's extents, randomness, the generic counter, the GICv3 timer, kernel-thread preemption and EL0 components through the common kernel.",
   "includes": [
     "src/Kernel/include",
     "src/Kernel",

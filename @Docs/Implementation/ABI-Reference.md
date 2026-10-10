@@ -1,13 +1,13 @@
 # Справочник пользовательского ABI ядра WitOS
 
-Версии: **user ABI v69**, **boot ABI v6**. Источник истины — заголовки `src/Kernel/include/witos/*.h`; этот документ их описывает и проверяется хостовым тестом: каждый `WIT_CALL_*` из `user_abi.h` обязан встречаться здесь. Раскладка вызовов — ABI-1 по [RFC-0011 v3 §7](../RFC-0011-Kernel-Architecture-and-ABI.md), введённая шагом K1.1 плана; судьба каждого прежнего вызова — в [RFC-0011 v3 §8](../RFC-0011-Kernel-Architecture-and-ABI.md). ABI экспериментален до шага K8, но с K1.1 номер вызова, значение статуса и бит права никогда не переиспользуются (RFC-0011 §10.1).
+Версии: **user ABI v70**, **boot ABI v6**. Источник истины — заголовки `src/Kernel/include/witos/*.h`; этот документ их описывает и проверяется хостовым тестом: каждый `WIT_CALL_*` из `user_abi.h` обязан встречаться здесь. Раскладка вызовов — ABI-1 по [RFC-0011 v3 §7](../RFC-0011-Kernel-Architecture-and-ABI.md), введённая шагом K1.1 плана; судьба каждого прежнего вызова — в [RFC-0011 v3 §8](../RFC-0011-Kernel-Architecture-and-ABI.md). ABI экспериментален до шага K8, но с K1.1 номер вызова, значение статуса и бит права никогда не переиспользуются (RFC-0011 §10.1).
 
 ## Классы
 
 | Класс | Смысл |
 | --- | --- |
 | целевой | Вызов целевого набора RFC-0011 §7.12; остаётся в ABI-1 1.0, его семантика может уточняться до K8 только совместимо |
-| транзитный | Вызов нынешней реализации, который RFC-0011 §8 сливает, удаляет или переносит в слой 2 на названном шаге; номер после этого не переиспользуется |
+| транзитный | Вызов прежней реализации, который RFC-0011 §8 сливал, удалял или переносил в слой 2 на названном шаге; последние ушли на K8.4a, номера не переиспользуются |
 
 ## Соглашение о вызове
 
@@ -25,7 +25,7 @@
 - Структуры передаются по указателю с точным размером; первые два поля любой структуры — `Version` и `Size`. Неизвестная версия даёт `UNSUPPORTED`, неверный размер — `INVALID_ARGUMENT`.
 - Весь пользовательский буфер проверяется целиком до первой записи; при ошибке ни один байт назначения не меняется.
 - Неиспользуемые аргументы и поля `Reserved` обязаны быть нулями.
-- Возврат из `EXCEPTION_CONTINUE` и `THREAD_CONTEXT_RESTORE` при успехе не происходит: исполнение продолжается в переданном контексте.
+- Возврат из `EXCEPTION_CONTINUE` при успехе не происходит: исполнение продолжается в переданном контексте.
 - `QUERY` возвращает в младших 32 битах `WIT_ABI_VERSION`, в старших — маску семейств `WIT_ABI_FEATURE_*` (`CHANNELS` 1, `DEVICES` 2, `PROCESSES` 4, `UTC` 8, `SMP` 16); в маске `CHANNELS` (K2), `DEVICES` (K3.1), `PROCESSES` (K5.2c), `UTC` (K6) и `SMP` (K7.2).
 
 ## Статусы
@@ -39,17 +39,17 @@
 | 4 | `WIT_STATUS_BAD_ADDRESS` | Пользовательский диапазон не отображён с нужными правами |
 | 5 | `WIT_STATUS_TOO_LARGE` | Превышен предел размера |
 | 6 | `WIT_STATUS_INVALID_ARGUMENT` | Нарушен формат аргументов |
-| 7 | `WIT_STATUS_WRONG_TYPE` | Хэндл другого вида; узел не каталог |
+| 7 | `WIT_STATUS_WRONG_TYPE` | Хэндл другого вида |
 | 8 | `WIT_STATUS_NO_MEMORY` | Квота или физическая память исчерпаны |
 | 9 | `WIT_STATUS_NOT_RESERVED` | Адрес вне резервирования |
 | 10 | `WIT_STATUS_NOT_COMMITTED` | Страница не закоммичена |
-| 11 | `WIT_STATUS_DEADLOCK` | Повторный вход владельца lifecycle библиотеки (проверка цикла join ушла на K1.2) |
+| 11 | — | Отозван на K8.4a: `DEADLOCK` (проверка цикла join ушла на K1.2, повторный вход в lifecycle DLL — с политикой) |
 | 12 | `WIT_STATUS_BUSY` | Ресурс занят; можно повторить |
 | 13 | `WIT_STATUS_TIMED_OUT` | Дедлайн истёк или нет сигнала при опросе |
 | 14 | `WIT_STATUS_CLOSED` | Ожидаемый объект закрыт; ссылка на завершённый поток |
 | 15 | `WIT_STATUS_INTERRUPTED` | Ожидание или сон прерваны активацией потока; её callback уже выполнен |
-| 16 | `WIT_STATUS_NOT_FOUND` | Файл, модуль или символ отсутствует |
-| 17 | `WIT_STATUS_INITIALIZATION_FAILED` | Пользовательский attach DLL вернул отказ; уходит вместе с `LIBRARY` на K8 |
+| 16 | `WIT_STATUS_NOT_FOUND` | Нет того, что вызов ищет: callback исключений процесса у `THREAD_ACTIVATE` |
+| 17 | — | Отозван на K8.4a: `INITIALIZATION_FAILED` (отказ attach DLL) |
 | 18 | `WIT_STATUS_PEER_CLOSED` | Второй конец канала закрыт: отправка не имеет получателя, пустая очередь больше не пополнится |
 
 ## Вызовы
@@ -119,26 +119,15 @@
 
 Зарезервированных номеров ниже следующего свободного не осталось.
 
-### Транзитные вызовы
+### Отозванные вызовы
 
-| № | Вызов | Аргументы | Результат | Класс |
-| --- | --- | --- | --- | --- |
-| 207 | `WIT_CALL_MONOTONIC_QUERY` | buffer, 8, selector (`COUNTER` или `HZ`) | 8 | транзитный, K6 |
-| 208 | `WIT_CALL_CPU_CACHE_SIZE` | — | байт крупнейшего кэша | транзитный, K8 (поглощён записью `PROCESSOR_QUERY`, остаётся у замороженной линии) |
-| 209 | `WIT_CALL_THREAD_CONTEXT_RESTORE` | buffer, 720 (x64) или 848 (ARM64), version 2 | не возвращается при успехе | транзитный, K8 |
-| 210 | `WIT_CALL_STACK_LEASE_ACQUIRE` | thread handle, buffer, 48 | 0 | транзитный, K8 |
-| 211 | `WIT_CALL_STACK_LEASE_QUERY` | token, buffer, 48 | 0 | транзитный, K8 |
-| 212 | `WIT_CALL_STACK_LEASE_RELEASE` | token | 0 | транзитный, K8 |
-| 213 | `WIT_CALL_EXCEPTION_BEGIN` | `WitThreadContext`, 720 (x64) или 848 (ARM64), 32-битный код | token | транзитный, K8 |
-| 214 | `WIT_CALL_FATAL_ARM` | 32-битный код по умолчанию | 0 | транзитный, K8 |
-| 215 | `WIT_CALL_FATAL_REPORT` | `WitUserFatalInfo`, 872 (x64) или 1000 (ARM64), version 1 | 0 | транзитный, K8 |
-| 216 | `WIT_CALL_THREAD_NAME_SET` | UTF-16 pointer, units < 128, flags 0 | 0 | транзитный, K8 |
-| 217 | `WIT_CALL_THREAD_NAME_QUERY` | buffer, 280, version 1 | 0 | транзитный, K8 |
-| 218 | `WIT_CALL_CODE_MEMORY` | `WitCodeMemoryRequest`, 64, 0 | база для `RESERVE`, иначе 0 | транзитный, K5.2 и K8 |
-| 219 | `WIT_CALL_FILE` | `WitFileRequest`, 64, 0 | хэндл, байты или позиция | транзитный, K8 |
-| 220 | `WIT_CALL_STORAGE_QUERY` | `WitStorageQuery`, 64, 0 | 1056 или 0 в конце списка | транзитный, K8 |
-| 221 | `WIT_CALL_LIBRARY` | `WitLibraryRequest`, 64, 0 | зависит от операции | транзитный, K8 |
-| 222 | `WIT_CALL_PROCESS_STATE` | `WitProcessStateRequest`, 64, 0 | размер значения, блока или каталога | транзитный, K8 |
+Транзитных вызовов не осталось. Отозваны на K8.4a вместе с политикой ядра (RFC-0011 §8) и не переиспользуются:
+207 `MONOTONIC_QUERY` (заменён `CLOCK_READ` и `CLOCK_FREQUENCY`), 208 `CPU_CACHE_SIZE` (запись `PROCESSOR_QUERY`),
+209 `THREAD_CONTEXT_RESTORE` (с K8.1 libc продолжает контекст через доставку собственному потоку), 210
+`STACK_LEASE_ACQUIRE`, 211 `STACK_LEASE_QUERY`, 212 `STACK_LEASE_RELEASE`, 213 `EXCEPTION_BEGIN`, 214 `FATAL_ARM`, 215
+`FATAL_REPORT` (ушли с Windows-линией), 216 `THREAD_NAME_SET`, 217 `THREAD_NAME_QUERY` (имя потока хранит libc), 218
+`CODE_MEMORY` (код отображается объектами памяти и `CODE_PUBLISH`), 219 `FILE`, 220 `STORAGE_QUERY`, 221 `LIBRARY`, 222
+`PROCESS_STATE` (файлы пакета, загрузка, окружение и текущий каталог — системный слой).
 
 Отозваны на K1.2 и не переиспользуются: 200 `THREAD_CREATE_SIMPLE`, 201 `THREAD_JOIN`, 202 `THREAD_COMPLETE` (слились в
 `THREAD_CREATE`, `OBJECT_WAIT` и `THREAD_EXIT`), 203 `THREAD_REFERENCE_QUERY`, 204 `THREAD_NATIVE_ID`, 205
@@ -150,7 +139,7 @@
 
 Следующий свободный номер: **223**.
 
-Слившиеся на K1.1 вызовы и имена, которыми замороженная Windows-линия продолжает пользоваться через `user_abi_frozen.h` (ядро этот заголовок не включает; удаляется на K8): `EXIT`, `CLOSE`, `WRITE`, `THREAD_CREATE_REFERENCE`, `THREAD_REFERENCE_DUPLICATE`, `CPU_CONTEXT_QUERY`, `EVENT_CREATE_RIGHTS`, `MONOTONIC_READ`, `MONOTONIC_FREQUENCY`, `WIT_THREAD_REFERENCE_CURRENT`. Без замены ушли домен тиков PIT (`CLOCK_READ`/`CLOCK_FREQUENCY` в тиках, `THREAD_SLEEP`, `EVENT_WAIT`), `THREAD_CURRENT` (константа `WIT_THREAD_SELF` и `THREAD_QUERY`), `EVENT_WAIT_UNTIL` и `EVENT_WAIT_ANY_UNTIL` (`OBJECT_WAIT`), `EXCEPTION_UNWIND` (`EXCEPTION_CONTINUE` с запросом переноса), `CONSOLE_WRITE` (`DEBUG_WRITE`). На K1.2 к псевдонимам добавились
+Слившиеся на K1.1 вызовы и имена, которыми замороженная Windows-линия пользовалась через `user_abi_frozen.h` (удалён с ней на K8.4a): `EXIT`, `CLOSE`, `WRITE`, `THREAD_CREATE_REFERENCE`, `THREAD_REFERENCE_DUPLICATE`, `CPU_CONTEXT_QUERY`, `EVENT_CREATE_RIGHTS`, `MONOTONIC_READ`, `MONOTONIC_FREQUENCY`, `WIT_THREAD_REFERENCE_CURRENT`. Без замены ушли домен тиков PIT (`CLOCK_READ`/`CLOCK_FREQUENCY` в тиках, `THREAD_SLEEP`, `EVENT_WAIT`), `THREAD_CURRENT` (константа `WIT_THREAD_SELF` и `THREAD_QUERY`), `EVENT_WAIT_UNTIL` и `EVENT_WAIT_ANY_UNTIL` (`OBJECT_WAIT`), `EXCEPTION_UNWIND` (`EXCEPTION_CONTINUE` с запросом переноса), `CONSOLE_WRITE` (`DEBUG_WRITE`). На K1.2 к псевдонимам добавились
 права хэндла потока под старыми именами (`WIT_THREAD_REFERENCE_WAIT`, `QUERY`, `GET_CONTEXT`, `SET_CONTEXT`, `SUSPEND_RESUME`, `ALL` →
 `WIT_RIGHT_*`) и `WIT_THREAD_CREATE_REFERENCE_VERSION` (`WIT_THREAD_CREATE_VERSION`); права объявлены в `user_abi.h`, бит 2 (бывшее право
 `JOIN`) отозван. На K1.3 псевдонимы `APC_QUEUE` и `WIT_STATUS_APC_PENDING` удалены: `QueueUserAPC` замороженной линии вызывает
@@ -159,20 +148,6 @@
 `TRANSFER`, и `WIT_RIGHT_THREAD_ALL` стало 6644; `EVENT_CREATE` принимает `DUPLICATE` и `TRANSFER` в запрошенных правах (по
 умолчанию событие получает только `WAIT` и `SIGNAL`). `QUERY` сообщает в старшей половине результата маску семейств, в которой
 теперь есть `CHANNELS`; замороженная линия сравнивает с версией только младшую половину.
-
-### Операции составных вызовов
-
-| Вызов | Операции |
-| --- | --- |
-| `CODE_MEMORY` | `RESERVE` 0, `ALIAS` 1, `PROTECT` 2, `PUBLISH` 3, `MAP_SPARSE` 4, `RESET_SPARSE` 5, `VALIDATE` 6 |
-| `FILE` | `OPEN` 0, `LENGTH` 1, `READ_AT` 2, `READ` 3, `SEEK` 4 |
-| `STORAGE_QUERY` | `STAT` 0, `LIST` 1 |
-| `LIBRARY` | `LOAD` 0, `SYMBOL` 1, `UNLOAD` 2, `QUERY` 3, `FIND` 4, `PATH` 5, `ACQUIRE_READER` 6, `RELEASE_READER` 7, `QUERY_READER` 8, `FINISH_LIFECYCLE` 9, `SHUTDOWN` 10, `THREAD_ENTER` 11, `THREAD_LEAVE` 12, `MODULE_PATH` 13 |
-| `PROCESS_STATE` | `ENV_GET` 0, `ENV_SET` 1, `ENV_BLOCK` 2, `CWD_GET` 3, `CWD_SET` 4 |
-
-`LIBRARY.MODULE_PATH` не принимает хэндл: по адресу в `Ordinal` возвращает `WitLibraryPath` модуля, чей образ его содержит (главного образа компонента или загруженной библиотеки), а с флагом `MAIN_IMAGE` 1 и нулевым адресом — путь главного образа. `NOT_FOUND`, если адрес не принадлежит модулю или главный образ создан не из файла пакета.
-
-`PROCESS_STATE` хранит в ядре окружение и текущий каталог компонента, общие для всех его модулей: блок записей `Name=Value\0` в порядке установки с финальным `\0`; имена сравниваются со свёрткой регистра ASCII; текущий каталог — канонический UTF-8 от `/`, `CWD_SET` принимает только каталог пакета. Отказ не меняет ни состояние, ни вывод. По RFC-0011 §8 это политика слоя 2 и уходит на K8.
 
 ### Ожидание
 
@@ -206,7 +181,7 @@
 
 ### Процессоры
 
-Таблицу процессоров (RFC 0011 §7.9, K7.1) платформа перечисляет один раз при загрузке: на q35 — из MADT по RSDP загрузчика (записи Local APIC и Local x2APIC; пригоден процессор с флагом enabled или online capable), на virt — из узлов `/cpus/cpu@*` device tree (`reg` — MPIDR по `#address-cells`, `status`). Ядро проверяет, что таблица называет загрузочный процессор (иначе паника), что идентичности не повторяются, и нумерует загрузочный процессор первым. С K7.2 ядро запускает каждый процессор таблицы при загрузке (q35 — INIT и два startup-IPI через local APIC с трамплином в странице ниже 1 МиБ; virt — PSCI `CPU_ON` через `hvc`), ждёт его готовности не дольше двух секунд монотонного времени (иначе паника) и помечает `ONLINE`; вторичный процессор стоит в ожидании прерываний и выполняет только запросы ядра — барьер (вектор 0xF0 / SGI 0) и инвалидацию одной страницы TLB (0xF1 / SGI 1), — каждый с подтверждением, которого ядро ждёт не дольше секунды; потоки на нём не исполняются до фазы P. `PROCESSOR_QUERY(buffer, 4, 0)` — форма замороженной линии (текущий процессор как `{group:u16, number:u8, reserved:u8}`); `PROCESSOR_QUERY(WitProcessorInfo, 280, 0)` с `Version` 1 и `Size` от вызывающего копирует `Current`, `Count`, `Online` и по записи на процессор: `HardwareId` (APIC id / поля affinity MPIDR), `Flags` (`ONLINE` 1, `BOOT` 2), `Group`/`Number`, `CacheBytes` и `Features` (x64 — CPUID.1 ECX и EDX; ARM64 — младшие слова ID_AA64ISAR0_EL1 и ID_AA64PFR0_EL1) — у offline-процессора нули; чужой размер — `INVALID_ARGUMENT`, чужая версия — `UNSUPPORTED`. `THREAD_AFFINITY(thread handle, mask, 0|1)` читает (право `QUERY`) или записывает (право `AFFINITY`) маску процессоров потока, по умолчанию — бит загрузочного процессора; записываемая маска ненулевая и в пределах таблицы (`INVALID_ARGUMENT`), а без online-процессора — `UNSUPPORTED`: размещение не на загрузочном процессоре появится с фазой P. `PROCESS_WRITE_BARRIER` (94) с K7.2 выполняет барьер записи на вызывающем процессоре и через межпроцессорное прерывание на каждом online-процессоре и возвращает 0 только после всех подтверждений. Замороженная линия видит один процессор планирования: `CPU_CACHE_SIZE` (208), 4-байтовая форма и поле `ProcessorCount` в `MEMORY_INFO` и `THREAD_INFO` (процессоры, на которых исполняются потоки процесса) сообщают 1 до фазы P и уходят с линией на K8.
+Таблицу процессоров (RFC 0011 §7.9, K7.1) платформа перечисляет один раз при загрузке: на q35 — из MADT по RSDP загрузчика (записи Local APIC и Local x2APIC; пригоден процессор с флагом enabled или online capable), на virt — из узлов `/cpus/cpu@*` device tree (`reg` — MPIDR по `#address-cells`, `status`). Ядро проверяет, что таблица называет загрузочный процессор (иначе паника), что идентичности не повторяются, и нумерует загрузочный процессор первым. С K7.2 ядро запускает каждый процессор таблицы при загрузке (q35 — INIT и два startup-IPI через local APIC с трамплином в странице ниже 1 МиБ; virt — PSCI `CPU_ON` через `hvc`), ждёт его готовности не дольше двух секунд монотонного времени (иначе паника) и помечает `ONLINE`; вторичный процессор стоит в ожидании прерываний и выполняет только запросы ядра — барьер (вектор 0xF0 / SGI 0) и инвалидацию одной страницы TLB (0xF1 / SGI 1), — каждый с подтверждением, которого ядро ждёт не дольше секунды; потоки на нём не исполняются до фазы P. `PROCESSOR_QUERY(buffer, 4, 0)` — форма замороженной линии (текущий процессор как `{group:u16, number:u8, reserved:u8}`); `PROCESSOR_QUERY(WitProcessorInfo, 280, 0)` с `Version` 1 и `Size` от вызывающего копирует `Current`, `Count`, `Online` и по записи на процессор: `HardwareId` (APIC id / поля affinity MPIDR), `Flags` (`ONLINE` 1, `BOOT` 2), `Group`/`Number`, `CacheBytes` и `Features` (x64 — CPUID.1 ECX и EDX; ARM64 — младшие слова ID_AA64ISAR0_EL1 и ID_AA64PFR0_EL1) — у offline-процессора нули; чужой размер — `INVALID_ARGUMENT`, чужая версия — `UNSUPPORTED`. `THREAD_AFFINITY(thread handle, mask, 0|1)` читает (право `QUERY`) или записывает (право `AFFINITY`) маску процессоров потока, по умолчанию — бит загрузочного процессора; записываемая маска ненулевая и в пределах таблицы (`INVALID_ARGUMENT`), а без online-процессора — `UNSUPPORTED`: размещение не на загрузочном процессоре появится с фазой P. `PROCESS_WRITE_BARRIER` (94) с K7.2 выполняет барьер записи на вызывающем процессоре и через межпроцессорное прерывание на каждом online-процессоре и возвращает 0 только после всех подтверждений. До фазы P процессор планирования один: 4-байтовая форма и поле `ProcessorCount` в `MEMORY_INFO` и `THREAD_INFO` (процессоры, на которых исполняются потоки процесса) сообщают 1; `CPU_CACHE_SIZE` (208) отозван на K8.4a, размер кэша сообщает запись `PROCESSOR_QUERY`.
 
 ### Часы
 
@@ -221,7 +196,6 @@
 | Структура | Заголовок | Размер | Версия |
 | --- | --- | --- | --- |
 | `WitUserStartup` | `user_abi.h` | 24 | равна `WIT_ABI_VERSION` |
-| `WitUserImageInfo` | `image_info.h` | 568 | 2 |
 | `WitUserMemoryInfo` | `memory_info.h` | 112 | 2 |
 | `WitUserThreadInfo` | `thread_info.h` | 96 | 4 |
 | `WitThreadCreateRequest` | `thread_reference.h` | 48 | 1 (`Entry`, `Argument`, `StackBytes`, `NativeIdOutput`, `Flags`) |
@@ -275,10 +249,7 @@
 | `THREAD_IDENTITY` | 3 | — (приватная идентичность потока: пользователю не выдаётся, `HANDLE_CLOSE` — `BUSY`, исчезает с потоком) |
 | `EVENT` | 4 | `WAIT` 4, `SIGNAL` 8; несколько хэндлов одного события через `HANDLE_DUPLICATE` |
 | `THREAD_REFERENCE` | 5 | `WAIT` 4, `QUERY` 16, `GET_CONTEXT` 32, `SET_CONTEXT` 64, `SUSPEND_RESUME` 128, `ACTIVATE` 256, `DUPLICATE` 2048, `TRANSFER` 4096, `AFFINITY` 1048576 (хэндл потока; все вместе — `WIT_RIGHT_THREAD_ALL` 1055220) |
-| `FILE` | 6 | `READ` 16 |
-| `LIBRARY` | 7 | `READ` 16 |
-| `LIBRARY_READER` | 8 | `READ` 16 |
-| `LIBRARY_LIFECYCLE` | 9 | `READ` 16 |
+| — | 6–9 | Отозваны на K8.4a: `FILE`, `LIBRARY`, `LIBRARY_READER`, `LIBRARY_LIFECYCLE` |
 | `CHANNEL_ENDPOINT` | 10 | `WAIT` 4, `SEND` 512, `RECEIVE` 1024, `DUPLICATE` 2048, `TRANSFER` 4096 |
 | `MEMORY_OBJECT` | 11 | `WRITE` 2, `QUERY` 16, `DUPLICATE` 2048, `TRANSFER` 4096, `MAP` 8192, `EXECUTE` 16384; у таблицы устройств ещё `ACQUIRE` 32768; виды объектов: `ANONYMOUS` 1, `DEVICE` 2, `TABLE` 3, `PACKAGE` 4 |
 | `DEVICE` | 12 | `QUERY` 16, `DUPLICATE` 2048, `TRANSFER` 4096, `BIND` 65536 |
@@ -291,13 +262,13 @@
 
 ## Память
 
-Защита: `NONE` 0, `READ` 1, `WRITE` 2, `EXECUTE` 4 (только вместе с `READ` и только у отображения объекта памяти; `WRITE` с `EXECUTE` — `INVALID_ARGUMENT`). Исполняемые страницы создаются через объекты памяти (K5.1: запись через одно отображение, исполнение через другое после `CODE_PUBLISH`) и, в замороженной линии, через `CODE_MEMORY` в near-code арене с W^X.
+Защита: `NONE` 0, `READ` 1, `WRITE` 2, `EXECUTE` 4 (только вместе с `READ` и только у отображения объекта памяти; `WRITE` с `EXECUTE` — `INVALID_ARGUMENT`). Исполняемые страницы создаются через объекты памяти (K5.1: запись через одно отображение, исполнение через другое после `CODE_PUBLISH`).
 
 | Область (x64) | Начало | Конец, не включая |
 | --- | --- | --- |
 | Компонент | `0x0000008000000000` | `0x0000008000200000` |
-| Окно PE-образа | `0x0000008000100000` | — |
-| Near-code арена | `0x0000008001000000` | `0x0000008040000000` |
+| Окно образа корневой задачи | `0x0000008000100000` | — |
+| Арена кода (образы и отображения кода процесса) | `0x0000008001000000` | `0x0000008040000000` |
 | Динамическая арена данных | `0x0000010000000000` | `0x0000011000000000` |
 
 Фиксированные адреса относятся к контролируемому профилю и не являются обещанием для приложений.
@@ -315,15 +286,15 @@
 | 28 | зарезервировано, 0 |
 | 32 | данные приложения |
 
-Compiler TLS адресуется через GS. Страница содержит указатель по смещению 0x58 на вектор слотов по смещению 0x80; слот 0 — главный образ, слоты 1–4 — DLL; данные главного образа начинаются со смещения 256 (`WIT_COMPILER_TLS_DATA_OFFSET`). Это не Windows TEB, а минимальная раскладка, совместимая с кодом MSVC.
+Compiler TLS (GS на x64, x18 на ARM64) у потока версии 1 — ноль: страницу с шаблоном PE TLS ядро больше не создаёт (K8.4a); регистр и поле `CompilerTls` уходят с версией 1 на K8.4b.
 
 ## Квоты профиля
 
-| Ресурс | Обычный профиль | Full-runtime профиль |
+| Ресурс | Профиль фикстуры | Полный профиль (корневая задача и процессы слоя 2) |
 | --- | --- | --- |
-| Потоки на компонент | 4 | 4 |
-| Хэндлы | 16 | 32 |
-| События | 4 | 16 |
+| Потоки на компонент | 4 | 4; у корневой задачи и созданных ею процессов слоя 2 — 16 (`WIT_PROCESS_THREAD_CAPACITY`, K5.3; 4 в ядре самотестов до K8.4d) |
+| Хэндлы | 16 | 64 у корневой задачи и созданных ею процессов слоя 2 (`WIT_PROCESS_HANDLE_CAPACITY`, K5.3) |
+| События | 4 | 32 у корневой задачи и созданных ею процессов слоя 2 (`WIT_PROCESS_EVENT_CAPACITY`, K5.3) |
 | Owned pages | 128 | 2048 |
 | Резервирования | 8 | 32; у корневой задачи и созданных ею процессов слоя 2 — 256 (`WIT_PROCESS_RESERVATION_CAPACITY`, S5.4) |
 | Бюджет тиков | 10 | 3000 |
@@ -340,19 +311,11 @@ Compiler TLS адресуется через GS. Страница содержи
 | Привязок прерываний (на всё ядро) | 8 | 8 |
 | DMA-pin компонента | 8 | 8 |
 | Активаций в ожидании доставки у потока | 4 | 4 |
-| Stack leases | 4 | 4 |
-| Глубина вложенных исключений | 4 | 4 |
-| DLL в графе | 4 | 4 |
-| Library readers | 16 | 16 |
 | Байт в одном `DEBUG_WRITE` | 65536 | 65536 |
-| Окружение процесса | 4096 UTF-16 единиц, 64 переменные | 4096 UTF-16 единиц, 64 переменные |
-| Текущий каталог | 1025 байт UTF-8 | 1025 байт UTF-8 |
-| PE-образ | 256 КиБ, 160 unwind | 1088 КиБ, 4096 unwind |
-| PE-образ библиотеки | 256 КиБ, 320 unwind | 1088 КиБ, 4096 unwind |
 
 ## Стартовый контракт компонента
 
-Первый поток получает в RCX (x0) адрес `WIT_USER_INFO` с неизменяемым `WitUserStartup`: версия равна `WIT_ABI_VERSION`, размер 24, хэндл консоли и адрес `WitUserImageInfo` (ноль для raw-фикстур). Стек выровнен под вызов ABI x64, адрес возврата равен нулю. Стартовый дескриптор корневой задачи по RFC-0011 §7.11 заменяет его на шаге K4.
+Первый поток получает в RCX (x0) адрес `WIT_USER_INFO` с неизменяемым `WitUserStartup`: версия равна `WIT_ABI_VERSION`, размер 24, хэндл консоли и зарезервированное нулевое слово (сведения об образе ушли с PE-загрузчиком на K8.4a). Стек выровнен под вызов ABI x64, адрес возврата равен нулю. Стартовый дескриптор корневой задачи по RFC-0011 §7.11 заменяет его на шаге K4.
 
 ## Корневая задача
 
