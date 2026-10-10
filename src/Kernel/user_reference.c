@@ -175,10 +175,7 @@ WitU64 wit_user_thread_query(WitUserProcess *p, WitU64 handle, WitU64 address, W
         info.ThreadId = target->Handle;
         info.StackLow = target->StackBottom;
         info.StackHigh = target->StackTop;
-        info.RawTls = target->Tls;
-        info.CompilerTls = target->CompilerTls;
-        info.CompilerTlsHeader = target->CompilerTls;
-        info.NativeId = target->NativeId;
+        info.TlsBase = target->Tls;
         info.SuspendCount = target->SuspendCount;
         info.ContextFlags = wit_user_context_flags(target);
         info.State = target->SuspendCount       ? WIT_THREAD_STATE_SUSPENDED

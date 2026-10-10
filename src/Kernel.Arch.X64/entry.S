@@ -44,8 +44,6 @@ wit_x64_load_tables:
 isr\number:
     .if \number == 32
     jmp wit_x64_timer_entry
-    .elseif \number == 128
-    jmp wit_x64_user_syscall_entry
     .elseif (\number >= 33) && (\number <= 47)
     // A PIC input of a device line (K3.2): the vector is noted for the one processor with interrupts disabled.
     mov dword ptr [rip + wit_x64_device_vector], \number

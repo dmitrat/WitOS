@@ -66,7 +66,6 @@ typedef struct WitUserActivation {
 
 typedef struct WitUserThread {
     WitUserThreadState State;
-    WitU32 NativeId;
     WitU32 SuspendCount;
     WitUserExceptionInfo Exception;
     WitUserWaitKind WaitKind;
@@ -81,10 +80,9 @@ typedef struct WitUserThread {
     WitU64 Handle;
     WitU64 StackBottom;
     WitU64 StackTop;
-    WitU64 Tls;
-    WitU64 CompilerTls;
-    /* A version 1 thread owns its kernel-mapped stack and TLS pages (reaped with it); a version 2 thread runs on the
-     * caller's reservation and may name it at THREAD_EXIT for release once it no longer runs there (K5.2a). */
+    WitU64 Tls; /* the TLS base: FS on x64, TPIDRRO_EL0 on ARM64; zero for none */
+    /* A component's first thread owns the stack window the kernel mapped for it (reaped with it); a thread of the one
+     * form runs on a reservation and may name it at THREAD_EXIT for release once it no longer runs there (K5.2a). */
     WitU32 OwnsStack, Reserved2;
     WitU64 ExitReservation;
     WitU64 ExitClear, ExitEvent; /* the exit request (S2.1): zeroed and set after the thread no longer runs */
@@ -361,7 +359,6 @@ WitU64 wit_user_memory_release(WitUserSpace *space, WitU64 address, WitU64 size)
 
 void wit_user_memory_self_test(WitPageAllocator *pages);
 void wit_user_thread_self_test(WitPageAllocator *pages);
-void wit_user_native_id_self_test(void);
 void wit_user_wait_self_test(WitPageAllocator *pages);
 void wit_user_exception_self_test(WitPageAllocator *pages);
 void wit_user_channel_self_test(WitPageAllocator *pages);
@@ -379,7 +376,8 @@ WitU32 wit_user_context_flags(const WitUserThread *target);
 /* THREAD_CREATE: the one form, from a WitThreadCreateRequest in the process's memory. */
 WitU64 wit_user_thread_create(WitUserProcess *process, WitU64 input, WitU64 size, WitU64 *result);
 WitU64 wit_user_thread_set_tls(WitUserProcess *process, WitU64 base, WitU64 reserved0, WitU64 reserved1);
-WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU32 index, WitU64 entry, WitU64 argument);
+/* The first thread of a component the kernel builds: the fixed stack window, no TLS base (K8.4b). */
+WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU64 entry, WitU64 argument);
 WitU64 wit_virtual_kernel_root(void);
 
 int wit_user_create(

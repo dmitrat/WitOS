@@ -190,9 +190,16 @@ internal static class MuslLibc
 
         var sysdeps = Directory.GetFiles(Path.Combine(root, SYSDEPS)).OrderBy(path => path, StringComparer.Ordinal).ToArray();
         var patchTexts = PATCHED.Values.Select(name => File.ReadAllText(Path.Combine(UpstreamPatches.Directory(root), "musl", name + ".patch")));
+        // The ABI-1 headers WitOS's part compiles against, the kernel's and the sysroot's, count too: their structures and
+        // constants are compiled into the library (K8.4b found a stale libc.a after THREAD_INFO changed).
+        var abiHeaders = new[] { Path.Combine(root, "src", "Kernel", "include"), Path.Combine(root, "src", "Sysroot", "include") }
+            .SelectMany(directory => Directory.GetFiles(directory, "*.h", SearchOption.AllDirectories))
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .Select(path => Path.GetRelativePath(root, path).Replace('\\', '/') + "\n" + File.ReadAllText(path));
         var stamp = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n',
             [VERSION, TARBALL_SHA256, Toolchain.LLVM_VERSION, architecture.Triple, .. architecture.ClangOptions, .. OMITTED,
-                .. patchTexts, .. sysdeps.Select(File.ReadAllText), string.Join(' ', LibcOptions(architecture, build.Includes, sources, generated))])))).ToLowerInvariant();
+                .. patchTexts, .. sysdeps.Select(File.ReadAllText), .. abiHeaders,
+                string.Join(' ', LibcOptions(architecture, build.Includes, sources, generated))])))).ToLowerInvariant();
         // The generated and patched headers are written on every call, whatever the stamp says, so that the headers the
         // build hands its users always follow the tool.
         await GenerateHeadersAsync(root, sources, arch, generated, overlay);

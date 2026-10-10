@@ -51,8 +51,7 @@ int wit_arch_interrupts_enabled(void)
     return (wit_x64_read_flags() & 0x200) != 0;
 }
 
-/* The argument travels in RCX (Microsoft x64) and RDI (SysV) alike: the frozen line's entries and the system
- * layer's read the same value (RFC 0011 section 6.1). */
+/* The argument travels in RDI, the first argument register of the SysV convention (RFC 0011 section 6.1). */
 static WitArchFrame *build_frame(WitU32 slot, WitU32 thread, WitU64 entry, WitU64 argument, WitU64 stack_pointer)
 {
     WitArchFrame *frame = (WitArchFrame *)(stack_low(slot, thread) + WIT_KERNEL_STACK_SIZE - 4096);
@@ -63,7 +62,6 @@ static WitArchFrame *build_frame(WitU32 slot, WitU32 thread, WitU64 entry, WitU6
     frame->FxState[1] = 0x03;
     frame->FxState[24] = 0x80;
     frame->FxState[25] = 0x1F;
-    frame->Rcx = argument;
     frame->Rdi = argument;
     frame->Rip = entry;
     frame->Cs = WIT_USER_CS;
@@ -89,8 +87,8 @@ int wit_arch_user_tls_settable(void)
     return 1;
 }
 
-/* SYSCALL (RFC 0011 section 6.1, K5.2a): the SysV argument registers; INT 0x80 with RCX, RDX and R8 stays for the
- * frozen line until K8. The entry (user_entry.S) builds the same frame as the interrupt gate's. */
+/* SYSCALL (RFC 0011 section 6.1, K5.2a): the SysV argument registers, the one x64 transport since K8.4b. The entry
+ * (user_entry.S) builds the same frame as an interrupt gate's. */
 WitInterruptContext *wit_x64_user_syscall_sysv(WitInterruptContext *context)
 {
     return wit_user_syscall(context, context->Rax, context->Rdi, context->Rsi, context->Rdx);
@@ -246,12 +244,6 @@ void wit_arch_fault_describe(const WitArchFaultState *state)
 {
     wit_console_write(" cs=");
     wit_console_write_hex(state->Cs);
-}
-
-/* INT 0x80: call number in RAX, arguments in RCX, RDX and R8. */
-WitInterruptContext *wit_x64_user_syscall(WitInterruptContext *context)
-{
-    return wit_user_syscall(context, context->Rax, context->Rcx, context->Rdx, context->R8);
 }
 
 WitInterruptContext *wit_x64_user_exception(WitInterruptContext *context, WitU64 vector, WitU64 error, WitU64 address)

@@ -62,7 +62,9 @@ void wit_arch_space_switch(WitU64 root);
 WIT_NORETURN void wit_arch_resume_frame(WitArchFrame *frame);
 void wit_arch_select_thread_stack(WitU32 slot, WitU32 thread);
 void wit_arch_select_boot_stack(void);
-void wit_arch_set_user_tls(WitU64 address, WitU64 compiler_address);
+/* The TLS base of the user thread about to run (FS on x64, TPIDRRO_EL0 on ARM64); the kernel sets no other register
+ * for it (K8.4b: no compiler TLS, x18 is the thread's). */
+void wit_arch_set_user_tls(WitU64 address);
 void wit_arch_reset_user_tls(void);
 int wit_arch_user_tls_is_reset(void);
 int wit_arch_kernel_space_active(void);

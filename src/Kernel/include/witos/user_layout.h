@@ -8,14 +8,12 @@
 #define WIT_USER_INFO 0x0000008000004000ULL
 #define WIT_USER_DATA 0x0000008000008000ULL
 #define WIT_USER_DATA_END 0x000000800000A000ULL
-/* Repeated native collided unwind exceeds the measured 32 KiB stack. */
+/* The stack window of a component's first thread (64 KiB), below the peer page. */
 #define WIT_USER_STACK_BOTTOM 0x0000008000015000ULL
 #define WIT_USER_STACK_TOP 0x0000008000025000ULL
 #define WIT_USER_PEER_PAGE 0x0000008000030000ULL
 /* The root task's image window, separate from fixed startup/data/thread regions. */
 #define WIT_USER_IMAGE_BASE 0x0000008000100000ULL
-#define WIT_USER_THREAD_STRIDE 0x20000ULL
-#define WIT_USER_TLS 0x0000008000027000ULL
 /* Separate PML4 slot: 64 GiB of sparse VA, bounded prototype metadata/frames. */
 /* The code arena: a process's images and code mappings, disjoint from the image window, the stacks and the data
  * arena. */

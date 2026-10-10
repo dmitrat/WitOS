@@ -138,7 +138,7 @@ WitU64 wit_user_isolation_begin_self_test(WitPageAllocator *pages)
             components[0].ExitCode == WIT_TEST_EXIT_CODE &&
             components[0].Writes == 1 &&
             components[0].Handles.Count == 0 &&
-            components[0].Space.OwnedCount == 9 + (WIT_USER_STACK_TOP - WIT_USER_STACK_BOTTOM) / 4096,
+            components[0].Space.OwnedCount == 8 + (WIT_USER_STACK_TOP - WIT_USER_STACK_BOTTOM) / 4096,
         "User memory lifecycle failed");
     wit_user_destroy(&components[0]);
     require(wit_pages_free_count(pages) == before, "User memory lifecycle leaked");

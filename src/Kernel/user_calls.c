@@ -32,7 +32,7 @@ static int has_arguments(const WitUserCall *call)
 static WitArchFrame *resume_restored(WitUserCall *call, WitU64 status)
 {
     if (status == WIT_STATUS_OK) {
-        wit_arch_set_user_tls(caller(call)->Tls, caller(call)->CompilerTls);
+        wit_arch_set_user_tls(caller(call)->Tls);
         return call->Context;
     }
     *call->Status = status;

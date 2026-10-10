@@ -29,9 +29,8 @@ wit_x64_idle_resume:
 
     .globl wit_arch_set_user_tls
 wit_arch_set_user_tls:
-    // Kernel chooses the base and selector on every return to a user thread.
+    // The kernel chooses the FS base and both selectors on every return to a user thread; the GS base stays zero.
     mov r8, rcx
-    mov r9, rdx
     mov ax, 0x2B
     mov fs, ax
     mov ecx, 0xC0000100
@@ -42,9 +41,8 @@ wit_arch_set_user_tls:
     mov ax, 0x2B
     mov gs, ax
     mov ecx, 0xC0000101
-    mov eax, r9d
-    shr r9, 32
-    mov edx, r9d
+    xor eax, eax
+    xor edx, edx
     wrmsr
     ret
 
@@ -105,35 +103,8 @@ wit_arch_leave_user:
     pop rbx
     ret
 
-    .globl wit_x64_user_syscall_entry
-wit_x64_user_syscall_entry:
-    // DPL3 interrupt gate switched to TSS.RSP0 and cleared IF.
-    push rax
-    push rbx
-    push rcx
-    push rdx
-    push rbp
-    push rdi
-    push rsi
-    push r8
-    push r9
-    push r10
-    push r11
-    push r12
-    push r13
-    push r14
-    push r15
-    cld
-    sub rsp, 512
-    fxsave64 [rsp]
-    mov rcx, rsp
-    sub rsp, 32
-    call wit_x64_user_syscall
-    mov rsp, rax
-    jmp wit_x64_restore_context
-
 // SYSCALL entry (RFC 0011 section 6.1): RCX holds the return RIP, R11 the RFLAGS, RSP is still the caller's. The
-// frame built here equals the interrupt gate's, so one restore path (IRETQ) serves both transports.
+// frame built here equals an interrupt gate's, so one restore path (IRETQ) serves it and the interrupts.
     .globl wit_x64_syscall_entry
 wit_x64_syscall_entry:
     mov qword ptr [rip + syscall_user_rsp], rsp

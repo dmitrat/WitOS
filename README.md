@@ -12,7 +12,7 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 by the pinned clang on both, and keeps the mechanisms of ABI-1 ([RFC 0011 v3](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md)): processes with private
 address spaces, the one thread form, memory objects, channels that carry capabilities, events and the one wait with
 absolute deadlines, faults and activations delivered to user space, device descriptors with interrupt bindings and DMA
-pins, UTC and the started secondary processors. User ABI v70 and boot ABI v6 are printed by the kernel banner from the
+pins, UTC and the started secondary processors. User ABI v71 and boot ABI v6 are printed by the kernel banner from the
 headers. Above it the system layer (phase S) runs on both ISAs: the pinned musl over ABI-1 with threads, signals and its
 dynamic linker, LLVM's C++ runtime, a process manager with `posix_spawn`, and musl's libc-test, its math suite included,
 with every test run as a process of its own. Upstream .NET 10 runs in its Unix form (`TargetOS=witos`, phase R): NativeAOT
@@ -64,7 +64,7 @@ Expected guest output includes:
 ```text
 [BOOT] UEFI x64 adapter
 [BOOT] ExitBootServices OK
-WitOS user ABI v70, boot ABI v6
+WitOS user ABI v71, boot ABI v6
 Build: <git-revision> | x64 | Debug
 [TEST-BEGIN] Boot.Contract
 [TEST-PASS] Boot.Contract
@@ -122,7 +122,7 @@ The x64 suite boots 27 VM scenarios and the ARM64 suite 21:
 
 Normal boots also verify map/protect/unmap behavior, aliasing, TLB invalidation, timer delivery, progress of both preempted contexts and preserved GPR/SSE state. Exception tests validate vector, error code, register frame, fault address and stack selection. The double-fault test deliberately invalidates the main stack and requires diagnostics from the emergency stack.
 
-Successful x64 boots also require 81 user groups in order (`tests/Expectations/x64-users.json`): ring-3 entry and isolation, user memory and its faults, threads, events and waits, faults and activations, channels, memory objects, devices, interrupts and DMA, the one thread form, processes, processors, the root task and the kernel policy that leaves at K8.4 (PE loading, native C startup, compiler TLS), plus CPU cache discovery. ARM64 boots require their own suite the same way.
+Successful x64 boots also require 80 user groups in order (`tests/Expectations/x64-users.json`): ring-3 entry and isolation, user memory and its faults, threads, events and waits, faults and activations, channels, memory objects, devices, interrupts and DMA, the one thread form, processes, processors, the root task and the kernel policy that leaves at K8.4 (PE loading, native C startup, compiler TLS), plus CPU cache discovery. ARM64 boots require their own suite the same way.
 
 Every test creates fresh firmware variable storage. A timeout, unexpected exit, panic or missing success marker fails an ordinary boot test.
 
@@ -181,7 +181,7 @@ The core kernel does not include UEFI structures. The output is a freestanding P
 
 ## Scope and next work
 
-Next work is tracked in [PLAN.md](PLAN.md) after [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md): K8 finishes the nano-kernel (the version 1 thread form and the startup block leave, then ABI-1 1.0 is declared), T2.2 brings the Linux host to parity, and phase R continues with CoreCLR and the JIT (R3) towards unchanged portable assemblies with ordinary SDK/TFM/NuGet workflows ([RFC 0015 v2](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md)); devices and storage (M4, M5) come before standard .NET (M6), as the [Implementation Strategy §157](@Docs/WitOS%20—%20Implementation%20Strategy%20%26%20Milestone%20Plan.md) records. The NativeAOT acceptance does not establish dynamic loading of managed code, filesystem or network services, threads on several processors or broad API compatibility. Firmware memory remains reserved.
+Next work is tracked in [PLAN.md](PLAN.md) after [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md): K8 finishes the nano-kernel (the first thread takes its final form, then ABI-1 1.0 is declared), T2.2 brings the Linux host to parity, and phase R continues with CoreCLR and the JIT (R3) towards unchanged portable assemblies with ordinary SDK/TFM/NuGet workflows ([RFC 0015 v2](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md)); devices and storage (M4, M5) come before standard .NET (M6), as the [Implementation Strategy §157](@Docs/WitOS%20—%20Implementation%20Strategy%20%26%20Milestone%20Plan.md) records. The NativeAOT acceptance does not establish dynamic loading of managed code, filesystem or network services, threads on several processors or broad API compatibility. Firmware memory remains reserved.
 
 - [Architecture document index](@Docs/README.md)
 - [ADR 0024: three layers and the Unix-form runtime](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md)

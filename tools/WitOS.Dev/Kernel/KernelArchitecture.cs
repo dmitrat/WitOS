@@ -42,7 +42,7 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     public static readonly KernelArchitecture Arm64 = new("arm64", "arm64", Machine.Arm64, "BOOTAA64.EFI",
         "qemu-system-aarch64", "virt,gic-version=3,acpi=off", ["-semihosting-config", "enable=on,target=native"], [],
         "edk2-aarch64-code.fd", "edk2-arm-vars.fd", "cortex-a72", "aarch64-unknown-linux-musl", 183,
-        ["-ffixed-x18"], // x18 is the kernel's compiler TLS register, set on every return to EL0
+        ["-ffixed-x18"], // x18 was the kernel's compiler TLS register until K8.4b; layer 2 frees it with the runtime at K8.4d
         "aarch64-unknown-windows");
 
     #endregion

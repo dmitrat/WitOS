@@ -170,7 +170,6 @@ static void reap(WitU32 index)
         for (WitU64 p = thread->StackBottom; p < thread->StackTop; p += 4096) {
             require(wit_user_space_unmap_fixed(&current_user->Space, p), "Thread stack ownership lost");
         }
-        require(wit_user_space_unmap_fixed(&current_user->Space, thread->Tls), "Thread TLS ownership lost");
     } else if (thread->ExitReservation) {
         /* The one thread form (K5.2a): the exiting thread named its stack's reservation, validated at the exit; the
          * thread no longer runs on it. */
@@ -178,10 +177,8 @@ static void reap(WitU32 index)
             "Exit reservation vanished before its release");
         thread->ExitReservation = 0;
     }
-    thread->CompilerTls = 0;
     require(wit_handle_close(&current_user->Handles, thread->Handle) == WIT_STATUS_OK, "Thread handle lost");
     thread->Handle = 0;
-    thread->NativeId = 0;
     thread->SuspendCount = 0;
     thread->State = WitThreadEmpty;
     ++current_user->ThreadReaps;
@@ -253,7 +250,7 @@ static WitArchFrame *dispatch(int timer, WitU64 last_exit)
                 q->CurrentThread = index;
                 thread->State = WitThreadRunning;
                 wit_arch_select_thread_stack(q->Slot, index);
-                wit_arch_set_user_tls(thread->Tls, thread->CompilerTls);
+                wit_arch_set_user_tls(thread->Tls);
                 return resume_current(thread->Context);
             }
         }
@@ -494,7 +491,7 @@ int wit_user_create(
     startup->Reserved = 0;
     startup->ConsoleHandle = wit_handle_grant(&process->Handles, WIT_HANDLE_CONSOLE, WIT_RIGHT_WRITE);
     if (!startup->ConsoleHandle ||
-        wit_user_prepare_thread(process, 0, process->ImageEntry, WIT_USER_INFO) != WIT_STATUS_OK) {
+        wit_user_prepare_thread(process, process->ImageEntry, WIT_USER_INFO) != WIT_STATUS_OK) {
         goto failed;
     }
     process->State = WitUserReady;
@@ -553,7 +550,7 @@ int wit_user_create_flat(WitUserProcess *process, WitPageAllocator *allocator, W
             process->ImageSize = (WitU32)(s->Address + s->MemorySize - process->ImageBase);
         }
     }
-    if (wit_user_prepare_thread(process, 0, layout->Entry, WIT_USER_INFO) != WIT_STATUS_OK) {
+    if (wit_user_prepare_thread(process, layout->Entry, WIT_USER_INFO) != WIT_STATUS_OK) {
         goto failed;
     }
     process->State = WitUserReady;
@@ -615,7 +612,7 @@ void wit_user_run(WitUserProcess *process)
     process->Ticks = 0;
     wit_arch_select_thread_stack(process->Slot, 0);
     wit_platform_timer_start();
-    wit_arch_set_user_tls(process->Threads[0].Tls, process->Threads[0].CompilerTls);
+    wit_arch_set_user_tls(process->Threads[0].Tls);
     wit_arch_run_user(process->Threads[0].Context, process->Space.Root);
     require(!current_user &&
             !root_user &&
@@ -760,8 +757,7 @@ WitArchFrame *wit_user_syscall(
     if (current_user->Threads[current_user->CurrentThread].State != WitThreadRunning) {
         return dispatch(0, 0);
     }
-    wit_arch_set_user_tls(current_user->Threads[current_user->CurrentThread].Tls,
-        current_user->Threads[current_user->CurrentThread].CompilerTls);
+    wit_arch_set_user_tls(current_user->Threads[current_user->CurrentThread].Tls);
     return resume_current(context);
 }
 
@@ -776,7 +772,7 @@ WitArchFrame *wit_user_exception_trap(WitArchFrame *context, WitU64 vector, WitU
     thread->Context = context;
     if (wit_user_exception_deliver(current_user, context, vector, error, address)) {
         validate_return(context, current_user->CurrentThread, 0);
-        wit_arch_set_user_tls(thread->Tls, thread->CompilerTls);
+        wit_arch_set_user_tls(thread->Tls);
         return context;
     }
     /* A fault inside the handler of a fault reports the original fault; a fault inside the handler of an activation is
