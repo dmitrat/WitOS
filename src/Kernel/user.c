@@ -522,8 +522,12 @@ static int map_process(WitUserProcess *process, WitPageAllocator *allocator, con
         if (!wit_user_image_map(&process->Space, code, image, base)) {
             return 0;
         }
-    } else if (!wit_user_space_map(&process->Space, WIT_USER_CODE, 0, 1)) {
-        return 0;
+    } else {
+        for (WitU64 offset = 0; offset < code_size; offset += 4096) {
+            if (!wit_user_space_map(&process->Space, WIT_USER_CODE + offset, 0, 1)) {
+                return 0;
+            }
+        }
     }
     if (!wit_user_capture_tls(process, image) || !wit_user_space_map(&process->Space, WIT_USER_INFO, 0, 0)) {
         return 0;
@@ -534,9 +538,13 @@ static int map_process(WitUserProcess *process, WitPageAllocator *allocator, con
         }
     }
     if (!image) {
-        const WitU64 physical = wit_user_space_physical(&process->Space, WIT_USER_CODE, 0, 1);
-        for (WitU32 i = 0; i < code_size; ++i) {
-            ((WitU8 *)physical)[i] = code[i];
+        /* Page by page: the code's pages need not be contiguous in physical memory. */
+        for (WitU32 offset = 0; offset < code_size; offset += 4096) {
+            WitU8 *page = (WitU8 *)wit_user_space_physical(&process->Space, WIT_USER_CODE + offset, 0, 1);
+            const WitU32 bytes = code_size - offset < 4096 ? code_size - offset : 4096;
+            for (WitU32 i = 0; i < bytes; ++i) {
+                page[i] = code[offset + i];
+            }
         }
         wit_user_space_publish_code(&process->Space, WIT_USER_CODE, code_size);
     }
@@ -605,7 +613,8 @@ failed:
 int wit_user_create(
     WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const WitU8 *code, WitU32 code_size)
 {
-    if (!code || !code_size || code_size > 4096) {
+    /* The code window of a fixed component: the pages from WIT_USER_CODE to the startup block (K8.3). */
+    if (!code || !code_size || code_size > WIT_USER_INFO - WIT_USER_CODE) {
         return 0;
     }
     return create_process(process, allocator, slot, code, code_size, 0, 0, 0, 0) == WitPeOk;

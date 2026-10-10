@@ -174,8 +174,9 @@ tests/Kernel/                Kernel and user self-tests shared by both architect
 tests/Kernel.X64/            x64 kernel self-tests, linked only into WITOS_SELFTEST kernels
 tests/Kernel.A64/            ARM64 kernel self-tests, fault scenarios and user fault expectations
 tests/User/                  The root task, the layer-2 test programs and the fixture protocol
-tests/User.X64/              x64 mechanism and kernel-policy fixtures (MSVC until K8.3 and K8.4)
-tests/User.A64/              ARM64 mechanism fixtures, preprocessed with the ABI constants
+tests/User/Fixtures/         The mechanism fixtures in C, one source for both ISAs (K8.3)
+tests/User.X64/              x64 assembly fixtures left: three mechanism fixtures until K8.3b, the policy's until K8.4
+tests/User.A64/              ARM64 assembly fixtures left, preprocessed with the ABI constants
 tests/Runtime.Witos/         The witos runtime's platform check and its M3 acceptance
 tests/Expectations/          The boot markers each suite requires
 tests/WitOS.Dev.Tests/       Host tests (NUnit)
