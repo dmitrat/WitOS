@@ -134,6 +134,9 @@ WitU32 wit_arch_page_entry_flags(WitU64 entry);
 WitU64 wit_arch_page_entry_physical(WitU64 entry);
 WitU64 *wit_arch_page_entry(struct WitUserSpace *space, WitU64 address, int create);
 void wit_arch_page_prune(struct WitUserSpace *space, WitU64 address);
+/* The lowest page address in [address, end) whose leaf entry is not empty, or end; the walk skips every absent or
+ * supervisor table, so a sparse range costs its populated tables, not its pages (K9). */
+WitU64 wit_arch_page_next(const struct WitUserSpace *space, WitU64 address, WitU64 end);
 void wit_arch_page_invalidate(const struct WitUserSpace *space, WitU64 address);
 WitU64 wit_arch_page_translate(WitU64 root, WitU64 address, int write, int execute);
 int wit_arch_space_kernel_ready(void);

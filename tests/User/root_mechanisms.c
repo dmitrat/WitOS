@@ -299,13 +299,15 @@ static void pressure(void)
     expect(WIT_CALL_EVENT_SET, event, 0, 0, WIT_STATUS_DENIED); /* the kernel's alone: wait-only */
     wait_objects(&event, 1, 0, WIT_STATUS_TIMED_OUT);
 
-    /* Commit the headroom down to below the low mark: physical memory or the page quota, whichever is less. */
+    /* Commit the headroom down to below the low mark: physical memory or the page quota, whichever is less, and the
+     * page tables the commit takes from it, one for every 512 pages and at most three above them (K9). */
     expect(WIT_CALL_MEMORY_QUERY, (WitU64)&info, sizeof(info), WIT_MEMORY_INFO_VERSION, WIT_STATUS_OK);
     const WitU64 physical = info.PhysicalAvailableBytes / PAGE;
     const WitU64 quota = (info.OwnedLimitBytes - info.OwnedBytes) / PAGE;
     const WitU64 headroom = physical < quota ? physical : quota;
     check(headroom > WIT_PRESSURE_HIGH_PAGES + WIT_PRESSURE_LOW_PAGES, 51);
-    const WitU64 bytes = (headroom - (WIT_PRESSURE_LOW_PAGES - 4)) * PAGE; /* the rest takes page tables */
+    const WitU64 tables = headroom / 512 + 3;
+    const WitU64 bytes = (headroom - tables - (WIT_PRESSURE_LOW_PAGES - 8)) * PAGE;
     const WitU64 base = expect(WIT_CALL_MEMORY_RESERVE, bytes, PAGE, 0, WIT_STATUS_OK);
     expect(WIT_CALL_MEMORY_COMMIT, base, bytes, WIT_MEMORY_READ | WIT_MEMORY_WRITE, WIT_STATUS_OK);
     check(wait_objects(&event, 1, 0, WIT_STATUS_OK) == 0, 52);
