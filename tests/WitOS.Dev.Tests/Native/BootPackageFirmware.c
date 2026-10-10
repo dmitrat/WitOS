@@ -1,9 +1,15 @@
+#define _CRT_SECURE_NO_WARNINGS /* fopen and the rest of standard C on MSVC */
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include <sys/mman.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
+#include <stdint.h>
 #include "../../../src/Boot.Uefi/storage.c"
 #include "PackageReader.h"
 _Static_assert(offsetof(EfiBootServicesPrefix, AllocatePages) == 40, "UEFI AllocatePages offset");
@@ -111,6 +117,29 @@ static EfiStatus file_read(BootFile *file, WitU64 *count, void *output)
     return EFI_SUCCESS;
 }
 
+/* Pages at a fixed address below 4 GiB, as the firmware hands them out, or zero where the range is taken (plan step
+ * T2.2: Windows or POSIX memory calls). */
+static void *fixed_pages(uintptr_t at, WitU64 pages)
+{
+#if defined(_WIN32)
+    return VirtualAlloc((void *)at, (SIZE_T)pages * 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+#else
+    void *block = mmap((void *)at, (size_t)pages * 4096, PROT_READ | PROT_WRITE,
+        MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+    return block == MAP_FAILED || block != (void *)at ? 0 : block;
+#endif
+}
+
+static int release_pages(void *block, WitU64 pages)
+{
+#if defined(_WIN32)
+    (void)pages;
+    return VirtualFree(block, 0, MEM_RELEASE) != 0;
+#else
+    return munmap(block, (size_t)pages * 4096) == 0;
+#endif
+}
+
 static EfiStatus allocate_pages(WitU32 type, WitU32 memory, WitU64 pages, WitU64 *address)
 {
     ++allocCalls;
@@ -121,7 +150,7 @@ static EfiStatus allocate_pages(WitU32 type, WitU32 memory, WitU64 pages, WitU64
         return EFI_INVALID_PARAMETER;
     }
     for (uintptr_t at = 0x20000000; at < 0xE0000000; at += 0x200000) {
-        void *block = VirtualAlloc((void *)at, (SIZE_T)pages * 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+        void *block = fixed_pages(at, pages);
         if (block) {
             held[allocations] = block;
             heldPages[allocations++] = pages;
@@ -136,7 +165,7 @@ static EfiStatus free_pages(WitU64 address, WitU64 pages)
 {
     for (unsigned i = 0; i < allocations; ++i) {
         if (held[i] == (void *)address && heldPages[i] == pages) {
-            if (!VirtualFree(held[i], 0, MEM_RELEASE)) {
+            if (!release_pages(held[i], pages)) {
                 return EFI_INVALID_PARAMETER;
             }
             held[i] = 0;
@@ -149,8 +178,8 @@ static EfiStatus free_pages(WitU64 address, WitU64 pages)
 
 int boot_package_firmware_test(const char *path)
 {
-    FILE *file = 0;
-    if (fopen_s(&file, path, "rb") || !file) {
+    FILE *file = fopen(path, "rb");
+    if (!file) {
         return 0;
     }
     if (fseek(file, 0, SEEK_END)) {
