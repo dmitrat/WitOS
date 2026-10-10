@@ -220,6 +220,18 @@ internal static class RuntimeWitos
             throw new InvalidDataException($"The shared framework for witos-{architecture.Name} left no System.Console or reference pack ({framework}).");
         Console.WriteLine($"The shared framework for witos-{architecture.Name}: {Directory.GetFiles(framework, "*.dll").Length} libraries ({framework}).");
 
+        // CoreCLR's host on a managed program (R3.2): upstream's corerun with CoreCLR's CoreLib and the framework's
+        // libraries runs tests/Runtime.Witos/CoreRun/CoreRun.cs, every method of which the JIT compiles into the double
+        // mapping of a shared memory file.
+        var corerunImage = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_CORERUN_SCENARIO, architecture: architecture);
+        await BootScenarioRunner.RunAsync(root, corerunImage, new BootRequest($"{architecture.Name}-runtime-corerun-256", 256, 600, ExpectedOutcome.Success)
+        {
+            Architecture = architecture,
+            Suite = BootSuite.Release,
+            RequiredLines = [architecture.CoreRunLine, architecture.RootTaskPassedLine]
+        });
+        Console.WriteLine($"CoreCLR for witos-{architecture.Name}: corerun runs a managed Main through the JIT.");
+
         // NativeAOT's runtime pack for the architecture (R2.3b), as upstream packs it: the SDK's targets take it for a
         // publish with PublishAot.
         DropPackages(tree, $"Microsoft.NETCore.App.Runtime.NativeAOT.witos-{architecture.Name}");

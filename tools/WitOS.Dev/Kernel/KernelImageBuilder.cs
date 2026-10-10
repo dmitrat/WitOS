@@ -81,8 +81,8 @@ internal static class KernelImageBuilder
 
     /// <summary>
     /// CoreCLR's host for witos (R3.2): the system layer's root task starts tests/User/corerun_init.c as /bin/init, which
-    /// starts upstream's corerun on a managed program; not a suite scenario, since CoreCLR comes from the runtime's build on
-    /// a Linux host.
+    /// starts upstream's corerun on a managed program whose Main the JIT compiles; not a suite scenario, since CoreCLR comes
+    /// from the runtime's build on a Linux host, which boots it (runtime-witos).
     /// </summary>
     public const string RUNTIME_CORERUN_SCENARIO = "runtime-corerun";
 

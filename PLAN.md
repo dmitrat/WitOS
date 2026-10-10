@@ -62,7 +62,9 @@ try_run, измеренными в госте (R1.2b); ILC компилируе�
 NativeAOT работает в госте на обеих ISA и возвращает 0 (R2.1); приёмка M3 — пробы `NativeAotBoot`, перенесённые на
 Unix-форму, и пробы пула потоков, ожиданий и нехватки памяти — проходит на обеих ISA (R2.2, после K5.3); библиотеки
 классов upstream собираются для `witos`, и приёмка печатает через `System.Console` (R2.3a); программы собираются
-`dotnet publish -r witos-<arch>` целями SDK (R2.3b). Фаза R2 завершена.
+`dotnet publish -r witos-<arch>` целями SDK (R2.3b). Фаза R2 завершена. CoreCLR: нативная часть собирается для
+`witos` и загружается в госте (R3.1), а upstream `corerun` выполняет managed `Main` через JIT на обеих ISA — код в
+двойном отображении разделяемой памяти над объектами памяти (R3.2).
 
 **Переносится как знание.** Адаптеры GC и PAL NativeAOT (написаны против Windows-формы PAL, нужны против Unix-формы);
 диспетчер раскрутки (таблицы станут DWARF); порядок инициализации рантайма; протоколы приёмки M3 и P5.
@@ -77,8 +79,8 @@ Windows-сборки хоста и `coreclr.dll`, Win32-адаптеры с их
 
 **Ещё нет, хотя требуется документами:** планировщик на N процессоров (фаза P: вторичные процессоры запущены и
 обслуживают межпроцессорные запросы, но потоки на них не исполняются); записываемое хранилище и драйверы; .NET
-Unix-формы в госте сверх NativeAOT (CoreCLR — R3: нативная часть собирается и загружается с R3.1, managed-код ещё
-не исполняется; хосты — R5).
+Unix-формы в госте сверх NativeAOT и первого managed `Main` под CoreCLR через JIT (R3.2b; приёмка M3 под CoreCLR —
+R3.3, хосты — R5).
 
 ## 4. Решения
 
@@ -630,7 +632,7 @@ Unix-формы в госте сверх NativeAOT (CoreCLR — R3: нативн
     свою копию. Сценарий `runtime-coreclr`: `tests/User/coreclr_init.c` загружает рантайм и JIT из `/coreclr` и
     находит точки входа хоста и JIT на обеих ISA. Нашёл K9: `dlopen` JIT упирался в 2048 записей алиасов. Патч-набор
     — 23 файла (CoreCLR 8 из 31 у FreeBSD и 18 у Haiku).
-  - [ ] **R3.2** `corerun` и managed `Main` через JIT: CoreLib CoreCLR для `witos`, `coreclr_initialize` с TPA,
+  - [x] **R3.2** `corerun` и managed `Main` через JIT: CoreLib CoreCLR для `witos`, `coreclr_initialize` с TPA,
     исполняемая память JIT через объекты памяти (двойное отображение W^X), инициализация PAL без `/proc`. Срезами:
     - [x] **R3.2a** Что нужно PAL CoreCLR от системного слоя ([R3.2a-PAL-Prerequisites.md](@Docs/Implementation/R3.2a-PAL-Prerequisites.md)):
       сценарий `runtime-corerun` — `tests/User/corerun_init.c` запускает upstream `corerun` из `/coreclr` на
@@ -643,11 +645,18 @@ Unix-формы в госте сверх NativeAOT (CoreCLR — R3: нативн
       делает её `PROT_NONE`, ядро отказывало целиком); строка сбоя x64 называет RIP, как ARM64 — ELR. Проверки — в
       `libc_hello.c` и `process_init.c` обеих ISA. `coreclr_initialize` теперь доходит до двойного отображения: `shm_open`
       отказывает (`EROFS`), а без W^X нужна память RWX, которую WitOS не даёт, — это R3.2b.
-    - [ ] **R3.2b** Исполняемая память JIT: разделяемая память POSIX в libc (`shm_open`/`memfd`, `ftruncate`, `mmap`
-      `MAP_SHARED`) над объектами памяти — RX- и RW-виды одних страниц, как требует RFC-0011 §7.2; квоты объектов,
-      хэндлов и резервирований процесса под JIT; на ARM64 EL0 обслуживает кэши по VA (`SCTLR_EL1.UCT`/`UCI`, как в
-      Linux), потому что `__clear_cache` в образах CoreCLR выполняет `DC CVAU`/`IC IVAU` сам.
-    - [ ] **R3.2c** managed `Main` через JIT на обеих ISA.
+    - [x] **R3.2b** Исполняемая память JIT и первый managed `Main` ([R3.2b-JIT-Executable-Memory.md](@Docs/Implementation/R3.2b-JIT-Executable-Memory.md)):
+      разделяемая память внутри процесса в libc (`shared.c`): `/dev/shm/<имя>` (`shm_open`/`shm_unlink` musl) и
+      `memfd_create`, `ftruncate`, `fstat`; файл — последовательность чанков, каждый — анонимный объект памяти в 64
+      страницы, создаваемый обнулённым при первом отображении; `mmap` `MAP_SHARED` — окно объекта на каждый
+      покрытый чанк подряд, поэтому RW- и RX-виды двойного отображения CoreCLR показывают одни страницы (RFC-0011
+      §7.2), `mprotect` и частичный `munmap` режут отображение чанка по границам диапазона; на ARM64 EL0 читает
+      `CTR_EL0` и обслуживает кэши по VA до PoU (`SCTLR_EL1.UCT`/`UCI`, как в Linux) — `__clear_cache` в образах
+      CoreCLR делает это сам; резервирований процесса системного слоя и записей таблицы отображений libc — 1024
+      (CoreCLR с JIT занимал 249 из 256, и `dlopen` JIT падал). Сценарий `runtime-corerun`:
+      `[CORERUN] managed Main through the JIT on X64`/`Arm64` на обеих ISA, `runtime-witos` загружает его после
+      shared framework; Hello World берёт 13 чанков (3,25 МиБ). Проверки — в `libc_hello.c` обеих ISA: код, записанный
+      через RW-вид на границе двух чанков, исполняется через RX-вид.
   - [ ] **R3.3** Приёмка M3 под CoreCLR (GC, исключения, финализация, потоки) на обеих ISA; снятие `-ffixed-x18`.
 - [ ] **R4** `System.Native` для witos (RFC-0015 §5, §8): файлы над пакетом (`mmap` файла — `ENODEV` до сервиса), затем
   над сервисом хранилища (D5); время; окружение; процессы без `fork`/`exec` на первом шаге (`Process.Start` —

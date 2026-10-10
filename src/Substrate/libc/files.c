@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/uio.h>
 #include "kstat.h"
@@ -30,7 +31,8 @@
  * slots of the same table: an empty slot is its standard stream until closed, a closed one is free for the lowest
  * descriptor an open or a dup takes, and dup2 may put a file, a pipe or another stream there, which then stands for
  * that descriptor within this process (a started process gets the log for each standard stream the caller has open
- * as the log, and no other). The ends of a pipe (pipe.c) are descriptors too. */
+ * as the log, and no other). The ends of a pipe (pipe.c) are descriptors too, and so are shared memory files
+ * (shared.c, R3.2b): /dev/shm/<name>, which open may create and unlink may remove, and memfd_create's. */
 
 #define PACKAGE_HANDLE (__wit_process.Package)
 #define PAGE 4096ULL
@@ -53,7 +55,8 @@ typedef enum Kind {
     KindRandom, /* /dev/urandom and /dev/random: read the kernel's entropy, accept writes, as Linux's do */
     KindStream, /* a duplicate of standard stream Index (0, 1 or 2) */
     KindPipeRead, /* the read end of pipe Index (pipe.c) */
-    KindPipeWrite /* the write end of pipe Index */
+    KindPipeWrite, /* the write end of pipe Index */
+    KindShared /* shared memory file Index (shared.c, R3.2b) */
 } Kind;
 
 typedef struct Descriptor {
@@ -364,6 +367,9 @@ static void close_descriptor(Descriptor *d)
         __wit_pipe_end(d->Index, d->Kind == KindPipeWrite, -1);
         __wit_pipe_release(d->Index);
     }
+    if (d->Kind == KindShared) {
+        __wit_shared_release(d->Index);
+    }
     --descriptions[d->Description].References;
     d->Kind = KindClosed;
 }
@@ -521,6 +527,8 @@ long __wit_set_directory(const char *path, long bytes)
     return bytes ? normalize(terminated, directory, &directory_length) : 0;
 }
 
+static int shared_name(const unsigned char *name, WitU32 length);
+
 long __wit_openat(long dirfd, const char *path, long flags, long mode)
 {
     unsigned char name[NAME_MAX_BYTES];
@@ -534,6 +542,20 @@ long __wit_openat(long dirfd, const char *path, long flags, long mode)
     }
     if ((status = resolve(dirfd, path, name, &length)) < 0) {
         return status;
+    }
+    if (shared_name(name, length)) {
+        WitU32 file = 0;
+        if ((flags & O_ACCMODE) == O_WRONLY || (flags & (O_APPEND | O_DIRECTORY))) {
+            return -EINVAL;
+        }
+        if ((status = __wit_shared_open(name + 8, length - 8, flags, &file)) < 0) {
+            return status;
+        }
+        const long fd = open_descriptor(KindShared, file, 0, (int)flags);
+        if (fd < 0) {
+            __wit_shared_release(file);
+        }
+        return fd;
     }
     if ((flags & (O_CREAT | O_TRUNC | O_APPEND)) || (flags & O_TMPFILE) == O_TMPFILE) {
         return -EROFS; /* nothing is created, truncated or appended to; O_TMPFILE carries O_DIRECTORY, so it is compared whole */
@@ -571,6 +593,69 @@ long __wit_close(long fd)
     }
     close_descriptor(d);
     return 0;
+}
+
+/* A path under /dev/shm names a shared memory file (R3.2b). */
+static int shared_name(const unsigned char *name, WitU32 length)
+{
+    return length > 8 && memcmp(name, "dev/shm/", 8) == 0;
+}
+
+/* memfd_create: an anonymous shared memory file, read and written through its mappings (R3.2b). */
+long __wit_memfd_create(const char *name, long flags)
+{
+    WitU32 file = 0;
+    long status;
+    (void)name;
+    if (flags & ~(long)(MFD_CLOEXEC | MFD_ALLOW_SEALING)) {
+        return -EINVAL;
+    }
+    if ((status = __wit_shared_anonymous(&file)) < 0) {
+        return status;
+    }
+    const long fd = open_descriptor(KindShared, file, 0, O_RDWR | ((flags & MFD_CLOEXEC) ? O_CLOEXEC : 0));
+    if (fd < 0) {
+        __wit_shared_release(file);
+    }
+    return fd;
+}
+
+/* ftruncate: a shared memory file takes the size; a file of the package is never writable. */
+long __wit_ftruncate(long fd, long size)
+{
+    const Descriptor *d = descriptor(fd);
+    if (!d) {
+        return __wit_stream_of(fd) >= 0 ? -EINVAL : -EBADF;
+    }
+    if (size < 0 || d->Kind != KindShared || (descriptions[d->Description].StatusFlags & O_ACCMODE) == O_RDONLY) {
+        return -EINVAL;
+    }
+    return __wit_shared_truncate(d->Index, (WitU64)size);
+}
+
+/* unlinkat: a shared memory file's name goes (R3.2b); the package is read-only, and a directory is never removed. */
+long __wit_unlinkat(long dirfd, const char *path, long flags)
+{
+    unsigned char name[NAME_MAX_BYTES];
+    WitU32 length = 0, index = 0;
+    Kind kind;
+    long status;
+    if (flags & ~(long)AT_REMOVEDIR) {
+        return -EINVAL;
+    }
+    if ((status = mount()) < 0) {
+        return status;
+    }
+    if ((status = resolve(dirfd, path, name, &length)) < 0) {
+        return status;
+    }
+    if (shared_name(name, length)) {
+        return (flags & AT_REMOVEDIR) ? -ENOTDIR : __wit_shared_unlink(name + 8, length - 8);
+    }
+    if ((status = lookup(name, length, &kind, &index)) < 0) {
+        return status;
+    }
+    return -EROFS;
 }
 
 /* Reads bytes of a file through windows of the package object. */
@@ -631,6 +716,9 @@ long __wit_read(long fd, void *buffer, long bytes)
     if (d->Kind == KindRandom) {
         return read_random(buffer, bytes);
     }
+    if (d->Kind == KindShared) {
+        return -EINVAL; /* a shared memory file is read through a mapping */
+    }
     if (d->Kind != KindFile) {
         return -EBADF; /* a stream or a pipe never reaches here (syscall.c) */
     }
@@ -662,6 +750,9 @@ long __wit_pread(long fd, void *buffer, long bytes, long offset)
     }
     if (d->Kind == KindRandom) {
         return read_random(buffer, bytes);
+    }
+    if (d->Kind == KindShared) {
+        return -EINVAL; /* a shared memory file is read through a mapping */
     }
     if (d->Kind != KindFile) {
         return -ESPIPE;
@@ -710,7 +801,7 @@ long __wit_lseek(long fd, long offset, long whence)
     if (d->Kind == KindStream || d->Kind == KindPipeRead || d->Kind == KindPipeWrite) {
         return -ESPIPE;
     }
-    WitU64 length = 0;
+    WitU64 length = d->Kind == KindShared ? __wit_shared_size(d->Index) : 0;
     if (d->Kind == KindFile) {
         const unsigned char *name;
         WitU32 name_length;
@@ -759,6 +850,12 @@ static void fill_stat(struct kstat *st, Kind kind, WitU32 index, WitU64 length)
     } else if (kind == KindStream) {
         st->st_ino = 3; /* the standard streams' device */
         st->st_mode = S_IFCHR | 0666;
+    } else if (kind == KindShared) {
+        st->st_dev = 3;
+        st->st_ino = (ino_t)index + 1;
+        st->st_mode = S_IFREG | 0600;
+        st->st_size = (off_t)length;
+        st->st_blocks = (blkcnt_t)((length + 511) / 512);
     } else {
         st->st_ino = 2;
         st->st_mode = S_IFCHR | 0666;
@@ -789,7 +886,7 @@ long __wit_fstatat(long dirfd, const char *path, struct kstat *st, long flags)
         if (!d) {
             return -EBADF;
         }
-        WitU64 data = 0, file_length = 0;
+        WitU64 data = 0, file_length = d->Kind == KindShared ? __wit_shared_size(d->Index) : 0;
         if (d->Kind == KindFile) {
             const unsigned char *n;
             WitU32 n_length;
@@ -1073,6 +1170,9 @@ static void duplicate_into(long target, long stream, const Descriptor *source, i
         __wit_pipe_reference(source->Index);
         __wit_pipe_end(source->Index, source->Kind == KindPipeWrite, 1);
     }
+    if (source->Kind == KindShared) {
+        __wit_shared_reference(source->Index);
+    }
 }
 
 /* dup and F_DUPFD: the lowest free descriptor at or above lowest. */
@@ -1167,8 +1267,8 @@ long __wit_pipe_bytes(long fd)
 }
 
 /* What mmap (memory.c, S5.1) maps for a descriptor: a package file's data offset in the package and its length
- * (0), or /dev/zero, which maps as anonymous memory (1); nothing else is mappable. libwitos's loader reads the
- * same (S5.2). */
+ * (0), /dev/zero, which maps as anonymous memory (1), or a shared memory file, its index and size (2, R3.2b);
+ * nothing else is mappable. libwitos's loader reads the same (S5.2). */
 long __wit_file_map_source(long fd, WitU64 *source, WitU64 *length)
 {
     const Descriptor *d = descriptor(fd);
@@ -1177,6 +1277,11 @@ long __wit_file_map_source(long fd, WitU64 *source, WitU64 *length)
     }
     if (d->Kind == KindZero) {
         return 1;
+    }
+    if (d->Kind == KindShared) {
+        *source = d->Index;
+        *length = __wit_shared_size(d->Index);
+        return (descriptions[d->Description].StatusFlags & O_ACCMODE) == O_RDONLY ? 3 : 2;
     }
     if (d->Kind != KindFile) {
         return -ENODEV;
