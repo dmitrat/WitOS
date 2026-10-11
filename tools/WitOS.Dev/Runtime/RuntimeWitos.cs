@@ -101,6 +101,16 @@ internal static class RuntimeWitos
     public const int PORTABLE_APP_CHECKS = 12;
 
     /// <summary>
+    /// The runner of CoreCLR's PAL suite (R7.1), the runtime-palsuite scenario's /bin/init.
+    /// </summary>
+    public const string PALSUITE_PROGRAM = "tests/User/palsuite_runner.c";
+
+    /// <summary>
+    /// The tests of upstream's paltestlist.txt the PAL suite leaves out, each with its reason (R7.1).
+    /// </summary>
+    public const string PALSUITE_SELECTION = "build/runtime/palsuite.json";
+
+    /// <summary>
     /// The runs of the acceptance: four cycles of its eight probes (R2.2).
     /// </summary>
     public const int ACCEPTANCE_RUNS = 32;
@@ -168,6 +178,9 @@ internal static class RuntimeWitos
         ["src/coreclr/pal/src/thread/process.cpp"] = "src.coreclr.pal.src.thread.process.cpp",
         ["src/coreclr/vm/gcenv.ee.cpp"] = "src.coreclr.vm.gcenv.ee.cpp",
         ["src/coreclr/pal/src/init/pal.cpp"] = "src.coreclr.pal.src.init.pal.cpp",
+        // The PAL suite's side-by-side test (R7.1): its second library's version script.
+        ["src/coreclr/pal/tests/palsuite/exception_handling/pal_sxs/test1/CMakeLists.txt"] =
+            "src.coreclr.pal.tests.palsuite.exception_handling.pal_sxs.test1.CMakeLists.txt",
         ["src/native/external/libunwind.cmake"] = "src.native.external.libunwind.cmake",
         // System.Native's profile for witos (R4.1): cryptography without OpenSSL.
         ["src/libraries/System.Security.Cryptography/src/System.Security.Cryptography.csproj"] =
@@ -218,8 +231,9 @@ internal static class RuntimeWitos
         Console.WriteLine($"NativeAOT for witos-{architecture.Name}: the native runtime, AsmOffsets.cs and CoreLib ({Path.Combine(output, "aotsdk")}).");
 
         // CoreCLR's native part (R3.1): the runtime, the JIT and corerun, cross-compiled against the sysroot as dynamic
-        // images for musl's dynamic linker; the guest loads the runtime and the JIT and resolves their entry points.
-        await RunBuildAsync(tree, ["clr.runtime+clr.jit", "-os", "witos", "-arch", architecture.Name, "-c", "Release", "-cross"],
+        // images for musl's dynamic linker; the guest loads the runtime and the JIT and resolves their entry points. The PAL
+        // suite (R7.1) is upstream's paltests, one dynamic program of every test.
+        await RunBuildAsync(tree, ["clr.runtime+clr.jit+clr.paltests", "-os", "witos", "-arch", architecture.Name, "-c", "Release", "-cross"],
             environment);
         foreach (var coreclrFile in CORECLR_IMAGES)
         {
@@ -234,6 +248,16 @@ internal static class RuntimeWitos
             RequiredLines = [KernelArchitecture.CoreClrLoadedLine, architecture.RootTaskPassedLine]
         });
         Console.WriteLine($"CoreCLR for witos-{architecture.Name}: {string.Join(", ", CORECLR_IMAGES)}; the runtime and the JIT load in the guest ({output}).");
+
+        // CoreCLR's PAL suite (R7.1): upstream's paltestlist.txt less the tests palsuite.json leaves out, a process a test.
+        var palsuite = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_PALSUITE_SCENARIO, architecture: architecture);
+        await BootScenarioRunner.RunAsync(root, palsuite, new BootRequest($"{architecture.Name}-runtime-palsuite-256", 256, 3600, ExpectedOutcome.Success)
+        {
+            Architecture = architecture,
+            Suite = BootSuite.Release,
+            RequiredLines = [architecture.PalSuitePassedLine, architecture.RootTaskPassedLine]
+        });
+        Console.WriteLine($"CoreCLR for witos-{architecture.Name}: the PAL suite passed in the guest.");
 
         // The class libraries above CoreLib (R2.3a): upstream's shared framework for witos, which takes the libraries' Unix
         // flavors, and the reference pack programs compile against.
@@ -696,6 +720,72 @@ internal static class RuntimeWitos
             }
         }
         return [.. found];
+    }
+
+    /// <summary>
+    /// The package of CoreCLR's PAL suite (R7.1): tests/User/palsuite_runner.c as /bin/init, the build's paltests
+    /// directory under /paltests (paltests and the programs and libraries of the tests built apart, without the scripts
+    /// and the list), the selection, upstream's paltestlist.txt less the tests palsuite.json leaves out, in
+    /// /paltests/selection, musl's libc.so as the dynamic linker and the shared C++ runtime in /lib.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Artifact directory of the scenario.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>Package paths and the files to place there.</returns>
+    public static async Task<IReadOnlyList<(string Name, string Source)>> BuildPalSuitePackageAsync(string root, string output,
+        KernelArchitecture architecture)
+    {
+        var paltests = Path.Combine(root, "artifacts", "runtime-witos", "src", "artifacts", "bin", "coreclr",
+            $"witos.{architecture.Name}.Release", "paltests");
+        var list = Path.Combine(paltests, "paltestlist.txt");
+        if (!File.Exists(Path.Combine(paltests, "paltests")) || !File.Exists(list))
+            throw new InvalidOperationException($"No PAL suite for witos in {paltests}. Run: dotnet run --project tools/WitOS.Dev -- runtime-witos --arch {architecture.Name}");
+        var tests = (await File.ReadAllLinesAsync(list)).Select(line => line.Trim()).Where(line => line.Length > 0).ToList();
+        var excluded = PalSuiteExclusions(root);
+        var unknown = excluded.Keys.Where(test => !tests.Contains(test, StringComparer.Ordinal)).ToList();
+        if (unknown.Count > 0)
+            throw new InvalidDataException($"{PALSUITE_SELECTION} leaves out tests paltestlist.txt does not name: {string.Join(", ", unknown)}.");
+        var selection = Path.Combine(output, "palsuite-selection.txt");
+        await File.WriteAllTextAsync(selection, string.Join("\n", tests.Where(test => !excluded.ContainsKey(test))) + "\n");
+        var sysroot = await Sysroot.BuildAsync(root, architecture);
+        var init = Path.Combine(output, "palsuite_runner.elf");
+        // The program is C: the driver's C++ library option would be an unused argument.
+        await Processes.RequireSuccessAsync(Toolchain.Clang(root),
+        [
+            .. Sysroot.DriverOptions(root, architecture).Where(option => option != "-stdlib=libc++"), "-std=c17", "-O2", "-Wall",
+            "-Wextra", "-Werror", $"-DPALSUITE_EXCLUDED={excluded.Count}", Path.Combine(root, PALSUITE_PROGRAM), "-o", init
+        ], root);
+        var lib = Path.Combine(sysroot, "usr", "lib");
+        return
+        [
+            ("bin/init", init), ("paltests/selection", selection),
+            .. Directory.EnumerateFiles(paltests, "*", SearchOption.AllDirectories)
+                .Where(file => !file.EndsWith(".sh", StringComparison.Ordinal) && file != list)
+                .Order(StringComparer.Ordinal)
+                .Select(file => ("paltests/" + Path.GetRelativePath(paltests, file).Replace('\\', '/'), file)),
+            (MuslLibc.InterpreterPath(architecture).TrimStart('/'), Path.Combine(lib, "libc.so")),
+            ("lib/libc++.so.1", Path.Combine(lib, "libc++.so.1")), ("lib/libc++abi.so.1", Path.Combine(lib, "libc++abi.so.1")),
+            ("lib/libunwind.so.1", Path.Combine(lib, "libunwind.so.1"))
+        ];
+    }
+
+    /// <summary>
+    /// The tests the PAL suite leaves out (R7.1) and the reason for each.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>The test names of paltestlist.txt and their reasons.</returns>
+    public static IReadOnlyDictionary<string, string> PalSuiteExclusions(string root)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, PALSUITE_SELECTION)));
+        var excluded = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var test in document.RootElement.GetProperty("excluded").EnumerateObject())
+        {
+            var reason = test.Value.GetString();
+            if (string.IsNullOrWhiteSpace(reason))
+                throw new InvalidDataException($"{PALSUITE_SELECTION} leaves out {test.Name} without a reason.");
+            excluded.Add(test.Name, reason);
+        }
+        return excluded;
     }
 
     /// <summary>

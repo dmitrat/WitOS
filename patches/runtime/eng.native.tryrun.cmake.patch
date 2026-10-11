@@ -1,7 +1,7 @@
 Source: eng/native/tryrun.cmake
 Output: eng.native.tryrun.cmake
 Before: f04ed39aecde347ee190c6a5eae5622e1a606bd2e9b1d51c4dc7ac13096dd1f6
-After: 9ad6d7586d850585c4f9cd41e6bec4512ac50bae7946aef97098be30b8e101bc
+After: 460d175e3297fe7fecb4b121c576c950cbb04df91315ea8690ee27a8d996b11d
 
 The answers witos gives the configure's try_run probes (plan step R1.2b), which a cross build cannot run:
 runtime-witos measures them in the guest, running every probe the configure compiled for witos under the system layer,
@@ -26,7 +26,7 @@ and requires that this file answers as the guest does.
 +if(WITOS)
 +  # WitOS's answers, measured in the guest (plan step R1.2b): runtime-witos runs every probe the configure compiles for
 +  # witos under the system layer and requires that this block answers as the guest does. WitOS has no /proc, no fork
-+  # and no writable file yet, and reports neither processor time nor scheduling priorities.
++  # and no writable file yet, reports no processor time and runs every thread at one priority (R7.1).
 +  set_cache_value(HAS_POSIX_SEMAPHORES_EXITCODE 0)
 +  set_cache_value(HAVE_CLOCK_MONOTONIC_EXITCODE 0)
 +  set_cache_value(HAVE_CLOCK_REALTIME_EXITCODE 0)
@@ -35,7 +35,7 @@ and requires that this file answers as the guest does.
 +  set_cache_value(HAVE_PROCFS_CTL_EXITCODE 1)
 +  set_cache_value(HAVE_PROCFS_STAT_EXITCODE 1)
 +  set_cache_value(HAVE_PROCFS_STATM_EXITCODE 1)
-+  set_cache_value(HAVE_SCHED_GET_PRIORITY_EXITCODE 1)
++  set_cache_value(HAVE_SCHED_GET_PRIORITY_EXITCODE 0)
 +  set_cache_value(HAVE_SHM_OPEN_THAT_WORKS_WELL_ENOUGH_WITH_MMAP_EXITCODE 255)
 +  set_cache_value(HAVE_WORKING_CLOCK_GETTIME_EXITCODE 0)
 +  set_cache_value(HAVE_WORKING_GETTIMEOFDAY_EXITCODE 0)

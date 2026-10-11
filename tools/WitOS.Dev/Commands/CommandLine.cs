@@ -121,6 +121,14 @@ internal static class CommandLine
                 Suite = BootSuite.Release,
                 RequiredLines = [KernelArchitecture.PortableAppPassedLine, architecture.RootTaskPassedLine]
             }]),
+        new CommandScenario("runtime-palsuite",
+            "Boot CoreCLR's PAL suite for witos, a process a test of upstream's paltestlist.txt less build/runtime/palsuite.json (R7.1)",
+            KernelImageBuilder.RUNTIME_PALSUITE_SCENARIO,
+            architecture => [new BootRequest("runtime-palsuite-256", 256, 3600, ExpectedOutcome.Success)
+            {
+                Suite = BootSuite.Release,
+                RequiredLines = [architecture.PalSuitePassedLine, architecture.RootTaskPassedLine]
+            }]),
         new CommandArchitecture("runtime-witos",
             "Apply the witos patch set to the pinned dotnet/runtime on a Linux host; build CoreLib, then NativeAOT's native part and CoreLib against the sysroot, measure the configure's try_run answers in the guest, compile programs for witos with ILC and run the first program and the M3 acceptance in the guest (R1.1, R1.2b, R1.3, R2.1, R2.2)",
             RuntimeWitos.BuildAsync),

@@ -1,13 +1,38 @@
 Source: ldso/dynlink.c
 Output: dynlink.c
 Before: 7d6d6bfd3aafc7eb3331c37752a37fcf1e568452d2ca5be9009669386571cbbb
-After: e3ad1e464287376045361cf2b0a9a5d959089a6dffb572f71731dd3512d4abe3
+After: f4b1151729d976adf4ab8350b9882da9a3ff6f4231f63a18c24e93c28852c839
 
 WitOS starts a dynamic program as a static one: its creator maps it and its interpreter, builds the Linux stack image and sends the process's capabilities (the kernel log and the boot package) in a start message on the channel endpoint the auxiliary vector names (witos/start.h). The dynamic linker opens libraries and may write a diagnostic before the program's own startup runs, so its third stage takes the start message first, as rcrt1.c does for a static program before __libc_start_main.
 
+A dynamic program's RUNPATH of $ORIGIN (plan step R7.1): musl reads /proc/self/exe for the directory of a main program the kernel mapped, and WitOS has no /proc. The program's path is AT_EXECFN, the path its creator started it by, which __dls3 already takes as the program's name; a relative one resolves against the directory the program starts in, as the name does.
+
 --- a/ldso/dynlink.c
 +++ b/ldso/dynlink.c
-@@ -1796,6 +1796,9 @@
+@@ -925,19 +925,9 @@
+ 		 * (either system paths or a call to dlopen). */
+ 		if (libc.secure)
+ 			return 0;
+-		l = readlink("/proc/self/exe", buf, buf_size);
+-		if (l == -1) switch (errno) {
+-		case ENOENT:
+-		case ENOTDIR:
+-		case EACCES:
+-			return 0;
+-		default:
+-			return -1;
+-		}
+-		if (l >= buf_size)
+-			return 0;
+-		buf[l] = 0;
+-		origin = buf;
++		/* WitOS (plan step R7.1): there is no /proc. The program's path is AT_EXECFN, the
++		 * path its creator started it by, which __dls3 already took as its name. */
++		origin = p->name;
+ 	} else {
+ 		origin = p->name;
+ 	}
+@@ -1796,6 +1786,9 @@
   * process dependencies and relocations for the main application and
   * transfer control to its entry point. */
  
@@ -17,7 +42,7 @@ WitOS starts a dynamic program as a static one: its creator maps it and its inte
  void __dls3(size_t *sp, size_t *auxv)
  {
  	static struct dso app, vdso;
-@@ -1818,6 +1821,10 @@
+@@ -1818,6 +1811,10 @@
  	libc.page_size = aux[AT_PAGESZ];
  	libc.secure = ((aux[0]&0x7800)!=0x7800 || aux[AT_UID]!=aux[AT_EUID]
  		|| aux[AT_GID]!=aux[AT_EGID] || aux[AT_SECURE]);

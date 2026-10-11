@@ -714,7 +714,20 @@ Unix-формы в госте сверх неизменённого прилож
   the kernel idle path»).
   Патч-набор — 25 файлов.
 - [ ] **R7** Тесты upstream в QEMU (RFC-0015 §9): `palsuite`, срезы `src/tests` (JIT, GC, EH), срезы тестов библиотек;
-  инфраструктура запуска и отчёт.
+  инфраструктура запуска и отчёт. Срезами:
+  - [x] **R7.1** PAL suite ([R7.1-PAL-Suite.md](@Docs/Implementation/R7.1-PAL-Suite.md)): `runtime-witos` собирает
+    `clr.paltests` для `witos`; сценарий `runtime-palsuite` запускает `tests/User/palsuite_runner.c`, который гонит каждый
+    тест `paltestlist.txt` (305) отдельным процессом, как `runpaltests.sh`, за вычетом 59 тестов
+    `build/runtime/palsuite.json` с причиной у каждого (41 пишут файлы — пакет только для чтения до D5/D6; 9 просят
+    исполняемую анонимную память; 3 запускают процессы через `fork`; 5 держат 64 потока при квоте 32; 1 ждёт `EFAULT` от
+    канала внутри процесса): `all 246 tests passed` на обеих ISA. Найдено и сделано: libc отвечает о политике потока
+    как Linux о нормальном потоке — `SCHED_OTHER` с приоритетом 0 (`SetThreadPriority` PAL; ответ
+    `HAVE_SCHED_GET_PRIORITY` в `tryrun.cmake` — 0 по измерению в госте); `$ORIGIN` главной программы —
+    каталог её `AT_EXECFN` (второй хук WitOS в `dynlink.c` musl: `/proc/self/exe` нет); патч CMake теста `pal_sxs` —
+    скрипт версий второй библиотеки для `witos`, как для Linux (без него её вызовы PAL связывались с PAL первой
+    библиотеки). Патч-набор — 26 файлов.
+  - [ ] **R7.2** Срезы `src/tests` (JIT, GC, EH) под `corerun`: раннер тестов в госте и отчёт.
+  - [ ] **R7.3** Срезы тестов библиотек.
 - [ ] **R8** Репетиция апгрейда (RFC-0015 §4): rebase патч-набора на следующий 10.0.x и на preview .NET 11 с измерением
   объёма.
 

@@ -244,6 +244,20 @@ int main(void)
             sched_setaffinity(0, sizeof(none), &none) == -1 &&
             errno == EINVAL,
         "sched_setaffinity");
+    /* One priority for every thread, which Linux reports of a normal thread (R7.1): SCHED_OTHER at 0. */
+    struct sched_param priority = {.sched_priority = 1};
+    int policy = -1;
+    check(pthread_getschedparam(pthread_self(), &policy, &priority) == 0 &&
+            policy == SCHED_OTHER &&
+            priority.sched_priority == 0 &&
+            sched_get_priority_min(SCHED_OTHER) == 0 &&
+            sched_get_priority_max(SCHED_OTHER) == 0 &&
+            sched_get_priority_max(SCHED_FIFO) == -1 &&
+            errno == EINVAL,
+        "a thread's policy and priority");
+    check(pthread_setschedparam(pthread_self(), SCHED_OTHER, &priority) == 0 &&
+            pthread_setschedparam(pthread_self(), SCHED_FIFO, &priority) == ENOSYS,
+        "setting the normal policy changes nothing; another is refused");
     pthread_attr_t attributes;
     void *stack = 0;
     size_t stack_size = 0;

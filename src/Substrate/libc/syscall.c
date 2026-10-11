@@ -640,6 +640,17 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
         return __wit_sched_getaffinity(a1, a2, (unsigned char *)a3);
     case SYS_sched_setaffinity:
         return __wit_sched_setaffinity(a1, a2, (const unsigned char *)a3);
+    case SYS_sched_getscheduler:
+        return __wit_sched_getscheduler(a1);
+    case SYS_sched_getparam:
+        return __wit_sched_getparam(a1, (struct sched_param *)a2);
+    case SYS_sched_get_priority_min:
+    case SYS_sched_get_priority_max:
+        return __wit_sched_priority(a1);
+    case SYS_sched_setscheduler:
+        return __wit_sched_setscheduler(a1, a2, (const struct sched_param *)a3);
+    case SYS_sched_setparam:
+        return __wit_sched_setparam(a1, (const struct sched_param *)a2);
     case SYS_mmap:
         return __wit_mmap(a1, a2, a3, a4, a5, a6);
     case SYS_munmap:
