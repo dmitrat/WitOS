@@ -756,14 +756,79 @@ int main(void)
             "munmap of part of a chunk's mapping");
         check(munmap(writable, 4 * 4096) == 0 && munmap(executable, 4 * 4096) == 0, "the shared mappings unmapped");
     }
-    check(mmap(0, 4096, PROT_READ, MAP_PRIVATE, shm, 0) == MAP_FAILED &&
-            errno == ENOSYS &&
+    unsigned char *copy = mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE, shm, chunk - 4096);
+    unsigned char kept = 0;
+    check(copy != MAP_FAILED &&
+            copy[0] == 0x5A &&
+            (copy[0] = 1, pread(shm, &kept, 1, chunk - 4096) == 1) &&
+            kept == 0x5A &&
+            munmap(copy, 4096) == 0 &&
             mmap(0, 2 * 4096, PROT_READ, MAP_SHARED, shm, 2 * chunk - 4096) == MAP_FAILED &&
-            errno == ENXIO &&
-            read(shm, got, 1) == -1 &&
-            errno == EINVAL &&
+            errno == ENXIO,
+        "a private mapping of a shared memory file is a copy (R7.2a); nothing maps past the end");
+    /* A descriptor reads and writes a shared memory file as Linux's tmpfs does (R7.2a): what a write stored a mapping
+     * shows, a chunk nobody wrote reads as zeros, and a write past the end grows the file. */
+    char stored[8] = {0};
+    unsigned char *seen = mmap(0, 4096, PROT_READ, MAP_SHARED, shm, chunk);
+    check(pwrite(shm, "chunk", 5, chunk) == 5 &&
+            seen != MAP_FAILED &&
+            memcmp(seen, "chunk", 5) == 0 &&
+            pread(shm, stored, 5, chunk) == 5 &&
+            memcmp(stored, "chunk", 5) == 0 &&
+            lseek(shm, 2 * chunk - 2, SEEK_SET) == 2 * chunk - 2 &&
+            write(shm, "grow", 4) == 4 &&
+            fstat(shm, &shm_stat) == 0 &&
+            shm_stat.st_size == 2 * chunk + 2 &&
+            lseek(shm, 2 * chunk - 2, SEEK_SET) == 2 * chunk - 2 &&
+            read(shm, stored, 8) == 4 &&
+            memcmp(stored, "grow", 4) == 0 &&
+            pread(shm, stored, 2, 16) == 2 &&
+            stored[0] == 0 &&
+            stored[1] == 0 &&
+            munmap(seen, 4096) == 0 &&
             close(shm) == 0,
-        "no private mapping, nothing past the end and no read of a shared memory file");
+        "a shared memory file read and written through its descriptor");
+    /* /dev/shm is the directory in which a process creates files (R7.2a): a relative name there opens, appends and
+     * goes; the package's directories stay read-only, and /dev/shm holds files alone. */
+    char shm_cwd[16] = {0};
+    struct stat shm_entry;
+    check(chdir("/dev/shm") == 0 &&
+            getcwd(shm_cwd, sizeof(shm_cwd)) == shm_cwd &&
+            strcmp(shm_cwd, "/dev/shm") == 0 &&
+            stat("/dev/shm", &shm_entry) == 0 &&
+            S_ISDIR(shm_entry.st_mode),
+        "chdir to /dev/shm");
+    const int log_file = open("run.log", O_WRONLY | O_CREAT | O_APPEND, 0600);
+    check(log_file >= 0 &&
+            write(log_file, "one ", 4) == 4 &&
+            lseek(log_file, 0, SEEK_SET) == 0 &&
+            write(log_file, "two", 3) == 3 &&
+            read(log_file, stored, 1) == -1 &&
+            errno == EBADF &&
+            fsync(log_file) == 0 &&
+            close(log_file) == 0 &&
+            stat("/dev/shm/run.log", &shm_entry) == 0 &&
+            S_ISREG(shm_entry.st_mode) &&
+            shm_entry.st_size == 7 &&
+            access("run.log", R_OK | W_OK) == 0,
+        "a file created in /dev/shm appends");
+    const int log_read = open("run.log", O_RDONLY);
+    memset(stored, 0, sizeof(stored));
+    check(log_read >= 0 &&
+            read(log_read, stored, sizeof(stored)) == 7 &&
+            memcmp(stored, "one two", 7) == 0 &&
+            write(log_read, "x", 1) == -1 &&
+            errno == EBADF &&
+            close(log_read) == 0 &&
+            open("run.log", O_RDONLY | O_DIRECTORY) == -1 &&
+            errno == ENOTDIR &&
+            mkdir("subdirectory", 0700) == -1 &&
+            errno == ENOSYS &&
+            unlink("run.log") == 0 &&
+            stat("run.log", &shm_entry) == -1 &&
+            errno == ENOENT &&
+            chdir("/") == 0,
+        "a file of /dev/shm read, refused as a directory and removed");
     const int anonymous = memfd_create("jit", MFD_CLOEXEC);
     unsigned char *shared_first = MAP_FAILED, *shared_second = MAP_FAILED;
     if (anonymous >= 0 && ftruncate(anonymous, 4096) == 0) {

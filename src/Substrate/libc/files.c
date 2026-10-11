@@ -444,12 +444,19 @@ static long resolve(long dirfd, const char *path, unsigned char *name, WitU32 *n
     return join(base, base_length, path, name, name_length);
 }
 
-/* Whether a name is a directory of the package: the root, or a prefix of names. */
+/* /dev/shm, the directory of the shared memory files (R7.2a), apart from the package's directories, and /dev, which
+ * holds it and the devices: musl's realpath reads every directory of a path as a link that exists. */
+static int shared_directory(const unsigned char *name, WitU32 length)
+{
+    return (length == 7 && memcmp(name, "dev/shm", 7) == 0) || (length == 3 && memcmp(name, "dev", 3) == 0);
+}
+
+/* Whether a name is a directory: the root, a prefix of names of the package, or /dev/shm. */
 static long require_directory(const unsigned char *name, WitU32 length)
 {
     Kind kind;
     WitU32 index;
-    if (!length) {
+    if (!length || shared_directory(name, length)) {
         return 0;
     }
     const long status = lookup(name, length, &kind, &index);
@@ -562,8 +569,8 @@ long __wit_openat(long dirfd, const char *path, long flags, long mode)
     }
     if (shared_name(name, length)) {
         WitU32 file = 0;
-        if ((flags & O_ACCMODE) == O_WRONLY || (flags & (O_APPEND | O_DIRECTORY))) {
-            return -EINVAL;
+        if (flags & O_DIRECTORY) {
+            return -ENOTDIR;
         }
         if ((status = __wit_shared_open(name + 8, length - 8, flags, &file)) < 0) {
             return status;
@@ -664,7 +671,8 @@ volatile int *__wit_lock_sequence_word(void)
     return &lock_sequence;
 }
 
-/* mkdirat: a name that exists is EEXIST, anything else EROFS, since the package is read-only (R4.1). */
+/* mkdirat: a name that exists is EEXIST, anything else EROFS, since the package is read-only (R4.1); /dev/shm holds
+ * files alone, so a new directory there is ENOSYS (R7.2a). */
 long __wit_mkdirat(long dirfd, const char *path)
 {
     unsigned char name[NAME_MAX_BYTES];
@@ -677,7 +685,13 @@ long __wit_mkdirat(long dirfd, const char *path)
     if ((status = resolve(dirfd, path, name, &length)) < 0) {
         return status;
     }
-    return lookup(name, length, &kind, &index) == 0 || shared_name(name, length) ? -EEXIST : -EROFS;
+    if (shared_directory(name, length) || lookup(name, length, &kind, &index) == 0) {
+        return -EEXIST;
+    }
+    if (shared_name(name, length)) {
+        return __wit_shared_find(name + 8, length - 8, &index) == 0 ? -EEXIST : -ENOSYS;
+    }
+    return -EROFS;
 }
 
 /* memfd_create: an anonymous shared memory file, read and written through its mappings (R3.2b). */
@@ -796,7 +810,14 @@ long __wit_read(long fd, void *buffer, long bytes)
         return read_random(buffer, bytes);
     }
     if (d->Kind == KindShared) {
-        return -EINVAL; /* a shared memory file is read through a mapping */
+        if ((descriptions[d->Description].StatusFlags & O_ACCMODE) == O_WRONLY) {
+            return -EBADF;
+        }
+        const long moved = __wit_shared_read(d->Index, POSITION(d), buffer, (WitU64)bytes);
+        if (moved > 0) {
+            POSITION(d) += (WitU64)moved;
+        }
+        return moved;
     }
     if (d->Kind != KindFile) {
         return -EBADF; /* a stream or a pipe never reaches here (syscall.c) */
@@ -831,7 +852,9 @@ long __wit_pread(long fd, void *buffer, long bytes, long offset)
         return read_random(buffer, bytes);
     }
     if (d->Kind == KindShared) {
-        return -EINVAL; /* a shared memory file is read through a mapping */
+        return (descriptions[d->Description].StatusFlags & O_ACCMODE) == O_WRONLY
+            ? -EBADF
+            : __wit_shared_read(d->Index, (WitU64)offset, buffer, (WitU64)bytes);
     }
     if (d->Kind != KindFile) {
         return -ESPIPE;
@@ -861,14 +884,89 @@ long __wit_readv(long fd, const struct iovec *vectors, long count_vectors)
     return total;
 }
 
-long __wit_write_file(long fd, long bytes)
+/* A write to a descriptor of the table: the devices take every byte, a shared memory file stores them at the position
+ * or, with O_APPEND, at its end (R7.2a), and a file or a directory of the package is read-only. */
+static long write_at(Descriptor *d, const void *buffer, long bytes, long offset)
 {
-    const Descriptor *d = descriptor(fd);
+    if (bytes < 0) {
+        return -EINVAL;
+    }
+    if (d->Kind == KindNull || d->Kind == KindZero || d->Kind == KindRandom) {
+        return bytes;
+    }
+    if (d->Kind != KindShared) {
+        return d->Kind == KindDirectory ? -EISDIR : -EBADF;
+    }
+    Description *description = &descriptions[d->Description];
+    if ((description->StatusFlags & O_ACCMODE) == O_RDONLY) {
+        return -EBADF;
+    }
+    if (offset >= 0) {
+        return __wit_shared_write(d->Index, (WitU64)offset, buffer, (WitU64)bytes);
+    }
+    if (description->StatusFlags & O_APPEND) {
+        description->Offset = __wit_shared_size(d->Index);
+    }
+    const long moved = __wit_shared_write(d->Index, description->Offset, buffer, (WitU64)bytes);
+    if (moved > 0) {
+        description->Offset += (WitU64)moved;
+    }
+    return moved;
+}
+
+long __wit_write(long fd, const void *buffer, long bytes)
+{
+    Descriptor *d = descriptor(fd);
+    return d ? write_at(d, buffer, bytes, -1) : -EBADF;
+}
+
+long __wit_writev(long fd, const struct iovec *vectors, long count_vectors)
+{
+    long total = 0;
+    Descriptor *d = descriptor(fd);
     if (!d) {
         return -EBADF;
     }
-    /* Files are read-only descriptors; the devices accept writes. */
-    return d->Kind == KindNull || d->Kind == KindZero || d->Kind == KindRandom ? bytes : -EBADF;
+    if (count_vectors < 0 || count_vectors > 1024) {
+        return -EINVAL;
+    }
+    for (long i = 0; i < count_vectors; ++i) {
+        if (vectors[i].iov_len == 0) {
+            continue;
+        }
+        const long moved = write_at(d, vectors[i].iov_base, (long)vectors[i].iov_len, -1);
+        if (moved < 0) {
+            return total ? total : moved;
+        }
+        total += moved;
+        if ((unsigned long)moved < vectors[i].iov_len) {
+            break;
+        }
+    }
+    return total;
+}
+
+long __wit_pwrite(long fd, const void *buffer, long bytes, long offset)
+{
+    Descriptor *d = descriptor(fd);
+    if (!d) {
+        return __wit_stream_of(fd) >= 0 ? -ESPIPE : -EBADF;
+    }
+    if (d->Kind == KindStream || d->Kind == KindPipeRead || d->Kind == KindPipeWrite) {
+        return -ESPIPE;
+    }
+    return offset < 0 ? -EINVAL : write_at(d, buffer, bytes, offset);
+}
+
+/* fsync and fdatasync: memory and the read-only package have nothing to write back; a stream or a pipe is EINVAL, as
+ * Linux answers for them (R7.2a). */
+long __wit_fsync(long fd)
+{
+    const Descriptor *d = descriptor(fd);
+    if (!d) {
+        return __wit_stream_of(fd) >= 0 ? -EINVAL : -EBADF;
+    }
+    return d->Kind == KindStream || d->Kind == KindPipeRead || d->Kind == KindPipeWrite ? -EINVAL : 0;
 }
 
 long __wit_lseek(long fd, long offset, long whence)
@@ -986,6 +1084,19 @@ long __wit_fstatat(long dirfd, const char *path, struct kstat *st, long flags)
         fill_stat(st, KindDirectory, 0, 0);
         return 0;
     }
+    if (shared_directory(name, length)) {
+        fill_stat(st, KindDirectory, MAX_FILES, 0);
+        st->st_mode = S_IFDIR | 0777; /* files are created there (R7.2a) */
+        return 0;
+    }
+    if (shared_name(name, length)) {
+        WitU32 file = 0;
+        if ((status = __wit_shared_find(name + 8, length - 8, &file)) < 0) {
+            return status;
+        }
+        fill_stat(st, KindShared, file, __wit_shared_size(file));
+        return 0;
+    }
     if ((status = lookup(name, length, &kind, &index)) < 0) {
         return status;
     }
@@ -1013,8 +1124,15 @@ long __wit_faccessat(long dirfd, const char *path, long mode)
         return status;
     }
     if ((length == 8 && (memcmp(name, "dev/null", 8) == 0 || memcmp(name, "dev/zero", 8) == 0)) ||
-        is_random_device(name, length)) {
+        is_random_device(name, length) ||
+        shared_directory(name, length)) {
         return 0;
+    }
+    if (shared_name(name, length)) {
+        if ((status = __wit_shared_find(name + 8, length - 8, &index)) < 0) {
+            return status;
+        }
+        return (mode & X_OK) ? -EACCES : 0; /* a shared memory file is read and written (R7.2a) */
     }
     if ((status = lookup(name, length, &kind, &index)) < 0) {
         return status;

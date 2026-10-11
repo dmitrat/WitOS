@@ -13,11 +13,14 @@
  * WRITE|EXECUTE. A file is a sequence of chunks, each one anonymous memory object of WIT_MEMORY_OBJECT_PAGES pages
  * created zeroed the first time a mapping shows any of it, and a mapping is made of object mappings of at most one
  * chunk at consecutive addresses (memory.c). A file lives while a descriptor, a mapping or its name refers to it;
- * shm_unlink takes the name. Reads and writes of the descriptor are not there, nor files shared with another process,
- * nor copy-on-write mappings of one. Every function runs under the table lock of __wit_syscall. */
+ * shm_unlink takes the name. A descriptor reads and writes a file as Linux's tmpfs does (R7.2a): through the library's
+ * own read and write view of one chunk at a time, a chunk nobody mapped or wrote reading as zeros, and a write past the
+ * end growing the file; /dev/shm is the one directory in which a process may create files. Files shared with another
+ * process and copy-on-write mappings of one are not there. Every function runs under the table lock of
+ * __wit_syscall. */
 
-#define FILES 8U
-#define NAME_BYTES 64U
+#define FILES 64U
+#define NAME_BYTES 255U /* NAME_MAX */
 #define CHUNK ((WitU64)WIT_MEMORY_OBJECT_PAGES * 4096ULL)
 #define SIZE_LIMIT (16ULL << 30) /* a file's chunk table stays within 512 KiB */
 
@@ -29,6 +32,8 @@ typedef struct SharedFile {
     WitU64 Size;
     WitU64 *Chunks; /* the chunk objects' handles, zero for a chunk nobody mapped yet */
     WitU64 ChunkCapacity; /* entries of Chunks, a mapping of whole pages */
+    WitU64 View; /* the library's read and write view of chunk ViewChunk (R7.2a), zero when none */
+    WitU64 ViewChunk;
 } SharedFile;
 
 static SharedFile files[FILES];
@@ -39,12 +44,22 @@ static void close_handle(WitU64 handle)
     wit_syscall(WIT_CALL_HANDLE_CLOSE, handle, 0, 0, &result);
 }
 
+static void drop_view(SharedFile *f)
+{
+    if (f->View) {
+        WitU64 result = 0;
+        wit_syscall(WIT_CALL_MEMORY_RELEASE, f->View, 0, 0, &result);
+        f->View = 0;
+    }
+}
+
 /* A file ends with its last reference once nothing names it: its chunk objects end with their last mapping. */
 static void settle(SharedFile *f)
 {
     if (f->References || f->NameLength || !f->Live) {
         return;
     }
+    drop_view(f);
     for (WitU64 i = 0; i < f->ChunkCapacity; ++i) {
         if (f->Chunks[i]) {
             close_handle(f->Chunks[i]);
@@ -100,6 +115,19 @@ long __wit_shared_open(const unsigned char *name, WitU32 length, long flags, Wit
         files[*index].NameLength = length;
     }
     return status;
+}
+
+/* The file a name under /dev/shm gives, for stat and access (R7.2a). */
+long __wit_shared_find(const unsigned char *name, WitU32 length, WitU32 *index)
+{
+    for (WitU32 i = 0; i < FILES; ++i) {
+        const SharedFile *f = &files[i];
+        if (f->Live && f->NameLength && f->NameLength == length && !memcmp(f->Name, name, length)) {
+            *index = i;
+            return 0;
+        }
+    }
+    return length > NAME_BYTES ? -ENAMETOOLONG : -ENOENT;
 }
 
 /* memfd_create's file: no name, the descriptor's reference. */
@@ -160,6 +188,9 @@ long __wit_shared_truncate(WitU32 index, WitU64 size)
         f->Chunks = (WitU64 *)table;
         f->ChunkCapacity = bytes / sizeof(WitU64);
     }
+    if (f->View && f->ViewChunk >= needed) {
+        drop_view(f);
+    }
     for (WitU64 i = needed; i < f->ChunkCapacity; ++i) {
         if (f->Chunks[i]) {
             close_handle(f->Chunks[i]);
@@ -188,4 +219,93 @@ long __wit_shared_chunk(WitU32 index, WitU64 offset, WitU64 *handle)
     }
     *handle = *chunk;
     return 0;
+}
+
+/* The library's view of a chunk that has an object, kept until another chunk of the file is read or written. */
+static long view(SharedFile *f, WitU64 chunk, unsigned char **address)
+{
+    if (!f->View || f->ViewChunk != chunk) {
+        WitMemoryMapRequest request;
+        WitU64 result = 0;
+        drop_view(f);
+        request.Version = WIT_MEMORY_MAP_VERSION;
+        request.Size = sizeof(request);
+        request.Object = f->Chunks[chunk];
+        request.Offset = 0;
+        request.Bytes = CHUNK;
+        request.Address = 0;
+        request.Protection = WIT_MEMORY_READ | WIT_MEMORY_WRITE;
+        request.Flags = 0;
+        request.Target = WIT_PROCESS_SELF;
+        const WitU64 status = wit_syscall(WIT_CALL_MEMORY_OBJECT_MAP, (WitU64)&request, sizeof(request), 0, &result);
+        if (status != WIT_STATUS_OK) {
+            return status == WIT_STATUS_NO_MEMORY ? -ENOMEM : __wit_errno(status);
+        }
+        f->View = result;
+        f->ViewChunk = chunk;
+    }
+    *address = (unsigned char *)f->View;
+    return 0;
+}
+
+/* read and pread (R7.2a): the bytes from the offset up to the end, zeros where no chunk object exists yet. */
+long __wit_shared_read(WitU32 index, WitU64 offset, unsigned char *buffer, WitU64 bytes)
+{
+    SharedFile *f = &files[index];
+    WitU64 done = 0;
+    if (offset >= f->Size) {
+        return 0;
+    }
+    if (bytes > f->Size - offset) {
+        bytes = f->Size - offset;
+    }
+    while (done < bytes) {
+        const WitU64 at = offset + done, chunk = at / CHUNK, within = at % CHUNK;
+        const WitU64 step = CHUNK - within < bytes - done ? CHUNK - within : bytes - done;
+        unsigned char *address;
+        if (!f->Chunks[chunk]) {
+            memset(buffer + done, 0, step);
+        } else {
+            const long status = view(f, chunk, &address);
+            if (status < 0) {
+                return done ? (long)done : status;
+            }
+            memcpy(buffer + done, address + within, step);
+        }
+        done += step;
+    }
+    return (long)done;
+}
+
+/* write and pwrite (R7.2a): a write past the end grows the file first; a chunk gets its object when first written. A
+ * write that fails part way leaves the file the size of what it wrote. */
+long __wit_shared_write(WitU32 index, WitU64 offset, const unsigned char *buffer, WitU64 bytes)
+{
+    SharedFile *f = &files[index];
+    const WitU64 old_size = f->Size;
+    WitU64 done = 0;
+    long status = 0;
+    if (offset > SIZE_LIMIT || bytes > SIZE_LIMIT - offset) {
+        return -EFBIG;
+    }
+    if (offset + bytes > f->Size && (status = __wit_shared_truncate(index, offset + bytes)) < 0) {
+        return status;
+    }
+    while (done < bytes) {
+        const WitU64 at = offset + done, chunk = at / CHUNK, within = at % CHUNK;
+        const WitU64 step = CHUNK - within < bytes - done ? CHUNK - within : bytes - done;
+        WitU64 handle = 0;
+        unsigned char *address;
+        if ((status = __wit_shared_chunk(index, at, &handle)) < 0 || (status = view(f, chunk, &address)) < 0) {
+            break;
+        }
+        memcpy(address + within, buffer + done, step);
+        done += step;
+    }
+    if (done < bytes) {
+        const WitU64 kept = offset + done > old_size ? offset + done : old_size;
+        __wit_shared_truncate(index, kept);
+        return done ? (long)done : status;
+    }
+    return (long)done;
 }

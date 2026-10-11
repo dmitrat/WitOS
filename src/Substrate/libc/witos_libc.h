@@ -55,7 +55,10 @@ long __wit_close(long fd);
 long __wit_read(long fd, void *buffer, long bytes);
 long __wit_pread(long fd, void *buffer, long bytes, long offset);
 long __wit_readv(long fd, const struct iovec *vectors, long count);
-long __wit_write_file(long fd, long bytes);
+long __wit_write(long fd, const void *buffer, long bytes);
+long __wit_writev(long fd, const struct iovec *vectors, long count_vectors);
+long __wit_pwrite(long fd, const void *buffer, long bytes, long offset);
+long __wit_fsync(long fd);
 long __wit_lseek(long fd, long offset, long whence);
 long __wit_fstatat(long dirfd, const char *path, struct kstat *st, long flags);
 long __wit_faccessat(long dirfd, const char *path, long mode);
@@ -99,6 +102,9 @@ void __wit_shared_release(WitU32 index);
 WitU64 __wit_shared_size(WitU32 index);
 long __wit_shared_truncate(WitU32 index, WitU64 size);
 long __wit_shared_chunk(WitU32 index, WitU64 offset, WitU64 *handle);
+long __wit_shared_find(const unsigned char *name, WitU32 length, WitU32 *index);
+long __wit_shared_read(WitU32 index, WitU64 offset, unsigned char *buffer, WitU64 bytes);
+long __wit_shared_write(WitU32 index, WitU64 offset, const unsigned char *buffer, WitU64 bytes);
 /* The current directory (files.c, S6.2): chdir, fchdir; the absolute directory a path names from a base directory
  * (the current one when null) or a directory descriptor names, which must exist, for posix_spawn; the directory the
  * start message names. */
