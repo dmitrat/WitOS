@@ -120,7 +120,7 @@ jobs:
     # LLVM and QEMU (built from its source release), the release kernels of both ISAs and the Unix-form runtime for
     # witos (phase R). The scenarios of `test`, the layer-2 ones among them, run in linux-selftest (T2.2).
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
