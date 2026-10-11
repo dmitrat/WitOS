@@ -130,6 +130,11 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
         $"[M3] CoreCLR on {Triple[..Triple.IndexOf('-')]}: {Runtime.RuntimeWitos.ACCEPTANCE_RUNS} runs passed, 0 failed";
 
     /// <summary>
+    /// The start of the library tests runner's last line when every project passed (R7.3).
+    /// </summary>
+    public string LibraryTestsPassedLine => $"[LIBRARY-TESTS] The libraries' tests on {Triple[..Triple.IndexOf('-')]}: all ";
+
+    /// <summary>
     /// The start of the src/tests runner's last line when every group exited with 100 (R7.2b).
     /// </summary>
     public string CoreClrTestsPassedLine => $"[CORECLR-TESTS] CoreCLR's tests on {Triple[..Triple.IndexOf('-')]}: all ";

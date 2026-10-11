@@ -24,7 +24,7 @@
  * package's, /dev/zero and shared memory files are not here. The table lock of __wit_syscall serializes every call. */
 
 #define PAGE 4096UL
-#define MAPPINGS 1024U /* the kernel's reservations of a system layer process (R3.2b) */
+#define MAPPINGS 4096U /* the kernel's reservations of a system layer process (R3.2b; 4096 since R7.3) */
 #define CHUNK ((WitU64)WIT_MEMORY_OBJECT_PAGES * PAGE)
 
 typedef enum MapKind {

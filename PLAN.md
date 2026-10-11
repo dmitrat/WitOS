@@ -713,7 +713,7 @@ Unix-формы в госте сверх неизменённого прилож
   взаимную блокировку), а завершение процесса из тика простоя сбрасывает флаг простоя (паника «Timer did not interrupt
   the kernel idle path»).
   Патч-набор — 25 файлов.
-- [ ] **R7** Тесты upstream в QEMU (RFC-0015 §9): `palsuite`, срезы `src/tests` (JIT, GC, EH), срезы тестов библиотек;
+- [x] **R7** Тесты upstream в QEMU (RFC-0015 §9): `palsuite`, срезы `src/tests` (JIT, GC, EH), срезы тестов библиотек;
   инфраструктура запуска и отчёт. Срезами:
   - [x] **R7.1** PAL suite ([R7.1-PAL-Suite.md](@Docs/Implementation/R7.1-PAL-Suite.md)): `runtime-witos` собирает
     `clr.paltests` для `witos`; сценарий `runtime-palsuite` запускает `tests/User/palsuite_runner.c`, который гонит каждый
@@ -747,11 +747,21 @@ Unix-формы в госте сверх неизменённого прилож
       обрывались), процесс, кончившийся по бюджету, — состояние `BUDGET` у `PROCESS_QUERY` (раньше — «выход с кодом 0»),
       `waitpid` сообщает его как `SIGXCPU`; префикс `[USER]` — только в начале строки консоли (вывод тестов шёл по
       символу). Открыто: `NoGC` и иногда `LargeObjectAlloc` падают в `TableFreeSingleHandleToCache`.
-  - [ ] **R7.3** Срезы тестов библиотек.
+  - [x] **R7.3** Срезы тестов библиотек ([R7.3-Library-Tests.md](@Docs/Implementation/R7.3-Library-Tests.md)):
+    `runtime-witos` собирает `libs.pretest` и проекты `build/runtime/library-tests.json` как архивную тестовую сборку
+    (`ArchiveTests`: консольный раннер xunit и `RunTests.sh`); сценарий `runtime-library-tests` запускает каждый проект,
+    как `RunTests.sh`, через `dotnet exec … xunit.console.dll` из установки R5, без категорий, которые пропускает CI
+    upstream, с `TMPDIR` в `/dev/shm`; отчёт — итоговая строка xunit и строки `[FAIL]`:
+    `System.Collections.Concurrent.Tests` (2460) и `System.Runtime.Numerics.Tests` (2627) зелёные на обеих ISA, 2 теста
+    исключены с причиной (культура en-US, `BigInteger` за квотой). Найдено и сделано: JIT кода тестов `System.Linq`
+    исчерпал 1024 резервирования процесса — резервирований и отображений libc стало 4096, объектов процесса 512,
+    таблица объектов ядра 1024. Разово: `System.Linq.Tests` — 52174 прошли, 4 упали (культура da-DK);
+    `System.Threading.Channels.Tests` — 1592 прошли, однажды прерывистый «Out of memory».
 - [ ] **R8** Репетиция апгрейда (RFC-0015 §4): rebase патч-набора на следующий 10.0.x и на preview .NET 11 с измерением
   объёма.
 
-Готово, когда R6 и R7 зелёные на x64, а R2–R3 — и на ARM64.
+Готово, когда R6 и R7 зелёные на x64, а R2–R3 — и на ARM64. Выполнено 2026-10-11: R2–R7 зелёные на обеих ISA;
+открыты R4.2 (после D5) и R8.
 
 ### D — Устройства и хранилище (M4/M5)
 
