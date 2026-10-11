@@ -1,0 +1,21 @@
+Source: src/coreclr/pal/src/init/pal.cpp
+Output: src.coreclr.pal.src.init.pal.cpp
+Before: 52807c220eaec5d2eff6fb45ba314ef995ea46471dc19be0fcd2427639359548
+After: 1b8733164b44e280f151b6953bca6cb281f9c81f62dd97fc0affa0120e5086ce
+
+Thread stacks on witos (plan step R6): musl's threads default to 128 KiB, on which the JIT-compiled code of an ordinary
+program (expression trees, compiled regular expressions) overflows; CoreCLR's threads take the 1.5 MiB Windows and Apple
+give them, beside Apple's branch. Alpine's ENSURE_PRIMARY_STACK_SIZE is not taken: it also grows the primary thread's
+stack with alloca, and a started program's first stack on WitOS is a fixed mapping.
+
+--- a/src/coreclr/pal/src/init/pal.cpp
++++ b/src/coreclr/pal/src/init/pal.cpp
+@@ -258,7 +258,7 @@
+         }
+     }
+ 
+-#ifdef HOST_APPLE
++#if defined(HOST_APPLE) || defined(TARGET_WITOS)
+     // Match Windows stack size
+     if (g_defaultStackSize == 0)
+     {

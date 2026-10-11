@@ -392,6 +392,8 @@ WitU64 wit_user_pressure_create(WitUserProcess *process, WitU64 *handle);
 WitU64 wit_user_event_notify(WitUserProcess *process, WitU64 handle, int signaled);
 /* Completes every parked wait and sleep whose monotonic deadline has passed. */
 void wit_user_wait_expire(WitUserProcess *process, WitU64 now);
+/* Whether a parked wait or sleep of the process has a deadline, which a tick will complete. */
+int wit_user_wait_timed(const WitUserProcess *process);
 WitU64 wit_user_sleep_until(WitUserProcess *process, WitU64 deadline, WitU64 now);
 WitU64 wit_user_event_set(WitUserProcess *process, WitU64 handle);
 WitU64 wit_user_event_reset(WitUserProcess *process, WitU64 handle);

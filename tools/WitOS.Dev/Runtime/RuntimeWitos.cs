@@ -91,6 +91,16 @@ internal static class RuntimeWitos
     public const string HOSTED_APP = "tests/Runtime.Witos/HostedApp/App.cs";
 
     /// <summary>
+    /// The ordinary application of R6: an SDK project the stock SDK publishes without a RID.
+    /// </summary>
+    public const string PORTABLE_APP = "tests/Runtime.Witos/PortableApp";
+
+    /// <summary>
+    /// The checks the portable application runs (R6).
+    /// </summary>
+    public const int PORTABLE_APP_CHECKS = 12;
+
+    /// <summary>
     /// The runs of the acceptance: four cycles of its eight probes (R2.2).
     /// </summary>
     public const int ACCEPTANCE_RUNS = 32;
@@ -157,6 +167,7 @@ internal static class RuntimeWitos
         ["src/coreclr/dlls/mscordac/CMakeLists.txt"] = "src.coreclr.dlls.mscordac.CMakeLists.txt",
         ["src/coreclr/pal/src/thread/process.cpp"] = "src.coreclr.pal.src.thread.process.cpp",
         ["src/coreclr/vm/gcenv.ee.cpp"] = "src.coreclr.vm.gcenv.ee.cpp",
+        ["src/coreclr/pal/src/init/pal.cpp"] = "src.coreclr.pal.src.init.pal.cpp",
         ["src/native/external/libunwind.cmake"] = "src.native.external.libunwind.cmake",
         // System.Native's profile for witos (R4.1): cryptography without OpenSSL.
         ["src/libraries/System.Security.Cryptography/src/System.Security.Cryptography.csproj"] =
@@ -281,6 +292,16 @@ internal static class RuntimeWitos
             RequiredLines = [architecture.DotnetLine, architecture.RootTaskPassedLine]
         });
         Console.WriteLine($"The hosts for witos-{architecture.Name}: dotnet App.dll ran through hostfxr and hostpolicy in the guest.");
+
+        // R6: an ordinary application the stock SDK publishes without a RID runs unchanged through the same install.
+        var portable = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_PORTABLE_APP_SCENARIO, architecture: architecture);
+        await BootScenarioRunner.RunAsync(root, portable, new BootRequest($"{architecture.Name}-runtime-portable-app-512", 512, 900, ExpectedOutcome.Success)
+        {
+            Architecture = architecture,
+            Suite = BootSuite.Release,
+            RequiredLines = [KernelArchitecture.PortableAppPassedLine, architecture.RootTaskPassedLine]
+        });
+        Console.WriteLine($"R6 on witos-{architecture.Name}: a portable application ran unchanged through dotnet in the guest.");
 
         // NativeAOT's runtime pack for the architecture (R2.3b), as upstream packs it: the SDK's targets take it for a
         // publish with PublishAot.
@@ -460,14 +481,7 @@ internal static class RuntimeWitos
         KernelArchitecture architecture)
     {
         var tree = Path.Combine(root, "artifacts", "runtime-witos", "src");
-        var coreclr = Path.Combine(tree, "artifacts", "bin", "coreclr", $"witos.{architecture.Name}.Release");
-        var corehost = Path.Combine(tree, "artifacts", "bin", $"witos-{architecture.Name}.Release", "corehost");
-        var framework = FrameworkDirectory(tree, architecture);
-        var native = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(framework)!)!, "native");
         var references = Path.Combine(tree, "artifacts", "bin", "microsoft.netcore.app.ref", "ref", "net10.0");
-        if (!File.Exists(Path.Combine(corehost, "dotnet")) || !File.Exists(Path.Combine(coreclr, "libcoreclr.so")))
-            throw new InvalidOperationException($"No hosts or CoreCLR for witos in {tree}. Run: dotnet run --project tools/WitOS.Dev -- runtime-witos --arch {architecture.Name}");
-        var version = ReadLock(root).Version;
         var sdks = Directory.GetDirectories(Path.Combine(tree, ".dotnet", "sdk"));
         if (sdks.Length != 1)
             throw new InvalidDataException($"The runtime's own .NET SDK is not one SDK: {string.Join(", ", sdks)}.");
@@ -482,14 +496,57 @@ internal static class RuntimeWitos
         await File.WriteAllTextAsync(Path.Combine(app, "App.runtimeconfig.json"),
             "{\n  \"runtimeOptions\": {\n    \"tfm\": \"net10.0\",\n    \"framework\": { \"name\": \"Microsoft.NETCore.App\", \"version\": \"10.0.0\" },\n" +
             "    \"configProperties\": { \"System.Globalization.Invariant\": true }\n  }\n}\n");
+        return await BuildInstallPackageAsync(root, output, architecture, app, "App.dll");
+    }
+
+    /// <summary>
+    /// The package of R6: the install of BuildDotnetPackageAsync with an ordinary application under /app, which the
+    /// stock SDK (the one that runs this tool) publishes without a RID from a copy of tests/Runtime.Witos/PortableApp
+    /// kept apart from the repository's build properties, as a developer's machine builds it; nothing of it is changed.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Artifact directory of the scenario.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>Package paths and the files to place there.</returns>
+    public static async Task<IReadOnlyList<(string Name, string Source)>> BuildPortableAppPackageAsync(string root, string output,
+        KernelArchitecture architecture)
+    {
+        var project = Path.Combine(output, "project");
+        if (Directory.Exists(project))
+            Directory.Delete(project, recursive: true);
+        Directory.CreateDirectory(project);
+        foreach (var file in Directory.GetFiles(Path.Combine(root, PORTABLE_APP)))
+            File.Copy(file, Path.Combine(project, Path.GetFileName(file)));
+        await File.WriteAllTextAsync(Path.Combine(project, "Directory.Build.props"), "<Project />\n");
+        await File.WriteAllTextAsync(Path.Combine(project, "Directory.Build.targets"), "<Project />\n");
+        var app = Path.Combine(output, "app");
+        if (Directory.Exists(app))
+            Directory.Delete(app, recursive: true);
+        await Processes.RequireSuccessAsync("dotnet",
+            ["publish", Path.Combine(project, "PortableApp.csproj"), "-c", "Release", "-o", app, "-nologo"], project);
+        return await BuildInstallPackageAsync(root, output, architecture, app, "PortableApp.dll");
+    }
+
+    // An install of .NET under /dotnet with a program under /app (R5, R6): what both packages share.
+    private static async Task<IReadOnlyList<(string Name, string Source)>> BuildInstallPackageAsync(string root, string output,
+        KernelArchitecture architecture, string app, string program)
+    {
+        var tree = Path.Combine(root, "artifacts", "runtime-witos", "src");
+        var coreclr = Path.Combine(tree, "artifacts", "bin", "coreclr", $"witos.{architecture.Name}.Release");
+        var corehost = Path.Combine(tree, "artifacts", "bin", $"witos-{architecture.Name}.Release", "corehost");
+        var framework = FrameworkDirectory(tree, architecture);
+        var native = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(framework)!)!, "native");
+        if (!File.Exists(Path.Combine(corehost, "dotnet")) || !File.Exists(Path.Combine(coreclr, "libcoreclr.so")))
+            throw new InvalidOperationException($"No hosts or CoreCLR for witos in {tree}. Run: dotnet run --project tools/WitOS.Dev -- runtime-witos --arch {architecture.Name}");
+        var version = ReadLock(root).Version;
         var installLocation = Path.Combine(output, "install_location");
         await File.WriteAllTextAsync(installLocation, "/dotnet\n");
         var sysroot = await Sysroot.BuildAsync(root, architecture);
-        var program = Path.Combine(output, "dotnet_init.elf");
+        var initProgram = Path.Combine(output, "dotnet_init.elf");
         await Processes.RequireSuccessAsync(Toolchain.Clang(root),
         [
             .. Sysroot.DriverOptions(root, architecture), "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
-            Path.Combine(root, DOTNET_PROGRAM), "-o", program
+            $"-DDOTNET_APP=\"/app/{program}\"", Path.Combine(root, DOTNET_PROGRAM), "-o", initProgram
         ], root);
 
         // The shared framework: what Microsoft.NETCore.App's runtime pack carries for the RID, and the deps.json that names it.
@@ -508,14 +565,14 @@ internal static class RuntimeWitos
         var lib = Path.Combine(sysroot, "usr", "lib");
         return
         [
-            ("bin/init", program), (MuslLibc.InterpreterPath(architecture).TrimStart('/'), Path.Combine(lib, "libc.so")),
+            ("bin/init", initProgram), (MuslLibc.InterpreterPath(architecture).TrimStart('/'), Path.Combine(lib, "libc.so")),
             ("lib/libc++.so.1", Path.Combine(lib, "libc++.so.1")), ("lib/libc++abi.so.1", Path.Combine(lib, "libc++abi.so.1")),
             ("lib/libunwind.so.1", Path.Combine(lib, "libunwind.so.1")),
             ("etc/dotnet/install_location", installLocation),
             ("dotnet/dotnet", Path.Combine(corehost, "dotnet")),
             ($"dotnet/host/fxr/{version}/libhostfxr.so", Path.Combine(corehost, "libhostfxr.so")),
             .. shared.Select(file => ($"dotnet/shared/Microsoft.NETCore.App/{version}/{file.Name}", file.Source)),
-            ("app/App.dll", Path.Combine(app, "App.dll")), ("app/App.runtimeconfig.json", Path.Combine(app, "App.runtimeconfig.json"))
+            .. Directory.GetFiles(app).Order(StringComparer.Ordinal).Select(file => ($"app/{Path.GetFileName(file)}", file))
         ];
     }
 

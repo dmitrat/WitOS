@@ -78,6 +78,7 @@ int __wit_pipe_sequence(void);
 long __wit_pipe_wait(int seen, WitU64 deadline);
 short __wit_descriptor_poll(long fd, short events);
 long __wit_memfd_create(const char *name, long flags);
+long __wit_descriptor_capacity(void);
 long __wit_ftruncate(long fd, long size);
 long __wit_unlinkat(long dirfd, const char *path, long flags);
 long __wit_flock(long fd, long operation);

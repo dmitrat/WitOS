@@ -11,7 +11,7 @@
  * query: the runtime's GC and NativeAOT's PAL read it through sysinfo, sysconf, getrlimit and sched_getaffinity.
  * sysinfo reports the physical memory and the time since boot as CLOCK_BOOTTIME has it; there is no swap, no load
  * average and no count of processes, which stay zero. getrlimit reports RLIMIT_AS, the address space that anonymous
- * memory takes: the data arena mmap reserves in. sched_getaffinity reports the processors threads run on, the first
+ * memory takes: the data arena mmap reserves in, and RLIMIT_NOFILE, the library's descriptor table (R6). sched_getaffinity reports the processors threads run on, the first
  * ones of the kernel's table, and sched_setaffinity accepts a mask that holds every one of them, which changes nothing
  * (R3.2: CoreCLR's PAL gives each new thread the process's mask), refuses one that holds none with EINVAL, as Linux
  * does, and one that holds some alone with ENOSYS until threads run on several processors (phase P). Every other
@@ -49,8 +49,16 @@ long __wit_prlimit(long pid, long resource, const struct rlimit *limit, struct r
 {
     WitUserMemoryInfo info;
     long status;
-    if ((pid != 0 && pid != WIT_LIBC_PROCESS_ID) || limit || resource != RLIMIT_AS) {
+    if ((pid != 0 && pid != WIT_LIBC_PROCESS_ID) || limit || (resource != RLIMIT_AS && resource != RLIMIT_NOFILE)) {
         return -ENOSYS;
+    }
+    if (resource == RLIMIT_NOFILE) {
+        /* The library's descriptor table (R6), as large as Linux's usual soft limit. */
+        if (old) {
+            old->rlim_cur = (rlim_t)__wit_descriptor_capacity();
+            old->rlim_max = (rlim_t)__wit_descriptor_capacity();
+        }
+        return 0;
     }
     if ((status = memory_info(&info)) < 0) {
         return status;

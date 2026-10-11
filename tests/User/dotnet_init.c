@@ -1,14 +1,19 @@
-/* The hosts check (plan step R5), /bin/init of the runtime-dotnet scenario: starts upstream's dotnet muxer from the
- * shared-framework layout under /dotnet on the program under /app, then reports how it ended. */
+/* The hosts check (plan step R5), /bin/init of the runtime-dotnet and runtime-portable-app scenarios: starts
+ * upstream's dotnet muxer from the shared-framework layout under /dotnet on the program under /app (DOTNET_APP, which
+ * the package's build names), then reports how it ended. */
 #include <spawn.h>
 #include <stdio.h>
 #include <sys/wait.h>
 
 extern char **environ;
 
+#ifndef DOTNET_APP
+#define DOTNET_APP "/app/App.dll"
+#endif
+
 int main(void)
 {
-    char *arguments[] = {"dotnet", "/app/App.dll", "witos", 0};
+    char *arguments[] = {"dotnet", DOTNET_APP, "witos", 0};
     pid_t child = 0;
     const int error = posix_spawn(&child, "/dotnet/dotnet", 0, 0, arguments, environ);
     if (error) {
