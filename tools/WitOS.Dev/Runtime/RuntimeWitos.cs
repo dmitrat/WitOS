@@ -1298,7 +1298,7 @@ internal static class RuntimeWitos
         };
         var build = await Processes.RunAsync(Path.Combine(tree, "src", "tests", "build.sh"),
             [architecture.Name, "Release", "-os", "witos", "-skipnative", "-skipgeneratelayout", .. groups.Select(group => $"-test:{group}.csproj")],
-            tree, 3600, testsEnvironment);
+            tree, 3600, BuildEnvironment(testsEnvironment));
         if (build.TimedOut || build.ExitCode != 0)
             throw new InvalidOperationException($"src/tests/build.sh for witos-{architecture.Name} failed (exit {build.ExitCode}, timeout={build.TimedOut}).\n" +
                 $"{Tail(build.Output)}\n{Tail(build.Error)}");
@@ -1384,7 +1384,7 @@ internal static class RuntimeWitos
             var build = await Processes.RunAsync(Path.Combine(tree, ".dotnet", "dotnet"),
                 ["build", Path.Combine(tree, project), "-c", "Release", "/p:TargetOS=witos", $"/p:TargetArchitecture={architecture.Name}",
                     "/p:ArchiveTests=true"],
-                tree, 3600, testsEnvironment);
+                tree, 3600, BuildEnvironment(testsEnvironment));
             if (build.TimedOut || build.ExitCode != 0)
                 throw new InvalidOperationException($"The test build of {project} for witos-{architecture.Name} failed (exit {build.ExitCode}, timeout={build.TimedOut}).\n" +
                     $"{Tail(build.Output)}\n{Tail(build.Error)}");
@@ -1448,11 +1448,19 @@ internal static class RuntimeWitos
 
     private static async Task RunBuildAsync(string tree, string[] arguments, IReadOnlyDictionary<string, string>? environment)
     {
-        var build = await Processes.RunAsync(Path.Combine(tree, "build.sh"), arguments, tree, 3600, environment);
+        var build = await Processes.RunAsync(Path.Combine(tree, "build.sh"), arguments, tree, 3600, BuildEnvironment(environment));
         if (build.TimedOut || build.ExitCode != 0)
             throw new InvalidOperationException($"build.sh {arguments[0]} failed (exit {build.ExitCode}, timeout={build.TimedOut}).\n" +
                 $"{Tail(build.Output)}\n{Tail(build.Error)}");
     }
+
+    // A build of the pinned tree runs without NuGet's audit (R8.1): the pin fixes upstream's dependencies, while the audit
+    // reads the advisories published up to the day of the restore, which must not decide whether the pin builds; upstream
+    // sets no NuGetAudit, so the variable is the property. Microsoft.DiaSymReader.Native, a Windows library of upstream's
+    // externals that WitOS neither builds into anything nor ships, gained high-severity advisories after the pin, and the
+    // build treats the warning as an error.
+    private static Dictionary<string, string> BuildEnvironment(IReadOnlyDictionary<string, string>? environment) =>
+        new(environment ?? new Dictionary<string, string>(), StringComparer.Ordinal) { ["NuGetAudit"] = "false" };
 
     // What upstream's native build runs with: the pinned clang and its LLVM tools first on the path, as the compilers,
     // and the sysroot for a cross build (none for the host).
