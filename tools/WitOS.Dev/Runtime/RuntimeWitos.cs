@@ -298,8 +298,8 @@ internal static class RuntimeWitos
         // The class libraries above CoreLib (R2.3a): upstream's shared framework for witos, which takes the libraries' Unix
         // flavors, and the reference pack programs compile against.
         await RunBuildAsync(tree, ["libs.sfx", "-os", "witos", "-arch", architecture.Name, "-c", "Release"], environment);
-        var framework = FrameworkDirectory(tree, architecture);
-        var references = Path.Combine(tree, "artifacts", "bin", "microsoft.netcore.app.ref", "ref", "net10.0");
+        var framework = FrameworkDirectory(root, tree, architecture);
+        var references = Path.Combine(tree, "artifacts", "bin", "microsoft.netcore.app.ref", "ref", pin.TargetFramework);
         if (!File.Exists(Path.Combine(framework, "System.Console.dll")) || !File.Exists(Path.Combine(references, "System.Runtime.dll")))
             throw new InvalidDataException($"The shared framework for witos-{architecture.Name} left no System.Console or reference pack ({framework}).");
         Console.WriteLine($"The shared framework for witos-{architecture.Name}: {Directory.GetFiles(framework, "*.dll").Length} libraries ({framework}).");
@@ -571,7 +571,8 @@ internal static class RuntimeWitos
         KernelArchitecture architecture)
     {
         var tree = Path.Combine(root, "artifacts", "runtime-witos", "src");
-        var references = Path.Combine(tree, "artifacts", "bin", "microsoft.netcore.app.ref", "ref", "net10.0");
+        var pin = ReadLock(root);
+        var references = Path.Combine(tree, "artifacts", "bin", "microsoft.netcore.app.ref", "ref", pin.TargetFramework);
         var sdks = Directory.GetDirectories(Path.Combine(tree, ".dotnet", "sdk"));
         if (sdks.Length != 1)
             throw new InvalidDataException($"The runtime's own .NET SDK is not one SDK: {string.Join(", ", sdks)}.");
@@ -584,7 +585,8 @@ internal static class RuntimeWitos
             $"-out:{Path.Combine(app, "App.dll")}", Path.Combine(root, HOSTED_APP)
         ], tree);
         await File.WriteAllTextAsync(Path.Combine(app, "App.runtimeconfig.json"),
-            "{\n  \"runtimeOptions\": {\n    \"tfm\": \"net10.0\",\n    \"framework\": { \"name\": \"Microsoft.NETCore.App\", \"version\": \"10.0.0\" },\n" +
+            $"{{\n  \"runtimeOptions\": {{\n    \"tfm\": \"{pin.TargetFramework}\",\n" +
+            $"    \"framework\": {{ \"name\": \"Microsoft.NETCore.App\", \"version\": \"{pin.FrameworkReference}\" }},\n" +
             "    \"configProperties\": { \"System.Globalization.Invariant\": true }\n  }\n}\n");
         return await BuildInstallPackageAsync(root, output, architecture, app, "App.dll");
     }
@@ -644,11 +646,11 @@ internal static class RuntimeWitos
         var tree = Path.Combine(root, "artifacts", "runtime-witos", "src");
         var coreclr = Path.Combine(tree, "artifacts", "bin", "coreclr", $"witos.{architecture.Name}.Release");
         var corehost = Path.Combine(tree, "artifacts", "bin", $"witos-{architecture.Name}.Release", "corehost");
-        var framework = FrameworkDirectory(tree, architecture);
+        var framework = FrameworkDirectory(root, tree, architecture);
         var native = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(framework)!)!, "native");
         if (!File.Exists(Path.Combine(corehost, "dotnet")) || !File.Exists(Path.Combine(coreclr, "libcoreclr.so")))
             throw new InvalidOperationException($"No hosts or CoreCLR for witos in {tree}. Run: dotnet run --project tools/WitOS.Dev -- runtime-witos --arch {architecture.Name}");
-        var version = ReadLock(root).Version;
+        var version = ReadLock(root).ProductVersion;
         var installLocation = Path.Combine(output, "install_location");
         await File.WriteAllTextAsync(installLocation, "/dotnet\n");
         var sysroot = await Sysroot.BuildAsync(root, architecture);
@@ -772,6 +774,7 @@ internal static class RuntimeWitos
     {
         var rid = $"witos-{architecture.Name}";
         var library = $"Microsoft.NETCore.App.Runtime.{rid}/{version}";
+        var target = $".NETCoreApp,Version=v{version[..version.IndexOf('.')]}.0";
         var runtime = new System.Text.Json.Nodes.JsonObject();
         var nativeAssets = new System.Text.Json.Nodes.JsonObject();
         foreach (var (name, source) in files)
@@ -795,12 +798,12 @@ internal static class RuntimeWitos
         }
         var document = new System.Text.Json.Nodes.JsonObject
         {
-            ["runtimeTarget"] = new System.Text.Json.Nodes.JsonObject { ["name"] = $".NETCoreApp,Version=v10.0/{rid}", ["signature"] = "" },
+            ["runtimeTarget"] = new System.Text.Json.Nodes.JsonObject { ["name"] = $"{target}/{rid}", ["signature"] = "" },
             ["compilationOptions"] = new System.Text.Json.Nodes.JsonObject(),
             ["targets"] = new System.Text.Json.Nodes.JsonObject
             {
-                [".NETCoreApp,Version=v10.0"] = new System.Text.Json.Nodes.JsonObject(),
-                [$".NETCoreApp,Version=v10.0/{rid}"] = new System.Text.Json.Nodes.JsonObject
+                [target] = new System.Text.Json.Nodes.JsonObject(),
+                [$"{target}/{rid}"] = new System.Text.Json.Nodes.JsonObject
                 {
                     [library] = new System.Text.Json.Nodes.JsonObject { ["runtime"] = runtime, ["native"] = nativeAssets }
                 }
@@ -828,9 +831,9 @@ internal static class RuntimeWitos
     {
         var tree = Path.Combine(root, "artifacts", "runtime-witos", "src");
         var coreclr = Path.Combine(tree, "artifacts", "bin", "coreclr", $"witos.{architecture.Name}.Release");
-        var framework = FrameworkDirectory(tree, architecture);
+        var framework = FrameworkDirectory(root, tree, architecture);
         var native = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(framework)!)!, "native");
-        var references = Path.Combine(tree, "artifacts", "bin", "microsoft.netcore.app.ref", "ref", "net10.0");
+        var references = Path.Combine(tree, "artifacts", "bin", "microsoft.netcore.app.ref", "ref", ReadLock(root).TargetFramework);
         if (!File.Exists(Path.Combine(coreclr, "corerun")) || !File.Exists(Path.Combine(framework, "System.Console.dll")))
             throw new InvalidOperationException($"No CoreCLR or shared framework for witos in {tree}. Run: dotnet run --project tools/WitOS.Dev -- runtime-witos --arch {architecture.Name}");
         var sdks = Directory.GetDirectories(Path.Combine(tree, ".dotnet", "sdk"));
@@ -950,7 +953,7 @@ internal static class RuntimeWitos
     {
         var tree = Path.Combine(root, "artifacts", "runtime-witos", "src");
         var coreclr = Path.Combine(tree, "artifacts", "bin", "coreclr", $"witos.{architecture.Name}.Release");
-        var framework = FrameworkDirectory(tree, architecture);
+        var framework = FrameworkDirectory(root, tree, architecture);
         var native = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(framework)!)!, "native");
         var tests = TestsDirectory(tree, architecture);
         var dependencies = Path.Combine(tree, "artifacts", "TargetingPack");
@@ -1578,12 +1581,15 @@ internal static class RuntimeWitos
         string name)
     {
         var executable = Path.Combine(ProgramDirectory(root, architecture), name);
-        var native = Path.Combine(tree, "artifacts", "bin", "native", $"net10.0-witos-Release-{architecture.Name}");
-        string[] runtime = architecture == KernelArchitecture.X64
-            ? ["libbootstrapper.o", "libRuntime.WorkstationGC.a", "libeventpipe-disabled.a", "libRuntime.VxsortDisabled.a",
-                "libstandalonegc-disabled.a", "libaotminipal.a", "libstdc++compat.a"]
-            : ["libbootstrapper.o", "libRuntime.WorkstationGC.a", "libeventpipe-disabled.a", "libstandalonegc-disabled.a",
-                "libaotminipal.a", "libstdc++compat.a"];
+        var native = Path.Combine(tree, "artifacts", "bin", "native", $"{ReadLock(root).TargetFramework}-witos-Release-{architecture.Name}");
+        // The runtime libraries in the targets' order, with the vxsort support library where the runtime built one: x64
+        // in 10.0, ARM64 too since .NET 11 (R8.2).
+        string[] runtime =
+        [
+            "libbootstrapper.o", "libRuntime.WorkstationGC.a", "libeventpipe-disabled.a",
+            .. File.Exists(Path.Combine(sdk, "libRuntime.VxsortDisabled.a")) ? (string[])["libRuntime.VxsortDisabled.a"] : [],
+            "libstandalonegc-disabled.a", "libaotminipal.a", "libstdc++compat.a"
+        ];
         await RunToolAsync(Toolchain.Clang(root),
         [
             "--driver-mode=g++", .. Sysroot.DriverOptions(root, architecture), program, Path.Combine(native, "libSystem.Native.a"),
@@ -1677,7 +1683,7 @@ internal static class RuntimeWitos
             <Project Sdk="Microsoft.NET.Sdk">
               <PropertyGroup>
                 <OutputType>Exe</OutputType>
-                <TargetFramework>net10.0</TargetFramework>
+                <TargetFramework>{{ReadLock(root).TargetFramework}}</TargetFramework>
                 <AssemblyName>{{name}}</AssemblyName>
                 <RuntimeIdentifier>witos-{{architecture.Name}}</RuntimeIdentifier>
                 <PublishAot>true</PublishAot>
@@ -1726,9 +1732,9 @@ internal static class RuntimeWitos
     }
 
     // The shared framework's libraries for the architecture (R2.3a): the runtime pack's lib directory.
-    private static string FrameworkDirectory(string tree, KernelArchitecture architecture) =>
+    private static string FrameworkDirectory(string root, string tree, KernelArchitecture architecture) =>
         Path.Combine(tree, "artifacts", "bin", $"microsoft.netcore.app.runtime.witos-{architecture.Name}", "Release", "runtimes",
-            $"witos-{architecture.Name}", "lib", "net10.0");
+            $"witos-{architecture.Name}", "lib", ReadLock(root).TargetFramework);
 
     private static string ProgramDirectory(string root, KernelArchitecture architecture) =>
         Path.Combine(root, "artifacts", "runtime-witos", "ilc", architecture.Name);
@@ -1870,7 +1876,24 @@ internal static class RuntimeWitos
 /// <param name="Sources">Each upstream path the patch set changes and the SHA-256 of its bytes there.</param>
 /// <param name="Budget">The size of the FreeBSD and Haiku ports.</param>
 internal sealed record RuntimePin(string Repository, string Tag, string Version, string Commit,
-    (string Path, string Sha256)[] Sources, RuntimeBudget Budget);
+    (string Path, string Sha256)[] Sources, RuntimeBudget Budget)
+{
+    /// <summary>
+    /// The release's target framework, such as net10.0.
+    /// </summary>
+    public string TargetFramework => $"net{Version[..Version.IndexOf('.')]}.0";
+
+    /// <summary>
+    /// The framework version an application of the release asks for, as the SDK writes it: the release's x.0.0.
+    /// </summary>
+    public string FrameworkReference => $"{Version[..Version.IndexOf('.')]}.0.0";
+
+    /// <summary>
+    /// The version the tree's own build gives its shared framework, as its testhost lays it out and its test applications
+    /// ask for it: the release's version without a preview's label (R8.2), which a preview's applications roll forward to.
+    /// </summary>
+    public string ProductVersion => Version.Split('-')[0];
+}
 
 /// <summary>
 /// The size of the FreeBSD and Haiku ports in files of CoreCLR and of the native libraries (RFC 0015 section 4).
