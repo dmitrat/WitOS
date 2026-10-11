@@ -1,7 +1,7 @@
 Source: src/native/corehost/apphost/static/CMakeLists.txt
 Output: src.native.corehost.apphost.static.CMakeLists.txt
-Before: af3a84b22806adcfc8b950390c477373e1481300bc7c1d81c64858f1aac582bf
-After: 73a0eeae1373b77a26a442916a5f5cb2f9e6db493b67ea0791c137a74af7c754
+Before: 59a7b792323504e7573c531e9b74aa668305e9d197072f43758352a0f104f9b2
+After: 450cf79a0fcd78bf03772b3759cd9b49f85400d11cb0cd2049eb1ab51e22586a
 
 The single-file host on witos (plan step R1.2b): it links neither the GSSAPI nor the OpenSSL shim, which witos does
 not build.

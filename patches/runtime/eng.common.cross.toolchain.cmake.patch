@@ -1,7 +1,7 @@
 Source: eng/common/cross/toolchain.cmake
 Output: eng.common.cross.toolchain.cmake
-Before: 933795d271403062d7d010e54d6994af76ec0288dc4bea4e4fde26e26ddf940a
-After: 787ba4136ba975ba13feea8dac127954b700cbc3143f658806ee68976355c8a9
+Before: 84d07a633060de58f709f6b7a5ec49aea5590c4b96873b5988d5024ae1b1e68e
+After: 9c1c464bf7e1d9a938c49e479ef5356dcdb2b062e08bb957f269555712119041
 
 The cross toolchain for witos (plan step R1.2b): the system layer's sysroot is recognized by its marker
 etc/witos-release, as FreeBSD's rootfs is by bin/freebsd-version. CMake's system is WitOS, whose platform modules the
@@ -11,15 +11,15 @@ KiB pages and separate loadable segments, the layout WitOS's loader maps.
 
 --- a/eng/common/cross/toolchain.cmake
 +++ b/eng/common/cross/toolchain.cmake
-@@ -7,6 +7,7 @@
+@@ -8,6 +8,7 @@
  unset(ANDROID)
  unset(TIZEN)
  unset(HAIKU)
 +unset(WITOS)
  
  set(TARGET_ARCH_NAME $ENV{TARGET_BUILD_ARCH})
- if(EXISTS ${CROSS_ROOTFS}/bin/freebsd-version)
-@@ -18,6 +19,11 @@
+ 
+@@ -25,6 +26,11 @@
  elseif(EXISTS ${CROSS_ROOTFS}/boot/system/develop/headers/config/HaikuConfig.h)
    set(CMAKE_SYSTEM_NAME Haiku)
    set(HAIKU 1)
@@ -31,7 +31,7 @@ KiB pages and separate loadable segments, the layout WitOS's loader maps.
  else()
    set(CMAKE_SYSTEM_NAME Linux)
    set(LINUX 1)
-@@ -128,6 +134,17 @@
+@@ -139,6 +145,17 @@
    message(FATAL_ERROR "Arch is ${TARGET_ARCH_NAME}. Only arm, arm64, armel, armv6, loongarch64, ppc64le, riscv64, s390x, x64 and x86 are supported!")
  endif()
  
@@ -49,7 +49,7 @@ KiB pages and separate loadable segments, the layout WitOS's loader maps.
  if(DEFINED ENV{TOOLCHAIN})
    set(TOOLCHAIN $ENV{TOOLCHAIN})
  endif()
-@@ -212,6 +229,13 @@
+@@ -220,6 +237,13 @@
  
      locate_toolchain_exec(gcc CMAKE_C_COMPILER)
      locate_toolchain_exec(g++ CMAKE_CXX_COMPILER)
@@ -62,8 +62,8 @@ KiB pages and separate loadable segments, the layout WitOS's loader maps.
 +    set(CLR_CMAKE_CXX_STANDARD_LIBRARY "libc++" CACHE STRING "Standard library flavor to link against. Only supported with the Clang compiler.")
  elseif(HAIKU)
      set(CMAKE_SYSROOT "${CROSS_ROOTFS}")
-     set(CMAKE_PROGRAM_PATH "${CMAKE_PROGRAM_PATH};${CROSS_ROOTFS}/cross-tools-x86_64/bin")
-@@ -289,6 +313,16 @@
+     set(CMAKE_SYSTEM_PREFIX_PATH "${CROSS_ROOTFS}")
+@@ -303,6 +327,16 @@
    add_toolchain_linker_flag("-lroot")
  endif()
  
@@ -79,4 +79,4 @@ KiB pages and separate loadable segments, the layout WitOS's loader maps.
 +
  # Specify compile options
  
- if((TARGET_ARCH_NAME MATCHES "^(arm|arm64|armel|armv6|loongarch64|ppc64le|riscv64|s390x|x64|x86)$" AND NOT ANDROID AND NOT FREEBSD) OR ILLUMOS OR HAIKU)
+ if((TARGET_ARCH_NAME MATCHES "^(arm|arm64|armel|armv6|loongarch64|ppc64le|riscv64|s390x|x64|x86)$" AND NOT ANDROID AND NOT FREEBSD AND NOT OPENBSD) OR ILLUMOS OR HAIKU)
