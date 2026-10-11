@@ -107,6 +107,10 @@
     {
       "path": "src/native/external/libunwind.cmake",
       "sha256": "c87fe321817a5f2ce1eb75b515cbd01d9da8ea0129b020e7c488a6197839b55a"
+    },
+    {
+      "path": "src/libraries/System.Security.Cryptography/src/System.Security.Cryptography.csproj",
+      "sha256": "c19093d9923e5d153a62550fe9b4f0319899b6d77ab40b1eeb47f59c0fc0144c"
     }
   ]
 }
