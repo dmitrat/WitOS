@@ -1,0 +1,25 @@
+Source: src/coreclr/pal/tests/palsuite/exception_handling/pal_sxs/test1/CMakeLists.txt
+Output: src.coreclr.pal.tests.palsuite.exception_handling.pal_sxs.test1.CMakeLists.txt
+Before: e9cdcb7f41ffee93ce64af01e34e6f3e7331168857f9867000bc7a03176da0f6
+After: b18a04dc430fdaa8fee05a3437894a29aa401201769fff4340f32b905430e2ef
+
+The PAL suite's side-by-side test on witos (plan step R7.1): two libraries each link their own PAL, and the second
+exports only its two entry points through a version script on Linux, FreeBSD and NetBSD. Without it on witos the second
+library exported every PAL function, its calls bound to the first library's PAL, and a hardware exception in its PAL_TRY
+was thrown by the other PAL as a type its catch did not match. witos takes the version script beside the other
+platforms.
+
+--- a/src/coreclr/pal/tests/palsuite/exception_handling/pal_sxs/test1/CMakeLists.txt
++++ b/src/coreclr/pal/tests/palsuite/exception_handling/pal_sxs/test1/CMakeLists.txt
+@@ -53,9 +53,9 @@
+ set(EXPORTS_FILE2 ${CMAKE_CURRENT_BINARY_DIR}/dlltest2.exports)
+ generate_exports_file(${DEF_SOURCES2} ${EXPORTS_FILE2})
+ 
+-if(CLR_CMAKE_TARGET_LINUX OR CLR_CMAKE_TARGET_FREEBSD OR CLR_CMAKE_TARGET_NETBSD)
++if(CLR_CMAKE_TARGET_LINUX OR CLR_CMAKE_TARGET_FREEBSD OR CLR_CMAKE_TARGET_NETBSD OR CLR_CMAKE_TARGET_WITOS)
+     set(EXPORTS_LINKER_OPTION2 -Wl,--version-script=${EXPORTS_FILE2})
+-endif(CLR_CMAKE_TARGET_LINUX OR CLR_CMAKE_TARGET_FREEBSD OR CLR_CMAKE_TARGET_NETBSD)
++endif(CLR_CMAKE_TARGET_LINUX OR CLR_CMAKE_TARGET_FREEBSD OR CLR_CMAKE_TARGET_NETBSD OR CLR_CMAKE_TARGET_WITOS)
+ 
+ if(CLR_CMAKE_TARGET_OSX)
+     set(EXPORTS_LINKER_OPTION2 -Wl,-exported_symbols_list,${EXPORTS_FILE2})

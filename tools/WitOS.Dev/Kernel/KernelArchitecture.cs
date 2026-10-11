@@ -130,6 +130,11 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
         $"[M3] CoreCLR on {Triple[..Triple.IndexOf('-')]}: {Runtime.RuntimeWitos.ACCEPTANCE_RUNS} runs passed, 0 failed";
 
     /// <summary>
+    /// The start of the PAL suite runner's last line when every selected test passed (R7.1).
+    /// </summary>
+    public string PalSuitePassedLine => $"[PAL] CoreCLR's PAL suite on {Triple[..Triple.IndexOf('-')]}: all ";
+
+    /// <summary>
     /// The end of the last line of R6's portable application when every check passed.
     /// </summary>
     public static string PortableAppPassedLine =>

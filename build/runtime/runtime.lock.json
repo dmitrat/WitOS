@@ -115,6 +115,10 @@
     {
       "path": "src/coreclr/pal/src/init/pal.cpp",
       "sha256": "52807c220eaec5d2eff6fb45ba314ef995ea46471dc19be0fcd2427639359548"
+    },
+    {
+      "path": "src/coreclr/pal/tests/palsuite/exception_handling/pal_sxs/test1/CMakeLists.txt",
+      "sha256": "e9cdcb7f41ffee93ce64af01e34e6f3e7331168857f9867000bc7a03176da0f6"
     }
   ]
 }

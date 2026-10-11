@@ -31,6 +31,12 @@ long __wit_sysinfo(struct sysinfo *out);
 long __wit_prlimit(long pid, long resource, const struct rlimit *limit, struct rlimit *old);
 long __wit_sched_getaffinity(long tid, long size, unsigned char *mask);
 long __wit_sched_setaffinity(long tid, long size, const unsigned char *mask);
+struct sched_param;
+long __wit_sched_getscheduler(long tid);
+long __wit_sched_getparam(long tid, struct sched_param *param);
+long __wit_sched_priority(long policy);
+long __wit_sched_setscheduler(long tid, long policy, const struct sched_param *param);
+long __wit_sched_setparam(long tid, const struct sched_param *param);
 
 /* Linux memory calls over reserve/commit (memory.c). */
 long __wit_mmap(long address, long length, long protection, long flags, long fd, long offset);
