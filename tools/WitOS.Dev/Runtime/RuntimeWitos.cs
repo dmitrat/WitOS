@@ -121,6 +121,16 @@ internal static class RuntimeWitos
     public const string CORECLR_TESTS_SELECTION = "build/runtime/coreclr-tests.json";
 
     /// <summary>
+    /// The runner of slices of the libraries' tests (R7.3), the runtime-library-tests scenario's /bin/init.
+    /// </summary>
+    public const string LIBRARY_TESTS_PROGRAM = "tests/User/library_tests_runner.c";
+
+    /// <summary>
+    /// The library test projects the guest runs and the test methods it leaves out, each with its reason (R7.3).
+    /// </summary>
+    public const string LIBRARY_TESTS_SELECTION = "build/runtime/library-tests.json";
+
+    /// <summary>
     /// The runs of the acceptance: four cycles of its eight probes (R2.2).
     /// </summary>
     public const int ACCEPTANCE_RUNS = 32;
@@ -144,6 +154,10 @@ internal static class RuntimeWitos
     private static readonly Regex TEST_SKIPPED_LINE = new(@"Test executable '.*' not found, skipping\.", RegexOptions.Compiled);
     private static readonly Regex TEST_ISOLATED_LINE = new(@"\[CORECLR-TESTS\] test /tests/(\S+)/[^/\s]+: (ok|FAILED.*)$", RegexOptions.Compiled);
     private static readonly Regex SCRIPT_EXECUTABLE = new(@"^ExePath=(.+)$", RegexOptions.Compiled | RegexOptions.Multiline);
+    // The library_tests_runner.c line that starts a project, xunit's summary line and its line for a failed test (R7.3).
+    private static readonly Regex LIBRARY_PROJECT_LINE = new(@"\[LIBRARY-TESTS\] project (\S+)$", RegexOptions.Compiled);
+    private static readonly Regex LIBRARY_SUMMARY_LINE = new(@"\sTotal: (\d+), Errors: (\d+), Failed: (\d+), Skipped: (\d+)", RegexOptions.Compiled);
+    private static readonly Regex LIBRARY_FAIL_LINE = new(@"\[FAIL\] (.+)$", RegexOptions.Compiled);
     private static readonly Regex SCRIPT_ARGUMENTS = new(@"CLRTestExecutionArguments=\(([^)'""]*)\); fi", RegexOptions.Compiled);
     private static readonly Regex SCRIPT_EXIT_CODE = new(@"^export CLRTestExpectedExitCode=(-?\d+)", RegexOptions.Compiled | RegexOptions.Multiline);
 
@@ -360,6 +374,21 @@ internal static class RuntimeWitos
         await BootScenarioRunner.RunAsync(root, coreclrTests, testsRequest);
         Console.WriteLine(await ReportCoreClrTestsAsync(root, architecture, Path.Combine(root, "artifacts", "logs", testsRequest.Name + ".serial.log"),
             selection));
+
+        // R7.3: slices of the libraries' tests, upstream's test projects built for witos as an archived test build (with
+        // xunit's console runner and RunTests.sh), each run in the guest as RunTests.sh runs it, through dotnet.
+        var libraries = ReadLibraryTestSelection(root);
+        await RunLibraryTestsBuildAsync(tree, architecture, libraries.Projects, environment);
+        var libraryTests = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_LIBRARY_TESTS_SCENARIO, architecture: architecture);
+        var librariesRequest = new BootRequest($"{architecture.Name}-runtime-library-tests-512", 512, 3600, ExpectedOutcome.Success)
+        {
+            Architecture = architecture,
+            Suite = BootSuite.Release,
+            RequiredLines = [architecture.LibraryTestsPassedLine, architecture.RootTaskPassedLine]
+        };
+        await BootScenarioRunner.RunAsync(root, libraryTests, librariesRequest);
+        Console.WriteLine(await ReportLibraryTestsAsync(root, architecture,
+            Path.Combine(root, "artifacts", "logs", librariesRequest.Name + ".serial.log"), libraries));
 
         // NativeAOT's runtime pack for the architecture (R2.3b), as upstream packs it: the SDK's targets take it for a
         // publish with PublishAot.
@@ -589,6 +618,26 @@ internal static class RuntimeWitos
     private static async Task<IReadOnlyList<(string Name, string Source)>> BuildInstallPackageAsync(string root, string output,
         KernelArchitecture architecture, string app, string program)
     {
+        await Sysroot.BuildAsync(root, architecture);
+        var initProgram = Path.Combine(output, "dotnet_init.elf");
+        await Processes.RequireSuccessAsync(Toolchain.Clang(root),
+        [
+            .. Sysroot.DriverOptions(root, architecture), "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
+            $"-DDOTNET_APP=\"/app/{program}\"", Path.Combine(root, DOTNET_PROGRAM), "-o", initProgram
+        ], root);
+        return
+        [
+            ("bin/init", initProgram),
+            .. await InstallFilesAsync(root, output, architecture),
+            .. Directory.GetFiles(app).Order(StringComparer.Ordinal).Select(file => ($"app/{Path.GetFileName(file)}", file))
+        ];
+    }
+
+    // A .NET install as the shared framework's packaging lays it out (R5), with musl's libc.so as the dynamic linker and
+    // the shared C++ runtime: /dotnet/dotnet, hostfxr, the shared framework and its deps.json, and the install location.
+    private static async Task<IReadOnlyList<(string Name, string Source)>> InstallFilesAsync(string root, string output,
+        KernelArchitecture architecture)
+    {
         var tree = Path.Combine(root, "artifacts", "runtime-witos", "src");
         var coreclr = Path.Combine(tree, "artifacts", "bin", "coreclr", $"witos.{architecture.Name}.Release");
         var corehost = Path.Combine(tree, "artifacts", "bin", $"witos-{architecture.Name}.Release", "corehost");
@@ -600,12 +649,6 @@ internal static class RuntimeWitos
         var installLocation = Path.Combine(output, "install_location");
         await File.WriteAllTextAsync(installLocation, "/dotnet\n");
         var sysroot = await Sysroot.BuildAsync(root, architecture);
-        var initProgram = Path.Combine(output, "dotnet_init.elf");
-        await Processes.RequireSuccessAsync(Toolchain.Clang(root),
-        [
-            .. Sysroot.DriverOptions(root, architecture), "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
-            $"-DDOTNET_APP=\"/app/{program}\"", Path.Combine(root, DOTNET_PROGRAM), "-o", initProgram
-        ], root);
 
         // The shared framework: what Microsoft.NETCore.App's runtime pack carries for the RID, and the deps.json that names it.
         var shared = new List<(string Name, string Source)>
@@ -615,7 +658,8 @@ internal static class RuntimeWitos
             ("System.Private.CoreLib.dll", Path.Combine(coreclr, "IL", "System.Private.CoreLib.dll"))
         };
         shared.AddRange(Directory.GetFiles(framework, "*.dll").Order(StringComparer.Ordinal).Select(file => (Path.GetFileName(file), file)));
-        shared.AddRange(Directory.GetFiles(native, "*.so").Order(StringComparer.Ordinal).Select(file => (Path.GetFileName(file), file)));
+        // The libraries' native libraries alone: libs.pretest (R7.3) also copies the runtime and the hosts beside them.
+        shared.AddRange(Directory.GetFiles(native, "libSystem.*.so").Order(StringComparer.Ordinal).Select(file => (Path.GetFileName(file), file)));
         var deps = Path.Combine(output, "Microsoft.NETCore.App.deps.json");
         await File.WriteAllTextAsync(deps, FrameworkDeps(architecture, version, shared));
         shared.Add(("Microsoft.NETCore.App.deps.json", deps));
@@ -623,15 +667,99 @@ internal static class RuntimeWitos
         var lib = Path.Combine(sysroot, "usr", "lib");
         return
         [
-            ("bin/init", initProgram), (MuslLibc.InterpreterPath(architecture).TrimStart('/'), Path.Combine(lib, "libc.so")),
+            (MuslLibc.InterpreterPath(architecture).TrimStart('/'), Path.Combine(lib, "libc.so")),
             ("lib/libc++.so.1", Path.Combine(lib, "libc++.so.1")), ("lib/libc++abi.so.1", Path.Combine(lib, "libc++abi.so.1")),
             ("lib/libunwind.so.1", Path.Combine(lib, "libunwind.so.1")),
             ("etc/dotnet/install_location", installLocation),
             ("dotnet/dotnet", Path.Combine(corehost, "dotnet")),
             ($"dotnet/host/fxr/{version}/libhostfxr.so", Path.Combine(corehost, "libhostfxr.so")),
-            .. shared.Select(file => ($"dotnet/shared/Microsoft.NETCore.App/{version}/{file.Name}", file.Source)),
-            .. Directory.GetFiles(app).Order(StringComparer.Ordinal).Select(file => ($"app/{Path.GetFileName(file)}", file))
+            .. shared.Select(file => ($"dotnet/shared/Microsoft.NETCore.App/{version}/{file.Name}", file.Source))
         ];
+    }
+
+    /// <summary>
+    /// The package of the slices of the libraries' tests (R7.3): tests/User/library_tests_runner.c as /bin/init, the .NET
+    /// install of R5, each project's output with xunit's console runner under /tests/&lt;assembly name&gt;, the names in
+    /// /tests/projects and the test methods left out, one a line, in /tests/exclusions.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Artifact directory of the scenario.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>Package paths and the files to place there.</returns>
+    public static async Task<IReadOnlyList<(string Name, string Source)>> BuildLibraryTestsPackageAsync(string root, string output,
+        KernelArchitecture architecture)
+    {
+        var tree = Path.Combine(root, "artifacts", "runtime-witos", "src");
+        var selection = ReadLibraryTestSelection(root);
+        var files = new List<(string Name, string Source)>();
+        var names = new List<string>();
+        foreach (var project in selection.Projects)
+        {
+            var name = Path.GetFileNameWithoutExtension(project);
+            var directory = LibraryTestDirectory(tree, name);
+            names.Add(name);
+            files.AddRange(Directory.EnumerateFiles(directory)
+                .Where(file => !file.EndsWith(".pdb", StringComparison.Ordinal) && !file.EndsWith(".exe", StringComparison.Ordinal) &&
+                    !file.EndsWith(".sh", StringComparison.Ordinal))
+                .Order(StringComparer.Ordinal)
+                .Select(file => ($"tests/{name}/{Path.GetFileName(file)}", file)));
+        }
+        var projects = Path.Combine(output, "library-tests-projects.txt");
+        await File.WriteAllTextAsync(projects, string.Join("\n", names) + "\n");
+        var exclusions = Path.Combine(output, "library-tests-exclusions.txt");
+        await File.WriteAllTextAsync(exclusions, string.Concat(selection.Excluded.Keys.Select(method => method + "\n")));
+        var sysroot = await Sysroot.BuildAsync(root, architecture);
+        var init = Path.Combine(output, "library_tests_runner.elf");
+        // The program is C: the driver's C++ library option would be an unused argument.
+        await Processes.RequireSuccessAsync(Toolchain.Clang(root),
+        [
+            .. Sysroot.DriverOptions(root, architecture).Where(option => option != "-stdlib=libc++"), "-std=c17", "-O2", "-Wall",
+            "-Wextra", "-Werror", Path.Combine(root, LIBRARY_TESTS_PROGRAM), "-o", init
+        ], root);
+        return
+        [
+            ("bin/init", init), ("tests/projects", projects), ("tests/exclusions", exclusions),
+            .. await InstallFilesAsync(root, output, architecture),
+            .. files
+        ];
+    }
+
+    /// <summary>
+    /// The library test projects the guest runs and the test methods it leaves out with their reasons (R7.3).
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>The selection.</returns>
+    public static LibraryTestSelection ReadLibraryTestSelection(string root)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, LIBRARY_TESTS_SELECTION)));
+        var projects = document.RootElement.GetProperty("projects").EnumerateArray().Select(project => project.GetString() ?? "").ToList();
+        if (projects.Count == 0 || projects.Any(project => !project.StartsWith("src/libraries/", StringComparison.Ordinal) ||
+                !project.EndsWith(".Tests.csproj", StringComparison.Ordinal)))
+            throw new InvalidDataException($"{LIBRARY_TESTS_SELECTION} names no project or one that is not a library test project.");
+        var excluded = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var method in document.RootElement.GetProperty("excluded").EnumerateObject())
+        {
+            var reason = method.Value.GetString();
+            if (string.IsNullOrWhiteSpace(reason) || method.Name.Contains(' '))
+                throw new InvalidDataException($"{LIBRARY_TESTS_SELECTION} leaves out {method.Name} without a reason or with a space in its name.");
+            excluded.Add(method.Name, reason);
+        }
+        return new LibraryTestSelection(projects, excluded);
+    }
+
+    // A library test project's output (R7.3): the one directory under artifacts/bin/<name>/Release that holds the
+    // RunTests.sh an archived test build writes for a .NET target framework; a project that also builds for .NET
+    // Framework (net4*) has a second one, which is not for witos.
+    private static string LibraryTestDirectory(string tree, string name)
+    {
+        var bin = Path.Combine(tree, "artifacts", "bin", name, "Release");
+        var scripts = Directory.Exists(bin)
+            ? Directory.GetFiles(bin, "RunTests.sh", SearchOption.AllDirectories)
+                .Where(script => !Path.GetFileName(Path.GetDirectoryName(script)!).StartsWith("net4", StringComparison.Ordinal)).ToArray()
+            : [];
+        if (scripts.Length != 1)
+            throw new InvalidOperationException($"No single archived test build of {name} in {bin}. Run: dotnet run --project tools/WitOS.Dev -- runtime-witos");
+        return Path.GetDirectoryName(scripts[0])!;
     }
 
     // The shared framework's deps.json as the shared framework's packaging writes it (R5): one runtime-pack library for the
@@ -1170,7 +1298,7 @@ internal static class RuntimeWitos
         };
         var build = await Processes.RunAsync(Path.Combine(tree, "src", "tests", "build.sh"),
             [architecture.Name, "Release", "-os", "witos", "-skipnative", "-skipgeneratelayout", .. groups.Select(group => $"-test:{group}.csproj")],
-            tree, 3600, testsEnvironment);
+            tree, 3600, BuildEnvironment(testsEnvironment));
         if (build.TimedOut || build.ExitCode != 0)
             throw new InvalidOperationException($"src/tests/build.sh for witos-{architecture.Name} failed (exit {build.ExitCode}, timeout={build.TimedOut}).\n" +
                 $"{Tail(build.Output)}\n{Tail(build.Error)}");
@@ -1240,16 +1368,99 @@ internal static class RuntimeWitos
             $"{selection.Excluded.Count} left out ({report}).";
     }
 
+    // The library test projects for witos (R7.3): each built by the tree's SDK as an archived test build, which bundles
+    // xunit's console runner and writes RunTests.sh; the restore asks for witos, so the tree's identifier graph is given.
+    private static async Task RunLibraryTestsBuildAsync(string tree, KernelArchitecture architecture, IReadOnlyList<string> projects,
+        IReadOnlyDictionary<string, string> environment)
+    {
+        var testsEnvironment = new Dictionary<string, string>(environment, StringComparer.Ordinal)
+        {
+            ["RuntimeIdentifierGraphPath"] = Path.Combine(tree, "src", "libraries", "Microsoft.NETCore.Platforms", "src", "PortableRuntimeIdentifierGraph.json")
+        };
+        // Upstream builds the testhost and the tests' shared dependencies before a test project (libs.pretest).
+        await RunBuildAsync(tree, ["libs.pretest", "-os", "witos", "-arch", architecture.Name, "-c", "Release"], testsEnvironment);
+        foreach (var project in projects)
+        {
+            var build = await Processes.RunAsync(Path.Combine(tree, ".dotnet", "dotnet"),
+                ["build", Path.Combine(tree, project), "-c", "Release", "/p:TargetOS=witos", $"/p:TargetArchitecture={architecture.Name}",
+                    "/p:ArchiveTests=true"],
+                tree, 3600, BuildEnvironment(testsEnvironment));
+            if (build.TimedOut || build.ExitCode != 0)
+                throw new InvalidOperationException($"The test build of {project} for witos-{architecture.Name} failed (exit {build.ExitCode}, timeout={build.TimedOut}).\n" +
+                    $"{Tail(build.Output)}\n{Tail(build.Error)}");
+        }
+    }
+
+    // What the projects' tests did (R7.3): xunit's summary line of each project and its "[FAIL]" lines between the
+    // runner's project markers, written to a report beside the tree; a failed test or a project without a summary fails
+    // runtime-witos.
+    private static async Task<string> ReportLibraryTestsAsync(string root, KernelArchitecture architecture, string log, LibraryTestSelection selection)
+    {
+        var summaries = new SortedDictionary<string, (int Total, int Errors, int Failed, int Skipped)>(StringComparer.Ordinal);
+        var failures = new List<string>();
+        string? project = null;
+        foreach (var raw in await File.ReadAllLinesAsync(log))
+        {
+            var line = raw.TrimEnd('\r');
+            var marker = LIBRARY_PROJECT_LINE.Match(line);
+            if (marker.Success)
+            {
+                project = marker.Groups[1].Value;
+                continue;
+            }
+            var summary = LIBRARY_SUMMARY_LINE.Match(line);
+            if (summary.Success && project is not null)
+            {
+                summaries[project] = (int.Parse(summary.Groups[1].Value), int.Parse(summary.Groups[2].Value),
+                    int.Parse(summary.Groups[3].Value), int.Parse(summary.Groups[4].Value));
+                continue;
+            }
+            var failure = LIBRARY_FAIL_LINE.Match(line);
+            if (failure.Success && project is not null)
+                failures.Add($"{project}: {failure.Groups[1].Value.Trim()}");
+        }
+        var names = selection.Projects.Select(Path.GetFileNameWithoutExtension).OfType<string>().ToList();
+        var missing = names.Where(name => !summaries.ContainsKey(name)).ToList();
+        var report = Path.Combine(root, "artifacts", "runtime-witos", $"library-tests-{architecture.Name}.json");
+        await File.WriteAllTextAsync(report, JsonSerializer.Serialize(new
+        {
+            projects = summaries.ToDictionary(entry => entry.Key, entry => new
+            {
+                total = entry.Value.Total,
+                errors = entry.Value.Errors,
+                failed = entry.Value.Failed,
+                skipped = entry.Value.Skipped
+            }),
+            failures,
+            excluded = selection.Excluded.Count
+        }, new JsonSerializerOptions { WriteIndented = true }));
+        if (missing.Count > 0 || failures.Count > 0 || summaries.Values.Any(entry => entry.Errors > 0 || entry.Failed > 0))
+            throw new InvalidDataException($"The libraries' tests on witos-{architecture.Name}: {failures.Count} failed" +
+                (missing.Count > 0 ? $", projects without a summary: {string.Join(", ", missing)}" : "") +
+                (failures.Count > 0 ? $": {string.Join("; ", failures.Take(40))}" : "") + $" ({report}).");
+        var passed = summaries.Values.Sum(entry => entry.Total - entry.Skipped);
+        return $"The libraries' tests on witos-{architecture.Name}: {passed} passed in {summaries.Count} projects, " +
+            $"{summaries.Values.Sum(entry => entry.Skipped)} skipped, {selection.Excluded.Count} methods left out ({report}).";
+    }
+
     private static string TestsDirectory(string tree, KernelArchitecture architecture) =>
         Path.Combine(tree, "artifacts", "tests", "coreclr", $"witos.{architecture.Name}.Release");
 
     private static async Task RunBuildAsync(string tree, string[] arguments, IReadOnlyDictionary<string, string>? environment)
     {
-        var build = await Processes.RunAsync(Path.Combine(tree, "build.sh"), arguments, tree, 3600, environment);
+        var build = await Processes.RunAsync(Path.Combine(tree, "build.sh"), arguments, tree, 3600, BuildEnvironment(environment));
         if (build.TimedOut || build.ExitCode != 0)
             throw new InvalidOperationException($"build.sh {arguments[0]} failed (exit {build.ExitCode}, timeout={build.TimedOut}).\n" +
                 $"{Tail(build.Output)}\n{Tail(build.Error)}");
     }
+
+    // A build of the pinned tree runs without NuGet's audit (R8.1): the pin fixes upstream's dependencies, while the audit
+    // reads the advisories published up to the day of the restore, which must not decide whether the pin builds; upstream
+    // sets no NuGetAudit, so the variable is the property. Microsoft.DiaSymReader.Native, a Windows library of upstream's
+    // externals that WitOS neither builds into anything nor ships, gained high-severity advisories after the pin, and the
+    // build treats the warning as an error.
+    private static Dictionary<string, string> BuildEnvironment(IReadOnlyDictionary<string, string>? environment) =>
+        new(environment ?? new Dictionary<string, string>(), StringComparer.Ordinal) { ["NuGetAudit"] = "false" };
 
     // What upstream's native build runs with: the pinned clang and its LLVM tools first on the path, as the compilers,
     // and the sysroot for a cross build (none for the host).
@@ -1655,3 +1866,10 @@ internal sealed record RuntimeBudget(int FreeBsdCoreClr, int FreeBsdNativeLibrar
 /// <param name="Standalone">Merged runners, as Groups names them, whose process-isolated tests run one by one.</param>
 internal sealed record CoreClrTestSelection(IReadOnlyList<string> Groups, IReadOnlyList<string> Standalone,
     IReadOnlyDictionary<string, string> Excluded);
+
+/// <summary>
+/// The library test projects the guest runs and the test methods it leaves out with their reasons (R7.3).
+/// </summary>
+/// <param name="Projects">Project paths under the runtime tree.</param>
+/// <param name="Excluded">xunit method names or patterns, and the reasons.</param>
+internal sealed record LibraryTestSelection(IReadOnlyList<string> Projects, IReadOnlyDictionary<string, string> Excluded);

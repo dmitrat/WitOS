@@ -1,0 +1,11 @@
+{
+  "comment": "Slices of the .NET libraries' tests on WitOS (plan step R7.3), which @Docs/Implementation/R7.3-Library-Tests.md explains. projects: upstream's library test projects runtime-witos builds for witos and the guest runs under xunit's console runner, a process a project, without the categories upstream's CI leaves out. excluded: test methods (xunit's -nomethod names or patterns) the guest leaves out, each with the reason. Every other test must pass.",
+  "projects": [
+    "src/libraries/System.Collections.Concurrent/tests/System.Collections.Concurrent.Tests.csproj",
+    "src/libraries/System.Runtime.Numerics/tests/System.Runtime.Numerics.Tests.csproj"
+  ],
+  "excluded": {
+    "System.Numerics.Tests.ToStringTest.RunRegionSpecificStandardFormatToStringTests": "formats in the en-US culture: globalization is invariant, since the system layer has no ICU (RFC 0015 section 8)",
+    "System.Numerics.Tests.op_rightshiftTest.LargeNegativeBigIntegerShiftTest": "builds a BigInteger of 2^31 bits twice, 256 MB each, past the pages a process commits (the system layer's quota, 256 MiB)"
+  }
+}

@@ -24,8 +24,9 @@
 #define WIT_PROCESS_EVENT_CAPACITY 64U
 /* Live memory objects a system layer process creates (S6.1): the process manager creates the writable segments and the
  * first stack of every process it starts, two objects or more while each lives, and the libc a chunk of 64 pages for
- * every 256 KiB of shared memory a JIT maps (R6). */
-#define WIT_PROCESS_OBJECT_CAPACITY 128U
+ * every 256 KiB of shared memory a JIT maps (R6; 512 since R7.3, where upstream's library tests compiled 30 MiB of code
+ * into 120 chunks). */
+#define WIT_PROCESS_OBJECT_CAPACITY 512U
 
 /* Objects of every component and of the kernel. */
 #define WIT_WAIT_ANY_CAPACITY 4U /* handles in one wait-any call */
@@ -38,7 +39,7 @@
 #define WIT_CHANNEL_QUEUE_BYTES 1024U /* inline bytes queued for one endpoint */
 #define WIT_CHANNEL_MESSAGE_BYTES 256U /* inline bytes of one message */
 #define WIT_CHANNEL_MESSAGE_HANDLES 4U /* capabilities moved by one message */
-#define WIT_MEMORY_OBJECT_TABLE_CAPACITY 256U /* memory objects kernel-wide (R6) */
+#define WIT_MEMORY_OBJECT_TABLE_CAPACITY 1024U /* memory objects kernel-wide (R6; 1024 since R7.3) */
 #define WIT_MEMORY_OBJECT_PAGES 64U /* pages of one memory object */
 #define WIT_DEVICE_CAPACITY 16U /* device descriptors the kernel publishes; the table fits one page */
 #define WIT_INTERRUPT_CAPACITY 8U /* interrupt bindings, kernel-wide: one per line */
@@ -48,12 +49,14 @@
 /* Physical pages a component owns and its dynamic reservations. A system layer process's reservations cover every
  * mapping of a dynamic program's libraries, every split of a library's span and every thread stack (S5.4), and
  * CoreCLR's with its JIT: its many small reservations, the shared memory chunks its executable memory maps twice and
- * libraries of megabytes in package mappings of 64 pages (R3.2b); its reservation table sizes every space's arrays. The page tables record which pages a space owns and aliases (K9), so
+ * libraries of megabytes in package mappings of 64 pages (R3.2b); its reservation table sizes every space's arrays,
+ * 4096 entries since R7.3, where upstream's library tests filled 1024 with the JIT's two views of each shared memory
+ * chunk beside the GC's reservations (24 bytes an entry). The page tables record which pages a space owns and aliases (K9), so
  * the page quota sizes no array: a system layer process may own 256 MiB, and the guest's physical memory, which the
  * memory-pressure event reports, is what binds it first. */
 #define WIT_USER_RESERVATION_CAPACITY 8U
 #define WIT_USER_PAGE_CAPACITY 128U
-#define WIT_PROCESS_RESERVATION_CAPACITY 1024U
+#define WIT_PROCESS_RESERVATION_CAPACITY 4096U
 #define WIT_PROCESS_PAGE_CAPACITY 65536U
 /* Memory-pressure hysteresis, in allocatable pages of global RAM and of the component quota. */
 #define WIT_PRESSURE_LOW_PAGES 16U
