@@ -43,7 +43,7 @@
 #define ENTRY_BYTES 32U
 #define MAX_FILES 1024U /* WIT_PACKAGE_MAX_FILES */
 #define FIRST_DESCRIPTOR 3
-#define DESCRIPTORS 64
+#define DESCRIPTORS 1024 /* Linux's usual soft RLIMIT_NOFILE: CoreCLR keeps every assembly it loads open (R6) */
 #define NAME_MAX_BYTES 1024U
 #define DIRECTORY_INODE_BASE 0x10000ULL
 #define FUTEX_WAKE 1
@@ -1149,6 +1149,12 @@ long __wit_stream_of(long fd)
         return d->Kind == KindStream ? (long)d->Index : -1;
     }
     return fd >= 0 && fd < FIRST_DESCRIPTOR && !(__wit_process.ClosedStreams & (1U << fd)) ? fd : -1;
+}
+
+/* The descriptors a process may hold, which getrlimit(RLIMIT_NOFILE) reports (R6). */
+long __wit_descriptor_capacity(void)
+{
+    return DESCRIPTORS;
 }
 
 /* poll's readiness of a descriptor (R3.2), under the table lock: a pipe end as its pipe reports it; a file, a directory,

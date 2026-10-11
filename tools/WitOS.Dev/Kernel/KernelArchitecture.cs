@@ -130,6 +130,12 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
         $"[M3] CoreCLR on {Triple[..Triple.IndexOf('-')]}: {Runtime.RuntimeWitos.ACCEPTANCE_RUNS} runs passed, 0 failed";
 
     /// <summary>
+    /// The end of the last line of R6's portable application when every check passed.
+    /// </summary>
+    public static string PortableAppPassedLine =>
+        $"{Runtime.RuntimeWitos.PORTABLE_APP_CHECKS} of {Runtime.RuntimeWitos.PORTABLE_APP_CHECKS} checks passed";
+
+    /// <summary>
     /// The line of the program dotnet runs through hostfxr and hostpolicy (R5), up to the framework's description.
     /// </summary>
     public string DotnetLine => $"[DOTNET] App.dll through hostfxr and hostpolicy on {(this == X64 ? "X64" : "Arm64")}: ";

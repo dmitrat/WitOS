@@ -228,7 +228,9 @@ int main(void)
     struct rlimit limit;
     check(getrlimit(RLIMIT_AS, &limit) == 0 && limit.rlim_cur == limit.rlim_max && limit.rlim_cur >= (1UL << 30),
         "getrlimit(RLIMIT_AS)");
-    check(getrlimit(RLIMIT_NOFILE, &limit) == -1 && errno == ENOSYS, "a limit the system layer does not report");
+    check(getrlimit(RLIMIT_NOFILE, &limit) == 0 && limit.rlim_cur == 1024 && limit.rlim_max == 1024,
+        "getrlimit(RLIMIT_NOFILE): the library's descriptor table");
+    check(getrlimit(RLIMIT_CORE, &limit) == -1 && errno == ENOSYS, "a limit the system layer does not report");
     cpu_set_t processors;
     check(sched_getaffinity(0, sizeof(processors), &processors) == 0 &&
             CPU_ISSET(0, &processors) &&

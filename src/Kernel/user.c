@@ -129,8 +129,10 @@ WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code)
     WitUserProcess *p = current_user;
     settle(p, state, code);
     if (p != root_user) {
-        /* A created process ended: the run goes on with the others, and the resume abandons this kernel stack. */
+        /* A created process ended: the run goes on with the others, and the resume abandons this kernel stack, the idle
+         * path's too when the end came from a tick or a line that interrupted it (R6). */
         retire(p);
+        user_idle = 0;
         wit_arch_resume_frame(dispatch(0, code));
     }
     wit_platform_timer_stop();
@@ -195,6 +197,33 @@ static void expire_waits(void)
             wit_user_pressure_update(q);
         }
     }
+}
+
+/* Whether the idle processor can still be woken: by a thread a deadline made ready, by a parked wait's deadline in any
+ * component or by a bound line.
+ * When nothing can wake it, every component waits for another that waits too, and the idle ticks are charged to the
+ * component that went idle, so that its budget bounds the deadlock; otherwise a tick of the idle path charges nobody
+ * (R6: a process whose threads all waited with deadlines was ended by the ticks of its waits). */
+static int idle_can_wake(void)
+{
+    if (wit_user_interrupts_bound()) {
+        return 1;
+    }
+    for (WitU32 i = 0; i < WIT_PROCESS_CAPACITY; ++i) {
+        const WitUserProcess *q = slot_owners[i];
+        if (!q || q->State != WitUserRunning) {
+            continue;
+        }
+        if (wit_user_wait_timed(q)) {
+            return 1;
+        }
+        for (WitU32 t = 0; t < q->ThreadLimit; ++t) {
+            if (q->Threads[t].State == WitThreadReady) {
+                return 1;
+            }
+        }
+    }
+    return 0;
 }
 
 /* The running thread's frame is about to return to user mode (RFC 0011 section 7.5: from a call, a tick or a wait): a
@@ -648,8 +677,11 @@ WitArchFrame *wit_user_timer_tick(WitArchFrame *context)
         thread->State = WitThreadReady;
     }
     expire_waits();
-    /* The budget is the running component's; the idle path after a created process's end charges nobody. */
-    if (current_user->State == WitUserRunning && ++current_user->Ticks >= current_user->TickLimit) {
+    /* The budget is the running component's; a tick of the idle path charges the component that went idle only when
+     * nothing can wake the processor (idle_can_wake). */
+    if ((!user_idle || !idle_can_wake()) &&
+        current_user->State == WitUserRunning &&
+        ++current_user->Ticks >= current_user->TickLimit) {
         wit_user_finish(WitUserBudgetExpired, 0);
     }
     if (user_idle) {

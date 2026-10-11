@@ -19,7 +19,9 @@
 int main(void)
 {
     static char *argv[] = {INIT, 0};
-    static char *envp[] = {"PATH=/bin:/usr/bin", 0};
+    /* The system layer has no ICU: every .NET program runs with invariant globalization, as RFC 0015 section 8 takes it
+     * until a scenario needs culture data (R6: an application published without a setting of its own runs unchanged). */
+    static char *envp[] = {"PATH=/bin:/usr/bin", "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1", 0};
     WitProcessInfo info;
     memset(&info, 0, sizeof(info));
     printf("[ROOT-TASK] process manager on " ISA_NAME ", starting " INIT "\n");

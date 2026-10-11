@@ -111,6 +111,10 @@
     {
       "path": "src/libraries/System.Security.Cryptography/src/System.Security.Cryptography.csproj",
       "sha256": "c19093d9923e5d153a62550fe9b4f0319899b6d77ab40b1eeb47f59c0fc0144c"
+    },
+    {
+      "path": "src/coreclr/pal/src/init/pal.cpp",
+      "sha256": "52807c220eaec5d2eff6fb45ba314ef995ea46471dc19be0fcd2427639359548"
     }
   ]
 }

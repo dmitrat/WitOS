@@ -50,6 +50,19 @@ void wit_user_wait_expire(WitUserProcess *process, WitU64 now)
     }
 }
 
+int wit_user_wait_timed(const WitUserProcess *process)
+{
+    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
+        const WitUserThread *thread = &process->Threads[i];
+        if (thread->State == WitThreadWaiting &&
+            (thread->WaitKind == WitWaitObjects || thread->WaitKind == WitWaitSleep) &&
+            thread->Deadline != WIT_WAIT_INFINITE) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int valid_deadline(WitU64 deadline)
 {
     return deadline <= WIT_MONOTONIC_MAX || deadline == WIT_WAIT_INFINITE;
