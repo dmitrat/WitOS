@@ -1,0 +1,23 @@
+{
+  "comment": "Slices of CoreCLR's src/tests on WitOS (plan step R7.2b), which @Docs/Implementation/R7.2b-CoreCLR-Tests.md explains. groups: upstream's merged test runners the guest runs whole, each in a process of its own. standalone: merged runners whose process-isolated tests the guest runs one by one, each in a process of its own, since a merged runner starts those through a script WitOS has no shell for. excluded: test names, as a group prints them or as the path of a process-isolated test's directory, with the reasons. Every other test must pass.",
+  "groups": [
+    "JIT/Methodical/Methodical_d1",
+    "JIT/Methodical/Methodical_r1"
+  ],
+  "standalone": [
+    "GC/GC",
+    "baseservices/exceptions/baseservices-exceptions"
+  ],
+  "excluded": {
+    "GC/API/GC/Collect_Optimized_2": "reads Process.GetCurrentProcess(): System.Diagnostics.Process is unsupported on WitOS (RFC 0015 section 8)",
+    "GC/API/GC/Collect_Optimized_3": "reads Process.GetCurrentProcess(): System.Diagnostics.Process is unsupported on WitOS (RFC 0015 section 8)",
+    "GC/API/NoGCRegion/Callback_Svr": "needs the server GC through DOTNET_gcServer, which its script sets: one processor schedules threads until phase P",
+    "GC/API/NoGCRegion/NoGC": "starts no-GC regions of 200 MB beside its heap, past the pages a process commits (256 MiB); the GC then faults freeing a handle (TableFreeSingleHandleToCache), an open question of the R7.2b document",
+    "GC/Coverage/LargeObjectAlloc": "faults now and then in the same place as NoGC, freeing a handle (TableFreeSingleHandleToCache), and passes alone; an open question of the R7.2b document",
+    "GC/LargeMemory/API/gc/gettotalmemory": "asks for 2 GB, since it reads the physical memory from /proc/meminfo, which WitOS does not have: on ARM64 the GC commits the process's whole page quota (256 MiB) before the allocation fails, and the runtime then has no memory to raise OutOfMemoryException",
+    "GC/Regressions/v2.0-beta2/460373/460373": "keeps 500 MB live, past the pages a process commits (the system layer's quota, 256 MiB) and the guest's 512 MiB: the runtime ends on the out-of-memory exception",
+    "GC/Stress/Framework/ReliabilityFramework": "writes its logs into its own directory, which is the read-only package",
+    "baseservices/exceptions/stackoverflow/stackoverflowtester": "starts a process: System.Diagnostics.Process is unsupported on WitOS (RFC 0015 section 8)",
+    "baseservices/exceptions/unhandled/unhandledTester": "starts a process: System.Diagnostics.Process is unsupported on WitOS (RFC 0015 section 8)"
+  }
+}

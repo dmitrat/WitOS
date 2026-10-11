@@ -1,6 +1,6 @@
 # План WitOS
 
-Обновлено: **2026-10-10**. Upstream .NET: **10.0.8**. Текущая реализация: user ABI 1.0, boot ABI v6, ядро и UHI для
+Обновлено: **2026-10-11**. Upstream .NET: **10.0.8**. Текущая реализация: user ABI 1.1, boot ABI v6, ядро и UHI для
 x64 (QEMU q35) и ARM64 (QEMU virt). Архитектурное решение: [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md).
 Прежний план с историей M0–M3, P1–P6.4, Q0–Q2, A0–A2 и T1 — в [архиве](@Docs/Implementation/Plan-Archive-2026-10-06.md);
 линия хоста P6.4, удалённая на K8.2, — в [P6.4-Plan.md](@Docs/Implementation/P6.4-Plan.md).
@@ -726,7 +726,7 @@ Unix-формы в госте сверх неизменённого прилож
     каталог её `AT_EXECFN` (второй хук WitOS в `dynlink.c` musl: `/proc/self/exe` нет); патч CMake теста `pal_sxs` —
     скрипт версий второй библиотеки для `witos`, как для Linux (без него её вызовы PAL связывались с PAL первой
     библиотеки). Патч-набор — 26 файлов.
-  - [ ] **R7.2** Срезы `src/tests` (JIT, GC, EH) под `corerun`: раннер тестов в госте и отчёт. Срезами:
+  - [x] **R7.2** Срезы `src/tests` (JIT, GC, EH) под `corerun`: раннер тестов в госте и отчёт. Срезами:
     - [x] **R7.2a** Записываемый `/dev/shm` внутри процесса
       ([R7.2a-Writable-Shared-Memory.md](@Docs/Implementation/R7.2a-Writable-Shared-Memory.md)): merged-раннеры
       `src/tests` пишут журналы в текущий каталог, а пакет — только для чтения; файлы разделяемой памяти (R3.2b) теперь
@@ -734,8 +734,19 @@ Unix-формы в госте сверх неизменённого прилож
       `fsync`), `/dev/shm` — каталог, в котором процесс создаёт файлы (`chdir`, относительные имена, `stat`,
       `access`), частное отображение такого файла — копия, отображается и страница с концом файла. PAL suite идёт в
       `/dev/shm`: исключений стало 25 вместо 59, `all 280 tests passed` на обеих ISA.
-    - [ ] **R7.2b** Срезы `src/tests` (JIT, GC, EH) через merged-раннеры в `/dev/shm`, отчёт по строкам
-      `Passed test`/`Failed test`.
+    - [x] **R7.2b** Срезы `src/tests` (JIT, GC, EH)
+      ([R7.2b-CoreCLR-Tests.md](@Docs/Implementation/R7.2b-CoreCLR-Tests.md)): `runtime-witos` собирает для `witos`
+      merged-группы `JIT/Methodical/Methodical_d1` и `_r1`, `GC/GC` и `baseservices/exceptions` (`src/tests/build.sh -os
+      witos`, граф RID дерева); сценарий `runtime-coreclr-tests` гонит группы JIT целиком под `corerun` в `/dev/shm` и
+      внепроцессные тесты GC и EH по одному в их каталогах с аргументами их скриптов; отчёт — строки `Passed
+      test`/`Failed test` из журнала и коды выхода: на обеих ISA 258 тестов JIT в двух группах и 50 внепроцессных тестов
+      GC и EH прошли, ни один не упал (`all 52 runs exited with 100`); 31 внепроцессный тест групп JIT не запускается
+      (нужен скрипт), 9 исключены с причиной. Найдено и сделано: первый стек процесса — 2 МиБ из восьми смежных объектов
+      (флаг `THREAD_CREATE` `WIT_THREAD_STACK_ADJACENT`, ABI-1 1.1; 256 КиБ не хватало вложенной обработке исключений),
+      бюджет тиков процесса системного слоя — час процессорного времени вместо 30 с (группы и тесты аллокации
+      обрывались), процесс, кончившийся по бюджету, — состояние `BUDGET` у `PROCESS_QUERY` (раньше — «выход с кодом 0»),
+      `waitpid` сообщает его как `SIGXCPU`; префикс `[USER]` — только в начале строки консоли (вывод тестов шёл по
+      символу). Открыто: `NoGC` и иногда `LargeObjectAlloc` падают в `TableFreeSingleHandleToCache`.
   - [ ] **R7.3** Срезы тестов библиотек.
 - [ ] **R8** Репетиция апгрейда (RFC-0015 §4): rebase патч-набора на следующий 10.0.x и на preview .NET 11 с измерением
   объёма.

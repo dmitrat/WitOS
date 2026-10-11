@@ -24,11 +24,13 @@ typedef struct WitProcessCreateRequest {
 WIT_STATIC_ASSERT(sizeof(WitProcessCreateRequest) == WIT_PROCESS_CREATE_SIZE, "Process create request ABI");
 
 /* The snapshot of PROCESS_QUERY: State is LIVE while the process runs (with or without threads), EXITED once it
- * exited or was killed with ExitCode, FAULTED once a fault of a thread ended it; ChargedPages are the pages its
+ * exited or was killed with ExitCode, FAULTED once a fault of a thread ended it, BUDGET once its tick budget ended it
+ * (ABI-1 1.1, plan step R7.2b; before, such a process read as EXITED with code zero); ChargedPages are the pages its
  * address space owns and the pages of the live memory objects it created; Threads are its live threads. */
 #define WIT_PROCESS_STATE_LIVE 1U
 #define WIT_PROCESS_STATE_EXITED 2U
 #define WIT_PROCESS_STATE_FAULTED 3U
+#define WIT_PROCESS_STATE_BUDGET 4U
 
 typedef struct WitProcessInfo {
     WitU32 Version, Size;

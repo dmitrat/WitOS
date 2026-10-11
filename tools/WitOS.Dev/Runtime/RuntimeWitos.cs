@@ -111,6 +111,16 @@ internal static class RuntimeWitos
     public const string PALSUITE_SELECTION = "build/runtime/palsuite.json";
 
     /// <summary>
+    /// The runner of slices of CoreCLR's src/tests (R7.2b), the runtime-coreclr-tests scenario's /bin/init.
+    /// </summary>
+    public const string CORECLR_TESTS_PROGRAM = "tests/User/coreclr_tests_runner.c";
+
+    /// <summary>
+    /// The merged test groups of src/tests the guest runs and the tests of them it leaves out, each with its reason (R7.2b).
+    /// </summary>
+    public const string CORECLR_TESTS_SELECTION = "build/runtime/coreclr-tests.json";
+
+    /// <summary>
     /// The runs of the acceptance: four cycles of its eight probes (R2.2).
     /// </summary>
     public const int ACCEPTANCE_RUNS = 32;
@@ -127,6 +137,15 @@ internal static class RuntimeWitos
 
     // The symbol ILC gives the program's Main: the assembly, the type and the method.
     private const string PLATFORM_MAIN = "Platform_Program__Main";
+
+    // The coreclr_tests_runner.c line that starts a group, and a merged runner's line for each test it ran (R7.2b).
+    private static readonly Regex TEST_GROUP_LINE = new(@"\[CORECLR-TESTS\] group (\S+)$", RegexOptions.Compiled);
+    private static readonly Regex TEST_RESULT_LINE = new(@"(Passed|Failed) test: (.+)$", RegexOptions.Compiled);
+    private static readonly Regex TEST_SKIPPED_LINE = new(@"Test executable '.*' not found, skipping\.", RegexOptions.Compiled);
+    private static readonly Regex TEST_ISOLATED_LINE = new(@"\[CORECLR-TESTS\] test /tests/(\S+)/[^/\s]+: (ok|FAILED.*)$", RegexOptions.Compiled);
+    private static readonly Regex SCRIPT_EXECUTABLE = new(@"^ExePath=(.+)$", RegexOptions.Compiled | RegexOptions.Multiline);
+    private static readonly Regex SCRIPT_ARGUMENTS = new(@"CLRTestExecutionArguments=\(([^)'""]*)\); fi", RegexOptions.Compiled);
+    private static readonly Regex SCRIPT_EXIT_CODE = new(@"^export CLRTestExpectedExitCode=(-?\d+)", RegexOptions.Compiled | RegexOptions.Multiline);
 
     #endregion
 
@@ -326,6 +345,21 @@ internal static class RuntimeWitos
             RequiredLines = [KernelArchitecture.PortableAppPassedLine, architecture.RootTaskPassedLine]
         });
         Console.WriteLine($"R6 on witos-{architecture.Name}: a portable application ran unchanged through dotnet in the guest.");
+
+        // R7.2b: slices of src/tests, upstream's merged test runners built for witos, a process a group under corerun in
+        // /dev/shm; whether each test passed is read from the log, since a merged runner returns 100 whatever its tests did.
+        var selection = ReadCoreClrTestSelection(root);
+        await RunTestsBuildAsync(tree, architecture, [.. selection.Groups, .. selection.Standalone], environment);
+        var coreclrTests = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_CORECLR_TESTS_SCENARIO, architecture: architecture);
+        var testsRequest = new BootRequest($"{architecture.Name}-runtime-coreclr-tests-512", 512, 3600, ExpectedOutcome.Success)
+        {
+            Architecture = architecture,
+            Suite = BootSuite.Release,
+            RequiredLines = [architecture.CoreClrTestsPassedLine, architecture.RootTaskPassedLine]
+        };
+        await BootScenarioRunner.RunAsync(root, coreclrTests, testsRequest);
+        Console.WriteLine(await ReportCoreClrTestsAsync(root, architecture, Path.Combine(root, "artifacts", "logs", testsRequest.Name + ".serial.log"),
+            selection));
 
         // NativeAOT's runtime pack for the architecture (R2.3b), as upstream packs it: the SDK's targets take it for a
         // publish with PublishAot.
@@ -770,6 +804,174 @@ internal static class RuntimeWitos
     }
 
     /// <summary>
+    /// The package of the slices of CoreCLR's src/tests (R7.2b): tests/User/coreclr_tests_runner.c as /bin/init, corerun,
+    /// CoreCLR, CoreLib, System.Native and the libraries the groups reach under /coreclr, from the framework or from the
+    /// test build's own dependencies (xunit's assertions), as upstream's Core_Root carries them, each group's directory of
+    /// the test build under /tests, the groups' names in /tests/groups and the tests left out, a name and a
+    /// reason a line, in /tests/exclusions.txt, musl's libc.so as the dynamic linker and the shared C++ runtime in /lib.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Artifact directory of the scenario.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>Package paths and the files to place there.</returns>
+    public static async Task<IReadOnlyList<(string Name, string Source)>> BuildCoreClrTestsPackageAsync(string root, string output,
+        KernelArchitecture architecture)
+    {
+        var tree = Path.Combine(root, "artifacts", "runtime-witos", "src");
+        var coreclr = Path.Combine(tree, "artifacts", "bin", "coreclr", $"witos.{architecture.Name}.Release");
+        var framework = FrameworkDirectory(tree, architecture);
+        var native = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(framework)!)!, "native");
+        var tests = TestsDirectory(tree, architecture);
+        var dependencies = Path.Combine(tree, "artifacts", "TargetingPack");
+        var selection = ReadCoreClrTestSelection(root);
+        var files = new List<(string Name, string Source)>();
+        var assemblies = new List<string>();
+        foreach (var group in selection.Groups)
+        {
+            var directory = Path.Combine(tests, group);
+            var assembly = Path.Combine(directory, Path.GetFileName(group) + ".dll");
+            if (!File.Exists(assembly))
+                throw new InvalidOperationException($"No test group {group} for witos in {tests}. Run: dotnet run --project tools/WitOS.Dev -- runtime-witos --arch {architecture.Name}");
+            foreach (var file in Directory.EnumerateFiles(directory).Where(file => !file.EndsWith(".pdb", StringComparison.Ordinal)).Order(StringComparer.Ordinal))
+            {
+                files.Add(($"tests/{group}/{Path.GetFileName(file)}", file));
+                if (file.EndsWith(".dll", StringComparison.Ordinal))
+                    assemblies.Add(file);
+            }
+        }
+        var libraries = ReferenceClosure([framework, dependencies], assemblies);
+        var isolated = new List<string>();
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (name, directory, executable, arguments) in IsolatedTests(tests, selection))
+        {
+            names.Add(name);
+            foreach (var file in Directory.EnumerateFiles(directory).Where(file => !file.EndsWith(".pdb", StringComparison.Ordinal) &&
+                         !file.EndsWith(".sh", StringComparison.Ordinal)).Order(StringComparer.Ordinal))
+            {
+                files.Add(($"tests/{name}/{Path.GetFileName(file)}", file));
+                if (file.EndsWith(".dll", StringComparison.Ordinal))
+                    assemblies.Add(file);
+            }
+            if (!selection.Excluded.ContainsKey(name))
+                isolated.Add($"/tests/{name}/{executable}{(arguments.Length > 0 ? " " + arguments : "")}");
+        }
+        // A merged test is named as its group prints it (with "::"); any other name must be a process-isolated test.
+        var unknown = selection.Excluded.Keys.Where(name => !name.Contains("::", StringComparison.Ordinal) && !names.Contains(name)).ToList();
+        if (unknown.Count > 0)
+            throw new InvalidDataException($"{CORECLR_TESTS_SELECTION} leaves out tests the groups do not have: {string.Join(", ", unknown)}.");
+        var groups = Path.Combine(output, "coreclr-tests-groups.txt");
+        await File.WriteAllTextAsync(groups, string.Join("\n", selection.Groups) + "\n");
+        var standalone = Path.Combine(output, "coreclr-tests-standalone.txt");
+        await File.WriteAllTextAsync(standalone, string.Join("\n", isolated) + "\n");
+        var exclusions = Path.Combine(output, "coreclr-tests-exclusions.txt");
+        await File.WriteAllTextAsync(exclusions, string.Concat(selection.Excluded.Select(test => $"{test.Key},{test.Value.Replace(',', ';')}\n")));
+        var sysroot = await Sysroot.BuildAsync(root, architecture);
+        var init = Path.Combine(output, "coreclr_tests_runner.elf");
+        // The program is C: the driver's C++ library option would be an unused argument.
+        await Processes.RequireSuccessAsync(Toolchain.Clang(root),
+        [
+            .. Sysroot.DriverOptions(root, architecture).Where(option => option != "-stdlib=libc++"), "-std=c17", "-O2", "-Wall",
+            "-Wextra", "-Werror", Path.Combine(root, CORECLR_TESTS_PROGRAM), "-o", init
+        ], root);
+        var lib = Path.Combine(sysroot, "usr", "lib");
+        return
+        [
+            ("bin/init", init), ("tests/groups", groups), ("tests/standalone", standalone), ("tests/exclusions.txt", exclusions),
+            (MuslLibc.InterpreterPath(architecture).TrimStart('/'), Path.Combine(lib, "libc.so")),
+            ("lib/libc++.so.1", Path.Combine(lib, "libc++.so.1")), ("lib/libc++abi.so.1", Path.Combine(lib, "libc++abi.so.1")),
+            ("lib/libunwind.so.1", Path.Combine(lib, "libunwind.so.1")),
+            ("coreclr/corerun", Path.Combine(coreclr, "corerun")),
+            ("coreclr/libcoreclr.so", Path.Combine(coreclr, "libcoreclr.so")), ("coreclr/libclrjit.so", Path.Combine(coreclr, "libclrjit.so")),
+            ("coreclr/System.Private.CoreLib.dll", Path.Combine(coreclr, "IL", "System.Private.CoreLib.dll")),
+            ("coreclr/libSystem.Native.so", Path.Combine(native, "libSystem.Native.so")),
+            .. libraries.Select(library => ($"coreclr/{Path.GetFileName(library)}", library)),
+            .. files
+        ];
+    }
+
+    // The process-isolated tests of the standalone groups (R7.2b): every test directory beside a group's own, under the
+    // group's parent directory, that holds the script of a test (<name>.sh) and its assembly, which the script names; a
+    // test is named by its directory's path under the test build. Each script expects 100, as the guest does, and may give
+    // the test default arguments, which the guest passes on.
+    private static IEnumerable<(string Name, string Directory, string Executable, string Arguments)> IsolatedTests(string tests,
+        CoreClrTestSelection selection)
+    {
+        foreach (var group in selection.Standalone)
+        {
+            var parent = Path.Combine(tests, Path.GetDirectoryName(group)!);
+            var own = Path.Combine(tests, group);
+            if (!Directory.Exists(own))
+                throw new InvalidOperationException($"No test group {group} for witos in {tests}.");
+            foreach (var script in Directory.EnumerateFiles(parent, "*.sh", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
+            {
+                var directory = Path.GetDirectoryName(script)!;
+                if (directory == own || Path.GetFileNameWithoutExtension(script) != Path.GetFileName(directory))
+                    continue;
+                var text = File.ReadAllText(script);
+                var executable = SCRIPT_EXECUTABLE.Match(text);
+                var expected = SCRIPT_EXIT_CODE.Match(text);
+                if (!executable.Success || !expected.Success || expected.Groups[1].Value != "100")
+                    throw new InvalidDataException($"{script} names no assembly or expects another exit code than 100.");
+                var arguments = SCRIPT_ARGUMENTS.Match(text);
+                yield return (Path.GetRelativePath(tests, directory).Replace('\\', '/'), directory, executable.Groups[1].Value.Trim(),
+                    arguments.Success ? arguments.Groups[1].Value.Trim() : "");
+            }
+        }
+    }
+
+    // The libraries assemblies reach through their references and theirs (R7.2b), each from the first directory that has
+    // it; a reference none of them has is the assembly's neighbour or CoreLib, which come apart.
+    private static IReadOnlyList<string> ReferenceClosure(IReadOnlyList<string> directories, IEnumerable<string> roots)
+    {
+        var found = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        var pending = new Queue<string>(roots);
+        while (pending.Count > 0)
+        {
+            using var stream = File.OpenRead(pending.Dequeue());
+            using var reader = new PEReader(stream);
+            if (!reader.HasMetadata)
+                continue;
+            var metadata = reader.GetMetadataReader();
+            foreach (var handle in metadata.AssemblyReferences)
+            {
+                var library = metadata.GetString(metadata.GetAssemblyReference(handle).Name);
+                if (found.ContainsKey(library))
+                    continue;
+                var path = directories.Select(directory => Path.Combine(directory, library + ".dll")).FirstOrDefault(File.Exists);
+                if (path is null)
+                    continue;
+                found[library] = path;
+                pending.Enqueue(path);
+            }
+        }
+        return [.. found.Values];
+    }
+
+    /// <summary>
+    /// The groups of src/tests the guest runs and the tests of them it leaves out with their reasons (R7.2b).
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>The selection.</returns>
+    public static CoreClrTestSelection ReadCoreClrTestSelection(string root)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, CORECLR_TESTS_SELECTION)));
+        var groups = document.RootElement.GetProperty("groups").EnumerateArray().Select(group => group.GetString() ?? "").ToList();
+        var standalone = document.RootElement.GetProperty("standalone").EnumerateArray().Select(group => group.GetString() ?? "").ToList();
+        if (groups.Count == 0 || groups.Concat(standalone).Any(group => group.Length == 0 || group.Contains('\\') ||
+                group.EndsWith(".csproj", StringComparison.Ordinal) || !group.Contains('/')))
+            throw new InvalidDataException($"{CORECLR_TESTS_SELECTION} names no group or a group that is not a project path without its extension.");
+        var excluded = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var test in document.RootElement.GetProperty("excluded").EnumerateObject())
+        {
+            var reason = test.Value.GetString();
+            if (string.IsNullOrWhiteSpace(reason))
+                throw new InvalidDataException($"{CORECLR_TESTS_SELECTION} leaves out {test.Name} without a reason.");
+            excluded.Add(test.Name, reason);
+        }
+        return new CoreClrTestSelection(groups, standalone, excluded);
+    }
+
+    /// <summary>
     /// The tests the PAL suite leaves out (R7.1) and the reason for each.
     /// </summary>
     /// <param name="root">Repository root.</param>
@@ -956,6 +1158,91 @@ internal static class RuntimeWitos
     }
 
     // The runtime's own build script in the work tree.
+    // The merged test groups of src/tests for witos (R7.2b): managed only, without the Core_Root layout, which the guest's
+    // package takes the place of. The test build restores for witos-<arch>, which the SDK's own identifier graph does not
+    // know, so it takes the witos tree's graph, as a program's project does (R2.3b).
+    private static async Task RunTestsBuildAsync(string tree, KernelArchitecture architecture, IReadOnlyList<string> groups,
+        IReadOnlyDictionary<string, string> environment)
+    {
+        var testsEnvironment = new Dictionary<string, string>(environment, StringComparer.Ordinal)
+        {
+            ["RuntimeIdentifierGraphPath"] = Path.Combine(tree, "src", "libraries", "Microsoft.NETCore.Platforms", "src", "PortableRuntimeIdentifierGraph.json")
+        };
+        var build = await Processes.RunAsync(Path.Combine(tree, "src", "tests", "build.sh"),
+            [architecture.Name, "Release", "-os", "witos", "-skipnative", "-skipgeneratelayout", .. groups.Select(group => $"-test:{group}.csproj")],
+            tree, 3600, testsEnvironment);
+        if (build.TimedOut || build.ExitCode != 0)
+            throw new InvalidOperationException($"src/tests/build.sh for witos-{architecture.Name} failed (exit {build.ExitCode}, timeout={build.TimedOut}).\n" +
+                $"{Tail(build.Output)}\n{Tail(build.Error)}");
+    }
+
+    // What the groups' tests did (R7.2b): each group's "Passed test" and "Failed test" lines between the runner's group
+    // markers, written to a report beside the tree; a failed test fails runtime-witos.
+    private static async Task<string> ReportCoreClrTestsAsync(string root, KernelArchitecture architecture, string log, CoreClrTestSelection selection)
+    {
+        var results = new SortedDictionary<string, (int Passed, List<string> Failed)>(StringComparer.Ordinal);
+        var isolated = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        int skipped = 0;
+        bool skipping = false;
+        string? group = null;
+        foreach (var raw in await File.ReadAllLinesAsync(log))
+        {
+            var line = raw.TrimEnd('\r');
+            var marker = TEST_GROUP_LINE.Match(line);
+            if (marker.Success)
+            {
+                group = marker.Groups[1].Value;
+                results[group] = (0, []);
+                continue;
+            }
+            var single = TEST_ISOLATED_LINE.Match(line);
+            if (single.Success)
+            {
+                isolated[single.Groups[1].Value] = single.Groups[2].Value;
+                group = null;
+                continue;
+            }
+            if (TEST_SKIPPED_LINE.IsMatch(line))
+            {
+                skipping = true; /* a process-isolated test the merged runner cannot start reports itself passed */
+                continue;
+            }
+            var result = TEST_RESULT_LINE.Match(line);
+            if (result.Success && group is not null)
+            {
+                var (passed, failed) = results[group];
+                if (result.Groups[1].Value == "Failed")
+                    failed.Add(result.Groups[2].Value.Trim());
+                else if (skipping)
+                    ++skipped;
+                else
+                    results[group] = (passed + 1, failed);
+                skipping = false;
+            }
+        }
+        var missing = selection.Groups.Where(name => !results.ContainsKey(name)).ToList();
+        var report = Path.Combine(root, "artifacts", "runtime-witos", $"coreclr-tests-{architecture.Name}.json");
+        await File.WriteAllTextAsync(report, JsonSerializer.Serialize(new
+        {
+            groups = results.ToDictionary(entry => entry.Key, entry => new { passed = entry.Value.Passed, failed = entry.Value.Failed }),
+            isolated,
+            skippedInGroups = skipped,
+            excluded = selection.Excluded.Count
+        }, new JsonSerializerOptions { WriteIndented = true }));
+        var failures = results.SelectMany(entry => entry.Value.Failed.Select(test => $"{entry.Key}: {test}"))
+            .Concat(isolated.Where(entry => entry.Value != "ok").Select(entry => $"{entry.Key}: {entry.Value}")).ToList();
+        if (missing.Count > 0 || failures.Count > 0 || results.Values.Any(entry => entry.Passed == 0))
+            throw new InvalidDataException($"CoreCLR's tests on witos-{architecture.Name}: {failures.Count} failed" +
+                (missing.Count > 0 ? $", groups that did not run: {string.Join(", ", missing)}" : "") +
+                (failures.Count > 0 ? $": {string.Join("; ", failures.Take(40))}" : "") + $" ({report}).");
+        return $"CoreCLR's tests on witos-{architecture.Name}: {results.Values.Sum(entry => entry.Passed)} passed in {results.Count} groups, " +
+            $"{isolated.Count} process-isolated tests passed, {skipped} process-isolated tests of the groups not started, " +
+            $"{selection.Excluded.Count} left out ({report}).";
+    }
+
+    private static string TestsDirectory(string tree, KernelArchitecture architecture) =>
+        Path.Combine(tree, "artifacts", "tests", "coreclr", $"witos.{architecture.Name}.Release");
+
     private static async Task RunBuildAsync(string tree, string[] arguments, IReadOnlyDictionary<string, string>? environment)
     {
         var build = await Processes.RunAsync(Path.Combine(tree, "build.sh"), arguments, tree, 3600, environment);
@@ -1359,3 +1646,12 @@ internal sealed record RuntimePin(string Repository, string Tag, string Version,
 /// <param name="HaikuCoreClr">Haiku's CoreCLR files.</param>
 /// <param name="HaikuNativeLibraries">Haiku's native library files.</param>
 internal sealed record RuntimeBudget(int FreeBsdCoreClr, int FreeBsdNativeLibraries, int HaikuCoreClr, int HaikuNativeLibraries);
+
+/// <summary>
+/// The merged test groups of src/tests the guest runs and the tests of them it leaves out with their reasons (R7.2b).
+/// </summary>
+/// <param name="Groups">Merged runners the guest runs whole: project paths under src/tests without the extension.</param>
+/// <param name="Excluded">Test names as the groups print them, and the reasons.</param>
+/// <param name="Standalone">Merged runners, as Groups names them, whose process-isolated tests run one by one.</param>
+internal sealed record CoreClrTestSelection(IReadOnlyList<string> Groups, IReadOnlyList<string> Standalone,
+    IReadOnlyDictionary<string, string> Excluded);

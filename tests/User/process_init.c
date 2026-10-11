@@ -263,7 +263,7 @@ int main(void)
     size_t stack_size = 0;
     check(pthread_getattr_np(pthread_self(), &attributes) == 0 &&
             pthread_attr_getstack(&attributes, &stack, &stack_size) == 0 &&
-            stack_size >= 64 * 1024 &&
+            stack_size >= 2 * 1024 * 1024 && /* the process manager's 2 MiB of adjacent objects (R7.2b) */
             (char *)&attributes > (char *)stack &&
             (char *)&attributes < (char *)stack + stack_size,
         "the main thread's stack");

@@ -164,11 +164,12 @@ C_ENTRY void threads2_main(const WitRootStartup *startup)
     STACK_BASE = stack;
     fixture_expect(WIT_CALL_MEMORY_COMMIT, stack, STACK_BYTES, WIT_MEMORY_READ | WIT_MEMORY_WRITE, WIT_STATUS_OK);
     /* Refusals of the version 2 request: a stack pointer outside any reservation (the data page is a fixed mapping), a
-     * foreign version, a flag, a TLS base outside user space, a stack pointer off alignment. */
+     * foreign version, an unknown flag, a TLS base outside user space, a stack pointer off alignment. */
     const WitU64 entry = (WitU64)worker, top = stack + STACK_BYTES;
     create(entry, WIT_USER_DATA, TLS_FIRST, WIT_THREAD_CREATE_VERSION_2, 0, WIT_STATUS_BAD_ADDRESS);
     create(entry, top, TLS_FIRST, 3, 0, WIT_STATUS_UNSUPPORTED);
-    create(entry, top, TLS_FIRST, WIT_THREAD_CREATE_VERSION_2, 2, WIT_STATUS_INVALID_ARGUMENT);
+    /* 2 is STACK_ADJACENT since R7.2b. */
+    create(entry, top, TLS_FIRST, WIT_THREAD_CREATE_VERSION_2, 4, WIT_STATUS_INVALID_ARGUMENT);
     create(entry, top, KERNEL_ADDRESS, WIT_THREAD_CREATE_VERSION_2, 0, WIT_STATUS_INVALID_ARGUMENT);
     create(entry, top - 8, TLS_FIRST, WIT_THREAD_CREATE_VERSION_2, 0, WIT_STATUS_INVALID_ARGUMENT);
     /* A version 1 thread (this one, on the kernel's stack) may not name a reservation at its exit. */

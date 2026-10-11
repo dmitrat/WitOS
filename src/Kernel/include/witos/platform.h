@@ -13,6 +13,8 @@ void wit_console_write(const char *text);
 void wit_console_write_u64(WitU64 value);
 void wit_console_write_buffer(const WitU8 *data, WitU32 size);
 void wit_console_write_hex(WitU64 value);
+/* Whether the console's last byte ended a line: a write that continues a line takes no new prefix. */
+int wit_console_line_start(void);
 
 /* Device pages the board uses before it can map pages on demand, such as a memory-mapped console. The
  * architecture maps them as device memory when it installs the kernel's translation tables. Returns the count,

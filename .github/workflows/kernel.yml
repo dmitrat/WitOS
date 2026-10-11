@@ -118,9 +118,10 @@ jobs:
   linux-host:
     # The Linux development host (plan steps T2.1a and T2.1b): the tool, its process runner and host tests, the pinned
     # LLVM and QEMU (built from its source release), the release kernels of both ISAs and the Unix-form runtime for
-    # witos (phase R). The scenarios of `test`, the layer-2 ones among them, run in linux-selftest (T2.2).
+    # witos (phase R). The scenarios of `test`, the layer-2 ones among them, run in linux-selftest (T2.2). Upstream's
+    # PAL suite and slices of its runtime tests (R7) run here too, which take about an hour of the job.
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

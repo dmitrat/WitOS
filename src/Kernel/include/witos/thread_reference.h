@@ -10,11 +10,16 @@
 #define WIT_THREAD_CREATE_VERSION_2 \
     2U /* the one form (RFC 0011 section 7.3): the caller's stack pointer and TLS base */
 #define WIT_THREAD_START_SUSPENDED 1U
+/* The thread's stack is the run of adjacent committed writable reservations that ends with the one holding the byte
+ * below the stack pointer, not that one alone (ABI-1 1.1, plan step R7.2b): a stack larger than one mapping of an
+ * object, WIT_MEMORY_OBJECT_PAGES pages, as the process manager maps a process's first stack of several objects. */
+#define WIT_THREAD_STACK_ADJACENT 2U
 
 /* Version 2: the thread starts at Entry with Argument in the argument registers of both entry
  * conventions, its stack pointer exactly StackPointer (16-byte aligned, inside a committed writable reservation
  * of the caller, whose bounds become the thread's) and its raw TLS base TlsBase (FS on x64, TPIDRRO_EL0 on ARM64;
- * a user address or zero). The kernel maps no stack and no TLS page for it; Flags is SUSPENDED or zero. */
+ * a user address or zero). The kernel maps no stack and no TLS page for it; Flags holds SUSPENDED and STACK_ADJACENT
+ * or neither. */
 typedef struct WitThreadCreateRequest2 {
     WitU32 Version, Size;
     WitU64 Entry, Argument, StackPointer, TlsBase;

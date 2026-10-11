@@ -11,7 +11,7 @@
 #include "wait_objects.h"
 
 /* ABI-1 of RFC 0011 v3 (sections 6 and 7): the system calls between the nano-kernel and the system layer.
- * ABI-1 1.0 since plan step K8.4d (RFC 0011 section 10.1): a call number, a status value and a rights bit are never
+ * ABI-1 1.0 since plan step K8.4d, 1.1 since R7.2b (PROCESS_QUERY's BUDGET state) (RFC 0011 section 10.1): a call number, a status value and a rights bit are never
  * reused (since step K1), changes are additive (a call, an operation, an appended field under a new structure
  * version, a feature bit) and raise the minor version, and removing or changing the meaning of anything needs a new
  * major version and an ADR. Transport (section 6.1): on x64 SYSCALL with RAX=call, RDI/RSI/RDX
@@ -20,7 +20,7 @@
  * x0=status and x1=result, every other register preserved, x18 included (K8.4b). A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
 #define WIT_ABI_VERSION_MAJOR 1U
-#define WIT_ABI_VERSION_MINOR 0U
+#define WIT_ABI_VERSION_MINOR 1U
 /* The version QUERY reports and the startup descriptor carries: the major version in the high 16 bits, the minor in
  * the low 16 (the draft counters of phase K ran from 1 to 72 with major 0). A system layer refuses another major. */
 #define WIT_ABI_VERSION ((WIT_ABI_VERSION_MAJOR << 16) | WIT_ABI_VERSION_MINOR)
