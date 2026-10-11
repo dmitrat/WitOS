@@ -160,6 +160,9 @@ internal static class RuntimeWitos
     private static readonly Regex LIBRARY_FAIL_LINE = new(@"\[FAIL\] (.+)$", RegexOptions.Compiled);
     private static readonly Regex SCRIPT_ARGUMENTS = new(@"CLRTestExecutionArguments=\(([^)'""]*)\); fi", RegexOptions.Compiled);
     private static readonly Regex SCRIPT_EXIT_CODE = new(@"^export CLRTestExpectedExitCode=(-?\d+)", RegexOptions.Compiled | RegexOptions.Multiline);
+    // A variable a script exports for its test, at the start of a line (CLRTestEnvironmentVariable, R8.1); the script's own
+    // exports for its arguments and SuperPMI are indented.
+    private static readonly Regex SCRIPT_ENVIRONMENT = new(@"^export ([A-Za-z_][A-Za-z0-9_]*)=(.*)$", RegexOptions.Compiled | RegexOptions.Multiline);
 
     #endregion
 
@@ -970,7 +973,7 @@ internal static class RuntimeWitos
         var libraries = ReferenceClosure([framework, dependencies], assemblies);
         var isolated = new List<string>();
         var names = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var (name, directory, executable, arguments) in IsolatedTests(tests, selection))
+        foreach (var (name, directory, executable, arguments, environment) in IsolatedTests(tests, selection))
         {
             names.Add(name);
             foreach (var file in Directory.EnumerateFiles(directory).Where(file => !file.EndsWith(".pdb", StringComparison.Ordinal) &&
@@ -981,7 +984,7 @@ internal static class RuntimeWitos
                     assemblies.Add(file);
             }
             if (!selection.Excluded.ContainsKey(name))
-                isolated.Add($"/tests/{name}/{executable}{(arguments.Length > 0 ? " " + arguments : "")}");
+                isolated.Add($"{(environment.Length > 0 ? environment + " " : "")}/tests/{name}/{executable}{(arguments.Length > 0 ? " " + arguments : "")}");
         }
         // A merged test is named as its group prints it (with "::"); any other name must be a process-isolated test.
         var unknown = selection.Excluded.Keys.Where(name => !name.Contains("::", StringComparison.Ordinal) && !names.Contains(name)).ToList();
@@ -1020,9 +1023,9 @@ internal static class RuntimeWitos
     // The process-isolated tests of the standalone groups (R7.2b): every test directory beside a group's own, under the
     // group's parent directory, that holds the script of a test (<name>.sh) and its assembly, which the script names; a
     // test is named by its directory's path under the test build. Each script expects 100, as the guest does, and may give
-    // the test default arguments, which the guest passes on.
-    private static IEnumerable<(string Name, string Directory, string Executable, string Arguments)> IsolatedTests(string tests,
-        CoreClrTestSelection selection)
+    // the test default arguments and environment variables (R8.1), which the guest passes on.
+    private static IEnumerable<(string Name, string Directory, string Executable, string Arguments, string Environment)> IsolatedTests(
+        string tests, CoreClrTestSelection selection)
     {
         foreach (var group in selection.Standalone)
         {
@@ -1041,8 +1044,19 @@ internal static class RuntimeWitos
                 if (!executable.Success || !expected.Success || expected.Groups[1].Value != "100")
                     throw new InvalidDataException($"{script} names no assembly or expects another exit code than 100.");
                 var arguments = SCRIPT_ARGUMENTS.Match(text);
+                var environment = new List<string>();
+                foreach (Match variable in SCRIPT_ENVIRONMENT.Matches(text))
+                {
+                    var (name, value) = (variable.Groups[1].Value, variable.Groups[2].Value.TrimEnd());
+                    if (name is "CLRTestExpectedExitCode" or "TestExclusionListPath")
+                        continue;
+                    // The guest has no shell: a value is given as it is written.
+                    if (value.Length == 0 || value.IndexOfAny(['$', '"', '\'', ' ', '`', '\\']) >= 0)
+                        throw new InvalidDataException($"{script} exports {name} as {value}, which the guest cannot give without a shell.");
+                    environment.Add($"{name}={value}");
+                }
                 yield return (Path.GetRelativePath(tests, directory).Replace('\\', '/'), directory, executable.Groups[1].Value.Trim(),
-                    arguments.Success ? arguments.Groups[1].Value.Trim() : "");
+                    arguments.Success ? arguments.Groups[1].Value.Trim() : "", string.Join(' ', environment));
             }
         }
     }
@@ -1266,6 +1280,15 @@ internal static class RuntimeWitos
     private static async Task<string> PrepareTreeAsync(string root, string checkout, RuntimePin pin)
     {
         var tree = Path.Combine(root, "artifacts", "runtime-witos", "src");
+        // A tree of another checkout, an earlier pin's (R8.1), goes whole with that pin's build caches and SDK: its
+        // worktree cannot reach the new commit, and the runtime's own SDK is one SDK.
+        var worktree = Path.Combine(tree, ".git");
+        if (Directory.Exists(tree) && (!File.Exists(worktree) ||
+                !(await File.ReadAllTextAsync(worktree)).Contains($"/{Path.GetFileName(checkout)}/", StringComparison.Ordinal)))
+        {
+            Console.WriteLine($"The work tree belongs to another pin; building dotnet/runtime {pin.Tag} from a new one.");
+            Directory.Delete(tree, recursive: true);
+        }
         if (!Directory.Exists(tree))
         {
             Directory.CreateDirectory(Path.GetDirectoryName(tree)!);

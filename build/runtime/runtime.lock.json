@@ -1,8 +1,8 @@
 {
   "repository": "https://github.com/dotnet/runtime",
-  "tag": "v10.0.8",
-  "version": "10.0.8",
-  "commit": "b82454cad0aaaae3db2cf18fbf2cccc36e201ccc",
+  "tag": "v10.0.12",
+  "version": "10.0.12",
+  "commit": "4271d88e0aebf3d04f188f1334c2220d80555ef6",
   "purpose": "The Unix form of upstream .NET for TargetOS=witos (RFC 0015, plan phase R): the dotnet/runtime commit the witos patch set applies to, and the bytes of every file it changes there; a file WitOS adds is pinned by the hash of no bytes. Built on a Linux host by runtime-witos.",
   "budget": {
     "purpose": "The size of the FreeBSD and Haiku ports in 10.0.8 (ADR 0024, RFC 0015 section 4), in files of CoreCLR and of the native libraries; the witos patch set is measured against it at every R step.",
@@ -46,7 +46,7 @@
     },
     {
       "path": "eng/common/cross/toolchain.cmake",
-      "sha256": "933795d271403062d7d010e54d6994af76ec0288dc4bea4e4fde26e26ddf940a"
+      "sha256": "84d07a633060de58f709f6b7a5ec49aea5590c4b96873b5988d5024ae1b1e68e"
     },
     {
       "path": "eng/native/configureplatform.cmake",
@@ -62,7 +62,7 @@
     },
     {
       "path": "src/coreclr/gc/unix/gcenv.unix.cpp",
-      "sha256": "d8affa44a7ec61c37cfe5ef6c7463095d4decf3275b536965b1dbfbc3dc4840d"
+      "sha256": "ca6f3fb82bb8d33a17126edd3e72183452d60c49b66e0aebb18babdb3645fcab"
     },
     {
       "path": "src/native/libs/CMakeLists.txt",
@@ -74,7 +74,7 @@
     },
     {
       "path": "src/native/corehost/apphost/static/CMakeLists.txt",
-      "sha256": "af3a84b22806adcfc8b950390c477373e1481300bc7c1d81c64858f1aac582bf"
+      "sha256": "59a7b792323504e7573c531e9b74aa668305e9d197072f43758352a0f104f9b2"
     },
     {
       "path": "src/coreclr/tools/Common/TypeSystem/Common/TargetDetails.cs",

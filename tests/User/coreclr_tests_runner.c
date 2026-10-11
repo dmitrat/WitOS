@@ -15,9 +15,10 @@
  *   selection leaves out,
  *   which the group skips, and runtime-witos reads from the log whether each test passed, since a group returns 100
  *   whatever its tests did;
- * - a test of /tests/standalone, one assembly path a line with the arguments its script gives after it, is a
- *   process-isolated test, which a merged runner starts through a script WitOS has no shell for: it starts in its own
- *   directory, as the script changes to it, and returns 100 when it passed, as the script expects.
+ * - a test of /tests/standalone, one assembly path a line with the variables its script exports before it (NAME=VALUE)
+ *   and the arguments its script gives after it, is a process-isolated test, which a merged runner starts through a
+ *   script WitOS has no shell for: it starts in its own directory with those variables, as the script changes to it and
+ *   exports them, and returns 100 when it passed, as the script expects.
  *
  * There is no timeout: a run that hangs stops the boot. */
 
@@ -39,9 +40,10 @@ extern char **environ;
 static char *environment[ENVIRONMENT_MAX];
 
 /* corerun on an assembly and its arguments, with the properties a host gives the runtime from a program's
- * runtimeconfig.json, as corerun_init.c gives them; 1 when it exited with 100. */
-static int run(
-    const char *kind, const char *name, const char *directory, char *assembly, char *const *extra, int extra_count)
+ * runtimeconfig.json, as corerun_init.c gives them, and the run's own variables after the environment; 1 when it exited
+ * with 100. */
+static int run(const char *kind, const char *name, const char *directory, char *assembly, char *const *extra,
+    int extra_count, char *const *variables, int variable_count)
 {
     static char program[] = "/coreclr/corerun";
     char *arguments[8 + ARGUMENTS_MAX] = {program, "-c", "/coreclr", "-p", "System.Globalization.Invariant=true", "-p",
@@ -50,6 +52,16 @@ static int run(
         arguments[8 + i] = extra[i];
     }
     arguments[8 + extra_count] = 0;
+    char *run_environment[ENVIRONMENT_MAX + ARGUMENTS_MAX];
+    int entries = 0;
+    while (environment[entries]) {
+        run_environment[entries] = environment[entries];
+        ++entries;
+    }
+    for (int i = 0; i < variable_count; ++i) {
+        run_environment[entries++] = variables[i];
+    }
+    run_environment[entries] = 0;
     posix_spawn_file_actions_t actions;
     pid_t pid = 0;
     int status = -1;
@@ -58,7 +70,7 @@ static int run(
         printf("[CORECLR-TESTS] %s %s: FAILED to make its file actions\n", kind, name);
         return 0;
     }
-    const int error = posix_spawn(&pid, program, &actions, 0, arguments, environment);
+    const int error = posix_spawn(&pid, program, &actions, 0, arguments, run_environment);
     posix_spawn_file_actions_destroy(&actions);
     if (error) {
         printf("[CORECLR-TESTS] %s %s: FAILED to start: %s\n", kind, name, strerror(error));
@@ -115,16 +127,36 @@ int main(void)
         snprintf(assembly, sizeof(assembly), "/tests/%s/%s.dll", line, leaf ? leaf + 1 : line);
         printf("[CORECLR-TESTS] group %s\n", line);
         ++count;
-        passed += run("group", line, "/dev/shm", assembly, 0, 0);
+        passed += run("group", line, "/dev/shm", assembly, 0, 0, 0, 0);
     }
     while (fgets(line, sizeof(line), standalone)) {
         line[strcspn(line, "\r\n")] = 0;
         if (!line[0]) {
             continue;
         }
+        char *variables[ARGUMENTS_MAX];
+        int variable_count = 0;
+        char *test = line;
+        while (*test && *test != '/' && variable_count < ARGUMENTS_MAX) {
+            variables[variable_count++] = test;
+            char *space = strchr(test, ' ');
+            if (!space) {
+                break;
+            }
+            *space = 0;
+            test = space + 1;
+            while (*test == ' ') {
+                ++test;
+            }
+        }
+        if (*test != '/') {
+            printf("[CORECLR-TESTS] %s names no test\n", line);
+            ++count;
+            continue;
+        }
         char *extra[ARGUMENTS_MAX];
         int extra_count = 0;
-        char *cursor = strchr(line, ' ');
+        char *cursor = strchr(test, ' ');
         while (cursor && extra_count < ARGUMENTS_MAX - 1) {
             *cursor++ = 0;
             while (*cursor == ' ') {
@@ -137,13 +169,13 @@ int main(void)
             cursor = strchr(cursor, ' ');
         }
         char directory[NAME_MAX_BYTES];
-        snprintf(directory, sizeof(directory), "%s", line);
+        snprintf(directory, sizeof(directory), "%s", test);
         char *slash = strrchr(directory, '/');
         if (slash) {
             *slash = 0;
         }
         ++count;
-        passed += run("test", line, directory, line, extra, extra_count);
+        passed += run("test", test, directory, test, extra, extra_count, variables, variable_count);
     }
     fclose(groups);
     fclose(standalone);
