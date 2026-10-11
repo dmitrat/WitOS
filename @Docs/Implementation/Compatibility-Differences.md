@@ -18,7 +18,7 @@ behaviour.
 | Signals | Terminal and job-control signals install but are never raised, since there is no terminal service yet. | `PosixSignalRegistration.Create` and `Console.CancelKeyPress` succeed, and their handlers never run. | R4.1 |
 | Platform identity | `OSPlatform.Create("WITOS")`, `PlatformID.Unix`, and the RIDs `witos-x64` and `witos-arm64`. | `RuntimeInformation.IsOSPlatform(OSPlatform.Create("WITOS"))` is true. Under `corerun`, the RID arrives as a property. | R2.3a, R3.3, R4.1 |
 | Processors | One processor schedules threads until phase P. | `Environment.ProcessorCount` is 1. | R2.2, R4.1 |
-| Hosts | There is no `dotnet` host, `hostfxr` or `hostpolicy` until R5. | Programs run under NativeAOT, or under `corerun` with the properties a runtimeconfig would give on its command line. | R3.2 |
+| Hosts | `dotnet`, `hostfxr` and `hostpolicy` are upstream's, unpatched, in the shared-framework layout under `/dotnet`. The framework's deps.json is written by WitOS's tool, since upstream's CoreCLR runtime pack needs crossgen. | `dotnet App.dll` works as on Linux. The SDK's commands are not installed. | R5 |
 | Code | Every method is JIT-compiled. No ReadyToRun code exists for `witos`. | Startup is slower than on Linux, and the behaviour is the same. | R3.2 |
 | Networking | Absent until the network milestone. | Not exercised yet. | — |
 | Diagnostics | No `createdump`, no EventPipe transport and no diagnostic IPC. | The runtime's diagnostic server fails to open its socket and runs without it. | R3.2a (trace) |

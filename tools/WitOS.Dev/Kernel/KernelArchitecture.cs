@@ -130,6 +130,11 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
         $"[M3] CoreCLR on {Triple[..Triple.IndexOf('-')]}: {Runtime.RuntimeWitos.ACCEPTANCE_RUNS} runs passed, 0 failed";
 
     /// <summary>
+    /// The line of the program dotnet runs through hostfxr and hostpolicy (R5), up to the framework's description.
+    /// </summary>
+    public string DotnetLine => $"[DOTNET] App.dll through hostfxr and hostpolicy on {(this == X64 ? "X64" : "Arm64")}: ";
+
+    /// <summary>
     /// The last line of System.Native's check under corerun when every area passed (R4).
     /// </summary>
     public string SystemNativePassedLine =>

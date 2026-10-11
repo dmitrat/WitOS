@@ -81,6 +81,16 @@ internal static class RuntimeWitos
     public const int SYSTEM_NATIVE_AREAS = 12;
 
     /// <summary>
+    /// The hosts check (R5), the runtime-dotnet scenario's /bin/init, which starts the dotnet muxer.
+    /// </summary>
+    public const string DOTNET_PROGRAM = "tests/User/dotnet_init.c";
+
+    /// <summary>
+    /// The program dotnet runs through hostfxr and hostpolicy (R5).
+    /// </summary>
+    public const string HOSTED_APP = "tests/Runtime.Witos/HostedApp/App.cs";
+
+    /// <summary>
     /// The runs of the acceptance: four cycles of its eight probes (R2.2).
     /// </summary>
     public const int ACCEPTANCE_RUNS = 32;
@@ -260,6 +270,18 @@ internal static class RuntimeWitos
             });
         Console.WriteLine($"CoreCLR for witos-{architecture.Name}: System.Native's {SYSTEM_NATIVE_AREAS} areas passed in the guest.");
 
+        // The hosts (R5): upstream's dotnet muxer, hostfxr and hostpolicy for witos, built with no patch, run dotnet App.dll
+        // from the shared-framework layout of a .NET install.
+        await RunBuildAsync(tree, ["host.native", "-os", "witos", "-arch", architecture.Name, "-c", "Release", "-cross"], environment);
+        var dotnet = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_DOTNET_SCENARIO, architecture: architecture);
+        await BootScenarioRunner.RunAsync(root, dotnet, new BootRequest($"{architecture.Name}-runtime-dotnet-512", 512, 900, ExpectedOutcome.Success)
+        {
+            Architecture = architecture,
+            Suite = BootSuite.Release,
+            RequiredLines = [architecture.DotnetLine, architecture.RootTaskPassedLine]
+        });
+        Console.WriteLine($"The hosts for witos-{architecture.Name}: dotnet App.dll ran through hostfxr and hostpolicy in the guest.");
+
         // NativeAOT's runtime pack for the architecture (R2.3b), as upstream packs it: the SDK's targets take it for a
         // publish with PublishAot.
         DropPackages(tree, $"Microsoft.NETCore.App.Runtime.NativeAOT.witos-{architecture.Name}");
@@ -420,6 +442,135 @@ internal static class RuntimeWitos
         foreach (var (name, text) in texts)
             await File.WriteAllTextAsync(Path.Combine(test, name), text);
         return [.. files, .. texts.Select(entry => ($"test/{entry.Name}", Path.Combine(test, entry.Name)))];
+    }
+
+    /// <summary>
+    /// The package of the hosts check (R5): tests/User/dotnet_init.c as /bin/init; the shared-framework layout of a .NET
+    /// install under /dotnet (the dotnet muxer, hostfxr under host/fxr/<version>, and under shared/Microsoft.NETCore.App/
+    /// <version> hostpolicy, CoreCLR's runtime and JIT, CoreLib, every library of the framework with its native libraries
+    /// and the framework's deps.json, which the tool writes as the shared framework's packaging does); /etc/dotnet/
+    /// install_location naming it; and under /app the program the SDK's C# compiler builds against the reference pack with
+    /// its runtimeconfig.json (invariant globalization, since the system layer has no ICU).
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Artifact directory of the scenario.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>Package paths and the files to place there.</returns>
+    public static async Task<IReadOnlyList<(string Name, string Source)>> BuildDotnetPackageAsync(string root, string output,
+        KernelArchitecture architecture)
+    {
+        var tree = Path.Combine(root, "artifacts", "runtime-witos", "src");
+        var coreclr = Path.Combine(tree, "artifacts", "bin", "coreclr", $"witos.{architecture.Name}.Release");
+        var corehost = Path.Combine(tree, "artifacts", "bin", $"witos-{architecture.Name}.Release", "corehost");
+        var framework = FrameworkDirectory(tree, architecture);
+        var native = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(framework)!)!, "native");
+        var references = Path.Combine(tree, "artifacts", "bin", "microsoft.netcore.app.ref", "ref", "net10.0");
+        if (!File.Exists(Path.Combine(corehost, "dotnet")) || !File.Exists(Path.Combine(coreclr, "libcoreclr.so")))
+            throw new InvalidOperationException($"No hosts or CoreCLR for witos in {tree}. Run: dotnet run --project tools/WitOS.Dev -- runtime-witos --arch {architecture.Name}");
+        var version = ReadLock(root).Version;
+        var sdks = Directory.GetDirectories(Path.Combine(tree, ".dotnet", "sdk"));
+        if (sdks.Length != 1)
+            throw new InvalidDataException($"The runtime's own .NET SDK is not one SDK: {string.Join(", ", sdks)}.");
+        var app = Path.Combine(output, "app");
+        Directory.CreateDirectory(app);
+        await RunToolAsync(Path.Combine(tree, ".dotnet", "dotnet"),
+        [
+            Path.Combine(sdks[0], "Roslyn", "bincore", "csc.dll"), "-nologo", "-noconfig", "-nostdlib", "-deterministic", "-optimize+",
+            "-nullable:enable", "-target:exe", .. Directory.GetFiles(references, "*.dll").Select(reference => $"-r:{reference}"),
+            $"-out:{Path.Combine(app, "App.dll")}", Path.Combine(root, HOSTED_APP)
+        ], tree);
+        await File.WriteAllTextAsync(Path.Combine(app, "App.runtimeconfig.json"),
+            "{\n  \"runtimeOptions\": {\n    \"tfm\": \"net10.0\",\n    \"framework\": { \"name\": \"Microsoft.NETCore.App\", \"version\": \"10.0.0\" },\n" +
+            "    \"configProperties\": { \"System.Globalization.Invariant\": true }\n  }\n}\n");
+        var installLocation = Path.Combine(output, "install_location");
+        await File.WriteAllTextAsync(installLocation, "/dotnet\n");
+        var sysroot = await Sysroot.BuildAsync(root, architecture);
+        var program = Path.Combine(output, "dotnet_init.elf");
+        await Processes.RequireSuccessAsync(Toolchain.Clang(root),
+        [
+            .. Sysroot.DriverOptions(root, architecture), "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
+            Path.Combine(root, DOTNET_PROGRAM), "-o", program
+        ], root);
+
+        // The shared framework: what Microsoft.NETCore.App's runtime pack carries for the RID, and the deps.json that names it.
+        var shared = new List<(string Name, string Source)>
+        {
+            ("libhostpolicy.so", Path.Combine(corehost, "libhostpolicy.so")), ("libcoreclr.so", Path.Combine(coreclr, "libcoreclr.so")),
+            ("libclrjit.so", Path.Combine(coreclr, "libclrjit.so")),
+            ("System.Private.CoreLib.dll", Path.Combine(coreclr, "IL", "System.Private.CoreLib.dll"))
+        };
+        shared.AddRange(Directory.GetFiles(framework, "*.dll").Order(StringComparer.Ordinal).Select(file => (Path.GetFileName(file), file)));
+        shared.AddRange(Directory.GetFiles(native, "*.so").Order(StringComparer.Ordinal).Select(file => (Path.GetFileName(file), file)));
+        var deps = Path.Combine(output, "Microsoft.NETCore.App.deps.json");
+        await File.WriteAllTextAsync(deps, FrameworkDeps(architecture, version, shared));
+        shared.Add(("Microsoft.NETCore.App.deps.json", deps));
+
+        var lib = Path.Combine(sysroot, "usr", "lib");
+        return
+        [
+            ("bin/init", program), (MuslLibc.InterpreterPath(architecture).TrimStart('/'), Path.Combine(lib, "libc.so")),
+            ("lib/libc++.so.1", Path.Combine(lib, "libc++.so.1")), ("lib/libc++abi.so.1", Path.Combine(lib, "libc++abi.so.1")),
+            ("lib/libunwind.so.1", Path.Combine(lib, "libunwind.so.1")),
+            ("etc/dotnet/install_location", installLocation),
+            ("dotnet/dotnet", Path.Combine(corehost, "dotnet")),
+            ($"dotnet/host/fxr/{version}/libhostfxr.so", Path.Combine(corehost, "libhostfxr.so")),
+            .. shared.Select(file => ($"dotnet/shared/Microsoft.NETCore.App/{version}/{file.Name}", file.Source)),
+            ("app/App.dll", Path.Combine(app, "App.dll")), ("app/App.runtimeconfig.json", Path.Combine(app, "App.runtimeconfig.json"))
+        ];
+    }
+
+    // The shared framework's deps.json as the shared framework's packaging writes it (R5): one runtime-pack library for the
+    // RID whose runtime assets are the assemblies, with their assembly and file versions, and whose native assets are the
+    // native libraries; hostpolicy builds the trusted platform assemblies and the native search paths from it.
+    private static string FrameworkDeps(KernelArchitecture architecture, string version, IReadOnlyList<(string Name, string Source)> files)
+    {
+        var rid = $"witos-{architecture.Name}";
+        var library = $"Microsoft.NETCore.App.Runtime.{rid}/{version}";
+        var runtime = new System.Text.Json.Nodes.JsonObject();
+        var nativeAssets = new System.Text.Json.Nodes.JsonObject();
+        foreach (var (name, source) in files)
+        {
+            if (name.EndsWith(".dll", StringComparison.Ordinal))
+            {
+                using var stream = File.OpenRead(source);
+                using var reader = new PEReader(stream);
+                var metadata = reader.GetMetadataReader();
+                var fileVersion = System.Diagnostics.FileVersionInfo.GetVersionInfo(source).FileVersion ?? "0.0.0.0";
+                runtime[name] = new System.Text.Json.Nodes.JsonObject
+                {
+                    ["assemblyVersion"] = metadata.GetAssemblyDefinition().Version.ToString(),
+                    ["fileVersion"] = fileVersion
+                };
+            }
+            else
+            {
+                nativeAssets[name] = new System.Text.Json.Nodes.JsonObject { ["fileVersion"] = "0.0.0.0" };
+            }
+        }
+        var document = new System.Text.Json.Nodes.JsonObject
+        {
+            ["runtimeTarget"] = new System.Text.Json.Nodes.JsonObject { ["name"] = $".NETCoreApp,Version=v10.0/{rid}", ["signature"] = "" },
+            ["compilationOptions"] = new System.Text.Json.Nodes.JsonObject(),
+            ["targets"] = new System.Text.Json.Nodes.JsonObject
+            {
+                [".NETCoreApp,Version=v10.0"] = new System.Text.Json.Nodes.JsonObject(),
+                [$".NETCoreApp,Version=v10.0/{rid}"] = new System.Text.Json.Nodes.JsonObject
+                {
+                    [library] = new System.Text.Json.Nodes.JsonObject { ["runtime"] = runtime, ["native"] = nativeAssets }
+                }
+            },
+            ["libraries"] = new System.Text.Json.Nodes.JsonObject
+            {
+                [library] = new System.Text.Json.Nodes.JsonObject
+                {
+                    ["type"] = "package",
+                    ["serviceable"] = true,
+                    ["sha512"] = "",
+                    ["path"] = $"microsoft.netcore.app.runtime.{rid}/{version}"
+                }
+            }
+        };
+        return document.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }
 
     // A corerun package: tests/User/corerun_init.c as /bin/init, naming the program; under /coreclr upstream's corerun,
