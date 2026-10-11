@@ -233,6 +233,7 @@ WitU64 wit_user_process_query(WitUserProcess *p, WitU64 handle, WitU64 address, 
     info.Size = sizeof(info);
     info.State = target->State == WitUserRunning ? WIT_PROCESS_STATE_LIVE
         : target->State == WitUserFaulted        ? WIT_PROCESS_STATE_FAULTED
+        : target->State == WitUserBudgetExpired  ? WIT_PROCESS_STATE_BUDGET
                                                  : WIT_PROCESS_STATE_EXITED;
     info.Threads = 0;
     for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {

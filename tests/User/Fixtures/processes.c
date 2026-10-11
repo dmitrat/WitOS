@@ -1,12 +1,15 @@
 #include "fixture.h"
 #include "witos/process.h"
+#include "witos/thread_info.h"
 
 /* Process fixture (RFC 0011 v3 section 7.8, plan steps K5.2c and K8.3). A channel is created and one end goes to a new
  * process through PROCESS_CREATE; the child's program is written into a memory object through a writable view,
  * published through an executable view of the fixture's own, and mapped executable into the child at a fixed code
  * address beside a stack object; THREAD_CREATE version 3 starts the child's first thread with the child-local endpoint
  * handle as its argument; the child sends eight bytes over it and exits with 42. The fixture waits for the process,
- * queries it, receives the message, then creates and kills a second child. Refusals are checked whole. */
+ * queries it, receives the message, then creates and kills a second child, and a third spins until its tick budget, the
+ * fixture's, ends it, which PROCESS_QUERY reports as BUDGET, on a stack of two objects it takes as one
+ * (STACK_ADJACENT, ABI-1 1.1). Refusals are checked whole. */
 
 #define FIXED_CODE (WIT_USER_CODE_BASE + 0x10000ULL)
 #define FIXED_DATA (WIT_USER_MEMORY_BASE + 0x100000ULL)
@@ -33,7 +36,8 @@ _Static_assert(CHILD_MESSAGE_VERSION == WIT_CHANNEL_MESSAGE_VERSION &&
 
 /* The child's program, copied into its code object: position-independent, the child-local endpoint handle in the first
  * argument register. It sends eight bytes over the endpoint from its stack and exits with 42 (43 on a failure). */
-__attribute__((visibility("hidden"))) extern const WitU8 process_child_begin[], process_child_end[];
+__attribute__((visibility("hidden"))) extern const WitU8 process_child_begin[], process_child_spin[],
+    process_child_end[];
 #if defined(__x86_64__)
 __asm__(".text\n"
         ".globl process_child_begin\n.hidden process_child_begin\n"
@@ -65,6 +69,9 @@ __asm__(".text\n"
         "    mov $" CHILD_PROCESS_EXIT_TEXT ", %eax\n"
         "    syscall\n"
         "    ud2\n"
+        ".globl process_child_spin\n.hidden process_child_spin\n"
+        "process_child_spin:\n"
+        "    jmp process_child_spin\n"
         ".globl process_child_end\n.hidden process_child_end\n"
         "process_child_end:\n");
 #else
@@ -104,6 +111,9 @@ __asm__(".text\n"
         "    mov x8, #" CHILD_PROCESS_EXIT_TEXT "\n"
         "    svc #0\n"
         "    udf #0\n"
+        ".globl process_child_spin\n.hidden process_child_spin\n"
+        "process_child_spin:\n"
+        "    b process_child_spin\n"
         ".globl process_child_end\n.hidden process_child_end\n"
         "process_child_end:\n");
 #endif
@@ -128,19 +138,24 @@ static void process_query(WitU64 process, WitProcessInfo *info)
     fixture_expect(WIT_CALL_PROCESS_QUERY, process, (WitU64)info, sizeof(*info), WIT_STATUS_OK);
 }
 
-static WitU64 thread_create3(WitU64 process, WitU64 sp, WitU64 argument, WitU64 expected)
+static WitU64 thread_create3_at(WitU64 process, WitU64 entry, WitU64 sp, WitU64 argument, WitU32 flags, WitU64 expected)
 {
     WitThreadCreateRequest3 request;
     request.Version = WIT_THREAD_CREATE_VERSION_3;
     request.Size = sizeof(request);
-    request.Entry = FIXED_CODE;
+    request.Entry = entry;
     request.Argument = argument;
     request.StackPointer = sp;
     request.TlsBase = 0;
     request.Process = process;
-    request.Flags = 0;
+    request.Flags = flags;
     request.Reserved = 0;
     return fixture_expect(WIT_CALL_THREAD_CREATE, (WitU64)&request, sizeof(request), 0, expected);
+}
+
+static WitU64 thread_create3(WitU64 process, WitU64 sp, WitU64 argument, WitU64 expected)
+{
+    return thread_create3_at(process, FIXED_CODE, sp, argument, 0, expected);
 }
 
 /* MEMORY_OBJECT_MAP of an object's first bytes into a target process. */
@@ -161,7 +176,7 @@ static WitU64 map_into(WitU64 object, WitU64 bytes, WitU64 address, WitU32 prote
 
 FIXTURE_ENTRY void wit_user_start(const WitRootStartup *startup)
 {
-    WitU64 first[2] = {0, 0}, second[2] = {0, 0}, local = 0;
+    WitU64 first[2] = {0, 0}, second[2] = {0, 0}, third[2] = {0, 0}, local = 0;
     WitProcessInfo info;
     fixture_check(startup->AbiVersion == WIT_ABI_VERSION, 1);
     /* QUERY reports the process family. */
@@ -215,9 +230,32 @@ FIXTURE_ENTRY void wit_user_start(const WitRootStartup *startup)
     fixture_check(info.State == WIT_PROCESS_STATE_EXITED && info.ExitCode == 7, 8);
     fixture_wait(&killed, 1, WIT_WAIT_INFINITE, WIT_STATUS_OK);
     fixture_expect(WIT_CALL_PROCESS_KILL, killed, 7, 0, WIT_STATUS_CLOSED);
+    /* A third child spins until its tick budget, the fixture's, ends it: BUDGET, no thread left (ABI-1 1.1). Its stack
+     * is two objects at adjacent addresses, which STACK_ADJACENT takes as one; an unknown flag is refused. */
+    fixture_expect(WIT_CALL_CHANNEL_CREATE, (WitU64)third, 0, 0, WIT_STATUS_OK);
+    const WitU64 spinner = process_create(third[1], &local, WIT_STATUS_OK);
+    map_into(code, 4096, FIXED_CODE, READ_EXECUTE, spinner, WIT_STATUS_OK);
+    map_into(stack, STACK_BYTES, FIXED_DATA, READ_WRITE, spinner, WIT_STATUS_OK);
+    const WitU64 below = fixture_expect(WIT_CALL_MEMORY_OBJECT_CREATE, STACK_BYTES, 0, 0, WIT_STATUS_OK);
+    map_into(below, STACK_BYTES, FIXED_DATA - STACK_BYTES, READ_WRITE, spinner, WIT_STATUS_OK);
+    const WitU64 spin_entry = FIXED_CODE + (WitU64)(process_child_spin - process_child_begin);
+    thread_create3_at(spinner, spin_entry, FIXED_DATA + STACK_BYTES, local, 4, WIT_STATUS_INVALID_ARGUMENT);
+    const WitU64 spinning = thread_create3_at(
+        spinner, spin_entry, FIXED_DATA + STACK_BYTES, local, WIT_THREAD_STACK_ADJACENT, WIT_STATUS_OK);
+    WitUserThreadInfo spun;
+    spun.Version = WIT_THREAD_INFO_VERSION;
+    spun.Size = sizeof(spun);
+    fixture_expect(WIT_CALL_THREAD_QUERY, spinning, (WitU64)&spun, sizeof(spun), WIT_STATUS_OK);
+    fixture_check(spun.StackLow == FIXED_DATA - STACK_BYTES && spun.StackHigh == FIXED_DATA + STACK_BYTES, 10);
+    fixture_wait(&spinner, 1, WIT_WAIT_INFINITE, WIT_STATUS_OK);
+    process_query(spinner, &info);
+    fixture_check(info.State == WIT_PROCESS_STATE_BUDGET && info.Threads == 0, 9);
     /* Everything goes: the process handles, the thread handle, the channels, the views and the objects. */
     fixture_close(killed);
     fixture_close(second[0]);
+    fixture_close(spinning);
+    fixture_close(spinner);
+    fixture_close(third[0]);
     fixture_close(child);
     fixture_close(observer);
     fixture_close(thread);
@@ -226,5 +264,6 @@ FIXTURE_ENTRY void wit_user_start(const WitRootStartup *startup)
     fixture_expect(WIT_CALL_MEMORY_RELEASE, writable, 0, 0, WIT_STATUS_OK);
     fixture_close(code);
     fixture_close(stack);
+    fixture_close(below);
     fixture_exit(WIT_TEST_EXIT_CODE);
 }

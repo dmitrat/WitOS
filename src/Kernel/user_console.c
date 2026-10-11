@@ -2,7 +2,9 @@
 #include "witos/platform.h"
 
 /* DEBUG_WRITE: the kernel's last-resort output through the board console. The handle and the complete source range
- * are validated before any byte is emitted; the kernel copies in bounded steps and never interprets the bytes. */
+ * are validated before any byte is emitted; the kernel copies in bounded steps and never interprets the bytes. A write
+ * that starts a line of the console takes the "[USER] " prefix and one that continues a line does not (R7.2b: .NET's
+ * console writes a recorded test output a character at a time). */
 WitU64 wit_user_debug_write(WitUserProcess *process, WitU64 handle, WitU64 buffer, WitU64 length, WitU64 *written)
 {
     WitU8 chunk[WIT_ABI_MAX_WRITE];
@@ -18,7 +20,9 @@ WitU64 wit_user_debug_write(WitUserProcess *process, WitU64 handle, WitU64 buffe
         return WIT_STATUS_BAD_ADDRESS;
     }
     if (length) {
-        wit_console_write("[USER] ");
+        if (wit_console_line_start()) {
+            wit_console_write("[USER] ");
+        }
         for (WitU32 offset = 0; offset < (WitU32)length;) {
             WitU32 count = (WitU32)length - offset;
             if (count > sizeof(chunk)) {

@@ -72,13 +72,16 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU64 entry, WitU64 arg
 /* The one form (version 2, K5.2a; version 3 names the process, K5.2c): a thread of the target process on a stack of
  * the target's with the TLS base asked; the kernel maps nothing for it. The stack pointer must be 16-byte aligned
  * inside a committed writable reservation of the target (a mapping the creator made into it), whose bounds become
- * the thread's; the entry is executable in the target; the TLS base is a user address or zero. The thread handle and
+ * the thread's, or with STACK_ADJACENT the bounds of the run of adjacent committed writable reservations that ends with
+ * it (R7.2b); the entry is executable in the target; the TLS base is a user address or zero. The thread handle and
  * its record go to the caller, the thread's identity to the target. */
 static WitU64 create_in(
     WitUserProcess *p, WitUserProcess *target, const WitThreadCreateRequest2 *request, WitU64 size, WitU64 *result)
 {
     WitU64 base = 0, bytes = 0;
-    if (request->Size != size || request->Reserved || (request->Flags & ~WIT_THREAD_START_SUSPENDED)) {
+    if (request->Size != size ||
+        request->Reserved ||
+        (request->Flags & ~(WIT_THREAD_START_SUSPENDED | WIT_THREAD_STACK_ADJACENT))) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
     if ((request->StackPointer & 15) || request->TlsBase >= 0x0000800000000000ULL) {
@@ -93,6 +96,19 @@ static WitU64 create_in(
         request->StackPointer <= base ||
         !wit_user_space_physical(&target->Space, request->StackPointer - 8, 1, 0)) {
         return WIT_STATUS_BAD_ADDRESS;
+    }
+    /* A stack of several reservations (R7.2b): each one below ends where the run begins and is committed writable at
+     * its top; the walk takes at most every reservation of the space once. */
+    for (WitU32 step = 0; (request->Flags & WIT_THREAD_STACK_ADJACENT) && step < target->Space.ReservationLimit;
+        ++step) {
+        WitU64 lower = 0, lower_bytes = 0;
+        if (!wit_user_space_reservation_bounds(&target->Space, base - 1, &lower, &lower_bytes) ||
+            lower + lower_bytes != base ||
+            !wit_user_space_physical(&target->Space, base - 8, 1, 0)) {
+            break;
+        }
+        bytes += lower_bytes;
+        base = lower;
     }
     WitU32 index = 0;
     while (index < target->ThreadLimit && target->Threads[index].State != WitThreadEmpty) {

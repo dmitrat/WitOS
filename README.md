@@ -12,7 +12,7 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 by the pinned clang on both, and keeps the mechanisms of ABI-1 ([RFC 0011 v3](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md)): processes with private
 address spaces, the one thread form, memory objects, channels that carry capabilities, events and the one wait with
 absolute deadlines, faults and activations delivered to user space, device descriptors with interrupt bindings and DMA
-pins, UTC and the started secondary processors. User ABI 1.0 and boot ABI v6 are printed by the kernel banner from the
+pins, UTC and the started secondary processors. User ABI 1.1 and boot ABI v6 are printed by the kernel banner from the
 headers. Above it the system layer (phase S) runs on both ISAs: the pinned musl over ABI-1 with threads, signals and its
 dynamic linker, LLVM's C++ runtime, a process manager with `posix_spawn`, and musl's libc-test, its math suite included,
 with every test run as a process of its own. Upstream .NET 10 runs in its Unix form (`TargetOS=witos`, phase R): NativeAOT
@@ -64,7 +64,7 @@ Expected guest output includes:
 ```text
 [BOOT] UEFI x64 adapter
 [BOOT] ExitBootServices OK
-WitOS user ABI 1.0, boot ABI v6
+WitOS user ABI 1.1, boot ABI v6
 Build: <git-revision> | x64 | Debug
 [TEST-BEGIN] Boot.Contract
 [TEST-PASS] Boot.Contract
@@ -181,7 +181,7 @@ The core kernel does not include UEFI structures. The output is a freestanding P
 
 ## Scope and next work
 
-Next work is tracked in [PLAN.md](PLAN.md) after [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md): phase K is complete (ABI-1 1.0, K8.4d; the page tables record a space's pages since K9), the Linux host has parity (T2.2), CoreCLR runs under upstream's corerun on both ISAs (R3: its native part builds for witos, the JIT's code lives in the double mapping of shared memory over memory objects, and the M3 acceptance passes under CoreCLR as under NativeAOT), System.Native works over the system layer with the differences recorded (R4.1), `dotnet App.dll` runs through upstream's hosts (R5), an ordinary application published by the stock SDK without a RID runs unchanged (R6), upstream's PAL suite passes in the guest (R7.1), and phase R continues with upstream's runtime and library tests (R7) towards unchanged portable assemblies with ordinary SDK/TFM/NuGet workflows ([RFC 0015 v2](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md)); devices and storage (M4, M5) come before standard .NET (M6), as the [Implementation Strategy §157](@Docs/WitOS%20—%20Implementation%20Strategy%20%26%20Milestone%20Plan.md) records. The NativeAOT acceptance does not establish dynamic loading of managed code, filesystem or network services, threads on several processors or broad API compatibility. Firmware memory remains reserved.
+Next work is tracked in [PLAN.md](PLAN.md) after [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md): phase K is complete (ABI-1 1.0, K8.4d, and 1.1 since R7.2b; the page tables record a space's pages since K9), the Linux host has parity (T2.2), CoreCLR runs under upstream's corerun on both ISAs (R3: its native part builds for witos, the JIT's code lives in the double mapping of shared memory over memory objects, and the M3 acceptance passes under CoreCLR as under NativeAOT), System.Native works over the system layer with the differences recorded (R4.1), `dotnet App.dll` runs through upstream's hosts (R5), an ordinary application published by the stock SDK without a RID runs unchanged (R6), upstream's PAL suite and slices of its runtime tests (JIT, GC, exception handling) pass in the guest (R7.1, R7.2), and phase R continues with upstream's library tests (R7.3) towards unchanged portable assemblies with ordinary SDK/TFM/NuGet workflows ([RFC 0015 v2](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md)); devices and storage (M4, M5) come before standard .NET (M6), as the [Implementation Strategy §157](@Docs/WitOS%20—%20Implementation%20Strategy%20%26%20Milestone%20Plan.md) records. The NativeAOT acceptance does not establish dynamic loading of managed code, filesystem or network services, threads on several processors or broad API compatibility. Firmware memory remains reserved.
 
 - [Architecture document index](@Docs/README.md)
 - [ADR 0024: three layers and the Unix-form runtime](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md)

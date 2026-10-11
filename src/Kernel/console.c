@@ -2,12 +2,20 @@
 
 /* Board-independent console formatting on top of the board byte output; the serial log uses CRLF. */
 
+static int line_start = 1; /* the last byte out ended a line, or nothing went out yet */
+
 static void put_char(char value)
 {
     if (value == '\n') {
         wit_platform_console_put('\r');
     }
     wit_platform_console_put((WitU8)value);
+    line_start = value == '\n';
+}
+
+int wit_console_line_start(void)
+{
+    return line_start;
 }
 
 void wit_console_write(const char *text)

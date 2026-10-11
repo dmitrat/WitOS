@@ -371,6 +371,8 @@ static int ended(WitU64 handle, int *status)
     }
     if (info.State == WIT_PROCESS_STATE_FAULTED) {
         *status = SIGSEGV;
+    } else if (info.State == WIT_PROCESS_STATE_BUDGET) {
+        *status = SIGXCPU; /* past its processor time, as Linux ends a process past RLIMIT_CPU (R7.2b) */
     } else if (info.ExitCode & WIT_EXIT_SIGNALED) {
         *status = (int)(info.ExitCode & 0x7F);
     } else {

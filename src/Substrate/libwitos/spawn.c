@@ -25,8 +25,10 @@
  * first), any other is anonymous memory objects the loader fills with the file's bytes and zeroes, mapped into the
  * process READ|WRITE or, for a read-only segment, READ, and left to it. A read-only segment is a copy as the libc's
  * private mapping of a file that does not execute is (R2.1): the process may make its pages writable, as NativeAOT's
- * runtime does with the page of its GS cookie at startup, which a mapping of the package never allows. The first stack is one object of 64 pages at the
- * top of the code arena, with nothing mapped below it, on which the loader builds what a Linux kernel builds: argc,
+ * runtime does with the page of its GS cookie at startup, which a mapping of the package never allows. The first stack is
+ * 2 MiB at the top of the code arena (R7.2b: between Windows' 1 MiB and Linux's 8 MiB; it was one object of 64 pages,
+ * on which nested exception handling of upstream's tests ran out): objects of 64 pages at adjacent addresses, which
+ * the thread takes as one stack (STACK_ADJACENT), the top one holding what a Linux kernel builds there: argc,
  * argv, envp and the auxiliary vector with AT_PHDR, AT_ENTRY (the program's), AT_BASE (the interpreter's base, for a
  * dynamic program alone: musl's dlstart.c of a static one finds its base through PT_DYNAMIC), AT_RANDOM, AT_EXECFN
  * (the program's path as the caller named it, at the top of the stack, which .NET's minipal_getexepath reads where
@@ -44,10 +46,10 @@
 #define PROGRAM_BASE WIT_USER_CODE_BASE
 #define INTERPRETER_BASE (PROGRAM_BASE + IMAGE_SPAN)
 #define INTERPRETER_PATH 256U /* PT_INTERP with its terminating zero */
-#define STACK_BYTES CHUNK
+#define STACK_CHUNKS 8U /* 2 MiB */
 #define STACK_TOP WIT_USER_CODE_LIMIT
-#define STACK_BASE (STACK_TOP - STACK_BYTES)
-#define ARGUMENT_BYTES (STACK_BYTES / 4) /* the strings and pointers of argv and envp */
+#define STACK_BASE (STACK_TOP - CHUNK) /* the top chunk, which holds argc, argv, envp and the auxiliary vector */
+#define ARGUMENT_BYTES (CHUNK / 4) /* the strings and pointers of argv and envp */
 #define AUXILIARY_PAIRS 16U
 #define LOG_RIGHTS (WIT_RIGHT_WRITE | WIT_RIGHT_TRANSFER)
 #define MANAGER_RIGHTS (WIT_RIGHT_SEND | WIT_RIGHT_TRANSFER)
@@ -348,11 +350,11 @@ static int build_stack(const Program *p, const Program *interpreter, const char 
     if (error) {
         return error;
     }
-    WitU64 status = wit_syscall(WIT_CALL_MEMORY_OBJECT_CREATE, STACK_BYTES, 0, 0, &object);
+    WitU64 status = wit_syscall(WIT_CALL_MEMORY_OBJECT_CREATE, CHUNK, 0, 0, &object);
     if (status != WIT_STATUS_OK) {
         return failure(status);
     }
-    status = map(object, 0, STACK_BYTES, 0, WIT_MEMORY_READ | WIT_MEMORY_WRITE, WIT_PROCESS_SELF, &view);
+    status = map(object, 0, CHUNK, 0, WIT_MEMORY_READ | WIT_MEMORY_WRITE, WIT_PROCESS_SELF, &view);
     if (status == WIT_STATUS_OK) {
         unsigned char *bytes = (unsigned char *)view;
         const WitU64 random = STACK_TOP - 16;
@@ -378,9 +380,18 @@ static int build_stack(const Program *p, const Program *interpreter, const char 
         wit_syscall(WIT_CALL_MEMORY_RELEASE, view, 0, 0, &result);
     }
     if (status == WIT_STATUS_OK) {
-        status = map(object, 0, STACK_BYTES, STACK_BASE, WIT_MEMORY_READ | WIT_MEMORY_WRITE, process, &mapped);
+        status = map(object, 0, CHUNK, STACK_BASE, WIT_MEMORY_READ | WIT_MEMORY_WRITE, process, &mapped);
     }
     close_handle(object);
+    /* The rest of the stack below the top chunk, zeroed objects the process's mappings hold (R7.2b). */
+    for (WitU32 chunk = 1; chunk < STACK_CHUNKS && status == WIT_STATUS_OK; ++chunk) {
+        status = wit_syscall(WIT_CALL_MEMORY_OBJECT_CREATE, CHUNK, 0, 0, &object);
+        if (status == WIT_STATUS_OK) {
+            status =
+                map(object, 0, CHUNK, STACK_BASE - chunk * CHUNK, WIT_MEMORY_READ | WIT_MEMORY_WRITE, process, &mapped);
+            close_handle(object);
+        }
+    }
     return status == WIT_STATUS_OK ? 0 : failure(status);
 }
 
@@ -451,7 +462,7 @@ static int start_thread(WitU64 entry, WitU64 process, WitU64 stack_pointer)
     request.StackPointer = stack_pointer;
     request.TlsBase = 0;
     request.Process = process;
-    request.Flags = 0;
+    request.Flags = WIT_THREAD_STACK_ADJACENT; /* the first stack is several objects (R7.2b) */
     request.Reserved = 0;
     const WitU64 status = wit_syscall(WIT_CALL_THREAD_CREATE, (WitU64)&request, sizeof(request), 0, &thread);
     if (status != WIT_STATUS_OK) {
