@@ -9,12 +9,12 @@
 /* The runner of CoreCLR's PAL suite on WitOS (plan step R7.1), /bin/init under the system layer's root task. As
  * upstream's runpaltests.sh does, every test of the selection runs in a process of its own, `paltests <name>` or the
  * test's own program where its build made one (pal_sxs, beside its libraries), and passes when it exits with zero, the
- * PASS its entry point returns. The selection is upstream's paltestlist.txt less the
- * tests build/runtime/palsuite.json leaves out with a reason; runtime-witos writes it to /paltests/selection, one name
- * a line. A test starts in /paltests, since the package is the whole file system and is read-only: runpaltests.sh gives
- * each test an empty writable directory, which WitOS has no place for until the namespace service (D5). There is no
- * timeout: a test that hangs stops the boot. One line per test and a summary the boot scenario requires; the runner
- * exits with zero only when every test of the selection passed. */
+ * PASS its entry point returns. The selection is upstream's paltestlist.txt less the tests build/runtime/palsuite.json
+ * leaves out with a reason; runtime-witos writes it to /paltests/selection, one name a line. A test starts in /dev/shm
+ * (R7.2a), the directory in which a process creates files, as runpaltests.sh gives each test a writable directory of
+ * its own: every process has its own /dev/shm, so a test finds it empty. There is no timeout: a test that hangs stops
+ * the boot. One line per test and a summary the boot scenario requires; the runner exits with zero only when every
+ * test of the selection passed. */
 
 #if defined(__x86_64__)
 #define ISA_NAME "x86_64"
@@ -43,7 +43,7 @@ int main(void)
         return 1;
     }
     if (posix_spawn_file_actions_init(&actions) != 0 ||
-        posix_spawn_file_actions_addchdir_np(&actions, "/paltests") != 0) {
+        posix_spawn_file_actions_addchdir_np(&actions, "/dev/shm") != 0) {
         printf("[PAL] the file actions could not be made\n");
         return 1;
     }

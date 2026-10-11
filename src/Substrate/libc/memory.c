@@ -395,8 +395,10 @@ static long map_shared_pages(WitU64 address, WitU64 size, WitU64 protection, Wit
 /* A shared memory file's pages from the offset at consecutive addresses, one mapping per chunk covered (R3.2b). */
 static long map_shared_file(WitU64 address, WitU64 size, WitU64 protection, WitU32 file, WitU64 offset, WitU64 length)
 {
-    if (offset > length || size > length - offset) {
-        return -ENXIO; /* past the file's end, which ftruncate sets */
+    /* The page that holds the file's end maps whole, as on Linux (R7.2a). */
+    const WitU64 end = (length + PAGE - 1) & ~(PAGE - 1);
+    if (offset > end || size > end - offset) {
+        return -ENXIO; /* past the page that holds the file's end, which ftruncate and a write set */
     }
     WitU64 base = address;
     if (!base) {
@@ -451,9 +453,10 @@ long __wit_mmap(long address, long length, long protection, long flags, long fd,
         return map_anonymous(place, size, kernel_protection); /* /dev/zero */
     }
     if (kind == 2 || kind == 3) {
-        /* A shared memory file: shared mappings alone, writable only through a descriptor opened for writing. */
+        /* A shared memory file: a shared mapping writable only through a descriptor opened for writing, and a private one
+         * a copy of the file's bytes, as a writable private mapping of the package is (R7.2a). */
         if (!(flags & MAP_SHARED)) {
-            return -ENOSYS;
+            return map_copy(fd, place, size, kernel_protection, (WitU64)offset, file_length);
         }
         if (kind == 3 && (protection & PROT_WRITE)) {
             return -EACCES;

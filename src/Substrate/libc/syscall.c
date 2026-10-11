@@ -124,18 +124,6 @@ static long writev_log(long fd, const struct iovec *vectors, long count)
     return written_total;
 }
 
-static long writev_total(const struct iovec *vectors, long count)
-{
-    long total = 0;
-    if (count < 0 || count > 1024) {
-        return -EINVAL;
-    }
-    for (long i = 0; i < count; ++i) {
-        total += (long)vectors[i].iov_len;
-    }
-    return total;
-}
-
 static long terminal_ioctl(long fd, long request, void *argument)
 {
     if (__wit_stream_of(fd) < 0) {
@@ -534,11 +522,16 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
         return __wit_futex(
             (volatile int *)a1, (int)a2, (int)a3, (const struct timespec *)a4, (volatile int *)a5, (int)a6);
     case SYS_write:
-        return __wit_is_file_descriptor(a1) ? __wit_write_file(a1, a3)
+        return __wit_is_file_descriptor(a1) ? __wit_write(a1, (const void *)a2, a3)
                                             : write_log(a1, (const void *)a2, (unsigned long)a3);
     case SYS_writev:
-        return __wit_is_file_descriptor(a1) ? __wit_write_file(a1, writev_total((const struct iovec *)a2, a3))
+        return __wit_is_file_descriptor(a1) ? __wit_writev(a1, (const struct iovec *)a2, a3)
                                             : writev_log(a1, (const struct iovec *)a2, a3);
+    case SYS_pwrite64:
+        return __wit_pwrite(a1, (const void *)a2, a3, a4);
+    case SYS_fsync:
+    case SYS_fdatasync:
+        return __wit_fsync(a1);
     case SYS_read: /* standard input ends at once; an output stream is not for reading */
         return __wit_stream_of(a1) >= 0 ? (__wit_stream_of(a1) == 0 ? 0 : -EBADF) : __wit_read(a1, (void *)a2, a3);
     case SYS_readv:
