@@ -66,7 +66,8 @@ Unix-форму, и пробы пула потоков, ожиданий и не
 `witos` и загружается в госте (R3.1), а upstream `corerun` выполняет managed `Main` через JIT на обеих ISA — код в
 двойном отображении разделяемой памяти над объектами памяти (R3.2), и приёмка M3 под CoreCLR проходит на обеих ISA
 (R3.3). Фаза R3 завершена. `System.Native` над пакетом, время, окружение, invariant-глобализация и явные отказы
-проверены из управляемого кода на обеих ISA, различия совместимости ведутся списком (R4.1).
+проверены из управляемого кода на обеих ISA, различия совместимости ведутся списком (R4.1); `dotnet App.dll` через
+upstream `hostfxr` и `hostpolicy` из раскладки shared framework работает на обеих ISA (R5).
 
 **Переносится как знание.** Адаптеры GC и PAL NativeAOT (написаны против Windows-формы PAL, нужны против Unix-формы);
 диспетчер раскрутки (таблицы станут DWARF); порядок инициализации рантайма; протоколы приёмки M3 и P5.
@@ -81,8 +82,8 @@ Windows-сборки хоста и `coreclr.dll`, Win32-адаптеры с их
 
 **Ещё нет, хотя требуется документами:** планировщик на N процессоров (фаза P: вторичные процессоры запущены и
 обслуживают межпроцессорные запросы, но потоки на них не исполняются); записываемое хранилище и драйверы; .NET
-Unix-формы в госте сверх NativeAOT и CoreCLR под `corerun` (хосты `dotnet` — R5, `System.Native` над файлами и
-сервисами — R4).
+Unix-формы в госте сверх `dotnet App.dll` (приложение из Visual Studio без RID — R6, тесты upstream — R7, файлы над
+сервисом — R4.2 после D5).
 
 ## 4. Решения
 
@@ -686,8 +687,15 @@ Unix-формы в госте сверх NativeAOT и CoreCLR под `corerun` (
     разделяемой памяти хранится по странице (постраничный коммит JIT раздробил отображения до 795 кусков). Список
     различий — [Compatibility-Differences.md](@Docs/Implementation/Compatibility-Differences.md). Патч-набор — 24 файла.
   - [ ] **R4.2** Файлы над сервисом пространства имён (после D5): `mmap` файла — объект памяти от сервиса.
-- [ ] **R5** Хосты Unix-формы (RFC-0015 §7): `dotnet`, `libhostfxr.so`, `libhostpolicy.so`; раскладка shared framework
-  под `/dotnet` и файлы `/etc/dotnet/install_location*` в пакете вместо патча `pal.unix.cpp`; `dotnet App.dll`.
+- [x] **R5** Хосты Unix-формы (RFC-0015 §7): `dotnet`, `libhostfxr.so`, `libhostpolicy.so`; раскладка shared framework
+  под `/dotnet` и файлы `/etc/dotnet/install_location*` в пакете вместо патча `pal.unix.cpp`; `dotnet App.dll`
+  ([R5-Hosts.md](@Docs/Implementation/R5-Hosts.md)). `runtime-witos` собирает `host.native` для `witos` без единого
+  патча (путь к себе хосты берут через `minipal_getexepath` с `AT_EXECFN`, R3.2a); сценарий `runtime-dotnet` раскладывает
+  установку, как упаковка shared framework на Linux: `/dotnet/dotnet`, `host/fxr/10.0.8/libhostfxr.so`,
+  `shared/Microsoft.NETCore.App/10.0.8/` (hostpolicy, CoreCLR, CoreLib, 452 сборки фреймворка, нативные библиотеки и
+  `Microsoft.NETCore.App.deps.json`, который пишет инструмент — пакет CoreCLR upstream требует crossgen и манифеста
+  платформы), `/etc/dotnet/install_location`, приложение с runtimeconfig (invariant-глобализация); требует
+  `[DOTNET] App.dll through hostfxr and hostpolicy on <ISA>` на обеих ISA с 512 МиБ.
 - [ ] **R6** Первый IL через JIT (RFC-0015 §1, §9): приложение, собранное в Visual Studio на Windows (`dotnet publish`
   без RID), работает без изменений — бывший P6.5.
 - [ ] **R7** Тесты upstream в QEMU (RFC-0015 §9): `palsuite`, срезы `src/tests` (JIT, GC, EH), срезы тестов библиотек;
