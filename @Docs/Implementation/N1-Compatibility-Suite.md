@@ -43,8 +43,9 @@ with `expectations.json`, which records, per platform, the checks expected to fa
     build properties, as R6 publishes its application.
   - **The package.** It boots the package with the device services of `runtime-devices`, the .NET install of R5 and
     the suite under `/app`, with a fresh data disk.
-  - **`/bin/init`** (`tests/User/compatibility_init.c`) makes `/data/tmp`, sets `TMPDIR` to it, since the package is
-    read-only and has no `/tmp`, then starts `/dotnet/dotnet /app/DotNetCompatibility.dll` and waits for it.
+  - **`/bin/init`** (`tests/User/apps_init.c` since N2.1, which shares the package as `RuntimeApps`) makes
+    `/data/tmp`, sets `TMPDIR` to it, since the package is read-only and has no `/tmp`, then starts
+    `/dotnet/dotnet /app/compatibility/DotNetCompatibility.dll` and waits for it.
   - **What it requires.** No unexpected result, the program's exit with 0, and the services' stop.
   - **How it runs.** `runtime-witos` runs it after `runtime-devices`, and the `runtime-compatibility` command runs it
     alone.

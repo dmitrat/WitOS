@@ -1,0 +1,116 @@
+using WitOS.Dev.Host;
+using WitOS.Dev.Kernel;
+using WitOS.Dev.Substrate;
+
+namespace WitOS.Dev.Runtime;
+
+/// <summary>
+/// Ordinary .NET applications on witos beside the device services (plan steps N1 and N2.1): each published by the stock
+/// SDK without a RID from a copy apart from the repository's build properties, as a developer's machine builds it (R6),
+/// placed under /app/&lt;name&gt; of a package that holds the device services and the .NET install of R5, and run through
+/// dotnet by tests/User/apps_init.c from the commands of /etc/apps, with a fresh data disk whose volume holds their
+/// files.
+/// </summary>
+internal static class RuntimeApps
+{
+    #region Constants
+
+    /// <summary>
+    /// The scenarios' /bin/init, which runs the commands of /etc/apps with /data/tmp as their temporary directory.
+    /// </summary>
+    public const string INIT = "tests/User/apps_init.c";
+
+    #endregion
+
+    #region Functions
+
+    /// <summary>
+    /// The package: the device services, the .NET install, each application under /app/&lt;name&gt;, the commands in
+    /// /etc/apps and tests/User/apps_init.c as /bin/init.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Artifact directory of the scenario.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="applications">Each application's name and its project's directory under the repository.</param>
+    /// <param name="commands">The commands /bin/init runs, one a line.</param>
+    /// <returns>Package paths and the files to place there.</returns>
+    public static async Task<IReadOnlyList<(string Name, string Source)>> BuildPackageAsync(string root, string output,
+        KernelArchitecture architecture, IReadOnlyList<(string Name, string Project)> applications, IReadOnlyList<string> commands)
+    {
+        var services = RuntimeDevices.ServiceFiles(root, architecture);
+        await Sysroot.BuildAsync(root, architecture);
+        var init = Path.Combine(output, "apps_init.o");
+        await MuslLibc.CompileAsync(root, architecture, Path.Combine(root, INIT), init, LibWitos.Options(root));
+        var initProgram = await MuslLibc.LinkStartedProgramAsync(root, architecture, output, "apps_init", [init]);
+        var list = Path.Combine(output, "apps");
+        await File.WriteAllTextAsync(list, string.Concat(commands.Select(command => command + "\n")));
+        var package = new List<(string Name, string Source)>
+        {
+            ("bin/init", initProgram), ("etc/apps", list)
+        };
+        package.AddRange(services);
+        package.AddRange(await RuntimeWitos.InstallFilesAsync(root, output, architecture));
+        foreach (var (name, project) in applications)
+        {
+            var published = await PublishAsync(root, output, project, name);
+            package.AddRange(Directory.EnumerateFiles(published, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
+                .Select(file => ($"app/{name}/{Path.GetRelativePath(published, file).Replace('\\', '/')}", file)));
+        }
+        return [.. package.DistinctBy(file => file.Name)];
+    }
+
+    /// <summary>
+    /// Boots a scenario of applications with a fresh data disk.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="scenario">The scenario.</param>
+    /// <param name="requiredLines">The lines it requires.</param>
+    /// <param name="timeoutSeconds">Its wall-clock limit.</param>
+    /// <returns>When the boot passed.</returns>
+    public static async Task BootAsync(string root, KernelArchitecture architecture, string scenario, string[] requiredLines,
+        int timeoutSeconds)
+    {
+        var image = await KernelImageBuilder.BuildAsync(root, scenario, architecture: architecture);
+        var dataDisk = Path.Combine(Path.GetDirectoryName(image)!, "data-disk.img");
+        await RuntimeDataDisk.CreateAsync(dataDisk);
+        await BootScenarioRunner.RunAsync(root, image, new BootRequest($"{architecture.Name}-{scenario}-512", 512, timeoutSeconds,
+            ExpectedOutcome.Success)
+        {
+            Architecture = architecture,
+            Suite = BootSuite.Release,
+            RequiredLines = [.. requiredLines, "[APPS-INIT] ", " commands, 0 failed", "[ROOT-TASK] /system/DeviceManager stopped",
+                architecture.RootTaskPassedLine],
+            DataDisk = dataDisk
+        });
+    }
+
+    // An application published from a copy of its project apart from the repository's build properties; the published
+    // directory.
+    private static async Task<string> PublishAsync(string root, string output, string project, string name)
+    {
+        var copy = Path.Combine(output, $"{name}-project");
+        if (Directory.Exists(copy))
+            Directory.Delete(copy, recursive: true);
+        var sources = Path.Combine(root, project);
+        foreach (var file in Directory.EnumerateFiles(sources, "*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(sources, file);
+            if (relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0] is "bin" or "obj")
+                continue;
+            var target = Path.Combine(copy, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target);
+        }
+        await File.WriteAllTextAsync(Path.Combine(copy, "Directory.Build.props"), "<Project />\n");
+        await File.WriteAllTextAsync(Path.Combine(copy, "Directory.Build.targets"), "<Project />\n");
+        var published = Path.Combine(output, $"{name}-app");
+        if (Directory.Exists(published))
+            Directory.Delete(published, recursive: true);
+        await Processes.RequireSuccessAsync("dotnet",
+            ["publish", Directory.GetFiles(copy, "*.csproj").Single(), "-c", "Release", "-o", published, "-nologo"], copy);
+        return published;
+    }
+
+    #endregion
+}

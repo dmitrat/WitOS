@@ -95,8 +95,9 @@ upstream `hostfxr` и `hostpolicy` из раскладки shared framework ра
 (D6.2). Отказ устройства на чтении проходит по всем слоям с осмысленными строками журнала: драйвер называет устройство
 и сектор, служба — файл и операцию, программа получает `EIO`, система продолжает работу (D6.3). Фаза D завершена, M5
 §52 выполнен. Разделяемое `mmap` файла тома — объекты памяти службы, фаза R завершена (R4.2). Набор совместимости
-.NET проходит на Windows, Linux и WitOS с четырьмя записанными различиями (N1). Следующий шаг — N2: представительные
-библиотеки NuGet.
+.NET проходит на Windows, Linux и WitOS с четырьмя записанными различиями (N1), а NUnit, xUnit, MessagePack, MemoryPack,
+Math.NET и Roslyn из nuget.org проходят представительные тесты без изменений на обеих ISA (N2.1). Следующий шаг —
+N2.2: собственные наборы тестов библиотек.
 
 **Переносится как знание.** Адаптеры GC и PAL NativeAOT (написаны против Windows-формы PAL, нужны против Unix-формы);
 диспетчер раскрутки (таблицы станут DWARF); порядок инициализации рантайма; протоколы приёмки M3 и P5.
@@ -982,6 +983,13 @@ Unix-формы в госте сверх неизменённого прилож
   службами устройств, с `TMPDIR` на томе `/data`, на обеих ISA: 64 проверки, 4 записанных различия
   (`KnownOperatingSystem`, `Process.Start`, `FileSystemWatcher`, именованный `Mutex` без `/tmp`), 0 неожиданных.
 - [ ] **N2** Представительные библиотеки NuGet: NUnit, xUnit, MessagePack, MemoryPack, Math.NET, Roslyn.
+  - [x] **N2.1** Представительные тесты ([N2.1-Representative-Libraries.md](@Docs/Implementation/N2.1-Representative-Libraries.md)):
+    два обычных тестовых приложения из пакетов nuget.org — `NUnitApp` (NUnit 5 через NUnitLite: MessagePack 3.1.11,
+    Math.NET 5.0.0) и `XUnitApp` (xUnit v3 4.0.2: MemoryPack 1.21.4, Roslyn 5.9.0 — компиляция C# в памяти, загрузка в
+    собираемый контекст и вызов); на хостах — `RepresentativeLibrariesTests`, в госте — сценарий `runtime-libraries`
+    рядом со службами устройств (общий пакет `RuntimeApps`, `/bin/init` — `apps_init.c` по `/etc/apps`). 7/7 и 6/6 на
+    Windows, Linux и обеих ISA WitOS.
+  - [ ] **N2.2** Собственные наборы тестов библиотек в госте (RFC 0015 §9).
 - [ ] **N3** Несколько версий рядом (RFC-0015 §7): .NET 8 LTS и 10 в одном образе под `/dotnet`, патч-наборы по веткам
   релизов в `patches/runtime/<branch>/` (для 8.0 — backport цели `witos`), выбор через `rollForward`; ABI-2 объявляется
   1.0.

@@ -11,6 +11,8 @@
   <Folder Name="/tests/">
     <Project Path="tests/DotNetCompatibility/DotNetCompatibility.csproj" />
     <Project Path="tests/OutWit.OS.Tests/OutWit.OS.Tests.csproj" />
+    <Project Path="tests/RepresentativeLibraries/NUnitApp/NUnitApp.csproj" />
+    <Project Path="tests/RepresentativeLibraries/XUnitApp/XUnitApp.csproj" />
     <Project Path="tests/WitOS.Dev.Tests/WitOS.Dev.Tests.csproj" />
     <Project Path="tests/WitOS.Dev.Tests.Child/WitOS.Dev.Tests.Child.csproj" />
   </Folder>

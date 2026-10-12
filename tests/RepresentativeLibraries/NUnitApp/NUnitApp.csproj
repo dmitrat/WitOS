@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Representative libraries under NUnit (plan step N2.1, Implementation Strategy §59): an ordinary test application
+       from nuget.org packages, NUnitLite as its runner, nothing for WitOS. It runs as dotnet NUnitApp.dll on Windows,
+       Linux and WitOS and exits with the number of failed tests. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>NUnitApp</AssemblyName>
+    <RootNamespace>RepresentativeLibraries</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NUnit" Version="5.0.0" />
+    <PackageReference Include="NUnitLite" Version="5.0.0" />
+    <PackageReference Include="MessagePack" Version="3.1.11" />
+    <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
+  </ItemGroup>
+
+</Project>
