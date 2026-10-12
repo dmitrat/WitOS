@@ -51,5 +51,11 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     /// </summary>
     public string? LogDirectory { get; init; }
 
+    /// <summary>
+    /// A raw image QEMU gives the board as a second, writable virtio block device after the entropy source (D3.2);
+    /// none when null.
+    /// </summary>
+    public string? DataDisk { get; init; }
+
     #endregion
 }

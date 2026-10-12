@@ -58,6 +58,10 @@ internal static class BootScenarioRunner
         {
             arguments.AddRange(["-object", "rng-builtin,id=entropy0", "-device", "virtio-rng-pci,rng=entropy0"]);
         }
+        if (request.DataDisk is not null)
+        {
+            arguments.AddRange(["-drive", $"if=none,id=data,format=raw,file={QemuPath(request.DataDisk)}", "-device", "virtio-blk-pci,drive=data"]);
+        }
         Console.WriteLine($"Booting {name} ({request.MemoryMiB} MiB, {cpu}, {request.Processors} processor(s), TCG, no networking)...");
         ProcessResult monitorResult;
         try

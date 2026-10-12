@@ -8,14 +8,16 @@ using OutWit.OS.DeviceManager.Drivers;
 using OutWit.OS.DeviceManager.Uhi;
 using OutWit.OS.Hardware;
 using OutWit.OS.Resources;
+using OutWit.OS.Storage;
 
 namespace OutWit.OS.DeviceManager;
 
 /// <summary>
-/// The device manager (plan steps D1.1 and D1.2, ADR 0025): the root task starts it before /bin/init and moves the
+/// The device manager (plan steps D1.1, D1.2 and D3.2, ADR 0025): the root task starts it before /bin/init and moves the
 /// device table to it over the channel it granted it. It reads the table, translates every descriptor into a UHI device
 /// record and prints its discovery line (Implementation Strategy §44), starts the driver of every device its driver
-/// table matches and moves the device to it, answers that it is ready, and serves its channel until the root task ends.
+/// table matches and moves the device to it, probes the disk of every block driver through its block channel (D3.2),
+/// answers that it is ready, and serves its channel until the root task ends.
 /// </summary>
 internal static class Program
 {
@@ -48,10 +50,19 @@ internal static class Program
             foreach (var record in records)
                 Console.WriteLine(PREFIX + record.DiscoveryLine);
             var drivers = Activate(table, records);
+            var disks = new List<ChannelBlockStorage>();
+            foreach (var driver in drivers.Where(driver => driver.Status == 0 && driver.Service is not null))
+            {
+                var disk = StorageProbe.RunAsync(driver).GetAwaiter().GetResult();
+                if (disk is not null)
+                    disks.Add(disk);
+            }
             Console.WriteLine($"{PREFIX}device manager on {RuntimeInformation.ProcessArchitecture}: {records.Count} devices discovered, " +
                 $"{drivers.Count(driver => driver.Status == 0)} drivers ready, DMA isolation: none (no IOMMU), ready");
             channel.Send(ServiceStatus.Encode(0));
             var status = Serve(channel);
+            foreach (var disk in disks)
+                disk.DisposeAsync().AsTask().GetAwaiter().GetResult();
             foreach (var driver in drivers)
                 driver.Dispose();
             return status;
