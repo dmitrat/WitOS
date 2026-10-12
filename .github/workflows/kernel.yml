@@ -39,6 +39,9 @@ jobs:
       - name: Host tooling regressions
         run: dotnet test tests/WitOS.Dev.Tests --configuration Release --no-build
 
+      - name: Services' host tests
+        run: dotnet test tests/OutWit.OS.Tests --configuration Release --no-build
+
       - name: Cache pinned LLVM installer
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -157,6 +160,9 @@ jobs:
 
       - name: Host tests, whose native harnesses the pinned clang builds
         run: dotnet test tests/WitOS.Dev.Tests --configuration Release --no-build
+
+      - name: Services' host tests
+        run: dotnet test tests/OutWit.OS.Tests --configuration Release --no-build
 
       - name: QEMU timeout cleanup through QMP
         run: dotnet test tests/WitOS.Dev.Tests --configuration Release --no-build --filter TestCategory=QemuCleanup

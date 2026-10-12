@@ -454,6 +454,9 @@ internal static class RuntimeWitos
             RequiredLines = [architecture.AcceptancePassedLine, architecture.RootTaskPassedLine]
         });
         Console.WriteLine($"NativeAOT on witos-{architecture.Name}: the M3 acceptance passed its {ACCEPTANCE_RUNS} runs in the guest ({acceptanceExecutable}).");
+
+        // D1.1 (ADR 0025): the device manager, a NativeAOT service of the boot package the same targets publish.
+        await RuntimeDevices.BuildAsync(root, tree, architecture, version);
         Console.WriteLine(await MeasureAsync(root, pin));
     }
 
@@ -1633,7 +1636,7 @@ internal static class RuntimeWitos
     }
 
     // The one version of the three packages a witos publish needs, read from the feed.
-    private static string PackageVersion(string tree, KernelArchitecture architecture)
+    internal static string PackageVersion(string tree, KernelArchitecture architecture)
     {
         const string TARGETS = "Microsoft.DotNet.ILCompiler.";
         var feed = PackageFeed(tree);
@@ -1656,7 +1659,7 @@ internal static class RuntimeWitos
     // by the witos tree's SDK from the feed of the packages the tree built, through build/runtime/witos.targets with the
     // sysroot's link options. The packages keep one version from build to build, so their copies in the project's NuGet
     // cache are dropped first. Returns the published executable.
-    private static async Task<string> PublishProgramAsync(string root, string tree, KernelArchitecture architecture, string name,
+    internal static async Task<string> PublishProgramAsync(string root, string tree, KernelArchitecture architecture, string name,
         string sources, string version, string items)
     {
         var project = Path.Combine(root, "artifacts", "runtime-witos", "publish", architecture.Name, name);
@@ -1736,7 +1739,7 @@ internal static class RuntimeWitos
         Path.Combine(tree, "artifacts", "bin", $"microsoft.netcore.app.runtime.witos-{architecture.Name}", "Release", "runtimes",
             $"witos-{architecture.Name}", "lib", ReadLock(root).TargetFramework);
 
-    private static string ProgramDirectory(string root, KernelArchitecture architecture) =>
+    internal static string ProgramDirectory(string root, KernelArchitecture architecture) =>
         Path.Combine(root, "artifacts", "runtime-witos", "ilc", architecture.Name);
 
     // A tool of the build that may run for minutes.

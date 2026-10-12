@@ -156,6 +156,12 @@ dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-rebase -
 
 `runtime-rebase` carries the patch set to another tag of dotnet/runtime. A file upstream did not change keeps its patch, a changed one is merged three ways, and a conflict is left for a person; the patches and a report of the set's size go to `artifacts/runtime-rebase/<tag>`. With `--apply`, a carry without conflicts replaces `patches/runtime` and moves the pin, which `runtime-witos` then proves on both ISAs. See [R8.1](@Docs/Implementation/R8.1-Servicing-Upgrade.md).
 
+```bash
+dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-services --arch arm64
+```
+
+`runtime-witos` ends by publishing WitOS's NativeAOT services, the device manager first, and booting their scenario, `runtime-devices`. `runtime-services` repeats that step alone with the packages an earlier `runtime-witos` built. See [D1.1](@Docs/Implementation/D1.1-Device-Manager.md).
+
 ## Layout
 
 ```text
@@ -167,6 +173,8 @@ src/Kernel.Arch.A64/         ARM64 vectors, frames, EL0 entry, kernel and user p
 src/Kernel.Platform.QemuVirt/ QEMU virt board: PL011, generic counter, GICv3, PL031 and semihosting exit
 src/Substrate/               The system layer: WitOS's part of the libc, libwitos and the pins of its upstream sources
 src/RootTask/                The system layer's root task and process manager
+src/OutWit.OS/               The managed capability API of WitOS's own services, over libwitos (D1.1)
+src/Services/                WitOS's NativeAOT services: the device manager (D1.1)
 src/Sysroot/                 What layer 2 adds to the ABI-1 headers, and the sysroot's CMake platform modules
 build/                       Kernel target, layer and format manifests; the Linux host image; the runtime pin and targets
 patches/                     WitOS's changes to pinned upstream files (musl, dotnet/runtime)
@@ -178,6 +186,7 @@ tests/User/Fixtures/         The mechanism fixtures in C, one source for both IS
 tests/Runtime.Witos/         The witos runtime's platform check and its M3 acceptance
 tests/Expectations/          The boot markers each suite requires
 tests/WitOS.Dev.Tests/       Host tests (NUnit)
+tests/OutWit.OS.Tests/       Host tests of the services' managed code (NUnit)
 tools/WitOS.Dev/             C# build, VM test, system layer and runtime tools
 @Docs/                       Architecture drafts and implementation notes
 .github/workflows/           Automated build and VM tests
@@ -187,7 +196,7 @@ The core kernel does not include UEFI structures. The output is a freestanding P
 
 ## Scope and next work
 
-Next work is tracked in [PLAN.md](PLAN.md) after [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md): phase K is complete (ABI-1 1.0, K8.4d, and 1.1 since R7.2b; the page tables record a space's pages since K9), the Linux host has parity (T2.2), CoreCLR runs under upstream's corerun on both ISAs (R3: its native part builds for witos, the JIT's code lives in the double mapping of shared memory over memory objects, and the M3 acceptance passes under CoreCLR as under NativeAOT), System.Native works over the system layer with the differences recorded (R4.1), `dotnet App.dll` runs through upstream's hosts (R5), an ordinary application published by the stock SDK without a RID runs unchanged (R6), upstream's PAL suite, slices of its runtime tests (JIT, GC, exception handling) and slices of its library tests pass in the guest (R7), the patch set carries to a servicing release with `runtime-rebase` and no line written by hand (R8.1: the pin is dotnet/runtime 10.0.12), and the patch set rehearsed on .NET 11 RC1 passes every gate on both ISAs but R6, which waits for the stock SDK of .NET 11 (R8.2: the conflicts sit beside the new OpenBSD port, and x64 guests need x86-64-v2); phase R is complete but for files over the namespace service (R4.2), towards unchanged portable assemblies with ordinary SDK/TFM/NuGet workflows ([RFC 0015 v2](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md)); devices and storage (M4, M5) come before standard .NET (M6), as the [Implementation Strategy §157](@Docs/WitOS%20—%20Implementation%20Strategy%20%26%20Milestone%20Plan.md) records. The NativeAOT acceptance does not establish dynamic loading of managed code, filesystem or network services, threads on several processors or broad API compatibility. Firmware memory remains reserved.
+Next work is tracked in [PLAN.md](PLAN.md) after [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md): phase K is complete (ABI-1 1.0, K8.4d, and 1.1 since R7.2b; the page tables record a space's pages since K9), the Linux host has parity (T2.2), CoreCLR runs under upstream's corerun on both ISAs (R3: its native part builds for witos, the JIT's code lives in the double mapping of shared memory over memory objects, and the M3 acceptance passes under CoreCLR as under NativeAOT), System.Native works over the system layer with the differences recorded (R4.1), `dotnet App.dll` runs through upstream's hosts (R5), an ordinary application published by the stock SDK without a RID runs unchanged (R6), upstream's PAL suite, slices of its runtime tests (JIT, GC, exception handling) and slices of its library tests pass in the guest (R7), the patch set carries to a servicing release with `runtime-rebase` and no line written by hand (R8.1: the pin is dotnet/runtime 10.0.12), and the patch set rehearsed on .NET 11 RC1 passes every gate on both ISAs but R6, which waits for the stock SDK of .NET 11 (R8.2: the conflicts sit beside the new OpenBSD port, and x64 guests need x86-64-v2); phase R is complete but for files over the namespace service (R4.2), and phase D has begun: the device manager, a NativeAOT service the root task moves the device table to before `/bin/init`, discovers the devices on both ISAs (D1.1, [ADR 0025](@Docs/Implementation/ADR-0025-Devices-as-NativeAOT-Services.md)), towards unchanged portable assemblies with ordinary SDK/TFM/NuGet workflows ([RFC 0015 v2](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md)); devices and storage (M4, M5) come before standard .NET (M6), as the [Implementation Strategy §157](@Docs/WitOS%20—%20Implementation%20Strategy%20%26%20Milestone%20Plan.md) records. The NativeAOT acceptance does not establish dynamic loading of managed code, filesystem or network services, threads on several processors or broad API compatibility. Firmware memory remains reserved.
 
 - [Architecture document index](@Docs/README.md)
 - [ADR 0024: three layers and the Unix-form runtime](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md)

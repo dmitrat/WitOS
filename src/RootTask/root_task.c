@@ -1,12 +1,21 @@
+#include "witos/capabilities.h"
+#include "witos/device_manager.h"
+#include "witos/manager.h"
+#include "witos/root.h"
 #include "witos/spawn.h"
+#include "witos/user_abi.h"
+#include "witos/user_layout.h"
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 /* The root task of the system layer (plan step S6.1, RFC 0011 v3 sections 7.11 and 9.3): the first component the
  * kernel starts, a static program over the libc and libwitos. It runs the process manager: it starts /bin/init from
  * the boot package with the initial environment, serves the spawn requests of every process that descends from it,
  * and ends with /bin/init's status once /bin/init ends; the kernel ends every remaining process with the root task. A
- * root task that exits with anything but zero is a failed boot. */
+ * root task that exits with anything but zero is a failed boot. When the package has the device manager (D1.1, ADR
+ * 0025), the root task starts it first and moves the device table to it over the channel it grants it, keeps no
+ * device authority, and starts /bin/init once the device manager answered or ended. */
 
 #if defined(__x86_64__)
 #define ISA_NAME "x86_64"
@@ -16,6 +25,35 @@
 
 #define INIT "/bin/init"
 
+/* The device manager's service: its channel, with the device table already sent over it; 0 when the package has no
+ * device manager, an errno value when the channel or the table could not be prepared. The root task moves its own
+ * handle of the table, with the rights the kernel gave it: HANDLE_DUPLICATE keeps ACQUIRE out of a memory object's
+ * rights, and the root task keeps no device authority anyway. */
+static int prepare_device_manager(witos_service *service)
+{
+    const WitRootStartup *startup = (const WitRootStartup *)WIT_USER_INFO;
+    const WitDeviceManagerMessage start = {WIT_DEVICE_MANAGER_VERSION, sizeof(start), WIT_DEVICE_MANAGER_START, 0};
+    const WitU64 table = startup->Handles[WIT_ROOT_HANDLE_DEVICES];
+    WitU64 mine = 0, theirs = 0;
+    memset(service, 0, sizeof(*service));
+    if (access(WIT_DEVICE_MANAGER_PATH, F_OK) != 0) {
+        return 0;
+    }
+    int error = witos_channel_create(&mine, &theirs);
+    if (!error) {
+        error = witos_channel_send(mine, &start, sizeof(start), &table, 1); /* the device manager holds it now */
+    }
+    if (error) {
+        witos_handle_close(mine);
+        witos_handle_close(theirs);
+        return error;
+    }
+    service->path = WIT_DEVICE_MANAGER_PATH;
+    service->grant = theirs;
+    service->ready = mine;
+    return 0;
+}
+
 int main(void)
 {
     static char *argv[] = {INIT, 0};
@@ -23,9 +61,25 @@ int main(void)
      * until a scenario needs culture data (R6: an application published without a setting of its own runs unchanged). */
     static char *envp[] = {"PATH=/bin:/usr/bin", "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1", 0};
     WitProcessInfo info;
+    witos_service device_manager;
     memset(&info, 0, sizeof(info));
-    printf("[ROOT-TASK] process manager on " ISA_NAME ", starting " INIT "\n");
-    const int error = witos_manager_run(INIT, argv, envp, &info);
+    const int prepared = prepare_device_manager(&device_manager);
+    if (prepared) {
+        printf("[ROOT-TASK] " WIT_DEVICE_MANAGER_PATH " could not be prepared: %s\n", strerror(prepared));
+    }
+    const WitU32 services = device_manager.path ? 1 : 0;
+    printf("[ROOT-TASK] process manager on " ISA_NAME ", starting %s" INIT "\n",
+        services ? WIT_DEVICE_MANAGER_PATH " and " : "");
+    const int error = witos_manager_run_services(&device_manager, services, INIT, argv, envp, &info);
+    if (services) {
+        if (device_manager.status) {
+            printf("[ROOT-TASK] " WIT_DEVICE_MANAGER_PATH " was not ready: %s\n", strerror(device_manager.status));
+        } else {
+            printf("[ROOT-TASK] " WIT_DEVICE_MANAGER_PATH " was ready before " INIT "\n");
+        }
+        witos_handle_close(device_manager.ready);
+        witos_handle_close(device_manager.process);
+    }
     if (error) {
         printf("[ROOT-TASK] " INIT " could not start: %s\n", strerror(error));
         return 1;
