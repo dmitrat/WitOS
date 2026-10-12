@@ -18,15 +18,19 @@
  * libc keeps another for it, the libc's futex slots each hold an event, and the libc holds a handle of every chunk of
  * shared memory CoreCLR's JIT maps twice (R6: an ordinary application filled 64 handles, and CoreCLR's own threads
  * with the thread pool's filled 16 threads; 32 futex slots and the exit word's event are 33 events). A kernel stack per thread of every registry slot is part of the kernel
- * image, the self-test kernel's too (K8.4d). */
+ * image, the self-test kernel's too (K8.4d). The handles hold every memory object a process may create, every chunk of
+ * a volume's file it maps shared (R4.2: CoreCLR maps every IL assembly so), every event and two of every thread, with
+ * room for its channels (N2.2: MessagePack's suite filled 256 with 190 chunks of JIT code, and Roslyn's syntax suite
+ * held 941 of 1024 beside 401 objects of its own, its assemblies of 156 MiB being 624 chunks). */
 #define WIT_PROCESS_THREAD_CAPACITY 32U
-#define WIT_PROCESS_HANDLE_CAPACITY 256U
+#define WIT_PROCESS_HANDLE_CAPACITY 2048U
 #define WIT_PROCESS_EVENT_CAPACITY 64U
 /* Live memory objects a system layer process creates (S6.1): the process manager creates the writable segments and the
  * first stack of every process it starts, two objects or more while each lives, and the libc a chunk of 64 pages for
  * every 256 KiB of shared memory a JIT maps (R6; 512 since R7.3, where upstream's library tests compiled 30 MiB of code
- * into 120 chunks). */
-#define WIT_PROCESS_OBJECT_CAPACITY 512U
+ * into 120 chunks; 1024 since N2.2, where the namespace service created 481 for the chunks of the assemblies the
+ * libraries' suites map, R4.2, and Roslyn's syntax suite 401 of its own). */
+#define WIT_PROCESS_OBJECT_CAPACITY 1024U
 
 /* Objects of every component and of the kernel. */
 #define WIT_WAIT_ANY_CAPACITY 4U /* handles in one wait-any call */
@@ -39,7 +43,10 @@
 #define WIT_CHANNEL_QUEUE_BYTES 1024U /* inline bytes queued for one endpoint */
 #define WIT_CHANNEL_MESSAGE_BYTES 256U /* inline bytes of one message */
 #define WIT_CHANNEL_MESSAGE_HANDLES 4U /* capabilities moved by one message */
-#define WIT_MEMORY_OBJECT_TABLE_CAPACITY 1024U /* memory objects kernel-wide (R6; 1024 since R7.3) */
+/* Memory objects kernel-wide (R6; 1024 since R7.3; 4096 since N2.2): the namespace service makes one of every 256 KiB
+ * of a volume's file a process maps shared, and Roslyn's syntax suite filled 1024 with 401 objects of its own beside
+ * 624 chunks of its assemblies; the run of the libraries' fourteen suites held more than 1000 at once. */
+#define WIT_MEMORY_OBJECT_TABLE_CAPACITY 4096U
 #define WIT_MEMORY_OBJECT_PAGES 64U /* pages of one memory object */
 #define WIT_DEVICE_CAPACITY 16U /* device descriptors the kernel publishes; the table fits one page */
 #define WIT_INTERRUPT_CAPACITY 8U /* interrupt bindings, kernel-wide: one per line */
@@ -51,13 +58,15 @@
  * CoreCLR's with its JIT: its many small reservations, the shared memory chunks its executable memory maps twice and
  * libraries of megabytes in package mappings of 64 pages (R3.2b); its reservation table sizes every space's arrays,
  * 4096 entries since R7.3, where upstream's library tests filled 1024 with the JIT's two views of each shared memory
- * chunk beside the GC's reservations (24 bytes an entry). The page tables record which pages a space owns and aliases (K9), so
- * the page quota sizes no array: a system layer process may own 256 MiB, and the guest's physical memory, which the
- * memory-pressure event reports, is what binds it first. */
+ * chunk beside the GC's reservations, 8192 since N2.2, where Roslyn's syntax suite held 3148 with a mapping of each chunk
+ * of its assemblies (24 bytes an entry). The page tables record which pages a space owns and aliases (K9), so
+ * the page quota sizes no array but the rollback bitmap of one commit, 32 KiB: a system layer process may own 1 GiB since
+ * N2.2, where the libraries' own test suites need 400 MB on Linux and 256 MiB ended them, and the guest's physical memory,
+ * which the memory-pressure event reports, is what binds it first. */
 #define WIT_USER_RESERVATION_CAPACITY 8U
 #define WIT_USER_PAGE_CAPACITY 128U
-#define WIT_PROCESS_RESERVATION_CAPACITY 4096U
-#define WIT_PROCESS_PAGE_CAPACITY 65536U
+#define WIT_PROCESS_RESERVATION_CAPACITY 8192U
+#define WIT_PROCESS_PAGE_CAPACITY 262144U
 /* Memory-pressure hysteresis, in allocatable pages of global RAM and of the component quota. */
 #define WIT_PRESSURE_LOW_PAGES 16U
 #define WIT_PRESSURE_HIGH_PAGES 32U

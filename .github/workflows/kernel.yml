@@ -124,7 +124,9 @@ jobs:
     # witos (phase R). The scenarios of `test`, the layer-2 ones among them, run in linux-selftest (T2.2). Upstream's
     # PAL suite and slices of its runtime tests (R7) run here too, which take about an hour of the job, and the device
     # services' and applications' scenarios (phases D and N) after them. Each ISA's runtime is a leg of its own (D5.2):
-    # one after the other they outgrew three hours. The host tests and the source style run in the x64 leg.
+    # one after the other they outgrew three hours. The host tests and the source style run in the x64 leg. Each leg
+    # uploads the .NET install and the services it built for the NuGet libraries' own suites (N2.2), which run in jobs of
+    # their own.
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     strategy:
@@ -182,6 +184,25 @@ jobs:
       - name: The Unix-form runtime for witos-${{ matrix.arch }} (CoreLib, NativeAOT's native part, try_run, ILC)
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-witos --arch ${{ matrix.arch }}
 
+      - name: Upload the .NET install and the services the NuGet libraries' suites boot
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: witos-runtime-install-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 3
+          path: |
+            artifacts/runtime-witos/ilc/${{ matrix.arch }}/DeviceManager
+            artifacts/runtime-witos/ilc/${{ matrix.arch }}/VirtioBlock
+            artifacts/runtime-witos/ilc/${{ matrix.arch }}/Namespace
+            artifacts/runtime-witos/src/artifacts/bin/coreclr/witos.${{ matrix.arch }}.Release/libcoreclr.so
+            artifacts/runtime-witos/src/artifacts/bin/coreclr/witos.${{ matrix.arch }}.Release/libclrjit.so
+            artifacts/runtime-witos/src/artifacts/bin/coreclr/witos.${{ matrix.arch }}.Release/IL/System.Private.CoreLib.dll
+            artifacts/runtime-witos/src/artifacts/bin/witos-${{ matrix.arch }}.Release/corehost/dotnet
+            artifacts/runtime-witos/src/artifacts/bin/witos-${{ matrix.arch }}.Release/corehost/libhostfxr.so
+            artifacts/runtime-witos/src/artifacts/bin/witos-${{ matrix.arch }}.Release/corehost/libhostpolicy.so
+            artifacts/runtime-witos/src/artifacts/bin/microsoft.netcore.app.runtime.witos-${{ matrix.arch }}/Release/runtimes/witos-${{ matrix.arch }}/lib/*/*.dll
+            artifacts/runtime-witos/src/artifacts/bin/microsoft.netcore.app.runtime.witos-${{ matrix.arch }}/Release/runtimes/witos-${{ matrix.arch }}/native/libSystem.*.so
+
       - name: Source style
         if: matrix.arch == 'x64'
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- format-check
@@ -198,6 +219,72 @@ jobs:
             artifacts/${{ matrix.arch }}/release/build.txt
             artifacts/runtime-witos/patch-set.json
             artifacts/runtime-witos/tryrun-*.json
+
+  nuget-suites:
+    # The NuGet libraries' own test suites (plan step N2.2) run for hours in the guest, longer than a linux-host leg may
+    # run beside the runtime's build. Each ISA's suites run in the groups build/runtime/nuget-suites.json names, a job a
+    # group, on the .NET install and the services that ISA's linux-host leg built: a job builds its group's suites at
+    # their repositories' commits, runs them on the host, then in the guest, which must pass what the host passed.
+    needs: linux-host
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+        group: [roslyn, roslyn-syntax, serialization-numerics, test-frameworks]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          global-json-file: global.json
+
+      - name: Install what building QEMU and running LLVM need
+        run: >-
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends
+          bison bzip2 flex gcc libglib2.0-dev libpixman-1-dev make ninja-build pkg-config python3 python3-venv xz-utils
+          zlib1g-dev
+
+      - name: Cache the pinned LLVM and QEMU releases and the built QEMU
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .tools/downloads/LLVM-20.1.8-Linux-X64.tar.xz
+            .tools/downloads/qemu-11.1.0.tar.xz
+            .tools/qemu-11.1.0
+          key: linux-ubuntu-24.04-llvm-20.1.8-1ead36b3dfcb774b-qemu-11.1.0-6ee1d1a61f682124
+
+      - name: Build host tools
+        run: dotnet build WitOS.slnx --configuration Release
+
+      - name: Extract verified LLVM, build QEMU, fetch musl, compiler-rt, the LLVM runtimes and ICU
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
+
+      - name: Download the .NET install and the services of witos-${{ matrix.arch }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: witos-runtime-install-${{ matrix.arch }}
+          path: artifacts/runtime-witos
+
+      - name: The NuGet libraries' suites of group ${{ matrix.group }} on the host, then in the guest
+        run: >-
+          dotnet run --project tools/WitOS.Dev --configuration Release --no-build --
+          runtime-nuget-suites --arch ${{ matrix.arch }} --group ${{ matrix.group }}
+
+      - name: Upload the suites' logs and report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: witos-nuget-suites-${{ matrix.arch }}-${{ matrix.group }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            artifacts/logs
+            artifacts/nuget-suites
+            artifacts/runtime-witos/nuget-suites-*.json
 
   boot-arm64:
     runs-on: windows-2025

@@ -102,17 +102,21 @@ internal static class RuntimeExt4Volume
     /// <param name="image">The image to write.</param>
     /// <param name="bytes">Its bytes.</param>
     /// <param name="programs">Files laid under /programs, each by its path there (D5.3); none by default.</param>
+    /// <param name="files">Files laid at their paths from the root (N2.2); none by default. Each takes an inode beyond the
+    /// volume's 1024, with room for its directories.</param>
     /// <returns>When the image is written.</returns>
     /// <exception cref="InvalidOperationException">The host has no e2fsprogs, or mkfs or e2fsck failed.</exception>
-    public static async Task CreateAsync(string image, long bytes, IReadOnlyList<(string Path, string Source)>? programs = null)
+    public static async Task CreateAsync(string image, long bytes, IReadOnlyList<(string Path, string Source)>? programs = null,
+        IReadOnlyList<(string Path, string Source)>? files = null)
     {
         var mkfs = FindMkfs() ?? throw new InvalidOperationException("The data disk's ext4 volume needs e2fsprogs (mkfs.ext4) on a Linux host.");
         var tree = Path.Combine(Path.GetDirectoryName(image)!, "ext4-tree");
         if (Directory.Exists(tree))
             Directory.Delete(tree, recursive: true);
-        WriteTree(tree, programs ?? []);
+        WriteTree(tree, programs ?? [], files ?? []);
         File.Delete(image);
-        await RunAsync(mkfs, ["-t", "ext4", "-b", "4096", "-I", "256", "-N", "1024", "-T", "default", "-F", "-q", "-L", LABEL, "-U", UUID,
+        var inodes = 1024 + 2 * (files?.Count ?? 0);
+        await RunAsync(mkfs, ["-t", "ext4", "-b", "4096", "-I", "256", "-N", $"{inodes}", "-T", "default", "-F", "-q", "-L", LABEL, "-U", UUID,
             "-d", tree, image, $"{bytes / 1024}k"], 0);
         await RunAsync(Path.Combine(Path.GetDirectoryName(mkfs)!, "e2fsck"), ["-f", "-y", "-D", image], 1);
         Directory.Delete(tree, recursive: true);
@@ -208,7 +212,8 @@ internal static class RuntimeExt4Volume
 
     // The tree: a text file, a directory with a file, the sparse file, the htree directory and a link, and the programs
     // under /programs, executable as their sources are (mode 755).
-    private static void WriteTree(string root, IReadOnlyList<(string Path, string Source)> programs)
+    private static void WriteTree(string root, IReadOnlyList<(string Path, string Source)> programs,
+        IReadOnlyList<(string Path, string Source)> files)
     {
         Directory.CreateDirectory(Path.Combine(root, "docs"));
         Directory.CreateDirectory(Path.Combine(root, "many"));
@@ -234,6 +239,14 @@ internal static class RuntimeExt4Volume
             File.Copy(source, target);
             if (OperatingSystem.IsLinux())
                 File.SetUnixFileMode(target, (UnixFileMode)Convert.ToInt32("755", 8));
+        }
+        foreach (var (path, source) in files)
+        {
+            var target = Path.Combine(root, path);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(source, target);
+            if (OperatingSystem.IsLinux())
+                File.SetUnixFileMode(target, (UnixFileMode)Convert.ToInt32("644", 8));
         }
     }
 

@@ -24,7 +24,8 @@
  * package's, /dev/zero and shared memory files are not here; a mapping of a file of a mounted volume that is not shared and writable is a copy (D5.2), in a shared memory file of the process's own when it executes (D5.3). The table lock of __wit_syscall serializes every call. */
 
 #define PAGE 4096UL
-#define MAPPINGS 4096U /* the kernel's reservations of a system layer process (R3.2b; 4096 since R7.3) */
+#define MAPPINGS \
+    8192U /* the kernel's reservations of a system layer process (R3.2b; 4096 since R7.3, 8192 since N2.2) */
 #define CHUNK ((WitU64)WIT_MEMORY_OBJECT_PAGES * PAGE)
 
 typedef enum MapKind {

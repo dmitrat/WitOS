@@ -148,6 +148,12 @@ internal static class KernelImageBuilder
     /// </summary>
     public const string RUNTIME_LIBRARIES_SCENARIO = "runtime-libraries";
 
+    /// <summary>
+    /// The representative NuGet libraries' own test suites (N2.2), run through dotnet beside the device services after
+    /// their run on the Linux host; not a suite scenario, for the same reason.
+    /// </summary>
+    public const string RUNTIME_NUGET_SUITES_SCENARIO = "runtime-nuget-suites";
+
     #endregion
 
     #region Fields
@@ -161,7 +167,8 @@ internal static class KernelImageBuilder
             RUNTIME_TRYRUN_SCENARIO, RUNTIME_PROGRAM_SCENARIO, RUNTIME_ACCEPTANCE_SCENARIO, RUNTIME_CORECLR_SCENARIO,
             RUNTIME_CORERUN_SCENARIO, RUNTIME_CORECLR_ACCEPTANCE_SCENARIO, RUNTIME_SYSTEM_NATIVE_SCENARIO, RUNTIME_DOTNET_SCENARIO,
             RUNTIME_PORTABLE_APP_SCENARIO, RUNTIME_PALSUITE_SCENARIO, RUNTIME_CORECLR_TESTS_SCENARIO,
-            RUNTIME_LIBRARY_TESTS_SCENARIO, RUNTIME_DEVICES_SCENARIO, RUNTIME_COMPATIBILITY_SCENARIO, RUNTIME_LIBRARIES_SCENARIO];
+            RUNTIME_LIBRARY_TESTS_SCENARIO, RUNTIME_DEVICES_SCENARIO, RUNTIME_COMPATIBILITY_SCENARIO, RUNTIME_LIBRARIES_SCENARIO,
+            RUNTIME_NUGET_SUITES_SCENARIO];
 
     // A release map must not name self-test code: test objects, self-test functions, fault triggers or workers.
     private static readonly Regex SELF_TEST_SYMBOL = new(
@@ -201,9 +208,11 @@ internal static class KernelImageBuilder
     /// <param name="fixedBuildId">Build id override; fingerprint builds use a fixed id so the
     /// Git revision string cannot shift image data between commits.</param>
     /// <param name="architecture">Target architecture; x64 when null.</param>
+    /// <param name="package">The boot package's programs and files when the command built them for the boot, as N2.2
+    /// builds a group of suites; the scenario's own when null.</param>
     /// <returns>Path of the FAT disk image.</returns>
     public static async Task<string> BuildAsync(string root, string scenario, string? outputDirectory = null,
-        string? fixedBuildId = null, KernelArchitecture? architecture = null)
+        string? fixedBuildId = null, KernelArchitecture? architecture = null, IReadOnlyList<(string Name, string Source)>? package = null)
     {
         architecture ??= KernelArchitecture.X64;
         var target = KernelManifest.ReadTarget(root, architecture.Name);
@@ -223,7 +232,8 @@ internal static class KernelImageBuilder
         }
 
         // The programs a root task starts from the package (S5.2).
-        var programs = scenario == SPAWN_SCENARIO ? await Substrate.LibWitos.BuildProgramsAsync(root, output, architecture)
+        var programs = package is not null ? package
+            : scenario == SPAWN_SCENARIO ? await Substrate.LibWitos.BuildProgramsAsync(root, output, architecture)
             : scenario == PROCESS_SCENARIO ? await Substrate.LibWitos.BuildProcessProgramsAsync(root, output, architecture)
             : scenario == SYSROOT_SCENARIO ? await Substrate.Sysroot.BuildScenarioProgramsAsync(root, output, architecture)
             : scenario == LIBC_TEST_SCENARIO ? await Substrate.LibcTestSuite.BuildProgramsAsync(root, output, architecture)
@@ -243,6 +253,7 @@ internal static class KernelImageBuilder
             : scenario == RUNTIME_DEVICES_SCENARIO ? await Runtime.RuntimeDevices.BuildPackageAsync(root, output, architecture)
             : scenario == RUNTIME_COMPATIBILITY_SCENARIO ? await Runtime.RuntimeCompatibility.BuildPackageAsync(root, output, architecture)
             : scenario == RUNTIME_LIBRARIES_SCENARIO ? await Runtime.RuntimeLibraries.BuildPackageAsync(root, output, architecture)
+            : scenario == RUNTIME_NUGET_SUITES_SCENARIO ? await Runtime.RuntimeNuGetSuites.BuildPackageAsync(root, output, architecture)
             : [];
         var bootPackage = await BootPackage.BuildAsync(output, scenario is LIBC_SCENARIO or SPAWN_SCENARIO or PROCESS_SCENARIO,
             programs);
@@ -255,7 +266,7 @@ internal static class KernelImageBuilder
                 or RUNTIME_CORECLR_SCENARIO or RUNTIME_CORERUN_SCENARIO or RUNTIME_CORECLR_ACCEPTANCE_SCENARIO
                 or RUNTIME_SYSTEM_NATIVE_SCENARIO or RUNTIME_DOTNET_SCENARIO or RUNTIME_PORTABLE_APP_SCENARIO or RUNTIME_PALSUITE_SCENARIO
                 or RUNTIME_CORECLR_TESTS_SCENARIO or RUNTIME_LIBRARY_TESTS_SCENARIO or RUNTIME_DEVICES_SCENARIO
-                or RUNTIME_COMPATIBILITY_SCENARIO or RUNTIME_LIBRARIES_SCENARIO
+                or RUNTIME_COMPATIBILITY_SCENARIO or RUNTIME_LIBRARIES_SCENARIO or RUNTIME_NUGET_SUITES_SCENARIO
                 ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
             : await UserImage.BuildRootAsync(root, output, architecture);
         var objects = await CompileKernelAsync(root, output, scenario, selfTest, target, architecture);

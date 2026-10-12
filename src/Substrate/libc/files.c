@@ -436,10 +436,18 @@ static long join(
     return normalize(combined, name, name_length);
 }
 
-/* The name a path gives from a directory descriptor, AT_FDCWD being the current directory. */
+/* The name a path gives from a directory descriptor, AT_FDCWD being the current directory. An empty path names
+ * nothing, as on Linux (N2.2: .NET's host takes a directory that stat("") finds for its servicing directory); a call
+ * that takes AT_EMPTY_PATH serves it before. */
 static long resolve(long dirfd, const char *path, unsigned char *name, WitU32 *name_length)
 {
-    if (dirfd == AT_FDCWD || (path && path[0] == '/')) {
+    if (!path) {
+        return -EFAULT;
+    }
+    if (!path[0]) {
+        return -ENOENT;
+    }
+    if (dirfd == AT_FDCWD || path[0] == '/') {
         return join(directory, directory_length, path, name, name_length);
     }
     const Descriptor *d = descriptor(dirfd);
@@ -525,6 +533,9 @@ long __wit_directory_resolve(const char *base, const char *path, char *out, long
     unsigned char base_name[NAME_MAX_BYTES], name[NAME_MAX_BYTES];
     WitU32 base_length = directory_length, length = 0;
     long status;
+    if (!path || !path[0]) {
+        return path ? -ENOENT : -EFAULT;
+    }
     if ((status = mount()) < 0) {
         return status;
     }
