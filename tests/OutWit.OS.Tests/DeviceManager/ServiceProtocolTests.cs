@@ -5,7 +5,7 @@ using OutWit.OS.DeviceManager;
 namespace OutWit.OS.Tests.DeviceManager;
 
 /// <summary>
-/// The device manager's messages with the root task (witos/device_manager.h, witos/manager.h).
+/// The root task's start of the device manager (witos/device_manager.h).
 /// </summary>
 [TestFixture]
 public sealed class ServiceProtocolTests
@@ -21,18 +21,6 @@ public sealed class ServiceProtocolTests
         Assert.That(ServiceProtocol.IsStart(Start(1, 16, 2, 0)), Is.False);
         Assert.That(ServiceProtocol.IsStart(Start(1, 16, 1, 7)), Is.False);
         Assert.That(ServiceProtocol.IsStart(new byte[12]), Is.False);
-    }
-
-    [Test]
-    public void StatusIsServiceStatusTest()
-    {
-        var status = ServiceProtocol.Status(71);
-
-        Assert.That(status, Has.Length.EqualTo(16));
-        Assert.That(BinaryPrimitives.ReadUInt32LittleEndian(status), Is.EqualTo(ServiceProtocol.MANAGER_VERSION));
-        Assert.That(BinaryPrimitives.ReadUInt32LittleEndian(status.AsSpan(4)), Is.EqualTo(16u));
-        Assert.That(BinaryPrimitives.ReadUInt32LittleEndian(status.AsSpan(8)), Is.EqualTo(71u));
-        Assert.That(BinaryPrimitives.ReadUInt32LittleEndian(status.AsSpan(12)), Is.Zero);
     }
 
     #endregion

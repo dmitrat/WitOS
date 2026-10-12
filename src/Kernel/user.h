@@ -279,13 +279,16 @@ void wit_memory_objects_orphan(WitUserProcess *);
 
 /* Devices (RFC 0011 section 7.7, K3.1): the table as a memory object of the component, acquisition, a region as
  * a memory object, the device handle's close, duplication, the reference a dropped message held, whether a handle
- * is a device's, and the release of every device at the component's end. */
+ * is a device's, and the release of every device at the component's end; a device a message moves to another process
+ * when it is its origin's last reference, whose holder changes at delivery (D1.2). */
 WitU64 wit_user_device_table_grant(WitUserProcess *, WitU32);
 WitU64 wit_user_device_acquire(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
 WitU64 wit_user_device_memory(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
 WitU64 wit_user_device_close(WitUserProcess *, WitU64);
 WitU64 wit_user_device_duplicate(WitUserProcess *, WitU64, WitU64, WitU64);
 void wit_user_device_release(WitUserProcess *, WitU64);
+int wit_user_device_movable(const WitUserProcess *, WitU64);
+void wit_user_device_adopt(WitUserProcess *, WitUserProcess *, WitU64);
 int wit_user_device_handle(WitUserProcess *, WitU64);
 void wit_user_devices_reset(WitUserProcess *);
 WitU64 wit_user_owner_token(const WitUserProcess *);

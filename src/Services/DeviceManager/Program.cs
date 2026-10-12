@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using OutWit.OS.Communication;
+using OutWit.OS.DeviceManager.Drivers;
 using OutWit.OS.DeviceManager.Uhi;
 using OutWit.OS.Hardware;
 using OutWit.OS.Resources;
@@ -10,10 +12,10 @@ using OutWit.OS.Resources;
 namespace OutWit.OS.DeviceManager;
 
 /// <summary>
-/// The device manager (plan step D1.1, ADR 0025): the root task starts it before /bin/init and moves the device table
-/// to it over the channel it granted it. It reads the table, translates every descriptor into a UHI device record and
-/// prints its discovery line (Implementation Strategy §44), answers that it is ready, and serves its channel until the
-/// root task ends. Drivers come with D1.2.
+/// The device manager (plan steps D1.1 and D1.2, ADR 0025): the root task starts it before /bin/init and moves the
+/// device table to it over the channel it granted it. It reads the table, translates every descriptor into a UHI device
+/// record and prints its discovery line (Implementation Strategy §44), starts the driver of every device its driver
+/// table matches and moves the device to it, answers that it is ready, and serves its channel until the root task ends.
 /// </summary>
 internal static class Program
 {
@@ -28,34 +30,80 @@ internal static class Program
     private static int Main()
     {
         using var channel = new Channel(Grant.Take());
+        KernelHandle table;
         IReadOnlyList<DeviceRecord> records;
         try
         {
-            records = Discover(channel);
+            (table, records) = Discover(channel);
         }
         catch (Exception exception) when (exception is CapabilityException or FormatException)
         {
-            var error = exception is CapabilityException capability ? capability.Error : ServiceProtocol.PROTOCOL_ERROR;
+            var error = exception is CapabilityException capability ? capability.Error : ServiceStatus.PROTOCOL_ERROR;
             Console.WriteLine($"{PREFIX}discovery failed: {exception.Message}");
-            channel.Send(ServiceProtocol.Status(error));
+            channel.Send(ServiceStatus.Encode(error));
             return 1;
         }
-        foreach (var record in records)
-            Console.WriteLine(PREFIX + record.DiscoveryLine);
-        Console.WriteLine($"{PREFIX}device manager on {RuntimeInformation.ProcessArchitecture}: {records.Count} devices discovered, " +
-            "DMA isolation: none (no IOMMU), ready");
-        channel.Send(ServiceProtocol.Status(0));
-        return Serve(channel);
+        using (table)
+        {
+            foreach (var record in records)
+                Console.WriteLine(PREFIX + record.DiscoveryLine);
+            var drivers = Activate(table, records);
+            Console.WriteLine($"{PREFIX}device manager on {RuntimeInformation.ProcessArchitecture}: {records.Count} devices discovered, " +
+                $"{drivers.Count(driver => driver.Status == 0)} drivers ready, DMA isolation: none (no IOMMU), ready");
+            channel.Send(ServiceStatus.Encode(0));
+            var status = Serve(channel);
+            foreach (var driver in drivers)
+                driver.Dispose();
+            return status;
+        }
     }
 
-    // The root task's start, with the device table, and the records of the table's descriptors; the table's handle
-    // closes with the message, until D1.2 keeps it for its acquisitions.
-    private static IReadOnlyList<DeviceRecord> Discover(Channel channel)
+    // The root task's start, with the device table, and the records of the table's descriptors; the table's handle stays
+    // the device manager's for its acquisitions.
+    private static (KernelHandle Table, IReadOnlyList<DeviceRecord> Records) Discover(Channel channel)
     {
-        using var start = channel.Receive();
+        var start = channel.Receive();
         if (!ServiceProtocol.IsStart(start.Bytes) || start.Handles.Count != 1)
+        {
+            start.Dispose();
             throw new FormatException($"The root task's first message has {start.Bytes.Length} bytes and {start.Handles.Count} handles.");
-        return [.. DeviceTable.Read(start.Handles[0]).Select(PciTranslator.Translate)];
+        }
+        var table = start.Handles[0];
+        try
+        {
+            return (table, [.. DeviceTable.Read(table).Select(PciTranslator.Translate)]);
+        }
+        catch
+        {
+            table.Dispose();
+            throw;
+        }
+    }
+
+    // The driver of every device the driver table matches, each started and answered in turn (D1.2); a device without
+    // a driver stays in the table.
+    private static List<DriverActivation> Activate(KernelHandle table, IReadOnlyList<DeviceRecord> records)
+    {
+        var drivers = new List<DriverActivation>();
+        foreach (var record in records)
+        {
+            var path = DriverTable.Find(record);
+            if (path is null)
+                continue;
+            try
+            {
+                var driver = DriverActivation.Start(table, record, path);
+                drivers.Add(driver);
+                Console.WriteLine(driver.Status == 0
+                    ? $"{PREFIX}driver {path} of {record.Id}: ready"
+                    : $"{PREFIX}driver {path} of {record.Id}: not ready, errno {driver.Status}");
+            }
+            catch (Exception exception) when (exception is CapabilityException or FileNotFoundException)
+            {
+                Console.WriteLine($"{PREFIX}driver {path} of {record.Id} could not start: {exception.Message}");
+            }
+        }
+        return drivers;
     }
 
     // The channel until the root task's end closes it.
@@ -66,7 +114,7 @@ internal static class Program
             try
             {
                 using var message = channel.Receive();
-                Console.WriteLine($"{PREFIX}a request of {message.Bytes.Length} bytes, which D1.1 does not serve");
+                Console.WriteLine($"{PREFIX}a request of {message.Bytes.Length} bytes, which the device manager does not serve yet");
             }
             catch (CapabilityException exception) when (exception.Error == Channel.PEER_CLOSED)
             {

@@ -41,5 +41,14 @@ internal static unsafe partial class Libwitos
     [LibraryImport(LIBRARY, EntryPoint = "witos_memory_unmap")]
     internal static partial int MemoryUnmap(void* address);
 
+    [LibraryImport(LIBRARY, EntryPoint = "witos_device_acquire")]
+    internal static partial int DeviceAcquire(ulong table, uint index, ulong* device);
+
+    [LibraryImport(LIBRARY, EntryPoint = "witos_device_memory")]
+    internal static partial int DeviceMemory(ulong device, uint region, ulong* memoryObject);
+
+    [LibraryImport(LIBRARY, EntryPoint = "witos_manager_spawn")]
+    internal static partial int ManagerSpawn(byte* path, byte** argv, byte** envp, ulong grant, ulong* process);
+
     #endregion
 }

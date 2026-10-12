@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The virtio block driver (plan steps D1.2 and D2, ADR 0025): the NativeAOT program /system/Drivers/VirtioBlock of
+       the boot package, which the device manager starts with the device it moves to it. runtime-witos publishes it for
+       witos with the OutWit.OS sources; on the host the project builds. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>VirtioBlock</AssemblyName>
+    <RootNamespace>OutWit.OS.Drivers.VirtioBlock</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../OutWit.OS/OutWit.OS.csproj" />
+  </ItemGroup>
+</Project>

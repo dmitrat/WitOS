@@ -66,6 +66,7 @@
     "[TEST-PASS] User.MemoryObjectExit",
     "[TEST-PASS] User.DeviceTable",
     "[TEST-PASS] User.DeviceAuthority",
+    "[TEST-PASS] User.DeviceMove",
     "[TEST-PASS] User.InterruptBind",
     "[TEST-PASS] User.DmaPin",
     "[TEST-PASS] User.VirtioBlock",

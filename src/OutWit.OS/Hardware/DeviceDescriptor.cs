@@ -29,6 +29,11 @@ public sealed record DeviceDescriptor(int Index, uint Bus, uint Address, IReadOn
     #region Properties
 
     /// <summary>
+    /// The descriptor's bytes as the table holds them, which the device manager passes to a driver (witos/driver.h).
+    /// </summary>
+    public byte[] Bytes { get; init; } = [];
+
+    /// <summary>
     /// The PCI vendor identifier.
     /// </summary>
     public ushort Vendor => (ushort)Identity[0];

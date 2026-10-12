@@ -46,6 +46,18 @@ public sealed class Channel : IDisposable
     #region Functions
 
     /// <summary>
+    /// A new channel: one end as a channel of the caller's, the other as a handle to grant or move.
+    /// </summary>
+    /// <returns>The caller's end and the other end.</returns>
+    /// <exception cref="CapabilityException">The channel quota is spent.</exception>
+    public static unsafe (Channel Mine, KernelHandle Theirs) Create()
+    {
+        ulong first = 0, second = 0;
+        CapabilityException.ThrowOnError("CHANNEL_CREATE", Libwitos.ChannelCreate(&first, &second));
+        return (new Channel(new KernelHandle(first)), new KernelHandle(second));
+    }
+
+    /// <summary>
     /// Sends a message; the handles move to the peer and are no longer the caller's.
     /// </summary>
     /// <param name="bytes">At most MESSAGE_BYTES bytes.</param>

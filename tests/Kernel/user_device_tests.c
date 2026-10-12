@@ -10,7 +10,7 @@
  * configuration region through DEVICE_MEMORY and reads the same identity through the device; then it checks the
  * authority: a table handle without ACQUIRE, a second acquisition, a region out of range, a port region, an
  * executable or writable mapping the handle's rights refuse, a device moved through a channel, and the descriptor
- * free again after the last handle. */
+ * free again after the last handle. The move test (D1.2) hands the device to child processes. */
 
 static WitUserProcess process;
 
@@ -36,7 +36,7 @@ static void create(WitPageAllocator *pages, WitU64 mode)
 void wit_user_device_self_test(WitPageAllocator *pages)
 {
     const WitU64 before = wit_pages_free_count(pages);
-    static const char *names[] = {"DeviceTable", "DeviceAuthority"};
+    static const char *names[] = {"DeviceTable", "DeviceAuthority", "DeviceMove"};
     const WitU32 count = wit_devices_count();
     wit_console_write("Device descriptors: ");
     wit_console_write_u64(count);
@@ -69,12 +69,15 @@ void wit_user_device_self_test(WitPageAllocator *pages)
             wit_console_write_u64(process.ExitCode);
             wit_console_write(" last status: "); /* The fixture records the status its failed check saw. */
             wit_console_write_u64(*(const WitU64 *)wit_user_space_physical(&process.Space, WIT_USER_DATA + 1304, 0, 0));
+            wit_console_write(" checks passed: ");
+            wit_console_write_u64(*(const WitU64 *)wit_user_space_physical(&process.Space, WIT_USER_DATA + 1312, 0, 0));
             wit_console_write("\n");
             wit_panic("User device test failed");
         }
         /* Every device went back with the component's last handle, every region object and mapping ended, and the
          * component owns the pages it owned before: the table's and the device's pages were never its own. */
         require(process.Handles.Count == 0 &&
+                wit_user_processes_pooled() == 0 &&
                 wit_memory_objects_live() == 0 &&
                 wit_channels_live() == 0 &&
                 process.Space.AliasCount == 0 &&

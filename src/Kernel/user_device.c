@@ -4,9 +4,11 @@
 
 /* Devices from user mode (RFC 0011 section 7.7, plan step K3.1): the device table as a read-only memory object,
  * DEVICE_ACQUIRE over it, DEVICE_MEMORY of an acquired device, and the device handle's close, duplication and
- * transfer. A device handle's object is the descriptor index plus one; the component counts its references (handles
- * and handles in flight) and gives the descriptor back with the last. Every call validates everything before it
- * changes state; nothing here reads a descriptor's meaning. */
+ * transfer. A device handle's object is the descriptor index plus one; the component counts its references (handles,
+ * handles in flight, bindings and pins) and gives the descriptor back with the last. A handle in flight that is its
+ * component's last reference may reach another process, which becomes the holder at delivery (D1.2, ADR 0025), so
+ * that a device is still held by one process at a time. Every call validates everything before it changes state;
+ * nothing here reads a descriptor's meaning. */
 
 #define TABLE_RIGHTS (WIT_RIGHT_MAP | WIT_RIGHT_QUERY | WIT_RIGHT_DUPLICATE | WIT_RIGHT_TRANSFER | WIT_RIGHT_ACQUIRE)
 #define DEVICE_RIGHTS (WIT_RIGHT_BIND | WIT_RIGHT_QUERY | WIT_RIGHT_DUPLICATE | WIT_RIGHT_TRANSFER)
@@ -190,6 +192,29 @@ void wit_user_device_release(WitUserProcess *p, WitU64 object)
 {
     require(object != 0 && object <= WIT_DEVICE_CAPACITY, "Dropped device reference is out of range");
     release_device(p, (WitU32)object - 1);
+}
+
+/* Whether a device in flight from origin may become another process's (D1.2): the message holds origin's last
+ * reference to it, no handle, binding or pin of origin's keeps it, and origin still holds the device. */
+int wit_user_device_movable(const WitUserProcess *origin, WitU64 object)
+{
+    return origin &&
+        object != 0 &&
+        object <= WIT_DEVICE_CAPACITY &&
+        origin->DeviceReferences[object - 1] == 1 &&
+        wit_devices_owner((WitU32)object - 1) == owner_token(origin);
+}
+
+/* The delivery of a movable device (D1.2): the holder changes with the reference, from origin to the receiver. */
+void wit_user_device_adopt(WitUserProcess *p, WitUserProcess *origin, WitU64 object)
+{
+    require(wit_user_device_movable(origin, object), "Moved device is not its origin's last reference");
+    const WitU32 index = (WitU32)object - 1;
+    require(!p->DeviceReferences[index], "The receiver already refers to the moved device");
+    origin->DeviceReferences[index] = 0;
+    wit_devices_release(index, owner_token(origin));
+    require(wit_devices_acquire(index, owner_token(p)), "Moved device could not change holder");
+    p->DeviceReferences[index] = 1;
 }
 
 int wit_user_device_handle(WitUserProcess *p, WitU64 handle)
