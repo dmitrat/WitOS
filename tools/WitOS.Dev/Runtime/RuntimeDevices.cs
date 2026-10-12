@@ -69,10 +69,16 @@ internal static class RuntimeDevices
     public const string VOLUME_GREETING = "Read from the ext4 volume";
 
     /// <summary>
-    /// The boots of one data disk the scenario makes (D6.1, D6.2): two that end with the services stopped, a third that
-    /// the host cuts off while /bin/init writes rounds of files, and a fourth that finds what the cut left.
+    /// The boots of one data disk the scenario makes (D6.1, D6.2, D6.3): two that end with the services stopped, a third
+    /// that the host cuts off while /bin/init writes rounds of files, a fourth that finds what the cut left, and a fifth on
+    /// a disk that fails some reads.
     /// </summary>
-    public const int BOOTS = 4;
+    public const int BOOTS = 5;
+
+    /// <summary>
+    /// The boot whose data disk fails the reads of /big.bin's first block (devices_init.c's FAIL_BOOT, D6.3).
+    /// </summary>
+    public const int FAIL_BOOT = 5;
 
     /// <summary>
     /// The boot the host cuts off (devices_init.c's CUT_BOOT, D6.2).
@@ -166,6 +172,7 @@ internal static class RuntimeDevices
         for (var boot = 1; boot <= BOOTS; boot++)
         {
             var name = $"{architecture.Name}-runtime-devices-512-boot{boot}";
+            long[] failing = boot == FAIL_BOOT ? [await RuntimeDataDisk.Ext4SectorAsync(dataDisk, "/big.bin")] : [];
             await BootScenarioRunner.RunAsync(root, image, new BootRequest(name, 512, 1200,
                 boot == CUT_BOOT ? ExpectedOutcome.Cut : ExpectedOutcome.Success)
             {
@@ -174,7 +181,8 @@ internal static class RuntimeDevices
                 RequiredLines = RequiredLines(architecture, boot),
                 DataDisk = dataDisk,
                 CutAfter = boot == CUT_BOOT ? CUT_AFTER : null,
-                CutJitterMilliseconds = CUT_JITTER_MILLISECONDS
+                CutJitterMilliseconds = CUT_JITTER_MILLISECONDS,
+                DataDiskReadErrors = failing
             });
             var serial = await File.ReadAllTextAsync(Path.Combine(root, "artifacts", "logs", name + ".serial.log"));
             if (boot == CUT_BOOT)
@@ -189,7 +197,8 @@ internal static class RuntimeDevices
                 var found = int.Parse(Regex.Match(serial, @"after the cut: /data/crash holds rounds 0 to (-?\d+)").Groups[1].Value);
                 if (found < durable)
                     throw new InvalidOperationException($"After the cut the volume holds rounds to {found}, but round {durable} was durable.");
-                Console.WriteLine($"Cut on witos-{architecture.Name}: round {durable} was the last reported durable, and the volume holds rounds to {found}.");
+                if (boot == CUT_BOOT + 1)
+                    Console.WriteLine($"Cut on witos-{architecture.Name}: round {durable} was the last reported durable, and the volume holds rounds to {found}.");
             }
             check = await RuntimeDataDisk.CheckAsync(dataDisk, boot);
         }
@@ -210,7 +219,7 @@ internal static class RuntimeDevices
         .. FirstLines(),
         .. boot > 1 ? [$": partition \"{RuntimeDataDisk.TEST_PARTITION}\": holds the {RuntimeDataDisk.TEST_PATTERN_BYTES} bytes a previous boot wrote",
             $": partition \"{RuntimeDataDisk.FAT_PARTITION}\": after the reboot, read back what a previous boot wrote"] : Array.Empty<string>(),
-        .. boot == 1 ? FirstExt4Lines() : boot == CUT_BOOT + 1 ? AfterCutExt4Lines() : AfterRebootExt4Lines(),
+        .. boot == 1 ? FirstExt4Lines() : boot == CUT_BOOT + 1 ? AfterCutExt4Lines() : AfterRebootExt4Lines(counted: boot <= CUT_BOOT),
         .. MiddleLines(architecture, boot),
         .. boot == CUT_BOOT ? [CUT_AFTER] : LastLines(architecture)
     ];
@@ -269,13 +278,14 @@ internal static class RuntimeDevices
     ];
 
     // The ext4 probe on the volume a previous boot wrote and unmounted (D6.1): read back, with the files /bin/init, the
-    // System.IO check and the boot count left beside the probe's.
-    private static string[] AfterRebootExt4Lines() =>
+    // System.IO check and the boot count left beside the probe's, counted until the cut boot writes its rounds (D6.2).
+    private static string[] AfterRebootExt4Lines(bool counted) =>
     [
         ": a previous boot wrote the volume and unmounted it cleanly: no transaction to replay",
         $": after the reboot, /guest holds link, logs, note.txt, /many holds {RuntimeExt4Volume.MANY + RuntimeExt4Volume.GUEST_ADDED} entries, " +
-            $"read back what it wrote, check clean ({RuntimeExt4Volume.MANY + 3 - 1 + 2 + RuntimeExt4Volume.GUEST_ADDED + VOLUME_PROGRAMS.Length + 3} files, " +
-            $"{6 + VolumeDirectories} directories)"
+            "read back what it wrote, check clean (" + (counted
+                ? $"{RuntimeExt4Volume.MANY + 3 - 1 + 2 + RuntimeExt4Volume.GUEST_ADDED + VOLUME_PROGRAMS.Length + 3} files, {6 + VolumeDirectories} directories)"
+                : "")
     ];
 
     // The ext4 probe on the volume the cut boot left mounted (D6.2): the journal replayed what was committed, and the
@@ -301,7 +311,20 @@ internal static class RuntimeDevices
         "[DEVICES] namespace service /system/Namespace with 2 disks: ready",
         $"[DEVICES-INIT] boot {boot} of the data disk",
         .. boot > 1 ? ["[DEVICES-INIT] /data/posix-kept.txt and /data/dotnet-kept.txt hold what the previous boot wrote: yes"] : Array.Empty<string>(),
-        .. boot > CUT_BOOT ? [", each as its last durable change left it"] : Array.Empty<string>()
+        .. boot > CUT_BOOT ? [", each as its last durable change left it"] : Array.Empty<string>(),
+        .. boot == FAIL_BOOT ? FailingDiskLines() : Array.Empty<string>()
+    ];
+
+    // The boot on a disk that fails the reads of /big.bin's first block (D6.3): the driver names the device and the
+    // failed read, the namespace service the file and the read, /bin/init gets EIO, and the rest of the volume reads.
+    private static string[] FailingDiskLines() =>
+    [
+        ": the device failed a read at sector ",
+        ": status 1 (VIRTIO_BLK_S_IOERR); the client gets EIO",
+        "[NAMESPACE] a read of /data/big.bin (",
+        ") failed below the volume: The driver answered READ of ",
+        " with errno 5.",
+        "[DEVICES-INIT] a read of /data/big.bin on the failing sector: EIO (Input/output error); /data/hello.txt still reads"
     ];
 
     // What a boot that is not cut off prints last: /bin/init's checks and programs, and the stop (D6.1).

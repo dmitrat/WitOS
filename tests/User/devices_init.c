@@ -21,8 +21,9 @@
  * none of which the boot package holds (D5.3), and waits for each: the System.IO check, an ordinary NativeAOT program
  * that uses the same volumes (D5.2); the dynamic program, whose library and plugin the dynamic linker maps from beside
  * it; and the package's dotnet with a .NET application and its library. It counts the boots of the data disk in
- * /data/boots.txt (D6.1); on its third boot it only writes rounds of files until the host cuts the machine off, and on
- * a later boot it checks what the cut left (D6.2). */
+ * /data/boots.txt (D6.1); on its third boot it only writes rounds of files until the host cuts the machine off, on a
+ * later boot it checks what the cut left (D6.2), and on its fifth, whose disk fails some reads, it requires EIO for a
+ * read of the failing sector and the rest of the volume to read (D6.3). */
 
 /* What /bin/init and the .NET program leave on /data, which the host and a later boot read back. */
 #define POSIX_KEPT "Written by /bin/init through the libc and the namespace service."
@@ -31,6 +32,9 @@
 /* The boot of the data disk the host cuts off while it writes (D6.2), and what each round of its writes makes. */
 #define CUT_BOOT 3
 #define ROUND_BYTES 65536
+
+/* The boot whose disk fails every read of /data/big.bin's first block (D6.3). */
+#define FAIL_BOOT 5
 
 extern char **environ;
 
@@ -255,6 +259,24 @@ static int check_cut(void)
     return whole;
 }
 
+/* A failing disk (D6.3): the host makes the device fail every read of /data/big.bin's first block. The read gets EIO,
+ * the system goes on, and the rest of the volume reads. Prints what it found; whether it holds. */
+static int check_failing_read(void)
+{
+    char head[16], hello[128];
+    const int fd = open("/data/big.bin", O_RDONLY);
+    errno = 0;
+    const ssize_t got = fd >= 0 ? read(fd, head, sizeof(head)) : -2;
+    const int error = errno;
+    if (fd >= 0) {
+        close(fd);
+    }
+    const int rest = read_file("/data/hello.txt", hello, sizeof(hello)) > 0;
+    printf("[DEVICES-INIT] a read of /data/big.bin on the failing sector: %s; /data/hello.txt %s\n",
+        got == -1 && error == EIO ? "EIO (Input/output error)" : "no EIO", rest ? "still reads" : "does not read");
+    return got == -1 && error == EIO && rest;
+}
+
 int main(void)
 {
     char buffer[16];
@@ -279,6 +301,9 @@ int main(void)
     }
     if (boot > CUT_BOOT) {
         check(check_cut(), "the files the cut left");
+    }
+    if (boot == FAIL_BOOT) {
+        check(check_failing_read(), "a read of a failing disk");
     }
     volume("/data");
     volume("/fat");

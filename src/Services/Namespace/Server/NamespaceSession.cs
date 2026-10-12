@@ -21,6 +21,8 @@ internal sealed class NamespaceSession : IAsyncDisposable
 
     private const int PATH_LIMIT = 4096;
 
+    private const string PREFIX = "[NAMESPACE] ";
+
     #endregion
 
     #region Fields
@@ -76,6 +78,46 @@ internal sealed class NamespaceSession : IAsyncDisposable
         catch (Exception exception) when (exception is FileSystemException or ArgumentException or NotSupportedException)
         {
             return Fail(request, Errno.Of(exception));
+        }
+        catch (IOException exception)
+        {
+            // A failure below the volume (D6.3): the disk or its driver failed the provider's request. The client gets EIO,
+            // the log what it asked and what failed.
+            Console.WriteLine($"{PREFIX}{Describe(request)} failed below the volume: {exception.Message}");
+            return Fail(request, Errno.IO);
+        }
+    }
+
+    // A request as the log names it: its operation and what it acts on.
+    private string Describe(NamespaceRequest request)
+    {
+        var operation = request.Operation switch
+        {
+            NamespaceMessages.OPEN => "open",
+            NamespaceMessages.CLOSE => "close",
+            NamespaceMessages.READ => "read",
+            NamespaceMessages.WRITE => "write",
+            NamespaceMessages.STAT => "stat",
+            NamespaceMessages.FSTAT => "fstat",
+            NamespaceMessages.LIST => "list",
+            NamespaceMessages.MKDIR => "mkdir",
+            NamespaceMessages.REMOVE => "remove",
+            NamespaceMessages.RENAME => "rename",
+            NamespaceMessages.TRUNCATE => "truncate",
+            NamespaceMessages.SYNC => "sync",
+            NamespaceMessages.READLINK => "readlink",
+            _ => $"operation {request.Operation}"
+        };
+        if (m_opened.TryGetValue(request.Handle, out var opened))
+            return $"a {operation} of {opened.Mount.Point}{opened.Path}" +
+                (request.Operation is NamespaceMessages.READ or NamespaceMessages.WRITE ? $" ({request.Length} bytes at {request.Offset})" : "");
+        try
+        {
+            return $"a {operation} of {Path(request, 0, request.Length)}";
+        }
+        catch (FileSystemException)
+        {
+            return $"a {operation}";
         }
     }
 

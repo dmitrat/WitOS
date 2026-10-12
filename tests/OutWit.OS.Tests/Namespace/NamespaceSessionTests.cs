@@ -154,6 +154,30 @@ public sealed class NamespaceSessionTests
         Assert.That(synced.Error, Is.Zero);
     }
 
+    [Test]
+    public async Task AFailingDiskGivesEioTest()
+    {
+        var disk = new FailingBlockStorage(new MemoryBlockStorage(4 * 1024 * 1024));
+        await using (var volume = await FatFileSystem.FormatAsync(disk))
+        await using (var file = await volume.OpenAsync("/file.bin", System.IO.FileMode.Create, System.IO.FileAccess.Write))
+            await file.WriteAsync(0, Enumerable.Range(0, 20_000).Select(i => (byte)i).ToArray());
+        var mounts = new MountTable();
+        mounts.Add("/fat", await FatFileSystem.MountAsync(disk));
+        var window = new ByteWindow(8192);
+        var session = new NamespaceSession(mounts, window);
+        var opened = await OpenAsync(session, window, "/fat/file.bin", NamespaceMessages.READ_ACCESS);
+
+        disk.Failing = true;
+        var read = await session.HandleAsync(new NamespaceRequest(NamespaceMessages.READ, Handle: opened.Handle, Offset: 0, Length: 8192));
+        disk.Failing = false;
+        var again = await session.HandleAsync(new NamespaceRequest(NamespaceMessages.READ, Handle: opened.Handle, Offset: 0, Length: 8192));
+
+        Assert.That(opened.Error, Is.Zero);
+        Assert.That(read.Error, Is.EqualTo(Errno.IO), "a device that fails a read gives EIO, never an exception");
+        Assert.That(again.Error, Is.Zero, "the session goes on once the device answers again");
+        Assert.That(window.Read(0, 4), Is.EqualTo(new byte[] { 0, 1, 2, 3 }));
+    }
+
     #endregion
 
     #region Tools
@@ -187,6 +211,18 @@ public sealed class NamespaceSessionTests
     #endregion
 
     #region Nested Types
+
+    // A disk whose reads fail with the device's IOException while Failing is set (D6.3).
+    private sealed class FailingBlockStorage(MemoryBlockStorage disk) : BlockStorageBase(disk.Info)
+    {
+        public bool Failing { get; set; }
+
+        protected override ValueTask ReadCoreAsync(long offset, Memory<byte> buffer, System.Threading.CancellationToken cancellationToken) =>
+            Failing ? throw new System.IO.IOException($"the device failed a read at {offset}") : disk.ReadAsync(offset, buffer, cancellationToken);
+
+        protected override ValueTask WriteCoreAsync(long offset, ReadOnlyMemory<byte> buffer, WriteOptions options,
+            System.Threading.CancellationToken cancellationToken) => disk.WriteAsync(offset, buffer, options, cancellationToken);
+    }
 
     // The window as an array of the test's.
     private sealed class ByteWindow(int bytes) : INamespaceWindow

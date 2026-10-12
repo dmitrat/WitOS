@@ -27,14 +27,16 @@ internal sealed class BlockServer : IDisposable
     private readonly KernelHandle m_device;
     private readonly (ulong Address, int Length)[] m_segments;
     private DmaPin? m_pin;
+    private readonly string m_name;
     private long m_windowBytes;
 
     #endregion
 
     #region Constructors
 
-    private BlockServer(VirtioBlockQueue queue, KernelHandle device, BlockReply info)
+    private BlockServer(VirtioBlockQueue queue, KernelHandle device, string name, BlockReply info)
     {
+        m_name = name;
         m_queue = queue;
         m_device = device;
         m_segments = new (ulong, int)[queue.MaxSegments];
@@ -51,9 +53,10 @@ internal sealed class BlockServer : IDisposable
     /// </summary>
     /// <param name="queue">The device's queue.</param>
     /// <param name="device">The device, with BIND, for the window's pin.</param>
+    /// <param name="name">The device's identity, for the lines.</param>
     /// <returns>The server.</returns>
     /// <exception cref="IOException">The device's segments cannot carry a block.</exception>
-    public static BlockServer Create(VirtioBlockQueue queue, KernelHandle device)
+    public static BlockServer Create(VirtioBlockQueue queue, KernelHandle device, string name)
     {
         var transfer = queue.MaxSegments > BlockMessages.WINDOW_BYTES / PAGE
             ? BlockMessages.WINDOW_BYTES
@@ -62,7 +65,7 @@ internal sealed class BlockServer : IDisposable
         if (transfer < queue.BlockSize)
             throw new IOException($"The device's {queue.MaxSegments} segments cannot carry a block of {queue.BlockSize} bytes.");
         var flags = (queue.IsReadOnly ? BlockMessages.READ_ONLY : 0) | (queue.Flushes ? BlockMessages.FLUSHES : 0);
-        return new BlockServer(queue, device, new BlockReply(BlockMessages.INFO, 0, queue.Capacity, queue.BlockSize, flags, transfer));
+        return new BlockServer(queue, device, name, new BlockReply(BlockMessages.INFO, 0, queue.Capacity, queue.BlockSize, flags, transfer));
     }
 
     /// <summary>
@@ -110,7 +113,8 @@ internal sealed class BlockServer : IDisposable
         }
         catch (IOException exception)
         {
-            Console.WriteLine($"{PREFIX}{exception.Message}");
+            // The device failed the request (D6.3): the log names the device and what failed, the client gets EIO.
+            Console.WriteLine($"{PREFIX}driver of {m_name}: {exception.Message}; the client gets EIO");
             return BlockMessages.Encode(new BlockReply(request.Operation, BlockMessages.DEVICE_ERROR));
         }
     }

@@ -58,7 +58,17 @@ internal static class BootScenarioRunner
         {
             arguments.AddRange(["-object", "rng-builtin,id=entropy0", "-device", "virtio-rng-pci,rng=entropy0"]);
         }
-        if (request.DataDisk is not null)
+        if (request.DataDisk is not null && request.DataDiskReadErrors.Length > 0)
+        {
+            // A failing medium (D6.3): blkdebug between the raw format and the image fails the reads of the sectors, and the
+            // device reports each failure to the guest instead of stopping the board.
+            var rules = Path.Combine(logs, name + ".blkdebug.conf");
+            await File.WriteAllTextAsync(rules, string.Concat(request.DataDiskReadErrors.Select(sector =>
+                $"[inject-error]\nevent = \"read_aio\"\niotype = \"read\"\nerrno = \"5\"\nsector = \"{sector}\"\n\n")));
+            arguments.AddRange(["-drive", $"if=none,id=data,format=raw,rerror=report,werror=report,file.driver=blkdebug," +
+                $"file.config={QemuPath(rules)},file.image.filename={QemuPath(request.DataDisk)}", "-device", "virtio-blk-pci,drive=data"]);
+        }
+        else if (request.DataDisk is not null)
         {
             arguments.AddRange(["-drive", $"if=none,id=data,format=raw,file={QemuPath(request.DataDisk)}", "-device", "virtio-blk-pci,drive=data"]);
         }

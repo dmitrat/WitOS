@@ -235,8 +235,10 @@ internal sealed class VirtioBlockQueue : IDisposable
         if ((isr & 1) == 0 || used != (ushort)(m_used + 1) || id != 0)
             throw new IOException($"The device completed no request of ours: ISR {isr}, used {used}, head {id}.");
         m_used = used;
-        if (m_pages.Bytes[STATUS] != 0)
-            throw new IOException($"The device answered a request of type {type} at sector {sector} with status {m_pages.Bytes[STATUS]}.");
+        if (m_pages.Bytes[STATUS] is var status and not 0)
+            throw new IOException($"the device failed a {(type == TYPE_IN ? "read" : type == TYPE_OUT ? "write" : type == TYPE_FLUSH ? "flush" : $"request of type {type}")}" +
+                $"{(type == TYPE_FLUSH ? "" : $" at sector {sector}")}: status {status} " +
+                $"({(status == 1 ? "VIRTIO_BLK_S_IOERR" : status == 2 ? "VIRTIO_BLK_S_UNSUPP" : "unknown")})");
     }
 
     private static void Describe(Span<byte> pages, int index, ulong address, uint length, ushort flags, ushort next)

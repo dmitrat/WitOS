@@ -69,5 +69,11 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     /// </summary>
     public int CutJitterMilliseconds { get; init; }
 
+    /// <summary>
+    /// Sectors of the data disk whose reads the device fails (D6.3): QEMU's blkdebug fails every read that covers one with
+    /// EIO, which virtio-blk reports to the guest as VIRTIO_BLK_S_IOERR; none when empty.
+    /// </summary>
+    public long[] DataDiskReadErrors { get; init; } = [];
+
     #endregion
 }
