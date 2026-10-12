@@ -122,9 +122,15 @@ jobs:
     # The Linux development host (plan steps T2.1a and T2.1b): the tool, its process runner and host tests, the pinned
     # LLVM and QEMU (built from its source release), the release kernels of both ISAs and the Unix-form runtime for
     # witos (phase R). The scenarios of `test`, the layer-2 ones among them, run in linux-selftest (T2.2). Upstream's
-    # PAL suite and slices of its runtime tests (R7) run here too, which take about an hour of the job.
+    # PAL suite and slices of its runtime tests (R7) run here too, which take about an hour of the job, and the device
+    # services' and applications' scenarios (phases D and N) after them. Each ISA's runtime is a leg of its own (D5.2):
+    # one after the other they outgrew three hours. The host tests and the source style run in the x64 leg.
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -159,39 +165,37 @@ jobs:
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- doctor
 
       - name: Host tests, whose native harnesses the pinned clang builds
+        if: matrix.arch == 'x64'
         run: dotnet test tests/WitOS.Dev.Tests --configuration Release --no-build
 
       - name: Services' host tests
+        if: matrix.arch == 'x64'
         run: dotnet test tests/OutWit.OS.Tests --configuration Release --no-build
 
       - name: QEMU timeout cleanup through QMP
+        if: matrix.arch == 'x64'
         run: dotnet test tests/WitOS.Dev.Tests --configuration Release --no-build --filter TestCategory=QemuCleanup
 
-      - name: x64 release kernel without self-tests
-        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- release
+      - name: Release kernel without self-tests
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- release --arch ${{ matrix.arch }}
 
-      - name: ARM64 release kernel without self-tests
-        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- release --arch arm64
-
-      - name: The Unix-form runtime for witos-x64 and witos-arm64 (CoreLib, NativeAOT's native part, try_run, ILC)
-        run: |
-          dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-witos
-          dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-witos --arch arm64
+      - name: The Unix-form runtime for witos-${{ matrix.arch }} (CoreLib, NativeAOT's native part, try_run, ILC)
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-witos --arch ${{ matrix.arch }}
 
       - name: Source style
+        if: matrix.arch == 'x64'
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- format-check
 
       - name: Upload Linux diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: witos-linux-host
+          name: witos-linux-host-${{ matrix.arch }}
           if-no-files-found: warn
           retention-days: 14
           path: |
             artifacts/logs
-            artifacts/x64/release/build.txt
-            artifacts/arm64/release/build.txt
+            artifacts/${{ matrix.arch }}/release/build.txt
             artifacts/runtime-witos/patch-set.json
             artifacts/runtime-witos/tryrun-*.json
 
