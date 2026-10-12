@@ -53,9 +53,30 @@ internal static class RuntimeDevices
     public const string NAMESPACE_EXECUTABLE = "Namespace";
 
     /// <summary>
-    /// The System.IO check's sources (D5.2): an ordinary .NET program /bin/init starts as /bin/files.
+    /// The System.IO check's sources (D5.2): an ordinary .NET program /bin/init starts from the ext4 volume (D5.3).
     /// </summary>
     public const string FILES_PROGRAM = "tests/Runtime.Witos/Files";
+
+    /// <summary>
+    /// The sources of the .NET application on the ext4 volume and of its library (D5.3), which dotnet runs from there.
+    /// </summary>
+    public const string VOLUME_APP = "tests/Runtime.Witos/VolumeApp";
+
+    /// <summary>
+    /// What the application reads from the file beside it on the volume (D5.3).
+    /// </summary>
+    public const string VOLUME_GREETING = "Read from the ext4 volume";
+
+    /// <summary>
+    /// The programs the scenario lays on the ext4 volume under /programs and starts from there (D5.3): the .NET
+    /// application with its runtimeconfig, its library and the file it reads, the dynamic program with its library and
+    /// the library it opens, and the System.IO check.
+    /// </summary>
+    public static readonly string[] VOLUME_PROGRAMS =
+    [
+        "app/App.dll", "app/App.runtimeconfig.json", "app/VolumeLibrary.dll", "app/greeting.txt", "dynamic/dynamic",
+        "dynamic/libdynamic.so", "dynamic/libplugin.so", "files/Files"
+    ];
 
     /// <summary>
     /// The executable runtime-witos publishes from the System.IO check.
@@ -109,11 +130,11 @@ internal static class RuntimeDevices
         await PublishServiceAsync(root, tree, architecture, version, sysroot, NAMESPACE_EXECUTABLE, NAMESPACE_PROGRAM, ["Server", "Volumes"],
             OUTWIT_OS_FILESYSTEM_FOLDERS);
         var files = await RuntimeWitos.PublishProgramAsync(root, tree, architecture, FILES_EXECUTABLE, Path.Combine(root, FILES_PROGRAM), version, "");
-        File.Copy(files, Path.Combine(RuntimeWitos.ProgramDirectory(root, architecture), FILES_EXECUTABLE), overwrite: true);
         var image = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_DEVICES_SCENARIO, architecture: architecture);
+        var programs = await BuildVolumeProgramsAsync(root, Path.GetDirectoryName(image)!, architecture, files);
         var dataDisk = Path.Combine(Path.GetDirectoryName(image)!, "data-disk.img");
-        await RuntimeDataDisk.CreateAsync(dataDisk);
-        await BootScenarioRunner.RunAsync(root, image, new BootRequest($"{architecture.Name}-runtime-devices-256", 256, 600, ExpectedOutcome.Success)
+        await RuntimeDataDisk.CreateAsync(dataDisk, programs: programs);
+        await BootScenarioRunner.RunAsync(root, image, new BootRequest($"{architecture.Name}-runtime-devices-512", 512, 1200, ExpectedOutcome.Success)
         {
             Architecture = architecture,
             Suite = BootSuite.Release,
@@ -167,15 +188,16 @@ internal static class RuntimeDevices
         $"[DEVICES] ext4 pci/",
         $": partition \"{RuntimeDataDisk.EXT4_PARTITION}\": ext4 volume \"{RuntimeExt4Volume.LABEL}\" of " +
             $"{(RuntimeDataDisk.EXT4_PARTITION_LAST_BLOCK - RuntimeDataDisk.EXT4_PARTITION_FIRST_BLOCK + 1) * 512} bytes in blocks of 4096, writable, " +
-            "/ holds big.bin, docs, hello.txt, link, lost+found, many",
+            $"/ holds big.bin, docs, hello.txt, link, lost+found, many, {RuntimeExt4Volume.PROGRAMS}",
         $": /hello.txt (mode 644) says \"{RuntimeExt4Volume.HELLO_TEXT}\"",
         $": /big.bin holds {RuntimeExt4Volume.BIG_BYTES} bytes, {RuntimeExt4Volume.BIG_CHUNKS} chunks between holes, as the host wrote them",
         $": /many holds {RuntimeExt4Volume.MANY} entries, /link points to {RuntimeExt4Volume.LINK_TARGET}",
-        $": check clean ({RuntimeExt4Volume.MANY + 3} files, 4 directories)",
+        $": check clean ({RuntimeExt4Volume.MANY + 3 + VOLUME_PROGRAMS.Length} files, {4 + VolumeDirectories} directories)",
         $": wrote /guest/logs/written.bin ({RuntimeExt4Volume.GUEST_BYTES} bytes around a hole) and /guest/note.txt, added " +
             $"{RuntimeExt4Volume.GUEST_ADDED} entries to /many, removed /docs/readme.txt, moved /link to /guest/link, through the journal",
         $": mounted again, /guest holds link, logs, note.txt, /many holds {RuntimeExt4Volume.MANY + RuntimeExt4Volume.GUEST_ADDED} entries, " +
-            $"read back what it wrote, check clean ({RuntimeExt4Volume.MANY + 3 - 1 + 2 + RuntimeExt4Volume.GUEST_ADDED} files, 6 directories)",
+            $"read back what it wrote, check clean ({RuntimeExt4Volume.MANY + 3 - 1 + 2 + RuntimeExt4Volume.GUEST_ADDED + VOLUME_PROGRAMS.Length} files, " +
+            $"{6 + VolumeDirectories} directories)",
         $"[DEVICES] device manager on {(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: ",
         " 2 drivers ready, DMA isolation: none (no IOMMU), ready",
         "[NAMESPACE] mounted /boot: FAT16 volume of ",
@@ -188,15 +210,21 @@ internal static class RuntimeDevices
         " checks passed, 0 failed",
         $"[FILES] System.IO over the namespace service under NativeAOT on {(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: " +
             "10 areas passed, 0 failed",
-        "[DEVICES-INIT] /bin/files exited with 0",
+        $"[DEVICES-INIT] /data/{RuntimeExt4Volume.PROGRAMS}/files/Files exited with 0",
+        architecture.DynamicPassedLine,
+        $"[DEVICES-INIT] /data/{RuntimeExt4Volume.PROGRAMS}/dynamic/dynamic exited with 0",
+        $"[VOLUME-APP] App.dll and its library from /data/{RuntimeExt4Volume.PROGRAMS}/app/ under CoreCLR on " +
+            $"{(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: {VOLUME_GREETING}, answered by VolumeLibrary",
+        "[DEVICES-INIT] /dotnet/dotnet exited with 0",
         "[ROOT-TASK] /system/DeviceManager was ready before /bin/init",
         architecture.RootTaskPassedLine
     ];
 
     /// <summary>
     /// The package of the runtime-devices scenario: the device manager as /system/DeviceManager, the virtio block driver
-    /// as /system/Drivers/VirtioBlock, tests/User/devices_init.c as /bin/init, musl's libc.so as the dynamic linker and
-    /// the shared C++ runtime in /lib.
+    /// as /system/Drivers/VirtioBlock, the namespace service as /system/Namespace, tests/User/devices_init.c as /bin/init,
+    /// musl's libc.so as the dynamic linker, the shared C++ runtime in /lib and the .NET install of R5 under /dotnet. The
+    /// programs /bin/init starts lie on the data disk's ext4 volume instead (D5.3).
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="output">Artifact directory of the scenario.</param>
@@ -208,21 +236,66 @@ internal static class RuntimeDevices
         var program = RuntimeWitos.ProgramPackage(root, architecture, DEVICE_MANAGER_EXECUTABLE);
         var driver = Path.Combine(RuntimeWitos.ProgramDirectory(root, architecture), VIRTIO_BLOCK_EXECUTABLE);
         var names = Path.Combine(RuntimeWitos.ProgramDirectory(root, architecture), NAMESPACE_EXECUTABLE);
-        var files = Path.Combine(RuntimeWitos.ProgramDirectory(root, architecture), FILES_EXECUTABLE);
-        if (!File.Exists(driver) || !File.Exists(names) || !File.Exists(files))
+        if (!File.Exists(driver) || !File.Exists(names))
             throw new InvalidOperationException($"No witos driver or namespace service in {RuntimeWitos.ProgramDirectory(root, architecture)}. " +
                 $"Run: dotnet run --project tools/WitOS.Dev -- runtime-services --arch {architecture.Name}");
         await Sysroot.BuildAsync(root, architecture);
         var init = Path.Combine(output, "devices_init.o");
         await MuslLibc.CompileAsync(root, architecture, Path.Combine(root, DEVICES_INIT), init, LibWitos.Options(root));
         var initProgram = await MuslLibc.LinkStartedProgramAsync(root, architecture, output, "devices_init", [init]);
-        return
+        // The .NET install of R5 (D5.3: dotnet runs the application on the volume), whose dynamic linker and C++ runtime
+        // the services share.
+        IEnumerable<(string Name, string Source)> package =
         [
             ("system/" + DEVICE_MANAGER_EXECUTABLE, program[0].Source), ("system/Drivers/" + VIRTIO_BLOCK_EXECUTABLE, driver),
-            ("system/" + NAMESPACE_EXECUTABLE, names), ("bin/files", files),
-            ("bin/init", initProgram), .. program.Skip(1)
+            ("system/" + NAMESPACE_EXECUTABLE, names), ("bin/init", initProgram), .. program.Skip(1),
+            .. await RuntimeWitos.InstallFilesAsync(root, output, architecture)
         ];
+        return [.. package.DistinctBy(file => file.Name)];
     }
+
+    // The programs the scenario starts from the ext4 volume (D5.3), as VOLUME_PROGRAMS names them: the .NET application
+    // and its library compiled against the reference pack, the dynamic program of the spawn scenario with its library and
+    // plugin, linked with RUNPATH $ORIGIN so that the dynamic linker finds them beside it, and the System.IO check.
+    private static async Task<IReadOnlyList<(string Path, string Source)>> BuildVolumeProgramsAsync(string root, string output,
+        KernelArchitecture architecture, string files)
+    {
+        var directory = Path.Combine(output, "volume-programs");
+        if (Directory.Exists(directory))
+            Directory.Delete(directory, recursive: true);
+        Directory.CreateDirectory(directory);
+        async Task<string> Compile(string name, params string[] extra)
+        {
+            var obj = Path.Combine(directory, name + ".o");
+            await MuslLibc.CompileAsync(root, architecture, Path.Combine(root, "tests", "User", name + ".c"), obj, [.. LibWitos.Options(root), .. extra]);
+            return obj;
+        }
+        var library = await MuslLibc.LinkSharedLibraryAsync(root, architecture, directory, "libdynamic.so", [await Compile("dynamic_library", "-fPIC")]);
+        var plugin = await MuslLibc.LinkSharedLibraryAsync(root, architecture, directory, "libplugin.so", [await Compile("dynamic_plugin", "-fPIC")]);
+        var dynamic = await MuslLibc.LinkDynamicProgramAsync(root, architecture, directory, "dynamic",
+            [await Compile("dynamic_main", $"-DLIBRARY_PATH=\"/data/{RuntimeExt4Volume.PROGRAMS}/dynamic/libdynamic.so\"")], [library],
+            ["-rpath", "$ORIGIN"]);
+        var volumeLibrary = Path.Combine(directory, "VolumeLibrary.dll");
+        await RuntimeWitos.CompileAsync(root, volumeLibrary, "library", [Path.Combine(root, VOLUME_APP, "VolumeLibrary.cs")], []);
+        var app = Path.Combine(directory, "App.dll");
+        await RuntimeWitos.CompileAsync(root, app, "exe", [Path.Combine(root, VOLUME_APP, "VolumeApp.cs")], [volumeLibrary]);
+        var config = Path.Combine(directory, "App.runtimeconfig.json");
+        await RuntimeWitos.WriteRuntimeConfigAsync(root, config);
+        var greeting = Path.Combine(directory, "greeting.txt");
+        await File.WriteAllTextAsync(greeting, VOLUME_GREETING + "\n");
+        (string Path, string Source)[] programs =
+        [
+            ("app/App.dll", app), ("app/App.runtimeconfig.json", config), ("app/VolumeLibrary.dll", volumeLibrary),
+            ("app/greeting.txt", greeting), ("dynamic/dynamic", dynamic), ("dynamic/libdynamic.so", library),
+            ("dynamic/libplugin.so", plugin), ("files/Files", files)
+        ];
+        if (!programs.Select(program => program.Path).SequenceEqual(VOLUME_PROGRAMS))
+            throw new InvalidOperationException("The volume's programs differ from VOLUME_PROGRAMS.");
+        return programs;
+    }
+
+    // The directories the volume's programs add: /programs and each directory below it.
+    private static int VolumeDirectories => 1 + VOLUME_PROGRAMS.Select(path => path[..path.IndexOf('/')]).Distinct().Count();
 
     /// <summary>
     /// OutWit.OS's package references, as its project names them: what a service compiling its FAT provider references

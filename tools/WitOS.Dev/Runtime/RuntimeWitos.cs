@@ -573,25 +573,53 @@ internal static class RuntimeWitos
     public static async Task<IReadOnlyList<(string Name, string Source)>> BuildDotnetPackageAsync(string root, string output,
         KernelArchitecture architecture)
     {
+        var app = Path.Combine(output, "app");
+        Directory.CreateDirectory(app);
+        await CompileAsync(root, Path.Combine(app, "App.dll"), "exe", [Path.Combine(root, HOSTED_APP)], []);
+        await WriteRuntimeConfigAsync(root, Path.Combine(app, "App.runtimeconfig.json"));
+        return await BuildInstallPackageAsync(root, output, architecture, app, "App.dll");
+    }
+
+    /// <summary>
+    /// Compiles C# sources into an assembly as an SDK build compiles a program: the SDK's C# compiler of the witos tree
+    /// against the reference pack the tree built (R5).
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="assembly">The assembly to write.</param>
+    /// <param name="target">The compiler's target: exe or library.</param>
+    /// <param name="sources">The sources.</param>
+    /// <param name="references">Assemblies beside the reference pack.</param>
+    /// <returns>When the assembly is written.</returns>
+    internal static async Task CompileAsync(string root, string assembly, string target, IEnumerable<string> sources,
+        IEnumerable<string> references)
+    {
         var tree = Path.Combine(root, "artifacts", "runtime-witos", "src");
-        var pin = ReadLock(root);
-        var references = Path.Combine(tree, "artifacts", "bin", "microsoft.netcore.app.ref", "ref", pin.TargetFramework);
+        var pack = Path.Combine(tree, "artifacts", "bin", "microsoft.netcore.app.ref", "ref", ReadLock(root).TargetFramework);
         var sdks = Directory.GetDirectories(Path.Combine(tree, ".dotnet", "sdk"));
         if (sdks.Length != 1)
             throw new InvalidDataException($"The runtime's own .NET SDK is not one SDK: {string.Join(", ", sdks)}.");
-        var app = Path.Combine(output, "app");
-        Directory.CreateDirectory(app);
         await RunToolAsync(Path.Combine(tree, ".dotnet", "dotnet"),
         [
             Path.Combine(sdks[0], "Roslyn", "bincore", "csc.dll"), "-nologo", "-noconfig", "-nostdlib", "-deterministic", "-optimize+",
-            "-nullable:enable", "-target:exe", .. Directory.GetFiles(references, "*.dll").Select(reference => $"-r:{reference}"),
-            $"-out:{Path.Combine(app, "App.dll")}", Path.Combine(root, HOSTED_APP)
+            "-nullable:enable", $"-target:{target}", .. Directory.GetFiles(pack, "*.dll").Select(reference => $"-r:{reference}"),
+            .. references.Select(reference => $"-r:{reference}"), $"-out:{assembly}", .. sources
         ], tree);
-        await File.WriteAllTextAsync(Path.Combine(app, "App.runtimeconfig.json"),
+    }
+
+    /// <summary>
+    /// Writes a program's runtimeconfig.json for the pin's shared framework with invariant globalization, since the
+    /// system layer has no ICU (R5).
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="path">The file to write.</param>
+    /// <returns>When the file is written.</returns>
+    internal static Task WriteRuntimeConfigAsync(string root, string path)
+    {
+        var pin = ReadLock(root);
+        return File.WriteAllTextAsync(path,
             $"{{\n  \"runtimeOptions\": {{\n    \"tfm\": \"{pin.TargetFramework}\",\n" +
             $"    \"framework\": {{ \"name\": \"Microsoft.NETCore.App\", \"version\": \"{pin.FrameworkReference}\" }},\n" +
             "    \"configProperties\": { \"System.Globalization.Invariant\": true }\n  }\n}\n");
-        return await BuildInstallPackageAsync(root, output, architecture, app, "App.dll");
     }
 
     /// <summary>
@@ -643,7 +671,7 @@ internal static class RuntimeWitos
 
     // A .NET install as the shared framework's packaging lays it out (R5), with musl's libc.so as the dynamic linker and
     // the shared C++ runtime: /dotnet/dotnet, hostfxr, the shared framework and its deps.json, and the install location.
-    private static async Task<IReadOnlyList<(string Name, string Source)>> InstallFilesAsync(string root, string output,
+    internal static async Task<IReadOnlyList<(string Name, string Source)>> InstallFilesAsync(string root, string output,
         KernelArchitecture architecture)
     {
         var tree = Path.Combine(root, "artifacts", "runtime-witos", "src");

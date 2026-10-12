@@ -15,14 +15,16 @@
 #include <string.h>
 #include <unistd.h>
 
-/* The ELF loader of the root task (plan steps S5.2 and S5.3). A program is a position-independent executable in the
- * boot package: a static one (S5.2) or a dynamic one whose PT_INTERP names its dynamic linker in the package, musl's
- * libc.so (S5.3). The headers of the program and of its interpreter are read through the libc's descriptors, every
+/* The ELF loader of the root task (plan steps S5.2, S5.3 and D5.3). A program is a position-independent executable in
+ * the boot package or on a volume the namespace service mounts (D5.3): a static one (S5.2) or a dynamic one whose
+ * PT_INTERP names its dynamic linker, musl's libc.so (S5.3). The headers of the program and of its interpreter are
+ * read through the libc's descriptors, every
  * rule below is checked before anything is created, and only then does the process exist (PROCESS_CREATE with one
  * end of a new channel). The program lies at the start of the new process's code arena and its interpreter 64 MiB
- * above it, where the kernel places no reservation of its own: an executable segment is a mapping of the package's
- * pages themselves (at most 64 pages per mapping, published to instruction fetch through a view of the loader's own
- * first), any other is anonymous memory objects the loader fills with the file's bytes and zeroes, mapped into the
+ * above it, where the kernel places no reservation of its own: an executable segment of a package file is a mapping
+ * of the package's pages themselves (at most 64 pages per mapping, published to instruction fetch through a view of
+ * the loader's own first), and any other segment, a volume's code among them, is anonymous memory objects the loader
+ * fills with the file's bytes and zeroes (code published through a view of its own as the package's is), mapped into the
  * process READ|WRITE or, for a read-only segment, READ, and left to it. A read-only segment is a copy as the libc's
  * private mapping of a file that does not execute is (R2.1): the process may make its pages writable, as NativeAOT's
  * runtime does with the page of its GS cookie at startup, which a mapping of the package never allows. The first stack is
@@ -67,7 +69,8 @@
 
 typedef struct Program {
     int File;
-    WitU64 Source, Length; /* the file's bytes in the package */
+    int Packaged; /* a file of the boot package, whose code maps without a copy; otherwise a volume's (D5.3) */
+    WitU64 Source, Length; /* the file's bytes in the package (Source for a package file alone) */
     WitU64 Base; /* where the image lies in the process */
     Elf64_Ehdr Header;
     Elf64_Phdr Segments[MAX_SEGMENTS];
@@ -204,7 +207,8 @@ static int read_program(Program *p, int interpreter_allowed)
     return dynamic && entry && headers && (phdr || !p->Interpreter[0]) ? 0 : ENOEXEC;
 }
 
-/* Opens an image of the package and checks it; the descriptor stays open for the mapping. */
+/* Opens an image of the package or of a mounted volume (D5.3) and checks it; the descriptor stays open for the
+ * mapping. */
 static int open_program(Program *p, const char *path, WitU64 base, int interpreter_allowed)
 {
     p->Base = base;
@@ -212,7 +216,9 @@ static int open_program(Program *p, const char *path, WitU64 base, int interpret
     if (p->File < 0) {
         return errno;
     }
-    return __wit_file_map_source(p->File, &p->Source, &p->Length) == 0 ? read_program(p, interpreter_allowed) : ENOEXEC;
+    const long kind = __wit_file_map_source(p->File, &p->Source, &p->Length);
+    p->Packaged = kind == 0;
+    return kind == 0 || kind == 4 ? read_program(p, interpreter_allowed) : ENOEXEC;
 }
 
 /* An executable segment: the package's own pages, mapped READ|EXECUTE in windows of 64 pages. */
@@ -245,12 +251,16 @@ static int map_package(const Program *p, const Elf64_Phdr *s, WitU64 process)
     return 0;
 }
 
-/* A segment that does not execute: anonymous objects of at most 64 pages, filled through a view of the loader's own
- * with the file's bytes that fall in each and zero elsewhere, then mapped into the process READ|WRITE, or READ for a
- * read-only segment; the process's mapping holds every right of the object, so that it may make the pages writable. */
+/* A segment that does not execute, or any segment of an image on a mounted volume (D5.3): anonymous objects of at most
+ * 64 pages, filled through a view of the loader's own with the file's bytes that fall in each and zero elsewhere,
+ * then mapped into the process READ|WRITE, READ for a read-only segment, or READ|EXECUTE for code, which the loader
+ * first publishes for instruction fetch through a view of its own, as it does the package's pages; the process's
+ * mapping holds every right of the object, so that it may make the pages writable. */
 static int map_copy(const Program *p, const Elf64_Phdr *s, WitU64 process)
 {
-    const WitU32 protection = (s->p_flags & PF_W) ? WIT_MEMORY_READ | WIT_MEMORY_WRITE : WIT_MEMORY_READ;
+    const WitU32 protection = (s->p_flags & PF_X) ? WIT_MEMORY_READ | WIT_MEMORY_EXECUTE
+        : (s->p_flags & PF_W)                     ? WIT_MEMORY_READ | WIT_MEMORY_WRITE
+                                                  : WIT_MEMORY_READ;
     const WitU64 low = s->p_vaddr & ~(PAGE - 1);
     const WitU64 bytes = round_up(s->p_vaddr + s->p_memsz) - low;
     for (WitU64 done = 0; done < bytes; done += CHUNK) {
@@ -272,6 +282,13 @@ static int map_copy(const Program *p, const Elf64_Phdr *s, WitU64 process)
             }
             wit_syscall(WIT_CALL_MEMORY_RELEASE, view, 0, 0, &result);
         }
+        if (status == WIT_STATUS_OK && (protection & WIT_MEMORY_EXECUTE)) {
+            status = map(object, 0, part, 0, protection, WIT_PROCESS_SELF, &view);
+            if (status == WIT_STATUS_OK) {
+                status = wit_syscall(WIT_CALL_CODE_PUBLISH, view, part, 0, &result);
+                wit_syscall(WIT_CALL_MEMORY_RELEASE, view, 0, 0, &result);
+            }
+        }
         if (status == WIT_STATUS_OK) {
             status = map(object, 0, part, p->Base + low + done, protection, process, &mapped);
         }
@@ -289,7 +306,7 @@ static int map_image(const Program *p, WitU64 process)
     for (unsigned i = 0; i < p->Header.e_phnum && !error; ++i) {
         const Elf64_Phdr *s = &p->Segments[i];
         if (s->p_type == PT_LOAD) {
-            error = (s->p_flags & PF_X) ? map_package(p, s, process) : map_copy(p, s, process);
+            error = (s->p_flags & PF_X) && p->Packaged ? map_package(p, s, process) : map_copy(p, s, process);
         }
     }
     return error;

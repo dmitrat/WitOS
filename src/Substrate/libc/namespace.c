@@ -113,16 +113,18 @@ static long call(WitNamespaceRequest *request, WitNamespaceReply *reply)
     return reply->Error ? -(long)reply->Error : 0;
 }
 
-/* The session and the window, made once; the mount points read with it. */
+/* The session and the window, made once; the mount points read with it. A process without the namespace's endpoint
+ * looks again at its next path, since the root task's process manager receives the endpoint only when the service
+ * answers (D5.3); a connection that failed stays failed. */
 static long namespace_connect(void)
 {
     if (connected) {
         return connected > 0 ? 0 : -ENOENT;
     }
-    connected = -1;
     if (!__wit_process.Namespace) {
         return -ENOENT;
     }
+    connected = -1;
     WitU64 ends[2] = {0, 0}, object = 0, duplicate = 0, result = 0, status;
     if ((status = wit_syscall(WIT_CALL_CHANNEL_CREATE, (WitU64)ends, 0, 0, &result)) != WIT_STATUS_OK) {
         return __wit_errno(status);

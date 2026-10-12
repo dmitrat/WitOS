@@ -65,7 +65,8 @@ static int strings(const char *base, WitU64 begin, WitU64 end, WitU32 count, cha
 }
 
 /* The namespace's clients' endpoint a service offered with its status (D5.1), which every process the manager starts
- * afterwards receives in its start message; zero until then. */
+ * afterwards receives in its start message, and through which the manager's own libc reads a program on a mounted
+ * volume (D5.3); zero until then. */
 static WitU64 offered_namespace;
 
 /* Starts the program a mapped spawn request names, after checking the request whole; the grant is moved into the new
@@ -249,6 +250,7 @@ static int service_status(WitU64 ready)
     }
     if (handle && !offered_namespace) {
         offered_namespace = handle;
+        __wit_process.Namespace = handle; /* the manager's own files: a program on a volume (D5.3) */
     } else {
         close_handle(handle);
     }
