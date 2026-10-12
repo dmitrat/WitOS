@@ -50,6 +50,12 @@ typedef struct witos_service {
 int witos_manager_run_services(witos_service *services, WitU32 count, const char *path, char *const argv[],
     char *const envp[], WitProcessInfo *info);
 
+/* The process manager's client (D1.2): asks the manager this process was started under to start the program at path
+ * with argv and envp in "/", granting it the capability given (zero for none), which moves into its start message;
+ * writes the new process's handle (WAIT, QUERY, KILL, DUPLICATE, TRANSFER) to *process. The grant is moved or closed.
+ * Returns 0 or an errno value: ENOSYS without a process manager, the manager's answer otherwise. */
+int witos_manager_spawn(const char *path, char *const argv[], char *const envp[], WitU64 grant, WitU64 *process);
+
 /* Waits until the process ended and copies its record: State EXITED with ExitCode, or FAULTED. Returns 0 or an errno
  * value (EBADF for a handle that names no process); the handle stays open, and its close releases the record. */
 int witos_wait(WitU64 process, WitProcessInfo *info);

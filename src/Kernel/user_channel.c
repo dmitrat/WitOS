@@ -10,9 +10,11 @@
  * The table is the kernel's (K5.2c): an endpoint has one number in every process, so the two ends of a channel may
  * be held by different processes, and a change of an end wakes the waiters of every process. A process is charged for
  * the channels it created while it lives. A capability of a kind whose record belongs to one process — an event, a
- * device, an interrupt binding, a pin — carries the Id of the process it left and is received by that process alone;
- * endpoints, memory objects, process handles, thread handles and the clock capability cross processes. A process's end voids the capabilities of its own
- * kinds still in flight, releases every endpoint handle it held, and collects the ends nothing reachable refers to. */
+ * device, an interrupt binding, a pin — carries the Id of the process it left and is received by that process alone,
+ * except a device the message holds its origin's last reference to, whose holder changes at delivery (D1.2); endpoints,
+ * memory objects, process handles, thread handles and the clock capability cross processes. A process's end voids the
+ * capabilities of its own kinds still in flight, releases every endpoint handle it held, and collects the ends nothing
+ * reachable refers to. */
 
 #define ENDPOINT_RIGHTS (WIT_RIGHT_WAIT | WIT_RIGHT_SEND | WIT_RIGHT_RECEIVE | WIT_RIGHT_DUPLICATE | WIT_RIGHT_TRANSFER)
 
@@ -290,6 +292,9 @@ static WitU64 attach_capability(WitUserProcess *p, const WitChannelCapability *c
         snapshot.Rights = capability->Rights;
         require(wit_user_reference_attach(p, &snapshot, &handle) == WIT_STATUS_OK, "Thread handle delivery failed");
     } else {
+        if (capability->Kind == WIT_HANDLE_DEVICE && capability->Origin != p->Id) {
+            wit_user_device_adopt(p, wit_user_process_by_id(capability->Origin), capability->Object);
+        }
         handle = wit_handle_grant_object(&p->Handles, capability->Kind, capability->Rights, capability->Object);
         require(handle != 0, "Capability delivery failed");
     }
@@ -334,8 +339,13 @@ WitU64 wit_user_channel_receive(WitUserProcess *p, WitU64 endpoint, WitU64 addre
         } else if (capability->Kind) {
             ++granted;
         }
-        if (process_bound(capability->Kind) && capability->Origin != p->Id) {
-            return WIT_STATUS_UNSUPPORTED; /* A record of another process; the message stays queued (K5.2c). */
+        /* A record of another process stays queued (K5.2c), except a device that is its origin's last reference,
+         * whose holder changes at delivery (D1.2). */
+        if (process_bound(capability->Kind) &&
+            capability->Origin != p->Id &&
+            !(capability->Kind == WIT_HANDLE_DEVICE &&
+                wit_user_device_movable(wit_user_process_by_id(capability->Origin), capability->Object))) {
+            return WIT_STATUS_UNSUPPORTED;
         }
     }
     if (wit_handles_free_count(&p->Handles) < granted + threads || wit_user_reference_free_count(p) < threads) {

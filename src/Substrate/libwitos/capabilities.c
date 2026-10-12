@@ -152,6 +152,24 @@ int witos_memory_map(WitU64 object, WitU64 offset, WitU64 bytes, WitU32 protecti
     return error;
 }
 
+int witos_device_acquire(WitU64 table, WitU32 index, WitU64 *device)
+{
+    if (!device) {
+        return EINVAL;
+    }
+    *device = 0;
+    return error_of(wit_syscall(WIT_CALL_DEVICE_ACQUIRE, table, index, 0, device));
+}
+
+int witos_device_memory(WitU64 device, WitU32 region, WitU64 *object)
+{
+    if (!object) {
+        return EINVAL;
+    }
+    *object = 0;
+    return error_of(wit_syscall(WIT_CALL_DEVICE_MEMORY, device, region, 0, object));
+}
+
 int witos_memory_unmap(void *address)
 {
     WitU64 result = 0;

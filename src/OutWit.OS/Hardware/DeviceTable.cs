@@ -82,8 +82,17 @@ public static class DeviceTable
         return descriptors;
     }
 
-    private static DeviceDescriptor ParseDescriptor(int index, ReadOnlySpan<byte> bytes)
+    /// <summary>
+    /// Reads one descriptor's bytes, as the table holds them and the driver protocol carries them (witos/driver.h).
+    /// </summary>
+    /// <param name="index">The descriptor's index in the table.</param>
+    /// <param name="bytes">DESCRIPTOR_SIZE bytes.</param>
+    /// <returns>The descriptor, with its bytes.</returns>
+    /// <exception cref="FormatException">The bytes are not one descriptor, or it lists more regions or lines than one holds.</exception>
+    public static DeviceDescriptor ParseDescriptor(int index, ReadOnlySpan<byte> bytes)
     {
+        if (bytes.Length != DESCRIPTOR_SIZE)
+            throw new FormatException($"A descriptor has {DESCRIPTOR_SIZE} bytes, not {bytes.Length}.");
         var regionCount = Word(bytes, 24);
         var lineCount = Word(bytes, 28);
         if (regionCount > REGIONS || lineCount > LINES)
@@ -102,7 +111,10 @@ public static class DeviceTable
             lines.Add(new DeviceLine(BinaryPrimitives.ReadUInt32LittleEndian(line), BinaryPrimitives.ReadUInt32LittleEndian(line[4..])));
         }
         return new DeviceDescriptor(index, Word(bytes, 0), Word(bytes, 4),
-            [Word(bytes, 8), Word(bytes, 12), Word(bytes, 16), Word(bytes, 20)], regions, lines);
+            [Word(bytes, 8), Word(bytes, 12), Word(bytes, 16), Word(bytes, 20)], regions, lines)
+        {
+            Bytes = bytes.ToArray()
+        };
     }
 
     private static uint Word(ReadOnlySpan<byte> bytes, int offset) => BinaryPrimitives.ReadUInt32LittleEndian(bytes[offset..]);

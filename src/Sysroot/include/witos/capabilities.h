@@ -38,4 +38,13 @@ int witos_memory_map(WitU64 object, WitU64 offset, WitU64 bytes, WitU32 protecti
 
 /* Releases a mapping witos_memory_map made, whole: EINVAL for an address that starts no mapping. */
 int witos_memory_unmap(void *address);
+
+/* The device of a descriptor of the device table (D1.2), a handle with BIND, QUERY, DUPLICATE and TRANSFER: EACCES for a
+ * table handle without ACQUIRE, EBUSY for a device another process holds, EINVAL for an index beyond the table. The
+ * handle moves to another process when it is the process's last reference to the device. */
+int witos_device_acquire(WitU64 table, WitU32 index, WitU64 *device);
+
+/* A memory region of a device as a memory object (MAP, WRITE, QUERY, DUPLICATE, TRANSFER; never EXECUTE), mapped
+ * uncached: EACCES without BIND, ENOSYS for a port region, ENOMEM for a region beyond 64 pages, EINVAL. */
+int witos_device_memory(WitU64 device, WitU32 region, WitU64 *object);
 #endif
