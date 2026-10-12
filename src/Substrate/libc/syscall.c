@@ -666,6 +666,8 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
         return __wit_mprotect(a1, a2, a3);
     case SYS_madvise:
         return __wit_madvise(a1, a2, a3);
+    case SYS_msync:
+        return __wit_msync(a1, a2, a3);
     case SYS_mremap:
         return __wit_mremap(a1, a2, a3, a4);
     case SYS_brk:

@@ -121,7 +121,7 @@ static void end_children(void)
     require(wit_user_processes_pooled() == 0, "A created process survived the root's end");
 }
 
-static WitArchFrame *dispatch(int timer, WitU64 last_exit);
+static WitArchFrame *dispatch(int timer, int rotate);
 
 WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code)
 {
@@ -133,7 +133,7 @@ WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code)
          * path's too when the end came from a tick or a line that interrupted it (R6). */
         retire(p);
         user_idle = 0;
-        wit_arch_resume_frame(dispatch(0, code));
+        wit_arch_resume_frame(dispatch(0, 0));
     }
     wit_platform_timer_stop();
     end_children();
@@ -239,18 +239,21 @@ static WitArchFrame *resume_current(WitArchFrame *frame)
     return frame;
 }
 
-/* The next thread to run, round-robin over the live components from the current one and over each component's
- * threads from the one that ran last (K5.2c). Another component's thread means its address space, its kernel stack
- * and its TLS; a component with no ready thread but a waiting or suspended one keeps the processor idle until a tick
- * or a device line changes something. The component whose last thread exited ended in wit_user_exit_thread. */
-static WitArchFrame *dispatch(int timer, WitU64 last_exit)
+/* The next thread to run, round-robin over the live components and over each component's threads from the one that
+ * ran last (K5.2c). A tick or a yield rotates: the next component comes first and the current one last, so that a
+ * thread that keeps running, or spins on a lock whose holder waits for another component, never keeps the processor
+ * from the others (D5.2); a wait, an exit or a device line looks at the current component first. Another component's
+ * thread means its address space, its kernel stack and its TLS; a component with no ready thread but a waiting or
+ * suspended one keeps the processor idle until a tick or a device line changes something. The component whose last
+ * thread exited ended in wit_user_exit_thread. */
+static WitArchFrame *dispatch(int timer, int rotate)
 {
-    (void)last_exit;
     for (;;) {
         int waiting = 0;
         expire_waits();
         const WitU32 first = current_user ? current_user->Slot : 0;
-        for (WitU32 n = 0; n < WIT_PROCESS_CAPACITY; ++n) {
+        const WitU32 start = rotate ? 1U : 0U;
+        for (WitU32 n = start; n < start + WIT_PROCESS_CAPACITY; ++n) {
             WitUserProcess *q = slot_owners[(first + n) % WIT_PROCESS_CAPACITY];
             if (!q || q->State != WitUserRunning) {
                 continue;
@@ -324,7 +327,7 @@ WitArchFrame *wit_user_exit_thread(WitU64 code, WitU64 reservation, WitU64 clear
     reap(index);
     for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         if (current_user->Threads[i].State != WitThreadEmpty) {
-            return dispatch(0, code);
+            return dispatch(0, 0);
         }
     }
     wit_user_finish(WitUserExited, code);
@@ -659,7 +662,7 @@ WitU64 wit_user_contained_faults(void)
 WitArchFrame *wit_user_yield(void)
 {
     current_user->Threads[current_user->CurrentThread].State = WitThreadReady;
-    return dispatch(0, 0);
+    return dispatch(0, 1);
 }
 
 WitArchFrame *wit_user_timer_tick(WitArchFrame *context)
@@ -687,7 +690,7 @@ WitArchFrame *wit_user_timer_tick(WitArchFrame *context)
     if (user_idle) {
         return context; /* Resume CLI/RET and recheck ready threads. */
     }
-    return dispatch(1, 0);
+    return dispatch(1, 1);
 }
 
 /* A device line, masked and completed by the architecture: the bound event of the running component is set and
