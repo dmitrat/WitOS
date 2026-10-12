@@ -11,9 +11,10 @@ namespace WitOS.Dev.Substrate;
 /// The compiler's runtime helpers a program needs beside the libc (plan step S1.1): compiler-rt's generic soft-float
 /// builtins for IEEE binary128, which clang emits for <c>long double</c> on aarch64, the complex multiplication
 /// builtins musl's complex functions call, which libc.so links whole (S5.3), the 128-bit integer division builtins
-/// libc++.so needs (S5.4), clear_cache.c, whose __clear_cache NativeAOT's runtime calls on aarch64 (R2.1), and
-/// crtbegin.c, built apart as crtbeginS.o, the start object clang's driver links into every dynamic image for its hidden
-/// __dso_handle (S5.4); the pinned LLVM package ships none of them for the Linux triples. The files are pinned by SHA-256
+/// libc++.so needs (S5.4), clear_cache.c, whose __clear_cache NativeAOT's runtime calls on aarch64 (R2.1), aarch64's
+/// outline atomics, which clang calls from code compiled with --rtlib=compiler-rt (R4.3: ICU), and crtbegin.c, built
+/// apart as crtbeginS.o, the start object clang's driver links into every dynamic image for its hidden __dso_handle
+/// (S5.4); the pinned LLVM package ships none of them for the Linux triples. The files are pinned by SHA-256
 /// at the toolchain's own tag in src/Substrate/compiler-rt.lock.json, downloaded once into .tools/compiler-rt, verified on
 /// every use and compiled unchanged with the pinned clang into builtins.a for each architecture.
 /// </summary>
@@ -30,6 +31,14 @@ internal static class CompilerRtBuiltins
 
     // The CRT objects, built on their own rather than into builtins.a (S5.4, R1.2a).
     private static readonly string[] CRT_OBJECTS = ["/crtbegin.c", "/crtend.c"];
+
+    // The directories of compiler-rt's builtins that hold one architecture's files.
+    private static readonly string[] ARCHITECTURE_DIRECTORIES = ["x86_64", "aarch64"];
+
+    // aarch64's outline atomics (R4.3): lse.S assembled once for each operation, size and memory model, as compiler-rt's
+    // CMake assembles its copies outline_atomic_<operation><size>_<model>.S; cas alone has a 16-byte form.
+    private const string OUTLINE_ATOMICS = "compiler-rt/lib/builtins/aarch64/lse.S";
+    private static readonly string[] OUTLINE_OPERATIONS = ["cas", "swp", "ldadd", "ldclr", "ldeor", "ldset"];
 
     #endregion
 
@@ -119,9 +128,10 @@ internal static class CompilerRtBuiltins
             !CRT_OBJECTS.Any(crt => source.Path.EndsWith(crt, StringComparison.Ordinal))))
         {
             // An architecture directory holds that architecture's file alone, and a file compiler-rt's CMake lists for some
-            // architectures names them (mulxc3.c: x86's 80-bit long double); the rest is generic.
+            // architectures names them (mulxc3.c: x86's 80-bit long double; cpu_model/aarch64.c); the rest is generic.
             var parts = source.Path.Split('/');
-            if ((parts.Length == 5 && parts[3] != arch) || (source.Architectures is { } only && !only.Contains(arch)))
+            if ((parts.Length == 5 && ARCHITECTURE_DIRECTORIES.Contains(parts[3]) && parts[3] != arch) ||
+                (source.Architectures is { } only && !only.Contains(arch)))
                 continue;
             var obj = Path.Combine(output, string.Join('_', parts[3..]) + ".o");
             await Processes.RequireSuccessAsync(Toolchain.Clang(root),
@@ -132,6 +142,24 @@ internal static class CompilerRtBuiltins
                 "-c", Path.Combine(cache, source.Path), "-o", obj
             ], root);
             objects.Add(obj);
+        }
+        if (arch == "aarch64" && pin.Sources.Any(source => source.Path == OUTLINE_ATOMICS))
+        {
+            // The definitions compiler-rt's CMake gives each copy, and HAS_ASM_LSE, which its configure check finds for an
+            // assembler that takes LSE's instructions, as clang's does.
+            foreach (var operation in OUTLINE_OPERATIONS)
+                foreach (var size in operation == "cas" ? new[] { 1, 2, 4, 8, 16 } : [1, 2, 4, 8])
+                    foreach (var model in new[] { 1, 2, 3, 4, 5 })
+                    {
+                        var obj = Path.Combine(output, $"outline_atomic_{operation}{size}_{model}.o");
+                        await Processes.RequireSuccessAsync(Toolchain.Clang(root),
+                        [
+                            $"--target={architecture.Triple}", "-fPIE", "-w", .. architecture.ClangOptions, $"-DL_{operation}",
+                            $"-DSIZE={size}", $"-DMODEL={model}", "-DHAS_ASM_LSE", "-I", Path.Combine(cache, "compiler-rt", "lib", "builtins"),
+                            "-c", Path.Combine(cache, OUTLINE_ATOMICS), "-o", obj
+                        ], root);
+                        objects.Add(obj);
+                    }
         }
         File.Delete(archive);
         await Processes.RequireSuccessAsync(Toolchain.LlvmAr(root), ["rcs", archive, .. objects], root);

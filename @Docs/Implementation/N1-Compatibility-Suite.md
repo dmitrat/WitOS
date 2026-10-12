@@ -9,8 +9,8 @@ difference it finds is intended and recorded.
 **An ordinary application.** The suite is a portable net10.0 console application with nothing for WitOS: no RID, no
 WitOS reference, no `#if`. It does not know where it runs except to look up its expectations.
 
-**The areas.** It has Strategy §57's ten areas, plus Platform. Each check exercises the standard semantics of everyday
-APIs:
+**The areas.** It has Strategy §57's ten areas, plus Platform and, since R4.3, Globalization. Each check exercises the
+standard semantics of everyday APIs:
 
 | Area | Checks |
 | --- | --- |
@@ -25,6 +25,7 @@ APIs:
 | AssemblyLoading | `Assembly.Load` by name, a collectible `AssemblyLoadContext` that unloads, the `Resolving` event, locations |
 | GC | weak references, finalizers, a 32 MiB object, the generations, the mode |
 | Synchronization | `Monitor` under contention, `SemaphoreSlim`, `ManualResetEventSlim`, `Interlocked`, `ReaderWriterLockSlim`, `Barrier`, `CountdownEvent`, a named `Mutex` |
+| Globalization | the specific cultures, `de-DE` numbers, month and day names, culture-aware comparison, Turkish casing, normalization, IDN, a region's currency (R4.3) |
 
 **The run.** Each check runs with a 60 s limit and prints one line with what it observed. The run compares each result
 with `expectations.json`, which records, per platform, the checks expected to fail and why:
@@ -54,10 +55,12 @@ with `expectations.json`, which records, per platform, the checks expected to fa
 
 | System | Checks | Recorded differences | Unexpected |
 | --- | --- | --- | --- |
-| Windows (x64, .NET 10.0.8) | 64 | 0 | 0 |
-| Linux (x64, Ubuntu 24.04, .NET 10.0.8) | 64 | 0 | 0 |
-| WitOS x64 | 64 | 4 | 0 |
-| WitOS ARM64 | 64 | 4 | 0 |
+| Windows (x64, .NET 10.0.8) | 72 | 0 | 0 |
+| Linux (x64, Ubuntu 24.04, .NET 10.0.8) | 72 | 0 | 0 |
+| WitOS x64 | 72 | 4 | 0 |
+| WitOS ARM64 | 72 | 4 | 0 |
+
+N1 ran 64 checks; R4.3 added the eight of Globalization, which pass on every system once WitOS has ICU.
 
 The four differences on WitOS, each recorded in `expectations.json` and in `Compatibility-Differences.md`:
 

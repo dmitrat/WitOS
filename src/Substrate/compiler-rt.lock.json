@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/llvm/llvm-project",
   "tag": "llvmorg-20.1.8",
-  "purpose": "The helpers clang emits calls to and the pinned LLVM package does not ship for the Linux triples: the IEEE binary128 soft-float builtins for long double on aarch64 (musl's printf, strtod and the long double mathematics, S1.1), the complex multiplication builtins musl's complex functions need, which libc.so links whole (S5.3), the 128-bit integer division builtins libc++'s filesystem clock needs, which libc++.so links whole, crtbegin.c, the start object of every dynamic image, which gives a module its hidden __dso_handle (S5.4), crtend.c, its end object, which the clang driver links after an image's own objects (the sysroot, R1.2a), and clear_cache.c, the __clear_cache NativeAOT's runtime calls to publish generated code on aarch64 (R2.1); compiled for the system layer from compiler-rt's sources.",
+  "purpose": "The helpers clang emits calls to and the pinned LLVM package does not ship for the Linux triples: the IEEE binary128 soft-float builtins for long double on aarch64 (musl's printf, strtod and the long double mathematics, S1.1), the complex multiplication builtins musl's complex functions need, which libc.so links whole (S5.3), the 128-bit integer division builtins libc++'s filesystem clock needs, which libc++.so links whole, crtbegin.c, the start object of every dynamic image, which gives a module its hidden __dso_handle (S5.4), crtend.c, its end object, which the clang driver links after an image's own objects (the sysroot, R1.2a), clear_cache.c, the __clear_cache NativeAOT's runtime calls to publish generated code on aarch64 (R2.1), and aarch64's outline atomics: lse.S, assembled into its 125 helpers as compiler-rt's CMake assembles them, and cpu_model/aarch64.c, whose __aarch64_have_lse_atomics they read, since clang calls them from code compiled with --rtlib=compiler-rt, as the sysroot's driver options compile ICU (R4.3); compiled for the system layer from compiler-rt's sources.",
   "sources": [
     {
       "path": "compiler-rt/LICENSE.TXT",
@@ -201,6 +201,49 @@
     {
       "path": "compiler-rt/lib/builtins/clear_cache.c",
       "sha256": "2bcbcc8d1dd2f0b417186132ec88557fd4f7db8bfd893b6a78d335dd04686567"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/assembly.h",
+      "sha256": "6df282fd90712301929b34969287b9e8a73120fcc04a24e88f3dead0974515e5"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/aarch64/lse.S",
+      "sha256": "5fd4c206fae16dd1ffac0de729df51d02c5ba1b697188963f443cf2454b044da"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/cpu_model/aarch64.c",
+      "sha256": "391602b889d67462490c6d1d33cc5d1af6ab59d08de13eadd8c89dec03623c3d",
+      "architectures": [
+        "aarch64"
+      ]
+    },
+    {
+      "path": "compiler-rt/lib/builtins/cpu_model/aarch64.h",
+      "sha256": "3d70c063606bf5fdbcd2602231b5a4cd51342bd6f1081d7c577ff5789707d89b"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/cpu_model/cpu_model.h",
+      "sha256": "4b374f7dcba5cbb9520b621ab596dc691af356772fc019246ab419f4c1c0f77c"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/cpu_model/AArch64CPUFeatures.inc",
+      "sha256": "3a01c2a21686ebe0d6450df4e13f24415d02f816a765d91ff01193ed97288cbf"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/cpu_model/aarch64/hwcap.inc",
+      "sha256": "b6366fe823b4a867753ab359623b284c9479c95aa07f932a87f07e76de52956b"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/cpu_model/aarch64/lse_atomics/getauxval.inc",
+      "sha256": "0fad0dacab3557d9e5cc0f09b044a44f3035cd0ca793427fa4c15dbc52fade52"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/cpu_model/aarch64/fmv/mrs.inc",
+      "sha256": "b8d02a41f9d625e4fa02e428c5b1b35f0407d61d676b72cda5f8337921c5888a"
+    },
+    {
+      "path": "compiler-rt/lib/builtins/cpu_model/aarch64/fmv/getauxval.inc",
+      "sha256": "5cb9a77eb22feb6188387ac31c94c0b4754ca8e030288f3e040ee2b05213119a"
     }
   ]
 }

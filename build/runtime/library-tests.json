@@ -5,7 +5,6 @@
     "src/libraries/System.Runtime.Numerics/tests/System.Runtime.Numerics.Tests.csproj"
   ],
   "excluded": {
-    "System.Numerics.Tests.ToStringTest.RunRegionSpecificStandardFormatToStringTests": "formats in the en-US culture: globalization is invariant, since the system layer has no ICU (RFC 0015 section 8)",
     "System.Numerics.Tests.op_rightshiftTest.LargeNegativeBigIntegerShiftTest": "builds a BigInteger of 2^31 bits twice, 256 MB each, past the pages a process commits (the system layer's quota, 256 MiB)"
   }
 }

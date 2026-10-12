@@ -92,6 +92,33 @@ static __attribute__((__noreturn__)) void fail_fast(const char *text)
     }
 }
 
+/* fail_fast with the kernel's status and the program counter of the context concerned, in hexadecimal: what a refused
+ * resume needs to be told apart. */
+static __attribute__((__noreturn__)) void fail_fast_status(const char *text, WitU64 status, WitU64 pc)
+{
+    static const char digits[] = "0123456789abcdef";
+    char line[160];
+    size_t length = strlen(text);
+    if (length > sizeof(line) - 48) {
+        length = sizeof(line) - 48;
+    }
+    memcpy(line, text, length);
+    const WitU64 values[2] = {status, pc};
+    const char *labels[2] = {" (status 0x", ", pc 0x"};
+    for (int i = 0; i < 2; ++i) {
+        for (const char *label = labels[i]; *label; ++label) {
+            line[length++] = *label;
+        }
+        for (int shift = 60; shift >= 0; shift -= 4) {
+            line[length++] = digits[(values[i] >> shift) & 15];
+        }
+    }
+    line[length++] = ')';
+    line[length++] = '\n';
+    line[length] = 0;
+    fail_fast(line);
+}
+
 /* The default action of a signal raised by tkill: ignored, or the process ends with WIT_EXIT_SIGNAL(sig), which waitpid
  * reports as a death by that signal (S6.1; a shell shows 128 + the signal); stop and continue signals are refused at
  * the raise. */
@@ -391,8 +418,10 @@ static __attribute__((__noreturn__, __noinline__)) void resume_frame(WitU64 toke
         local->HeldPending = 0;
         __wit_signal_rearm(frame->State);
     }
-    wit_syscall(WIT_CALL_EXCEPTION_CONTINUE, token, (WitU64)&frame->Transfer, sizeof(frame->Transfer), &result);
-    fail_fast("[LIBC] the context of an interrupted thread could not be resumed\n");
+    const WitU64 status =
+        wit_syscall(WIT_CALL_EXCEPTION_CONTINUE, token, (WitU64)&frame->Transfer, sizeof(frame->Transfer), &result);
+    fail_fast_status("[LIBC] the context of an interrupted thread could not be resumed", status,
+        CONTEXT_PC(&frame->Transfer.Context));
 }
 
 static void deliver(WitU64 token, WitU64 vector, WitU64 address);
@@ -549,12 +578,12 @@ void __wit_sigreturn(SignalFrame *frame)
  * mode. Its delivery never comes back here. */
 void __wit_sigreturn_raise(void)
 {
-    WitU64 result = 0;
-    while (wit_syscall(WIT_CALL_THREAD_ACTIVATE, WIT_THREAD_SELF, (WitU64)__wit_sigreturn_activation, 0, &result) ==
-        WIT_STATUS_NO_MEMORY) {
+    WitU64 result = 0, status;
+    while ((status = wit_syscall(WIT_CALL_THREAD_ACTIVATE, WIT_THREAD_SELF, (WitU64)__wit_sigreturn_activation, 0,
+                &result)) == WIT_STATUS_NO_MEMORY) {
         wit_syscall(WIT_CALL_THREAD_YIELD, 0, 0, 0, &result);
     }
-    fail_fast("[LIBC] the context of an interrupted thread could not be resumed\n");
+    fail_fast_status("[LIBC] sigreturn's activation could not be raised", status, (WitU64)__wit_sigreturn_activation);
 }
 
 /* rt_sigaction(sig, act, old, 8): musl's k_sigaction; the kernel restorer is never used here. */

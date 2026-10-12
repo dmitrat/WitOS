@@ -711,6 +711,8 @@ internal static class RuntimeWitos
             (MuslLibc.InterpreterPath(architecture).TrimStart('/'), Path.Combine(lib, "libc.so")),
             ("lib/libc++.so.1", Path.Combine(lib, "libc++.so.1")), ("lib/libc++abi.so.1", Path.Combine(lib, "libc++abi.so.1")),
             ("lib/libunwind.so.1", Path.Combine(lib, "libunwind.so.1")),
+            // ICU (R4.3), which System.Globalization.Native loads for culture data.
+            .. await Icu.PackageFilesAsync(root, architecture),
             ("etc/dotnet/install_location", installLocation),
             ("dotnet/dotnet", Path.Combine(corehost, "dotnet")),
             ($"dotnet/host/fxr/{version}/libhostfxr.so", Path.Combine(corehost, "libhostfxr.so")),
