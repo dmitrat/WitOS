@@ -57,5 +57,17 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     /// </summary>
     public string? DataDisk { get; init; }
 
+    /// <summary>
+    /// A line after which the runner kills QEMU where it stands, without asking it to quit, as a power cut ends a machine
+    /// (D6.2): the boot an <see cref="ExpectedOutcome.Cut"/> request judges by what it printed before; none when null.
+    /// </summary>
+    public string? CutAfter { get; init; }
+
+    /// <summary>
+    /// The longest wall-clock wait between <see cref="CutAfter"/>'s line and the cut, chosen at random up to it, so that
+    /// cuts fall anywhere in the guest's work rather than right after the line (D6.2).
+    /// </summary>
+    public int CutJitterMilliseconds { get; init; }
+
     #endregion
 }

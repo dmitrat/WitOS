@@ -93,15 +93,19 @@ internal static class Processes
     /// <param name="outputPath">Standard output file.</param>
     /// <param name="errorPath">Standard error file.</param>
     /// <param name="control">Stop callback.</param>
-    /// <returns>Exit code, file contents and timeout state.</returns>
+    /// <param name="cut">Ends the run at once, as a timeout does but without the stop callback: the child is killed where
+    /// it stands, as a power cut ends a machine (D6.2).</param>
+    /// <returns>Exit code, file contents and timeout state; a cut run reports a timeout.</returns>
     public static async Task<ProcessResult> RunWithFilesAsync(string executable, IEnumerable<string> arguments,
-        string directory, int timeoutSeconds, string outputPath, string errorPath, Func<CancellationToken, Task> control)
+        string directory, int timeoutSeconds, string outputPath, string errorPath, Func<CancellationToken, Task> control,
+        CancellationToken cut = default)
     {
         if (timeoutSeconds <= 0)
             throw new ArgumentOutOfRangeException(nameof(timeoutSeconds));
         if (!OperatingSystem.IsWindows())
-            return await RunWithFilesUnixAsync(executable, arguments, directory, timeoutSeconds, outputPath, errorPath, control);
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+            return await RunWithFilesUnixAsync(executable, arguments, directory, timeoutSeconds, outputPath, errorPath, control, cut);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cut);
+        deadline.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
         using var output = File.OpenHandle(outputPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
         using var error = File.OpenHandle(errorPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
         using var child = WindowsChildProcess.StartWithFiles(executable, arguments, directory, output, error);
@@ -123,7 +127,7 @@ internal static class Processes
         catch (OperationCanceledException) when (deadline.IsCancellationRequested) { timedOut = true; }
         catch (Exception exception) { failure = exception; }
         var cleanup = Stopwatch.StartNew();
-        if (timedOut)
+        if (timedOut && !cut.IsCancellationRequested)
             failure = await RequestStopAsync((_, _, token) => control(token), Stream.Null, () => "", cleanup) ?? failure;
         try
         {
@@ -317,9 +321,11 @@ internal static class Processes
     // File-backed standard streams on a Unix host (plan step T2.1a): the runner copies the child's pipes into the files,
     // bounded as on Windows, and the files remain on cleanup failure.
     private static async Task<ProcessResult> RunWithFilesUnixAsync(string executable, IEnumerable<string> arguments,
-        string directory, int timeoutSeconds, string outputPath, string errorPath, Func<CancellationToken, Task> control)
+        string directory, int timeoutSeconds, string outputPath, string errorPath, Func<CancellationToken, Task> control,
+        CancellationToken cut)
     {
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cut);
+        deadline.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
         using var stopIo = new CancellationTokenSource();
         using var child = UnixChildProcess.Start(executable, arguments, directory, null);
         child.Input.Dispose();
@@ -355,7 +361,7 @@ internal static class Processes
         catch (OperationCanceledException) when (deadline.IsCancellationRequested) { timedOut = true; }
         catch (Exception exception) { failure = exception; }
         var cleanup = Stopwatch.StartNew();
-        if (timedOut)
+        if (timedOut && !cut.IsCancellationRequested)
             failure = await RequestStopAsync((_, _, token) => control(token), Stream.Null, () => "", cleanup) ?? failure;
         try
         {
