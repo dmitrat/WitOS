@@ -12,8 +12,9 @@
 /* The root task of the system layer (plan step S6.1, RFC 0011 v3 sections 7.11 and 9.3): the first component the
  * kernel starts, a static program over the libc and libwitos. It runs the process manager: it starts /bin/init from
  * the boot package with the initial environment, serves the spawn requests of every process that descends from it,
- * and ends with /bin/init's status once /bin/init ends; the kernel ends every remaining process with the root task. A
- * root task that exits with anything but zero is a failed boot. When the package has the device manager (D1.1, ADR
+ * and once /bin/init ends, stops the services it started (D6.1) and ends with /bin/init's status; the kernel ends every
+ * remaining process with the root task. A root task that exits with anything but zero, or whose services did not
+ * stop, is a failed boot. When the package has the device manager (D1.1, ADR
  * 0025), the root task starts it first and moves the device table to it over the channel it grants it, keeps no
  * device authority, and starts /bin/init once the device manager answered or ended. */
 
@@ -24,6 +25,7 @@
 #endif
 
 #define INIT "/bin/init"
+#define STOP_SECONDS 60U /* how long the services may take to stop, in guest time */
 
 /* The device manager's service: its channel, with the device table already sent over it; 0 when the package has no
  * device manager, an errno value when the channel or the table could not be prepared. The root task moves its own
@@ -62,6 +64,7 @@ int main(void)
     static char *envp[] = {"PATH=/bin:/usr/bin", "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1", 0};
     WitProcessInfo info;
     witos_service device_manager;
+    int stopped = 0;
     memset(&info, 0, sizeof(info));
     const int prepared = prepare_device_manager(&device_manager);
     if (prepared) {
@@ -76,6 +79,12 @@ int main(void)
             printf("[ROOT-TASK] " WIT_DEVICE_MANAGER_PATH " was not ready: %s\n", strerror(device_manager.status));
         } else {
             printf("[ROOT-TASK] " WIT_DEVICE_MANAGER_PATH " was ready before " INIT "\n");
+            /* The services stop before the root task ends, which would end them where they stand: the device manager
+             * stops the namespace service, which unmounts its volumes, and the drivers (D6.1). */
+            stopped = witos_manager_stop_services(&device_manager, services, STOP_SECONDS);
+            printf(stopped ? "[ROOT-TASK] " WIT_DEVICE_MANAGER_PATH " did not stop: %s\n"
+                           : "[ROOT-TASK] " WIT_DEVICE_MANAGER_PATH " stopped%s\n",
+                stopped ? strerror(stopped) : "");
         }
         witos_handle_close(device_manager.ready);
         witos_handle_close(device_manager.process);
@@ -89,5 +98,5 @@ int main(void)
         return 1;
     }
     printf("[ROOT-TASK] " INIT " exited with %llu\n", (unsigned long long)info.ExitCode);
-    return info.ExitCode == 0 ? 0 : 1;
+    return info.ExitCode == 0 && !stopped ? 0 : 1;
 }

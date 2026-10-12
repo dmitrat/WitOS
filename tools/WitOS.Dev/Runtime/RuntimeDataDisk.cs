@@ -160,9 +160,10 @@ internal static class RuntimeDataDisk
     /// the medium, not a cache of the guest's.
     /// </summary>
     /// <param name="path">The image's path after the boot.</param>
+    /// <param name="boots">The boots of the disk so far, which the ext4 volume's /boots.txt must count (D6.1); 0 to skip.</param>
     /// <returns>What the FAT partition's check found.</returns>
     /// <exception cref="InvalidOperationException">The image holds other bytes, or the volume is not clean.</exception>
-    public static async Task<FileSystemCheckReport> CheckAsync(string path)
+    public static async Task<FileSystemCheckReport> CheckAsync(string path, int boots = 0)
     {
         var image = await File.ReadAllBytesAsync(path);
         var start = (int)(TEST_PARTITION_FIRST_BLOCK * BLOCK);
@@ -194,7 +195,7 @@ internal static class RuntimeDataDisk
             var volumeImage = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path))!, "ext4-written.img");
             await File.WriteAllBytesAsync(volumeImage,
                 image.AsMemory((int)(EXT4_PARTITION_FIRST_BLOCK * BLOCK), (int)((EXT4_PARTITION_LAST_BLOCK - EXT4_PARTITION_FIRST_BLOCK + 1) * BLOCK)));
-            await RuntimeExt4Volume.CheckAsync(volumeImage);
+            await RuntimeExt4Volume.CheckAsync(volumeImage, boots);
         }
         return report;
     }

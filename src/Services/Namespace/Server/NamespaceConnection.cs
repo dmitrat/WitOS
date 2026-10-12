@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using OutWit.OS.Communication;
 using OutWit.OS.Namespaces;
@@ -8,7 +9,8 @@ namespace OutWit.OS.Namespace.Server;
 
 /// <summary>
 /// A client connected (plan step D5.1): its session channel and window, served on a thread of its own, one request at
-/// a time, until the client closes its end, which closes everything it opened.
+/// a time, until the client closes its end, which closes everything it opened, or the service stops (D6.1), after which
+/// every request is refused with ESHUTDOWN.
 /// </summary>
 internal sealed class NamespaceConnection
 {
@@ -16,13 +18,19 @@ internal sealed class NamespaceConnection
 
     private const string PREFIX = "[NAMESPACE] ";
 
+    private const int SHUTDOWN = 108; // ESHUTDOWN
+
     #endregion
 
     #region Fields
 
+    private static readonly List<NamespaceConnection> m_live = [];
+
     private readonly Channel m_channel;
     private readonly MappedWindow m_window;
     private readonly NamespaceSession m_session;
+    private readonly object m_gate = new();
+    private bool m_stopped;
 
     #endregion
 
@@ -67,6 +75,8 @@ internal sealed class NamespaceConnection
         try
         {
             var connection = new NamespaceConnection(channel, MappedWindow.Map(message.Handles[1], (int)request.Length), mounts);
+            lock (m_live)
+                m_live.Add(connection);
             new Thread(connection.Serve) { IsBackground = true, Name = "namespace session" }.Start();
             return true;
         }
@@ -76,6 +86,27 @@ internal sealed class NamespaceConnection
             channel.Dispose();
             return false;
         }
+    }
+
+    /// <summary>
+    /// Stops every session (D6.1): each finishes the request it is serving, closes the files it opened and refuses every
+    /// later request.
+    /// </summary>
+    /// <returns>The sessions stopped.</returns>
+    public static int StopAll()
+    {
+        NamespaceConnection[] live;
+        lock (m_live)
+            live = [.. m_live];
+        foreach (var connection in live)
+        {
+            lock (connection.m_gate)
+            {
+                connection.m_stopped = true;
+                connection.m_session.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            }
+        }
+        return live.Length;
     }
 
     // The session's requests until the client closes its end.
@@ -99,15 +130,20 @@ internal sealed class NamespaceConnection
                         m_channel.Send(reply);
                         continue;
                     }
-                    try
+                    lock (m_gate)
                     {
-                        reply = NamespaceMessages.Encode(m_session.HandleAsync(request).AsTask().GetAwaiter().GetResult());
-                    }
-                    catch (Exception exception) when (exception is not CapabilityException)
-                    {
-                        // A failure the session does not translate: the client gets EIO, the log the failure.
-                        Console.WriteLine($"{PREFIX}request {request.Operation} failed: {exception.GetType().Name}: {exception.Message}");
-                        reply = NamespaceMessages.Encode(new NamespaceReply(request.Operation, 5));
+                        try
+                        {
+                            reply = NamespaceMessages.Encode(m_stopped
+                                ? new NamespaceReply(request.Operation, SHUTDOWN)
+                                : m_session.HandleAsync(request).AsTask().GetAwaiter().GetResult());
+                        }
+                        catch (Exception exception) when (exception is not CapabilityException)
+                        {
+                            // A failure the session does not translate: the client gets EIO, the log the failure.
+                            Console.WriteLine($"{PREFIX}request {request.Operation} failed: {exception.GetType().Name}: {exception.Message}");
+                            reply = NamespaceMessages.Encode(new NamespaceReply(request.Operation, 5));
+                        }
                     }
                 }
                 m_channel.Send(reply);
@@ -118,7 +154,10 @@ internal sealed class NamespaceConnection
         }
         finally
         {
-            m_session.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            lock (m_live)
+                m_live.Remove(this);
+            lock (m_gate)
+                m_session.DisposeAsync().AsTask().GetAwaiter().GetResult();
             m_window.Dispose();
             m_channel.Dispose();
         }

@@ -297,6 +297,57 @@ int witos_manager_run_services(witos_service *services, WitU32 count, const char
     return error;
 }
 
+/* The monotonic deadline seconds from now, or none when the clock cannot be read. */
+static WitU64 deadline_after(WitU32 seconds)
+{
+    WitU64 now = 0, frequency = 0;
+    if (wit_syscall(WIT_CALL_CLOCK_READ, WIT_CLOCK_MONOTONIC, 0, 0, &now) != WIT_STATUS_OK ||
+        wit_syscall(WIT_CALL_CLOCK_FREQUENCY, WIT_CLOCK_MONOTONIC, 0, 0, &frequency) != WIT_STATUS_OK) {
+        return WIT_WAIT_INFINITE;
+    }
+    return now + frequency * seconds;
+}
+
+int witos_manager_stop_services(witos_service *services, WitU32 count, WitU32 seconds)
+{
+    const WitU64 deadline = deadline_after(seconds);
+    int first = 0;
+    for (WitU32 i = count; i-- > 0;) {
+        witos_service *service = &services[i];
+        if (service->status || !service->process || !service->ready) {
+            continue;
+        }
+        WitServiceStop stop = {WIT_MANAGER_VERSION, sizeof(stop), WIT_SERVICE_STOP, 0, deadline};
+        WitChannelMessage message;
+        WitUserWaitRequest wait;
+        WitU64 result = 0, waited[2] = {service->ready, service->process}, status;
+        memset(&message, 0, sizeof(message));
+        message.Version = WIT_CHANNEL_MESSAGE_VERSION;
+        message.Size = sizeof(message);
+        message.Data = (WitU64)&stop;
+        message.Bytes = sizeof(stop);
+        memset(&wait, 0, sizeof(wait));
+        wait.Version = WIT_WAIT_OBJECTS_VERSION;
+        wait.Size = sizeof(wait);
+        wait.Handles = (WitU64)waited;
+        wait.Count = 2;
+        wait.Deadline = deadline;
+        status = wit_syscall(WIT_CALL_CHANNEL_SEND, service->ready, (WitU64)&message, sizeof(message), &result);
+        if (status == WIT_STATUS_OK) {
+            while ((status = wit_syscall(WIT_CALL_OBJECT_WAIT, (WitU64)&wait, sizeof(wait), 0, &result)) ==
+                WIT_STATUS_INTERRUPTED) {
+            }
+        }
+        service->status = status == WIT_STATUS_OK ? service_status(service->ready)
+            : status == WIT_STATUS_TIMED_OUT      ? ETIMEDOUT
+                                                  : ECHILD;
+        if (service->status && !first) {
+            first = service->status;
+        }
+    }
+    return first;
+}
+
 int witos_manager_run(const char *path, char *const argv[], char *const envp[], WitProcessInfo *info)
 {
     return witos_manager_run_services(0, 0, path, argv, envp, info);

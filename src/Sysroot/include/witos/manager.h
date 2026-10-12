@@ -58,6 +58,21 @@ typedef struct WitServiceStatus {
 
 WIT_STATIC_ASSERT(sizeof(WitServiceStatus) == 16, "Service status");
 
+/* A creator's request that its service stop (D6.1), on the channel it granted the service: the service stops the
+ * services it started, ends its own work so that nothing of it is lost (a filesystem unmounts its volumes, storage
+ * document section 98) and answers a WitServiceStatus, zero or the errno value of what it could not finish, before it
+ * ends. Deadline is the absolute monotonic deadline by which the creator waits for the answer (WIT_WAIT_INFINITE for
+ * none); a service passes it on to the services it stops. */
+#define WIT_SERVICE_STOP 2U
+
+typedef struct WitServiceStop {
+    WitU32 Version, Size; /* WIT_MANAGER_VERSION, the size of this structure */
+    WitU32 Operation, Reserved; /* WIT_SERVICE_STOP */
+    WitU64 Deadline;
+} WitServiceStop;
+
+WIT_STATIC_ASSERT(sizeof(WitServiceStop) == 24, "Service stop");
+
 /* The exit code with which the libc ends a process whose signal's default action terminates it (S6.1): waitpid
  * reports it as WIFSIGNALED with the signal. Codes 0 to 255 are exit statuses. */
 #define WIT_EXIT_SIGNALED 0x10000ULL

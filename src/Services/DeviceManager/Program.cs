@@ -18,7 +18,8 @@ namespace OutWit.OS.DeviceManager;
 /// record and prints its discovery line (Implementation Strategy §44), starts the driver of every device its driver
 /// table matches and moves the device to it, probes the disk of every block driver through its block channel (D3.2),
 /// starts the namespace service with the disks (D5.1), answers that it is ready with the namespace's endpoint, and
-/// serves its channel until the root task ends.
+/// serves its channel until the root task asks it to stop (D6.1), when it stops the namespace service, which unmounts
+/// its volumes, then the drivers, and answers.
 /// </summary>
 internal static class Program
 {
@@ -65,7 +66,7 @@ internal static class Program
                 channel.Send(ServiceStatus.Encode(0), clients); // the namespace for every process the root task starts
             else
                 channel.Send(ServiceStatus.Encode(0));
-            var status = Serve(channel);
+            var status = Serve(channel, names, drivers);
             foreach (var (_, disk) in disks)
                 disk.DisposeAsync().AsTask().GetAwaiter().GetResult();
             names?.Dispose();
@@ -141,21 +142,48 @@ internal static class Program
         }
     }
 
-    // The channel until the root task's end closes it.
-    private static int Serve(Channel channel)
+    // The channel until the root task asks the device manager to stop (D6.1) or ends: a stop stops the namespace service
+    // first, since its volumes lie on the drivers' disks, then each driver, and the answer is the first error of theirs.
+    private static int Serve(Channel channel, NamespaceActivation? names, IReadOnlyList<DriverActivation> drivers)
     {
         for (; ; )
         {
+            ChannelMessage message;
             try
             {
-                using var message = channel.Receive();
-                Console.WriteLine($"{PREFIX}a request of {message.Bytes.Length} bytes, which the device manager does not serve yet");
+                message = channel.Receive();
             }
             catch (CapabilityException exception) when (exception.Error == Channel.PEER_CLOSED)
             {
                 return 0;
             }
+            using (message)
+            {
+                if (!ServiceStop.TryDecode(message.Bytes, out var deadline))
+                {
+                    Console.WriteLine($"{PREFIX}a request of {message.Bytes.Length} bytes, which the device manager does not serve yet");
+                    continue;
+                }
+                var error = 0;
+                if (names is { Status: 0 })
+                    error = Report($"namespace service {NamespaceActivation.PATH}", ServiceStop.Request(names.Channel, names.Process, deadline));
+                foreach (var driver in drivers.Where(driver => driver.Status == 0))
+                {
+                    var stopped = Report($"driver {driver.Path} of {driver.Record.Id}", ServiceStop.Request(driver.Channel, driver.Process, deadline));
+                    error = error != 0 ? error : stopped;
+                }
+                Console.WriteLine($"{PREFIX}device manager: {(error == 0 ? "stopped" : $"stopped, errno {error}")}");
+                channel.Send(ServiceStatus.Encode(error));
+                return error == 0 ? 0 : 1;
+            }
         }
+    }
+
+    // A stopped service's line; its answer.
+    private static int Report(string service, int status)
+    {
+        Console.WriteLine(status == 0 ? $"{PREFIX}{service}: stopped" : $"{PREFIX}{service}: did not stop, errno {status}");
+        return status;
     }
 
     #endregion

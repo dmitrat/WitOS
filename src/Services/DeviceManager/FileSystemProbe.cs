@@ -13,7 +13,8 @@ namespace OutWit.OS.DeviceManager;
 /// The device manager's proof of the FAT provider (plan step D4.1), until the namespace service of D5 mounts volumes:
 /// the boot disk's FAT16 volume read through its driver's block channel and checked, and the data disk's FAT partition
 /// written — a directory, a file of several clusters and a note — flushed, checked, mounted again and read back. The
-/// host formats that partition with the same provider and reads what the guest wrote after the boot.
+/// host formats that partition with the same provider and reads what the guest wrote after the boot. On a partition a
+/// previous boot wrote (D6.1), the probe first reads back what it left.
 /// </summary>
 internal static class FileSystemProbe
 {
@@ -88,6 +89,16 @@ internal static class FileSystemProbe
         {
             Console.WriteLine($"{PREFIX}fat {id}: partition \"{FAT_PARTITION}\": {Describe(volume)}, {HOST_FILE} says " +
                 $"\"{await ReadTextAsync(volume, HOST_FILE)}\"");
+            if (await volume.GetEntryAsync(GUEST_FILE) is not null)
+            {
+                var before = new byte[GUEST_FILE_BYTES];
+                await using (var file = await volume.OpenAsync(GUEST_FILE, FileMode.Open, FileAccess.Read))
+                    await file.ReadAsync(0, before);
+                Console.WriteLine($"{PREFIX}fat {id}: partition \"{FAT_PARTITION}\": after the reboot, " +
+                    (before.AsSpan().SequenceEqual(bytes) && await ReadTextAsync(volume, GUEST_NOTE) == Note()
+                        ? "read back what a previous boot wrote"
+                        : "read back other bytes than a previous boot wrote"));
+            }
             await volume.CreateDirectoryAsync("/guest");
             await using (var file = await volume.OpenAsync(GUEST_FILE, FileMode.Create, FileAccess.Write))
                 await file.WriteAsync(0, bytes);

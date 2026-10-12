@@ -134,18 +134,26 @@ internal static class RuntimeDevices
         var programs = await BuildVolumeProgramsAsync(root, Path.GetDirectoryName(image)!, architecture, files);
         var dataDisk = Path.Combine(Path.GetDirectoryName(image)!, "data-disk.img");
         await RuntimeDataDisk.CreateAsync(dataDisk, programs: programs);
-        await BootScenarioRunner.RunAsync(root, image, new BootRequest($"{architecture.Name}-runtime-devices-512", 512, 1200, ExpectedOutcome.Success)
+        // Two boots of one data disk (D6.1): the first writes it, the services stop and unmount its volumes, and the second
+        // finds what the first wrote; the host judges the disk after each.
+        OutWit.OS.FileSystems.FileSystemCheckReport? check = null;
+        for (var boot = 1; boot <= 2; boot++)
         {
-            Architecture = architecture,
-            Suite = BootSuite.Release,
-            RequiredLines = RequiredLines(architecture),
-            DataDisk = dataDisk
-        });
-        var check = await RuntimeDataDisk.CheckAsync(dataDisk);
+            await BootScenarioRunner.RunAsync(root, image, new BootRequest($"{architecture.Name}-runtime-devices-512-boot{boot}", 512, 1200,
+                ExpectedOutcome.Success)
+            {
+                Architecture = architecture,
+                Suite = BootSuite.Release,
+                RequiredLines = RequiredLines(architecture, boot),
+                DataDisk = dataDisk
+            });
+            check = await RuntimeDataDisk.CheckAsync(dataDisk, boot);
+        }
         Console.WriteLine($"Devices on witos-{architecture.Name}: the device manager discovered the devices, moved each disk to its " +
             $"driver and wrote the data disk through the block protocol and the FAT provider before /bin/init; the image holds the " +
-            $"{RuntimeDataDisk.TEST_PATTERN_BYTES} bytes and the guest's files on a clean FAT volume ({check.Files} files, " +
-            $"{check.Directories} directories), and e2fsck finds clean the ext4 partition the guest wrote, whose files debugfs reads.");
+            $"{RuntimeDataDisk.TEST_PATTERN_BYTES} bytes and the guest's files on a clean FAT volume ({check!.Files} files, " +
+            $"{check.Directories} directories), and e2fsck finds clean the ext4 partition the guest wrote and unmounted, whose files " +
+            "debugfs reads after each of two boots of the disk.");
     }
 
     /// <summary>
@@ -153,7 +161,17 @@ internal static class RuntimeDevices
     /// </summary>
     /// <param name="architecture">Target architecture.</param>
     /// <returns>The required lines.</returns>
-    public static string[] RequiredLines(KernelArchitecture architecture) =>
+    public static string[] RequiredLines(KernelArchitecture architecture, int boot = 1) =>
+    [
+        .. FirstLines(),
+        .. boot > 1 ? [$": partition \"{RuntimeDataDisk.TEST_PARTITION}\": holds the {RuntimeDataDisk.TEST_PATTERN_BYTES} bytes a previous boot wrote",
+            $": partition \"{RuntimeDataDisk.FAT_PARTITION}\": after the reboot, read back what a previous boot wrote"] : Array.Empty<string>(),
+        .. boot > 1 ? AfterRebootExt4Lines() : FirstExt4Lines(),
+        .. LastLines(architecture, boot)
+    ];
+
+    // What every boot of the scenario prints first: discovery, the drivers, the disks and the FAT volumes.
+    private static string[] FirstLines() =>
     [
         "[DEVICES] Device discovered: Class: BlockStorageController, Provider: Virtio, DeviceId: pci/",
         "[DEVICES] Device discovered: Class: EntropySource, Provider: Virtio, DeviceId: pci/",
@@ -185,7 +203,12 @@ internal static class RuntimeDevices
         $": partition \"{RuntimeDataDisk.FAT_PARTITION}\": mounted again, /guest holds written.bin ({RuntimeDataDisk.GUEST_FILE_BYTES} bytes), " +
             "note.txt (",
         ", read back what it wrote",
-        $"[DEVICES] ext4 pci/",
+        $"[DEVICES] ext4 pci/"
+    ];
+
+    // The ext4 probe on the volume as the host made it: read, written through the journal and read back (D4.2, D4.3).
+    private static string[] FirstExt4Lines() =>
+    [
         $": partition \"{RuntimeDataDisk.EXT4_PARTITION}\": ext4 volume \"{RuntimeExt4Volume.LABEL}\" of " +
             $"{(RuntimeDataDisk.EXT4_PARTITION_LAST_BLOCK - RuntimeDataDisk.EXT4_PARTITION_FIRST_BLOCK + 1) * 512} bytes in blocks of 4096, writable, " +
             $"/ holds big.bin, docs, hello.txt, link, lost+found, many, {RuntimeExt4Volume.PROGRAMS}",
@@ -197,7 +220,22 @@ internal static class RuntimeDevices
             $"{RuntimeExt4Volume.GUEST_ADDED} entries to /many, removed /docs/readme.txt, moved /link to /guest/link, through the journal",
         $": mounted again, /guest holds link, logs, note.txt, /many holds {RuntimeExt4Volume.MANY + RuntimeExt4Volume.GUEST_ADDED} entries, " +
             $"read back what it wrote, check clean ({RuntimeExt4Volume.MANY + 3 - 1 + 2 + RuntimeExt4Volume.GUEST_ADDED + VOLUME_PROGRAMS.Length} files, " +
-            $"{6 + VolumeDirectories} directories)",
+            $"{6 + VolumeDirectories} directories)"
+    ];
+
+    // The ext4 probe on the volume a previous boot wrote and unmounted (D6.1): read back, with the files /bin/init, the
+    // System.IO check and the boot count left beside the probe's.
+    private static string[] AfterRebootExt4Lines() =>
+    [
+        ": a previous boot wrote the volume and unmounted it cleanly: no transaction to replay",
+        $": after the reboot, /guest holds link, logs, note.txt, /many holds {RuntimeExt4Volume.MANY + RuntimeExt4Volume.GUEST_ADDED} entries, " +
+            $"read back what it wrote, check clean ({RuntimeExt4Volume.MANY + 3 - 1 + 2 + RuntimeExt4Volume.GUEST_ADDED + VOLUME_PROGRAMS.Length + 3} files, " +
+            $"{6 + VolumeDirectories} directories)"
+    ];
+
+    // What every boot prints after the probes: the namespace service, /bin/init and its programs, and the stop (D6.1).
+    private static string[] LastLines(KernelArchitecture architecture, int boot) =>
+    [
         $"[DEVICES] device manager on {(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: ",
         " 2 drivers ready, DMA isolation: none (no IOMMU), ready",
         "[NAMESPACE] mounted /boot: FAT16 volume of ",
@@ -206,6 +244,8 @@ internal static class RuntimeDevices
         $"[NAMESPACE] mounted /fat: FAT",
         "[NAMESPACE] namespace service: 3 volumes mounted, serving their files",
         "[DEVICES] namespace service /system/Namespace with 2 disks: ready",
+        $"[DEVICES-INIT] boot {boot} of the data disk",
+        .. boot > 1 ? ["[DEVICES-INIT] /data/posix-kept.txt and /data/dotnet-kept.txt hold what the previous boot wrote: yes"] : Array.Empty<string>(),
         "[DEVICES-INIT] POSIX files over the namespace service: ",
         " checks passed, 0 failed",
         $"[FILES] System.IO over the namespace service under NativeAOT on {(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: " +
@@ -217,6 +257,11 @@ internal static class RuntimeDevices
             $"{(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: {VOLUME_GREETING}, answered by VolumeLibrary",
         "[DEVICES-INIT] /dotnet/dotnet exited with 0",
         "[ROOT-TASK] /system/DeviceManager was ready before /bin/init",
+        ", 3 volumes unmounted",
+        "[DEVICES] namespace service /system/Namespace: stopped",
+        ": stopped, the device reset",
+        "[DEVICES] device manager: stopped",
+        "[ROOT-TASK] /system/DeviceManager stopped",
         architecture.RootTaskPassedLine
     ];
 
