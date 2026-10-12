@@ -16,11 +16,14 @@
  * (processes, channels, memory objects, pages, handles); nothing of a failed start remains. */
 int witos_spawn(WitU64 *process, const char *path, char *const argv[], char *const envp[]);
 
-/* What a start passes beyond the program, its arguments and its environment (S6.1, S6.2). */
+/* What a start passes beyond the program, its arguments and its environment (S6.1, S6.2, D1.1). */
 typedef struct witos_spawn_options {
     WitU64 manager; /* the process manager's endpoint, duplicated with SEND into the process; zero for none */
     const char *directory; /* the initial directory, an absolute path of the package; null for "/" */
     WitU32 closed_streams; /* bit n: the process starts without standard descriptor n */
+    WitU32 reserved; /* zero */
+    WitU64 grant; /* a capability the process starts with (D1.1): moved into its start message, closed when the start
+                     fails; zero for none */
 } witos_spawn_options;
 
 /* witos_spawn with options; null options are witos_spawn's. */
@@ -31,6 +34,21 @@ int witos_spawn_ex(
  * serves the spawn requests of every process it starts and of theirs, until the first process ends, and copies that
  * process's record to *info. Returns 0 or an errno value of the first start; the root task runs it. */
 int witos_manager_run(const char *path, char *const argv[], char *const envp[], WitProcessInfo *info);
+
+/* A service the process manager starts before its first process (D1.1, ADR 0025). */
+typedef struct witos_service {
+    const char *path; /* a program of the boot package, started with its path as its one argument */
+    WitU64 grant; /* the end of a channel to the creator, moved into the service's start message */
+    WitU64 ready; /* the creator's end, on which the service answers with a WitServiceStatus (witos/manager.h) */
+    WitU64 process; /* out: the service's process (WAIT, QUERY, KILL, MANAGE), zero when it did not start */
+    int status; /* out: 0 when it answered that it is ready, its errno value, or ECHILD when it ended first */
+} witos_service;
+
+/* witos_manager_run that first starts each service in turn, serving requests until the service answered or ended, then
+ * the first process; the services run on until the first process ends and the root task with it. Every grant is moved
+ * or closed, and the ready ends stay the caller's. */
+int witos_manager_run_services(witos_service *services, WitU32 count, const char *path, char *const argv[],
+    char *const envp[], WitProcessInfo *info);
 
 /* Waits until the process ended and copies its record: State EXITED with ExitCode, or FAULTED. Returns 0 or an errno
  * value (EBADF for a handle that names no process); the handle stays open, and its close releases the record. */

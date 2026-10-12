@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The device manager (plan step D1.1, ADR 0025): the NativeAOT program /system/DeviceManager of the boot package,
+       which runtime-witos publishes for witos with the OutWit.OS sources. On the host the project builds and its
+       translation is tested. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>DeviceManager</AssemblyName>
+    <RootNamespace>OutWit.OS.DeviceManager</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../OutWit.OS/OutWit.OS.csproj" />
+    <InternalsVisibleTo Include="OutWit.OS.Tests" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The managed capability API of WitOS's own services (plan step D1.1, ADR 0025): libwitos through direct P/Invoke
+       in NativeAOT. runtime-witos compiles these sources into each service it publishes for witos; on the host the
+       project builds and its parsing is tested. Not published, not an application API until phase N. -->
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsAotCompatible>true</IsAotCompatible>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>OutWit.OS</RootNamespace>
+  </PropertyGroup>
+</Project>

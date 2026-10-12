@@ -35,7 +35,8 @@
  * Linux has /proc/self/exe, R3.2) and WIT_AT_START. The thread starts at the interpreter's entry, or the program's without one. The start message goes
  * out before the thread starts (witos/start.h): duplicates of the loader's log, WRITE alone, of the package, MAP,
  * EXECUTE and QUERY, and of the process manager's endpoint, SEND alone, when the start names one (S6.1), each with
- * TRANSFER, as a capability moves. The objects are charged to the loader while it lives;
+ * TRANSFER, as a capability moves, then the capability the start grants (D1.1), moved itself. The objects are charged
+ * to the loader while it lives;
  * the process's own memory to the process. A failed start closes what it made: the threadless process ends with its
  * last handle and takes its mappings along. */
 
@@ -403,11 +404,13 @@ typedef struct StartState {
     WitU32 ClosedStreams;
 } StartState;
 
-/* The start message: the package's size, the closed streams and the initial directory, and duplicates of the log,
- * the package and the manager's endpoint when there is one (S6.1), moved by the send. */
-static int send_start(WitU64 endpoint, WitU64 manager, const StartState *state)
+/* The start message: the package's size, the closed streams and the initial directory, duplicates of the log, the
+ * package and the manager's endpoint when there is one (S6.1), and the granted capability when there is one (D1.1),
+ * moved by the send; a moved grant is zeroed. */
+static int send_start(WitU64 endpoint, WitU64 manager, WitU64 *grant, const StartState *state)
 {
-    WitU64 handles[WIT_START_HANDLES_MAXIMUM] = {0, 0, 0}, result = 0;
+    WitU64 handles[WIT_START_HANDLES_MAXIMUM] = {0, 0, 0, 0}, result = 0;
+    WitU32 count = WIT_START_HANDLES, capabilities = 0;
 
     union {
         WitStartMessage Header;
@@ -422,8 +425,14 @@ static int send_start(WitU64 endpoint, WitU64 manager, const StartState *state)
             (WitU64)&handles[WIT_START_HANDLE_PACKAGE], PACKAGE_RIGHTS, &result);
     }
     if (status == WIT_STATUS_OK && manager) {
-        status = wit_syscall(
-            WIT_CALL_HANDLE_DUPLICATE, manager, (WitU64)&handles[WIT_START_HANDLE_MANAGER], MANAGER_RIGHTS, &result);
+        status = wit_syscall(WIT_CALL_HANDLE_DUPLICATE, manager, (WitU64)&handles[count], MANAGER_RIGHTS, &result);
+        count += status == WIT_STATUS_OK ? 1 : 0;
+        capabilities |= WIT_START_MANAGER;
+    }
+    const WitU32 granted = count;
+    if (status == WIT_STATUS_OK && *grant) {
+        handles[count++] = *grant;
+        capabilities |= WIT_START_GRANT;
     }
     if (status == WIT_STATUS_OK) {
         message.Header.Version = WIT_START_VERSION;
@@ -431,23 +440,26 @@ static int send_start(WitU64 endpoint, WitU64 manager, const StartState *state)
         message.Header.PackageBytes = __wit_process.PackageBytes;
         message.Header.ClosedStreams = state->ClosedStreams;
         message.Header.DirectoryBytes = state->DirectoryBytes;
+        message.Header.Capabilities = capabilities;
+        message.Header.Reserved = 0;
         memcpy(message.Bytes + sizeof(message.Header), state->Directory, state->DirectoryBytes);
         request.Version = WIT_CHANNEL_MESSAGE_VERSION;
         request.Size = sizeof(request);
         request.Data = (WitU64)&message;
         request.Handles = (WitU64)handles;
         request.Bytes = (WitU32)sizeof(message.Header) + state->DirectoryBytes;
-        request.HandleCount = manager ? WIT_START_HANDLES_MAXIMUM : WIT_START_HANDLES;
+        request.HandleCount = count;
         request.Flags = 0;
         request.Reserved = 0;
         status = wit_syscall(WIT_CALL_CHANNEL_SEND, endpoint, (WitU64)&request, sizeof(request), &result);
     }
     if (status != WIT_STATUS_OK) {
-        close_handle(handles[WIT_START_HANDLE_LOG]);
-        close_handle(handles[WIT_START_HANDLE_PACKAGE]);
-        close_handle(handles[WIT_START_HANDLE_MANAGER]);
+        for (WitU32 i = 0; i < granted; ++i) {
+            close_handle(handles[i]); /* the duplicates; the grant stays the caller's */
+        }
         return failure(status);
     }
+    *grant = 0;
     return 0;
 }
 
@@ -474,7 +486,7 @@ static int start_thread(WitU64 entry, WitU64 process, WitU64 stack_pointer)
 
 /* Everything after PROCESS_CREATE: the images, the stack, the start message, the thread. */
 static int load(const Program *p, const Program *interpreter, const char *path, char *const argv[], char *const envp[],
-    WitU64 process, WitU64 endpoint, WitU64 child, WitU64 manager, const StartState *state)
+    WitU64 process, WitU64 endpoint, WitU64 child, WitU64 manager, WitU64 *grant, const StartState *state)
 {
     WitU64 stack_pointer = 0;
     int error = map_image(p, process);
@@ -485,7 +497,7 @@ static int load(const Program *p, const Program *interpreter, const char *path, 
         error = build_stack(p, interpreter, path, argv, envp, child, process, &stack_pointer);
     }
     if (!error) {
-        error = send_start(endpoint, manager, state);
+        error = send_start(endpoint, manager, grant, state);
     }
     const Program *entry = interpreter ? interpreter : p;
     return error ? error : start_thread(entry->Base + entry->Header.e_entry, process, stack_pointer);
@@ -501,19 +513,21 @@ int witos_spawn_ex(
 {
     Program program, interpreter;
     StartState state;
-    WitU64 ends[2] = {0, 0}, handle = 0, child = 0, result = 0;
+    WitU64 ends[2] = {0, 0}, handle = 0, child = 0, result = 0, grant = options ? options->grant : 0;
     memset(&program, 0, sizeof(program));
     memset(&interpreter, 0, sizeof(interpreter));
     memset(&state, 0, sizeof(state));
     program.File = interpreter.File = -1;
     *process = 0;
     /* The initial directory, canonical and existing, and the closed streams, checked before anything opens (S6.2). */
-    if (options && (options->closed_streams & ~7U)) {
+    if (options && ((options->closed_streams & ~7U) || options->reserved)) {
+        close_handle(grant);
         return EINVAL;
     }
     if (options && options->directory) {
         const long length = __wit_directory_resolve(0, options->directory, state.Directory, sizeof(state.Directory));
         if (length < 0) {
+            close_handle(grant);
             return (int)-length;
         }
         state.DirectoryBytes = length > 1 ? (WitU32)length : 0; /* an absolute path; the root is no bytes */
@@ -542,13 +556,14 @@ int witos_spawn_ex(
         if (status == WIT_STATUS_OK) {
             ends[1] = 0; /* moved into the process */
             error = load(&program, program.Interpreter[0] ? &interpreter : 0, path, argv, envp, handle, ends[0], child,
-                options ? options->manager : 0, &state);
+                options ? options->manager : 0, &grant, &state);
         } else {
             error = failure(status);
         }
     }
     close_handle(ends[0]);
     close_handle(ends[1]);
+    close_handle(grant); /* a start that failed before its message: the grant ends here */
     if (program.File >= 0) {
         close(program.File);
     }

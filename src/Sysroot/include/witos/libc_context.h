@@ -14,6 +14,7 @@ typedef struct WitProcessContext {
     WitU64 Manager; /* the process manager's endpoint (S6.1); zero in the root task and without a manager */
     WitU32 ClosedStreams; /* bit n: standard descriptor n is closed (S6.2) */
     WitU32 Reserved;
+    WitU64 Grant; /* the capability the creator granted (D1.1, witos/start.h); zero without one and once taken */
 } WitProcessContext;
 
 extern WitProcessContext __wit_process;

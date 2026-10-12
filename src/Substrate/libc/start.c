@@ -10,9 +10,9 @@
  * envp and the auxiliary vector, whose WIT_AT_START entry is the endpoint PROCESS_CREATE installed. Before it started
  * the thread it sent the start message on the other end (witos/start.h): the kernel log and the boot package in the
  * handle slots and the package's size in the bytes. The library takes them into its context and closes the endpoint;
- * a process the process manager starts finds the manager's endpoint as a third capability (S6.1). A start without the
- * vector entry or a valid message ends the process with 127, the status a shell reports for a program that could not
- * run. */
+ * a process the process manager starts finds the manager's endpoint after them (S6.1), and a service the capability
+ * its creator granted it (D1.1), each where the message's Capabilities say. A start without the vector entry or a
+ * valid message ends the process with 127, the status a shell reports for a program that could not run. */
 
 WitProcessContext __wit_process;
 
@@ -42,7 +42,7 @@ static WitU64 start_endpoint(const unsigned long *stack)
 void __wit_start_program(const unsigned long *stack)
 {
     WitU64 endpoint = start_endpoint(stack), result = 0, status;
-    WitU64 handles[WIT_START_HANDLES_MAXIMUM] = {0, 0, 0};
+    WitU64 handles[WIT_START_HANDLES_MAXIMUM] = {0, 0, 0, 0};
 
     union {
         WitStartMessage Header;
@@ -77,21 +77,27 @@ void __wit_start_program(const unsigned long *stack)
         }
     }
     memcpy(&message, &received.Header, sizeof(message));
+    const WitU64 optional =
+        (message.Capabilities & WIT_START_MANAGER ? 1 : 0) + (message.Capabilities & WIT_START_GRANT ? 1 : 0);
     if (status != WIT_STATUS_OK ||
         (result & 0xFFFFFFFFULL) < sizeof(message) ||
-        (result >> 32) < WIT_START_HANDLES ||
         message.Version != WIT_START_VERSION ||
         message.Size != sizeof(message) ||
+        (message.Capabilities & ~WIT_START_CAPABILITIES) ||
+        message.Reserved ||
+        (result >> 32) != WIT_START_HANDLES + optional ||
         message.DirectoryBytes > WIT_START_DIRECTORY_MAXIMUM ||
         (result & 0xFFFFFFFFULL) != sizeof(message) + message.DirectoryBytes ||
         (message.ClosedStreams & ~7U) ||
         __wit_set_directory((const char *)received.Bytes + sizeof(message), message.DirectoryBytes) < 0) {
         refuse();
     }
+    WitU32 next = WIT_START_HANDLES;
     __wit_process.Log = handles[WIT_START_HANDLE_LOG];
     __wit_process.Package = handles[WIT_START_HANDLE_PACKAGE];
     __wit_process.PackageBytes = message.PackageBytes;
-    __wit_process.Manager = handles[WIT_START_HANDLE_MANAGER];
+    __wit_process.Manager = message.Capabilities & WIT_START_MANAGER ? handles[next++] : 0;
+    __wit_process.Grant = message.Capabilities & WIT_START_GRANT ? handles[next++] : 0;
     __wit_process.ClosedStreams = message.ClosedStreams;
     wit_syscall(WIT_CALL_HANDLE_CLOSE, endpoint, 0, 0, &result);
     __wit_thread_init(); /* the main thread's record and handle (S2, S3) */
