@@ -9,7 +9,7 @@ namespace WitOS.Dev.Runtime;
 /// The writable data disk of the runtime-devices scenario (plan steps D3.2, D4.1 and D4.2), written anew for every boot
 /// with OutWit.OS's own GPT writer and FAT provider and the host's e2fsprogs, and read again after the boot to require
 /// what the guest wrote: the test partition's raw pattern (the device manager's storage probe), the FAT partition's
-/// files (its filesystem probe), and the ext4 partition unchanged by the guest's read-only mount.
+/// files (its filesystem probe), and the ext4 partition the guest wrote through the journal, judged by e2fsprogs.
 /// </summary>
 internal static class RuntimeDataDisk
 {
@@ -188,9 +188,13 @@ internal static class RuntimeDataDisk
         var report = await volume.CheckAsync();
         if (!report.IsClean)
             throw new InvalidOperationException($"The data disk's FAT partition is not clean: {string.Join("; ", report.Problems)}");
-        var ext4 = File.Exists(Ext4Image(path)) ? await File.ReadAllBytesAsync(Ext4Image(path)) : null;
-        if (ext4 is not null && !image.AsSpan((int)(EXT4_PARTITION_FIRST_BLOCK * BLOCK), ext4.Length).SequenceEqual(ext4))
-            throw new InvalidOperationException("The guest's read-only mount changed the data disk's ext4 partition.");
+        if (File.Exists(Ext4Image(path)))
+        {
+            var volumeImage = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path))!, "ext4-written.img");
+            await File.WriteAllBytesAsync(volumeImage,
+                image.AsMemory((int)(EXT4_PARTITION_FIRST_BLOCK * BLOCK), (int)((EXT4_PARTITION_LAST_BLOCK - EXT4_PARTITION_FIRST_BLOCK + 1) * BLOCK)));
+            await RuntimeExt4Volume.CheckAsync(volumeImage);
+        }
         return report;
     }
 

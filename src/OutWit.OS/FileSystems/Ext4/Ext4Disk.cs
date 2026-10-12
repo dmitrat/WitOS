@@ -7,7 +7,8 @@ namespace OutWit.OS.FileSystems.Ext4;
 
 /// <summary>
 /// The block storage resource an ext4 volume lies on, read by byte ranges: a range the resource's alignment does not
-/// cover is read through the aligned range around it, and a range is cut at the resource's transfer limit.
+/// cover is read through the aligned range around it, and a range is cut at the resource's transfer limit. A writable
+/// mount writes the same way and flushes the resource (D4.3).
 /// </summary>
 internal sealed class Ext4Disk
 {
@@ -62,6 +63,42 @@ internal sealed class Ext4Disk
         aligned.AsMemory((int)(offset - start), buffer.Length).CopyTo(buffer);
     }
 
+    /// <summary>
+    /// Writes bytes of the resource; a range its alignment does not cover is merged into the aligned range around it.
+    /// </summary>
+    /// <param name="offset">The first byte.</param>
+    /// <param name="bytes">The bytes.</param>
+    /// <param name="cancellationToken">Cancels the writes.</param>
+    /// <returns>When the bytes are written.</returns>
+    public async ValueTask WriteAsync(long offset, ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken)
+    {
+        if (offset < 0 || offset > Length - bytes.Length)
+            throw new FileSystemException(FileSystemError.Corrupt, $"A write of {bytes.Length} bytes at {offset} lies beyond the volume's {Length}.");
+        if (offset % m_alignment == 0 && bytes.Length % m_alignment == 0)
+        {
+            for (var done = 0; done < bytes.Length; done += m_transfer)
+            {
+                var length = Math.Min(m_transfer, bytes.Length - done);
+                await m_storage.WriteAsync(offset + done, bytes.Slice(done, length), WriteOptions.None, cancellationToken).ConfigureAwait(false);
+            }
+            return;
+        }
+        var start = offset - offset % m_alignment;
+        var end = offset + bytes.Length;
+        end += (m_alignment - end % m_alignment) % m_alignment;
+        var aligned = new byte[end - start];
+        await ReadAsync(start, aligned, cancellationToken).ConfigureAwait(false);
+        bytes.CopyTo(aligned.AsMemory((int)(offset - start)));
+        await WriteAsync(start, aligned, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Makes every completed write durable.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the flush.</param>
+    /// <returns>When the writes are durable.</returns>
+    public ValueTask FlushAsync(CancellationToken cancellationToken) => m_storage.FlushAsync(cancellationToken);
+
     #endregion
 
     #region Properties
@@ -70,6 +107,11 @@ internal sealed class Ext4Disk
     /// The resource's bytes.
     /// </summary>
     public long Length => m_storage.Info.Length;
+
+    /// <summary>
+    /// Whether the resource refuses writes.
+    /// </summary>
+    public bool IsReadOnly => m_storage.Info.IsReadOnly;
 
     #endregion
 }

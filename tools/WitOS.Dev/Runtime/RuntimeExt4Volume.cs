@@ -6,7 +6,8 @@ namespace WitOS.Dev.Runtime;
 /// <summary>
 /// The ext4 volume of the runtime-devices data disk (plan step D4.2), made by the host's e2fsprogs from a known tree, as
 /// the storage document's cross-implementation test asks (§73): <c>mkfs.ext4 -d</c> lays the tree in and
-/// <c>e2fsck -D</c> indexes its large directory as an htree. The guest mounts it read-only and reads the tree back.
+/// <c>e2fsck -D</c> indexes its large directory as an htree. The guest reads the tree and writes it (D4.3); after the
+/// boot the host's e2fsck must find it clean and debugfs must read what the guest wrote.
 /// </summary>
 internal static class RuntimeExt4Volume
 {
@@ -52,6 +53,21 @@ internal static class RuntimeExt4Volume
     /// </summary>
     public const string LINK_TARGET = "hello.txt";
 
+    /// <summary>
+    /// The bytes of the file the guest writes, /guest/logs/written.bin (Ext4Probe's WRITTEN_BYTES).
+    /// </summary>
+    public const int GUEST_BYTES = 200_000;
+
+    /// <summary>
+    /// The entries the guest adds to /many (Ext4Probe's ADDED).
+    /// </summary>
+    public const int GUEST_ADDED = 50;
+
+    /// <summary>
+    /// What the guest's note says (Ext4Probe's NOTE).
+    /// </summary>
+    public const string GUEST_NOTE = "Written by WitOS through the journal of its managed ext4 provider.";
+
     private const string UUID = "4e2a7c19-0b3d-4f58-9e61-5749544f5334";
     private static readonly string[] MKFS_PLACES = ["/sbin/mkfs.ext4", "/usr/sbin/mkfs.ext4", "/usr/bin/mkfs.ext4"];
 
@@ -87,6 +103,33 @@ internal static class RuntimeExt4Volume
     }
 
     /// <summary>
+    /// Requires what the guest wrote to a volume (its image): e2fsck finds it clean, and debugfs reads the guest's files.
+    /// </summary>
+    /// <param name="image">The volume's image.</param>
+    /// <returns>When the volume is judged.</returns>
+    /// <exception cref="InvalidOperationException">e2fsck finds a problem, or a file holds other bytes.</exception>
+    public static async Task CheckAsync(string image)
+    {
+        var tools = Path.GetDirectoryName(FindMkfs() ?? throw new InvalidOperationException("Judging the ext4 volume needs e2fsprogs."))!;
+        var check = await Processes.RunAsync(Path.Combine(tools, "e2fsck"), ["-fn", image], Path.GetTempPath(), 300);
+        if (check.ExitCode != 0)
+            throw new InvalidOperationException($"e2fsck finds the guest's ext4 volume unclean ({check.ExitCode}): {check.Output} {check.Error}");
+        var written = await DumpAsync(tools, image, "/guest/logs/written.bin");
+        var expected = Enumerable.Range(0, GUEST_BYTES).Select(GuestPattern).ToArray();
+        if (!written.AsSpan().SequenceEqual(expected))
+            throw new InvalidOperationException($"debugfs reads {written.Length} other bytes in /guest/logs/written.bin than the guest wrote.");
+        if (Encoding.UTF8.GetString(await DumpAsync(tools, image, "/guest/note.txt")) != GUEST_NOTE)
+            throw new InvalidOperationException("debugfs reads another /guest/note.txt than the guest wrote.");
+    }
+
+    /// <summary>
+    /// The byte the guest writes at an offset of /guest/logs/written.bin (Ext4Probe.Pattern).
+    /// </summary>
+    /// <param name="offset">The offset.</param>
+    /// <returns>The byte.</returns>
+    public static byte GuestPattern(int offset) => (byte)(offset % 241 ^ offset / 8192);
+
+    /// <summary>
     /// The byte of /big.bin's data at an offset of its chunk, never zero, so that mkfs keeps every data block.
     /// </summary>
     /// <param name="chunk">The chunk.</param>
@@ -114,6 +157,18 @@ internal static class RuntimeExt4Volume
         for (var i = 0; i < MANY; i++)
             File.WriteAllBytes(Path.Combine(root, "many", $"an-entry-of-the-htree-directory-{i:000}"), []);
         File.CreateSymbolicLink(Path.Combine(root, "link"), LINK_TARGET);
+    }
+
+    private static async Task<byte[]> DumpAsync(string tools, string image, string file)
+    {
+        var output = Path.Combine(Path.GetDirectoryName(image)!, "dump-" + Path.GetFileName(file));
+        File.Delete(output);
+        await RunAsync(Path.Combine(tools, "debugfs"), ["-R", $"dump {file} {output}", image], 0);
+        if (!File.Exists(output))
+            throw new InvalidOperationException($"debugfs found no {file} in the guest's ext4 volume.");
+        var bytes = await File.ReadAllBytesAsync(output);
+        File.Delete(output);
+        return bytes;
     }
 
     private static async Task RunAsync(string program, string[] arguments, int acceptedExit)

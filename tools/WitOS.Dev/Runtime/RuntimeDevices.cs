@@ -100,11 +100,11 @@ internal static class RuntimeDevices
         Console.WriteLine($"Devices on witos-{architecture.Name}: the device manager discovered the devices, moved each disk to its " +
             $"driver and wrote the data disk through the block protocol and the FAT provider before /bin/init; the image holds the " +
             $"{RuntimeDataDisk.TEST_PATTERN_BYTES} bytes and the guest's files on a clean FAT volume ({check.Files} files, " +
-            $"{check.Directories} directories), and the ext4 partition the guest read is unchanged.");
+            $"{check.Directories} directories), and e2fsck finds clean the ext4 partition the guest wrote, whose files debugfs reads.");
     }
 
     /// <summary>
-    /// The lines the runtime-devices scenario requires (D1.1, D1.2, D2, D3.2, D4.1, D4.2).
+    /// The lines the runtime-devices scenario requires (D1.1, D1.2, D2, D3.2, D4.1, D4.2, D4.3).
     /// </summary>
     /// <param name="architecture">Target architecture.</param>
     /// <returns>The required lines.</returns>
@@ -142,12 +142,16 @@ internal static class RuntimeDevices
         ", read back what it wrote",
         $"[DEVICES] ext4 pci/",
         $": partition \"{RuntimeDataDisk.EXT4_PARTITION}\": ext4 volume \"{RuntimeExt4Volume.LABEL}\" of " +
-            $"{(RuntimeDataDisk.EXT4_PARTITION_LAST_BLOCK - RuntimeDataDisk.EXT4_PARTITION_FIRST_BLOCK + 1) * 512} bytes in blocks of 4096, read-only, " +
+            $"{(RuntimeDataDisk.EXT4_PARTITION_LAST_BLOCK - RuntimeDataDisk.EXT4_PARTITION_FIRST_BLOCK + 1) * 512} bytes in blocks of 4096, writable, " +
             "/ holds big.bin, docs, hello.txt, link, lost+found, many",
         $": /hello.txt (mode 644) says \"{RuntimeExt4Volume.HELLO_TEXT}\"",
         $": /big.bin holds {RuntimeExt4Volume.BIG_BYTES} bytes, {RuntimeExt4Volume.BIG_CHUNKS} chunks between holes, as the host wrote them",
         $": /many holds {RuntimeExt4Volume.MANY} entries, /link points to {RuntimeExt4Volume.LINK_TARGET}",
         $": check clean ({RuntimeExt4Volume.MANY + 3} files, 4 directories)",
+        $": wrote /guest/logs/written.bin ({RuntimeExt4Volume.GUEST_BYTES} bytes around a hole) and /guest/note.txt, added " +
+            $"{RuntimeExt4Volume.GUEST_ADDED} entries to /many, removed /docs/readme.txt, moved /link to /guest/link, through the journal",
+        $": mounted again, /guest holds link, logs, note.txt, /many holds {RuntimeExt4Volume.MANY + RuntimeExt4Volume.GUEST_ADDED} entries, " +
+            $"read back what it wrote, check clean ({RuntimeExt4Volume.MANY + 3 - 1 + 2 + RuntimeExt4Volume.GUEST_ADDED} files, 6 directories)",
         $"[DEVICES] device manager on {(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: ",
         " 2 drivers ready, DMA isolation: none (no IOMMU), ready",
         "[ROOT-TASK] /system/DeviceManager was ready before /bin/init",

@@ -86,8 +86,8 @@ internal static class StorageProbe
             var ext4 = table.Partitions.FirstOrDefault(partition => partition.Name == Ext4Probe.EXT4_PARTITION);
             if (ext4 is not null)
             {
-                await using var partition = ext4.Open(storage, isReadOnly: true);
-                await Ext4Probe.ReadAsync(partition, id);
+                await using var partition = ext4.Open(storage, isReadOnly: info.IsReadOnly);
+                await Ext4Probe.ProbeAsync(partition, id);
             }
             return storage;
         }

@@ -7,7 +7,8 @@ namespace OutWit.OS.FileSystems.Ext4;
 /// <summary>
 /// An ext2, ext3 or ext4 superblock (the kernel's Documentation/filesystems/ext4, "Super Block"), 1024 bytes at byte
 /// 1024 of the volume, checked whole before anything else of the volume is read: its magic, its checksum when
-/// metadata_csum is on, its geometry, and the incompatible features the reader serves.
+/// metadata_csum is on, its geometry, and the incompatible features the provider serves. It keeps its bytes, so that a
+/// writable mount changes the free counts and the recovery flag in place and seals them with the checksum (D4.3).
 /// </summary>
 internal sealed class Ext4Superblock
 {
@@ -22,6 +23,9 @@ internal sealed class Ext4Superblock
     /// <summary>The root directory's inode.</summary>
     public const uint ROOT_INODE = 2;
 
+    /// <summary>The journal's inode when the superblock names none.</summary>
+    public const uint JOURNAL_INODE = 8;
+
     // Compatible features (s_feature_compat).
     private const uint COMPAT_HAS_JOURNAL = 0x4;
 
@@ -34,41 +38,57 @@ internal sealed class Ext4Superblock
     private const uint INCOMPAT_EA_INODE = 0x400;
     private const uint INCOMPAT_CSUM_SEED = 0x2000;
     private const uint INCOMPAT_LARGEDIR = 0x4000;
-    private const uint INCOMPAT_SERVED = INCOMPAT_FILETYPE | INCOMPAT_EXTENTS | INCOMPAT_64BIT | INCOMPAT_FLEX_BG | INCOMPAT_EA_INODE |
-        INCOMPAT_CSUM_SEED | INCOMPAT_LARGEDIR;
+    private const uint INCOMPAT_SERVED = INCOMPAT_FILETYPE | INCOMPAT_RECOVER | INCOMPAT_EXTENTS | INCOMPAT_64BIT | INCOMPAT_FLEX_BG |
+        INCOMPAT_EA_INODE | INCOMPAT_CSUM_SEED | INCOMPAT_LARGEDIR;
 
     // Read-only compatible features (s_feature_ro_compat).
     private const uint RO_COMPAT_HUGE_FILE = 0x8;
     private const uint RO_COMPAT_GDT_CSUM = 0x10;
     private const uint RO_COMPAT_METADATA_CSUM = 0x400;
+    private const uint RO_COMPAT_WRITABLE = 0x1 | 0x2 | RO_COMPAT_HUGE_FILE | RO_COMPAT_GDT_CSUM | 0x20 | 0x40 | RO_COMPAT_METADATA_CSUM;
 
     private const ushort MAGIC = 0xEF53;
+    private const int FREE_BLOCKS_LO = 0x0C;
+    private const int FREE_INODES = 0x10;
+    private const int INCOMPATIBLE = 0x60;
+    private const int FREE_BLOCKS_HI = 0x158;
     private const int CHECKSUM = 0x3FC;
+
+    #endregion
+
+    #region Fields
+
+    private readonly byte[] m_bytes;
 
     #endregion
 
     #region Constructors
 
-    private Ext4Superblock(ReadOnlySpan<byte> bytes)
+    private Ext4Superblock(byte[] bytes)
     {
-        InodesCount = BinaryPrimitives.ReadUInt32LittleEndian(bytes);
-        FirstDataBlock = BinaryPrimitives.ReadUInt32LittleEndian(bytes[0x14..]);
-        var logBlockSize = BinaryPrimitives.ReadUInt32LittleEndian(bytes[0x18..]);
+        m_bytes = bytes;
+        var span = bytes.AsSpan();
+        InodesCount = BinaryPrimitives.ReadUInt32LittleEndian(span);
+        FirstDataBlock = BinaryPrimitives.ReadUInt32LittleEndian(span[0x14..]);
+        var logBlockSize = BinaryPrimitives.ReadUInt32LittleEndian(span[0x18..]);
         BlockSize = logBlockSize <= 6 ? 1024 << (int)logBlockSize : 0;
-        BlocksPerGroup = BinaryPrimitives.ReadUInt32LittleEndian(bytes[0x20..]);
-        InodesPerGroup = BinaryPrimitives.ReadUInt32LittleEndian(bytes[0x28..]);
-        var revision = BinaryPrimitives.ReadUInt32LittleEndian(bytes[0x4C..]);
-        InodeSize = revision == 0 ? 128 : BinaryPrimitives.ReadUInt16LittleEndian(bytes[0x58..]);
-        Compatible = BinaryPrimitives.ReadUInt32LittleEndian(bytes[0x5C..]);
-        Incompatible = BinaryPrimitives.ReadUInt32LittleEndian(bytes[0x60..]);
-        ReadOnlyCompatible = BinaryPrimitives.ReadUInt32LittleEndian(bytes[0x64..]);
-        Uuid = bytes.Slice(0x68, 16).ToArray();
-        Label = Encoding.UTF8.GetString(bytes.Slice(0x78, 16)).TrimEnd('\0');
-        DescriptorSize = Has64Bit ? BinaryPrimitives.ReadUInt16LittleEndian(bytes[0xFE..]) : 32;
-        BlocksCount = BinaryPrimitives.ReadUInt32LittleEndian(bytes[0x04..]) |
-            (Has64Bit ? (ulong)BinaryPrimitives.ReadUInt32LittleEndian(bytes[0x150..]) << 32 : 0);
+        BlocksPerGroup = BinaryPrimitives.ReadUInt32LittleEndian(span[0x20..]);
+        InodesPerGroup = BinaryPrimitives.ReadUInt32LittleEndian(span[0x28..]);
+        var revision = BinaryPrimitives.ReadUInt32LittleEndian(span[0x4C..]);
+        FirstInode = revision == 0 ? 11 : BinaryPrimitives.ReadUInt32LittleEndian(span[0x54..]);
+        InodeSize = revision == 0 ? 128 : BinaryPrimitives.ReadUInt16LittleEndian(span[0x58..]);
+        Compatible = BinaryPrimitives.ReadUInt32LittleEndian(span[0x5C..]);
+        ReadOnlyCompatible = BinaryPrimitives.ReadUInt32LittleEndian(span[0x64..]);
+        Uuid = span.Slice(0x68, 16).ToArray();
+        Label = Encoding.UTF8.GetString(span.Slice(0x78, 16)).TrimEnd('\0');
+        var journal = BinaryPrimitives.ReadUInt32LittleEndian(span[0xE0..]);
+        JournalInode = journal == 0 ? JOURNAL_INODE : journal;
+        DescriptorSize = Has64Bit ? BinaryPrimitives.ReadUInt16LittleEndian(span[0xFE..]) : 32;
+        BlocksCount = BinaryPrimitives.ReadUInt32LittleEndian(span[0x04..]) |
+            (Has64Bit ? (ulong)BinaryPrimitives.ReadUInt32LittleEndian(span[0x150..]) << 32 : 0);
+        WantExtraSize = BinaryPrimitives.ReadUInt16LittleEndian(span[0x15E..]);
         ChecksumSeed = (Incompatible & INCOMPAT_CSUM_SEED) != 0
-            ? BinaryPrimitives.ReadUInt32LittleEndian(bytes[0x270..])
+            ? BinaryPrimitives.ReadUInt32LittleEndian(span[0x270..])
             : Ext4Checksums.Crc32C(~0U, Uuid);
     }
 
@@ -82,21 +102,19 @@ internal sealed class Ext4Superblock
     /// <param name="bytes">The superblock's 1024 bytes.</param>
     /// <param name="volumeBytes">The bytes of the resource the volume lies on.</param>
     /// <returns>The superblock.</returns>
-    /// <exception cref="FileSystemException">No ext volume is there, it uses what the reader does not serve
+    /// <exception cref="FileSystemException">No ext volume is there, it uses what the provider does not serve
     /// (Unsupported), or its superblock is damaged (Corrupt).</exception>
     public static Ext4Superblock Read(ReadOnlySpan<byte> bytes, long volumeBytes)
     {
         if (BinaryPrimitives.ReadUInt16LittleEndian(bytes[0x38..]) != MAGIC)
             throw new FileSystemException(FileSystemError.Unsupported, "The volume has no ext2, ext3 or ext4 superblock.");
-        var superblock = new Ext4Superblock(bytes);
+        var superblock = new Ext4Superblock(bytes[..SIZE].ToArray());
         if (superblock.HasMetadataChecksums &&
             Ext4Checksums.Crc32C(~0U, bytes[..CHECKSUM]) != BinaryPrimitives.ReadUInt32LittleEndian(bytes[CHECKSUM..]))
             throw new FileSystemException(FileSystemError.Corrupt, "The superblock fails its checksum.");
         var unserved = superblock.Incompatible & ~INCOMPAT_SERVED;
-        if ((unserved & INCOMPAT_RECOVER) != 0)
-            throw new FileSystemException(FileSystemError.Unsupported, "The volume's journal needs recovery, which the reader does not make yet.");
         if (unserved != 0)
-            throw new FileSystemException(FileSystemError.Unsupported, $"The volume uses incompatible features {unserved:x} the reader does not serve.");
+            throw new FileSystemException(FileSystemError.Unsupported, $"The volume uses incompatible features {unserved:x} the provider does not serve.");
         superblock.Check(volumeBytes);
         return superblock;
     }
@@ -107,6 +125,29 @@ internal sealed class Ext4Superblock
     /// <returns>Its block.</returns>
     public ulong DescriptorTableBlock() => FirstDataBlock + 1UL;
 
+    /// <summary>
+    /// The superblock's bytes, sealed with its checksum when metadata_csum is on.
+    /// </summary>
+    /// <returns>A copy of its 1024 bytes.</returns>
+    public byte[] Seal()
+    {
+        if (HasMetadataChecksums)
+            BinaryPrimitives.WriteUInt32LittleEndian(m_bytes.AsSpan(CHECKSUM), Ext4Checksums.Crc32C(~0U, m_bytes.AsSpan(0, CHECKSUM)));
+        return (byte[])m_bytes.Clone();
+    }
+
+    /// <summary>
+    /// A copy of the superblock's bytes, to restore after a change that failed.
+    /// </summary>
+    /// <returns>The copy.</returns>
+    public byte[] Snapshot() => (byte[])m_bytes.Clone();
+
+    /// <summary>
+    /// Restores the bytes a snapshot holds.
+    /// </summary>
+    /// <param name="snapshot">The snapshot.</param>
+    public void Restore(byte[] snapshot) => snapshot.CopyTo(m_bytes, 0);
+
     private void Check(long volumeBytes)
     {
         var groups = GroupCount;
@@ -115,7 +156,7 @@ internal sealed class Ext4Superblock
             DescriptorSize < 32 || DescriptorSize > BlockSize || (DescriptorSize & (DescriptorSize - 1)) != 0 ||
             (Has64Bit && DescriptorSize < 64) || FirstDataBlock > (BlockSize == 1024 ? 1U : 0U) || BlocksCount <= FirstDataBlock ||
             BlocksCount > (ulong)volumeBytes / (ulong)BlockSize || groups == 0 || (ulong)InodesPerGroup * groups < InodesCount ||
-            InodesCount < ROOT_INODE)
+            InodesCount < ROOT_INODE || FirstInode <= ROOT_INODE || FirstInode > InodesCount)
             throw new FileSystemException(FileSystemError.Corrupt, $"The superblock describes {BlocksCount} blocks of {BlockSize} bytes in groups " +
                 $"of {BlocksPerGroup}, {InodesCount} inodes of {InodeSize} bytes, {InodesPerGroup} a group, descriptors of {DescriptorSize}, " +
                 $"on {volumeBytes} bytes.");
@@ -143,17 +184,26 @@ internal sealed class Ext4Superblock
     /// <summary>The inodes of a group.</summary>
     public uint InodesPerGroup { get; }
 
+    /// <summary>The first inode a file may take; those below are the format's own.</summary>
+    public uint FirstInode { get; }
+
     /// <summary>The bytes of an inode record.</summary>
     public int InodeSize { get; }
 
+    /// <summary>The extra bytes a new inode record carries past the first 128.</summary>
+    public int WantExtraSize { get; }
+
     /// <summary>The bytes of a group descriptor.</summary>
     public int DescriptorSize { get; }
+
+    /// <summary>The journal's inode.</summary>
+    public uint JournalInode { get; }
 
     /// <summary>s_feature_compat.</summary>
     public uint Compatible { get; }
 
     /// <summary>s_feature_incompat.</summary>
-    public uint Incompatible { get; }
+    public uint Incompatible => BinaryPrimitives.ReadUInt32LittleEndian(m_bytes.AsSpan(INCOMPATIBLE));
 
     /// <summary>s_feature_ro_compat.</summary>
     public uint ReadOnlyCompatible { get; }
@@ -167,6 +217,33 @@ internal sealed class Ext4Superblock
     /// <summary>The seed of every metadata checksum.</summary>
     public uint ChecksumSeed { get; }
 
+    /// <summary>The free blocks the superblock counts.</summary>
+    public ulong FreeBlocks
+    {
+        get => BinaryPrimitives.ReadUInt32LittleEndian(m_bytes.AsSpan(FREE_BLOCKS_LO)) |
+            (Has64Bit ? (ulong)BinaryPrimitives.ReadUInt32LittleEndian(m_bytes.AsSpan(FREE_BLOCKS_HI)) << 32 : 0);
+        set
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(m_bytes.AsSpan(FREE_BLOCKS_LO), (uint)value);
+            if (Has64Bit)
+                BinaryPrimitives.WriteUInt32LittleEndian(m_bytes.AsSpan(FREE_BLOCKS_HI), (uint)(value >> 32));
+        }
+    }
+
+    /// <summary>The free inodes the superblock counts.</summary>
+    public uint FreeInodes
+    {
+        get => BinaryPrimitives.ReadUInt32LittleEndian(m_bytes.AsSpan(FREE_INODES));
+        set => BinaryPrimitives.WriteUInt32LittleEndian(m_bytes.AsSpan(FREE_INODES), value);
+    }
+
+    /// <summary>Whether the journal may hold transactions not yet in place (needs_recovery).</summary>
+    public bool NeedsRecovery
+    {
+        get => (Incompatible & INCOMPAT_RECOVER) != 0;
+        set => BinaryPrimitives.WriteUInt32LittleEndian(m_bytes.AsSpan(INCOMPATIBLE), value ? Incompatible | INCOMPAT_RECOVER : Incompatible & ~INCOMPAT_RECOVER);
+    }
+
     /// <summary>The groups of the volume.</summary>
     public uint GroupCount => BlocksPerGroup == 0 ? 0 : (uint)((BlocksCount - FirstDataBlock + BlocksPerGroup - 1) / BlocksPerGroup);
 
@@ -176,18 +253,27 @@ internal sealed class Ext4Superblock
     /// <summary>Whether directory entries record their file type.</summary>
     public bool HasFileType => (Incompatible & INCOMPAT_FILETYPE) != 0;
 
+    /// <summary>Whether files map their data by extents.</summary>
+    public bool HasExtents => (Incompatible & INCOMPAT_EXTENTS) != 0;
+
+    /// <summary>Whether the volume has a journal.</summary>
+    public bool HasJournal => (Compatible & COMPAT_HAS_JOURNAL) != 0;
+
     /// <summary>Whether metadata carries CRC-32C checksums.</summary>
     public bool HasMetadataChecksums => (ReadOnlyCompatible & RO_COMPAT_METADATA_CSUM) != 0;
 
     /// <summary>Whether group descriptors carry the older CRC-16 checksum.</summary>
     public bool HasGroupChecksums => (ReadOnlyCompatible & RO_COMPAT_GDT_CSUM) != 0;
 
+    /// <summary>Whether a writable mount serves every read-only compatible feature: no quota, bigalloc or read-only mark.</summary>
+    public bool CanWrite => (ReadOnlyCompatible & ~RO_COMPAT_WRITABLE) == 0;
+
     /// <summary>Whether an inode with HUGE_FILE counts its blocks in filesystem blocks.</summary>
     public bool HasHugeFiles => (ReadOnlyCompatible & RO_COMPAT_HUGE_FILE) != 0;
 
     /// <summary>The format's name: ext4 with extents or flexible groups, ext3 with a journal, otherwise ext2.</summary>
     public string Format => (Incompatible & (INCOMPAT_EXTENTS | INCOMPAT_FLEX_BG | INCOMPAT_64BIT)) != 0 ? "ext4"
-        : (Compatible & COMPAT_HAS_JOURNAL) != 0 ? "ext3" : "ext2";
+        : HasJournal ? "ext3" : "ext2";
 
     #endregion
 }

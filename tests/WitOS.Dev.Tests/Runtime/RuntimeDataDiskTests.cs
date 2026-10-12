@@ -75,6 +75,19 @@ public sealed class RuntimeDataDiskTests
                 await using (var file = await volume.OpenAsync(RuntimeDataDisk.GUEST_NOTE, FileMode.Create, FileAccess.Write))
                     await file.WriteAsync(0, Encoding.UTF8.GetBytes(RuntimeDataDisk.GUEST_TEXT));
             }
+            if (RuntimeExt4Volume.FindMkfs() is not null)
+            {
+                // The ext4 probe's files, written as the guest writes them, through the provider's journal.
+                await using var disk = new MemoryBlockStorage(image);
+                var table = await GptPartitionTable.ReadAsync(disk);
+                await using var partition = table.Partitions[2].Open(disk);
+                await using var volume = await Ext4FileSystem.MountAsync(partition);
+                await volume.CreateDirectoryAsync("/guest/logs");
+                await using (var file = await volume.OpenAsync("/guest/logs/written.bin", FileMode.CreateNew, FileAccess.Write))
+                    await file.WriteAsync(0, Enumerable.Range(0, RuntimeExt4Volume.GUEST_BYTES).Select(RuntimeExt4Volume.GuestPattern).ToArray());
+                await using (var file = await volume.OpenAsync("/guest/note.txt", FileMode.CreateNew, FileAccess.Write))
+                    await file.WriteAsync(0, Encoding.UTF8.GetBytes(RuntimeExt4Volume.GUEST_NOTE));
+            }
             await File.WriteAllBytesAsync(path, image);
 
             var report = await RuntimeDataDisk.CheckAsync(path);
