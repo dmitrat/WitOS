@@ -137,6 +137,13 @@ public sealed class FatFileSystem : IFileSystem
         }, cancellationToken);
 
     /// <inheritdoc />
+    /// <remarks>FAT records no links: an entry that exists is NotALink.</remarks>
+    public async ValueTask<string> ReadLinkAsync(string path, CancellationToken cancellationToken = default) =>
+        await GetEntryAsync(path, cancellationToken).ConfigureAwait(false) is null
+            ? throw new FileSystemException(FileSystemError.NotFound, $"Nothing is at {path}.")
+            : throw new FileSystemException(FileSystemError.NotALink, $"{path} is no symbolic link: FAT records none.");
+
+    /// <inheritdoc />
     /// <exception cref="ArgumentOutOfRangeException">The mode is Append: a handle writes at the offsets it names.</exception>
     public ValueTask<IFileHandle> OpenAsync(string path, FileMode mode, FileAccess access, CancellationToken cancellationToken = default)
     {
@@ -217,7 +224,8 @@ public sealed class FatFileSystem : IFileSystem
         _ => "exFAT"
     };
 
-    private static FileSystemEntry Entry(FatDirectoryEntry entry) => new(entry.Path, entry.Name, entry.IsDirectory,
+    private static FileSystemEntry Entry(FatDirectoryEntry entry) => new(entry.Path, entry.Name,
+        entry.IsDirectory ? FileSystemEntryKind.Directory : FileSystemEntryKind.File,
         entry.IsDirectory ? 0 : entry.Length, Attributes(entry.Attributes), Time(entry.Created), Time(entry.Modified), Time(entry.Accessed));
 
     private static FileSystemAttributes Attributes(FatAttributes attributes) =>

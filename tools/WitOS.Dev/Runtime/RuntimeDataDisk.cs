@@ -6,9 +6,10 @@ using OutWit.OS.Storage;
 namespace WitOS.Dev.Runtime;
 
 /// <summary>
-/// The writable data disk of the runtime-devices scenario (plan steps D3.2 and D4.1), written anew for every boot with
-/// OutWit.OS's own GPT writer and FAT provider, and read again after the boot to require what the guest wrote: the test
-/// partition's raw pattern (the device manager's storage probe) and the FAT partition's files (its filesystem probe).
+/// The writable data disk of the runtime-devices scenario (plan steps D3.2, D4.1 and D4.2), written anew for every boot
+/// with OutWit.OS's own GPT writer and FAT provider and the host's e2fsprogs, and read again after the boot to require
+/// what the guest wrote: the test partition's raw pattern (the device manager's storage probe), the FAT partition's
+/// files (its filesystem probe), and the ext4 partition unchanged by the guest's read-only mount.
 /// </summary>
 internal static class RuntimeDataDisk
 {
@@ -17,7 +18,7 @@ internal static class RuntimeDataDisk
     /// <summary>
     /// The disk's bytes.
     /// </summary>
-    public const long BYTES = 16 * 1024 * 1024;
+    public const long BYTES = 32 * 1024 * 1024;
 
     /// <summary>
     /// The name of the test partition, which the storage probe writes raw.
@@ -50,9 +51,29 @@ internal static class RuntimeDataDisk
     public const long FAT_PARTITION_FIRST_BLOCK = 4096;
 
     /// <summary>
-    /// The last block of the FAT partition, 1 MiB before the end of the disk.
+    /// The last block of the FAT partition, 8 MiB long.
     /// </summary>
-    public const long FAT_PARTITION_LAST_BLOCK = BYTES / BLOCK - 2048 - 1;
+    public const long FAT_PARTITION_LAST_BLOCK = 20479;
+
+    /// <summary>
+    /// The name of the ext4 partition, which the guest mounts read-only.
+    /// </summary>
+    public const string EXT4_PARTITION = "WitOS ext4";
+
+    /// <summary>
+    /// The first block of the ext4 partition, after the FAT partition.
+    /// </summary>
+    public const long EXT4_PARTITION_FIRST_BLOCK = 20480;
+
+    /// <summary>
+    /// The last block of the ext4 partition, 1 MiB before the end of the disk.
+    /// </summary>
+    public const long EXT4_PARTITION_LAST_BLOCK = BYTES / BLOCK - 2048 - 1;
+
+    /// <summary>
+    /// The image of the ext4 volume beside the disk's, kept to compare after the boot.
+    /// </summary>
+    public const string EXT4_IMAGE = "ext4-volume.img";
 
     /// <summary>
     /// The FAT partition's label.
@@ -97,24 +118,34 @@ internal static class RuntimeDataDisk
     private static readonly Guid TEST_PARTITION_ID = new("9e1b5d27-4c83-4a6f-b0d2-6f3e8a1c4b75");
     private static readonly Guid BASIC_DATA = new("ebd0a0a2-b9e5-4433-87c0-68b6b72699c7");
     private static readonly Guid FAT_PARTITION_ID = new("5b8e0a43-1f6c-4d27-a9e3-2c7d14f6b980");
+    private static readonly Guid LINUX_DATA = new("0fc63daf-8483-4772-8e79-3d69d8477de4");
+    private static readonly Guid EXT4_PARTITION_ID = new("a1d7c3e5-62b4-4f09-8d1e-3b6f5c2a7e48");
 
     #endregion
 
     #region Functions
 
     /// <summary>
-    /// Writes the disk anew: a GUID partition table of the test partition and the FAT partition, which is formatted with
-    /// the host's file on it.
+    /// Writes the disk anew: a GUID partition table of the test partition, the FAT partition, which is formatted with the
+    /// host's file on it, and the ext4 partition, which e2fsprogs makes (RuntimeExt4Volume).
     /// </summary>
     /// <param name="path">The image's path.</param>
-    public static async Task CreateAsync(string path)
+    /// <param name="ext4">Whether to make the ext4 volume; a host without e2fsprogs leaves its partition empty.</param>
+    public static async Task CreateAsync(string path, bool ext4 = true)
     {
         await using var disk = new MemoryBlockStorage(BYTES, BLOCK);
         var table = await GptPartitionTable.WriteAsync(disk, DISK_ID,
         [
             new GptPartition(0, TEST_PARTITION_TYPE, TEST_PARTITION_ID, TEST_PARTITION_FIRST_BLOCK, TEST_PARTITION_LAST_BLOCK, 0, TEST_PARTITION),
-            new GptPartition(1, BASIC_DATA, FAT_PARTITION_ID, FAT_PARTITION_FIRST_BLOCK, FAT_PARTITION_LAST_BLOCK, 0, FAT_PARTITION)
+            new GptPartition(1, BASIC_DATA, FAT_PARTITION_ID, FAT_PARTITION_FIRST_BLOCK, FAT_PARTITION_LAST_BLOCK, 0, FAT_PARTITION),
+            new GptPartition(2, LINUX_DATA, EXT4_PARTITION_ID, EXT4_PARTITION_FIRST_BLOCK, EXT4_PARTITION_LAST_BLOCK, 0, EXT4_PARTITION)
         ]);
+        if (ext4)
+        {
+            var volume = Ext4Image(path);
+            await RuntimeExt4Volume.CreateAsync(volume, (EXT4_PARTITION_LAST_BLOCK - EXT4_PARTITION_FIRST_BLOCK + 1) * BLOCK);
+            await disk.WriteAsync(EXT4_PARTITION_FIRST_BLOCK * BLOCK, await File.ReadAllBytesAsync(volume));
+        }
         await using (var partition = table.Partitions[1].Open(disk))
         await using (var volume = await FatFileSystem.FormatAsync(partition, FAT_LABEL))
         await using (var file = await volume.OpenAsync(HOST_FILE, FileMode.CreateNew, FileAccess.Write))
@@ -157,6 +188,9 @@ internal static class RuntimeDataDisk
         var report = await volume.CheckAsync();
         if (!report.IsClean)
             throw new InvalidOperationException($"The data disk's FAT partition is not clean: {string.Join("; ", report.Problems)}");
+        var ext4 = File.Exists(Ext4Image(path)) ? await File.ReadAllBytesAsync(Ext4Image(path)) : null;
+        if (ext4 is not null && !image.AsSpan((int)(EXT4_PARTITION_FIRST_BLOCK * BLOCK), ext4.Length).SequenceEqual(ext4))
+            throw new InvalidOperationException("The guest's read-only mount changed the data disk's ext4 partition.");
         return report;
     }
 
@@ -173,6 +207,8 @@ internal static class RuntimeDataDisk
     /// <param name="offset">The offset in the file.</param>
     /// <returns>The byte.</returns>
     public static byte GuestPattern(int offset) => (byte)(offset % 251 ^ offset / 2048);
+
+    private static string Ext4Image(string disk) => Path.Combine(Path.GetDirectoryName(Path.GetFullPath(disk))!, EXT4_IMAGE);
 
     private static async Task<byte[]> ReadAsync(IFileSystem volume, string path)
     {
