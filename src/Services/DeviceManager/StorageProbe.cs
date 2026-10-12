@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using OutWit.OS.Communication;
 using OutWit.OS.DeviceManager.Drivers;
+using OutWit.OS.FileSystems.Fat;
 using OutWit.OS.Resources;
 using OutWit.OS.Storage;
 
@@ -13,7 +14,8 @@ namespace OutWit.OS.DeviceManager;
 /// The device manager's proof of a block driver's service (plan step D3.2), until the namespace service of D5 holds the
 /// block channels: the disk as a block storage resource on the driver's block channel, its GUID partition table read
 /// through it, a write refused by a read-only disk, and on a writable disk's test partition a durable write of more
-/// than one window read back.
+/// than one window read back; then the FAT volumes of D4.1 (<see cref="FileSystemProbe"/>): the read-only boot disk's
+/// and the data disk's FAT partition.
 /// </summary>
 internal static class StorageProbe
 {
@@ -66,6 +68,8 @@ internal static class StorageProbe
             catch (InvalidDataException)
             {
                 Console.WriteLine($"{PREFIX}storage {id}: no GUID partition table");
+                if (await FatFileSystem.DetectAsync(storage))
+                    await FileSystemProbe.ReadBootVolumeAsync(storage, id);
                 return storage;
             }
             Console.WriteLine($"{PREFIX}storage {id}: GUID partition table of {table.Partitions.Count} partitions: " +
@@ -73,6 +77,12 @@ internal static class StorageProbe
             var test = table.Partitions.FirstOrDefault(partition => partition.Name == TEST_PARTITION);
             if (test is not null && !info.IsReadOnly)
                 await WriteAndReadAsync(storage, test, id);
+            var fat = table.Partitions.FirstOrDefault(partition => partition.Name == FileSystemProbe.FAT_PARTITION);
+            if (fat is not null && !info.IsReadOnly)
+            {
+                await using var partition = fat.Open(storage);
+                await FileSystemProbe.WriteDataVolumeAsync(partition, id);
+            }
             return storage;
         }
         catch (Exception exception) when (exception is CapabilityException or IOException or FormatException)
