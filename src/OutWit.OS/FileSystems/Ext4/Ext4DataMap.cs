@@ -26,15 +26,16 @@ internal sealed class Ext4DataMap
 
     #region Fields
 
-    private readonly Run[] m_runs;
+    private readonly Ext4Run[] m_runs;
 
     #endregion
 
     #region Constructors
 
-    private Ext4DataMap(Run[] runs)
+    private Ext4DataMap(Ext4Run[] runs, ulong[] treeBlocks)
     {
         m_runs = runs;
+        TreeBlocks = treeBlocks;
     }
 
     #endregion
@@ -51,10 +52,11 @@ internal sealed class Ext4DataMap
     /// <exception cref="FileSystemException">The tree or the map is damaged, or names blocks beyond the volume (Corrupt).</exception>
     public static async ValueTask<Ext4DataMap> ReadAsync(Ext4Volume volume, Ext4Inode inode, CancellationToken cancellationToken)
     {
-        var runs = new List<Run>();
+        var runs = new List<Ext4Run>();
+        var treeBlocks = new List<ulong>();
         var blocks = (ulong)((inode.Size + volume.Superblock.BlockSize - 1) / volume.Superblock.BlockSize);
         if (inode.HasExtents)
-            await ReadExtentsAsync(volume, inode, inode.Block, -1, runs, cancellationToken).ConfigureAwait(false);
+            await ReadExtentsAsync(volume, inode, inode.Block, -1, runs, treeBlocks, cancellationToken).ConfigureAwait(false);
         else
             await ReadBlockMapAsync(volume, inode, blocks, runs, cancellationToken).ConfigureAwait(false);
         var bound = volume.Superblock.BlocksCount;
@@ -66,7 +68,7 @@ internal sealed class Ext4DataMap
                 throw new FileSystemException(FileSystemError.Corrupt, $"Inode {inode.Number} maps logical block {run.Logical} on {run.Length} " +
                     $"blocks at {run.Physical}, outside the volume or out of order.");
         }
-        return new Ext4DataMap([.. runs]);
+        return new Ext4DataMap([.. runs], [.. treeBlocks]);
     }
 
     /// <summary>
@@ -94,8 +96,8 @@ internal sealed class Ext4DataMap
     }
 
     // A node of the extent tree: the root in i_block (expected depth -1, from its header) or a block below an index.
-    private static async ValueTask ReadExtentsAsync(Ext4Volume volume, Ext4Inode inode, byte[] node, int expectedDepth, List<Run> runs,
-        CancellationToken cancellationToken)
+    private static async ValueTask ReadExtentsAsync(Ext4Volume volume, Ext4Inode inode, byte[] node, int expectedDepth, List<Ext4Run> runs,
+        List<ulong> treeBlocks, CancellationToken cancellationToken)
     {
         var magic = BinaryPrimitives.ReadUInt16LittleEndian(node);
         var entries = BinaryPrimitives.ReadUInt16LittleEndian(node.AsSpan(2));
@@ -114,14 +116,15 @@ internal sealed class Ext4DataMap
                 var length = BinaryPrimitives.ReadUInt16LittleEndian(entry[4..]);
                 var physical = (ulong)BinaryPrimitives.ReadUInt16LittleEndian(entry[6..]) << 32 | BinaryPrimitives.ReadUInt32LittleEndian(entry[8..]);
                 var initialized = length <= UNINITIALIZED;
-                runs.Add(new Run(logical, physical, initialized ? length : (uint)(length - UNINITIALIZED), initialized));
+                runs.Add(new Ext4Run(logical, physical, initialized ? length : (uint)(length - UNINITIALIZED), initialized));
                 continue;
             }
             var child = (ulong)BinaryPrimitives.ReadUInt16LittleEndian(entry[8..]) << 32 | BinaryPrimitives.ReadUInt32LittleEndian(entry[4..]);
             var block = new byte[volume.Superblock.BlockSize];
             await volume.ReadBlocksAsync(child, block, cancellationToken).ConfigureAwait(false);
             VerifyExtentBlock(volume, inode, block, child);
-            await ReadExtentsAsync(volume, inode, block, depth - 1, runs, cancellationToken).ConfigureAwait(false);
+            treeBlocks.Add(child);
+            await ReadExtentsAsync(volume, inode, block, depth - 1, runs, treeBlocks, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -137,7 +140,7 @@ internal sealed class Ext4DataMap
     }
 
     // The block map: twelve direct blocks, then an indirect, a double and a triple indirect block of 32-bit numbers.
-    private static async ValueTask ReadBlockMapAsync(Ext4Volume volume, Ext4Inode inode, ulong blocks, List<Run> runs,
+    private static async ValueTask ReadBlockMapAsync(Ext4Volume volume, Ext4Inode inode, ulong blocks, List<Ext4Run> runs,
         CancellationToken cancellationToken)
     {
         var perBlock = (ulong)(volume.Superblock.BlockSize / 4);
@@ -154,7 +157,7 @@ internal sealed class Ext4DataMap
         }
     }
 
-    private static async ValueTask ReadIndirectAsync(Ext4Volume volume, uint pointer, int level, ulong logical, ulong blocks, List<Run> runs,
+    private static async ValueTask ReadIndirectAsync(Ext4Volume volume, uint pointer, int level, ulong logical, ulong blocks, List<Ext4Run> runs,
         CancellationToken cancellationToken)
     {
         var block = new byte[volume.Superblock.BlockSize];
@@ -174,7 +177,7 @@ internal sealed class Ext4DataMap
     }
 
     // A mapped block, merged into the last run when it continues it.
-    private static void Add(List<Run> runs, ulong logical, uint physical)
+    private static void Add(List<Ext4Run> runs, ulong logical, uint physical)
     {
         if (physical == 0)
             return;
@@ -182,14 +185,22 @@ internal sealed class Ext4DataMap
             last.Length < uint.MaxValue)
             runs[^1] = last with { Length = last.Length + 1 };
         else
-            runs.Add(new Run(logical, physical, 1, true));
+            runs.Add(new Ext4Run(logical, physical, 1, true));
     }
 
     #endregion
 
-    #region Nested Types
+    #region Properties
 
-    private readonly record struct Run(ulong Logical, ulong Physical, uint Length, bool Initialized);
+    /// <summary>
+    /// The runs, in logical order.
+    /// </summary>
+    public IReadOnlyList<Ext4Run> Runs => m_runs;
+
+    /// <summary>
+    /// The blocks of the extent tree below its root in i_block.
+    /// </summary>
+    public IReadOnlyList<ulong> TreeBlocks { get; }
 
     #endregion
 }

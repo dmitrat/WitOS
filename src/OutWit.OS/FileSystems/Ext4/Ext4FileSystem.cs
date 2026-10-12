@@ -2,7 +2,6 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using OutWit.OS.Storage;
@@ -10,34 +9,44 @@ using OutWit.OS.Storage;
 namespace OutWit.OS.FileSystems.Ext4;
 
 /// <summary>
-/// ext4, ext3 and ext2 read by a managed provider (storage document §17–19, plan step D4.2): the on-disk format, not
-/// Linux's VFS. Mounted read-only: the superblock and the group descriptors are checked at the mount, every inode,
-/// extent block and directory block when it is read, and nothing the volume holds is trusted before (§72). A lookup
-/// never follows a symbolic link. Writing with the journal is D4.3; until then every change is ReadOnly.
+/// ext4, ext3 and ext2 through a managed provider (storage document §17–19, plan steps D4.2 and D4.3): the on-disk
+/// format, not Linux's VFS. Every structure is checked when it is read, and nothing the volume holds is trusted before
+/// (§72); a lookup never follows a symbolic link.
+/// <list type="bullet">
+/// <item>A read-only resource, or a volume without extents or with a read-only compatible feature the provider does
+/// not write, mounts read-only, and its reads run at once; a journal that needs recovery is refused there.</item>
+/// <item>A writable ext4 resource mounts writable: the journal is replayed first, the superblock says needs_recovery
+/// while the volume is mounted, and every change is one transaction through the journal (§45–49), one at a time.</item>
+/// </list>
 /// </summary>
 public sealed class Ext4FileSystem : IFileSystem
 {
     #region Constants
 
     private const ushort MAGIC = 0xEF53;
-    private const int FAST_LINK = Ext4Inode.BLOCK_BYTES;
 
     #endregion
 
     #region Fields
 
     private readonly Ext4Volume m_volume;
+    private readonly Ext4Namespace m_names;
+    private readonly Ext4Writer? m_writer;
+    private readonly SemaphoreSlim m_lock = new(1, 1);
+    private int m_disposed;
 
     #endregion
 
     #region Constructors
 
-    private Ext4FileSystem(Ext4Volume volume)
+    private Ext4FileSystem(Ext4Volume volume, Ext4Writer? writer)
     {
         m_volume = volume;
+        m_names = new Ext4Namespace(volume);
+        m_writer = writer;
         var superblock = volume.Superblock;
         Volume = new FileSystemVolume(superblock.Format, superblock.Label.Length == 0 ? null : superblock.Label,
-            (long)superblock.BlocksCount * superblock.BlockSize, superblock.BlockSize, true);
+            (long)superblock.BlocksCount * superblock.BlockSize, superblock.BlockSize, writer is null);
     }
 
     #endregion
@@ -62,201 +71,287 @@ public sealed class Ext4FileSystem : IFileSystem
     }
 
     /// <summary>
-    /// Mounts the volume at the start of a resource, read-only.
+    /// Mounts the volume at the start of a resource: writable when the resource and the volume allow it.
     /// </summary>
     /// <param name="storage">The resource; it stays its owner's.</param>
     /// <param name="cancellationToken">Cancels the mount.</param>
     /// <returns>The filesystem.</returns>
-    /// <exception cref="FileSystemException">No ext volume the provider serves is there (Unsupported), or it is damaged (Corrupt).</exception>
-    public static async ValueTask<Ext4FileSystem> MountAsync(IBlockStorage storage, CancellationToken cancellationToken = default)
+    /// <exception cref="FileSystemException">No ext volume the provider serves is there, or its journal needs a recovery
+    /// a read-only mount cannot make (Unsupported), or it is damaged (Corrupt).</exception>
+    public static ValueTask<Ext4FileSystem> MountAsync(IBlockStorage storage, CancellationToken cancellationToken = default) =>
+        MountAsync(storage, TimeProvider.System, cancellationToken);
+
+    /// <summary>
+    /// Mounts the volume at the start of a resource with a clock for the times it records.
+    /// </summary>
+    /// <param name="storage">The resource; it stays its owner's.</param>
+    /// <param name="clock">The clock.</param>
+    /// <param name="cancellationToken">Cancels the mount.</param>
+    /// <returns>The filesystem.</returns>
+    public static async ValueTask<Ext4FileSystem> MountAsync(IBlockStorage storage, TimeProvider clock, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(storage);
         var volume = await Ext4Volume.OpenAsync(storage, cancellationToken).ConfigureAwait(false);
+        var superblock = volume.Superblock;
+        var writable = !storage.Info.IsReadOnly && superblock.HasExtents && superblock.CanWrite;
+        if (superblock.NeedsRecovery && !(writable && superblock.HasJournal))
+            throw new FileSystemException(FileSystemError.Unsupported, "The volume's journal needs recovery, which a read-only mount does not make.");
+        Ext4Writer? writer = null;
+        if (writable)
+        {
+            if (superblock.HasJournal)
+            {
+                var journal = await Ext4Journal.OpenAsync(volume, cancellationToken).ConfigureAwait(false);
+                if (!journal.IsEmpty)
+                {
+                    await journal.ReplayAsync(cancellationToken).ConfigureAwait(false);
+                    volume = await Ext4Volume.OpenAsync(storage, cancellationToken).ConfigureAwait(false); // the metadata the log held
+                    journal = await Ext4Journal.OpenAsync(volume, cancellationToken).ConfigureAwait(false);
+                }
+                volume.Superblock.NeedsRecovery = true;
+                writer = new Ext4Writer(volume, journal, clock);
+            }
+            else
+            {
+                writer = new Ext4Writer(volume, null, clock);
+            }
+            await volume.WriteSuperblockAsync(cancellationToken).ConfigureAwait(false);
+        }
         var root = await volume.ReadInodeAsync(Ext4Superblock.ROOT_INODE, cancellationToken).ConfigureAwait(false);
         if (root.Kind != FileSystemEntryKind.Directory)
             throw new FileSystemException(FileSystemError.Corrupt, "The volume's root inode is no directory.");
-        return new Ext4FileSystem(volume);
+        return new Ext4FileSystem(volume, writer);
     }
 
     /// <inheritdoc />
-    public async ValueTask<FileSystemEntry?> GetEntryAsync(string path, CancellationToken cancellationToken = default)
-    {
-        var found = await ResolveAsync(path, cancellationToken).ConfigureAwait(false);
-        return found is { } entry ? Entry(entry.Path, entry.Inode) : null;
-    }
+    public ValueTask<FileSystemEntry?> GetEntryAsync(string path, CancellationToken cancellationToken = default) =>
+        ReadAsync<FileSystemEntry?>(async () =>
+            await m_names.ResolveAsync(path, cancellationToken).ConfigureAwait(false) is { } found ? Ext4Namespace.Entry(found.Path, found.Inode) : null,
+            cancellationToken);
 
     /// <inheritdoc />
-    public async ValueTask<IReadOnlyList<FileSystemEntry>> EnumerateAsync(string path, CancellationToken cancellationToken = default)
-    {
-        var (directoryPath, directory) = await RequireAsync(path, cancellationToken).ConfigureAwait(false);
-        if (directory.Kind != FileSystemEntryKind.Directory)
-            throw new FileSystemException(FileSystemError.NotADirectory, $"{path} is no directory.");
-        var entries = new List<FileSystemEntry>();
-        foreach (var entry in await Ext4Directory.ReadAsync(m_volume, directory, cancellationToken).ConfigureAwait(false))
-        {
-            var inode = await m_volume.ReadInodeAsync(entry.Inode, cancellationToken).ConfigureAwait(false);
-            entries.Add(Entry(Join(directoryPath, entry.Name), inode));
-        }
-        return entries;
-    }
+    public ValueTask<IReadOnlyList<FileSystemEntry>> EnumerateAsync(string path, CancellationToken cancellationToken = default) =>
+        ReadAsync(() => m_names.EnumerateAsync(path, cancellationToken), cancellationToken);
 
     /// <inheritdoc />
-    public async ValueTask<string> ReadLinkAsync(string path, CancellationToken cancellationToken = default)
-    {
-        var (_, inode) = await RequireAsync(path, cancellationToken).ConfigureAwait(false);
-        if (inode.Kind != FileSystemEntryKind.SymbolicLink)
-            throw new FileSystemException(FileSystemError.NotALink, $"{path} is no symbolic link.");
-        var attributeSectors = inode.ExtendedAttributeBlock != 0 ? (ulong)(m_volume.Superblock.BlockSize / 512) : 0;
-        if (inode.Size < FAST_LINK && inode.Sectors == attributeSectors && !inode.HasExtents)
-            return Encoding.UTF8.GetString(inode.Block, 0, (int)inode.Size); // a fast link: the target in i_block
-        if (inode.Size > m_volume.Superblock.BlockSize)
-            throw new FileSystemException(FileSystemError.Corrupt, $"The link {path} records a target of {inode.Size} bytes.");
-        var target = new byte[inode.Size];
-        await new Ext4FileHandle(m_volume, inode, await Ext4DataMap.ReadAsync(m_volume, inode, cancellationToken).ConfigureAwait(false))
-            .ReadAsync(0, target, cancellationToken).ConfigureAwait(false);
-        return Encoding.UTF8.GetString(target);
-    }
+    public ValueTask<string> ReadLinkAsync(string path, CancellationToken cancellationToken = default) =>
+        ReadAsync(() => m_names.ReadLinkAsync(path, cancellationToken), cancellationToken);
 
     /// <inheritdoc />
+    /// <exception cref="ArgumentOutOfRangeException">The mode is Append: a handle writes at the offsets it names.</exception>
+    /// <exception cref="ArgumentException">The mode writes and the access does not.</exception>
     public async ValueTask<IFileHandle> OpenAsync(string path, FileMode mode, FileAccess access, CancellationToken cancellationToken = default)
     {
-        if (mode != FileMode.Open || access != FileAccess.Read)
-            throw ReadOnly();
-        var (_, inode) = await RequireAsync(path, cancellationToken).ConfigureAwait(false);
-        if (inode.Kind != FileSystemEntryKind.File)
-            throw new FileSystemException(FileSystemError.NotAFile, $"{path} is no file.");
-        return new Ext4FileHandle(m_volume, inode, await Ext4DataMap.ReadAsync(m_volume, inode, cancellationToken).ConfigureAwait(false));
+        if (mode == FileMode.Append)
+            throw new ArgumentOutOfRangeException(nameof(mode), "A handle writes at the offsets it names; there is no append mode.");
+        if (mode is FileMode.Create or FileMode.CreateNew or FileMode.Truncate && access == FileAccess.Read)
+            throw new ArgumentException($"The mode {mode} writes and the access {access} does not.", nameof(access));
+        if (m_writer is null)
+        {
+            if (mode != FileMode.Open || access != FileAccess.Read)
+                throw ReadOnly();
+            var (_, inode) = await m_names.RequireAsync(path, cancellationToken).ConfigureAwait(false);
+            if (inode.Kind != FileSystemEntryKind.File)
+                throw new FileSystemException(FileSystemError.NotAFile, $"{path} is no file.");
+            return new Ext4FileHandle(m_volume, inode, await Ext4DataMap.ReadAsync(m_volume, inode, cancellationToken).ConfigureAwait(false));
+        }
+        return await ChangeAsync<IFileHandle>(async () =>
+        {
+            var found = await m_names.ResolveAsync(path, cancellationToken).ConfigureAwait(false);
+            if (found is { } existing && existing.Inode.Kind != FileSystemEntryKind.File)
+                throw new FileSystemException(FileSystemError.NotAFile, $"{path} is no file.");
+            if (found is null && mode is FileMode.Open or FileMode.Truncate)
+                throw new FileSystemException(FileSystemError.NotFound, $"Nothing is at {path}.");
+            if (found is not null && mode == FileMode.CreateNew)
+                throw new FileSystemException(FileSystemError.AlreadyExists, $"Something is at {path}.");
+            uint number;
+            if (found is { } file)
+            {
+                number = file.Inode.Number;
+                if (mode is FileMode.Create or FileMode.Truncate && file.Inode.Size != 0)
+                    await m_writer.ChangeAsync((transaction, allocator, now) =>
+                        m_writer.SetLengthAsync(transaction, allocator, now, number, 0, cancellationToken), cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                var (_, parent, _, name) = await m_names.ParentAsync(path, cancellationToken).ConfigureAwait(false);
+                number = await m_writer.ChangeAsync((transaction, allocator, now) =>
+                    m_writer.CreateAsync(transaction, allocator, now, parent.Number, name, false, cancellationToken), cancellationToken).ConfigureAwait(false);
+            }
+            var inode = await m_volume.ReadInodeAsync(number, cancellationToken).ConfigureAwait(false);
+            return new Ext4WritableHandle(this, number, inode.Size, access.HasFlag(FileAccess.Read), access.HasFlag(FileAccess.Write));
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public ValueTask<FileSystemEntry> CreateDirectoryAsync(string path, CancellationToken cancellationToken = default) => throw ReadOnly();
+    public ValueTask<FileSystemEntry> CreateDirectoryAsync(string path, CancellationToken cancellationToken = default) =>
+        ChangeAsync(async () =>
+        {
+            var current = "/";
+            foreach (var component in path.Split('/', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var next = Ext4Namespace.Join(current, component);
+                var found = await m_names.ResolveAsync(next, cancellationToken).ConfigureAwait(false);
+                if (found is { } existing)
+                {
+                    if (existing.Inode.Kind != FileSystemEntryKind.Directory)
+                        throw new FileSystemException(FileSystemError.NotADirectory, $"{next} is no directory.");
+                    current = existing.Path;
+                    continue;
+                }
+                var (_, parent, _, name) = await m_names.ParentAsync(next, cancellationToken).ConfigureAwait(false);
+                await m_writer!.ChangeAsync((transaction, allocator, now) =>
+                    m_writer.CreateAsync(transaction, allocator, now, parent.Number, name, true, cancellationToken), cancellationToken).ConfigureAwait(false);
+                current = next;
+            }
+            var (resolved, inode) = await m_names.RequireAsync(current, cancellationToken).ConfigureAwait(false);
+            return Ext4Namespace.Entry(resolved, inode);
+        }, cancellationToken);
 
     /// <inheritdoc />
-    public ValueTask DeleteAsync(string path, CancellationToken cancellationToken = default) => throw ReadOnly();
+    public async ValueTask DeleteAsync(string path, CancellationToken cancellationToken = default) =>
+        await ChangeAsync(async () =>
+        {
+            var (_, parent, _, name) = await m_names.ParentAsync(path, cancellationToken).ConfigureAwait(false);
+            var (_, inode) = await m_names.RequireAsync(path, cancellationToken).ConfigureAwait(false);
+            if (inode.Kind == FileSystemEntryKind.Directory && (await Ext4Directory.ReadAsync(m_volume, inode, cancellationToken).ConfigureAwait(false)).Count > 0)
+                throw new FileSystemException(FileSystemError.NotEmpty, $"{path} has entries.");
+            return await m_writer!.ChangeAsync((transaction, allocator, now) =>
+                m_writer.DeleteAsync(transaction, allocator, now, parent.Number, name, cancellationToken), cancellationToken).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc />
     public ValueTask<FileSystemEntry> RenameAsync(string source, string destination, CancellationToken cancellationToken = default) =>
-        throw ReadOnly();
-
-    /// <inheritdoc />
-    public ValueTask FlushAsync(CancellationToken cancellationToken = default) => default;
-
-    /// <inheritdoc />
-    /// <remarks>Walks the tree from the root: every directory's blocks, every inode's record and every file's map are
-    /// read and checked; a directory reached twice is a cycle.</remarks>
-    public async ValueTask<FileSystemCheckReport> CheckAsync(CancellationToken cancellationToken = default)
-    {
-        var problems = new List<string>();
-        var visited = new HashSet<uint>();
-        var pending = new Queue<(string Path, uint Inode)>();
-        pending.Enqueue(("/", Ext4Superblock.ROOT_INODE));
-        int files = 0, directories = 0;
-        while (pending.Count > 0)
+        ChangeAsync(async () =>
         {
-            var (path, number) = pending.Dequeue();
-            try
-            {
-                var inode = await m_volume.ReadInodeAsync(number, cancellationToken).ConfigureAwait(false);
-                switch (inode.Kind)
-                {
-                    case FileSystemEntryKind.Directory when !visited.Add(number):
-                        problems.Add($"{path}: directory inode {number} is reached twice");
-                        break;
-                    case FileSystemEntryKind.Directory:
-                        directories++;
-                        foreach (var entry in await Ext4Directory.ReadAsync(m_volume, inode, cancellationToken).ConfigureAwait(false))
-                            pending.Enqueue((Join(path, entry.Name), entry.Inode));
-                        break;
-                    case FileSystemEntryKind.File:
-                        files++;
-                        await Ext4DataMap.ReadAsync(m_volume, inode, cancellationToken).ConfigureAwait(false);
-                        break;
-                    case FileSystemEntryKind.SymbolicLink:
-                        await ReadLinkAsync(path, cancellationToken).ConfigureAwait(false);
-                        break;
-                }
-            }
-            catch (FileSystemException exception)
-            {
-                problems.Add($"{path}: {exception.Message}");
-            }
-        }
-        return new FileSystemCheckReport(problems, files, directories);
+            var (fromPath, fromParent, _, fromName) = await m_names.ParentAsync(source, cancellationToken).ConfigureAwait(false);
+            var (moved, movedInode) = await m_names.RequireAsync(source, cancellationToken).ConfigureAwait(false);
+            var (toPath, toParent, toLeaf, toName) = await m_names.ParentAsync(destination, cancellationToken).ConfigureAwait(false);
+            if (await m_names.FindAsync(toParent, toName, cancellationToken).ConfigureAwait(false) is not null)
+                throw new FileSystemException(FileSystemError.AlreadyExists, $"Something is at {destination}.");
+            if (movedInode.Kind == FileSystemEntryKind.Directory && (toPath + "/").StartsWith(moved + "/", StringComparison.Ordinal))
+                throw new FileSystemException(FileSystemError.InvalidName, $"{source} would move into itself.");
+            await m_writer!.ChangeAsync((transaction, allocator, now) =>
+                m_writer.RenameAsync(transaction, allocator, now, fromParent.Number, fromName, toParent.Number, toName, cancellationToken),
+                cancellationToken).ConfigureAwait(false);
+            var target = Ext4Namespace.Join(toPath, toLeaf);
+            return Ext4Namespace.Entry(target, await m_volume.ReadInodeAsync(movedInode.Number, cancellationToken).ConfigureAwait(false));
+        }, cancellationToken);
+
+    /// <inheritdoc />
+    /// <remarks>Every change is durable when it completes; a flush flushes the resource once more.</remarks>
+    public async ValueTask FlushAsync(CancellationToken cancellationToken = default)
+    {
+        if (m_writer is null)
+            return;
+        await ChangeAsync(async () =>
+        {
+            await m_volume.Disk.FlushAsync(cancellationToken).ConfigureAwait(false);
+            return true;
+        }, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
+    public ValueTask<FileSystemCheckReport> CheckAsync(CancellationToken cancellationToken = default) =>
+        ReadAsync(() => m_names.CheckAsync(cancellationToken), cancellationToken);
+
     /// <summary>
-    /// The failure of a change, until D4.3 writes.
+    /// Reads a file of a writable mount as its inode is now.
+    /// </summary>
+    /// <param name="inode">The file's inode.</param>
+    /// <param name="offset">The first byte.</param>
+    /// <param name="buffer">What to fill.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The bytes read and the file's length.</returns>
+    internal ValueTask<(int Read, long Length)> ReadFileAsync(uint inode, long offset, Memory<byte> buffer, CancellationToken cancellationToken) =>
+        ReadAsync(async () =>
+        {
+            var current = await m_volume.ReadInodeAsync(inode, cancellationToken).ConfigureAwait(false);
+            var map = await Ext4DataMap.ReadAsync(m_volume, current, cancellationToken).ConfigureAwait(false);
+            return (await new Ext4FileHandle(m_volume, current, map).ReadAsync(offset, buffer, cancellationToken).ConfigureAwait(false), current.Size);
+        }, cancellationToken);
+
+    /// <summary>
+    /// Writes a file of a writable mount.
+    /// </summary>
+    /// <param name="inode">The file's inode.</param>
+    /// <param name="offset">The first byte.</param>
+    /// <param name="bytes">The bytes.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>The file's length.</returns>
+    internal ValueTask<long> WriteFileAsync(uint inode, long offset, ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken) =>
+        ChangeAsync(() => m_writer!.ChangeAsync((transaction, allocator, now) =>
+            m_writer.WriteAsync(transaction, allocator, now, inode, offset, bytes, cancellationToken), cancellationToken), cancellationToken);
+
+    /// <summary>
+    /// Cuts or grows a file of a writable mount.
+    /// </summary>
+    /// <param name="inode">The file's inode.</param>
+    /// <param name="length">The new length.</param>
+    /// <param name="cancellationToken">Cancels the change.</param>
+    /// <returns>The file's length.</returns>
+    internal ValueTask<long> SetFileLengthAsync(uint inode, long length, CancellationToken cancellationToken) =>
+        ChangeAsync(() => m_writer!.ChangeAsync((transaction, allocator, now) =>
+            m_writer.SetLengthAsync(transaction, allocator, now, inode, length, cancellationToken), cancellationToken), cancellationToken);
+
+    /// <summary>
+    /// The failure of a change on a read-only mount.
     /// </summary>
     /// <returns>The failure.</returns>
     internal static FileSystemException ReadOnly() =>
-        new(FileSystemError.ReadOnly, "The ext4 provider mounts read-only until it writes through the journal (D4.3).");
+        new(FileSystemError.ReadOnly, "The volume is mounted read-only: its resource refuses writes, or the provider does not write what it uses.");
 
-    // The entry a path names, or null when nothing is there; a directory on the way that is no directory fails.
-    private async ValueTask<(string Path, Ext4Inode Inode)?> ResolveAsync(string path, CancellationToken cancellationToken)
+    // A read: alone on a writable mount, at once on a read-only one.
+    private async ValueTask<T> ReadAsync<T>(Func<ValueTask<T>> read, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(path);
-        var stack = new List<(string Name, Ext4Inode Inode)>();
-        var current = await m_volume.ReadInodeAsync(Ext4Superblock.ROOT_INODE, cancellationToken).ConfigureAwait(false);
-        foreach (var component in path.Split('/', StringSplitOptions.RemoveEmptyEntries))
+        ObjectDisposedException.ThrowIf(m_disposed != 0, this);
+        if (m_writer is null)
+            return await read().ConfigureAwait(false);
+        await m_lock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            if (component == ".")
-                continue;
-            if (component == "..")
-            {
-                if (stack.Count == 0)
-                    throw new FileSystemException(FileSystemError.InvalidName, $"The path '{path}' climbs above the root.");
-                stack.RemoveAt(stack.Count - 1);
-                current = stack.Count == 0
-                    ? await m_volume.ReadInodeAsync(Ext4Superblock.ROOT_INODE, cancellationToken).ConfigureAwait(false)
-                    : stack[^1].Inode;
-                continue;
-            }
-            if (current.Kind != FileSystemEntryKind.Directory)
-                throw new FileSystemException(FileSystemError.NotADirectory, $"The path '{path}' runs through a {current.Kind}.");
-            var name = Encoding.UTF8.GetBytes(component);
-            uint? found = null;
-            foreach (var entry in await Ext4Directory.ReadAsync(m_volume, current, cancellationToken).ConfigureAwait(false))
-            {
-                if (entry.NameBytes.AsSpan().SequenceEqual(name))
-                {
-                    found = entry.Inode;
-                    break;
-                }
-            }
-            if (found is null)
-                return null;
-            current = await m_volume.ReadInodeAsync(found.Value, cancellationToken).ConfigureAwait(false);
-            stack.Add((component, current));
+            ObjectDisposedException.ThrowIf(m_disposed != 0, this);
+            return await read().ConfigureAwait(false);
         }
-        var parts = new string[stack.Count];
-        for (var i = 0; i < parts.Length; i++)
-            parts[i] = stack[i].Name;
-        return ("/" + string.Join('/', parts), current);
+        finally
+        {
+            m_lock.Release();
+        }
     }
 
-    private async ValueTask<(string Path, Ext4Inode Inode)> RequireAsync(string path, CancellationToken cancellationToken) =>
-        await ResolveAsync(path, cancellationToken).ConfigureAwait(false) ??
-        throw new FileSystemException(FileSystemError.NotFound, $"Nothing is at {path}.");
-
-    private static string Join(string directory, string name) => directory == "/" ? "/" + name : directory + "/" + name;
-
-    private static FileSystemEntry Entry(string path, Ext4Inode inode)
-    {
-        var slash = path.LastIndexOf('/');
-        return new FileSystemEntry(path, path == "/" ? "" : path[(slash + 1)..], inode.Kind,
-            inode.Kind == FileSystemEntryKind.Directory ? 0 : inode.Size, FileSystemAttributes.None, inode.Created, inode.Modified, inode.Accessed,
-            new FileSystemUnixMetadata(inode.Mode & 0xFFF, inode.UserId, inode.GroupId, inode.Links, inode.Number));
-    }
+    // A change: refused on a read-only mount, alone on a writable one.
+    private ValueTask<T> ChangeAsync<T>(Func<ValueTask<T>> change, CancellationToken cancellationToken) =>
+        m_writer is null ? throw ReadOnly() : ReadAsync(change, cancellationToken);
 
     #endregion
 
     #region IAsyncDisposable
 
     /// <summary>
-    /// Unmounts the volume; the resource stays open, and nothing was written.
+    /// Unmounts the volume: on a writable mount, after the change in progress, the superblock says the journal needs no
+    /// recovery and the resource is flushed; the resource stays open.
     /// </summary>
-    /// <returns>A completed task.</returns>
-    public ValueTask DisposeAsync() => default;
+    /// <returns>When the volume is unmounted.</returns>
+    public async ValueTask DisposeAsync()
+    {
+        if (m_writer is null)
+        {
+            Interlocked.Exchange(ref m_disposed, 1);
+            return;
+        }
+        await m_lock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (Interlocked.Exchange(ref m_disposed, 1) != 0)
+                return;
+            m_volume.Superblock.NeedsRecovery = false;
+            await m_volume.WriteSuperblockAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        finally
+        {
+            m_lock.Release();
+        }
+    }
 
     #endregion
 
