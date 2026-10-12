@@ -7,8 +7,8 @@ namespace WitOS.Dev.Runtime;
 /// <summary>
 /// Phase D's services on the runtime runtime-witos built (ADR 0025): NativeAOT programs of the boot package, each built
 /// with the OutWit.OS sources and libwitos. The device manager (D1.1) discovers the devices the root task moves the
-/// table of to it, and starts the virtio block driver with the device it moves to it (D1.2); the runtime-devices
-/// scenario boots both under the system layer's root task before /bin/init.
+/// table of to it, and starts the virtio block driver with the device it moves to it (D1.2), which reads the boot disk
+/// (D2); the runtime-devices scenario boots both under the system layer's root task before /bin/init.
 /// </summary>
 internal static class RuntimeDevices
 {
@@ -79,7 +79,7 @@ internal static class RuntimeDevices
         var sysroot = await Sysroot.BuildAsync(root, architecture); // with libwitos of the current sources
         await PublishServiceAsync(root, tree, architecture, version, sysroot, DEVICE_MANAGER_EXECUTABLE, DEVICE_MANAGER_PROGRAM,
             ["Uhi", "Drivers"]);
-        await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_BLOCK_EXECUTABLE, VIRTIO_BLOCK_PROGRAM, []);
+        await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_BLOCK_EXECUTABLE, VIRTIO_BLOCK_PROGRAM, ["Virtio"]);
         var image = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_DEVICES_SCENARIO, architecture: architecture);
         await BootScenarioRunner.RunAsync(root, image, new BootRequest($"{architecture.Name}-runtime-devices-256", 256, 600, ExpectedOutcome.Success)
         {
@@ -92,7 +92,7 @@ internal static class RuntimeDevices
     }
 
     /// <summary>
-    /// The lines the runtime-devices scenario requires (D1.1, D1.2).
+    /// The lines the runtime-devices scenario requires (D1.1, D1.2, D2).
     /// </summary>
     /// <param name="architecture">Target architecture.</param>
     /// <returns>The required lines.</returns>
@@ -102,6 +102,7 @@ internal static class RuntimeDevices
         "[DEVICES] Device discovered: Class: EntropySource, Provider: Virtio, DeviceId: pci/",
         "[VIRTIO-BLOCK] driver of pci/",
         ": holds the device, its configuration space reads 1af4:",
+        ": read sector 0 through queue 0 and its interrupt: a boot sector (signature aa55, file system FAT",
         "[DEVICES] driver /system/Drivers/VirtioBlock of pci/",
         $"[DEVICES] device manager on {(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: ",
         " drivers ready, DMA isolation: none (no IOMMU), ready",
