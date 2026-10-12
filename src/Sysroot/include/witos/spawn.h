@@ -52,6 +52,12 @@ typedef struct witos_service {
 int witos_manager_run_services(witos_service *services, WitU32 count, const char *path, char *const argv[],
     char *const envp[], WitProcessInfo *info);
 
+/* Stops the services witos_manager_run_services started and that answered ready (D6.1), the last first: sends each a
+ * WitServiceStop (witos/manager.h) on its ready end with a deadline seconds from now and waits for its answer or its
+ * end. Each service's status becomes its answer: zero, its errno value, ECHILD when it ended without one, or ETIMEDOUT.
+ * Returns the first nonzero status, or 0; the ready ends and processes stay the caller's. */
+int witos_manager_stop_services(witos_service *services, WitU32 count, WitU32 seconds);
+
 /* The process manager's client (D1.2): asks the manager this process was started under to start the program at path
  * with argv and envp in "/", granting it the capability given (zero for none), which moves into its start message;
  * writes the new process's handle (WAIT, QUERY, KILL, DUPLICATE, TRANSFER) to *process. The grant is moved or closed.

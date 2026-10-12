@@ -119,17 +119,26 @@ internal static class RuntimeExt4Volume
     }
 
     /// <summary>
-    /// Requires what the guest wrote to a volume (its image): e2fsck finds it clean, and debugfs reads the guest's files.
+    /// Requires what the guest wrote to a volume (its image): the guest unmounted it, e2fsck finds it clean, and debugfs
+    /// reads the guest's files.
     /// </summary>
     /// <param name="image">The volume's image.</param>
+    /// <param name="boots">The boots /boots.txt must count (D6.1); 0 to skip.</param>
     /// <returns>When the volume is judged.</returns>
-    /// <exception cref="InvalidOperationException">e2fsck finds a problem, or a file holds other bytes.</exception>
-    public static async Task CheckAsync(string image)
+    /// <exception cref="InvalidOperationException">The journal needs recovery, e2fsck finds a problem, or a file holds other
+    /// bytes.</exception>
+    public static async Task CheckAsync(string image, int boots = 0)
     {
         var tools = Path.GetDirectoryName(FindMkfs() ?? throw new InvalidOperationException("Judging the ext4 volume needs e2fsprogs."))!;
+        var header = await Processes.RunAsync(Path.Combine(tools, "dumpe2fs"), ["-h", image], Path.GetTempPath(), 300);
+        var features = header.Output.Split('\n').FirstOrDefault(line => line.StartsWith("Filesystem features:", StringComparison.Ordinal));
+        if (header.ExitCode != 0 || features is null || features.Contains("needs_recovery", StringComparison.Ordinal))
+            throw new InvalidOperationException($"The guest did not unmount its ext4 volume: dumpe2fs says '{features}' ({header.ExitCode}).");
         var check = await Processes.RunAsync(Path.Combine(tools, "e2fsck"), ["-fn", image], Path.GetTempPath(), 300);
         if (check.ExitCode != 0)
             throw new InvalidOperationException($"e2fsck finds the guest's ext4 volume unclean ({check.ExitCode}): {check.Output} {check.Error}");
+        if (boots > 0 && Encoding.UTF8.GetString(await DumpAsync(tools, image, "/boots.txt")) != $"{boots}")
+            throw new InvalidOperationException($"debugfs reads another /boots.txt than the guest's count of {boots} boots.");
         var written = await DumpAsync(tools, image, "/guest/logs/written.bin");
         var expected = Enumerable.Range(0, GUEST_BYTES).Select(GuestPattern).ToArray();
         if (!written.AsSpan().SequenceEqual(expected))

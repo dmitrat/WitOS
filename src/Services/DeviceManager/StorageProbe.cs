@@ -107,13 +107,18 @@ internal static class StorageProbe
     /// <returns>The byte.</returns>
     public static byte Pattern(int offset) => (byte)(offset % 509 ^ offset / 4096);
 
-    // A durable write of the pattern at the start of the partition, then a read of it.
+    // A durable write of the pattern at the start of the partition, then a read of it; first, on a partition a previous
+    // boot wrote (D6.1), a read of what it left.
     private static async Task WriteAndReadAsync(ChannelBlockStorage disk, GptPartition test, string id)
     {
         await using var partition = test.Open(disk);
         var pattern = new byte[PATTERN_BYTES];
         for (var i = 0; i < pattern.Length; i++)
             pattern[i] = Pattern(i);
+        var before = new byte[PATTERN_BYTES];
+        await partition.ReadAsync(0, before);
+        if (before.AsSpan().SequenceEqual(pattern))
+            Console.WriteLine($"{PREFIX}storage {id}: partition \"{TEST_PARTITION}\": holds the {PATTERN_BYTES} bytes a previous boot wrote");
         await partition.WriteAsync(0, pattern, WriteOptions.Durable);
         var back = new byte[PATTERN_BYTES];
         await partition.ReadAsync(0, back);

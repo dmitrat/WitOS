@@ -148,7 +148,7 @@ internal static class CommandLine
         new CommandScenario("runtime-devices",
             "Boot the device manager runtime-witos published, which discovers the devices before /bin/init (D1.1)",
             KernelImageBuilder.RUNTIME_DEVICES_SCENARIO,
-            architecture => [new BootRequest("runtime-devices-256", 256, 600, ExpectedOutcome.Success)
+            architecture => [new BootRequest("runtime-devices-512", 512, 1200, ExpectedOutcome.Success)
             {
                 Suite = BootSuite.Release,
                 RequiredLines = RuntimeDevices.RequiredLines(architecture)

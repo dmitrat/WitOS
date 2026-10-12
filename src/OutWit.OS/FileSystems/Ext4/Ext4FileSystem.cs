@@ -39,9 +39,11 @@ public sealed class Ext4FileSystem : IFileSystem
 
     #region Constructors
 
-    private Ext4FileSystem(Ext4Volume volume, Ext4Writer? writer)
+    private Ext4FileSystem(Ext4Volume volume, Ext4Writer? writer, bool wasClean, int replayed)
     {
         m_volume = volume;
+        WasCleanlyUnmounted = wasClean;
+        ReplayedTransactions = replayed;
         m_names = new Ext4Namespace(volume);
         m_writer = writer;
         var superblock = volume.Superblock;
@@ -94,6 +96,8 @@ public sealed class Ext4FileSystem : IFileSystem
         var volume = await Ext4Volume.OpenAsync(storage, cancellationToken).ConfigureAwait(false);
         var superblock = volume.Superblock;
         var writable = !storage.Info.IsReadOnly && superblock.HasExtents && superblock.CanWrite;
+        var wasClean = !superblock.NeedsRecovery;
+        var replayed = 0;
         if (superblock.NeedsRecovery && !(writable && superblock.HasJournal))
             throw new FileSystemException(FileSystemError.Unsupported, "The volume's journal needs recovery, which a read-only mount does not make.");
         Ext4Writer? writer = null;
@@ -104,7 +108,7 @@ public sealed class Ext4FileSystem : IFileSystem
                 var journal = await Ext4Journal.OpenAsync(volume, cancellationToken).ConfigureAwait(false);
                 if (!journal.IsEmpty)
                 {
-                    await journal.ReplayAsync(cancellationToken).ConfigureAwait(false);
+                    replayed = await journal.ReplayAsync(cancellationToken).ConfigureAwait(false);
                     volume = await Ext4Volume.OpenAsync(storage, cancellationToken).ConfigureAwait(false); // the metadata the log held
                     journal = await Ext4Journal.OpenAsync(volume, cancellationToken).ConfigureAwait(false);
                 }
@@ -120,7 +124,7 @@ public sealed class Ext4FileSystem : IFileSystem
         var root = await volume.ReadInodeAsync(Ext4Superblock.ROOT_INODE, cancellationToken).ConfigureAwait(false);
         if (root.Kind != FileSystemEntryKind.Directory)
             throw new FileSystemException(FileSystemError.Corrupt, "The volume's root inode is no directory.");
-        return new Ext4FileSystem(volume, writer);
+        return new Ext4FileSystem(volume, writer, wasClean, replayed);
     }
 
     /// <inheritdoc />
@@ -359,6 +363,18 @@ public sealed class Ext4FileSystem : IFileSystem
 
     /// <inheritdoc />
     public FileSystemVolume Volume { get; }
+
+    /// <summary>
+    /// Whether the volume's last writer unmounted it (D6.1): the superblock said, when this mount read it, that the
+    /// journal needed no recovery.
+    /// </summary>
+    public bool WasCleanlyUnmounted { get; }
+
+    /// <summary>
+    /// The journal's committed transactions this mount replayed: none after a clean unmount, and the changes a writer
+    /// committed but did not check point before it stopped otherwise (D4.3, D6.2).
+    /// </summary>
+    public int ReplayedTransactions { get; }
 
     #endregion
 }

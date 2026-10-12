@@ -71,12 +71,17 @@ internal static class Program
             channel.Send(ServiceStatus.Encode(error));
             return 1;
         }
-        var status = Serve(channel, block, server, name);
+        var stopped = Serve(channel, block, server, name);
         server.Dispose();
-        queue.Dispose();
+        queue.Dispose(); // the device quiesced before its pin goes
         transport.Dispose();
         device.Dispose();
-        return status;
+        if (stopped)
+        {
+            Console.WriteLine($"{PREFIX}driver of {name}: stopped, the device reset");
+            channel.Send(ServiceStatus.Encode(0));
+        }
+        return 0;
     }
 
     // The device manager's start: the descriptor and the device, whose configuration region must read the identity the
@@ -123,9 +128,9 @@ internal static class Program
         return READ + $"a boot sector (signature aa55, file system {type})";
     }
 
-    // Both channels until the device manager closes its own: the block protocol on the block channel while its client
-    // keeps it, nothing yet on the device manager's.
-    private static int Serve(Channel manager, Channel block, BlockServer server, string name)
+    // Both channels until the device manager asks the driver to stop (D6.1), which it answers once the device is reset,
+    // or closes its own: the block protocol on the block channel while its client keeps it. Whether it was a stop.
+    private static bool Serve(Channel manager, Channel block, BlockServer server, string name)
     {
         Channel? client = block;
         for (; ; )
@@ -142,7 +147,7 @@ internal static class Program
                 if (index == 0)
                 {
                     client?.Dispose();
-                    return 0;
+                    return false;
                 }
                 Console.WriteLine($"{PREFIX}driver of {name}: the client closed the block channel");
                 server.Detach();
@@ -154,6 +159,11 @@ internal static class Program
             {
                 if (index == 0)
                 {
+                    if (ServiceStop.TryDecode(message.Bytes, out _))
+                    {
+                        client?.Dispose();
+                        return true;
+                    }
                     Console.WriteLine($"{PREFIX}a request of {message.Bytes.Length} bytes, which the driver does not serve");
                     continue;
                 }

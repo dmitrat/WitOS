@@ -14,7 +14,9 @@ namespace OutWit.OS.Namespace;
 /// The namespace service (plan step D5.1, storage document section 21, RFC 0008 sections 12-17): the device manager
 /// starts it with the grant of a channel to itself and moves each disk's block channel to it. It mounts the volumes the
 /// disks hold by its policy, answers ready with the clients' endpoint, which the process manager gives every process
-/// it starts, and serves each client that connects on a thread of its own.
+/// it starts, and serves each client that connects on a thread of its own until the device manager asks it to stop
+/// (D6.1): then it refuses every new request, closes what the sessions opened, unmounts every volume and closes the
+/// disks (storage document section 98), and answers.
 /// </summary>
 internal static class Program
 {
@@ -67,12 +69,49 @@ internal static class Program
         try
         {
             for (; ; )
-                NamespaceConnection.Accept(clients.Receive(), mounts);
+            {
+                if (Event.Wait(Event.INFINITE, clients.Endpoint, channel.Endpoint) == 0)
+                {
+                    NamespaceConnection.Accept(clients.Receive(), mounts);
+                    continue;
+                }
+                using var message = channel.Receive();
+                if (ServiceStop.TryDecode(message.Bytes, out _))
+                {
+                    channel.Send(ServiceStatus.Encode(Stop(mounts, kept)));
+                    return 0;
+                }
+                Console.WriteLine($"{PREFIX}a message of {message.Bytes.Length} bytes from the device manager, which the service does not serve");
+            }
         }
         catch (CapabilityException exception) when (exception.Error == Channel.PEER_CLOSED)
         {
             return 0;
         }
+    }
+
+    // The stop (D6.1): no request runs or starts any more, the sessions' files are closed, then every volume unmounts
+    // and every resource closes, the last opened first: a volume before its partition, a partition before its disk.
+    // Zero, or EIO when something could not finish, which the log names.
+    private static int Stop(MountTable mounts, List<IAsyncDisposable> kept)
+    {
+        var sessions = NamespaceConnection.StopAll();
+        var error = 0;
+        for (var i = kept.Count - 1; i >= 0; i--)
+        {
+            try
+            {
+                kept[i].DisposeAsync().AsTask().GetAwaiter().GetResult();
+            }
+            catch (Exception exception)
+            {
+                Console.WriteLine($"{PREFIX}stopping: {exception.GetType().Name}: {exception.Message}");
+                error = 5; // EIO
+            }
+        }
+        Console.WriteLine($"{PREFIX}namespace service: {sessions} sessions stopped, {mounts.Mounts.Count} volumes unmounted" +
+            (error == 0 ? "" : ", with errors"));
+        return error;
     }
 
     #endregion

@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <spawn.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -20,6 +21,10 @@
  * none of which the boot package holds (D5.3), and waits for each: the System.IO check, an ordinary NativeAOT program
  * that uses the same volumes (D5.2); the dynamic program, whose library and plugin the dynamic linker maps from beside
  * it; and the package's dotnet with a .NET application and its library. */
+
+/* What /bin/init and the .NET program leave on /data, which the host and a later boot read back. */
+#define POSIX_KEPT "Written by /bin/init through the libc and the namespace service."
+#define DOTNET_KEPT "Written by a .NET program through System.IO and the namespace service."
 
 extern char **environ;
 
@@ -145,12 +150,25 @@ int main(void)
 {
     char buffer[16];
     printf("[DEVICES-INIT] /bin/init started after the device manager answered\n");
+    /* The data disk across reboots (D6.1): the boot this is, which /data/boots.txt counts, and on a later boot the files
+     * the previous one left, which it wrote before the services stopped and unmounted the volume. */
+    char text[160];
+    const ssize_t counted = read_file("/data/boots.txt", text, sizeof(text));
+    const int boot = (counted > 0 ? atoi(text) : 0) + 1;
+    snprintf(text, sizeof(text), "%d", boot);
+    check(write_file("/data/boots.txt", text, O_TRUNC) == 0, "the boot count");
+    printf("[DEVICES-INIT] boot %d of the data disk\n", boot);
+    if (boot > 1) {
+        const int posix = read_file("/data/posix-kept.txt", text, sizeof(text)) > 0 && strcmp(text, POSIX_KEPT) == 0;
+        const int dotnet = read_file("/data/dotnet-kept.txt", text, sizeof(text)) > 0 && strcmp(text, DOTNET_KEPT) == 0;
+        check(posix && dotnet, "the files a previous boot left");
+        printf("[DEVICES-INIT] /data/posix-kept.txt and /data/dotnet-kept.txt hold what the previous boot wrote: %s\n",
+            posix && dotnet ? "yes" : "no");
+    }
     volume("/data");
     volume("/fat");
     check(rename("/data/x", "/fat/x") < 0 && (errno == EXDEV || errno == ENOENT), "rename across volumes");
-    check(write_file(
-              "/data/posix-kept.txt", "Written by /bin/init through the libc and the namespace service.", O_TRUNC) == 0,
-        "the file the host finds");
+    check(write_file("/data/posix-kept.txt", POSIX_KEPT, O_TRUNC) == 0, "the file the host finds");
     const char *loader =
         access("/boot/EFI/BOOT/BOOTX64.EFI", F_OK) == 0 ? "/boot/EFI/BOOT/BOOTX64.EFI" : "/boot/EFI/BOOT/BOOTAA64.EFI";
     check(read_file(loader, buffer, 3) == 2 && buffer[0] == 'M' && buffer[1] == 'Z', "the boot volume's loader");

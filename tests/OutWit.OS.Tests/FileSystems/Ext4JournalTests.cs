@@ -105,6 +105,33 @@ public sealed class Ext4JournalTests
         }
     }
 
+    [Test]
+    public async Task MountReportsHowTheLastWriterLeftTheVolumeTest()
+    {
+        var image = Ext4Images.Create("ext4", out var source);
+        Ext4Images.Delete(source);
+        var content = Pattern(20_000);
+        await using (var volume = await Ext4FileSystem.MountAsync(new MemoryBlockStorage(image, 512)))
+            Assert.That(volume.WasCleanlyUnmounted, Is.True, "mkfs leaves no recovery");
+        var unmounted = (byte[])image.Clone();
+        await ChangeAsync(new CrashingBlockStorage(new MemoryBlockStorage(unmounted, 512), int.MaxValue), content, unmount: true);
+        await using (var volume = await Ext4FileSystem.MountAsync(new MemoryBlockStorage(unmounted, 512)))
+            Assert.That((volume.WasCleanlyUnmounted, volume.ReplayedTransactions), Is.EqualTo((true, 0)), "after an unmount");
+
+        // A writer that stops without unmounting: the flag says so; a cut before a checkpoint leaves a transaction to replay.
+        var writes = await WritesOfChangeAsync(image, content);
+        var replayed = 0;
+        for (var cut = writes; cut > 0 && replayed == 0; cut--)
+        {
+            var copy = (byte[])image.Clone();
+            await ChangeAsync(new CrashingBlockStorage(new MemoryBlockStorage(copy, 512), cut), content, unmount: false);
+            await using var volume = await Ext4FileSystem.MountAsync(new MemoryBlockStorage(copy, 512));
+            Assert.That(volume.WasCleanlyUnmounted, Is.False, $"cut after {cut} writes");
+            replayed = volume.ReplayedTransactions;
+        }
+        Assert.That(replayed, Is.EqualTo(1), "no cut left a transaction for the mount to replay");
+    }
+
     #endregion
 
     #region Tools
