@@ -50,8 +50,8 @@ internal static class RuntimeDevices
     // The source folders of OutWit.OS every service compiles; never obj or bin, which a host build leaves.
     private static readonly string[] OUTWIT_OS_FOLDERS = ["Native", "Resources", "Communication", "Hardware", "Execution", "Storage"];
 
-    // OutWit.OS's FAT provider (D4.1), which a service compiles with OutWit.OS's package references.
-    private static readonly string[] OUTWIT_OS_FAT_FOLDERS = ["FileSystems", "FileSystems/Fat"];
+    // OutWit.OS's filesystem providers (D4.1, D4.2), which a service compiles with OutWit.OS's package references.
+    private static readonly string[] OUTWIT_OS_FILESYSTEM_FOLDERS = ["FileSystems", "FileSystems/Fat", "FileSystems/Ext4"];
 
     #endregion
 
@@ -84,7 +84,7 @@ internal static class RuntimeDevices
     {
         var sysroot = await Sysroot.BuildAsync(root, architecture); // with libwitos of the current sources
         await PublishServiceAsync(root, tree, architecture, version, sysroot, DEVICE_MANAGER_EXECUTABLE, DEVICE_MANAGER_PROGRAM,
-            ["Uhi", "Drivers"], OUTWIT_OS_FAT_FOLDERS);
+            ["Uhi", "Drivers"], OUTWIT_OS_FILESYSTEM_FOLDERS);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_BLOCK_EXECUTABLE, VIRTIO_BLOCK_PROGRAM, ["Virtio"], []);
         var image = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_DEVICES_SCENARIO, architecture: architecture);
         var dataDisk = Path.Combine(Path.GetDirectoryName(image)!, "data-disk.img");
@@ -100,11 +100,11 @@ internal static class RuntimeDevices
         Console.WriteLine($"Devices on witos-{architecture.Name}: the device manager discovered the devices, moved each disk to its " +
             $"driver and wrote the data disk through the block protocol and the FAT provider before /bin/init; the image holds the " +
             $"{RuntimeDataDisk.TEST_PATTERN_BYTES} bytes and the guest's files on a clean FAT volume ({check.Files} files, " +
-            $"{check.Directories} directories).");
+            $"{check.Directories} directories), and the ext4 partition the guest read is unchanged.");
     }
 
     /// <summary>
-    /// The lines the runtime-devices scenario requires (D1.1, D1.2, D2, D3.2, D4.1).
+    /// The lines the runtime-devices scenario requires (D1.1, D1.2, D2, D3.2, D4.1, D4.2).
     /// </summary>
     /// <param name="architecture">Target architecture.</param>
     /// <returns>The required lines.</returns>
@@ -123,9 +123,10 @@ internal static class RuntimeDevices
         $": {RuntimeDataDisk.BYTES} bytes in blocks of 512, writable, through the block channel and a window of 262144 bytes",
         ": the driver refuses a write with errno 30",
         ": no GUID partition table",
-        $": GUID partition table of 2 partitions: \"{RuntimeDataDisk.TEST_PARTITION}\" on blocks {RuntimeDataDisk.TEST_PARTITION_FIRST_BLOCK}-" +
+        $": GUID partition table of 3 partitions: \"{RuntimeDataDisk.TEST_PARTITION}\" on blocks {RuntimeDataDisk.TEST_PARTITION_FIRST_BLOCK}-" +
             $"{RuntimeDataDisk.TEST_PARTITION_LAST_BLOCK}, \"{RuntimeDataDisk.FAT_PARTITION}\" on blocks {RuntimeDataDisk.FAT_PARTITION_FIRST_BLOCK}-" +
-            $"{RuntimeDataDisk.FAT_PARTITION_LAST_BLOCK}",
+            $"{RuntimeDataDisk.FAT_PARTITION_LAST_BLOCK}, \"{RuntimeDataDisk.EXT4_PARTITION}\" on blocks {RuntimeDataDisk.EXT4_PARTITION_FIRST_BLOCK}-" +
+            $"{RuntimeDataDisk.EXT4_PARTITION_LAST_BLOCK}",
         $": partition \"{RuntimeDataDisk.TEST_PARTITION}\": wrote {RuntimeDataDisk.TEST_PATTERN_BYTES} bytes durably and read them back",
         "[DEVICES] fat pci/",
         ": FAT16 volume of ",
@@ -139,6 +140,14 @@ internal static class RuntimeDevices
         $": partition \"{RuntimeDataDisk.FAT_PARTITION}\": mounted again, /guest holds written.bin ({RuntimeDataDisk.GUEST_FILE_BYTES} bytes), " +
             "note.txt (",
         ", read back what it wrote",
+        $"[DEVICES] ext4 pci/",
+        $": partition \"{RuntimeDataDisk.EXT4_PARTITION}\": ext4 volume \"{RuntimeExt4Volume.LABEL}\" of " +
+            $"{(RuntimeDataDisk.EXT4_PARTITION_LAST_BLOCK - RuntimeDataDisk.EXT4_PARTITION_FIRST_BLOCK + 1) * 512} bytes in blocks of 4096, read-only, " +
+            "/ holds big.bin, docs, hello.txt, link, lost+found, many",
+        $": /hello.txt (mode 644) says \"{RuntimeExt4Volume.HELLO_TEXT}\"",
+        $": /big.bin holds {RuntimeExt4Volume.BIG_BYTES} bytes, {RuntimeExt4Volume.BIG_CHUNKS} chunks between holes, as the host wrote them",
+        $": /many holds {RuntimeExt4Volume.MANY} entries, /link points to {RuntimeExt4Volume.LINK_TARGET}",
+        $": check clean ({RuntimeExt4Volume.MANY + 3} files, 4 directories)",
         $"[DEVICES] device manager on {(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: ",
         " 2 drivers ready, DMA isolation: none (no IOMMU), ready",
         "[ROOT-TASK] /system/DeviceManager was ready before /bin/init",

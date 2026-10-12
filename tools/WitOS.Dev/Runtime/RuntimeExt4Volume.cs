@@ -1,0 +1,127 @@
+using System.Text;
+using WitOS.Dev.Host;
+
+namespace WitOS.Dev.Runtime;
+
+/// <summary>
+/// The ext4 volume of the runtime-devices data disk (plan step D4.2), made by the host's e2fsprogs from a known tree, as
+/// the storage document's cross-implementation test asks (§73): <c>mkfs.ext4 -d</c> lays the tree in and
+/// <c>e2fsck -D</c> indexes its large directory as an htree. The guest mounts it read-only and reads the tree back.
+/// </summary>
+internal static class RuntimeExt4Volume
+{
+    #region Constants
+
+    /// <summary>
+    /// The volume's label.
+    /// </summary>
+    public const string LABEL = "WITOS EXT4";
+
+    /// <summary>
+    /// What /hello.txt says.
+    /// </summary>
+    public const string HELLO_TEXT = "Written on the host by mkfs.ext4 -d; read by WitOS's managed ext4 provider.";
+
+    /// <summary>
+    /// The chunks of /big.bin, each between holes, more than an inode's extents hold.
+    /// </summary>
+    public const int BIG_CHUNKS = 6;
+
+    /// <summary>
+    /// The bytes of each chunk of /big.bin.
+    /// </summary>
+    public const int BIG_CHUNK_BYTES = 20_000;
+
+    /// <summary>
+    /// The distance between the chunks of /big.bin.
+    /// </summary>
+    public const int BIG_STRIDE = 65_536;
+
+    /// <summary>
+    /// The bytes of /big.bin.
+    /// </summary>
+    public const int BIG_BYTES = (BIG_CHUNKS - 1) * BIG_STRIDE + BIG_CHUNK_BYTES;
+
+    /// <summary>
+    /// The empty files of /many, an htree.
+    /// </summary>
+    public const int MANY = 400;
+
+    /// <summary>
+    /// The target of /link.
+    /// </summary>
+    public const string LINK_TARGET = "hello.txt";
+
+    private const string UUID = "4e2a7c19-0b3d-4f58-9e61-5749544f5334";
+    private static readonly string[] MKFS_PLACES = ["/sbin/mkfs.ext4", "/usr/sbin/mkfs.ext4", "/usr/bin/mkfs.ext4"];
+
+    #endregion
+
+    #region Functions
+
+    /// <summary>
+    /// The host's mkfs.ext4, or null on a host without e2fsprogs.
+    /// </summary>
+    /// <returns>Its path.</returns>
+    public static string? FindMkfs() => OperatingSystem.IsLinux() ? MKFS_PLACES.FirstOrDefault(File.Exists) : null;
+
+    /// <summary>
+    /// Makes the volume.
+    /// </summary>
+    /// <param name="image">The image to write.</param>
+    /// <param name="bytes">Its bytes.</param>
+    /// <returns>When the image is written.</returns>
+    /// <exception cref="InvalidOperationException">The host has no e2fsprogs, or mkfs or e2fsck failed.</exception>
+    public static async Task CreateAsync(string image, long bytes)
+    {
+        var mkfs = FindMkfs() ?? throw new InvalidOperationException("The data disk's ext4 volume needs e2fsprogs (mkfs.ext4) on a Linux host.");
+        var tree = Path.Combine(Path.GetDirectoryName(image)!, "ext4-tree");
+        if (Directory.Exists(tree))
+            Directory.Delete(tree, recursive: true);
+        WriteTree(tree);
+        File.Delete(image);
+        await RunAsync(mkfs, ["-t", "ext4", "-b", "4096", "-I", "256", "-N", "1024", "-T", "default", "-F", "-q", "-L", LABEL, "-U", UUID,
+            "-d", tree, image, $"{bytes / 1024}k"], 0);
+        await RunAsync(Path.Combine(Path.GetDirectoryName(mkfs)!, "e2fsck"), ["-f", "-y", "-D", image], 1);
+        Directory.Delete(tree, recursive: true);
+    }
+
+    /// <summary>
+    /// The byte of /big.bin's data at an offset of its chunk, never zero, so that mkfs keeps every data block.
+    /// </summary>
+    /// <param name="chunk">The chunk.</param>
+    /// <param name="offset">The offset in the chunk.</param>
+    /// <returns>The byte.</returns>
+    public static byte BigPattern(int chunk, int offset) => (byte)(1 + (chunk * 11 + offset) % 251);
+
+    // The tree: a text file, a directory with a file, the sparse file, the htree directory and a link.
+    private static void WriteTree(string root)
+    {
+        Directory.CreateDirectory(Path.Combine(root, "docs"));
+        Directory.CreateDirectory(Path.Combine(root, "many"));
+        File.WriteAllText(Path.Combine(root, "hello.txt"), HELLO_TEXT);
+        if (OperatingSystem.IsLinux())
+            File.SetUnixFileMode(Path.Combine(root, "hello.txt"), (UnixFileMode)Convert.ToInt32("644", 8));
+        File.WriteAllText(Path.Combine(root, "docs", "readme.txt"), string.Concat(Enumerable.Repeat("A line of the ext4 volume.\n", 100)));
+        using (var big = File.Create(Path.Combine(root, "big.bin")))
+        {
+            for (var chunk = 0; chunk < BIG_CHUNKS; chunk++)
+            {
+                big.Position = (long)chunk * BIG_STRIDE;
+                big.Write([.. Enumerable.Range(0, BIG_CHUNK_BYTES).Select(offset => BigPattern(chunk, offset))]);
+            }
+        }
+        for (var i = 0; i < MANY; i++)
+            File.WriteAllBytes(Path.Combine(root, "many", $"an-entry-of-the-htree-directory-{i:000}"), []);
+        File.CreateSymbolicLink(Path.Combine(root, "link"), LINK_TARGET);
+    }
+
+    private static async Task RunAsync(string program, string[] arguments, int acceptedExit)
+    {
+        var result = await Processes.RunAsync(program, arguments, Path.GetTempPath(), 300);
+        if (result.TimedOut || (result.ExitCode != 0 && result.ExitCode != acceptedExit))
+            throw new InvalidOperationException($"{program} {string.Join(' ', arguments)} exited with {result.ExitCode}: {result.Error}");
+    }
+
+    #endregion
+}

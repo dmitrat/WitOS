@@ -33,6 +33,14 @@ public interface IFileSystem : IAsyncDisposable
     ValueTask<IReadOnlyList<FileSystemEntry>> EnumerateAsync(string path, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The target a symbolic link records, as it records it; a lookup never follows a link (D4.2).
+    /// </summary>
+    /// <param name="path">The link.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The target.</returns>
+    ValueTask<string> ReadLinkAsync(string path, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Opens a file, creating it when the mode says so, as <see cref="FileStream"/> does.
     /// </summary>
     /// <param name="path">The file.</param>

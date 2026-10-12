@@ -35,6 +35,9 @@ public enum FileSystemError
     /// <summary>The file would exceed what the format holds (EFBIG).</summary>
     TooLarge,
 
+    /// <summary>The path names no symbolic link where one is needed (EINVAL).</summary>
+    NotALink,
+
     /// <summary>A name or a path the format cannot hold (EINVAL, ENAMETOOLONG).</summary>
     InvalidName,
 

@@ -1,4 +1,5 @@
 using System.Text;
+using OutWit.OS.FileSystems.Ext4;
 using OutWit.OS.FileSystems.Fat;
 using OutWit.OS.Storage;
 using WitOS.Dev.Runtime;
@@ -22,7 +23,7 @@ public sealed class RuntimeDataDiskTests
         var path = TemporaryImage();
         try
         {
-            await RuntimeDataDisk.CreateAsync(path);
+            await RuntimeDataDisk.CreateAsync(path, RuntimeExt4Volume.FindMkfs() is not null);
             await using var disk = new MemoryBlockStorage(await File.ReadAllBytesAsync(path));
 
             var table = await GptPartitionTable.ReadAsync(disk);
@@ -33,7 +34,8 @@ public sealed class RuntimeDataDiskTests
             Assert.That(table.Partitions.Select(entry => (entry.Name, entry.FirstBlock, entry.LastBlock)), Is.EqualTo(new[]
             {
                 (RuntimeDataDisk.TEST_PARTITION, RuntimeDataDisk.TEST_PARTITION_FIRST_BLOCK, RuntimeDataDisk.TEST_PARTITION_LAST_BLOCK),
-                (RuntimeDataDisk.FAT_PARTITION, RuntimeDataDisk.FAT_PARTITION_FIRST_BLOCK, RuntimeDataDisk.FAT_PARTITION_LAST_BLOCK)
+                (RuntimeDataDisk.FAT_PARTITION, RuntimeDataDisk.FAT_PARTITION_FIRST_BLOCK, RuntimeDataDisk.FAT_PARTITION_LAST_BLOCK),
+                (RuntimeDataDisk.EXT4_PARTITION, RuntimeDataDisk.EXT4_PARTITION_FIRST_BLOCK, RuntimeDataDisk.EXT4_PARTITION_LAST_BLOCK)
             }));
             Assert.That((RuntimeDataDisk.TEST_PARTITION_LAST_BLOCK - RuntimeDataDisk.TEST_PARTITION_FIRST_BLOCK + 1) * 512,
                 Is.GreaterThanOrEqualTo(RuntimeDataDisk.TEST_PATTERN_BYTES));
@@ -44,7 +46,7 @@ public sealed class RuntimeDataDiskTests
         }
         finally
         {
-            File.Delete(path);
+            Directory.Delete(Path.GetDirectoryName(path)!, recursive: true);
         }
     }
 
@@ -55,7 +57,7 @@ public sealed class RuntimeDataDiskTests
         var path = TemporaryImage();
         try
         {
-            await RuntimeDataDisk.CreateAsync(path);
+            await RuntimeDataDisk.CreateAsync(path, RuntimeExt4Volume.FindMkfs() is not null);
             Assert.ThrowsAsync<InvalidOperationException>(async () => await RuntimeDataDisk.CheckAsync(path));
 
             var image = await File.ReadAllBytesAsync(path);
@@ -82,11 +84,46 @@ public sealed class RuntimeDataDiskTests
         }
         finally
         {
-            File.Delete(path);
+            Directory.Delete(Path.GetDirectoryName(path)!, recursive: true);
         }
     }
 
-    private static string TemporaryImage() => Path.Combine(Path.GetTempPath(), $"witos-data-disk-{Guid.NewGuid():N}.img");
+    // The ext4 volume the host's e2fsprogs makes: the provider reads the tree.
+    [Test]
+    public async Task Ext4PartitionHoldsTheTreeTest()
+    {
+        if (RuntimeExt4Volume.FindMkfs() is null)
+            Assert.Ignore("The host has no e2fsprogs (mkfs.ext4).");
+        var path = TemporaryImage();
+        try
+        {
+            await RuntimeDataDisk.CreateAsync(path);
+            var image = await File.ReadAllBytesAsync(path);
+            await using (var disk = new MemoryBlockStorage(image, 512, isReadOnly: true))
+            {
+                var table = await GptPartitionTable.ReadAsync(disk);
+                await using var partition = table.Partitions[2].Open(disk, isReadOnly: true);
+                await using var volume = await Ext4FileSystem.MountAsync(partition);
+                Assert.That(volume.Volume.Label, Is.EqualTo(RuntimeExt4Volume.LABEL));
+                Assert.That((await volume.EnumerateAsync("/many")).Count, Is.EqualTo(RuntimeExt4Volume.MANY));
+                Assert.That(await volume.ReadLinkAsync("/link"), Is.EqualTo(RuntimeExt4Volume.LINK_TARGET));
+                Assert.That((await volume.GetEntryAsync("/big.bin"))!.Length, Is.EqualTo(RuntimeExt4Volume.BIG_BYTES));
+                Assert.That((await volume.CheckAsync()).IsClean, Is.True);
+            }
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(path)!, recursive: true);
+        }
+    }
+
+    // A data disk's path in a directory of its own, beside which CreateAsync keeps the ext4 volume.
+    private static string TemporaryImage()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"witos-data-disk-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        return Path.Combine(directory, "data-disk.img");
+    }
 
     #endregion
 }
