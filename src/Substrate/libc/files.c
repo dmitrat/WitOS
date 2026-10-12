@@ -33,7 +33,9 @@
  * descriptor an open or a dup takes, and dup2 may put a file, a pipe or another stream there, which then stands for
  * that descriptor within this process (a started process gets the log for each standard stream the caller has open
  * as the log, and no other). The ends of a pipe (pipe.c) are descriptors too, and so are shared memory files
- * (shared.c, R3.2b): /dev/shm/<name>, which open may create and unlink may remove, and memfd_create's. */
+ * (shared.c, R3.2b): /dev/shm/<name>, which open may create and unlink may remove, and memfd_create's. A path below
+ * a mount point of the namespace service is a file or a directory of a mounted volume (namespace.c, D5.1), which open
+ * may create, write, cut, list, remove and rename, as its volume allows. */
 
 #define PACKAGE_HANDLE (__wit_process.Package)
 #define PAGE 4096ULL
@@ -59,7 +61,9 @@ typedef enum Kind {
     KindStream, /* a duplicate of standard stream Index (0, 1 or 2) */
     KindPipeRead, /* the read end of pipe Index (pipe.c) */
     KindPipeWrite, /* the write end of pipe Index */
-    KindShared /* shared memory file Index (shared.c, R3.2b) */
+    KindShared, /* shared memory file Index (shared.c, R3.2b) */
+    KindRemoteFile, /* a file of a mounted volume, remote record Index (namespace.c, D5.1) */
+    KindRemoteDirectory /* a directory of a mounted volume, remote record Index */
 } Kind;
 
 typedef struct Descriptor {
@@ -385,6 +389,9 @@ static void close_descriptor(Descriptor *d)
     if (d->Kind == KindShared) {
         __wit_shared_release(d->Index);
     }
+    if (d->Kind == KindRemoteFile || d->Kind == KindRemoteDirectory) {
+        __wit_remote_release(d->Index);
+    }
     if (--descriptions[d->Description].References == 0) {
         unlock_description(&descriptions[d->Description]); /* a description's lock ends with its last descriptor */
     }
@@ -394,6 +401,9 @@ static void close_descriptor(Descriptor *d)
 /* The name of a directory descriptor: its prefix without the trailing '/', empty for the root. */
 static WitU32 directory_name(const Descriptor *d, unsigned char *name)
 {
+    if (d->Kind == KindRemoteDirectory) {
+        return __wit_remote_directory(d->Index, name);
+    }
     if (!d->PrefixLength) {
         return 0;
     }
@@ -436,7 +446,7 @@ static long resolve(long dirfd, const char *path, unsigned char *name, WitU32 *n
     if (!d) {
         return -EBADF;
     }
-    if (d->Kind != KindDirectory) {
+    if (d->Kind != KindDirectory && d->Kind != KindRemoteDirectory) {
         return -ENOTDIR;
     }
     unsigned char base[NAME_MAX_BYTES];
@@ -458,6 +468,11 @@ static long require_directory(const unsigned char *name, WitU32 length)
     WitU32 index;
     if (!length || shared_directory(name, length)) {
         return 0;
+    }
+    if (__wit_remote_name(name, length)) {
+        struct kstat st;
+        const long remote = __wit_remote_stat(name, length, &st);
+        return remote < 0 ? remote : S_ISDIR(st.st_mode) ? 0 : -ENOTDIR;
     }
     const long status = lookup(name, length, &kind, &index);
     if (status < 0) {
@@ -498,7 +513,7 @@ long __wit_fchdir(long fd)
     if (!d) {
         return -EBADF;
     }
-    if (d->Kind != KindDirectory) {
+    if (d->Kind != KindDirectory && d->Kind != KindRemoteDirectory) {
         return -ENOTDIR;
     }
     directory_length = directory_name(d, directory);
@@ -534,7 +549,7 @@ long __wit_descriptor_directory(long fd, char *out, long size)
     if (!d) {
         return -EBADF;
     }
-    if (d->Kind != KindDirectory) {
+    if (d->Kind != KindDirectory && d->Kind != KindRemoteDirectory) {
         return -ENOTDIR;
     }
     return absolute(name, directory_name(d, name), out, size);
@@ -560,12 +575,23 @@ long __wit_openat(long dirfd, const char *path, long flags, long mode)
     Kind kind;
     WitU32 index;
     long status;
-    (void)mode;
     if ((status = mount()) < 0) {
         return status;
     }
     if ((status = resolve(dirfd, path, name, &length)) < 0) {
         return status;
+    }
+    if (__wit_remote_name(name, length)) {
+        WitU32 remote = 0;
+        int is_directory = 0;
+        if ((status = __wit_remote_open(name, length, flags, mode, &remote, &is_directory)) < 0) {
+            return status;
+        }
+        const long fd = open_descriptor(is_directory ? KindRemoteDirectory : KindRemoteFile, remote, 0, (int)flags);
+        if (fd < 0) {
+            __wit_remote_release(remote);
+        }
+        return fd;
     }
     if (shared_name(name, length)) {
         WitU32 file = 0;
@@ -685,6 +711,9 @@ long __wit_mkdirat(long dirfd, const char *path)
     if ((status = resolve(dirfd, path, name, &length)) < 0) {
         return status;
     }
+    if (__wit_remote_name(name, length)) {
+        return __wit_remote_mkdir(name, length);
+    }
     if (shared_directory(name, length) || lookup(name, length, &kind, &index) == 0) {
         return -EEXIST;
     }
@@ -720,10 +749,13 @@ long __wit_ftruncate(long fd, long size)
     if (!d) {
         return __wit_stream_of(fd) >= 0 ? -EINVAL : -EBADF;
     }
-    if (size < 0 || d->Kind != KindShared || (descriptions[d->Description].StatusFlags & O_ACCMODE) == O_RDONLY) {
+    if (size < 0 ||
+        (d->Kind != KindShared && d->Kind != KindRemoteFile) ||
+        (descriptions[d->Description].StatusFlags & O_ACCMODE) == O_RDONLY) {
         return -EINVAL;
     }
-    return __wit_shared_truncate(d->Index, (WitU64)size);
+    return d->Kind == KindRemoteFile ? __wit_remote_truncate(d->Index, (WitU64)size)
+                                     : __wit_shared_truncate(d->Index, (WitU64)size);
 }
 
 /* unlinkat: a shared memory file's name goes (R3.2b); the package is read-only, and a directory is never removed. */
@@ -741,6 +773,9 @@ long __wit_unlinkat(long dirfd, const char *path, long flags)
     }
     if ((status = resolve(dirfd, path, name, &length)) < 0) {
         return status;
+    }
+    if (__wit_remote_name(name, length)) {
+        return __wit_remote_remove(name, length, (flags & AT_REMOVEDIR) != 0);
     }
     if (shared_name(name, length)) {
         return (flags & AT_REMOVEDIR) ? -ENOTDIR : __wit_shared_unlink(name + 8, length - 8);
@@ -796,7 +831,7 @@ long __wit_read(long fd, void *buffer, long bytes)
     if (bytes < 0) {
         return -EINVAL;
     }
-    if (d->Kind == KindDirectory) {
+    if (d->Kind == KindDirectory || d->Kind == KindRemoteDirectory) {
         return -EISDIR;
     }
     if (d->Kind == KindNull) {
@@ -808,6 +843,16 @@ long __wit_read(long fd, void *buffer, long bytes)
     }
     if (d->Kind == KindRandom) {
         return read_random(buffer, bytes);
+    }
+    if (d->Kind == KindRemoteFile) {
+        if ((descriptions[d->Description].StatusFlags & O_ACCMODE) == O_WRONLY) {
+            return -EBADF;
+        }
+        const long moved = __wit_remote_read(d->Index, POSITION(d), buffer, (WitU64)bytes);
+        if (moved > 0) {
+            POSITION(d) += (WitU64)moved;
+        }
+        return moved;
     }
     if (d->Kind == KindShared) {
         if ((descriptions[d->Description].StatusFlags & O_ACCMODE) == O_WRONLY) {
@@ -838,7 +883,7 @@ long __wit_pread(long fd, void *buffer, long bytes, long offset)
     if (bytes < 0 || offset < 0) {
         return -EINVAL;
     }
-    if (d->Kind == KindDirectory) {
+    if (d->Kind == KindDirectory || d->Kind == KindRemoteDirectory) {
         return -EISDIR;
     }
     if (d->Kind == KindNull) {
@@ -850,6 +895,11 @@ long __wit_pread(long fd, void *buffer, long bytes, long offset)
     }
     if (d->Kind == KindRandom) {
         return read_random(buffer, bytes);
+    }
+    if (d->Kind == KindRemoteFile) {
+        return (descriptions[d->Description].StatusFlags & O_ACCMODE) == O_WRONLY
+            ? -EBADF
+            : __wit_remote_read(d->Index, (WitU64)offset, buffer, (WitU64)bytes);
     }
     if (d->Kind == KindShared) {
         return (descriptions[d->Description].StatusFlags & O_ACCMODE) == O_WRONLY
@@ -894,8 +944,30 @@ static long write_at(Descriptor *d, const void *buffer, long bytes, long offset)
     if (d->Kind == KindNull || d->Kind == KindZero || d->Kind == KindRandom) {
         return bytes;
     }
+    if (d->Kind == KindRemoteFile) {
+        Description *remote = &descriptions[d->Description];
+        if ((remote->StatusFlags & O_ACCMODE) == O_RDONLY) {
+            return -EBADF;
+        }
+        if (offset >= 0) {
+            return __wit_remote_write(d->Index, (WitU64)offset, buffer, (WitU64)bytes);
+        }
+        if (remote->StatusFlags & O_APPEND) {
+            struct kstat st;
+            const long sized = __wit_remote_fstat(d->Index, &st);
+            if (sized < 0) {
+                return sized;
+            }
+            remote->Offset = (WitU64)st.st_size;
+        }
+        const long moved = __wit_remote_write(d->Index, remote->Offset, buffer, (WitU64)bytes);
+        if (moved > 0) {
+            remote->Offset += (WitU64)moved;
+        }
+        return moved;
+    }
     if (d->Kind != KindShared) {
-        return d->Kind == KindDirectory ? -EISDIR : -EBADF;
+        return d->Kind == KindDirectory || d->Kind == KindRemoteDirectory ? -EISDIR : -EBADF;
     }
     Description *description = &descriptions[d->Description];
     if ((description->StatusFlags & O_ACCMODE) == O_RDONLY) {
@@ -966,6 +1038,9 @@ long __wit_fsync(long fd)
     if (!d) {
         return __wit_stream_of(fd) >= 0 ? -EINVAL : -EBADF;
     }
+    if (d->Kind == KindRemoteFile || d->Kind == KindRemoteDirectory) {
+        return __wit_remote_sync(d->Index);
+    }
     return d->Kind == KindStream || d->Kind == KindPipeRead || d->Kind == KindPipeWrite ? -EINVAL : 0;
 }
 
@@ -979,6 +1054,14 @@ long __wit_lseek(long fd, long offset, long whence)
         return -ESPIPE;
     }
     WitU64 length = d->Kind == KindShared ? __wit_shared_size(d->Index) : 0;
+    if (d->Kind == KindRemoteFile && whence == SEEK_END) {
+        struct kstat st;
+        const long sized = __wit_remote_fstat(d->Index, &st);
+        if (sized < 0) {
+            return sized;
+        }
+        length = (WitU64)st.st_size;
+    }
     if (d->Kind == KindFile) {
         const unsigned char *name;
         WitU32 name_length;
@@ -1063,6 +1146,9 @@ long __wit_fstatat(long dirfd, const char *path, struct kstat *st, long flags)
         if (!d) {
             return -EBADF;
         }
+        if (d->Kind == KindRemoteFile || d->Kind == KindRemoteDirectory) {
+            return __wit_remote_fstat(d->Index, st);
+        }
         WitU64 data = 0, file_length = d->Kind == KindShared ? __wit_shared_size(d->Index) : 0;
         if (d->Kind == KindFile) {
             const unsigned char *n;
@@ -1074,6 +1160,9 @@ long __wit_fstatat(long dirfd, const char *path, struct kstat *st, long flags)
     }
     if ((status = resolve(dirfd, path, name, &length)) < 0) {
         return status;
+    }
+    if (__wit_remote_name(name, length)) {
+        return __wit_remote_stat(name, length, st);
     }
     if ((length == 8 && (memcmp(name, "dev/null", 8) == 0 || memcmp(name, "dev/zero", 8) == 0)) ||
         is_random_device(name, length)) {
@@ -1123,6 +1212,15 @@ long __wit_faccessat(long dirfd, const char *path, long mode)
     if ((status = resolve(dirfd, path, name, &length)) < 0) {
         return status;
     }
+    if (__wit_remote_name(name, length)) {
+        struct kstat st;
+        const long remote = __wit_remote_stat(name, length, &st);
+        if (remote < 0) {
+            return remote;
+        }
+        return (mode & X_OK) && !(st.st_mode & 0111) ? -EACCES
+                                                     : 0; /* a write the volume refuses fails when it is made */
+    }
     if ((length == 8 && (memcmp(name, "dev/null", 8) == 0 || memcmp(name, "dev/zero", 8) == 0)) ||
         is_random_device(name, length) ||
         shared_directory(name, length)) {
@@ -1148,13 +1246,47 @@ long __wit_faccessat(long dirfd, const char *path, long mode)
 
 /* The package has no symbolic links: a path that names a file or a directory is not a link (EINVAL), and one that
  * names nothing is ENOENT, as Linux answers. musl's realpath tells the two apart (R1.2b). */
-long __wit_readlinkat(long dirfd, const char *path, long size)
+long __wit_readlinkat(long dirfd, const char *path, char *buffer, long size)
 {
+    unsigned char name[NAME_MAX_BYTES];
+    WitU32 length = 0;
+    long status;
     if (size <= 0) {
         return -EINVAL;
     }
-    const long status = __wit_faccessat(dirfd, path, F_OK);
+    if ((status = mount()) < 0 || (status = resolve(dirfd, path, name, &length)) < 0) {
+        return status;
+    }
+    if (__wit_remote_name(name, length)) {
+        return __wit_remote_readlink(name, length, buffer, size); /* a volume's links are its own (D5.1) */
+    }
+    status = __wit_faccessat(dirfd, path, F_OK);
     return status < 0 ? status : -EINVAL;
+}
+
+/* renameat2 without flags (D5.1): an entry of a mounted volume takes another name on the same volume; across volumes
+ * it is EXDEV, the package is read-only, and a shared memory file keeps its name. */
+long __wit_renameat2(long olddirfd, const char *oldpath, long newdirfd, const char *newpath, long flags)
+{
+    unsigned char from[NAME_MAX_BYTES], to[NAME_MAX_BYTES];
+    WitU32 from_length = 0, to_length = 0;
+    long status;
+    if (flags) {
+        return -EINVAL;
+    }
+    if ((status = mount()) < 0 ||
+        (status = resolve(olddirfd, oldpath, from, &from_length)) < 0 ||
+        (status = resolve(newdirfd, newpath, to, &to_length)) < 0) {
+        return status;
+    }
+    const int remote_from = __wit_remote_name(from, from_length), remote_to = __wit_remote_name(to, to_length);
+    if (remote_from && remote_to) {
+        return __wit_remote_rename(from, from_length, to, to_length);
+    }
+    if (remote_from || remote_to) {
+        return -EXDEV;
+    }
+    return shared_name(from, from_length) ? -ENOSYS : -EROFS;
 }
 
 /* The children of a directory in table order: a file as itself, a subdirectory once at its first entry. The
@@ -1164,6 +1296,9 @@ long __wit_getdents(long fd, unsigned char *buffer, long bytes)
     Descriptor *d = descriptor(fd);
     if (!d) {
         return -EBADF;
+    }
+    if (d->Kind == KindRemoteDirectory) {
+        return __wit_remote_list(d->Index, &POSITION(d), buffer, bytes);
     }
     if (d->Kind != KindDirectory) {
         return -ENOTDIR;
@@ -1375,6 +1510,9 @@ static void duplicate_into(long target, long stream, const Descriptor *source, i
     }
     if (source->Kind == KindShared) {
         __wit_shared_reference(source->Index);
+    }
+    if (source->Kind == KindRemoteFile || source->Kind == KindRemoteDirectory) {
+        __wit_remote_reference(source->Index);
     }
 }
 

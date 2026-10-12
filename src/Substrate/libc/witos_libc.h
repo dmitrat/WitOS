@@ -62,7 +62,7 @@ long __wit_fsync(long fd);
 long __wit_lseek(long fd, long offset, long whence);
 long __wit_fstatat(long dirfd, const char *path, struct kstat *st, long flags);
 long __wit_faccessat(long dirfd, const char *path, long mode);
-long __wit_readlinkat(long dirfd, const char *path, long size);
+long __wit_readlinkat(long dirfd, const char *path, char *buffer, long size);
 long __wit_getdents(long fd, unsigned char *buffer, long bytes);
 long __wit_getcwd(char *buffer, long size);
 long __wit_fcntl(long fd, long command, long argument);
@@ -105,6 +105,26 @@ long __wit_shared_chunk(WitU32 index, WitU64 offset, WitU64 *handle);
 long __wit_shared_find(const unsigned char *name, WitU32 length, WitU32 *index);
 long __wit_shared_read(WitU32 index, WitU64 offset, unsigned char *buffer, WitU64 bytes);
 long __wit_shared_write(WitU32 index, WitU64 offset, const unsigned char *buffer, WitU64 bytes);
+/* Files of the volumes the namespace service mounts (namespace.c, D5.1): whether a name of files.c lies below a
+ * mount point, and the operations on such names and on the remote records their descriptors hold. */
+struct kstat;
+int __wit_remote_name(const unsigned char *name, WitU32 length);
+long __wit_remote_open(const unsigned char *name, WitU32 length, long flags, long mode, WitU32 *index, int *directory);
+void __wit_remote_reference(WitU32 index);
+void __wit_remote_release(WitU32 index);
+WitU32 __wit_remote_directory(WitU32 index, unsigned char *name);
+long __wit_remote_read(WitU32 index, WitU64 offset, void *buffer, WitU64 bytes);
+long __wit_remote_write(WitU32 index, WitU64 offset, const void *buffer, WitU64 bytes);
+long __wit_remote_fstat(WitU32 index, struct kstat *st);
+long __wit_remote_stat(const unsigned char *name, WitU32 length, struct kstat *st);
+long __wit_remote_list(WitU32 index, WitU64 *cursor, unsigned char *buffer, long bytes);
+long __wit_remote_mkdir(const unsigned char *name, WitU32 length);
+long __wit_remote_remove(const unsigned char *name, WitU32 length, int directory);
+long __wit_remote_rename(const unsigned char *from, WitU32 from_length, const unsigned char *to, WitU32 to_length);
+long __wit_remote_truncate(WitU32 index, WitU64 size);
+long __wit_remote_sync(WitU32 index);
+long __wit_remote_readlink(const unsigned char *name, WitU32 length, char *buffer, long size);
+long __wit_renameat2(long olddirfd, const char *oldpath, long newdirfd, const char *newpath, long flags);
 /* The current directory (files.c, S6.2): chdir, fchdir; the absolute directory a path names from a base directory
  * (the current one when null) or a directory descriptor names, which must exist, for posix_spawn; the directory the
  * start message names. */

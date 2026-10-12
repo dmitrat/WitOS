@@ -54,6 +54,7 @@
 #define AUXILIARY_PAIRS 16U
 #define LOG_RIGHTS (WIT_RIGHT_WRITE | WIT_RIGHT_TRANSFER)
 #define MANAGER_RIGHTS (WIT_RIGHT_SEND | WIT_RIGHT_TRANSFER)
+#define NAMESPACE_RIGHTS (WIT_RIGHT_SEND | WIT_RIGHT_TRANSFER)
 #define PACKAGE_RIGHTS (WIT_RIGHT_MAP | WIT_RIGHT_EXECUTE | WIT_RIGHT_QUERY | WIT_RIGHT_TRANSFER)
 
 #if defined(__x86_64__)
@@ -402,14 +403,16 @@ typedef struct StartState {
     char Directory[WIT_START_DIRECTORY_MAXIMUM + 2];
     WitU32 DirectoryBytes;
     WitU32 ClosedStreams;
+    WitU64 Namespace; /* the namespace's endpoint to duplicate into the process (D5.1); zero for none */
 } StartState;
 
 /* The start message: the package's size, the closed streams and the initial directory, duplicates of the log, the
- * package and the manager's endpoint when there is one (S6.1), and the granted capability when there is one (D1.1),
- * moved by the send; a moved grant is zeroed. */
+ * package and the manager's endpoint when there is one (S6.1), the granted capability when there is one (D1.1),
+ * moved by the send, and a duplicate of the namespace's endpoint when there is one and the message has room (D5.1),
+ * in the order of their bits; a moved grant is zeroed. */
 static int send_start(WitU64 endpoint, WitU64 manager, WitU64 *grant, const StartState *state)
 {
-    WitU64 handles[WIT_START_HANDLES_MAXIMUM] = {0, 0, 0, 0}, result = 0;
+    WitU64 handles[WIT_START_HANDLES_MAXIMUM] = {0, 0, 0, 0}, result = 0, names = 0;
     WitU32 count = WIT_START_HANDLES, capabilities = 0;
 
     union {
@@ -429,10 +432,18 @@ static int send_start(WitU64 endpoint, WitU64 manager, WitU64 *grant, const Star
         count += status == WIT_STATUS_OK ? 1 : 0;
         capabilities |= WIT_START_MANAGER;
     }
-    const WitU32 granted = count;
+    const WitU32 room = WIT_START_HANDLES_MAXIMUM - count - (*grant ? 1 : 0);
+    if (status == WIT_STATUS_OK && state->Namespace && room > 0) {
+        status = wit_syscall(WIT_CALL_HANDLE_DUPLICATE, state->Namespace, (WitU64)&names, NAMESPACE_RIGHTS, &result);
+    }
+    const WitU32 duplicates = count;
     if (status == WIT_STATUS_OK && *grant) {
         handles[count++] = *grant;
         capabilities |= WIT_START_GRANT;
+    }
+    if (status == WIT_STATUS_OK && names) {
+        handles[count++] = names;
+        capabilities |= WIT_START_NAMESPACE;
     }
     if (status == WIT_STATUS_OK) {
         message.Header.Version = WIT_START_VERSION;
@@ -454,9 +465,10 @@ static int send_start(WitU64 endpoint, WitU64 manager, WitU64 *grant, const Star
         status = wit_syscall(WIT_CALL_CHANNEL_SEND, endpoint, (WitU64)&request, sizeof(request), &result);
     }
     if (status != WIT_STATUS_OK) {
-        for (WitU32 i = 0; i < granted; ++i) {
+        for (WitU32 i = 0; i < duplicates; ++i) {
             close_handle(handles[i]); /* the duplicates; the grant stays the caller's */
         }
+        close_handle(names);
         return failure(status);
     }
     *grant = 0;
@@ -533,6 +545,7 @@ int witos_spawn_ex(
         state.DirectoryBytes = length > 1 ? (WitU32)length : 0; /* an absolute path; the root is no bytes */
     }
     state.ClosedStreams = options ? options->closed_streams : 0;
+    state.Namespace = options ? options->namespace_endpoint : 0;
     int error = open_program(&program, path, PROGRAM_BASE, 1);
     if (!error && program.Interpreter[0]) {
         /* The dynamic linker: an image of the package itself, with no interpreter of its own. */

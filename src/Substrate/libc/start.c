@@ -77,8 +77,9 @@ void __wit_start_program(const unsigned long *stack)
         }
     }
     memcpy(&message, &received.Header, sizeof(message));
-    const WitU64 optional =
-        (message.Capabilities & WIT_START_MANAGER ? 1 : 0) + (message.Capabilities & WIT_START_GRANT ? 1 : 0);
+    const WitU64 optional = (message.Capabilities & WIT_START_MANAGER ? 1 : 0) +
+        (message.Capabilities & WIT_START_GRANT ? 1 : 0) +
+        (message.Capabilities & WIT_START_NAMESPACE ? 1 : 0);
     if (status != WIT_STATUS_OK ||
         (result & 0xFFFFFFFFULL) < sizeof(message) ||
         message.Version != WIT_START_VERSION ||
@@ -98,6 +99,7 @@ void __wit_start_program(const unsigned long *stack)
     __wit_process.PackageBytes = message.PackageBytes;
     __wit_process.Manager = message.Capabilities & WIT_START_MANAGER ? handles[next++] : 0;
     __wit_process.Grant = message.Capabilities & WIT_START_GRANT ? handles[next++] : 0;
+    __wit_process.Namespace = message.Capabilities & WIT_START_NAMESPACE ? handles[next++] : 0;
     __wit_process.ClosedStreams = message.ClosedStreams;
     wit_syscall(WIT_CALL_HANDLE_CLOSE, endpoint, 0, 0, &result);
     __wit_thread_init(); /* the main thread's record and handle (S2, S3) */

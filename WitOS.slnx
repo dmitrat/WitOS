@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/OutWit.OS/OutWit.OS.csproj" />
     <Project Path="src/Services/DeviceManager/DeviceManager.csproj" />
+    <Project Path="src/Services/Namespace/Namespace.csproj" />
     <Project Path="src/Services/Drivers/VirtioBlock/VirtioBlock.csproj" />
   </Folder>
   <Folder Name="/tools/">

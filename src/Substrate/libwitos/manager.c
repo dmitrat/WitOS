@@ -64,6 +64,10 @@ static int strings(const char *base, WitU64 begin, WitU64 end, WitU32 count, cha
     return 0;
 }
 
+/* The namespace's clients' endpoint a service offered with its status (D5.1), which every process the manager starts
+ * afterwards receives in its start message; zero until then. */
+static WitU64 offered_namespace;
+
 /* Starts the program a mapped spawn request names, after checking the request whole; the grant is moved into the new
  * process's start message or closed. */
 static int spawn_request(const char *base, WitU64 bytes, WitU64 manager, WitU64 grant, WitU64 *process)
@@ -99,7 +103,8 @@ static int spawn_request(const char *base, WitU64 bytes, WitU64 manager, WitU64 
         error = EINVAL;
     }
     if (!error) {
-        const witos_spawn_options options = {manager, directory[0], request->ClosedStreams, 0, grant};
+        const witos_spawn_options options = {
+            manager, directory[0], request->ClosedStreams, 0, grant, offered_namespace};
         error = witos_spawn_ex(process, path[0], argv, envp, &options);
     } else {
         close_handle(grant);
@@ -216,25 +221,36 @@ static int serve_until(WitU64 *handles, WitU32 count, WitU64 manager)
     }
 }
 
-/* A service's answer on its creator's end: zero or its errno value, ECHILD when it ended or closed its end first. */
+/* A service's answer on its creator's end: zero or its errno value, ECHILD when it ended or closed its end first. A
+ * ready answer may carry one capability, the namespace's clients' endpoint (D5.1), which the manager keeps for the
+ * processes it starts afterwards. */
 static int service_status(WitU64 ready)
 {
     WitServiceStatus status;
-    WitU64 result = 0;
+    WitU64 result = 0, handle = 0;
     WitChannelMessage message;
     memset(&message, 0, sizeof(message));
     message.Version = WIT_CHANNEL_MESSAGE_VERSION;
     message.Size = sizeof(message);
     message.Data = (WitU64)&status;
     message.Bytes = sizeof(status);
+    message.Handles = (WitU64)&handle;
+    message.HandleCount = 1;
     if (wit_syscall(WIT_CALL_CHANNEL_RECEIVE, ready, (WitU64)&message, sizeof(message), &result) != WIT_STATUS_OK) {
         return ECHILD;
     }
-    if (result != sizeof(status) ||
+    if ((result & 0xFFFFFFFFULL) != sizeof(status) ||
         status.Version != WIT_MANAGER_VERSION ||
         status.Size != sizeof(status) ||
-        status.Reserved) {
+        status.Reserved ||
+        (handle && status.Error)) {
+        close_handle(handle);
         return EPROTO;
+    }
+    if (handle && !offered_namespace) {
+        offered_namespace = handle;
+    } else {
+        close_handle(handle);
     }
     return (int)status.Error;
 }
@@ -255,7 +271,7 @@ int witos_manager_run_services(witos_service *services, WitU32 count, const char
     /* Each service in turn, until it answers or ends; the queue is served meanwhile. */
     for (WitU32 i = 0; i < count; ++i) {
         char *service_argv[] = {(char *)services[i].path, 0};
-        const witos_spawn_options service_options = {ends[1], 0, 0, 0, services[i].grant};
+        const witos_spawn_options service_options = {ends[1], 0, 0, 0, services[i].grant, 0};
         services[i].grant = 0; /* moved into its start message or closed */
         services[i].process = 0;
         services[i].status =
@@ -266,7 +282,7 @@ int witos_manager_run_services(witos_service *services, WitU32 count, const char
             services[i].status = index < 0 ? ECHILD : service_status(services[i].ready); /* it may answer and end */
         }
     }
-    const witos_spawn_options options = {ends[1], 0, 0, 0, 0};
+    const witos_spawn_options options = {ends[1], 0, 0, 0, 0, offered_namespace};
     int error = witos_spawn_ex(&first, path, argv, envp, &options);
     if (!error) {
         WitU64 waited[2] = {ends[0], first};

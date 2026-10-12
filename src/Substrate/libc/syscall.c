@@ -601,6 +601,10 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
     case SYS_unlink:
         return __wit_unlinkat(AT_FDCWD, (const char *)a1, 0);
 #endif
+#if defined(SYS_rmdir)
+    case SYS_rmdir:
+        return __wit_unlinkat(AT_FDCWD, (const char *)a1, AT_REMOVEDIR);
+#endif
 #if defined(SYS_pipe)
     case SYS_pipe:
         return __wit_pipe2((int *)a1, 0);
@@ -618,10 +622,20 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
         return __wit_fstatat(AT_FDCWD, (const char *)a1, (struct kstat *)a2, 0);
 #endif
     case SYS_readlinkat:
-        return __wit_readlinkat(a1, (const char *)a2, a4);
+        return __wit_readlinkat(a1, (const char *)a2, (char *)a3, a4);
 #if defined(SYS_readlink)
     case SYS_readlink:
-        return __wit_readlinkat(AT_FDCWD, (const char *)a1, a3);
+        return __wit_readlinkat(AT_FDCWD, (const char *)a1, (char *)a2, a3);
+#endif
+#if defined(SYS_renameat)
+    case SYS_renameat:
+        return __wit_renameat2(a1, (const char *)a2, a3, (const char *)a4, 0);
+#endif
+    case SYS_renameat2:
+        return __wit_renameat2(a1, (const char *)a2, a3, (const char *)a4, a5);
+#if defined(SYS_rename)
+    case SYS_rename:
+        return __wit_renameat2(AT_FDCWD, (const char *)a1, AT_FDCWD, (const char *)a2, 0);
 #endif
     case SYS_statx:
         return -ENOSYS; /* musl falls back to fstatat */
