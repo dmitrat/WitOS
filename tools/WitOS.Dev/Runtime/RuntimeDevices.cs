@@ -362,12 +362,7 @@ internal static class RuntimeDevices
     public static async Task<IReadOnlyList<(string Name, string Source)>> BuildPackageAsync(string root, string output,
         KernelArchitecture architecture)
     {
-        var program = RuntimeWitos.ProgramPackage(root, architecture, DEVICE_MANAGER_EXECUTABLE);
-        var driver = Path.Combine(RuntimeWitos.ProgramDirectory(root, architecture), VIRTIO_BLOCK_EXECUTABLE);
-        var names = Path.Combine(RuntimeWitos.ProgramDirectory(root, architecture), NAMESPACE_EXECUTABLE);
-        if (!File.Exists(driver) || !File.Exists(names))
-            throw new InvalidOperationException($"No witos driver or namespace service in {RuntimeWitos.ProgramDirectory(root, architecture)}. " +
-                $"Run: dotnet run --project tools/WitOS.Dev -- runtime-services --arch {architecture.Name}");
+        var services = ServiceFiles(root, architecture);
         await Sysroot.BuildAsync(root, architecture);
         var init = Path.Combine(output, "devices_init.o");
         await MuslLibc.CompileAsync(root, architecture, Path.Combine(root, DEVICES_INIT), init, LibWitos.Options(root));
@@ -376,11 +371,32 @@ internal static class RuntimeDevices
         // the services share.
         IEnumerable<(string Name, string Source)> package =
         [
-            ("system/" + DEVICE_MANAGER_EXECUTABLE, program[0].Source), ("system/Drivers/" + VIRTIO_BLOCK_EXECUTABLE, driver),
-            ("system/" + NAMESPACE_EXECUTABLE, names), ("bin/init", initProgram), .. program.Skip(1),
-            .. await RuntimeWitos.InstallFilesAsync(root, output, architecture)
+            .. services, ("bin/init", initProgram), .. await RuntimeWitos.InstallFilesAsync(root, output, architecture)
         ];
         return [.. package.DistinctBy(file => file.Name)];
+    }
+
+    /// <summary>
+    /// The device services' files of the boot package: the device manager, the virtio block driver and the namespace
+    /// service runtime-witos or runtime-services published, with the dynamic linker and the C++ runtime they need.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>Package paths and the files to place there.</returns>
+    /// <exception cref="InvalidOperationException">No services were published for the architecture.</exception>
+    public static IReadOnlyList<(string Name, string Source)> ServiceFiles(string root, KernelArchitecture architecture)
+    {
+        var program = RuntimeWitos.ProgramPackage(root, architecture, DEVICE_MANAGER_EXECUTABLE);
+        var driver = Path.Combine(RuntimeWitos.ProgramDirectory(root, architecture), VIRTIO_BLOCK_EXECUTABLE);
+        var names = Path.Combine(RuntimeWitos.ProgramDirectory(root, architecture), NAMESPACE_EXECUTABLE);
+        if (!File.Exists(driver) || !File.Exists(names))
+            throw new InvalidOperationException($"No witos driver or namespace service in {RuntimeWitos.ProgramDirectory(root, architecture)}. " +
+                $"Run: dotnet run --project tools/WitOS.Dev -- runtime-services --arch {architecture.Name}");
+        return
+        [
+            ("system/" + DEVICE_MANAGER_EXECUTABLE, program[0].Source), ("system/Drivers/" + VIRTIO_BLOCK_EXECUTABLE, driver),
+            ("system/" + NAMESPACE_EXECUTABLE, names), .. program.Skip(1)
+        ];
     }
 
     // The programs the scenario starts from the ext4 volume (D5.3), as VOLUME_PROGRAMS names them: the .NET application

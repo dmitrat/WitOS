@@ -94,8 +94,9 @@ upstream `hostfxr` и `hostpolicy` из раскладки shared framework ра
 проигрывает журнал и находит каждый подтверждённый раунд записей целым, а e2fsck хоста восстанавливает копию тома
 (D6.2). Отказ устройства на чтении проходит по всем слоям с осмысленными строками журнала: драйвер называет устройство
 и сектор, служба — файл и операцию, программа получает `EIO`, система продолжает работу (D6.3). Фаза D завершена, M5
-§52 выполнен. Разделяемое `mmap` файла тома — объекты памяти службы, фаза R завершена (R4.2). Следующий шаг — N1:
-набор совместимости .NET.
+§52 выполнен. Разделяемое `mmap` файла тома — объекты памяти службы, фаза R завершена (R4.2). Набор совместимости
+.NET проходит на Windows, Linux и WitOS с четырьмя записанными различиями (N1). Следующий шаг — N2: представительные
+библиотеки NuGet.
 
 **Переносится как знание.** Адаптеры GC и PAL NativeAOT (написаны против Windows-формы PAL, нужны против Unix-формы);
 диспетчер раскрутки (таблицы станут DWARF); порядок инициализации рантайма; протоколы приёмки M3 и P5.
@@ -972,9 +973,14 @@ Unix-формы в госте сверх неизменённого прилож
 
 ### N — Стандартный .NET (M6)
 
-- [ ] **N1** Compatibility suite `tests/DotNetCompatibility/` (Strategy §57; RFC-0015 §1, §8: Console, Tasks, Threads,
+- [x] **N1** Compatibility suite `tests/DotNetCompatibility/` (Strategy §57; RFC-0015 §1, §8: Console, Tasks, Threads,
   Timers, Exceptions, Reflection, FileIO, AssemblyLoading, GC, Synchronization), запускаемый на Windows, Linux и WitOS;
-  различия намеренны и записаны, включая «не Linux и не macOS — значит Windows».
+  различия намеренны и записаны, включая «не Linux и не macOS — значит Windows»
+  ([N1-Compatibility-Suite.md](@Docs/Implementation/N1-Compatibility-Suite.md)): обычное переносимое приложение из 64
+  проверок в одиннадцати областях (десять §57 и Platform), `expectations.json` записывает различия по платформам;
+  хостовый тест запускает его на Windows и Linux (64/64), сценарий `runtime-compatibility` — через `dotnet` рядом со
+  службами устройств, с `TMPDIR` на томе `/data`, на обеих ISA: 64 проверки, 4 записанных различия
+  (`KnownOperatingSystem`, `Process.Start`, `FileSystemWatcher`, именованный `Mutex` без `/tmp`), 0 неожиданных.
 - [ ] **N2** Представительные библиотеки NuGet: NUnit, xUnit, MessagePack, MemoryPack, Math.NET, Roslyn.
 - [ ] **N3** Несколько версий рядом (RFC-0015 §7): .NET 8 LTS и 10 в одном образе под `/dotnet`, патч-наборы по веткам
   релизов в `patches/runtime/<branch>/` (для 8.0 — backport цели `witos`), выбор через `rollForward`; ABI-2 объявляется

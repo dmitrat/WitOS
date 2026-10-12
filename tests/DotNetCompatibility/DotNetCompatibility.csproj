@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The .NET compatibility suite (plan step N1, Implementation Strategy §57-58, RFC 0015 §1): an ordinary portable
+       console application with nothing for WitOS, run unchanged on Windows, Linux and WitOS. Each area checks the
+       standard semantics of its APIs; expectations.json records, per platform, the intended differences. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>DotNetCompatibility</AssemblyName>
+    <RootNamespace>DotNetCompatibility</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="expectations.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
