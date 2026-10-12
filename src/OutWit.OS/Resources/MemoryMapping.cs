@@ -30,10 +30,11 @@ public sealed unsafe class MemoryMapping : IDisposable
 
     #region Constructors
 
-    private MemoryMapping(void* address, int length)
+    private MemoryMapping(void* address, int length, uint protection)
     {
         m_address = address;
         Length = length;
+        Protection = protection;
     }
 
     #endregion
@@ -55,7 +56,7 @@ public sealed unsafe class MemoryMapping : IDisposable
         void* address = null;
         CapabilityException.ThrowOnError("MEMORY_OBJECT_MAP",
             Libwitos.MemoryMap(memoryObject.Value, offset, (ulong)length, protection, &address));
-        return new MemoryMapping(address, length);
+        return new MemoryMapping(address, length, protection);
     }
 
     #endregion
@@ -89,9 +90,43 @@ public sealed unsafe class MemoryMapping : IDisposable
     }
 
     /// <summary>
+    /// The mapped bytes of a writable mapping.
+    /// </summary>
+    /// <exception cref="ObjectDisposedException">The mapping was released.</exception>
+    /// <exception cref="InvalidOperationException">The mapping is not writable.</exception>
+    public Span<byte> Writable
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(m_address == null, this);
+            if (Protection != READ_WRITE)
+                throw new InvalidOperationException("The mapping is not writable.");
+            return new Span<byte>(m_address, Length);
+        }
+    }
+
+    /// <summary>
     /// The bytes the mapping was asked for.
     /// </summary>
     public int Length { get; }
+
+    /// <summary>
+    /// READ or READ_WRITE.
+    /// </summary>
+    public uint Protection { get; }
+
+    /// <summary>
+    /// The mapping's first byte, for access that must not go through a span, such as a device's registers.
+    /// </summary>
+    /// <exception cref="ObjectDisposedException">The mapping was released.</exception>
+    internal byte* Address
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(m_address == null, this);
+            return (byte*)m_address;
+        }
+    }
 
     #endregion
 }

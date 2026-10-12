@@ -39,12 +39,44 @@ int witos_memory_map(WitU64 object, WitU64 offset, WitU64 bytes, WitU32 protecti
 /* Releases a mapping witos_memory_map made, whole: EINVAL for an address that starts no mapping. */
 int witos_memory_unmap(void *address);
 
-/* The device of a descriptor of the device table (D1.2), a handle with BIND, QUERY, DUPLICATE and TRANSFER: EACCES for a
- * table handle without ACQUIRE, EBUSY for a device another process holds, EINVAL for an index beyond the table. The
+/* The device of a descriptor of the device table (D1.2), a handle with BIND, QUERY, DUPLICATE and TRANSFER: EACCES for
+ * a table handle without ACQUIRE, EBUSY for a device another process holds, EINVAL for an index beyond the table. The
  * handle moves to another process when it is the process's last reference to the device. */
 int witos_device_acquire(WitU64 table, WitU32 index, WitU64 *device);
 
 /* A memory region of a device as a memory object (MAP, WRITE, QUERY, DUPLICATE, TRANSFER; never EXECUTE), mapped
  * uncached: EACCES without BIND, ENOSYS for a port region, ENOMEM for a region beyond 64 pages, EINVAL. */
 int witos_device_memory(WitU64 device, WitU32 region, WitU64 *object);
+
+/* An anonymous memory object of bytes, a multiple of the page size, its pages zeroed and charged to the process (D2):
+ * MAP, WRITE, QUERY, DUPLICATE and TRANSFER; ENOMEM for the quota or more than 64 pages. */
+int witos_memory_object_create(WitU64 bytes, WitU64 *object);
+
+/* An auto-reset event (D2), with WAIT and SIGNAL: ENOMEM for the quota. */
+int witos_event_create(WitU64 *event);
+
+/* Waits for one of up to four objects until an absolute monotonic deadline (all ones for none), writing the index of
+ * the one that completed to *index (D2): ETIMEDOUT at the deadline; a signal's activation does not end the wait. */
+int witos_object_wait(const WitU64 *handles, WitU32 count, WitU64 deadline, WitU32 *index);
+
+/* Binds a device's interrupt line to an event (D2): the kernel masks the line and sets the event on each interrupt; a
+ * handle with ACK. EACCES without BIND, EBUSY for a line another binding holds, EINVAL. */
+int witos_interrupt_bind(WitU64 device, WitU32 line, WitU64 event, WitU64 *binding);
+
+/* Unmasks the bound line after its interrupt was served (D2). */
+int witos_interrupt_ack(WitU64 binding);
+
+/* Pins a page-aligned window of an anonymous memory object for the device's DMA (D2), writing its physical ranges to
+ * ranges, capacity pairs of an address and a size (a zero size ends the list): a pin handle, which keeps the pages
+ * resident and unmoved until witos_dma_unpin. EACCES without BIND or MAP, EINVAL for a window the object cannot take
+ * or too few ranges. */
+int witos_dma_pin(
+    WitU64 device, WitU64 object, WitU64 offset, WitU64 bytes, WitU64 *ranges, WitU32 capacity, WitU64 *pin);
+
+/* Ends a pin (D2). */
+int witos_dma_unpin(WitU64 pin);
+
+/* A full barrier for a device's view of memory (D2): MFENCE on x64, DSB SY on ARM64, between writing what a device
+ * reads and telling the device so. */
+void witos_device_barrier(void);
 #endif

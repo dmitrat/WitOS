@@ -47,6 +47,31 @@ internal static unsafe partial class Libwitos
     [LibraryImport(LIBRARY, EntryPoint = "witos_device_memory")]
     internal static partial int DeviceMemory(ulong device, uint region, ulong* memoryObject);
 
+    [LibraryImport(LIBRARY, EntryPoint = "witos_memory_object_create")]
+    internal static partial int MemoryObjectCreate(ulong bytes, ulong* memoryObject);
+
+    [LibraryImport(LIBRARY, EntryPoint = "witos_event_create")]
+    internal static partial int EventCreate(ulong* handle);
+
+    [LibraryImport(LIBRARY, EntryPoint = "witos_object_wait")]
+    internal static partial int ObjectWait(ulong* handles, uint count, ulong deadline, uint* index);
+
+    [LibraryImport(LIBRARY, EntryPoint = "witos_interrupt_bind")]
+    internal static partial int InterruptBind(ulong device, uint line, ulong handle, ulong* binding);
+
+    [LibraryImport(LIBRARY, EntryPoint = "witos_interrupt_ack")]
+    internal static partial int InterruptAck(ulong binding);
+
+    [LibraryImport(LIBRARY, EntryPoint = "witos_dma_pin")]
+    internal static partial int DmaPin(ulong device, ulong memoryObject, ulong offset, ulong bytes, ulong* ranges, uint capacity,
+        ulong* pin);
+
+    [LibraryImport(LIBRARY, EntryPoint = "witos_dma_unpin")]
+    internal static partial int DmaUnpin(ulong pin);
+
+    [LibraryImport(LIBRARY, EntryPoint = "witos_device_barrier")]
+    internal static partial void DeviceBarrier();
+
     [LibraryImport(LIBRARY, EntryPoint = "witos_manager_spawn")]
     internal static partial int ManagerSpawn(byte* path, byte** argv, byte** envp, ulong grant, ulong* process);
 

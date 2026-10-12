@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "witos/capabilities.h"
 #include "witos/channels.h"
+#include "witos/dma.h"
 #include "witos/libc_context.h"
 #include "witos/memory_object.h"
 #include "witos/syscall.h"
@@ -168,6 +169,97 @@ int witos_device_memory(WitU64 device, WitU32 region, WitU64 *object)
     }
     *object = 0;
     return error_of(wit_syscall(WIT_CALL_DEVICE_MEMORY, device, region, 0, object));
+}
+
+int witos_memory_object_create(WitU64 bytes, WitU64 *object)
+{
+    if (!object || !bytes || (bytes & (PAGE - 1))) {
+        return EINVAL;
+    }
+    *object = 0;
+    return error_of(wit_syscall(WIT_CALL_MEMORY_OBJECT_CREATE, bytes, 0, 0, object));
+}
+
+int witos_event_create(WitU64 *event)
+{
+    if (!event) {
+        return EINVAL;
+    }
+    *event = 0;
+    return error_of(wit_syscall(WIT_CALL_EVENT_CREATE, 0, 0, 0, event));
+}
+
+int witos_object_wait(const WitU64 *handles, WitU32 count, WitU64 deadline, WitU32 *index)
+{
+    WitUserWaitRequest wait;
+    WitU64 result = 0, status;
+    if (!handles || !index || count == 0 || count > 4) {
+        return EINVAL;
+    }
+    *index = 0;
+    memset(&wait, 0, sizeof(wait));
+    wait.Version = WIT_WAIT_OBJECTS_VERSION;
+    wait.Size = sizeof(wait);
+    wait.Handles = (WitU64)handles;
+    wait.Count = count;
+    wait.Deadline = deadline;
+    do {
+        status = wit_syscall(WIT_CALL_OBJECT_WAIT, (WitU64)&wait, sizeof(wait), 0, &result);
+    } while (status == WIT_STATUS_INTERRUPTED); /* the absolute deadline stays the same */
+    if (status == WIT_STATUS_OK) {
+        *index = (WitU32)result;
+    }
+    return error_of(status);
+}
+
+int witos_interrupt_bind(WitU64 device, WitU32 line, WitU64 event, WitU64 *binding)
+{
+    if (!binding) {
+        return EINVAL;
+    }
+    *binding = 0;
+    return error_of(wit_syscall(WIT_CALL_INTERRUPT_BIND, device, line, event, binding));
+}
+
+int witos_interrupt_ack(WitU64 binding)
+{
+    WitU64 result = 0;
+    return error_of(wit_syscall(WIT_CALL_INTERRUPT_ACK, binding, 0, 0, &result));
+}
+
+int witos_dma_pin(
+    WitU64 device, WitU64 object, WitU64 offset, WitU64 bytes, WitU64 *ranges, WitU32 capacity, WitU64 *pin)
+{
+    WitDmaPinRequest request;
+    if (!pin || !ranges || capacity == 0 || capacity > WIT_DMA_RANGES_MAX) {
+        return EINVAL;
+    }
+    *pin = 0;
+    memset(&request, 0, sizeof(request));
+    request.Version = WIT_DMA_PIN_VERSION;
+    request.Size = sizeof(request);
+    request.Device = device;
+    request.Object = object;
+    request.Offset = offset;
+    request.Bytes = bytes;
+    request.Ranges = (WitU64)ranges; /* WitDmaRange pairs: address, size */
+    request.RangeCapacity = capacity;
+    return error_of(wit_syscall(WIT_CALL_DMA_PIN, (WitU64)&request, sizeof(request), 0, pin));
+}
+
+int witos_dma_unpin(WitU64 pin)
+{
+    WitU64 result = 0;
+    return error_of(wit_syscall(WIT_CALL_DMA_UNPIN, pin, 0, 0, &result));
+}
+
+void witos_device_barrier(void)
+{
+#if defined(__x86_64__)
+    __asm__ volatile("mfence" ::: "memory");
+#else
+    __asm__ volatile("dsb sy" ::: "memory");
+#endif
 }
 
 int witos_memory_unmap(void *address)
