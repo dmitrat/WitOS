@@ -121,11 +121,11 @@ internal static class Sysroot
         CopyTree(cxx.Includes[1], cxxInclude);
         CopyFiles(cxx.Includes[2], cxxInclude, "*.h");
         CopyFiles(cxx.Includes[0], cxxInclude, "*");
-        // ICU's headers (R1.2b), which System.Globalization.Native compiles against: no ICU library is there, and the
-        // shim, which loads ICU at run time, reports its absence.
-        var icu = await IcuHeaders.ReadPinAsync(root);
-        IcuHeaders.Require(root, icu);
-        foreach (var directory in IcuHeaders.HeaderDirectories(root, icu))
+        // ICU's headers (R1.2b), which System.Globalization.Native compiles against; the shim loads ICU's libraries at
+        // run time, which the system layer has since R4.3 (Icu.BuildAsync) and the sysroot does not carry.
+        var icu = await Icu.ReadPinAsync(root);
+        Icu.Require(root, icu);
+        foreach (var directory in Icu.HeaderDirectories(root, icu))
             CopyFiles(directory, Path.Combine(include, "unicode"), "*.h");
 
         // The startup objects of WitOS programs (no crt1.o: a program another component starts is position-independent,

@@ -10,7 +10,8 @@ var recorded = Expectations(platform);
 IEnumerable<Check>[] areas =
 [
     PlatformChecks.All(), ConsoleChecks.All(), TaskChecks.All(), ThreadChecks.All(), TimerChecks.All(), ExceptionChecks.All(),
-    ReflectionChecks.All(), FileChecks.All(), AssemblyLoadingChecks.All(), GcChecks.All(), SynchronizationChecks.All()
+    ReflectionChecks.All(), FileChecks.All(), AssemblyLoadingChecks.All(), GcChecks.All(), SynchronizationChecks.All(),
+    GlobalizationChecks.All()
 ];
 var checks = areas.SelectMany(area => area).ToList();
 int differences = 0, unexpected = 0;
