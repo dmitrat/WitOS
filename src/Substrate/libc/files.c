@@ -1609,8 +1609,9 @@ long __wit_pipe_bytes(long fd)
 
 /* What mmap (memory.c, S5.1) maps for a descriptor: a package file's data offset in the package and its length
  * (0), /dev/zero, which maps as anonymous memory (1), a shared memory file, its index and size (2 writable, 3 read
- * alone, R3.2b), or a file of a mounted volume and its size (4, D5.2), which a descriptor opened for writing alone
- * cannot map (EACCES, as on Linux); nothing else is mappable. libwitos's loader reads the same (S5.2). */
+ * alone, R3.2b), or a file of a mounted volume, its remote record and its size (4 read alone, 5 read and written, D5.2,
+ * R4.2), which a descriptor opened for writing alone cannot map (EACCES, as on Linux); nothing else is mappable.
+ * libwitos's loader reads the same (S5.2). */
 long __wit_file_map_source(long fd, WitU64 *source, WitU64 *length)
 {
     const Descriptor *d = descriptor(fd);
@@ -1636,7 +1637,7 @@ long __wit_file_map_source(long fd, WitU64 *source, WitU64 *length)
         }
         *source = d->Index;
         *length = (WitU64)st.st_size;
-        return 4;
+        return (descriptions[d->Description].StatusFlags & O_ACCMODE) == O_RDWR ? 5 : 4;
     }
     if (d->Kind != KindFile) {
         return -ENODEV;

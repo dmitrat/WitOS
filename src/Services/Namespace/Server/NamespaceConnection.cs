@@ -117,6 +117,7 @@ internal sealed class NamespaceConnection
             for (; ; )
             {
                 byte[] reply;
+                KernelHandle? transfer = null;
                 using (var message = m_channel.Receive())
                 {
                     NamespaceRequest request;
@@ -137,6 +138,7 @@ internal sealed class NamespaceConnection
                             reply = NamespaceMessages.Encode(m_stopped
                                 ? new NamespaceReply(request.Operation, SHUTDOWN)
                                 : m_session.HandleAsync(request).AsTask().GetAwaiter().GetResult());
+                            transfer = m_session.TakeTransfer(); // a MAP's chunk moves with its reply (R4.2)
                         }
                         catch (Exception exception) when (exception is not CapabilityException)
                         {
@@ -146,7 +148,17 @@ internal sealed class NamespaceConnection
                         }
                     }
                 }
-                m_channel.Send(reply);
+                try
+                {
+                    if (transfer is not null)
+                        m_channel.Send(reply, transfer);
+                    else
+                        m_channel.Send(reply);
+                }
+                finally
+                {
+                    transfer?.Dispose(); // nothing once it moved; the service's duplicate when the send failed
+                }
             }
         }
         catch (CapabilityException exception) when (exception.Error == Channel.PEER_CLOSED)

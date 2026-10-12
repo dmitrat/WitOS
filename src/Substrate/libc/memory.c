@@ -410,6 +410,30 @@ static long map_code_copy(
     return base;
 }
 
+/* A shared mapping of a file of a mounted volume (R4.2): a shared memory file of the process whose chunks are the
+ * namespace service's objects for the file (shared.c), mapped as any shared memory file is; every shared mapping of
+ * the file in any process shows the same pages, and the service writes them back to the file at msync and when the
+ * last reference closes. A writable mapping needs a descriptor opened for reading and writing (EACCES). With replace
+ * (MAP_FIXED), the range goes once the file and its chunk table exist. */
+static long map_volume_shared(WitU64 address, WitU64 size, WitU64 protection, WitU32 remote, int writable,
+    WitU64 offset, WitU64 length, int replace)
+{
+    WitU32 file = 0;
+    if ((protection & WIT_MEMORY_WRITE) && !writable) {
+        return -EACCES;
+    }
+    long status = __wit_shared_remote(remote, length, writable, &file);
+    if (status < 0) {
+        return status;
+    }
+    if (replace) {
+        status = remove_range(address, size);
+    }
+    const long base = status < 0 ? status : map_shared_file(address, size, protection, file, offset, length);
+    __wit_shared_release(file); /* the mappings hold the file now */
+    return base;
+}
+
 /* A file's pages shown from the package without a copy, at consecutive addresses in mappings of at most CHUNK; the
  * pages past the file's last are plain reserved memory, as Linux's would fault. */
 static long map_shared_pages(WitU64 address, WitU64 size, WitU64 protection, WitU64 source, WitU64 file_pages)
@@ -498,8 +522,13 @@ long __wit_mmap(long address, long length, long protection, long flags, long fd,
     if (kind < 0) {
         return kind;
     }
-    if (kind == 4 && (kernel_protection & WIT_MEMORY_EXECUTE) && !((flags & MAP_SHARED) && (protection & PROT_WRITE))) {
+    const int volume = kind == 4 || kind == 5;
+    if (volume && (kernel_protection & WIT_MEMORY_EXECUTE)) {
         return map_code_copy(fd, place, size, kernel_protection, (WitU64)offset, file_length, replace);
+    }
+    if (volume && (flags & MAP_SHARED)) {
+        return map_volume_shared(
+            place, size, kernel_protection, (WitU32)source, kind == 5, (WitU64)offset, file_length, replace);
     }
     if (replace && (converted = remove_range(place, size)) < 0) {
         return converted;
@@ -521,14 +550,9 @@ long __wit_mmap(long address, long length, long protection, long flags, long fd,
         }
         return map_shared_file(place, size, kernel_protection, (WitU32)source, (WitU64)offset, file_length);
     }
-    if (kind == 4) {
-        /* A file of a mounted volume (D5.2): a private mapping is a copy of its bytes, read through the namespace
-         * service, and so is a shared one that is not writable, as a shared mapping of the package is a view of bytes
-         * nothing changes (D5.3: CoreCLR maps an assembly so); a writable shared one would need the file's pages as a
-         * memory object of the service, which none serves. A copy that executes is a file of the process's own. */
-        if ((flags & MAP_SHARED) && (protection & PROT_WRITE)) {
-            return -ENODEV;
-        }
+    if (volume) {
+        /* A private mapping of a file of a mounted volume is a copy of its bytes, read through the namespace service
+         * (D5.2). */
         return map_copy(fd, place, size, kernel_protection, (WitU64)offset, file_length);
     }
     if ((flags & MAP_SHARED) && (protection & PROT_WRITE)) {
@@ -686,6 +710,8 @@ long __wit_msync(long address, long length, long flags)
         return -EINVAL;
     }
     const WitU64 end = (WitU64)address + round_up((unsigned long)length);
+    WitU32 remotes[8];
+    unsigned synced = 0;
     for (WitU64 at = (WitU64)address; at < end;) {
         unsigned i = 0;
         while (i < count && !(mappings[i].Base <= at && at < mappings[i].Base + mappings[i].Size)) {
@@ -693,6 +719,21 @@ long __wit_msync(long address, long length, long flags)
         }
         if (i == count) {
             return -ENOMEM;
+        }
+        /* A shared mapping of a volume's file (R4.2): the service writes the file's chunks back, once per file. */
+        const WitU32 remote = mappings[i].Kind == MapShared ? __wit_shared_remote_of(mappings[i].File) : 0;
+        unsigned seen = 0;
+        while (seen < synced && remotes[seen] != remote) {
+            ++seen;
+        }
+        if (remote && (flags & MS_SYNC) && seen == synced) {
+            const long status = __wit_remote_sync(remote - 1);
+            if (status < 0) {
+                return status;
+            }
+            if (synced < sizeof(remotes) / sizeof(remotes[0])) {
+                remotes[synced++] = remote;
+            }
         }
         at = mappings[i].Base + mappings[i].Size;
     }

@@ -7,13 +7,35 @@ namespace OutWit.OS.Namespace.Server;
 
 /// <summary>
 /// The volumes the namespace serves, each at a mount point: an absolute path of one component, such as "/data". A path
-/// below a mount point resolves to its volume and the path within it.
+/// below a mount point resolves to its volume and the path within it. The files clients map are the table's too, shared
+/// by every session (R4.2).
 /// </summary>
 internal sealed class MountTable
 {
     #region Fields
 
     private readonly List<Mount> m_mounts = [];
+
+    #endregion
+
+    #region Constructors
+
+    /// <summary>
+    /// A table whose mapped files' chunks are memory objects.
+    /// </summary>
+    public MountTable()
+        : this(new MemoryChunkSource())
+    {
+    }
+
+    /// <summary>
+    /// A table whose mapped files' chunks come from the source given.
+    /// </summary>
+    /// <param name="chunks">Where the chunks come from.</param>
+    public MountTable(IChunkSource chunks)
+    {
+        Mapped = new MappedFiles(chunks);
+    }
 
     #endregion
 
@@ -57,6 +79,11 @@ internal sealed class MountTable
     /// The mounts, in the order they were added.
     /// </summary>
     public IReadOnlyList<Mount> Mounts => m_mounts;
+
+    /// <summary>
+    /// The files clients map (R4.2).
+    /// </summary>
+    public MappedFiles Mapped { get; }
 
     #endregion
 

@@ -34,6 +34,9 @@ typedef struct SharedFile {
     WitU64 ChunkCapacity; /* entries of Chunks, a mapping of whole pages */
     WitU64 View; /* the library's read and write view of chunk ViewChunk (R7.2a), zero when none */
     WitU64 ViewChunk;
+    WitU32
+        Remote; /* one more than the remote record of a volume's file whose chunks the namespace service shares (R4.2) */
+    int Writable; /* such a file's chunks are asked for writable */
 } SharedFile;
 
 static SharedFile files[FILES];
@@ -68,7 +71,12 @@ static void settle(SharedFile *f)
     if (f->Chunks) {
         __wit_munmap((long)f->Chunks, (long)(f->ChunkCapacity * sizeof(WitU64)));
     }
+    const WitU32 remote = f->Remote;
     memset(f, 0, sizeof(*f));
+    if (remote) {
+        __wit_remote_release(
+            remote - 1); /* the last reference closes the service's handle, which writes the file back */
+    }
 }
 
 static long create(WitU32 *index)
@@ -134,6 +142,39 @@ long __wit_shared_find(const unsigned char *name, WitU32 length, WitU32 *index)
 long __wit_shared_anonymous(WitU32 *index)
 {
     return create(index);
+}
+
+/* A volume's file mapped shared (R4.2): a file of the process whose chunks are the memory objects the namespace service
+ * shares for that file, asked for as a mapping first needs each, so that every shared mapping of the file in any process
+ * shows the same pages; one per remote record and writability, which holds a reference of the record while it lives.
+ * The caller's reference. */
+long __wit_shared_remote(WitU32 remote, WitU64 size, int writable, WitU32 *index)
+{
+    for (WitU32 i = 0; i < FILES; ++i) {
+        if (files[i].Live && files[i].Remote == remote + 1 && files[i].Writable == writable) {
+            ++files[i].References;
+            *index = i;
+            return 0;
+        }
+    }
+    long status = create(index);
+    if (status < 0) {
+        return status;
+    }
+    if ((status = __wit_shared_truncate(*index, size)) < 0) {
+        __wit_shared_release(*index);
+        return status;
+    }
+    files[*index].Remote = remote + 1;
+    files[*index].Writable = writable;
+    __wit_remote_reference(remote);
+    return 0;
+}
+
+/* One more than the remote record whose chunks a file shows, zero for the process's own (R4.2). */
+WitU32 __wit_shared_remote_of(WitU32 index)
+{
+    return files[index].Remote;
 }
 
 /* shm_unlink: the name goes; the file lives on while a descriptor or a mapping refers to it. */
@@ -209,6 +250,15 @@ long __wit_shared_chunk(WitU32 index, WitU64 offset, WitU64 *handle)
         return -ENXIO;
     }
     WitU64 *chunk = &f->Chunks[offset / CHUNK];
+    if (!*chunk && f->Remote) {
+        /* A volume's file: the service's object for the chunk (R4.2). */
+        WitU64 object = 0;
+        const long status = __wit_remote_map(f->Remote - 1, offset - offset % CHUNK, f->Writable, &object);
+        if (status < 0) {
+            return status;
+        }
+        *chunk = object;
+    }
     if (!*chunk) {
         WitU64 object = 0;
         const WitU64 status = wit_syscall(WIT_CALL_MEMORY_OBJECT_CREATE, CHUNK, 0, 0, &object);

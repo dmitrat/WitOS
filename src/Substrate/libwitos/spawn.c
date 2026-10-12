@@ -218,7 +218,7 @@ static int open_program(Program *p, const char *path, WitU64 base, int interpret
     }
     const long kind = __wit_file_map_source(p->File, &p->Source, &p->Length);
     p->Packaged = kind == 0;
-    return kind == 0 || kind == 4 ? read_program(p, interpreter_allowed) : ENOEXEC;
+    return kind == 0 || kind == 4 || kind == 5 ? read_program(p, interpreter_allowed) : ENOEXEC;
 }
 
 /* An executable segment: the package's own pages, mapped READ|EXECUTE in windows of 64 pages. */

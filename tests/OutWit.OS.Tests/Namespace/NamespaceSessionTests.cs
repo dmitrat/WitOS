@@ -155,6 +155,83 @@ public sealed class NamespaceSessionTests
     }
 
     [Test]
+    public async Task MappedChunksAreWrittenBackTest()
+    {
+        var chunks = new FakeChunkSource();
+        var mounts = new MountTable(chunks);
+        mounts.Add("/fat", await FatFileSystem.FormatAsync(new MemoryBlockStorage(4 * 1024 * 1024)));
+        var window = new ByteWindow(8192);
+        var session = new NamespaceSession(mounts, window);
+        var bytes = Enumerable.Range(0, 6000).Select(i => (byte)(i * 3)).ToArray();
+        var opened = await OpenAsync(session, window, "/fat/mapped.bin",
+            NamespaceMessages.READ_ACCESS | NamespaceMessages.WRITE_ACCESS | NamespaceMessages.CREATE);
+        window.Write(0, bytes);
+        await session.HandleAsync(new NamespaceRequest(NamespaceMessages.WRITE, Handle: opened.Handle, Length: bytes.Length));
+
+        var map = await session.HandleAsync(new NamespaceRequest(NamespaceMessages.MAP, NamespaceMessages.MAP_WRITE, opened.Handle));
+        var transfer = session.TakeTransfer();
+        var chunk = chunks.Created.Single();
+        chunk.Bytes[100] = 0xAB; // a mapping writes
+        var read = await session.HandleAsync(new NamespaceRequest(NamespaceMessages.READ, Handle: opened.Handle, Offset: 100, Length: 1));
+        var seen = window.Read(0, 1)[0];
+        window.Write(0, "wxyz"u8);
+        await session.HandleAsync(new NamespaceRequest(NamespaceMessages.WRITE, Handle: opened.Handle, Offset: 200, Length: 4));
+        var synced = await session.HandleAsync(new NamespaceRequest(NamespaceMessages.SYNC, Handle: opened.Handle));
+        var closed = await session.HandleAsync(new NamespaceRequest(NamespaceMessages.CLOSE, Handle: opened.Handle));
+        var again = await OpenAsync(session, window, "/fat/mapped.bin", NamespaceMessages.READ_ACCESS);
+        await session.HandleAsync(new NamespaceRequest(NamespaceMessages.READ, Handle: again.Handle, Length: 6000));
+        var file = window.Read(0, 6000);
+
+        Assert.That(map.Error, Is.Zero);
+        Assert.That(map.Length, Is.EqualTo(NamespaceMessages.CHUNK_BYTES));
+        Assert.That(transfer, Is.Not.Null);
+        Assert.That(chunk.Shared, Is.EqualTo(new[] { true }));
+        Assert.That(chunk.Bytes[5999], Is.EqualTo(bytes[5999]), "the chunk holds the file's bytes");
+        Assert.That(chunk.Bytes[6000], Is.Zero, "and zeros past its end");
+        Assert.That((read.Error, seen), Is.EqualTo((0, (byte)0xAB)), "a read sees what the mapping wrote");
+        Assert.That(chunk.Bytes.Slice(200, 4).ToArray(), Is.EqualTo("wxyz"u8.ToArray()), "a write reaches the mapping");
+        Assert.That((synced.Error, closed.Error), Is.EqualTo((0, 0)));
+        Assert.That(chunk.Disposed, Is.True, "the last handle that mapped the file dropped its chunk");
+        Assert.That(file[100], Is.EqualTo(0xAB), "the mapping's write reached the file");
+        Assert.That(file.AsSpan(200, 4).ToArray(), Is.EqualTo("wxyz"u8.ToArray()));
+        Assert.That(file[101], Is.EqualTo(bytes[101]));
+    }
+
+    [Test]
+    public async Task HandlesShareAChunkTest()
+    {
+        var chunks = new FakeChunkSource();
+        var mounts = new MountTable(chunks);
+        mounts.Add("/fat", await FatFileSystem.FormatAsync(new MemoryBlockStorage(4 * 1024 * 1024)));
+        var window = new ByteWindow(8192);
+        var writer = new NamespaceSession(mounts, window);
+        var made = await OpenAsync(writer, window, "/fat/shared.bin", NamespaceMessages.WRITE_ACCESS | NamespaceMessages.CREATE);
+        window.Write(0, new byte[8192]);
+        await writer.HandleAsync(new NamespaceRequest(NamespaceMessages.WRITE, Handle: made.Handle, Length: 8192));
+        await writer.HandleAsync(new NamespaceRequest(NamespaceMessages.CLOSE, Handle: made.Handle));
+        var a = new NamespaceSession(mounts, window);
+        var b = new NamespaceSession(mounts, window);
+        var readA = await OpenAsync(a, window, "/fat/shared.bin", NamespaceMessages.READ_ACCESS);
+        var readB = await OpenAsync(b, window, "/fat/shared.bin", NamespaceMessages.READ_ACCESS);
+
+        var mapA = await a.HandleAsync(new NamespaceRequest(NamespaceMessages.MAP, Handle: readA.Handle));
+        var mapB = await b.HandleAsync(new NamespaceRequest(NamespaceMessages.MAP, Handle: readB.Handle));
+        var writable = await b.HandleAsync(new NamespaceRequest(NamespaceMessages.MAP, NamespaceMessages.MAP_WRITE, readB.Handle));
+        var misaligned = await b.HandleAsync(new NamespaceRequest(NamespaceMessages.MAP, Handle: readB.Handle, Offset: 4096));
+        await a.HandleAsync(new NamespaceRequest(NamespaceMessages.CLOSE, Handle: readA.Handle));
+        var kept = chunks.Created.Single().Disposed;
+        await b.DisposeAsync();
+
+        Assert.That((mapA.Error, mapB.Error), Is.EqualTo((0, 0)));
+        Assert.That(chunks.Created, Has.Count.EqualTo(1), "both handles map the same chunk");
+        Assert.That(chunks.Created[0].Shared, Is.EqualTo(new[] { false, false }));
+        Assert.That(writable.Error, Is.EqualTo(Errno.ACCESS), "a handle opened for reading maps nothing writable");
+        Assert.That(misaligned.Error, Is.EqualTo(Errno.INVALID));
+        Assert.That(kept, Is.False, "the chunk lives while a handle maps the file");
+        Assert.That(chunks.Created[0].Disposed, Is.True);
+    }
+
+    [Test]
     public async Task AFailingDiskGivesEioTest()
     {
         var disk = new FailingBlockStorage(new MemoryBlockStorage(4 * 1024 * 1024));
@@ -211,6 +288,38 @@ public sealed class NamespaceSessionTests
     #endregion
 
     #region Nested Types
+
+    // Chunks as arrays (R4.2): what the service shares and how, without memory objects.
+    private sealed class FakeChunkSource : IChunkSource
+    {
+        public System.Collections.Generic.List<FakeChunk> Created { get; } = [];
+
+        public ISharedChunk Create(int bytes)
+        {
+            var chunk = new FakeChunk(bytes);
+            Created.Add(chunk);
+            return chunk;
+        }
+    }
+
+    private sealed class FakeChunk(int bytes) : ISharedChunk
+    {
+        private readonly byte[] m_bytes = new byte[bytes];
+
+        public Span<byte> Bytes => m_bytes;
+
+        public System.Collections.Generic.List<bool> Shared { get; } = [];
+
+        public bool Disposed { get; private set; }
+
+        public OutWit.OS.Resources.KernelHandle Share(bool writable)
+        {
+            Shared.Add(writable);
+            return new OutWit.OS.Resources.KernelHandle(0); // no handle: nothing to close
+        }
+
+        public void Dispose() => Disposed = true;
+    }
 
     // A disk whose reads fail with the device's IOException while Failing is set (D6.3).
     private sealed class FailingBlockStorage(MemoryBlockStorage disk) : BlockStorageBase(disk.Info)
