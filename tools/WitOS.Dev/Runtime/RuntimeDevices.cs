@@ -1,5 +1,5 @@
 using System.Security;
-using OutWit.OS.Storage;
+using System.Xml.Linq;
 using WitOS.Dev.Kernel;
 using WitOS.Dev.Substrate;
 
@@ -10,8 +10,8 @@ namespace WitOS.Dev.Runtime;
 /// with the OutWit.OS sources and libwitos. The device manager (D1.1) discovers the devices the root task moves the
 /// table of to it, and starts the virtio block driver with the device it moves to it (D1.2), which reads the boot disk
 /// (D2) and serves the block protocol, through which the device manager reads a data disk's partition table and writes
-/// its test partition (D3.2); the runtime-devices scenario boots them under the system layer's root task before
-/// /bin/init.
+/// its test partition (D3.2) and its FAT partition through the FAT provider, beside the boot disk's FAT volume (D4.1);
+/// the runtime-devices scenario boots them under the system layer's root task before /bin/init.
 /// </summary>
 internal static class RuntimeDevices
 {
@@ -47,38 +47,11 @@ internal static class RuntimeDevices
     /// </summary>
     public const string DEVICES_INIT = "tests/User/devices_init.c";
 
-    /// <summary>
-    /// The bytes of runtime-devices' data disk (D3.2).
-    /// </summary>
-    public const long DATA_DISK_BYTES = 8 * 1024 * 1024;
-
-    /// <summary>
-    /// The name of the data disk's test partition, which the device manager's storage probe writes.
-    /// </summary>
-    public const string TEST_PARTITION = "WitOS test";
-
-    /// <summary>
-    /// The bytes the storage probe writes at the start of the test partition.
-    /// </summary>
-    public const int TEST_PATTERN_BYTES = 320 * 1024;
-
-    /// <summary>
-    /// The first block of the test partition, at 1 MiB.
-    /// </summary>
-    public const long TEST_PARTITION_FIRST_BLOCK = 2048;
-
-    /// <summary>
-    /// The last block of the test partition, 1 MiB before the end of the disk.
-    /// </summary>
-    public const long TEST_PARTITION_LAST_BLOCK = DATA_DISK_BYTES / 512 - 2048 - 1;
-
-    // The source folders of OutWit.OS a service compiles; never obj or bin, which a host build leaves.
+    // The source folders of OutWit.OS every service compiles; never obj or bin, which a host build leaves.
     private static readonly string[] OUTWIT_OS_FOLDERS = ["Native", "Resources", "Communication", "Hardware", "Execution", "Storage"];
 
-    // The data disk's identities, fixed so that every run builds the same image.
-    private static readonly Guid DATA_DISK_ID = new("3f2b8c1e-6a4d-4e7b-9b52-1d0c7e5a9f31");
-    private static readonly Guid TEST_PARTITION_TYPE = new("c7d4a1f0-2b6e-4f39-8a15-5749544f5354");
-    private static readonly Guid TEST_PARTITION_ID = new("9e1b5d27-4c83-4a6f-b0d2-6f3e8a1c4b75");
+    // OutWit.OS's FAT provider (D4.1), which a service compiles with OutWit.OS's package references.
+    private static readonly string[] OUTWIT_OS_FAT_FOLDERS = ["FileSystems", "FileSystems/Fat"];
 
     #endregion
 
@@ -111,11 +84,11 @@ internal static class RuntimeDevices
     {
         var sysroot = await Sysroot.BuildAsync(root, architecture); // with libwitos of the current sources
         await PublishServiceAsync(root, tree, architecture, version, sysroot, DEVICE_MANAGER_EXECUTABLE, DEVICE_MANAGER_PROGRAM,
-            ["Uhi", "Drivers"]);
-        await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_BLOCK_EXECUTABLE, VIRTIO_BLOCK_PROGRAM, ["Virtio"]);
+            ["Uhi", "Drivers"], OUTWIT_OS_FAT_FOLDERS);
+        await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_BLOCK_EXECUTABLE, VIRTIO_BLOCK_PROGRAM, ["Virtio"], []);
         var image = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_DEVICES_SCENARIO, architecture: architecture);
         var dataDisk = Path.Combine(Path.GetDirectoryName(image)!, "data-disk.img");
-        await CreateDataDiskAsync(dataDisk);
+        await RuntimeDataDisk.CreateAsync(dataDisk);
         await BootScenarioRunner.RunAsync(root, image, new BootRequest($"{architecture.Name}-runtime-devices-256", 256, 600, ExpectedOutcome.Success)
         {
             Architecture = architecture,
@@ -123,51 +96,15 @@ internal static class RuntimeDevices
             RequiredLines = RequiredLines(architecture),
             DataDisk = dataDisk
         });
-        await CheckDataDiskAsync(dataDisk);
+        var check = await RuntimeDataDisk.CheckAsync(dataDisk);
         Console.WriteLine($"Devices on witos-{architecture.Name}: the device manager discovered the devices, moved each disk to its " +
-            $"driver and wrote the data disk through the block protocol before /bin/init; the image holds the {TEST_PATTERN_BYTES} bytes.");
+            $"driver and wrote the data disk through the block protocol and the FAT provider before /bin/init; the image holds the " +
+            $"{RuntimeDataDisk.TEST_PATTERN_BYTES} bytes and the guest's files on a clean FAT volume ({check.Files} files, " +
+            $"{check.Directories} directories).");
     }
 
     /// <summary>
-    /// Writes runtime-devices' data disk anew (D3.2): DATA_DISK_BYTES with a GUID partition table, written by OutWit.OS's
-    /// own writer, of one partition, the test partition, from 1 MiB to 1 MiB before the end.
-    /// </summary>
-    /// <param name="path">The image's path.</param>
-    public static async Task CreateDataDiskAsync(string path)
-    {
-        await using var disk = new MemoryBlockStorage(DATA_DISK_BYTES);
-        await GptPartitionTable.WriteAsync(disk, DATA_DISK_ID,
-            [new GptPartition(0, TEST_PARTITION_TYPE, TEST_PARTITION_ID, TEST_PARTITION_FIRST_BLOCK, TEST_PARTITION_LAST_BLOCK, 0, TEST_PARTITION)]);
-        await File.WriteAllBytesAsync(path, disk.Bytes.ToArray());
-    }
-
-    /// <summary>
-    /// Requires that the data disk's image holds what the device manager wrote at the start of the test partition: the
-    /// write reached the medium, not a cache of the guest's.
-    /// </summary>
-    /// <param name="path">The image's path after the boot.</param>
-    /// <exception cref="InvalidOperationException">The image holds other bytes.</exception>
-    public static async Task CheckDataDiskAsync(string path)
-    {
-        var image = await File.ReadAllBytesAsync(path);
-        var start = (int)(TEST_PARTITION_FIRST_BLOCK * 512);
-        for (var i = 0; i < TEST_PATTERN_BYTES; i++)
-        {
-            if (image[start + i] != TestPattern(i))
-                throw new InvalidOperationException($"The data disk {path} holds {image[start + i]:x2} at byte {i} of the test partition, " +
-                    $"where the device manager wrote {TestPattern(i):x2}.");
-        }
-    }
-
-    /// <summary>
-    /// The byte the device manager's storage probe writes at an offset of the test partition (its StorageProbe.Pattern).
-    /// </summary>
-    /// <param name="offset">The offset in the partition.</param>
-    /// <returns>The byte.</returns>
-    public static byte TestPattern(int offset) => (byte)(offset % 509 ^ offset / 4096);
-
-    /// <summary>
-    /// The lines the runtime-devices scenario requires (D1.1, D1.2, D2, D3.2).
+    /// The lines the runtime-devices scenario requires (D1.1, D1.2, D2, D3.2, D4.1).
     /// </summary>
     /// <param name="architecture">Target architecture.</param>
     /// <returns>The required lines.</returns>
@@ -179,15 +116,29 @@ internal static class RuntimeDevices
         ": holds the device, its configuration space reads 1af4:",
         ": read sector 0 through queue 0 and its interrupt: a boot sector (signature aa55, file system FAT",
         ": read sector 0 through queue 0 and its interrupt: a protective MBR (signature aa55) of a GUID partition table",
-        $": {DATA_DISK_BYTES} bytes in blocks of 512, writable, a volatile cache it flushes, transfers of up to ",
+        $": {RuntimeDataDisk.BYTES} bytes in blocks of 512, writable, a volatile cache it flushes, transfers of up to ",
         " bytes in blocks of 512, read-only, ",
         ": serving the block protocol",
         "[DEVICES] driver /system/Drivers/VirtioBlock of pci/",
-        $": {DATA_DISK_BYTES} bytes in blocks of 512, writable, through the block channel and a window of 262144 bytes",
+        $": {RuntimeDataDisk.BYTES} bytes in blocks of 512, writable, through the block channel and a window of 262144 bytes",
         ": the driver refuses a write with errno 30",
         ": no GUID partition table",
-        $": GUID partition table of 1 partitions: \"{TEST_PARTITION}\" on blocks {TEST_PARTITION_FIRST_BLOCK}-{TEST_PARTITION_LAST_BLOCK}",
-        $": partition \"{TEST_PARTITION}\": wrote {TEST_PATTERN_BYTES} bytes durably and read them back",
+        $": GUID partition table of 2 partitions: \"{RuntimeDataDisk.TEST_PARTITION}\" on blocks {RuntimeDataDisk.TEST_PARTITION_FIRST_BLOCK}-" +
+            $"{RuntimeDataDisk.TEST_PARTITION_LAST_BLOCK}, \"{RuntimeDataDisk.FAT_PARTITION}\" on blocks {RuntimeDataDisk.FAT_PARTITION_FIRST_BLOCK}-" +
+            $"{RuntimeDataDisk.FAT_PARTITION_LAST_BLOCK}",
+        $": partition \"{RuntimeDataDisk.TEST_PARTITION}\": wrote {RuntimeDataDisk.TEST_PATTERN_BYTES} bytes durably and read them back",
+        "[DEVICES] fat pci/",
+        ": FAT16 volume of ",
+        ", read-only, / holds EFI, ",
+        "/EFI/BOOT/BOOT",
+        " bytes, a PE image (MZ)",
+        $": partition \"{RuntimeDataDisk.FAT_PARTITION}\": FAT",
+        $", writable, {RuntimeDataDisk.HOST_FILE} says \"{RuntimeDataDisk.HOST_TEXT}\"",
+        $": partition \"{RuntimeDataDisk.FAT_PARTITION}\": wrote {RuntimeDataDisk.GUEST_FILE} ({RuntimeDataDisk.GUEST_FILE_BYTES} bytes) and " +
+            $"{RuntimeDataDisk.GUEST_NOTE}, check clean (",
+        $": partition \"{RuntimeDataDisk.FAT_PARTITION}\": mounted again, /guest holds written.bin ({RuntimeDataDisk.GUEST_FILE_BYTES} bytes), " +
+            "note.txt (",
+        ", read back what it wrote",
         $"[DEVICES] device manager on {(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: ",
         " 2 drivers ready, DMA isolation: none (no IOMMU), ready",
         "[ROOT-TASK] /system/DeviceManager was ready before /bin/init",
@@ -221,17 +172,32 @@ internal static class RuntimeDevices
         ];
     }
 
+    /// <summary>
+    /// OutWit.OS's package references, as its project names them: what a service compiling its FAT provider references
+    /// too, so that the version has one place.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>Each package and its version.</returns>
+    public static IReadOnlyList<(string Package, string Version)> PackageReferences(string root) =>
+    [
+        .. XDocument.Load(Path.Combine(root, OUTWIT_OS_SOURCES, "OutWit.OS.csproj")).Descendants("PackageReference")
+            .Select(reference => ((string)reference.Attribute("Include")!, (string)reference.Attribute("Version")!))
+    ];
+
     // A service published with the SDK's targets for witos: its own sources and the folders given, OutWit.OS's source
-    // folders, and libwitos.a bound directly; the executable goes beside the other witos programs.
+    // folders (and its FAT provider's, with OutWit.OS's package references), and libwitos.a bound directly; the
+    // executable goes beside the other witos programs.
     private static async Task PublishServiceAsync(string root, string tree, KernelArchitecture architecture, string version,
-        string sysroot, string name, string program, string[] folders)
+        string sysroot, string name, string program, string[] folders, string[] outwitFolders)
     {
-        var compile = string.Concat(OUTWIT_OS_FOLDERS.Select(folder => Path.Combine(root, OUTWIT_OS_SOURCES, folder))
+        var compile = string.Concat(OUTWIT_OS_FOLDERS.Concat(outwitFolders).Select(folder => Path.Combine(root, OUTWIT_OS_SOURCES, folder))
             .Concat(folders.Select(folder => Path.Combine(root, program, folder))).Select(Compile));
+        var packages = outwitFolders.Length == 0 ? "" : string.Concat(PackageReferences(root).Select(reference =>
+            $"      <PackageReference Include=\"{SecurityElement.Escape(reference.Package)}\" Version=\"{SecurityElement.Escape(reference.Version)}\" />\n"));
         var published = await RuntimeWitos.PublishProgramAsync(root, tree, architecture, name, Path.Combine(root, program), version,
             $$"""
                 <ItemGroup>
-            {{compile}}
+            {{compile}}{{packages}}
                   <DirectPInvoke Include="libwitos" />
                   <NativeLibrary Include="{{SecurityElement.Escape(Path.Combine(sysroot, "usr", "lib", "libwitos.a"))}}" />
                 </ItemGroup>

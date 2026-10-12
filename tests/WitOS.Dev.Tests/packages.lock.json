@@ -104,8 +104,24 @@
           "Microsoft.TestPlatform.ObjectModel": "18.8.1"
         }
       },
+      "OutWit.Common": {
+        "type": "Transitive",
+        "resolved": "1.4.0",
+        "contentHash": "kpqnYP0xtb+gu+FyCS/ngVlLxYNgcEMUH+HDtb5F8Inrl45037a6trGs/ECvRvok926R5bb5MTYvEB92r/luNA=="
+      },
+      "OutWit.Common.Fat": {
+        "type": "Transitive",
+        "resolved": "1.0.0",
+        "contentHash": "aelMEldQ7w3bvbskl21XQIv1fTfIkX3Yea7ZPr3c3VHn5oH1297FDxE2sUazkPhYCN7Y59URG/Px25RIOF9QOg==",
+        "dependencies": {
+          "OutWit.Common": "1.4.0"
+        }
+      },
       "outwit.os": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "OutWit.Common.Fat": "[1.0.0, )"
+        }
       },
       "witos.dev": {
         "type": "Project",
