@@ -131,7 +131,8 @@ internal static class RuntimeDataDisk
     /// </summary>
     /// <param name="path">The image's path.</param>
     /// <param name="ext4">Whether to make the ext4 volume; a host without e2fsprogs leaves its partition empty.</param>
-    public static async Task CreateAsync(string path, bool ext4 = true)
+    /// <param name="programs">Files the ext4 volume holds under /programs (D5.3); none by default.</param>
+    public static async Task CreateAsync(string path, bool ext4 = true, IReadOnlyList<(string Path, string Source)>? programs = null)
     {
         await using var disk = new MemoryBlockStorage(BYTES, BLOCK);
         var table = await GptPartitionTable.WriteAsync(disk, DISK_ID,
@@ -143,7 +144,7 @@ internal static class RuntimeDataDisk
         if (ext4)
         {
             var volume = Ext4Image(path);
-            await RuntimeExt4Volume.CreateAsync(volume, (EXT4_PARTITION_LAST_BLOCK - EXT4_PARTITION_FIRST_BLOCK + 1) * BLOCK);
+            await RuntimeExt4Volume.CreateAsync(volume, (EXT4_PARTITION_LAST_BLOCK - EXT4_PARTITION_FIRST_BLOCK + 1) * BLOCK, programs);
             await disk.WriteAsync(EXT4_PARTITION_FIRST_BLOCK * BLOCK, await File.ReadAllBytesAsync(volume));
         }
         await using (var partition = table.Partitions[1].Open(disk))

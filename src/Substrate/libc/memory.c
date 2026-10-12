@@ -21,7 +21,7 @@
  * per chunk it covers, at consecutive addresses; every mapping of the same offsets shows the same pages, the library
  * keeps each page's protection (mprotect changes pages within a mapping, as CoreCLR commits its executable memory page
  * by page, R4.1), and an unmapping that leaves part of one maps that part again with its pages' protections. Shared writable mappings of the package and files other than the
- * package's, /dev/zero and shared memory files are not here; a private mapping of a file of a mounted volume is a copy (D5.2). The table lock of __wit_syscall serializes every call. */
+ * package's, /dev/zero and shared memory files are not here; a mapping of a file of a mounted volume that is not shared and writable is a copy (D5.2), in a shared memory file of the process's own when it executes (D5.3). The table lock of __wit_syscall serializes every call. */
 
 #define PAGE 4096UL
 #define MAPPINGS 4096U /* the kernel's reservations of a system layer process (R3.2b; 4096 since R7.3) */
@@ -359,6 +359,57 @@ static long map_copy(long fd, WitU64 address, WitU64 size, WitU64 protection, Wi
     return base;
 }
 
+/* A file of a mounted volume that executes (D5.3), as the dynamic linker maps a library's code: its bytes copied into
+ * an anonymous shared memory file of the process's own (shared.c), since plain memory never executes, whose chunks are
+ * filled through a view of the library's own and mapped under the protection as a shared mapping of that file is
+ * (map_shared_file); executable pages are then published for instruction fetch. The pages past the file's end are
+ * zero. Nobody else holds that file, so the mapping is private as asked; it holds the file, which ends with its last
+ * mapping. With replace (MAP_FIXED), what lies in the range goes once the file is filled, so that nothing the copy
+ * mapped meanwhile takes the range. */
+static long map_shared_file(WitU64 address, WitU64 size, WitU64 protection, WitU32 file, WitU64 offset, WitU64 length);
+
+static long map_code_copy(
+    long fd, WitU64 address, WitU64 size, WitU64 protection, WitU64 offset, WitU64 length, int replace)
+{
+    WitU64 result = 0;
+    WitU32 file = 0;
+    long status = __wit_shared_anonymous(&file);
+    if (status < 0) {
+        return status;
+    }
+    status = __wit_shared_truncate(file, size);
+    for (WitU64 done = 0; status >= 0 && done < size && offset + done < length; done += CHUNK) {
+        const WitU64 part = size - done < CHUNK ? size - done : CHUNK;
+        const WitU64 bytes = length - offset - done < part ? length - offset - done : part;
+        WitU64 object = 0, view = 0;
+        status = __wit_shared_chunk(file, done, &object);
+        if (status >= 0 && map_object(object, 0, part, 0, WIT_MEMORY_READ | WIT_MEMORY_WRITE, &view) != WIT_STATUS_OK) {
+            status = -ENOMEM;
+        }
+        if (status >= 0) {
+            if (__wit_pread(fd, (void *)view, (long)bytes, (long)(offset + done)) != (long)bytes) {
+                status = -EIO;
+            }
+            release(view, 0);
+        }
+    }
+    if (status >= 0 && replace) {
+        status = remove_range(address, size);
+    }
+    long base = status;
+    if (status >= 0) {
+        base = map_shared_file(address, size, protection, file, 0, size);
+    }
+    if (base >= 0 &&
+        (protection & WIT_MEMORY_EXECUTE) &&
+        wit_syscall(WIT_CALL_CODE_PUBLISH, (WitU64)base, size, 0, &result) != WIT_STATUS_OK) {
+        remove_range((WitU64)base, size);
+        base = -EACCES;
+    }
+    __wit_shared_release(file); /* the creation's reference: the mappings hold the file now */
+    return base;
+}
+
 /* A file's pages shown from the package without a copy, at consecutive addresses in mappings of at most CHUNK; the
  * pages past the file's last are plain reserved memory, as Linux's would fault. */
 static long map_shared_pages(WitU64 address, WitU64 size, WitU64 protection, WitU64 source, WitU64 file_pages)
@@ -432,22 +483,29 @@ long __wit_mmap(long address, long length, long protection, long flags, long fd,
     }
     const WitU64 size = round_up((unsigned long)length);
     WitU64 place = 0;
+    int replace = 0;
     if (flags & (MAP_FIXED | MAP_FIXED_NOREPLACE)) {
         if (((unsigned long)address & (PAGE - 1)) || !address) {
             return -EINVAL;
         }
         place = (WitU64)address;
-        if ((flags & MAP_FIXED) && !(flags & MAP_FIXED_NOREPLACE) && (converted = remove_range(place, size)) < 0) {
-            return converted;
-        }
+        replace = (flags & MAP_FIXED) && !(flags & MAP_FIXED_NOREPLACE);
+    }
+    /* MAP_FIXED replaces what lies in the range once the descriptor is known good, as on Linux; a copy that executes
+     * replaces it only after its file is ready, since what the copy maps meanwhile could take the freed range (D5.3). */
+    WitU64 source = 0, file_length = 0;
+    const long kind = flags & MAP_ANONYMOUS ? 1 : __wit_file_map_source(fd, &source, &file_length);
+    if (kind < 0) {
+        return kind;
+    }
+    if (kind == 4 && (kernel_protection & WIT_MEMORY_EXECUTE) && !((flags & MAP_SHARED) && (protection & PROT_WRITE))) {
+        return map_code_copy(fd, place, size, kernel_protection, (WitU64)offset, file_length, replace);
+    }
+    if (replace && (converted = remove_range(place, size)) < 0) {
+        return converted;
     }
     if (flags & MAP_ANONYMOUS) {
         return map_anonymous(place, size, kernel_protection);
-    }
-    WitU64 source = 0, file_length = 0;
-    const long kind = __wit_file_map_source(fd, &source, &file_length);
-    if (kind < 0) {
-        return kind;
     }
     if (kind == 1) {
         return map_anonymous(place, size, kernel_protection); /* /dev/zero */
@@ -465,8 +523,13 @@ long __wit_mmap(long address, long length, long protection, long flags, long fd,
     }
     if (kind == 4) {
         /* A file of a mounted volume (D5.2): a private mapping is a copy of its bytes, read through the namespace
-         * service; a shared one would need the file's pages as a memory object of the service, which none serves. */
-        return flags & MAP_SHARED ? -ENODEV : map_copy(fd, place, size, kernel_protection, (WitU64)offset, file_length);
+         * service, and so is a shared one that is not writable, as a shared mapping of the package is a view of bytes
+         * nothing changes (D5.3: CoreCLR maps an assembly so); a writable shared one would need the file's pages as a
+         * memory object of the service, which none serves. A copy that executes is a file of the process's own. */
+        if ((flags & MAP_SHARED) && (protection & PROT_WRITE)) {
+            return -ENODEV;
+        }
+        return map_copy(fd, place, size, kernel_protection, (WitU64)offset, file_length);
     }
     if ((flags & MAP_SHARED) && (protection & PROT_WRITE)) {
         return -EACCES; /* the package is read-only */

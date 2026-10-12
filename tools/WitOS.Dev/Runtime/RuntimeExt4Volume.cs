@@ -78,6 +78,11 @@ internal static class RuntimeExt4Volume
     /// </summary>
     public const string DOTNET_TEXT = "Written by a .NET program through System.IO and the namespace service.";
 
+    /// <summary>
+    /// The directory of the programs a scenario lays on the volume, which the guest starts from it (D5.3).
+    /// </summary>
+    public const string PROGRAMS = "programs";
+
     private const string UUID = "4e2a7c19-0b3d-4f58-9e61-5749544f5334";
     private static readonly string[] MKFS_PLACES = ["/sbin/mkfs.ext4", "/usr/sbin/mkfs.ext4", "/usr/bin/mkfs.ext4"];
 
@@ -96,15 +101,16 @@ internal static class RuntimeExt4Volume
     /// </summary>
     /// <param name="image">The image to write.</param>
     /// <param name="bytes">Its bytes.</param>
+    /// <param name="programs">Files laid under /programs, each by its path there (D5.3); none by default.</param>
     /// <returns>When the image is written.</returns>
     /// <exception cref="InvalidOperationException">The host has no e2fsprogs, or mkfs or e2fsck failed.</exception>
-    public static async Task CreateAsync(string image, long bytes)
+    public static async Task CreateAsync(string image, long bytes, IReadOnlyList<(string Path, string Source)>? programs = null)
     {
         var mkfs = FindMkfs() ?? throw new InvalidOperationException("The data disk's ext4 volume needs e2fsprogs (mkfs.ext4) on a Linux host.");
         var tree = Path.Combine(Path.GetDirectoryName(image)!, "ext4-tree");
         if (Directory.Exists(tree))
             Directory.Delete(tree, recursive: true);
-        WriteTree(tree);
+        WriteTree(tree, programs ?? []);
         File.Delete(image);
         await RunAsync(mkfs, ["-t", "ext4", "-b", "4096", "-I", "256", "-N", "1024", "-T", "default", "-F", "-q", "-L", LABEL, "-U", UUID,
             "-d", tree, image, $"{bytes / 1024}k"], 0);
@@ -151,8 +157,9 @@ internal static class RuntimeExt4Volume
     /// <returns>The byte.</returns>
     public static byte BigPattern(int chunk, int offset) => (byte)(1 + (chunk * 11 + offset) % 251);
 
-    // The tree: a text file, a directory with a file, the sparse file, the htree directory and a link.
-    private static void WriteTree(string root)
+    // The tree: a text file, a directory with a file, the sparse file, the htree directory and a link, and the programs
+    // under /programs, executable as their sources are (mode 755).
+    private static void WriteTree(string root, IReadOnlyList<(string Path, string Source)> programs)
     {
         Directory.CreateDirectory(Path.Combine(root, "docs"));
         Directory.CreateDirectory(Path.Combine(root, "many"));
@@ -171,6 +178,14 @@ internal static class RuntimeExt4Volume
         for (var i = 0; i < MANY; i++)
             File.WriteAllBytes(Path.Combine(root, "many", $"an-entry-of-the-htree-directory-{i:000}"), []);
         File.CreateSymbolicLink(Path.Combine(root, "link"), LINK_TARGET);
+        foreach (var (path, source) in programs)
+        {
+            var target = Path.Combine(root, PROGRAMS, path);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(source, target);
+            if (OperatingSystem.IsLinux())
+                File.SetUnixFileMode(target, (UnixFileMode)Convert.ToInt32("755", 8));
+        }
     }
 
     private static async Task<byte[]> DumpAsync(string tools, string image, string file)

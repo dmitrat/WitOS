@@ -2,8 +2,9 @@
 // namespace service mounts, through System.Native and the libc's files: text and bytes written and read, a stream
 // seeked, written, cut and flushed to the disk, directories made, listed and removed recursively, files moved, replaced
 // and deleted, a relative path from the current directory, the exceptions a missing path and a read-only volume give,
-// a file of a megabyte, and memory maps of a file: copy-on-write, which the libc makes a private copy, and shared, which
-// it refuses. Each area prints one line; the last counts. /data/dotnet-kept.txt stays for the host.
+// a file of a megabyte, and memory maps of a file: copy-on-write and read-only, which the libc makes copies, and
+// writable shared, which it refuses. Each area prints one line; the last counts. /data/dotnet-kept.txt stays for the
+// host.
 using System;
 using System.IO;
 using System.IO.MemoryMappedFiles;
@@ -215,15 +216,23 @@ internal static class Files
         }
         if (!File.ReadAllBytes(path).AsSpan().SequenceEqual(bytes))
             return "a copy-on-write view changed the file";
+        using (var map = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, 0, MemoryMappedFileAccess.Read))
+        using (var view = map.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read))
+        {
+            var seen = new byte[bytes.Length];
+            view.ReadArray(0, seen, 0, seen.Length);
+            if (!seen.AsSpan().SequenceEqual(bytes))
+                return "the read-only view's bytes";
+        }
         try
         {
-            using var map = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
-            using var view = map.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
-            return "a shared view of a volume's file was made";
+            using var map = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, 0, MemoryMappedFileAccess.ReadWrite);
+            using var view = map.CreateViewAccessor(0, 0, MemoryMappedFileAccess.ReadWrite);
+            return "a writable shared view of a volume's file was made";
         }
         catch (IOException)
         {
-            return null; // a shared mapping of a volume's file is ENODEV
+            return null; // a writable shared mapping of a volume's file is ENODEV
         }
     }
 

@@ -16,8 +16,10 @@
  * POSIX calls, as any program does: on /data (the data disk's ext4 partition) and /fat (its FAT partition) it makes,
  * writes, reads, appends to, cuts, lists, renames and removes files and directories and checks each errno value POSIX
  * gives, and maps a file privately; on /boot (the read-only boot disk) it reads the loader and is refused a write. It
- * leaves /data/posix-kept.txt for the host to find after the boot. Then it starts /bin/files, an ordinary .NET program that uses System.IO on the
- * same volumes (D5.2), and waits for it. */
+ * leaves /data/posix-kept.txt for the host to find after the boot. Then it starts three programs from the ext4 volume,
+ * none of which the boot package holds (D5.3), and waits for each: the System.IO check, an ordinary NativeAOT program
+ * that uses the same volumes (D5.2); the dynamic program, whose library and plugin the dynamic linker maps from beside
+ * it; and the package's dotnet with a .NET application and its library. */
 
 extern char **environ;
 
@@ -78,8 +80,9 @@ static void volume(const char *root)
     snprintf(other, sizeof(other), "%s/posix/renamed.txt", root);
     check(rename(path, other) == 0 && access(path, F_OK) < 0 && errno == ENOENT, "rename");
     check(read_file(other, buffer, sizeof(buffer)) == 5 && strcmp(buffer, "hello") == 0, "the renamed file");
-    /* mmap (D5.2): a private mapping is a copy of the file's bytes, zero past its end, whose writes stay its own; a
-     * shared mapping is ENODEV, since the service serves no file as memory. */
+    /* mmap (D5.2, D5.3): a private mapping is a copy of the file's bytes, zero past its end, whose writes stay its own,
+     * and so is a shared mapping that is not writable; a writable shared mapping is ENODEV, since the service serves
+     * no file as memory. */
     fd = open(other, O_RDWR);
     char *view = fd >= 0 ? mmap(0, 8192, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0) : MAP_FAILED;
     check(view != MAP_FAILED && memcmp(view, "hello", 5) == 0 && view[5] == 0 && view[8191] == 0,
@@ -88,8 +91,10 @@ static void volume(const char *root)
         view[0] = 'J';
         check(msync(view, 8192, MS_SYNC) == 0 && munmap(view, 8192) == 0, "msync and munmap of the copy");
     }
-    check(
-        mmap(0, 4096, PROT_READ, MAP_SHARED, fd, 0) == MAP_FAILED && errno == ENODEV, "mmap with MAP_SHARED is ENODEV");
+    view = mmap(0, 4096, PROT_READ, MAP_SHARED, fd, 0);
+    check(view != MAP_FAILED && memcmp(view, "hello", 5) == 0 && munmap(view, 4096) == 0, "a read-only shared mapping");
+    check(mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0) == MAP_FAILED && errno == ENODEV,
+        "a writable shared mapping is ENODEV");
     close(fd); /* FAT opens no file twice while one is open for writing (EBUSY) */
     check(read_file(other, buffer, sizeof(buffer)) == 5 && strcmp(buffer, "hello") == 0,
         "a write to a private mapping leaves the file");
@@ -121,6 +126,21 @@ static void volume(const char *root)
     check(open(other, O_RDONLY) < 0 && errno == ENOENT, "a removed file is ENOENT");
 }
 
+/* Starts a program with its arguments and waits for it: its exit code, or -1. */
+static int run(char *argv[])
+{
+    pid_t child = 0;
+    int status = 0;
+    const int error = posix_spawn(&child, argv[0], 0, 0, argv, environ);
+    if (error || waitpid(child, &status, 0) != child) {
+        printf("[DEVICES-INIT] %s did not start (errno %d)\n", argv[0], error ? error : errno);
+        return -1;
+    }
+    const int code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    printf("[DEVICES-INIT] %s exited with %d\n", argv[0], code);
+    return code;
+}
+
 int main(void)
 {
     char buffer[16];
@@ -136,13 +156,11 @@ int main(void)
     check(read_file(loader, buffer, 3) == 2 && buffer[0] == 'M' && buffer[1] == 'Z', "the boot volume's loader");
     check(write_file("/boot/new.txt", "x", 0) < 0 && errno == EROFS, "a write to the read-only boot volume is EROFS");
     printf("[DEVICES-INIT] POSIX files over the namespace service: %d checks passed, %d failed\n", passed, failed);
-    char *files_argv[] = {"/bin/files", 0};
-    pid_t files = 0;
-    int status = 0;
-    if (posix_spawn(&files, "/bin/files", 0, 0, files_argv, environ) != 0 || waitpid(files, &status, 0) != files) {
-        printf("[DEVICES-INIT] /bin/files did not start\n");
-        return 1;
-    }
-    printf("[DEVICES-INIT] /bin/files exited with %d\n", WIFEXITED(status) ? WEXITSTATUS(status) : -1);
-    return failed || !WIFEXITED(status) || WEXITSTATUS(status) ? 1 : 0;
+    char *files_argv[] = {"/data/programs/files/Files", 0};
+    char *dynamic_argv[] = {"/data/programs/dynamic/dynamic", "0", 0};
+    char *app_argv[] = {"/dotnet/dotnet", "/data/programs/app/App.dll", "witos", 0};
+    const int files = run(files_argv);
+    const int dynamic = run(dynamic_argv);
+    const int app = run(app_argv);
+    return failed || files || dynamic || app ? 1 : 0;
 }

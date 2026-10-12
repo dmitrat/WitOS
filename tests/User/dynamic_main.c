@@ -12,7 +12,8 @@
 #include <string.h>
 
 /* The dynamic program of the spawn scenario (plan step S5.3, /bin/dynamic): a position-independent executable whose
- * PT_INTERP names musl's dynamic linker, libc.so, in the boot package. The root task's loader maps both and starts the
+ * PT_INTERP names musl's dynamic linker, libc.so, in the boot package (the runtime-devices scenario starts it from a
+ * mounted volume, D5.3). The root task's loader maps both and starts the
  * linker, which takes the start message, maps the program's DT_NEEDED library from the package, binds and relocates
  * everything and enters the program; the root task also runs the linker as a command that loads the program itself.
  * The program checks the library's data, functions, constructor and thread-local variable, dladdr and
@@ -24,6 +25,12 @@
 #define ISA_NAME "x86_64"
 #else
 #define ISA_NAME "aarch64"
+#endif
+
+/* Where the library lies: the package's /lib, or the program's own directory on a mounted volume, which the program's
+ * RUNPATH $ORIGIN names to the dynamic linker (D5.3). */
+#ifndef LIBRARY_PATH
+#define LIBRARY_PATH "/lib/libdynamic.so"
 #endif
 
 extern int dynamic_counter;
@@ -104,7 +111,7 @@ int main(int argc, char **argv)
     check(pthread_create(&thread, 0, library_thread, 0) == 0 && pthread_join(thread, &result) == 0, "a thread");
     check((long)result == 59 && *dynamic_tls_address() == 5, "the library's TLS per thread");
     Dl_info info;
-    check(dladdr((void *)dynamic_answer, &info) && info.dli_fname && strcmp(info.dli_fname, "/lib/libdynamic.so") == 0,
+    check(dladdr((void *)dynamic_answer, &info) && info.dli_fname && strcmp(info.dli_fname, LIBRARY_PATH) == 0,
         "dladdr of the library's function");
     int found[3] = {0, 0, 0};
     dl_iterate_phdr(count_module, found);
