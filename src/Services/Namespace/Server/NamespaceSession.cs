@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using OutWit.OS.FileSystems;
 using OutWit.OS.Namespaces;
+using OutWit.OS.Resources;
 
 namespace OutWit.OS.Namespace.Server;
 
@@ -31,6 +32,7 @@ internal sealed class NamespaceSession : IAsyncDisposable
     private readonly INamespaceWindow m_window;
     private readonly Dictionary<long, Opened> m_opened = [];
     private long m_next = 1;
+    private KernelHandle? m_transfer;
 
     #endregion
 
@@ -72,6 +74,7 @@ internal sealed class NamespaceSession : IAsyncDisposable
                 NamespaceMessages.TRUNCATE => await TruncateAsync(request, cancellationToken).ConfigureAwait(false),
                 NamespaceMessages.SYNC => await SyncAsync(request, cancellationToken).ConfigureAwait(false),
                 NamespaceMessages.READLINK => await ReadLinkAsync(request, cancellationToken).ConfigureAwait(false),
+                NamespaceMessages.MAP => await MapAsync(request, cancellationToken).ConfigureAwait(false),
                 _ => Fail(request, Errno.NOT_IMPLEMENTED)
             };
         }
@@ -106,6 +109,7 @@ internal sealed class NamespaceSession : IAsyncDisposable
             NamespaceMessages.TRUNCATE => "truncate",
             NamespaceMessages.SYNC => "sync",
             NamespaceMessages.READLINK => "readlink",
+            NamespaceMessages.MAP => "map",
             _ => $"operation {request.Operation}"
         };
         if (m_opened.TryGetValue(request.Handle, out var opened))
@@ -142,7 +146,7 @@ internal sealed class NamespaceSession : IAsyncDisposable
         {
             if (writes || (flags & NamespaceMessages.CREATE) != 0 && (flags & NamespaceMessages.EXCLUSIVE) != 0)
                 return Fail(request, writes ? Errno.IS_DIRECTORY : Errno.EXISTS);
-            return Register(request, new Opened(mount, inner, null), Stat(mount, entry));
+            return Register(request, new Opened(mount, inner, null, FileAccess.Read), Stat(mount, entry));
         }
         if ((flags & NamespaceMessages.DIRECTORY) != 0)
             return Fail(request, entry is null ? Errno.NOT_FOUND : Errno.NOT_DIRECTORY);
@@ -153,36 +157,141 @@ internal sealed class NamespaceSession : IAsyncDisposable
         var access = (flags & NamespaceMessages.READ_ACCESS) != 0 && writes ? FileAccess.ReadWrite : writes ? FileAccess.Write : FileAccess.Read;
         var file = await mount.Volume.OpenAsync(inner, mode, access, cancellationToken).ConfigureAwait(false);
         entry = await mount.Volume.GetEntryAsync(inner, cancellationToken).ConfigureAwait(false);
-        return Register(request, new Opened(mount, inner, file), Stat(mount, entry!));
+        return Register(request, new Opened(mount, inner, file, access), Stat(mount, entry!));
     }
 
     private async ValueTask<NamespaceReply> CloseAsync(NamespaceRequest request)
     {
         if (!m_opened.Remove(request.Handle, out var opened))
             return Fail(request, Errno.BAD_HANDLE);
-        if (opened.File is not null)
-            await opened.File.DisposeAsync().ConfigureAwait(false);
+        await ReleaseAsync(opened).ConfigureAwait(false);
         return new NamespaceReply(request.Operation, 0);
     }
 
+    // A handle goes (R4.2): a handle that maps its file writable writes the chunks back first, and the last handle that
+    // mapped the file drops its chunks; then the file closes.
+    private static async ValueTask ReleaseAsync(Opened opened)
+    {
+        if (opened is { Mapped: { } mapped, File: { } writer })
+        {
+            await mapped.Gate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (mapped.Writers.Contains(writer))
+                {
+                    mapped.Writers.Remove(writer);
+                    mapped.Writers.Insert(0, writer); // it writes back while it is still open
+                    await mapped.WriteBackAsync(CancellationToken.None).ConfigureAwait(false);
+                    mapped.Writers.Remove(writer);
+                }
+            }
+            finally
+            {
+                mapped.Gate.Release();
+            }
+            mapped.Owner.Leave(mapped);
+            opened.Mapped = null;
+        }
+        if (opened.File is not null)
+            await opened.File.DisposeAsync().ConfigureAwait(false);
+    }
+
+    // A read through the handle; where the file's chunks are shared, their bytes, which a mapping may have written since.
     private async ValueTask<NamespaceReply> ReadAsync(NamespaceRequest request, CancellationToken cancellationToken)
     {
-        if (File(request) is not { } file)
+        if (!m_opened.TryGetValue(request.Handle, out var opened) || opened.File is not { } file)
             return Fail(request, Errno.BAD_HANDLE);
         var buffer = new byte[Math.Clamp(request.Length, 0, m_window.Length)];
         var read = await file.ReadAsync(request.Offset, buffer, cancellationToken).ConfigureAwait(false);
+        if (m_mounts.Mapped.Find(opened.Mount, opened.Path) is { } mapped)
+        {
+            await mapped.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                mapped.Overlay(request.Offset, buffer.AsSpan(0, read));
+            }
+            finally
+            {
+                mapped.Gate.Release();
+            }
+        }
         m_window.Write(0, buffer.AsSpan(0, read));
         return new NamespaceReply(request.Operation, 0, Length: read);
     }
 
+    // A write through the handle; where the file's chunks are shared, into them too, so that every mapping shows it.
     private async ValueTask<NamespaceReply> WriteAsync(NamespaceRequest request, CancellationToken cancellationToken)
     {
-        if (File(request) is not { } file)
+        if (!m_opened.TryGetValue(request.Handle, out var opened) || opened.File is not { } file)
             return Fail(request, Errno.BAD_HANDLE);
         if (request.Length < 0 || request.Length > m_window.Length)
             return Fail(request, Errno.INVALID);
-        await file.WriteAsync(request.Offset, m_window.Read(0, (int)request.Length), cancellationToken).ConfigureAwait(false);
+        var bytes = m_window.Read(0, (int)request.Length);
+        await file.WriteAsync(request.Offset, bytes, cancellationToken).ConfigureAwait(false);
+        if (m_mounts.Mapped.Find(opened.Mount, opened.Path) is { } mapped)
+        {
+            await mapped.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                mapped.Update(request.Offset, bytes);
+            }
+            finally
+            {
+                mapped.Gate.Release();
+            }
+        }
         return await FileStatAsync(request, cancellationToken).ConfigureAwait(false) with { Operation = request.Operation, Length = request.Length };
+    }
+
+    // A chunk of a file as a memory object the service shares (R4.2): made at the first MAP of that chunk of that file
+    // from the file's bytes, zeros past its end, and the same object for every later MAP of it from any session. A
+    // writable object needs a handle opened for reading and writing; the handle maps the file until it closes.
+    private async ValueTask<NamespaceReply> MapAsync(NamespaceRequest request, CancellationToken cancellationToken)
+    {
+        if (!m_opened.TryGetValue(request.Handle, out var opened) || opened.File is not { } file)
+            return Fail(request, opened is null ? Errno.BAD_HANDLE : Errno.IS_DIRECTORY);
+        var writable = (request.Flags & NamespaceMessages.MAP_WRITE) != 0;
+        if (opened.Access == FileAccess.Write || writable && opened.Access != FileAccess.ReadWrite)
+            return Fail(request, Errno.ACCESS);
+        if (request.Offset < 0 || request.Offset % NamespaceMessages.CHUNK_BYTES != 0)
+            return Fail(request, Errno.INVALID);
+        var mapped = opened.Mapped ??= m_mounts.Mapped.Join(opened.Mount, opened.Path);
+        await mapped.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (writable && !mapped.Writers.Contains(file))
+                mapped.Writers.Add(file);
+            var index = request.Offset / NamespaceMessages.CHUNK_BYTES;
+            if (!mapped.Chunks.TryGetValue(index, out var chunk))
+            {
+                var bytes = new byte[NamespaceMessages.CHUNK_BYTES];
+                var read = await file.ReadAsync(request.Offset, bytes, cancellationToken).ConfigureAwait(false);
+                chunk = mapped.Owner.Create();
+                bytes.AsSpan(0, read).CopyTo(chunk.Bytes);
+                mapped.Chunks[index] = chunk;
+            }
+            m_transfer = chunk.Share(writable);
+        }
+        catch (CapabilityException exception)
+        {
+            return Fail(request, exception.Error); // the service's objects or handles are spent
+        }
+        finally
+        {
+            mapped.Gate.Release();
+        }
+        return new NamespaceReply(request.Operation, 0, Length: NamespaceMessages.CHUNK_BYTES);
+    }
+
+    /// <summary>
+    /// The capability the last reply carries, which the connection moves with it (R4.2's MAP), or null.
+    /// </summary>
+    /// <returns>The handle; the caller's to send or close.</returns>
+    public KernelHandle? TakeTransfer()
+    {
+        var transfer = m_transfer;
+        m_transfer = null;
+        return transfer;
     }
 
     private async ValueTask<NamespaceReply> StatAsync(NamespaceRequest request, CancellationToken cancellationToken)
@@ -295,9 +404,21 @@ internal sealed class NamespaceSession : IAsyncDisposable
 
     private async ValueTask<NamespaceReply> TruncateAsync(NamespaceRequest request, CancellationToken cancellationToken)
     {
-        if (File(request) is not { } file)
+        if (!m_opened.TryGetValue(request.Handle, out var opened) || opened.File is not { } file)
             return Fail(request, Errno.BAD_HANDLE);
         await file.SetLengthAsync(request.Length, cancellationToken).ConfigureAwait(false);
+        if (m_mounts.Mapped.Find(opened.Mount, opened.Path) is { } mapped)
+        {
+            await mapped.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                mapped.Cut(request.Length);
+            }
+            finally
+            {
+                mapped.Gate.Release();
+            }
+        }
         return await FileStatAsync(request, cancellationToken).ConfigureAwait(false) with { Operation = request.Operation };
     }
 
@@ -305,6 +426,19 @@ internal sealed class NamespaceSession : IAsyncDisposable
     {
         if (!m_opened.TryGetValue(request.Handle, out var opened))
             return Fail(request, Errno.BAD_HANDLE);
+        if (m_mounts.Mapped.Find(opened.Mount, opened.Path) is { } mapped)
+        {
+            // What mappings wrote reaches the file first (R4.2).
+            await mapped.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await mapped.WriteBackAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                mapped.Gate.Release();
+            }
+        }
         if (opened.File is not null)
             await opened.File.FlushAsync(cancellationToken).ConfigureAwait(false);
         else
@@ -404,11 +538,9 @@ internal sealed class NamespaceSession : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         foreach (var opened in m_opened.Values)
-        {
-            if (opened.File is not null)
-                await opened.File.DisposeAsync().ConfigureAwait(false);
-        }
+            await ReleaseAsync(opened).ConfigureAwait(false);
         m_opened.Clear();
+        TakeTransfer()?.Dispose();
     }
 
     #endregion
@@ -416,8 +548,12 @@ internal sealed class NamespaceSession : IAsyncDisposable
     #region Nested Types
 
     // A file or a directory the session opened; a directory's listing as the client reads it.
-    private sealed class Opened(MountTable.Mount mount, string path, IFileHandle? file)
+    private sealed class Opened(MountTable.Mount mount, string path, IFileHandle? file, FileAccess access)
     {
+        public FileAccess Access { get; } = access;
+
+        public MappedFile? Mapped { get; set; }
+
         public MountTable.Mount Mount { get; } = mount;
 
         public string Path { get; } = path;

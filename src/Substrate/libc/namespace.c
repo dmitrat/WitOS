@@ -65,8 +65,8 @@ static long namespace_send(WitU64 endpoint, const void *bytes, WitU32 count, Wit
     return status == WIT_STATUS_OK ? 0 : __wit_errno(status);
 }
 
-/* The next message on the session, waiting for it. */
-static long namespace_receive(void *bytes, WitU32 count)
+/* The next message on the session, waiting for it; with a handle slot, the one handle a MAP's reply carries (R4.2). */
+static long namespace_receive(void *bytes, WitU32 count, WitU64 *handle)
 {
     WitChannelMessage message;
     WitUserWaitRequest wait;
@@ -76,6 +76,8 @@ static long namespace_receive(void *bytes, WitU32 count)
     message.Size = sizeof(message);
     message.Data = (WitU64)bytes;
     message.Bytes = count;
+    message.Handles = (WitU64)handle;
+    message.HandleCount = handle ? 1 : 0;
     wait.Version = WIT_WAIT_OBJECTS_VERSION;
     wait.Size = sizeof(wait);
     wait.Handles = (WitU64)&session;
@@ -92,8 +94,8 @@ static long namespace_receive(void *bytes, WitU32 count)
     return status == WIT_STATUS_OK ? (long)(result & 0xFFFFFFFFULL) : -EIO;
 }
 
-/* One request and its reply; the reply's errno value as a negative result. */
-static long call(WitNamespaceRequest *request, WitNamespaceReply *reply)
+/* One request and its reply, which may carry a handle into the slot given; the reply's errno value as a negative result. */
+static long call_with(WitNamespaceRequest *request, WitNamespaceReply *reply, WitU64 *handle)
 {
     request->Version = WIT_NAMESPACE_VERSION;
     request->Size = sizeof(*request);
@@ -101,7 +103,7 @@ static long call(WitNamespaceRequest *request, WitNamespaceReply *reply)
     if (status < 0) {
         return status;
     }
-    if ((status = namespace_receive(reply, sizeof(*reply))) < 0) {
+    if ((status = namespace_receive(reply, sizeof(*reply), handle)) < 0) {
         return status;
     }
     if (status != (long)sizeof(*reply) ||
@@ -111,6 +113,12 @@ static long call(WitNamespaceRequest *request, WitNamespaceReply *reply)
         return -EPROTO;
     }
     return reply->Error ? -(long)reply->Error : 0;
+}
+
+/* One request and its reply; the reply's errno value as a negative result. */
+static long call(WitNamespaceRequest *request, WitNamespaceReply *reply)
+{
+    return call_with(request, reply, 0);
 }
 
 /* The session and the window, made once; the mount points read with it. A process without the namespace's endpoint
@@ -514,6 +522,27 @@ long __wit_remote_sync(WitU32 index)
 {
     WitNamespaceReply reply;
     return handle_call(WIT_NAMESPACE_SYNC, index, 0, 0, &reply);
+}
+
+/* A chunk of the file as the memory object the service shares (R4.2): MAP, writable when asked, whose reply carries the
+ * object; *object becomes the process's handle. */
+long __wit_remote_map(WitU32 index, WitU64 offset, int writable, WitU64 *object)
+{
+    WitNamespaceRequest request;
+    WitNamespaceReply reply;
+    WitU64 handle = 0;
+    memset(&request, 0, sizeof(request));
+    request.Operation = WIT_NAMESPACE_MAP;
+    request.Flags = writable ? WIT_NAMESPACE_MAP_WRITE : 0;
+    request.Handle = remotes[index].Handle;
+    request.Offset = offset;
+    const long status = call_with(&request, &reply, &handle);
+    if (status < 0 || !handle) {
+        close_handle(handle);
+        return status < 0 ? status : -EPROTO;
+    }
+    *object = handle;
+    return 0;
 }
 
 long __wit_remote_readlink(const unsigned char *name, WitU32 length, char *buffer, long size)

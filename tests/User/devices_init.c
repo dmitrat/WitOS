@@ -95,9 +95,9 @@ static void volume(const char *root)
     snprintf(other, sizeof(other), "%s/posix/renamed.txt", root);
     check(rename(path, other) == 0 && access(path, F_OK) < 0 && errno == ENOENT, "rename");
     check(read_file(other, buffer, sizeof(buffer)) == 5 && strcmp(buffer, "hello") == 0, "the renamed file");
-    /* mmap (D5.2, D5.3): a private mapping is a copy of the file's bytes, zero past its end, whose writes stay its own,
-     * and so is a shared mapping that is not writable; a writable shared mapping is ENODEV, since the service serves
-     * no file as memory. */
+    /* mmap (D5.2, R4.2): a private mapping is a copy of the file's bytes, zero past its end, whose writes stay its own;
+     * a shared mapping shows the namespace service's pages of the file, so that a write through it reaches a read of
+     * the file and a write of the file reaches it, and msync or the last close writes it back to the file. */
     fd = open(other, O_RDWR);
     char *view = fd >= 0 ? mmap(0, 8192, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0) : MAP_FAILED;
     check(view != MAP_FAILED && memcmp(view, "hello", 5) == 0 && view[5] == 0 && view[8191] == 0,
@@ -108,11 +108,23 @@ static void volume(const char *root)
     }
     view = mmap(0, 4096, PROT_READ, MAP_SHARED, fd, 0);
     check(view != MAP_FAILED && memcmp(view, "hello", 5) == 0 && munmap(view, 4096) == 0, "a read-only shared mapping");
-    check(mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0) == MAP_FAILED && errno == ENODEV,
-        "a writable shared mapping is ENODEV");
     close(fd); /* FAT opens no file twice while one is open for writing (EBUSY) */
     check(read_file(other, buffer, sizeof(buffer)) == 5 && strcmp(buffer, "hello") == 0,
         "a write to a private mapping leaves the file");
+    fd = open(other, O_RDWR);
+    view = fd >= 0 ? mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0) : MAP_FAILED;
+    if (view != MAP_FAILED) {
+        view[1] = 'E';
+    }
+    check(view != MAP_FAILED && pread(fd, buffer, 5, 0) == 5 && memcmp(buffer, "hEllo", 5) == 0,
+        "a write through a shared mapping reaches a read");
+    check(view != MAP_FAILED && pwrite(fd, "L", 1, 2) == 1 && view[2] == 'L',
+        "a write of the file reaches a shared mapping");
+    check(view != MAP_FAILED && msync(view, 4096, MS_SYNC) == 0 && munmap(view, 4096) == 0,
+        "msync and munmap of a shared mapping");
+    close(fd);
+    check(read_file(other, buffer, sizeof(buffer)) == 5 && strcmp(buffer, "hELlo") == 0,
+        "a shared mapping's write reached the file");
     snprintf(path, sizeof(path), "%s/posix/sub", root);
     check(mkdir(path, 0755) == 0, "mkdir of a subdirectory");
     snprintf(path, sizeof(path), "%s/posix", root);

@@ -2,9 +2,9 @@
 // namespace service mounts, through System.Native and the libc's files: text and bytes written and read, a stream
 // seeked, written, cut and flushed to the disk, directories made, listed and removed recursively, files moved, replaced
 // and deleted, a relative path from the current directory, the exceptions a missing path and a read-only volume give,
-// a file of a megabyte, and memory maps of a file: copy-on-write and read-only, which the libc makes copies, and
-// writable shared, which it refuses. Each area prints one line; the last counts. /data/dotnet-kept.txt stays for the
-// host.
+// a file of a megabyte, and memory maps of a file: copy-on-write, which the libc makes a copy, and read-only and
+// read-write shared views, whose pages the namespace service shares and writes back. Each area prints one line; the
+// last counts. /data/dotnet-kept.txt stays for the host.
 using System;
 using System.IO;
 using System.IO.MemoryMappedFiles;
@@ -224,16 +224,17 @@ internal static class Files
             if (!seen.AsSpan().SequenceEqual(bytes))
                 return "the read-only view's bytes";
         }
-        try
+        using (var map = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, 0, MemoryMappedFileAccess.ReadWrite))
+        using (var view = map.CreateViewAccessor(0, 0, MemoryMappedFileAccess.ReadWrite))
         {
-            using var map = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, 0, MemoryMappedFileAccess.ReadWrite);
-            using var view = map.CreateViewAccessor(0, 0, MemoryMappedFileAccess.ReadWrite);
-            return "a writable shared view of a volume's file was made";
+            view.Write(10, (byte)0x5A);
+            view.Flush();
         }
-        catch (IOException)
-        {
-            return null; // a writable shared mapping of a volume's file is ENODEV
-        }
+        var after = File.ReadAllBytes(path);
+        return after.Length == bytes.Length && after[10] == 0x5A && after.AsSpan(0, 10).SequenceEqual(bytes.AsSpan(0, 10)) &&
+            after.AsSpan(11).SequenceEqual(bytes.AsSpan(11))
+            ? null
+            : "a ReadWrite view's write did not reach the file";
     }
 
     private static string? Fat()

@@ -34,6 +34,9 @@
 #define WIT_NAMESPACE_TRUNCATE 13U /* Handle, Length: the new size; the reply's Stat */
 #define WIT_NAMESPACE_SYNC 14U /* Handle: its file durable */
 #define WIT_NAMESPACE_READLINK 15U /* the path in the window (Length bytes): the target into the window, Length bytes */
+#define WIT_NAMESPACE_MAP \
+    16U /* Handle of a file, Offset a multiple of WIT_NAMESPACE_CHUNK_BYTES, Flags WIT_NAMESPACE_MAP_WRITE: the reply's
+         * one handle is a memory object of WIT_NAMESPACE_CHUNK_BYTES that holds the file's bytes from Offset (R4.2) */
 
 /* OPEN's flags; the libc maps O_ACCMODE, O_CREAT, O_EXCL, O_TRUNC and O_DIRECTORY onto them. */
 #define WIT_NAMESPACE_READ_ACCESS 0x1U
@@ -42,6 +45,7 @@
 #define WIT_NAMESPACE_EXCLUSIVE 0x8U
 #define WIT_NAMESPACE_TRUNCATE_FILE 0x10U
 #define WIT_NAMESPACE_DIRECTORY 0x20U /* OPEN: the path must be a directory; REMOVE: remove a directory */
+#define WIT_NAMESPACE_MAP_WRITE 0x40U /* MAP: the object is writable, which a handle opened for writing alone grants */
 
 /* WitNamespaceStat's Kind, as a stat's file type; Mode holds the permission bits alone. */
 #define WIT_NAMESPACE_KIND_FILE 1U
@@ -50,6 +54,14 @@
 #define WIT_NAMESPACE_KIND_OTHER 4U
 
 #define WIT_NAMESPACE_WINDOW_BYTES (16U * 4096U) /* the window a client attaches */
+
+/* A file's shared mapping (R4.2): the service shares a file's bytes as memory objects of WIT_NAMESPACE_CHUNK_BYTES, one
+ * per chunk of the file a client maps, the same object for every client that maps the same chunk of the same file, so
+ * that every shared mapping of it shows the same pages. The service's own reads and writes of the file go through the
+ * objects while they live, so a read sees what a mapping wrote; it writes the objects' changed blocks back to the file
+ * at SYNC and when the last handle that mapped the file writable closes, and drops the objects when the last handle
+ * that mapped the file closes. Bytes past the file's end are zero and never reach the file. */
+#define WIT_NAMESPACE_CHUNK_BYTES (64U * 4096U)
 
 /* What a stat reports of an entry: times as seconds and nanoseconds since 1970 in UTC. */
 typedef struct WitNamespaceStat {

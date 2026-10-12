@@ -75,6 +75,11 @@ public static class NamespaceMessages
     /// <summary>A link's target into the window.</summary>
     public const uint READLINK = 15;
 
+    /// <summary>
+    /// WIT_NAMESPACE_MAP: a chunk of a file as a memory object the service shares (R4.2).
+    /// </summary>
+    public const uint MAP = 16;
+
     /// <summary>OPEN: the handle reads.</summary>
     public const uint READ_ACCESS = 0x1;
 
@@ -92,6 +97,16 @@ public static class NamespaceMessages
 
     /// <summary>OPEN: the path must be a directory; REMOVE: a directory is removed.</summary>
     public const uint DIRECTORY = 0x20;
+
+    /// <summary>
+    /// WIT_NAMESPACE_MAP_WRITE: MAP's object writable.
+    /// </summary>
+    public const uint MAP_WRITE = 0x40;
+
+    /// <summary>
+    /// WIT_NAMESPACE_CHUNK_BYTES: the bytes of one shared chunk of a file, 64 pages.
+    /// </summary>
+    public const int CHUNK_BYTES = 64 * 4096;
 
     /// <summary>A file.</summary>
     public const uint KIND_FILE = 1;
