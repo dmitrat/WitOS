@@ -175,6 +175,23 @@ internal static class RuntimeExt4Volume
     }
 
     /// <summary>
+    /// The block that holds the start of a file's data in a volume, as debugfs maps the file's first block (D6.3); never
+    /// a block of its extent tree, which a check of the volume reads.
+    /// </summary>
+    /// <param name="image">The volume's image.</param>
+    /// <param name="file">The file's path in the volume.</param>
+    /// <returns>The block's number in the volume.</returns>
+    /// <exception cref="InvalidOperationException">debugfs maps no block.</exception>
+    public static async Task<long> FirstBlockAsync(string image, string file)
+    {
+        var tools = Path.GetDirectoryName(FindMkfs() ?? throw new InvalidOperationException("Reading the ext4 volume needs e2fsprogs."))!;
+        var mapped = await Processes.RunAsync(Path.Combine(tools, "debugfs"), ["-R", $"bmap {file} 0", image], Path.GetTempPath(), 300);
+        return mapped.ExitCode == 0 && long.TryParse(mapped.Output.Trim(), out var block) && block > 0
+            ? block
+            : throw new InvalidOperationException($"debugfs maps no first block of {file}: {mapped.Output} {mapped.Error}");
+    }
+
+    /// <summary>
     /// The byte the guest writes at an offset of /guest/logs/written.bin (Ext4Probe.Pattern).
     /// </summary>
     /// <param name="offset">The offset.</param>

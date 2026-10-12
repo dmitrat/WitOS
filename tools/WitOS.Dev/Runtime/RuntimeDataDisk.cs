@@ -201,6 +201,21 @@ internal static class RuntimeDataDisk
     }
 
     /// <summary>
+    /// The disk's sector that holds the start of a file of the ext4 partition (D6.3).
+    /// </summary>
+    /// <param name="path">The image's path.</param>
+    /// <param name="file">The file's path in the volume.</param>
+    /// <returns>The sector, in blocks of 512 bytes from the disk's start.</returns>
+    public static async Task<long> Ext4SectorAsync(string path, string file)
+    {
+        var image = await File.ReadAllBytesAsync(path);
+        var volumeImage = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path))!, "ext4-sectors.img");
+        await File.WriteAllBytesAsync(volumeImage,
+            image.AsMemory((int)(EXT4_PARTITION_FIRST_BLOCK * BLOCK), (int)((EXT4_PARTITION_LAST_BLOCK - EXT4_PARTITION_FIRST_BLOCK + 1) * BLOCK)));
+        return EXT4_PARTITION_FIRST_BLOCK + await RuntimeExt4Volume.FirstBlockAsync(volumeImage, file) * (4096 / BLOCK);
+    }
+
+    /// <summary>
     /// Requires what a boot the host cut off while it wrote left on the ext4 partition (D6.2): a volume still mounted,
     /// whose journal the host's e2fsck replays into a clean volume.
     /// </summary>
