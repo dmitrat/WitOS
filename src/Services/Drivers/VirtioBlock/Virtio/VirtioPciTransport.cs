@@ -8,7 +8,7 @@ namespace OutWit.OS.Drivers.VirtioBlock.Virtio;
 /// <summary>
 /// The modern virtio PCI transport of a device (virtio 1.x, §4.1): its configuration space with memory decoding and bus
 /// mastering on, and the BAR its vendor capabilities name, holding the common configuration, the notification area and
-/// the ISR status. The kernel knows none of this; the driver reads it through the regions DEVICE_MEMORY gave it.
+/// the ISR status and the device-specific configuration. The kernel knows none of this; the driver reads it through the regions DEVICE_MEMORY gave it.
 /// </summary>
 internal sealed class VirtioPciTransport : IDisposable
 {
@@ -36,7 +36,7 @@ internal sealed class VirtioPciTransport : IDisposable
     #region Constructors
 
     private VirtioPciTransport(KernelHandle configurationObject, MmioRegion configuration, KernelHandle barObject, MmioRegion bar,
-        int common, int notify, int isr, uint notifyMultiplier)
+        int common, int notify, int isr, int device, uint notifyMultiplier)
     {
         m_configurationObject = configurationObject;
         Configuration = configuration;
@@ -45,6 +45,7 @@ internal sealed class VirtioPciTransport : IDisposable
         Common = common;
         Notify = notify;
         Isr = isr;
+        DeviceConfiguration = device;
         NotifyMultiplier = notifyMultiplier;
     }
 
@@ -83,8 +84,9 @@ internal sealed class VirtioPciTransport : IDisposable
                 if (type == NOTIFY)
                     multiplier = configuration.Read32(at + 16);
             }
-            if (found != 0x1E || bars[COMMON] != bars[NOTIFY] || bars[COMMON] != bars[ISR])
-                throw new IOException($"The function's virtio capabilities are {found:x} in BARs {bars[COMMON]}, {bars[NOTIFY]}, {bars[ISR]}.");
+            if (found != 0x1E || bars[COMMON] != bars[NOTIFY] || bars[COMMON] != bars[ISR] || bars[COMMON] != bars[DEVICE])
+                throw new IOException($"The function's virtio capabilities are {found:x} in BARs {bars[COMMON]}, {bars[NOTIFY]}, " +
+                    $"{bars[ISR]}, {bars[DEVICE]}.");
             // The BAR the capabilities name, among the descriptor's regions by its firmware-assigned base.
             var raw = configuration.Read32(BARS + bars[COMMON] * 4);
             ulong address = raw & 0xFFFFFFF0U;
@@ -100,7 +102,7 @@ internal sealed class VirtioPciTransport : IDisposable
             {
                 var bar = MmioRegion.Map(barObject, (int)descriptor.Regions[region].Size);
                 return new VirtioPciTransport(configurationObject, configuration, barObject, bar, offsets[COMMON], offsets[NOTIFY],
-                    offsets[ISR], multiplier);
+                    offsets[ISR], offsets[DEVICE], multiplier);
             }
             catch
             {
@@ -139,7 +141,7 @@ internal sealed class VirtioPciTransport : IDisposable
     public MmioRegion Configuration { get; }
 
     /// <summary>
-    /// The BAR of the common configuration, the notifications and the ISR status.
+    /// The BAR of the common configuration, the notifications, the ISR status and the device-specific configuration.
     /// </summary>
     public MmioRegion Bar { get; }
 
@@ -157,6 +159,11 @@ internal sealed class VirtioPciTransport : IDisposable
     /// The ISR status register's offset in the BAR.
     /// </summary>
     public int Isr { get; }
+
+    /// <summary>
+    /// The device-specific configuration's offset in the BAR.
+    /// </summary>
+    public int DeviceConfiguration { get; }
 
     /// <summary>
     /// The bytes between two queues' notification addresses.

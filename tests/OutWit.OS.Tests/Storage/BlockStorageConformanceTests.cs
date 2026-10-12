@@ -8,12 +8,14 @@ namespace OutWit.OS.Tests.Storage;
 
 /// <summary>
 /// The conformance of a block storage resource (storage document §113): range and alignment checks, read after write,
-/// flush, read-only refusals, cancellation, disposal and concurrent requests, for every provider of D3.1 over memory.
+/// flush, read-only refusals, cancellation, disposal and concurrent requests, for every provider of D3.1 over memory and
+/// D3.2's block protocol over a driver in the test's process, whose transfers are smaller than the requests.
 /// </summary>
 [TestFixture("Memory")]
 [TestFixture("Partition")]
 [TestFixture("CachedThrough")]
 [TestFixture("CachedBack")]
+[TestFixture("Channel")]
 public sealed class BlockStorageConformanceTests(string provider)
 {
     #region Constants
@@ -149,6 +151,7 @@ public sealed class BlockStorageConformanceTests(string provider)
         "Partition" => new PartitionBlockStorage(new MemoryBlockStorage((BLOCKS + 8) * BLOCK, BLOCK), 3 * BLOCK, BLOCKS * BLOCK, isReadOnly),
         "CachedThrough" => new CachedBlockStorage(new MemoryBlockStorage(BLOCKS * BLOCK, BLOCK, isReadOnly), 8),
         "CachedBack" => new CachedBlockStorage(new MemoryBlockStorage(BLOCKS * BLOCK, BLOCK, isReadOnly), 8, writeBack: true),
+        "Channel" => ChannelBlockStorage.Open(new LoopbackBlockSession(new MemoryBlockStorage(BLOCKS * BLOCK, BLOCK, isReadOnly), 4096, 2 * BLOCK)),
         _ => throw new ArgumentOutOfRangeException(nameof(provider))
     };
 

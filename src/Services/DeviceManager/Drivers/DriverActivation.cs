@@ -11,19 +11,20 @@ namespace OutWit.OS.DeviceManager.Drivers;
 /// <summary>
 /// The activation of a driver (plan step D1.2, ADR 0025, decision 3): the device manager acquires the device, starts the
 /// driver through the process manager with the grant of a channel to itself, and moves the device and its descriptor to
-/// it over that channel; the driver answers when it took the device.
+/// it over that channel; the driver answers when it took the device, with the endpoint of the service it offers.
 /// </summary>
 internal sealed class DriverActivation : IDisposable
 {
     #region Constructors
 
-    private DriverActivation(string path, DeviceRecord record, Channel channel, KernelHandle process, int status)
+    private DriverActivation(string path, DeviceRecord record, Channel channel, KernelHandle process, int status, KernelHandle? service)
     {
         Path = path;
         Record = record;
         Channel = channel;
         Process = process;
         Status = status;
+        Service = service;
     }
 
     #endregion
@@ -51,8 +52,12 @@ internal sealed class DriverActivation : IDisposable
             var process = ServiceLauncher.Start(path, [record.Id], theirs);
             try
             {
-                using var answer = channel.Receive();
-                return new DriverActivation(path, record, channel, process, ServiceStatus.Decode(answer.Bytes));
+                var answer = channel.Receive();
+                var status = ServiceStatus.Decode(answer.Bytes);
+                if (status == 0 && answer.Handles.Count <= 1)
+                    return new DriverActivation(path, record, channel, process, 0, answer.Handles.Count == 1 ? answer.Handles[0] : null);
+                answer.Dispose();
+                return new DriverActivation(path, record, channel, process, status == 0 ? ServiceStatus.PROTOCOL_ERROR : status, null);
             }
             catch
             {
@@ -76,6 +81,7 @@ internal sealed class DriverActivation : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
+        Service?.Dispose();
         Channel.Dispose();
         Process.Dispose();
     }
@@ -108,6 +114,12 @@ internal sealed class DriverActivation : IDisposable
     /// The driver's answer: zero when it took the device, otherwise its errno value.
     /// </summary>
     public int Status { get; }
+
+    /// <summary>
+    /// The endpoint of the service a ready driver offers, which moved with its answer (D3.2: a block driver's block
+    /// channel); null for a driver that offers none.
+    /// </summary>
+    public KernelHandle? Service { get; }
 
     #endregion
 }

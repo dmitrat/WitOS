@@ -9,10 +9,11 @@ using System.Threading.Tasks;
 namespace OutWit.OS.Storage;
 
 /// <summary>
-/// A GUID partition table read from a disk (UEFI 2.10, §5.3; storage document §24, plan step D3.1). The primary header
-/// at block 1 is checked whole — its signature, revision, size, its own CRC-32, its place, the usable range and the
-/// entry array with its CRC-32 — and the backup header at the last block serves when the primary fails. Every used entry
-/// lies within the usable range, and no two overlap. Nothing of the table is trusted before it is checked (§137).
+/// A GUID partition table read from a disk or written to one (UEFI 2.10, §5.3; storage document §24, plan steps D3.1 and
+/// D3.2). The primary header at block 1 is checked whole — its signature, revision, size, its own CRC-32, its place, the
+/// usable range and the entry array with its CRC-32 — and the backup header at the last block serves when the primary
+/// fails. Every used entry lies within the usable range, and no two overlap. Nothing of the table is trusted before it
+/// is checked (§137).
 /// </summary>
 public sealed class GptPartitionTable
 {
@@ -33,8 +34,20 @@ public sealed class GptPartitionTable
     /// </summary>
     public const int HEADER_SIZE = 92;
 
+    /// <summary>
+    /// The entries of a table WriteAsync makes, the count UEFI requires room for.
+    /// </summary>
+    public const int ENTRY_COUNT = 128;
+
+    /// <summary>
+    /// The bytes of an entry WriteAsync makes.
+    /// </summary>
+    public const int ENTRY_SIZE = 128;
+
     private const int ENTRY_MINIMUM = 128;
     private const int ENTRIES_LIMIT = 1024 * 1024;
+    private const int NAME_CHARACTERS = 36;
+    private const int MBR_BYTES = 512;
 
     #endregion
 
@@ -72,6 +85,104 @@ public sealed class GptPartitionTable
         if (backup.Table is not null)
             return backup.Table;
         throw new InvalidDataException($"The disk has no valid GUID partition table: the primary {primary.Problem}, the backup {backup.Problem}.");
+    }
+
+    /// <summary>
+    /// Writes a GUID partition table to a disk (UEFI 2.10, §5.2.3 and §5.3): a protective MBR at block 0, the primary
+    /// header at block 1 with ENTRY_COUNT entries after it, the backup entries and header at the end, then a flush; the
+    /// table is read back as ReadAsync checks it. Each partition takes the entry its index names and lies within the
+    /// usable blocks, apart from the others.
+    /// </summary>
+    /// <param name="disk">The disk, with blocks of at least 512 bytes; what it held of the table's blocks is replaced.</param>
+    /// <param name="diskId">The disk's GUID.</param>
+    /// <param name="partitions">The partitions.</param>
+    /// <param name="cancellationToken">Cancels the writes.</param>
+    /// <returns>The table as read back.</returns>
+    /// <exception cref="ArgumentException">The disk is too small for a table, or a partition does not fit it.</exception>
+    public static async ValueTask<GptPartitionTable> WriteAsync(IBlockStorage disk, Guid diskId, IReadOnlyList<GptPartition> partitions,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(disk);
+        ArgumentNullException.ThrowIfNull(partitions);
+        var size = disk.Info.LogicalBlockSize;
+        var blocks = disk.Info.Length / size;
+        var entryBlocks = (ENTRY_COUNT * ENTRY_SIZE + size - 1) / size;
+        var firstUsable = 2L + entryBlocks;
+        var lastUsable = blocks - 2 - entryBlocks;
+        if (size < MBR_BYTES || firstUsable > lastUsable)
+            throw new ArgumentException($"A disk of {blocks} blocks of {size} bytes holds no GUID partition table.", nameof(disk));
+        var entries = new byte[entryBlocks * size];
+        var used = new bool[ENTRY_COUNT];
+        for (var i = 0; i < partitions.Count; i++)
+        {
+            var partition = partitions[i];
+            if (partition.Index is < 0 or >= ENTRY_COUNT || used[partition.Index] || partition.Type == Guid.Empty ||
+                partition.FirstBlock < firstUsable || partition.LastBlock > lastUsable || partition.FirstBlock > partition.LastBlock ||
+                partition.Name.Length > NAME_CHARACTERS)
+                throw new ArgumentException($"Partition {partition.Index} on blocks {partition.FirstBlock} to {partition.LastBlock} does not fit " +
+                    $"the usable blocks {firstUsable} to {lastUsable}.", nameof(partitions));
+            for (var j = 0; j < i; j++)
+            {
+                if (partition.FirstBlock <= partitions[j].LastBlock && partitions[j].FirstBlock <= partition.LastBlock)
+                    throw new ArgumentException($"Partitions {partitions[j].Index} and {partition.Index} overlap.", nameof(partitions));
+            }
+            used[partition.Index] = true;
+            var entry = entries.AsSpan(partition.Index * ENTRY_SIZE, ENTRY_SIZE);
+            partition.Type.TryWriteBytes(entry);
+            partition.Id.TryWriteBytes(entry[16..]);
+            BinaryPrimitives.WriteInt64LittleEndian(entry[32..], partition.FirstBlock);
+            BinaryPrimitives.WriteInt64LittleEndian(entry[40..], partition.LastBlock);
+            BinaryPrimitives.WriteUInt64LittleEndian(entry[48..], partition.Attributes);
+            Encoding.Unicode.GetBytes(partition.Name, entry[56..]);
+        }
+        var entriesCrc = Crc32.Compute(entries.AsSpan(0, ENTRY_COUNT * ENTRY_SIZE));
+        var backupEntries = blocks - 1 - entryBlocks;
+        await disk.WriteAsync(0, ProtectiveMbr(size, blocks), cancellationToken: cancellationToken).ConfigureAwait(false);
+        await disk.WriteAsync(size, Header(size, 1, blocks - 1, firstUsable, lastUsable, diskId, 2, entriesCrc),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        await disk.WriteAsync(2L * size, entries, cancellationToken: cancellationToken).ConfigureAwait(false);
+        await disk.WriteAsync(backupEntries * size, entries, cancellationToken: cancellationToken).ConfigureAwait(false);
+        await disk.WriteAsync((blocks - 1) * size, Header(size, blocks - 1, 1, firstUsable, lastUsable, diskId, backupEntries, entriesCrc),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        await disk.FlushAsync(cancellationToken).ConfigureAwait(false);
+        return await ReadAsync(disk, cancellationToken).ConfigureAwait(false);
+    }
+
+    // The protective MBR (UEFI 2.10, §5.2.3): one partition of type 0xEE from block 1 over the disk, at most 2^32 - 1
+    // blocks, and the boot signature.
+    private static byte[] ProtectiveMbr(int size, long blocks)
+    {
+        var mbr = new byte[size];
+        var record = mbr.AsSpan(446, 16);
+        record[2] = 0x02; // starting CHS 0x000200
+        record[4] = 0xEE;
+        record[5] = record[6] = record[7] = 0xFF; // ending CHS
+        BinaryPrimitives.WriteUInt32LittleEndian(record[8..], 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(record[12..], (uint)Math.Min(blocks - 1, uint.MaxValue));
+        mbr[510] = 0x55;
+        mbr[511] = 0xAA;
+        return mbr;
+    }
+
+    private static byte[] Header(int size, long mine, long alternate, long firstUsable, long lastUsable, Guid diskId, long entriesAt,
+        uint entriesCrc)
+    {
+        var block = new byte[size];
+        var header = block.AsSpan(0, HEADER_SIZE);
+        BinaryPrimitives.WriteUInt64LittleEndian(header, SIGNATURE);
+        BinaryPrimitives.WriteUInt32LittleEndian(header[8..], REVISION);
+        BinaryPrimitives.WriteUInt32LittleEndian(header[12..], HEADER_SIZE);
+        BinaryPrimitives.WriteInt64LittleEndian(header[24..], mine);
+        BinaryPrimitives.WriteInt64LittleEndian(header[32..], alternate);
+        BinaryPrimitives.WriteInt64LittleEndian(header[40..], firstUsable);
+        BinaryPrimitives.WriteInt64LittleEndian(header[48..], lastUsable);
+        diskId.TryWriteBytes(header[56..]);
+        BinaryPrimitives.WriteInt64LittleEndian(header[72..], entriesAt);
+        BinaryPrimitives.WriteUInt32LittleEndian(header[80..], ENTRY_COUNT);
+        BinaryPrimitives.WriteUInt32LittleEndian(header[84..], ENTRY_SIZE);
+        BinaryPrimitives.WriteUInt32LittleEndian(header[88..], entriesCrc);
+        BinaryPrimitives.WriteUInt32LittleEndian(header[16..], Crc32.Compute(header));
+        return block;
     }
 
     // The table whose header is at the block given, or the reason it is not valid.

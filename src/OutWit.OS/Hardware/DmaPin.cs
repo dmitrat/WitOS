@@ -51,6 +51,25 @@ public sealed class DmaPin : IDisposable
         return new DmaPin(new KernelHandle(pin), ranges);
     }
 
+    /// <summary>
+    /// Where a byte of the window lies for the device: its physical address and the bytes from it to the end of its
+    /// physical range, which the device may reach as one run.
+    /// </summary>
+    /// <param name="offset">The byte's offset in the window.</param>
+    /// <returns>Its physical address and the contiguous bytes from there.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The offset lies outside the window.</exception>
+    public (ulong Address, long Bytes) RunAt(long offset)
+    {
+        var start = 0L;
+        foreach (var (address, size) in Ranges)
+        {
+            if (offset >= start && offset < start + (long)size)
+                return (address + (ulong)(offset - start), start + (long)size - offset);
+            start += (long)size;
+        }
+        throw new ArgumentOutOfRangeException(nameof(offset), $"Offset {offset} lies outside the {start} bytes pinned.");
+    }
+
     #endregion
 
     #region IDisposable
