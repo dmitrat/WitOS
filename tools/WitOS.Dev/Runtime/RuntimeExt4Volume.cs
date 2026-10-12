@@ -152,6 +152,29 @@ internal static class RuntimeExt4Volume
     }
 
     /// <summary>
+    /// Requires what a cut left on a volume (D6.2): the guest had it mounted (needs_recovery), and the host's e2fsck
+    /// replays its journal and finds it clean then. The image is the host's copy: the guest's next boot replays the
+    /// journal itself on the disk.
+    /// </summary>
+    /// <param name="image">A copy of the volume's image.</param>
+    /// <returns>When the volume is judged.</returns>
+    /// <exception cref="InvalidOperationException">The volume was not mounted, or e2fsck cannot recover it.</exception>
+    public static async Task CheckCutAsync(string image)
+    {
+        var tools = Path.GetDirectoryName(FindMkfs() ?? throw new InvalidOperationException("Judging the ext4 volume needs e2fsprogs."))!;
+        var header = await Processes.RunAsync(Path.Combine(tools, "dumpe2fs"), ["-h", image], Path.GetTempPath(), 300);
+        var features = header.Output.Split('\n').FirstOrDefault(line => line.StartsWith("Filesystem features:", StringComparison.Ordinal));
+        if (header.ExitCode != 0 || features is null || !features.Contains("needs_recovery", StringComparison.Ordinal))
+            throw new InvalidOperationException($"The cut did not find the guest's ext4 volume mounted: dumpe2fs says '{features}'.");
+        var repair = await Processes.RunAsync(Path.Combine(tools, "e2fsck"), ["-fy", image], Path.GetTempPath(), 300);
+        if (repair.ExitCode > 1)
+            throw new InvalidOperationException($"e2fsck cannot recover the volume the cut left ({repair.ExitCode}): {repair.Output} {repair.Error}");
+        var check = await Processes.RunAsync(Path.Combine(tools, "e2fsck"), ["-fn", image], Path.GetTempPath(), 300);
+        if (check.ExitCode != 0)
+            throw new InvalidOperationException($"e2fsck finds the volume the cut left unclean after its recovery ({check.ExitCode}): {check.Output}");
+    }
+
+    /// <summary>
     /// The byte the guest writes at an offset of /guest/logs/written.bin (Ext4Probe.Pattern).
     /// </summary>
     /// <param name="offset">The offset.</param>

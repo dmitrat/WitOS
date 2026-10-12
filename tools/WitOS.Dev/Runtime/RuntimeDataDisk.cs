@@ -201,6 +201,22 @@ internal static class RuntimeDataDisk
     }
 
     /// <summary>
+    /// Requires what a boot the host cut off while it wrote left on the ext4 partition (D6.2): a volume still mounted,
+    /// whose journal the host's e2fsck replays into a clean volume.
+    /// </summary>
+    /// <param name="path">The image's path after the cut.</param>
+    /// <returns>When the partition is judged.</returns>
+    /// <exception cref="InvalidOperationException">The volume was unmounted, or e2fsck cannot recover it.</exception>
+    public static async Task CheckCutAsync(string path)
+    {
+        var image = await File.ReadAllBytesAsync(path);
+        var volumeImage = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path))!, "ext4-cut.img");
+        await File.WriteAllBytesAsync(volumeImage,
+            image.AsMemory((int)(EXT4_PARTITION_FIRST_BLOCK * BLOCK), (int)((EXT4_PARTITION_LAST_BLOCK - EXT4_PARTITION_FIRST_BLOCK + 1) * BLOCK)));
+        await RuntimeExt4Volume.CheckCutAsync(volumeImage);
+    }
+
+    /// <summary>
     /// The byte the storage probe writes at an offset of the test partition (its StorageProbe.Pattern).
     /// </summary>
     /// <param name="offset">The offset in the partition.</param>

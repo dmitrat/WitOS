@@ -1,4 +1,5 @@
 using System.Security;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using WitOS.Dev.Kernel;
 using WitOS.Dev.Substrate;
@@ -68,6 +69,29 @@ internal static class RuntimeDevices
     public const string VOLUME_GREETING = "Read from the ext4 volume";
 
     /// <summary>
+    /// The boots of one data disk the scenario makes (D6.1, D6.2): two that end with the services stopped, a third that
+    /// the host cuts off while /bin/init writes rounds of files, and a fourth that finds what the cut left.
+    /// </summary>
+    public const int BOOTS = 4;
+
+    /// <summary>
+    /// The boot the host cuts off (devices_init.c's CUT_BOOT, D6.2).
+    /// </summary>
+    public const int CUT_BOOT = 3;
+
+    /// <summary>
+    /// The cut writer's report after which the host cuts the boot off: the cut falls in a later round.
+    /// </summary>
+    public const string CUT_AFTER = "[DEVICES-INIT] cut writer: round 20 durable";
+
+    /// <summary>
+    /// The longest wall-clock wait after <see cref="CUT_AFTER"/> before the cut, chosen at random: a round takes some
+    /// hundreds of milliseconds under TCG, so the cut falls anywhere in the rounds after it, inside a transaction or
+    /// between two.
+    /// </summary>
+    public const int CUT_JITTER_MILLISECONDS = 1500;
+
+    /// <summary>
     /// The programs the scenario lays on the ext4 volume under /programs and starts from there (D5.3): the .NET
     /// application with its runtimeconfig, its library and the file it reads, the dynamic program with its library and
     /// the library it opens, and the System.IO check.
@@ -134,19 +158,39 @@ internal static class RuntimeDevices
         var programs = await BuildVolumeProgramsAsync(root, Path.GetDirectoryName(image)!, architecture, files);
         var dataDisk = Path.Combine(Path.GetDirectoryName(image)!, "data-disk.img");
         await RuntimeDataDisk.CreateAsync(dataDisk, programs: programs);
-        // Two boots of one data disk (D6.1): the first writes it, the services stop and unmount its volumes, and the second
-        // finds what the first wrote; the host judges the disk after each.
+        // Boots of one data disk (D6.1, D6.2): the first writes it, the services stop and unmount its volumes, and the second
+        // finds what the first wrote; the third is cut off while it writes, and the fourth finds what the cut left. The
+        // host judges the disk after each: unmounted and clean after a stop, replayable by e2fsck after the cut.
         OutWit.OS.FileSystems.FileSystemCheckReport? check = null;
-        for (var boot = 1; boot <= 2; boot++)
+        var durable = -1;
+        for (var boot = 1; boot <= BOOTS; boot++)
         {
-            await BootScenarioRunner.RunAsync(root, image, new BootRequest($"{architecture.Name}-runtime-devices-512-boot{boot}", 512, 1200,
-                ExpectedOutcome.Success)
+            var name = $"{architecture.Name}-runtime-devices-512-boot{boot}";
+            await BootScenarioRunner.RunAsync(root, image, new BootRequest(name, 512, 1200,
+                boot == CUT_BOOT ? ExpectedOutcome.Cut : ExpectedOutcome.Success)
             {
                 Architecture = architecture,
                 Suite = BootSuite.Release,
                 RequiredLines = RequiredLines(architecture, boot),
-                DataDisk = dataDisk
+                DataDisk = dataDisk,
+                CutAfter = boot == CUT_BOOT ? CUT_AFTER : null,
+                CutJitterMilliseconds = CUT_JITTER_MILLISECONDS
             });
+            var serial = await File.ReadAllTextAsync(Path.Combine(root, "artifacts", "logs", name + ".serial.log"));
+            if (boot == CUT_BOOT)
+            {
+                durable = Regex.Matches(serial, @"cut writer: round (\d+) durable").Select(match => int.Parse(match.Groups[1].Value)).Max();
+                await RuntimeDataDisk.CheckCutAsync(dataDisk);
+                continue;
+            }
+            if (boot > CUT_BOOT)
+            {
+                // Every round the cut boot reported durable is there after the cut.
+                var found = int.Parse(Regex.Match(serial, @"after the cut: /data/crash holds rounds 0 to (-?\d+)").Groups[1].Value);
+                if (found < durable)
+                    throw new InvalidOperationException($"After the cut the volume holds rounds to {found}, but round {durable} was durable.");
+                Console.WriteLine($"Cut on witos-{architecture.Name}: round {durable} was the last reported durable, and the volume holds rounds to {found}.");
+            }
             check = await RuntimeDataDisk.CheckAsync(dataDisk, boot);
         }
         Console.WriteLine($"Devices on witos-{architecture.Name}: the device manager discovered the devices, moved each disk to its " +
@@ -166,8 +210,9 @@ internal static class RuntimeDevices
         .. FirstLines(),
         .. boot > 1 ? [$": partition \"{RuntimeDataDisk.TEST_PARTITION}\": holds the {RuntimeDataDisk.TEST_PATTERN_BYTES} bytes a previous boot wrote",
             $": partition \"{RuntimeDataDisk.FAT_PARTITION}\": after the reboot, read back what a previous boot wrote"] : Array.Empty<string>(),
-        .. boot > 1 ? AfterRebootExt4Lines() : FirstExt4Lines(),
-        .. LastLines(architecture, boot)
+        .. boot == 1 ? FirstExt4Lines() : boot == CUT_BOOT + 1 ? AfterCutExt4Lines() : AfterRebootExt4Lines(),
+        .. MiddleLines(architecture, boot),
+        .. boot == CUT_BOOT ? [CUT_AFTER] : LastLines(architecture)
     ];
 
     // What every boot of the scenario prints first: discovery, the drivers, the disks and the FAT volumes.
@@ -233,8 +278,18 @@ internal static class RuntimeDevices
             $"{6 + VolumeDirectories} directories)"
     ];
 
-    // What every boot prints after the probes: the namespace service, /bin/init and its programs, and the stop (D6.1).
-    private static string[] LastLines(KernelArchitecture architecture, int boot) =>
+    // The ext4 probe on the volume the cut boot left mounted (D6.2): the journal replayed what was committed, and the
+    // check is clean; the files the cut left make the counts vary.
+    private static string[] AfterCutExt4Lines() =>
+    [
+        ": a previous boot wrote the volume and left it mounted: the journal replayed ",
+        $": after the reboot, /guest holds link, logs, note.txt, /many holds {RuntimeExt4Volume.MANY + RuntimeExt4Volume.GUEST_ADDED} entries, " +
+            "read back what it wrote, check clean ("
+    ];
+
+    // What every boot prints after the probes: the namespace service and /bin/init's count of the boots, the files the
+    // previous boot left and, after the cut, the files the cut left (D6.1, D6.2).
+    private static string[] MiddleLines(KernelArchitecture architecture, int boot) =>
     [
         $"[DEVICES] device manager on {(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: ",
         " 2 drivers ready, DMA isolation: none (no IOMMU), ready",
@@ -246,6 +301,12 @@ internal static class RuntimeDevices
         "[DEVICES] namespace service /system/Namespace with 2 disks: ready",
         $"[DEVICES-INIT] boot {boot} of the data disk",
         .. boot > 1 ? ["[DEVICES-INIT] /data/posix-kept.txt and /data/dotnet-kept.txt hold what the previous boot wrote: yes"] : Array.Empty<string>(),
+        .. boot > CUT_BOOT ? [", each as its last durable change left it"] : Array.Empty<string>()
+    ];
+
+    // What a boot that is not cut off prints last: /bin/init's checks and programs, and the stop (D6.1).
+    private static string[] LastLines(KernelArchitecture architecture) =>
+    [
         "[DEVICES-INIT] POSIX files over the namespace service: ",
         " checks passed, 0 failed",
         $"[FILES] System.IO over the namespace service under NativeAOT on {(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: " +

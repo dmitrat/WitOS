@@ -64,13 +64,19 @@ internal static class BootScenarioRunner
         }
         Console.WriteLine($"Booting {name} ({request.MemoryMiB} MiB, {cpu}, {request.Processors} processor(s), TCG, no networking)...");
         ProcessResult monitorResult;
+        using var cut = new CancellationTokenSource();
+        using var watching = new CancellationTokenSource();
+        var jitter = request.CutJitterMilliseconds > 0 ? Random.Shared.Next(request.CutJitterMilliseconds + 1) : 0;
+        var watcher = request.CutAfter is { } line ? WatchAsync(serialPath, line, jitter, cut, watching.Token) : Task.CompletedTask;
         try
         {
             monitorResult = await Processes.RunWithFilesAsync(architecture.QemuPath(root), arguments, root, request.TimeoutSeconds,
-                Path.Combine(logs, name + ".stdout.log"), Path.Combine(logs, name + ".stderr.log"), qmpControl.QuitAsync);
+                Path.Combine(logs, name + ".stdout.log"), Path.Combine(logs, name + ".stderr.log"), qmpControl.QuitAsync, cut.Token);
         }
         finally
         {
+            watching.Cancel();
+            await watcher;
             await File.WriteAllTextAsync(Path.Combine(logs, name + ".monitor.log"), qmpControl.Transcript);
         }
         var serial = File.Exists(serialPath) ? await BoundedCapture.ReadFileAsync(serialPath) : "";
@@ -86,6 +92,8 @@ internal static class BootScenarioRunner
             throw new InvalidOperationException($"{name}: expected {request.Expected}, got exit={result.ExitCode}, " +
                 $"timeout={result.TimedOut}. Checks: {verdict.Diagnostics}. Logs: {logs}\n{result.Error}");
         }
+        if (request.CutAfter is not null)
+            Console.WriteLine($"Cut {name} {jitter} ms after \"{request.CutAfter}\".");
         Console.WriteLine($"PASS: {name} (exit={result.ExitCode}, timeout={result.TimedOut}).");
     }
 
@@ -94,6 +102,33 @@ internal static class BootScenarioRunner
     #region Tools
 
     private static string QemuPath(string path) => path.Replace('\\', '/').Replace(",", ",,");
+
+    // Cuts the boot off once its serial log holds the line and the jitter's milliseconds passed (D6.2): the guest runs on
+    // meanwhile, and the cut falls where that moment ends.
+    private static async Task WatchAsync(string serialPath, string line, int jitter, CancellationTokenSource cut, CancellationToken stop)
+    {
+        try
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                if (File.Exists(serialPath))
+                {
+                    using var stream = new FileStream(serialPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    using var reader = new StreamReader(stream);
+                    if ((await reader.ReadToEndAsync(stop)).Contains(line, StringComparison.Ordinal))
+                    {
+                        await Task.Delay(jitter, stop);
+                        await cut.CancelAsync();
+                        return;
+                    }
+                }
+                await Task.Delay(20, stop);
+            }
+        }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested)
+        {
+        }
+    }
 
     #endregion
 }

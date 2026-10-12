@@ -109,9 +109,15 @@ internal static class BootValidation
         var clean = forbidden.All(marker => !output.Contains(marker, StringComparison.Ordinal));
         // A layer-2 scenario on the release kernel (plan step T2.1b) names the lines its root task must print.
         var required = request.RequiredLines.All(line => output.Contains(line, StringComparison.Ordinal));
-        var passed = request.Expected == ExpectedOutcome.Success && !result.TimedOut && result.ExitCode == 33 &&
-            banner && ready && clean && required;
-        return new BootVerdict(passed, $"banner={banner} ready={ready} clean={clean} required={required}");
+        // A boot the runner cut off (D6.2) ran its root task until the line it was cut after, and is judged by what it
+        // printed before.
+        var cut = request.Expected == ExpectedOutcome.Cut && result.TimedOut && request.CutAfter is { } line &&
+            output.Contains(line, StringComparison.Ordinal) &&
+            MarkersInOrder(output, "[TEST-PASS] Boot.Contract", "[TEST-PASS] Cpu.ExceptionTables", "[TEST-PASS] Memory.KernelPaging",
+                "[TEST-PASS] Clock.IrqIndependent", "Kernel initialized.", "[TEST-PASS] Boot.Hello");
+        var passed = (request.Expected == ExpectedOutcome.Success && !result.TimedOut && result.ExitCode == 33 && ready || cut) &&
+            banner && clean && required;
+        return new BootVerdict(passed, $"banner={banner} ready={ready} cut={cut} clean={clean} required={required}");
     }
 
     /// <summary>
