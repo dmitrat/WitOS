@@ -21,7 +21,7 @@
  * per chunk it covers, at consecutive addresses; every mapping of the same offsets shows the same pages, the library
  * keeps each page's protection (mprotect changes pages within a mapping, as CoreCLR commits its executable memory page
  * by page, R4.1), and an unmapping that leaves part of one maps that part again with its pages' protections. Shared writable mappings of the package and files other than the
- * package's, /dev/zero and shared memory files are not here. The table lock of __wit_syscall serializes every call. */
+ * package's, /dev/zero and shared memory files are not here; a private mapping of a file of a mounted volume is a copy (D5.2). The table lock of __wit_syscall serializes every call. */
 
 #define PAGE 4096UL
 #define MAPPINGS 4096U /* the kernel's reservations of a system layer process (R3.2b; 4096 since R7.3) */
@@ -463,6 +463,11 @@ long __wit_mmap(long address, long length, long protection, long flags, long fd,
         }
         return map_shared_file(place, size, kernel_protection, (WitU32)source, (WitU64)offset, file_length);
     }
+    if (kind == 4) {
+        /* A file of a mounted volume (D5.2): a private mapping is a copy of its bytes, read through the namespace
+         * service; a shared one would need the file's pages as a memory object of the service, which none serves. */
+        return flags & MAP_SHARED ? -ENODEV : map_copy(fd, place, size, kernel_protection, (WitU64)offset, file_length);
+    }
     if ((flags & MAP_SHARED) && (protection & PROT_WRITE)) {
         return -EACCES; /* the package is read-only */
     }
@@ -603,6 +608,32 @@ long __wit_mremap(long address, long old_length, long new_length, long flags)
         return -ENOMEM;
     }
     return -ENOSYS;
+}
+
+/* msync (D5.2): nothing waits to be written back. A private mapping is the process's own memory, a shared mapping of a
+ * shared memory file shows the file's own pages, and the package is read-only; so a valid request over mapped pages
+ * succeeds at once. As on Linux, the flags hold MS_ASYNC or MS_SYNC but not both, the address is page-aligned, and a
+ * page the library has not mapped is ENOMEM. */
+long __wit_msync(long address, long length, long flags)
+{
+    if (((unsigned long)address & (PAGE - 1)) ||
+        length < 0 ||
+        (flags & ~(long)(MS_ASYNC | MS_SYNC | MS_INVALIDATE)) ||
+        ((flags & MS_ASYNC) && (flags & MS_SYNC))) {
+        return -EINVAL;
+    }
+    const WitU64 end = (WitU64)address + round_up((unsigned long)length);
+    for (WitU64 at = (WitU64)address; at < end;) {
+        unsigned i = 0;
+        while (i < count && !(mappings[i].Base <= at && at < mappings[i].Base + mappings[i].Size)) {
+            ++i;
+        }
+        if (i == count) {
+            return -ENOMEM;
+        }
+        at = mappings[i].Base + mappings[i].Size;
+    }
+    return 0;
 }
 
 long __wit_madvise(long address, long length, long advice)

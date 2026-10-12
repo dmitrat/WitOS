@@ -53,6 +53,16 @@ internal static class RuntimeDevices
     public const string NAMESPACE_EXECUTABLE = "Namespace";
 
     /// <summary>
+    /// The System.IO check's sources (D5.2): an ordinary .NET program /bin/init starts as /bin/files.
+    /// </summary>
+    public const string FILES_PROGRAM = "tests/Runtime.Witos/Files";
+
+    /// <summary>
+    /// The executable runtime-witos publishes from the System.IO check.
+    /// </summary>
+    public const string FILES_EXECUTABLE = "Files";
+
+    /// <summary>
     /// The runtime-devices scenario's /bin/init: it starts after the device manager answered.
     /// </summary>
     public const string DEVICES_INIT = "tests/User/devices_init.c";
@@ -98,6 +108,8 @@ internal static class RuntimeDevices
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_BLOCK_EXECUTABLE, VIRTIO_BLOCK_PROGRAM, ["Virtio"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, NAMESPACE_EXECUTABLE, NAMESPACE_PROGRAM, ["Server", "Volumes"],
             OUTWIT_OS_FILESYSTEM_FOLDERS);
+        var files = await RuntimeWitos.PublishProgramAsync(root, tree, architecture, FILES_EXECUTABLE, Path.Combine(root, FILES_PROGRAM), version, "");
+        File.Copy(files, Path.Combine(RuntimeWitos.ProgramDirectory(root, architecture), FILES_EXECUTABLE), overwrite: true);
         var image = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_DEVICES_SCENARIO, architecture: architecture);
         var dataDisk = Path.Combine(Path.GetDirectoryName(image)!, "data-disk.img");
         await RuntimeDataDisk.CreateAsync(dataDisk);
@@ -174,6 +186,9 @@ internal static class RuntimeDevices
         "[DEVICES] namespace service /system/Namespace with 2 disks: ready",
         "[DEVICES-INIT] POSIX files over the namespace service: ",
         " checks passed, 0 failed",
+        $"[FILES] System.IO over the namespace service under NativeAOT on {(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: " +
+            "10 areas passed, 0 failed",
+        "[DEVICES-INIT] /bin/files exited with 0",
         "[ROOT-TASK] /system/DeviceManager was ready before /bin/init",
         architecture.RootTaskPassedLine
     ];
@@ -193,7 +208,8 @@ internal static class RuntimeDevices
         var program = RuntimeWitos.ProgramPackage(root, architecture, DEVICE_MANAGER_EXECUTABLE);
         var driver = Path.Combine(RuntimeWitos.ProgramDirectory(root, architecture), VIRTIO_BLOCK_EXECUTABLE);
         var names = Path.Combine(RuntimeWitos.ProgramDirectory(root, architecture), NAMESPACE_EXECUTABLE);
-        if (!File.Exists(driver) || !File.Exists(names))
+        var files = Path.Combine(RuntimeWitos.ProgramDirectory(root, architecture), FILES_EXECUTABLE);
+        if (!File.Exists(driver) || !File.Exists(names) || !File.Exists(files))
             throw new InvalidOperationException($"No witos driver or namespace service in {RuntimeWitos.ProgramDirectory(root, architecture)}. " +
                 $"Run: dotnet run --project tools/WitOS.Dev -- runtime-services --arch {architecture.Name}");
         await Sysroot.BuildAsync(root, architecture);
@@ -203,7 +219,7 @@ internal static class RuntimeDevices
         return
         [
             ("system/" + DEVICE_MANAGER_EXECUTABLE, program[0].Source), ("system/Drivers/" + VIRTIO_BLOCK_EXECUTABLE, driver),
-            ("system/" + NAMESPACE_EXECUTABLE, names),
+            ("system/" + NAMESPACE_EXECUTABLE, names), ("bin/files", files),
             ("bin/init", initProgram), .. program.Skip(1)
         ];
     }

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace WitOS.Dev.Host;
 
@@ -12,6 +13,16 @@ namespace WitOS.Dev.Host;
 /// </summary>
 internal sealed class QemuControl : IDisposable
 {
+    #region Constants
+
+    private const int DIAGNOSTIC_SAMPLES = 3;
+
+    private const int REPLY_LIMIT = 65536;
+
+    private const int TRANSCRIPT_LIMIT = 1048576;
+
+    #endregion
+
     #region Fields
 
     private readonly TcpListener m_listener = new(IPAddress.Loopback, 0);
@@ -39,7 +50,7 @@ internal sealed class QemuControl : IDisposable
     #region Functions
 
     /// <summary>
-    /// Asks QEMU to quit through QMP after it connects.
+    /// Records where the processor is in a few samples, then asks QEMU to quit through QMP after it connects.
     /// </summary>
     /// <param name="cancellation">Stops the request.</param>
     internal async Task QuitAsync(CancellationToken cancellation)
@@ -60,7 +71,7 @@ internal sealed class QemuControl : IDisposable
                     throw new IOException("QMP connection closed before reply.");
                 if (one[0] == '\n')
                     break;
-                if (text.Length == 16384)
+                if (text.Length == REPLY_LIMIT)
                     throw new InvalidDataException("QMP reply exceeded its limit.");
                 text.Append(one[0]);
             }
@@ -102,6 +113,48 @@ internal sealed class QemuControl : IDisposable
                 throw new InvalidDataException("Expected a QMP greeting.");
         await Send("qmp_capabilities", "witos-capabilities");
         await Reply("witos-capabilities");
+        // The guest ran past its deadline: before QEMU quits, the transcript records where a few samples find the
+        // processor (plan step D5.2, where one process spun on a lock whose holder waited for a process the dispatcher
+        // never ran). On x64 a sample also records the kernel stack's page above its stack pointer, whose top holds
+        // the frame a system call or an interrupt saved, and the user stack that frame names. QEMU reads guest memory
+        // without changing it.
+        var serial = 0;
+        async Task<string> Human(string command)
+        {
+            var id = "witos-human-" + serial++;
+            var line = JsonSerializer.Serialize(new
+            {
+                execute = "human-monitor-command",
+                arguments = new Dictionary<string, string> { ["command-line"] = command },
+                id,
+            });
+            Record("> " + line);
+            await stream.WriteAsync(Encoding.UTF8.GetBytes(line + "\n"), token);
+            await stream.FlushAsync(token);
+            for (var count = 0; count < 32; ++count)
+            {
+                using var message = await Read();
+                if (message.RootElement.TryGetProperty("id", out var field) && field.ValueKind == JsonValueKind.String &&
+                    field.GetString() == id)
+                    return message.RootElement.TryGetProperty("return", out var value) && value.ValueKind == JsonValueKind.String
+                        ? value.GetString()!
+                        : "";
+            }
+            throw new InvalidDataException("QMP matching reply not received within message limit.");
+        }
+        for (var sample = 0; sample < DIAGNOSTIC_SAMPLES; ++sample)
+        {
+            var stackPointer = Regex.Match(await Human("info registers"), "RSP=([0-9a-f]{16})");
+            if (!stackPointer.Success)
+                continue;
+            var bottom = Convert.ToUInt64(stackPointer.Groups[1].Value, 16);
+            var top = (bottom | 0xFFF) + 1;
+            var words = Regex.Matches(await Human($"xp /{(top - bottom) / 8}gx 0x{bottom:x}"), "0x([0-9a-f]{16})")
+                .Select(word => Convert.ToUInt64(word.Groups[1].Value, 16)).ToArray();
+            // The saved frame's last five words: RIP, CS, RFLAGS, RSP, SS; CS 0x33 is user mode.
+            if (words.Length >= 5 && words[^4] == 0x33)
+                await Human($"x /64gx 0x{words[^2]:x}");
+        }
         await Send("quit", "witos-quit");
         await Reply("witos-quit", shutdownAcknowledges: true);
         QuitAcknowledged = true;
@@ -115,7 +168,7 @@ internal sealed class QemuControl : IDisposable
     {
         lock (m_transcript)
         {
-            if (m_transcript.Length + line.Length + 1 > 65536)
+            if (m_transcript.Length + line.Length + 1 > TRANSCRIPT_LIMIT)
                 throw new InvalidDataException("QMP transcript exceeded limit.");
             m_transcript.AppendLine(line);
         }

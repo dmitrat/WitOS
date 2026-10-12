@@ -2,9 +2,12 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <spawn.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 /* /bin/init of the runtime-devices scenario (plan steps D1.1 and D5.1, ADR 0025): the root task starts it only after
@@ -12,8 +15,11 @@
  * discovery line in the log. Then it uses the files of the volumes the namespace service mounts through the libc's
  * POSIX calls, as any program does: on /data (the data disk's ext4 partition) and /fat (its FAT partition) it makes,
  * writes, reads, appends to, cuts, lists, renames and removes files and directories and checks each errno value POSIX
- * gives; on /boot (the read-only boot disk) it reads the loader and is refused a write. It leaves /data/posix-kept.txt
- * for the host to find after the boot. */
+ * gives, and maps a file privately; on /boot (the read-only boot disk) it reads the loader and is refused a write. It
+ * leaves /data/posix-kept.txt for the host to find after the boot. Then it starts /bin/files, an ordinary .NET program that uses System.IO on the
+ * same volumes (D5.2), and waits for it. */
+
+extern char **environ;
 
 static int passed, failed;
 
@@ -72,6 +78,21 @@ static void volume(const char *root)
     snprintf(other, sizeof(other), "%s/posix/renamed.txt", root);
     check(rename(path, other) == 0 && access(path, F_OK) < 0 && errno == ENOENT, "rename");
     check(read_file(other, buffer, sizeof(buffer)) == 5 && strcmp(buffer, "hello") == 0, "the renamed file");
+    /* mmap (D5.2): a private mapping is a copy of the file's bytes, zero past its end, whose writes stay its own; a
+     * shared mapping is ENODEV, since the service serves no file as memory. */
+    fd = open(other, O_RDWR);
+    char *view = fd >= 0 ? mmap(0, 8192, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0) : MAP_FAILED;
+    check(view != MAP_FAILED && memcmp(view, "hello", 5) == 0 && view[5] == 0 && view[8191] == 0,
+        "mmap with MAP_PRIVATE copies the file");
+    if (view != MAP_FAILED) {
+        view[0] = 'J';
+        check(msync(view, 8192, MS_SYNC) == 0 && munmap(view, 8192) == 0, "msync and munmap of the copy");
+    }
+    check(
+        mmap(0, 4096, PROT_READ, MAP_SHARED, fd, 0) == MAP_FAILED && errno == ENODEV, "mmap with MAP_SHARED is ENODEV");
+    close(fd); /* FAT opens no file twice while one is open for writing (EBUSY) */
+    check(read_file(other, buffer, sizeof(buffer)) == 5 && strcmp(buffer, "hello") == 0,
+        "a write to a private mapping leaves the file");
     snprintf(path, sizeof(path), "%s/posix/sub", root);
     check(mkdir(path, 0755) == 0, "mkdir of a subdirectory");
     snprintf(path, sizeof(path), "%s/posix", root);
@@ -115,5 +136,13 @@ int main(void)
     check(read_file(loader, buffer, 3) == 2 && buffer[0] == 'M' && buffer[1] == 'Z', "the boot volume's loader");
     check(write_file("/boot/new.txt", "x", 0) < 0 && errno == EROFS, "a write to the read-only boot volume is EROFS");
     printf("[DEVICES-INIT] POSIX files over the namespace service: %d checks passed, %d failed\n", passed, failed);
-    return failed ? 1 : 0;
+    char *files_argv[] = {"/bin/files", 0};
+    pid_t files = 0;
+    int status = 0;
+    if (posix_spawn(&files, "/bin/files", 0, 0, files_argv, environ) != 0 || waitpid(files, &status, 0) != files) {
+        printf("[DEVICES-INIT] /bin/files did not start\n");
+        return 1;
+    }
+    printf("[DEVICES-INIT] /bin/files exited with %d\n", WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+    return failed || !WIFEXITED(status) || WEXITSTATUS(status) ? 1 : 0;
 }

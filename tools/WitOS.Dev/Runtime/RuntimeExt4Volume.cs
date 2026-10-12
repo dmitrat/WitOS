@@ -73,6 +73,11 @@ internal static class RuntimeExt4Volume
     /// </summary>
     public const string INIT_TEXT = "Written by /bin/init through the libc and the namespace service.";
 
+    /// <summary>
+    /// What /bin/files writes to /data/dotnet-kept.txt through System.IO (D5.2, tests/Runtime.Witos/Files).
+    /// </summary>
+    public const string DOTNET_TEXT = "Written by a .NET program through System.IO and the namespace service.";
+
     private const string UUID = "4e2a7c19-0b3d-4f58-9e61-5749544f5334";
     private static readonly string[] MKFS_PLACES = ["/sbin/mkfs.ext4", "/usr/sbin/mkfs.ext4", "/usr/bin/mkfs.ext4"];
 
@@ -127,6 +132,8 @@ internal static class RuntimeExt4Volume
             throw new InvalidOperationException("debugfs reads another /guest/note.txt than the guest wrote.");
         if (Encoding.UTF8.GetString(await DumpAsync(tools, image, "/posix-kept.txt")) != INIT_TEXT)
             throw new InvalidOperationException("debugfs reads another /posix-kept.txt than /bin/init wrote through the namespace service.");
+        if (Encoding.UTF8.GetString(await DumpAsync(tools, image, "/dotnet-kept.txt")) != DOTNET_TEXT)
+            throw new InvalidOperationException("debugfs reads another /dotnet-kept.txt than /bin/files wrote through System.IO.");
     }
 
     /// <summary>
