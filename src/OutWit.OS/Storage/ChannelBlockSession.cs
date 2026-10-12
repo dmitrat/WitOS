@@ -16,6 +16,7 @@ public sealed class ChannelBlockSession : IBlockSession
     private readonly Channel m_channel;
     private readonly KernelHandle m_window;
     private readonly MemoryMapping m_mapping;
+    private bool m_detached;
 
     #endregion
 
@@ -86,15 +87,31 @@ public sealed class ChannelBlockSession : IBlockSession
         return reply;
     }
 
+    /// <summary>
+    /// Gives the channel up without closing it, so that another client may attach its own window (D5.1: the device
+    /// manager moves a disk to the namespace service); the session's window is given back.
+    /// </summary>
+    /// <returns>The channel, the caller's now.</returns>
+    public Channel Detach()
+    {
+        m_detached = true;
+        m_mapping.Dispose();
+        m_window.Dispose();
+        return m_channel;
+    }
+
     #endregion
 
     #region IDisposable
 
     /// <summary>
-    /// Closes the channel and gives back the window; the driver's pin ends when it sees the channel closed.
+    /// Closes the channel and gives back the window; the driver's pin ends when it sees the channel closed. A detached
+    /// session gave its channel up already.
     /// </summary>
     public void Dispose()
     {
+        if (m_detached)
+            return;
         m_channel.Dispose();
         m_mapping.Dispose();
         m_window.Dispose();

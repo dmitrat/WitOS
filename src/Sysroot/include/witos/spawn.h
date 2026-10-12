@@ -24,6 +24,8 @@ typedef struct witos_spawn_options {
     WitU32 reserved; /* zero */
     WitU64 grant; /* a capability the process starts with (D1.1): moved into its start message, closed when the start
                      fails; zero for none */
+    WitU64 namespace_endpoint; /* the namespace's clients' endpoint (D5.1), duplicated with SEND into the process when
+                                  its start message has room; zero for none */
 } witos_spawn_options;
 
 /* witos_spawn with options; null options are witos_spawn's. */

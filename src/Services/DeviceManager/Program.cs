@@ -17,7 +17,8 @@ namespace OutWit.OS.DeviceManager;
 /// device table to it over the channel it granted it. It reads the table, translates every descriptor into a UHI device
 /// record and prints its discovery line (Implementation Strategy §44), starts the driver of every device its driver
 /// table matches and moves the device to it, probes the disk of every block driver through its block channel (D3.2),
-/// answers that it is ready, and serves its channel until the root task ends.
+/// starts the namespace service with the disks (D5.1), answers that it is ready with the namespace's endpoint, and
+/// serves its channel until the root task ends.
 /// </summary>
 internal static class Program
 {
@@ -50,19 +51,24 @@ internal static class Program
             foreach (var record in records)
                 Console.WriteLine(PREFIX + record.DiscoveryLine);
             var drivers = Activate(table, records);
-            var disks = new List<ChannelBlockStorage>();
+            var disks = new List<(string Device, ChannelBlockStorage Disk)>();
             foreach (var driver in drivers.Where(driver => driver.Status == 0 && driver.Service is not null))
             {
                 var disk = StorageProbe.RunAsync(driver).GetAwaiter().GetResult();
                 if (disk is not null)
-                    disks.Add(disk);
+                    disks.Add((driver.Record.Id, disk));
             }
+            var names = StartNamespace(disks);
             Console.WriteLine($"{PREFIX}device manager on {RuntimeInformation.ProcessArchitecture}: {records.Count} devices discovered, " +
                 $"{drivers.Count(driver => driver.Status == 0)} drivers ready, DMA isolation: none (no IOMMU), ready");
-            channel.Send(ServiceStatus.Encode(0));
+            if (names?.Clients is { } clients)
+                channel.Send(ServiceStatus.Encode(0), clients); // the namespace for every process the root task starts
+            else
+                channel.Send(ServiceStatus.Encode(0));
             var status = Serve(channel);
-            foreach (var disk in disks)
+            foreach (var (_, disk) in disks)
                 disk.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            names?.Dispose();
             foreach (var driver in drivers)
                 driver.Dispose();
             return status;
@@ -115,6 +121,24 @@ internal static class Program
             }
         }
         return drivers;
+    }
+
+    // The namespace service with the disks (D5.1); null when it could not start.
+    private static NamespaceActivation? StartNamespace(IReadOnlyList<(string Device, ChannelBlockStorage Disk)> disks)
+    {
+        try
+        {
+            var names = NamespaceActivation.Start(disks);
+            Console.WriteLine(names.Status == 0
+                ? $"{PREFIX}namespace service {NamespaceActivation.PATH} with {disks.Count} disks: ready"
+                : $"{PREFIX}namespace service {NamespaceActivation.PATH}: not ready, errno {names.Status}");
+            return names;
+        }
+        catch (Exception exception) when (exception is CapabilityException or FileNotFoundException)
+        {
+            Console.WriteLine($"{PREFIX}namespace service {NamespaceActivation.PATH} could not start: {exception.Message}");
+            return null;
+        }
     }
 
     // The channel until the root task's end closes it.

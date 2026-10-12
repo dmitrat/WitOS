@@ -123,6 +123,12 @@
           "OutWit.OS": "[1.0.0, )"
         }
       },
+      "namespace": {
+        "type": "Project",
+        "dependencies": {
+          "OutWit.OS": "[1.0.0, )"
+        }
+      },
       "outwit.os": {
         "type": "Project",
         "dependencies": {

@@ -118,6 +118,21 @@ public sealed class ChannelBlockStorage : BlockStorageBase
         return default;
     }
 
+    /// <summary>
+    /// Gives the block channel up without closing it, the resource ended (D5.1): another client attaches its own window
+    /// on it.
+    /// </summary>
+    /// <returns>The channel, the caller's now.</returns>
+    /// <exception cref="InvalidOperationException">The resource's session is not a channel's.</exception>
+    public Channel Detach()
+    {
+        Channel channel;
+        lock (m_lock)
+            channel = m_session is ChannelBlockSession session ? session.Detach() : throw new InvalidOperationException("The session has no channel.");
+        DisposeAsync().AsTask().GetAwaiter().GetResult();
+        return channel;
+    }
+
     /// <inheritdoc />
     protected override ValueTask DisposeCoreAsync()
     {

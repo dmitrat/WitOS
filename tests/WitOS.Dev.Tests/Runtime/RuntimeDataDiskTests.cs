@@ -87,6 +87,8 @@ public sealed class RuntimeDataDiskTests
                     await file.WriteAsync(0, Enumerable.Range(0, RuntimeExt4Volume.GUEST_BYTES).Select(RuntimeExt4Volume.GuestPattern).ToArray());
                 await using (var file = await volume.OpenAsync("/guest/note.txt", FileMode.CreateNew, FileAccess.Write))
                     await file.WriteAsync(0, Encoding.UTF8.GetBytes(RuntimeExt4Volume.GUEST_NOTE));
+                await using (var file = await volume.OpenAsync("/posix-kept.txt", FileMode.CreateNew, FileAccess.Write))
+                    await file.WriteAsync(0, Encoding.UTF8.GetBytes(RuntimeExt4Volume.INIT_TEXT)); // /bin/init's, through the namespace
             }
             await File.WriteAllBytesAsync(path, image);
 

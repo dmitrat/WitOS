@@ -14,11 +14,13 @@
  * others (witos/manager.h). Version 3 (S6.2) added the standard streams the process starts without and its initial
  * directory, whose bytes follow the structure in the message. Version 4 (D1.1, ADR 0025) adds the capability the
  * creator grants the process, a service's channel to its creator, and names the optional capabilities in
- * Capabilities, since a message's handles leave no gaps. The arguments and the environment stay on the stack, where
+ * Capabilities, since a message's handles leave no gaps. Version 5 (D5.1) adds the namespace service's endpoint, the
+ * files of the mounted volumes (witos/namespace.h), which the process manager gives every process it starts while a
+ * message has room; a service that also takes a grant asks its creator for the namespace instead. The arguments and the environment stay on the stack, where
  * musl reads them and a message of 256 bytes could not hold them. */
 #define WIT_AT_START 0x57490001UL
 
-#define WIT_START_VERSION 4U
+#define WIT_START_VERSION 5U
 #define WIT_START_SIZE 32U
 #define WIT_START_DIRECTORY_MAXIMUM 224U /* the rest of a channel message's 256 bytes */
 #define WIT_START_HANDLE_LOG 0U /* the kernel log: DEBUG_WRITE, standard output and error */
@@ -29,7 +31,8 @@
 /* The optional capabilities, after the package in this order. */
 #define WIT_START_MANAGER 1U /* the process manager's endpoint: SEND (S6.1) */
 #define WIT_START_GRANT 2U /* the capability the creator grants (D1.1): a service's channel to its creator */
-#define WIT_START_CAPABILITIES (WIT_START_MANAGER | WIT_START_GRANT)
+#define WIT_START_NAMESPACE 4U /* the namespace service's clients' endpoint: SEND (D5.1, witos/namespace.h) */
+#define WIT_START_CAPABILITIES (WIT_START_MANAGER | WIT_START_GRANT | WIT_START_NAMESPACE)
 
 /* The bytes of the start message, followed by DirectoryBytes of the initial directory. */
 typedef struct WitStartMessage {
@@ -39,7 +42,8 @@ typedef struct WitStartMessage {
         ClosedStreams; /* bit n: standard descriptor n is closed; the others are the log (1, 2) and empty input (0) */
     WitU32
         DirectoryBytes; /* an absolute path without a terminator, at most WIT_START_DIRECTORY_MAXIMUM; zero for "/" */
-    WitU32 Capabilities; /* WIT_START_MANAGER and WIT_START_GRANT: the optional capabilities the message carries */
+    WitU32
+        Capabilities; /* WIT_START_MANAGER, WIT_START_GRANT, WIT_START_NAMESPACE: the optional capabilities carried */
     WitU32 Reserved;
 } WitStartMessage;
 
