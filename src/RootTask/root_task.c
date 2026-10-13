@@ -64,19 +64,20 @@ int main(void)
     static char *argv[] = {INIT, 0};
     /* .NET finds ICU's libraries in /usr/lib (R4.3), so a program without a setting of its own has culture data, as on
      * Linux; a package without them runs its programs with invariant globalization by their own configuration. The GC
-     * learns the memory a process may own where a Linux container's limit would tell it (N2.2): when a system layer
-     * process's page quota is below the machine's memory, .NET's own knob gives the GC the quota as its physical
-     * memory, so that it keeps its heap to 75% of it and an allocation past the heap is an OutOfMemoryException, not
-     * the end of the process. Otherwise the GC reads the machine's memory itself, as on Linux without a limit, and
-     * GC.RefreshMemoryLimit works, which the knob turns off. */
-    const unsigned long long quota = (unsigned long long)WIT_PROCESS_PAGE_CAPACITY * (unsigned long long)WIT_PAGE_SIZE;
+     * learns the memory a process may have (N2.2): the smaller of a system layer process's page quota and the memory
+     * free when the system started, which .NET's own knob gives the GC as its physical memory, where a Linux container's
+     * limit would, so that it keeps its heap to 75% of it and an allocation past the heap is an OutOfMemoryException,
+     * not the end of the process. The knob turns GC.RefreshMemoryLimit off; without it, where the quota is above the
+     * machine's memory, a process meets the machine's end before the GC's (upstream's GC test 494226 ended with
+     * SIGABRT in a 512 MiB guest). */
+    unsigned long long limit = (unsigned long long)WIT_PROCESS_PAGE_CAPACITY * (unsigned long long)WIT_PAGE_SIZE;
     struct sysinfo memory_info;
-    static char memory[64];
-    static char *envp[] = {"PATH=/bin:/usr/bin", 0, 0};
-    if (sysinfo(&memory_info) == 0 && (unsigned long long)memory_info.totalram * memory_info.mem_unit > quota) {
-        snprintf(memory, sizeof(memory), "DOTNET_GCTotalPhysicalMemory=%llx", quota);
-        envp[1] = memory;
+    if (sysinfo(&memory_info) == 0 && (unsigned long long)memory_info.freeram * memory_info.mem_unit < limit) {
+        limit = (unsigned long long)memory_info.freeram * memory_info.mem_unit;
     }
+    static char memory[64];
+    snprintf(memory, sizeof(memory), "DOTNET_GCTotalPhysicalMemory=%llx", limit);
+    static char *envp[] = {"PATH=/bin:/usr/bin", memory, 0};
     WitProcessInfo info;
     witos_service device_manager;
     int stopped = 0;
