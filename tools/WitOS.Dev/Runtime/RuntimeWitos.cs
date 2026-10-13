@@ -251,8 +251,8 @@ internal static class RuntimeWitos
         if (!OperatingSystem.IsLinux())
             throw new PlatformNotSupportedException("dotnet/runtime builds for TargetOS=witos on a Linux host (plan steps T2.1a, R1.1).");
         var pin = ReadLock(root);
-        var checkout = await PrepareCheckoutAsync(root, pin);
-        var tree = await PrepareTreeAsync(root, checkout, pin);
+        var checkout = await PrepareCheckoutAsync(root, pin, LOCK);
+        var tree = await PrepareTreeAsync(root, checkout, pin, Path.Combine(root, "artifacts", "runtime-witos", "src"), PATCH_SET, PATCHES);
 
         await RunBuildAsync(tree, ["clr.corelib", "-os", "witos", "-arch", architecture.Name, "-c", "Release"], null);
         var output = Path.Combine(tree, "artifacts", "bin", "coreclr", $"witos.{architecture.Name}.Release");
@@ -265,7 +265,7 @@ internal static class RuntimeWitos
         // recognizes by its marker (ROOTFS_DIR).
         var sysroot = await Sysroot.BuildAsync(root, architecture);
         var environment = NativeEnvironment(root, sysroot);
-        var probes = await CollectProbesAsync(root, tree, architecture, environment);
+        var probes = await CollectProbesAsync(root, tree, architecture, environment, ProbeDirectory(root, architecture));
         await RunBuildAsync(tree,
             ["clr.nativeaotruntime+clr.nativeaotlibs+libs.native", "-os", "witos", "-arch", architecture.Name, "-c", "Release", "-cross"],
             environment);
@@ -414,7 +414,7 @@ internal static class RuntimeWitos
             environment);
 
         var answers = await ReadAnswersAsync(objects, probes);
-        var measured = await MeasureProbesAsync(root, architecture, probes);
+        var measured = await MeasureProbesAsync(root, architecture, probes, ProbeDirectory(root, architecture));
         var report = Path.Combine(root, "artifacts", "runtime-witos", $"tryrun-{architecture.Name}.json");
         await File.WriteAllTextAsync(report, JsonSerializer.Serialize(probes.ToDictionary(probe => probe,
             probe => new { tryrun = answers[probe], guest = measured[probe] }), new JsonSerializerOptions { WriteIndented = true }));
@@ -609,11 +609,25 @@ internal static class RuntimeWitos
     /// <param name="sources">The sources.</param>
     /// <param name="references">Assemblies beside the reference pack.</param>
     /// <returns>When the assembly is written.</returns>
-    internal static async Task CompileAsync(string root, string assembly, string target, IEnumerable<string> sources,
+    internal static Task CompileAsync(string root, string assembly, string target, IEnumerable<string> sources,
+        IEnumerable<string> references) =>
+        CompileAsync(Path.Combine(root, "artifacts", "runtime-witos", "src"), ReadLock(root).TargetFramework, assembly, target, sources,
+            references);
+
+    /// <summary>
+    /// Compiles C# sources against the reference pack of a tree with that tree's own SDK (N3: .NET 8's).
+    /// </summary>
+    /// <param name="tree">The work tree, which built the reference pack.</param>
+    /// <param name="targetFramework">The tree's target framework, such as net8.0.</param>
+    /// <param name="assembly">The assembly to write.</param>
+    /// <param name="target">The compiler's target: exe or library.</param>
+    /// <param name="sources">The sources.</param>
+    /// <param name="references">Assemblies beside the reference pack.</param>
+    /// <returns>When the assembly is written.</returns>
+    internal static async Task CompileAsync(string tree, string targetFramework, string assembly, string target, IEnumerable<string> sources,
         IEnumerable<string> references)
     {
-        var tree = Path.Combine(root, "artifacts", "runtime-witos", "src");
-        var pack = Path.Combine(tree, "artifacts", "bin", "microsoft.netcore.app.ref", "ref", ReadLock(root).TargetFramework);
+        var pack = Path.Combine(tree, "artifacts", "bin", "microsoft.netcore.app.ref", "ref", targetFramework);
         var sdks = Directory.GetDirectories(Path.Combine(tree, ".dotnet", "sdk"));
         if (sdks.Length != 1)
             throw new InvalidDataException($"The runtime's own .NET SDK is not one SDK: {string.Join(", ", sdks)}.");
@@ -696,11 +710,10 @@ internal static class RuntimeWitos
         var tree = Path.Combine(root, "artifacts", "runtime-witos", "src");
         var coreclr = Path.Combine(tree, "artifacts", "bin", "coreclr", $"witos.{architecture.Name}.Release");
         var corehost = Path.Combine(tree, "artifacts", "bin", $"witos-{architecture.Name}.Release", "corehost");
-        var framework = FrameworkDirectory(root, tree, architecture);
-        var native = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(framework)!)!, "native");
         if (!File.Exists(Path.Combine(corehost, "dotnet")) || !File.Exists(Path.Combine(coreclr, "libcoreclr.so")))
             throw new InvalidOperationException($"No hosts or CoreCLR for witos in {tree}. Run: dotnet run --project tools/WitOS.Dev -- runtime-witos --arch {architecture.Name}");
-        var version = ReadLock(root).ProductVersion;
+        var pin = ReadLock(root);
+        var version = pin.ProductVersion;
         var installLocation = Path.Combine(output, "install_location");
         await File.WriteAllTextAsync(installLocation, "/dotnet\n");
         // The account database (N2.2): every process runs as uid and gid 0, which the libc reports, and a program asks its
@@ -710,20 +723,7 @@ internal static class RuntimeWitos
         var group = Path.Combine(output, "group");
         await File.WriteAllTextAsync(group, "root:x:0:\n");
         var sysroot = await Sysroot.BuildAsync(root, architecture);
-
-        // The shared framework: what Microsoft.NETCore.App's runtime pack carries for the RID, and the deps.json that names it.
-        var shared = new List<(string Name, string Source)>
-        {
-            ("libhostpolicy.so", Path.Combine(corehost, "libhostpolicy.so")), ("libcoreclr.so", Path.Combine(coreclr, "libcoreclr.so")),
-            ("libclrjit.so", Path.Combine(coreclr, "libclrjit.so")),
-            ("System.Private.CoreLib.dll", Path.Combine(coreclr, "IL", "System.Private.CoreLib.dll"))
-        };
-        shared.AddRange(Directory.GetFiles(framework, "*.dll").Order(StringComparer.Ordinal).Select(file => (Path.GetFileName(file), file)));
-        // The libraries' native libraries alone: libs.pretest (R7.3) also copies the runtime and the hosts beside them.
-        shared.AddRange(Directory.GetFiles(native, "libSystem.*.so").Order(StringComparer.Ordinal).Select(file => (Path.GetFileName(file), file)));
-        var deps = Path.Combine(output, "Microsoft.NETCore.App.deps.json");
-        await File.WriteAllTextAsync(deps, FrameworkDeps(architecture, version, shared));
-        shared.Add(("Microsoft.NETCore.App.deps.json", deps));
+        var shared = await FrameworkFilesAsync(tree, output, architecture, version, pin.TargetFramework);
 
         var lib = Path.Combine(sysroot, "usr", "lib");
         return
@@ -828,6 +828,46 @@ internal static class RuntimeWitos
     // The shared framework's deps.json as the shared framework's packaging writes it (R5): one runtime-pack library for the
     // RID whose runtime assets are the assemblies, with their assembly and file versions, and whose native assets are the
     // native libraries; hostpolicy builds the trusted platform assemblies and the native search paths from it.
+    /// <summary>
+    /// The shared framework a tree built for witos (R5; N3: .NET 8's beside it): what Microsoft.NETCore.App's runtime pack
+    /// carries for the RID (hostpolicy, CoreCLR's runtime and JIT, CoreLib, every library and the libraries' native
+    /// libraries) and the deps.json that names it, which the tool writes under output/version.
+    /// </summary>
+    /// <param name="tree">The work tree.</param>
+    /// <param name="output">Artifact directory of the scenario.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="version">The framework's version, its directory's name.</param>
+    /// <param name="targetFramework">The tree's target framework, such as net10.0.</param>
+    /// <returns>Each file's name in the framework's directory and its source.</returns>
+    /// <exception cref="InvalidOperationException">The tree built no CoreCLR or hostpolicy for the architecture.</exception>
+    internal static async Task<IReadOnlyList<(string Name, string Source)>> FrameworkFilesAsync(string tree, string output,
+        KernelArchitecture architecture, string version, string targetFramework)
+    {
+        var coreclr = Path.Combine(tree, "artifacts", "bin", "coreclr", $"witos.{architecture.Name}.Release");
+        var corehost = Path.Combine(tree, "artifacts", "bin", $"witos-{architecture.Name}.Release", "corehost");
+        var framework = Path.Combine(tree, "artifacts", "bin", $"microsoft.netcore.app.runtime.witos-{architecture.Name}", "Release", "runtimes",
+            $"witos-{architecture.Name}", "lib", targetFramework);
+        var native = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(framework)!)!, "native");
+        if (!File.Exists(Path.Combine(corehost, "libhostpolicy.so")) || !File.Exists(Path.Combine(coreclr, "libcoreclr.so")) ||
+            !Directory.Exists(framework))
+            throw new InvalidOperationException($"{tree} built no hostpolicy, CoreCLR or shared framework for witos-{architecture.Name}.");
+        var shared = new List<(string Name, string Source)>
+        {
+            ("libhostpolicy.so", Path.Combine(corehost, "libhostpolicy.so")), ("libcoreclr.so", Path.Combine(coreclr, "libcoreclr.so")),
+            ("libclrjit.so", Path.Combine(coreclr, "libclrjit.so")),
+            ("System.Private.CoreLib.dll", Path.Combine(coreclr, "IL", "System.Private.CoreLib.dll"))
+        };
+        shared.AddRange(Directory.GetFiles(framework, "*.dll").Order(StringComparer.Ordinal).Select(file => (Path.GetFileName(file), file)));
+        // The libraries' native libraries alone: libs.pretest (R7.3) also copies the runtime and the hosts beside them.
+        shared.AddRange(Directory.GetFiles(native, "libSystem.*.so").Order(StringComparer.Ordinal).Select(file => (Path.GetFileName(file), file)));
+        var directory = Path.Combine(output, version);
+        Directory.CreateDirectory(directory);
+        var deps = Path.Combine(directory, "Microsoft.NETCore.App.deps.json");
+        await File.WriteAllTextAsync(deps, FrameworkDeps(architecture, version, shared));
+        shared.Add(("Microsoft.NETCore.App.deps.json", deps));
+        return shared;
+    }
+
     private static string FrameworkDeps(KernelArchitecture architecture, string version, IReadOnlyList<(string Name, string Source)> files)
     {
         var rid = $"witos-{architecture.Name}";
@@ -1202,10 +1242,21 @@ internal static class RuntimeWitos
     /// <param name="output">Artifact directory of the scenario.</param>
     /// <param name="architecture">Target architecture.</param>
     /// <returns>Package paths and the files to place there.</returns>
+    public static Task<IReadOnlyList<(string Name, string Source)>> BuildProbeProgramsAsync(string root, string output,
+        KernelArchitecture architecture) =>
+        BuildProbeProgramsAsync(root, output, architecture, ProbeDirectory(root, architecture));
+
+    /// <summary>
+    /// The try_run measurement's package of the probes in a directory (N3: 8.0's have their own).
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Artifact directory of the scenario.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="directory">The probes, each named by its variable.</param>
+    /// <returns>Package paths and the files to place there.</returns>
     public static async Task<IReadOnlyList<(string Name, string Source)>> BuildProbeProgramsAsync(string root, string output,
-        KernelArchitecture architecture)
+        KernelArchitecture architecture, string directory)
     {
-        var directory = ProbeDirectory(root, architecture);
         var probes = Directory.Exists(directory)
             ? Directory.EnumerateFiles(directory).Select(Path.GetFileName).OfType<string>().Order(StringComparer.Ordinal).ToList()
             : [];
@@ -1232,24 +1283,34 @@ internal static class RuntimeWitos
     }
 
     /// <summary>
-    /// Reads the pin.
+    /// Reads the runtime's pin.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <returns>The pin.</returns>
-    public static RuntimePin ReadLock(string root)
+    public static RuntimePin ReadLock(string root) => ReadLock(root, LOCK);
+
+    /// <summary>
+    /// Reads a release branch's pin (N3: release/8.0 has its own); only the runtime's names the ports' budget.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="lockPath">The pin's path under the repository.</param>
+    /// <returns>The pin.</returns>
+    public static RuntimePin ReadLock(string root, string lockPath)
     {
-        using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, LOCK)));
+        using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, lockPath)));
         var lockRoot = document.RootElement;
         string Text(JsonElement element, string name) => element.GetProperty(name).GetString() ?? "";
-        var budget = lockRoot.GetProperty("budget");
+        var budget = lockRoot.TryGetProperty("budget", out var counts)
+            ? new RuntimeBudget(counts.GetProperty("freebsd").GetProperty("coreclr").GetInt32(),
+                counts.GetProperty("freebsd").GetProperty("nativeLibraries").GetInt32(),
+                counts.GetProperty("haiku").GetProperty("coreclr").GetInt32(),
+                counts.GetProperty("haiku").GetProperty("nativeLibraries").GetInt32())
+            : null;
         return new RuntimePin(Text(lockRoot, "repository"), Text(lockRoot, "branch"), Text(lockRoot, "tag"), Text(lockRoot, "version"),
             Text(lockRoot, "commit"),
             lockRoot.GetProperty("sources").EnumerateArray().Select(source => (Text(source, "path"), Text(source, "sha256")))
                 .ToArray(),
-            new RuntimeBudget(budget.GetProperty("freebsd").GetProperty("coreclr").GetInt32(),
-                budget.GetProperty("freebsd").GetProperty("nativeLibraries").GetInt32(),
-                budget.GetProperty("haiku").GetProperty("coreclr").GetInt32(),
-                budget.GetProperty("haiku").GetProperty("nativeLibraries").GetInt32()));
+            budget);
     }
 
     /// <summary>
@@ -1273,7 +1334,7 @@ internal static class RuntimeWitos
     public static IReadOnlyList<(string Variable, string Executable)> ParseTryRunResults(string text)
     {
         var executables = Regex.Matches(text, @"^# Executable\s*:\s*(\S+)\s*$", RegexOptions.Multiline).Select(match => match.Groups[1].Value).ToList();
-        var variables = Regex.Matches(text, @"^set\(\s*([A-Z0-9_]+_EXITCODE)\s*$", RegexOptions.Multiline).Select(match => match.Groups[1].Value).ToList();
+        var variables = Regex.Matches(text, @"^set\(\s*([A-Za-z0-9_]+_EXITCODE)\s*$", RegexOptions.Multiline).Select(match => match.Groups[1].Value).ToList();
         if (executables.Count != variables.Count ||
             executables.Zip(variables).Any(pair => !Path.GetFileName(pair.First).EndsWith("-" + pair.Second, StringComparison.Ordinal)))
             throw new InvalidDataException("TryRunResults.cmake does not pair each try_run variable with its executable.");
@@ -1292,7 +1353,7 @@ internal static class RuntimeWitos
         var answers = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var line in lines)
         {
-            var match = Regex.Match(line, @"^(?:\[USER\] )?\[TRYRUN\] ([A-Z0-9_]+_EXITCODE) (exit|signal) ([0-9]+)\s*$");
+            var match = Regex.Match(line, @"^(?:\[USER\] )?\[TRYRUN\] ([A-Za-z0-9_]+_EXITCODE) (exit|signal) ([0-9]+)\s*$");
             if (match.Success && !answers.TryAdd(match.Groups[1].Value, match.Groups[2].Value == "exit" ? match.Groups[3].Value : "FAILED_TO_RUN"))
                 throw new InvalidDataException($"The guest answered {match.Groups[1].Value} twice.");
         }
@@ -1303,8 +1364,9 @@ internal static class RuntimeWitos
 
     #region Tools
 
-    // The pinned checkout under .tools/upstream: the commit alone, fetched shallow, never built in and never changed.
-    private static async Task<string> PrepareCheckoutAsync(string root, RuntimePin pin)
+    // A pinned checkout under .tools/upstream: the commit alone, fetched shallow, never built in and never changed; the pin
+    // is the one at lockPath, the runtime's or another branch's (N3).
+    internal static async Task<string> PrepareCheckoutAsync(string root, RuntimePin pin, string lockPath)
     {
         var checkout = Path.Combine(root, ".tools", "upstream", $"runtime-witos-{pin.Version}");
         if (!Directory.Exists(Path.Combine(checkout, ".git")))
@@ -1331,16 +1393,16 @@ internal static class RuntimeWitos
             var file = Path.Combine(checkout, path);
             var bytes = File.Exists(file) ? await File.ReadAllBytesAsync(file) : [];
             if (Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant() != sha256)
-                throw new InvalidDataException($"{LOCK} does not pin {path} as dotnet/runtime {pin.Tag} holds it.");
+                throw new InvalidDataException($"{lockPath} does not pin {path} as dotnet/runtime {pin.Tag} holds it.");
         }
         return checkout;
     }
 
-    // The work tree under artifacts/runtime-witos/src: a worktree of the checkout, returned to the commit on every run with
-    // the build's own caches kept, then patched.
-    private static async Task<string> PrepareTreeAsync(string root, string checkout, RuntimePin pin)
+    // A work tree (the runtime's under artifacts/runtime-witos/src, N3's 8.0 one beside it): a worktree of the checkout,
+    // returned to the commit on every run with the build's own caches kept, then patched with its branch's set.
+    internal static async Task<string> PrepareTreeAsync(string root, string checkout, RuntimePin pin, string tree, string patchSet,
+        IReadOnlyDictionary<string, string> patches)
     {
-        var tree = Path.Combine(root, "artifacts", "runtime-witos", "src");
         // A tree of another checkout, an earlier pin's (R8.1), goes whole with that pin's build caches and SDK: its
         // worktree cannot reach the new commit, and the runtime's own SDK is one SDK.
         var worktree = Path.Combine(tree, ".git");
@@ -1358,14 +1420,14 @@ internal static class RuntimeWitos
         }
         await GitAsync(tree, ["checkout", "-q", "--force", "--detach", pin.Commit], 1800);
         await GitAsync(tree, ["clean", "-ffdqx", "-e", "/artifacts/", "-e", "/.dotnet/"], 600);
-        foreach (var (path, output) in PATCHES)
+        foreach (var (path, output) in patches)
         {
             var file = Path.Combine(tree, path);
             var text = File.Exists(file) ? (await File.ReadAllTextAsync(file)).Replace("\r\n", "\n") : "";
             Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-            await File.WriteAllTextAsync(file, UpstreamPatches.Apply(root, PATCH_SET, path, output, text));
+            await File.WriteAllTextAsync(file, UpstreamPatches.Apply(root, patchSet, path, output, text));
         }
-        Console.WriteLine($"Applied the witos patch set: {PATCHES.Count} files of dotnet/runtime {pin.Tag}.");
+        Console.WriteLine($"Applied the witos patch set: {patches.Count} files of dotnet/runtime {pin.Tag}.");
         return tree;
     }
 
@@ -1530,7 +1592,7 @@ internal static class RuntimeWitos
     private static string TestsDirectory(string tree, KernelArchitecture architecture) =>
         Path.Combine(tree, "artifacts", "tests", "coreclr", $"witos.{architecture.Name}.Release");
 
-    private static async Task RunBuildAsync(string tree, string[] arguments, IReadOnlyDictionary<string, string>? environment)
+    internal static async Task RunBuildAsync(string tree, string[] arguments, IReadOnlyDictionary<string, string>? environment)
     {
         var build = await Processes.RunAsync(Path.Combine(tree, "build.sh"), arguments, tree, 3600, BuildEnvironment(environment));
         if (build.TimedOut || build.ExitCode != 0)
@@ -1548,7 +1610,7 @@ internal static class RuntimeWitos
 
     // What upstream's native build runs with: the pinned clang and its LLVM tools first on the path, as the compilers,
     // and the sysroot for a cross build (none for the host).
-    private static Dictionary<string, string> NativeEnvironment(string root, string? sysroot)
+    internal static Dictionary<string, string> NativeEnvironment(string root, string? sysroot)
     {
         var environment = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -1810,8 +1872,8 @@ internal static class RuntimeWitos
     // answers, so that CMake keeps every probe it compiled for the target and lists it in TryRunResults.cmake. The
     // configure stops for want of the answers and for no other reason; the probes are copied out and the build
     // directory, whose cache holds the unanswered checks, is removed before the build configures again.
-    private static async Task<IReadOnlyList<string>> CollectProbesAsync(string root, string tree, KernelArchitecture architecture,
-        IReadOnlyDictionary<string, string> environment)
+    internal static async Task<IReadOnlyList<string>> CollectProbesAsync(string root, string tree, KernelArchitecture architecture,
+        IReadOnlyDictionary<string, string> environment, string directory)
     {
         var objects = ObjectDirectory(tree, architecture);
         if (Directory.Exists(objects))
@@ -1827,7 +1889,6 @@ internal static class RuntimeWitos
         var probes = ParseTryRunResults(await File.ReadAllTextAsync(results));
         if (probes.Count == 0)
             throw new InvalidDataException($"The configure of witos-{architecture.Name} ran no try_run probe.");
-        var directory = ProbeDirectory(root, architecture);
         if (Directory.Exists(directory))
             Directory.Delete(directory, recursive: true);
         Directory.CreateDirectory(directory);
@@ -1839,10 +1900,10 @@ internal static class RuntimeWitos
     }
 
     // tryrun.cmake's answers, as the build's cache holds them.
-    private static async Task<IReadOnlyDictionary<string, string>> ReadAnswersAsync(string objects, IReadOnlyList<string> probes)
+    internal static async Task<IReadOnlyDictionary<string, string>> ReadAnswersAsync(string objects, IReadOnlyList<string> probes)
     {
         var cache = (await File.ReadAllLinesAsync(Path.Combine(objects, "CMakeCache.txt")))
-            .Select(line => Regex.Match(line, @"^([A-Z0-9_]+_EXITCODE):[A-Z]+=(.*)$")).Where(match => match.Success)
+            .Select(line => Regex.Match(line, @"^([A-Za-z0-9_]+_EXITCODE):[A-Z]+=(.*)$")).Where(match => match.Success)
             .ToDictionary(match => match.Groups[1].Value, match => match.Groups[2].Value.Trim(), StringComparer.Ordinal);
         var missing = probes.Where(probe => !cache.ContainsKey(probe)).ToList();
         if (missing.Count > 0)
@@ -1851,11 +1912,14 @@ internal static class RuntimeWitos
     }
 
     // The try_run measurement's second half: the release kernel boots the system layer's root task, whose /bin/init runs
-    // every probe; the guest's answers come from the serial log.
-    private static async Task<IReadOnlyDictionary<string, string>> MeasureProbesAsync(string root, KernelArchitecture architecture,
-        IReadOnlyList<string> probes)
+    // every probe of the directory (the runtime's, or N3's 8.0 ones); the guest's answers come from the serial log.
+    internal static async Task<IReadOnlyDictionary<string, string>> MeasureProbesAsync(string root, KernelArchitecture architecture,
+        IReadOnlyList<string> probes, string directory)
     {
-        var image = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_TRYRUN_SCENARIO, architecture: architecture);
+        var output = Path.Combine(root, "artifacts", architecture.Name, KernelImageBuilder.RUNTIME_TRYRUN_SCENARIO);
+        Directory.CreateDirectory(output);
+        var image = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_TRYRUN_SCENARIO, architecture: architecture,
+            package: await BuildProbeProgramsAsync(root, output, architecture, directory));
         var name = $"{architecture.Name}-runtime-tryrun-256";
         var isa = architecture.Triple[..architecture.Triple.IndexOf('-')];
         await BootScenarioRunner.RunAsync(root, image, new BootRequest(name, 256, 300, ExpectedOutcome.Success)
@@ -1871,7 +1935,7 @@ internal static class RuntimeWitos
         return answers;
     }
 
-    private static string ObjectDirectory(string tree, KernelArchitecture architecture) =>
+    internal static string ObjectDirectory(string tree, KernelArchitecture architecture) =>
         Path.Combine(tree, "artifacts", "obj", "coreclr", $"witos.{architecture.Name}.Release");
 
     private static string ProbeDirectory(string root, KernelArchitecture architecture) =>
@@ -1879,7 +1943,7 @@ internal static class RuntimeWitos
 
     // Whether CoreLib's code loads a string: OperatingSystem.OSPlatformName, the one place CoreLib spells its platform
     // (RFC 0015 section 3), is a constant the trimmed CoreLib keeps only where IsOSPlatform loads it.
-    private static bool HasUserString(string corelib, string value)
+    internal static bool HasUserString(string corelib, string value)
     {
         using var stream = File.OpenRead(corelib);
         using var pe = new PEReader(stream);
@@ -1907,7 +1971,7 @@ internal static class RuntimeWitos
             budget = pin.Budget
         }, new JsonSerializerOptions { WriteIndented = true }));
         return $"Patch set: {PATCHES.Count} files ({string.Join(", ", areas.OrderBy(pair => pair.Key).Select(pair => $"{pair.Key} {pair.Value}"))}); " +
-            $"CoreCLR {Count("coreclr")} of FreeBSD's {pin.Budget.FreeBsdCoreClr} and Haiku's {pin.Budget.HaikuCoreClr}, " +
+            $"CoreCLR {Count("coreclr")} of FreeBSD's {pin.Budget!.FreeBsdCoreClr} and Haiku's {pin.Budget.HaikuCoreClr}, " +
             $"native libraries {Count("nativeLibraries")} of {pin.Budget.FreeBsdNativeLibraries} and {pin.Budget.HaikuNativeLibraries}.";
     }
 
@@ -1933,9 +1997,9 @@ internal static class RuntimeWitos
 /// <param name="Version">Runtime version.</param>
 /// <param name="Commit">Commit of the tag.</param>
 /// <param name="Sources">Each upstream path the patch set changes and the SHA-256 of its bytes there.</param>
-/// <param name="Budget">The size of the FreeBSD and Haiku ports.</param>
+/// <param name="Budget">The size of the FreeBSD and Haiku ports, which the runtime's pin names and N3's 8.0 one does not.</param>
 internal sealed record RuntimePin(string Repository, string Branch, string Tag, string Version, string Commit,
-    (string Path, string Sha256)[] Sources, RuntimeBudget Budget)
+    (string Path, string Sha256)[] Sources, RuntimeBudget? Budget)
 {
     /// <summary>
     /// The release's target framework, such as net10.0.

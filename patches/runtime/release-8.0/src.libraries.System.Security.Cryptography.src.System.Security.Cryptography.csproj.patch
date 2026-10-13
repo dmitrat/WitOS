@@ -1,0 +1,32 @@
+Source: src/libraries/System.Security.Cryptography/src/System.Security.Cryptography.csproj
+Output: src.libraries.System.Security.Cryptography.src.System.Security.Cryptography.csproj
+Before: 7d6d9c2b38e59f2d0b44b269ae1b37561f687da58d832e98151139d007c16bec
+After: d43129d0377f1d565372794f8ff2fcf77bcead724f34bec1537e6993dfd07ec2
+
+Cryptography for witos (plan step R4.1, RFC 0015 section 8): the system layer has no OpenSSL, so the unix flavour built
+for TargetOS=witos takes the set the browser builds instead of the OpenSSL one: System.Native's random bytes, the
+managed SHA hashes, HMAC, HKDF, PBKDF2 and SP 800-108, and PlatformNotSupportedException for every other algorithm and
+for X.509, until a provider is decided with the storage of keys and the network.
+On release/8.0 (plan step N3.2) the change is the same.
+
+--- a/src/libraries/System.Security.Cryptography/src/System.Security.Cryptography.csproj
++++ b/src/libraries/System.Security.Cryptography/src/System.Security.Cryptography.csproj
+@@ -14,7 +14,8 @@
+     <GeneratePlatformNotSupportedAssemblyMessage Condition="'$(TargetPlatformIdentifier)' == ''">SR.SystemSecurityCryptography_PlatformNotSupported</GeneratePlatformNotSupportedAssemblyMessage>
+     <UseAndroidCrypto Condition="'$(TargetPlatformIdentifier)' == 'android'">true</UseAndroidCrypto>
+     <UseAppleCrypto Condition="'$(TargetPlatformIdentifier)' == 'osx' or '$(TargetPlatformIdentifier)' == 'ios' or '$(TargetPlatformIdentifier)' == 'tvos'">true</UseAppleCrypto>
+-    <UseOpenSsl Condition="'$(TargetPlatformIdentifier)' == 'unix'">true</UseOpenSsl>
++    <UseManagedCrypto Condition="'$(TargetPlatformIdentifier)' == 'browser' or ('$(TargetPlatformIdentifier)' == 'unix' and '$(TargetOS)' == 'witos')">true</UseManagedCrypto>
++    <UseOpenSsl Condition="'$(TargetPlatformIdentifier)' == 'unix' and '$(TargetOS)' != 'witos'">true</UseOpenSsl>
+     <UseOpenSslAead Condition="'$(UseOpenSsl)' == 'true' or '$(TargetPlatformIdentifier)' == 'osx'">true</UseOpenSslAead>
+     <NeedOpenSslInitializer Condition="'$(UseOpenSslAead)' == 'true'">true</NeedOpenSslInitializer>
+   </PropertyGroup>
+@@ -627,7 +628,7 @@
+       <DependentUpon>System\Security\Cryptography\X509Certificates\Asn1\PolicyInformationAsn.xml</DependentUpon>
+     </Compile>
+   </ItemGroup>
+-  <ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'browser'">
++  <ItemGroup Condition="'$(UseManagedCrypto)' == 'true'">
+     <!-- GetRandomBytes is identical on Unix and Browser -->
+     <Compile Include="$(CommonPath)Interop\Unix\System.Native\Interop.GetRandomBytes.cs"
+              Link="Common\Interop\Unix\System.Native\Interop.GetRandomBytes.cs" />

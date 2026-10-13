@@ -1,0 +1,43 @@
+Source: eng/native/configurecompiler.cmake
+Output: eng.native.configurecompiler.cmake
+Before: cc643da1efa447d88851a125b60124918e45a8007cea4efc1c23fa9edc6bc14d
+After: 042a90a446e461cc6c98d2145aaaa24bb9fb4eccbadfeae0e8e6b29a577289b1
+
+The compiler configuration for witos on release/8.0 (plan step N3.2): the host's linker flags beside the
+other ELF platforms', its line of the configure's report and TARGET_WITOS for the sources, as on 10.0.
+
+--- a/eng/native/configurecompiler.cmake
++++ b/eng/native/configurecompiler.cmake
+@@ -292,6 +292,10 @@
+ elseif(CLR_CMAKE_HOST_HAIKU)
+   add_compile_options($<$<COMPILE_LANGUAGE:ASM>:-Wa,--noexecstack>)
+   add_linker_flag("-Wl,--no-undefined")
++elseif(CLR_CMAKE_HOST_WITOS)
++  add_compile_options($<$<COMPILE_LANGUAGE:ASM>:-Wa,--noexecstack>)
++  add_linker_flag(-Wl,--build-id=sha1)
++  add_linker_flag(-Wl,-z,relro,-z,now)
+ endif()
+ 
+ #------------------------------------
+@@ -412,6 +416,12 @@
+     message("Detected SunOS amd64")
+   elseif(CLR_CMAKE_HOST_HAIKU)
+     message("Detected Haiku x86_64")
++  elseif(CLR_CMAKE_HOST_WITOS)
++    if(CLR_CMAKE_HOST_UNIX_ARM64)
++      message("Detected WitOS aarch64")
++    else()
++      message("Detected WitOS x86_64")
++    endif()
+   endif(CLR_CMAKE_HOST_OSX OR CLR_CMAKE_HOST_MACCATALYST)
+ endif(CLR_CMAKE_HOST_UNIX)
+ 
+@@ -729,6 +739,8 @@
+     endif()
+   elseif(CLR_CMAKE_TARGET_HAIKU)
+     add_compile_definitions($<$<NOT:$<BOOL:$<TARGET_PROPERTY:IGNORE_DEFAULT_TARGET_OS>>>:TARGET_HAIKU>)
++  elseif(CLR_CMAKE_TARGET_WITOS)
++    add_compile_definitions($<$<NOT:$<BOOL:$<TARGET_PROPERTY:IGNORE_DEFAULT_TARGET_OS>>>:TARGET_WITOS>)
+   endif()
+ elseif(CLR_CMAKE_TARGET_WASI)
+   add_compile_definitions($<$<NOT:$<BOOL:$<TARGET_PROPERTY:IGNORE_DEFAULT_TARGET_OS>>>:TARGET_WASI>)

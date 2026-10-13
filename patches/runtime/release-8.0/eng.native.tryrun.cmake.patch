@@ -1,0 +1,51 @@
+Source: eng/native/tryrun.cmake
+Output: eng.native.tryrun.cmake
+Before: 3d2578dbe97210f595ebe1819c9c6b45c801e6c3916a04a4500431565f58c350
+After: 966838f2de7e1b1553bc936a3a8f84fb67f431af2484d4d9ce3070deb410a690
+
+The configure's try_run answers for witos on release/8.0 (plan step N3.2): the sysroot is recognized by its
+marker, and the answers are the guest's, which runtime-side-by-side measures for 8.0's probes as runtime-witos does
+for 10.0's.
+
+--- a/eng/native/tryrun.cmake
++++ b/eng/native/tryrun.cmake
+@@ -45,6 +45,8 @@
+ elseif(EXISTS ${CROSS_ROOTFS}/boot/system/develop/headers/config/HaikuConfig.h)
+   set(HAIKU 1)
+   set(CLR_CMAKE_TARGET_OS haiku)
++elseif(EXISTS ${CROSS_ROOTFS}/etc/witos-release)
++  set(WITOS 1)
+ endif()
+ 
+ if(DARWIN)
+@@ -175,3 +177,30 @@
+ elseif (TARGET_ARCH_NAME STREQUAL "riscv64")
+   set_cache_value(HAVE_FUNCTIONAL_PTHREAD_ROBUST_MUTEXES_EXITCODE 1)
+ endif()
++
++if(WITOS)
++  # WitOS's answers, measured in the guest (plan step R1.2b): runtime-witos runs every probe the configure compiles for
++  # witos under the system layer and requires that this block answers as the guest does. WitOS has no /proc, no fork
++  # and no writable file yet, reports no processor time and runs every thread at one priority (R7.1).
++  set_cache_value(HAS_POSIX_SEMAPHORES_EXITCODE 0)
++  set_cache_value(HAVE_CLOCK_MONOTONIC_EXITCODE 0)
++  set_cache_value(HAVE_CLOCK_REALTIME_EXITCODE 0)
++  set_cache_value(HAVE_CLOCK_THREAD_CPUTIME_EXITCODE 255)
++  set_cache_value(HAVE_FUNCTIONAL_PTHREAD_ROBUST_MUTEXES_EXITCODE 1)
++  set_cache_value(HAVE_PROCFS_CTL_EXITCODE 1)
++  set_cache_value(HAVE_PROCFS_STAT_EXITCODE 1)
++  set_cache_value(HAVE_PROCFS_STATM_EXITCODE 1)
++  set_cache_value(HAVE_SCHED_GET_PRIORITY_EXITCODE 0)
++  set_cache_value(HAVE_SHM_OPEN_THAT_WORKS_WELL_ENOUGH_WITH_MMAP_EXITCODE 255)
++  set_cache_value(HAVE_WORKING_CLOCK_GETTIME_EXITCODE 0)
++  set_cache_value(HAVE_WORKING_GETTIMEOFDAY_EXITCODE 0)
++  set_cache_value(ONE_SHARED_MAPPING_PER_FILEREGION_PER_PROCESS_EXITCODE 1)
++  set_cache_value(PTHREAD_CREATE_MODIFIES_ERRNO_EXITCODE 1)
++  set_cache_value(REALPATH_SUPPORTS_NONEXISTENT_FILES_EXITCODE 1)
++  set_cache_value(SEM_INIT_MODIFIES_ERRNO_EXITCODE 1)
++  # 8.0's PAL asks questions 10.0's no longer does; three of the generic answers above differ from the guest's
++  # (plan step N3.2, measured as R1.2b measures).
++  set_cache_value(FILE_OPS_CHECK_FERROR_OF_PREVIOUS_CALL_EXITCODE 0)
++  set_cache_value(HAVE_COMPATIBLE_ILOGB0_EXITCODE 0)
++  set_cache_value(SSCANF_SUPPORT_ll_EXITCODE 1)
++endif()

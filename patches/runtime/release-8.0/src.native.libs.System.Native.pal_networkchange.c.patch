@@ -1,0 +1,28 @@
+Source: src/native/libs/System.Native/pal_networkchange.c
+Output: src.native.libs.System.Native.pal_networkchange.c
+Before: 5c8b313263de1bfefa4726e8410eae40a054641d7522fd258fac854f8f0adcee
+After: 3b7c9d85d487c3f375583e028e487a8aa996e4d934b5d4d970a6a5584e456ba8
+
+Network change notifications on a platform with neither netlink nor routing sockets (plan step N3.2):
+upstream's later change, which 10.0 holds, backported unchanged; the listener fails with EAFNOSUPPORT.
+
+--- a/src/native/libs/System.Native/pal_networkchange.c
++++ b/src/native/libs/System.Native/pal_networkchange.c
+@@ -10,6 +10,7 @@
+ 
+ #include <errno.h>
+ #include <net/if.h>
++#include <stdlib.h>
+ #include <sys/socket.h>
+ #include <sys/types.h>
+ #include <sys/uio.h>
+@@ -38,6 +39,9 @@
+ 
+ #elif HAVE_RT_MSGHDR
+     int32_t sock = socket(PF_ROUTE, SOCK_RAW, 0);
++#else
++    int32_t sock = -1;
++    errno = EAFNOSUPPORT;
+ #endif
+     if (sock == -1)
+     {

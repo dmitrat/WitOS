@@ -1,0 +1,35 @@
+Source: src/libraries/Microsoft.NETCore.Platforms/src/runtime.json
+Output: src.libraries.Microsoft.NETCore.Platforms.src.runtime.json
+Before: 902371b4d051fc5df23e5ed7a79f0f3ecfad022b314c2ff06e8c19178761816d
+After: d96e7fc76d69abc332218219bf96ec1022e9695e288b6ded78206e3338eaa928
+
+The RID graph (plan step R1.1, RFC 0015 section 3): witos imports unix, and witos-x64 and witos-arm64 import witos and
+unix-<arch>, as freebsd-x64 does. No version in the identifier, as linux-musl-x64 has none.
+On release/8.0 (plan step N3.2) the change is the same.
+
+--- a/src/libraries/Microsoft.NETCore.Platforms/src/runtime.json
++++ b/src/libraries/Microsoft.NETCore.Platforms/src/runtime.json
+@@ -4285,6 +4285,23 @@
+         "wasi"
+       ]
+     },
++    "witos": {
++      "#import": [
++        "unix"
++      ]
++    },
++    "witos-arm64": {
++      "#import": [
++        "witos",
++        "unix-arm64"
++      ]
++    },
++    "witos-x64": {
++      "#import": [
++        "witos",
++        "unix-x64"
++      ]
++    },
+     "win": {
+       "#import": [
+         "any"

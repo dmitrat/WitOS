@@ -1,0 +1,82 @@
+Source: eng/common/cross/toolchain.cmake
+Output: eng.common.cross.toolchain.cmake
+Before: e511eacd3358f4a93e095632fc876802654eb0b70fb547da888d980fea55d4c1
+After: 0c3515d4d64ae89fc9980445abf33ed841bdc8997a8431f5c09cb87ef3bbb383
+
+The cross toolchain for witos on release/8.0 (plan step N3.2): the sysroot is recognized by its marker
+(etc/witos-release), clang builds for the layer-2 triples against it with its compiler-rt, libunwind and libc++, and lld
+links in the page layout the loader maps. 8.0 has no CLR_CMAKE_CXX_STANDARD_LIBRARY knob, so C++ compiles and links
+against libc++ through -stdlib here.
+
+--- a/eng/common/cross/toolchain.cmake
++++ b/eng/common/cross/toolchain.cmake
+@@ -7,6 +7,7 @@
+ unset(ANDROID)
+ unset(TIZEN)
+ unset(HAIKU)
++unset(WITOS)
+ 
+ set(TARGET_ARCH_NAME $ENV{TARGET_BUILD_ARCH})
+ if(EXISTS ${CROSS_ROOTFS}/bin/freebsd-version)
+@@ -18,6 +19,11 @@
+ elseif(EXISTS ${CROSS_ROOTFS}/boot/system/develop/headers/config/HaikuConfig.h)
+   set(CMAKE_SYSTEM_NAME Haiku)
+   set(HAIKU 1)
++elseif(EXISTS ${CROSS_ROOTFS}/etc/witos-release)
++  # WitOS's sysroot carries CMake's platform modules for the system (ELF with the Linux compiler rules).
++  set(CMAKE_SYSTEM_NAME WitOS)
++  list(APPEND CMAKE_MODULE_PATH "${CROSS_ROOTFS}/usr/share/cmake")
++  set(WITOS 1)
+ else()
+   set(CMAKE_SYSTEM_NAME Linux)
+   set(LINUX 1)
+@@ -118,6 +124,17 @@
+   message(FATAL_ERROR "Arch is ${TARGET_ARCH_NAME}. Only arm, arm64, armel, armv6, ppc64le, riscv64, s390x, x64 and x86 are supported!")
+ endif()
+ 
++if(WITOS)
++  # The layer-2 triples (until WitOS has its own): clang builds for them against the sysroot.
++  if(TARGET_ARCH_NAME STREQUAL "arm64")
++    set(TOOLCHAIN "aarch64-unknown-linux-musl")
++  elseif(TARGET_ARCH_NAME STREQUAL "x64")
++    set(TOOLCHAIN "x86_64-unknown-linux-musl")
++  else()
++    message(FATAL_ERROR "WitOS has no ${TARGET_ARCH_NAME} system layer.")
++  endif()
++endif()
++
+ if(DEFINED ENV{TOOLCHAIN})
+   set(TOOLCHAIN $ENV{TOOLCHAIN})
+ endif()
+@@ -204,6 +221,13 @@
+ 
+     set(CMAKE_C_STANDARD_LIBRARIES "${CMAKE_C_STANDARD_LIBRARIES} -lssp")
+     set(CMAKE_CXX_STANDARD_LIBRARIES "${CMAKE_CXX_STANDARD_LIBRARIES} -lssp")
++elseif(WITOS)
++    # The sysroot holds musl, libc++ and compiler-rt, the last in the sysroot's own resource directory; C++ compiles
++    # and links against libc++, as 10.0 asks through its CLR_CMAKE_CXX_STANDARD_LIBRARY knob, which 8.0 lacks.
++    set(CMAKE_SYSROOT "${CROSS_ROOTFS}")
++    file(GLOB WITOS_RESOURCE_DIR "${CROSS_ROOTFS}/usr/lib/clang/*")
++    add_compile_options(-resource-dir=${WITOS_RESOURCE_DIR})
++    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
+ elseif(HAIKU)
+     set(CMAKE_SYSROOT "${CROSS_ROOTFS}")
+     set(CMAKE_PROGRAM_PATH "${CMAKE_PROGRAM_PATH};${CROSS_ROOTFS}/cross-tools-x86_64/bin")
+@@ -302,6 +326,17 @@
+   add_toolchain_linker_flag("-lroot")
+ endif()
+ 
++if(WITOS)
++  # lld links against the sysroot's compiler-rt, libunwind and libc++ in the page layout WitOS's loader maps.
++  add_toolchain_linker_flag("-resource-dir=${WITOS_RESOURCE_DIR}")
++  add_toolchain_linker_flag("--rtlib=compiler-rt")
++  add_toolchain_linker_flag("--unwindlib=libunwind")
++  add_toolchain_linker_flag("-stdlib=libc++")
++  add_toolchain_linker_flag("-fuse-ld=lld")
++  add_toolchain_linker_flag("-Wl,-z,max-page-size=4096")
++  add_toolchain_linker_flag("-Wl,-z,separate-loadable-segments")
++endif()
++
+ # Specify compile options
+ 
+ if((TARGET_ARCH_NAME MATCHES "^(arm|arm64|armel|armv6|ppc64le|riscv64|s390x|x64|x86)$" AND NOT ANDROID AND NOT FREEBSD) OR ILLUMOS OR HAIKU)

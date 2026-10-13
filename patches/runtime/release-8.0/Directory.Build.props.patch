@@ -1,0 +1,28 @@
+Source: Directory.Build.props
+Output: Directory.Build.props
+Before: dbefcb10078af4983a97910cf621cd980096e9000799a21385088202583c621e
+After: 26e7031e01d7271899ed96f53b979541558a5ed5a1290d15707d732bad421c97
+
+TargetOS witos on release/8.0 (plan step N3.2, RFC 0015 section 7): what 10.0 says in
+eng/RuntimeIdentifier.props, which 8.0 does not have, 8.0 says here: witos is a target of its own and a Unix one, so
+the libraries take their Unix flavors.
+
+--- a/Directory.Build.props
++++ b/Directory.Build.props
+@@ -265,6 +265,7 @@
+     <Targetsillumos Condition="'$(TargetOS)' == 'illumos'">true</Targetsillumos>
+     <TargetsSolaris Condition="'$(TargetOS)' == 'solaris'">true</TargetsSolaris>
+     <TargetsHaiku Condition="'$(TargetOS)' == 'haiku'">true</TargetsHaiku>
++    <TargetsWitOS Condition="'$(TargetOS)' == 'witos'">true</TargetsWitOS>
+     <TargetsLinux Condition="'$(TargetOS)' == 'linux' or '$(TargetOS)' == 'android'">true</TargetsLinux>
+     <TargetsLinuxBionic Condition="'$(_portableOS)' == 'linux-bionic'">true</TargetsLinuxBionic>
+     <TargetsLinuxMusl Condition="'$(_portableOS)' == 'linux-musl'">true</TargetsLinuxMusl>
+@@ -279,7 +280,7 @@
+     <TargetsBrowser Condition="'$(TargetOS)' == 'browser'">true</TargetsBrowser>
+     <TargetsWasi Condition="'$(TargetOS)' == 'wasi'">true</TargetsWasi>
+     <TargetsWindows Condition="'$(TargetOS)' == 'windows'">true</TargetsWindows>
+-    <TargetsUnix Condition="'$(TargetsFreeBSD)' == 'true' or '$(Targetsillumos)' == 'true' or '$(TargetsSolaris)' == 'true' or '$(TargetsHaiku)' == 'true' or '$(TargetsLinux)' == 'true' or '$(TargetsNetBSD)' == 'true' or '$(TargetsOSX)' == 'true' or '$(TargetsMacCatalyst)' == 'true' or '$(TargetstvOS)' == 'true' or '$(TargetsiOS)' == 'true' or '$(TargetsAndroid)' == 'true'">true</TargetsUnix>
++    <TargetsUnix Condition="'$(TargetsFreeBSD)' == 'true' or '$(Targetsillumos)' == 'true' or '$(TargetsSolaris)' == 'true' or '$(TargetsHaiku)' == 'true' or '$(TargetsWitOS)' == 'true' or '$(TargetsLinux)' == 'true' or '$(TargetsNetBSD)' == 'true' or '$(TargetsOSX)' == 'true' or '$(TargetsMacCatalyst)' == 'true' or '$(TargetstvOS)' == 'true' or '$(TargetsiOS)' == 'true' or '$(TargetsAndroid)' == 'true'">true</TargetsUnix>
+   </PropertyGroup>
+ 
+   <PropertyGroup>

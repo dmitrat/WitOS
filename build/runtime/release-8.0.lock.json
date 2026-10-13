@@ -1,0 +1,110 @@
+{
+  "repository": "https://github.com/dotnet/runtime",
+  "branch": "release/8.0",
+  "tag": "v8.0.31",
+  "version": "8.0.31",
+  "commit": "1219a42122cf5190c7f512850557e38c422430dc",
+  "purpose": "The witos target on release/8.0 (plan step N3.2, RFC 0015 section 7): the dotnet/runtime commit of .NET 8 LTS that the release-8.0 patch set applies to, and the bytes of every file it changes there; a file WitOS adds is pinned by the hash of no bytes. runtime-side-by-side builds from it the shared framework .NET 8 applications run on beside .NET 10.",
+  "sources": [
+    {
+      "path": "Directory.Build.props",
+      "sha256": "dbefcb10078af4983a97910cf621cd980096e9000799a21385088202583c621e"
+    },
+    {
+      "path": "eng/build.sh",
+      "sha256": "83028a494e16d583de6f2bec150e8f458410b99bde0c6c0480c98febd0213f57"
+    },
+    {
+      "path": "eng/common/cross/toolchain.cmake",
+      "sha256": "e511eacd3358f4a93e095632fc876802654eb0b70fb547da888d980fea55d4c1"
+    },
+    {
+      "path": "eng/native/configurecompiler.cmake",
+      "sha256": "cc643da1efa447d88851a125b60124918e45a8007cea4efc1c23fa9edc6bc14d"
+    },
+    {
+      "path": "eng/native/configureplatform.cmake",
+      "sha256": "e3ccca4155e4a5811576c6e3f18a5efc6aa0d49b3a352d0a98366c020fa2eab2"
+    },
+    {
+      "path": "eng/native/tryrun.cmake",
+      "sha256": "3d2578dbe97210f595ebe1819c9c6b45c801e6c3916a04a4500431565f58c350"
+    },
+    {
+      "path": "src/coreclr/CMakeLists.txt",
+      "sha256": "b9642fe53c4b902ba056ee31352b367105890b2d547a350da3f0ce982375d0f7"
+    },
+    {
+      "path": "src/coreclr/dlls/mscordac/CMakeLists.txt",
+      "sha256": "9367703c0e599e7d1e2ec3a66657b2f6e2898223f0ac326c595ab157ac5ff5bd"
+    },
+    {
+      "path": "src/coreclr/inc/crosscomp.h",
+      "sha256": "8b8726b23eeb1292e0a4eff114c844fd553027948f6445b76397ee5d852b9ed7"
+    },
+    {
+      "path": "src/coreclr/minipal/Unix/doublemapping.cpp",
+      "sha256": "e50892f83b75dc3d7626df798e115e40a89347dab6aba30fc939e75a4c3ed79b"
+    },
+    {
+      "path": "src/coreclr/pal/src/configure.cmake",
+      "sha256": "1e33b2b3940b768b074a32c28d00b5004c1f211f0e2baa90ad18db10315b752a"
+    },
+    {
+      "path": "src/coreclr/pal/src/init/pal.cpp",
+      "sha256": "6ce5dff510934aa6264129c86b885809809c6432354421819f75cb37d18aab17"
+    },
+    {
+      "path": "src/coreclr/vm/gcenv.ee.cpp",
+      "sha256": "8c173bb58e0ec931892532ce4cbbb46857ad8d7db1f4ce1d5206e67dc0d52851"
+    },
+    {
+      "path": "src/libraries/Microsoft.NETCore.Platforms/src/runtime.json",
+      "sha256": "902371b4d051fc5df23e5ed7a79f0f3ecfad022b314c2ff06e8c19178761816d"
+    },
+    {
+      "path": "src/libraries/System.Net.Http/src/System.Net.Http.csproj",
+      "sha256": "c8ef2e9afc7d03b63c430ba285076adb71cf464905b7065221ca6ea3e54aaaa6"
+    },
+    {
+      "path": "src/libraries/System.Private.CoreLib/src/System.Private.CoreLib.Shared.projitems",
+      "sha256": "b2f20c0e4ad3c9f83baac3c85dfa90c9ba69fd217d9942345f96e4208ae25926"
+    },
+    {
+      "path": "src/libraries/System.Private.CoreLib/src/System/Environment.WitOS.cs",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "src/libraries/System.Private.CoreLib/src/System/OperatingSystem.cs",
+      "sha256": "136421ee490d536b03b39992d54d96374ec41540ffaf93f859e7f2455b0d803a"
+    },
+    {
+      "path": "src/libraries/System.Security.Cryptography/src/System.Security.Cryptography.csproj",
+      "sha256": "7d6d9c2b38e59f2d0b44b269ae1b37561f687da58d832e98151139d007c16bec"
+    },
+    {
+      "path": "src/native/external/libunwind.cmake",
+      "sha256": "7b8a18f4bc69bfcc81543d97aa9c2e5ce2f22a4cca801fe63bd8c50812346877"
+    },
+    {
+      "path": "src/native/libs/CMakeLists.txt",
+      "sha256": "15fed4830b6ab30e61b15d38cfe7f40cdb57a10d503f5db6891ccceb747065b8"
+    },
+    {
+      "path": "src/native/libs/System.Globalization.Native/CMakeLists.txt",
+      "sha256": "d29aeda7a99fe5fb93417b7076ca0a80c03ae3e74d0fe5e723c1a206fbb0ef6d"
+    },
+    {
+      "path": "src/native/libs/System.IO.Compression.Native/CMakeLists.txt",
+      "sha256": "a9775c59354cdb4fb20d542b96bf7d062e8c95f1b49c8d9c55b360c0e2a338a4"
+    },
+    {
+      "path": "src/native/libs/System.IO.Compression.Native/extra_libs.cmake",
+      "sha256": "08c0987af0dbca782dd7b4de663b912aaf6a6f66717c204f35795adeb2156599"
+    },
+    {
+      "path": "src/native/libs/System.Native/pal_networkchange.c",
+      "sha256": "5c8b313263de1bfefa4726e8410eae40a054641d7522fd258fac854f8f0adcee"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+Source: src/native/libs/System.IO.Compression.Native/CMakeLists.txt
+Output: src.native.libs.System.IO.Compression.Native.CMakeLists.txt
+Before: a9775c59354cdb4fb20d542b96bf7d062e8c95f1b49c8d9c55b360c0e2a338a4
+After: c1dd1779d938432339eb3702fa998757a88c080377fd795df0cc2fc906a726c2
+
+The compression shim on witos (plan step N3.2): 8.0 links the system's zlib on Unix and builds the
+in-tree one for the browser and WASI; WitOS has no zlib of its own, so it builds the in-tree one, as 10.0 builds
+zlib-ng for every platform.
+
+--- a/src/native/libs/System.IO.Compression.Native/CMakeLists.txt
++++ b/src/native/libs/System.IO.Compression.Native/CMakeLists.txt
+@@ -29,7 +29,7 @@
+     set(NATIVE_LIBS_EXTRA)
+     append_extra_compression_libs(NATIVE_LIBS_EXTRA)
+ 
+-    if (CLR_CMAKE_TARGET_BROWSER OR CLR_CMAKE_TARGET_WASI)
++    if (CLR_CMAKE_TARGET_BROWSER OR CLR_CMAKE_TARGET_WASI OR CLR_CMAKE_TARGET_WITOS)
+         include(${CLR_SRC_NATIVE_DIR}/external/zlib.cmake)
+         add_definitions(-DINTERNAL_ZLIB)
+         set(NATIVECOMPRESSION_SOURCES ${ZLIB_SOURCES} ${NATIVECOMPRESSION_SOURCES})

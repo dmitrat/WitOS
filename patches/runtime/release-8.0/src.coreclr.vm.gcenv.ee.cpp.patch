@@ -1,0 +1,21 @@
+Source: src/coreclr/vm/gcenv.ee.cpp
+Output: src.coreclr.vm.gcenv.ee.cpp
+Before: 8c173bb58e0ec931892532ce4cbbb46857ad8d7db1f4ce1d5206e67dc0d52851
+After: 69ec9871393c75ac1c64c64b9fb7592efa6b4ce7dff13beb6b568813c0866001
+
+CoreCLR's VM on witos (plan step R3.1): the layer-2 triple defines __linux__, but the LTTng and user_events providers,
+whose generated headers exist for CLR_CMAKE_TARGET_LINUX alone, are not built for witos; the GC's event status takes the
+other platforms' branch.
+On release/8.0 (plan step N3.2) the change is the same.
+
+--- a/src/coreclr/vm/gcenv.ee.cpp
++++ b/src/coreclr/vm/gcenv.ee.cpp
+@@ -1703,7 +1703,7 @@
+ 
+ void GCToEEInterface::UpdateGCEventStatus(int currentPublicLevel, int currentPublicKeywords, int currentPrivateLevel, int currentPrivateKeywords)
+ {
+-#if defined(__linux__) && defined(FEATURE_EVENT_TRACE)
++#if defined(__linux__) && !defined(TARGET_WITOS) && defined(FEATURE_EVENT_TRACE)
+     LIMITED_METHOD_CONTRACT;
+     // LTTng does not have a notion of enabling events via "keyword"/"level" but we have to
+     // somehow implement a similar behavior to it.

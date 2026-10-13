@@ -1,0 +1,20 @@
+Source: src/native/libs/System.IO.Compression.Native/extra_libs.cmake
+Output: src.native.libs.System.IO.Compression.Native.extra_libs.cmake
+Before: 08c0987af0dbca782dd7b4de663b912aaf6a6f66717c204f35795adeb2156599
+After: 16f63e7de4459cbe23771be4e486d7ab81be7fc5ee9780610c2d15b4d8c6beef
+
+The compression shim's libraries on witos (plan step N3.2): the in-tree zlib is compiled in, so no system
+zlib is looked for.
+
+--- a/src/native/libs/System.IO.Compression.Native/extra_libs.cmake
++++ b/src/native/libs/System.IO.Compression.Native/extra_libs.cmake
+@@ -6,6 +6,9 @@
+   elseif (CLR_CMAKE_TARGET_ANDROID OR HOST_ANDROID)
+       # need special case here since we want to link against libz.so but find_package() would resolve libz.a
+       set(ZLIB_LIBRARIES z)
++  elseif (CLR_CMAKE_TARGET_WITOS)
++      # the in-tree zlib, compiled into the library (CMakeLists.txt)
++      set(ZLIB_LIBRARIES m)
+   elseif (CLR_CMAKE_TARGET_SUNOS OR HOST_SOLARIS)
+       set(ZLIB_LIBRARIES z m)
+   else ()
