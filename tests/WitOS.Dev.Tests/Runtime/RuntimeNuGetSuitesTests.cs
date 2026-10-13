@@ -84,6 +84,7 @@ public sealed class RuntimeNuGetSuitesTests
             "Errors, Failures and Warnings",
             "1) Failed : NUnit.Framework.Tests.A.B",
             "2) Error : NUnit.Framework.Tests.A.C",
+            "3-1) Failed : NUnit.Framework.Tests.A.E",
             "Tests Not Run",
             "1) Explicit : NUnit.Framework.Tests.A.D",
             "  Overall result: Failed",
@@ -91,7 +92,7 @@ public sealed class RuntimeNuGetSuitesTests
         ]);
         Assert.That(nunit, Is.Not.Null);
         Assert.That((nunit!.Total, nunit.Passed, nunit.Failed, nunit.Skipped), Is.EqualTo((22226, 20871, 2, 1353)));
-        Assert.That(nunit.Failures, Is.EqualTo(new[] { "NUnit.Framework.Tests.A.B", "NUnit.Framework.Tests.A.C" }));
+        Assert.That(nunit.Failures, Is.EqualTo(new[] { "NUnit.Framework.Tests.A.B", "NUnit.Framework.Tests.A.C", "NUnit.Framework.Tests.A.E" }));
         Assert.That(RuntimeNuGetSuites.ReadResult("xunit3", ["no summary"]), Is.Null);
     }
 
