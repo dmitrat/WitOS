@@ -263,8 +263,9 @@ internal static class RuntimeNuGetSuites
     }
 
     /// <summary>
-    /// What dotnet runs for a suite, from the suite's directory: rolled forward to the .NET there is, the runner its
-    /// repository uses, and the exclusions in the runner's own options.
+    /// What dotnet runs for a suite, from the suite's directory: rolled forward to the latest .NET there is, the guest's
+    /// one and the host's .NET 10 even beside the earlier ones a host may have, the runner its repository uses, and the
+    /// exclusions in the runner's own options.
     /// </summary>
     /// <param name="suite">The suite.</param>
     /// <param name="xunitConsole">xunit's console runner, for an xunit v2 suite.</param>
@@ -286,7 +287,7 @@ internal static class RuntimeNuGetSuites
             _ => [.. suite.Program is null ? [suite.Assembly] : new[] { suite.Program, suite.Assembly }, "--noresult", "--nocolor",
                 .. nunitExclusions]
         };
-        return ["exec", "--roll-forward", "Major", .. runner, .. suite.Arguments];
+        return ["exec", "--roll-forward", "LatestMajor", .. runner, .. suite.Arguments];
     }
 
     /// <summary>

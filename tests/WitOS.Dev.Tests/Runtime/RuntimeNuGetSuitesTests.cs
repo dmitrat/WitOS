@@ -50,16 +50,16 @@ public sealed class RuntimeNuGetSuitesTests
         var xunit2 = new NuGetSuite("S", "R", "G", "p.csproj", "net8.0", "bin", "S.dll", "xunit2", null, excluded, []);
         Assert.That(RuntimeNuGetSuites.DotnetArguments(xunit2, "/r/xunit.console.dll"), Is.EqualTo(new[]
         {
-            "exec", "--roll-forward", "Major", "/r/xunit.console.dll", "S.dll", "-nologo", "-nocolor", "-noclass", "A.B",
+            "exec", "--roll-forward", "LatestMajor", "/r/xunit.console.dll", "S.dll", "-nologo", "-nocolor", "-noclass", "A.B",
             "-nomethod", "A.C.D"
         }));
         var xunit3 = xunit2 with { Runner = "xunit3", Excluded = new Dictionary<string, string>() };
         Assert.That(RuntimeNuGetSuites.DotnetArguments(xunit3, "/r/xunit.console.dll"),
-            Is.EqualTo(new[] { "exec", "--roll-forward", "Major", "S.dll", "-nologo", "-nocolor" }));
+            Is.EqualTo(new[] { "exec", "--roll-forward", "LatestMajor", "S.dll", "-nologo", "-nocolor" }));
         var nunit = xunit2 with { Runner = "nunitlite", Program = "nunitlite-runner.dll", Arguments = ["--labels=Before"] };
         Assert.That(RuntimeNuGetSuites.DotnetArguments(nunit, "/r/xunit.console.dll"), Is.EqualTo(new[]
         {
-            "exec", "--roll-forward", "Major", "nunitlite-runner.dll", "S.dll", "--noresult", "--nocolor",
+            "exec", "--roll-forward", "LatestMajor", "nunitlite-runner.dll", "S.dll", "--noresult", "--nocolor",
             "--where=class!='A.B'&&test!='A.C.D'", "--labels=Before"
         }));
     }
