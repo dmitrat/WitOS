@@ -177,6 +177,7 @@
       "runner": "xunit3",
       "excluded": {
         "method:XunitTestAssemblyRunnerTests+Messages.Passing": "expects xunit's description of its parallelism to say 'N threads', which xunit writes '1 thread' on a machine of one processor, as WitOS is until phase P (Compatibility-Differences: Processors); on Linux under taskset -c 0 it fails too",
+        "method:CoreTestAssemblyRunnerTests+Run.Parallel_Aggressive": "expects the second of two tests to start while the first sleeps 50 ms, which the emulated processor can spend compiling the second's path, so the first wakes before the second starts (on ARM64 in CI)",
         "method:XunitTestRunnerTests+Timeout.WithTimeout": "gives the test 10 ms, which the emulated processor spends before it enters the test, compiling its path, so the test never takes the token the timeout cancels"
       }
     },
