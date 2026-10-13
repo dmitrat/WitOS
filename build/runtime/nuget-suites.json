@@ -1,0 +1,260 @@
+{
+  "comment": "The representative NuGet libraries' own test suites on WitOS (plan step N2.2, RFC 0015 section 9's gate N2), which @Docs/Implementation/N2.2-Library-Suites.md explains. repositories: each library's repository at the commit its pinned package (N2.1) was built from, with the submodules a suite needs and the SDK its global.json asks for when the host's does not serve it (sdks pins each by the SHA-256 of its linux-x64 archive). suites: test projects built unchanged for one framework of theirs, each in a group that runs as one boot (CI runs each group as a job of its own) and run on the host, then in the guest, by the runner their repository uses: xunit2 is xunit's console runner (xunitConsole), xunit3 the test project's own in-process runner, nunitlite NUnitLite, through program when the project is no program itself. excluded: 'class:' or 'method:' and a full name, left out of both runs, each with its reason. Every other test runs in both and must pass in the guest as on the host.",
+  "sdks": {
+    "10.0.401": "137268c8ad939c064ff1ee2a6fdf0899d8725377114ea012fbd1ad5fa2550418",
+    "6.0.100": "8489a798fcd904a32411d64636e2747edf108192e0b65c6c3ccfb0d302da5ecb",
+    "10.0.109": "bddd7d76f8a8bf0fe97beff3e1f53ea220110ac228d2c179f0df2d653a3a4f13"
+  },
+  "xunitConsole": {
+    "version": "2.9.3",
+    "sha256": "d8775ce150583d262b8a05d3a380c3851b60d0077f2201877ed81668c9b51de3"
+  },
+  "repositories": [
+    {
+      "name": "MessagePack",
+      "package": "MessagePack 3.1.11",
+      "url": "https://github.com/MessagePack-CSharp/MessagePack-CSharp",
+      "commit": "242bdad51f89ab69c05791fa32c155ab575e1718",
+      "sdk": null,
+      "submodules": []
+    },
+    {
+      "name": "MemoryPack",
+      "package": "MemoryPack 1.21.4",
+      "url": "https://github.com/Cysharp/MemoryPack",
+      "commit": "0f2fe0827907940768293b7bb81b9605a7d8cba8",
+      "sdk": null,
+      "submodules": []
+    },
+    {
+      "name": "MathNet",
+      "package": "MathNet.Numerics 5.0.0",
+      "url": "https://github.com/mathnet/mathnet-numerics",
+      "commit": "4435308e1b0efcb40dc483140059a4e3a2204044",
+      "sdk": "6.0.100",
+      "submodules": []
+    },
+    {
+      "name": "NUnit",
+      "package": "NUnit 5.0.0",
+      "url": "https://github.com/nunit/nunit",
+      "commit": "110e911227972b606241cd5782a7c8a51d2c8f9d",
+      "sdk": "10.0.401",
+      "submodules": []
+    },
+    {
+      "name": "xUnit",
+      "package": "xunit.v3 4.0.2",
+      "url": "https://github.com/xunit/xunit",
+      "commit": "0c7aa4991fa340689155d52043ce88f52f2f7421",
+      "sdk": null,
+      "submodules": ["src/xunit.v3.assert/Asserts"]
+    },
+    {
+      "name": "Roslyn",
+      "package": "Microsoft.CodeAnalysis.CSharp 5.9.0",
+      "url": "https://github.com/dotnet/roslyn",
+      "commit": "35d9211b841e7613c1d2f8f5af6d628ace696c4c",
+      "sdk": "10.0.109",
+      "submodules": []
+    }
+  ],
+  "suites": [
+    {
+      "name": "MessagePack.Tests",
+      "repository": "MessagePack",
+      "group": "serialization-numerics",
+      "project": "tests/MessagePack.Tests/MessagePack.Tests.csproj",
+      "framework": "net9.0",
+      "output": "bin/MessagePack.Tests/Release/net9.0",
+      "assembly": "MessagePack.Tests.dll",
+      "runner": "xunit2",
+      "excluded": {
+        "method:MessagePack.Tests.FormatterTest.DateTimeOffsetTest": "finds the time zone 'Cuba' by its identifier, and WitOS has no tzdata: TimeZoneInfo reads /usr/share/zoneinfo (Compatibility-Differences: Time)"
+      }
+    },
+    {
+      "name": "MemoryPack.Tests",
+      "repository": "MemoryPack",
+      "group": "serialization-numerics",
+      "project": "tests/MemoryPack.Tests/MemoryPack.Tests.csproj",
+      "framework": "net8.0",
+      "output": "tests/MemoryPack.Tests/bin/Release/net8.0",
+      "assembly": "MemoryPack.Tests.dll",
+      "runner": "xunit2",
+      "excluded": {
+        "class:MemoryPack.Tests.GeneratorDiagnosticsTest": "fails on Linux too, on .NET 8 and 10 alike: the tests compile against the assemblies loaded when the module initializer ran, where xunit's console runner had not loaded System.Private.Uri, so the generator stops with 'Type System.Uri is not found in compilation' (CS8785); upstream runs them under VSTest, whose adapter at this commit (xunit.runner.visualstudio 2.4.5) the SDK's test platform no longer loads"
+      }
+    },
+    {
+      "name": "MathNet.Numerics.Tests",
+      "repository": "MathNet",
+      "group": "serialization-numerics",
+      "project": "src/Numerics.Tests/Numerics.Tests.csproj",
+      "framework": "net6.0",
+      "output": "src/Numerics.Tests/bin/Release/net6.0",
+      "assembly": "MathNet.Numerics.Tests.dll",
+      "runner": "nunitlite",
+      "excluded": {}
+    },
+    {
+      "name": "nunit.framework.tests",
+      "repository": "NUnit",
+      "group": "test-frameworks",
+      "project": "src/NUnitFramework/tests/nunit.framework.tests.csproj",
+      "framework": "net10.0",
+      "output": "src/NUnitFramework/tests/bin/Release/net10.0",
+      "assembly": "nunit.framework.tests.dll",
+      "runner": "nunitlite",
+      "program": "nunitlite-runner.dll",
+      "excluded": {
+        "class:NUnit.Framework.Tests.SolutionTests.NuspecDependenciesTests": "reads the repository's nuspec and project files, which the guest's volume does not hold: it holds the suite's build output",
+        "class:NUnit.Framework.Tests.SolutionTests.NuspecTargetInclusionsTests": "reads the repository's nuspec and project files, which the guest's volume does not hold: it holds the suite's build output",
+        "class:NUnit.Framework.Tests.Constraints.CollectionEquivalentConstraintTests+Performance": "asserts that comparing large collections takes at most 250 ms, which the emulated processor exceeds (3.8 s)",
+        "method:NUnit.Framework.Tests.Attributes.OSPlatformAttributeTests.UnsupportedBackwardSlashDirectorySeparator": "runs on every platform but Linux and expects Windows' directory separator there, the inference 'not Linux, so Windows' that fails on WitOS (Compatibility-Differences: Platform identity)",
+        "method:NUnit.Framework.Tests.Attributes.CancelAfterTests.TestThatTimesOutRanToCompletionWhenDebuggerIsAttachedBeforeTimeOut": "gives its test 50 ms before cancellation, which the emulated processor can spend before the test marks the debugger attached, compiling its path, so the cancellation it expects to be waived comes first",
+        "method:NUnit.Framework.Tests.TestContextHierarchies.TestProps": "counts the assembly's default properties, and NUnit sets _PID from Process.GetCurrentProcess(), which throws PlatformNotSupportedException on WitOS (Compatibility-Differences: Processes)",
+        "method:NUnit.Framework.Tests.Constraints.DelayedConstraintTests.ThatPollingCallsAsyncDelegateCorrectNumberOfTimes": "counts how often a delegate is polled every 100 ms for 1.5 s and expects 5 to 16 calls, where a poll on the emulated processor can outlast its interval (NUnit's own comment on the test calls it flaky)",
+        "method:NUnit.Framework.Tests.Api.TestAssemblyRunnerTests.StopRun_WhenTestIsRunning_StopsTest": "gives a new runner 2 s to start the first of its slow tests, which the emulated processor can spend compiling the runner's path",
+        "method:NUnit.Framework.Tests.Attributes.OSPlatformAttributeTests.SupportedForwardSlashDirectorySeparator": "is declared for Linux by SupportedOSPlatform or UnsupportedOSPlatform, and WitOS is not Linux (Compatibility-Differences: Platform identity), so the guest runs the opposite set of these tests from the host's",
+        "method:NUnit.Framework.Tests.Internal.NetPlatformDetectionTests.ShouldRunOnLinux": "is declared for Linux by SupportedOSPlatform or UnsupportedOSPlatform, and WitOS is not Linux (Compatibility-Differences: Platform identity), so the guest runs the opposite set of these tests from the host's",
+        "method:NUnit.Framework.Tests.Internal.NetPlatformDetectionTests.ShouldNotRunOnLinux": "is declared for Linux by SupportedOSPlatform or UnsupportedOSPlatform, and WitOS is not Linux (Compatibility-Differences: Platform identity), so the guest runs the opposite set of these tests from the host's"
+      }
+    },
+    {
+      "name": "nunit.framework.legacy.tests",
+      "repository": "NUnit",
+      "group": "test-frameworks",
+      "project": "src/NUnitFramework/nunit.framework.legacy.tests/nunit.framework.legacy.tests.csproj",
+      "framework": "net10.0",
+      "output": "src/NUnitFramework/nunit.framework.legacy.tests/bin/Release/net10.0",
+      "assembly": "nunit.framework.legacy.tests.dll",
+      "runner": "nunitlite",
+      "program": "nunitlite-runner.dll",
+      "excluded": {}
+    },
+    {
+      "name": "nunitlite.tests",
+      "repository": "NUnit",
+      "group": "test-frameworks",
+      "project": "src/NUnitFramework/nunitlite.tests/nunitlite.tests.csproj",
+      "framework": "net10.0",
+      "output": "src/NUnitFramework/nunitlite.tests/bin/Release/net10.0",
+      "assembly": "nunitlite.tests.dll",
+      "runner": "nunitlite",
+      "excluded": {}
+    },
+    {
+      "name": "xunit.v3.assert.tests",
+      "repository": "xUnit",
+      "group": "test-frameworks",
+      "project": "src/xunit.v3.assert.tests/xunit.v3.assert.tests.csproj",
+      "framework": "net8.0",
+      "output": "src/xunit.v3.assert.tests/bin/Release/net8.0",
+      "assembly": "xunit.v3.assert.netcore.tests.dll",
+      "runner": "xunit3",
+      "excluded": {}
+    },
+    {
+      "name": "xunit.v3.common.tests",
+      "repository": "xUnit",
+      "group": "test-frameworks",
+      "project": "src/xunit.v3.common.tests/xunit.v3.common.tests.csproj",
+      "framework": "net8.0",
+      "output": "src/xunit.v3.common.tests/bin/Release/net8.0",
+      "assembly": "xunit.v3.common.netcore.tests.dll",
+      "runner": "xunit3",
+      "excluded": {}
+    },
+    {
+      "name": "xunit.v3.core.tests",
+      "repository": "xUnit",
+      "group": "test-frameworks",
+      "project": "src/xunit.v3.core.tests/xunit.v3.core.tests.csproj",
+      "framework": "net8.0",
+      "output": "src/xunit.v3.core.tests/bin/Release/net8.0",
+      "assembly": "xunit.v3.core.netcore.tests.dll",
+      "runner": "xunit3",
+      "excluded": {
+        "method:XunitTestAssemblyRunnerTests+Messages.Passing": "expects xunit's description of its parallelism to say 'N threads', which xunit writes '1 thread' on a machine of one processor, as WitOS is until phase P (Compatibility-Differences: Processors); on Linux under taskset -c 0 it fails too",
+        "method:XunitTestRunnerTests+Timeout.WithTimeout": "gives the test 10 ms, which the emulated processor spends before it enters the test, compiling its path, so the test never takes the token the timeout cancels"
+      }
+    },
+    {
+      "name": "xunit.v3.runner.common.tests",
+      "repository": "xUnit",
+      "group": "test-frameworks",
+      "project": "src/xunit.v3.runner.common.tests/xunit.v3.runner.common.tests.csproj",
+      "framework": "net8.0",
+      "output": "src/xunit.v3.runner.common.tests/bin/Release/net8.0",
+      "assembly": "xunit.v3.runner.common.netcore.tests.dll",
+      "runner": "xunit3",
+      "excluded": {}
+    },
+    {
+      "name": "xunit.v3.runner.inproc.console.tests",
+      "repository": "xUnit",
+      "group": "test-frameworks",
+      "project": "src/xunit.v3.runner.inproc.console.tests/xunit.v3.runner.inproc.console.tests.csproj",
+      "framework": "net8.0",
+      "output": "src/xunit.v3.runner.inproc.console.tests/bin/Release/net8.0",
+      "assembly": "xunit.v3.runner.inproc.console.netcore.tests.dll",
+      "runner": "xunit3",
+      "excluded": {}
+    },
+    {
+      "name": "xunit.v3.runner.utility.tests",
+      "repository": "xUnit",
+      "group": "test-frameworks",
+      "project": "src/xunit.v3.runner.utility.tests/xunit.v3.runner.utility.tests.csproj",
+      "framework": "net8.0",
+      "output": "src/xunit.v3.runner.utility.tests/bin/Release/net8.0",
+      "assembly": "xunit.v3.runner.utility.netcore.tests.dll",
+      "runner": "xunit3",
+      "excluded": {
+        "method:XunitFrontControllerAcceptanceTests+SourceInformation.v3_Fact": "starts the test assembly in a process of its own, in every row or in some (System.Diagnostics.Process throws PlatformNotSupportedException on WitOS, Compatibility-Differences: Processes); -nomethod leaves out a theory's in-process rows with the others",
+        "method:XunitFrontControllerAcceptanceTests+SourceInformation.v3_Theory": "starts the test assembly in a process of its own, in every row or in some (System.Diagnostics.Process throws PlatformNotSupportedException on WitOS, Compatibility-Differences: Processes); -nomethod leaves out a theory's in-process rows with the others",
+        "method:Xunit3Tests.GuardClauses_Find": "starts the test assembly in a process of its own, in every row or in some (System.Diagnostics.Process throws PlatformNotSupportedException on WitOS, Compatibility-Differences: Processes); -nomethod leaves out a theory's in-process rows with the others",
+        "method:Xunit3Tests.GuardClauses_Run": "starts the test assembly in a process of its own, in every row or in some (System.Diagnostics.Process throws PlatformNotSupportedException on WitOS, Compatibility-Differences: Processes); -nomethod leaves out a theory's in-process rows with the others",
+        "method:Xunit3Tests.GuardClauses_FindAndRun": "starts the test assembly in a process of its own, in every row or in some (System.Diagnostics.Process throws PlatformNotSupportedException on WitOS, Compatibility-Differences: Processes); -nomethod leaves out a theory's in-process rows with the others",
+        "method:Xunit3Tests.GathersAssemblyInformation_Self": "starts the test assembly in a process of its own, in every row or in some (System.Diagnostics.Process throws PlatformNotSupportedException on WitOS, Compatibility-Differences: Processes); -nomethod leaves out a theory's in-process rows with the others",
+        "method:Xunit3Tests.GathersAssemblyInformation_Other": "starts the test assembly in a process of its own, in every row or in some (System.Diagnostics.Process throws PlatformNotSupportedException on WitOS, Compatibility-Differences: Processes); -nomethod leaves out a theory's in-process rows with the others",
+        "method:Xunit3Tests.CanFindFilteredTestsAndRunThem_UsingFind_UsingRun_Self": "starts the test assembly in a process of its own, in every row or in some (System.Diagnostics.Process throws PlatformNotSupportedException on WitOS, Compatibility-Differences: Processes); -nomethod leaves out a theory's in-process rows with the others",
+        "method:Xunit3Tests.CanFindFilteredTestsAndRunThem_UsingFind_UsingRun_Other": "starts the test assembly in a process of its own, in every row or in some (System.Diagnostics.Process throws PlatformNotSupportedException on WitOS, Compatibility-Differences: Processes); -nomethod leaves out a theory's in-process rows with the others",
+        "method:Xunit3Tests.CanFindFilteredTestsAndRunThem_UsingFindAndRun_Self": "starts the test assembly in a process of its own, in every row or in some (System.Diagnostics.Process throws PlatformNotSupportedException on WitOS, Compatibility-Differences: Processes); -nomethod leaves out a theory's in-process rows with the others",
+        "method:Xunit3Tests.CanFindFilteredTestsAndRunThem_UsingFindAndRun_Other": "starts the test assembly in a process of its own, in every row or in some (System.Diagnostics.Process throws PlatformNotSupportedException on WitOS, Compatibility-Differences: Processes); -nomethod leaves out a theory's in-process rows with the others"
+      }
+    },
+    {
+      "name": "Microsoft.CodeAnalysis.UnitTests",
+      "repository": "Roslyn",
+      "group": "roslyn",
+      "project": "src/Compilers/Core/CodeAnalysisTest/Microsoft.CodeAnalysis.UnitTests.csproj",
+      "framework": "net10.0",
+      "output": "artifacts/bin/Microsoft.CodeAnalysis.UnitTests/Release/net10.0",
+      "assembly": "Microsoft.CodeAnalysis.UnitTests.dll",
+      "runner": "xunit2",
+      "excluded": {
+        "class:Microsoft.CodeAnalysis.UnitTests.AnalyzerAssemblyLoaderTests": "sets the attributes of the analyzer files it copies to its temporary directory on /data, which is chmod, and the namespace service serves no file modes: it answers ENOSYS (Compatibility-Differences: File modes)",
+        "class:Microsoft.CodeAnalysis.UnitTests.AnalyzerFileReferenceTests": "sets the attributes of the analyzer files it copies to its temporary directory on /data, which is chmod, and the namespace service serves no file modes: it answers ENOSYS (Compatibility-Differences: File modes)",
+        "class:Microsoft.CodeAnalysis.UnitTests.AssemblyUtilitiesTests": "sets the attributes of the analyzer files it copies to its temporary directory on /data, which is chmod, and the namespace service serves no file modes: it answers ENOSYS (Compatibility-Differences: File modes)",
+        "class:Microsoft.CodeAnalysis.UnitTests.ShadowCopyAnalyzerPathResolverTests": "creates a named Mutex, which .NET keeps under /tmp/.dotnet whatever TMPDIR says, and WitOS has no /tmp (Compatibility-Differences: Named synchronization objects)"
+      }
+    },
+    {
+      "name": "Microsoft.CodeAnalysis.CSharp.Syntax.UnitTests",
+      "repository": "Roslyn",
+      "group": "roslyn-syntax",
+      "project": "src/Compilers/CSharp/Test/Syntax/Microsoft.CodeAnalysis.CSharp.Syntax.UnitTests.csproj",
+      "framework": "net10.0",
+      "output": "artifacts/bin/Microsoft.CodeAnalysis.CSharp.Syntax.UnitTests/Release/net10.0",
+      "assembly": "Microsoft.CodeAnalysis.CSharp.Syntax.UnitTests.dll",
+      "runner": "xunit2",
+      "excluded": {
+        "method:Microsoft.CodeAnalysis.CSharp.UnitTests.ParserErrorMessageTests.TooDeepObjectInitializer": "counts what the parser reports before RuntimeHelpers.EnsureSufficientExecutionStack refuses to go deeper, which the thread's stack and the tier its frames were compiled at decide: on Linux too it differs from run to run",
+        "method:Microsoft.CodeAnalysis.CSharp.UnitTests.ParserErrorMessageTests.TooDeepObjectInitializerAsExpression": "counts what the parser reports before RuntimeHelpers.EnsureSufficientExecutionStack refuses to go deeper, which the thread's stack and the tier its frames were compiled at decide: on Linux too it differs from run to run",
+        "method:Microsoft.CodeAnalysis.CSharp.UnitTests.ParserErrorMessageTests.TooDeepObjectInitializerAsStatement": "counts what the parser reports before RuntimeHelpers.EnsureSufficientExecutionStack refuses to go deeper, which the thread's stack and the tier its frames were compiled at decide: on Linux too it differs from run to run"
+      }
+    }
+  ]
+}

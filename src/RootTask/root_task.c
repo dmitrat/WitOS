@@ -1,12 +1,15 @@
 #include "witos/capabilities.h"
 #include "witos/device_manager.h"
+#include "witos/limits.h"
 #include "witos/manager.h"
+#include "witos/memory.h"
 #include "witos/root.h"
 #include "witos/spawn.h"
 #include "witos/user_abi.h"
 #include "witos/user_layout.h"
 #include <stdio.h>
 #include <string.h>
+#include <sys/sysinfo.h>
 #include <unistd.h>
 
 /* The root task of the system layer (plan step S6.1, RFC 0011 v3 sections 7.11 and 9.3): the first component the
@@ -60,8 +63,21 @@ int main(void)
 {
     static char *argv[] = {INIT, 0};
     /* .NET finds ICU's libraries in /usr/lib (R4.3), so a program without a setting of its own has culture data, as on
-     * Linux; a package without them runs its programs with invariant globalization by their own configuration. */
-    static char *envp[] = {"PATH=/bin:/usr/bin", 0};
+     * Linux; a package without them runs its programs with invariant globalization by their own configuration. The GC
+     * learns the memory a process may have (N2.2): the smaller of a system layer process's page quota and the memory
+     * free when the system started, which .NET's own knob gives the GC as its physical memory, where a Linux container's
+     * limit would, so that it keeps its heap to 75% of it and an allocation past the heap is an OutOfMemoryException,
+     * not the end of the process. The knob turns GC.RefreshMemoryLimit off; without it, where the quota is above the
+     * machine's memory, a process meets the machine's end before the GC's (upstream's GC test 494226 ended with
+     * SIGABRT in a 512 MiB guest). */
+    unsigned long long limit = (unsigned long long)WIT_PROCESS_PAGE_CAPACITY * (unsigned long long)WIT_PAGE_SIZE;
+    struct sysinfo memory_info;
+    if (sysinfo(&memory_info) == 0 && (unsigned long long)memory_info.freeram * memory_info.mem_unit < limit) {
+        limit = (unsigned long long)memory_info.freeram * memory_info.mem_unit;
+    }
+    static char memory[64];
+    snprintf(memory, sizeof(memory), "DOTNET_GCTotalPhysicalMemory=%llx", limit);
+    static char *envp[] = {"PATH=/bin:/usr/bin", memory, 0};
     WitProcessInfo info;
     witos_service device_manager;
     int stopped = 0;

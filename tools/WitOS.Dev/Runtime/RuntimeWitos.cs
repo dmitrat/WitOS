@@ -462,6 +462,8 @@ internal static class RuntimeWitos
         // NuGet libraries under NUnit and xUnit.
         await RuntimeCompatibility.RunAsync(root, architecture);
         await RuntimeLibraries.RunAsync(root, architecture);
+        // N2.2, the libraries' own test suites, run for hours in the guest: runtime-nuget-suites runs them on this tree,
+        // and CI a group a job.
         Console.WriteLine(await MeasureAsync(root, pin));
     }
 
@@ -689,6 +691,12 @@ internal static class RuntimeWitos
         var version = ReadLock(root).ProductVersion;
         var installLocation = Path.Combine(output, "install_location");
         await File.WriteAllTextAsync(installLocation, "/dotnet\n");
+        // The account database (N2.2): every process runs as uid and gid 0, which the libc reports, and a program asks its
+        // user's name through getpwuid_r (Environment.UserName), which fails on a system without /etc/passwd.
+        var passwd = Path.Combine(output, "passwd");
+        await File.WriteAllTextAsync(passwd, "root:x:0:0:root:/:\n");
+        var group = Path.Combine(output, "group");
+        await File.WriteAllTextAsync(group, "root:x:0:\n");
         var sysroot = await Sysroot.BuildAsync(root, architecture);
 
         // The shared framework: what Microsoft.NETCore.App's runtime pack carries for the RID, and the deps.json that names it.
@@ -713,7 +721,7 @@ internal static class RuntimeWitos
             ("lib/libunwind.so.1", Path.Combine(lib, "libunwind.so.1")),
             // ICU (R4.3), which System.Globalization.Native loads for culture data.
             .. await Icu.PackageFilesAsync(root, architecture),
-            ("etc/dotnet/install_location", installLocation),
+            ("etc/dotnet/install_location", installLocation), ("etc/passwd", passwd), ("etc/group", group),
             ("dotnet/dotnet", Path.Combine(corehost, "dotnet")),
             ($"dotnet/host/fxr/{version}/libhostfxr.so", Path.Combine(corehost, "libhostfxr.so")),
             .. shared.Select(file => ($"dotnet/shared/Microsoft.NETCore.App/{version}/{file.Name}", file.Source))

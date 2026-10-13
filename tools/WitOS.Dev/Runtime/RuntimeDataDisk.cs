@@ -132,19 +132,25 @@ internal static class RuntimeDataDisk
     /// <param name="path">The image's path.</param>
     /// <param name="ext4">Whether to make the ext4 volume; a host without e2fsprogs leaves its partition empty.</param>
     /// <param name="programs">Files the ext4 volume holds under /programs (D5.3); none by default.</param>
-    public static async Task CreateAsync(string path, bool ext4 = true, IReadOnlyList<(string Path, string Source)>? programs = null)
+    /// <param name="files">Files the ext4 volume holds at their paths from its root (N2.2); none by default.</param>
+    /// <param name="bytes">The disk's size, a whole number of MiB; the ext4 partition takes what the others leave.</param>
+    public static async Task CreateAsync(string path, bool ext4 = true, IReadOnlyList<(string Path, string Source)>? programs = null,
+        IReadOnlyList<(string Path, string Source)>? files = null, long bytes = BYTES)
     {
-        await using var disk = new MemoryBlockStorage(BYTES, BLOCK);
+        if (bytes < BYTES || bytes % (1024 * 1024) != 0)
+            throw new ArgumentOutOfRangeException(nameof(bytes), $"A data disk has a whole number of MiB, at least {BYTES} bytes.");
+        var ext4Last = bytes / BLOCK - 2048 - 1;
+        await using var disk = new MemoryBlockStorage(bytes, BLOCK);
         var table = await GptPartitionTable.WriteAsync(disk, DISK_ID,
         [
             new GptPartition(0, TEST_PARTITION_TYPE, TEST_PARTITION_ID, TEST_PARTITION_FIRST_BLOCK, TEST_PARTITION_LAST_BLOCK, 0, TEST_PARTITION),
             new GptPartition(1, BASIC_DATA, FAT_PARTITION_ID, FAT_PARTITION_FIRST_BLOCK, FAT_PARTITION_LAST_BLOCK, 0, FAT_PARTITION),
-            new GptPartition(2, LINUX_DATA, EXT4_PARTITION_ID, EXT4_PARTITION_FIRST_BLOCK, EXT4_PARTITION_LAST_BLOCK, 0, EXT4_PARTITION)
+            new GptPartition(2, LINUX_DATA, EXT4_PARTITION_ID, EXT4_PARTITION_FIRST_BLOCK, ext4Last, 0, EXT4_PARTITION)
         ]);
         if (ext4)
         {
             var volume = Ext4Image(path);
-            await RuntimeExt4Volume.CreateAsync(volume, (EXT4_PARTITION_LAST_BLOCK - EXT4_PARTITION_FIRST_BLOCK + 1) * BLOCK, programs);
+            await RuntimeExt4Volume.CreateAsync(volume, (ext4Last - EXT4_PARTITION_FIRST_BLOCK + 1) * BLOCK, programs, files);
             await disk.WriteAsync(EXT4_PARTITION_FIRST_BLOCK * BLOCK, await File.ReadAllBytesAsync(volume));
         }
         await using (var partition = table.Partitions[1].Open(disk))

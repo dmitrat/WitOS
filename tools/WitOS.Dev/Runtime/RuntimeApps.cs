@@ -5,7 +5,7 @@ using WitOS.Dev.Substrate;
 namespace WitOS.Dev.Runtime;
 
 /// <summary>
-/// Ordinary .NET applications on witos beside the device services (plan steps N1 and N2.1): each published by the stock
+/// Ordinary .NET applications on witos beside the device services (plan steps N1, N2.1 and N2.2): each published by the stock
 /// SDK without a RID from a copy apart from the repository's build properties, as a developer's machine builds it (R6),
 /// placed under /app/&lt;name&gt; of a package that holds the device services and the .NET install of R5, and run through
 /// dotnet by tests/User/apps_init.c from the commands of /etc/apps, with a fresh data disk whose volume holds their
@@ -32,7 +32,7 @@ internal static class RuntimeApps
     /// <param name="output">Artifact directory of the scenario.</param>
     /// <param name="architecture">Target architecture.</param>
     /// <param name="applications">Each application's name and its project's directory under the repository.</param>
-    /// <param name="commands">The commands /bin/init runs, one a line.</param>
+    /// <param name="commands">The commands /bin/init runs, one a line, and the directories it runs them in.</param>
     /// <returns>Package paths and the files to place there.</returns>
     public static async Task<IReadOnlyList<(string Name, string Source)>> BuildPackageAsync(string root, string output,
         KernelArchitecture architecture, IReadOnlyList<(string Name, string Project)> applications, IReadOnlyList<string> commands)
@@ -67,14 +67,20 @@ internal static class RuntimeApps
     /// <param name="scenario">The scenario.</param>
     /// <param name="requiredLines">The lines it requires.</param>
     /// <param name="timeoutSeconds">Its wall-clock limit.</param>
+    /// <param name="volumeFiles">Files the data disk's ext4 volume, /data, holds at their paths (N2.2); none by default.</param>
+    /// <param name="diskBytes">The data disk's size.</param>
+    /// <param name="memoryMiB">The guest's memory.</param>
+    /// <param name="package">The boot package when the command built it (N2.2: a group of suites); the scenario's own
+    /// when null.</param>
     /// <returns>When the boot passed.</returns>
     public static async Task BootAsync(string root, KernelArchitecture architecture, string scenario, string[] requiredLines,
-        int timeoutSeconds)
+        int timeoutSeconds, IReadOnlyList<(string Path, string Source)>? volumeFiles = null, long diskBytes = RuntimeDataDisk.BYTES,
+        int memoryMiB = 512, IReadOnlyList<(string Name, string Source)>? package = null)
     {
-        var image = await KernelImageBuilder.BuildAsync(root, scenario, architecture: architecture);
+        var image = await KernelImageBuilder.BuildAsync(root, scenario, architecture: architecture, package: package);
         var dataDisk = Path.Combine(Path.GetDirectoryName(image)!, "data-disk.img");
-        await RuntimeDataDisk.CreateAsync(dataDisk);
-        await BootScenarioRunner.RunAsync(root, image, new BootRequest($"{architecture.Name}-{scenario}-512", 512, timeoutSeconds,
+        await RuntimeDataDisk.CreateAsync(dataDisk, files: volumeFiles, bytes: diskBytes);
+        await BootScenarioRunner.RunAsync(root, image, new BootRequest($"{architecture.Name}-{scenario}-{memoryMiB}", memoryMiB, timeoutSeconds,
             ExpectedOutcome.Success)
         {
             Architecture = architecture,
