@@ -1,5 +1,6 @@
 {
   "repository": "https://github.com/dotnet/runtime",
+  "branch": "release/10.0",
   "tag": "v10.0.12",
   "version": "10.0.12",
   "commit": "4271d88e0aebf3d04f188f1334c2220d80555ef6",

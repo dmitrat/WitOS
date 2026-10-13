@@ -26,9 +26,20 @@ internal static class RuntimeWitos
     #region Constants
 
     /// <summary>
-    /// The pin: the commit, the bytes of every upstream file the patch set changes and the ports' budget.
+    /// The release branch of dotnet/runtime the runtime is pinned on (RFC 0015 section 7): each branch has its pin and its
+    /// patch set, named after it with '/' as '-'.
     /// </summary>
-    public const string LOCK = "build/runtime/runtime.lock.json";
+    public const string BRANCH = "release/10.0";
+
+    /// <summary>
+    /// The pin: the branch, the commit, the bytes of every upstream file the patch set changes and the ports' budget.
+    /// </summary>
+    public const string LOCK = "build/runtime/release-10.0.lock.json";
+
+    /// <summary>
+    /// The patch set's directory under patches/, as <see cref="UpstreamPatches"/> names a repository.
+    /// </summary>
+    public const string PATCH_SET = "runtime/release-10.0";
 
     /// <summary>
     /// The initial cache of the try_run measurement, which forgets tryrun.cmake's answers.
@@ -174,7 +185,8 @@ internal static class RuntimeWitos
     private static readonly string[] CORECLR_IMAGES = ["libcoreclr.so", "libclrjit.so", "corerun"];
 
     /// <summary>
-    /// The witos patch set: each upstream path and the name of its patch in patches/runtime, its path with '/' as '.'.
+    /// The witos patch set: each upstream path and the name of its patch in patches/runtime/release-10.0, its path with
+    /// '/' as '.'.
     /// </summary>
     public static readonly IReadOnlyDictionary<string, string> PATCHES = new Dictionary<string, string>(StringComparer.Ordinal)
     {
@@ -1230,7 +1242,7 @@ internal static class RuntimeWitos
         var lockRoot = document.RootElement;
         string Text(JsonElement element, string name) => element.GetProperty(name).GetString() ?? "";
         var budget = lockRoot.GetProperty("budget");
-        return new RuntimePin(Text(lockRoot, "repository"), Text(lockRoot, "tag"), Text(lockRoot, "version"),
+        return new RuntimePin(Text(lockRoot, "repository"), Text(lockRoot, "branch"), Text(lockRoot, "tag"), Text(lockRoot, "version"),
             Text(lockRoot, "commit"),
             lockRoot.GetProperty("sources").EnumerateArray().Select(source => (Text(source, "path"), Text(source, "sha256")))
                 .ToArray(),
@@ -1351,7 +1363,7 @@ internal static class RuntimeWitos
             var file = Path.Combine(tree, path);
             var text = File.Exists(file) ? (await File.ReadAllTextAsync(file)).Replace("\r\n", "\n") : "";
             Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-            await File.WriteAllTextAsync(file, UpstreamPatches.Apply(root, "runtime", path, output, text));
+            await File.WriteAllTextAsync(file, UpstreamPatches.Apply(root, PATCH_SET, path, output, text));
         }
         Console.WriteLine($"Applied the witos patch set: {PATCHES.Count} files of dotnet/runtime {pin.Tag}.");
         return tree;
@@ -1916,12 +1928,13 @@ internal static class RuntimeWitos
 /// The pinned dotnet/runtime of the Unix-form port.
 /// </summary>
 /// <param name="Repository">Repository URL.</param>
+/// <param name="Branch">The release branch the tag belongs to, such as release/10.0.</param>
 /// <param name="Tag">Release tag.</param>
 /// <param name="Version">Runtime version.</param>
 /// <param name="Commit">Commit of the tag.</param>
 /// <param name="Sources">Each upstream path the patch set changes and the SHA-256 of its bytes there.</param>
 /// <param name="Budget">The size of the FreeBSD and Haiku ports.</param>
-internal sealed record RuntimePin(string Repository, string Tag, string Version, string Commit,
+internal sealed record RuntimePin(string Repository, string Branch, string Tag, string Version, string Commit,
     (string Path, string Sha256)[] Sources, RuntimeBudget Budget)
 {
     /// <summary>

@@ -13,7 +13,7 @@
 | Self-test и фикстуры ядра | `tests/Kernel`, `tests/Kernel.X64`, `tests/Kernel.A64` | общие тесты (аллокатор страниц, `self_test.h`) в `tests/Kernel` со слоем `kernel-selftest-shared` с A1.1; x64 с Q2.7; ARM64 с A1.1; белые ящики под `WITOS_SELFTEST` рядом со своими модулями | `*_tests.c`, `self_test.asm`; собираются только с `WITOS_SELFTEST` | все слои ядра |
 | Гостевые фикстуры | `tests/User/Fixtures`, `tests/User` | фикстуры механизмов — C на clang для обеих ISA с K8.3; корневая задача и программы слоя 2 — `tests/User` | Пользовательские компоненты, которые встраиваются в самотестовые образы или ложатся в загрузочный пакет | транспорт `witos/syscall.h` и заголовки ABI-1 |
 | Системный слой | `src/Substrate`, `src/RootTask`, `src/Sysroot` | с S1 | libc WitOS поверх musl, libwitos, корневая задача и менеджер процессов, sysroot | только ABI-1 |
-| Upstream .NET | вне репозитория, pinned; правки в `patches/runtime` | `.tools` и Linux-хост | `dotnet/runtime` в Unix-форме (`TargetOS=witos`) | системный слой |
+| Upstream .NET | вне репозитория, pinned; правки в `patches/runtime/<ветка>` | `.tools` и Linux-хост | `dotnet/runtime` в Unix-форме (`TargetOS=witos`) | системный слой |
 | Инструменты | `tools/WitOS.Dev`, манифесты `build/` | `tools/WitOS.Dev` | Сборка, QEMU, приёмка, evidence | — |
 
 Правила:

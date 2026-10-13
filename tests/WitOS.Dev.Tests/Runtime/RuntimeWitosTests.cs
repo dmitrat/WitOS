@@ -27,18 +27,24 @@ public sealed class RuntimeWitosTests
         {
             var output = RuntimeWitos.PATCHES[path];
             Assert.That(output, Is.EqualTo(path.Replace('/', '.')), $"{path}: a patch is named by its path");
-            var patch = UpstreamPatches.Read(root, "runtime", output);
+            var patch = UpstreamPatches.Read(root, RuntimeWitos.PATCH_SET, output);
             Assert.That(patch.Source, Is.EqualTo(path));
             Assert.That(patch.Before, Is.EqualTo(sha256), $"{path}: the patch is not made from the pinned bytes");
         }
     }
 
-    // The pin is a commit of a tag, and the budget is the ports' size the plan records.
+    // The pin is a commit of a tag of its release branch, the pin and the patch set are named after the branch, and the
+    // budget is the ports' size the plan records.
     [Test]
     public void PinNamesTheReleaseAndTheBudgetTest()
     {
         var pin = RuntimeWitos.ReadLock(TestEnvironment.Root);
         Assert.That(pin.Repository, Is.EqualTo("https://github.com/dotnet/runtime"));
+        Assert.That(pin.Branch, Is.EqualTo(RuntimeWitos.BRANCH));
+        Assert.That(pin.Version, Does.StartWith(RuntimeWitos.BRANCH["release/".Length..] + "."));
+        var name = RuntimeWitos.BRANCH.Replace('/', '-');
+        Assert.That($"build/runtime/{name}.lock.json", Is.EqualTo(RuntimeWitos.LOCK));
+        Assert.That($"runtime/{name}", Is.EqualTo(RuntimeWitos.PATCH_SET));
         Assert.That(pin.Tag, Is.EqualTo("v" + pin.Version));
         Assert.That(pin.Commit, Does.Match("^[0-9a-f]{40}$"));
         Assert.That(pin.Budget, Is.EqualTo(new RuntimeBudget(31, 62, 18, 11)));

@@ -60,7 +60,8 @@ internal static class RuntimeNuGetSuites
     private static readonly Regex XUNIT_FAILURE = new(@"^\s*(\S.*?) \[FAIL\]\s*$", RegexOptions.Compiled);
     private static readonly Regex NUNIT_SUMMARY = new(@"Test Count: (\d+), Passed: (\d+), Failed: (\d+), Warnings: (\d+), " +
         @"Inconclusive: (\d+), Skipped: (\d+)", RegexOptions.Compiled);
-    private static readonly Regex NUNIT_FAILURE = new(@"^\s*\d+\) (?:Failed|Error) : (.+?)\s*$", RegexOptions.Compiled);
+    // NUnit numbers the failures of a test that failed several times 12-1), 12-2) and so on.
+    private static readonly Regex NUNIT_FAILURE = new(@"^\s*\d+(?:-\d+)?\) (?:Failed|Error) : (.+?)\s*$", RegexOptions.Compiled);
 
     private static readonly Regex COMMIT = new("^[0-9a-f]{40}$", RegexOptions.Compiled);
     private static readonly Regex SHA256 = new("^[0-9a-f]{64}$", RegexOptions.Compiled);

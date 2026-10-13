@@ -112,7 +112,7 @@
         "class:NUnit.Framework.Tests.SolutionTests.NuspecTargetInclusionsTests": "reads the repository's nuspec and project files, which the guest's volume does not hold: it holds the suite's build output",
         "class:NUnit.Framework.Tests.Constraints.CollectionEquivalentConstraintTests+Performance": "asserts that comparing large collections takes at most 250 ms, which the emulated processor exceeds (3.8 s)",
         "method:NUnit.Framework.Tests.Attributes.OSPlatformAttributeTests.UnsupportedBackwardSlashDirectorySeparator": "runs on every platform but Linux and expects Windows' directory separator there, the inference 'not Linux, so Windows' that fails on WitOS (Compatibility-Differences: Platform identity)",
-        "method:NUnit.Framework.Tests.Attributes.CancelAfterTests.TestThatTimesOutRanToCompletionWhenDebuggerIsAttachedBeforeTimeOut": "gives its test 50 ms before cancellation, which the emulated processor can spend before the test marks the debugger attached, compiling its path, so the cancellation it expects to be waived comes first",
+        "class:NUnit.Framework.Tests.Attributes.CancelAfterTests": "gives its sample tests 50 ms before cancellation against delays of 500 ms, and the emulated processor can spend either compiling the path before the timer or the delay starts, so a test expected to be cancelled runs to completion or one expected to finish is cancelled (on ARM64 in CI: CancelAfterCausesOtherwisePassingTestToFailWithoutDebuggerAttached)",
         "method:NUnit.Framework.Tests.TestContextHierarchies.TestProps": "counts the assembly's default properties, and NUnit sets _PID from Process.GetCurrentProcess(), which throws PlatformNotSupportedException on WitOS (Compatibility-Differences: Processes)",
         "method:NUnit.Framework.Tests.Constraints.DelayedConstraintTests.ThatPollingCallsAsyncDelegateCorrectNumberOfTimes": "counts how often a delegate is polled every 100 ms for 1.5 s and expects 5 to 16 calls, where a poll on the emulated processor can outlast its interval (NUnit's own comment on the test calls it flaky)",
         "method:NUnit.Framework.Tests.Api.TestAssemblyRunnerTests.StopRun_WhenTestIsRunning_StopsTest": "gives a new runner 2 s to start the first of its slow tests, which the emulated processor can spend compiling the runner's path",
@@ -177,6 +177,7 @@
       "runner": "xunit3",
       "excluded": {
         "method:XunitTestAssemblyRunnerTests+Messages.Passing": "expects xunit's description of its parallelism to say 'N threads', which xunit writes '1 thread' on a machine of one processor, as WitOS is until phase P (Compatibility-Differences: Processors); on Linux under taskset -c 0 it fails too",
+        "method:CoreTestAssemblyRunnerTests+Run.Parallel_Aggressive": "expects the second of two tests to start while the first sleeps 50 ms, which the emulated processor can spend compiling the second's path, so the first wakes before the second starts (on ARM64 in CI)",
         "method:XunitTestRunnerTests+Timeout.WithTimeout": "gives the test 10 ms, which the emulated processor spends before it enters the test, compiling its path, so the test never takes the token the timeout cancels"
       }
     },
