@@ -10,7 +10,9 @@ namespace WitOS.Dev.Runtime;
 /// release/8.0 with a pin and a patch set of its own (build/runtime/release-8.0.lock.json, patches/runtime/release-8.0).
 /// The Linux host builds from it what the shared framework of .NET 8 needs: CoreLib, CoreCLR's runtime and JIT, the
 /// libraries with their native part, and hostpolicy. 10.0's dotnet and hostfxr serve both versions, so the install holds
-/// both frameworks, and an application built for .NET 8 runs on 8.0 through them.
+/// both frameworks. The host picks one by an application's runtimeconfig and rollForward (N3.3): the application built for
+/// .NET 8 runs on 8.0, the one built for .NET 10 on 10.0, and the .NET 8 one rolls forward to 10.0 when its runtimeconfig
+/// or dotnet's option asks for the latest major version.
 /// </summary>
 internal static class RuntimeSideBySide
 {
@@ -32,7 +34,7 @@ internal static class RuntimeSideBySide
     public const string PATCH_SET = "runtime/release-8.0";
 
     /// <summary>
-    /// The application built for .NET 8 that the scenario runs.
+    /// The application the scenario builds for .NET 8 and for .NET 10.
     /// </summary>
     public const string APP = "tests/Runtime.Witos/SideBySide/App.cs";
 
@@ -156,23 +158,20 @@ internal static class RuntimeSideBySide
                 string.Join(", ", differing.Select(probe => $"{probe} = {answers[probe]}, the guest {measured[probe]}")) + $" ({report}).");
         Console.WriteLine($"8.0's tryrun.cmake answers the {probes.Count} probes of its native configure as {name} does ({report}).");
 
-        var image = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_SIDE_BY_SIDE_SCENARIO, architecture: architecture);
-        await BootScenarioRunner.RunAsync(root, image,
-            new BootRequest($"{architecture.Name}-{KernelImageBuilder.RUNTIME_SIDE_BY_SIDE_SCENARIO}-{MEMORY_MIB}", MEMORY_MIB, 900,
-                ExpectedOutcome.Success)
-            {
-                Architecture = architecture,
-                Suite = BootSuite.Release,
-                RequiredLines = [PassedLine(pin, architecture), "[DOTNET] dotnet exited with 0", architecture.RootTaskPassedLine]
-            });
-        Console.WriteLine($".NET {pin.ProductVersion} beside .NET {RuntimeWitos.ReadLock(root).ProductVersion} on {name}: " +
-            $"an application built for .NET 8 passed its {APP_CHECKS} checks on 8.0 in the guest.");
+        var ten = RuntimeWitos.ReadLock(root);
+        await RuntimeApps.BootAsync(root, architecture, KernelImageBuilder.RUNTIME_SIDE_BY_SIDE_SCENARIO, RequiredLines(pin, ten),
+            1800, memoryMiB: MEMORY_MIB);
+        Console.WriteLine($".NET {pin.ProductVersion} beside .NET {ten.ProductVersion} on {name}: the host picked each application's framework " +
+            "by its runtimeconfig and rollForward, and every run passed its checks in the guest.");
     }
 
     /// <summary>
-    /// The scenario's package: the .NET 10 install of runtime-witos with .NET 8's shared framework beside its own, and under
-    /// /app the application the 8.0 tree's C# compiler builds against 8.0's reference pack, with a runtimeconfig that asks
-    /// for the 8.0 framework, which tests/User/dotnet_init.c starts through /dotnet/dotnet.
+    /// The scenario's package, beside the device services (<see cref="RuntimeApps"/>): the .NET 10 install of runtime-witos
+    /// with .NET 8's shared framework beside its own, and the application under /app/net8, built by the 8.0 tree's C#
+    /// compiler against 8.0's reference pack, and under /app/net10, built against 10.0's; /app/net8-latest holds the .NET 8
+    /// build with a runtimeconfig whose rollForward asks for the latest major version. tests/User/apps_init.c runs the
+    /// commands: dotnet's list of runtimes, then each application with the major version its host must pick, the .NET 8
+    /// one also through dotnet's own --roll-forward option.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="output">Artifact directory of the scenario.</param>
@@ -182,40 +181,78 @@ internal static class RuntimeSideBySide
         KernelArchitecture architecture)
     {
         var pin = RuntimeWitos.ReadLock(root, LOCK);
+        var ten = RuntimeWitos.ReadLock(root);
         var tree = Tree(root);
-        var app = Path.Combine(output, "app");
-        if (Directory.Exists(app))
-            Directory.Delete(app, recursive: true);
-        Directory.CreateDirectory(app);
-        await RuntimeWitos.CompileAsync(tree, pin.TargetFramework, Path.Combine(app, "App.dll"), "exe", [Path.Combine(root, APP)], []);
-        await File.WriteAllTextAsync(Path.Combine(app, "App.runtimeconfig.json"),
-            $"{{\n  \"runtimeOptions\": {{\n    \"tfm\": \"{pin.TargetFramework}\",\n" +
-            $"    \"framework\": {{ \"name\": \"Microsoft.NETCore.App\", \"version\": \"{pin.FrameworkReference}\" }}\n  }}\n}}\n");
-        var init = Path.Combine(output, "dotnet_init.elf");
-        await Processes.RequireSuccessAsync(Toolchain.Clang(root),
+        var eight = await BuildAppAsync(root, output, "net8", pin, (assembly, sources) =>
+            RuntimeWitos.CompileAsync(tree, pin.TargetFramework, assembly, "exe", sources, []));
+        var latest = Path.Combine(output, "net8-latest");
+        Directory.CreateDirectory(latest);
+        File.Copy(Path.Combine(eight, "App.dll"), Path.Combine(latest, "App.dll"), overwrite: true);
+        await File.WriteAllTextAsync(Path.Combine(latest, "App.runtimeconfig.json"), RuntimeConfig(pin, "LatestMajor"));
+        var current = await BuildAppAsync(root, output, "net10", ten, (assembly, sources) =>
+            RuntimeWitos.CompileAsync(root, assembly, "exe", sources, []));
+        string[] commands =
         [
-            .. Sysroot.DriverOptions(root, architecture), "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-DDOTNET_APP=\"/app/App.dll\"",
-            Path.Combine(root, RuntimeWitos.DOTNET_PROGRAM), "-o", init
-        ], root);
-        var framework = await RuntimeWitos.FrameworkFilesAsync(tree, output, architecture, pin.ProductVersion, pin.TargetFramework);
-        return
-        [
-            ("bin/init", init),
-            .. await RuntimeWitos.InstallFilesAsync(root, output, architecture),
-            .. framework.Select(file => ($"dotnet/shared/Microsoft.NETCore.App/{pin.ProductVersion}/{file.Name}", file.Source)),
-            .. Directory.GetFiles(app).Order(StringComparer.Ordinal).Select(file => ($"app/{Path.GetFileName(file)}", file))
+            "/dotnet/dotnet --list-runtimes",
+            $"/dotnet/dotnet /app/net8/App.dll {Major(pin)}",
+            $"/dotnet/dotnet /app/net10/App.dll {Major(ten)}",
+            $"/dotnet/dotnet /app/net8-latest/App.dll {Major(ten)}",
+            $"/dotnet/dotnet exec --roll-forward LatestMajor /app/net8/App.dll {Major(ten)}"
         ];
+        var framework = await RuntimeWitos.FrameworkFilesAsync(tree, output, architecture, pin.ProductVersion, pin.TargetFramework);
+        IEnumerable<(string Name, string Source)> package =
+        [
+            .. await RuntimeApps.BuildPackageAsync(root, output, architecture, [], commands),
+            .. framework.Select(file => ($"dotnet/shared/Microsoft.NETCore.App/{pin.ProductVersion}/{file.Name}", file.Source)),
+            .. new[] { ("net8", eight), ("net8-latest", latest), ("net10", current) }.SelectMany(app =>
+                Directory.GetFiles(app.Item2).Order(StringComparer.Ordinal).Select(file => ($"app/{app.Item1}/{Path.GetFileName(file)}", file)))
+        ];
+        return [.. package];
     }
 
     /// <summary>
-    /// The application's line when every check passed on the branch's framework.
+    /// The lines the scenario requires: both frameworks in dotnet's list, and each run's line naming the framework its host
+    /// picked, whose description a build of the tree may suffix (10.0.12-dev); apps_init's report requires every run to
+    /// exit with 0, which the application does when every check passed.
     /// </summary>
-    /// <param name="pin">The branch's pin.</param>
-    /// <param name="architecture">Target architecture.</param>
-    /// <returns>The line.</returns>
-    public static string PassedLine(RuntimePin pin, KernelArchitecture architecture) =>
-        $"[SIDE-BY-SIDE] App.dll on .NET {pin.ProductVersion}, {(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: " +
-        $"{APP_CHECKS} of {APP_CHECKS} checks passed";
+    /// <param name="eight">The release/8.0 pin.</param>
+    /// <param name="ten">The runtime's pin.</param>
+    /// <returns>The lines.</returns>
+    public static string[] RequiredLines(RuntimePin eight, RuntimePin ten)
+    {
+        string Run(RuntimePin built, RuntimePin runs) => $"[SIDE-BY-SIDE] App.dll for .NET {Major(built)}.0 on .NET {runs.ProductVersion}";
+        return
+        [
+            $"Microsoft.NETCore.App {eight.ProductVersion} [/dotnet/shared/Microsoft.NETCore.App]",
+            $"Microsoft.NETCore.App {ten.ProductVersion} [/dotnet/shared/Microsoft.NETCore.App]",
+            Run(eight, eight), Run(ten, ten), Run(eight, ten)
+        ];
+    }
+
+    // The application built for a release: its sources with the target framework the SDK would record, compiled by the
+    // release's compiler against its reference pack, and its runtimeconfig; the application's directory.
+    private static async Task<string> BuildAppAsync(string root, string output, string name, RuntimePin pin,
+        Func<string, IReadOnlyList<string>, Task> compile)
+    {
+        var directory = Path.Combine(output, name);
+        if (Directory.Exists(directory))
+            Directory.Delete(directory, recursive: true);
+        Directory.CreateDirectory(directory);
+        var attribute = Path.Combine(output, $"{name}.TargetFramework.cs");
+        await File.WriteAllTextAsync(attribute, $"[assembly: System.Runtime.Versioning.TargetFramework(\".NETCoreApp,Version=v{Major(pin)}.0\", " +
+            $"FrameworkDisplayName = \".NET {Major(pin)}.0\")]\n");
+        await compile(Path.Combine(directory, "App.dll"), [Path.Combine(root, APP), attribute]);
+        await File.WriteAllTextAsync(Path.Combine(directory, "App.runtimeconfig.json"), RuntimeConfig(pin, null));
+        return directory;
+    }
+
+    // A runtimeconfig.json for the release's framework, with a rollForward when one is given.
+    private static string RuntimeConfig(RuntimePin pin, string? rollForward) =>
+        $"{{\n  \"runtimeOptions\": {{\n    \"tfm\": \"{pin.TargetFramework}\",\n" +
+        (rollForward is null ? "" : $"    \"rollForward\": \"{rollForward}\",\n") +
+        $"    \"framework\": {{ \"name\": \"Microsoft.NETCore.App\", \"version\": \"{pin.FrameworkReference}\" }}\n  }}\n}}\n";
+
+    private static string Major(RuntimePin pin) => pin.Version[..pin.Version.IndexOf('.')];
 
     private static string Tree(string root) => Path.Combine(root, "artifacts", "runtime-witos", "release-8.0");
 

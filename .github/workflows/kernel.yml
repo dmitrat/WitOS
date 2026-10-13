@@ -288,8 +288,9 @@ jobs:
 
   side-by-side:
     # .NET 8 LTS beside .NET 10 (plan step N3): dotnet/runtime's release/8.0 with its own pin and patch set is built for
-    # witos on each ISA and installed beside the .NET 10 the linux-host leg built and uploaded, and an application built
-    # for .NET 8 runs on 8.0 through 10.0's dotnet and hostfxr.
+    # witos on each ISA and installed beside the .NET 10 the linux-host leg built and uploaded; through 10.0's dotnet and
+    # hostfxr, applications built for .NET 8 and .NET 10 run on the framework their runtimeconfig and rollForward pick
+    # (N3.3), and every sysroot build checks ABI-2 1.0.
     needs: linux-host
     runs-on: ubuntu-24.04
     timeout-minutes: 180
