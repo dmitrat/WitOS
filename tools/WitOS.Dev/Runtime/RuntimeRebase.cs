@@ -14,8 +14,9 @@ namespace WitOS.Dev.Runtime;
 /// dotnet/runtime commit to another tag. Each patched file is read at the pin and at the tag: a file upstream did not
 /// change keeps its patch, a changed one is merged three ways (the patched text, the pinned text and the tag's text,
 /// with git merge-file), and a merge that conflicts is left for a person with its markers. The carried patches go to
-/// artifacts/runtime-rebase/&lt;tag&gt; with a report; with --apply, a carry without conflicts replaces patches/runtime and
-/// moves the pin.
+/// artifacts/runtime-rebase/&lt;tag&gt; with a report; with --apply, a carry without conflicts to a tag of the pinned release
+/// branch replaces the branch's patch set (patches/runtime/release-10.0) and moves its pin. A carry to another branch's
+/// tag measures a backport (N3: release/8.0) and applies nothing.
 /// </summary>
 internal static class RuntimeRebase
 {
@@ -26,7 +27,8 @@ internal static class RuntimeRebase
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="tag">A dotnet/runtime tag, such as v10.0.12.</param>
-    /// <param name="apply">Whether a carry without conflicts replaces patches/runtime and moves the pin to the tag.</param>
+    /// <param name="apply">Whether a carry without conflicts replaces the branch's patch set and moves its pin to the tag,
+    /// which must be of the pinned branch.</param>
     public static async Task RunAsync(string root, string tag, bool apply)
     {
         var pin = RuntimeWitos.ReadLock(root);
@@ -60,7 +62,7 @@ internal static class RuntimeRebase
         foreach (var (path, name) in RuntimeWitos.PATCHES.OrderBy(entry => entry.Key, StringComparer.Ordinal))
         {
             var patch = UpstreamPatches.Read(root, "runtime", name);
-            var original = await File.ReadAllTextAsync(Path.Combine(root, "patches", "runtime", name + ".patch"));
+            var original = await File.ReadAllTextAsync(Path.Combine(UpstreamPatches.Directory(root), RuntimeWitos.PATCH_SET, name + ".patch"));
             var originalLines = Lines(original);
             pinnedAdded += originalLines.Added;
             pinnedRemoved += originalLines.Removed;
@@ -150,11 +152,13 @@ internal static class RuntimeRebase
         if (!apply)
             return;
         if (kinds["conflicts"].Count > 0 || kinds["gone"].Count > 0)
-            throw new InvalidOperationException($"The patch set does not carry to {tag} without a person; patches/runtime and the pin stay.");
+            throw new InvalidOperationException($"The patch set does not carry to {tag} without a person; patches/{RuntimeWitos.PATCH_SET} and the pin stay.");
+        if (!tag.StartsWith($"v{pin.Branch["release/".Length..]}.", StringComparison.Ordinal))
+            throw new InvalidOperationException($"{tag} is not a tag of {pin.Branch}; another branch has a pin and a patch set of its own (RFC 0015 section 7).");
 
         // The pin moves with the patches: the tag, its commit and the bytes of every file the set changes there.
         foreach (var name in RuntimeWitos.PATCHES.Values)
-            File.Copy(Path.Combine(output, name + ".patch"), Path.Combine(root, "patches", "runtime", name + ".patch"), overwrite: true);
+            File.Copy(Path.Combine(output, name + ".patch"), Path.Combine(UpstreamPatches.Directory(root), RuntimeWitos.PATCH_SET, name + ".patch"), overwrite: true);
         var lockPath = Path.Combine(root, RuntimeWitos.LOCK);
         var document = JsonNode.Parse(await File.ReadAllTextAsync(lockPath))!.AsObject();
         document["tag"] = tag;
@@ -167,7 +171,7 @@ internal static class RuntimeRebase
             source!["sha256"] = hashes[source["path"]!.GetValue<string>()];
         var options = new JsonSerializerOptions { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
         await File.WriteAllTextAsync(lockPath, document.ToJsonString(options) + "\n");
-        Console.WriteLine($"patches/runtime and {RuntimeWitos.LOCK} now pin dotnet/runtime {tag}; run runtime-witos for both ISAs.");
+        Console.WriteLine($"patches/{RuntimeWitos.PATCH_SET} and {RuntimeWitos.LOCK} now pin dotnet/runtime {tag}; run runtime-witos for both ISAs.");
     }
 
     #endregion

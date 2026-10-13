@@ -59,7 +59,7 @@ public sealed class UpstreamPatchesTests
         {
             var patch = UpstreamPatches.Read(root, repository, output);
             // The witos patch set's sources are in its own pinned checkout (R1.1); a file it adds starts from no text.
-            var cache = repository == "runtime"
+            var cache = repository == WitOS.Dev.Runtime.RuntimeWitos.PATCH_SET
                 ? Path.Combine(root, ".tools", "upstream", $"runtime-witos-{WitOS.Dev.Runtime.RuntimeWitos.ReadLock(root).Version}")
                 : WitOS.Dev.Substrate.MuslLibc.SourceDirectory(root);
             var source = Path.Combine(cache, patch.Source);
@@ -131,17 +131,20 @@ public sealed class UpstreamPatchesTests
 
     #region Tools
 
+    // Each patch's repository is its directory under patches/, a release branch's set of the runtime among them
+    // (runtime/release-10.0, N3.1).
     private static IEnumerable<(string Repository, string Output)> Patches(string root)
         => Directory.EnumerateFiles(UpstreamPatches.Directory(root), "*.patch", SearchOption.AllDirectories)
             .Order(StringComparer.Ordinal)
-            .Select(path => (Path.GetFileName(Path.GetDirectoryName(path)!), Path.GetFileNameWithoutExtension(path)));
+            .Select(path => (Path.GetRelativePath(UpstreamPatches.Directory(root), Path.GetDirectoryName(path)!).Replace('\\', '/'),
+                Path.GetFileNameWithoutExtension(path)));
 
     private static Dictionary<(string, string), string> Pins(string root)
     {
         var pins = new Dictionary<(string, string), string>();
         // The Unix-form runtime's patch set: the files it changes, by their bytes at the pinned commit (R1.1).
         foreach (var (path, sha256) in WitOS.Dev.Runtime.RuntimeWitos.ReadLock(root).Sources)
-            pins[("runtime", path)] = sha256;
+            pins[(WitOS.Dev.Runtime.RuntimeWitos.PATCH_SET, path)] = sha256;
         // The C library of the system layer: the files WitOS patches, by their bytes in the pinned tarball (S1.1).
         var musl = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, WitOS.Dev.Substrate.MuslLibc.LOCK))).RootElement;
         foreach (var source in musl.GetProperty("sources").EnumerateArray())

@@ -148,13 +148,13 @@ dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-witos
 dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-witos --arch arm64
 ```
 
-On a Linux x64 host (the image of `build/linux/Dockerfile`), `runtime-witos` applies WitOS's patch set (`patches/runtime`, pinned with its commit in `build/runtime/runtime.lock.json`) to the pinned dotnet/runtime and builds it with upstream's `build.sh -os witos`: CoreLib, NativeAOT's native part against the system layer's sysroot, ILC with the target WitOS, the shared framework and the packs the SDK takes. It measures the native configure's `try_run` answers in the guest, publishes the M3 acceptance (`tests/Runtime.Witos/Acceptance`) with `dotnet publish -r witos-<arch>` and runs it in QEMU, where it must report `[M3] NativeAOT on <isa>: 32 runs passed, 0 failed`. See [R2.2](@Docs/Implementation/R2.2-M3-Acceptance.md) and [R2.3b](@Docs/Implementation/R2.3b-SDK-Targets.md).
+On a Linux x64 host (the image of `build/linux/Dockerfile`), `runtime-witos` applies WitOS's patch set (`patches/runtime/release-10.0`, pinned with its branch and commit in `build/runtime/release-10.0.lock.json`; each release branch has its own, N3.1) to the pinned dotnet/runtime and builds it with upstream's `build.sh -os witos`: CoreLib, NativeAOT's native part against the system layer's sysroot, ILC with the target WitOS, the shared framework and the packs the SDK takes. It measures the native configure's `try_run` answers in the guest, publishes the M3 acceptance (`tests/Runtime.Witos/Acceptance`) with `dotnet publish -r witos-<arch>` and runs it in QEMU, where it must report `[M3] NativeAOT on <isa>: 32 runs passed, 0 failed`. See [R2.2](@Docs/Implementation/R2.2-M3-Acceptance.md) and [R2.3b](@Docs/Implementation/R2.3b-SDK-Targets.md).
 
 ```bash
 dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-rebase --tag v10.0.12
 ```
 
-`runtime-rebase` carries the patch set to another tag of dotnet/runtime. A file upstream did not change keeps its patch, a changed one is merged three ways, and a conflict is left for a person; the patches and a report of the set's size go to `artifacts/runtime-rebase/<tag>`. With `--apply`, a carry without conflicts replaces `patches/runtime` and moves the pin, which `runtime-witos` then proves on both ISAs. See [R8.1](@Docs/Implementation/R8.1-Servicing-Upgrade.md).
+`runtime-rebase` carries the patch set to another tag of dotnet/runtime. A file upstream did not change keeps its patch, a changed one is merged three ways, and a conflict is left for a person; the patches and a report of the set's size go to `artifacts/runtime-rebase/<tag>`. With `--apply`, a carry without conflicts to a tag of the pinned branch replaces its patch set and moves the pin, which `runtime-witos` then proves on both ISAs. See [R8.1](@Docs/Implementation/R8.1-Servicing-Upgrade.md).
 
 ```bash
 dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-services --arch arm64
