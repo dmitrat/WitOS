@@ -33,6 +33,7 @@ internal sealed class TerminalLink : IDisposable
     private readonly Task m_pump;
     private int m_next;
     private int m_searchFrom;
+    private bool m_disposed;
 
     #endregion
 
@@ -134,6 +135,9 @@ internal sealed class TerminalLink : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
+        if (m_disposed)
+            return;
+        m_disposed = true;
         m_lifetime.Cancel();
         m_listener.Stop();
         try
