@@ -110,8 +110,10 @@ FreeBSD, a memory object on WitOS); `src/coreclr/nativeaot/Runtime/unix` for `cg
 the install-location file of §7 does not suffice. Each patch names the plan step that introduced it and the
 alternative of the preference order it could not use.
 
-**Contribution.** The patch set is aimed at an upstream `witos` target; when to propose it (after R7 or after N1) is
-an open question of the plan.
+**Contribution.** The patch set is aimed at an upstream `witos` target. It is proposed together with T4, the own
+triple `*-unknown-witos` ([ADR 0026](Implementation/ADR-0026-M6-Summary.md)): filed before, the target would arrive
+defining `__linux__` and excluding the Linux kernel's sites one by one. Until then the set is maintained per release
+branch (§7) and carried across tags by `runtime-rebase` (R8.1).
 
 ## 5. The substrate the runtime needs
 
@@ -210,23 +212,30 @@ installation:
   `libwitos.so.1`, and an older runtime never needs a symbol the system layer lacks.
 - Side-by-side is proven at plan step N3 with .NET 8 LTS and .NET 10 in one image.
 
-## 8. Feature profile by phase
+## 8. Feature profile
 
-| Area | First guest profile (R2–R6) | Later |
+The profile as of N4, each area with what the guest proves on both ISAs and the step that proved it
+([ADR 0026](Implementation/ADR-0026-M6-Summary.md) replaced the table of phases of v2 with the fact). The public form
+is [Compatibility-Matrix.md](Implementation/Compatibility-Matrix.md), rendered from the compatibility suite and kept
+current by a host test.
+
+| Area | On WitOS | Step |
 | --- | --- | --- |
-| GC | workstation, non-concurrent | concurrent and server GC with SMP (phase P) |
-| Globalization | invariant mode (`System.Globalization.Invariant`); ICU absent | ICU from source when a scenario needs culture data |
-| Cryptography | `PlatformNotSupportedException`; no OpenSSL | a provider decided with the storage of keys and the network |
-| Networking | absent; `System.Net.Security.Native` absent | M7 over the network service |
-| Files | read-only boot package, then the namespace service (D5) | persistent storage (D6) |
-| Processes | `Process.Start` unsupported | `posix_spawn` over the process manager |
-| Console | write-only over the kernel log | the terminal of RFC 0020 |
-| Diagnostics | no `createdump`, no EventPipe transport | decided with the debugger story |
-| Compression | zlib-ng and brotli in-tree | unchanged |
-| Time | monotonic; UTC after K6 | time zones from a package of tzdata |
-| Dynamic code | JIT, `Reflection.Emit`, `AssemblyLoadContext` | unchanged |
+| GC | the workstation GC, its heap bounded to 75% of what a process may own (`DOTNET_GCTotalPhysicalMemory`); the server GC waits for phase P, since one processor schedules threads | R2, N2.2 |
+| Globalization | ICU4C built from the pinned source; invariant mode only where an application asks | R4.3 |
+| Cryptography | System.Native's random bytes, the managed hashes, HMAC and KDFs (the browser flavor's set); `PlatformNotSupportedException` for the rest; no OpenSSL | R4.1 |
+| Networking | absent until M7: `System.Net.Sockets` and `System.Net.Security.Native` fail explicitly | — |
+| Files | the namespace service: ext4 written through the journal, FAT, `/tmp` in the service's memory, the boot package read-only; modes and times as the volume keeps them; memory-mapped files as copies (private) or the service's pages (shared); no change notifications | D5, R4.2, N4.1 |
+| Processes | `posix_spawn` over the process manager with pipes between processes, `SIGCHLD`, `waitid` and `kill` of a child; no process enumeration, no other process's name or times, no signal to another process but `SIGKILL`, one user, no process groups | N4.2 |
+| Console | the terminal service over the virtio console with Linux's line discipline; without a terminal the standard streams are the kernel log | N4.3 |
+| Diagnostics | no `createdump`, no EventPipe transport; decided with the debugger story | — |
+| Compression | zlib-ng and brotli in-tree | R2.3a |
+| Time | monotonic and UTC from the board's clock; time zones from pinned tzdata under `/usr/share/zoneinfo` | K6, N4.1 |
+| Dynamic code | JIT, `Reflection.Emit`, `AssemblyLoadContext`, every method into the double mapping of a shared memory file | R3 |
+| Several runtimes | .NET 8 and .NET 10 side by side under `/dotnet`, each release branch with its own patch set | N3 |
+| The published application | an application published on Windows or Linux by the stock SDK without a RID runs unchanged as those bytes | R6, N4.4 |
 
-Every "absent" and "unsupported" cell fails explicitly and appears in the compatibility suite's recorded differences.
+Every absent area fails explicitly and appears in the compatibility suite's recorded differences.
 
 ## 9. Gates
 
@@ -246,7 +255,7 @@ hosted result.
 | N1 | the compatibility suite of Strategy §57 on Windows, Linux and WitOS | recorded, intentional differences only |
 | N2 | NUnit, xUnit, MessagePack, MemoryPack, Math.NET, Roslyn | their own tests in the guest |
 | N3 | .NET 8 and .NET 10 side by side | selection by `rollForward` |
-| N4 | UTC, `Environment`, part of `Process`, the console of RFC 0020 | guest markers |
+| N4 | time zones and `/tmp` (N4.1), `Process.Start` with pipes between processes (N4.2), the console of RFC 0020 (N4.3), the applications published on Windows run as those bytes (N4.4), the matrix and this profile by fact (N4.5) | guest markers on both ISAs; the suite with no unexpected result; `Compatibility-Matrix.md` |
 
 Gate B of the Strategy (§61), "WitOS runs .NET", follows N4.
 
@@ -275,3 +284,5 @@ Nothing in this section is guest .NET support; AGENTS.md forbids describing host
   code generation with a WitOS source adapter.
 - v2 (2026-10-06): this document, after ADR 0024 reversed that selection: the Unix form, `TargetOS=witos`, the
   substrate private to layer 2, the patch set, platform identity and side-by-side runtimes.
+- v2.1 (2026-10-14, ADR 0026, plan step N4.5): §8 states the profile by fact, §4 fixes the upstream proposal at T4,
+  §9 records N4's gates.

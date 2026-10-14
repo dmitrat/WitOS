@@ -34,6 +34,11 @@ with their evidence are in
 [Plan-Completed.md](@Docs/Implementation/Plan-Completed.md), and the audit of 2026-10-14 in
 [Program-Audit-2026-10-14.md](@Docs/Implementation/Program-Audit-2026-10-14.md).
 
+**WitOS runs .NET** (Gate B of the Strategy, §61, claimed at plan step N4.5): what the claim means is the
+[compatibility matrix](@Docs/Implementation/Compatibility-Matrix.md), rendered from the compatibility suite and kept
+current by a host test, and its limits are the [recorded differences](@Docs/Implementation/Compatibility-Differences.md);
+the decisions behind it are in [ADR 0026](@Docs/Implementation/ADR-0026-M6-Summary.md).
+
 A self-test kernel also runs the kernel's white-box checks and the user-mode fixture of each mechanism before `Hello`.
 The root task, one freestanding C program built by the pinned clang and lld for `x86_64-unknown-linux-musl` and
 `aarch64-unknown-linux-musl` (plan step T1), checks its startup capabilities and the mechanisms layer 2 has no other

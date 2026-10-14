@@ -32,6 +32,14 @@ IEnumerable<Check>[] areas =
     GlobalizationChecks.All(), TimeZoneChecks.All(), TerminalChecks.All()
 ];
 var checks = areas.SelectMany(area => area).ToList();
+// The compatibility matrix (Strategy §145, N4.5) lists the checks from the suite itself: "--list" prints each check's id
+// and runs none.
+if (args is ["--list"])
+{
+    foreach (var check in checks)
+        Console.WriteLine(check.Id);
+    return 0;
+}
 int differences = 0, unexpected = 0, notApplicable = 0;
 foreach (var check in checks)
 {
