@@ -167,6 +167,41 @@ public sealed class FatFileSystem : IFileSystem
             cancellationToken);
 
     /// <inheritdoc />
+    /// <remarks>
+    /// FAT records read-only alone (N4.1): a mode without a write bit sets the attribute, one with the owner's clears it,
+    /// and the provider reports 0555/0755 for a directory and 0444/0644 for a file afterwards; a mode that asks for
+    /// anything else, which the format cannot keep, is NotPermitted, as Linux's vfat refuses a mode its masks cannot
+    /// represent with EPERM.
+    /// </remarks>
+    public ValueTask<FileSystemEntry> SetModeAsync(string path, int mode, CancellationToken cancellationToken = default) =>
+        LockedAsync(async () =>
+        {
+            var entry = await m_volume.GetEntryAsync(path, cancellationToken).ConfigureAwait(false)
+                ?? throw new FileSystemException(FileSystemError.NotFound, $"Nothing is at {path}.");
+            var readOnly = (mode & 0x92) == 0; // 0222: no write bit at all
+            var kept = entry.IsDirectory ? (readOnly ? 0x16D : 0x1ED) : readOnly ? 0x124 : 0x1A4; // 0555 0755 0444 0644
+            if ((mode & 0xFFF) != kept)
+                throw new FileSystemException(FileSystemError.NotPermitted,
+                    $"FAT records read-only alone: the mode {Convert.ToString(mode & 0xFFF, 8)} is not {Convert.ToString(kept, 8)}.");
+            var attributes = readOnly ? entry.Attributes | FatAttributes.ReadOnly : entry.Attributes & ~FatAttributes.ReadOnly;
+            if (attributes != entry.Attributes)
+                await m_volume.SetAttributesAsync(path, attributes, cancellationToken).ConfigureAwait(false);
+            return Entry(await m_volume.GetEntryAsync(path, cancellationToken).ConfigureAwait(false) ?? entry);
+        }, cancellationToken);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The library records the times a write sets and offers no way to set them (N4.1): the change is NotPermitted, which
+    /// a program sees as EPERM, the answer a volume without POSIX metadata gives on Linux and the one System.Native's
+    /// CopyFile tolerates for the copy's metadata.
+    /// </remarks>
+    public async ValueTask<FileSystemEntry> SetTimesAsync(string path, DateTimeOffset? accessed, DateTimeOffset? modified,
+        CancellationToken cancellationToken = default) =>
+        await GetEntryAsync(path, cancellationToken).ConfigureAwait(false) is null
+            ? throw new FileSystemException(FileSystemError.NotFound, $"Nothing is at {path}.")
+            : throw new FileSystemException(FileSystemError.NotPermitted, "FAT through its library records the times a write sets; none is set by hand.");
+
+    /// <inheritdoc />
     public ValueTask FlushAsync(CancellationToken cancellationToken = default) =>
         LockedAsync(() => m_volume.FlushAsync(cancellationToken), cancellationToken);
 

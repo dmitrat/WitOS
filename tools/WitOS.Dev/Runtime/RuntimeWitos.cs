@@ -722,6 +722,10 @@ internal static class RuntimeWitos
         await File.WriteAllTextAsync(passwd, "root:x:0:0:root:/:\n");
         var group = Path.Combine(output, "group");
         await File.WriteAllTextAsync(group, "root:x:0:\n");
+        // The default environment of every process (N4.1), which the root task reads and gives /bin/init: PATH, and the
+        // home of the one account, as /etc/passwd names it.
+        var environment = Path.Combine(output, "environment");
+        await File.WriteAllTextAsync(environment, "# The default environment of every process; the root task reads it (N4.1).\nPATH=/bin:/usr/bin\nHOME=/\n");
         var sysroot = await Sysroot.BuildAsync(root, architecture);
         var shared = await FrameworkFilesAsync(tree, output, architecture, version, pin.TargetFramework);
 
@@ -733,7 +737,9 @@ internal static class RuntimeWitos
             ("lib/libunwind.so.1", Path.Combine(lib, "libunwind.so.1")),
             // ICU (R4.3), which System.Globalization.Native loads for culture data.
             .. await Icu.PackageFilesAsync(root, architecture),
-            ("etc/dotnet/install_location", installLocation), ("etc/passwd", passwd), ("etc/group", group),
+            // tzdata (N4.1), compiled by zic into the TZif files TimeZoneInfo reads under /usr/share/zoneinfo, as on Linux.
+            .. await Tzdata.PackageFilesAsync(root),
+            ("etc/dotnet/install_location", installLocation), ("etc/passwd", passwd), ("etc/group", group), ("etc/environment", environment),
             ("dotnet/dotnet", Path.Combine(corehost, "dotnet")),
             ($"dotnet/host/fxr/{version}/libhostfxr.so", Path.Combine(corehost, "libhostfxr.so")),
             .. shared.Select(file => ($"dotnet/shared/Microsoft.NETCore.App/{version}/{file.Name}", file.Source))

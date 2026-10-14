@@ -10,6 +10,9 @@ internal static class Errno
 {
     #region Constants
 
+    /// <summary>EPERM.</summary>
+    public const int PERMISSION = 1;
+
     /// <summary>ENOENT.</summary>
     public const int NOT_FOUND = 2;
 
@@ -89,6 +92,7 @@ internal static class Errno
             FileSystemError.TooLarge => TOO_LARGE,
             FileSystemError.NotALink or FileSystemError.InvalidName => INVALID,
             FileSystemError.Unsupported => NOT_SUPPORTED,
+            FileSystemError.NotPermitted => PERMISSION,
             _ => IO
         },
         ArgumentException => INVALID,

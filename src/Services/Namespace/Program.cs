@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using OutWit.OS.Communication;
+using OutWit.OS.FileSystems.Memory;
 using OutWit.OS.Namespace.Server;
 using OutWit.OS.Namespace.Volumes;
 using OutWit.OS.Namespaces;
@@ -24,6 +25,11 @@ internal static class Program
 
     private const string PREFIX = "[NAMESPACE] ";
 
+    /// <summary>
+    /// What the files of /tmp may hold in all (N4.1).
+    /// </summary>
+    private const long TEMPORARY_BYTES = 64L * 1024 * 1024;
+
     #endregion
 
     #region Functions
@@ -33,6 +39,12 @@ internal static class Program
         using var channel = new Channel(Grant.Take());
         var mounts = new MountTable();
         var kept = new List<IAsyncDisposable>();
+        // /tmp (N4.1): a volume in the service's memory, there whatever disks the machine has, with the modes POSIX
+        // programs and .NET's named synchronization objects (/tmp/.dotnet) need; its files last the boot.
+        var temporary = new MemoryFileSystem(TEMPORARY_BYTES, "tmp");
+        mounts.Add("/tmp", temporary);
+        kept.Add(temporary);
+        Console.WriteLine($"{PREFIX}mounted /tmp: {temporary.Volume.Format} volume of {temporary.Volume.Length} bytes in memory");
         try
         {
             for (; ; )

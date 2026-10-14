@@ -19,7 +19,10 @@
  * process and copy-on-write mappings of one are not there. Every function runs under the table lock of
  * __wit_syscall. */
 
-#define FILES 64U
+/* The files at once: shm_open's and memfd_create's, and since R4.2 every volume file mapped shared, which CoreCLR
+ * keeps for every assembly it loads from a volume and MemoryMappedFile for every read-only view (N4.1: Roslyn's
+ * analyzer loading tests kept more than 64 and got ENFILE); as many as the descriptor table holds. */
+#define FILES 1024U
 #define NAME_BYTES 255U /* NAME_MAX */
 #define CHUNK ((WitU64)WIT_MEMORY_OBJECT_PAGES * 4096ULL)
 #define SIZE_LIMIT (16ULL << 30) /* a file's chunk table stays within 512 KiB */
@@ -37,6 +40,7 @@ typedef struct SharedFile {
     WitU32
         Remote; /* one more than the remote record of a volume's file whose chunks the namespace service shares (R4.2) */
     int Writable; /* such a file's chunks are asked for writable */
+    WitU32 Mode; /* the permission bits, 0600 until chmod changes them (N4.1), as a file of tmpfs keeps its own */
 } SharedFile;
 
 static SharedFile files[FILES];
@@ -86,6 +90,7 @@ static long create(WitU32 *index)
             memset(&files[i], 0, sizeof(files[i]));
             files[i].Live = 1;
             files[i].References = 1;
+            files[i].Mode = 0600;
             *index = i;
             return 0;
         }
@@ -205,6 +210,19 @@ void __wit_shared_release(WitU32 index)
 WitU64 __wit_shared_size(WitU32 index)
 {
     return files[index].Size;
+}
+
+/* The permission bits a stat reports (N4.1). */
+WitU32 __wit_shared_mode(WitU32 index)
+{
+    return files[index].Mode;
+}
+
+/* chmod and fchmod of a shared memory file (N4.1): the bits are kept, as tmpfs keeps them. */
+long __wit_shared_chmod(WitU32 index, long mode)
+{
+    files[index].Mode = (WitU32)(mode & 07777);
+    return 0;
 }
 
 /* ftruncate: a larger file gets chunks nobody mapped yet; a smaller one gives up the chunks wholly past its end, whose

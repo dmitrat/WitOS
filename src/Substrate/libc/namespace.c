@@ -19,7 +19,9 @@
  * data and a listing travel in the window. A descriptor of such a file or directory is the index of a remote record,
  * the service's handle; the descriptors that share it count as its references, and the last one closes the handle. */
 
-#define REMOTES 512U /* CoreCLR keeps every assembly it loads open (R6) */
+#define REMOTES \
+    1024U /* CoreCLR keeps every assembly it loads open (R6), and a shared mapping holds its record after the \
+                         descriptor closes (R4.2): as many as the descriptor table holds (N4.1) */
 #define DIRECTORIES 64U /* the remote directories open at once, whose names fchdir and the *at calls need */
 #define MOUNTS 16U
 #define MOUNT_BYTES 64U
@@ -543,6 +545,71 @@ long __wit_remote_map(WitU32 index, WitU64 offset, int writable, WitU64 *object)
     }
     *object = handle;
     return 0;
+}
+
+/* chmod of a path of a volume (N4.1): the service keeps what the volume's format records and answers ENOTSUP where it
+ * cannot keep the mode (FAT records read-only alone). */
+long __wit_remote_chmod(const unsigned char *name, WitU32 length, long mode)
+{
+    WitNamespaceRequest request;
+    WitNamespaceReply reply;
+    memset(&request, 0, sizeof(request));
+    const long bytes = put_path(0, name, length);
+    if (bytes < 0) {
+        return bytes;
+    }
+    request.Operation = WIT_NAMESPACE_CHMOD;
+    request.Length = (WitU64)bytes;
+    request.Mode = (WitU32)(mode & 07777);
+    return call(&request, &reply);
+}
+
+/* fchmod of an open file or directory of a volume (N4.1). */
+long __wit_remote_fchmod(WitU32 index, long mode)
+{
+    WitNamespaceRequest request;
+    WitNamespaceReply reply;
+    memset(&request, 0, sizeof(request));
+    request.Operation = WIT_NAMESPACE_FCHMOD;
+    request.Handle = remotes[index].Handle;
+    request.Mode = (WitU32)(mode & 07777);
+    return call(&request, &reply);
+}
+
+/* utimensat of a path of a volume (N4.1): the times after the path in the window, the flags saying which are set and
+ * which are the service's now; the service keeps what the volume's format records and answers EPERM where it cannot. */
+long __wit_remote_utimes(const unsigned char *name, WitU32 length, const WitNamespaceTimes *times, WitU32 flags)
+{
+    WitNamespaceRequest request;
+    WitNamespaceReply reply;
+    memset(&request, 0, sizeof(request));
+    const long bytes = put_path(0, name, length);
+    if (bytes < 0) {
+        return bytes;
+    }
+    const WitU64 at = ((WitU64)bytes + 7) & ~7ULL;
+    if (at + sizeof(*times) > WINDOW) {
+        return -ENAMETOOLONG;
+    }
+    memcpy(window + at, times, sizeof(*times));
+    request.Operation = WIT_NAMESPACE_UTIMES;
+    request.Flags = flags;
+    request.Offset = at;
+    request.Length = (WitU64)bytes;
+    return call(&request, &reply);
+}
+
+/* futimens of an open file or directory of a volume (N4.1). */
+long __wit_remote_futimes(WitU32 index, const WitNamespaceTimes *times, WitU32 flags)
+{
+    WitNamespaceRequest request;
+    WitNamespaceReply reply;
+    memset(&request, 0, sizeof(request));
+    memcpy(window, times, sizeof(*times));
+    request.Operation = WIT_NAMESPACE_FUTIMES;
+    request.Flags = flags;
+    request.Handle = remotes[index].Handle;
+    return call(&request, &reply);
 }
 
 long __wit_remote_readlink(const unsigned char *name, WitU32 length, char *buffer, long size)

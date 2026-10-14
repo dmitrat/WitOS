@@ -150,6 +150,21 @@ internal sealed class Ext4InodeRecord
     }
 
     /// <summary>
+    /// Sets the access and modification times a caller gives (N4.1), either left null staying, and the change time.
+    /// </summary>
+    /// <param name="accessed">The access time, or null.</param>
+    /// <param name="modified">The modification time, or null.</param>
+    /// <param name="now">The change time.</param>
+    public void SetTimes(DateTimeOffset? accessed, DateTimeOffset? modified, DateTimeOffset now)
+    {
+        if (accessed is { } access)
+            SetTime(ACCESSED, ACCESSED_EXTRA, access);
+        if (modified is { } modification)
+            SetTime(MODIFIED, MODIFIED_EXTRA, modification);
+        SetTime(CHANGED, CHANGED_EXTRA, now);
+    }
+
+    /// <summary>
     /// Marks the inode deleted at a time: no links, no size, no blocks.
     /// </summary>
     /// <param name="now">The time.</param>
@@ -214,8 +229,12 @@ internal sealed class Ext4InodeRecord
     /// <summary>i_block.</summary>
     public Span<byte> Block => Bytes.Slice(BLOCK, Ext4Inode.BLOCK_BYTES);
 
-    /// <summary>i_mode.</summary>
-    public int Mode => BinaryPrimitives.ReadUInt16LittleEndian(Bytes[MODE..]);
+    /// <summary>i_mode: the type in its high four bits and the permission bits below them.</summary>
+    public int Mode
+    {
+        get => BinaryPrimitives.ReadUInt16LittleEndian(Bytes[MODE..]);
+        set => BinaryPrimitives.WriteUInt16LittleEndian(Bytes[MODE..], (ushort)value);
+    }
 
     /// <summary>The hard links.</summary>
     public int Links

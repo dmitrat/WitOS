@@ -30,6 +30,39 @@
 #define INIT "/bin/init"
 #define STOP_SECONDS 60U /* how long the services may take to stop, in guest time */
 
+/* The default environment of every process (N4.1): the KEY=VALUE lines of /etc/environment, which the install writes
+ * into the package, or PATH alone when the package has none; a comment line starts with '#'. */
+#define ENVIRONMENT_FILE "/etc/environment"
+#define ENVIRONMENT_ENTRIES 32U
+#define ENVIRONMENT_BYTES 4096U
+static char environment_bytes[ENVIRONMENT_BYTES];
+static char *envp[ENVIRONMENT_ENTRIES + 2];
+
+static WitU32 read_environment(void)
+{
+    WitU32 count = 0;
+    FILE *file = fopen(ENVIRONMENT_FILE, "r");
+    if (file) {
+        char *at = environment_bytes;
+        while (count < ENVIRONMENT_ENTRIES &&
+            at < environment_bytes + ENVIRONMENT_BYTES - 2 &&
+            fgets(at, (int)(environment_bytes + ENVIRONMENT_BYTES - at), file)) {
+            const size_t length = strcspn(at, "\r\n");
+            at[length] = 0;
+            if (length == 0 || at[0] == '#' || !strchr(at, '=')) {
+                continue; /* the next line takes the same place */
+            }
+            envp[count++] = at;
+            at += length + 1;
+        }
+        fclose(file);
+    }
+    if (count == 0) {
+        envp[count++] = "PATH=/bin:/usr/bin";
+    }
+    return count;
+}
+
 /* The device manager's service: its channel, with the device table already sent over it; 0 when the package has no
  * device manager, an errno value when the channel or the table could not be prepared. The root task moves its own
  * handle of the table, with the rights the kernel gave it: HANDLE_DUPLICATE keeps ACQUIRE out of a memory object's
@@ -77,7 +110,9 @@ int main(void)
     }
     static char memory[64];
     snprintf(memory, sizeof(memory), "DOTNET_GCTotalPhysicalMemory=%llx", limit);
-    static char *envp[] = {"PATH=/bin:/usr/bin", memory, 0};
+    WitU32 entries = read_environment();
+    envp[entries++] = memory;
+    envp[entries] = 0;
     WitProcessInfo info;
     witos_service device_manager;
     int stopped = 0;

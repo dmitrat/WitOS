@@ -76,6 +76,29 @@ public interface IFileSystem : IAsyncDisposable
     ValueTask<FileSystemEntry> RenameAsync(string source, string destination, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Sets the permission bits of a file or a directory (plan step N4.1), as chmod does: a format that records a mode
+    /// keeps the bits; a format that records read-only alone (FAT) takes a mode that says only that and refuses any other
+    /// with <see cref="FileSystemError.Unsupported"/>.
+    /// </summary>
+    /// <param name="path">The file or directory.</param>
+    /// <param name="mode">The permission bits (07777), without the type.</param>
+    /// <param name="cancellationToken">Cancels the change.</param>
+    /// <returns>The entry as it is afterwards.</returns>
+    ValueTask<FileSystemEntry> SetModeAsync(string path, int mode, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets the access and modification times of a file or a directory (plan step N4.1), as utimensat does; a time left
+    /// null stays. A format that records no settable times (FAT through its library) refuses with
+    /// <see cref="FileSystemError.NotPermitted"/>, as a volume that keeps no POSIX metadata answers EPERM on Linux.
+    /// </summary>
+    /// <param name="path">The file or directory.</param>
+    /// <param name="accessed">The access time, or null to leave it.</param>
+    /// <param name="modified">The modification time, or null to leave it.</param>
+    /// <param name="cancellationToken">Cancels the change.</param>
+    /// <returns>The entry as it is afterwards.</returns>
+    ValueTask<FileSystemEntry> SetTimesAsync(string path, DateTimeOffset? accessed, DateTimeOffset? modified, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Writes everything the filesystem holds back and flushes the block storage below: what completed before is durable
     /// when the flush completes.
     /// </summary>

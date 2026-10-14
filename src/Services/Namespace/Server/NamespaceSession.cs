@@ -75,6 +75,10 @@ internal sealed class NamespaceSession : IAsyncDisposable
                 NamespaceMessages.SYNC => await SyncAsync(request, cancellationToken).ConfigureAwait(false),
                 NamespaceMessages.READLINK => await ReadLinkAsync(request, cancellationToken).ConfigureAwait(false),
                 NamespaceMessages.MAP => await MapAsync(request, cancellationToken).ConfigureAwait(false),
+                NamespaceMessages.CHMOD => await ChangeModeAsync(request, cancellationToken).ConfigureAwait(false),
+                NamespaceMessages.FCHMOD => await ChangeHandleModeAsync(request, cancellationToken).ConfigureAwait(false),
+                NamespaceMessages.UTIMES => await SetTimesAsync(request, cancellationToken).ConfigureAwait(false),
+                NamespaceMessages.FUTIMES => await SetHandleTimesAsync(request, cancellationToken).ConfigureAwait(false),
                 _ => Fail(request, Errno.NOT_IMPLEMENTED)
             };
         }
@@ -110,6 +114,10 @@ internal sealed class NamespaceSession : IAsyncDisposable
             NamespaceMessages.SYNC => "sync",
             NamespaceMessages.READLINK => "readlink",
             NamespaceMessages.MAP => "map",
+            NamespaceMessages.CHMOD => "chmod",
+            NamespaceMessages.FCHMOD => "fchmod",
+            NamespaceMessages.UTIMES => "utimes",
+            NamespaceMessages.FUTIMES => "futimes",
             _ => $"operation {request.Operation}"
         };
         if (m_opened.TryGetValue(request.Handle, out var opened))
@@ -444,6 +452,56 @@ internal sealed class NamespaceSession : IAsyncDisposable
         else
             await opened.Mount.Volume.FlushAsync(cancellationToken).ConfigureAwait(false);
         return new NamespaceReply(request.Operation, 0);
+    }
+
+    // chmod (N4.1): the volume keeps what its format records; FAT refuses a mode it cannot keep, which the client sees
+    // as ENOTSUP.
+    private async ValueTask<NamespaceReply> ChangeModeAsync(NamespaceRequest request, CancellationToken cancellationToken)
+    {
+        var (mount, inner) = Resolve(Path(request, 0, request.Length));
+        var entry = await mount.Volume.SetModeAsync(inner, (int)(request.Mode & 0xFFF), cancellationToken).ConfigureAwait(false);
+        return new NamespaceReply(request.Operation, 0, Stat: Stat(mount, Current(mount, inner, entry)));
+    }
+
+    private async ValueTask<NamespaceReply> ChangeHandleModeAsync(NamespaceRequest request, CancellationToken cancellationToken)
+    {
+        if (!m_opened.TryGetValue(request.Handle, out var opened))
+            return Fail(request, Errno.BAD_HANDLE);
+        var entry = await opened.Mount.Volume.SetModeAsync(opened.Path, (int)(request.Mode & 0xFFF), cancellationToken).ConfigureAwait(false);
+        return new NamespaceReply(request.Operation, 0, Stat: Stat(opened.Mount, Current(opened.Mount, opened.Path, entry)));
+    }
+
+    // utimensat (N4.1): the times the flags name, given in the window or the service's clock; the volume keeps what its
+    // format records, and FAT refuses with EPERM.
+    private async ValueTask<NamespaceReply> SetTimesAsync(NamespaceRequest request, CancellationToken cancellationToken)
+    {
+        var (mount, inner) = Resolve(Path(request, 0, request.Length));
+        var (accessed, modified) = Times(request);
+        var entry = await mount.Volume.SetTimesAsync(inner, accessed, modified, cancellationToken).ConfigureAwait(false);
+        return new NamespaceReply(request.Operation, 0, Stat: Stat(mount, Current(mount, inner, entry)));
+    }
+
+    private async ValueTask<NamespaceReply> SetHandleTimesAsync(NamespaceRequest request, CancellationToken cancellationToken)
+    {
+        if (!m_opened.TryGetValue(request.Handle, out var opened))
+            return Fail(request, Errno.BAD_HANDLE);
+        var (accessed, modified) = Times(request);
+        var entry = await opened.Mount.Volume.SetTimesAsync(opened.Path, accessed, modified, cancellationToken).ConfigureAwait(false);
+        return new NamespaceReply(request.Operation, 0, Stat: Stat(opened.Mount, Current(opened.Mount, opened.Path, entry)));
+    }
+
+    // The times of a UTIMES or FUTIMES request: a WitNamespaceTimes at Offset of the window, each time taken as the flags
+    // say, null for one that stays.
+    private (DateTimeOffset? Accessed, DateTimeOffset? Modified) Times(NamespaceRequest request)
+    {
+        if (request.Offset < 0 || request.Offset > m_window.Length - NamespaceMessages.TIMES_SIZE)
+            throw new ArgumentOutOfRangeException(nameof(request), "The times lie outside the window.");
+        var bytes = m_window.Read((int)request.Offset, NamespaceMessages.TIMES_SIZE);
+        var now = DateTimeOffset.UtcNow;
+        return ((request.Flags & NamespaceMessages.TIME_ACCESSED_NOW) != 0 ? now
+                : (request.Flags & NamespaceMessages.TIME_ACCESSED) != 0 ? NamespaceMessages.ReadTime(bytes, 0) : null,
+            (request.Flags & NamespaceMessages.TIME_MODIFIED_NOW) != 0 ? now
+                : (request.Flags & NamespaceMessages.TIME_MODIFIED) != 0 ? NamespaceMessages.ReadTime(bytes, 1) : null);
     }
 
     private async ValueTask<NamespaceReply> ReadLinkAsync(NamespaceRequest request, CancellationToken cancellationToken)

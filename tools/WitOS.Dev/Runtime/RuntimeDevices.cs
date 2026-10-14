@@ -121,8 +121,8 @@ internal static class RuntimeDevices
     // The source folders of OutWit.OS every service compiles; never obj or bin, which a host build leaves.
     private static readonly string[] OUTWIT_OS_FOLDERS = ["Native", "Resources", "Communication", "Hardware", "Execution", "Storage", "Namespaces"];
 
-    // OutWit.OS's filesystem providers (D4.1, D4.2), which a service compiles with OutWit.OS's package references.
-    private static readonly string[] OUTWIT_OS_FILESYSTEM_FOLDERS = ["FileSystems", "FileSystems/Fat", "FileSystems/Ext4"];
+    // OutWit.OS's filesystem providers (D4.1, D4.2, N4.1), which a service compiles with OutWit.OS's package references.
+    private static readonly string[] OUTWIT_OS_FILESYSTEM_FOLDERS = ["FileSystems", "FileSystems/Fat", "FileSystems/Ext4", "FileSystems/Memory"];
 
     #endregion
 
@@ -303,11 +303,12 @@ internal static class RuntimeDevices
     [
         $"[DEVICES] device manager on {(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: ",
         " 2 drivers ready, DMA isolation: none (no IOMMU), ready",
+        "[NAMESPACE] mounted /tmp: tmpfs volume of 67108864 bytes in memory", // N4.1
         "[NAMESPACE] mounted /boot: FAT16 volume of ",
         $"[NAMESPACE] mounted /data: ext4 volume \"{RuntimeExt4Volume.LABEL}\" of " +
             $"{(RuntimeDataDisk.EXT4_PARTITION_LAST_BLOCK - RuntimeDataDisk.EXT4_PARTITION_FIRST_BLOCK + 1) * 512} bytes, writable, from pci/",
         $"[NAMESPACE] mounted /fat: FAT",
-        "[NAMESPACE] namespace service: 3 volumes mounted, serving their files",
+        "[NAMESPACE] namespace service: 4 volumes mounted, serving their files",
         "[DEVICES] namespace service /system/Namespace with 2 disks: ready",
         $"[DEVICES-INIT] boot {boot} of the data disk",
         .. boot > 1 ? ["[DEVICES-INIT] /data/posix-kept.txt and /data/dotnet-kept.txt hold what the previous boot wrote: yes"] : Array.Empty<string>(),
@@ -341,7 +342,7 @@ internal static class RuntimeDevices
             $"{(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: {VOLUME_GREETING}, answered by VolumeLibrary",
         "[DEVICES-INIT] /dotnet/dotnet exited with 0",
         "[ROOT-TASK] /system/DeviceManager was ready before /bin/init",
-        ", 3 volumes unmounted",
+        ", 4 volumes unmounted",
         "[DEVICES] namespace service /system/Namespace: stopped",
         ": stopped, the device reset",
         "[DEVICES] device manager: stopped",

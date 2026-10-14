@@ -20,6 +20,13 @@ namespace OutWit.OS.Tests.FileSystems;
 [TestFixture("ext4-small-inodes")]
 public sealed class Ext4WriterTests(string variant)
 {
+    #region Constants
+
+    // A modification time the provider sets by hand (N4.1): seconds and nanoseconds.
+    private static readonly DateTimeOffset STAMP = new DateTimeOffset(2021, 3, 4, 5, 6, 7, TimeSpan.Zero).AddTicks(1_234_567);
+
+    #endregion
+
     #region Tests
 
     [Test]
@@ -55,6 +62,11 @@ public sealed class Ext4WriterTests(string variant)
             for (var i = 0; i < 40; i++)
                 await volume.DeleteAsync($"/many/an-entry-with-a-rather-long-name-{i:0000}.txt");
             await volume.DeleteAsync("/empty.txt");
+            var mode = await volume.SetModeAsync("/note.txt", 0x1A0);                 // 0640 (N4.1)
+            Assert.That(mode.Unix!.Mode, Is.EqualTo(0x1A0));
+            Assert.That((await volume.SetModeAsync("/made", 0x1C0)).Unix!.Mode, Is.EqualTo(0x1C0)); // 0700 on a directory
+            var stamped = await volume.SetTimesAsync("/note.txt", null, STAMP);        // utimensat (N4.1)
+            Assert.That(stamped.Modified, Is.EqualTo(Stamp(variant)), "the time the provider set, to the second where the inode has no room for nanoseconds");
             Assert.That(Error(() => volume.DeleteAsync("/made").AsTask()), Is.EqualTo(FileSystemError.NotEmpty));
             Assert.That(Error(() => volume.RenameAsync("/made", "/made/sub/inside").AsTask()), Is.EqualTo(FileSystemError.InvalidName));
             Assert.That(Error(() => volume.OpenAsync("/note.txt", FileMode.CreateNew, FileAccess.Write).AsTask()), Is.EqualTo(FileSystemError.AlreadyExists));
@@ -66,7 +78,10 @@ public sealed class Ext4WriterTests(string variant)
         Assert.That(Ext4Tools.Dump(image, "/note.txt"), Is.EqualTo(note));
         Assert.That(Ext4Tools.Dump(image, "/made/hello-moved.txt"), Is.EqualTo(Encoding.UTF8.GetBytes(Ext4Images.HELLO)));
         Assert.That(Ext4Tools.Dump(image, "/made/nested/deep/file.bin").Length, Is.EqualTo(1234));
+        Assert.That(Ext4Tools.Script(image, "stat /note.txt"), Does.Contain("Mode:  0640"), "debugfs reads the mode the provider set");
+        Assert.That(Ext4Tools.Script(image, "stat /made"), Does.Contain("Mode:  0700"));
         await using var again = await Ext4FileSystem.MountAsync(new MemoryBlockStorage(image, 512, isReadOnly: true));
+        Assert.That((await again.GetEntryAsync("/note.txt"))!.Modified, Is.EqualTo(Stamp(variant)), "the time set survives the remount");
         Assert.That((await again.EnumerateAsync("/many")).Count, Is.EqualTo(Ext4Images.MANY + 60 - 40));
         Assert.That(await again.GetEntryAsync("/docs/readme.md"), Is.Null);
         Assert.That((await again.EnumerateAsync("/made")).Select(entry => entry.Name), Is.EquivalentTo(new[] { "sub", "hello-moved.txt", "nested" }));
@@ -103,6 +118,10 @@ public sealed class Ext4WriterTests(string variant)
     #endregion
 
     #region Tools
+
+    // What a variant keeps of STAMP: the second alone where the inode is 128 bytes and has no room for the nanoseconds.
+    private static DateTimeOffset Stamp(string variant) =>
+        variant == "ext4-small-inodes" ? STAMP.AddTicks(-STAMP.Ticks % TimeSpan.TicksPerSecond) : STAMP;
 
     private static FileSystemError Error(Func<Task> operation) =>
         Assert.ThrowsAsync<FileSystemException>(async () => await operation())!.Error;

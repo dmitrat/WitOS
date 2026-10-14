@@ -73,8 +73,9 @@ static ssize_t read_file(const char *path, char *buffer, size_t size)
     return read_bytes;
 }
 
-/* The same calls on one writable volume. */
-static void volume(const char *root)
+/* The same calls on one writable volume; modes says whether its format keeps a mode (ext4, /tmp) or read-only alone
+ * (FAT, N4.1). */
+static void volume(const char *root, int modes)
 {
     char path[256], other[256], buffer[256];
     struct stat st;
@@ -86,6 +87,47 @@ static void volume(const char *root)
     check(write_file(path, "world", O_APPEND) == 0, "write with O_APPEND");
     check(read_file(path, buffer, sizeof(buffer)) == 12 && strcmp(buffer, "hello, world") == 0, "read back");
     check(stat(path, &st) == 0 && S_ISREG(st.st_mode) && st.st_size == 12, "stat");
+    /* chmod (N4.1): a volume that records a mode keeps the bits; FAT keeps read-only alone and refuses the rest. */
+    if (modes) {
+        check(chmod(path, 0640) == 0 && stat(path, &st) == 0 && (st.st_mode & 07777) == 0640, "chmod keeps the mode");
+        int modes_fd = open(path, O_RDWR);
+        check(modes_fd >= 0 && fchmod(modes_fd, 0600) == 0 && fstat(modes_fd, &st) == 0 && (st.st_mode & 07777) == 0600,
+            "fchmod keeps the mode");
+        if (modes_fd >= 0) {
+            close(modes_fd);
+        }
+        check(chmod(path, 0644) == 0, "chmod back");
+        snprintf(other, sizeof(other), "%s/posix", root);
+        check(chmod(other, 0777) == 0 && stat(other, &st) == 0 && (st.st_mode & 07777) == 0777, "chmod of a directory");
+        /* utimensat and futimens (N4.1): the times as given, to the nanosecond; UTIME_NOW is the service's clock. */
+        const struct timespec stamps[2] = {{1600000000, 0}, {1600000001, 500000000}};
+        check(utimensat(AT_FDCWD, path, stamps, 0) == 0 &&
+                stat(path, &st) == 0 &&
+                st.st_atim.tv_sec == 1600000000 &&
+                st.st_mtim.tv_sec == 1600000001 &&
+                st.st_mtim.tv_nsec == 500000000,
+            "utimensat keeps the times");
+        const struct timespec omit[2] = {{0, UTIME_OMIT}, {1700000000, 0}};
+        check(utimensat(AT_FDCWD, path, omit, 0) == 0 &&
+                stat(path, &st) == 0 &&
+                st.st_atim.tv_sec == 1600000000 &&
+                st.st_mtim.tv_sec == 1700000000,
+            "UTIME_OMIT leaves a time");
+        modes_fd = open(path, O_RDWR);
+        check(
+            modes_fd >= 0 && futimens(modes_fd, 0) == 0 && fstat(modes_fd, &st) == 0 && st.st_mtim.tv_sec > 1700000000,
+            "futimens with now");
+        if (modes_fd >= 0) {
+            close(modes_fd);
+        }
+    } else {
+        check(chmod(path, 0444) == 0 && stat(path, &st) == 0 && (st.st_mode & 07777) == 0444,
+            "chmod to read-only on FAT");
+        check(chmod(path, 0644) == 0 && stat(path, &st) == 0 && (st.st_mode & 07777) == 0644, "chmod back on FAT");
+        check(chmod(path, 0600) < 0 && errno == EPERM, "a mode FAT cannot keep is EPERM, as on Linux");
+        const struct timespec stamps[2] = {{1600000000, 0}, {1600000001, 0}};
+        check(utimensat(AT_FDCWD, path, stamps, 0) < 0 && errno == EPERM, "times on FAT are EPERM");
+    }
     int fd = open(path, O_RDWR);
     check(fd >= 0 && pread(fd, buffer, 5, 7) == 5 && memcmp(buffer, "world", 5) == 0, "pread");
     check(lseek(fd, 0, SEEK_END) == 12 && pwrite(fd, "!", 1, 12) == 1, "lseek and pwrite at the end");
@@ -317,8 +359,14 @@ int main(void)
     if (boot == FAIL_BOOT) {
         check(check_failing_read(), "a read of a failing disk");
     }
-    volume("/data");
-    volume("/fat");
+    volume("/data", 1);
+    volume("/fat", 0);
+    /* /tmp (N4.1): the namespace service's volume in memory, there whatever disks there are; the same calls as on a
+     * disk's volume, a shared mapping among them, and the package's chmod refused with EROFS. */
+    struct stat tmp_stat;
+    check(stat("/tmp", &tmp_stat) == 0 && S_ISDIR(tmp_stat.st_mode), "/tmp is a directory");
+    volume("/tmp", 1);
+    check(chmod("/bin/init", 0755) < 0 && errno == EROFS, "chmod in the package is EROFS");
     check(rename("/data/x", "/fat/x") < 0 && (errno == EXDEV || errno == ENOENT), "rename across volumes");
     check(write_file("/data/posix-kept.txt", POSIX_KEPT, O_TRUNC) == 0, "the file the host finds");
     const char *loader =

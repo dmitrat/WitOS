@@ -255,6 +255,83 @@ public sealed class NamespaceSessionTests
         Assert.That(window.Read(0, 4), Is.EqualTo(new byte[] { 0, 1, 2, 3 }));
     }
 
+    [Test]
+    public async Task ModesFollowTheVolumeTest()
+    {
+        // chmod (N4.1): a volume in memory keeps the bits, FAT keeps read-only alone and refuses the rest with ENOTSUP.
+        var mounts = new MountTable();
+        mounts.Add("/tmp", new OutWit.OS.FileSystems.Memory.MemoryFileSystem(1 << 20));
+        mounts.Add("/fat", await FatFileSystem.FormatAsync(new MemoryBlockStorage(4 * 1024 * 1024)));
+        var window = new ByteWindow(8192);
+        var session = new NamespaceSession(mounts, window);
+        foreach (var path in new[] { "/tmp/f", "/fat/f" })
+        {
+            var made = await OpenAsync(session, window, path, NamespaceMessages.WRITE_ACCESS | NamespaceMessages.CREATE);
+            await session.HandleAsync(new NamespaceRequest(NamespaceMessages.CLOSE, Handle: made.Handle));
+        }
+        await Path(session, window, NamespaceMessages.MKDIR, "/tmp/d");
+
+        var kept = await Mode(session, window, "/tmp/f", 0x180);                      // 0600
+        var directory = await Mode(session, window, "/tmp/d", 0x1FF);                 // 0777
+        var opened = await OpenAsync(session, window, "/tmp/f", NamespaceMessages.READ_ACCESS);
+        var byHandle = await session.HandleAsync(new NamespaceRequest(NamespaceMessages.FCHMOD, Handle: opened.Handle, Mode: 0x1A4)); // 0644
+        var stat = await Path(session, window, NamespaceMessages.STAT, "/tmp/f");
+        var readOnly = await Mode(session, window, "/fat/f", 0x124);                  // 0444
+        var writable = await Mode(session, window, "/fat/f", 0x1A4);                  // 0644
+        var refused = await Mode(session, window, "/fat/f", 0x180);                   // 0600
+        var missing = await Mode(session, window, "/tmp/none", 0x180);
+
+        Assert.That(kept.Error, Is.Zero);
+        Assert.That(kept.Stat!.Mode, Is.EqualTo(0x180));
+        Assert.That(directory.Stat!.Mode, Is.EqualTo(0x1FF));
+        Assert.That(byHandle.Error, Is.Zero);
+        Assert.That(stat.Stat!.Mode, Is.EqualTo(0x1A4));
+        Assert.That(readOnly.Error, Is.Zero);
+        Assert.That(readOnly.Stat!.Mode, Is.EqualTo(0x124));
+        Assert.That(writable.Stat!.Mode, Is.EqualTo(0x1A4));
+        Assert.That(refused.Error, Is.EqualTo(Errno.PERMISSION), "a mode FAT cannot keep is EPERM, as Linux's vfat answers");
+        Assert.That(missing.Error, Is.EqualTo(Errno.NOT_FOUND));
+    }
+
+    [Test]
+    public async Task TimesFollowTheVolumeTest()
+    {
+        // utimensat (N4.1): the times given in the window as the flags say, the service's clock for "now"; FAT refuses with
+        // EPERM, which System.Native's CopyFile tolerates.
+        var mounts = new MountTable();
+        mounts.Add("/tmp", new OutWit.OS.FileSystems.Memory.MemoryFileSystem(1 << 20));
+        mounts.Add("/fat", await FatFileSystem.FormatAsync(new MemoryBlockStorage(4 * 1024 * 1024)));
+        var window = new ByteWindow(8192);
+        var session = new NamespaceSession(mounts, window);
+        foreach (var path in new[] { "/tmp/f", "/fat/f" })
+        {
+            var made = await OpenAsync(session, window, path, NamespaceMessages.WRITE_ACCESS | NamespaceMessages.CREATE);
+            await session.HandleAsync(new NamespaceRequest(NamespaceMessages.CLOSE, Handle: made.Handle));
+        }
+        var accessed = new DateTimeOffset(2020, 9, 13, 12, 26, 40, TimeSpan.Zero);
+        var modified = accessed.AddSeconds(1).AddTicks(5_000_000);
+
+        var both = await Times(session, window, "/tmp/f", accessed, modified, NamespaceMessages.TIME_ACCESSED | NamespaceMessages.TIME_MODIFIED);
+        var omitted = await Times(session, window, "/tmp/f", accessed.AddDays(1), modified.AddDays(1), NamespaceMessages.TIME_MODIFIED);
+        var before = DateTimeOffset.UtcNow;
+        var opened = await OpenAsync(session, window, "/tmp/f", NamespaceMessages.READ_ACCESS);
+        var now = await session.HandleAsync(new NamespaceRequest(NamespaceMessages.FUTIMES, NamespaceMessages.TIME_MODIFIED_NOW, Handle: opened.Handle));
+        var refused = await Times(session, window, "/fat/f", accessed, modified, NamespaceMessages.TIME_ACCESSED | NamespaceMessages.TIME_MODIFIED);
+        var outside = await session.HandleAsync(new NamespaceRequest(NamespaceMessages.FUTIMES, NamespaceMessages.TIME_MODIFIED, Handle: opened.Handle,
+            Offset: 8192));
+
+        Assert.That(both.Error, Is.Zero);
+        Assert.That(both.Stat!.Accessed, Is.EqualTo(accessed));
+        Assert.That(both.Stat.Modified, Is.EqualTo(modified));
+        Assert.That(omitted.Stat!.Accessed, Is.EqualTo(accessed), "a time the flags leave out stays");
+        Assert.That(omitted.Stat.Modified, Is.EqualTo(modified.AddDays(1)));
+        Assert.That(now.Error, Is.Zero);
+        Assert.That(now.Stat!.Modified, Is.GreaterThanOrEqualTo(before.AddSeconds(-1)).And.LessThanOrEqualTo(DateTimeOffset.UtcNow.AddSeconds(1)));
+        Assert.That(now.Stat.Accessed, Is.EqualTo(accessed));
+        Assert.That(refused.Error, Is.EqualTo(Errno.PERMISSION));
+        Assert.That(outside.Error, Is.EqualTo(Errno.INVALID));
+    }
+
     #endregion
 
     #region Tools
@@ -276,6 +353,25 @@ public sealed class NamespaceSessionTests
         var bytes = Encoding.UTF8.GetBytes(path);
         window.Write(0, bytes);
         return session.HandleAsync(new NamespaceRequest(operation, flags, Length: bytes.Length));
+    }
+
+    private static ValueTask<NamespaceReply> Mode(NamespaceSession session, ByteWindow window, string path, uint mode)
+    {
+        var bytes = Encoding.UTF8.GetBytes(path);
+        window.Write(0, bytes);
+        return session.HandleAsync(new NamespaceRequest(NamespaceMessages.CHMOD, Length: bytes.Length, Mode: mode));
+    }
+
+    private static ValueTask<NamespaceReply> Times(NamespaceSession session, ByteWindow window, string path, DateTimeOffset accessed,
+        DateTimeOffset modified, uint flags)
+    {
+        var bytes = Encoding.UTF8.GetBytes(path);
+        window.Write(0, bytes);
+        var at = (bytes.Length + 7) & ~7;
+        var times = new byte[NamespaceMessages.TIMES_SIZE];
+        NamespaceMessages.WriteTimes(times, accessed, modified);
+        window.Write(at, times);
+        return session.HandleAsync(new NamespaceRequest(NamespaceMessages.UTIMES, flags, Offset: at, Length: bytes.Length));
     }
 
     private static ValueTask<NamespaceReply> Rename(NamespaceSession session, ByteWindow window, string from, string to)

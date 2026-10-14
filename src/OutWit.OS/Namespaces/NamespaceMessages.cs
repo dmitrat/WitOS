@@ -80,6 +80,33 @@ public static class NamespaceMessages
     /// </summary>
     public const uint MAP = 16;
 
+    /// <summary>A path's permission bits set to Mode (N4.1); the reply's Stat.</summary>
+    public const uint CHMOD = 17;
+
+    /// <summary>A handle's permission bits set to Mode (N4.1); the reply's Stat.</summary>
+    public const uint FCHMOD = 18;
+
+    /// <summary>A path's times set from the times at Offset of the window as the flags say (N4.1); the reply's Stat.</summary>
+    public const uint UTIMES = 19;
+
+    /// <summary>A handle's times set from the times at Offset of the window as the flags say (N4.1); the reply's Stat.</summary>
+    public const uint FUTIMES = 20;
+
+    /// <summary>UTIMES, FUTIMES: the access time is the given one.</summary>
+    public const uint TIME_ACCESSED = 0x100;
+
+    /// <summary>UTIMES, FUTIMES: the access time is the service's now.</summary>
+    public const uint TIME_ACCESSED_NOW = 0x200;
+
+    /// <summary>UTIMES, FUTIMES: the modification time is the given one.</summary>
+    public const uint TIME_MODIFIED = 0x400;
+
+    /// <summary>UTIMES, FUTIMES: the modification time is the service's now.</summary>
+    public const uint TIME_MODIFIED_NOW = 0x800;
+
+    /// <summary>The bytes of the times of UTIMES and FUTIMES in the window (WitNamespaceTimes).</summary>
+    public const int TIMES_SIZE = 24;
+
     /// <summary>OPEN: the handle reads.</summary>
     public const uint READ_ACCESS = 0x1;
 
@@ -211,6 +238,47 @@ public static class NamespaceMessages
     /// <param name="flags">DISK_READ_ONLY, DISK_END.</param>
     /// <param name="device">The device's identity.</param>
     /// <returns>Its bytes.</returns>
+    /// <summary>
+    /// One time of a UTIMES or FUTIMES request as the window holds it (N4.1): the access time (0) or the modification time
+    /// (1). A time the request's flags do not use is never read, so its bytes may hold anything.
+    /// </summary>
+    /// <param name="bytes">The WitNamespaceTimes.</param>
+    /// <param name="index">0 for the access time, 1 for the modification time.</param>
+    /// <returns>The time.</returns>
+    /// <exception cref="FormatException">The bytes are too few.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The time lies outside what a DateTimeOffset holds.</exception>
+    public static DateTimeOffset ReadTime(ReadOnlySpan<byte> bytes, int index)
+    {
+        if (bytes.Length < TIMES_SIZE)
+            throw new FormatException($"Times of {bytes.Length} bytes.");
+        ArgumentOutOfRangeException.ThrowIfNegative(index);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(index, 1);
+        return Time(BinaryPrimitives.ReadInt64LittleEndian(bytes[(index * 8)..]), BinaryPrimitives.ReadUInt32LittleEndian(bytes[(16 + index * 4)..]));
+    }
+
+    /// <summary>
+    /// Writes the times of a UTIMES or FUTIMES request as the window holds them (N4.1).
+    /// </summary>
+    /// <param name="bytes">Where the WitNamespaceTimes goes.</param>
+    /// <param name="accessed">The access time.</param>
+    /// <param name="modified">The modification time.</param>
+    public static void WriteTimes(Span<byte> bytes, DateTimeOffset accessed, DateTimeOffset modified)
+    {
+        DateTimeOffset[] times = [accessed, modified];
+        for (var i = 0; i < 2; i++)
+        {
+            var ticks = times[i].UtcTicks - DateTimeOffset.UnixEpoch.UtcTicks;
+            var seconds = ticks / TimeSpan.TicksPerSecond - (ticks % TimeSpan.TicksPerSecond < 0 ? 1 : 0);
+            BinaryPrimitives.WriteInt64LittleEndian(bytes[(i * 8)..], seconds);
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes[(16 + i * 4)..], (uint)((ticks - seconds * TimeSpan.TicksPerSecond) * 100));
+        }
+    }
+
+    private static DateTimeOffset Time(long seconds, uint nanoseconds) =>
+        nanoseconds >= 1_000_000_000 || seconds < -62_135_596_800 || seconds > 253_402_300_799
+            ? throw new ArgumentOutOfRangeException(nameof(seconds), $"The time {seconds}.{nanoseconds:D9} lies outside what a date holds.")
+            : DateTimeOffset.UnixEpoch.AddTicks(seconds * TimeSpan.TicksPerSecond + nanoseconds / 100);
+
     public static byte[] EncodeDisk(uint flags, string device)
     {
         var bytes = Header(DISK_SIZE, flags, 0);
