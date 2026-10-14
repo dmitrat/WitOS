@@ -25,6 +25,11 @@ internal static class DriverTable
     /// </summary>
     public const string SERIAL_CONSOLE = "SerialConsole";
 
+    /// <summary>
+    /// The UHI class of a block device, whose driver serves the block protocol on its service channel (D3.2).
+    /// </summary>
+    public const string BLOCK_STORAGE = "BlockStorageController";
+
     #endregion
 
     #region Functions
@@ -36,7 +41,7 @@ internal static class DriverTable
     /// <returns>The driver's path, or null when no driver serves the device.</returns>
     public static string? Find(DeviceRecord record) => (record.Provider, record.Class) switch
     {
-        ("Virtio", "BlockStorageController") => VIRTIO_BLOCK,
+        ("Virtio", BLOCK_STORAGE) => VIRTIO_BLOCK,
         ("Virtio", SERIAL_CONSOLE) => VIRTIO_CONSOLE,
         _ => null
     };

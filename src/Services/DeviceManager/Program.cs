@@ -53,7 +53,10 @@ internal static class Program
                 Console.WriteLine(PREFIX + record.DiscoveryLine);
             var drivers = Activate(table, records);
             var disks = new List<(string Device, ChannelBlockStorage Disk)>();
-            foreach (var driver in drivers.Where(driver => driver.Status == 0 && driver.Service is not null))
+            // The block probe goes to block drivers alone: a serial driver's channel (N4.3a) speaks the serial protocol,
+            // and a probe there would take the channel the terminal service needs.
+            foreach (var driver in drivers.Where(driver =>
+                         driver.Status == 0 && driver.Service is not null && driver.Record.Class == DriverTable.BLOCK_STORAGE))
             {
                 var disk = StorageProbe.RunAsync(driver).GetAwaiter().GetResult();
                 if (disk is not null)
