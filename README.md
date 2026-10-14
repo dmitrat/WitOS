@@ -9,20 +9,25 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 ## Current status
 
 **Current local implementation.** The kernel boots through UEFI on x64 (QEMU q35) and ARM64 (QEMU `virt`), is compiled
-by the pinned clang on both, and keeps the mechanisms of ABI-1 ([RFC 0011 v3](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md)): processes with private
-address spaces, the one thread form, memory objects, channels that carry capabilities, events and the one wait with
-absolute deadlines, faults and activations delivered to user space, device descriptors with interrupt bindings and DMA
-pins, UTC and the started secondary processors. User ABI 1.2 and boot ABI v6 are printed by the kernel banner from the
-headers. Above it the system layer (phase S) runs on both ISAs: the pinned musl over ABI-1 with threads, signals and its
-dynamic linker, LLVM's C++ runtime, a process manager with `posix_spawn`, and musl's libc-test, its math suite included,
-with every test run as a process of its own. Upstream .NET 10 runs in its Unix form (`TargetOS=witos`, phase R): NativeAOT
-programs built by the SDK with `dotnet publish -r witos-x64` or `-r witos-arm64` pass the M3 acceptance in the guest on
-both ISAs, with the GC, managed exceptions, finalization, threads, the thread pool, waits and the console
-([R2.2](@Docs/Implementation/R2.2-M3-Acceptance.md), [R2.3b](@Docs/Implementation/R2.3b-SDK-Targets.md)). The
-Windows-form runtime that first passed M3 behind a Win32 facade was frozen by [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md) and removed at plan step
-K8.2; the kernel policy it needed (the PE loader, the DLL lifecycle, files, the environment) left the kernel at K8.4a.
-The work follows [PLAN.md](PLAN.md): phase K finishes the nano-kernel, T the toolchain and hosts, R the runtime
-([RFC 0015 v2](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md)) with CoreCLR and the JIT next; devices and storage (M4, M5) come before standard .NET (M6).
+by the pinned clang on both, and keeps the mechanisms of ABI-1 ([RFC 0011 v3](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md)):
+processes with private address spaces, the one thread form, memory objects, channels that carry capabilities, events and
+the one wait with absolute deadlines, faults and activations delivered to user space, device descriptors with interrupt
+bindings and DMA pins, UTC and the started secondary processors. ABI-1 is 1.2 and boot ABI v6, printed by the kernel
+banner from the headers. Above it runs the system layer (phase S) on both ISAs: the pinned musl over ABI-1 with threads,
+signals and its dynamic linker, LLVM's C++ runtime, a process manager with `posix_spawn`, and ABI-2 1.0 recorded in
+`build/abi2.json`. The root task starts WitOS's services, NativeAOT programs in processes of their own ([ADR 0025](@Docs/Implementation/ADR-0025-Devices-as-NativeAOT-Services.md)):
+the device manager, a virtio-blk driver per disk and the namespace service with ext4 and FAT volumes written through
+the ext4 journal, which e2fsprogs judges. Upstream .NET runs in its Unix form (`TargetOS=witos`, [RFC 0015 v2](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md)):
+.NET 10.0.12 and 8.0.31 side by side under `/dotnet` with ICU built from source; an ordinary application published by the
+stock SDK without a RID runs unchanged as `dotnet App.dll`, uses the volumes through System.IO, and the .NET
+compatibility suite and the own test suites of NUnit, xUnit, MessagePack, MemoryPack, Math.NET and Roslyn pass in the
+guest as on Linux, every difference recorded in [Compatibility-Differences.md](@Docs/Implementation/Compatibility-Differences.md).
+The Windows-form runtime that first passed M3 behind a Win32 facade was frozen by [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md)
+and removed at plan step K8.2; the kernel policy it needed left the kernel at K8.4a. [PLAN.md](PLAN.md) tracks the
+work: phases A, K, S, R and D are complete, N1–N3 of phase N too, and N4 (the application environment: processes,
+the console, time zones) is next; the completed steps with their evidence are in
+[Plan-Completed.md](@Docs/Implementation/Plan-Completed.md), and the audit of 2026-10-14 in
+[Program-Audit-2026-10-14.md](@Docs/Implementation/Program-Audit-2026-10-14.md).
 
 A self-test kernel also runs the kernel's white-box checks and the user-mode fixture of each mechanism before `Hello`.
 The root task, one freestanding C program built by the pinned clang and lld for `x86_64-unknown-linux-musl` and
@@ -196,7 +201,31 @@ The core kernel does not include UEFI structures. The output is a freestanding P
 
 ## Scope and next work
 
-Next work is tracked in [PLAN.md](PLAN.md) after [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md): phase K is complete (ABI-1 1.0, K8.4d, and 1.1 since R7.2b; the page tables record a space's pages since K9), the Linux host has parity (T2.2), CoreCLR runs under upstream's corerun on both ISAs (R3: its native part builds for witos, the JIT's code lives in the double mapping of shared memory over memory objects, and the M3 acceptance passes under CoreCLR as under NativeAOT), System.Native works over the system layer with the differences recorded (R4.1), `dotnet App.dll` runs through upstream's hosts (R5), an ordinary application published by the stock SDK without a RID runs unchanged (R6), upstream's PAL suite, slices of its runtime tests (JIT, GC, exception handling) and slices of its library tests pass in the guest (R7), the patch set carries to a servicing release with `runtime-rebase` and no line written by hand (R8.1: the pin is dotnet/runtime 10.0.12), and the patch set rehearsed on .NET 11 RC1 passes every gate on both ISAs but R6, which waits for the stock SDK of .NET 11 (R8.2: the conflicts sit beside the new OpenBSD port, and x64 guests need x86-64-v2); phase R is complete, shared mappings of a volume's files over the namespace service's memory objects included (R4.2), the .NET compatibility suite runs unchanged on Windows, Linux and WitOS with its differences recorded (N1), NUnit, xUnit, MessagePack, MemoryPack, Math.NET and Roslyn from nuget.org pass representative tests unchanged (N2.1) and their own test suites, fourteen projects of their repositories, pass in the guest as on the Linux host (N2.2), each release branch of dotnet/runtime has its own pin and patch set (N3.1), and .NET 8 LTS, backported from `release/8.0`, runs beside .NET 10 in one install, where the host picks each application's framework by its runtimeconfig and rollForward (N3.2, N3.3), with ABI-2 frozen at 1.0 (N3.3), .NET has culture data from ICU built from source (R4.3), and phase D has begun: the device manager, a NativeAOT service the root task moves the device table to before `/bin/init`, discovers the devices and moves the boot disk to its driver, a NativeAOT process of its own that reads the disk through a virtio queue, pinned pages and its interrupt, on both ISAs (M4: D1 and D2, [ADR 0025](@Docs/Implementation/ADR-0025-Devices-as-NativeAOT-Services.md)), and the block layer's contract with GPT partitions and a cache is tested on the host (D3.1) and served by the driver over its block channel, through which the device manager reads a second, writable disk's partition table and writes its test partition in a window the device reads and writes in place, on both ISAs (D3.2), and the filesystem contract's FAT provider over the independent `OutWit.Common.Fat` mounts the boot disk's volume and writes a FAT partition through that channel, which the host reads back with the same provider (D4.1), and a managed ext4 provider reads a volume the host's e2fsprogs made through that channel, every structure checked by its checksum (D4.2), and writes it through its jbd2 journal, which e2fsck finds clean after the boot and every power cut recovers (D4.3); a namespace service mounts the volumes and every process reaches their files through the libc's POSIX calls (D5.1), and an ordinary .NET program uses them through System.IO (D5.2), and programs, libraries and a .NET application start from a volume rather than the boot package (D5.3), and the services stop in order before the system ends, so that a disk written by one boot is found intact by the next (D6.1), and a machine cut off while it writes recovers its volume through the journal at the next boot (D6.2), and a failing disk is reported meaningfully at every layer while the system goes on (D6.3: phase D and M5 are complete), towards unchanged portable assemblies with ordinary SDK/TFM/NuGet workflows ([RFC 0015 v2](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md)); devices and storage (M4, M5) come before standard .NET (M6), as the [Implementation Strategy §157](@Docs/WitOS%20—%20Implementation%20Strategy%20%26%20Milestone%20Plan.md) records. The NativeAOT acceptance does not establish dynamic loading of managed code, filesystem or network services, threads on several processors or broad API compatibility. Firmware memory remains reserved.
+Next work is tracked in [PLAN.md](PLAN.md) after [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md);
+the completed steps with their evidence are in [Plan-Completed.md](@Docs/Implementation/Plan-Completed.md).
+
+- **Kernel (phase K, complete).** ABI-1 1.0 at K8.4d, 1.1 at R7.2b, 1.2 at D1.2; the page tables record a space's pages
+  (K9); the kernel knows no image format, file, path or environment.
+- **Toolchain (T1–T3, complete; T4 open).** One pinned clang and lld build the kernel, the system layer and the
+  tests on Windows and Linux hosts with parity (T2.2); the own `*-unknown-witos` triple waits for the upstream proposal.
+- **System layer (phase S, complete).** musl over ABI-1, threads, minimal signals, LLVM's C++ runtime, `ld.so`, the
+  process manager; musl's libc-test, its math suite included, runs a process per test on both ISAs.
+- **Runtime (phase R, complete).** NativeAOT and CoreCLR for `witos`, upstream's hosts, an application without a RID
+  (R6), upstream's PAL suite, slices of its runtime and library tests (R7), the patch set carried to a servicing release
+  with no line written by hand and rehearsed on .NET 11 RC1 (R8).
+- **Devices and storage (phase D, complete: M4 and M5).** The device manager and drivers as NativeAOT services, the
+  block layer and protocol, FAT through `OutWit.Common.Fat` and a managed ext4 provider with a jbd2 journal judged by
+  e2fsprogs, the namespace service behind the libc's POSIX calls and System.IO, programs started from a volume, ordered
+  shutdown, power cuts recovered through the journal, a failing disk reported at every layer.
+- **Standard .NET (phase N: N1–N3 complete, N4 open).** The compatibility suite on Windows, Linux and WitOS with its
+  differences recorded (N1), six NuGet libraries' representative tests and their own suites (N2), .NET 8 and 10 side by
+  side with ABI-2 frozen at 1.0 (N3). N4 brings the application environment: time zones, `/tmp`, file modes,
+  `Process.Start`, the terminal of RFC 0020, and the literal proof of goal 2 (published on Windows, run on WitOS).
+- **Later.** A third ISA (phase V, RISC-V), the scheduler on several processors (phase P), the network and the
+  remaining milestones (phase W).
+
+The acceptances do not establish threads on several processors, networking, a terminal with input or process creation
+from managed code. Firmware memory remains reserved.
 
 - [Architecture document index](@Docs/README.md)
 - [ADR 0024: three layers and the Unix-form runtime](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md)
