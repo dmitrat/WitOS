@@ -19,7 +19,9 @@
  * data and a listing travel in the window. A descriptor of such a file or directory is the index of a remote record,
  * the service's handle; the descriptors that share it count as its references, and the last one closes the handle. */
 
-#define REMOTES 512U /* CoreCLR keeps every assembly it loads open (R6) */
+#define REMOTES \
+    1024U /* CoreCLR keeps every assembly it loads open (R6), and a shared mapping holds its record after the \
+                         descriptor closes (R4.2): as many as the descriptor table holds (N4.1) */
 #define DIRECTORIES 64U /* the remote directories open at once, whose names fchdir and the *at calls need */
 #define MOUNTS 16U
 #define MOUNT_BYTES 64U

@@ -19,7 +19,10 @@
  * process and copy-on-write mappings of one are not there. Every function runs under the table lock of
  * __wit_syscall. */
 
-#define FILES 64U
+/* The files at once: shm_open's and memfd_create's, and since R4.2 every volume file mapped shared, which CoreCLR
+ * keeps for every assembly it loads from a volume and MemoryMappedFile for every read-only view (N4.1: Roslyn's
+ * analyzer loading tests kept more than 64 and got ENFILE); as many as the descriptor table holds. */
+#define FILES 1024U
 #define NAME_BYTES 255U /* NAME_MAX */
 #define CHUNK ((WitU64)WIT_MEMORY_OBJECT_PAGES * 4096ULL)
 #define SIZE_LIMIT (16ULL << 30) /* a file's chunk table stays within 512 KiB */
