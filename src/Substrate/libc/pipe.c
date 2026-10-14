@@ -613,6 +613,14 @@ short __wit_pipe_edge(WitU32 index, int write_end, short events, WitU64 *token)
     return ready;
 }
 
+/* A change poll must look at that no pipe made (N4.3b: the terminal's input arrived): the word bumped and its parkers
+ * woken. */
+void __wit_poll_bump(void)
+{
+    __atomic_add_fetch(&poll_sequence, 1, __ATOMIC_RELEASE);
+    __wit_futex(&poll_sequence, FUTEX_WAKE | FUTEX_PRIVATE, 0x7FFFFFFF, 0, 0, 0);
+}
+
 /* The word poll parks on: read before the readiness so that a change between the two is not lost. */
 int __wit_pipe_sequence(void)
 {

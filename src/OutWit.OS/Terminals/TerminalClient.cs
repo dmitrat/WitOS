@@ -35,7 +35,7 @@ public sealed class TerminalClient : IDisposable
     #region Functions
 
     /// <summary>
-    /// Connects to the service: a session channel, an events channel and a window of the client's own, their ends
+    /// Connects to the service: a session channel, a window of the client's own and an events channel, their ends
     /// moved in a CONNECT on the clients' endpoint.
     /// </summary>
     /// <param name="clients">The service's clients' endpoint, with SEND and DUPLICATE; it stays the caller's.</param>
@@ -54,7 +54,7 @@ public sealed class TerminalClient : IDisposable
                 using var sender = new Channel(clients.Duplicate(Rights.Send));
                 using var windowTheirs = windowObject.Duplicate(Rights.Map | Rights.Write | Rights.Transfer);
                 sender.Send(TerminalMessages.Encode(new TerminalRequest(TerminalMessages.CONNECT, 0, TerminalMessages.WINDOW_BYTES)),
-                    sessionTheirs, eventsTheirs, windowTheirs);
+                    sessionTheirs, windowTheirs, eventsTheirs);
                 return new TerminalClient(session, events, windowObject, window);
             }
             catch

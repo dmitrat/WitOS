@@ -8,7 +8,6 @@
 #include "witos/wait_objects.h"
 #include <errno.h>
 #include <limits.h>
-#include <pthread.h>
 #include <signal.h>
 #include <spawn.h>
 #include <stdio.h>
@@ -67,10 +66,6 @@ static int reaper_started;
 static WitU64 reaper_event; /* set when a child is recorded: the reaper waits on the new set */
 
 int __execvpe(const char *, char *const[], char *const[]); /* posix_spawnp's marker in the attributes (musl) */
-/* musl's pthread_create (src/thread/pthread_create.c) by its internal name, for the reaper thread (N4.2); musl's
- * pthread_impl.h, which declares it, brings its syscall macros, which unistd.h cannot follow. */
-__attribute__((__visibility__("hidden"))) int __pthread_create(
-    pthread_t *restrict, const pthread_attr_t *restrict, void *(*)(void *), void *restrict);
 
 /* musl's record of a file action (src/process/fdop.h): posix_spawn_file_actions_add* put the newest first. */
 struct fdop {
@@ -540,8 +535,6 @@ static void *reaper(void *argument)
 /* Starts the reaper once, before the first child: 0 or an errno value. */
 static int start_reaper(void)
 {
-    pthread_attr_t attributes;
-    pthread_t thread;
     WitU64 event = 0;
     int error = 0;
     __wit_lock(&reaper_lock);
@@ -554,10 +547,7 @@ static int start_reaper(void)
         return EAGAIN;
     }
     reaper_event = event;
-    pthread_attr_init(&attributes);
-    pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED);
-    error = __pthread_create(&thread, &attributes, reaper, 0);
-    pthread_attr_destroy(&attributes);
+    error = __wit_thread_start_detached(reaper, 0);
     if (error) {
         reaper_event = 0;
         close_handle(event);

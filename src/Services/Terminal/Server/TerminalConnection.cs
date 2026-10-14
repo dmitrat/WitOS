@@ -7,8 +7,8 @@ using OutWit.OS.Terminals;
 namespace OutWit.OS.Terminal.Server;
 
 /// <summary>
-/// One client's session (witos/terminal.h): its session channel, served on a thread of its own, its events channel,
-/// which the hub's notifications go out on, and its window. A request is checked against the window before anything
+/// One client's session (witos/terminal.h): its session channel, served on a thread of its own, its events channel
+/// when it asked for events, which the hub's notifications go out on, and its window. A request is checked against the window before anything
 /// is done; a read that waits is the hub's.
 /// </summary>
 internal sealed class TerminalConnection
@@ -23,7 +23,7 @@ internal sealed class TerminalConnection
 
     private readonly TerminalHub m_hub;
     private readonly Channel m_session;
-    private readonly Channel m_events;
+    private readonly Channel? m_events;
     private readonly MemoryMapping m_window;
     private readonly object m_eventsGate = new();
     private volatile bool m_stopped;
@@ -32,7 +32,7 @@ internal sealed class TerminalConnection
 
     #region Constructors
 
-    private TerminalConnection(TerminalHub hub, Channel session, Channel events, MemoryMapping window)
+    private TerminalConnection(TerminalHub hub, Channel session, Channel? events, MemoryMapping window)
     {
         m_hub = hub;
         m_session = session;
@@ -62,23 +62,23 @@ internal sealed class TerminalConnection
             message.Dispose();
             return false;
         }
-        if (request.Operation != TerminalMessages.CONNECT || message.Handles.Count != 3 || request.Length != TerminalMessages.WINDOW_BYTES)
+        if (request.Operation != TerminalMessages.CONNECT || message.Handles.Count is not (2 or 3) || request.Length != TerminalMessages.WINDOW_BYTES)
         {
             message.Dispose();
             return false;
         }
         var session = new Channel(message.Handles[0]);
-        var events = new Channel(message.Handles[1]);
+        var events = message.Handles.Count == 3 ? new Channel(message.Handles[2]) : null;
         try
         {
-            var window = MemoryMapping.Map(message.Handles[2], 0, TerminalMessages.WINDOW_BYTES, MemoryMapping.READ_WRITE);
-            message.Handles[2].Dispose(); // the mapping holds the object
+            var window = MemoryMapping.Map(message.Handles[1], 0, TerminalMessages.WINDOW_BYTES, MemoryMapping.READ_WRITE);
+            message.Handles[1].Dispose(); // the mapping holds the object
             var connection = new TerminalConnection(hub, session, events, window);
             if (!hub.Add(connection))
             {
                 window.Dispose();
                 session.Dispose();
-                events.Dispose();
+                events?.Dispose();
                 return false;
             }
             new Thread(connection.Serve) { IsBackground = true, Name = "terminal session" }.Start();
@@ -88,8 +88,8 @@ internal sealed class TerminalConnection
         {
             Console.WriteLine($"{PREFIX}a client's window could not be mapped: {exception.Message}");
             session.Dispose();
-            events.Dispose();
-            message.Handles[2].Dispose();
+            events?.Dispose();
+            message.Handles[1].Dispose();
             return false;
         }
     }
@@ -102,7 +102,7 @@ internal sealed class TerminalConnection
     {
         lock (m_eventsGate)
         {
-            if (m_stopped)
+            if (m_stopped || m_events is null)
                 return;
             try
             {
@@ -166,7 +166,7 @@ internal sealed class TerminalConnection
         lock (m_eventsGate)
             m_stopped = true;
         m_window.Dispose();
-        m_events.Dispose();
+        m_events?.Dispose();
         m_session.Dispose();
     }
 

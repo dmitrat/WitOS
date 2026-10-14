@@ -448,6 +448,77 @@ static long pipe_transfer(long n, long fd, long a2, long a3)
     return r;
 }
 
+#define NOT_A_TERMINAL (-0x10001L) /* outside the errno range */
+
+/* readv and writev on the terminal: a write of at most a page in all is joined first, so that a line musl writes as
+ * its buffer plus the new bytes reaches the terminal whole; a read fills the first vector that has room, as one read. */
+static long terminal_vectors(int writing, const struct iovec *vectors, long count)
+{
+    long total = 0;
+    if (count < 0 || count > 1024) {
+        return -EINVAL;
+    }
+    if (writing) {
+        unsigned long all = 0;
+        for (long i = 0; i < count; ++i) {
+            all += vectors[i].iov_len;
+        }
+        if (all <= 4096) {
+            unsigned char joined[4096];
+            unsigned long filled = 0;
+            for (long i = 0; i < count; ++i) {
+                memcpy(joined + filled, vectors[i].iov_base, vectors[i].iov_len);
+                filled += vectors[i].iov_len;
+            }
+            return filled ? __wit_terminal_write(joined, (long)filled) : 0;
+        }
+    }
+    for (long i = 0; i < count; ++i) {
+        if (vectors[i].iov_len == 0) {
+            continue;
+        }
+        if (!writing) {
+            return __wit_terminal_read(vectors[i].iov_base, (long)vectors[i].iov_len);
+        }
+        const long moved = __wit_terminal_write(vectors[i].iov_base, (long)vectors[i].iov_len);
+        if (moved < 0) {
+            return total ? total : moved;
+        }
+        total += moved;
+        if ((unsigned long)moved < vectors[i].iov_len) {
+            break;
+        }
+    }
+    return total;
+}
+
+/* A transfer on a standard stream over the terminal (terminal.c, N4.3b) runs outside the table lock, since a read
+ * waits for what is typed: the lock is held only to find the stream. NOT_A_TERMINAL without a terminal or for a
+ * descriptor that is no standard stream. */
+static long terminal_transfer(long n, long fd, long a2, long a3)
+{
+    if (!__wit_terminal_present()) {
+        return NOT_A_TERMINAL;
+    }
+    __wit_lock(&tables);
+    const long stream = __wit_stream_of(fd);
+    __wit_unlock(&tables);
+    if (stream < 0) {
+        return NOT_A_TERMINAL;
+    }
+    const int writing = n == SYS_write || n == SYS_writev;
+    if (writing != (stream > 0)) {
+        return -EBADF; /* the input is not written, an output not read */
+    }
+    if (n == SYS_read) {
+        return a3 < 0 ? -EINVAL : __wit_terminal_read((void *)a2, a3);
+    }
+    if (n == SYS_write) {
+        return a3 < 0 ? -EINVAL : __wit_terminal_write((const void *)a2, a3);
+    }
+    return terminal_vectors(writing, (const struct iovec *)a2, a3);
+}
+
 /* epoll_wait (N4.2): the instance's ready events under the table lock, else a park as poll's until a pipe changed. */
 static long epoll_wait_instance(long epfd, struct epoll_event *events, int count, int milliseconds)
 {
@@ -484,30 +555,40 @@ static long epoll_wait_instance(long epfd, struct epoll_event *events, int count
     }
 }
 
-/* poll and ppoll (R3.2): the readiness of every descriptor under the table lock, then, when none is ready and the
- * timeout allows, a park until a pipe changes, the deadline or a signal handler; the sequence is read before the
- * readiness, so that a change between the two wakes the park at once. A signal mask for the wait is not there. */
+/* poll and ppoll (R3.2): the readiness of every descriptor under the table lock — a standard stream's asked of the
+ * terminal service outside it (N4.3b) — then, when none is ready and the timeout allows, a park until a pipe changes
+ * or the terminal's input arrives, the deadline or a signal handler; the sequence is read before the readiness, so
+ * that a change between the two wakes the park at once. A signal mask for the wait is not there. */
 static long poll_descriptors(struct pollfd *fds, unsigned long count, const struct timespec *timeout)
 {
     WitU64 deadline = WIT_WAIT_INFINITE;
+    signed char streams[1024];
     if (timeout) {
         const long converted = __wit_futex_deadline(timeout, &deadline);
         if (converted < 0) {
             return converted;
         }
     }
-    if (count > (unsigned long)INT_MAX) {
-        return -EINVAL;
+    if (count > sizeof(streams)) {
+        return -EINVAL; /* more than the descriptor table holds */
     }
+    const int terminal = __wit_terminal_present();
     for (;;) {
         const int seen = __wit_pipe_sequence();
         long ready = 0;
         __wit_lock(&tables);
         for (unsigned long i = 0; i < count; ++i) {
-            fds[i].revents = fds[i].fd < 0 ? 0 : __wit_descriptor_poll(fds[i].fd, fds[i].events);
+            streams[i] = (signed char)(fds[i].fd >= 0 && terminal ? __wit_stream_of(fds[i].fd) : -1);
+            fds[i].revents = fds[i].fd < 0 || streams[i] >= 0 ? 0 : __wit_descriptor_poll(fds[i].fd, fds[i].events);
             ready += fds[i].revents != 0;
         }
         __wit_unlock(&tables);
+        for (unsigned long i = 0; i < count; ++i) {
+            if (streams[i] >= 0) {
+                fds[i].revents = __wit_terminal_poll(streams[i], fds[i].events);
+                ready += fds[i].revents != 0;
+            }
+        }
         if (ready || (timeout && !timeout->tv_sec && !timeout->tv_nsec)) {
             return ready;
         }
@@ -557,6 +638,18 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
         const long transferred = pipe_transfer(n, a1, a2, a3);
         if (transferred != NOT_A_PIPE) {
             return transferred;
+        }
+        const long moved = terminal_transfer(n, a1, a2, a3);
+        if (moved != NOT_A_TERMINAL) {
+            return moved;
+        }
+    }
+    if (n == SYS_ioctl && __wit_terminal_present()) {
+        __wit_lock(&tables);
+        const long stream = __wit_stream_of(a1);
+        __wit_unlock(&tables);
+        if (stream >= 0) {
+            return __wit_terminal_ioctl(stream, a2, (void *)a3); /* the service's attributes and size (N4.3b) */
         }
     }
     __wit_lock(&tables);

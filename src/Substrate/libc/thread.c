@@ -4,9 +4,27 @@
 #include "witos/thread_info.h"
 #include "witos/thread_reference.h"
 #include <errno.h>
+#include <pthread.h>
 #include <sched.h>
 #include <string.h>
 #include <sys/prctl.h>
+
+/* musl's pthread_create (src/thread/pthread_create.c) by its internal name: musl's pthread_impl.h, which declares it,
+ * brings its syscall macros, which unistd.h cannot follow. */
+__attribute__((__visibility__("hidden"))) int __pthread_create(
+    pthread_t *restrict, const pthread_attr_t *restrict, void *(*)(void *), void *restrict);
+
+/* A detached thread of the library's own: the reaper (process.c, N4.2), the terminal thread (terminal.c, N4.3b). */
+int __wit_thread_start_detached(void *(*entry)(void *), void *argument)
+{
+    pthread_attr_t attributes;
+    pthread_t thread;
+    pthread_attr_init(&attributes);
+    pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED);
+    const int error = __pthread_create(&thread, &attributes, entry, argument);
+    pthread_attr_destroy(&attributes);
+    return error;
+}
 
 /* Threads (plan step S2): musl's pthreads over the kernel's threads. musl prepares a thread's stack and TLS itself
  * and calls __clone with the start function, the stack pointer, the thread pointer and two words: the parent's copy

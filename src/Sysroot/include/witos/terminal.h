@@ -7,10 +7,11 @@
  * witos/serial.h) and the line discipline — the attributes a termios holds, canonical and raw input, echo, the signal
  * characters, output processing and the size. Its clients hold a duplicate of one endpoint with SEND alone, which the
  * process manager gives every process it starts after the service answered ready (witos/start.h, WIT_START_TERMINAL).
- * A client connects once: CONNECT on that endpoint with three handles, the end of a session channel, the end of an
- * events channel and a window of its own (MAP, WRITE, TRANSFER) of WIT_TERMINAL_WINDOW_BYTES; then it sends one
- * request at a time on the session and receives each reply there, while events arrive on the events channel whenever
- * the service has something to tell. Bytes travel in the window. An error is an errno value. The attributes' flags and
+ * A client connects once or twice: CONNECT on that endpoint with the end of a session channel, a window of its own
+ * (MAP, WRITE, TRANSFER) of WIT_TERMINAL_WINDOW_BYTES and, when the client wants events, the end of an events channel;
+ * then it sends one request at a time on the session and receives each reply there, while events arrive on the
+ * events channel whenever the service has something to tell. The libc makes two sessions, one for the reads, which
+ * wait, with the events, and one for the writes and the attributes, so that a write never waits for a read. Bytes travel in the window. An error is an errno value. The attributes' flags and
  * control characters carry Linux's generic termios values, which both ISAs share and the libc copies as they are; the
  * libc keeps nothing of the discipline. Every process that connects shares the terminal: a line goes to whoever reads
  * it first, a signal character to every session, as a Linux session without job control sees them. Nothing of the
@@ -19,7 +20,7 @@
 #define WIT_TERMINAL_PATH "/system/Terminal"
 
 /* On the clients' endpoint. */
-#define WIT_TERMINAL_CONNECT 1U /* the session's end, the events' end and the window in the handle slots */
+#define WIT_TERMINAL_CONNECT 1U /* the session's end, the window and, for events, the events' end in the handle slots */
 /* On a session. */
 #define WIT_TERMINAL_READ \
     2U /* up to Length bytes into the window at Offset, as the discipline gives them: a line, or nothing at the end of
