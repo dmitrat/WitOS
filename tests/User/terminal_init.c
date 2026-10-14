@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <poll.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,6 +42,17 @@ static void on_interrupt(int sig)
 {
     (void)sig;
     ++interrupts;
+}
+
+/* Prints a prompt the runner answers a quarter of a second later, from a thread of its own, so that the read the main
+ * thread began waits in the service before the runner types (the output goes through the control session while the
+ * read holds the reader's). */
+static void *prompt_later(void *text)
+{
+    const struct timespec delay = {0, 250000000L};
+    nanosleep(&delay, 0);
+    printf("%s\n", (const char *)text);
+    return 0;
 }
 
 int main(void)
@@ -84,14 +96,18 @@ int main(void)
     check(read(0, &key, 1) == 1 && key == 'k', "one key in raw mode");
     check(tcsetattr(0, TCSAFLUSH, &attributes) == 0, "tcsetattr back to canonical");
 
-    /* Ctrl-C with ISIG: SIGINT through the handler, and the waiting read ends with EINTR. */
+    /* Ctrl-C with ISIG: SIGINT through the handler, and the waiting read ends with EINTR. The prompt is printed once
+     * the read waits in the service: the runner types the moment the line appears, and a signal character that comes
+     * before the read is pending interrupts nothing, as on Linux, where only a waiting read ends with EINTR. */
     struct sigaction action;
     memset(&action, 0, sizeof(action));
     action.sa_handler = on_interrupt;
     check(sigaction(SIGINT, &action, 0) == 0, "a SIGINT handler");
-    printf("[TERMINAL-INIT] press Ctrl-C\n");
+    pthread_t prompt;
+    check(pthread_create(&prompt, 0, prompt_later, "[TERMINAL-INIT] press Ctrl-C") == 0, "the prompt's thread");
     const long interrupted = read(0, line, sizeof(line));
     const int saved = errno;
+    pthread_join(prompt, 0);
     for (int i = 0; i < 500 && !interrupts; ++i) {
         const struct timespec tick = {0, 10000000L};
         nanosleep(&tick, 0);
@@ -99,9 +115,10 @@ int main(void)
     check(interrupted == -1 && saved == EINTR, "the read ended with EINTR");
     check(interrupts == 1, "SIGINT ran the handler once");
 
-    /* Ctrl-D on an empty line: the end of the file. */
-    printf("[TERMINAL-INIT] press Ctrl-D\n");
+    /* Ctrl-D on an empty line: the end of the file, the prompt printed once the read waits. */
+    check(pthread_create(&prompt, 0, prompt_later, "[TERMINAL-INIT] press Ctrl-D") == 0, "the prompt's thread again");
     check(read(0, line, sizeof(line)) == 0, "the end of the file");
+    pthread_join(prompt, 0);
 
     /* poll: nothing before, a line after. */
     struct pollfd input = {0, POLLIN, 0};
