@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include <errno.h>
+#include <signal.h>
 #include <spawn.h>
 #include <stdio.h>
 #include <string.h>
@@ -71,6 +72,10 @@ static int run(char *line, char **envp)
 
 int main(void)
 {
+    /* A launcher ignores the terminal's interrupt and quit, as a shell running a command does (N4.3): Ctrl-C reaches every
+     * process that holds the terminal, since there are no process groups, and the command alone should answer it. */
+    signal(SIGINT, SIG_IGN);
+    signal(SIGQUIT, SIG_IGN);
     if (mkdir("/data/tmp", 0755) != 0 && errno != EEXIST) {
         printf("[APPS-INIT] /data/tmp could not be made (errno %d)\n", errno);
         return 1;
