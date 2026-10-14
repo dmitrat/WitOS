@@ -4,7 +4,6 @@
   "witos": {
     "Platform.KnownOperatingSystem": "WitOS is neither Windows, Linux, macOS nor FreeBSD: an application that infers Windows from 'not Linux and not macOS' misbehaves there (RFC 0015 §1, ADR 0024).",
     "Platform.ProcessStart": "System.Diagnostics.Process is not supported until it rides the libc's posix_spawn over the process manager (RFC 0015 §8, Compatibility-Differences: Processes).",
-    "FileIO.Watcher": "System.IO.FileSystem.Watcher is not supported: the namespace service sends no change notifications (Compatibility-Differences: File change notifications).",
-    "Synchronization.NamedMutex": ".NET keeps named synchronization objects under the fixed /tmp/.dotnet, whatever TMPDIR says, and WitOS has no /tmp (Compatibility-Differences: Named synchronization objects)."
+    "FileIO.Watcher": "System.IO.FileSystem.Watcher is not supported: the namespace service sends no change notifications (Compatibility-Differences: File change notifications)."
   }
 }

@@ -589,6 +589,14 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
     case SYS_mkdir:
         return __wit_mkdirat(AT_FDCWD, (const char *)a1);
 #endif
+    case SYS_fchmodat: /* N4.1: musl's chmod and fchmodat without flags */
+        return __wit_fchmodat(a1, (const char *)a2, a3);
+#if defined(SYS_chmod)
+    case SYS_chmod:
+        return __wit_fchmodat(AT_FDCWD, (const char *)a1, a2);
+#endif
+    case SYS_fchmod:
+        return __wit_fchmod(a1, a2);
 #if defined(SYS_lstat)
     case SYS_lstat: /* the package has no symbolic links */
         return __wit_fstatat(AT_FDCWD, (const char *)a1, (struct kstat *)a2, AT_SYMLINK_NOFOLLOW);

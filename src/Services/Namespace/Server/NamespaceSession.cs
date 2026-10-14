@@ -75,6 +75,8 @@ internal sealed class NamespaceSession : IAsyncDisposable
                 NamespaceMessages.SYNC => await SyncAsync(request, cancellationToken).ConfigureAwait(false),
                 NamespaceMessages.READLINK => await ReadLinkAsync(request, cancellationToken).ConfigureAwait(false),
                 NamespaceMessages.MAP => await MapAsync(request, cancellationToken).ConfigureAwait(false),
+                NamespaceMessages.CHMOD => await ChangeModeAsync(request, cancellationToken).ConfigureAwait(false),
+                NamespaceMessages.FCHMOD => await ChangeHandleModeAsync(request, cancellationToken).ConfigureAwait(false),
                 _ => Fail(request, Errno.NOT_IMPLEMENTED)
             };
         }
@@ -110,6 +112,8 @@ internal sealed class NamespaceSession : IAsyncDisposable
             NamespaceMessages.SYNC => "sync",
             NamespaceMessages.READLINK => "readlink",
             NamespaceMessages.MAP => "map",
+            NamespaceMessages.CHMOD => "chmod",
+            NamespaceMessages.FCHMOD => "fchmod",
             _ => $"operation {request.Operation}"
         };
         if (m_opened.TryGetValue(request.Handle, out var opened))
@@ -444,6 +448,23 @@ internal sealed class NamespaceSession : IAsyncDisposable
         else
             await opened.Mount.Volume.FlushAsync(cancellationToken).ConfigureAwait(false);
         return new NamespaceReply(request.Operation, 0);
+    }
+
+    // chmod (N4.1): the volume keeps what its format records; FAT refuses a mode it cannot keep, which the client sees
+    // as ENOTSUP.
+    private async ValueTask<NamespaceReply> ChangeModeAsync(NamespaceRequest request, CancellationToken cancellationToken)
+    {
+        var (mount, inner) = Resolve(Path(request, 0, request.Length));
+        var entry = await mount.Volume.SetModeAsync(inner, (int)(request.Mode & 0xFFF), cancellationToken).ConfigureAwait(false);
+        return new NamespaceReply(request.Operation, 0, Stat: Stat(mount, Current(mount, inner, entry)));
+    }
+
+    private async ValueTask<NamespaceReply> ChangeHandleModeAsync(NamespaceRequest request, CancellationToken cancellationToken)
+    {
+        if (!m_opened.TryGetValue(request.Handle, out var opened))
+            return Fail(request, Errno.BAD_HANDLE);
+        var entry = await opened.Mount.Volume.SetModeAsync(opened.Path, (int)(request.Mode & 0xFFF), cancellationToken).ConfigureAwait(false);
+        return new NamespaceReply(request.Operation, 0, Stat: Stat(opened.Mount, Current(opened.Mount, opened.Path, entry)));
     }
 
     private async ValueTask<NamespaceReply> ReadLinkAsync(NamespaceRequest request, CancellationToken cancellationToken)

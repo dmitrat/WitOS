@@ -76,6 +76,17 @@ public interface IFileSystem : IAsyncDisposable
     ValueTask<FileSystemEntry> RenameAsync(string source, string destination, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Sets the permission bits of a file or a directory (plan step N4.1), as chmod does: a format that records a mode
+    /// keeps the bits; a format that records read-only alone (FAT) takes a mode that says only that and refuses any other
+    /// with <see cref="FileSystemError.Unsupported"/>.
+    /// </summary>
+    /// <param name="path">The file or directory.</param>
+    /// <param name="mode">The permission bits (07777), without the type.</param>
+    /// <param name="cancellationToken">Cancels the change.</param>
+    /// <returns>The entry as it is afterwards.</returns>
+    ValueTask<FileSystemEntry> SetModeAsync(string path, int mode, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Writes everything the filesystem holds back and flushes the block storage below: what completed before is durable
     /// when the flush completes.
     /// </summary>

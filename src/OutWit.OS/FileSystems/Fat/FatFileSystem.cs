@@ -167,6 +167,29 @@ public sealed class FatFileSystem : IFileSystem
             cancellationToken);
 
     /// <inheritdoc />
+    /// <remarks>
+    /// FAT records read-only alone (N4.1): a mode without a write bit sets the attribute, one with the owner's clears it,
+    /// and the provider reports 0555/0755 for a directory and 0444/0644 for a file afterwards; a mode that asks for
+    /// anything else, which the format cannot keep, is Unsupported, as Linux's vfat refuses a mode its masks cannot
+    /// represent.
+    /// </remarks>
+    public ValueTask<FileSystemEntry> SetModeAsync(string path, int mode, CancellationToken cancellationToken = default) =>
+        LockedAsync(async () =>
+        {
+            var entry = await m_volume.GetEntryAsync(path, cancellationToken).ConfigureAwait(false)
+                ?? throw new FileSystemException(FileSystemError.NotFound, $"Nothing is at {path}.");
+            var readOnly = (mode & 0x92) == 0; // 0222: no write bit at all
+            var kept = entry.IsDirectory ? (readOnly ? 0x16D : 0x1ED) : readOnly ? 0x124 : 0x1A4; // 0555 0755 0444 0644
+            if ((mode & 0xFFF) != kept)
+                throw new FileSystemException(FileSystemError.Unsupported,
+                    $"FAT records read-only alone: the mode {Convert.ToString(mode & 0xFFF, 8)} is not {Convert.ToString(kept, 8)}.");
+            var attributes = readOnly ? entry.Attributes | FatAttributes.ReadOnly : entry.Attributes & ~FatAttributes.ReadOnly;
+            if (attributes != entry.Attributes)
+                await m_volume.SetAttributesAsync(path, attributes, cancellationToken).ConfigureAwait(false);
+            return Entry(await m_volume.GetEntryAsync(path, cancellationToken).ConfigureAwait(false) ?? entry);
+        }, cancellationToken);
+
+    /// <inheritdoc />
     public ValueTask FlushAsync(CancellationToken cancellationToken = default) =>
         LockedAsync(() => m_volume.FlushAsync(cancellationToken), cancellationToken);
 

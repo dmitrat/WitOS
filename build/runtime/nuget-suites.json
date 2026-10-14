@@ -236,10 +236,6 @@
       "assembly": "Microsoft.CodeAnalysis.UnitTests.dll",
       "runner": "xunit2",
       "excluded": {
-        "class:Microsoft.CodeAnalysis.UnitTests.AnalyzerAssemblyLoaderTests": "sets the attributes of the analyzer files it copies to its temporary directory on /data, which is chmod, and the namespace service serves no file modes: it answers ENOSYS (Compatibility-Differences: File modes)",
-        "class:Microsoft.CodeAnalysis.UnitTests.AnalyzerFileReferenceTests": "sets the attributes of the analyzer files it copies to its temporary directory on /data, which is chmod, and the namespace service serves no file modes: it answers ENOSYS (Compatibility-Differences: File modes)",
-        "class:Microsoft.CodeAnalysis.UnitTests.AssemblyUtilitiesTests": "sets the attributes of the analyzer files it copies to its temporary directory on /data, which is chmod, and the namespace service serves no file modes: it answers ENOSYS (Compatibility-Differences: File modes)",
-        "class:Microsoft.CodeAnalysis.UnitTests.ShadowCopyAnalyzerPathResolverTests": "creates a named Mutex, which .NET keeps under /tmp/.dotnet whatever TMPDIR says, and WitOS has no /tmp (Compatibility-Differences: Named synchronization objects)",
         "method:Microsoft.CodeAnalysis.UnitTests.CompilerResolverTests.ResolveReturnsNullForNonHostAssembly": "fails now and then on GitHub's runner host alone, where its collectible load context reports 'Could not load file or assembly System.Runtime, Version=10.0.0.0' (run 38414453774 of PR #122; it passed in the runs of PRs #120 and #121, in the container and in the guest); it checks the host's assembly loading, not WitOS, and a test that fails on the host leaves both runs"
       }
     },

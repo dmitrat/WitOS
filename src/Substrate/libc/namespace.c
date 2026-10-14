@@ -545,6 +545,35 @@ long __wit_remote_map(WitU32 index, WitU64 offset, int writable, WitU64 *object)
     return 0;
 }
 
+/* chmod of a path of a volume (N4.1): the service keeps what the volume's format records and answers ENOTSUP where it
+ * cannot keep the mode (FAT records read-only alone). */
+long __wit_remote_chmod(const unsigned char *name, WitU32 length, long mode)
+{
+    WitNamespaceRequest request;
+    WitNamespaceReply reply;
+    memset(&request, 0, sizeof(request));
+    const long bytes = put_path(0, name, length);
+    if (bytes < 0) {
+        return bytes;
+    }
+    request.Operation = WIT_NAMESPACE_CHMOD;
+    request.Length = (WitU64)bytes;
+    request.Mode = (WitU32)(mode & 07777);
+    return call(&request, &reply);
+}
+
+/* fchmod of an open file or directory of a volume (N4.1). */
+long __wit_remote_fchmod(WitU32 index, long mode)
+{
+    WitNamespaceRequest request;
+    WitNamespaceReply reply;
+    memset(&request, 0, sizeof(request));
+    request.Operation = WIT_NAMESPACE_FCHMOD;
+    request.Handle = remotes[index].Handle;
+    request.Mode = (WitU32)(mode & 07777);
+    return call(&request, &reply);
+}
+
 long __wit_remote_readlink(const unsigned char *name, WitU32 length, char *buffer, long size)
 {
     WitNamespaceReply reply;

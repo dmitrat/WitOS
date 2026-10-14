@@ -255,6 +255,44 @@ public sealed class NamespaceSessionTests
         Assert.That(window.Read(0, 4), Is.EqualTo(new byte[] { 0, 1, 2, 3 }));
     }
 
+    [Test]
+    public async Task ModesFollowTheVolumeTest()
+    {
+        // chmod (N4.1): a volume in memory keeps the bits, FAT keeps read-only alone and refuses the rest with ENOTSUP.
+        var mounts = new MountTable();
+        mounts.Add("/tmp", new OutWit.OS.FileSystems.Memory.MemoryFileSystem(1 << 20));
+        mounts.Add("/fat", await FatFileSystem.FormatAsync(new MemoryBlockStorage(4 * 1024 * 1024)));
+        var window = new ByteWindow(8192);
+        var session = new NamespaceSession(mounts, window);
+        foreach (var path in new[] { "/tmp/f", "/fat/f" })
+        {
+            var made = await OpenAsync(session, window, path, NamespaceMessages.WRITE_ACCESS | NamespaceMessages.CREATE);
+            await session.HandleAsync(new NamespaceRequest(NamespaceMessages.CLOSE, Handle: made.Handle));
+        }
+        await Path(session, window, NamespaceMessages.MKDIR, "/tmp/d");
+
+        var kept = await Mode(session, window, "/tmp/f", 0x180);                      // 0600
+        var directory = await Mode(session, window, "/tmp/d", 0x1FF);                 // 0777
+        var opened = await OpenAsync(session, window, "/tmp/f", NamespaceMessages.READ_ACCESS);
+        var byHandle = await session.HandleAsync(new NamespaceRequest(NamespaceMessages.FCHMOD, Handle: opened.Handle, Mode: 0x1A4)); // 0644
+        var stat = await Path(session, window, NamespaceMessages.STAT, "/tmp/f");
+        var readOnly = await Mode(session, window, "/fat/f", 0x124);                  // 0444
+        var writable = await Mode(session, window, "/fat/f", 0x1A4);                  // 0644
+        var refused = await Mode(session, window, "/fat/f", 0x180);                   // 0600
+        var missing = await Mode(session, window, "/tmp/none", 0x180);
+
+        Assert.That(kept.Error, Is.Zero);
+        Assert.That(kept.Stat!.Mode, Is.EqualTo(0x180));
+        Assert.That(directory.Stat!.Mode, Is.EqualTo(0x1FF));
+        Assert.That(byHandle.Error, Is.Zero);
+        Assert.That(stat.Stat!.Mode, Is.EqualTo(0x1A4));
+        Assert.That(readOnly.Error, Is.Zero);
+        Assert.That(readOnly.Stat!.Mode, Is.EqualTo(0x124));
+        Assert.That(writable.Stat!.Mode, Is.EqualTo(0x1A4));
+        Assert.That(refused.Error, Is.EqualTo(Errno.NOT_SUPPORTED));
+        Assert.That(missing.Error, Is.EqualTo(Errno.NOT_FOUND));
+    }
+
     #endregion
 
     #region Tools
@@ -276,6 +314,13 @@ public sealed class NamespaceSessionTests
         var bytes = Encoding.UTF8.GetBytes(path);
         window.Write(0, bytes);
         return session.HandleAsync(new NamespaceRequest(operation, flags, Length: bytes.Length));
+    }
+
+    private static ValueTask<NamespaceReply> Mode(NamespaceSession session, ByteWindow window, string path, uint mode)
+    {
+        var bytes = Encoding.UTF8.GetBytes(path);
+        window.Write(0, bytes);
+        return session.HandleAsync(new NamespaceRequest(NamespaceMessages.CHMOD, Length: bytes.Length, Mode: mode));
     }
 
     private static ValueTask<NamespaceReply> Rename(NamespaceSession session, ByteWindow window, string from, string to)

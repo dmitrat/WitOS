@@ -66,6 +66,55 @@ internal static class FileChecks
             var skew = Math.Abs((written - DateTime.UtcNow).TotalMinutes);
             return CheckResult.Now(skew < 10, $"{written:O}");
         });
+        yield return new Check("FileIO", "Copy", () =>
+        {
+            var source = Path.Combine(m_root.Value, "copy-source.bin");
+            var target = Path.Combine(m_root.Value, "copy-target.bin");
+            var bytes = Enumerable.Range(0, 20_000).Select(i => (byte)(i * 11)).ToArray();
+            File.WriteAllBytes(source, bytes);
+            File.Copy(source, target);
+            File.Copy(source, target, overwrite: true);
+            var same = File.ReadAllBytes(target).AsSpan().SequenceEqual(bytes);
+            File.Delete(source);
+            File.Delete(target);
+            return CheckResult.Now(same, $"{bytes.Length} bytes copied");
+        });
+        yield return new Check("FileIO", "Modes", () =>
+        {
+            var path = Path.Combine(m_root.Value, "modes.txt");
+            File.WriteAllText(path, "m");
+            if (OperatingSystem.IsWindows())
+            {
+                File.SetAttributes(path, FileAttributes.ReadOnly);
+                var readOnly = (File.GetAttributes(path) & FileAttributes.ReadOnly) != 0;
+                File.SetAttributes(path, FileAttributes.Normal);
+                return CheckResult.Now(readOnly, $"read-only {readOnly}");
+            }
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            var first = File.GetUnixFileMode(path);
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+            var second = File.GetUnixFileMode(path);
+            return CheckResult.Now(first == (UnixFileMode.UserRead | UnixFileMode.UserWrite) &&
+                second == (UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead), $"{first}, then {second}");
+        });
+        yield return new Check("FileIO", "Temp", () =>
+        {
+            var probe = Path.Combine(Path.GetTempPath(), $"witos-compatibility-temp-{Environment.ProcessId}.txt");
+            File.WriteAllText(probe, "t");
+            var temp = File.Exists(probe);
+            File.Delete(probe);
+            var fixedTemp = true;
+            if (!OperatingSystem.IsWindows())
+            {
+                // The fixed /tmp, which .NET's named synchronization objects use whatever TMPDIR says.
+                var directory = Path.Combine("/tmp", $"witos-compatibility-{Environment.ProcessId}");
+                Directory.CreateDirectory(directory);
+                File.WriteAllText(Path.Combine(directory, "f.txt"), "f");
+                fixedTemp = File.Exists(Path.Combine(directory, "f.txt"));
+                Directory.Delete(directory, recursive: true);
+            }
+            return CheckResult.Now(temp && fixedTemp, $"{Path.GetTempPath()}{(OperatingSystem.IsWindows() ? "" : " and /tmp")}");
+        });
         yield return new Check("FileIO", "Watcher", async () =>
         {
             var directory = Directory.CreateDirectory(Path.Combine(m_root.Value, "watched")).FullName;

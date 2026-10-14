@@ -1,0 +1,6 @@
+{
+  "name": "tzdata2026e",
+  "url": "https://data.iana.org/time-zones/releases/tzdata2026e.tar.gz",
+  "sha256": "b26882805f26aac59d5b222978e6580484b834ccdc98be89df2f05a6dc53a652",
+  "purpose": "The IANA time zone database in the .NET install (plan step N4.1, RFC 0015 section 8): the sources of the release by the SHA-256 of its tarball, compiled on the Linux host by zic into the TZif files of /usr/share/zoneinfo, which TimeZoneInfo reads as on Linux (TZDIR's default), with zone.tab, zone1970.tab and iso3166.tab beside them. The newest release when the step was made; a later one moves the pin."
+}

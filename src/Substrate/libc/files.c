@@ -43,7 +43,7 @@
 #define WINDOW_BYTES (WINDOW_PAGES * PAGE)
 #define HEADER_BYTES 32U
 #define ENTRY_BYTES 32U
-#define MAX_FILES 1024U /* WIT_PACKAGE_MAX_FILES */
+#define MAX_FILES 4096U /* WIT_PACKAGE_MAX_FILES (N4.1: the .NET install carries tzdata's zoneinfo, some 600 files) */
 #define FIRST_DESCRIPTOR 3
 #define DESCRIPTORS 1024 /* Linux's usual soft RLIMIT_NOFILE: CoreCLR keeps every assembly it loads open (R6) */
 #define NAME_MAX_BYTES 1024U
@@ -756,6 +756,63 @@ long __wit_mkdirat(long dirfd, const char *path)
     return -EROFS;
 }
 
+/* fchmodat and chmod (N4.1): a file or a directory of a mounted volume takes the mode its volume's format keeps (the
+ * namespace service answers ENOTSUP for one FAT cannot keep), a shared memory file keeps the bits as tmpfs does, the
+ * devices, /dev and /dev/shm keep theirs, and the package is read-only (EROFS). */
+long __wit_fchmodat(long dirfd, const char *path, long mode)
+{
+    unsigned char name[NAME_MAX_BYTES];
+    WitU32 length = 0, index = 0;
+    Kind kind;
+    long status;
+    if ((status = mount()) < 0) {
+        return status;
+    }
+    if ((status = resolve(dirfd, path, name, &length)) < 0) {
+        return status;
+    }
+    if (__wit_remote_name(name, length)) {
+        return __wit_remote_chmod(name, length, mode);
+    }
+    if (shared_directory(name, length) ||
+        (length == 3 && memcmp(name, "dev", 3) == 0) ||
+        (length == 8 && (memcmp(name, "dev/null", 8) == 0 || memcmp(name, "dev/zero", 8) == 0)) ||
+        is_random_device(name, length)) {
+        return 0;
+    }
+    if (shared_name(name, length)) {
+        if ((status = __wit_shared_find(name + 8, length - 8, &index)) < 0) {
+            return status;
+        }
+        return __wit_shared_chmod(index, mode);
+    }
+    if ((status = lookup(name, length, &kind, &index)) < 0) {
+        return status;
+    }
+    return -EROFS;
+}
+
+/* fchmod (N4.1): as fchmodat of what the descriptor opened; a standard stream, a pipe or a device keeps its mode. */
+long __wit_fchmod(long fd, long mode)
+{
+    const Descriptor *d = descriptor(fd);
+    if (!d) {
+        return __wit_stream_of(fd) >= 0 ? 0 : -EBADF;
+    }
+    switch (d->Kind) {
+    case KindRemoteFile:
+    case KindRemoteDirectory:
+        return __wit_remote_fchmod(d->Index, mode);
+    case KindShared:
+        return __wit_shared_chmod(d->Index, mode);
+    case KindFile:
+    case KindDirectory:
+        return -EROFS;
+    default:
+        return 0;
+    }
+}
+
 /* memfd_create: an anonymous shared memory file, read and written through its mappings (R3.2b). */
 long __wit_memfd_create(const char *name, long flags)
 {
@@ -1146,7 +1203,7 @@ static void fill_stat(struct kstat *st, Kind kind, WitU32 index, WitU64 length)
     } else if (kind == KindShared) {
         st->st_dev = 3;
         st->st_ino = (ino_t)index + 1;
-        st->st_mode = S_IFREG | 0600;
+        st->st_mode = S_IFREG | __wit_shared_mode(index); /* 0600 until chmod (N4.1) */
         st->st_size = (off_t)length;
         st->st_blocks = (blkcnt_t)((length + 511) / 512);
     } else {

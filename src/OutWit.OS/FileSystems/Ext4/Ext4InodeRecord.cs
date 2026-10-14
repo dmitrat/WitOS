@@ -214,8 +214,12 @@ internal sealed class Ext4InodeRecord
     /// <summary>i_block.</summary>
     public Span<byte> Block => Bytes.Slice(BLOCK, Ext4Inode.BLOCK_BYTES);
 
-    /// <summary>i_mode.</summary>
-    public int Mode => BinaryPrimitives.ReadUInt16LittleEndian(Bytes[MODE..]);
+    /// <summary>i_mode: the type in its high four bits and the permission bits below them.</summary>
+    public int Mode
+    {
+        get => BinaryPrimitives.ReadUInt16LittleEndian(Bytes[MODE..]);
+        set => BinaryPrimitives.WriteUInt16LittleEndian(Bytes[MODE..], (ushort)value);
+    }
 
     /// <summary>The hard links.</summary>
     public int Links

@@ -11,7 +11,8 @@ internal static class AssemblyPackage
 {
     #region Constants
 
-    internal const int HEADER_BYTES = 32, ENTRY_BYTES = 32, MAXIMUM_FILES = 1024;
+    // WIT_PACKAGE_MAX_FILES: 4096 since N4.1, when the .NET install took tzdata's zoneinfo (1024 before).
+    internal const int HEADER_BYTES = 32, ENTRY_BYTES = 32, MAXIMUM_FILES = 4096;
 
     internal const int MAXIMUM_NAME_BYTES = 1024, MAXIMUM_BYTES = 128 * 1024 * 1024;
     internal const int PAGE_BYTES = 4096;

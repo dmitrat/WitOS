@@ -55,6 +55,9 @@ public sealed class Ext4WriterTests(string variant)
             for (var i = 0; i < 40; i++)
                 await volume.DeleteAsync($"/many/an-entry-with-a-rather-long-name-{i:0000}.txt");
             await volume.DeleteAsync("/empty.txt");
+            var mode = await volume.SetModeAsync("/note.txt", 0x1A0);                 // 0640 (N4.1)
+            Assert.That(mode.Unix!.Mode, Is.EqualTo(0x1A0));
+            Assert.That((await volume.SetModeAsync("/made", 0x1C0)).Unix!.Mode, Is.EqualTo(0x1C0)); // 0700 on a directory
             Assert.That(Error(() => volume.DeleteAsync("/made").AsTask()), Is.EqualTo(FileSystemError.NotEmpty));
             Assert.That(Error(() => volume.RenameAsync("/made", "/made/sub/inside").AsTask()), Is.EqualTo(FileSystemError.InvalidName));
             Assert.That(Error(() => volume.OpenAsync("/note.txt", FileMode.CreateNew, FileAccess.Write).AsTask()), Is.EqualTo(FileSystemError.AlreadyExists));
@@ -66,6 +69,8 @@ public sealed class Ext4WriterTests(string variant)
         Assert.That(Ext4Tools.Dump(image, "/note.txt"), Is.EqualTo(note));
         Assert.That(Ext4Tools.Dump(image, "/made/hello-moved.txt"), Is.EqualTo(Encoding.UTF8.GetBytes(Ext4Images.HELLO)));
         Assert.That(Ext4Tools.Dump(image, "/made/nested/deep/file.bin").Length, Is.EqualTo(1234));
+        Assert.That(Ext4Tools.Script(image, "stat /note.txt"), Does.Contain("Mode:  0640"), "debugfs reads the mode the provider set");
+        Assert.That(Ext4Tools.Script(image, "stat /made"), Does.Contain("Mode:  0700"));
         await using var again = await Ext4FileSystem.MountAsync(new MemoryBlockStorage(image, 512, isReadOnly: true));
         Assert.That((await again.EnumerateAsync("/many")).Count, Is.EqualTo(Ext4Images.MANY + 60 - 40));
         Assert.That(await again.GetEntryAsync("/docs/readme.md"), Is.Null);

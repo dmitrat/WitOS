@@ -80,6 +80,12 @@ public static class NamespaceMessages
     /// </summary>
     public const uint MAP = 16;
 
+    /// <summary>A path's permission bits set to Mode (N4.1); the reply's Stat.</summary>
+    public const uint CHMOD = 17;
+
+    /// <summary>A handle's permission bits set to Mode (N4.1); the reply's Stat.</summary>
+    public const uint FCHMOD = 18;
+
     /// <summary>OPEN: the handle reads.</summary>
     public const uint READ_ACCESS = 0x1;
 

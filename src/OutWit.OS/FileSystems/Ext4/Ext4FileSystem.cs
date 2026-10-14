@@ -243,6 +243,17 @@ public sealed class Ext4FileSystem : IFileSystem
         }, cancellationToken);
 
     /// <inheritdoc />
+    /// <remarks>ext4 records a mode: the bits are kept as given, the type stays, and the change is one transaction.</remarks>
+    public ValueTask<FileSystemEntry> SetModeAsync(string path, int mode, CancellationToken cancellationToken = default) =>
+        ChangeAsync(async () =>
+        {
+            var (resolved, inode) = await m_names.RequireAsync(path, cancellationToken).ConfigureAwait(false);
+            await m_writer!.ChangeAsync((transaction, _, now) => m_writer.SetModeAsync(transaction, now, inode.Number, mode, cancellationToken),
+                cancellationToken).ConfigureAwait(false);
+            return Ext4Namespace.Entry(resolved, await m_volume.ReadInodeAsync(inode.Number, cancellationToken).ConfigureAwait(false));
+        }, cancellationToken);
+
+    /// <inheritdoc />
     /// <remarks>Every change is durable when it completes; a flush flushes the resource once more.</remarks>
     public async ValueTask FlushAsync(CancellationToken cancellationToken = default)
     {

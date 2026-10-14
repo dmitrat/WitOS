@@ -37,6 +37,9 @@
 #define WIT_NAMESPACE_MAP \
     16U /* Handle of a file, Offset a multiple of WIT_NAMESPACE_CHUNK_BYTES, Flags WIT_NAMESPACE_MAP_WRITE: the reply's
          * one handle is a memory object of WIT_NAMESPACE_CHUNK_BYTES that holds the file's bytes from Offset (R4.2) */
+#define WIT_NAMESPACE_CHMOD \
+    17U /* the path in the window (Length bytes), Mode the permission bits; the reply's Stat (N4.1) */
+#define WIT_NAMESPACE_FCHMOD 18U /* Handle, Mode the permission bits; the reply's Stat (N4.1) */
 
 /* OPEN's flags; the libc maps O_ACCMODE, O_CREAT, O_EXCL, O_TRUNC and O_DIRECTORY onto them. */
 #define WIT_NAMESPACE_READ_ACCESS 0x1U
@@ -83,7 +86,7 @@ typedef struct WitNamespaceRequest {
     WitU64 Handle; /* a file or a directory the session opened */
     WitU64 Offset;
     WitU64 Length;
-    WitU32 Mode, Reserved; /* OPEN with CREATE: the permission bits of a new file */
+    WitU32 Mode, Reserved; /* OPEN with CREATE: the permission bits of a new file; CHMOD and FCHMOD: the bits to set */
 } WitNamespaceRequest;
 
 /* A reply: zero or an errno value, and what the operation gives back. */
