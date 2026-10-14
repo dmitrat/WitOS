@@ -163,6 +163,8 @@ internal static class CommandLine
         new CommandArchitecture("runtime-compatibility",
             "Boot the .NET compatibility suite through dotnet beside the device services, on the services and the install earlier runs built (N1)",
             RuntimeCompatibility.RunAsync),
+        new CommandPublishApps(),
+        new CommandPublished(),
         new CommandArchitecture("runtime-libraries",
             "Boot NUnit's and xUnit's test applications of representative NuGet libraries through dotnet beside the device services (N2.1)",
             RuntimeLibraries.RunAsync),

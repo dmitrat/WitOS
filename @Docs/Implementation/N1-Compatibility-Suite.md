@@ -51,6 +51,30 @@ with `expectations.json`, which records, per platform, the checks expected to fa
   - **How it runs.** `runtime-witos` runs it after `runtime-devices`, and the `runtime-compatibility` command runs it
     alone.
 
+## Published on Windows, run on WitOS (N4.4)
+
+Goal 2 (Strategy §57) says that a program built on Windows with the stock SDK runs unchanged on WitOS. The scenario
+above publishes the suite on the Linux host that built the runtime; plan step N4.4 makes the claim literal.
+
+- **`publish-apps [--output <directory>]`** publishes the suite and R6's portable application on the host it runs on,
+  with the stock SDK and no RID, each from a copy of its project apart from the repository's build properties (the same
+  MSBuild as Visual Studio's "Publish" to a folder), and writes `published.json` beside them: the host, the SDK's
+  version and every file with its size and SHA-256. A Windows publish holds the Windows apphosts
+  (`DotNetCompatibility.exe`, `PortableApp.exe`), which WitOS never runs, beside the assemblies, the `deps.json` and the
+  `runtimeconfig.json`; the package carries every file as published, unchanged.
+- **`runtime-published [--arch <isa>] [--published <directory>]`** requires the directory to hold exactly the files the
+  manifest names, byte for byte, builds the `runtime-published` package (the device services, the .NET install and the
+  two applications under `/app`, each run by `apps_init`), boots it with the terminal as `runtime-compatibility`
+  boots, and then compares each check's verdict in the guest's log with the record `runtime-compatibility` wrote on this
+  runtime (`artifacts/runtime-witos/compatibility-<arch>.json`: the host that published, its SDK and each check's
+  pass, fail or not applicable). A check that ended otherwise, or ran on one side alone, fails the command; the report
+  goes to `artifacts/runtime-witos/compatibility-published-<arch>.json`. Without `--published` the command publishes
+  on this host first, a check of the tool itself.
+- **CI.** The `windows-publish` job (Windows) publishes and uploads `witos-published-apps-windows`; the
+  `published-on-windows` job, one per ISA after `linux-host` and `windows-publish`, downloads that upload beside the
+  install, the services and the record its `linux-host` leg uploaded, and runs `runtime-published` on it. Host tests
+  check the manifest, the reading of the checks, the comparison and that the workflow has both jobs.
+
 ## Results
 
 | System | Checks | Recorded differences | Unexpected |

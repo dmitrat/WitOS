@@ -148,6 +148,12 @@ internal static class KernelImageBuilder
     public const string RUNTIME_TERMINAL_SCENARIO = "runtime-terminal";
 
     /// <summary>
+    /// The published applications' scenario (N4.4): the compatibility suite and the portable application as the bytes
+    /// publish-apps wrote on this host or on Windows, beside the device services.
+    /// </summary>
+    public const string RUNTIME_PUBLISHED_SCENARIO = "runtime-published";
+
+    /// <summary>
     /// Representative NuGet libraries (N2.1): NUnit's and xUnit's test applications run through dotnet beside the device
     /// services; not a suite scenario, for the same reason.
     /// </summary>
@@ -179,7 +185,7 @@ internal static class KernelImageBuilder
             RUNTIME_CORERUN_SCENARIO, RUNTIME_CORECLR_ACCEPTANCE_SCENARIO, RUNTIME_SYSTEM_NATIVE_SCENARIO, RUNTIME_DOTNET_SCENARIO,
             RUNTIME_PORTABLE_APP_SCENARIO, RUNTIME_PALSUITE_SCENARIO, RUNTIME_CORECLR_TESTS_SCENARIO,
             RUNTIME_LIBRARY_TESTS_SCENARIO, RUNTIME_DEVICES_SCENARIO, RUNTIME_COMPATIBILITY_SCENARIO, RUNTIME_LIBRARIES_SCENARIO,
-            RUNTIME_NUGET_SUITES_SCENARIO, RUNTIME_SIDE_BY_SIDE_SCENARIO, RUNTIME_TERMINAL_SCENARIO];
+            RUNTIME_NUGET_SUITES_SCENARIO, RUNTIME_SIDE_BY_SIDE_SCENARIO, RUNTIME_TERMINAL_SCENARIO, RUNTIME_PUBLISHED_SCENARIO];
 
     // A release map must not name self-test code: test objects, self-test functions, fault triggers or workers.
     private static readonly Regex SELF_TEST_SYMBOL = new(
@@ -264,6 +270,7 @@ internal static class KernelImageBuilder
             : scenario == RUNTIME_DEVICES_SCENARIO ? await Runtime.RuntimeDevices.BuildPackageAsync(root, output, architecture)
             : scenario == RUNTIME_COMPATIBILITY_SCENARIO ? await Runtime.RuntimeCompatibility.BuildPackageAsync(root, output, architecture)
             : scenario == RUNTIME_TERMINAL_SCENARIO ? await Runtime.RuntimeTerminal.BuildPackageAsync(root, output, architecture)
+            : scenario == RUNTIME_PUBLISHED_SCENARIO ? await Runtime.RuntimePublished.BuildPackageAsync(root, output, architecture)
             : scenario == RUNTIME_LIBRARIES_SCENARIO ? await Runtime.RuntimeLibraries.BuildPackageAsync(root, output, architecture)
             : scenario == RUNTIME_NUGET_SUITES_SCENARIO ? await Runtime.RuntimeNuGetSuites.BuildPackageAsync(root, output, architecture)
             : scenario == RUNTIME_SIDE_BY_SIDE_SCENARIO ? await Runtime.RuntimeSideBySide.BuildPackageAsync(root, output, architecture)
@@ -280,7 +287,7 @@ internal static class KernelImageBuilder
                 or RUNTIME_SYSTEM_NATIVE_SCENARIO or RUNTIME_DOTNET_SCENARIO or RUNTIME_PORTABLE_APP_SCENARIO or RUNTIME_PALSUITE_SCENARIO
                 or RUNTIME_CORECLR_TESTS_SCENARIO or RUNTIME_LIBRARY_TESTS_SCENARIO or RUNTIME_DEVICES_SCENARIO
                 or RUNTIME_COMPATIBILITY_SCENARIO or RUNTIME_LIBRARIES_SCENARIO or RUNTIME_NUGET_SUITES_SCENARIO or RUNTIME_TERMINAL_SCENARIO
-                or RUNTIME_SIDE_BY_SIDE_SCENARIO
+                or RUNTIME_SIDE_BY_SIDE_SCENARIO or RUNTIME_PUBLISHED_SCENARIO
                 ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
             : await UserImage.BuildRootAsync(root, output, architecture);
         var objects = await CompileKernelAsync(root, output, scenario, selfTest, target, architecture);

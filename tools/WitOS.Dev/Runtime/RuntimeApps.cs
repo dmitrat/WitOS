@@ -16,6 +16,11 @@ internal static class RuntimeApps
     #region Constants
 
     /// <summary>
+    /// The memory a scenario of applications boots with unless the command says otherwise.
+    /// </summary>
+    public const int MEMORY_MIB = 512;
+
+    /// <summary>
     /// The scenarios' /bin/init, which runs the commands of /etc/apps with /data/tmp as their temporary directory.
     /// </summary>
     public const string INIT = "tests/User/apps_init.c";
@@ -37,6 +42,25 @@ internal static class RuntimeApps
     public static async Task<IReadOnlyList<(string Name, string Source)>> BuildPackageAsync(string root, string output,
         KernelArchitecture architecture, IReadOnlyList<(string Name, string Project)> applications, IReadOnlyList<string> commands)
     {
+        var published = new List<(string Name, string Directory)>();
+        foreach (var (name, project) in applications)
+            published.Add((name, await PublishAsync(root, output, project, name)));
+        return await PackageAsync(root, output, architecture, published, commands);
+    }
+
+    /// <summary>
+    /// The package of applications published already (N4.4: on another host): the device services, the .NET install,
+    /// each application's files under /app/<name> and the commands /bin/init runs.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Artifact directory of the scenario.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="published">Each application's name and the directory its publish wrote.</param>
+    /// <param name="commands">The commands /bin/init runs, one a line, and the directories it runs them in.</param>
+    /// <returns>Package paths and the files to place there.</returns>
+    public static async Task<IReadOnlyList<(string Name, string Source)>> PackageAsync(string root, string output,
+        KernelArchitecture architecture, IReadOnlyList<(string Name, string Directory)> published, IReadOnlyList<string> commands)
+    {
         var services = RuntimeDevices.ServiceFiles(root, architecture);
         await Sysroot.BuildAsync(root, architecture);
         var init = Path.Combine(output, "apps_init.o");
@@ -50,14 +74,21 @@ internal static class RuntimeApps
         };
         package.AddRange(services);
         package.AddRange(await RuntimeWitos.InstallFilesAsync(root, output, architecture));
-        foreach (var (name, project) in applications)
-        {
-            var published = await PublishAsync(root, output, project, name);
-            package.AddRange(Directory.EnumerateFiles(published, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
-                .Select(file => ($"app/{name}/{Path.GetRelativePath(published, file).Replace('\\', '/')}", file)));
-        }
+        foreach (var (name, directory) in published)
+            package.AddRange(Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
+                .Select(file => ($"app/{name}/{Path.GetRelativePath(directory, file).Replace('\\', '/')}", file)));
         return [.. package.DistinctBy(file => file.Name)];
     }
+
+    /// <summary>
+    /// The serial log of a scenario of applications booted by <see cref="BootAsync"/> with the default memory.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="scenario">The scenario.</param>
+    /// <returns>The log's path.</returns>
+    public static string SerialLog(string root, KernelArchitecture architecture, string scenario) =>
+        Path.Combine(root, "artifacts", "logs", $"{architecture.Name}-{scenario}-{MEMORY_MIB}.serial.log");
 
     /// <summary>
     /// Boots a scenario of applications with a fresh data disk.
@@ -75,7 +106,7 @@ internal static class RuntimeApps
     /// <returns>When the boot passed.</returns>
     public static async Task BootAsync(string root, KernelArchitecture architecture, string scenario, string[] requiredLines,
         int timeoutSeconds, IReadOnlyList<(string Path, string Source)>? volumeFiles = null, long diskBytes = RuntimeDataDisk.BYTES,
-        int memoryMiB = 512, IReadOnlyList<(string Name, string Source)>? package = null, IReadOnlyList<TerminalInput>? terminal = null)
+        int memoryMiB = MEMORY_MIB, IReadOnlyList<(string Name, string Source)>? package = null, IReadOnlyList<TerminalInput>? terminal = null)
     {
         var image = await KernelImageBuilder.BuildAsync(root, scenario, architecture: architecture, package: package);
         var dataDisk = Path.Combine(Path.GetDirectoryName(image)!, "data-disk.img");
@@ -92,9 +123,16 @@ internal static class RuntimeApps
         });
     }
 
-    // An application published from a copy of its project apart from the repository's build properties; the published
-    // directory.
-    private static async Task<string> PublishAsync(string root, string output, string project, string name)
+    /// <summary>
+    /// Publishes an application with the stock SDK and no RID from a copy of its project apart from the repository's
+    /// build properties, as a developer's machine publishes it.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">The directory the copy and the publish go under.</param>
+    /// <param name="project">The project's directory under the repository.</param>
+    /// <param name="name">The application's name under <paramref name="output"/>.</param>
+    /// <returns>The published directory.</returns>
+    internal static async Task<string> PublishAsync(string root, string output, string project, string name)
     {
         var copy = await CopyProjectAsync(root, output, project, name);
         var published = Path.Combine(output, $"{name}-app");
