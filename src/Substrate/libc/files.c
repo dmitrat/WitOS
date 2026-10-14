@@ -1255,6 +1255,45 @@ long __wit_lseek(long fd, long offset, long whence)
     return (long)POSITION(d);
 }
 
+/* A package file is executable when it is an ELF image (N4.2): the package records no mode, and the programs of the
+ * package are what posix_spawn and .NET's Process.Start, which asks access(X_OK) first, start. The answer is read once
+ * per file through a window and kept. */
+static unsigned char executable_known[(MAX_FILES + 7) / 8];
+static unsigned char executable_bits[(MAX_FILES + 7) / 8];
+
+static int executable(WitU32 index)
+{
+    const unsigned char *name;
+    WitU32 name_length;
+    WitU64 data, length, address;
+    if (index >= MAX_FILES) {
+        return 0;
+    }
+    if (executable_known[index / 8] & (1U << (index % 8))) {
+        return (executable_bits[index / 8] >> (index % 8)) & 1;
+    }
+    entry(index, &name, &name_length, &data, &length);
+    int elf = 0;
+    if (length >= 4) {
+        const WitU64 window_start = data & ~(PAGE - 1);
+        const WitU64 object_bytes = (__wit_process.PackageBytes + PAGE - 1) & ~(PAGE - 1);
+        WitU64 window_bytes = 2 * PAGE; /* the magic may straddle a page: a file below a page is not aligned */
+        if (window_start + window_bytes > object_bytes) {
+            window_bytes = object_bytes - window_start;
+        }
+        if (map_window(window_start, window_bytes, &address) == 0) {
+            const unsigned char *magic = (const unsigned char *)(address + (data - window_start));
+            elf = magic[0] == 0x7F && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F';
+            unmap_window(address);
+        }
+    }
+    executable_known[index / 8] |= (unsigned char)(1U << (index % 8));
+    if (elf) {
+        executable_bits[index / 8] |= (unsigned char)(1U << (index % 8));
+    }
+    return elf;
+}
+
 static void fill_stat(struct kstat *st, Kind kind, WitU32 index, WitU64 length)
 {
     memset(st, 0, sizeof(*st));
@@ -1263,7 +1302,7 @@ static void fill_stat(struct kstat *st, Kind kind, WitU32 index, WitU64 length)
     st->st_blksize = (blksize_t)PAGE;
     if (kind == KindFile) {
         st->st_ino = (ino_t)index + 1;
-        st->st_mode = S_IFREG | 0444;
+        st->st_mode = S_IFREG | (executable(index) ? 0555 : 0444);
         st->st_size = (off_t)length;
         st->st_blocks = (blkcnt_t)((length + 511) / 512);
     } else if (kind == KindDirectory) {
@@ -1404,8 +1443,8 @@ long __wit_faccessat(long dirfd, const char *path, long mode)
     if (mode & W_OK) {
         return -EROFS;
     }
-    if ((mode & X_OK) && kind == KindFile) {
-        return -EACCES;
+    if ((mode & X_OK) && kind == KindFile && !executable(index)) {
+        return -EACCES; /* a package file that is no ELF image */
     }
     return 0;
 }
