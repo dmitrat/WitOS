@@ -61,10 +61,10 @@ WitU32 wit_channels_charged(const struct WitUserProcess *creator)
     return count;
 }
 
-WitChannel *wit_channel_reserve(struct WitUserProcess *creator, WitU32 *index)
+WitChannel *wit_channel_reserve(struct WitUserProcess *creator, WitU32 limit, WitU32 *index)
 {
     *index = 0;
-    if (wit_channels_charged(creator) >= WIT_CHANNEL_CAPACITY) {
+    if (wit_channels_charged(creator) >= limit) {
         return 0;
     }
     for (WitU32 i = 0; i < WIT_CHANNEL_TABLE_CAPACITY; ++i) {

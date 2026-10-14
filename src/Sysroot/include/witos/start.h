@@ -16,11 +16,16 @@
  * creator grants the process, a service's channel to its creator, and names the optional capabilities in
  * Capabilities, since a message's handles leave no gaps. Version 5 (D5.1) adds the namespace service's endpoint, the
  * files of the mounted volumes (witos/namespace.h), which the process manager gives every process it starts while a
- * message has room; a service that also takes a grant asks its creator for the namespace instead. The arguments and the environment stay on the stack, where
- * musl reads them and a message of 256 bytes could not hold them. */
+ * message has room; a service that also takes a grant asks its creator for the namespace instead. Version 6 (N4.2)
+ * adds the standard streams a creator gives the process as pipes: Streams counts the WitStreamMessages that follow on
+ * the granted channel, each moving one end of a pipe (its ring's memory object and its wakeup endpoint,
+ * src/Substrate/libc/pipe.c) for one standard descriptor; the grant is then that channel alone, which the libc closes
+ * once the streams arrived, so a process with streams has no grant of its own; and, since a message holds four
+ * handles, the namespace's endpoint follows such a message in a second one (WIT_START_NAMESPACE_NEXT). The arguments
+ * and the environment stay on the stack, where musl reads them and a message of 256 bytes could not hold them. */
 #define WIT_AT_START 0x57490001UL
 
-#define WIT_START_VERSION 5U
+#define WIT_START_VERSION 6U
 #define WIT_START_SIZE 32U
 #define WIT_START_DIRECTORY_MAXIMUM 224U /* the rest of a channel message's 256 bytes */
 #define WIT_START_HANDLE_LOG 0U /* the kernel log: DEBUG_WRITE, standard output and error */
@@ -32,7 +37,9 @@
 #define WIT_START_MANAGER 1U /* the process manager's endpoint: SEND (S6.1) */
 #define WIT_START_GRANT 2U /* the capability the creator grants (D1.1): a service's channel to its creator */
 #define WIT_START_NAMESPACE 4U /* the namespace service's clients' endpoint: SEND (D5.1, witos/namespace.h) */
-#define WIT_START_CAPABILITIES (WIT_START_MANAGER | WIT_START_GRANT | WIT_START_NAMESPACE)
+#define WIT_START_NAMESPACE_NEXT \
+    8U /* the same endpoint in a second message on the start endpoint, alone in its first                                        handle slot with no bytes, since the first message's four slots had no room                                        for it (N4.2: a process with a manager and a grant); never with NAMESPACE */
+#define WIT_START_CAPABILITIES (WIT_START_MANAGER | WIT_START_GRANT | WIT_START_NAMESPACE | WIT_START_NAMESPACE_NEXT)
 
 /* The bytes of the start message, followed by DirectoryBytes of the initial directory. */
 typedef struct WitStartMessage {
@@ -44,8 +51,28 @@ typedef struct WitStartMessage {
         DirectoryBytes; /* an absolute path without a terminator, at most WIT_START_DIRECTORY_MAXIMUM; zero for "/" */
     WitU32
         Capabilities; /* WIT_START_MANAGER, WIT_START_GRANT, WIT_START_NAMESPACE: the optional capabilities carried */
-    WitU32 Reserved;
+    WitU32 Streams; /* the WitStreamMessages that follow on the grant (N4.2), at most WIT_START_STREAMS_MAXIMUM */
 } WitStartMessage;
 
 WIT_STATIC_ASSERT(sizeof(WitStartMessage) == WIT_START_SIZE, "Start message");
+
+/* A standard stream given as a pipe (N4.2): one message per stream on the granted channel, after the start message,
+ * with the pipe's memory object (MAP, WRITE, DUPLICATE, TRANSFER) in the first handle slot and the end's wakeup
+ * endpoint (WAIT, SEND, RECEIVE, DUPLICATE, TRANSFER) in the second. The memory object holds the libc's pipe ring
+ * (src/Substrate/libc/pipe.c); every process that holds an end of the pipe maps it and sends a wakeup on its endpoint
+ * after each change, so that the other end's waiters look again, and learns the other end's close as PEER_CLOSED. */
+#define WIT_START_STREAMS_MAXIMUM 3U
+#define WIT_STREAM_SIZE 24U
+#define WIT_STREAM_READ_END 0U
+#define WIT_STREAM_WRITE_END 1U
+#define WIT_STREAM_NONBLOCKING 0x1U /* the end was opened with O_NONBLOCK */
+
+typedef struct WitStreamMessage {
+    WitU32 Version, Size; /* WIT_START_VERSION, WIT_STREAM_SIZE */
+    WitU32 Descriptor; /* the standard descriptor the end becomes: 0, 1 or 2 */
+    WitU32 End; /* WIT_STREAM_READ_END or WIT_STREAM_WRITE_END */
+    WitU32 Flags, Reserved; /* WIT_STREAM_NONBLOCKING; zero */
+} WitStreamMessage;
+
+WIT_STATIC_ASSERT(sizeof(WitStreamMessage) == WIT_STREAM_SIZE, "Stream message");
 #endif

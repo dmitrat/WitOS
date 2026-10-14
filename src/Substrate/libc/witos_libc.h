@@ -75,8 +75,22 @@ long __wit_pipe2(int *fds, long flags);
 int __wit_pipe_of(long fd, WitU32 *index, int *write_end, int *nonblocking);
 long __wit_pipe_bytes(long fd);
 
-/* Pipes within the process (pipe.c, R2.3a). */
+/* Pipes within the process (pipe.c, R2.3a) and between processes (N4.2): a pipe an end of which a posix_spawn file
+ * action gives a child is shared — its ring in a memory object, a wakeup endpoint per end — and the child adopts the
+ * end over the handles the start gave it. */
 long __wit_pipe_create(WitU32 *index);
+long __wit_pipe_share(WitU32 index);
+long __wit_pipe_handles(WitU32 index, int write_end, WitU64 *object, WitU64 *endpoint);
+long __wit_pipe_adopt(WitU64 object, WitU64 endpoint, int write_end, WitU32 *index);
+long __wit_descriptor_stream_handles(long fd, WitU64 *object, WitU64 *endpoint, int *write_end, int *nonblocking);
+long __wit_stream_handles(long fd, WitU64 *object, WitU64 *endpoint, int *write_end, int *nonblocking); /* syscall.c */
+/* What a descriptor is as the source of a child's standard stream (N4.2): the log stream it stands for (0, 1 or 2),
+ * WIT_SOURCE_PIPE for a pipe end, WIT_SOURCE_OTHER for a file, a directory or a device, -EBADF for none. */
+#define WIT_SOURCE_PIPE 3L
+#define WIT_SOURCE_OTHER 4L
+long __wit_descriptor_source(long fd); /* files.c, under the table lock */
+long __wit_source_of(long fd); /* syscall.c: takes the table lock */
+long __wit_install_stream(long fd, WitU64 object, WitU64 endpoint, int write_end, int nonblocking);
 void __wit_pipe_reference(WitU32 index);
 void __wit_pipe_release(WitU32 index);
 void __wit_pipe_end(WitU32 index, int write_end, int delta);
@@ -149,9 +163,12 @@ long __wit_fchdir(long fd);
 long __wit_descriptor_directory(long fd, char *out, long size);
 long __wit_set_directory(const char *path, long bytes);
 
-/* Child processes through the process manager (process.c, S6.1): wait4 over the children posix_spawn started. */
+/* Child processes through the process manager (process.c, S6.1): wait4 and waitid (N4.2; info is a siginfo_t) over
+ * the children posix_spawn started, and kill of one of them (SIGKILL ends it, 0 finds it, anything else is EPERM). */
 struct rusage;
 long __wit_wait4(long pid, int *status, long options, struct rusage *usage);
+long __wit_waitid(long idtype, long id, void *info, long options);
+long __wit_kill_child(int pid, int sig);
 
 /* The signal state of one thread (signal.c, S3): the blocked and pending signals as bits sig - 1, and the
  * alternate stack sigaltstack recorded (the kernel holds the same range as the thread's alternate stack). */

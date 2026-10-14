@@ -10,7 +10,7 @@ reports (`CHANNELS`). The call-by-call reference is [ABI-Reference.md](ABI-Refer
 
 **Two endpoints, bounded queues.** A channel is two endpoints, each a queue of the messages the other sent it:
 `WIT_CHANNEL_QUEUE_DEPTH` (4) messages and `WIT_CHANNEL_QUEUE_BYTES` (1024) inline bytes per endpoint,
-`WIT_CHANNEL_CAPACITY` (4) channels per component. `CHANNEL_CREATE` writes two endpoint handles with every endpoint
+`WIT_CHANNEL_CAPACITY` (4) channels per component (since N4.2 a profile's quota: `WIT_USER_CHANNEL_CAPACITY` 4 for a fixture, `WIT_PROCESS_CHANNEL_CAPACITY` 16 for a system layer process, and a kernel table of 128). `CHANNEL_CREATE` writes two endpoint handles with every endpoint
 right; an endpoint is closed when its last handle is, the channel ends with its second endpoint.
 
 **Messages keep their boundaries.** A message is up to `WIT_CHANNEL_MESSAGE_BYTES` (256) inline bytes and up to

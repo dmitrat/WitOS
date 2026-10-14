@@ -1606,6 +1606,66 @@ int __wit_pipe_of(long fd, WitU32 *index, int *write_end, int *nonblocking)
     return 1;
 }
 
+/* posix_spawn (process.c, N4.2): the handles a child takes for the pipe end fd names, to become a standard stream of
+ * the child — the pipe shared first — with the end and its O_NONBLOCK; -EBADF for no descriptor, -ENOSYS for one that
+ * is no pipe end, since a file or a stream as a child's stream is not there. Under the table lock. */
+long __wit_descriptor_stream_handles(long fd, WitU64 *object, WitU64 *endpoint, int *write_end, int *nonblocking)
+{
+    const Descriptor *d = descriptor(fd);
+    if (!d) {
+        return __wit_stream_of(fd) >= 0 ? -ENOSYS : -EBADF;
+    }
+    if (d->Kind != KindPipeRead && d->Kind != KindPipeWrite) {
+        return -ENOSYS;
+    }
+    *write_end = d->Kind == KindPipeWrite;
+    *nonblocking = (descriptions[d->Description].StatusFlags & O_NONBLOCK) != 0;
+    const long shared = __wit_pipe_share(d->Index);
+    if (shared < 0) {
+        return shared;
+    }
+    return __wit_pipe_handles(d->Index, *write_end, object, endpoint);
+}
+
+/* posix_spawn (process.c, N4.2): what fd is as the source of a child's standard stream. Under the table lock. */
+long __wit_descriptor_source(long fd)
+{
+    const Descriptor *d = descriptor(fd);
+    if (!d) {
+        const long stream = __wit_stream_of(fd);
+        return stream >= 0 ? stream : -EBADF;
+    }
+    if (d->Kind == KindStream) {
+        return (long)d->Index;
+    }
+    return d->Kind == KindPipeRead || d->Kind == KindPipeWrite ? WIT_SOURCE_PIPE : WIT_SOURCE_OTHER;
+}
+
+/* The start of a process (start.c, N4.2), before any other thread runs: standard descriptor fd, closed so far,
+ * becomes the end of a pipe another process gave this one, over the ring's object and the end's endpoint, which are
+ * the pipe's on success and stay the caller's on failure. Closing it leaves the descriptor closed, as closing a
+ * duplicate there does (S6.2). */
+long __wit_install_stream(long fd, WitU64 object, WitU64 endpoint, int write_end, int nonblocking)
+{
+    WitU32 index;
+    if (fd < 0 || fd >= FIRST_DESCRIPTOR || descriptors[fd].Kind != KindClosed) {
+        return -EBADF;
+    }
+    const long adopted = __wit_pipe_adopt(object, endpoint, write_end, &index);
+    if (adopted < 0) {
+        return adopted;
+    }
+    WitU32 description = 0;
+    while (descriptions[description].References) {
+        ++description;
+    }
+    descriptions[description] =
+        (Description){0, (write_end ? O_WRONLY : O_RDONLY) | (nonblocking ? O_NONBLOCK : 0), 1, 0};
+    descriptors[fd] = (Descriptor){write_end ? KindPipeWrite : KindPipeRead, index, 0, description, 0};
+    __wit_process.ClosedStreams |= 1U << fd;
+    return 0;
+}
+
 /* pipe2: two descriptors over a new pipe, the read end first. */
 long __wit_pipe2(int *fds, long flags)
 {

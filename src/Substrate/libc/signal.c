@@ -740,7 +740,7 @@ long __wit_tgkill(int tgid, int tid, int sig)
 long __wit_kill(int pid, int sig)
 {
     if (pid != OWN_PID && pid != 0 && pid != -1) {
-        return -ESRCH;
+        return __wit_kill_child(pid, sig); /* a child of this process (N4.2), or ESRCH */
     }
     return __wit_tkill((int)__wit_gettid(), sig);
 }

@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <poll.h>
 #include <pthread.h>
 #include <sched.h>
 #include <signal.h>
@@ -24,7 +25,9 @@
  * refusals of a missing file and a file that is no program (S6.1); its own current directory through chdir and fchdir,
  * a child that inherits it or starts where a chdir action puts it, a program path relative to that directory, and the
  * standard streams a child starts without or rebinds through file actions, with the actions that are not there refused
- * (S6.2). What the system layer reports of the machine and of the process (R2.1): the physical memory through sysinfo
+ * (S6.2); pipes as a child's standard streams, the end of the file across the processes, a transfer many times the
+ * pipe's buffer, poll on a pipe a child closed, SIGCHLD, waitid and kill of a child (N4.2). What the system layer
+ * reports of the machine and of the process (R2.1): the physical memory through sysinfo
  * and sysconf, the address space of anonymous memory as RLIMIT_AS, the processors threads run on, the main thread's
  * stack as musl measures it, a thread's name, and a read-only page of the program made writable, as NativeAOT's runtime
  * makes the page of its GS cookie. The last line names the ISA and the checks; a failed check exits with 1, which the
@@ -38,9 +41,56 @@
 
 #define CHILD "/bin/child"
 #define AT_ONCE 5 /* children at once: the root task, init and five fill seven of the kernel's eight processes */
+#define TRANSFER (512UL * 1024UL) /* bytes through a child, many times the pipe's buffer (N4.2) */
 
 extern char **environ;
 static int checks;
+static volatile sig_atomic_t sigchld_count;
+
+static void count_sigchld(int sig)
+{
+    (void)sig;
+    ++sigchld_count;
+}
+
+/* Reads until the end of the file: the bytes read, or -1. */
+static long read_all(int fd, unsigned char *buffer, size_t size)
+{
+    size_t total = 0;
+    for (;;) {
+        const ssize_t got = read(fd, buffer + total, size - total);
+        if (got < 0) {
+            return -1;
+        }
+        if (got == 0 || total + (size_t)got == size) {
+            return (long)(total + (size_t)got);
+        }
+        total += (size_t)got;
+    }
+}
+
+/* Writes TRANSFER bytes of the pattern (byte i is i & 0xFF) to the descriptor given and closes it. */
+static void *fill(void *argument)
+{
+    const int fd = *(const int *)argument;
+    unsigned char block[4096];
+    for (unsigned long total = 0; total < TRANSFER;) {
+        const size_t piece = TRANSFER - total < sizeof(block) ? (size_t)(TRANSFER - total) : sizeof(block);
+        for (size_t i = 0; i < piece; ++i) {
+            block[i] = (unsigned char)((total + i) & 0xFF);
+        }
+        for (size_t done = 0; done < piece;) {
+            const ssize_t written = write(fd, block + done, piece - done);
+            if (written <= 0) {
+                return (void *)1;
+            }
+            done += (size_t)written;
+        }
+        total += piece;
+    }
+    close(fd);
+    return 0;
+}
 
 static void check(int condition, const char *what)
 {
@@ -213,6 +263,159 @@ int main(void)
     status = finish(start(closed_input, environ));
     check(WIFEXITED(status) && WEXITSTATUS(status) == 0, "a child inherits the closed input");
     check(waitpid(-1, &status, WNOHANG) == -1 && errno == ECHILD, "no child left");
+
+    /* Pipes between processes (N4.2): a child's output read through a pipe, then the end of the file; its input
+     * written through one and copied back; both outputs on one pipe; a large transfer through a copying child; and
+     * poll's view of a far end that closed. */
+    int out[2], in[2];
+    unsigned char buffer[256];
+    check(pipe(out) == 0, "a pipe");
+    check(posix_spawn_file_actions_init(&actions) == 0 &&
+            posix_spawn_file_actions_adddup2(&actions, out[1], 1) == 0 &&
+            posix_spawn(&pid, CHILD, &actions, 0, streams, environ) == 0,
+        "a pipe as the child's output");
+    posix_spawn_file_actions_destroy(&actions);
+    check(close(out[1]) == 0 &&
+            read_all(out[0], buffer, sizeof(buffer)) == 24 &&
+            memcmp(buffer, "[CHILD] standard output\n", 24) == 0,
+        "the child's output through the pipe, then the end of the file");
+    check(close(out[0]) == 0, "the read end closed");
+    status = finish(pid);
+    check(WIFEXITED(status) && WEXITSTATUS(status) == 0, "the child with a pipe for its output");
+    char *copying[] = {"child", "cat", 0};
+    check(pipe(in) == 0 &&
+            pipe(out) == 0 &&
+            posix_spawn_file_actions_init(&actions) == 0 &&
+            posix_spawn_file_actions_adddup2(&actions, in[0], 0) == 0 &&
+            posix_spawn_file_actions_adddup2(&actions, out[1], 1) == 0 &&
+            posix_spawn(&pid, CHILD, &actions, 0, copying, environ) == 0,
+        "pipes as the child's input and output");
+    posix_spawn_file_actions_destroy(&actions);
+    check(close(in[0]) == 0 && close(out[1]) == 0, "the caller's far ends closed");
+    check(write(in[1], "hello through a pipe\n", 21) == 21 &&
+            read(out[0], buffer, sizeof(buffer)) == 21 &&
+            memcmp(buffer, "hello through a pipe\n", 21) == 0,
+        "a line through the child");
+    check(close(in[1]) == 0 && read_all(out[0], buffer, sizeof(buffer)) == 0 && close(out[0]) == 0,
+        "the end of the input ends the child's output");
+    status = finish(pid);
+    check(WIFEXITED(status) && WEXITSTATUS(status) == 0, "the copying child");
+    check(pipe(out) == 0 &&
+            posix_spawn_file_actions_init(&actions) == 0 &&
+            posix_spawn_file_actions_adddup2(&actions, out[1], 1) == 0 &&
+            posix_spawn_file_actions_adddup2(&actions, 1, 2) == 0 &&
+            posix_spawn(&pid, CHILD, &actions, 0, streams, environ) == 0,
+        "both outputs on one pipe");
+    posix_spawn_file_actions_destroy(&actions);
+    check(close(out[1]) == 0 &&
+            read_all(out[0], buffer, sizeof(buffer)) == 47 &&
+            memcmp(buffer, "[CHILD] standard output\n[CHILD] standard error\n", 47) == 0 &&
+            close(out[0]) == 0,
+        "the child's two outputs through one pipe");
+    status = finish(pid);
+    check(WIFEXITED(status) && WEXITSTATUS(status) == 0, "the child with both outputs on a pipe");
+    /* A transfer many times the pipe's buffer: a thread fills the child's input while the child copies it back. */
+    pthread_t filler;
+    check(pipe(in) == 0 &&
+            pipe(out) == 0 &&
+            posix_spawn_file_actions_init(&actions) == 0 &&
+            posix_spawn_file_actions_adddup2(&actions, in[0], 0) == 0 &&
+            posix_spawn_file_actions_adddup2(&actions, out[1], 1) == 0 &&
+            posix_spawn(&pid, CHILD, &actions, 0, copying, environ) == 0 &&
+            close(in[0]) == 0 &&
+            close(out[1]) == 0 &&
+            pthread_create(&filler, 0, fill, &in[1]) == 0,
+        "a large transfer started");
+    posix_spawn_file_actions_destroy(&actions);
+    unsigned long total = 0;
+    int pattern_held = 1;
+    for (;;) {
+        unsigned char block[4096];
+        const ssize_t got = read(out[0], block, sizeof(block));
+        check(got >= 0, "a read of the large transfer");
+        if (got == 0) {
+            break;
+        }
+        for (ssize_t i = 0; i < got; ++i) {
+            pattern_held &= block[i] == (unsigned char)((total + (unsigned long)i) & 0xFF);
+        }
+        total += (unsigned long)got;
+    }
+    check(pthread_join(filler, 0) == 0 && total == TRANSFER && pattern_held && close(out[0]) == 0,
+        "the large transfer through the child, byte for byte");
+    status = finish(pid);
+    check(WIFEXITED(status) && WEXITSTATUS(status) == 0, "the child that copied the large transfer");
+    /* The child writes nothing and ends: poll reports the far end's close as a hang-up. */
+    char *quiet[] = {"child", "sleep", "50", "0", 0};
+    check(pipe(out) == 0 &&
+            posix_spawn_file_actions_init(&actions) == 0 &&
+            posix_spawn_file_actions_adddup2(&actions, out[1], 1) == 0 &&
+            posix_spawn(&pid, CHILD, &actions, 0, quiet, environ) == 0 &&
+            close(out[1]) == 0,
+        "a quiet child with a pipe");
+    posix_spawn_file_actions_destroy(&actions);
+    struct pollfd polled = {out[0], POLLIN, 0};
+    check(poll(&polled, 1, 5000) == 1 && polled.revents == POLLHUP && close(out[0]) == 0,
+        "poll sees the far end's close");
+    status = finish(pid);
+    check(WIFEXITED(status) && WEXITSTATUS(status) == 0, "the quiet child");
+    /* A file as a stream stays refused with the pipes there. */
+    check(posix_spawn_file_actions_init(&actions) == 0 &&
+            posix_spawn_file_actions_adddup2(&actions, dir, 0) == 0 &&
+            posix_spawn(&pid, CHILD, &actions, 0, streams, environ) == ENOSYS,
+        "a directory as the input refused");
+    posix_spawn_file_actions_destroy(&actions);
+
+    /* SIGCHLD (N4.2): a handler runs once when a child ends, before or after the wait reaps it. */
+    struct sigaction on_child;
+    memset(&on_child, 0, sizeof(on_child));
+    on_child.sa_handler = count_sigchld;
+    check(sigaction(SIGCHLD, &on_child, 0) == 0, "a SIGCHLD handler");
+    pid = start(exit_zero, environ);
+    for (int i = 0; i < 500 && !sigchld_count; ++i) {
+        const struct timespec tick = {0, 10000000L};
+        nanosleep(&tick, 0);
+    }
+    check(sigchld_count == 1, "SIGCHLD at the child's end");
+    status = finish(pid);
+    check(WIFEXITED(status) && WEXITSTATUS(status) == 0 && sigchld_count == 1, "SIGCHLD once per child");
+    on_child.sa_handler = SIG_DFL;
+    check(sigaction(SIGCHLD, &on_child, 0) == 0, "the default SIGCHLD action again");
+
+    /* waitid (N4.2): a report without reaping, the reap after it, WNOHANG, and the waits that are not there. */
+    char *exit_seven[] = {"child", "exit", "7", 0};
+    siginfo_t info;
+    pid = start(exit_seven, environ);
+    memset(&info, 0xFF, sizeof(info));
+    check(waitid(P_ALL, 0, &info, WEXITED | WNOWAIT) == 0 &&
+            info.si_pid == pid &&
+            info.si_signo == SIGCHLD &&
+            info.si_code == CLD_EXITED &&
+            info.si_status == 7,
+        "waitid with WNOWAIT reports the child without reaping it");
+    memset(&info, 0, sizeof(info));
+    check(waitid(P_PID, pid, &info, WEXITED | WNOHANG) == 0 && info.si_pid == pid && info.si_code == CLD_EXITED,
+        "waitid reaps the child");
+    check(waitid(P_ALL, 0, &info, WEXITED | WNOHANG) == -1 && errno == ECHILD, "waitid without a child");
+    pid = start(sleeping, environ);
+    memset(&info, 0xFF, sizeof(info));
+    check(waitid(P_ALL, 0, &info, WEXITED | WNOHANG) == 0 && info.si_pid == 0 && info.si_signo == 0,
+        "waitid with WNOHANG while the child runs");
+    check(waitid(P_ALL, 0, &info, WSTOPPED) == -1 && errno == EINVAL, "a wait for a stop alone is refused");
+    check(waitid(P_PGID, 1, &info, WEXITED | WNOHANG) == -1 && errno == ECHILD, "no process group has a child");
+    status = finish(pid);
+    check(WIFEXITED(status) && WEXITSTATUS(status) == 9, "the slept child after waitid");
+
+    /* kill (N4.2): 0 finds a child, SIGKILL ends it as a death by that signal, and any other signal is refused. */
+    char *long_sleep[] = {"child", "sleep", "10000", "0", 0};
+    pid = start(long_sleep, environ);
+    check(kill(pid, 0) == 0, "kill with 0 finds the child");
+    check(kill(pid, SIGTERM) == -1 && errno == EPERM, "a signal to a child is refused");
+    check(kill(999, 0) == -1 && errno == ESRCH, "no such child");
+    check(kill(pid, SIGKILL) == 0, "SIGKILL");
+    status = finish(pid);
+    check(WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL, "the killed child");
+    check(kill(pid, 0) == -1 && errno == ESRCH, "the reaped child is gone");
 
     /* The system layer's figures (R2.1). */
     struct sysinfo memory;

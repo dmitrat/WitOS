@@ -4,6 +4,7 @@
 #include "witos/libc_context.h"
 #include "witos/manager.h"
 #include "witos/memory_object.h"
+#include "witos/start.h"
 #include "witos/syscall.h"
 #include "witos/user_abi.h"
 #include "witos/wait_objects.h"
@@ -86,7 +87,8 @@ static int spawn_request(const char *base, WitU64 bytes, WitU64 manager, WitU64 
         request->Bytes <= request->DirectoryOffset ||
         request->ArgumentCount == 0 ||
         (request->ClosedStreams & ~7U) ||
-        request->Reserved) {
+        request->Streams > WIT_START_STREAMS_MAXIMUM ||
+        (request->Streams && !grant)) { /* the streams travel on the grant (N4.2) */
         close_handle(grant);
         return EINVAL;
     }
@@ -105,7 +107,7 @@ static int spawn_request(const char *base, WitU64 bytes, WitU64 manager, WitU64 
     }
     if (!error) {
         const witos_spawn_options options = {
-            manager, directory[0], request->ClosedStreams, 0, grant, offered_namespace};
+            manager, directory[0], request->ClosedStreams, request->Streams, grant, offered_namespace};
         error = witos_spawn_ex(process, path[0], argv, envp, &options);
     } else {
         close_handle(grant);

@@ -346,10 +346,29 @@ static int uses_tables(long n)
     case SYS_uname:
     case SYS_membarrier:
     case SYS_wait4:
+    case SYS_waitid:
         return 0;
     default:
         return 1;
     }
+}
+
+/* posix_spawn (process.c, N4.2): the handles a child takes for a pipe end as its standard stream, under the table lock,
+ * which posix_spawn, a library call rather than a system call, does not hold. */
+long __wit_stream_handles(long fd, WitU64 *object, WitU64 *endpoint, int *write_end, int *nonblocking)
+{
+    __wit_lock(&tables);
+    const long r = __wit_descriptor_stream_handles(fd, object, endpoint, write_end, nonblocking);
+    __wit_unlock(&tables);
+    return r;
+}
+
+long __wit_source_of(long fd)
+{
+    __wit_lock(&tables);
+    const long r = __wit_descriptor_source(fd);
+    __wit_unlock(&tables);
+    return r;
 }
 
 static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a6);
@@ -755,6 +774,8 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
         return process_barrier(a1, a2);
     case SYS_wait4:
         return __wit_wait4(a1, (int *)a2, a3, (struct rusage *)a4);
+    case SYS_waitid:
+        return __wit_waitid(a1, a2, (void *)a3, a4);
 #if defined(SYS_arch_prctl)
     case SYS_arch_prctl:
         if (a1 == 0x1002) { /* ARCH_SET_FS: the thread pointer of the calling thread */

@@ -442,6 +442,7 @@ static void reset_process(WitUserProcess *process, WitU32 slot)
     process->TickLimit = WIT_USER_TICK_BUDGET;
     process->ObjectLimit = WIT_MEMORY_OBJECT_CAPACITY;
     process->ThreadLimit = WIT_USER_THREAD_CAPACITY;
+    process->ChannelLimit = WIT_USER_CHANNEL_CAPACITY;
     process->ExitCode = 0;
     process->ImageBase = 0;
     process->ImageEntry = 0;
@@ -491,6 +492,7 @@ int wit_user_create_flat(
         process->Handles.Limit = WIT_PROCESS_HANDLE_CAPACITY;
         process->Events.Limit = WIT_PROCESS_EVENT_CAPACITY;
         process->ThreadLimit = WIT_PROCESS_THREAD_CAPACITY;
+        process->ChannelLimit = WIT_PROCESS_CHANNEL_CAPACITY;
         process->TickLimit = WIT_PROCESS_TICK_BUDGET;
     }
     slot_owners[slot] = process;
@@ -567,6 +569,7 @@ int wit_user_create_empty(WitUserProcess *process, WitPageAllocator *allocator, 
     process->Handles.Limit = WIT_PROCESS_HANDLE_CAPACITY; /* the system layer's threads, handles and events (K5.3) */
     process->Events.Limit = WIT_PROCESS_EVENT_CAPACITY;
     process->ThreadLimit = WIT_PROCESS_THREAD_CAPACITY;
+    process->ChannelLimit = WIT_PROCESS_CHANNEL_CAPACITY; /* and channels (N4.2) */
     process->TickLimit = ticks;
     slot_owners[slot] = process;
     if (!wit_user_space_create_profile(&process->Space, allocator, 1)) {

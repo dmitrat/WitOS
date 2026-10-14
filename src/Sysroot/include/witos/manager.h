@@ -9,8 +9,10 @@
  * for the reply; the reply moves the new process's handle back. The libc's posix_spawn and waitpid speak it
  * (src/Substrate/libc/process.c); nothing of it is an application API. Version 3 (D1.1, ADR 0025) lets a request
  * carry a third capability, the grant the new process starts with (witos/start.h), and lets the process manager start
- * services before its first process, each answering on its granted channel when it is ready. */
-#define WIT_MANAGER_VERSION 3U
+ * services before its first process, each answering on its granted channel when it is ready. Version 4 (N4.2) lets a
+ * spawn request say how many standard streams the requester gives the new process as pipes (WitSpawnRequest's
+ * Streams), which the requester sends on the grant after the start (witos/start.h, WitStreamMessage). */
+#define WIT_MANAGER_VERSION 4U
 #define WIT_MANAGER_SPAWN 1U /* start a program of the boot package */
 
 /* A request: the bytes of the message, with the request's memory object (MAP, TRANSFER) and the reply endpoint
@@ -36,13 +38,16 @@ WIT_STATIC_ASSERT(sizeof(WitManagerReply) == 16, "Manager reply");
 
 /* The bytes of a spawn request: the program's path, the arguments and the environment, each a run of zero-terminated
  * strings, and the initial directory, an absolute path (version 2, S6.2), at offsets from the start of the request
- * and inside its Bytes; and the standard streams the process starts without (WitStartMessage's ClosedStreams). */
+ * and inside its Bytes; the standard streams the process starts without (WitStartMessage's ClosedStreams); and the
+ * streams the requester gives it as pipes (version 4, N4.2: Streams, at most WIT_START_STREAMS_MAXIMUM, each closed in
+ * ClosedStreams too, since the log is not theirs; a request with streams carries the grant, on which the requester
+ * sends them). */
 typedef struct WitSpawnRequest {
     WitU32 Version, Size;
     WitU32 ArgumentCount, EnvironmentCount;
     WitU64 Bytes;
     WitU64 PathOffset, ArgumentsOffset, EnvironmentOffset, DirectoryOffset;
-    WitU32 ClosedStreams, Reserved;
+    WitU32 ClosedStreams, Streams;
 } WitSpawnRequest;
 
 WIT_STATIC_ASSERT(sizeof(WitSpawnRequest) == 64, "Spawn request");

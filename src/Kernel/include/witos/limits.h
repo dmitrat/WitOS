@@ -35,8 +35,12 @@
 /* Objects of every component and of the kernel. */
 #define WIT_WAIT_ANY_CAPACITY 4U /* handles in one wait-any call */
 #define WIT_ACTIVATION_CAPACITY 4U /* activations pending on one thread */
-#define WIT_CHANNEL_CAPACITY 4U /* live channels created by one component */
-#define WIT_CHANNEL_TABLE_CAPACITY 32U /* channels kernel-wide */
+#define WIT_USER_CHANNEL_CAPACITY 4U /* live channels created by one fixture (K2) */
+/* Live channels created by a system layer process (N4.2): its protocols take a few, and each pipe it gives a child as a
+ * standard stream takes one for the wakeups of that pipe (src/Substrate/libc/pipe.c), three for a child with every
+ * stream redirected. */
+#define WIT_PROCESS_CHANNEL_CAPACITY 16U
+#define WIT_CHANNEL_TABLE_CAPACITY 128U /* channels kernel-wide: eight processes of sixteen (32 until N4.2) */
 #define WIT_PROCESS_CAPACITY 8U /* components kernel-wide: the registry and the pool of created processes (K5.2c) */
 #define WIT_PROCESSOR_CAPACITY 8U /* processors of the kernel's table (K7.1) */
 #define WIT_CHANNEL_QUEUE_DEPTH 4U /* messages queued for one endpoint */
