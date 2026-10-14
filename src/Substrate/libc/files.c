@@ -64,7 +64,8 @@ typedef enum Kind {
     KindPipeWrite, /* the write end of pipe Index */
     KindShared, /* shared memory file Index (shared.c, R3.2b) */
     KindRemoteFile, /* a file of a mounted volume, remote record Index (namespace.c, D5.1) */
-    KindRemoteDirectory /* a directory of a mounted volume, remote record Index */
+    KindRemoteDirectory, /* a directory of a mounted volume, remote record Index */
+    KindEpoll /* an epoll instance Index (epoll.c, N4.2) */
 } Kind;
 
 typedef struct Descriptor {
@@ -414,6 +415,9 @@ static void close_descriptor(Descriptor *d)
     }
     if (d->Kind == KindRemoteFile || d->Kind == KindRemoteDirectory) {
         __wit_remote_release(d->Index);
+    }
+    if (d->Kind == KindEpoll) {
+        __wit_epoll_release(d->Index);
     }
     if (--descriptions[d->Description].References == 0) {
         unlock_description(&descriptions[d->Description]); /* a description's lock ends with its last descriptor */
@@ -1321,6 +1325,10 @@ static void fill_stat(struct kstat *st, Kind kind, WitU32 index, WitU64 length)
         st->st_mode = S_IFREG | __wit_shared_mode(index); /* 0600 until chmod (N4.1) */
         st->st_size = (off_t)length;
         st->st_blocks = (blkcnt_t)((length + 511) / 512);
+    } else if (kind == KindEpoll) {
+        st->st_dev = 4; /* an anonymous inode, as Linux reports an epoll instance */
+        st->st_ino = (ino_t)index + 1;
+        st->st_mode = S_IFREG | 0600;
     } else {
         st->st_ino = 2;
         st->st_mode = S_IFCHR | 0666;
@@ -1631,6 +1639,35 @@ short __wit_descriptor_poll(long fd, short events)
     return asked;
 }
 
+/* epoll_create1 (N4.2): a descriptor over a free instance of epoll.c. Under the table lock. */
+long __wit_epoll_open(int flags)
+{
+    WitU32 index = 0;
+    const long allocated = __wit_epoll_allocate(&index);
+    if (allocated < 0) {
+        return allocated;
+    }
+    const long fd = open_descriptor(KindEpoll, index, 0, O_RDWR | (flags & O_CLOEXEC)); /* EPOLL_CLOEXEC is O_CLOEXEC */
+    if (fd < 0) {
+        __wit_epoll_release(index);
+    }
+    return fd;
+}
+
+/* The instance an epoll descriptor names: -EBADF for no descriptor, -EINVAL for one that is no instance. */
+long __wit_epoll_instance(long epfd, WitU32 *index)
+{
+    const Descriptor *d = descriptor(epfd);
+    if (!d) {
+        return __wit_stream_of(epfd) >= 0 ? -EINVAL : -EBADF;
+    }
+    if (d->Kind != KindEpoll) {
+        return -EINVAL;
+    }
+    *index = d->Index;
+    return 0;
+}
+
 /* The pipe an end descriptor names, with a reference for the transfer the caller makes outside the table lock. */
 int __wit_pipe_of(long fd, WitU32 *index, int *write_end, int *nonblocking)
 {
@@ -1778,6 +1815,9 @@ static void duplicate_into(long target, long stream, const Descriptor *source, i
     }
     if (source->Kind == KindRemoteFile || source->Kind == KindRemoteDirectory) {
         __wit_remote_reference(source->Index);
+    }
+    if (source->Kind == KindEpoll) {
+        __wit_epoll_reference(source->Index);
     }
 }
 

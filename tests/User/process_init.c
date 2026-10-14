@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/auxv.h>
+#include <sys/epoll.h>
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/sysinfo.h>
@@ -26,7 +27,8 @@
  * a child that inherits it or starts where a chdir action puts it, a program path relative to that directory, and the
  * standard streams a child starts without or rebinds through file actions, with the actions that are not there refused
  * (S6.2); pipes as a child's standard streams, the end of the file across the processes, a transfer many times the
- * pipe's buffer, poll on a pipe a child closed, SIGCHLD, waitid and kill of a child (N4.2). What the system layer
+ * pipe's buffer, poll on a pipe a child closed, epoll over pipe ends, SIGCHLD, waitid and kill of a child (N4.2). What
+ * the system layer
  * reports of the machine and of the process (R2.1): the physical memory through sysinfo
  * and sysconf, the address space of anonymous memory as RLIMIT_AS, the processors threads run on, the main thread's
  * stack as musl measures it, a thread's name, and a read-only page of the program made writable, as NativeAOT's runtime
@@ -300,6 +302,84 @@ int main(void)
         "the end of the input ends the child's output");
     status = finish(pid);
     check(WIFEXITED(status) && WEXITSTATUS(status) == 0, "the copying child");
+
+    /* epoll over pipe ends (N4.2): what System.IO.Pipes' asynchronous reads need under CoreCLR. A local pipe: the read
+     * end registered edge-triggered reports EPOLLIN once per write, a level-triggered one while bytes remain, the
+     * write end EPOLLOUT at its registration, a closed writer EPOLLHUP; a file is EPERM, the instance in itself
+     * EINVAL, a closed descriptor EBADF. A shared pipe: the copying child's answer reaches an edge-triggered wait, and
+     * its exit reaches it as EPOLLHUP. */
+    {
+        int local[2], ep = -1, file;
+        struct epoll_event ev, got[4];
+        check(pipe(local) == 0 && (ep = epoll_create1(EPOLL_CLOEXEC)) >= 0, "an epoll instance");
+        ev.events = EPOLLIN | EPOLLET;
+        ev.data.u64 = 1;
+        check(epoll_ctl(ep, EPOLL_CTL_ADD, local[0], &ev) == 0, "the read end registered edge-triggered");
+        check(epoll_ctl(ep, EPOLL_CTL_ADD, local[0], &ev) == -1 && errno == EEXIST, "a second registration is EEXIST");
+        check(epoll_wait(ep, got, 4, 0) == 0, "nothing to read yet");
+        check(write(local[1], "x", 1) == 1 &&
+                epoll_wait(ep, got, 4, 1000) == 1 &&
+                got[0].data.u64 == 1 &&
+                got[0].events == EPOLLIN,
+            "a write is an edge");
+        check(epoll_wait(ep, got, 4, 0) == 0, "no second report of one edge");
+        check(write(local[1], "y", 1) == 1 && epoll_wait(ep, got, 4, 1000) == 1, "another write is another edge");
+        ev.events = EPOLLIN;
+        check(epoll_ctl(ep, EPOLL_CTL_MOD, local[0], &ev) == 0 &&
+                epoll_wait(ep, got, 4, 0) == 1 &&
+                epoll_wait(ep, got, 4, 0) == 1,
+            "level-triggered while bytes remain");
+        check(read(local[0], buffer, 2) == 2 && epoll_wait(ep, got, 4, 0) == 0, "nothing after the read");
+        ev.events = EPOLLOUT | EPOLLET;
+        ev.data.u64 = 2;
+        check(epoll_ctl(ep, EPOLL_CTL_ADD, local[1], &ev) == 0 &&
+                epoll_wait(ep, got, 4, 0) == 1 &&
+                got[0].data.u64 == 2 &&
+                got[0].events == EPOLLOUT,
+            "a write end is writable at its registration");
+        check(epoll_ctl(ep, EPOLL_CTL_DEL, local[1], 0) == 0 &&
+                epoll_ctl(ep, EPOLL_CTL_DEL, local[1], 0) == -1 &&
+                errno == ENOENT,
+            "the write end removed once");
+        check(close(local[1]) == 0 &&
+                epoll_wait(ep, got, 4, 1000) == 1 &&
+                got[0].data.u64 == 1 &&
+                (got[0].events & EPOLLHUP),
+            "a closed writer is a hangup");
+        file = open(CHILD, O_RDONLY);
+        check(file >= 0 && epoll_ctl(ep, EPOLL_CTL_ADD, file, &ev) == -1 && errno == EPERM, "a file is EPERM");
+        check(epoll_ctl(ep, EPOLL_CTL_ADD, ep, &ev) == -1 && errno == EINVAL, "the instance in itself is EINVAL");
+        check(epoll_ctl(ep, EPOLL_CTL_ADD, 999, &ev) == -1 && errno == EBADF, "a closed descriptor is EBADF");
+        check(close(file) == 0 && close(local[0]) == 0, "the local pipe closed");
+        check(pipe(in) == 0 &&
+                pipe(out) == 0 &&
+                posix_spawn_file_actions_init(&actions) == 0 &&
+                posix_spawn_file_actions_adddup2(&actions, in[0], 0) == 0 &&
+                posix_spawn_file_actions_adddup2(&actions, out[1], 1) == 0 &&
+                posix_spawn(&pid, CHILD, &actions, 0, copying, environ) == 0,
+            "the copying child under epoll");
+        posix_spawn_file_actions_destroy(&actions);
+        check(close(in[0]) == 0 && close(out[1]) == 0, "the caller's far ends closed again");
+        ev.events = EPOLLIN | EPOLLET;
+        ev.data.u64 = 3;
+        check(epoll_ctl(ep, EPOLL_CTL_ADD, out[0], &ev) == 0 && epoll_wait(ep, got, 4, 0) == 0,
+            "the child's output registered");
+        check(write(in[1], "through epoll\n", 14) == 14 &&
+                epoll_wait(ep, got, 4, 5000) == 1 &&
+                got[0].data.u64 == 3 &&
+                (got[0].events & EPOLLIN) &&
+                read(out[0], buffer, sizeof(buffer)) == 14 &&
+                memcmp(buffer, "through epoll\n", 14) == 0,
+            "the child's answer through an edge-triggered wait");
+        check(close(in[1]) == 0 &&
+                epoll_wait(ep, got, 4, 5000) == 1 &&
+                got[0].data.u64 == 3 &&
+                (got[0].events & EPOLLHUP),
+            "the child's exit is a hangup");
+        status = finish(pid);
+        check(WIFEXITED(status) && WEXITSTATUS(status) == 0, "the copying child under epoll ended");
+        check(close(out[0]) == 0 && close(ep) == 0, "the instance closed");
+    }
     check(pipe(out) == 0 &&
             posix_spawn_file_actions_init(&actions) == 0 &&
             posix_spawn_file_actions_adddup2(&actions, out[1], 1) == 0 &&

@@ -21,6 +21,13 @@ internal static class FlatImage
     private const uint WRITE = 2;
     private const uint EXECUTE = 4;
 
+    /// <summary>
+    /// The most a segment takes in memory: the kernel's WIT_FLAT_MAX_SEGMENT_BYTES (witos/flat.h), which it refuses
+    /// as an invalid image without saying why; the system layer's libc tables are the root task's writable segment
+    /// (N4.2).
+    /// </summary>
+    public const uint MAX_SEGMENT_BYTES = 1u << 20;
+
     private const int ELF_HEADER_SIZE = 64;
     private const int ELF_PROGRAM_HEADER_SIZE = 56;
     private const ushort ET_EXEC = 2;
@@ -110,6 +117,9 @@ internal static class FlatImage
                 throw new InvalidDataException($"Root task segment at 0x{address:X} has a file range beyond the image or an impossible size.");
             var data = span.Slice((int)offset, (int)fileSize).ToArray();
             var pages = (uint)((memorySize + PAGE - 1) / PAGE * PAGE);
+            if (pages > MAX_SEGMENT_BYTES)
+                throw new InvalidDataException(
+                    $"Root task segment at 0x{address:X} takes {memorySize} bytes in memory, more than the {MAX_SEGMENT_BYTES} the flat format allows a segment (WIT_FLAT_MAX_SEGMENT_BYTES).");
             segments.Add((address, data, pages, READ | (write ? WRITE : 0) | (execute ? EXECUTE : 0)));
         }
         if (segments.Count is 0 or > SEGMENTS)

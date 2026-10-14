@@ -98,6 +98,15 @@ long __wit_pipe_read(WitU32 index, unsigned char *buffer, unsigned long bytes, i
 long __wit_pipe_write(WitU32 index, const unsigned char *buffer, unsigned long bytes, int nonblocking);
 long __wit_pipe_available(WitU32 index);
 short __wit_pipe_poll(WitU32 index, int write_end, short events);
+short __wit_pipe_edge(WitU32 index, int write_end, short events, WitU64 *token); /* with the edge token (epoll.c) */
+struct epoll_event;
+long __wit_epoll_allocate(WitU32 *index); /* epoll.c (N4.2): an instance for a new descriptor */
+void __wit_epoll_reference(WitU32 index);
+void __wit_epoll_release(WitU32 index);
+long __wit_epoll_ctl(WitU32 index, int op, long fd, const struct epoll_event *event);
+long __wit_epoll_collect(WitU32 index, struct epoll_event *events, int count);
+long __wit_epoll_open(int flags); /* files.c: the descriptor of a new instance */
+long __wit_epoll_instance(long epfd, WitU32 *index); /* files.c: the instance a descriptor names */
 int __wit_pipe_sequence(void);
 long __wit_pipe_wait(int seen, WitU64 deadline);
 short __wit_descriptor_poll(long fd, short events);

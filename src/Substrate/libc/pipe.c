@@ -559,22 +559,55 @@ long __wit_pipe_write(WitU32 index, const unsigned char *buffer, unsigned long b
 
 /* An end's readiness for poll, as Linux reports a pipe's: the read end is readable with bytes and hung up once no
  * writer is left; the write end is writable while PIPE_BUF bytes fit and in error once no reader is left. */
-short __wit_pipe_poll(WitU32 index, int write_end, short events)
+static short readiness(const Pipe *p, int write_end, short events)
 {
-    Pipe *p = &pipes[index];
-    short ready = 0;
-    if (p->Shared) {
-        drain(p, write_end ? WRITE_END : READ_END); /* the other end's close, if it came */
-    }
-    __wit_lock(&p->Lock);
     const WitU32 count = p->Shared ? ring_count(p) : p->Count;
     const int writers = p->Shared ? (p->Writers || (!p->PeerClosed[READ_END] && p->Endpoints[READ_END])) : p->Writers;
     const int readers = p->Shared ? (p->Readers || (!p->PeerClosed[WRITE_END] && p->Endpoints[WRITE_END])) : p->Readers;
     if (write_end) {
-        ready = (short)((PIPE_BYTES - count >= PIPE_ATOMIC ? events & (POLLOUT | POLLWRNORM) : 0) |
-            (readers ? 0 : POLLERR));
+        return (
+            short)((PIPE_BYTES - count >= PIPE_ATOMIC ? events & (POLLOUT | POLLWRNORM) : 0) | (readers ? 0 : POLLERR));
+    }
+    return (short)((count ? events & (POLLIN | POLLRDNORM) : 0) | (writers ? 0 : POLLHUP));
+}
+
+short __wit_pipe_poll(WitU32 index, int write_end, short events)
+{
+    Pipe *p = &pipes[index];
+    if (p->Shared) {
+        drain(p, write_end ? WRITE_END : READ_END); /* the other end's close, if it came */
+    }
+    __wit_lock(&p->Lock);
+    const short ready = readiness(p, write_end, events);
+    __wit_unlock(&p->Lock);
+    return ready;
+}
+
+/* An end's readiness with its edge (epoll.c, N4.2): the token changes whenever what an edge-triggered waiter watches
+ * changed — the bytes the other side moved and the ends that are open. The local ring's sequence counts every change;
+ * a shared ring's counts and ends are read directly, since another process's change bumps no word here. Both are read
+ * under the one lock with the readiness, so that no change falls between the two. */
+short __wit_pipe_edge(WitU32 index, int write_end, short events, WitU64 *token)
+{
+    Pipe *p = &pipes[index];
+    if (p->Shared) {
+        drain(p, write_end ? WRITE_END : READ_END);
+    }
+    __wit_lock(&p->Lock);
+    const short ready = readiness(p, write_end, events);
+    if (p->Shared) {
+        const Ring *ring = ring_of(p);
+        const WitU32 moved =
+            write_end ? __atomic_load_n(&ring->Head, __ATOMIC_ACQUIRE) : __atomic_load_n(&ring->Tail, __ATOMIC_ACQUIRE);
+        *token = ((WitU64)moved << 8) |
+            (WitU64)((p->PeerClosed[READ_END] ? 1 : 0) |
+                (p->PeerClosed[WRITE_END] ? 2 : 0) |
+                (p->Readers ? 4 : 0) |
+                (p->Writers ? 8 : 0) |
+                (p->Endpoints[READ_END] ? 16 : 0) |
+                (p->Endpoints[WRITE_END] ? 32 : 0));
     } else {
-        ready = (short)((count ? events & (POLLIN | POLLRDNORM) : 0) | (writers ? 0 : POLLHUP));
+        *token = (WitU64)(WitU32)p->Sequence;
     }
     __wit_unlock(&p->Lock);
     return ready;
