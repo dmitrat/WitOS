@@ -1,12 +1,16 @@
-// .NET 8 beside .NET 10 on WitOS (plan step N3.2): an application built for .NET 8 starts through 10.0's dotnet and
-// hostfxr, which resolve its runtimeconfig to the 8.0 framework of the install, and runs on that framework's CoreCLR and
-// libraries. Each check exercises a part of the 8.0 runtime on WitOS; the line names the framework and how many passed.
+// .NET 8 beside .NET 10 on WitOS (plan steps N3.2, N3.3): the application, built once for .NET 8 and once for .NET 10,
+// starts through 10.0's dotnet and hostfxr, which resolve its runtimeconfig and rollForward to one framework of the
+// install, and runs on that framework's CoreCLR and libraries. Its argument names the major version the host must pick;
+// each check exercises a part of the runtime on WitOS, and the line names what it was built for, what it runs on and
+// how many checks passed.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -20,8 +24,9 @@ internal static class App
     {
         (string Name, Func<bool> Check)[] checks =
         [
-            ("framework", () => (AppContext.GetData("FX_DEPS_FILE") as string ?? "").StartsWith("/dotnet/shared/Microsoft.NETCore.App/8.0.",
-                StringComparison.Ordinal) && Environment.Version.Major == 8 && arguments is ["witos"]),
+            ("framework", () => arguments is [var major] && Environment.Version.Major == int.Parse(major, CultureInfo.InvariantCulture) &&
+                (AppContext.GetData("FX_DEPS_FILE") as string ?? "").StartsWith($"/dotnet/shared/Microsoft.NETCore.App/{major}.0.",
+                    StringComparison.Ordinal)),
             ("platform", () => OperatingSystem.IsOSPlatform("WITOS") && !OperatingSystem.IsLinux() &&
                 RuntimeInformation.RuntimeIdentifier.StartsWith("witos-", StringComparison.Ordinal)),
             ("tasks", () => Enumerable.Range(1, 8).Select(index => Task.Run(() => index * index)).Sum(task => task.Result) == 204),
@@ -48,8 +53,9 @@ internal static class App
                 Console.WriteLine($"[SIDE-BY-SIDE] FAILED: {name}: {exception}");
             }
         }
-        Console.WriteLine($"[SIDE-BY-SIDE] App.dll on {RuntimeInformation.FrameworkDescription}, {RuntimeInformation.ProcessArchitecture}: " +
-            $"{passed} of {checks.Length} checks passed");
+        var built = typeof(App).Assembly.GetCustomAttribute<TargetFrameworkAttribute>()?.FrameworkDisplayName ?? "?";
+        Console.WriteLine($"[SIDE-BY-SIDE] App.dll for {built} on {RuntimeInformation.FrameworkDescription}, " +
+            $"{RuntimeInformation.ProcessArchitecture}: {passed} of {checks.Length} checks passed");
         return passed == checks.Length ? 0 : 1;
     }
 

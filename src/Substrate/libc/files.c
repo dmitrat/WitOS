@@ -314,13 +314,35 @@ static long lookup(const unsigned char *name, WitU32 length, Kind *kind, WitU32 
             low = middle + 1;
         }
     }
-    /* The first entry sorting after the name is a child when it carries the name as a prefix before a '/'. */
+    /* A directory is a prefix of names before a '/': its children follow one another from the first entry that sorts at
+     * or after the name with the '/', which a sibling extending the name by a byte below '/' sorts before ("net8-latest"
+     * beside "net8", N3.3), so the search is for that key rather than for the name. */
+    if (length >= NAME_MAX_BYTES) {
+        return -ENOENT;
+    }
+    unsigned char key[NAME_MAX_BYTES];
+    memcpy(key, name, length);
+    key[length] = '/';
+    low = 0;
+    high = count;
+    while (low < high) {
+        const WitU32 middle = low + (high - low) / 2;
+        const unsigned char *candidate;
+        WitU32 candidate_length;
+        WitU64 data, data_length;
+        entry(middle, &candidate, &candidate_length, &data, &data_length);
+        if (compare(candidate, candidate_length, key, length + 1) < 0) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
     if (low < count) {
         const unsigned char *candidate;
         WitU32 candidate_length;
         WitU64 data, data_length;
         entry(low, &candidate, &candidate_length, &data, &data_length);
-        if (candidate_length > length && candidate[length] == '/' && compare(name, length, candidate, length) == 0) {
+        if (candidate_length > length + 1 && compare(key, length + 1, candidate, length + 1) == 0) {
             *kind = KindDirectory;
             *index = low;
             return 0;

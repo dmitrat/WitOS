@@ -95,6 +95,41 @@ internal static class RuntimeApps
     // directory.
     private static async Task<string> PublishAsync(string root, string output, string project, string name)
     {
+        var copy = await CopyProjectAsync(root, output, project, name);
+        var published = Path.Combine(output, $"{name}-app");
+        if (Directory.Exists(published))
+            Directory.Delete(published, recursive: true);
+        await Processes.RequireSuccessAsync("dotnet",
+            ["publish", Directory.GetFiles(copy, "*.csproj").Single(), "-c", "Release", "-o", published, "-nologo"], copy);
+        return published;
+    }
+
+    /// <summary>
+    /// Builds one target framework of an application's project with the stock SDK, from a copy apart from the
+    /// repository's build properties (N3.3: the side-by-side application for .NET 8 and for .NET 10, each against that
+    /// release's reference pack).
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Artifact directory of the scenario.</param>
+    /// <param name="project">The project's directory under the repository.</param>
+    /// <param name="name">The application's name under the artifacts.</param>
+    /// <param name="framework">The target framework to build.</param>
+    /// <returns>The build's output directory.</returns>
+    internal static async Task<string> BuildAsync(string root, string output, string project, string name, string framework)
+    {
+        var copy = await CopyProjectAsync(root, output, project, $"{name}-{framework}");
+        var built = Path.Combine(output, $"{name}-{framework}-build");
+        if (Directory.Exists(built))
+            Directory.Delete(built, recursive: true);
+        await Processes.RequireSuccessAsync("dotnet",
+            ["build", Directory.GetFiles(copy, "*.csproj").Single(), "-c", "Release", "-f", framework, "-o", built, "-nologo"], copy);
+        return built;
+    }
+
+    // A copy of a project's sources under the artifacts with empty build properties and targets, so that the stock SDK
+    // builds it as it would anywhere.
+    private static async Task<string> CopyProjectAsync(string root, string output, string project, string name)
+    {
         var copy = Path.Combine(output, $"{name}-project");
         if (Directory.Exists(copy))
             Directory.Delete(copy, recursive: true);
@@ -110,12 +145,7 @@ internal static class RuntimeApps
         }
         await File.WriteAllTextAsync(Path.Combine(copy, "Directory.Build.props"), "<Project />\n");
         await File.WriteAllTextAsync(Path.Combine(copy, "Directory.Build.targets"), "<Project />\n");
-        var published = Path.Combine(output, $"{name}-app");
-        if (Directory.Exists(published))
-            Directory.Delete(published, recursive: true);
-        await Processes.RequireSuccessAsync("dotnet",
-            ["publish", Directory.GetFiles(copy, "*.csproj").Single(), "-c", "Release", "-o", published, "-nologo"], copy);
-        return published;
+        return copy;
     }
 
     #endregion

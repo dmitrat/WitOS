@@ -168,6 +168,9 @@ internal static class Sysroot
         // path: Linux's rules for ELF images, with CMAKE_SYSTEM_NAME WitOS.
         CopyTree(Path.Combine(root, "src", "Sysroot", "cmake"), Path.Combine(sysroot, "usr", "share", "cmake"));
 
+        // ABI-2 as recorded (N3.3): the libraries a runtime links, and libc.so's names, frozen at 1.0.
+        SystemLayerAbi.Check(root, architecture, lib);
+
         var marker = Path.Combine(sysroot, MARKER);
         System.IO.Directory.CreateDirectory(Path.GetDirectoryName(marker)!);
         await File.WriteAllTextAsync(marker,
