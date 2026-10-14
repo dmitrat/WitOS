@@ -36,7 +36,7 @@ internal static class RuntimeSideBySide
     /// <summary>
     /// The application the scenario builds for .NET 8 and for .NET 10.
     /// </summary>
-    public const string APP = "tests/Runtime.Witos/SideBySide/App.cs";
+    public const string APP = "tests/Runtime.Witos/SideBySide";
 
     /// <summary>
     /// The checks the application runs.
@@ -167,9 +167,9 @@ internal static class RuntimeSideBySide
 
     /// <summary>
     /// The scenario's package, beside the device services (<see cref="RuntimeApps"/>): the .NET 10 install of runtime-witos
-    /// with .NET 8's shared framework beside its own, and the application under /app/net8, built by the 8.0 tree's C#
-    /// compiler against 8.0's reference pack, and under /app/net10, built against 10.0's; /app/net8-latest holds the .NET 8
-    /// build with a runtimeconfig whose rollForward asks for the latest major version. tests/User/apps_init.c runs the
+    /// with .NET 8's shared framework beside its own, and the application under /app/net8, built by the stock SDK for
+    /// net8.0 against 8.0's reference pack, and under /app/net10, built for net10.0 against 10.0's; /app/net8-latest holds
+    /// the .NET 8 build with a runtimeconfig whose rollForward asks for the latest major version. tests/User/apps_init.c runs the
     /// commands: dotnet's list of runtimes, then each application with the major version its host must pick, the .NET 8
     /// one also through dotnet's own --roll-forward option.
     /// </summary>
@@ -183,14 +183,12 @@ internal static class RuntimeSideBySide
         var pin = RuntimeWitos.ReadLock(root, LOCK);
         var ten = RuntimeWitos.ReadLock(root);
         var tree = Tree(root);
-        var eight = await BuildAppAsync(root, output, "net8", pin, (assembly, sources) =>
-            RuntimeWitos.CompileAsync(tree, pin.TargetFramework, assembly, "exe", sources, []));
+        var eight = await BuildAppAsync(root, output, "net8", pin);
         var latest = Path.Combine(output, "net8-latest");
         Directory.CreateDirectory(latest);
         File.Copy(Path.Combine(eight, "App.dll"), Path.Combine(latest, "App.dll"), overwrite: true);
         await File.WriteAllTextAsync(Path.Combine(latest, "App.runtimeconfig.json"), RuntimeConfig(pin, "LatestMajor"));
-        var current = await BuildAppAsync(root, output, "net10", ten, (assembly, sources) =>
-            RuntimeWitos.CompileAsync(root, assembly, "exe", sources, []));
+        var current = await BuildAppAsync(root, output, "net10", ten);
         string[] commands =
         [
             "/dotnet/dotnet --list-runtimes",
@@ -229,19 +227,18 @@ internal static class RuntimeSideBySide
         ];
     }
 
-    // The application built for a release: its sources with the target framework the SDK would record, compiled by the
-    // release's compiler against its reference pack, and its runtimeconfig; the application's directory.
-    private static async Task<string> BuildAppAsync(string root, string output, string name, RuntimePin pin,
-        Func<string, IReadOnlyList<string>, Task> compile)
+    // The application built for a release: its project's target framework of that release, built by the stock SDK against
+    // the release's reference pack (which records the target framework in the assembly, as every SDK build does), with
+    // the runtimeconfig that names the release's framework; the application's directory. The stock SDK is the one every
+    // host has (CI's side-by-side job builds no .NET 10 tree), and the reference packs are upstream's.
+    private static async Task<string> BuildAppAsync(string root, string output, string name, RuntimePin pin)
     {
         var directory = Path.Combine(output, name);
         if (Directory.Exists(directory))
             Directory.Delete(directory, recursive: true);
         Directory.CreateDirectory(directory);
-        var attribute = Path.Combine(output, $"{name}.TargetFramework.cs");
-        await File.WriteAllTextAsync(attribute, $"[assembly: System.Runtime.Versioning.TargetFramework(\".NETCoreApp,Version=v{Major(pin)}.0\", " +
-            $"FrameworkDisplayName = \".NET {Major(pin)}.0\")]\n");
-        await compile(Path.Combine(directory, "App.dll"), [Path.Combine(root, APP), attribute]);
+        var built = await RuntimeApps.BuildAsync(root, output, APP, "side-by-side", pin.TargetFramework);
+        File.Copy(Path.Combine(built, "App.dll"), Path.Combine(directory, "App.dll"));
         await File.WriteAllTextAsync(Path.Combine(directory, "App.runtimeconfig.json"), RuntimeConfig(pin, null));
         return directory;
     }
