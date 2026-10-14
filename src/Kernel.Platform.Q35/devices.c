@@ -39,21 +39,28 @@ static WitU64 ecam_base(void)
     return value & 0x0000000FF0000000ULL;
 }
 
-/* INTx lines of the root bus (plan step N4.3). The LPC bridge (00:1f.0) routes the four PIRQ inputs the root bus's
- * functions assert to PIC lines through its routing registers; the firmware routes them to two lines, 10 and 11, so
- * that a third device shares a line, and the kernel binds a line once (K3.2). The platform routes PIRQ A–D to four
- * lines of its own, each marked level-triggered in the ELCR, and gives every root-bus function the line of its pin
- * and slot by q35's rotation, which it verifies first against the firmware's own assignments: when one of the two
- * rotations reproduces every Interrupt Line register from the firmware's routing, the lines are recomputed and
- * written back to the registers; otherwise the firmware's lines stay. */
+/* INTx lines of the root bus (plan step N4.3). A root-bus function in slot s asserts pin p on the LPC bridge's
+ * (00:1f.0) PIRQ input E–H number (s + p) % 4 (q35's rotation; PIRQ A–D serve the chipset's own functions, devices
+ * 25 to 31, through its DxxIR registers), and the bridge routes each PIRQ to a PIC line through its routing registers
+ * (0x68 to 0x6B for E–H); the firmware routes the four to two lines, 10 and 11, so that a third device shares a
+ * line, and the kernel binds a line once (K3.2). The platform routes PIRQ E–H to four lines of its own, each marked
+ * level-triggered in the ELCR, and gives every root-bus function below the chipset's slots the line of its pin and
+ * slot, after verifying the rotation against the firmware's own assignments: when one of the two rotations
+ * reproduces every Interrupt Line register from the firmware's routing, the lines are recomputed and written back
+ * to the registers; otherwise the firmware's lines stay. The chipset's functions (SATA, SMBus) keep the firmware's
+ * lines; nothing binds them. Measured on OVMF: E–H to 10, 10, 11, 11, slots 2 and 3 on G and H (11), rotation 0;
+ * 31.2 and 31.3 on 10 through A–D. */
 #define LPC_DEVICE 31U
-#define LPC_PIRQ_ROUTING 0x60U /* PIRQA..D, a byte each: bits 3:0 the line, bit 7 the routing disabled */
+#define LPC_PIRQ_ROUTING 0x68U /* PIRQE..H, a byte each: bits 3:0 the line, bit 7 the routing disabled */
 #define ELCR_MASTER 0x4D0U
 #define ELCR_SLAVE 0x4D1U
 #define NO_ROTATION 2U
+#define CHIPSET_SLOT \
+    25U /* ICH9's own functions, devices 25 to 31, are routed by its DxxIR registers, not by the slot */
 
 static const WitU8 PIRQ_LINES[4] = {10, 11, 5, 6};
 static WitU32 rotation = NO_ROTATION; /* 0: (pin - 1 + slot) % 4; 1: (pin - 1 + slot - 1) % 4 */
+static WitU32 firmware_routing; /* the PIRQ E..H routing the firmware left, logged */
 
 static WitU32 pirq_index(WitU32 slot, WitU32 pin, WitU32 r)
 {
@@ -72,6 +79,7 @@ static void route_pirqs(void)
         return; /* no LPC bridge: the firmware's lines stay */
     }
     const WitU32 firmware = config_read(0, LPC_DEVICE, 0, LPC_PIRQ_ROUTING);
+    firmware_routing = firmware;
     for (WitU32 i = 0; i < 4; ++i) {
         if ((firmware >> (8 * i)) & 0x80) {
             return; /* a PIRQ the firmware left unrouted: keep what it did */
@@ -79,7 +87,7 @@ static void route_pirqs(void)
     }
     for (WitU32 r = 0; r < 2 && rotation == NO_ROTATION; ++r) {
         int consistent = 1, seen = 0;
-        for (WitU32 device = 0; device < 32 && consistent; ++device) {
+        for (WitU32 device = 0; device < CHIPSET_SLOT && consistent; ++device) {
             if (!function_present(device, 0)) {
                 continue;
             }
@@ -123,16 +131,42 @@ static void route_pirqs(void)
     wit_x64_out8(ELCR_SLAVE, slave);
 }
 
-/* The line of a function's pin: the platform's routing on the root bus, the firmware's elsewhere. */
+/* The line of a function's pin: the platform's routing on the root bus, the firmware's elsewhere; each one logged,
+ * so that a board's routing is measured, never reasoned. */
 static WitU32 line_of(WitU32 bus, WitU32 device, WitU32 function, WitU32 pin, WitU32 firmware_line)
 {
-    if (bus != 0 || rotation == NO_ROTATION) {
-        return firmware_line;
+    WitU32 line = firmware_line;
+    if (bus == 0 && device < CHIPSET_SLOT && rotation != NO_ROTATION) {
+        line = PIRQ_LINES[pirq_index(device, pin, rotation)];
+        const WitU32 interrupt = config_read(bus, device, function, 0x3C);
+        config_write(bus, device, function, 0x3C, (interrupt & ~0xFFU) | line); /* the register stays truthful */
     }
-    const WitU32 line = PIRQ_LINES[pirq_index(device, pin, rotation)];
-    const WitU32 interrupt = config_read(bus, device, function, 0x3C);
-    config_write(bus, device, function, 0x3C, (interrupt & ~0xFFU) | line); /* the register stays truthful */
+    wit_console_write("PCI INTx: ");
+    wit_console_write_u64(bus);
+    wit_console_write(":");
+    wit_console_write_u64(device);
+    wit_console_write(".");
+    wit_console_write_u64(function);
+    wit_console_write(" pin ");
+    wit_console_write_u64(pin);
+    wit_console_write(" firmware line ");
+    wit_console_write_u64(firmware_line);
+    wit_console_write(" line ");
+    wit_console_write_u64(line);
+    wit_console_write("\n");
     return line;
+}
+
+/* The routing as decided: the firmware's PIRQ E..H table and the rotation, logged once. */
+static void log_routing(void)
+{
+    wit_console_write("PCI INTx: firmware PIRQ E-H routing ");
+    wit_console_write_hex(firmware_routing);
+    wit_console_write(rotation == NO_ROTATION ? ", the firmware's lines kept\n" : ", rotation ");
+    if (rotation != NO_ROTATION) {
+        wit_console_write_u64(rotation);
+        wit_console_write(", PIRQ E-H to 10 11 5 6\n");
+    }
 }
 
 /* Sizes the BARs of a type 0 header with decoding disabled; fills regions after the configuration region. */
@@ -245,5 +279,6 @@ WitU32 wit_platform_devices(const WitBootInfo *boot, WitDeviceDescriptor *table,
         return 0; /* No host bridge: no PCI. */
     }
     route_pirqs();
+    log_routing();
     return describe_bus(ecam_base(), 0, 0, table, 0, capacity);
 }
