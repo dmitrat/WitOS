@@ -1,4 +1,5 @@
 using WitOS.Dev.Host;
+using WitOS.Dev.Runtime;
 using WitOS.Dev.Tests.Support;
 
 namespace WitOS.Dev.Tests.Runtime;
@@ -25,6 +26,21 @@ public sealed class DotNetCompatibilityTests
 
         Assert.That(result.ExitCode, Is.Zero, result.Output);
         Assert.That(result.Output, Does.Contain(" recorded differences, 0 unexpected"));
+    }
+
+    // The runner types what the suite's Terminal checks ask for (N4.3b): the prompts the tool answers must be the ones
+    // the suite prints, and the line the tool types the one the suite expects.
+    [Test]
+    public void TerminalPromptsAreTheSuitesTest()
+    {
+        var source = File.ReadAllText(Path.Combine(TestEnvironment.Root, "tests", "DotNetCompatibility", "Terminal", "TerminalChecks.cs"));
+        foreach (var prompt in new[]
+                 {
+                     RuntimeCompatibility.TerminalPrompts.LINE, RuntimeCompatibility.TerminalPrompts.LINE_TYPED,
+                     RuntimeCompatibility.TerminalPrompts.KEY, RuntimeCompatibility.TerminalPrompts.KEY_AVAILABLE,
+                     RuntimeCompatibility.TerminalPrompts.CANCEL, RuntimeCompatibility.TerminalPrompts.SIGNAL
+                 })
+            Assert.That(source, Does.Contain($"\"{prompt}\""), $"the suite does not print or expect \"{prompt}\"");
     }
 
     #endregion

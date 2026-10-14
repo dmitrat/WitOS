@@ -29,10 +29,10 @@ IEnumerable<Check>[] areas =
 [
     PlatformChecks.All(), ConsoleChecks.All(), TaskChecks.All(), ThreadChecks.All(), TimerChecks.All(), ExceptionChecks.All(),
     ReflectionChecks.All(), FileChecks.All(), AssemblyLoadingChecks.All(), GcChecks.All(), SynchronizationChecks.All(),
-    GlobalizationChecks.All(), TimeZoneChecks.All()
+    GlobalizationChecks.All(), TimeZoneChecks.All(), TerminalChecks.All()
 ];
 var checks = areas.SelectMany(area => area).ToList();
-int differences = 0, unexpected = 0;
+int differences = 0, unexpected = 0, notApplicable = 0;
 foreach (var check in checks)
 {
     CheckResult result;
@@ -48,6 +48,13 @@ foreach (var check in checks)
     {
         result = new CheckResult(false, $"threw {exception.GetType().Name}: {exception.Message}");
     }
+    if (!result.Applicable)
+    {
+        // A check that cannot run here (the terminal's without a terminal, N4.3b) is neither a pass nor a failure.
+        notApplicable++;
+        Console.WriteLine($"[N1] {check.Id}: not applicable ({result.Observed})");
+        continue;
+    }
     var reason = recorded.GetValueOrDefault(check.Id);
     var expected = reason is null ? result.Passed : !result.Passed;
     differences += reason is not null && expected ? 1 : 0;
@@ -57,7 +64,7 @@ foreach (var check in checks)
 }
 FileChecks.Clean();
 Console.WriteLine($"[N1] .NET compatibility on {platform} ({RuntimeInformation.ProcessArchitecture}): {checks.Count} checks, " +
-    $"{differences} recorded differences, {unexpected} unexpected");
+    $"{differences} recorded differences, {unexpected} unexpected, {notApplicable} not applicable");
 return unexpected == 0 ? 0 : 1;
 
 // The checks expected to fail on the platform, each with the reason the difference is intended.

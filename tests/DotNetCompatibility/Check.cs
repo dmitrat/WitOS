@@ -5,7 +5,8 @@ namespace DotNetCompatibility;
 /// </summary>
 /// <param name="Passed">Whether the API behaved as .NET documents it.</param>
 /// <param name="Observed">What the check saw, for the report.</param>
-internal sealed record CheckResult(bool Passed, string Observed)
+/// <param name="Applicable">Whether the check could run where it ran: the terminal's checks need a terminal (N4.3b).</param>
+internal sealed record CheckResult(bool Passed, string Observed, bool Applicable = true)
 {
     /// <summary>
     /// A result from a condition.
@@ -22,6 +23,13 @@ internal sealed record CheckResult(bool Passed, string Observed)
     /// <param name="observed">What the check saw.</param>
     /// <returns>The result.</returns>
     public static Task<CheckResult> Now(bool condition, string observed) => Task.FromResult(That(condition, observed));
+
+    /// <summary>
+    /// A check that cannot run where it ran, which is neither a pass nor a failure.
+    /// </summary>
+    /// <param name="why">What is missing.</param>
+    /// <returns>The result.</returns>
+    public static CheckResult NotApplicable(string why) => new(false, why, Applicable: false);
 }
 
 /// <summary>
