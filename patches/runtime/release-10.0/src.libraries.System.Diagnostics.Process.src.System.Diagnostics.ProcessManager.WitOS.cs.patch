@@ -1,0 +1,81 @@
+Source: src/libraries/System.Diagnostics.Process/src/System/Diagnostics/ProcessManager.WitOS.cs
+Output: src.libraries.System.Diagnostics.Process.src.System.Diagnostics.ProcessManager.WitOS.cs
+Before: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+After: d2b99fedafa61836590f1edf35b7edcc4a01b2245647ef830266175e1e5dfa63
+
+ProcessManager's per-platform members for WitOS (plan step N4.2): no process is enumerated, since nothing lists them,
+and the current process alone has a record, named by Environment.ProcessPath; GetModules gives it its one module.
+
+--- a/src/libraries/System.Diagnostics.Process/src/System/Diagnostics/ProcessManager.WitOS.cs
++++ b/src/libraries/System.Diagnostics.Process/src/System/Diagnostics/ProcessManager.WitOS.cs
+@@ -0,0 +1,70 @@
++// Licensed to the .NET Foundation under one or more agreements.
++// The .NET Foundation licenses this file to you under the MIT license.
++
++using System.Collections.Generic;
++using System.IO;
++
++namespace System.Diagnostics
++{
++    // WitOS (TargetOS=witos): there is no /proc and no call that lists processes, so the processes are not enumerated
++    // and no process but the current one has a record; its name and its one module come from Environment.ProcessPath,
++    // the path its creator started it by.
++    internal static partial class ProcessManager
++    {
++        /// <summary>Gets the IDs of all processes on the current machine.</summary>
++        public static int[] GetProcessIds()
++        {
++            throw new PlatformNotSupportedException();
++        }
++
++        /// <summary>Gets process infos for each process on the specified machine.</summary>
++        /// <param name="processNameFilter">Optional process name to use as an inclusion filter.</param>
++        /// <param name="machineName">The target machine.</param>
++        /// <returns>An array of process infos, one per found process.</returns>
++        public static ProcessInfo[] GetProcessInfos(string? processNameFilter, string machineName)
++        {
++            ThrowIfRemoteMachine(machineName);
++            throw new PlatformNotSupportedException();
++        }
++
++        /// <summary>Gets an array of module infos for the specified process.</summary>
++        /// <param name="processId">The ID of the process whose modules should be enumerated.</param>
++        /// <returns>The array of modules: the current process's program, nothing of another process.</returns>
++        internal static ProcessModuleCollection GetModules(int processId)
++        {
++            string? path = processId == Environment.ProcessId ? Environment.ProcessPath : null;
++            if (!string.IsNullOrEmpty(path))
++            {
++                return new ProcessModuleCollection(1)
++                {
++                    new ProcessModule(path, Path.GetFileName(path))
++                };
++            }
++
++            return new ProcessModuleCollection(0);
++        }
++
++        internal static ProcessInfo? CreateProcessInfo(int pid, string? processNameFilter = null)
++        {
++            ArgumentOutOfRangeException.ThrowIfNegative(pid);
++
++            if (pid != Environment.ProcessId)
++            {
++                return null; // no record of another process: its name and figures are not there
++            }
++
++            string name = Path.GetFileName(Environment.ProcessPath) ?? string.Empty;
++            if (!string.IsNullOrEmpty(processNameFilter) && !processNameFilter.Equals(name))
++            {
++                return null;
++            }
++
++            return new ProcessInfo()
++            {
++                ProcessId = pid,
++                ProcessName = name,
++                SessionId = 0,
++            };
++        }
++    }
++}

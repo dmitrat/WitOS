@@ -1,0 +1,134 @@
+Source: src/libraries/System.Diagnostics.Process/src/System/Diagnostics/Process.WitOS.cs
+Output: src.libraries.System.Diagnostics.Process.src.System.Diagnostics.Process.WitOS.cs
+Before: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+After: 9ced8c9ecdf7754803e9fd54462a3f5c1e5422c7769ed32b2a48ec58e90ef117
+
+Process's per-platform members for WitOS (plan step N4.2, RFC 0015 section 8), as Process.FreeBSD.cs holds FreeBSD's:
+a process starts through the libc's posix_spawn over the process manager and ends as waitpid reports, and what Linux
+reads from /proc — the start time, another process's processor times, the parent, the working set, the affinity —
+is PlatformNotSupportedException, since WitOS has no /proc and the kernel reports none of it.
+
+--- a/src/libraries/System.Diagnostics.Process/src/System/Diagnostics/Process.WitOS.cs
++++ b/src/libraries/System.Diagnostics.Process/src/System/Diagnostics/Process.WitOS.cs
+@@ -0,0 +1,121 @@
++// Licensed to the .NET Foundation under one or more agreements.
++// The .NET Foundation licenses this file to you under the MIT license.
++
++using System.Collections.Generic;
++using System.ComponentModel;
++using System.Runtime.Versioning;
++
++namespace System.Diagnostics
++{
++    // WitOS (TargetOS=witos): a process starts through the libc's posix_spawn over the process manager and ends as
++    // waitpid reports; what Linux reads from /proc — the start time, the processor times, the parent, the working
++    // set — is not there, and the kernel gives no affinity, so each of those is PlatformNotSupportedException, as the
++    // iOS flavor answers. The current process answers its own processor times from the runtime.
++    public partial class Process : IDisposable
++    {
++        /// <summary>
++        /// Creates an array of <see cref="Process"/> components that are associated with process resources on a
++        /// remote computer. These process resources share the specified process name.
++        /// </summary>
++        public static Process[] GetProcessesByName(string? processName, string machineName)
++        {
++            ProcessManager.ThrowIfRemoteMachine(machineName);
++            throw new PlatformNotSupportedException();
++        }
++
++        /// <summary>Gets the time the associated process was started.</summary>
++        internal static DateTime StartTimeCore
++        {
++            get { throw new PlatformNotSupportedException(); }
++        }
++
++        /// <summary>
++        /// Gets the amount of time the associated process has spent utilizing the CPU.
++        /// It is the sum of the <see cref='System.Diagnostics.Process.UserProcessorTime'/> and
++        /// <see cref='System.Diagnostics.Process.PrivilegedProcessorTime'/>.
++        /// </summary>
++        public TimeSpan TotalProcessorTime
++        {
++            get
++            {
++                if (IsCurrentProcess)
++                {
++                    return Environment.CpuUsage.TotalTime;
++                }
++
++                throw new PlatformNotSupportedException();
++            }
++        }
++
++        /// <summary>
++        /// Gets the amount of time the associated process has spent running code
++        /// inside the application portion of the process (not the operating system core).
++        /// </summary>
++        public TimeSpan UserProcessorTime
++        {
++            get
++            {
++                if (IsCurrentProcess)
++                {
++                    return Environment.CpuUsage.UserTime;
++                }
++
++                throw new PlatformNotSupportedException();
++            }
++        }
++
++        /// <summary>Gets the amount of time the process has spent running code inside the operating system core.</summary>
++        public TimeSpan PrivilegedProcessorTime
++        {
++            get
++            {
++                if (IsCurrentProcess)
++                {
++                    return Environment.CpuUsage.PrivilegedTime;
++                }
++
++                throw new PlatformNotSupportedException();
++            }
++        }
++
++        /// <summary>Gets parent process ID</summary>
++#pragma warning disable CA1822
++        private int ParentProcessId => throw new PlatformNotSupportedException();
++#pragma warning restore CA1822
++
++        /// <summary>
++        /// Gets or sets which processors the threads in this process can be scheduled to run on.
++        /// </summary>
++        private static IntPtr ProcessorAffinityCore
++        {
++            get { throw new PlatformNotSupportedException(SR.ProcessorAffinityNotSupported); }
++            set { throw new PlatformNotSupportedException(SR.ProcessorAffinityNotSupported); }
++        }
++
++#pragma warning disable IDE0060
++        /// <summary>
++        /// Make sure we have obtained the min and max working set limits.
++        /// </summary>
++        private static void GetWorkingSetLimits(out IntPtr minWorkingSet, out IntPtr maxWorkingSet)
++        {
++            throw new PlatformNotSupportedException();
++        }
++
++        /// <summary>Sets one or both of the minimum and maximum working set limits.</summary>
++        /// <param name="newMin">The new minimum working set limit, or null not to change it.</param>
++        /// <param name="newMax">The new maximum working set limit, or null not to change it.</param>
++        /// <param name="resultingMin">The resulting minimum working set limit after any changes applied.</param>
++        /// <param name="resultingMax">The resulting maximum working set limit after any changes applied.</param>
++        private static void SetWorkingSetLimitsCore(IntPtr? newMin, IntPtr? newMax, out IntPtr resultingMin, out IntPtr resultingMax)
++        {
++            throw new PlatformNotSupportedException();
++        }
++#pragma warning restore IDE0060
++
++        /// <summary>Gets execution path</summary>
++        private static string? GetPathToOpenFile()
++        {
++            return null; // no program opens a document: UseShellExecute finds nothing to run
++        }
++    }
++}
