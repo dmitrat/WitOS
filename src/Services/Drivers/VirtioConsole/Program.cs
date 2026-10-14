@@ -163,6 +163,10 @@ internal static class Program
                 }
                 if (server.Serve(message) is { } reply)
                     Answer(client!, reply);
+                // A WRITE waited for its transmit and collected what the device received meanwhile: the READ held may
+                // have its bytes now, with no interrupt left to bring them.
+                if (server.Completed() is { } completed)
+                    Answer(client!, completed);
             }
         }
     }
