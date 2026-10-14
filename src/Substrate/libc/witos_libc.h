@@ -97,6 +97,9 @@ volatile int *__wit_lock_sequence_word(void);
 long __wit_mkdirat(long dirfd, const char *path);
 long __wit_fchmodat(long dirfd, const char *path, long mode); /* chmod of what a path names (N4.1) */
 long __wit_fchmod(long fd, long mode);
+struct timespec;
+long __wit_utimensat(
+    long dirfd, const char *path, const struct timespec *times, long flags); /* a null path: the descriptor's (N4.1) */
 long __wit_shared_open(const unsigned char *name, WitU32 length, long flags, WitU32 *index);
 long __wit_shared_anonymous(WitU32 *index);
 long __wit_shared_remote(WitU32 remote, WitU64 size, int writable, WitU32 *index);
@@ -134,6 +137,9 @@ long __wit_remote_sync(WitU32 index);
 long __wit_remote_readlink(const unsigned char *name, WitU32 length, char *buffer, long size);
 long __wit_remote_chmod(const unsigned char *name, WitU32 length, long mode); /* N4.1 */
 long __wit_remote_fchmod(WitU32 index, long mode);
+struct WitNamespaceTimes;
+long __wit_remote_utimes(const unsigned char *name, WitU32 length, const struct WitNamespaceTimes *times, WitU32 flags);
+long __wit_remote_futimes(WitU32 index, const struct WitNamespaceTimes *times, WitU32 flags);
 long __wit_renameat2(long olddirfd, const char *oldpath, long newdirfd, const char *newpath, long flags);
 /* The current directory (files.c, S6.2): chdir, fchdir; the absolute directory a path names from a base directory
  * (the current one when null) or a directory descriptor names, which must exist, for posix_spawn; the directory the

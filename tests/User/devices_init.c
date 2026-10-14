@@ -99,11 +99,34 @@ static void volume(const char *root, int modes)
         check(chmod(path, 0644) == 0, "chmod back");
         snprintf(other, sizeof(other), "%s/posix", root);
         check(chmod(other, 0777) == 0 && stat(other, &st) == 0 && (st.st_mode & 07777) == 0777, "chmod of a directory");
+        /* utimensat and futimens (N4.1): the times as given, to the nanosecond; UTIME_NOW is the service's clock. */
+        const struct timespec stamps[2] = {{1600000000, 0}, {1600000001, 500000000}};
+        check(utimensat(AT_FDCWD, path, stamps, 0) == 0 &&
+                stat(path, &st) == 0 &&
+                st.st_atim.tv_sec == 1600000000 &&
+                st.st_mtim.tv_sec == 1600000001 &&
+                st.st_mtim.tv_nsec == 500000000,
+            "utimensat keeps the times");
+        const struct timespec omit[2] = {{0, UTIME_OMIT}, {1700000000, 0}};
+        check(utimensat(AT_FDCWD, path, omit, 0) == 0 &&
+                stat(path, &st) == 0 &&
+                st.st_atim.tv_sec == 1600000000 &&
+                st.st_mtim.tv_sec == 1700000000,
+            "UTIME_OMIT leaves a time");
+        modes_fd = open(path, O_RDWR);
+        check(
+            modes_fd >= 0 && futimens(modes_fd, 0) == 0 && fstat(modes_fd, &st) == 0 && st.st_mtim.tv_sec > 1700000000,
+            "futimens with now");
+        if (modes_fd >= 0) {
+            close(modes_fd);
+        }
     } else {
         check(chmod(path, 0444) == 0 && stat(path, &st) == 0 && (st.st_mode & 07777) == 0444,
             "chmod to read-only on FAT");
         check(chmod(path, 0644) == 0 && stat(path, &st) == 0 && (st.st_mode & 07777) == 0644, "chmod back on FAT");
-        check(chmod(path, 0600) < 0 && errno == ENOTSUP, "a mode FAT cannot keep is ENOTSUP");
+        check(chmod(path, 0600) < 0 && errno == EPERM, "a mode FAT cannot keep is EPERM, as on Linux");
+        const struct timespec stamps[2] = {{1600000000, 0}, {1600000001, 0}};
+        check(utimensat(AT_FDCWD, path, stamps, 0) < 0 && errno == EPERM, "times on FAT are EPERM");
     }
     int fd = open(path, O_RDWR);
     check(fd >= 0 && pread(fd, buffer, 5, 7) == 5 && memcmp(buffer, "world", 5) == 0, "pread");

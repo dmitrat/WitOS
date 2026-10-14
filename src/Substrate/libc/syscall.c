@@ -597,6 +597,8 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
 #endif
     case SYS_fchmod:
         return __wit_fchmod(a1, a2);
+    case SYS_utimensat: /* N4.1: musl's utimensat and futimens, whose path is null */
+        return __wit_utimensat(a1, (const char *)a2, (const struct timespec *)a3, a4);
 #if defined(SYS_lstat)
     case SYS_lstat: /* the package has no symbolic links */
         return __wit_fstatat(AT_FDCWD, (const char *)a1, (struct kstat *)a2, AT_SYMLINK_NOFOLLOW);

@@ -64,7 +64,10 @@ internal static class FileChecks
             File.WriteAllText(path, "t");
             var written = File.GetLastWriteTimeUtc(path);
             var skew = Math.Abs((written - DateTime.UtcNow).TotalMinutes);
-            return CheckResult.Now(skew < 10, $"{written:O}");
+            var stamp = new DateTime(2021, 3, 4, 5, 6, 7, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(path, stamp);
+            var set = File.GetLastWriteTimeUtc(path);
+            return CheckResult.Now(skew < 10 && set == stamp, $"{written:O}, set to {set:O}");
         });
         yield return new Check("FileIO", "Copy", () =>
         {

@@ -45,5 +45,9 @@ public enum FileSystemError
     Corrupt,
 
     /// <summary>The volume is not of the provider's format, or uses what the provider does not support (EINVAL).</summary>
-    Unsupported
+    Unsupported,
+
+    /// <summary>The format keeps no such metadata, so the change is not permitted on this volume (EPERM), as Linux answers
+    /// for a mode vfat cannot represent or the times of a volume without POSIX metadata (N4.1).</summary>
+    NotPermitted
 }

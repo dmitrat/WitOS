@@ -187,6 +187,20 @@ public sealed class MemoryFileSystem : IFileSystem
         }, cancellationToken);
 
     /// <inheritdoc />
+    /// <remarks>The volume records the times as given, to the tick.</remarks>
+    public ValueTask<FileSystemEntry> SetTimesAsync(string path, DateTimeOffset? accessed, DateTimeOffset? modified, CancellationToken cancellationToken = default) =>
+        LockedAsync(() =>
+        {
+            var node = Find(path) ?? throw new FileSystemException(FileSystemError.NotFound, $"Nothing is at {path}.");
+            if (accessed is { } access)
+                node.Accessed = access;
+            if (modified is { } modification)
+                node.Modified = modification;
+            node.Changed = m_clock.GetUtcNow();
+            return Entry(node);
+        }, cancellationToken);
+
+    /// <inheritdoc />
     /// <remarks>Nothing is below the memory: a flush has nothing to write.</remarks>
     public ValueTask FlushAsync(CancellationToken cancellationToken = default)
     {
@@ -430,7 +444,7 @@ public sealed class MemoryFileSystem : IFileSystem
 
         public DateTimeOffset Modified { get; set; } = now;
 
-        public DateTimeOffset Accessed { get; } = now;
+        public DateTimeOffset Accessed { get; set; } = now;
 
         public DateTimeOffset Changed { get; set; } = now;
 

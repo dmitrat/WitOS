@@ -231,6 +231,25 @@ internal sealed class Ext4Writer
     }
 
     /// <summary>
+    /// Sets an inode's access and modification times (N4.1); the change time moves.
+    /// </summary>
+    /// <param name="transaction">The change.</param>
+    /// <param name="now">The time.</param>
+    /// <param name="inode">The inode.</param>
+    /// <param name="accessed">The access time, or null to leave it.</param>
+    /// <param name="modified">The modification time, or null to leave it.</param>
+    /// <param name="cancellationToken">Cancels the change.</param>
+    /// <returns>True.</returns>
+    public async ValueTask<bool> SetTimesAsync(Ext4Transaction transaction, DateTimeOffset now, uint inode, DateTimeOffset? accessed, DateTimeOffset? modified,
+        CancellationToken cancellationToken)
+    {
+        var record = await Ext4InodeRecord.OpenAsync(m_volume, transaction, inode, cancellationToken).ConfigureAwait(false);
+        record.SetTimes(accessed, modified, now);
+        record.Seal();
+        return true;
+    }
+
+    /// <summary>
     /// Removes an entry and, with its last link, the inode and its blocks.
     /// </summary>
     /// <param name="transaction">The change.</param>

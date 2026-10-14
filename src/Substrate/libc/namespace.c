@@ -574,6 +574,42 @@ long __wit_remote_fchmod(WitU32 index, long mode)
     return call(&request, &reply);
 }
 
+/* utimensat of a path of a volume (N4.1): the times after the path in the window, the flags saying which are set and
+ * which are the service's now; the service keeps what the volume's format records and answers EPERM where it cannot. */
+long __wit_remote_utimes(const unsigned char *name, WitU32 length, const WitNamespaceTimes *times, WitU32 flags)
+{
+    WitNamespaceRequest request;
+    WitNamespaceReply reply;
+    memset(&request, 0, sizeof(request));
+    const long bytes = put_path(0, name, length);
+    if (bytes < 0) {
+        return bytes;
+    }
+    const WitU64 at = ((WitU64)bytes + 7) & ~7ULL;
+    if (at + sizeof(*times) > WINDOW) {
+        return -ENAMETOOLONG;
+    }
+    memcpy(window + at, times, sizeof(*times));
+    request.Operation = WIT_NAMESPACE_UTIMES;
+    request.Flags = flags;
+    request.Offset = at;
+    request.Length = (WitU64)bytes;
+    return call(&request, &reply);
+}
+
+/* futimens of an open file or directory of a volume (N4.1). */
+long __wit_remote_futimes(WitU32 index, const WitNamespaceTimes *times, WitU32 flags)
+{
+    WitNamespaceRequest request;
+    WitNamespaceReply reply;
+    memset(&request, 0, sizeof(request));
+    memcpy(window, times, sizeof(*times));
+    request.Operation = WIT_NAMESPACE_FUTIMES;
+    request.Flags = flags;
+    request.Handle = remotes[index].Handle;
+    return call(&request, &reply);
+}
+
 long __wit_remote_readlink(const unsigned char *name, WitU32 length, char *buffer, long size)
 {
     WitNamespaceReply reply;

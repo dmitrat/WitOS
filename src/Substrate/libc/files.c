@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "witos_libc.h"
 #include "witos/memory_object.h"
+#include "witos/namespace.h"
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -785,6 +786,81 @@ long __wit_fchmodat(long dirfd, const char *path, long mode)
             return status;
         }
         return __wit_shared_chmod(index, mode);
+    }
+    if ((status = lookup(name, length, &kind, &index)) < 0) {
+        return status;
+    }
+    return -EROFS;
+}
+
+/* utimensat and futimens (N4.1): a file or a directory of a mounted volume takes the times its volume's format keeps
+ * (the namespace service sets them, UTIME_NOW by its own clock, and answers EPERM for FAT, which records the times a
+ * write sets); a shared memory file, the devices, /dev and /dev/shm keep theirs; the package is read-only (EROFS). A
+ * null path names the descriptor itself, as musl's futimens calls. */
+long __wit_utimensat(long dirfd, const char *path, const struct timespec *times, long flags)
+{
+    unsigned char name[NAME_MAX_BYTES];
+    WitU32 length = 0, index = 0, want = 0;
+    WitNamespaceTimes record;
+    Kind kind;
+    long status;
+    if (flags & ~(long)AT_SYMLINK_NOFOLLOW) {
+        return -EINVAL;
+    }
+    memset(&record, 0, sizeof(record));
+    for (int i = 0; i < 2; ++i) {
+        if (!times || times[i].tv_nsec == UTIME_NOW) {
+            want |= i ? WIT_NAMESPACE_TIME_MODIFIED_NOW : WIT_NAMESPACE_TIME_ACCESSED_NOW;
+            continue;
+        }
+        if (times[i].tv_nsec == UTIME_OMIT) {
+            continue;
+        }
+        if (times[i].tv_nsec < 0 || times[i].tv_nsec >= 1000000000L) {
+            return -EINVAL;
+        }
+        want |= i ? WIT_NAMESPACE_TIME_MODIFIED : WIT_NAMESPACE_TIME_ACCESSED;
+        if (i) {
+            record.ModifiedSeconds = (WitU64)times[i].tv_sec;
+            record.ModifiedNanoseconds = (WitU32)times[i].tv_nsec;
+        } else {
+            record.AccessedSeconds = (WitU64)times[i].tv_sec;
+            record.AccessedNanoseconds = (WitU32)times[i].tv_nsec;
+        }
+    }
+    if ((status = mount()) < 0) {
+        return status;
+    }
+    if (!path) {
+        const Descriptor *d = descriptor(dirfd);
+        if (!d) {
+            return __wit_stream_of(dirfd) >= 0 ? 0 : -EBADF;
+        }
+        switch (d->Kind) {
+        case KindRemoteFile:
+        case KindRemoteDirectory:
+            return __wit_remote_futimes(d->Index, &record, want);
+        case KindFile:
+        case KindDirectory:
+            return -EROFS;
+        default:
+            return 0;
+        }
+    }
+    if ((status = resolve(dirfd, path, name, &length)) < 0) {
+        return status;
+    }
+    if (__wit_remote_name(name, length)) {
+        return __wit_remote_utimes(name, length, &record, want);
+    }
+    if (shared_directory(name, length) ||
+        (length == 3 && memcmp(name, "dev", 3) == 0) ||
+        (length == 8 && (memcmp(name, "dev/null", 8) == 0 || memcmp(name, "dev/zero", 8) == 0)) ||
+        is_random_device(name, length)) {
+        return 0;
+    }
+    if (shared_name(name, length)) {
+        return __wit_shared_find(name + 8, length - 8, &index) < 0 ? -ENOENT : 0;
     }
     if ((status = lookup(name, length, &kind, &index)) < 0) {
         return status;

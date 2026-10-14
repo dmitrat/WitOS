@@ -92,6 +92,26 @@ public sealed class MemoryFileSystemTests
     }
 
     [Test]
+    public async Task TimesAreKeptAsGivenTest()
+    {
+        await using var volume = new MemoryFileSystem(1 << 20);
+        await using (await volume.OpenAsync("/f", FileMode.CreateNew, FileAccess.Write))
+        {
+        }
+        var accessed = new DateTimeOffset(2020, 9, 13, 12, 26, 40, TimeSpan.Zero);
+        var modified = accessed.AddSeconds(1).AddTicks(5_000_001);
+
+        var both = await volume.SetTimesAsync("/f", accessed, modified);
+        var one = await volume.SetTimesAsync("/f", null, modified.AddDays(1));
+
+        Assert.That(both.Accessed, Is.EqualTo(accessed));
+        Assert.That(both.Modified, Is.EqualTo(modified));
+        Assert.That(one.Accessed, Is.EqualTo(accessed), "a null time stays");
+        Assert.That(one.Modified, Is.EqualTo(modified.AddDays(1)));
+        Assert.That(Error(() => volume.SetTimesAsync("/none", accessed, modified).AsTask()), Is.EqualTo(FileSystemError.NotFound));
+    }
+
+    [Test]
     public async Task TheCapacityBoundsTheFilesTest()
     {
         await using var volume = new MemoryFileSystem(10_000);

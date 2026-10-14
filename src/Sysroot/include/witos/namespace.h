@@ -40,6 +40,11 @@
 #define WIT_NAMESPACE_CHMOD \
     17U /* the path in the window (Length bytes), Mode the permission bits; the reply's Stat (N4.1) */
 #define WIT_NAMESPACE_FCHMOD 18U /* Handle, Mode the permission bits; the reply's Stat (N4.1) */
+#define WIT_NAMESPACE_UTIMES \
+    19U /* the path in the window (Length bytes) and a WitNamespaceTimes at Offset of the window, Flags saying which times
+         * are set and which are the service's now (WIT_NAMESPACE_TIME_*); the reply's Stat (N4.1) */
+#define WIT_NAMESPACE_FUTIMES \
+    20U /* Handle, a WitNamespaceTimes at Offset of the window, Flags as UTIMES; the reply's Stat */
 
 /* OPEN's flags; the libc maps O_ACCMODE, O_CREAT, O_EXCL, O_TRUNC and O_DIRECTORY onto them. */
 #define WIT_NAMESPACE_READ_ACCESS 0x1U
@@ -49,6 +54,13 @@
 #define WIT_NAMESPACE_TRUNCATE_FILE 0x10U
 #define WIT_NAMESPACE_DIRECTORY 0x20U /* OPEN: the path must be a directory; REMOVE: remove a directory */
 #define WIT_NAMESPACE_MAP_WRITE 0x40U /* MAP: the object is writable, which a handle opened for writing alone grants */
+
+/* UTIMES' and FUTIMES' flags (N4.1): which times the request sets, each as the WitNamespaceTimes value or as the
+ * service's clock; a time named by neither stays (UTIME_OMIT). */
+#define WIT_NAMESPACE_TIME_ACCESSED 0x100U
+#define WIT_NAMESPACE_TIME_ACCESSED_NOW 0x200U
+#define WIT_NAMESPACE_TIME_MODIFIED 0x400U
+#define WIT_NAMESPACE_TIME_MODIFIED_NOW 0x800U
 
 /* WitNamespaceStat's Kind, as a stat's file type; Mode holds the permission bits alone. */
 #define WIT_NAMESPACE_KIND_FILE 1U
@@ -78,6 +90,12 @@ typedef struct WitNamespaceStat {
     WitU64 AccessedSeconds, ModifiedSeconds, ChangedSeconds;
     WitU32 AccessedNanoseconds, ModifiedNanoseconds, ChangedNanoseconds, Padding;
 } WitNamespaceStat;
+
+/* The times of UTIMES and FUTIMES in the window (N4.1): seconds and nanoseconds since 1970 in UTC. */
+typedef struct WitNamespaceTimes {
+    WitU64 AccessedSeconds, ModifiedSeconds;
+    WitU32 AccessedNanoseconds, ModifiedNanoseconds;
+} WitNamespaceTimes;
 
 /* A request on the session, and the CONNECT on the clients' endpoint. */
 typedef struct WitNamespaceRequest {
@@ -116,6 +134,7 @@ typedef struct WitNamespaceDisk {
 #define WIT_NAMESPACE_DISK_READ_ONLY 0x1U
 
 WIT_STATIC_ASSERT(sizeof(WitNamespaceStat) == 96, "Namespace stat");
+WIT_STATIC_ASSERT(sizeof(WitNamespaceTimes) == 24, "Namespace times");
 WIT_STATIC_ASSERT(sizeof(WitNamespaceRequest) == 48, "Namespace request");
 WIT_STATIC_ASSERT(sizeof(WitNamespaceReply) == 136, "Namespace reply");
 WIT_STATIC_ASSERT(sizeof(WitNamespaceEntry) == 16, "Namespace entry");

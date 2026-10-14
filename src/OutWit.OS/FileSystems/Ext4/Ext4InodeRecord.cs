@@ -150,6 +150,21 @@ internal sealed class Ext4InodeRecord
     }
 
     /// <summary>
+    /// Sets the access and modification times a caller gives (N4.1), either left null staying, and the change time.
+    /// </summary>
+    /// <param name="accessed">The access time, or null.</param>
+    /// <param name="modified">The modification time, or null.</param>
+    /// <param name="now">The change time.</param>
+    public void SetTimes(DateTimeOffset? accessed, DateTimeOffset? modified, DateTimeOffset now)
+    {
+        if (accessed is { } access)
+            SetTime(ACCESSED, ACCESSED_EXTRA, access);
+        if (modified is { } modification)
+            SetTime(MODIFIED, MODIFIED_EXTRA, modification);
+        SetTime(CHANGED, CHANGED_EXTRA, now);
+    }
+
+    /// <summary>
     /// Marks the inode deleted at a time: no links, no size, no blocks.
     /// </summary>
     /// <param name="now">The time.</param>
