@@ -448,9 +448,6 @@ static long pipe_transfer(long n, long fd, long a2, long a3)
     return r;
 }
 
-/* poll and ppoll (R3.2): the readiness of every descriptor under the table lock, then, when none is ready and the
- * timeout allows, a park until a pipe changes, the deadline or a signal handler; the sequence is read before the
- * readiness, so that a change between the two wakes the park at once. A signal mask for the wait is not there. */
 /* epoll_wait (N4.2): the instance's ready events under the table lock, else a park as poll's until a pipe changed. */
 static long epoll_wait_instance(long epfd, struct epoll_event *events, int count, int milliseconds)
 {
@@ -487,6 +484,9 @@ static long epoll_wait_instance(long epfd, struct epoll_event *events, int count
     }
 }
 
+/* poll and ppoll (R3.2): the readiness of every descriptor under the table lock, then, when none is ready and the
+ * timeout allows, a park until a pipe changes, the deadline or a signal handler; the sequence is read before the
+ * readiness, so that a change between the two wakes the park at once. A signal mask for the wait is not there. */
 static long poll_descriptors(struct pollfd *fds, unsigned long count, const struct timespec *timeout)
 {
     WitU64 deadline = WIT_WAIT_INFINITE;
