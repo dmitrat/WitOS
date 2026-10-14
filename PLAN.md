@@ -63,7 +63,7 @@ WitOS — программы NativeAOT в отдельных процессах 
 | S — субстрат | завершена: musl, потоки, сигналы, C++-рантайм, `ld.so`, менеджер процессов, libc-test с math | [§S](@Docs/Implementation/Plan-Completed.md#s--субстрат-прослойки) |
 | R — рантайм | завершена: NativeAOT и CoreCLR, хосты, R6, тесты upstream, репетиция апгрейда | [§R](@Docs/Implementation/Plan-Completed.md#r--рантайм-net-unix-формы) |
 | D — устройства и хранилище | завершена: M4 и M5 (§45, §52) выполнены | [§D](@Docs/Implementation/Plan-Completed.md#d--устройства-и-хранилище-m4m5) |
-| N — стандартный .NET | N1–N3 и N4.1–N4.3 завершены; **N4.4 и N4.5 открыты**; M6 §60 пункты 1–6 выполнены, заявка Gate B (§61) — после N4 | [§N](@Docs/Implementation/Plan-Completed.md#n--стандартный-net-m6) |
+| N — стандартный .NET | N1–N3 и N4.1–N4.4 завершены; **N4.5 открыт**; M6 §60 пункты 1–6 выполнены, заявка Gate B (§61) — после N4 | [§N](@Docs/Implementation/Plan-Completed.md#n--стандартный-net-m6) |
 | V, P, W | не начаты | — |
 
 **Аудит 2026-10-14** ([Program-Audit-2026-10-14.md](@Docs/Implementation/Program-Audit-2026-10-14.md)) сверил сделанное
@@ -119,7 +119,7 @@ C-API — `libwitos`, управляемый — `OutWit.OS`. RFC-0011 v3 §11: 
 | S | libc, потоки, сигналы, libunwind/libc++, ELF-загрузчик, корневая задача | K1–K5, T1 | Ц1 | завершена |
 | R | NativeAOT и CoreCLR `TargetOS=witos`, хосты, первый IL через JIT | S | Ц2, Ц4 | завершена |
 | D | менеджер устройств, virtio-blk, блочный слой, ФС, пространство имён | K3, R2 | Ц2 | завершена (M4, M5) |
-| [N](#n--стандартный-net-m6) | compatibility suite, библиотеки NuGet, несколько версий, среда приложения | R, D | Ц2, Ц5 | N1–N3, N4.1–N4.3 завершены; N4.4 и N4.5 открыты |
+| [N](#n--стандартный-net-m6) | compatibility suite, библиотеки NuGet, несколько версий, среда приложения | R, D | Ц2, Ц5 | N1–N3, N4.1–N4.4 завершены; N4.5 открыт |
 | [V](#v--третья-isa) | RISC-V | R, N1 | Ц3 | не начата |
 | [P](#p--многопроцессорность) | планировщик на N CPU | K7, R | — | не начата |
 | [W](#w--и-далее) | сеть (M7) и остальные милстоуны | N | — | не начата |
@@ -155,14 +155,11 @@ async/task, файловый ввод-вывод через BCL, предста�
 приложения доказаны R6, N1 и N2. Остаток M6 — среда приложения по RFC-0015 §8 (столбец «Later») и §9 (гейт N4), после
 чего заявка Gate B (§61) «WitOS runs .NET».
 
-- [ ] **N4** Среда приложения: окружение и время (N4.1), процессы (N4.2) и консоль по RFC-0020 (N4.3) выполнены; буквальная проверка Ц2 и
-  итог M6. Каждый срез меняет [Compatibility-Differences.md](@Docs/Implementation/Compatibility-Differences.md) и
+- [ ] **N4** Среда приложения: окружение и время (N4.1), процессы (N4.2), консоль по RFC-0020 (N4.3) и буквальная проверка
+  Ц2 (N4.4) выполнены; остался итог M6. Каждый срез меняет [Compatibility-Differences.md](@Docs/Implementation/Compatibility-Differences.md) и
   `tests/DotNetCompatibility/expectations.json` вместе и только с гостевой проверкой; записанные различия должны
   убывать. Срезами:
-  - [ ] **N4.4** (следующий шаг) Ц2 буквально: задание Windows CI публикует `tests/DotNetCompatibility` и `PortableApp` стоковым SDK
-    (`dotnet publish` без RID — тот же MSBuild, что у Visual Studio) и выгружает артефакт; задание Linux загружает
-    ровно эти байты в `runtime-compatibility`, и результат совпадает с публикацией на Linux. Записывается в N1.
-  - [ ] **N4.5** Итог M6: публичная матрица совместимости (Strategy §145 — платформы, области, записанные различия)
+  - [ ] **N4.5** (следующий шаг) Итог M6: публичная матрица совместимости (Strategy §145 — платформы, области, записанные различия)
     из `expectations.json` и `Compatibility-Differences.md`; ревизия таблицы профиля RFC-0015 §8 по факту (ICU, файлы,
     процессы, консоль, время) и §9.1 RFC-0011 о `libwitos.so` — решением (ADR); решение о заявке `TargetOS=witos` в
     upstream (§7). После этого — заявка Gate B «WitOS runs .NET» (§61).
