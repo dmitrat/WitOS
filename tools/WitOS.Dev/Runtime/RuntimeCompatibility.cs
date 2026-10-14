@@ -38,13 +38,14 @@ internal static class RuntimeCompatibility
     /// <returns>When the suite ran.</returns>
     public static async Task RunAsync(string root, KernelArchitecture architecture)
     {
-        var log = RuntimeApps.SerialLog(root, architecture, KernelImageBuilder.RUNTIME_COMPATIBILITY_SCENARIO);
-        if (File.Exists(log))
-            File.Delete(log);
+        RuntimeApps.ForgetLogs(root, architecture, KernelImageBuilder.RUNTIME_COMPATIBILITY_SCENARIO);
         await RuntimeApps.BootAsync(root, architecture, KernelImageBuilder.RUNTIME_COMPATIBILITY_SCENARIO, RequiredLines(architecture), 1800,
             terminal: Script());
-        // N4.4: the record of this run, which runtime-published compares a publish of another host against.
-        var checks = ReadChecks(await File.ReadAllLinesAsync(log));
+        // N4.4: the record of this run, which runtime-published compares a publish of another host against. The suite
+        // writes to the terminal (N4.3), so its lines are in the transcript, not in the serial log.
+        var checks = ReadChecks(await RuntimeApps.GuestLinesAsync(root, architecture, KernelImageBuilder.RUNTIME_COMPATIBILITY_SCENARIO));
+        if (checks.Count == 0)
+            throw new InvalidOperationException("The suite's checks were not found in the guest's serial log or terminal transcript.");
         var sdk = (await Processes.RunAsync("dotnet", ["--version"], root)).Output.Trim();
         var record = new CompatibilityRecord(architecture.Name, RuntimePublished.HostName(), sdk, checks);
         var path = RecordPath(root, architecture);

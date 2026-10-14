@@ -91,6 +91,47 @@ internal static class RuntimeApps
         Path.Combine(root, "artifacts", "logs", $"{architecture.Name}-{scenario}-{MEMORY_MIB}.serial.log");
 
     /// <summary>
+    /// The terminal transcript of a scenario booted with the terminal (N4.3): where a process whose standard streams are
+    /// the terminal writes, so a program's lines are there, not in the serial log.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="scenario">The scenario.</param>
+    /// <returns>The transcript's path.</returns>
+    public static string TerminalLog(string root, KernelArchitecture architecture, string scenario) =>
+        Path.Combine(root, "artifacts", "logs", $"{architecture.Name}-{scenario}-{MEMORY_MIB}.terminal.log");
+
+    /// <summary>
+    /// Every line the guest wrote in a scenario: the serial log's, then the terminal transcript's when the scenario had
+    /// a terminal.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="scenario">The scenario.</param>
+    /// <returns>The lines.</returns>
+    public static async Task<IReadOnlyList<string>> GuestLinesAsync(string root, KernelArchitecture architecture, string scenario)
+    {
+        var lines = new List<string>();
+        foreach (var path in new[] { SerialLog(root, architecture, scenario), TerminalLog(root, architecture, scenario) })
+            if (File.Exists(path))
+                lines.AddRange(await File.ReadAllLinesAsync(path));
+        return lines;
+    }
+
+    /// <summary>
+    /// Removes a scenario's logs before a boot, so that a reading after it sees this boot's lines alone.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="scenario">The scenario.</param>
+    public static void ForgetLogs(string root, KernelArchitecture architecture, string scenario)
+    {
+        foreach (var path in new[] { SerialLog(root, architecture, scenario), TerminalLog(root, architecture, scenario) })
+            if (File.Exists(path))
+                File.Delete(path);
+    }
+
+    /// <summary>
     /// Boots a scenario of applications with a fresh data disk.
     /// </summary>
     /// <param name="root">Repository root.</param>

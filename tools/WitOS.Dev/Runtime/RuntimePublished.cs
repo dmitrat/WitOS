@@ -155,15 +155,17 @@ internal static class RuntimePublished
         var record = await RuntimeCompatibility.ReadRecordAsync(root, architecture) ??
                      throw new InvalidOperationException(
                          $"No record of the suite's run on witos-{architecture.Name} ({RuntimeCompatibility.RecordPath(root, architecture)}): runtime-compatibility writes it.");
+        if (record.Checks.Count == 0)
+            throw new InvalidOperationException($"The record {RuntimeCompatibility.RecordPath(root, architecture)} holds no checks: run runtime-compatibility again.");
         var output = Path.Combine(root, "artifacts", architecture.Name, KernelImageBuilder.RUNTIME_PUBLISHED_SCENARIO);
         Directory.CreateDirectory(output);
         var package = await BuildPackageAsync(root, output, architecture, directory);
-        var log = RuntimeApps.SerialLog(root, architecture, KernelImageBuilder.RUNTIME_PUBLISHED_SCENARIO);
-        if (File.Exists(log))
-            File.Delete(log);
+        RuntimeApps.ForgetLogs(root, architecture, KernelImageBuilder.RUNTIME_PUBLISHED_SCENARIO);
         await RuntimeApps.BootAsync(root, architecture, KernelImageBuilder.RUNTIME_PUBLISHED_SCENARIO, RequiredLines(architecture), TIMEOUT_SECONDS,
             package: package, terminal: RuntimeCompatibility.Script());
-        var checks = RuntimeCompatibility.ReadChecks(await File.ReadAllLinesAsync(log));
+        var checks = RuntimeCompatibility.ReadChecks(await RuntimeApps.GuestLinesAsync(root, architecture, KernelImageBuilder.RUNTIME_PUBLISHED_SCENARIO));
+        if (checks.Count == 0)
+            throw new InvalidOperationException("The suite's checks were not found in the guest's serial log or terminal transcript.");
         var differences = Compare(record.Checks, checks);
         var report = new PublishedReport(architecture.Name, manifest.Host, manifest.Sdk, manifest.Files.Count, record.PublishedOn, checks.Count,
             differences);

@@ -64,6 +64,7 @@ public sealed class RuntimePublishedTests
             "[USER] [N1] Tasks.WhenAll: pass (8 tasks)",
             "[USER] [N1] FileIO.Watcher: fail (threw PlatformNotSupportedException: x); recorded difference: no notifications",
             "[N1] Terminal.ReadLine: not applicable (the input is not a terminal)",
+            "[N1] Terminal.ReadKey: pass (read 'k' (K))\r",
             "[USER] [N1] .NET compatibility on witos (X64): 88 checks, 2 recorded differences, 0 unexpected, 0 not applicable",
             "[USER] [APPS-INIT] /dotnet/dotnet /app/compatibility/DotNetCompatibility.dll exited with 0 after 30 s, 300 MiB free"
         ]);
@@ -71,11 +72,18 @@ public sealed class RuntimePublishedTests
         {
             ["Tasks.WhenAll"] = "pass",
             ["FileIO.Watcher"] = "fail",
-            ["Terminal.ReadLine"] = "not applicable"
+            ["Terminal.ReadLine"] = "not applicable",
+            ["Terminal.ReadKey"] = "pass"
         }));
 
         Assert.That(RuntimePublished.Compare(checks, checks), Is.Empty);
-        var other = new Dictionary<string, string> { ["Tasks.WhenAll"] = "fail", ["Terminal.ReadLine"] = "not applicable", ["Platform.New"] = "pass" };
+        var other = new Dictionary<string, string>
+        {
+            ["Tasks.WhenAll"] = "fail",
+            ["Terminal.ReadLine"] = "not applicable",
+            ["Terminal.ReadKey"] = "pass",
+            ["Platform.New"] = "pass"
+        };
         Assert.That(RuntimePublished.Compare(checks, other), Is.EqualTo(new[]
         {
             "FileIO.Watcher: fail recorded, not run", "Tasks.WhenAll: pass recorded, fail now", "Platform.New: pass now, not recorded"
