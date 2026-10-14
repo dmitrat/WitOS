@@ -60,15 +60,27 @@ internal static class Program
                     disks.Add((driver.Record.Id, disk));
             }
             var names = StartNamespace(disks);
+            var terminal = StartTerminal(drivers);
             Console.WriteLine($"{PREFIX}device manager on {RuntimeInformation.ProcessArchitecture}: {records.Count} devices discovered, " +
                 $"{drivers.Count(driver => driver.Status == 0)} drivers ready, DMA isolation: none (no IOMMU), ready");
+            // The endpoints for every process the root task starts: the namespace's, then the terminal's (N4.3).
+            var offered = new List<KernelHandle>();
+            uint capabilities = 0;
             if (names?.Clients is { } clients)
-                channel.Send(ServiceStatus.Encode(0), clients); // the namespace for every process the root task starts
-            else
-                channel.Send(ServiceStatus.Encode(0));
-            var status = Serve(channel, names, drivers);
+            {
+                offered.Add(clients);
+                capabilities |= ServiceStatus.NAMESPACE;
+            }
+            if (terminal?.Clients is { } terminalClients)
+            {
+                offered.Add(terminalClients);
+                capabilities |= ServiceStatus.TERMINAL;
+            }
+            channel.Send(ServiceStatus.Encode(0, capabilities), [.. offered]);
+            var status = Serve(channel, names, terminal, drivers);
             foreach (var (_, disk) in disks)
                 disk.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            terminal?.Dispose();
             names?.Dispose();
             foreach (var driver in drivers)
                 driver.Dispose();
@@ -142,9 +154,35 @@ internal static class Program
         }
     }
 
-    // The channel until the root task asks the device manager to stop (D6.1) or ends: a stop stops the namespace service
-    // first, since its volumes lie on the drivers' disks, then each driver, and the answer is the first error of theirs.
-    private static int Serve(Channel channel, NamespaceActivation? names, IReadOnlyList<DriverActivation> drivers)
+    // The terminal service with the console driver's serial channel (N4.3a), probed once it is ready; null without a
+    // console or when it could not start.
+    private static TerminalActivation? StartTerminal(IReadOnlyList<DriverActivation> drivers)
+    {
+        var console = drivers.FirstOrDefault(driver => driver.Status == 0 && driver.Service is not null &&
+            driver.Record.Class == DriverTable.SERIAL_CONSOLE);
+        if (console?.Service is not { } serial)
+            return null;
+        try
+        {
+            var terminal = TerminalActivation.Start(console.TakeService());
+            Console.WriteLine(terminal.Status == 0
+                ? $"{PREFIX}terminal service {TerminalActivation.PATH} on {console.Record.Id}: ready"
+                : $"{PREFIX}terminal service {TerminalActivation.PATH}: not ready, errno {terminal.Status}");
+            if (terminal.Clients is { } clients)
+                TerminalProbe.Run(clients);
+            return terminal;
+        }
+        catch (Exception exception) when (exception is CapabilityException or FileNotFoundException)
+        {
+            Console.WriteLine($"{PREFIX}terminal service {TerminalActivation.PATH} could not start: {exception.Message}");
+            return null;
+        }
+    }
+
+    // The channel until the root task asks the device manager to stop (D6.1) or ends: a stop stops the terminal service
+    // first, which holds the console driver's channel, then the namespace service, since its volumes lie on the drivers'
+    // disks, then each driver, and the answer is the first error of theirs.
+    private static int Serve(Channel channel, NamespaceActivation? names, TerminalActivation? terminal, IReadOnlyList<DriverActivation> drivers)
     {
         for (; ; )
         {
@@ -165,8 +203,13 @@ internal static class Program
                     continue;
                 }
                 var error = 0;
+                if (terminal is { Status: 0 })
+                    error = Report($"terminal service {TerminalActivation.PATH}", ServiceStop.Request(terminal.Channel, terminal.Process, deadline));
                 if (names is { Status: 0 })
-                    error = Report($"namespace service {NamespaceActivation.PATH}", ServiceStop.Request(names.Channel, names.Process, deadline));
+                {
+                    var stopped = Report($"namespace service {NamespaceActivation.PATH}", ServiceStop.Request(names.Channel, names.Process, deadline));
+                    error = error != 0 ? error : stopped;
+                }
                 foreach (var driver in drivers.Where(driver => driver.Status == 0))
                 {
                     var stopped = Report($"driver {driver.Path} of {driver.Record.Id}", ServiceStop.Request(driver.Channel, driver.Process, deadline));

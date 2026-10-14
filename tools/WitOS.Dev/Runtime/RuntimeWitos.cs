@@ -481,8 +481,9 @@ internal static class RuntimeWitos
         // D1.1 (ADR 0025): the device manager, a NativeAOT service of the boot package the same targets publish.
         await RuntimeDevices.BuildAsync(root, tree, architecture, version);
 
-        // N1: the .NET compatibility suite, an ordinary portable application, beside the services; N2.1: representative
-        // NuGet libraries under NUnit and xUnit.
+        // N4.3a: the terminal over the console driver and its service. N1: the .NET compatibility suite, an ordinary
+        // portable application, beside the services; N2.1: representative NuGet libraries under NUnit and xUnit.
+        await RuntimeTerminal.RunAsync(root, architecture);
         await RuntimeCompatibility.RunAsync(root, architecture);
         await RuntimeLibraries.RunAsync(root, architecture);
         // N2.2, the libraries' own test suites, run for hours in the guest: runtime-nuget-suites runs them on this tree,

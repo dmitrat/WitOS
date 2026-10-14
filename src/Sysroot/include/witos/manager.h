@@ -11,8 +11,10 @@
  * carry a third capability, the grant the new process starts with (witos/start.h), and lets the process manager start
  * services before its first process, each answering on its granted channel when it is ready. Version 4 (N4.2) lets a
  * spawn request say how many standard streams the requester gives the new process as pipes (WitSpawnRequest's
- * Streams), which the requester sends on the grant after the start (witos/start.h, WitStreamMessage). */
-#define WIT_MANAGER_VERSION 4U
+ * Streams), which the requester sends on the grant after the start (witos/start.h, WitStreamMessage). Version 5
+ * (N4.3) lets a service's ready answer name in Capabilities the endpoints its handle slots carry for the processes the
+ * manager starts afterwards: the namespace's clients' endpoint, then the terminal's (witos/terminal.h). */
+#define WIT_MANAGER_VERSION 5U
 #define WIT_MANAGER_SPAWN 1U /* start a program of the boot package */
 
 /* A request: the bytes of the message, with the request's memory object (MAP, TRANSFER) and the reply endpoint
@@ -54,11 +56,16 @@ WIT_STATIC_ASSERT(sizeof(WitSpawnRequest) == 64, "Spawn request");
 
 /* A service's first message on the channel its creator granted it (D1.1): zero when it is ready, or the errno value
  * of what it could not do. The process manager starts its first process after each service it starts before it has
- * answered or ended. */
+ * answered or ended. Capabilities (version 5, N4.3) names the endpoints a ready answer carries in its handle slots, in
+ * the order of the bits, which the process manager keeps and gives every process it starts afterwards (witos/start.h);
+ * a driver's ready answer carries the channel of the service it offers in its one slot and names nothing (witos/driver.h). */
+#define WIT_SERVICE_NAMESPACE 1U /* the namespace service's clients' endpoint (D5.1, witos/namespace.h) */
+#define WIT_SERVICE_TERMINAL 2U /* the terminal service's clients' endpoint (N4.3, witos/terminal.h) */
+
 typedef struct WitServiceStatus {
     WitU32 Version, Size; /* WIT_MANAGER_VERSION, the size of this structure */
     WitU32 Error;
-    WitU32 Reserved;
+    WitU32 Capabilities; /* WIT_SERVICE_NAMESPACE, WIT_SERVICE_TERMINAL; zero before version 5 */
 } WitServiceStatus;
 
 WIT_STATIC_ASSERT(sizeof(WitServiceStatus) == 16, "Service status");

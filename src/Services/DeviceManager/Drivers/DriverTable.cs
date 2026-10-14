@@ -15,6 +15,16 @@ internal static class DriverTable
     /// </summary>
     public const string VIRTIO_BLOCK = "/system/Drivers/VirtioBlock";
 
+    /// <summary>
+    /// The virtio console driver (N4.3a).
+    /// </summary>
+    public const string VIRTIO_CONSOLE = "/system/Drivers/VirtioConsole";
+
+    /// <summary>
+    /// The contract of a console: what the terminal service drives through its driver.
+    /// </summary>
+    public const string SERIAL_CONSOLE = "SerialConsole";
+
     #endregion
 
     #region Functions
@@ -27,6 +37,7 @@ internal static class DriverTable
     public static string? Find(DeviceRecord record) => (record.Provider, record.Class) switch
     {
         ("Virtio", "BlockStorageController") => VIRTIO_BLOCK,
+        ("Virtio", SERIAL_CONSOLE) => VIRTIO_CONSOLE,
         _ => null
     };
 

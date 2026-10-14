@@ -41,6 +41,8 @@ internal static class BootScenarioRunner
         var firmwareState = Path.Combine(Path.GetDirectoryName(image)!, name + ".vars.fd");
         File.Copy(architecture.FirmwareVariablesPath(root), firmwareState, overwrite: true);
         using var qmpControl = new QemuControl();
+        var terminalPath = Path.Combine(logs, name + ".terminal.log");
+        using var terminal = request.Terminal is { } script ? new TerminalLink(script, terminalPath) : null;
         // The HPET-less q35 is the one board variant a scenario selects.
         var machine = request.Expected == ExpectedOutcome.ClockUnavailable ? "q35,hpet=off" : architecture.QemuMachine;
         var arguments = new List<string>
@@ -72,6 +74,12 @@ internal static class BootScenarioRunner
         {
             arguments.AddRange(["-drive", $"if=none,id=data,format=raw,file={QemuPath(request.DataDisk)}", "-device", "virtio-blk-pci,drive=data"]);
         }
+        if (terminal is not null)
+        {
+            // The terminal (N4.3a): a virtio console with one port, whose character device connects to the runner.
+            arguments.AddRange(["-chardev", terminal.Argument, "-device", "virtio-serial-pci,id=serial0,max_ports=1",
+                "-device", "virtconsole,chardev=term0"]);
+        }
         Console.WriteLine($"Booting {name} ({request.MemoryMiB} MiB, {cpu}, {request.Processors} processor(s), TCG, no networking)...");
         ProcessResult monitorResult;
         using var cut = new CancellationTokenSource();
@@ -91,12 +99,18 @@ internal static class BootScenarioRunner
         }
         var serial = File.Exists(serialPath) ? await BoundedCapture.ReadFileAsync(serialPath) : "";
         var result = monitorResult with { Output = serial };
+        var transcript = terminal?.Transcript ?? "";
         await File.WriteAllTextAsync(Path.Combine(logs, name + ".stderr.log"), result.Error);
         await File.WriteAllTextAsync(Path.Combine(logs, name + ".result.txt"),
             $"ExitCode={result.ExitCode}\nTimedOut={result.TimedOut}\nExpected={request.Expected}\n");
         Console.Write(result.Output);
+        if (terminal is not null)
+        {
+            await File.WriteAllTextAsync(terminalPath, transcript);
+            Console.Write($"=== terminal ({terminal.Typed} of {request.Terminal!.Count} inputs typed) ===\n{transcript}\n");
+        }
 
-        var verdict = BootValidation.Evaluate(root, request, result);
+        var verdict = BootValidation.Evaluate(root, request, result, transcript);
         if (!verdict.Passed)
         {
             throw new InvalidOperationException($"{name}: expected {request.Expected}, got exit={result.ExitCode}, " +

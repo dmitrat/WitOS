@@ -21,8 +21,10 @@
  * the granted channel, each moving one end of a pipe (its ring's memory object and its wakeup endpoint,
  * src/Substrate/libc/pipe.c) for one standard descriptor; the grant is then that channel alone, which the libc closes
  * once the streams arrived, so a process with streams has no grant of its own; and, since a message holds four
- * handles, the namespace's endpoint follows such a message in a second one (WIT_START_NAMESPACE_NEXT). The arguments
- * and the environment stay on the stack, where musl reads them and a message of 256 bytes could not hold them. */
+ * handles, the optional capabilities the first message cannot hold follow in a second one (WIT_START_MORE). N4.3
+ * adds the terminal service's clients' endpoint (WIT_START_TERMINAL, witos/terminal.h), after the namespace's. The
+ * arguments and the environment stay on the stack, where musl reads them and a message of 256 bytes could not hold
+ * them. */
 #define WIT_AT_START 0x57490001UL
 
 #define WIT_START_VERSION 6U
@@ -37,9 +39,13 @@
 #define WIT_START_MANAGER 1U /* the process manager's endpoint: SEND (S6.1) */
 #define WIT_START_GRANT 2U /* the capability the creator grants (D1.1): a service's channel to its creator */
 #define WIT_START_NAMESPACE 4U /* the namespace service's clients' endpoint: SEND (D5.1, witos/namespace.h) */
-#define WIT_START_NAMESPACE_NEXT \
-    8U /* the same endpoint in a second message on the start endpoint, alone in its first                                        handle slot with no bytes, since the first message's four slots had no room                                        for it (N4.2: a process with a manager and a grant); never with NAMESPACE */
-#define WIT_START_CAPABILITIES (WIT_START_MANAGER | WIT_START_GRANT | WIT_START_NAMESPACE | WIT_START_NAMESPACE_NEXT)
+/* The optional capabilities the first message's four slots had no room for follow in a second message on the start
+ * endpoint, in the order of their bits, with no bytes (N4.2, N4.3: a process with a manager and a grant takes the
+ * namespace and the terminal so). */
+#define WIT_START_MORE 8U
+#define WIT_START_TERMINAL 16U /* the terminal service's clients' endpoint: SEND (N4.3, witos/terminal.h) */
+#define WIT_START_CAPABILITIES \
+    (WIT_START_MANAGER | WIT_START_GRANT | WIT_START_NAMESPACE | WIT_START_MORE | WIT_START_TERMINAL)
 
 /* The bytes of the start message, followed by DirectoryBytes of the initial directory. */
 typedef struct WitStartMessage {

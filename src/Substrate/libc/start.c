@@ -10,13 +10,17 @@
  * envp and the auxiliary vector, whose WIT_AT_START entry is the endpoint PROCESS_CREATE installed. Before it started
  * the thread it sent the start message on the other end (witos/start.h): the kernel log and the boot package in the
  * handle slots and the package's size in the bytes. The library takes them into its context and closes the endpoint;
- * a process the process manager starts finds the manager's endpoint after them (S6.1), and a service the capability
- * its creator granted it (D1.1), each where the message's Capabilities say. A process given standard streams as pipes
- * (N4.2) finds them on the grant, one WitStreamMessage each, and closes the grant once they arrived. A start without
- * the vector entry or a valid message ends the process with 127, the status a shell reports for a program that could
- * not run. */
+ * the optional capabilities follow in the order of their bits, where the message's Capabilities say: a process the
+ * process manager starts finds the manager's endpoint (S6.1), a service the capability its creator granted it (D1.1),
+ * every process the namespace service's endpoint (D5.1) and the terminal service's (N4.3); what the four handle slots
+ * cannot hold comes in a second message on the same endpoint (WIT_START_MORE). A process given standard streams as
+ * pipes (N4.2) finds them on the grant, one WitStreamMessage each, and closes the grant once they arrived. A start
+ * without the vector entry or a valid message ends the process with 127, the status a shell reports for a program
+ * that could not run. */
 
 WitProcessContext __wit_process;
+
+#define OPTIONAL 4U /* the optional capabilities: the manager, the grant, the namespace, the terminal */
 
 static __attribute__((__noreturn__)) void refuse(void)
 {
@@ -100,8 +104,10 @@ static void receive_streams(WitU32 count)
 
 void __wit_start_program(const unsigned long *stack)
 {
+    static const WitU32 bits[OPTIONAL] = {WIT_START_MANAGER, WIT_START_GRANT, WIT_START_NAMESPACE, WIT_START_TERMINAL};
     WitU64 endpoint = start_endpoint(stack), result = 0, status;
     WitU64 handles[WIT_START_HANDLES_MAXIMUM] = {0, 0, 0, 0};
+    WitU64 optional[OPTIONAL] = {0, 0, 0, 0};
 
     union {
         WitStartMessage Header;
@@ -114,42 +120,48 @@ void __wit_start_program(const unsigned long *stack)
     }
     status = receive(endpoint, &received, sizeof(received), handles, WIT_START_HANDLES_MAXIMUM, &result);
     memcpy(&message, &received.Header, sizeof(message));
-    const WitU64 optional = (message.Capabilities & WIT_START_MANAGER ? 1 : 0) +
-        (message.Capabilities & WIT_START_GRANT ? 1 : 0) +
-        (message.Capabilities & WIT_START_NAMESPACE ? 1 : 0);
+    WitU32 count = 0;
+    for (WitU32 i = 0; i < OPTIONAL; ++i) {
+        count += (message.Capabilities & bits[i]) ? 1 : 0;
+    }
+    /* The optional capabilities the first message holds, in the order of their bits; the rest follow (N4.2, N4.3). */
+    const WitU32 first =
+        count > WIT_START_HANDLES_MAXIMUM - WIT_START_HANDLES ? WIT_START_HANDLES_MAXIMUM - WIT_START_HANDLES : count;
     if (status != WIT_STATUS_OK ||
         (result & 0xFFFFFFFFULL) < sizeof(message) ||
         message.Version != WIT_START_VERSION ||
         message.Size != sizeof(message) ||
         (message.Capabilities & ~WIT_START_CAPABILITIES) ||
-        (message.Capabilities & WIT_START_NAMESPACE_NEXT && message.Capabilities & WIT_START_NAMESPACE) ||
+        ((message.Capabilities & WIT_START_MORE) != 0) != (count > first) ||
         message.Streams > WIT_START_STREAMS_MAXIMUM ||
         (message.Streams && !(message.Capabilities & WIT_START_GRANT)) ||
-        (result >> 32) != WIT_START_HANDLES + optional ||
+        (result >> 32) != WIT_START_HANDLES + first ||
         message.DirectoryBytes > WIT_START_DIRECTORY_MAXIMUM ||
         (result & 0xFFFFFFFFULL) != sizeof(message) + message.DirectoryBytes ||
         (message.ClosedStreams & ~7U) ||
         __wit_set_directory((const char *)received.Bytes + sizeof(message), message.DirectoryBytes) < 0) {
         refuse();
     }
-    WitU32 next = WIT_START_HANDLES;
+    for (WitU32 i = 0; i < first; ++i) {
+        optional[i] = handles[WIT_START_HANDLES + i];
+    }
+    if (count > first) {
+        /* The second message: the endpoints the first had no room for, with no bytes. */
+        if (receive(endpoint, 0, 0, &optional[first], count - first, &result) != WIT_STATUS_OK ||
+            (result & 0xFFFFFFFFULL) != 0 ||
+            (result >> 32) != count - first) {
+            refuse();
+        }
+    }
+    WitU32 next = 0;
     __wit_process.Log = handles[WIT_START_HANDLE_LOG];
     __wit_process.Package = handles[WIT_START_HANDLE_PACKAGE];
     __wit_process.PackageBytes = message.PackageBytes;
-    __wit_process.Manager = message.Capabilities & WIT_START_MANAGER ? handles[next++] : 0;
-    __wit_process.Grant = message.Capabilities & WIT_START_GRANT ? handles[next++] : 0;
-    __wit_process.Namespace = message.Capabilities & WIT_START_NAMESPACE ? handles[next++] : 0;
+    __wit_process.Manager = message.Capabilities & WIT_START_MANAGER ? optional[next++] : 0;
+    __wit_process.Grant = message.Capabilities & WIT_START_GRANT ? optional[next++] : 0;
+    __wit_process.Namespace = message.Capabilities & WIT_START_NAMESPACE ? optional[next++] : 0;
+    __wit_process.Terminal = message.Capabilities & WIT_START_TERMINAL ? optional[next++] : 0;
     __wit_process.ClosedStreams = message.ClosedStreams;
-    if (message.Capabilities & WIT_START_NAMESPACE_NEXT) {
-        /* The namespace's endpoint in a second message, since the first had no room for it (N4.2). */
-        WitU64 names = 0;
-        if (receive(endpoint, 0, 0, &names, 1, &result) != WIT_STATUS_OK ||
-            (result & 0xFFFFFFFFULL) != 0 ||
-            (result >> 32) != 1) {
-            refuse();
-        }
-        __wit_process.Namespace = names;
-    }
     wit_syscall(WIT_CALL_HANDLE_CLOSE, endpoint, 0, 0, &result);
     if (message.Streams) {
         receive_streams(message.Streams);

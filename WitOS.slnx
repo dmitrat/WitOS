@@ -4,6 +4,8 @@
     <Project Path="src/Services/DeviceManager/DeviceManager.csproj" />
     <Project Path="src/Services/Namespace/Namespace.csproj" />
     <Project Path="src/Services/Drivers/VirtioBlock/VirtioBlock.csproj" />
+    <Project Path="src/Services/Drivers/VirtioConsole/VirtioConsole.csproj" />
+    <Project Path="src/Services/Terminal/Terminal.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/WitOS.Dev/WitOS.Dev.csproj" />

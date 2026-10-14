@@ -134,6 +134,12 @@
         "dependencies": {
           "OutWit.Common.Fat": "[1.0.0, )"
         }
+      },
+      "terminal": {
+        "type": "Project",
+        "dependencies": {
+          "OutWit.OS": "[1.0.0, )"
+        }
       }
     }
   }

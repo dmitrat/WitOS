@@ -59,6 +59,11 @@ int witos_event_create(WitU64 *event);
  * the one that completed to *index (D2): ETIMEDOUT at the deadline; a signal's activation does not end the wait. */
 int witos_object_wait(const WitU64 *handles, WitU32 count, WitU64 deadline, WitU32 *index);
 
+/* The monotonic clock's reading and its frequency in ticks per second (N4.3): what a deadline of witos_object_wait is
+ * counted in. */
+int witos_clock_read(WitU64 *ticks);
+int witos_clock_frequency(WitU64 *frequency);
+
 /* Binds a device's interrupt line to an event (D2): the kernel masks the line and sets the event on each interrupt; a
  * handle with ACK. EACCES without BIND, EBUSY for a line another binding holds, EINVAL. */
 int witos_interrupt_bind(WitU64 device, WitU32 line, WitU64 event, WitU64 *binding);

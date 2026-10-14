@@ -75,5 +75,12 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     /// </summary>
     public long[] DataDiskReadErrors { get; init; } = [];
 
+    /// <summary>
+    /// The guest's terminal (plan step N4.3a): a virtio console on a character device the runner owns, with the
+    /// inputs to type into it, each once the line it waits for appeared; null for a guest without one. The required
+    /// lines are looked for in the terminal's transcript too.
+    /// </summary>
+    public IReadOnlyList<Host.TerminalInput>? Terminal { get; init; }
+
     #endregion
 }
