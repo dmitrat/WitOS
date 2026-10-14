@@ -1,0 +1,29 @@
+Source: eng/build.sh
+Output: eng.build.sh
+Before: 83028a494e16d583de6f2bec150e8f458410b99bde0c6c0480c98febd0213f57
+After: 69924118cebd9c72d05d2c7bccea1d3ce7a17c2650c820cb7e3ae2fc5e2a7ef6
+
+TargetOS witos (plan step R1.1, RFC 0015 section 3): build.sh accepts --os witos, as it accepts haiku, and names it in
+its usage; the Unix form's scripts carry the value from there.
+On release/8.0 (plan step N3.2) the change is the same.
+
+--- a/eng/build.sh
++++ b/eng/build.sh
+@@ -32,7 +32,7 @@
+   echo "                                  [Default: Debug]"
+   echo "  --os                            Target operating system: windows, linux, freebsd, osx, maccatalyst, tvos,"
+   echo "                                  tvossimulator, ios, iossimulator, android, browser, wasi, netbsd, illumos, solaris"
+-  echo "                                  linux-musl, linux-bionic, tizen, or haiku."
++  echo "                                  linux-musl, linux-bionic, tizen, haiku, or witos."
+   echo "                                  [Default: Your machine's OS.]"
+   echo "  --outputrid <rid>               Optional argument that overrides the target rid name."
+   echo "  --projects <value>              Project or solution file(s) to build."
+@@ -299,6 +299,8 @@
+           ;;
+         haiku)
+           os="haiku" ;;
++        witos)
++          os="witos" ;;
+         *)
+           echo "Unsupported target OS '$2'."
+           echo "Try 'build.sh --help' for values supported by '--os'."

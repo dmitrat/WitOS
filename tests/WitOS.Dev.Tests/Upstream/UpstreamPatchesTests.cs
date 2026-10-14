@@ -61,6 +61,9 @@ public sealed class UpstreamPatchesTests
             // The witos patch set's sources are in its own pinned checkout (R1.1); a file it adds starts from no text.
             var cache = repository == WitOS.Dev.Runtime.RuntimeWitos.PATCH_SET
                 ? Path.Combine(root, ".tools", "upstream", $"runtime-witos-{WitOS.Dev.Runtime.RuntimeWitos.ReadLock(root).Version}")
+                : repository == WitOS.Dev.Runtime.RuntimeSideBySide.PATCH_SET
+                ? Path.Combine(root, ".tools", "upstream",
+                    $"runtime-witos-{WitOS.Dev.Runtime.RuntimeWitos.ReadLock(root, WitOS.Dev.Runtime.RuntimeSideBySide.LOCK).Version}")
                 : WitOS.Dev.Substrate.MuslLibc.SourceDirectory(root);
             var source = Path.Combine(cache, patch.Source);
             var added = patch.Before == UpstreamPatches.Hash("");
@@ -145,6 +148,9 @@ public sealed class UpstreamPatchesTests
         // The Unix-form runtime's patch set: the files it changes, by their bytes at the pinned commit (R1.1).
         foreach (var (path, sha256) in WitOS.Dev.Runtime.RuntimeWitos.ReadLock(root).Sources)
             pins[(WitOS.Dev.Runtime.RuntimeWitos.PATCH_SET, path)] = sha256;
+        // The witos target on release/8.0, its own set (N3.2).
+        foreach (var (path, sha256) in WitOS.Dev.Runtime.RuntimeWitos.ReadLock(root, WitOS.Dev.Runtime.RuntimeSideBySide.LOCK).Sources)
+            pins[(WitOS.Dev.Runtime.RuntimeSideBySide.PATCH_SET, path)] = sha256;
         // The C library of the system layer: the files WitOS patches, by their bytes in the pinned tarball (S1.1).
         var musl = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, WitOS.Dev.Substrate.MuslLibc.LOCK))).RootElement;
         foreach (var source in musl.GetProperty("sources").EnumerateArray())

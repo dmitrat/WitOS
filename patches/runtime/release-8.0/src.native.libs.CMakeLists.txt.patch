@@ -1,0 +1,29 @@
+Source: src/native/libs/CMakeLists.txt
+Output: src.native.libs.CMakeLists.txt
+Before: 15fed4830b6ab30e61b15d38cfe7f40cdb57a10d503f5db6891ccceb747065b8
+After: c421dcd132aee6ba04eba34ba028238b609bf742aca4917114c105a759a19b59
+
+The native libraries on witos (plan step N3.2): _GNU_SOURCE as on Linux, and no GSSAPI or OpenSSL shim,
+as on 10.0.
+
+--- a/src/native/libs/CMakeLists.txt
++++ b/src/native/libs/CMakeLists.txt
+@@ -98,7 +98,7 @@
+         add_definitions(-D__APPLE_USE_RFC_3542)
+     endif ()
+ 
+-    if (CLR_CMAKE_TARGET_LINUX)
++    if (CLR_CMAKE_TARGET_LINUX OR CLR_CMAKE_TARGET_WITOS)
+         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_GNU_SOURCE")
+     endif ()
+ else ()
+@@ -158,6 +158,9 @@
+         #add_subdirectory(System.Net.Security.Native) # no gssapi on tvOS, see https://developer.apple.com/documentation/gss
+         # System.Security.Cryptography.Native is intentionally disabled on tvOS
+         # it is only used for interacting with OpenSSL which isn't useful there
++    elseif (CLR_CMAKE_TARGET_WITOS)
++        # WitOS has no GSSAPI and no OpenSSL: Negotiate authentication and cryptography refuse explicitly until a
++        # provider exists.
+     elseif (CLR_CMAKE_TARGET_ANDROID AND NOT FORCE_ANDROID_OPENSSL)
+         add_subdirectory(System.Security.Cryptography.Native.Android)
+     elseif (FORCE_ANDROID_OPENSSL)

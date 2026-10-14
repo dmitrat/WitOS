@@ -1,0 +1,27 @@
+Source: src/coreclr/pal/src/init/pal.cpp
+Output: src.coreclr.pal.src.init.pal.cpp
+Before: 6ce5dff510934aa6264129c86b885809809c6432354421819f75cb37d18aab17
+After: 7c3b27c56216060efe2a796d33f4053ab7c04d17f67dbb8a4b45e96abefbc4c6
+
+Thread stacks on witos (plan step N3.2, as R6 on 10.0): CoreCLR's threads default to 1.5 MiB as musl's
+builds have it, without ENSURE_PRIMARY_STACK_SIZE, which would grow a primary stack WitOS maps fixed.
+
+--- a/src/coreclr/pal/src/init/pal.cpp
++++ b/src/coreclr/pal/src/init/pal.cpp
+@@ -288,14 +288,14 @@
+         }
+     }
+ 
+-#ifdef ENSURE_PRIMARY_STACK_SIZE
++#if defined(ENSURE_PRIMARY_STACK_SIZE) || defined(TARGET_WITOS)
+     if (g_defaultStackSize == 0)
+     {
+         // Set the default minimum stack size for MUSL to the same value as we
+         // use on Windows.
+         g_defaultStackSize = 1536 * 1024;
+     }
+-#endif // ENSURE_PRIMARY_STACK_SIZE
++#endif // ENSURE_PRIMARY_STACK_SIZE || TARGET_WITOS
+ }
+ 
+ /*++

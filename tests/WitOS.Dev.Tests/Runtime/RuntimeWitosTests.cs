@@ -33,6 +33,34 @@ public sealed class RuntimeWitosTests
         }
     }
 
+    // The release/8.0 set (N3.2) is its pin's, named after its branch as the runtime's is, and holds no NativeAOT, ILC or
+    // static apphost file, which .NET 8's shared framework does not build.
+    [Test]
+    public void ReleaseEightPatchSetMatchesItsPinTest()
+    {
+        var root = TestEnvironment.Root;
+        var pin = RuntimeWitos.ReadLock(root, RuntimeSideBySide.LOCK);
+        Assert.That(pin.Branch, Is.EqualTo(RuntimeSideBySide.BRANCH));
+        Assert.That(pin.Version, Does.StartWith("8.0."));
+        Assert.That(pin.Tag, Is.EqualTo("v" + pin.Version));
+        Assert.That(pin.Budget, Is.Null);
+        var name = RuntimeSideBySide.BRANCH.Replace('/', '-');
+        Assert.That($"build/runtime/{name}.lock.json", Is.EqualTo(RuntimeSideBySide.LOCK));
+        Assert.That($"runtime/{name}", Is.EqualTo(RuntimeSideBySide.PATCH_SET));
+        Assert.That(pin.Sources.Select(source => source.Path).Order(StringComparer.Ordinal),
+            Is.EqualTo(RuntimeSideBySide.PATCHES.Keys.Order(StringComparer.Ordinal)));
+        Assert.That(RuntimeSideBySide.PATCHES.Keys, Has.None.Contains("nativeaot").And.None.Contains("tools/Common")
+            .And.None.Contains("apphost"));
+        foreach (var (path, sha256) in pin.Sources)
+        {
+            var output = RuntimeSideBySide.PATCHES[path];
+            Assert.That(output, Is.EqualTo(path.Replace('/', '.')), $"{path}: a patch is named by its path");
+            var patch = UpstreamPatches.Read(root, RuntimeSideBySide.PATCH_SET, output);
+            Assert.That(patch.Source, Is.EqualTo(path));
+            Assert.That(patch.Before, Is.EqualTo(sha256), $"{path}: the patch is not made from the pinned bytes");
+        }
+    }
+
     // The pin is a commit of a tag of its release branch, the pin and the patch set are named after the branch, and the
     // budget is the ports' size the plan records.
     [Test]
@@ -82,11 +110,18 @@ public sealed class RuntimeWitosTests
             set( HAS_POSIX_SEMAPHORES_EXITCODE
                  "PLEASE_FILL_OUT-FAILED_TO_RUN"
                  CACHE STRING "Result from try_run" FORCE)
+
+            # Executable    : /obj/CMakeFiles/cmTC_0e4df-SSCANF_SUPPORT_ll_EXITCODE
+            set( SSCANF_SUPPORT_ll_EXITCODE
+                 "PLEASE_FILL_OUT-FAILED_TO_RUN"
+                 CACHE STRING "Result from try_run" FORCE)
             """;
         Assert.That(RuntimeWitos.ParseTryRunResults(results), Is.EqualTo(new[]
         {
             ("HAVE_CLOCK_MONOTONIC_EXITCODE", "/obj/CMakeFiles/cmTC_e8754-HAVE_CLOCK_MONOTONIC_EXITCODE"),
-            ("HAS_POSIX_SEMAPHORES_EXITCODE", "/obj/CMakeFiles/cmTC_20042-HAS_POSIX_SEMAPHORES_EXITCODE")
+            ("HAS_POSIX_SEMAPHORES_EXITCODE", "/obj/CMakeFiles/cmTC_20042-HAS_POSIX_SEMAPHORES_EXITCODE"),
+            // 8.0's configure names a probe in lower case too (N3.2).
+            ("SSCANF_SUPPORT_ll_EXITCODE", "/obj/CMakeFiles/cmTC_0e4df-SSCANF_SUPPORT_ll_EXITCODE")
         }));
         Assert.Throws<InvalidDataException>(() => RuntimeWitos.ParseTryRunResults(
             "# Executable    : /obj/CMakeFiles/cmTC_1-OTHER_EXITCODE\nset( HAVE_CLOCK_MONOTONIC_EXITCODE\n"));
@@ -101,13 +136,15 @@ public sealed class RuntimeWitosTests
         [
             "[USER] [ROOT-TASK] starting /bin/init", "[USER] [TRYRUN] HAVE_CLOCK_MONOTONIC_EXITCODE exit 0",
             "[TRYRUN] HAS_POSIX_SEMAPHORES_EXITCODE exit 1", "[TRYRUN] HAVE_PROCFS_CTL_EXITCODE signal 11",
+            "[TRYRUN] SSCANF_SUPPORT_ll_EXITCODE exit 0",
             "[TRYRUN] 3 probes on x86_64: 3 ran"
         ]);
         Assert.That(answers, Is.EqualTo(new Dictionary<string, string>
         {
             ["HAVE_CLOCK_MONOTONIC_EXITCODE"] = "0",
             ["HAS_POSIX_SEMAPHORES_EXITCODE"] = "1",
-            ["HAVE_PROCFS_CTL_EXITCODE"] = "FAILED_TO_RUN"
+            ["HAVE_PROCFS_CTL_EXITCODE"] = "FAILED_TO_RUN",
+            ["SSCANF_SUPPORT_ll_EXITCODE"] = "0"
         }));
         Assert.Throws<InvalidDataException>(() => RuntimeWitos.ParseGuestAnswers(
             ["[TRYRUN] HAVE_CLOCK_MONOTONIC_EXITCODE exit 0", "[TRYRUN] HAVE_CLOCK_MONOTONIC_EXITCODE exit 1"]));

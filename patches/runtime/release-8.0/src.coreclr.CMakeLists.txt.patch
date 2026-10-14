@@ -1,0 +1,18 @@
+Source: src/coreclr/CMakeLists.txt
+Output: src.coreclr.CMakeLists.txt
+Before: b9642fe53c4b902ba056ee31352b367105890b2d547a350da3f0ce982375d0f7
+After: 0a009cb3dc4a56b07fd292a73740469ca8fb6d4a1c9f75a18320ab0bd0103126
+
+CoreCLR on witos (plan step N3.2): no single-file host, which N3 does not install.
+
+--- a/src/coreclr/CMakeLists.txt
++++ b/src/coreclr/CMakeLists.txt
+@@ -64,7 +64,7 @@
+ #---------------------------
+ # Build the single file host
+ #---------------------------
+-if(NOT CLR_CROSS_COMPONENTS_BUILD)
++if(NOT CLR_CROSS_COMPONENTS_BUILD AND NOT CLR_CMAKE_TARGET_WITOS)
+   set(CLR_SINGLE_FILE_HOST_ONLY 1)
+   add_subdirectory(${CLR_SRC_NATIVE_DIR}/corehost/apphost/static Corehost.Static)
+   add_dependencies(runtime singlefilehost)

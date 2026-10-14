@@ -1,0 +1,22 @@
+Source: src/coreclr/pal/src/configure.cmake
+Output: src.coreclr.pal.src.configure.cmake
+Before: 1e33b2b3940b768b074a32c28d00b5004c1f211f0e2baa90ad18db10315b752a
+After: 95c45e6a2bf461e8630cf1dd29879ee438fe440a7c8bcb07aad2774cdb109be5
+
+The PAL's configure on witos (plan step N3.2): LTTng serves the Linux event provider alone, which 8.0
+chooses for CLR_CMAKE_HOST_LINUX; witos takes the dummy provider, so the configure does not require LTTng's header, as
+10.0 requires it only with FEATURE_EVENTSOURCE_XPLAT.
+
+--- a/src/coreclr/pal/src/configure.cmake
++++ b/src/coreclr/pal/src/configure.cmake
+@@ -1272,7 +1272,9 @@
+   set(PAL_PT_WRITE_D PT_WRITE_D)
+   set(HAS_FTRUNCATE_LENGTH_ISSUE 0)
+ else() # Anything else is Linux
+-  if(NOT HAVE_LTTNG_TRACEPOINT_H AND FEATURE_EVENT_TRACE)
++  # LTTng serves the Linux event provider alone (eventprovider/CMakeLists.txt); WitOS takes the dummy provider, as 10.0
++  # does for every platform without FEATURE_EVENTSOURCE_XPLAT.
++  if(NOT HAVE_LTTNG_TRACEPOINT_H AND FEATURE_EVENT_TRACE AND NOT CLR_CMAKE_TARGET_WITOS)
+     unset(HAVE_LTTNG_TRACEPOINT_H CACHE)
+     message(FATAL_ERROR "Cannot find liblttng-ust-dev. Try installing liblttng-ust-dev  (or the appropriate packages for your platform)")
+   endif()

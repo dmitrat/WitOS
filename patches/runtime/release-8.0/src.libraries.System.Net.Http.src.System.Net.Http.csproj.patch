@@ -1,0 +1,20 @@
+Source: src/libraries/System.Net.Http/src/System.Net.Http.csproj
+Output: src.libraries.System.Net.Http.src.System.Net.Http.csproj
+Before: c8ef2e9afc7d03b63c430ba285076adb71cf464905b7065221ca6ea3e54aaaa6
+After: d89c77d9d704e5fa2463be3867619887dbdc6e58837e388efa5d733f8812bb2d
+
+System.Net.Http on witos (plan step N3.2): it has no Unix flavor, so witos takes the platform-neutral one,
+whose types throw PlatformNotSupportedException, as on 10.0; that flavor has no DiagnosticsHandler, which 8.0's
+trimming substitutions name for every flavor, so they apply to the platform flavors alone.
+
+--- a/src/libraries/System.Net.Http/src/System.Net.Http.csproj
++++ b/src/libraries/System.Net.Http/src/System.Net.Http.csproj
+@@ -21,7 +21,7 @@
+     <DefineConstants Condition="'$(FeatureWasmThreads)' == 'true'" >$(DefineConstants);FEATURE_WASM_THREADS</DefineConstants>
+   </PropertyGroup>
+   <ItemGroup>
+-    <ILLinkSubstitutionsXmls Include="$(ILLinkDirectory)ILLink.Substitutions.xml" />
++    <ILLinkSubstitutionsXmls Include="$(ILLinkDirectory)ILLink.Substitutions.xml" Condition="'$(TargetPlatformIdentifier)' != ''" />
+   </ItemGroup>
+   <ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'android' or '$(TargetPlatformIdentifier)' == 'ios' or '$(TargetPlatformIdentifier)' == 'maccatalyst' or '$(TargetPlatformIdentifier)' == 'tvos' or '$(TargetPlatformIdentifier)' == 'browser' or '$(TargetPlatformIdentifier)' == 'wasi'">
+     <ILLinkSubstitutionsXmls Include="$(ILLinkDirectory)ILLink.Substitutions.mobile.xml" Condition="'$(TargetPlatformIdentifier)' != 'browser' and '$(TargetPlatformIdentifier)' != 'wasi'" />
