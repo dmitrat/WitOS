@@ -69,9 +69,7 @@
       "output": "bin/MessagePack.Tests/Release/net9.0",
       "assembly": "MessagePack.Tests.dll",
       "runner": "xunit2",
-      "excluded": {
-        "method:MessagePack.Tests.FormatterTest.DateTimeOffsetTest": "finds the time zone 'Cuba' by its identifier, and WitOS has no tzdata: TimeZoneInfo reads /usr/share/zoneinfo (Compatibility-Differences: Time)"
-      }
+      "excluded": {}
     },
     {
       "name": "MemoryPack.Tests",
