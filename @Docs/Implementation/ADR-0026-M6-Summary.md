@@ -1,7 +1,6 @@
 # ADR 0026: The M6 summary: the profile by fact, a static libwitos, the upstream submission after T4
 
-**Status:** Proposed 2026-10-14 for plan step N4.5, applying the defaults PLAN.md's phase V records; accepted when
-the step closes.
+**Status:** Accepted 2026-10-15 with plan step N4.5, applying the defaults PLAN.md's phase V recorded.
 **Date:** 2026-10-14.
 **Scope:** What phase N's last step fixes about the documents: the feature profile of RFC 0015 §8, the form of
 `libwitos` in RFC 0011 §9.1 and §10.2, when the `TargetOS=witos` patch set is proposed upstream (RFC 0015 §4), and
