@@ -212,6 +212,8 @@ internal static class RuntimeWitos
         ["src/native/libs/CMakeLists.txt"] = "src.native.libs.CMakeLists.txt",
         ["src/native/libs/System.Globalization.Native/CMakeLists.txt"] =
             "src.native.libs.System.Globalization.Native.CMakeLists.txt",
+        // System.Native's process start over the libc's posix_spawn (N4.2).
+        ["src/native/libs/System.Native/pal_process.c"] = "src.native.libs.System.Native.pal_process.c",
         ["src/native/corehost/apphost/static/CMakeLists.txt"] = "src.native.corehost.apphost.static.CMakeLists.txt",
         // ILC's target WitOS (R1.3).
         ["src/coreclr/tools/Common/TypeSystem/Common/TargetDetails.cs"] =

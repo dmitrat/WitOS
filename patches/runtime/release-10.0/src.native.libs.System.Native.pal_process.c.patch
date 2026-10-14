@@ -1,0 +1,160 @@
+Source: src/native/libs/System.Native/pal_process.c
+Output: src.native.libs.System.Native.pal_process.c
+Before: b3a3c7cad31d9be4731f1294acb558703b98a6e0f9857ba70d440e4def910a23
+After: f377bd149488a3881bd157a5c3f0c91c03f1d73237161cd2b437213d8abb9c27
+
+System.Native's process start on witos (plan step N4.2, RFC 0015 section 8): SystemNative_ForkAndExecProcess takes a
+TARGET_WITOS branch beside the fork one, since WitOS has no fork and no exec (RFC 0011 section 9.3). The branch makes
+the pipes as the fork one does, binds their ends to the child's standard descriptors with posix_spawn file actions,
+moves the child to its directory with addchdir_np and starts the program with the libc's posix_spawn, which asks the
+process manager and returns the error of a start that failed itself; credentials are ENOTSUP. SIGCHLD, waitid with
+WNOWAIT and kill with SIGKILL, which the rest of the file uses unchanged, are the libc's (src/Substrate/libc/process.c).
+
+--- a/src/native/libs/System.Native/pal_process.c
++++ b/src/native/libs/System.Native/pal_process.c
+@@ -24,6 +24,9 @@
+ #include <fcntl.h>
+ #endif
+ #include <pthread.h>
++#if defined(TARGET_WITOS)
++#include <spawn.h>
++#endif
+ 
+ #if HAVE_SCHED_SETAFFINITY || HAVE_SCHED_GETAFFINITY
+ #include <sched.h>
+@@ -226,7 +229,134 @@
+                                       int32_t* stdoutFd,
+                                       int32_t* stderrFd)
+ {
+-#if HAVE_FORK
++#if defined(TARGET_WITOS)
++    // WitOS has no fork and no exec (RFC 0011 section 9.3): the libc's posix_spawn asks the process manager to start
++    // the program with its arguments, its environment, its directory and, as its standard streams, the ends of the
++    // pipes, and returns the error of a start that failed itself, so there is no exec pipe and no signal mask to set;
++    // there is one user, so credentials are ENOTSUP.
++    bool success = true;
++    bool haveActions = false;
++    int stdinFds[2] = {-1, -1}, stdoutFds[2] = {-1, -1}, stderrFds[2] = {-1, -1};
++    pid_t processId = -1;
++    posix_spawn_file_actions_t actions;
++    int error = 0;
++
++#if HAVE_PTHREAD_SETCANCELSTATE
++    int thread_cancel_state;
++
++    // None of this code can be canceled without leaking handles, so just don't allow it
++    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &thread_cancel_state);
++#endif
++
++    assert(NULL != filename && NULL != argv && NULL != envp && NULL != stdinFd &&
++            NULL != stdoutFd && NULL != stderrFd && NULL != childPid &&
++            (groupsLength == 0 || groups != NULL) && "null argument.");
++
++    assert((redirectStdin & ~1) == 0 && (redirectStdout & ~1) == 0 &&
++            (redirectStderr & ~1) == 0 && (setCredentials & ~1) == 0 &&
++            "Boolean redirect* inputs must be 0 or 1.");
++
++    (void)userId;
++    (void)groupId;
++    (void)groups;
++    (void)groupsLength;
++
++    if (setCredentials)
++    {
++        errno = ENOTSUP;
++        success = false;
++        goto done;
++    }
++
++    // Make sure we can find and access the executable, so that a missing program fails the Start itself.
++    if (access(filename, X_OK) != 0)
++    {
++        success = false;
++        goto done;
++    }
++
++    // Open pipes for any requests to redirect stdin/stdout/stderr; the child takes the ends the actions name.
++    if ((redirectStdin  && SystemNative_Pipe(stdinFds,  PAL_O_CLOEXEC) != 0) ||
++        (redirectStdout && SystemNative_Pipe(stdoutFds, PAL_O_CLOEXEC) != 0) ||
++        (redirectStderr && SystemNative_Pipe(stderrFds, PAL_O_CLOEXEC) != 0))
++    {
++        success = false;
++        goto done;
++    }
++
++    error = posix_spawn_file_actions_init(&actions);
++    if (error == 0)
++    {
++        haveActions = true;
++        if (redirectStdin)
++        {
++            error = posix_spawn_file_actions_adddup2(&actions, stdinFds[READ_END_OF_PIPE], STDIN_FILENO);
++        }
++        if (error == 0 && redirectStdout)
++        {
++            error = posix_spawn_file_actions_adddup2(&actions, stdoutFds[WRITE_END_OF_PIPE], STDOUT_FILENO);
++        }
++        if (error == 0 && redirectStderr)
++        {
++            error = posix_spawn_file_actions_adddup2(&actions, stderrFds[WRITE_END_OF_PIPE], STDERR_FILENO);
++        }
++        if (error == 0 && NULL != cwd)
++        {
++            error = posix_spawn_file_actions_addchdir_np(&actions, cwd);
++        }
++    }
++    if (error == 0)
++    {
++        error = posix_spawn(&processId, filename, &actions, NULL, argv, envp);
++    }
++    if (error != 0)
++    {
++        errno = error;
++        success = false;
++        goto done;
++    }
++
++    *childPid = processId;
++    *stdinFd = stdinFds[WRITE_END_OF_PIPE];
++    *stdoutFd = stdoutFds[READ_END_OF_PIPE];
++    *stderrFd = stderrFds[READ_END_OF_PIPE];
++
++done:;
++    int priorErrno = errno;
++
++    if (haveActions)
++    {
++        posix_spawn_file_actions_destroy(&actions);
++    }
++
++    // Regardless of success or failure, close the parent's copy of the child's end of
++    // any opened pipes.  The parent doesn't need them anymore.
++    CloseIfOpen(stdinFds[READ_END_OF_PIPE]);
++    CloseIfOpen(stdoutFds[WRITE_END_OF_PIPE]);
++    CloseIfOpen(stderrFds[WRITE_END_OF_PIPE]);
++
++    // If we failed, close everything else and give back error values in all out arguments.
++    if (!success)
++    {
++        CloseIfOpen(stdinFds[WRITE_END_OF_PIPE]);
++        CloseIfOpen(stdoutFds[READ_END_OF_PIPE]);
++        CloseIfOpen(stderrFds[READ_END_OF_PIPE]);
++
++        *stdinFd = -1;
++        *stdoutFd = -1;
++        *stderrFd = -1;
++        *childPid = -1;
++
++        errno = priorErrno;
++    }
++
++#if HAVE_PTHREAD_SETCANCELSTATE
++    // Restore thread cancel state
++    pthread_setcancelstate(thread_cancel_state, &thread_cancel_state);
++#endif
++
++    return success ? 0 : -1;
++#elif HAVE_FORK
+ #if !HAVE_PIPE2
+     bool haveProcessCreateLock = false;
+ #endif

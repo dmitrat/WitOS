@@ -5,6 +5,24 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using DotNetCompatibility;
 
+// The suite as the child of its own process checks (Platform, N4.2): "--echo CODE" copies its input to its output,
+// reports on its error stream and exits with CODE; "--sleep" waits to be killed.
+if (args is ["--echo", var code])
+{
+    var input = await Console.In.ReadToEndAsync();
+    await Console.Out.WriteAsync(input);
+    await Console.Out.FlushAsync();
+    await Console.Error.WriteAsync($"echoed {input.Length} characters in {Environment.CurrentDirectory} with " +
+        $"DOTNET_COMPATIBILITY_CHILD={Environment.GetEnvironmentVariable("DOTNET_COMPATIBILITY_CHILD")}\n");
+    await Console.Error.FlushAsync();
+    return int.Parse(code);
+}
+if (args is ["--sleep"])
+{
+    Thread.Sleep(Timeout.Infinite);
+    return 0;
+}
+
 var platform = PlatformChecks.Key;
 var recorded = Expectations(platform);
 IEnumerable<Check>[] areas =
