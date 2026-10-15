@@ -74,6 +74,10 @@
       "sha256": "add856b14ea991fd9373b217e8a62156872762266f4b4153ae315da50a4f20b1"
     },
     {
+      "path": "src/native/libs/System.Native/pal_process.c",
+      "sha256": "b3a3c7cad31d9be4731f1294acb558703b98a6e0f9857ba70d440e4def910a23"
+    },
+    {
       "path": "src/native/corehost/apphost/static/CMakeLists.txt",
       "sha256": "59a7b792323504e7573c531e9b74aa668305e9d197072f43758352a0f104f9b2"
     },
@@ -112,6 +116,22 @@
     {
       "path": "src/libraries/System.Security.Cryptography/src/System.Security.Cryptography.csproj",
       "sha256": "c19093d9923e5d153a62550fe9b4f0319899b6d77ab40b1eeb47f59c0fc0144c"
+    },
+    {
+      "path": "src/libraries/System.Diagnostics.Process/src/System.Diagnostics.Process.csproj",
+      "sha256": "f42cc2a8b505ed6520d2b68ded8afbbea032a7593b716a99f276fd5bb73d9f7e"
+    },
+    {
+      "path": "src/libraries/System.Diagnostics.Process/src/System/Diagnostics/Process.WitOS.cs",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "src/libraries/System.Diagnostics.Process/src/System/Diagnostics/ProcessManager.WitOS.cs",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "src/libraries/System.Diagnostics.Process/src/System/Diagnostics/ProcessThread.WitOS.cs",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
       "path": "src/coreclr/pal/src/init/pal.cpp",

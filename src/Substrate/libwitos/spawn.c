@@ -421,6 +421,8 @@ typedef struct StartState {
     WitU32 DirectoryBytes;
     WitU32 ClosedStreams;
     WitU64 Namespace; /* the namespace's endpoint to duplicate into the process (D5.1); zero for none */
+    WitU32 Streams; /* the stream messages the creator sends on the grant after the start (N4.2) */
+    WitU32 Reserved;
 } StartState;
 
 /* The start message: the package's size, the closed streams and the initial directory, duplicates of the log, the
@@ -450,7 +452,7 @@ static int send_start(WitU64 endpoint, WitU64 manager, WitU64 *grant, const Star
         capabilities |= WIT_START_MANAGER;
     }
     const WitU32 room = WIT_START_HANDLES_MAXIMUM - count - (*grant ? 1 : 0);
-    if (status == WIT_STATUS_OK && state->Namespace && room > 0) {
+    if (status == WIT_STATUS_OK && state->Namespace) {
         status = wit_syscall(WIT_CALL_HANDLE_DUPLICATE, state->Namespace, (WitU64)&names, NAMESPACE_RIGHTS, &result);
     }
     const WitU32 duplicates = count;
@@ -459,8 +461,12 @@ static int send_start(WitU64 endpoint, WitU64 manager, WitU64 *grant, const Star
         capabilities |= WIT_START_GRANT;
     }
     if (status == WIT_STATUS_OK && names) {
-        handles[count++] = names;
-        capabilities |= WIT_START_NAMESPACE;
+        if (room > 0) {
+            handles[count++] = names;
+            capabilities |= WIT_START_NAMESPACE;
+        } else {
+            capabilities |= WIT_START_NAMESPACE_NEXT; /* in a second message (N4.2) */
+        }
     }
     if (status == WIT_STATUS_OK) {
         message.Header.Version = WIT_START_VERSION;
@@ -469,7 +475,7 @@ static int send_start(WitU64 endpoint, WitU64 manager, WitU64 *grant, const Star
         message.Header.ClosedStreams = state->ClosedStreams;
         message.Header.DirectoryBytes = state->DirectoryBytes;
         message.Header.Capabilities = capabilities;
-        message.Header.Reserved = 0;
+        message.Header.Streams = state->Streams;
         memcpy(message.Bytes + sizeof(message.Header), state->Directory, state->DirectoryBytes);
         request.Version = WIT_CHANNEL_MESSAGE_VERSION;
         request.Size = sizeof(request);
@@ -488,7 +494,19 @@ static int send_start(WitU64 endpoint, WitU64 manager, WitU64 *grant, const Star
         close_handle(names);
         return failure(status);
     }
-    *grant = 0;
+    *grant = 0; /* moved */
+    if (capabilities & WIT_START_NAMESPACE_NEXT) {
+        /* The second message: the namespace's endpoint alone, which the process receives after the first (start.c). */
+        request.Data = 0;
+        request.Bytes = 0;
+        request.Handles = (WitU64)&names;
+        request.HandleCount = 1;
+        status = wit_syscall(WIT_CALL_CHANNEL_SEND, endpoint, (WitU64)&request, sizeof(request), &result);
+        if (status != WIT_STATUS_OK) {
+            close_handle(names);
+            return failure(status); /* the process never starts: the caller ends it with its handles */
+        }
+    }
     return 0;
 }
 
@@ -548,8 +566,12 @@ int witos_spawn_ex(
     memset(&state, 0, sizeof(state));
     program.File = interpreter.File = -1;
     *process = 0;
-    /* The initial directory, canonical and existing, and the closed streams, checked before anything opens (S6.2). */
-    if (options && ((options->closed_streams & ~7U) || options->reserved)) {
+    /* The initial directory, canonical and existing, the closed streams and the streams given as pipes, which need the
+     * grant they travel on (N4.2), checked before anything opens (S6.2). */
+    if (options &&
+        ((options->closed_streams & ~7U) ||
+            options->streams > WIT_START_STREAMS_MAXIMUM ||
+            (options->streams && !grant))) {
         close_handle(grant);
         return EINVAL;
     }
@@ -563,6 +585,7 @@ int witos_spawn_ex(
     }
     state.ClosedStreams = options ? options->closed_streams : 0;
     state.Namespace = options ? options->namespace_endpoint : 0;
+    state.Streams = options ? options->streams : 0;
     int error = open_program(&program, path, PROGRAM_BASE, 1);
     if (!error && program.Interpreter[0]) {
         /* The dynamic linker: an image of the package itself, with no interpreter of its own. */

@@ -1,0 +1,33 @@
+Source: src/libraries/System.Diagnostics.Process/src/System.Diagnostics.Process.csproj
+Output: src.libraries.System.Diagnostics.Process.src.System.Diagnostics.Process.csproj
+Before: f42cc2a8b505ed6520d2b68ded8afbbea032a7593b716a99f276fd5bb73d9f7e
+After: dafe520ad31b4ff49e3552150e3ffb5f0e441aac41c03473cdd3a1035c63d249
+
+System.Diagnostics.Process for witos (plan step N4.2, RFC 0015 section 8): the project targets the unix flavor when
+the build is for witos, beside Linux's, FreeBSD's and Apple's flavors, so that the shared framework carries the
+Process that starts, waits for and kills a process through System.Native, rather than the one that throws
+PlatformNotSupportedException for everything, and the three WitOS files give the per-platform members.
+
+--- a/src/libraries/System.Diagnostics.Process/src/System.Diagnostics.Process.csproj
++++ b/src/libraries/System.Diagnostics.Process/src/System.Diagnostics.Process.csproj
+@@ -2,6 +2,7 @@
+ 
+   <PropertyGroup>
+     <TargetFrameworks>$(NetCoreAppCurrent)-windows;$(NetCoreAppCurrent)-freebsd;$(NetCoreAppCurrent)-linux;$(NetCoreAppCurrent)-osx;$(NetCoreAppCurrent)-maccatalyst;$(NetCoreAppCurrent)-ios;$(NetCoreAppCurrent)-tvos;$(NetCoreAppCurrent)</TargetFrameworks>
++    <TargetFrameworks Condition="'$(TargetOS)' == 'witos'">$(TargetFrameworks);$(NetCoreAppCurrent)-unix</TargetFrameworks>
+     <DefineConstants>$(DefineConstants);FEATURE_REGISTRY</DefineConstants>
+     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+     <UseCompilerGeneratedDocXmlFile>false</UseCompilerGeneratedDocXmlFile>
+@@ -375,6 +376,12 @@
+     <Compile Include="System\Diagnostics\ProcessThread.iOS.cs" />
+   </ItemGroup>
+ 
++  <ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'unix'">
++    <Compile Include="System\Diagnostics\Process.WitOS.cs" />
++    <Compile Include="System\Diagnostics\ProcessManager.WitOS.cs" />
++    <Compile Include="System\Diagnostics\ProcessThread.WitOS.cs" />
++  </ItemGroup>
++
+   <ItemGroup>
+     <ProjectReference Include="$(LibrariesProjectRoot)Microsoft.Win32.Primitives\src\Microsoft.Win32.Primitives.csproj" />
+     <ProjectReference Include="$(LibrariesProjectRoot)Microsoft.Win32.Registry\src\Microsoft.Win32.Registry.csproj" />

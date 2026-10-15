@@ -79,6 +79,11 @@ public sealed class FlatImageTests
             Throws.TypeOf<InvalidDataException>(), "Entry outside executable code accepted");
         Assert.That(() => FlatImage.ParseElf(Elf(ET_EXEC, EM_X86_64, BASE, (PT_LOAD, 5u, BASE, code, 16UL)), EM_X86_64),
             Throws.TypeOf<InvalidDataException>(), "File size beyond memory size accepted");
+        Assert.That(() => FlatImage.ParseElf(Elf(ET_EXEC, EM_X86_64, BASE, (PT_LOAD, 5u, BASE, code, FlatImage.MAX_SEGMENT_BYTES + 1)), EM_X86_64),
+            Throws.TypeOf<InvalidDataException>().With.Message.Contains("WIT_FLAT_MAX_SEGMENT_BYTES"),
+            "A segment beyond the flat format's limit accepted (N4.2)");
+        Assert.That(FlatImage.ParseElf(Elf(ET_EXEC, EM_X86_64, BASE, (PT_LOAD, 5u, BASE, code, (ulong)FlatImage.MAX_SEGMENT_BYTES)), EM_X86_64)
+            .Segments[0].MemorySize, Is.EqualTo(FlatImage.MAX_SEGMENT_BYTES), "A segment of the limit refused");
         Assert.That(() => FlatImage.ParseElf(Elf(ET_EXEC, EM_X86_64, BASE, (PT_LOAD, 5u, BASE, code, 32UL), (PT_LOAD, 4u, BASE + PAGE, code, 32UL),
                 (PT_LOAD, 4u, BASE + 2 * PAGE, code, 32UL), (PT_LOAD, 4u, BASE + 3 * PAGE, code, 32UL),
                 (PT_LOAD, 4u, BASE + 4 * PAGE, code, 32UL)), EM_X86_64),

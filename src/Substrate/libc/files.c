@@ -64,7 +64,8 @@ typedef enum Kind {
     KindPipeWrite, /* the write end of pipe Index */
     KindShared, /* shared memory file Index (shared.c, R3.2b) */
     KindRemoteFile, /* a file of a mounted volume, remote record Index (namespace.c, D5.1) */
-    KindRemoteDirectory /* a directory of a mounted volume, remote record Index */
+    KindRemoteDirectory, /* a directory of a mounted volume, remote record Index */
+    KindEpoll /* an epoll instance Index (epoll.c, N4.2) */
 } Kind;
 
 typedef struct Descriptor {
@@ -414,6 +415,9 @@ static void close_descriptor(Descriptor *d)
     }
     if (d->Kind == KindRemoteFile || d->Kind == KindRemoteDirectory) {
         __wit_remote_release(d->Index);
+    }
+    if (d->Kind == KindEpoll) {
+        __wit_epoll_release(d->Index);
     }
     if (--descriptions[d->Description].References == 0) {
         unlock_description(&descriptions[d->Description]); /* a description's lock ends with its last descriptor */
@@ -1255,6 +1259,45 @@ long __wit_lseek(long fd, long offset, long whence)
     return (long)POSITION(d);
 }
 
+/* A package file is executable when it is an ELF image (N4.2): the package records no mode, and the programs of the
+ * package are what posix_spawn and .NET's Process.Start, which asks access(X_OK) first, start. The answer is read once
+ * per file through a window and kept. */
+static unsigned char executable_known[(MAX_FILES + 7) / 8];
+static unsigned char executable_bits[(MAX_FILES + 7) / 8];
+
+static int executable(WitU32 index)
+{
+    const unsigned char *name;
+    WitU32 name_length;
+    WitU64 data, length, address;
+    if (index >= MAX_FILES) {
+        return 0;
+    }
+    if (executable_known[index / 8] & (1U << (index % 8))) {
+        return (executable_bits[index / 8] >> (index % 8)) & 1;
+    }
+    entry(index, &name, &name_length, &data, &length);
+    int elf = 0;
+    if (length >= 4) {
+        const WitU64 window_start = data & ~(PAGE - 1);
+        const WitU64 object_bytes = (__wit_process.PackageBytes + PAGE - 1) & ~(PAGE - 1);
+        WitU64 window_bytes = 2 * PAGE; /* the magic may straddle a page: a file below a page is not aligned */
+        if (window_start + window_bytes > object_bytes) {
+            window_bytes = object_bytes - window_start;
+        }
+        if (map_window(window_start, window_bytes, &address) == 0) {
+            const unsigned char *magic = (const unsigned char *)(address + (data - window_start));
+            elf = magic[0] == 0x7F && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F';
+            unmap_window(address);
+        }
+    }
+    executable_known[index / 8] |= (unsigned char)(1U << (index % 8));
+    if (elf) {
+        executable_bits[index / 8] |= (unsigned char)(1U << (index % 8));
+    }
+    return elf;
+}
+
 static void fill_stat(struct kstat *st, Kind kind, WitU32 index, WitU64 length)
 {
     memset(st, 0, sizeof(*st));
@@ -1263,7 +1306,7 @@ static void fill_stat(struct kstat *st, Kind kind, WitU32 index, WitU64 length)
     st->st_blksize = (blksize_t)PAGE;
     if (kind == KindFile) {
         st->st_ino = (ino_t)index + 1;
-        st->st_mode = S_IFREG | 0444;
+        st->st_mode = S_IFREG | (executable(index) ? 0555 : 0444);
         st->st_size = (off_t)length;
         st->st_blocks = (blkcnt_t)((length + 511) / 512);
     } else if (kind == KindDirectory) {
@@ -1282,6 +1325,10 @@ static void fill_stat(struct kstat *st, Kind kind, WitU32 index, WitU64 length)
         st->st_mode = S_IFREG | __wit_shared_mode(index); /* 0600 until chmod (N4.1) */
         st->st_size = (off_t)length;
         st->st_blocks = (blkcnt_t)((length + 511) / 512);
+    } else if (kind == KindEpoll) {
+        st->st_dev = 4; /* an anonymous inode, as Linux reports an epoll instance */
+        st->st_ino = (ino_t)index + 1;
+        st->st_mode = S_IFREG | 0600;
     } else {
         st->st_ino = 2;
         st->st_mode = S_IFCHR | 0666;
@@ -1404,8 +1451,8 @@ long __wit_faccessat(long dirfd, const char *path, long mode)
     if (mode & W_OK) {
         return -EROFS;
     }
-    if ((mode & X_OK) && kind == KindFile) {
-        return -EACCES;
+    if ((mode & X_OK) && kind == KindFile && !executable(index)) {
+        return -EACCES; /* a package file that is no ELF image */
     }
     return 0;
 }
@@ -1592,6 +1639,35 @@ short __wit_descriptor_poll(long fd, short events)
     return asked;
 }
 
+/* epoll_create1 (N4.2): a descriptor over a free instance of epoll.c. Under the table lock. */
+long __wit_epoll_open(int flags)
+{
+    WitU32 index = 0;
+    const long allocated = __wit_epoll_allocate(&index);
+    if (allocated < 0) {
+        return allocated;
+    }
+    const long fd = open_descriptor(KindEpoll, index, 0, O_RDWR | (flags & O_CLOEXEC)); /* EPOLL_CLOEXEC is O_CLOEXEC */
+    if (fd < 0) {
+        __wit_epoll_release(index);
+    }
+    return fd;
+}
+
+/* The instance an epoll descriptor names: -EBADF for no descriptor, -EINVAL for one that is no instance. */
+long __wit_epoll_instance(long epfd, WitU32 *index)
+{
+    const Descriptor *d = descriptor(epfd);
+    if (!d) {
+        return __wit_stream_of(epfd) >= 0 ? -EINVAL : -EBADF;
+    }
+    if (d->Kind != KindEpoll) {
+        return -EINVAL;
+    }
+    *index = d->Index;
+    return 0;
+}
+
 /* The pipe an end descriptor names, with a reference for the transfer the caller makes outside the table lock. */
 int __wit_pipe_of(long fd, WitU32 *index, int *write_end, int *nonblocking)
 {
@@ -1604,6 +1680,66 @@ int __wit_pipe_of(long fd, WitU32 *index, int *write_end, int *nonblocking)
     *nonblocking = (descriptions[d->Description].StatusFlags & O_NONBLOCK) != 0;
     __wit_pipe_reference(d->Index);
     return 1;
+}
+
+/* posix_spawn (process.c, N4.2): the handles a child takes for the pipe end fd names, to become a standard stream of
+ * the child — the pipe shared first — with the end and its O_NONBLOCK; -EBADF for no descriptor, -ENOSYS for one that
+ * is no pipe end, since a file or a stream as a child's stream is not there. Under the table lock. */
+long __wit_descriptor_stream_handles(long fd, WitU64 *object, WitU64 *endpoint, int *write_end, int *nonblocking)
+{
+    const Descriptor *d = descriptor(fd);
+    if (!d) {
+        return __wit_stream_of(fd) >= 0 ? -ENOSYS : -EBADF;
+    }
+    if (d->Kind != KindPipeRead && d->Kind != KindPipeWrite) {
+        return -ENOSYS;
+    }
+    *write_end = d->Kind == KindPipeWrite;
+    *nonblocking = (descriptions[d->Description].StatusFlags & O_NONBLOCK) != 0;
+    const long shared = __wit_pipe_share(d->Index);
+    if (shared < 0) {
+        return shared;
+    }
+    return __wit_pipe_handles(d->Index, *write_end, object, endpoint);
+}
+
+/* posix_spawn (process.c, N4.2): what fd is as the source of a child's standard stream. Under the table lock. */
+long __wit_descriptor_source(long fd)
+{
+    const Descriptor *d = descriptor(fd);
+    if (!d) {
+        const long stream = __wit_stream_of(fd);
+        return stream >= 0 ? stream : -EBADF;
+    }
+    if (d->Kind == KindStream) {
+        return (long)d->Index;
+    }
+    return d->Kind == KindPipeRead || d->Kind == KindPipeWrite ? WIT_SOURCE_PIPE : WIT_SOURCE_OTHER;
+}
+
+/* The start of a process (start.c, N4.2), before any other thread runs: standard descriptor fd, closed so far,
+ * becomes the end of a pipe another process gave this one, over the ring's object and the end's endpoint, which are
+ * the pipe's on success and stay the caller's on failure. Closing it leaves the descriptor closed, as closing a
+ * duplicate there does (S6.2). */
+long __wit_install_stream(long fd, WitU64 object, WitU64 endpoint, int write_end, int nonblocking)
+{
+    WitU32 index;
+    if (fd < 0 || fd >= FIRST_DESCRIPTOR || descriptors[fd].Kind != KindClosed) {
+        return -EBADF;
+    }
+    const long adopted = __wit_pipe_adopt(object, endpoint, write_end, &index);
+    if (adopted < 0) {
+        return adopted;
+    }
+    WitU32 description = 0;
+    while (descriptions[description].References) {
+        ++description;
+    }
+    descriptions[description] =
+        (Description){0, (write_end ? O_WRONLY : O_RDONLY) | (nonblocking ? O_NONBLOCK : 0), 1, 0};
+    descriptors[fd] = (Descriptor){write_end ? KindPipeWrite : KindPipeRead, index, 0, description, 0};
+    __wit_process.ClosedStreams |= 1U << fd;
+    return 0;
 }
 
 /* pipe2: two descriptors over a new pipe, the read end first. */
@@ -1679,6 +1815,9 @@ static void duplicate_into(long target, long stream, const Descriptor *source, i
     }
     if (source->Kind == KindRemoteFile || source->Kind == KindRemoteDirectory) {
         __wit_remote_reference(source->Index);
+    }
+    if (source->Kind == KindEpoll) {
+        __wit_epoll_reference(source->Index);
     }
 }
 

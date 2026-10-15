@@ -335,6 +335,10 @@ static int uses_tables(long n)
     case SYS_tgkill:
     case SYS_kill:
     case SYS_ppoll:
+    case SYS_epoll_pwait:
+#if defined(SYS_epoll_wait)
+    case SYS_epoll_wait:
+#endif
     case SYS_flock:
 #if defined(SYS_poll)
     case SYS_poll:
@@ -346,10 +350,29 @@ static int uses_tables(long n)
     case SYS_uname:
     case SYS_membarrier:
     case SYS_wait4:
+    case SYS_waitid:
         return 0;
     default:
         return 1;
     }
+}
+
+/* posix_spawn (process.c, N4.2): the handles a child takes for a pipe end as its standard stream, under the table lock,
+ * which posix_spawn, a library call rather than a system call, does not hold. */
+long __wit_stream_handles(long fd, WitU64 *object, WitU64 *endpoint, int *write_end, int *nonblocking)
+{
+    __wit_lock(&tables);
+    const long r = __wit_descriptor_stream_handles(fd, object, endpoint, write_end, nonblocking);
+    __wit_unlock(&tables);
+    return r;
+}
+
+long __wit_source_of(long fd)
+{
+    __wit_lock(&tables);
+    const long r = __wit_descriptor_source(fd);
+    __wit_unlock(&tables);
+    return r;
 }
 
 static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a6);
@@ -423,6 +446,42 @@ static long pipe_transfer(long n, long fd, long a2, long a3)
     __wit_pipe_release(index);
     __wit_unlock(&tables);
     return r;
+}
+
+/* epoll_wait (N4.2): the instance's ready events under the table lock, else a park as poll's until a pipe changed. */
+static long epoll_wait_instance(long epfd, struct epoll_event *events, int count, int milliseconds)
+{
+    WitU64 deadline = WIT_WAIT_INFINITE;
+    WitU32 index = 0;
+    if (count <= 0 || !events) {
+        return -EINVAL;
+    }
+    if (milliseconds >= 0) {
+        const struct timespec timeout = {milliseconds / 1000, (milliseconds % 1000) * 1000000L};
+        const long converted = __wit_futex_deadline(&timeout, &deadline);
+        if (converted < 0) {
+            return converted;
+        }
+    }
+    for (;;) {
+        const int seen = __wit_pipe_sequence();
+        __wit_lock(&tables);
+        long ready = __wit_epoll_instance(epfd, &index);
+        if (ready == 0) {
+            ready = __wit_epoll_collect(index, events, count);
+        }
+        __wit_unlock(&tables);
+        if (ready != 0 || milliseconds == 0) {
+            return ready;
+        }
+        const long waited = __wit_pipe_wait(seen, deadline);
+        if (waited == -ETIMEDOUT) {
+            return 0;
+        }
+        if (waited < 0) {
+            return waited;
+        }
+    }
 }
 
 /* poll and ppoll (R3.2): the readiness of every descriptor under the table lock, then, when none is ready and the
@@ -577,6 +636,20 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
     case SYS_dup2:
         return __wit_dup3(a1, a2, -1);
 #endif
+    case SYS_epoll_create1:
+        return (a1 & ~(long)O_CLOEXEC) ? -EINVAL : __wit_epoll_open((int)a1); /* EPOLL_CLOEXEC is O_CLOEXEC */
+#if defined(SYS_epoll_create)
+    case SYS_epoll_create:
+        return a1 <= 0 ? -EINVAL : __wit_epoll_open(0);
+#endif
+    case SYS_epoll_ctl: {
+        WitU32 index = 0;
+        const long instance = __wit_epoll_instance(a1, &index);
+        if (instance < 0) {
+            return instance;
+        }
+        return a3 == a1 ? -EINVAL : __wit_epoll_ctl(index, (int)a2, a3, (const struct epoll_event *)a4);
+    }
     case SYS_pipe2:
         return __wit_pipe2((int *)a1, a2);
     case SYS_memfd_create:
@@ -727,6 +800,12 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
     case SYS_pause:
         return __wit_pause();
 #endif
+    case SYS_epoll_pwait: /* a signal mask is not served; musl's epoll_wait passes none */
+        return a5 ? -ENOSYS : epoll_wait_instance(a1, (struct epoll_event *)a2, (int)a3, (int)a4);
+#if defined(SYS_epoll_wait)
+    case SYS_epoll_wait:
+        return epoll_wait_instance(a1, (struct epoll_event *)a2, (int)a3, (int)a4);
+#endif
     case SYS_ppoll: /* musl's pause() where the kernel has no pause: no descriptors, no timeout */
         if (a1 == 0 && a2 == 0 && a3 == 0) {
             return __wit_pause();
@@ -755,6 +834,8 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
         return process_barrier(a1, a2);
     case SYS_wait4:
         return __wit_wait4(a1, (int *)a2, a3, (struct rusage *)a4);
+    case SYS_waitid:
+        return __wit_waitid(a1, a2, (void *)a3, a4);
 #if defined(SYS_arch_prctl)
     case SYS_arch_prctl:
         if (a1 == 0x1002) { /* ARCH_SET_FS: the thread pointer of the calling thread */

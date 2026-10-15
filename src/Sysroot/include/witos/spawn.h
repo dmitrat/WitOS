@@ -21,7 +21,10 @@ typedef struct witos_spawn_options {
     WitU64 manager; /* the process manager's endpoint, duplicated with SEND into the process; zero for none */
     const char *directory; /* the initial directory, an absolute path of the package; null for "/" */
     WitU32 closed_streams; /* bit n: the process starts without standard descriptor n */
-    WitU32 reserved; /* zero */
+    WitU32
+        streams; /* the standard streams given as pipes (N4.2): WitStreamMessages the creator sends on the grant after
+                       the start, at most WIT_START_STREAMS_MAXIMUM, each descriptor closed in closed_streams too; a
+                       count above zero needs a grant */
     WitU64 grant; /* a capability the process starts with (D1.1): moved into its start message, closed when the start
                      fails; zero for none */
     WitU64 namespace_endpoint; /* the namespace's clients' endpoint (D5.1), duplicated with SEND into the process when

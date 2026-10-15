@@ -119,7 +119,7 @@ WitU64 wit_user_channel_create(WitUserProcess *p, WitU64 output, WitU64 flags, W
     if (!wit_user_buffer_writable(&p->Space, output, sizeof(handles))) {
         return WIT_STATUS_BAD_ADDRESS;
     }
-    WitChannel *channel = wit_channel_reserve(p, &index);
+    WitChannel *channel = wit_channel_reserve(p, p->ChannelLimit, &index);
     if (!channel || wit_handles_free_count(&p->Handles) < 2) {
         return WIT_STATUS_NO_MEMORY;
     }

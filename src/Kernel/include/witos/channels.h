@@ -72,9 +72,10 @@ WitChannel *wit_channel_at(WitU32 index);
 WitChannel *wit_channel_slot(WitU64 object, WitU32 *end);
 /* The channel and end behind a live handle of the endpoint kind with the rights. */
 WitU64 wit_channel_get(WitHandleTable *handles, WitU64 handle, WitU32 rights, WitChannel **channel, WitU32 *end);
-/* A free record within the creator's quota of live channels (WIT_CHANNEL_CAPACITY), or zero; its publication with
- * both ends live and one handle each; its retirement once both ends are closed. */
-WitChannel *wit_channel_reserve(struct WitUserProcess *creator, WitU32 *index);
+/* A free record while the creator's live channels are below the limit given (its profile's ChannelLimit, which the
+ * caller reads, N4.2), or zero; its publication with both ends live and one handle each; its retirement once both
+ * ends are closed. */
+WitChannel *wit_channel_reserve(struct WitUserProcess *creator, WitU32 limit, WitU32 *index);
 void wit_channel_publish(WitChannel *channel, struct WitUserProcess *creator);
 void wit_channel_retire(WitChannel *channel);
 /* The live channels kernel-wide, those a process created and still live, and the end of that charge. */

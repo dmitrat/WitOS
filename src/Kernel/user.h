@@ -121,7 +121,7 @@ typedef struct WitUserProcess {
     WitU64 Ticks, TickLimit;
     WitU32 ObjectLimit; /* live memory objects it may create: WIT_MEMORY_OBJECT_CAPACITY, or the system layer's */
     WitU32 ThreadLimit; /* threads it may run: WIT_USER_THREAD_CAPACITY, or the system layer's (K5.3) */
-    WitU32 ObjectReserved;
+    WitU32 ChannelLimit; /* live channels it may create: WIT_USER_CHANNEL_CAPACITY, or the system layer's (N4.2) */
     WitU64 ExitCode;
     WitU64 ImageBase;
     WitU64 ImageEntry;

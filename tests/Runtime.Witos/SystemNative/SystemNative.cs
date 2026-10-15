@@ -25,7 +25,7 @@ internal static class SystemNative
         Area("random", RandomBytes);
         Area("console", ConsoleArea);
         Area("signals", Signals);
-        Area("processes refused", ProcessesRefused);
+        Area("processes", Processes);
         Area("hashes", Hashes);
         Area("cryptography refused", CryptographyRefused);
         string runtime = System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeCompiled ? "CoreCLR" : "NativeAOT";
@@ -171,19 +171,15 @@ internal static class SystemNative
         return null;
     }
 
-    private static string? ProcessesRefused()
+    // A process started through the process manager (N4.2): corerun without arguments prints its usage and ends.
+    private static string? Processes()
     {
         if (Environment.ProcessId <= 0)
             return "ProcessId";
-        try
-        {
-            Process.Start("/coreclr/corerun");
-            return "Process.Start succeeded";
-        }
-        catch (PlatformNotSupportedException)
-        {
-            return null;
-        }
+        using var process = Process.Start("/coreclr/corerun");
+        if (!process.WaitForExit(30000))
+            return "corerun did not end";
+        return process.Id > 0 ? null : "Id";
     }
 
     // The managed hashes the browser builds too: SHA-256 of "abc" (FIPS 180-2) and an HMAC.

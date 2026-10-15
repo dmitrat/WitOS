@@ -212,6 +212,8 @@ internal static class RuntimeWitos
         ["src/native/libs/CMakeLists.txt"] = "src.native.libs.CMakeLists.txt",
         ["src/native/libs/System.Globalization.Native/CMakeLists.txt"] =
             "src.native.libs.System.Globalization.Native.CMakeLists.txt",
+        // System.Native's process start over the libc's posix_spawn (N4.2).
+        ["src/native/libs/System.Native/pal_process.c"] = "src.native.libs.System.Native.pal_process.c",
         ["src/native/corehost/apphost/static/CMakeLists.txt"] = "src.native.corehost.apphost.static.CMakeLists.txt",
         // ILC's target WitOS (R1.3).
         ["src/coreclr/tools/Common/TypeSystem/Common/TargetDetails.cs"] =
@@ -232,7 +234,16 @@ internal static class RuntimeWitos
         ["src/native/external/libunwind.cmake"] = "src.native.external.libunwind.cmake",
         // System.Native's profile for witos (R4.1): cryptography without OpenSSL.
         ["src/libraries/System.Security.Cryptography/src/System.Security.Cryptography.csproj"] =
-            "src.libraries.System.Security.Cryptography.src.System.Security.Cryptography.csproj"
+            "src.libraries.System.Security.Cryptography.src.System.Security.Cryptography.csproj",
+        // System.Diagnostics.Process for witos (N4.2): the unix flavor with WitOS's per-platform members.
+        ["src/libraries/System.Diagnostics.Process/src/System.Diagnostics.Process.csproj"] =
+            "src.libraries.System.Diagnostics.Process.src.System.Diagnostics.Process.csproj",
+        ["src/libraries/System.Diagnostics.Process/src/System/Diagnostics/Process.WitOS.cs"] =
+            "src.libraries.System.Diagnostics.Process.src.System.Diagnostics.Process.WitOS.cs",
+        ["src/libraries/System.Diagnostics.Process/src/System/Diagnostics/ProcessManager.WitOS.cs"] =
+            "src.libraries.System.Diagnostics.Process.src.System.Diagnostics.ProcessManager.WitOS.cs",
+        ["src/libraries/System.Diagnostics.Process/src/System/Diagnostics/ProcessThread.WitOS.cs"] =
+            "src.libraries.System.Diagnostics.Process.src.System.Diagnostics.ProcessThread.WitOS.cs"
     };
 
     #endregion
