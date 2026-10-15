@@ -110,6 +110,14 @@ long __wit_epoll_instance(long epfd, WitU32 *index); /* files.c: the instance a 
 int __wit_pipe_sequence(void);
 long __wit_pipe_wait(int seen, WitU64 deadline);
 short __wit_descriptor_poll(long fd, short events);
+void __wit_poll_bump(void); /* pipe.c: a parked poll looks again (N4.3b: the terminal's input arrived) */
+
+/* The standard streams over the terminal service (terminal.c, N4.3b), when the start message carried its endpoint. */
+int __wit_terminal_present(void);
+long __wit_terminal_read(void *buffer, long bytes);
+long __wit_terminal_write(const void *buffer, long bytes);
+long __wit_terminal_ioctl(long stream, long request, void *argument);
+short __wit_terminal_poll(long stream, short events);
 long __wit_memfd_create(const char *name, long flags);
 long __wit_descriptor_capacity(void);
 long __wit_ftruncate(long fd, long size);
@@ -191,6 +199,7 @@ typedef struct WitSignalState {
 struct timespec;
 void __wit_thread_init(void);
 long __wit_gettid(void);
+int __wit_thread_start_detached(void *(*entry)(void *), void *argument); /* a thread of the library's own: 0 or errno */
 long __wit_prctl(long option, unsigned long argument);
 long __wit_set_tid_address(int *address);
 __attribute__((__noreturn__)) long __wit_thread_exit(long code, WitU64 reservation);

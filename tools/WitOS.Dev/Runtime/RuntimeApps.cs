@@ -75,7 +75,7 @@ internal static class RuntimeApps
     /// <returns>When the boot passed.</returns>
     public static async Task BootAsync(string root, KernelArchitecture architecture, string scenario, string[] requiredLines,
         int timeoutSeconds, IReadOnlyList<(string Path, string Source)>? volumeFiles = null, long diskBytes = RuntimeDataDisk.BYTES,
-        int memoryMiB = 512, IReadOnlyList<(string Name, string Source)>? package = null)
+        int memoryMiB = 512, IReadOnlyList<(string Name, string Source)>? package = null, IReadOnlyList<TerminalInput>? terminal = null)
     {
         var image = await KernelImageBuilder.BuildAsync(root, scenario, architecture: architecture, package: package);
         var dataDisk = Path.Combine(Path.GetDirectoryName(image)!, "data-disk.img");
@@ -87,7 +87,8 @@ internal static class RuntimeApps
             Suite = BootSuite.Release,
             RequiredLines = [.. requiredLines, "[APPS-INIT] ", " commands, 0 failed", "[ROOT-TASK] /system/DeviceManager stopped",
                 architecture.RootTaskPassedLine],
-            DataDisk = dataDisk
+            DataDisk = dataDisk,
+            Terminal = terminal
         });
     }
 

@@ -74,6 +74,19 @@ internal sealed class DriverActivation : IDisposable
         }
     }
 
+    /// <summary>
+    /// Takes the service channel the driver offered, for another service to hold (N4.3a: the terminal service takes
+    /// the console driver's serial channel); the activation keeps none afterwards.
+    /// </summary>
+    /// <returns>The channel's end.</returns>
+    /// <exception cref="InvalidOperationException">The driver offered none, or it was taken.</exception>
+    public KernelHandle TakeService()
+    {
+        var service = Service ?? throw new InvalidOperationException($"The driver {Path} offers no service channel.");
+        Service = null;
+        return service;
+    }
+
     #endregion
 
     #region IDisposable
@@ -119,7 +132,7 @@ internal sealed class DriverActivation : IDisposable
     /// The endpoint of the service a ready driver offers, which moved with its answer (D3.2: a block driver's block
     /// channel); null for a driver that offers none.
     /// </summary>
-    public KernelHandle? Service { get; }
+    public KernelHandle? Service { get; private set; }
 
     #endregion
 }

@@ -20,6 +20,7 @@
     <ProjectReference Include="../../src/OutWit.OS/OutWit.OS.csproj" />
     <ProjectReference Include="../../src/Services/DeviceManager/DeviceManager.csproj" />
     <ProjectReference Include="../../src/Services/Namespace/Namespace.csproj" />
+    <ProjectReference Include="../../src/Services/Terminal/Terminal.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="NUnit.Framework" />

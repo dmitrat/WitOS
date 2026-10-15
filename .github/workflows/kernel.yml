@@ -194,6 +194,8 @@ jobs:
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/DeviceManager
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/VirtioBlock
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/Namespace
+            artifacts/runtime-witos/ilc/${{ matrix.arch }}/VirtioConsole
+            artifacts/runtime-witos/ilc/${{ matrix.arch }}/Terminal
             artifacts/runtime-witos/src/artifacts/bin/coreclr/witos.${{ matrix.arch }}.Release/libcoreclr.so
             artifacts/runtime-witos/src/artifacts/bin/coreclr/witos.${{ matrix.arch }}.Release/libclrjit.so
             artifacts/runtime-witos/src/artifacts/bin/coreclr/witos.${{ matrix.arch }}.Release/IL/System.Private.CoreLib.dll

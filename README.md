@@ -26,8 +26,9 @@ The Windows-form runtime that first passed M3 behind a Win32 facade was frozen b
 and removed at plan step K8.2; the kernel policy it needed left the kernel at K8.4a. [PLAN.md](PLAN.md) tracks the
 work: phases A, K, S, R and D are complete, N1–N3 of phase N too, and N4, the application environment, has begun: time
 zones from pinned tzdata, a `/tmp` in the namespace service's memory and file modes and times on the volumes (N4.1),
-`Process.Start` over the process manager with pipes between processes (N4.2), with the console next; the completed
-steps with their evidence are in
+`Process.Start` over the process manager with pipes between processes (N4.2) and the terminal of RFC 0020 over a
+virtio console, with Linux's line discipline in a service and `Console.ReadLine`, `ReadKey` and `CancelKeyPress`
+working as on Linux (N4.3); the completed steps with their evidence are in
 [Plan-Completed.md](@Docs/Implementation/Plan-Completed.md), and the audit of 2026-10-14 in
 [Program-Audit-2026-10-14.md](@Docs/Implementation/Program-Audit-2026-10-14.md).
 
@@ -223,8 +224,8 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   differences recorded (N1), six NuGet libraries' representative tests and their own suites (N2), .NET 8 and 10 side by
   side with ABI-2 frozen at 1.0 (N3). N4 brings the application environment: time zones, `/tmp`, file modes and times
   and the process environment's `/etc/environment` (N4.1, done), `Process.Start` with the standard streams as pipes
-  between processes, `SIGCHLD`, `waitid` and `kill` of a child (N4.2, done), then the terminal of RFC 0020, and the
-  literal proof of goal 2 (published on Windows, run on WitOS).
+  between processes, `SIGCHLD`, `waitid` and `kill` of a child (N4.2, done), the terminal of RFC 0020 (N4.3, done),
+  then the literal proof of goal 2 (published on Windows, run on WitOS).
 - **Later.** A third ISA (phase V, RISC-V), the scheduler on several processors (phase P), the network and the
   remaining milestones (phase W).
 

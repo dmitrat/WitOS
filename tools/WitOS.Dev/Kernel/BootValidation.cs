@@ -27,11 +27,11 @@ internal static class BootValidation
     /// <param name="request">Boot request with the expected outcome and suite.</param>
     /// <param name="result">Exit code, timeout state and serial log of the boot.</param>
     /// <returns>The verdict and a summary of the success check groups.</returns>
-    public static BootVerdict Evaluate(string root, BootRequest request, ProcessResult result)
+    public static BootVerdict Evaluate(string root, BootRequest request, ProcessResult result, string terminal = "")
     {
         if (request.Suite == BootSuite.Release)
         {
-            return EvaluateRelease(root, request, result);
+            return EvaluateRelease(root, request, result, terminal);
         }
         var output = result.Output;
         var exitedFirmware = output.IndexOf("[BOOT] ExitBootServices OK", StringComparison.Ordinal);
@@ -60,7 +60,8 @@ internal static class BootValidation
             : bannerReady && foundationReady && schedulerReady && usersReady && helloReady && !panic && !exception;
         var diagnostics = $"banner={bannerReady} foundation={foundationReady} scheduler={schedulerReady} " +
             $"users={usersReady} hello={helloReady} panic={panic} exception={exception}";
-        booted = booted && request.RequiredLines.All(line => output.Contains(line, StringComparison.Ordinal));
+        booted = booted && request.RequiredLines.All(line => output.Contains(line, StringComparison.Ordinal) ||
+            terminal.Contains(line, StringComparison.Ordinal));
 
         var failedBeforeContract = !result.TimedOut && result.ExitCode == 35 && exitedFirmware >= 0 && contract < 0 && hello < 0;
         var passed = request.Expected switch
@@ -96,7 +97,7 @@ internal static class BootValidation
     /// <param name="request">Boot request of the release suite.</param>
     /// <param name="result">Exit code, timeout state and serial log of the boot.</param>
     /// <returns>The verdict and a summary of the release check groups.</returns>
-    public static BootVerdict EvaluateRelease(string root, BootRequest request, ProcessResult result)
+    public static BootVerdict EvaluateRelease(string root, BootRequest request, ProcessResult result, string terminal = "")
     {
         var output = result.Output;
         var banner = Regex.IsMatch(output, "^" + Regex.Escape(KernelAbi.Banner(root)) + @"\r?$", RegexOptions.Multiline);
@@ -107,8 +108,10 @@ internal static class BootValidation
         string[] forbidden = ["[PANIC]", "[EXCEPTION]", "[USER-FAULT]", "[TEST-BEGIN] User.", "[TEST-PASS] User.", "Scheduler.",
             "Random.ChaCha20Vector", "Memory.VirtualMappings", "Cpu.ContextStateProfile"];
         var clean = forbidden.All(marker => !output.Contains(marker, StringComparison.Ordinal));
-        // A layer-2 scenario on the release kernel (plan step T2.1b) names the lines its root task must print.
-        var required = request.RequiredLines.All(line => output.Contains(line, StringComparison.Ordinal));
+        // A layer-2 scenario on the release kernel (plan step T2.1b) names the lines its root task must print; a line a
+        // process with a terminal prints goes to the terminal's transcript (N4.3a).
+        var required = request.RequiredLines.All(line => output.Contains(line, StringComparison.Ordinal) ||
+            terminal.Contains(line, StringComparison.Ordinal));
         // A boot the runner cut off (D6.2) ran its root task until the line it was cut after, and is judged by what it
         // printed before.
         var cut = request.Expected == ExpectedOutcome.Cut && result.TimedOut && request.CutAfter is { } line &&

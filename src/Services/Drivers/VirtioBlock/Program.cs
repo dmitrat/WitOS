@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using OutWit.OS.Communication;
 using OutWit.OS.Drivers.VirtioBlock.Virtio;
+using OutWit.OS.Hardware.Virtio;
 using OutWit.OS.Hardware;
 using OutWit.OS.Resources;
 

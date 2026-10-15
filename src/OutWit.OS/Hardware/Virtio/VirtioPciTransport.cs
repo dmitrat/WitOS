@@ -1,18 +1,23 @@
 using System;
 using System.IO;
-using OutWit.OS.Hardware;
 using OutWit.OS.Resources;
 
-namespace OutWit.OS.Drivers.VirtioBlock.Virtio;
+namespace OutWit.OS.Hardware.Virtio;
 
 /// <summary>
 /// The modern virtio PCI transport of a device (virtio 1.x, §4.1): its configuration space with memory decoding and bus
 /// mastering on, and the BAR its vendor capabilities name, holding the common configuration, the notification area and
-/// the ISR status and the device-specific configuration. The kernel knows none of this; the driver reads it through the regions DEVICE_MEMORY gave it.
+/// the ISR status and the device-specific configuration. The kernel knows none of this; a driver reads it through the
+/// regions DEVICE_MEMORY gave it. The block driver wrote it (plan step D2); the console driver shares it (N4.3a).
 /// </summary>
-internal sealed class VirtioPciTransport : IDisposable
+public sealed class VirtioPciTransport : IDisposable
 {
     #region Constants
+
+    /// <summary>
+    /// VIRTIO_F_VERSION_1, bit 32 of the features: the one feature every driver requires.
+    /// </summary>
+    public const uint VERSION_1 = 1;
 
     private const byte CAPABILITY_VENDOR = 9;
     private const int COMMON = 1;
@@ -23,6 +28,27 @@ internal sealed class VirtioPciTransport : IDisposable
     private const int STATUS = 0x06;
     private const int CAPABILITIES = 0x34;
     private const int BARS = 0x10;
+
+    // The common configuration's registers (virtio 1.x, §4.1.4.3).
+    private const int DEVICE_FEATURE_SELECT = 0;
+    private const int DEVICE_FEATURE = 4;
+    private const int DRIVER_FEATURE_SELECT = 8;
+    private const int DRIVER_FEATURE = 12;
+    private const int DEVICE_STATUS = 20;
+    private const int CONFIG_GENERATION = 21;
+    private const int QUEUE_SELECT = 22;
+    private const int QUEUE_SIZE = 24;
+    private const int QUEUE_ENABLE = 28;
+    private const int QUEUE_NOTIFY_OFF = 30;
+    private const int QUEUE_DESCRIPTOR = 32;
+    private const int QUEUE_DRIVER = 40;
+    private const int QUEUE_DEVICE = 48;
+
+    // The device status bits (virtio 1.x, §2.1).
+    private const byte ACKNOWLEDGE = 1;
+    private const byte DRIVER = 2;
+    private const byte DRIVER_OK = 4;
+    private const byte FEATURES_OK = 8;
 
     #endregion
 
@@ -117,6 +143,95 @@ internal sealed class VirtioPciTransport : IDisposable
             throw;
         }
     }
+
+    /// <summary>
+    /// Resets the device and tells it a driver found it (ACKNOWLEDGE, DRIVER): the start of the initialization (virtio
+    /// 1.x, §3.1.1).
+    /// </summary>
+    public void Reset()
+    {
+        Bar.Write8(Common + DEVICE_STATUS, 0);
+        while (Bar.Read8(Common + DEVICE_STATUS) != 0)
+        {
+        }
+        Bar.Write8(Common + DEVICE_STATUS, ACKNOWLEDGE | DRIVER);
+    }
+
+    /// <summary>
+    /// Negotiates the features: VIRTIO_F_VERSION_1, which the device must offer, and those of the low 32 bits the
+    /// driver accepts that the device offers; FEATURES_OK is set and checked.
+    /// </summary>
+    /// <param name="accepted">The low feature bits the driver takes when offered.</param>
+    /// <returns>The low feature bits negotiated.</returns>
+    /// <exception cref="IOException">The device does not offer VIRTIO_F_VERSION_1 or refuses the features.</exception>
+    public uint Negotiate(uint accepted)
+    {
+        Bar.Write32(Common + DEVICE_FEATURE_SELECT, 1);
+        if ((Bar.Read32(Common + DEVICE_FEATURE) & VERSION_1) == 0)
+            throw new IOException("The device does not offer VIRTIO_F_VERSION_1.");
+        Bar.Write32(Common + DEVICE_FEATURE_SELECT, 0);
+        var features = Bar.Read32(Common + DEVICE_FEATURE) & accepted;
+        Bar.Write32(Common + DRIVER_FEATURE_SELECT, 1);
+        Bar.Write32(Common + DRIVER_FEATURE, VERSION_1);
+        Bar.Write32(Common + DRIVER_FEATURE_SELECT, 0);
+        Bar.Write32(Common + DRIVER_FEATURE, features);
+        Bar.Write8(Common + DEVICE_STATUS, ACKNOWLEDGE | DRIVER | FEATURES_OK);
+        if ((Bar.Read8(Common + DEVICE_STATUS) & FEATURES_OK) == 0)
+            throw new IOException($"The device refused the features {features:x} with VIRTIO_F_VERSION_1.");
+        return features;
+    }
+
+    /// <summary>
+    /// Tells the device the driver is ready (DRIVER_OK): the end of the initialization.
+    /// </summary>
+    public void DriverReady() => Bar.Write8(Common + DEVICE_STATUS, ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK);
+
+    /// <summary>
+    /// Quiesces the device: its status reset to zero, so that it stops all queue activity (virtio 1.x, §2.4.2).
+    /// </summary>
+    public void Quiesce() => Bar.Write8(Common + DEVICE_STATUS, 0);
+
+    /// <summary>
+    /// The configuration generation, read before and after the device-specific configuration until it holds still.
+    /// </summary>
+    public byte ConfigurationGeneration => Bar.Read8(Common + CONFIG_GENERATION);
+
+    /// <summary>
+    /// Selects a queue and reads the size the device offers for it.
+    /// </summary>
+    /// <param name="index">The queue's index.</param>
+    /// <returns>The entries the device offers; zero for a queue it has not.</returns>
+    public ushort SelectQueue(ushort index)
+    {
+        Bar.Write16(Common + QUEUE_SELECT, index);
+        return Bar.Read16(Common + QUEUE_SIZE);
+    }
+
+    /// <summary>
+    /// Sets up the selected queue: its size, the physical addresses of its three parts, and enables it; the queue's
+    /// notification offset in the BAR.
+    /// </summary>
+    /// <param name="size">The entries, at most what the device offered.</param>
+    /// <param name="descriptors">The descriptor table's physical address.</param>
+    /// <param name="driver">The available ring's physical address.</param>
+    /// <param name="device">The used ring's physical address.</param>
+    /// <returns>The offset in the BAR the driver notifies the queue at.</returns>
+    public int EnableQueue(ushort size, ulong descriptors, ulong driver, ulong device)
+    {
+        Bar.Write16(Common + QUEUE_SIZE, size);
+        Bar.Write64(Common + QUEUE_DESCRIPTOR, descriptors);
+        Bar.Write64(Common + QUEUE_DRIVER, driver);
+        Bar.Write64(Common + QUEUE_DEVICE, device);
+        var notify = Notify + (int)(Bar.Read16(Common + QUEUE_NOTIFY_OFF) * NotifyMultiplier);
+        Bar.Write16(Common + QUEUE_ENABLE, 1);
+        return notify;
+    }
+
+    /// <summary>
+    /// Reads the ISR status, which ends the interrupt's cause: bit 0 for a queue, bit 1 for a configuration change.
+    /// </summary>
+    /// <returns>The status.</returns>
+    public byte ReadInterruptStatus() => Bar.Read8(Isr);
 
     #endregion
 
