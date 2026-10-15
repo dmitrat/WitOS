@@ -3,7 +3,8 @@
 This list covers how a .NET program on WitOS behaves differently from the same program on Linux. RFC 0015 §8
 requires every absent or unsupported area to fail explicitly and to appear here. Each row names the behaviour, how a
 program observes it, and the step that verified it. Rows change only together with a check that verifies the new
-behaviour.
+behaviour. The public compatibility matrix rendered from the suite and this list is
+[Compatibility-Matrix.md](Compatibility-Matrix.md) (N4.5).
 
 | Area | On WitOS | How a program sees it | Verified by |
 | --- | --- | --- | --- |

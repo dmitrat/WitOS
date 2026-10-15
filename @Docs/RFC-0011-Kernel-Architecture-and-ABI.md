@@ -561,7 +561,7 @@ additionally use:
 | C library | `libc.so`: the C standard library, POSIX threads, mathematics, `dlopen`/`dlsym`, ELF TLS, errno; one library as in musl | musl by pin, patched only through `UpstreamPatches` (S1, S2) |
 | C++ runtime | `libunwind`, `libc++abi`, `libc++` in the Itanium ABI | LLVM by pin (S4) |
 | Dynamic loader | `ld.so`: ELF program interpreter, symbol resolution, TLS modules | with the libc (S5) |
-| WitOS capability API | `libwitos.so`: handles, channels, memory objects, waits, process creation through the process manager, device access through the device manager; the `witos_` prefix in C | WitOS's own (S6 onward) |
+| WitOS capability API | `libwitos`: handles, channels, memory objects, waits, process creation through the process manager, device access through the device manager; the `witos_` prefix in C. A static library of the sysroot (`libwitos.a`) outside ABI-2 1.0 until the first consumer outside the system layer, then `libwitos.so.1` ([ADR 0026](Implementation/ADR-0026-M6-Summary.md)) | WitOS's own (S6 onward) |
 | Managed capability API | `OutWit.OS.*` packages over `libwitos` (RFC 0002, 0005, 0006 naming) | WitOS's own (phases D, N) |
 
 The sysroot of the `*-unknown-witos` toolchain triple (steps T1, T4) is the authoritative header set of ABI-2. The
@@ -630,7 +630,8 @@ above layer 2.
 
 1. **The C library keeps musl's rule:** no symbol versioning, and an exported symbol never changes meaning or
    disappears. WitOS adds no symbols to the libc namespace; everything WitOS-specific is in `libwitos`.
-2. **`libwitos.so.1`** carries its major in the soname and ELF symbol versions `WITOS_1.0`, `WITOS_1.1`, … for
+2. **`libwitos`** is static and outside ABI-2 1.0 until it has a consumer outside the system layer (ADR 0026); shipped
+   shared, **`libwitos.so.1`** carries its major in the soname and ELF symbol versions `WITOS_1.0`, `WITOS_1.1`, … for
    additions; request structures carry a size for extension; errors are explicit codes.
 3. **`OutWit.OS.*`** follows semantic versioning and binds to `libwitos` by symbol version; standard .NET never depends
    on it (RFC 0005 §5).
