@@ -204,6 +204,7 @@ jobs:
             artifacts/runtime-witos/src/artifacts/bin/witos-${{ matrix.arch }}.Release/corehost/libhostpolicy.so
             artifacts/runtime-witos/src/artifacts/bin/microsoft.netcore.app.runtime.witos-${{ matrix.arch }}/Release/runtimes/witos-${{ matrix.arch }}/lib/*/*.dll
             artifacts/runtime-witos/src/artifacts/bin/microsoft.netcore.app.runtime.witos-${{ matrix.arch }}/Release/runtimes/witos-${{ matrix.arch }}/native/libSystem.*.so
+            artifacts/runtime-witos/compatibility-${{ matrix.arch }}.json
 
       - name: Source style
         if: matrix.arch == 'x64'
@@ -352,6 +353,104 @@ jobs:
           path: |
             artifacts/logs
             artifacts/runtime-witos/tryrun-release-8.0-*.json
+
+  windows-publish:
+    # Goal 2 literally (plan step N4.4): the .NET compatibility suite and the portable application published on Windows
+    # by the stock SDK without a RID, the same MSBuild as Visual Studio's, with a manifest of every file's bytes, for the
+    # job that runs exactly those bytes on WitOS.
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          global-json-file: global.json
+
+      - name: Build the tool
+        run: dotnet build tools/WitOS.Dev --configuration Release
+
+      - name: Publish the applications with the stock SDK and no RID
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- publish-apps --output artifacts/published-apps
+
+      - name: Upload the published applications
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: witos-published-apps-windows
+          if-no-files-found: error
+          retention-days: 3
+          path: artifacts/published-apps
+
+  published-on-windows:
+    # Goal 2 literally (plan step N4.4): exactly the bytes windows-publish uploaded run on WitOS, through the .NET
+    # install and the services the linux-host leg built, and every check of the suite must end as it ended there for
+    # the suite that leg published on Linux.
+    needs: [linux-host, windows-publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          global-json-file: global.json
+
+      - name: Install what building QEMU and running LLVM need
+        run: >-
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends
+          bison bzip2 flex gcc libglib2.0-dev libpixman-1-dev make ninja-build pkg-config python3 python3-venv xz-utils
+          zlib1g-dev
+
+      - name: Cache the pinned LLVM and QEMU releases and the built QEMU
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .tools/downloads/LLVM-20.1.8-Linux-X64.tar.xz
+            .tools/downloads/qemu-11.1.0.tar.xz
+            .tools/qemu-11.1.0
+          key: linux-ubuntu-24.04-llvm-20.1.8-1ead36b3dfcb774b-qemu-11.1.0-6ee1d1a61f682124
+
+      - name: Build host tools
+        run: dotnet build WitOS.slnx --configuration Release
+
+      - name: Extract verified LLVM, build QEMU, fetch musl, compiler-rt, the LLVM runtimes and ICU
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
+
+      - name: Download the .NET install, the services and the suite's record of witos-${{ matrix.arch }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: witos-runtime-install-${{ matrix.arch }}
+          path: artifacts/runtime-witos
+
+      - name: Download the applications published on Windows
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: witos-published-apps-windows
+          path: artifacts/published-apps
+
+      - name: The applications published on Windows, on witos-${{ matrix.arch }}
+        run: >-
+          dotnet run --project tools/WitOS.Dev --configuration Release --no-build --
+          runtime-published --arch ${{ matrix.arch }} --published artifacts/published-apps
+
+      - name: Upload the logs and the report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: witos-published-on-windows-${{ matrix.arch }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            artifacts/logs
+            artifacts/runtime-witos/compatibility-published-${{ matrix.arch }}.json
 
   boot-arm64:
     runs-on: windows-2025

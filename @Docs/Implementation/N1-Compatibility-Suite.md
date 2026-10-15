@@ -51,29 +51,64 @@ with `expectations.json`, which records, per platform, the checks expected to fa
   - **How it runs.** `runtime-witos` runs it after `runtime-devices`, and the `runtime-compatibility` command runs it
     alone.
 
+## Published on Windows, run on WitOS (N4.4)
+
+Goal 2 (Strategy §57) says that a program built on Windows with the stock SDK runs unchanged on WitOS. The scenario
+above publishes the suite on the Linux host that built the runtime; plan step N4.4 makes the claim literal.
+
+- **`publish-apps [--output <directory>]`** publishes the suite and R6's portable application on the host it runs on,
+  with the stock SDK and no RID, each from a copy of its project apart from the repository's build properties (the same
+  MSBuild as Visual Studio's "Publish" to a folder), and writes `published.json` beside them: the host, the SDK's
+  version and every file with its size and SHA-256. A Windows publish holds the Windows apphosts
+  (`DotNetCompatibility.exe`, `PortableApp.exe`), which WitOS never runs, beside the assemblies, the `deps.json` and the
+  `runtimeconfig.json`; the package carries every file as published, unchanged.
+- **`runtime-published [--arch <isa>] [--published <directory>]`** requires the directory to hold exactly the files the
+  manifest names, byte for byte, builds the `runtime-published` package (the device services, the .NET install and the
+  two applications under `/app`, each run by `apps_init`), boots it with the terminal as `runtime-compatibility`
+  boots, and then compares each check's verdict in the guest's log with the record `runtime-compatibility` wrote on this
+  runtime (`artifacts/runtime-witos/compatibility-<arch>.json`: the host that published, its SDK and each check's
+  pass, fail or not applicable). A check that ended otherwise, or ran on one side alone, fails the command; the report
+  goes to `artifacts/runtime-witos/compatibility-published-<arch>.json`. Without `--published` the command publishes
+  on this host first, a check of the tool itself.
+- **CI.** The `windows-publish` job (Windows) publishes and uploads `witos-published-apps-windows`; the
+  `published-on-windows` job, one per ISA after `linux-host` and `windows-publish`, downloads that upload beside the
+  install, the services and the record its `linux-host` leg uploaded, and runs `runtime-published` on it. Host tests
+  check the manifest, the reading of the checks, the comparison and that the workflow has both jobs.
+
 ## Results
 
-| System | Checks | Recorded differences | Unexpected |
-| --- | --- | --- | --- |
-| Windows (x64, .NET 10.0.8) | 72 | 0 | 0 |
-| Linux (x64, Ubuntu 24.04, .NET 10.0.8) | 72 | 0 | 0 |
-| WitOS x64 | 72 | 4 | 0 |
-| WitOS ARM64 | 72 | 4 | 0 |
+| System | Checks | Recorded differences | Unexpected | Not applicable |
+| --- | --- | --- | --- | --- |
+| Windows (x64, .NET 10.0.12) | 88 | 0 | 0 | 7 (the Terminal area: no terminal) |
+| Linux (x64, Ubuntu 24.04, .NET 10.0.12) | 88 | 0 | 0 | 7 |
+| WitOS x64, published on Linux | 88 | 2 | 0 | 0 |
+| WitOS ARM64, published on Linux | 88 | 2 | 0 | 0 |
+| WitOS x64, published on Windows (N4.4) | 88 | 2 | 0 | 0 — each check as for the Linux publish |
+| WitOS ARM64, published on Windows (N4.4) | 88 | 2 | 0 | 0 — each check as for the Linux publish |
 
-N1 ran 64 checks; R4.3 added the eight of Globalization, which pass on every system once WitOS has ICU.
+N1 ran 64 checks; R4.3 added the eight of Globalization, which pass on every system once WitOS has ICU; N4.1 added
+`TimeZones` and a named mutex that works through `/tmp`; N4.2 the processes (`ProcessPipes`, `ProcessKill`, and
+`ProcessStart` passing); N4.3 the Terminal area, which runs where the input is a terminal (the runner types in the
+guest) and reports its checks not applicable on the hosts.
 
-The four differences on WitOS, each recorded in `expectations.json` and in `Compatibility-Differences.md`:
+The two differences on WitOS, each recorded in `expectations.json` and in `Compatibility-Differences.md`:
 
 | Check | What WitOS does | Why |
 | --- | --- | --- |
 | `Platform.KnownOperatingSystem` | None of `IsWindows`, `IsLinux`, `IsMacOS` and `IsFreeBSD` | WitOS is a new operating system. An application that infers Windows from "not Linux and not macOS" misbehaves, a cost ADR 0024 accepts and RFC 0015 §1 records |
-| `Platform.ProcessStart` | `PlatformNotSupportedException` | `System.Diagnostics.Process` waits for the libc's `posix_spawn` over the process manager (RFC 0015 §8) |
 | `FileIO.Watcher` | `PlatformNotSupportedException` | The namespace service sends no change notifications |
-| `Synchronization.NamedMutex` | `IOException`: `stat("/tmp/")` is `ENOENT` | .NET keeps named synchronization objects under the fixed `/tmp/.dotnet`, whatever `TMPDIR` says, and WitOS has no `/tmp` |
+
+Differences that left: `Platform.ProcessStart` (N4.2: `posix_spawn` over the process manager) and
+`Synchronization.NamedMutex` (N4.1: `/tmp` in the namespace service's memory).
 
 Every other check behaves as on Windows and Linux, on both ISAs. That covers tasks, threads, timers, exceptions from
-hardware faults, emitted code, collectible contexts, the GC, synchronization and the BCL's file APIs over the ext4
-volume.
+hardware faults, emitted code, collectible contexts, the GC, synchronization, the BCL's file APIs over the ext4
+volume, time zones, processes with their redirected streams and the terminal.
+
+The applications published on Windows (N4.4: `publish-apps` on the development machine, SDK 10.0.300, 11 files with
+the Windows apphosts the guest never runs) ran in the guest on both ISAs as exactly those bytes, verified by the
+manifest, and every one of the suite's 88 checks ended as for the publish on Linux; the portable application passed
+its 12 checks beside it. CI's `published-on-windows` jobs repeat it on each ISA.
 
 ## Limits kept explicit
 

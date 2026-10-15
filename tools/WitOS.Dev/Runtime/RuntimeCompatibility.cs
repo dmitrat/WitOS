@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using WitOS.Dev.Host;
 using WitOS.Dev.Kernel;
 
 namespace WitOS.Dev.Runtime;
@@ -17,6 +20,11 @@ internal static class RuntimeCompatibility
     /// </summary>
     public const string SUITE = "tests/DotNetCompatibility";
 
+    // A check's line: its id and its verdict; the summary line's "subject" holds spaces, so it is no id.
+    private static readonly Regex CHECK_LINE = new(@"\[N1\] (?<id>[A-Za-z0-9_]+\.[A-Za-z0-9_]+): (?<verdict>pass|fail|not applicable)\b");
+
+    private static readonly JsonSerializerOptions JSON = new() { WriteIndented = true };
+
     #endregion
 
     #region Functions
@@ -30,9 +38,59 @@ internal static class RuntimeCompatibility
     /// <returns>When the suite ran.</returns>
     public static async Task RunAsync(string root, KernelArchitecture architecture)
     {
+        RuntimeApps.ForgetLogs(root, architecture, KernelImageBuilder.RUNTIME_COMPATIBILITY_SCENARIO);
         await RuntimeApps.BootAsync(root, architecture, KernelImageBuilder.RUNTIME_COMPATIBILITY_SCENARIO, RequiredLines(architecture), 1800,
             terminal: Script());
-        Console.WriteLine($"Compatibility on witos-{architecture.Name}: the suite ran unchanged through dotnet, every difference as recorded.");
+        // N4.4: the record of this run, which runtime-published compares a publish of another host against. The suite
+        // writes to the terminal (N4.3), so its lines are in the transcript, not in the serial log.
+        var checks = ReadChecks(await RuntimeApps.GuestLinesAsync(root, architecture, KernelImageBuilder.RUNTIME_COMPATIBILITY_SCENARIO));
+        if (checks.Count == 0)
+            throw new InvalidOperationException("The suite's checks were not found in the guest's serial log or terminal transcript.");
+        var sdk = (await Processes.RunAsync("dotnet", ["--version"], root)).Output.Trim();
+        var record = new CompatibilityRecord(architecture.Name, RuntimePublished.HostName(), sdk, checks);
+        var path = RecordPath(root, architecture);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(record, JSON));
+        Console.WriteLine($"Compatibility on witos-{architecture.Name}: the suite ran unchanged through dotnet, every difference as recorded " +
+                          $"({checks.Count} checks recorded in {path}).");
+    }
+
+    /// <summary>
+    /// The verdict of each check in a guest's log: pass, fail or not applicable, by the check's id.
+    /// </summary>
+    /// <param name="lines">The log's lines.</param>
+    /// <returns>The verdicts; the last line of a check that printed twice.</returns>
+    public static IReadOnlyDictionary<string, string> ReadChecks(IEnumerable<string> lines)
+    {
+        var checks = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var line in lines)
+        {
+            var match = CHECK_LINE.Match(line);
+            if (match.Success)
+                checks[match.Groups["id"].Value] = match.Groups["verdict"].Value;
+        }
+        return checks;
+    }
+
+    /// <summary>
+    /// The record of the suite's last run on an architecture.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>The record's path.</returns>
+    public static string RecordPath(string root, KernelArchitecture architecture) =>
+        Path.Combine(root, "artifacts", "runtime-witos", $"compatibility-{architecture.Name}.json");
+
+    /// <summary>
+    /// Reads the record of the suite's last run on an architecture.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>The record, or null when no run wrote one.</returns>
+    public static async Task<CompatibilityRecord?> ReadRecordAsync(string root, KernelArchitecture architecture)
+    {
+        var path = RecordPath(root, architecture);
+        return File.Exists(path) ? JsonSerializer.Deserialize<CompatibilityRecord>(await File.ReadAllTextAsync(path)) : null;
     }
 
     /// <summary>
@@ -82,6 +140,12 @@ internal static class RuntimeCompatibility
     #endregion
 
     #region Nested Types
+
+    /// <summary>
+    /// The record of the suite's run on witos (N4.4): the architecture, the host that published the suite and its SDK,
+    /// and each check's verdict.
+    /// </summary>
+    public sealed record CompatibilityRecord(string Architecture, string PublishedOn, string Sdk, IReadOnlyDictionary<string, string> Checks);
 
     /// <summary>
     /// The prompts the suite's Terminal checks print (tests/DotNetCompatibility/Terminal/TerminalChecks.cs), which the
