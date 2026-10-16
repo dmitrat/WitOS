@@ -37,6 +37,11 @@ internal static class RuntimePowerShell
     public const string EVEN = "even";
 
     /// <summary>
+    /// The word before the date in the scenario's output: "date=2026-10-16", of which the century is required.
+    /// </summary>
+    public const string DATE = "date";
+
+    /// <summary>
     /// The prompt PowerShell shows in the data volume's root, which the runner types after.
     /// </summary>
     public const string PROMPT = "PS /data>";
@@ -100,7 +105,7 @@ internal static class RuntimePowerShell
         // The pipeline's count as one plain word: PowerShell colors its formatted output on a terminal (PSStyle), so a
         // required line never spans a label and its value.
         $"{PWSH} -NonInteractive -Command '{EVEN}=' + (1..10 | Where-Object {{ $_ % 2 -eq 0 }} | Measure-Object).Count; " +
-            $"Set-Content /data/pwsh.txt {WRITTEN}; Get-Content /data/pwsh.txt; Get-Date; Get-ChildItem /data",
+            $"Set-Content /data/pwsh.txt {WRITTEN}; Get-Content /data/pwsh.txt; '{DATE}=' + (Get-Date).ToString('yyyy-MM-dd'); Get-ChildItem /data",
         PWSH
     ];
 
@@ -132,7 +137,7 @@ internal static class RuntimePowerShell
         "Platform",
         $"{EVEN}=5",
         WRITTEN,
-        "DateTime    :",
+        $"{DATE}=20",
         "Directory: /data",
         PROMPT,
         "[APPS-INIT] /dotnet/dotnet /data/pwsh/pwsh.dll exited with 0",
