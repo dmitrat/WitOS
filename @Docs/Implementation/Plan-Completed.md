@@ -23,6 +23,7 @@
 | [S — Субстрат прослойки](#s--субстрат-прослойки) | S1–S7 | 2026-10-10 |
 | [R — Рантайм .NET Unix-формы](#r--рантайм-net-unix-формы) | R1–R8 | 2026-10-12 (R4.2 после D6) |
 | [D — Устройства и хранилище (M4/M5)](#d--устройства-и-хранилище-m4m5) | D1–D6 | 2026-10-12 |
+| [V — Третья ISA](#v--третья-isa) | V0 (V1–V3 открыты в плане) | V0 — 2026-10-16 |
 | [N — Стандартный .NET (M6)](#n--стандартный-net-m6) | N1–N4: фаза завершена, M6 выполнен, Gate B заявлен | 2026-10-15 (N4.5) |
 
 ## 5. Фазы (выполненные шаги)
@@ -1017,3 +1018,24 @@
     Roslyn 20 715 тестов как на хосте (99 не запускаются набором) и serialization-numerics 22 077 тестов как на хосте (1359 не запускаются), на обеих ISA. Первый прогон Roslyn нашёл предел libc: файлов общей памяти (а сборка с тома, отображённая
     разделяемо, — такой файл) было 64, стало 1024, как дескрипторов. Хост: 201 тест OutWit.OS (том в памяти, режимы и
     времена сеанса, ext4 через debugfs), пин tzdata.
+
+### V — Третья ISA
+
+- [x] **V0** Измерение тулчейна и стенда до первой строки кода ядра (2026-10-16, PR #130;
+  [V0-RISC-V-Measurement.md](@Docs/Implementation/V0-RISC-V-Measurement.md)). Стенд: `qemu-system-riscv64 -M virt -bios default`
+  пина QEMU 11.1.0 с EDK II из `edk2-riscv-code.fd` (pflash) под `-icount shift=2` доходит до UEFI Shell v2.2 над OpenSBI 1.8.1;
+  дерево устройств платы: PLIC, CLINT, UART 16550 (0x10000000), PCI ECAM (0x30000000), `sifive,test` (выход), goldfish RTC,
+  ISA `rv64imafdch` с `sstc`, `zicbom`/`zicboz`, `sv57`. Тулчейн: clang 20.1.8 компилирует riscv64 (ELF; для
+  `riscv64-unknown-windows` тоже ELF — COFF-бэкенда для RISC-V в LLVM нет), `lld-link` отвечает
+  `unknown /machine argument: riscv64`, так что правило T3 для третьей ISA уточнено: загрузчик и ядро — ELF (PIE, одни
+  относительные релокации), конвертируемый инструментом в PE32+ (машина 0x5064) через `PEBuilder` .NET 10, где
+  `Machine.RiscV64` есть. Общее ядро: все 37 исходников `kernel-boot`, `kernel-foundation`, `kernel-common` и `boot-uefi`
+  компилируются для `riscv64-unknown-elf` (`-fsyntax-only`, опции ядра) с `arch_types.h` ARM64 в 18 строк; единственное
+  условие по ISA в общих заголовках — блок регистров `thread_context.h`; контракт порта — 74 функции `wit_arch_*` и 21
+  `wit_platform_*`; ARM64 стоит 3 097 строк arch+platform и 196 строк self-test. Слой 2 и рантайм: musl 1.2.5 несёт
+  `arch/riscv64` с таблицей asm-generic плюс `riscv_flush_icache` (259), которого `__clear_cache` compiler-rt зовёт через
+  `ecall` → `__wit_syscall` отвечает `CODE_PUBLISH`; `release/10.0` знает riscv64 в `build.sh`, `tryrun.cmake`, PAL, VM, JIT и
+  NativeAOT (ILC и `_NativeAotSupportedArch`), поэтому службы ADR 0025 — вопрос сборки, не наличия порта. В инструменте и CI
+  две ISA предполагают 16 файлов инструмента и 4 файла тестов, `Toolchain.QEMU_CONFIGURE` (сборка QEMU для Linux без
+  `riscv64-softmmu`), `KernelArchitecture.Find`, задания по ISA. Решения для V1 — §6 документа; сборка CoreCLR и NativeAOT
+  для `witos-riscv64` — первое измерение V2.
