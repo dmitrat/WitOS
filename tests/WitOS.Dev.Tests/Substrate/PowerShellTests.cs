@@ -46,8 +46,12 @@ public sealed class PowerShellTests
         Assert.That(script.Where(input => input.After == RuntimePowerShell.PROMPT).All(input => input.Text.EndsWith('\r')), Is.True,
             "PSReadLine reads the terminal raw, where Enter is CR");
         Assert.That(script[^1].Text, Is.EqualTo("exit\r"));
-        Assert.That(RuntimePowerShell.RequiredLines(WitOS.Dev.Kernel.KernelArchitecture.X64), Does.Contain(RuntimePowerShell.PROMPT));
+        var required = RuntimePowerShell.RequiredLines(WitOS.Dev.Kernel.KernelArchitecture.X64, "7.6.7");
+        Assert.That(required, Does.Contain(RuntimePowerShell.PROMPT));
+        Assert.That(required, Does.Contain("PowerShell 7.6.7"), "The mark's panel names the shell");
+        Assert.That(required, Does.Contain(RuntimePowerShell.EMBLEM_ROW));
         Assert.That(RuntimePowerShell.Commands().Count(command => command.StartsWith(RuntimePowerShell.PWSH, StringComparison.Ordinal)), Is.EqualTo(3));
+        Assert.That(RuntimePowerShell.Commands()[^1], Is.EqualTo(RuntimePowerShell.PWSH), "The interactive session runs the profile");
     }
 
     #endregion

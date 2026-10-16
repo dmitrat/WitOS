@@ -761,6 +761,8 @@ internal static class RuntimeWitos
             .. await Tzdata.PackageFilesAsync(root),
             // terminfo (C1.3), compiled by tic into the entries System.Console reads under /usr/share/terminfo, as on Linux.
             .. await Terminfo.PackageFilesAsync(root),
+            // The console marks (C1.4), which an interactive session's profile renders; nothing of the system prints them.
+            .. ConsoleLogo.PackageFiles(root),
             ("etc/dotnet/install_location", installLocation), ("etc/passwd", passwd), ("etc/group", group), ("etc/environment", environment),
             ("dotnet/dotnet", Path.Combine(corehost, "dotnet")),
             ($"dotnet/host/fxr/{version}/libhostfxr.so", Path.Combine(corehost, "libhostfxr.so")),

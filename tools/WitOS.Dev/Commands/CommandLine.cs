@@ -160,6 +160,7 @@ internal static class CommandLine
             RuntimeCompatibility.RunAsync),
         new CommandPublishApps(),
         new CommandPublished(),
+        new CommandShell(),
         new CommandAction("compatibility-matrix",
             "Write the public compatibility matrix from the suite's checks, expectations.json and build/compatibility-matrix.json (N4.5)",
             CompatibilityMatrix.WriteAsync),

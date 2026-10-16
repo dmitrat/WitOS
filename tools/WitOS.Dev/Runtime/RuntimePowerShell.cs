@@ -9,8 +9,8 @@ namespace WitOS.Dev.Runtime;
 /// archive with libpsl-native built for the ISA, lies on the data volume under /data/pwsh and runs as
 /// <c>dotnet /data/pwsh/pwsh.dll</c> beside the device services, the .NET install and the terminal; /bin/init runs it
 /// twice without a terminal session (the version table; a pipeline, files on the volume, the date and a listing) and
-/// then interactively, where the runner types into PSReadLine on its emulated terminal. The required lines are in the
-/// serial log or in the terminal's transcript.
+/// then interactively, where the session's profile renders the console mark (C1.4) and the runner types into PSReadLine
+/// on its emulated terminal. The required lines are in the serial log or in the terminal's transcript.
 /// </summary>
 internal static class RuntimePowerShell
 {
@@ -22,9 +22,15 @@ internal static class RuntimePowerShell
     public const string VOLUME_DIRECTORY = "pwsh";
 
     /// <summary>
-    /// How /bin/init starts PowerShell: the install's dotnet on pwsh.dll, without the banner and the profile.
+    /// How /bin/init starts an interactive PowerShell: the install's dotnet on pwsh.dll without PowerShell's own banner,
+    /// with the profile that renders WitOS's mark (C1.4).
     /// </summary>
-    public const string PWSH = "/dotnet/dotnet /data/pwsh/pwsh.dll -NoLogo -NoProfile";
+    public const string PWSH = "/dotnet/dotnet /data/pwsh/pwsh.dll -NoLogo";
+
+    /// <summary>
+    /// How /bin/init runs one command: no profile, no session, the command's text after it.
+    /// </summary>
+    public const string BATCH = PWSH + " -NoProfile -NonInteractive -Command";
 
     /// <summary>
     /// The text the scenario writes to a file on the volume through Set-Content and reads back with Get-Content.
@@ -45,6 +51,12 @@ internal static class RuntimePowerShell
     /// The prompt PowerShell shows in the data volume's root, which the runner types after.
     /// </summary>
     public const string PROMPT = "PS /data>";
+
+    /// <summary>
+    /// The first row of the emblem as the profile draws it in colour (@Docs/WitOS-Console-Logos.md section 3.2): every tier
+    /// one shade, the layers told apart by colour, which the transcript keeps between the tiers' escape sequences.
+    /// </summary>
+    public const string EMBLEM_ROW = "████          ████          ████";
 
     /// <summary>
     /// The guest's memory: PowerShell's engine and its modules through the JIT need more than the suites' 512 MiB.
@@ -70,13 +82,8 @@ internal static class RuntimePowerShell
         var scenario = KernelImageBuilder.RUNTIME_POWERSHELL_SCENARIO;
         var output = Path.Combine(root, "artifacts", architecture.Name, scenario);
         Directory.CreateDirectory(output);
-        var package = (await RuntimeApps.PackageAsync(root, output, architecture, [], Commands())).ToList();
-        // Until upstream guards its login-shell check with Platform.IsMacOS (C1.1: every Unix that is not Linux takes
-        // the macOS path and calls sysctl), the variable pwsh's own re-exec sets skips the check for this scenario.
-        var environmentIndex = package.FindIndex(file => file.Name == "etc/environment");
-        var environment = Path.Combine(output, "environment");
-        await File.WriteAllTextAsync(environment, await File.ReadAllTextAsync(package[environmentIndex].Source) + "__PWSH_LOGIN_CHECKED=1\n");
-        package[environmentIndex] = ("etc/environment", environment);
+        var pin = await PowerShell.ReadPinAsync(root);
+        var package = await PackageAsync(root, output, architecture, Commands());
         var keep = Path.Combine(output, "keep");
         await File.WriteAllTextAsync(keep, "");
         var volume = new List<(string Path, string Source)> { ("home/.keep", keep) };
@@ -87,24 +94,46 @@ internal static class RuntimePowerShell
             if (File.Exists(path))
                 File.Delete(path);
         }
-        await RuntimeApps.BootAsync(root, architecture, scenario, RequiredLines(architecture), TIMEOUT_SECONDS, volume, DISK_BYTES, MEMORY_MIB, package,
-            Script());
-        Console.WriteLine($"PowerShell on witos-{architecture.Name}: {(await PowerShell.ReadPinAsync(root)).Version} ran unchanged from the data volume, " +
-            "non-interactively and under PSReadLine on the terminal.");
+        await RuntimeApps.BootAsync(root, architecture, scenario, RequiredLines(architecture, pin.Version), TIMEOUT_SECONDS, volume, DISK_BYTES, MEMORY_MIB,
+            package, Script());
+        Console.WriteLine($"PowerShell on witos-{architecture.Name}: {pin.Version} ran unchanged from the data volume, non-interactively and under " +
+            "PSReadLine on the terminal, with the console mark of its profile.");
+    }
+
+    /// <summary>
+    /// The package of a PowerShell session: the device services, the install and apps_init with the commands, and the
+    /// environment with the variable that skips PowerShell's login-shell check. Until upstream guards that check with
+    /// Platform.IsMacOS (C1.1: every Unix that is not Linux takes the macOS path and calls sysctl), the variable pwsh's own
+    /// re-exec sets skips it.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">Artifact directory of the scenario.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="commands">The lines of /etc/apps.</param>
+    /// <returns>Package paths and the files to place there.</returns>
+    public static async Task<IReadOnlyList<(string Name, string Source)>> PackageAsync(string root, string output, KernelArchitecture architecture,
+        IReadOnlyList<string> commands)
+    {
+        var package = (await RuntimeApps.PackageAsync(root, output, architecture, [], commands)).ToList();
+        var environmentIndex = package.FindIndex(file => file.Name == "etc/environment");
+        var environment = Path.Combine(output, "environment");
+        await File.WriteAllTextAsync(environment, await File.ReadAllTextAsync(package[environmentIndex].Source) + "__PWSH_LOGIN_CHECKED=1\n");
+        package[environmentIndex] = ("etc/environment", environment);
+        return package;
     }
 
     /// <summary>
     /// The commands /bin/init runs: PowerShell's version table, then one line of the acceptance's cmdlets, then an
-    /// interactive session.
+    /// interactive session with the profile.
     /// </summary>
     /// <returns>The lines of /etc/apps.</returns>
     public static string[] Commands() =>
     [
         "cd /data",
-        $"{PWSH} -NonInteractive -Command $PSVersionTable",
-        // The pipeline's count as one plain word: PowerShell colors its formatted output on a terminal (PSStyle), so a
-        // required line never spans a label and its value.
-        $"{PWSH} -NonInteractive -Command '{EVEN}=' + (1..10 | Where-Object {{ $_ % 2 -eq 0 }} | Measure-Object).Count; " +
+        $"{BATCH} $PSVersionTable",
+        // The pipeline's count and the date as plain words: PowerShell colors its formatted output on a terminal (PSStyle)
+        // and formats a date by what came before it, so a required line never spans a label and its value.
+        $"{BATCH} '{EVEN}=' + (1..10 | Where-Object {{ $_ % 2 -eq 0 }} | Measure-Object).Count; " +
             $"Set-Content /data/pwsh.txt {WRITTEN}; Get-Content /data/pwsh.txt; '{DATE}=' + (Get-Date).ToString('yyyy-MM-dd'); Get-ChildItem /data",
         PWSH
     ];
@@ -126,11 +155,13 @@ internal static class RuntimePowerShell
 
     /// <summary>
     /// The lines the scenario requires, in the serial log or the transcript: the version table with WitOS's name, the
-    /// pipeline's count, the file's text, the date, the listing, the interactive prompt, and every pwsh exiting with 0.
+    /// pipeline's count, the file's text, the date, the listing, the console mark the profile drew with the shell's
+    /// version in its panel, the interactive prompt, and every pwsh exiting with 0.
     /// </summary>
     /// <param name="architecture">Target architecture.</param>
+    /// <param name="version">PowerShell's version, which the mark's panel names.</param>
     /// <returns>The required lines.</returns>
-    public static string[] RequiredLines(KernelArchitecture architecture) =>
+    public static string[] RequiredLines(KernelArchitecture architecture, string version) =>
     [
         "PSVersion",
         "WitOS",
@@ -139,6 +170,8 @@ internal static class RuntimePowerShell
         WRITTEN,
         $"{DATE}=20",
         "Directory: /data",
+        EMBLEM_ROW,
+        $"PowerShell {version}",
         PROMPT,
         "[APPS-INIT] /dotnet/dotnet /data/pwsh/pwsh.dll exited with 0",
         "[APPS-INIT] 3 commands, 0 failed"

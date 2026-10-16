@@ -82,5 +82,10 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     /// </summary>
     public IReadOnlyList<Host.TerminalInput>? Terminal { get; init; }
 
+    /// <summary>
+    /// The guest's terminal on the host's console instead of a script (C1.4, the shell command): the person types.
+    /// </summary>
+    public bool InteractiveTerminal { get; init; }
+
     #endregion
 }

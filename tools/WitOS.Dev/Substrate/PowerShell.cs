@@ -152,6 +152,9 @@ internal static class PowerShell
         var files = Directory.EnumerateFiles(tree, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
             .Select(file => ($"{directory}/{Path.GetRelativePath(tree, file).Replace('\\', '/')}", file)).ToList();
         files.Add(($"{directory}/{NATIVE_LIBRARY}", await BuildNativeAsync(root, architecture)));
+        // The session banner's profile (C1.4): $PSHOME/profile.ps1, which every interactive session runs; WitOS's, not
+        // the archive's, and the one file beside the archive's.
+        files.Add(($"{directory}/profile.ps1", Path.Combine(root, Runtime.ConsoleLogo.PROFILE)));
         return files;
     }
 
