@@ -48,8 +48,10 @@ internal static class Terminfo
     {
         var pin = JsonSerializer.Deserialize<NcursesPin>(await File.ReadAllTextAsync(Path.Combine(root, LOCK)),
             new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? throw new InvalidDataException("Missing ncurses pin.");
+        // GNU's mirror redirector, as GNU asks downloads to use: ftp.gnu.org itself refuses repeated requests. The bytes
+        // are the pin's hash whatever mirror answers.
         if (!Regex.IsMatch(pin.Name, @"^ncurses-[0-9]+\.[0-9]+$") || !Regex.IsMatch(pin.Sha256, "^[0-9a-f]{64}$") ||
-            pin.Url != $"https://ftp.gnu.org/gnu/ncurses/{pin.Name}.tar.gz")
+            pin.Url != $"https://ftpmirror.gnu.org/ncurses/{pin.Name}.tar.gz")
             throw new InvalidDataException("Unsupported ncurses pin.");
         return pin;
     }

@@ -32,7 +32,7 @@ public sealed class PowerShellTests
     {
         var pin = await Terminfo.ReadPinAsync(TestEnvironment.Root);
         Assert.That(pin.Name, Does.Match(@"^ncurses-[0-9]+\.[0-9]+$"));
-        Assert.That(pin.Url, Is.EqualTo($"https://ftp.gnu.org/gnu/ncurses/{pin.Name}.tar.gz"));
+        Assert.That(pin.Url, Is.EqualTo($"https://ftpmirror.gnu.org/ncurses/{pin.Name}.tar.gz"), "GNU's mirror redirector; the bytes are the hash's");
         Assert.That(pin.Sha256, Does.Match("^[0-9a-f]{64}$"));
         Assert.That(Terminfo.DIRECTORY, Is.EqualTo("usr/share/terminfo"));
         Assert.That(Terminfo.TERM, Is.EqualTo("xterm-256color"));
