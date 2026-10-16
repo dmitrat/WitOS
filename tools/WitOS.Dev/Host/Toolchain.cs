@@ -462,6 +462,8 @@ internal static class Toolchain
         Console.WriteLine($"Ready: {await Substrate.LibcTestSuite.PrepareAsync(root)}");
         Console.WriteLine($"Ready: {await Substrate.Icu.PrepareAsync(root)}");
         Console.WriteLine($"Ready: {await Substrate.Tzdata.PrepareAsync(root)}");
+        Console.WriteLine($"Ready: {await Substrate.Terminfo.PrepareAsync(root)}");
+        Console.WriteLine($"Ready: {await Substrate.PowerShell.PrepareAsync(root)}");
     }
 
     /// <summary>
