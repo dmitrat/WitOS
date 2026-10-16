@@ -176,7 +176,11 @@ PowerShell остаётся обычным заменяемым приложен
     первая гипотеза именно эта); в инструменте появляется управляемый эмулятор VT (один код: в C2 он же рисует экран в
     госте), так что runner судит экран терминала, а не поток байтов, и печатает ввод по состоянию экрана. Две заявки
     upstream в PowerShell: проверка login-shell идёт по пути macOS (`sysctl`) на любом Unix, кроме Linux, и корневой диск
-    без `DriveInfo`.
+    без `DriveInfo`. **Часть a (точки монтирования и HOME) сделана** в PR #132 (2026-10-16): libc отдаёт `/etc/mtab`,
+    `pal_mount.c` для `TARGET_WITOS` читает его в обоих наборах, `HOME=/data/home`, который служба пространства имён
+    создаёт при монтировании `/data`, проверка `FileIO.LogicalDrives` в наборе N1 (89 проверок) проходит в госте на
+    обеих ISA, а pwsh выполняет конвейер, `Set-Content`/`Get-Content`, `Get-Date` и `Get-ChildItem` на томе; остаётся
+    часть b — терминал под PSReadLine.
   - [ ] **C1.3** Сценарий `runtime-powershell` (после `runtime-terminal`): `$PSVersionTable` (`Platform` — `Unix`, `OS` —
     строка WitOS), `1 + 2`, `Get-ChildItem /data`, `Get-Date` с поясом, конвейер `1..10 | Where-Object | Measure-Object`,
     `Get-Content`/`Set-Content` на ext4, `Import-Module PSReadLine` и правка строки клавишами, `dotnet App.dll` из pwsh с
