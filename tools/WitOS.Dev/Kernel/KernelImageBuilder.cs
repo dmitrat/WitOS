@@ -284,8 +284,10 @@ internal static class KernelImageBuilder
             : [];
         var bootPackage = await BootPackage.BuildAsync(output, scenario is LIBC_SCENARIO or SPAWN_SCENARIO or PROCESS_SCENARIO,
             programs);
-        // The root task's flat image (K4): every kernel, release or self-test, starts it from the boot disk.
-        var rootTask = scenario == LIBC_SCENARIO ? await Substrate.MuslLibc.BuildRootAsync(root, output, architecture, "libc_hello.c")
+        // The root task's flat image (K4): every kernel, release or self-test, starts it from the boot disk — except on
+        // an ISA whose port has no user space yet (V1.1), whose disk carries none and whose kernel boots alone.
+        var rootTask = architecture.KernelOnly ? null
+            : scenario == LIBC_SCENARIO ? await Substrate.MuslLibc.BuildRootAsync(root, output, architecture, "libc_hello.c")
             : scenario == LIBC_TEST_SCENARIO ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
             : scenario == CXX_SCENARIO ? await Substrate.LlvmRuntimes.BuildRootAsync(root, output, architecture)
             : scenario == SPAWN_SCENARIO ? await Substrate.LibWitos.BuildRootAsync(root, output, architecture)
@@ -305,7 +307,8 @@ internal static class KernelImageBuilder
         }
 
         var disk = Path.Combine(output, $"WitOS-{architecture.Name}.img");
-        FatImage.Create(disk, await File.ReadAllBytesAsync(efi), bootPackage, architecture.EfiName, await File.ReadAllBytesAsync(rootTask));
+        FatImage.Create(disk, await File.ReadAllBytesAsync(efi), bootPackage, architecture.EfiName,
+            rootTask is null ? null : await File.ReadAllBytesAsync(rootTask));
         await File.WriteAllTextAsync(Path.Combine(output, "build.txt"),
             $"Build: {buildId}\nScenario: {scenario}\nKernel compiler: {KernelCompiler(architecture)}\n" +
             $"QEMU: {Toolchain.QEMU_VERSION}\n");
@@ -319,7 +322,8 @@ internal static class KernelImageBuilder
 
     // The kernel on clang (plan step T3): C17 for the architecture's kernel triple, freestanding with no header but the
     // kernel's own, the compiler's helpers in assembly (compiler.S), no optimization as MSVC's /Od was, CodeView debug
-    // records for the linker's PDB; the assembly is GNU syntax through clang's integrated assembler.
+    // records for the linker's PDB (DWARF for an ELF-linked kernel, V1); the assembly is GNU syntax through clang's
+    // integrated assembler.
     private static async Task<List<string>> CompileKernelAsync(string root, string output, string scenario, bool selfTest,
         KernelTarget target, KernelArchitecture architecture)
     {
@@ -332,7 +336,7 @@ internal static class KernelImageBuilder
             List<string> options =
             [
                 $"--target={architecture.KernelTriple}", "-c", "-ffreestanding", "-nostdinc", "-fno-stack-protector", "-O0", "-g",
-                "-gcodeview", "-Wall", "-Wextra", "-Werror"
+                .. architecture.ElfImage ? [] : (string[])["-gcodeview"], .. architecture.KernelCompileOptions, "-Wall", "-Wextra", "-Werror"
             ];
             options.AddRange(target.Includes.Concat(layer.Includes).Select(include => "-I" + Path.Combine(root, include)));
             options.Add("-I" + output);
@@ -357,7 +361,7 @@ internal static class KernelImageBuilder
     }
 
     private static string KernelCompiler(KernelArchitecture architecture) =>
-        $"clang {Toolchain.LLVM_VERSION} for {architecture.KernelTriple}, lld-link";
+        $"clang {Toolchain.LLVM_VERSION} for {architecture.KernelTriple}, {(architecture.ElfImage ? "ld.lld, ELF converted to PE32+" : "lld-link")}";
 
     private static async Task RequireReleaseMapAsync(string map)
     {
@@ -372,17 +376,35 @@ internal static class KernelImageBuilder
         KernelArchitecture architecture)
     {
         var efi = Path.Combine(output, architecture.EfiName);
-        // /pdbaltpath:%_PDB% records the PDB's name alone, so that an image does not depend on the directory or the
-        // host it was built on (plan step T2.1a).
-        List<string> linkArgs =
-        [
-            "/nologo", "/subsystem:efi_application", "/entry:efi_main", "/nodefaultlib", $"/machine:{architecture.LinkMachine}",
-            "/fixed:no", .. architecture.LinkOptions, "/incremental:no", "/debug:full", "/Brepro", "/pdbaltpath:%_PDB%",
-            $"/out:{efi}", $"/pdb:{Path.Combine(output, "WitOS.pdb")}", $"/map:{Path.Combine(output, "WitOS.map")}"
-        ];
-        linkArgs.AddRange(objects);
-        // The pinned lld-link takes link.exe's options (plan step T3).
-        await Processes.RequireSuccessAsync(Toolchain.LldLink(root), linkArgs, root);
+        var map = Path.Combine(output, "WitOS.map");
+        if (architecture.LinkerScript is { } script)
+        {
+            // An ELF-linked kernel (V1.1): one position-independent ELF with relative relocations alone, each loadable
+            // segment on its own pages and the image's first page left to the headers (the script), which the tool
+            // converts into the PE32+ with a base relocation table the firmware loads.
+            var elf = Path.Combine(output, "WitOS.elf");
+            List<string> elfArgs =
+            [
+                "-pie", "--no-dynamic-linker", "-z", "separate-loadable-segments", "-z", "max-page-size=4096", "-z", "norelro",
+                "--build-id=none", "-T", Path.Combine(root, script), "-e", "efi_main", "-Map", map, "-o", elf, .. objects
+            ];
+            await Processes.RequireSuccessAsync(Toolchain.Lld(root), elfArgs, root);
+            await File.WriteAllBytesAsync(efi, ElfToPe.Convert(await File.ReadAllBytesAsync(elf), architecture.ElfMachine, (ushort)architecture.Machine));
+        }
+        else
+        {
+            // /pdbaltpath:%_PDB% records the PDB's name alone, so that an image does not depend on the directory or the
+            // host it was built on (plan step T2.1a).
+            List<string> linkArgs =
+            [
+                "/nologo", "/subsystem:efi_application", "/entry:efi_main", "/nodefaultlib", $"/machine:{architecture.LinkMachine}",
+                "/fixed:no", .. architecture.LinkOptions, "/incremental:no", "/debug:full", "/Brepro", "/pdbaltpath:%_PDB%",
+                $"/out:{efi}", $"/pdb:{Path.Combine(output, "WitOS.pdb")}", $"/map:{map}"
+            ];
+            linkArgs.AddRange(objects);
+            // The pinned lld-link takes link.exe's options (plan step T3).
+            await Processes.RequireSuccessAsync(Toolchain.LldLink(root), linkArgs, root);
+        }
 
         using var file = File.OpenRead(efi);
         using var pe = new PEReader(file);

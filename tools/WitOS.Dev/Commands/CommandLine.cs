@@ -39,6 +39,9 @@ internal static class CommandLine
             new BootRequest("release-128", 128, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release },
             new BootRequest("release-512", 512, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release }
         ]),
+        new CommandAction("riscv64-loader",
+            "Build the RISC-V kernel image, a position-independent ELF the tool converts to PE32+, and boot it under EDK II over OpenSBI to the bring-up's exit through the board's test finisher (V1.1)",
+            RiscV64Port.BootLoaderAsync),
         new CommandScenario("libc", "Build the pinned musl over ABI-1 and boot the first libc program as the root task (S1.1)",
             KernelImageBuilder.LIBC_SCENARIO,
             architecture => [new BootRequest("libc-256", 256, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release, RequiredLines = [architecture.LibcPassedLine] }]),

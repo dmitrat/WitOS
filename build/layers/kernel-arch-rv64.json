@@ -1,0 +1,13 @@
+{
+  "name": "kernel-arch-rv64",
+  "description": "RISC-V 64 architecture layer (plan step V1): identity, bring-up, the interrupt flag and halting, the compiler helpers; every other operation of witos/arch.h panics by name until V1.2 ports it.",
+  "includes": [],
+  "sources": [
+    "src/Kernel.Arch.RV64/identity.c",
+    "src/Kernel.Arch.RV64/bringup.c",
+    "src/Kernel.Arch.RV64/stubs.c"
+  ],
+  "assembly": [
+    "src/Kernel.Arch.RV64/compiler.S"
+  ]
+}

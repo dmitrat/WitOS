@@ -12,12 +12,12 @@ public sealed class KernelManifestTests
 {
     #region Fields
 
-    private static readonly string[] ARCHITECTURES = ["x64", "arm64"];
+    private static readonly string[] ARCHITECTURES = ["x64", "arm64", "riscv64"];
 
     private static readonly string[] KERNEL_SOURCE_DIRECTORIES =
     [
-        "src/Boot.Uefi", "src/Kernel", "src/Kernel.Arch.X64", "src/Kernel.Arch.A64", "src/Kernel.Platform.Q35",
-        "src/Kernel.Platform.QemuVirt", "tests/Kernel", "tests/Kernel.X64", "tests/Kernel.A64"
+        "src/Boot.Uefi", "src/Kernel", "src/Kernel.Arch.X64", "src/Kernel.Arch.A64", "src/Kernel.Arch.RV64", "src/Kernel.Platform.Q35",
+        "src/Kernel.Platform.QemuVirt", "src/Kernel.Platform.QemuVirtRv", "tests/Kernel", "tests/Kernel.X64", "tests/Kernel.A64"
     ];
 
     private static readonly string[] SHARED_LAYERS = ["boot-uefi", "kernel-boot", "kernel-foundation", "kernel-common"];
@@ -116,6 +116,24 @@ public sealed class KernelManifestTests
             Assert.That(arm64.SelfTestLayers, Does.Contain(layer));
         }
         Assert.That(arm64.Includes.Except(x64.Includes), Is.EqualTo(new[] { "src/Kernel.Arch.A64/include" }));
+    }
+
+    // RISC-V (plan step V1) shares the same layers and adds its architecture include directory alone; its self-test layers
+    // come with the kernel suite of V1.2, so the target has none yet.
+    [Test]
+    public void Riscv64SharesTheKernelLayersTest()
+    {
+        var root = TestEnvironment.Root;
+        var x64 = KernelManifest.ReadTarget(root, "x64");
+        var riscv64 = KernelManifest.ReadTarget(root, "riscv64");
+        Assert.That(riscv64.Status, Is.EqualTo(KernelManifest.ACTIVE));
+        foreach (var layer in SHARED_LAYERS)
+        {
+            Assert.That(riscv64.Layers, Does.Contain(layer));
+        }
+        Assert.That(riscv64.Layers, Is.EquivalentTo(SHARED_LAYERS.Concat(["kernel-arch-rv64", "kernel-platform-qemu-virt-rv"])));
+        Assert.That(riscv64.SelfTestLayers, Is.Empty, "The RISC-V kernel suite is plan step V1.2");
+        Assert.That(riscv64.Includes.Except(x64.Includes), Is.EqualTo(new[] { "src/Kernel.Arch.RV64/include" }));
     }
 
     #endregion

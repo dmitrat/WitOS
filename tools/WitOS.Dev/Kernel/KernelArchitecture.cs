@@ -22,7 +22,8 @@ namespace WitOS.Dev.Kernel;
 /// <param name="ElfMachine">ELF e_machine of that triple.</param>
 /// <param name="ClangOptions">Architecture-specific clang options of layer 2 code.</param>
 /// <param name="KernelTriple">clang target triple of the kernel and its EFI loader (plan step T3): PE/COFF and the
-/// Microsoft calling convention, linked by lld-link.</param>
+/// Microsoft calling convention, linked by lld-link; or, where the pinned LLVM links no PE/COFF for the ISA (RISC-V, plan
+/// step V1), an ELF triple whose position-independent link the tool converts into the PE32+ the firmware loads.</param>
 internal sealed record KernelArchitecture(string Name, string LinkMachine, Machine Machine, string EfiName, string Qemu, string QemuMachine, string[] ExitDevice, string[] LinkOptions, string Firmware,
     string FirmwareVariables, string DefaultCpu, string Triple, ushort ElfMachine, string[] ClangOptions, string KernelTriple)
 {
@@ -45,6 +46,49 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
         [], // x18 is an ordinary register of layer 2 since R3.3: the kernel stopped resetting it at K8.4b
         "aarch64-unknown-windows");
 
+    /// <summary>
+    /// The RISC-V 64 kernel on the QEMU virt board over OpenSBI, loaded by EDK II from pflash (plan step V1, the
+    /// decisions of V0); the exit is the board's sifive test finisher, which needs no QEMU argument. The pinned lld-link
+    /// knows no RISC-V machine, so the kernel is a position-independent ELF (rv64gc, lp64d, the medium-any code model,
+    /// no linker relaxation) linked by ld.lld with the kernel's own script and converted to PE32+ by the tool
+    /// (<see cref="Images.ElfToPe"/>); the board runs without ACPI so that the firmware publishes the device tree. The
+    /// port has no user space yet, so an image boots the kernel alone (<see cref="KernelOnly"/>).
+    /// </summary>
+    public static readonly KernelArchitecture Riscv64 = new("riscv64", "riscv64", Machine.RiscV64, "BOOTRISCV64.EFI",
+        "qemu-system-riscv64", "virt,acpi=off", [], [], "edk2-riscv-code.fd", "edk2-riscv-vars.fd", "rv64",
+        "riscv64-unknown-linux-musl", 243, [], "riscv64-unknown-elf")
+    {
+        KernelCompileOptions = ["-march=rv64gc", "-mabi=lp64d", "-mcmodel=medany", "-mno-relax", "-fPIE", "-fno-asynchronous-unwind-tables", "-fno-unwind-tables"],
+        LinkerScript = "src/Kernel.Arch.RV64/kernel.ld",
+        KernelOnly = true
+    };
+
+    #endregion
+
+    #region Properties
+
+    /// <summary>
+    /// Architecture-specific clang options of the kernel's own sources, beyond the kernel's common options.
+    /// </summary>
+    public string[] KernelCompileOptions { get; init; } = [];
+
+    /// <summary>
+    /// The repository-relative linker script of an ELF-linked kernel (plan step V1), whose image the tool converts to
+    /// PE32+; null where lld-link links the kernel as PE/COFF.
+    /// </summary>
+    public string? LinkerScript { get; init; }
+
+    /// <summary>
+    /// Whether the kernel is linked as an ELF and converted (<see cref="LinkerScript"/>).
+    /// </summary>
+    public bool ElfImage => LinkerScript is not null;
+
+    /// <summary>
+    /// Whether the port has no user space yet, so that a boot disk carries the kernel and the package without a root
+    /// task and the kernel boots alone (plan step V1.1).
+    /// </summary>
+    public bool KernelOnly { get; init; }
+
     #endregion
 
     #region Functions
@@ -52,15 +96,21 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     /// <summary>
     /// Finds an architecture by name.
     /// </summary>
-    /// <param name="name">x64 or arm64.</param>
+    /// <param name="name">x64, arm64 or riscv64.</param>
     /// <returns>The architecture.</returns>
     /// <exception cref="ArgumentException">The name is not a kernel architecture.</exception>
     public static KernelArchitecture Find(string name) => name switch
     {
         "x64" => X64,
         "arm64" => Arm64,
-        _ => throw new ArgumentException($"Unknown kernel architecture '{name}'; expected x64 or arm64.", nameof(name))
+        "riscv64" => Riscv64,
+        _ => throw new ArgumentException($"Unknown kernel architecture '{name}'; expected x64, arm64 or riscv64.", nameof(name))
     };
+
+    /// <summary>
+    /// The name RuntimeInformation.OSArchitecture gives the ISA, which .NET programs of the scenarios print.
+    /// </summary>
+    private string OsArchitecture => this == X64 ? "X64" : this == Arm64 ? "Arm64" : "RiscV64";
 
     /// <summary>
     /// The first log line of the root task fixture (tests/User/root.c): the pinned compiler and the ISA of the triple.
@@ -153,18 +203,18 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     /// <summary>
     /// The line of the program dotnet runs through hostfxr and hostpolicy (R5), up to the framework's description.
     /// </summary>
-    public string DotnetLine => $"[DOTNET] App.dll through hostfxr and hostpolicy on {(this == X64 ? "X64" : "Arm64")}: ";
+    public string DotnetLine => $"[DOTNET] App.dll through hostfxr and hostpolicy on {OsArchitecture}: ";
 
     /// <summary>
     /// The last line of System.Native's check under corerun when every area passed (R4).
     /// </summary>
     public string SystemNativePassedLine =>
-        $"[R4] System.Native under CoreCLR on {(this == X64 ? "X64" : "Arm64")}: {Runtime.RuntimeWitos.SYSTEM_NATIVE_AREAS} areas passed, 0 failed";
+        $"[R4] System.Native under CoreCLR on {OsArchitecture}: {Runtime.RuntimeWitos.SYSTEM_NATIVE_AREAS} areas passed, 0 failed";
 
     /// <summary>
     /// The line the managed program under corerun prints (R3.2): RuntimeInformation.OSArchitecture names the ISA.
     /// </summary>
-    public string CoreRunLine => $"[CORERUN] managed Main through the JIT on {(this == X64 ? "X64" : "Arm64")}";
+    public string CoreRunLine => $"[CORERUN] managed Main through the JIT on {OsArchitecture}";
 
     /// <summary>
     /// The line tests/User/coreclr_init.c prints when CoreCLR's runtime and JIT loaded with their entry points (R3.1).

@@ -33,6 +33,10 @@ internal static class BootValidation
         {
             return EvaluateRelease(root, request, result, terminal);
         }
+        if (request.Suite == BootSuite.Loader)
+        {
+            return EvaluateLoader(request, result);
+        }
         var output = result.Output;
         var exitedFirmware = output.IndexOf("[BOOT] ExitBootServices OK", StringComparison.Ordinal);
         var contract = output.IndexOf("[TEST-PASS] Boot.Contract", StringComparison.Ordinal);
@@ -121,6 +125,24 @@ internal static class BootValidation
         var passed = (request.Expected == ExpectedOutcome.Success && !result.TimedOut && result.ExitCode == 33 && ready || cut) &&
             banner && clean && required;
         return new BootVerdict(passed, $"banner={banner} ready={ready} cut={cut} clean={clean} required={required}");
+    }
+
+    /// <summary>
+    /// Decides whether a port's loader boot passed (plan step V1.1): the request's lines in their order, the exit with the
+    /// success code and neither a panic nor an exception. The banner, the boot contract and the kernel's markers are not
+    /// required, since they come from the kernel's entry, which the port does not reach yet; the suite serves an ISA only
+    /// until its kernel suite exists.
+    /// </summary>
+    /// <param name="request">Boot request of the loader suite, whose required lines are the loader's and the bring-up's.</param>
+    /// <param name="result">Exit code, timeout state and serial log of the boot.</param>
+    /// <returns>The verdict and a summary of the check groups.</returns>
+    public static BootVerdict EvaluateLoader(BootRequest request, ProcessResult result)
+    {
+        var output = result.Output;
+        var required = request.RequiredLines.Length > 0 && MarkersInOrder(output, request.RequiredLines);
+        var clean = !output.Contains("[PANIC]", StringComparison.Ordinal) && !output.Contains("[EXCEPTION]", StringComparison.Ordinal);
+        var passed = request.Expected == ExpectedOutcome.Success && !result.TimedOut && result.ExitCode == 33 && required && clean;
+        return new BootVerdict(passed, $"required={required} clean={clean}");
     }
 
     /// <summary>

@@ -1,0 +1,10 @@
+{
+  "name": "kernel-platform-qemu-virt-rv",
+  "description": "QEMU virt board for riscv64 (plan step V1): the 16550 console and the sifive test finisher; every other operation of witos/platform.h panics by name until V1.2 ports it.",
+  "includes": [],
+  "sources": [
+    "src/Kernel.Platform.QemuVirtRv/console.c",
+    "src/Kernel.Platform.QemuVirtRv/stubs.c"
+  ],
+  "assembly": []
+}

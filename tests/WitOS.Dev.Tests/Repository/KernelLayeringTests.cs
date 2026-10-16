@@ -28,7 +28,7 @@ public sealed class KernelLayeringTests
 
     // Architecture directories and the layer that links each of them.
     private static readonly (string Directory, string Layer)[] ARCHITECTURES =
-        [(ARCH_DIRECTORY, "kernel-arch-x64"), ("src/Kernel.Arch.A64", "kernel-arch-a64")];
+        [(ARCH_DIRECTORY, "kernel-arch-x64"), ("src/Kernel.Arch.A64", "kernel-arch-a64"), ("src/Kernel.Arch.RV64", "kernel-arch-rv64")];
 
     // Policy moved out of the architecture directory in Q2.5, including the address-space accounting.
     private static readonly string[] POLICY_FILES =
@@ -42,7 +42,8 @@ public sealed class KernelLayeringTests
         @"\bwit_x64_\w+|\b(?:R[a-d]x|R[sd]i|Rbp|Rsp|Rip|R(?:8|9|1[0-5])|Rflags|Cs|Ss|FxState)\b|" +
         @"\b(?:__readmsr|__writemsr|__readcr\d|__writecr\d|_enable|_disable|__halt|__cpuid|__outbyte|__inbyte)\b|" +
         @"\b(?:WIT_USER_CS|WIT_USER_SS|WitInterruptContext|WitExceptionFrame)\b|" +
-        @"\bwit_a64_\w+|\b(?:WIT_ARCH_X64|WIT_ARCH_ARM64|x86_64|aarch64|0x8664|0xAA64)\b");
+        @"\bwit_a64_\w+|\b(?:WIT_ARCH_X64|WIT_ARCH_ARM64|x86_64|aarch64|0x8664|0xAA64)\b|" +
+        @"\bwit_rv64_\w+|\b(?:WIT_ARCH_RISCV64|riscv64|0x5064|sstatus|sepc|scause|stval)\b");
 
     private static readonly Regex ARCHITECTURE_INCLUDE = new(
         @"#include\s+""(?:[^""]*Arch[^""]*|[^""]*Platform\.[^""]*|x64\.h|q35\.h|cpu_cache\.h|minipal_cpu[^""]*)""");
@@ -153,7 +154,8 @@ public sealed class KernelLayeringTests
             foreach (var path in Directory.EnumerateFiles(Path.Combine(TestEnvironment.Root, directory)))
             {
                 var relative = Path.GetRelativePath(TestEnvironment.Root, path).Replace('\\', '/');
-                if (relative.EndsWith(".h", StringComparison.Ordinal))
+                // Headers and the linker script of an ELF-linked kernel (V1.1) are the link's inputs, not sources.
+                if (relative.EndsWith(".h", StringComparison.Ordinal) || relative.EndsWith(".ld", StringComparison.Ordinal))
                 {
                     continue;
                 }

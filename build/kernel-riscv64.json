@@ -1,0 +1,19 @@
+{
+  "architecture": "riscv64",
+  "status": "active",
+  "description": "RISC-V 64 kernel on the QEMU virt board (plan step V1): the loader and the common kernel as one position-independent ELF the tool converts to the PE32+ EDK II loads over OpenSBI; V1.1 boots to the bring-up and ends through the test finisher, V1.2 ports the architecture and the board.",
+  "includes": [
+    "src/Kernel/include",
+    "src/Kernel",
+    "src/Kernel.Arch.RV64/include"
+  ],
+  "layers": [
+    "boot-uefi",
+    "kernel-boot",
+    "kernel-foundation",
+    "kernel-common",
+    "kernel-arch-rv64",
+    "kernel-platform-qemu-virt-rv"
+  ],
+  "selfTestLayers": []
+}
