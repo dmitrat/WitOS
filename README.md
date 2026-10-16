@@ -236,10 +236,16 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   between processes, `SIGCHLD`, `waitid` and `kill` of a child (N4.2, done), the terminal of RFC 0020 (N4.3, done)
   and the literal proof of goal 2, published on Windows and run on WitOS (N4.4, done); N4.5 closed M6 with the
   compatibility matrix and ADR 0026, and phase N's first pass is complete.
-- **Next (2026-10-16).** Two tracks in parallel: phase C, upstream PowerShell 7 on the serial terminal and then a text
-  console on the firmware's framebuffer with a virtio keyboard (RFC 0020); phase V, the third ISA, RISC-V on QEMU's virt
-  board, beginning with the measurement of the toolchain and the board (V0). Then the scheduler on several processors
-  (phase P), the network and the remaining milestones (phase W).
+- **Console and shell (phase C, begun).** Upstream PowerShell 7.6.7, pinned and unchanged, runs on WitOS from the data
+  volume as `dotnet pwsh.dll`: the version table, pipelines, files on volumes and an interactive session under PSReadLine
+  on the terminal, judged by the `runtime-powershell` scenario on both ISAs (C1.1–C1.3, RFC 0020). What it needed from
+  the platform: the mount points for `DriveInfo` (`/etc/mtab` from the namespace service's list), a writable home on the
+  data volume, terminfo and `TERM` in the install, and the runner's terminal emulator answering the cursor position
+  report. Next: the tool's interactive `shell` command (C1.4), then a text console on the firmware's framebuffer with a
+  virtio keyboard (C2).
+- **Third ISA (phase V, begun).** RISC-V on QEMU's virt board: the measurement V0 found the pinned LLVM links no RISC-V
+  PE/COFF, so the loader and the kernel will be ELF converted to PE32+ by the tool; V1 is the kernel port.
+- **Later.** The scheduler on several processors (phase P), the network and the remaining milestones (phase W).
 
 The acceptances do not establish threads on several processors, networking, a terminal with input or process creation
 from managed code. Firmware memory remains reserved.
