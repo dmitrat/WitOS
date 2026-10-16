@@ -743,9 +743,10 @@ internal static class RuntimeWitos
         // service makes when it mounts /data, since the package is read-only and programs such as PowerShell create
         // directories under HOME at startup.
         var environment = Path.Combine(output, "environment");
-        // TERM names the terminal the install's terminfo describes (C1.3), so that System.Console has its capabilities.
+        // TERM names the terminal the install's terminfo describes (C1.3), so that System.Console has its capabilities;
+        // PATH ends with the install's directory (C1.4), so that a shell runs dotnet by name.
         await File.WriteAllTextAsync(environment,
-            $"# The default environment of every process; the root task reads it (N4.1).\nPATH=/bin:/usr/bin\nHOME=/data/home\nTERM={Terminfo.TERM}\n");
+            $"# The default environment of every process; the root task reads it (N4.1).\nPATH=/bin:/usr/bin:/dotnet\nHOME=/data/home\nTERM={Terminfo.TERM}\n");
         var sysroot = await Sysroot.BuildAsync(root, architecture);
         var shared = await FrameworkFilesAsync(tree, output, architecture, version, pin.TargetFramework);
 

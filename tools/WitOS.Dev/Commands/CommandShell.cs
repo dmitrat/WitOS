@@ -18,6 +18,7 @@ internal sealed class CommandShell : ICommand
     {
         var architecture = KernelArchitecture.X64;
         string? published = null;
+        string? disk = null;
         var memory = RuntimePowerShell.MEMORY_MIB;
         for (var i = 0; i < arguments.Count; i += 2)
         {
@@ -34,11 +35,14 @@ internal sealed class CommandShell : ICommand
                 case "--memory":
                     memory = int.Parse(arguments[i + 1]);
                     break;
+                case "--disk":
+                    disk = arguments[i + 1];
+                    break;
                 default:
                     throw new ArgumentException($"{Name} takes only {Arguments}.");
             }
         }
-        return RuntimeShell.RunAsync(root, architecture, published, memory);
+        return RuntimeShell.RunAsync(root, architecture, published, memory, disk);
     }
 
     #endregion
@@ -49,11 +53,11 @@ internal sealed class CommandShell : ICommand
     public string Name => "shell";
 
     /// <inheritdoc />
-    public string Arguments => "[--arch x64|arm64] [--publish <directory>] [--memory <MiB>]";
+    public string Arguments => "[--arch x64|arm64] [--publish <directory>] [--memory <MiB>] [--disk <image>]";
 
     /// <inheritdoc />
     public string Description =>
-        "Boot WitOS with PowerShell on this console beside the services and the .NET install, with a directory published on the host on the data volume (C1.4)";
+        "Boot WitOS with PowerShell on this console beside the services and the .NET install, with a directory published on the host on the data volume, which --disk keeps between sessions (C1.4)";
 
     #endregion
 }

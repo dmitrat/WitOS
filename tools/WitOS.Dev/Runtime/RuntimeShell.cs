@@ -30,9 +30,12 @@ internal static class RuntimeShell
     /// <param name="architecture">Target architecture.</param>
     /// <param name="published">A directory published on the host, laid on the data volume under its name; none by default.</param>
     /// <param name="memoryMiB">The guest's memory.</param>
+    /// <param name="disk">The data disk's image to keep between sessions: made with the volume's files when missing, booted
+    /// as it is when there (what the previous session left on it stays; a published directory is laid only when the disk
+    /// is made); the scenario's own, made anew, when null.</param>
     /// <returns>When the session ended.</returns>
     /// <exception cref="DirectoryNotFoundException">The published directory does not exist.</exception>
-    public static async Task RunAsync(string root, KernelArchitecture architecture, string? published, int memoryMiB)
+    public static async Task RunAsync(string root, KernelArchitecture architecture, string? published, int memoryMiB, string? disk = null)
     {
         var output = Path.Combine(root, "artifacts", architecture.Name, SCENARIO);
         Directory.CreateDirectory(output);
@@ -55,8 +58,11 @@ internal static class RuntimeShell
         }
         var image = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_POWERSHELL_SCENARIO, outputDirectory: output,
             architecture: architecture, package: package);
-        var dataDisk = Path.Combine(output, "data-disk.img");
-        await RuntimeDataDisk.CreateAsync(dataDisk, files: volume, bytes: DISK_BYTES);
+        var dataDisk = disk is null ? Path.Combine(output, "data-disk.img") : Path.GetFullPath(disk);
+        if (disk is not null && File.Exists(dataDisk))
+            Console.WriteLine($"Booting the data disk {dataDisk} as the previous session left it{(where is null ? "" : "; the published directory is not laid on an existing disk")}.");
+        else
+            await RuntimeDataDisk.CreateAsync(dataDisk, files: volume, bytes: DISK_BYTES);
         Console.WriteLine($"WitOS on witos-{architecture.Name}: PowerShell opens on this console once the services are up; " +
             $"type exit to end the session{(where is null ? "" : $"; your files are under {where}")}.");
         await BootScenarioRunner.RunAsync(root, image, new BootRequest($"{architecture.Name}-{SCENARIO}-{memoryMiB}", memoryMiB, TIMEOUT_SECONDS,
