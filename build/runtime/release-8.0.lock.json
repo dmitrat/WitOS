@@ -105,6 +105,10 @@
     {
       "path": "src/native/libs/System.Native/pal_networkchange.c",
       "sha256": "5c8b313263de1bfefa4726e8410eae40a054641d7522fd258fac854f8f0adcee"
+    },
+    {
+      "path": "src/native/libs/System.Native/pal_mount.c",
+      "sha256": "bf8f7c6107662e0b4f27a1d16fa87f5f5ea1815db33010a11daaa30da777c116"
     }
   ]
 }

@@ -246,6 +246,7 @@ internal static class RuntimeDevices
             $": partition \"{RuntimeDataDisk.FAT_PARTITION}\": after the reboot, read back what a previous boot wrote"] : Array.Empty<string>(),
         .. boot == 1 ? FirstExt4Lines() : boot == CUT_BOOT + 1 ? AfterCutExt4Lines() : AfterRebootExt4Lines(counted: boot <= CUT_BOOT),
         .. MiddleLines(architecture, boot),
+        .. boot == 1 ? ["[NAMESPACE] created /data/home"] : Array.Empty<string>(), // the home of the one account (C1.2)
         .. boot == CUT_BOOT ? [CUT_AFTER] : LastLines(architecture)
     ];
 
@@ -309,7 +310,9 @@ internal static class RuntimeDevices
         ": a previous boot wrote the volume and unmounted it cleanly: no transaction to replay",
         $": after the reboot, /guest holds link, logs, note.txt, /many holds {RuntimeExt4Volume.MANY + RuntimeExt4Volume.GUEST_ADDED} entries, " +
             "read back what it wrote, check clean (" + (counted
-                ? $"{RuntimeExt4Volume.MANY + 3 - 1 + 2 + RuntimeExt4Volume.GUEST_ADDED + VOLUME_PROGRAMS.Length + 3} files, {6 + VolumeDirectories} directories)"
+                // One directory more than the first boot's second check: /home, which the namespace service made when it
+                // mounted the volume after that check (C1.2).
+                ? $"{RuntimeExt4Volume.MANY + 3 - 1 + 2 + RuntimeExt4Volume.GUEST_ADDED + VOLUME_PROGRAMS.Length + 3} files, {7 + VolumeDirectories} directories)"
                 : "")
     ];
 

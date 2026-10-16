@@ -59,6 +59,7 @@ typedef enum Kind {
     KindNull, /* /dev/null: reads nothing, accepts writes */
     KindZero, /* /dev/zero: reads zeros, accepts writes */
     KindRandom, /* /dev/urandom and /dev/random: read the kernel's entropy, accept writes, as Linux's do */
+    KindMounts, /* /etc/mtab: the mount table the libc serves from the namespace's mount points (namespace.c, C1.2) */
     KindStream, /* a duplicate of standard stream Index (0, 1 or 2) */
     KindPipeRead, /* the read end of pipe Index (pipe.c) */
     KindPipeWrite, /* the write end of pipe Index */
@@ -268,6 +269,33 @@ static long normalize(const char *path, unsigned char *out, WitU32 *out_length)
 }
 
 /* The entry of a name, or the first entry under a directory's prefix; -1 when neither. */
+/* /etc/mtab (C1.2): the mount table in mntent form, served from the mount points the namespace service names
+ * (namespace.c), so that System.Native's DriveInfo.GetDrives() and PowerShell's root drive see the volumes; read-only, a
+ * regular file to stat, and absent from the package's directory listing, as the devices are. */
+static int is_mounts_name(const unsigned char *name, WitU32 length)
+{
+    return length == 8 && memcmp(name, "etc/mtab", 8) == 0;
+}
+
+static long read_mounts(void *buffer, long bytes, WitU64 offset)
+{
+    unsigned char text[WIT_MOUNTS_TEXT_BYTES];
+    const WitU32 length = __wit_mounts_text(text, sizeof(text));
+    if (offset >= length) {
+        return 0;
+    }
+    const WitU64 available = length - offset;
+    const WitU64 moved = (WitU64)bytes < available ? (WitU64)bytes : available;
+    memcpy(buffer, text + offset, (unsigned long)moved);
+    return (long)moved;
+}
+
+static WitU64 mounts_length(void)
+{
+    unsigned char text[WIT_MOUNTS_TEXT_BYTES];
+    return __wit_mounts_text(text, sizeof(text));
+}
+
 static int is_random_device(const unsigned char *name, WitU32 length)
 {
     return (length == 11 && memcmp(name, "dev/urandom", 11) == 0) ||
@@ -657,6 +685,9 @@ long __wit_openat(long dirfd, const char *path, long flags, long mode)
     if (is_random_device(name, length)) {
         return open_descriptor(KindRandom, 0, 0, (int)flags);
     }
+    if (is_mounts_name(name, length)) {
+        return (flags & O_ACCMODE) != O_RDONLY ? -EROFS : open_descriptor(KindMounts, 0, 0, (int)flags);
+    }
     if ((flags & O_ACCMODE) != O_RDONLY) {
         return -EROFS;
     }
@@ -779,6 +810,9 @@ long __wit_fchmodat(long dirfd, const char *path, long mode)
     if (__wit_remote_name(name, length)) {
         return __wit_remote_chmod(name, length, mode);
     }
+    if (is_mounts_name(name, length)) {
+        return -EROFS;
+    }
     if (shared_directory(name, length) ||
         (length == 3 && memcmp(name, "dev", 3) == 0) ||
         (length == 8 && (memcmp(name, "dev/null", 8) == 0 || memcmp(name, "dev/zero", 8) == 0)) ||
@@ -856,6 +890,9 @@ long __wit_utimensat(long dirfd, const char *path, const struct timespec *times,
     }
     if (__wit_remote_name(name, length)) {
         return __wit_remote_utimes(name, length, &record, want);
+    }
+    if (is_mounts_name(name, length)) {
+        return -EROFS;
     }
     if (shared_directory(name, length) ||
         (length == 3 && memcmp(name, "dev", 3) == 0) ||
@@ -1014,6 +1051,13 @@ long __wit_read(long fd, void *buffer, long bytes)
     if (d->Kind == KindRandom) {
         return read_random(buffer, bytes);
     }
+    if (d->Kind == KindMounts) {
+        const long moved = read_mounts(buffer, bytes, POSITION(d));
+        if (moved > 0) {
+            POSITION(d) += (WitU64)moved;
+        }
+        return moved;
+    }
     if (d->Kind == KindRemoteFile) {
         if ((descriptions[d->Description].StatusFlags & O_ACCMODE) == O_WRONLY) {
             return -EBADF;
@@ -1066,6 +1110,9 @@ long __wit_pread(long fd, void *buffer, long bytes, long offset)
     if (d->Kind == KindRandom) {
         return read_random(buffer, bytes);
     }
+    if (d->Kind == KindMounts) {
+        return read_mounts(buffer, bytes, (WitU64)offset);
+    }
     if (d->Kind == KindRemoteFile) {
         return (descriptions[d->Description].StatusFlags & O_ACCMODE) == O_WRONLY
             ? -EBADF
@@ -1113,6 +1160,9 @@ static long write_at(Descriptor *d, const void *buffer, long bytes, long offset)
     }
     if (d->Kind == KindNull || d->Kind == KindZero || d->Kind == KindRandom) {
         return bytes;
+    }
+    if (d->Kind == KindMounts) {
+        return -EBADF; /* opened for reading alone (C1.2) */
     }
     if (d->Kind == KindRemoteFile) {
         Description *remote = &descriptions[d->Description];
@@ -1238,6 +1288,9 @@ long __wit_lseek(long fd, long offset, long whence)
         WitU64 data;
         entry(d->Index, &name, &name_length, &data, &length);
     }
+    if (d->Kind == KindMounts) {
+        length = mounts_length();
+    }
     WitU64 base;
     switch (whence) {
     case SEEK_SET:
@@ -1329,6 +1382,11 @@ static void fill_stat(struct kstat *st, Kind kind, WitU32 index, WitU64 length)
         st->st_dev = 4; /* an anonymous inode, as Linux reports an epoll instance */
         st->st_ino = (ino_t)index + 1;
         st->st_mode = S_IFREG | 0600;
+    } else if (kind == KindMounts) {
+        st->st_ino = 5; /* the mount table (C1.2) */
+        st->st_mode = S_IFREG | 0444;
+        st->st_size = (off_t)length;
+        st->st_blocks = (blkcnt_t)((length + 511) / 512);
     } else {
         st->st_ino = 2;
         st->st_mode = S_IFCHR | 0666;
@@ -1363,6 +1421,9 @@ long __wit_fstatat(long dirfd, const char *path, struct kstat *st, long flags)
             return __wit_remote_fstat(d->Index, st);
         }
         WitU64 data = 0, file_length = d->Kind == KindShared ? __wit_shared_size(d->Index) : 0;
+        if (d->Kind == KindMounts) {
+            file_length = mounts_length();
+        }
         if (d->Kind == KindFile) {
             const unsigned char *n;
             WitU32 n_length;
@@ -1376,6 +1437,10 @@ long __wit_fstatat(long dirfd, const char *path, struct kstat *st, long flags)
     }
     if (__wit_remote_name(name, length)) {
         return __wit_remote_stat(name, length, st);
+    }
+    if (is_mounts_name(name, length)) {
+        fill_stat(st, KindMounts, 0, mounts_length());
+        return 0;
     }
     if ((length == 8 && (memcmp(name, "dev/null", 8) == 0 || memcmp(name, "dev/zero", 8) == 0)) ||
         is_random_device(name, length)) {
@@ -1433,6 +1498,9 @@ long __wit_faccessat(long dirfd, const char *path, long mode)
         }
         return (mode & X_OK) && !(st.st_mode & 0111) ? -EACCES
                                                      : 0; /* a write the volume refuses fails when it is made */
+    }
+    if (is_mounts_name(name, length)) {
+        return (mode & W_OK) ? -EROFS : (mode & X_OK) ? -EACCES : 0;
     }
     if ((length == 8 && (memcmp(name, "dev/null", 8) == 0 || memcmp(name, "dev/zero", 8) == 0)) ||
         is_random_device(name, length) ||

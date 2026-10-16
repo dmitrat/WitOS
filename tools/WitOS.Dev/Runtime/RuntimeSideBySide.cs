@@ -94,7 +94,9 @@ internal static class RuntimeSideBySide
             "src.native.libs.System.IO.Compression.Native.CMakeLists.txt",
         ["src/native/libs/System.IO.Compression.Native/extra_libs.cmake"] =
             "src.native.libs.System.IO.Compression.Native.extra_libs.cmake",
-        ["src/native/libs/System.Native/pal_networkchange.c"] = "src.native.libs.System.Native.pal_networkchange.c"
+        ["src/native/libs/System.Native/pal_networkchange.c"] = "src.native.libs.System.Native.pal_networkchange.c",
+        // The mount table for DriveInfo.GetDrives() (C1.2), as in the 10.0 set.
+        ["src/native/libs/System.Native/pal_mount.c"] = "src.native.libs.System.Native.pal_mount.c"
     };
 
     #endregion

@@ -150,6 +150,9 @@ long __wit_shared_write(WitU32 index, WitU64 offset, const unsigned char *buffer
  * mount point, and the operations on such names and on the remote records their descriptors hold. */
 struct kstat;
 int __wit_remote_name(const unsigned char *name, WitU32 length);
+/* The mount table the libc serves as /etc/mtab (C1.2): the package at / and each mount point, one mntent line each. */
+#define WIT_MOUNTS_TEXT_BYTES 2048U
+WitU32 __wit_mounts_text(unsigned char *buffer, WitU32 capacity);
 long __wit_remote_open(const unsigned char *name, WitU32 length, long flags, long mode, WitU32 *index, int *directory);
 void __wit_remote_reference(WitU32 index);
 void __wit_remote_release(WitU32 index);

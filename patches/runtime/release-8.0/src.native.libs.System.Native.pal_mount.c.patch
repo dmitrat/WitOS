@@ -1,0 +1,25 @@
+Source: src/native/libs/System.Native/pal_mount.c
+Output: src.native.libs.System.Native.pal_mount.c
+Before: bf8f7c6107662e0b4f27a1d16fa87f5f5ea1815db33010a11daaa30da777c116
+After: 7a057944cd0a76629889b521b316149adedfb05435006948c9ce7c703f7de96e
+
+The mount table on WitOS (plan step C1.2), as in the release/10.0 set: the TARGET_WITOS branch opens /etc/mtab,
+which the system layer's libc serves in mntent form from the namespace's mount points, where Linux opens
+/proc/mounts; the parsing is upstream's. The 8.0 file differs from 10.0's above this hunk (getmntinfo rather than
+getfsstat), so the hunk's offset differs and its bytes are the same.
+
+--- a/src/native/libs/System.Native/pal_mount.c
++++ b/src/native/libs/System.Native/pal_mount.c
+@@ -70,7 +70,12 @@
+
+ #else
+     int result = -1;
++#if defined(TARGET_WITOS)
++    // WitOS has no procfs: the system layer serves the mount table as /etc/mtab (RFC 0015 section 4, plan step C1.2).
++    FILE* fp = setmntent("/etc/mtab", MNTOPT_RO);
++#else
+     FILE* fp = setmntent("/proc/mounts", MNTOPT_RO);
++#endif
+     if (fp != NULL)
+     {
+         // The _r version of getmntent needs all buffers to be passed in; however, we don't know how big of a string
