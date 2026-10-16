@@ -294,7 +294,7 @@ internal static class KernelImageBuilder
                 or RUNTIME_SYSTEM_NATIVE_SCENARIO or RUNTIME_DOTNET_SCENARIO or RUNTIME_PORTABLE_APP_SCENARIO or RUNTIME_PALSUITE_SCENARIO
                 or RUNTIME_CORECLR_TESTS_SCENARIO or RUNTIME_LIBRARY_TESTS_SCENARIO or RUNTIME_DEVICES_SCENARIO
                 or RUNTIME_COMPATIBILITY_SCENARIO or RUNTIME_LIBRARIES_SCENARIO or RUNTIME_NUGET_SUITES_SCENARIO or RUNTIME_TERMINAL_SCENARIO
-                or RUNTIME_SIDE_BY_SIDE_SCENARIO or RUNTIME_PUBLISHED_SCENARIO
+                or RUNTIME_SIDE_BY_SIDE_SCENARIO or RUNTIME_PUBLISHED_SCENARIO or RUNTIME_POWERSHELL_SCENARIO
                 ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
             : await UserImage.BuildRootAsync(root, output, architecture);
         var objects = await CompileKernelAsync(root, output, scenario, selfTest, target, architecture);
