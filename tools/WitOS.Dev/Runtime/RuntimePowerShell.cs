@@ -32,6 +32,11 @@ internal static class RuntimePowerShell
     public const string WRITTEN = "written-by-pwsh";
 
     /// <summary>
+    /// The word before the pipeline's count in the scenario's output: "even=5".
+    /// </summary>
+    public const string EVEN = "even";
+
+    /// <summary>
     /// The prompt PowerShell shows in the data volume's root, which the runner types after.
     /// </summary>
     public const string PROMPT = "PS /data>";
@@ -92,8 +97,10 @@ internal static class RuntimePowerShell
     [
         "cd /data",
         $"{PWSH} -NonInteractive -Command $PSVersionTable",
-        $"{PWSH} -NonInteractive -Command 1..10 | Where-Object {{ $_ % 2 -eq 0 }} | Measure-Object; Set-Content /data/pwsh.txt {WRITTEN}; " +
-            "Get-Content /data/pwsh.txt; Get-Date; Get-ChildItem /data",
+        // The pipeline's count as one plain word: PowerShell colors its formatted output on a terminal (PSStyle), so a
+        // required line never spans a label and its value.
+        $"{PWSH} -NonInteractive -Command '{EVEN}=' + (1..10 | Where-Object {{ $_ % 2 -eq 0 }} | Measure-Object).Count; " +
+            $"Set-Content /data/pwsh.txt {WRITTEN}; Get-Content /data/pwsh.txt; Get-Date; Get-ChildItem /data",
         PWSH
     ];
 
@@ -123,7 +130,7 @@ internal static class RuntimePowerShell
         "PSVersion",
         "WitOS",
         "Platform",
-        "Count             : 5",
+        $"{EVEN}=5",
         WRITTEN,
         "DateTime    :",
         "Directory: /data",
