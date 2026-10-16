@@ -236,8 +236,10 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   between processes, `SIGCHLD`, `waitid` and `kill` of a child (N4.2, done), the terminal of RFC 0020 (N4.3, done)
   and the literal proof of goal 2, published on Windows and run on WitOS (N4.4, done); N4.5 closed M6 with the
   compatibility matrix and ADR 0026, and phase N's first pass is complete.
-- **Later.** A third ISA (phase V, RISC-V), the scheduler on several processors (phase P), the network and the
-  remaining milestones (phase W).
+- **Next (2026-10-16).** Two tracks in parallel: phase C, upstream PowerShell 7 on the serial terminal and then a text
+  console on the firmware's framebuffer with a virtio keyboard (RFC 0020); phase V, the third ISA, RISC-V on QEMU's virt
+  board, beginning with the measurement of the toolchain and the board (V0). Then the scheduler on several processors
+  (phase P), the network and the remaining milestones (phase W).
 
 The acceptances do not establish threads on several processors, networking, a terminal with input or process creation
 from managed code. Firmware memory remains reserved.
