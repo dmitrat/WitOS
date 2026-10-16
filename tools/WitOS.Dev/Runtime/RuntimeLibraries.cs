@@ -51,9 +51,17 @@ internal static class RuntimeLibraries
         ", Failed: 0, Warnings: 0",
         "=== TEST EXECUTION SUMMARY ===",
         "Errors: 0, Failed: 0, Skipped: 0",
-        "[APPS-INIT] /dotnet/dotnet /app/nunit/NUnitApp.dll exited with 0",
-        "[APPS-INIT] /dotnet/dotnet /app/xunit/XUnitApp.dll exited with 0"
+        $"[APPS-INIT] {NUNIT_COMMAND} exited with 0",
+        $"[APPS-INIT] {XUNIT_COMMAND} exited with 0"
     ];
+
+    /// <summary>
+    /// The runners' commands in the guest. Both write plain text: the terminal the install's environment names since
+    /// C1.3 (TERM) would otherwise have NUnitLite colour its summary word by word, and the required lines are literal.
+    /// </summary>
+    public const string NUNIT_COMMAND = "/dotnet/dotnet /app/nunit/NUnitApp.dll --nocolor";
+
+    public const string XUNIT_COMMAND = "/dotnet/dotnet /app/xunit/XUnitApp.dll -nocolor";
 
     /// <summary>
     /// The package: the device services, the .NET install and both applications under /app.
@@ -64,8 +72,7 @@ internal static class RuntimeLibraries
     /// <returns>Package paths and the files to place there.</returns>
     public static Task<IReadOnlyList<(string Name, string Source)>> BuildPackageAsync(string root, string output,
         KernelArchitecture architecture) =>
-        RuntimeApps.BuildPackageAsync(root, output, architecture, [("nunit", NUNIT_APP), ("xunit", XUNIT_APP)],
-            ["/dotnet/dotnet /app/nunit/NUnitApp.dll", "/dotnet/dotnet /app/xunit/XUnitApp.dll"]);
+        RuntimeApps.BuildPackageAsync(root, output, architecture, [("nunit", NUNIT_APP), ("xunit", XUNIT_APP)], [NUNIT_COMMAND, XUNIT_COMMAND]);
 
     #endregion
 }

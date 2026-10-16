@@ -63,8 +63,10 @@ public sealed class ConsoleLogoTests
         Assert.That(TerminalRelay.Bytes(new ConsoleKeyInfo('\0', ConsoleKey.F1, false, false, false)), Is.Empty);
     }
 
+    // The lines of an art file as they are, whichever line ending the checkout gave it (a Windows checkout with
+    // autocrlf gave the files CRLF, which the character check then counted).
     private static string[] Lines(string file) =>
-        File.ReadAllText(Path.Combine(TestEnvironment.Root, ConsoleLogo.SOURCE, file)).TrimEnd('\n').Split('\n');
+        File.ReadAllLines(Path.Combine(TestEnvironment.Root, ConsoleLogo.SOURCE, file));
 
     #endregion
 }
