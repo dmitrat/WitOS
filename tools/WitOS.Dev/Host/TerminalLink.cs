@@ -8,7 +8,9 @@ namespace WitOS.Dev.Host;
 /// The runner's side of the guest's terminal (plan step N4.3a): a loopback listener QEMU's character device connects
 /// to (server=off, as the QMP control's does, so that no released port races), everything the guest wrote kept as the
 /// transcript and written to the terminal log, and the request's script typed into the guest, each input once the
-/// line it waits for appeared in the transcript after the previous input's.
+/// line it waits for appeared in the transcript after the previous input's. The bytes also paint a
+/// <see cref="TerminalScreen"/> (C1.2), whose answers to the guest's queries — the cursor position report .NET's Console
+/// and PSReadLine wait for — go back before anything the script types.
 /// </summary>
 internal sealed class TerminalLink : IDisposable
 {
@@ -28,6 +30,7 @@ internal sealed class TerminalLink : IDisposable
     private readonly TcpListener m_listener = new(IPAddress.Loopback, 0);
     private readonly CancellationTokenSource m_lifetime = new();
     private readonly StringBuilder m_transcript = new();
+    private readonly TerminalScreen m_screen = new();
     private readonly IReadOnlyList<TerminalInput> m_script;
     private readonly string m_logPath;
     private readonly Task m_pump;
@@ -95,7 +98,7 @@ internal sealed class TerminalLink : IDisposable
                         if (m_transcript.Length + count > TRANSCRIPT_LIMIT)
                             return;
                         m_transcript.Append(Encoding.UTF8.GetString(buffer, 0, count));
-                        typed = NextInput();
+                        typed = m_screen.Feed(buffer.AsSpan(0, count)) + NextInput(); // the terminal's answers, then the script
                     }
                     if (typed.Length > 0)
                     {
@@ -169,6 +172,18 @@ internal sealed class TerminalLink : IDisposable
         {
             lock (m_transcript)
                 return m_transcript.ToString();
+        }
+    }
+
+    /// <summary>
+    /// The screen the guest's bytes painted so far, as <see cref="TerminalScreen.Text"/> gives it.
+    /// </summary>
+    public string Screen
+    {
+        get
+        {
+            lock (m_transcript)
+                return m_screen.Text;
         }
     }
 
