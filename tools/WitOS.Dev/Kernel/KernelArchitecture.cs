@@ -89,6 +89,13 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     /// </summary>
     public bool KernelOnly { get; init; }
 
+    /// <summary>
+    /// QEMU's arguments for a display (plan step C2.1): ramfb, a linear framebuffer in guest memory that EDK II drives
+    /// through its graphics output protocol on every board, and no other video device (q35 would add its VGA card by
+    /// default, whose own framebuffer the firmware would show instead).
+    /// </summary>
+    public string[] DisplayArguments => this == X64 ? ["-vga", "none", "-device", "ramfb"] : ["-device", "ramfb"];
+
     #endregion
 
     #region Functions

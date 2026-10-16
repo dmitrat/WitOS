@@ -33,6 +33,8 @@ internal static class PciTranslator
     /// <returns>The device record.</returns>
     public static DeviceRecord Translate(DeviceDescriptor descriptor)
     {
+        if (descriptor.Bus == DeviceDescriptor.BUS_FIRMWARE)
+            return FirmwareTranslator.Translate(descriptor);
         if (descriptor.Bus != DeviceDescriptor.BUS_PCI)
             return new DeviceRecord($"bus{descriptor.Bus}/{descriptor.Address:x8}", "Unknown", "Unknown", descriptor);
         var address = descriptor.Address;

@@ -26,16 +26,34 @@ public static class Device
     }
 
     /// <summary>
-    /// A memory region of a device as a memory object, mapped uncached and never executable.
+    /// The pages of a device's memory object: what one DEVICE_MEMORY object covers at most.
+    /// </summary>
+    public const int WINDOW_PAGES = 64;
+
+    /// <summary>
+    /// A memory region of a device as a memory object, mapped uncached and never executable: its first 64 pages.
     /// </summary>
     /// <param name="device">The device, with BIND.</param>
     /// <param name="region">The region's index in the descriptor.</param>
     /// <returns>The region's memory object.</returns>
-    /// <exception cref="CapabilityException">The region is a port region, too large, or beyond the descriptor.</exception>
-    public static unsafe KernelHandle Memory(KernelHandle device, int region)
+    /// <exception cref="CapabilityException">The region is a port region or beyond the descriptor.</exception>
+    public static KernelHandle Memory(KernelHandle device, int region) => MemoryAt(device, region, 0);
+
+    /// <summary>
+    /// A window of a device's memory region as a memory object (ABI-1 1.3, plan step C2.1): at most
+    /// <see cref="WINDOW_PAGES"/> pages from the page named, so that a region of any size, a framebuffer, is reached
+    /// window by window.
+    /// </summary>
+    /// <param name="device">The device, with BIND.</param>
+    /// <param name="region">The region's index in the descriptor.</param>
+    /// <param name="window">The region's page the object starts at.</param>
+    /// <returns>The window's memory object.</returns>
+    /// <exception cref="CapabilityException">The region is a port region, the window lies beyond it, or the region is
+    /// beyond the descriptor.</exception>
+    public static unsafe KernelHandle MemoryAt(KernelHandle device, int region, long window)
     {
         ulong memoryObject = 0;
-        CapabilityException.ThrowOnError("DEVICE_MEMORY", Libwitos.DeviceMemory(device.Value, (uint)region, &memoryObject));
+        CapabilityException.ThrowOnError("DEVICE_MEMORY", Libwitos.DeviceMemoryAt(device.Value, (uint)region, (ulong)window, &memoryObject));
         return new KernelHandle(memoryObject);
     }
 

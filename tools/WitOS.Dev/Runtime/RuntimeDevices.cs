@@ -34,6 +34,16 @@ internal static class RuntimeDevices
     public const string VIRTIO_CONSOLE_PROGRAM = "src/Services/Drivers/VirtioConsole";
 
     /// <summary>
+    /// The virtio input driver's sources (C2.1).
+    /// </summary>
+    public const string VIRTIO_INPUT_PROGRAM = "src/Services/Drivers/VirtioInput";
+
+    /// <summary>
+    /// The executable runtime-witos publishes from the virtio input driver, /system/Drivers/VirtioInput.
+    /// </summary>
+    public const string VIRTIO_INPUT_EXECUTABLE = "VirtioInput";
+
+    /// <summary>
     /// The terminal service's sources (N4.3a).
     /// </summary>
     public const string TERMINAL_PROGRAM = "src/Services/Terminal";
@@ -141,7 +151,7 @@ internal static class RuntimeDevices
     // The source folders of OutWit.OS every service compiles; never obj or bin, which a host build leaves.
     private static readonly string[] OUTWIT_OS_FOLDERS =
     [
-        "Native", "Resources", "Communication", "Hardware", "Hardware/Virtio", "Execution", "Storage", "Namespaces", "Terminals"
+        "Native", "Resources", "Communication", "Hardware", "Hardware/Virtio", "Execution", "Storage", "Namespaces", "Terminals", "Display"
     ];
 
     // OutWit.OS's filesystem providers (D4.1, D4.2, N4.1), which a service compiles with OutWit.OS's package references.
@@ -181,6 +191,7 @@ internal static class RuntimeDevices
             ["Uhi", "Drivers"], OUTWIT_OS_FILESYSTEM_FOLDERS);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_BLOCK_EXECUTABLE, VIRTIO_BLOCK_PROGRAM, ["Virtio"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_CONSOLE_EXECUTABLE, VIRTIO_CONSOLE_PROGRAM, ["Virtio"], []);
+        await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_INPUT_EXECUTABLE, VIRTIO_INPUT_PROGRAM, ["Virtio"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, TERMINAL_EXECUTABLE, TERMINAL_PROGRAM, ["Server"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, NAMESPACE_EXECUTABLE, NAMESPACE_PROGRAM, ["Server", "Volumes"],
             OUTWIT_OS_FILESYSTEM_FOLDERS);
@@ -419,16 +430,17 @@ internal static class RuntimeDevices
         var directory = RuntimeWitos.ProgramDirectory(root, architecture);
         var driver = Path.Combine(directory, VIRTIO_BLOCK_EXECUTABLE);
         var console = Path.Combine(directory, VIRTIO_CONSOLE_EXECUTABLE);
+        var input = Path.Combine(directory, VIRTIO_INPUT_EXECUTABLE);
         var names = Path.Combine(directory, NAMESPACE_EXECUTABLE);
         var terminal = Path.Combine(directory, TERMINAL_EXECUTABLE);
-        if (!File.Exists(driver) || !File.Exists(console) || !File.Exists(names) || !File.Exists(terminal))
+        if (!File.Exists(driver) || !File.Exists(console) || !File.Exists(input) || !File.Exists(names) || !File.Exists(terminal))
             throw new InvalidOperationException($"No witos drivers, namespace service or terminal service in {directory}. " +
                 $"Run: dotnet run --project tools/WitOS.Dev -- runtime-services --arch {architecture.Name}");
         return
         [
             ("system/" + DEVICE_MANAGER_EXECUTABLE, program[0].Source), ("system/Drivers/" + VIRTIO_BLOCK_EXECUTABLE, driver),
-            ("system/Drivers/" + VIRTIO_CONSOLE_EXECUTABLE, console), ("system/" + NAMESPACE_EXECUTABLE, names),
-            ("system/" + TERMINAL_EXECUTABLE, terminal), .. program.Skip(1)
+            ("system/Drivers/" + VIRTIO_CONSOLE_EXECUTABLE, console), ("system/Drivers/" + VIRTIO_INPUT_EXECUTABLE, input),
+            ("system/" + NAMESPACE_EXECUTABLE, names), ("system/" + TERMINAL_EXECUTABLE, terminal), .. program.Skip(1)
         ];
     }
 

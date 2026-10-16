@@ -23,7 +23,7 @@
 | [S — Субстрат прослойки](#s--субстрат-прослойки) | S1–S7 | 2026-10-10 |
 | [R — Рантайм .NET Unix-формы](#r--рантайм-net-unix-формы) | R1–R8 | 2026-10-12 (R4.2 после D6) |
 | [D — Устройства и хранилище (M4/M5)](#d--устройства-и-хранилище-m4m5) | D1–D6 | 2026-10-12 |
-| [C — Консоль и оболочка (RFC-0020)](#c--консоль-и-оболочка-rfc-0020) | C1 (C2, C3 открыты в плане) | C1 — 2026-10-16 |
+| [C — Консоль и оболочка (RFC-0020)](#c--консоль-и-оболочка-rfc-0020) | C1, C2.1 (C2.2–C3 открыты в плане) | C2.1 — 2026-10-16 |
 | [V — Третья ISA](#v--третья-isa) | V0, V1.1 (V1.2–V3 открыты в плане) | V1.1 — 2026-10-16 |
 | [N — Стандартный .NET (M6)](#n--стандартный-net-m6) | N1–N4: фаза завершена, M6 выполнен, Gate B заявлен | 2026-10-15 (N4.5) |
 
@@ -1088,6 +1088,39 @@
   shell --arch x64` показал эмблему с панелью (`OS WitOS 0.1 ABI-1`, `Kernel nano-kernel · X64`, `Runtime .NET 10.0.12`,
   `Shell PowerShell 7.6.7`, `Volumes /, /tmp, /boot, /data, /fat`) и приглашение `PS /data>`. Вне C1: родные провайдеры
   (§11), remoting (§19), jobs (§18), подпись скриптов (§43), `shell` на Windows с экспортированной установкой.
+- [x] **C2.1** Кадровый буфер прошивки и virtio-клавиатура (2026-10-16, PR #136;
+  [C2.1-Framebuffer-and-Keyboard.md](@Docs/Implementation/C2.1-Framebuffer-and-Keyboard.md)). Измерение: `-device ramfb`
+  даёт EDK II линейный буфер на обеих платах — 800×600, шаг 800, BGRX, 3 МиБ в памяти гостя типа 0 (reserved), режим 1 из
+  3; q35 без `-vga none` показывает буфер VGA (1280×800 в BAR 0x80000000, 30 режимов). Решение — `ramfb` на обеих
+  (`KernelArchitecture.DisplayArguments`, `BootRequest.Display`). Boot-контракт **v7** (`WitBootInfo` 184 байта: адрес,
+  размер, ширина, высота, шаг, формат `WIT_PIXEL_BGRX`/`RGBX`): загрузчик (`src/Boot.Uefi/display.c`) берёт текущий режим
+  GOP, режима не меняет, страницы буфера держит зарезервированными и печатает тип памяти; ядро проверяет блок целиком и
+  не читает буфера. Платформы q35 и virt публикуют буфер дескриптором шины `WIT_DEVICE_BUS_FIRMWARE` (2; `Identity` =
+  вид 1, ширина | высота << 16, шаг, формат; регион 0 — память) через inline `wit_device_describe_framebuffer` из
+  `witos/device.h` после функций шины (перечисления перестроены: буфер публикуется и без шины). `DEVICE_MEMORY(устройство,
+  регион, окно)` — **ABI-1 1.3**: третий аргумент — страница региона, с которой начинается объект до 64 страниц (регион
+  любого размера — окнами; `TOO_LARGE` ушёл); libwitos `witos_device_memory_at`, `Device.MemoryAt`, `Device.WINDOW_PAGES`;
+  фикстура устройств по-прежнему требует `INVALID_ARGUMENT` для окна за одностраничным регионом конфигурации. Менеджер
+  устройств: `FirmwareTranslator` (класс `FrameBuffer`, поставщик `Firmware`, `firmware/framebuffer`),
+  `OutWit.OS.Display.{FramebufferGeometry,TestPattern}`, `DisplayProbe` рисует узор (рамка 16 px и четыре полосы R/G/B/W)
+  выровненными 32-битными записями `MmioRegion.Write32` по окнам и печатает `display probe: 800 by 600, stride 800, BGRX,
+  1920000 bytes in 8 windows of 64 pages: test pattern drawn`. Клавиатура: `virtio-keyboard-pci` (тип 18, `InputDevice`) →
+  драйвер `/system/Drivers/VirtioInput` (virtio 1.x §5.8: select/subsel-конфигурация — имя, идентификаторы, биты `EV_KEY`;
+  очередь событий на 64 буфера по 8 байт на закреплённых страницах, линия на событии), `[VIRTIO-INPUT] key 30 down/up`;
+  публикуется `runtime-witos`/`runtime-services`, в `ServiceFiles`. Инструмент: `QemuControl` — сессия QMP с
+  `ScreendumpAsync` и `SendKeyAsync` (`input-send-event`, qcode), `BootAction`/`BootRequest.Actions` — действия по
+  строкам журнала, `Screenshot` читает P6 PPM и требует узор тем же `TestPattern`, сценарий `runtime-display`
+  (`RuntimeDisplay`, после `runtime-terminal` в `runtime-witos`, `tests/User/display_init.c` как `/bin/init`),
+  `release-display-256` в команде `release`. Гость: `runtime-display` PASS на x64 и ARM64 в контейнере — строки
+  загрузчика (`[BOOT] Framebuffer: 800x600 … mode 1 of 3`, `memory type 0, reserved`), оба дескриптора, драйвер
+  (`'QEMU Virtio Keyboard', bus 6 vendor 0627 product 0001, 231 keys`), узор, клавиша, init, остановка служб; оба
+  screendump 800×600 совпали с узором во всех точках (углы чёрные, середины полос (255,0,0), (0,255,0), (0,0,255),
+  (255,255,255)); `runtime-services` — 5 загрузок на обеих ISA (x64 рисует узор в BAR VGA: 16 окон; ARM64 — `no
+  framebuffer`); `release` с `release-display-256` и наборы `test` обеих ISA на Windows; хост-тесты 183 и 96 (транслятор,
+  геометрия, узор, таблица драйверов, QMP). Находки: оба порта EDK II кладут буфер `ramfb` в reserved и выбирают 800×600;
+  на q35 буфер прошивки — VGA, пока карта не убрана; единственное изменение ядра — окно `DEVICE_MEMORY`, общее ядро о
+  дисплее не узнало; строки сценариев — только простые слова (`TERM` из C1.3 заставил NUnitLite раскрашивать итог —
+  исправлено в C1.3). Судья по `screendump` и ввод через QMP, намеченные на C2.3, вошли в этот срез.
 
 ### V — Третья ISA
 

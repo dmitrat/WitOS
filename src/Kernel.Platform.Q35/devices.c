@@ -274,11 +274,16 @@ static WitU32 describe_bus(
 
 WitU32 wit_platform_devices(const WitBootInfo *boot, WitDeviceDescriptor *table, WitU32 capacity)
 {
-    (void)boot; /* q35 is enumerated through its configuration ports; the ACPI tables are not needed. */
-    if ((config_read(0, 0, 0, 0x00) & 0xFFFF) == 0xFFFF) {
-        return 0; /* No host bridge: no PCI. */
+    WitU32 count = 0;
+    /* q35 is enumerated through its configuration ports; the ACPI tables are not needed. No host bridge: no PCI. */
+    if ((config_read(0, 0, 0, 0x00) & 0xFFFF) != 0xFFFF) {
+        route_pirqs();
+        log_routing();
+        count = describe_bus(ecam_base(), 0, 0, table, 0, capacity);
     }
-    route_pirqs();
-    log_routing();
-    return describe_bus(ecam_base(), 0, 0, table, 0, capacity);
+    /* The firmware's framebuffer (C2.1): a device of the boot contract, after the bus's functions. */
+    if (count < capacity && wit_device_describe_framebuffer(boot, &table[count])) {
+        ++count;
+    }
+    return count;
 }

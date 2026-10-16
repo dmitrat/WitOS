@@ -87,5 +87,21 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     /// </summary>
     public bool InteractiveTerminal { get; init; }
 
+    /// <summary>
+    /// A display (plan step C2.1): the board's ramfb, whose framebuffer the firmware sets up and the loader records in
+    /// the boot contract; none when false, as the boards booted before.
+    /// </summary>
+    public bool Display { get; init; }
+
+    /// <summary>
+    /// A keyboard (plan step C2.1): virtio-keyboard-pci on the board's bus, which QMP's key events reach.
+    /// </summary>
+    public bool Keyboard { get; init; }
+
+    /// <summary>
+    /// What the runner does through QMP while the guest runs, each action once its line appeared (plan step C2.1).
+    /// </summary>
+    public IReadOnlyList<BootAction> Actions { get; init; } = [];
+
     #endregion
 }

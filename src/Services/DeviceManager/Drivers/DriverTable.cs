@@ -21,9 +21,19 @@ internal static class DriverTable
     public const string VIRTIO_CONSOLE = "/system/Drivers/VirtioConsole";
 
     /// <summary>
+    /// The virtio input driver (C2.1).
+    /// </summary>
+    public const string VIRTIO_INPUT = "/system/Drivers/VirtioInput";
+
+    /// <summary>
     /// The contract of a console: what the terminal service drives through its driver.
     /// </summary>
     public const string SERIAL_CONSOLE = "SerialConsole";
+
+    /// <summary>
+    /// The contract of an input device, a keyboard (C2.1): what the display's terminal takes keys from.
+    /// </summary>
+    public const string INPUT_DEVICE = "InputDevice";
 
     /// <summary>
     /// The UHI class of a block device, whose driver serves the block protocol on its service channel (D3.2).
@@ -43,6 +53,7 @@ internal static class DriverTable
     {
         ("Virtio", BLOCK_STORAGE) => VIRTIO_BLOCK,
         ("Virtio", SERIAL_CONSOLE) => VIRTIO_CONSOLE,
+        ("Virtio", INPUT_DEVICE) => VIRTIO_INPUT,
         _ => null
     };
 

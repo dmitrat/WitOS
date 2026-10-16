@@ -34,10 +34,16 @@ internal static class CommandLine
             (root, architecture) => architecture == KernelArchitecture.X64
                 ? KernelTestSuite.RunAsync(root)
                 : KernelTestSuite.RunFoundationAsync(root, architecture)),
-        new CommandScenario("release", "Build and boot the release kernel without self-tests", KernelImageBuilder.RELEASE_SCENARIO,
+        new CommandScenario("release", "Build and boot the release kernel without self-tests, once with the board's display (C2.1)", KernelImageBuilder.RELEASE_SCENARIO,
         [
             new BootRequest("release-128", 128, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release },
-            new BootRequest("release-512", 512, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release }
+            new BootRequest("release-512", 512, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release },
+            // The firmware's framebuffer in the boot contract (C2.1): the loader records ramfb's, the kernel takes it and the
+            // platform publishes it as a device.
+            new BootRequest("release-display-256", 256, 60, ExpectedOutcome.Success)
+            {
+                Suite = BootSuite.Release, Display = true, RequiredLines = ["[BOOT] Framebuffer: ", "[BOOT] Framebuffer memory type "]
+            }
         ]),
         new CommandAction("riscv64-loader",
             "Build the RISC-V kernel image, a position-independent ELF the tool converts to PE32+, and boot it under EDK II over OpenSBI to the bring-up's exit through the board's test finisher (V1.1)",
@@ -155,6 +161,9 @@ internal static class CommandLine
         new CommandArchitecture("runtime-terminal",
             "Boot the device services with a virtio console the runner types into: the console driver, the terminal service and its echo (N4.3a)",
             RuntimeTerminal.RunAsync),
+        new CommandArchitecture("runtime-display",
+            "Boot the device services with the board's framebuffer and a virtio keyboard: the device manager's test pattern checked in QEMU's screendump, the key the runner presses reported by the input driver (C2.1)",
+            RuntimeDisplay.RunAsync),
         new CommandArchitecture("runtime-powershell",
             "Boot upstream PowerShell from the data volume on the terminal beside the services and the .NET install, non-interactively and under PSReadLine (C1.3)",
             RuntimePowerShell.RunAsync),

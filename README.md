@@ -12,7 +12,7 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 by the pinned clang on both, and keeps the mechanisms of ABI-1 ([RFC 0011 v3](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md)):
 processes with private address spaces, the one thread form, memory objects, channels that carry capabilities, events and
 the one wait with absolute deadlines, faults and activations delivered to user space, device descriptors with interrupt
-bindings and DMA pins, UTC and the started secondary processors. ABI-1 is 1.2 and boot ABI v6, printed by the kernel
+bindings and DMA pins, UTC and the started secondary processors. ABI-1 is 1.3 and boot ABI v7, printed by the kernel
 banner from the headers. Above it runs the system layer (phase S) on both ISAs: the pinned musl over ABI-1 with threads,
 signals and its dynamic linker, LLVM's C++ runtime, a process manager with `posix_spawn`, and ABI-2 1.0 recorded in
 `build/abi2.json`. The root task starts WitOS's services, NativeAOT programs in processes of their own ([ADR 0025](@Docs/Implementation/ADR-0025-Devices-as-NativeAOT-Services.md)):
@@ -81,7 +81,7 @@ Expected guest output includes:
 ```text
 [BOOT] UEFI x64 adapter
 [BOOT] ExitBootServices OK
-WitOS user ABI 1.2, boot ABI v6
+WitOS user ABI 1.3, boot ABI v7
 Build: <git-revision> | x64 | Debug
 [TEST-BEGIN] Boot.Contract
 [TEST-PASS] Boot.Contract
@@ -241,8 +241,11 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   on the terminal, judged by the `runtime-powershell` scenario on both ISAs (C1.1–C1.3, RFC 0020). What it needed from
   the platform: the mount points for `DriveInfo` (`/etc/mtab` from the namespace service's list), a writable home on the
   data volume, terminfo and `TERM` in the install, and the runner's terminal emulator answering the cursor position
-  report. Next: the tool's interactive `shell` command (C1.4), then a text console on the firmware's framebuffer with a
-  virtio keyboard (C2).
+  report; the tool's `shell` command opens that session on the host's console with WitOS's console mark (C1.4). The
+  display's devices are there (C2.1): the firmware's framebuffer (ramfb, 800 by 600 on both boards) travels in the boot
+  contract v7 and the device table as a device of the firmware bus, which the device manager draws a test pattern into
+  through `DEVICE_MEMORY`'s windows, judged in QEMU's screendump, and a virtio keyboard's driver reports keys. Next: the
+  display service that draws text behind the terminal service (C2.2).
 - **Third ISA (phase V, begun).** RISC-V on QEMU's virt board: the measurement V0 found the pinned LLVM links no RISC-V
   PE/COFF, so the loader and the kernel are one position-independent ELF the tool converts to PE32+ with base
   relocations. V1.1 boots that image under EDK II over OpenSBI: the unchanged loader publishes the device tree, reads the

@@ -22,7 +22,9 @@
  * x0=status and x1=result, every other register preserved, x18 included (K8.4b). A structure passed by pointer starts with Version
  * and Size; an unknown version is UNSUPPORTED, a wrong size INVALID_ARGUMENT; unused arguments are zero. */
 #define WIT_ABI_VERSION_MAJOR 1U
-#define WIT_ABI_VERSION_MINOR 2U
+/* 1.1 since R7.2b (PROCESS_QUERY's BUDGET state, THREAD_CREATE's STACK_ADJACENT), 1.2 since D1.2 (a device's last
+ * reference crosses processes), 1.3 since C2.1 (DEVICE_MEMORY's window). */
+#define WIT_ABI_VERSION_MINOR 3U
 /* The version QUERY reports and the startup descriptor carries: the major version in the high 16 bits, the minor in
  * the low 16 (the draft counters of phase K ran from 1 to 72 with major 0). A system layer refuses another major. */
 #define WIT_ABI_VERSION ((WIT_ABI_VERSION_MAJOR << 16) | WIT_ABI_VERSION_MINOR)
@@ -198,8 +200,10 @@
  * BIND, QUERY, DUPLICATE and TRANSFER; a device is held by one component at a time (BUSY) and is free again when
  * its last handle closes. */
 #define WIT_CALL_DEVICE_ACQUIRE 80U
-/* Memory(device handle, region index, 0) -> handle to a memory object of the region: uncached, mappable READ or
- * READ|WRITE through MEMORY_OBJECT_MAP, never executable; a port region is UNSUPPORTED. */
+/* Memory(device handle, region index, window) -> handle to a memory object of the region: uncached, mappable READ or
+ * READ|WRITE through MEMORY_OBJECT_MAP, never executable; a port region is UNSUPPORTED. The window (ABI-1 1.3, C2.1)
+ * is the region's page the object starts at; the object covers at most 64 pages from it, so a region of any size is
+ * reached window by window, and a window beyond the region is INVALID_ARGUMENT. */
 #define WIT_CALL_DEVICE_MEMORY 81U
 /* Bind(device handle with BIND, line index, event handle with SIGNAL) -> interrupt handle with ACK, QUERY, DUPLICATE
  * and TRANSFER: on each interrupt of the line the kernel masks the line and sets the event; the line stays masked
