@@ -58,6 +58,8 @@ milestone or phase that brings the capability. An absent capability fails explic
 | File change notifications (`FileSystemWatcher`) | Absent | — | `PlatformNotSupportedException`: the namespace service sends none. |
 | Processes (`Process.Start`, `WaitForExit`, redirected streams, `Kill`) | Partial | N4.2 | `posix_spawn` over the process manager with pipes between processes; no process enumeration, no other process's name or times, no signal but `SIGKILL`, one user, no process groups. |
 | Console and terminal | Supported | N4.3 | The terminal service over the virtio console with Linux's line discipline: `ReadLine`, `ReadKey`, `KeyAvailable`, `CancelKeyPress`, the window size; without a terminal the standard streams are the kernel log. |
+| PowerShell 7 (upstream, `dotnet pwsh.dll`, PSReadLine) | Planned | C1 | RFC 0020 §56 T2: the shell on the serial terminal of N4.3, its native library built for the witos triples, terminfo from a pinned ncurses. |
+| Text console on a display (framebuffer, keyboard) | Planned | C2 | The firmware's framebuffer published as a device region, a virtio keyboard, a NativeAOT display service behind the terminal service; the serial console stays. |
 | Named synchronization objects (`Mutex` with a name) | Supported | N4.1 | Under `/tmp/.dotnet` in the namespace service's `/tmp`. |
 | Cryptography | Partial | R4.1 | System.Native's random bytes, the managed hashes, HMAC and the KDFs, as in the browser flavor; `PlatformNotSupportedException` for the rest; no OpenSSL. |
 | Networking (`Socket`, `HttpClient`) | Planned | M7 | Absent: `System.Net.Sockets` and `System.Net.Security.Native` fail explicitly until the network service of M7. |
@@ -75,5 +77,6 @@ The hardware matrix of Strategy §146.
 | --- | --- | --- |
 | QEMU x64 (q35) | Primary | Every gate runs on it. |
 | QEMU ARM64 (virt) | Primary | Every gate runs on it; a step closes only when both ISAs pass. |
+| QEMU RISC-V (virt) | Future | Phase V, begun with the measurement V0 (2026-10-16): the pinned QEMU carries qemu-system-riscv64 and EDK II's RISC-V firmware; the pinned lld-link links no RISC-V PE/COFF, so the loader's image format is V0's first decision. |
 | Physical reference machine | Future | After phase V; firmware memory reclamation and the hardware matrix of Strategy §146. |
 | Generic PC | Future | After the reference machine. |
