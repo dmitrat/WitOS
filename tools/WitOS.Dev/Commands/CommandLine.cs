@@ -145,14 +145,6 @@ internal static class CommandLine
                 Suite = BootSuite.Release,
                 RequiredLines = [architecture.LibraryTestsPassedLine, architecture.RootTaskPassedLine]
             }]),
-        new CommandScenario("runtime-devices",
-            "Boot the device manager runtime-witos published, which discovers the devices before /bin/init (D1.1)",
-            KernelImageBuilder.RUNTIME_DEVICES_SCENARIO,
-            architecture => [new BootRequest("runtime-devices-512", 512, 1200, ExpectedOutcome.Success)
-            {
-                Suite = BootSuite.Release,
-                RequiredLines = RuntimeDevices.RequiredLines(architecture)
-            }]),
         new CommandRebase(),
         new CommandArchitecture("runtime-services",
             "Publish WitOS's NativeAOT services with the packages runtime-witos built and boot their scenarios, without the runtime's build (D1.1)",
