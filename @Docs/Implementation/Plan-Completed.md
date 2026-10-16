@@ -865,6 +865,14 @@
 
 ### N — Стандартный .NET (M6)
 
+- [x] **N0** Немедленные задачи аудита 2026-10-14 (не шаги плана — приведение в порядок сделанного):
+  **N0.1** задание CI `side-by-side` ставит `liblttng-ust-dev`, который требует конфигурация crosscomponents CoreCLR
+  8.0 на раннере (4fd8e3e в PR #122); PR #121 и #122 перепроверены и влиты 2026-10-14. **N0.2** хостовый прогон
+  `Microsoft.CodeAnalysis.UnitTests` на раннере GitHub: `CompilerResolverTests.ResolveReturnsNullForNonHostAssembly`
+  падает время от времени только на хосте раннера (его коллекционный контекст загрузки отвечает иначе, чем в
+  контейнере и в госте) и выходит из выборки обоих прогонов с этой причиной (`build/runtime/nuget-suites.json`,
+  документ N2.2); группа `roslyn` зелёная на обеих ISA. **N0.3** PR #123 (аудит): план, журнал выполненного, документ
+  аудита, README и AGENTS.md согласованы; влит 2026-10-14.
 - [x] **N1** Compatibility suite `tests/DotNetCompatibility/` (Strategy §57; RFC-0015 §1, §8: Console, Tasks, Threads,
   Timers, Exceptions, Reflection, FileIO, AssemblyLoading, GC, Synchronization), запускаемый на Windows, Linux и WitOS;
   различия намеренны и записаны, включая «не Linux и не macOS — значит Windows»
