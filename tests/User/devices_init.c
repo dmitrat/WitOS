@@ -2,6 +2,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <mntent.h>
 #include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -367,6 +368,28 @@ int main(void)
     check(stat("/tmp", &tmp_stat) == 0 && S_ISDIR(tmp_stat.st_mode), "/tmp is a directory");
     volume("/tmp", 1);
     check(chmod("/bin/init", 0755) < 0 && errno == EROFS, "chmod in the package is EROFS");
+    /* /etc/mtab (C1.2): the mount table the libc serves from the namespace's mount points, which System.Native reads
+     * for DriveInfo.GetDrives(): the package at / and the four volumes, read-only; and the home the service made. */
+    FILE *mounts = setmntent("/etc/mtab", "r");
+    int seen = 0, entries = 0;
+    for (struct mntent *entry; mounts && (entry = getmntent(mounts)) != 0; ++entries) {
+        seen |= strcmp(entry->mnt_dir, "/") == 0   ? 1
+            : strcmp(entry->mnt_dir, "/data") == 0 ? 2
+            : strcmp(entry->mnt_dir, "/fat") == 0  ? 4
+            : strcmp(entry->mnt_dir, "/boot") == 0 ? 8
+            : strcmp(entry->mnt_dir, "/tmp") == 0  ? 16
+                                                   : 0;
+    }
+    if (mounts) {
+        endmntent(mounts);
+    }
+    check(mounts != 0 && entries == 5 && seen == 31, "/etc/mtab lists the package and the four volumes");
+    struct stat mtab_stat;
+    check(stat("/etc/mtab", &mtab_stat) == 0 && S_ISREG(mtab_stat.st_mode) && mtab_stat.st_size > 0,
+        "/etc/mtab is a regular file");
+    check(open("/etc/mtab", O_WRONLY) < 0 && errno == EROFS, "/etc/mtab is read-only");
+    check(stat("/data/home", &mtab_stat) == 0 && S_ISDIR(mtab_stat.st_mode),
+        "/data/home, the home the namespace service makes");
     check(rename("/data/x", "/fat/x") < 0 && (errno == EXDEV || errno == ENOENT), "rename across volumes");
     check(write_file("/data/posix-kept.txt", POSIX_KEPT, O_TRUNC) == 0, "the file the host finds");
     const char *loader =

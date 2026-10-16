@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <math.h>
+#include <mntent.h>
 #include <poll.h>
 #include <pthread.h>
 #include <sched.h>
@@ -448,6 +449,19 @@ int main(void)
         close(directory);
     }
     check(access("/test/dir/a.txt", R_OK) == 0 && access("/test/dir/a.txt", W_OK) == -1 && errno == EROFS, "access");
+    /* /etc/mtab (C1.2): the mount table the libc serves; the root task has no namespace service, so it lists the
+     * package at / alone, and the file is read-only. */
+    FILE *mounts = setmntent("/etc/mtab", "r");
+    struct mntent *mount = mounts ? getmntent(mounts) : 0;
+    check(mount &&
+            strcmp(mount->mnt_dir, "/") == 0 &&
+            strcmp(mount->mnt_type, "witos-package") == 0 &&
+            getmntent(mounts) == 0,
+        "/etc/mtab lists the package at / alone without a namespace");
+    if (mounts) {
+        endmntent(mounts);
+    }
+    check(open("/etc/mtab", O_RDWR) == -1 && errno == EROFS, "/etc/mtab is read-only");
     DIR *listing = opendir("/test/dir");
     check(listing != 0, "opendir");
     if (listing) {

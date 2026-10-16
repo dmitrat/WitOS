@@ -1,0 +1,27 @@
+Source: src/native/libs/System.Native/pal_mount.c
+Output: src.native.libs.System.Native.pal_mount.c
+Before: 87922b7cff7b82ce0e6833a715551b710c3053f30678a97dc04bf48722dbf7e9
+After: 9e39693447920f660a71c7fcc08455ea758437ed60126f7e7cce95dc3520b833
+
+The mount table on WitOS (plan step C1.2): System.Native enumerates mount points for DriveInfo.GetDrives() and
+Environment.GetLogicalDrives() from /proc/mounts on Linux, which WitOS does not have (no procfs is ever emulated).
+The system layer's libc serves the mount table as /etc/mtab in mntent form, from the mount points the namespace
+service names, so the TARGET_WITOS branch opens that file where Linux opens /proc/mounts; the parsing is upstream's.
+No configure check or runtime knob covers the path, so this is RFC 0015 section 4's third preference, a branch beside
+the other platforms'.
+
+--- a/src/native/libs/System.Native/pal_mount.c
++++ b/src/native/libs/System.Native/pal_mount.c
+@@ -137,7 +137,12 @@
+
+ #else
+     int result = -1;
++#if defined(TARGET_WITOS)
++    // WitOS has no procfs: the system layer serves the mount table as /etc/mtab (RFC 0015 section 4, plan step C1.2).
++    FILE* fp = setmntent("/etc/mtab", MNTOPT_RO);
++#else
+     FILE* fp = setmntent("/proc/mounts", MNTOPT_RO);
++#endif
+     if (fp != NULL)
+     {
+         // The _r version of getmntent needs all buffers to be passed in; however, we don't know how big of a string

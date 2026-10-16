@@ -199,6 +199,38 @@ static long namespace_connect(void)
     return 0;
 }
 
+/* The mount table as /etc/mtab (C1.2): one mntent line for the package at / and one for each point the service names,
+ * what System.Native reads for DriveInfo.GetDrives() and Environment.GetLogicalDrives() where Linux reads /proc/mounts,
+ * and what PowerShell builds its root drive from. A process without the namespace's endpoint sees the package alone.
+ * The fields are the device, the point, the type, the options and the dump and pass numbers; the libc knows the points,
+ * not the volumes' formats, so the type names the layer that serves them and the options claim nothing. */
+WitU32 __wit_mounts_text(unsigned char *buffer, WitU32 capacity)
+{
+    static const char package[] = "package / witos-package ro 0 0\n";
+    static const char volume[] = " witos-volume defaults 0 0\n";
+    WitU32 length = 0;
+    namespace_connect(); /* reads the mount points when the endpoint is there */
+    if (sizeof(package) - 1 <= capacity) {
+        memcpy(buffer, package, sizeof(package) - 1);
+        length = sizeof(package) - 1;
+    }
+    for (WitU32 i = 0; i < mount_count; ++i) {
+        const WitU32 point = mount_lengths[i]; /* stored without its slash: "<point> /<point> witos-volume ..." */
+        if (length + point + 2 + point + sizeof(volume) - 1 > capacity) {
+            break;
+        }
+        memcpy(buffer + length, mount_points[i], point);
+        length += point;
+        buffer[length++] = ' ';
+        buffer[length++] = '/';
+        memcpy(buffer + length, mount_points[i], point);
+        length += point;
+        memcpy(buffer + length, volume, sizeof(volume) - 1);
+        length += (WitU32)(sizeof(volume) - 1);
+    }
+    return length;
+}
+
 int __wit_remote_name(const unsigned char *name, WitU32 length)
 {
     if (namespace_connect() < 0) {

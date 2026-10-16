@@ -214,6 +214,8 @@ internal static class RuntimeWitos
             "src.native.libs.System.Globalization.Native.CMakeLists.txt",
         // System.Native's process start over the libc's posix_spawn (N4.2).
         ["src/native/libs/System.Native/pal_process.c"] = "src.native.libs.System.Native.pal_process.c",
+        // The mount table for DriveInfo.GetDrives() (C1.2): /etc/mtab, which the libc serves, where Linux has /proc/mounts.
+        ["src/native/libs/System.Native/pal_mount.c"] = "src.native.libs.System.Native.pal_mount.c",
         ["src/native/corehost/apphost/static/CMakeLists.txt"] = "src.native.corehost.apphost.static.CMakeLists.txt",
         // ILC's target WitOS (R1.3).
         ["src/coreclr/tools/Common/TypeSystem/Common/TargetDetails.cs"] =
@@ -731,13 +733,16 @@ internal static class RuntimeWitos
         // The account database (N2.2): every process runs as uid and gid 0, which the libc reports, and a program asks its
         // user's name through getpwuid_r (Environment.UserName), which fails on a system without /etc/passwd.
         var passwd = Path.Combine(output, "passwd");
-        await File.WriteAllTextAsync(passwd, "root:x:0:0:root:/:\n");
+        await File.WriteAllTextAsync(passwd, "root:x:0:0:root:/data/home:\n");
         var group = Path.Combine(output, "group");
         await File.WriteAllTextAsync(group, "root:x:0:\n");
         // The default environment of every process (N4.1), which the root task reads and gives /bin/init: PATH, and the
-        // home of the one account, as /etc/passwd names it.
+        // home of the one account, as /etc/passwd names it: /data/home on the data volume (C1.2), which the namespace
+        // service makes when it mounts /data, since the package is read-only and programs such as PowerShell create
+        // directories under HOME at startup.
         var environment = Path.Combine(output, "environment");
-        await File.WriteAllTextAsync(environment, "# The default environment of every process; the root task reads it (N4.1).\nPATH=/bin:/usr/bin\nHOME=/\n");
+        await File.WriteAllTextAsync(environment,
+            "# The default environment of every process; the root task reads it (N4.1).\nPATH=/bin:/usr/bin\nHOME=/data/home\n");
         var sysroot = await Sysroot.BuildAsync(root, architecture);
         var shared = await FrameworkFilesAsync(tree, output, architecture, version, pin.TargetFramework);
 

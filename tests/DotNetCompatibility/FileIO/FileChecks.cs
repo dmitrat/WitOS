@@ -118,6 +118,20 @@ internal static class FileChecks
             }
             return CheckResult.Now(temp && fixedTemp, $"{Path.GetTempPath()}{(OperatingSystem.IsWindows() ? "" : " and /tmp")}");
         });
+        yield return new Check("FileIO", "LogicalDrives", () =>
+        {
+            // The root of the file system is a logical drive and a DriveInfo on every platform: the system drive on
+            // Windows, / on Unix (C1.2: PowerShell builds its file system drives from DriveInfo.GetDrives(), and WitOS
+            // reports its mount points through the libc's /etc/mtab where Linux has /proc/mounts).
+            var root = OperatingSystem.IsWindows() ? Path.GetPathRoot(Environment.SystemDirectory)! : "/";
+            var drives = Environment.GetLogicalDrives();
+            var infos = DriveInfo.GetDrives();
+            var observed = $"{drives.Length} logical drives ({string.Join(", ", drives)}), {infos.Length} DriveInfo";
+            return CheckResult.Now(
+                drives.Contains(root, StringComparer.OrdinalIgnoreCase) &&
+                infos.Any(info => string.Equals(info.Name, root, StringComparison.OrdinalIgnoreCase)),
+                observed);
+        });
         yield return new Check("FileIO", "Watcher", async () =>
         {
             var directory = Directory.CreateDirectory(Path.Combine(m_root.Value, "watched")).FullName;

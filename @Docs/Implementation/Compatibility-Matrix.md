@@ -22,7 +22,7 @@ types in the guest) and reports its checks not applicable elsewhere.
 | Timers | 6 | Supported | Supported | Supported |
 | Exceptions | 7 | Supported | Supported | Supported |
 | Reflection | 6 | Supported | Supported | Supported |
-| FileIO | 9 | Supported | Supported | Partial: Watcher |
+| FileIO | 10 | Supported | Supported | Partial: Watcher |
 | AssemblyLoading | 4 | Supported | Supported | Supported |
 | GC | 5 | Supported | Supported | Supported |
 | Synchronization | 8 | Supported | Supported | Supported |
@@ -30,7 +30,7 @@ types in the guest) and reports its checks not applicable elsewhere.
 | TimeZones | 4 | Supported | Supported | Supported |
 | Terminal | 7 | Supported | Supported | Supported |
 
-88 checks in 14 areas.
+89 checks in 14 areas.
 
 ## Recorded differences
 
