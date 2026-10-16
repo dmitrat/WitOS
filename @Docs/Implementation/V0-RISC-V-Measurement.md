@@ -75,8 +75,10 @@ kernel image's PE machine against `wit_arch_identity()->PeMachine`.
    kernel's PE sections and checks the machine), `KernelArchitecture.KernelTriple` becomes the ELF triple for this
    ISA, and the T3 rule is restated: PE/COFF is the firmware's image format, not a property of the compiler. The
    converter is a host tool of the order of `FlatImage.FromElfAsync` (an ELF reader the tool already has) plus a PE
-   writer; CodeView debug records do not survive, so the kernel's symbols for the runner's hang samples come from the
-   ELF beside the image.
+   writer, and the host's .NET supplies the writer: `System.Reflection.PortableExecutable.PEBuilder` (abstract, with
+   `PEHeaderBuilder` and `PEDirectoriesBuilder.BaseRelocationTable`) and `Machine.RiscV64 = 0x5064` are in .NET 10, so
+   no PE format code is written by hand. CodeView debug records do not survive, so the kernel's symbols for the runner's
+   hang samples come from the ELF beside the image.
 2. *ELF, loaded.* The loader learns to load an ELF kernel and the kernel image stays ELF; the loader itself still needs
    conversion to PE32+ to be started by the firmware, so the converter is needed in both ways.
 
