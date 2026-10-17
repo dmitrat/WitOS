@@ -24,7 +24,7 @@
 | [R — Рантайм .NET Unix-формы](#r--рантайм-net-unix-формы) | R1–R8 | 2026-10-12 (R4.2 после D6) |
 | [D — Устройства и хранилище (M4/M5)](#d--устройства-и-хранилище-m4m5) | D1–D6 | 2026-10-12 |
 | [C — Консоль и оболочка (RFC-0020)](#c--консоль-и-оболочка-rfc-0020) | C1, C2.1, C2.2 (C2.3–C3 открыты в плане) | C2.2 — 2026-10-17 |
-| [V — Третья ISA](#v--третья-isa) | V0, V1.1, V1.2 (V1.3–V3 открыты в плане) | V1.2 — 2026-10-17 |
+| [V — Третья ISA](#v--третья-isa) | V0, V1.1, V1.2, V1.3 (V1.4–V3 открыты в плане) | V1.3 — 2026-10-17 |
 | [N — Стандартный .NET (M6)](#n--стандартный-net-m6) | N1–N4: фаза завершена, M6 выполнен, Gate B заявлен | 2026-10-15 (N4.5) |
 
 ## 5. Фазы (выполненные шаги)
@@ -1230,6 +1230,49 @@
   `Processors present/online: 1/1`; вытеснение — 7 тиков, 7 переключений, по 3 кванта и ~166 600 итераций на рабочий
   поток. Объём: `Kernel.Arch.RV64` — 1 628 строк порта и 253 заглушек (50 операций V1.3/V1.4), `Kernel.Platform.QemuVirtRv`
   — 554 и 29 (4 операции V1.4), тесты 120; общее ядро (41 исходник с общими самотестами) собралось и прошло без правок.
+- [x] **V1.3** Пользовательский режим riscv64: `ecall`, кадры и контексты U-mode, таблицы процессов, мост ECAM и общие
+  пользовательские наборы (2026-10-17, PR #139; [V1.3-RISC-V-User-Mode.md](@Docs/Implementation/V1.3-RISC-V-User-Mode.md)).
+  `frame.c`: кадр потока на вершине его стека ядра (a0 — аргумент, `sepc` — вход, sp — выровненная вершина минус 16,
+  `sstatus` U-mode: SPP снят, SPIE, FS initial, UXL харта); `wit_rv64_run_user` сохраняет callee-saved состояние хоста
+  (ra, sp, s0–s11, fs0–fs11, fcsr, satp; 224 байта), переключает `satp` и возобновляет кадр, `wit_rv64_leave_user`
+  возвращается из него; `wit_rv64_prepare_resume` перед каждым возобновлением требует кадр U-mode на вершине выбранного
+  стека и у свежего кадра (`WIT_RV64_FRAME_FRESH` в `Reserved`) пишет `tp` из TLS-базы запроса — однажды; дальше `tp`
+  принадлежит потоку, как `TPIDR_EL0` на ARM64, контекст несёт его как любой регистр, `THREAD_SET_TLS` — `UNSUPPORTED`;
+  возобновление в U-mode сбрасывает резервацию LR/SC пустым `sc.d` в слово ядра (TCG сбрасывает её сам, архитектура —
+  нет). Ловушка из U-mode: `ECALL` — системный вызов (a7 — номер, a0–a2 — аргументы, a0 — статус, a1 — значение, `sepc`
+  сдвинут за инструкцию до всего остального), остальные причины — отказ пользователя: вектор и ошибка — `scause`, адрес —
+  `stval` для отказов памяти, `RawState` — `sstatus`; строка `[USER-FAULT]` несёт `sepc`, `sstatus`, `scause`, `stval`,
+  судья требует SPP снят, ошибка = причина = вектор. Контексты — блок RISC-V (`X[i]` = x(i+1), `Pc`, `Fcsr`, `F[32]`,
+  профиль `FPREGS`), проверка держит `Fcsr` в восьми битах с режимом округления ≤ 4; `CONTEXT_PROFILE` — новый
+  `WIT_CPU_CONTEXT_FPREGS` (16), 256 байт F, маска 0xFF (две строки общих заголовков: флаг и справочник ABI).
+  `page_table.c`: лист пользователя `V|R|U|A` (+`W|D`, +`X`), no-access — недействительная запись с PPN; два бита RSW —
+  вид листа (1 OWNED, 2 ALIAS, 3 ALIAS устройства — общее ядро всегда метит страницу устройства ALIAS|DEVICE, первая
+  кодировка декодировала 3 как DEVICE и `unmap_page` паниковал «Missing owned user mapping»); ветки ядра глобальные, обход
+  пользовательских таблиц их не входит; `sfence.vma` по адресу при установленном корне. Плата: `pci.c` — перечисление PCI
+  за мостом `pci-host-ecam-generic` дерева устройств (окно 0x30000000, 256 МиБ, bus 0–255) с картой прерываний PLIC
+  (16 записей по 6 ячеек, маска `0x1800 0 0 7`, родитель с одной ячейкой прерывания и без адресных — линия = источник
+  PLIC напрямую, 32–35); мост найден на любой глубине, так как у riscv64 virt он лежит под `/soc` (у ARM64 — в корне;
+  первая загрузка не нашла ничего); затем framebuffer прошивки. Фикстуры и корневая задача: ветки `#else` для riscv64
+  (a7/`ecall`, стражи s2–s5, fs0 и `tp`, `csrci sstatus, 2` и `csrr satp` как привилегированные, `unimp`, плохой возврат
+  sp = 0x0000800000000000, `fence`, `amoadd.d`, маркер s6 = `X[21]`, sp = `X[1]`, a0 = `X[9]`, код `lui/addi/ret`),
+  `ISA_NAME "riscv64"`; `tests/Kernel.RV64/user_arch_tests.c` — таблица отказов по причинам (load page 13, store page 15,
+  instruction page 12, illegal 2 для CSR супервизора и `unimp`), `kernel_tests.c` — полный порядок с пользовательскими
+  наборами, слой `kernel-selftest-user` в `kernel-riscv64.json`; `riscv64-users.json` — те же 80 маркеров, что у ARM64.
+  Сборка: `UserImage` без `-fno-plt` для RISC-V (clang отвергает его как неиспользуемый под `-Werror`), с
+  `-mcmodel=medany` и `tests/User/compiler_rv64.c` (`memset`/`memcpy`/`memmove` — backend RISC-V зовёт их, где x64 и
+  ARM64 инлайнят) в каждой фикстуре и корневой задаче; корневая задача — на каждом диске riscv64. Инструмент:
+  `KernelArchitecture.KernelOnly` → `SystemLayer` (false до V2) и `SecondaryProcessors` (false до V1.4),
+  `UsersExpectation`; `KernelTestSuite.RunFoundationAsync` для ARM64 и riscv64 (boot-128 со строками корневой задачи и
+  boot-512 по `<isa>-users.json`, `boot-smp2` и сценарии слоя 2 по флагам, отказ контракта и карты, сценарии отказов ISA,
+  timeout; `RunKernelOnlyAsync` ушёл); `ValidateFoundationUsers` с регулярным выражением riscv64; судья release снова
+  требует `Boot.RootTask` на всех ISA. Гость (Windows): `run --arch riscv64` — `Usable memory: 190 MiB`, `Devices: 3`
+  (мост 1b36:0008; virtio-blk 1af4:1001 и virtio-rng 1af4:1005 — по 4 региона и линии), все пользовательские наборы,
+  `Interrupts delivered: 1`, `[TEST-SUMMARY] faults=22 checked=22`, `Hello from WitOS`, `[ROOT] exit code 0`;
+  `test --arch riscv64` — 14 сценариев PASS (boot-128, boot-512, invalid-boot-info, overlapping-map, 9 отказов, timeout);
+  `release --arch riscv64` — release-128, release-512, release-display-256 PASS с `Boot.RootTask`. Объём:
+  `Kernel.Arch.RV64` — 2 240 строк порта и 26 заглушек (3 операции V1.4), `Kernel.Platform.QemuVirtRv` — 940 и 29
+  (4 операции V1.4), тесты 199; общее ядро и общие самотесты (`kernel-selftest-shared`, `kernel-selftest-user`),
+  `tests/Kernel/` и фикстуры `tests/User/Fixtures` — без правок в `.c` общего кода.
   Хост: 96 тестов инструмента (судья riscv64, манифесты, слоение); release x64 без изменений. Находки: финишер должен быть
   загрузочным устройством; дерево устройств может лежать в уже отображённой памяти (читатель спрашивает
   `wit_virtual_view`); деления на ноль нет; boot hart — вопрос прошивке (64 `ecall` однажды).

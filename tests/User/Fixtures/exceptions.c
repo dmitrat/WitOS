@@ -39,7 +39,7 @@ typedef struct State {
 /* The fault callback is entered with the token, the vector and the address in the SysV argument registers (K8.4d) and
  * no return address. */
 #define CALLBACK __attribute__((force_align_arg_pointer, noreturn))
-#else
+#elif defined(__aarch64__)
 #define FAULT_VECTOR 0x24U /* a data abort from EL0 */
 #define FAULT_ERROR 0x92000006U /* its translation-fault syndrome */
 #define CONTEXT_PROFILE WIT_THREAD_CONTEXT_FPSIMD
@@ -47,6 +47,15 @@ typedef struct State {
 #define CONTEXT_PC(c) ((c)->Pc)
 #define CONTEXT_SP(c) ((c)->Sp)
 #define CONTEXT_MARKED(c) ((c)->X[22])
+#define CALLBACK __attribute__((noreturn))
+#else
+#define FAULT_VECTOR 13U /* a load page fault from U-mode */
+#define FAULT_ERROR 13U /* its cause, which the record carries as the error */
+#define CONTEXT_PROFILE WIT_THREAD_CONTEXT_FPREGS
+#define ENABLED_STATE WIT_CPU_CONTEXT_FPREGS
+#define CONTEXT_PC(c) ((c)->Pc)
+#define CONTEXT_SP(c) ((c)->X[1])
+#define CONTEXT_MARKED(c) ((c)->X[21]) /* s6 */
 #define CALLBACK __attribute__((noreturn))
 #endif
 
@@ -99,7 +108,7 @@ __asm__(".text\n"
         "    syscall\n"
         "    mov %r8, %rsp\n"
         "    ret\n");
-#else
+#elif defined(__aarch64__)
 __asm__(".text\n"
         ".globl exception_fault\n.hidden exception_fault\n"
         "exception_fault:\n"
@@ -141,6 +150,50 @@ __asm__(".text\n"
         "    mov x2, #0\n"
         "    svc #0\n"
         "    mov sp, x9\n"
+        "    ret\n");
+#else
+__asm__(".text\n"
+        ".globl exception_fault\n.hidden exception_fault\n"
+        "exception_fault:\n"
+        "    addi sp, sp, -16\n"
+        "    sd s6, 0(sp)\n"
+        "    sd ra, 8(sp)\n"
+        "    li s6, 0x1122334455667788\n"
+        "    li t0, 0\n"
+        ".globl exception_fault_site\n.hidden exception_fault_site\n"
+        "exception_fault_site:\n"
+        "    ld t0, 0(t0)\n"
+        "    unimp\n"
+        ".globl exception_landing\n.hidden exception_landing\n"
+        "exception_landing:\n"
+        "    mv a0, s6\n"
+        "    ld s6, 0(sp)\n"
+        "    ld ra, 8(sp)\n"
+        "    addi sp, sp, 16\n"
+        "    ret\n"
+        ".globl exception_fault_low\n.hidden exception_fault_low\n"
+        "exception_fault_low:\n"
+        "    mv t0, sp\n"
+        "    sd t0, 0(a1)\n"
+        "    mv sp, a0\n"
+        "    li t0, 0\n"
+        ".globl exception_fault_site2\n.hidden exception_fault_site2\n"
+        "exception_fault_site2:\n"
+        "    ld t0, 0(t0)\n"
+        "    unimp\n"
+        ".globl exception_landing2\n.hidden exception_landing2\n"
+        "exception_landing2:\n"
+        "    ret\n"
+        ".globl exception_call_on\n.hidden exception_call_on\n"
+        "exception_call_on:\n"
+        "    mv t1, sp\n"
+        "    mv sp, a0\n"
+        "    mv a7, a1\n"
+        "    mv a0, a2\n"
+        "    mv a1, a3\n"
+        "    li a2, 0\n"
+        "    ecall\n"
+        "    mv sp, t1\n"
         "    ret\n");
 #endif
 
@@ -229,16 +282,21 @@ static CALLBACK void callback(WitU64 token, WitU64 vector, WitU64 address)
 #if defined(__x86_64__)
     const WitU64 flags = TRANSFER->Context.Rflags;
     TRANSFER->Context.Rflags = flags | 0x3000; /* IOPL 3 */
-#else
+#elif defined(__aarch64__)
     const WitU64 flags = TRANSFER->Context.Pstate;
     TRANSFER->Context.Pstate = flags | 0x4; /* M[2]: EL1t */
+#else
+    const WitU64 flags = TRANSFER->Context.Fcsr;
+    TRANSFER->Context.Fcsr = flags | 0xE0; /* a reserved rounding mode */
 #endif
     fixture_expect(WIT_CALL_EXCEPTION_CONTINUE, token, (WitU64)TRANSFER, sizeof(WitUserExceptionTransfer),
         WIT_STATUS_INVALID_ARGUMENT);
 #if defined(__x86_64__)
     TRANSFER->Context.Rflags = flags;
-#else
+#elif defined(__aarch64__)
     TRANSFER->Context.Pstate = flags;
+#else
+    TRANSFER->Context.Fcsr = flags;
 #endif
     continue_transfer(token);
 }

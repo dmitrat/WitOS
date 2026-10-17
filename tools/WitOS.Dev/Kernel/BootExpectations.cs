@@ -31,9 +31,15 @@ internal static class BootExpectations
 
     /// <summary>
     /// RISC-V kernel foundation (plan step V1.2): the same markers as ARM64's, since the self-tests are the shared ones
-    /// and the architecture's; the user suites join at V1.3.
+    /// and the architecture's.
     /// </summary>
     public const string RISCV64_FOUNDATION = "riscv64-foundation";
+
+    /// <summary>
+    /// RISC-V isolation, thread, wait, exception, channel, memory object, device, interrupt and root task suites (plan
+    /// step V1.3): ARM64's markers, since the suites are the shared ones.
+    /// </summary>
+    public const string RISCV64_USERS = "riscv64-users";
 
     #endregion
 

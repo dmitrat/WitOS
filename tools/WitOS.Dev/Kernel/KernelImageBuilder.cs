@@ -254,9 +254,8 @@ internal static class KernelImageBuilder
         // A scenario kernel is a self-test kernel where the target has self-test layers, except the release kernel's
         // scenarios.
         var selfTest = !RELEASE_KERNEL_SCENARIOS.Contains(scenario) && target.SelfTestLayers.Length > 0;
-        // The mechanism fixtures a self-test kernel embeds, built by the pinned clang for both ISAs (plan step K8.3); an
-        // ISA whose port has no user space yet (V1.2) links no user self-tests and embeds none.
-        if (selfTest && !architecture.KernelOnly)
+        // The mechanism fixtures a self-test kernel embeds, built by the pinned clang for every ISA (plan step K8.3).
+        if (selfTest)
         {
             await UserImage.BuildFixturesAsync(root, output, architecture);
         }
@@ -291,10 +290,8 @@ internal static class KernelImageBuilder
             : [];
         var bootPackage = await BootPackage.BuildAsync(output, scenario is LIBC_SCENARIO or SPAWN_SCENARIO or PROCESS_SCENARIO,
             programs);
-        // The root task's flat image (K4): every kernel, release or self-test, starts it from the boot disk — except on
-        // an ISA whose port has no user space yet (V1.1), whose disk carries none and whose kernel boots alone.
-        var rootTask = architecture.KernelOnly ? null
-            : scenario == LIBC_SCENARIO ? await Substrate.MuslLibc.BuildRootAsync(root, output, architecture, "libc_hello.c")
+        // The root task's flat image (K4): every kernel, release or self-test, starts it from the boot disk.
+        var rootTask = scenario == LIBC_SCENARIO ? await Substrate.MuslLibc.BuildRootAsync(root, output, architecture, "libc_hello.c")
             : scenario == LIBC_TEST_SCENARIO ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
             : scenario == CXX_SCENARIO ? await Substrate.LlvmRuntimes.BuildRootAsync(root, output, architecture)
             : scenario == SPAWN_SCENARIO ? await Substrate.LibWitos.BuildRootAsync(root, output, architecture)

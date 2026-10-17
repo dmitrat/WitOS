@@ -239,13 +239,15 @@ FIXTURE_CALL WitU64 fixture_join(WitU64 thread)
     return info.ExitCode;
 }
 
-/* A full memory barrier for a device's view of memory: MFENCE on x64, DSB SY on ARM64. */
+/* A full memory barrier for a device's view of memory: MFENCE on x64, DSB SY on ARM64, FENCE on RISC-V. */
 static inline void fixture_device_barrier(void)
 {
 #if defined(__x86_64__)
     __asm__ volatile("mfence" ::: "memory");
-#else
+#elif defined(__aarch64__)
     __asm__ volatile("dsb sy" ::: "memory");
+#else
+    __asm__ volatile("fence" ::: "memory");
 #endif
 }
 

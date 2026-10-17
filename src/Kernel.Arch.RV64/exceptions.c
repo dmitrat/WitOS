@@ -100,10 +100,10 @@ WitRv64Frame *wit_rv64_trap(WitRv64Frame *frame)
 {
     const WitU64 cause = frame->Scause & WIT_RV64_CAUSE_CODE;
     if (frame->Scause & WIT_RV64_CAUSE_INTERRUPT) {
-        return wit_rv64_interrupt(frame);
+        return wit_rv64_prepare_resume(wit_rv64_interrupt(frame));
     }
     if ((frame->Sstatus & WIT_RV64_SSTATUS_SPP) == 0) {
-        wit_panic("A trap from U-mode before user mode exists (V1.3)");
+        return wit_rv64_prepare_resume(wit_rv64_user_trap(frame));
     }
     wit_console_write("[EXCEPTION] cause=");
     wit_console_write_hex(frame->Scause);
@@ -119,7 +119,7 @@ WitRv64Frame *wit_rv64_trap(WitRv64Frame *frame)
     wit_panic(exception_name(cause));
 }
 
-/* The exceptions the fault callback receives (V1.3): the access, alignment and page faults, illegal instructions and
+/* The exceptions the fault callback receives: the access, alignment and page faults, illegal instructions and
  * breakpoints; an environment call is a system call, never a fault. */
 int wit_arch_exception_deliverable(WitU64 vector)
 {

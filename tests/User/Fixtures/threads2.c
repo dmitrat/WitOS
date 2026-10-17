@@ -41,7 +41,7 @@ __asm__(".section .text.entry,\"ax\",@progbits\n"
         "worker:\n"
         "    mov %rsp, %rsi\n"
         "    jmp threads2_worker\n");
-#else
+#elif defined(__aarch64__)
 __asm__(".section .text.entry,\"ax\",%progbits\n"
         ".globl wit_user_start\n"
         "wit_user_start:\n"
@@ -51,6 +51,16 @@ __asm__(".section .text.entry,\"ax\",%progbits\n"
         "worker:\n"
         "    mov x1, sp\n"
         "    b threads2_worker\n");
+#else
+__asm__(".section .text.entry,\"ax\",@progbits\n"
+        ".globl wit_user_start\n"
+        "wit_user_start:\n"
+        "    j threads2_main\n"
+        ".text\n"
+        ".globl worker\n.hidden worker\n"
+        "worker:\n"
+        "    mv a1, sp\n"
+        "    j threads2_worker\n");
 #endif
 
 static WitU64 tls_read(void)
@@ -58,8 +68,10 @@ static WitU64 tls_read(void)
     WitU64 value;
 #if defined(__x86_64__)
     __asm__ volatile("mov %%fs:0, %0" : "=r"(value));
-#else
+#elif defined(__aarch64__)
     __asm__ volatile("mrs %0, tpidrro_el0" : "=r"(value));
+#else
+    __asm__ volatile("mv %0, tp" : "=r"(value));
 #endif
     return value;
 }
@@ -94,13 +106,21 @@ C_ENTRY void threads2_worker(WitU64 argument, WitU64 sp)
     worker_check(tls_read() == 0x1234);
     worker_check(worker_call(WIT_CALL_THREAD_SET_TLS, TLS_SECOND, 0, 0) == WIT_STATUS_OK);
     worker_check(tls_read() == 0x5678);
-#else
+#elif defined(__aarch64__)
     /* TPIDRRO_EL0 holds the request's TLS base; TPIDR_EL0 is ours, preserved by the kernel across a yield. */
     worker_check(tls_read() == TLS_FIRST);
     __asm__ volatile("msr tpidr_el0, %0" ::"r"((WitU64)0x5678));
     worker_call(WIT_CALL_THREAD_YIELD, 0, 0, 0);
     WitU64 own;
     __asm__ volatile("mrs %0, tpidr_el0" : "=r"(own));
+    worker_check(own == 0x5678);
+#else
+    /* tp holds the request's TLS base, written once by the kernel; afterwards it is ours, preserved across a yield. */
+    worker_check(tls_read() == TLS_FIRST);
+    __asm__ volatile("mv tp, %0" ::"r"((WitU64)0x5678));
+    worker_call(WIT_CALL_THREAD_YIELD, 0, 0, 0);
+    WitU64 own;
+    __asm__ volatile("mv %0, tp" : "=r"(own));
     worker_check(own == 0x5678);
 #endif
     /* THREAD_EXIT naming something that is not a reservation returns instead of exiting. */

@@ -3,7 +3,7 @@ using WitOS.Dev.Host;
 namespace WitOS.Dev.Kernel;
 
 /// <summary>
-/// The 20 kernel integration scenarios: successful boots, rejected handoffs, CPU and memory faults and a timeout.
+/// The kernel integration scenarios: successful boots, rejected handoffs, CPU and memory faults and a timeout.
 /// </summary>
 internal static class KernelTestSuite
 {
@@ -21,9 +21,9 @@ internal static class KernelTestSuite
 
     // The riscv64 firmware is EDK II's DEBUG build over OpenSBI (V0), which prints its way through the boot under TCG
     // before the kernel runs; the limits only stop a hung QEMU, since guest time is virtual.
-    private const int KERNEL_ONLY_TIMEOUT = 120;
+    private const int RISCV64_TIMEOUT = 120;
 
-    private const int KERNEL_ONLY_HANG = 60;
+    private const int RISCV64_HANG = 60;
 
     #endregion
 
@@ -167,118 +167,111 @@ internal static class KernelTestSuite
     }
 
     /// <summary>
-    /// Boots the kernel foundation of an architecture without user mode yet and requires its outcomes: success at
-    /// 128 and 512 MiB, a rejected boot contract, a rejected memory map, each fatal CPU and memory permission
-    /// exception and a timeout after a successful boot.
+    /// Boots the kernel foundation of an architecture other than x64 and requires its outcomes: success at 128 and
+    /// 512 MiB with the root task's lines, the two-processor boot where the port starts secondary processors, the
+    /// layer-2 scenarios where the port has a system layer, a rejected boot contract, a rejected memory map, each fatal
+    /// CPU and memory permission exception and a timeout after a successful boot.
     /// </summary>
     /// <param name="root">Repository root.</param>
-    /// <param name="architecture">Architecture whose target has the kernel foundation but no user mode.</param>
+    /// <param name="architecture">Architecture whose target has the kernel foundation and user mode.</param>
     /// <exception cref="InvalidOperationException">A scenario did not produce its outcome.</exception>
     public static async Task RunFoundationAsync(string root, KernelArchitecture architecture)
     {
         architecture.RequireQemu(root);
         var prefix = architecture.Name + "-";
+        var limit = architecture == KernelArchitecture.Riscv64 ? RISCV64_TIMEOUT : FOUNDATION_TIMEOUT;
+        var hang = architecture == KernelArchitecture.Riscv64 ? RISCV64_HANG : FOUNDATION_HANG;
         BootRequest Request(string name, int memory, int timeout, ExpectedOutcome expected) =>
             new(prefix + name, memory, timeout, expected) { Architecture = architecture, Suite = BootSuite.Foundation };
+        var scenarios = 0;
 
         var image = await KernelImageBuilder.BuildAsync(root, "boot", architecture: architecture);
         await BootScenarioRunner.RunAsync(root, image,
-            Request("boot-128", 128, FOUNDATION_TIMEOUT, ExpectedOutcome.Success) with
+            Request("boot-128", 128, limit, ExpectedOutcome.Success) with
             {
                 RequiredLines = [architecture.RootStartedLine, architecture.RootMechanismsLine]
             });
-        await BootScenarioRunner.RunAsync(root, image, Request("boot-512", 512, FOUNDATION_TIMEOUT, ExpectedOutcome.Success));
-        await BootScenarioRunner.RunAsync(root, image,
-            Request("boot-smp2", 256, FOUNDATION_TIMEOUT, ExpectedOutcome.Success) with
-            {
-                Processors = 2,
-                RequiredLines = ["Processors present/online: 2/2"]
-            });
-        var libc = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.LIBC_SCENARIO, architecture: architecture);
-        await BootScenarioRunner.RunAsync(root, libc,
-            Request("libc", 256, FOUNDATION_TIMEOUT, ExpectedOutcome.Success) with { Suite = BootSuite.Release, RequiredLines = [architecture.LibcPassedLine] });
-        var libcTest = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.LIBC_TEST_SCENARIO, architecture: architecture);
-        await BootScenarioRunner.RunAsync(root, libcTest,
-            Request("libc-test", 256, 120, ExpectedOutcome.Success) with { Suite = BootSuite.Release, RequiredLines = [architecture.LibcTestPassedLine] });
-        var cxx = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.CXX_SCENARIO, architecture: architecture);
-        await BootScenarioRunner.RunAsync(root, cxx,
-            Request("cxx", 256, 120, ExpectedOutcome.Success) with { Suite = BootSuite.Release, RequiredLines = [architecture.CxxPassedLine] });
-        var spawn = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.SPAWN_SCENARIO, architecture: architecture);
-        await BootScenarioRunner.RunAsync(root, spawn,
-            Request("spawn", 256, FOUNDATION_TIMEOUT, ExpectedOutcome.Success) with
-            {
-                Suite = BootSuite.Release,
-                RequiredLines =
-                [
-                    architecture.SpawnChildLine, architecture.DynamicPassedLine, architecture.PhaseSPassedLine,
-                    architecture.CxxPassedLine, architecture.SpawnPassedLine
-                ]
-            });
-        var process = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.PROCESS_SCENARIO, architecture: architecture);
-        await BootScenarioRunner.RunAsync(root, process,
-            Request("process", 256, FOUNDATION_TIMEOUT, ExpectedOutcome.Success) with
-            {
-                Suite = BootSuite.Release,
-                RequiredLines = [architecture.InitPassedLine, architecture.RootTaskPassedLine]
-            });
-        var sysroot = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.SYSROOT_SCENARIO, architecture: architecture);
-        await BootScenarioRunner.RunAsync(root, sysroot,
-            Request("sysroot", 256, FOUNDATION_TIMEOUT, ExpectedOutcome.Success) with
-            {
-                Suite = BootSuite.Release,
-                RequiredLines = [architecture.SysrootPassedLine, architecture.RootTaskPassedLine]
-            });
+        await BootScenarioRunner.RunAsync(root, image, Request("boot-512", 512, limit, ExpectedOutcome.Success));
+        scenarios += 2;
+        if (architecture.SecondaryProcessors)
+        {
+            await BootScenarioRunner.RunAsync(root, image,
+                Request("boot-smp2", 256, limit, ExpectedOutcome.Success) with
+                {
+                    Processors = 2,
+                    RequiredLines = ["Processors present/online: 2/2"]
+                });
+            scenarios++;
+        }
+        if (architecture.SystemLayer)
+        {
+            var libc = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.LIBC_SCENARIO, architecture: architecture);
+            await BootScenarioRunner.RunAsync(root, libc,
+                Request("libc", 256, limit, ExpectedOutcome.Success) with { Suite = BootSuite.Release, RequiredLines = [architecture.LibcPassedLine] });
+            var libcTest = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.LIBC_TEST_SCENARIO, architecture: architecture);
+            await BootScenarioRunner.RunAsync(root, libcTest,
+                Request("libc-test", 256, 120, ExpectedOutcome.Success) with { Suite = BootSuite.Release, RequiredLines = [architecture.LibcTestPassedLine] });
+            var cxx = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.CXX_SCENARIO, architecture: architecture);
+            await BootScenarioRunner.RunAsync(root, cxx,
+                Request("cxx", 256, 120, ExpectedOutcome.Success) with { Suite = BootSuite.Release, RequiredLines = [architecture.CxxPassedLine] });
+            var spawn = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.SPAWN_SCENARIO, architecture: architecture);
+            await BootScenarioRunner.RunAsync(root, spawn,
+                Request("spawn", 256, limit, ExpectedOutcome.Success) with
+                {
+                    Suite = BootSuite.Release,
+                    RequiredLines =
+                    [
+                        architecture.SpawnChildLine, architecture.DynamicPassedLine, architecture.PhaseSPassedLine,
+                        architecture.CxxPassedLine, architecture.SpawnPassedLine
+                    ]
+                });
+            var process = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.PROCESS_SCENARIO, architecture: architecture);
+            await BootScenarioRunner.RunAsync(root, process,
+                Request("process", 256, limit, ExpectedOutcome.Success) with
+                {
+                    Suite = BootSuite.Release,
+                    RequiredLines = [architecture.InitPassedLine, architecture.RootTaskPassedLine]
+                });
+            var sysroot = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.SYSROOT_SCENARIO, architecture: architecture);
+            await BootScenarioRunner.RunAsync(root, sysroot,
+                Request("sysroot", 256, limit, ExpectedOutcome.Success) with
+                {
+                    Suite = BootSuite.Release,
+                    RequiredLines = [architecture.SysrootPassedLine, architecture.RootTaskPassedLine]
+                });
+            scenarios += 6;
+        }
         var panic = await KernelImageBuilder.BuildAsync(root, "invalid-boot-info", architecture: architecture);
         await BootScenarioRunner.RunAsync(root, panic,
-            Request("invalid-boot-info", 256, FOUNDATION_TIMEOUT, ExpectedOutcome.InvalidBootInfo));
+            Request("invalid-boot-info", 256, limit, ExpectedOutcome.InvalidBootInfo));
         var overlap = await KernelImageBuilder.BuildAsync(root, "overlapping-map", architecture: architecture);
         await BootScenarioRunner.RunAsync(root, overlap,
-            Request("overlapping-map", 256, FOUNDATION_TIMEOUT, ExpectedOutcome.InvalidMap));
-        foreach (var (name, fault) in A64_FAULT_SCENARIOS)
+            Request("overlapping-map", 256, limit, ExpectedOutcome.InvalidMap));
+        scenarios += 2;
+        if (architecture == KernelArchitecture.Riscv64)
         {
-            var faultImage = await KernelImageBuilder.BuildAsync(root, name, architecture: architecture);
-            await BootScenarioRunner.RunAsync(root, faultImage,
-                Request(name, 256, FOUNDATION_TIMEOUT, ExpectedOutcome.Exception) with { A64Fault = fault });
+            foreach (var (name, fault) in RV64_FAULT_SCENARIOS)
+            {
+                var faultImage = await KernelImageBuilder.BuildAsync(root, name, architecture: architecture);
+                await BootScenarioRunner.RunAsync(root, faultImage,
+                    Request(name, 256, limit, ExpectedOutcome.Exception) with { Rv64Fault = fault });
+            }
+            scenarios += RV64_FAULT_SCENARIOS.Length;
+        }
+        else
+        {
+            foreach (var (name, fault) in A64_FAULT_SCENARIOS)
+            {
+                var faultImage = await KernelImageBuilder.BuildAsync(root, name, architecture: architecture);
+                await BootScenarioRunner.RunAsync(root, faultImage,
+                    Request(name, 256, limit, ExpectedOutcome.Exception) with { A64Fault = fault });
+            }
+            scenarios += A64_FAULT_SCENARIOS.Length;
         }
         var timeout = await KernelImageBuilder.BuildAsync(root, "timeout", architecture: architecture);
-        await BootScenarioRunner.RunAsync(root, timeout, Request("timeout", 256, FOUNDATION_HANG, ExpectedOutcome.Timeout));
-        Console.WriteLine($"PASS: all {12 + A64_FAULT_SCENARIOS.Length} {architecture.Name} foundation scenarios.");
-    }
-
-    /// <summary>
-    /// Boots the kernel foundation of an architecture whose port has no user space yet (plan step V1.2, riscv64) and
-    /// requires its outcomes: success at 128 and 512 MiB without a root task, a rejected boot contract, a rejected
-    /// memory map, each fatal CPU and memory permission exception and a timeout after a successful boot. The layer-2
-    /// scenarios, the second processor and the user suites join with V1.3, V1.4 and V2.
-    /// </summary>
-    /// <param name="root">Repository root.</param>
-    /// <param name="architecture">Architecture whose target boots the kernel alone (<see cref="KernelArchitecture.KernelOnly"/>).</param>
-    /// <exception cref="InvalidOperationException">A scenario did not produce its outcome.</exception>
-    public static async Task RunKernelOnlyAsync(string root, KernelArchitecture architecture)
-    {
-        architecture.RequireQemu(root);
-        var prefix = architecture.Name + "-";
-        BootRequest Request(string name, int memory, int timeout, ExpectedOutcome expected) =>
-            new(prefix + name, memory, timeout, expected) { Architecture = architecture, Suite = BootSuite.Foundation };
-
-        var image = await KernelImageBuilder.BuildAsync(root, "boot", architecture: architecture);
-        await BootScenarioRunner.RunAsync(root, image, Request("boot-128", 128, KERNEL_ONLY_TIMEOUT, ExpectedOutcome.Success));
-        await BootScenarioRunner.RunAsync(root, image, Request("boot-512", 512, KERNEL_ONLY_TIMEOUT, ExpectedOutcome.Success));
-        var panic = await KernelImageBuilder.BuildAsync(root, "invalid-boot-info", architecture: architecture);
-        await BootScenarioRunner.RunAsync(root, panic,
-            Request("invalid-boot-info", 256, KERNEL_ONLY_TIMEOUT, ExpectedOutcome.InvalidBootInfo));
-        var overlap = await KernelImageBuilder.BuildAsync(root, "overlapping-map", architecture: architecture);
-        await BootScenarioRunner.RunAsync(root, overlap,
-            Request("overlapping-map", 256, KERNEL_ONLY_TIMEOUT, ExpectedOutcome.InvalidMap));
-        foreach (var (name, fault) in RV64_FAULT_SCENARIOS)
-        {
-            var faultImage = await KernelImageBuilder.BuildAsync(root, name, architecture: architecture);
-            await BootScenarioRunner.RunAsync(root, faultImage,
-                Request(name, 256, KERNEL_ONLY_TIMEOUT, ExpectedOutcome.Exception) with { Rv64Fault = fault });
-        }
-        var timeout = await KernelImageBuilder.BuildAsync(root, "timeout", architecture: architecture);
-        await BootScenarioRunner.RunAsync(root, timeout, Request("timeout", 256, KERNEL_ONLY_HANG, ExpectedOutcome.Timeout));
-        Console.WriteLine($"PASS: all {5 + RV64_FAULT_SCENARIOS.Length} {architecture.Name} kernel-only scenarios.");
+        await BootScenarioRunner.RunAsync(root, timeout, Request("timeout", 256, hang, ExpectedOutcome.Timeout));
+        scenarios++;
+        Console.WriteLine($"PASS: all {scenarios} {architecture.Name} foundation scenarios.");
     }
 
     #endregion

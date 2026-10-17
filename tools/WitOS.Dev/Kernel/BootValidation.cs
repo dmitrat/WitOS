@@ -103,14 +103,9 @@ internal static class BootValidation
     {
         var output = result.Output;
         var banner = Regex.IsMatch(output, "^" + Regex.Escape(KernelAbi.Banner(root)) + @"\r?$", RegexOptions.Multiline);
-        // An ISA whose port has no user space yet (V1.2) boots the kernel alone: its disk carries no root task.
-        string[] readyMarkers =
-        [
-            "[TEST-PASS] Boot.Contract", "[TEST-PASS] Cpu.ExceptionTables", "[TEST-PASS] Memory.KernelPaging",
-            "[TEST-PASS] Clock.IrqIndependent", "Kernel initialized.", "[TEST-PASS] Boot.Hello",
-            .. request.Architecture.KernelOnly ? [] : (string[])["[TEST-PASS] Boot.RootTask"]
-        ];
-        var ready = MarkersInOrder(output, readyMarkers);
+        var ready = MarkersInOrder(output, "[TEST-PASS] Boot.Contract", "[TEST-PASS] Cpu.ExceptionTables",
+            "[TEST-PASS] Memory.KernelPaging", "[TEST-PASS] Clock.IrqIndependent", "Kernel initialized.",
+            "[TEST-PASS] Boot.Hello", "[TEST-PASS] Boot.RootTask");
         // The root task (K4) writes to the kernel log as a user component; user self-tests and faults stay forbidden.
         string[] forbidden = ["[PANIC]", "[EXCEPTION]", "[USER-FAULT]", "[TEST-BEGIN] User.", "[TEST-PASS] User.", "Scheduler.",
             "Random.ChaCha20Vector", "Memory.VirtualMappings", "Cpu.ContextStateProfile"];
@@ -196,10 +191,10 @@ internal static class BootValidation
         => BootExpectations.Read(root, architecture.FoundationExpectation).Markers;
 
     // A kernel foundation of the Foundation suite: the foundation markers, kernel-worker preemption, the user isolation
-    // tests (none on an ISA whose port has no user space yet, V1.2), then Hello, without panic or exception.
+    // tests, then Hello, without panic or exception.
     private static bool FoundationReady(string root, BootRequest request, string output) =>
         ArchitectureFoundation(root, request, output) && ValidateScheduler(output) &&
-        (request.Architecture.KernelOnly || ValidateA64Users(root, output)) &&
+        ValidateFoundationUsers(root, request.Architecture, output) &&
         MarkersInOrder(output, FoundationMarkers(root, request.Architecture)[^1], "Kernel initialized.", "[TEST-PASS] Boot.Hello") &&
         !output.Contains("[PANIC]", StringComparison.Ordinal) && !output.Contains("[EXCEPTION]", StringComparison.Ordinal);
 
@@ -302,17 +297,32 @@ internal static class BootValidation
             Number("Worker A iterations") > 0 && Number("Worker B iterations") > 0;
     }
 
-    // The ARM64 isolation markers in order after preemption, and exactly the expected faults, each taken at EL0t.
-    private static bool ValidateA64Users(string root, string output)
+    // The isolation markers of the architecture in order after preemption, and exactly the expected faults, each taken
+    // in user mode: at EL0t on ARM64 (the fault line carries ELR, SPSR and ESR, whose class is the vector), in U-mode on
+    // riscv64 (SEPC, SSTATUS without SPP, SCAUSE, which is the vector and the error, and STVAL).
+    private static bool ValidateFoundationUsers(string root, KernelArchitecture architecture, string output)
     {
-        var users = BootExpectations.Read(root, BootExpectations.ARM64_USERS);
+        var users = BootExpectations.Read(root, architecture.UsersExpectation);
         var markers = new List<string> { "[TEST-PASS] Scheduler.RegisterState", "[TEST-BEGIN] User.Isolation" };
         markers.AddRange(users.Markers);
         markers.Add("[TEST-SUMMARY] faults=");
         markers.Add("[TEST-PASS] Boot.Hello");
+        if (!MarkersInOrder(output, markers.ToArray()))
+        {
+            return false;
+        }
+        if (architecture == KernelArchitecture.Riscv64)
+        {
+            var traps = Regex.Matches(output,
+                @"(?m)^\[USER-FAULT\] id=(\d+) vector=(\d+) error=(0x[0-9A-F]{16}) address=(0x[0-9A-F]{16}) sepc=(0x[0-9A-F]{16}) sstatus=(0x[0-9A-F]{16}) scause=(0x[0-9A-F]{16}) stval=(0x[0-9A-F]{16})\r?$");
+            return SummaryAccounts(output, traps) &&
+                traps.All(m => (Convert.ToUInt64(m.Groups[6].Value[2..], 16) & 0x100) == 0 &&
+                    m.Groups[3].Value == m.Groups[7].Value &&
+                    Convert.ToUInt64(m.Groups[7].Value[2..], 16) == ulong.Parse(m.Groups[2].Value));
+        }
         var faults = Regex.Matches(output,
             @"(?m)^\[USER-FAULT\] id=(\d+) vector=(\d+) error=(0x[0-9A-F]{16}) address=(0x[0-9A-F]{16}) elr=(0x[0-9A-F]{16}) spsr=(0x[0-9A-F]{16}) esr=(0x[0-9A-F]{16})\r?$");
-        return MarkersInOrder(output, markers.ToArray()) && SummaryAccounts(output, faults) &&
+        return SummaryAccounts(output, faults) &&
             faults.All(m => (Convert.ToUInt64(m.Groups[6].Value[2..], 16) & 0x1F) == 0 &&
                 m.Groups[3].Value == m.Groups[7].Value &&
                 Convert.ToUInt64(m.Groups[7].Value[2..], 16) >> 26 == ulong.Parse(m.Groups[2].Value));

@@ -3,6 +3,14 @@
 
     .equ FRAME_SIZE, 560
     .equ SSTATUS_SPP, 0x100
+    .equ HOST_SIZE, 224
+
+    .data
+    .p2align 3
+host_stack:
+    .quad 0 // sp of wit_rv64_run_user while a component runs
+reservation_scratch:
+    .quad 0 // a word a store-conditional targets to drop the interrupted thread's reservation
 
     .text
 
@@ -12,6 +20,8 @@
     .globl wit_rv64_idle_resume
     .globl wit_rv64_trap_vector
     .globl wit_rv64_resume_frame
+    .globl wit_rv64_run_user
+    .globl wit_rv64_leave_user
 
 // a0 = argument, a1 = stack top, a2 = function that never returns.
 wit_rv64_call_on_stack:
@@ -175,6 +185,10 @@ wit_rv64_resume_frame:
     bnez t1, 2f
     addi t1, sp, FRAME_SIZE
     csrw sscratch, t1
+    // A reservation the interrupted thread holds must not pair with a store-conditional after a switch: a dummy
+    // store-conditional to the kernel's own word clears it (TCG clears it at every trap; hardware need not).
+    lla t1, reservation_scratch
+    sc.d zero, zero, (t1)
 2:
     ld x1, 8(sp)
     ld x3, 24(sp)
@@ -208,3 +222,85 @@ wit_rv64_resume_frame:
     ld x31, 248(sp)
     ld sp, 16(sp)
     sret
+
+// a0 = U-mode frame at the top of its kernel stack, a1 = the satp value of the address space. Serialized launch with
+// interrupts disabled: saves the callee-saved host state (ra, sp, s0-s11, fs0-fs11, fcsr, satp), switches satp and
+// resumes the frame. wit_rv64_leave_user returns from here.
+wit_rv64_run_user:
+    addi sp, sp, -HOST_SIZE
+    sd ra, 0(sp)
+    sd s0, 8(sp)
+    sd s1, 16(sp)
+    sd s2, 24(sp)
+    sd s3, 32(sp)
+    sd s4, 40(sp)
+    sd s5, 48(sp)
+    sd s6, 56(sp)
+    sd s7, 64(sp)
+    sd s8, 72(sp)
+    sd s9, 80(sp)
+    sd s10, 88(sp)
+    sd s11, 96(sp)
+    fsd fs0, 104(sp)
+    fsd fs1, 112(sp)
+    fsd fs2, 120(sp)
+    fsd fs3, 128(sp)
+    fsd fs4, 136(sp)
+    fsd fs5, 144(sp)
+    fsd fs6, 152(sp)
+    fsd fs7, 160(sp)
+    fsd fs8, 168(sp)
+    fsd fs9, 176(sp)
+    fsd fs10, 184(sp)
+    fsd fs11, 192(sp)
+    frcsr t0
+    sd t0, 200(sp)
+    csrr t0, satp
+    sd t0, 208(sp)
+    lla t1, host_stack
+    sd sp, 0(t1)
+    fence rw, rw
+    csrw satp, a1
+    sfence.vma zero, zero
+    j wit_rv64_resume_frame
+
+// Disables interrupts, restores the kernel root and the host state saved by wit_rv64_run_user and returns from it. The
+// abandoned kernel stack belongs to the finished component.
+wit_rv64_leave_user:
+    csrci sstatus, 2
+    csrw sscratch, zero
+    lla t1, host_stack
+    ld sp, 0(t1)
+    ld t0, 208(sp)
+    fence rw, rw
+    csrw satp, t0
+    sfence.vma zero, zero
+    ld t0, 200(sp)
+    fscsr t0
+    fld fs11, 192(sp)
+    fld fs10, 184(sp)
+    fld fs9, 176(sp)
+    fld fs8, 168(sp)
+    fld fs7, 160(sp)
+    fld fs6, 152(sp)
+    fld fs5, 144(sp)
+    fld fs4, 136(sp)
+    fld fs3, 128(sp)
+    fld fs2, 120(sp)
+    fld fs1, 112(sp)
+    fld fs0, 104(sp)
+    ld s11, 96(sp)
+    ld s10, 88(sp)
+    ld s9, 80(sp)
+    ld s8, 72(sp)
+    ld s7, 64(sp)
+    ld s6, 56(sp)
+    ld s5, 48(sp)
+    ld s4, 40(sp)
+    ld s3, 32(sp)
+    ld s2, 24(sp)
+    ld s1, 16(sp)
+    ld s0, 8(sp)
+    ld ra, 0(sp)
+    addi sp, sp, HOST_SIZE
+    ret

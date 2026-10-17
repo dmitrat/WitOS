@@ -106,9 +106,13 @@ static void write_function(volatile WitU32 *code)
 #if defined(__x86_64__)
     code[0] = 0x001234B8U; /* mov eax, 0x1234 */
     code[1] = 0x0000C300U; /* the last byte of the immediate, then ret */
-#else
+#elif defined(__aarch64__)
     code[0] = 0x52824680U; /* mov w0, #0x1234 */
     code[1] = 0xD65F03C0U; /* ret */
+#else
+    code[0] = 0x00001537U; /* lui a0, 1 */
+    code[1] = 0x23450513U; /* addi a0, a0, 0x234 */
+    code[2] = 0x00008067U; /* ret */
 #endif
 }
 

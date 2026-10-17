@@ -39,7 +39,7 @@ __asm__(".text\n"
         "    mov $-1, %rax\n"
         "1:\n"
         "    ret\n");
-#else
+#elif defined(__aarch64__)
 __asm__(".text\n"
         ".globl waits_preserved_call\n.hidden waits_preserved_call\n"
         "waits_preserved_call:\n"
@@ -56,6 +56,22 @@ __asm__(".text\n"
         "    mov x0, #-1\n"
         "1:\n"
         "    ret\n");
+#else
+__asm__(".text\n"
+        ".globl waits_preserved_call\n.hidden waits_preserved_call\n"
+        "waits_preserved_call:\n"
+        "    fmv.d.x fs2, a3\n"
+        "    mv a7, a0\n"
+        "    mv a0, a1\n"
+        "    mv a1, a2\n"
+        "    li a2, 0\n"
+        "    ecall\n"
+        "    sd a1, 0(a4)\n"
+        "    fmv.x.d t0, fs2\n"
+        "    beq t0, a3, 1f\n"
+        "    li a0, -1\n"
+        "1:\n"
+        "    ret\n");
 #endif
 
 /* The word at the thread's TLS base: FS on x64, TPIDRRO_EL0 on ARM64. */
@@ -63,9 +79,13 @@ static void tls_write(WitU64 value)
 {
 #if defined(__x86_64__)
     __asm__ volatile("mov %0, %%fs:0" ::"r"(value) : "memory");
-#else
+#elif defined(__aarch64__)
     WitU64 base;
     __asm__ volatile("mrs %0, tpidrro_el0" : "=r"(base));
+    *(volatile WitU64 *)base = value;
+#else
+    WitU64 base;
+    __asm__ volatile("mv %0, tp" : "=r"(base));
     *(volatile WitU64 *)base = value;
 #endif
 }
@@ -76,9 +96,13 @@ static WitU64 tls_read(void)
     WitU64 value;
     __asm__ volatile("mov %%fs:0, %0" : "=r"(value)::"memory");
     return value;
-#else
+#elif defined(__aarch64__)
     WitU64 base;
     __asm__ volatile("mrs %0, tpidrro_el0" : "=r"(base));
+    return *(volatile WitU64 *)base;
+#else
+    WitU64 base;
+    __asm__ volatile("mv %0, tp" : "=r"(base));
     return *(volatile WitU64 *)base;
 #endif
 }
@@ -88,7 +112,7 @@ static void count(void)
 {
 #if defined(__x86_64__)
     __asm__ volatile("lock incq %0" : "+m"(*COUNTER)::"memory");
-#else
+#elif defined(__aarch64__)
     WitU64 value;
     WitU32 failed;
     __asm__ volatile("1: ldaxr %0, [%2]\n"
@@ -98,6 +122,8 @@ static void count(void)
         : "=&r"(value), "=&r"(failed)
         : "r"(COUNTER)
         : "memory");
+#else
+    __asm__ volatile("amoadd.d zero, %0, (%1)" ::"r"((WitU64)1), "r"(COUNTER) : "memory");
 #endif
 }
 
@@ -180,8 +206,10 @@ static FIXTURE_THREAD void spin_worker(WitU64 argument)
     while (!STATE->Spin) {
 #if defined(__x86_64__)
         __asm__ volatile("pause");
-#else
+#elif defined(__aarch64__)
         __asm__ volatile("yield");
+#else
+        __asm__ volatile("nop");
 #endif
     }
     fixture_thread_exit(WIT_TEST_EXIT_CODE, record->Stack);

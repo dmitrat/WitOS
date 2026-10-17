@@ -1,16 +1,15 @@
 #include "witos/boot.h"
 #include "witos/device.h"
 #include "witos/platform.h"
+#include "virt_rv.h"
 
-/* QEMU virt (riscv64) device enumeration (plan step V1.2): the firmware's framebuffer of the boot contract alone. The
- * PCI functions behind the board's generic ECAM bridge, whose interrupt map names PLIC sources where the ARM64 board's
- * names GIC interrupts, come with the user space the drivers need (plan step V1.3); until then no bus is enumerated,
- * and the table says so rather than pretending. */
+/* QEMU virt (riscv64) device enumeration (plan steps V1.2 and V1.3): the PCI functions behind the board's generic ECAM
+ * bridge, with their INTx lines as PLIC sources from the device tree's interrupt map (pci.c), then the firmware's
+ * framebuffer of the boot contract (C2.1). */
 
 WitU32 wit_platform_devices(const WitBootInfo *boot, WitDeviceDescriptor *table, WitU32 capacity)
 {
-    WitU32 count = 0;
-    wit_console_write("[DEVICES] No bus enumerated on riscv64 (plan step V1.3)\n");
+    WitU32 count = wit_virt_rv_pci_devices(boot, table, capacity);
     if (count < capacity && wit_device_describe_framebuffer(boot, &table[count])) {
         ++count;
     }

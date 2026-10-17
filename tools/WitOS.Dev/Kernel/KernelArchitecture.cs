@@ -52,15 +52,19 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     /// knows no RISC-V machine, so the kernel is a position-independent ELF (rv64gc, lp64d, the medium-any code model,
     /// no linker relaxation) linked by ld.lld with the kernel's own script and converted to PE32+ by the tool
     /// (<see cref="Images.ElfToPe"/>); the board runs without ACPI so that the firmware publishes the device tree. The
-    /// port has no user space yet, so an image boots the kernel alone (<see cref="KernelOnly"/>).
+    /// port runs the root task and the fixtures (V1.3) but has no system layer until V2 (<see cref="SystemLayer"/>) and
+    /// no secondary harts until V1.4 (<see cref="SecondaryProcessors"/>).
     /// </summary>
     public static readonly KernelArchitecture Riscv64 = new("riscv64", "riscv64", Machine.RiscV64, "BOOTRISCV64.EFI",
         "qemu-system-riscv64", "virt,acpi=off", [], [], "edk2-riscv-code.fd", "edk2-riscv-vars.fd", "rv64",
-        "riscv64-unknown-linux-musl", 243, [], "riscv64-unknown-elf")
+        "riscv64-unknown-linux-musl", 243,
+        ["-mcmodel=medany"], // the image window lies above 2 GiB, which the medium-low model cannot address
+        "riscv64-unknown-elf")
     {
         KernelCompileOptions = ["-march=rv64gc", "-mabi=lp64d", "-mcmodel=medany", "-mno-relax", "-fPIE", "-fno-asynchronous-unwind-tables", "-fno-unwind-tables"],
         LinkerScript = "src/Kernel.Arch.RV64/kernel.ld",
-        KernelOnly = true
+        SystemLayer = false,
+        SecondaryProcessors = false
     };
 
     #endregion
@@ -84,15 +88,26 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     public bool ElfImage => LinkerScript is not null;
 
     /// <summary>
-    /// Whether the port has no user space yet, so that a boot disk carries the kernel and the package without a root
-    /// task and the kernel boots alone (plan step V1.1).
+    /// Whether layer 2 — the libc, the C++ runtime, libwitos, the sysroot — is built for the ISA, so that its scenarios
+    /// run on it; false for a port whose system layer is still to come (riscv64 until V2).
     /// </summary>
-    public bool KernelOnly { get; init; }
+    public bool SystemLayer { get; init; } = true;
+
+    /// <summary>
+    /// Whether the port starts the board's other processors (K7.2), so that the two-processor boot runs on it; false
+    /// for a port whose secondary processors are still to come (riscv64 until V1.4).
+    /// </summary>
+    public bool SecondaryProcessors { get; init; } = true;
 
     /// <summary>
     /// The boot expectation of the kernel foundation (tests/Expectations/&lt;name&gt;-foundation.json).
     /// </summary>
     public string FoundationExpectation => Name + "-foundation";
+
+    /// <summary>
+    /// The boot expectation of the user-mode suites (tests/Expectations/&lt;name&gt;-users.json).
+    /// </summary>
+    public string UsersExpectation => Name + "-users";
 
     /// <summary>
     /// QEMU's arguments for a display (plan step C2.1): ramfb, a linear framebuffer in guest memory that EDK II drives
