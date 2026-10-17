@@ -51,8 +51,9 @@ internal static class RuntimeLibraries
         ", Failed: 0, Warnings: 0",
         "=== TEST EXECUTION SUMMARY ===",
         "Errors: 0, Failed: 0, Skipped: 0",
-        $"[APPS-INIT] {NUNIT_COMMAND} exited with 0",
-        $"[APPS-INIT] {XUNIT_COMMAND} exited with 0"
+        // apps_init reports a command by its program and first argument alone.
+        "[APPS-INIT] /dotnet/dotnet /app/nunit/NUnitApp.dll exited with 0",
+        "[APPS-INIT] /dotnet/dotnet /app/xunit/XUnitApp.dll exited with 0"
     ];
 
     /// <summary>
