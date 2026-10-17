@@ -280,8 +280,10 @@ void witos_device_barrier(void)
 {
 #if defined(__x86_64__)
     __asm__ volatile("mfence" ::: "memory");
-#else
+#elif defined(__aarch64__)
     __asm__ volatile("dsb sy" ::: "memory");
+#else
+    __asm__ volatile("fence rw, rw" ::: "memory");
 #endif
 }
 

@@ -332,7 +332,8 @@
     ],
     "math/powf": [
       "x86_64",
-      "aarch64"
+      "aarch64",
+      "riscv64"
     ],
     "math/remquol": [
       "x86_64"

@@ -133,9 +133,14 @@ internal static class Sysroot
         File.Copy(shared.Scrt1, Path.Combine(lib, "Scrt1.o"));
         File.Copy(libc.Rcrt1, Path.Combine(lib, "rcrt1.o"));
         foreach (var crt in new[] { "crti", "crtn" })
+        {
+            // musl keeps an architecture's crti and crtn as assembly where the ABI needs code in them and as empty C files
+            // otherwise (riscv64, V2.3): the objects are built from whichever the tree has.
+            var assembly = Path.Combine(musl, "crt", arch, crt + ".s");
             await Processes.RequireSuccessAsync(Toolchain.Clang(root),
-                [$"--target={architecture.Triple}", .. architecture.ClangOptions, "-c", Path.Combine(musl, "crt", arch, crt + ".s"),
+                [$"--target={architecture.Triple}", .. architecture.ClangOptions, "-c", File.Exists(assembly) ? assembly : Path.Combine(musl, "crt", crt + ".c"),
                     "-o", Path.Combine(lib, crt + ".o")], root);
+        }
         File.Copy(libc.Library, Path.Combine(lib, "libc.a"));
         File.Copy(shared.Library, Path.Combine(lib, "libc.so"));
         foreach (var name in EMPTY_LIBRARIES)

@@ -52,9 +52,9 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     /// knows no RISC-V machine, so the kernel is a position-independent ELF (rv64gc, lp64d, the medium-any code model,
     /// no linker relaxation) linked by ld.lld with the kernel's own script and converted to PE32+ by the tool
     /// (<see cref="Images.ElfToPe"/>); the board runs without ACPI so that the firmware publishes the device tree. The
-    /// port runs the root task and the fixtures (V1.3), starts its other harts (V1.4) and has the libc (V2.1,
-    /// <see cref="Libc"/>) and the C++ runtime (V2.2, <see cref="CxxRuntime"/>) but not the rest of layer 2 until V2
-    /// completes (<see cref="SystemLayer"/>).
+    /// port runs the root task and the fixtures (V1.3), starts its other harts (V1.4) and has the whole system layer
+    /// (V2.1–V2.3: the libc, the C++ runtime, libwitos, started programs, libc-test and the sysroot), so every
+    /// layer-2 scenario runs on it; the runtime is V2.4.
     /// </summary>
     public static readonly KernelArchitecture Riscv64 = new("riscv64", "riscv64", Machine.RiscV64, "BOOTRISCV64.EFI",
         "qemu-system-riscv64", "virt,acpi=off", [], [], "edk2-riscv-code.fd", "edk2-riscv-vars.fd", "rv64",
@@ -65,8 +65,7 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
         "riscv64-unknown-elf")
     {
         KernelCompileOptions = ["-march=rv64gc", "-mabi=lp64d", "-mcmodel=medany", "-mno-relax", "-fPIE", "-fno-asynchronous-unwind-tables", "-fno-unwind-tables"],
-        LinkerScript = "src/Kernel.Arch.RV64/kernel.ld",
-        SystemLayer = false
+        LinkerScript = "src/Kernel.Arch.RV64/kernel.ld"
     };
 
     #endregion
@@ -103,7 +102,8 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
 
     /// <summary>
     /// Whether the rest of layer 2 — libwitos, started programs, libc-test, the sysroot — is built for the ISA, so that
-    /// its scenarios run on it; false for a port whose system layer is still to come (riscv64 until V2 completes).
+    /// its scenarios run on it; true for the three ISAs since V2.3, and false for a port whose system layer is still to
+    /// come.
     /// </summary>
     public bool SystemLayer { get; init; } = true;
 
