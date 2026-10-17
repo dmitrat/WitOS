@@ -52,8 +52,8 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     /// knows no RISC-V machine, so the kernel is a position-independent ELF (rv64gc, lp64d, the medium-any code model,
     /// no linker relaxation) linked by ld.lld with the kernel's own script and converted to PE32+ by the tool
     /// (<see cref="Images.ElfToPe"/>); the board runs without ACPI so that the firmware publishes the device tree. The
-    /// port runs the root task and the fixtures (V1.3) but has no system layer until V2 (<see cref="SystemLayer"/>) and
-    /// no secondary harts until V1.4 (<see cref="SecondaryProcessors"/>).
+    /// port runs the root task and the fixtures (V1.3) and starts its other harts (V1.4) but has no system layer until V2
+    /// (<see cref="SystemLayer"/>).
     /// </summary>
     public static readonly KernelArchitecture Riscv64 = new("riscv64", "riscv64", Machine.RiscV64, "BOOTRISCV64.EFI",
         "qemu-system-riscv64", "virt,acpi=off", [], [], "edk2-riscv-code.fd", "edk2-riscv-vars.fd", "rv64",
@@ -63,8 +63,7 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     {
         KernelCompileOptions = ["-march=rv64gc", "-mabi=lp64d", "-mcmodel=medany", "-mno-relax", "-fPIE", "-fno-asynchronous-unwind-tables", "-fno-unwind-tables"],
         LinkerScript = "src/Kernel.Arch.RV64/kernel.ld",
-        SystemLayer = false,
-        SecondaryProcessors = false
+        SystemLayer = false
     };
 
     #endregion
@@ -95,7 +94,7 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
 
     /// <summary>
     /// Whether the port starts the board's other processors (K7.2), so that the two-processor boot runs on it; false
-    /// for a port whose secondary processors are still to come (riscv64 until V1.4).
+    /// for a port whose secondary processors are still to come (none since V1.4).
     /// </summary>
     public bool SecondaryProcessors { get; init; } = true;
 

@@ -252,7 +252,7 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   screendump at the last prompt pixel for pixel on both ISAs, the mirror answers no terminal query while the display is
   the main console, and the renderer stores only the pixels that changed, so a scroll costs the text that moved. C2 is
   complete; C3, the native WitOS module and its providers, is the horizon after M8.
-- **Third ISA (phase V, begun).** RISC-V on QEMU's virt board: the measurement V0 found the pinned LLVM links no RISC-V
+- **Third ISA (phase V, the kernel done).** RISC-V on QEMU's virt board: the measurement V0 found the pinned LLVM links no RISC-V
   PE/COFF, so the loader and the kernel are one position-independent ELF the tool converts to PE32+ with base
   relocations. V1.1 boots that image under EDK II over OpenSBI: the unchanged loader publishes the device tree, reads the
   boot package and leaves the firmware, and the common kernel compiled for riscv64 without a change. V1.2 is the kernel
@@ -261,7 +261,10 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   kernel foundation's self-tests passing on the third ISA (`test --arch riscv64`, `release --arch riscv64`, CI's `boot`
   and `linux-selftest`). V1.3 is user mode on the third ISA: `ecall`, U-mode frames and contexts, the processes' Sv48
   tables, the ECAM bridge with the PLIC's interrupt map, and the shared user-mode suites, the mechanism fixtures and the
-  root task passing unchanged (`test --arch riscv64` against the users expectation). Next: the other harts (V1.4).
+  root task passing unchanged (`test --arch riscv64` against the users expectation). V1.4 starts the other harts
+  through SBI HSM and carries the kernel's fence and invalidation requests in the supervisor software interrupt through
+  SBI, so `boot-smp2` passes on the third board too and no stub is left: V1, the RISC-V kernel, is complete. Next:
+  layer 2 for `riscv64-unknown-linux-musl` (V2).
 - **Later.** The scheduler on several processors (phase P), the network and the remaining milestones (phase W).
 
 The acceptances do not establish threads on several processors, networking, a terminal with input or process creation

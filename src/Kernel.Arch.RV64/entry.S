@@ -22,6 +22,7 @@ reservation_scratch:
     .globl wit_rv64_resume_frame
     .globl wit_rv64_run_user
     .globl wit_rv64_leave_user
+    .globl wit_rv64_secondary_entry
 
 // a0 = argument, a1 = stack top, a2 = function that never returns.
 wit_rv64_call_on_stack:
@@ -304,3 +305,35 @@ wit_rv64_leave_user:
     ld ra, 0(sp)
     addi sp, sp, HOST_SIZE
     ret
+
+// The entry of a started hart (V1.4): S-mode, the bare physical space, interrupts off, a0 = the hart's identity, a1 =
+// the kernel's number of the processor (the opaque word of SBI HSM hart_start). It takes its own stack, installs the
+// trap vector with the kernel-mode sscratch, opens the floating-point unit as the boot hart did (the trap vector saves
+// f0-f31), installs the boot hart's translation root (the kernel is identity mapped, so the next instruction is where
+// it was) and enters C; the main function never returns.
+wit_rv64_secondary_entry:
+    csrci sstatus, 2
+    csrw sie, zero
+    csrw sip, zero
+    lla t0, wit_rv64_secondary_stack_tops
+    slli t1, a1, 3
+    add t0, t0, t1
+    ld sp, 0(t0)
+    lla t0, wit_rv64_trap_vector
+    csrw stvec, t0
+    csrw sscratch, zero
+    li t0, 0x2000 // sstatus.FS = Initial
+    csrs sstatus, t0
+    lla t0, wit_rv64_boot_satp
+    ld t0, 0(t0)
+    csrw satp, t0
+    sfence.vma zero, zero
+    mv t0, a0
+    mv a0, a1 // the number
+    mv a1, t0 // the hart
+    mv s0, zero
+    mv ra, zero
+    call wit_rv64_secondary_main
+1:
+    wfi
+    j 1b

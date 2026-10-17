@@ -107,6 +107,15 @@ WitRv64Frame *wit_rv64_prepare_resume(WitRv64Frame *frame);
  * common kernel. */
 WitRv64Frame *wit_rv64_user_trap(WitRv64Frame *frame);
 
+/* Secondary harts (V1.4, secondary.c and entry.S): the boot hart's translation root and each processor's stack top the
+ * entry reads, the entry SBI HSM starts a hart at, the hart of a running secondary by its stack (false on the boot
+ * hart), and the main function a started hart enters, which never returns. */
+extern WitU64 wit_rv64_boot_satp;
+extern WitU64 wit_rv64_secondary_stack_tops[WIT_PROCESSOR_CAPACITY];
+extern const WitU8 wit_rv64_secondary_entry[];
+int wit_rv64_secondary_hart(WitU64 *hart);
+WIT_NORETURN void wit_rv64_secondary_main(WitU32 index, WitU64 hart);
+
 /* Handles a trap and returns the frame to resume, which may belong to another thread (exceptions.c). Kernel
  * synchronous exceptions are fatal. */
 WitRv64Frame *wit_rv64_trap(WitRv64Frame *frame);

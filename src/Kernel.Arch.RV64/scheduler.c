@@ -7,8 +7,8 @@
 
 /* RISC-V interrupts (plan step V1.2): the supervisor timer counts ticks, runs the user scheduler while a component is
  * active and, in the preemption self-test, switches between two kernel workers and the bootstrap thread; an
- * external interrupt is a device line the platform claims; a software interrupt is an inter-processor interrupt
- * (V1.4). */
+ * external interrupt is a device line the platform claims; a software interrupt is an inter-processor interrupt on a
+ * secondary hart (V1.4). */
 
 static volatile WitU64 timer_ticks;
 
@@ -83,8 +83,19 @@ WitRv64Frame *wit_rv64_interrupt(WitRv64Frame *frame)
         wit_platform_line_complete(line);
         return wit_user_interrupt(frame, line);
     }
+    if (cause == WIT_RV64_INTERRUPT_SOFTWARE) {
+        /* An inter-processor interrupt on a secondary hart (V1.4): the kind the sender left with the board, served and
+         * acknowledged, then back to idle. */
+        WitU32 kind = 0;
+        if (wit_platform_interrupt_claim(&kind) != 3) {
+            wit_panic("A software interrupt that is no inter-processor interrupt");
+        }
+        wit_cpus_ipi_received(kind);
+        wit_platform_ipi_complete(kind);
+        return frame;
+    }
     if (cause != WIT_RV64_INTERRUPT_TIMER) {
-        wit_panic(cause == WIT_RV64_INTERRUPT_SOFTWARE ? "Unexpected software interrupt" : "Unexpected interrupt");
+        wit_panic("Unexpected interrupt");
     }
     if (timer_ticks < ~0ULL - 1) {
         ++timer_ticks; /* Saturate; never wrap deadlines. */

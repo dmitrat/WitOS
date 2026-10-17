@@ -1,6 +1,6 @@
 {
   "name": "kernel-platform-qemu-virt-rv",
-  "description": "QEMU virt board for riscv64 (plan steps V1.2 and V1.3): the 16550 console and the sifive test finisher, the device tree's harts and timebase, the time counter as the monotonic clock, the goldfish RTC, the supervisor timer through sstc or SBI, the PLIC's sources as device lines, PCI enumeration from the device tree's ECAM bridge with the PLIC's interrupt map; the secondary harts (V1.4) panic by name.",
+  "description": "QEMU virt board for riscv64 (plan steps V1.2, V1.3 and V1.4): the 16550 console and the sifive test finisher, the device tree's harts and timebase, the time counter as the monotonic clock, the goldfish RTC, the supervisor timer through sstc or SBI, the PLIC's sources as device lines, PCI enumeration from the device tree's ECAM bridge with the PLIC's interrupt map, the secondary harts' PLIC contexts and the inter-processor interrupts through SBI.",
   "includes": [],
   "sources": [
     "src/Kernel.Platform.QemuVirtRv/console.c",
@@ -8,8 +8,7 @@
     "src/Kernel.Platform.QemuVirtRv/clock.c",
     "src/Kernel.Platform.QemuVirtRv/interrupts.c",
     "src/Kernel.Platform.QemuVirtRv/pci.c",
-    "src/Kernel.Platform.QemuVirtRv/devices.c",
-    "src/Kernel.Platform.QemuVirtRv/stubs.c"
+    "src/Kernel.Platform.QemuVirtRv/devices.c"
   ],
   "assembly": []
 }

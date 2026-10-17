@@ -1,6 +1,6 @@
 {
   "name": "kernel-arch-rv64",
-  "description": "RISC-V 64 implementation of witos/arch.h and witos/virtual.h (plan steps V1.2 and V1.3): identity, guarded boot stack, the interrupt flag and halting, the trap vector with full register frames, the timer-interrupt scheduler hook, Sv48 kernel translation tables, U-mode thread frames, contexts and entry, user translation tables, code publication, the SBI call, the boot hart's identity and the compiler helpers; the secondary harts (V1.4) panic by name.",
+  "description": "RISC-V 64 implementation of witos/arch.h and witos/virtual.h (plan steps V1.2, V1.3 and V1.4): identity, guarded boot stack, the interrupt flag and halting, the trap vector with full register frames, the timer-interrupt scheduler hook, Sv48 kernel translation tables, U-mode thread frames, contexts and entry, user translation tables, code publication, the SBI call, the boot hart's identity, the secondary harts through SBI HSM with their inter-processor interrupts, and the compiler helpers.",
   "includes": [],
   "sources": [
     "src/Kernel.Arch.RV64/identity.c",
@@ -12,7 +12,7 @@
     "src/Kernel.Arch.RV64/frame.c",
     "src/Kernel.Arch.RV64/page_table.c",
     "src/Kernel.Arch.RV64/sbi.c",
-    "src/Kernel.Arch.RV64/stubs.c"
+    "src/Kernel.Arch.RV64/secondary.c"
   ],
   "assembly": [
     "src/Kernel.Arch.RV64/entry.S",
