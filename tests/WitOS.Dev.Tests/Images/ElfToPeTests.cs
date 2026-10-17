@@ -21,7 +21,9 @@ public sealed class ElfToPeTests
     public async Task ConvertsAPositionIndependentImageTest()
     {
         var root = TestEnvironment.Root;
-        Toolchain.RequireClang(root);
+        // The pinned clang and lld come with setup; CI's Windows job runs the host tests before it, the Linux job after.
+        if (!File.Exists(Toolchain.Clang(root)) || !File.Exists(Toolchain.Lld(root)))
+            Assert.Ignore("The pinned clang is not extracted: run setup.");
         var output = Path.Combine(Path.GetTempPath(), $"witos-elftope-{Environment.ProcessId}");
         Directory.CreateDirectory(output);
         var source = Path.Combine(output, "image.c");
