@@ -159,7 +159,7 @@ internal static class CommandLine
             "Boot the device services with a virtio console the runner types into: the console driver, the terminal service and its echo (N4.3a)",
             RuntimeTerminal.RunAsync),
         new CommandArchitecture("runtime-display",
-            "Boot the device services with the board's framebuffer and a virtio keyboard: the device manager's test pattern checked in QEMU's screendump, the key the runner presses reported by the input driver (C2.1)",
+            "Boot the device services with the board's framebuffer and a virtio keyboard: the terminal on the screen with upstream PowerShell, typed through QMP and judged against the frame the host renders from the mirror's transcript (C2.1-C2.3)",
             RuntimeDisplay.RunAsync),
         new CommandArchitecture("runtime-powershell",
             "Boot upstream PowerShell from the data volume on the terminal beside the services and the .NET install, non-interactively and under PSReadLine (C1.3)",

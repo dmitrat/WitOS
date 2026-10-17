@@ -88,7 +88,7 @@ internal static class Program
         device.Dispose();
         if (stopped)
         {
-            Console.WriteLine($"{PREFIX}display service for {name}: stopped after {console.Written} bytes, the framebuffer released");
+            Console.WriteLine($"{PREFIX}display service for {name}: stopped after {console.Statistics}, the framebuffer released");
             channel.Send(ServiceStatus.Encode(0));
         }
         return 0;
@@ -185,6 +185,10 @@ internal static class Program
                 }
                 if (console.Serve(message) is { } reply)
                     Answer(client!, reply);
+                // A write may have produced the emulator's answers to the program's queries (the cursor position report
+                // PSReadLine waits for, C2.3): they complete the READ the terminal holds, as keys would.
+                if (console.Completed() is { } answered)
+                    Answer(client!, answered);
             }
         }
     }

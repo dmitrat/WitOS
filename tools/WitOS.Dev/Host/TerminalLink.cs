@@ -11,7 +11,8 @@ namespace WitOS.Dev.Host;
 /// transcript and written to the terminal log, and the request's script typed into the guest, each input once the
 /// line it waits for appeared in the transcript after the previous input's. The bytes also paint a
 /// <see cref="TerminalScreen"/> (C1.2), whose answers to the guest's queries — the cursor position report .NET's Console
-/// and PSReadLine wait for — go back before anything the script types.
+/// and PSReadLine wait for — go back before anything the script types, unless the link is a mirror of a display that
+/// answers them itself (C2.3), since two answers garble the input.
 /// </summary>
 internal sealed class TerminalLink : IDisposable
 {
@@ -34,6 +35,7 @@ internal sealed class TerminalLink : IDisposable
     private readonly TerminalScreen m_screen = new();
     private readonly IReadOnlyList<TerminalInput> m_script;
     private readonly string m_logPath;
+    private readonly bool m_answersQueries;
     private readonly Task m_pump;
     private int m_next;
     private int m_searchFrom;
@@ -48,10 +50,13 @@ internal sealed class TerminalLink : IDisposable
     /// </summary>
     /// <param name="script">The inputs to type, in order.</param>
     /// <param name="logPath">The terminal log the transcript is written to as it grows.</param>
-    public TerminalLink(IReadOnlyList<TerminalInput> script, string logPath)
+    /// <param name="answersQueries">Whether the screen's answers to the guest's queries are typed; false for the mirror of
+    /// a display, which answers them.</param>
+    public TerminalLink(IReadOnlyList<TerminalInput> script, string logPath, bool answersQueries = true)
     {
         m_script = script;
         m_logPath = logPath;
+        m_answersQueries = answersQueries;
         if (File.Exists(logPath))
             File.Delete(logPath);
         m_listener.Start();
@@ -99,7 +104,8 @@ internal sealed class TerminalLink : IDisposable
                         if (m_transcript.Length + count > TRANSCRIPT_LIMIT)
                             return;
                         m_transcript.Append(Encoding.UTF8.GetString(buffer, 0, count));
-                        typed = m_screen.Feed(buffer.AsSpan(0, count)) + NextInput(); // the terminal's answers, then the script
+                        var answers = m_screen.Feed(buffer.AsSpan(0, count));
+                        typed = (m_answersQueries ? answers : "") + NextInput(); // the terminal's answers, then the script
                     }
                     if (typed.Length > 0)
                     {

@@ -177,5 +177,13 @@ internal sealed class DisplayConsole : IDisposable
     /// </summary>
     public long Written { get; private set; }
 
+    /// <summary>
+    /// What the console did, for the service's report (plan step C2.3): the bytes written, the cells drawn, the pixels
+    /// stored of those the cells hold, the lines scrolled and the pixels a renderer that moved rows would have stored.
+    /// </summary>
+    public string Statistics =>
+        $"{Written} bytes written, {m_renderer.CellsDrawn} cells drawn, {m_renderer.PixelsStored} pixels stored of " +
+        $"{m_renderer.CellsDrawn * m_renderer.CellPixels}, {m_screen.Scrolls} lines scrolled (a row move would have stored {m_renderer.RowMovePixels} pixels)";
+
     #endregion
 }

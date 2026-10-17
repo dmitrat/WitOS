@@ -63,9 +63,12 @@ internal static class RuntimePowerShell
     /// </summary>
     public const int MEMORY_MIB = 1024;
 
-    private const int TIMEOUT_SECONDS = 3600;
+    /// <summary>
+    /// The data disk's size: PowerShell's files and the home directory on the volume.
+    /// </summary>
+    public const long DISK_BYTES = 1024L << 20;
 
-    private const long DISK_BYTES = 1024L << 20;
+    private const int TIMEOUT_SECONDS = 3600;
 
     #endregion
 

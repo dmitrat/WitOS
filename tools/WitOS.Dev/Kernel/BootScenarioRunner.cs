@@ -14,6 +14,11 @@ internal static class BootScenarioRunner
     // sleeping. Wall-clock limits of a boot only stop QEMU; they never change what the guest measures.
     private const string VIRTUAL_TIME = "shift=2,sleep=off";
 
+    // A screendump waits until the guest wrote nothing for this long, looking every step, up to the limit (C2.3).
+    private const int QUIET_MILLISECONDS = 1000;
+    private const int QUIET_STEP_MILLISECONDS = 100;
+    private const int QUIET_LIMIT_MILLISECONDS = 15000;
+
     #endregion
 
     #region Functions
@@ -42,7 +47,8 @@ internal static class BootScenarioRunner
         File.Copy(architecture.FirmwareVariablesPath(root), firmwareState, overwrite: true);
         using var qmpControl = new QemuControl();
         var terminalPath = Path.Combine(logs, name + ".terminal.log");
-        using var terminal = request.Terminal is { } script ? new TerminalLink(script, terminalPath) : null;
+        // The mirror of a display answers no terminal query: the display does (C2.3).
+        using var terminal = request.Terminal is { } script ? new TerminalLink(script, terminalPath, answersQueries: !request.DisplayIsMainConsole) : null;
         using var relay = request.InteractiveTerminal && terminal is null ? new TerminalRelay(terminalPath) : null;
         // The HPET-less q35 is the one board variant a scenario selects.
         var machine = request.Expected == ExpectedOutcome.ClockUnavailable ? "q35,hpet=off" : architecture.QemuMachine;
@@ -160,37 +166,30 @@ internal static class BootScenarioRunner
     private static string QemuPath(string path) => path.Replace('\\', '/').Replace(",", ",,");
 
     // Watches the serial log, and the terminal's transcript when there is one, while the guest runs: performs each action
-    // of the request once its line is there (C2.1, C2.2) — a screendump keeps the transcript of that moment beside it, for
-    // the host to render the frame it expects — and cuts the boot off once the log holds the cut line and the jitter's
+    // of the request once its line is there after the previous action's (C2.1-C2.3, ActionSequence) - a screendump waits
+    // until the guest wrote nothing for a moment and keeps the transcript of that moment beside the screen, for the host
+    // to render the frame it expects - and cuts the boot off once the log holds the cut line and the jitter's
     // milliseconds passed (D6.2): the guest runs on meanwhile, and the cut falls where that moment ends. The first action
     // that failed, with its error, or null.
     private static async Task<(BootAction Action, string Error)?> WatchAsync(string serialPath, TerminalLink? terminal, BootRequest request,
         int jitter, QemuControl control, string screen, CancellationTokenSource cut, CancellationToken stop)
     {
-        var next = 0;
+        var actions = new ActionSequence(request.Actions);
         var cutDone = request.CutAfter is null;
         try
         {
-            while (!stop.IsCancellationRequested && (!cutDone || next < request.Actions.Count))
+            while (!stop.IsCancellationRequested && (!cutDone || !actions.Done))
             {
-                var log = "";
-                if (File.Exists(serialPath))
-                {
-                    using var stream = new FileStream(serialPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                    using var reader = new StreamReader(stream);
-                    log = await reader.ReadToEndAsync(stop);
-                }
-                var transcript = terminal?.Transcript ?? "";
-                var seen = log + "\n" + transcript;
+                var (log, transcript) = await ReadAsync(serialPath, terminal, stop);
                 if (log.Length > 0 || transcript.Length > 0)
                 {
-                    while (next < request.Actions.Count && seen.Contains(request.Actions[next].AfterLine, StringComparison.Ordinal))
+                    while (actions.Next(log, transcript) is { } action)
                     {
-                        var action = request.Actions[next++];
                         try
                         {
                             if (action.Kind == BootActionKind.Screendump)
                             {
+                                (log, transcript) = await QuietAsync(serialPath, terminal, log, transcript, stop);
                                 await control.ScreendumpAsync(screen, stop);
                                 await File.WriteAllTextAsync(TranscriptPath(screen), transcript, stop);
                             }
@@ -216,6 +215,43 @@ internal static class BootScenarioRunner
         {
         }
         return null;
+    }
+
+    // What the guest wrote so far: the serial log and the terminal's transcript.
+    private static async Task<(string Log, string Transcript)> ReadAsync(string serialPath, TerminalLink? terminal, CancellationToken stop)
+    {
+        var log = "";
+        if (File.Exists(serialPath))
+        {
+            using var stream = new FileStream(serialPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            log = await reader.ReadToEndAsync(stop);
+        }
+        return (log, terminal?.Transcript ?? "");
+    }
+
+    // Waits until the guest wrote nothing for QUIET_MILLISECONDS, up to the limit (C2.3): a screendump judged against the
+    // transcript needs the screen the transcript describes, and a program that showed its prompt may still be writing
+    // its last sequences. What the guest wrote by then.
+    private static async Task<(string Log, string Transcript)> QuietAsync(string serialPath, TerminalLink? terminal, string log, string transcript,
+        CancellationToken stop)
+    {
+        var waited = 0;
+        var quiet = 0;
+        while (quiet < QUIET_MILLISECONDS && waited < QUIET_LIMIT_MILLISECONDS)
+        {
+            await Task.Delay(QUIET_STEP_MILLISECONDS, stop);
+            waited += QUIET_STEP_MILLISECONDS;
+            var (nextLog, nextTranscript) = await ReadAsync(serialPath, terminal, stop);
+            if (nextLog.Length == log.Length && nextTranscript.Length == transcript.Length)
+                quiet += QUIET_STEP_MILLISECONDS;
+            else
+            {
+                quiet = 0;
+                (log, transcript) = (nextLog, nextTranscript);
+            }
+        }
+        return (log, transcript);
     }
 
     #endregion

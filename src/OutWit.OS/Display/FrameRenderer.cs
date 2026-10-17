@@ -71,9 +71,11 @@ public sealed class MemoryFrame : IFrameSink
 
 /// <summary>
 /// Draws a terminal screen into a framebuffer as cells of a bitmap font (plan step C2.2): white on black, the cursor an
-/// inverted cell, each cell redrawn only when its character or the cursor's presence changed since the last frame, since
-/// a cell costs the font's pixels in 32-bit stores through device memory. The same renderer draws the display in the
-/// service and the expected frame on the host.
+/// inverted cell. A cell is drawn when its character or the cursor's presence changed since the last frame, and of a
+/// drawn cell only the pixels that differ from what the framebuffer shows are stored (C2.3): the renderer keeps a word
+/// for every pixel of the framebuffer, since every store goes through device memory, so a scroll — every cell of the
+/// screen changed — costs the pixels that changed, not the cells. The same renderer draws the display in the service and
+/// the expected frame on the host.
 /// </summary>
 public sealed class FrameRenderer
 {
@@ -101,8 +103,11 @@ public sealed class FrameRenderer
     private readonly uint m_foreground;
     private readonly uint m_background;
     private readonly char[] m_shadow;
+    private readonly uint[] m_pixels;
     private int m_cursorRow = -1;
     private int m_cursorColumn = -1;
+    private bool m_cleared;
+    private long m_scrollsSeen;
 
     #endregion
 
@@ -128,6 +133,7 @@ public sealed class FrameRenderer
         m_background = TestPattern.Encode(BACKGROUND, geometry.Format);
         m_shadow = new char[Rows * Columns];
         Array.Fill(m_shadow, UNKNOWN);
+        m_pixels = new uint[geometry.Stride * geometry.Height];
     }
 
     #endregion
@@ -145,20 +151,23 @@ public sealed class FrameRenderer
         : ((byte)value, (byte)(value >> 8), (byte)(value >> 16));
 
     /// <summary>
-    /// Paints the whole framebuffer black, the margins beyond the cells too, and forgets what was drawn.
+    /// Paints the whole framebuffer black, the margins beyond the cells too, and forgets what was drawn. Its stores are
+    /// not counted among <see cref="PixelsStored"/>.
     /// </summary>
     public void Clear()
     {
-        var words = (long)m_geometry.Stride * m_geometry.Height;
-        for (var i = 0L; i < words; i++)
-            m_sink.Write32(i * FramebufferGeometry.PIXEL_BYTES, m_background);
+        for (var i = 0; i < m_pixels.Length; i++)
+            m_sink.Write32((long)i * FramebufferGeometry.PIXEL_BYTES, m_background);
+        Array.Fill(m_pixels, m_background);
         Array.Fill(m_shadow, ' ');
         m_cursorRow = -1;
         m_cursorColumn = -1;
+        m_cleared = true;
     }
 
     /// <summary>
-    /// Draws the screen: every cell whose character changed, and the cells the cursor left and entered.
+    /// Draws the screen: every cell whose character changed, and the cells the cursor left and entered; of each, the
+    /// pixels that differ from the framebuffer. Clears the framebuffer first when nothing cleared it yet.
     /// </summary>
     /// <param name="screen">The screen, of the renderer's columns and rows.</param>
     /// <exception cref="ArgumentException">The screen has another size.</exception>
@@ -166,6 +175,11 @@ public sealed class FrameRenderer
     {
         if (screen.Columns != Columns || screen.Rows != Rows)
             throw new ArgumentException($"A screen of {screen.Columns} by {screen.Rows} on a display of {Columns} by {Rows}.", nameof(screen));
+        if (!m_cleared)
+            Clear();
+        var scrolled = screen.Scrolls - m_scrollsSeen;
+        m_scrollsSeen = screen.Scrolls;
+        RowMovePixels += scrolled * (Rows - 1) * (long)Columns * CellPixels;
         for (var row = 0; row < Rows; row++)
         {
             for (var column = 0; column < Columns; column++)
@@ -183,17 +197,27 @@ public sealed class FrameRenderer
         m_cursorColumn = screen.Column;
     }
 
-    // One cell: the glyph's pixels in the text's colour on the background, or inverted under the cursor.
+    // One cell: the glyph's pixels in the text's colour on the background, or inverted under the cursor; a pixel is
+    // stored only when the framebuffer shows another value there. A blank cell is the background whatever the font gives
+    // a space, since Clear leaves every cell blank without drawing one.
     private void Draw(int row, int column, char c, bool inverted)
     {
-        var glyph = m_font.Glyph(c);
+        var glyph = c == ' ' ? ReadOnlySpan<byte>.Empty : m_font.Glyph(c);
         var on = inverted ? m_background : m_foreground;
         var off = inverted ? m_foreground : m_background;
+        CellsDrawn++;
         for (var y = 0; y < m_font.Height; y++)
         {
-            var line = ((long)(row * m_font.Height + y) * m_geometry.Stride + (long)column * m_font.Width) * FramebufferGeometry.PIXEL_BYTES;
-            for (var x = 0; x < m_font.Width; x++)
-                m_sink.Write32(line + x * FramebufferGeometry.PIXEL_BYTES, m_font.Pixel(glyph, x, y) ? on : off);
+            var index = (row * m_font.Height + y) * m_geometry.Stride + column * m_font.Width;
+            for (var x = 0; x < m_font.Width; x++, index++)
+            {
+                var value = !glyph.IsEmpty && m_font.Pixel(glyph, x, y) ? on : off;
+                if (m_pixels[index] == value)
+                    continue;
+                m_pixels[index] = value;
+                m_sink.Write32((long)index * FramebufferGeometry.PIXEL_BYTES, value);
+                PixelsStored++;
+            }
         }
     }
 
@@ -210,6 +234,30 @@ public sealed class FrameRenderer
     /// The cells down.
     /// </summary>
     public int Rows { get; }
+
+    /// <summary>
+    /// The pixels of one cell: the font's width by its height.
+    /// </summary>
+    public int CellPixels => m_font.Width * m_font.Height;
+
+    /// <summary>
+    /// The cells drawn so far: each whose character or cursor changed between two frames.
+    /// </summary>
+    public long CellsDrawn { get; private set; }
+
+    /// <summary>
+    /// The pixels stored into the sink by the cells drawn so far, each a pixel that differed from what the framebuffer
+    /// showed; at most <see cref="CellsDrawn"/> times <see cref="CellPixels"/>.
+    /// </summary>
+    public long PixelsStored { get; private set; }
+
+    /// <summary>
+    /// The pixels a renderer that scrolled by moving the framebuffer's rows would have stored so far: for each line the
+    /// screen scrolled, every pixel of the rows that moved (C2.3; the cells of the new row are drawn either way). Under
+    /// an emulator a load from device memory costs what a store costs, so the move would be twice as many accesses as
+    /// stores, and the display service reports both counts for the comparison.
+    /// </summary>
+    public long RowMovePixels { get; private set; }
 
     #endregion
 }

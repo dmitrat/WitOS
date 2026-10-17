@@ -124,9 +124,11 @@ internal sealed class QemuControl : IDisposable
 
     /// <summary>
     /// Presses and releases keys on the guest's keyboard, in turn (plan steps C2.1, C2.2): QEMU's input-send-event with
-    /// QKeyCode names, which reach the board's keyboard device in that order.
+    /// QKeyCode names, which reach the board's keyboard device in that order, one key a command, so that the guest's
+    /// driver, which holds 64 events, takes each before the next (C2.3: a line typed into PowerShell). A name of several
+    /// codes joined by '+' is a chord, such as "shift+a": its keys go down in order and up in reverse.
     /// </summary>
-    /// <param name="keys">The QKeyCode names separated by spaces, such as "a" or "h i ret".</param>
+    /// <param name="keys">The QKeyCode names separated by spaces, such as "a", "h i ret" or "shift+4 ret".</param>
     /// <param name="cancellation">Stops the request.</param>
     internal async Task SendKeyAsync(string keys, CancellationToken cancellation)
     {
@@ -139,8 +141,14 @@ internal sealed class QemuControl : IDisposable
         {
             await SessionAsync(stop.Token);
             object Event(bool down, string key) => new { type = "key", data = new { down, key = new { type = "qcode", data = key } } };
-            await ExecuteAsync("input-send-event", new { events = names.SelectMany(key => new[] { Event(true, key), Event(false, key) }).ToArray() },
-                stop.Token);
+            foreach (var name in names)
+            {
+                var codes = name.Split('+', StringSplitOptions.RemoveEmptyEntries);
+                if (codes.Length == 0)
+                    throw new ArgumentException($"An empty key in \"{keys}\".", nameof(keys));
+                var events = codes.Select(code => Event(true, code)).Concat(Enumerable.Reverse(codes).Select(code => Event(false, code))).ToArray();
+                await ExecuteAsync("input-send-event", new { events }, stop.Token);
+            }
         }
         finally
         {

@@ -247,8 +247,11 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   through `DEVICE_MEMORY`'s windows, judged in QEMU's screendump, and a virtio keyboard's driver reports keys. The screen
   is a console (C2.2): the display service draws the terminal with a pinned bitmap font (Spleen 8 by 16, 100 by 37 cells)
   and takes the keyboard's keys, the terminal service mirrors its one terminal on the display and the serial console, and
-  the host judges the screen by rendering the frame it expects from the mirror's transcript with the same code. Next:
-  PowerShell on the screen (C2.3).
+  the host judges the screen by rendering the frame it expects from the mirror's transcript with the same code. PowerShell
+  runs on that screen (C2.3): the `runtime-display` scenario types C1's session on the keyboard through QMP and judges the
+  screendump at the last prompt pixel for pixel on both ISAs, the mirror answers no terminal query while the display is
+  the main console, and the renderer stores only the pixels that changed, so a scroll costs the text that moved. C2 is
+  complete; C3, the native WitOS module and its providers, is the horizon after M8.
 - **Third ISA (phase V, begun).** RISC-V on QEMU's virt board: the measurement V0 found the pinned LLVM links no RISC-V
   PE/COFF, so the loader and the kernel are one position-independent ELF the tool converts to PE32+ with base
   relocations. V1.1 boots that image under EDK II over OpenSBI: the unchanged loader publishes the device tree, reads the
