@@ -24,7 +24,7 @@
 | [R — Рантайм .NET Unix-формы](#r--рантайм-net-unix-формы) | R1–R8 | 2026-10-12 (R4.2 после D6) |
 | [D — Устройства и хранилище (M4/M5)](#d--устройства-и-хранилище-m4m5) | D1–D6 | 2026-10-12 |
 | [C — Консоль и оболочка (RFC-0020)](#c--консоль-и-оболочка-rfc-0020) | C1 (C2, C3 открыты в плане) | C1 — 2026-10-16 |
-| [V — Третья ISA](#v--третья-isa) | V0 (V1–V3 открыты в плане) | V0 — 2026-10-16 |
+| [V — Третья ISA](#v--третья-isa) | V0, V1.1 (V1.2–V3 открыты в плане) | V1.1 — 2026-10-16 |
 | [N — Стандартный .NET (M6)](#n--стандартный-net-m6) | N1–N4: фаза завершена, M6 выполнен, Gate B заявлен | 2026-10-15 (N4.5) |
 
 ## 5. Фазы (выполненные шаги)
@@ -1109,3 +1109,26 @@
   две ISA предполагают 16 файлов инструмента и 4 файла тестов, `Toolchain.QEMU_CONFIGURE` (сборка QEMU для Linux без
   `riscv64-softmmu`), `KernelArchitecture.Find`, задания по ISA. Решения для V1 — §6 документа; сборка CoreCLR и NativeAOT
   для `witos-riscv64` — первое измерение V2.
+- [x] **V1.1** Загрузчик riscv64: образ ядра — ELF, конвертируемый в PE32+ (2026-10-16, PR #135;
+  [V1.1-RISC-V-Loader.md](@Docs/Implementation/V1.1-RISC-V-Loader.md)). Ядро для `riscv64-unknown-elf` (rv64gc, lp64d,
+  medany, без релаксации, PIE, DWARF) линкуется `ld.lld` одним PIE по `src/Kernel.Arch.RV64/kernel.ld` (первая страница —
+  заголовкам, `__ImageBase` относительно секции) и конвертируется `ElfToPe` (282 строки) в PE32+: машина 0x5064, подсистема
+  10, секции по `PT_LOAD` с их правами, `.reloc` DIR64 из `R_RISCV_RELATIVE` с аддендами на месте; сегмент W+X,
+  нерелативная релокация и вход вне кода отвергаются; EFI 131 072 байта на диске, 8 040 448 в памяти. `FatImage` пишет
+  длинное имя VFAT `BOOTRISCV64.EFI` (имя UEFI для RISC-V длиннее 8.3) над псевдонимом `BOOTRI~1.EFI`. Общее ядро — 37
+  исходников `boot-uefi`, `kernel-boot`, `kernel-foundation`, `kernel-common` — собралось и слинковалось для riscv64 без
+  правок в `.c` (`-Werror`); в заголовках добавлены `WIT_ARCH_RISCV64`, блок контекста RISC-V (568 байт, `FPREGS`) и
+  транспорт `ecall` в `witos/syscall.h`. `Kernel.Arch.RV64` (identity, bring-up, флаг прерываний, `compiler.S`, CSR) и
+  `Kernel.Platform.QemuVirtRv` (UART 16550, `sifive,test`) — 266 строк кода и 498 строк заглушек, каждая паникует по
+  имени. Гость: `riscv64-loader` — EDK II (DEBUG-сборка пина QEMU) над OpenSBI 1.8.1 открывает
+  `\EFI\BOOT\BOOTRISCV64.EFI` с virtio-blk по длинному имени, применяет релокации (образ по 0x8DB26000), загрузчик
+  печатает `[BOOT] UEFI riscv64 adapter`, `[BOOT] Device tree published`, семя RNG через virtio-rng, читает `WITOS.PAK`,
+  `[BOOT] ExitBootServices OK`; bring-up — `[RV64] entered the kernel after ExitBootServices: 17 memory regions`, выход 33
+  через `sifive,test` (код в старшей половине слова для обеих форм устройства, без аргументов QEMU);
+  `PASS: riscv64-loader-256 (exit=33, timeout=False)`. Находки: трансляция прошивки живёт после `ExitBootServices` и не
+  отображает `sifive,test` (0x100000 — page fault записи, напечатанный обработчиком прошивки), поэтому bring-up переводит
+  `satp` в Bare (карта прошивки тождественная: образ по своему физическому адресу); `lld` кладёт заголовки ELF в собственный
+  сегмент, который конвертер отбрасывает. Хост: 96 тестов инструмента (конвертер на реальном PIE от clang и lld,
+  длинные имена, судья, манифесты и слоение третьей ISA); release x64 и ARM64 без изменений. CI: `riscv64-loader` в `boot` и
+  `linux-selftest`, `riscv64-softmmu` в сборке QEMU для Linux (ключи кэша обновлены). Судья `BootSuite.Loader` требует
+  строки по порядку, выход 33, без `[PANIC]`/`[EXCEPTION]` — до набора ядра V1.2, который его заменит.

@@ -25,6 +25,16 @@ static inline WitU64 wit_syscall(WitU64 number, WitU64 a0, WitU64 a1, WitU64 a2,
     __asm__ volatile("svc #0" : "+r"(x0), "+r"(x1) : "r"(x2), "r"(x8) : "memory", "cc");
     *result = x1;
     return x0;
+#elif defined(__riscv)
+    /* ecall with the call number in a7 and the arguments in a0–a2, the status back in a0 and the value in a1 (plan
+     * step V1, the decisions of V0). */
+    register WitU64 a0r __asm__("a0") = a0;
+    register WitU64 a1r __asm__("a1") = a1;
+    register WitU64 a2r __asm__("a2") = a2;
+    register WitU64 a7r __asm__("a7") = number;
+    __asm__ volatile("ecall" : "+r"(a0r), "+r"(a1r) : "r"(a2r), "r"(a7r) : "memory");
+    *result = a1r;
+    return a0r;
 #else
 #error "WitOS ABI-1 transport: unsupported architecture"
 #endif

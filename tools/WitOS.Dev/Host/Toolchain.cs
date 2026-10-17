@@ -22,11 +22,12 @@ internal static class Toolchain
 
     private const string QEMU_SOURCE_SHA256 = "6ee1d1a61f68212476b27108c26da5f449dc09b626d42f8279ba0dc2e08fa858";
 
-    // The two system emulators WitOS boots and the options of their build: no documentation, no tools, no user-mode
-    // emulation, warnings not fatal for the host compiler, and the device tree library QEMU carries.
+    // The three system emulators WitOS boots (riscv64 since plan step V1.1) and the options of their build: no
+    // documentation, no tools, no user-mode emulation, warnings not fatal for the host compiler, and the device tree
+    // library QEMU carries.
     private static readonly string[] QEMU_CONFIGURE =
     [
-        "--target-list=x86_64-softmmu,aarch64-softmmu", "--disable-docs", "--disable-tools", "--disable-user",
+        "--target-list=x86_64-softmmu,aarch64-softmmu,riscv64-softmmu", "--disable-docs", "--disable-tools", "--disable-user",
         "--disable-werror", "--enable-fdt=internal"
     ];
 

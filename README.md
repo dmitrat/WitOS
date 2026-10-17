@@ -244,7 +244,11 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   report. Next: the tool's interactive `shell` command (C1.4), then a text console on the firmware's framebuffer with a
   virtio keyboard (C2).
 - **Third ISA (phase V, begun).** RISC-V on QEMU's virt board: the measurement V0 found the pinned LLVM links no RISC-V
-  PE/COFF, so the loader and the kernel will be ELF converted to PE32+ by the tool; V1 is the kernel port.
+  PE/COFF, so the loader and the kernel are one position-independent ELF the tool converts to PE32+ with base
+  relocations. V1.1 boots that image under EDK II over OpenSBI: the unchanged loader publishes the device tree, reads the
+  boot package and leaves the firmware, the bring-up ends the machine through the board's test finisher, and the common
+  kernel compiled for riscv64 without a change (`riscv64-loader`, CI's `boot` and `linux-selftest`). V1.2 is the kernel
+  itself: translation tables, traps, the clock and the kernel suite on the third ISA.
 - **Later.** The scheduler on several processors (phase P), the network and the remaining milestones (phase W).
 
 The acceptances do not establish threads on several processors, networking, a terminal with input or process creation

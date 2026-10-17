@@ -34,5 +34,28 @@ public sealed class BootValidationTests
             "Supervisor fault accepted");
     }
 
+    // The loader suite (plan step V1.1): the port's lines in their order, the success exit and no panic, without the
+    // kernel's banner or markers, which that port does not print yet.
+    [Test]
+    public void LoaderSuiteRequiresTheLinesInOrderAndTheExitTest()
+    {
+        var request = new BootRequest("loader", 256, 60, ExpectedOutcome.Success)
+        {
+            Suite = BootSuite.Loader,
+            RequiredLines = ["[BOOT] UEFI riscv64 adapter", "[BOOT] ExitBootServices OK", "[RV64] entered the kernel"]
+        };
+        const string log = "OpenSBI v1.8\n[BOOT] UEFI riscv64 adapter\n[BOOT] Device tree published\n[BOOT] ExitBootServices OK\n" +
+            "[RV64] entered the kernel after ExitBootServices: 20 memory regions\n";
+        static WitOS.Dev.Host.ProcessResult Result(string output, int exit, bool timedOut = false) => new(exit, output, "", timedOut);
+        Assert.That(BootValidation.Evaluate("", request, Result(log, 33)).Passed, Is.True, "A loader boot with its lines rejected");
+        Assert.That(BootValidation.Evaluate("", request, Result(log, 35)).Passed, Is.False, "A failure exit accepted");
+        Assert.That(BootValidation.Evaluate("", request, Result(log, 33, timedOut: true)).Passed, Is.False, "A timeout accepted");
+        Assert.That(BootValidation.Evaluate("", request, Result(log.Replace("[RV64] entered the kernel", "[PANIC] Invalid native image headers"), 33)).Passed,
+            Is.False, "A panic accepted");
+        Assert.That(BootValidation.Evaluate("", request, Result("[RV64] entered the kernel\n[BOOT] UEFI riscv64 adapter\n[BOOT] ExitBootServices OK\n", 33)).Passed,
+            Is.False, "Lines out of order accepted");
+        Assert.That(BootValidation.Evaluate("", request with { RequiredLines = [] }, Result(log, 33)).Passed, Is.False, "A request without lines accepted");
+    }
+
     #endregion
 }

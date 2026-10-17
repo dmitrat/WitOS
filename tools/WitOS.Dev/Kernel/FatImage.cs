@@ -41,15 +41,17 @@ internal static class FatImage
     /// <param name="destination">Disk image path.</param>
     /// <param name="executable">UEFI loader bytes.</param>
     /// <param name="package">Boot package, or an empty package when null.</param>
-    /// <param name="bootName">8.3 removable-media boot file name, such as BOOTX64.EFI or BOOTAA64.EFI.</param>
+    /// <param name="bootName">Removable-media boot file name: an 8.3 name such as BOOTX64.EFI or BOOTAA64.EFI, or a longer
+    /// one such as BOOTRISCV64.EFI (plan step V1.1), written as a VFAT long name over an 8.3 alias.</param>
     /// <param name="rootTask">The root task's flat image, written as WITROOT.BIN beside the package (K4); none when null.</param>
     public static void Create(string destination, byte[] executable, byte[]? package = null,
         string bootName = "BOOTX64.EFI", byte[]? rootTask = null)
     {
         var parts = bootName.Split('.');
-        if (parts.Length != 2 || parts[0].Length is 0 or > 8 || parts[1].Length is 0 or > 3)
-            throw new ArgumentException("Boot file name must be an 8.3 name.", nameof(bootName));
-        var shortName = parts[0].ToUpperInvariant().PadRight(8) + parts[1].ToUpperInvariant().PadRight(3);
+        if (parts.Length != 2 || parts[0].Length is 0 or > 64 || parts[1].Length is 0 or > 3 || bootName.Any(c => c is < ' ' or > '~'))
+            throw new ArgumentException("Boot file name must be a name of up to 64 ASCII characters with an extension of up to three.", nameof(bootName));
+        var longName = parts[0].Length > 8;
+        var shortName = (longName ? parts[0][..6] + "~1" : parts[0].PadRight(8)).ToUpperInvariant() + parts[1].ToUpperInvariant().PadRight(3);
         // Preserve the existing 32 MiB layout. Assembly packages use a 128 MiB
         // FAT16 volume with 8 KiB clusters, retaining the bounded FAT capacity.
         package ??= AssemblyPackage.Create(Array.Empty<(string, ReadOnlyMemory<byte>)>());
@@ -126,7 +128,8 @@ internal static class FatImage
         var directory = new byte[clusterSize];
         Entry(directory, 0, ".          ", 0x10, 3, 0);
         Entry(directory, 1, "..         ", 0x10, 2, 0);
-        Entry(directory, 2, shortName, 0x20, 4, executable.Length);
+        var bootEntry = longName ? LongNameEntries(directory, 2, bootName, shortName) : 2;
+        Entry(directory, bootEntry, shortName, 0x20, 4, executable.Length);
         stream.Write(directory);
         stream.Write(executable);
         stream.Position = (long)DATA_START * SECTOR_SIZE + (long)(packageFirst - 2) * clusterSize;
@@ -153,6 +156,32 @@ internal static class FatImage
         Put16(buffer, offset + 24, (46 << 9) | (1 << 5) | 1);
         Put16(buffer, offset + 26, cluster);
         Put32(buffer, offset + 28, length);
+    }
+
+    // A name longer than 8.3 (BOOTRISCV64.EFI, the UEFI removable-media name of RISC-V) is a VFAT long name: its entries
+    // precede the short entry, the last part of the name first, 13 UCS-2 characters each with the name's end marked by
+    // one zero character and the rest filled with 0xFFFF, each entry flagged 0x0F and carrying the checksum of the short
+    // alias it belongs to. Returns the index of the short entry that follows them.
+    private static int LongNameEntries(byte[] buffer, int index, string name, string shortName)
+    {
+        var checksum = 0;
+        foreach (var value in Encoding.ASCII.GetBytes(shortName))
+            checksum = ((((checksum & 1) << 7) | (checksum >> 1)) + value) & 0xFF;
+        int[] slots = [1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30];
+        var count = (name.Length + 12) / 13;
+        for (var sequence = count; sequence >= 1; --sequence)
+        {
+            var offset = index++ * 32;
+            buffer[offset] = (byte)(sequence | (sequence == count ? 0x40 : 0));
+            buffer[offset + 11] = 0x0F;
+            buffer[offset + 13] = (byte)checksum;
+            for (var i = 0; i < 13; ++i)
+            {
+                var position = (sequence - 1) * 13 + i;
+                Put16(buffer, offset + slots[i], position < name.Length ? name[position] : position == name.Length ? 0 : 0xFFFF);
+            }
+        }
+        return index;
     }
 
     private static void Put16(byte[] data, int offset, int value) => BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(offset), checked((ushort)value));

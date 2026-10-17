@@ -9,6 +9,7 @@
 #define WIT_THREAD_CONTEXT_SERVICE_ACTIVE 4U
 #define WIT_THREAD_CONTEXT_EXCEPTION_ACTIVE 8U
 #define WIT_THREAD_CONTEXT_FPSIMD 16U
+#define WIT_THREAD_CONTEXT_FPREGS 32U /* the RISC-V F and D registers (V1) */
 #define WIT_THREAD_CONTEXT_RUNNING 1U
 #define WIT_THREAD_CONTEXT_READY 2U
 #define WIT_THREAD_CONTEXT_WAITING 3U
@@ -16,6 +17,7 @@
  * WIT_THREAD_CONTEXT_SIZE is the compiling ISA's. */
 #define WIT_THREAD_CONTEXT_SIZE_X64 720U
 #define WIT_THREAD_CONTEXT_SIZE_ARM64 848U
+#define WIT_THREAD_CONTEXT_SIZE_RISCV64 568U
 
 #if defined(_M_ARM64) || defined(__aarch64__)
 #define WIT_THREAD_CONTEXT_SIZE (WIT_THREAD_CONTEXT_SIZE_ARM64)
@@ -36,6 +38,22 @@ typedef struct WitThreadContext {
     WitU32 SuspendCount, Reserved;
     WitU64 Fpcr, Fpsr;
     WitU8 V[512];
+} WitThreadContext;
+#elif defined(__riscv)
+#define WIT_THREAD_CONTEXT_SIZE (WIT_THREAD_CONTEXT_SIZE_RISCV64)
+
+/* Atomic point-in-time snapshot, the RISC-V block (plan step V1, the decisions of V0): X1–X31 (X0 is zero), PC, the
+ * 32 floating-point registers and FCSR. TP (X4) is the thread pointer the psABI gives TLS, which the thread writes
+ * itself and a context reports, as TPIDR_EL0 on ARM64. The snapshot neither suspends nor modifies the target. */
+typedef struct WitThreadContext {
+    WitU32 Version, Size;
+    WitU64 ThreadId, StackLow, StackHigh;
+    WitU32 State, Flags;
+    WitU64 X[31];
+    WitU64 Pc;
+    WitU32 SuspendCount, Reserved;
+    WitU64 Fcsr;
+    WitU64 F[32];
 } WitThreadContext;
 #else
 #define WIT_THREAD_CONTEXT_SIZE (WIT_THREAD_CONTEXT_SIZE_X64)

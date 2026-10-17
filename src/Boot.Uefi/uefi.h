@@ -5,8 +5,8 @@
 
 /* Minimal 64-bit UEFI ABI declarations; no UEFI types cross WitBootInfo.
  * Layout reference: UEFI specification, EFI_SYSTEM_TABLE/EFI_BOOT_SERVICES.
- * Firmware calls use the compiler's native convention, which is the UEFI one on both targets:
- * Microsoft x64 on x64 and AAPCS64 on ARM64. */
+ * Firmware calls use the compiler's native convention, which is the UEFI one on every target:
+ * Microsoft x64 on x64, AAPCS64 on ARM64 and the psABI (lp64d) on RISC-V. */
 typedef WitU64 EfiStatus;
 typedef void *EfiHandle;
 
