@@ -201,7 +201,7 @@ internal static class KernelImageBuilder
 
     // A release map must not name self-test code: test objects, self-test functions, fault triggers or workers.
     private static readonly Regex SELF_TEST_SYMBOL = new(
-        @"self_test|selftest|_tests\.obj|wit_(?:x64|a64)_trigger_|wit_x64_worker\b|wit_worker_|fixture", RegexOptions.IgnoreCase);
+        @"self_test|selftest|_tests\.obj|wit_(?:x64|a64|rv64)_trigger_|wit_x64_worker\b|wit_worker_|fixture", RegexOptions.IgnoreCase);
 
     private static readonly Dictionary<string, string> SCENARIO_DEFINES = new()
     {
@@ -254,8 +254,9 @@ internal static class KernelImageBuilder
         // A scenario kernel is a self-test kernel where the target has self-test layers, except the release kernel's
         // scenarios.
         var selfTest = !RELEASE_KERNEL_SCENARIOS.Contains(scenario) && target.SelfTestLayers.Length > 0;
-        // The mechanism fixtures a self-test kernel embeds, built by the pinned clang for both ISAs (plan step K8.3).
-        if (selfTest)
+        // The mechanism fixtures a self-test kernel embeds, built by the pinned clang for both ISAs (plan step K8.3); an
+        // ISA whose port has no user space yet (V1.2) links no user self-tests and embeds none.
+        if (selfTest && !architecture.KernelOnly)
         {
             await UserImage.BuildFixturesAsync(root, output, architecture);
         }

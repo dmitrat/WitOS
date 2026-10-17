@@ -29,6 +29,12 @@ internal static class BootExpectations
     /// </summary>
     public const string ARM64_USERS = "arm64-users";
 
+    /// <summary>
+    /// RISC-V kernel foundation (plan step V1.2): the same markers as ARM64's, since the self-tests are the shared ones
+    /// and the architecture's; the user suites join at V1.3.
+    /// </summary>
+    public const string RISCV64_FOUNDATION = "riscv64-foundation";
+
     #endregion
 
     #region Fields

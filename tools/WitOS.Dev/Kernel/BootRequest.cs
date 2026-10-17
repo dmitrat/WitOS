@@ -22,6 +22,11 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public A64FaultExpectation? A64Fault { get; init; }
 
     /// <summary>
+    /// RISC-V kernel exception required by an <see cref="ExpectedOutcome.Exception"/> boot of that architecture (V1.2).
+    /// </summary>
+    public Rv64FaultExpectation? Rv64Fault { get; init; }
+
+    /// <summary>
     /// Architecture whose QEMU board boots the image.
     /// </summary>
     public KernelArchitecture Architecture { get; init; } = KernelArchitecture.X64;

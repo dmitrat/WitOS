@@ -33,12 +33,14 @@ void wit_platform_console_put(WitU8 value)
 
 WitU32 wit_platform_boot_devices(WitU64 *pages, WitU32 capacity)
 {
-    /* The console stays usable across the switch to the kernel's translation tables. */
-    if (capacity == 0) {
+    /* The console and the test finisher stay usable across the switch to the kernel's translation tables: a panic
+     * ends the machine through the finisher (V1.2). */
+    if (capacity < 2) {
         return 0;
     }
     pages[0] = WIT_VIRT_RV_UART_BASE;
-    return 1;
+    pages[1] = WIT_VIRT_RV_TEST_BASE;
+    return 2;
 }
 
 WIT_NORETURN void wit_platform_finish(WitU32 code)

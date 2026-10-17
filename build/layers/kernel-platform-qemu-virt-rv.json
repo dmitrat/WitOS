@@ -1,9 +1,13 @@
 {
   "name": "kernel-platform-qemu-virt-rv",
-  "description": "QEMU virt board for riscv64 (plan step V1): the 16550 console and the sifive test finisher; every other operation of witos/platform.h panics by name until V1.2 ports it.",
+  "description": "QEMU virt board for riscv64 (plan step V1.2): the 16550 console and the sifive test finisher, the device tree's harts and timebase, the time counter as the monotonic clock, the goldfish RTC, the supervisor timer through sstc or SBI, the PLIC's sources as device lines; the secondary harts (V1.4) panic by name.",
   "includes": [],
   "sources": [
     "src/Kernel.Platform.QemuVirtRv/console.c",
+    "src/Kernel.Platform.QemuVirtRv/fdt.c",
+    "src/Kernel.Platform.QemuVirtRv/clock.c",
+    "src/Kernel.Platform.QemuVirtRv/interrupts.c",
+    "src/Kernel.Platform.QemuVirtRv/devices.c",
     "src/Kernel.Platform.QemuVirtRv/stubs.c"
   ],
   "assembly": []

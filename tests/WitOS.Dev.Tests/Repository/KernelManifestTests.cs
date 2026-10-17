@@ -17,7 +17,8 @@ public sealed class KernelManifestTests
     private static readonly string[] KERNEL_SOURCE_DIRECTORIES =
     [
         "src/Boot.Uefi", "src/Kernel", "src/Kernel.Arch.X64", "src/Kernel.Arch.A64", "src/Kernel.Arch.RV64", "src/Kernel.Platform.Q35",
-        "src/Kernel.Platform.QemuVirt", "src/Kernel.Platform.QemuVirtRv", "tests/Kernel", "tests/Kernel.X64", "tests/Kernel.A64"
+        "src/Kernel.Platform.QemuVirt", "src/Kernel.Platform.QemuVirtRv", "tests/Kernel", "tests/Kernel.X64", "tests/Kernel.A64",
+        "tests/Kernel.RV64"
     ];
 
     private static readonly string[] SHARED_LAYERS = ["boot-uefi", "kernel-boot", "kernel-foundation", "kernel-common"];
@@ -119,7 +120,7 @@ public sealed class KernelManifestTests
     }
 
     // RISC-V (plan step V1) shares the same layers and adds its architecture include directory alone; its self-test layers
-    // come with the kernel suite of V1.2, so the target has none yet.
+    // are the shared foundation tests and its own (V1.2), without the user suites until user mode exists (V1.3).
     [Test]
     public void Riscv64SharesTheKernelLayersTest()
     {
@@ -132,7 +133,8 @@ public sealed class KernelManifestTests
             Assert.That(riscv64.Layers, Does.Contain(layer));
         }
         Assert.That(riscv64.Layers, Is.EquivalentTo(SHARED_LAYERS.Concat(["kernel-arch-rv64", "kernel-platform-qemu-virt-rv"])));
-        Assert.That(riscv64.SelfTestLayers, Is.Empty, "The RISC-V kernel suite is plan step V1.2");
+        Assert.That(riscv64.SelfTestLayers, Is.EqualTo(new[] { "kernel-selftest-shared", "kernel-selftest-rv64" }),
+            "The RISC-V kernel suite is the foundation alone until user mode (plan step V1.3)");
         Assert.That(riscv64.Includes.Except(x64.Includes), Is.EqualTo(new[] { "src/Kernel.Arch.RV64/include" }));
     }
 
