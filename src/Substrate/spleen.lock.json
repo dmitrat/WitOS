@@ -1,0 +1,7 @@
+{
+  "name": "spleen-2.1.0",
+  "url": "https://github.com/fcambus/spleen/releases/download/2.1.0/spleen-2.1.0.tar.gz",
+  "sha256": "8b47c56f1a6eb858fbcf9e34530557404b02fbb3455e38e64fb84473fd0c372f",
+  "license": "BSD-2-Clause",
+  "purpose": "The bitmap font of the display's console (plan step C2.2, RFC 0020 section 28): Spleen's 8 by 16 BDF, read by the display service from the boot package and by the host to render the frame it expects of the display; the release by the SHA-256 of its tarball, the LICENSE file shipped beside the font. Spleen is Frederic Cambus's, under the BSD 2-Clause license, which the tarball's LICENSE states and setup requires."
+}

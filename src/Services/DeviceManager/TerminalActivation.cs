@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using OutWit.OS.Communication;
 using OutWit.OS.Execution;
@@ -8,9 +9,10 @@ using OutWit.OS.Terminals;
 namespace OutWit.OS.DeviceManager;
 
 /// <summary>
-/// The terminal service started with the console driver's serial channel (plan step N4.3a): the device manager moves
-/// the channel to the service in a DEVICE message before the service runs, and keeps the clients' endpoint the
-/// service answers with for the root task's process manager, which gives it every process it starts afterwards.
+/// The terminal service started with the consoles' serial channels (plan steps N4.3a and C2.2): the device manager moves
+/// the channels to the service in a DEVICE message before the service runs — the main console first, whose size the
+/// terminal takes, then the console that mirrors it — and keeps the clients' endpoint the service answers with for the
+/// root task's process manager, which gives it every process it starts afterwards.
 /// </summary>
 internal sealed class TerminalActivation : IDisposable
 {
@@ -20,6 +22,11 @@ internal sealed class TerminalActivation : IDisposable
     /// The service's program in the boot package.
     /// </summary>
     public const string PATH = TerminalMessages.PATH;
+
+    /// <summary>
+    /// The consoles a terminal takes at most: the main one and a mirror.
+    /// </summary>
+    public const int CONSOLES = 2;
 
     #endregion
 
@@ -38,24 +45,39 @@ internal sealed class TerminalActivation : IDisposable
     #region Functions
 
     /// <summary>
-    /// Starts the service with the console driver's serial channel, which moves to it.
+    /// Starts the service with the consoles' serial channels, which move to it.
     /// </summary>
-    /// <param name="serial">The service's end of the console driver's serial channel, moved.</param>
+    /// <param name="consoles">The service's ends of the consoles' serial channels, the main console first, one or two; moved.</param>
     /// <returns>The activation: ready with the clients' endpoint, or its status.</returns>
+    /// <exception cref="ArgumentException">No console, or more than the terminal takes.</exception>
     /// <exception cref="FileNotFoundException">The boot package has no terminal service.</exception>
     /// <exception cref="CapabilityException">A capability could not be had.</exception>
-    public static TerminalActivation Start(KernelHandle serial)
+    public static TerminalActivation Start(IReadOnlyList<KernelHandle> consoles)
     {
+        if (consoles.Count is < 1 or > CONSOLES)
+        {
+            foreach (var console in consoles)
+                console.Dispose();
+            throw new ArgumentException($"A terminal of {consoles.Count} consoles.", nameof(consoles));
+        }
         if (!File.Exists(PATH))
         {
-            serial.Dispose();
+            foreach (var console in consoles)
+                console.Dispose();
             throw new FileNotFoundException($"The boot package has no {PATH}.", PATH);
         }
         var (channel, theirs) = Channel.Create();
         try
         {
-            using (serial)
-                channel.Send(TerminalMessages.EncodeDevice(), serial);
+            try
+            {
+                channel.Send(TerminalMessages.EncodeDevice(), [.. consoles]);
+            }
+            finally
+            {
+                foreach (var console in consoles)
+                    console.Dispose();
+            }
             var process = ServiceLauncher.Start(PATH, [], theirs);
             try
             {
