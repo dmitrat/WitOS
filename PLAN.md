@@ -90,7 +90,9 @@ riscv64 — `ecall`, кадры и контексты U-mode, таблицы Sv4
 общие пользовательские наборы, фикстуры и корневую задачу на третьей ISA без правок в `src/Kernel` и `tests/Kernel/`;
 **V1.4** выполнен 2026-10-17: остальные харты стартуют через SBI HSM, межпроцессорные запросы идут программным
 прерыванием через SBI, `boot-smp2` проходит на virt riscv64 — V1 выполнен целиком, ни одной заглушки в порте;
-следующий шаг дорожки — **V2**, слой 2 для `riscv64-unknown-linux-musl`. **P1** — после C1 (pwsh и
+**V2.1** выполнен 2026-10-17: musl собран для `riscv64-unknown-linux-musl` над ABI-1 и первая libc-программа прошла
+свои 165 проверок на третьей ISA с первой загрузки; следующий шаг дорожки — **V2.2**, libc-test и libc.so, C++ runtime
+на riscv64. **P1** — после C1 (pwsh и
 службы делят один процессор); **T4** — вместе с заявкой upstream (ADR 0026); фаза W (сеть M7, модель приложений M8,
 графика M9) — после C2 и P1. Расширение ext4 (**D7**: ссылки) — по нужде C1, не раньше.
 
@@ -146,7 +148,7 @@ C-API — `libwitos`, управляемый — `OutWit.OS`. RFC-0011 v3 §11: 
 | [D](#d--хранилище-второй-проход) | менеджер устройств, virtio-blk, блочный слой, ФС, пространство имён | K3, R2 | Ц2 | завершена (M4, M5); D7 открывается по нужде C1 |
 | [N](#n--стандартный-net-m6) | compatibility suite, библиотеки NuGet, несколько версий, среда приложения | R, D | Ц2, Ц5 | завершена (M6, Gate B) |
 | [C](#c--консоль-и-оболочка-rfc-0020) | PowerShell на терминале, экран и клавиатура, цикл разработчика (RFC-0020) | N, D | Ц2 | C1 и C2 выполнены (C2.3 — 2026-10-17); C3 — горизонт после M8 |
-| [V](#v--третья-isa) | RISC-V: третья ISA, параллельно с C | R, N1 | Ц3 | V0 и V1 выполнены (V1.4 — 2026-10-17); V2 следующая |
+| [V](#v--третья-isa) | RISC-V: третья ISA, параллельно с C | R, N1 | Ц3 | V0, V1 и V2.1 выполнены (2026-10-17); V2.2 следующая |
 | [P](#p--многопроцессорность) | планировщик на N CPU | K7, R | — | не начата |
 | [W](#w--и-далее) | сеть (M7) и остальные милстоуны | N | — | не начата |
 
@@ -226,6 +228,17 @@ V1 (`Kernel.Arch.RV64` и `Kernel.Platform.QemuVirtRv`: та же общая п�
 - [ ] **V2** Перекомпиляция слоя 2 для `riscv64-unknown-linux-musl` (libc, libc-test со своим `mathExcluded`, C++ runtime,
   libwitos, sysroot) — сценарии `libc`, `libc-test`, `cxx`, `spawn`, `process`, `sysroot`; рантайм `witos-riscv64`
   (`linux-riscv64` upstream как основа) — `runtime-witos --arch riscv64` до `runtime-dotnet`; службы ADR 0025 по решению V0.
+  Срезами; **V2.1** (2026-10-17) выполнен (журнал): musl для третьего триплета над диспетчером (патч `syscall_arch.h`,
+  ветки riscv64 в crt1, потоках и сигналах libc WitOS, `riscv/fp_mode.c` в пине compiler-rt без `clear_cache.c`),
+  `KernelArchitecture.Libc`, сценарий `libc` в `test --arch riscv64` — 165 проверок с первой загрузки.
+  - [ ] **V2.2** libc-test на riscv64 статически и динамически: `libc.so` и динамический компоновщик
+    `/lib/ld-musl-riscv64.so.1` (`ldso/riscv64`), `rcrt1`/`Scrt1`, свой `mathExcluded`; C++ runtime для триплета
+    (libunwind, libc++abi, libc++, `crtbegin`/`crtend`), сценарии `libc-test` и `cxx`.
+  - [ ] **V2.3** libwitos (ветки riscv64 в `spawn.c`, `capabilities.c`), запускаемые программы и менеджер процессов,
+    sysroot для триплета; сценарии `spawn`, `process`, `sysroot`; `KernelArchitecture.SystemLayer` для riscv64 — слой 2
+    целиком на трёх ISA, `linux-selftest` для трёх ISA с полным набором.
+  - [ ] **V2.4** Рантайм `witos-riscv64`: RID и граф, `__riscv_flush_icache`/`__clear_cache` как `CODE_PUBLISH`,
+    NativeAOT и CoreCLR riscv64 upstream (community-порт) до `runtime-dotnet`; службы ADR 0025 по решению V0.
 - [ ] **V3** Приложение из N1 и `runtime-published` без изменений на трёх ISA — доказательство Ц3; объём записан в
   документе V3; матрица: `QEMU RISC-V (virt)` — Primary; правило готовности шага — три ISA.
 

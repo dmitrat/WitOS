@@ -71,14 +71,13 @@ internal static class UserImage
     #region Tools
 
     // A freestanding layer-2 compilation by the pinned clang for the architecture's triple: no libc and no runtime, the
-    // ABI-1 transport of the sysroot and the kernel's ABI headers, and the options given, which come last. RISC-V has no
-    // PLT option: clang refuses -fno-plt there as unused under -Werror.
+    // ABI-1 transport of the sysroot and the kernel's ABI headers, and the options given, which come last.
     private static Task CompileFreestandingAsync(string root, KernelArchitecture architecture, string source, string obj,
         params string[] options) =>
         Processes.RequireSuccessAsync(Toolchain.Clang(root),
         [
             $"--target={architecture.Triple}", "-std=c11", "-O2", "-ffreestanding", "-fno-builtin", "-nostdlib", "-nostdlibinc",
-            "-fPIE", .. architecture == KernelArchitecture.Riscv64 ? [] : (string[])["-fno-plt"],
+            "-fPIE", .. architecture.PltOptions,
             "-fno-stack-protector", "-fno-asynchronous-unwind-tables", "-fno-unwind-tables",
             "-Wall", "-Wextra", "-Werror", .. architecture.ClangOptions,
             "-I", Path.Combine(root, "src", "Sysroot", "include"), "-I", Path.Combine(root, "src", "Kernel", "include"),

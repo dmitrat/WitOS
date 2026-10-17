@@ -14,6 +14,10 @@
       "sha256": "5970af348d822761bd89c19c13c9f3eac14126a5ad328afb3cd7fa55ef09bb42"
     },
     {
+      "path": "arch/riscv64/syscall_arch.h",
+      "sha256": "0a228fa353f6690ce5049b65337796c1ca649a878ef90f39a09eac9501d1a888"
+    },
+    {
       "path": "ldso/dynlink.c",
       "sha256": "7d6d6bfd3aafc7eb3331c37752a37fcf1e568452d2ca5be9009669386571cbbb"
     },

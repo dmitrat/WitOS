@@ -52,13 +52,15 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     /// knows no RISC-V machine, so the kernel is a position-independent ELF (rv64gc, lp64d, the medium-any code model,
     /// no linker relaxation) linked by ld.lld with the kernel's own script and converted to PE32+ by the tool
     /// (<see cref="Images.ElfToPe"/>); the board runs without ACPI so that the firmware publishes the device tree. The
-    /// port runs the root task and the fixtures (V1.3) and starts its other harts (V1.4) but has no system layer until V2
-    /// (<see cref="SystemLayer"/>).
+    /// port runs the root task and the fixtures (V1.3), starts its other harts (V1.4) and has the libc (V2.1,
+    /// <see cref="Libc"/>) but not the rest of layer 2 until V2 completes (<see cref="SystemLayer"/>).
     /// </summary>
     public static readonly KernelArchitecture Riscv64 = new("riscv64", "riscv64", Machine.RiscV64, "BOOTRISCV64.EFI",
         "qemu-system-riscv64", "virt,acpi=off", [], [], "edk2-riscv-code.fd", "edk2-riscv-vars.fd", "rv64",
         "riscv64-unknown-linux-musl", 243,
-        ["-mcmodel=medany"], // the image window lies above 2 GiB, which the medium-low model cannot address
+        // The image window lies above 2 GiB, which the medium-low model cannot address; without linker relaxation nothing
+        // addresses through the global pointer, which a kernel-started thread or a fault callback never sets (V2.1).
+        ["-mcmodel=medany", "-mno-relax"],
         "riscv64-unknown-elf")
     {
         KernelCompileOptions = ["-march=rv64gc", "-mabi=lp64d", "-mcmodel=medany", "-mno-relax", "-fPIE", "-fno-asynchronous-unwind-tables", "-fno-unwind-tables"],
@@ -87,8 +89,15 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     public bool ElfImage => LinkerScript is not null;
 
     /// <summary>
-    /// Whether layer 2 — the libc, the C++ runtime, libwitos, the sysroot — is built for the ISA, so that its scenarios
-    /// run on it; false for a port whose system layer is still to come (riscv64 until V2).
+    /// Whether the libc is built for the ISA, so that the libc scenario runs on it (plan step V2.1: musl for riscv64
+    /// before the rest of layer 2).
+    /// </summary>
+    public bool Libc { get; init; } = true;
+
+    /// <summary>
+    /// Whether the rest of layer 2 — libc-test, the C++ runtime, libwitos, started programs, the sysroot — is built for
+    /// the ISA, so that its scenarios run on it; false for a port whose system layer is still to come (riscv64 until V2
+    /// completes).
     /// </summary>
     public bool SystemLayer { get; init; } = true;
 
@@ -97,6 +106,12 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     /// for a port whose secondary processors are still to come (none since V1.4).
     /// </summary>
     public bool SecondaryProcessors { get; init; } = true;
+
+    /// <summary>
+    /// The option that keeps layer-2 code off the procedure linkage table, where the ISA has one: clang refuses
+    /// -fno-plt for RISC-V as an unused argument under -Werror (V1.3), so riscv64 passes nothing.
+    /// </summary>
+    public string[] PltOptions => this == Riscv64 ? [] : ["-fno-plt"];
 
     /// <summary>
     /// The boot expectation of the kernel foundation (tests/Expectations/&lt;name&gt;-foundation.json).

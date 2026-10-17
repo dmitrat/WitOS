@@ -24,7 +24,7 @@
 | [R — Рантайм .NET Unix-формы](#r--рантайм-net-unix-формы) | R1–R8 | 2026-10-12 (R4.2 после D6) |
 | [D — Устройства и хранилище (M4/M5)](#d--устройства-и-хранилище-m4m5) | D1–D6 | 2026-10-12 |
 | [C — Консоль и оболочка (RFC-0020)](#c--консоль-и-оболочка-rfc-0020) | C1, C2 (C3 — горизонт в плане) | C2.3 — 2026-10-17 |
-| [V — Третья ISA](#v--третья-isa) | V0, V1 (V2–V3 открыты в плане) | V1.4 — 2026-10-17 |
+| [V — Третья ISA](#v--третья-isa) | V0, V1, V2.1 (V2.2–V3 открыты в плане) | V2.1 — 2026-10-17 |
 | [N — Стандартный .NET (M6)](#n--стандартный-net-m6) | N1–N4: фаза завершена, M6 выполнен, Gate B заявлен | 2026-10-15 (N4.5) |
 
 ## 5. Фазы (выполненные шаги)
@@ -1315,6 +1315,34 @@
   `KernelArchitecture.SecondaryProcessors` для riscv64 снят — `test --arch riscv64` гоняет `boot-smp2`. Гость (Windows):
   `test --arch riscv64` — 15 сценариев PASS, среди них новый `boot-smp2` (`-smp 2`, OpenSBI: `Domain0 HARTs: 0*,1*`, boot-харт 0; `Processors present/online: 2/2`, `Smp.Online`, `Smp.Ipi` — оба харта online, два fence и одна инвалидация подтверждены хартом 1 по разу) с первой загрузки порта; `release --arch riscv64` — release-128, release-512, release-display-256 PASS с корневой задачей; хост: сборка, тесты обоих проектов, `format`; CI без изменений — `boot` (Windows) и `linux-selftest` гоняют `test --arch riscv64` с `boot-smp2`. Общее ядро (`cpus.c`, `processors.c`, `smp_tests.c`) без правок. Находки: у RISC-V одно программное прерывание без номера, вид запроса идёт через память (правило «один запрос за раз» K7.2 делает одно слово на харт достаточным); идентичность вторичного харта — его стек, так как S-mode не читает `mhartid`; страница enables PLIC общая для 32 контекстов — отображать однажды через `wit_virtual_view`; плате нужен `witos/cpu.h` ради видов запросов, как и плате ARM64; общее ядро (`cpus.c`, `processors.c`, `smp_tests.c`) не тронуто. V1 выполнен
   целиком: четыре среза, ни одной заглушки, общее ядро без правок на всех.
+- [x] **V2.1** libc на riscv64: musl для `riscv64-unknown-linux-musl` над ABI-1, первая libc-программа на третьей ISA
+  (2026-10-17, PR #142; [V2.1-RISC-V-Libc.md](@Docs/Implementation/V2.1-RISC-V-Libc.md)). musl 1.2.5 собран по тем же
+  правилам, что для двух триплетов: 1 357 объектов (все generic-файлы, `src/*/riscv64/*`, часть WitOS), без пяти
+  ассемблерных файлов Linux-вызовов и входов потоков/сигналов (`__unmapself.s`, `clone.s`, `syscall_cp.s`, `restore.s`,
+  `vfork.s`; `__set_thread_area.s` остаётся — `tp` пишет сам поток, как TPIDR_EL0 на ARM64); патч
+  `patches/musl/syscall_arch.riscv64.h.patch` (`__syscallN` → `__wit_syscall`, `VDSO_USEFUL` остаётся) и его хеш в
+  `musl.lock.json`. Часть WitOS: `crt1.c` — `_start` с дескриптором в a0, без `gp`; `thread.c` — трамплин читает блок
+  запуска в a0 и ставит `tp` из него (ядро уже записало его из TLS-базы запроса, V1.3), запись потока находится по
+  `tp`, `__cp_cancel` — `tail __cancel`; `signal.c` — профиль `FPREGS`, sp = `X[1]`, без красной зоны, классификация
+  причин как у обработчика Linux (misaligned 0/4/6 → `SIGBUS`/`BUS_ADRALN`, access 1/5/7 → `SIGSEGV`/`SEGV_ACCERR`, 2 →
+  `SIGILL`/`ILL_ILLOPC`, 3 → `SIGTRAP`/`TRAP_BRKPT`, page 12/13/15 → `SIGSEGV`/`SEGV_MAPERR` с `stval`), `ucontext_t`
+  в раскладке musl riscv64 (`__gregs[0]` — pc, `__gregs[1..31]` — x1..x31, `__fpregs.__d` — f0..f31 и fcsr; адреса
+  отказа нет — он в `siginfo`), трамплины в регистрах RISC-V (callback: a0–a2; трамплин обработчика: a0–a4 =
+  `X[9..13]`, ra = 0, кадр в s1), `SA_RESTORER` только там, где он есть; `uname` — `riscv64`; `static.ld` собирает
+  `.srodata/.sdata/.sbss` в свои виды. Builtins: `riscv/fp_mode.c` в пине compiler-rt (каталог `riscv` для riscv64),
+  `clear_cache.c` вне набора riscv64 (его Linux-ветка включает `<linux/unistd.h>` и делает `ecall`
+  `riscv_flush_icache`; `__clear_cache` на riscv64 — `CODE_PUBLISH` с рантаймом) — 26 объектов. `libc_hello.c`: имя
+  ISA, `unimp` для `SIGILL`, третья страница `/test/code.bin` (`li a0, 42; ret`, пишет `BootPackage`). Инструмент:
+  `KernelArchitecture.Libc` (сценарий `libc`) рядом с `SystemLayer` (остальные пять), `PltOptions` (`-fno-plt` не для
+  riscv64 — из одного места для фикстур, musl, программ и runtimes), `-mno-relax` для слоя 2 на riscv64 (иначе lld мог
+  бы адресовать через `gp`, который ядро не ставит потокам и callback'ам). Гость (Windows): `libc --arch riscv64` —
+  `[LIBC] musl 1.2.5 on riscv64: 165 checks passed, 0 failed` с первой загрузки (как на ARM64; две проверки x64 —
+  деление на ноль); C:/Users/dmitrat/AppData/Local/Temp/claude/c--Workspace-OutWit-WitOS/48e4f808-3353-4aeb-9c4e-b9ae2c9e3f6d/scratchpad/v21-docs.py. Хост: сборка, тесты обоих проектов (патч, замки, манифесты), `format`; CI без изменений.
+  Находки: `VDSO_USEFUL` нужен на riscv64 — `src/linux/cache.c` (`__riscv_flush_icache`) зовёт `__vdsosym`
+  безусловно, а `vdso.c` определяет его только под макросом (первая линковка упала; `__vdsosym` на WitOS отдаёт null, и
+  flush идёт в `SYS_riscv_flush_icache` → `ENOSYS` до рантайма); `clear_cache.c` на riscv64 — Linux'овый; clang
+  отвергает `-fno-plt` для RISC-V; у riscv64 нет `SA_RESTORER`; релаксация и `gp`; libc прошла с первой загрузки —
+  работа среза была в сборке и ветках, не в ядре.
   Хост: 96 тестов инструмента (судья riscv64, манифесты, слоение); release x64 без изменений. Находки: финишер должен быть
   загрузочным устройством; дерево устройств может лежать в уже отображённой памяти (читатель спрашивает
   `wit_virtual_view`); деления на ноль нет; boot hart — вопрос прошивке (64 `ecall` однажды).

@@ -56,6 +56,8 @@ internal static class MuslLibc
         "src/thread/x86_64/syscall_cp.s", "src/signal/x86_64/restore.s", "src/process/x86_64/vfork.s",
         "src/thread/aarch64/__unmapself.s", "src/thread/aarch64/clone.s", "src/thread/aarch64/syscall_cp.s",
         "src/signal/aarch64/restore.s", "src/process/aarch64/vfork.s",
+        "src/thread/riscv64/__unmapself.s", "src/thread/riscv64/clone.s", "src/thread/riscv64/syscall_cp.s",
+        "src/signal/riscv64/restore.s", "src/process/riscv64/vfork.s",
         // WitOS sets the x64 thread pointer through THREAD_SET_TLS, creates threads through THREAD_CREATE and ends them
         // through THREAD_EXIT (src/Substrate/libc/thread.c), in place of the generic stubs.
         "src/thread/__set_thread_area.c", "src/thread/clone.c", "src/thread/__unmapself.c",
@@ -68,6 +70,7 @@ internal static class MuslLibc
     {
         ["arch/x86_64/syscall_arch.h"] = "syscall_arch.x86_64.h",
         ["arch/aarch64/syscall_arch.h"] = "syscall_arch.aarch64.h",
+        ["arch/riscv64/syscall_arch.h"] = "syscall_arch.riscv64.h",
         // The dynamic linker takes the start message before it opens a library (S5.3).
         ["ldso/dynlink.c"] = "dynlink.c",
         // musl's own fixes after 1.2.5 that libc-test's math suite checks (S7.2), backported unchanged.
@@ -374,7 +377,7 @@ internal static class MuslLibc
         var build = await BuildAsync(root, architecture);
         await Processes.RequireSuccessAsync(Toolchain.Clang(root),
         [
-            $"--target={architecture.Triple}", "-O2", "-nostdlibinc", "-fPIE", "-fno-plt", "-fno-stack-protector",
+            $"--target={architecture.Triple}", "-O2", "-nostdlibinc", "-fPIE", .. architecture.PltOptions, "-fno-stack-protector",
             "-fno-asynchronous-unwind-tables", "-fno-unwind-tables", .. options, .. architecture.ClangOptions,
             .. build.Includes.Skip(1).SelectMany(include => new[] { "-isystem", include }),
             "-c", source, "-o", obj
@@ -520,7 +523,7 @@ internal static class MuslLibc
     /// musl's architecture name of a kernel architecture.
     /// </summary>
     /// <param name="architecture">Kernel architecture.</param>
-    /// <returns>x86_64 or aarch64.</returns>
+    /// <returns>x86_64, aarch64 or riscv64.</returns>
     public static string MuslArchitecture(KernelArchitecture architecture) => architecture.Triple[..architecture.Triple.IndexOf('-')];
 
     /// <summary>

@@ -37,8 +37,10 @@
 
 #if defined(__x86_64__)
 #define ISA_NAME "x86_64"
-#else
+#elif defined(__aarch64__)
 #define ISA_NAME "aarch64"
+#else
+#define ISA_NAME "riscv64"
 #endif
 
 extern const char __libc_version[] __attribute__((__weak__)); /* musl's internal version string, when visible */
@@ -340,8 +342,10 @@ int main(void)
     int code_fd = open("/test/code.bin", O_RDONLY);
 #if defined(__x86_64__)
     const off_t code_page = 0;
-#else
+#elif defined(__aarch64__)
     const off_t code_page = 4096;
+#else
+    const off_t code_page = 8192;
 #endif
     void *code = code_fd >= 0 ? mmap(0, 4096, PROT_READ | PROT_EXEC, MAP_PRIVATE, code_fd, code_page) : MAP_FAILED;
     check(code != MAP_FAILED, "a file's code mapped executable");
@@ -745,9 +749,12 @@ int main(void)
     if (writable != MAP_FAILED && executable != MAP_FAILED) {
 #if defined(__x86_64__)
         static const unsigned char answer_code[] = {0xB8, 0x2A, 0x00, 0x00, 0x00, 0xC3}; /* mov eax, 42; ret */
-#else
+#elif defined(__aarch64__)
         static const unsigned char answer_code[] = {
             0x40, 0x05, 0x80, 0x52, 0xC0, 0x03, 0x5F, 0xD6}; /* mov w0, #42; ret */
+#else
+        static const unsigned char answer_code[] = {
+            0x13, 0x05, 0xA0, 0x02, 0x67, 0x80, 0x00, 0x00}; /* li a0, 42; ret */
 #endif
         writable[0] = 0x5A;
         writable[3 * 4096] = 0xA5;
@@ -934,8 +941,10 @@ int main(void)
     if (sigsetjmp(escape, 1) == 0) {
 #if defined(__x86_64__)
         __asm__ volatile("ud2");
-#else
+#elif defined(__aarch64__)
         __asm__ volatile(".inst 0x00000000");
+#else
+        __asm__ volatile("unimp");
 #endif
     }
     check(signal_seen == SIGILL && (fault_code == ILL_ILLOPN || fault_code == ILL_ILLOPC),

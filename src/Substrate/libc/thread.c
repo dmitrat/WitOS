@@ -127,7 +127,7 @@ void __wit_thread_init(void)
 }
 
 /* The calling thread's pointer, zero before musl installed the main thread's: the FS base's first word, which musl's
- * thread structure points at itself, on x64; TPIDR_EL0, which the thread writes itself, on ARM64. */
+ * thread structure points at itself, on x64; TPIDR_EL0, which the thread writes itself, on ARM64; tp on RISC-V. */
 static WitU64 current_pointer(void)
 {
     WitU64 pointer = 0;
@@ -135,8 +135,10 @@ static WitU64 current_pointer(void)
     if (pointer_set) {
         __asm__ volatile("mov %%fs:0, %0" : "=r"(pointer));
     }
-#else
+#elif defined(__aarch64__)
     __asm__ volatile("mrs %0, tpidr_el0" : "=r"(pointer));
+#else
+    __asm__ volatile("mv %0, tp" : "=r"(pointer));
 #endif
     return pointer;
 }
@@ -469,6 +471,32 @@ __asm__(".text\n"
         "    ret\n"
         "__cp_cancel:\n"
         "    b __cancel\n");
+#elif defined(__riscv)
+/* tp is the thread's own register: the kernel wrote it from the request's TLS base at the thread's first resume
+ * (V1.3), and the trampoline installs it from the block again before it calls; musl's own __set_thread_area sets
+ * the main thread's. */
+__asm__(".text\n"
+        ".global __wit_thread_entry\n"
+        ".type __wit_thread_entry,%function\n"
+        "__wit_thread_entry:\n"
+        "    ld t0, 0(a0)\n"
+        "    ld tp, 16(a0)\n"
+        "    ld a0, 8(a0)\n"
+        "    mv s0, zero\n"
+        "    mv ra, zero\n"
+        "    jalr t0\n"
+        "    unimp\n"
+        ".global __cp_begin\n"
+        ".hidden __cp_begin\n"
+        ".global __cp_end\n"
+        ".hidden __cp_end\n"
+        ".global __cp_cancel\n"
+        ".hidden __cp_cancel\n"
+        "__cp_begin:\n"
+        "__cp_end:\n"
+        "    ret\n"
+        "__cp_cancel:\n"
+        "    tail __cancel\n");
 #else
 #error "WitOS threads: unsupported architecture"
 #endif

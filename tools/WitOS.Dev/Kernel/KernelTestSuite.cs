@@ -203,11 +203,15 @@ internal static class KernelTestSuite
                 });
             scenarios++;
         }
-        if (architecture.SystemLayer)
+        if (architecture.Libc)
         {
             var libc = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.LIBC_SCENARIO, architecture: architecture);
             await BootScenarioRunner.RunAsync(root, libc,
                 Request("libc", 256, limit, ExpectedOutcome.Success) with { Suite = BootSuite.Release, RequiredLines = [architecture.LibcPassedLine] });
+            scenarios++;
+        }
+        if (architecture.SystemLayer)
+        {
             var libcTest = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.LIBC_TEST_SCENARIO, architecture: architecture);
             await BootScenarioRunner.RunAsync(root, libcTest,
                 Request("libc-test", 256, 120, ExpectedOutcome.Success) with { Suite = BootSuite.Release, RequiredLines = [architecture.LibcTestPassedLine] });
@@ -239,7 +243,7 @@ internal static class KernelTestSuite
                     Suite = BootSuite.Release,
                     RequiredLines = [architecture.SysrootPassedLine, architecture.RootTaskPassedLine]
                 });
-            scenarios += 6;
+            scenarios += 5;
         }
         var panic = await KernelImageBuilder.BuildAsync(root, "invalid-boot-info", architecture: architecture);
         await BootScenarioRunner.RunAsync(root, panic,

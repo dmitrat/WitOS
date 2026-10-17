@@ -280,8 +280,10 @@ static long system_name(struct utsname *name)
     strcpy(name->version, "ABI-1");
 #if defined(__x86_64__)
     strcpy(name->machine, "x86_64");
-#else
+#elif defined(__aarch64__)
     strcpy(name->machine, "aarch64");
+#else
+    strcpy(name->machine, "riscv64");
 #endif
     return 0;
 }

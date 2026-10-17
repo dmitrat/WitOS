@@ -91,6 +91,18 @@ __asm__(".text\n"
         "    mov x30, #0\n"
         "    bl _start_c\n"
         "    brk #0\n");
+#elif defined(__riscv)
+/* The kernel enters with the descriptor in a0 and a 16-byte aligned stack pointer. No global pointer is set: layer 2 is
+ * compiled without linker relaxation (V2.1), so nothing addresses through gp. */
+__asm__(".text\n"
+        ".global _start\n"
+        ".type _start,%function\n"
+        "_start:\n"
+        "    mv s0, zero\n"
+        "    mv ra, zero\n"
+        "    andi sp, sp, -16\n"
+        "    call _start_c\n"
+        "    unimp\n");
 #else
 #error "WitOS crt1: unsupported architecture"
 #endif
