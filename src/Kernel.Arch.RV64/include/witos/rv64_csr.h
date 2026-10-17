@@ -61,6 +61,13 @@ static inline WitU64 wit_rv64_read_sip(void)
     return value;
 }
 
+/* The supervisor software interrupt is the one pending bit S-mode clears itself (V1.4); the timer's and the external
+ * one follow their sources. */
+static inline void wit_rv64_clear_sip(WitU64 bits)
+{
+    __asm__ volatile("csrc sip, %0" : : "r"(bits) : "memory");
+}
+
 static inline void wit_rv64_write_stvec(WitU64 value)
 {
     __asm__ volatile("csrw stvec, %0" : : "r"(value) : "memory");
