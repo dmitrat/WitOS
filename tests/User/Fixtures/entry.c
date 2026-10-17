@@ -16,8 +16,10 @@
 #define NONCANONICAL 0x0000800000000000ULL
 #if defined(__x86_64__)
 #define RET_INSTRUCTION 0xC3U
-#else
+#elif defined(__aarch64__)
 #define RET_INSTRUCTION 0xD65F03C0U
+#else
+#define RET_INSTRUCTION 0x00008067U
 #endif
 
 static const char message[] = "Hello from ring 3.\n";
@@ -143,7 +145,7 @@ __asm__(".section .text.entry,\"ax\",@progbits\n"
         "    cmp %rax, %r12\n"
         "    pause\n"
         "    jmp 1b\n");
-#else
+#elif defined(__aarch64__)
 __asm__(".section .text.entry,\"ax\",%progbits\n"
         ".globl wit_user_start\n"
         "wit_user_start:\n"
@@ -248,6 +250,87 @@ __asm__(".section .text.entry,\"ax\",%progbits\n"
         "    cmp x9, x19\n"
         "    yield\n"
         "    b 1b\n");
+#else
+__asm__(".section .text.entry,\"ax\",@progbits\n"
+        ".globl wit_user_start\n"
+        "wit_user_start:\n"
+        "    fmv.x.d t0, f0\n"
+        "    bnez t0, entry_initial_failed\n"
+        "    bnez tp, entry_initial_failed\n"
+        "    li tp, 0x55AA001100220033\n"
+        "    j entry_main\n"
+        ".text\n"
+        ".globl entry_preserved_call\n.hidden entry_preserved_call\n"
+        "entry_preserved_call:\n"
+        "    addi sp, sp, -48\n"
+        "    sd s2, 0(sp)\n"
+        "    sd s3, 8(sp)\n"
+        "    sd s4, 16(sp)\n"
+        "    sd s5, 24(sp)\n"
+        "    fsd fs0, 32(sp)\n"
+        "    li s2, 0x55AA001100220033\n"
+        "    mv s3, s2\n"
+        "    mv s4, s2\n"
+        "    mv s5, s2\n"
+        "    fmv.d.x fs0, s2\n"
+        "    mv a7, a0\n"
+        "    mv a0, a1\n"
+        "    mv a1, a2\n"
+        "    mv a2, a3\n"
+        "    ecall\n"
+        "    sd a1, 0(a4)\n"
+        "    fmv.x.d t0, fs0\n"
+        "    bne t0, s2, 1f\n"
+        "    bne s3, s2, 1f\n"
+        "    bne s4, s2, 1f\n"
+        "    bne s5, s2, 1f\n"
+        "    li t0, 0x55AA001100220033\n"
+        "    beq t0, s2, 2f\n"
+        "1:\n"
+        "    li a0, -1\n"
+        "2:\n"
+        "    fld fs0, 32(sp)\n"
+        "    ld s5, 24(sp)\n"
+        "    ld s4, 16(sp)\n"
+        "    ld s3, 8(sp)\n"
+        "    ld s2, 0(sp)\n"
+        "    addi sp, sp, 48\n"
+        "    ret\n"
+        ".globl entry_read\n.hidden entry_read\n"
+        "entry_read:\n"
+        "    ld a0, 0(a0)\n"
+        "    ret\n"
+        ".globl entry_write\n.hidden entry_write\n"
+        "entry_write:\n"
+        "    sb a1, 0(a0)\n"
+        "    ret\n"
+        ".globl entry_trap_privileged\n.hidden entry_trap_privileged\n"
+        "entry_trap_privileged:\n"
+        "    csrci sstatus, 2\n" /* a supervisor register is illegal in U-mode */
+        "    unimp\n"
+        ".globl entry_trap_register\n.hidden entry_trap_register\n"
+        "entry_trap_register:\n"
+        "    csrr t0, satp\n" /* the translation root is the supervisor's */
+        "    unimp\n"
+        ".globl entry_trap_undefined\n.hidden entry_trap_undefined\n"
+        "entry_trap_undefined:\n"
+        "    unimp\n"
+        ".globl entry_bad_return\n.hidden entry_bad_return\n"
+        "entry_bad_return:\n"
+        "    mv a7, a0\n"
+        "    li sp, 0x0000800000000000\n"
+        "    ecall\n"
+        "1:\n"
+        "    j 1b\n"
+        ".globl entry_preemption_state\n.hidden entry_preemption_state\n"
+        "entry_preemption_state:\n"
+        "    mv s2, tp\n" /* the sentinel since the entry; RISC-V has no condition flags to keep */
+        "    fmv.d.x fs0, s2\n"
+        "1:\n"
+        "    fmv.x.d t0, fs0\n"
+        "    bne t0, s2, entry_state_lost\n"
+        "    bne tp, s2, entry_state_lost\n"
+        "    j 1b\n");
 #endif
 
 JUMPED void entry_initial_failed(void)
@@ -328,6 +411,10 @@ static void normal_test(const WitUserTestConfig *config)
     WitU64 thread_register;
     __asm__ volatile("mrs %0, tpidr_el0" : "=r"(thread_register));
     fixture_check(thread_register == SENTINEL, 13); /* every return to EL0 kept TPIDR_EL0 */
+#elif defined(__riscv)
+    WitU64 thread_register;
+    __asm__ volatile("mv %0, tp" : "=r"(thread_register));
+    fixture_check(thread_register == SENTINEL, 13); /* every return to U-mode kept tp */
 #endif
     *(volatile WitU64 *)WIT_USER_DATA = config->InstanceId;
 }

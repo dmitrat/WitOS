@@ -56,7 +56,8 @@ internal static class UserImage
             await Processes.RequireSuccessAsync(Toolchain.Lld(root),
             [
                 "-o", image, "-static", "--no-dynamic-linker", "--build-id=none", "-z", "max-page-size=4096", "-z", "norelro",
-                "--gc-sections", "-T", Path.Combine(root, "tests", "User", "Fixtures", "fixture.ld"), obj
+                "--gc-sections", "-T", Path.Combine(root, "tests", "User", "Fixtures", "fixture.ld"), obj,
+                .. await CompilerHelpersAsync(root, output, architecture)
             ], root);
             var (entry, segments) = FlatImage.ParseElf(await File.ReadAllBytesAsync(image), architecture.ElfMachine);
             if (segments.Count != 1 || entry != segments[0].Address)
@@ -70,13 +71,15 @@ internal static class UserImage
     #region Tools
 
     // A freestanding layer-2 compilation by the pinned clang for the architecture's triple: no libc and no runtime, the
-    // ABI-1 transport of the sysroot and the kernel's ABI headers, and the options given, which come last.
+    // ABI-1 transport of the sysroot and the kernel's ABI headers, and the options given, which come last. RISC-V has no
+    // PLT option: clang refuses -fno-plt there as unused under -Werror.
     private static Task CompileFreestandingAsync(string root, KernelArchitecture architecture, string source, string obj,
         params string[] options) =>
         Processes.RequireSuccessAsync(Toolchain.Clang(root),
         [
             $"--target={architecture.Triple}", "-std=c11", "-O2", "-ffreestanding", "-fno-builtin", "-nostdlib", "-nostdlibinc",
-            "-fPIE", "-fno-plt", "-fno-stack-protector", "-fno-asynchronous-unwind-tables", "-fno-unwind-tables",
+            "-fPIE", .. architecture == KernelArchitecture.Riscv64 ? [] : (string[])["-fno-plt"],
+            "-fno-stack-protector", "-fno-asynchronous-unwind-tables", "-fno-unwind-tables",
             "-Wall", "-Wextra", "-Werror", .. architecture.ClangOptions,
             "-I", Path.Combine(root, "src", "Sysroot", "include"), "-I", Path.Combine(root, "src", "Kernel", "include"),
             .. options, "-c", source, "-o", obj
@@ -104,9 +107,23 @@ internal static class UserImage
         await Processes.RequireSuccessAsync(Toolchain.Lld(root),
         [
             "-o", image, "-static", "--no-dynamic-linker", "--build-id=none", "-z", "max-page-size=4096", "-z", "norelro",
-            "--gc-sections", "-T", Path.Combine(root, "tests", "User", "root.ld"), .. objects
+            "--gc-sections", "-T", Path.Combine(root, "tests", "User", "root.ld"), .. objects,
+            .. await CompilerHelpersAsync(root, output, architecture)
         ], root);
         return await FlatImage.FromElfAsync(output, architecture.ElfMachine, image, "RootFixture", "wit_user_root_image", "user_root_image.h");
+    }
+
+    // The compiler helpers of a freestanding riscv64 image (V1.3): clang's RISC-V backend calls memset and memcpy where
+    // the other backends inline, so tests/User/compiler_rv64.c links into every riscv64 fixture and the root task; the
+    // other ISAs need nothing.
+    private static async Task<string[]> CompilerHelpersAsync(string root, string output, KernelArchitecture architecture)
+    {
+        if (architecture != KernelArchitecture.Riscv64)
+            return [];
+        var obj = Path.Combine(output, "compiler_rv64.o");
+        if (!File.Exists(obj))
+            await CompileFreestandingAsync(root, architecture, Path.Combine(root, "tests", "User", "compiler_rv64.c"), obj, "-Os");
+        return [obj];
     }
 
     #endregion

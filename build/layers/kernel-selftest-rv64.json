@@ -1,13 +1,15 @@
 {
   "name": "kernel-selftest-rv64",
-  "description": "RISC-V kernel self-tests (plan step V1.2): virtual mappings, memory permission faults, the CPU fault scenarios and kernel-worker preemption; the user-mode suites join at V1.3.",
+  "description": "RISC-V kernel self-tests (plan steps V1.2 and V1.3): virtual mappings, memory permission faults, the CPU fault scenarios, kernel-worker preemption and the expected U-mode faults of the shared isolation tests.",
   "includes": [
     "src/Kernel.Arch.RV64",
+    "tests/User",
     "tests/Kernel"
   ],
   "sources": [
     "tests/Kernel.RV64/kernel_tests.c",
-    "tests/Kernel.RV64/fault_tests.c"
+    "tests/Kernel.RV64/fault_tests.c",
+    "tests/Kernel.RV64/user_arch_tests.c"
   ],
   "assembly": [
     "tests/Kernel.RV64/self_test.S"

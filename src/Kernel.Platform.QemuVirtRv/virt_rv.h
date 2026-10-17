@@ -34,4 +34,8 @@ const WitVirtRvTree *wit_virt_rv_tree(const struct WitBootInfo *boot);
 /* Maps the PLIC pages of the boot hart's supervisor context; the clock does it once paging is active. */
 void wit_virt_rv_interrupts_map(const struct WitBootInfo *boot);
 
+/* The PCI functions behind the device tree's ECAM bridge (pci.c, V1.3): the count described, at most capacity. */
+struct WitDeviceDescriptor;
+WitU32 wit_virt_rv_pci_devices(const struct WitBootInfo *boot, struct WitDeviceDescriptor *table, WitU32 capacity);
+
 #endif

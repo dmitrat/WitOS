@@ -256,7 +256,9 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   itself: Sv48 translation tables, the trap vector with full frames, the time counter and the supervisor timer through
   `sstc`, the PLIC's sources as device lines, the harts and the timebase from the device tree, the goldfish RTC, and the
   kernel foundation's self-tests passing on the third ISA (`test --arch riscv64`, `release --arch riscv64`, CI's `boot`
-  and `linux-selftest`). Next: user mode on riscv64 (V1.3).
+  and `linux-selftest`). V1.3 is user mode on the third ISA: `ecall`, U-mode frames and contexts, the processes' Sv48
+  tables, the ECAM bridge with the PLIC's interrupt map, and the shared user-mode suites, the mechanism fixtures and the
+  root task passing unchanged (`test --arch riscv64` against the users expectation). Next: the other harts (V1.4).
 - **Later.** The scheduler on several processors (phase P), the network and the remaining milestones (phase W).
 
 The acceptances do not establish threads on several processors, networking, a terminal with input or process creation

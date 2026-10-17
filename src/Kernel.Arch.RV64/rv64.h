@@ -34,6 +34,12 @@ typedef struct WitArchFrame {
 #define WIT_RV64_SSTATUS_FS_INITIAL (1ULL << 13)
 #define WIT_RV64_SSTATUS_SUM (1ULL << 18)
 #define WIT_RV64_SSTATUS_MXR (1ULL << 19)
+#define WIT_RV64_SSTATUS_UXL (3ULL << 32) /* the width of U-mode, which the kernel keeps as the hart reports it */
+
+/* A frame's Reserved word (V1.3): FRESH marks a frame no return has resumed yet, whose thread pointer the kernel
+ * sets from the thread's TLS base at its first resume; afterwards tp is the thread's own, as TPIDR_EL0 is a thread's
+ * on ARM64. */
+#define WIT_RV64_FRAME_FRESH 1ULL
 
 /* scause: the interrupt bit and the codes the kernel names. */
 #define WIT_RV64_CAUSE_INTERRUPT (1ULL << 63)
@@ -87,6 +93,19 @@ void wit_rv64_idle_resume(void);
 
 /* Restores a frame on its own kernel stack and returns to its mode (entry.S); never returns. */
 WIT_NORETURN void wit_rv64_resume_frame(WitRv64Frame *frame);
+
+/* Saves the host's callee-saved state, installs the address space root in satp and resumes the U-mode frame (entry.S,
+ * V1.3). It returns when wit_rv64_leave_user restores the host state and the kernel root. */
+void wit_rv64_run_user(WitRv64Frame *frame, WitU64 satp);
+WIT_NORETURN void wit_rv64_leave_user(void);
+
+/* Final check before a frame is resumed (frame.c): a U-mode frame must sit at the top of the selected kernel stack, and
+ * a fresh one takes the thread's TLS base as its thread pointer. */
+WitRv64Frame *wit_rv64_prepare_resume(WitRv64Frame *frame);
+
+/* A synchronous trap from U-mode (frame.c): an environment call is a system call, anything else a user fault for the
+ * common kernel. */
+WitRv64Frame *wit_rv64_user_trap(WitRv64Frame *frame);
 
 /* Handles a trap and returns the frame to resume, which may belong to another thread (exceptions.c). Kernel
  * synchronous exceptions are fatal. */

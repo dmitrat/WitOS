@@ -217,8 +217,10 @@ static void suspension(void)
     check(context.SuspendCount == 1 && context.StackHigh == stack + STACK_BYTES, 58);
 #if defined(__x86_64__)
     check(context.Rsp == stack + STACK_BYTES && context.Rip == (WitU64)spinning_worker, 59);
-#else
+#elif defined(__aarch64__)
     check(context.Sp == stack + STACK_BYTES && context.Pc == (WitU64)spinning_worker, 59);
+#else
+    check(context.X[1] == stack + STACK_BYTES && context.Pc == (WitU64)spinning_worker, 59);
 #endif
     check(expect(WIT_CALL_THREAD_RESUME, thread, 0, 0, WIT_STATUS_OK) == 1, 60);
     while (!spins) {
@@ -250,11 +252,17 @@ static void suspension(void)
     context.Rip = (WitU64)redirected_worker;
     context.Rdi = stack;
     context.Rcx = stack;
-#else
+#elif defined(__aarch64__)
     check(context.Sp >= stack && context.Sp <= stack + STACK_BYTES, 47); /* a leaf may stay at the top */
     WitU64 *const sp = &context.Sp;
     context.Pc = (WitU64)redirected_worker;
     context.X[0] = stack;
+#else
+    check(
+        context.X[1] >= stack && context.X[1] <= stack + STACK_BYTES, 47); /* X[1] is sp; a leaf may stay at the top */
+    WitU64 *const sp = &context.X[1];
+    context.Pc = (WitU64)redirected_worker;
+    context.X[9] = stack; /* a0 */
 #endif
     /* A stack pointer above the thread's stack is refused and changes nothing; the top of the empty stack is applied. */
     *sp = stack + STACK_BYTES + 64;
