@@ -70,6 +70,10 @@ internal static class LlvmRuntimes
     private static readonly string[] UNWIND_C_SOURCES = ["UnwindLevel1.c", "UnwindLevel1-gcc-ext.c", "Unwind-sjlj.c", "Unwind-wasm.c"];
     private static readonly string[] UNWIND_ASM_SOURCES = ["UnwindRegistersRestore.S", "UnwindRegistersSave.S"];
 
+    // The sanitized headers' directory of each ISA's asm headers: x86 for x64, arm64 for ARM64, riscv for riscv64 (V2.2;
+    // the headers of both RISC-V widths are one directory).
+    private static readonly string[] HEADER_ARCHITECTURES = ["x86", "arm64", "riscv"];
+
     // libc++'s configuration (libcxx/CMakeLists.txt defaults for a static Linux-musl build with pthreads).
     private static readonly Dictionary<string, string?> CONFIG_SITE = new(StringComparer.Ordinal)
     {
@@ -182,9 +186,14 @@ internal static class LlvmRuntimes
     public static string[] KernelHeaderIncludes(string root, KernelHeadersPin pin, KernelArchitecture architecture)
     {
         var tree = Path.Combine(Directory(root), pin.Name);
-        var arch = architecture.Triple.StartsWith("x86_64-", StringComparison.Ordinal) ? "x86" : "arm64";
-        return [Path.Combine(tree, arch, "include"), Path.Combine(tree, "generic", "include")];
+        return [Path.Combine(tree, HeaderArchitecture(architecture), "include"), Path.Combine(tree, "generic", "include")];
     }
+
+    // The sanitized headers' directory of an ISA's asm headers (HEADER_ARCHITECTURES, in the architectures' order).
+    private static string HeaderArchitecture(KernelArchitecture architecture) =>
+        architecture == KernelArchitecture.X64 ? HEADER_ARCHITECTURES[0]
+        : architecture == KernelArchitecture.Arm64 ? HEADER_ARCHITECTURES[1]
+        : HEADER_ARCHITECTURES[2];
 
     /// <summary>
     /// Downloads the pinned tarballs that are missing, verifies their SHA-256 and extracts them once each, through the
@@ -243,13 +252,15 @@ internal static class LlvmRuntimes
                 throw new InvalidDataException($"Linux headers tarball hash mismatch. Remove the invalid download: {headersFile}");
         }
         var headersTree = Path.Combine(Directory(root), headers.Name);
-        if (!File.Exists(headersTree + ".verified-" + headers.Sha256) || !System.IO.Directory.Exists(headersTree))
+        // A tree extracted before an architecture joined (riscv64, V2.2) is extracted again.
+        if (!File.Exists(headersTree + ".verified-" + headers.Sha256) || !System.IO.Directory.Exists(headersTree) ||
+            HEADER_ARCHITECTURES.Any(arch => !System.IO.Directory.Exists(Path.Combine(headersTree, arch, "include", "asm"))))
         {
             if (System.IO.Directory.Exists(headersTree))
                 System.IO.Directory.Delete(headersTree, recursive: true);
             // The per-architecture directories link to generic/include; only the real directories are extracted.
             await Processes.RequireSuccessAsync(Toolchain.Tar(), ["-xf", headersFile, "-C", Directory(root), headers.Name + "/generic/include",
-                headers.Name + "/x86/include/asm", headers.Name + "/arm64/include/asm"], root);
+                .. HEADER_ARCHITECTURES.Select(arch => headers.Name + "/" + arch + "/include/asm")], root);
             if (!File.Exists(Path.Combine(headersTree, "generic", "include", "linux", "futex.h")))
                 throw new InvalidDataException($"The {headers.Name} tarball does not hold linux/futex.h.");
             await File.WriteAllTextAsync(headersTree + ".verified-" + headers.Sha256, headers.Sha256 + "\n");

@@ -265,9 +265,10 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   through SBI HSM and carries the kernel's fence and invalidation requests in the supervisor software interrupt through
   SBI, so `boot-smp2` passes on the third board too and no stub is left: V1, the RISC-V kernel, is complete. V2 brings
   layer 2: musl builds for `riscv64-unknown-linux-musl` over the same dispatch and the first libc program passes its
-  165 checks on the third ISA at its first boot (V2.1, the `libc` scenario of `test --arch riscv64`). Next: libc-test
-  and the shared library, the C++ runtime (V2.2), then libwitos, started programs and the sysroot (V2.3) and the
-  runtime (V2.4).
+  165 checks on the third ISA at its first boot (V2.1, the `libc` scenario of `test --arch riscv64`), and LLVM's
+  libunwind, libc++abi and libc++ build for the triple unchanged and run S4's exception scenarios with the Itanium
+  trace of a native Linux build (V2.2, the `cxx` scenario). Next: libwitos, started programs, libc-test and the
+  sysroot (V2.3), then the runtime (V2.4).
 - **Later.** The scheduler on several processors (phase P), the network and the remaining milestones (phase W).
 
 The acceptances do not establish threads on several processors, networking, a terminal with input or process creation
