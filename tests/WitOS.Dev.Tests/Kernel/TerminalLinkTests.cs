@@ -45,9 +45,50 @@ public sealed class TerminalLinkTests
         }
     }
 
+    [Test]
+    public async Task AnswersQueriesUnlessAMirrorTest()
+    {
+        var log = Path.Combine(Path.GetTempPath(), $"witos-terminal-{Guid.NewGuid():N}.log");
+        try
+        {
+            using var answering = new TerminalLink([new TerminalInput("[A]", "one\n")], log);
+            using var client = await ConnectAsync(answering);
+            using var stream = client.GetStream();
+            await stream.WriteAsync("\x1b[6n[A]\r\n"u8.ToArray());
+            Assert.That(await ReadAsync(stream, 10), Is.EqualTo("\x1b[1;1Rone\n"), "the cursor position report precedes the script's input");
+            client.Close();
+        }
+        finally
+        {
+            File.Delete(log);
+        }
+        try
+        {
+            using var mirror = new TerminalLink([new TerminalInput("[A]", "one\n")], log, answersQueries: false);
+            using var client = await ConnectAsync(mirror);
+            using var stream = client.GetStream();
+            await stream.WriteAsync("\x1b[6n[A]\r\n"u8.ToArray());
+            Assert.That(await ReadAsync(stream, 4), Is.EqualTo("one\n"), "a mirror of the display types the script alone");
+            Assert.That(mirror.Screen, Does.StartWith("[A]"), "the mirror still paints its screen");
+            client.Close();
+        }
+        finally
+        {
+            File.Delete(log);
+        }
+    }
+
     #endregion
 
     #region Tools
+
+    private static async Task<TcpClient> ConnectAsync(TerminalLink link)
+    {
+        var port = int.Parse(link.Argument.Split("port=")[1].Split(',')[0]);
+        var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, port);
+        return client;
+    }
 
     private static async Task<string> ReadAsync(NetworkStream stream, int count)
     {

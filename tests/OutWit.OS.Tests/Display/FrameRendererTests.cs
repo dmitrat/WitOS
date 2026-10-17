@@ -80,10 +80,37 @@ public sealed class FrameRendererTests
     {
         var font = BitmapFont.ParseBdf(BitmapFontTests.SAMPLE);
         var geometry = new FramebufferGeometry(16, 32, 16, FramebufferGeometry.BGRX);
-        var text = Encoding.ASCII.GetBytes("A?\r\nA");
+        var text = Encoding.ASCII.GetBytes("A?\r\nA?\r\nA\r\n?A");
         var first = Render(geometry, font, text, incremental: false);
         var second = Render(geometry, font, text, incremental: true);
-        Assert.That(second, Is.EqualTo(first), "a frame drawn in steps equals the frame drawn at once");
+        Assert.That(second, Is.EqualTo(first), "a frame drawn in steps, across scrolls, equals the frame drawn at once");
+    }
+
+    [Test]
+    public void ScrollStoresTheChangedPixelsAloneTest()
+    {
+        var font = BitmapFont.ParseBdf(BitmapFontTests.SAMPLE);
+        var geometry = new FramebufferGeometry(16, 32, 16, FramebufferGeometry.BGRX);
+        var frame = new MemoryFrame(geometry);
+        var renderer = new FrameRenderer(geometry, font, frame);
+        var screen = new TerminalScreen(renderer.Columns, renderer.Rows);
+        screen.Feed("A?\r\n?A"u8);
+        renderer.Render(screen); // clears first
+        Assert.That(renderer.CellsDrawn, Is.EqualTo(4));
+        Assert.That(renderer.PixelsStored, Is.LessThan(renderer.CellsDrawn * renderer.CellPixels), "only a glyph's lit pixels differ from the cleared frame");
+        Assert.That(renderer.RowMovePixels, Is.Zero);
+        var (cells, pixels) = (renderer.CellsDrawn, renderer.PixelsStored);
+        screen.Feed("\r\n"u8); // scrolls one line: row 0 shows "?A", row 1 blanks, the cursor moves to row 1
+        renderer.Render(screen);
+        Assert.That(screen.Scrolls, Is.EqualTo(1));
+        Assert.That(renderer.CellsDrawn - cells, Is.EqualTo(4), "both cells of each row changed");
+        Assert.That(renderer.PixelsStored - pixels, Is.LessThan(4 * renderer.CellPixels), "a cell that changed stores the pixels that differ alone");
+        Assert.That(renderer.RowMovePixels, Is.EqualTo((renderer.Rows - 1) * renderer.Columns * renderer.CellPixels), "the pixels a row move would have stored");
+        var fresh = new MemoryFrame(geometry);
+        var again = new FrameRenderer(geometry, font, fresh);
+        again.Clear();
+        again.Render(screen);
+        Assert.That(frame.Bytes, Is.EqualTo(fresh.Bytes), "the frame equals one drawn from scratch");
     }
 
     #endregion

@@ -104,6 +104,14 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public bool Keyboard { get; init; }
 
     /// <summary>
+    /// Whether the display's console is the terminal's main console (plan step C2.3): the device manager starts the
+    /// display service when the board has a framebuffer and a keyboard driver, and the terminal takes the display's size
+    /// and lets the virtio console mirror it. The runner's side of the mirror then answers no query of the terminal, since
+    /// the display does and two answers garble the input.
+    /// </summary>
+    public bool DisplayIsMainConsole => Display && Keyboard;
+
+    /// <summary>
     /// What the runner does through QMP while the guest runs, each action once its line appeared (plan step C2.1).
     /// </summary>
     public IReadOnlyList<BootAction> Actions { get; init; } = [];

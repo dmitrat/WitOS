@@ -342,6 +342,7 @@ public sealed class TerminalScreen
     private void ScrollUp(int lines)
     {
         lines = Math.Min(lines, Rows);
+        Scrolls += lines;
         for (var row = 0; row + lines < Rows; row++)
             Array.Copy(m_cells[row + lines], m_cells[row], Columns);
         for (var row = Math.Max(0, Rows - lines); row < Rows; row++)
@@ -351,6 +352,7 @@ public sealed class TerminalScreen
     private void ScrollDown(int lines)
     {
         lines = Math.Min(lines, Rows);
+        Scrolls += lines;
         for (var row = Rows - 1; row - lines >= 0; row--)
             Array.Copy(m_cells[row - lines], m_cells[row], Columns);
         for (var row = 0; row < Math.Min(lines, Rows); row++)
@@ -406,6 +408,11 @@ public sealed class TerminalScreen
     #endregion
 
     #region Properties
+
+    /// <summary>
+    /// The lines the screen scrolled so far, up or down (plan step C2.3): what a renderer that moved rows would have moved.
+    /// </summary>
+    public long Scrolls { get; private set; }
 
     /// <summary>
     /// Columns of the screen.
