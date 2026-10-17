@@ -99,7 +99,8 @@ internal static class RuntimeTerminal
         "[VIRTIO-CONSOLE] driver of pci/",
         "serving the serial protocol",
         "[DEVICES] driver /system/Drivers/VirtioConsole of pci/",
-        $"[TERMINAL] terminal service on {(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: 80 by 24, canonical with echo, serving the terminal protocol",
+        // C2.2: the service names its consoles; the virtio console reports no size, so the default stands.
+        $"[TERMINAL] terminal service on {(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: 80 by 24 by default, 1 console, canonical with echo, serving the terminal protocol",
         "[DEVICES] terminal service /system/Terminal on pci/",
         "[DEVICES] terminal probe: 80 by 24, canonical with echo",
         $"[DEVICES] terminal probe: echo: {PROBE_LINE}",
@@ -110,7 +111,7 @@ internal static class RuntimeTerminal
         $"[TERMINAL-INIT] terminal on {architecture.Triple[..architecture.Triple.IndexOf('-')]}: ",
         " checks passed",
         "[DEVICES] terminal service /system/Terminal: stopped",
-        "[TERMINAL] terminal service: 0 sessions stopped, the console released",
+        "[TERMINAL] terminal service: 0 sessions stopped, 1 console released",
         "[DEVICES] device manager: stopped",
         "[ROOT-TASK] /system/DeviceManager stopped",
         architecture.RootTaskPassedLine

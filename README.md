@@ -244,8 +244,11 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   report; the tool's `shell` command opens that session on the host's console with WitOS's console mark (C1.4). The
   display's devices are there (C2.1): the firmware's framebuffer (ramfb, 800 by 600 on both boards) travels in the boot
   contract v7 and the device table as a device of the firmware bus, which the device manager draws a test pattern into
-  through `DEVICE_MEMORY`'s windows, judged in QEMU's screendump, and a virtio keyboard's driver reports keys. Next: the
-  display service that draws text behind the terminal service (C2.2).
+  through `DEVICE_MEMORY`'s windows, judged in QEMU's screendump, and a virtio keyboard's driver reports keys. The screen
+  is a console (C2.2): the display service draws the terminal with a pinned bitmap font (Spleen 8 by 16, 100 by 37 cells)
+  and takes the keyboard's keys, the terminal service mirrors its one terminal on the display and the serial console, and
+  the host judges the screen by rendering the frame it expects from the mirror's transcript with the same code. Next:
+  PowerShell on the screen (C2.3).
 - **Third ISA (phase V, begun).** RISC-V on QEMU's virt board: the measurement V0 found the pinned LLVM links no RISC-V
   PE/COFF, so the loader and the kernel are one position-independent ELF the tool converts to PE32+ with base
   relocations. V1.1 boots that image under EDK II over OpenSBI: the unchanged loader publishes the device tree, reads the

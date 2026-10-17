@@ -78,6 +78,36 @@ internal sealed class Screenshot
     }
 
     /// <summary>
+    /// Requires the screen to equal a frame the host rendered, pixel for pixel (plan step C2.2): the display service and
+    /// the host draw the same screen with the same renderer and font, so the two frames differ only where the display
+    /// drew something else.
+    /// </summary>
+    /// <param name="expected">The frame the host rendered, of the screen's size.</param>
+    /// <exception cref="InvalidOperationException">The sizes differ, or a pixel does.</exception>
+    public void RequireFrame(MemoryFrame expected)
+    {
+        if (expected.Geometry.Width != Width || expected.Geometry.Height != Height)
+            throw new InvalidOperationException($"The screen is {Width} by {Height} where the frame rendered is {expected.Geometry.Width} by {expected.Geometry.Height}.");
+        var differing = 0;
+        (int X, int Y, (byte, byte, byte) Expected, (byte, byte, byte) Actual)? first = null;
+        for (var y = 0; y < Height; y++)
+        {
+            for (var x = 0; x < Width; x++)
+            {
+                var rendered = expected.Pixel(x, y);
+                var actual = Pixel(x, y);
+                if (rendered == actual)
+                    continue;
+                differing++;
+                first ??= (x, y, rendered, actual);
+            }
+        }
+        if (first is { } mismatch)
+            throw new InvalidOperationException($"The screen differs from the frame the host rendered in {differing} of {Width * Height} pixels; " +
+                $"the first, ({mismatch.X}, {mismatch.Y}), is {mismatch.Actual} where {mismatch.Expected} was rendered.");
+    }
+
+    /// <summary>
     /// Requires the device manager's test pattern on the screen: the frame's corners and the middle of each band, as
     /// <see cref="TestPattern"/> draws them for the screen's own size.
     /// </summary>

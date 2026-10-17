@@ -49,6 +49,16 @@ internal static class RuntimeDevices
     public const string TERMINAL_PROGRAM = "src/Services/Terminal";
 
     /// <summary>
+    /// The display service's sources (C2.2).
+    /// </summary>
+    public const string DISPLAY_PROGRAM = "src/Services/Display";
+
+    /// <summary>
+    /// The executable runtime-witos publishes from the display service, /system/Display.
+    /// </summary>
+    public const string DISPLAY_EXECUTABLE = "Display";
+
+    /// <summary>
     /// The managed capability API every service compiles with (D1.1).
     /// </summary>
     public const string OUTWIT_OS_SOURCES = "src/OutWit.OS";
@@ -193,6 +203,7 @@ internal static class RuntimeDevices
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_CONSOLE_EXECUTABLE, VIRTIO_CONSOLE_PROGRAM, ["Virtio"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_INPUT_EXECUTABLE, VIRTIO_INPUT_PROGRAM, ["Virtio"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, TERMINAL_EXECUTABLE, TERMINAL_PROGRAM, ["Server"], []);
+        await PublishServiceAsync(root, tree, architecture, version, sysroot, DISPLAY_EXECUTABLE, DISPLAY_PROGRAM, ["Server"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, NAMESPACE_EXECUTABLE, NAMESPACE_PROGRAM, ["Server", "Volumes"],
             OUTWIT_OS_FILESYSTEM_FOLDERS);
         var files = await RuntimeWitos.PublishProgramAsync(root, tree, architecture, FILES_EXECUTABLE, Path.Combine(root, FILES_PROGRAM), version, "");
@@ -417,8 +428,9 @@ internal static class RuntimeDevices
     }
 
     /// <summary>
-    /// The device services' files of the boot package: the device manager, the virtio block driver and the namespace
-    /// service runtime-witos or runtime-services published, with the dynamic linker and the C++ runtime they need.
+    /// The device services' files of the boot package: the device manager, the drivers, the namespace, terminal and
+    /// display services runtime-witos or runtime-services published, with the dynamic linker and the C++ runtime they
+    /// need, and the display's font with its license (C2.2).
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="architecture">Target architecture.</param>
@@ -433,14 +445,17 @@ internal static class RuntimeDevices
         var input = Path.Combine(directory, VIRTIO_INPUT_EXECUTABLE);
         var names = Path.Combine(directory, NAMESPACE_EXECUTABLE);
         var terminal = Path.Combine(directory, TERMINAL_EXECUTABLE);
-        if (!File.Exists(driver) || !File.Exists(console) || !File.Exists(input) || !File.Exists(names) || !File.Exists(terminal))
-            throw new InvalidOperationException($"No witos drivers, namespace service or terminal service in {directory}. " +
+        var display = Path.Combine(directory, DISPLAY_EXECUTABLE);
+        if (!File.Exists(driver) || !File.Exists(console) || !File.Exists(input) || !File.Exists(names) || !File.Exists(terminal) ||
+            !File.Exists(display))
+            throw new InvalidOperationException($"No witos drivers, namespace, terminal or display service in {directory}. " +
                 $"Run: dotnet run --project tools/WitOS.Dev -- runtime-services --arch {architecture.Name}");
         return
         [
             ("system/" + DEVICE_MANAGER_EXECUTABLE, program[0].Source), ("system/Drivers/" + VIRTIO_BLOCK_EXECUTABLE, driver),
             ("system/Drivers/" + VIRTIO_CONSOLE_EXECUTABLE, console), ("system/Drivers/" + VIRTIO_INPUT_EXECUTABLE, input),
-            ("system/" + NAMESPACE_EXECUTABLE, names), ("system/" + TERMINAL_EXECUTABLE, terminal), .. program.Skip(1)
+            ("system/" + NAMESPACE_EXECUTABLE, names), ("system/" + TERMINAL_EXECUTABLE, terminal), ("system/" + DISPLAY_EXECUTABLE, display),
+            .. SpleenFont.PackageFiles(root), .. program.Skip(1)
         ];
     }
 

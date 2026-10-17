@@ -63,7 +63,10 @@ internal static class BootScenarioRunner
         }
         if (request.Keyboard)
         {
-            arguments.AddRange(["-device", "virtio-keyboard-pci"]);
+            // Slot 6 (C2.2): the board's four INTx lines rotate by slot, the kernel binds a line once, and the boot disk,
+            // the data disk and the console take three of them; the fifth virtio device shares a line with the entropy
+            // source (slot 2), which nothing binds once the firmware reset it, instead of with a device a driver holds.
+            arguments.AddRange(["-device", "virtio-keyboard-pci,addr=0x6"]);
         }
         if (request.Expected != ExpectedOutcome.EntropyUnavailable)
         {
@@ -96,7 +99,7 @@ internal static class BootScenarioRunner
         using var watching = new CancellationTokenSource();
         var jitter = request.CutJitterMilliseconds > 0 ? Random.Shared.Next(request.CutJitterMilliseconds + 1) : 0;
         var watcher = request.CutAfter is not null || request.Actions.Count > 0
-            ? WatchAsync(serialPath, request, jitter, qmpControl, ScreenPath(logs, name), cut, watching.Token)
+            ? WatchAsync(serialPath, terminal, request, jitter, qmpControl, ScreenPath(logs, name), cut, watching.Token)
             : Task.FromResult<(BootAction Action, string Error)?>(null);
         try
         {
@@ -136,6 +139,13 @@ internal static class BootScenarioRunner
     }
 
     /// <summary>
+    /// The terminal's transcript as it was when a screendump was taken (plan step C2.2), beside the screen's file.
+    /// </summary>
+    /// <param name="screen">The screen's file.</param>
+    /// <returns>The transcript's file.</returns>
+    public static string TranscriptPath(string screen) => screen + ".transcript.txt";
+
+    /// <summary>
     /// The file a boot's screendump action writes (plan step C2.1).
     /// </summary>
     /// <param name="logs">The boot's log directory.</param>
@@ -149,11 +159,13 @@ internal static class BootScenarioRunner
 
     private static string QemuPath(string path) => path.Replace('\\', '/').Replace(",", ",,");
 
-    // Watches the serial log while the guest runs: performs each action of the request once its line is there (C2.1),
-    // and cuts the boot off once the log holds the cut line and the jitter's milliseconds passed (D6.2) — the guest runs
-    // on meanwhile, and the cut falls where that moment ends. The first action that failed, with its error, or null.
-    private static async Task<(BootAction Action, string Error)?> WatchAsync(string serialPath, BootRequest request, int jitter,
-        QemuControl control, string screen, CancellationTokenSource cut, CancellationToken stop)
+    // Watches the serial log, and the terminal's transcript when there is one, while the guest runs: performs each action
+    // of the request once its line is there (C2.1, C2.2) — a screendump keeps the transcript of that moment beside it, for
+    // the host to render the frame it expects — and cuts the boot off once the log holds the cut line and the jitter's
+    // milliseconds passed (D6.2): the guest runs on meanwhile, and the cut falls where that moment ends. The first action
+    // that failed, with its error, or null.
+    private static async Task<(BootAction Action, string Error)?> WatchAsync(string serialPath, TerminalLink? terminal, BootRequest request,
+        int jitter, QemuControl control, string screen, CancellationTokenSource cut, CancellationToken stop)
     {
         var next = 0;
         var cutDone = request.CutAfter is null;
@@ -161,18 +173,27 @@ internal static class BootScenarioRunner
         {
             while (!stop.IsCancellationRequested && (!cutDone || next < request.Actions.Count))
             {
+                var log = "";
                 if (File.Exists(serialPath))
                 {
                     using var stream = new FileStream(serialPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                     using var reader = new StreamReader(stream);
-                    var log = await reader.ReadToEndAsync(stop);
-                    while (next < request.Actions.Count && log.Contains(request.Actions[next].AfterLine, StringComparison.Ordinal))
+                    log = await reader.ReadToEndAsync(stop);
+                }
+                var transcript = terminal?.Transcript ?? "";
+                var seen = log + "\n" + transcript;
+                if (log.Length > 0 || transcript.Length > 0)
+                {
+                    while (next < request.Actions.Count && seen.Contains(request.Actions[next].AfterLine, StringComparison.Ordinal))
                     {
                         var action = request.Actions[next++];
                         try
                         {
                             if (action.Kind == BootActionKind.Screendump)
+                            {
                                 await control.ScreendumpAsync(screen, stop);
+                                await File.WriteAllTextAsync(TranscriptPath(screen), transcript, stop);
+                            }
                             else
                                 await control.SendKeyAsync(action.Argument, stop);
                         }

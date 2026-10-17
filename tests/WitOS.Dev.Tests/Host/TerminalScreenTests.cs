@@ -1,4 +1,5 @@
 using System.Text;
+using OutWit.OS.Display;
 using WitOS.Dev.Host;
 
 namespace WitOS.Dev.Tests.Host;

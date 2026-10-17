@@ -63,9 +63,11 @@ internal static class Program
                     disks.Add((driver.Record.Id, disk));
             }
             var names = StartNamespace(disks);
-            var terminal = StartTerminal(drivers);
-            // The firmware's framebuffer (C2.1): the test pattern, which the runtime-display scenario checks on the host.
+            // The firmware's framebuffer (C2.1): the test pattern through DEVICE_MEMORY's windows, before the display service
+            // takes the framebuffer and draws the terminal's screen over it (C2.2).
             DisplayProbe.Run(table, records);
+            var display = StartDisplay(table, records, drivers);
+            var terminal = StartTerminal(drivers, display);
             Console.WriteLine($"{PREFIX}device manager on {RuntimeInformation.ProcessArchitecture}: {records.Count} devices discovered, " +
                 $"{drivers.Count(driver => driver.Status == 0)} drivers ready, DMA isolation: none (no IOMMU), ready");
             // The endpoints for every process the root task starts: the namespace's, then the terminal's (N4.3).
@@ -82,10 +84,11 @@ internal static class Program
                 capabilities |= ServiceStatus.TERMINAL;
             }
             channel.Send(ServiceStatus.Encode(0, capabilities), [.. offered]);
-            var status = Serve(channel, names, terminal, drivers);
+            var status = Serve(channel, names, terminal, display, drivers);
             foreach (var (_, disk) in disks)
                 disk.DisposeAsync().AsTask().GetAwaiter().GetResult();
             terminal?.Dispose();
+            display?.Dispose();
             names?.Dispose();
             foreach (var driver in drivers)
                 driver.Dispose();
@@ -159,19 +162,64 @@ internal static class Program
         }
     }
 
-    // The terminal service with the console driver's serial channel (N4.3a), probed once it is ready; null without a
-    // console or when it could not start.
-    private static TerminalActivation? StartTerminal(IReadOnlyList<DriverActivation> drivers)
+    // The display service with the firmware's framebuffer and the keyboard driver's input channel (C2.2); null without a
+    // framebuffer, without a keyboard or when it could not start. A console needs input: a board with a framebuffer and
+    // no keyboard (q35's VGA card in the scenarios that boot without a display) keeps its terminal on the serial console
+    // and its framebuffer for a later display service, and a keyboard without a framebuffer stays with its driver, which
+    // logs its keys.
+    private static DisplayActivation? StartDisplay(KernelHandle table, IReadOnlyList<DeviceRecord> records, IReadOnlyList<DriverActivation> drivers)
+    {
+        var framebuffer = records.FirstOrDefault(record => record.Class == FirmwareTranslator.FRAME_BUFFER);
+        if (framebuffer is null)
+            return null;
+        var keyboard = drivers.FirstOrDefault(driver => driver.Status == 0 && driver.Service is not null &&
+            driver.Record.Class == DriverTable.INPUT_DEVICE);
+        if (keyboard is null)
+        {
+            Console.WriteLine($"{PREFIX}display service {DisplayActivation.PATH} not started on {framebuffer.Id}: no keyboard, the terminal stays on the serial console");
+            return null;
+        }
+        try
+        {
+            var display = DisplayActivation.Start(table, framebuffer, keyboard.TakeService());
+            Console.WriteLine(display.Status == 0
+                ? $"{PREFIX}display service {DisplayActivation.PATH} on {framebuffer.Id} with the keyboard {keyboard.Record.Id}: ready"
+                : $"{PREFIX}display service {DisplayActivation.PATH}: not ready, errno {display.Status}");
+            return display;
+        }
+        catch (Exception exception) when (exception is CapabilityException or FileNotFoundException)
+        {
+            Console.WriteLine($"{PREFIX}display service {DisplayActivation.PATH} could not start: {exception.Message}");
+            return null;
+        }
+    }
+
+    // The terminal service with the consoles' serial channels (N4.3a, C2.2) — the display's console as the main one when
+    // the display service is ready, the virtio console as the mirror or, without a display, the main one — probed once
+    // it is ready; null without a console or when it could not start.
+    private static TerminalActivation? StartTerminal(IReadOnlyList<DriverActivation> drivers, DisplayActivation? display)
     {
         var console = drivers.FirstOrDefault(driver => driver.Status == 0 && driver.Service is not null &&
             driver.Record.Class == DriverTable.SERIAL_CONSOLE);
-        if (console?.Service is not { } serial)
+        var consoles = new List<KernelHandle>();
+        var names = new List<string>();
+        if (display is { Status: 0, Console: not null })
+        {
+            consoles.Add(display.TakeConsole());
+            names.Add(display.Record.Id);
+        }
+        if (console?.Service is not null)
+        {
+            consoles.Add(console.TakeService());
+            names.Add(console.Record.Id);
+        }
+        if (consoles.Count == 0)
             return null;
         try
         {
-            var terminal = TerminalActivation.Start(console.TakeService());
+            var terminal = TerminalActivation.Start(consoles);
             Console.WriteLine(terminal.Status == 0
-                ? $"{PREFIX}terminal service {TerminalActivation.PATH} on {console.Record.Id}: ready"
+                ? $"{PREFIX}terminal service {TerminalActivation.PATH} on {names[0]}{(names.Count > 1 ? $", mirrored on {names[1]}" : "")}: ready"
                 : $"{PREFIX}terminal service {TerminalActivation.PATH}: not ready, errno {terminal.Status}");
             if (terminal.Clients is { } clients)
                 TerminalProbe.Run(clients);
@@ -185,9 +233,11 @@ internal static class Program
     }
 
     // The channel until the root task asks the device manager to stop (D6.1) or ends: a stop stops the terminal service
-    // first, which holds the console driver's channel, then the namespace service, since its volumes lie on the drivers'
-    // disks, then each driver, and the answer is the first error of theirs.
-    private static int Serve(Channel channel, NamespaceActivation? names, TerminalActivation? terminal, IReadOnlyList<DriverActivation> drivers)
+    // first, which holds the consoles' channels, then the display service, which holds the keyboard driver's, then the
+    // namespace service, since its volumes lie on the drivers' disks, then each driver, and the answer is the first error
+    // of theirs.
+    private static int Serve(Channel channel, NamespaceActivation? names, TerminalActivation? terminal, DisplayActivation? display,
+        IReadOnlyList<DriverActivation> drivers)
     {
         for (; ; )
         {
@@ -210,6 +260,11 @@ internal static class Program
                 var error = 0;
                 if (terminal is { Status: 0 })
                     error = Report($"terminal service {TerminalActivation.PATH}", ServiceStop.Request(terminal.Channel, terminal.Process, deadline));
+                if (display is { Status: 0 })
+                {
+                    var stopped = Report($"display service {DisplayActivation.PATH}", ServiceStop.Request(display.Channel, display.Process, deadline));
+                    error = error != 0 ? error : stopped;
+                }
                 if (names is { Status: 0 })
                 {
                     var stopped = Report($"namespace service {NamespaceActivation.PATH}", ServiceStop.Request(names.Channel, names.Process, deadline));

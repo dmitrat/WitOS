@@ -1,18 +1,20 @@
+using System;
 using System.Text;
 
-namespace WitOS.Dev.Host;
+namespace OutWit.OS.Display;
 
 /// <summary>
-/// A small terminal emulator for the runner's side of the guest's terminal (plan step C1.2): the screen the guest's
-/// bytes paint and the cursor they move, so that the runner answers the queries a terminal answers — the cursor position
-/// report .NET's Console and PSReadLine wait for — and can judge the screen rather than the byte stream. It knows
+/// A small terminal emulator (plan step C1.2, shared with the display service since C2.2): the screen the bytes paint
+/// and the cursor they move, so that the runner's side of the guest's terminal and the display's console answer the
+/// queries a terminal answers — the cursor position report .NET's Console and PSReadLine wait for — and the screen,
+/// not the byte stream, is what the display draws and the host judges. It knows
 /// printable text, CR, LF, BS and TAB; the CSI sequences CUU/CUD/CUF/CUB (A–D), CNL/CPL (E, F), CHA (G), CUP/HVP (H, f),
 /// ED (J), EL (K), SU/SD (S, T), VPA (d), DSR (n), SCP/RCP (s, u) and SGR (m, ignored) with the private modes (?h, ?l,
 /// ignored); ESC 7/8 (save and restore the cursor), ESC M (reverse index), ESC c (reset), the charset designations
 /// (one character skipped) and OSC strings (ignored to BEL or ST). Anything else is ignored. Bytes are UTF-8, and a
 /// sequence or a character may be split between calls.
 /// </summary>
-internal sealed class TerminalScreen
+public sealed class TerminalScreen
 {
     #region Constants
 
@@ -82,6 +84,13 @@ internal sealed class TerminalScreen
     /// <param name="row">The row, from 0.</param>
     /// <returns>The row's text.</returns>
     public string Line(int row) => new string(m_cells[row]).TrimEnd();
+
+    /// <summary>
+    /// The character of a cell.
+    /// </summary>
+    /// <param name="row">The row, from 0.</param>
+    /// <param name="column">The column, from 0.</param>
+    public char this[int row, int column] => m_cells[row][column];
 
     private void Process(char c)
     {

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using OutWit.OS.Display;
 
 namespace WitOS.Dev.Host;
 

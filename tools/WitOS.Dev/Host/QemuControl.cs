@@ -123,20 +123,24 @@ internal sealed class QemuControl : IDisposable
     }
 
     /// <summary>
-    /// Presses and releases a key on the guest's keyboard (plan step C2.1): QEMU's input-send-event with a QKeyCode name,
-    /// which reaches the board's keyboard device.
+    /// Presses and releases keys on the guest's keyboard, in turn (plan steps C2.1, C2.2): QEMU's input-send-event with
+    /// QKeyCode names, which reach the board's keyboard device in that order.
     /// </summary>
-    /// <param name="key">The QKeyCode name, such as a or ret.</param>
+    /// <param name="keys">The QKeyCode names separated by spaces, such as "a" or "h i ret".</param>
     /// <param name="cancellation">Stops the request.</param>
-    internal async Task SendKeyAsync(string key, CancellationToken cancellation)
+    internal async Task SendKeyAsync(string keys, CancellationToken cancellation)
     {
+        var names = keys.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (names.Length == 0)
+            throw new ArgumentException("No key to press.", nameof(keys));
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation, m_lifetime.Token);
         await m_turn.WaitAsync(stop.Token);
         try
         {
             await SessionAsync(stop.Token);
-            object Event(bool down) => new { type = "key", data = new { down, key = new { type = "qcode", data = key } } };
-            await ExecuteAsync("input-send-event", new { events = new[] { Event(true), Event(false) } }, stop.Token);
+            object Event(bool down, string key) => new { type = "key", data = new { down, key = new { type = "qcode", data = key } } };
+            await ExecuteAsync("input-send-event", new { events = names.SelectMany(key => new[] { Event(true, key), Event(false, key) }).ToArray() },
+                stop.Token);
         }
         finally
         {

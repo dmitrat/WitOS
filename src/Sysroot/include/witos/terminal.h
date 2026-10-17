@@ -36,8 +36,10 @@
 #define WIT_TERMINAL_DRAIN \
     9U /* until every write reached the device: at once, since a write completes before its reply */
 #define WIT_TERMINAL_DISCONNECT 10U /* the session ends; closing the session's end does the same */
-/* The device manager's message on the channel it granted the service, before the service answers ready: the console
- * driver's serial channel in the one handle slot. */
+/* The device manager's message on the channel it granted the service, before the service answers ready: the consoles'
+ * serial channels in the handle slots, one or two (C2.2) — the main console first, whose size the terminal takes, then
+ * a console that mirrors it: the display's console (witos/display.h) and the virtio console, each written the same
+ * bytes, each read for input. */
 #define WIT_TERMINAL_DEVICE 16U
 
 #define WIT_TERMINAL_NONBLOCK 1U /* READ */
