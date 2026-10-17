@@ -71,6 +71,27 @@ static WitU64 validate_contract(const WitBootInfo *boot, const WitArchIdentity *
     if (!wit_memory_map_valid(boot->MemoryRegions, boot->MemoryRegionCount)) {
         wit_panic("Invalid memory map");
     }
+    /* The firmware's framebuffer (v7, C2.1): absent whole, or a page-aligned range of whole pages that holds its
+     * geometry in a known format. The kernel reads none of it; the platform describes it as a device. */
+    if (boot->FramebufferBytes == 0) {
+        if (boot->FramebufferBase ||
+            boot->FramebufferWidth ||
+            boot->FramebufferHeight ||
+            boot->FramebufferStride ||
+            boot->FramebufferFormat) {
+            wit_panic("Invalid framebuffer");
+        }
+    } else if ((boot->FramebufferBase & 4095) ||
+        (boot->FramebufferBytes & 4095) ||
+        boot->FramebufferBase == 0 ||
+        boot->FramebufferBase > ~0ULL - boot->FramebufferBytes ||
+        boot->FramebufferWidth == 0 ||
+        boot->FramebufferHeight == 0 ||
+        boot->FramebufferStride < boot->FramebufferWidth ||
+        (boot->FramebufferFormat != WIT_PIXEL_BGRX && boot->FramebufferFormat != WIT_PIXEL_RGBX) ||
+        (WitU64)boot->FramebufferStride * boot->FramebufferHeight * 4 > boot->FramebufferBytes) {
+        wit_panic("Invalid framebuffer");
+    }
     for (WitU32 i = 0; i < boot->MemoryRegionCount; ++i) {
         const WitMemoryRegion *region = &boot->MemoryRegions[i];
         if (region->Kind == WIT_MEMORY_USABLE) {

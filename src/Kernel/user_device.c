@@ -107,14 +107,11 @@ WitU64 wit_user_device_acquire(WitUserProcess *p, WitU64 table, WitU64 index, Wi
     return WIT_STATUS_OK;
 }
 
-WitU64 wit_user_device_memory(WitUserProcess *p, WitU64 device, WitU64 region, WitU64 reserved, WitU64 *result)
+WitU64 wit_user_device_memory(WitUserProcess *p, WitU64 device, WitU64 region, WitU64 window, WitU64 *result)
 {
     WitU32 index = 0, granted = 0, object = 0;
     WitU64 pages[WIT_MEMORY_OBJECT_PAGES];
     *result = 0;
-    if (reserved) {
-        return WIT_STATUS_INVALID_ARGUMENT;
-    }
     const WitU64 status = get(p, device, WIT_RIGHT_BIND, &index, &granted);
     if (status != WIT_STATUS_OK) {
         return status;
@@ -128,17 +125,21 @@ WitU64 wit_user_device_memory(WitUserProcess *p, WitU64 device, WitU64 region, W
     if (!(r->Flags & WIT_DEVICE_REGION_MEMORY)) {
         return WIT_STATUS_UNSUPPORTED; /* Port I/O stays described, never mapped (RFC 0011 section 7.7). */
     }
-    if (r->Size / 4096 > WIT_MEMORY_OBJECT_PAGES) {
-        return WIT_STATUS_TOO_LARGE;
+    /* The window (ABI-1 1.3, C2.1): the object covers the region from the page the window names, at most an object's
+     * 64 pages, so that a region of any size (a framebuffer) is reached window by window; a window beyond the region is
+     * refused, and a window of zero on a region within 64 pages is the call as it was. */
+    const WitU64 total = r->Size / 4096;
+    if (window >= total) {
+        return WIT_STATUS_INVALID_ARGUMENT;
     }
+    const WitU64 count = total - window > WIT_MEMORY_OBJECT_PAGES ? WIT_MEMORY_OBJECT_PAGES : total - window;
     if (!wit_handles_free_count(&p->Handles)) {
         return WIT_STATUS_NO_MEMORY;
     }
-    for (WitU64 i = 0; i < r->Size / 4096; ++i) {
-        pages[i] = r->Base + i * 4096;
+    for (WitU64 i = 0; i < count; ++i) {
+        pages[i] = r->Base + (window + i) * 4096;
     }
-    if (!wit_user_memory_object_adopt(
-            p, WIT_MEMORY_OBJECT_DEVICE, pages, (WitU32)(r->Size / 4096), index + 1, &object)) {
+    if (!wit_user_memory_object_adopt(p, WIT_MEMORY_OBJECT_DEVICE, pages, (WitU32)count, index + 1, &object)) {
         return WIT_STATUS_NO_MEMORY;
     }
     const WitU64 handle = wit_handle_grant_object(&p->Handles, WIT_HANDLE_MEMORY_OBJECT, REGION_RIGHTS, object);

@@ -47,6 +47,38 @@ struct EfiRngProtocol {
     EfiStatus (*GetRng)(EfiRngProtocol *, const EfiGuid *, WitU64, WitU8 *);
 };
 
+/* The graphics output protocol (UEFI specification, section 12.9), read for the framebuffer the firmware set up
+ * (plan step C2.1): the mode's information and the framebuffer's physical range; QueryMode, SetMode and Blt are never
+ * called. PixelFormat 0 is red, green, blue, reserved; 1 is blue, green, red, reserved; 2 (a bit mask) and 3 (Blt
+ * only, no framebuffer) give WitOS no framebuffer. */
+typedef struct EfiGraphicsOutputModeInformation {
+    WitU32 Version;
+    WitU32 HorizontalResolution;
+    WitU32 VerticalResolution;
+    WitU32 PixelFormat;
+    WitU32 PixelBitmask[4];
+    WitU32 PixelsPerScanLine;
+} EfiGraphicsOutputModeInformation;
+
+typedef struct EfiGraphicsOutputProtocolMode {
+    WitU32 MaxMode;
+    WitU32 Mode;
+    EfiGraphicsOutputModeInformation *Info;
+    WitU64 SizeOfInfo;
+    WitU64 FrameBufferBase;
+    WitU64 FrameBufferSize;
+} EfiGraphicsOutputProtocolMode;
+
+typedef struct EfiGraphicsOutputProtocol {
+    void *QueryMode;
+    void *SetMode;
+    void *Blt;
+    EfiGraphicsOutputProtocolMode *Mode;
+} EfiGraphicsOutputProtocol;
+
+#define EFI_PIXEL_RED_GREEN_BLUE_RESERVED 0U
+#define EFI_PIXEL_BLUE_GREEN_RED_RESERVED 1U
+
 typedef EfiStatus (*EfiGetMemoryMap)(WitU64 *, void *, WitU64 *, WitU64 *, WitU32 *);
 typedef EfiStatus (*EfiExitBootServices)(EfiHandle, WitU64);
 
@@ -90,5 +122,7 @@ _Static_assert(sizeof(EfiMemoryDescriptor) == 40, "UEFI descriptor layout");
 _Static_assert(sizeof(EfiBootServicesPrefix) == 328, "UEFI services prefix layout");
 _Static_assert(sizeof(EfiSystemTable) == 120, "UEFI system table layout");
 _Static_assert(sizeof(EfiConfigurationTable) == 24, "UEFI configuration table layout");
+_Static_assert(sizeof(EfiGraphicsOutputModeInformation) == 36, "UEFI graphics mode information layout");
+_Static_assert(sizeof(EfiGraphicsOutputProtocolMode) == 40, "UEFI graphics mode layout");
 
 #endif

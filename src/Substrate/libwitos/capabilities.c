@@ -164,11 +164,16 @@ int witos_device_acquire(WitU64 table, WitU32 index, WitU64 *device)
 
 int witos_device_memory(WitU64 device, WitU32 region, WitU64 *object)
 {
+    return witos_device_memory_at(device, region, 0, object);
+}
+
+int witos_device_memory_at(WitU64 device, WitU32 region, WitU64 window, WitU64 *object)
+{
     if (!object) {
         return EINVAL;
     }
     *object = 0;
-    return error_of(wit_syscall(WIT_CALL_DEVICE_MEMORY, device, region, 0, object));
+    return error_of(wit_syscall(WIT_CALL_DEVICE_MEMORY, device, region, window, object));
 }
 
 int witos_memory_object_create(WitU64 bytes, WitU64 *object)

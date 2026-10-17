@@ -4,7 +4,8 @@
 #include "types.h"
 
 #define WIT_BOOT_MAGIC 0x574954424F4F5430ULL
-#define WIT_BOOT_VERSION 6U
+/* v7 (plan step C2.1): the firmware's framebuffer joined the contract. */
+#define WIT_BOOT_VERSION 7U
 #define WIT_BOOT_SEED_BYTES 32U
 #define WIT_ARCH_X64 1U
 #define WIT_ARCH_ARM64 2U
@@ -19,6 +20,10 @@
 #define WIT_IMAGE_READ 1U
 #define WIT_IMAGE_WRITE 2U
 #define WIT_IMAGE_EXECUTE 4U
+/* Pixel formats of the firmware's framebuffer (C2.1), 32 bits a pixel: the bytes in memory are blue, green, red, then
+ * one unused (UEFI's PixelBlueGreenRedReserved8BitPerColor), or red, green, blue, unused. */
+#define WIT_PIXEL_BGRX 1U
+#define WIT_PIXEL_RGBX 2U
 
 /* Native handoff uses identity-mapped pointers in a 64-bit address space.
  * Only conventional RAM is usable. Firmware, image and stack stay reserved. */
@@ -71,11 +76,20 @@ typedef struct WitBootInfo {
     const WitBootStorageExtent *RootTaskExtents;
     WitU64 RootTaskBytes;
     WitU32 RootTaskExtentCount, RootTaskReserved;
+    /* The firmware's framebuffer (plan step C2.1, v7): the one display the firmware set up through its graphics
+     * output protocol, as physical memory the kernel never reads — the platform publishes it as a device descriptor
+     * (witos/device.h, the firmware bus) and a display service maps it through DEVICE_MEMORY. Zero bytes when the
+     * firmware has none; otherwise a page-aligned range of whole pages, a geometry in pixels whose stride (pixels
+     * per scan line) is at least the width, and a format of WIT_PIXEL_*. */
+    WitU64 FramebufferBase;
+    WitU64 FramebufferBytes;
+    WitU32 FramebufferWidth, FramebufferHeight;
+    WitU32 FramebufferStride, FramebufferFormat;
 } WitBootInfo;
 
 _Static_assert(sizeof(void *) == 8, "The boot contract requires a 64-bit target");
 _Static_assert(sizeof(WitMemoryRegion) == 24, "Memory region ABI");
-_Static_assert(sizeof(WitBootInfo) == 152, "Boot info ABI");
+_Static_assert(sizeof(WitBootInfo) == 184, "Boot info ABI");
 
 WIT_NORETURN void wit_kernel_entry(const WitBootInfo *boot);
 

@@ -1,10 +1,11 @@
 {
   "name": "boot-uefi",
-  "description": "UEFI loader linked into the kernel image: entry, memory map, image sections, entropy and the boot package.",
+  "description": "UEFI loader linked into the kernel image: entry, memory map, image sections, entropy, the firmware's framebuffer (C2.1) and the boot package.",
   "includes": [],
   "sources": [
     "src/Boot.Uefi/storage.c",
     "src/Boot.Uefi/entropy.c",
+    "src/Boot.Uefi/display.c",
     "src/Boot.Uefi/entry.c",
     "src/Boot.Uefi/image.c"
   ],

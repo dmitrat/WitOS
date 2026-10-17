@@ -24,6 +24,12 @@ public sealed record DeviceDescriptor(int Index, uint Bus, uint Address, IReadOn
     /// </summary>
     public const uint BUS_PCI = 1;
 
+    /// <summary>
+    /// The firmware (plan step C2.1): a device the firmware set up and the boot contract describes, such as its
+    /// framebuffer; Address is zero, Identity[0] the kind and the other words by kind.
+    /// </summary>
+    public const uint BUS_FIRMWARE = 2;
+
     #endregion
 
     #region Properties

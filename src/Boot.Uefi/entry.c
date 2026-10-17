@@ -10,7 +10,31 @@ static WitMemoryRegion memory_regions[WIT_MAX_MEMORY_REGIONS];
 static WitBootInfo boot_info;
 void wit_boot_describe_image(WitBootInfo *boot);
 void wit_boot_entropy(EfiBootServicesPrefix *, WitBootInfo *);
+void wit_boot_display(EfiBootServicesPrefix *, WitBootInfo *);
 int wit_boot_storage(EfiHandle, EfiBootServicesPrefix *, WitBootInfo *);
+
+/* The firmware's framebuffer (C2.1) is never usable memory: a conventional region that holds any of it stays
+ * reserved, so that the kernel's allocator never hands out what the display shows, and its memory type is reported
+ * once, since which type a firmware gives its framebuffer is measured, not assumed. */
+static int framebuffer_reported;
+
+static void keep_framebuffer(const WitBootInfo *boot, const EfiMemoryDescriptor *source, WitMemoryRegion *region)
+{
+    const WitU64 length = source->NumberOfPages * 4096ULL;
+    if (boot->FramebufferBytes == 0 ||
+        source->PhysicalStart >= boot->FramebufferBase + boot->FramebufferBytes ||
+        boot->FramebufferBase >= source->PhysicalStart + length) {
+        return;
+    }
+    if (!framebuffer_reported) {
+        framebuffer_reported = 1;
+        wit_console_write("[BOOT] Framebuffer memory type ");
+        wit_console_write_u64(source->Type);
+        wit_console_write(
+            region->Kind == WIT_MEMORY_USABLE ? ", conventional: its region stays reserved\n" : ", reserved\n");
+    }
+    region->Kind = WIT_MEMORY_RESERVED;
+}
 
 /* The firmware tables the kernel's platform may enumerate devices from: the ACPI 2.0 RSDP and the flattened device
  * tree, found by their GUIDs in the configuration table; absent ones stay zero. The pointers are physical because
@@ -69,6 +93,7 @@ EfiStatus efi_main(EfiHandle image, EfiSystemTable *system)
     wit_boot_describe_image(&boot_info);
     firmware_tables(system, &boot_info);
     wit_boot_entropy(services, &boot_info);
+    wit_boot_display(services, &boot_info);
     if (!wit_boot_storage(image, services, &boot_info)) {
         wit_panic("UEFI boot package unavailable or invalid");
     }
@@ -100,6 +125,7 @@ EfiStatus efi_main(EfiHandle image, EfiSystemTable *system)
             memory_regions[i].Length = source->NumberOfPages * 4096ULL;
             memory_regions[i].Kind = source->Type == EFI_CONVENTIONAL_MEMORY ? WIT_MEMORY_USABLE : WIT_MEMORY_RESERVED;
             memory_regions[i].Reserved = 0;
+            keep_framebuffer(&boot_info, source, &memory_regions[i]);
         }
 
         /* Do not allocate or call firmware between GetMemoryMap and exit.

@@ -374,16 +374,22 @@ static WitU32 describe_bus(const WitBootInfo *boot, const EcamBridge *bridge, Wi
 WitU32 wit_platform_devices(const WitBootInfo *boot, WitDeviceDescriptor *table, WitU32 capacity)
 {
     EcamBridge bridge = {0};
+    WitU32 count = 0;
     if (!boot->DeviceTree || (boot->DeviceTree & 7)) {
         wit_console_write("[DEVICES] No device tree: no bus enumerated\n");
-        return 0;
+    } else {
+        read_tree(boot, &bridge);
+        if (!bridge.Found || !bridge.Base || !bridge.Size || bridge.BusLast < bridge.BusFirst) {
+            wit_console_write("[DEVICES] No generic ECAM bridge in the device tree\n");
+        } else {
+            count = describe_bus(boot, &bridge, bridge.BusFirst, 0, table, 0, capacity);
+        }
     }
-    read_tree(boot, &bridge);
-    if (!bridge.Found || !bridge.Base || !bridge.Size || bridge.BusLast < bridge.BusFirst) {
-        wit_console_write("[DEVICES] No generic ECAM bridge in the device tree\n");
-        return 0;
+    /* The firmware's framebuffer (C2.1): a device of the boot contract, after the bus's functions. */
+    if (count < capacity && wit_device_describe_framebuffer(boot, &table[count])) {
+        ++count;
     }
-    return describe_bus(boot, &bridge, bridge.BusFirst, 0, table, 0, capacity);
+    return count;
 }
 
 /* The processors of the virt board (plan step K7.1): the children of /cpus whose device_type is "cpu", each with its

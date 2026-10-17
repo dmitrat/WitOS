@@ -64,6 +64,8 @@ internal static class Program
             }
             var names = StartNamespace(disks);
             var terminal = StartTerminal(drivers);
+            // The firmware's framebuffer (C2.1): the test pattern, which the runtime-display scenario checks on the host.
+            DisplayProbe.Run(table, records);
             Console.WriteLine($"{PREFIX}device manager on {RuntimeInformation.ProcessArchitecture}: {records.Count} devices discovered, " +
                 $"{drivers.Count(driver => driver.Status == 0)} drivers ready, DMA isolation: none (no IOMMU), ready");
             // The endpoints for every process the root task starts: the namespace's, then the terminal's (N4.3).

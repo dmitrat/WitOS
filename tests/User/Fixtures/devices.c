@@ -70,7 +70,8 @@ static void authority_test(WitU64 table, const volatile WitDeviceDescriptor *blo
     fixture_close(reader);
     acquire(table, 0xFFFF, WIT_STATUS_INVALID_ARGUMENT);
     fixture_expect(WIT_CALL_DEVICE_ACQUIRE, table, index, 1, WIT_STATUS_INVALID_ARGUMENT);
-    /* One holder at a time; a region index beyond the descriptor, a reserved argument and a port region are refused. */
+    /* One holder at a time; a region index beyond the descriptor, a window beyond the region (ABI-1 1.3: the
+     * configuration page has one page, so window 1 lies beyond it) and a port region are refused. */
     WitU64 device = acquire(table, index, WIT_STATUS_OK);
     acquire(table, index, WIT_STATUS_BUSY);
     region(device, 99, WIT_STATUS_INVALID_ARGUMENT);

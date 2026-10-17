@@ -57,6 +57,14 @@ internal static class BootScenarioRunner
             "-device", "virtio-blk-pci,drive=boot,bootindex=1"
         };
         arguments.AddRange(architecture.ExitDevice);
+        if (request.Display)
+        {
+            arguments.AddRange(architecture.DisplayArguments);
+        }
+        if (request.Keyboard)
+        {
+            arguments.AddRange(["-device", "virtio-keyboard-pci"]);
+        }
         if (request.Expected != ExpectedOutcome.EntropyUnavailable)
         {
             arguments.AddRange(["-object", "rng-builtin,id=entropy0", "-device", "virtio-rng-pci,rng=entropy0"]);
@@ -87,7 +95,9 @@ internal static class BootScenarioRunner
         using var cut = new CancellationTokenSource();
         using var watching = new CancellationTokenSource();
         var jitter = request.CutJitterMilliseconds > 0 ? Random.Shared.Next(request.CutJitterMilliseconds + 1) : 0;
-        var watcher = request.CutAfter is { } line ? WatchAsync(serialPath, line, jitter, cut, watching.Token) : Task.CompletedTask;
+        var watcher = request.CutAfter is not null || request.Actions.Count > 0
+            ? WatchAsync(serialPath, request, jitter, qmpControl, ScreenPath(logs, name), cut, watching.Token)
+            : Task.FromResult<(BootAction Action, string Error)?>(null);
         try
         {
             monitorResult = await Processes.RunWithFilesAsync(architecture.QemuPath(root), arguments, root, request.TimeoutSeconds,
@@ -96,8 +106,10 @@ internal static class BootScenarioRunner
         finally
         {
             watching.Cancel();
-            await watcher;
+            var failed = await watcher;
             await File.WriteAllTextAsync(Path.Combine(logs, name + ".monitor.log"), qmpControl.Transcript);
+            if (failed is not null)
+                Console.WriteLine($"The runner's action after \"{failed.Value.Action.AfterLine}\" failed: {failed.Value.Error}");
         }
         var serial = File.Exists(serialPath) ? await BoundedCapture.ReadFileAsync(serialPath) : "";
         var result = monitorResult with { Output = serial };
@@ -123,29 +135,57 @@ internal static class BootScenarioRunner
         Console.WriteLine($"PASS: {name} (exit={result.ExitCode}, timeout={result.TimedOut}).");
     }
 
+    /// <summary>
+    /// The file a boot's screendump action writes (plan step C2.1).
+    /// </summary>
+    /// <param name="logs">The boot's log directory.</param>
+    /// <param name="name">The boot's name.</param>
+    /// <returns>The PPM file's path.</returns>
+    public static string ScreenPath(string logs, string name) => Path.Combine(logs, name + ".screen.ppm");
+
     #endregion
 
     #region Tools
 
     private static string QemuPath(string path) => path.Replace('\\', '/').Replace(",", ",,");
 
-    // Cuts the boot off once its serial log holds the line and the jitter's milliseconds passed (D6.2): the guest runs on
-    // meanwhile, and the cut falls where that moment ends.
-    private static async Task WatchAsync(string serialPath, string line, int jitter, CancellationTokenSource cut, CancellationToken stop)
+    // Watches the serial log while the guest runs: performs each action of the request once its line is there (C2.1),
+    // and cuts the boot off once the log holds the cut line and the jitter's milliseconds passed (D6.2) — the guest runs
+    // on meanwhile, and the cut falls where that moment ends. The first action that failed, with its error, or null.
+    private static async Task<(BootAction Action, string Error)?> WatchAsync(string serialPath, BootRequest request, int jitter,
+        QemuControl control, string screen, CancellationTokenSource cut, CancellationToken stop)
     {
+        var next = 0;
+        var cutDone = request.CutAfter is null;
         try
         {
-            while (!stop.IsCancellationRequested)
+            while (!stop.IsCancellationRequested && (!cutDone || next < request.Actions.Count))
             {
                 if (File.Exists(serialPath))
                 {
                     using var stream = new FileStream(serialPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                     using var reader = new StreamReader(stream);
-                    if ((await reader.ReadToEndAsync(stop)).Contains(line, StringComparison.Ordinal))
+                    var log = await reader.ReadToEndAsync(stop);
+                    while (next < request.Actions.Count && log.Contains(request.Actions[next].AfterLine, StringComparison.Ordinal))
                     {
+                        var action = request.Actions[next++];
+                        try
+                        {
+                            if (action.Kind == BootActionKind.Screendump)
+                                await control.ScreendumpAsync(screen, stop);
+                            else
+                                await control.SendKeyAsync(action.Argument, stop);
+                        }
+                        catch (Exception exception) when (exception is IOException or InvalidDataException)
+                        {
+                            return (action, exception.Message);
+                        }
+                    }
+                    if (!cutDone && log.Contains(request.CutAfter!, StringComparison.Ordinal))
+                    {
+                        cutDone = true;
                         await Task.Delay(jitter, stop);
                         await cut.CancelAsync();
-                        return;
                     }
                 }
                 await Task.Delay(20, stop);
@@ -154,6 +194,7 @@ internal static class BootScenarioRunner
         catch (OperationCanceledException) when (stop.IsCancellationRequested)
         {
         }
+        return null;
     }
 
     #endregion

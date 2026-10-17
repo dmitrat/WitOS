@@ -45,8 +45,11 @@ int witos_memory_unmap(void *address);
 int witos_device_acquire(WitU64 table, WitU32 index, WitU64 *device);
 
 /* A memory region of a device as a memory object (MAP, WRITE, QUERY, DUPLICATE, TRANSFER; never EXECUTE), mapped
- * uncached: EACCES without BIND, ENOSYS for a port region, ENOMEM for a region beyond 64 pages, EINVAL. */
+ * uncached: EACCES without BIND, ENOSYS for a port region, EINVAL. The object covers at most 64 pages of the region
+ * from the page the window names (ABI-1 1.3, C2.1), so a larger region (a framebuffer) is reached window by window;
+ * witos_device_memory is the window of zero. */
 int witos_device_memory(WitU64 device, WitU32 region, WitU64 *object);
+int witos_device_memory_at(WitU64 device, WitU32 region, WitU64 window, WitU64 *object);
 
 /* An anonymous memory object of bytes, a multiple of the page size, its pages zeroed and charged to the process (D2):
  * MAP, WRITE, QUERY, DUPLICATE and TRANSFER; ENOMEM for the quota or more than 64 pages. */
