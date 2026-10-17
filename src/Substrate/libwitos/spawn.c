@@ -63,6 +63,8 @@
 #define MACHINE EM_X86_64
 #elif defined(__aarch64__)
 #define MACHINE EM_AARCH64
+#elif defined(__riscv)
+#define MACHINE EM_RISCV
 #else
 #error "libwitos: unsupported architecture"
 #endif

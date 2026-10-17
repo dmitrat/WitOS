@@ -33,6 +33,17 @@ public sealed class ActionSequenceTests
         Assert.That(actions.Next("boot PS> PS>", "PS> PS> PS>"), Is.Null);
     }
 
+    // The runner types a key once the guest's keyboard driver reported the previous one (C2.3): it counts the driver's
+    // key lines and nothing else of the driver's.
+    [Test]
+    public void KeyReportsCountTheDriversKeyLinesTest()
+    {
+        const string log = "[USER] [VIRTIO-INPUT] driver of pci/00:06.0: ready" + "\n" +
+            "[USER] [VIRTIO-INPUT] key 35 down" + "\n" + "[USER] [VIRTIO-INPUT] key 35 up" + "\n" + "[USER] [DEVICES] key 1" + "\n";
+        Assert.That(BootScenarioRunner.KeyReports(log), Is.EqualTo(2));
+        Assert.That(BootScenarioRunner.KeyReports(""), Is.Zero);
+    }
+
     [Test]
     public void TheSameLineInBothStreamsFiresOnceTest()
     {

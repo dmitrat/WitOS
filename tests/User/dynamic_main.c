@@ -23,8 +23,10 @@
 
 #if defined(__x86_64__)
 #define ISA_NAME "x86_64"
-#else
+#elif defined(__aarch64__)
 #define ISA_NAME "aarch64"
+#else
+#define ISA_NAME "riscv64"
 #endif
 
 /* Where the library lies: the package's /lib, or the program's own directory on a mounted volume, which the program's

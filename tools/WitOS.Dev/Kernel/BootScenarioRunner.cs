@@ -19,6 +19,12 @@ internal static class BootScenarioRunner
     private const int QUIET_STEP_MILLISECONDS = 100;
     private const int QUIET_LIMIT_MILLISECONDS = 15000;
 
+    // The guest's keyboard driver reports every key transition to the log with this prefix (C2.1); the runner types a
+    // key once the previous one's transitions are there, and gives up on a key the guest has not reported in this long.
+    internal const string KEY_REPORT = "[VIRTIO-INPUT] key ";
+    private const int KEY_REPORT_MILLISECONDS = 60000;
+    private const int KEY_STEP_MILLISECONDS = 20;
+
     #endregion
 
     #region Functions
@@ -193,11 +199,21 @@ internal static class BootScenarioRunner
                                 await control.ScreendumpAsync(screen, stop);
                                 await File.WriteAllTextAsync(TranscriptPath(screen), transcript, stop);
                             }
+                            else if (request.Keyboard)
+                            {
+                                // Each key after the guest's driver reported the previous one's transitions, which it does once it
+                                // gave their buffers back (C2.3): a report the device's queue has no room for is lost.
+                                var reported = KeyReports((await ReadAsync(serialPath, terminal, stop)).Log);
+                                await control.SendKeyAsync(action.Argument, stop,
+                                    (transitions, token) => KeysReportedAsync(serialPath, reported += transitions, token));
+                            }
                             else
                                 await control.SendKeyAsync(action.Argument, stop);
                         }
                         catch (Exception exception) when (exception is IOException or InvalidDataException)
                         {
+                            // The boot ends now: a lost key leaves the guest waiting until the boot's timeout.
+                            await cut.CancelAsync();
                             return (action, exception.Message);
                         }
                     }
@@ -215,6 +231,34 @@ internal static class BootScenarioRunner
         {
         }
         return null;
+    }
+
+    /// <summary>
+    /// The key transitions the guest's keyboard driver reported in a serial log (C2.3).
+    /// </summary>
+    /// <param name="log">The serial log.</param>
+    /// <returns>The number of the driver's key lines.</returns>
+    internal static int KeyReports(string log)
+    {
+        var count = 0;
+        for (var at = log.IndexOf(KEY_REPORT, StringComparison.Ordinal); at >= 0; at = log.IndexOf(KEY_REPORT, at + KEY_REPORT.Length, StringComparison.Ordinal))
+            count++;
+        return count;
+    }
+
+    // Waits until the serial log holds the given number of key reports (C2.3); an IOException names a key the guest did
+    // not report in KEY_REPORT_MILLISECONDS.
+    private static async Task KeysReportedAsync(string serialPath, int expected, CancellationToken stop)
+    {
+        var reported = 0;
+        for (var waited = 0; waited < KEY_REPORT_MILLISECONDS; waited += KEY_STEP_MILLISECONDS)
+        {
+            reported = KeyReports((await ReadAsync(serialPath, null, stop)).Log);
+            if (reported >= expected)
+                return;
+            await Task.Delay(KEY_STEP_MILLISECONDS, stop);
+        }
+        throw new IOException($"the guest's keyboard driver reported {reported} of {expected} key transitions in {KEY_REPORT_MILLISECONDS / 1000} s: a key was lost");
     }
 
     // What the guest wrote so far: the serial log and the terminal's transcript.

@@ -14,7 +14,7 @@ processes with private address spaces, the one thread form, memory objects, chan
 the one wait with absolute deadlines, faults and activations delivered to user space, device descriptors with interrupt
 bindings and DMA pins, UTC and the started secondary processors. ABI-1 is 1.3 and boot ABI v7, printed by the kernel
 banner from the headers. Above it runs the system layer (phase S) on both ISAs: the pinned musl over ABI-1 with threads,
-signals and its dynamic linker, LLVM's C++ runtime, a process manager with `posix_spawn`, and ABI-2 1.0 recorded in
+signals and its dynamic linker, LLVM's C++ runtime, a process manager with `posix_spawn`, and ABI-2 1.1 recorded in
 `build/abi2.json`. The root task starts WitOS's services, NativeAOT programs in processes of their own ([ADR 0025](@Docs/Implementation/ADR-0025-Devices-as-NativeAOT-Services.md)):
 the device manager, a virtio-blk driver per disk and the namespace service with ext4 and FAT volumes written through
 the ext4 journal, which e2fsprogs judges. Upstream .NET runs in its Unix form (`TargetOS=witos`, [RFC 0015 v2](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md)):
@@ -267,8 +267,9 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   layer 2: musl builds for `riscv64-unknown-linux-musl` over the same dispatch and the first libc program passes its
   165 checks on the third ISA at its first boot (V2.1, the `libc` scenario of `test --arch riscv64`), and LLVM's
   libunwind, libc++abi and libc++ build for the triple unchanged and run S4's exception scenarios with the Itanium
-  trace of a native Linux build (V2.2, the `cxx` scenario). Next: libwitos, started programs, libc-test and the
-  sysroot (V2.3), then the runtime (V2.4).
+  trace of a native Linux build (V2.2, the `cxx` scenario); libwitos, started programs static and dynamic, `libc.so`
+  as the dynamic linker, libc-test's 388 runs and the sysroot with ABI-2 1.1 follow (V2.3), so layer 2 is whole on
+  the three ISAs and `test --arch riscv64` runs every scenario the others run. Next: the runtime on riscv64 (V2.4).
 - **Later.** The scheduler on several processors (phase P), the network and the remaining milestones (phase W).
 
 The acceptances do not establish threads on several processors, networking, a terminal with input or process creation
