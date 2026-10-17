@@ -53,7 +53,8 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     /// no linker relaxation) linked by ld.lld with the kernel's own script and converted to PE32+ by the tool
     /// (<see cref="Images.ElfToPe"/>); the board runs without ACPI so that the firmware publishes the device tree. The
     /// port runs the root task and the fixtures (V1.3), starts its other harts (V1.4) and has the libc (V2.1,
-    /// <see cref="Libc"/>) but not the rest of layer 2 until V2 completes (<see cref="SystemLayer"/>).
+    /// <see cref="Libc"/>) and the C++ runtime (V2.2, <see cref="CxxRuntime"/>) but not the rest of layer 2 until V2
+    /// completes (<see cref="SystemLayer"/>).
     /// </summary>
     public static readonly KernelArchitecture Riscv64 = new("riscv64", "riscv64", Machine.RiscV64, "BOOTRISCV64.EFI",
         "qemu-system-riscv64", "virt,acpi=off", [], [], "edk2-riscv-code.fd", "edk2-riscv-vars.fd", "rv64",
@@ -95,9 +96,14 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     public bool Libc { get; init; } = true;
 
     /// <summary>
-    /// Whether the rest of layer 2 — libc-test, the C++ runtime, libwitos, started programs, the sysroot — is built for
-    /// the ISA, so that its scenarios run on it; false for a port whose system layer is still to come (riscv64 until V2
-    /// completes).
+    /// Whether the C++ runtime is built for the ISA, so that the cxx scenario runs on it (plan step V2.2: LLVM's
+    /// libunwind, libc++abi and libc++ for riscv64 before the rest of layer 2).
+    /// </summary>
+    public bool CxxRuntime { get; init; } = true;
+
+    /// <summary>
+    /// Whether the rest of layer 2 — libwitos, started programs, libc-test, the sysroot — is built for the ISA, so that
+    /// its scenarios run on it; false for a port whose system layer is still to come (riscv64 until V2 completes).
     /// </summary>
     public bool SystemLayer { get; init; } = true;
 

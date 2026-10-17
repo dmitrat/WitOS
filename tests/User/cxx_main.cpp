@@ -33,6 +33,8 @@
 #define ISA_NAME "x86_64"
 #elif defined(__aarch64__)
 #define ISA_NAME "aarch64"
+#elif defined(__riscv)
+#define ISA_NAME "riscv64"
 #else
 #error "unsupported architecture"
 #endif

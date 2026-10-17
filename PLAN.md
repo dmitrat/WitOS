@@ -91,8 +91,9 @@ riscv64 — `ecall`, кадры и контексты U-mode, таблицы Sv4
 **V1.4** выполнен 2026-10-17: остальные харты стартуют через SBI HSM, межпроцессорные запросы идут программным
 прерыванием через SBI, `boot-smp2` проходит на virt riscv64 — V1 выполнен целиком, ни одной заглушки в порте;
 **V2.1** выполнен 2026-10-17: musl собран для `riscv64-unknown-linux-musl` над ABI-1 и первая libc-программа прошла
-свои 165 проверок на третьей ISA с первой загрузки; следующий шаг дорожки — **V2.2**, libc-test и libc.so, C++ runtime
-на riscv64. **P1** — после C1 (pwsh и
+свои 165 проверок на третьей ISA с первой загрузки; **V2.2** выполнен 2026-10-17: C++ runtime LLVM собран для третьего
+триплета без изменений и сценарий `cxx` прошёл 21 проверку с трассой Itanium, равной Linux'овой, тоже с первой загрузки;
+следующий шаг дорожки — **V2.3**, libwitos, запускаемые программы, libc-test и sysroot на riscv64. **P1** — после C1 (pwsh и
 службы делят один процессор); **T4** — вместе с заявкой upstream (ADR 0026); фаза W (сеть M7, модель приложений M8,
 графика M9) — после C2 и P1. Расширение ext4 (**D7**: ссылки) — по нужде C1, не раньше.
 
@@ -148,7 +149,7 @@ C-API — `libwitos`, управляемый — `OutWit.OS`. RFC-0011 v3 §11: 
 | [D](#d--хранилище-второй-проход) | менеджер устройств, virtio-blk, блочный слой, ФС, пространство имён | K3, R2 | Ц2 | завершена (M4, M5); D7 открывается по нужде C1 |
 | [N](#n--стандартный-net-m6) | compatibility suite, библиотеки NuGet, несколько версий, среда приложения | R, D | Ц2, Ц5 | завершена (M6, Gate B) |
 | [C](#c--консоль-и-оболочка-rfc-0020) | PowerShell на терминале, экран и клавиатура, цикл разработчика (RFC-0020) | N, D | Ц2 | C1 и C2 выполнены (C2.3 — 2026-10-17); C3 — горизонт после M8 |
-| [V](#v--третья-isa) | RISC-V: третья ISA, параллельно с C | R, N1 | Ц3 | V0, V1 и V2.1 выполнены (2026-10-17); V2.2 следующая |
+| [V](#v--третья-isa) | RISC-V: третья ISA, параллельно с C | R, N1 | Ц3 | V0, V1, V2.1 и V2.2 выполнены (2026-10-17); V2.3 следующая |
 | [P](#p--многопроцессорность) | планировщик на N CPU | K7, R | — | не начата |
 | [W](#w--и-далее) | сеть (M7) и остальные милстоуны | N | — | не начата |
 
@@ -228,14 +229,17 @@ V1 (`Kernel.Arch.RV64` и `Kernel.Platform.QemuVirtRv`: та же общая п�
 - [ ] **V2** Перекомпиляция слоя 2 для `riscv64-unknown-linux-musl` (libc, libc-test со своим `mathExcluded`, C++ runtime,
   libwitos, sysroot) — сценарии `libc`, `libc-test`, `cxx`, `spawn`, `process`, `sysroot`; рантайм `witos-riscv64`
   (`linux-riscv64` upstream как основа) — `runtime-witos --arch riscv64` до `runtime-dotnet`; службы ADR 0025 по решению V0.
-  Срезами; **V2.1** (2026-10-17) выполнен (журнал): musl для третьего триплета над диспетчером (патч `syscall_arch.h`,
-  ветки riscv64 в crt1, потоках и сигналах libc WitOS, `riscv/fp_mode.c` в пине compiler-rt без `clear_cache.c`),
-  `KernelArchitecture.Libc`, сценарий `libc` в `test --arch riscv64` — 165 проверок с первой загрузки.
-  - [ ] **V2.2** libc-test на riscv64 статически и динамически: `libc.so` и динамический компоновщик
-    `/lib/ld-musl-riscv64.so.1` (`ldso/riscv64`), `rcrt1`/`Scrt1`, свой `mathExcluded`; C++ runtime для триплета
-    (libunwind, libc++abi, libc++, `crtbegin`/`crtend`), сценарии `libc-test` и `cxx`.
-  - [ ] **V2.3** libwitos (ветки riscv64 в `spawn.c`, `capabilities.c`), запускаемые программы и менеджер процессов,
-    sysroot для триплета; сценарии `spawn`, `process`, `sysroot`; `KernelArchitecture.SystemLayer` для riscv64 — слой 2
+  Срезами; **V2.1** и **V2.2** (2026-10-17) выполнены (журнал): musl для третьего триплета над диспетчером (патч
+  `syscall_arch.h`, ветки riscv64 в crt1, потоках и сигналах libc WitOS, `riscv/fp_mode.c` в пине compiler-rt без
+  `clear_cache.c`), `KernelArchitecture.Libc`, сценарий `libc` — 165 проверок с первой загрузки; затем C++ runtime LLVM
+  для триплета без изменений (заголовки `riscv` санированного дерева), `KernelArchitecture.CxxRuntime`, сценарий `cxx` —
+  21 проверка и трасса Itanium Linux'а с первой загрузки. libc-test и `libc.so` перенесены в V2.3: каждый тест
+  libc-test — свой процесс через `posix_spawn`, то есть менеджер процессов libwitos, а `libc.so` доказывает сценарий
+  `spawn`.
+  - [ ] **V2.3** libwitos (ветки riscv64 в `spawn.c`, `capabilities.c`), `libc.so` и динамический компоновщик
+    `/lib/ld-musl-riscv64.so.1` (`ldso/riscv64`), `rcrt1`/`Scrt1`, разделяемый C++ runtime, запускаемые программы и
+    менеджер процессов, libc-test со своим `mathExcluded`, sysroot для триплета (`crtbegin`/`crtend`, каталог ресурсов
+    clang); сценарии `spawn`, `process`, `libc-test`, `sysroot`; `KernelArchitecture.SystemLayer` для riscv64 — слой 2
     целиком на трёх ISA, `linux-selftest` для трёх ISA с полным набором.
   - [ ] **V2.4** Рантайм `witos-riscv64`: RID и граф, `__riscv_flush_icache`/`__clear_cache` как `CODE_PUBLISH`,
     NativeAOT и CoreCLR riscv64 upstream (community-порт) до `runtime-dotnet`; службы ADR 0025 по решению V0.

@@ -210,14 +210,18 @@ internal static class KernelTestSuite
                 Request("libc", 256, limit, ExpectedOutcome.Success) with { Suite = BootSuite.Release, RequiredLines = [architecture.LibcPassedLine] });
             scenarios++;
         }
+        if (architecture.CxxRuntime)
+        {
+            var cxx = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.CXX_SCENARIO, architecture: architecture);
+            await BootScenarioRunner.RunAsync(root, cxx,
+                Request("cxx", 256, 120, ExpectedOutcome.Success) with { Suite = BootSuite.Release, RequiredLines = [architecture.CxxPassedLine] });
+            scenarios++;
+        }
         if (architecture.SystemLayer)
         {
             var libcTest = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.LIBC_TEST_SCENARIO, architecture: architecture);
             await BootScenarioRunner.RunAsync(root, libcTest,
                 Request("libc-test", 256, 120, ExpectedOutcome.Success) with { Suite = BootSuite.Release, RequiredLines = [architecture.LibcTestPassedLine] });
-            var cxx = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.CXX_SCENARIO, architecture: architecture);
-            await BootScenarioRunner.RunAsync(root, cxx,
-                Request("cxx", 256, 120, ExpectedOutcome.Success) with { Suite = BootSuite.Release, RequiredLines = [architecture.CxxPassedLine] });
             var spawn = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.SPAWN_SCENARIO, architecture: architecture);
             await BootScenarioRunner.RunAsync(root, spawn,
                 Request("spawn", 256, limit, ExpectedOutcome.Success) with
@@ -243,7 +247,7 @@ internal static class KernelTestSuite
                     Suite = BootSuite.Release,
                     RequiredLines = [architecture.SysrootPassedLine, architecture.RootTaskPassedLine]
                 });
-            scenarios += 5;
+            scenarios += 4;
         }
         var panic = await KernelImageBuilder.BuildAsync(root, "invalid-boot-info", architecture: architecture);
         await BootScenarioRunner.RunAsync(root, panic,
