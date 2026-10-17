@@ -379,7 +379,7 @@ internal static class LlvmRuntimes
                 [generated, Path.Combine(cxx, "include"), Path.Combine(cxxabi, "include"), Path.Combine(unwind, "include"), .. libc.Includes.Skip(1)]);
         string[] common =
         [
-            $"--target={architecture.Triple}", .. architecture.ClangOptions, "-O2", "-nostdlibinc", shared ? "-fPIC" : "-fPIE", "-fno-plt",
+            $"--target={architecture.Triple}", .. architecture.ClangOptions, "-O2", "-nostdlibinc", shared ? "-fPIC" : "-fPIE", .. architecture.PltOptions,
             "-ffunction-sections", "-fdata-sections", "-funwind-tables", "-fstrict-aliasing", "-DNDEBUG", "-w",
             .. build.Includes.SelectMany(include => new[] { "-isystem", include }),
             .. kernelHeaders.SelectMany(include => new[] { "-isystem", include })
@@ -477,7 +477,7 @@ internal static class LlvmRuntimes
         var build = await BuildAsync(root, architecture);
         await Processes.RequireSuccessAsync(Toolchain.Clang(root),
         [
-            $"--target={architecture.Triple}", "-O2", "-nostdlibinc", "-nostdinc++", "-fPIE", "-fno-plt", "-fno-stack-protector",
+            $"--target={architecture.Triple}", "-O2", "-nostdlibinc", "-nostdinc++", "-fPIE", .. architecture.PltOptions, "-fno-stack-protector",
             "-funwind-tables", .. options, .. architecture.ClangOptions,
             .. build.Includes.SelectMany(include => new[] { "-isystem", include }), "-c", source, "-o", obj
         ], root);

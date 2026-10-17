@@ -39,12 +39,13 @@ internal static class BootPackage
                 files.Add((name, bytes));
                 manifest.Add(new { name, source = (string?)null, bytes = bytes.Length, sha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant() });
             }
-            // Code the libc program maps executable from the package (S5.1): two pages, a function returning 42 for x64
-            // (mov eax, 42; ret) in the first and for ARM64 (mov w0, #42; ret) in the second, page-aligned as a file of
-            // at least a page is.
-            var code = new byte[8192];
+            // Code the libc program maps executable from the package (S5.1): three pages, a function returning 42 for x64
+            // (mov eax, 42; ret) in the first, for ARM64 (mov w0, #42; ret) in the second and for riscv64 (li a0, 42; ret)
+            // in the third (V2.1), page-aligned as a file of at least a page is.
+            var code = new byte[12288];
             new byte[] { 0xB8, 0x2A, 0x00, 0x00, 0x00, 0xC3 }.CopyTo(code, 0);
             new byte[] { 0x40, 0x05, 0x80, 0x52, 0xC0, 0x03, 0x5F, 0xD6 }.CopyTo(code, 4096);
+            new byte[] { 0x13, 0x05, 0xA0, 0x02, 0x67, 0x80, 0x00, 0x00 }.CopyTo(code, 8192);
             files.Add(("test/code.bin", code));
             manifest.Add(new { name = "test/code.bin", source = (string?)null, bytes = code.Length, sha256 = Convert.ToHexString(SHA256.HashData(code)).ToLowerInvariant() });
         }

@@ -33,7 +33,8 @@ internal static class CompilerRtBuiltins
     private static readonly string[] CRT_OBJECTS = ["/crtbegin.c", "/crtend.c"];
 
     // The directories of compiler-rt's builtins that hold one architecture's files.
-    private static readonly string[] ARCHITECTURE_DIRECTORIES = ["x86_64", "aarch64"];
+    // compiler-rt's directory of each musl architecture's own sources: riscv64's is "riscv" (V2.1).
+    private static readonly string[] ARCHITECTURE_DIRECTORIES = ["x86_64", "aarch64", "riscv"];
 
     // aarch64's outline atomics (R4.3): lse.S assembled once for each operation, size and memory model, as compiler-rt's
     // CMake assembles its copies outline_atomic_<operation><size>_<model>.S; cas alone has a 16-byte form.
@@ -130,7 +131,7 @@ internal static class CompilerRtBuiltins
             // An architecture directory holds that architecture's file alone, and a file compiler-rt's CMake lists for some
             // architectures names them (mulxc3.c: x86's 80-bit long double; cpu_model/aarch64.c); the rest is generic.
             var parts = source.Path.Split('/');
-            if ((parts.Length == 5 && ARCHITECTURE_DIRECTORIES.Contains(parts[3]) && parts[3] != arch) ||
+            if ((parts.Length == 5 && ARCHITECTURE_DIRECTORIES.Contains(parts[3]) && parts[3] != ArchitectureDirectory(arch)) ||
                 (source.Architectures is { } only && !only.Contains(arch)))
                 continue;
             var obj = Path.Combine(output, string.Join('_', parts[3..]) + ".o");
@@ -214,6 +215,9 @@ internal static class CompilerRtBuiltins
     #endregion
 
     #region Tools
+
+    // The directory compiler-rt keeps an architecture's own sources in: riscv for both widths of RISC-V.
+    private static string ArchitectureDirectory(string arch) => arch == "riscv64" ? "riscv" : arch;
 
     private static void Verify(byte[] bytes, CompilerRtSource source)
     {

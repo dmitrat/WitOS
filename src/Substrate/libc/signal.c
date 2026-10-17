@@ -64,10 +64,15 @@ __attribute__((__noreturn__)) void __wit_sigreturn_raise(void);
 #define CONTEXT_SP(c) ((c)->Rsp)
 #define CONTEXT_PC(c) ((c)->Rip)
 #define RED_ZONE 128U /* the SysV bytes below the stack pointer a leaf function keeps */
-#else
+#elif defined(__aarch64__)
 #define RED_ZONE 0U
 #define CONTEXT_PROFILE WIT_THREAD_CONTEXT_FPSIMD
 #define CONTEXT_SP(c) ((c)->Sp)
+#define CONTEXT_PC(c) ((c)->Pc)
+#else
+#define RED_ZONE 0U /* the RISC-V psABI keeps nothing below the stack pointer */
+#define CONTEXT_PROFILE WIT_THREAD_CONTEXT_FPREGS
+#define CONTEXT_SP(c) ((c)->X[1]) /* X[i] is x(i + 1): sp is x2 */
 #define CONTEXT_PC(c) ((c)->Pc)
 #endif
 
@@ -166,7 +171,7 @@ static int classify(
     default:
         return 0;
     }
-#else
+#elif defined(__aarch64__)
     const WitU64 status = error & 0x3F; /* the fault status code of an abort's syndrome */
     switch (vector) {
     case 0x00: /* an unknown reason: an undefined instruction */
@@ -194,6 +199,38 @@ static int classify(
     case 0x3C: /* BRK */
         *code = TRAP_BRKPT;
         return SIGTRAP;
+    default:
+        return 0;
+    }
+#else
+    (void)error; /* scause, which the vector repeats (V1.3) */
+    switch (vector) {
+    case 0: /* instruction address misaligned */
+    case 4: /* load address misaligned */
+    case 6: /* store address misaligned */
+        *fault_address = (void *)address;
+        *code = BUS_ADRALN;
+        return SIGBUS;
+    case 1: /* instruction access fault */
+    case 5: /* load access fault */
+    case 7: /* store access fault */
+        *fault_address = (void *)address;
+        *code = SEGV_ACCERR;
+        return SIGSEGV;
+    case 2: /* illegal instruction */
+        *code = ILL_ILLOPC;
+        return SIGILL;
+    case 3: /* breakpoint */
+        *code = TRAP_BRKPT;
+        return SIGTRAP;
+    case 12: /* instruction page fault */
+    case 13: /* load page fault */
+    case 15: /* store page fault */
+        /* The cause tells a page that is not there from one that refuses the access no better than Linux's fault
+         * handler does without the tables: a missing mapping, as the fault the libc and the runtime watch for (V2.1). */
+        *fault_address = (void *)address;
+        *code = SEGV_MAPERR;
+        return SIGSEGV;
     default:
         return 0;
     }
@@ -234,7 +271,7 @@ static void build_ucontext(
     g[REG_CR2] = (greg_t)(WitU64)fault_address;
     memcpy(uc->__fpregs_mem, saved->FxState, sizeof(saved->FxState)); /* the FXSAVE image is Linux's _fpstate */
     uc->uc_mcontext.fpregs = (fpregset_t)uc->__fpregs_mem;
-#else
+#elif defined(__aarch64__)
     mcontext_t *m = &uc->uc_mcontext;
     m->fault_address = (unsigned long)fault_address;
     for (int i = 0; i < 31; ++i) {
@@ -250,6 +287,19 @@ static void build_ucontext(
     fp->fpcr = (unsigned)saved->Fpcr;
     memcpy(fp->vregs, saved->V, sizeof(fp->vregs));
     /* The terminator record follows: a zero magic and size (the memset above). */
+#else
+    /* musl's riscv64 mcontext: the program counter first, then x1 to x31, and the D extension's registers with fcsr;
+     * it carries no fault address, which the siginfo gives. */
+    mcontext_t *m = &uc->uc_mcontext;
+    (void)fault_address;
+    m->__gregs[0] = saved->Pc;
+    for (int i = 1; i < 32; ++i) {
+        m->__gregs[i] = saved->X[i - 1];
+    }
+    for (int i = 0; i < 32; ++i) {
+        m->__fpregs.__d.__f[i] = saved->F[i];
+    }
+    m->__fpregs.__d.__fcsr = (unsigned)saved->Fcsr;
 #endif
 }
 
@@ -279,7 +329,7 @@ static void apply_ucontext(WitThreadContext *saved, const ucontext_t *uc)
     if (uc->uc_mcontext.fpregs == (fpregset_t)uc->__fpregs_mem) {
         memcpy(saved->FxState, uc->__fpregs_mem, sizeof(saved->FxState));
     }
-#else
+#elif defined(__aarch64__)
     const mcontext_t *m = &uc->uc_mcontext;
     for (int i = 0; i < 31; ++i) {
         saved->X[i] = m->regs[i];
@@ -293,6 +343,16 @@ static void apply_ucontext(WitThreadContext *saved, const ucontext_t *uc)
         saved->Fpcr = fp->fpcr;
         memcpy(saved->V, fp->vregs, sizeof(saved->V));
     }
+#else
+    const mcontext_t *m = &uc->uc_mcontext;
+    saved->Pc = m->__gregs[0];
+    for (int i = 1; i < 32; ++i) {
+        saved->X[i - 1] = m->__gregs[i];
+    }
+    for (int i = 0; i < 32; ++i) {
+        saved->F[i] = m->__fpregs.__d.__f[i];
+    }
+    saved->Fcsr = m->__fpregs.__d.__fcsr & 0xFF;
 #endif
 }
 
@@ -374,7 +434,7 @@ static __attribute__((__noreturn__)) void run_handler(
     c->FxState[24] = 0x80;
     c->FxState[25] = 0x1F;
     memcpy(&c->FxState[28], &info->Context.FxState[28], 4); /* MXCSR_MASK as the processor reports it */
-#else
+#elif defined(__aarch64__)
     c->Pc = (WitU64)__wit_signal_trampoline;
     c->Sp = frame_sp;
     c->X[0] = (WitU64)sig;
@@ -382,6 +442,15 @@ static __attribute__((__noreturn__)) void run_handler(
     c->X[2] = (WitU64)&frame->Context;
     c->X[3] = (WitU64)frame;
     c->X[4] = (WitU64)handler;
+#else
+    c->Pc = (WitU64)__wit_signal_trampoline;
+    c->X[1] = frame_sp; /* sp */
+    c->X[0] = 0; /* ra: a return from the trampoline faults at zero */
+    c->X[9] = (WitU64)sig; /* a0 to a4 */
+    c->X[10] = (WitU64)&frame->Info;
+    c->X[11] = (WitU64)&frame->Context;
+    c->X[12] = (WitU64)frame;
+    c->X[13] = (WitU64)handler;
 #endif
     WitU64 result = 0;
     wit_syscall(WIT_CALL_EXCEPTION_CONTINUE, token, (WitU64)transfer, sizeof(*transfer), &result);
@@ -606,7 +675,11 @@ long __wit_rt_sigaction(int sig, const struct k_sigaction *act, struct k_sigacti
         unsigned long mask = 0;
         memcpy(&mask, act->mask, sizeof(mask));
         action->Handler = act->handler;
-        action->Flags = act->flags & ~(unsigned long)SA_RESTORER;
+#if defined(SA_RESTORER)
+        action->Flags = act->flags & ~(unsigned long)SA_RESTORER; /* musl's restorer is never entered */
+#else
+        action->Flags = act->flags; /* riscv64 has no restorer flag */
+#endif
         action->Mask = mask & ~UNBLOCKABLE;
     }
     return 0;
@@ -823,7 +896,7 @@ __asm__(".text\n"
         "    xor %ebp, %ebp\n"
         "    call __wit_sigreturn_raise\n"
         "    ud2\n");
-#else
+#elif defined(__aarch64__)
 /* The fault callback: x0 the token, x1 the vector, x2 the address, on a 16-byte aligned stack with x30 zero. The
  * trampoline is entered with x0 the signal, x1 the siginfo, x2 the ucontext, x3 the frame and x4 the handler; the
  * frame survives in x19 across the handler. musl's kernel restorers (its generic restore.c) are never entered. */
@@ -860,4 +933,42 @@ __asm__(".text\n"
         "    mov x30, #0\n"
         "    bl __wit_sigreturn_raise\n"
         "    brk #0\n");
+#else
+/* The fault callback: a0 the token, a1 the vector, a2 the address, on a 16-byte aligned stack (V1.3). The trampoline
+ * is entered with a0 the signal, a1 the siginfo, a2 the ucontext, a3 the frame and a4 the handler; the frame survives
+ * in s1 across the handler. musl's kernel restorers (its generic restore.c) are never entered. */
+__asm__(".text\n"
+        ".global __wit_signal_entry\n"
+        ".type __wit_signal_entry,%function\n"
+        "__wit_signal_entry:\n"
+        "    mv s0, zero\n"
+        "    mv ra, zero\n"
+        "    call __wit_signal_deliver\n"
+        "    unimp\n"
+        ".global __wit_signal_trampoline\n"
+        ".type __wit_signal_trampoline,%function\n"
+        "__wit_signal_trampoline:\n"
+        "    mv s1, a3\n"
+        "    mv s0, zero\n"
+        "    mv ra, zero\n"
+        "    jalr a4\n"
+        "    mv a0, s1\n"
+        "    call __wit_sigreturn\n"
+        "    unimp\n"
+        ".global __wit_signal_activation\n"
+        ".type __wit_signal_activation,%function\n"
+        "__wit_signal_activation:\n"
+        "    ret\n"
+        ".global __wit_sigreturn_activation\n"
+        ".type __wit_sigreturn_activation,%function\n"
+        "__wit_sigreturn_activation:\n"
+        "    ret\n"
+        ".global __wit_sigreturn_switch\n"
+        ".type __wit_sigreturn_switch,%function\n"
+        "__wit_sigreturn_switch:\n"
+        "    mv sp, a0\n"
+        "    mv s0, zero\n"
+        "    mv ra, zero\n"
+        "    call __wit_sigreturn_raise\n"
+        "    unimp\n");
 #endif

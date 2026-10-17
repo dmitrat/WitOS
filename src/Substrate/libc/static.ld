@@ -12,7 +12,7 @@ PROVIDE_HIDDEN(__dso_handle = 0x0000008000100000);
 SECTIONS
 {
     . = 0x0000008000100000 + SIZEOF_HEADERS;
-    .rodata : { *(.rodata .rodata.*) }
+    .rodata : { *(.rodata .rodata.* .srodata .srodata.*) }
     .eh_frame_hdr : { *(.eh_frame_hdr) }
     .eh_frame : { KEEP(*(.eh_frame)) }
     .gcc_except_table : { *(.gcc_except_table .gcc_except_table.*) }
@@ -22,7 +22,7 @@ SECTIONS
     .tbss : { *(.tbss .tbss.*) }
     .init_array : { *(.init_array .init_array.*) }
     .fini_array : { *(.fini_array .fini_array.*) }
-    .data : { *(.data .data.*) }
-    .bss : { *(.bss .bss.* COMMON) }
+    .data : { *(.data .data.* .sdata .sdata.*) }
+    .bss : { *(.bss .bss.* .sbss .sbss.* COMMON) }
     /DISCARD/ : { *(.comment .note.* .interp .dynamic .dynsym .dynstr .hash .gnu.hash) }
 }

@@ -1,0 +1,100 @@
+Source: arch/riscv64/syscall_arch.h
+Output: syscall_arch.riscv64.h
+Before: 0a228fa353f6690ce5049b65337796c1ca649a878ef90f39a09eac9501d1a888
+After: dcf0637ede5c6d706b0a0a9e0bda8138acfd0f8cb0b53c1ba5d3f990dd06ace8
+
+WitOS has no Linux system call instruction contract: ABI-1 differs in numbers, statuses and results, so musl's inline ECALL stubs become calls into the system layer's dispatch (src/Substrate/libc), which maps each Linux call onto the kernel's (plan step V2.1, as S1.1 did for x86_64 and aarch64). VDSO_USEFUL stays: musl's riscv64 cache flush (src/linux/cache.c) asks __vdsosym for the vDSO's symbol first and takes the system call path when there is none, as on WitOS, where no auxiliary vector names a vDSO.
+
+--- a/arch/riscv64/syscall_arch.h
++++ b/arch/riscv64/syscall_arch.h
+@@ -1,73 +1,43 @@
+ #define __SYSCALL_LL_E(x) (x)
+ #define __SYSCALL_LL_O(x) (x)
+ 
+-#define __asm_syscall(...) \
+-	__asm__ __volatile__ ("ecall\n\t" \
+-	: "=r"(a0) : __VA_ARGS__ : "memory"); \
+-	return a0; \
++/* WitOS (plan step V2.1): the Linux instruction gives way to the system layer's dispatch over ABI-1
++ * (src/Substrate/libc/syscall.c), which returns the Linux convention; there is no vDSO. */
++__attribute__((__visibility__("hidden"))) long __wit_syscall(long, long, long, long, long, long, long);
+ 
+-static inline long __syscall0(long n)
++static __inline long __syscall0(long n)
+ {
+-	register long a7 __asm__("a7") = n;
+-	register long a0 __asm__("a0");
+-	__asm_syscall("r"(a7))
++	return __wit_syscall(n, 0, 0, 0, 0, 0, 0);
+ }
+ 
+-static inline long __syscall1(long n, long a)
++static __inline long __syscall1(long n, long a1)
+ {
+-	register long a7 __asm__("a7") = n;
+-	register long a0 __asm__("a0") = a;
+-	__asm_syscall("r"(a7), "0"(a0))
++	return __wit_syscall(n, a1, 0, 0, 0, 0, 0);
+ }
+ 
+-static inline long __syscall2(long n, long a, long b)
++static __inline long __syscall2(long n, long a1, long a2)
+ {
+-	register long a7 __asm__("a7") = n;
+-	register long a0 __asm__("a0") = a;
+-	register long a1 __asm__("a1") = b;
+-	__asm_syscall("r"(a7), "0"(a0), "r"(a1))
++	return __wit_syscall(n, a1, a2, 0, 0, 0, 0);
+ }
+ 
+-static inline long __syscall3(long n, long a, long b, long c)
++static __inline long __syscall3(long n, long a1, long a2, long a3)
+ {
+-	register long a7 __asm__("a7") = n;
+-	register long a0 __asm__("a0") = a;
+-	register long a1 __asm__("a1") = b;
+-	register long a2 __asm__("a2") = c;
+-	__asm_syscall("r"(a7), "0"(a0), "r"(a1), "r"(a2))
++	return __wit_syscall(n, a1, a2, a3, 0, 0, 0);
+ }
+ 
+-static inline long __syscall4(long n, long a, long b, long c, long d)
++static __inline long __syscall4(long n, long a1, long a2, long a3, long a4)
+ {
+-	register long a7 __asm__("a7") = n;
+-	register long a0 __asm__("a0") = a;
+-	register long a1 __asm__("a1") = b;
+-	register long a2 __asm__("a2") = c;
+-	register long a3 __asm__("a3") = d;
+-	__asm_syscall("r"(a7), "0"(a0), "r"(a1), "r"(a2), "r"(a3))
++	return __wit_syscall(n, a1, a2, a3, a4, 0, 0);
+ }
+ 
+-static inline long __syscall5(long n, long a, long b, long c, long d, long e)
++static __inline long __syscall5(long n, long a1, long a2, long a3, long a4, long a5)
+ {
+-	register long a7 __asm__("a7") = n;
+-	register long a0 __asm__("a0") = a;
+-	register long a1 __asm__("a1") = b;
+-	register long a2 __asm__("a2") = c;
+-	register long a3 __asm__("a3") = d;
+-	register long a4 __asm__("a4") = e;
+-	__asm_syscall("r"(a7), "0"(a0), "r"(a1), "r"(a2), "r"(a3), "r"(a4))
++	return __wit_syscall(n, a1, a2, a3, a4, a5, 0);
+ }
+ 
+-static inline long __syscall6(long n, long a, long b, long c, long d, long e, long f)
++static __inline long __syscall6(long n, long a1, long a2, long a3, long a4, long a5, long a6)
+ {
+-	register long a7 __asm__("a7") = n;
+-	register long a0 __asm__("a0") = a;
+-	register long a1 __asm__("a1") = b;
+-	register long a2 __asm__("a2") = c;
+-	register long a3 __asm__("a3") = d;
+-	register long a4 __asm__("a4") = e;
+-	register long a5 __asm__("a5") = f;
+-	__asm_syscall("r"(a7), "0"(a0), "r"(a1), "r"(a2), "r"(a3), "r"(a4), "r"(a5))
++	return __wit_syscall(n, a1, a2, a3, a4, a5, a6);
+ }
+ 
+ #define VDSO_USEFUL
