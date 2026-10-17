@@ -1,0 +1,24 @@
+{
+  "description": "RISC-V kernel foundation (plan step V1.2): firmware handoff, boot contract, trap vector, allocator, Sv48 kernel paging, randomness, the time counter and the foundation self-tests in order.",
+  "markers": [
+    "[BOOT] ExitBootServices OK",
+    "[TEST-PASS] Boot.Contract",
+    "[TEST-PASS] Cpu.KernelStack",
+    "[TEST-PASS] Cpu.ExceptionTables",
+    "Free physical pages: ",
+    "[TEST-PASS] Memory.KernelPaging",
+    "[TEST-PASS] Memory.StackGuards",
+    "[TEST-PASS] Random.BootSeedConsumed",
+    "[TEST-PASS] Random.ChaCha20Vector",
+    "[TEST-PASS] Clock.Counter64",
+    "[TEST-PASS] Clock.IrqIndependent",
+    "[TEST-PASS] Clock.Utc",
+    "[TEST-PASS] Processors.Topology",
+    "[TEST-PASS] Smp.Online",
+    "[TEST-PASS] Smp.Ipi",
+    "[TEST-PASS] Memory.PhysicalPages",
+    "[TEST-PASS] Memory.Exhaustion",
+    "[TEST-PASS] Memory.InvalidMaps",
+    "[TEST-PASS] Memory.VirtualMappings"
+  ]
+}

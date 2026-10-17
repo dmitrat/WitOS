@@ -77,10 +77,13 @@ jobs:
       - name: Release kernel without self-tests
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- release
 
-      - name: The RISC-V loader (V1.1)
-        # The third ISA's first slice: the kernel image an ELF the tool converts to PE32+, booted by EDK II over OpenSBI
-        # to the bring-up's exit; the kernel suite of riscv64 replaces it at V1.2.
-        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- riscv64-loader
+      - name: The RISC-V kernel suite (V1.2)
+        # The third ISA's kernel foundation: the self-test kernel's scenarios on the virt board under EDK II over OpenSBI,
+        # the kernel image an ELF the tool converts to PE32+; user mode joins at V1.3 and the other harts at V1.4.
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- test --arch riscv64
+
+      - name: The RISC-V release kernel
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- release --arch riscv64
 
       - name: Upload boot image and diagnostics
         if: always()
@@ -106,6 +109,11 @@ jobs:
             artifacts/x64/boot/WitOS.pdb
             artifacts/x64/boot/WitOS.map
             artifacts/x64/boot/build.txt
+            artifacts/riscv64/boot/BOOTRISCV64.EFI
+            artifacts/riscv64/boot/WitOS.elf
+            artifacts/riscv64/boot/WitOS.map
+            artifacts/riscv64/boot/WitOS-riscv64.img
+            artifacts/riscv64/boot/build.txt
             artifacts/riscv64/release/BOOTRISCV64.EFI
             artifacts/riscv64/release/WitOS.elf
             artifacts/riscv64/release/WitOS.map
@@ -530,7 +538,7 @@ jobs:
   linux-selftest:
     # The Linux host's parity with Windows (plan step T2.2): every scenario of `test` on both ISAs, the self-test kernels
     # with the mechanism fixtures (clang's since K8.3, no MSVC since K8.4a) and the layer-2 scenarios on the release
-    # kernel, as the Windows jobs run them; and the RISC-V loader boot (V1.1) on the QEMU built with riscv64-softmmu.
+    # kernel, as the Windows jobs run them; and the RISC-V kernel suite (V1.2) on the QEMU built with riscv64-softmmu.
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -569,8 +577,11 @@ jobs:
       - name: The ARM64 suite
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- test --arch arm64
 
-      - name: The RISC-V loader (V1.1)
-        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- riscv64-loader
+      - name: The RISC-V suite
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- test --arch riscv64
+
+      - name: The RISC-V release kernel
+        run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- release --arch riscv64
 
       - name: Upload Linux self-test diagnostics
         if: always()

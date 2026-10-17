@@ -24,7 +24,7 @@
 | [R — Рантайм .NET Unix-формы](#r--рантайм-net-unix-формы) | R1–R8 | 2026-10-12 (R4.2 после D6) |
 | [D — Устройства и хранилище (M4/M5)](#d--устройства-и-хранилище-m4m5) | D1–D6 | 2026-10-12 |
 | [C — Консоль и оболочка (RFC-0020)](#c--консоль-и-оболочка-rfc-0020) | C1, C2.1 (C2.2–C3 открыты в плане) | C2.1 — 2026-10-16 |
-| [V — Третья ISA](#v--третья-isa) | V0, V1.1 (V1.2–V3 открыты в плане) | V1.1 — 2026-10-16 |
+| [V — Третья ISA](#v--третья-isa) | V0, V1.1, V1.2 (V1.3–V3 открыты в плане) | V1.2 — 2026-10-17 |
 | [N — Стандартный .NET (M6)](#n--стандартный-net-m6) | N1–N4: фаза завершена, M6 выполнен, Gate B заявлен | 2026-10-15 (N4.5) |
 
 ## 5. Фазы (выполненные шаги)
@@ -1165,3 +1165,35 @@
   длинные имена, судья, манифесты и слоение третьей ISA); release x64 и ARM64 без изменений. CI: `riscv64-loader` в `boot` и
   `linux-selftest`, `riscv64-softmmu` в сборке QEMU для Linux (ключи кэша обновлены). Судья `BootSuite.Loader` требует
   строки по порядку, выход 33, без `[PANIC]`/`[EXCEPTION]` — до набора ядра V1.2, который его заменит.
+- [x] **V1.2** Ядро riscv64: таблицы Sv48, вектор ловушек, таймер и набор основания ядра (2026-10-17, PR #137;
+  [V1.2-RISC-V-Kernel.md](@Docs/Implementation/V1.2-RISC-V-Kernel.md)). `paging.c` строит один корень Sv48 на обе
+  половины: нулевая запись нижней половины — identity-карта usable RAM, образ по секциям с правами, которые загрузчик
+  прочитал из заголовков PE, и загрузочные устройства платы (UART и `sifive,test`, без которого паника после переключения
+  упала бы вторым исключением); верхняя — окно пакета по `0xFFFFA00000000000` и образ корневой задачи по адресам других
+  ISA; охранные страницы стеков сняты; лист ядра — `V|R|G|A` (+`W|D`, +`X`), без `U`, A и D выставляет само ядро, так как
+  реализация вправе не обновлять их; `wit_arch_space_install_kernel` копирует запись 0 и верхнюю половину для корней
+  U-mode (V1.3). `entry.S`: один вектор `stvec` на оба режима через `sscratch` (ноль, пока работает ядро; вершина стека
+  ядра потока, пока работает U-mode), кадр 560 байт (x1–x31, sepc, sstatus, scause, stval, f0–f31, fcsr), `sret` из
+  `wit_rv64_resume_frame`, простой `wfi` → `csrsi sstatus, 2` у `wit_rv64_idle_resume`; исключение в S-mode печатает
+  `[EXCEPTION] cause= sepc= stval= sstatus= sp= stack=` и паникует именем причины. Плата: `fdt.c` читает `/cpus` (харты,
+  `status`, `sstc` в `riscv,isa` или `riscv,isa-extensions`, `timebase-frequency`); часы — `rdtime` на 10 МГц и goldfish
+  RTC; таймер — `stimecmp` (sstc есть у `rv64` QEMU) или SBI `set_timer`, 100 Гц; PLIC — источники 1–95 как линии
+  устройств через контекст S-mode `2·hart+1` (три страницы по требованию); boot hart — тот, что SBI HSM сообщает
+  STARTED (S-mode не читает `mhartid`); таблица устройств — только framebuffer прошивки, ECAM — с V1.3. Самотесты:
+  `kernel-selftest-shared` + `kernel-selftest-rv64` (`tests/Kernel.RV64`: порядок основания без user-наборов, триггеры
+  `ebreak`/`unimp`/load, рабочие потоки вытеснения со стражами в s2, s3, f8, f16 и `frm`), ожидания
+  `riscv64-foundation.json` (те же 19 маркеров, что у ARM64). Инструмент: `KernelTestSuite.RunKernelOnlyAsync`
+  (`test --arch riscv64`), `Rv64FaultExpectation` и судья riscv64, `KernelArchitecture.FoundationExpectation`, судья
+  release без `Boot.RootTask` для `KernelOnly`; `BootSuite.Loader`, `RiscV64Port` и `riscv64-loader` удалены; CI `boot` и
+  `linux-selftest` — `test --arch riscv64` и `release --arch riscv64`. Гость (Windows): `test --arch riscv64` — 14
+  сценариев PASS (boot-128, boot-512, invalid-boot-info, overlapping-map, 9 сценариев отказов — breakpoint 3,
+  undefined-instruction 2, data-abort 13 по зонду `0x400000000000`, write-code/guard-low/guard-high/readonly-alias 15,
+  execute-data 12, unmapped-alias 13 — и timeout); `release --arch riscv64` — release-128, release-512 и
+  release-display-256 PASS (EDK II RiscVVirt ведёт ramfb: `[BOOT] Framebuffer: 800x600, stride 800, BGRX`, `Devices: 1`).
+  Загрузка 256 МиБ: 197 МиБ usable, 17 регионов, 50 507 свободных страниц, `Timer: stimecmp (sstc), PLIC context 1`,
+  `Processors present/online: 1/1`; вытеснение — 7 тиков, 7 переключений, по 3 кванта и ~166 600 итераций на рабочий
+  поток. Объём: `Kernel.Arch.RV64` — 1 628 строк порта и 253 заглушек (50 операций V1.3/V1.4), `Kernel.Platform.QemuVirtRv`
+  — 554 и 29 (4 операции V1.4), тесты 120; общее ядро (41 исходник с общими самотестами) собралось и прошло без правок.
+  Хост: 96 тестов инструмента (судья riscv64, манифесты, слоение); release x64 без изменений. Находки: финишер должен быть
+  загрузочным устройством; дерево устройств может лежать в уже отображённой памяти (читатель спрашивает
+  `wit_virtual_view`); деления на ноль нет; boot hart — вопрос прошивке (64 `ecall` однажды).

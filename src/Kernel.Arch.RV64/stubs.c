@@ -1,26 +1,15 @@
 #include "witos/arch.h"
 #include "witos/platform.h"
-#include "witos/virtual.h"
-#include "user.h"
+#include "rv64.h"
 
-/* What the RISC-V port does not implement yet (plan step V1.1): every architecture operation the common kernel links
- * beyond identity, bring-up, the interrupt flag and halting panics by name, so that nothing pretends to work — the
- * operations of witos/arch.h and the kernel's translation tables of witos/virtual.h (the architecture's, as A64's
- * paging.c). V1.2 replaces this file with the port, operation by operation. */
+/* What the RISC-V port does not implement yet: user mode (plan step V1.3) — the thread frames, contexts, user
+ * translation tables and the switch to U-mode — and the secondary harts (V1.4). Each operation panics by name, so
+ * that nothing pretends to work; V1.3 and V1.4 replace this file with the port, operation by operation. */
 
 #pragma clang diagnostic ignored "-Wunused-parameter"
 
-#define NOT_PORTED(name) wit_panic("RV64: " name " is not ported (plan step V1.2)")
-
-void wit_arch_initialize(void)
-{
-    NOT_PORTED("wit_arch_initialize");
-}
-
-void wit_arch_map_device_page(const struct WitBootInfo *boot, WitU64 physical)
-{
-    NOT_PORTED("wit_arch_map_device_page");
-}
+#define NOT_PORTED(name) wit_panic("RV64: " name " is not ported (plan step V1.3)")
+#define NOT_PORTED_SMP(name) wit_panic("RV64: " name " is not ported (plan step V1.4)")
 
 void wit_arch_run_user(WitArchFrame *frame, WitU64 root)
 {
@@ -70,11 +59,6 @@ int wit_arch_user_tls_is_reset(void)
 int wit_arch_kernel_space_active(void)
 {
     NOT_PORTED("wit_arch_kernel_space_active");
-}
-
-void wit_arch_idle_once(void)
-{
-    NOT_PORTED("wit_arch_idle_once");
 }
 
 WitArchFrame *wit_arch_frame_create(WitU32 slot, WitU32 thread, WitU64 entry, WitU64 argument, WitU64 stack_top)
@@ -213,41 +197,6 @@ void wit_arch_cpu_context_describe(WitCpuContextInfo *info, const WitArchFrame *
     NOT_PORTED("wit_arch_cpu_context_describe");
 }
 
-int wit_arch_exception_deliverable(WitU64 vector)
-{
-    NOT_PORTED("wit_arch_exception_deliverable");
-}
-
-WitArchExceptionKind wit_arch_exception_kind(WitU64 vector, WitU64 error, WitU64 address)
-{
-    NOT_PORTED("wit_arch_exception_kind");
-}
-
-void wit_arch_exception_record(WitUserExceptionInfo *info, const WitArchFrame *frame, WitU64 address)
-{
-    NOT_PORTED("wit_arch_exception_record");
-}
-
-void wit_arch_fault_from_frame(WitArchFaultState *state, const WitArchFrame *frame)
-{
-    NOT_PORTED("wit_arch_fault_from_frame");
-}
-
-void wit_arch_fault_from_record(WitArchFaultState *state, const WitUserExceptionInfo *record)
-{
-    NOT_PORTED("wit_arch_fault_from_record");
-}
-
-int wit_arch_fault_from_user(const WitArchFaultState *state)
-{
-    NOT_PORTED("wit_arch_fault_from_user");
-}
-
-void wit_arch_fault_describe(const WitArchFaultState *state)
-{
-    NOT_PORTED("wit_arch_fault_describe");
-}
-
 WitU64 wit_arch_page_entry_make(WitU64 physical, WitU32 flags)
 {
     NOT_PORTED("wit_arch_page_entry_make");
@@ -288,112 +237,17 @@ WitU64 wit_arch_page_translate(WitU64 root, WitU64 address, int write, int execu
     NOT_PORTED("wit_arch_page_translate");
 }
 
-int wit_arch_space_kernel_ready(void)
-{
-    NOT_PORTED("wit_arch_space_kernel_ready");
-}
-
-void wit_arch_space_install_kernel(WitU64 root)
-{
-    NOT_PORTED("wit_arch_space_install_kernel");
-}
-
-int wit_arch_space_active(WitU64 root)
-{
-    NOT_PORTED("wit_arch_space_active");
-}
-
-void wit_arch_publish_code_page(WitU64 physical)
-{
-    NOT_PORTED("wit_arch_publish_code_page");
-}
-
-void wit_arch_publish_code(void)
-{
-    NOT_PORTED("wit_arch_publish_code");
-}
-
-WitU64 wit_arch_clock_ticks(void)
-{
-    NOT_PORTED("wit_arch_clock_ticks");
-}
-
-WitU64 wit_arch_cache_size(void)
-{
-    NOT_PORTED("wit_arch_cache_size");
-}
-
-WitU64 wit_arch_processor_id(void)
-{
-    NOT_PORTED("wit_arch_processor_id");
-}
-
-WitU64 wit_arch_processor_features(void)
-{
-    NOT_PORTED("wit_arch_processor_features");
-}
-
 void wit_arch_secondary_prepare(const struct WitBootInfo *boot, WitU32 index, WitU64 hardware_id)
 {
-    NOT_PORTED("wit_arch_secondary_prepare");
+    NOT_PORTED_SMP("wit_arch_secondary_prepare");
 }
 
 int wit_arch_secondary_start(WitU32 index, WitU64 hardware_id)
 {
-    NOT_PORTED("wit_arch_secondary_start");
+    NOT_PORTED_SMP("wit_arch_secondary_start");
 }
 
 void wit_arch_ipi(WitU64 hardware_id, WitU32 kind)
 {
-    NOT_PORTED("wit_arch_ipi");
-}
-
-void wit_arch_invalidate_local(WitU64 address)
-{
-    NOT_PORTED("wit_arch_invalidate_local");
-}
-
-void wit_arch_process_write_barrier(void)
-{
-    NOT_PORTED("wit_arch_process_write_barrier");
-}
-
-const WitU8 *wit_virtual_boot_storage(void)
-{
-    NOT_PORTED("wit_virtual_boot_storage");
-}
-
-WitU8 *wit_virtual_view(WitU64 physical)
-{
-    NOT_PORTED("wit_virtual_view");
-}
-
-const WitU8 *wit_virtual_root_task(void)
-{
-    NOT_PORTED("wit_virtual_root_task");
-}
-
-void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator)
-{
-    NOT_PORTED("wit_virtual_initialize");
-}
-
-int wit_virtual_map(WitU64 virtual_address, WitU64 physical_address, int writable)
-{
-    NOT_PORTED("wit_virtual_map");
-}
-
-int wit_virtual_protect(WitU64 virtual_address, int writable)
-{
-    NOT_PORTED("wit_virtual_protect");
-}
-
-int wit_virtual_unmap(WitU64 virtual_address)
-{
-    NOT_PORTED("wit_virtual_unmap");
-}
-
-WitU64 wit_virtual_kernel_root(void)
-{
-    NOT_PORTED("wit_virtual_kernel_root");
+    NOT_PORTED_SMP("wit_arch_ipi");
 }

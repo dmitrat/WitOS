@@ -19,6 +19,12 @@ internal static class KernelTestSuite
     // runner. The limit only stops QEMU; guest time does not depend on it.
     private const int SELFTEST_HANG = 60;
 
+    // The riscv64 firmware is EDK II's DEBUG build over OpenSBI (V0), which prints its way through the boot under TCG
+    // before the kernel runs; the limits only stop a hung QEMU, since guest time is virtual.
+    private const int KERNEL_ONLY_TIMEOUT = 120;
+
+    private const int KERNEL_ONLY_HANG = 60;
+
     #endregion
 
     #region Fields
@@ -34,6 +40,22 @@ internal static class KernelTestSuite
         ("guard-high", new(0x25, "Memory.GuardHigh", "Data abort", Probe: true)),
         ("readonly-alias", new(0x25, "Memory.ReadOnlyAlias", "Data abort", Probe: true)),
         ("unmapped-alias", new(0x25, "Memory.UnmappedAlias", "Data abort", Probe: true))
+    ];
+
+    // The RISC-V causes (plan step V1.2): a breakpoint, an illegal instruction, a load page fault for the unmapped probe
+    // and for the unmapped alias, a store page fault for code, the guards and the read-only alias, an instruction page
+    // fault for data.
+    private static readonly (string Name, Rv64FaultExpectation Fault)[] RV64_FAULT_SCENARIOS =
+    [
+        ("breakpoint", new(3, "Cpu.Breakpoint", "Breakpoint")),
+        ("undefined-instruction", new(2, "Cpu.IllegalInstruction", "Illegal instruction")),
+        ("data-abort", new(13, "Cpu.LoadPageFault", "Load page fault", FaultAddress: true)),
+        ("write-code", new(15, "Memory.WriteCode", "Store page fault", Probe: true)),
+        ("execute-data", new(12, "Memory.ExecuteData", "Instruction page fault", Probe: true)),
+        ("guard-low", new(15, "Memory.GuardLow", "Store page fault", Probe: true)),
+        ("guard-high", new(15, "Memory.GuardHigh", "Store page fault", Probe: true)),
+        ("readonly-alias", new(15, "Memory.ReadOnlyAlias", "Store page fault", Probe: true)),
+        ("unmapped-alias", new(13, "Memory.UnmappedAlias", "Load page fault", Probe: true))
     ];
 
     private static readonly (string Name, FaultExpectation Fault)[] FAULT_SCENARIOS =
@@ -221,6 +243,42 @@ internal static class KernelTestSuite
         var timeout = await KernelImageBuilder.BuildAsync(root, "timeout", architecture: architecture);
         await BootScenarioRunner.RunAsync(root, timeout, Request("timeout", 256, FOUNDATION_HANG, ExpectedOutcome.Timeout));
         Console.WriteLine($"PASS: all {12 + A64_FAULT_SCENARIOS.Length} {architecture.Name} foundation scenarios.");
+    }
+
+    /// <summary>
+    /// Boots the kernel foundation of an architecture whose port has no user space yet (plan step V1.2, riscv64) and
+    /// requires its outcomes: success at 128 and 512 MiB without a root task, a rejected boot contract, a rejected
+    /// memory map, each fatal CPU and memory permission exception and a timeout after a successful boot. The layer-2
+    /// scenarios, the second processor and the user suites join with V1.3, V1.4 and V2.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Architecture whose target boots the kernel alone (<see cref="KernelArchitecture.KernelOnly"/>).</param>
+    /// <exception cref="InvalidOperationException">A scenario did not produce its outcome.</exception>
+    public static async Task RunKernelOnlyAsync(string root, KernelArchitecture architecture)
+    {
+        architecture.RequireQemu(root);
+        var prefix = architecture.Name + "-";
+        BootRequest Request(string name, int memory, int timeout, ExpectedOutcome expected) =>
+            new(prefix + name, memory, timeout, expected) { Architecture = architecture, Suite = BootSuite.Foundation };
+
+        var image = await KernelImageBuilder.BuildAsync(root, "boot", architecture: architecture);
+        await BootScenarioRunner.RunAsync(root, image, Request("boot-128", 128, KERNEL_ONLY_TIMEOUT, ExpectedOutcome.Success));
+        await BootScenarioRunner.RunAsync(root, image, Request("boot-512", 512, KERNEL_ONLY_TIMEOUT, ExpectedOutcome.Success));
+        var panic = await KernelImageBuilder.BuildAsync(root, "invalid-boot-info", architecture: architecture);
+        await BootScenarioRunner.RunAsync(root, panic,
+            Request("invalid-boot-info", 256, KERNEL_ONLY_TIMEOUT, ExpectedOutcome.InvalidBootInfo));
+        var overlap = await KernelImageBuilder.BuildAsync(root, "overlapping-map", architecture: architecture);
+        await BootScenarioRunner.RunAsync(root, overlap,
+            Request("overlapping-map", 256, KERNEL_ONLY_TIMEOUT, ExpectedOutcome.InvalidMap));
+        foreach (var (name, fault) in RV64_FAULT_SCENARIOS)
+        {
+            var faultImage = await KernelImageBuilder.BuildAsync(root, name, architecture: architecture);
+            await BootScenarioRunner.RunAsync(root, faultImage,
+                Request(name, 256, KERNEL_ONLY_TIMEOUT, ExpectedOutcome.Exception) with { Rv64Fault = fault });
+        }
+        var timeout = await KernelImageBuilder.BuildAsync(root, "timeout", architecture: architecture);
+        await BootScenarioRunner.RunAsync(root, timeout, Request("timeout", 256, KERNEL_ONLY_HANG, ExpectedOutcome.Timeout));
+        Console.WriteLine($"PASS: all {5 + RV64_FAULT_SCENARIOS.Length} {architecture.Name} kernel-only scenarios.");
     }
 
     #endregion

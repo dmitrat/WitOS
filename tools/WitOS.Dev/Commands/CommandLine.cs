@@ -30,10 +30,12 @@ internal static class CommandLine
         new CommandScenario("run", "Build and boot headlessly in QEMU", "boot",
             [new BootRequest("boot-256", 256, 60, ExpectedOutcome.Success)]),
         new CommandArchitecture("test",
-            "Test boot, physical pages, CPU exceptions and timeout handling; arm64: the kernel foundation and EL0 isolation",
+            "Test boot, physical pages, CPU exceptions and timeout handling; arm64: the kernel foundation and EL0 isolation; riscv64: the kernel foundation alone (V1.2)",
             (root, architecture) => architecture == KernelArchitecture.X64
                 ? KernelTestSuite.RunAsync(root)
-                : KernelTestSuite.RunFoundationAsync(root, architecture)),
+                : architecture.KernelOnly
+                    ? KernelTestSuite.RunKernelOnlyAsync(root, architecture)
+                    : KernelTestSuite.RunFoundationAsync(root, architecture)),
         new CommandScenario("release", "Build and boot the release kernel without self-tests, once with the board's display (C2.1)", KernelImageBuilder.RELEASE_SCENARIO,
         [
             new BootRequest("release-128", 128, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release },
@@ -45,9 +47,6 @@ internal static class CommandLine
                 Suite = BootSuite.Release, Display = true, RequiredLines = ["[BOOT] Framebuffer: ", "[BOOT] Framebuffer memory type "]
             }
         ]),
-        new CommandAction("riscv64-loader",
-            "Build the RISC-V kernel image, a position-independent ELF the tool converts to PE32+, and boot it under EDK II over OpenSBI to the bring-up's exit through the board's test finisher (V1.1)",
-            RiscV64Port.BootLoaderAsync),
         new CommandScenario("libc", "Build the pinned musl over ABI-1 and boot the first libc program as the root task (S1.1)",
             KernelImageBuilder.LIBC_SCENARIO,
             architecture => [new BootRequest("libc-256", 256, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release, RequiredLines = [architecture.LibcPassedLine] }]),

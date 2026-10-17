@@ -33,10 +33,6 @@ internal static class BootValidation
         {
             return EvaluateRelease(root, request, result, terminal);
         }
-        if (request.Suite == BootSuite.Loader)
-        {
-            return EvaluateLoader(request, result);
-        }
         var output = result.Output;
         var exitedFirmware = output.IndexOf("[BOOT] ExitBootServices OK", StringComparison.Ordinal);
         var contract = output.IndexOf("[TEST-PASS] Boot.Contract", StringComparison.Ordinal);
@@ -84,7 +80,9 @@ internal static class BootValidation
                 output.Contains("[PANIC] Invalid memory map", StringComparison.Ordinal),
             ExpectedOutcome.Exception => !result.TimedOut && result.ExitCode == 35 && hello < 0 &&
                 (request.Suite == BootSuite.Foundation
-                    ? ValidateA64Exception(root, request, output)
+                    ? request.Rv64Fault is not null
+                        ? ValidateRv64Exception(root, request, output)
+                        : ValidateA64Exception(root, request, output)
                     : foundationReady && request.Fault is not null && ValidateException(output, request.Fault)),
             ExpectedOutcome.Timeout => result.TimedOut && booted,
             _ => false
@@ -105,9 +103,14 @@ internal static class BootValidation
     {
         var output = result.Output;
         var banner = Regex.IsMatch(output, "^" + Regex.Escape(KernelAbi.Banner(root)) + @"\r?$", RegexOptions.Multiline);
-        var ready = MarkersInOrder(output, "[TEST-PASS] Boot.Contract", "[TEST-PASS] Cpu.ExceptionTables",
-            "[TEST-PASS] Memory.KernelPaging", "[TEST-PASS] Clock.IrqIndependent", "Kernel initialized.",
-            "[TEST-PASS] Boot.Hello", "[TEST-PASS] Boot.RootTask");
+        // An ISA whose port has no user space yet (V1.2) boots the kernel alone: its disk carries no root task.
+        string[] readyMarkers =
+        [
+            "[TEST-PASS] Boot.Contract", "[TEST-PASS] Cpu.ExceptionTables", "[TEST-PASS] Memory.KernelPaging",
+            "[TEST-PASS] Clock.IrqIndependent", "Kernel initialized.", "[TEST-PASS] Boot.Hello",
+            .. request.Architecture.KernelOnly ? [] : (string[])["[TEST-PASS] Boot.RootTask"]
+        ];
+        var ready = MarkersInOrder(output, readyMarkers);
         // The root task (K4) writes to the kernel log as a user component; user self-tests and faults stay forbidden.
         string[] forbidden = ["[PANIC]", "[EXCEPTION]", "[USER-FAULT]", "[TEST-BEGIN] User.", "[TEST-PASS] User.", "Scheduler.",
             "Random.ChaCha20Vector", "Memory.VirtualMappings", "Cpu.ContextStateProfile"];
@@ -125,24 +128,6 @@ internal static class BootValidation
         var passed = (request.Expected == ExpectedOutcome.Success && !result.TimedOut && result.ExitCode == 33 && ready || cut) &&
             banner && clean && required;
         return new BootVerdict(passed, $"banner={banner} ready={ready} cut={cut} clean={clean} required={required}");
-    }
-
-    /// <summary>
-    /// Decides whether a port's loader boot passed (plan step V1.1): the request's lines in their order, the exit with the
-    /// success code and neither a panic nor an exception. The banner, the boot contract and the kernel's markers are not
-    /// required, since they come from the kernel's entry, which the port does not reach yet; the suite serves an ISA only
-    /// until its kernel suite exists.
-    /// </summary>
-    /// <param name="request">Boot request of the loader suite, whose required lines are the loader's and the bring-up's.</param>
-    /// <param name="result">Exit code, timeout state and serial log of the boot.</param>
-    /// <returns>The verdict and a summary of the check groups.</returns>
-    public static BootVerdict EvaluateLoader(BootRequest request, ProcessResult result)
-    {
-        var output = result.Output;
-        var required = request.RequiredLines.Length > 0 && MarkersInOrder(output, request.RequiredLines);
-        var clean = !output.Contains("[PANIC]", StringComparison.Ordinal) && !output.Contains("[EXCEPTION]", StringComparison.Ordinal);
-        var passed = request.Expected == ExpectedOutcome.Success && !result.TimedOut && result.ExitCode == 33 && required && clean;
-        return new BootVerdict(passed, $"required={required} clean={clean}");
     }
 
     /// <summary>
@@ -206,19 +191,21 @@ internal static class BootValidation
     private static string[] FoundationOrder(string root, BootExpectation foundation)
         => [foundation.Markers[0], KernelAbi.Banner(root), .. foundation.Markers[1..]];
 
-    private static string[] A64FoundationOrder(string root)
-        => BootExpectations.Read(root, BootExpectations.ARM64_FOUNDATION).Markers;
+    // The foundation markers of an architecture of the Foundation suite (ARM64, riscv64 since V1.2) in their order.
+    private static string[] FoundationMarkers(string root, KernelArchitecture architecture)
+        => BootExpectations.Read(root, architecture.FoundationExpectation).Markers;
 
-    // An ARM64 kernel foundation: the foundation markers, kernel-worker preemption, the EL0 isolation tests, then
-    // Hello, without panic or exception.
+    // A kernel foundation of the Foundation suite: the foundation markers, kernel-worker preemption, the user isolation
+    // tests (none on an ISA whose port has no user space yet, V1.2), then Hello, without panic or exception.
     private static bool FoundationReady(string root, BootRequest request, string output) =>
-        A64Foundation(root, request, output) && ValidateScheduler(output) && ValidateA64Users(root, output) &&
-        MarkersInOrder(output, A64FoundationOrder(root)[^1], "Kernel initialized.", "[TEST-PASS] Boot.Hello") &&
+        ArchitectureFoundation(root, request, output) && ValidateScheduler(output) &&
+        (request.Architecture.KernelOnly || ValidateA64Users(root, output)) &&
+        MarkersInOrder(output, FoundationMarkers(root, request.Architecture)[^1], "Kernel initialized.", "[TEST-PASS] Boot.Hello") &&
         !output.Contains("[PANIC]", StringComparison.Ordinal) && !output.Contains("[EXCEPTION]", StringComparison.Ordinal);
 
     // The banner, the build line of the requested architecture, plausible memory, a counter frequency and the
     // foundation markers in order.
-    private static bool A64Foundation(string root, BootRequest request, string output)
+    private static bool ArchitectureFoundation(string root, BootRequest request, string output)
     {
         var banner = Regex.IsMatch(output, "^" + Regex.Escape(KernelAbi.Banner(root)) + @"\r?$", RegexOptions.Multiline);
         var build = Regex.IsMatch(output, @"^Build: \S+ \| " + Regex.Escape(request.Architecture.Name) + @" \| Debug\r?$",
@@ -228,7 +215,33 @@ internal static class BootValidation
             usable < request.MemoryMiB;
         var counter = Regex.Match(output, @"Counter frequency: (\d+)");
         return banner && build && validMemory && counter.Success && ulong.Parse(counter.Groups[1].Value) > 0 &&
-            MarkersInOrder(output, A64FoundationOrder(root));
+            MarkersInOrder(output, FoundationMarkers(root, request.Architecture));
+    }
+
+    // A synchronous exception taken in S-mode (sstatus.SPP) on the kernel stack after the foundation markers, with the
+    // expected cause and the fault probe address in stval where the scenario names one (plan step V1.2).
+    private static bool ValidateRv64Exception(string root, BootRequest request, string output)
+    {
+        var expected = request.Rv64Fault;
+        if (expected is null || !ArchitectureFoundation(root, request, output) ||
+            !MarkersInOrder(output, FoundationMarkers(root, request.Architecture)[^1], $"[TEST-BEGIN] {expected.Trigger}", "[EXCEPTION]",
+                $"[PANIC] {expected.Panic}"))
+        {
+            return false;
+        }
+        var frame = Regex.Match(output,
+            @"\[EXCEPTION\] cause=(0x[0-9A-F]{16}) sepc=(0x[0-9A-F]{16}) stval=(0x[0-9A-F]{16}) sstatus=(0x[0-9A-F]{16}) sp=(0x[0-9A-F]{16}) stack=(\w+)");
+        var stack = Regex.Match(output, @"Kernel stack: (0x[0-9A-F]{16})-(0x[0-9A-F]{16})");
+        var probe = Regex.Match(output, @"\[FAULT-PROBE\] address=(0x[0-9A-F]{16})");
+        if (!frame.Success || !stack.Success || (expected.Probe && !probe.Success))
+        {
+            return false;
+        }
+        ulong Hex(Match match, int group) => Convert.ToUInt64(match.Groups[group].Value[2..], 16);
+        var sp = Hex(frame, 5);
+        return Hex(frame, 1) == (ulong)expected.Cause && Hex(frame, 2) != 0 && (Hex(frame, 4) & 0x100) != 0 &&
+            sp > Hex(stack, 1) && sp <= Hex(stack, 2) && frame.Groups[6].Value == "kernel" &&
+            (!expected.FaultAddress || Hex(frame, 3) == FAULT_PROBE) && (!expected.Probe || Hex(frame, 3) == Hex(probe, 1));
     }
 
     // A synchronous exception taken at EL1 on the kernel stack (vector 4, SPSR mode EL1h) after the foundation
@@ -236,8 +249,8 @@ internal static class BootValidation
     private static bool ValidateA64Exception(string root, BootRequest request, string output)
     {
         var expected = request.A64Fault;
-        if (expected is null || !A64Foundation(root, request, output) ||
-            !MarkersInOrder(output, A64FoundationOrder(root)[^1], $"[TEST-BEGIN] {expected.Trigger}", "[EXCEPTION]",
+        if (expected is null || !ArchitectureFoundation(root, request, output) ||
+            !MarkersInOrder(output, FoundationMarkers(root, request.Architecture)[^1], $"[TEST-BEGIN] {expected.Trigger}", "[EXCEPTION]",
                 $"[PANIC] {expected.Panic}"))
         {
             return false;

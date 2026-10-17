@@ -1,13 +1,19 @@
 {
   "name": "kernel-arch-rv64",
-  "description": "RISC-V 64 architecture layer (plan step V1): identity, bring-up, the interrupt flag and halting, the compiler helpers; every other operation of witos/arch.h panics by name until V1.2 ports it.",
+  "description": "RISC-V 64 implementation of witos/arch.h and witos/virtual.h for the kernel foundation (plan step V1.2): identity, guarded boot stack, the interrupt flag and halting, the trap vector with full register frames, the timer-interrupt scheduler hook, Sv48 kernel translation tables, code publication, the SBI call, the boot hart's identity and the compiler helpers; user mode (V1.3) and the secondary harts (V1.4) panic by name.",
   "includes": [],
   "sources": [
     "src/Kernel.Arch.RV64/identity.c",
+    "src/Kernel.Arch.RV64/processor.c",
     "src/Kernel.Arch.RV64/bringup.c",
+    "src/Kernel.Arch.RV64/exceptions.c",
+    "src/Kernel.Arch.RV64/paging.c",
+    "src/Kernel.Arch.RV64/scheduler.c",
+    "src/Kernel.Arch.RV64/sbi.c",
     "src/Kernel.Arch.RV64/stubs.c"
   ],
   "assembly": [
+    "src/Kernel.Arch.RV64/entry.S",
     "src/Kernel.Arch.RV64/compiler.S"
   ]
 }

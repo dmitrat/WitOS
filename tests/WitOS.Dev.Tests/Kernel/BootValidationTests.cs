@@ -1,4 +1,5 @@
 using WitOS.Dev.Kernel;
+using WitOS.Dev.Tests.Support;
 
 namespace WitOS.Dev.Tests.Kernel;
 
@@ -34,27 +35,40 @@ public sealed class BootValidationTests
             "Supervisor fault accepted");
     }
 
-    // The loader suite (plan step V1.1): the port's lines in their order, the success exit and no panic, without the
-    // kernel's banner or markers, which that port does not print yet.
+    // The riscv64 fault judge (plan step V1.2): the foundation markers, the trigger, an exception taken in S-mode on the
+    // kernel stack with the expected cause and the probe's address in stval, then the panic, with the failure exit.
     [Test]
-    public void LoaderSuiteRequiresTheLinesInOrderAndTheExitTest()
+    public void Riscv64ExceptionJudgeRequiresTheCauseTheModeAndTheStackTest()
     {
-        var request = new BootRequest("loader", 256, 60, ExpectedOutcome.Success)
+        var root = TestEnvironment.Root;
+        var request = new BootRequest("riscv64-write-code", 256, 60, ExpectedOutcome.Exception)
         {
-            Suite = BootSuite.Loader,
-            RequiredLines = ["[BOOT] UEFI riscv64 adapter", "[BOOT] ExitBootServices OK", "[RV64] entered the kernel"]
+            Architecture = KernelArchitecture.Riscv64,
+            Suite = BootSuite.Foundation,
+            Rv64Fault = new Rv64FaultExpectation(15, "Memory.WriteCode", "Store page fault", Probe: true)
         };
-        const string log = "OpenSBI v1.8\n[BOOT] UEFI riscv64 adapter\n[BOOT] Device tree published\n[BOOT] ExitBootServices OK\n" +
-            "[RV64] entered the kernel after ExitBootServices: 20 memory regions\n";
-        static WitOS.Dev.Host.ProcessResult Result(string output, int exit, bool timedOut = false) => new(exit, output, "", timedOut);
-        Assert.That(BootValidation.Evaluate("", request, Result(log, 33)).Passed, Is.True, "A loader boot with its lines rejected");
-        Assert.That(BootValidation.Evaluate("", request, Result(log, 35)).Passed, Is.False, "A failure exit accepted");
-        Assert.That(BootValidation.Evaluate("", request, Result(log, 33, timedOut: true)).Passed, Is.False, "A timeout accepted");
-        Assert.That(BootValidation.Evaluate("", request, Result(log.Replace("[RV64] entered the kernel", "[PANIC] Invalid native image headers"), 33)).Passed,
-            Is.False, "A panic accepted");
-        Assert.That(BootValidation.Evaluate("", request, Result("[RV64] entered the kernel\n[BOOT] UEFI riscv64 adapter\n[BOOT] ExitBootServices OK\n", 33)).Passed,
-            Is.False, "Lines out of order accepted");
-        Assert.That(BootValidation.Evaluate("", request with { RequiredLines = [] }, Result(log, 33)).Passed, Is.False, "A request without lines accepted");
+        var markers = BootExpectations.Read(root, BootExpectations.RISCV64_FOUNDATION).Markers;
+        const string frame = "[EXCEPTION] cause=0x000000000000000F sepc=0x0000000080012345 stval=0x0000000080010000 " +
+            "sstatus=0x0000000200006100 sp=0x0000000080210F00 stack=kernel";
+        var log = string.Join("\n",
+        [
+            markers[0], KernelAbi.Banner(root), "Build: abc | riscv64 | Debug", .. markers[1..],
+            "Kernel stack: 0x0000000080201000-0x0000000080211000", "Usable memory: 100 MiB", "Counter frequency: 10000000",
+            "[TEST-BEGIN] Memory.WriteCode", "[FAULT-PROBE] address=0x0000000080010000", frame, "[PANIC] Store page fault", ""
+        ]);
+        static WitOS.Dev.Host.ProcessResult Result(string output, int exit) => new(exit, output, "", false);
+        Assert.That(BootValidation.Evaluate(root, request, Result(log, 35)).Passed, Is.True, "A reported fault rejected");
+        Assert.That(BootValidation.Evaluate(root, request, Result(log, 33)).Passed, Is.False, "A success exit accepted");
+        Assert.That(BootValidation.Evaluate(root, request, Result(log.Replace("cause=0x000000000000000F", "cause=0x000000000000000D"), 35)).Passed,
+            Is.False, "Another cause accepted");
+        Assert.That(BootValidation.Evaluate(root, request, Result(log.Replace("sstatus=0x0000000200006100", "sstatus=0x0000000200006000"), 35)).Passed,
+            Is.False, "A fault from U-mode accepted");
+        Assert.That(BootValidation.Evaluate(root, request, Result(log.Replace("stack=kernel", "stack=unknown"), 35)).Passed,
+            Is.False, "A fault off the kernel stack accepted");
+        Assert.That(BootValidation.Evaluate(root, request, Result(log.Replace("stval=0x0000000080010000", "stval=0x0000000080010008"), 35)).Passed,
+            Is.False, "A fault beside the probe accepted");
+        Assert.That(BootValidation.Evaluate(root, request, Result(log.Replace("[TEST-PASS] Smp.Ipi\n", ""), 35)).Passed,
+            Is.False, "A missing foundation marker accepted");
     }
 
     #endregion

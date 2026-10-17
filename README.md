@@ -249,9 +249,11 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
 - **Third ISA (phase V, begun).** RISC-V on QEMU's virt board: the measurement V0 found the pinned LLVM links no RISC-V
   PE/COFF, so the loader and the kernel are one position-independent ELF the tool converts to PE32+ with base
   relocations. V1.1 boots that image under EDK II over OpenSBI: the unchanged loader publishes the device tree, reads the
-  boot package and leaves the firmware, the bring-up ends the machine through the board's test finisher, and the common
-  kernel compiled for riscv64 without a change (`riscv64-loader`, CI's `boot` and `linux-selftest`). V1.2 is the kernel
-  itself: translation tables, traps, the clock and the kernel suite on the third ISA.
+  boot package and leaves the firmware, and the common kernel compiled for riscv64 without a change. V1.2 is the kernel
+  itself: Sv48 translation tables, the trap vector with full frames, the time counter and the supervisor timer through
+  `sstc`, the PLIC's sources as device lines, the harts and the timebase from the device tree, the goldfish RTC, and the
+  kernel foundation's self-tests passing on the third ISA (`test --arch riscv64`, `release --arch riscv64`, CI's `boot`
+  and `linux-selftest`). Next: user mode on riscv64 (V1.3).
 - **Later.** The scheduler on several processors (phase P), the network and the remaining milestones (phase W).
 
 The acceptances do not establish threads on several processors, networking, a terminal with input or process creation
