@@ -1,0 +1,11 @@
+{
+  "$comment": "The colours of the console marks by role (@Docs/WitOS-Console-Logos.md section 3), applied by the renderer, never stored in the art: truecolor is the dark-background tint, 256 the xterm index, 16 the SGR code. emblemRows maps each row of emblem.txt to its layer; labels names the role of the info panel's labels and rule.",
+  "roles": {
+    "layer3": { "truecolor": "#8B6CEF", "256": 98, "16": 35, "meaning": "upstream .NET, layer 3" },
+    "layer2": { "truecolor": "#00AFAF", "256": 37, "16": 36, "meaning": "the system layer, layer 2" },
+    "layer1": { "truecolor": "#FFAF00", "256": 214, "16": 33, "meaning": "the nano-kernel, layer 1" },
+    "uhi": { "truecolor": "#8A8A8A", "256": 245, "16": 90, "meaning": "the UHI, the hardware personality" }
+  },
+  "emblemRows": ["layer3", "layer3", "layer2", "layer2", "layer1", "layer1", "uhi"],
+  "labels": "layer2"
+}

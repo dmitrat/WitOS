@@ -154,6 +154,12 @@ internal static class KernelImageBuilder
     public const string RUNTIME_PUBLISHED_SCENARIO = "runtime-published";
 
     /// <summary>
+    /// Upstream PowerShell from the data volume on the terminal beside the services and the .NET install, non-interactively
+    /// and under PSReadLine (C1.3).
+    /// </summary>
+    public const string RUNTIME_POWERSHELL_SCENARIO = "runtime-powershell";
+
+    /// <summary>
     /// Representative NuGet libraries (N2.1): NUnit's and xUnit's test applications run through dotnet beside the device
     /// services; not a suite scenario, for the same reason.
     /// </summary>
@@ -185,7 +191,8 @@ internal static class KernelImageBuilder
             RUNTIME_CORERUN_SCENARIO, RUNTIME_CORECLR_ACCEPTANCE_SCENARIO, RUNTIME_SYSTEM_NATIVE_SCENARIO, RUNTIME_DOTNET_SCENARIO,
             RUNTIME_PORTABLE_APP_SCENARIO, RUNTIME_PALSUITE_SCENARIO, RUNTIME_CORECLR_TESTS_SCENARIO,
             RUNTIME_LIBRARY_TESTS_SCENARIO, RUNTIME_DEVICES_SCENARIO, RUNTIME_COMPATIBILITY_SCENARIO, RUNTIME_LIBRARIES_SCENARIO,
-            RUNTIME_NUGET_SUITES_SCENARIO, RUNTIME_SIDE_BY_SIDE_SCENARIO, RUNTIME_TERMINAL_SCENARIO, RUNTIME_PUBLISHED_SCENARIO];
+            RUNTIME_NUGET_SUITES_SCENARIO, RUNTIME_SIDE_BY_SIDE_SCENARIO, RUNTIME_TERMINAL_SCENARIO, RUNTIME_PUBLISHED_SCENARIO,
+            RUNTIME_POWERSHELL_SCENARIO];
 
     // A release map must not name self-test code: test objects, self-test functions, fault triggers or workers.
     private static readonly Regex SELF_TEST_SYMBOL = new(
@@ -287,7 +294,7 @@ internal static class KernelImageBuilder
                 or RUNTIME_SYSTEM_NATIVE_SCENARIO or RUNTIME_DOTNET_SCENARIO or RUNTIME_PORTABLE_APP_SCENARIO or RUNTIME_PALSUITE_SCENARIO
                 or RUNTIME_CORECLR_TESTS_SCENARIO or RUNTIME_LIBRARY_TESTS_SCENARIO or RUNTIME_DEVICES_SCENARIO
                 or RUNTIME_COMPATIBILITY_SCENARIO or RUNTIME_LIBRARIES_SCENARIO or RUNTIME_NUGET_SUITES_SCENARIO or RUNTIME_TERMINAL_SCENARIO
-                or RUNTIME_SIDE_BY_SIDE_SCENARIO or RUNTIME_PUBLISHED_SCENARIO
+                or RUNTIME_SIDE_BY_SIDE_SCENARIO or RUNTIME_PUBLISHED_SCENARIO or RUNTIME_POWERSHELL_SCENARIO
                 ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
             : await UserImage.BuildRootAsync(root, output, architecture);
         var objects = await CompileKernelAsync(root, output, scenario, selfTest, target, architecture);

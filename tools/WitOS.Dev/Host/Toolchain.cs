@@ -462,6 +462,8 @@ internal static class Toolchain
         Console.WriteLine($"Ready: {await Substrate.LibcTestSuite.PrepareAsync(root)}");
         Console.WriteLine($"Ready: {await Substrate.Icu.PrepareAsync(root)}");
         Console.WriteLine($"Ready: {await Substrate.Tzdata.PrepareAsync(root)}");
+        Console.WriteLine($"Ready: {await Substrate.Terminfo.PrepareAsync(root)}");
+        Console.WriteLine($"Ready: {await Substrate.PowerShell.PrepareAsync(root)}");
     }
 
     /// <summary>
@@ -488,6 +490,8 @@ internal static class Toolchain
         {
             Console.WriteLine($"Downloading {Path.GetFileName(path)}...");
             using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+            // ftp.gnu.org answers a request without a user agent with 403 (C1.3: the ncurses pin); name the tool.
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("WitOS.Dev/1.0");
             using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
             response.EnsureSuccessStatusCode();
             var partial = path + ".partial";

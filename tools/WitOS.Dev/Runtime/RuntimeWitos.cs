@@ -486,6 +486,8 @@ internal static class RuntimeWitos
         // N4.3a: the terminal over the console driver and its service. N1: the .NET compatibility suite, an ordinary
         // portable application, beside the services; N2.1: representative NuGet libraries under NUnit and xUnit.
         await RuntimeTerminal.RunAsync(root, architecture);
+        // C1.3 (RFC 0020): upstream PowerShell from the data volume, non-interactively and under PSReadLine on the terminal.
+        await RuntimePowerShell.RunAsync(root, architecture);
         await RuntimeCompatibility.RunAsync(root, architecture);
         await RuntimeLibraries.RunAsync(root, architecture);
         // N2.2, the libraries' own test suites, run for hours in the guest: runtime-nuget-suites runs them on this tree,
@@ -741,8 +743,10 @@ internal static class RuntimeWitos
         // service makes when it mounts /data, since the package is read-only and programs such as PowerShell create
         // directories under HOME at startup.
         var environment = Path.Combine(output, "environment");
+        // TERM names the terminal the install's terminfo describes (C1.3), so that System.Console has its capabilities;
+        // PATH ends with the install's directory (C1.4), so that a shell runs dotnet by name.
         await File.WriteAllTextAsync(environment,
-            "# The default environment of every process; the root task reads it (N4.1).\nPATH=/bin:/usr/bin\nHOME=/data/home\n");
+            $"# The default environment of every process; the root task reads it (N4.1).\nPATH=/bin:/usr/bin:/dotnet\nHOME=/data/home\nTERM={Terminfo.TERM}\n");
         var sysroot = await Sysroot.BuildAsync(root, architecture);
         var shared = await FrameworkFilesAsync(tree, output, architecture, version, pin.TargetFramework);
 
@@ -756,6 +760,10 @@ internal static class RuntimeWitos
             .. await Icu.PackageFilesAsync(root, architecture),
             // tzdata (N4.1), compiled by zic into the TZif files TimeZoneInfo reads under /usr/share/zoneinfo, as on Linux.
             .. await Tzdata.PackageFilesAsync(root),
+            // terminfo (C1.3), compiled by tic into the entries System.Console reads under /usr/share/terminfo, as on Linux.
+            .. await Terminfo.PackageFilesAsync(root),
+            // The console marks (C1.4), which an interactive session's profile renders; nothing of the system prints them.
+            .. ConsoleLogo.PackageFiles(root),
             ("etc/dotnet/install_location", installLocation), ("etc/passwd", passwd), ("etc/group", group), ("etc/environment", environment),
             ("dotnet/dotnet", Path.Combine(corehost, "dotnet")),
             ($"dotnet/host/fxr/{version}/libhostfxr.so", Path.Combine(corehost, "libhostfxr.so")),

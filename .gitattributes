@@ -13,3 +13,5 @@
 *.props text eol=lf
 *.csproj text eol=lf
 *.slnx text eol=lf
+# The console mark and the profile reach the guest as the package's bytes (C1.4): one line ending on every host.
+build/console/** text eol=lf
