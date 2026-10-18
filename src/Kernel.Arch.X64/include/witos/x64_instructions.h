@@ -130,6 +130,19 @@ static inline void wit_x64_invlpg(const void *address)
     __asm__ volatile("invlpg (%0)" : : "r"(address) : "memory");
 }
 
+/* The task register: each processor loads its own task state's selector (P1.1), so that the selector names it. */
+static inline void wit_x64_load_task_register(WitU16 selector)
+{
+    __asm__ volatile("ltr %0" : : "r"(selector) : "memory");
+}
+
+static inline WitU16 wit_x64_store_task_register(void)
+{
+    WitU16 selector;
+    __asm__ volatile("str %0" : "=r"(selector));
+    return selector;
+}
+
 /* CPUID of a leaf and a subleaf: EAX, EBX, ECX and EDX in that order, as MSVC's __cpuidex gave them. */
 static inline void wit_x64_cpuidex(int registers[4], int leaf, int subleaf)
 {

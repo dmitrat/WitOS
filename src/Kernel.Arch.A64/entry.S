@@ -236,6 +236,16 @@ wit_a64_idle_resume:
     msr daifset, #2
     ret
 
+// x0 = the top of the processor's idle stack, x1 = the idle path (P1.1): the current stack is abandoned; IRQ stays
+// masked.
+    .globl wit_arch_run_on_stack
+wit_arch_run_on_stack:
+    mov sp, x0
+    mov x29, xzr
+    mov x30, xzr
+    blr x1
+    brk #0
+
 // x0 = address, x1 = size. Cleans by the smallest data cache line (CTR_EL0.DminLine) to the point of unification.
 wit_a64_clean_data:
     cbz x1, clean_done

@@ -27,6 +27,17 @@ wit_x64_idle_resume:
     cli
     ret
 
+// rcx = the top of the processor's idle stack, rdx = the idle path (P1.1): the current stack is abandoned; IF stays
+// clear.
+    .globl wit_arch_run_on_stack
+wit_arch_run_on_stack:
+    mov rsp, rcx
+    and rsp, -16
+    xor ebp, ebp
+    sub rsp, 32                       // caller-owned shadow space
+    call rdx
+    ud2
+
     .globl wit_arch_set_user_tls
 wit_arch_set_user_tls:
     // The kernel chooses the FS base and both selectors on every return to a user thread; the GS base stays zero.

@@ -48,22 +48,45 @@ wit_rv64_idle_resume:
     csrci sstatus, 2
     ret
 
-// The trap vector (stvec, direct mode). sscratch is zero while the kernel runs and the kernel stack top of the running
-// user thread while U-mode runs (V1.3): a trap swaps it with sp, so a trap from U-mode lands on that kernel stack and
-// a trap from S-mode, which swapped a zero, stays on the interrupted stack. The frame holds x1–x31 (x2 the interrupted
-// sp), the trap CSRs, the floating-point registers and fcsr; wit_rv64_trap returns the frame to resume, possibly on
-// another thread's kernel stack.
+// a0 = the top of the processor's idle stack, a1 = the idle path (P1.1): the current stack is abandoned; interrupts
+// stay disabled.
+    .globl wit_arch_run_on_stack
+wit_arch_run_on_stack:
+    mv sp, a0
+    mv s0, zero
+    mv ra, zero
+    jalr a1
+    unimp
+
+// The trap vector (stvec, direct mode). In S-mode tp points to this hart's record (processor.c) and sscratch is zero;
+// while U-mode runs sscratch holds the record and tp is the thread's (P1.1). A trap swaps the two: from U-mode it finds
+// the record, keeps the thread's sp there and lands on the kernel stack top the record names; from S-mode it swapped
+// a zero, takes the kernel's tp back and stays on the interrupted stack. The frame holds x1–x31 (x2 the interrupted sp,
+// x4 the interrupted tp), the trap CSRs, the floating-point registers and fcsr; wit_rv64_trap returns the frame to
+// resume, possibly on another thread's kernel stack.
     .p2align 2
 wit_rv64_trap_vector:
-    csrrw sp, sscratch, sp
-    bnez sp, 1f
-    csrr sp, sscratch
-1:
+    csrrw tp, sscratch, tp
+    bnez tp, 1f
+    csrrw tp, sscratch, zero
     addi sp, sp, -FRAME_SIZE
+    sd t0, 40(sp)
+    addi t0, sp, FRAME_SIZE
+    sd t0, 16(sp)
+    sd tp, 32(sp)
+    j 2f
+1:
+    sd sp, 8(tp)
+    ld sp, 0(tp)
+    addi sp, sp, -FRAME_SIZE
+    sd t0, 40(sp)
+    ld t0, 8(tp)
+    sd t0, 16(sp)
+    csrrw t0, sscratch, zero
+    sd t0, 32(sp)
+2:
     sd x1, 8(sp)
     sd x3, 24(sp)
-    sd x4, 32(sp)
-    sd x5, 40(sp)
     sd x6, 48(sp)
     sd x7, 56(sp)
     sd x8, 64(sp)
@@ -91,9 +114,6 @@ wit_rv64_trap_vector:
     sd x30, 240(sp)
     sd x31, 248(sp)
     sd zero, 0(sp)
-    csrr t0, sscratch
-    sd t0, 16(sp)
-    csrw sscratch, zero
     csrr t0, sepc
     sd t0, 256(sp)
     csrr t0, sstatus
@@ -140,8 +160,9 @@ wit_rv64_trap_vector:
     mv a0, sp
     call wit_rv64_trap
 
-// a0 = frame to resume. The stack pointer after SRET is the frame's X[2]; a frame that returns to U-mode leaves its
-// kernel stack top in sscratch for the next trap, so it must sit at the top of its thread's kernel stack.
+// a0 = frame to resume, tp = this hart's record. The stack pointer after SRET is the frame's X[2] and tp its X[4]; a
+// frame that returns to U-mode leaves its kernel stack top in the record and the record in sscratch for the next trap,
+// so it must sit at the top of its thread's kernel stack.
 wit_rv64_resume_frame:
     mv sp, a0
     ld t0, 544(sp)
@@ -185,7 +206,8 @@ wit_rv64_resume_frame:
     andi t1, t0, SSTATUS_SPP
     bnez t1, 2f
     addi t1, sp, FRAME_SIZE
-    csrw sscratch, t1
+    sd t1, 0(tp)
+    csrw sscratch, tp
     // A reservation the interrupted thread holds must not pair with a store-conditional after a switch: a dummy
     // store-conditional to the kernel's own word clears it (TCG clears it at every trap; hardware need not).
     lla t1, reservation_scratch

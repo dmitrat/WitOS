@@ -103,6 +103,18 @@ WIT_STATIC_ASSERT(T_STACK_ADDRESS == 90U && T_INDEX_ADDRESS == 103U && T_ENTRY_A
 WitU64 wit_x64_boot_cr0, wit_x64_boot_cr4;
 WitU32 wit_x64_ipi_vector; /* the vector of the inter-processor interrupt in flight: one at a time, the sender waits */
 __declspec(align(4096)) static WitU8 stacks[WIT_PROCESSOR_CAPACITY][WIT_KERNEL_STACK_SIZE];
+
+/* A processor's idle stack (P1.1): a secondary's start stack, which it abandons once it dispatches, and for the boot
+ * processor entry 0, which no start uses. */
+void wit_arch_idle_stack(WitU32 index, WitU64 *low, WitU64 *high)
+{
+    if (index >= WIT_PROCESSOR_CAPACITY) {
+        wit_panic("Idle stack of a processor outside the table");
+    }
+    *low = (WitU64)stacks[index];
+    *high = *low + WIT_KERNEL_STACK_SIZE;
+}
+
 static WitU64 apic_base, trampoline_page;
 static int apic_enabled;
 
@@ -244,10 +256,12 @@ int wit_x64_lapic_enabled(void)
     return apic_enabled;
 }
 
-/* A started processor, on its own stack with the kernel's tables and root: its control registers follow the boot
- * processor's, its APIC comes up masked, it reports its features and itself, and halts for interrupts. */
+/* A started processor, on its own stack with the kernel's tables and root: it loads its own task register, which
+ * names it from here on (P1.1), its control registers follow the boot processor's, its APIC comes up masked, it
+ * reports its features and itself, and halts for interrupts. */
 WIT_NORETURN void wit_x64_secondary_main(WitU32 index)
 {
+    wit_arch_processor_set_index(index);
     wit_x64_write_cr4(wit_x64_boot_cr4);
     wit_x64_write_cr0(wit_x64_boot_cr0);
     enable_local_apic(0);

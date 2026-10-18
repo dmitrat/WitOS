@@ -16,6 +16,7 @@
     "[TEST-PASS] Processors.Topology",
     "[TEST-PASS] Smp.Online",
     "[TEST-PASS] Smp.Ipi",
+    "[TEST-PASS] Smp.Identity",
     "[TEST-PASS] Memory.PhysicalPages",
     "[TEST-PASS] Memory.Exhaustion",
     "[TEST-PASS] Memory.InvalidMaps",

@@ -3,18 +3,40 @@
 #include "witos/platform.h"
 #include "witos/x64_instructions.h"
 
-__declspec(align(16)) static WitU64 gdt[7];
+/* The task state of the boot processor sits at selector 0x18 (entries 3 and 4), before the user selectors SYSRET
+ * requires at 0x2B and 0x33; each other processor's follows them, two entries apiece from entry 7 (P1.1). */
+#define TSS_BOOT_SELECTOR 0x18U
+#define TSS_FIRST_SECONDARY 7U
+#define GDT_ENTRIES (TSS_FIRST_SECONDARY + 2U * (WIT_PROCESSOR_CAPACITY - 1U))
+
+__declspec(align(16)) static WitU64 gdt[GDT_ENTRIES];
 __declspec(align(16)) static WitInterruptGate idt[256];
-static WitTaskState task_state;
+static WitTaskState task_states[WIT_PROCESSOR_CAPACITY]; /* one a processor (P1.1) */
 static WitDescriptorPointer gdt_pointer; /* loaded by every processor (K7.2) */
 static WitDescriptorPointer idt_pointer;
+
+static WitU16 task_selector(WitU32 index)
+{
+    return (WitU16)(index == 0 ? TSS_BOOT_SELECTOR : (TSS_FIRST_SECONDARY + 2U * (index - 1U)) * 8U);
+}
+
+/* The two entries of a 64-bit available task state descriptor. */
+static void describe_task(WitU32 entry, const WitTaskState *task)
+{
+    const WitU64 base = (WitU64)task;
+    const WitU64 limit = sizeof(*task) - 1;
+    gdt[entry] = (limit & 0xFFFFULL) |
+        ((base & 0xFFFFFFULL) << 16) |
+        (0x89ULL << 40) |
+        (((limit >> 16) & 0xFULL) << 48) |
+        (((base >> 24) & 0xFFULL) << 56);
+    gdt[entry + 1] = base >> 32;
+}
 
 void wit_arch_initialize(void)
 {
     const WitU64 stack_pointer = wit_x64_stack_pointer();
     const WitU64 stack_begin = (WitU64)wit_x64_kernel_stack + 4096;
-    const WitU64 tss_base = (WitU64)&task_state;
-    const WitU64 tss_limit = sizeof(task_state) - 1;
 
     if (stack_pointer < stack_begin || stack_pointer >= stack_begin + WIT_KERNEL_STACK_SIZE) {
         wit_panic("Not running on kernel stack");
@@ -29,16 +51,13 @@ void wit_arch_initialize(void)
     gdt[0] = 0;
     gdt[1] = 0x00AF9A000000FFFFULL; /* ring 0, present, long-mode code */
     gdt[2] = 0x00CF92000000FFFFULL; /* ring 0 data */
-    task_state.Rsp[0] = stack_begin + WIT_KERNEL_STACK_SIZE;
-    wit_x64_syscall_kernel_rsp = task_state.Rsp[0];
-    task_state.Ist[0] = (WitU64)wit_x64_double_fault_stack + 4096 + WIT_EMERGENCY_STACK_SIZE;
-    task_state.IoMapBase = sizeof(task_state);
-    gdt[3] = (tss_limit & 0xFFFFULL) |
-        ((tss_base & 0xFFFFFFULL) << 16) |
-        (0x89ULL << 40) |
-        (((tss_limit >> 16) & 0xFULL) << 48) |
-        (((tss_base >> 24) & 0xFFULL) << 56);
-    gdt[4] = tss_base >> 32;
+    for (WitU32 i = 0; i < WIT_PROCESSOR_CAPACITY; ++i) {
+        task_states[i].Ist[0] = (WitU64)wit_x64_double_fault_stack + 4096 + WIT_EMERGENCY_STACK_SIZE;
+        task_states[i].IoMapBase = sizeof(task_states[i]);
+        describe_task(task_selector(i) / 8U, &task_states[i]);
+    }
+    task_states[0].Rsp[0] = stack_begin + WIT_KERNEL_STACK_SIZE;
+    wit_x64_syscall_kernel_rsp = task_states[0].Rsp[0];
     gdt[5] = 0x00CFF2000000FFFFULL; /* ring-3 data, selector 0x2B */
     gdt[6] = 0x00AFFA000000FFFFULL; /* ring-3 code, selector 0x33 */
 
@@ -61,16 +80,34 @@ void wit_arch_initialize(void)
     wit_console_write("[TEST-PASS] Cpu.ExceptionTables\n");
 }
 
-/* The kernel's tables for a secondary processor's entry: it loads them without a task register (K7.2). */
+/* The kernel's tables for a secondary processor's entry; it loads its own task register as it records its number. */
 void wit_x64_tables(const WitDescriptorPointer **gdt_out, const WitDescriptorPointer **idt_out)
 {
     *gdt_out = &gdt_pointer;
     *idt_out = &idt_pointer;
 }
 
+/* A processor's number is its task register's selector (P1.1): the boot processor loaded 0x18 with the tables, and a
+ * secondary loads its own descriptor here, once, as it starts. */
+void wit_arch_processor_set_index(WitU32 index)
+{
+    if (index >= WIT_PROCESSOR_CAPACITY) {
+        wit_panic("Processor number outside the table");
+    }
+    if (wit_x64_store_task_register() != task_selector(index)) {
+        wit_x64_load_task_register(task_selector(index));
+    }
+}
+
+WitU32 wit_arch_processor_index(void)
+{
+    const WitU16 selector = wit_x64_store_task_register();
+    return selector <= TSS_BOOT_SELECTOR ? 0U : 1U + (selector - TSS_FIRST_SECONDARY * 8U) / 16U;
+}
+
 void wit_x64_set_kernel_stack(WitU64 top)
 {
-    task_state.Rsp[0] = top;
+    task_states[wit_arch_processor_index()].Rsp[0] = top;
     wit_x64_syscall_kernel_rsp = top; /* SYSCALL switches no stack; the entry loads this one (K5.2a). */
 }
 

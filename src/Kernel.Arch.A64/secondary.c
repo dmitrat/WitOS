@@ -17,6 +17,17 @@ WitU64 wit_a64_secondary_stack_tops[WIT_PROCESSOR_CAPACITY];
 
 __declspec(align(4096)) static WitU8 stacks[WIT_PROCESSOR_CAPACITY][WIT_A64_KERNEL_STACK_SIZE];
 
+/* A processor's idle stack (P1.1): a secondary's start stack, which it abandons once it dispatches, and for the boot
+ * processor entry 0, which no start uses. */
+void wit_arch_idle_stack(WitU32 index, WitU64 *low, WitU64 *high)
+{
+    if (index >= WIT_PROCESSOR_CAPACITY) {
+        wit_panic("Idle stack of a processor outside the table");
+    }
+    *low = (WitU64)stacks[index];
+    *high = *low + WIT_A64_KERNEL_STACK_SIZE;
+}
+
 static void require(int condition, const char *message)
 {
     if (!condition) {
@@ -62,10 +73,11 @@ void wit_arch_invalidate_local(WitU64 address)
     wit_a64_invalidate_page(address);
 }
 
-/* A started processor, on its own stack with translation on: its interrupt controller frames awake and its SGIs
- * enabled, it reports itself ready and waits for interrupts. */
+/* A started processor, on its own stack with translation on: it records its number (P1.1), its interrupt controller
+ * frames awake and its SGIs enabled, it reports itself ready and waits for interrupts. */
 WIT_NORETURN void wit_a64_secondary_main(WitU32 index)
 {
+    wit_arch_processor_set_index(index);
     require(wit_a64_system_control() == wit_a64_boot_sctlr && wit_a64_fp_access() == wit_a64_boot_cpacr,
         "Secondary processor control registers differ from the boot processor's");
     wit_platform_processor_interrupts_enable(index, wit_arch_processor_id());

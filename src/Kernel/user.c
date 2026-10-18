@@ -1,16 +1,59 @@
 #include "user.h"
 #include "root_task.h"
 #include "witos/platform.h"
+#include "witos/processor.h"
 #include "witos/virtual.h"
 
 #define NO_THREAD WIT_PROCESS_THREAD_CAPACITY
 
-static WitUserProcess *current_user;
+/* The dispatcher's state of each processor (P1.1): the component it runs, or the one whose thread went to wait when
+ * it went idle, the thread it runs, whether it idles now, and how the dispatch that sent it idle looked for a thread.
+ * A processor idles on its own stack, never on a waiting thread's kernel stack, which another processor could resume. */
+typedef struct Dispatcher {
+    WitUserProcess *Current;
+    WitU32 Thread;
+    volatile WitU32 Idle;
+    int IdleTimer;
+    int IdleRotate;
+} Dispatcher;
+
+static Dispatcher dispatchers[WIT_PROCESSOR_CAPACITY];
 static WitUserProcess *slot_owners[WIT_PROCESS_CAPACITY]; /* the registry: the component of each slot (K5.2c) */
 static WitUserProcess *root_user; /* the component wit_user_run launched; its end ends the run */
 static WitU32 next_id = 1;
-static volatile WitU32 user_idle;
 static WitU64 contained_faults;
+
+/* The calling processor's dispatcher state. */
+static Dispatcher *self(void)
+{
+    return &dispatchers[wit_processors_current()];
+}
+
+/* The calling processor's idle stack, which the architecture gives (P1.1). */
+static WitU64 idle_low(void)
+{
+    WitU64 low, high;
+    wit_arch_idle_stack(wit_processors_current(), &low, &high);
+    return low;
+}
+
+static WitU64 idle_high(void)
+{
+    WitU64 low, high;
+    wit_arch_idle_stack(wit_processors_current(), &low, &high);
+    return high;
+}
+
+/* A processor enters the kernel from its thread (P1.1): its component's current thread is the one this processor
+ * runs, which the calls name as their caller. With one scheduling processor the two never differ. */
+static WitUserProcess *enter(void)
+{
+    Dispatcher *const cpu = self();
+    if (cpu->Current && !cpu->Idle) {
+        cpu->Current->CurrentThread = cpu->Thread;
+    }
+    return cpu->Current;
+}
 
 static void require(int condition, const char *message)
 {
@@ -103,7 +146,7 @@ static void retire(WitUserProcess *process)
 
 void wit_user_end(WitUserProcess *process, WitUserState state, WitU64 code)
 {
-    require(process != current_user && process->Pooled && process->State == WitUserRunning,
+    require(process != self()->Current && process->Pooled && process->State == WitUserRunning,
         "Ending a process that is not another live created process");
     settle(process, state, code);
     retire(process);
@@ -125,30 +168,30 @@ static WitArchFrame *dispatch(int timer, int rotate);
 
 WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code)
 {
-    require(current_user != 0 && current_user->State == WitUserRunning, "No current user component");
-    WitUserProcess *p = current_user;
+    require(self()->Current != 0 && self()->Current->State == WitUserRunning, "No current user component");
+    WitUserProcess *p = self()->Current;
     settle(p, state, code);
     if (p != root_user) {
         /* A created process ended: the run goes on with the others, and the resume abandons this kernel stack, the idle
          * path's too when the end came from a tick or a line that interrupted it (R6). */
         retire(p);
-        user_idle = 0;
+        self()->Idle = 0;
         wit_arch_resume_frame(dispatch(0, 0));
     }
     wit_platform_timer_stop();
     end_children();
-    user_idle = 0;
+    self()->Idle = 0;
     wit_arch_reset_user_tls();
-    current_user = 0;
+    self()->Current = 0;
     root_user = 0;
     wit_arch_leave_user();
 }
 
 static void validate_return(WitArchFrame *frame, WitU32 index, int syscall)
 {
-    const WitUserThread *thread = &current_user->Threads[index];
+    const WitUserThread *thread = &self()->Current->Threads[index];
     WitU64 bottom = 0, top = 0;
-    require(wit_arch_frame_owned(frame, current_user->Slot, index), "User trap outside owning kernel stack");
+    require(wit_arch_frame_owned(frame, self()->Current->Slot, index), "User trap outside owning kernel stack");
     const WitU64 sp = wit_arch_frame_sp(frame);
     /* The stack pointer lies in the thread's stack or its alternate stack (S3.1). An empty stack sits at its top
      * (the one thread form starts there); the page probed is the one a push writes. */
@@ -156,8 +199,8 @@ static void validate_return(WitArchFrame *frame, WitU32 index, int syscall)
     const WitU64 probe = held && sp == top ? sp - 1 : sp;
     if (!wit_arch_frame_returns_to_user(frame) ||
         !held ||
-        !wit_user_space_physical(&current_user->Space, probe, 1, 0) ||
-        !wit_user_space_physical(&current_user->Space, wit_arch_frame_pc(frame), 0, 1)) {
+        !wit_user_space_physical(&self()->Current->Space, probe, 1, 0) ||
+        !wit_user_space_physical(&self()->Current->Space, wit_arch_frame_pc(frame), 0, 1)) {
         wit_user_finish(WitUserBadReturn, 0);
     }
     wit_arch_frame_prepare_return(frame, syscall);
@@ -166,24 +209,24 @@ static void validate_return(WitArchFrame *frame, WitU32 index, int syscall)
 /* Reclaims an exited thread's stack, TLS and private identity; the handles that observed it keep its exit code. */
 static void reap(WitU32 index)
 {
-    WitUserThread *thread = &current_user->Threads[index];
+    WitUserThread *thread = &self()->Current->Threads[index];
     require(thread->State == WitThreadExited, "Reaping live thread");
     if (thread->OwnsStack) {
         for (WitU64 p = thread->StackBottom; p < thread->StackTop; p += 4096) {
-            require(wit_user_space_unmap_fixed(&current_user->Space, p), "Thread stack ownership lost");
+            require(wit_user_space_unmap_fixed(&self()->Current->Space, p), "Thread stack ownership lost");
         }
     } else if (thread->ExitReservation) {
         /* The one thread form (K5.2a): the exiting thread named its stack's reservation, validated at the exit; the
          * thread no longer runs on it. */
-        require(wit_user_memory_unmap(current_user, thread->ExitReservation, 0) == WIT_STATUS_OK,
+        require(wit_user_memory_unmap(self()->Current, thread->ExitReservation, 0) == WIT_STATUS_OK,
             "Exit reservation vanished before its release");
         thread->ExitReservation = 0;
     }
-    require(wit_handle_close(&current_user->Handles, thread->Handle) == WIT_STATUS_OK, "Thread handle lost");
+    require(wit_handle_close(&self()->Current->Handles, thread->Handle) == WIT_STATUS_OK, "Thread handle lost");
     thread->Handle = 0;
     thread->SuspendCount = 0;
     thread->State = WitThreadEmpty;
-    ++current_user->ThreadReaps;
+    ++self()->Current->ThreadReaps;
 }
 
 /* Every live component's deadlines and pressure; the one clock read serves them all. */
@@ -230,10 +273,10 @@ static int idle_can_wake(void)
  * pending activation enters the fault callback first, and the frame it leaves is validated like any user return. */
 static WitArchFrame *resume_current(WitArchFrame *frame)
 {
-    const WitU32 index = current_user->CurrentThread;
-    WitUserThread *thread = &current_user->Threads[index];
+    const WitU32 index = self()->Current->CurrentThread;
+    WitUserThread *thread = &self()->Current->Threads[index];
     require(frame == thread->Context, "Resuming a frame the current thread does not own");
-    if (wit_user_activation_deliver(current_user, thread)) {
+    if (wit_user_activation_deliver(self()->Current, thread)) {
         validate_return(frame, index, 0);
     }
     return frame;
@@ -245,64 +288,92 @@ static WitArchFrame *resume_current(WitArchFrame *frame)
  * from the others (D5.2); a wait, an exit or a device line looks at the current component first. Another component's
  * thread means its address space, its kernel stack and its TLS; a component with no ready thread but a waiting or
  * suspended one keeps the processor idle until a tick or a device line changes something. The component whose last
- * thread exited ended in wit_user_exit_thread. */
-static WitArchFrame *dispatch(int timer, int rotate)
+ * thread exited ended in wit_user_exit_thread. The frame to resume, or zero when no thread is ready; *waiting says
+ * whether a thread waits or is suspended. */
+static WitArchFrame *pick(int timer, int rotate, int *waiting)
 {
-    for (;;) {
-        int waiting = 0;
-        expire_waits();
-        const WitU32 first = current_user ? current_user->Slot : 0;
-        const WitU32 start = rotate ? 1U : 0U;
-        for (WitU32 n = start; n < start + WIT_PROCESS_CAPACITY; ++n) {
-            WitUserProcess *q = slot_owners[(first + n) % WIT_PROCESS_CAPACITY];
-            if (!q || q->State != WitUserRunning) {
+    Dispatcher *const cpu = self();
+    expire_waits();
+    const WitU32 first = cpu->Current ? cpu->Current->Slot : 0;
+    const WitU32 start = rotate ? 1U : 0U;
+    for (WitU32 n = start; n < start + WIT_PROCESS_CAPACITY; ++n) {
+        WitUserProcess *q = slot_owners[(first + n) % WIT_PROCESS_CAPACITY];
+        if (!q || q->State != WitUserRunning) {
+            continue;
+        }
+        const WitU32 previous = q->CurrentThread;
+        for (WitU32 offset = 1; offset <= WIT_PROCESS_THREAD_CAPACITY; ++offset) {
+            const WitU32 index = (previous + offset) % WIT_PROCESS_THREAD_CAPACITY;
+            WitUserThread *thread = &q->Threads[index];
+            if (thread->State == WitThreadWaiting || thread->SuspendCount) {
+                *waiting = 1;
+            }
+            if (thread->State != WitThreadReady || thread->SuspendCount) {
                 continue;
             }
-            const WitU32 previous = q->CurrentThread;
-            for (WitU32 offset = 1; offset <= WIT_PROCESS_THREAD_CAPACITY; ++offset) {
-                const WitU32 index = (previous + offset) % WIT_PROCESS_THREAD_CAPACITY;
-                WitUserThread *thread = &q->Threads[index];
-                if (thread->State == WitThreadWaiting || thread->SuspendCount) {
-                    waiting = 1;
-                }
-                if (thread->State != WitThreadReady || thread->SuspendCount) {
-                    continue;
-                }
-                if (q != current_user) {
-                    wit_arch_space_switch(q->Space.Root);
-                    current_user = q;
-                }
-                validate_return(thread->Context, index, 0);
-                if (index != previous) {
-                    ++q->ThreadSwitches;
-                    if (timer) {
-                        ++q->ThreadTimerSwitches;
-                    }
-                }
-                q->CurrentThread = index;
-                thread->State = WitThreadRunning;
-                wit_arch_select_thread_stack(q->Slot, index);
-                wit_arch_set_user_tls(thread->Tls);
-                return resume_current(thread->Context);
+            if (q != cpu->Current) {
+                wit_arch_space_switch(q->Space.Root);
+                cpu->Current = q;
             }
+            validate_return(thread->Context, index, 0);
+            if (index != previous) {
+                ++q->ThreadSwitches;
+                if (timer) {
+                    ++q->ThreadTimerSwitches;
+                }
+            }
+            q->CurrentThread = index;
+            cpu->Thread = index;
+            thread->State = WitThreadRunning;
+            wit_arch_select_thread_stack(q->Slot, index);
+            wit_arch_set_user_tls(thread->Tls);
+            return resume_current(thread->Context);
+        }
+    }
+    return 0;
+}
+
+/* The processor's idle path (P1.1), on its own stack: it halts until an interrupt, then looks for a ready thread again
+ * as the dispatch that sent it here looked; a tick or a device line returns to the halt, and a ready thread's frame
+ * resumes from here, which leaves the idle stack. The nested interrupt never replaces a saved user context. */
+WIT_NORETURN static void idle(void)
+{
+    Dispatcher *const cpu = self();
+    for (;;) {
+        int waiting = 0;
+        WitArchFrame *const frame = pick(cpu->IdleTimer, cpu->IdleRotate, &waiting);
+        if (frame) {
+            wit_arch_resume_frame(frame);
         }
         require(waiting, "No thread of any component to run or to wait for");
-        /* Remain on this kernel stack until an IRQ returns to the instruction
-         * after HLT. The nested IRQ never replaces any saved user context. */
         require(!wit_arch_interrupts_enabled(), "Idle entered with interrupts enabled");
         wit_arch_reset_user_tls();
-        user_idle = 1;
-        ++current_user->IdleHalts;
+        cpu->Idle = 1;
+        ++cpu->Current->IdleHalts;
         wit_arch_idle_once();
-        user_idle = 0;
+        cpu->Idle = 0;
     }
+}
+
+static WitArchFrame *dispatch(int timer, int rotate)
+{
+    int waiting = 0;
+    WitArchFrame *const frame = pick(timer, rotate, &waiting);
+    if (frame) {
+        return frame;
+    }
+    require(waiting, "No thread of any component to run or to wait for");
+    Dispatcher *const cpu = self();
+    cpu->IdleTimer = timer;
+    cpu->IdleRotate = rotate;
+    wit_arch_run_on_stack(idle_high(), idle);
 }
 
 WitArchFrame *wit_user_exit_thread(WitU64 code, WitU64 reservation, WitU64 clear, WitU64 event)
 {
     static const WitU8 zero[4] = {0};
-    const WitU32 index = current_user->CurrentThread;
-    WitUserThread *thread = &current_user->Threads[index];
+    const WitU32 index = self()->Current->CurrentThread;
+    WitUserThread *thread = &self()->Current->Threads[index];
     thread->ExitReservation = thread->OwnsStack ? 0 : reservation;
     thread->ExitClear = clear;
     thread->ExitEvent = event;
@@ -319,14 +390,14 @@ WitArchFrame *wit_user_exit_thread(WitU64 code, WitU64 reservation, WitU64 clear
      * the call and nothing else ran since. The woken waiters run after the reap. */
     if (clear) {
         require(
-            wit_user_copy_to(&current_user->Space, clear, zero, sizeof(zero)), "Exit word vanished before the exit");
+            wit_user_copy_to(&self()->Current->Space, clear, zero, sizeof(zero)), "Exit word vanished before the exit");
     }
     if (event) {
-        require(wit_user_event_set(current_user, event) == WIT_STATUS_OK, "Exit event vanished before the exit");
+        require(wit_user_event_set(self()->Current, event) == WIT_STATUS_OK, "Exit event vanished before the exit");
     }
     reap(index);
     for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
-        if (current_user->Threads[i].State != WitThreadEmpty) {
+        if (self()->Current->Threads[i].State != WitThreadEmpty) {
             return dispatch(0, 0);
         }
     }
@@ -335,44 +406,44 @@ WitArchFrame *wit_user_exit_thread(WitU64 code, WitU64 reservation, WitU64 clear
 
 WitU64 wit_user_close_handle(WitU64 handle)
 {
-    const WitU64 reference = wit_user_reference_close(current_user, handle);
+    const WitU64 reference = wit_user_reference_close(self()->Current, handle);
     if (reference != WIT_STATUS_WRONG_TYPE) {
         return reference;
     }
-    const WitU64 channel = wit_user_channel_close(current_user, handle);
+    const WitU64 channel = wit_user_channel_close(self()->Current, handle);
     if (channel != WIT_STATUS_WRONG_TYPE) {
         return channel;
     }
-    const WitU64 object = wit_user_memory_object_close(current_user, handle);
+    const WitU64 object = wit_user_memory_object_close(self()->Current, handle);
     if (object != WIT_STATUS_WRONG_TYPE) {
         return object;
     }
-    const WitU64 device = wit_user_device_close(current_user, handle);
+    const WitU64 device = wit_user_device_close(self()->Current, handle);
     if (device != WIT_STATUS_WRONG_TYPE) {
         return device;
     }
-    const WitU64 interrupt = wit_user_interrupt_close(current_user, handle);
+    const WitU64 interrupt = wit_user_interrupt_close(self()->Current, handle);
     if (interrupt != WIT_STATUS_WRONG_TYPE) {
         return interrupt;
     }
-    const WitU64 pin = wit_user_pin_close(current_user, handle);
+    const WitU64 pin = wit_user_pin_close(self()->Current, handle);
     if (pin != WIT_STATUS_WRONG_TYPE) {
         return pin;
     }
-    const WitU64 process_status = wit_user_process_close(current_user, handle);
+    const WitU64 process_status = wit_user_process_close(self()->Current, handle);
     if (process_status != WIT_STATUS_WRONG_TYPE) {
         return process_status;
     }
     /* A thread's private identity is not a capability user space can release: it ends with the thread. */
-    const WitU64 status = wit_handle_check(&current_user->Handles, handle, WIT_HANDLE_THREAD_IDENTITY, 0);
+    const WitU64 status = wit_handle_check(&self()->Current->Handles, handle, WIT_HANDLE_THREAD_IDENTITY, 0);
     if (status == WIT_STATUS_OK) {
         return WIT_STATUS_BUSY;
     }
     if (status != WIT_STATUS_WRONG_TYPE) {
         return status;
     }
-    const WitU64 event_status = wit_user_event_close(current_user, handle);
-    return event_status == WIT_STATUS_WRONG_TYPE ? wit_handle_close(&current_user->Handles, handle) : event_status;
+    const WitU64 event_status = wit_user_event_close(self()->Current, handle);
+    return event_status == WIT_STATUS_WRONG_TYPE ? wit_handle_close(&self()->Current->Handles, handle) : event_status;
 }
 
 static int registered(const WitUserProcess *process)
@@ -388,7 +459,7 @@ static int registered(const WitUserProcess *process)
 static int can_create(const WitUserProcess *process, WitU32 slot)
 {
     return process &&
-        !current_user &&
+        !self()->Current &&
         slot < WIT_PROCESS_CAPACITY &&
         !slot_owners[slot] &&
         next_id &&
@@ -584,9 +655,9 @@ int wit_user_create_empty(WitUserProcess *process, WitPageAllocator *allocator, 
 
 void wit_user_run(WitUserProcess *process)
 {
-    require(!current_user &&
+    require(!self()->Current &&
             !root_user &&
-            !user_idle &&
+            !self()->Idle &&
             process->State == WitUserReady &&
             slot_owners[process->Slot] == process &&
             !wit_arch_interrupts_enabled() &&
@@ -594,7 +665,8 @@ void wit_user_run(WitUserProcess *process)
         "Invalid user launch");
     require(wit_user_processes_pooled() == 0, "A created process survived the previous run");
     root_user = process;
-    current_user = process;
+    self()->Current = process;
+    self()->Thread = 0;
     process->State = WitUserRunning;
     process->Threads[0].State = WitThreadRunning;
     process->Ticks = 0;
@@ -602,7 +674,7 @@ void wit_user_run(WitUserProcess *process)
     wit_platform_timer_start();
     wit_arch_set_user_tls(process->Threads[0].Tls);
     wit_arch_run_user(process->Threads[0].Context, process->Space.Root);
-    require(!current_user &&
+    require(!self()->Current &&
             !root_user &&
             process->State != WitUserRunning &&
             wit_arch_kernel_space_active() &&
@@ -614,7 +686,7 @@ void wit_user_run(WitUserProcess *process)
 
 void wit_user_destroy(WitUserProcess *process)
 {
-    require(current_user != process && process->State != WitUserRunning, "Destroying running component");
+    require(self()->Current != process && process->State != WitUserRunning, "Destroying running component");
     /* A component torn down without an exit still holds its references; the order is the exit's (K5.2b). */
     release_references(process);
     teardown(process);
@@ -624,12 +696,12 @@ void wit_user_destroy(WitUserProcess *process)
 
 int wit_user_is_active(void)
 {
-    return current_user != 0;
+    return self()->Current != 0;
 }
 
 WitUserProcess *wit_user_current(void)
 {
-    return current_user;
+    return self()->Current;
 }
 
 WitUserProcess *wit_user_process_at(WitU32 index)
@@ -664,34 +736,35 @@ WitU64 wit_user_contained_faults(void)
 
 WitArchFrame *wit_user_yield(void)
 {
-    current_user->Threads[current_user->CurrentThread].State = WitThreadReady;
+    self()->Current->Threads[self()->Current->CurrentThread].State = WitThreadReady;
     return dispatch(0, 1);
 }
 
 WitArchFrame *wit_user_timer_tick(WitArchFrame *context)
 {
-    require(current_user != 0, "User timer without component");
-    if (user_idle) {
-        require(wit_arch_frame_owned(context, current_user->Slot, current_user->CurrentThread) &&
-                wit_arch_frame_is_idle(context, current_user->Slot, current_user->CurrentThread),
-            "Timer did not interrupt the kernel idle path");
-        ++current_user->IdleTicks;
+    Dispatcher *const cpu = self();
+    WitUserProcess *const current = enter();
+    require(current != 0, "User timer without component");
+    if (cpu->Idle) {
+        require(
+            wit_arch_frame_is_idle(context, idle_low(), idle_high()), "Timer did not interrupt the kernel idle path");
+        ++current->IdleTicks;
     } else {
-        WitUserThread *thread = &current_user->Threads[current_user->CurrentThread];
-        validate_return(context, current_user->CurrentThread, 0);
+        WitUserThread *thread = &current->Threads[current->CurrentThread];
+        validate_return(context, current->CurrentThread, 0);
         thread->Context = context;
         thread->State = WitThreadReady;
     }
     expire_waits();
     /* The budget is the running component's; a tick of the idle path charges the component that went idle only when
      * nothing can wake the processor (idle_can_wake). */
-    if ((!user_idle || !idle_can_wake()) &&
-        current_user->State == WitUserRunning &&
-        ++current_user->Ticks >= current_user->TickLimit) {
+    if ((!cpu->Idle || !idle_can_wake()) &&
+        current->State == WitUserRunning &&
+        ++current->Ticks >= current->TickLimit) {
         wit_user_finish(WitUserBudgetExpired, 0);
     }
-    if (user_idle) {
-        return context; /* Resume CLI/RET and recheck ready threads. */
+    if (cpu->Idle) {
+        return context; /* Resume CLI/RET on the idle stack and look for ready threads again. */
     }
     return dispatch(1, 1);
 }
@@ -700,24 +773,25 @@ WitArchFrame *wit_user_timer_tick(WitArchFrame *context)
  * the ready threads are dispatched as after a tick; without a component the line stays masked. */
 WitArchFrame *wit_user_interrupt(WitArchFrame *context, WitU32 line)
 {
-    if (!current_user) {
+    Dispatcher *const cpu = self();
+    WitUserProcess *const current = enter();
+    if (!current) {
         return context;
     }
-    if (user_idle) {
-        require(wit_arch_frame_owned(context, current_user->Slot, current_user->CurrentThread) &&
-                wit_arch_frame_is_idle(context, current_user->Slot, current_user->CurrentThread),
+    if (cpu->Idle) {
+        require(wit_arch_frame_is_idle(context, idle_low(), idle_high()),
             "Device interrupt did not interrupt the kernel idle path");
     } else {
-        require(current_user->State == WitUserRunning, "Device interrupt outside a running component");
-        WitUserThread *thread = &current_user->Threads[current_user->CurrentThread];
-        validate_return(context, current_user->CurrentThread, 0);
+        require(current->State == WitUserRunning, "Device interrupt outside a running component");
+        WitUserThread *thread = &current->Threads[current->CurrentThread];
+        validate_return(context, current->CurrentThread, 0);
         thread->Context = context;
         thread->State = WitThreadReady;
     }
     wit_user_interrupt_raised(line); /* To the binding's owner, whichever component that is (K5.2c). */
     expire_waits();
-    if (user_idle) {
-        return context; /* Resume CLI/RET and recheck ready threads. */
+    if (cpu->Idle) {
+        return context; /* Resume CLI/RET on the idle stack and look for ready threads again. */
     }
     return dispatch(1, 0);
 }
@@ -725,12 +799,13 @@ WitArchFrame *wit_user_interrupt(WitArchFrame *context, WitU32 line)
 WitArchFrame *wit_user_syscall(
     WitArchFrame *context, WitU64 number, WitU64 argument0, WitU64 argument1, WitU64 argument2)
 {
-    require(current_user != 0 && current_user->State == WitUserRunning, "Syscall without component");
-    validate_return(context, current_user->CurrentThread, 1);
+    enter();
+    require(self()->Current != 0 && self()->Current->State == WitUserRunning, "Syscall without component");
+    validate_return(context, self()->Current->CurrentThread, 1);
     expire_waits();
-    current_user->Threads[current_user->CurrentThread].Context = context;
-    WitUserCall call = {current_user, context, number, argument0, argument1, argument2, wit_arch_frame_status(context),
-        wit_arch_frame_value(context)};
+    self()->Current->Threads[self()->Current->CurrentThread].Context = context;
+    WitUserCall call = {self()->Current, context, number, argument0, argument1, argument2,
+        wit_arch_frame_status(context), wit_arch_frame_value(context)};
     wit_arch_frame_set_result(context, WIT_STATUS_OK, 0);
     WitArchFrame *const resume = wit_user_call(&call);
     if (resume) {
@@ -741,28 +816,29 @@ WitArchFrame *wit_user_syscall(
     // A finite wait can complete here before this syscall returns; dispatch its
     // Ready state normally instead of returning with an inconsistent state.
     expire_waits();
-    if (current_user->Threads[current_user->CurrentThread].SuspendCount &&
-        current_user->Threads[current_user->CurrentThread].State == WitThreadRunning) {
-        current_user->Threads[current_user->CurrentThread].State = WitThreadReady;
+    if (self()->Current->Threads[self()->Current->CurrentThread].SuspendCount &&
+        self()->Current->Threads[self()->Current->CurrentThread].State == WitThreadRunning) {
+        self()->Current->Threads[self()->Current->CurrentThread].State = WitThreadReady;
     }
-    if (current_user->Threads[current_user->CurrentThread].State != WitThreadRunning) {
+    if (self()->Current->Threads[self()->Current->CurrentThread].State != WitThreadRunning) {
         return dispatch(0, 0);
     }
-    wit_arch_set_user_tls(current_user->Threads[current_user->CurrentThread].Tls);
+    wit_arch_set_user_tls(self()->Current->Threads[self()->Current->CurrentThread].Tls);
     return resume_current(context);
 }
 
 WitArchFrame *wit_user_exception_trap(WitArchFrame *context, WitU64 vector, WitU64 error, WitU64 address)
 {
-    require(current_user &&
-            current_user->State == WitUserRunning &&
-            wit_arch_frame_owned(context, current_user->Slot, current_user->CurrentThread) &&
+    enter();
+    require(self()->Current &&
+            self()->Current->State == WitUserRunning &&
+            wit_arch_frame_owned(context, self()->Current->Slot, self()->Current->CurrentThread) &&
             wit_arch_frame_from_user(context),
         "Invalid resumable user fault context");
-    WitUserThread *thread = &current_user->Threads[current_user->CurrentThread];
+    WitUserThread *thread = &self()->Current->Threads[self()->Current->CurrentThread];
     thread->Context = context;
-    if (wit_user_exception_deliver(current_user, context, vector, error, address)) {
-        validate_return(context, current_user->CurrentThread, 0);
+    if (wit_user_exception_deliver(self()->Current, context, vector, error, address)) {
+        validate_return(context, self()->Current->CurrentThread, 0);
         wit_arch_set_user_tls(thread->Tls);
         return context;
     }
@@ -784,23 +860,24 @@ WitArchFrame *wit_user_exception_trap(WitArchFrame *context, WitU64 vector, WitU
 WIT_NORETURN void wit_user_fault(
     const void *trap, WitU64 trap_size, WitU64 vector, WitU64 error, WitU64 address, const WitArchFaultState *state)
 {
-    require(current_user != 0 &&
-            wit_arch_kernel_stack_contains(current_user->Slot, current_user->CurrentThread, trap, trap_size),
+    enter();
+    require(self()->Current != 0 &&
+            wit_arch_kernel_stack_contains(self()->Current->Slot, self()->Current->CurrentThread, trap, trap_size),
         "Invalid user fault frame");
     wit_user_fault_state(vector, error, address, state);
 }
 
 WIT_NORETURN void wit_user_fault_state(WitU64 vector, WitU64 error, WitU64 address, const WitArchFaultState *state)
 {
-    require(current_user != 0 && wit_arch_fault_from_user(state), "Invalid user fault state");
-    current_user->FaultThread = current_user->CurrentThread;
-    current_user->FaultVector = vector;
-    current_user->FaultError = error;
-    current_user->FaultAddress = address;
-    current_user->FaultState = *state;
+    require(self()->Current != 0 && wit_arch_fault_from_user(state), "Invalid user fault state");
+    self()->Current->FaultThread = self()->Current->CurrentThread;
+    self()->Current->FaultVector = vector;
+    self()->Current->FaultError = error;
+    self()->Current->FaultAddress = address;
+    self()->Current->FaultState = *state;
     ++contained_faults;
     wit_console_write("[USER-FAULT] id=");
-    wit_console_write_u64(current_user->Id);
+    wit_console_write_u64(self()->Current->Id);
     wit_console_write(" vector=");
     wit_console_write_u64(vector);
     wit_console_write(" error=");

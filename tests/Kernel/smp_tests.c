@@ -35,4 +35,9 @@ void wit_smp_self_test(void)
             "A secondary processor did not acknowledge every request once");
     }
     wit_console_write("[TEST-PASS] Smp.Ipi\n");
+    /* Each processor reads its number from its own register (P1.1): the boot processor here, each secondary at its
+     * start and in every request it served above, where cpus.c requires the number to name its hardware identity. */
+    require(
+        wit_processors_current() == 0 && wit_arch_processor_index() == 0, "The boot processor does not read number 0");
+    wit_console_write("[TEST-PASS] Smp.Identity\n");
 }
