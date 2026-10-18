@@ -70,12 +70,14 @@ public sealed class MemoryFrame : IFrameSink
 }
 
 /// <summary>
-/// Draws a terminal screen into a framebuffer as cells of a bitmap font (plan step C2.2): white on black, the cursor an
-/// inverted cell. A cell is drawn when its character or the cursor's presence changed since the last frame, and of a
-/// drawn cell only the pixels that differ from what the framebuffer shows are stored (C2.3): the renderer keeps a word
-/// for every pixel of the framebuffer, since every store goes through device memory, so a scroll — every cell of the
-/// screen changed — costs the pixels that changed, not the cells. The same renderer draws the display in the service and
-/// the expected frame on the host.
+/// Draws a terminal screen into a framebuffer as cells of a bitmap font (plan step C2.2): white on black by default,
+/// the cell's colours of <see cref="TerminalPalette"/> when SGR set them (C2.6; bold brightens a dark colour, inverse
+/// trades the colours, underline lights the cell's bottom row), the cursor an inverted cell while it is shown, a
+/// character the font lacks a hollow box. A cell is drawn when its character, its look or the cursor's presence changed
+/// since the last frame, and of a drawn cell only the pixels that differ from what the framebuffer shows are stored
+/// (C2.3): the renderer keeps a word for every pixel of the framebuffer, since every store goes through device memory,
+/// so a scroll — every cell of the screen changed — costs the pixels that changed, not the cells. The same renderer
+/// draws the display in the service and the expected frame on the host.
 /// </summary>
 public sealed class FrameRenderer
 {
@@ -102,7 +104,10 @@ public sealed class FrameRenderer
     private readonly IFrameSink m_sink;
     private readonly uint m_foreground;
     private readonly uint m_background;
+    private readonly uint[] m_palette;
+    private readonly byte[] m_missing;
     private readonly char[] m_shadow;
+    private readonly TerminalStyle[] m_shadowStyles;
     private readonly uint[] m_pixels;
     private int m_cursorRow = -1;
     private int m_cursorColumn = -1;
@@ -131,8 +136,14 @@ public sealed class FrameRenderer
             throw new ArgumentException($"A {geometry.Width} by {geometry.Height} framebuffer holds no cell of {font.Width} by {font.Height}.", nameof(font));
         m_foreground = TestPattern.Encode(FOREGROUND, geometry.Format);
         m_background = TestPattern.Encode(BACKGROUND, geometry.Format);
+        m_palette = new uint[TerminalPalette.COLORS.Length];
+        for (var i = 0; i < m_palette.Length; i++)
+            m_palette[i] = TestPattern.Encode(TerminalPalette.COLORS[i], geometry.Format);
+        m_missing = Box(font);
         m_shadow = new char[Rows * Columns];
         Array.Fill(m_shadow, UNKNOWN);
+        m_shadowStyles = new TerminalStyle[Rows * Columns];
+        Array.Fill(m_shadowStyles, TerminalStyle.Default);
         m_pixels = new uint[geometry.Stride * geometry.Height];
     }
 
@@ -160,14 +171,15 @@ public sealed class FrameRenderer
             m_sink.Write32((long)i * FramebufferGeometry.PIXEL_BYTES, m_background);
         Array.Fill(m_pixels, m_background);
         Array.Fill(m_shadow, ' ');
+        Array.Fill(m_shadowStyles, TerminalStyle.Default);
         m_cursorRow = -1;
         m_cursorColumn = -1;
         m_cleared = true;
     }
 
     /// <summary>
-    /// Draws the screen: every cell whose character changed, and the cells the cursor left and entered; of each, the
-    /// pixels that differ from the framebuffer. Clears the framebuffer first when nothing cleared it yet.
+    /// Draws the screen: every cell whose character or look changed, and the cells the cursor left and entered; of each,
+    /// the pixels that differ from the framebuffer. Clears the framebuffer first when nothing cleared it yet.
     /// </summary>
     /// <param name="screen">The screen, of the renderer's columns and rows.</param>
     /// <exception cref="ArgumentException">The screen has another size.</exception>
@@ -180,38 +192,64 @@ public sealed class FrameRenderer
         var scrolled = screen.Scrolls - m_scrollsSeen;
         m_scrollsSeen = screen.Scrolls;
         RowMovePixels += scrolled * (Rows - 1) * (long)Columns * CellPixels;
+        var cursorRow = screen.CursorVisible ? screen.Row : -1;
+        var cursorColumn = screen.CursorVisible ? screen.Column : -1;
         for (var row = 0; row < Rows; row++)
         {
             for (var column = 0; column < Columns; column++)
             {
                 var c = screen[row, column];
-                var cursor = row == screen.Row && column == screen.Column;
+                var style = screen.Style(row, column);
+                var cursor = row == cursorRow && column == cursorColumn;
                 var hadCursor = row == m_cursorRow && column == m_cursorColumn;
-                if (c == m_shadow[row * Columns + column] && cursor == hadCursor)
+                var index = row * Columns + column;
+                if (c == m_shadow[index] && style == m_shadowStyles[index] && cursor == hadCursor)
                     continue;
-                Draw(row, column, c, cursor);
-                m_shadow[row * Columns + column] = c;
+                Draw(row, column, c, style, cursor);
+                m_shadow[index] = c;
+                m_shadowStyles[index] = style;
             }
         }
-        m_cursorRow = screen.Row;
-        m_cursorColumn = screen.Column;
+        m_cursorRow = cursorRow;
+        m_cursorColumn = cursorColumn;
     }
 
-    // One cell: the glyph's pixels in the text's colour on the background, or inverted under the cursor; a pixel is
-    // stored only when the framebuffer shows another value there. A blank cell is the background whatever the font gives
-    // a space, since Clear leaves every cell blank without drawing one.
-    private void Draw(int row, int column, char c, bool inverted)
+    // A hollow box inside the cell, the glyph of a character the font lacks.
+    private static byte[] Box(BitmapFont font)
     {
-        var glyph = c == ' ' ? ReadOnlySpan<byte>.Empty : m_font.Glyph(c);
-        var on = inverted ? m_background : m_foreground;
-        var off = inverted ? m_foreground : m_background;
+        var glyph = new byte[font.Height * font.BytesPerRow];
+        int left = 1, right = font.Width - 2, top = 2, bottom = font.Height - 3;
+        for (var y = top; y <= bottom; y++)
+        {
+            for (var x = left; x <= right; x++)
+            {
+                if (y == top || y == bottom || x == left || x == right)
+                    glyph[y * font.BytesPerRow + x / 8] |= (byte)(0x80 >> (x % 8));
+            }
+        }
+        return glyph;
+    }
+
+    // One cell: the glyph's pixels in the cell's foreground on its background, the two traded by inverse and again by
+    // the cursor; a pixel is stored only when the framebuffer shows another value there. A blank cell, and the second
+    // cell of a wide character, is the background whatever the font gives a space, since Clear leaves every cell blank
+    // without drawing one.
+    private void Draw(int row, int column, char c, TerminalStyle style, bool cursor)
+    {
+        var glyph = c is ' ' or TerminalScreen.WIDE_TAIL ? ReadOnlySpan<byte>.Empty : m_font.Has(c) ? m_font.Glyph(c) : m_missing;
+        var foreground = style.Foreground < 0 ? m_foreground : m_palette[style.Bold && style.Foreground < 8 ? style.Foreground + 8 : style.Foreground];
+        var background = style.Background < 0 ? m_background : m_palette[style.Background];
+        var inverted = style.Inverse != cursor;
+        var on = inverted ? background : foreground;
+        var off = inverted ? foreground : background;
+        var underline = style.Underline ? m_font.Height - 1 : -1;
         CellsDrawn++;
         for (var y = 0; y < m_font.Height; y++)
         {
             var index = (row * m_font.Height + y) * m_geometry.Stride + column * m_font.Width;
             for (var x = 0; x < m_font.Width; x++, index++)
             {
-                var value = !glyph.IsEmpty && m_font.Pixel(glyph, x, y) ? on : off;
+                var value = y == underline || (!glyph.IsEmpty && m_font.Pixel(glyph, x, y)) ? on : off;
                 if (m_pixels[index] == value)
                     continue;
                 m_pixels[index] = value;
@@ -241,7 +279,7 @@ public sealed class FrameRenderer
     public int CellPixels => m_font.Width * m_font.Height;
 
     /// <summary>
-    /// The cells drawn so far: each whose character or cursor changed between two frames.
+    /// The cells drawn so far: each whose character, look or cursor changed between two frames.
     /// </summary>
     public long CellsDrawn { get; private set; }
 

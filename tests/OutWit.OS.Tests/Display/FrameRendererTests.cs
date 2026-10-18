@@ -48,6 +48,33 @@ public sealed class FrameRendererTests
         Assert.That(frame.Pixel(3, 1), Is.EqualTo(WHITE), "the 'A' stays");
     }
 
+    // C2.6: a cell's colours from the palette, bold as the bright colour, inverse, underline, a hidden cursor, and the
+    // box of a character the font lacks.
+    [Test]
+    public void ColoursAndAttributesAreDrawnTest()
+    {
+        var font = BitmapFont.ParseBdf(BitmapFontTests.SAMPLE);
+        var geometry = new FramebufferGeometry(48, 16, 48, FramebufferGeometry.BGRX);
+        var frame = new MemoryFrame(geometry);
+        var renderer = new FrameRenderer(geometry, font, frame);
+        var screen = new TerminalScreen(6, 1);
+        renderer.Clear();
+        screen.Feed(Encoding.UTF8.GetBytes("\x1B[?25l\x1B[31mA\x1B[1mA\x1B[0;44mA\x1B[0;7mA\x1B[0;4mA\x1B[0mB"));
+        renderer.Render(screen);
+        Assert.That(frame.Pixel(3, 1), Is.EqualTo(TerminalPalette.COLORS[1]), "red text");
+        Assert.That(frame.Pixel(0, 1), Is.EqualTo(BLACK), "on the default background");
+        Assert.That(frame.Pixel(8 + 3, 1), Is.EqualTo(TerminalPalette.COLORS[9]), "bold red is the bright red");
+        Assert.That(frame.Pixel(16 + 3, 1), Is.EqualTo(WHITE), "the default text");
+        Assert.That(frame.Pixel(16, 1), Is.EqualTo(TerminalPalette.COLORS[4]), "on a blue background");
+        Assert.That(frame.Pixel(24, 1), Is.EqualTo(WHITE), "inverse: the background takes the text's colour");
+        Assert.That(frame.Pixel(24 + 3, 1), Is.EqualTo(BLACK), "and the text the background's");
+        Assert.That(frame.Pixel(32, 15), Is.EqualTo(WHITE), "underline lights the cell's bottom row");
+        Assert.That(frame.Pixel(32, 14), Is.EqualTo(BLACK));
+        Assert.That(frame.Pixel(40 + 1, 2), Is.EqualTo(WHITE), "'B', which the font lacks, is a hollow box");
+        Assert.That(frame.Pixel(40 + 3, 7), Is.EqualTo(BLACK), "hollow");
+        Assert.That(frame.Pixel(40 + 7, 8), Is.EqualTo(BLACK), "the hidden cursor inverts no cell");
+    }
+
     [Test]
     public void FormatIsHonouredTest()
     {
