@@ -112,6 +112,14 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public bool DisplayIsMainConsole => Display && Keyboard;
 
     /// <summary>
+    /// The display in a window of the host's screen instead of headless (plan step C2.4, the shell command): QEMU's GTK
+    /// window shows the framebuffer and gives its keys to the keyboard, while the host's console shows the virtio
+    /// console's mirror and types nothing into it, since the window's keys are the input and the host terminal's answers
+    /// to the mirrored queries would garble it.
+    /// </summary>
+    public bool Window { get; init; }
+
+    /// <summary>
     /// What the runner does through QMP while the guest runs, each action once its line appeared (plan step C2.1).
     /// </summary>
     public IReadOnlyList<BootAction> Actions { get; init; } = [];
