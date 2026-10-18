@@ -83,10 +83,10 @@ WitU32 wit_processors_online(void)
     return wit_cpus_online();
 }
 
-/* Threads run on the boot processor alone until phase P. */
+/* Threads run on every online processor (P1.3b). */
 WitU32 wit_processors_scheduling(void)
 {
-    return 1;
+    return wit_cpus_online();
 }
 
 /* The calling processor's number, from its own register (P1.1). */

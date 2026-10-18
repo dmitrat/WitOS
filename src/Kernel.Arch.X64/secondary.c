@@ -310,16 +310,18 @@ WIT_NORETURN void wit_x64_secondary_main(WitU32 index)
     enable_local_apic(0);
     wit_processors_set_features(index, wit_arch_processor_features(), wit_arch_cache_size());
     wit_cpus_secondary_ready(index);
-    wit_x64_enable_interrupts();
-    for (;;) {
-        wit_x64_halt();
-    }
+    wit_x64_load_data_segments(WIT_USER_SS); /* the run's data selectors, as the boot processor's launch sets them */
+    wit_user_processor_main(); /* threads during a run, parked between runs (P1.3b) */
 }
 
-/* The doorbell on any processor (P1.2): the pending set served, the interrupt acknowledged to the APIC. */
+/* The doorbell on any processor (P1.2): the pending set served, the interrupt acknowledged to the APIC; a RESCHEDULE
+ * that interrupted user mode enters the dispatcher (P1.3b). */
 WitInterruptContext *wit_x64_ipi_interrupt(WitInterruptContext *context)
 {
-    wit_cpus_ipi_received();
+    const WitU32 served = wit_cpus_ipi_received();
     *apic(APIC_EOI) = 0;
+    if ((served & (1U << WIT_REQUEST_RESCHEDULE)) && wit_arch_frame_from_user(context) && wit_user_is_active()) {
+        return wit_user_reschedule(context);
+    }
     return context;
 }

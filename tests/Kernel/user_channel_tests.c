@@ -1,4 +1,5 @@
 #include "user.h"
+#include "witos/processor.h"
 #include "witos/platform.h"
 #include "protocol.h"
 #include "self_test.h"
@@ -62,9 +63,9 @@ void wit_user_channel_self_test(WitPageAllocator *pages)
                 "Channel message accounting failed");
         }
         if (mode == WIT_CHANNEL_TEST_WAIT) {
-            /* The receiver parks twice, for the message and for the peer's close; the sender yields between them. */
-            require(process.EventParks >= 2 &&
-                    process.EventWakes >= 2 &&
+            /* The receiver parks twice, for the message and for the peer's close; the sender yields between them. On
+             * several processors the sender may run beside the receiver and come first (P1.3b). */
+            require((wit_processors_scheduling() > 1 || (process.EventParks >= 2 && process.EventWakes >= 2)) &&
                     process.ThreadReaps == 1 &&
                     process.ChannelSends == 1 &&
                     process.ChannelReceives == 1,

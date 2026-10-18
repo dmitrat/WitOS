@@ -17,6 +17,14 @@ static inline void wit_x64_enable_interrupts(void)
     __asm__ volatile("sti" ::: "memory");
 }
 
+/* DS and ES, which 64-bit code ignores for addressing: a processor that runs threads keeps the user data selector
+ * there, as the root task's launch sets it (P1.3b). */
+static inline void wit_x64_load_data_segments(WitU16 selector)
+{
+    __asm__ volatile("mov %0, %%ds" : : "r"(selector) : "memory");
+    __asm__ volatile("mov %0, %%es" : : "r"(selector) : "memory");
+}
+
 static inline void wit_x64_halt(void)
 {
     __asm__ volatile("hlt" ::: "memory");

@@ -200,6 +200,17 @@ void wit_arch_frame_set_result(WitArchFrame *frame, WitU64 status, WitU64 value)
     frame->X[1] = value;
 }
 
+/* SVC #0 is one instruction before ELR. */
+void wit_arch_frame_restart_call(
+    WitArchFrame *frame, WitU64 number, WitU64 argument0, WitU64 argument1, WitU64 argument2)
+{
+    frame->X[8] = number;
+    frame->X[0] = argument0;
+    frame->X[1] = argument1;
+    frame->X[2] = argument2;
+    frame->Elr -= 4;
+}
+
 WitU64 wit_arch_callback_stack(WitU64 sp, WitU32 *call_frame_bytes)
 {
     *call_frame_bytes = CALL_FRAME_BYTES; /* The return address travels in x30; no shadow space. */

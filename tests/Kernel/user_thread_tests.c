@@ -1,6 +1,7 @@
 #include "user.h"
 #include "self_test.h"
 #include "witos/platform.h"
+#include "witos/processor.h"
 #include "protocol.h"
 #include "user_arch_tests.h"
 #include "user_image.h"
@@ -127,10 +128,10 @@ void wit_user_thread_self_test(WitPageAllocator *pages)
     create(pages, WIT_THREAD_TEST_NORMAL);
     wit_user_run(&process);
     check_exit(WIT_TEST_EXIT_CODE);
+    /* The switch counts are preemption's on one processor; on several the threads also run side by side (P1.3b). */
     require(process.ThreadCreates == 5 &&
             process.ThreadReaps == 4 &&
-            process.ThreadTimerSwitches >= 2 &&
-            process.ThreadSwitches >= 6 &&
+            (wit_processors_scheduling() > 1 || (process.ThreadTimerSwitches >= 2 && process.ThreadSwitches >= 6)) &&
             process.Space.OwnedCount == 8 + (WIT_USER_STACK_TOP - WIT_USER_STACK_BOTTOM) / 4096,
         "Thread progress/accounting failed");
     wit_console_write("User thread timer switches: ");

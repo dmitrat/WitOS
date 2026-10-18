@@ -43,6 +43,7 @@ WitU64 wit_user_thread_activate(WitUserProcess *process, WitU64 handle, WitU64 c
     target->Activations[target->ActivationCount].Argument = argument;
     ++target->ActivationCount;
     wit_user_wait_interrupt(process, target);
+    wit_user_thread_kick(target); /* a target another processor runs takes it at once, not at its next tick (P1.3b) */
     return WIT_STATUS_OK;
 }
 

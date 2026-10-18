@@ -28,7 +28,8 @@ internal static class UserImage
         ("waits", "WaitFixture", "wit_user_wait_image", "user_wait_image.h"),
         ("entry", "UserFixture", "wit_user_test_image", "user_image.h"),
         ("threads", "ThreadFixture", "wit_user_thread_image", "user_thread_image.h"),
-        ("processors", "ProcessorFixture", "wit_user_processor_image", "user_processor_image.h")
+        ("processors", "ProcessorFixture", "wit_user_processor_image", "user_processor_image.h"),
+        ("smp", "SmpFixture", "wit_user_smp_image", "user_smp_image.h")
     ];
 
     #endregion

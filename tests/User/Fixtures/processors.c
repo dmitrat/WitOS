@@ -28,7 +28,7 @@ FIXTURE_ENTRY void wit_user_start(const WitRootStartup *startup)
     info.Version = WIT_PROCESSOR_INFO_VERSION;
     info.Size = WIT_PROCESSOR_INFO_SIZE;
     query(&info, WIT_PROCESSOR_INFO_SIZE, WIT_STATUS_OK);
-    fixture_check(info.Version == WIT_PROCESSOR_INFO_VERSION && info.Current == 0, 3);
+    fixture_check(info.Version == WIT_PROCESSOR_INFO_VERSION && info.Current < info.Online, 3); /* any (P1.3b) */
     fixture_check(info.Count >= 1 && info.Online >= 1 && info.Online <= info.Count, 4);
     fixture_check(
         info.Processors[0].Flags == (WIT_PROCESSOR_ONLINE | WIT_PROCESSOR_BOOT) && info.Processors[0].Number == 0, 5);

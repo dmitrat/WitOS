@@ -122,10 +122,10 @@ void wit_cpus_secondary_ready(WitU32 index)
  * is acknowledged when taken, before its function runs, since the function may want the kernel lock its sender holds
  * until the acknowledgement. RESCHEDULE and STOP are acknowledged and leave the processor where it is: their actions
  * belong to the dispatcher of P1.3, while only the boot processor runs threads. */
-void wit_cpus_serve(void)
+WitU32 wit_cpus_serve(void)
 {
     if (!ready) {
-        return;
+        return 0;
     }
     /* The processor knows its number from its own register (P1.1); a spin for the lock serves here, so nothing slower. */
     const WitU32 me = wit_arch_processor_index();
@@ -139,6 +139,8 @@ void wit_cpus_serve(void)
         }
         if (kind == WIT_REQUEST_INVALIDATE) {
             wit_arch_invalidate_local(cpu->InvalidateAddress);
+        } else if (kind == WIT_REQUEST_PUBLISH) {
+            wit_arch_publish_code();
         } else if (kind == WIT_REQUEST_RUN) {
             run = cpu->Run;
             cpu->Run = 0;
@@ -149,26 +151,47 @@ void wit_cpus_serve(void)
     if (run) {
         run();
     }
+    return pending;
 }
 
-void wit_cpus_ipi_received(void)
+WitU32 wit_cpus_ipi_received(void)
 {
-    wit_cpus_serve();
+    return wit_cpus_serve();
 }
 
 /* The kernel lock (P1.2): every entry into the kernel's state takes it and the processor gives it up only when it
  * leaves for a thread or halts; a processor that already holds it takes it again for nothing. While it spins it
- * serves its requests. */
+ * serves its requests. A processor that waits marks itself, and one that released the lock while others waited takes
+ * it again only after one of them took it (P1.3b): a thread that keeps entering the kernel otherwise keeps it from
+ * the others, on hardware where nothing makes a compare-and-exchange fair and under QEMU's round-robin TCG, which
+ * runs the waiter only once the holder's slice ends, mostly inside the kernel. A request served while waiting may take
+ * the lock itself (a RUN of the self-tests), so the mark is counted per nesting. */
+static volatile WitU32 lock_waiters; /* a bit per processor that waits */
+static volatile WitU32 lock_yields_to; /* the waiters the last holder released the lock to, zero when nobody waited */
+
 void wit_cpus_lock(void)
 {
     const WitU32 me = wit_arch_processor_index() + 1U;
+    const WitU32 bit = 1U << (me - 1U);
     if (lock_owner == me) {
         return;
     }
+    const WitU32 marked = __atomic_fetch_or(&lock_waiters, bit, __ATOMIC_ACQ_REL) & bit;
     for (;;) {
+        const WitU32 yields = __atomic_load_n(&lock_yields_to, __ATOMIC_ACQUIRE);
         WitU32 expected = 0;
-        if (__atomic_compare_exchange_n(&lock_owner, &expected, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+        if ((yields == 0 || (yields & bit) != 0) &&
+            __atomic_compare_exchange_n(&lock_owner, &expected, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+            __atomic_store_n(&lock_yields_to, 0, __ATOMIC_RELEASE);
+            if (!marked) {
+                __atomic_fetch_and(&lock_waiters, ~bit, __ATOMIC_ACQ_REL);
+            }
             return;
+        }
+        if (yields != 0 && (__atomic_load_n(&lock_waiters, __ATOMIC_ACQUIRE) & yields) == 0) {
+            /* the processors it yielded to stopped waiting: nobody is owed the lock any more */
+            WitU32 owed = yields;
+            __atomic_compare_exchange_n(&lock_yields_to, &owed, 0, 0, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED);
         }
         wit_cpus_serve();
         wit_arch_spin_pause();
@@ -177,13 +200,26 @@ void wit_cpus_lock(void)
 
 void wit_cpus_unlock(void)
 {
-    require(lock_owner == wit_arch_processor_index() + 1U, "Releasing a kernel lock the processor does not hold");
+    const WitU32 me = wit_arch_processor_index() + 1U;
+    require(lock_owner == me, "Releasing a kernel lock the processor does not hold");
+    const WitU32 others = __atomic_load_n(&lock_waiters, __ATOMIC_ACQUIRE) & ~(1U << (me - 1U));
+    __atomic_store_n(&lock_yields_to, others, __ATOMIC_RELEASE);
     __atomic_store_n(&lock_owner, 0, __ATOMIC_RELEASE);
 }
 
 int wit_cpus_lock_held(void)
 {
     return lock_owner == wit_arch_processor_index() + 1U;
+}
+
+/* The return to a frame gives the lock up once the processor runs on the frame's stack (P1.3b): until then it ran on a
+ * kernel stack another processor may take as soon as the lock is free, the stack of a thread it left Ready or waiting.
+ * A free lock is read first, so that a return before the processor knows its number reads no register for it. */
+void wit_cpus_release(void)
+{
+    if (__atomic_load_n(&lock_owner, __ATOMIC_RELAXED) != 0 && wit_cpus_lock_held()) {
+        wit_cpus_unlock();
+    }
 }
 
 /* A request of one kind to another processor, by the kernel lock's holder, which waits for its acknowledgement. */
@@ -228,6 +264,18 @@ void wit_cpus_fence_all(void)
 void wit_cpus_invalidate_all(WitU64 address)
 {
     request_all(WIT_REQUEST_INVALIDATE, address);
+}
+
+void wit_cpus_invalidate(WitU32 index, WitU64 address)
+{
+    wit_arch_process_write_barrier(); /* the changed entry before the target's walk */
+    request(index, WIT_REQUEST_INVALIDATE, address);
+}
+
+/* Code published on the calling processor becomes visible to every other's instruction fetch (P1.3b). */
+void wit_cpus_publish_all(void)
+{
+    request_all(WIT_REQUEST_PUBLISH, 0);
 }
 
 void wit_cpus_request(WitU32 index, WitU32 kind)

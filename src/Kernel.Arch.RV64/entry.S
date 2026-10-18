@@ -165,6 +165,7 @@ wit_rv64_trap_vector:
 // so it must sit at the top of its thread's kernel stack.
 wit_rv64_resume_frame:
     mv sp, a0
+    call wit_cpus_release // on the frame's stack now, the kernel lock goes if held (P1.3b); all is restored below
     ld t0, 544(sp)
     fscsr t0
     fld f0, 288(sp)

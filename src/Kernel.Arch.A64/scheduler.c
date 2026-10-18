@@ -79,9 +79,13 @@ WitA64Frame *wit_a64_interrupt(WitA64Frame *frame)
         return wit_user_interrupt(frame, line);
     }
     if (claimed == 3) {
-        /* The doorbell of a request (P1.2): the pending set served, then back to the interrupted frame. */
-        wit_cpus_ipi_received();
+        /* The doorbell of a request (P1.2): the pending set served, then back to the interrupted frame, or into the
+         * dispatcher for a RESCHEDULE that interrupted EL0 (P1.3b). */
+        const WitU32 served = wit_cpus_ipi_received();
         wit_platform_ipi_complete(line);
+        if ((served & (1U << WIT_REQUEST_RESCHEDULE)) && wit_arch_frame_from_user(frame) && wit_user_is_active()) {
+            return wit_user_reschedule(frame);
+        }
         return frame;
     }
     volatile WitU64 *const ticks = &timer_ticks[wit_arch_processor_index()];

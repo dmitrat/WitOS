@@ -226,8 +226,12 @@ static void suspension(void)
     while (!spins) {
         expect(WIT_CALL_THREAD_YIELD, 0, 0, 0, WIT_STATUS_OK);
     }
-    /* A running thread's context is read, never replaced. */
-    expect(WIT_CALL_THREAD_CONTEXT_GET, thread, (WitU64)&context, sizeof(context), WIT_STATUS_OK);
+    /* A running thread's context is never replaced. It is read where one processor runs every thread; on several, a
+     * thread another processor runs is no target to read, since its saved frame is stale (P1.3b, RFC 0011 section
+     * 7.3: the target must be suspended or be the caller). */
+    WitU64 copied = 0;
+    const WitU64 read = wit_syscall(WIT_CALL_THREAD_CONTEXT_GET, thread, (WitU64)&context, sizeof(context), &copied);
+    check(read == WIT_STATUS_OK || read == WIT_STATUS_BUSY, 90);
     expect(WIT_CALL_THREAD_CONTEXT_SET, thread, (WitU64)&context, sizeof(context), WIT_STATUS_BUSY);
 
     /* Suspension counts, and a suspended thread does not run while others sleep. */

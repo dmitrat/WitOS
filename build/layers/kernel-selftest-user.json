@@ -20,6 +20,7 @@
     "tests/Kernel/user_thread2_tests.c",
     "tests/Kernel/user_process_tests.c",
     "tests/Kernel/user_processor_tests.c",
+    "tests/Kernel/user_smp_tests.c",
     "tests/Kernel/test_summary.c"
   ],
   "assembly": []
