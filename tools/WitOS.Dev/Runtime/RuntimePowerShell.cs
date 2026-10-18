@@ -6,8 +6,9 @@ namespace WitOS.Dev.Runtime;
 
 /// <summary>
 /// The PowerShell scenario (plan step C1.3, RFC 0020 section 57): upstream PowerShell, the pinned framework-dependent
-/// archive with libpsl-native built for the ISA, lies on the data volume under /data/pwsh and runs as
-/// <c>dotnet /data/pwsh/pwsh.dll</c> beside the device services, the .NET install and the terminal; /bin/init runs it
+/// archive with libpsl-native built for the ISA, is a base application of the data volume's layer (ADR 0027, C4.1) under
+/// /data/apps/PowerShell and runs through its launcher /data/apps/bin/pwsh beside the device services, the .NET install
+/// and the terminal; /bin/init runs it
 /// twice without a terminal session (the version table; a pipeline, files on the volume, the date and a listing) and
 /// then interactively, where the session's profile renders the console mark (C1.4) and the runner types into PSReadLine
 /// on its emulated terminal. The required lines are in the serial log or in the terminal's transcript.
@@ -17,15 +18,15 @@ internal static class RuntimePowerShell
     #region Constants
 
     /// <summary>
-    /// PowerShell's directory on the data volume.
+    /// How /bin/init starts an interactive PowerShell: the layer's launcher (C4.1, AppsLayer.GuestCommand) without
+    /// PowerShell's own banner, with the profile that renders WitOS's mark (C1.4).
     /// </summary>
-    public const string VOLUME_DIRECTORY = "pwsh";
+    public const string PWSH = "/data/apps/bin/pwsh -NoLogo";
 
     /// <summary>
-    /// How /bin/init starts an interactive PowerShell: the install's dotnet on pwsh.dll without PowerShell's own banner,
-    /// with the profile that renders WitOS's mark (C1.4).
+    /// The word before the shell's variable in the scenario's output: "shell=/data/apps/bin/pwsh" (ADR 0027 decision 6).
     /// </summary>
-    public const string PWSH = "/dotnet/dotnet /data/pwsh/pwsh.dll -NoLogo";
+    public const string SHELL = "shell";
 
     /// <summary>
     /// How /bin/init runs one command: no profile, no session, the command's text after it.
@@ -87,10 +88,7 @@ internal static class RuntimePowerShell
         Directory.CreateDirectory(output);
         var pin = await PowerShell.ReadPinAsync(root);
         var package = await PackageAsync(root, output, architecture, Commands());
-        var keep = Path.Combine(output, "keep");
-        await File.WriteAllTextAsync(keep, "");
-        var volume = new List<(string Path, string Source)> { ("home/.keep", keep) };
-        volume.AddRange(await PowerShell.VolumeFilesAsync(root, architecture, VOLUME_DIRECTORY));
+        var volume = await AppsDisk.VolumeFilesAsync(root, architecture, output);
         foreach (var log in new[] { "serial", "terminal" })
         {
             var path = Path.Combine(root, "artifacts", "logs", $"{architecture.Name}-{scenario}-{MEMORY_MIB}.{log}.log");
@@ -99,8 +97,8 @@ internal static class RuntimePowerShell
         }
         await RuntimeApps.BootAsync(root, architecture, scenario, RequiredLines(architecture, pin.Version), TIMEOUT_SECONDS, volume, DISK_BYTES, MEMORY_MIB,
             package, Script());
-        Console.WriteLine($"PowerShell on witos-{architecture.Name}: {pin.Version} ran unchanged from the data volume, non-interactively and under " +
-            "PSReadLine on the terminal, with the console mark of its profile.");
+        Console.WriteLine($"PowerShell on witos-{architecture.Name}: {pin.Version} ran unchanged from the data volume's layer through its launcher, " +
+            "non-interactively and under PSReadLine on the terminal, with the console mark of its profile.");
     }
 
     /// <summary>
@@ -137,7 +135,9 @@ internal static class RuntimePowerShell
         // The pipeline's count and the date as plain words: PowerShell colors its formatted output on a terminal (PSStyle)
         // and formats a date by what came before it, so a required line never spans a label and its value.
         $"{BATCH} '{EVEN}=' + (1..10 | Where-Object {{ $_ % 2 -eq 0 }} | Measure-Object).Count; " +
-            $"Set-Content /data/pwsh.txt {WRITTEN}; Get-Content /data/pwsh.txt; '{DATE}=' + (Get-Date).ToString('yyyy-MM-dd'); Get-ChildItem /data",
+            $"Set-Content /data/pwsh.txt {WRITTEN}; Get-Content /data/pwsh.txt; '{DATE}=' + (Get-Date).ToString('yyyy-MM-dd'); Get-ChildItem /data; " +
+            // The shell applications run commands through, and the POSIX shell WitOS does not provide (ADR 0027 decision 6).
+            $"'{SHELL}=' + $env:SHELL; 'sh=' + (Test-Path /bin/sh)",
         PWSH
     ];
 
@@ -173,10 +173,12 @@ internal static class RuntimePowerShell
         WRITTEN,
         $"{DATE}=20",
         "Directory: /data",
+        $"{SHELL}=/data/apps/bin/pwsh",
+        "sh=False",
         EMBLEM_ROW,
         $"PowerShell {version}",
         PROMPT,
-        "[APPS-INIT] /dotnet/dotnet /data/pwsh/pwsh.dll exited with 0",
+        "[APPS-INIT] /data/apps/bin/pwsh -NoLogo exited with 0",
         "[APPS-INIT] 3 commands, 0 failed"
     ];
 

@@ -256,7 +256,10 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   closed by the author's session). The screen's emulator knows what a full-screen console application needs (C2.6):
   SGR's colours reduced to a 16-colour palette, bold, underline and inverse, the alternate screen, the cursor's visibility,
   the swallowed APC and DCS strings, the device attributes and size answers, wide characters and the modified function
-  keys, so PowerShell is drawn in colour; C3, the native WitOS module and its providers, is the horizon after M8.
+  keys, so PowerShell is drawn in colour. Base applications are a layer of the data volume (C4.1, ADR 0027):
+  `/data/apps/<application>/<version>/` from the pinned upstream publications of `build/apps`, launchers written from
+  upstream's witos apphost in `/data/apps/bin` on `PATH`, `SHELL` set to pwsh's, a new version installed beside the old
+  and a rollback through the `apps` command; C3, the native WitOS module and its providers, is the horizon after M8.
 - **Third ISA (phase V, the kernel, layer 2 and the runtime done).** RISC-V on QEMU's virt board: the measurement V0 found the pinned LLVM links no RISC-V
   PE/COFF, so the loader and the kernel are one position-independent ELF the tool converts to PE32+ with base
   relocations. V1.1 boots that image under EDK II over OpenSBI: the unchanged loader publishes the device tree, reads the

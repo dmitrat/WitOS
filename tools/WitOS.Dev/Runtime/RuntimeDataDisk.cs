@@ -207,6 +207,55 @@ internal static class RuntimeDataDisk
     }
 
     /// <summary>
+    /// Changes the ext4 partition of an existing disk (plan step C4.1): the partition is copied out beside the disk,
+    /// repaired by e2fsck (which replays a journal a session left), changed, repaired again so that its counts hold and
+    /// required clean, then copied back in place. The rest of the disk stays as it is.
+    /// </summary>
+    /// <param name="path">The disk's image.</param>
+    /// <param name="edit">The change, given the partition's image.</param>
+    /// <returns>When the disk holds the change.</returns>
+    /// <exception cref="InvalidDataException">The disk is not a data disk's size.</exception>
+    public static async Task EditExt4Async(string path, Func<string, Task> edit)
+    {
+        var length = new FileInfo(path).Length;
+        if (length < BYTES || length % (1024 * 1024) != 0)
+            throw new InvalidDataException($"{path} is no data disk: {length} bytes.");
+        var first = EXT4_PARTITION_FIRST_BLOCK * BLOCK;
+        var bytes = (length / BLOCK - 2048 - EXT4_PARTITION_FIRST_BLOCK) * BLOCK;
+        var volume = Ext4Image(path) + ".edit";
+        await using (var disk = File.OpenRead(path))
+        await using (var image = File.Create(volume))
+        {
+            disk.Position = first;
+            await CopyAsync(disk, image, bytes);
+        }
+        await RuntimeExt4Volume.RepairAsync(volume);
+        await edit(volume);
+        await RuntimeExt4Volume.RepairAsync(volume);
+        await RuntimeExt4Volume.RequireCleanAsync(volume);
+        await using (var disk = new FileStream(path, FileMode.Open, FileAccess.Write))
+        await using (var image = File.OpenRead(volume))
+        {
+            disk.Position = first;
+            await CopyAsync(image, disk, bytes);
+        }
+        File.Delete(volume);
+    }
+
+    private static async Task CopyAsync(Stream from, Stream to, long bytes)
+    {
+        var buffer = new byte[1 << 20];
+        while (bytes > 0)
+        {
+            var read = await from.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, bytes)));
+            if (read == 0)
+                throw new EndOfStreamException("The disk ends inside its ext4 partition.");
+            await to.WriteAsync(buffer.AsMemory(0, read));
+            bytes -= read;
+        }
+    }
+
+    /// <summary>
     /// The disk's sector that holds the start of a file of the ext4 partition (D6.3).
     /// </summary>
     /// <param name="path">The image's path.</param>

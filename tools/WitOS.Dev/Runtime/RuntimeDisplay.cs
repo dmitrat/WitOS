@@ -81,10 +81,7 @@ internal static class RuntimeDisplay
         var pin = await PowerShell.ReadPinAsync(root);
         var image = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_DISPLAY_SCENARIO, architecture: architecture);
         var output = Path.GetDirectoryName(image)!;
-        var keep = Path.Combine(output, "keep");
-        await File.WriteAllTextAsync(keep, "");
-        var volume = new List<(string Path, string Source)> { ("home/.keep", keep) };
-        volume.AddRange(await PowerShell.VolumeFilesAsync(root, architecture, RuntimePowerShell.VOLUME_DIRECTORY));
+        var volume = await AppsDisk.VolumeFilesAsync(root, architecture, output);
         var dataDisk = Path.Combine(output, "data-disk.img");
         await RuntimeDataDisk.CreateAsync(dataDisk, files: volume, bytes: RuntimePowerShell.DISK_BYTES);
         var name = $"{architecture.Name}-runtime-display-{MEMORY_MIB}";
@@ -238,7 +235,7 @@ internal static class RuntimeDisplay
         $"PowerShell {version}",
         RuntimePowerShell.PROMPT,
         "Directory: /data",
-        "[APPS-INIT] /dotnet/dotnet /data/pwsh/pwsh.dll exited with 0",
+        "[APPS-INIT] /data/apps/bin/pwsh -NoLogo exited with 0",
         "[APPS-INIT] 2 commands, 0 failed",
         "[DEVICES] terminal service /system/Terminal: stopped",
         "[DISPLAY] display service for firmware/framebuffer: stopped after ",
