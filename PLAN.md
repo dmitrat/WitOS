@@ -126,8 +126,9 @@ ISA и правило трёх ISA. **P1** — после C1 (pwsh и
 Math.NET `RunningWeightedStatisticsTests.ConsistentWithUnweighted("numacc1")` (точность на процессоре раннера),
 MemoryPack — SIGSEGV .NET раннера (дважды) и `Fuzz.Random` (2026-10-18, main после #144: `FileLoadException` от
 гонки в неконкурентном `Dictionary` обработчика `AssemblyLoadContext.Resolving` при параллельной загрузке
-`RandomFixtureKit` на хосте, гость не запускался). Правило: повтор → шаг воспроизведения, не исключение; для хостовых падений
-по сигналу — повтор прогона один раз в инструменте (задача на W).
+`RandomFixtureKit` на хосте, гость не запускался) и снова SIGSEGV (exit 139, #146). Правило: повтор → шаг
+воспроизведения, не исключение; хостовый прогон набора, убитый сигналом без сводки, инструмент повторяет один раз с
+предупреждением (`RuntimeNuGetSuites.KilledBySignal`, 2026-10-18).
 
 ## 4. Решения
 
