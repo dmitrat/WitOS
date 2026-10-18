@@ -8,7 +8,7 @@ namespace WitOS.Dev.Tests.Runtime;
 /// <summary>
 /// The layer of base applications (ADR 0027, plan step C4.1): the catalog's entries checked whole, a launcher written as
 /// the SDK writes an apphost, and a new version installed beside the old with the rollback to it, in a directory of the
-/// host and on an ext4 volume through debugfs.
+/// host and on an ext4 volume through debugfs; the file manager's entry built from its source (C4.2).
 /// </summary>
 [TestFixture]
 public sealed class AppsLayerTests
@@ -34,8 +34,25 @@ public sealed class AppsLayerTests
     }
 
     [Test]
+    public async Task CatalogHoldsTheFileManagerTest()
+    {
+        var catalog = await AppCatalog.ReadAsync(TestEnvironment.Root);
+        var commander = catalog.Single(entry => entry.Id == "Arlecchino.Commander");
+        Assert.That(commander.Source.Kind, Is.EqualTo(AppCatalog.SOURCE));
+        Assert.That(commander.Source.Repository, Is.EqualTo("https://github.com/The1fEst/Arlecchino.Commander"));
+        Assert.That(commander.Source.Properties, Is.EqualTo(new[] { "PublishAot=false" }), "a portable application, not NativeAOT");
+        Assert.That(commander.Commands.Select(command => (command.Name, command.Assembly)), Is.EqualTo(new[] { ("arlc", "arlc.dll") }));
+        Assert.That(commander.Native, Is.Null, "no native part: input and output through System.Console");
+    }
+
+    [Test]
     public void CatalogEntriesAreCheckedWholeTest()
     {
+        Assert.That(AppCatalog.Parse(Entry("Commander", "1.0", """{ "kind": "source", "repository": "https://github.com/a/b", "commit": "#", "project": "App.csproj", "properties": [ "PublishAot=false" ] }"""),
+            "Commander").Source.Properties, Is.EqualTo(new[] { "PublishAot=false" }));
+        Assert.Throws<InvalidDataException>(() => AppCatalog.Parse(Entry("Commander", "1.0",
+            """{ "kind": "source", "repository": "https://github.com/a/b", "commit": "#", "project": "App.csproj", "properties": [ "A=1;B=2" ] }"""), "Commander"),
+            "one MSBuild property an item");
         Assert.That(AppCatalog.Parse(Entry("Tool", "1.2.3", """{ "kind": "tool", "package": "csharprepl", "sha256": "%" }"""), "Tool").Source.Package,
             Is.EqualTo("csharprepl"));
         Assert.That(AppCatalog.Parse(Entry("Commander", "2026.9.19", """{ "kind": "source", "repository": "https://github.com/a/b", "commit": "#", "project": "src/App.csproj" }"""),

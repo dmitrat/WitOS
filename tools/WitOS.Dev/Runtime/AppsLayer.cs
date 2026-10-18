@@ -184,9 +184,10 @@ internal static class AppsLayer
     /// </summary>
     /// <exception cref="NotSupportedException">A kind of source no base application uses yet.</exception>
     public static async Task<IReadOnlyList<(string Path, string Source)>> ApplicationFilesAsync(string root, KernelArchitecture architecture, AppEntry entry) =>
-        entry.Id switch
+        entry switch
         {
-            PowerShell.CATALOG_ID => await PowerShell.ApplicationFilesAsync(root, architecture),
+            { Id: PowerShell.CATALOG_ID } => await PowerShell.ApplicationFilesAsync(root, architecture),
+            { Source.Kind: AppCatalog.SOURCE } => await AppSourceBuild.FilesAsync(root, entry),
             _ => throw new NotSupportedException($"{entry.Id}: the layer lays no {entry.Source.Kind} source yet; its step brings it.")
         };
 

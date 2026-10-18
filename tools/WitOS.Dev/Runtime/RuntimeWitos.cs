@@ -500,6 +500,8 @@ internal static class RuntimeWitos
         await RuntimeDisplay.RunAsync(root, architecture);
         // C1.3 (RFC 0020): upstream PowerShell from the data volume, non-interactively and under PSReadLine on the terminal.
         await RuntimePowerShell.RunAsync(root, architecture);
+        // C4.2 (ADR 0027): the file manager Arlecchino.Commander, built from its source, from the layer on the screen.
+        await RuntimeCommander.RunAsync(root, architecture);
         await RuntimeCompatibility.RunAsync(root, architecture);
         await RuntimeLibraries.RunAsync(root, architecture);
         // N2.2, the libraries' own test suites, run for hours in the guest: runtime-nuget-suites runs them on this tree,

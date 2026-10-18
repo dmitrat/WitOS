@@ -41,6 +41,7 @@ internal static class AppCatalog
     private static readonly Regex SHA256 = new("^[0-9a-f]{64}$");
     private static readonly Regex COMMIT = new("^[0-9a-f]{40}$");
     private static readonly Regex PACKAGE = new(@"^[A-Za-z0-9][A-Za-z0-9._-]*$");
+    private static readonly Regex PROPERTY = new(@"^[A-Za-z_][A-Za-z0-9_]*=[^;""]*$");
 
     #endregion
 
@@ -104,6 +105,7 @@ internal static class AppCatalog
                 Require(source.Commit is not null && COMMIT.IsMatch(source.Commit), fileName, "a commit");
                 Require(source.Project is not null && source.Project.EndsWith(".csproj", StringComparison.Ordinal) && Relative(source.Project), fileName,
                     "a project within the repository");
+                Require((source.Properties ?? []).All(property => PROPERTY.IsMatch(property)), fileName, "MSBuild properties as Name=Value");
                 break;
             default:
                 throw new InvalidDataException($"{fileName}: the source's kind is none of {ARCHIVE}, {TOOL} and {SOURCE}.");
@@ -154,10 +156,10 @@ internal sealed record AppEntry(string Id, string Version, string Framework, App
 
 /// <summary>
 /// An upstream publication: an archive (Url, File, Sha256), a tool package (Package, Sha256) or a commit (Repository,
-/// Commit, Project).
+/// Commit, Project, and the MSBuild Properties its publish takes).
 /// </summary>
 internal sealed record AppSource(string Kind, string? Url, string? File, string? Sha256, string? Package, string? Repository,
-    string? Commit, string? Project);
+    string? Commit, string? Project, IReadOnlyList<string>? Properties = null);
 
 /// <summary>
 /// A native part built from source against the sysroot: its repository, commit, tag and library.

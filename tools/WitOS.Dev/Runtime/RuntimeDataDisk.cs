@@ -217,18 +217,7 @@ internal static class RuntimeDataDisk
     /// <exception cref="InvalidDataException">The disk is not a data disk's size.</exception>
     public static async Task EditExt4Async(string path, Func<string, Task> edit)
     {
-        var length = new FileInfo(path).Length;
-        if (length < BYTES || length % (1024 * 1024) != 0)
-            throw new InvalidDataException($"{path} is no data disk: {length} bytes.");
-        var first = EXT4_PARTITION_FIRST_BLOCK * BLOCK;
-        var bytes = (length / BLOCK - 2048 - EXT4_PARTITION_FIRST_BLOCK) * BLOCK;
-        var volume = Ext4Image(path) + ".edit";
-        await using (var disk = File.OpenRead(path))
-        await using (var image = File.Create(volume))
-        {
-            disk.Position = first;
-            await CopyAsync(disk, image, bytes);
-        }
+        var (volume, first, bytes) = await CopyOutExt4Async(path, ".edit");
         await RuntimeExt4Volume.RepairAsync(volume);
         await edit(volume);
         await RuntimeExt4Volume.RepairAsync(volume);
@@ -240,6 +229,46 @@ internal static class RuntimeDataDisk
             await CopyAsync(image, disk, bytes);
         }
         File.Delete(volume);
+    }
+
+    /// <summary>
+    /// Reads a file the guest left on the ext4 partition of a disk of any data disk's size (plan step C4.2): the
+    /// partition, copied out beside the disk, was unmounted by the guest and is clean.
+    /// </summary>
+    /// <param name="path">The disk's image.</param>
+    /// <param name="file">The file's path in the volume.</param>
+    /// <returns>The file's bytes.</returns>
+    /// <exception cref="InvalidDataException">The disk is not a data disk's size.</exception>
+    /// <exception cref="InvalidOperationException">The volume is mounted or unclean, or holds no such file.</exception>
+    public static async Task<byte[]> ReadExt4Async(string path, string file)
+    {
+        var (volume, _, _) = await CopyOutExt4Async(path, ".read");
+        try
+        {
+            return await RuntimeExt4Volume.ReadCleanAsync(volume, file);
+        }
+        finally
+        {
+            File.Delete(volume);
+        }
+    }
+
+    // The ext4 partition of a disk of any data disk's size copied out beside it: the copy, the partition's offset and length.
+    private static async Task<(string Volume, long First, long Bytes)> CopyOutExt4Async(string path, string suffix)
+    {
+        var length = new FileInfo(path).Length;
+        if (length < BYTES || length % (1024 * 1024) != 0)
+            throw new InvalidDataException($"{path} is no data disk: {length} bytes.");
+        var first = EXT4_PARTITION_FIRST_BLOCK * BLOCK;
+        var bytes = (length / BLOCK - 2048 - EXT4_PARTITION_FIRST_BLOCK) * BLOCK;
+        var volume = Ext4Image(path) + suffix;
+        await using (var disk = File.OpenRead(path))
+        await using (var image = File.Create(volume))
+        {
+            disk.Position = first;
+            await CopyAsync(disk, image, bytes);
+        }
+        return (volume, first, bytes);
     }
 
     private static async Task CopyAsync(Stream from, Stream to, long bytes)

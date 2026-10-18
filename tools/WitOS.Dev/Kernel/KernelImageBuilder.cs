@@ -165,6 +165,11 @@ internal static class KernelImageBuilder
     public const string RUNTIME_DISPLAY_SCENARIO = "runtime-display";
 
     /// <summary>
+    /// The file manager on the screen (C4.2): Arlecchino.Commander from the data volume's layer, typed through QMP.
+    /// </summary>
+    public const string RUNTIME_COMMANDER_SCENARIO = "runtime-commander";
+
+    /// <summary>
     /// Representative NuGet libraries (N2.1): NUnit's and xUnit's test applications run through dotnet beside the device
     /// services; not a suite scenario, for the same reason.
     /// </summary>
@@ -197,7 +202,7 @@ internal static class KernelImageBuilder
             RUNTIME_PORTABLE_APP_SCENARIO, RUNTIME_PALSUITE_SCENARIO, RUNTIME_CORECLR_TESTS_SCENARIO,
             RUNTIME_LIBRARY_TESTS_SCENARIO, RUNTIME_DEVICES_SCENARIO, RUNTIME_COMPATIBILITY_SCENARIO, RUNTIME_LIBRARIES_SCENARIO,
             RUNTIME_NUGET_SUITES_SCENARIO, RUNTIME_SIDE_BY_SIDE_SCENARIO, RUNTIME_TERMINAL_SCENARIO, RUNTIME_PUBLISHED_SCENARIO,
-            RUNTIME_POWERSHELL_SCENARIO, RUNTIME_DISPLAY_SCENARIO];
+            RUNTIME_POWERSHELL_SCENARIO, RUNTIME_DISPLAY_SCENARIO, RUNTIME_COMMANDER_SCENARIO];
 
     // A release map must not name self-test code: test objects, self-test functions, fault triggers or workers.
     private static readonly Regex SELF_TEST_SYMBOL = new(
@@ -301,6 +306,7 @@ internal static class KernelImageBuilder
                 or RUNTIME_CORECLR_TESTS_SCENARIO or RUNTIME_LIBRARY_TESTS_SCENARIO or RUNTIME_DEVICES_SCENARIO
                 or RUNTIME_COMPATIBILITY_SCENARIO or RUNTIME_LIBRARIES_SCENARIO or RUNTIME_NUGET_SUITES_SCENARIO or RUNTIME_TERMINAL_SCENARIO
                 or RUNTIME_SIDE_BY_SIDE_SCENARIO or RUNTIME_PUBLISHED_SCENARIO or RUNTIME_POWERSHELL_SCENARIO or RUNTIME_DISPLAY_SCENARIO
+                or RUNTIME_COMMANDER_SCENARIO
                 ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
             : await UserImage.BuildRootAsync(root, output, architecture);
         var objects = await CompileKernelAsync(root, output, scenario, selfTest, target, architecture);

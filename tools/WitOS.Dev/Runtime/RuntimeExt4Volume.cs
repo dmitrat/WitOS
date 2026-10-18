@@ -155,14 +155,7 @@ internal static class RuntimeExt4Volume
     /// bytes.</exception>
     public static async Task CheckAsync(string image, int boots = 0)
     {
-        var tools = Path.GetDirectoryName(FindMkfs() ?? throw new InvalidOperationException("Judging the ext4 volume needs e2fsprogs."))!;
-        var header = await Processes.RunAsync(Path.Combine(tools, "dumpe2fs"), ["-h", image], Path.GetTempPath(), 300);
-        var features = header.Output.Split('\n').FirstOrDefault(line => line.StartsWith("Filesystem features:", StringComparison.Ordinal));
-        if (header.ExitCode != 0 || features is null || features.Contains("needs_recovery", StringComparison.Ordinal))
-            throw new InvalidOperationException($"The guest did not unmount its ext4 volume: dumpe2fs says '{features}' ({header.ExitCode}).");
-        var check = await Processes.RunAsync(Path.Combine(tools, "e2fsck"), ["-fn", image], Path.GetTempPath(), 300);
-        if (check.ExitCode != 0)
-            throw new InvalidOperationException($"e2fsck finds the guest's ext4 volume unclean ({check.ExitCode}): {check.Output} {check.Error}");
+        var tools = await RequireUnmountedAsync(image);
         if (boots > 0 && Encoding.UTF8.GetString(await DumpAsync(tools, image, "/boots.txt")) != $"{boots}")
             throw new InvalidOperationException($"debugfs reads another /boots.txt than the guest's count of {boots} boots.");
         var written = await DumpAsync(tools, image, "/guest/logs/written.bin");
@@ -177,6 +170,17 @@ internal static class RuntimeExt4Volume
             throw new InvalidOperationException("debugfs reads another /dotnet-kept.txt than /bin/files wrote through System.IO.");
     }
 
+    /// <summary>
+    /// Reads a file the guest left on a volume (plan step C4.2): the guest unmounted the volume, e2fsck finds it clean,
+    /// and debugfs reads the file.
+    /// </summary>
+    /// <param name="image">The volume's image.</param>
+    /// <param name="file">The file's path in the volume.</param>
+    /// <returns>The file's bytes.</returns>
+    /// <exception cref="InvalidOperationException">The journal needs recovery, e2fsck finds a problem, or the volume holds no
+    /// such file.</exception>
+    public static async Task<byte[]> ReadCleanAsync(string image, string file) =>
+        await DumpAsync(await RequireUnmountedAsync(image), image, file);
     /// <summary>
     /// Requires what a cut left on a volume (D6.2): the guest had it mounted (needs_recovery), and the host's e2fsck
     /// replays its journal and finds it clean then. The image is the host's copy: the guest's next boot replays the
@@ -276,6 +280,20 @@ internal static class RuntimeExt4Volume
     [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
     private static bool Executable(string path) =>
         (File.GetUnixFileMode(path) & (UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) != 0;
+
+    // The guest unmounted the volume (no needs_recovery) and e2fsck finds it clean; the directory of e2fsprogs.
+    private static async Task<string> RequireUnmountedAsync(string image)
+    {
+        var tools = Path.GetDirectoryName(FindMkfs() ?? throw new InvalidOperationException("Judging the ext4 volume needs e2fsprogs."))!;
+        var header = await Processes.RunAsync(Path.Combine(tools, "dumpe2fs"), ["-h", image], Path.GetTempPath(), 300);
+        var features = header.Output.Split('\n').FirstOrDefault(line => line.StartsWith("Filesystem features:", StringComparison.Ordinal));
+        if (header.ExitCode != 0 || features is null || features.Contains("needs_recovery", StringComparison.Ordinal))
+            throw new InvalidOperationException($"The guest did not unmount its ext4 volume: dumpe2fs says '{features}' ({header.ExitCode}).");
+        var check = await Processes.RunAsync(Path.Combine(tools, "e2fsck"), ["-fn", image], Path.GetTempPath(), 300);
+        if (check.ExitCode != 0)
+            throw new InvalidOperationException($"e2fsck finds the guest's ext4 volume unclean ({check.ExitCode}): {check.Output} {check.Error}");
+        return tools;
+    }
 
     private static async Task<byte[]> DumpAsync(string tools, string image, string file)
     {
