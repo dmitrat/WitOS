@@ -1,0 +1,22 @@
+Source: src/coreclr/runtime/riscv64/StubDispatch.S
+Output: src.coreclr.runtime.riscv64.StubDispatch.S
+Before: 142f9683d1f223adc4df478a2586abf454b01ab9c2289a93e06199c4492b7dd4
+After: 21bfc3eedeaafd88014b326d608d2747dfe250169ea012338c7766358f22716c
+
+NativeAOT on riscv64 (plan step V2.4): the interface dispatch cache miss, RhpInterfaceDispatchSlow, puts the dispatch cell in t1, the universal transition's parameter, and reaches the transition through the `tail` pseudo-instruction, which assembles to an auipc and a jalr through t1 itself. A linker that relaxes the pair into a single jal keeps t1, which is why Linux builds work; WitOS links layer 2 without relaxation (-mno-relax, since nothing may address through gp), so RhpCidResolve received the transition's own address as its cell, read a garbage interface type and the first interface call of a program failed with an access violation (the M3 acceptance in AppContext's static constructor). The tail call takes .NET 11's form, an explicit auipc and jalr through t2, with 10.0's symbol RhpUniversalTransition_DebugStepTailCall.
+
+--- a/src/coreclr/runtime/riscv64/StubDispatch.S
++++ b/src/coreclr/runtime/riscv64/StubDispatch.S
+@@ -107,7 +107,11 @@
+         //  t1: parameter of the thunk's target
+         PREPARE_EXTERNAL_VAR RhpCidResolve, t0
+         mv t1, t5
+-        tail       C_FUNC(RhpUniversalTransition_DebugStepTailCall)
++        // The tail call goes through t2: the `tail` pseudo-instruction takes t1 for its auipc unless the linker relaxes
++        // the pair into a jal, which WitOS's layer 2 never does (-mno-relax), and t1 holds the cell (as .NET 11 has it).
++    1:
++        auipc t2, %pcrel_hi(C_FUNC(RhpUniversalTransition_DebugStepTailCall))
++        jalr  x0, t2, %pcrel_lo(1b)
+     LEAF_END RhpInterfaceDispatchSlow, _TEXT
+ 
+ #endif // FEATURE_CACHED_INTERFACE_DISPATCH

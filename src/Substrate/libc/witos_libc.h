@@ -47,6 +47,7 @@ long __wit_mprotect(long address, long length, long protection);
 long __wit_madvise(long address, long length, long advice);
 long __wit_msync(long address, long length, long flags);
 long __wit_mremap(long address, long old_length, long new_length, long flags);
+long __wit_flush_icache(long start, long end, long flags); /* riscv64's riscv_flush_icache as CODE_PUBLISH (V2.4) */
 
 /* Files over the read-only boot package (files.c, S1.2). */
 struct kstat;

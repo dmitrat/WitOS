@@ -1,16 +1,16 @@
 Source: eng/native/configureplatform.cmake
 Output: eng.native.configureplatform.cmake
 Before: d113163aef442bb4143347cf6755912c7f962d14d170023406f3c82be8d499d1
-After: 481240971e68fd0ceb813b18994f83b0498276aa4f1c38ebf3edca94946833e2
+After: f970d31996b361f015a23e13303ecb169eb894920bc9deff640451bade8d6364
 
-The platform witos (plan step R1.2b, RFC 0015 section 3): CLR_CMAKE_HOST_WITOS for code built to run on WitOS (x64 and
-ARM64) and CLR_CMAKE_TARGET_WITOS with CLR_CMAKE_TARGET_UNIX, beside Haiku's branches; WitOS is a Unix target and never
+The platform witos (plan step R1.2b, RFC 0015 section 3): CLR_CMAKE_HOST_WITOS for code built to run on WitOS (x64, ARM64
+and, since V2.4, RISC-V 64) and CLR_CMAKE_TARGET_WITOS with CLR_CMAKE_TARGET_UNIX, beside Haiku's branches; WitOS is a Unix target and never
 Linux. R3.1: CoreCLR's build tools (ilasm, ildasm) are not built for witos, as for Android and the browser: the host's
 own tools serve the build, and ilasm's signing needs OpenSSL's headers, which the sysroot does not have.
 
 --- a/eng/native/configureplatform.cmake
 +++ b/eng/native/configureplatform.cmake
-@@ -218,6 +218,18 @@
+@@ -218,6 +218,20 @@
      set(CLR_CMAKE_HOST_UNIX_AMD64 1)
      set(CLR_CMAKE_HOST_HAIKU 1)
  endif(CLR_CMAKE_HOST_OS STREQUAL haiku)
@@ -21,6 +21,8 @@ own tools serve the build, and ilasm's signing needs OpenSSL's headers, which th
 +        set(CLR_CMAKE_HOST_UNIX_AMD64 1)
 +    elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL aarch64)
 +        set(CLR_CMAKE_HOST_UNIX_ARM64 1)
++    elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL riscv64)
++        set(CLR_CMAKE_HOST_UNIX_RISCV64 1)
 +    else()
 +        clr_unknown_arch()
 +    endif()
@@ -29,7 +31,7 @@ own tools serve the build, and ilasm's signing needs OpenSSL's headers, which th
  
  if(CLR_CMAKE_HOST_OS STREQUAL windows)
      set(CLR_CMAKE_HOST_WIN32 1)
-@@ -434,6 +446,11 @@
+@@ -434,6 +448,11 @@
      set(CLR_CMAKE_TARGET_HAIKU 1)
  endif(CLR_CMAKE_TARGET_OS STREQUAL haiku)
  
@@ -41,7 +43,7 @@ own tools serve the build, and ilasm's signing needs OpenSSL's headers, which th
  if(CLR_CMAKE_TARGET_OS STREQUAL emscripten OR CLR_CMAKE_TARGET_OS STREQUAL browser)
      set(CLR_CMAKE_TARGET_UNIX 1)
      set(CLR_CMAKE_TARGET_BROWSER 1)
-@@ -522,7 +539,7 @@
+@@ -522,7 +541,7 @@
      set(CLR_CMAKE_USE_SYSTEM_ZLIB 1)
  endif()
  

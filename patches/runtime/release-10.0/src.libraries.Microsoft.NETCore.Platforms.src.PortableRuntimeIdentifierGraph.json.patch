@@ -1,13 +1,13 @@
 Source: src/libraries/Microsoft.NETCore.Platforms/src/PortableRuntimeIdentifierGraph.json
 Output: src.libraries.Microsoft.NETCore.Platforms.src.PortableRuntimeIdentifierGraph.json
 Before: 2057797fe984cf7beb26911f3bf7eb58b6854b403563aa661196a2fd16a77be9
-After: ac79adb336de7db4f99b947a23e94ef0711622599b5962330faa1e13e3dba23b
+After: de9d420b4833c512cb46ba24ca818af11c56c0ff8afec2a1ccab0fa91e80ec1b
 
-The portable RID graph (plan step R1.1): the same witos, witos-x64 and witos-arm64 entries as runtime.json.
+The portable RID graph (plan step R1.1): the same witos, witos-x64, witos-arm64 and witos-riscv64 (V2.4) entries as runtime.json.
 
 --- a/src/libraries/Microsoft.NETCore.Platforms/src/PortableRuntimeIdentifierGraph.json
 +++ b/src/libraries/Microsoft.NETCore.Platforms/src/PortableRuntimeIdentifierGraph.json
-@@ -452,6 +452,23 @@
+@@ -452,6 +452,29 @@
            "wasi"
          ]
        },
@@ -20,6 +20,12 @@ The portable RID graph (plan step R1.1): the same witos, witos-x64 and witos-arm
 +        "#import": [
 +          "witos",
 +          "unix-arm64"
++        ]
++      },
++      "witos-riscv64": {
++        "#import": [
++          "witos",
++          "unix-riscv64"
 +        ]
 +      },
 +      "witos-x64": {

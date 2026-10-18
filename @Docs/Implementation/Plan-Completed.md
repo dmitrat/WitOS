@@ -24,7 +24,7 @@
 | [R — Рантайм .NET Unix-формы](#r--рантайм-net-unix-формы) | R1–R8 | 2026-10-12 (R4.2 после D6) |
 | [D — Устройства и хранилище (M4/M5)](#d--устройства-и-хранилище-m4m5) | D1–D6 | 2026-10-12 |
 | [C — Консоль и оболочка (RFC-0020)](#c--консоль-и-оболочка-rfc-0020) | C1, C2 (C3 — горизонт в плане) | C2.3 — 2026-10-17 |
-| [V — Третья ISA](#v--третья-isa) | V0, V1, V2.1–V2.3 (V2.4–V3 открыты в плане) | V2.3 — 2026-10-17 |
+| [V — Третья ISA](#v--третья-isa) | V0, V1, V2 (V3 открыт в плане) | V2.4 — 2026-10-18 |
 | [N — Стандартный .NET (M6)](#n--стандартный-net-m6) | N1–N4: фаза завершена, M6 выполнен, Gate B заявлен | 2026-10-15 (N4.5) |
 
 ## 5. Фазы (выполненные шаги)
@@ -1378,3 +1378,30 @@
   Хост: 96 тестов инструмента (судья riscv64, манифесты, слоение); release x64 без изменений. Находки: финишер должен быть
   загрузочным устройством; дерево устройств может лежать в уже отображённой памяти (читатель спрашивает
   `wit_virtual_view`); деления на ноль нет; boot hart — вопрос прошивке (64 `ecall` однажды).
+- [x] **V2.4** Рантайм `witos-riscv64`: upstream .NET 10.0.12 в Unix-форме на третьей ISA (2026-10-18;
+  [V2.4-RISC-V-Runtime.md](@Docs/Implementation/V2.4-RISC-V-Runtime.md)). Набор патчей называет riscv64 (триплет
+  тулчейна, архитектура платформы, графы RID `witos-riscv64`; пять патчей перегенерированы), `witos.targets` знает RID,
+  `runtime-witos` — машину ELF по архитектуре, постоянный `Main` по инструкциям RISC-V и ILC с community-JIT
+  (`clr.alljitscommunity`); `riscv_flush_icache` — `CODE_PUBLISH` через таблицу отображений libc, а ветка RISC-V
+  `__clear_cache` compiler-rt вызывает `__riscv_flush_icache` musl (первый патч субстрата вне musl, `UpstreamPatches`);
+  `atomic.c` compiler-rt в builtins riscv64 вместо `-latomic`. Пять новых патчей CoreCLR, каждый — ветка рядом с
+  платформенными: статики потоков через general-dynamic TLS и `CanJITOptimizeTLSAccess` = false (musl не даёт
+  initial-exec TLS библиотеке из `dlopen`); помощник исключений PAL возвращает в `CONTEXT_Pc`, как ARM64 (баг
+  community-порта: `pal_sxs/test1` падал в `__stack_chk_fail`); W^X включён для WitOS riscv64 (upstream выключает, а WitOS
+  не даёт RWX); заглушка интерфейсного диспетчинга NativeAOT хвостом через t2, как в .NET 11 (`tail` через t1 без
+  релаксации линкера, `-mno-relax`, затирал ячейку). Исключения выборок тестов могут называть ISA (`architectures`):
+  `GC/API/Refresh` не собирается для riscv64, `GC/Regressions/v2.0-rtm/494226` — OOM после `catch` только на riscv64,
+  десять тестов `System.Runtime.Numerics` — баг community-JIT RISC-V при динамическом PGO и OSR (воспроизведён под
+  `corerun`, без PGO и на arm64 — нет). Плата: PLIC QEMU пересчитывает ожидающие прерывания при записи приоритета, но не
+  enable, — снятие маски писало приоритет первым, и прерывание virtio-console, пришедшее под маской, ждало чужой
+  активности (терминал зависал на случайном вводе); теперь enable, затем приоритет, а ловушка завершает claim до маски
+  (спецификация игнорирует завершение выключенного источника). Гость (контейнер Linux-хоста, дерево рантайма с нуля):
+  `runtime-witos --arch riscv64` — все 24 загрузки PASS за 96 минут: CoreLib `WITOS`, 16 try_run как у гостя, набор PAL
+  `all 280 tests passed`, `[M3] CoreCLR on riscv64: 32 runs passed, 0 failed`, System.Native 12 областей, `dotnet App.dll`,
+  R6 `12 of 12`, тесты CoreCLR (258 в двух группах, 48 изолированных, `all 50 runs exited with 100`) и библиотек
+  (5 078 в двух проектах, 11 методов вне выборки), `[M3] NativeAOT on riscv64: 32 runs passed, 0 failed`, восемь служб
+  NativeAOT и пять загрузок устройств (обрыв после раунда 22 и восстановление, `EIO`), терминал 20 проверок, PowerShell
+  7.6.7 на экране с кадром, равным хостовому попиксельно, набор совместимости `89 checks, 2 recorded differences,
+  0 unexpected`, библиотеки NUnit и xUnit. Windows: `test --arch riscv64` — 21 сценарий после правки PLIC. Набор
+  патчей — 37 файлов (CoreCLR 15 против 31 у FreeBSD и 18 у Haiku). CI: нога `linux-host` для riscv64; матрица —
+  RISC-V `Early`. V2 выполнен; V3 — `runtime-published` на трёх ISA и правило трёх ISA.

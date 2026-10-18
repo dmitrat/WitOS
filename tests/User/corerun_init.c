@@ -10,8 +10,10 @@ extern char **environ;
 
 #if defined(__x86_64__)
 #define RID "witos-x64"
-#else
+#elif defined(__aarch64__)
 #define RID "witos-arm64"
+#else
+#define RID "witos-riscv64"
 #endif
 
 #ifndef CORERUN_ASSEMBLY

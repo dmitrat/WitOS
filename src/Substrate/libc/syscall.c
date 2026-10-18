@@ -848,6 +848,10 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
         return __wit_msync(a1, a2, a3);
     case SYS_mremap:
         return __wit_mremap(a1, a2, a3, a4);
+#ifdef SYS_riscv_flush_icache
+    case SYS_riscv_flush_icache: /* V2.4: the code a JIT wrote through a writable view is published */
+        return __wit_flush_icache(a1, a2, a3);
+#endif
     case SYS_brk:
         return -ENOMEM; /* musl's allocators fall back to mmap */
     case SYS_clock_gettime:

@@ -1,14 +1,14 @@
 Source: src/libraries/Microsoft.NETCore.Platforms/src/runtime.json
 Output: src.libraries.Microsoft.NETCore.Platforms.src.runtime.json
 Before: 8b35feaf33af3d4b0192e683950fb621791e01769d0123f6d82a2864bdc408b4
-After: 1d4f199523c4e2991ddf4581995ce9e731eae4b2ccc90edf65fd20f8439122c9
+After: a3034882941edd2a35dbd386290a6b35748e3131002f1f0a39393bae4000b821
 
-The RID graph (plan step R1.1, RFC 0015 section 3): witos imports unix, and witos-x64 and witos-arm64 import witos and
-unix-<arch>, as freebsd-x64 does. No version in the identifier, as linux-musl-x64 has none.
+The RID graph (plan step R1.1, RFC 0015 section 3): witos imports unix, and witos-x64, witos-arm64 and witos-riscv64 (V2.4) import witos
+and unix-<arch>, as freebsd-x64 does. No version in the identifier, as linux-musl-x64 has none.
 
 --- a/src/libraries/Microsoft.NETCore.Platforms/src/runtime.json
 +++ b/src/libraries/Microsoft.NETCore.Platforms/src/runtime.json
-@@ -4300,6 +4300,23 @@
+@@ -4300,6 +4300,29 @@
      "wasi-wasm": {
        "#import": [
          "wasi"
@@ -23,6 +23,12 @@ unix-<arch>, as freebsd-x64 does. No version in the identifier, as linux-musl-x6
 +      "#import": [
 +        "witos",
 +        "unix-arm64"
++      ]
++    },
++    "witos-riscv64": {
++      "#import": [
++        "witos",
++        "unix-riscv64"
 +      ]
 +    },
 +    "witos-x64": {

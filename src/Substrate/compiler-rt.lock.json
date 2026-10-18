@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/llvm/llvm-project",
   "tag": "llvmorg-20.1.8",
-  "purpose": "The helpers clang emits calls to and the pinned LLVM package does not ship for the Linux triples: the IEEE binary128 soft-float builtins for long double on aarch64 and riscv64 (musl's printf, strtod and the long double mathematics, S1.1, V2.1; each ISA's fp_mode.c reads its rounding mode), the complex multiplication builtins musl's complex functions need, which libc.so links whole (S5.3), the 128-bit integer division builtins libc++'s filesystem clock needs, which libc++.so links whole, crtbegin.c, the start object of every dynamic image, which gives a module its hidden __dso_handle (S5.4), crtend.c, its end object, which the clang driver links after an image's own objects (the sysroot, R1.2a), clear_cache.c, the __clear_cache NativeAOT's runtime calls to publish generated code on aarch64 (R2.1; not for riscv64, whose Linux branch issues the riscv_flush_icache system call with an inline ecall, which WitOS never does: __clear_cache on riscv64 is CODE_PUBLISH and comes with the runtime, V2), and aarch64's outline atomics: lse.S, assembled into its 125 helpers as compiler-rt's CMake assembles them, and cpu_model/aarch64.c, whose __aarch64_have_lse_atomics they read, since clang calls them from code compiled with --rtlib=compiler-rt, as the sysroot's driver options compile ICU (R4.3); compiled for the system layer from compiler-rt's sources.",
+  "purpose": "The helpers clang emits calls to and the pinned LLVM package does not ship for the Linux triples: the IEEE binary128 soft-float builtins for long double on aarch64 and riscv64 (musl's printf, strtod and the long double mathematics, S1.1, V2.1; each ISA's fp_mode.c reads its rounding mode), the complex multiplication builtins musl's complex functions need, which libc.so links whole (S5.3), the 128-bit integer division builtins libc++'s filesystem clock needs, which libc++.so links whole, crtbegin.c, the start object of every dynamic image, which gives a module its hidden __dso_handle (S5.4), crtend.c, its end object, which the clang driver links after an image's own objects (the sysroot, R1.2a), clear_cache.c, the __clear_cache NativeAOT's runtime calls to publish generated code on aarch64 (R2.1) and on riscv64 (V2.4), where its Linux branch issues the riscv_flush_icache system call with an inline ecall, which WitOS never takes: the one patched source (patches/compiler-rt/clear_cache.c.patch) calls musl's __riscv_flush_icache there, whose system call the system layer serves as the kernel's CODE_PUBLISH, atomic.c, the atomic operations clang calls out of line where the ISA has no instruction for the size, which riscv64 does for the 16-byte compare-exchange NativeAOT's PalInterlockedCompareExchange128 needs, where Linux links libatomic (V2.4), and aarch64's outline atomics: lse.S, assembled into its 125 helpers as compiler-rt's CMake assembles them, and cpu_model/aarch64.c, whose __aarch64_have_lse_atomics they read, since clang calls them from code compiled with --rtlib=compiler-rt, as the sysroot's driver options compile ICU (R4.3); compiled for the system layer from compiler-rt's sources.",
   "sources": [
     {
       "path": "compiler-rt/LICENSE.TXT",
@@ -207,7 +207,15 @@
       "sha256": "2bcbcc8d1dd2f0b417186132ec88557fd4f7db8bfd893b6a78d335dd04686567",
       "architectures": [
         "x86_64",
-        "aarch64"
+        "aarch64",
+        "riscv64"
+      ]
+    },
+    {
+      "path": "compiler-rt/lib/builtins/atomic.c",
+      "sha256": "9fcf5fc6f0cb1da23f004fa9bc3af1cfcb5589f0c8d20e7b6de863591b60eb98",
+      "architectures": [
+        "riscv64"
       ]
     },
     {

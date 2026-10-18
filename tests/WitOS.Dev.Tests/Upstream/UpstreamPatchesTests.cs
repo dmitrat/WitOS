@@ -64,6 +64,9 @@ public sealed class UpstreamPatchesTests
                 : repository == WitOS.Dev.Runtime.RuntimeSideBySide.PATCH_SET
                 ? Path.Combine(root, ".tools", "upstream",
                     $"runtime-witos-{WitOS.Dev.Runtime.RuntimeWitos.ReadLock(root, WitOS.Dev.Runtime.RuntimeSideBySide.LOCK).Version}")
+                : repository == "compiler-rt"
+                ? Path.Combine(root, ".tools", "compiler-rt", JsonDocument.Parse(File.ReadAllText(Path.Combine(root,
+                    WitOS.Dev.Substrate.CompilerRtBuiltins.LOCK))).RootElement.GetProperty("tag").GetString()!)
                 : WitOS.Dev.Substrate.MuslLibc.SourceDirectory(root);
             var source = Path.Combine(cache, patch.Source);
             var added = patch.Before == UpstreamPatches.Hash("");
@@ -155,6 +158,10 @@ public sealed class UpstreamPatchesTests
         var musl = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, WitOS.Dev.Substrate.MuslLibc.LOCK))).RootElement;
         foreach (var source in musl.GetProperty("sources").EnumerateArray())
             pins[("musl", source.GetProperty("path").GetString()!)] = source.GetProperty("sha256").GetString()!;
+        // compiler-rt's builtins: the sources pinned at the toolchain's tag, one of them patched (V2.4).
+        var compilerRt = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, WitOS.Dev.Substrate.CompilerRtBuiltins.LOCK))).RootElement;
+        foreach (var source in compilerRt.GetProperty("sources").EnumerateArray())
+            pins[("compiler-rt", source.GetProperty("path").GetString()!)] = source.GetProperty("sha256").GetString()!;
         return pins;
     }
 

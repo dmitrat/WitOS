@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using WitOS.Dev.Host;
 using WitOS.Dev.Kernel;
+using WitOS.Dev.Upstream;
 
 namespace WitOS.Dev.Substrate;
 
@@ -11,12 +12,15 @@ namespace WitOS.Dev.Substrate;
 /// The compiler's runtime helpers a program needs beside the libc (plan step S1.1): compiler-rt's generic soft-float
 /// builtins for IEEE binary128, which clang emits for <c>long double</c> on aarch64, the complex multiplication
 /// builtins musl's complex functions call, which libc.so links whole (S5.3), the 128-bit integer division builtins
-/// libc++.so needs (S5.4), clear_cache.c, whose __clear_cache NativeAOT's runtime calls on aarch64 (R2.1), aarch64's
+/// libc++.so needs (S5.4), clear_cache.c, whose __clear_cache NativeAOT's runtime calls on aarch64 (R2.1) and riscv64 (V2.4:
+/// its RISC-V branch patched to call musl's __riscv_flush_icache, the system layer's CODE_PUBLISH, in place of an inline
+/// ecall of the Linux system call), aarch64's
 /// outline atomics, which clang calls from code compiled with --rtlib=compiler-rt (R4.3: ICU), and crtbegin.c, built
 /// apart as crtbeginS.o, the start object clang's driver links into every dynamic image for its hidden __dso_handle
 /// (S5.4); the pinned LLVM package ships none of them for the Linux triples. The files are pinned by SHA-256
 /// at the toolchain's own tag in src/Substrate/compiler-rt.lock.json, downloaded once into .tools/compiler-rt, verified on
-/// every use and compiled unchanged with the pinned clang into builtins.a for each architecture.
+/// every use and compiled unchanged, but for that one patch (patches/compiler-rt, applied through UpstreamPatches), with
+/// the pinned clang into builtins.a for each architecture.
 /// </summary>
 internal static class CompilerRtBuiltins
 {
@@ -35,6 +39,12 @@ internal static class CompilerRtBuiltins
     // The directories of compiler-rt's builtins that hold one architecture's files.
     // compiler-rt's directory of each musl architecture's own sources: riscv64's is "riscv" (V2.1).
     private static readonly string[] ARCHITECTURE_DIRECTORIES = ["x86_64", "aarch64", "riscv"];
+
+    // The patched upstream files (V2.4): the riscv64 cache flush goes through the C library, not a Linux ecall.
+    private static readonly Dictionary<string, string> PATCHED = new(StringComparer.Ordinal)
+    {
+        ["compiler-rt/lib/builtins/clear_cache.c"] = "clear_cache.c"
+    };
 
     // aarch64's outline atomics (R4.3): lse.S assembled once for each operation, size and memory model, as compiler-rt's
     // CMake assembles its copies outline_atomic_<operation><size>_<model>.S; cas alone has a 16-byte form.
@@ -118,7 +128,8 @@ internal static class CompilerRtBuiltins
         var archive = Path.Combine(output, "builtins.a");
         var stamp = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n',
             [pin.Tag, Toolchain.LLVM_VERSION, architecture.Triple, .. architecture.ClangOptions,
-                .. pin.Sources.Select(source => source.Sha256 + string.Join(',', source.Architectures ?? []))])))).ToLowerInvariant();
+                .. pin.Sources.Select(source => source.Sha256 + string.Join(',', source.Architectures ?? [])),
+                .. PATCHED.Values.Select(name => File.ReadAllText(Path.Combine(UpstreamPatches.Directory(root), "compiler-rt", name + ".patch")))])))).ToLowerInvariant();
         var stampPath = Path.Combine(output, "stamp.txt");
         if (File.Exists(archive) && File.Exists(stampPath) && await File.ReadAllTextAsync(stampPath) == stamp)
             return archive;
@@ -135,12 +146,23 @@ internal static class CompilerRtBuiltins
                 (source.Architectures is { } only && !only.Contains(arch)))
                 continue;
             var obj = Path.Combine(output, string.Join('_', parts[3..]) + ".o");
+            var input = Path.Combine(cache, source.Path);
+            if (PATCHED.TryGetValue(source.Path, out var patched))
+            {
+                // The file's bytes are the pin's (PrepareAsync verified them); its patch applies to its LF text, and the copy
+                // is compiled in the source's place.
+                var text = Encoding.UTF8.GetString(await File.ReadAllBytesAsync(input)).Replace("\r\n", "\n");
+                input = Path.Combine(output, "patched", patched);
+                Directory.CreateDirectory(Path.GetDirectoryName(input)!);
+                await File.WriteAllTextAsync(input, UpstreamPatches.Apply(root, "compiler-rt", source.Path, patched, text));
+            }
             await Processes.RequireSuccessAsync(Toolchain.Clang(root),
             [
                 $"--target={architecture.Triple}", "-std=c11", "-O2", "-ffreestanding", "-fno-builtin", "-fomit-frame-pointer",
                 "-fvisibility=hidden", "-fPIE", "-fno-stack-protector", "-fno-unwind-tables", "-fno-asynchronous-unwind-tables",
                 "-nostdlibinc", "-w", .. architecture.ClangOptions, .. includes.SelectMany(include => new[] { "-isystem", include }),
-                "-c", Path.Combine(cache, source.Path), "-o", obj
+                // A patched copy includes the builtins' own headers from the pinned tree.
+                "-I", Path.Combine(cache, "compiler-rt", "lib", "builtins"), "-c", input, "-o", obj
             ], root);
             objects.Add(obj);
         }

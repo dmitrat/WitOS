@@ -157,7 +157,10 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     /// <summary>
     /// The name RuntimeInformation.OSArchitecture gives the ISA, which .NET programs of the scenarios print.
     /// </summary>
-    private string OsArchitecture => this == X64 ? "X64" : this == Arm64 ? "Arm64" : "RiscV64";
+    /// <summary>
+    /// The architecture as .NET's RuntimeInformation.OSArchitecture names it, which the guest programs print.
+    /// </summary>
+    public string OsArchitecture => this == X64 ? "X64" : this == Arm64 ? "Arm64" : "RiscV64";
 
     /// <summary>
     /// The first log line of the root task fixture (tests/User/root.c): the pinned compiler and the ISA of the triple.

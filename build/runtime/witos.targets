@@ -20,10 +20,10 @@
   <ItemGroup>
     <KnownILCompilerPack Update="Microsoft.DotNet.ILCompiler"
                          ILCompilerPackVersion="$(WitOSPackageVersion)"
-                         ILCompilerRuntimeIdentifiers="%(ILCompilerRuntimeIdentifiers);witos-x64;witos-arm64" />
+                         ILCompilerRuntimeIdentifiers="%(ILCompilerRuntimeIdentifiers);witos-x64;witos-arm64;witos-riscv64" />
     <KnownRuntimePack Update="Microsoft.NETCore.App"
                       LatestRuntimeFrameworkVersion="$(WitOSPackageVersion)"
-                      RuntimePackRuntimeIdentifiers="%(RuntimePackRuntimeIdentifiers);witos-x64;witos-arm64" />
+                      RuntimePackRuntimeIdentifiers="%(RuntimePackRuntimeIdentifiers);witos-x64;witos-arm64;witos-riscv64" />
     <LinkerArg Include="$(WitOSLinkerOptions)" />
   </ItemGroup>
 </Project>

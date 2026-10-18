@@ -1,5 +1,5 @@
 {
-  "comment": "Slices of CoreCLR's src/tests on WitOS (plan step R7.2b), which @Docs/Implementation/R7.2b-CoreCLR-Tests.md explains. groups: upstream's merged test runners the guest runs whole, each in a process of its own. standalone: merged runners whose process-isolated tests the guest runs one by one, each in a process of its own, since a merged runner starts those through a script WitOS has no shell for. excluded: test names, as a group prints them or as the path of a process-isolated test's directory, with the reasons. Every other test must pass.",
+  "comment": "Slices of CoreCLR's src/tests on WitOS (plan step R7.2b), which @Docs/Implementation/R7.2b-CoreCLR-Tests.md explains. groups: upstream's merged test runners the guest runs whole, each in a process of its own. standalone: merged runners whose process-isolated tests the guest runs one by one, each in a process of its own, since a merged runner starts those through a script WitOS has no shell for. excluded: test names, as a group prints them or as the path of a process-isolated test's directory, with the reasons; an entry whose value is an object names in architectures the ISAs it applies to (V2.4): where upstream builds the test for some alone, or where it fails on some alone for a reason the entry gives; the tool checks an ISA's exclusions against that ISA's build. Every other test must pass.",
   "groups": [
     "JIT/Methodical/Methodical_d1",
     "JIT/Methodical/Methodical_r1"
@@ -16,7 +16,19 @@
     "GC/Coverage/LargeObjectAlloc": "faults now and then in the same place as NoGC, freeing a handle (TableFreeSingleHandleToCache), and passes alone; an open question of the R7.2b document",
     "GC/LargeMemory/API/gc/gettotalmemory": "asks for 2 GB, since it reads the physical memory from /proc/meminfo, which WitOS does not have: on ARM64 the GC commits the process's whole page quota (256 MiB before N2.2) before the allocation fails, and the runtime then has no memory to raise OutOfMemoryException",
     "GC/Regressions/v2.0-beta2/460373/460373": "keeps 500 MB live, past the pages a process commits (the system layer's quota, 256 MiB before N2.2) and the guest's 512 MiB: the runtime ends on the out-of-memory exception",
-    "GC/API/Refresh/Refresh": "calls GC.RefreshMemoryLimit, which the GC turns off when DOTNET_GCTotalPhysicalMemory is set, and the root task sets it for every process, the GC's knob for a container's limit (N2.2, Compatibility-Differences: Threads and resources)",
+    "GC/Regressions/v2.0-rtm/494226/494226": {
+      "reason": "allocates 20 million small arrays until the GC's limit and then writes to the console: on x64 and arm64 the arrays are unreachable once the try block ends and the console's first allocations find memory, on riscv64 the console's first allocation finds the heap full and its OutOfMemoryException leaves the test; the test checks a card table assert of the GC, which its run does not hit on riscv64 either; an open question of the V2.4 document",
+      "architectures": [
+        "riscv64"
+      ]
+    },
+    "GC/API/Refresh/Refresh": {
+      "reason": "calls GC.RefreshMemoryLimit, which the GC turns off when DOTNET_GCTotalPhysicalMemory is set, and the root task sets it for every process, the GC's knob for a container's limit (N2.2, Compatibility-Differences: Threads and resources); upstream builds the test for x64 and arm64 alone (CLRTestTargetUnsupported), so riscv64's build has none to leave out",
+      "architectures": [
+        "x64",
+        "arm64"
+      ]
+    },
     "GC/Stress/Framework/ReliabilityFramework": "writes its logs into its own directory, which is the read-only package",
     "baseservices/exceptions/stackoverflow/stackoverflowtester": "starts a process: System.Diagnostics.Process is unsupported on WitOS (RFC 0015 section 8)",
     "baseservices/exceptions/unhandled/unhandledTester": "starts a process: System.Diagnostics.Process is unsupported on WitOS (RFC 0015 section 8)"

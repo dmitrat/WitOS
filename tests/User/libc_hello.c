@@ -352,6 +352,15 @@ int main(void)
     if (code != MAP_FAILED) {
         int (*answer)(void) = (int (*)(void))code;
         check(answer() == 42, "the mapped code runs");
+#if defined(__riscv)
+        /* V2.4: Linux's RISC-V instruction cache flush, which musl issues as a system call and the library serves by
+         * publishing the range's executable mappings through the kernel; its flags are 0 or 1, anything else EINVAL. */
+        int __riscv_flush_icache(void *, void *, unsigned long);
+        check(__riscv_flush_icache(code, (char *)code + 4096, 0) == 0 && answer() == 42,
+            "the mapped code published again");
+        check(__riscv_flush_icache(code, (char *)code + 4096, 2) == -1 && errno == EINVAL,
+            "a cache flush with unknown flags");
+#endif
         check(mprotect(code, 4096, PROT_READ | PROT_WRITE) == -1 && errno == EACCES, "a file's code is never writable");
         check(
             mprotect(code, 4096, PROT_READ) == 0 && mprotect(code, 4096, PROT_READ | PROT_EXEC) == 0 && answer() == 42,

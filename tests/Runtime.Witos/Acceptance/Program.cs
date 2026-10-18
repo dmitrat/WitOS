@@ -98,6 +98,7 @@ internal static class Program
     {
         Architecture.X64 => "x86_64",
         Architecture.Arm64 => "aarch64",
+        Architecture.RiscV64 => "riscv64",
         var other => other.ToString()
     };
 

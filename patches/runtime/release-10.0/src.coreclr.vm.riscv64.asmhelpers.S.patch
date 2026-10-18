@@ -1,0 +1,35 @@
+Source: src/coreclr/vm/riscv64/asmhelpers.S
+Output: src.coreclr.vm.riscv64.asmhelpers.S
+Before: f9fbd4c7d8d681eedda3b8ccb7dbef071a1cf24d18e83a6d7d5b8733b6cca9a0
+After: 6ebb6fbecf8ad202625484f5bbe4bc7b260e608288c8efea105772f9bc9f82b1
+
+CoreCLR on riscv64 (plan step V2.4): GetThreadStaticsVariableOffset reads the offset of t_ThreadStatics with la.tls.ie, the initial-exec model, whose relocation (R_RISCV_TLS_TPREL64) WitOS's dynamic linker, musl's, refuses in a library that dlopen opens, since such a library has dynamic TLS alone ('initial-exec TLS resolves to dynamic definition'), and libcoreclr.so does not load. On WitOS the helper takes the general-dynamic model instead, as the C++ thread locals of the library do: __tls_get_addr's address for this thread less the thread pointer. The offset is the current thread's, and CanJITOptimizeTLSAccess (threadstatics.cpp) keeps the JIT from treating it as every thread's. Other platforms keep upstream's helper.
+
+--- a/src/coreclr/vm/riscv64/asmhelpers.S
++++ b/src/coreclr/vm/riscv64/asmhelpers.S
+@@ -844,10 +844,25 @@
+ // size_t GetThreadStaticsVariableOffset()
+ 
+ // Load offset of native thread local variable `t_ThreadStatics` in TCB and return it in `a0` register.
++#ifdef TARGET_WITOS
++// WitOS's dynamic linker (musl's) gives a library that dlopen opens dynamic TLS alone and refuses an initial-exec
++// relocation against it, so the offset is taken through the general-dynamic model: the address __tls_get_addr returns
++// for this thread, less the thread pointer. It is the current thread's offset, not every thread's, which is why
++// CanJITOptimizeTLSAccess keeps the JIT from inlining it on WitOS.
++NESTED_ENTRY GetThreadStaticsVariableOffset, _TEXT, NoHandler
++    PROLOG_SAVE_REG_PAIR_INDEXED  fp, ra, 16
++    la.tls.gd   a0, t_ThreadStatics
++    call        C_FUNC(__tls_get_addr)
++    sub         a0, a0, tp
++    EPILOG_RESTORE_REG_PAIR_INDEXED  fp, ra, 16
++    EPILOG_RETURN
++NESTED_END GetThreadStaticsVariableOffset, _TEXT
++#else
+ LEAF_ENTRY GetThreadStaticsVariableOffset, _TEXT
+     la.tls.ie   a0, t_ThreadStatics
+     EPILOG_RETURN
+ LEAF_END GetThreadStaticsVariableOffset, _TEXT
++#endif
+ 
+ LEAF_ENTRY JIT_PollGC, _TEXT
+         PREPARE_EXTERNAL_VAR g_TrapReturningThreads, t0

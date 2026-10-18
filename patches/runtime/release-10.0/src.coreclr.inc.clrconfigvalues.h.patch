@@ -1,0 +1,24 @@
+Source: src/coreclr/inc/clrconfigvalues.h
+Output: src.coreclr.inc.clrconfigvalues.h
+Before: 93ad38073dc013881aadb95a5a23b73a9f4cd290e1f42d1219785815cadb591c
+After: dd53bfc7f8559399e1b71a10b58430405befe25a7eb9e67036b4b9e983c393eb
+
+CoreCLR on riscv64 (plan step V2.4): upstream turns W^X off by default on riscv64 (dotnet/runtime issue 103465), so the executable allocator commits code pages as writable and executable at once, which WitOS never grants (plain memory never executes; a JIT writes through the RW view of a double mapping and the RX view is published): the commit of the write barrier copy in InitThreadManager failed, the copy wrote into the reserved page and corerun ended with a fault before the runtime had installed its handlers. The default stays on for WitOS, on riscv64 as on x64 and ARM64; a TARGET_WITOS branch beside the platform's own (RFC 0015 section 4), since the knob exists and WitOS has one mode.
+
+--- a/src/coreclr/inc/clrconfigvalues.h
++++ b/src/coreclr/inc/clrconfigvalues.h
+@@ -639,11 +639,12 @@
+ // Executable code
+ //
+ // TODO: https://github.com/dotnet/runtime/issues/103465
+-#ifdef TARGET_RISCV64
++// WitOS never grants writable executable memory, so W^X is the one mode there, on riscv64 as on the other ISAs.
++#if defined(TARGET_RISCV64) && !defined(TARGET_WITOS)
+ RETAIL_CONFIG_DWORD_INFO(EXTERNAL_EnableWriteXorExecute, W("EnableWriteXorExecute"), 0, "Enable W^X for executable memory.");
+ #else
+ RETAIL_CONFIG_DWORD_INFO(EXTERNAL_EnableWriteXorExecute, W("EnableWriteXorExecute"), 1, "Enable W^X for executable memory.");
+-#endif // TARGET_RISCV64
++#endif // TARGET_RISCV64 && !TARGET_WITOS
+ 
+ #ifdef FEATURE_GDBJIT
+ ///

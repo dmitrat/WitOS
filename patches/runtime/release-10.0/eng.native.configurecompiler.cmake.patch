@@ -1,7 +1,7 @@
 Source: eng/native/configurecompiler.cmake
 Output: eng.native.configurecompiler.cmake
 Before: e08e42fc098c6b8d9406ce63eef2dd7008b53637421bc3bedd63bad1834159f4
-After: 3e1f258f34f19173e11cdaa7be34a6eca27adc6584dc0cdfa2934a6d0680d453
+After: 9238c8b5215806091b3ec251fa82e52f8bde7291fa3deae9088448dd04ebb0ac
 
 Compiler settings for witos (plan step R1.2b): a non-executable stack for assembly, build ids and full RELRO, as on
 Linux, since the system layer's dynamic linker is musl's; the platform's detection message; and TARGET_WITOS beside
@@ -20,20 +20,22 @@ TARGET_HAIKU.
  endif()
  
  #------------------------------------
-@@ -449,6 +453,12 @@
+@@ -449,6 +453,14 @@
      message("Detected SunOS amd64")
    elseif(CLR_CMAKE_HOST_HAIKU)
      message("Detected Haiku x86_64")
 +  elseif(CLR_CMAKE_HOST_WITOS)
 +    if(CLR_CMAKE_HOST_UNIX_ARM64)
 +      message("Detected WitOS aarch64")
++    elseif(CLR_CMAKE_HOST_UNIX_RISCV64)
++      message("Detected WitOS riscv64")
 +    else()
 +      message("Detected WitOS x86_64")
 +    endif()
    elseif(CLR_CMAKE_HOST_BROWSER)
      add_definitions(-DHOST_BROWSER)
    elseif(CLR_CMAKE_HOST_ANDROID)
-@@ -766,6 +776,8 @@
+@@ -766,6 +778,8 @@
      endif()
    elseif(CLR_CMAKE_TARGET_HAIKU)
      add_compile_definitions($<$<NOT:$<BOOL:$<TARGET_PROPERTY:IGNORE_DEFAULT_TARGET_OS>>>:TARGET_HAIKU>)

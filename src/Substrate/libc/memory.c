@@ -756,3 +756,64 @@ long __wit_madvise(long address, long length, long advice)
     }
     return 0; /* advice the kernel has no mechanism for yet changes nothing, which is what advice allows */
 }
+
+/* A range's publication for instruction fetch: the kernel's CODE_PUBLISH, which requires every page of the range mapped
+ * READ|EXECUTE, so the caller names the executable part of one mapping. */
+static long publish(WitU64 base, WitU64 size)
+{
+    WitU64 result = 0;
+    const WitU64 status = wit_syscall(WIT_CALL_CODE_PUBLISH, base, size, 0, &result);
+    return status == WIT_STATUS_OK ? 0 : __wit_errno(status);
+}
+
+/* riscv_flush_icache (V2.4): Linux's RISC-V instruction cache flush, which musl's __riscv_flush_icache issues and
+ * compiler-rt's __clear_cache calls through it (patches/compiler-rt/clear_cache.c.patch), so that CoreCLR's and
+ * NativeAOT's PAL publish the code they wrote through a writable view. Code runs only from an object mapping made
+ * executable (a package mapping, a chunk of a shared memory file: CoreCLR's double mapping, D5.3's executable copies),
+ * so the executable mappings the range touches are published through the kernel's CODE_PUBLISH, its cache maintenance
+ * for this hart and, from phase P, the others; a range holding no executable page has nothing to publish and succeeds,
+ * as Linux's call does for any range. The flags are Linux's: 0 for every hart, SYS_RISCV_FLUSH_ICACHE_LOCAL (1) for the
+ * caller's alone, which the kernel's one scheduling processor makes the same thing; anything else is EINVAL. */
+long __wit_flush_icache(long start, long end, long flags)
+{
+    if ((unsigned long)flags > 1 || end < start) {
+        return -EINVAL;
+    }
+    if (end == start) {
+        return 0;
+    }
+    const WitU64 first = (WitU64)start & ~(PAGE - 1), limit = round_up((unsigned long)end);
+    for (unsigned i = 0; i < count; ++i) {
+        const Mapping *m = &mappings[i];
+        const WitU64 m_end = m->Base + m->Size;
+        if (m_end <= first || m->Base >= limit) {
+            continue;
+        }
+        const WitU64 low = m->Base > first ? m->Base : first, high = m_end < limit ? m_end : limit;
+        if (m->Kind == MapPackage) {
+            if (m->Protection & WIT_MEMORY_EXECUTE) {
+                const long status = publish(low, high - low);
+                if (status < 0) {
+                    return status;
+                }
+            }
+        } else if (m->Kind == MapShared) {
+            /* The runs of executable pages: a shared mapping's protection is kept page by page. */
+            WitU64 run = 0;
+            for (WitU64 page = low; page <= high; page += PAGE) {
+                const int executable =
+                    page < high && (code_protection(page_get(m, (page - m->Base) / PAGE)) & WIT_MEMORY_EXECUTE) != 0;
+                if (executable) {
+                    run = run ? run : page;
+                } else if (run) {
+                    const long status = publish(run, page - run);
+                    if (status < 0) {
+                        return status;
+                    }
+                    run = 0;
+                }
+            }
+        }
+    }
+    return 0;
+}

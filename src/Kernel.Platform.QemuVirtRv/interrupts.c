@@ -153,11 +153,14 @@ int wit_platform_line_valid(WitU32 line)
     return line >= 1 && line < PLIC_SOURCES;
 }
 
+/* The enable bit first, then the priority (V2.4): a source that asserted while it was masked is pending, and QEMU's
+ * PLIC looks at what is pending again on a write of a priority, a threshold or the claim register, never on a write of
+ * an enable word, so that a priority written first left such an interrupt waiting for the next line's activity. */
 void wit_platform_line_unmask(WitU32 line)
 {
     require(mapped && wit_platform_line_valid(line), "Unmasking an invalid PLIC line");
-    *plic(PLIC_PRIORITY + (WitU64)line * 4) = 1;
     *enable_word(line) |= 1U << (line % 32);
+    *plic(PLIC_PRIORITY + (WitU64)line * 4) = 1;
 }
 
 void wit_platform_line_mask(WitU32 line)

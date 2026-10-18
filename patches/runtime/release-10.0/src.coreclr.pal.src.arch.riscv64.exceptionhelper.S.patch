@@ -1,0 +1,22 @@
+Source: src/coreclr/pal/src/arch/riscv64/exceptionhelper.S
+Output: src.coreclr.pal.src.arch.riscv64.exceptionhelper.S
+Before: 26b953e9ac3917abe6518fd7ebb6acceebaae32db9c0cde40b43acf6f93bc31c
+After: f1b438322064fc0a42358cbfff8f3087a18a33e64c54c393ea6e1055ca43073e
+
+CoreCLR's PAL on riscv64 (plan step V2.4): ThrowExceptionFromContextInternal builds a frame below the faulting one and throws the PAL_SEHException from there, and the C++ unwinder must pass through the faulting function's frame to reach the PAL_TRY above it. ARM64's helper sets the return address to the faulting instruction (CONTEXT_Pc) and x64's pushes CONTEXT_Rip; the RISC-V helper loaded CONTEXT_Ra, the faulting function's own return address, so the unwinder stepped straight to the PAL_TRY's function with the faulting function's frame pointer and stack pointer in place of its own, and the function's stack protector failed at its return (exception_handling/pal_sxs/test1: the second library's test passed its PAL_EXCEPT, then crashed in __stack_chk_fail). The return address is CONTEXT_Pc now, as on ARM64; the frame pointer based unwind rules of the faulting function give its caller the right registers. A bug of the community port, to be proposed upstream with the TargetOS=witos proposal (T4).
+
+--- a/src/coreclr/pal/src/arch/riscv64/exceptionhelper.S
++++ b/src/coreclr/pal/src/arch/riscv64/exceptionhelper.S
+@@ -37,7 +37,11 @@
+     ld  s9, CONTEXT_S9(a0)
+     ld  s10, CONTEXT_S10(a0)
+     ld  s11, CONTEXT_S11(a0)
+-    ld  ra, CONTEXT_Ra(a0)
++    // The return address is the faulting instruction (CONTEXT_Pc), as ARM64's and x64's helpers set it, so that the
++    // unwinder passes through the faulting function's frame and restores its caller's registers from where that
++    // frame saved them; with CONTEXT_Ra the unwinder skipped that frame and the caller got the faulting function's
++    // frame pointer and stack pointer (WitOS, plan step V2.4: CoreCLR's PAL suite, exception_handling/pal_sxs).
++    ld  ra, CONTEXT_Pc(a0)
+ 
+     ld  fp, CONTEXT_Fp(a0)
+     ld  sp, CONTEXT_Sp(a0)

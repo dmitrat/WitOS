@@ -230,6 +230,16 @@ internal static class RuntimeWitos
         ["src/coreclr/pal/src/thread/process.cpp"] = "src.coreclr.pal.src.thread.process.cpp",
         ["src/coreclr/vm/gcenv.ee.cpp"] = "src.coreclr.vm.gcenv.ee.cpp",
         ["src/coreclr/pal/src/init/pal.cpp"] = "src.coreclr.pal.src.init.pal.cpp",
+        // CoreCLR on riscv64 (V2.4): the thread statics' offset without an initial-exec relocation, which the dynamic linker
+        // refuses in a library dlopen opens, and no JIT inlining of that offset, which is the current thread's.
+        ["src/coreclr/vm/riscv64/asmhelpers.S"] = "src.coreclr.vm.riscv64.asmhelpers.S",
+        ["src/coreclr/vm/threadstatics.cpp"] = "src.coreclr.vm.threadstatics.cpp",
+        // The PAL's RISC-V exception helper returns into the faulting instruction, as ARM64's does (V2.4).
+        ["src/coreclr/pal/src/arch/riscv64/exceptionhelper.S"] = "src.coreclr.pal.src.arch.riscv64.exceptionhelper.S",
+        // W^X stays on for WitOS riscv64, where upstream's default is off (V2.4): WitOS has no writable executable memory.
+        ["src/coreclr/inc/clrconfigvalues.h"] = "src.coreclr.inc.clrconfigvalues.h",
+        // NativeAOT's RISC-V interface dispatch keeps its cell across the tail call to the universal transition (V2.4).
+        ["src/coreclr/runtime/riscv64/StubDispatch.S"] = "src.coreclr.runtime.riscv64.StubDispatch.S",
         // The PAL suite's side-by-side test (R7.1): its second library's version script.
         ["src/coreclr/pal/tests/palsuite/exception_handling/pal_sxs/test1/CMakeLists.txt"] =
             "src.coreclr.pal.tests.palsuite.exception_handling.pal_sxs.test1.CMakeLists.txt",
@@ -258,7 +268,7 @@ internal static class RuntimeWitos
     /// probe of the native configure as tryrun.cmake does (plan step R1.2b).
     /// </summary>
     /// <param name="root">Repository root.</param>
-    /// <param name="architecture">x64 or arm64.</param>
+    /// <param name="architecture">x64, arm64 or riscv64 (V2.4).</param>
     public static async Task BuildAsync(string root, KernelArchitecture architecture)
     {
         if (!OperatingSystem.IsLinux())
@@ -803,7 +813,7 @@ internal static class RuntimeWitos
         var projects = Path.Combine(output, "library-tests-projects.txt");
         await File.WriteAllTextAsync(projects, string.Join("\n", names) + "\n");
         var exclusions = Path.Combine(output, "library-tests-exclusions.txt");
-        await File.WriteAllTextAsync(exclusions, string.Concat(selection.Excluded.Keys.Select(method => method + "\n")));
+        await File.WriteAllTextAsync(exclusions, string.Concat(selection.ExcludedFor(architecture).Keys.Select(method => method + "\n")));
         var sysroot = await Sysroot.BuildAsync(root, architecture);
         var init = Path.Combine(output, "library_tests_runner.elf");
         // The program is C: the driver's C++ library option would be an unused argument.
@@ -833,14 +843,23 @@ internal static class RuntimeWitos
                 !project.EndsWith(".Tests.csproj", StringComparison.Ordinal)))
             throw new InvalidDataException($"{LIBRARY_TESTS_SELECTION} names no project or one that is not a library test project.");
         var excluded = new Dictionary<string, string>(StringComparer.Ordinal);
+        var restricted = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
         foreach (var method in document.RootElement.GetProperty("excluded").EnumerateObject())
         {
-            var reason = method.Value.GetString();
+            // A string is the reason; an object names the reason and the architectures the exclusion applies to (V2.4).
+            var reason = method.Value.ValueKind == JsonValueKind.Object ? method.Value.GetProperty("reason").GetString() : method.Value.GetString();
             if (string.IsNullOrWhiteSpace(reason) || method.Name.Contains(' '))
                 throw new InvalidDataException($"{LIBRARY_TESTS_SELECTION} leaves out {method.Name} without a reason or with a space in its name.");
             excluded.Add(method.Name, reason);
+            if (method.Value.ValueKind == JsonValueKind.Object)
+            {
+                var architectures = method.Value.GetProperty("architectures").EnumerateArray().Select(entry => entry.GetString() ?? "").ToList();
+                if (architectures.Count == 0 || architectures.Any(name => name is not ("x64" or "arm64" or "riscv64")))
+                    throw new InvalidDataException($"{LIBRARY_TESTS_SELECTION} names no known architecture for {method.Name}.");
+                restricted.Add(method.Name, architectures);
+            }
         }
-        return new LibraryTestSelection(projects, excluded);
+        return new LibraryTestSelection(projects, excluded, restricted);
     }
 
     // A library test project's output (R7.3): the one directory under artifacts/bin/<name>/Release that holds the
@@ -1117,11 +1136,12 @@ internal static class RuntimeWitos
                 if (file.EndsWith(".dll", StringComparison.Ordinal))
                     assemblies.Add(file);
             }
-            if (!selection.Excluded.ContainsKey(name))
+            if (!selection.ExcludedFor(architecture).ContainsKey(name))
                 isolated.Add($"{(environment.Length > 0 ? environment + " " : "")}/tests/{name}/{executable}{(arguments.Length > 0 ? " " + arguments : "")}");
         }
         // A merged test is named as its group prints it (with "::"); any other name must be a process-isolated test.
-        var unknown = selection.Excluded.Keys.Where(name => !name.Contains("::", StringComparison.Ordinal) && !names.Contains(name)).ToList();
+        var unknown = selection.ExcludedFor(architecture).Keys
+            .Where(name => !name.Contains("::", StringComparison.Ordinal) && !names.Contains(name)).ToList();
         if (unknown.Count > 0)
             throw new InvalidDataException($"{CORECLR_TESTS_SELECTION} leaves out tests the groups do not have: {string.Join(", ", unknown)}.");
         var groups = Path.Combine(output, "coreclr-tests-groups.txt");
@@ -1129,7 +1149,7 @@ internal static class RuntimeWitos
         var standalone = Path.Combine(output, "coreclr-tests-standalone.txt");
         await File.WriteAllTextAsync(standalone, string.Join("\n", isolated) + "\n");
         var exclusions = Path.Combine(output, "coreclr-tests-exclusions.txt");
-        await File.WriteAllTextAsync(exclusions, string.Concat(selection.Excluded.Select(test => $"{test.Key},{test.Value.Replace(',', ';')}\n")));
+        await File.WriteAllTextAsync(exclusions, string.Concat(selection.ExcludedFor(architecture).Select(test => $"{test.Key},{test.Value.Replace(',', ';')}\n")));
         var sysroot = await Sysroot.BuildAsync(root, architecture);
         var init = Path.Combine(output, "coreclr_tests_runner.elf");
         // The program is C: the driver's C++ library option would be an unused argument.
@@ -1237,14 +1257,24 @@ internal static class RuntimeWitos
                 group.EndsWith(".csproj", StringComparison.Ordinal) || !group.Contains('/')))
             throw new InvalidDataException($"{CORECLR_TESTS_SELECTION} names no group or a group that is not a project path without its extension.");
         var excluded = new Dictionary<string, string>(StringComparer.Ordinal);
+        var restricted = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
         foreach (var test in document.RootElement.GetProperty("excluded").EnumerateObject())
         {
-            var reason = test.Value.GetString();
+            // A string is the reason; an object names the reason and the architectures the exclusion applies to (V2.4:
+            // upstream builds some tests for some ISAs alone, and a test may fail on some alone).
+            var reason = test.Value.ValueKind == JsonValueKind.Object ? test.Value.GetProperty("reason").GetString() : test.Value.GetString();
             if (string.IsNullOrWhiteSpace(reason))
                 throw new InvalidDataException($"{CORECLR_TESTS_SELECTION} leaves out {test.Name} without a reason.");
             excluded.Add(test.Name, reason);
+            if (test.Value.ValueKind == JsonValueKind.Object)
+            {
+                var architectures = test.Value.GetProperty("architectures").EnumerateArray().Select(entry => entry.GetString() ?? "").ToList();
+                if (architectures.Count == 0 || architectures.Any(name => name is not ("x64" or "arm64" or "riscv64")))
+                    throw new InvalidDataException($"{CORECLR_TESTS_SELECTION} names no known architecture for {test.Name}.");
+                restricted.Add(test.Name, architectures);
+            }
         }
-        return new CoreClrTestSelection(groups, standalone, excluded);
+        return new CoreClrTestSelection(groups, standalone, excluded, restricted);
     }
 
     /// <summary>
@@ -1534,7 +1564,7 @@ internal static class RuntimeWitos
             groups = results.ToDictionary(entry => entry.Key, entry => new { passed = entry.Value.Passed, failed = entry.Value.Failed }),
             isolated,
             skippedInGroups = skipped,
-            excluded = selection.Excluded.Count
+            excluded = selection.ExcludedFor(architecture).Count
         }, new JsonSerializerOptions { WriteIndented = true }));
         var failures = results.SelectMany(entry => entry.Value.Failed.Select(test => $"{entry.Key}: {test}"))
             .Concat(isolated.Where(entry => entry.Value != "ok").Select(entry => $"{entry.Key}: {entry.Value}")).ToList();
@@ -1544,7 +1574,7 @@ internal static class RuntimeWitos
                 (failures.Count > 0 ? $": {string.Join("; ", failures.Take(40))}" : "") + $" ({report}).");
         return $"CoreCLR's tests on witos-{architecture.Name}: {results.Values.Sum(entry => entry.Passed)} passed in {results.Count} groups, " +
             $"{isolated.Count} process-isolated tests passed, {skipped} process-isolated tests of the groups not started, " +
-            $"{selection.Excluded.Count} left out ({report}).";
+            $"{selection.ExcludedFor(architecture).Count} left out ({report}).";
     }
 
     // The library test projects for witos (R7.3): each built by the tree's SDK as an archived test build, which bundles
@@ -1611,7 +1641,7 @@ internal static class RuntimeWitos
                 skipped = entry.Value.Skipped
             }),
             failures,
-            excluded = selection.Excluded.Count
+            excluded = selection.ExcludedFor(architecture).Count
         }, new JsonSerializerOptions { WriteIndented = true }));
         if (missing.Count > 0 || failures.Count > 0 || summaries.Values.Any(entry => entry.Errors > 0 || entry.Failed > 0))
             throw new InvalidDataException($"The libraries' tests on witos-{architecture.Name}: {failures.Count} failed" +
@@ -1619,7 +1649,7 @@ internal static class RuntimeWitos
                 (failures.Count > 0 ? $": {string.Join("; ", failures.Take(40))}" : "") + $" ({report}).");
         var passed = summaries.Values.Sum(entry => entry.Total - entry.Skipped);
         return $"The libraries' tests on witos-{architecture.Name}: {passed} passed in {summaries.Count} projects, " +
-            $"{summaries.Values.Sum(entry => entry.Skipped)} skipped, {selection.Excluded.Count} methods left out ({report}).";
+            $"{summaries.Values.Sum(entry => entry.Skipped)} skipped, {selection.ExcludedFor(architecture).Count} methods left out ({report}).";
     }
 
     private static string TestsDirectory(string tree, KernelArchitecture architecture) =>
@@ -1657,15 +1687,18 @@ internal static class RuntimeWitos
     }
 
     // The host's JITs and ILC (R1.3): upstream's build of the x64 Linux host, the only host the pinned LLVM release
-    // serves, by the pinned clang and lld as an ordinary Linux build; ILC is the published compiler beside its JITs.
+    // serves, by the pinned clang and lld as an ordinary Linux build; ILC is the published compiler beside its JITs. The
+    // community cross JITs (clr.alljitscommunity: the alljits component with CLR_CMAKE_BUILD_COMMUNITY_ALTJITS) bring the
+    // riscv64 JIT for the x64 host, which ILC's publish takes with the others (V2.4).
     private static async Task<string> BuildCompilerAsync(string root, string tree)
     {
-        await RunBuildAsync(tree, ["clr.alljits+clr.tools", "-os", "linux", "-arch", "x64", "-c", "Release"], NativeEnvironment(root, null));
+        await RunBuildAsync(tree, ["clr.alljitscommunity+clr.tools", "-os", "linux", "-arch", "x64", "-c", "Release"], NativeEnvironment(root, null));
         var published = Path.Combine(tree, "artifacts", "bin", "coreclr", "linux.x64.Release", "ilc-published");
         var ilc = Path.Combine(published, "ilc");
         if (!File.Exists(ilc) || !File.Exists(Path.Combine(published, "libclrjit_unix_x64_x64.so")) ||
-            !File.Exists(Path.Combine(published, "libclrjit_universal_arm64_x64.so")))
-            throw new InvalidDataException($"The host build left no ILC with its x64 and ARM64 JITs in {published}.");
+            !File.Exists(Path.Combine(published, "libclrjit_universal_arm64_x64.so")) ||
+            !File.Exists(Path.Combine(published, "libclrjit_unix_riscv64_x64.so")))
+            throw new InvalidDataException($"The host build left no ILC with its x64, ARM64 and RISC-V JITs in {published}.");
         return ilc;
     }
 
@@ -1708,7 +1741,7 @@ internal static class RuntimeWitos
         var header = new byte[20];
         await using (var stream = File.OpenRead(program))
             await stream.ReadExactlyAsync(header);
-        var machine = architecture == KernelArchitecture.X64 ? 62 : 183;
+        var machine = architecture.ElfMachine;
         if (header[0] != 0x7F || header[1] != (byte)'E' || header[2] != (byte)'L' || header[3] != (byte)'F' || header[4] != 2 ||
             header[5] != 1 || BitConverter.ToUInt16(header, 16) != 1 || BitConverter.ToUInt16(header, 18) != machine)
             throw new InvalidDataException($"{program} is not a relocatable ELF64 object for {architecture.Name} (machine {machine}).");
@@ -1720,8 +1753,12 @@ internal static class RuntimeWitos
     {
         var main = await Processes.RunAsync(Path.Combine(Toolchain.ClangDirectory(root), "bin", "llvm-objdump"),
             ["-d", $"--disassemble-symbols={PLATFORM_MAIN}", program], tree, 600);
-        var zeroed = architecture == KernelArchitecture.X64 ? @"\bxorl\s+%eax, %eax" : @"\bmov\s+w0, wzr";
-        var call = architecture == KernelArchitecture.X64 ? @"\bcall" : @"\bblr?\s";
+        // The zeroed return register: x64 xors eax, ARM64 moves wzr into w0, RISC-V loads the immediate 0 into a0 (li, or
+        // mv from zero); a call is call, bl or blr, jal or jalr.
+        var zeroed = architecture == KernelArchitecture.X64 ? @"\bxorl\s+%eax, %eax"
+            : architecture == KernelArchitecture.Arm64 ? @"\bmov\s+w0, wzr" : @"\b(li\s+a0, 0x0|li\s+a0, 0|mv\s+a0, zero)\b";
+        var call = architecture == KernelArchitecture.X64 ? @"\bcall"
+            : architecture == KernelArchitecture.Arm64 ? @"\bblr?\s" : @"\bjalr?\s";
         if (main.ExitCode != 0 || !main.Output.Contains($"<{PLATFORM_MAIN}>:", StringComparison.Ordinal) ||
             !Regex.IsMatch(main.Output, zeroed) || Regex.IsMatch(main.Output, call))
             throw new InvalidDataException($"{PLATFORM_MAIN} of {program} is not the constant 0 for witos-{architecture.Name}:\n{main.Output}\n{main.Error}");
@@ -2066,12 +2103,35 @@ internal sealed record RuntimeBudget(int FreeBsdCoreClr, int FreeBsdNativeLibrar
 /// <param name="Groups">Merged runners the guest runs whole: project paths under src/tests without the extension.</param>
 /// <param name="Excluded">Test names as the groups print them, and the reasons.</param>
 /// <param name="Standalone">Merged runners, as Groups names them, whose process-isolated tests run one by one.</param>
+/// <param name="Restricted">The exclusions that apply to some architectures alone, by the tests' names (V2.4).</param>
 internal sealed record CoreClrTestSelection(IReadOnlyList<string> Groups, IReadOnlyList<string> Standalone,
-    IReadOnlyDictionary<string, string> Excluded);
+    IReadOnlyDictionary<string, string> Excluded, IReadOnlyDictionary<string, IReadOnlyList<string>> Restricted)
+{
+    /// <summary>
+    /// The exclusions that apply to an architecture: every one but those restricted to other architectures.
+    /// </summary>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>Test names and reasons.</returns>
+    public IReadOnlyDictionary<string, string> ExcludedFor(KernelArchitecture architecture) =>
+        Excluded.Where(test => !Restricted.TryGetValue(test.Key, out var architectures) || architectures.Contains(architecture.Name))
+            .ToDictionary(test => test.Key, test => test.Value, StringComparer.Ordinal);
+}
 
 /// <summary>
 /// The library test projects the guest runs and the test methods it leaves out with their reasons (R7.3).
 /// </summary>
 /// <param name="Projects">Project paths under the runtime tree.</param>
 /// <param name="Excluded">xunit method names or patterns, and the reasons.</param>
-internal sealed record LibraryTestSelection(IReadOnlyList<string> Projects, IReadOnlyDictionary<string, string> Excluded);
+/// <param name="Restricted">The exclusions that apply to some architectures alone, by the methods' names (V2.4).</param>
+internal sealed record LibraryTestSelection(IReadOnlyList<string> Projects, IReadOnlyDictionary<string, string> Excluded,
+    IReadOnlyDictionary<string, IReadOnlyList<string>> Restricted)
+{
+    /// <summary>
+    /// The exclusions that apply to an architecture: every one but those restricted to other architectures.
+    /// </summary>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>Method names and reasons.</returns>
+    public IReadOnlyDictionary<string, string> ExcludedFor(KernelArchitecture architecture) =>
+        Excluded.Where(test => !Restricted.TryGetValue(test.Key, out var architectures) || architectures.Contains(architecture.Name))
+            .ToDictionary(test => test.Key, test => test.Value, StringComparer.Ordinal);
+}

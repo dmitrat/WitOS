@@ -100,7 +100,7 @@ internal static class RuntimeCompatibility
     /// <returns>The required lines.</returns>
     public static string[] RequiredLines(KernelArchitecture architecture) =>
     [
-        $"[N1] .NET compatibility on witos ({(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}): ",
+        $"[N1] .NET compatibility on witos ({architecture.OsArchitecture}): ",
         " recorded differences, 0 unexpected, 0 not applicable",
         "[N1] Terminal.ReadLine: pass",
         "[N1] Terminal.ReadKey: pass",
