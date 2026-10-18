@@ -267,7 +267,7 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   updates base applications from a folder feed on any volume, verified by SHA-256, beside the versions installed, and
   switches back to any of them; the `runtime-installer` scenario updates the file manager from a feed on `/fat` and
   rolls back on the screen. C3, the native WitOS module and its providers, is the horizon after M8.
-- **Third ISA (phase V, the kernel, layer 2 and the runtime done).** RISC-V on QEMU's virt board: the measurement V0 found the pinned LLVM links no RISC-V
+- **Third ISA (phase V, done).** RISC-V on QEMU's virt board: the measurement V0 found the pinned LLVM links no RISC-V
   PE/COFF, so the loader and the kernel are one position-independent ELF the tool converts to PE32+ with base
   relocations. V1.1 boots that image under EDK II over OpenSBI: the unchanged loader publishes the device tree, reads the
   boot package and leaves the firmware, and the common kernel compiled for riscv64 without a change. V1.2 is the kernel
@@ -288,8 +288,10 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   Unix form: `runtime-witos --arch riscv64` passes the same 24 boots as the other ISAs — CoreCLR's and NativeAOT's M3
   acceptance, the PAL suite, upstream's test slices, the NativeAOT device services, the terminal, PowerShell on the
   screen, the compatibility suite and the NuGet libraries — with five patches of the community RISC-V port and one change
-  of the board's PLIC handling, and CI runs it as a `linux-host` leg. Next: V3, the published applications on the three
-  ISAs and the rule that a step closes on all three.
+  of the board's PLIC handling, and CI runs it as a `linux-host` leg. V3 closes the phase: the compatibility suite and
+  the portable application published on Windows by the stock SDK run unchanged on riscv64 with every check as recorded,
+  CI runs them there as on the other ISAs, the matrix names the RISC-V board Primary, and from V3 a step closes only when
+  it passes on the three ISAs (the NuGet libraries' own suites and .NET 8 beside .NET 10 stay on x64 and ARM64).
 - **Later.** The scheduler on several processors (phase P), the network and the remaining milestones (phase W).
 
 The acceptances do not establish threads on several processors, networking, a terminal with input or process creation

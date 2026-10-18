@@ -24,7 +24,7 @@
 | [R — Рантайм .NET Unix-формы](#r--рантайм-net-unix-формы) | R1–R8 | 2026-10-12 (R4.2 после D6) |
 | [D — Устройства и хранилище (M4/M5)](#d--устройства-и-хранилище-m4m5) | D1–D6 | 2026-10-12 |
 | [C — Консоль и оболочка (RFC-0020)](#c--консоль-и-оболочка-rfc-0020) | C1, C2.1–C2.3, C2.6, C2.7, C4 (C4.1–C4.3) (C2.4, C2.5, C3 — в плане) | C4.3 — 2026-10-18 |
-| [V — Третья ISA](#v--третья-isa) | V0, V1, V2 (V3 открыт в плане) | V2.4 — 2026-10-18 |
+| [V — Третья ISA](#v--третья-isa) | V0–V3: фаза завершена, каждый шаг — на трёх ISA | V3 — 2026-10-18 |
 | [N — Стандартный .NET (M6)](#n--стандартный-net-m6) | N1–N4: фаза завершена, M6 выполнен, Gate B заявлен | 2026-10-15 (N4.5) |
 
 ## 5. Фазы (выполненные шаги)
@@ -1501,3 +1501,12 @@
   0 unexpected`, библиотеки NUnit и xUnit. Windows: `test --arch riscv64` — 21 сценарий после правки PLIC. Набор
   патчей — 37 файлов (CoreCLR 15 против 31 у FreeBSD и 18 у Haiku). CI: нога `linux-host` для riscv64; матрица —
   RISC-V `Early`. V2 выполнен; V3 — `runtime-published` на трёх ISA и правило трёх ISA.
+- [x] **V3** Три ISA (2026-10-18; [V3-Three-ISAs.md](@Docs/Implementation/V3-Three-ISAs.md)) — фаза V выполнена.
+  Набор совместимости N1 и переносимое приложение R6, опубликованные стоковым SDK на Windows (Windows 11, SDK 10.0.300:
+  11 файлов, 494 483 байта, `published.json` с SHA-256), без изменений в госте riscv64: `runtime-published --arch riscv64`
+  PASS за 198 с — `89 checks, 2 recorded differences, 0 unexpected, 0 not applicable`, каждая проверка как в записи
+  набора, опубликованного на Linux (`compatibility-published-riscv64.json`: различий нет), `12 of 12 checks passed`.
+  CI: `published-on-windows` на трёх ISA (`RuntimePublishedTests` требует матрицу). Матрица совместимости: `QEMU RISC-V
+  (virt)` — Primary, столбец `WitOS (x64, ARM64, riscv64)`, факты вне набора — на трёх ISA, если факт не называет меньше.
+  Правило (AGENTS.md, план §6): шаг готов только на x64, ARM64 и riscv64; на x64 и ARM64 остаются собственные наборы
+  библиотек NuGet (N2.2) и .NET 8 рядом с .NET 10 (N3: `release/8.0` для riscv64 не собирается).

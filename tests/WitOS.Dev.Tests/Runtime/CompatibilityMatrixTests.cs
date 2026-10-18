@@ -50,7 +50,7 @@ public sealed class CompatibilityMatrixTests
         var text = CompatibilityMatrix.Render(["FileIO.Read", "FileIO.Watcher", "Tasks.WhenAll"], expectations, beyond);
         Assert.That(text, Does.Contain("| FileIO | 2 | Supported | Supported | Partial: Watcher |"));
         Assert.That(text, Does.Contain("| Tasks | 1 | Supported | Supported | Supported |"));
-        Assert.That(text, Does.Contain("| `FileIO.Watcher` | WitOS (x64, ARM64) | no notifications |"));
+        Assert.That(text, Does.Contain("| `FileIO.Watcher` | WitOS (x64, ARM64, riscv64) | no notifications |"));
         Assert.That(text, Does.Contain("| Networking | Planned | M7 | absent |"));
         Assert.That(text, Does.Contain("3 checks in 2 areas."));
     }

@@ -414,14 +414,14 @@ jobs:
   published-on-windows:
     # Goal 2 literally (plan step N4.4): exactly the bytes windows-publish uploaded run on WitOS, through the .NET
     # install and the services the linux-host leg built, and every check of the suite must end as it ended there for
-    # the suite that leg published on Linux.
+    # the suite that leg published on Linux; on the three ISAs since V3.
     needs: [linux-host, windows-publish]
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64, arm64]
+        arch: [x64, arm64, riscv64]
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

@@ -17,7 +17,7 @@
       "name": ".NET 8 and .NET 10 side by side",
       "status": "Supported",
       "step": "N3",
-      "note": "`release/8.0` with its own patch set beside `release/10.0`; `rollForward` and `--roll-forward` select the framework."
+      "note": "`release/8.0` with its own patch set beside `release/10.0`; `rollForward` and `--roll-forward` select the framework. On x64 and ARM64: `release/8.0` is not built for riscv64, whose upstream port came after it (V3)."
     },
     {
       "name": "NativeAOT",
@@ -149,12 +149,12 @@
     {
       "platform": "QEMU ARM64 (virt)",
       "status": "Primary",
-      "note": "Every gate runs on it; a step closes only when both ISAs pass."
+      "note": "Every gate runs on it; a step closes only when the three ISAs pass."
     },
     {
       "platform": "QEMU RISC-V (virt)",
-      "status": "Early",
-      "note": "Phase V: the kernel (V1), layer 2 (V2.1–V2.3) and the Unix-form runtime (V2.4) pass there, every scenario of runtime-witos among them, the compatibility suite with every difference as recorded; it becomes Primary at V3, from which a step closes only when the three ISAs pass."
+      "status": "Primary",
+      "note": "Since V3: the kernel (V1), layer 2 (V2.1–V2.3) and the Unix-form runtime (V2.4) pass there, every scenario of runtime-witos among them, and the applications published on Windows run unchanged with every check of the suite as recorded (runtime-published); a step closes only when the three ISAs pass. The NuGet libraries' own suites (N2.2) and .NET 8 beside .NET 10 (N3) stay on x64 and ARM64."
     },
     {
       "platform": "Physical reference machine",

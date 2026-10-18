@@ -28,7 +28,7 @@ internal static class CompatibilityMatrix
     /// The platforms expectations.json records, in the matrix's order, with their column headings.
     /// </summary>
     public static readonly IReadOnlyList<(string Key, string Heading)> PLATFORMS =
-        [("windows", "Windows"), ("linux", "Linux"), ("witos", "WitOS (x64, ARM64)")];
+        [("windows", "Windows"), ("linux", "Linux"), ("witos", "WitOS (x64, ARM64, riscv64)")];
 
     private static readonly JsonSerializerOptions JSON = new() { PropertyNameCaseInsensitive = true };
 
@@ -142,7 +142,7 @@ internal static class CompatibilityMatrix
         text.Append("the compatibility suite's own list of checks (`dotnet DotNetCompatibility.dll --list`), the differences\n");
         text.Append("`tests/DotNetCompatibility/expectations.json` records for each platform and `build/compatibility-matrix.json`; a host\n");
         text.Append("test requires it to be current, so it says no more than the gates prove: the suite must end with no unexpected result on\n");
-        text.Append("Windows, Linux and WitOS on both ISAs (N1, N4.4), and every recorded difference has its reason in\n");
+        text.Append("Windows, Linux and WitOS on its three ISAs (N1, N4.4, V3), and every recorded difference has its reason in\n");
         text.Append("[Compatibility-Differences.md](Compatibility-Differences.md).\n\n");
 
         text.Append("## The areas of the compatibility suite\n\n");
@@ -187,8 +187,9 @@ internal static class CompatibilityMatrix
         }
 
         text.Append("## Beyond the suite\n\n");
-        text.Append("*Supported*, *Partial* and *Absent* are facts a plan step verified in the guest on both ISAs; *Planned* names the\n");
-        text.Append("milestone or phase that brings the capability. An absent capability fails explicitly, never silently.\n\n");
+        text.Append("*Supported*, *Partial* and *Absent* are facts a plan step verified in the guest on the three ISAs unless the fact names\n");
+        text.Append("fewer; *Planned* names the milestone or phase that brings the capability. An absent capability fails explicitly, never\n");
+        text.Append("silently.\n\n");
         text.Append("| Capability | Status | Step | Fact |\n| --- | --- | --- | --- |\n");
         foreach (var capability in beyond.Capabilities)
             text.Append("| ").Append(capability.Name).Append(" | ").Append(capability.Status).Append(" | ").Append(capability.Step)

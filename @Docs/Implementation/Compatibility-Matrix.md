@@ -4,7 +4,7 @@ The public matrix of Implementation Strategy §145 (plan step N4.5). This file i
 the compatibility suite's own list of checks (`dotnet DotNetCompatibility.dll --list`), the differences
 `tests/DotNetCompatibility/expectations.json` records for each platform and `build/compatibility-matrix.json`; a host
 test requires it to be current, so it says no more than the gates prove: the suite must end with no unexpected result on
-Windows, Linux and WitOS on both ISAs (N1, N4.4), and every recorded difference has its reason in
+Windows, Linux and WitOS on its three ISAs (N1, N4.4, V3), and every recorded difference has its reason in
 [Compatibility-Differences.md](Compatibility-Differences.md).
 
 ## The areas of the compatibility suite
@@ -13,7 +13,7 @@ Windows, Linux and WitOS on both ISAs (N1, N4.4), and every recorded difference 
 failing explicitly with the reason recorded. The Terminal area runs where the suite's input is a terminal (the runner
 types in the guest) and reports its checks not applicable elsewhere.
 
-| Area | Checks | Windows | Linux | WitOS (x64, ARM64) |
+| Area | Checks | Windows | Linux | WitOS (x64, ARM64, riscv64) |
 | --- | --- | --- | --- | --- |
 | Platform | 6 | Supported | Supported | Partial: KnownOperatingSystem |
 | Console | 5 | Supported | Supported | Supported |
@@ -36,19 +36,20 @@ types in the guest) and reports its checks not applicable elsewhere.
 
 | Check | Platform | Reason |
 | --- | --- | --- |
-| `FileIO.Watcher` | WitOS (x64, ARM64) | System.IO.FileSystem.Watcher is not supported: the namespace service sends no change notifications (Compatibility-Differences: File change notifications). |
-| `Platform.KnownOperatingSystem` | WitOS (x64, ARM64) | WitOS is neither Windows, Linux, macOS nor FreeBSD: an application that infers Windows from 'not Linux and not macOS' misbehaves there (RFC 0015 §1, ADR 0024). |
+| `FileIO.Watcher` | WitOS (x64, ARM64, riscv64) | System.IO.FileSystem.Watcher is not supported: the namespace service sends no change notifications (Compatibility-Differences: File change notifications). |
+| `Platform.KnownOperatingSystem` | WitOS (x64, ARM64, riscv64) | WitOS is neither Windows, Linux, macOS nor FreeBSD: an application that infers Windows from 'not Linux and not macOS' misbehaves there (RFC 0015 §1, ADR 0024). |
 
 ## Beyond the suite
 
-*Supported*, *Partial* and *Absent* are facts a plan step verified in the guest on both ISAs; *Planned* names the
-milestone or phase that brings the capability. An absent capability fails explicitly, never silently.
+*Supported*, *Partial* and *Absent* are facts a plan step verified in the guest on the three ISAs unless the fact names
+fewer; *Planned* names the milestone or phase that brings the capability. An absent capability fails explicitly, never
+silently.
 
 | Capability | Status | Step | Fact |
 | --- | --- | --- | --- |
 | CoreCLR with the JIT, `Reflection.Emit`, `AssemblyLoadContext` | Supported | R3, R7 | Every method is compiled into the double mapping of a shared memory file; upstream's PAL suite and slices of its runtime and library tests pass in the guest. |
 | Shared framework through `dotnet App.dll` | Supported | R5, R6 | The install under `/dotnet` as the shared-framework packaging lays it out; an application the stock SDK publishes without a RID runs unchanged. |
-| .NET 8 and .NET 10 side by side | Supported | N3 | `release/8.0` with its own patch set beside `release/10.0`; `rollForward` and `--roll-forward` select the framework. |
+| .NET 8 and .NET 10 side by side | Supported | N3 | `release/8.0` with its own patch set beside `release/10.0`; `rollForward` and `--roll-forward` select the framework. On x64 and ARM64: `release/8.0` is not built for riscv64, whose upstream port came after it (V3). |
 | NativeAOT | Supported | R2 | The system's own tool for the services of the boot package, not the application contract. |
 | Garbage collector | Partial | R2, phase P | The workstation GC with its heap bounded to 75% of what a process may own (`DOTNET_GCTotalPhysicalMemory`); the server GC waits for phase P, since one processor schedules threads. |
 | Globalization with ICU | Supported | R4.3 | ICU4C 78.3 built from the pinned source; invariant mode only where an application asks for it. |
@@ -77,7 +78,7 @@ The hardware matrix of Strategy §146.
 | Platform | Status | Note |
 | --- | --- | --- |
 | QEMU x64 (q35) | Primary | Every gate runs on it. |
-| QEMU ARM64 (virt) | Primary | Every gate runs on it; a step closes only when both ISAs pass. |
-| QEMU RISC-V (virt) | Early | Phase V: the kernel (V1), layer 2 (V2.1–V2.3) and the Unix-form runtime (V2.4) pass there, every scenario of runtime-witos among them, the compatibility suite with every difference as recorded; it becomes Primary at V3, from which a step closes only when the three ISAs pass. |
+| QEMU ARM64 (virt) | Primary | Every gate runs on it; a step closes only when the three ISAs pass. |
+| QEMU RISC-V (virt) | Primary | Since V3: the kernel (V1), layer 2 (V2.1–V2.3) and the Unix-form runtime (V2.4) pass there, every scenario of runtime-witos among them, and the applications published on Windows run unchanged with every check of the suite as recorded (runtime-published); a step closes only when the three ISAs pass. The NuGet libraries' own suites (N2.2) and .NET 8 beside .NET 10 (N3) stay on x64 and ARM64. |
 | Physical reference machine | Future | After phase V; firmware memory reclamation and the hardware matrix of Strategy §146. |
 | Generic PC | Future | After the reference machine. |

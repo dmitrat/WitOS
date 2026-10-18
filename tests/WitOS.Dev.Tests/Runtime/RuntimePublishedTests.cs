@@ -90,8 +90,8 @@ public sealed class RuntimePublishedTests
         }));
     }
 
-    // CI publishes on Windows, and a job per ISA runs that upload on the install the linux-host leg built, with the
-    // record of the suite's run that leg uploads.
+    // CI publishes on Windows, and a job per ISA — the three since V3 — runs that upload on the install the linux-host leg
+    // built, with the record of the suite's run that leg uploads.
     [Test]
     public void CiPublishesOnWindowsAndRunsItOnWitOsTest()
     {
@@ -103,7 +103,7 @@ public sealed class RuntimePublishedTests
 
         var run = Regex.Match(workflow, @"^  published-on-windows:\n(?<body>(?:    .*\n|\n)+)", RegexOptions.Multiline);
         Assert.That(run.Success, Is.True, "kernel.yml has no published-on-windows job");
-        Assert.That(run.Groups["body"].Value, Does.Contain("needs: [linux-host, windows-publish]").And.Contain("arch: [x64, arm64]")
+        Assert.That(run.Groups["body"].Value, Does.Contain("needs: [linux-host, windows-publish]").And.Contain("arch: [x64, arm64, riscv64]")
             .And.Contain("name: witos-published-apps-windows").And.Contain("name: witos-runtime-install-${{ matrix.arch }}")
             .And.Contain("runtime-published --arch ${{ matrix.arch }} --published artifacts/published-apps"));
 
