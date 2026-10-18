@@ -83,7 +83,13 @@
       "name": "Text console on a display (framebuffer, keyboard)",
       "status": "Supported",
       "step": "C2.1, C2.2, C2.3",
-      "note": "The firmware's framebuffer (ramfb, 800 by 600 on both boards) is a device of the firmware bus (C2.1), the display service draws the terminal on it with a pinned bitmap font (Spleen 8 by 16, 100 by 37 cells) and takes the virtio keyboard's keys (C2.2), the terminal mirrors its one session on the display and the serial console, which stays the recovery console, and upstream PowerShell runs on that screen with the keyboard on both ISAs (C2.3, the `runtime-display` scenario); the layout is US until the input model of M9, and colours are parsed and ignored."
+      "note": "The firmware's framebuffer (ramfb, 800 by 600 on both boards) is a device of the firmware bus (C2.1), the display service draws the terminal on it with a pinned bitmap font (Spleen 8 by 16, 100 by 37 cells) and takes the virtio keyboard's keys (C2.2), the terminal mirrors its one session on the display and the serial console, which stays the recovery console, and upstream PowerShell runs on that screen with the keyboard on both ISAs (C2.3, the `runtime-display` scenario); the layout is US until the input model of M9, and colours are drawn in a 16-colour palette (C2.6)."
+    },
+    {
+      "name": "Full-screen console applications (TUI)",
+      "status": "Supported",
+      "step": "C2.6, C4.2",
+      "note": "The display's emulator draws SGR's colours and attributes, the alternate screen and the cursor's visibility, swallows the string sequences and answers the device attributes and the size (C2.6); Arlecchino.Commander, built from its source as a base application, lists, views and copies files on the screen through the keyboard (C4.2, the `runtime-commander` scenario); Terminal.Gui's UICatalog 2.5.0 runs with `--disable-cm`, since its configuration watcher needs file change notifications, and CSharpFar needs `HttpClient` at its start, which waits for networking."
     },
     {
       "name": "Named synchronization objects (`Mutex` with a name)",
