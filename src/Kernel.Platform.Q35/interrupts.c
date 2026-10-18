@@ -148,3 +148,6 @@ void wit_platform_ipi_complete(WitU32 number)
     (void)number;
     wit_panic("The q35 platform has no inter-processor interrupt of its own");
 }
+
+/* The boot processor's local APIC came on with the first secondary's start and takes the doorbell as it is (P1.2). */
+void wit_platform_ipi_enable_boot(void) {}

@@ -79,8 +79,8 @@ WitA64Frame *wit_a64_interrupt(WitA64Frame *frame)
         return wit_user_interrupt(frame, line);
     }
     if (claimed == 3) {
-        /* An inter-processor interrupt on a secondary processor (K7.2): served and acknowledged, then back to idle. */
-        wit_cpus_ipi_received(line == 0 ? WIT_IPI_FENCE : WIT_IPI_INVALIDATE);
+        /* The doorbell of a request (P1.2): the pending set served, then back to the interrupted frame. */
+        wit_cpus_ipi_received();
         wit_platform_ipi_complete(line);
         return frame;
     }

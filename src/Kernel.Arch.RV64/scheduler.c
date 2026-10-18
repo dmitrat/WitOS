@@ -88,14 +88,16 @@ WitRv64Frame *wit_rv64_interrupt(WitRv64Frame *frame)
         return wit_user_interrupt(frame, line);
     }
     if (cause == WIT_RV64_INTERRUPT_SOFTWARE) {
-        /* An inter-processor interrupt on a secondary hart (V1.4): the kind the sender left with the board, served and
-         * acknowledged, then back to idle. */
+        /* The doorbell of a request on any hart (P1.2): the pending set served, the interrupt completed, then back to the
+         * interrupted frame. */
         WitU32 kind = 0;
         if (wit_platform_interrupt_claim(&kind) != 3) {
             wit_panic("A software interrupt that is no inter-processor interrupt");
         }
-        wit_cpus_ipi_received(kind);
+        /* sip.SSIP is a level the doorbell sets: cleared before the set is served, so that a doorbell rung meanwhile
+         * raises it again and none is lost. */
         wit_platform_ipi_complete(kind);
+        wit_cpus_ipi_received();
         return frame;
     }
     if (cause != WIT_RV64_INTERRUPT_TIMER) {

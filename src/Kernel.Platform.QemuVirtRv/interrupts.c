@@ -135,8 +135,8 @@ int wit_platform_interrupt_claim(WitU32 *line)
 {
     require(mapped, "Interrupt claim before the PLIC is mapped");
     if (wit_rv64_read_sip() & WIT_RV64_SIE_SOFTWARE) {
-        /* An inter-processor interrupt on a secondary hart (V1.4): the kind the sender left for it, completed by
-         * wit_platform_ipi_complete. */
+        /* An inter-processor interrupt on any hart (V1.4, P1.2): the kind the sender left for it, the doorbell, completed
+         * by wit_platform_ipi_complete. */
         const WitU64 hart = wit_arch_processor_id();
         require(hart < PLIC_HARTS && pending_ipi[hart] != 0, "A software interrupt no sender left a kind for");
         *line = pending_ipi[hart];
@@ -199,16 +199,21 @@ void wit_platform_processor_interrupts_enable(WitU32 index, WitU64 hardware_id)
  * software interrupt of each hart base + bit. */
 void wit_platform_ipi(WitU64 hardware_id, WitU32 kind)
 {
-    require(kind == WIT_IPI_FENCE || kind == WIT_IPI_INVALIDATE, "Unknown inter-processor interrupt kind");
+    require(kind == WIT_IPI_DOORBELL, "Unknown inter-processor interrupt kind");
     require(hardware_id < PLIC_HARTS, "An inter-processor interrupt to a hart beyond the board's");
     pending_ipi[hardware_id] = kind;
     wit_rv64_fence();
     require(wit_rv64_sbi(WIT_RV64_SBI_IPI, WIT_RV64_SBI_IPI_SEND, 1, hardware_id, 0, 0) == 0, "SBI send_ipi failed");
 }
 
+/* The boot hart takes the doorbell too, its supervisor software interrupt (P1.2). */
+void wit_platform_ipi_enable_boot(void)
+{
+    wit_rv64_set_sie(WIT_RV64_SIE_SOFTWARE);
+}
+
 void wit_platform_ipi_complete(WitU32 number)
 {
-    require(number == WIT_IPI_FENCE || number == WIT_IPI_INVALIDATE,
-        "Completing a line that is no inter-processor interrupt");
+    require(number == WIT_IPI_DOORBELL, "Completing a line that is no inter-processor interrupt");
     wit_rv64_clear_sip(WIT_RV64_SIE_SOFTWARE); /* the same bit in sip */
 }

@@ -109,12 +109,17 @@ WitU64 wit_platform_monotonic_read(void)
 {
     WitU64 value;
     require(ready && !wit_arch_interrupts_enabled(), "Monotonic read outside serialized kernel context");
+    /* Every processor reads the one counter (P1.2): the last value any of them saw, loaded before this read, is never
+     * above it, and the largest value seen is kept with a compare-and-exchange. */
+    WitU64 last = __atomic_load_n(&last_counter, __ATOMIC_ACQUIRE);
     value = counter();
     if (value > 0x7FFFFFFFFFFFFFFFULL) {
         value = 0x7FFFFFFFFFFFFFFFULL;
     }
-    require(value >= last_counter, "HPET reset or moved backwards");
-    last_counter = value;
+    require(value >= last, "HPET reset or moved backwards");
+    while (value > last &&
+        !__atomic_compare_exchange_n(&last_counter, &last, value, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+    }
     return value;
 }
 

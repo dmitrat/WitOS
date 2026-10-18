@@ -101,7 +101,6 @@ void wit_x64_tables(const WitDescriptorPointer **gdt, const WitDescriptorPointer
 /* Secondary processors (K7.2): secondary.c, secondary_entry.S. */
 void wit_x64_secondary_entry(void);
 void wit_x64_ipi_entry(void);
-extern WitU32 wit_x64_ipi_vector;
 extern WitU64 wit_x64_boot_cr0, wit_x64_boot_cr4;
 int wit_x64_lapic_enabled(void);
 WIT_NORETURN void wit_x64_secondary_main(WitU32 index);

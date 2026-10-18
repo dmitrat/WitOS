@@ -42,6 +42,7 @@ host_stack:
     .globl wit_a64_invalidate_instructions
     .globl wit_a64_data_barrier
     .globl wit_arch_process_write_barrier
+    .globl wit_arch_spin_pause
 
 // x0 = argument, x1 = stack top, x2 = function that never returns.
 wit_a64_call_on_stack:
@@ -280,4 +281,9 @@ wit_a64_data_barrier:
 // cache maintenance or a GC stop.
 wit_arch_process_write_barrier:
     dsb ish
+    ret
+
+// One step of a spin-wait (P1.2).
+wit_arch_spin_pause:
+    yield
     ret
