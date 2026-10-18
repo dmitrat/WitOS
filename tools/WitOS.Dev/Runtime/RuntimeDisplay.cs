@@ -108,10 +108,14 @@ internal static class RuntimeDisplay
         var written = TerminalBytes(transcript);
         var expected = Render(root, screenshot.Width, screenshot.Height, written);
         screenshot.RequireFrame(expected.Frame);
+        // The screen shows colours of its own (C2.6): PSReadLine colours the commands typed, the profile the console mark.
+        var colours = screenshot.Colours().Count(colour => colour != FrameRenderer.FOREGROUND && colour != FrameRenderer.BACKGROUND);
+        if (colours == 0)
+            throw new InvalidOperationException("The screen shows white and black alone: the display drew none of the colours PSReadLine and the profile asked for.");
         Console.WriteLine($"Display on witos-{architecture.Name}: PowerShell {pin.Version} ran on the screen through the keyboard, and the display " +
             $"service's screen ({screenshot.Width} by {screenshot.Height}, {expected.Screen.Columns} by {expected.Screen.Rows} cells) at its last " +
             $"prompt equals the frame the host rendered from the terminal's transcript ({written.Length} bytes, " +
-            $"{expected.Screen.Text.Split('\n').Length} lines).");
+            $"{expected.Screen.Text.Split('\n').Length} lines, {colours} colours beside the default white and black).");
     }
 
     /// <summary>

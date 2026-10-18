@@ -253,7 +253,10 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   the main console, and the renderer stores only the pixels that changed, so a scroll costs the text that moved. C2 is
   complete. `shell --window` opens that screen in QEMU's window with the window's keys, the console mirroring it, and
   `shell --prepare` builds the session on the Linux host for a host with a screen, which boots it with `--image` (C2.4,
-  closed by the author's session); C3, the native WitOS module and its providers, is the horizon after M8.
+  closed by the author's session). The screen's emulator knows what a full-screen console application needs (C2.6):
+  SGR's colours reduced to a 16-colour palette, bold, underline and inverse, the alternate screen, the cursor's visibility,
+  the swallowed APC and DCS strings, the device attributes and size answers, wide characters and the modified function
+  keys, so PowerShell is drawn in colour; C3, the native WitOS module and its providers, is the horizon after M8.
 - **Third ISA (phase V, the kernel, layer 2 and the runtime done).** RISC-V on QEMU's virt board: the measurement V0 found the pinned LLVM links no RISC-V
   PE/COFF, so the loader and the kernel are one position-independent ELF the tool converts to PE32+ with base
   relocations. V1.1 boots that image under EDK II over OpenSBI: the unchanged loader publishes the device tree, reads the

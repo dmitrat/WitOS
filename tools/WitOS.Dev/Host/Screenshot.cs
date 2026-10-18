@@ -78,6 +78,18 @@ internal sealed class Screenshot
     }
 
     /// <summary>
+    /// The colours the screen shows, each once (plan step C2.6).
+    /// </summary>
+    /// <returns>The distinct colours.</returns>
+    public IReadOnlySet<(byte Red, byte Green, byte Blue)> Colours()
+    {
+        var colours = new HashSet<(byte, byte, byte)>();
+        for (var at = 0; at + 2 < m_pixels.Length; at += 3)
+            colours.Add((m_pixels[at], m_pixels[at + 1], m_pixels[at + 2]));
+        return colours;
+    }
+
+    /// <summary>
     /// Requires the screen to equal a frame the host rendered, pixel for pixel (plan step C2.2): the display service and
     /// the host draw the same screen with the same renderer and font, so the two frames differ only where the display
     /// drew something else.

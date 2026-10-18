@@ -71,6 +71,25 @@ public sealed class UsKeyboardLayoutTests
         Assert.That(Text(layout.Translate(KEY_X, DOWN)), Is.EqualTo("x"));
     }
 
+    // C2.6: xterm's modifier parameter on the cursor, editing and function keys, Alt among the modifiers instead of an ESC.
+    [Test]
+    public void ModifiedSpecialKeysCarryTheModifierParameterTest()
+    {
+        var layout = new UsKeyboardLayout();
+        layout.Translate(KEY_LEFTSHIFT, DOWN);
+        Assert.That(Text(layout.Translate(KEY_F1 + 3, DOWN)), Is.EqualTo("\x1B[1;2S"), "Shift+F4");
+        layout.Translate(KEY_LEFTSHIFT, UP);
+        layout.Translate(KEY_LEFTCTRL, DOWN);
+        Assert.That(Text(layout.Translate(KEY_UP, DOWN)), Is.EqualTo("\x1B[1;5A"), "Ctrl+Up");
+        Assert.That(Text(layout.Translate(KEY_DELETE, DOWN)), Is.EqualTo("\x1B[3;5~"), "Ctrl+Delete");
+        layout.Translate(KEY_LEFTCTRL, UP);
+        layout.Translate(KEY_LEFTALT, DOWN);
+        Assert.That(Text(layout.Translate(KEY_F1 + 6, DOWN)), Is.EqualTo("\x1B[18;3~"), "Alt+F7");
+        Assert.That(Text(layout.Translate(KEY_A, DOWN)), Is.EqualTo("\u001Ba"), "a character keeps Alt's ESC");
+        layout.Translate(KEY_LEFTALT, UP);
+        Assert.That(Text(layout.Translate(KEY_F1 + 4, DOWN)), Is.EqualTo("\x1B[15~"), "F5 alone");
+    }
+
     [Test]
     public void SpecialKeysSendTheTerminalSequencesTest()
     {

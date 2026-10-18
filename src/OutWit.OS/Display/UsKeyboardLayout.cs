@@ -7,7 +7,8 @@ namespace OutWit.OS.Display;
 /// The keys of a keyboard as the bytes a terminal sends (plan step C2.2): a US layout, until the input model of M9,
 /// over evdev's key codes — the characters with Shift and Caps Lock, the control characters with Ctrl, an ESC prefix
 /// with Alt, and xterm's sequences for the keys that are no character (the arrows, Home, End, Insert, Delete, the
-/// pages, the function keys). The modifiers' state is the layout's; a release sends nothing.
+/// pages, the function keys), with xterm's modifier parameter when Shift, Alt or Ctrl is held (C2.6). The modifiers'
+/// state is the layout's; a release sends nothing.
 /// </summary>
 public sealed class UsKeyboardLayout
 {
@@ -71,8 +72,9 @@ public sealed class UsKeyboardLayout
     private const string BOTTOM_SHIFTED = "ZXCVBNM<>?";
     private const string KEYPAD_HIGH = "789-456+1230."; // KEY_KP7 to KEY_KPDOT, in evdev's order
 
-    private static readonly string[] FUNCTION_KEYS =
-        ["\x1BOP", "\x1BOQ", "\x1BOR", "\x1BOS", "\x1B[15~", "\x1B[17~", "\x1B[18~", "\x1B[19~", "\x1B[20~", "\x1B[21~"];
+    // F1–F4 end SS3 or a CSI with modifiers in these letters; F5–F10 are CSI sequences of these numbers and a tilde.
+    private const string FIRST_FUNCTION_KEYS = "PQRS";
+    private static readonly int[] TILDE_FUNCTION_KEYS = [15, 17, 18, 19, 20, 21];
 
     #endregion
 
@@ -120,33 +122,54 @@ public sealed class UsKeyboardLayout
         }
         if (!pressed)
             return [];
-        var text = Sequence(code) ?? Character(code);
+        var special = Special(code);
+        if (special is not null)
+            return Encoding.ASCII.GetBytes(special);
+        var text = Plain(code) ?? Character(code);
         if (text is null)
             return [];
         var bytes = Encoding.ASCII.GetBytes(text);
         return Alt ? [0x1B, .. bytes] : bytes;
     }
 
-    // The keys that are no character: xterm's sequences, Shift+Tab's back-tab.
-    private string? Sequence(ushort code) => code switch
+    // The cursor, editing and function keys: xterm's sequences, whose modifiers (C2.6) are a parameter of their own,
+    // 1 plus 1 for Shift, 2 for Alt and 4 for Ctrl, so that Alt sends no ESC before them.
+    private string? Special(ushort code)
+    {
+        var modifiers = 1 + (Shift ? 1 : 0) + (Alt ? 2 : 0) + (Ctrl ? 4 : 0);
+        return code switch
+        {
+            KEY_UP => Final('A', modifiers),
+            KEY_DOWN => Final('B', modifiers),
+            KEY_RIGHT => Final('C', modifiers),
+            KEY_LEFT => Final('D', modifiers),
+            KEY_HOME => Final('H', modifiers),
+            KEY_END => Final('F', modifiers),
+            KEY_INSERT => Tilde(2, modifiers),
+            KEY_DELETE => Tilde(3, modifiers),
+            KEY_PAGEUP => Tilde(5, modifiers),
+            KEY_PAGEDOWN => Tilde(6, modifiers),
+            >= KEY_F1 and < KEY_F1 + 4 => modifiers == 1
+                ? "\x1BO" + FIRST_FUNCTION_KEYS[code - KEY_F1]
+                : $"\x1B[1;{modifiers}{FIRST_FUNCTION_KEYS[code - KEY_F1]}",
+            >= KEY_F1 + 4 and <= KEY_F10 => Tilde(TILDE_FUNCTION_KEYS[code - KEY_F1 - 4], modifiers),
+            KEY_F11 => Tilde(23, modifiers),
+            KEY_F12 => Tilde(24, modifiers),
+            _ => null
+        };
+    }
+
+    private static string Final(char final, int modifiers) => modifiers == 1 ? $"\x1B[{final}" : $"\x1B[1;{modifiers}{final}";
+
+    private static string Tilde(int number, int modifiers) => modifiers == 1 ? $"\x1B[{number}~" : $"\x1B[{number};{modifiers}~";
+
+    // The other keys that are no character: Enter, Backspace, Shift+Tab's back-tab, Escape.
+    private string? Plain(ushort code) => code switch
     {
         KEY_ENTER or KEY_KPENTER => "\r",
         KEY_BACKSPACE => "\x7F",
         KEY_TAB => Shift ? "\x1B[Z" : "\t",
         KEY_ESC => "\x1B",
-        KEY_UP => "\x1B[A",
-        KEY_DOWN => "\x1B[B",
-        KEY_RIGHT => "\x1B[C",
-        KEY_LEFT => "\x1B[D",
-        KEY_HOME => "\x1B[H",
-        KEY_END => "\x1B[F",
-        KEY_INSERT => "\x1B[2~",
-        KEY_DELETE => "\x1B[3~",
-        KEY_PAGEUP => "\x1B[5~",
-        KEY_PAGEDOWN => "\x1B[6~",
-        >= KEY_F1 and <= KEY_F10 => FUNCTION_KEYS[code - KEY_F1],
-        KEY_F11 => "\x1B[23~",
-        KEY_F12 => "\x1B[24~",
         _ => null
     };
 
