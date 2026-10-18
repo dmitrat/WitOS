@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The installer of base applications (plan step C4.3, ADR 0027 decisions 5 and 7): an ordinary portable application
+       of the boot package on Arlecchino's packages, pinned exactly with a lock file, which installs and updates the
+       data volume's layer from a folder feed, switches the version in use and rolls back. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>witos-apps</AssemblyName>
+    <RootNamespace>WitOS.Installer</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <ArlecchinoViewNamespace>WitOS.Installer.Views</ArlecchinoViewNamespace>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="WitOS.Apps.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Arlecchino" Version="[2026.9.3]" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../WitOS.Apps/WitOS.Apps.csproj" />
+  </ItemGroup>
+</Project>

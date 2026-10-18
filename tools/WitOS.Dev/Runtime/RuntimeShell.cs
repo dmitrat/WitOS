@@ -95,6 +95,8 @@ internal static class RuntimeShell
         var session = Path.Combine(output, "session");
         await File.WriteAllTextAsync(session, "");
         package.Add((SESSION_MARK, session));
+        // The installer of base applications (C4.3): witos-apps on PATH, for a feed the person puts on a volume.
+        package.AddRange(await InstallerPackage.FilesAsync(root, architecture, output));
         var volume = await AppsDisk.VolumeFilesAsync(root, architecture, output);
         string? where = null;
         if (options.Published is not null)

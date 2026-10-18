@@ -1,5 +1,7 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Apps/Installer/Installer.csproj" />
+    <Project Path="src/Apps/WitOS.Apps/WitOS.Apps.csproj" />
     <Project Path="src/OutWit.OS/OutWit.OS.csproj" />
     <Project Path="src/Services/DeviceManager/DeviceManager.csproj" />
     <Project Path="src/Services/Namespace/Namespace.csproj" />
@@ -16,6 +18,7 @@
     <Project Path="tests/DotNetCompatibility/DotNetCompatibility.csproj" />
     <Project Path="tests/OutWit.OS.Tests/OutWit.OS.Tests.csproj" />
     <Project Path="tests/RepresentativeLibraries/NUnitApp/NUnitApp.csproj" />
+    <Project Path="tests/WitOS.Apps.Tests/WitOS.Apps.Tests.csproj" />
     <Project Path="tests/RepresentativeLibraries/XUnitApp/XUnitApp.csproj" />
     <Project Path="tests/WitOS.Dev.Tests/WitOS.Dev.Tests.csproj" />
     <Project Path="tests/WitOS.Dev.Tests.Child/WitOS.Dev.Tests.Child.csproj" />

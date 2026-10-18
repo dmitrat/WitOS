@@ -100,7 +100,7 @@ internal static class RuntimeCommander
         screenshot.RequireFrame(expected.Frame);
         if (!expected.Screen.Text.Contains(NOTE_TEXT, StringComparison.Ordinal))
             throw new InvalidOperationException($"The screen at the screendump shows no viewer of {NOTE}: {expected.Screen.Text}");
-        var copy = Encoding.UTF8.GetString(await RuntimeDataDisk.ReadExt4Async(dataDisk, COPY));
+        var copy = Encoding.UTF8.GetString((await RuntimeDataDisk.ReadExt4Async(dataDisk, [COPY]))[0]);
         if (copy != NOTE_TEXT + "\n")
             throw new InvalidOperationException($"The data volume's /data{COPY} holds '{copy}', not the note the commander copied.");
         Console.WriteLine($"Commander on witos-{architecture.Name}: Arlecchino.Commander listed /data, viewed {NOTE}, copied it to /data{COPY} and " +

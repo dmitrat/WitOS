@@ -263,7 +263,10 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   and a rollback through the `apps` command. The first file manager is one of them (C4.2): Arlecchino.Commander, built
   from its pinned commit by the stock SDK as a portable application and started by `/data/apps/bin/arlc` on the screen,
   where the `runtime-commander` scenario lists `/data`, views a file, copies it and quits through the keyboard on every
-  ISA; C3, the native WitOS module and its providers, is the horizon after M8.
+  ISA. The installer `witos-apps` (C4.3), WitOS's first console tool on Arlecchino and part of the system, installs and
+  updates base applications from a folder feed on any volume, verified by SHA-256, beside the versions installed, and
+  switches back to any of them; the `runtime-installer` scenario updates the file manager from a feed on `/fat` and
+  rolls back on the screen. C3, the native WitOS module and its providers, is the horizon after M8.
 - **Third ISA (phase V, the kernel, layer 2 and the runtime done).** RISC-V on QEMU's virt board: the measurement V0 found the pinned LLVM links no RISC-V
   PE/COFF, so the loader and the kernel are one position-independent ELF the tool converts to PE32+ with base
   relocations. V1.1 boots that image under EDK II over OpenSBI: the unchanged loader publishes the device tree, reads the

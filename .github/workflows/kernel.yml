@@ -42,6 +42,9 @@ jobs:
       - name: Services' host tests
         run: dotnet test tests/OutWit.OS.Tests --configuration Release --no-build
 
+      - name: Base applications' host tests
+        run: dotnet test tests/WitOS.Apps.Tests --configuration Release --no-build
+
       - name: Cache pinned LLVM installer
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -191,6 +194,10 @@ jobs:
       - name: Services' host tests
         if: matrix.arch == 'x64'
         run: dotnet test tests/OutWit.OS.Tests --configuration Release --no-build
+
+      - name: Base applications' host tests
+        if: matrix.arch == 'x64'
+        run: dotnet test tests/WitOS.Apps.Tests --configuration Release --no-build
 
       - name: QEMU timeout cleanup through QMP
         if: matrix.arch == 'x64'

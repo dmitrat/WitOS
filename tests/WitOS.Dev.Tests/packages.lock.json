@@ -123,10 +123,14 @@
           "OutWit.Common.Fat": "[1.0.0, )"
         }
       },
+      "witos.apps": {
+        "type": "Project"
+      },
       "witos.dev": {
         "type": "Project",
         "dependencies": {
-          "OutWit.OS": "[1.0.0, )"
+          "OutWit.OS": "[1.0.0, )",
+          "WitOS.Apps": "[1.0.0, )"
         }
       },
       "witos.dev.tests.child": {

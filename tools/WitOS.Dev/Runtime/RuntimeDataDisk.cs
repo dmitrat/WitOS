@@ -134,8 +134,10 @@ internal static class RuntimeDataDisk
     /// <param name="programs">Files the ext4 volume holds under /programs (D5.3); none by default.</param>
     /// <param name="files">Files the ext4 volume holds at their paths from its root (N2.2); none by default.</param>
     /// <param name="bytes">The disk's size, a whole number of MiB; the ext4 partition takes what the others leave.</param>
+    /// <param name="fatFiles">Files the FAT volume holds beside the host's file, at their paths from its root (C4.3: a
+    /// folder feed); none by default.</param>
     public static async Task CreateAsync(string path, bool ext4 = true, IReadOnlyList<(string Path, string Source)>? programs = null,
-        IReadOnlyList<(string Path, string Source)>? files = null, long bytes = BYTES)
+        IReadOnlyList<(string Path, string Source)>? files = null, long bytes = BYTES, IReadOnlyList<(string Path, string Source)>? fatFiles = null)
     {
         if (bytes < BYTES || bytes % (1024 * 1024) != 0)
             throw new ArgumentOutOfRangeException(nameof(bytes), $"A data disk has a whole number of MiB, at least {BYTES} bytes.");
@@ -155,8 +157,23 @@ internal static class RuntimeDataDisk
         }
         await using (var partition = table.Partitions[1].Open(disk))
         await using (var volume = await FatFileSystem.FormatAsync(partition, FAT_LABEL))
-        await using (var file = await volume.OpenAsync(HOST_FILE, FileMode.CreateNew, FileAccess.Write))
-            await file.WriteAsync(0, Encoding.UTF8.GetBytes(HOST_TEXT));
+        {
+            await using (var file = await volume.OpenAsync(HOST_FILE, FileMode.CreateNew, FileAccess.Write))
+                await file.WriteAsync(0, Encoding.UTF8.GetBytes(HOST_TEXT));
+            foreach (var (name, source) in fatFiles ?? [])
+            {
+                var parts = name.Split('/');
+                for (var depth = 1; depth < parts.Length; depth++)
+                {
+                    var directory = "/" + string.Join('/', parts[..depth]);
+                    if (await volume.GetEntryAsync(directory) is null)
+                        await volume.CreateDirectoryAsync(directory);
+                }
+                await using var file = await volume.OpenAsync("/" + name, FileMode.CreateNew, FileAccess.Write);
+                await file.WriteAsync(0, await File.ReadAllBytesAsync(source));
+            }
+            await volume.FlushAsync();
+        }
         await File.WriteAllBytesAsync(path, disk.Bytes.ToArray());
     }
 
@@ -232,20 +249,20 @@ internal static class RuntimeDataDisk
     }
 
     /// <summary>
-    /// Reads a file the guest left on the ext4 partition of a disk of any data disk's size (plan step C4.2): the
-    /// partition, copied out beside the disk, was unmounted by the guest and is clean.
+    /// Reads files the guest left on the ext4 partition of a disk of any data disk's size (plan steps C4.2, C4.3): the
+    /// partition, copied out beside the disk once, was unmounted by the guest and is clean.
     /// </summary>
     /// <param name="path">The disk's image.</param>
-    /// <param name="file">The file's path in the volume.</param>
-    /// <returns>The file's bytes.</returns>
+    /// <param name="files">The files' paths in the volume.</param>
+    /// <returns>The files' bytes, in the order of their paths.</returns>
     /// <exception cref="InvalidDataException">The disk is not a data disk's size.</exception>
     /// <exception cref="InvalidOperationException">The volume is mounted or unclean, or holds no such file.</exception>
-    public static async Task<byte[]> ReadExt4Async(string path, string file)
+    public static async Task<IReadOnlyList<byte[]>> ReadExt4Async(string path, IReadOnlyList<string> files)
     {
         var (volume, _, _) = await CopyOutExt4Async(path, ".read");
         try
         {
-            return await RuntimeExt4Volume.ReadCleanAsync(volume, file);
+            return await RuntimeExt4Volume.ReadCleanAsync(volume, files);
         }
         finally
         {

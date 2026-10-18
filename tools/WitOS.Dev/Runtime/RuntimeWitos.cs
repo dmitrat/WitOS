@@ -502,6 +502,8 @@ internal static class RuntimeWitos
         await RuntimePowerShell.RunAsync(root, architecture);
         // C4.2 (ADR 0027): the file manager Arlecchino.Commander, built from its source, from the layer on the screen.
         await RuntimeCommander.RunAsync(root, architecture);
+        // C4.3 (ADR 0027): the installer in the boot package updates the file manager from a folder feed and rolls back.
+        await RuntimeInstaller.RunAsync(root, architecture);
         await RuntimeCompatibility.RunAsync(root, architecture);
         await RuntimeLibraries.RunAsync(root, architecture);
         // N2.2, the libraries' own test suites, run for hours in the guest: runtime-nuget-suites runs them on this tree,

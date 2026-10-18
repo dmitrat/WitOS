@@ -171,16 +171,23 @@ internal static class RuntimeExt4Volume
     }
 
     /// <summary>
-    /// Reads a file the guest left on a volume (plan step C4.2): the guest unmounted the volume, e2fsck finds it clean,
-    /// and debugfs reads the file.
+    /// Reads files the guest left on a volume (plan steps C4.2, C4.3): the guest unmounted the volume, e2fsck finds it
+    /// clean, and debugfs reads each file.
     /// </summary>
     /// <param name="image">The volume's image.</param>
-    /// <param name="file">The file's path in the volume.</param>
-    /// <returns>The file's bytes.</returns>
+    /// <param name="files">The files' paths in the volume.</param>
+    /// <returns>The files' bytes, in the order of their paths.</returns>
     /// <exception cref="InvalidOperationException">The journal needs recovery, e2fsck finds a problem, or the volume holds no
     /// such file.</exception>
-    public static async Task<byte[]> ReadCleanAsync(string image, string file) =>
-        await DumpAsync(await RequireUnmountedAsync(image), image, file);
+    public static async Task<IReadOnlyList<byte[]>> ReadCleanAsync(string image, IReadOnlyList<string> files)
+    {
+        var tools = await RequireUnmountedAsync(image);
+        var contents = new List<byte[]>();
+        foreach (var file in files)
+            contents.Add(await DumpAsync(tools, image, file));
+        return contents;
+    }
+
     /// <summary>
     /// Requires what a cut left on a volume (D6.2): the guest had it mounted (needs_recovery), and the host's e2fsck
     /// replays its journal and finds it clean then. The image is the host's copy: the guest's next boot replays the
