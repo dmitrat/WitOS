@@ -123,6 +123,28 @@ internal static class RuntimeExt4Volume
     }
 
     /// <summary>
+    /// Repairs a volume (plan step C4.1): e2fsck replays a journal that needs recovery and fixes what it finds.
+    /// </summary>
+    /// <param name="image">The volume's image.</param>
+    /// <exception cref="InvalidOperationException">The host has no e2fsprogs, or e2fsck could not repair the volume.</exception>
+    public static async Task RepairAsync(string image)
+    {
+        var mkfs = FindMkfs() ?? throw new InvalidOperationException("Repairing an ext4 volume needs e2fsprogs on a Linux host.");
+        await RunAsync(Path.Combine(Path.GetDirectoryName(mkfs)!, "e2fsck"), ["-f", "-y", image], 1);
+    }
+
+    /// <summary>
+    /// Requires a volume clean (plan step C4.1): e2fsck, changing nothing, finds no problem.
+    /// </summary>
+    /// <param name="image">The volume's image.</param>
+    /// <exception cref="InvalidOperationException">The host has no e2fsprogs, or e2fsck finds a problem.</exception>
+    public static async Task RequireCleanAsync(string image)
+    {
+        var mkfs = FindMkfs() ?? throw new InvalidOperationException("Checking an ext4 volume needs e2fsprogs on a Linux host.");
+        await RunAsync(Path.Combine(Path.GetDirectoryName(mkfs)!, "e2fsck"), ["-f", "-n", image], 0);
+    }
+
+    /// <summary>
     /// Requires what the guest wrote to a volume (its image): the guest unmounted it, e2fsck finds it clean, and debugfs
     /// reads the guest's files.
     /// </summary>
@@ -245,10 +267,15 @@ internal static class RuntimeExt4Volume
             var target = Path.Combine(root, path);
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             File.Copy(source, target);
+            // Executable as its source is (C4.1: a base application's launcher), readable otherwise.
             if (OperatingSystem.IsLinux())
-                File.SetUnixFileMode(target, (UnixFileMode)Convert.ToInt32("644", 8));
+                File.SetUnixFileMode(target, (UnixFileMode)Convert.ToInt32(Executable(source) ? "755" : "644", 8));
         }
     }
+
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    private static bool Executable(string path) =>
+        (File.GetUnixFileMode(path) & (UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) != 0;
 
     private static async Task<byte[]> DumpAsync(string tools, string image, string file)
     {

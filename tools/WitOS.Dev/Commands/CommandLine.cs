@@ -170,6 +170,7 @@ internal static class CommandLine
         new CommandPublishApps(),
         new CommandPublished(),
         new CommandShell(),
+        new CommandApps(),
         new CommandAction("compatibility-matrix",
             "Write the public compatibility matrix from the suite's checks, expectations.json and build/compatibility-matrix.json (N4.5)",
             CompatibilityMatrix.WriteAsync),

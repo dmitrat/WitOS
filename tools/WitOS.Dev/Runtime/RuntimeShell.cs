@@ -87,11 +87,7 @@ internal static class RuntimeShell
         ShellOptions options, string output)
     {
         var package = await RuntimePowerShell.PackageAsync(root, output, architecture, ["cd /data", RuntimePowerShell.PWSH]);
-        var volume = new List<(string Path, string Source)>();
-        volume.AddRange(await PowerShell.VolumeFilesAsync(root, architecture, RuntimePowerShell.VOLUME_DIRECTORY));
-        var keep = Path.Combine(output, "keep");
-        await File.WriteAllTextAsync(keep, "");
-        volume.Add(("home/.keep", keep));
+        var volume = await AppsDisk.VolumeFilesAsync(root, architecture, output);
         string? where = null;
         if (options.Published is not null)
         {

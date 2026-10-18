@@ -758,7 +758,9 @@ internal static class RuntimeWitos
         // TERM names the terminal the install's terminfo describes (C1.3), so that System.Console has its capabilities;
         // PATH ends with the install's directory (C1.4), so that a shell runs dotnet by name.
         await File.WriteAllTextAsync(environment,
-            $"# The default environment of every process; the root task reads it (N4.1).\nPATH=/bin:/usr/bin:/dotnet\nHOME=/data/home\nTERM={Terminfo.TERM}\n");
+            $"# The default environment of every process; the root task reads it (N4.1).\nPATH=/bin:/usr/bin:/data/apps/bin:/dotnet\n" +
+            // The base applications' launchers (ADR 0027): on PATH, and PowerShell's the shell applications run commands through.
+            $"SHELL=/data/apps/bin/pwsh\nHOME=/data/home\nTERM={Terminfo.TERM}\n");
         var sysroot = await Sysroot.BuildAsync(root, architecture);
         var shared = await FrameworkFilesAsync(tree, output, architecture, version, pin.TargetFramework);
 

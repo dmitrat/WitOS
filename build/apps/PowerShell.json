@@ -1,0 +1,21 @@
+{
+  "id": "PowerShell",
+  "version": "7.6.7",
+  "framework": "Microsoft.NETCore.App 10.0",
+  "source": {
+    "kind": "archive",
+    "url": "https://github.com/PowerShell/PowerShell/releases/download/v7.6.7/powershell-7.6.7-linux-x64-musl-noopt-fxdependent.tar.gz",
+    "file": "powershell-7.6.7-linux-x64-musl-noopt-fxdependent.tar.gz",
+    "sha256": "034931e34232df4854c7769299ba60618abbbef1c6b5d1f6378f38160ffc22f7"
+  },
+  "native": {
+    "repository": "https://github.com/PowerShell/PowerShell-Native",
+    "commit": "0e619cee3591727a7beb1554b8e300fb790395d2",
+    "tag": "v700.0.1",
+    "library": "libpsl-native.so"
+  },
+  "commands": [
+    { "name": "pwsh", "assembly": "pwsh.dll" }
+  ],
+  "purpose": "Upstream PowerShell 7 as WitOS's default command shell (RFC 0020 section 59, plan step C1.3), a base application of the data volume's layer (ADR 0027, plan step C4.1) with the command pwsh: the release's framework-dependent archive that is IL alone (no ReadyToRun code, so one archive serves every ISA), pinned by the SHA-256 of its bytes and run unchanged on the .NET install; and the source of its native library libpsl-native, PowerShell-Native at the tag nearest the package version the archive names (700.0.2), built unchanged by the pinned clang against the sysroot for each ISA, since the archive's prebuilt musl library needs libstdc++ and the witos RIDs would not select it. The newest release when C1.3 was made; a later one moves the pin."
+}

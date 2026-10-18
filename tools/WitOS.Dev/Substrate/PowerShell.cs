@@ -8,21 +8,26 @@ using WitOS.Dev.Kernel;
 namespace WitOS.Dev.Substrate;
 
 /// <summary>
-/// Upstream PowerShell 7 on WitOS (RFC 0020, plan step C1.3): the release src/Substrate/powershell.lock.json pins by the
+/// Upstream PowerShell 7 on WitOS (RFC 0020, plan step C1.3): the release build/apps/PowerShell.json pins by the
 /// SHA-256 of its framework-dependent archive, IL alone, is downloaded once into .tools/downloads and extracted under
 /// .tools/&lt;name&gt; by <c>setup</c>, which also checks out PowerShell-Native at the pinned commit; the pinned clang
-/// builds libpsl-native from that source unchanged for each ISA against the sysroot, and the scenario lays the archive's
-/// files with the library on the data volume, where <c>dotnet pwsh.dll</c> runs them unchanged. Nothing of PowerShell is
-/// patched: it is an application (RFC 0020 section 59).
+/// builds libpsl-native from that source unchanged for each ISA against the sysroot, and the layer of base applications
+/// (ADR 0027) lays the archive's files with the library on the data volume, where the pwsh launcher runs them unchanged.
+/// Nothing of PowerShell is patched: it is an application (RFC 0020 section 59).
 /// </summary>
 internal static class PowerShell
 {
     #region Constants
 
     /// <summary>
-    /// The pin.
+    /// PowerShell's entry in the catalog of base applications (ADR 0027): build/apps/PowerShell.json, its pin.
     /// </summary>
-    public const string LOCK = "src/Substrate/powershell.lock.json";
+    public const string CATALOG_ID = "PowerShell";
+
+    /// <summary>
+    /// PowerShell's command in the layer of base applications (ADR 0027): /data/apps/bin/pwsh.
+    /// </summary>
+    public const string COMMAND = "pwsh";
 
     /// <summary>
     /// The native library's file name, which pwsh's P/Invokes name and CoreCLR finds beside pwsh.dll.
@@ -50,14 +55,16 @@ internal static class PowerShell
     /// canonical URL with a PowerShell-Native commit.</exception>
     public static async Task<PowerShellPin> ReadPinAsync(string root)
     {
-        var pin = JsonSerializer.Deserialize<PowerShellPin>(await File.ReadAllTextAsync(Path.Combine(root, LOCK)),
-            new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? throw new InvalidDataException("Missing PowerShell pin.");
-        if (!Regex.IsMatch(pin.Version, @"^7\.[0-9]+\.[0-9]+$") || pin.Name != $"powershell-{pin.Version}" ||
+        var entry = await Runtime.AppCatalog.ReadAsync(root, CATALOG_ID);
+        var native = entry.Native ?? throw new InvalidDataException("The PowerShell entry of the catalog has no native part.");
+        var pin = new PowerShellPin($"powershell-{entry.Version}", entry.Version, entry.Source.File ?? "", entry.Source.Url ?? "",
+            entry.Source.Sha256 ?? "", native.Repository, native.Commit, native.Tag ?? "", entry.Purpose);
+        if (!Regex.IsMatch(pin.Version, @"^7\.[0-9]+\.[0-9]+$") || entry.Source.Kind != Runtime.AppCatalog.ARCHIVE ||
             pin.Archive != $"{pin.Name}-linux-x64-musl-noopt-fxdependent.tar.gz" ||
             pin.Url != $"https://github.com/PowerShell/PowerShell/releases/download/v{pin.Version}/{pin.Archive}" ||
-            !Regex.IsMatch(pin.Sha256, "^[0-9a-f]{64}$") || pin.NativeRepository != "https://github.com/PowerShell/PowerShell-Native" ||
-            !COMMIT.IsMatch(pin.NativeCommit))
-            throw new InvalidDataException("Unsupported PowerShell pin.");
+            pin.NativeRepository != "https://github.com/PowerShell/PowerShell-Native" || native.Library != NATIVE_LIBRARY ||
+            entry.Commands.Count != 1 || entry.Commands[0].Name != COMMAND || entry.Commands[0].Assembly != "pwsh.dll")
+            throw new InvalidDataException("Unsupported PowerShell entry of the catalog.");
         return pin;
     }
 
@@ -138,23 +145,22 @@ internal static class PowerShell
     }
 
     /// <summary>
-    /// What a data volume holds for PowerShell: every file of the archive under the directory and the library built
-    /// for the architecture beside pwsh.dll.
+    /// PowerShell's files as a base application of the layer (ADR 0027, plan step C4.1), by their paths in its directory:
+    /// the archive's, the native library built for the ISA, and WitOS's profile.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="architecture">Target architecture.</param>
-    /// <param name="directory">The directory on the volume, without slashes.</param>
-    /// <returns>The volume's paths and the files to place there.</returns>
-    public static async Task<IReadOnlyList<(string Path, string Source)>> VolumeFilesAsync(string root, KernelArchitecture architecture, string directory)
+    /// <returns>Paths in the application's directory and the host's files.</returns>
+    public static async Task<IReadOnlyList<(string Path, string Source)>> ApplicationFilesAsync(string root, KernelArchitecture architecture)
     {
         var pin = await RequireAsync(root);
         var tree = ArchiveDirectory(root, pin);
         var files = Directory.EnumerateFiles(tree, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
-            .Select(file => ($"{directory}/{Path.GetRelativePath(tree, file).Replace('\\', '/')}", file)).ToList();
-        files.Add(($"{directory}/{NATIVE_LIBRARY}", await BuildNativeAsync(root, architecture)));
+            .Select(file => (Path.GetRelativePath(tree, file).Replace('\\', '/'), file)).ToList();
+        files.Add((NATIVE_LIBRARY, await BuildNativeAsync(root, architecture)));
         // The session banner's profile (C1.4): $PSHOME/profile.ps1, which every interactive session runs; WitOS's, not
         // the archive's, and the one file beside the archive's.
-        files.Add(($"{directory}/profile.ps1", Path.Combine(root, Runtime.ConsoleLogo.PROFILE)));
+        files.Add(("profile.ps1", Path.Combine(root, Runtime.ConsoleLogo.PROFILE)));
         return files;
     }
 
