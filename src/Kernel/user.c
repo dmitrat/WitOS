@@ -94,8 +94,8 @@ static WitUserProcess *enter(void)
     return cpu->Current;
 }
 
-/* Whether a ready thread that nobody runs exists in any live component. */
-static int thread_ready(void)
+/* Whether a ready thread that nobody runs and that may run on the processor exists in any live component (P1.4). */
+static int thread_ready_for(WitU32 processor)
 {
     for (WitU32 i = 0; i < WIT_PROCESS_CAPACITY; ++i) {
         const WitUserProcess *q = slot_owners[i];
@@ -103,7 +103,8 @@ static int thread_ready(void)
             continue;
         }
         for (WitU32 t = 0; t < q->ThreadLimit; ++t) {
-            if (q->Threads[t].State == WitThreadReady && !q->Threads[t].SuspendCount) {
+            const WitUserThread *thread = &q->Threads[t];
+            if (thread->State == WitThreadReady && !thread->SuspendCount && (thread->Affinity & (1ULL << processor))) {
                 return 1;
             }
         }
@@ -112,20 +113,31 @@ static int thread_ready(void)
 }
 
 /* The processor leaves the kernel for a frame it returns to (P1.2). An idle processor is kicked once when a thread is
- * ready that this one does not run (P1.3b). The lock goes in the architecture's return, on the frame's stack: until
- * then this processor runs on a kernel stack another could take, that of a thread it left ready or waiting. */
-static WitArchFrame *leave(WitArchFrame *frame)
+ * ready that this one does not run (P1.3b) and that may run there (P1.4). The lock goes in the architecture's return,
+ * on the frame's stack: until then this processor runs on a kernel stack another could take, that of a thread it left
+ * ready or waiting. */
+static void kick_idle(void)
 {
-    if (wit_cpus_online() > 1 && run_active() && thread_ready()) {
+    if (wit_cpus_online() > 1 && run_active()) {
         for (WitU32 i = 0; i < WIT_PROCESSOR_CAPACITY; ++i) {
             Dispatcher *const other = &dispatchers[i];
-            if (i != me() && wit_cpus_is_online(i) && other->Idle && !other->Parked && !other->Kicked) {
+            if (i != me() &&
+                wit_cpus_is_online(i) &&
+                other->Idle &&
+                !other->Parked &&
+                !other->Kicked &&
+                thread_ready_for(i)) {
                 other->Kicked = 1;
                 wit_cpus_request(i, WIT_REQUEST_RESCHEDULE);
                 break;
             }
         }
     }
+}
+
+static WitArchFrame *leave(WitArchFrame *frame)
+{
+    kick_idle();
     return frame;
 }
 
@@ -475,10 +487,15 @@ static WitArchFrame *pick(int timer, int rotate, int *waiting)
         for (WitU32 offset = 1; offset <= WIT_PROCESS_THREAD_CAPACITY; ++offset) {
             const WitU32 index = (previous + offset) % WIT_PROCESS_THREAD_CAPACITY;
             WitUserThread *thread = &q->Threads[index];
-            if (thread->State == WitThreadWaiting || thread->State == WitThreadRunning || thread->SuspendCount) {
+            /* A ready thread whose affinity leaves this processor out waits for another (P1.4). */
+            const int elsewhere = thread->State == WitThreadReady && !(thread->Affinity & (1ULL << me()));
+            if (thread->State == WitThreadWaiting ||
+                thread->State == WitThreadRunning ||
+                thread->SuspendCount ||
+                elsewhere) {
                 *waiting = 1;
             }
-            if (thread->State != WitThreadReady || thread->SuspendCount) {
+            if (thread->State != WitThreadReady || thread->SuspendCount || elsewhere) {
                 continue;
             }
             if (q != cpu->Current) {
@@ -542,6 +559,7 @@ WIT_NORETURN static void idle(void)
         }
         require(!wit_arch_interrupts_enabled(), "Idle entered with interrupts enabled");
         wit_arch_reset_user_tls();
+        kick_idle(); /* a ready thread this processor may not run goes to one that idles (P1.4) */
         cpu->Idle = 1;
         if (cpu->Current) {
             ++cpu->Current->IdleHalts;
@@ -1061,9 +1079,10 @@ WitArchFrame *wit_user_syscall(
     // A finite wait can complete here before this syscall returns; dispatch its
     // Ready state normally instead of returning with an inconsistent state.
     expire_waits();
-    if (self()->Current->Threads[self()->Current->CurrentThread].SuspendCount &&
-        self()->Current->Threads[self()->Current->CurrentThread].State == WitThreadRunning) {
-        self()->Current->Threads[self()->Current->CurrentThread].State = WitThreadReady;
+    /* A suspended caller, or one whose affinity left this processor out (P1.4), leaves it. */
+    WitUserThread *const caller = &self()->Current->Threads[self()->Current->CurrentThread];
+    if (caller->State == WitThreadRunning && (caller->SuspendCount || !(caller->Affinity & (1ULL << me())))) {
+        caller->State = WitThreadReady;
     }
     if (self()->Current->Threads[self()->Current->CurrentThread].State != WitThreadRunning) {
         return leave(dispatch(0, 0));

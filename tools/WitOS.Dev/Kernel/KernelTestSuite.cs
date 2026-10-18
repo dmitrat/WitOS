@@ -98,6 +98,12 @@ internal static class KernelTestSuite
             Processors = 2,
             RequiredLines = ["Processors present/online: 2/2"]
         });
+        // Four processors (P1.4): the user suites and the SMP fixture with threads on all of them.
+        await BootScenarioRunner.RunAsync(root, image, new BootRequest("boot-smp4", 256, 60, ExpectedOutcome.Success)
+        {
+            Processors = 4,
+            RequiredLines = ["Processors present/online: 4/4"]
+        });
         await BootScenarioRunner.RunAsync(root, image,
             new BootRequest("boot-intel", 256, 60, ExpectedOutcome.Success) { CpuModel = "Nehalem" });
         // The first libc program (S1.1): unchanged musl over the system layer's dispatch, as the root task.
@@ -163,7 +169,7 @@ internal static class KernelTestSuite
         var timeout = await KernelImageBuilder.BuildAsync(root, "timeout");
         await BootScenarioRunner.RunAsync(root, timeout,
             new BootRequest("timeout", 256, SELFTEST_HANG, ExpectedOutcome.Timeout));
-        Console.WriteLine("PASS: all 33 kernel integration scenarios.");
+        Console.WriteLine("PASS: all 34 kernel integration scenarios.");
     }
 
     /// <summary>
@@ -201,7 +207,13 @@ internal static class KernelTestSuite
                     Processors = 2,
                     RequiredLines = ["Processors present/online: 2/2"]
                 });
-            scenarios++;
+            await BootScenarioRunner.RunAsync(root, image,
+                Request("boot-smp4", 256, limit, ExpectedOutcome.Success) with
+                {
+                    Processors = 4,
+                    RequiredLines = ["Processors present/online: 4/4"]
+                });
+            scenarios += 2;
         }
         if (architecture.Libc)
         {

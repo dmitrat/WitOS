@@ -529,6 +529,21 @@ int main(void)
             sched_setaffinity(0, sizeof(none), &none) == -1 &&
             errno == EINVAL,
         "sched_setaffinity");
+    /* The kernel honours a thread's affinity (P1.4): pinned to the first processor, the thread reads that mask back,
+     * then every processor again. */
+    if (CPU_COUNT(&processors) > 1) {
+        cpu_set_t first, read_back;
+        CPU_ZERO(&first);
+        CPU_SET(0, &first);
+        check(sched_setaffinity(0, sizeof(first), &first) == 0 &&
+                sched_getaffinity(0, sizeof(read_back), &read_back) == 0 &&
+                CPU_COUNT(&read_back) == 1 &&
+                CPU_ISSET(0, &read_back) &&
+                sched_setaffinity(0, sizeof(processors), &processors) == 0 &&
+                sched_getaffinity(0, sizeof(read_back), &read_back) == 0 &&
+                CPU_EQUAL(&read_back, &processors),
+            "sched_setaffinity pins a thread and sets it free");
+    }
     /* One priority for every thread, which Linux reports of a normal thread (R7.1): SCHED_OTHER at 0. */
     struct sched_param priority = {.sched_priority = 1};
     int policy = -1;

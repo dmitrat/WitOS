@@ -12,7 +12,7 @@ static void require(int condition, const char *message)
 static void reset_thread(WitUserThread *thread)
 {
     thread->SuspendCount = 0;
-    thread->Affinity = 1; /* The boot processor, the one online (K7.1). */
+    thread->Affinity = wit_processors_all(); /* every processor (P1.4) */
     wit_user_exception_clear(thread);
 }
 
@@ -173,7 +173,8 @@ static WitU64 create_in(
 
 /* THREAD_AFFINITY (RFC 0011 section 7.9, K7.1): the processors a thread may run on. Get needs QUERY, set AFFINITY;
  * the mask is validated whole (nonzero, within the processors present, with an online processor) before it changes,
- * and the boot processor stays the one online until phase P. */
+ * and the dispatcher honours it (P1.4): a thread another processor runs that the mask leaves out is kicked off it, and
+ * the caller that left its own processor out leaves it at the call's end. */
 WitU64 wit_user_thread_affinity(WitUserProcess *p, WitU64 handle, WitU64 address, WitU64 flags)
 {
     WitUserThread *target;
@@ -203,6 +204,9 @@ WitU64 wit_user_thread_affinity(WitUserProcess *p, WitU64 handle, WitU64 address
         return valid;
     }
     target->Affinity = mask;
+    if (!(mask & (1ULL << target->Processor))) {
+        wit_user_thread_kick(target);
+    }
     return WIT_STATUS_OK;
 }
 
