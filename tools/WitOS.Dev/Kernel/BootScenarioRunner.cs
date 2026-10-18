@@ -66,9 +66,13 @@ internal static class BootScenarioRunner
         using var relay = request.InteractiveTerminal && terminal is null ? new TerminalRelay(terminalPath, keys: !request.Window) : null;
         // The HPET-less q35 is the one board variant a scenario selects.
         var machine = request.Expected == ExpectedOutcome.ClockUnavailable ? "q35,hpet=off" : architecture.QemuMachine;
-        var arguments = new List<string>
-        {
-            "-machine", machine, "-accel", "tcg,thread=single", "-icount", request.InteractiveTerminal ? INTERACTIVE_TIME : VIRTUAL_TIME,
+        // Emulated with the instruction clock, or on the host's hardware virtualization for a session (C2.7).
+        string[] execution = request.Accelerated
+            ? ["-accel", HostAccelerator(architecture)]
+            : ["-accel", "tcg,thread=single", "-icount", request.InteractiveTerminal ? INTERACTIVE_TIME : VIRTUAL_TIME];
+        List<string> arguments =
+        [
+            "-machine", machine, .. execution,
             "-cpu", cpu, "-smp", request.Processors.ToString(), "-m", request.MemoryMiB.ToString(),
             "-display", request.Window ? WINDOW_DISPLAY : "none", "-monitor", "none", "-qmp", qmpControl.Argument,
             "-serial", "file:" + QemuPath(serialPath), "-nic", "none", "-no-reboot",
@@ -76,7 +80,7 @@ internal static class BootScenarioRunner
             "-drive", $"if=pflash,unit=1,format=raw,file={QemuPath(firmwareState)}",
             "-drive", $"if=none,id=boot,format=raw,readonly=on,file={QemuPath(image)}",
             "-device", "virtio-blk-pci,drive=boot,bootindex=1"
-        };
+        ];
         arguments.AddRange(architecture.ExitDevice);
         if (request.Display)
         {
@@ -179,6 +183,30 @@ internal static class BootScenarioRunner
     #region Tools
 
     private static string QemuPath(string path) => path.Replace('\\', '/').Replace(",", ",,");
+
+    /// <summary>
+    /// The host's hardware virtualization for a guest of an architecture (plan step C2.7): WHPX on Windows, KVM on Linux,
+    /// for a guest of the host's own ISA alone.
+    /// </summary>
+    /// <param name="architecture">The guest's architecture.</param>
+    /// <returns>QEMU's accelerator.</returns>
+    /// <exception cref="NotSupportedException">The host is another ISA, or has no accelerator QEMU knows.</exception>
+    internal static string HostAccelerator(KernelArchitecture architecture)
+    {
+        var host = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture switch
+        {
+            System.Runtime.InteropServices.Architecture.X64 => KernelArchitecture.X64,
+            System.Runtime.InteropServices.Architecture.Arm64 => KernelArchitecture.Arm64,
+            _ => null
+        };
+        if (host != architecture)
+            throw new NotSupportedException($"A {architecture.Name} guest runs on hardware virtualization only on a {architecture.Name} host; this host is {System.Runtime.InteropServices.RuntimeInformation.OSArchitecture}.");
+        if (OperatingSystem.IsWindows())
+            return "whpx";
+        if (OperatingSystem.IsLinux())
+            return File.Exists("/dev/kvm") ? "kvm" : throw new NotSupportedException("This Linux host has no /dev/kvm for hardware virtualization.");
+        throw new NotSupportedException("Hardware virtualization of a session is WHPX on Windows or KVM on Linux.");
+    }
 
     // Watches the serial log, and the terminal's transcript when there is one, while the guest runs: performs each action
     // of the request once its line is there after the previous action's (C2.1-C2.3, ActionSequence) - a screendump waits

@@ -11,4 +11,6 @@ namespace WitOS.Dev.Runtime;
 /// <param name="Window">The display and the keyboard in QEMU's window, the console mirroring the terminal (C2.4).</param>
 /// <param name="Prepare">A directory to write the session's image and data disk to instead of booting them.</param>
 /// <param name="Image">A prepared image to boot with its <paramref name="Disk"/> instead of building one.</param>
-internal sealed record ShellOptions(string? Published, int MemoryMiB, string? Disk, bool Window, string? Prepare, string? Image);
+/// <param name="Accelerated">The host's hardware virtualization instead of TCG (C2.7).</param>
+internal sealed record ShellOptions(string? Published, int MemoryMiB, string? Disk, bool Window, string? Prepare, string? Image,
+    bool Accelerated = false);

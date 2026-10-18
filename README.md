@@ -253,7 +253,8 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   the main console, and the renderer stores only the pixels that changed, so a scroll costs the text that moved. C2 is
   complete. `shell --window` opens that screen in QEMU's window with the window's keys, the console mirroring it, and
   `shell --prepare` builds the session on the Linux host for a host with a screen, which boots it with `--image` (C2.4,
-  closed by the author's session). The screen's emulator knows what a full-screen console application needs (C2.6):
+  closed by the author's session); `shell --accel` runs a session of the host's ISA on WHPX or KVM instead of TCG, where a
+  key echoes at once (C2.7), and that first boot on a real processor fixed the kernel's refusal of AMD's MXCSR mask. The screen's emulator knows what a full-screen console application needs (C2.6):
   SGR's colours reduced to a 16-colour palette, bold, underline and inverse, the alternate screen, the cursor's visibility,
   the swallowed APC and DCS strings, the device attributes and size answers, wide characters and the modified function
   keys, so PowerShell is drawn in colour. Base applications are a layer of the data volume (C4.1, ADR 0027):
