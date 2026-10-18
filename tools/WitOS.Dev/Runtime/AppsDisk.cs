@@ -1,3 +1,4 @@
+using WitOS.Apps;
 using WitOS.Dev.Kernel;
 
 namespace WitOS.Dev.Runtime;
@@ -85,6 +86,25 @@ internal static class AppsDisk
         Console.WriteLine($"The layer of {path}:");
         foreach (var line in report)
             Console.WriteLine(line);
+    }
+
+    /// <summary>
+    /// Writes a folder feed of every application of the catalog (plan step C4.3): each version's package of the files the
+    /// layer would hold and its entry, the manifest with the package's SHA-256, for the installer in the guest.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture, whose native parts the packages take.</param>
+    /// <param name="feed">The feed's directory.</param>
+    /// <returns>When the feed holds every application.</returns>
+    public static async Task WriteFeedAsync(string root, KernelArchitecture architecture, string feed)
+    {
+        var directory = Path.GetFullPath(feed);
+        foreach (var entry in await AppCatalog.ReadAsync(root))
+        {
+            var written = await AppFeed.WriteAsync(directory, AppsLayer.ManifestJson(entry), await AppsLayer.ApplicationFilesAsync(root, architecture, entry));
+            Console.WriteLine($"{entry.Id} {entry.Version}: {Path.GetRelativePath(directory, written.Package)}, SHA-256 {written.Sha256}");
+        }
+        Console.WriteLine($"Wrote the feed {directory} for witos-{architecture.Name}.");
     }
 
     #endregion

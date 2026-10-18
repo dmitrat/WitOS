@@ -6,13 +6,13 @@ namespace WitOS.Dev.Commands;
 
 /// <summary>
 /// The layer of base applications on a data disk (ADR 0027, plan step C4.1): made, brought up to the catalog, or switched
-/// to an installed version.
+/// to an installed version; or a folder feed of the catalog's applications for the installer in the guest (C4.3).
 /// </summary>
 internal sealed class CommandApps : ICommand
 {
     #region Constants
 
-    private const string ARGUMENTS = "[--arch x64|arm64|riscv64] --disk <image> [--use <application>=<version>]";
+    private const string ARGUMENTS = "[--arch x64|arm64|riscv64] (--disk <image> [--use <application>=<version>] | --feed <directory>)";
 
     #endregion
 
@@ -21,8 +21,8 @@ internal sealed class CommandApps : ICommand
     /// <exception cref="ArgumentException">The options are not those of <see cref="Arguments"/>.</exception>
     public Task RunAsync(string root, IReadOnlyList<string> arguments)
     {
-        var (architecture, disk, use) = Parse(arguments);
-        return AppsDisk.RunAsync(root, architecture, disk, use);
+        var (architecture, disk, use, feed) = Parse(arguments);
+        return feed is not null ? AppsDisk.WriteFeedAsync(root, architecture, feed) : AppsDisk.RunAsync(root, architecture, disk!, use);
     }
 
     #endregion
@@ -33,13 +33,14 @@ internal sealed class CommandApps : ICommand
     /// Reads the command's options.
     /// </summary>
     /// <param name="arguments">The arguments after the command's name.</param>
-    /// <returns>The architecture, the disk and the version to use, if any.</returns>
-    /// <exception cref="ArgumentException">An option is unknown or lacks its value, the disk is missing, or --use names no
-    /// application and version.</exception>
-    public static (KernelArchitecture Architecture, string Disk, (string Id, string Version)? Use) Parse(IReadOnlyList<string> arguments)
+    /// <returns>The architecture, the disk and the version to use, if any, or the feed's directory.</returns>
+    /// <exception cref="ArgumentException">An option is unknown or lacks its value, neither or both of the disk and the feed
+    /// are given, --use names no application and version, or comes with a feed.</exception>
+    public static (KernelArchitecture Architecture, string? Disk, (string Id, string Version)? Use, string? Feed) Parse(IReadOnlyList<string> arguments)
     {
         var architecture = KernelArchitecture.X64;
         string? disk = null;
+        string? feed = null;
         (string, string)? use = null;
         for (var i = 0; i < arguments.Count; i += 2)
         {
@@ -60,11 +61,16 @@ internal sealed class CommandApps : ICommand
                         throw new ArgumentException($"--use takes <application>=<version>, not {value}.");
                     use = (parts[0], parts[1]);
                     break;
+                case "--feed":
+                    feed = value;
+                    break;
                 default:
                     throw new ArgumentException($"apps takes only {ARGUMENTS}.");
             }
         }
-        return (architecture, disk ?? throw new ArgumentException($"apps needs --disk: {ARGUMENTS}."), use);
+        if ((disk is null) == (feed is null) || (feed is not null && use is not null))
+            throw new ArgumentException($"apps needs --disk or --feed: {ARGUMENTS}.");
+        return (architecture, disk, use, feed);
     }
 
     #endregion
@@ -79,7 +85,7 @@ internal sealed class CommandApps : ICommand
 
     /// <inheritdoc />
     public string Description =>
-        "Make a data disk with the layer of base applications, bring an existing disk's layer up to build/apps (a new version beside the old) or switch an application to an installed version with --use (ADR 0027, C4.1)";
+        "Make a data disk with the layer of base applications, bring an existing disk's layer up to build/apps (a new version beside the old) or switch an application to an installed version with --use (ADR 0027, C4.1); or write a folder feed of build/apps for the installer in the guest with --feed (C4.3)";
 
     #endregion
 }

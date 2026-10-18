@@ -5,5 +5,7 @@
   <ItemGroup>
     <!-- OutWit.OS.Storage writes the GUID partition table of runtime-devices' data disk (plan step D3.2). -->
     <ProjectReference Include="../../src/OutWit.OS/OutWit.OS.csproj" />
+    <!-- The layer of base applications' launchers and its folder feed, shared with the installer in the guest (C4.3). -->
+    <ProjectReference Include="../../src/Apps/WitOS.Apps/WitOS.Apps.csproj" />
   </ItemGroup>
 </Project>

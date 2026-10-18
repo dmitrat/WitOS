@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The layer of base applications and its folder feed (ADR 0027, plan steps C4.1 and C4.3): the layout, the
+       launchers, the feed's entries and their verification, shared by the installer in the guest and the host's tool. -->
+  <PropertyGroup>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>WitOS.Apps</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="WitOS.Apps.Tests" />
+  </ItemGroup>
+</Project>

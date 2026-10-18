@@ -1,5 +1,5 @@
-using System.Text;
 using System.Text.Json;
+using WitOS.Apps;
 using WitOS.Dev.Kernel;
 using WitOS.Dev.Substrate;
 
@@ -31,23 +31,17 @@ internal static class AppsLayer
     /// <summary>
     /// The manifest of a version: its catalog entry.
     /// </summary>
-    public const string MANIFEST = "witos-app.json";
+    public const string MANIFEST = AppsDirectory.MANIFEST;
 
     /// <summary>
     /// The file that names an application's version in use.
     /// </summary>
-    public const string CURRENT = "current";
+    public const string CURRENT = AppsDirectory.CURRENT;
 
     /// <summary>
     /// Where the guest mounts the volume that holds the layer.
     /// </summary>
     public const string MOUNT = "/data";
-
-    // The apphost's placeholder for its application's path: the SHA-256 of "foobar" in UTF-8, which the SDK's HostWriter
-    // replaces, followed by zeros to the length of the host's buffer.
-    private const string PLACEHOLDER = "c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2";
-
-    private const int MAX_APP_PATH_BYTES = 1024;
 
     private static readonly JsonSerializerOptions MANIFEST_OPTIONS = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
@@ -66,26 +60,11 @@ internal static class AppsLayer
     public static string GuestCommand(string command) => $"{MOUNT}/{BIN}/{command}";
 
     /// <summary>
-    /// A launcher: the apphost with the application's path in its placeholder, as the SDK writes an apphost.
+    /// A version's manifest as the layer writes it: the catalog entry, indented.
     /// </summary>
-    /// <param name="apphost">The apphost's bytes.</param>
-    /// <param name="appPath">The assembly's path, relative to the launcher's directory or absolute.</param>
-    /// <returns>The launcher's bytes.</returns>
-    /// <exception cref="InvalidDataException">The apphost holds no placeholder, or the path does not fit it.</exception>
-    public static byte[] Launcher(ReadOnlySpan<byte> apphost, string appPath)
-    {
-        var placeholder = Encoding.UTF8.GetBytes(PLACEHOLDER);
-        var at = apphost.IndexOf(placeholder);
-        if (at < 0 || apphost[(at + 1)..].IndexOf(placeholder) >= 0)
-            throw new InvalidDataException("The apphost holds no single application path placeholder.");
-        var path = Encoding.UTF8.GetBytes(appPath);
-        if (path.Length == 0 || path.Length >= MAX_APP_PATH_BYTES || path.Contains((byte)0) || at + MAX_APP_PATH_BYTES > apphost.Length)
-            throw new InvalidDataException($"The application path {appPath} does not fit the apphost's placeholder.");
-        var launcher = apphost.ToArray();
-        path.CopyTo(launcher, at);
-        Array.Clear(launcher, at + path.Length, placeholder.Length - Math.Min(path.Length, placeholder.Length));
-        return launcher;
-    }
+    /// <param name="entry">The catalog entry.</param>
+    /// <returns>The manifest's text.</returns>
+    public static string ManifestJson(AppEntry entry) => JsonSerializer.Serialize(entry, MANIFEST_OPTIONS) + "\n";
 
     /// <summary>
     /// Installs an application's version unless the layer has it already, then makes it the version in use.
@@ -106,7 +85,7 @@ internal static class AppsLayer
             foreach (var (path, source) in files)
                 await store.WriteFileAsync($"{directory}/{path}", source);
             // The manifest last: a version is installed when its manifest is there.
-            await store.WriteTextAsync($"{directory}/{MANIFEST}", JsonSerializer.Serialize(entry, MANIFEST_OPTIONS) + "\n");
+            await store.WriteTextAsync($"{directory}/{MANIFEST}", ManifestJson(entry));
         }
         await UseAsync(store, entry.Id, entry.Version, apphost, scratch);
         return written;
@@ -130,7 +109,7 @@ internal static class AppsLayer
         foreach (var command in entry.Commands)
         {
             var launcher = Path.Combine(scratch, $"{id}-{version}-{command.Name}");
-            await File.WriteAllBytesAsync(launcher, Launcher(apphost, $"../{id}/{version}/{command.Assembly}"));
+            await File.WriteAllBytesAsync(launcher, AppLauncher.Write(apphost, AppLauncher.AppPath(id, version, command.Assembly)));
             if (OperatingSystem.IsLinux())
                 File.SetUnixFileMode(launcher, (UnixFileMode)Convert.ToInt32("755", 8));
             await store.WriteFileAsync($"{BIN}/{command.Name}", launcher);

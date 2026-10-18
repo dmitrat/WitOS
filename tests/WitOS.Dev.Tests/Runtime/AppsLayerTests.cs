@@ -1,4 +1,5 @@
 using System.Text;
+using WitOS.Apps;
 using WitOS.Dev.Commands;
 using WitOS.Dev.Runtime;
 using WitOS.Dev.Tests.Support;
@@ -71,14 +72,14 @@ public sealed class AppsLayerTests
     public void LauncherCarriesTheApplicationsPathTest()
     {
         var apphost = Apphost();
-        var launcher = AppsLayer.Launcher(apphost, "../PowerShell/7.6.7/pwsh.dll");
+        var launcher = AppLauncher.Write(apphost, AppLauncher.AppPath("PowerShell", "7.6.7", "pwsh.dll"));
         Assert.That(launcher.Length, Is.EqualTo(apphost.Length));
         var text = Encoding.UTF8.GetString(launcher);
         Assert.That(text, Does.Contain("../PowerShell/7.6.7/pwsh.dll\0"), "the path, ended by zeros, where the placeholder was");
         Assert.That(text, Does.Not.Contain(PLACEHOLDER));
         Assert.That(text, Does.StartWith("ELF-head").And.EndWith("tail"), "the rest of the apphost stays");
-        Assert.Throws<InvalidDataException>(() => AppsLayer.Launcher(Encoding.UTF8.GetBytes("no placeholder"), "a.dll"));
-        Assert.Throws<InvalidDataException>(() => AppsLayer.Launcher(apphost, new string('a', 1024)), "the path fits the host's buffer");
+        Assert.Throws<InvalidDataException>(() => AppLauncher.Write(Encoding.UTF8.GetBytes("no placeholder"), "a.dll"));
+        Assert.Throws<InvalidDataException>(() => AppLauncher.Write(apphost, new string('a', 1024)), "the path fits the host's buffer");
     }
 
     [Test]
@@ -120,10 +121,13 @@ public sealed class AppsLayerTests
     [Test]
     public void AppsCommandReadsItsOptionsTest()
     {
-        var (architecture, disk, use) = CommandApps.Parse(["--arch", "arm64", "--disk", "data.img", "--use", "PowerShell=7.6.6"]);
-        Assert.That((architecture.Name, disk, use), Is.EqualTo(("arm64", "data.img", ((string, string)?)("PowerShell", "7.6.6"))));
+        var (architecture, disk, use, feed) = CommandApps.Parse(["--arch", "arm64", "--disk", "data.img", "--use", "PowerShell=7.6.6"]);
+        Assert.That((architecture.Name, disk, use, feed), Is.EqualTo(("arm64", "data.img", ((string, string)?)("PowerShell", "7.6.6"), (string?)null)));
         Assert.That(CommandApps.Parse(["--disk", "d.img"]).Use, Is.Null);
-        Assert.Throws<ArgumentException>(() => CommandApps.Parse([]), "the disk is required");
+        Assert.That(CommandApps.Parse(["--feed", "feed"]).Feed, Is.EqualTo("feed"), "a feed for the installer (C4.3)");
+        Assert.Throws<ArgumentException>(() => CommandApps.Parse([]), "the disk or the feed is required");
+        Assert.Throws<ArgumentException>(() => CommandApps.Parse(["--disk", "d.img", "--feed", "feed"]), "not both");
+        Assert.Throws<ArgumentException>(() => CommandApps.Parse(["--feed", "feed", "--use", "PowerShell=7.6.6"]), "--use switches a disk's version");
         Assert.Throws<ArgumentException>(() => CommandApps.Parse(["--disk", "d.img", "--use", "PowerShell"]));
     }
 
