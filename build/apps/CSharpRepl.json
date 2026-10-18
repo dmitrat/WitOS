@@ -1,0 +1,17 @@
+{
+  "id": "CSharpRepl",
+  "version": "0.9.2",
+  "framework": "Microsoft.NETCore.App 10.0",
+  "source": {
+    "kind": "tool",
+    "package": "CSharpRepl.any",
+    "sha256": "303b61f919fffb8d1895249fbb8beb9806244c42c9164b2d37275036a88cfd94"
+  },
+  "commands": [
+    { "name": "csharprepl", "assembly": "CSharpRepl.dll" }
+  ],
+  "packages": [
+    { "id": "Microsoft.NETCore.App.Ref", "version": "10.0.12", "sha256": "bf6e0a1fa7b5ce6a9bbfb7191d2c3151c2d6f812eafabee833fd000c1293b872" }
+  ],
+  "purpose": "C# in the console (plan step C2.5, ADR 0027): CSharpRepl, a REPL on Roslyn's scripting and PrettyPrompt, MPL-2.0, as a base application of the data volume's layer with the command csharprepl, so that a program can be written and run at once in a session. The tool is published per RID since .NET 10; its portable package CSharpRepl.any is the framework-dependent IL the layer takes, pinned by the SHA-256 of the package, unchanged. It compiles against the reference pack, which it looks for under the install's packs and then in the user's global packages folder: Microsoft.NETCore.App.Ref of the runtime's version, pinned by its SHA-256, lies in /data/home/.nuget/packages as a restore leaves it."
+}

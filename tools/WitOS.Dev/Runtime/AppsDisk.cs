@@ -75,7 +75,7 @@ internal static class AppsDisk
                 foreach (var entry in catalog)
                 {
                     var written = await AppsLayer.InstallAsync(store, entry, await AppsLayer.ApplicationFilesAsync(root, architecture, entry), apphost,
-                        launchers);
+                        launchers, await AppsLayer.PackageFilesAsync(root, entry));
                     report.Add($"{entry.Id} {entry.Version} {(written ? "installed" : "was there")}");
                 }
             }

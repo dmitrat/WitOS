@@ -49,6 +49,9 @@ internal static class AppsLayer
 
     private const int MAX_APP_PATH_BYTES = 1024;
 
+    // The user's global packages folder on the volume: HOME is /data/home (N4.1).
+    private const string PACKAGES = "home/.nuget/packages";
+
     private static readonly JsonSerializerOptions MANIFEST_OPTIONS = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
     #endregion
@@ -95,9 +98,10 @@ internal static class AppsLayer
     /// <param name="files">Its files, by their paths in the application's directory.</param>
     /// <param name="apphost">The apphost's bytes.</param>
     /// <param name="scratch">A directory of the host for the launchers written.</param>
+    /// <param name="packages">The NuGet packages it finds in the global packages folder, by their paths from the folder.</param>
     /// <returns>Whether the version was written; false when the layer had it.</returns>
     public static async Task<bool> InstallAsync(ILayerStore store, AppEntry entry, IReadOnlyList<(string Path, string Source)> files, byte[] apphost,
-        string scratch)
+        string scratch, IReadOnlyList<(string Path, string Source)>? packages = null)
     {
         var directory = VersionDirectory(entry.Id, entry.Version);
         var written = !await store.ExistsAsync($"{directory}/{MANIFEST}");
@@ -105,6 +109,14 @@ internal static class AppsLayer
         {
             foreach (var (path, source) in files)
                 await store.WriteFileAsync($"{directory}/{path}", source);
+            // The packages it finds in the user's global packages folder (C2.5), each version written once.
+            foreach (var package in (packages ?? []).GroupBy(file => file.Path[..file.Path.IndexOf('/', file.Path.IndexOf('/') + 1)]))
+            {
+                if (await store.ExistsAsync($"{PACKAGES}/{package.Key}"))
+                    continue;
+                foreach (var (path, source) in package)
+                    await store.WriteFileAsync($"{PACKAGES}/{path}", source);
+            }
             // The manifest last: a version is installed when its manifest is there.
             await store.WriteTextAsync($"{directory}/{MANIFEST}", JsonSerializer.Serialize(entry, MANIFEST_OPTIONS) + "\n");
         }
@@ -174,7 +186,8 @@ internal static class AppsLayer
         var store = new DirectoryLayerStore(layer);
         var apphost = await File.ReadAllBytesAsync(ApphostPath(root, architecture));
         foreach (var entry in await AppCatalog.ReadAsync(root))
-            await InstallAsync(store, entry, await ApplicationFilesAsync(root, architecture, entry), apphost, Path.Combine(staging, "launchers"));
+            await InstallAsync(store, entry, await ApplicationFilesAsync(root, architecture, entry), apphost, Path.Combine(staging, "launchers"),
+                await PackageFilesAsync(root, entry));
         return [.. Directory.EnumerateFiles(layer, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
             .Select(file => (Path.GetRelativePath(layer, file).Replace('\\', '/'), file))];
     }
@@ -184,11 +197,23 @@ internal static class AppsLayer
     /// </summary>
     /// <exception cref="NotSupportedException">A kind of source no base application uses yet.</exception>
     public static async Task<IReadOnlyList<(string Path, string Source)>> ApplicationFilesAsync(string root, KernelArchitecture architecture, AppEntry entry) =>
-        entry.Id switch
+        entry switch
         {
-            PowerShell.CATALOG_ID => await PowerShell.ApplicationFilesAsync(root, architecture),
+            { Id: PowerShell.CATALOG_ID } => await PowerShell.ApplicationFilesAsync(root, architecture),
+            { Source.Kind: AppCatalog.TOOL } => await AppToolPackage.FilesAsync(root, entry),
             _ => throw new NotSupportedException($"{entry.Id}: the layer lays no {entry.Source.Kind} source yet; its step brings it.")
         };
+
+    /// <summary>
+    /// The NuGet packages an application finds in the global packages folder, by their paths from the folder.
+    /// </summary>
+    public static async Task<IReadOnlyList<(string Path, string Source)>> PackageFilesAsync(string root, AppEntry entry)
+    {
+        var files = new List<(string Path, string Source)>();
+        foreach (var package in entry.Packages ?? [])
+            files.AddRange(await AppToolPackage.PackageFolderFilesAsync(root, package));
+        return files;
+    }
 
     /// <summary>
     /// The witos apphost of an architecture, which host.native built in the runtime's tree (R5).
