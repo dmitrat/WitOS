@@ -12,6 +12,7 @@ void wit_user_suspend_deadline_self_test(void)
     thread->WaitKind = WitWaitSleep;
     thread->Deadline = 10;
     thread->SuspendCount = 1;
+    wit_user_thread_top_update(&model);
     wit_user_wait_expire(&model, 10);
     if (thread->State != WitThreadReady ||
         thread->SuspendCount != 1 ||

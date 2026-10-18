@@ -122,6 +122,7 @@ typedef struct WitUserProcess {
     WitU64 Ticks, TickLimit;
     WitU32 ObjectLimit; /* live memory objects it may create: WIT_MEMORY_OBJECT_CAPACITY, or the system layer's */
     WitU32 ThreadLimit; /* threads it may run: WIT_USER_THREAD_CAPACITY, or the system layer's (K5.3) */
+    WitU32 ThreadTop; /* one past the highest thread that is not empty: where the dispatcher's walks end (P2) */
     WitU32 ChannelLimit; /* live channels it may create: WIT_USER_CHANNEL_CAPACITY, or the system layer's (N4.2) */
     WitU64 ExitCode;
     WitU64 ImageBase;
@@ -148,6 +149,7 @@ typedef struct WitUserProcess {
     WitU64 ThreadReaps;
     WitU64 NextWaitOrder;
     WitU32 MemoryPressureLow;
+    WitU32 MemoryPressureCount; /* the events below that are not zero (P2) */
     WitU64 MemoryPressureEvents[WIT_PROCESS_EVENT_CAPACITY];
     WitU64 EventParks;
     WitU64 EventWakes;
@@ -196,6 +198,7 @@ void wit_user_wait_complete(WitUserThread *, WitU64, WitU64);
 void wit_user_wait_objects_changed(WitUserProcess *);
 void wit_user_wait_handle_closed(WitUserProcess *, WitU64);
 void wit_user_activations_clear(WitUserThread *);
+void wit_user_thread_top_update(WitUserProcess *);
 WitU64 wit_user_thread_activate(WitUserProcess *, WitU64, WitU64, WitU64);
 /* Delivers the oldest pending activation of the running thread before its frame returns to user mode: 1 when the
  * frame now enters the fault callback. An activation the thread's stack cannot take ends the component as a fault. */
@@ -437,7 +440,7 @@ WitArchFrame *wit_user_call(WitUserCall *call);
 /* Scheduler services of user.c for the call table. */
 WitUserProcess *wit_user_current(void);
 WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code);
-WitArchFrame *wit_user_yield(void);
+WitArchFrame *wit_user_yield(WitU64 *value);
 WitArchFrame *wit_user_exit_thread(WitU64 code, WitU64 reservation, WitU64 clear, WitU64 event);
 /* The reservation holding an address, strictly inside [base, base + size): its base and size, for a version 2
  * thread's stack (looked up by the byte below the stack pointer, since a stack's top is the next reservation's base

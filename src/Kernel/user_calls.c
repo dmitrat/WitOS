@@ -128,9 +128,7 @@ static WitArchFrame *thread_create(WitUserCall *call)
 
 static WitArchFrame *thread_yield(WitUserCall *call)
 {
-    WitArchFrame *next = wit_user_yield();
-    *call->Value = next != call->Context ? 1 : 0;
-    return next;
+    return wit_user_yield(call->Value);
 }
 
 /* THREAD_EXIT: the one exit. Whether a runtime's thread detached from its runtime first is layer 2's lifecycle. */

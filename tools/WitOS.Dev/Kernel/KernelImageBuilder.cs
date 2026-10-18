@@ -182,6 +182,12 @@ internal static class KernelImageBuilder
     public const string RUNTIME_LIBRARIES_SCENARIO = "runtime-libraries";
 
     /// <summary>
+    /// The runtime on several processors (P2): an ordinary application under the workstation and the server collector
+    /// through dotnet beside the device services on a board of four processors; not a suite scenario, for the same reason.
+    /// </summary>
+    public const string RUNTIME_PROCESSORS_SCENARIO = "runtime-processors";
+
+    /// <summary>
     /// The representative NuGet libraries' own test suites (N2.2), run through dotnet beside the device services after
     /// their run on the Linux host; not a suite scenario, for the same reason.
     /// </summary>
@@ -209,7 +215,7 @@ internal static class KernelImageBuilder
             RUNTIME_LIBRARY_TESTS_SCENARIO, RUNTIME_DEVICES_SCENARIO, RUNTIME_COMPATIBILITY_SCENARIO, RUNTIME_LIBRARIES_SCENARIO,
             RUNTIME_NUGET_SUITES_SCENARIO, RUNTIME_SIDE_BY_SIDE_SCENARIO, RUNTIME_TERMINAL_SCENARIO, RUNTIME_PUBLISHED_SCENARIO,
             RUNTIME_POWERSHELL_SCENARIO, RUNTIME_DISPLAY_SCENARIO, RUNTIME_COMMANDER_SCENARIO,
-            RUNTIME_INSTALLER_SCENARIO];
+            RUNTIME_INSTALLER_SCENARIO, RUNTIME_PROCESSORS_SCENARIO];
 
     // A release map must not name self-test code: test objects, self-test functions, fault triggers or workers.
     private static readonly Regex SELF_TEST_SYMBOL = new(
@@ -297,6 +303,7 @@ internal static class KernelImageBuilder
             : scenario == RUNTIME_DISPLAY_SCENARIO ? await Runtime.RuntimeDisplay.BuildPackageAsync(root, output, architecture)
             : scenario == RUNTIME_PUBLISHED_SCENARIO ? await Runtime.RuntimePublished.BuildPackageAsync(root, output, architecture)
             : scenario == RUNTIME_LIBRARIES_SCENARIO ? await Runtime.RuntimeLibraries.BuildPackageAsync(root, output, architecture)
+            : scenario == RUNTIME_PROCESSORS_SCENARIO ? await Runtime.RuntimeProcessors.BuildPackageAsync(root, output, architecture)
             : scenario == RUNTIME_NUGET_SUITES_SCENARIO ? await Runtime.RuntimeNuGetSuites.BuildPackageAsync(root, output, architecture)
             : scenario == RUNTIME_SIDE_BY_SIDE_SCENARIO ? await Runtime.RuntimeSideBySide.BuildPackageAsync(root, output, architecture)
             : [];
@@ -313,7 +320,7 @@ internal static class KernelImageBuilder
                 or RUNTIME_CORECLR_TESTS_SCENARIO or RUNTIME_LIBRARY_TESTS_SCENARIO or RUNTIME_DEVICES_SCENARIO
                 or RUNTIME_COMPATIBILITY_SCENARIO or RUNTIME_LIBRARIES_SCENARIO or RUNTIME_NUGET_SUITES_SCENARIO or RUNTIME_TERMINAL_SCENARIO
                 or RUNTIME_SIDE_BY_SIDE_SCENARIO or RUNTIME_PUBLISHED_SCENARIO or RUNTIME_POWERSHELL_SCENARIO or RUNTIME_DISPLAY_SCENARIO
-                or RUNTIME_COMMANDER_SCENARIO or RUNTIME_INSTALLER_SCENARIO
+                or RUNTIME_COMMANDER_SCENARIO or RUNTIME_INSTALLER_SCENARIO or RUNTIME_PROCESSORS_SCENARIO
                 ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
             : await UserImage.BuildRootAsync(root, output, architecture);
         var objects = await CompileKernelAsync(root, output, scenario, selfTest, target, architecture);

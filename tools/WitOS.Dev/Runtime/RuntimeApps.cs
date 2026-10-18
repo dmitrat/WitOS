@@ -144,10 +144,13 @@ internal static class RuntimeApps
     /// <param name="memoryMiB">The guest's memory.</param>
     /// <param name="package">The boot package when the command built it (N2.2: a group of suites); the scenario's own
     /// when null.</param>
+    /// <param name="terminal">The terminal's script (N4.3); no terminal when null.</param>
+    /// <param name="processors">The processors the board gives the guest (P2); one by default.</param>
     /// <returns>When the boot passed.</returns>
     public static async Task BootAsync(string root, KernelArchitecture architecture, string scenario, string[] requiredLines,
         int timeoutSeconds, IReadOnlyList<(string Path, string Source)>? volumeFiles = null, long diskBytes = RuntimeDataDisk.BYTES,
-        int memoryMiB = MEMORY_MIB, IReadOnlyList<(string Name, string Source)>? package = null, IReadOnlyList<TerminalInput>? terminal = null)
+        int memoryMiB = MEMORY_MIB, IReadOnlyList<(string Name, string Source)>? package = null, IReadOnlyList<TerminalInput>? terminal = null,
+        int processors = 1)
     {
         var image = await KernelImageBuilder.BuildAsync(root, scenario, architecture: architecture, package: package);
         var dataDisk = Path.Combine(Path.GetDirectoryName(image)!, "data-disk.img");
@@ -160,7 +163,8 @@ internal static class RuntimeApps
             RequiredLines = [.. requiredLines, "[APPS-INIT] ", " commands, 0 failed", "[ROOT-TASK] /system/DeviceManager stopped",
                 architecture.RootTaskPassedLine],
             DataDisk = dataDisk,
-            Terminal = terminal
+            Terminal = terminal,
+            Processors = processors
         });
     }
 
@@ -172,15 +176,21 @@ internal static class RuntimeApps
     /// <param name="output">The directory the copy and the publish go under.</param>
     /// <param name="project">The project's directory under the repository.</param>
     /// <param name="name">The application's name under <paramref name="output"/>.</param>
+    /// <param name="properties">MSBuild properties the publish sets, as <c>Name=Value</c> (P2: ServerGarbageCollection);
+    /// none by default.</param>
     /// <returns>The published directory.</returns>
-    internal static async Task<string> PublishAsync(string root, string output, string project, string name)
+    internal static async Task<string> PublishAsync(string root, string output, string project, string name,
+        IReadOnlyList<string>? properties = null)
     {
         var copy = await CopyProjectAsync(root, output, project, name);
         var published = Path.Combine(output, $"{name}-app");
         if (Directory.Exists(published))
             Directory.Delete(published, recursive: true);
         await Processes.RequireSuccessAsync("dotnet",
-            ["publish", Directory.GetFiles(copy, "*.csproj").Single(), "-c", "Release", "-o", published, "-nologo"], copy);
+        [
+            "publish", Directory.GetFiles(copy, "*.csproj").Single(), "-c", "Release", "-o", published, "-nologo",
+            .. (properties ?? []).Select(property => $"-p:{property}")
+        ], copy);
         return published;
     }
 

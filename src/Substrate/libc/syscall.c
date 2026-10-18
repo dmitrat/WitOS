@@ -825,6 +825,8 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
         return __wit_sched_getaffinity(a1, a2, (unsigned char *)a3);
     case SYS_sched_setaffinity:
         return __wit_sched_setaffinity(a1, a2, (const unsigned char *)a3);
+    case SYS_getcpu:
+        return __wit_getcpu((unsigned *)a1, (unsigned *)a2);
     case SYS_sched_getscheduler:
         return __wit_sched_getscheduler(a1);
     case SYS_sched_getparam:

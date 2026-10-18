@@ -11,6 +11,7 @@
 
 static WitPageAllocator *pages;
 static WitU64 root_table;
+static WitU64 trampoline_page;
 static int active;
 #if defined(WITOS_SELFTEST) && defined(WITOS_TEST_EXECUTE_DATA)
 /* Executable-data probe of the execute-data fault test. */
@@ -183,6 +184,26 @@ static int reserved_image_page(const WitBootInfo *boot, WitU64 address)
     return 0;
 }
 
+/* The start of secondary processors (K7.2) needs a page of usable memory below 1 MiB, the lowest free one at or above
+ * 64 KiB, taken from the allocator for good before the first table: the allocator hands out the lowest pages first,
+ * and the tables of a larger memory used every such page before the processors started (P2). Zero when there is none;
+ * only a board with more than one processor refuses that. */
+static WitU64 claim_trampoline_page(const WitBootInfo *boot, WitPageAllocator *allocator)
+{
+    for (WitU32 i = 0; i < boot->MemoryRegionCount; ++i) {
+        const WitMemoryRegion *r = &boot->MemoryRegions[i];
+        if (r->Kind != WIT_MEMORY_USABLE) {
+            continue;
+        }
+        for (WitU64 page = r->Base; page < r->Base + r->Length && page < 0x100000ULL; page += 4096) {
+            if (page >= 0x10000 && wit_page_claim(allocator, page)) {
+                return page;
+            }
+        }
+    }
+    return 0;
+}
+
 void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator)
 {
     int cpu[4];
@@ -211,6 +232,7 @@ void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator
         "Invalid kernel image descriptor");
 
     pages = allocator;
+    trampoline_page = claim_trampoline_page(boot, allocator);
     root_table = new_table();
     for (WitU32 i = 0; i < boot->MemoryRegionCount; ++i) {
         const WitMemoryRegion *r = &boot->MemoryRegions[i];
@@ -397,6 +419,12 @@ void wit_arch_map_device_page(const WitBootInfo *boot, WitU64 physical)
     require(
         (*leaf(physical, 0) & (PTE_PRESENT | PTE_WRITE | PTE_NX | 0x1C)) == (PTE_PRESENT | PTE_WRITE | PTE_NX | 0x18),
         "Device page permissions failed");
+}
+
+/* The trampoline page of secondary processors (K7.2): one usable page below 1 MiB, or zero when there is none. */
+WitU64 wit_x64_trampoline_page(void)
+{
+    return trampoline_page;
 }
 
 /* The trampoline page of secondary processors (K7.2): one usable page below 1 MiB that must execute. */

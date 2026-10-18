@@ -506,6 +506,8 @@ internal static class RuntimeWitos
         await RuntimeInstaller.RunAsync(root, architecture);
         await RuntimeCompatibility.RunAsync(root, architecture);
         await RuntimeLibraries.RunAsync(root, architecture);
+        // P2: an ordinary application on four processors under the workstation and the server collector.
+        await RuntimeProcessors.RunAsync(root, architecture);
         // N2.2, the libraries' own test suites, run for hours in the guest: runtime-nuget-suites runs them on this tree,
         // and CI a group a job.
         Console.WriteLine(await MeasureAsync(root, pin));

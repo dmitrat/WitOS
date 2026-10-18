@@ -2,6 +2,7 @@
 #include "witos_libc.h"
 #include "witos/memory_info.h"
 #include "witos/processor.h"
+#include "witos/thread_info.h"
 #include <errno.h>
 #include <sched.h>
 #include <string.h>
@@ -16,7 +17,9 @@
  * sched_getaffinity and sched_setaffinity read and write a thread's affinity, which the kernel honours (P1.4): every
  * online processor by default, a mask of those the thread may run on, of which the processors beyond the online ones
  * are ignored and an empty rest is EINVAL, as Linux does (R3.2: CoreCLR's PAL gives each new thread the process's
- * mask). The kernel runs every thread round-robin at one priority, which
+ * mask). getcpu reports the processor that runs the calling thread (P2: the GC's server heaps and the runtime's
+ * processor id cache ask through sched_getcpu) and node 0, the one memory node. The kernel runs every thread
+ * round-robin at one priority, which
  * is what Linux reports of a normal thread (R7.1): SCHED_OTHER at priority 0. Every other limit, setting a limit or a
  * policy and the limits of another process are ENOSYS, never an invented answer. */
 
@@ -116,6 +119,28 @@ long __wit_sched_getaffinity(long tid, long size, unsigned char *mask)
         }
     }
     return (long)bytes;
+}
+
+/* The processor that runs the calling thread, THREAD_QUERY's Processor (version 6, P1.4); as on Linux the answer may
+ * be stale once the call returns, since the thread may move to another processor its mask allows. */
+long __wit_getcpu(unsigned *cpu, unsigned *node)
+{
+    WitUserThreadInfo info;
+    WitU64 result = 0;
+    memset(&info, 0, sizeof(info));
+    info.Version = WIT_THREAD_INFO_VERSION;
+    info.Size = sizeof(info);
+    const WitU64 status = wit_syscall(WIT_CALL_THREAD_QUERY, WIT_THREAD_SELF, (WitU64)&info, sizeof(info), &result);
+    if (status != WIT_STATUS_OK) {
+        return __wit_errno(status);
+    }
+    if (cpu) {
+        *cpu = info.Processor;
+    }
+    if (node) {
+        *node = 0;
+    }
+    return 0;
 }
 
 /* A thread's policy and priority (R7.1): SCHED_OTHER at 0 for every thread of the process. sched_get_priority_min and

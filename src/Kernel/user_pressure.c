@@ -15,14 +15,18 @@ void wit_user_pressure_update(WitUserProcess *process)
     } else if (available >= WIT_PRESSURE_HIGH_PAGES) {
         process->MemoryPressureLow = 0;
     }
-    for (WitU32 i = 0; i < process->Events.Limit; ++i) {
+    /* The events are counted, so that a process without one costs nothing at every dispatch (P2). */
+    for (WitU32 i = 0, seen = 0; i < process->Events.Limit && seen < process->MemoryPressureCount; ++i) {
         const WitU64 handle = process->MemoryPressureEvents[i];
         if (!handle) {
             continue;
         }
+        ++seen;
         const WitU64 status = wit_user_event_notify(process, handle, process->MemoryPressureLow);
         if (status == WIT_STATUS_BAD_HANDLE) {
             process->MemoryPressureEvents[i] = 0;
+            --process->MemoryPressureCount;
+            --seen;
         } else if (status != WIT_STATUS_OK) {
             wit_panic("Memory-pressure event ownership lost");
         }
@@ -45,6 +49,7 @@ WitU64 wit_user_pressure_create(WitUserProcess *process, WitU64 *handle)
     const WitU64 status = wit_event_create(&process->Events, &process->Handles, flags, WIT_RIGHT_WAIT, handle);
     if (status == WIT_STATUS_OK) {
         process->MemoryPressureEvents[slot] = *handle;
+        ++process->MemoryPressureCount;
     }
     return status;
 }

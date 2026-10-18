@@ -69,8 +69,20 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU64 entry, WitU64 arg
     thread->Deadline = WIT_WAIT_INFINITE;
     thread->WaitOrder = 0;
     thread->State = WitThreadReady;
+    wit_user_thread_top_update(process);
     ++process->ThreadCreates;
     return WIT_STATUS_OK;
+}
+
+/* Where the dispatcher's walks over a process's threads end (P2): one past the highest thread that is not empty, so
+ * that a process of a few threads costs a few steps however many it may run. */
+void wit_user_thread_top_update(WitUserProcess *process)
+{
+    WitU32 top = WIT_PROCESS_THREAD_CAPACITY;
+    while (top && process->Threads[top - 1].State == WitThreadEmpty) {
+        --top;
+    }
+    process->ThreadTop = top;
 }
 
 /* The one form (version 2, K5.2a; version 3 names the process, K5.2c): a thread of the target process on a stack of
@@ -166,6 +178,7 @@ static WitU64 create_in(
     thread->WaitOrder = 0;
     thread->SuspendCount = (request->Flags & WIT_THREAD_START_SUSPENDED) ? 1U : 0U;
     thread->State = WitThreadReady;
+    wit_user_thread_top_update(target);
     ++target->ThreadCreates;
     reference->Handle = handle;
     reference->ThreadId = identity;

@@ -30,7 +30,7 @@
  * entropy from the kernel's clocks, thread-local storage of the main thread, atexit, and (S1.2) the files of the
  * read-only boot package: stdio, stat, directories, the refusals of writing, and (S2) threads: creation and join,
  * a mutex, a condition variable, thread-specific data, thread-local storage and errno per thread, a detached
- * thread and a semaphore, (K5.3, R6) the system layer's thirty-two threads of a process, and (R2.3a) duplicates and
+ * thread and a semaphore, (K5.3, R6, P2) the system layer's sixty-four threads of a process, and (R2.3a) duplicates and
  * pipes;
  * then it exits with zero. The
  * last line names the library and the ISA for the boot scenario's check. */
@@ -595,10 +595,10 @@ int main(void)
     check(
         stack_page == old_stack && munmap(stack_page, 4096) == 0, "a page where a detached thread's stack was unmaps");
 
-    /* The system layer's threads of a process (K5.3, R6): thirty-one beside the main one park on one semaphore together,
-     * each in a futex slot of its own, and a thirty-third thread is EAGAIN, the kernel's refusal. */
+    /* The system layer's threads of a process (K5.3, R6, P2): sixty-three beside the main one park on one semaphore
+     * together, each in a futex slot of its own, and a sixty-fifth thread is EAGAIN, the kernel's refusal. */
     enum {
-        THREAD_CAPACITY = 32
+        THREAD_CAPACITY = 64
     };
 
     pthread_t crowd[THREAD_CAPACITY - 1], extra;
@@ -612,9 +612,9 @@ int main(void)
     for (int i = 0; i < THREAD_CAPACITY - 1; ++i) {
         created += pthread_create(&crowd[created], &compact, gated_worker, 0) == 0;
     }
-    check(created == THREAD_CAPACITY - 1, "thirty-one threads beside the main one");
+    check(created == THREAD_CAPACITY - 1, "sixty-three threads beside the main one");
     const int refused = pthread_create(&extra, &compact, brief_worker, 0);
-    check(refused == EAGAIN, "a thirty-third thread is EAGAIN");
+    check(refused == EAGAIN, "a sixty-fifth thread is EAGAIN");
     if (refused == 0) {
         pthread_join(extra, 0);
     }
@@ -630,7 +630,7 @@ int main(void)
         joined += pthread_join(crowd[i], &value) == 0 && value == 0;
     }
     check(joined == THREAD_CAPACITY - 1 && sem_destroy(&shared.Gate) == 0 && pthread_attr_destroy(&compact) == 0,
-        "the thirty-one threads passed the gate and joined");
+        "the sixty-three threads passed the gate and joined");
 
     /* Pipes within the process (R2.3a): bytes in order, a FIFO with FIONREAD and no position, a reader parked until a
      * writer comes and given the end of the file once it closed, more bytes than the buffer holds, O_NONBLOCK's

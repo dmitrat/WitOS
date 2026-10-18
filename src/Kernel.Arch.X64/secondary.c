@@ -10,8 +10,8 @@
 #include "witos/x64_local_timer.h"
 
 /* Secondary processors of x64 (plan step K7.2) through the local APIC. The boot processor enables its own APIC in
- * xAPIC mode with the PIC's line kept open (LINT0 as ExtINT, so the PIT tick still arrives), claims one page of
- * usable memory below 1 MiB for the trampoline a processor starts in (real mode at the page, protected mode, long
+ * xAPIC mode with the PIC's line kept open (LINT0 as ExtINT, so the PIT tick still arrives), takes the page of usable
+ * memory below 1 MiB that the paging set aside (`wit_x64_trampoline_page`) for the trampoline a processor starts in (real mode at the page, protected mode, long
  * mode with the kernel's root table, then the 64-bit entry of secondary_entry.S with the kernel's number), and
  * sends INIT and two startup interrupts. A started processor loads the kernel's tables without a task register,
  * copies the boot processor's control registers, enables its APIC with every local vector masked, reports itself
@@ -44,7 +44,6 @@
 #define ICR_STARTUP 0x4600U /* start-up, plus the vector (the page number of the trampoline) */
 #define ICR_FIXED 0x4000U /* fixed delivery, level asserted */
 #define IPI_DOORBELL_VECTOR 0xF0U /* the doorbell of witos/cpu.h (P1.2); 0xF1 enters the same way, unused */
-#define TRAMPOLINE_LIMIT 0x100000ULL
 #define POLL_LIMIT 1000000U
 
 /* The trampoline (hand-encoded: the toolset assembles 64-bit code only). Offsets of the pieces the copy patches. */
@@ -167,23 +166,6 @@ static void write_icr(WitU32 destination, WitU32 low)
     require(spin < POLL_LIMIT, "Interrupt command did not complete");
 }
 
-/* One page of usable memory below 1 MiB for the trampoline: the lowest free one, taken from the allocator for good. */
-static WitU64 claim_trampoline_page(const WitBootInfo *boot)
-{
-    for (WitU32 i = 0; i < boot->MemoryRegionCount; ++i) {
-        const WitMemoryRegion *r = &boot->MemoryRegions[i];
-        if (r->Kind != WIT_MEMORY_USABLE) {
-            continue;
-        }
-        for (WitU64 page = r->Base; page < r->Base + r->Length && page < TRAMPOLINE_LIMIT; page += 4096) {
-            if (page >= 0x10000 && wit_page_claim(wit_physical_pages(), page)) {
-                return page;
-            }
-        }
-    }
-    wit_panic("No usable page below 1 MiB for the start of secondary processors");
-}
-
 static void write32(WitU64 address, WitU32 value)
 {
     *(WitU32 *)address = value;
@@ -204,7 +186,8 @@ void wit_arch_secondary_prepare(const WitBootInfo *boot, WitU32 index, WitU64 ha
         enable_local_apic(1);
         wit_x64_boot_cr0 = wit_x64_read_cr0();
         wit_x64_boot_cr4 = wit_x64_read_cr4();
-        trampoline_page = claim_trampoline_page(boot);
+        trampoline_page = wit_x64_trampoline_page();
+        require(trampoline_page != 0, "No usable page below 1 MiB for the start of secondary processors");
         for (WitU32 i = 0; i < 4096; ++i) {
             ((WitU8 *)trampoline_page)[i] = i < sizeof(trampoline) ? trampoline[i] : 0;
         }

@@ -51,7 +51,7 @@ silently.
 | Shared framework through `dotnet App.dll` | Supported | R5, R6 | The install under `/dotnet` as the shared-framework packaging lays it out; an application the stock SDK publishes without a RID runs unchanged. |
 | .NET 8 and .NET 10 side by side | Supported | N3 | `release/8.0` with its own patch set beside `release/10.0`; `rollForward` and `--roll-forward` select the framework. On x64 and ARM64: `release/8.0` is not built for riscv64, whose upstream port came after it (V3). |
 | NativeAOT | Supported | R2 | The system's own tool for the services of the boot package, not the application contract. |
-| Garbage collector | Partial | R2, phase P | The workstation GC with its heap bounded to 75% of what a process may own (`DOTNET_GCTotalPhysicalMemory`); the server GC waits for phase P, since one processor schedules threads. |
+| Garbage collector | Supported | R2, P2 | The workstation and the server collector, the server one with a heap per processor (P2), each with its heap bounded to 75% of what a process may own (`DOTNET_GCTotalPhysicalMemory`). |
 | Globalization with ICU | Supported | R4.3 | ICU4C 78.3 built from the pinned source; invariant mode only where an application asks for it. |
 | Time zones | Supported | N4.1 | `TimeZoneInfo` from pinned tzdata under `/usr/share/zoneinfo`; `/etc/localtime` is UTC. |
 | Files and directories on volumes | Supported | D5, N4.1 | ext4 (written through the journal), FAT and `/tmp` through the namespace service; modes and times as the volume keeps them; the boot package read-only. |
@@ -68,7 +68,7 @@ silently.
 | ASP.NET Core | Planned | M7 | Needs networking. |
 | Diagnostics (`createdump`, EventPipe, `dotnet-dump`) | Absent | — | Decided with the debugger story. |
 | Compression (`System.IO.Compression`) | Supported | R2.3a | zlib-ng and brotli in-tree. |
-| Server GC and several scheduling processors | Planned | phase P | The kernel starts every processor at boot and schedules threads on one. |
+| Server GC and several scheduling processors | Supported | P1, P2 | Threads run on every processor of the board with their affinity honoured (P1); `Environment.ProcessorCount`, `Thread.GetCurrentProcessorId`, the server collector's heaps and the thread pool see every processor, and the scenarios of N1 and N2 run on four (P2). |
 | Avalonia and other GUI frameworks | Planned | M9 | Needs the presentation layer of RFC 0009. |
 
 ## Hardware

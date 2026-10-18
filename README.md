@@ -12,7 +12,7 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 by the pinned clang on both, and keeps the mechanisms of ABI-1 ([RFC 0011 v3](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md)):
 processes with private address spaces, the one thread form, memory objects, channels that carry capabilities, events and
 the one wait with absolute deadlines, faults and activations delivered to user space, device descriptors with interrupt
-bindings and DMA pins, UTC and the started secondary processors. ABI-1 is 1.3 and boot ABI v7, printed by the kernel
+bindings and DMA pins, UTC and threads on every processor of the board. ABI-1 is 1.4 and boot ABI v7, printed by the kernel
 banner from the headers. Above it runs the system layer (phase S) on both ISAs: the pinned musl over ABI-1 with threads,
 signals and its dynamic linker, LLVM's C++ runtime, a process manager with `posix_spawn`, and ABI-2 1.1 recorded in
 `build/abi2.json`. The root task starts WitOS's services, NativeAOT programs in processes of their own ([ADR 0025](@Docs/Implementation/ADR-0025-Devices-as-NativeAOT-Services.md)):
@@ -216,7 +216,7 @@ The core kernel does not include UEFI structures. The output is a freestanding P
 Next work is tracked in [PLAN.md](PLAN.md) after [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md);
 the completed steps with their evidence are in [Plan-Completed.md](@Docs/Implementation/Plan-Completed.md).
 
-- **Kernel (phase K, complete).** ABI-1 1.0 at K8.4d, 1.1 at R7.2b, 1.2 at D1.2; the page tables record a space's pages
+- **Kernel (phase K, complete).** ABI-1 1.0 at K8.4d, 1.1 at R7.2b, 1.2 at D1.2, 1.3 at C2.1, 1.4 at P1.4; the page tables record a space's pages
   (K9); the kernel knows no image format, file, path or environment.
 - **Toolchain (T1–T3, complete; T4 open).** One pinned clang and lld build the kernel, the system layer and the
   tests on Windows and Linux hosts with parity (T2.2); the own `*-unknown-witos` triple waits for the upstream proposal.
@@ -292,10 +292,16 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   the portable application published on Windows by the stock SDK run unchanged on riscv64 with every check as recorded,
   CI runs them there as on the other ISAs, the matrix names the RISC-V board Primary, and from V3 a step closes only when
   it passes on the three ISAs (the NuGet libraries' own suites and .NET 8 beside .NET 10 stay on x64 and ARM64).
-- **Later.** The scheduler on several processors (phase P), the network and the remaining milestones (phase W).
+- **Several processors (phase P, complete).** P1 runs threads on every processor of the three boards: a kernel lock at
+  every entry, requests between processors, a tick and an entry per processor, affinity honoured (ABI-1 1.4) and
+  kernel stacks from the allocator in a window with guard pages, so the registry holds 32 processes. P2 runs upstream
+  .NET on several processors without a patch: the libc's `getcpu` names the processor that runs a thread, a process
+  holds 64 threads, an ordinary application passes its checks on four processors under the workstation and the server
+  collector, and the compatibility suite and the NuGet libraries run on four processors.
+- **Later.** The network and the remaining milestones (phase W).
 
-The acceptances do not establish threads on several processors, networking, a terminal with input or process creation
-from managed code. Firmware memory remains reserved.
+The acceptances do not establish networking, and the processors run in turn under QEMU's instruction clock, so they show
+correctness, not speed. Firmware memory remains reserved.
 
 - [Architecture document index](@Docs/README.md)
 - [ADR 0024: three layers and the Unix-form runtime](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md)
