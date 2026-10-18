@@ -466,6 +466,22 @@ void wit_arch_process_write_barrier(void)
     wit_rv64_fence();
 }
 
+/* One step of a spin-wait (P1.2): WFI with the hart's own software interrupt pending and enabled returns at once, and
+ * QEMU's round-robin TCG ends the hart's slice on every WFI, where PAUSE only ends a translation block. Clearing the
+ * bit afterwards loses no doorbell: every spin serves the pending set itself, and a request's sender holds the kernel
+ * lock until the request was served, so a hart that takes the lock has nothing left to serve. Without the software
+ * interrupt enabled the hart would halt, so it only pauses then. */
+void wit_arch_spin_pause(void)
+{
+    if ((wit_rv64_read_sie() & WIT_RV64_SIE_SOFTWARE) == 0) {
+        __asm__ volatile(".insn i 0x0F, 0, x0, x0, 0x010" : : : "memory"); /* PAUSE */
+        return;
+    }
+    wit_rv64_set_sip(WIT_RV64_SIE_SOFTWARE);
+    wit_rv64_wait_for_interrupt();
+    wit_rv64_clear_sip(WIT_RV64_SIE_SOFTWARE);
+}
+
 #if defined(WITOS_SELFTEST)
 void wit_virtual_self_test(WitPageAllocator *allocator)
 {

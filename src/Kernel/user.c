@@ -1,5 +1,6 @@
 #include "user.h"
 #include "root_task.h"
+#include "witos/cpu.h"
 #include "witos/platform.h"
 #include "witos/processor.h"
 #include "witos/virtual.h"
@@ -44,15 +45,24 @@ static WitU64 idle_high(void)
     return high;
 }
 
-/* A processor enters the kernel from its thread (P1.1): its component's current thread is the one this processor
- * runs, which the calls name as their caller. With one scheduling processor the two never differ. */
+/* A processor enters the kernel from its thread or its idle path: it takes the kernel lock (P1.2), and its component's
+ * current thread is the one this processor runs (P1.1), which the calls name as their caller. With one scheduling
+ * processor the two never differ. */
 static WitUserProcess *enter(void)
 {
+    wit_cpus_lock();
     Dispatcher *const cpu = self();
     if (cpu->Current && !cpu->Idle) {
         cpu->Current->CurrentThread = cpu->Thread;
     }
     return cpu->Current;
+}
+
+/* The processor leaves the kernel for a frame it returns to: the kernel lock goes (P1.2). */
+static WitArchFrame *leave(WitArchFrame *frame)
+{
+    wit_cpus_unlock();
+    return frame;
 }
 
 static void require(int condition, const char *message)
@@ -176,7 +186,9 @@ WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code)
          * path's too when the end came from a tick or a line that interrupted it (R6). */
         retire(p);
         self()->Idle = 0;
-        wit_arch_resume_frame(dispatch(0, 0));
+        WitArchFrame *const next = dispatch(0, 0);
+        wit_cpus_unlock();
+        wit_arch_resume_frame(next);
     }
     wit_platform_timer_stop();
     end_children();
@@ -184,6 +196,7 @@ WIT_NORETURN void wit_user_finish(WitUserState state, WitU64 code)
     wit_arch_reset_user_tls();
     self()->Current = 0;
     root_user = 0;
+    wit_cpus_unlock();
     wit_arch_leave_user();
 }
 
@@ -343,6 +356,7 @@ WIT_NORETURN static void idle(void)
         int waiting = 0;
         WitArchFrame *const frame = pick(cpu->IdleTimer, cpu->IdleRotate, &waiting);
         if (frame) {
+            wit_cpus_unlock();
             wit_arch_resume_frame(frame);
         }
         require(waiting, "No thread of any component to run or to wait for");
@@ -350,7 +364,9 @@ WIT_NORETURN static void idle(void)
         wit_arch_reset_user_tls();
         cpu->Idle = 1;
         ++cpu->Current->IdleHalts;
+        wit_cpus_unlock(); /* a tick or a line that wakes the halt takes it on its own entry */
         wit_arch_idle_once();
+        wit_cpus_lock();
         cpu->Idle = 0;
     }
 }
@@ -664,6 +680,7 @@ void wit_user_run(WitUserProcess *process)
             wit_arch_user_tls_is_reset(),
         "Invalid user launch");
     require(wit_user_processes_pooled() == 0, "A created process survived the previous run");
+    wit_cpus_lock();
     root_user = process;
     self()->Current = process;
     self()->Thread = 0;
@@ -673,6 +690,7 @@ void wit_user_run(WitUserProcess *process)
     wit_arch_select_thread_stack(process->Slot, 0);
     wit_platform_timer_start();
     wit_arch_set_user_tls(process->Threads[0].Tls);
+    wit_cpus_unlock();
     wit_arch_run_user(process->Threads[0].Context, process->Space.Root);
     require(!self()->Current &&
             !root_user &&
@@ -764,9 +782,9 @@ WitArchFrame *wit_user_timer_tick(WitArchFrame *context)
         wit_user_finish(WitUserBudgetExpired, 0);
     }
     if (cpu->Idle) {
-        return context; /* Resume CLI/RET on the idle stack and look for ready threads again. */
+        return leave(context); /* Resume CLI/RET on the idle stack and look for ready threads again. */
     }
-    return dispatch(1, 1);
+    return leave(dispatch(1, 1));
 }
 
 /* A device line, masked and completed by the architecture: the bound event of the running component is set and
@@ -776,7 +794,7 @@ WitArchFrame *wit_user_interrupt(WitArchFrame *context, WitU32 line)
     Dispatcher *const cpu = self();
     WitUserProcess *const current = enter();
     if (!current) {
-        return context;
+        return leave(context);
     }
     if (cpu->Idle) {
         require(wit_arch_frame_is_idle(context, idle_low(), idle_high()),
@@ -791,9 +809,9 @@ WitArchFrame *wit_user_interrupt(WitArchFrame *context, WitU32 line)
     wit_user_interrupt_raised(line); /* To the binding's owner, whichever component that is (K5.2c). */
     expire_waits();
     if (cpu->Idle) {
-        return context; /* Resume CLI/RET on the idle stack and look for ready threads again. */
+        return leave(context); /* Resume CLI/RET on the idle stack and look for ready threads again. */
     }
-    return dispatch(1, 0);
+    return leave(dispatch(1, 0));
 }
 
 WitArchFrame *wit_user_syscall(
@@ -809,7 +827,7 @@ WitArchFrame *wit_user_syscall(
     wit_arch_frame_set_result(context, WIT_STATUS_OK, 0);
     WitArchFrame *const resume = wit_user_call(&call);
     if (resume) {
-        return resume_current(resume);
+        return leave(resume_current(resume));
     }
     context = call.Context; /* A join may have switched the current thread. */
     // Publish settled memory pressure, after expiring both deadline domains.
@@ -821,10 +839,10 @@ WitArchFrame *wit_user_syscall(
         self()->Current->Threads[self()->Current->CurrentThread].State = WitThreadReady;
     }
     if (self()->Current->Threads[self()->Current->CurrentThread].State != WitThreadRunning) {
-        return dispatch(0, 0);
+        return leave(dispatch(0, 0));
     }
     wit_arch_set_user_tls(self()->Current->Threads[self()->Current->CurrentThread].Tls);
-    return resume_current(context);
+    return leave(resume_current(context));
 }
 
 WitArchFrame *wit_user_exception_trap(WitArchFrame *context, WitU64 vector, WitU64 error, WitU64 address)
@@ -840,7 +858,7 @@ WitArchFrame *wit_user_exception_trap(WitArchFrame *context, WitU64 vector, WitU
     if (wit_user_exception_deliver(self()->Current, context, vector, error, address)) {
         validate_return(context, self()->Current->CurrentThread, 0);
         wit_arch_set_user_tls(thread->Tls);
-        return context;
+        return leave(context);
     }
     /* A fault inside the handler of a fault reports the original fault; a fault inside the handler of an activation is
      * the thread's own fault and is reported as such. */

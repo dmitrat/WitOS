@@ -24,7 +24,7 @@
 #define GICD_ICENABLER 0x0180U
 #define GICD_IPRIORITYR 0x0400U
 #define GICD_IROUTER 0x6100U
-#define GICD_IROUTER_ANY (1ULL << 31)
+#define GICD_IROUTER_AFFINITY 0xFF00FFFFFFULL /* Aff3 in 39:32, Aff2:Aff1:Aff0 in 23:0, as in MPIDR_EL1 */
 #define SPI_FIRST 32U
 #define SGI_COUNT 16U
 #define SGI_FENCE 0U
@@ -37,6 +37,7 @@
 
 static int mapped, distributor_enabled;
 static WitU64 interval;
+static WitU64 boot_affinity; /* the boot processor's, to which every device line is routed (P1.2) */
 
 static volatile WitU32 *gic_register(WitU64 base, WitU32 offset)
 {
@@ -59,6 +60,7 @@ void wit_virt_interrupts_map(const WitBootInfo *boot)
     wit_arch_map_device_page(boot, WIT_VIRT_GICD_BASE + 0x8000);
     wit_arch_map_device_page(boot, WIT_VIRT_GICR_BASE);
     wit_arch_map_device_page(boot, WIT_VIRT_GICR_SGI_BASE);
+    boot_affinity = wit_arch_processor_id() & GICD_IROUTER_AFFINITY;
     mapped = 1;
 }
 
@@ -151,7 +153,8 @@ void wit_platform_line_unmask(WitU32 line)
     const WitU32 word = (line / 32) * 4, bit = 1U << (line % 32);
     *gic_register(WIT_VIRT_GICD_BASE, GICD_IGROUPR + word) |= bit;
     ((volatile WitU8 *)(WIT_VIRT_GICD_BASE + GICD_IPRIORITYR))[line] = 0x80;
-    *(volatile WitU64 *)(WIT_VIRT_GICD_BASE + GICD_IROUTER + 8ULL * line) = GICD_IROUTER_ANY;
+    /* To the boot processor, which alone takes device lines in phase P (P1.2), never to any processor. */
+    *(volatile WitU64 *)(WIT_VIRT_GICD_BASE + GICD_IROUTER + 8ULL * line) = boot_affinity;
     *gic_register(WIT_VIRT_GICD_BASE, GICD_ISENABLER + word) = bit;
     wait_settled();
 }
@@ -212,12 +215,13 @@ void wit_platform_processor_interrupts_enable(WitU32 index, WitU64 hardware_id)
     wit_virt_gic_cpu_enable();
 }
 
+/* The doorbell of witos/cpu.h is SGI 0 (P1.2). */
 void wit_platform_ipi(WitU64 hardware_id, WitU32 kind)
 {
-    const WitU64 intid = kind == WIT_IPI_FENCE ? SGI_FENCE : SGI_INVALIDATE;
+    const WitU64 intid = SGI_FENCE;
     const WitU64 aff0 = hardware_id & 0xFF, aff1 = (hardware_id >> 8) & 0xFF, aff2 = (hardware_id >> 16) & 0xFF,
                  aff3 = (hardware_id >> 32) & 0xFF;
-    require(kind == WIT_IPI_FENCE || kind == WIT_IPI_INVALIDATE, "Unknown inter-processor interrupt kind");
+    require(kind == WIT_IPI_DOORBELL, "Unknown inter-processor interrupt kind");
     require(aff0 < 16, "Affinity level 0 beyond the target list");
     wit_virt_gic_send_sgi((aff3 << 48) | (aff2 << 32) | (intid << 24) | (aff1 << 16) | (1ULL << aff0));
 }
@@ -226,4 +230,12 @@ void wit_platform_ipi_complete(WitU32 number)
 {
     require(number < SGI_COUNT, "Completing a line that is no inter-processor interrupt");
     wit_virt_gic_complete(number);
+}
+
+/* The boot processor's redistributor enables the doorbell's SGI as a secondary's does (P1.2). */
+void wit_platform_ipi_enable_boot(void)
+{
+    *gic_register(WIT_VIRT_GICR_SGI_BASE, GICR_IGROUPR0) |= 1U << SGI_FENCE;
+    ((volatile WitU8 *)(WIT_VIRT_GICR_SGI_BASE + GICR_IPRIORITYR))[SGI_FENCE] = 0x80;
+    *gic_register(WIT_VIRT_GICR_SGI_BASE, GICR_ISENABLER0) = 1U << SGI_FENCE;
 }

@@ -37,8 +37,7 @@
 #define ICR_INIT 0x4500U /* INIT, level asserted */
 #define ICR_STARTUP 0x4600U /* start-up, plus the vector (the page number of the trampoline) */
 #define ICR_FIXED 0x4000U /* fixed delivery, level asserted */
-#define IPI_FENCE_VECTOR 0xF0U
-#define IPI_INVALIDATE_VECTOR 0xF1U
+#define IPI_DOORBELL_VECTOR 0xF0U /* the doorbell of witos/cpu.h (P1.2); 0xF1 enters the same way, unused */
 #define TRAMPOLINE_LIMIT 0x100000ULL
 #define POLL_LIMIT 1000000U
 
@@ -101,7 +100,6 @@ WIT_STATIC_ASSERT(T_CR3 == 49U && T_FAR64 == 82U && T_LM64 == 88U, "Trampoline o
 WIT_STATIC_ASSERT(T_STACK_ADDRESS == 90U && T_INDEX_ADDRESS == 103U && T_ENTRY_ADDRESS == 115U, "Trampoline data refs");
 
 WitU64 wit_x64_boot_cr0, wit_x64_boot_cr4;
-WitU32 wit_x64_ipi_vector; /* the vector of the inter-processor interrupt in flight: one at a time, the sender waits */
 __declspec(align(4096)) static WitU8 stacks[WIT_PROCESSOR_CAPACITY][WIT_KERNEL_STACK_SIZE];
 
 /* A processor's idle stack (P1.1): a secondary's start stack, which it abandons once it dispatches, and for the boot
@@ -243,7 +241,8 @@ int wit_arch_secondary_start(WitU32 index, WitU64 hardware_id)
 void wit_arch_ipi(WitU64 hardware_id, WitU32 kind)
 {
     require(apic_enabled && hardware_id < 256, "Inter-processor interrupt without the APIC");
-    write_icr((WitU32)hardware_id, ICR_FIXED | (kind == WIT_IPI_FENCE ? IPI_FENCE_VECTOR : IPI_INVALIDATE_VECTOR));
+    require(kind == WIT_IPI_DOORBELL, "Unknown inter-processor interrupt kind");
+    write_icr((WitU32)hardware_id, ICR_FIXED | IPI_DOORBELL_VECTOR);
 }
 
 void wit_arch_invalidate_local(WitU64 address)
@@ -273,10 +272,10 @@ WIT_NORETURN void wit_x64_secondary_main(WitU32 index)
     }
 }
 
-/* An inter-processor interrupt on a secondary processor: served, acknowledged to the kernel and to the APIC. */
+/* The doorbell on any processor (P1.2): the pending set served, the interrupt acknowledged to the APIC. */
 WitInterruptContext *wit_x64_ipi_interrupt(WitInterruptContext *context)
 {
-    wit_cpus_ipi_received(wit_x64_ipi_vector == IPI_FENCE_VECTOR ? WIT_IPI_FENCE : WIT_IPI_INVALIDATE);
+    wit_cpus_ipi_received();
     *apic(APIC_EOI) = 0;
     return context;
 }

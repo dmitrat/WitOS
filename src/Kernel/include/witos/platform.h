@@ -63,6 +63,8 @@ void wit_platform_processor_prepare(const struct WitBootInfo *boot, WitU32 index
 void wit_platform_processor_interrupts_enable(WitU32 index, WitU64 hardware_id);
 void wit_platform_ipi(WitU64 hardware_id, WitU32 kind);
 void wit_platform_ipi_complete(WitU32 number);
+/* The boot processor takes the doorbell too, once others are online (P1.2): what its interrupt controller needs. */
+void wit_platform_ipi_enable_boot(void);
 
 /* Test exit device; halts where it is absent. */
 WIT_NORETURN void wit_platform_finish(WitU32 code);

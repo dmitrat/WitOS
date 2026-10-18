@@ -49,8 +49,7 @@ isr\number:
     mov dword ptr [rip + wit_x64_device_vector], \number
     jmp wit_x64_device_entry
     .elseif (\number == 240) || (\number == 241)
-    // An inter-processor interrupt on a secondary processor (K7.2): one in flight at a time.
-    mov dword ptr [rip + wit_x64_ipi_vector], \number
+    // The doorbell of a request (P1.2): the processor serves its pending set, whatever the vector.
     jmp wit_x64_ipi_entry
     .else
     // These CPU exceptions push an error code; all other vectors need a zero.
@@ -116,6 +115,11 @@ user_exception_common:
     call wit_x64_user_exception
     mov rsp, rax
     jmp wit_x64_restore_context
+
+    .globl wit_arch_spin_pause
+wit_arch_spin_pause:
+    pause
+    ret
 
     .globl wit_arch_process_write_barrier
 wit_arch_process_write_barrier:
