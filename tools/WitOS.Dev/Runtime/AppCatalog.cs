@@ -126,6 +126,12 @@ internal static class AppCatalog
         }
         Require(entry.Commands!.Select(command => command.Name).Distinct(StringComparer.Ordinal).Count() == entry.Commands!.Count, fileName,
             "distinct commands");
+        foreach (var package in entry.Packages ?? [])
+        {
+            Require(package.Id is not null && PACKAGE.IsMatch(package.Id), fileName, "a NuGet package's identity");
+            Require(package.Version is not null && VERSION.IsMatch(package.Version), fileName, $"the version of {package.Id}");
+            Require(package.Sha256 is not null && SHA256.IsMatch(package.Sha256), fileName, $"the SHA-256 of {package.Id}");
+        }
         return entry;
     }
 
@@ -151,8 +157,10 @@ internal static class AppCatalog
 /// <param name="Native">The native part built from source, if any.</param>
 /// <param name="Commands">The commands it provides.</param>
 /// <param name="Purpose">Why it is pinned.</param>
+/// <param name="Packages">NuGet packages the application finds in the user's global packages folder (C2.5: the reference
+/// pack a C# REPL compiles against), laid there as a restore leaves them.</param>
 internal sealed record AppEntry(string Id, string Version, string Framework, AppSource Source, AppNative? Native,
-    IReadOnlyList<AppCommand> Commands, string Purpose);
+    IReadOnlyList<AppCommand> Commands, string Purpose, IReadOnlyList<AppPackage>? Packages = null);
 
 /// <summary>
 /// An upstream publication: an archive (Url, File, Sha256), a tool package (Package, Sha256) or a commit (Repository,
@@ -170,3 +178,8 @@ internal sealed record AppNative(string Repository, string Commit, string? Tag, 
 /// A command of a base application: its name and the assembly its launcher starts.
 /// </summary>
 internal sealed record AppCommand(string Name, string Assembly);
+
+/// <summary>
+/// A NuGet package of nuget.org by its identity, version and the SHA-256 of the package.
+/// </summary>
+internal sealed record AppPackage(string Id, string Version, string Sha256);
