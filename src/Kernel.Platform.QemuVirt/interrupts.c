@@ -2,6 +2,7 @@
 #include "witos/boot.h"
 #include "witos/platform.h"
 #include "witos/cpu.h"
+#include "witos/processor.h"
 #include "virt.h"
 
 /* QEMU virt scheduler timer: the EL1 virtual timer (PPI 27) through a GICv3 with a single security state. The
@@ -82,24 +83,31 @@ static void distributor_enable(void)
     distributor_enabled = 1;
 }
 
+/* The redistributor of processor n lies WIT_VIRT_GICR_STRIDE beyond the boot processor's (K7.2). */
+static WitU64 redistributor(WitU32 index)
+{
+    return WIT_VIRT_GICR_BASE + (WitU64)index * WIT_VIRT_GICR_STRIDE;
+}
+
+/* The tick of the calling processor (P1.3a): its own virtual timer, whose PPI its own redistributor enables. */
 void wit_platform_timer_start(void)
 {
     WitU32 spin = 0;
+    const WitU64 rd = redistributor(wit_processors_current()), sgi = rd + WIT_VIRT_GICR_SGI_OFFSET;
     require(mapped && !wit_arch_interrupts_enabled(), "Timer start needs the GIC mapped and interrupts disabled");
     interval = wit_virt_counter_frequency() / TIMER_HZ;
     require(interval != 0, "Timer interval is zero");
 
     distributor_enable();
 
-    *gic_register(WIT_VIRT_GICR_BASE, GICR_WAKER) &= ~GICR_WAKER_PROCESSOR_SLEEP;
-    for (spin = 0; (*gic_register(WIT_VIRT_GICR_BASE, GICR_WAKER) & GICR_WAKER_CHILDREN_ASLEEP) && spin < POLL_LIMIT;
-        ++spin) {
+    *gic_register(rd, GICR_WAKER) &= ~GICR_WAKER_PROCESSOR_SLEEP;
+    for (spin = 0; (*gic_register(rd, GICR_WAKER) & GICR_WAKER_CHILDREN_ASLEEP) && spin < POLL_LIMIT; ++spin) {
     }
     require(spin < POLL_LIMIT, "GIC redistributor did not wake");
 
-    *gic_register(WIT_VIRT_GICR_SGI_BASE, GICR_IGROUPR0) |= 1U << TIMER_INTERRUPT;
-    ((volatile WitU8 *)(WIT_VIRT_GICR_SGI_BASE + GICR_IPRIORITYR))[TIMER_INTERRUPT] = 0x80;
-    *gic_register(WIT_VIRT_GICR_SGI_BASE, GICR_ISENABLER0) = 1U << TIMER_INTERRUPT;
+    *gic_register(sgi, GICR_IGROUPR0) |= 1U << TIMER_INTERRUPT;
+    ((volatile WitU8 *)(sgi + GICR_IPRIORITYR))[TIMER_INTERRUPT] = 0x80;
+    *gic_register(sgi, GICR_ISENABLER0) = 1U << TIMER_INTERRUPT;
 
     wit_virt_gic_cpu_enable();
     wit_virt_timer_arm(interval);
@@ -107,9 +115,10 @@ void wit_platform_timer_start(void)
 
 void wit_platform_timer_stop(void)
 {
+    const WitU64 sgi = redistributor(wit_processors_current()) + WIT_VIRT_GICR_SGI_OFFSET;
     wit_arch_disable_interrupts();
     wit_virt_timer_disable();
-    *gic_register(WIT_VIRT_GICR_SGI_BASE, GICR_ICENABLER0) = 1U << TIMER_INTERRUPT;
+    *gic_register(sgi, GICR_ICENABLER0) = 1U << TIMER_INTERRUPT;
 }
 
 int wit_platform_interrupt_claim(WitU32 *line)
@@ -177,14 +186,10 @@ void wit_platform_timer_acknowledge(void)
     wit_virt_gic_complete(TIMER_INTERRUPT);
 }
 
-/* Secondary processors (plan step K7.2): the redistributor of processor n lies WIT_VIRT_GICR_STRIDE beyond the boot
- * processor's; the boot processor maps both frames before the start, and the started processor wakes its
- * redistributor, enables the two software-generated interrupts the kernel uses and its CPU interface. An
- * inter-processor interrupt is SGI 0 (fence) or 1 (invalidate) to one processor by its affinity. */
-static WitU64 redistributor(WitU32 index)
-{
-    return WIT_VIRT_GICR_BASE + (WitU64)index * WIT_VIRT_GICR_STRIDE;
-}
+/* Secondary processors (plan step K7.2): the boot processor maps both frames of a processor's redistributor before
+ * the start, and the started processor wakes its redistributor, enables the software-generated interrupts the kernel
+ * uses and its CPU interface. The inter-processor interrupt is SGI 0, the doorbell (P1.2), to one processor by its
+ * affinity. */
 
 void wit_platform_processor_prepare(const WitBootInfo *boot, WitU32 index, WitU64 hardware_id)
 {

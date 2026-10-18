@@ -94,13 +94,14 @@ WitInterruptContext *wit_x64_user_syscall_sysv(WitInterruptContext *context)
     return wit_user_syscall(context, context->Rax, context->Rdi, context->Rsi, context->Rdx);
 }
 
-/* Enables SYSCALL: EFER.SCE; STAR's kernel selectors 8/0x10 and the SYSRET base 0x23 (SS 0x2B, CS 0x33); LSTAR the
- * entry; SFMASK clears IF, TF, DF and AC on entry as the interrupt gate does. */
-void wit_x64_enable_syscall(void)
+/* Enables SYSCALL on the running processor: EFER.SCE; STAR's kernel selectors 8/0x10 and the SYSRET base 0x23 (SS
+ * 0x2B, CS 0x33); LSTAR the processor's own entry (P1.3a); SFMASK clears IF, TF, DF and AC on entry as the interrupt
+ * gate does. */
+void wit_x64_enable_syscall(WitU32 index)
 {
     wit_x64_write_msr(0xC0000080, wit_x64_read_msr(0xC0000080) | 1ULL);
     wit_x64_write_msr(0xC0000081, (0x23ULL << 48) | (0x08ULL << 32));
-    wit_x64_write_msr(0xC0000082, (WitU64)wit_x64_syscall_entry);
+    wit_x64_write_msr(0xC0000082, wit_x64_syscall_entries[index]);
     wit_x64_write_msr(0xC0000084, 0x40700ULL);
 }
 

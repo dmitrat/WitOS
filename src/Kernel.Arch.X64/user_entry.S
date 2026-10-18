@@ -8,13 +8,21 @@ host_rsp:
     .quad 0
 host_cr3:
     .quad 0
-// The kernel stack of the selected thread (TSS.RSP0's value) and the caller's RSP across the SYSCALL entry: one
-// processor, interrupts masked by SFMASK (K5.2a).
+// The kernel stack of the thread each processor runs (its TSS.RSP0's value) and the caller's RSP across that
+// processor's SYSCALL entry, interrupts masked by SFMASK (K5.2a). SYSCALL switches no stack and the GS base stays
+// zero, so each processor enters through a stub of its own that reaches its two words RIP-relative (P1.3a); the
+// eight entries are WIT_PROCESSOR_CAPACITY's, which exceptions.c asserts.
     .globl wit_x64_syscall_kernel_rsp
 wit_x64_syscall_kernel_rsp:
-    .quad 0
+    .fill 8, 8, 0
 syscall_user_rsp:
-    .quad 0
+    .fill 8, 8, 0
+// Each processor's SYSCALL entry, its LSTAR.
+    .globl wit_x64_syscall_entries
+wit_x64_syscall_entries:
+    .irp n, 0, 1, 2, 3, 4, 5, 6, 7
+    .quad wit_x64_syscall_entry_\n
+    .endr
 
     .text
     .globl wit_arch_idle_once
@@ -115,13 +123,18 @@ wit_arch_leave_user:
     ret
 
 // SYSCALL entry (RFC 0011 section 6.1): RCX holds the return RIP, R11 the RFLAGS, RSP is still the caller's. The
-// frame built here equals an interrupt gate's, so one restore path (IRETQ) serves it and the interrupts.
-    .globl wit_x64_syscall_entry
-wit_x64_syscall_entry:
-    mov qword ptr [rip + syscall_user_rsp], rsp
-    mov rsp, qword ptr [rip + wit_x64_syscall_kernel_rsp]
+// frame built here equals an interrupt gate's, so one restore path (IRETQ) serves it and the interrupts. Processor n
+// enters at its own stub, which switches to its own kernel stack (P1.3a).
+    .irp n, 0, 1, 2, 3, 4, 5, 6, 7
+wit_x64_syscall_entry_\n:
+    mov qword ptr [rip + syscall_user_rsp + 8 * \n], rsp
+    mov rsp, qword ptr [rip + wit_x64_syscall_kernel_rsp + 8 * \n]
     push 0x2B                         // SS
-    push qword ptr [rip + syscall_user_rsp]
+    push qword ptr [rip + syscall_user_rsp + 8 * \n]
+    jmp syscall_common
+    .endr
+
+syscall_common:
     push r11                          // RFLAGS
     push 0x33                         // CS
     push rcx                          // RIP

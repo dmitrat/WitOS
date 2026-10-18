@@ -7,6 +7,7 @@
 #include "user.h"
 #include "x64.h"
 #include "witos/x64_instructions.h"
+#include "witos/x64_local_timer.h"
 
 /* Secondary processors of x64 (plan step K7.2) through the local APIC. The boot processor enables its own APIC in
  * xAPIC mode with the PIC's line kept open (LINT0 as ExtINT, so the PIT tick still arrives), claims one page of
@@ -30,6 +31,11 @@
 #define APIC_LVT_LINT1 0x360U
 #define APIC_LVT_ERROR 0x370U
 #define APIC_TASK_PRIORITY 0x080U
+#define APIC_TIMER_INITIAL 0x380U
+#define APIC_TIMER_CURRENT 0x390U
+#define APIC_TIMER_DIVIDE 0x3E0U
+#define TIMER_DIVIDE_16 0x3U
+#define LVT_PERIODIC 0x20000U
 #define LVT_MASKED 0x10000U
 #define LVT_EXTINT 0x700U
 #define LVT_NMI 0x400U
@@ -255,14 +261,52 @@ int wit_x64_lapic_enabled(void)
     return apic_enabled;
 }
 
+/* The local APIC's timer, the tick of a secondary processor (P1.3a): periodic, divided by 16, its count for one tick
+ * measured once on the boot processor against the monotonic clock, since every processor's APIC timer runs from the
+ * same bus clock. */
+static WitU32 timer_count;
+
+void wit_x64_local_timer_calibrate(WitU32 hz)
+{
+    require(apic_enabled && !wit_arch_interrupts_enabled() && hz != 0, "APIC timer calibration out of context");
+    *apic(APIC_TIMER_DIVIDE) = TIMER_DIVIDE_16;
+    *apic(APIC_LVT_TIMER) = LVT_MASKED;
+    *apic(APIC_TIMER_INITIAL) = 0xFFFFFFFFU;
+    delay_microseconds(1000000U / hz);
+    const WitU32 elapsed = 0xFFFFFFFFU - *apic(APIC_TIMER_CURRENT);
+    *apic(APIC_TIMER_INITIAL) = 0;
+    require(elapsed != 0, "The APIC timer does not count");
+    timer_count = elapsed;
+}
+
+void wit_x64_local_timer_start(WitU32 vector)
+{
+    require(apic_enabled && timer_count != 0 && !wit_arch_interrupts_enabled(), "APIC timer start out of context");
+    *apic(APIC_TIMER_DIVIDE) = TIMER_DIVIDE_16;
+    *apic(APIC_LVT_TIMER) = LVT_PERIODIC | vector;
+    *apic(APIC_TIMER_INITIAL) = timer_count;
+}
+
+void wit_x64_local_timer_stop(void)
+{
+    *apic(APIC_LVT_TIMER) = LVT_MASKED;
+    *apic(APIC_TIMER_INITIAL) = 0;
+}
+
+void wit_x64_local_timer_acknowledge(void)
+{
+    *apic(APIC_EOI) = 0;
+}
+
 /* A started processor, on its own stack with the kernel's tables and root: it loads its own task register, which
- * names it from here on (P1.1), its control registers follow the boot processor's, its APIC comes up masked, it
- * reports its features and itself, and halts for interrupts. */
+ * names it from here on (P1.1), its control registers follow the boot processor's, SYSCALL enters through its own
+ * stub (P1.3a), its APIC comes up masked, it reports its features and itself, and halts for interrupts. */
 WIT_NORETURN void wit_x64_secondary_main(WitU32 index)
 {
     wit_arch_processor_set_index(index);
     wit_x64_write_cr4(wit_x64_boot_cr4);
     wit_x64_write_cr0(wit_x64_boot_cr0);
+    wit_x64_enable_syscall(index);
     enable_local_apic(0);
     wit_processors_set_features(index, wit_arch_processor_features(), wit_arch_cache_size());
     wit_cpus_secondary_ready(index);

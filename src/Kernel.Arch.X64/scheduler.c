@@ -3,7 +3,7 @@
 #include "witos/platform.h"
 #include "witos/x64_instructions.h"
 
-static volatile WitU64 timer_ticks;
+static volatile WitU64 timer_ticks[WIT_PROCESSOR_CAPACITY]; /* each processor's ticks (P1.3a) */
 
 /* The vector of the device interrupt being entered (entry.S): one processor, interrupts disabled (K3.2). */
 WitU32 wit_x64_device_vector;
@@ -30,7 +30,7 @@ static void require(int condition, const char *message)
 
 WitU64 wit_arch_clock_ticks(void)
 {
-    return timer_ticks;
+    return timer_ticks[wit_arch_processor_index()];
 }
 
 #if defined(WITOS_SELFTEST)
@@ -71,8 +71,9 @@ WitInterruptContext *wit_x64_device_interrupt(WitInterruptContext *context)
 
 WitInterruptContext *wit_x64_timer_interrupt(WitInterruptContext *context)
 {
-    if (timer_ticks < WIT_WAIT_INFINITE - 1) {
-        ++timer_ticks; /* Saturate; never wrap deadlines. */
+    volatile WitU64 *const ticks = &timer_ticks[wit_arch_processor_index()];
+    if (*ticks < WIT_WAIT_INFINITE - 1) {
+        ++*ticks; /* Saturate; never wrap deadlines. */
     }
     wit_platform_timer_acknowledge(); /* Before dispatching a different context. */
     if (wit_user_is_active()) {
@@ -127,7 +128,7 @@ void wit_arch_scheduler_self_test(void)
     saved[2] = 0;
     scheduling = 1;
     current = 2;
-    timer_ticks = 0;
+    timer_ticks[0] = 0;
     switches = 0;
     wit_console_write("[TEST-BEGIN] Scheduler.Preemption\n");
     wit_platform_timer_start();
@@ -137,7 +138,7 @@ void wit_arch_scheduler_self_test(void)
     }
     wit_platform_timer_stop();
 
-    require(timer_ticks >= 7 && switches >= 7, "Timer or context switching stalled");
+    require(timer_ticks[0] >= 7 && switches >= 7, "Timer or context switching stalled");
     require(wit_worker_done[0] &&
             wit_worker_done[1] &&
             wit_worker_slices[0] >= 3 &&
@@ -148,7 +149,7 @@ void wit_arch_scheduler_self_test(void)
         "Worker progress failed");
     require(wit_worker_errors[0] == 0 && wit_worker_errors[1] == 0, "Context register or SIMD state corrupted");
     wit_console_write("Timer ticks: ");
-    wit_console_write_u64(timer_ticks);
+    wit_console_write_u64(timer_ticks[0]);
     wit_console_write("\nContext switches: ");
     wit_console_write_u64(switches);
     wit_console_write("\nWorker A iterations: ");

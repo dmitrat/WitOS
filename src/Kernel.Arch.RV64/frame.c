@@ -25,8 +25,9 @@
 #define FCSR_ROUNDING_MAX 4ULL
 #define SATP_PPN 0x00000FFFFFFFFFFFULL
 
-static WitU64 selected_top;
-static WitU64 user_tls;
+/* The kernel stack top of the thread each processor runs and the TLS base its next fresh frame takes (P1.3a). */
+static WitU64 selected_top[WIT_PROCESSOR_CAPACITY];
+static WitU64 user_tls[WIT_PROCESSOR_CAPACITY];
 
 static WitU64 stack_low(WitU32 slot, WitU32 thread)
 {
@@ -47,27 +48,27 @@ static WitU64 satp_of(WitU64 root)
 
 void wit_arch_select_thread_stack(WitU32 slot, WitU32 thread)
 {
-    selected_top = stack_low(slot, thread) + WIT_RV64_KERNEL_STACK_SIZE;
+    selected_top[wit_arch_processor_index()] = stack_low(slot, thread) + WIT_RV64_KERNEL_STACK_SIZE;
 }
 
 void wit_arch_select_boot_stack(void)
 {
-    selected_top = (WitU64)wit_rv64_kernel_stack + 4096 + WIT_RV64_KERNEL_STACK_SIZE;
+    selected_top[wit_arch_processor_index()] = (WitU64)wit_rv64_kernel_stack + 4096 + WIT_RV64_KERNEL_STACK_SIZE;
 }
 
 void wit_arch_set_user_tls(WitU64 address)
 {
-    user_tls = address;
+    user_tls[wit_arch_processor_index()] = address;
 }
 
 void wit_arch_reset_user_tls(void)
 {
-    user_tls = 0;
+    user_tls[wit_arch_processor_index()] = 0;
 }
 
 int wit_arch_user_tls_is_reset(void)
 {
-    return user_tls == 0;
+    return user_tls[wit_arch_processor_index()] == 0;
 }
 
 int wit_arch_kernel_space_active(void)
@@ -110,11 +111,11 @@ WIT_NORETURN void wit_arch_resume_frame(WitArchFrame *frame)
 WitRv64Frame *wit_rv64_prepare_resume(WitRv64Frame *frame)
 {
     if ((frame->Sstatus & WIT_RV64_SSTATUS_SPP) == 0) {
-        if ((WitU64)frame + WIT_RV64_FRAME_SIZE != selected_top) {
+        if ((WitU64)frame + WIT_RV64_FRAME_SIZE != selected_top[wit_arch_processor_index()]) {
             wit_panic("U-mode frame is not at the top of the selected kernel stack");
         }
         if (frame->Reserved == WIT_RV64_FRAME_FRESH) {
-            frame->X[4] = user_tls;
+            frame->X[4] = user_tls[wit_arch_processor_index()];
             frame->Reserved = 0;
         }
     }
