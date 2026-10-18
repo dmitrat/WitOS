@@ -70,6 +70,11 @@ int wit_arch_user_tls_is_reset(void);
 int wit_arch_kernel_space_active(void);
 int wit_arch_interrupts_enabled(void);
 void wit_arch_idle_once(void);
+/* A processor's idle stack [low, high) (P1.1): a secondary's own start stack, which its start abandons, and for the
+ * boot processor the entry the same table keeps for it unused. The processor leaves the stack it runs on for it and
+ * calls a function there that never returns; interrupts stay disabled. */
+void wit_arch_idle_stack(WitU32 index, WitU64 *low, WitU64 *high);
+WIT_NORETURN void wit_arch_run_on_stack(WitU64 top, void (*function)(void));
 
 /* Thread frames. */
 WitArchFrame *wit_arch_frame_create(WitU32 slot, WitU32 thread, WitU64 entry, WitU64 argument, WitU64 stack_top);
@@ -81,7 +86,8 @@ int wit_arch_kernel_stack_contains(WitU32 slot, WitU32 thread, const void *objec
 int wit_arch_frame_owned(const WitArchFrame *frame, WitU32 slot, WitU32 thread);
 int wit_arch_frame_from_user(const WitArchFrame *frame);
 int wit_arch_frame_returns_to_user(const WitArchFrame *frame);
-int wit_arch_frame_is_idle(const WitArchFrame *frame, WitU32 slot, WitU32 thread);
+/* Whether a frame interrupted the idle path of wit_arch_idle_once on the processor's idle stack [low, high) (P1.1). */
+int wit_arch_frame_is_idle(const WitArchFrame *frame, WitU64 low, WitU64 high);
 WitU64 wit_arch_frame_pc(const WitArchFrame *frame);
 WitU64 wit_arch_frame_sp(const WitArchFrame *frame);
 void wit_arch_frame_prepare_return(WitArchFrame *frame, int syscall);
@@ -156,6 +162,11 @@ WitU64 wit_arch_cache_size(void);
 /* The running processor's hardware identity (the APIC id; the MPIDR affinity) and its ISA feature words (K7.1). */
 WitU64 wit_arch_processor_id(void);
 WitU64 wit_arch_processor_features(void);
+/* The running processor's number in the kernel's table, read without a lock or a memory access processors share
+ * (P1.1): each processor records its number once at its start (x64 in its own task register, ARM64 in TPIDR_EL1,
+ * RISC-V in the record tp points to in S-mode), before anything reads it. */
+void wit_arch_processor_set_index(WitU32 index);
+WitU32 wit_arch_processor_index(void);
 /* Secondary processors (K7.2): the boot processor prepares one (its stack, its interrupt frames, the registers it
  * copies), starts it toward the architecture's entry with the kernel's number, and addresses it with an
  * inter-processor interrupt of a kind of witos/cpu.h; a processor invalidates one translation of its own. */

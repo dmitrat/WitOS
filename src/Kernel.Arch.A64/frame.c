@@ -155,12 +155,14 @@ int wit_arch_frame_returns_to_user(const WitArchFrame *frame)
     return (frame->Spsr & (WIT_A64_SPSR_MODE | WIT_A64_SPSR_ILLEGAL)) == 0;
 }
 
-int wit_arch_frame_is_idle(const WitArchFrame *frame, WitU32 slot, WitU32 thread)
+int wit_arch_frame_is_idle(const WitArchFrame *frame, WitU64 low, WitU64 high)
 {
-    const WitU64 low = stack_low(slot, thread);
-    return (frame->Spsr & WIT_A64_SPSR_MODE) == WIT_A64_SPSR_EL1H &&
+    return (WitU64)frame >= low &&
+        (WitU64)frame <= high - sizeof(*frame) &&
+        ((WitU64)frame & 15) == 0 &&
+        (frame->Spsr & WIT_A64_SPSR_MODE) == WIT_A64_SPSR_EL1H &&
         frame->Sp >= low &&
-        frame->Sp < low + WIT_A64_KERNEL_STACK_SIZE &&
+        frame->Sp < high &&
         frame->Elr == (WitU64)wit_a64_idle_resume &&
         wit_arch_user_tls_is_reset();
 }

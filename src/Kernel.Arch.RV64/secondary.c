@@ -19,6 +19,18 @@ WitU64 wit_rv64_boot_satp;
 WitU64 wit_rv64_secondary_stack_tops[WIT_PROCESSOR_CAPACITY];
 
 __attribute__((aligned(4096))) static WitU8 stacks[WIT_PROCESSOR_CAPACITY][WIT_RV64_KERNEL_STACK_SIZE];
+
+/* A processor's idle stack (P1.1): a secondary's start stack, which it abandons once it dispatches, and for the boot
+ * processor entry 0, which no start uses. */
+void wit_arch_idle_stack(WitU32 index, WitU64 *low, WitU64 *high)
+{
+    if (index >= WIT_PROCESSOR_CAPACITY) {
+        wit_panic("Idle stack of a processor outside the table");
+    }
+    *low = (WitU64)stacks[index];
+    *high = *low + WIT_RV64_KERNEL_STACK_SIZE;
+}
+
 static WitU64 hart_ids[WIT_PROCESSOR_CAPACITY];
 static volatile WitU32 started[WIT_PROCESSOR_CAPACITY];
 
@@ -70,12 +82,13 @@ int wit_rv64_secondary_hart(WitU64 *hart)
     return 0;
 }
 
-/* A started hart, on its own stack with the kernel's translation on: its interrupt controller context masked, the
- * software interrupt enabled, it reports itself ready and waits for interrupts. */
+/* A started hart, on its own stack with the kernel's translation on: tp names its record (P1.1), its interrupt
+ * controller context masked, the software interrupt enabled, it reports itself ready and waits for interrupts. */
 WIT_NORETURN void wit_rv64_secondary_main(WitU32 index, WitU64 hart)
 {
     require(index != 0 && index < WIT_PROCESSOR_CAPACITY && hart_ids[index] == hart,
         "A started hart is not the one its number names");
+    wit_arch_processor_set_index(index);
     started[index] = 1;
     wit_rv64_fence();
     wit_platform_processor_interrupts_enable(index, hart);

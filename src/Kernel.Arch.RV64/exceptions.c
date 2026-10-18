@@ -66,6 +66,7 @@ void wit_arch_initialize(void)
     if (!on_kernel_stack(wit_rv64_stack_pointer())) {
         wit_panic("Not running on kernel stack");
     }
+    wit_arch_processor_set_index(0); /* tp names the boot hart's record from here on (P1.1) */
     wit_console_write("[TEST-PASS] Cpu.KernelStack\n");
     wit_console_write("Kernel stack: ");
     wit_console_write_hex(stack_begin);

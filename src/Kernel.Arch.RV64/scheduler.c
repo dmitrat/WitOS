@@ -44,15 +44,18 @@ static WIT_NORETURN void thread_returned(void)
     wit_panic("Kernel thread unexpectedly returned");
 }
 
-/* A worker's frame: S-mode with interrupts enabled on return (SPP, SPIE), the floating-point unit on, a0 its index and
- * a return address that reports a return. */
+/* A worker's frame: S-mode with interrupts enabled on return (SPP, SPIE), the floating-point unit on, a0 its index, a
+ * return address that reports a return, and tp the hart's record, which every S-mode frame carries (P1.1). */
 static WitRv64Frame *prepare_thread(WitU32 index)
 {
     const WitU64 top = (WitU64)wit_rv64_worker_stacks[index] + 4096 + WIT_RV64_KERNEL_STACK_SIZE;
     WitRv64Frame *frame = (WitRv64Frame *)(top - WIT_RV64_FRAME_SIZE);
+    WitU64 record;
     for (WitU32 i = 0; i < sizeof(*frame); ++i) {
         ((WitU8 *)frame)[i] = 0;
     }
+    __asm__ volatile("mv %0, tp" : "=r"(record));
+    frame->X[4] = record;
     frame->X[10] = index;
     frame->X[1] = (WitU64)thread_returned;
     frame->X[2] = top;

@@ -48,6 +48,9 @@ void wit_processors_initialize(const WitBootInfo *boot)
     }
     features[0] = wit_arch_processor_features();
     caches[0] = wit_arch_cache_size();
+    /* The boot processor is number 0 from here on (P1.1); each secondary records its number as it starts (cpus.c). */
+    wit_arch_processor_set_index(0);
+    require(wit_arch_processor_index() == 0, "The boot processor does not read its own number");
     ready = 1;
 }
 
@@ -86,9 +89,10 @@ WitU32 wit_processors_scheduling(void)
     return 1;
 }
 
+/* The calling processor's number, from its own register (P1.1). */
 WitU32 wit_processors_current(void)
 {
-    return 0;
+    return wit_arch_processor_index();
 }
 
 int wit_processors_record(WitU32 index, WitProcessorRecord *record)

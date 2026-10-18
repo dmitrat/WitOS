@@ -97,6 +97,9 @@ WitU32 wit_cpus_index_of(WitU64 hardware_id)
 void wit_cpus_secondary_ready(WitU32 index)
 {
     require(index != 0 && index < count && cpus[index].State == CpuStarting, "A processor reported ready twice");
+    /* Its number, recorded at its entry (P1.1), names its hardware identity. */
+    require(wit_arch_processor_index() == index && wit_arch_processor_id() == cpus[index].HardwareId,
+        "A starting processor does not read its own number");
     wit_arch_process_write_barrier();
     cpus[index].State = CpuIdle;
     wit_arch_process_write_barrier();
@@ -104,8 +107,10 @@ void wit_cpus_secondary_ready(WitU32 index)
 
 void wit_cpus_ipi_received(WitU32 kind)
 {
-    const WitU32 me = wit_cpus_index_of(wit_arch_processor_id());
-    require(me != 0 && me < count, "An inter-processor interrupt reached an unknown or the boot processor");
+    /* The processor knows its number from its own register (P1.1), which must name its hardware identity. */
+    const WitU32 me = wit_arch_processor_index();
+    require(me != 0 && me < count && cpus[me].HardwareId == wit_arch_processor_id(),
+        "An inter-processor interrupt reached an unknown or the boot processor");
     wit_arch_process_write_barrier();
     if (kind == WIT_IPI_FENCE) {
         ++cpus[me].FenceAcks;
