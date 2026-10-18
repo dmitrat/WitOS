@@ -102,28 +102,28 @@ internal static class KernelTestSuite
             new BootRequest("boot-intel", 256, 60, ExpectedOutcome.Success) { CpuModel = "Nehalem" });
         // The first libc program (S1.1): unchanged musl over the system layer's dispatch, as the root task.
         var libc = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.LIBC_SCENARIO);
-        await BootScenarioRunner.RunAsync(root, libc, new BootRequest("libc", 256, 60, ExpectedOutcome.Success)
+        await RunOnOneAndTwoAsync(root, libc, new BootRequest("libc", 256, 60, ExpectedOutcome.Success)
         {
             Suite = BootSuite.Release,
             RequiredLines = [KernelArchitecture.X64.LibcPassedLine]
         });
         // musl's own tests (S1.3): the selected functional and regression tests as one program.
         var libcTest = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.LIBC_TEST_SCENARIO);
-        await BootScenarioRunner.RunAsync(root, libcTest, new BootRequest("libc-test", 256, 120, ExpectedOutcome.Success)
+        await RunOnOneAndTwoAsync(root, libcTest, new BootRequest("libc-test", 256, 120, ExpectedOutcome.Success)
         {
             Suite = BootSuite.Release,
             RequiredLines = [KernelArchitecture.X64.LibcTestPassedLine]
         });
         // The C++ runtime (S4): the exception scenarios in their Itanium form and the libc++ checks.
         var cxx = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.CXX_SCENARIO);
-        await BootScenarioRunner.RunAsync(root, cxx, new BootRequest("cxx", 256, 120, ExpectedOutcome.Success)
+        await RunOnOneAndTwoAsync(root, cxx, new BootRequest("cxx", 256, 120, ExpectedOutcome.Success)
         {
             Suite = BootSuite.Release,
             RequiredLines = [KernelArchitecture.X64.CxxPassedLine]
         });
         // The static ELF loader (S5.2): programs of the package started in processes of their own.
         var spawn = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.SPAWN_SCENARIO);
-        await BootScenarioRunner.RunAsync(root, spawn, new BootRequest("spawn", 256, 60, ExpectedOutcome.Success)
+        await RunOnOneAndTwoAsync(root, spawn, new BootRequest("spawn", 256, 60, ExpectedOutcome.Success)
         {
             Suite = BootSuite.Release,
             RequiredLines =
@@ -134,14 +134,14 @@ internal static class KernelTestSuite
         });
         // The process manager (S6.1): the system layer's root task serves /bin/init's posix_spawn.
         var process = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.PROCESS_SCENARIO);
-        await BootScenarioRunner.RunAsync(root, process, new BootRequest("process", 256, 60, ExpectedOutcome.Success)
+        await RunOnOneAndTwoAsync(root, process, new BootRequest("process", 256, 60, ExpectedOutcome.Success)
         {
             Suite = BootSuite.Release,
             RequiredLines = [KernelArchitecture.X64.InitPassedLine, KernelArchitecture.X64.RootTaskPassedLine]
         });
         // The sysroot (R1.2a): a C++ program clang's own driver built against layer 2's sysroot, as /bin/init.
         var sysroot = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.SYSROOT_SCENARIO);
-        await BootScenarioRunner.RunAsync(root, sysroot, new BootRequest("sysroot", 256, 60, ExpectedOutcome.Success)
+        await RunOnOneAndTwoAsync(root, sysroot, new BootRequest("sysroot", 256, 60, ExpectedOutcome.Success)
         {
             Suite = BootSuite.Release,
             RequiredLines = [KernelArchitecture.X64.SysrootPassedLine, KernelArchitecture.X64.RootTaskPassedLine]
@@ -163,7 +163,7 @@ internal static class KernelTestSuite
         var timeout = await KernelImageBuilder.BuildAsync(root, "timeout");
         await BootScenarioRunner.RunAsync(root, timeout,
             new BootRequest("timeout", 256, SELFTEST_HANG, ExpectedOutcome.Timeout));
-        Console.WriteLine("PASS: all 27 kernel integration scenarios.");
+        Console.WriteLine("PASS: all 33 kernel integration scenarios.");
     }
 
     /// <summary>
@@ -206,24 +206,24 @@ internal static class KernelTestSuite
         if (architecture.Libc)
         {
             var libc = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.LIBC_SCENARIO, architecture: architecture);
-            await BootScenarioRunner.RunAsync(root, libc,
+            await RunOnOneAndTwoAsync(root, libc,
                 Request("libc", 256, limit, ExpectedOutcome.Success) with { Suite = BootSuite.Release, RequiredLines = [architecture.LibcPassedLine] });
-            scenarios++;
+            scenarios += 2;
         }
         if (architecture.CxxRuntime)
         {
             var cxx = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.CXX_SCENARIO, architecture: architecture);
-            await BootScenarioRunner.RunAsync(root, cxx,
+            await RunOnOneAndTwoAsync(root, cxx,
                 Request("cxx", 256, 120, ExpectedOutcome.Success) with { Suite = BootSuite.Release, RequiredLines = [architecture.CxxPassedLine] });
-            scenarios++;
+            scenarios += 2;
         }
         if (architecture.SystemLayer)
         {
             var libcTest = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.LIBC_TEST_SCENARIO, architecture: architecture);
-            await BootScenarioRunner.RunAsync(root, libcTest,
+            await RunOnOneAndTwoAsync(root, libcTest,
                 Request("libc-test", 256, 120, ExpectedOutcome.Success) with { Suite = BootSuite.Release, RequiredLines = [architecture.LibcTestPassedLine] });
             var spawn = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.SPAWN_SCENARIO, architecture: architecture);
-            await BootScenarioRunner.RunAsync(root, spawn,
+            await RunOnOneAndTwoAsync(root, spawn,
                 Request("spawn", 256, limit, ExpectedOutcome.Success) with
                 {
                     Suite = BootSuite.Release,
@@ -234,20 +234,20 @@ internal static class KernelTestSuite
                     ]
                 });
             var process = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.PROCESS_SCENARIO, architecture: architecture);
-            await BootScenarioRunner.RunAsync(root, process,
+            await RunOnOneAndTwoAsync(root, process,
                 Request("process", 256, limit, ExpectedOutcome.Success) with
                 {
                     Suite = BootSuite.Release,
                     RequiredLines = [architecture.InitPassedLine, architecture.RootTaskPassedLine]
                 });
             var sysroot = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.SYSROOT_SCENARIO, architecture: architecture);
-            await BootScenarioRunner.RunAsync(root, sysroot,
+            await RunOnOneAndTwoAsync(root, sysroot,
                 Request("sysroot", 256, limit, ExpectedOutcome.Success) with
                 {
                     Suite = BootSuite.Release,
                     RequiredLines = [architecture.SysrootPassedLine, architecture.RootTaskPassedLine]
                 });
-            scenarios += 4;
+            scenarios += 8;
         }
         var panic = await KernelImageBuilder.BuildAsync(root, "invalid-boot-info", architecture: architecture);
         await BootScenarioRunner.RunAsync(root, panic,
@@ -280,6 +280,19 @@ internal static class KernelTestSuite
         await BootScenarioRunner.RunAsync(root, timeout, Request("timeout", 256, hang, ExpectedOutcome.Timeout));
         scenarios++;
         Console.WriteLine($"PASS: all {scenarios} {architecture.Name} foundation scenarios.");
+    }
+
+    /// <summary>
+    /// Boots a layer-2 scenario on one processor and again on two (plan step P1.3c), the second named with the suffix
+    /// "-smp2": the system layer's threads and processes run side by side there.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="image">The scenario's image.</param>
+    /// <param name="request">The one-processor boot.</param>
+    private static async Task RunOnOneAndTwoAsync(string root, string image, BootRequest request)
+    {
+        await BootScenarioRunner.RunAsync(root, image, request);
+        await BootScenarioRunner.RunAsync(root, image, request with { Name = request.Name + "-smp2", Processors = 2 });
     }
 
     #endregion

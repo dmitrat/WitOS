@@ -12,10 +12,10 @@
  * sysinfo reports the physical memory and the time since boot as CLOCK_BOOTTIME has it; there is no swap, no load
  * average and no count of processes, which stay zero. getrlimit reports RLIMIT_AS, the address space that anonymous
  * memory takes: the data arena mmap reserves in, and RLIMIT_NOFILE, the library's descriptor table (R6).
- * sched_getaffinity reports the processors threads run on, the first ones of the kernel's table, and sched_setaffinity
+ * sched_getaffinity reports the processors threads run on, every online one since P1.3b, and sched_setaffinity
  * accepts a mask that holds every one of them, which changes nothing (R3.2: CoreCLR's PAL gives each new thread the
  * process's mask), refuses one that holds none with EINVAL, as Linux does, and one that holds some alone with ENOSYS
- * until threads run on several processors (phase P). The kernel runs every thread round-robin at one priority, which
+ * until the kernel honours a thread's affinity (P1.4). The kernel runs every thread round-robin at one priority, which
  * is what Linux reports of a normal thread (R7.1): SCHED_OTHER at priority 0. Every other limit, setting a limit or a
  * policy and the limits of another process are ENOSYS, never an invented answer. */
 
