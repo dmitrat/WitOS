@@ -1,5 +1,6 @@
 #include "witos/arch.h"
 #include "witos/arch_types.h"
+#include "witos/kernel_stacks.h"
 #include "witos/platform.h"
 #include "user.h"
 #include "a64.h"
@@ -31,10 +32,14 @@
 /* The kernel stack top of the thread each processor runs (P1.3a): an EL0 frame resumes only at the top of its own. */
 static WitU64 selected_top[WIT_PROCESSOR_CAPACITY];
 
+/* A thread's kernel stack in the window (P1.5). */
 static WitU64 stack_low(WitU32 slot, WitU32 thread)
 {
-    return (WitU64)wit_a64_user_kernel_stacks[slot][thread] + 4096;
+    return wit_kernel_stack_low(slot, thread);
 }
+
+WIT_STATIC_ASSERT(
+    WIT_A64_KERNEL_STACK_SIZE == WIT_KERNEL_STACK_BYTES, "The window's stacks are the architecture's size");
 
 void wit_arch_select_thread_stack(WitU32 slot, WitU32 thread)
 {

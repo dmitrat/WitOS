@@ -1,4 +1,5 @@
 #include "user.h"
+#include "witos/kernel_stacks.h"
 #include "witos/platform.h"
 
 static void require(int condition, const char *message)
@@ -25,6 +26,9 @@ WitU64 wit_user_prepare_thread(WitUserProcess *process, WitU64 entry, WitU64 arg
     WitUserThread *thread = &process->Threads[0];
     WitU32 mapped = 0;
     reset_thread(thread);
+    if (!wit_kernel_stack_ensure(process->Slot, 0)) {
+        return WIT_STATUS_NO_MEMORY; /* its kernel stack's pages (P1.5) */
+    }
     const WitU64 handle = wit_handle_grant(&process->Handles, WIT_HANDLE_THREAD_IDENTITY, 0);
     if (!handle) {
         return WIT_STATUS_NO_MEMORY;
@@ -127,7 +131,8 @@ static WitU64 create_in(
     }
     if (!reference ||
         wit_handles_free_count(&p->Handles) < (target == p ? 2U : 1U) ||
-        !wit_handles_free_count(&target->Handles)) {
+        !wit_handles_free_count(&target->Handles) ||
+        !wit_kernel_stack_ensure(target->Slot, index)) { /* its kernel stack's pages, the last thing taken (P1.5) */
         return WIT_STATUS_NO_MEMORY;
     }
     WitUserThread *thread = &target->Threads[index];

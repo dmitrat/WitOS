@@ -1,4 +1,5 @@
 #include "user.h"
+#include "witos/kernel_stacks.h"
 #include "self_test.h"
 #include "witos/platform.h"
 #include "witos/processor.h"
@@ -72,7 +73,8 @@ static void check_exit(WitU64 code)
 
 /* A refused creation leaves nothing behind (K8.4b: the one form maps nothing, so its rollback is the handles'): version
  * 1 is retired; the thread handle and the identity are both checked before either is granted, with one handle slot
- * left as with none; with the slots back, the creation succeeds and takes no page. */
+ * left as with none; with the slots back, the creation succeeds and takes no page of the space, only its kernel stack's
+ * (P1.5). */
 static void allocation_failure(WitPageAllocator *pages)
 {
     WitU64 result, handles[WIT_HANDLE_CAPACITY];
@@ -115,7 +117,7 @@ static void allocation_failure(WitPageAllocator *pages)
             process.Threads[1].State == WitThreadReady &&
             process.Threads[1].StackBottom == stack_base &&
             process.Space.OwnedCount == owned &&
-            wit_pages_free_count(pages) == before,
+            wit_pages_free_count(pages) == before - WIT_KERNEL_STACK_PAGES,
         "Thread creation failed after the handles came back");
     wit_user_destroy(&process);
     wit_console_write("[TEST-PASS] User.ThreadCreationRollback\n");

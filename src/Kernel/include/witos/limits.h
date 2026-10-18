@@ -41,18 +41,12 @@
  * stream redirected. */
 #define WIT_PROCESS_CHANNEL_CAPACITY 16U
 #define WIT_CHANNEL_TABLE_CAPACITY 128U /* channels kernel-wide: eight processes of sixteen (32 until N4.2) */
-/* Components kernel-wide: the registry and the pool of created processes (K5.2c). Twelve in the release kernel since
- * N4.3, where the terminal's driver and service beside the device manager, two block drivers, the namespace service,
- * init, an application and its children passed the eight of K5.2c. A slot costs its record and the static kernel
- * stacks of its 32 threads, some 2.6 MiB, all in the kernel image: the release image is 35.5 MiB on x64 with twelve,
- * and sixteen made 52.5 MiB, which the firmware refuses to load with 128 MiB; the self-test kernel, whose test layers
- * and fixtures make it 6.5 MiB larger and whose own tests never hold more than a few processes, keeps eight so that
- * boot-128 loads. The static arrays per slot are phase P's question (PLAN.md, phase V). */
-#if defined(WITOS_SELFTEST)
-#define WIT_PROCESS_CAPACITY 8U
-#else
-#define WIT_PROCESS_CAPACITY 12U
-#endif
+/* Components kernel-wide: the registry and the pool of created processes (K5.2c). Thirty-two since P1.5, in both
+ * kernels: a slot's 32 kernel stacks left the image for the stack window (witos/kernel_stacks.h), whose pages a stack
+ * takes from the allocator when a thread of its slot is created, so a slot costs the image its record alone, some
+ * 360 KiB in the pool. Until then the stacks made the x64 release image 35.5 MiB with twelve slots, sixteen 52.5 MiB,
+ * which the firmware refused to load with 128 MiB, and the self-test kernel kept eight (N4.3). */
+#define WIT_PROCESS_CAPACITY 32U
 #define WIT_PROCESSOR_CAPACITY 8U /* processors of the kernel's table (K7.1) */
 #define WIT_CHANNEL_QUEUE_DEPTH 4U /* messages queued for one endpoint */
 #define WIT_CHANNEL_QUEUE_BYTES 1024U /* inline bytes queued for one endpoint */

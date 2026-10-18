@@ -64,7 +64,7 @@ typedef struct WitArchFrame {
  * translation tables. */
 #define WIT_RV64_KERNEL_STACK_SIZE (64U * 1024U)
 #define WIT_RV64_STACK_REGION_SIZE (WIT_RV64_KERNEL_STACK_SIZE + 8192U)
-#define WIT_RV64_STACK_GUARD_COUNT (6U + 2U * WIT_PROCESS_CAPACITY * WIT_PROCESS_THREAD_CAPACITY)
+#define WIT_RV64_STACK_GUARD_COUNT 6U /* the boot and worker stacks; thread stacks are the window's (P1.5) */
 extern WitU8 wit_rv64_kernel_stack[WIT_RV64_STACK_REGION_SIZE];
 
 /* Stacks of the two kernel workers of the preemption self-test. */
@@ -72,7 +72,6 @@ extern WitU8 wit_rv64_worker_stacks[2][WIT_RV64_STACK_REGION_SIZE];
 
 /* Kernel stack of each user thread of every registry slot (V1.3, as A64's); a thread's frame sits at the top of its
  * stack whenever it runs in U-mode, so that the next trap finds it there through sscratch. */
-extern WitU8 wit_rv64_user_kernel_stacks[WIT_PROCESS_CAPACITY][WIT_PROCESS_THREAD_CAPACITY][WIT_RV64_STACK_REGION_SIZE];
 void wit_rv64_stack_guards(WitU64 guards[WIT_RV64_STACK_GUARD_COUNT]);
 
 /* Boot storage window in the high half of Sv48, at the same address as the other ISAs' storage slot. */

@@ -580,6 +580,31 @@ int main(void)
             *(const volatile int *)&constant == 42,
         "a read-only page of the program made writable");
 
+    /* More processes at once than the twelve slots before P1.5: twenty sleeping children beside the root task and
+     * init, every one still running once the last started, then each reaped with its code. */
+    enum {
+        CROWD = 20
+    };
+
+    pid_t crowd[CROWD];
+    char *napping[] = {"child", "sleep", "3000", "5", 0};
+    int crowd_started = 0, crowd_running = 0, crowd_reaped = 0;
+    for (int i = 0; i < CROWD; ++i) {
+        crowd_started += posix_spawn(&crowd[crowd_started], CHILD, 0, 0, napping, environ) == 0;
+    }
+    for (int i = 0; i < crowd_started; ++i) {
+        int crowd_status = 0;
+        crowd_running += waitpid(crowd[i], &crowd_status, WNOHANG) == 0;
+    }
+    for (int i = 0; i < crowd_started; ++i) {
+        int crowd_status = 0;
+        crowd_reaped += waitpid(crowd[i], &crowd_status, 0) == crowd[i] &&
+            WIFEXITED(crowd_status) &&
+            WEXITSTATUS(crowd_status) == 5;
+    }
+    check(crowd_started == CROWD && crowd_running == CROWD && crowd_reaped == CROWD,
+        "twenty children at once, more than twelve processes");
+
     printf("[INIT] process manager on " ISA_NAME ": %d checks passed\n", checks);
     return 0;
 }

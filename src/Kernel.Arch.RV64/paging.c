@@ -1,4 +1,5 @@
 #include "witos/arch.h"
+#include "witos/kernel_stacks.h"
 #include "witos/platform.h"
 #include "witos/virtual.h"
 #include "witos/rv64_csr.h"
@@ -111,6 +112,33 @@ static void remove_page(WitU64 address)
     if (active) {
         wit_rv64_fence_vma_address(address);
     }
+}
+
+/* The stack window's pages (P1.5): its tables exist since boot under root entry 320, which every user root copies
+ * with the rest of the high half; SFENCE.VMA is local, so the caller asks the other harts after a clear. */
+static int window_address(WitU64 address)
+{
+    return address >= WIT_KERNEL_STACK_WINDOW &&
+        address < WIT_KERNEL_STACK_WINDOW + WIT_KERNEL_STACK_WINDOW_SIZE &&
+        (address & 4095) == 0;
+}
+
+void wit_arch_kernel_window_set(WitU64 address, WitU64 physical)
+{
+    WitU64 *const entry = window_address(address) ? leaf(address, 0) : 0;
+    require(entry != 0 && !(*entry & PTE_VALID) && (physical & 4095) == 0, "A stack window page out of place");
+    *entry = page_descriptor(physical, 1, 0, 0);
+    wit_rv64_fence_vma_address(address);
+}
+
+WitU64 wit_arch_kernel_window_clear(WitU64 address)
+{
+    WitU64 *const entry = window_address(address) ? leaf(address, 0) : 0;
+    require(entry != 0 && (*entry & PTE_VALID), "Clearing a stack window page that is not set");
+    const WitU64 physical = PTE_ADDRESS(*entry);
+    *entry = 0;
+    wit_rv64_fence_vma_address(address);
+    return physical;
 }
 
 static int scratch_address(WitU64 address)
@@ -376,6 +404,12 @@ void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator
     for (WitU32 i = 0; i < WIT_RV64_STACK_GUARD_COUNT; ++i) {
         remove_page(guards[i]);
     }
+    /* The stack window's tables under root entry 320, before any user root copies the high half (P1.5): its leaves
+     * stay empty until a thread's stack is backed, its guards for good. */
+    for (WitU64 address = WIT_KERNEL_STACK_WINDOW; address < WIT_KERNEL_STACK_WINDOW + WIT_KERNEL_STACK_WINDOW_SIZE;
+        address += 1ULL << 21) {
+        leaf(address, 1);
+    }
 
     /* The table stores reach the walker, the root takes effect, and no translation of the bare space survives. */
     wit_rv64_fence();
@@ -390,6 +424,14 @@ void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator
     wit_console_write("\n[TEST-PASS] Memory.KernelPaging\n");
     for (WitU32 i = 0; i < WIT_RV64_STACK_GUARD_COUNT; ++i) {
         require(leaf(guards[i], 0) != 0 && !(*leaf(guards[i], 0) & PTE_VALID), "Stack guard is mapped");
+    }
+    for (WitU64 low = WIT_KERNEL_STACK_WINDOW + 4096U; low < WIT_KERNEL_STACK_WINDOW + WIT_KERNEL_STACK_WINDOW_SIZE;
+        low += WIT_KERNEL_STACK_STRIDE) {
+        require(leaf(low - 4096U, 0) != 0 &&
+                !(*leaf(low - 4096U, 0) & PTE_VALID) &&
+                leaf(low + WIT_KERNEL_STACK_BYTES, 0) != 0 &&
+                !(*leaf(low + WIT_KERNEL_STACK_BYTES, 0) & PTE_VALID),
+            "A stack window guard is mapped");
     }
     require(leaf(0, 0) == 0 || !(*leaf(0, 0) & PTE_VALID), "Null page is mapped");
     wit_console_write("[TEST-PASS] Memory.StackGuards\n");

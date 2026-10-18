@@ -1,6 +1,7 @@
 #include "x64.h"
 #include "user.h"
 #include "witos/arch_types.h"
+#include "witos/kernel_stacks.h"
 #include "witos/platform.h"
 #include "witos/x64_instructions.h"
 
@@ -15,10 +16,13 @@
  * a delivery that interrupts it must leave those bytes intact. */
 #define RED_ZONE_BYTES 128U
 
+/* A thread's kernel stack in the window (P1.5). */
 static WitU64 stack_low(WitU32 slot, WitU32 thread)
 {
-    return (WitU64)wit_x64_user_kernel_stacks[slot][thread] + 4096;
+    return wit_kernel_stack_low(slot, thread);
 }
+
+WIT_STATIC_ASSERT(WIT_KERNEL_STACK_SIZE == WIT_KERNEL_STACK_BYTES, "The window's stacks are the architecture's size");
 
 void wit_arch_select_thread_stack(WitU32 slot, WitU32 thread)
 {
