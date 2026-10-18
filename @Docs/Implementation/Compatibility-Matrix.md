@@ -77,6 +77,6 @@ The hardware matrix of Strategy §146.
 | --- | --- | --- |
 | QEMU x64 (q35) | Primary | Every gate runs on it. |
 | QEMU ARM64 (virt) | Primary | Every gate runs on it; a step closes only when both ISAs pass. |
-| QEMU RISC-V (virt) | Future | Phase V, begun with the measurement V0 (2026-10-16): the pinned QEMU carries qemu-system-riscv64 and EDK II's RISC-V firmware; the pinned lld-link links no RISC-V PE/COFF, so the loader's image format is V0's first decision. |
+| QEMU RISC-V (virt) | Early | Phase V: the kernel (V1), layer 2 (V2.1–V2.3) and the Unix-form runtime (V2.4) pass there, every scenario of runtime-witos among them, the compatibility suite with every difference as recorded; it becomes Primary at V3, from which a step closes only when the three ISAs pass. |
 | Physical reference machine | Future | After phase V; firmware memory reclamation and the hardware matrix of Strategy §146. |
 | Generic PC | Future | After the reference machine. |

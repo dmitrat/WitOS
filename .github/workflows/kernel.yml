@@ -137,19 +137,19 @@ jobs:
 
   linux-host:
     # The Linux development host (plan steps T2.1a and T2.1b): the tool, its process runner and host tests, the pinned
-    # LLVM and QEMU (built from its source release), the release kernels of both ISAs and the Unix-form runtime for
+    # LLVM and QEMU (built from its source release), each ISA's release kernel and the Unix-form runtime for
     # witos (phase R). The scenarios of `test`, the layer-2 ones among them, run in linux-selftest (T2.2). Upstream's
     # PAL suite and slices of its runtime tests (R7) run here too, which take about an hour of the job, and the device
     # services' and applications' scenarios (phases D and N) after them. Each ISA's runtime is a leg of its own (D5.2):
-    # one after the other they outgrew three hours. The host tests and the source style run in the x64 leg. Each leg
-    # uploads the .NET install and the services it built for the NuGet libraries' own suites (N2.2), which run in jobs of
-    # their own.
+    # one after the other they outgrew three hours; riscv64's leg since V2.4, whose runtime passes the same scenarios.
+    # The host tests and the source style run in the x64 leg. Each leg uploads the .NET install and the services it built
+    # for the NuGet libraries' own suites (N2.2), which run in jobs of their own on x64 and arm64.
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64, arm64]
+        arch: [x64, arm64, riscv64]
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

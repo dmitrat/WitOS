@@ -1,10 +1,70 @@
 {
-  "comment": "Slices of the .NET libraries' tests on WitOS (plan step R7.3), which @Docs/Implementation/R7.3-Library-Tests.md explains. projects: upstream's library test projects runtime-witos builds for witos and the guest runs under xunit's console runner, a process a project, without the categories upstream's CI leaves out. excluded: test methods (xunit's -nomethod names or patterns) the guest leaves out, each with the reason. Every other test must pass.",
+  "comment": "Slices of the .NET libraries' tests on WitOS (plan step R7.3), which @Docs/Implementation/R7.3-Library-Tests.md explains. projects: upstream's library test projects runtime-witos builds for witos and the guest runs under xunit's console runner, a process a project, without the categories upstream's CI leaves out. excluded: test methods (xunit's -nomethod names or patterns) the guest leaves out, each with the reason; an entry whose value is an object names in architectures the ISAs it applies to (V2.4). Every other test must pass.",
   "projects": [
     "src/libraries/System.Collections.Concurrent/tests/System.Collections.Concurrent.Tests.csproj",
     "src/libraries/System.Runtime.Numerics/tests/System.Runtime.Numerics.Tests.csproj"
   ],
   "excluded": {
-    "System.Numerics.Tests.op_rightshiftTest.LargeNegativeBigIntegerShiftTest": "builds a BigInteger of 2^31 bits twice, 256 MB each, past the pages a process commits (the system layer's quota, 256 MiB)"
+    "System.Numerics.Tests.op_rightshiftTest.LargeNegativeBigIntegerShiftTest": "builds a BigInteger of 2^31 bits twice, 256 MB each, past the pages a process commits (the system layer's quota, 256 MiB)",
+    "System.Numerics.Tests.BigIntegerTests_GenericMath.TryConvertToCheckedSByteTest": {
+      "reason": "a bug of the community RISC-V JIT, not of WitOS: with dynamic PGO and on-stack replacement, a BigInteger passed in registers to a method it does not inline arrives with its int field not sign-extended, and the checked narrowing of BigInteger's explicit conversion to sbyte then throws OverflowException for a negative value; reproduced under corerun on riscv64 (no failure with TieredPGO, tiered compilation or QuickJitForLoops off, none on arm64), an open question of the V2.4 document to report upstream",
+      "architectures": [
+        "riscv64"
+      ]
+    },
+    "System.Numerics.Tests.op_leftshiftTest.RunSmallTests": {
+      "reason": "a bug of the community RISC-V JIT, not of WitOS: with dynamic PGO and on-stack replacement, a BigInteger passed in registers to a method it does not inline arrives with its int field not sign-extended, and the checked narrowing of BigInteger's explicit conversion to sbyte then throws OverflowException for a negative value; reproduced under corerun on riscv64 (no failure with TieredPGO, tiered compilation or QuickJitForLoops off, none on arm64), an open question of the V2.4 document to report upstream",
+      "architectures": [
+        "riscv64"
+      ]
+    },
+    "System.Numerics.Tests.op_leftshiftTest.RunLeftShiftTests": {
+      "reason": "a bug of the community RISC-V JIT, not of WitOS: with dynamic PGO and on-stack replacement, a BigInteger passed in registers to a method it does not inline arrives with its int field not sign-extended, and the checked narrowing of BigInteger's explicit conversion to sbyte then throws OverflowException for a negative value; reproduced under corerun on riscv64 (no failure with TieredPGO, tiered compilation or QuickJitForLoops off, none on arm64), an open question of the V2.4 document to report upstream",
+      "architectures": [
+        "riscv64"
+      ]
+    },
+    "System.Numerics.Tests.RotateLeftTest.RunRotateTests": {
+      "reason": "a bug of the community RISC-V JIT, not of WitOS: with dynamic PGO and on-stack replacement, a BigInteger passed in registers to a method it does not inline arrives with its int field not sign-extended, and the checked narrowing of BigInteger's explicit conversion to sbyte then throws OverflowException for a negative value; reproduced under corerun on riscv64 (no failure with TieredPGO, tiered compilation or QuickJitForLoops off, none on arm64), an open question of the V2.4 document to report upstream",
+      "architectures": [
+        "riscv64"
+      ]
+    },
+    "System.Numerics.Tests.RotateLeftTest.RunSmallTests": {
+      "reason": "a bug of the community RISC-V JIT, not of WitOS: with dynamic PGO and on-stack replacement, a BigInteger passed in registers to a method it does not inline arrives with its int field not sign-extended, and the checked narrowing of BigInteger's explicit conversion to sbyte then throws OverflowException for a negative value; reproduced under corerun on riscv64 (no failure with TieredPGO, tiered compilation or QuickJitForLoops off, none on arm64), an open question of the V2.4 document to report upstream",
+      "architectures": [
+        "riscv64"
+      ]
+    },
+    "System.Numerics.Tests.op_UnsignedRightshiftTest.RunRightShiftTests": {
+      "reason": "a bug of the community RISC-V JIT, not of WitOS: with dynamic PGO and on-stack replacement, a BigInteger passed in registers to a method it does not inline arrives with its int field not sign-extended, and the checked narrowing of BigInteger's explicit conversion to sbyte then throws OverflowException for a negative value; reproduced under corerun on riscv64 (no failure with TieredPGO, tiered compilation or QuickJitForLoops off, none on arm64), an open question of the V2.4 document to report upstream",
+      "architectures": [
+        "riscv64"
+      ]
+    },
+    "System.Numerics.Tests.op_UnsignedRightshiftTest.RunSmallTests": {
+      "reason": "a bug of the community RISC-V JIT, not of WitOS: with dynamic PGO and on-stack replacement, a BigInteger passed in registers to a method it does not inline arrives with its int field not sign-extended, and the checked narrowing of BigInteger's explicit conversion to sbyte then throws OverflowException for a negative value; reproduced under corerun on riscv64 (no failure with TieredPGO, tiered compilation or QuickJitForLoops off, none on arm64), an open question of the V2.4 document to report upstream",
+      "architectures": [
+        "riscv64"
+      ]
+    },
+    "System.Numerics.Tests.cast_fromTest.RunSByteExplicitCastFromBigIntegerTests": {
+      "reason": "a bug of the community RISC-V JIT, not of WitOS: with dynamic PGO and on-stack replacement, a BigInteger passed in registers to a method it does not inline arrives with its int field not sign-extended, and the checked narrowing of BigInteger's explicit conversion to sbyte then throws OverflowException for a negative value; reproduced under corerun on riscv64 (no failure with TieredPGO, tiered compilation or QuickJitForLoops off, none on arm64), an open question of the V2.4 document to report upstream",
+      "architectures": [
+        "riscv64"
+      ]
+    },
+    "System.Numerics.Tests.op_rightshiftTest.RunRightShiftTests": {
+      "reason": "a bug of the community RISC-V JIT, not of WitOS: with dynamic PGO and on-stack replacement, a BigInteger passed in registers to a method it does not inline arrives with its int field not sign-extended, and the checked narrowing of BigInteger's explicit conversion to sbyte then throws OverflowException for a negative value; reproduced under corerun on riscv64 (no failure with TieredPGO, tiered compilation or QuickJitForLoops off, none on arm64), an open question of the V2.4 document to report upstream",
+      "architectures": [
+        "riscv64"
+      ]
+    },
+    "System.Numerics.Tests.op_rightshiftTest.RunSmallTests": {
+      "reason": "a bug of the community RISC-V JIT, not of WitOS: with dynamic PGO and on-stack replacement, a BigInteger passed in registers to a method it does not inline arrives with its int field not sign-extended, and the checked narrowing of BigInteger's explicit conversion to sbyte then throws OverflowException for a negative value; reproduced under corerun on riscv64 (no failure with TieredPGO, tiered compilation or QuickJitForLoops off, none on arm64), an open question of the V2.4 document to report upstream",
+      "architectures": [
+        "riscv64"
+      ]
+    }
   }
 }

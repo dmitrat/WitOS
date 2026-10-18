@@ -392,8 +392,13 @@ int main(void)
         "/data/home, the home the namespace service makes");
     check(rename("/data/x", "/fat/x") < 0 && (errno == EXDEV || errno == ENOENT), "rename across volumes");
     check(write_file("/data/posix-kept.txt", POSIX_KEPT, O_TRUNC) == 0, "the file the host finds");
-    const char *loader =
-        access("/boot/EFI/BOOT/BOOTX64.EFI", F_OK) == 0 ? "/boot/EFI/BOOT/BOOTX64.EFI" : "/boot/EFI/BOOT/BOOTAA64.EFI";
+#if defined(__x86_64__)
+    const char *loader = "/boot/EFI/BOOT/BOOTX64.EFI";
+#elif defined(__aarch64__)
+    const char *loader = "/boot/EFI/BOOT/BOOTAA64.EFI";
+#else
+    const char *loader = "/boot/EFI/BOOT/BOOTRISCV64.EFI"; /* a VFAT long name over the alias BOOTRI~1.EFI (V1.1) */
+#endif
     check(read_file(loader, buffer, 3) == 2 && buffer[0] == 'M' && buffer[1] == 'Z', "the boot volume's loader");
     check(write_file("/boot/new.txt", "x", 0) < 0 && errno == EROFS, "a write to the read-only boot volume is EROFS");
     printf("[DEVICES-INIT] POSIX files over the namespace service: %d checks passed, %d failed\n", passed, failed);

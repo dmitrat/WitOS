@@ -351,7 +351,7 @@ internal static class RuntimeDevices
     // previous boot left and, after the cut, the files the cut left (D6.1, D6.2).
     private static string[] MiddleLines(KernelArchitecture architecture, int boot) =>
     [
-        $"[DEVICES] device manager on {(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: ",
+        $"[DEVICES] device manager on {architecture.OsArchitecture}: ",
         " 2 drivers ready, DMA isolation: none (no IOMMU), ready",
         "[NAMESPACE] mounted /tmp: tmpfs volume of 67108864 bytes in memory", // N4.1
         "[NAMESPACE] mounted /boot: FAT16 volume of ",
@@ -383,13 +383,13 @@ internal static class RuntimeDevices
     [
         "[DEVICES-INIT] POSIX files over the namespace service: ",
         " checks passed, 0 failed",
-        $"[FILES] System.IO over the namespace service under NativeAOT on {(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: " +
+        $"[FILES] System.IO over the namespace service under NativeAOT on {architecture.OsArchitecture}: " +
             "10 areas passed, 0 failed",
         $"[DEVICES-INIT] /data/{RuntimeExt4Volume.PROGRAMS}/files/Files exited with 0",
         architecture.DynamicPassedLine,
         $"[DEVICES-INIT] /data/{RuntimeExt4Volume.PROGRAMS}/dynamic/dynamic exited with 0",
         $"[VOLUME-APP] App.dll and its library from /data/{RuntimeExt4Volume.PROGRAMS}/app/ under CoreCLR on " +
-            $"{(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: {VOLUME_GREETING}, answered by VolumeLibrary",
+            $"{architecture.OsArchitecture}: {VOLUME_GREETING}, answered by VolumeLibrary",
         "[DEVICES-INIT] /dotnet/dotnet exited with 0",
         "[ROOT-TASK] /system/DeviceManager was ready before /bin/init",
         ", 4 volumes unmounted",

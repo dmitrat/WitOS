@@ -252,7 +252,7 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   screendump at the last prompt pixel for pixel on both ISAs, the mirror answers no terminal query while the display is
   the main console, and the renderer stores only the pixels that changed, so a scroll costs the text that moved. C2 is
   complete; C3, the native WitOS module and its providers, is the horizon after M8.
-- **Third ISA (phase V, the kernel done).** RISC-V on QEMU's virt board: the measurement V0 found the pinned LLVM links no RISC-V
+- **Third ISA (phase V, the kernel, layer 2 and the runtime done).** RISC-V on QEMU's virt board: the measurement V0 found the pinned LLVM links no RISC-V
   PE/COFF, so the loader and the kernel are one position-independent ELF the tool converts to PE32+ with base
   relocations. V1.1 boots that image under EDK II over OpenSBI: the unchanged loader publishes the device tree, reads the
   boot package and leaves the firmware, and the common kernel compiled for riscv64 without a change. V1.2 is the kernel
@@ -269,7 +269,12 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   libunwind, libc++abi and libc++ build for the triple unchanged and run S4's exception scenarios with the Itanium
   trace of a native Linux build (V2.2, the `cxx` scenario); libwitos, started programs static and dynamic, `libc.so`
   as the dynamic linker, libc-test's 388 runs and the sysroot with ABI-2 1.1 follow (V2.3), so layer 2 is whole on
-  the three ISAs and `test --arch riscv64` runs every scenario the others run. Next: the runtime on riscv64 (V2.4).
+  the three ISAs and `test --arch riscv64` runs every scenario the others run. V2.4 brings upstream .NET 10.0.12 in its
+  Unix form: `runtime-witos --arch riscv64` passes the same 24 boots as the other ISAs — CoreCLR's and NativeAOT's M3
+  acceptance, the PAL suite, upstream's test slices, the NativeAOT device services, the terminal, PowerShell on the
+  screen, the compatibility suite and the NuGet libraries — with five patches of the community RISC-V port and one change
+  of the board's PLIC handling, and CI runs it as a `linux-host` leg. Next: V3, the published applications on the three
+  ISAs and the rule that a step closes on all three.
 - **Later.** The scheduler on several processors (phase P), the network and the remaining milestones (phase W).
 
 The acceptances do not establish threads on several processors, networking, a terminal with input or process creation

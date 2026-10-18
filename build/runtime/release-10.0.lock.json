@@ -144,6 +144,26 @@
     {
       "path": "src/coreclr/pal/tests/palsuite/exception_handling/pal_sxs/test1/CMakeLists.txt",
       "sha256": "e9cdcb7f41ffee93ce64af01e34e6f3e7331168857f9867000bc7a03176da0f6"
+    },
+    {
+      "path": "src/coreclr/vm/riscv64/asmhelpers.S",
+      "sha256": "f9fbd4c7d8d681eedda3b8ccb7dbef071a1cf24d18e83a6d7d5b8733b6cca9a0"
+    },
+    {
+      "path": "src/coreclr/vm/threadstatics.cpp",
+      "sha256": "e0ac597d7dc7b50f9dc37e3f04e596e9bb26bb78b71a1d6f2de3e9d1138fc3cd"
+    },
+    {
+      "path": "src/coreclr/pal/src/arch/riscv64/exceptionhelper.S",
+      "sha256": "26b953e9ac3917abe6518fd7ebb6acceebaae32db9c0cde40b43acf6f93bc31c"
+    },
+    {
+      "path": "src/coreclr/inc/clrconfigvalues.h",
+      "sha256": "93ad38073dc013881aadb95a5a23b73a9f4cd290e1f42d1219785815cadb591c"
+    },
+    {
+      "path": "src/coreclr/runtime/riscv64/StubDispatch.S",
+      "sha256": "142f9683d1f223adc4df478a2586abf454b01ab9c2289a93e06199c4492b7dd4"
     }
   ]
 }

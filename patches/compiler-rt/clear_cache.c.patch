@@ -1,0 +1,41 @@
+Source: compiler-rt/lib/builtins/clear_cache.c
+Output: clear_cache.c
+Before: 2bcbcc8d1dd2f0b417186132ec88557fd4f7db8bfd893b6a78d335dd04686567
+After: 9acc545929dd0ad78d3d9701a10f03bca48f7857a85ac0d62774a12b967a72fa
+
+WitOS has no Linux system call instruction contract (plan step V2.4): compiler-rt's __clear_cache for RISC-V issues the riscv_flush_icache system call with an inline ecall, which on WitOS would reach the kernel's ABI-1 dispatch with a Linux number. The branch calls musl's __riscv_flush_icache instead, which takes the C library's system call path, where the system layer publishes the executable mappings of the range through the kernel's CODE_PUBLISH (src/Substrate/libc/memory.c); CoreCLR's PAL takes the same path through syscall(), and NativeAOT's runtime reaches it through __builtin___clear_cache. The declaration replaces the Linux header, which musl does not install.
+
+--- a/compiler-rt/lib/builtins/clear_cache.c
++++ b/compiler-rt/lib/builtins/clear_cache.c
+@@ -49,8 +49,9 @@
+ #endif
+ 
+ #if defined(__linux__) && defined(__riscv)
+-// to get platform-specific syscall definitions
+-#include <linux/unistd.h>
++// WitOS (plan step V2.4): the C library's cache flush, musl's __riscv_flush_icache, which the system layer serves as
++// the kernel's CODE_PUBLISH; there is no Linux system call instruction contract to issue an ecall against.
++int __riscv_flush_icache(void *start, void *end, unsigned long flags);
+ #endif
+ 
+ // The compiler generates calls to __clear_cache() when creating
+@@ -183,15 +184,10 @@
+     __asm__ volatile("flush %0" : : "r"(dword));
+ #elif defined(__riscv) && defined(__linux__)
+   // See: arch/riscv/include/asm/cacheflush.h, arch/riscv/kernel/sys_riscv.c
+-  register void *start_reg __asm("a0") = start;
+-  const register void *end_reg __asm("a1") = end;
+-  // "0" means that we clear cache for all threads (SYS_RISCV_FLUSH_ICACHE_ALL)
+-  const register long flags __asm("a2") = 0;
+-  const register long syscall_nr __asm("a7") = __NR_riscv_flush_icache;
+-  __asm __volatile("ecall"
+-                   : "=r"(start_reg)
+-                   : "r"(start_reg), "r"(end_reg), "r"(flags), "r"(syscall_nr));
+-  assert(start_reg == 0 && "Cache flush syscall failed.");
++  // "0" means that we clear cache for all threads (SYS_RISCV_FLUSH_ICACHE_ALL); the C library issues the flush.
++  int flushed = __riscv_flush_icache(start, end, 0);
++  assert(flushed == 0 && "Cache flush failed.");
++  (void)flushed;
+ #elif defined(__riscv) && defined(__OpenBSD__)
+   struct riscv_sync_icache_args arg;
+ 

@@ -78,9 +78,10 @@ WitRv64Frame *wit_rv64_interrupt(WitRv64Frame *frame)
         if (wit_platform_interrupt_claim(&line) != 2) {
             return frame; /* nothing pending at the controller */
         }
-        /* A device line: masked and completed here, delivered to the bound event by the kernel (K3.2). */
-        wit_platform_line_mask(line);
+        /* A device line: completed and masked here, delivered to the bound event by the kernel (K3.2). Completed
+         * first, since the PLIC ignores the completion of a source that is not enabled for the context (V2.4). */
         wit_platform_line_complete(line);
+        wit_platform_line_mask(line);
         return wit_user_interrupt(frame, line);
     }
     if (cause == WIT_RV64_INTERRUPT_SOFTWARE) {

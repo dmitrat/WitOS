@@ -100,7 +100,7 @@ internal static class RuntimeTerminal
         "serving the serial protocol",
         "[DEVICES] driver /system/Drivers/VirtioConsole of pci/",
         // C2.2: the service names its consoles; the virtio console reports no size, so the default stands.
-        $"[TERMINAL] terminal service on {(architecture == KernelArchitecture.X64 ? "X64" : "Arm64")}: 80 by 24 by default, 1 console, canonical with echo, serving the terminal protocol",
+        $"[TERMINAL] terminal service on {architecture.OsArchitecture}: 80 by 24 by default, 1 console, canonical with echo, serving the terminal protocol",
         "[DEVICES] terminal service /system/Terminal on pci/",
         "[DEVICES] terminal probe: 80 by 24, canonical with echo",
         $"[DEVICES] terminal probe: echo: {PROBE_LINE}",

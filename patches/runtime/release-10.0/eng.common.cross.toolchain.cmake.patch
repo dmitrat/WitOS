@@ -1,7 +1,7 @@
 Source: eng/common/cross/toolchain.cmake
 Output: eng.common.cross.toolchain.cmake
 Before: 84d07a633060de58f709f6b7a5ec49aea5590c4b96873b5988d5024ae1b1e68e
-After: 9c1c464bf7e1d9a938c49e479ef5356dcdb2b062e08bb957f269555712119041
+After: b1d9095501333660d6ba72b34ce0761461563e8f71e2ea218859783dcb33aae6
 
 The cross toolchain for witos (plan step R1.2b): the system layer's sysroot is recognized by its marker
 etc/witos-release, as FreeBSD's rootfs is by bin/freebsd-version. CMake's system is WitOS, whose platform modules the
@@ -31,25 +31,27 @@ KiB pages and separate loadable segments, the layout WitOS's loader maps.
  else()
    set(CMAKE_SYSTEM_NAME Linux)
    set(LINUX 1)
-@@ -139,6 +145,17 @@
+@@ -137,6 +143,19 @@
+   endif()
+ else()
    message(FATAL_ERROR "Arch is ${TARGET_ARCH_NAME}. Only arm, arm64, armel, armv6, loongarch64, ppc64le, riscv64, s390x, x64 and x86 are supported!")
- endif()
- 
++endif()
++
 +if(WITOS)
 +  # The layer-2 triples (until WitOS has its own): clang builds for them against the sysroot.
 +  if(TARGET_ARCH_NAME STREQUAL "arm64")
 +    set(TOOLCHAIN "aarch64-unknown-linux-musl")
 +  elseif(TARGET_ARCH_NAME STREQUAL "x64")
 +    set(TOOLCHAIN "x86_64-unknown-linux-musl")
++  elseif(TARGET_ARCH_NAME STREQUAL "riscv64")
++    set(TOOLCHAIN "riscv64-unknown-linux-musl")
 +  else()
 +    message(FATAL_ERROR "WitOS has no ${TARGET_ARCH_NAME} system layer.")
 +  endif()
-+endif()
-+
- if(DEFINED ENV{TOOLCHAIN})
-   set(TOOLCHAIN $ENV{TOOLCHAIN})
  endif()
-@@ -220,6 +237,13 @@
+ 
+ if(DEFINED ENV{TOOLCHAIN})
+@@ -220,6 +239,13 @@
  
      locate_toolchain_exec(gcc CMAKE_C_COMPILER)
      locate_toolchain_exec(g++ CMAKE_CXX_COMPILER)
@@ -63,10 +65,12 @@ KiB pages and separate loadable segments, the layout WitOS's loader maps.
  elseif(HAIKU)
      set(CMAKE_SYSROOT "${CROSS_ROOTFS}")
      set(CMAKE_SYSTEM_PREFIX_PATH "${CROSS_ROOTFS}")
-@@ -303,6 +327,16 @@
+@@ -301,6 +327,16 @@
+ elseif(HAIKU)
+   add_toolchain_linker_flag("-lnetwork")
    add_toolchain_linker_flag("-lroot")
- endif()
- 
++endif()
++
 +if(WITOS)
 +  # lld links against the sysroot's compiler-rt and libunwind in the page layout WitOS's loader maps.
 +  add_toolchain_linker_flag("-resource-dir=${WITOS_RESOURCE_DIR}")
@@ -75,8 +79,6 @@ KiB pages and separate loadable segments, the layout WitOS's loader maps.
 +  add_toolchain_linker_flag("-fuse-ld=lld")
 +  add_toolchain_linker_flag("-Wl,-z,max-page-size=4096")
 +  add_toolchain_linker_flag("-Wl,-z,separate-loadable-segments")
-+endif()
-+
- # Specify compile options
+ endif()
  
- if((TARGET_ARCH_NAME MATCHES "^(arm|arm64|armel|armv6|loongarch64|ppc64le|riscv64|s390x|x64|x86)$" AND NOT ANDROID AND NOT FREEBSD AND NOT OPENBSD) OR ILLUMOS OR HAIKU)
+ # Specify compile options

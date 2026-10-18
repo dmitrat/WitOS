@@ -1,0 +1,20 @@
+Source: src/coreclr/vm/threadstatics.cpp
+Output: src.coreclr.vm.threadstatics.cpp
+Before: e0ac597d7dc7b50f9dc37e3f04e596e9bb26bb78b71a1d6f2de3e9d1138fc3cd
+After: f08ef3a16b6f37613272bc94363191511f9e6dfeaaff3618c0be0fb50002f151
+
+CoreCLR on riscv64 (plan step V2.4): the JIT inlines thread static access through a fixed offset from the thread pointer where the runtime's TLS is static; WitOS's dynamic linker, musl's, gives libcoreclr.so, which the host dlopen opens, dynamic TLS alone, so the offset GetThreadStaticsVariableOffset computes (asmhelpers.S, the general-dynamic model on WitOS) is the current thread's and would be wrong for the others. CanJITOptimizeTLSAccess answers false for WitOS riscv64, as upstream answers for linux-musl arm64 for the same reason, and the JIT takes the helper calls.
+
+--- a/src/coreclr/vm/threadstatics.cpp
++++ b/src/coreclr/vm/threadstatics.cpp
+@@ -922,6 +922,10 @@
+     // Optimization is disabled for linux/x86
+ #elif defined(TARGET_LINUX_MUSL) && defined(TARGET_ARM64)
+     // Optimization is disabled for linux musl arm64
++#elif defined(TARGET_WITOS) && defined(TARGET_RISCV64)
++    // Optimization is disabled for WitOS riscv64: the dynamic linker (musl's) gives the runtime, which the host dlopen
++    // opens, dynamic TLS alone, so the offset GetThreadStaticsVariableOffset returns is the current thread's, not every
++    // thread's.
+ #elif defined(TARGET_FREEBSD) && defined(TARGET_ARM64)
+     // Optimization is disabled for FreeBSD/arm64
+ #elif defined(TARGET_ANDROID)
