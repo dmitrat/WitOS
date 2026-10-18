@@ -10,7 +10,8 @@ namespace WitOS.Dev.Host;
 /// (the host's terminal interprets them and answers the guest's queries itself) and whose input is what the person
 /// types, read key by key and sent as a terminal sends it: a printable character as its UTF-8, Enter as CR, Backspace
 /// as DEL, the cursor keys as their escape sequences, a control key as its control character (Ctrl-C reaches the guest,
-/// not the tool). Everything the guest wrote is also kept in the terminal log.
+/// not the tool). Everything the guest wrote is also kept in the terminal log. Beside a window (C2.4) the relay only
+/// shows: the window's keys are the input, and what the host's terminal answers to the mirrored queries is dropped.
 /// </summary>
 internal sealed class TerminalRelay : IDisposable
 {
@@ -27,6 +28,7 @@ internal sealed class TerminalRelay : IDisposable
     private readonly string m_logPath;
     private readonly Task m_pump;
     private readonly bool m_controlC;
+    private readonly bool m_keys;
     private bool m_disposed;
 
     #endregion
@@ -37,13 +39,19 @@ internal sealed class TerminalRelay : IDisposable
     /// Opens the listener and starts the pump, which waits for QEMU to connect.
     /// </summary>
     /// <param name="logPath">The terminal log the guest's bytes are written to as they come.</param>
-    public TerminalRelay(string logPath)
+    /// <param name="keys">Whether what the person types on the console goes to the guest; not beside a window, whose keys
+    /// are the input (C2.4), and Ctrl-C then stops the tool.</param>
+    public TerminalRelay(string logPath, bool keys = true)
     {
         m_logPath = logPath;
+        m_keys = keys;
         if (File.Exists(logPath))
             File.Delete(logPath);
-        m_controlC = Console.TreatControlCAsInput;
-        Console.TreatControlCAsInput = true;
+        if (keys)
+        {
+            m_controlC = Console.TreatControlCAsInput;
+            Console.TreatControlCAsInput = true;
+        }
         m_listener.Start();
         var port = ((IPEndPoint)m_listener.LocalEndpoint).Port;
         Argument = $"socket,id=term0,host=127.0.0.1,port={port},server=off";
@@ -105,8 +113,8 @@ internal sealed class TerminalRelay : IDisposable
             using var stream = client.GetStream();
             using var log = new FileStream(m_logPath, FileMode.Create, FileAccess.Write, FileShare.Read);
             using var output = Console.OpenStandardOutput();
-            var keys = new Thread(() => Keys(stream, token)) { IsBackground = true, Name = "terminal keys" };
-            keys.Start();
+            if (m_keys)
+                new Thread(() => Keys(stream, token)) { IsBackground = true, Name = "terminal keys" }.Start();
             var buffer = new byte[4096];
             try
             {
@@ -150,6 +158,21 @@ internal sealed class TerminalRelay : IDisposable
         }
     }
 
+    // The host terminal's answers to the queries the mirror showed wait in the console's input; they are not the person's
+    // and would reach the shell the tool returns to.
+    private static void DropAnswers()
+    {
+        try
+        {
+            while (Console.KeyAvailable)
+                Console.ReadKey(intercept: true);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or IOException)
+        {
+            // The input is redirected, or there is no console: nothing waits on one.
+        }
+    }
+
     #endregion
 
     #region IDisposable
@@ -170,7 +193,10 @@ internal sealed class TerminalRelay : IDisposable
         {
             // The pump ended with the cancellation.
         }
-        Console.TreatControlCAsInput = m_controlC;
+        if (m_keys)
+            Console.TreatControlCAsInput = m_controlC;
+        else
+            DropAnswers();
         m_lifetime.Dispose();
     }
 

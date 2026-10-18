@@ -14,6 +14,13 @@ internal static class BootScenarioRunner
     // sleeping. Wall-clock limits of a boot only stop QEMU; they never change what the guest measures.
     private const string VIRTUAL_TIME = "shift=2,sleep=off";
 
+    // A session a person works in (C1.4, C2.4) keeps the instruction clock but sleeps while the guest idles, so that its
+    // time follows the host's between keys instead of racing ahead, and the host's processor rests.
+    private const string INTERACTIVE_TIME = "shift=2,sleep=on";
+
+    // The window of a session on the host's screen (C2.4): QEMU's GTK display, the framebuffer scaled to the window.
+    private const string WINDOW_DISPLAY = "gtk,zoom-to-fit=on";
+
     // A screendump waits until the guest wrote nothing for this long, looking every step, up to the limit (C2.3).
     private const int QUIET_MILLISECONDS = 1000;
     private const int QUIET_STEP_MILLISECONDS = 100;
@@ -55,13 +62,15 @@ internal static class BootScenarioRunner
         var terminalPath = Path.Combine(logs, name + ".terminal.log");
         // The mirror of a display answers no terminal query: the display does (C2.3).
         using var terminal = request.Terminal is { } script ? new TerminalLink(script, terminalPath, answersQueries: !request.DisplayIsMainConsole) : null;
-        using var relay = request.InteractiveTerminal && terminal is null ? new TerminalRelay(terminalPath) : null;
+        // A window's keys are the input (C2.4): the console then shows the mirror and types nothing.
+        using var relay = request.InteractiveTerminal && terminal is null ? new TerminalRelay(terminalPath, keys: !request.Window) : null;
         // The HPET-less q35 is the one board variant a scenario selects.
         var machine = request.Expected == ExpectedOutcome.ClockUnavailable ? "q35,hpet=off" : architecture.QemuMachine;
         var arguments = new List<string>
         {
-            "-machine", machine, "-accel", "tcg,thread=single", "-icount", VIRTUAL_TIME, "-cpu", cpu, "-smp", request.Processors.ToString(),
-            "-m", request.MemoryMiB.ToString(), "-display", "none", "-monitor", "none", "-qmp", qmpControl.Argument,
+            "-machine", machine, "-accel", "tcg,thread=single", "-icount", request.InteractiveTerminal ? INTERACTIVE_TIME : VIRTUAL_TIME,
+            "-cpu", cpu, "-smp", request.Processors.ToString(), "-m", request.MemoryMiB.ToString(),
+            "-display", request.Window ? WINDOW_DISPLAY : "none", "-monitor", "none", "-qmp", qmpControl.Argument,
             "-serial", "file:" + QemuPath(serialPath), "-nic", "none", "-no-reboot",
             "-drive", $"if=pflash,unit=0,format=raw,readonly=on,file={QemuPath(architecture.FirmwarePath(root))}",
             "-drive", $"if=pflash,unit=1,format=raw,file={QemuPath(firmwareState)}",

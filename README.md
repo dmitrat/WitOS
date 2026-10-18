@@ -251,7 +251,9 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   runs on that screen (C2.3): the `runtime-display` scenario types C1's session on the keyboard through QMP and judges the
   screendump at the last prompt pixel for pixel on both ISAs, the mirror answers no terminal query while the display is
   the main console, and the renderer stores only the pixels that changed, so a scroll costs the text that moved. C2 is
-  complete; C3, the native WitOS module and its providers, is the horizon after M8.
+  complete. `shell --window` opens that screen in QEMU's window with the window's keys, the console mirroring it, and
+  `shell --prepare` builds the session on the Linux host for a host with a screen, which boots it with `--image` (C2.4,
+  closed by the author's session); C3, the native WitOS module and its providers, is the horizon after M8.
 - **Third ISA (phase V, the kernel, layer 2 and the runtime done).** RISC-V on QEMU's virt board: the measurement V0 found the pinned LLVM links no RISC-V
   PE/COFF, so the loader and the kernel are one position-independent ELF the tool converts to PE32+ with base
   relocations. V1.1 boots that image under EDK II over OpenSBI: the unchanged loader publishes the device tree, reads the

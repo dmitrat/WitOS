@@ -7,7 +7,11 @@ namespace WitOS.Dev.Runtime;
 /// An interactive WitOS session on the host's console (plan step C1.4, RFC 0020 section 34): the device services, the
 /// .NET install and the terminal boot with a data disk that holds PowerShell and, when asked, a directory the person
 /// published on the host; /bin/init starts PowerShell on the terminal, which the tool relays to the console, and the
-/// session ends with PowerShell's exit. Not a gate: the way to work with the system by hand.
+/// session ends with PowerShell's exit. In a window (C2.4) the board has the display and the keyboard of the
+/// runtime-display scenario: PowerShell draws on the display service's screen in QEMU's window, the window's keys reach
+/// the keyboard driver, and the console shows the virtio console's mirror. The image and the data disk need the runtime
+/// and e2fsprogs of a Linux host, so a session may be prepared there and booted where a screen is. Not a gate: the way
+/// to work with the system by hand.
 /// </summary>
 internal static class RuntimeShell
 {
@@ -24,21 +28,64 @@ internal static class RuntimeShell
     #region Functions
 
     /// <summary>
-    /// Boots the session and relays its terminal to the console until PowerShell exits.
+    /// Boots the session and relays its terminal to the console until PowerShell exits, or prepares it.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="architecture">Target architecture.</param>
-    /// <param name="published">A directory published on the host, laid on the data volume under its name; none by default.</param>
-    /// <param name="memoryMiB">The guest's memory.</param>
-    /// <param name="disk">The data disk's image to keep between sessions: made with the volume's files when missing, booted
-    /// as it is when there (what the previous session left on it stays; a published directory is laid only when the disk
-    /// is made); the scenario's own, made anew, when null.</param>
-    /// <returns>When the session ended.</returns>
+    /// <param name="options">What the person asked for.</param>
+    /// <returns>When the session ended, or when its image and disk were prepared.</returns>
     /// <exception cref="DirectoryNotFoundException">The published directory does not exist.</exception>
-    public static async Task RunAsync(string root, KernelArchitecture architecture, string? published, int memoryMiB, string? disk = null)
+    /// <exception cref="FileNotFoundException">A prepared image or its data disk does not exist.</exception>
+    public static async Task RunAsync(string root, KernelArchitecture architecture, ShellOptions options)
     {
         var output = Path.Combine(root, "artifacts", architecture.Name, SCENARIO);
         Directory.CreateDirectory(output);
+        string image;
+        string dataDisk;
+        string? where = null;
+        if (options.Image is not null)
+        {
+            // A session prepared on another host: the image and the disk as they are.
+            image = Path.GetFullPath(options.Image);
+            if (!File.Exists(image))
+                throw new FileNotFoundException($"No prepared image at {image}.", image);
+            dataDisk = Path.GetFullPath(options.Disk ?? throw new ArgumentException("A prepared image boots with its --disk."));
+            if (!File.Exists(dataDisk))
+                throw new FileNotFoundException($"No data disk at {dataDisk}.", dataDisk);
+        }
+        else
+        {
+            (image, dataDisk, where) = await BuildAsync(root, architecture, options, output);
+            if (options.Prepare is not null)
+            {
+                Prepare(architecture, options, image, dataDisk);
+                return;
+            }
+        }
+        Console.WriteLine(options.Window
+            ? $"WitOS on witos-{architecture.Name}: PowerShell opens in QEMU's window once the services are up, and this console " +
+              $"mirrors it; type exit in the window to end the session{(where is null ? "" : $"; your files are under {where}")}."
+            : $"WitOS on witos-{architecture.Name}: PowerShell opens on this console once the services are up; " +
+              $"type exit to end the session{(where is null ? "" : $"; your files are under {where}")}.");
+        await BootScenarioRunner.RunAsync(root, image, new BootRequest($"{architecture.Name}-{SCENARIO}-{options.MemoryMiB}",
+            options.MemoryMiB, TIMEOUT_SECONDS, ExpectedOutcome.Success)
+        {
+            Architecture = architecture,
+            Suite = BootSuite.Release,
+            DataDisk = dataDisk,
+            InteractiveTerminal = true,
+            Display = options.Window,
+            Keyboard = options.Window,
+            Window = options.Window
+        });
+        Console.WriteLine("Session ended.");
+    }
+
+    // The session's image and data disk: PowerShell's package, its files and the published directory on the volume. A
+    // kept disk boots as the previous session left it.
+    private static async Task<(string Image, string DataDisk, string? Where)> BuildAsync(string root, KernelArchitecture architecture,
+        ShellOptions options, string output)
+    {
         var package = await RuntimePowerShell.PackageAsync(root, output, architecture, ["cd /data", RuntimePowerShell.PWSH]);
         var volume = new List<(string Path, string Source)>();
         volume.AddRange(await PowerShell.VolumeFilesAsync(root, architecture, RuntimePowerShell.VOLUME_DIRECTORY));
@@ -46,9 +93,9 @@ internal static class RuntimeShell
         await File.WriteAllTextAsync(keep, "");
         volume.Add(("home/.keep", keep));
         string? where = null;
-        if (published is not null)
+        if (options.Published is not null)
         {
-            var directory = Path.GetFullPath(published);
+            var directory = Path.GetFullPath(options.Published);
             if (!Directory.Exists(directory))
                 throw new DirectoryNotFoundException($"No published directory at {directory}.");
             var name = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
@@ -58,22 +105,27 @@ internal static class RuntimeShell
         }
         var image = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_POWERSHELL_SCENARIO, outputDirectory: output,
             architecture: architecture, package: package);
-        var dataDisk = disk is null ? Path.Combine(output, "data-disk.img") : Path.GetFullPath(disk);
-        if (disk is not null && File.Exists(dataDisk))
+        var dataDisk = options.Disk is null ? Path.Combine(output, "data-disk.img") : Path.GetFullPath(options.Disk);
+        if (options.Disk is not null && File.Exists(dataDisk))
             Console.WriteLine($"Booting the data disk {dataDisk} as the previous session left it{(where is null ? "" : "; the published directory is not laid on an existing disk")}.");
         else
             await RuntimeDataDisk.CreateAsync(dataDisk, files: volume, bytes: DISK_BYTES);
-        Console.WriteLine($"WitOS on witos-{architecture.Name}: PowerShell opens on this console once the services are up; " +
-            $"type exit to end the session{(where is null ? "" : $"; your files are under {where}")}.");
-        await BootScenarioRunner.RunAsync(root, image, new BootRequest($"{architecture.Name}-{SCENARIO}-{memoryMiB}", memoryMiB, TIMEOUT_SECONDS,
-            ExpectedOutcome.Success)
-        {
-            Architecture = architecture,
-            Suite = BootSuite.Release,
-            DataDisk = dataDisk,
-            InteractiveTerminal = true
-        });
-        Console.WriteLine("Session ended.");
+        return (image, dataDisk, where);
+    }
+
+    // The prepared session: the image and the disk side by side in the directory, and the command that boots them.
+    private static void Prepare(KernelArchitecture architecture, ShellOptions options, string image, string dataDisk)
+    {
+        var directory = Path.GetFullPath(options.Prepare!);
+        Directory.CreateDirectory(directory);
+        var preparedImage = Path.Combine(directory, $"WitOS-{architecture.Name}-shell.img");
+        var preparedDisk = Path.Combine(directory, $"data-{architecture.Name}.img");
+        File.Copy(image, preparedImage, overwrite: true);
+        if (!string.Equals(Path.GetFullPath(dataDisk), preparedDisk, StringComparison.Ordinal))
+            File.Copy(dataDisk, preparedDisk, overwrite: true);
+        Console.WriteLine($"Prepared the session for witos-{architecture.Name} in {directory}; on a host with a screen boot it with:");
+        Console.WriteLine($"  dotnet run --project tools/WitOS.Dev --configuration Release -- shell --arch {architecture.Name} " +
+            $"--image {Path.GetFileName(preparedImage)} --disk {Path.GetFileName(preparedDisk)}{(options.Window ? " --window" : "")}");
     }
 
     #endregion
