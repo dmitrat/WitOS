@@ -750,8 +750,14 @@ long __wit_sigaltstack(const stack_t *ss, stack_t *old)
     memset(&request, 0, sizeof(request));
     request.Version = WIT_THREAD_ALTERNATE_STACK_VERSION;
     request.Size = sizeof(request);
+    WitU64 aligned_up = 0;
     if (!(ss->ss_flags & SS_DISABLE)) {
-        base = ((WitU64)ss->ss_sp + 15) & ~15ULL;
+        /* The range's base rounds down to the alignment: the kernel and the library write at the top of the range alone,
+         * so the bytes below ss_sp within its 16-byte unit are never touched and only widen the bound. Rounding up would
+         * lose them from a stack of exactly SIGSTKSZ bytes, which equals the kernel's minimum on x86_64 and riscv64, and
+         * clang aligns a char array to one byte on RISC-V (V2.3: libc-test's regression/sigaltstack). */
+        base = (WitU64)ss->ss_sp & ~15ULL;
+        aligned_up = ((WitU64)ss->ss_sp + 15) & ~15ULL;
         end = ((WitU64)ss->ss_sp + ss->ss_size) & ~15ULL;
         if (end <= base || end - base < WIT_EXCEPTION_STACK_MINIMUM) {
             return -ENOMEM; /* the kernel's callback frame needs this much; MINSIGSTKSZ is smaller */
@@ -760,6 +766,16 @@ long __wit_sigaltstack(const stack_t *ss, stack_t *old)
         request.Bytes = end - base;
     }
     WitU64 status = wit_syscall(WIT_CALL_THREAD_STACK_ALTERNATE, (WitU64)&request, sizeof(request), 0, &result);
+    /* The bytes below ss_sp may lie in a page that is not the program's: then the range starts at ss_sp, rounded up. */
+    if (status == WIT_STATUS_BAD_ADDRESS &&
+        request.Bytes &&
+        aligned_up > request.Base &&
+        end > aligned_up &&
+        end - aligned_up >= WIT_EXCEPTION_STACK_MINIMUM) {
+        request.Base = aligned_up;
+        request.Bytes = end - aligned_up;
+        status = wit_syscall(WIT_CALL_THREAD_STACK_ALTERNATE, (WitU64)&request, sizeof(request), 0, &result);
+    }
     /* A guard page at the bottom of the range, which CoreCLR's PAL makes PROT_NONE (R3.2), is no room for the kernel's
      * callback frame: the kernel takes the writable part above it, page by page while enough is left, and the library
      * keeps the whole range, whose top its handlers use. */
@@ -784,8 +800,8 @@ long __wit_sigaltstack(const stack_t *ss, stack_t *old)
     if (status != WIT_STATUS_OK) {
         return __wit_errno(status);
     }
-    state->AlternateBase = request.Bytes ? (void *)base : 0;
-    state->AlternateBytes = request.Bytes ? end - base : 0;
+    state->AlternateBase = request.Bytes ? ss->ss_sp : 0; /* the program's own range, which it reads back */
+    state->AlternateBytes = request.Bytes ? ss->ss_size : 0;
     return 0;
 }
 

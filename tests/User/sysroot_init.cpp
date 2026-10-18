@@ -20,8 +20,10 @@
 
 #if defined(__x86_64__)
 #define ISA_NAME "x86_64"
-#else
+#elif defined(__aarch64__)
 #define ISA_NAME "aarch64"
+#else
+#define ISA_NAME "riscv64"
 #endif
 
 namespace {

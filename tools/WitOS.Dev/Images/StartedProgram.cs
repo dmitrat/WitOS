@@ -29,8 +29,10 @@ internal static class StartedProgram
     private const ulong DF_TEXTREL = 4;
     private const ushort EM_X86_64 = 62;
     private const ushort EM_AARCH64 = 183;
+    private const ushort EM_RISCV = 243;
     private const uint R_X86_64_RELATIVE = 8;
     private const uint R_AARCH64_RELATIVE = 1027;
+    private const uint R_RISCV_RELATIVE = 3;
 
     #endregion
 
@@ -58,6 +60,7 @@ internal static class StartedProgram
         {
             EM_X86_64 => R_X86_64_RELATIVE,
             EM_AARCH64 => R_AARCH64_RELATIVE,
+            EM_RISCV => R_RISCV_RELATIVE,
             _ => throw new InvalidDataException($"No relative relocation type is known for machine {machine}.")
         };
         var programHeaders = Table(span, BinaryPrimitives.ReadUInt64LittleEndian(span[32..]), BinaryPrimitives.ReadUInt16LittleEndian(span[54..]),

@@ -142,7 +142,7 @@ internal static class LibcTestSuite
             ? excluded.EnumerateObject().ToDictionary(entry => entry.Name, entry => entry.Value.EnumerateArray().Select(item => item.GetString()!).ToArray())
             : new Dictionary<string, string[]>(StringComparer.Ordinal);
         if (mathExcluded.Any(entry => !math.Contains(entry.Key) || entry.Value.Length == 0 ||
-                entry.Value.Any(name => name is not ("x86_64" or "aarch64"))))
+                entry.Value.Any(name => name is not ("x86_64" or "aarch64" or "riscv64"))))
             throw new InvalidDataException("Invalid libc-test math exclusions.");
         var dynamicOnly = Strings("dynamicOnly")
             .Concat(math.Where(test => !mathExcluded.TryGetValue(test, out var isas) || !isas.Contains(isa))).ToArray();

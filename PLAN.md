@@ -2,7 +2,7 @@
 
 Обновлено: **2026-10-16**: фаза N завершена (N4.5), M6 выполнен, Gate B «WitOS runs .NET» заявлен, `main` зелёный; открыты
 две параллельные дорожки — фаза C (консоль и оболочка по RFC-0020) и фаза V (третья ISA, RISC-V). Текущая реализация:
-user ABI 1.3 (ABI-1), ABI-2 1.0, boot ABI v7; ядро и UHI для x64 (QEMU q35) и ARM64 (QEMU virt); upstream .NET **10.0.12**
+user ABI 1.3 (ABI-1), ABI-2 1.1, boot ABI v7; ядро и UHI для x64 (QEMU q35) и ARM64 (QEMU virt); upstream .NET **10.0.12**
 и **8.0.31** рядом (N3). Аудит программы — [Program-Audit-2026-10-14.md](@Docs/Implementation/Program-Audit-2026-10-14.md).
 Архитектурное решение: [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md); модель служб
 устройств: [ADR 0025](@Docs/Implementation/ADR-0025-Devices-as-NativeAOT-Services.md).
@@ -93,7 +93,9 @@ riscv64 — `ecall`, кадры и контексты U-mode, таблицы Sv4
 **V2.1** выполнен 2026-10-17: musl собран для `riscv64-unknown-linux-musl` над ABI-1 и первая libc-программа прошла
 свои 165 проверок на третьей ISA с первой загрузки; **V2.2** выполнен 2026-10-17: C++ runtime LLVM собран для третьего
 триплета без изменений и сценарий `cxx` прошёл 21 проверку с трассой Itanium, равной Linux'овой, тоже с первой загрузки;
-следующий шаг дорожки — **V2.3**, libwitos, запускаемые программы, libc-test и sysroot на riscv64. **P1** — после C1 (pwsh и
+**V2.3** выполнен 2026-10-17: libwitos, запускаемые программы, `libc.so`, libc-test (388 прогонов) и sysroot с ABI-2 1.1
+на riscv64 — слой 2 целиком на трёх ISA, `test --arch riscv64` гоняет все сценарии слоя 2; следующий шаг дорожки —
+**V2.4**, рантайм `witos-riscv64`. **P1** — после C1 (pwsh и
 службы делят один процессор); **T4** — вместе с заявкой upstream (ADR 0026); фаза W (сеть M7, модель приложений M8,
 графика M9) — после C2 и P1. Расширение ext4 (**D7**: ссылки) — по нужде C1, не раньше.
 
@@ -149,7 +151,7 @@ C-API — `libwitos`, управляемый — `OutWit.OS`. RFC-0011 v3 §11: 
 | [D](#d--хранилище-второй-проход) | менеджер устройств, virtio-blk, блочный слой, ФС, пространство имён | K3, R2 | Ц2 | завершена (M4, M5); D7 открывается по нужде C1 |
 | [N](#n--стандартный-net-m6) | compatibility suite, библиотеки NuGet, несколько версий, среда приложения | R, D | Ц2, Ц5 | завершена (M6, Gate B) |
 | [C](#c--консоль-и-оболочка-rfc-0020) | PowerShell на терминале, экран и клавиатура, цикл разработчика (RFC-0020) | N, D | Ц2 | C1 и C2 выполнены (C2.3 — 2026-10-17); C3 — горизонт после M8 |
-| [V](#v--третья-isa) | RISC-V: третья ISA, параллельно с C | R, N1 | Ц3 | V0, V1, V2.1 и V2.2 выполнены (2026-10-17); V2.3 следующая |
+| [V](#v--третья-isa) | RISC-V: третья ISA, параллельно с C | R, N1 | Ц3 | V0, V1, V2.1–V2.3 выполнены (2026-10-17); V2.4 следующая |
 | [P](#p--многопроцессорность) | планировщик на N CPU | K7, R | — | не начата |
 | [W](#w--и-далее) | сеть (M7) и остальные милстоуны | N | — | не начата |
 
@@ -235,12 +237,9 @@ V1 (`Kernel.Arch.RV64` и `Kernel.Platform.QemuVirtRv`: та же общая п�
   для триплета без изменений (заголовки `riscv` санированного дерева), `KernelArchitecture.CxxRuntime`, сценарий `cxx` —
   21 проверка и трасса Itanium Linux'а с первой загрузки. libc-test и `libc.so` перенесены в V2.3: каждый тест
   libc-test — свой процесс через `posix_spawn`, то есть менеджер процессов libwitos, а `libc.so` доказывает сценарий
-  `spawn`.
-  - [ ] **V2.3** libwitos (ветки riscv64 в `spawn.c`, `capabilities.c`), `libc.so` и динамический компоновщик
-    `/lib/ld-musl-riscv64.so.1` (`ldso/riscv64`), `rcrt1`/`Scrt1`, разделяемый C++ runtime, запускаемые программы и
-    менеджер процессов, libc-test со своим `mathExcluded`, sysroot для триплета (`crtbegin`/`crtend`, каталог ресурсов
-    clang); сценарии `spawn`, `process`, `libc-test`, `sysroot`; `KernelArchitecture.SystemLayer` для riscv64 — слой 2
-    целиком на трёх ISA, `linux-selftest` для трёх ISA с полным набором.
+  `spawn`. **V2.3** (2026-10-17) выполнен (журнал): libwitos, `libc.so` и `/lib/ld-musl-riscv64.so.1`, запускаемые
+  программы и менеджер процессов, разделяемый C++ runtime, libc-test (388 прогонов, `math/powf` вне набора на riscv64 с
+  причиной), sysroot с ABI-2 1.1 (имена `libc.so` riscv64), `SystemLayer` для riscv64 — все сценарии слоя 2 на трёх ISA.
   - [ ] **V2.4** Рантайм `witos-riscv64`: RID и граф, `__riscv_flush_icache`/`__clear_cache` как `CODE_PUBLISH`,
     NativeAOT и CoreCLR riscv64 upstream (community-порт) до `runtime-dotnet`; службы ADR 0025 по решению V0.
 - [ ] **V3** Приложение из N1 и `runtime-published` без изменений на трёх ISA — доказательство Ц3; объём записан в

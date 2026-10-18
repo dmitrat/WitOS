@@ -124,13 +124,15 @@ internal sealed class QemuControl : IDisposable
 
     /// <summary>
     /// Presses and releases keys on the guest's keyboard, in turn (plan steps C2.1, C2.2): QEMU's input-send-event with
-    /// QKeyCode names, which reach the board's keyboard device in that order, one key a command, so that the guest's
-    /// driver, which holds 64 events, takes each before the next (C2.3: a line typed into PowerShell). A name of several
-    /// codes joined by '+' is a chord, such as "shift+a": its keys go down in order and up in reverse.
+    /// QKeyCode names, which reach the board's keyboard device in that order, one key a command. A name of several codes
+    /// joined by '+' is a chord, such as "shift+a": its keys go down in order and up in reverse. After each key the
+    /// caller may wait until the guest took it (C2.3): QEMU's virtio-input drops a whole report when the device's event
+    /// queue has no room, so a line typed faster than the guest's driver gives its buffers back loses keys.
     /// </summary>
     /// <param name="keys">The QKeyCode names separated by spaces, such as "a", "h i ret" or "shift+4 ret".</param>
     /// <param name="cancellation">Stops the request.</param>
-    internal async Task SendKeyAsync(string keys, CancellationToken cancellation)
+    /// <param name="delivered">Awaited after each key with the transitions it made (two a code), or null.</param>
+    internal async Task SendKeyAsync(string keys, CancellationToken cancellation, Func<int, CancellationToken, Task>? delivered = null)
     {
         var names = keys.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (names.Length == 0)
@@ -148,6 +150,8 @@ internal sealed class QemuControl : IDisposable
                     throw new ArgumentException($"An empty key in \"{keys}\".", nameof(keys));
                 var events = codes.Select(code => Event(true, code)).Concat(Enumerable.Reverse(codes).Select(code => Event(false, code))).ToArray();
                 await ExecuteAsync("input-send-event", new { events }, stop.Token);
+                if (delivered is not null)
+                    await delivered(events.Length, stop.Token);
             }
         }
         finally
