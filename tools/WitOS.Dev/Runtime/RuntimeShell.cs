@@ -23,6 +23,9 @@ internal static class RuntimeShell
 
     private const long DISK_BYTES = 1024L << 20;
 
+    // The package's mark of a session, which the device manager's terminal probe looks for (TerminalProbe.SESSION_MARK).
+    private const string SESSION_MARK = "etc/witos/session";
+
     #endregion
 
     #region Functions
@@ -76,7 +79,8 @@ internal static class RuntimeShell
             InteractiveTerminal = true,
             Display = options.Window,
             Keyboard = options.Window,
-            Window = options.Window
+            Window = options.Window,
+            Accelerated = options.Accelerated
         });
         Console.WriteLine("Session ended.");
     }
@@ -86,7 +90,11 @@ internal static class RuntimeShell
     private static async Task<(string Image, string DataDisk, string? Where)> BuildAsync(string root, KernelArchitecture architecture,
         ShellOptions options, string output)
     {
-        var package = await RuntimePowerShell.PackageAsync(root, output, architecture, ["cd /data", RuntimePowerShell.PWSH]);
+        var package = (await RuntimePowerShell.PackageAsync(root, output, architecture, ["cd /data", RuntimePowerShell.PWSH])).ToList();
+        // A session a person works in (C2.7): the device manager skips the terminal probe, whose wait held /bin/init back.
+        var session = Path.Combine(output, "session");
+        await File.WriteAllTextAsync(session, "");
+        package.Add((SESSION_MARK, session));
         var volume = await AppsDisk.VolumeFilesAsync(root, architecture, output);
         string? where = null;
         if (options.Published is not null)

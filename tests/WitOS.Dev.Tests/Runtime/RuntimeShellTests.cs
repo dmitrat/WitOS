@@ -36,12 +36,29 @@ public sealed class RuntimeShellTests
     [Test]
     public void PreparedImageBootsWithItsDiskAloneTest()
     {
-        var (_, options) = CommandShell.Parse(["--image", "WitOS-x64-shell.img", "--disk", "data-x64.img", "--window"]);
+        var (_, options) = CommandShell.Parse(["--image", "WitOS-x64-shell.img", "--disk", "data-x64.img", "--window", "--accel"]);
         Assert.That(options.Image, Is.EqualTo("WitOS-x64-shell.img"));
         Assert.That(options.Window, Is.True);
+        Assert.That(options.Accelerated, Is.True, "--accel is a flag (C2.7)");
+        Assert.That(CommandShell.Parse([]).Options.Accelerated, Is.False);
         Assert.Throws<ArgumentException>(() => CommandShell.Parse(["--image", "a.img"]));
         Assert.Throws<ArgumentException>(() => CommandShell.Parse(["--image", "a.img", "--disk", "d.img", "--publish", "app"]));
         Assert.Throws<ArgumentException>(() => CommandShell.Parse(["--image", "a.img", "--disk", "d.img", "--prepare", "out"]));
+    }
+
+    // C2.7: the host's accelerator for a guest of its own ISA alone.
+    [Test]
+    public void HostAcceleratorServesTheHostsIsaTest()
+    {
+        var host = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture;
+        var native = host == System.Runtime.InteropServices.Architecture.Arm64 ? KernelArchitecture.Arm64 : KernelArchitecture.X64;
+        var foreign = native == KernelArchitecture.X64 ? KernelArchitecture.Arm64 : KernelArchitecture.X64;
+        Assert.Throws<NotSupportedException>(() => BootScenarioRunner.HostAccelerator(foreign), "a guest of another ISA stays on TCG");
+        Assert.Throws<NotSupportedException>(() => BootScenarioRunner.HostAccelerator(KernelArchitecture.Riscv64));
+        if (OperatingSystem.IsWindows())
+            Assert.That(BootScenarioRunner.HostAccelerator(native), Is.EqualTo("whpx"));
+        else if (OperatingSystem.IsLinux() && File.Exists("/dev/kvm"))
+            Assert.That(BootScenarioRunner.HostAccelerator(native), Is.EqualTo("kvm"));
     }
 
     [Test]

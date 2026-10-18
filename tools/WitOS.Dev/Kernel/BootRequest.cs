@@ -120,6 +120,13 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public bool Window { get; init; }
 
     /// <summary>
+    /// The host's hardware virtualization instead of TCG and the instruction clock (plan step C2.7, the shell command):
+    /// WHPX on Windows, KVM on Linux, for a guest of the host's own ISA; the guest's time is the host's, so nothing of it
+    /// is deterministic, which a session a person works in does not need.
+    /// </summary>
+    public bool Accelerated { get; init; }
+
+    /// <summary>
     /// What the runner does through QMP while the guest runs, each action once its line appeared (plan step C2.1).
     /// </summary>
     public IReadOnlyList<BootAction> Actions { get; init; } = [];

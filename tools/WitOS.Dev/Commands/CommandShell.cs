@@ -14,7 +14,7 @@ internal sealed class CommandShell : ICommand
     #region Constants
 
     private const string ARGUMENTS =
-        "[--arch x64|arm64|riscv64] [--publish <directory>] [--memory <MiB>] [--disk <image>] [--window] [--prepare <directory>] [--image <image>]";
+        "[--arch x64|arm64|riscv64] [--publish <directory>] [--memory <MiB>] [--disk <image>] [--window] [--accel] [--prepare <directory>] [--image <image>]";
 
     #endregion
 
@@ -47,12 +47,18 @@ internal sealed class CommandShell : ICommand
         string? prepare = null;
         string? image = null;
         var window = false;
+        var accelerated = false;
         var memory = RuntimePowerShell.MEMORY_MIB;
         for (var i = 0; i < arguments.Count; ++i)
         {
             if (arguments[i] == "--window")
             {
                 window = true;
+                continue;
+            }
+            if (arguments[i] == "--accel")
+            {
+                accelerated = true;
                 continue;
             }
             if (i + 1 == arguments.Count)
@@ -84,7 +90,7 @@ internal sealed class CommandShell : ICommand
         }
         if (image is not null && (published is not null || prepare is not null || disk is null))
             throw new ArgumentException("A prepared --image boots with its --disk, without --publish or --prepare.");
-        return (architecture, new ShellOptions(published, memory, disk, window, prepare, image));
+        return (architecture, new ShellOptions(published, memory, disk, window, prepare, image, accelerated));
     }
 
     #endregion
@@ -100,7 +106,8 @@ internal sealed class CommandShell : ICommand
     /// <inheritdoc />
     public string Description =>
         "Boot WitOS with PowerShell on this console beside the services and the .NET install, with a directory published on the host on the data volume, which --disk keeps between sessions (C1.4); " +
-        "--window shows the display and takes the keyboard in QEMU's window, --prepare writes the image and the disk for a host with a screen, which boots them with --image and --disk (C2.4)";
+        "--window shows the display and takes the keyboard in QEMU's window, --prepare writes the image and the disk for a host with a screen, which boots them with --image and --disk (C2.4); " +
+        "--accel runs the guest on the host's hardware virtualization, WHPX or KVM, for a guest of the host's ISA (C2.7)";
 
     #endregion
 }

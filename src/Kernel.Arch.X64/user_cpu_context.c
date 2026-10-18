@@ -51,7 +51,9 @@ void wit_x64_context_profile_initialize(void)
     }
     __declspec(align(16)) WitU8 legacy[512] = {0};
     wit_x64_fxsave(legacy);
-    mxcsr_mask = *(const WitU32 *)&legacy[28];
+    // The SSE bits of MXCSR are the low 16; AMD processors also report MM (bit 17, the misaligned SSE mode), which a
+    // context never sets, so that a mask of 0x2FFFF is valid hardware (C2.7: the first boot on a real AMD processor).
+    mxcsr_mask = *(const WitU32 *)&legacy[28] & 0xFFFFU;
     if (!mxcsr_mask) {
         mxcsr_mask = 0xFFBF; // Architectural fallback when hardware reports zero.
     }
