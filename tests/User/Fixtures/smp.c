@@ -5,8 +5,10 @@
  * mode the first thread and one it creates spin on PROCESSOR_QUERY until between them they saw every online processor,
  * two at most, or a deadline passed. In the shootdown mode a thread reads a page in a loop while the first thread,
  * spinning beside it, takes the page's access away: the reader's next read faults, which a reader on another processor
- * reaches only once that processor dropped its translation, and the fault ends the component. The threads make raw
- * calls alone, since the counter of checks is the first thread's; their words lie in the data page. */
+ * reaches only once that processor dropped its translation, and the fault ends the component. In the affinity mode
+ * (P1.4) the thread pins itself to each of the first two online processors in turn and stays there across yields, as
+ * PROCESSOR_QUERY and THREAD_QUERY's version 6 report, while version 5 is still served. The threads make raw calls
+ * alone, since the counter of checks is the first thread's; their words lie in the data page. */
 
 #define SEEN ((WitU64 *)(WIT_USER_DATA + 1400))
 #define PAGE_ADDRESS (*(volatile WitU64 *)(WIT_USER_DATA + 1408))
@@ -101,6 +103,51 @@ static void shootdown_test(void)
     }
 }
 
+#define PINNED_YIELDS 64U
+
+/* THREAD_QUERY of the caller in a version's record: the processor that version 6 reports. */
+static WitU64 queried_processor(WitU32 version, WitU32 size)
+{
+    WitUserThreadInfo info;
+    info.Version = version; /* the kernel writes the whole record */
+    info.Size = size;
+    const WitU64 copied = fixture_expect(WIT_CALL_THREAD_QUERY, WIT_THREAD_SELF, (WitU64)&info, size, WIT_STATUS_OK);
+    fixture_check(copied == size && info.Version == version && info.Size == size, 30);
+    return info.Processor;
+}
+
+static void affinity_test(void)
+{
+    WitProcessorInfo info;
+    WitU64 mask = 0;
+    info.Version = WIT_PROCESSOR_INFO_VERSION;
+    info.Size = WIT_PROCESSOR_INFO_SIZE;
+    fixture_expect(WIT_CALL_PROCESSOR_QUERY, (WitU64)&info, WIT_PROCESSOR_INFO_SIZE, 0, WIT_STATUS_OK);
+    const WitU64 all = info.Count >= 64 ? ~0ULL : (1ULL << info.Count) - 1;
+    fixture_expect(WIT_CALL_THREAD_AFFINITY, WIT_THREAD_SELF, (WitU64)&mask, WIT_THREAD_AFFINITY_GET, WIT_STATUS_OK);
+    fixture_check(mask == all, 20); /* every processor by default */
+    mask = 0;
+    fixture_expect(
+        WIT_CALL_THREAD_AFFINITY, WIT_THREAD_SELF, (WitU64)&mask, WIT_THREAD_AFFINITY_SET, WIT_STATUS_INVALID_ARGUMENT);
+    mask = all + 1; /* the first processor beyond the table */
+    fixture_expect(
+        WIT_CALL_THREAD_AFFINITY, WIT_THREAD_SELF, (WitU64)&mask, WIT_THREAD_AFFINITY_SET, WIT_STATUS_INVALID_ARGUMENT);
+    const WitU64 pinned = info.Online >= 2 ? 2 : 1;
+    for (WitU64 target = 0; target < pinned; ++target) {
+        mask = 1ULL << target;
+        fixture_expect(
+            WIT_CALL_THREAD_AFFINITY, WIT_THREAD_SELF, (WitU64)&mask, WIT_THREAD_AFFINITY_SET, WIT_STATUS_OK);
+        for (WitU32 i = 0; i < PINNED_YIELDS; ++i) {
+            fixture_check(processor(0) == target, 21 + target);
+            fixture_expect(WIT_CALL_THREAD_YIELD, 0, 0, 0, WIT_STATUS_OK);
+        }
+        fixture_check(queried_processor(WIT_THREAD_INFO_VERSION, WIT_THREAD_INFO_SIZE) == target, 23 + target);
+    }
+    queried_processor(WIT_THREAD_INFO_VERSION_5, WIT_THREAD_INFO_SIZE_5); /* the record before the processor */
+    mask = all;
+    fixture_expect(WIT_CALL_THREAD_AFFINITY, WIT_THREAD_SELF, (WitU64)&mask, WIT_THREAD_AFFINITY_SET, WIT_STATUS_OK);
+}
+
 FIXTURE_ENTRY void wit_user_start(const WitRootStartup *startup)
 {
     fixture_check(startup->AbiVersion == WIT_ABI_VERSION, 1);
@@ -110,6 +157,9 @@ FIXTURE_ENTRY void wit_user_start(const WitRootStartup *startup)
         break;
     case WIT_SMP_TEST_SHOOTDOWN:
         shootdown_test();
+        break;
+    case WIT_SMP_TEST_AFFINITY:
+        affinity_test();
         break;
     default:
         fixture_failed(2);

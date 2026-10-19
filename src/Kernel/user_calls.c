@@ -192,7 +192,7 @@ static WitArchFrame *thread_query(WitUserCall *call)
 {
     *call->Status = wit_user_thread_query(call->Process, call->Argument0, call->Argument1, call->Argument2);
     if (*call->Status == WIT_STATUS_OK) {
-        *call->Value = WIT_THREAD_INFO_SIZE;
+        *call->Value = call->Argument2; /* the record of the caller's version (P1.4: 6, or 5) */
     }
     return 0;
 }

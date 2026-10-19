@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "witos_libc.h"
 #include "witos/memory_info.h"
+#include "witos/processor.h"
 #include <errno.h>
 #include <sched.h>
 #include <string.h>
@@ -12,10 +13,10 @@
  * sysinfo reports the physical memory and the time since boot as CLOCK_BOOTTIME has it; there is no swap, no load
  * average and no count of processes, which stay zero. getrlimit reports RLIMIT_AS, the address space that anonymous
  * memory takes: the data arena mmap reserves in, and RLIMIT_NOFILE, the library's descriptor table (R6).
- * sched_getaffinity reports the processors threads run on, every online one since P1.3b, and sched_setaffinity
- * accepts a mask that holds every one of them, which changes nothing (R3.2: CoreCLR's PAL gives each new thread the
- * process's mask), refuses one that holds none with EINVAL, as Linux does, and one that holds some alone with ENOSYS
- * until the kernel honours a thread's affinity (P1.4). The kernel runs every thread round-robin at one priority, which
+ * sched_getaffinity and sched_setaffinity read and write a thread's affinity, which the kernel honours (P1.4): every
+ * online processor by default, a mask of those the thread may run on, of which the processors beyond the online ones
+ * are ignored and an empty rest is EINVAL, as Linux does (R3.2: CoreCLR's PAL gives each new thread the process's
+ * mask). The kernel runs every thread round-robin at one priority, which
  * is what Linux reports of a normal thread (R7.1): SCHED_OTHER at priority 0. Every other limit, setting a limit or a
  * policy and the limits of another process are ENOSYS, never an invented answer. */
 
@@ -72,25 +73,47 @@ long __wit_prlimit(long pid, long resource, const struct rlimit *limit, struct r
     return 0;
 }
 
-long __wit_sched_getaffinity(long tid, long size, unsigned char *mask)
+/* The kernel handle a thread id names and the count of online processors; with affinity, the thread's mask (P1.4). */
+static long affinity_of(long tid, WitU64 *handle, WitU64 *affinity, WitU32 *processors)
 {
     WitUserMemoryInfo info;
+    WitU64 result = 0;
     long status;
-    if (tid != 0 && (status = __wit_thread_signal((int)tid, 0)) < 0) {
-        return status;
+    *handle = __wit_thread_handle((int)tid);
+    if (!*handle) {
+        return -ESRCH;
     }
     if ((status = memory_info(&info)) < 0) {
         return status;
     }
+    *processors = info.ProcessorCount;
+    if (!affinity) {
+        return 0;
+    }
+    const WitU64 called =
+        wit_syscall(WIT_CALL_THREAD_AFFINITY, *handle, (WitU64)affinity, WIT_THREAD_AFFINITY_GET, &result);
+    return called == WIT_STATUS_OK ? 0 : __wit_errno(called);
+}
+
+long __wit_sched_getaffinity(long tid, long size, unsigned char *mask)
+{
+    WitU64 handle = 0, affinity = 0;
+    WitU32 processors = 0;
+    const long status = affinity_of(tid, &handle, &affinity, &processors);
+    if (status < 0) {
+        return status;
+    }
     /* As Linux answers: whole words of the mask, and EINVAL for a buffer that is shorter or not made of words. */
     const unsigned long bits = 8 * sizeof(unsigned long);
-    const unsigned long bytes = (info.ProcessorCount + bits - 1) / bits * sizeof(unsigned long);
+    const unsigned long bytes = (processors + bits - 1) / bits * sizeof(unsigned long);
     if (size <= 0 || (unsigned long)size < bytes || (size & (sizeof(unsigned long) - 1))) {
         return -EINVAL;
     }
     memset(mask, 0, bytes);
-    for (WitU32 processor = 0; processor < info.ProcessorCount; ++processor) {
-        mask[processor / 8] |= (unsigned char)(1U << (processor % 8));
+    for (WitU32 processor = 0; processor < processors && processor < 64; ++processor) {
+        if (affinity & (1ULL << processor)) {
+            mask[processor / 8] |= (unsigned char)(1U << (processor % 8));
+        }
     }
     return (long)bytes;
 }
@@ -143,23 +166,26 @@ long __wit_sched_setparam(long tid, const struct sched_param *param)
 
 long __wit_sched_setaffinity(long tid, long size, const unsigned char *mask)
 {
-    WitUserMemoryInfo info;
-    long status;
+    WitU32 processors = 0;
+    WitU64 handle = 0, result = 0;
     if (size < 0) {
         return -EINVAL;
     }
-    if (tid != 0 && (status = __wit_thread_signal((int)tid, 0)) < 0) {
-        return status;
+    const long found = affinity_of(tid, &handle, 0, &processors);
+    if (found < 0) {
+        return found;
     }
-    if ((status = memory_info(&info)) < 0) {
-        return status;
-    }
-    /* The processors threads run on that the mask holds; a byte past the mask's size holds none, as on Linux. */
-    WitU32 held = 0;
-    for (WitU32 processor = 0; processor < info.ProcessorCount; ++processor) {
+    /* The online processors the mask holds; a byte past the mask's size holds none, as on Linux. */
+    WitU64 affinity = 0;
+    for (WitU32 processor = 0; processor < processors && processor < 64; ++processor) {
         if (processor / 8 < (unsigned long)size && (mask[processor / 8] & (1U << (processor % 8)))) {
-            ++held;
+            affinity |= 1ULL << processor;
         }
     }
-    return held == info.ProcessorCount ? 0 : (held == 0 ? -EINVAL : -ENOSYS);
+    if (!affinity) {
+        return -EINVAL;
+    }
+    const WitU64 status =
+        wit_syscall(WIT_CALL_THREAD_AFFINITY, handle, (WitU64)&affinity, WIT_THREAD_AFFINITY_SET, &result);
+    return status == WIT_STATUS_OK ? 0 : (status == WIT_STATUS_UNSUPPORTED ? -EINVAL : __wit_errno(status));
 }

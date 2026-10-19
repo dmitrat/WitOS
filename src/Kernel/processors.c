@@ -110,11 +110,25 @@ int wit_processors_record(WitU32 index, WitProcessorRecord *record)
     return 1;
 }
 
+/* Any mask within the table that holds an online processor (P1.4); one of present processors alone is unsupported,
+ * since none of them runs a thread. */
 WitU64 wit_processors_affinity_status(WitU64 mask)
 {
     require(ready, "Processor table read before initialization");
     if (!mask || (count < 64 && (mask >> count) != 0)) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
-    return (mask & 1) ? WIT_STATUS_OK : WIT_STATUS_UNSUPPORTED; /* The boot processor is the one online. */
+    for (WitU32 i = 0; i < count; ++i) {
+        if ((mask & (1ULL << i)) && wit_cpus_is_online(i)) {
+            return WIT_STATUS_OK;
+        }
+    }
+    return WIT_STATUS_UNSUPPORTED;
+}
+
+/* A new thread's affinity: every processor of the table (P1.4), as Linux gives a thread every CPU. */
+WitU64 wit_processors_all(void)
+{
+    require(ready, "Processor table read before initialization");
+    return count >= 64 ? ~0ULL : (1ULL << count) - 1;
 }

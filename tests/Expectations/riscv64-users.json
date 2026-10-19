@@ -75,6 +75,7 @@
     "[TEST-PASS] User.ProcessorsAndAffinity",
     "[TEST-PASS] User.SmpThreads",
     "[TEST-PASS] User.SmpShootdown",
+    "[TEST-PASS] User.SmpAffinity",
     "[TEST-PASS] Root.Started",
     "[TEST-PASS] Root.ImageValidation",
     "[TEST-PASS] User.BadReturn",

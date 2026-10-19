@@ -48,9 +48,9 @@ void wit_processor_self_test(void)
     require(wit_processors_affinity_status(0) == WIT_STATUS_INVALID_ARGUMENT, "An empty affinity was accepted");
     require(wit_processors_affinity_status(1ULL << 63) == WIT_STATUS_INVALID_ARGUMENT,
         "An affinity beyond the table was accepted");
-    if (count > 1) {
-        require(wit_processors_affinity_status(2) == WIT_STATUS_UNSUPPORTED,
-            "An affinity without an online processor was accepted");
-    }
+    /* Any mask with an online processor (P1.4): every processor present is online here, since each was started. */
+    require(wit_processors_affinity_status(wit_processors_all()) == WIT_STATUS_OK &&
+            (count < 2 || wit_processors_affinity_status(2) == WIT_STATUS_OK),
+        "An affinity with an online processor was refused");
     wit_console_write("[TEST-PASS] Processors.Topology\n");
 }

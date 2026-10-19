@@ -176,6 +176,20 @@ WitSignalState *__wit_signal_state_of(WitU64 identity)
 
 /* A signal for the thread with the id: THREAD_ACTIVATE of its handle (the own thread by WIT_THREAD_SELF) with the
  * signal library's marker callback and the signal as the argument (signal.c); zero checks the thread exists. */
+/* The kernel handle a thread's id names for a call on it: WIT_THREAD_SELF for the caller or id 0, the record's
+ * handle for another thread of the process, zero for an id the library does not know (P1.4: THREAD_AFFINITY). */
+WitU64 __wit_thread_handle(int tid)
+{
+    if (tid == 0) {
+        return WIT_THREAD_SELF;
+    }
+    const Thread *target = find_tid(tid);
+    if (!target) {
+        return 0;
+    }
+    return target == find_current() ? WIT_THREAD_SELF : target->Handle;
+}
+
 long __wit_thread_signal(int tid, int sig)
 {
     WitU64 result = 0;

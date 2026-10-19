@@ -1,6 +1,7 @@
 #include "witos/arch.h"
 #include "witos/boot.h"
 #include "witos/device.h"
+#include "witos/limits.h"
 #include "witos/platform.h"
 #include "witos/virtual.h"
 #include "virt_rv.h"
@@ -91,7 +92,9 @@ typedef struct InterruptController {
     WitU32 Phandle, AddressCells, InterruptCells, Live;
 } InterruptController;
 
-#define CONTROLLER_CAPACITY 4U
+/* Every hart's own interrupt controller comes before the PLIC in the tree, so the table holds one a processor and
+ * room for the PLIC and more (P1.4: with four harts the four filled a table of four and the map found no PLIC). */
+#define CONTROLLER_CAPACITY (WIT_PROCESSOR_CAPACITY + 4U)
 #define NODE_DEPTH 8U
 static InterruptController controllers[CONTROLLER_CAPACITY];
 

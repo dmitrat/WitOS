@@ -70,6 +70,7 @@
 #define WIT_INTERRUPT_TEST_VIRTIO 2U
 #define WIT_SMP_TEST_SPIN 1U /* P1.3b */
 #define WIT_SMP_TEST_SHOOTDOWN 2U
+#define WIT_SMP_TEST_AFFINITY 3U /* P1.4 */
 #define WIT_TEST_EXIT_CODE 42U
 
 typedef struct WitUserTestConfig {

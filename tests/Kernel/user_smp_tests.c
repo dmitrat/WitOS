@@ -63,6 +63,23 @@ void wit_user_smp_self_test(WitPageAllocator *pages)
     require(wit_test_faulted(&process) && process.FaultThread == 1 && process.FaultAddress == data(1408),
         "The reader did not fault on the page the first thread took away");
     wit_user_destroy(&process);
-    require(wit_pages_free_count(pages) == before, "SMP scenarios leaked physical pages");
     wit_console_write("[TEST-PASS] User.SmpShootdown\n");
+
+    /* Affinity (P1.4): the thread pinned to each of the first two online processors stays there. */
+    run(pages, WIT_SMP_TEST_AFFINITY);
+    if (process.State != WitUserExited || process.ExitCode != WIT_TEST_EXIT_CODE) {
+        wit_console_write("SMP affinity state/code: ");
+        wit_console_write_u64(process.State);
+        wit_console_write("/");
+        wit_console_write_u64(process.ExitCode);
+        wit_console_write(" last status: ");
+        wit_console_write_u64(data(1304));
+        wit_console_write(" checks passed: ");
+        wit_console_write_u64(data(1312));
+        wit_console_write("\n");
+        wit_panic("A pinned thread left its processor or an affinity was mishandled");
+    }
+    wit_user_destroy(&process);
+    require(wit_pages_free_count(pages) == before, "SMP scenarios leaked physical pages");
+    wit_console_write("[TEST-PASS] User.SmpAffinity\n");
 }

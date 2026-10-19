@@ -38,23 +38,24 @@ FIXTURE_ENTRY void wit_user_start(const WitRootStartup *startup)
     info.Version = 2;
     query(&info, WIT_PROCESSOR_INFO_SIZE, WIT_STATUS_UNSUPPORTED);
 
-    /* Affinity: the boot processor by default; a set of the same is accepted; an empty mask, a mask beyond the table
-     * and a foreign flag are refused. */
+    /* Affinity: every processor of the table by default (P1.4); a set of the same is accepted; an empty mask, a mask
+     * beyond the table and a foreign flag are refused. */
+    const WitU64 all = info.Count >= 64 ? ~0ULL : (1ULL << info.Count) - 1;
     affinity(WIT_THREAD_SELF, &mask, WIT_THREAD_AFFINITY_GET, WIT_STATUS_OK);
-    fixture_check(mask == 1, 6);
+    fixture_check(mask == all, 6);
     affinity(WIT_THREAD_SELF, &mask, WIT_THREAD_AFFINITY_SET, WIT_STATUS_OK);
     mask = 0;
     affinity(WIT_THREAD_SELF, &mask, WIT_THREAD_AFFINITY_SET, WIT_STATUS_INVALID_ARGUMENT);
     mask = 1ULL << 63;
     affinity(WIT_THREAD_SELF, &mask, WIT_THREAD_AFFINITY_SET, WIT_STATUS_INVALID_ARGUMENT);
-    mask = 1;
+    mask = all;
     affinity(WIT_THREAD_SELF, &mask, 2, WIT_STATUS_INVALID_ARGUMENT);
 
     /* A thread handle without the AFFINITY right reads the mask but may not set it. */
     fixture_expect(WIT_CALL_HANDLE_DUPLICATE, WIT_THREAD_SELF, (WitU64)&reader, WIT_RIGHT_QUERY, WIT_STATUS_OK);
     mask = 0;
     affinity(reader, &mask, WIT_THREAD_AFFINITY_GET, WIT_STATUS_OK);
-    fixture_check(mask == 1, 7);
+    fixture_check(mask == all, 7);
     affinity(reader, &mask, WIT_THREAD_AFFINITY_SET, WIT_STATUS_DENIED);
     fixture_expect(WIT_CALL_HANDLE_CLOSE, reader, 0, 0, WIT_STATUS_OK);
     fixture_exit(WIT_TEST_EXIT_CODE);

@@ -216,6 +216,7 @@ long __wit_futex(
 WitSignalState *__wit_signal_state(void);
 WitSignalState *__wit_signal_state_of(WitU64 identity);
 long __wit_thread_signal(int tid, int sig);
+WitU64 __wit_thread_handle(int tid);
 /* Whether the calling thread is in a cancellation point (musl's __syscall_cp_asm) whose cancel word is set: a path
  * about to park checks it (thread.c). */
 int __wit_cancel_requested(void);

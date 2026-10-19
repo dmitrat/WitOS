@@ -125,26 +125,28 @@ WitU64 wit_user_thread_query(WitUserProcess *p, WitU64 handle, WitU64 address, W
     WitU32 header[2];
     const WitUserThread *target = 0;
     const WitUserThreadReference *reference = 0;
-    if (size != sizeof(info)) {
+    if (size != WIT_THREAD_INFO_SIZE && size != WIT_THREAD_INFO_SIZE_5) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
-    if (!wit_user_buffer_writable(&p->Space, address, sizeof(info)) ||
+    if (!wit_user_buffer_writable(&p->Space, address, size) ||
         !wit_user_copy_from(&p->Space, address, (WitU8 *)header, sizeof(header))) {
         return WIT_STATUS_BAD_ADDRESS;
     }
-    if (header[0] != WIT_THREAD_INFO_VERSION) {
+    /* Version 6, or version 5 without the processor (P1.4): the caller's version names the record it gets. */
+    if (header[0] != WIT_THREAD_INFO_VERSION && header[0] != WIT_THREAD_INFO_VERSION_5) {
         return WIT_STATUS_UNSUPPORTED;
     }
-    if (header[1] != sizeof(info)) {
+    if (header[1] != (header[0] == WIT_THREAD_INFO_VERSION ? WIT_THREAD_INFO_SIZE : WIT_THREAD_INFO_SIZE_5) ||
+        header[1] != size) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
     for (WitU32 i = 0; i < sizeof(info); ++i) {
         ((WitU8 *)&info)[i] = 0;
     }
-    info.Version = WIT_THREAD_INFO_VERSION;
-    info.Size = sizeof(info);
+    info.Version = header[0];
+    info.Size = header[1];
     info.ProcessId = p->Id;
-    /* The processors this process's threads run on: the boot processor until phase P. */
+    /* The processors this process's threads run on: every online one (P1.3b). */
     info.ProcessorCount = wit_processors_scheduling();
     if (handle == WIT_THREAD_SELF) {
         target = &p->Threads[p->CurrentThread];
@@ -178,13 +180,14 @@ WitU64 wit_user_thread_query(WitUserProcess *p, WitU64 handle, WitU64 address, W
         info.TlsBase = target->Tls;
         info.SuspendCount = target->SuspendCount;
         info.ContextFlags = wit_user_context_flags(target);
+        info.Processor = target->Processor;
         info.State = target->SuspendCount       ? WIT_THREAD_STATE_SUSPENDED
             : target->State == WitThreadRunning ? WIT_THREAD_STATE_RUNNING
             : target->State == WitThreadWaiting ? WIT_THREAD_STATE_WAITING
                                                 : WIT_THREAD_STATE_READY;
     }
     // IF remains clear through snapshot and whole-buffer validation/copy.
-    if (!wit_user_copy_to(&p->Space, address, (const WitU8 *)&info, sizeof(info))) {
+    if (!wit_user_copy_to(&p->Space, address, (const WitU8 *)&info, size)) {
         wit_panic("Validated thread query destination changed");
     }
     return WIT_STATUS_OK;
