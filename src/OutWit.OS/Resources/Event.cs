@@ -33,6 +33,13 @@ public static class Event
     }
 
     /// <summary>
+    /// Sets an event: one waiter completes, or the next wait does (W1.2a).
+    /// </summary>
+    /// <param name="handle">An event with SIGNAL.</param>
+    /// <exception cref="CapabilityException">The handle is no event with SIGNAL.</exception>
+    public static void Set(KernelHandle handle) => CapabilityException.ThrowOnError("EVENT_SET", Libwitos.EventSet(handle.Value));
+
+    /// <summary>
     /// Waits until one of the objects completes or the deadline passes.
     /// </summary>
     /// <param name="deadline">An absolute monotonic deadline, or INFINITE.</param>

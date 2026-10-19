@@ -11,8 +11,8 @@ namespace OutWit.OS.DeviceManager;
 /// The network's probe (plan step W1.1, as the storage probes of D2): the device manager attaches a window to the network
 /// driver's packet channel as the network service will (W1.2), reads the adapter's address, MTU and link, sends an ARP
 /// request for the board's gateway from the address QEMU's user networking leases first, and reports the gateway's
-/// reply, which the runtime-devices scenario requires. Until the network service takes the channel, the probe closes it
-/// after: the driver keeps serving the device manager.
+/// reply, which the runtime-devices scenario requires. The channel then goes to the network service (W1.2a), whose window
+/// replaces the probe's.
 /// </summary>
 internal static class NetworkProbe
 {
@@ -43,13 +43,20 @@ internal static class NetworkProbe
     #region Functions
 
     /// <summary>
-    /// Runs the probe on a network driver's packet channel, which it takes and closes.
+    /// Runs the probe on a network driver's packet channel, which it takes and gives back for the network service.
     /// </summary>
     /// <param name="driver">A network driver that answered ready.</param>
-    public static void Run(DriverActivation driver)
+    /// <returns>The packet channel.</returns>
+    public static Channel Run(DriverActivation driver)
     {
-        var device = driver.Record.Id;
-        using var channel = new Channel(driver.TakeService());
+        var channel = new Channel(driver.TakeService());
+        Probe(channel, driver.Record.Id);
+        return channel;
+    }
+
+    // The exchange; the probe's window goes when it ends, and the driver keeps its mapping until the next ATTACH.
+    private static void Probe(Channel channel, string device)
+    {
         using var window = MemoryObject.Create(WINDOW_BYTES);
         using var mapping = MemoryMapping.Map(window, 0, WINDOW_BYTES, MemoryMapping.READ_WRITE);
         try

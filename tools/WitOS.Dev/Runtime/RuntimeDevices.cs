@@ -54,6 +54,16 @@ internal static class RuntimeDevices
     public const string VIRTIO_NET_EXECUTABLE = "VirtioNet";
 
     /// <summary>
+    /// The network service's sources (W1.2a).
+    /// </summary>
+    public const string NETWORK_PROGRAM = "src/Services/Network";
+
+    /// <summary>
+    /// The executable runtime-witos publishes from the network service, /system/Network.
+    /// </summary>
+    public const string NETWORK_EXECUTABLE = "Network";
+
+    /// <summary>
     /// The terminal service's sources (N4.3a).
     /// </summary>
     public const string TERMINAL_PROGRAM = "src/Services/Terminal";
@@ -168,10 +178,16 @@ internal static class RuntimeDevices
     /// </summary>
     public const string DEVICES_INIT = "tests/User/devices_init.c";
 
+    // QEMU's user networking (slirp): the first address its DHCP server leases, its gateway and its DNS forwarder (W1.2a).
+    private const string NETWORK_ADDRESS = "10.0.2.15";
+    private const string NETWORK_GATEWAY = "10.0.2.2";
+    private const string NETWORK_DNS = "10.0.2.3";
+
     // The source folders of OutWit.OS every service compiles; never obj or bin, which a host build leaves.
     private static readonly string[] OUTWIT_OS_FOLDERS =
     [
-        "Native", "Resources", "Communication", "Hardware", "Hardware/Virtio", "Execution", "Storage", "Namespaces", "Terminals", "Display"
+        "Native", "Resources", "Communication", "Hardware", "Hardware/Virtio", "Execution", "Storage", "Namespaces", "Terminals", "Display",
+        "Networking"
     ];
 
     // OutWit.OS's filesystem providers (D4.1, D4.2, N4.1), which a service compiles with OutWit.OS's package references.
@@ -213,6 +229,7 @@ internal static class RuntimeDevices
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_CONSOLE_EXECUTABLE, VIRTIO_CONSOLE_PROGRAM, ["Virtio"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_INPUT_EXECUTABLE, VIRTIO_INPUT_PROGRAM, ["Virtio"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_NET_EXECUTABLE, VIRTIO_NET_PROGRAM, ["Virtio"], []);
+        await PublishServiceAsync(root, tree, architecture, version, sysroot, NETWORK_EXECUTABLE, NETWORK_PROGRAM, ["Server"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, TERMINAL_EXECUTABLE, TERMINAL_PROGRAM, ["Server"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, DISPLAY_EXECUTABLE, DISPLAY_PROGRAM, ["Server"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, NAMESPACE_EXECUTABLE, NAMESPACE_PROGRAM, ["Server", "Volumes"],
@@ -379,6 +396,16 @@ internal static class RuntimeDevices
         $"[NAMESPACE] mounted /fat: FAT",
         "[NAMESPACE] namespace service: 4 volumes mounted, serving their files",
         "[DEVICES] namespace service /system/Namespace with 2 disks: ready",
+        // The network service (W1.2a): the adapter, DHCP's lease from QEMU's user networking, and the device manager's
+        // probe, a DNS query to slirp's forwarder over a datagram socket of the service.
+        "[NETWORK] pci/",
+        $": leased {NETWORK_ADDRESS}/24 from {NETWORK_GATEWAY} for ",
+        $" s, router {NETWORK_GATEWAY}, DNS {NETWORK_DNS}",
+        "[NETWORK] network service on pci/",
+        ": configured by DHCP, serving sockets",
+        "[DEVICES] network service /system/Network with 1 adapter: ready",
+        $"[DEVICES] network service probe: {NETWORK_ADDRESS}/24, router {NETWORK_GATEWAY}, DNS {NETWORK_DNS}, MTU 1500, leased by DHCP",
+        $"[DEVICES] network: DNS answer from {NETWORK_DNS} for example.com through a socket of the network service: rcode ",
         $"[DEVICES-INIT] boot {boot} of the data disk",
         .. boot > 1 ? ["[DEVICES-INIT] /data/posix-kept.txt and /data/dotnet-kept.txt hold what the previous boot wrote: yes"] : Array.Empty<string>(),
         .. boot > CUT_BOOT ? [", each as its last durable change left it"] : Array.Empty<string>(),
@@ -412,6 +439,7 @@ internal static class RuntimeDevices
         "[DEVICES-INIT] /dotnet/dotnet exited with 0",
         "[ROOT-TASK] /system/DeviceManager was ready before /bin/init",
         ", 4 volumes unmounted",
+        "[DEVICES] network service /system/Network: stopped",
         "[DEVICES] namespace service /system/Namespace: stopped",
         ": stopped, the device reset",
         "[DEVICES] device manager: stopped",
@@ -464,18 +492,20 @@ internal static class RuntimeDevices
         var input = Path.Combine(directory, VIRTIO_INPUT_EXECUTABLE);
         var network = Path.Combine(directory, VIRTIO_NET_EXECUTABLE);
         var names = Path.Combine(directory, NAMESPACE_EXECUTABLE);
+        var networking = Path.Combine(directory, NETWORK_EXECUTABLE);
         var terminal = Path.Combine(directory, TERMINAL_EXECUTABLE);
         var display = Path.Combine(directory, DISPLAY_EXECUTABLE);
         if (!File.Exists(driver) || !File.Exists(console) || !File.Exists(input) || !File.Exists(network) || !File.Exists(names) ||
-            !File.Exists(terminal) || !File.Exists(display))
-            throw new InvalidOperationException($"No witos drivers, namespace, terminal or display service in {directory}. " +
+            !File.Exists(networking) || !File.Exists(terminal) || !File.Exists(display))
+            throw new InvalidOperationException($"No witos drivers, namespace, network, terminal or display service in {directory}. " +
                 $"Run: dotnet run --project tools/WitOS.Dev -- runtime-services --arch {architecture.Name}");
         return
         [
             ("system/" + DEVICE_MANAGER_EXECUTABLE, program[0].Source), ("system/Drivers/" + VIRTIO_BLOCK_EXECUTABLE, driver),
             ("system/Drivers/" + VIRTIO_CONSOLE_EXECUTABLE, console), ("system/Drivers/" + VIRTIO_INPUT_EXECUTABLE, input),
             ("system/Drivers/" + VIRTIO_NET_EXECUTABLE, network),
-            ("system/" + NAMESPACE_EXECUTABLE, names), ("system/" + TERMINAL_EXECUTABLE, terminal), ("system/" + DISPLAY_EXECUTABLE, display),
+            ("system/" + NAMESPACE_EXECUTABLE, names), ("system/" + NETWORK_EXECUTABLE, networking), ("system/" + TERMINAL_EXECUTABLE, terminal),
+            ("system/" + DISPLAY_EXECUTABLE, display),
             .. SpleenFont.PackageFiles(root), .. program.Skip(1)
         ];
     }

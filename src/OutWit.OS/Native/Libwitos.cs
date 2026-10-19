@@ -59,6 +59,9 @@ internal static unsafe partial class Libwitos
     [LibraryImport(LIBRARY, EntryPoint = "witos_event_create")]
     internal static partial int EventCreate(ulong* handle);
 
+    [LibraryImport(LIBRARY, EntryPoint = "witos_event_set")]
+    internal static partial int EventSet(ulong handle);
+
     [LibraryImport(LIBRARY, EntryPoint = "witos_object_wait")]
     internal static partial int ObjectWait(ulong* handles, uint count, ulong deadline, uint* index);
 

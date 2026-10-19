@@ -17,9 +17,9 @@ namespace OutWit.OS.DeviceManager;
 /// device table to it over the channel it granted it. It reads the table, translates every descriptor into a UHI device
 /// record and prints its discovery line (Implementation Strategy §44), starts the driver of every device its driver
 /// table matches and moves the device to it, probes the disk of every block driver through its block channel (D3.2),
-/// starts the namespace service with the disks (D5.1), answers that it is ready with the namespace's endpoint, and
-/// serves its channel until the root task asks it to stop (D6.1), when it stops the namespace service, which unmounts
-/// its volumes, then the drivers, and answers.
+/// starts the namespace service with the disks (D5.1) and the network service with the adapters (W1.2a), answers that it
+/// is ready with the namespace's endpoint, and serves its channel until the root task asks it to stop (D6.1), when it
+/// stops the network service, the namespace service, which unmounts its volumes, then the drivers, and answers.
 /// </summary>
 internal static class Program
 {
@@ -62,11 +62,14 @@ internal static class Program
                 if (disk is not null)
                     disks.Add((driver.Record.Id, disk));
             }
-            // The network adapters' probe (W1.1): an ARP exchange with the board's gateway through the packet channel.
+            // The network adapters' probe (W1.1): an ARP exchange with the board's gateway through the packet channel, which
+            // then goes to the network service (W1.2a).
+            var adapters = new List<(string Device, Channel Packets)>();
             foreach (var driver in drivers.Where(driver =>
                          driver.Status == 0 && driver.Service is not null && driver.Record.Class == DriverTable.NETWORK_QUEUE))
-                NetworkProbe.Run(driver);
+                adapters.Add((driver.Record.Id, NetworkProbe.Run(driver)));
             var names = StartNamespace(disks);
+            var network = StartNetwork(adapters);
             // The firmware's framebuffer (C2.1): the test pattern through DEVICE_MEMORY's windows, before the display service
             // takes the framebuffer and draws the terminal's screen over it (C2.2).
             DisplayProbe.Run(table, records);
@@ -88,11 +91,12 @@ internal static class Program
                 capabilities |= ServiceStatus.TERMINAL;
             }
             channel.Send(ServiceStatus.Encode(0, capabilities), [.. offered]);
-            var status = Serve(channel, names, terminal, display, drivers);
+            var status = Serve(channel, names, network, terminal, display, drivers);
             foreach (var (_, disk) in disks)
                 disk.DisposeAsync().AsTask().GetAwaiter().GetResult();
             terminal?.Dispose();
             display?.Dispose();
+            network?.Dispose();
             names?.Dispose();
             foreach (var driver in drivers)
                 driver.Dispose();
@@ -162,6 +166,29 @@ internal static class Program
         catch (Exception exception) when (exception is CapabilityException or FileNotFoundException)
         {
             Console.WriteLine($"{PREFIX}namespace service {NamespaceActivation.PATH} could not start: {exception.Message}");
+            return null;
+        }
+    }
+
+    // The network service with the adapters' packet channels (W1.2a), probed once it is ready; null without an adapter or
+    // when it could not start.
+    private static NetworkActivation? StartNetwork(IReadOnlyList<(string Device, Channel Packets)> adapters)
+    {
+        if (adapters.Count == 0)
+            return null;
+        try
+        {
+            var network = NetworkActivation.Start(adapters);
+            Console.WriteLine(network.Status == 0
+                ? $"{PREFIX}network service {NetworkActivation.PATH} with {adapters.Count} adapter{(adapters.Count == 1 ? "" : "s")}: ready"
+                : $"{PREFIX}network service {NetworkActivation.PATH}: not ready, errno {network.Status}");
+            if (network.Clients is { } clients)
+                DnsProbe.Run(clients);
+            return network;
+        }
+        catch (Exception exception) when (exception is CapabilityException or FileNotFoundException)
+        {
+            Console.WriteLine($"{PREFIX}network service {NetworkActivation.PATH} could not start: {exception.Message}");
             return null;
         }
     }
@@ -238,10 +265,10 @@ internal static class Program
 
     // The channel until the root task asks the device manager to stop (D6.1) or ends: a stop stops the terminal service
     // first, which holds the consoles' channels, then the display service, which holds the keyboard driver's, then the
-    // namespace service, since its volumes lie on the drivers' disks, then each driver, and the answer is the first error
-    // of theirs.
-    private static int Serve(Channel channel, NamespaceActivation? names, TerminalActivation? terminal, DisplayActivation? display,
-        IReadOnlyList<DriverActivation> drivers)
+    // network service, which holds the adapters' (W1.2a), then the namespace service, since its volumes lie on the
+    // drivers' disks, then each driver, and the answer is the first error of theirs.
+    private static int Serve(Channel channel, NamespaceActivation? names, NetworkActivation? network, TerminalActivation? terminal,
+        DisplayActivation? display, IReadOnlyList<DriverActivation> drivers)
     {
         for (; ; )
         {
@@ -267,6 +294,11 @@ internal static class Program
                 if (display is { Status: 0 })
                 {
                     var stopped = Report($"display service {DisplayActivation.PATH}", ServiceStop.Request(display.Channel, display.Process, deadline));
+                    error = error != 0 ? error : stopped;
+                }
+                if (network is { Status: 0 })
+                {
+                    var stopped = Report($"network service {NetworkActivation.PATH}", ServiceStop.Request(network.Channel, network.Process, deadline));
                     error = error != 0 ? error : stopped;
                 }
                 if (names is { Status: 0 })

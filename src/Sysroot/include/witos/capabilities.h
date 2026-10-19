@@ -58,6 +58,9 @@ int witos_memory_object_create(WitU64 bytes, WitU64 *object);
 /* An auto-reset event (D2), with WAIT and SIGNAL: ENOMEM for the quota. */
 int witos_event_create(WitU64 *event);
 
+/* Sets an event (W1.2a): one waiter of an auto-reset event completes, or the next wait does; EACCES without SIGNAL. */
+int witos_event_set(WitU64 event);
+
 /* Waits for one of up to four objects until an absolute monotonic deadline (all ones for none), writing the index of
  * the one that completed to *index (D2): ETIMEDOUT at the deadline; a signal's activation does not end the wait. */
 int witos_object_wait(const WitU64 *handles, WitU32 count, WitU64 deadline, WitU32 *index);

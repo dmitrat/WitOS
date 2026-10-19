@@ -222,6 +222,7 @@ jobs:
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/VirtioConsole
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/VirtioInput
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/VirtioNet
+            artifacts/runtime-witos/ilc/${{ matrix.arch }}/Network
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/Terminal
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/Display
             artifacts/runtime-witos/src/artifacts/bin/coreclr/witos.${{ matrix.arch }}.Release/libcoreclr.so
