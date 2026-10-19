@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using WitOS.Dev.Host;
 using WitOS.Dev.Runtime;
 using WitOS.Dev.Tests.Support;
 
@@ -40,6 +41,18 @@ public sealed class RuntimeNuGetSuitesTests
         Assert.That(matrix.Success, Is.True, "kernel.yml has no matrix of the suites' groups");
         Assert.That(matrix.Groups[1].Value.Split(',', StringSplitOptions.TrimEntries),
             Is.EquivalentTo(selection.Suites.Select(suite => suite.Group).Distinct()));
+    }
+
+    // A host run the host's .NET lost to a signal is run once more; a failed test, a timeout or a summary is not.
+    [Test]
+    public void HostRunKilledBySignalIsRetriedTest()
+    {
+        var summary = new NuGetSuiteResult(10, 9, 1, 0, ["A.B"]);
+        var killed = RuntimeNuGetSuites.KilledBySignal(new ProcessResult(139, "", "", false), null);
+        Assert.That(killed, Is.EqualTo(!OperatingSystem.IsWindows()), "SIGSEGV without a summary, on Unix");
+        Assert.That(RuntimeNuGetSuites.KilledBySignal(new ProcessResult(139, "", "", false), summary), Is.False, "the runner summed up");
+        Assert.That(RuntimeNuGetSuites.KilledBySignal(new ProcessResult(137, "", "", true), null), Is.False, "a timeout");
+        Assert.That(RuntimeNuGetSuites.KilledBySignal(new ProcessResult(1, "", "", false), null), Is.False, "a failed run");
     }
 
     // xunit's runners take -noclass and -nomethod; NUnitLite one --where of its test selection language.
