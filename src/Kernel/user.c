@@ -821,7 +821,9 @@ int wit_user_create_flat(
         process->Events.Limit = WIT_PROCESS_EVENT_CAPACITY;
         process->ThreadLimit = WIT_PROCESS_THREAD_CAPACITY;
         process->ChannelLimit = WIT_PROCESS_CHANNEL_CAPACITY;
-        process->TickLimit = WIT_PROCESS_TICK_BUDGET;
+        /* An hour of the machine's time: every processor's tick charges the component it runs (P1.3b), so a process
+         * busy on all of them spends its budget as many times faster (P2). */
+        process->TickLimit = WIT_PROCESS_TICK_BUDGET * wit_processors_online();
     }
     slot_owners[slot] = process;
     process->ImageBase = layout->Segments[0].Address;

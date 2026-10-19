@@ -84,7 +84,8 @@
 
 /* Timer ticks a component may run before its budget expires: a fixture's, and the root task's, which bounds the
  * processes it creates: an hour of processor time since R7.2b, where 30 seconds ended upstream's test groups and
- * allocation tests part way. */
+ * allocation tests part way, for each online processor since P2, where the libraries' suites busy on four processors
+ * spent the hour in 45 minutes. */
 #define WIT_USER_TICK_BUDGET 10U
 #define WIT_PROCESS_TICK_BUDGET 360000U
 

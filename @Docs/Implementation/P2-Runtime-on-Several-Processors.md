@@ -60,7 +60,21 @@ the dispatch, and the dispatch that resumes the yielding thread itself sets it t
 (`wit_user_yield`, `Dispatcher.Yielding`). The defect is as old as `THREAD_YIELD`'s value; one processor reached it too,
 whenever the caller was the only ready thread.
 
-## 5. The proof
+## 5. The tick budget
+
+CI's runs of the libraries' own suites (N2.2), which P2 boots on four processors, ended the Roslyn and Math.NET suites
+part way, after 2666 to 11035 seconds, each process ended without a fault report. A system layer process's tick budget
+is an hour of processor time (R7.2b), and every processor's tick charges the component it runs (P1.3b).
+
+Under QEMU's instruction clock the four processors run in turn on one host thread, sharing one instruction count. So
+four busy processors do in a virtual second the work one does, while charging four ticks for it, and a suite busy on all
+of them spent its hour in 45 minutes.
+
+The budget is now an hour for each online processor (`WIT_PROCESS_TICK_BUDGET * wit_processors_online()`), the machine's
+hour, which bounds a deadlock or a runaway process as it did on one processor. `apps_init.c` now names the signal a
+command ended by (`SIGXCPU` for a budget, `SIGSEGV` for a fault) instead of printing `-1`.
+
+## 6. The proof
 
 - `tests/Runtime.Witos/Processors` is an ordinary console project, published by the stock SDK without a RID once as it
   is and once with `ServerGarbageCollection=true`, as an application selects the server collector (its runtimeconfig
@@ -83,7 +97,7 @@ whenever the caller was the only ready thread.
 - `process_init.c` checks `sched_getcpu`: a processor of the mask, and on two processors the processor a thread pinned
   to each in turn runs on.
 
-## 6. What ran
+## 7. What ran
 
 In the Linux host's image, with the final code:
 
@@ -99,7 +113,7 @@ In the Linux host's image, with the final code:
   group a job on x64 and ARM64, and `published-on-windows` on the three ISAs.
 - `WitOS.Dev.Tests`: every host test passed; `format` is clean.
 
-## 7. Left for later
+## 8. Left for later
 
 - `Process.ProcessorAffinity` still throws `PlatformNotSupportedException` (WitOS's `Process.WitOS.cs`), although the
   libc now reads and sets a thread's mask; a change of the runtime's patch set with its own check.
