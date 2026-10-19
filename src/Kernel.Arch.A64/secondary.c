@@ -3,6 +3,7 @@
 #include "witos/cpu.h"
 #include "witos/platform.h"
 #include "witos/processor.h"
+#include "user.h"
 #include "a64.h"
 
 /* Secondary processors of ARM64 (plan step K7.2). The boot processor records its translation registers, SCTLR and
@@ -83,8 +84,5 @@ WIT_NORETURN void wit_a64_secondary_main(WitU32 index)
     wit_platform_processor_interrupts_enable(index, wit_arch_processor_id());
     wit_processors_set_features(index, wit_arch_processor_features(), wit_arch_cache_size());
     wit_cpus_secondary_ready(index);
-    wit_a64_enable_interrupts();
-    for (;;) {
-        wit_a64_wait();
-    }
+    wit_user_processor_main(); /* threads during a run, parked between runs (P1.3b) */
 }

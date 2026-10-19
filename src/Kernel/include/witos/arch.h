@@ -94,6 +94,10 @@ void wit_arch_frame_prepare_return(WitArchFrame *frame, int syscall);
 WitU64 *wit_arch_frame_status(WitArchFrame *frame);
 WitU64 *wit_arch_frame_value(WitArchFrame *frame);
 void wit_arch_frame_set_result(WitArchFrame *frame, WitU64 status, WitU64 value);
+/* A system call that runs again (P1.3b): its number and arguments back in their registers, which the result
+ * overwrote, and the PC on the call instruction. */
+void wit_arch_frame_restart_call(
+    WitArchFrame *frame, WitU64 number, WitU64 argument0, WitU64 argument1, WitU64 argument2);
 WitU64 wit_arch_callback_stack(WitU64 sp, WitU32 *call_frame_bytes);
 void wit_arch_frame_enter_callback(
     WitArchFrame *frame, WitU64 entry, WitU64 stack, WitU64 argument0, WitU64 argument1, WitU64 argument2);

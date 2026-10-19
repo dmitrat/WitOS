@@ -68,6 +68,8 @@
 #define WIT_INTERRUPT_TEST_BIND 0U
 #define WIT_INTERRUPT_TEST_DMA 1U
 #define WIT_INTERRUPT_TEST_VIRTIO 2U
+#define WIT_SMP_TEST_SPIN 1U /* P1.3b */
+#define WIT_SMP_TEST_SHOOTDOWN 2U
 #define WIT_TEST_EXIT_CODE 42U
 
 typedef struct WitUserTestConfig {

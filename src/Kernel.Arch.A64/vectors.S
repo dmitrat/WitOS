@@ -97,6 +97,7 @@ save_special:
 // returns to EL0 must sit at the top of its thread's kernel stack.
 wit_a64_resume_frame:
     mov sp, x0
+    bl wit_cpus_release // on the frame's stack now, the kernel lock goes if held (P1.3b); all is restored below
     ldp q0, q1, [sp, #320]
     ldp q2, q3, [sp, #352]
     ldp q4, q5, [sp, #384]

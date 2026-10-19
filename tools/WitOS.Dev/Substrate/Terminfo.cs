@@ -64,7 +64,11 @@ internal static class Terminfo
     public static async Task<string> PrepareAsync(string root)
     {
         var pin = await ReadPinAsync(root);
-        var tarball = await Toolchain.RequireDownloadAsync(Path.Combine(root, ".tools", "downloads", pin.Name + ".tar.gz"), pin.Url, pin.Sha256);
+        // The redirector first, as GNU asks; a mirror it names may be unreachable from a host (CI's runners met one
+        // repeatedly), so GNU's own server and the mirror of ncurses's maintainer follow, with the same bytes.
+        var tarball = await Toolchain.RequireDownloadAsync(Path.Combine(root, ".tools", "downloads", pin.Name + ".tar.gz"),
+            [pin.Url, $"https://ftp.gnu.org/gnu/ncurses/{pin.Name}.tar.gz", $"https://invisible-mirror.net/archives/ncurses/{pin.Name}.tar.gz"],
+            pin.Sha256);
         var source = SourcePath(root, pin);
         if (File.Exists(Stamp(root, pin)) && File.Exists(source))
             return source;

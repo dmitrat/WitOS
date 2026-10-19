@@ -97,7 +97,10 @@ WitRv64Frame *wit_rv64_interrupt(WitRv64Frame *frame)
         /* sip.SSIP is a level the doorbell sets: cleared before the set is served, so that a doorbell rung meanwhile
          * raises it again and none is lost. */
         wit_platform_ipi_complete(kind);
-        wit_cpus_ipi_received();
+        const WitU32 served = wit_cpus_ipi_received();
+        if ((served & (1U << WIT_REQUEST_RESCHEDULE)) && wit_arch_frame_from_user(frame) && wit_user_is_active()) {
+            return wit_user_reschedule(frame); /* a RESCHEDULE that interrupted U-mode enters the dispatcher (P1.3b) */
+        }
         return frame;
     }
     if (cause != WIT_RV64_INTERRUPT_TIMER) {

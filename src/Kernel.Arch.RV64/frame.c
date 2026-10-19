@@ -218,6 +218,17 @@ void wit_arch_frame_set_result(WitArchFrame *frame, WitU64 status, WitU64 value)
     frame->X[11] = value;
 }
 
+/* The entry moved sepc past the ECALL, which is never compressed. */
+void wit_arch_frame_restart_call(
+    WitArchFrame *frame, WitU64 number, WitU64 argument0, WitU64 argument1, WitU64 argument2)
+{
+    frame->X[17] = number;
+    frame->X[10] = argument0;
+    frame->X[11] = argument1;
+    frame->X[12] = argument2;
+    frame->Sepc -= INSTRUCTION_BYTES;
+}
+
 WitU64 wit_arch_callback_stack(WitU64 sp, WitU32 *call_frame_bytes)
 {
     *call_frame_bytes = CALL_FRAME_BYTES; /* The return address travels in ra; no shadow space. */

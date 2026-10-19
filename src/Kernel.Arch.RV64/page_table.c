@@ -65,10 +65,12 @@ WitU64 wit_arch_page_entry_physical(WitU64 entry)
 
 void wit_arch_page_invalidate(const WitUserSpace *space, WitU64 address)
 {
-    /* One processor and no ASIDs: an inactive root is flushed when it is installed. */
+    /* No ASIDs: an inactive root is flushed when it is installed. SFENCE.VMA is local, so every other hart that has the
+     * space active drops the translation by request (P1.3b). */
     if ((wit_rv64_read_satp() & SATP_PPN) == (space->Root >> 12)) {
         wit_rv64_fence_vma_address(address);
     }
+    wit_user_space_shootdown(space, address);
 }
 
 /* A branch of the user's own: valid, no leaf bits and not global, which the kernel's branches are. */

@@ -59,6 +59,10 @@ wit_x64_device_entry:
 
     .globl wit_x64_restore_context
 wit_x64_restore_context:
+    // On the frame's stack now, the kernel lock goes if this processor holds it (P1.3b); everything is restored below.
+    sub rsp, 32
+    call wit_cpus_release
+    add rsp, 32
     fxrstor64 [rsp]
     add rsp, 512
     pop r15

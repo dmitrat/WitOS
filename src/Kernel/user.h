@@ -81,7 +81,8 @@ typedef struct WitUserThread {
     WitU64 Tls; /* the TLS base: FS on x64, TPIDRRO_EL0 on ARM64; zero for none */
     /* A component's first thread owns the stack window the kernel mapped for it (reaped with it); a thread of the one
      * form runs on a reservation and may name it at THREAD_EXIT for release once it no longer runs there (K5.2a). */
-    WitU32 OwnsStack, Reserved2;
+    WitU32 OwnsStack;
+    WitU32 Processor; /* the processor that runs the thread while it is Running (P1.3b) */
     WitU64 ExitReservation;
     WitU64 ExitClear, ExitEvent; /* the exit request (S2.1): zeroed and set after the thread no longer runs */
     WitU64 AlternateBottom, AlternateTop; /* the thread's alternate stack (S3.1); zero when none */
@@ -368,6 +369,7 @@ void wit_user_device_self_test(WitPageAllocator *pages);
 void wit_user_interrupt_self_test(WitPageAllocator *pages);
 void wit_user_thread2_self_test(WitPageAllocator *pages);
 void wit_user_processor_self_test(WitPageAllocator *pages);
+void wit_user_smp_self_test(WitPageAllocator *pages);
 struct WitBootInfo;
 void wit_root_task_self_test(const struct WitBootInfo *boot, WitPageAllocator *pages);
 /* THREAD_QUERY by handle or WIT_THREAD_SELF; the caller's Version and Size in the buffer select the record. */
@@ -389,7 +391,20 @@ int wit_user_create_flat(
     WitUserProcess *process, WitPageAllocator *allocator, WitU32 slot, const struct WitFlatLayout *layout, int system);
 void wit_user_run(WitUserProcess *process);
 void wit_user_destroy(WitUserProcess *process);
+/* Whether a run is on (P1.3b): every processor's tick and every doorbell from user mode then enter the dispatcher. */
 int wit_user_is_active(void);
+/* A secondary processor's life once it is ready (P1.3b): it runs threads during a run and parks between runs. */
+WIT_NORETURN void wit_user_processor_main(void);
+/* A doorbell that carried RESCHEDULE interrupted user mode (P1.3b): the thread's frame is saved and the processor
+ * dispatches, which leaves the thread when its component ended or it was suspended, and delivers an activation. */
+WitArchFrame *wit_user_reschedule(WitArchFrame *frame);
+/* A thread another processor runs enters its dispatcher soon (P1.3b): after a suspension or an activation. */
+void wit_user_thread_kick(const WitUserThread *thread);
+/* The translation of an address of a space leaves every other processor that has the space active (P1.3b). */
+void wit_user_space_shootdown(const WitUserSpace *space, WitU64 address);
+/* The status a call sets to run again once the caller is dispatched anew (P1.3b): the target of a context call is
+ * still leaving another processor. Never an ABI status: wit_user_syscall rewinds the call. */
+#define WIT_USER_CALL_RESTART 0xFFFFFFFFFFFF0001ULL
 void wit_user_pressure_update(WitUserProcess *process);
 WitU64 wit_user_pressure_create(WitUserProcess *process, WitU64 *handle);
 WitU64 wit_user_event_notify(WitUserProcess *process, WitU64 handle, int signaled);

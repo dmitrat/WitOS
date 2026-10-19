@@ -64,10 +64,10 @@ WitU64 wit_arch_page_entry_physical(WitU64 entry)
 
 void wit_arch_page_invalidate(const WitUserSpace *space, WitU64 address)
 {
-    /* One processor and no ASIDs: an inactive root is flushed when it is installed. */
-    if (wit_a64_translation_base() == space->Root) {
-        wit_a64_invalidate_page(address);
-    }
+    /* No ASIDs: TLBI VAAE1IS drops the address from every processor of the inner shareable domain whatever space it
+     * has active (P1.3b), which costs nothing where the space is not active, so no request is needed. */
+    (void)space;
+    wit_a64_invalidate_page(address);
 }
 
 static int user_table(WitU64 entry)

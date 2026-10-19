@@ -4,9 +4,6 @@ WitU64 wit_user_thread_suspend(WitUserProcess *process, WitU64 handle, int resum
 {
     WitUserThread *target = 0;
     *previous = 0;
-    if (wit_processors_scheduling() != 1) {
-        return WIT_STATUS_UNSUPPORTED;
-    }
     const WitU64 status = wit_user_reference_target(process, handle, WIT_RIGHT_SUSPEND_RESUME, &target);
     if (status != WIT_STATUS_OK) {
         return status;
@@ -30,6 +27,7 @@ WitU64 wit_user_thread_suspend(WitUserProcess *process, WitU64 handle, int resum
         }
     } else {
         ++target->SuspendCount;
+        wit_user_thread_kick(target); /* a target another processor runs leaves it at once (P1.3b) */
     }
     // Wait completion stays independent. Scheduler eligibility alone is gated.
     return WIT_STATUS_OK;

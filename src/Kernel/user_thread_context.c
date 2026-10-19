@@ -64,6 +64,12 @@ WitU64 wit_user_thread_context_get(WitUserProcess *process, WitU64 reference, Wi
     if (!wit_arch_context_supported()) {
         return WIT_STATUS_UNSUPPORTED;
     }
+    /* Another processor runs the target (P1.3b): its saved frame is stale. A suspended target leaves that processor at
+     * once, so the call runs again when the caller is dispatched anew; an unsuspended one is no target (RFC 0011
+     * section 7.3: the target must be suspended or be the caller). */
+    if (target != &process->Threads[process->CurrentThread] && target->State == WitThreadRunning) {
+        return target->SuspendCount ? WIT_USER_CALL_RESTART : WIT_STATUS_BUSY;
+    }
     const WitArchFrame *saved = owned_context(process, target);
     WitThreadContext snapshot;
     wit_user_context_snapshot(&snapshot, target, saved);
@@ -115,6 +121,11 @@ WitU64 wit_user_thread_context_set(WitUserProcess *process, WitU64 reference, Wi
     if (status != WIT_STATUS_OK) {
         return status;
     }
+    if (target != &process->Threads[process->CurrentThread] &&
+        target->SuspendCount &&
+        target->State == WitThreadRunning) {
+        return WIT_USER_CALL_RESTART; /* still leaving another processor (P1.3b) */
+    }
     if (target == &process->Threads[process->CurrentThread] ||
         !target->SuspendCount ||
         target->State != WitThreadReady ||
@@ -148,7 +159,7 @@ WitU64 wit_user_cpu_context_query(WitUserProcess *process, WitU64 address, WitU6
     if (size != sizeof(info)) {
         return WIT_STATUS_INVALID_ARGUMENT;
     }
-    if (!wit_arch_context_supported() || wit_processors_scheduling() != 1) {
+    if (!wit_arch_context_supported()) {
         return WIT_STATUS_UNSUPPORTED;
     }
     wit_arch_cpu_context_describe(&info, process->Threads[process->CurrentThread].Context);

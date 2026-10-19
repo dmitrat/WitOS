@@ -5,6 +5,7 @@
 #include "witos/processor.h"
 #include "witos/rv64_csr.h"
 #include "witos/rv64_sbi.h"
+#include "user.h"
 #include "rv64.h"
 
 /* Secondary harts of RISC-V (plan step V1.4, K7.2's role). The boot hart records its translation root for the entry in
@@ -92,12 +93,9 @@ WIT_NORETURN void wit_rv64_secondary_main(WitU32 index, WitU64 hart)
     started[index] = 1;
     wit_rv64_fence();
     wit_platform_processor_interrupts_enable(index, hart);
-    /* The inter-processor interrupt alone: no tick and no device line reaches a secondary hart until phase P. */
+    /* The inter-processor interrupt; its tick during a run (P1.3a); never a device line, which reaches the boot hart. */
     wit_rv64_set_sie(WIT_RV64_SIE_SOFTWARE);
     wit_processors_set_features(index, wit_arch_processor_features(), wit_arch_cache_size());
     wit_cpus_secondary_ready(index);
-    wit_rv64_set_sstatus(WIT_RV64_SSTATUS_SIE);
-    for (;;) {
-        wit_rv64_wait_for_interrupt();
-    }
+    wit_user_processor_main(); /* threads during a run, parked between runs (P1.3b) */
 }

@@ -24,7 +24,7 @@ void wit_processor_self_test(void)
     require(count >= 1 && count <= WIT_PROCESSOR_CAPACITY, "Processor table is empty or oversized");
     require(wit_processors_online() == wit_cpus_online() &&
             wit_processors_current() == 0 &&
-            wit_processors_scheduling() == 1,
+            wit_processors_scheduling() == wit_cpus_online(), /* threads run on every online processor (P1.3b) */
         "The online count or the scheduling processor is wrong");
     require(wit_processors_record(0, &boot) &&
             boot.Flags == (WIT_PROCESSOR_ONLINE | WIT_PROCESSOR_BOOT) &&

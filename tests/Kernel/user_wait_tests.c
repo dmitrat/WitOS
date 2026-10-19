@@ -1,4 +1,5 @@
 #include "user.h"
+#include "witos/processor.h"
 #include "self_test.h"
 #include "witos/platform.h"
 #include "protocol.h"
@@ -287,7 +288,10 @@ void wit_user_wait_self_test(WitPageAllocator *pages)
             require(process->EventParks == 3 && process->ThreadReaps == 0, "Exit-with-waiters setup failed");
         }
         if (mode == WIT_WAIT_TEST_ACTIVE_TIMEOUT) {
-            require(process->WaitTimeouts == 1 && process->IdleTicks == 0 && process->ThreadTimerSwitches != 0,
+            /* One processor only reaches the deadline by preempting the spinning thread; on several the waiter's
+             * processor idles beside it (P1.3b). */
+            require(process->WaitTimeouts == 1 &&
+                    (wit_processors_scheduling() > 1 || (process->IdleTicks == 0 && process->ThreadTimerSwitches != 0)),
                 "Active timeout did not use user preemption");
         }
         if (mode == WIT_WAIT_TEST_JOIN_CHAIN) {

@@ -170,6 +170,17 @@ void wit_arch_frame_set_result(WitArchFrame *frame, WitU64 status, WitU64 value)
     frame->Rdx = value;
 }
 
+/* SYSCALL is two bytes (0F 05); RCX and R11, which it overwrites, it overwrites again. */
+void wit_arch_frame_restart_call(
+    WitArchFrame *frame, WitU64 number, WitU64 argument0, WitU64 argument1, WitU64 argument2)
+{
+    frame->Rax = number;
+    frame->Rdi = argument0;
+    frame->Rsi = argument1;
+    frame->Rdx = argument2;
+    frame->Rip -= 2;
+}
+
 WitU64 wit_arch_callback_stack(WitU64 sp, WitU32 *call_frame_bytes)
 {
     *call_frame_bytes = CALL_FRAME_BYTES;

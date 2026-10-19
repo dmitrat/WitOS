@@ -73,6 +73,8 @@
     "[TEST-PASS] User.ThreadFormAndTransport",
     "[TEST-PASS] User.ProcessLifecycle",
     "[TEST-PASS] User.ProcessorsAndAffinity",
+    "[TEST-PASS] User.SmpThreads",
+    "[TEST-PASS] User.SmpShootdown",
     "[TEST-PASS] Root.Started",
     "[TEST-PASS] Root.ImageValidation",
     "[TEST-PASS] User.BadReturn",

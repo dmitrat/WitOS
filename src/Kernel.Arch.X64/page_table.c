@@ -46,10 +46,12 @@ WitU64 wit_arch_page_entry_physical(WitU64 entry)
 
 void wit_arch_page_invalidate(const WitUserSpace *space, WitU64 address)
 {
-    /* No PCID, global user mappings or second CPU. Inactive CR3s are flushed on entry. */
+    /* No PCID or global user mappings: an inactive CR3 is flushed when it is loaded. INVLPG is local, so every other
+     * processor that has the space active drops the translation by request (P1.3b). */
     if ((wit_x64_read_cr3() & PAGE_ADDRESS) == space->Root) {
         wit_x64_invlpg((void *)address);
     }
+    wit_user_space_shootdown(space, address);
 }
 
 WitU64 *wit_arch_page_entry(WitUserSpace *space, WitU64 address, int create)

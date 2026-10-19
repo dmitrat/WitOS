@@ -29,6 +29,7 @@ void wit_kernel_self_test(const WitBootInfo *boot, WitPageAllocator *pages)
     wit_user_thread2_self_test(pages);
     wit_user_process_self_test(pages);
     wit_user_processor_self_test(pages);
+    wit_user_smp_self_test(pages);
     wit_root_task_self_test(boot, pages);
     wit_x64_cache_self_test();
     wit_user_isolation_end_self_test(pages, before);

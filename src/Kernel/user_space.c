@@ -1,4 +1,5 @@
 #include "user.h"
+#include "witos/cpu.h"
 #include "witos/virtual.h"
 #include "witos/platform.h"
 
@@ -676,7 +677,8 @@ static WitU64 memory_protect(WitUserSpace *space, WitU64 address, WitU64 size, W
 }
 
 /* Makes instructions written to the executable owned or aliased pages of [address, address + size) visible to
- * instruction fetch. Other pages hold no code and are skipped. */
+ * instruction fetch, on every processor (P1.3b: a thread of the space may run anywhere, and RISC-V's FENCE.I is
+ * local). Other pages hold no code and are skipped. */
 void wit_user_space_publish_code(WitUserSpace *space, WitU64 address, WitU64 size)
 {
     for (WitU64 page = address & ~4095ULL; page < address + size; page += 4096) {
@@ -688,13 +690,20 @@ void wit_user_space_publish_code(WitUserSpace *space, WitU64 address, WitU64 siz
         }
     }
     wit_arch_publish_code();
+    if (wit_cpus_online() > 1) {
+        const int held = wit_cpus_lock_held(); /* a component the host builds between runs is published without it */
+        if (!held) {
+            wit_cpus_lock();
+        }
+        wit_cpus_publish_all();
+        if (!held) {
+            wit_cpus_unlock();
+        }
+    }
 }
 
 WitU64 wit_user_code_publish(WitUserSpace *space, WitU64 address, WitU64 size)
 {
-    if (wit_processors_scheduling() != 1) {
-        return WIT_STATUS_UNSUPPORTED;
-    }
     const WitU64 limit = dynamic_limit(address);
     if (!size || !limit || size > limit - address) {
         return WIT_STATUS_BAD_ADDRESS;
