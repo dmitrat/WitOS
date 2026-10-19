@@ -402,11 +402,14 @@ int main(void)
     check(read_file(loader, buffer, 3) == 2 && buffer[0] == 'M' && buffer[1] == 'Z', "the boot volume's loader");
     check(write_file("/boot/new.txt", "x", 0) < 0 && errno == EROFS, "a write to the read-only boot volume is EROFS");
     printf("[DEVICES-INIT] POSIX files over the namespace service: %d checks passed, %d failed\n", passed, failed);
+    /* The libc's sockets over the network service (W2.1a), in a process of its own, as any program has them. */
+    char *sockets_argv[] = {"/bin/sockets-check", 0};
     char *files_argv[] = {"/data/programs/files/Files", 0};
     char *dynamic_argv[] = {"/data/programs/dynamic/dynamic", "0", 0};
     char *app_argv[] = {"/dotnet/dotnet", "/data/programs/app/App.dll", "witos", 0};
+    const int sockets = run(sockets_argv);
     const int files = run(files_argv);
     const int dynamic = run(dynamic_argv);
     const int app = run(app_argv);
-    return failed || files || dynamic || app ? 1 : 0;
+    return failed || sockets || files || dynamic || app ? 1 : 0;
 }

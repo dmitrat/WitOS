@@ -250,7 +250,7 @@ internal sealed class SocketConnection
             case SocketMessages.NAME:
                 return stream ? StreamName(request, socket) : Name(request, socket);
             case SocketMessages.POLL:
-                return new SocketReply(operation, 0, Value: m_host.Call(stack => stack.Poll(socket)));
+                return m_host.Call(stack => new SocketReply(operation, 0, Length: stack.Available(socket), Value: stack.Poll(socket)));
             case SocketMessages.GET_OPTION:
                 return GetOption(request, socket, stream);
             default:
@@ -439,7 +439,7 @@ internal sealed class SocketConnection
         if (request.Length < SocketMessages.CONFIGURATION_SIZE || !InWindow(request.Window, SocketMessages.CONFIGURATION_SIZE))
             return new SocketReply(request.Operation, NetworkErrors.INVALID);
         var configuration = m_host.Call(stack => new SocketConfiguration(stack.Address, stack.Mask, stack.Gateway, [.. stack.DnsServers],
-            stack.LinkAddress, m_host.Link.Mtu, stack.Dhcp.IsBound));
+            stack.LinkAddress, m_host.Mtu, stack.Dhcp.IsBound));
         SocketMessages.WriteConfiguration(m_window.Writable[(int)request.Window..], configuration);
         return new SocketReply(request.Operation, 0, Length: SocketMessages.CONFIGURATION_SIZE);
     }

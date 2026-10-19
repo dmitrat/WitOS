@@ -77,7 +77,8 @@ internal static class Program
             var terminal = StartTerminal(drivers, display);
             Console.WriteLine($"{PREFIX}device manager on {RuntimeInformation.ProcessArchitecture}: {records.Count} devices discovered, " +
                 $"{drivers.Count(driver => driver.Status == 0)} drivers ready, DMA isolation: none (no IOMMU), ready");
-            // The endpoints for every process the root task starts: the namespace's, then the terminal's (N4.3).
+            // The endpoints for every process the root task starts: the namespace's, then the terminal's (N4.3), then the
+            // network service's (W2.1a).
             var offered = new List<KernelHandle>();
             uint capabilities = 0;
             if (names?.Clients is { } clients)
@@ -89,6 +90,11 @@ internal static class Program
             {
                 offered.Add(terminalClients);
                 capabilities |= ServiceStatus.TERMINAL;
+            }
+            if (network?.Clients is { } networkClients)
+            {
+                offered.Add(networkClients);
+                capabilities |= ServiceStatus.NETWORK;
             }
             channel.Send(ServiceStatus.Encode(0, capabilities), [.. offered]);
             var status = Serve(channel, names, network, terminal, display, drivers);
@@ -170,19 +176,17 @@ internal static class Program
         }
     }
 
-    // The network service with the adapters' packet channels (W1.2a), probed once it is ready; null without an adapter or
-    // when it could not start.
+    // The network service with the adapters' packet channels (W1.2a), or with none, serving the loopback alone (W2.1a); its
+    // probes run when it has an adapter. Null when it could not start.
     private static NetworkActivation? StartNetwork(IReadOnlyList<(string Device, Channel Packets)> adapters)
     {
-        if (adapters.Count == 0)
-            return null;
         try
         {
             var network = NetworkActivation.Start(adapters);
             Console.WriteLine(network.Status == 0
                 ? $"{PREFIX}network service {NetworkActivation.PATH} with {adapters.Count} adapter{(adapters.Count == 1 ? "" : "s")}: ready"
                 : $"{PREFIX}network service {NetworkActivation.PATH}: not ready, errno {network.Status}");
-            if (network.Clients is { } clients)
+            if (network.Clients is { } clients && adapters.Count > 0)
             {
                 DnsProbe.Run(clients);
                 TcpProbe.Run(clients); // W1.2b

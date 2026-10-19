@@ -22,7 +22,8 @@
  * src/Substrate/libc/pipe.c) for one standard descriptor; the grant is then that channel alone, which the libc closes
  * once the streams arrived, so a process with streams has no grant of its own; and, since a message holds four
  * handles, the optional capabilities the first message cannot hold follow in a second one (WIT_START_MORE). N4.3
- * adds the terminal service's clients' endpoint (WIT_START_TERMINAL, witos/terminal.h), after the namespace's. The
+ * adds the terminal service's clients' endpoint (WIT_START_TERMINAL, witos/terminal.h), after the namespace's, and
+ * W2.1a the network service's (WIT_START_NETWORK, witos/socket.h), after the terminal's. The
  * arguments and the environment stay on the stack, where musl reads them and a message of 256 bytes could not hold
  * them. */
 #define WIT_AT_START 0x57490001UL
@@ -44,8 +45,14 @@
  * namespace and the terminal so). */
 #define WIT_START_MORE 8U
 #define WIT_START_TERMINAL 16U /* the terminal service's clients' endpoint: SEND (N4.3, witos/terminal.h) */
+#define WIT_START_NETWORK 32U /* the network service's clients' endpoint: SEND (W2.1a, witos/socket.h) */
 #define WIT_START_CAPABILITIES \
-    (WIT_START_MANAGER | WIT_START_GRANT | WIT_START_NAMESPACE | WIT_START_MORE | WIT_START_TERMINAL)
+    (WIT_START_MANAGER | \
+        WIT_START_GRANT | \
+        WIT_START_NAMESPACE | \
+        WIT_START_MORE | \
+        WIT_START_TERMINAL | \
+        WIT_START_NETWORK)
 
 /* The bytes of the start message, followed by DirectoryBytes of the initial directory. */
 typedef struct WitStartMessage {
@@ -56,7 +63,7 @@ typedef struct WitStartMessage {
     WitU32
         DirectoryBytes; /* an absolute path without a terminator, at most WIT_START_DIRECTORY_MAXIMUM; zero for "/" */
     WitU32
-        Capabilities; /* WIT_START_MANAGER, WIT_START_GRANT, WIT_START_NAMESPACE: the optional capabilities carried */
+        Capabilities; /* WIT_START_MANAGER ... WIT_START_NETWORK: the optional capabilities carried, WIT_START_MORE */
     WitU32 Streams; /* the WitStreamMessages that follow on the grant (N4.2), at most WIT_START_STREAMS_MAXIMUM */
 } WitStartMessage;
 

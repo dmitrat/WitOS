@@ -10,7 +10,8 @@ namespace OutWit.OS.Network.Server;
 /// <summary>
 /// The stack and its thread (plan step W1.2a): one thread owns the adapter's replies and the stack's timers. It waits on
 /// the packet channel, on an event the sessions set and until the stack's next deadline; it hands received frames to the
-/// stack, runs what is due and sends what the stack queued. Sessions call the stack under the same lock and set the event
+/// stack, runs what is due and sends what the stack queued. Without an adapter (W2.1a) the stack serves the loopback
+/// alone, and the thread waits on the event and the deadline. Sessions call the stack under the same lock and set the event
 /// when a call moved the stack's next deadline before the one the thread waits for. A socket's readiness goes to the
 /// session that owns it.
 /// </summary>
@@ -28,7 +29,8 @@ internal sealed class StackHost : IDisposable
     #region Fields
 
     private readonly object m_gate = new();
-    private readonly AdapterLink m_link;
+    private readonly AdapterLink? m_adapter;
+    private readonly ILink m_link;
     private readonly NetworkStack m_stack;
     private readonly KernelHandle m_wake;
     private readonly Dictionary<int, SocketConnection> m_owners = [];
@@ -44,15 +46,16 @@ internal sealed class StackHost : IDisposable
     #region Constructors
 
     /// <summary>
-    /// The stack on an adapter, its thread not started.
+    /// The stack on an adapter, or on the loopback alone, its thread not started.
     /// </summary>
-    /// <param name="link">The adapter, which the host takes.</param>
+    /// <param name="adapter">The adapter, which the host takes; null for the loopback alone.</param>
     /// <exception cref="CapabilityException">The wake event could not be made.</exception>
-    public StackHost(AdapterLink link)
+    public StackHost(AdapterLink? adapter)
     {
-        m_link = link;
+        m_adapter = adapter;
+        m_link = adapter ?? (ILink)new NoLink();
         m_frequency = Clock.Frequency();
-        m_stack = new NetworkStack(link, Now);
+        m_stack = new NetworkStack(m_link, Now);
         m_stack.SocketReady += Ready;
         m_wake = Event.Create();
     }
@@ -66,8 +69,11 @@ internal sealed class StackHost : IDisposable
     /// </summary>
     public void Start()
     {
-        lock (m_gate)
-            m_stack.StartDhcp();
+        if (m_adapter is not null)
+        {
+            lock (m_gate)
+                m_stack.StartDhcp();
+        }
         m_thread = new Thread(Run) { IsBackground = true, Name = "network stack" };
         m_thread.Start();
     }
@@ -106,7 +112,7 @@ internal sealed class StackHost : IDisposable
         lock (m_gate)
         {
             var result = call(m_stack);
-            m_link.Flush();
+            m_adapter?.Flush();
             if (m_stack.NextDeadline < m_waitingUntil)
                 Event.Set(m_wake);
             return result;
@@ -192,7 +198,7 @@ internal sealed class StackHost : IDisposable
                     if (m_stopping)
                         return;
                     m_stack.Advance();
-                    m_link.Flush();
+                    m_adapter?.Flush();
                     Report();
                     until = m_stack.NextDeadline;
                     m_waitingUntil = until;
@@ -200,7 +206,8 @@ internal sealed class StackHost : IDisposable
                 int index;
                 try
                 {
-                    index = Event.Wait(until == long.MaxValue ? Event.INFINITE : Ticks(until), m_link.Endpoint, m_wake);
+                    var deadline = until == long.MaxValue ? Event.INFINITE : Ticks(until);
+                    index = m_adapter is null ? Event.Wait(deadline, m_wake) + 1 : Event.Wait(deadline, m_adapter.Endpoint, m_wake);
                 }
                 catch (CapabilityException exception) when (exception.Error == TIMED_OUT)
                 {
@@ -208,14 +215,14 @@ internal sealed class StackHost : IDisposable
                 }
                 if (index != 0)
                     continue;
-                using var message = m_link.Channel.Receive();
+                using var message = m_adapter!.Channel.Receive();
                 lock (m_gate)
-                    m_link.Handle(message, frame => m_stack.Receive(frame));
+                    m_adapter.Handle(message, frame => m_stack.Receive(frame));
             }
         }
         catch (Exception exception) when (exception is CapabilityException or FormatException)
         {
-            Console.WriteLine($"{PREFIX}{m_link.Device}: the stack's thread stopped: {exception.Message}");
+            Console.WriteLine($"{PREFIX}{Device}: the stack's thread stopped: {exception.Message}");
             lock (m_gate)
             {
                 m_failure = exception;
@@ -232,10 +239,10 @@ internal sealed class StackHost : IDisposable
             return;
         m_leased = leased;
         if (leased && m_stack.Dhcp.Lease is { } lease)
-            Console.WriteLine($"{PREFIX}{m_link.Device}: leased {m_stack.Address}/{Prefix(m_stack.Mask)} from {lease.ServerId} for {lease.LeaseSeconds} s, " +
+            Console.WriteLine($"{PREFIX}{Device}: leased {m_stack.Address}/{Prefix(m_stack.Mask)} from {lease.ServerId} for {lease.LeaseSeconds} s, " +
                 $"router {m_stack.Gateway}, DNS {string.Join(", ", m_stack.DnsServers)}");
         else
-            Console.WriteLine($"{PREFIX}{m_link.Device}: the lease ended");
+            Console.WriteLine($"{PREFIX}{Device}: the lease ended");
         Monitor.PulseAll(m_gate);
     }
 
@@ -270,7 +277,7 @@ internal sealed class StackHost : IDisposable
     public void Dispose()
     {
         m_wake.Dispose();
-        m_link.Dispose();
+        m_adapter?.Dispose();
     }
 
     #endregion
@@ -278,14 +285,41 @@ internal sealed class StackHost : IDisposable
     #region Properties
 
     /// <summary>
-    /// The adapter.
+    /// The adapter; null for the loopback alone.
     /// </summary>
-    public AdapterLink Link => m_link;
+    public AdapterLink? Adapter => m_adapter;
+
+    /// <summary>
+    /// The adapter's device identity, or "the loopback" without one.
+    /// </summary>
+    public string Device => m_adapter?.Device ?? "the loopback";
+
+    /// <summary>
+    /// The interface's MTU.
+    /// </summary>
+    public int Mtu => m_link.Mtu;
 
     /// <summary>
     /// The stack's counters; read under no lock, for a report.
     /// </summary>
     public NetworkStatistics Statistics => m_stack.Statistics;
+
+    #endregion
+
+    #region Nested Types
+
+    // The stack's link without an adapter (W2.1a): nothing leaves, since every destination but the loopback is
+    // unreachable while the interface has no address.
+    private sealed class NoLink : ILink
+    {
+        public void Transmit(ReadOnlySpan<byte> frame)
+        {
+        }
+
+        public MacAddress Address => MacAddress.None;
+
+        public int Mtu => 1500;
+    }
 
     #endregion
 }

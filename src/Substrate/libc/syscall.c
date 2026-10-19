@@ -377,6 +377,35 @@ long __wit_source_of(long fd)
     return r;
 }
 
+/* socket.c (W2.1a): a descriptor over a socket record, the socket a descriptor names, and FIONBIO, each under the table
+ * lock, which the socket calls, made outside it, do not hold. */
+long __wit_socket_install(WitU32 index, int flags)
+{
+    __wit_lock(&tables);
+    const long r = __wit_socket_open(index, flags);
+    __wit_unlock(&tables);
+    return r;
+}
+
+long __wit_socket_lookup(long fd, WitU32 *index, int *nonblocking)
+{
+    __wit_lock(&tables);
+    const long r = __wit_socket_of(fd, index, nonblocking);
+    __wit_unlock(&tables);
+    return r;
+}
+
+long __wit_socket_nonblocking(long fd, int nonblocking)
+{
+    __wit_lock(&tables);
+    long r = __wit_fcntl(fd, F_GETFL, 0);
+    if (r >= 0) {
+        r = __wit_fcntl(fd, F_SETFL, nonblocking ? (r | O_NONBLOCK) : (r & ~O_NONBLOCK));
+    }
+    __wit_unlock(&tables);
+    return r;
+}
+
 static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a6);
 
 #define NOT_A_PIPE (-0x10000L) /* outside the errno range */
@@ -558,13 +587,17 @@ static long epoll_wait_instance(long epfd, struct epoll_event *events, int count
 }
 
 /* poll and ppoll (R3.2): the readiness of every descriptor under the table lock — a standard stream's asked of the
- * terminal service outside it (N4.3b) — then, when none is ready and the timeout allows, a park until a pipe changes
- * or the terminal's input arrives, the deadline or a signal handler; the sequence is read before the readiness, so
- * that a change between the two wakes the park at once. A signal mask for the wait is not there. */
+ * terminal service outside it (N4.3b), a socket's of the network service (W2.1a) — then, when none is ready and the
+ * timeout allows, a park until a pipe changes, the terminal's input arrives or a socket's readiness changes, the
+ * deadline or a signal handler; the sequence is read before the readiness, so that a change between the two wakes the
+ * park at once. A signal mask for the wait is not there. */
+#define NO_SOCKET 0xFFFFFFFFU
+
 static long poll_descriptors(struct pollfd *fds, unsigned long count, const struct timespec *timeout)
 {
     WitU64 deadline = WIT_WAIT_INFINITE;
     signed char streams[1024];
+    WitU32 sockets[1024];
     if (timeout) {
         const long converted = __wit_futex_deadline(timeout, &deadline);
         if (converted < 0) {
@@ -580,7 +613,13 @@ static long poll_descriptors(struct pollfd *fds, unsigned long count, const stru
         long ready = 0;
         __wit_lock(&tables);
         for (unsigned long i = 0; i < count; ++i) {
+            int nonblocking;
             streams[i] = (signed char)(fds[i].fd >= 0 && terminal ? __wit_stream_of(fds[i].fd) : -1);
+            sockets[i] = NO_SOCKET;
+            if (fds[i].fd >= 0 && streams[i] < 0 && __wit_socket_of(fds[i].fd, &sockets[i], &nonblocking) > 0) {
+                fds[i].revents = 0; /* asked of the service below, with the reference the lookup took */
+                continue;
+            }
             fds[i].revents = fds[i].fd < 0 || streams[i] >= 0 ? 0 : __wit_descriptor_poll(fds[i].fd, fds[i].events);
             ready += fds[i].revents != 0;
         }
@@ -590,7 +629,13 @@ static long poll_descriptors(struct pollfd *fds, unsigned long count, const stru
                 fds[i].revents = __wit_terminal_poll(streams[i], fds[i].events);
                 ready += fds[i].revents != 0;
             }
+            if (sockets[i] != NO_SOCKET) {
+                fds[i].revents = __wit_socket_poll(sockets[i], fds[i].events);
+                ready += fds[i].revents != 0;
+                __wit_socket_release(sockets[i]);
+            }
         }
+        __wit_socket_flush();
         if (ready || (timeout && !timeout->tv_sec && !timeout->tv_nsec)) {
             return ready;
         }
@@ -636,6 +681,11 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
     if (!uses_tables(n)) {
         return dispatch(n, a1, a2, a3, a4, a5, a6);
     }
+    if (__wit_is_socket_call(n)) {
+        const long r = __wit_socket_call(n, a1, a2, a3, a4, a5, a6); /* the network service's sockets (W2.1a) */
+        __wit_socket_flush();
+        return r;
+    }
     if (n == SYS_read || n == SYS_readv || n == SYS_write || n == SYS_writev) {
         const long transferred = pipe_transfer(n, a1, a2, a3);
         if (transferred != NOT_A_PIPE) {
@@ -645,6 +695,25 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
         if (moved != NOT_A_TERMINAL) {
             return moved;
         }
+        const long carried = __wit_socket_transfer(n, a1, a2, a3);
+        if (carried != WIT_NOT_A_SOCKET) {
+            return carried;
+        }
+    }
+    if (n == SYS_ioctl) {
+        const long answered = __wit_socket_ioctl(a1, a2, (void *)a3);
+        if (answered != WIT_NOT_A_SOCKET) {
+            return answered;
+        }
+    }
+    /* /etc/resolv.conf is the lease's, asked of the network service before the open, outside the table lock (W2.1a). */
+#if defined(SYS_open)
+    if (n == SYS_open && a1 && strcmp((const char *)a1, "/etc/resolv.conf") == 0) {
+        __wit_resolv_refresh();
+    }
+#endif
+    if (n == SYS_openat && a2 && strcmp((const char *)a2, "/etc/resolv.conf") == 0) {
+        __wit_resolv_refresh();
     }
     if (n == SYS_ioctl && __wit_terminal_present()) {
         __wit_lock(&tables);
@@ -657,6 +726,7 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
     __wit_lock(&tables);
     const long r = dispatch(n, a1, a2, a3, a4, a5, a6);
     __wit_unlock(&tables);
+    __wit_socket_flush(); /* a socket whose last descriptor closed goes now (W2.1a) */
     return r;
 }
 

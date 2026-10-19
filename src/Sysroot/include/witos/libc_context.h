@@ -17,6 +17,7 @@ typedef struct WitProcessContext {
     WitU64 Grant; /* the capability the creator granted (D1.1, witos/start.h); zero without one and once taken */
     WitU64 Namespace; /* the namespace service's clients' endpoint (D5.1, witos/namespace.h); zero without one */
     WitU64 Terminal; /* the terminal service's clients' endpoint (N4.3, witos/terminal.h); zero without one */
+    WitU64 Network; /* the network service's clients' endpoint (W2.1a, witos/socket.h); zero without one */
 } WitProcessContext;
 
 extern WitProcessContext __wit_process;

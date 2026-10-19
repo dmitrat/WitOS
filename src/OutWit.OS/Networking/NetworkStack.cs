@@ -350,6 +350,13 @@ public sealed partial class NetworkStack
     }
 
     /// <summary>
+    /// The bytes a read would take now (FIONREAD): a stream's bytes received in order, a datagram socket's oldest
+    /// datagram's; zero for no such socket.
+    /// </summary>
+    public int Available(int socket) => m_tcp.TryGetValue(socket, out var tcp) ? tcp.Receive.Count
+        : m_udp.TryGetValue(socket, out var udp) ? udp.NextLength : 0;
+
+    /// <summary>
     /// Closes a socket: a datagram socket's queued datagrams go with it; a connection finishes on its own (or is reset
     /// when bytes it received are unread) and its identifier is no longer the application's.
     /// </summary>

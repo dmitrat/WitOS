@@ -424,19 +424,20 @@ typedef struct StartState {
     WitU32 ClosedStreams;
     WitU64 Namespace; /* the namespace's endpoint to duplicate into the process (D5.1); zero for none */
     WitU64 Terminal; /* the terminal's endpoint to duplicate into the process (N4.3); zero for none */
+    WitU64 Network; /* the network service's endpoint to duplicate into the process (W2.1a); zero for none */
     WitU32 Streams; /* the stream messages the creator sends on the grant after the start (N4.2) */
     WitU32 Reserved;
 } StartState;
 
 /* The start message: the package's size, the closed streams and the initial directory, duplicates of the log, the
  * package and the manager's endpoint when there is one (S6.1), the granted capability when there is one (D1.1),
- * moved by the send, and duplicates of the namespace's (D5.1) and the terminal's (N4.3) endpoints when there are
- * any, in the order of their bits; what the four handle slots cannot hold follows in a second message
- * (WIT_START_MORE). A moved grant is zeroed. */
+ * moved by the send, and duplicates of the namespace's (D5.1), the terminal's (N4.3) and the network service's (W2.1a)
+ * endpoints when there are any, in the order of their bits; what the four handle slots cannot hold follows in a second
+ * message (WIT_START_MORE). A moved grant is zeroed. */
 static int send_start(WitU64 endpoint, WitU64 manager, WitU64 *grant, const StartState *state)
 {
-    WitU64 handles[WIT_START_HANDLES_MAXIMUM] = {0, 0, 0, 0}, result = 0, names = 0, terminal = 0;
-    WitU64 more[2] = {0, 0};
+    WitU64 handles[WIT_START_HANDLES_MAXIMUM] = {0, 0, 0, 0}, result = 0, names = 0, terminal = 0, network = 0;
+    WitU64 more[3] = {0, 0, 0};
     WitU32 count = WIT_START_HANDLES, capabilities = 0, more_count = 0;
 
     union {
@@ -462,6 +463,9 @@ static int send_start(WitU64 endpoint, WitU64 manager, WitU64 *grant, const Star
     if (status == WIT_STATUS_OK && state->Terminal) {
         status = wit_syscall(WIT_CALL_HANDLE_DUPLICATE, state->Terminal, (WitU64)&terminal, NAMESPACE_RIGHTS, &result);
     }
+    if (status == WIT_STATUS_OK && state->Network) {
+        status = wit_syscall(WIT_CALL_HANDLE_DUPLICATE, state->Network, (WitU64)&network, NAMESPACE_RIGHTS, &result);
+    }
     const WitU32 duplicates = count;
     if (status == WIT_STATUS_OK && *grant) {
         handles[count++] = *grant;
@@ -483,6 +487,14 @@ static int send_start(WitU64 endpoint, WitU64 manager, WitU64 *grant, const Star
             more[more_count++] = terminal;
         }
         capabilities |= WIT_START_TERMINAL;
+    }
+    if (status == WIT_STATUS_OK && network) {
+        if (count < WIT_START_HANDLES_MAXIMUM && more_count == 0) {
+            handles[count++] = network;
+        } else {
+            more[more_count++] = network;
+        }
+        capabilities |= WIT_START_NETWORK;
     }
     if (more_count) {
         capabilities |= WIT_START_MORE;
@@ -512,6 +524,7 @@ static int send_start(WitU64 endpoint, WitU64 manager, WitU64 *grant, const Star
         }
         close_handle(names);
         close_handle(terminal);
+        close_handle(network);
         return failure(status);
     }
     *grant = 0; /* moved */
@@ -525,6 +538,7 @@ static int send_start(WitU64 endpoint, WitU64 manager, WitU64 *grant, const Star
         if (status != WIT_STATUS_OK) {
             close_handle(more[0]);
             close_handle(more[1]);
+            close_handle(more[2]);
             return failure(status); /* the process never starts: the caller ends it with its handles */
         }
     }
@@ -607,6 +621,7 @@ int witos_spawn_ex(
     state.ClosedStreams = options ? options->closed_streams : 0;
     state.Namespace = options ? options->namespace_endpoint : 0;
     state.Terminal = options ? options->terminal_endpoint : 0;
+    state.Network = options ? options->network_endpoint : 0;
     state.Streams = options ? options->streams : 0;
     int error = open_program(&program, path, PROGRAM_BASE, 1);
     if (!error && program.Interpreter[0]) {
