@@ -76,8 +76,9 @@ internal sealed class QemuControl : IDisposable
             // The guest ran past its deadline: before QEMU quits, the transcript records where a few samples find the
             // processor (plan step D5.2, where one process spun on a lock whose holder waited for a process the dispatcher
             // never ran). On x64 a sample also records the kernel stack's page above its stack pointer, whose top holds
-            // the frame a system call or an interrupt saved, and the user stack that frame names. QEMU reads guest memory
-            // without changing it.
+            // the frame a system call or an interrupt saved, and the user stack that frame names; both are read through
+            // the processor's translation, since a thread's kernel stack lies in the kernel's stack window (P1.5), not at
+            // its physical address. QEMU reads guest memory without changing it.
             for (var sample = 0; sample < DIAGNOSTIC_SAMPLES; ++sample)
             {
                 var stackPointer = Regex.Match(await HumanAsync("info registers", token), "RSP=([0-9a-f]{16})");
@@ -85,7 +86,7 @@ internal sealed class QemuControl : IDisposable
                     continue;
                 var bottom = Convert.ToUInt64(stackPointer.Groups[1].Value, 16);
                 var top = (bottom | 0xFFF) + 1;
-                var words = Regex.Matches(await HumanAsync($"xp /{(top - bottom) / 8}gx 0x{bottom:x}", token), "0x([0-9a-f]{16})")
+                var words = Regex.Matches(await HumanAsync($"x /{(top - bottom) / 8}gx 0x{bottom:x}", token), "0x([0-9a-f]{16})")
                     .Select(word => Convert.ToUInt64(word.Groups[1].Value, 16)).ToArray();
                 // The saved frame's last five words: RIP, CS, RFLAGS, RSP, SS; CS 0x33 is user mode.
                 if (words.Length >= 5 && words[^4] == 0x33)

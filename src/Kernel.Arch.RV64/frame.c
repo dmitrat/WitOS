@@ -1,5 +1,6 @@
 #include "witos/arch.h"
 #include "witos/arch_types.h"
+#include "witos/kernel_stacks.h"
 #include "witos/platform.h"
 #include "witos/virtual.h"
 #include "user.h"
@@ -29,10 +30,14 @@
 static WitU64 selected_top[WIT_PROCESSOR_CAPACITY];
 static WitU64 user_tls[WIT_PROCESSOR_CAPACITY];
 
+/* A thread's kernel stack in the window (P1.5). */
 static WitU64 stack_low(WitU32 slot, WitU32 thread)
 {
-    return (WitU64)wit_rv64_user_kernel_stacks[slot][thread] + 4096;
+    return wit_kernel_stack_low(slot, thread);
 }
+
+WIT_STATIC_ASSERT(
+    WIT_RV64_KERNEL_STACK_SIZE == WIT_KERNEL_STACK_BYTES, "The window's stacks are the architecture's size");
 
 /* The sstatus of a frame that returns to U-mode: SPP clear, interrupts enabled on return, the floating-point unit on
  * and the width the hart reports. */

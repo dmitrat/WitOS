@@ -179,6 +179,11 @@ int wit_arch_secondary_start(WitU32 index, WitU64 hardware_id);
 void wit_arch_ipi(WitU64 hardware_id, WitU32 kind);
 void wit_arch_invalidate_local(WitU64 address);
 void wit_arch_process_write_barrier(void);
+/* The window of thread kernel stacks (P1.5, witos/kernel_stacks.h): the architecture makes its tables at boot, before
+ * any user root, in the kernel half every root shares; then a page is set (read and write, never executable,
+ * supervisor alone) or cleared in its leaf, the calling processor's translation dropped; clearing returns the frame. */
+void wit_arch_kernel_window_set(WitU64 address, WitU64 physical);
+WitU64 wit_arch_kernel_window_clear(WitU64 address);
 /* One step of a spin-wait (P1.2): a hint that the processor waits for another — PAUSE on x64, YIELD on ARM64, and on
  * riscv64, which has no hint that lets another hart run, a WFI with the hart's own software interrupt pending, which
  * returns at once. Under QEMU's round-robin TCG each ends the processor's time slice, so that the processor it waits

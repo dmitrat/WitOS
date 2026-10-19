@@ -1,6 +1,7 @@
 #include "user.h"
 #include "root_task.h"
 #include "witos/cpu.h"
+#include "witos/kernel_stacks.h"
 #include "witos/platform.h"
 #include "witos/processor.h"
 #include "witos/virtual.h"
@@ -87,6 +88,7 @@ static WitU64 idle_high(void)
 static WitUserProcess *enter(void)
 {
     wit_cpus_lock();
+    wit_kernel_stacks_collect(); /* stacks released since: this processor runs on a live thread's (P1.5) */
     Dispatcher *const cpu = self();
     if (cpu->Current && !cpu->Idle && cpu->Current->State == WitUserRunning) {
         cpu->Current->CurrentThread = cpu->Thread;
@@ -225,6 +227,9 @@ static void teardown(WitUserProcess *process)
     for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
         process->Threads[i].State = WitThreadEmpty;
         process->Threads[i].SuspendCount = 0;
+    }
+    if (process->Slot < WIT_PROCESS_CAPACITY) {
+        wit_kernel_stack_release_slot(process->Slot); /* collected once no processor runs on them (P1.5) */
     }
     process->ImageBase = 0;
     process->ImageEntry = 0;
@@ -408,6 +413,7 @@ static void reap(WitU32 index)
     thread->SuspendCount = 0;
     thread->State = WitThreadEmpty;
     ++self()->Current->ThreadReaps;
+    wit_kernel_stack_release(self()->Current->Slot, index); /* this processor may still run on it (P1.5) */
 }
 
 /* Every live component's deadlines and pressure; the one clock read serves them all. */
@@ -517,6 +523,7 @@ static WitArchFrame *pick(int timer, int rotate, int *waiting)
             cpu->Thread = index;
             thread->State = WitThreadRunning;
             thread->Processor = me();
+            wit_kernel_stack_running(q->Slot, index);
             wit_arch_select_thread_stack(q->Slot, index);
             wit_arch_set_user_tls(thread->Tls);
             return resume_current(thread->Context);
@@ -534,7 +541,9 @@ WIT_NORETURN static void idle(void)
 {
     Dispatcher *const cpu = self();
     for (;;) {
+        wit_kernel_stack_running(WIT_PROCESS_CAPACITY, 0); /* the idle stack (P1.5) */
         drop_component(cpu);
+        wit_kernel_stacks_collect();
         cpu->Kicked = 0;
         if (run_active()) {
             if (me() != 0 && !cpu->Ticking) {
@@ -910,6 +919,7 @@ void wit_user_run(WitUserProcess *process)
     process->Threads[0].Processor = 0;
     process->Ticks = 0;
     wit_arch_select_thread_stack(process->Slot, 0);
+    wit_kernel_stack_running(process->Slot, 0);
     wit_platform_timer_start();
     wit_arch_set_user_tls(process->Threads[0].Tls);
     for (WitU32 i = 1; i < WIT_PROCESSOR_CAPACITY; ++i) {
@@ -918,6 +928,8 @@ void wit_user_run(WitUserProcess *process)
         }
     }
     wit_arch_run_user(process->Threads[0].Context, process->Space.Root); /* the lock goes on the frame's stack */
+    wit_kernel_stack_running(WIT_PROCESS_CAPACITY, 0);
+    wit_kernel_stacks_collect(); /* every processor parked or on the host's stack: every stack the run released goes */
     wit_cpus_release(); /* the run's end returned here with it, on the host's stack */
     require(!self()->Current &&
             !root_user &&
@@ -937,6 +949,7 @@ void wit_user_destroy(WitUserProcess *process)
     teardown(process);
     unregister(process);
     process->State = WitUserEmpty;
+    wit_kernel_stacks_collect(); /* between runs: no processor runs on its stacks (P1.5) */
 }
 
 int wit_user_is_active(void)

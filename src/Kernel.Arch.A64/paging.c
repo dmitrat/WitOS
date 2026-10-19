@@ -1,4 +1,5 @@
 #include "witos/arch.h"
+#include "witos/kernel_stacks.h"
 #include "witos/platform.h"
 #include "witos/virtual.h"
 #include "a64.h"
@@ -116,6 +117,33 @@ static void remove_page(WitU64 address)
     if (active) {
         wit_a64_invalidate_page(address);
     }
+}
+
+/* The stack window's pages (P1.5): its tables exist since boot under TTBR1's level-0 entry 320, and TTBR1 is never
+ * switched, so every address space sees them; the TLBI of a cleared page reaches every processor. */
+static int window_address(WitU64 address)
+{
+    return address >= WIT_KERNEL_STACK_WINDOW &&
+        address < WIT_KERNEL_STACK_WINDOW + WIT_KERNEL_STACK_WINDOW_SIZE &&
+        (address & 4095) == 0;
+}
+
+void wit_arch_kernel_window_set(WitU64 address, WitU64 physical)
+{
+    WitU64 *const entry = window_address(address) ? leaf(address, 0) : 0;
+    require(entry != 0 && !(*entry & DESC_VALID) && (physical & 4095) == 0, "A stack window page out of place");
+    *entry = page_descriptor(physical, 1, 0, 0);
+    wit_a64_invalidate_page(address);
+}
+
+WitU64 wit_arch_kernel_window_clear(WitU64 address)
+{
+    WitU64 *const entry = window_address(address) ? leaf(address, 0) : 0;
+    require(entry != 0 && (*entry & DESC_VALID), "Clearing a stack window page that is not set");
+    const WitU64 physical = *entry & DESC_ADDRESS;
+    *entry = 0;
+    wit_a64_invalidate_page(address);
+    return physical;
 }
 
 static int scratch_address(WitU64 address)
@@ -386,6 +414,11 @@ void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator
     for (WitU32 i = 0; i < WIT_A64_STACK_GUARD_COUNT; ++i) {
         remove_page(guards[i]);
     }
+    /* The stack window's tables (P1.5): its leaves stay empty until a thread's stack is backed, its guards for good. */
+    for (WitU64 address = WIT_KERNEL_STACK_WINDOW; address < WIT_KERNEL_STACK_WINDOW + WIT_KERNEL_STACK_WINDOW_SIZE;
+        address += 1ULL << 21) {
+        leaf(address, 1);
+    }
 
     /* 48-bit physical addresses at most: 52-bit output needs the LPA descriptor format. */
     wit_a64_install_tables(low_root, high_root,
@@ -406,6 +439,14 @@ void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator
     wit_console_write("\n[TEST-PASS] Memory.KernelPaging\n");
     for (WitU32 i = 0; i < WIT_A64_STACK_GUARD_COUNT; ++i) {
         require(leaf(guards[i], 0) != 0 && !(*leaf(guards[i], 0) & DESC_VALID), "Stack guard is mapped");
+    }
+    for (WitU64 low = WIT_KERNEL_STACK_WINDOW + 4096U; low < WIT_KERNEL_STACK_WINDOW + WIT_KERNEL_STACK_WINDOW_SIZE;
+        low += WIT_KERNEL_STACK_STRIDE) {
+        require(leaf(low - 4096U, 0) != 0 &&
+                !(*leaf(low - 4096U, 0) & DESC_VALID) &&
+                leaf(low + WIT_KERNEL_STACK_BYTES, 0) != 0 &&
+                !(*leaf(low + WIT_KERNEL_STACK_BYTES, 0) & DESC_VALID),
+            "A stack window guard is mapped");
     }
     require(leaf(0, 0) == 0 || !(*leaf(0, 0) & DESC_VALID), "Null page is mapped");
     wit_console_write("[TEST-PASS] Memory.StackGuards\n");
