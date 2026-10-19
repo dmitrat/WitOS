@@ -131,6 +131,39 @@ public sealed class NetworkStackTests
         Assert.That(a.Close(unbound), Is.EqualTo(NetworkErrors.BAD_SOCKET));
     }
 
+    // SO_REUSEPORT (W2.1b; .NET's ReuseAddress sets it beside SO_REUSEADDR): sockets that all set it share a port, a
+    // socket without it is refused, and each sender's datagrams go to one member while the members share the senders.
+    [Test]
+    public void ReusePortSharesADatagramPortTest()
+    {
+        var network = new SimulatedNetwork();
+        var (a, _) = TwoStacks(network);
+        a.OpenUdp(out var first);
+        a.OpenUdp(out var second);
+        a.OpenUdp(out var plain);
+        Assert.That(a.SetReusePort(first, true), Is.Zero);
+        Assert.That(a.SetReusePort(second, true), Is.Zero);
+        Assert.That(a.Bind(first, Ipv4Address.Loopback, 6000), Is.Zero);
+        Assert.That(a.Bind(plain, Ipv4Address.Loopback, 6000), Is.EqualTo(NetworkErrors.ADDRESS_IN_USE), "a socket without SO_REUSEPORT");
+        Assert.That(a.Bind(second, Ipv4Address.Loopback, 6000), Is.Zero);
+        var members = new[] { first, second };
+        var senders = new int[2];
+        for (var i = 0; i < 16; i++)
+        {
+            a.OpenUdp(out var sender);
+            Assert.That(a.SendTo(sender, "x"u8, Ipv4Address.Loopback, 6000), Is.Zero);
+            Assert.That(a.SendTo(sender, "y"u8, Ipv4Address.Loopback, 6000), Is.Zero);
+            network.Pump();
+            var pending = members.Select(member => a.FindUdp(member)!.Pending).ToArray();
+            Assert.That(pending, Is.EqualTo(new[] { 2, 0 }).Or.EqualTo(new[] { 0, 2 }), "both datagrams of a sender at one member");
+            var taker = pending[0] == 2 ? 0 : 1;
+            senders[taker]++;
+            Assert.That(a.ReceiveFrom(members[taker], new byte[4], false, out _), Is.Zero);
+            Assert.That(a.ReceiveFrom(members[taker], new byte[4], false, out _), Is.Zero);
+        }
+        Assert.That(senders, Has.All.GreaterThan(0), "the members share the senders");
+    }
+
     [Test]
     public void IcmpEchoAndPortUnreachableTest()
     {

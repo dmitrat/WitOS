@@ -404,6 +404,7 @@ internal sealed class SocketConnection
             (SocketMessages.SOCKET_LEVEL, SocketMessages.ERROR) => (ulong)m_host.Call(stack => stack.TakeError(socket)),
             (SocketMessages.SOCKET_LEVEL, SocketMessages.BROADCAST) when udp is not null => udp.Broadcast ? 1UL : 0UL,
             (SocketMessages.SOCKET_LEVEL, SocketMessages.REUSE_ADDRESS) => (udp?.ReuseAddress ?? tcp!.ReuseAddress) ? 1UL : 0UL,
+            (SocketMessages.SOCKET_LEVEL, SocketMessages.REUSE_PORT) => (udp?.ReusePort ?? tcp!.ReusePort) ? 1UL : 0UL,
             (SocketMessages.SOCKET_LEVEL, SocketMessages.SEND_BUFFER or SocketMessages.RECEIVE_BUFFER) => stream
                 ? NetworkStack.TCP_BUFFER_BYTES
                 : BUFFER_BYTES,
@@ -415,7 +416,7 @@ internal sealed class SocketConnection
         return value is { } got ? new SocketReply(request.Operation, 0, Value: got) : new SocketReply(request.Operation, NO_OPTION);
     }
 
-    // SET_OPTION: SO_BROADCAST, SO_REUSEADDR and TCP_NODELAY change the socket; the buffer sizes are the service's and
+    // SET_OPTION: SO_BROADCAST, SO_REUSEADDR, SO_REUSEPORT and TCP_NODELAY change the socket; the buffer sizes are the service's and
     // stay; keep-alive probes are not served yet.
     private SocketReply SetOption(SocketRequest request, int socket, bool stream)
     {
@@ -426,6 +427,8 @@ internal sealed class SocketConnection
                 new SocketReply(request.Operation, m_host.Call(stack => stack.SetBroadcast(socket, enabled))),
             (SocketMessages.SOCKET_LEVEL, SocketMessages.REUSE_ADDRESS) =>
                 new SocketReply(request.Operation, m_host.Call(stack => stack.SetReuseAddress(socket, enabled))),
+            (SocketMessages.SOCKET_LEVEL, SocketMessages.REUSE_PORT) =>
+                new SocketReply(request.Operation, m_host.Call(stack => stack.SetReusePort(socket, enabled))),
             (SocketMessages.SOCKET_LEVEL, SocketMessages.SEND_BUFFER or SocketMessages.RECEIVE_BUFFER) => new SocketReply(request.Operation, 0),
             (SocketMessages.TCP_LEVEL, SocketMessages.NO_DELAY) when stream =>
                 new SocketReply(request.Operation, m_host.Call(stack => stack.SetNoDelay(socket, enabled))),

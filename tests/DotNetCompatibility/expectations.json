@@ -3,6 +3,7 @@
   "linux": {},
   "witos": {
     "Platform.KnownOperatingSystem": "WitOS is neither Windows, Linux, macOS nor FreeBSD: an application that infers Windows from 'not Linux and not macOS' misbehaves there (RFC 0015 §1, ADR 0024).",
-    "FileIO.Watcher": "System.IO.FileSystem.Watcher is not supported: the namespace service sends no change notifications (Compatibility-Differences: File change notifications)."
+    "FileIO.Watcher": "System.IO.FileSystem.Watcher is not supported: the namespace service sends no change notifications (Compatibility-Differences: File change notifications).",
+    "Network.IPv6": "The network service serves IPv4 alone until W4: the libc refuses AF_INET6 sockets with EAFNOSUPPORT, so Socket.OSSupportsIPv6 is false and .NET speaks IPv4 (Compatibility-Differences: Networking)."
   }
 }

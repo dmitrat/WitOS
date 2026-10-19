@@ -137,6 +137,11 @@ public sealed class UdpSocket
     /// </summary>
     public bool ReuseAddress { get; internal set; }
 
+    /// <summary>
+    /// SO_REUSEPORT.
+    /// </summary>
+    public bool ReusePort { get; internal set; }
+
     #endregion
 }
 

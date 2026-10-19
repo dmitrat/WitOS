@@ -107,6 +107,21 @@ void __wit_epoll_reference(WitU32 index);
 void __wit_epoll_release(WitU32 index);
 long __wit_epoll_ctl(WitU32 index, int op, long fd, const struct epoll_event *event);
 long __wit_epoll_collect(WitU32 index, struct epoll_event *events, int count);
+
+/* The sockets an instance watches (W2.1b): what epoll_wait asks the network service outside the table lock, each with
+ * a reference to its record and the edge token read before the question, then reports under the lock again. */
+typedef struct WitEpollProbe {
+    WitU32 Entry; /* the registration */
+    WitU32 Socket; /* its socket's record, referenced */
+    WitU32 Id; /* the socket's service identifier at the registration */
+    short Asked; /* poll's events the registration asks */
+    int Token; /* the socket's readiness events before the question */
+} WitEpollProbe;
+
+#define WIT_EPOLL_ENTRIES 32
+int __wit_epoll_probes(WitU32 index, WitEpollProbe *probes);
+long __wit_epoll_report(WitU32 index, const WitEpollProbe *probes, const short *polled, int probed,
+    struct epoll_event *events, long first, int count); /* the events from events[first], the number added */
 long __wit_epoll_open(int flags); /* files.c: the descriptor of a new instance */
 long __wit_epoll_instance(long epfd, WitU32 *index); /* files.c: the instance a descriptor names */
 int __wit_pipe_sequence(void);
@@ -130,6 +145,8 @@ long __wit_socket_call(long n, long a1, long a2, long a3, long a4, long a5, long
 long __wit_socket_transfer(long n, long fd, long a2, long a3);
 long __wit_socket_ioctl(long fd, long command, void *argument);
 short __wit_socket_poll(WitU32 index, short events);
+WitU32 __wit_socket_id(WitU32 index);
+int __wit_socket_changes(WitU32 index); /* the readiness events the service sent: epoll's edge token (W2.1b) */
 void __wit_socket_reference(WitU32 index);
 void __wit_socket_release(WitU32 index);
 void __wit_socket_flush(void);

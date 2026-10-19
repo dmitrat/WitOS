@@ -22,6 +22,13 @@ if (args is ["--sleep"])
     Thread.Sleep(Timeout.Infinite);
     return 0;
 }
+// Arguments the suite does not know are refused, never a run of the suite: a child started with them would otherwise run
+// every check again and start children of its own.
+if (args is not ([] or ["--list"]))
+{
+    await Console.Error.WriteLineAsync($"unknown arguments: {string.Join(' ', args)}");
+    return 2;
+}
 
 var platform = PlatformChecks.Key;
 var recorded = Expectations(platform);
@@ -29,7 +36,7 @@ IEnumerable<Check>[] areas =
 [
     PlatformChecks.All(), ConsoleChecks.All(), TaskChecks.All(), ThreadChecks.All(), TimerChecks.All(), ExceptionChecks.All(),
     ReflectionChecks.All(), FileChecks.All(), AssemblyLoadingChecks.All(), GcChecks.All(), SynchronizationChecks.All(),
-    GlobalizationChecks.All(), TimeZoneChecks.All(), TerminalChecks.All()
+    GlobalizationChecks.All(), TimeZoneChecks.All(), TerminalChecks.All(), NetworkChecks.All()
 ];
 var checks = areas.SelectMany(area => area).ToList();
 // The compatibility matrix (Strategy §145, N4.5) lists the checks from the suite itself: "--list" prints each check's id

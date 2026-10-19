@@ -239,7 +239,7 @@ public sealed partial class NetworkStack
             return NetworkErrors.ADDRESS_NOT_AVAILABLE;
         if (port == 0)
             port = EphemeralTcpPort();
-        else if (TcpPortTaken(port, address, tcp.ReuseAddress))
+        else if (TcpPortTaken(port, address, tcp.ReuseAddress, tcp.ReusePort))
             return NetworkErrors.ADDRESS_IN_USE;
         if (port == 0)
             return NetworkErrors.ADDRESS_IN_USE;
@@ -372,6 +372,7 @@ public sealed partial class NetworkStack
         }
         var payload = segment[header.HeaderLength..];
         TcpSocket? listener = null;
+        var group = new List<TcpSocket>();
         foreach (var tcp in m_tcp.Values)
         {
             if (tcp.LocalPort != header.DestinationPort)
@@ -380,6 +381,8 @@ public sealed partial class NetworkStack
             {
                 if (tcp.LocalAddress == ip.Destination || (tcp.LocalAddress == Ipv4Address.Any && listener is null))
                     listener = tcp;
+                if (tcp.ReusePort)
+                    group.Add(tcp);
                 continue;
             }
             if (tcp.State != TcpState.Closed && tcp.RemotePort == header.SourcePort && tcp.RemoteAddress == ip.Source &&
@@ -391,6 +394,14 @@ public sealed partial class NetworkStack
                     Segment(tcp, header, payload);
                 return;
             }
+        }
+        // Listeners that share the port through SO_REUSEPORT take the connections in turn of the sender's address and port,
+        // among those bound as specifically as the one found.
+        if (listener is { ReusePort: true })
+        {
+            group.RemoveAll(member => member.LocalAddress != listener.LocalAddress);
+            if (group.Count > 1)
+                listener = group[GroupIndex(ip.Source, header.SourcePort, group.Count)];
         }
         if (listener is not null)
             ListenSegment(listener, ip, header);
@@ -423,6 +434,7 @@ public sealed partial class NetworkStack
             RemoteAddress = ip.Source,
             RemotePort = header.SourcePort,
             ReuseAddress = listener.ReuseAddress,
+            ReusePort = listener.ReusePort,
             NoDelay = listener.NoDelay,
             Parent = listener,
             Irs = header.Sequence,
@@ -1125,19 +1137,20 @@ public sealed partial class NetworkStack
         {
             var port = m_nextEphemeral;
             m_nextEphemeral = m_nextEphemeral == ushort.MaxValue ? EPHEMERAL_FIRST : (ushort)(m_nextEphemeral + 1);
-            if (!TcpPortTaken(port, Ipv4Address.Any, reuse: false))
+            if (!TcpPortTaken(port, Ipv4Address.Any, reuse: false, reusePort: false))
                 return port;
         }
         return 0;
     }
 
     // Whether a TCP port is bound at an address: as Linux's bind decides, sockets that all set SO_REUSEADDR share a port
-    // unless one of them listens.
-    private bool TcpPortTaken(ushort port, Ipv4Address address, bool reuse)
+    // unless one of them listens, and sockets that all set SO_REUSEPORT share it, listening or not.
+    private bool TcpPortTaken(ushort port, Ipv4Address address, bool reuse, bool reusePort)
     {
         foreach (var socket in m_tcp.Values)
         {
             if (socket.LocalPort == port && !(reuse && socket.ReuseAddress && socket.State != TcpState.Listen) &&
+                !(reusePort && socket.ReusePort) &&
                 (socket.LocalAddress == Ipv4Address.Any || address == Ipv4Address.Any || socket.LocalAddress == address))
                 return true;
         }

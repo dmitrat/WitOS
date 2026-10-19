@@ -412,6 +412,18 @@ static WitU32 id_of(WitU32 index)
     return sockets[index].Id; /* set before the record's first reference left the allocating thread */
 }
 
+/* epoll (W2.1b): a record's service identifier, which tells a registration's socket from a later one in the same
+ * record, and its count of readiness events, the edge token of an edge-triggered registration. */
+WitU32 __wit_socket_id(WitU32 index)
+{
+    return id_of(index);
+}
+
+int __wit_socket_changes(WitU32 index)
+{
+    return __atomic_load_n(&sockets[index].Changes, __ATOMIC_ACQUIRE);
+}
+
 /* The absolute deadline of a timeout in nanoseconds; WIT_WAIT_INFINITE for none. */
 static WitU64 deadline_after(WitU64 nanoseconds)
 {
@@ -894,6 +906,7 @@ static int served(long level, long name)
 {
     if (level == SOL_SOCKET) {
         return name == SO_REUSEADDR ||
+            name == SO_REUSEPORT ||
             name == SO_ERROR ||
             name == SO_BROADCAST ||
             name == SO_SNDBUF ||
