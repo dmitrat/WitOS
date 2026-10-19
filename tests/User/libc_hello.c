@@ -974,8 +974,16 @@ int main(void)
     action.sa_handler = record_handler;
     check(sigaction(SIGUSR1, &action, 0) == 0, "SIGUSR1 without SA_RESTART");
     check(pthread_create(&sleeper, 0, interruptible_worker, gates) == 0 && sem_wait(&gates[0]) == 0,
-        "a worker parked in sem_wait");
-    check(pthread_kill(sleeper, SIGUSR1) == 0 && pthread_join(sleeper, 0) == 0 && worker_interrupted,
+        "a worker about to park in sem_wait");
+    /* On several processors the worker may not have parked yet (P1.3c): a signal that comes first runs the handler and
+     * finds no wait to interrupt, as on Linux, so the signal goes again until the parked wait reports EINTR. */
+    int kills = 0;
+    while (!worker_interrupted && kills < 1000 && pthread_kill(sleeper, SIGUSR1) == 0) {
+        ++kills;
+        struct timespec gap = {0, 1000000};
+        nanosleep(&gap, 0);
+    }
+    check(kills >= 1 && pthread_join(sleeper, 0) == 0 && worker_interrupted,
         "pthread_kill interrupts its wait with EINTR");
     check(sigprocmask(SIG_BLOCK, &block, &saved) == 0, "block SIGUSR1 before sigsuspend");
     pthread_t self = pthread_self();
