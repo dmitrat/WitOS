@@ -74,6 +74,15 @@ The budget is now an hour for each online processor (`WIT_PROCESS_TICK_BUDGET * 
 hour, which bounds a deadlock or a runaway process as it did on one processor. `apps_init.c` now names the signal a
 command ended by (`SIGXCPU` for a budget, `SIGSEGV` for a fault) instead of printing `-1`.
 
+The same shared count tightened every timeout a program measures. With the budget fixed, two suites failed a test each
+on four busy processors and passed on the host: MessagePack's stream reader tests, whose cancellation token allows ten
+seconds, and NUnit's `AsyncVoidTests`, whose tear-down sleeps a second for an `async void` method's continuation to throw.
+Each processor did a quarter of a second's work in each second the programs measured. The runner's instruction clock
+now falls with the processors (`BootScenarioRunner.InstructionClock`: `shift` 2 on one processor, 1 on two, 0 on four or
+more), so a 10 ms tick is 2.5 million instructions of each processor while all of them run, as on one processor. A
+program then has on four processors the time it has on one or on hardware, and the budget's hour for each processor is
+an hour of each processor's work.
+
 ## 6. The proof
 
 - `tests/Runtime.Witos/Processors` is an ordinary console project, published by the stock SDK without a RID once as it
