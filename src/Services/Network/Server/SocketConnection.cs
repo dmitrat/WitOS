@@ -43,6 +43,8 @@ internal sealed class SocketConnection
 
     private static readonly List<SocketConnection> m_live = [];
 
+    private static int m_undelivered; // readiness events no session's queue took, which the stop line reports
+
     private readonly Channel m_channel;
     private readonly Channel m_events;
     private readonly KernelHandle m_object;
@@ -148,6 +150,7 @@ internal sealed class SocketConnection
         catch (CapabilityException)
         {
             // A full queue wakes the client already; a closed one ends the session on its own thread.
+            Interlocked.Increment(ref m_undelivered);
         }
     }
 
@@ -457,6 +460,16 @@ internal sealed class SocketConnection
             m_host.Close(socket);
         m_sockets.Clear();
     }
+
+    #endregion
+
+    #region Properties
+
+    /// <summary>
+    /// The readiness events the service could not send, for a full queue or a closed session: a full queue's client asks
+    /// again after the events it holds.
+    /// </summary>
+    public static int UndeliveredEvents => Volatile.Read(ref m_undelivered);
 
     #endregion
 }

@@ -115,7 +115,7 @@ typedef struct WitEpollProbe {
     WitU32 Socket; /* its socket's record, referenced */
     WitU32 Id; /* the socket's service identifier at the registration */
     short Asked; /* poll's events the registration asks */
-    int Token; /* the socket's readiness events before the question */
+    int Token; /* the session's readiness events before the question */
 } WitEpollProbe;
 
 #define WIT_EPOLL_ENTRIES 32
@@ -146,7 +146,7 @@ long __wit_socket_transfer(long n, long fd, long a2, long a3);
 long __wit_socket_ioctl(long fd, long command, void *argument);
 short __wit_socket_poll(WitU32 index, short events);
 WitU32 __wit_socket_id(WitU32 index);
-int __wit_socket_changes(WitU32 index); /* the readiness events the service sent: epoll's edge token (W2.1b) */
+int __wit_socket_events(void); /* the session's readiness events, whatever their socket: epoll's edge token (W2.1b) */
 void __wit_socket_reference(WitU32 index);
 void __wit_socket_release(WitU32 index);
 void __wit_socket_flush(void);

@@ -13,8 +13,8 @@
  * (socket.c) registers by its record and its service identifier and holds no reference, so that closing its last
  * descriptor closes it at once, as on Linux: a look drops the entry once its descriptor no longer names that socket.
  * Its readiness is the network service's, asked outside the table lock (syscall.c: __wit_epoll_probes, the
- * questions, __wit_epoll_report), and its edge token the count of the service's readiness events for it, read before
- * the question, so that a change after the answer reports again. A file is EPERM, as Linux answers. Everything here
+ * questions, __wit_epoll_report), and its edge token the count of the session's readiness events, whatever their socket,
+ * read before the question: the service drops an event its full queue cannot take and a client asks again after any. A file is EPERM, as Linux answers. Everything here
  * runs under the table lock but the park and the sockets' questions. */
 #include <errno.h>
 #include <poll.h>
@@ -268,7 +268,7 @@ int __wit_epoll_probes(WitU32 index, WitEpollProbe *probes)
         probes[probed].Socket = e->Pipe;
         probes[probed].Id = e->SocketId;
         probes[probed].Asked = (short)(((e->Events & EPOLLIN) ? POLLIN : 0) | ((e->Events & EPOLLOUT) ? POLLOUT : 0));
-        probes[probed].Token = __wit_socket_changes(e->Pipe);
+        probes[probed].Token = __wit_socket_events();
         ++probed;
     }
     return probed;
