@@ -403,7 +403,10 @@ internal static class RuntimeWitos
         var selection = ReadCoreClrTestSelection(root);
         await RunTestsBuildAsync(tree, architecture, [.. selection.Groups, .. selection.Standalone], environment);
         var coreclrTests = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_CORECLR_TESTS_SCENARIO, architecture: architecture);
-        var testsRequest = new BootRequest($"{architecture.Name}-runtime-coreclr-tests-512", 512, 3600, ExpectedOutcome.Success)
+        // Two hours of the host's time: the slice's work is counted in the guest's instructions, and a wall-clock limit only
+        // stops a hung QEMU. ARM64 under TCG ran it in 27 minutes on a development host (GC/Regressions/v2.0-beta1/289745
+        // alone 19) and passed CI's 60 minutes only on its faster runners (P2).
+        var testsRequest = new BootRequest($"{architecture.Name}-runtime-coreclr-tests-512", 512, 7200, ExpectedOutcome.Success)
         {
             Architecture = architecture,
             Suite = BootSuite.Release,
