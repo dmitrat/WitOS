@@ -183,7 +183,10 @@ internal static class Program
                 ? $"{PREFIX}network service {NetworkActivation.PATH} with {adapters.Count} adapter{(adapters.Count == 1 ? "" : "s")}: ready"
                 : $"{PREFIX}network service {NetworkActivation.PATH}: not ready, errno {network.Status}");
             if (network.Clients is { } clients)
+            {
                 DnsProbe.Run(clients);
+                TcpProbe.Run(clients); // W1.2b
+            }
             return network;
         }
         catch (Exception exception) when (exception is CapabilityException or FileNotFoundException)

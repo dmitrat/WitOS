@@ -59,6 +59,8 @@ internal static class BootScenarioRunner
         var firmwareState = Path.Combine(Path.GetDirectoryName(image)!, name + ".vars.fd");
         File.Copy(architecture.FirmwareVariablesPath(root), firmwareState, overwrite: true);
         using var qmpControl = new QemuControl();
+        // The runner's side of the guest's network (W1.2b): its echo server and the port it reaches the guest through.
+        using var peer = request.Network && (request.NetworkEcho || request.NetworkForward != 0) ? new NetworkPeer(request.NetworkForward) : null;
         var terminalPath = Path.Combine(logs, name + ".terminal.log");
         // The mirror of a display answers no terminal query: the display does (C2.3).
         using var terminal = request.Terminal is { } script ? new TerminalLink(script, terminalPath, answersQueries: !request.DisplayIsMainConsole) : null;
@@ -99,7 +101,7 @@ internal static class BootScenarioRunner
             // both, and the kernel binds a line once, so a board has one or the other until a line serves several bindings.
             if (request.Keyboard)
                 throw new InvalidOperationException($"{name}: a keyboard and a network adapter would share an INTx line, which the kernel binds once.");
-            arguments.AddRange(["-netdev", "user,id=net0", "-device",
+            arguments.AddRange(["-netdev", "user,id=net0" + (peer?.NetdevOptions ?? ""), "-device",
                 $"virtio-net-pci,netdev=net0,addr=0x{architecture.EntropyLineSlot(request.Display):x}"]);
         }
         if (request.Expected != ExpectedOutcome.EntropyUnavailable)
@@ -134,7 +136,7 @@ internal static class BootScenarioRunner
         using var watching = new CancellationTokenSource();
         var jitter = request.CutJitterMilliseconds > 0 ? Random.Shared.Next(request.CutJitterMilliseconds + 1) : 0;
         var watcher = request.CutAfter is not null || request.Actions.Count > 0
-            ? WatchAsync(serialPath, terminal, request, jitter, qmpControl, ScreenPath(logs, name), cut, watching.Token)
+            ? WatchAsync(serialPath, terminal, request, jitter, qmpControl, peer, ScreenPath(logs, name), cut, watching.Token)
             : Task.FromResult<(BootAction Action, string Error)?>(null);
         try
         {
@@ -148,6 +150,8 @@ internal static class BootScenarioRunner
             await File.WriteAllTextAsync(Path.Combine(logs, name + ".monitor.log"), qmpControl.Transcript);
             if (failed is not null)
                 Console.WriteLine($"The runner's action after \"{failed.Value.Action.AfterLine}\" failed: {failed.Value.Error}");
+            if (peer is { Echoed: > 0 })
+                Console.WriteLine($"The runner's echo server sent {peer.Echoed} bytes back to the guest.");
         }
         var serial = File.Exists(serialPath) ? await BoundedCapture.ReadFileAsync(serialPath) : "";
         var result = monitorResult with { Output = serial };
@@ -225,7 +229,7 @@ internal static class BootScenarioRunner
     // milliseconds passed (D6.2): the guest runs on meanwhile, and the cut falls where that moment ends. The first action
     // that failed, with its error, or null.
     private static async Task<(BootAction Action, string Error)?> WatchAsync(string serialPath, TerminalLink? terminal, BootRequest request,
-        int jitter, QemuControl control, string screen, CancellationTokenSource cut, CancellationToken stop)
+        int jitter, QemuControl control, NetworkPeer? peer, string screen, CancellationTokenSource cut, CancellationToken stop)
     {
         var actions = new ActionSequence(request.Actions);
         var cutDone = request.CutAfter is null;
@@ -240,7 +244,12 @@ internal static class BootScenarioRunner
                     {
                         try
                         {
-                            if (action.Kind == BootActionKind.Screendump)
+                            if (action.Kind == BootActionKind.Connect)
+                            {
+                                await (peer ?? throw new InvalidDataException("a connection without a forward to the guest's port"))
+                                    .ExchangeAsync(int.Parse(action.Argument, System.Globalization.CultureInfo.InvariantCulture), stop);
+                            }
+                            else if (action.Kind == BootActionKind.Screendump)
                             {
                                 (log, transcript) = await QuietAsync(serialPath, terminal, log, transcript, stop);
                                 await control.ScreendumpAsync(screen, stop);

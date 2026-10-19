@@ -198,6 +198,37 @@ public static class SocketMessages
     /// </summary>
     public const ulong RECEIVE_BUFFER = 8;
 
+    /// <summary>
+    /// SO_KEEPALIVE.
+    /// </summary>
+    public const ulong KEEP_ALIVE = 9;
+
+    /// <summary>
+    /// SO_ACCEPTCONN.
+    /// </summary>
+    public const ulong ACCEPTS_CONNECTIONS = 30;
+
+    /// <summary>
+    /// IPPROTO_TCP, the level of TCP's options.
+    /// </summary>
+    public const ulong TCP_LEVEL = 6;
+
+    /// <summary>
+    /// TCP_NODELAY.
+    /// </summary>
+    public const ulong NO_DELAY = 1;
+
+    /// <summary>
+    /// SHUTDOWN's directions: SHUT_RD, SHUT_WR and SHUT_RDWR.
+    /// </summary>
+    public const ulong SHUT_READ = 0;
+
+    /// <inheritdoc cref="SHUT_READ" />
+    public const ulong SHUT_WRITE = 1;
+
+    /// <inheritdoc cref="SHUT_READ" />
+    public const ulong SHUT_BOTH = 2;
+
     #endregion
 
     #region Functions

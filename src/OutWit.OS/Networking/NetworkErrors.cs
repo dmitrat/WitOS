@@ -19,6 +19,36 @@ public static class NetworkErrors
     public const int AGAIN = 11;
 
     /// <summary>
+    /// EPIPE: the connection's writing is shut down or over.
+    /// </summary>
+    public const int BROKEN_PIPE = 32;
+
+    /// <summary>
+    /// ECONNRESET: the peer reset the connection.
+    /// </summary>
+    public const int CONNECTION_RESET = 104;
+
+    /// <summary>
+    /// EISCONN: the socket is connected already.
+    /// </summary>
+    public const int IS_CONNECTED = 106;
+
+    /// <summary>
+    /// ETIMEDOUT: the peer stopped answering.
+    /// </summary>
+    public const int TIMED_OUT = 110;
+
+    /// <summary>
+    /// EALREADY: a connection is under way.
+    /// </summary>
+    public const int ALREADY = 114;
+
+    /// <summary>
+    /// EINPROGRESS: the connection started; the socket becomes writable once it is established.
+    /// </summary>
+    public const int IN_PROGRESS = 115;
+
+    /// <summary>
     /// EINVAL.
     /// </summary>
     public const int INVALID = 22;
