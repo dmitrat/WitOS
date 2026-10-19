@@ -1667,4 +1667,4 @@
     — `52:55:0a:00:02:02`.
 
   Приёмка: `runtime-devices` грузится с адаптером во всех пяти загрузках. Гость (контейнер): `runtime-services` x64 и
-  riscv64 — PASS, все пять загрузок; ARM64 — в работе (`runtime-witos --arch arm64`, нога CI `linux-host`).
+  riscv64 — PASS, все пять загрузок; `runtime-witos --arch arm64` — PASS, все 25 сценариев, `runtime-devices` в том числе.
