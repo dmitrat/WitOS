@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The virtio network driver (plan step W1.1, ADR 0025): the NativeAOT program /system/Drivers/VirtioNet of
+       the boot package, which the device manager starts with the device it moves to it; it serves the packet protocol
+       (witos/packet.h) to its one client. runtime-witos publishes it for witos with the OutWit.OS sources; on the
+       host the project builds. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>VirtioNet</AssemblyName>
+    <RootNamespace>OutWit.OS.Drivers.VirtioNet</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../OutWit.OS/OutWit.OS.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="OutWit.OS.Tests" />
+  </ItemGroup>
+</Project>

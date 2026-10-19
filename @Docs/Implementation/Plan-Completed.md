@@ -27,6 +27,7 @@
 | [V — Третья ISA](#v--третья-isa) | V0–V3: фаза завершена, каждый шаг — на трёх ISA | V3 — 2026-10-18 |
 | [N — Стандартный .NET (M6)](#n--стандартный-net-m6) | N1–N4: фаза завершена, M6 выполнен, Gate B заявлен | 2026-10-15 (N4.5) |
 | [P — Многопроцессорность](#p--многопроцессорность) | P1 (P1.0–P1.5) и P2: фаза завершена | 2026-10-19 (P2) |
+| [W — Сеть и далее](#w--сеть-и-далее) | W1.1 (инвентаризация W0; W1.2–W4 — в плане) | W1.1 — 2026-10-19 |
 
 ## 5. Фазы (выполненные шаги)
 
@@ -1648,3 +1649,22 @@
   x64 — все 34 сценария, arm64 и riscv64 — по 28; `release` трёх ISA; `runtime-processors` — 11 из 11 под обоими сборщиками
   на x64, arm64 и riscv64; `runtime-compatibility` и `runtime-libraries` на четырёх процессорах проходят на трёх ISA;
   N2.2 и `runtime-published` на четырёх процессорах судит CI (`nuget-suites`, `published-on-windows`).
+
+### W — Сеть и далее
+
+- [x] **W1.1** Канал (2026-10-19; инвентаризация [W0-Network-Inventory.md](@Docs/Implementation/W0-Network-Inventory.md),
+  [W1.1-Network-Link.md](@Docs/Implementation/W1.1-Network-Link.md); решение 7 W0 — по рекомендации).
+  - **User networking QEMU (slirp) на обоих хостах.** Linux-сборка конфигурируется с `--enable-slirp` над `libslirp-dev`
+    образа и CI; в ключе кэша CI теперь `-slirp`.
+  - **`BootRequest.Network`.** Ставит `virtio-net-pci` в слот, чья линия — у источника энтропии
+    (`KernelArchitecture.EntropyLineSlot`: 7 на q35 без дисплея, 6 иначе). Клавиатуру рядом раннер отклоняет: ядро
+    привязывает линию один раз.
+  - **Драйвер `/system/Drivers/VirtioNet`.**
+    - `VERSION_1` с `MAC` и `STATUS`, одна пара очередей без offload, буферы по 2048 байт.
+    - Обслуживает протокол пакетов `witos/packet.h` (`PacketMessages`): окно, `INFO`, `SEND` упакованных кадров с
+      проверкой целиком, один удерживаемый `RECEIVE`, очередь из 256 кадров.
+  - **Проба `NetworkProbe` менеджера устройств.** Обменивается ARP со шлюзом slirp: 10.0.2.15 спрашивает 10.0.2.2, ответ
+    — `52:55:0a:00:02:02`.
+
+  Приёмка: `runtime-devices` грузится с адаптером во всех пяти загрузках. Гость (контейнер): `runtime-services` x64 и
+  riscv64 — PASS, все пять загрузок; ARM64 — в работе (`runtime-witos --arch arm64`, нога CI `linux-host`).

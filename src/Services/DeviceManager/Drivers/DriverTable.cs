@@ -26,6 +26,16 @@ internal static class DriverTable
     public const string VIRTIO_INPUT = "/system/Drivers/VirtioInput";
 
     /// <summary>
+    /// The virtio network driver (W1.1).
+    /// </summary>
+    public const string VIRTIO_NET = "/system/Drivers/VirtioNet";
+
+    /// <summary>
+    /// The UHI class of a network adapter, whose driver serves the packet protocol on its service channel (W1.1).
+    /// </summary>
+    public const string NETWORK_QUEUE = "NetworkQueueDevice";
+
+    /// <summary>
     /// The contract of a console: what the terminal service drives through its driver.
     /// </summary>
     public const string SERIAL_CONSOLE = "SerialConsole";
@@ -54,6 +64,7 @@ internal static class DriverTable
         ("Virtio", BLOCK_STORAGE) => VIRTIO_BLOCK,
         ("Virtio", SERIAL_CONSOLE) => VIRTIO_CONSOLE,
         ("Virtio", INPUT_DEVICE) => VIRTIO_INPUT,
+        ("Virtio", NETWORK_QUEUE) => VIRTIO_NET,
         _ => null
     };
 

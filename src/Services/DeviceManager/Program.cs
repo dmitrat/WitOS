@@ -62,6 +62,10 @@ internal static class Program
                 if (disk is not null)
                     disks.Add((driver.Record.Id, disk));
             }
+            // The network adapters' probe (W1.1): an ARP exchange with the board's gateway through the packet channel.
+            foreach (var driver in drivers.Where(driver =>
+                         driver.Status == 0 && driver.Service is not null && driver.Record.Class == DriverTable.NETWORK_QUEUE))
+                NetworkProbe.Run(driver);
             var names = StartNamespace(disks);
             // The firmware's framebuffer (C2.1): the test pattern through DEVICE_MEMORY's windows, before the display service
             // takes the framebuffer and draws the terminal's screen over it (C2.2).

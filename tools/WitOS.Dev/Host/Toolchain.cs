@@ -23,12 +23,13 @@ internal static class Toolchain
     private const string QEMU_SOURCE_SHA256 = "6ee1d1a61f68212476b27108c26da5f449dc09b626d42f8279ba0dc2e08fa858";
 
     // The three system emulators WitOS boots (riscv64 since plan step V1.1) and the options of their build: no
-    // documentation, no tools, no user-mode emulation, warnings not fatal for the host compiler, and the device tree
-    // library QEMU carries.
+    // documentation, no tools, no user-mode emulation, warnings not fatal for the host compiler, the device tree
+    // library QEMU carries, and user networking over the host's libslirp (W1.1), which the Windows package has too:
+    // without the library the configure fails rather than drops the backend.
     private static readonly string[] QEMU_CONFIGURE =
     [
         "--target-list=x86_64-softmmu,aarch64-softmmu,riscv64-softmmu", "--disable-docs", "--disable-tools", "--disable-user",
-        "--disable-werror", "--enable-fdt=internal"
+        "--disable-werror", "--enable-fdt=internal", "--enable-slirp"
     ];
 
     // Official LLVM release used for coverage, sanitizers and clang-format.

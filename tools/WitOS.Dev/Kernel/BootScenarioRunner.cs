@@ -93,6 +93,15 @@ internal static class BootScenarioRunner
             // source (slot 2), which nothing binds once the firmware reset it, instead of with a device a driver holds.
             arguments.AddRange(["-device", "virtio-keyboard-pci,addr=0x6"]);
         }
+        if (request.Network)
+        {
+            // The entropy source's line too (W1.1), for the same reason: a keyboard and a network adapter would need it
+            // both, and the kernel binds a line once, so a board has one or the other until a line serves several bindings.
+            if (request.Keyboard)
+                throw new InvalidOperationException($"{name}: a keyboard and a network adapter would share an INTx line, which the kernel binds once.");
+            arguments.AddRange(["-netdev", "user,id=net0", "-device",
+                $"virtio-net-pci,netdev=net0,addr=0x{architecture.EntropyLineSlot(request.Display):x}"]);
+        }
         if (request.Expected != ExpectedOutcome.EntropyUnavailable)
         {
             arguments.AddRange(["-object", "rng-builtin,id=entropy0", "-device", "virtio-rng-pci,rng=entropy0"]);
@@ -118,7 +127,8 @@ internal static class BootScenarioRunner
             arguments.AddRange(["-chardev", terminal?.Argument ?? relay!.Argument, "-device", "virtio-serial-pci,id=serial0,max_ports=1",
                 "-device", "virtconsole,chardev=term0"]);
         }
-        Console.WriteLine($"Booting {name} ({request.MemoryMiB} MiB, {cpu}, {request.Processors} processor(s), TCG, no networking)...");
+        Console.WriteLine($"Booting {name} ({request.MemoryMiB} MiB, {cpu}, {request.Processors} processor(s), TCG, " +
+            $"{(request.Network ? "user networking" : "no networking")})...");
         ProcessResult monitorResult;
         using var cut = new CancellationTokenSource();
         using var watching = new CancellationTokenSource();
