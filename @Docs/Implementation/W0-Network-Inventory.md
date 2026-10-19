@@ -91,15 +91,20 @@ recommendation for each, and the slices. Made on 2026-10-19, after phase P.
 
 ## 3. Decisions
 
-Each decision states the recommendation and its alternative. Decisions 2 and 7 are the author's to take before the
-slices that need them (W1.2 and W1.1). The others follow from the documents and are recorded for review.
+Each decision states the recommendation and its alternative. Decisions 2 and 7 were the author's to take before the
+slices that need them (W1.2 and W1.1):
+- decision 2 was taken by the author on 2026-10-19: the managed stack;
+- decision 7 was taken by W1.1 as recommended.
+
+The others follow from the documents and are recorded for review.
 
 1. **Layering.** The virtio-net driver serves packets, the network service runs the protocols, and the libc's sockets
    speak to the service. These are three processes, as the block driver, the namespace service and the libc's files are
    (RFC 0007 §120, RFC 0002 §45). The driver's packet protocol is the `NetworkQueueDevice` contract: a window of frames
    in a memory object and the queues' notifications on a channel.
-2. **The TCP/IP stack.**
-   - **Recommendation: managed**, in the NativeAOT network service (`OutWit.OS.Networking`). The documents point there:
+2. **The TCP/IP stack: managed** — the author's decision of 2026-10-19. WitOS writes system function in managed code,
+   as the documents record.
+   - **Managed**, in the NativeAOT network service (`OutWit.OS.Networking`). The documents point there:
      - Strategy §133–§134;
      - the network named among RFC 0011 §3's .NET services;
      - the stack as services and resources (RFC 0006 §136);
@@ -107,8 +112,8 @@ slices that need them (W1.2 and W1.1). The others follow from the documents and 
        same way by the stacks on the other end: QEMU's slirp, the host's sockets through it, and Linux's own stack for
        what slirp does not do.
      - It carries IPv4, ARP, ICMP, UDP, TCP (RFC 9293 with NewReno), a DHCP client and loopback.
-   - **Alternative:** pinned lwIP (BSD-3-Clause) compiled by the pinned clang and linked into the service as
-     `libwitos.a` is. It is mature and the quicker way to §68. Its single-threaded raw API fits a service loop. It is
+   - **Alternative, not taken:** pinned lwIP (BSD-3-Clause) compiled by the pinned clang and linked into the service
+     as `libwitos.a` is. It is mature and the quicker way to §68. Its single-threaded raw API fits a service loop. It is
      C in a layer the documents prefer managed.
 3. **TLS.** Pinned OpenSSL 3, built after its own rules by the pinned clang against the sysroot, as ICU is (R4.3).
    - This is less a choice than the compatibility contract. The Unix form's `SslStream`, X.509 and most of
