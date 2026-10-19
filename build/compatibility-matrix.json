@@ -27,9 +27,9 @@
     },
     {
       "name": "Garbage collector",
-      "status": "Partial",
-      "step": "R2, phase P",
-      "note": "The workstation GC with its heap bounded to 75% of what a process may own (`DOTNET_GCTotalPhysicalMemory`); the server GC waits for phase P, since one processor schedules threads."
+      "status": "Supported",
+      "step": "R2, P2",
+      "note": "The workstation and the server collector, the server one with a heap per processor (P2), each with its heap bounded to 75% of what a process may own (`DOTNET_GCTotalPhysicalMemory`)."
     },
     {
       "name": "Globalization with ICU",
@@ -129,9 +129,9 @@
     },
     {
       "name": "Server GC and several scheduling processors",
-      "status": "Planned",
-      "step": "phase P",
-      "note": "The kernel starts every processor at boot and schedules threads on one."
+      "status": "Supported",
+      "step": "P1, P2",
+      "note": "Threads run on every processor of the board with their affinity honoured (P1); `Environment.ProcessorCount`, `Thread.GetCurrentProcessorId`, the server collector's heaps and the thread pool see every processor, and the scenarios of N1 and N2 run on four (P2)."
     },
     {
       "name": "Avalonia and other GUI frameworks",

@@ -35,7 +35,9 @@ internal static class RuntimeLibraries
     /// <returns>When the applications ran.</returns>
     public static async Task RunAsync(string root, KernelArchitecture architecture)
     {
-        await RuntimeApps.BootAsync(root, architecture, KernelImageBuilder.RUNTIME_LIBRARIES_SCENARIO, RequiredLines(), 3600);
+        // On several processors (P2), as an application meets a machine.
+        await RuntimeApps.BootAsync(root, architecture, KernelImageBuilder.RUNTIME_LIBRARIES_SCENARIO, RequiredLines(), 3600,
+            processors: RuntimeProcessors.PROCESSORS);
         Console.WriteLine($"Libraries on witos-{architecture.Name}: NUnit's and xUnit's applications passed their tests of MessagePack, " +
             "Math.NET, MemoryPack and Roslyn unchanged through dotnet.");
     }

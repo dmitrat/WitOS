@@ -44,6 +44,17 @@ public sealed class ActionSequenceTests
         Assert.That(BootScenarioRunner.KeyReports(""), Is.Zero);
     }
 
+    // QEMU counts every processor's instructions in one clock (P2): the shift falls with the processors, so that a tick is
+    // 2.5 million instructions of each processor while all of them run.
+    [Test]
+    public void InstructionClockFallsWithTheProcessorsTest()
+    {
+        Assert.That(BootScenarioRunner.InstructionClock(1, interactive: false), Is.EqualTo("shift=2,sleep=off"));
+        Assert.That(BootScenarioRunner.InstructionClock(2, interactive: false), Is.EqualTo("shift=1,sleep=off"));
+        Assert.That(BootScenarioRunner.InstructionClock(4, interactive: false), Is.EqualTo("shift=0,sleep=off"));
+        Assert.That(BootScenarioRunner.InstructionClock(1, interactive: true), Is.EqualTo("shift=2,sleep=on"));
+    }
+
     [Test]
     public void TheSameLineInBothStreamsFiresOnceTest()
     {

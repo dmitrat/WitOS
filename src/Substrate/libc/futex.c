@@ -12,10 +12,10 @@
  * the park leaves the event's token in place, so the park returns at once: no wake is lost, and no waiter of another
  * word is woken. The one exception is the word the kernel's exit request clears (musl's thread list lock, thread.c):
  * the kernel sets one event after the thread is gone, so that word's waiters share one event and wake one another
- * on, as musl's list lock protocol does on Linux, where the kernel also wakes one. Thirty-three events in all, within
- * the system layer's quota of sixty-four (K5.3, R6). */
+ * on, as musl's list lock protocol does on Linux, where the kernel also wakes one. Sixty-five events in all, within
+ * the system layer's quota of 128 (K5.3, R6, P2). */
 
-#define WAITERS 32U /* slots: as many as the kernel's threads of a process, each of which waits on one word */
+#define WAITERS 64U /* slots: as many as the kernel's threads of a process, each of which waits on one word */
 #define FUTEX_WAIT 0
 #define FUTEX_WAKE 1
 #define FUTEX_REQUEUE 3

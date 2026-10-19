@@ -31,6 +31,7 @@ long __wit_sysinfo(struct sysinfo *out);
 long __wit_prlimit(long pid, long resource, const struct rlimit *limit, struct rlimit *old);
 long __wit_sched_getaffinity(long tid, long size, unsigned char *mask);
 long __wit_sched_setaffinity(long tid, long size, const unsigned char *mask);
+long __wit_getcpu(unsigned *cpu, unsigned *node);
 struct sched_param;
 long __wit_sched_getscheduler(long tid);
 long __wit_sched_getparam(long tid, struct sched_param *param);

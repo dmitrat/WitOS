@@ -162,7 +162,7 @@ internal static class RuntimePublished
         var package = await BuildPackageAsync(root, output, architecture, directory);
         RuntimeApps.ForgetLogs(root, architecture, KernelImageBuilder.RUNTIME_PUBLISHED_SCENARIO);
         await RuntimeApps.BootAsync(root, architecture, KernelImageBuilder.RUNTIME_PUBLISHED_SCENARIO, RequiredLines(architecture), TIMEOUT_SECONDS,
-            package: package, terminal: RuntimeCompatibility.Script());
+            package: package, terminal: RuntimeCompatibility.Script(), processors: RuntimeProcessors.PROCESSORS);
         var checks = RuntimeCompatibility.ReadChecks(await RuntimeApps.GuestLinesAsync(root, architecture, KernelImageBuilder.RUNTIME_PUBLISHED_SCENARIO));
         if (checks.Count == 0)
             throw new InvalidOperationException("The suite's checks were not found in the guest's serial log or terminal transcript.");

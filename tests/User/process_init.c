@@ -543,7 +543,19 @@ int main(void)
                 sched_getaffinity(0, sizeof(read_back), &read_back) == 0 &&
                 CPU_EQUAL(&read_back, &processors),
             "sched_setaffinity pins a thread and sets it free");
+        /* getcpu names the processor a pinned thread runs on, each in turn (P2). */
+        int pinned = 1;
+        for (int processor = 0; processor < CPU_COUNT(&processors); ++processor) {
+            cpu_set_t one;
+            CPU_ZERO(&one);
+            CPU_SET(processor, &one);
+            pinned = pinned && sched_setaffinity(0, sizeof(one), &one) == 0 && sched_getcpu() == processor;
+        }
+        check(pinned && sched_setaffinity(0, sizeof(processors), &processors) == 0,
+            "sched_getcpu follows a pinned thread");
     }
+    const int running_on = sched_getcpu();
+    check(running_on >= 0 && CPU_ISSET(running_on, &processors), "sched_getcpu: a processor of the mask");
     /* One priority for every thread, which Linux reports of a normal thread (R7.1): SCHED_OTHER at 0. */
     struct sched_param priority = {.sched_priority = 1};
     int policy = -1;
@@ -588,9 +600,11 @@ int main(void)
 
     pid_t crowd[CROWD];
     char *napping[] = {"child", "sleep", "3000", "5", 0};
-    int crowd_started = 0, crowd_running = 0, crowd_reaped = 0;
+    int crowd_started = 0, crowd_running = 0, crowd_reaped = 0, crowd_error = 0, crowd_odd = -1, crowd_odd_status = 0;
     for (int i = 0; i < CROWD; ++i) {
-        crowd_started += posix_spawn(&crowd[crowd_started], CHILD, 0, 0, napping, environ) == 0;
+        const int error = posix_spawn(&crowd[crowd_started], CHILD, 0, 0, napping, environ);
+        crowd_started += error == 0;
+        crowd_error = error ? error : crowd_error;
     }
     for (int i = 0; i < crowd_started; ++i) {
         int crowd_status = 0;
@@ -598,9 +612,20 @@ int main(void)
     }
     for (int i = 0; i < crowd_started; ++i) {
         int crowd_status = 0;
-        crowd_reaped += waitpid(crowd[i], &crowd_status, 0) == crowd[i] &&
+        const int reaped = waitpid(crowd[i], &crowd_status, 0) == crowd[i] &&
             WIFEXITED(crowd_status) &&
             WEXITSTATUS(crowd_status) == 5;
+        crowd_reaped += reaped;
+        if (!reaped && crowd_odd < 0) {
+            crowd_odd = i;
+            crowd_odd_status = crowd_status;
+        }
+    }
+    if (crowd_started != CROWD || crowd_running != CROWD || crowd_reaped != CROWD) {
+        printf(
+            "[INIT] the crowd: %d started (last error %d), %d running at once, %d reaped; child %d ended with status "
+            "0x%x\n",
+            crowd_started, crowd_error, crowd_running, crowd_reaped, crowd_odd, crowd_odd_status);
     }
     check(crowd_started == CROWD && crowd_running == CROWD && crowd_reaped == CROWD,
         "twenty children at once, more than twelve processes");

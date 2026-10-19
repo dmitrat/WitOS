@@ -33,7 +33,7 @@ void wit_user_wait_interrupt(WitUserProcess *process, WitUserThread *thread)
 /* Expired deadlines complete before any later signal or close, so a timeout is never overwritten. */
 void wit_user_wait_expire(WitUserProcess *process, WitU64 now)
 {
-    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < process->ThreadTop; ++i) {
         WitUserThread *thread = &process->Threads[i];
         if (thread->State != WitThreadWaiting ||
             (thread->WaitKind != WitWaitObjects && thread->WaitKind != WitWaitSleep) ||
@@ -52,7 +52,7 @@ void wit_user_wait_expire(WitUserProcess *process, WitU64 now)
 
 int wit_user_wait_timed(const WitUserProcess *process)
 {
-    for (WitU32 i = 0; i < WIT_PROCESS_THREAD_CAPACITY; ++i) {
+    for (WitU32 i = 0; i < process->ThreadTop; ++i) {
         const WitUserThread *thread = &process->Threads[i];
         if (thread->State == WitThreadWaiting &&
             (thread->WaitKind == WitWaitObjects || thread->WaitKind == WitWaitSleep) &&

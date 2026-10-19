@@ -38,7 +38,7 @@ int __wit_thread_start_detached(void *(*entry)(void *), void *argument)
  * first record. The library keeps each thread's kernel handle while the thread lives (S3: pthread_kill is
  * THREAD_ACTIVATE of that handle) and the thread's signal state (signal.c). */
 
-#define THREADS 64
+#define THREADS 64 /* the kernel's threads of a process: a record is free once its thread exits */
 #define MAIN_TID 1
 
 typedef struct Thread {

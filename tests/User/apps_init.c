@@ -65,6 +65,12 @@ static int run(char *line, char **envp)
     const int code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
     struct sysinfo memory;
     const unsigned long free_mib = sysinfo(&memory) == 0 ? memory.freeram / (1024UL * 1024UL) * memory.mem_unit : 0;
+    if (WIFSIGNALED(status)) {
+        /* A fault (SIGSEGV) or the end of the process's tick budget (SIGXCPU, R7.2b) names itself (P2). */
+        printf("[APPS-INIT] %s %s ended by signal %d (%s) after %ld s, %lu MiB free\n", argv[0],
+            count > 1 ? argv[1] : "", WTERMSIG(status), strsignal(WTERMSIG(status)), seconds() - start, free_mib);
+        return code;
+    }
     printf("[APPS-INIT] %s %s exited with %d after %ld s, %lu MiB free\n", argv[0], count > 1 ? argv[1] : "", code,
         seconds() - start, free_mib);
     return code;

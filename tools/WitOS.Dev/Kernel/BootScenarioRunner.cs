@@ -9,14 +9,14 @@ internal static class BootScenarioRunner
 {
     #region Constants
 
-    // Guest time follows executed instructions, not the host clock: 4 ns per instruction, so a 10 ms timer tick is
-    // 2.5 million instructions on every host and under any load. An idle guest skips ahead to its next timer instead of
-    // sleeping. Wall-clock limits of a boot only stop QEMU; they never change what the guest measures.
-    private const string VIRTUAL_TIME = "shift=2,sleep=off";
+    // Guest time follows executed instructions, not the host clock (InstructionClock): a 10 ms timer tick is 2.5 million
+    // instructions of each processor on every host and under any load. An idle guest skips ahead to its next timer
+    // instead of sleeping. Wall-clock limits of a boot only stop QEMU; they never change what the guest measures.
+    private const string VIRTUAL_TIME = "sleep=off";
 
     // A session a person works in (C1.4, C2.4) keeps the instruction clock but sleeps while the guest idles, so that its
     // time follows the host's between keys instead of racing ahead, and the host's processor rests.
-    private const string INTERACTIVE_TIME = "shift=2,sleep=on";
+    private const string INTERACTIVE_TIME = "sleep=on";
 
     // The window of a session on the host's screen (C2.4): QEMU's GTK display, the framebuffer scaled to the window.
     private const string WINDOW_DISPLAY = "gtk,zoom-to-fit=on";
@@ -69,7 +69,7 @@ internal static class BootScenarioRunner
         // Emulated with the instruction clock, or on the host's hardware virtualization for a session (C2.7).
         string[] execution = request.Accelerated
             ? ["-accel", HostAccelerator(architecture)]
-            : ["-accel", "tcg,thread=single", "-icount", request.InteractiveTerminal ? INTERACTIVE_TIME : VIRTUAL_TIME];
+            : ["-accel", "tcg,thread=single", "-icount", InstructionClock(request.Processors, request.InteractiveTerminal)];
         List<string> arguments =
         [
             "-machine", machine, .. execution,
@@ -269,6 +269,19 @@ internal static class BootScenarioRunner
         }
         return null;
     }
+
+    /// <summary>
+    /// QEMU's instruction clock for a board (P2): its single-threaded TCG runs the processors in turn and counts every
+    /// processor's instructions in one clock, so its shift falls with the processors — 4 ns an instruction on one, 2 on
+    /// two, 1 on four or more — and a 10 ms tick is 2.5 million instructions of each processor while all of them run, as
+    /// on one. With one shift for every board, four busy processors would see four times the time pass for the same work,
+    /// and a program's timeouts would be four times as tight as on one processor or on hardware.
+    /// </summary>
+    /// <param name="processors">The board's processors.</param>
+    /// <param name="interactive">Whether the guest sleeps while idle, a session a person works in (C1.4).</param>
+    /// <returns>The -icount option's value.</returns>
+    internal static string InstructionClock(int processors, bool interactive) =>
+        $"shift={(processors >= 4 ? 0 : processors >= 2 ? 1 : 2)},{(interactive ? INTERACTIVE_TIME : VIRTUAL_TIME)}";
 
     /// <summary>
     /// The key transitions the guest's keyboard driver reported in a serial log (C2.3).

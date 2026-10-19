@@ -98,8 +98,9 @@ internal static class RuntimeNuGetSuites
         Exception? failure = null;
         try
         {
+            // On as many processors as the runtime's own scenario (P2): the suites under load on several processors.
             await RuntimeApps.BootAsync(root, architecture, KernelImageBuilder.RUNTIME_NUGET_SUITES_SCENARIO, [], TIMEOUT_SECONDS, files,
-                diskBytes, MEMORY_MIB, package);
+                diskBytes, MEMORY_MIB, package, processors: RuntimeProcessors.PROCESSORS);
         }
         catch (Exception exception) when (exception is InvalidOperationException or InvalidDataException or TimeoutException)
         {

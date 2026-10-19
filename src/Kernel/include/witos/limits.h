@@ -17,14 +17,16 @@
  * the thread pool's workers and gate thread and its own threads; each thread takes a handle for its identity and the
  * libc keeps another for it, the libc's futex slots each hold an event, and the libc holds a handle of every chunk of
  * shared memory CoreCLR's JIT maps twice (R6: an ordinary application filled 64 handles, and CoreCLR's own threads
- * with the thread pool's filled 16 threads; 32 futex slots and the exit word's event are 33 events). A kernel stack per thread of every registry slot is part of the kernel
- * image, the self-test kernel's too (K8.4d). The handles hold every memory object a process may create, every chunk of
+ * with the thread pool's filled 16 threads; P2: the server collector on four processors keeps two threads a processor
+ * beside the thread pool's, which passed 32; 64 futex slots and the exit word's event are 65 events). A thread's kernel
+ * stack comes from the allocator when the thread is created (P1.5), so a slot of the registry costs the image its
+ * records alone. The handles hold every memory object a process may create, every chunk of
  * a volume's file it maps shared (R4.2: CoreCLR maps every IL assembly so), every event and two of every thread, with
  * room for its channels (N2.2: MessagePack's suite filled 256 with 190 chunks of JIT code, and Roslyn's syntax suite
  * held 941 of 1024 beside 401 objects of its own, its assemblies of 156 MiB being 624 chunks). */
-#define WIT_PROCESS_THREAD_CAPACITY 32U
+#define WIT_PROCESS_THREAD_CAPACITY 64U
 #define WIT_PROCESS_HANDLE_CAPACITY 2048U
-#define WIT_PROCESS_EVENT_CAPACITY 64U
+#define WIT_PROCESS_EVENT_CAPACITY 128U
 /* Live memory objects a system layer process creates (S6.1): the process manager creates the writable segments and the
  * first stack of every process it starts, two objects or more while each lives, and the libc a chunk of 64 pages for
  * every 256 KiB of shared memory a JIT maps (R6; 512 since R7.3, where upstream's library tests compiled 30 MiB of code
@@ -82,7 +84,8 @@
 
 /* Timer ticks a component may run before its budget expires: a fixture's, and the root task's, which bounds the
  * processes it creates: an hour of processor time since R7.2b, where 30 seconds ended upstream's test groups and
- * allocation tests part way. */
+ * allocation tests part way, for each online processor since P2, where the libraries' suites busy on four processors
+ * spent the hour in 45 minutes. */
 #define WIT_USER_TICK_BUDGET 10U
 #define WIT_PROCESS_TICK_BUDGET 360000U
 

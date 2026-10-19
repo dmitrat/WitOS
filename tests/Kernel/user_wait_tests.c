@@ -40,6 +40,7 @@ static void initialize_model(void)
         model.Threads[i].State = WitThreadRunning;
         model.Threads[i].WaitKind = WitWaitNone;
     }
+    wit_user_thread_top_update(&model);
 }
 
 /* The one object wait of one model thread on one handle, at the given monotonic time. */

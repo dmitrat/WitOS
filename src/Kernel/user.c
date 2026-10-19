@@ -24,6 +24,7 @@ typedef struct Dispatcher {
     volatile WitU32 Parked; /* a secondary between runs: no component, no tick */
     WitU32 Ticking; /* a secondary's own tick runs */
     WitU32 Kicked; /* asked to look again since it went idle */
+    const WitUserThread *Yielding; /* the thread whose THREAD_YIELD this processor dispatches (P2) */
 } Dispatcher;
 
 static Dispatcher dispatchers[WIT_PROCESSOR_CAPACITY];
@@ -104,7 +105,7 @@ static int thread_ready_for(WitU32 processor)
         if (!q || q->State != WitUserRunning) {
             continue;
         }
-        for (WitU32 t = 0; t < q->ThreadLimit; ++t) {
+        for (WitU32 t = 0; t < q->ThreadTop; ++t) {
             const WitUserThread *thread = &q->Threads[t];
             if (thread->State == WitThreadReady && !thread->SuspendCount && (thread->Affinity & (1ULL << processor))) {
                 return 1;
@@ -228,6 +229,7 @@ static void teardown(WitUserProcess *process)
         process->Threads[i].State = WitThreadEmpty;
         process->Threads[i].SuspendCount = 0;
     }
+    process->ThreadTop = 0;
     if (process->Slot < WIT_PROCESS_CAPACITY) {
         wit_kernel_stack_release_slot(process->Slot); /* collected once no processor runs on them (P1.5) */
     }
@@ -412,6 +414,7 @@ static void reap(WitU32 index)
     thread->Handle = 0;
     thread->SuspendCount = 0;
     thread->State = WitThreadEmpty;
+    wit_user_thread_top_update(self()->Current);
     ++self()->Current->ThreadReaps;
     wit_kernel_stack_release(self()->Current->Slot, index); /* this processor may still run on it (P1.5) */
 }
@@ -447,7 +450,7 @@ static int idle_can_wake(void)
         if (wit_user_wait_timed(q)) {
             return 1;
         }
-        for (WitU32 t = 0; t < q->ThreadLimit; ++t) {
+        for (WitU32 t = 0; t < q->ThreadTop; ++t) {
             /* A thread another processor runs may wake it too (P1.3b). */
             if (q->Threads[t].State == WitThreadReady || q->Threads[t].State == WitThreadRunning) {
                 return 1;
@@ -464,6 +467,11 @@ static WitArchFrame *resume_current(WitArchFrame *frame)
     const WitU32 index = self()->Current->CurrentThread;
     WitUserThread *thread = &self()->Current->Threads[index];
     require(frame == thread->Context, "Resuming a frame the current thread does not own");
+    if (self()->Yielding == thread) {
+        /* THREAD_YIELD's value, written before an activation's delivery may take the frame's argument registers (P2):
+         * the yield picked its caller again. */
+        *wit_arch_frame_value(frame) = 0;
+    }
     if (wit_user_activation_deliver(self()->Current, thread)) {
         validate_return(frame, index, 0);
     }
@@ -490,8 +498,8 @@ static WitArchFrame *pick(int timer, int rotate, int *waiting)
             continue;
         }
         const WitU32 previous = q->CurrentThread;
-        for (WitU32 offset = 1; offset <= WIT_PROCESS_THREAD_CAPACITY; ++offset) {
-            const WitU32 index = (previous + offset) % WIT_PROCESS_THREAD_CAPACITY;
+        for (WitU32 offset = 1; offset <= q->ThreadTop; ++offset) {
+            const WitU32 index = (previous + offset) % q->ThreadTop;
             WitUserThread *thread = &q->Threads[index];
             /* A ready thread whose affinity leaves this processor out waits for another (P1.4). */
             const int elsewhere = thread->State == WitThreadReady && !(thread->Affinity & (1ULL << me()));
@@ -541,6 +549,7 @@ WIT_NORETURN static void idle(void)
 {
     Dispatcher *const cpu = self();
     for (;;) {
+        cpu->Yielding = 0; /* a yield that went idle let others run first */
         wit_kernel_stack_running(WIT_PROCESS_CAPACITY, 0); /* the idle stack (P1.5) */
         drop_component(cpu);
         wit_kernel_stacks_collect();
@@ -772,6 +781,7 @@ static void reset_process(WitUserProcess *process, WitU32 slot)
     process->FaultThread = NO_THREAD;
     process->NextWaitOrder = 0;
     process->MemoryPressureLow = 0;
+    process->MemoryPressureCount = 0;
     for (WitU32 i = 0; i < WIT_PROCESS_EVENT_CAPACITY; ++i) {
         process->MemoryPressureEvents[i] = 0;
     }
@@ -786,6 +796,7 @@ static void reset_process(WitUserProcess *process, WitU32 slot)
         process->Threads[i].State = WitThreadEmpty;
         process->Threads[i].SuspendCount = 0;
     }
+    process->ThreadTop = 0;
     wit_handles_initialize(&process->Handles, process->Id);
     wit_user_references_initialize(process);
     wit_user_exception_initialize(process);
@@ -810,7 +821,9 @@ int wit_user_create_flat(
         process->Events.Limit = WIT_PROCESS_EVENT_CAPACITY;
         process->ThreadLimit = WIT_PROCESS_THREAD_CAPACITY;
         process->ChannelLimit = WIT_PROCESS_CHANNEL_CAPACITY;
-        process->TickLimit = WIT_PROCESS_TICK_BUDGET;
+        /* An hour of the machine's time: every processor's tick charges the component it runs (P1.3b), so a process
+         * busy on all of them spends its budget as many times faster (P2). */
+        process->TickLimit = WIT_PROCESS_TICK_BUDGET * wit_processors_online();
     }
     slot_owners[slot] = process;
     process->ImageBase = layout->Segments[0].Address;
@@ -992,10 +1005,19 @@ WitU64 wit_user_contained_faults(void)
     return contained_faults;
 }
 
-WitArchFrame *wit_user_yield(void)
+/* THREAD_YIELD: its value, 1 when another thread was picked, goes into the frame before the dispatch, since a dispatch
+ * that picks the caller again delivers a pending activation into the same frame, whose callback's arguments a later
+ * write would overwrite (P2: on two of the three ISAs the value register is the callback's vector register). */
+WitArchFrame *wit_user_yield(WitU64 *value)
 {
-    self()->Current->Threads[self()->Current->CurrentThread].State = WitThreadReady;
-    return dispatch(0, 1);
+    Dispatcher *const cpu = self();
+    WitUserThread *const caller = &cpu->Current->Threads[cpu->Current->CurrentThread];
+    caller->State = WitThreadReady;
+    *value = 1;
+    cpu->Yielding = caller;
+    WitArchFrame *const next = dispatch(0, 1);
+    cpu->Yielding = 0;
+    return next;
 }
 
 WitArchFrame *wit_user_timer_tick(WitArchFrame *context)

@@ -104,6 +104,7 @@ int wit_x64_lapic_enabled(void);
 WIT_NORETURN void wit_x64_secondary_main(WitU32 index);
 WitInterruptContext *wit_x64_ipi_interrupt(WitInterruptContext *context);
 void wit_x64_page_executable(WitU64 address);
+WitU64 wit_x64_trampoline_page(void);
 WitU64 wit_x64_stack_pointer(void);
 WIT_NORETURN void wit_x64_exception(const WitExceptionFrame *frame, WitU64 fault_address);
 void wit_x64_trigger_breakpoint(void);
