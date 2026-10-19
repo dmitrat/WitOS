@@ -2,6 +2,7 @@
 #include "witos/boot.h"
 #include "witos/cpu.h"
 #include "witos/platform.h"
+#include "witos/processor.h"
 #include "witos/rv64_csr.h"
 #include "witos/rv64_sbi.h"
 #include "witos/virtual.h"
@@ -107,11 +108,18 @@ static void arm_timer(WitU64 at)
     }
 }
 
+/* The tick of the calling hart (P1.3a): its own stimecmp, or the firmware's timer for it. The boot hart also opens its
+ * PLIC context, since device lines reach it alone; a secondary's context stays masked. */
 void wit_platform_timer_start(void)
 {
     require(mapped && !wit_arch_interrupts_enabled(), "Timer start needs the PLIC mapped and interrupts disabled");
     interval = wit_platform_monotonic_frequency() / TIMER_HZ;
     require(interval != 0, "Timer interval is zero");
+    if (wit_processors_current() != 0) {
+        arm_timer(wit_rv64_read_time() + interval);
+        wit_rv64_set_sie(WIT_RV64_SIE_TIMER);
+        return;
+    }
     *plic(context_base() + PLIC_THRESHOLD) = 0; /* every enabled source's priority passes */
     arm_timer(wit_rv64_read_time() + interval);
     wit_rv64_set_sie(WIT_RV64_SIE_TIMER | WIT_RV64_SIE_EXTERNAL);

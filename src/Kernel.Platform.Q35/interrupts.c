@@ -1,9 +1,15 @@
 #include "witos/boot.h"
 #include "witos/cpu.h"
 #include "witos/platform.h"
+#include "witos/processor.h"
 #include "witos/x64_instructions.h"
+#include "witos/x64_local_timer.h"
 
-/* q35 legacy interrupt routing: the 8259 PIC pair and the 8254 PIT as the scheduler tick source. */
+/* q35 legacy interrupt routing: the 8259 PIC pair and the 8254 PIT as the boot processor's scheduler tick; a secondary
+ * processor's tick is its local APIC's timer (P1.3a), on the PIT's vector, so that one entry serves both. */
+
+#define TIMER_VECTOR 0x20U /* IRQ0 after the remapping below */
+#define TIMER_HZ 100U
 
 static void require(int condition, const char *message)
 {
@@ -22,6 +28,10 @@ static void io_wait(void)
 
 void wit_platform_timer_start(void)
 {
+    if (wit_processors_current() != 0) {
+        wit_x64_local_timer_start(TIMER_VECTOR);
+        return;
+    }
     const WitU64 apic = wit_x64_read_msr(0x1B);
     require((apic & (1ULL << 10)) == 0, "x2APIC is unsupported by the bootstrap timer");
     /* The PC backend uses the legacy PIC/PIT path. With one processor the local APIC is disabled so that it
@@ -63,6 +73,10 @@ void wit_platform_timer_start(void)
 void wit_platform_timer_stop(void)
 {
     wit_x64_disable_interrupts();
+    if (wit_processors_current() != 0) {
+        wit_x64_local_timer_stop();
+        return;
+    }
     mask_master = 0xFF;
     mask_slave = 0xFF;
     wit_x64_out8(0x21, mask_master);
@@ -118,6 +132,10 @@ void wit_platform_line_complete(WitU32 line)
 
 void wit_platform_timer_acknowledge(void)
 {
+    if (wit_processors_current() != 0) {
+        wit_x64_local_timer_acknowledge();
+        return;
+    }
     wit_x64_out8(0x20, 0x20); /* Non-specific EOI to the master PIC. */
 }
 
@@ -149,5 +167,9 @@ void wit_platform_ipi_complete(WitU32 number)
     wit_panic("The q35 platform has no inter-processor interrupt of its own");
 }
 
-/* The boot processor's local APIC came on with the first secondary's start and takes the doorbell as it is (P1.2). */
-void wit_platform_ipi_enable_boot(void) {}
+/* The boot processor's local APIC came on with the first secondary's start and takes the doorbell as it is (P1.2); it
+ * measures the APIC timer the secondary processors tick by (P1.3a). */
+void wit_platform_ipi_enable_boot(void)
+{
+    wit_x64_local_timer_calibrate(TIMER_HZ);
+}

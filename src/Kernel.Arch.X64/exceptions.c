@@ -8,6 +8,7 @@
 #define TSS_BOOT_SELECTOR 0x18U
 #define TSS_FIRST_SECONDARY 7U
 #define GDT_ENTRIES (TSS_FIRST_SECONDARY + 2U * (WIT_PROCESSOR_CAPACITY - 1U))
+WIT_STATIC_ASSERT(WIT_PROCESSOR_CAPACITY == 8U, "user_entry.S has a SYSCALL entry and its two words for 8 processors");
 
 __declspec(align(16)) static WitU64 gdt[GDT_ENTRIES];
 __declspec(align(16)) static WitInterruptGate idt[256];
@@ -57,7 +58,7 @@ void wit_arch_initialize(void)
         describe_task(task_selector(i) / 8U, &task_states[i]);
     }
     task_states[0].Rsp[0] = stack_begin + WIT_KERNEL_STACK_SIZE;
-    wit_x64_syscall_kernel_rsp = task_states[0].Rsp[0];
+    wit_x64_syscall_kernel_rsp[0] = task_states[0].Rsp[0];
     gdt[5] = 0x00CFF2000000FFFFULL; /* ring-3 data, selector 0x2B */
     gdt[6] = 0x00AFFA000000FFFFULL; /* ring-3 code, selector 0x33 */
 
@@ -76,7 +77,7 @@ void wit_arch_initialize(void)
     idt_pointer.Limit = sizeof(idt) - 1;
     idt_pointer.Base = (WitU64)idt;
     wit_x64_load_tables(&gdt_pointer, &idt_pointer);
-    wit_x64_enable_syscall();
+    wit_x64_enable_syscall(0);
     wit_console_write("[TEST-PASS] Cpu.ExceptionTables\n");
 }
 
@@ -107,8 +108,9 @@ WitU32 wit_arch_processor_index(void)
 
 void wit_x64_set_kernel_stack(WitU64 top)
 {
-    task_states[wit_arch_processor_index()].Rsp[0] = top;
-    wit_x64_syscall_kernel_rsp = top; /* SYSCALL switches no stack; the entry loads this one (K5.2a). */
+    const WitU32 index = wit_arch_processor_index();
+    task_states[index].Rsp[0] = top;
+    wit_x64_syscall_kernel_rsp[index] = top; /* SYSCALL switches no stack; the processor's entry loads this (K5.2a). */
 }
 
 static const char *exception_name(WitU64 vector)

@@ -28,7 +28,8 @@
  * pointer stays 16-byte aligned. */
 #define CALL_FRAME_BYTES 16U
 
-static WitU64 selected_top;
+/* The kernel stack top of the thread each processor runs (P1.3a): an EL0 frame resumes only at the top of its own. */
+static WitU64 selected_top[WIT_PROCESSOR_CAPACITY];
 
 static WitU64 stack_low(WitU32 slot, WitU32 thread)
 {
@@ -37,12 +38,12 @@ static WitU64 stack_low(WitU32 slot, WitU32 thread)
 
 void wit_arch_select_thread_stack(WitU32 slot, WitU32 thread)
 {
-    selected_top = stack_low(slot, thread) + WIT_A64_KERNEL_STACK_SIZE;
+    selected_top[wit_arch_processor_index()] = stack_low(slot, thread) + WIT_A64_KERNEL_STACK_SIZE;
 }
 
 void wit_arch_select_boot_stack(void)
 {
-    selected_top = (WitU64)wit_a64_kernel_stack + 4096 + WIT_A64_KERNEL_STACK_SIZE;
+    selected_top[wit_arch_processor_index()] = (WitU64)wit_a64_kernel_stack + 4096 + WIT_A64_KERNEL_STACK_SIZE;
 }
 
 void wit_arch_set_user_tls(WitU64 address)
@@ -98,7 +99,7 @@ WIT_NORETURN void wit_arch_resume_frame(WitArchFrame *frame)
 WitA64Frame *wit_a64_prepare_resume(WitA64Frame *frame)
 {
     if ((frame->Spsr & WIT_A64_SPSR_MODE) == 0) {
-        if ((WitU64)frame + WIT_A64_FRAME_SIZE != selected_top) {
+        if ((WitU64)frame + WIT_A64_FRAME_SIZE != selected_top[wit_arch_processor_index()]) {
             wit_panic("EL0 frame is not at the top of the selected kernel stack");
         }
     }

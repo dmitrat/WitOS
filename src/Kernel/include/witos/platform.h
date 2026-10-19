@@ -28,7 +28,8 @@ WitU32 wit_platform_boot_devices(WitU64 *pages, WitU32 capacity);
 struct WitDeviceDescriptor;
 WitU32 wit_platform_devices(const struct WitBootInfo *boot, struct WitDeviceDescriptor *table, WitU32 capacity);
 
-/* Board timer delivering scheduler ticks, and the monotonic clock. */
+/* The scheduler tick of the calling processor (P1.3a: each processor has its own, started, acknowledged and stopped
+ * on it), and the monotonic clock. */
 void wit_platform_timer_start(void);
 void wit_platform_timer_stop(void);
 void wit_platform_timer_acknowledge(void);
