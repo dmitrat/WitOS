@@ -485,21 +485,39 @@ internal static class Toolchain
     /// <param name="url">Where it is fetched from.</param>
     /// <param name="sha256">The SHA-256 of its bytes.</param>
     /// <returns>The path.</returns>
-    public static async Task<string> RequireDownloadAsync(string path, string url, string sha256)
+    public static Task<string> RequireDownloadAsync(string path, string url, string sha256) =>
+        RequireDownloadAsync(path, [url], sha256);
+
+    /// <summary>
+    /// A pinned download from the first of several places that answers: fetched when missing, its SHA-256 always checked,
+    /// so that any place serves the same bytes or none.
+    /// </summary>
+    /// <param name="path">Where the download is kept, under .tools/downloads.</param>
+    /// <param name="urls">Where it is fetched from, in order of preference.</param>
+    /// <param name="sha256">The SHA-256 of its bytes.</param>
+    /// <returns>The path.</returns>
+    public static async Task<string> RequireDownloadAsync(string path, IReadOnlyList<string> urls, string sha256)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        if (!File.Exists(path))
+        for (var i = 0; !File.Exists(path); i++)
         {
             Console.WriteLine($"Downloading {Path.GetFileName(path)}...");
             using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
             // ftp.gnu.org answers a request without a user agent with 403 (C1.3: the ncurses pin); name the tool.
             client.DefaultRequestHeaders.UserAgent.ParseAdd("WitOS.Dev/1.0");
-            using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
-            response.EnsureSuccessStatusCode();
-            var partial = path + ".partial";
-            await using (var stream = File.Create(partial))
-                await response.Content.CopyToAsync(stream);
-            File.Move(partial, path, overwrite: true);
+            try
+            {
+                using var response = await client.GetAsync(urls[i], HttpCompletionOption.ResponseHeadersRead);
+                response.EnsureSuccessStatusCode();
+                var partial = path + ".partial";
+                await using (var stream = File.Create(partial))
+                    await response.Content.CopyToAsync(stream);
+                File.Move(partial, path, overwrite: true);
+            }
+            catch (Exception exception) when (exception is HttpRequestException or IOException or TaskCanceledException && i + 1 < urls.Count)
+            {
+                Console.WriteLine($"{urls[i]} failed ({exception.Message}); trying {urls[i + 1]}");
+            }
         }
         await using (var stream = File.OpenRead(path))
         {
