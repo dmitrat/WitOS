@@ -74,6 +74,22 @@ static int socket_named(const Entry *e)
     return socket == e->Pipe && __wit_socket_id(socket) == e->SocketId;
 }
 
+/* Whether a registration's descriptor no longer names what it registered: its last descriptor went, and the number may
+ * name another file now. Linux drops a registration with its file's last descriptor; here a look or a change drops it. */
+static int stale(Entry *e)
+{
+    if (e->Socket) {
+        return !socket_named(e);
+    }
+    WitU32 pipe_index = 0;
+    int write_end = 0, nonblocking = 0;
+    if (!__wit_pipe_of(e->Fd, &pipe_index, &write_end, &nonblocking)) {
+        return 1;
+    }
+    __wit_pipe_release(pipe_index); /* the look's own reference */
+    return pipe_index != e->Pipe || write_end != e->WriteEnd;
+}
+
 static WitU32 got_of(short polled)
 {
     return ((polled & POLLIN) ? EPOLLIN : 0) |
@@ -118,10 +134,18 @@ void __wit_epoll_release(WitU32 index)
 
 /* EPOLL_CTL_ADD, MOD and DEL of descriptor fd in instance index, which files.c resolved; fd is checked here: a pipe end
  * registers, a closed descriptor is EBADF, anything else EPERM. */
-long __wit_epoll_ctl(WitU32 index, int op, long fd, const struct epoll_event *event)
+static long control(WitU32 index, int op, long fd, const struct epoll_event *event)
 {
     Instance *in = &instances[index];
     Entry *found = 0, *free_entry = 0;
+    /* A registration whose file went is dropped first (W2.2): a closed socket's number names the next socket, which
+     * CoreCLR registers anew, and its place is free again. Without it, EEXIST or ENOSPC reached CoreCLR's socket engine as
+     * an InternalException or an OutOfMemoryException, and an asynchronous accept ended unseen. */
+    for (WitU32 i = 0; i < EPOLL_ENTRIES; ++i) {
+        if (in->Entries[i].Used && stale(&in->Entries[i])) {
+            drop(&in->Entries[i]);
+        }
+    }
     for (WitU32 i = 0; i < EPOLL_ENTRIES; ++i) {
         Entry *e = &in->Entries[i];
         if (e->Used && e->Fd == fd) {
@@ -194,6 +218,19 @@ long __wit_epoll_ctl(WitU32 index, int op, long fd, const struct epoll_event *ev
     found->Reported = 0; /* the state at the change is reported again, as Linux reports it */
     found->Disabled = 0;
     return 0;
+}
+
+/* epoll_ctl: an added or changed registration bumps the poll word, so that a wait parked meanwhile looks at it (W2.2), as
+ * Linux's epoll_ctl wakes a waiter whose interest list now holds a ready descriptor. CoreCLR registers a socket after its
+ * first EAGAIN, when the bytes that end the wait may have come already: their readiness event woke the wait before the
+ * registration, and nothing else would. */
+long __wit_epoll_ctl(WitU32 index, int op, long fd, const struct epoll_event *event)
+{
+    const long result = control(index, op, fd, event);
+    if (result == 0 && op != EPOLL_CTL_DEL) {
+        __wit_poll_bump();
+    }
+    return result;
 }
 
 /* The events ready now in instance index, at most count of them: an entry whose descriptor no longer names its pipe
