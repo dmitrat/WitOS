@@ -617,6 +617,8 @@ static long privatize(WitU64 start, WitU64 end)
     }
 }
 
+static long publish(WitU64 base, WitU64 size);
+
 long __wit_mprotect(long address, long length, long protection)
 {
     WitU64 result = 0, kernel_protection;
@@ -654,6 +656,15 @@ long __wit_mprotect(long address, long length, long protection)
         if (status != WIT_STATUS_OK) {
             return status == WIT_STATUS_NOT_COMMITTED ? -ENOMEM
                                                       : (status == WIT_STATUS_DENIED ? -EACCES : __wit_errno(status));
+        }
+        if (kernel_protection & WIT_MEMORY_EXECUTE) {
+            /* An object mapping made executable again is published (S8.2): its pages may have been written meanwhile,
+             * as CoreCLR writes a ReadyToRun image's relocations through a writable window before it restores the
+             * section's protection, and instruction fetch sees them only after the kernel's cache maintenance. */
+            const long published = publish(low, high - low);
+            if (published < 0) {
+                return published;
+            }
         }
         if (m->Kind == MapShared) {
             for (WitU64 page = (low - m->Base) / PAGE; page < (high - m->Base) / PAGE; ++page) {

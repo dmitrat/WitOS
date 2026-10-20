@@ -69,15 +69,6 @@ internal static class RuntimeCSharpRepl
             Console.WriteLine($"CSharpRepl on witos-{architecture.Name}: not run, no .NET SDK publication for {architecture.Name}.");
             return;
         }
-        if (architecture == KernelArchitecture.Arm64)
-        {
-            // Measured, not a gate, until S8.2: the arm64 SDK's ReadyToRun images carry base relocations in their code,
-            // which CoreCLR applies through a PAGE_EXECUTE_READWRITE window WitOS never grants (writable and executable
-            // at once), so NuGet.Versioning fails to load with "The access code is invalid" at the first evaluation.
-            Console.WriteLine($"CSharpRepl on witos-{architecture.Name}: not run until S8.2 (CoreCLR relocates ReadyToRun code through a " +
-                "writable and executable window, which WitOS refuses).");
-            return;
-        }
         var package = (await RuntimeApps.PackageAsync(root, output, architecture, [], ["cd /data", LIST_SDKS, CSHARPREPL])).ToList();
         var environmentIndex = package.FindIndex(file => file.Name == "etc/environment");
         var environment = Path.Combine(output, "environment");

@@ -1,0 +1,23 @@
+Source: src/coreclr/vm/peimagelayout.cpp
+Output: src.coreclr.vm.peimagelayout.cpp
+Before: 18bd858a43d2269be4ffbdf36198b3219d09af74301fe47c7deb17dedb29f47e
+After: 1519ac25f3334125c949068ff82c86300aaa4a63f706a72235242d7ff8edb0ac
+
+Base relocations of ReadyToRun code on witos (plan step S8.2): ApplyBaseRelocations opens an executable section for
+writing with PAGE_EXECUTE_READWRITE on every Unix but Apple's ARM64, which WitOS never grants (writable and executable
+at once); the arm64 SDK's images carry relocations in their code and load elsewhere than their preferred base, so
+NuGet.Versioning failed to load with ERROR_INVALID_ACCESS (C2.5 on ARM64). On witos the section stays writable alone
+while the relocations are written, and the restore to the section's protection, which the libc publishes, follows.
+
+--- a/src/coreclr/vm/peimagelayout.cpp
++++ b/src/coreclr/vm/peimagelayout.cpp
+@@ -300,6 +300,9 @@
+ #if defined(__APPLE__) && defined(HOST_ARM64)
+                     // Enable writing on Apple Silicon
+                     PAL_JitWriteProtect(true);
++#elif defined(TARGET_WITOS)
++                    // WitOS never grants writable and executable at once: the section is written through a writable
++                    // window and the restore below gives it its protection again, which the libc publishes.
+ #else
+                     // On SELinux, we cannot change protection that doesn't have execute access rights
+                     // to one that has it, so we need to set the protection to RWX instead of RW
