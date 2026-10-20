@@ -194,6 +194,12 @@ int witos_event_create(WitU64 *event)
     return error_of(wit_syscall(WIT_CALL_EVENT_CREATE, 0, 0, 0, event));
 }
 
+int witos_event_set(WitU64 event)
+{
+    WitU64 result = 0;
+    return error_of(wit_syscall(WIT_CALL_EVENT_SET, event, 0, 0, &result));
+}
+
 int witos_clock_read(WitU64 *ticks)
 {
     if (!ticks) {
