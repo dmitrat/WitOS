@@ -204,6 +204,11 @@ public static class SocketMessages
     public const ulong KEEP_ALIVE = 9;
 
     /// <summary>
+    /// SO_REUSEPORT.
+    /// </summary>
+    public const ulong REUSE_PORT = 15;
+
+    /// <summary>
     /// SO_ACCEPTCONN.
     /// </summary>
     public const ulong ACCEPTS_CONNECTIONS = 30;

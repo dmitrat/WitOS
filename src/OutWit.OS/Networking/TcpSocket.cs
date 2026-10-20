@@ -97,6 +97,11 @@ public sealed class TcpSocket
     public bool ReuseAddress { get; internal set; }
 
     /// <summary>
+    /// SO_REUSEPORT.
+    /// </summary>
+    public bool ReusePort { get; internal set; }
+
+    /// <summary>
     /// TCP_NODELAY: small segments go at once instead of waiting for the acknowledgment of what is in flight (Nagle,
     /// RFC 9293 section 3.7.4).
     /// </summary>

@@ -550,11 +550,14 @@ static long terminal_transfer(long n, long fd, long a2, long a3)
     return terminal_vectors(writing, (const struct iovec *)a2, a3);
 }
 
-/* epoll_wait (N4.2): the instance's ready events under the table lock, else a park as poll's until a pipe changed. */
+/* epoll_wait (N4.2): the instance's ready events under the table lock — its sockets' asked of the network service
+ * outside it (W2.1b) — else a park as poll's until a pipe or a socket changed. */
 static long epoll_wait_instance(long epfd, struct epoll_event *events, int count, int milliseconds)
 {
     WitU64 deadline = WIT_WAIT_INFINITE;
     WitU32 index = 0;
+    WitEpollProbe probes[WIT_EPOLL_ENTRIES];
+    short polled[WIT_EPOLL_ENTRIES];
     if (count <= 0 || !events) {
         return -EINVAL;
     }
@@ -567,12 +570,28 @@ static long epoll_wait_instance(long epfd, struct epoll_event *events, int count
     }
     for (;;) {
         const int seen = __wit_pipe_sequence();
+        int probed = 0;
         __wit_lock(&tables);
         long ready = __wit_epoll_instance(epfd, &index);
         if (ready == 0) {
             ready = __wit_epoll_collect(index, events, count);
+            probed = __wit_epoll_probes(index, probes);
         }
         __wit_unlock(&tables);
+        for (int i = 0; i < probed; ++i) {
+            polled[i] = __wit_socket_poll(probes[i].Socket, probes[i].Asked);
+        }
+        if (probed) {
+            __wit_lock(&tables);
+            if (ready >= 0 && ready < count) {
+                ready += __wit_epoll_report(index, probes, polled, probed, events, ready, count);
+            }
+            for (int i = 0; i < probed; ++i) {
+                __wit_socket_release(probes[i].Socket);
+            }
+            __wit_unlock(&tables);
+            __wit_socket_flush();
+        }
         if (ready != 0 || milliseconds == 0) {
             return ready;
         }

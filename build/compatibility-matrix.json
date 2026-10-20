@@ -105,9 +105,9 @@
     },
     {
       "name": "Networking (`Socket`, `HttpClient`)",
-      "status": "Planned",
-      "step": "M7",
-      "note": "Absent: `System.Net.Sockets` and `System.Net.Security.Native` fail explicitly until the network service of M7."
+      "status": "Partial",
+      "step": "W2.1b",
+      "note": "IPv4 sockets over the network service's managed stack: TCP, UDP, the loopback and names through musl's resolver (the suite's Network area); IPv6 and Unix domain sockets until W4, TLS until W3.1, `HttpClient` measured at W2.2."
     },
     {
       "name": "ASP.NET Core",

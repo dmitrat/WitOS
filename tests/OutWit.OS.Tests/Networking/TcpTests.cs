@@ -212,6 +212,36 @@ public sealed class TcpTests
         Assert.That(stack.Bind(other, Ipv4Address.Any, PORT), Is.EqualTo(NetworkErrors.ADDRESS_IN_USE));
     }
 
+    // SO_REUSEPORT (W2.1b): listeners that all set it share a port, a socket without it is refused, and each connection
+    // reaches one of them while they share the connections, as Linux spreads them over its group.
+    [Test]
+    public void ReusePortSharesAListeningPortTest()
+    {
+        var network = new SimulatedNetwork();
+        var stack = network.AddStack(0x01_00_00_5E_00_03);
+        var listeners = new int[2];
+        for (var i = 0; i < listeners.Length; i++)
+        {
+            Assert.That(stack.OpenTcp(out listeners[i]), Is.Zero);
+            Assert.That(stack.SetReusePort(listeners[i], true), Is.Zero);
+            Assert.That(stack.Bind(listeners[i], Ipv4Address.Loopback, PORT), Is.Zero);
+            Assert.That(stack.Listen(listeners[i], 8), Is.Zero);
+        }
+        Assert.That(stack.OpenTcp(out var plain), Is.Zero);
+        Assert.That(stack.Bind(plain, Ipv4Address.Loopback, PORT), Is.EqualTo(NetworkErrors.ADDRESS_IN_USE), "a socket without SO_REUSEPORT");
+        var accepted = new int[listeners.Length];
+        for (var i = 0; i < 8; i++)
+        {
+            Assert.That(stack.OpenTcp(out var client), Is.Zero);
+            Assert.That(stack.Connect(client, Ipv4Address.Loopback, PORT), Is.EqualTo(NetworkErrors.IN_PROGRESS));
+            network.Pump();
+            var takers = Enumerable.Range(0, listeners.Length).Where(listener => stack.Accept(listeners[listener], out _) == 0).ToArray();
+            Assert.That(takers, Has.Length.EqualTo(1), "a connection reaches one listener");
+            accepted[takers[0]]++;
+        }
+        Assert.That(accepted, Has.All.GreaterThan(0), "the listeners share the connections");
+    }
+
     [Test]
     public void HeaderOptionsWriteAndReadBackTest()
     {

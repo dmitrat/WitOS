@@ -39,7 +39,7 @@ internal static class PlatformChecks
                 $"{Environment.ProcessorCount} processors, 64-bit {Environment.Is64BitProcess}"));
         yield return new Check("Platform", "ProcessStart", async () =>
         {
-            using var process = Process.Start(new ProcessStartInfo(Environment.ProcessPath!, "--list-runtimes")
+            using var process = Process.Start(new ProcessStartInfo(Muxer, "--list-runtimes")
             {
                 RedirectStandardOutput = true,
                 UseShellExecute = false
@@ -47,14 +47,14 @@ internal static class PlatformChecks
             var output = await process.StandardOutput.ReadToEndAsync();
             await process.WaitForExitAsync();
             return CheckResult.That(process.ExitCode == 0 && output.Contains("Microsoft.NETCore.App", StringComparison.Ordinal),
-                $"{Path.GetFileName(Environment.ProcessPath)} --list-runtimes exited with {process.ExitCode}");
+                $"{Path.GetFileName(Muxer)} --list-runtimes exited with {process.ExitCode}");
         });
         // The suite itself as a child (Program.cs's --echo, N4.2): its input, output and error through pipes, many times
         // a pipe's buffer, its directory, a variable of its environment and its exit code.
         yield return new Check("Platform", "ProcessPipes", async () =>
         {
             var directory = Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
-            using var process = Process.Start(new ProcessStartInfo(Environment.ProcessPath!, [Suite, "--echo", "7"])
+            using var process = Process.Start(new ProcessStartInfo(Muxer, [Suite, "--echo", "7"])
             {
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
@@ -80,7 +80,7 @@ internal static class PlatformChecks
         // A child that never ends is killed (N4.2): on Unix with SIGKILL, which its exit code reports as 128 + 9.
         yield return new Check("Platform", "ProcessKill", async () =>
         {
-            using var process = Process.Start(new ProcessStartInfo(Environment.ProcessPath!, [Suite, "--sleep"]) { UseShellExecute = false })!;
+            using var process = Process.Start(new ProcessStartInfo(Muxer, [Suite, "--sleep"]) { UseShellExecute = false })!;
             var endedByItself = process.WaitForExit(500);
             process.Kill();
             await process.WaitForExitAsync();
@@ -91,4 +91,19 @@ internal static class PlatformChecks
 
     // The suite's own assembly, which dotnet runs as the child of the process checks.
     private static string Suite => Path.Combine(AppContext.BaseDirectory, "DotNetCompatibility.dll");
+
+    // The dotnet that runs the children: the process itself under "dotnet DotNetCompatibility.dll", as on the hosts' test
+    // and in the guest, or the dotnet of the runtime's own install when the suite's apphost runs it (dotnet run), where a
+    // child started through the process path would be the apphost running the whole suite again with its children.
+    private static string Muxer
+    {
+        get
+        {
+            var process = Environment.ProcessPath!;
+            if (Path.GetFileNameWithoutExtension(process) == "dotnet")
+                return process;
+            var root = Path.GetFullPath(Path.Combine(RuntimeEnvironment.GetRuntimeDirectory(), "..", "..", ".."));
+            return Path.Combine(root, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+        }
+    }
 }

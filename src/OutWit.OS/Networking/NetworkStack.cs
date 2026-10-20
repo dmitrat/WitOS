@@ -199,7 +199,7 @@ public sealed partial class NetworkStack
             return NetworkErrors.ADDRESS_NOT_AVAILABLE;
         if (port == 0)
             port = EphemeralPort();
-        else if (PortTaken(port, address, udp.ReuseAddress))
+        else if (PortTaken(port, address, udp.ReuseAddress, udp.ReusePort))
             return NetworkErrors.ADDRESS_IN_USE;
         if (port == 0)
             return NetworkErrors.ADDRESS_IN_USE;
@@ -318,6 +318,24 @@ public sealed partial class NetworkStack
         if (!m_udp.TryGetValue(socket, out var udp))
             return NetworkErrors.BAD_SOCKET;
         udp.ReuseAddress = enabled;
+        return 0;
+    }
+
+    /// <summary>
+    /// Sets SO_REUSEPORT: sockets that all set it share a port, listening ones too, and each datagram or connection goes
+    /// to one of them, chosen by the sender's address and port, as Linux spreads them over its group.
+    /// </summary>
+    /// <returns>Zero or an errno value.</returns>
+    public int SetReusePort(int socket, bool enabled)
+    {
+        if (m_tcp.TryGetValue(socket, out var tcp))
+        {
+            tcp.ReusePort = enabled;
+            return 0;
+        }
+        if (!m_udp.TryGetValue(socket, out var udp))
+            return NetworkErrors.BAD_SOCKET;
+        udp.ReusePort = enabled;
         return 0;
     }
 
@@ -503,6 +521,7 @@ public sealed partial class NetworkStack
         if (Address == Ipv4Address.Any && !ip.Destination.IsLoopback)
             return;
         UdpSocket? target = null;
+        var group = new List<UdpSocket>();
         foreach (var socket in m_udp.Values)
         {
             if (socket.LocalPort != udp.DestinationPort ||
@@ -512,7 +531,12 @@ public sealed partial class NetworkStack
             // A connected socket is the more specific match.
             if (target is null || socket.IsConnected)
                 target = socket;
+            if (!socket.IsConnected && socket.ReusePort)
+                group.Add(socket);
         }
+        // Sockets that share the port through SO_REUSEPORT take the sender's datagrams in turn of its address and port.
+        if (target is { IsConnected: false, ReusePort: true } && group.Count > 1)
+            target = group[GroupIndex(ip.Source, udp.SourcePort, group.Count)];
         if (target is null)
         {
             Statistics.PortsUnreachable++;
@@ -611,23 +635,29 @@ public sealed partial class NetworkStack
         {
             var port = m_nextEphemeral;
             m_nextEphemeral = m_nextEphemeral == ushort.MaxValue ? EPHEMERAL_FIRST : (ushort)(m_nextEphemeral + 1);
-            if (!PortTaken(port, Ipv4Address.Any, reuse: false))
+            if (!PortTaken(port, Ipv4Address.Any, reuse: false, reusePort: false))
                 return port;
         }
         return 0;
     }
 
-    // Whether a port is bound at an address; with SO_REUSEADDR on both sockets it may be bound again, as Linux allows.
-    private bool PortTaken(ushort port, Ipv4Address address, bool reuse)
+    // Whether a port is bound at an address; with SO_REUSEADDR or SO_REUSEPORT on both sockets it may be bound again, as
+    // Linux allows.
+    private bool PortTaken(ushort port, Ipv4Address address, bool reuse, bool reusePort)
     {
         foreach (var socket in m_udp.Values)
         {
-            if (socket.LocalPort == port && !(reuse && socket.ReuseAddress) &&
+            if (socket.LocalPort == port && !(reuse && socket.ReuseAddress) && !(reusePort && socket.ReusePort) &&
                 (socket.LocalAddress == Ipv4Address.Any || address == Ipv4Address.Any || socket.LocalAddress == address))
                 return true;
         }
         return false;
     }
+
+    // A sender's member of a group of sockets that share a port (SO_REUSEPORT): the same one for every datagram or
+    // connection of the same address and port.
+    private static int GroupIndex(Ipv4Address source, ushort port, int count) =>
+        (int)(((source.Value * 2654435761U) ^ port) % (uint)count);
 
     private static int TakeError(UdpSocket udp)
     {

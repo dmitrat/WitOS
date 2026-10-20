@@ -107,7 +107,8 @@ internal static class Program
                     host.Stop();
                     var statistics = host.Statistics;
                     Console.WriteLine($"{PREFIX}network service: {sessions} sessions stopped; {statistics.FramesReceived} frames received, " +
-                        $"{host.Adapter?.Sent ?? 0} sent, {statistics.PacketsReceived} packets received, {statistics.PacketsSent} sent");
+                        $"{host.Adapter?.Sent ?? 0} sent, {statistics.PacketsReceived} packets received, {statistics.PacketsSent} sent, " +
+                        $"{SocketConnection.UndeliveredEvents} readiness events undelivered");
                     channel.Send(ServiceStatus.Encode(0));
                     return 0;
                 }

@@ -47,7 +47,6 @@ typedef struct Socket {
     WitU32 Id; /* the service's socket */
     int Type; /* SOCK_STREAM or SOCK_DGRAM */
     int Closing; /* its last reference went: the service's CLOSE is due */
-    volatile int Changes; /* the readiness events the service sent for it */
     WitU64 ReceiveTimeout, SendTimeout; /* SO_RCVTIMEO and SO_SNDTIMEO in nanoseconds; zero waits for ever */
     struct linger Linger; /* SO_LINGER as set */
 } Socket;
@@ -77,8 +76,11 @@ static void close_handle(WitU64 handle)
     }
 }
 
-/* The network thread: each readiness event counted in its socket's record, and the poll word bumped, so that a
- * blocked call or a parked poll looks again. */
+/* The readiness events the session received, whatever their socket: epoll's edge token (W2.1b). */
+static volatile int events;
+
+/* The network thread: each readiness event counted, and the poll word bumped, so that a blocked call, a parked poll or
+ * an epoll wait looks again. */
 static void *events_thread(void *argument)
 {
     WitSocketEvent event;
@@ -108,13 +110,7 @@ static void *events_thread(void *argument)
                 event.Size != sizeof(event)) {
                 continue;
             }
-            __wit_lock(&socket_lock);
-            for (int i = 0; i < SOCKETS; ++i) {
-                if (sockets[i].References && sockets[i].Id == event.Socket) {
-                    __atomic_add_fetch(&sockets[i].Changes, 1, __ATOMIC_RELEASE);
-                }
-            }
-            __wit_unlock(&socket_lock);
+            __atomic_add_fetch(&events, 1, __ATOMIC_RELEASE);
             received = 1;
         }
         if (received) {
@@ -410,6 +406,22 @@ void __wit_socket_flush(void)
 static WitU32 id_of(WitU32 index)
 {
     return sockets[index].Id; /* set before the record's first reference left the allocating thread */
+}
+
+/* epoll (W2.1b): a record's service identifier, which tells a registration's socket from a later one in the same
+ * record. */
+WitU32 __wit_socket_id(WitU32 index)
+{
+    return id_of(index);
+}
+
+/* epoll's edge token for every socket of the process: the readiness events the session received, whatever their
+ * socket. The service drops an event its full queue cannot take, since the events the queue holds wake the client, and
+ * a client asks again after any event (W1.2a), so an edge-triggered registration reports again after any event; one
+ * whose state did not change is reported once more, as Linux's epoll may, and its owner meets EAGAIN. */
+int __wit_socket_events(void)
+{
+    return __atomic_load_n(&events, __ATOMIC_ACQUIRE);
 }
 
 /* The absolute deadline of a timeout in nanoseconds; WIT_WAIT_INFINITE for none. */
@@ -894,6 +906,7 @@ static int served(long level, long name)
 {
     if (level == SOL_SOCKET) {
         return name == SO_REUSEADDR ||
+            name == SO_REUSEPORT ||
             name == SO_ERROR ||
             name == SO_BROADCAST ||
             name == SO_SNDBUF ||
