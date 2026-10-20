@@ -29,9 +29,9 @@ types in the guest) and reports its checks not applicable elsewhere.
 | Globalization | 8 | Supported | Supported | Supported |
 | TimeZones | 4 | Supported | Supported | Supported |
 | Terminal | 7 | Supported | Supported | Supported |
-| Network | 8 | Supported | Supported | Partial: IPv6 |
+| Network | 11 | Supported | Supported | Partial: IPv6 |
 
-97 checks in 15 areas.
+100 checks in 15 areas.
 
 ## Recorded differences
 
@@ -66,7 +66,7 @@ silently.
 | Full-screen console applications (TUI) | Supported | C2.6, C4.2 | The display's emulator draws SGR's colours and attributes, the alternate screen and the cursor's visibility, swallows the string sequences and answers the device attributes and the size (C2.6); Arlecchino.Commander, built from its source as a base application, lists, views and copies files on the screen through the keyboard (C4.2, the `runtime-commander` scenario); Terminal.Gui's UICatalog 2.5.0 runs with `--disable-cm`, since its configuration watcher needs file change notifications, and CSharpFar needs `HttpClient` at its start, which waits for networking. |
 | Named synchronization objects (`Mutex` with a name) | Supported | N4.1 | Under `/tmp/.dotnet` in the namespace service's `/tmp`. |
 | Cryptography | Partial | R4.1 | System.Native's random bytes, the managed hashes, HMAC and the KDFs, as in the browser flavor; `PlatformNotSupportedException` for the rest; no OpenSSL. |
-| Networking (`Socket`, `HttpClient`) | Partial | W2.1b | IPv4 sockets over the network service's managed stack: TCP, UDP, the loopback and names through musl's resolver (the suite's Network area); IPv6 and Unix domain sockets until W4, TLS until W3.1, `HttpClient` measured at W2.2. |
+| Networking (`Socket`, `HttpClient`) | Partial | W2.2 | IPv4 sockets over the network service's managed stack: TCP, UDP, the loopback and names through musl's resolver, and `HttpClient` over HTTP/1.1 (the suite's Network area); IPv6 and Unix domain sockets until W4, TLS and HTTPS until W3.1. |
 | ASP.NET Core | Planned | M7 | Needs networking. |
 | Diagnostics (`createdump`, EventPipe, `dotnet-dump`) | Absent | — | Decided with the debugger story. |
 | Compression (`System.IO.Compression`) | Supported | R2.3a | zlib-ng and brotli in-tree. |

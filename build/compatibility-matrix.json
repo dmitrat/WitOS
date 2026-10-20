@@ -106,8 +106,8 @@
     {
       "name": "Networking (`Socket`, `HttpClient`)",
       "status": "Partial",
-      "step": "W2.1b",
-      "note": "IPv4 sockets over the network service's managed stack: TCP, UDP, the loopback and names through musl's resolver (the suite's Network area); IPv6 and Unix domain sockets until W4, TLS until W3.1, `HttpClient` measured at W2.2."
+      "step": "W2.2",
+      "note": "IPv4 sockets over the network service's managed stack: TCP, UDP, the loopback and names through musl's resolver, and `HttpClient` over HTTP/1.1 (the suite's Network area); IPv6 and Unix domain sockets until W4, TLS and HTTPS until W3.1."
     },
     {
       "name": "ASP.NET Core",

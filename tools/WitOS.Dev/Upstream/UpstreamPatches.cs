@@ -190,6 +190,15 @@ internal static class UpstreamPatches
     }
 
     /// <summary>
+    /// The text of an upstream file as its bytes hold it, with LF line ends: UTF-8 whose byte order mark, where the file
+    /// has one, stays the text's first character (U+FEFF), so that the text's hash is the pinned bytes' hash and writing
+    /// the text back writes the mark again (W2.2: System.Net.Http.csproj starts with one).
+    /// </summary>
+    /// <param name="bytes">The file's bytes.</param>
+    /// <returns>The text.</returns>
+    public static string Text(byte[] bytes) => Encoding.UTF8.GetString(bytes).Replace("\r\n", "\n", StringComparison.Ordinal);
+
+    /// <summary>
     /// SHA-256 of a text in UTF-8, as recorded in the patch header.
     /// </summary>
     /// <param name="text">Text.</param>

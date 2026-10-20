@@ -250,6 +250,11 @@ internal static class RuntimeWitos
         // System.Diagnostics.Process for witos (N4.2): the unix flavor with WitOS's per-platform members.
         ["src/libraries/System.Diagnostics.Process/src/System.Diagnostics.Process.csproj"] =
             "src.libraries.System.Diagnostics.Process.src.System.Diagnostics.Process.csproj",
+        // System.Net.Http's unix flavor, HttpClient over SocketsHttpHandler (W2.2).
+        ["src/libraries/System.Net.Http/src/System.Net.Http.csproj"] = "src.libraries.System.Net.Http.src.System.Net.Http.csproj",
+        // System.Net.Security's unix flavor, whose types HttpClient's reaches on every request (W2.2).
+        ["src/libraries/System.Net.Security/src/System.Net.Security.csproj"] =
+            "src.libraries.System.Net.Security.src.System.Net.Security.csproj",
         ["src/libraries/System.Diagnostics.Process/src/System/Diagnostics/Process.WitOS.cs"] =
             "src.libraries.System.Diagnostics.Process.src.System.Diagnostics.Process.WitOS.cs",
         ["src/libraries/System.Diagnostics.Process/src/System/Diagnostics/ProcessManager.WitOS.cs"] =
@@ -1502,7 +1507,7 @@ internal static class RuntimeWitos
         foreach (var (path, output) in patches)
         {
             var file = Path.Combine(tree, path);
-            var text = File.Exists(file) ? (await File.ReadAllTextAsync(file)).Replace("\r\n", "\n") : "";
+            var text = File.Exists(file) ? UpstreamPatches.Text(await File.ReadAllBytesAsync(file)) : "";
             Directory.CreateDirectory(Path.GetDirectoryName(file)!);
             await File.WriteAllTextAsync(file, UpstreamPatches.Apply(root, patchSet, path, output, text));
         }

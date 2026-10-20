@@ -4,10 +4,11 @@ using System.Net.Sockets;
 namespace DotNetCompatibility;
 
 /// <summary>
-/// Networking over the loopback (plan step W2.1b): TCP through TcpListener, TcpClient and NetworkStream, asynchronous and
-/// synchronous Socket calls with their timeouts and options, UDP through UdpClient, a refused connection, the end of a
-/// stream, name resolution and the IPv6 the platform offers. Every check stays on the machine, so that it means the same
-/// on a host and in a guest whatever network reaches them.
+/// Networking over the loopback (plan steps W2.1b and W2.2): TCP through TcpListener, TcpClient and NetworkStream,
+/// asynchronous and synchronous Socket calls with their timeouts and options, UDP through UdpClient, a refused
+/// connection, the end of a stream, name resolution, the IPv6 the platform offers, and HttpClient against a server of
+/// the suite's own. Every check stays on the machine, so that it means the same on a host and in a guest whatever
+/// network reaches them.
 /// </summary>
 internal static class NetworkChecks
 {
@@ -133,5 +134,49 @@ internal static class NetworkChecks
         });
         yield return new Check("Network", "IPv6", () =>
             CheckResult.Now(Socket.OSSupportsIPv6, $"OSSupportsIPv4 {Socket.OSSupportsIPv4}, OSSupportsIPv6 {Socket.OSSupportsIPv6}"));
+        // HttpClient over the loopback (W2.2), against the suite's own server, with no proxy whatever the environment names.
+        yield return new Check("Network", "HttpGet", async () =>
+        {
+            await using var server = new LoopbackHttpServer();
+            using var client = new HttpClient(new HttpClientHandler { UseProxy = false });
+            using var response = await client.GetAsync(new Uri(server.Address, "text"));
+            var text = await response.Content.ReadAsStringAsync();
+            var type = response.Content.Headers.ContentType?.MediaType;
+            return CheckResult.That(response.StatusCode == HttpStatusCode.OK && text == LoopbackHttpServer.TEXT && type == "text/plain",
+                $"{(int)response.StatusCode}, {text.Length} characters of {type}");
+        });
+        yield return new Check("Network", "HttpPostChunked", async () =>
+        {
+            await using var server = new LoopbackHttpServer();
+            using var client = new HttpClient(new HttpClientHandler { UseProxy = false });
+            var data = new byte[256 * 1024];
+            new Random(7).NextBytes(data);
+            using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(40));
+            HttpResponseMessage response;
+            byte[] back;
+            try
+            {
+                response = await client.PostAsync(new Uri(server.Address, "echo"), new ByteArrayContent(data), limit.Token);
+                back = await response.Content.ReadAsByteArrayAsync(limit.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return CheckResult.That(false, $"no response within 40 s; the server: {server.Journal}");
+            }
+            using var _ = response;
+            return CheckResult.That(response.StatusCode == HttpStatusCode.OK && response.Headers.TransferEncodingChunked == true &&
+                back.AsSpan().SequenceEqual(data),
+                $"{(int)response.StatusCode}, {back.Length} of {data.Length} bytes back, chunked {response.Headers.TransferEncodingChunked}");
+        });
+        yield return new Check("Network", "HttpKeepAlive", async () =>
+        {
+            await using var server = new LoopbackHttpServer();
+            using var client = new HttpClient(new HttpClientHandler { UseProxy = false });
+            for (var i = 0; i < 3; i++)
+                await client.GetStringAsync(new Uri(server.Address, "text"));
+            using var absent = await client.GetAsync(new Uri(server.Address, "absent"));
+            return CheckResult.That(server.Connections == 1 && absent.StatusCode == HttpStatusCode.NotFound,
+                $"4 requests over {server.Connections} connection(s), the last answered {(int)absent.StatusCode}");
+        });
     }
 }
