@@ -129,7 +129,9 @@ internal static class BootScenarioRunner
             arguments.AddRange(["-chardev", terminal?.Argument ?? relay!.Argument, "-device", "virtio-serial-pci,id=serial0,max_ports=1",
                 "-device", "virtconsole,chardev=term0"]);
         }
-        Console.WriteLine($"Booting {name} ({request.MemoryMiB} MiB, {cpu}, {request.Processors} processor(s), TCG, " +
+        // The accelerator a session runs on (C2.7), WHPX or KVM, or TCG with the instruction clock.
+        var accelerator = request.Accelerated ? execution[1].ToUpperInvariant() : "TCG";
+        Console.WriteLine($"Booting {name} ({request.MemoryMiB} MiB, {cpu}, {request.Processors} processor(s), {accelerator}, " +
             $"{(request.Network ? "user networking" : "no networking")})...");
         ProcessResult monitorResult;
         using var cut = new CancellationTokenSource();
