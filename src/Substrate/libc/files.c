@@ -1269,6 +1269,66 @@ long __wit_pwrite(long fd, const void *buffer, long bytes, long offset)
     return offset < 0 ? -EINVAL : write_at(d, buffer, bytes, offset);
 }
 
+/* A read or a write of a file of a mounted volume outside the table lock (S8.1), as a pipe's or the terminal's
+ * transfer: under the lock the descriptor is found and its remote record and open file description are held (begin),
+ * then the round trips with the namespace service hold the session's turn alone, and under the lock the records are
+ * let go (end). A transfer at the position reads it and advances it as read_at and write_at do, O_APPEND at the file's
+ * end, the position a 64-bit word an lseek under the table lock may race, as on Linux. */
+long __wit_remote_transfer_begin(long fd, int writing, WitU32 *index, WitU32 *description)
+{
+    Descriptor *d = descriptor(fd);
+    if (!d || d->Kind != KindRemoteFile) {
+        return WIT_NOT_A_REMOTE;
+    }
+    const int access = descriptions[d->Description].StatusFlags & O_ACCMODE;
+    if (writing ? access == O_RDONLY : access == O_WRONLY) {
+        return -EBADF;
+    }
+    __wit_remote_reference(d->Index);
+    descriptions[d->Description].References++;
+    *index = d->Index;
+    *description = d->Description;
+    return 0;
+}
+
+long __wit_remote_transfer(WitU32 index, WitU32 description, int writing, void *buffer, long bytes, long offset)
+{
+    Description *remote = &descriptions[description];
+    if (bytes < 0) {
+        return -EINVAL;
+    }
+    __wit_remote_turn_take();
+    long moved;
+    if (offset >= 0) {
+        moved = writing ? __wit_remote_write_in_turn(index, (WitU64)offset, buffer, (WitU64)bytes)
+                        : __wit_remote_read_in_turn(index, (WitU64)offset, buffer, (WitU64)bytes);
+    } else {
+        WitU64 at = __atomic_load_n(&remote->Offset, __ATOMIC_ACQUIRE);
+        if (writing && (remote->StatusFlags & O_APPEND)) {
+            struct kstat st;
+            const long sized = __wit_remote_fstat_in_turn(index, &st);
+            if (sized < 0) {
+                __wit_remote_turn_give();
+                return sized;
+            }
+            at = (WitU64)st.st_size;
+        }
+        moved = writing ? __wit_remote_write_in_turn(index, at, buffer, (WitU64)bytes)
+                        : __wit_remote_read_in_turn(index, at, buffer, (WitU64)bytes);
+        if (moved > 0) {
+            __atomic_store_n(&remote->Offset, at + (WitU64)moved, __ATOMIC_RELEASE);
+        }
+    }
+    __wit_remote_turn_give();
+    return moved;
+}
+
+void __wit_remote_transfer_end(WitU32 index, WitU32 description)
+{
+    descriptions[description].References--;
+    __wit_remote_release(index);
+}
+
 /* fsync and fdatasync: memory and the read-only package have nothing to write back; a stream or a pipe is EINVAL, as
  * Linux answers for them (R7.2a). */
 long __wit_fsync(long fd)

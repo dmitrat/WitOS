@@ -479,6 +479,59 @@ static long pipe_transfer(long n, long fd, long a2, long a3)
     return r;
 }
 
+/* readv or writev of a remote file: each vector a transfer at the position, up to the first short one. */
+static long remote_vectors(WitU32 index, WitU32 description, int writing, const struct iovec *vectors, long count)
+{
+    long total = 0;
+    if (count < 0 || count > 1024) {
+        return -EINVAL;
+    }
+    for (long i = 0; i < count; ++i) {
+        if (vectors[i].iov_len == 0) {
+            continue;
+        }
+        const long moved =
+            __wit_remote_transfer(index, description, writing, vectors[i].iov_base, (long)vectors[i].iov_len, -1);
+        if (moved < 0) {
+            return total ? total : moved;
+        }
+        total += moved;
+        if ((unsigned long)moved < vectors[i].iov_len) {
+            break;
+        }
+    }
+    return total;
+}
+
+/* A read or a write of a file of a mounted volume (S8.1): the descriptor and its records held under the table lock,
+ * the round trips with the namespace service outside it, as a pipe's or the terminal's. A thread that held the tables
+ * through such a round trip left every thread that needed them spinning: on four processors, pwsh's exit wrote a
+ * file four bytes a write while three threads yielded for the tables on the other three, the kernel lock's storm made
+ * each write 90 ms, and the session never ended, while one processor ended it in 0.4 s. */
+static long remote_transfer(long n, long fd, long a2, long a3, long a4)
+{
+    const int writing = n == SYS_write || n == SYS_writev || n == SYS_pwrite64;
+    WitU32 index = 0, description = 0;
+    __wit_lock(&tables);
+    const long begun = __wit_remote_transfer_begin(fd, writing, &index, &description);
+    __wit_unlock(&tables);
+    if (begun != 0) {
+        return begun; /* WIT_NOT_A_REMOTE, or EBADF for the access the description lacks */
+    }
+    long r;
+    if (n == SYS_read || n == SYS_write) {
+        r = __wit_remote_transfer(index, description, writing, (void *)a2, a3, -1);
+    } else if (n == SYS_pread64 || n == SYS_pwrite64) {
+        r = a4 < 0 ? -EINVAL : __wit_remote_transfer(index, description, writing, (void *)a2, a3, a4);
+    } else {
+        r = remote_vectors(index, description, writing, (const struct iovec *)a2, a3);
+    }
+    __wit_lock(&tables);
+    __wit_remote_transfer_end(index, description);
+    __wit_unlock(&tables);
+    return r;
+}
+
 #define NOT_A_TERMINAL (-0x10001L) /* outside the errno range */
 
 /* readv and writev on the terminal: a write of at most a page in all is joined first, so that a line musl writes as
@@ -717,6 +770,12 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
         const long carried = __wit_socket_transfer(n, a1, a2, a3);
         if (carried != WIT_NOT_A_SOCKET) {
             return carried;
+        }
+    }
+    if (n == SYS_read || n == SYS_readv || n == SYS_write || n == SYS_writev || n == SYS_pread64 || n == SYS_pwrite64) {
+        const long moved = remote_transfer(n, a1, a2, a3, a4); /* a volume's file, outside the table lock (S8.1) */
+        if (moved != WIT_NOT_A_REMOTE) {
+            return moved;
         }
     }
     if (n == SYS_ioctl) {
