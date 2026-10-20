@@ -44,6 +44,16 @@ internal static class RuntimeDevices
     public const string VIRTIO_INPUT_EXECUTABLE = "VirtioInput";
 
     /// <summary>
+    /// The virtio network driver's sources (W1.1).
+    /// </summary>
+    public const string VIRTIO_NET_PROGRAM = "src/Services/Drivers/VirtioNet";
+
+    /// <summary>
+    /// The executable runtime-witos publishes from the virtio network driver, /system/Drivers/VirtioNet.
+    /// </summary>
+    public const string VIRTIO_NET_EXECUTABLE = "VirtioNet";
+
+    /// <summary>
     /// The terminal service's sources (N4.3a).
     /// </summary>
     public const string TERMINAL_PROGRAM = "src/Services/Terminal";
@@ -202,6 +212,7 @@ internal static class RuntimeDevices
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_BLOCK_EXECUTABLE, VIRTIO_BLOCK_PROGRAM, ["Virtio"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_CONSOLE_EXECUTABLE, VIRTIO_CONSOLE_PROGRAM, ["Virtio"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_INPUT_EXECUTABLE, VIRTIO_INPUT_PROGRAM, ["Virtio"], []);
+        await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_NET_EXECUTABLE, VIRTIO_NET_PROGRAM, ["Virtio"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, TERMINAL_EXECUTABLE, TERMINAL_PROGRAM, ["Server"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, DISPLAY_EXECUTABLE, DISPLAY_PROGRAM, ["Server"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, NAMESPACE_EXECUTABLE, NAMESPACE_PROGRAM, ["Server", "Volumes"],
@@ -227,6 +238,7 @@ internal static class RuntimeDevices
                 Suite = BootSuite.Release,
                 RequiredLines = RequiredLines(architecture, boot),
                 DataDisk = dataDisk,
+                Network = true,
                 CutAfter = boot == CUT_BOOT ? CUT_AFTER : null,
                 CutJitterMilliseconds = CUT_JITTER_MILLISECONDS,
                 DataDiskReadErrors = failing
@@ -287,6 +299,13 @@ internal static class RuntimeDevices
         "[DEVICES] driver /system/Drivers/VirtioBlock of pci/",
         $": {RuntimeDataDisk.BYTES} bytes in blocks of 512, writable, through the block channel and a window of 262144 bytes",
         ": the driver refuses a write with errno 30",
+        // The network adapter (W1.1): its driver, the packet channel and an ARP exchange with QEMU's gateway.
+        "[DEVICES] Device discovered: Class: NetworkQueueDevice, Provider: Virtio, DeviceId: pci/",
+        "[VIRTIO-NET] driver of pci/",
+        ": serving the packet protocol",
+        "[DEVICES] driver /system/Drivers/VirtioNet of pci/",
+        ", MTU 1500, link up, through the packet channel and a window of 16384 bytes",
+        ": ARP reply from 10.0.2.2 at 52:55:0a:00:02:02",
         ": no GUID partition table",
         $": GUID partition table of 3 partitions: \"{RuntimeDataDisk.TEST_PARTITION}\" on blocks {RuntimeDataDisk.TEST_PARTITION_FIRST_BLOCK}-" +
             $"{RuntimeDataDisk.TEST_PARTITION_LAST_BLOCK}, \"{RuntimeDataDisk.FAT_PARTITION}\" on blocks {RuntimeDataDisk.FAT_PARTITION_FIRST_BLOCK}-" +
@@ -352,7 +371,7 @@ internal static class RuntimeDevices
     private static string[] MiddleLines(KernelArchitecture architecture, int boot) =>
     [
         $"[DEVICES] device manager on {architecture.OsArchitecture}: ",
-        " 2 drivers ready, DMA isolation: none (no IOMMU), ready",
+        " 3 drivers ready, DMA isolation: none (no IOMMU), ready",
         "[NAMESPACE] mounted /tmp: tmpfs volume of 67108864 bytes in memory", // N4.1
         "[NAMESPACE] mounted /boot: FAT16 volume of ",
         $"[NAMESPACE] mounted /data: ext4 volume \"{RuntimeExt4Volume.LABEL}\" of " +
@@ -443,17 +462,19 @@ internal static class RuntimeDevices
         var driver = Path.Combine(directory, VIRTIO_BLOCK_EXECUTABLE);
         var console = Path.Combine(directory, VIRTIO_CONSOLE_EXECUTABLE);
         var input = Path.Combine(directory, VIRTIO_INPUT_EXECUTABLE);
+        var network = Path.Combine(directory, VIRTIO_NET_EXECUTABLE);
         var names = Path.Combine(directory, NAMESPACE_EXECUTABLE);
         var terminal = Path.Combine(directory, TERMINAL_EXECUTABLE);
         var display = Path.Combine(directory, DISPLAY_EXECUTABLE);
-        if (!File.Exists(driver) || !File.Exists(console) || !File.Exists(input) || !File.Exists(names) || !File.Exists(terminal) ||
-            !File.Exists(display))
+        if (!File.Exists(driver) || !File.Exists(console) || !File.Exists(input) || !File.Exists(network) || !File.Exists(names) ||
+            !File.Exists(terminal) || !File.Exists(display))
             throw new InvalidOperationException($"No witos drivers, namespace, terminal or display service in {directory}. " +
                 $"Run: dotnet run --project tools/WitOS.Dev -- runtime-services --arch {architecture.Name}");
         return
         [
             ("system/" + DEVICE_MANAGER_EXECUTABLE, program[0].Source), ("system/Drivers/" + VIRTIO_BLOCK_EXECUTABLE, driver),
             ("system/Drivers/" + VIRTIO_CONSOLE_EXECUTABLE, console), ("system/Drivers/" + VIRTIO_INPUT_EXECUTABLE, input),
+            ("system/Drivers/" + VIRTIO_NET_EXECUTABLE, network),
             ("system/" + NAMESPACE_EXECUTABLE, names), ("system/" + TERMINAL_EXECUTABLE, terminal), ("system/" + DISPLAY_EXECUTABLE, display),
             .. SpleenFont.PackageFiles(root), .. program.Skip(1)
         ];

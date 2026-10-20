@@ -104,6 +104,12 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public bool Keyboard { get; init; }
 
     /// <summary>
+    /// A network adapter (plan step W1.1): virtio-net-pci on QEMU's user networking (slirp), whose gateway, DHCP server
+    /// and DNS forwarder the guest reaches at 10.0.2.2 and 10.0.2.3.
+    /// </summary>
+    public bool Network { get; init; }
+
+    /// <summary>
     /// Whether the display's console is the terminal's main console (plan step C2.3): the device manager starts the
     /// display service when the board has a framebuffer and a keyboard driver, and the terminal takes the display's size
     /// and lets the virtio console mirror it. The runner's side of the mirror then answers no query of the terminal, since

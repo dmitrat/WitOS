@@ -136,6 +136,16 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     /// </summary>
     public string[] DisplayArguments => this == X64 ? ["-vga", "none", "-device", "ramfb"] : ["-device", "ramfb"];
 
+    /// <summary>
+    /// The PCI slot whose INTx line is the entropy source's, which no driver binds (W1.1): a board's four lines rotate by
+    /// slot, so slot s shares its line with s + 4. The entropy source is the second virtio device, at slot 2 where the
+    /// devices start at slot 1 — every virt board, and q35 without its VGA card (a display) — and at slot 3 where q35's
+    /// VGA card holds slot 1; the kernel binds a line once, so a device a driver holds goes there.
+    /// </summary>
+    /// <param name="display">Whether the board has the display, which removes q35's VGA card.</param>
+    /// <returns>The slot.</returns>
+    public int EntropyLineSlot(bool display) => this == X64 && !display ? 7 : 6;
+
     #endregion
 
     #region Functions

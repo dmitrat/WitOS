@@ -8,7 +8,7 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0.300-noble@sha256:c0790639332692a0d56cdd81
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        bison bzip2 cmake flex g++ gcc git libglib2.0-dev libicu-dev libkrb5-dev liblttng-ust-dev libpixman-1-dev \
+        bison bzip2 cmake flex g++ gcc git libglib2.0-dev libicu-dev libkrb5-dev liblttng-ust-dev libpixman-1-dev libslirp-dev \
         libssl-dev libxml2 make ninja-build pkg-config python3 python3-venv rsync xz-utils zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 

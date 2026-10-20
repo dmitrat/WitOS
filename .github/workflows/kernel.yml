@@ -166,7 +166,7 @@ jobs:
       - name: Install what building QEMU, running LLVM and driving dotnet/runtime's native build need
         run: >-
           sudo apt-get update && sudo apt-get install -y --no-install-recommends
-          bison bzip2 cmake flex g++ gcc libglib2.0-dev libicu-dev libkrb5-dev liblttng-ust-dev libpixman-1-dev
+          bison bzip2 cmake flex g++ gcc libglib2.0-dev libicu-dev libkrb5-dev liblttng-ust-dev libpixman-1-dev libslirp-dev
           libssl-dev libxml2 make ninja-build pkg-config python3 python3-venv xz-utils zlib1g-dev
 
       - name: Cache the pinned LLVM and QEMU releases and the built QEMU
@@ -176,7 +176,7 @@ jobs:
             .tools/downloads/LLVM-20.1.8-Linux-X64.tar.xz
             .tools/downloads/qemu-11.1.0.tar.xz
             .tools/qemu-11.1.0
-          key: linux-ubuntu-24.04-llvm-20.1.8-1ead36b3dfcb774b-qemu-11.1.0-6ee1d1a61f682124-riscv64
+          key: linux-ubuntu-24.04-llvm-20.1.8-1ead36b3dfcb774b-qemu-11.1.0-6ee1d1a61f682124-riscv64-slirp
 
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
@@ -221,6 +221,7 @@ jobs:
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/Namespace
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/VirtioConsole
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/VirtioInput
+            artifacts/runtime-witos/ilc/${{ matrix.arch }}/VirtioNet
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/Terminal
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/Display
             artifacts/runtime-witos/src/artifacts/bin/coreclr/witos.${{ matrix.arch }}.Release/libcoreclr.so
@@ -276,7 +277,7 @@ jobs:
       - name: Install what building QEMU and running LLVM need
         run: >-
           sudo apt-get update && sudo apt-get install -y --no-install-recommends
-          bison bzip2 flex gcc libglib2.0-dev libpixman-1-dev make ninja-build pkg-config python3 python3-venv xz-utils
+          bison bzip2 flex gcc libglib2.0-dev libpixman-1-dev libslirp-dev make ninja-build pkg-config python3 python3-venv xz-utils
           zlib1g-dev
 
       - name: Cache the pinned LLVM and QEMU releases and the built QEMU
@@ -286,7 +287,7 @@ jobs:
             .tools/downloads/LLVM-20.1.8-Linux-X64.tar.xz
             .tools/downloads/qemu-11.1.0.tar.xz
             .tools/qemu-11.1.0
-          key: linux-ubuntu-24.04-llvm-20.1.8-1ead36b3dfcb774b-qemu-11.1.0-6ee1d1a61f682124-riscv64
+          key: linux-ubuntu-24.04-llvm-20.1.8-1ead36b3dfcb774b-qemu-11.1.0-6ee1d1a61f682124-riscv64-slirp
 
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
@@ -344,7 +345,7 @@ jobs:
         # build alone.
         run: >-
           sudo apt-get update && sudo apt-get install -y --no-install-recommends
-          bison bzip2 cmake flex g++ gcc libglib2.0-dev libicu-dev libkrb5-dev liblttng-ust-dev libpixman-1-dev
+          bison bzip2 cmake flex g++ gcc libglib2.0-dev libicu-dev libkrb5-dev liblttng-ust-dev libpixman-1-dev libslirp-dev
           libssl-dev libxml2 make ninja-build pkg-config python3 python3-venv xz-utils zlib1g-dev
 
       - name: Cache the pinned LLVM and QEMU releases and the built QEMU
@@ -354,7 +355,7 @@ jobs:
             .tools/downloads/LLVM-20.1.8-Linux-X64.tar.xz
             .tools/downloads/qemu-11.1.0.tar.xz
             .tools/qemu-11.1.0
-          key: linux-ubuntu-24.04-llvm-20.1.8-1ead36b3dfcb774b-qemu-11.1.0-6ee1d1a61f682124-riscv64
+          key: linux-ubuntu-24.04-llvm-20.1.8-1ead36b3dfcb774b-qemu-11.1.0-6ee1d1a61f682124-riscv64-slirp
 
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
@@ -434,7 +435,7 @@ jobs:
       - name: Install what building QEMU and running LLVM need
         run: >-
           sudo apt-get update && sudo apt-get install -y --no-install-recommends
-          bison bzip2 flex gcc libglib2.0-dev libpixman-1-dev make ninja-build pkg-config python3 python3-venv xz-utils
+          bison bzip2 flex gcc libglib2.0-dev libpixman-1-dev libslirp-dev make ninja-build pkg-config python3 python3-venv xz-utils
           zlib1g-dev
 
       - name: Cache the pinned LLVM and QEMU releases and the built QEMU
@@ -444,7 +445,7 @@ jobs:
             .tools/downloads/LLVM-20.1.8-Linux-X64.tar.xz
             .tools/downloads/qemu-11.1.0.tar.xz
             .tools/qemu-11.1.0
-          key: linux-ubuntu-24.04-llvm-20.1.8-1ead36b3dfcb774b-qemu-11.1.0-6ee1d1a61f682124-riscv64
+          key: linux-ubuntu-24.04-llvm-20.1.8-1ead36b3dfcb774b-qemu-11.1.0-6ee1d1a61f682124-riscv64-slirp
 
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
@@ -563,7 +564,7 @@ jobs:
       - name: Install what building QEMU and running LLVM need
         run: >-
           sudo apt-get update && sudo apt-get install -y --no-install-recommends
-          bison bzip2 cmake flex g++ gcc libglib2.0-dev libpixman-1-dev make ninja-build pkg-config python3 python3-venv
+          bison bzip2 cmake flex g++ gcc libglib2.0-dev libpixman-1-dev libslirp-dev make ninja-build pkg-config python3 python3-venv
           xz-utils zlib1g-dev
 
       - name: Cache the pinned LLVM and QEMU releases and the built QEMU
@@ -573,7 +574,7 @@ jobs:
             .tools/downloads/LLVM-20.1.8-Linux-X64.tar.xz
             .tools/downloads/qemu-11.1.0.tar.xz
             .tools/qemu-11.1.0
-          key: linux-ubuntu-24.04-llvm-20.1.8-1ead36b3dfcb774b-qemu-11.1.0-6ee1d1a61f682124-riscv64
+          key: linux-ubuntu-24.04-llvm-20.1.8-1ead36b3dfcb774b-qemu-11.1.0-6ee1d1a61f682124-riscv64-slirp
 
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
