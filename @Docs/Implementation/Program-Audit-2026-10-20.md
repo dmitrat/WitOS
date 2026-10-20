@@ -14,7 +14,8 @@ as the plan says; do the documents still describe the tree — and a fourth, whi
 do the gates not measure.
 
 **Method.** The documents were read again against the tree at commit `ea88ba6` (branch `s8.2-readytorun-relocations`:
-`main` at #172 with #173–#175 stacked). The kernel's sources were searched for every word that would mean policy; the
+`main` at #172 with #173–#175 stacked) with `main` merged in, which brought the two pull requests the stack's branches
+were based before (#151, the host retry of a NuGet suite; #152, a riscv64 exclusion). The kernel's sources were searched for every word that would mean policy; the
 quotas, the patch sets, the exclusion lists, the recorded differences and the sizes of each layer were counted; the
 state of CI was taken from the pull requests and from `main`'s own runs. Nothing was booted for this audit; the
 evidence of each step is the guest acceptance its document records. Where this audit gives a number beside the one of
@@ -44,7 +45,7 @@ nearer real hardware. The plan now records both as an open question with a defau
 | --- | --- | --- |
 | 1. Three layers; the kernel's hardware part may move to firmware | ABI-1 1.3 (C2.1: `DEVICE_MEMORY`'s window) and 1.4 (P1.4: `THREAD_QUERY` version 6), both additive; `Kernel.Arch.RV64` and `Kernel.Platform.QemuVirtRv` added with nothing in `src/Kernel`; the terminal's line discipline, the screen, the TCP/IP stack and the sockets live in services and the libc | libwitos is static and outside ABI-2 (recorded, ADR 0026); one interrupt binding per line keeps a keyboard and a network adapter off one board (open question) |
 | 2. Pure .NET components run unchanged, with NuGet dependencies, built on Windows | N4.4 and V3: the suite and the portable application published on Windows by the stock SDK run as those bytes on the three ISAs, each check as recorded; the suite has 100 checks in 12 areas with 3 recorded differences; `Process.Start`, the terminal, time zones, `/tmp` and file modes arrived with N4; PowerShell 7.6.7 and CSharpRepl 0.9.2 run unchanged; Arlecchino.Commander and Terminal.Gui's UICatalog run on the screen; `HttpClient` reaches a server | TLS, ASP.NET Core, IPv6 and local sockets (W3–W4); `FileSystemWatcher` and diagnostics absent and recorded |
-| 3. A new platform costs a kernel port and a recompilation | riscv64: 2,600 lines of `Kernel.Arch.RV64` and 1,034 of `Kernel.Platform.QemuVirtRv` against ARM64's 2,519 and 976, plus 282 lines of `ElfToPe` in the tool; `tests/Kernel` and the fixtures ran unchanged; layer 2 recompiled with ISA branches only where the ABI has them (the context, the trap causes, the atomics); the runtime by RID and five patches of the community port | The NuGet libraries' own suites and .NET 8 are not run on riscv64 (recorded); the community JIT's BigInteger bug costs 10 test exclusions |
+| 3. A new platform costs a kernel port and a recompilation | riscv64: 2,600 lines of `Kernel.Arch.RV64` and 1,034 of `Kernel.Platform.QemuVirtRv` against ARM64's 2,519 and 976, plus 282 lines of `ElfToPe` in the tool; `tests/Kernel` and the fixtures ran unchanged; layer 2 recompiled with ISA branches only where the ABI has them (the context, the trap causes, the atomics); the runtime by RID and five patches of the community port | The NuGet libraries' own suites and .NET 8 are not run on riscv64 (recorded); the community JIT's BigInteger bug costs 12 test exclusions |
 | 4. A new .NET release costs little | The `release/10.0` set is 40 files (26): the 4 of the `-unix` `System.Diagnostics.Process` (N4.2), the 5 of the riscv64 port and ILC's target (V2.4), the 2 project flavours of HTTP and TLS (W2.2) and `peimagelayout.cpp` (S8.2); CoreCLR 16 against FreeBSD's 31 and Haiku's 18, the native libraries 6 against 62 and 11; `release/8.0` unchanged at 26 | Five of the sixteen CoreCLR files are the RISC-V port's own fixes and belong upstream whatever the target; the pin stays at 10.0.12 until .NET 11's GA (open question) |
 | 5. Several .NET versions at once | Unchanged since N3.3: 8.0.31 and 10.0.12 on x64 and ARM64, CI's `side-by-side` job green on #172 | `release/8.0` does not build for riscv64 (recorded in the matrix and AGENTS.md) |
 
@@ -110,7 +111,7 @@ change; S8.2 took a `TARGET_WITOS` branch beside Apple's for the one rule WitOS 
 executable at once is never granted); W2.2 took project flavours, which change what is compiled, not what it does.
 
 **What belongs upstream.** Five of the sixteen CoreCLR files are fixes of the community RISC-V port that any musl
-system would need; the 10 riscv64 exclusions of `System.Runtime.Numerics.Tests` name one bug of that JIT (dynamic PGO
+system would need; the 12 riscv64 exclusions of `System.Runtime.Numerics.Tests` name one bug of that JIT (dynamic PGO
 with on-stack replacement and a `BigInteger` passed in registers); S8.2's branch is the Apple ARM64 rule under
 another name and would generalize to "a platform that refuses W|X". None needs the `witos` target to be filed. The
 plan's open question on the upstream proposal now distinguishes the bug reports, which can go first, from the target,
@@ -127,8 +128,8 @@ stays absent. `expectations.json` records 3 differences for WitOS (`Platform.Kno
 `Network.IPv6`) and none for the hosts; `Compatibility-Differences.md` has 24 rows (a row for the startup profiles
 joined at S8.1), each with the check that verified it; the matrix has 24 capabilities (15 supported, 5 partial, 2
 absent, 2 planned) and is required current by a host test. The exclusions: 25 of the PAL suite (unchanged), 12 of the
-CoreCLR tests (11; the riscv64 `RotateRight` joined with the JIT's reason), 11 methods of the library tests (1; the
-ten riscv64 ones above), 30 of the NuGet suites (34; N4.1 closed four, file modes and `/tmp`, as the previous audit
+CoreCLR tests (11), 13 methods of the library tests (1; the twelve riscv64 ones above, `RotateRight` the last of them
+at V2.4's follow-up), 30 of the NuGet suites (34; N4.1 closed four, file modes and `/tmp`, as the previous audit
 expected). The tools refuse an exclusion without a reason.
 
 ## 4. The system layer
@@ -206,8 +207,13 @@ newest waiting; the next merge's run is the first that will be read.
 
 **Flakes, 2026-10-14 to 2026-10-20.** Recorded in the plan with the rule that a recurrence gets a reproduction step:
 
-- *On the runners' hosts.* MemoryPack's test runner dies with SIGSEGV (2026-10-15 twice, 18, 19 and 20, #172); the
-  host retry after a signal (#151) did not cover the last one. Math.NET's `numacc1` accuracy once. Roslyn's
+- *On the runners' hosts.* MemoryPack's test runner dies (2026-10-15 twice, 18, 19 and 20 on #172 and #173): exit 139
+  or 134 with no summary, and #173's log shows the host's CoreCLR throwing `AccessViolationException` in
+  `VirtualDispatchHelpers.VirtualFunctionPointer` under FluentAssertions' `BeEquivalentTo`, in a different test each
+  time; never in the guest, never in the container. The tool runs a host suite once more when a signal killed it
+  (#151, 2026-10-18), but no crashing job has contained that code yet: every branch of the stack C2.4–S8.2 is based
+  before #151, and a pull request's run merges its head with its base branch, not with `main`. Math.NET's `numacc1`
+  accuracy once. Roslyn's
   `CompilerResolverTests` on the runner's dotnet layout (N0.2, excluded with its reason). Fetches of libc-test from
   repo.or.cz and of ncurses from GNU's redirector (fixed with a list of mirrors).
 - *In the guest, timing.* NUnit's `DelayedConstraint` family three times on one processor (P1.x branches) and
@@ -218,8 +224,11 @@ newest waiting; the next merge's run is the first that will be read.
   `ConcurrentQueue` on riscv64 once; `System.Collections.Concurrent.Tests` at the 32-thread edge on riscv64 once (64
   since P2); the suite's `Network.TcpEcho` on ARM64 once (#170).
 
-The one that recurs is MemoryPack on the host, five times: the next one is a `class:` exclusion with that reason or a
-step that finds the runner's defect, not a sixth rerun.
+The one that recurs is MemoryPack on the host, six times. Two things follow. A stacked branch's run proves the branch
+with its base, not with `main`: a fix merged into `main` meanwhile (#151 here) reaches the stack's runs only when a pull
+request is retargeted or its branch merges `main` — which the audit's own branch now does. And the first crash that
+goes through the retry and still fails is a `class:` exclusion with that reason or a step that finds the runner's
+defect, not a seventh rerun.
 
 **What the gates do not measure.** Both defects a person felt in this period passed every gate: the screen console
 under TCG lags (C2.4, closed by the author's decision to judge speed nearer real hardware), and `exit` on four
@@ -249,7 +258,8 @@ kernel lock — with the default of measuring a live guest through QMP, as S8.1 
   test CA; the cryptography flavour of R4.1 leaves with it.
 - `main`'s runs finish since this audit (section 6); the first one to finish is to be read, a failure in it
   investigated, not rerun.
-- MemoryPack on the runners' hosts: the next recurrence is an exclusion with its reason or a step.
+- MemoryPack on the runners' hosts: the first crash that goes through the retry of #151 is an exclusion with its reason
+  or a step; the crash's signature is recorded in the plan.
 - One binding per line: a mechanism step (ABI-1 1.5) when the network meets the screen console or a fifth driver.
 - Latency the gates do not measure: measure a live guest first (QMP); a step on the woken thread's latency (RFC 0005)
   if NUnit's `DelayedConstraint` family recurs on four processors or a session hangs again.

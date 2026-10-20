@@ -421,6 +421,16 @@ internal static class RuntimeNuGetSuites
             var log = Path.Combine(logs, $"{suite.Name}-host.log");
             await File.WriteAllTextAsync(log, run.Output + run.Error);
             var result = ReadResult(suite.Runner, (run.Output + "\n" + run.Error).Split('\n').Select(line => line.TrimEnd('\r')));
+            if (KilledBySignal(run, result))
+            {
+                // The host's own .NET died by a signal before the runner summed up (MemoryPack's suite three times on
+                // CI's runner, the guest never ran): one more run, said aloud, and its outcome is the suite's.
+                Console.WriteLine($"WARNING: {suite.Name} died on the host by signal {run.ExitCode - 128} without a summary; running it once more.");
+                await File.WriteAllTextAsync(Path.Combine(logs, $"{suite.Name}-host-killed.log"), run.Output + run.Error);
+                run = await Processes.RunAsync("dotnet", DotnetArguments(suite, xunitConsole), SuiteOutput(root, selection, suite), 3600, environment);
+                await File.WriteAllTextAsync(log, run.Output + run.Error);
+                result = ReadResult(suite.Runner, (run.Output + "\n" + run.Error).Split('\n').Select(line => line.TrimEnd('\r')));
+            }
             if (run.TimedOut || result is null || result.Failed > 0 || run.ExitCode != 0)
                 throw new InvalidOperationException($"{suite.Name} failed on the host (exit {run.ExitCode}, timeout={run.TimedOut}" +
                     $"{(result is null ? ", no summary" : $", {result.Failed} failed: {string.Join("; ", result.Failures.Take(20))}")}); see {log}. " +
@@ -430,6 +440,15 @@ internal static class RuntimeNuGetSuites
         }
         return results;
     }
+
+    /// <summary>
+    /// Whether a host run of a suite died by a signal before its runner summed up: on Unix an exit code of 128 plus the
+    /// signal, no timeout, no summary. Such a run is the host's .NET failing, not a test (PLAN's known defects).
+    /// </summary>
+    /// <param name="run">The run.</param>
+    /// <param name="result">Its summary, if any.</param>
+    internal static bool KilledBySignal(ProcessResult run, NuGetSuiteResult? result) =>
+        !OperatingSystem.IsWindows() && !run.TimedOut && result is null && run.ExitCode is > 128 and < 128 + 65;
 
     // The comparison of the guest's results with the host's, written beside runtime-witos's other reports, a group's
     // apart: the report's line and what fails it.
