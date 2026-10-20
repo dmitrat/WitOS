@@ -204,11 +204,7 @@ internal static class RuntimeRebase
 
     // The text a patch applies to, as runtime-witos reads a file of the tree: decoded without a byte order mark, with LF
     // line ends.
-    private static string Text(byte[] bytes)
-    {
-        using var reader = new StreamReader(new MemoryStream(bytes), Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
-        return reader.ReadToEnd().Replace("\r\n", "\n", StringComparison.Ordinal);
-    }
+    private static string Text(byte[] bytes) => UpstreamPatches.Text(bytes);
 
     // A unified diff of the tag's text and the carried one, under the a/ and b/ names of the patch format.
     private static async Task<string> DiffAsync(string scratch, string path, string before, string after)

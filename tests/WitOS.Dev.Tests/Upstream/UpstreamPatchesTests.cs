@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using WitOS.Dev.Tests.Support;
 using WitOS.Dev.Upstream;
@@ -72,12 +73,29 @@ public sealed class UpstreamPatchesTests
             var added = patch.Before == UpstreamPatches.Hash("");
             if (!added && !File.Exists(source))
                 continue;
-            var text = UpstreamPatches.Apply(patch, added ? "" : File.ReadAllText(source).Replace("\r\n", "\n"));
+            var text = UpstreamPatches.Apply(patch, added ? "" : UpstreamPatches.Text(File.ReadAllBytes(source)));
             Assert.That(UpstreamPatches.Hash(text), Is.EqualTo(patch.After));
             ++applied;
         }
         if (applied == 0)
             Assert.Ignore("No upstream sources are cached; run setup and runtime-witos once.");
+    }
+
+    // A file that starts with a byte order mark keeps it in its text (W2.2): the text hashes as the pinned bytes do, and
+    // a patch made from them applies.
+    [Test]
+    public void ByteOrderMarkStaysInTheTextTest()
+    {
+        byte[] bytes = [0xEF, 0xBB, 0xBF, (byte)'o', (byte)'n', (byte)'e', (byte)'\r', (byte)'\n', (byte)'t', (byte)'w', (byte)'o', (byte)'\n'];
+        var text = UpstreamPatches.Text(bytes);
+        Assert.That(text, Is.EqualTo("\uFEFFone\ntwo\n"));
+        byte[] lf = [0xEF, 0xBB, 0xBF, (byte)'o', (byte)'n', (byte)'e', (byte)'\n', (byte)'t', (byte)'w', (byte)'o', (byte)'\n'];
+        Assert.That(UpstreamPatches.Hash(text), Is.EqualTo(Convert.ToHexString(SHA256.HashData(lf)).ToLowerInvariant()));
+        const string after = "\uFEFFone\nTWO\n";
+        var patch = UpstreamPatches.Parse(
+            $"Source: src/bom.txt\nOutput: bom.txt\nBefore: {UpstreamPatches.Hash(text)}\nAfter: {UpstreamPatches.Hash(after)}\n\n" +
+            "Changes the second line.\n\n--- a/src/bom.txt\n+++ b/src/bom.txt\n@@ -2 +2 @@\n-two\n+TWO\n");
+        Assert.That(UpstreamPatches.Apply(patch, text), Is.EqualTo(after));
     }
 
     [Test]

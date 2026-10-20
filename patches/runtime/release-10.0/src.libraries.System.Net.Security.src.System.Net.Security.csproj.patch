@@ -1,0 +1,21 @@
+Source: src/libraries/System.Net.Security/src/System.Net.Security.csproj
+Output: src.libraries.System.Net.Security.src.System.Net.Security.csproj
+Before: 98ebdd8a237a7a622a7673cfd81e2e83720aab5bb7a9ec7080c38774fe520867
+After: fffd54ae45a1a8c006de6995bd76826bddea2902b2b26f3af0231a8cc4d12f80
+
+System.Net.Security for witos (plan step W2.2, RFC 0015 section 8): the project targets the unix flavor when the build
+is for witos, as System.Net.Http does, since HttpClient's unix flavor reaches System.Net.Security's types on every
+request, plain HTTP too (the connection pool's application protocols), and the platform-neutral flavor throws
+PlatformNotSupportedException from each of them. TLS goes through OpenSSL's shim and Negotiate through GSSAPI's, neither
+of which the witos build makes until W3.1, so SslStream and NegotiateAuthentication fail explicitly when they are used.
+
+--- a/src/libraries/System.Net.Security/src/System.Net.Security.csproj
++++ b/src/libraries/System.Net.Security/src/System.Net.Security.csproj
+@@ -2,6 +2,7 @@
+ 
+   <PropertyGroup>
+     <TargetFrameworks>$(NetCoreAppCurrent)-windows;$(NetCoreAppCurrent)-linux;$(NetCoreAppCurrent)-freebsd;$(NetCoreAppCurrent)-haiku;$(NetCoreAppCurrent)-android;$(NetCoreAppCurrent)-osx;$(NetCoreAppCurrent)-ios;$(NetCoreAppCurrent)-tvos;$(NetCoreAppCurrent)</TargetFrameworks>
++    <TargetFrameworks Condition="'$(TargetOS)' == 'witos'">$(TargetFrameworks);$(NetCoreAppCurrent)-unix</TargetFrameworks>
+     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+     <!-- This is needed so that code for TlsCipherSuite will have no namespace (causes compile errors) when used within T4 template  -->
+     <DefineConstants>$(DefineConstants);PRODUCT</DefineConstants>

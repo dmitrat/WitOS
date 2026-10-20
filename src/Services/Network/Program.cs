@@ -103,6 +103,9 @@ internal static class Program
                 using var message = channel.Receive();
                 if (ServiceStop.TryDecode(message.Bytes, out _))
                 {
+                    // A connection still open at the stop shows what its client waited for (W2.2).
+                    foreach (var line in host.Call(stack => stack.DescribeConnections()))
+                        Console.WriteLine($"{PREFIX}open at the stop: {line}");
                     var sessions = SocketConnection.StopAll();
                     host.Stop();
                     var statistics = host.Statistics;

@@ -207,9 +207,36 @@ public sealed class TcpTests
         Assert.That(stack.SendStream(client, "loop"u8, out _), Is.Zero);
         network.Pump();
         Assert.That(ReadAll(stack, server), Is.EqualTo("loop"));
+        Assert.That(stack.DescribeConnections(), Has.Count.EqualTo(2).And.All.Contains("Established"), "the listener is not a connection");
         Assert.That(stack.Bind(listener, Ipv4Address.Loopback, PORT), Is.EqualTo(NetworkErrors.INVALID), "bound already");
         Assert.That(stack.OpenTcp(out var other), Is.Zero);
         Assert.That(stack.Bind(other, Ipv4Address.Any, PORT), Is.EqualTo(NetworkErrors.ADDRESS_IN_USE));
+    }
+
+    // The right edge of the window a side advertises starts at RCV.NXT (W2.2): it started at zero, which lies ahead of
+    // RCV.NXT for half the peers' random initial sequence numbers, so the window of the first acknowledgment was garbage
+    // and the edge, which never moves back, stayed at 65535 << 3, twice the buffer: the peer then sent into a full
+    // buffer, and its retransmissions backed off for a minute.
+    [Test]
+    public void AdvertisedWindowStaysWithinTheBufferTest()
+    {
+        var (network, a, b) = Segment();
+        Assert.That(b.OpenTcp(out var listener), Is.Zero);
+        Assert.That(b.Bind(listener, Ipv4Address.Any, PORT), Is.Zero);
+        Assert.That(b.Listen(listener, 64), Is.Zero);
+        for (var i = 0; i < 32; i++)
+        {
+            Assert.That(a.OpenTcp(out var client), Is.Zero);
+            Assert.That(a.Connect(client, B, PORT), Is.EqualTo(NetworkErrors.IN_PROGRESS));
+            network.Pump();
+            Assert.That(b.Accept(listener, out var server), Is.Zero);
+            Assert.That(a.SendStream(client, "x"u8, out _), Is.Zero);
+            Assert.That(b.SendStream(server, "y"u8, out _), Is.Zero);
+            network.Pump();
+            foreach (var tcp in new[] { a.FindTcp(client)!, b.FindTcp(server)! })
+                Assert.That(tcp.AdvertisedEdge - tcp.RcvNxt, Is.LessThanOrEqualTo((uint)tcp.Receive.Capacity),
+                    $"connection {i}: the advertised window exceeds the buffer");
+        }
     }
 
     // SO_REUSEPORT (W2.1b): listeners that all set it share a port, a socket without it is refused, and each connection

@@ -1,0 +1,21 @@
+Source: src/libraries/System.Net.Http/src/System.Net.Http.csproj
+Output: src.libraries.System.Net.Http.src.System.Net.Http.csproj
+Before: 66d38047f10646dc8d55dca222a7c261c9ae6f9ea7c3f92abd0ec1b3a3a43614
+After: 1283693b042e5e1f122e34bca26102011f6f963976b36e15db99b433724e2cbd
+
+System.Net.Http for witos (plan step W2.2, RFC 0015 section 8): the project targets the unix flavor when the build is
+for witos, beside Linux's, FreeBSD's and the other Unix flavors, so that the shared framework carries HttpClient over
+SocketsHttpHandler and System.Net.Sockets rather than the platform-neutral flavor, whose types throw
+PlatformNotSupportedException. Plain HTTP needs nothing else; HTTPS waits for System.Net.Security's TLS over OpenSSL
+(W3.1) and HTTP/3 for QUIC, which the unix flavor finds absent and leaves off.
+
+--- a/src/libraries/System.Net.Http/src/System.Net.Http.csproj
++++ b/src/libraries/System.Net.Http/src/System.Net.Http.csproj
+@@ -2,6 +2,7 @@
+ 
+   <PropertyGroup>
+     <TargetFrameworks>$(NetCoreAppCurrent)-windows;$(NetCoreAppCurrent)-linux;$(NetCoreAppCurrent)-osx;$(NetCoreAppCurrent)-freebsd;$(NetCoreAppCurrent)-maccatalyst;$(NetCoreAppCurrent)-ios;$(NetCoreAppCurrent)-tvos;$(NetCoreAppCurrent)-browser;$(NetCoreAppCurrent)-wasi;$(NetCoreAppCurrent)-illumos;$(NetCoreAppCurrent)-solaris;$(NetCoreAppCurrent)-haiku;$(NetCoreAppCurrent)-android;$(NetCoreAppCurrent)</TargetFrameworks>
++    <TargetFrameworks Condition="'$(TargetOS)' == 'witos'">$(TargetFrameworks);$(NetCoreAppCurrent)-unix</TargetFrameworks>
+     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+     <DefineConstants>$(DefineConstants);HTTP_DLL</DefineConstants>
+     <UseCompilerGeneratedDocXmlFile>false</UseCompilerGeneratedDocXmlFile>

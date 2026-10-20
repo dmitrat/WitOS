@@ -164,6 +164,14 @@
     {
       "path": "src/coreclr/runtime/riscv64/StubDispatch.S",
       "sha256": "142f9683d1f223adc4df478a2586abf454b01ab9c2289a93e06199c4492b7dd4"
+    },
+    {
+      "path": "src/libraries/System.Net.Http/src/System.Net.Http.csproj",
+      "sha256": "66d38047f10646dc8d55dca222a7c261c9ae6f9ea7c3f92abd0ec1b3a3a43614"
+    },
+    {
+      "path": "src/libraries/System.Net.Security/src/System.Net.Security.csproj",
+      "sha256": "98ebdd8a237a7a622a7673cfd81e2e83720aab5bb7a9ec7080c38774fe520867"
     }
   ]
 }
