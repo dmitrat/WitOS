@@ -383,6 +383,13 @@ internal static class RuntimeNuGetSuites
             // history then and takes the version its version.json names.
             ["NBGV_GitEngine"] = "Disabled"
         };
+        // On a runner a suite's tests write GitHub's file commands to files of the suite's logs, never to the runner's own:
+        // a line of the test frameworks' suites in GITHUB_ENV failed a job after every suite had passed (W2.2, #167).
+        foreach (var name in (string[])["GITHUB_ENV", "GITHUB_OUTPUT", "GITHUB_PATH", "GITHUB_STATE", "GITHUB_STEP_SUMMARY"])
+        {
+            if (Environment.GetEnvironmentVariable(name) is not null)
+                environment[name] = Path.Combine(logs, $"host-{name.ToLowerInvariant()}.txt");
+        }
         foreach (var repository in selection.Repositories)
         {
             var source = await PrepareSourcesAsync(root, repository);
