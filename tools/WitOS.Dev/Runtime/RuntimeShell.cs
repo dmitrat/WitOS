@@ -80,7 +80,11 @@ internal static class RuntimeShell
             Display = options.Window,
             Keyboard = options.Window,
             Window = options.Window,
-            Accelerated = options.Accelerated
+            Accelerated = options.Accelerated,
+            // On the host's hardware virtualization the processors run in parallel (C2.7): a session gets the runtime's
+            // four, so that PowerShell, its JIT and the services no longer take turns on one, which cost a typed key
+            // hiccups of up to half a second; under TCG, single-threaded, one processor stays faster.
+            Processors = options.Accelerated ? RuntimeProcessors.PROCESSORS : 1
         });
         Console.WriteLine("Session ended.");
     }
