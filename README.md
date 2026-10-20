@@ -8,23 +8,26 @@ The hardware layer may eventually be supplied in firmware. The first implementat
 
 ## Current status
 
-**Current local implementation.** The kernel boots through UEFI on x64 (QEMU q35) and ARM64 (QEMU `virt`), is compiled
-by the pinned clang on both, and keeps the mechanisms of ABI-1 ([RFC 0011 v3](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md)):
+**Current local implementation.** The kernel boots through UEFI on x64 (QEMU q35), ARM64 (QEMU `virt`) and riscv64 (QEMU
+`virt` over OpenSBI), is compiled by the pinned clang on the three, and keeps the mechanisms of ABI-1 ([RFC 0011 v3](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md)):
 processes with private address spaces, the one thread form, memory objects, channels that carry capabilities, events and
 the one wait with absolute deadlines, faults and activations delivered to user space, device descriptors with interrupt
 bindings and DMA pins, UTC and threads on every processor of the board. ABI-1 is 1.4 and boot ABI v7, printed by the kernel
-banner from the headers. Above it runs the system layer (phase S) on both ISAs: the pinned musl over ABI-1 with threads,
+banner from the headers. Above it runs the system layer (phase S) on the three ISAs: the pinned musl over ABI-1 with threads,
 signals and its dynamic linker, LLVM's C++ runtime, a process manager with `posix_spawn`, and ABI-2 1.1 recorded in
 `build/abi2.json`. The root task starts WitOS's services, NativeAOT programs in processes of their own ([ADR 0025](@Docs/Implementation/ADR-0025-Devices-as-NativeAOT-Services.md)):
-the device manager, a virtio-blk driver per disk and the namespace service with ext4 and FAT volumes written through
-the ext4 journal, which e2fsprogs judges. Upstream .NET runs in its Unix form (`TargetOS=witos`, [RFC 0015 v2](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md)):
+the device manager, a virtio-blk driver per disk, the namespace service with ext4 and FAT volumes written through
+the ext4 journal, which e2fsprogs judges, the terminal service with Linux's line discipline over a virtio console, the
+display service drawing that terminal on the firmware's framebuffer with a virtio keyboard, and the network service with
+a managed TCP/IP stack over virtio-net. Upstream .NET runs in its Unix form (`TargetOS=witos`, [RFC 0015 v2](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md)):
 .NET 10.0.12 and 8.0.31 side by side under `/dotnet` with ICU built from source; an ordinary application published by the
 stock SDK without a RID runs unchanged as `dotnet App.dll`, uses the volumes through System.IO, and the .NET
 compatibility suite and the own test suites of NUnit, xUnit, MessagePack, MemoryPack, Math.NET and Roslyn pass in the
 guest as on Linux, every difference recorded in [Compatibility-Differences.md](@Docs/Implementation/Compatibility-Differences.md).
 The Windows-form runtime that first passed M3 behind a Win32 facade was frozen by [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md)
 and removed at plan step K8.2; the kernel policy it needed left the kernel at K8.4a. [PLAN.md](PLAN.md) tracks the
-work: phases A, K, S, R, D and N are complete, M6 with them, and WitOS claims Gate B, "WitOS runs .NET" (ADR 0026); N4, the
+work: phases A, K, T1–T3, S, R, D, N, C (C3 apart), V and P are complete, M4–M6 with them, WitOS claims Gate B, "WitOS runs
+.NET" (ADR 0026), and phase W, the network, has reached HTTP without TLS (W2.2); N4, the
 application environment, brought time
 zones from pinned tzdata, a `/tmp` in the namespace service's memory and file modes and times on the volumes (N4.1),
 `Process.Start` over the process manager with pipes between processes (N4.2) and the terminal of RFC 0020 over a
@@ -33,8 +36,9 @@ working as on Linux (N4.3), and goal 2 taken literally: the suite and a portable
 stock SDK run on WitOS as exactly those bytes, each check ending as for a Linux publish (N4.4), and the compatibility
 matrix that states what the claim means (N4.5); the completed steps
 with their evidence are in
-[Plan-Completed.md](@Docs/Implementation/Plan-Completed.md), and the audit of 2026-10-14 in
-[Program-Audit-2026-10-14.md](@Docs/Implementation/Program-Audit-2026-10-14.md).
+[Plan-Completed.md](@Docs/Implementation/Plan-Completed.md), and the audits of 2026-10-14 and 2026-10-20 in
+[Program-Audit-2026-10-14.md](@Docs/Implementation/Program-Audit-2026-10-14.md) and
+[Program-Audit-2026-10-20.md](@Docs/Implementation/Program-Audit-2026-10-20.md).
 
 **WitOS runs .NET** (Gate B of the Strategy, §61, claimed at plan step N4.5): what the claim means is the
 [compatibility matrix](@Docs/Implementation/Compatibility-Matrix.md), rendered from the compatibility suite and kept
@@ -42,8 +46,8 @@ current by a host test, and its limits are the [recorded differences](@Docs/Impl
 the decisions behind it are in [ADR 0026](@Docs/Implementation/ADR-0026-M6-Summary.md).
 
 A self-test kernel also runs the kernel's white-box checks and the user-mode fixture of each mechanism before `Hello`.
-The root task, one freestanding C program built by the pinned clang and lld for `x86_64-unknown-linux-musl` and
-`aarch64-unknown-linux-musl` (plan step T1), checks its startup capabilities and the mechanisms layer 2 has no other
+The root task, one freestanding C program built by the pinned clang and lld for `x86_64-unknown-linux-musl`,
+`aarch64-unknown-linux-musl` and `riscv64-unknown-linux-musl` (plan steps T1 and V2.1), checks its startup capabilities and the mechanisms layer 2 has no other
 consumer of yet: waits on several objects, a suspended thread's context, an activation of a thread that has not run,
 memory pressure and the reset of committed pages (K8.2).
 
@@ -236,7 +240,7 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   between processes, `SIGCHLD`, `waitid` and `kill` of a child (N4.2, done), the terminal of RFC 0020 (N4.3, done)
   and the literal proof of goal 2, published on Windows and run on WitOS (N4.4, done); N4.5 closed M6 with the
   compatibility matrix and ADR 0026, and phase N's first pass is complete.
-- **Console and shell (phase C, begun).** Upstream PowerShell 7.6.7, pinned and unchanged, runs on WitOS from the data
+- **Console and shell (phase C, complete but C3).** Upstream PowerShell 7.6.7, pinned and unchanged, runs on WitOS from the data
   volume as `dotnet pwsh.dll`: the version table, pipelines, files on volumes and an interactive session under PSReadLine
   on the terminal, judged by the `runtime-powershell` scenario on both ISAs (C1.1–C1.3, RFC 0020). What it needed from
   the platform: the mount points for `DriveInfo` (`/etc/mtab` from the namespace service's list), a writable home on the
@@ -266,7 +270,11 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   ISA. The installer `witos-apps` (C4.3), WitOS's first console tool on Arlecchino and part of the system, installs and
   updates base applications from a folder feed on any volume, verified by SHA-256, beside the versions installed, and
   switches back to any of them; the `runtime-installer` scenario updates the file manager from a feed on `/fat` and
-  rolls back on the screen. C3, the native WitOS module and its providers, is the horizon after M8.
+  rolls back on the screen. C# runs in the console too (C2.5): CSharpRepl, unchanged, over the .NET SDK laid as a base
+  application per ISA (x64 and ARM64; riscv64 has no SDK publication), which `dotnet` finds through `/data/global.json`.
+  Two defects the console found by hand are fixed in the system layer: a volume file's transfers no longer hold the
+  libc's table lock (S8.1, the exit hang on four processors) and ReadyToRun code with base relocations loads without a
+  writable and executable window (S8.2). C3, the native WitOS module and its providers, is the horizon after M8.
 - **Third ISA (phase V, done).** RISC-V on QEMU's virt board: the measurement V0 found the pinned LLVM links no RISC-V
   PE/COFF, so the loader and the kernel are one position-independent ELF the tool converts to PE32+ with base
   relocations. V1.1 boots that image under EDK II over OpenSBI: the unchanged loader publishes the device tree, reads the
@@ -298,10 +306,15 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   .NET on several processors without a patch: the libc's `getcpu` names the processor that runs a thread, a process
   holds 64 threads, an ordinary application passes its checks on four processors under the workstation and the server
   collector, and the compatibility suite and the NuGet libraries run on four processors.
-- **Later.** The network and the remaining milestones (phase W).
+- **Network (phase W, begun).** The link (W1.1): a virtio-net driver over QEMU's user networking on both hosts. The
+  network service `/system/Network` (W1.2) with a managed TCP/IP stack in C#, tested on the host against a simulated
+  segment: ARP, IPv4, ICMP, UDP, DHCP from slirp, loopback and TCP (RFC 9293, RFC 6298, NewReno, window scaling). The
+  libc's `AF_INET` sockets and `epoll` over one session per process (W2.1), `System.Net.Sockets`, `Dns` and
+  `HttpClient` over HTTP/1.1 in the compatibility suite's Network area (W2.2), on the three ISAs. TLS (W3.1), ASP.NET
+  Core (W3.2), IPv6, local sockets and interfaces (W4) follow, then the remaining milestones.
 
-The acceptances do not establish networking, and the processors run in turn under QEMU's instruction clock, so they show
-correctness, not speed. Firmware memory remains reserved.
+The acceptances establish the network as far as HTTP without TLS, and the processors run in turn under QEMU's
+instruction clock, so they show correctness, not speed. Firmware memory remains reserved.
 
 - [Architecture document index](@Docs/README.md)
 - [ADR 0024: three layers and the Unix-form runtime](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md)
