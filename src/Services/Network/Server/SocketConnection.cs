@@ -453,11 +453,16 @@ internal sealed class SocketConnection
     // Whether bytes at an offset lie in the window.
     private bool InWindow(long offset, long length) => offset >= 0 && length > 0 && offset <= m_window.Length - length;
 
-    // Closes the session's sockets.
+    // Closes the session's sockets; a connection its client left open is described first, so that one a client waited on
+    // for ever shows what it waited for (W2.2).
     private void CloseAll()
     {
         foreach (var socket in m_sockets.Keys)
+        {
+            if (m_host.Call(stack => stack.DescribeConnection(socket)) is { } line)
+                Console.WriteLine($"{PREFIX}open at the session's end: {line}");
             m_host.Close(socket);
+        }
         m_sockets.Clear();
     }
 

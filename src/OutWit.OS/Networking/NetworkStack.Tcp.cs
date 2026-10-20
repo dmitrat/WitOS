@@ -439,6 +439,7 @@ public sealed partial class NetworkStack
             Parent = listener,
             Irs = header.Sequence,
             RcvNxt = header.Sequence + 1,
+            AdvertisedEdge = header.Sequence + 1, // nothing advertised yet: the edge starts at RCV.NXT, never at zero
             Iss = (uint)m_random.NextInt64(),
             State = TcpState.SynReceived,
             Rto = RTO_INITIAL
@@ -483,6 +484,7 @@ public sealed partial class NetworkStack
         var now = m_clock();
         tcp.Irs = header.Sequence;
         tcp.RcvNxt = header.Sequence + 1;
+        tcp.AdvertisedEdge = tcp.RcvNxt; // nothing advertised yet: the edge starts at RCV.NXT, never at zero
         tcp.Mss = Math.Min(header.Mss != 0 ? header.Mss : DEFAULT_MSS, LocalMss());
         if (header.WindowScale >= 0)
             tcp.SndScale = header.WindowScale;
@@ -1086,6 +1088,43 @@ public sealed partial class NetworkStack
         var advertised = SequenceGt(tcp.AdvertisedEdge, tcp.RcvNxt) ? (int)(tcp.AdvertisedEdge - tcp.RcvNxt) : 0;
         if (WindowBytes(tcp) - advertised >= Math.Min(tcp.Receive.Capacity / 2, tcp.Mss))
             SendAck(tcp);
+    }
+
+    /// <summary>
+    /// The connections that are neither closed nor listening, a line of state each: the buffers, the windows, the timers
+    /// and what the owner waits for. The service prints them at its stop, where a connection a client left waiting shows
+    /// what it waits for.
+    /// </summary>
+    /// <returns>A line per connection.</returns>
+    public IReadOnlyList<string> DescribeConnections()
+    {
+        var lines = new List<string>();
+        foreach (var tcp in m_tcp.Values)
+        {
+            if (DescribeConnection(tcp.Id) is { } line)
+                lines.Add(line);
+        }
+        return lines;
+    }
+
+    /// <summary>
+    /// A connection's line of state, as <see cref="DescribeConnections"/> gives it; the service prints it for each
+    /// connection a session still holds when its client goes.
+    /// </summary>
+    /// <param name="socket">The socket.</param>
+    /// <returns>The line; null for no such socket, a datagram socket, or one closed or listening.</returns>
+    public string? DescribeConnection(int socket)
+    {
+        if (!m_tcp.TryGetValue(socket, out var tcp) || tcp.State is TcpState.Closed or TcpState.Listen)
+            return null;
+        var now = m_clock();
+        string Due(long at) => at == long.MaxValue ? "off" : $"in {at - now} ms";
+        return $"tcp {tcp.Id} {tcp.State} {tcp.LocalAddress}:{tcp.LocalPort} to {tcp.RemoteAddress}:{tcp.RemotePort}: " +
+            $"send {tcp.Send.Count} bytes, {tcp.SndNxt - tcp.SndUna} in flight, window {tcp.SndWnd}, cwnd {tcp.Cwnd}; " +
+            $"receive {tcp.Receive.Count} bytes, window {WindowBytes(tcp)}, " +
+            $"advertised {(SequenceGt(tcp.AdvertisedEdge, tcp.RcvNxt) ? tcp.AdvertisedEdge - tcp.RcvNxt : 0)}; " +
+            $"rto {tcp.Rto} ms, retransmit {Due(tcp.RetransmitAt)}, persist {Due(tcp.PersistAt)}, delayed ack {Due(tcp.DelayedAckAt)}; " +
+            $"waits to read {tcp.WaitsToRead}, to write {tcp.WaitsToWrite}";
     }
 
     // The window this side may advertise: the receive buffer's room, within what its shift expresses.
