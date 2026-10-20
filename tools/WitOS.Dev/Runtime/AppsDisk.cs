@@ -16,7 +16,7 @@ internal static class AppsDisk
     /// <summary>
     /// A session's data disk: the layer, the home directory and room for what the person writes.
     /// </summary>
-    public const long DISK_BYTES = 1024L << 20;
+    public const long DISK_BYTES = 1536L << 20; // the .NET SDK takes 400 MiB of the layer (C2.5); the disk is written from one array, so below 2 GiB
 
     #endregion
 
@@ -75,6 +75,11 @@ internal static class AppsDisk
             {
                 foreach (var entry in catalog)
                 {
+                    if (!AppCatalog.Serves(entry, architecture))
+                    {
+                        report.Add($"{entry.Id} {entry.Version} not for {architecture.Name}");
+                        continue;
+                    }
                     var written = await AppsLayer.InstallAsync(store, entry, await AppsLayer.ApplicationFilesAsync(root, architecture, entry), apphost,
                         launchers, await AppsLayer.PackageFilesAsync(root, entry));
                     report.Add($"{entry.Id} {entry.Version} {(written ? "installed" : "was there")}");

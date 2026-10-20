@@ -1,6 +1,7 @@
 using System.Text;
 using WitOS.Apps;
 using WitOS.Dev.Commands;
+using WitOS.Dev.Kernel;
 using WitOS.Dev.Runtime;
 using WitOS.Dev.Tests.Support;
 
@@ -66,6 +67,36 @@ public sealed class AppsLayerTests
             "Tool"), "an https archive");
         Assert.Throws<InvalidDataException>(() => AppCatalog.Parse(Entry("Tool", "1.0", Archive(), command: """{ "name": "tool", "assembly": "../tool.dll" }"""), "Tool"),
             "an assembly within the application");
+        // An archive laid in part (C2.5), and an application without a command, which others reach.
+        var sdk = AppCatalog.Parse(Entry("Sdk", "1.0", Archive("""["sdk/1.0", "packs/Ref/1.0"]""", """["sdk/1.0/Template"]"""), command: ""), "Sdk");
+        Assert.That((sdk.Source.Lay, sdk.Source.Leave, sdk.Commands.Count), Is.EqualTo((new[] { "sdk/1.0", "packs/Ref/1.0" }, new[] { "sdk/1.0/Template" }, 0)));
+        Assert.Throws<InvalidDataException>(() => AppCatalog.Parse(Entry("Sdk", "1.0", Archive("""["../sdk"]""", "[]")), "Sdk"), "a lay directory within the archive");
+        Assert.Throws<InvalidDataException>(() => AppCatalog.Parse(Entry("Sdk", "1.0", Archive("""["sdk/1.0"]""", """["packs/Ref"]""")), "Sdk"),
+            "a leave directory within a lay directory");
+        // An archive per architecture (C2.5): a per-RID publication, served on the architectures it names alone.
+        var perIsa = AppCatalog.Parse(Entry("Sdk", "1.0", ArchivePerArchitecture("""{ "x64": %x, "arm64": %a }"""), command: ""), "Sdk");
+        Assert.That(perIsa.Source.Architectures!.Keys, Is.EquivalentTo(new[] { "x64", "arm64" }));
+        Assert.That(perIsa.Source.Architectures["arm64"].File, Is.EqualTo("a-arm64.tar.gz"));
+        Assert.That((AppCatalog.Serves(perIsa, KernelArchitecture.X64), AppCatalog.Serves(perIsa, KernelArchitecture.Arm64),
+            AppCatalog.Serves(perIsa, KernelArchitecture.Riscv64), AppCatalog.Serves(sdk, KernelArchitecture.Riscv64)), Is.EqualTo((true, true, false, true)));
+        Assert.Throws<InvalidDataException>(() => AppCatalog.Parse(Entry("Sdk", "1.0", ArchivePerArchitecture("""{ "x86": %x }""")), "Sdk"),
+            "archives keyed by the three architectures");
+        Assert.Throws<InvalidDataException>(() => AppCatalog.Parse(Entry("Sdk", "1.0", ArchivePerArchitecture("{ }")), "Sdk"), "at least one archive");
+        Assert.Throws<InvalidDataException>(() => AppCatalog.Parse(Entry("Sdk", "1.0",
+            """{ "kind": "archive", "url": "https://example.org/a.tar.gz", "file": "a.tar.gz", "sha256": "%", "architectures": { "x64": %x } }"""
+                .Replace("%x", ArchiveOf("x64"))), "Sdk"), "one archive or one per architecture");
+    }
+
+    // The paths an archive lays (C2.5): those under its lay directories, less those under its leave directories; a lay
+    // directory that holds nothing is refused, and no lay directories lay the whole archive.
+    [Test]
+    public void ArchiveLaysItsDirectoriesTest()
+    {
+        string[] paths = ["LICENSE", "dotnet", "sdk/1.0/dotnet.dll", "sdk/1.0/Template/apphost", "sdk/1.0/Roslyn/csc.dll", "packs/Ref/1.0/ref/a.dll", "shared/App/1.0/b.dll"];
+        Assert.That(AppArchive.Select(paths, ["sdk/1.0", "packs/Ref/1.0"], ["sdk/1.0/Template"]),
+            Is.EqualTo(new[] { "sdk/1.0/dotnet.dll", "sdk/1.0/Roslyn/csc.dll", "packs/Ref/1.0/ref/a.dll" }));
+        Assert.That(AppArchive.Select(paths, [], []), Is.EqualTo(paths));
+        Assert.Throws<InvalidDataException>(() => AppArchive.Select(paths, ["sdk/2.0"], []));
     }
 
     [Test]
@@ -155,6 +186,16 @@ public sealed class AppsLayerTests
         Assert.That(await AppsLayer.CurrentAsync(store, "Tool"), Is.EqualTo("1.0"), "the rollback");
         Assert.That(await LauncherTargetAsync(store, scratch), Is.EqualTo("../Tool/1.0/tool.dll"));
         Assert.ThrowsAsync<InvalidOperationException>(() => AppsLayer.UseAsync(store, "Tool", "3.0", apphost, Path.Combine(scratch, "launchers")));
+        // An SDK the layer provides (C2.5): no launcher, and global.json beside the layer names the version in use.
+        Assert.That(await store.ExistsAsync("global.json"), Is.False, "no SDK yet");
+        var sdk = AppCatalog.Parse(Entry("Sdk", "1.0", Archive(), command: ""), "Sdk");
+        await AppsLayer.InstallAsync(store, sdk, [("sdk/1.0/dotnet.dll", program), ("packs/Ref/1.0/a.dll", program)], apphost, Path.Combine(scratch, "launchers"));
+        Assert.That(await store.ListAsync("apps/bin"), Is.EqualTo(new[] { "tool" }), "no launcher for an application without a command");
+        var globalJson = await store.ReadTextAsync("global.json");
+        Assert.That(globalJson, Is.EqualTo(SdkRoots.GlobalJson(["apps/Sdk/1.0"])));
+        using var document = System.Text.Json.JsonDocument.Parse(globalJson!);
+        Assert.That(document.RootElement.GetProperty("sdk").GetProperty("paths").EnumerateArray().Select(path => path.GetString()),
+            Is.EqualTo(new[] { "apps/Sdk/1.0" }), "what hostfxr reads: a root relative to the file, under which it looks for sdk/");
     }
 
     private static async Task<string> LauncherTargetAsync(ILayerStore store, string scratch)
@@ -171,7 +212,15 @@ public sealed class AppsLayerTests
     // An apphost's stand-in: bytes before, the placeholder and the zeros of the host's buffer, bytes after.
     private static byte[] Apphost() => Encoding.UTF8.GetBytes("ELF-head" + PLACEHOLDER + new string('\0', 1025 - PLACEHOLDER.Length) + "tail");
 
-    private static string Archive() => """{ "kind": "archive", "url": "https://example.org/tool.tar.gz", "file": "tool.tar.gz", "sha256": "%" }""";
+    private static string Archive(string? lay = null, string? leave = null) =>
+        $$"""{ "kind": "archive", "url": "https://example.org/tool.tar.gz", "file": "tool.tar.gz", "sha256": "%"{{(lay is null ? "" : $", \"lay\": {lay}")}}{{(leave is null ? "" : $", \"leave\": {leave}")}} }""";
+
+    // An archive of one architecture (C2.5), and an archive source per architecture from a map with %x and %a for the two.
+    private static string ArchiveOf(string architecture) =>
+        $$"""{ "url": "https://example.org/a-{{architecture}}.tar.gz", "file": "a-{{architecture}}.tar.gz", "sha256": "{{new string('a', 64)}}" }""";
+
+    private static string ArchivePerArchitecture(string map) =>
+        $$"""{ "kind": "archive", "architectures": {{map.Replace("%x", ArchiveOf("x64")).Replace("%a", ArchiveOf("arm64"))}}, "lay": ["sdk/1.0"] }""";
 
     private static string Entry(string id, string version, string source, string command = """{ "name": "tool", "assembly": "tool.dll" }""") =>
         $$"""{ "id": "{{id}}", "version": "{{version}}", "framework": "Microsoft.NETCore.App 10.0", "source": {{source}}, "commands": [ {{command}} ], "purpose": "a test" }"""

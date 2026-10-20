@@ -127,7 +127,26 @@ internal static class AppsLayer
             await store.WriteFileAsync($"{BIN}/{command.Name}", launcher);
         }
         await store.WriteTextAsync($"{ROOT}/{id}/{CURRENT}", version + "\n");
+        await WriteSdkRootsAsync(store);
         await store.FlushAsync();
+    }
+
+    /// <summary>
+    /// The global.json beside the layer (C2.5), as AppsDirectory writes it in the guest: the roots of every application
+    /// whose current version holds sdk/, in the applications' order; a store without one keeps what it has.
+    /// </summary>
+    /// <param name="store">The layer's store.</param>
+    public static async Task WriteSdkRootsAsync(ILayerStore store)
+    {
+        var roots = new List<string>();
+        foreach (var id in await store.ListAsync(ROOT))
+        {
+            var version = await CurrentAsync(store, id);
+            if (version is not null && await store.ExistsAsync($"{VersionDirectory(id, version)}/{SdkRoots.SDK}"))
+                roots.Add(SdkRoots.Root(ROOT, id, version));
+        }
+        if (roots.Count > 0)
+            await store.WriteTextAsync(SdkRoots.FILE, SdkRoots.GlobalJson(roots));
     }
 
     /// <summary>
@@ -165,8 +184,12 @@ internal static class AppsLayer
         var store = new DirectoryLayerStore(layer);
         var apphost = await File.ReadAllBytesAsync(ApphostPath(root, architecture));
         foreach (var entry in await AppCatalog.ReadAsync(root))
+        {
+            if (!AppCatalog.Serves(entry, architecture))
+                continue; // a per-RID publication with no archive for this architecture (C2.5)
             await InstallAsync(store, entry, await ApplicationFilesAsync(root, architecture, entry), apphost, Path.Combine(staging, "launchers"),
                 await PackageFilesAsync(root, entry));
+        }
         return [.. Directory.EnumerateFiles(layer, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
             .Select(file => (Path.GetRelativePath(layer, file).Replace('\\', '/'), file))];
     }
@@ -181,6 +204,7 @@ internal static class AppsLayer
             { Id: PowerShell.CATALOG_ID } => await PowerShell.ApplicationFilesAsync(root, architecture),
             { Source.Kind: AppCatalog.SOURCE } => await AppSourceBuild.FilesAsync(root, entry),
             { Source.Kind: AppCatalog.TOOL } => await AppToolPackage.FilesAsync(root, entry),
+            { Source.Kind: AppCatalog.ARCHIVE } => await AppArchive.FilesAsync(root, entry, architecture),
             _ => throw new NotSupportedException($"{entry.Id}: the layer lays no {entry.Source.Kind} source yet; its step brings it.")
         };
 

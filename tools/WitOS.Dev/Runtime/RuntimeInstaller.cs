@@ -40,7 +40,7 @@ internal static class RuntimeInstaller
 
     private const int MEMORY_MIB = 1024;
 
-    private const long DISK_BYTES = 1024L << 20;
+    private const long DISK_BYTES = 1536L << 20; // the .NET SDK takes 400 MiB of the layer (C2.5); the disk is written from one array, so below 2 GiB
 
     private const int TIMEOUT_SECONDS = 3600;
 

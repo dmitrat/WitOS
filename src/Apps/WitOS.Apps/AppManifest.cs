@@ -37,7 +37,7 @@ public sealed class AppManifest
     #region Functions
 
     /// <summary>
-    /// Reads and checks a manifest: an identity and a version of the catalog's forms, and at least one command, each a
+    /// Reads and checks a manifest: an identity and a version of the catalog's forms, and the commands, each a
     /// distinct name in lower case and an assembly within the version's directory.
     /// </summary>
     /// <param name="json">The manifest's text.</param>
@@ -61,8 +61,8 @@ public sealed class AppManifest
             Require(id is not null && IDENTITY.IsMatch(id), "an identity");
             var version = Text(root, "version");
             Require(version is not null && VERSION.IsMatch(version), $"a version of two to four numbers for {id}");
-            Require(root.TryGetProperty("commands", out var list) && list.ValueKind == JsonValueKind.Array && list.GetArrayLength() > 0,
-                $"the commands of {id}");
+            // An application without a command is reached by others (C2.5: the SDK, which dotnet finds through global.json).
+            Require(root.TryGetProperty("commands", out var list) && list.ValueKind == JsonValueKind.Array, $"the commands of {id}");
             var commands = new List<AppCommand>();
             foreach (var item in list.EnumerateArray())
             {

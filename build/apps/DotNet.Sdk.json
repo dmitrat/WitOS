@@ -1,0 +1,24 @@
+{
+  "id": "DotNet.Sdk",
+  "version": "10.0.300",
+  "framework": "Microsoft.NETCore.App 10.0",
+  "source": {
+    "kind": "archive",
+    "architectures": {
+      "x64": {
+        "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.300/dotnet-sdk-10.0.300-linux-x64.tar.gz",
+        "file": "dotnet-sdk-10.0.300-linux-x64.tar.gz",
+        "sha256": "4e7e7fb86ecbb8da3347c6218f99490474597a964c0ca43499863466f3be0375"
+      },
+      "arm64": {
+        "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.300/dotnet-sdk-10.0.300-linux-arm64.tar.gz",
+        "file": "dotnet-sdk-10.0.300-linux-arm64.tar.gz",
+        "sha256": "ae0c2168302a37d82358dcaa186c0f2d2839deab004b07ff5bacc62c32db1997"
+      }
+    },
+    "lay": [ "sdk/10.0.300", "packs/Microsoft.NETCore.App.Ref/10.0.8" ],
+    "leave": [ "sdk/10.0.300/AppHostTemplate", "sdk/10.0.300/TestHostNetFramework" ]
+  },
+  "commands": [],
+  "purpose": "The .NET SDK as a base application of the data volume's layer (plan step C2.5, ADR 0027), so that CSharpRepl runs unchanged and a session may build with dotnet: the SDK's managed directory sdk/10.0.300 (MSBuild, Roslyn, NuGet, the CLI) and the reference pack it compiles against, taken from the SDK's own release archive of each architecture, pinned by the SHA-256 of its bytes — the publication is per RID, its assemblies carry the RID's ReadyToRun code over the same IL; no publication exists for riscv64, which the layer of that architecture leaves without the SDK. Of the archive nothing else is laid: the Linux muxer, hostfxr and shared runtime are WitOS's own install, the apphost template and the .NET Framework test host are no .NET IL of this platform, and the host pack is Linux's. The SDK the repository builds with (global.json), whose runtime 10.0.8 the install's 10.0.12 serves and whose NuGet is the 7.6 CSharpRepl 0.9.2 references. It provides no command: dotnet reaches it through /data/global.json, which the layer writes with the SDK roots its current versions hold (sdk.paths, hostfxr 10)."
+}

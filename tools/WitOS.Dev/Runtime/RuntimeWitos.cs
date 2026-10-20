@@ -512,6 +512,7 @@ internal static class RuntimeWitos
         await RuntimeCommander.RunAsync(root, architecture);
         // C4.3 (ADR 0027): the installer in the boot package updates the file manager from a folder feed and rolls back.
         await RuntimeInstaller.RunAsync(root, architecture);
+        await RuntimeCSharpRepl.RunAsync(root, architecture);
         await RuntimeCompatibility.RunAsync(root, architecture);
         await RuntimeLibraries.RunAsync(root, architecture);
         // P2: an ordinary application on four processors under the workstation and the server collector.
