@@ -25,15 +25,18 @@
 #define WIT_SOCKET_CONNECT 1U /* on the clients' endpoint: the session's end, the window and the events' end */
 #define WIT_SOCKET_OPEN 2U /* Argument[0] the family, [1] the type, [2] the protocol: the reply's Socket */
 #define WIT_SOCKET_BIND 3U /* Socket, Address */
-#define WIT_SOCKET_CONNECT_TO 4U /* Socket, Address; AF_UNSPEC dissolves a datagram socket's association */
+/* CONNECT_TO: Socket, Address. A datagram socket takes its peer at once, and AF_UNSPEC dissolves its association; a
+ * stream socket answers EINPROGRESS and becomes writable once its connection is established, or reports the error
+ * through SO_ERROR, as a nonblocking connect does on Linux. */
+#define WIT_SOCKET_CONNECT_TO 4U
 #define WIT_SOCKET_LISTEN 5U /* Socket, Argument[0] the backlog (W1.2b) */
 #define WIT_SOCKET_ACCEPT 6U /* Socket: the reply's Socket, the connection, and Address, its peer (W1.2b) */
-#define WIT_SOCKET_SEND \
-    7U /* Socket, Length bytes of the window at Window, Address the destination or AF_UNSPEC for the peer: the reply's
-        * Length, the bytes sent */
-#define WIT_SOCKET_RECEIVE \
-    8U /* Socket, at most Length bytes into the window at Window, Flags WIT_SOCKET_PEEK: the reply's Length, the bytes
-        * written, Value the datagram's whole length, Address its source */
+/* SEND: Socket, Length bytes of the window at Window. A datagram goes to Address, or to the peer for AF_UNSPEC; a stream
+ * takes as many bytes as its send buffer holds and ignores Address. The reply's Length: the bytes sent or taken. */
+#define WIT_SOCKET_SEND 7U
+/* RECEIVE: Socket, at most Length bytes into the window at Window, Flags WIT_SOCKET_PEEK. The reply's Length: the bytes
+ * written, zero at a stream's end; Value: a datagram's whole length; Address: its source, or a stream's peer. */
+#define WIT_SOCKET_RECEIVE 8U
 #define WIT_SOCKET_SHUTDOWN 9U /* Socket, Argument[0] SHUT_RD, SHUT_WR or SHUT_RDWR (W1.2b) */
 #define WIT_SOCKET_CLOSE 10U /* Socket */
 #define WIT_SOCKET_NAME 11U /* Socket, Flags WIT_SOCKET_PEER for the peer's: the reply's Address */
@@ -42,7 +45,7 @@
 #define WIT_SOCKET_SET_OPTION 14U /* Socket, Argument[0] the level, Argument[1] the name, Argument[2] the value */
 #define WIT_SOCKET_CONFIGURATION 15U /* the interface and its lease, a WitSocketConfiguration at Window */
 
-#define WIT_SOCKET_PEEK 0x2U /* RECEIVE: the datagram stays (MSG_PEEK) */
+#define WIT_SOCKET_PEEK 0x2U /* RECEIVE: the datagram or the bytes stay (MSG_PEEK) */
 #define WIT_SOCKET_PEER 0x1U /* NAME: the peer's address (getpeername) */
 
 /* Readiness, poll's bits. */

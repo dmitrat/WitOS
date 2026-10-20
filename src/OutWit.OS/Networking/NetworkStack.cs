@@ -4,13 +4,13 @@ using System.Collections.Generic;
 namespace OutWit.OS.Networking;
 
 /// <summary>
-/// The managed TCP/IP stack of the network service (plan step W1.2a, W0's decision 2): one Ethernet interface over an
-/// <see cref="ILink"/> and the loopback interface, IPv4 with ARP, ICMP's echo and port unreachable, UDP sockets and the
-/// DHCP client. It knows no channel and no device: frames come in through <see cref="Receive"/>, go out through the
+/// The managed TCP/IP stack of the network service (plan steps W1.2a and W1.2b, W0's decision 2): one Ethernet interface
+/// over an <see cref="ILink"/> and the loopback interface, IPv4 with ARP, ICMP's echo and port unreachable, UDP and TCP
+/// sockets and the DHCP client. It knows no channel and no device: frames come in through <see cref="Receive"/>, go out through the
 /// link, time comes from the clock it is given, and <see cref="Advance"/> runs its timers once
 /// <see cref="NextDeadline"/> has passed. It is not thread-safe: the service calls it under one lock.
 /// </summary>
-public sealed class NetworkStack
+public sealed partial class NetworkStack
 {
     #region Constants
 
@@ -39,6 +39,11 @@ public sealed class NetworkStack
     /// </summary>
     public const uint ERROR = 0x8;
 
+    /// <summary>
+    /// Readiness: the connection ended both ways, or failed (POLLHUP).
+    /// </summary>
+    public const uint HANGUP = 0x10;
+
     private const long ARP_RETRY_MILLISECONDS = 1000;
     private const int ARP_ATTEMPTS = 3;
     private const long ARP_LIFETIME_MILLISECONDS = 300_000;
@@ -54,6 +59,7 @@ public sealed class NetworkStack
 
     private readonly ILink m_link;
     private readonly Func<long> m_clock;
+    private readonly Random m_random;
     private readonly Dictionary<Ipv4Address, (MacAddress Mac, long Expires)> m_neighbours = [];
     private readonly Dictionary<Ipv4Address, PendingResolution> m_pending = [];
     private readonly Dictionary<int, UdpSocket> m_udp = [];
@@ -72,12 +78,14 @@ public sealed class NetworkStack
     /// </summary>
     /// <param name="link">The link it transmits on.</param>
     /// <param name="clock">The time in milliseconds, monotonic.</param>
-    /// <param name="random">The randomness of DHCP's transaction identifiers; a seeded one in tests.</param>
+    /// <param name="random">The randomness of DHCP's transaction identifiers and TCP's initial sequence numbers; a seeded one
+    /// in tests.</param>
     public NetworkStack(ILink link, Func<long> clock, Random? random = null)
     {
         m_link = link;
         m_clock = clock;
-        Dhcp = new DhcpClient(this, random ?? Random.Shared);
+        m_random = random ?? Random.Shared;
+        Dhcp = new DhcpClient(this, m_random);
     }
 
     #endregion
@@ -134,7 +142,7 @@ public sealed class NetworkStack
     }
 
     /// <summary>
-    /// Runs what is due: datagrams the loopback queued, ARP's retries and expiries, the DHCP client's timers.
+    /// Runs what is due: datagrams the loopback queued, ARP's retries and expiries, the DHCP client's and TCP's timers.
     /// </summary>
     public void Advance()
     {
@@ -155,6 +163,7 @@ public sealed class NetworkStack
             SendArpRequest(address);
         }
         Dhcp.Advance(now);
+        AdvanceTcp(now);
     }
 
     #region UDP
@@ -167,7 +176,7 @@ public sealed class NetworkStack
     public int OpenUdp(out int socket)
     {
         socket = 0;
-        if (m_udp.Count >= SOCKETS)
+        if (m_udp.Count + m_tcp.Count >= SOCKETS)
             return NetworkErrors.NO_BUFFERS;
         socket = m_nextSocket++;
         m_udp[socket] = new UdpSocket(socket);
@@ -180,6 +189,8 @@ public sealed class NetworkStack
     /// <returns>Zero or an errno value.</returns>
     public int Bind(int socket, Ipv4Address address, ushort port)
     {
+        if (m_tcp.TryGetValue(socket, out var tcp))
+            return BindTcp(tcp, address, port);
         if (!m_udp.TryGetValue(socket, out var udp))
             return NetworkErrors.BAD_SOCKET;
         if (udp.LocalPort != 0)
@@ -198,11 +209,15 @@ public sealed class NetworkStack
     }
 
     /// <summary>
-    /// Sets a socket's peer: datagrams go there by default and come only from there. Port zero disconnects.
+    /// Sets a datagram socket's peer: datagrams go there by default and come only from there; port zero disconnects. A
+    /// stream socket starts its connection and answers IN_PROGRESS: it becomes writable once established, or reports its
+    /// error.
     /// </summary>
     /// <returns>Zero or an errno value.</returns>
     public int Connect(int socket, Ipv4Address address, ushort port)
     {
+        if (m_tcp.TryGetValue(socket, out var tcp))
+            return port == 0 ? NetworkErrors.INVALID : ConnectTcp(tcp, address, port);
         if (!m_udp.TryGetValue(socket, out var udp))
             return NetworkErrors.BAD_SOCKET;
         if (port == 0)
@@ -295,6 +310,11 @@ public sealed class NetworkStack
     /// <returns>Zero or an errno value.</returns>
     public int SetReuseAddress(int socket, bool enabled)
     {
+        if (m_tcp.TryGetValue(socket, out var tcp))
+        {
+            tcp.ReuseAddress = enabled;
+            return 0;
+        }
         if (!m_udp.TryGetValue(socket, out var udp))
             return NetworkErrors.BAD_SOCKET;
         udp.ReuseAddress = enabled;
@@ -305,7 +325,8 @@ public sealed class NetworkStack
     /// Takes a socket's pending error (SO_ERROR).
     /// </summary>
     /// <returns>The error, zero for none; BAD_SOCKET for no such socket.</returns>
-    public int TakeError(int socket) => m_udp.TryGetValue(socket, out var udp) ? TakeError(udp) : NetworkErrors.BAD_SOCKET;
+    public int TakeError(int socket) => m_tcp.TryGetValue(socket, out var tcp) ? TakeError(tcp)
+        : m_udp.TryGetValue(socket, out var udp) ? TakeError(udp) : NetworkErrors.BAD_SOCKET;
 
     /// <summary>
     /// A socket of the stack.
@@ -315,21 +336,26 @@ public sealed class NetworkStack
     public UdpSocket? FindUdp(int socket) => m_udp.GetValueOrDefault(socket);
 
     /// <summary>
-    /// A socket's readiness: READABLE with a datagram waiting or an error pending, WRITABLE always, ERROR with an error
-    /// pending; zero for no such socket.
+    /// A socket's readiness: for a datagram socket READABLE with a datagram waiting or an error pending, WRITABLE always,
+    /// ERROR with an error pending; for a stream socket as Linux's poll reports it, arming the readiness events of what
+    /// it lacks; zero for no such socket.
     /// </summary>
     public uint Poll(int socket)
     {
+        if (m_tcp.TryGetValue(socket, out var tcp))
+            return PollTcp(tcp);
         if (!m_udp.TryGetValue(socket, out var udp))
             return 0;
         return WRITABLE | (udp.Pending > 0 ? READABLE : 0) | (udp.PendingError != 0 ? READABLE | ERROR : 0);
     }
 
     /// <summary>
-    /// Closes a socket; its queued datagrams go with it.
+    /// Closes a socket: a datagram socket's queued datagrams go with it; a connection finishes on its own (or is reset
+    /// when bytes it received are unread) and its identifier is no longer the application's.
     /// </summary>
     /// <returns>Zero or an errno value.</returns>
-    public int Close(int socket) => m_udp.Remove(socket) ? 0 : NetworkErrors.BAD_SOCKET;
+    public int Close(int socket) => m_tcp.TryGetValue(socket, out var tcp) ? CloseTcp(tcp)
+        : m_udp.Remove(socket) ? 0 : NetworkErrors.BAD_SOCKET;
 
     #endregion
 
@@ -406,6 +432,9 @@ public sealed class NetworkStack
                 break;
             case Ipv4Header.UDP:
                 ReceiveUdp(ip, payload, bytes[..ip.TotalLength]);
+                break;
+            case Ipv4Header.TCP when toUs:
+                ReceiveTcp(ip, payload);
                 break;
             default:
                 Statistics.PacketsDropped++;
@@ -652,7 +681,7 @@ public sealed class NetworkStack
         {
             if (m_loopback.Count > 0)
                 return m_clock();
-            var deadline = Dhcp.NextDeadline;
+            var deadline = Math.Min(Dhcp.NextDeadline, NextTcpDeadline());
             foreach (var pending in m_pending.Values)
                 deadline = Math.Min(deadline, pending.NextAttempt);
             return deadline;
@@ -725,4 +754,25 @@ public sealed class NetworkStatistics
     /// UDP datagrams to a port no socket bound.
     /// </summary>
     public long PortsUnreachable { get; set; }
+
+    /// <summary>
+    /// TCP: segments sent, segments sent again, retransmission timeouts, fast retransmits, resets sent, and connection
+    /// requests a full backlog dropped.
+    /// </summary>
+    public long SegmentsSent { get; set; }
+
+    /// <inheritdoc cref="SegmentsSent" />
+    public long SegmentsRetransmitted { get; set; }
+
+    /// <inheritdoc cref="SegmentsSent" />
+    public long Timeouts { get; set; }
+
+    /// <inheritdoc cref="SegmentsSent" />
+    public long FastRetransmits { get; set; }
+
+    /// <inheritdoc cref="SegmentsSent" />
+    public long ResetsSent { get; set; }
+
+    /// <inheritdoc cref="SegmentsSent" />
+    public long ConnectionsDropped { get; set; }
 }

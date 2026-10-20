@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
@@ -183,6 +184,13 @@ internal static class RuntimeDevices
     private const string NETWORK_GATEWAY = "10.0.2.2";
     private const string NETWORK_DNS = "10.0.2.3";
 
+    // TCP's exchanges (W1.2b): the device manager's megabyte through the runner's echo server, the port it listens on for
+    // the runner, the line that says so, and the bytes the runner sends there.
+    private const int NETWORK_ECHO_BYTES = 1024 * 1024;
+    private const ushort NETWORK_LISTEN_PORT = 8080;
+    private const string NETWORK_LISTENING = "[DEVICES] network: listening on port 8080 for the runner";
+    private const int NETWORK_INBOUND_BYTES = 256 * 1024;
+
     // The source folders of OutWit.OS every service compiles; never obj or bin, which a host build leaves.
     private static readonly string[] OUTWIT_OS_FOLDERS =
     [
@@ -256,6 +264,11 @@ internal static class RuntimeDevices
                 RequiredLines = RequiredLines(architecture, boot),
                 DataDisk = dataDisk,
                 Network = true,
+                // TCP (W1.2b): the runner's echo server behind 10.0.2.100:7, and the probe's listening socket the runner
+                // connects to through a port forward once the probe says it listens.
+                NetworkEcho = true,
+                NetworkForward = NETWORK_LISTEN_PORT,
+                Actions = [new BootAction(NETWORK_LISTENING, BootActionKind.Connect, NETWORK_INBOUND_BYTES.ToString(CultureInfo.InvariantCulture))],
                 CutAfter = boot == CUT_BOOT ? CUT_AFTER : null,
                 CutJitterMilliseconds = CUT_JITTER_MILLISECONDS,
                 DataDiskReadErrors = failing
@@ -406,6 +419,11 @@ internal static class RuntimeDevices
         "[DEVICES] network service /system/Network with 1 adapter: ready",
         $"[DEVICES] network service probe: {NETWORK_ADDRESS}/24, router {NETWORK_GATEWAY}, DNS {NETWORK_DNS}, MTU 1500, leased by DHCP",
         $"[DEVICES] network: DNS answer from {NETWORK_DNS} for example.com through a socket of the network service: rcode ",
+        // TCP (W1.2b): a megabyte through the runner's echo server and back, then the runner's bytes through the port forward.
+        $"[DEVICES] network: {NETWORK_ECHO_BYTES} bytes echoed by the runner through 10.0.2.100:7 over TCP, unchanged, in ",
+        NETWORK_LISTENING,
+        $"[DEVICES] network: echoed {NETWORK_INBOUND_BYTES} bytes back to the runner's connection from {NETWORK_GATEWAY}:",
+        ", inbound through the port forward",
         $"[DEVICES-INIT] boot {boot} of the data disk",
         .. boot > 1 ? ["[DEVICES-INIT] /data/posix-kept.txt and /data/dotnet-kept.txt hold what the previous boot wrote: yes"] : Array.Empty<string>(),
         .. boot > CUT_BOOT ? [", each as its last durable change left it"] : Array.Empty<string>(),

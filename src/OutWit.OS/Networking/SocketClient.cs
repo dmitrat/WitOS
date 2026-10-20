@@ -5,7 +5,7 @@ using OutWit.OS.Resources;
 namespace OutWit.OS.Networking;
 
 /// <summary>
-/// A client of the network service (witos/socket.h, plan step W1.2a): one session with its window and its events
+/// A client of the network service (witos/socket.h, plan steps W1.2a and W1.2b): one session with its window and its events
 /// channel, each request answered in turn. The device manager's probe uses it; a process's libc speaks the same protocol
 /// in C (W2.1).
 /// </summary>
@@ -156,6 +156,63 @@ public sealed class SocketClient : IDisposable
         source = reply.Address;
         m_window.Bytes[..received].CopyTo(buffer);
         return reply.Error;
+    }
+
+    /// <summary>
+    /// Makes a socket listen.
+    /// </summary>
+    /// <returns>Zero or the service's errno value.</returns>
+    public int Listen(uint socket, int backlog) =>
+        Request(new SocketRequest(SocketMessages.LISTEN, Socket: socket, Argument0: (ulong)backlog)).Error;
+
+    /// <summary>
+    /// Takes a connection a listening socket accepted; EAGAIN when none waits.
+    /// </summary>
+    /// <param name="socket">The listening socket.</param>
+    /// <param name="accepted">The connection's socket.</param>
+    /// <param name="peer">The connection's peer.</param>
+    /// <returns>Zero or the service's errno value.</returns>
+    public int Accept(uint socket, out uint accepted, out SocketAddress peer)
+    {
+        var reply = Request(new SocketRequest(SocketMessages.ACCEPT, Socket: socket));
+        accepted = reply.Socket;
+        peer = reply.Address;
+        return reply.Error;
+    }
+
+    /// <summary>
+    /// Shuts a connection's reading (SHUT_READ), writing (SHUT_WRITE) or both (SHUT_BOTH) down.
+    /// </summary>
+    /// <returns>Zero or the service's errno value.</returns>
+    public int Shutdown(uint socket, ulong how) =>
+        Request(new SocketRequest(SocketMessages.SHUTDOWN, Socket: socket, Argument0: how)).Error;
+
+    /// <summary>
+    /// A socket's option.
+    /// </summary>
+    /// <returns>Zero or the service's errno value.</returns>
+    public int GetOption(uint socket, ulong level, ulong name, out ulong value)
+    {
+        var reply = Request(new SocketRequest(SocketMessages.GET_OPTION, Socket: socket, Argument0: level, Argument1: name));
+        value = reply.Value;
+        return reply.Error;
+    }
+
+    /// <summary>
+    /// Sets a socket's option.
+    /// </summary>
+    /// <returns>Zero or the service's errno value.</returns>
+    public int SetOption(uint socket, ulong level, ulong name, ulong value) =>
+        Request(new SocketRequest(SocketMessages.SET_OPTION, Socket: socket, Argument0: level, Argument1: name, Argument2: value)).Error;
+
+    /// <summary>
+    /// A socket's readiness: READABLE, WRITABLE, ERROR and HANGUP as they apply.
+    /// </summary>
+    /// <returns>The readiness; zero on an error.</returns>
+    public uint Poll(uint socket)
+    {
+        var reply = Request(new SocketRequest(SocketMessages.POLL, Socket: socket));
+        return reply.Error == 0 ? (uint)reply.Value : 0;
     }
 
     /// <summary>

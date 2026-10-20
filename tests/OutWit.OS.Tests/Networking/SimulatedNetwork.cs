@@ -8,7 +8,8 @@ namespace OutWit.OS.Tests.Networking;
 /// <summary>
 /// A simulated Ethernet segment for the stack's tests (plan step W1.2a): stacks on links whose frames reach every other
 /// link of the segment when <see cref="Pump"/> runs, a manual clock in milliseconds, and an optional DHCP server that
-/// answers as QEMU's does (10.0.2.2 serving 10.0.2.15 with DNS 10.0.2.3).
+/// answers as QEMU's does (10.0.2.2 serving 10.0.2.15 with DNS 10.0.2.3). For TCP (W1.2b) it loses frames at a rate and
+/// swaps frames in pairs, from seeded randomness, so that a lossy run repeats.
 /// </summary>
 internal sealed class SimulatedNetwork
 {
@@ -16,6 +17,8 @@ internal sealed class SimulatedNetwork
 
     private readonly List<SimulatedLink> m_links = [];
     private readonly Queue<(SimulatedLink From, byte[] Frame)> m_frames = new();
+    private readonly Random m_medium = new(7);
+    private (SimulatedLink From, byte[] Frame)? m_held;
 
     #endregion
 
@@ -46,6 +49,11 @@ internal sealed class SimulatedNetwork
         {
             foreach (var link in m_links)
                 link.Stack!.Advance();
+            if (m_frames.Count == 0 && m_held is { } held)
+            {
+                m_frames.Enqueue(held); // a frame held for a swap goes once nothing follows it
+                m_held = null;
+            }
             if (m_frames.Count == 0)
                 return;
             while (m_frames.Count > 0)
@@ -77,6 +85,23 @@ internal sealed class SimulatedNetwork
         if (DropNext > 0)
         {
             DropNext--;
+            return;
+        }
+        if (LossRate > 0 && m_medium.NextDouble() < LossRate)
+        {
+            Lost++;
+            return;
+        }
+        if (m_held is { } held)
+        {
+            m_frames.Enqueue((from, frame.ToArray()));
+            m_frames.Enqueue(held);
+            m_held = null;
+            return;
+        }
+        if (SwapRate > 0 && m_medium.NextDouble() < SwapRate)
+        {
+            m_held = (from, frame.ToArray());
             return;
         }
         m_frames.Enqueue((from, frame.ToArray()));
@@ -176,6 +201,21 @@ internal sealed class SimulatedNetwork
     /// Frames the segment drops next, as a lossy medium does.
     /// </summary>
     public int DropNext { get; set; }
+
+    /// <summary>
+    /// The share of frames the segment loses.
+    /// </summary>
+    public double LossRate { get; set; }
+
+    /// <summary>
+    /// The share of frames the segment delivers after the frame that follows them.
+    /// </summary>
+    public double SwapRate { get; set; }
+
+    /// <summary>
+    /// The frames the loss rate took.
+    /// </summary>
+    public int Lost { get; private set; }
 
     /// <summary>
     /// Every frame the segment carried, in order.

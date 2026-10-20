@@ -110,6 +110,18 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public bool Network { get; init; }
 
     /// <summary>
+    /// The runner's echo server beside the network adapter (plan step W1.2b): the guest reaches it at
+    /// <see cref="Host.NetworkPeer.ECHO_ADDRESS"/>:<see cref="Host.NetworkPeer.ECHO_PORT"/> through QEMU's guestfwd.
+    /// </summary>
+    public bool NetworkEcho { get; init; }
+
+    /// <summary>
+    /// A guest's port the runner reaches through QEMU's hostfwd (plan step W1.2b), with a <see cref="BootActionKind.Connect"/>
+    /// action; zero for none.
+    /// </summary>
+    public ushort NetworkForward { get; init; }
+
+    /// <summary>
     /// Whether the display's console is the terminal's main console (plan step C2.3): the device manager starts the
     /// display service when the board has a framebuffer and a keyboard driver, and the terminal takes the display's size
     /// and lets the virtio console mirror it. The runner's side of the mirror then answers no query of the terminal, since

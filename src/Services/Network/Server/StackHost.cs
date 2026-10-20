@@ -114,19 +114,43 @@ internal sealed class StackHost : IDisposable
     }
 
     /// <summary>
-    /// Opens a datagram socket for a session, which owns it.
+    /// Opens a socket for a session, which owns it.
     /// </summary>
     /// <param name="owner">The session.</param>
+    /// <param name="stream">A TCP socket, otherwise a UDP one.</param>
     /// <param name="socket">The socket's identifier.</param>
     /// <returns>Zero or an errno value.</returns>
-    public int OpenUdp(SocketConnection owner, out int socket)
+    public int Open(SocketConnection owner, bool stream, out int socket)
     {
         lock (m_gate)
         {
-            var error = m_stack.OpenUdp(out socket);
+            var error = stream ? m_stack.OpenTcp(out socket) : m_stack.OpenUdp(out socket);
             if (error == 0)
                 m_owners[socket] = owner;
             return error;
+        }
+    }
+
+    /// <summary>
+    /// Takes a connection a session's listening socket accepted; the session owns it.
+    /// </summary>
+    /// <param name="owner">The session.</param>
+    /// <param name="listener">The listening socket.</param>
+    /// <param name="socket">The connection's socket.</param>
+    /// <param name="peer">The connection's peer.</param>
+    /// <returns>Zero, AGAIN or another errno value.</returns>
+    public int Accept(SocketConnection owner, int listener, out int socket, out SocketAddress peer)
+    {
+        lock (m_gate)
+        {
+            peer = SocketAddress.None;
+            var error = m_stack.Accept(listener, out socket);
+            if (error != 0)
+                return error;
+            m_owners[socket] = owner;
+            var tcp = m_stack.FindTcp(socket)!;
+            peer = SocketAddress.Inet(tcp.RemoteAddress, tcp.RemotePort);
+            return 0;
         }
     }
 
