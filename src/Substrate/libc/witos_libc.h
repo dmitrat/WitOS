@@ -120,6 +120,27 @@ long __wit_terminal_read(void *buffer, long bytes);
 long __wit_terminal_write(const void *buffer, long bytes);
 long __wit_terminal_ioctl(long stream, long request, void *argument);
 short __wit_terminal_poll(long stream, short events);
+/* Sockets over the network service (socket.c, W2.1a), when the start message carried its endpoint: the socket calls
+ * and a socket's transfers, ioctl and poll outside the table lock; a socket's record referenced by its descriptors
+ * (files.c) and the calls in flight, its CLOSE sent after the last reference outside the table lock; /etc/resolv.conf
+ * from the lease. */
+#define WIT_NOT_A_SOCKET (-0x10002L) /* outside the errno range */
+int __wit_is_socket_call(long n);
+long __wit_socket_call(long n, long a1, long a2, long a3, long a4, long a5, long a6);
+long __wit_socket_transfer(long n, long fd, long a2, long a3);
+long __wit_socket_ioctl(long fd, long command, void *argument);
+short __wit_socket_poll(WitU32 index, short events);
+void __wit_socket_reference(WitU32 index);
+void __wit_socket_release(WitU32 index);
+void __wit_socket_flush(void);
+long __wit_socket_open(WitU32 index, int flags); /* files.c, under the table lock */
+long __wit_socket_of(long fd, WitU32 *index, int *nonblocking); /* files.c, under the table lock */
+long __wit_socket_install(WitU32 index, int flags); /* syscall.c: takes the table lock */
+long __wit_socket_lookup(long fd, WitU32 *index, int *nonblocking); /* syscall.c: takes the table lock */
+long __wit_socket_nonblocking(long fd, int nonblocking); /* syscall.c: FIONBIO as F_SETFL */
+void __wit_resolv_refresh(void);
+WitU32 __wit_resolv_text(unsigned char *buffer, WitU32 capacity);
+int __wit_resolv_present(void);
 long __wit_memfd_create(const char *name, long flags);
 long __wit_descriptor_capacity(void);
 long __wit_ftruncate(long fd, long size);

@@ -13,7 +13,8 @@
  * spawn request say how many standard streams the requester gives the new process as pipes (WitSpawnRequest's
  * Streams), which the requester sends on the grant after the start (witos/start.h, WitStreamMessage). Version 5
  * (N4.3) lets a service's ready answer name in Capabilities the endpoints its handle slots carry for the processes the
- * manager starts afterwards: the namespace's clients' endpoint, then the terminal's (witos/terminal.h). */
+ * manager starts afterwards: the namespace's clients' endpoint, then the terminal's (witos/terminal.h), then, since
+ * W2.1a, the network service's (witos/socket.h). */
 #define WIT_MANAGER_VERSION 5U
 #define WIT_MANAGER_SPAWN 1U /* start a program of the boot package */
 
@@ -61,11 +62,12 @@ WIT_STATIC_ASSERT(sizeof(WitSpawnRequest) == 64, "Spawn request");
  * a driver's ready answer carries the channel of the service it offers in its one slot and names nothing (witos/driver.h). */
 #define WIT_SERVICE_NAMESPACE 1U /* the namespace service's clients' endpoint (D5.1, witos/namespace.h) */
 #define WIT_SERVICE_TERMINAL 2U /* the terminal service's clients' endpoint (N4.3, witos/terminal.h) */
+#define WIT_SERVICE_NETWORK 4U /* the network service's clients' endpoint (W2.1a, witos/socket.h) */
 
 typedef struct WitServiceStatus {
     WitU32 Version, Size; /* WIT_MANAGER_VERSION, the size of this structure */
     WitU32 Error;
-    WitU32 Capabilities; /* WIT_SERVICE_NAMESPACE, WIT_SERVICE_TERMINAL; zero before version 5 */
+    WitU32 Capabilities; /* WIT_SERVICE_NAMESPACE, WIT_SERVICE_TERMINAL, WIT_SERVICE_NETWORK; zero before version 5 */
 } WitServiceStatus;
 
 WIT_STATIC_ASSERT(sizeof(WitServiceStatus) == 16, "Service status");

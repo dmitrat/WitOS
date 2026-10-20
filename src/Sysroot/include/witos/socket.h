@@ -40,7 +40,7 @@
 #define WIT_SOCKET_SHUTDOWN 9U /* Socket, Argument[0] SHUT_RD, SHUT_WR or SHUT_RDWR (W1.2b) */
 #define WIT_SOCKET_CLOSE 10U /* Socket */
 #define WIT_SOCKET_NAME 11U /* Socket, Flags WIT_SOCKET_PEER for the peer's: the reply's Address */
-#define WIT_SOCKET_POLL 12U /* Socket: the reply's Value, the readiness (WIT_SOCKET_READABLE...) */
+#define WIT_SOCKET_POLL 12U /* Socket: the reply's Value, the readiness (WIT_SOCKET_READABLE...); Length, FIONREAD's */
 #define WIT_SOCKET_GET_OPTION 13U /* Socket, Argument[0] the level, Argument[1] the name: the reply's Value */
 #define WIT_SOCKET_SET_OPTION 14U /* Socket, Argument[0] the level, Argument[1] the name, Argument[2] the value */
 #define WIT_SOCKET_CONFIGURATION 15U /* the interface and its lease, a WitSocketConfiguration at Window */

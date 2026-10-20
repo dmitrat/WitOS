@@ -83,6 +83,11 @@ public sealed class UdpSocket
     public int Id { get; }
 
     /// <summary>
+    /// The oldest datagram's payload bytes; zero when none waits (Linux's FIONREAD of a datagram socket).
+    /// </summary>
+    public int NextLength => m_received.Count > 0 ? m_received.Peek().Payload.Length : 0;
+
+    /// <summary>
     /// The local address: Any until bound to one of the stack's.
     /// </summary>
     public Ipv4Address LocalAddress { get; internal set; }

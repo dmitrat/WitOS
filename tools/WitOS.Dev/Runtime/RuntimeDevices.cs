@@ -179,6 +179,11 @@ internal static class RuntimeDevices
     /// </summary>
     public const string DEVICES_INIT = "tests/User/devices_init.c";
 
+    /// <summary>
+    /// The libc's sockets over the network service (W2.1a): /bin/sockets-check, which /bin/init starts.
+    /// </summary>
+    public const string SOCKETS_CHECK = "tests/User/sockets_check.c";
+
     // QEMU's user networking (slirp): the first address its DHCP server leases, its gateway and its DNS forwarder (W1.2a).
     private const string NETWORK_ADDRESS = "10.0.2.15";
     private const string NETWORK_GATEWAY = "10.0.2.2";
@@ -190,6 +195,7 @@ internal static class RuntimeDevices
     private const ushort NETWORK_LISTEN_PORT = 8080;
     private const string NETWORK_LISTENING = "[DEVICES] network: listening on port 8080 for the runner";
     private const int NETWORK_INBOUND_BYTES = 256 * 1024;
+    private const string SOCKETS_LISTENING = "[SOCKETS] listening on port 8080 for the runner";
 
     // The source folders of OutWit.OS every service compiles; never obj or bin, which a host build leaves.
     private static readonly string[] OUTWIT_OS_FOLDERS =
@@ -268,7 +274,12 @@ internal static class RuntimeDevices
                 // connects to through a port forward once the probe says it listens.
                 NetworkEcho = true,
                 NetworkForward = NETWORK_LISTEN_PORT,
-                Actions = [new BootAction(NETWORK_LISTENING, BootActionKind.Connect, NETWORK_INBOUND_BYTES.ToString(CultureInfo.InvariantCulture))],
+                Actions =
+                [
+                    new BootAction(NETWORK_LISTENING, BootActionKind.Connect, NETWORK_INBOUND_BYTES.ToString(CultureInfo.InvariantCulture)),
+                    // The libc's sockets (W2.1a): the same exchange with /bin/sockets-check, a process like any other.
+                    new BootAction(SOCKETS_LISTENING, BootActionKind.Connect, NETWORK_INBOUND_BYTES.ToString(CultureInfo.InvariantCulture))
+                ],
                 CutAfter = boot == CUT_BOOT ? CUT_AFTER : null,
                 CutJitterMilliseconds = CUT_JITTER_MILLISECONDS,
                 DataDiskReadErrors = failing
@@ -447,6 +458,12 @@ internal static class RuntimeDevices
     [
         "[DEVICES-INIT] POSIX files over the namespace service: ",
         " checks passed, 0 failed",
+        // The libc's sockets (W2.1a): /bin/sockets-check's checks, the runner's echo server and the runner's connection.
+        "[SOCKETS] sockets over the network service: ",
+        $"[SOCKETS] {NETWORK_INBOUND_BYTES} bytes echoed by the runner through 10.0.2.100:7, unchanged",
+        SOCKETS_LISTENING,
+        $"[SOCKETS] echoed {NETWORK_INBOUND_BYTES} bytes back to the runner's connection from {NETWORK_GATEWAY}, inbound through the port forward",
+        "[DEVICES-INIT] /bin/sockets-check exited with 0",
         $"[FILES] System.IO over the namespace service under NativeAOT on {architecture.OsArchitecture}: " +
             "10 areas passed, 0 failed",
         $"[DEVICES-INIT] /data/{RuntimeExt4Volume.PROGRAMS}/files/Files exited with 0",
@@ -483,11 +500,15 @@ internal static class RuntimeDevices
         var init = Path.Combine(output, "devices_init.o");
         await MuslLibc.CompileAsync(root, architecture, Path.Combine(root, DEVICES_INIT), init, LibWitos.Options(root));
         var initProgram = await MuslLibc.LinkStartedProgramAsync(root, architecture, output, "devices_init", [init]);
+        var sockets = Path.Combine(output, "sockets_check.o");
+        await MuslLibc.CompileAsync(root, architecture, Path.Combine(root, SOCKETS_CHECK), sockets, []);
+        var socketsProgram = await MuslLibc.LinkStartedProgramAsync(root, architecture, output, "sockets_check", [sockets]);
         // The .NET install of R5 (D5.3: dotnet runs the application on the volume), whose dynamic linker and C++ runtime
         // the services share.
         IEnumerable<(string Name, string Source)> package =
         [
-            .. services, ("bin/init", initProgram), .. await RuntimeWitos.InstallFilesAsync(root, output, architecture)
+            .. services, ("bin/init", initProgram), ("bin/sockets-check", socketsProgram),
+            .. await RuntimeWitos.InstallFilesAsync(root, output, architecture)
         ];
         return [.. package.DistinctBy(file => file.Name)];
     }

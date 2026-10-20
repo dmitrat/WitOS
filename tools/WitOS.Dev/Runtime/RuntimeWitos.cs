@@ -759,6 +759,10 @@ internal static class RuntimeWitos
         await File.WriteAllTextAsync(passwd, "root:x:0:0:root:/data/home:\n");
         var group = Path.Combine(output, "group");
         await File.WriteAllTextAsync(group, "root:x:0:\n");
+        // The host names (W2.1a), which musl's resolver reads before it asks the DNS server /etc/resolv.conf names: the
+        // loopback's; the machine has no name of its own yet.
+        var hosts = Path.Combine(output, "hosts");
+        await File.WriteAllTextAsync(hosts, "127.0.0.1\tlocalhost\n::1\tlocalhost\n");
         // The default environment of every process (N4.1), which the root task reads and gives /bin/init: PATH, and the
         // home of the one account, as /etc/passwd names it: /data/home on the data volume (C1.2), which the namespace
         // service makes when it mounts /data, since the package is read-only and programs such as PowerShell create
@@ -787,7 +791,8 @@ internal static class RuntimeWitos
             .. await Terminfo.PackageFilesAsync(root),
             // The console marks (C1.4), which an interactive session's profile renders; nothing of the system prints them.
             .. ConsoleLogo.PackageFiles(root),
-            ("etc/dotnet/install_location", installLocation), ("etc/passwd", passwd), ("etc/group", group), ("etc/environment", environment),
+            ("etc/dotnet/install_location", installLocation), ("etc/passwd", passwd), ("etc/group", group), ("etc/hosts", hosts),
+            ("etc/environment", environment),
             ("dotnet/dotnet", Path.Combine(corehost, "dotnet")),
             ($"dotnet/host/fxr/{version}/libhostfxr.so", Path.Combine(corehost, "libhostfxr.so")),
             .. shared.Select(file => ($"dotnet/shared/Microsoft.NETCore.App/{version}/{file.Name}", file.Source))

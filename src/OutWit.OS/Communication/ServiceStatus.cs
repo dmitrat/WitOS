@@ -36,6 +36,11 @@ public static class ServiceStatus
     /// </summary>
     public const uint TERMINAL = 2;
 
+    /// <summary>
+    /// WIT_SERVICE_NETWORK: the ready answer carries the network service's clients' endpoint (W2.1a).
+    /// </summary>
+    public const uint NETWORK = 4;
+
     #endregion
 
     #region Functions
@@ -75,7 +80,7 @@ public static class ServiceStatus
         bytes.Length == SIZE &&
         BinaryPrimitives.ReadUInt32LittleEndian(bytes) == VERSION &&
         BinaryPrimitives.ReadUInt32LittleEndian(bytes[4..]) == SIZE &&
-        (BinaryPrimitives.ReadUInt32LittleEndian(bytes[12..]) & ~(NAMESPACE | TERMINAL)) == 0
+        (BinaryPrimitives.ReadUInt32LittleEndian(bytes[12..]) & ~(NAMESPACE | TERMINAL | NETWORK)) == 0
             ? (int)BinaryPrimitives.ReadUInt32LittleEndian(bytes[8..])
             : PROTOCOL_ERROR;
 

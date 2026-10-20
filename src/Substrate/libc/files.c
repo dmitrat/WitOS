@@ -59,14 +59,15 @@ typedef enum Kind {
     KindNull, /* /dev/null: reads nothing, accepts writes */
     KindZero, /* /dev/zero: reads zeros, accepts writes */
     KindRandom, /* /dev/urandom and /dev/random: read the kernel's entropy, accept writes, as Linux's do */
-    KindMounts, /* /etc/mtab: the mount table the libc serves from the namespace's mount points (namespace.c, C1.2) */
+    KindText, /* a text the libc makes: /etc/mtab (Index 0, namespace.c, C1.2), /etc/resolv.conf (Index 1, W2.1a) */
     KindStream, /* a duplicate of standard stream Index (0, 1 or 2) */
     KindPipeRead, /* the read end of pipe Index (pipe.c) */
     KindPipeWrite, /* the write end of pipe Index */
     KindShared, /* shared memory file Index (shared.c, R3.2b) */
     KindRemoteFile, /* a file of a mounted volume, remote record Index (namespace.c, D5.1) */
     KindRemoteDirectory, /* a directory of a mounted volume, remote record Index */
-    KindEpoll /* an epoll instance Index (epoll.c, N4.2) */
+    KindEpoll, /* an epoll instance Index (epoll.c, N4.2) */
+    KindSocket /* a socket, record Index of socket.c (W2.1a) */
 } Kind;
 
 typedef struct Descriptor {
@@ -269,18 +270,28 @@ static long normalize(const char *path, unsigned char *out, WitU32 *out_length)
 }
 
 /* The entry of a name, or the first entry under a directory's prefix; -1 when neither. */
-/* /etc/mtab (C1.2): the mount table in mntent form, served from the mount points the namespace service names
- * (namespace.c), so that System.Native's DriveInfo.GetDrives() and PowerShell's root drive see the volumes; read-only, a
- * regular file to stat, and absent from the package's directory listing, as the devices are. */
-static int is_mounts_name(const unsigned char *name, WitU32 length)
+/* The texts the libc makes: /etc/mtab (C1.2), the mount table in mntent form, served from the mount points the
+ * namespace service names (namespace.c), so that System.Native's DriveInfo.GetDrives() and PowerShell's root drive see
+ * the volumes; and /etc/resolv.conf (W2.1a), the DNS servers of the network service's lease (socket.c), for musl's
+ * resolver, there only in a process that has the service. Each read-only, a regular file to stat, and absent from the
+ * package's directory listing, as the devices are. -1 for a name that is neither. */
+static int text_name(const unsigned char *name, WitU32 length)
 {
-    return length == 8 && memcmp(name, "etc/mtab", 8) == 0;
+    if (length == 8 && memcmp(name, "etc/mtab", 8) == 0) {
+        return 0;
+    }
+    return length == 15 && memcmp(name, "etc/resolv.conf", 15) == 0 && __wit_resolv_present() ? 1 : -1;
 }
 
-static long read_mounts(void *buffer, long bytes, WitU64 offset)
+static WitU32 text_of(WitU32 index, unsigned char *text, WitU32 capacity)
+{
+    return index == 0 ? __wit_mounts_text(text, capacity) : __wit_resolv_text(text, capacity);
+}
+
+static long read_text(WitU32 index, void *buffer, long bytes, WitU64 offset)
 {
     unsigned char text[WIT_MOUNTS_TEXT_BYTES];
-    const WitU32 length = __wit_mounts_text(text, sizeof(text));
+    const WitU32 length = text_of(index, text, sizeof(text));
     if (offset >= length) {
         return 0;
     }
@@ -290,10 +301,10 @@ static long read_mounts(void *buffer, long bytes, WitU64 offset)
     return (long)moved;
 }
 
-static WitU64 mounts_length(void)
+static WitU64 text_length(WitU32 index)
 {
     unsigned char text[WIT_MOUNTS_TEXT_BYTES];
-    return __wit_mounts_text(text, sizeof(text));
+    return text_of(index, text, sizeof(text));
 }
 
 static int is_random_device(const unsigned char *name, WitU32 length)
@@ -446,6 +457,9 @@ static void close_descriptor(Descriptor *d)
     }
     if (d->Kind == KindEpoll) {
         __wit_epoll_release(d->Index);
+    }
+    if (d->Kind == KindSocket) {
+        __wit_socket_release(d->Index); /* its CLOSE goes after the table lock (socket.c) */
     }
     if (--descriptions[d->Description].References == 0) {
         unlock_description(&descriptions[d->Description]); /* a description's lock ends with its last descriptor */
@@ -685,8 +699,10 @@ long __wit_openat(long dirfd, const char *path, long flags, long mode)
     if (is_random_device(name, length)) {
         return open_descriptor(KindRandom, 0, 0, (int)flags);
     }
-    if (is_mounts_name(name, length)) {
-        return (flags & O_ACCMODE) != O_RDONLY ? -EROFS : open_descriptor(KindMounts, 0, 0, (int)flags);
+    if (text_name(name, length) >= 0) {
+        return (flags & O_ACCMODE) != O_RDONLY
+            ? -EROFS
+            : open_descriptor(KindText, (WitU32)text_name(name, length), 0, (int)flags);
     }
     if ((flags & O_ACCMODE) != O_RDONLY) {
         return -EROFS;
@@ -810,7 +826,7 @@ long __wit_fchmodat(long dirfd, const char *path, long mode)
     if (__wit_remote_name(name, length)) {
         return __wit_remote_chmod(name, length, mode);
     }
-    if (is_mounts_name(name, length)) {
+    if (text_name(name, length) >= 0) {
         return -EROFS;
     }
     if (shared_directory(name, length) ||
@@ -891,7 +907,7 @@ long __wit_utimensat(long dirfd, const char *path, const struct timespec *times,
     if (__wit_remote_name(name, length)) {
         return __wit_remote_utimes(name, length, &record, want);
     }
-    if (is_mounts_name(name, length)) {
+    if (text_name(name, length) >= 0) {
         return -EROFS;
     }
     if (shared_directory(name, length) ||
@@ -1051,8 +1067,8 @@ long __wit_read(long fd, void *buffer, long bytes)
     if (d->Kind == KindRandom) {
         return read_random(buffer, bytes);
     }
-    if (d->Kind == KindMounts) {
-        const long moved = read_mounts(buffer, bytes, POSITION(d));
+    if (d->Kind == KindText) {
+        const long moved = read_text(d->Index, buffer, bytes, POSITION(d));
         if (moved > 0) {
             POSITION(d) += (WitU64)moved;
         }
@@ -1100,6 +1116,9 @@ long __wit_pread(long fd, void *buffer, long bytes, long offset)
     if (d->Kind == KindDirectory || d->Kind == KindRemoteDirectory) {
         return -EISDIR;
     }
+    if (d->Kind == KindSocket) {
+        return -ESPIPE;
+    }
     if (d->Kind == KindNull) {
         return 0;
     }
@@ -1110,8 +1129,8 @@ long __wit_pread(long fd, void *buffer, long bytes, long offset)
     if (d->Kind == KindRandom) {
         return read_random(buffer, bytes);
     }
-    if (d->Kind == KindMounts) {
-        return read_mounts(buffer, bytes, (WitU64)offset);
+    if (d->Kind == KindText) {
+        return read_text(d->Index, buffer, bytes, (WitU64)offset);
     }
     if (d->Kind == KindRemoteFile) {
         return (descriptions[d->Description].StatusFlags & O_ACCMODE) == O_WRONLY
@@ -1161,7 +1180,7 @@ static long write_at(Descriptor *d, const void *buffer, long bytes, long offset)
     if (d->Kind == KindNull || d->Kind == KindZero || d->Kind == KindRandom) {
         return bytes;
     }
-    if (d->Kind == KindMounts) {
+    if (d->Kind == KindText) {
         return -EBADF; /* opened for reading alone (C1.2) */
     }
     if (d->Kind == KindRemoteFile) {
@@ -1244,7 +1263,7 @@ long __wit_pwrite(long fd, const void *buffer, long bytes, long offset)
     if (!d) {
         return __wit_stream_of(fd) >= 0 ? -ESPIPE : -EBADF;
     }
-    if (d->Kind == KindStream || d->Kind == KindPipeRead || d->Kind == KindPipeWrite) {
+    if (d->Kind == KindStream || d->Kind == KindPipeRead || d->Kind == KindPipeWrite || d->Kind == KindSocket) {
         return -ESPIPE;
     }
     return offset < 0 ? -EINVAL : write_at(d, buffer, bytes, offset);
@@ -1261,7 +1280,9 @@ long __wit_fsync(long fd)
     if (d->Kind == KindRemoteFile || d->Kind == KindRemoteDirectory) {
         return __wit_remote_sync(d->Index);
     }
-    return d->Kind == KindStream || d->Kind == KindPipeRead || d->Kind == KindPipeWrite ? -EINVAL : 0;
+    return d->Kind == KindStream || d->Kind == KindPipeRead || d->Kind == KindPipeWrite || d->Kind == KindSocket
+        ? -EINVAL
+        : 0;
 }
 
 long __wit_lseek(long fd, long offset, long whence)
@@ -1270,7 +1291,7 @@ long __wit_lseek(long fd, long offset, long whence)
     if (!d) {
         return __wit_stream_of(fd) >= 0 ? -ESPIPE : -EBADF;
     }
-    if (d->Kind == KindStream || d->Kind == KindPipeRead || d->Kind == KindPipeWrite) {
+    if (d->Kind == KindStream || d->Kind == KindPipeRead || d->Kind == KindPipeWrite || d->Kind == KindSocket) {
         return -ESPIPE;
     }
     WitU64 length = d->Kind == KindShared ? __wit_shared_size(d->Index) : 0;
@@ -1288,8 +1309,8 @@ long __wit_lseek(long fd, long offset, long whence)
         WitU64 data;
         entry(d->Index, &name, &name_length, &data, &length);
     }
-    if (d->Kind == KindMounts) {
-        length = mounts_length();
+    if (d->Kind == KindText) {
+        length = text_length(d->Index);
     }
     WitU64 base;
     switch (whence) {
@@ -1382,8 +1403,12 @@ static void fill_stat(struct kstat *st, Kind kind, WitU32 index, WitU64 length)
         st->st_dev = 4; /* an anonymous inode, as Linux reports an epoll instance */
         st->st_ino = (ino_t)index + 1;
         st->st_mode = S_IFREG | 0600;
-    } else if (kind == KindMounts) {
-        st->st_ino = 5; /* the mount table (C1.2) */
+    } else if (kind == KindSocket) {
+        st->st_dev = 6; /* sockfs, as Linux reports a socket */
+        st->st_ino = (ino_t)index + 1;
+        st->st_mode = S_IFSOCK | 0777;
+    } else if (kind == KindText) {
+        st->st_ino = 5 + index; /* the mount table (C1.2), resolv.conf (W2.1a) */
         st->st_mode = S_IFREG | 0444;
         st->st_size = (off_t)length;
         st->st_blocks = (blkcnt_t)((length + 511) / 512);
@@ -1421,8 +1446,8 @@ long __wit_fstatat(long dirfd, const char *path, struct kstat *st, long flags)
             return __wit_remote_fstat(d->Index, st);
         }
         WitU64 data = 0, file_length = d->Kind == KindShared ? __wit_shared_size(d->Index) : 0;
-        if (d->Kind == KindMounts) {
-            file_length = mounts_length();
+        if (d->Kind == KindText) {
+            file_length = text_length(d->Index);
         }
         if (d->Kind == KindFile) {
             const unsigned char *n;
@@ -1438,8 +1463,8 @@ long __wit_fstatat(long dirfd, const char *path, struct kstat *st, long flags)
     if (__wit_remote_name(name, length)) {
         return __wit_remote_stat(name, length, st);
     }
-    if (is_mounts_name(name, length)) {
-        fill_stat(st, KindMounts, 0, mounts_length());
+    if (text_name(name, length) >= 0) {
+        fill_stat(st, KindText, (WitU32)text_name(name, length), text_length((WitU32)text_name(name, length)));
         return 0;
     }
     if ((length == 8 && (memcmp(name, "dev/null", 8) == 0 || memcmp(name, "dev/zero", 8) == 0)) ||
@@ -1499,7 +1524,7 @@ long __wit_faccessat(long dirfd, const char *path, long mode)
         return (mode & X_OK) && !(st.st_mode & 0111) ? -EACCES
                                                      : 0; /* a write the volume refuses fails when it is made */
     }
-    if (is_mounts_name(name, length)) {
+    if (text_name(name, length) >= 0) {
         return (mode & W_OK) ? -EROFS : (mode & X_OK) ? -EACCES : 0;
     }
     if ((length == 8 && (memcmp(name, "dev/null", 8) == 0 || memcmp(name, "dev/zero", 8) == 0)) ||
@@ -1736,6 +1761,30 @@ long __wit_epoll_instance(long epfd, WitU32 *index)
     return 0;
 }
 
+/* socket() and accept() (W2.1a): a descriptor over a socket record of socket.c, which the descriptor's reference is.
+ * Under the table lock. */
+long __wit_socket_open(WitU32 index, int flags)
+{
+    return open_descriptor(KindSocket, index, 0, O_RDWR | (flags & (O_NONBLOCK | O_CLOEXEC)));
+}
+
+/* The socket a descriptor names, with a reference for the call the caller makes outside the table lock: 1, 0 for a
+ * descriptor that is no socket, -EBADF for none. Under the table lock. */
+long __wit_socket_of(long fd, WitU32 *index, int *nonblocking)
+{
+    const Descriptor *d = descriptor(fd);
+    if (!d) {
+        return __wit_stream_of(fd) >= 0 ? 0 : -EBADF;
+    }
+    if (d->Kind != KindSocket) {
+        return 0;
+    }
+    *index = d->Index;
+    *nonblocking = (descriptions[d->Description].StatusFlags & O_NONBLOCK) != 0;
+    __wit_socket_reference(d->Index);
+    return 1;
+}
+
 /* The pipe an end descriptor names, with a reference for the transfer the caller makes outside the table lock. */
 int __wit_pipe_of(long fd, WitU32 *index, int *write_end, int *nonblocking)
 {
@@ -1887,6 +1936,9 @@ static void duplicate_into(long target, long stream, const Descriptor *source, i
     if (source->Kind == KindEpoll) {
         __wit_epoll_reference(source->Index);
     }
+    if (source->Kind == KindSocket) {
+        __wit_socket_reference(source->Index);
+    }
 }
 
 /* dup and F_DUPFD: the lowest free descriptor at or above lowest. */
@@ -1970,7 +2022,7 @@ long __wit_fcntl(long fd, long command, long argument)
 int __wit_is_file_descriptor(long fd)
 {
     const Descriptor *d = descriptor(fd);
-    return d && d->Kind != KindStream && d->Kind != KindPipeRead && d->Kind != KindPipeWrite;
+    return d && d->Kind != KindStream && d->Kind != KindPipeRead && d->Kind != KindPipeWrite && d->Kind != KindSocket;
 }
 
 /* FIONREAD of a pipe's read end: -ENOTTY for anything else. */

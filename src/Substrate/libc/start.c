@@ -20,7 +20,7 @@
 
 WitProcessContext __wit_process;
 
-#define OPTIONAL 4U /* the optional capabilities: the manager, the grant, the namespace, the terminal */
+#define OPTIONAL 5U /* the optional capabilities: the manager, the grant, the namespace, the terminal, the network */
 
 static __attribute__((__noreturn__)) void refuse(void)
 {
@@ -104,10 +104,11 @@ static void receive_streams(WitU32 count)
 
 void __wit_start_program(const unsigned long *stack)
 {
-    static const WitU32 bits[OPTIONAL] = {WIT_START_MANAGER, WIT_START_GRANT, WIT_START_NAMESPACE, WIT_START_TERMINAL};
+    static const WitU32 bits[OPTIONAL] = {
+        WIT_START_MANAGER, WIT_START_GRANT, WIT_START_NAMESPACE, WIT_START_TERMINAL, WIT_START_NETWORK};
     WitU64 endpoint = start_endpoint(stack), result = 0, status;
     WitU64 handles[WIT_START_HANDLES_MAXIMUM] = {0, 0, 0, 0};
-    WitU64 optional[OPTIONAL] = {0, 0, 0, 0};
+    WitU64 optional[OPTIONAL] = {0, 0, 0, 0, 0};
 
     union {
         WitStartMessage Header;
@@ -161,6 +162,7 @@ void __wit_start_program(const unsigned long *stack)
     __wit_process.Grant = message.Capabilities & WIT_START_GRANT ? optional[next++] : 0;
     __wit_process.Namespace = message.Capabilities & WIT_START_NAMESPACE ? optional[next++] : 0;
     __wit_process.Terminal = message.Capabilities & WIT_START_TERMINAL ? optional[next++] : 0;
+    __wit_process.Network = message.Capabilities & WIT_START_NETWORK ? optional[next++] : 0;
     __wit_process.ClosedStreams = message.ClosedStreams;
     wit_syscall(WIT_CALL_HANDLE_CLOSE, endpoint, 0, 0, &result);
     if (message.Streams) {

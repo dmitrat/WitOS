@@ -31,6 +31,8 @@ typedef struct witos_spawn_options {
                                   for none */
     WitU64 terminal_endpoint; /* the terminal's clients' endpoint (N4.3), duplicated with SEND into the process; zero
                                  for none */
+    WitU64 network_endpoint; /* the network service's clients' endpoint (W2.1a), duplicated with SEND into the process;
+                                zero for none */
 } witos_spawn_options;
 
 /* witos_spawn with options; null options are witos_spawn's. */
