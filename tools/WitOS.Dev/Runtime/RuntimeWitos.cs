@@ -230,6 +230,7 @@ internal static class RuntimeWitos
         ["src/coreclr/pal/src/thread/process.cpp"] = "src.coreclr.pal.src.thread.process.cpp",
         ["src/coreclr/vm/gcenv.ee.cpp"] = "src.coreclr.vm.gcenv.ee.cpp",
         ["src/coreclr/pal/src/init/pal.cpp"] = "src.coreclr.pal.src.init.pal.cpp",
+        ["src/coreclr/vm/peimagelayout.cpp"] = "src.coreclr.vm.peimagelayout.cpp",
         // CoreCLR on riscv64 (V2.4): the thread statics' offset without an initial-exec relocation, which the dynamic linker
         // refuses in a library dlopen opens, and no JIT inlining of that offset, which is the current thread's.
         ["src/coreclr/vm/riscv64/asmhelpers.S"] = "src.coreclr.vm.riscv64.asmhelpers.S",

@@ -1014,6 +1014,48 @@ int main(void)
                 (after.tv_sec == monotonic.tv_sec && after.tv_nsec >= monotonic.tv_nsec + 2000000L)),
         "nanosleep advanced the clock");
 
+    /* A mapping flipped between writable and executable (S8.2), as CoreCLR writes a ReadyToRun image's relocations
+     * through a writable window and then restores the section's protection: a shared memory file's page takes code
+     * through a writable mapping, runs once executable, takes new code once writable again and runs it, published by
+     * the libc at each mprotect that makes it executable; writable and executable at once stays refused, and plain
+     * memory never executes. The code returns 42, then 43. */
+    {
+#if defined(__x86_64__)
+        static const unsigned char code_42[] = {0xb8, 42, 0, 0, 0, 0xc3}, code_43[] = {0xb8, 43, 0, 0, 0, 0xc3};
+#elif defined(__aarch64__)
+        static const unsigned char code_42[] = {0x40, 0x05, 0x80, 0x52, 0xc0, 0x03, 0x5f, 0xd6}; /* mov w0, #42; ret */
+        static const unsigned char code_43[] = {0x60, 0x05, 0x80, 0x52, 0xc0, 0x03, 0x5f, 0xd6};
+#else
+        static const unsigned char code_42[] = {0x13, 0x05, 0xa0, 0x02, 0x67, 0x80, 0x00, 0x00}; /* li a0, 42; ret */
+        static const unsigned char code_43[] = {0x13, 0x05, 0xb0, 0x02, 0x67, 0x80, 0x00, 0x00};
+#endif
+        const int flip_fd = memfd_create("flip", 0);
+        check(flip_fd >= 0 && ftruncate(flip_fd, 4096) == 0, "a shared memory file for code");
+        unsigned char *flip = mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, flip_fd, 0);
+        check(flip != MAP_FAILED, "its writable mapping");
+        if (flip != MAP_FAILED) {
+            int (*run)(void);
+            memcpy(flip, code_42, sizeof(code_42));
+            check(mprotect(flip, 4096, PROT_READ | PROT_EXEC) == 0, "the mapping made executable");
+            memcpy(&run, &flip, sizeof(run));
+            check(run() == 42, "the code runs");
+            check(mprotect(flip, 4096, PROT_READ | PROT_WRITE) == 0, "the mapping made writable again");
+            memcpy(flip, code_43, sizeof(code_43));
+            check(mprotect(flip, 4096, PROT_READ | PROT_EXEC) == 0, "the mapping made executable again");
+            check(run() == 43, "the new code runs");
+            check(mprotect(flip, 4096, PROT_READ | PROT_WRITE | PROT_EXEC) == -1 && errno == EACCES,
+                "writable and executable at once is refused");
+            check(munmap(flip, 4096) == 0, "the flipped mapping unmapped");
+        }
+        close(flip_fd);
+        unsigned char *plain = mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        check(plain != MAP_FAILED && mprotect(plain, 4096, PROT_READ | PROT_EXEC) == -1 && errno == EACCES,
+            "plain memory never executes");
+        if (plain != MAP_FAILED) {
+            munmap(plain, 4096);
+        }
+    }
+
     /* Thread-local storage of the main thread, the terminal check and the system name. */
     thread_local_value += 1;
     check(thread_local_value == 42, "thread-local variable");
