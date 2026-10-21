@@ -185,6 +185,12 @@ internal static class RuntimeDevices
     public const string SOCKETS_CHECK = "tests/User/sockets_check.c";
 
     /// <summary>
+    /// The libc's local sockets (W4.1): /bin/local-sockets-check, which /bin/init starts and which starts itself as a
+    /// child.
+    /// </summary>
+    public const string LOCAL_SOCKETS_CHECK = "tests/User/local_sockets_check.c";
+
+    /// <summary>
     /// The package file that tells the device manager's TCP probe that the runner connects to its port (W1.2b, W3.2), which
     /// this scenario's package holds and no other does.
     /// </summary>
@@ -470,6 +476,10 @@ internal static class RuntimeDevices
         SOCKETS_LISTENING,
         $"[SOCKETS] echoed {NETWORK_INBOUND_BYTES} bytes back to the runner's connection from {NETWORK_GATEWAY}, inbound through the port forward",
         "[DEVICES-INIT] /bin/sockets-check exited with 0",
+        // The libc's local sockets (W4.1): /bin/local-sockets-check's checks and its connection with a child of its own.
+        "[LOCAL-SOCKETS] 98304 bytes echoed by another process through /data/local-check-cross.sock, a dropped connection reset there",
+        "[LOCAL-SOCKETS] local sockets: ",
+        "[DEVICES-INIT] /bin/local-sockets-check exited with 0",
         $"[FILES] System.IO over the namespace service under NativeAOT on {architecture.OsArchitecture}: " +
             "10 areas passed, 0 failed",
         $"[DEVICES-INIT] /data/{RuntimeExt4Volume.PROGRAMS}/files/Files exited with 0",
@@ -509,6 +519,9 @@ internal static class RuntimeDevices
         var sockets = Path.Combine(output, "sockets_check.o");
         await MuslLibc.CompileAsync(root, architecture, Path.Combine(root, SOCKETS_CHECK), sockets, []);
         var socketsProgram = await MuslLibc.LinkStartedProgramAsync(root, architecture, output, "sockets_check", [sockets]);
+        var local = Path.Combine(output, "local_sockets_check.o");
+        await MuslLibc.CompileAsync(root, architecture, Path.Combine(root, LOCAL_SOCKETS_CHECK), local, []);
+        var localProgram = await MuslLibc.LinkStartedProgramAsync(root, architecture, output, "local_sockets_check", [local]);
         // The runner connects to the TCP probe's port in this scenario alone (W1.2b; W3.2: the other networked scenarios
         // reach the runner's servers or are reached on ports of their own), which the package tells the device manager.
         var inboundMark = Path.Combine(output, "tcp-probe-inbound");
@@ -517,7 +530,8 @@ internal static class RuntimeDevices
         // the services share.
         IEnumerable<(string Name, string Source)> package =
         [
-            .. services, ("bin/init", initProgram), ("bin/sockets-check", socketsProgram), (TCP_PROBE_INBOUND_MARK, inboundMark),
+            .. services, ("bin/init", initProgram), ("bin/sockets-check", socketsProgram), ("bin/local-sockets-check", localProgram),
+            (TCP_PROBE_INBOUND_MARK, inboundMark),
             .. await RuntimeWitos.InstallFilesAsync(root, output, architecture)
         ];
         return [.. package.DistinctBy(file => file.Name)];

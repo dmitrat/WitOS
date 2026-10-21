@@ -14,8 +14,11 @@
  * descriptor closes it at once, as on Linux: a look drops the entry once its descriptor no longer names that socket.
  * Its readiness is the network service's, asked outside the table lock (syscall.c: __wit_epoll_probes, the
  * questions, __wit_epoll_report), and its edge token the count of the session's readiness events, whatever their socket,
- * read before the question: the service drops an event its full queue cannot take and a client asks again after any. A file is EPERM, as Linux answers. Everything here
- * runs under the table lock but the park and the sockets' questions. */
+ * read before the question: the service drops an event its full queue cannot take and a client asks again after any. A local
+ * socket (unix.c, W4.1) registers as a network one does, by its record and its generation and without a reference, and
+ * its readiness and edge token come from its rings and its listener's queue under the table lock, as a pipe end's do.
+ * A file is EPERM, as Linux answers. Everything here runs under the table lock but the park and the sockets'
+ * questions. */
 #include <errno.h>
 #include <poll.h>
 #include <string.h>
@@ -38,7 +41,8 @@ typedef struct Entry {
     WitU32 Pipe; /* the pipe end it named at the registration, referenced; a socket's record */
     int WriteEnd;
     int Socket; /* a socket's registration (W2.1b), which holds no reference */
-    WitU32 SocketId; /* the socket's service identifier at the registration */
+    int Local; /* a local socket's registration (W4.1), which holds no reference either */
+    WitU32 SocketId; /* the socket's service identifier at the registration; a local socket's generation */
     WitU32 Events; /* the interest, with EPOLLET and EPOLLONESHOT */
     WitU64 Data;
     WitU64 Token; /* the edge last reported */
@@ -55,10 +59,23 @@ static Instance instances[EPOLLS];
 
 static void drop(Entry *e)
 {
-    if (!e->Socket) {
+    if (!e->Socket && !e->Local) {
         __wit_pipe_release(e->Pipe);
     }
     memset(e, 0, sizeof(*e));
+}
+
+/* Whether a local socket's registration still names its socket: the descriptor names the same record of the same
+ * generation. */
+static int local_named(const Entry *e)
+{
+    WitU32 local = 0;
+    int nonblocking = 0;
+    if (__wit_local_of(e->Fd, &local, &nonblocking) <= 0) {
+        return 0;
+    }
+    __wit_local_release(local); /* the look's own reference; the descriptor holds one, so nothing closes */
+    return local == e->Pipe && __wit_local_id(local) == e->SocketId;
 }
 
 /* Whether a socket's registration still names its socket: the descriptor names the same record with the same
@@ -80,6 +97,9 @@ static int stale(Entry *e)
 {
     if (e->Socket) {
         return !socket_named(e);
+    }
+    if (e->Local) {
+        return !local_named(e);
     }
     WitU32 pipe_index = 0;
     int write_end = 0, nonblocking = 0;
@@ -171,11 +191,21 @@ static long control(WitU32 index, int op, long fd, const struct epoll_event *eve
     int write_end = 0, nonblocking = 0;
     if (!__wit_pipe_of(fd, &pipe_index, &write_end, &nonblocking)) {
         WitU32 socket = 0;
-        const long named = __wit_socket_of(fd, &socket, &nonblocking);
+        int local = 1;
+        long named = __wit_local_of(fd, &socket, &nonblocking);
+        if (named == 0) {
+            local = 0;
+            named = __wit_socket_of(fd, &socket, &nonblocking);
+        }
         if (named <= 0) {
             return named < 0 ? named : -EPERM;
         }
-        __wit_socket_release(socket); /* a registration holds no reference: the descriptor's keeps the record */
+        /* A registration holds no reference: the descriptor's keeps the record. */
+        if (local) {
+            __wit_local_release(socket);
+        } else {
+            __wit_socket_release(socket);
+        }
         if (op == EPOLL_CTL_ADD) {
             if (found) {
                 return -EEXIST;
@@ -183,8 +213,8 @@ static long control(WitU32 index, int op, long fd, const struct epoll_event *eve
             if (!free_entry) {
                 return -ENOSPC;
             }
-            *free_entry =
-                (Entry){1, (int)fd, socket, 0, 1, __wit_socket_id(socket), event->events, event->data.u64, 0, 0, 0};
+            *free_entry = (Entry){1, (int)fd, socket, 0, !local, local,
+                local ? __wit_local_id(socket) : __wit_socket_id(socket), event->events, event->data.u64, 0, 0, 0};
             return 0;
         }
         if (!found) {
@@ -206,7 +236,7 @@ static long control(WitU32 index, int op, long fd, const struct epoll_event *eve
             __wit_pipe_release(pipe_index);
             return -ENOSPC;
         }
-        *free_entry = (Entry){1, (int)fd, pipe_index, write_end, 0, 0, event->events, event->data.u64, 0, 0, 0};
+        *free_entry = (Entry){1, (int)fd, pipe_index, write_end, 0, 0, 0, event->events, event->data.u64, 0, 0, 0};
         return 0;
     }
     __wit_pipe_release(pipe_index);
@@ -244,6 +274,33 @@ long __wit_epoll_collect(WitU32 index, struct epoll_event *events, int count)
         Entry *e = &in->Entries[i];
         if (!e->Used || e->Socket) {
             continue; /* a socket's readiness is asked outside the table lock (__wit_epoll_probes) */
+        }
+        if (e->Local) {
+            if (!local_named(e)) {
+                drop(e); /* the descriptor names another file now */
+                continue;
+            }
+            if (e->Disabled) {
+                continue;
+            }
+            WitU64 token = 0;
+            const short asked = (short)(((e->Events & EPOLLIN) ? POLLIN : 0) |
+                ((e->Events & EPOLLOUT) ? POLLOUT : 0) |
+                ((e->Events & EPOLLRDHUP) ? POLLRDHUP : 0));
+            const short polled = __wit_local_edge(e->Pipe, asked, &token);
+            const WitU32 got = got_of(polled) | ((polled & POLLRDHUP) ? EPOLLRDHUP : 0);
+            if (!got || ((e->Events & EPOLLET) && e->Reported && token == e->Token)) {
+                continue;
+            }
+            e->Reported = 1;
+            e->Token = token;
+            if (e->Events & EPOLLONESHOT) {
+                e->Disabled = 1;
+            }
+            events[ready].events = got;
+            events[ready].data.u64 = e->Data;
+            ++ready;
+            continue;
         }
         WitU32 pipe_index = 0;
         int write_end = 0, nonblocking = 0;

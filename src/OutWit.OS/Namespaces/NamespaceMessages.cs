@@ -104,6 +104,30 @@ public static class NamespaceMessages
     /// <summary>UTIMES, FUTIMES: the modification time is the service's now.</summary>
     public const uint TIME_MODIFIED_NOW = 0x800;
 
+    /// <summary>
+    /// WIT_NAMESPACE_SOCKET_BIND (W4.1): a local socket's name bound, the path or the abstract name in the window and the
+    /// type in Mode; the reply's Handle names the binding.
+    /// </summary>
+    public const uint SOCKET_BIND = 21;
+
+    /// <summary>
+    /// WIT_NAMESPACE_SOCKET_LISTEN (W4.1): a binding's socket listens; the request's one handle is the end its connections
+    /// are sent on.
+    /// </summary>
+    public const uint SOCKET_LISTEN = 22;
+
+    /// <summary>
+    /// WIT_NAMESPACE_SOCKET_CONNECT (W4.1): the name as SOCKET_BIND; the reply's one handle is a duplicate of the
+    /// listener's end.
+    /// </summary>
+    public const uint SOCKET_CONNECT = 23;
+
+    /// <summary>WIT_NAMESPACE_SOCKET_CLOSE (W4.1): a binding's socket closed.</summary>
+    public const uint SOCKET_CLOSE = 24;
+
+    /// <summary>SOCKET_BIND, SOCKET_CONNECT: an abstract name, not a path (W4.1).</summary>
+    public const uint ABSTRACT = 0x80;
+
     /// <summary>The bytes of the times of UTIMES and FUTIMES in the window (WitNamespaceTimes).</summary>
     public const int TIMES_SIZE = 24;
 
@@ -146,6 +170,9 @@ public static class NamespaceMessages
 
     /// <summary>Another kind.</summary>
     public const uint KIND_OTHER = 4;
+
+    /// <summary>A local socket's name (W4.1).</summary>
+    public const uint KIND_SOCKET = 5;
 
     /// <summary>A disk message's flag: the disk refuses writes.</summary>
     public const uint DISK_READ_ONLY = 0x1;

@@ -1,12 +1,14 @@
 // The .NET compatibility suite (plan step N1): every area's checks, each with a time limit, compared with the
 // differences expectations.json records for the platform it runs on. A check that fails without a recorded difference,
 // or passes where one is recorded, is unexpected; the run exits with 0 when nothing is.
+using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using DotNetCompatibility;
 
 // The suite as the child of its own process checks (Platform, N4.2): "--echo CODE" copies its input to its output,
-// reports on its error stream and exits with CODE; "--sleep" waits to be killed.
+// reports on its error stream and exits with CODE; "--sleep" waits to be killed; "--pipe NAME" (Ipc, W4.1) connects to
+// the named pipe, reads a line and answers it upper-cased.
 if (args is ["--echo", var code])
 {
     var input = await Console.In.ReadToEndAsync();
@@ -16,6 +18,16 @@ if (args is ["--echo", var code])
         $"DOTNET_COMPATIBILITY_CHILD={Environment.GetEnvironmentVariable("DOTNET_COMPATIBILITY_CHILD")}\n");
     await Console.Error.FlushAsync();
     return int.Parse(code);
+}
+if (args is ["--pipe", var pipeName])
+{
+    await using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut);
+    await pipe.ConnectAsync(30000);
+    using var reader = new StreamReader(pipe, leaveOpen: true);
+    await using var writer = new StreamWriter(pipe, leaveOpen: true) { AutoFlush = true };
+    var line = await reader.ReadLineAsync();
+    await writer.WriteLineAsync(line?.ToUpperInvariant());
+    return line is null ? 1 : 0;
 }
 if (args is ["--sleep"])
 {
@@ -36,7 +48,7 @@ IEnumerable<Check>[] areas =
 [
     PlatformChecks.All(), ConsoleChecks.All(), TaskChecks.All(), ThreadChecks.All(), TimerChecks.All(), ExceptionChecks.All(),
     ReflectionChecks.All(), FileChecks.All(), AssemblyLoadingChecks.All(), GcChecks.All(), SynchronizationChecks.All(),
-    GlobalizationChecks.All(), TimeZoneChecks.All(), TerminalChecks.All(), NetworkChecks.All(), CryptographyChecks.All()
+    GlobalizationChecks.All(), TimeZoneChecks.All(), TerminalChecks.All(), NetworkChecks.All(), CryptographyChecks.All(), IpcChecks.All()
 ];
 var checks = areas.SelectMany(area => area).ToList();
 // The compatibility matrix (Strategy §145, N4.5) lists the checks from the suite itself: "--list" prints each check's id

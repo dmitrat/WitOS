@@ -511,7 +511,7 @@ static long open_socket(long domain, long type, long protocol)
         return -EINVAL;
     }
     if (domain != AF_INET || !__wit_process.Network) {
-        return -EAFNOSUPPORT; /* AF_INET6 and AF_UNIX are not there yet (W4); .NET then speaks IPv4 alone */
+        return -EAFNOSUPPORT; /* AF_INET6 is not there yet (W4.3), .NET then speaks IPv4 alone; AF_UNIX is unix.c's (W4.1) */
     }
     make(&request, WIT_SOCKET_OPEN, 0);
     request.Argument[0] = AF_INET;
@@ -1025,7 +1025,7 @@ long __wit_socket_call(long n, long a1, long a2, long a3, long a4, long a5, long
     case SYS_socket:
         return open_socket(a1, a2, a3);
     case SYS_socketpair:
-        return a1 == AF_INET ? -EOPNOTSUPP : -EAFNOSUPPORT; /* AF_UNIX's pairs come with W4 */
+        return a1 == AF_INET ? -EOPNOTSUPP : -EAFNOSUPPORT; /* AF_UNIX's pairs are unix.c's (W4.1) */
     case SYS_bind:
         return bind_socket(a1, (const struct sockaddr *)a2, (socklen_t)a3);
     case SYS_connect:

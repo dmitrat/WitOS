@@ -14,7 +14,8 @@ namespace OutWit.OS.Namespace.Server;
 /// <summary>
 /// One client's session with the namespace (witos/namespace.h, plan step D5.1): the files and directories it opened,
 /// and each request answered as POSIX answers it — the mount a path lies on, the volume's operation, and the error as
-/// the one errno value a filesystem's error has.
+/// the one errno value a filesystem's error has. The names its local sockets bind (W4.1) are the mount table's, which a
+/// stat, a listing, an unlink and a rename see beside the volumes' entries.
 /// </summary>
 internal sealed class NamespaceSession : IAsyncDisposable
 {
@@ -33,6 +34,7 @@ internal sealed class NamespaceSession : IAsyncDisposable
     private readonly Dictionary<long, Opened> m_opened = [];
     private long m_next = 1;
     private KernelHandle? m_transfer;
+    private KernelHandle? m_received;
 
     #endregion
 
@@ -79,6 +81,10 @@ internal sealed class NamespaceSession : IAsyncDisposable
                 NamespaceMessages.FCHMOD => await ChangeHandleModeAsync(request, cancellationToken).ConfigureAwait(false),
                 NamespaceMessages.UTIMES => await SetTimesAsync(request, cancellationToken).ConfigureAwait(false),
                 NamespaceMessages.FUTIMES => await SetHandleTimesAsync(request, cancellationToken).ConfigureAwait(false),
+                NamespaceMessages.SOCKET_BIND => await BindSocketAsync(request, cancellationToken).ConfigureAwait(false),
+                NamespaceMessages.SOCKET_LISTEN => ListenSocket(request),
+                NamespaceMessages.SOCKET_CONNECT => await ConnectSocketAsync(request, cancellationToken).ConfigureAwait(false),
+                NamespaceMessages.SOCKET_CLOSE => CloseSocket(request),
                 _ => Fail(request, Errno.NOT_IMPLEMENTED)
             };
         }
@@ -118,6 +124,10 @@ internal sealed class NamespaceSession : IAsyncDisposable
             NamespaceMessages.FCHMOD => "fchmod",
             NamespaceMessages.UTIMES => "utimes",
             NamespaceMessages.FUTIMES => "futimes",
+            NamespaceMessages.SOCKET_BIND => "socket bind",
+            NamespaceMessages.SOCKET_LISTEN => "socket listen",
+            NamespaceMessages.SOCKET_CONNECT => "socket connect",
+            NamespaceMessages.SOCKET_CLOSE => "socket close",
             _ => $"operation {request.Operation}"
         };
         if (m_opened.TryGetValue(request.Handle, out var opened))
@@ -149,6 +159,12 @@ internal sealed class NamespaceSession : IAsyncDisposable
         var (mount, inner) = Resolve(path);
         var flags = request.Flags;
         var writes = (flags & NamespaceMessages.WRITE_ACCESS) != 0 || (flags & NamespaceMessages.TRUNCATE_FILE) != 0;
+        if (m_mounts.Sockets.Find(Key(mount, inner)) is not null)
+        {
+            // A socket's name opens no file, as Linux's open of a socket answers ENXIO (W4.1).
+            return Fail(request, (flags & NamespaceMessages.CREATE) != 0 && (flags & NamespaceMessages.EXCLUSIVE) != 0 ? Errno.EXISTS
+                : (flags & NamespaceMessages.DIRECTORY) != 0 ? Errno.NOT_DIRECTORY : Errno.NO_DEVICE);
+        }
         var entry = await mount.Volume.GetEntryAsync(inner, cancellationToken).ConfigureAwait(false) ?? Root(mount, inner);
         if (entry is { IsDirectory: true })
         {
@@ -305,6 +321,8 @@ internal sealed class NamespaceSession : IAsyncDisposable
     private async ValueTask<NamespaceReply> StatAsync(NamespaceRequest request, CancellationToken cancellationToken)
     {
         var (mount, inner) = Resolve(Path(request, 0, request.Length));
+        if (m_mounts.Sockets.Find(Key(mount, inner)) is { } socket)
+            return new NamespaceReply(request.Operation, 0, Stat: SocketStat(mount, socket));
         var entry = await mount.Volume.GetEntryAsync(inner, cancellationToken).ConfigureAwait(false) ?? Root(mount, inner);
         return entry is null ? Fail(request, Errno.NOT_FOUND) : new NamespaceReply(request.Operation, 0, Stat: Stat(mount, Current(mount, inner, entry)));
     }
@@ -338,7 +356,14 @@ internal sealed class NamespaceSession : IAsyncDisposable
         if (!m_opened.TryGetValue(request.Handle, out var opened) || opened.File is not null)
             return Fail(request, opened is null ? Errno.BAD_HANDLE : Errno.NOT_DIRECTORY);
         if (request.Offset == 0 || opened.Listing is null)
-            opened.Listing = await opened.Mount.Volume.EnumerateAsync(opened.Path, cancellationToken).ConfigureAwait(false);
+        {
+            var entries = await opened.Mount.Volume.EnumerateAsync(opened.Path, cancellationToken).ConfigureAwait(false);
+            opened.Listing =
+            [
+                .. entries.Select(entry => new Listed(Id(entry), Kind(entry), entry.Name)),
+                .. m_mounts.Sockets.In(Key(opened.Mount, opened.Path)).Select(socket => new Listed(socket.Info.Id, NamespaceMessages.KIND_SOCKET, socket.Name))
+            ];
+        }
         var listing = opened.Listing;
         var at = 0;
         var index = (int)Math.Clamp(request.Offset, 0, listing.Count);
@@ -346,7 +371,7 @@ internal sealed class NamespaceSession : IAsyncDisposable
         for (; index < listing.Count; index++)
         {
             var entry = listing[index];
-            var bytes = NamespaceMessages.WriteEntry(record.AsSpan(at), Id(entry), Kind(entry), entry.Name);
+            var bytes = NamespaceMessages.WriteEntry(record.AsSpan(at), entry.Id, entry.Kind, entry.Name);
             if (bytes == 0)
                 break;
             at += bytes;
@@ -358,7 +383,8 @@ internal sealed class NamespaceSession : IAsyncDisposable
     private async ValueTask<NamespaceReply> MakeDirectoryAsync(NamespaceRequest request, CancellationToken cancellationToken)
     {
         var (mount, inner) = Resolve(Path(request, 0, request.Length));
-        if (inner == "/" || await mount.Volume.GetEntryAsync(inner, cancellationToken).ConfigureAwait(false) is not null)
+        if (inner == "/" || m_mounts.Sockets.Find(Key(mount, inner)) is not null ||
+            await mount.Volume.GetEntryAsync(inner, cancellationToken).ConfigureAwait(false) is not null)
             return Fail(request, Errno.EXISTS);
         var parent = Parent(inner);
         if (parent != "/" && await mount.Volume.GetEntryAsync(parent, cancellationToken).ConfigureAwait(false) is not { IsDirectory: true })
@@ -372,12 +398,23 @@ internal sealed class NamespaceSession : IAsyncDisposable
         var (mount, inner) = Resolve(Path(request, 0, request.Length));
         if (inner == "/")
             return Fail(request, Errno.BUSY);
+        var directory = (request.Flags & NamespaceMessages.DIRECTORY) != 0;
+        var key = Key(mount, inner);
+        if (m_mounts.Sockets.Find(key) is not null)
+        {
+            // An unlink takes a socket's name away; the socket goes on with the connections it has (W4.1).
+            if (directory)
+                return Fail(request, Errno.NOT_DIRECTORY);
+            m_mounts.Sockets.Remove(key);
+            return new NamespaceReply(request.Operation, 0);
+        }
         var entry = await mount.Volume.GetEntryAsync(inner, cancellationToken).ConfigureAwait(false);
         if (entry is null)
             return Fail(request, Errno.NOT_FOUND);
-        var directory = (request.Flags & NamespaceMessages.DIRECTORY) != 0;
         if (directory != entry.IsDirectory)
             return Fail(request, directory ? Errno.NOT_DIRECTORY : Errno.IS_DIRECTORY);
+        if (directory && m_mounts.Sockets.AnyBelow(key))
+            return Fail(request, Errno.NOT_EMPTY);
         await mount.Volume.DeleteAsync(inner, cancellationToken).ConfigureAwait(false);
         return new NamespaceReply(request.Operation, 0);
     }
@@ -395,18 +432,45 @@ internal sealed class NamespaceSession : IAsyncDisposable
         if (fromMount != toMount)
             return Fail(request, Errno.CROSS_DEVICE);
         var volume = fromMount.Volume;
+        var (fromKey, toKey) = (Key(fromMount, from), Key(toMount, to));
+        var sockets = m_mounts.Sockets;
+        var target = await volume.GetEntryAsync(to, cancellationToken).ConfigureAwait(false);
+        if (sockets.Find(fromKey) is not null)
+        {
+            // A socket's name moves within its volume (W4.1), replacing a name or a file there, never a directory.
+            if (fromKey == toKey)
+                return new NamespaceReply(request.Operation, 0);
+            if (target is { IsDirectory: true })
+                return Fail(request, Errno.IS_DIRECTORY);
+            if (Parent(to) != "/" && await volume.GetEntryAsync(Parent(to), cancellationToken).ConfigureAwait(false) is not { IsDirectory: true })
+                return Fail(request, Errno.NOT_FOUND);
+            if (target is not null)
+                await volume.DeleteAsync(to, cancellationToken).ConfigureAwait(false);
+            sockets.Move(fromKey, toKey);
+            return new NamespaceReply(request.Operation, 0);
+        }
         var source = await volume.GetEntryAsync(from, cancellationToken).ConfigureAwait(false);
         if (source is null)
             return Fail(request, Errno.NOT_FOUND);
         if (from == to)
             return new NamespaceReply(request.Operation, 0);
-        if (await volume.GetEntryAsync(to, cancellationToken).ConfigureAwait(false) is { } target)
+        if (sockets.Find(toKey) is not null)
+        {
+            if (source.IsDirectory)
+                return Fail(request, Errno.NOT_DIRECTORY);
+            sockets.Remove(toKey); // a file replaces the socket's name, as a rename over a socket's file does
+        }
+        else if (target is not null)
         {
             if (target.IsDirectory != source.IsDirectory)
                 return Fail(request, target.IsDirectory ? Errno.IS_DIRECTORY : Errno.NOT_DIRECTORY);
+            if (target.IsDirectory && sockets.AnyBelow(toKey))
+                return Fail(request, Errno.NOT_EMPTY);
             await volume.DeleteAsync(to, cancellationToken).ConfigureAwait(false); // not atomic, unlike POSIX's
         }
         await volume.RenameAsync(from, to, cancellationToken).ConfigureAwait(false);
+        if (source.IsDirectory)
+            sockets.MoveBelow(fromKey, toKey);
         return new NamespaceReply(request.Operation, 0);
     }
 
@@ -459,6 +523,8 @@ internal sealed class NamespaceSession : IAsyncDisposable
     private async ValueTask<NamespaceReply> ChangeModeAsync(NamespaceRequest request, CancellationToken cancellationToken)
     {
         var (mount, inner) = Resolve(Path(request, 0, request.Length));
+        if (m_mounts.Sockets.SetMode(Key(mount, inner), request.Mode) is { } socket)
+            return new NamespaceReply(request.Operation, 0, Stat: SocketStat(mount, socket));
         var entry = await mount.Volume.SetModeAsync(inner, (int)(request.Mode & 0xFFF), cancellationToken).ConfigureAwait(false);
         return new NamespaceReply(request.Operation, 0, Stat: Stat(mount, Current(mount, inner, entry)));
     }
@@ -477,6 +543,8 @@ internal sealed class NamespaceSession : IAsyncDisposable
     {
         var (mount, inner) = Resolve(Path(request, 0, request.Length));
         var (accessed, modified) = Times(request);
+        if (m_mounts.Sockets.Find(Key(mount, inner)) is { } socket)
+            return new NamespaceReply(request.Operation, 0, Stat: SocketStat(mount, socket)); // a socket's name keeps no times
         var entry = await mount.Volume.SetTimesAsync(inner, accessed, modified, cancellationToken).ConfigureAwait(false);
         return new NamespaceReply(request.Operation, 0, Stat: Stat(mount, Current(mount, inner, entry)));
     }
@@ -507,11 +575,138 @@ internal sealed class NamespaceSession : IAsyncDisposable
     private async ValueTask<NamespaceReply> ReadLinkAsync(NamespaceRequest request, CancellationToken cancellationToken)
     {
         var (mount, inner) = Resolve(Path(request, 0, request.Length));
+        if (m_mounts.Sockets.Find(Key(mount, inner)) is not null)
+            return Fail(request, Errno.INVALID); // a socket's name is no link
         var target = Encoding.UTF8.GetBytes(await mount.Volume.ReadLinkAsync(inner, cancellationToken).ConfigureAwait(false));
         if (target.Length > m_window.Length)
             return Fail(request, Errno.NAME_TOO_LONG);
         m_window.Write(0, target);
         return new NamespaceReply(request.Operation, 0, Length: target.Length);
+    }
+
+    // A local socket's name bound (W4.1): an abstract name, in no directory, or a path of a writable volume whose
+    // directory exists and which neither an entry nor another socket has, as Linux's bind makes a socket's file.
+    private async ValueTask<NamespaceReply> BindSocketAsync(NamespaceRequest request, CancellationToken cancellationToken)
+    {
+        if (request.Mode is not (SocketNames.STREAM or SocketNames.SEQUENCED_PACKET))
+            return Fail(request, Errno.INVALID);
+        string key;
+        if ((request.Flags & NamespaceMessages.ABSTRACT) != 0)
+            key = AbstractKey(request);
+        else
+        {
+            var (mount, inner) = Resolve(Path(request, 0, request.Length));
+            key = Key(mount, inner);
+            if (inner == "/" || m_mounts.Sockets.Find(key) is not null ||
+                await mount.Volume.GetEntryAsync(inner, cancellationToken).ConfigureAwait(false) is not null)
+                return Fail(request, Errno.ADDRESS_IN_USE);
+            var parent = Parent(inner);
+            if (parent != "/")
+            {
+                var directory = await mount.Volume.GetEntryAsync(parent, cancellationToken).ConfigureAwait(false);
+                if (directory is null)
+                    return Fail(request, Errno.NOT_FOUND);
+                if (!directory.IsDirectory)
+                    return Fail(request, Errno.NOT_DIRECTORY);
+            }
+            if (mount.Volume.Volume.IsReadOnly)
+                return Fail(request, Errno.READ_ONLY);
+        }
+        var id = m_mounts.Sockets.Bind(key, request.Mode, this, DateTimeOffset.UtcNow);
+        return id == 0 ? Fail(request, Errno.ADDRESS_IN_USE) : new NamespaceReply(request.Operation, 0, Handle: id);
+    }
+
+    // A binding's socket listens (W4.1): the end the request carries, which its connections arrive on, is the table's.
+    private NamespaceReply ListenSocket(NamespaceRequest request)
+    {
+        if (m_received is not { } handle)
+            return Fail(request, Errno.INVALID);
+        m_received = null;
+        var end = m_mounts.ListenerEnds.Adopt(handle);
+        var error = m_mounts.Sockets.Listen(request.Handle, this, end);
+        if (error != 0)
+            end.Dispose();
+        return error == 0 ? new NamespaceReply(request.Operation, 0) : Fail(request, error);
+    }
+
+    // A connection to a name (W4.1): a duplicate of its listener's end moves with the reply. A path that names a volume's
+    // entry and no socket refuses the connection, as Linux's connect to a file that is no socket does.
+    private async ValueTask<NamespaceReply> ConnectSocketAsync(NamespaceRequest request, CancellationToken cancellationToken)
+    {
+        string key;
+        if ((request.Flags & NamespaceMessages.ABSTRACT) != 0)
+            key = AbstractKey(request);
+        else
+        {
+            var (mount, inner) = Resolve(Path(request, 0, request.Length));
+            key = Key(mount, inner);
+            if (m_mounts.Sockets.Find(key) is null)
+            {
+                var entry = await mount.Volume.GetEntryAsync(inner, cancellationToken).ConfigureAwait(false) ?? Root(mount, inner);
+                return Fail(request, entry is null ? Errno.NOT_FOUND : Errno.CONNECTION_REFUSED);
+            }
+        }
+        try
+        {
+            var (error, end) = m_mounts.Sockets.Connect(key, request.Mode);
+            if (error == Errno.NOT_FOUND && (request.Flags & NamespaceMessages.ABSTRACT) != 0)
+                error = Errno.CONNECTION_REFUSED; // Linux refuses a connection to an abstract name nobody has
+            if (error != 0)
+                return Fail(request, error);
+            m_transfer = end;
+            return new NamespaceReply(request.Operation, 0);
+        }
+        catch (CapabilityException exception)
+        {
+            return Fail(request, exception.Error); // the service's handles are spent
+        }
+    }
+
+    // A binding's socket closed (W4.1).
+    private NamespaceReply CloseSocket(NamespaceRequest request)
+    {
+        var error = m_mounts.Sockets.Close(request.Handle, this);
+        return error == 0 ? new NamespaceReply(request.Operation, 0) : Fail(request, error);
+    }
+
+    // An abstract name of the window: at most the 107 bytes Linux's sun_path holds after its zero.
+    private string AbstractKey(NamespaceRequest request)
+    {
+        if (request.Length < 0 || request.Length > 107)
+            throw new FileSystemException(FileSystemError.InvalidName, $"An abstract name of {request.Length} bytes.");
+        return SocketNames.AbstractKey(m_window.Read(0, (int)request.Length));
+    }
+
+    // A path of the namespace for the socket names' table: the mount point and the path within its volume.
+    private static string Key(MountTable.Mount mount, string inner) => inner == "/" ? mount.Point : mount.Point + inner;
+
+    private static NamespaceStat SocketStat(MountTable.Mount mount, SocketNames.NameInfo socket)
+    {
+        var unit = Math.Max(512, mount.Volume.Volume.AllocationUnit);
+        return new NamespaceStat(NamespaceMessages.KIND_SOCKET, socket.Mode, 0, socket.Id, 1, mount.Index, 0, 0, (uint)unit, 0, socket.Bound,
+            socket.Bound, socket.Bound);
+    }
+
+    /// <summary>
+    /// The capability the request carries (W4.1's SOCKET_LISTEN), which the connection hands the session before the
+    /// request; the session keeps it or leaves it for TakeReceived.
+    /// </summary>
+    /// <param name="handle">The handle, or null.</param>
+    public void Receive(KernelHandle? handle)
+    {
+        TakeReceived()?.Dispose();
+        m_received = handle;
+    }
+
+    /// <summary>
+    /// The capability the last request carried and the session did not keep, or null.
+    /// </summary>
+    /// <returns>The handle; the caller's to close.</returns>
+    public KernelHandle? TakeReceived()
+    {
+        var received = m_received;
+        m_received = null;
+        return received;
     }
 
     private NamespaceReply Register(NamespaceRequest request, Opened opened, NamespaceStat stat)
@@ -599,6 +794,8 @@ internal sealed class NamespaceSession : IAsyncDisposable
             await ReleaseAsync(opened).ConfigureAwait(false);
         m_opened.Clear();
         TakeTransfer()?.Dispose();
+        TakeReceived()?.Dispose();
+        m_mounts.Sockets.Release(this); // its sockets listen no more, its abstract names go (W4.1)
     }
 
     #endregion
@@ -618,8 +815,11 @@ internal sealed class NamespaceSession : IAsyncDisposable
 
         public IFileHandle? File { get; } = file;
 
-        public IReadOnlyList<FileSystemEntry>? Listing { get; set; }
+        public IReadOnlyList<Listed>? Listing { get; set; }
     }
+
+    // An entry of a directory's listing: a volume's, or a socket's name (W4.1).
+    private sealed record Listed(long Id, uint Kind, string Name);
 
     #endregion
 }

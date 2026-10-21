@@ -67,7 +67,8 @@ typedef enum Kind {
     KindRemoteFile, /* a file of a mounted volume, remote record Index (namespace.c, D5.1) */
     KindRemoteDirectory, /* a directory of a mounted volume, remote record Index */
     KindEpoll, /* an epoll instance Index (epoll.c, N4.2) */
-    KindSocket /* a socket, record Index of socket.c (W2.1a) */
+    KindSocket, /* a socket, record Index of socket.c (W2.1a) */
+    KindLocal /* a local socket, record Index of unix.c (W4.1) */
 } Kind;
 
 typedef struct Descriptor {
@@ -460,6 +461,9 @@ static void close_descriptor(Descriptor *d)
     }
     if (d->Kind == KindSocket) {
         __wit_socket_release(d->Index); /* its CLOSE goes after the table lock (socket.c) */
+    }
+    if (d->Kind == KindLocal) {
+        __wit_local_release(d->Index); /* a name's close goes to the namespace service after the table lock (unix.c) */
     }
     if (--descriptions[d->Description].References == 0) {
         unlock_description(&descriptions[d->Description]); /* a description's lock ends with its last descriptor */
@@ -1116,7 +1120,7 @@ long __wit_pread(long fd, void *buffer, long bytes, long offset)
     if (d->Kind == KindDirectory || d->Kind == KindRemoteDirectory) {
         return -EISDIR;
     }
-    if (d->Kind == KindSocket) {
+    if (d->Kind == KindSocket || d->Kind == KindLocal) {
         return -ESPIPE;
     }
     if (d->Kind == KindNull) {
@@ -1263,7 +1267,11 @@ long __wit_pwrite(long fd, const void *buffer, long bytes, long offset)
     if (!d) {
         return __wit_stream_of(fd) >= 0 ? -ESPIPE : -EBADF;
     }
-    if (d->Kind == KindStream || d->Kind == KindPipeRead || d->Kind == KindPipeWrite || d->Kind == KindSocket) {
+    if (d->Kind == KindStream ||
+        d->Kind == KindPipeRead ||
+        d->Kind == KindPipeWrite ||
+        d->Kind == KindSocket ||
+        d->Kind == KindLocal) {
         return -ESPIPE;
     }
     return offset < 0 ? -EINVAL : write_at(d, buffer, bytes, offset);
@@ -1340,7 +1348,11 @@ long __wit_fsync(long fd)
     if (d->Kind == KindRemoteFile || d->Kind == KindRemoteDirectory) {
         return __wit_remote_sync(d->Index);
     }
-    return d->Kind == KindStream || d->Kind == KindPipeRead || d->Kind == KindPipeWrite || d->Kind == KindSocket
+    return d->Kind == KindStream ||
+            d->Kind == KindPipeRead ||
+            d->Kind == KindPipeWrite ||
+            d->Kind == KindSocket ||
+            d->Kind == KindLocal
         ? -EINVAL
         : 0;
 }
@@ -1351,7 +1363,11 @@ long __wit_lseek(long fd, long offset, long whence)
     if (!d) {
         return __wit_stream_of(fd) >= 0 ? -ESPIPE : -EBADF;
     }
-    if (d->Kind == KindStream || d->Kind == KindPipeRead || d->Kind == KindPipeWrite || d->Kind == KindSocket) {
+    if (d->Kind == KindStream ||
+        d->Kind == KindPipeRead ||
+        d->Kind == KindPipeWrite ||
+        d->Kind == KindSocket ||
+        d->Kind == KindLocal) {
         return -ESPIPE;
     }
     WitU64 length = d->Kind == KindShared ? __wit_shared_size(d->Index) : 0;
@@ -1463,9 +1479,9 @@ static void fill_stat(struct kstat *st, Kind kind, WitU32 index, WitU64 length)
         st->st_dev = 4; /* an anonymous inode, as Linux reports an epoll instance */
         st->st_ino = (ino_t)index + 1;
         st->st_mode = S_IFREG | 0600;
-    } else if (kind == KindSocket) {
+    } else if (kind == KindSocket || kind == KindLocal) {
         st->st_dev = 6; /* sockfs, as Linux reports a socket */
-        st->st_ino = (ino_t)index + 1;
+        st->st_ino = (ino_t)index + 1 + (kind == KindLocal ? 0x10000 : 0); /* a local socket's apart (W4.1) */
         st->st_mode = S_IFSOCK | 0777;
     } else if (kind == KindText) {
         st->st_ino = 5 + index; /* the mount table (C1.2), resolv.conf (W2.1a) */
@@ -1789,6 +1805,9 @@ short __wit_descriptor_poll(long fd, short events)
     if (d->Kind == KindPipeRead || d->Kind == KindPipeWrite) {
         return __wit_pipe_poll(d->Index, d->Kind == KindPipeWrite, events);
     }
+    if (d->Kind == KindLocal) {
+        return __wit_local_poll(d->Index, events); /* the shared rings and the listener's queue (W4.1) */
+    }
     return asked;
 }
 
@@ -1843,6 +1862,83 @@ long __wit_socket_of(long fd, WitU32 *index, int *nonblocking)
     *nonblocking = (descriptions[d->Description].StatusFlags & O_NONBLOCK) != 0;
     __wit_socket_reference(d->Index);
     return 1;
+}
+
+/* A descriptor over a local socket's record (unix.c, W4.1), which its reference is now. Under the table lock. */
+long __wit_local_open(WitU32 index, int flags)
+{
+    return open_descriptor(KindLocal, index, 0, O_RDWR | (flags & (O_NONBLOCK | O_CLOEXEC)));
+}
+
+/* socketpair's two descriptors over two records, both or neither: fds receives them. Under the table lock. */
+long __wit_local_open_pair(WitU32 first, WitU32 second, int flags, int *fds)
+{
+    const long one = free_descriptor(0);
+    if (one < 0) {
+        return one;
+    }
+    if (free_descriptor(one + 1) < 0) {
+        return -EMFILE;
+    }
+    const int status = O_RDWR | (flags & (O_NONBLOCK | O_CLOEXEC));
+    fds[0] = (int)open_descriptor(KindLocal, first, 0, status); /* each takes the lowest free descriptor */
+    fds[1] = (int)open_descriptor(KindLocal, second, 0, status);
+    return 0;
+}
+
+/* The local socket a descriptor names, with a reference for the call the caller makes outside the table lock: 1, 0 for
+ * a descriptor that is no local socket, -EBADF for none. Under the table lock. */
+long __wit_local_of(long fd, WitU32 *index, int *nonblocking)
+{
+    const Descriptor *d = descriptor(fd);
+    if (!d) {
+        return __wit_stream_of(fd) >= 0 ? 0 : -EBADF;
+    }
+    if (d->Kind != KindLocal) {
+        return 0;
+    }
+    *index = d->Index;
+    *nonblocking = (descriptions[d->Description].StatusFlags & O_NONBLOCK) != 0;
+    __wit_local_reference(d->Index);
+    return 1;
+}
+
+/* The name a local socket's path gives (W4.1): normalized from the current directory as every path is, and below a mount
+ * point of the namespace service, which keeps the names sockets bind. A path elsewhere names no socket: a bind there
+ * answers EROFS where its directory exists, since the package is read-only, and a connection ECONNREFUSED where the
+ * path names a file; otherwise ENOENT. Under the table lock. */
+long __wit_local_name(const char *path, unsigned char *name, WitU32 *length, int connecting)
+{
+    unsigned char parent[NAME_MAX_BYTES];
+    Kind kind;
+    WitU32 index;
+    long status;
+    if ((status = mount()) < 0) {
+        return status;
+    }
+    if ((status = resolve(AT_FDCWD, path, name, length)) < 0) {
+        return status;
+    }
+    if (__wit_remote_name(name, *length)) {
+        return 0;
+    }
+    if (connecting) {
+        const int exists = shared_name(name, *length) ? __wit_shared_find(name + 8, *length - 8, &index) == 0
+                                                      : lookup(name, *length, &kind, &index) == 0;
+        return exists ? -ECONNREFUSED : -ENOENT;
+    }
+    WitU32 parent_length = *length;
+    while (parent_length && name[parent_length - 1] != '/') {
+        --parent_length;
+    }
+    parent_length = parent_length ? parent_length - 1 : 0;
+    memcpy(parent, name, parent_length);
+    if (require_directory(parent, parent_length) != 0) {
+        return -ENOENT;
+    }
+    const int exists = shared_name(name, *length) ? __wit_shared_find(name + 8, *length - 8, &index) == 0
+                                                  : lookup(name, *length, &kind, &index) == 0;
+    return exists ? -EADDRINUSE : -EROFS;
 }
 
 /* The pipe an end descriptor names, with a reference for the transfer the caller makes outside the table lock. */
@@ -1999,6 +2095,9 @@ static void duplicate_into(long target, long stream, const Descriptor *source, i
     if (source->Kind == KindSocket) {
         __wit_socket_reference(source->Index);
     }
+    if (source->Kind == KindLocal) {
+        __wit_local_reference(source->Index);
+    }
 }
 
 /* dup and F_DUPFD: the lowest free descriptor at or above lowest. */
@@ -2082,7 +2181,12 @@ long __wit_fcntl(long fd, long command, long argument)
 int __wit_is_file_descriptor(long fd)
 {
     const Descriptor *d = descriptor(fd);
-    return d && d->Kind != KindStream && d->Kind != KindPipeRead && d->Kind != KindPipeWrite && d->Kind != KindSocket;
+    return d &&
+        d->Kind != KindStream &&
+        d->Kind != KindPipeRead &&
+        d->Kind != KindPipeWrite &&
+        d->Kind != KindSocket &&
+        d->Kind != KindLocal;
 }
 
 /* FIONREAD of a pipe's read end: -ENOTTY for anything else. */

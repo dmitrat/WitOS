@@ -395,6 +395,40 @@ long __wit_socket_lookup(long fd, WitU32 *index, int *nonblocking)
     return r;
 }
 
+/* unix.c (W4.1): a local socket's descriptors, the socket a descriptor names and a path's name, each under the table
+ * lock, which the local socket calls, made outside it, do not hold. */
+long __wit_local_install(WitU32 index, int flags)
+{
+    __wit_lock(&tables);
+    const long r = __wit_local_open(index, flags);
+    __wit_unlock(&tables);
+    return r;
+}
+
+long __wit_local_install_pair(WitU32 first, WitU32 second, int flags, int *fds)
+{
+    __wit_lock(&tables);
+    const long r = __wit_local_open_pair(first, second, flags, fds);
+    __wit_unlock(&tables);
+    return r;
+}
+
+long __wit_local_lookup(long fd, WitU32 *index, int *nonblocking)
+{
+    __wit_lock(&tables);
+    const long r = __wit_local_of(fd, index, nonblocking);
+    __wit_unlock(&tables);
+    return r;
+}
+
+long __wit_local_path(const char *path, unsigned char *name, WitU32 *length, int connecting)
+{
+    __wit_lock(&tables);
+    const long r = __wit_local_name(path, name, length, connecting);
+    __wit_unlock(&tables);
+    return r;
+}
+
 long __wit_socket_nonblocking(long fd, int nonblocking)
 {
     __wit_lock(&tables);
@@ -754,7 +788,11 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
         return dispatch(n, a1, a2, a3, a4, a5, a6);
     }
     if (__wit_is_socket_call(n)) {
-        const long r = __wit_socket_call(n, a1, a2, a3, a4, a5, a6); /* the network service's sockets (W2.1a) */
+        long r = __wit_local_call(n, a1, a2, a3, a4, a5, a6); /* local sockets (W4.1) */
+        if (r == WIT_NOT_A_SOCKET) {
+            r = __wit_socket_call(n, a1, a2, a3, a4, a5, a6); /* the network service's sockets (W2.1a) */
+        }
+        __wit_local_flush();
         __wit_socket_flush();
         return r;
     }
@@ -766,6 +804,11 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
         const long moved = terminal_transfer(n, a1, a2, a3);
         if (moved != NOT_A_TERMINAL) {
             return moved;
+        }
+        const long local = __wit_local_transfer(n, a1, a2, a3);
+        if (local != WIT_NOT_A_SOCKET) {
+            __wit_local_flush();
+            return local;
         }
         const long carried = __wit_socket_transfer(n, a1, a2, a3);
         if (carried != WIT_NOT_A_SOCKET) {
@@ -779,6 +822,11 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
         }
     }
     if (n == SYS_ioctl) {
+        const long local = __wit_local_ioctl(a1, a2, (void *)a3);
+        if (local != WIT_NOT_A_SOCKET) {
+            __wit_local_flush();
+            return local;
+        }
         const long answered = __wit_socket_ioctl(a1, a2, (void *)a3);
         if (answered != WIT_NOT_A_SOCKET) {
             return answered;
@@ -805,6 +853,7 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
     const long r = dispatch(n, a1, a2, a3, a4, a5, a6);
     __wit_unlock(&tables);
     __wit_socket_flush(); /* a socket whose last descriptor closed goes now (W2.1a) */
+    __wit_local_flush(); /* and a bound local socket's name closes in the namespace service (W4.1) */
     return r;
 }
 
