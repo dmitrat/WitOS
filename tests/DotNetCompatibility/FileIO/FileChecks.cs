@@ -1,8 +1,10 @@
+using System.Diagnostics;
+
 namespace DotNetCompatibility;
 
 /// <summary>
 /// Files through the BCL, in a directory of their own under the temporary path: text and async reads, streams, trees,
-/// moves and replacements, times, and the watcher.
+/// moves and replacements, times, small writes beside threads that open files (S8.1), and the watcher.
 /// </summary>
 internal static class FileChecks
 {
@@ -131,6 +133,51 @@ internal static class FileChecks
                 drives.Contains(root, StringComparer.OrdinalIgnoreCase) &&
                 infos.Any(info => string.Equals(info.Name, root, StringComparison.OrdinalIgnoreCase)),
                 observed);
+        });
+        yield return new Check("FileIO", "SmallWritesUnderContention", async () =>
+        {
+            // One thread writes a file 4 bytes a write, unbuffered, as CoreCLR writes a MultiCoreJit profile, while three
+            // threads stat a file of the boot package without a pause (S8.1): a libc that held its tables through each
+            // write's round trip with the namespace service left the three waiting for them — on several processors
+            // spinning, so that the kernel lock's storm made each write 90 ms and the three managed a few stats a second —
+            // while the tables let go through the round trip serve a stat of the package, which needs no service, in
+            // microseconds. The judge is the three's rate in the guest's clock, not the writer's time, which the service's
+            // round trips under TCG on four processors make tens of milliseconds a write on the slower ISAs; the file lies
+            // under /tmp, the namespace service's file system in memory, so that no journal's flushes take part.
+            const int WRITES = 500;
+            const double STATS_PER_SECOND = 1000;
+            var directory = Directory.CreateDirectory(OperatingSystem.IsWindows()
+                ? Path.Combine(Path.GetTempPath(), $"witos-small-writes-{Environment.ProcessId}")
+                : $"/tmp/witos-small-writes-{Environment.ProcessId}").FullName;
+            var path = Path.Combine(directory, "small-writes.bin");
+            var probe = File.Exists("/dotnet/dotnet") ? "/dotnet/dotnet" : Environment.ProcessPath!; // the package's, or the host's muxer
+            using var stop = new CancellationTokenSource();
+            using var started = new CountdownEvent(3); // the writer starts once the three run, which the hosts' writer would outrun
+            var contenders = Enumerable.Range(0, 3).Select(_ => Task.Run(() =>
+            {
+                var stats = 0L;
+                started.Signal();
+                while (!stop.IsCancellationRequested)
+                {
+                    if (!File.Exists(probe))
+                        return -1L;
+                    stats++;
+                }
+                return stats;
+            })).ToArray();
+            started.Wait();
+            var watch = Stopwatch.StartNew();
+            using (var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 0))
+                for (var i = 0; i < WRITES; i++)
+                    file.Write(BitConverter.GetBytes(i));
+            watch.Stop();
+            stop.Cancel();
+            var stats = (await Task.WhenAll(contenders)).Sum();
+            var length = new FileInfo(path).Length;
+            Directory.Delete(directory, recursive: true);
+            var rate = stats / Math.Max(watch.Elapsed.TotalSeconds, 0.001);
+            return CheckResult.That(length == 4L * WRITES && stats > 0 && rate >= STATS_PER_SECOND,
+                $"{WRITES} writes in {watch.Elapsed.TotalSeconds:F1} s beside {stats} stats of {probe} ({rate:F0}/s), {length} bytes");
         });
         yield return new Check("FileIO", "Watcher", async () =>
         {

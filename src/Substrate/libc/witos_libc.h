@@ -200,6 +200,20 @@ WitU32 __wit_remote_directory(WitU32 index, unsigned char *name);
 long __wit_remote_read(WitU32 index, WitU64 offset, void *buffer, WitU64 bytes);
 long __wit_remote_write(WitU32 index, WitU64 offset, const void *buffer, WitU64 bytes);
 long __wit_remote_fstat(WitU32 index, struct kstat *st);
+/* The session's turn (S8.1): one request at a time on the session, the window its meanwhile; a thread that finds the
+ * session busy parks on its word. Every __wit_remote_* call takes it by itself; a transfer of files.c outside the
+ * table lock takes it once around the calls in turn below. */
+void __wit_remote_turn_take(void);
+void __wit_remote_turn_give(void);
+long __wit_remote_read_in_turn(WitU32 index, WitU64 offset, void *buffer, WitU64 bytes);
+long __wit_remote_write_in_turn(WitU32 index, WitU64 offset, const void *buffer, WitU64 bytes);
+long __wit_remote_fstat_in_turn(WitU32 index, struct kstat *st);
+/* A read or a write of a remote file outside the table lock (S8.1, files.c): begin and end under the lock, the
+ * transfer between them holding the session's turn alone. Begin answers WIT_NOT_A_REMOTE for any other descriptor. */
+#define WIT_NOT_A_REMOTE (-0x10003L) /* outside the errno range */
+long __wit_remote_transfer_begin(long fd, int writing, WitU32 *index, WitU32 *description);
+long __wit_remote_transfer(WitU32 index, WitU32 description, int writing, void *buffer, long bytes, long offset);
+void __wit_remote_transfer_end(WitU32 index, WitU32 description);
 long __wit_remote_stat(const unsigned char *name, WitU32 length, struct kstat *st);
 long __wit_remote_list(WitU32 index, WitU64 *cursor, unsigned char *buffer, long bytes);
 long __wit_remote_mkdir(const unsigned char *name, WitU32 length);

@@ -779,7 +779,13 @@ internal static class RuntimeWitos
         await File.WriteAllTextAsync(environment,
             $"# The default environment of every process; the root task reads it (N4.1).\nPATH=/bin:/usr/bin:/data/apps/bin:/dotnet\n" +
             // The base applications' launchers (ADR 0027): on PATH, and PowerShell's the shell applications run commands through.
-            $"SHELL=/data/apps/bin/pwsh\nHOME=/data/home\nTERM={Terminfo.TERM}\n");
+            $"SHELL=/data/apps/bin/pwsh\nHOME=/data/home\nTERM={Terminfo.TERM}\n" +
+            // CoreCLR gathers no MultiCoreJit startup profile (S8.1): on two or more processors it writes the profile a
+            // record at a time, 4 bytes a write — pwsh's was 60 KiB, 15,000 writes — and each write of a volume's file is a
+            // durable transaction of the namespace service's journal, with its flushes, so that a session's exit took
+            // minutes; the profiles that exist are still played. The suite's FileIO.SmallWritesUnderContention check
+            // guards the libc's part, the tables let go through each write's round trip.
+            "DOTNET_MultiCoreJitNoProfileGather=1\n");
         var sysroot = await Sysroot.BuildAsync(root, architecture);
         var shared = await FrameworkFilesAsync(tree, output, architecture, version, pin.TargetFramework);
 

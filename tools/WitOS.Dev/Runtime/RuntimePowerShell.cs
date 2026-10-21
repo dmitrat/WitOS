@@ -67,7 +67,7 @@ internal static class RuntimePowerShell
     /// <summary>
     /// The data disk's size: PowerShell's files and the home directory on the volume.
     /// </summary>
-    public const long DISK_BYTES = 1024L << 20;
+    public const long DISK_BYTES = 1536L << 20; // the .NET SDK takes 400 MiB of the layer (C2.5); the disk is written from one array, so below 2 GiB
 
     private const int TIMEOUT_SECONDS = 3600;
 
@@ -95,8 +95,10 @@ internal static class RuntimePowerShell
             if (File.Exists(path))
                 File.Delete(path);
         }
+        // Four processors (S8.1): pwsh's exit writes a file in many small writes, which on several processors never ended
+        // while the libc held its tables through each round trip with the namespace service; one processor hid it.
         await RuntimeApps.BootAsync(root, architecture, scenario, RequiredLines(architecture, pin.Version), TIMEOUT_SECONDS, volume, DISK_BYTES, MEMORY_MIB,
-            package, Script());
+            package, Script(), RuntimeProcessors.PROCESSORS);
         Console.WriteLine($"PowerShell on witos-{architecture.Name}: {pin.Version} ran unchanged from the data volume's layer through its launcher, " +
             "non-interactively and under PSReadLine on the terminal, with the console mark of its profile.");
     }

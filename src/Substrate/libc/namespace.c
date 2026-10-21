@@ -15,9 +15,12 @@
  * service's mount points (/data, /fat, /boot, as it names them) is the service's; every other path stays the
  * package's (files.c). The library connects once, at the first such path: it makes a session channel and a window of
  * its own memory, sends CONNECT on the namespace's endpoint the process started with, and from then on sends each
- * request on the session and waits for its reply, one at a time, under the table lock of __wit_syscall; a path, the
- * data and a listing travel in the window. A descriptor of such a file or directory is the index of a remote record,
- * the service's handle; the descriptors that share it count as its references, and the last one closes the handle. */
+ * request on the session and waits for its reply, one at a time, holding the session's turn (S8.1): the metadata
+ * calls take it under the table lock of __wit_syscall, while a read or a write of a file (files.c's transfer) takes
+ * it outside that lock, so that no thread holds the tables while the service's disk answers, which on several
+ * processors left every other thread spinning for them; a path, the data and a listing travel in the window. A
+ * descriptor of such a file or directory is the index of a remote record, the service's handle; the descriptors that
+ * share it count as its references, and the last one closes the handle. */
 
 #define REMOTES \
     1024U /* CoreCLR keeps every assembly it loads open (R6), and a shared mapping holds its record after the \
@@ -42,6 +45,37 @@ static WitU32 mount_lengths[MOUNTS], mount_count;
 static int connected; /* 1 connected, -1 failed for good */
 static WitU64 session;
 static unsigned char *window;
+static volatile int turn; /* a request in flight on the session, the window its (S8.1) */
+
+#define FUTEX_WAIT 0
+#define FUTEX_WAKE 1
+#define FUTEX_PRIVATE 128
+
+/* The session's turn: one request at a time, the window the request's meanwhile. A thread that finds the session busy
+ * parks on the word and never spins, since a transfer of files.c holds the turn outside the table lock for as long as
+ * the service's disk takes, and the metadata calls hold it under the table lock. */
+static void turn_take(void)
+{
+    while (__atomic_exchange_n(&turn, 1, __ATOMIC_ACQUIRE)) {
+        __wit_futex(&turn, FUTEX_WAIT | FUTEX_PRIVATE, 1, 0, 0, 0);
+    }
+}
+
+static void turn_give(void)
+{
+    __atomic_store_n(&turn, 0, __ATOMIC_RELEASE);
+    __wit_futex(&turn, FUTEX_WAKE | FUTEX_PRIVATE, 1, 0, 0, 0);
+}
+
+void __wit_remote_turn_take(void)
+{
+    turn_take();
+}
+
+void __wit_remote_turn_give(void)
+{
+    turn_give();
+}
 
 static void close_handle(WitU64 handle)
 {
@@ -182,6 +216,7 @@ static long namespace_connect(void)
     WitNamespaceReply reply;
     memset(&request, 0, sizeof(request));
     request.Operation = WIT_NAMESPACE_MOUNTS;
+    turn_take();
     if (call(&request, &reply) == 0 && reply.Length <= WINDOW) {
         for (WitU64 at = 0; at < reply.Length && mount_count < MOUNTS;) {
             const unsigned char *point = window + at;
@@ -196,6 +231,7 @@ static long namespace_connect(void)
             at += length + 1;
         }
     }
+    turn_give();
     return 0;
 }
 
@@ -308,7 +344,7 @@ static void fill(struct kstat *st, const WitNamespaceStat *stat)
     st->st_ctime_nsec = stat->ChangedNanoseconds;
 }
 
-long __wit_remote_open(const unsigned char *name, WitU32 length, long flags, long mode, WitU32 *index, int *directory)
+static long open_in_turn(const unsigned char *name, WitU32 length, long flags, long mode, WitU32 *index, int *directory)
 {
     WitU32 vacant = REMOTES, slot = DIRECTORIES;
     for (WitU32 i = 0; i < REMOTES && vacant == REMOTES; ++i) {
@@ -374,7 +410,9 @@ void __wit_remote_release(WitU32 index)
         return;
     }
     WitNamespaceReply reply;
+    turn_take();
     handle_call(WIT_NAMESPACE_CLOSE, index, 0, 0, &reply);
+    turn_give();
     if (remotes[index].Directory) {
         directory_lengths[remotes[index].Directory - 1] = 0;
     }
@@ -392,7 +430,7 @@ WitU32 __wit_remote_directory(WitU32 index, unsigned char *name)
     return directory_lengths[slot - 1];
 }
 
-long __wit_remote_read(WitU32 index, WitU64 offset, void *buffer, WitU64 bytes)
+long __wit_remote_read_in_turn(WitU32 index, WitU64 offset, void *buffer, WitU64 bytes)
 {
     WitU64 done = 0;
     while (done < bytes) {
@@ -414,7 +452,7 @@ long __wit_remote_read(WitU32 index, WitU64 offset, void *buffer, WitU64 bytes)
     return (long)done;
 }
 
-long __wit_remote_write(WitU32 index, WitU64 offset, const void *buffer, WitU64 bytes)
+long __wit_remote_write_in_turn(WitU32 index, WitU64 offset, const void *buffer, WitU64 bytes)
 {
     WitU64 done = 0;
     while (done < bytes) {
@@ -430,7 +468,7 @@ long __wit_remote_write(WitU32 index, WitU64 offset, const void *buffer, WitU64 
     return (long)done;
 }
 
-long __wit_remote_fstat(WitU32 index, struct kstat *st)
+long __wit_remote_fstat_in_turn(WitU32 index, struct kstat *st)
 {
     WitNamespaceReply reply;
     const long status = handle_call(WIT_NAMESPACE_FSTAT, index, 0, 0, &reply);
@@ -440,7 +478,7 @@ long __wit_remote_fstat(WitU32 index, struct kstat *st)
     return status;
 }
 
-long __wit_remote_stat(const unsigned char *name, WitU32 length, struct kstat *st)
+static long stat_in_turn(const unsigned char *name, WitU32 length, struct kstat *st)
 {
     WitNamespaceReply reply;
     const long status = path_call(WIT_NAMESPACE_STAT, 0, name, length, &reply);
@@ -452,7 +490,7 @@ long __wit_remote_stat(const unsigned char *name, WitU32 length, struct kstat *s
 
 /* getdents64 of a remote directory: "." and ".." first, then the service's entries; the cursor is 2 plus the index of
  * the next entry, so a listing goes on where the caller's buffer ended. */
-long __wit_remote_list(WitU32 index, WitU64 *cursor, unsigned char *buffer, long bytes)
+static long list_in_turn(WitU32 index, WitU64 *cursor, unsigned char *buffer, long bytes)
 {
     long filled = 0;
     while (*cursor < 2) {
@@ -516,19 +554,19 @@ long __wit_remote_list(WitU32 index, WitU64 *cursor, unsigned char *buffer, long
     }
 }
 
-long __wit_remote_mkdir(const unsigned char *name, WitU32 length)
+static long mkdir_in_turn(const unsigned char *name, WitU32 length)
 {
     WitNamespaceReply reply;
     return path_call(WIT_NAMESPACE_MKDIR, 0, name, length, &reply);
 }
 
-long __wit_remote_remove(const unsigned char *name, WitU32 length, int directory)
+static long remove_in_turn(const unsigned char *name, WitU32 length, int directory)
 {
     WitNamespaceReply reply;
     return path_call(WIT_NAMESPACE_REMOVE, directory ? WIT_NAMESPACE_DIRECTORY : 0, name, length, &reply);
 }
 
-long __wit_remote_rename(const unsigned char *from, WitU32 from_length, const unsigned char *to, WitU32 to_length)
+static long rename_in_turn(const unsigned char *from, WitU32 from_length, const unsigned char *to, WitU32 to_length)
 {
     WitNamespaceRequest request;
     WitNamespaceReply reply;
@@ -546,13 +584,13 @@ long __wit_remote_rename(const unsigned char *from, WitU32 from_length, const un
     return call(&request, &reply);
 }
 
-long __wit_remote_truncate(WitU32 index, WitU64 size)
+static long truncate_in_turn(WitU32 index, WitU64 size)
 {
     WitNamespaceReply reply;
     return handle_call(WIT_NAMESPACE_TRUNCATE, index, 0, size, &reply);
 }
 
-long __wit_remote_sync(WitU32 index)
+static long sync_in_turn(WitU32 index)
 {
     WitNamespaceReply reply;
     return handle_call(WIT_NAMESPACE_SYNC, index, 0, 0, &reply);
@@ -560,7 +598,7 @@ long __wit_remote_sync(WitU32 index)
 
 /* A chunk of the file as the memory object the service shares (R4.2): MAP, writable when asked, whose reply carries the
  * object; *object becomes the process's handle. */
-long __wit_remote_map(WitU32 index, WitU64 offset, int writable, WitU64 *object)
+static long map_in_turn(WitU32 index, WitU64 offset, int writable, WitU64 *object)
 {
     WitNamespaceRequest request;
     WitNamespaceReply reply;
@@ -581,7 +619,7 @@ long __wit_remote_map(WitU32 index, WitU64 offset, int writable, WitU64 *object)
 
 /* chmod of a path of a volume (N4.1): the service keeps what the volume's format records and answers ENOTSUP where it
  * cannot keep the mode (FAT records read-only alone). */
-long __wit_remote_chmod(const unsigned char *name, WitU32 length, long mode)
+static long chmod_in_turn(const unsigned char *name, WitU32 length, long mode)
 {
     WitNamespaceRequest request;
     WitNamespaceReply reply;
@@ -597,7 +635,7 @@ long __wit_remote_chmod(const unsigned char *name, WitU32 length, long mode)
 }
 
 /* fchmod of an open file or directory of a volume (N4.1). */
-long __wit_remote_fchmod(WitU32 index, long mode)
+static long fchmod_in_turn(WitU32 index, long mode)
 {
     WitNamespaceRequest request;
     WitNamespaceReply reply;
@@ -610,7 +648,7 @@ long __wit_remote_fchmod(WitU32 index, long mode)
 
 /* utimensat of a path of a volume (N4.1): the times after the path in the window, the flags saying which are set and
  * which are the service's now; the service keeps what the volume's format records and answers EPERM where it cannot. */
-long __wit_remote_utimes(const unsigned char *name, WitU32 length, const WitNamespaceTimes *times, WitU32 flags)
+static long utimes_in_turn(const unsigned char *name, WitU32 length, const WitNamespaceTimes *times, WitU32 flags)
 {
     WitNamespaceRequest request;
     WitNamespaceReply reply;
@@ -632,7 +670,7 @@ long __wit_remote_utimes(const unsigned char *name, WitU32 length, const WitName
 }
 
 /* futimens of an open file or directory of a volume (N4.1). */
-long __wit_remote_futimes(WitU32 index, const WitNamespaceTimes *times, WitU32 flags)
+static long futimes_in_turn(WitU32 index, const WitNamespaceTimes *times, WitU32 flags)
 {
     WitNamespaceRequest request;
     WitNamespaceReply reply;
@@ -644,7 +682,7 @@ long __wit_remote_futimes(WitU32 index, const WitNamespaceTimes *times, WitU32 f
     return call(&request, &reply);
 }
 
-long __wit_remote_readlink(const unsigned char *name, WitU32 length, char *buffer, long size)
+static long readlink_in_turn(const unsigned char *name, WitU32 length, char *buffer, long size)
 {
     WitNamespaceReply reply;
     const long status = path_call(WIT_NAMESPACE_READLINK, 0, name, length, &reply);
@@ -654,4 +692,141 @@ long __wit_remote_readlink(const unsigned char *name, WitU32 length, char *buffe
     const long bytes = (long)reply.Length < size ? (long)reply.Length : size;
     memcpy(buffer, window, (unsigned long)bytes);
     return bytes;
+}
+
+/* The public forms: each takes the session's turn around its request (S8.1). */
+long __wit_remote_open(const unsigned char *name, WitU32 length, long flags, long mode, WitU32 *index, int *directory)
+{
+    turn_take();
+    const long r = open_in_turn(name, length, flags, mode, index, directory);
+    turn_give();
+    return r;
+}
+
+long __wit_remote_read(WitU32 index, WitU64 offset, void *buffer, WitU64 bytes)
+{
+    turn_take();
+    const long r = __wit_remote_read_in_turn(index, offset, buffer, bytes);
+    turn_give();
+    return r;
+}
+
+long __wit_remote_write(WitU32 index, WitU64 offset, const void *buffer, WitU64 bytes)
+{
+    turn_take();
+    const long r = __wit_remote_write_in_turn(index, offset, buffer, bytes);
+    turn_give();
+    return r;
+}
+
+long __wit_remote_fstat(WitU32 index, struct kstat *st)
+{
+    turn_take();
+    const long r = __wit_remote_fstat_in_turn(index, st);
+    turn_give();
+    return r;
+}
+
+long __wit_remote_stat(const unsigned char *name, WitU32 length, struct kstat *st)
+{
+    turn_take();
+    const long r = stat_in_turn(name, length, st);
+    turn_give();
+    return r;
+}
+
+long __wit_remote_list(WitU32 index, WitU64 *cursor, unsigned char *buffer, long bytes)
+{
+    turn_take();
+    const long r = list_in_turn(index, cursor, buffer, bytes);
+    turn_give();
+    return r;
+}
+
+long __wit_remote_mkdir(const unsigned char *name, WitU32 length)
+{
+    turn_take();
+    const long r = mkdir_in_turn(name, length);
+    turn_give();
+    return r;
+}
+
+long __wit_remote_remove(const unsigned char *name, WitU32 length, int directory)
+{
+    turn_take();
+    const long r = remove_in_turn(name, length, directory);
+    turn_give();
+    return r;
+}
+
+long __wit_remote_rename(const unsigned char *from, WitU32 from_length, const unsigned char *to, WitU32 to_length)
+{
+    turn_take();
+    const long r = rename_in_turn(from, from_length, to, to_length);
+    turn_give();
+    return r;
+}
+
+long __wit_remote_truncate(WitU32 index, WitU64 size)
+{
+    turn_take();
+    const long r = truncate_in_turn(index, size);
+    turn_give();
+    return r;
+}
+
+long __wit_remote_sync(WitU32 index)
+{
+    turn_take();
+    const long r = sync_in_turn(index);
+    turn_give();
+    return r;
+}
+
+long __wit_remote_map(WitU32 index, WitU64 offset, int writable, WitU64 *object)
+{
+    turn_take();
+    const long r = map_in_turn(index, offset, writable, object);
+    turn_give();
+    return r;
+}
+
+long __wit_remote_chmod(const unsigned char *name, WitU32 length, long mode)
+{
+    turn_take();
+    const long r = chmod_in_turn(name, length, mode);
+    turn_give();
+    return r;
+}
+
+long __wit_remote_fchmod(WitU32 index, long mode)
+{
+    turn_take();
+    const long r = fchmod_in_turn(index, mode);
+    turn_give();
+    return r;
+}
+
+long __wit_remote_utimes(const unsigned char *name, WitU32 length, const WitNamespaceTimes *times, WitU32 flags)
+{
+    turn_take();
+    const long r = utimes_in_turn(name, length, times, flags);
+    turn_give();
+    return r;
+}
+
+long __wit_remote_futimes(WitU32 index, const WitNamespaceTimes *times, WitU32 flags)
+{
+    turn_take();
+    const long r = futimes_in_turn(index, times, flags);
+    turn_give();
+    return r;
+}
+
+long __wit_remote_readlink(const unsigned char *name, WitU32 length, char *buffer, long size)
+{
+    turn_take();
+    const long r = readlink_in_turn(name, length, buffer, size);
+    turn_give();
+    return r;
 }
