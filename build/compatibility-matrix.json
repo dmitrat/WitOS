@@ -105,15 +105,15 @@
     },
     {
       "name": "Cryptography",
-      "status": "Partial",
-      "step": "R4.1",
-      "note": "System.Native's random bytes, the managed hashes, HMAC and the KDFs, as in the browser flavor; `PlatformNotSupportedException` for the rest; no OpenSSL."
+      "status": "Supported",
+      "step": "W3.1",
+      "note": "OpenSSL 3.5, the long-term support series, built by the system layer from its pinned release for each ISA (no-asm, no engines of the kernel): the algorithms, X.509 and chains through System.Security.Cryptography's unix flavour, as on Linux (the suite's Cryptography area); the root store is Mozilla's CA bundle at `/etc/ssl/certs/ca-certificates.crt`, which the store reads as one file."
     },
     {
       "name": "Networking (`Socket`, `HttpClient`)",
       "status": "Partial",
-      "step": "W2.2",
-      "note": "IPv4 sockets over the network service's managed stack: TCP, UDP, the loopback and names through musl's resolver, and `HttpClient` over HTTP/1.1 (the suite's Network area); IPv6 and Unix domain sockets until W4, TLS and HTTPS until W3.1."
+      "step": "W3.1",
+      "note": "IPv4 sockets over the network service's managed stack: TCP, UDP, the loopback and names through musl's resolver, `HttpClient` over HTTP/1.1 (W2.2) and `SslStream` and HTTPS over the OpenSSL the system layer builds (W3.1; the suite's Network area); IPv6 and Unix domain sockets until W4."
     },
     {
       "name": "ASP.NET Core",

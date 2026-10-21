@@ -466,6 +466,8 @@ internal static class Toolchain
         Console.WriteLine($"Ready: {await Substrate.Tzdata.PrepareAsync(root)}");
         Console.WriteLine($"Ready: {await Substrate.SpleenFont.PrepareAsync(root)}");
         Console.WriteLine($"Ready: {await Substrate.Terminfo.PrepareAsync(root)}");
+        Console.WriteLine($"Ready: {await Substrate.OpenSsl.PrepareAsync(root)}");
+        Console.WriteLine($"Ready: {await Substrate.CaCertificates.PrepareAsync(root)}");
         Console.WriteLine($"Ready: {await Substrate.PowerShell.PrepareAsync(root)}");
     }
 

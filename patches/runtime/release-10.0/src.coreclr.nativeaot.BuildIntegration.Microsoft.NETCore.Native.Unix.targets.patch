@@ -1,11 +1,12 @@
 Source: src/coreclr/nativeaot/BuildIntegration/Microsoft.NETCore.Native.Unix.targets
 Output: src.coreclr.nativeaot.BuildIntegration.Microsoft.NETCore.Native.Unix.targets
 Before: cec7dfe627fa35b719cc6049f09732b2dcfc0470cced3fc646a689a2c419f28e
-After: 7d730467265002c9db342045e5c80ec7dc5b6730decbd506677fdac55cc6a110
+After: b74b88cf6c966a72a58c431402a338ac8ca723c9e388a4798214560dae961c08
 
 NativeAOT's link for witos through the SDK's targets (plan step R2.3b, RFC 0015 section 9): the system layer's
 toolchain is clang with lld for the triple <arch>-unknown-linux-musl, as for FreeBSD's branch; WitOS builds no GSSAPI
-and no OpenSSL shim, so System.Net.Security.Native and System.Security.Cryptography.Native.OpenSsl are not linked; the
+shim, so System.Net.Security.Native is not linked, while System.Security.Cryptography.Native.OpenSsl is, as on Linux,
+since W3.1 (the OpenSSL the system layer builds; the portable shim opens its libraries at run time); the
 runtime is built against libc++ (CLR_CMAKE_CXX_STANDARD_LIBRARY, R1.2b), so the program links libc++, whose ABI
 library has the __cxa_thread_atexit the runtime's thread_local destructors call. V2.4: no -latomic on witos, whose sysroot has no libatomic; the 16-byte compare-exchange riscv64's PalInterlockedCompareExchange128 needs comes from compiler-rt's atomic.c in the sysroot's builtins.
 
@@ -27,20 +28,16 @@ library has the __cxa_thread_atexit the runtime's thread_local destructors call.
  
        <SharedLibraryInstallName Condition="'$(SharedLibraryInstallName)' == '' and '$(_IsApplePlatform)' == 'true' and '$(NativeLib)' == 'Shared'">@rpath/$(TargetName)$(NativeBinaryExt)</SharedLibraryInstallName>
  
-@@ -140,10 +142,11 @@
+@@ -140,7 +142,8 @@
        <NetCoreAppNativeLibrary Include="System.Native" />
        <NetCoreAppNativeLibrary Include="System.Globalization.Native" Condition="'$(StaticICULinking)' != 'true' and '$(InvariantGlobalization)' != 'true'" />
        <NetCoreAppNativeLibrary Include="System.IO.Compression.Native" />
 -      <NetCoreAppNativeLibrary Include="System.Net.Security.Native" Condition="!$(_targetOS.StartsWith('tvos')) and '$(_linuxLibcFlavor)' != 'bionic'" />
-+      <!-- No GSSAPI and no OpenSSL on witos -->
++      <!-- No GSSAPI on witos -->
 +      <NetCoreAppNativeLibrary Include="System.Net.Security.Native" Condition="!$(_targetOS.StartsWith('tvos')) and '$(_linuxLibcFlavor)' != 'bionic' and '$(_targetOS)' != 'witos'" />
        <NetCoreAppNativeLibrary Include="System.Security.Cryptography.Native.Apple" Condition="'$(_IsApplePlatform)' == 'true'" />
        <!-- No OpenSSL on Apple platforms or Android -->
--      <NetCoreAppNativeLibrary Include="System.Security.Cryptography.Native.OpenSsl" Condition="'$(StaticOpenSslLinking)' != 'true' and '$(_IsApplePlatform)' != 'true' and '$(_targetOS)' != 'android'" />
-+      <NetCoreAppNativeLibrary Include="System.Security.Cryptography.Native.OpenSsl" Condition="'$(StaticOpenSslLinking)' != 'true' and '$(_IsApplePlatform)' != 'true' and '$(_targetOS)' != 'android' and '$(_targetOS)' != 'witos'" />
-       <NetCoreAppNativeLibrary Include="System.Security.Cryptography.Native.Android" Condition="'$(_targetOS)' == 'android'" />
-     </ItemGroup>
- 
+       <NetCoreAppNativeLibrary Include="System.Security.Cryptography.Native.OpenSsl" Condition="'$(StaticOpenSslLinking)' != 'true' and '$(_IsApplePlatform)' != 'true' and '$(_targetOS)' != 'android'" />
 @@ -222,7 +225,8 @@
        <NativeSystemLibrary Include="icucore" Condition="'$(_IsApplePlatform)' == 'true'" />
        <NativeSystemLibrary Include="m" />

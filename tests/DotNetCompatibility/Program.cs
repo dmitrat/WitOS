@@ -36,7 +36,7 @@ IEnumerable<Check>[] areas =
 [
     PlatformChecks.All(), ConsoleChecks.All(), TaskChecks.All(), ThreadChecks.All(), TimerChecks.All(), ExceptionChecks.All(),
     ReflectionChecks.All(), FileChecks.All(), AssemblyLoadingChecks.All(), GcChecks.All(), SynchronizationChecks.All(),
-    GlobalizationChecks.All(), TimeZoneChecks.All(), TerminalChecks.All(), NetworkChecks.All()
+    GlobalizationChecks.All(), TimeZoneChecks.All(), TerminalChecks.All(), NetworkChecks.All(), CryptographyChecks.All()
 ];
 var checks = areas.SelectMany(area => area).ToList();
 // The compatibility matrix (Strategy §145, N4.5) lists the checks from the suite itself: "--list" prints each check's id

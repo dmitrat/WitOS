@@ -6,7 +6,9 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Linq;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
 
@@ -27,7 +29,7 @@ internal static class SystemNative
         Area("signals", Signals);
         Area("processes", Processes);
         Area("hashes", Hashes);
-        Area("cryptography refused", CryptographyRefused);
+        Area("cryptography", Cryptography);
         string runtime = System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeCompiled ? "CoreCLR" : "NativeAOT";
         Console.WriteLine($"[R4] System.Native under {runtime} on {RuntimeInformation.ProcessArchitecture}: {m_passed} areas passed, {m_failed} failed");
         return m_failed == 0 ? 0 : 1;
@@ -191,17 +193,46 @@ internal static class SystemNative
         return HMACSHA256.HashData(new byte[16], new byte[] { 1 }).Length == 32 ? null : "HMAC";
     }
 
-    // No provider of asymmetric cryptography or X.509 yet: an explicit refusal (RFC 0015 section 8).
-    private static string? CryptographyRefused()
+    // Cryptography through OpenSSL (W3.1): the shim opens the system layer's libcrypto; RSA with PSS and OAEP, ECDSA on
+    // P-256, AES-GCM and a self-signed X.509 certificate whose chain builds to itself, where every algorithm beyond the
+    // hashes refused until the system layer had a provider (R4.1, RFC 0015 section 8).
+    private static string? Cryptography()
     {
-        try
+        byte[] data = Encoding.ASCII.GetBytes("WitOS");
+        using (var rsa = RSA.Create(2048))
         {
-            using var rsa = RSA.Create();
-            return "RSA.Create succeeded";
+            byte[] signature = rsa.SignData(data, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
+            if (!rsa.VerifyData(data, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pss))
+                return "RSA-PSS verify";
+            byte[] cipher = rsa.Encrypt(data, RSAEncryptionPadding.OaepSHA256);
+            if (!rsa.Decrypt(cipher, RSAEncryptionPadding.OaepSHA256).AsSpan().SequenceEqual(data))
+                return "RSA-OAEP round trip";
         }
-        catch (PlatformNotSupportedException)
+        using (var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256))
         {
-            return null;
+            byte[] signature = ecdsa.SignData(data, HashAlgorithmName.SHA256);
+            if (!ecdsa.VerifyData(data, signature, HashAlgorithmName.SHA256))
+                return "ECDSA P-256 verify";
         }
+        byte[] nonce = RandomNumberGenerator.GetBytes(12), cipherText = new byte[data.Length], tag = new byte[16], plain = new byte[data.Length];
+        using (var aes = new AesGcm(RandomNumberGenerator.GetBytes(32), 16))
+        {
+            aes.Encrypt(nonce, data, cipherText, tag);
+            aes.Decrypt(nonce, cipherText, tag, plain);
+            if (!plain.AsSpan().SequenceEqual(data))
+                return "AES-GCM round trip";
+        }
+        using (var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256))
+        {
+            var request = new CertificateRequest("CN=WitOS R4", ecdsa, HashAlgorithmName.SHA256);
+            using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+            using var chain = new X509Chain();
+            chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+            chain.ChainPolicy.CustomTrustStore.Add(certificate);
+            chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+            if (!chain.Build(certificate))
+                return "X.509 chain: " + string.Join(", ", chain.ChainStatus.Select(status => status.Status));
+        }
+        return null;
     }
 }
