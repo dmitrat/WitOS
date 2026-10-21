@@ -1,5 +1,6 @@
 #include "x64.h"
 #include "witos/platform.h"
+#include "witos/package.h"
 #include "witos/kernel_stacks.h"
 #include "witos/virtual.h"
 #include "witos/x64_instructions.h"
@@ -272,7 +273,7 @@ void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator
     }
     const WitU64 storageTable = (WitU64)boot->StorageExtents;
     require(boot->StorageBytes >= 32 &&
-            boot->StorageBytes <= 128ULL * 1024 * 1024 &&
+            boot->StorageBytes <= WIT_PACKAGE_MAX_BYTES &&
             !boot->StorageReserved &&
             boot->StorageExtentCount &&
             boot->StorageExtentCount <= WIT_MAX_STORAGE_EXTENTS &&
@@ -288,7 +289,7 @@ void wit_virtual_initialize(const WitBootInfo *boot, WitPageAllocator *allocator
                 !(extent->Base & 4095) &&
                 extent->Length &&
                 !(extent->Length & 4095) &&
-                extent->Length <= 1024 * 1024 &&
+                extent->Length <= WIT_PACKAGE_EXTENT_BYTES &&
                 extent->Base < WIT_PHYSICAL_LIMIT &&
                 extent->Length <= WIT_PHYSICAL_LIMIT - extent->Base &&
                 (extent->Base >= boot->ImageBase + boot->ImageSize ||

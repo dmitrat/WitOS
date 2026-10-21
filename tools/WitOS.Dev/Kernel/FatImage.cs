@@ -52,19 +52,35 @@ internal static class FatImage
             throw new ArgumentException("Boot file name must be a name of up to 64 ASCII characters with an extension of up to three.", nameof(bootName));
         var longName = parts[0].Length > 8;
         var shortName = (longName ? parts[0][..6] + "~1" : parts[0].PadRight(8)).ToUpperInvariant() + parts[1].ToUpperInvariant().PadRight(3);
-        // Preserve the existing 32 MiB layout. Assembly packages use a 128 MiB
-        // FAT16 volume with 8 KiB clusters, retaining the bounded FAT capacity.
+        // The smallest volume the files fit: the 32 MiB layout, then volumes of 128, 256 and 512 MiB whose clusters grow
+        // with them (8, 16 and 32 KiB), so that the FAT keeps its 64 sectors and the cluster count its bound (W3.2: a
+        // package of up to WIT_PACKAGE_MAX_BYTES, 256 MiB, needs the largest).
         package ??= AssemblyPackage.Create(Array.Empty<(string, ReadOnlyMemory<byte>)>());
         rootTask ??= [];
-        var large = (long)executable.Length + package.Length + rootTask.Length + 2 * CLUSTER_SIZE > (CLUSTER_COUNT - 2) * CLUSTER_SIZE;
-        var totalSectors = large ? 262144 : TOTAL_SECTORS;
-        var sectorsPerCluster = large ? 16 : SECTORS_PER_CLUSTER;
-        var clusterSize = sectorsPerCluster * SECTOR_SIZE;
-        var clusterCount = (totalSectors - DATA_START) / sectorsPerCluster;
-        var fileClusters = checked((executable.Length + clusterSize - 1) / clusterSize);
-        var packageClusters = checked((package.Length + clusterSize - 1) / clusterSize);
-        var rootClusters = checked((rootTask.Length + clusterSize - 1) / clusterSize);
-        if (fileClusters == 0 || packageClusters == 0 || fileClusters + packageClusters + rootClusters + 2 > clusterCount)
+        var totalSectors = 0;
+        var sectorsPerCluster = 0;
+        var clusterSize = 0;
+        var clusterCount = 0;
+        var fileClusters = 0;
+        var packageClusters = 0;
+        var rootClusters = 0;
+        var fits = false;
+        foreach (var (sectors, perCluster) in new[] { (TOTAL_SECTORS, SECTORS_PER_CLUSTER), (262144, 16), (524288, 32), (1048576, 64) })
+        {
+            totalSectors = sectors;
+            sectorsPerCluster = perCluster;
+            clusterSize = sectorsPerCluster * SECTOR_SIZE;
+            clusterCount = (totalSectors - DATA_START) / sectorsPerCluster;
+            fileClusters = checked((executable.Length + clusterSize - 1) / clusterSize);
+            packageClusters = checked((package.Length + clusterSize - 1) / clusterSize);
+            rootClusters = checked((rootTask.Length + clusterSize - 1) / clusterSize);
+            if (fileClusters > 0 && packageClusters > 0 && fileClusters + packageClusters + rootClusters + 2 <= clusterCount)
+            {
+                fits = true;
+                break;
+            }
+        }
+        if (!fits)
             throw new InvalidOperationException("EFI image does not fit in the M0 FAT16 volume.");
 
         using var stream = File.Create(destination);

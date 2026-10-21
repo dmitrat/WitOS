@@ -143,7 +143,12 @@ static int release_pages(void *block, WitU64 pages)
 static EfiStatus allocate_pages(WitU32 type, WitU32 memory, WitU64 pages, WitU64 *address)
 {
     ++allocCalls;
-    if (type != 1 || memory != 2 || !pages || pages > 256 || *address != 0xFFFFFFFFULL || allocations == 8) {
+    if (type != 1 ||
+        memory != 2 ||
+        !pages ||
+        pages > WIT_PACKAGE_EXTENT_BYTES / 4096 ||
+        *address != 0xFFFFFFFFULL ||
+        allocations == 8) {
         return EFI_INVALID_PARAMETER;
     }
     if (mode == 5 || (mode == 6 && allocCalls == 2)) {
@@ -221,7 +226,11 @@ int boot_package_firmware_test(const char *path)
         if (success) {
             unsigned char *joined = (unsigned char *)malloc(sourceSize);
             size_t done = 0;
-            if (!joined || boot.StorageBytes != sourceSize || boot.StorageExtentCount != 3 || boot.StorageReserved) {
+            /* The loader reads the package into extents of WIT_PACKAGE_EXTENT_BYTES: a source of 2 to 4 MiB takes two. */
+            if (!joined ||
+                boot.StorageBytes != sourceSize ||
+                boot.StorageReserved ||
+                boot.StorageExtentCount != (sourceSize + WIT_PACKAGE_EXTENT_BYTES - 1) / WIT_PACKAGE_EXTENT_BYTES) {
                 return 0;
             }
             for (unsigned i = 0; i < boot.StorageExtentCount; ++i) {
