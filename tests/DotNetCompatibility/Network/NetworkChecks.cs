@@ -236,5 +236,26 @@ internal static class NetworkChecks
             return CheckResult.That(response.StatusCode == HttpStatusCode.OK && text == LoopbackHttpServer.TEXT && server.Address.Scheme == "https",
                 $"{(int)response.StatusCode} over {server.Address.Scheme}, {text.Length} characters; the server: {server.Journal}");
         });
+        // The runner's HTTPS server (W3.1), trusted through the platform's root store alone: the runner lays its authority's
+        // certificate there and names the server in the environment; where it does not, as on the hosts, the check does
+        // not apply.
+        yield return new Check("Network", "HttpsRunner", async () =>
+        {
+            var peer = Environment.GetEnvironmentVariable("WITOS_HTTPS_PEER");
+            if (string.IsNullOrEmpty(peer))
+                return CheckResult.NotApplicable("no WITOS_HTTPS_PEER: the runner's HTTPS server is reached in the guest alone");
+            using var client = new HttpClient(new HttpClientHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(60) };
+            try
+            {
+                using var response = await client.GetAsync(peer);
+                var text = await response.Content.ReadAsStringAsync();
+                return CheckResult.That(response.StatusCode == HttpStatusCode.OK && text.Contains("WitOS runner", StringComparison.Ordinal),
+                    $"{(int)response.StatusCode} from {peer} through the root store's trust: \"{text.TrimEnd()}\"");
+            }
+            catch (HttpRequestException exception)
+            {
+                return CheckResult.That(false, $"{peer}: {exception.Message}{(exception.InnerException is { } inner ? $" ({inner.Message})" : "")}");
+            }
+        });
     }
 }

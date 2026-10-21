@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using WitOS.Dev.Host;
@@ -39,9 +40,15 @@ internal static class RuntimeCompatibility
     public static async Task RunAsync(string root, KernelArchitecture architecture)
     {
         RuntimeApps.ForgetLogs(root, architecture, KernelImageBuilder.RUNTIME_COMPATIBILITY_SCENARIO);
+        // The runner's authority of this boot (W3.1): its certificate in the guest's root store, its HTTPS server behind
+        // the adapter, so that the suite's Network.HttpsRunner check trusts the server through the store.
+        using var authority = new RunnerAuthority(IPAddress.Parse(NetworkPeer.ECHO_ADDRESS));
+        var output = Path.Combine(root, "artifacts", architecture.Name, KernelImageBuilder.RUNTIME_COMPATIBILITY_SCENARIO);
+        Directory.CreateDirectory(output);
+        var package = await RuntimeApps.WithRunnerAuthorityAsync(await BuildPackageAsync(root, output, architecture), output, authority);
         // On several processors (P2), as an application meets a machine.
         await RuntimeApps.BootAsync(root, architecture, KernelImageBuilder.RUNTIME_COMPATIBILITY_SCENARIO, RequiredLines(architecture), 1800,
-            terminal: Script(), processors: RuntimeProcessors.PROCESSORS);
+            package: package, terminal: Script(), processors: RuntimeProcessors.PROCESSORS, https: authority);
         // N4.4: the record of this run, which runtime-published compares a publish of another host against. The suite
         // writes to the terminal (N4.3), so its lines are in the transcript, not in the serial log.
         var checks = ReadChecks(await RuntimeApps.GuestLinesAsync(root, architecture, KernelImageBuilder.RUNTIME_COMPATIBILITY_SCENARIO));

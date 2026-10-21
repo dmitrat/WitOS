@@ -21,6 +21,11 @@ internal static class RuntimeApps
     public const int MEMORY_MIB = 512;
 
     /// <summary>
+    /// The variable that names the runner's HTTPS server to the suite (W3.1).
+    /// </summary>
+    public const string HTTPS_PEER_VARIABLE = "WITOS_HTTPS_PEER";
+
+    /// <summary>
     /// The scenarios' /bin/init, which runs the commands of /etc/apps with /data/tmp as their temporary directory.
     /// </summary>
     public const string INIT = "tests/User/apps_init.c";
@@ -146,11 +151,12 @@ internal static class RuntimeApps
     /// when null.</param>
     /// <param name="terminal">The terminal's script (N4.3); no terminal when null.</param>
     /// <param name="processors">The processors the board gives the guest (P2); one by default.</param>
+    /// <param name="https">The runner's authority, whose HTTPS server the guest reaches through the adapter (W3.1); none by default.</param>
     /// <returns>When the boot passed.</returns>
     public static async Task BootAsync(string root, KernelArchitecture architecture, string scenario, string[] requiredLines,
         int timeoutSeconds, IReadOnlyList<(string Path, string Source)>? volumeFiles = null, long diskBytes = RuntimeDataDisk.BYTES,
         int memoryMiB = MEMORY_MIB, IReadOnlyList<(string Name, string Source)>? package = null, IReadOnlyList<TerminalInput>? terminal = null,
-        int processors = 1)
+        int processors = 1, RunnerAuthority? https = null)
     {
         var image = await KernelImageBuilder.BuildAsync(root, scenario, architecture: architecture, package: package);
         var dataDisk = Path.Combine(Path.GetDirectoryName(image)!, "data-disk.img");
@@ -164,8 +170,32 @@ internal static class RuntimeApps
                 architecture.RootTaskPassedLine],
             DataDisk = dataDisk,
             Terminal = terminal,
-            Processors = processors
+            Processors = processors,
+            NetworkHttps = https
         });
+    }
+
+    /// <summary>
+    /// The package with the runner's authority in the guest's root store and the HTTPS server's address in the environment
+    /// (W3.1), which the suite's Network.HttpsRunner check reads; the certificate is written under the scenario's output.
+    /// </summary>
+    /// <param name="package">The package.</param>
+    /// <param name="output">Artifact directory of the scenario.</param>
+    /// <param name="authority">The authority.</param>
+    /// <returns>The package with the two files.</returns>
+    public static async Task<IReadOnlyList<(string Name, string Source)>> WithRunnerAuthorityAsync(
+        IReadOnlyList<(string Name, string Source)> package, string output, RunnerAuthority authority)
+    {
+        var files = package.ToList();
+        var pem = Path.Combine(output, "witos-runner-ca.pem");
+        await authority.WriteAuthorityPemAsync(pem);
+        var environmentIndex = files.FindIndex(file => file.Name == "etc/environment");
+        var environment = Path.Combine(output, "environment-https");
+        await File.WriteAllTextAsync(environment, await File.ReadAllTextAsync(files[environmentIndex].Source) +
+            $"{HTTPS_PEER_VARIABLE}=https://{NetworkPeer.ECHO_ADDRESS}/\n");
+        files[environmentIndex] = ("etc/environment", environment);
+        files.Add((RunnerAuthority.PACKAGE_PATH, pem));
+        return files;
     }
 
     /// <summary>

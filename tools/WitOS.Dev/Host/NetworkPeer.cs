@@ -1,12 +1,18 @@
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Text;
 
 namespace WitOS.Dev.Host;
 
 /// <summary>
 /// The runner's side of the guest's network (plan step W1.2b): an echo server on the host's loopback, which the guest
 /// reaches at <see cref="ECHO_ADDRESS"/>:<see cref="ECHO_PORT"/> through QEMU's guestfwd whatever port the server got, and
-/// a client that connects to a guest's listening socket through hostfwd and requires its bytes echoed back whole.
+/// a client that connects to a guest's listening socket through hostfwd and requires its bytes echoed back whole; and,
+/// given a <see cref="RunnerAuthority"/> (plan step W3.1), an HTTPS server at <see cref="ECHO_ADDRESS"/>:<see cref="HTTPS_PORT"/>
+/// with the authority's server certificate, which answers every request with <see cref="HTTPS_TEXT"/>, so that a guest
+/// trusting the authority through its root store reaches it as a public site.
 /// </summary>
 internal sealed class NetworkPeer : IDisposable
 {
@@ -22,6 +28,16 @@ internal sealed class NetworkPeer : IDisposable
     /// </summary>
     public const int ECHO_PORT = 7;
 
+    /// <summary>
+    /// The port of the HTTPS server at the same address.
+    /// </summary>
+    public const int HTTPS_PORT = 443;
+
+    /// <summary>
+    /// What the HTTPS server answers every request with.
+    /// </summary>
+    public const string HTTPS_TEXT = "WitOS runner over HTTPS.";
+
     private const int BUFFER_BYTES = 64 * 1024;
 
     #endregion
@@ -29,9 +45,13 @@ internal sealed class NetworkPeer : IDisposable
     #region Fields
 
     private readonly TcpListener m_listener;
+    private readonly TcpListener? m_https;
+    private readonly RunnerAuthority? m_authority;
     private readonly CancellationTokenSource m_stop = new();
     private readonly Task m_serving;
+    private readonly Task? m_servingHttps;
     private long m_echoed;
+    private int m_httpsRequests;
 
     #endregion
 
@@ -41,7 +61,8 @@ internal sealed class NetworkPeer : IDisposable
     /// Starts the echo server and picks a free host port for the forward.
     /// </summary>
     /// <param name="guestPort">The guest's port the forward reaches; zero for none.</param>
-    public NetworkPeer(ushort guestPort)
+    /// <param name="authority">The authority whose server certificate the HTTPS server serves with; none for no server.</param>
+    public NetworkPeer(ushort guestPort, RunnerAuthority? authority = null)
     {
         m_listener = new TcpListener(IPAddress.Loopback, 0);
         m_listener.Start();
@@ -55,6 +76,14 @@ internal sealed class NetworkPeer : IDisposable
             probe.Stop();
         }
         m_serving = ServeAsync(m_stop.Token);
+        m_authority = authority;
+        if (authority is not null)
+        {
+            m_https = new TcpListener(IPAddress.Loopback, 0);
+            m_https.Start();
+            HttpsPort = ((IPEndPoint)m_https.LocalEndpoint).Port;
+            m_servingHttps = ServeHttpsAsync(m_https, authority, m_stop.Token);
+        }
     }
 
     #endregion
@@ -119,6 +148,57 @@ internal sealed class NetworkPeer : IDisposable
         }
     }
 
+    // Answers every request of every connection over TLS with the text until the runner stops; a connection that fails its
+    // handshake or its request ends alone, since the guest's checks report what they saw.
+    private async Task ServeHttpsAsync(TcpListener listener, RunnerAuthority authority, CancellationToken stop)
+    {
+        try
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                var client = await listener.AcceptTcpClientAsync(stop);
+                _ = AnswerHttpsAsync(client, authority, stop);
+            }
+        }
+        catch (Exception exception) when (exception is OperationCanceledException or SocketException or ObjectDisposedException)
+        {
+        }
+    }
+
+    private async Task AnswerHttpsAsync(TcpClient client, RunnerAuthority authority, CancellationToken stop)
+    {
+        using (client)
+        {
+            try
+            {
+                await using var secure = new SslStream(client.GetStream(), leaveInnerStreamOpen: false);
+                await secure.AuthenticateAsServerAsync(new SslServerAuthenticationOptions { ServerCertificate = authority.Server, ClientCertificateRequired = false }, stop);
+                var head = new List<byte>();
+                var one = new byte[1];
+                while (true)
+                {
+                    while (await secure.ReadAsync(one, stop) == 1)
+                    {
+                        head.Add(one[0]);
+                        if (head.Count >= 4 && head[^4] == '\r' && head[^3] == '\n' && head[^2] == '\r' && head[^1] == '\n')
+                            break;
+                    }
+                    if (head.Count < 4)
+                        return;
+                    head.Clear();
+                    Interlocked.Increment(ref m_httpsRequests);
+                    var body = Encoding.UTF8.GetBytes(HTTPS_TEXT);
+                    await secure.WriteAsync(Encoding.ASCII.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {body.Length}\r\n\r\n"), stop);
+                    await secure.WriteAsync(body, stop);
+                    await secure.FlushAsync(stop);
+                }
+            }
+            catch (Exception exception) when (exception is OperationCanceledException or IOException or SocketException or ObjectDisposedException or AuthenticationException)
+            {
+            }
+        }
+    }
+
     private async Task EchoAsync(TcpClient client, CancellationToken stop)
     {
         using (client)
@@ -148,9 +228,11 @@ internal sealed class NetworkPeer : IDisposable
     {
         m_stop.Cancel();
         m_listener.Stop();
+        m_https?.Stop();
         try
         {
             m_serving.Wait(TimeSpan.FromSeconds(5));
+            m_servingHttps?.Wait(TimeSpan.FromSeconds(5));
         }
         catch (AggregateException)
         {
@@ -183,9 +265,20 @@ internal sealed class NetworkPeer : IDisposable
     public long Echoed => Interlocked.Read(ref m_echoed);
 
     /// <summary>
+    /// The HTTPS server's port on the host's loopback; zero without a server.
+    /// </summary>
+    public int HttpsPort { get; }
+
+    /// <summary>
+    /// The requests the HTTPS server answered.
+    /// </summary>
+    public int HttpsRequests => Volatile.Read(ref m_httpsRequests);
+
+    /// <summary>
     /// The options of QEMU's user networking that reach the echo server and the guest's port.
     /// </summary>
     public string NetdevOptions => $",guestfwd=tcp:{ECHO_ADDRESS}:{ECHO_PORT}-tcp:127.0.0.1:{EchoPort}" +
+        (m_authority is not null ? $",guestfwd=tcp:{ECHO_ADDRESS}:{HTTPS_PORT}-tcp:127.0.0.1:{HttpsPort}" : "") +
         (GuestPort != 0 ? $",hostfwd=tcp:127.0.0.1:{ForwardPort}-:{GuestPort}" : "");
 
     #endregion

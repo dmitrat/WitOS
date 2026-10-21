@@ -60,7 +60,8 @@ internal static class BootScenarioRunner
         File.Copy(architecture.FirmwareVariablesPath(root), firmwareState, overwrite: true);
         using var qmpControl = new QemuControl();
         // The runner's side of the guest's network (W1.2b): its echo server and the port it reaches the guest through.
-        using var peer = request.Network && (request.NetworkEcho || request.NetworkForward != 0) ? new NetworkPeer(request.NetworkForward) : null;
+        using var peer = request.Network && (request.NetworkEcho || request.NetworkForward != 0 || request.NetworkHttps is not null)
+            ? new NetworkPeer(request.NetworkForward, request.NetworkHttps) : null;
         var terminalPath = Path.Combine(logs, name + ".terminal.log");
         // The mirror of a display answers no terminal query: the display does (C2.3).
         using var terminal = request.Terminal is { } script ? new TerminalLink(script, terminalPath, answersQueries: !request.DisplayIsMainConsole) : null;
@@ -154,6 +155,8 @@ internal static class BootScenarioRunner
                 Console.WriteLine($"The runner's action after \"{failed.Value.Action.AfterLine}\" failed: {failed.Value.Error}");
             if (peer is { Echoed: > 0 })
                 Console.WriteLine($"The runner's echo server sent {peer.Echoed} bytes back to the guest.");
+            if (peer is { HttpsRequests: > 0 })
+                Console.WriteLine($"The runner's HTTPS server answered {peer.HttpsRequests} request(s) of the guest.");
         }
         var serial = File.Exists(serialPath) ? await BoundedCapture.ReadFileAsync(serialPath) : "";
         var result = monitorResult with { Output = serial };

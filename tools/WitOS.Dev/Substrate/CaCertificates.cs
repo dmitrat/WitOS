@@ -23,9 +23,14 @@ internal static class CaCertificates
     public const string LOCK = "src/Substrate/cacert.lock.json";
 
     /// <summary>
-    /// The license the pin names, which the bundle's header states.
+    /// The license the pin names: the extract's, the same as Mozilla's certdata.txt it is made from, which curl's page
+    /// states (the file's header names its source, not the license).
     /// </summary>
     public const string LICENSE = "MPL-2.0";
+
+    // The header's lines that make the file the bundle: curl's title and Mozilla as the source of the data.
+    private const string TITLE_LINE = "## Bundle of CA Root Certificates";
+    private const string SOURCE_LINE = "## Certificate data from Mozilla as of:";
 
     /// <summary>
     /// The bundle's path in the install.
@@ -57,8 +62,8 @@ internal static class CaCertificates
     }
 
     /// <summary>
-    /// Downloads the pinned bundle when missing, verifies its SHA-256 and that it is the bundle: the license its header
-    /// states and at least <see cref="MINIMUM_CERTIFICATES"/> certificates.
+    /// Downloads the pinned bundle when missing, verifies its SHA-256 and that it is the bundle: curl's title line, Mozilla
+    /// named as the data's source and at least <see cref="MINIMUM_CERTIFICATES"/> certificates.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <returns>The bundle's path.</returns>
@@ -67,8 +72,8 @@ internal static class CaCertificates
         var pin = ReadPin(root);
         var bundle = await Toolchain.RequireDownloadAsync(Path.Combine(root, ".tools", "downloads", pin.Name + ".pem"), pin.Url, pin.Sha256);
         var text = await File.ReadAllTextAsync(bundle);
-        if (!text.Contains("Mozilla Public License", StringComparison.Ordinal))
-            throw new InvalidDataException($"{pin.Name} does not state the license the pin names ({LICENSE}).");
+        if (!text.Contains(TITLE_LINE, StringComparison.Ordinal) || !text.Contains(SOURCE_LINE, StringComparison.Ordinal))
+            throw new InvalidDataException($"{pin.Name} is not curl's bundle of Mozilla's root certificates: its header lacks \"{TITLE_LINE}\" or \"{SOURCE_LINE}\".");
         var certificates = Regex.Matches(text, "-----BEGIN CERTIFICATE-----").Count;
         if (certificates < MINIMUM_CERTIFICATES)
             throw new InvalidDataException($"{pin.Name} holds {certificates} certificates, fewer than a bundle's {MINIMUM_CERTIFICATES}.");

@@ -292,10 +292,10 @@ internal static class RuntimeWitos
         // recognizes by its marker (ROOTFS_DIR).
         var sysroot = await Sysroot.BuildAsync(root, architecture);
         var environment = NativeEnvironment(root, sysroot);
-        var probes = await CollectProbesAsync(root, tree, architecture, environment, ProbeDirectory(root, architecture));
-        // OpenSSL (W3.1), against which System.Security.Cryptography.Native.OpenSsl compiles; the portable shim opens the
-        // libraries at run time from the install's /usr/lib.
+        // OpenSSL (W3.1), against which System.Security.Cryptography.Native.OpenSsl compiles, in the measuring configure
+        // and the build alike; the portable shim opens the libraries at run time from the install's /usr/lib.
         var openssl = await OpenSsl.BuildAsync(root, architecture);
+        var probes = await CollectProbesAsync(root, tree, architecture, environment, ProbeDirectory(root, architecture), OpenSsl.CMakeArguments(openssl));
         await RunBuildAsync(tree,
             ["clr.nativeaotruntime+clr.nativeaotlibs+libs.native", "-os", "witos", "-arch", architecture.Name, "-c", "Release", "-cross",
              .. OpenSsl.CMakeArguments(openssl)],
@@ -1981,13 +1981,13 @@ internal static class RuntimeWitos
     // configure stops for want of the answers and for no other reason; the probes are copied out and the build
     // directory, whose cache holds the unanswered checks, is removed before the build configures again.
     internal static async Task<IReadOnlyList<string>> CollectProbesAsync(string root, string tree, KernelArchitecture architecture,
-        IReadOnlyDictionary<string, string> environment, string directory)
+        IReadOnlyDictionary<string, string> environment, string directory, IReadOnlyList<string>? cmakeArguments = null)
     {
         var objects = ObjectDirectory(tree, architecture);
         if (Directory.Exists(objects))
             Directory.Delete(objects, recursive: true);
         var configure = await Processes.RunAsync(Path.Combine(tree, "src", "coreclr", "build-runtime.sh"),
-            [$"-{architecture.Name}", "-release", "-cross", "-os", "witos", "-configureonly", "-cmakeargs", "-C " + Path.Combine(root, TRYRUN_MEASURE)],
+            [$"-{architecture.Name}", "-release", "-cross", "-os", "witos", "-configureonly", "-cmakeargs", "-C " + Path.Combine(root, TRYRUN_MEASURE), .. cmakeArguments ?? []],
             tree, 1800, environment);
         var results = Path.Combine(objects, "TryRunResults.cmake");
         if (configure.TimedOut || !File.Exists(results) || configure.Output.Contains("CMake Error at", StringComparison.Ordinal) ||
