@@ -44,7 +44,10 @@ internal static class SystemNative
         }
         catch (Exception exception)
         {
-            failure = $"threw {exception.GetType().Name}: {exception.Message}";
+            // The type, the message and the first frames on one line, since the guest log is judged line by line.
+            var frames = (exception.StackTrace ?? "").Split('\n').Select(line => line.Trim()).Where(line => line.StartsWith("at ", StringComparison.Ordinal)).Take(4);
+            failure = $"threw {exception.GetType().Name}: {exception.Message}" +
+                (exception.InnerException is { } inner ? $" <- {inner.GetType().Name}: {inner.Message}" : "") + " | " + string.Join(" | ", frames);
         }
         if (failure is null)
             ++m_passed;
