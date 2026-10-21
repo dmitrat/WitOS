@@ -171,6 +171,10 @@ internal static class RuntimeApps
             DataDisk = dataDisk,
             Terminal = terminal,
             Processors = processors,
+            // The adapter (W1.1) when the runner serves HTTPS (W3.1): the guest reaches the server through QEMU's guestfwd,
+            // which the runner's peer adds to the adapter's user networking; without it the suite's Network area keeps to
+            // the loopback.
+            Network = https is not null,
             NetworkHttps = https
         });
     }
