@@ -146,6 +146,9 @@ The others follow from the documents and are recorded for review.
 8. **Local sockets.** `AF_UNIX` stream and datagram sockets and `socketpair` are the libc's own, within and between
    processes as shared pipes are (N4.2). `.NET`'s diagnostic IPC and CSharpRepl's `connect` need them, and they need no
    network service.
+   *W4.1 did so* ([W4.1-Local-Sockets.md](W4.1-Local-Sockets.md)): stream and sequenced-packet sockets and
+   `socketpair`'s three types, a connection's rings in the two processes' memory, and the names in the namespace service,
+   which hands a connecting client the listener's end; named datagram sockets wait for a consumer.
 9. **ASP.NET Core.** The shared framework `Microsoft.AspNetCore.App` is managed alone. The install takes it from the
    stock SDK's packs at the version that matches the runtime's band, under `/dotnet/shared/Microsoft.AspNetCore.App`.
    *W3.2 measured otherwise* ([W3.2-AspNetCore.md](W3.2-AspNetCore.md) §1): the packs are per RID with ReadyToRun code

@@ -113,7 +113,13 @@
       "name": "Networking (`Socket`, `HttpClient`)",
       "status": "Partial",
       "step": "W3.1",
-      "note": "IPv4 sockets over the network service's managed stack: TCP, UDP, the loopback and names through musl's resolver, `HttpClient` over HTTP/1.1 (W2.2) and `SslStream` and HTTPS over the OpenSSL the system layer builds (W3.1; the suite's Network area); IPv6 and Unix domain sockets until W4."
+      "note": "IPv4 sockets over the network service's managed stack: TCP, UDP, the loopback and names through musl's resolver, `HttpClient` over HTTP/1.1 (W2.2) and `SslStream` and HTTPS over the OpenSSL the system layer builds (W3.1; the suite's Network area); IPv6 until W4.3; Unix domain sockets since W4.1 (the next row)."
+    },
+    {
+      "name": "Local sockets and named pipes (`UnixDomainSocketEndPoint`, `NamedPipeServerStream`)",
+      "status": "Supported",
+      "step": "W4.1",
+      "note": "AF_UNIX stream and sequenced-packet sockets and socketpair, the libc's own: a path below a mount point or an abstract name, connections within a process and between processes, named pipes as on Unix (the suite's Ipc area). A socket's name lives in the namespace service, beside the volume's entries, and is gone at the next boot; no descriptors pass over a socket."
     },
     {
       "name": "ASP.NET Core",
@@ -123,9 +129,9 @@
     },
     {
       "name": "Diagnostics (`createdump`, EventPipe, `dotnet-dump`)",
-      "status": "Absent",
-      "step": "—",
-      "note": "Decided with the debugger story."
+      "status": "Partial",
+      "step": "W4.1",
+      "note": "The runtime's diagnostic IPC over a Unix domain socket: a tool reaches a process through the port it starts with (`DOTNET_DiagnosticPorts`; the Ipc area's DiagnosticsIpc). Every process's id is 1, so the default port has one name and the first .NET process takes it. No `createdump`; the debugger story decides the rest."
     },
     {
       "name": "Compression (`System.IO.Compression`)",

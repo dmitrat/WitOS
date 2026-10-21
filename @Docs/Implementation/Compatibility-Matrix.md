@@ -31,8 +31,9 @@ types in the guest) and reports its checks not applicable elsewhere.
 | Terminal | 7 | Supported | Supported | Supported |
 | Network | 15 | Supported | Supported | Partial: IPv6 |
 | Cryptography | 11 | Supported | Supported | Supported |
+| Ipc | 5 | Supported | Supported | Supported |
 
-116 checks in 16 areas.
+121 checks in 17 areas.
 
 ## Recorded differences
 
@@ -68,9 +69,10 @@ silently.
 | Full-screen console applications (TUI) | Supported | C2.6, C4.2 | The display's emulator draws SGR's colours and attributes, the alternate screen and the cursor's visibility, swallows the string sequences and answers the device attributes and the size (C2.6); Arlecchino.Commander, built from its source as a base application, lists, views and copies files on the screen through the keyboard (C4.2, the `runtime-commander` scenario); Terminal.Gui's UICatalog 2.5.0 runs with `--disable-cm`, since its configuration watcher needs file change notifications, and CSharpFar needs `HttpClient` at its start, which waits for networking. |
 | Named synchronization objects (`Mutex` with a name) | Supported | N4.1 | Under `/tmp/.dotnet` in the namespace service's `/tmp`. |
 | Cryptography | Supported | W3.1 | OpenSSL 3.5, the long-term support series, built by the system layer from its pinned release for each ISA (no-asm, no engines of the kernel): the algorithms, X.509 and chains through System.Security.Cryptography's unix flavour, as on Linux (the suite's Cryptography area); the root store is Mozilla's CA bundle at `/etc/ssl/certs/ca-certificates.crt`, which the store reads as one file. |
-| Networking (`Socket`, `HttpClient`) | Partial | W3.1 | IPv4 sockets over the network service's managed stack: TCP, UDP, the loopback and names through musl's resolver, `HttpClient` over HTTP/1.1 (W2.2) and `SslStream` and HTTPS over the OpenSSL the system layer builds (W3.1; the suite's Network area); IPv6 and Unix domain sockets until W4. |
+| Networking (`Socket`, `HttpClient`) | Partial | W3.1 | IPv4 sockets over the network service's managed stack: TCP, UDP, the loopback and names through musl's resolver, `HttpClient` over HTTP/1.1 (W2.2) and `SslStream` and HTTPS over the OpenSSL the system layer builds (W3.1; the suite's Network area); IPv6 until W4.3; Unix domain sockets since W4.1 (the next row). |
+| Local sockets and named pipes (`UnixDomainSocketEndPoint`, `NamedPipeServerStream`) | Supported | W4.1 | AF_UNIX stream and sequenced-packet sockets and socketpair, the libc's own: a path below a mount point or an abstract name, connections within a process and between processes, named pipes as on Unix (the suite's Ipc area). A socket's name lives in the namespace service, beside the volume's entries, and is gone at the next boot; no descriptors pass over a socket. |
 | ASP.NET Core | Supported | W3.2 | The shared framework Microsoft.AspNetCore.App in the install, built IL alone from its pinned source for every ISA; an ordinary Kestrel application published without a RID serves HTTP and HTTPS over the network service's sockets and answers the runner through the port forward (`runtime-aspnetcore`). No ReadyToRun code: the framework starts under the JIT. |
-| Diagnostics (`createdump`, EventPipe, `dotnet-dump`) | Absent | — | Decided with the debugger story. |
+| Diagnostics (`createdump`, EventPipe, `dotnet-dump`) | Partial | W4.1 | The runtime's diagnostic IPC over a Unix domain socket: a tool reaches a process through the port it starts with (`DOTNET_DiagnosticPorts`; the Ipc area's DiagnosticsIpc). Every process's id is 1, so the default port has one name and the first .NET process takes it. No `createdump`; the debugger story decides the rest. |
 | Compression (`System.IO.Compression`) | Supported | R2.3a | zlib-ng and brotli in-tree. |
 | Server GC and several scheduling processors | Supported | P1, P2 | Threads run on every processor of the board with their affinity honoured (P1); `Environment.ProcessorCount`, `Thread.GetCurrentProcessorId`, the server collector's heaps and the thread pool see every processor, and the scenarios of N1 and N2 run on four (P2). |
 | Avalonia and other GUI frameworks | Planned | M9 | Needs the presentation layer of RFC 0009. |
