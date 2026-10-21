@@ -159,6 +159,10 @@ internal static class RuntimeWitos
     // The symbol ILC gives the program's Main: the assembly, the type and the method.
     private const string PLATFORM_MAIN = "Platform_Program__Main";
 
+    // The account database (N2.2): the one account every process runs as, root, with its home on the data volume.
+    private const string PASSWD = "root:x:0:0:root:/data/home:\n";
+    private const string GROUP = "root:x:0:\n";
+
     // The coreclr_tests_runner.c line that starts a group, and a merged runner's line for each test it ran (R7.2b).
     private static readonly Regex TEST_GROUP_LINE = new(@"\[CORECLR-TESTS\] group (\S+)$", RegexOptions.Compiled);
     private static readonly Regex TEST_RESULT_LINE = new(@"(Passed|Failed) test: (.+)$", RegexOptions.Compiled);
@@ -765,9 +769,9 @@ internal static class RuntimeWitos
         // The account database (N2.2): every process runs as uid and gid 0, which the libc reports, and a program asks its
         // user's name through getpwuid_r (Environment.UserName), which fails on a system without /etc/passwd.
         var passwd = Path.Combine(output, "passwd");
-        await File.WriteAllTextAsync(passwd, "root:x:0:0:root:/data/home:\n");
+        await File.WriteAllTextAsync(passwd, PASSWD);
         var group = Path.Combine(output, "group");
-        await File.WriteAllTextAsync(group, "root:x:0:\n");
+        await File.WriteAllTextAsync(group, GROUP);
         // The host names (W2.1a), which musl's resolver reads before it asks the DNS server /etc/resolv.conf names: the
         // loopback's; the machine has no name of its own yet.
         var hosts = Path.Combine(output, "hosts");
@@ -1048,9 +1052,12 @@ internal static class RuntimeWitos
             ("coreclr/libcoreclr.so", Path.Combine(coreclr, "libcoreclr.so")), ("coreclr/libclrjit.so", Path.Combine(coreclr, "libclrjit.so")),
             ("coreclr/System.Private.CoreLib.dll", Path.Combine(coreclr, "IL", "System.Private.CoreLib.dll")),
             ("coreclr/libSystem.Native.so", Path.Combine(native, "libSystem.Native.so")),
-            // The OpenSSL shim and its libraries (W3.1): the cryptography area of System.Native's check goes through them.
+            // The OpenSSL shim and its libraries (W3.1): the cryptography area of System.Native's check goes through them, and
+            // an X.509 chain consults the user's stores under the home directory, which .NET asks getpwuid_r for, so the
+            // package carries the install's account database (N2.2) too.
             ("coreclr/libSystem.Security.Cryptography.Native.OpenSsl.so", Path.Combine(native, "libSystem.Security.Cryptography.Native.OpenSsl.so")),
             .. await OpenSsl.PackageFilesAsync(root, architecture),
+            ("etc/passwd", await WriteAsync(Path.Combine(output, "passwd"), PASSWD)), ("etc/group", await WriteAsync(Path.Combine(output, "group"), GROUP)),
             ($"coreclr/{name}.dll", assembly),
             .. FrameworkClosure(framework, assembly).Select(library => ($"coreclr/{library}.dll", Path.Combine(framework, library + ".dll")))
         ];
@@ -2089,6 +2096,13 @@ internal static class RuntimeWitos
         if (result.TimedOut || result.ExitCode != 0)
             throw new InvalidOperationException($"git {arguments[0]} failed in {directory}. {result.Output}\n{result.Error}");
         return result.Output;
+    }
+
+    // Writes a package file's text under the scenario's output and names it.
+    private static async Task<string> WriteAsync(string path, string text)
+    {
+        await File.WriteAllTextAsync(path, text);
+        return path;
     }
 
     private static string Tail(string text) => text.Length <= 6000 ? text : text[^6000..];
