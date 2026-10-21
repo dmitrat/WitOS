@@ -73,9 +73,10 @@ network adapters, USB controllers and an SVGA adapter with a GOP mode. Nothing o
 
 - The plan gains phase **H** ("Железо: первый релиз") with the slices H0 (measurement), H1–H6 (the PC: platform, ports,
   AHCI and NVMe, USB with HID, e1000e, the VMware session), H7–H9 (the Pi 4: platform, its devices, the SD image and
-  the release checklist), and the order H0 → H1–H6 → W3.1 → H7–H9: TLS stays before the handheld, since the release's
-  network means PowerShell Gallery, NuGet and the installer's HTTPS sources, and it comes after VMware by the author's
-  wish.
+  the release checklist), and the order W3.1, W3.2, W4 → H0 → H1–H6 → H7–H9: the network's remaining slices come
+  first (the author's clarification of the same day: the network tasks are not finished and the hardware track is
+  early), then VMware, then the handheld. The release's network means PowerShell Gallery, NuGet and the installer's
+  HTTPS sources, so TLS precedes both.
 - The release is judged twice: every device the plan can emulate is gated in QEMU under CI (AHCI, NVMe, xHCI with a USB
   keyboard, e1000e, SDHCI, DWC2 with a USB keyboard, GICv2), and the hardware itself is judged by the author's sessions
   recorded in the step's document, as C2.4 was. A hardware fact a gate cannot see (the DPI panel, GENET, the VL805
