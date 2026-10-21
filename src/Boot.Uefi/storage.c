@@ -52,12 +52,12 @@ static int read_exact(BootFile *file, WitU8 *data, WitU64 size)
     return 1;
 }
 
-/* One file of the boot volume into extents. The size comes from the first 32 bytes when size_offset is nonzero
- * (the package carries its own) and is validated against the limits; otherwise the file is read until it ends.
- * On failure every page taken is freed and zero is returned; phase tells where. */
+/* One file of the boot volume into extents of at most extent_bytes each. The size comes from the first 32 bytes when
+ * size_offset is nonzero (the package carries its own) and is validated against the limits; otherwise the file is read
+ * until it ends. On failure every page taken is freed and zero is returned; phase tells where. */
 static int read_file(EfiBootServicesPrefix *services, BootFile *root, WitU16 *path, const WitU8 *magic,
-    WitU64 size_offset, WitU64 max_bytes, WitBootStorageExtent *extents, WitU32 capacity, WitU32 *allocated,
-    WitU64 *bytes, WitU32 *phase)
+    WitU64 size_offset, WitU64 max_bytes, WitU64 extent_bytes, WitBootStorageExtent *extents, WitU32 capacity,
+    WitU32 *allocated, WitU64 *bytes, WitU32 *phase)
 {
     BootFile *file = 0;
     WitU64 size = 0;
@@ -92,8 +92,8 @@ static int read_file(EfiBootServicesPrefix *services, BootFile *root, WitU16 *pa
     WitU64 done = 0;
     while (done < size) {
         WitU64 chunk = size - done;
-        if (chunk > 1024 * 1024) {
-            chunk = 1024 * 1024;
+        if (chunk > extent_bytes) {
+            chunk = extent_bytes;
         }
         const WitU64 pages = (chunk + 4095) / 4096;
         WitU64 physical = 0xFFFFFFFFULL;
@@ -192,15 +192,15 @@ int wit_boot_storage(EfiHandle image, EfiBootServicesPrefix *services, WitBootIn
     if (volume->OpenVolume(volume, &root) != EFI_SUCCESS || !root) {
         goto failed;
     }
-    if (!read_file(services, root, package_path, magic, 24, WIT_PACKAGE_MAX_BYTES, package_extents,
-            WIT_MAX_STORAGE_EXTENTS, &package_count, &package_bytes, &phase)) {
+    if (!read_file(services, root, package_path, magic, 24, WIT_PACKAGE_MAX_BYTES, WIT_PACKAGE_EXTENT_BYTES,
+            package_extents, WIT_MAX_STORAGE_EXTENTS, &package_count, &package_bytes, &phase)) {
         goto failed;
     }
     /* The root task image is optional: a volume without it boots the kernel alone. */
     {
         WitU32 root_phase = 0;
-        if (!read_file(services, root, root_path, 0, 0, WIT_FLAT_MAX_BYTES, root_extents, WIT_MAX_ROOT_EXTENTS,
-                &root_count, &root_bytes, &root_phase)) {
+        if (!read_file(services, root, root_path, 0, 0, WIT_FLAT_MAX_BYTES, 1024 * 1024, root_extents,
+                WIT_MAX_ROOT_EXTENTS, &root_count, &root_bytes, &root_phase)) {
             if (root_phase != 4) {
                 phase = 20 + root_phase; /* Present but unreadable: a real failure. */
                 goto failed;
