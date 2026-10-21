@@ -94,13 +94,15 @@ internal static class RuntimeAspNetCore
     ];
 
     /// <summary>
-    /// The lines the scenario requires: Kestrel listening, the application's own HTTPS request answered, the five requests
-    /// served and the exit with 0.
+    /// The lines the scenario requires: the device manager's TCP probe expecting no connection of the runner (the package
+    /// carries no mark, and the port is the application's), Kestrel listening, the application's own HTTPS request answered,
+    /// the five requests served and the exit with 0.
     /// </summary>
     /// <returns>The lines.</returns>
     public static string[] RequiredLines() =>
     [
-        LISTENING, "[ASPNET] https self-check: ok", "[ASPNET] served 5 requests, exit 0", $"[APPS-INIT] {COMMAND} exited with 0"
+        "[DEVICES] network TCP probe: no connection of the runner expected", LISTENING, "[ASPNET] https self-check: ok",
+        "[ASPNET] served 5 requests, exit 0", $"[APPS-INIT] {COMMAND} exited with 0"
     ];
 
     #endregion

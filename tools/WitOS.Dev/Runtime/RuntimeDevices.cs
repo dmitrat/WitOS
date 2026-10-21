@@ -184,6 +184,12 @@ internal static class RuntimeDevices
     /// </summary>
     public const string SOCKETS_CHECK = "tests/User/sockets_check.c";
 
+    /// <summary>
+    /// The package file that tells the device manager's TCP probe that the runner connects to its port (W1.2b, W3.2), which
+    /// this scenario's package holds and no other does.
+    /// </summary>
+    public const string TCP_PROBE_INBOUND_MARK = "etc/witos/tcp-probe-inbound";
+
     // QEMU's user networking (slirp): the first address its DHCP server leases, its gateway and its DNS forwarder (W1.2a).
     private const string NETWORK_ADDRESS = "10.0.2.15";
     private const string NETWORK_GATEWAY = "10.0.2.2";
@@ -503,11 +509,15 @@ internal static class RuntimeDevices
         var sockets = Path.Combine(output, "sockets_check.o");
         await MuslLibc.CompileAsync(root, architecture, Path.Combine(root, SOCKETS_CHECK), sockets, []);
         var socketsProgram = await MuslLibc.LinkStartedProgramAsync(root, architecture, output, "sockets_check", [sockets]);
+        // The runner connects to the TCP probe's port in this scenario alone (W1.2b; W3.2: the other networked scenarios
+        // reach the runner's servers or are reached on ports of their own), which the package tells the device manager.
+        var inboundMark = Path.Combine(output, "tcp-probe-inbound");
+        await File.WriteAllTextAsync(inboundMark, "The runner connects to the device manager's TCP probe on port 8080 (W1.2b).\n");
         // The .NET install of R5 (D5.3: dotnet runs the application on the volume), whose dynamic linker and C++ runtime
         // the services share.
         IEnumerable<(string Name, string Source)> package =
         [
-            .. services, ("bin/init", initProgram), ("bin/sockets-check", socketsProgram),
+            .. services, ("bin/init", initProgram), ("bin/sockets-check", socketsProgram), (TCP_PROBE_INBOUND_MARK, inboundMark),
             .. await RuntimeWitos.InstallFilesAsync(root, output, architecture)
         ];
         return [.. package.DistinctBy(file => file.Name)];

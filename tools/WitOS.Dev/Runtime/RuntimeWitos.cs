@@ -797,7 +797,12 @@ internal static class RuntimeWitos
             // durable transaction of the namespace service's journal, with its flushes, so that a session's exit took
             // minutes; the profiles that exist are still played. The suite's FileIO.SmallWritesUnderContention check
             // guards the libc's part, the tables let go through each write's round trip.
-            "DOTNET_MultiCoreJitNoProfileGather=1\n");
+            "DOTNET_MultiCoreJitNoProfileGather=1\n" +
+            // File changes are polled (W3.2): the namespace service sends no notifications and FileSystemWatcher throws
+            // PlatformNotSupportedException, which Microsoft.Extensions.FileProviders' PhysicalFileProvider met in every
+            // host that reloads its configuration on change (ASP.NET Core's WebApplication.CreateBuilder); with the knob,
+            // the runtime's own for file systems without notifications, it polls and constructs no watcher.
+            "DOTNET_USE_POLLING_FILE_WATCHER=1\n");
         var sysroot = await Sysroot.BuildAsync(root, architecture);
         var shared = await FrameworkFilesAsync(tree, output, architecture, version, pin.TargetFramework);
 
