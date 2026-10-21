@@ -43,6 +43,9 @@ internal static class AppsLayer
     /// </summary>
     public const string MOUNT = "/data";
 
+    // The user's global packages folder on the volume: HOME is /data/home (N4.1).
+    private const string PACKAGES = "home/.nuget/packages";
+
     private static readonly JsonSerializerOptions MANIFEST_OPTIONS = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
     #endregion
@@ -74,9 +77,10 @@ internal static class AppsLayer
     /// <param name="files">Its files, by their paths in the application's directory.</param>
     /// <param name="apphost">The apphost's bytes.</param>
     /// <param name="scratch">A directory of the host for the launchers written.</param>
+    /// <param name="packages">The NuGet packages it finds in the global packages folder, by their paths from the folder.</param>
     /// <returns>Whether the version was written; false when the layer had it.</returns>
     public static async Task<bool> InstallAsync(ILayerStore store, AppEntry entry, IReadOnlyList<(string Path, string Source)> files, byte[] apphost,
-        string scratch)
+        string scratch, IReadOnlyList<(string Path, string Source)>? packages = null)
     {
         var directory = VersionDirectory(entry.Id, entry.Version);
         var written = !await store.ExistsAsync($"{directory}/{MANIFEST}");
@@ -84,6 +88,14 @@ internal static class AppsLayer
         {
             foreach (var (path, source) in files)
                 await store.WriteFileAsync($"{directory}/{path}", source);
+            // The packages it finds in the user's global packages folder (C2.5), each version written once.
+            foreach (var package in (packages ?? []).GroupBy(file => file.Path[..file.Path.IndexOf('/', file.Path.IndexOf('/') + 1)]))
+            {
+                if (await store.ExistsAsync($"{PACKAGES}/{package.Key}"))
+                    continue;
+                foreach (var (path, source) in package)
+                    await store.WriteFileAsync($"{PACKAGES}/{path}", source);
+            }
             // The manifest last: a version is installed when its manifest is there.
             await store.WriteTextAsync($"{directory}/{MANIFEST}", ManifestJson(entry));
         }
@@ -115,7 +127,26 @@ internal static class AppsLayer
             await store.WriteFileAsync($"{BIN}/{command.Name}", launcher);
         }
         await store.WriteTextAsync($"{ROOT}/{id}/{CURRENT}", version + "\n");
+        await WriteSdkRootsAsync(store);
         await store.FlushAsync();
+    }
+
+    /// <summary>
+    /// The global.json beside the layer (C2.5), as AppsDirectory writes it in the guest: the roots of every application
+    /// whose current version holds sdk/, in the applications' order; a store without one keeps what it has.
+    /// </summary>
+    /// <param name="store">The layer's store.</param>
+    public static async Task WriteSdkRootsAsync(ILayerStore store)
+    {
+        var roots = new List<string>();
+        foreach (var id in await store.ListAsync(ROOT))
+        {
+            var version = await CurrentAsync(store, id);
+            if (version is not null && await store.ExistsAsync($"{VersionDirectory(id, version)}/{SdkRoots.SDK}"))
+                roots.Add(SdkRoots.Root(ROOT, id, version));
+        }
+        if (roots.Count > 0)
+            await store.WriteTextAsync(SdkRoots.FILE, SdkRoots.GlobalJson(roots));
     }
 
     /// <summary>
@@ -153,7 +184,12 @@ internal static class AppsLayer
         var store = new DirectoryLayerStore(layer);
         var apphost = await File.ReadAllBytesAsync(ApphostPath(root, architecture));
         foreach (var entry in await AppCatalog.ReadAsync(root))
-            await InstallAsync(store, entry, await ApplicationFilesAsync(root, architecture, entry), apphost, Path.Combine(staging, "launchers"));
+        {
+            if (!AppCatalog.Serves(entry, architecture))
+                continue; // a per-RID publication with no archive for this architecture (C2.5)
+            await InstallAsync(store, entry, await ApplicationFilesAsync(root, architecture, entry), apphost, Path.Combine(staging, "launchers"),
+                await PackageFilesAsync(root, entry));
+        }
         return [.. Directory.EnumerateFiles(layer, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
             .Select(file => (Path.GetRelativePath(layer, file).Replace('\\', '/'), file))];
     }
@@ -167,8 +203,21 @@ internal static class AppsLayer
         {
             { Id: PowerShell.CATALOG_ID } => await PowerShell.ApplicationFilesAsync(root, architecture),
             { Source.Kind: AppCatalog.SOURCE } => await AppSourceBuild.FilesAsync(root, entry),
+            { Source.Kind: AppCatalog.TOOL } => await AppToolPackage.FilesAsync(root, entry),
+            { Source.Kind: AppCatalog.ARCHIVE } => await AppArchive.FilesAsync(root, entry, architecture),
             _ => throw new NotSupportedException($"{entry.Id}: the layer lays no {entry.Source.Kind} source yet; its step brings it.")
         };
+
+    /// <summary>
+    /// The NuGet packages an application finds in the global packages folder, by their paths from the folder.
+    /// </summary>
+    public static async Task<IReadOnlyList<(string Path, string Source)>> PackageFilesAsync(string root, AppEntry entry)
+    {
+        var files = new List<(string Path, string Source)>();
+        foreach (var package in entry.Packages ?? [])
+            files.AddRange(await AppToolPackage.PackageFolderFilesAsync(root, package));
+        return files;
+    }
 
     /// <summary>
     /// The witos apphost of an architecture, which host.native built in the runtime's tree (R5).

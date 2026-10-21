@@ -195,6 +195,32 @@ public sealed class AppsDirectory
         var next = Path.Combine(Root, id, "." + CURRENT + PARTIAL);
         File.WriteAllText(next, version + "\n");
         File.Move(next, current, overwrite: true);
+        WriteSdkRoots();
+    }
+
+    /// <summary>
+    /// The global.json in the directory above the layer (C2.5, /data/global.json in the guest): the roots of every
+    /// application whose current version holds sdk/, in the applications' order, so that dotnet finds the SDK a base
+    /// application brings; removed once no current version holds one.
+    /// </summary>
+    public void WriteSdkRoots()
+    {
+        var roots = new List<string>();
+        foreach (var id in Applications())
+        {
+            if (Current(id) is { } version && Directory.Exists(Path.Combine(Root, id, version, SdkRoots.SDK)))
+                roots.Add(SdkRoots.Root(Path.GetFileName(Root), id, version));
+        }
+        var above = Path.GetDirectoryName(Path.GetFullPath(Root))!;
+        var file = Path.Combine(above, SdkRoots.FILE);
+        if (roots.Count == 0)
+        {
+            File.Delete(file);
+            return;
+        }
+        var fresh = Path.Combine(above, "." + SdkRoots.FILE + PARTIAL);
+        File.WriteAllText(fresh, SdkRoots.GlobalJson(roots));
+        File.Move(fresh, file, overwrite: true);
     }
 
     // Extracts a package's zip, each entry checked to stay within the directory and none of them a manifest; a mode the

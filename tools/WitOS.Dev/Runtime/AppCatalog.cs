@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using WitOS.Dev.Kernel;
 
 namespace WitOS.Dev.Runtime;
 
@@ -48,6 +49,21 @@ internal static class AppCatalog
     #region Functions
 
     /// <summary>
+    /// The architectures an archive per architecture may name.
+    /// </summary>
+    private static readonly string[] ARCHITECTURES = [KernelArchitecture.X64.Name, KernelArchitecture.Arm64.Name, KernelArchitecture.Riscv64.Name];
+
+    /// <summary>
+    /// Whether the layer of an architecture carries the application: every application but one whose archives are per
+    /// architecture and name no archive for this one (C2.5: the .NET SDK, which no publication serves on riscv64).
+    /// </summary>
+    /// <param name="entry">The catalog entry.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>Whether the application is laid for the architecture.</returns>
+    public static bool Serves(AppEntry entry, KernelArchitecture architecture) =>
+        entry.Source.Architectures is null || entry.Source.Architectures.ContainsKey(architecture.Name);
+
+    /// <summary>
     /// Every base application of the catalog, by identity.
     /// </summary>
     /// <param name="root">Repository root.</param>
@@ -73,7 +89,7 @@ internal static class AppCatalog
 
     /// <summary>
     /// Reads and checks an entry: the identity its file names, a version, the framework, a source of one of the three
-    /// kinds with what that kind needs, an optional native part at a commit, and at least one command, each an assembly
+    /// kinds with what that kind needs, an optional native part at a commit, and a list of commands, each an assembly
     /// of the application's directory.
     /// </summary>
     /// <param name="json">The entry's text.</param>
@@ -92,9 +108,27 @@ internal static class AppCatalog
         switch (source.Kind)
         {
             case ARCHIVE:
-                Require(source.Url is not null && source.Url.StartsWith("https://", StringComparison.Ordinal) && source.File is not null &&
-                    source.Url.EndsWith("/" + source.File, StringComparison.Ordinal), fileName, "an archive's https URL ending with its file");
-                Require(source.Sha256 is not null && SHA256.IsMatch(source.Sha256), fileName, "the archive's SHA-256");
+                // One archive for every ISA, or one per ISA where the publication is per RID (C2.5: the .NET SDK's
+                // ReadyToRun code is the RID's); an ISA without one is not served the application.
+                if (source.Architectures is null)
+                {
+                    RequireArchive(source.Url, source.File, source.Sha256, fileName);
+                }
+                else
+                {
+                    Require(source.Url is null && source.File is null && source.Sha256 is null, fileName,
+                        "an archive per architecture or one for all, not both");
+                    Require(source.Architectures.Count > 0 && source.Architectures.Keys.All(ARCHITECTURES.Contains), fileName,
+                        "archives keyed by x64, arm64 or riscv64");
+                    foreach (var archive in source.Architectures.Values)
+                        RequireArchive(archive.Url, archive.File, archive.Sha256, fileName);
+                }
+                // An archive laid in part (C2.5): the directories to lay and those left out of them, by their paths within.
+                Require((source.Lay ?? []).All(directory => directory.Length > 0 && Relative(directory)), fileName,
+                    "an archive's lay directories as paths within it");
+                Require((source.Leave ?? []).All(directory => Relative(directory) &&
+                    (source.Lay ?? []).Any(laid => directory.StartsWith(laid + "/", StringComparison.Ordinal))), fileName,
+                    "an archive's leave directories within its lay directories");
                 break;
             case TOOL:
                 Require(source.Package is not null && PACKAGE.IsMatch(source.Package), fileName, "a tool package's identity");
@@ -117,7 +151,8 @@ internal static class AppCatalog
             Require(native.Library is not null && native.Library.EndsWith(".so", StringComparison.Ordinal) && Relative(native.Library), fileName,
                 "the native library's name");
         }
-        Require(entry.Commands is { Count: > 0 }, fileName, "at least one command");
+        // An application without a command is reached by others (C2.5: the .NET SDK, which dotnet finds through global.json).
+        Require(entry.Commands is not null, fileName, "a list of commands, empty for an application others reach");
         foreach (var command in entry.Commands!)
         {
             Require(command.Name is not null && COMMAND.IsMatch(command.Name), fileName, "a command's name in lower case");
@@ -126,6 +161,12 @@ internal static class AppCatalog
         }
         Require(entry.Commands!.Select(command => command.Name).Distinct(StringComparer.Ordinal).Count() == entry.Commands!.Count, fileName,
             "distinct commands");
+        foreach (var package in entry.Packages ?? [])
+        {
+            Require(package.Id is not null && PACKAGE.IsMatch(package.Id), fileName, "a NuGet package's identity");
+            Require(package.Version is not null && VERSION.IsMatch(package.Version), fileName, $"the version of {package.Id}");
+            Require(package.Sha256 is not null && SHA256.IsMatch(package.Sha256), fileName, $"the SHA-256 of {package.Id}");
+        }
         return entry;
     }
 
@@ -136,6 +177,13 @@ internal static class AppCatalog
     {
         if (!condition)
             throw new InvalidDataException($"{fileName}: the catalog entry needs {what}.");
+    }
+
+    private static void RequireArchive(string? url, string? file, string? sha256, string fileName)
+    {
+        Require(url is not null && url.StartsWith("https://", StringComparison.Ordinal) && file is not null &&
+            url.EndsWith("/" + file, StringComparison.Ordinal), fileName, "an archive's https URL ending with its file");
+        Require(sha256 is not null && SHA256.IsMatch(sha256), fileName, "the archive's SHA-256");
     }
 
     #endregion
@@ -151,15 +199,24 @@ internal static class AppCatalog
 /// <param name="Native">The native part built from source, if any.</param>
 /// <param name="Commands">The commands it provides.</param>
 /// <param name="Purpose">Why it is pinned.</param>
+/// <param name="Packages">NuGet packages the application finds in the user's global packages folder (C2.5: the reference
+/// pack a C# REPL compiles against), laid there as a restore leaves them.</param>
 internal sealed record AppEntry(string Id, string Version, string Framework, AppSource Source, AppNative? Native,
-    IReadOnlyList<AppCommand> Commands, string Purpose);
+    IReadOnlyList<AppCommand> Commands, string Purpose, IReadOnlyList<AppPackage>? Packages = null);
 
 /// <summary>
-/// An upstream publication: an archive (Url, File, Sha256), a tool package (Package, Sha256) or a commit (Repository,
-/// Commit, Project, and the MSBuild Properties its publish takes).
+/// An upstream publication: an archive (Url, File, Sha256, or one of them per architecture in Architectures where the
+/// publication is per RID), a tool package (Package, Sha256) or a commit (Repository, Commit, Project, and the MSBuild
+/// Properties its publish takes).
 /// </summary>
 internal sealed record AppSource(string Kind, string? Url, string? File, string? Sha256, string? Package, string? Repository,
-    string? Commit, string? Project, IReadOnlyList<string>? Properties = null);
+    string? Commit, string? Project, IReadOnlyList<string>? Properties = null, IReadOnlyList<string>? Lay = null, IReadOnlyList<string>? Leave = null,
+    IReadOnlyDictionary<string, AppArchiveOf>? Architectures = null);
+
+/// <summary>
+/// An architecture's archive of a publication that is per RID (C2.5): the URL of its bytes, the file's name and their SHA-256.
+/// </summary>
+internal sealed record AppArchiveOf(string Url, string File, string Sha256);
 
 /// <summary>
 /// A native part built from source against the sysroot: its repository, commit, tag and library.
@@ -170,3 +227,8 @@ internal sealed record AppNative(string Repository, string Commit, string? Tag, 
 /// A command of a base application: its name and the assembly its launcher starts.
 /// </summary>
 internal sealed record AppCommand(string Name, string Assembly);
+
+/// <summary>
+/// A NuGet package of nuget.org by its identity, version and the SHA-256 of the package.
+/// </summary>
+internal sealed record AppPackage(string Id, string Version, string Sha256);

@@ -121,11 +121,33 @@ public sealed class AppsDirectoryTests
         Assert.Throws<DirectoryNotFoundException>(() => AppFeed.Read(Path.Combine(m_scratch.FullName, "none")));
     }
 
+    // The SDK a base application brings (C2.5): putting a version in use writes global.json above the layer with the
+    // roots of the current versions that hold sdk/, and takes the file away once none does.
+    [Test]
+    public void SdkRootsFollowTheVersionsInUseTest()
+    {
+        var layer = new AppsDirectory(Path.Combine(m_scratch.FullName, "apps"));
+        var globalJson = Path.Combine(m_scratch.FullName, "global.json");
+        foreach (var (version, sdk) in new[] { ("1.0", true), ("2.0", false) })
+        {
+            var directory = Path.Combine(layer.Root, "Tool", version);
+            Directory.CreateDirectory(Path.Combine(directory, sdk ? "sdk" : "lib"));
+            File.WriteAllText(Path.Combine(directory, AppsDirectory.MANIFEST), Manifest(version, commands: ""));
+        }
+        layer.Use("Tool", "1.0", Apphost());
+        Assert.That(File.ReadAllText(globalJson), Is.EqualTo(SdkRoots.GlobalJson(["apps/Tool/1.0"])));
+        Assert.That(Directory.Exists(Path.Combine(layer.Root, AppsDirectory.BIN)) && Directory.EnumerateFiles(Path.Combine(layer.Root, AppsDirectory.BIN)).Any(),
+            Is.False, "no launcher for an application without a command");
+        layer.Use("Tool", "2.0", Apphost());
+        Assert.That(File.Exists(globalJson), Is.False, "the version in use holds no SDK");
+    }
+
     [Test]
     public void ManifestIsCheckedWholeTest()
     {
         var manifest = AppManifest.Parse(Manifest("1.2.3"));
         Assert.That((manifest.Id, manifest.Version, manifest.Commands.Single()), Is.EqualTo(("Tool", "1.2.3", new AppCommand("tool", "tool.dll"))));
+        Assert.That(AppManifest.Parse(Manifest("1.0", commands: "")).Commands, Is.Empty, "an application without a command, which others reach");
         Assert.Throws<InvalidDataException>(() => AppManifest.Parse("not json"));
         Assert.Throws<InvalidDataException>(() => AppManifest.Parse(Manifest("v1")), "a version of numbers");
         Assert.Throws<InvalidDataException>(() => AppManifest.Parse(Manifest("1.0").Replace("tool.dll", "../tool.dll")), "an assembly within the directory");
@@ -170,8 +192,8 @@ public sealed class AppsDirectoryTests
     // An apphost's stand-in: bytes before, the placeholder and the zeros of the host's buffer, bytes after.
     private static byte[] Apphost() => Encoding.UTF8.GetBytes("ELF-head" + PLACEHOLDER + new string('\0', 1025 - PLACEHOLDER.Length) + "tail");
 
-    private static string Manifest(string version) =>
-        $$"""{ "id": "Tool", "version": "{{version}}", "framework": "Microsoft.NETCore.App 10.0", "commands": [ { "name": "tool", "assembly": "tool.dll" } ], "purpose": "a test" }""";
+    private static string Manifest(string version, string commands = """{ "name": "tool", "assembly": "tool.dll" }""") =>
+        $$"""{ "id": "Tool", "version": "{{version}}", "framework": "Microsoft.NETCore.App 10.0", "commands": [ {{commands}} ], "purpose": "a test" }""";
 
     #endregion
 }
