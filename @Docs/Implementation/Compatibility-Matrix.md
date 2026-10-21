@@ -29,10 +29,10 @@ types in the guest) and reports its checks not applicable elsewhere.
 | Globalization | 8 | Supported | Supported | Supported |
 | TimeZones | 4 | Supported | Supported | Supported |
 | Terminal | 7 | Supported | Supported | Supported |
-| Network | 14 | Supported | Supported | Partial: IPv6 |
+| Network | 15 | Supported | Supported | Partial: IPv6 |
 | Cryptography | 11 | Supported | Supported | Supported |
 
-115 checks in 16 areas.
+116 checks in 16 areas.
 
 ## Recorded differences
 
