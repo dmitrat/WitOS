@@ -257,5 +257,26 @@ internal static class NetworkChecks
                 return CheckResult.That(false, $"{peer}: {exception.Message}{(exception.InnerException is { } inner ? $" ({inner.Message})" : "")}");
             }
         });
+        // The strategy's first network test (§66): a public site over HTTPS, trusted through the platform's root store.
+        // Where the network does not reach the site, as on a machine without a route, the check does not apply; a failure
+        // of TLS or of the certificate's chain is a failure.
+        yield return new Check("Network", "HttpsPublic", async () =>
+        {
+            const string site = "https://example.com/";
+            using var client = new HttpClient(new HttpClientHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(30) };
+            try
+            {
+                var text = await client.GetStringAsync(site);
+                return CheckResult.That(text.Contains("<html", StringComparison.OrdinalIgnoreCase), $"{text.Length} characters from {site}");
+            }
+            catch (HttpRequestException exception) when (exception.InnerException is System.Security.Authentication.AuthenticationException inner)
+            {
+                return CheckResult.That(false, $"TLS to {site} failed: {inner.Message}");
+            }
+            catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+            {
+                return CheckResult.NotApplicable($"{site} is not reachable from here: {exception.Message}");
+            }
+        });
     }
 }
