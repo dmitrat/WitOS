@@ -254,6 +254,11 @@ internal static class BootScenarioRunner
                                 await (peer ?? throw new InvalidDataException("a connection without a forward to the guest's port"))
                                     .ExchangeAsync(int.Parse(action.Argument, System.Globalization.CultureInfo.InvariantCulture), stop);
                             }
+                            else if (action.Kind == BootActionKind.Http)
+                            {
+                                await (peer ?? throw new InvalidDataException("an HTTP request without a forward to the guest's port"))
+                                    .HttpAsync(action.Argument, stop);
+                            }
                             else if (action.Kind == BootActionKind.Screendump)
                             {
                                 (log, transcript) = await QuietAsync(serialPath, terminal, log, transcript, stop);

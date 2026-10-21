@@ -237,6 +237,8 @@ jobs:
             artifacts/runtime-witos/src/artifacts/bin/microsoft.netcore.app.runtime.witos-${{ matrix.arch }}/Release/runtimes/witos-${{ matrix.arch }}/lib/*/*.dll
             artifacts/runtime-witos/src/artifacts/bin/microsoft.netcore.app.runtime.witos-${{ matrix.arch }}/Release/runtimes/witos-${{ matrix.arch }}/native/libSystem.*.so
             artifacts/runtime-witos/compatibility-${{ matrix.arch }}.json
+            artifacts/aspnetcore/*/lib/*
+            artifacts/aspnetcore/*/versions.txt
 
       - name: Source style
         if: matrix.arch == 'x64'

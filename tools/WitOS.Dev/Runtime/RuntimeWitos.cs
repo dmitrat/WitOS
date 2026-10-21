@@ -391,6 +391,9 @@ internal static class RuntimeWitos
         // The hosts (R5): upstream's dotnet muxer, hostfxr and hostpolicy for witos, built with no patch, run dotnet App.dll
         // from the shared-framework layout of a .NET install.
         await RunBuildAsync(tree, ["host.native", "-os", "witos", "-arch", architecture.Name, "-c", "Release", "-cross"], environment);
+        // W3.2: the ASP.NET Core shared framework, built IL alone from its pinned source, which the install lays beside
+        // Microsoft.NETCore.App from this scenario on.
+        await AspNetCoreFramework.BuildAsync(root);
         var dotnet = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_DOTNET_SCENARIO, architecture: architecture);
         await BootScenarioRunner.RunAsync(root, dotnet, new BootRequest($"{architecture.Name}-runtime-dotnet-512", 512, 900, ExpectedOutcome.Success)
         {
@@ -521,6 +524,8 @@ internal static class RuntimeWitos
         await RuntimeInstaller.RunAsync(root, architecture);
         await RuntimeCSharpRepl.RunAsync(root, architecture);
         await RuntimeCompatibility.RunAsync(root, architecture);
+        // W3.2 (Implementation Strategy §67): an ordinary ASP.NET Core application on Kestrel, requested by the runner.
+        await RuntimeAspNetCore.RunAsync(root, architecture);
         await RuntimeLibraries.RunAsync(root, architecture);
         // P2: an ordinary application on four processors under the workstation and the server collector.
         await RuntimeProcessors.RunAsync(root, architecture);
@@ -818,7 +823,10 @@ internal static class RuntimeWitos
             ("etc/environment", environment),
             ("dotnet/dotnet", Path.Combine(corehost, "dotnet")),
             ($"dotnet/host/fxr/{version}/libhostfxr.so", Path.Combine(corehost, "libhostfxr.so")),
-            .. shared.Select(file => ($"dotnet/shared/Microsoft.NETCore.App/{version}/{file.Name}", file.Source))
+            .. shared.Select(file => ($"dotnet/shared/Microsoft.NETCore.App/{version}/{file.Name}", file.Source)),
+            // The ASP.NET Core shared framework (W3.2), IL alone from its pinned source, which an application's framework
+            // reference to Microsoft.AspNetCore.App resolves to.
+            .. await AspNetCoreFramework.FrameworkFilesAsync(root, output, architecture)
         ];
     }
 
@@ -954,15 +962,25 @@ internal static class RuntimeWitos
         var directory = Path.Combine(output, version);
         Directory.CreateDirectory(directory);
         var deps = Path.Combine(directory, "Microsoft.NETCore.App.deps.json");
-        await File.WriteAllTextAsync(deps, FrameworkDeps(architecture, version, shared));
+        await File.WriteAllTextAsync(deps, FrameworkDeps("Microsoft.NETCore.App", architecture, version, shared));
         shared.Add(("Microsoft.NETCore.App.deps.json", deps));
         return shared;
     }
 
-    private static string FrameworkDeps(KernelArchitecture architecture, string version, IReadOnlyList<(string Name, string Source)> files)
+    /// <summary>
+    /// A shared framework's deps.json as the shared framework's packaging writes it (R5; W3.2 for Microsoft.AspNetCore.App):
+    /// one runtime-pack library for the RID whose runtime assets are the assemblies, with their assembly and file versions,
+    /// and whose native assets are the other files.
+    /// </summary>
+    /// <param name="framework">The framework's name, such as Microsoft.NETCore.App.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="version">The framework's version.</param>
+    /// <param name="files">The framework's files by name and source.</param>
+    /// <returns>The deps.json text.</returns>
+    internal static string FrameworkDeps(string framework, KernelArchitecture architecture, string version, IReadOnlyList<(string Name, string Source)> files)
     {
         var rid = $"witos-{architecture.Name}";
-        var library = $"Microsoft.NETCore.App.Runtime.{rid}/{version}";
+        var library = $"{framework}.Runtime.{rid}/{version}";
         var target = $".NETCoreApp,Version=v{version[..version.IndexOf('.')]}.0";
         var runtime = new System.Text.Json.Nodes.JsonObject();
         var nativeAssets = new System.Text.Json.Nodes.JsonObject();
@@ -1004,7 +1022,7 @@ internal static class RuntimeWitos
                     ["type"] = "package",
                     ["serviceable"] = true,
                     ["sha512"] = "",
-                    ["path"] = $"microsoft.netcore.app.runtime.{rid}/{version}"
+                    ["path"] = $"{framework.ToLowerInvariant()}.runtime.{rid}/{version}"
                 }
             }
         };
