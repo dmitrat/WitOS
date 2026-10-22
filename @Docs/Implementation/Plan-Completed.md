@@ -2015,11 +2015,18 @@ Cryptography (хранилище корней: 119 сертификатов — 
   `SocketMessagesTests` (`AF_INET6`, `CONFIGURATION6`) — 36 сетевых тестов. Приёмка: `/bin/sockets-check` (датаграммы
   и потоки по `::1`, двустековый слушатель с IPv4-клиентом `::ffff:127.0.0.1`, правила `IPV6_V6ONLY`, `localhost` →
   `::1`, `getifaddrs` с `fe80::5054:ff:fe12:3456` и `fec0::5054:ff:fe12:3456` — объявление slirp по линку, то есть
-  кадры IPv6 в обе стороны, `nameserver fec0::3`; строка `[SOCKETS] IPv6: lo ::1, eth0 … a dual-stack listener took an
+  кадры IPv6 в обе стороны; IPv6-сервер имён в `/etc/resolv.conf`, если есть, — `fec0::3` (slirp объявляет RDNSS
+  только там, где у хоста есть IPv6 DNS — у раннеров CI его нет); строка `[SOCKETS] IPv6: lo ::1, eth0 … a dual-stack listener took an
   IPv4 client`, которую требует `runtime-devices`; запрос AAAA к `fec0::3` и соединение с `[fec0::2]:7` сообщаются, но не
   требуются — slirp ведёт их на IPv6 DNS и `::1` хоста, которых у раннеров CI нет), набор совместимости (`Network.IPv6`
   проходит и уходит из `expectations.json`; новые `Network.IPv6Loopback` и `Network.DualMode`; Windows — 125 проверок,
-  0 неожиданных), `runtime-aspnetcore` с `[::]`. Гостевая приёмка: ACCEPTANCE_X64 ARM64 и riscv64 — ноги CI PR.
+  0 неожиданных), `runtime-aspnetcore` с `[::]`. Гостевая приёмка: x64 в контейнере на дереве W4.2 — четыре необрезанные загрузки `runtime-devices`:
+  `sockets over the network service: 93 checks passed, 0 failed` со строкой IPv6 (запрос AAAA — без ответа, соединение с
+  `[fec0::2]:7` — `Connection refused` от `::1` хоста, маршрутизатор не объявил DNS); набор на четырёх процессорах —
+  `Network.IPv6`, `Network.IPv6Loopback` (TCP и UDP от `[::1]`), `Network.DualMode` (`[::ffff:127.0.0.1]`, mapped True)
+  проходят, 125 проверок, 2 записанных различия, 0 неожиданных; Kestrel — `listening on http://[::]:8080 and
+  https://[::]:8443`, запросы раннера `from ::ffff:10.0.2.2`, `served 5 requests, exit 0`; хост-тесты OutWit.OS на Linux —
+  286 (36 сетевых). ARM64 и riscv64 — ноги CI PR.
   Различия записаны: за пределы гостевой сети slirp ведёт IPv6 только на `::1` хоста и его IPv6 DNS; нет членства в
   multicast-группах, вспомогательных данных, прочих опций `IPPROTO_IPV6`, сырых сокетов, заголовков расширений и
   фрагментации; `ENETUNREACH` там, где Linux даёт `EAFNOSUPPORT` для `sockaddr_in` на сокете с `IPV6_V6ONLY`. С W4.3

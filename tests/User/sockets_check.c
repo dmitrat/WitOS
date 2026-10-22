@@ -599,17 +599,24 @@ static void ipv6(void)
     check(lo6, "lo has ::1");
     check(strncmp(link_local, "fe80::", 6) == 0, "eth0 has a link-local address");
     check(strncmp(global, "fec0::", 6) == 0, "eth0 has a global address of slirp's prefix fec0::/64");
-    /* /etc/resolv.conf names slirp's IPv6 DNS server once the global address is there. */
+    /* /etc/resolv.conf names slirp's IPv6 DNS server once the global address is there, when slirp advertised one: it
+     * puts the RDNSS option in its advertisement only where the host has an IPv6 DNS server, which CI's runners lack. */
     FILE *resolv = fopen("/etc/resolv.conf", "r");
     char line[64];
-    int dns6 = 0;
+    int dns6 = 0, other6 = 0;
     while (resolv && fgets(line, sizeof(line), resolv)) {
-        dns6 |= strcmp(line, "nameserver fec0::3\n") == 0;
+        if (strncmp(line, "nameserver ", 11) == 0 && strchr(line, ':')) {
+            if (strcmp(line, "nameserver fec0::3\n") == 0) {
+                dns6 = 1;
+            } else {
+                other6 = 1;
+            }
+        }
     }
     if (resolv) {
         fclose(resolv);
     }
-    check(dns6, "/etc/resolv.conf names slirp's IPv6 DNS server fec0::3");
+    check(!other6, "an IPv6 nameserver in /etc/resolv.conf, if any, is slirp's fec0::3");
     printf("[SOCKETS] IPv6: lo ::1, eth0 %s and %s, a dual-stack listener took an IPv4 client\n", link_local, global);
     /* Reported, not required: slirp forwards an IPv6 datagram to fec0::3 to the host's IPv6 DNS server, and a connection
      * to [fec0::2] to the host's ::1, where the host has them. */
@@ -640,8 +647,9 @@ static void ipv6(void)
     const int connected = connect(host, (struct sockaddr *)&where, sizeof(where));
     const int host_errno = errno;
     close(host);
-    printf("[SOCKETS] IPv6 over the link: an AAAA query to fec0::3 %s; a connection to [fec0::2]:7 %s\n", answered,
-        connected == 0 ? "connected" : strerror(host_errno));
+    printf("[SOCKETS] IPv6 over the link: an AAAA query to fec0::3 %s; a connection to [fec0::2]:7 %s; %s\n", answered,
+        connected == 0 ? "connected" : strerror(host_errno),
+        dns6 ? "the router advertised the DNS server fec0::3" : "the router advertised no DNS server");
 }
 
 int main(void)
