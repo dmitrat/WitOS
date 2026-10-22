@@ -146,6 +146,12 @@
       "note": "Threads run on every processor of the board with their affinity honoured (P1); `Environment.ProcessorCount`, `Thread.GetCurrentProcessorId`, the server collector's heaps and the thread pool see every processor, and the scenarios of N1 and N2 run on four (P2)."
     },
     {
+      "name": "Network interfaces and their changes (System.Net.NetworkInformation)",
+      "status": "Partial",
+      "step": "W4.2",
+      "note": "`NetworkInterface.GetAllNetworkInterfaces`, an interface's addresses, hardware address, index, MTU and DNS servers, `GetIsNetworkAvailable` and `NetworkChange`'s subscriptions work as on Linux: the libc answers the netlink route socket and the `SIOCGIF*` ioctls from the network service's configuration (the loopback and `eth0` with the lease), and a change of the lease reaches the sockets that listen. The gateways are empty and the statistics fail, since Linux's files read them from `/proc/net`, which is not emulated; a link's loss is not reported (Compatibility-Differences: Network interfaces)."
+    },
+    {
       "name": "Avalonia and other GUI frameworks",
       "status": "Planned",
       "step": "M9",
