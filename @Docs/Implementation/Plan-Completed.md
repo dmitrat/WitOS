@@ -1693,6 +1693,10 @@
   стека. Гость (контейнер): `test` x64 — все 34 сценария, arm64 и riscv64 — по 28; `release` трёх ISA; `runtime-terminal` и `runtime-portable-app` на x64.
   `.bss` образов при 32 слотах: x64 release 15,3 МиБ (было 37,1 МиБ при 12), ARM64 15,4, riscv64 15,1; самотестовые — 23,1,
   22,0 и 21,5 МиБ.
+  - **Исправление 2026-10-22 (CI W4.1, `riscv64-libc-smp2`).** Хард riscv64 узнавал себя по стартовому стеку; ловушка
+    на стеке ядра потока в окне стеков брала личность загрузочного харта и читала его `pending_ipi`, нулевой до первого
+    колокольчика ему, — паника `A software interrupt no sender left a kind for`. Теперь личность харта — в записи `tp`
+    (`wit_rv64_hart_identify` при старте), и `wit_cpus_ipi_received` требует её на каждом колокольчике на трёх ISA.
 - [x] **P2** Рантайм на нескольких процессорах (2026-10-19, фаза P выполнена,
   [P2-Runtime-on-Several-Processors.md](@Docs/Implementation/P2-Runtime-on-Several-Processors.md)). Рантайм — без патча.
   Libc отвечает на `getcpu` процессором из `THREAD_QUERY` v6 (`Processor`) и узлом 0. GC собран с `HAVE_SCHED_GETCPU`,

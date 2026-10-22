@@ -156,6 +156,13 @@ WitU32 wit_cpus_serve(void)
 
 WitU32 wit_cpus_ipi_received(void)
 {
+    if (ready) {
+        /* The processor's identity must be its own on whatever stack the doorbell interrupted: on riscv64 a hart on a
+         * thread's kernel stack once took the boot hart's (2026-10-22), and read its pending kind. */
+        const WitU32 me = wit_arch_processor_index();
+        require(me < count && wit_arch_processor_id() == cpus[me].HardwareId,
+            "A doorbell on a processor whose identity is not its own");
+    }
     return wit_cpus_serve();
 }
 
