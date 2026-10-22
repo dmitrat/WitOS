@@ -41,7 +41,11 @@ const unsigned long long wit_layout[] = {
     OFFSET(WitA64Frame, Spsr),
     0, /* reserved: keeps the count of entries the same on every architecture */
 #else
-    0, 0, 0, 0, 0,
+    0,
+    0,
+    0,
+    0,
+    0,
 #endif
     OFFSET(WitUserProcess, Space.Root),
 };

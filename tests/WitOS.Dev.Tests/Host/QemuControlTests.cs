@@ -36,9 +36,9 @@ public sealed class QemuControlTests
                 { await Send("{\"error\":{\"class\":\"GenericError\"},\"id\":\"witos-capabilities\"}"); return; }
                 await Send("{\"return\":{},\"id\":\"unrelated\"}");
                 await Send("{\"return\":{},\"id\":\"witos-capabilities\"}");
-                // The samples: registers whose stack pointer lies 40 bytes below a page's end, that page holding a user
-                // frame (RIP, CS 0x33, RFLAGS, RSP, SS), then the user stack it names, each read through the
-                // processor's translation (P1.5); then the quit.
+                // Every processor's registers first (P3), then the samples: registers whose stack pointer lies 40 bytes
+                // below a page's end, that page holding a user frame (RIP, CS 0x33, RFLAGS, RSP, SS), then the user stack
+                // it names, each read through the processor's translation (P1.5); then the quit.
                 for (; ; )
                 {
                     var line = (await reader.ReadLineAsync(stop.Token))!;
@@ -66,9 +66,10 @@ public sealed class QemuControlTests
             catch (InvalidDataException) { refused = true; }
             await peer;
             string[] samples = ["info registers", "x /5gx 0x1fd8", "x /64gx 0x7ff000"];
-            if (refused != reject || control.QuitAcknowledged == reject || commands.Count != (reject ? 1 : 2 + 3 * samples.Length) ||
-                !commands[0].Contains("qmp_capabilities") || (!reject && !commands[^1].Contains("quit")) ||
-                (!reject && !commands.Skip(1).SkipLast(1).Select((line, i) => line.Contains(samples[i % samples.Length])).All(match => match)))
+            if (refused != reject || control.QuitAcknowledged == reject || commands.Count != (reject ? 1 : 3 + 3 * samples.Length) ||
+                !commands[0].Contains("qmp_capabilities") || (!reject && !commands[1].Contains("info registers -a")) ||
+                (!reject && !commands[^1].Contains("quit")) ||
+                (!reject && !commands.Skip(2).SkipLast(1).Select((line, i) => line.Contains(samples[i % samples.Length])).All(match => match)))
                 throw new InvalidDataException("QMP sequencing/error handling failed.");
         }
     }

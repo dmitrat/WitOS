@@ -1,7 +1,8 @@
 {
   "native": [
     "src",
-    "tests"
+    "tests",
+    "tools/WitOS.Dev/Diagnostics"
   ],
   "managed": [
     "src",
