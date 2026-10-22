@@ -200,6 +200,12 @@ public sealed class TcpSocket
     internal long PersistAt { get; set; } = long.MaxValue;
     internal long LingerAt { get; set; } = long.MaxValue;
 
+    // Zero-window probes (P3): how many went since the window closed, the exponent of the next one's wait.
+    internal int ProbeBackoff { get; set; }
+
+    // The rate limit of the acknowledgments that answer unacceptable segments (P3): when the last one went.
+    internal long InvalidAckAt { get; set; } = long.MinValue / 2;
+
     // Delayed acknowledgments: full segments received since the last acknowledgment.
     internal int UnacknowledgedSegments { get; set; }
 

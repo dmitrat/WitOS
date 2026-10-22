@@ -147,7 +147,9 @@ public sealed partial class NetworkStack
     public void Advance()
     {
         var now = m_clock();
-        while (m_loopback.Count > 0)
+        // The loopback's queue as it was at entry: what a received packet's answer queues waits for the next Advance, so
+        // that two connections answering each other cannot keep one Advance going (P3).
+        for (var queued = m_loopback.Count; queued > 0; queued--)
             ReceiveIpv4(m_loopback.Dequeue(), fromLoopback: true);
         foreach (var (address, pending) in new List<KeyValuePair<Ipv4Address, PendingResolution>>(m_pending))
         {
@@ -812,4 +814,13 @@ public sealed class NetworkStatistics
 
     /// <inheritdoc cref="SegmentsSent" />
     public long ConnectionsDropped { get; set; }
+
+    /// <summary>
+    /// TCP: zero-window probes sent, and acknowledgments of unacceptable segments the rate limit held back (P3; Linux's
+    /// TCPACKSkipped counters).
+    /// </summary>
+    public long WindowProbes { get; set; }
+
+    /// <inheritdoc cref="WindowProbes" />
+    public long AcknowledgmentsSkipped { get; set; }
 }

@@ -54,8 +54,8 @@ internal sealed class SimulatedNetwork
                 m_frames.Enqueue(held); // a frame held for a swap goes once nothing follows it
                 m_held = null;
             }
-            if (m_frames.Count == 0)
-                return;
+            if (m_frames.Count == 0 && m_links.TrueForAll(link => link.Stack!.NextDeadline > Now))
+                return; // nothing on the segment, and no stack with the loopback's datagrams left for its next advance (P3)
             while (m_frames.Count > 0)
             {
                 var (from, frame) = m_frames.Dequeue();
