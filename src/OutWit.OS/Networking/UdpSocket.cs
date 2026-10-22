@@ -4,7 +4,9 @@ namespace OutWit.OS.Networking;
 
 /// <summary>
 /// A UDP socket of the stack (plan step W1.2a): its local address and port once bound, its peer once connected, and a
-/// bounded queue of received datagrams, beyond which the newest are dropped, as a full socket buffer drops them.
+/// bounded queue of received datagrams, beyond which the newest are dropped, as a full socket buffer drops them. Its
+/// addresses are IPv6 ones, an IPv4 address in its mapped form (W4.3): an AF_INET socket holds mapped addresses alone, an
+/// AF_INET6 one both unless IPV6_V6ONLY is set, as Linux's dual-stack sockets do.
 /// </summary>
 public sealed class UdpSocket
 {
@@ -88,9 +90,19 @@ public sealed class UdpSocket
     public int NextLength => m_received.Count > 0 ? m_received.Peek().Payload.Length : 0;
 
     /// <summary>
-    /// The local address: Any until bound to one of the stack's.
+    /// The socket's family: AF_INET or AF_INET6 (W4.3).
     /// </summary>
-    public Ipv4Address LocalAddress { get; internal set; }
+    public ushort Family { get; internal set; } = SocketMessages.INET;
+
+    /// <summary>
+    /// IPV6_V6ONLY: an AF_INET6 socket that takes no IPv4 (W4.3).
+    /// </summary>
+    public bool V6Only { get; internal set; }
+
+    /// <summary>
+    /// The local address: Any until bound to one of the stack's; an IPv4 address in its mapped form.
+    /// </summary>
+    public Ipv6Address LocalAddress { get; internal set; }
 
     /// <summary>
     /// The local port: zero until bound.
@@ -98,9 +110,9 @@ public sealed class UdpSocket
     public ushort LocalPort { get; internal set; }
 
     /// <summary>
-    /// The peer's address once connected.
+    /// The peer's address once connected; an IPv4 address in its mapped form.
     /// </summary>
-    public Ipv4Address RemoteAddress { get; internal set; }
+    public Ipv6Address RemoteAddress { get; internal set; }
 
     /// <summary>
     /// The peer's port once connected; zero while not.
@@ -148,7 +160,7 @@ public sealed class UdpSocket
 /// <summary>
 /// A received datagram: its payload and where it came from.
 /// </summary>
-/// <param name="Source">The sender's address.</param>
+/// <param name="Source">The sender's address; an IPv4 address in its mapped form.</param>
 /// <param name="SourcePort">The sender's port.</param>
 /// <param name="Payload">The payload.</param>
-public sealed record Datagram(Ipv4Address Source, ushort SourcePort, byte[] Payload);
+public sealed record Datagram(Ipv6Address Source, ushort SourcePort, byte[] Payload);

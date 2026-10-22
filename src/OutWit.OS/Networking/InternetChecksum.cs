@@ -40,8 +40,9 @@ public static class InternetChecksum
 
     /// <summary>
     /// The pseudo header of a transport checksum over IPv6 (RFC 8200 section 8.1): the addresses, the length and the
-    /// next header; for two IPv4 addresses in their mapped form, the IPv4 one (W4.3: the socket layer names every address
-    /// as an IPv6 one).
+    /// next header; for a destination in the mapped form of an IPv4 address, the IPv4 one (W4.3: the socket layer names
+    /// every address as an IPv6 one; the unspecified source of a DHCP request maps to <c>::</c>, so the destination
+    /// decides).
     /// </summary>
     /// <param name="source">The source.</param>
     /// <param name="destination">The destination.</param>
@@ -50,7 +51,7 @@ public static class InternetChecksum
     /// <returns>The pseudo header's sum, to add the segment's to.</returns>
     public static uint PseudoHeader(Ipv6Address source, Ipv6Address destination, byte protocol, int length)
     {
-        if (source.IsMapped && destination.IsMapped)
+        if (destination.IsMapped)
             return PseudoHeader(source.MappedIpv4, destination.MappedIpv4, protocol, length);
         return Words(source.High) + Words(source.Low) + Words(destination.High) + Words(destination.Low) + (uint)length + protocol;
     }

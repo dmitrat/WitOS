@@ -73,7 +73,7 @@ public sealed class NetworkStackTests
         var buffer = new byte[64];
         Assert.That(b.ReceiveFrom(server, buffer, false, out var datagram), Is.Zero);
         Assert.That(Encoding.ASCII.GetString(datagram!.Payload), Is.EqualTo("hello"));
-        Assert.That(datagram.Source, Is.EqualTo(A));
+        Assert.That(datagram.Source, Is.EqualTo(Ipv6Address.Map(A)), "an IPv4 sender in the socket layer's mapped form (W4.3)");
         Assert.That(datagram.SourcePort, Is.GreaterThanOrEqualTo(NetworkStack.EPHEMERAL_FIRST));
         // The reply needs no ARP: B learned A from its request.
         var arps = network.Captured.Count(frame => IsArp(frame));

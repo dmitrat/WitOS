@@ -63,12 +63,16 @@ public readonly record struct TcpHeader(ushort SourcePort, ushort DestinationPor
     /// <summary>
     /// Reads and checks a segment: its header and options within the segment and its checksum over the pseudo header.
     /// </summary>
-    /// <param name="segment">The IPv4 payload.</param>
+    /// <param name="segment">The IP payload.</param>
     /// <param name="source">The segment's source address.</param>
     /// <param name="destination">The segment's destination address.</param>
     /// <param name="header">The header, when the segment is valid.</param>
     /// <returns>Whether it is.</returns>
-    public static bool TryRead(ReadOnlySpan<byte> segment, Ipv4Address source, Ipv4Address destination, out TcpHeader header)
+    public static bool TryRead(ReadOnlySpan<byte> segment, Ipv4Address source, Ipv4Address destination, out TcpHeader header) =>
+        TryRead(segment, Ipv6Address.Map(source), Ipv6Address.Map(destination), out header);
+
+    /// <inheritdoc cref="TryRead(ReadOnlySpan{byte}, Ipv4Address, Ipv4Address, out TcpHeader)" />
+    public static bool TryRead(ReadOnlySpan<byte> segment, Ipv6Address source, Ipv6Address destination, out TcpHeader header)
     {
         header = default;
         if (segment.Length < SIZE)
@@ -131,6 +135,12 @@ public readonly record struct TcpHeader(ushort SourcePort, ushort DestinationPor
     /// <param name="scale">The window scale option, or -1 for none.</param>
     /// <returns>The header's bytes.</returns>
     public static int Write(Span<byte> segment, Ipv4Address source, Ipv4Address destination, ushort sourcePort, ushort destinationPort,
+        uint sequence, uint acknowledgment, byte flags, ushort window, ushort mss = 0, int scale = -1) =>
+        Write(segment, Ipv6Address.Map(source), Ipv6Address.Map(destination), sourcePort, destinationPort, sequence, acknowledgment, flags,
+            window, mss, scale);
+
+    /// <inheritdoc cref="Write(Span{byte}, Ipv4Address, Ipv4Address, ushort, ushort, uint, uint, byte, ushort, ushort, int)" />
+    public static int Write(Span<byte> segment, Ipv6Address source, Ipv6Address destination, ushort sourcePort, ushort destinationPort,
         uint sequence, uint acknowledgment, byte flags, ushort window, ushort mss = 0, int scale = -1)
     {
         var length = SIZE + OptionBytes(mss, scale);

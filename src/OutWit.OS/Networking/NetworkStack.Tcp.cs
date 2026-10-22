@@ -74,14 +74,16 @@ public sealed partial class NetworkStack
     /// Opens a TCP socket.
     /// </summary>
     /// <param name="socket">The socket's identifier.</param>
+    /// <param name="ipv6">An AF_INET6 socket, which takes both families until IPV6_V6ONLY is set (W4.3); otherwise an
+    /// AF_INET one.</param>
     /// <returns>Zero or an errno value.</returns>
-    public int OpenTcp(out int socket)
+    public int OpenTcp(out int socket, bool ipv6 = false)
     {
         socket = 0;
         if (m_udp.Count + m_tcp.Count >= SOCKETS)
             return NetworkErrors.NO_BUFFERS;
         socket = m_nextSocket++;
-        m_tcp[socket] = new TcpSocket(socket, TCP_BUFFER_BYTES, TCP_BUFFER_BYTES);
+        m_tcp[socket] = new TcpSocket(socket, TCP_BUFFER_BYTES, TCP_BUFFER_BYTES) { Family = ipv6 ? SocketMessages.INET6 : SocketMessages.INET };
         return 0;
     }
 
@@ -104,7 +106,7 @@ public sealed partial class NetworkStack
             return m_udp.ContainsKey(socket) ? NetworkErrors.NOT_SUPPORTED : NetworkErrors.BAD_SOCKET;
         if (tcp.State != TcpState.Listen && (tcp.State != TcpState.Closed || tcp.RemotePort != 0))
             return NetworkErrors.INVALID;
-        if (tcp.LocalPort == 0 && BindTcp(tcp, Ipv4Address.Any, 0) is var error and not 0)
+        if (tcp.LocalPort == 0 && BindTcp(tcp, Ipv6Address.Any, 0) is var error and not 0)
             return error;
         tcp.Backlog = Math.Clamp(backlog, 1, MAX_BACKLOG);
         tcp.State = TcpState.Listen;
@@ -235,15 +237,15 @@ public sealed partial class NetworkStack
         return 0;
     }
 
-    private int BindTcp(TcpSocket tcp, Ipv4Address address, ushort port)
+    private int BindTcp(TcpSocket tcp, Ipv6Address address, ushort port)
     {
         if (tcp.LocalPort != 0)
             return NetworkErrors.INVALID;
-        if (address != Ipv4Address.Any && address != Address && !address.IsLoopback)
+        if (!Bindable(address, tcp.Family, tcp.V6Only))
             return NetworkErrors.ADDRESS_NOT_AVAILABLE;
         if (port == 0)
             port = EphemeralTcpPort();
-        else if (TcpPortTaken(port, address, tcp.ReuseAddress, tcp.ReusePort))
+        else if (TcpPortTaken(port, address, tcp.Family, tcp.V6Only, tcp.ReuseAddress, tcp.ReusePort))
             return NetworkErrors.ADDRESS_IN_USE;
         if (port == 0)
             return NetworkErrors.ADDRESS_IN_USE;
@@ -254,7 +256,7 @@ public sealed partial class NetworkStack
 
     // Starts a connection: SYN-SENT, answered at once with IN_PROGRESS; the socket becomes writable when it is
     // established, or reports its error.
-    private int ConnectTcp(TcpSocket tcp, Ipv4Address address, ushort port)
+    private int ConnectTcp(TcpSocket tcp, Ipv6Address address, ushort port)
     {
         if (tcp.State == TcpState.SynSent)
             return NetworkErrors.ALREADY;
@@ -262,16 +264,19 @@ public sealed partial class NetworkStack
             return NetworkErrors.IS_CONNECTED;
         if (tcp.State == TcpState.Listen || tcp.RemotePort != 0)
             return NetworkErrors.INVALID;
-        if (Address == Ipv4Address.Any && !address.IsLoopback)
+        if (address.IsAny || address.IsMulticast || (address.IsMapped && (address.MappedIpv4 == Ipv4Address.Broadcast || address.MappedIpv4.IsMulticast)))
             return NetworkErrors.NETWORK_UNREACHABLE;
-        if (address == Ipv4Address.Broadcast || address.IsMulticast || address == Ipv4Address.Any)
+        if (!Takes(address, tcp.Family, tcp.V6Only))
             return NetworkErrors.NETWORK_UNREACHABLE;
-        if (tcp.LocalPort == 0 && BindTcp(tcp, Ipv4Address.Any, 0) is var error and not 0)
+        var source = SourceFor(address);
+        if (source.IsAny)
+            return NetworkErrors.NETWORK_UNREACHABLE;
+        if (tcp.LocalPort == 0 && BindTcp(tcp, Ipv6Address.Any, 0) is var error and not 0)
             return error;
         var now = m_clock();
-        if (tcp.LocalAddress == Ipv4Address.Any)
-            tcp.LocalAddress = address.IsLoopback ? Ipv4Address.Loopback : Address;
-        else if (tcp.LocalAddress.IsLoopback != address.IsLoopback)
+        if (tcp.LocalAddress.IsAny)
+            tcp.LocalAddress = source;
+        else if (tcp.LocalAddress.IsAnyLoopback != address.IsAnyLoopback || tcp.LocalAddress.IsMapped != address.IsMapped)
             return NetworkErrors.NETWORK_UNREACHABLE;
         tcp.RemoteAddress = address;
         tcp.RemotePort = port;
@@ -281,7 +286,7 @@ public sealed partial class NetworkStack
         tcp.SndMax = tcp.Iss + 1;
         tcp.Recover = tcp.Iss;
         tcp.RcvScale = RECEIVE_SCALE;
-        tcp.Mss = LocalMss();
+        tcp.Mss = LocalMss(address);
         tcp.Rto = RTO_INITIAL;
         tcp.State = TcpState.SynSent;
         tcp.Timing = true;
@@ -365,11 +370,22 @@ public sealed partial class NetworkStack
         return readiness;
     }
 
-    // A segment for this host: its connection's, a listener's, or answered with a reset.
+    // A segment for this host over IPv4: its connection's, a listener's, or answered with a reset.
     private void ReceiveTcp(Ipv4Header ip, ReadOnlySpan<byte> segment)
     {
-        if (ip.Destination == Ipv4Address.Broadcast || ip.Destination.IsMulticast ||
-            !TcpHeader.TryRead(segment, ip.Source, ip.Destination, out var header))
+        if (ip.Destination == Ipv4Address.Broadcast || ip.Destination.IsMulticast)
+        {
+            Statistics.PacketsDropped++;
+            return;
+        }
+        ReceiveTcp(Ipv6Address.Map(ip.Source), Ipv6Address.Map(ip.Destination), segment);
+    }
+
+    // A segment for this host, its addresses in the socket layer's form (an IPv4 address mapped, W4.3): its connection's,
+    // a listener's whose family takes the destination's, or answered with a reset.
+    private void ReceiveTcp(Ipv6Address source, Ipv6Address destination, ReadOnlySpan<byte> segment)
+    {
+        if (!TcpHeader.TryRead(segment, source, destination, out var header))
         {
             Statistics.PacketsDropped++;
             return;
@@ -383,14 +399,16 @@ public sealed partial class NetworkStack
                 continue;
             if (tcp.State == TcpState.Listen)
             {
-                if (tcp.LocalAddress == ip.Destination || (tcp.LocalAddress == Ipv4Address.Any && listener is null))
+                if (!Takes(destination, tcp.Family, tcp.V6Only))
+                    continue;
+                if (tcp.LocalAddress == destination || (tcp.LocalAddress.IsAny && listener is null))
                     listener = tcp;
                 if (tcp.ReusePort)
                     group.Add(tcp);
                 continue;
             }
-            if (tcp.State != TcpState.Closed && tcp.RemotePort == header.SourcePort && tcp.RemoteAddress == ip.Source &&
-                tcp.LocalAddress == ip.Destination)
+            if (tcp.State != TcpState.Closed && tcp.RemotePort == header.SourcePort && tcp.RemoteAddress == source &&
+                tcp.LocalAddress == destination)
             {
                 if (tcp.State == TcpState.SynSent)
                     SynSentSegment(tcp, header, payload);
@@ -405,22 +423,23 @@ public sealed partial class NetworkStack
         {
             group.RemoveAll(member => member.LocalAddress != listener.LocalAddress);
             if (group.Count > 1)
-                listener = group[GroupIndex(ip.Source, header.SourcePort, group.Count)];
+                listener = group[GroupIndex(source, header.SourcePort, group.Count)];
         }
         if (listener is not null)
-            ListenSegment(listener, ip, header);
+            ListenSegment(listener, source, destination, header);
         else if (!header.Has(TcpHeader.RST))
-            SendReset(ip.Destination, ip.Source, header, payload.Length);
+            SendReset(destination, source, header, payload.Length);
     }
 
-    // A segment to a listening socket: a SYN makes a connection in SYN-RECEIVED while the backlog has room.
-    private void ListenSegment(TcpSocket listener, Ipv4Header ip, TcpHeader header)
+    // A segment to a listening socket: a SYN makes a connection in SYN-RECEIVED while the backlog has room; the connection
+    // is of the listener's family, an IPv4 peer of a dual-stack listener in its mapped form.
+    private void ListenSegment(TcpSocket listener, Ipv6Address source, Ipv6Address destination, TcpHeader header)
     {
         if (header.Has(TcpHeader.RST))
             return;
         if (header.Has(TcpHeader.ACK))
         {
-            SendReset(ip.Destination, ip.Source, header, 0);
+            SendReset(destination, source, header, 0);
             return;
         }
         if (!header.Has(TcpHeader.SYN))
@@ -433,9 +452,11 @@ public sealed partial class NetworkStack
         var now = m_clock();
         var tcp = new TcpSocket(m_nextSocket++, TCP_BUFFER_BYTES, TCP_BUFFER_BYTES)
         {
-            LocalAddress = ip.Destination,
+            Family = listener.Family,
+            V6Only = listener.V6Only,
+            LocalAddress = destination,
             LocalPort = listener.LocalPort,
-            RemoteAddress = ip.Source,
+            RemoteAddress = source,
             RemotePort = header.SourcePort,
             ReuseAddress = listener.ReuseAddress,
             ReusePort = listener.ReusePort,
@@ -457,7 +478,7 @@ public sealed partial class NetworkStack
         tcp.SndWnd = header.Window;
         tcp.SndWl1 = header.Sequence;
         tcp.SndWl2 = tcp.Iss;
-        tcp.Mss = Math.Min(header.Mss != 0 ? header.Mss : DEFAULT_MSS, LocalMss());
+        tcp.Mss = Math.Min(header.Mss != 0 ? header.Mss : DEFAULT_MSS, LocalMss(source));
         tcp.SndScale = Math.Max(header.WindowScale, 0);
         tcp.RcvScale = header.WindowScale >= 0 ? RECEIVE_SCALE : 0;
         tcp.Timing = true;
@@ -489,7 +510,7 @@ public sealed partial class NetworkStack
         tcp.Irs = header.Sequence;
         tcp.RcvNxt = header.Sequence + 1;
         tcp.AdvertisedEdge = tcp.RcvNxt; // nothing advertised yet: the edge starts at RCV.NXT, never at zero
-        tcp.Mss = Math.Min(header.Mss != 0 ? header.Mss : DEFAULT_MSS, LocalMss());
+        tcp.Mss = Math.Min(header.Mss != 0 ? header.Mss : DEFAULT_MSS, LocalMss(tcp.RemoteAddress));
         if (header.WindowScale >= 0)
             tcp.SndScale = header.WindowScale;
         else
@@ -1073,7 +1094,7 @@ public sealed partial class NetworkStack
     }
 
     // The answer to a segment nobody takes (RFC 9293 section 3.10.7.1).
-    private void SendReset(Ipv4Address local, Ipv4Address remote, TcpHeader header, int payloadBytes)
+    private void SendReset(Ipv6Address local, Ipv6Address remote, TcpHeader header, int payloadBytes)
     {
         Statistics.ResetsSent++;
         if (header.Has(TcpHeader.ACK))
@@ -1197,10 +1218,10 @@ public sealed partial class NetworkStack
         }
         var offerScale = syn && (tcp.State == TcpState.SynSent || tcp.RcvScale > 0);
         return TransmitRaw(tcp.LocalAddress, tcp.RemoteAddress, tcp.LocalPort, tcp.RemotePort, sequence, ack ? tcp.RcvNxt : 0, flags, window,
-            payload, syn ? (ushort)LocalMss() : (ushort)0, offerScale ? tcp.RcvScale : -1);
+            payload, syn ? (ushort)LocalMss(tcp.RemoteAddress) : (ushort)0, offerScale ? tcp.RcvScale : -1);
     }
 
-    private bool TransmitRaw(Ipv4Address local, Ipv4Address remote, ushort localPort, ushort remotePort, uint sequence, uint acknowledgment,
+    private bool TransmitRaw(Ipv6Address local, Ipv6Address remote, ushort localPort, ushort remotePort, uint sequence, uint acknowledgment,
         byte flags, ushort window, ReadOnlySpan<byte> payload, ushort mss = 0, int scale = -1)
     {
         var header = TcpHeader.SIZE + TcpHeader.OptionBytes(mss, scale);
@@ -1208,11 +1229,11 @@ public sealed partial class NetworkStack
         payload.CopyTo(segment.AsSpan(header));
         TcpHeader.Write(segment, local, remote, localPort, remotePort, sequence, acknowledgment, flags, window, mss, scale);
         Statistics.SegmentsSent++;
-        return SendIpv4(local, remote, Ipv4Header.TCP, segment);
+        return SendIp(local, remote, Ipv4Header.TCP, segment);
     }
 
-    // The largest segment over the link: its MTU less the IPv4 and TCP headers.
-    private int LocalMss() => m_link.Mtu - Ipv4Header.SIZE - TcpHeader.SIZE;
+    // The largest segment over the link to a peer: its MTU less the IP header of the peer's family and the TCP header.
+    private int LocalMss(Ipv6Address remote) => m_link.Mtu - (remote.IsMapped ? Ipv4Header.SIZE : Ipv6Header.SIZE) - TcpHeader.SIZE;
 
     private ushort EphemeralTcpPort()
     {
@@ -1220,21 +1241,22 @@ public sealed partial class NetworkStack
         {
             var port = m_nextEphemeral;
             m_nextEphemeral = m_nextEphemeral == ushort.MaxValue ? EPHEMERAL_FIRST : (ushort)(m_nextEphemeral + 1);
-            if (!TcpPortTaken(port, Ipv4Address.Any, reuse: false, reusePort: false))
+            if (!TcpPortTaken(port, Ipv6Address.Any, SocketMessages.INET6, v6only: false, reuse: false, reusePort: false))
                 return port;
         }
         return 0;
     }
 
-    // Whether a TCP port is bound at an address: as Linux's bind decides, sockets that all set SO_REUSEADDR share a port
-    // unless one of them listens, and sockets that all set SO_REUSEPORT share it, listening or not.
-    private bool TcpPortTaken(ushort port, Ipv4Address address, bool reuse, bool reusePort)
+    // Whether a TCP port is bound where a socket of a family would bind it: as Linux's bind decides, sockets that all set
+    // SO_REUSEADDR share a port unless one of them listens, and sockets that all set SO_REUSEPORT share it, listening or
+    // not; otherwise two bindings may not overlap (W4.3: the unspecified address of a dual-stack socket overlaps every
+    // binding of the port, an AF_INET or IPV6_V6ONLY socket's its family's).
+    private bool TcpPortTaken(ushort port, Ipv6Address address, ushort family, bool v6only, bool reuse, bool reusePort)
     {
         foreach (var socket in m_tcp.Values)
         {
             if (socket.LocalPort == port && !(reuse && socket.ReuseAddress && socket.State != TcpState.Listen) &&
-                !(reusePort && socket.ReusePort) &&
-                (socket.LocalAddress == Ipv4Address.Any || address == Ipv4Address.Any || socket.LocalAddress == address))
+                !(reusePort && socket.ReusePort) && Overlaps(socket.LocalAddress, socket.Family, socket.V6Only, address, family, v6only))
                 return true;
         }
         return false;

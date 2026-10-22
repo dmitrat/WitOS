@@ -180,6 +180,27 @@ public readonly record struct Ipv6Address(ulong High, ulong Low)
         return true;
     }
 
+    /// <summary>
+    /// Whether the address lies in a prefix.
+    /// </summary>
+    /// <param name="prefix">The prefix's address.</param>
+    /// <param name="length">The prefix's bits, 0 to 128.</param>
+    /// <returns>Whether the first bits agree.</returns>
+    public bool InPrefix(Ipv6Address prefix, int length)
+    {
+        if (length <= 0)
+            return true;
+        if (length >= 128)
+            return this == prefix;
+        if (length <= 64)
+        {
+            var mask = ulong.MaxValue << (64 - length);
+            return (High & mask) == (prefix.High & mask);
+        }
+        var lowMask = ulong.MaxValue << (128 - length);
+        return High == prefix.High && (Low & lowMask) == (prefix.Low & lowMask);
+    }
+
     private static ulong InterfaceIdentifier(MacAddress mac)
     {
         Span<byte> bytes = stackalloc byte[6];

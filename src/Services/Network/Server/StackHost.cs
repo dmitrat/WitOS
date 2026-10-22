@@ -39,6 +39,7 @@ internal sealed class StackHost : IDisposable
     private long m_waitingUntil = long.MaxValue;
     private bool m_stopping;
     private bool m_leased;
+    private (Ipv6Address LinkLocal, Ipv6Address Global, Ipv6Address Router) m_reported6;
     private Exception? m_failure;
 
     #endregion
@@ -66,14 +67,17 @@ internal sealed class StackHost : IDisposable
     #region Functions
 
     /// <summary>
-    /// Starts the stack's thread and the DHCP client.
+    /// Starts the stack's thread, the DHCP client and the IPv6 host (W4.3).
     /// </summary>
     public void Start()
     {
         if (m_adapter is not null)
         {
             lock (m_gate)
+            {
                 m_stack.StartDhcp();
+                m_stack.StartIpv6();
+            }
         }
         m_thread = new Thread(Run) { IsBackground = true, Name = "network stack" };
         m_thread.Start();
@@ -125,13 +129,14 @@ internal sealed class StackHost : IDisposable
     /// </summary>
     /// <param name="owner">The session.</param>
     /// <param name="stream">A TCP socket, otherwise a UDP one.</param>
+    /// <param name="ipv6">An AF_INET6 socket, otherwise an AF_INET one (W4.3).</param>
     /// <param name="socket">The socket's identifier.</param>
     /// <returns>Zero or an errno value.</returns>
-    public int Open(SocketConnection owner, bool stream, out int socket)
+    public int Open(SocketConnection owner, bool stream, bool ipv6, out int socket)
     {
         lock (m_gate)
         {
-            var error = stream ? m_stack.OpenTcp(out socket) : m_stack.OpenUdp(out socket);
+            var error = stream ? m_stack.OpenTcp(out socket, ipv6) : m_stack.OpenUdp(out socket, ipv6);
             if (error == 0)
                 m_owners[socket] = owner;
             return error;
@@ -156,7 +161,7 @@ internal sealed class StackHost : IDisposable
                 return error;
             m_owners[socket] = owner;
             var tcp = m_stack.FindTcp(socket)!;
-            peer = SocketAddress.Inet(tcp.RemoteAddress, tcp.RemotePort);
+            peer = SocketAddress.Of(tcp.Family, tcp.RemoteAddress, tcp.RemotePort);
             return 0;
         }
     }
@@ -232,9 +237,18 @@ internal sealed class StackHost : IDisposable
         }
     }
 
-    // The lease's line when DHCP took or lost one, and a wakeup for WaitForLease.
+    // The lease's line when DHCP took or lost one, and a wakeup for WaitForLease; the IPv6 addresses' line when the host
+    // assigned one or learned its router (W4.3).
     private void Report()
     {
+        var addresses = (m_stack.Ipv6LinkLocal, m_stack.Ipv6Global, m_stack.Ipv6Gateway);
+        if (addresses != m_reported6)
+        {
+            m_reported6 = addresses;
+            Console.WriteLine($"{PREFIX}{Device}: IPv6 link-local {Text(addresses.Item1)}, global {Text(addresses.Item2)}" +
+                $"{(m_stack.Ipv6PrefixLength > 0 ? $" of {m_stack.Ipv6Prefix}/{m_stack.Ipv6PrefixLength}" : "")}, router {Text(addresses.Item3)}" +
+                $"{(m_stack.Ipv6DnsServers.Count > 0 ? $", DNS {string.Join(", ", m_stack.Ipv6DnsServers)}" : "")}");
+        }
         var leased = m_stack.Dhcp.IsBound;
         if (leased == m_leased)
             return;
@@ -246,6 +260,8 @@ internal sealed class StackHost : IDisposable
             Console.WriteLine($"{PREFIX}{Device}: the lease ended");
         Monitor.PulseAll(m_gate);
     }
+
+    private static string Text(Ipv6Address address) => address.IsAny ? "none" : address.ToString();
 
     // A socket's readiness may have changed: its owner hears of it.
     private void Ready(int socket)

@@ -39,6 +39,11 @@ public static class SocketMessages
     public const int CONFIGURATION_SIZE = 56;
 
     /// <summary>
+    /// The bytes of the IPv6 configuration (W4.3).
+    /// </summary>
+    public const int CONFIGURATION6_SIZE = 136;
+
+    /// <summary>
     /// The bytes of an adapter's message.
     /// </summary>
     public const int ADAPTER_SIZE = 64;
@@ -119,10 +124,23 @@ public static class SocketMessages
     public const uint CONFIGURATION = 15;
 
     /// <summary>
+    /// WIT_SOCKET_CONFIGURATION6 (W4.3).
+    /// </summary>
+    public const uint CONFIGURATION6 = 16;
+
+    /// <summary>
     /// WIT_SOCKET_CONFIGURATION_EVENT: a WitSocketEvent whose socket is this tells of the configuration, not of a socket
     /// (W4.2).
     /// </summary>
     public const uint CONFIGURATION_EVENT = 0xFFFFFFFF;
+
+    /// <summary>
+    /// WIT_SOCKET_IPV6_LINK_LOCAL and WIT_SOCKET_IPV6_GLOBAL: the IPv6 configuration's flags, an address assigned (W4.3).
+    /// </summary>
+    public const uint IPV6_LINK_LOCAL = 0x1;
+
+    /// <inheritdoc cref="IPV6_LINK_LOCAL" />
+    public const uint IPV6_GLOBAL = 0x2;
 
     /// <summary>
     /// WIT_SOCKET_PEEK.
@@ -158,6 +176,11 @@ public static class SocketMessages
     /// AF_INET.
     /// </summary>
     public const ushort INET = 2;
+
+    /// <summary>
+    /// AF_INET6 (W4.3).
+    /// </summary>
+    public const ushort INET6 = 10;
 
     /// <summary>
     /// SOCK_STREAM.
@@ -228,6 +251,16 @@ public static class SocketMessages
     /// TCP_NODELAY.
     /// </summary>
     public const ulong NO_DELAY = 1;
+
+    /// <summary>
+    /// IPPROTO_IPV6, the level of IPv6's options (W4.3).
+    /// </summary>
+    public const ulong IPV6_LEVEL = 41;
+
+    /// <summary>
+    /// IPV6_V6ONLY.
+    /// </summary>
+    public const ulong V6_ONLY = 26;
 
     /// <summary>
     /// SHUTDOWN's directions: SHUT_RD, SHUT_WR and SHUT_RDWR.
@@ -364,6 +397,39 @@ public static class SocketMessages
     }
 
     /// <summary>
+    /// Writes the IPv6 configuration into the window (W4.3).
+    /// </summary>
+    public static void WriteConfiguration6(Span<byte> bytes, SocketConfiguration6 configuration)
+    {
+        bytes[..CONFIGURATION6_SIZE].Clear();
+        Header(bytes, CONFIGURATION6_SIZE);
+        configuration.LinkLocal.Write(bytes[8..]);
+        configuration.Global.Write(bytes[24..]);
+        configuration.Router.Write(bytes[40..]);
+        var count = Math.Min(configuration.DnsServers.Count, 4);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes[56..], (uint)count);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes[60..], configuration.PrefixLength);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes[64..], configuration.Flags);
+        for (var i = 0; i < count; i++)
+            configuration.DnsServers[i].Write(bytes[(72 + Ipv6Address.SIZE * i)..]);
+    }
+
+    /// <summary>
+    /// Reads the IPv6 configuration from the window.
+    /// </summary>
+    /// <exception cref="FormatException">The bytes are no IPv6 configuration of this version.</exception>
+    public static SocketConfiguration6 ReadConfiguration6(ReadOnlySpan<byte> bytes)
+    {
+        CheckHeader(bytes[..CONFIGURATION6_SIZE], CONFIGURATION6_SIZE, "IPv6 configuration");
+        var count = (int)Math.Min(BinaryPrimitives.ReadUInt32LittleEndian(bytes[56..]), 4U);
+        var dns = new List<Ipv6Address>(count);
+        for (var i = 0; i < count; i++)
+            dns.Add(Ipv6Address.Read(bytes[(72 + Ipv6Address.SIZE * i)..]));
+        return new SocketConfiguration6(Ipv6Address.Read(bytes[8..]), Ipv6Address.Read(bytes[24..]), Ipv6Address.Read(bytes[40..]),
+            BinaryPrimitives.ReadUInt32LittleEndian(bytes[60..]), dns, BinaryPrimitives.ReadUInt32LittleEndian(bytes[64..]));
+    }
+
+    /// <summary>
     /// Encodes an adapter's message: the device's identity, cut to 47 bytes, and the flags.
     /// </summary>
     public static byte[] EncodeAdapter(string device, uint flags = 0)
@@ -391,15 +457,29 @@ public static class SocketMessages
         return (Encoding.ASCII.GetString(end < 0 ? name : name[..end]), BinaryPrimitives.ReadUInt32LittleEndian(bytes[12..]));
     }
 
+    // An AF_INET address's four bytes, an AF_INET6 one's sixteen, in network order at 8.
     private static void WriteAddress(Span<byte> bytes, SocketAddress address)
     {
         BinaryPrimitives.WriteUInt16LittleEndian(bytes, address.Family);
         BinaryPrimitives.WriteUInt16LittleEndian(bytes[2..], address.Port);
-        address.Address.Write(bytes[8..]);
+        bytes[8..24].Clear();
+        if (address.Family == INET6)
+            address.Address.Write(bytes[8..]);
+        else if (address.Family == INET)
+            address.Address.MappedIpv4.Write(bytes[8..]);
     }
 
-    private static SocketAddress ReadAddress(ReadOnlySpan<byte> bytes) =>
-        new(BinaryPrimitives.ReadUInt16LittleEndian(bytes), BinaryPrimitives.ReadUInt16LittleEndian(bytes[2..]), Ipv4Address.Read(bytes[8..]));
+    private static SocketAddress ReadAddress(ReadOnlySpan<byte> bytes)
+    {
+        var family = BinaryPrimitives.ReadUInt16LittleEndian(bytes);
+        var port = BinaryPrimitives.ReadUInt16LittleEndian(bytes[2..]);
+        return family switch
+        {
+            INET6 => new SocketAddress(family, port, Ipv6Address.Read(bytes[8..])),
+            INET => new SocketAddress(family, port, Ipv6Address.Map(Ipv4Address.Read(bytes[8..]))),
+            _ => new SocketAddress(family, port, Ipv6Address.Any)
+        };
+    }
 
     private static void Header(Span<byte> bytes, int size)
     {
@@ -418,22 +498,56 @@ public static class SocketMessages
 }
 
 /// <summary>
-/// An address of the socket protocol (WitSocketAddress): AF_INET with a port, or AF_UNSPEC for none.
+/// An address of the socket protocol (WitSocketAddress): AF_INET or AF_INET6 with a port, or AF_UNSPEC for none. The
+/// address is an IPv6 one whatever the family, an AF_INET address in its mapped form (W4.3).
 /// </summary>
-/// <param name="Family">AF_INET or AF_UNSPEC.</param>
+/// <param name="Family">AF_INET, AF_INET6 or AF_UNSPEC.</param>
 /// <param name="Port">The port, in host order.</param>
-/// <param name="Address">The IPv4 address.</param>
-public readonly record struct SocketAddress(ushort Family, ushort Port, Ipv4Address Address)
+/// <param name="Address">The address; an IPv4 one in its mapped form.</param>
+public readonly record struct SocketAddress(ushort Family, ushort Port, Ipv6Address Address)
 {
     /// <summary>
     /// No address.
     /// </summary>
-    public static readonly SocketAddress None = new(SocketMessages.UNSPECIFIED, 0, Ipv4Address.Any);
+    public static readonly SocketAddress None = new(SocketMessages.UNSPECIFIED, 0, Ipv6Address.Any);
 
     /// <summary>
     /// An AF_INET address.
     /// </summary>
-    public static SocketAddress Inet(Ipv4Address address, ushort port) => new(SocketMessages.INET, port, address);
+    public static SocketAddress Inet(Ipv4Address address, ushort port) => new(SocketMessages.INET, port, Ipv6Address.Map(address));
+
+    /// <summary>
+    /// An AF_INET6 address; an IPv4 address in its mapped form names a dual-stack socket's IPv4 peer.
+    /// </summary>
+    public static SocketAddress Inet6(Ipv6Address address, ushort port) => new(SocketMessages.INET6, port, address);
+
+    /// <summary>
+    /// An address in a socket's family: an AF_INET socket's as AF_INET, an AF_INET6 socket's as AF_INET6, mapped for an
+    /// IPv4 address, as Linux names a dual-stack socket's peers.
+    /// </summary>
+    /// <param name="family">The socket's family.</param>
+    /// <param name="address">The address; an IPv4 one in its mapped form.</param>
+    /// <param name="port">The port.</param>
+    /// <returns>The address.</returns>
+    public static SocketAddress Of(ushort family, Ipv6Address address, ushort port) => new(family, port, address);
+
+    /// <summary>
+    /// The address's text: an AF_INET address's dotted quad, an AF_INET6 address's RFC 5952 text, nothing for none.
+    /// </summary>
+    public string AddressText => Family switch
+    {
+        SocketMessages.INET => Address.MappedIpv4.ToString(),
+        SocketMessages.INET6 => Address.ToString(),
+        _ => ""
+    };
+
+    /// <inheritdoc />
+    public override string ToString() => Family switch
+    {
+        SocketMessages.INET => $"{AddressText}:{Port}",
+        SocketMessages.INET6 => $"[{AddressText}]:{Port}",
+        _ => "none"
+    };
 }
 
 /// <summary>
@@ -453,3 +567,11 @@ public readonly record struct SocketReply(uint Operation, int Error, uint Socket
 /// </summary>
 public sealed record SocketConfiguration(Ipv4Address Address, Ipv4Address Mask, Ipv4Address Gateway, IReadOnlyList<Ipv4Address> DnsServers,
     MacAddress Mac, int Mtu, bool Leased);
+
+/// <summary>
+/// The interface's IPv6 configuration (WitSocketConfiguration6, W4.3): its link-local and global addresses (Any until
+/// assigned; the flags say which are), the on-link prefix's length, the default router and the DNS servers the router
+/// advertised.
+/// </summary>
+public sealed record SocketConfiguration6(Ipv6Address LinkLocal, Ipv6Address Global, Ipv6Address Router, uint PrefixLength,
+    IReadOnlyList<Ipv6Address> DnsServers, uint Flags);

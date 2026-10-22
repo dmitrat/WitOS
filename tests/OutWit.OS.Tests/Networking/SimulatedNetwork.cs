@@ -9,7 +9,9 @@ namespace OutWit.OS.Tests.Networking;
 /// A simulated Ethernet segment for the stack's tests (plan step W1.2a): stacks on links whose frames reach every other
 /// link of the segment when <see cref="Pump"/> runs, a manual clock in milliseconds, and an optional DHCP server that
 /// answers as QEMU's does (10.0.2.2 serving 10.0.2.15 with DNS 10.0.2.3). For TCP (W1.2b) it loses frames at a rate and
-/// swaps frames in pairs, from seeded randomness, so that a lossy run repeats.
+/// swaps frames in pairs, from seeded randomness, so that a lossy run repeats. Its optional IPv6 router (W4.3) answers
+/// as slirp's does: a router advertisement from fe80::2 for a solicitation, with the prefix fec0::/64, the DNS server
+/// fec0::3 and its hardware address, and neighbour advertisements for its addresses.
 /// </summary>
 internal sealed class SimulatedNetwork
 {
@@ -61,6 +63,8 @@ internal sealed class SimulatedNetwork
                 var (from, frame) = m_frames.Dequeue();
                 Captured.Add(frame);
                 if (DhcpServer && (TryAnswerDhcp(frame) || TryAnswerArp(frame)))
+                    continue;
+                if (Ipv6Router && TryAnswerIpv6(frame))
                     continue;
                 foreach (var link in m_links)
                     if (link != from)
@@ -148,6 +152,47 @@ internal sealed class SimulatedNetwork
         return true;
     }
 
+    // slirp's IPv6 router: a router advertisement to all nodes for a solicitation, a neighbour advertisement for a
+    // solicitation of one of its addresses.
+    private bool TryAnswerIpv6(byte[] frame)
+    {
+        if (!EthernetHeader.TryRead(frame, out var ethernet) || ethernet.Type != EthernetHeader.IPV6 ||
+            !Ipv6Header.TryRead(frame.AsSpan(EthernetHeader.SIZE), out var ip) || ip.NextHeader != Ipv6Header.ICMPV6)
+            return false;
+        var message = frame.AsSpan(EthernetHeader.SIZE + Ipv6Header.SIZE, ip.PayloadLength);
+        if (!Icmpv6.TryRead(message, ip.Source, ip.Destination, out var type, out _))
+            return false;
+        byte[] answer;
+        Ipv6Address source, destination;
+        if (type == Icmpv6.ROUTER_SOLICITATION)
+        {
+            source = ROUTER;
+            destination = Ipv6Address.AllNodes;
+            answer = Icmpv6.RouterAdvertisement(1800, PREFIX6, 64, 86400, 14400, SERVER_MAC, 1500, [DNS6], source, destination);
+            RouterAdvertisements++;
+        }
+        else if (type == Icmpv6.NEIGHBOUR_SOLICITATION && message.Length >= 24 && !ip.Source.IsAny &&
+            Ipv6Address.Read(message[8..]) is var target && (target == ROUTER || target == HOST6 || target == DNS6))
+        {
+            source = target;
+            destination = ip.Source;
+            answer = Icmpv6.NeighbourAdvertisement(target, Icmpv6.SOLICITED_FLAG | Icmpv6.OVERRIDE_FLAG, SERVER_MAC, source, destination);
+        }
+        else
+        {
+            return false;
+        }
+        var packet = new byte[Ipv6Header.SIZE + answer.Length];
+        Ipv6Header.Write(packet, source, destination, Ipv6Header.ICMPV6, answer.Length, Ipv6Header.DISCOVERY_HOP_LIMIT);
+        answer.CopyTo(packet, Ipv6Header.SIZE);
+        var reply = new byte[EthernetHeader.SIZE + packet.Length];
+        new EthernetHeader(destination.IsMulticast ? destination.MulticastMac : ethernet.Source, SERVER_MAC, EthernetHeader.IPV6).Write(reply);
+        packet.CopyTo(reply, EthernetHeader.SIZE);
+        foreach (var link in m_links)
+            link.Stack!.Receive(reply);
+        return true;
+    }
+
     private static byte[] DhcpReply(uint transactionId, MacAddress client, byte type)
     {
         var bytes = new byte[300];
@@ -181,6 +226,30 @@ internal sealed class SimulatedNetwork
     /// The DHCP server's hardware address, slirp's for the gateway.
     /// </summary>
     public static MacAddress SERVER_MAC { get; } = MacAddress.Read([0x52, 0x55, 10, 0, 2, 2]);
+
+    /// <summary>
+    /// slirp's IPv6: the router's link-local address, its prefix, its address on it and its DNS server.
+    /// </summary>
+    public static Ipv6Address ROUTER { get; } = Ipv6Address.Parse("fe80::2");
+
+    /// <inheritdoc cref="ROUTER" />
+    public static Ipv6Address PREFIX6 { get; } = Ipv6Address.Parse("fec0::");
+
+    /// <inheritdoc cref="ROUTER" />
+    public static Ipv6Address HOST6 { get; } = Ipv6Address.Parse("fec0::2");
+
+    /// <inheritdoc cref="ROUTER" />
+    public static Ipv6Address DNS6 { get; } = Ipv6Address.Parse("fec0::3");
+
+    /// <summary>
+    /// Whether the IPv6 router answers.
+    /// </summary>
+    public bool Ipv6Router { get; set; }
+
+    /// <summary>
+    /// The router advertisements the router sent.
+    /// </summary>
+    public int RouterAdvertisements { get; private set; }
 
     /// <summary>
     /// The clock in milliseconds.

@@ -79,6 +79,11 @@ public static class NetworkErrors
     public const int FAMILY_NOT_SUPPORTED = 97;
 
     /// <summary>
+    /// ENOPROTOOPT: the option is not of the socket's protocol (W4.3: IPV6_V6ONLY of an AF_INET socket).
+    /// </summary>
+    public const int NO_OPTION = 92;
+
+    /// <summary>
     /// EADDRINUSE.
     /// </summary>
     public const int ADDRESS_IN_USE = 98;

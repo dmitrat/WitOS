@@ -7,9 +7,12 @@ namespace OutWit.OS.Networking;
 /// <summary>
 /// The managed TCP/IP stack of the network service (plan steps W1.2a and W1.2b, W0's decision 2): one Ethernet interface
 /// over an <see cref="ILink"/> and the loopback interface, IPv4 with ARP, ICMP's echo and port unreachable, UDP and TCP
-/// sockets and the DHCP client. It knows no channel and no device: frames come in through <see cref="Receive"/>, go out through the
-/// link, time comes from the clock it is given, and <see cref="Advance"/> runs its timers once
-/// <see cref="NextDeadline"/> has passed. It is not thread-safe: the service calls it under one lock.
+/// sockets and the DHCP client; since W4.3 IPv6 beside it (<c>NetworkStack.Ipv6.cs</c>): neighbour discovery, a
+/// link-local address from the hardware address and a global one from the router's advertisement, ICMPv6, and sockets
+/// of both families, every address an <see cref="Ipv6Address"/> with IPv4 in its mapped form, so that an AF_INET6 socket
+/// serves both as Linux's dual-stack sockets do. It knows no channel and no device: frames come in through
+/// <see cref="Receive"/>, go out through the link, time comes from the clock it is given, and <see cref="Advance"/> runs
+/// its timers once <see cref="NextDeadline"/> has passed. It is not thread-safe: the service calls it under one lock.
 /// </summary>
 public sealed partial class NetworkStack
 {
@@ -124,13 +127,14 @@ public sealed partial class NetworkStack
 
     /// <summary>
     /// Takes a frame the link received: ARP and IPv4 to the stack's address, a broadcast or, while DHCP has no lease,
-    /// to the DHCP client; anything else is dropped.
+    /// to the DHCP client; IPv6 to the stack's addresses or to a multicast group it listens to (W4.3); anything else is
+    /// dropped.
     /// </summary>
     /// <param name="frame">An Ethernet II frame.</param>
     public void Receive(ReadOnlySpan<byte> frame)
     {
         if (!EthernetHeader.TryRead(frame, out var ethernet) ||
-            (ethernet.Destination != m_link.Address && ethernet.Destination != MacAddress.Broadcast))
+            (ethernet.Destination != m_link.Address && ethernet.Destination != MacAddress.Broadcast && !ethernet.Destination.IsIpv6Multicast))
         {
             Statistics.FramesDropped++;
             return;
@@ -141,12 +145,15 @@ public sealed partial class NetworkStack
             ReceiveArp(payload);
         else if (ethernet.Type == EthernetHeader.IPV4)
             ReceiveIpv4(payload, fromLoopback: false);
+        else if (ethernet.Type == EthernetHeader.IPV6)
+            ReceiveIpv6(payload, fromLoopback: false);
         else
             Statistics.FramesDropped++;
     }
 
     /// <summary>
-    /// Runs what is due: datagrams the loopback queued, ARP's retries and expiries, the DHCP client's and TCP's timers.
+    /// Runs what is due: datagrams the loopback queued, ARP's and neighbour discovery's retries and expiries, the DHCP
+    /// client's, the IPv6 host's and TCP's timers.
     /// </summary>
     public void Advance()
     {
@@ -154,7 +161,13 @@ public sealed partial class NetworkStack
         // The loopback's queue as it was at entry: what a received packet's answer queues waits for the next Advance, so
         // that two connections answering each other cannot keep one Advance going (P3).
         for (var queued = m_loopback.Count; queued > 0; queued--)
-            ReceiveIpv4(m_loopback.Dequeue(), fromLoopback: true);
+        {
+            var packet = m_loopback.Dequeue();
+            if (packet[0] >> 4 == 6)
+                ReceiveIpv6(packet, fromLoopback: true);
+            else
+                ReceiveIpv4(packet, fromLoopback: true);
+        }
         foreach (var (address, pending) in new List<KeyValuePair<Ipv4Address, PendingResolution>>(m_pending))
         {
             if (now < pending.NextAttempt)
@@ -169,6 +182,7 @@ public sealed partial class NetworkStack
             SendArpRequest(address);
         }
         Dhcp.Advance(now);
+        AdvanceIpv6(now);
         AdvanceTcp(now);
     }
 
@@ -178,14 +192,16 @@ public sealed partial class NetworkStack
     /// Opens a UDP socket.
     /// </summary>
     /// <param name="socket">The socket's identifier.</param>
+    /// <param name="ipv6">An AF_INET6 socket, which takes both families until IPV6_V6ONLY is set (W4.3); otherwise an
+    /// AF_INET one.</param>
     /// <returns>Zero or an errno value.</returns>
-    public int OpenUdp(out int socket)
+    public int OpenUdp(out int socket, bool ipv6 = false)
     {
         socket = 0;
         if (m_udp.Count + m_tcp.Count >= SOCKETS)
             return NetworkErrors.NO_BUFFERS;
         socket = m_nextSocket++;
-        m_udp[socket] = new UdpSocket(socket);
+        m_udp[socket] = new UdpSocket(socket) { Family = ipv6 ? SocketMessages.INET6 : SocketMessages.INET };
         return 0;
     }
 
@@ -193,7 +209,16 @@ public sealed partial class NetworkStack
     /// Binds a socket to a local address and port: Any or one of the stack's, and a free port or zero for an ephemeral one.
     /// </summary>
     /// <returns>Zero or an errno value.</returns>
-    public int Bind(int socket, Ipv4Address address, ushort port)
+    public int Bind(int socket, Ipv4Address address, ushort port) => Bind(socket, Ipv6Address.Map(address), port);
+
+    /// <summary>
+    /// Binds a socket to a local address and port: Any or one of the stack's of a family the socket takes (an IPv4
+    /// address in its mapped form, W4.3), and a free port or zero for an ephemeral one. A port is free for a socket when
+    /// no other socket's binding overlaps its own, as Linux decides: the unspecified address of a dual-stack socket
+    /// overlaps every other binding of the port, that of an AF_INET or an IPV6_V6ONLY socket its family's alone.
+    /// </summary>
+    /// <returns>Zero or an errno value.</returns>
+    public int Bind(int socket, Ipv6Address address, ushort port)
     {
         if (m_tcp.TryGetValue(socket, out var tcp))
             return BindTcp(tcp, address, port);
@@ -201,11 +226,11 @@ public sealed partial class NetworkStack
             return NetworkErrors.BAD_SOCKET;
         if (udp.LocalPort != 0)
             return NetworkErrors.INVALID;
-        if (address != Ipv4Address.Any && address != Address && !address.IsLoopback)
+        if (!Bindable(address, udp.Family, udp.V6Only))
             return NetworkErrors.ADDRESS_NOT_AVAILABLE;
         if (port == 0)
             port = EphemeralPort();
-        else if (PortTaken(port, address, udp.ReuseAddress, udp.ReusePort))
+        else if (PortTaken(port, address, udp.Family, udp.V6Only, udp.ReuseAddress, udp.ReusePort))
             return NetworkErrors.ADDRESS_IN_USE;
         if (port == 0)
             return NetworkErrors.ADDRESS_IN_USE;
@@ -220,7 +245,10 @@ public sealed partial class NetworkStack
     /// error.
     /// </summary>
     /// <returns>Zero or an errno value.</returns>
-    public int Connect(int socket, Ipv4Address address, ushort port)
+    public int Connect(int socket, Ipv4Address address, ushort port) => Connect(socket, Ipv6Address.Map(address), port);
+
+    /// <inheritdoc cref="Connect(int, Ipv4Address, ushort)" />
+    public int Connect(int socket, Ipv6Address address, ushort port)
     {
         if (m_tcp.TryGetValue(socket, out var tcp))
             return port == 0 ? NetworkErrors.INVALID : ConnectTcp(tcp, address, port);
@@ -228,11 +256,13 @@ public sealed partial class NetworkStack
             return NetworkErrors.BAD_SOCKET;
         if (port == 0)
         {
-            udp.RemoteAddress = Ipv4Address.Any;
+            udp.RemoteAddress = Ipv6Address.Any;
             udp.RemotePort = 0;
             return 0;
         }
-        if (udp.LocalPort == 0 && Bind(socket, Ipv4Address.Any, 0) is var error and not 0)
+        if (!Takes(address, udp.Family, udp.V6Only))
+            return NetworkErrors.NETWORK_UNREACHABLE;
+        if (udp.LocalPort == 0 && Bind(socket, Ipv6Address.Any, 0) is var error and not 0)
             return error;
         udp.RemoteAddress = address;
         udp.RemotePort = port;
@@ -247,7 +277,11 @@ public sealed partial class NetworkStack
     /// <param name="address">The destination, or Any for the peer.</param>
     /// <param name="port">The destination's port, or zero for the peer.</param>
     /// <returns>Zero or an errno value.</returns>
-    public int SendTo(int socket, ReadOnlySpan<byte> payload, Ipv4Address address, ushort port)
+    public int SendTo(int socket, ReadOnlySpan<byte> payload, Ipv4Address address, ushort port) =>
+        SendTo(socket, payload, Ipv6Address.Map(address), port);
+
+    /// <inheritdoc cref="SendTo(int, ReadOnlySpan{byte}, Ipv4Address, ushort)" />
+    public int SendTo(int socket, ReadOnlySpan<byte> payload, Ipv6Address address, ushort port)
     {
         if (!m_udp.TryGetValue(socket, out var udp))
             return NetworkErrors.BAD_SOCKET;
@@ -260,19 +294,22 @@ public sealed partial class NetworkStack
             address = udp.RemoteAddress;
             port = udp.RemotePort;
         }
-        if (payload.Length > m_link.Mtu - Ipv4Header.SIZE - UdpHeader.SIZE)
+        var ipv4 = address.IsMapped;
+        if (payload.Length > m_link.Mtu - (ipv4 ? Ipv4Header.SIZE : Ipv6Header.SIZE) - UdpHeader.SIZE)
             return NetworkErrors.MESSAGE_SIZE;
-        if (address == Ipv4Address.Broadcast && !udp.Broadcast)
+        if (ipv4 && address.MappedIpv4 == Ipv4Address.Broadcast && !udp.Broadcast)
             return NetworkErrors.NOT_SUPPORTED;
-        if (Address == Ipv4Address.Any && !address.IsLoopback)
+        if (!Takes(address, udp.Family, udp.V6Only))
             return NetworkErrors.NETWORK_UNREACHABLE;
-        if (udp.LocalPort == 0 && Bind(socket, Ipv4Address.Any, 0) is var error and not 0)
+        var source = SourceFor(address);
+        if (source.IsAny)
+            return NetworkErrors.NETWORK_UNREACHABLE;
+        if (udp.LocalPort == 0 && Bind(socket, Ipv6Address.Any, 0) is var error and not 0)
             return error;
-        var source = address.IsLoopback ? Ipv4Address.Loopback : Address;
         var segment = new byte[UdpHeader.SIZE + payload.Length];
         payload.CopyTo(segment.AsSpan(UdpHeader.SIZE));
         UdpHeader.Write(segment, source, address, udp.LocalPort, port);
-        return SendIpv4(source, address, Ipv4Header.UDP, segment) ? 0 : NetworkErrors.NETWORK_UNREACHABLE;
+        return SendIp(source, address, Ipv4Header.UDP, segment) ? 0 : NetworkErrors.NETWORK_UNREACHABLE;
     }
 
     /// <summary>
@@ -342,6 +379,33 @@ public sealed partial class NetworkStack
         if (!m_udp.TryGetValue(socket, out var udp))
             return NetworkErrors.BAD_SOCKET;
         udp.ReusePort = enabled;
+        return 0;
+    }
+
+    /// <summary>
+    /// Sets IPV6_V6ONLY of an AF_INET6 socket (W4.3): set, the socket takes no IPv4; clear (the default, as Linux's
+    /// bindv6only), it serves both families with IPv4 peers in their mapped form. Linux refuses the change once the
+    /// socket is bound.
+    /// </summary>
+    /// <returns>Zero, NO_OPTION for an AF_INET socket, INVALID for a bound one, or BAD_SOCKET.</returns>
+    public int SetV6Only(int socket, bool enabled)
+    {
+        if (m_tcp.TryGetValue(socket, out var tcp))
+        {
+            if (tcp.Family != SocketMessages.INET6)
+                return NetworkErrors.NO_OPTION;
+            if (tcp.LocalPort != 0)
+                return NetworkErrors.INVALID;
+            tcp.V6Only = enabled;
+            return 0;
+        }
+        if (!m_udp.TryGetValue(socket, out var udp))
+            return NetworkErrors.BAD_SOCKET;
+        if (udp.Family != SocketMessages.INET6)
+            return NetworkErrors.NO_OPTION;
+        if (udp.LocalPort != 0)
+            return NetworkErrors.INVALID;
+        udp.V6Only = enabled;
         return 0;
     }
 
@@ -498,14 +562,20 @@ public sealed partial class NetworkStack
             var udp = payload[(8 + original.HeaderLength)..];
             var sourcePort = (ushort)((udp[0] << 8) | udp[1]);
             var destinationPort = (ushort)((udp[2] << 8) | udp[3]);
-            foreach (var socket in m_udp.Values)
+            RefuseConnected(sourcePort, Ipv6Address.Map(original.Destination), destinationPort);
+        }
+    }
+
+    // A port unreachable report (ICMP or ICMPv6) for a datagram a connected socket sent: its peer refused it.
+    private void RefuseConnected(ushort sourcePort, Ipv6Address destination, ushort destinationPort)
+    {
+        foreach (var socket in m_udp.Values)
+        {
+            if (socket.LocalPort == sourcePort && socket.IsConnected && socket.RemotePort == destinationPort &&
+                socket.RemoteAddress == destination)
             {
-                if (socket.LocalPort == sourcePort && socket.IsConnected && socket.RemotePort == destinationPort &&
-                    socket.RemoteAddress == original.Destination)
-                {
-                    socket.PendingError = NetworkErrors.CONNECTION_REFUSED;
-                    SocketReady?.Invoke(socket.Id);
-                }
+                socket.PendingError = NetworkErrors.CONNECTION_REFUSED;
+                SocketReady?.Invoke(socket.Id);
             }
         }
     }
@@ -526,33 +596,40 @@ public sealed partial class NetworkStack
         }
         if (Address == Ipv4Address.Any && !ip.Destination.IsLoopback)
             return;
+        if (DeliverUdp(Ipv6Address.Map(ip.Source), Ipv6Address.Map(ip.Destination), udp, payload))
+            return;
+        Statistics.PortsUnreachable++;
+        if (ip.Destination != Ipv4Address.Broadcast && !ip.Destination.IsMulticast)
+            SendPortUnreachable(ip, datagram);
+    }
+
+    // A datagram to the socket that takes it: bound to its port at its destination or the unspecified address, of a
+    // family that takes the destination's, and connected to its source if connected; a connected socket is the more
+    // specific match, and sockets that share the port through SO_REUSEPORT take the sender's datagrams in turn of its
+    // address and port.
+    private bool DeliverUdp(Ipv6Address source, Ipv6Address destination, UdpHeader udp, ReadOnlySpan<byte> payload)
+    {
         UdpSocket? target = null;
         var group = new List<UdpSocket>();
         foreach (var socket in m_udp.Values)
         {
-            if (socket.LocalPort != udp.DestinationPort ||
-                (socket.LocalAddress != Ipv4Address.Any && socket.LocalAddress != ip.Destination) ||
-                (socket.IsConnected && (socket.RemoteAddress != ip.Source || socket.RemotePort != udp.SourcePort)))
+            if (socket.LocalPort != udp.DestinationPort || !Takes(destination, socket.Family, socket.V6Only) ||
+                (!socket.LocalAddress.IsAny && socket.LocalAddress != destination) ||
+                (socket.IsConnected && (socket.RemoteAddress != source || socket.RemotePort != udp.SourcePort)))
                 continue;
-            // A connected socket is the more specific match.
             if (target is null || socket.IsConnected)
                 target = socket;
             if (!socket.IsConnected && socket.ReusePort)
                 group.Add(socket);
         }
-        // Sockets that share the port through SO_REUSEPORT take the sender's datagrams in turn of its address and port.
         if (target is { IsConnected: false, ReusePort: true } && group.Count > 1)
-            target = group[GroupIndex(ip.Source, udp.SourcePort, group.Count)];
+            target = group[GroupIndex(source, udp.SourcePort, group.Count)];
         if (target is null)
-        {
-            Statistics.PortsUnreachable++;
-            if (ip.Destination != Ipv4Address.Broadcast && !ip.Destination.IsMulticast)
-                SendPortUnreachable(ip, datagram);
-            return;
-        }
+            return false;
         var wasEmpty = target.Pending == 0;
-        if (target.Enqueue(new Datagram(ip.Source, udp.SourcePort, payload.ToArray())) && wasEmpty)
+        if (target.Enqueue(new Datagram(source, udp.SourcePort, payload.ToArray())) && wasEmpty)
             SocketReady?.Invoke(target.Id);
+        return true;
     }
 
     private void SendPortUnreachable(Ipv4Header ip, ReadOnlySpan<byte> datagram)
@@ -567,6 +644,12 @@ public sealed partial class NetworkStack
         message[3] = (byte)checksum;
         SendIpv4(ip.Destination, ip.Source, Ipv4Header.ICMP, message);
     }
+
+    // A transport segment routed by its destination's family: an IPv4 address in its mapped form over IPv4, any other
+    // over IPv6 (W4.3).
+    private bool SendIp(Ipv6Address source, Ipv6Address destination, byte protocol, byte[] segment) => destination.IsMapped
+        ? SendIpv4(source.MappedIpv4, destination.MappedIpv4, protocol, segment)
+        : SendIpv6(source, destination, protocol, segment);
 
     // A datagram routed: to the loopback queue for 127.0.0.0/8 and the stack's own address, to the link's broadcast for a
     // broadcast, otherwise to the next hop — the destination on the subnet, the gateway off it — resolved by ARP.
@@ -641,29 +724,90 @@ public sealed partial class NetworkStack
         {
             var port = m_nextEphemeral;
             m_nextEphemeral = m_nextEphemeral == ushort.MaxValue ? EPHEMERAL_FIRST : (ushort)(m_nextEphemeral + 1);
-            if (!PortTaken(port, Ipv4Address.Any, reuse: false, reusePort: false))
+            if (!PortTaken(port, Ipv6Address.Any, SocketMessages.INET6, v6only: false, reuse: false, reusePort: false))
                 return port;
         }
         return 0;
     }
 
-    // Whether a port is bound at an address; with SO_REUSEADDR or SO_REUSEPORT on both sockets it may be bound again, as
-    // Linux allows.
-    private bool PortTaken(ushort port, Ipv4Address address, bool reuse, bool reusePort)
+    // Whether a port is bound where a socket of a family would bind it; with SO_REUSEADDR or SO_REUSEPORT on both sockets
+    // it may be bound again, as Linux allows. The unspecified address of a dual-stack socket overlaps every binding of the
+    // port, so an ephemeral port is one no socket holds.
+    private bool PortTaken(ushort port, Ipv6Address address, ushort family, bool v6only, bool reuse, bool reusePort)
     {
         foreach (var socket in m_udp.Values)
         {
             if (socket.LocalPort == port && !(reuse && socket.ReuseAddress) && !(reusePort && socket.ReusePort) &&
-                (socket.LocalAddress == Ipv4Address.Any || address == Ipv4Address.Any || socket.LocalAddress == address))
+                Overlaps(socket.LocalAddress, socket.Family, socket.V6Only, address, family, v6only))
                 return true;
         }
         return false;
     }
 
     // A sender's member of a group of sockets that share a port (SO_REUSEPORT): the same one for every datagram or
-    // connection of the same address and port.
-    private static int GroupIndex(Ipv4Address source, ushort port, int count) =>
-        (int)(((source.Value * 2654435761U) ^ port) % (uint)count);
+    // connection of the same address and port. An IPv4 sender's mapped address hashes as its four bytes did.
+    private static int GroupIndex(Ipv6Address source, ushort port, int count)
+    {
+        var hash = (uint)source.Low ^ (uint)(source.Low >> 32) ^ (uint)source.High ^ (uint)(source.High >> 32);
+        if (source.IsMapped)
+            hash = source.MappedIpv4.Value;
+        return (int)(((hash * 2654435761U) ^ port) % (uint)count);
+    }
+
+    #region Addresses
+
+    // Whether a socket of a family takes a destination or a sender of an address's family: an AF_INET socket IPv4 alone
+    // (the mapped form), an AF_INET6 one IPv6 and, unless IPV6_V6ONLY, IPv4 too (W4.3).
+    private static bool Takes(Ipv6Address address, ushort family, bool v6only) =>
+        address.IsMapped ? family == SocketMessages.INET || !v6only : family == SocketMessages.INET6;
+
+    // Whether two bindings of one port overlap, as Linux's bind decides: equal addresses, the unspecified address
+    // against an address of a family it takes, two unspecified addresses that share a family.
+    private static bool Overlaps(Ipv6Address first, ushort firstFamily, bool firstV6Only, Ipv6Address second, ushort secondFamily, bool secondV6Only)
+    {
+        if (!first.IsAny && !second.IsAny)
+            return first == second;
+        if (first.IsAny && second.IsAny)
+        {
+            var firstIpv4 = firstFamily == SocketMessages.INET || !firstV6Only;
+            var secondIpv4 = secondFamily == SocketMessages.INET || !secondV6Only;
+            return (firstIpv4 && secondIpv4) || (firstFamily == SocketMessages.INET6 && secondFamily == SocketMessages.INET6);
+        }
+        return first.IsAny ? Takes(second, firstFamily, firstV6Only) : Takes(first, secondFamily, secondV6Only);
+    }
+
+    // Whether a socket of a family may bind an address: the unspecified one, a loopback's, the interface's IPv4 address
+    // (mapped) or one of its IPv6 addresses, of a family the socket takes.
+    private bool Bindable(Ipv6Address address, ushort family, bool v6only)
+    {
+        if (address.IsAny)
+            return true;
+        if (!Takes(address, family, v6only))
+            return false;
+        if (address.IsMapped)
+            return address.MappedIpv4.IsLoopback || (Address != Ipv4Address.Any && address.MappedIpv4 == Address);
+        return address.IsLoopback || IsIpv6Assigned(address);
+    }
+
+    // The source address for a destination: the loopback's for a loopback, the interface's address of the destination's
+    // family otherwise (the link-local one for a link-local or multicast destination); Any when the stack has none, which
+    // makes the destination unreachable.
+    private Ipv6Address SourceFor(Ipv6Address destination)
+    {
+        if (destination.IsMapped)
+        {
+            if (destination.MappedIpv4.IsLoopback)
+                return Ipv6Address.Map(Ipv4Address.Loopback);
+            return Address == Ipv4Address.Any ? Ipv6Address.Any : Ipv6Address.Map(Address);
+        }
+        if (destination.IsLoopback || IsIpv6Assigned(destination))
+            return destination;
+        if (destination.IsLinkLocal || destination.IsMulticast)
+            return m_linkLocalReady ? m_linkLocal : Ipv6Address.Any;
+        return m_globalReady ? m_global : Ipv6Address.Any;
+    }
+
+    #endregion
 
     private static int TakeError(UdpSocket udp)
     {
@@ -730,7 +874,7 @@ public sealed partial class NetworkStack
         {
             if (m_loopback.Count > 0)
                 return m_clock();
-            var deadline = Math.Min(Dhcp.NextDeadline, NextTcpDeadline());
+            var deadline = Math.Min(Math.Min(Dhcp.NextDeadline, NextTcpDeadline()), NextIpv6Deadline());
             foreach (var pending in m_pending.Values)
                 deadline = Math.Min(deadline, pending.NextAttempt);
             return deadline;
@@ -803,6 +947,26 @@ public sealed class NetworkStatistics
     /// UDP datagrams to a port no socket bound.
     /// </summary>
     public long PortsUnreachable { get; set; }
+
+    /// <summary>
+    /// IPv6 (W4.3): neighbour solicitations sent, neighbour advertisements sent, router advertisements taken, and packets
+    /// whose next hop neighbour discovery did not resolve.
+    /// </summary>
+    public long NeighbourSolicitations { get; set; }
+
+    /// <inheritdoc cref="NeighbourSolicitations" />
+    public long NeighbourAdvertisements { get; set; }
+
+    /// <inheritdoc cref="NeighbourSolicitations" />
+    public long RouterAdvertisements { get; set; }
+
+    /// <inheritdoc cref="NeighbourSolicitations" />
+    public long PacketsUnresolved6 { get; set; }
+
+    /// <summary>
+    /// IPv6 addresses duplicate address detection found in use, left unassigned (W4.3).
+    /// </summary>
+    public long DuplicateAddresses { get; set; }
 
     /// <summary>
     /// TCP: segments sent, segments sent again, retransmission timeouts, fast retransmits, resets sent, and connection

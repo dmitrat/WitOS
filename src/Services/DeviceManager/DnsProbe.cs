@@ -102,7 +102,7 @@ internal static class DnsProbe
                     }
                     if (TryReadAnswer(buffer.AsSpan(0, received), id, out var rcode, out var answers, out var address))
                     {
-                        Console.WriteLine($"{PREFIX}network: DNS answer from {source.Address} for {NAME} through a socket of the network service: " +
+                        Console.WriteLine($"{PREFIX}network: DNS answer from {source.AddressText} for {NAME} through a socket of the network service: " +
                             $"rcode {rcode}, {answers} answers{(address is { } first ? $", first address {first}" : "")}, attempt {attempt}");
                         client.Close(socket);
                         return;
