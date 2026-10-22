@@ -29,9 +29,10 @@ types in the guest) and reports its checks not applicable elsewhere.
 | Globalization | 8 | Supported | Supported | Supported |
 | TimeZones | 4 | Supported | Supported | Supported |
 | Terminal | 7 | Supported | Supported | Supported |
-| Network | 11 | Supported | Supported | Partial: IPv6 |
+| Network | 15 | Supported | Supported | Partial: IPv6 |
+| Cryptography | 11 | Supported | Supported | Supported |
 
-101 checks in 15 areas.
+116 checks in 16 areas.
 
 ## Recorded differences
 
@@ -66,8 +67,8 @@ silently.
 | Text console on a display (framebuffer, keyboard) | Supported | C2.1, C2.2, C2.3 | The firmware's framebuffer (ramfb, 800 by 600 on both boards) is a device of the firmware bus (C2.1), the display service draws the terminal on it with a pinned bitmap font (Spleen 8 by 16, 100 by 37 cells) and takes the virtio keyboard's keys (C2.2), the terminal mirrors its one session on the display and the serial console, which stays the recovery console, and upstream PowerShell runs on that screen with the keyboard on both ISAs (C2.3, the `runtime-display` scenario); the layout is US until the input model of M9, and colours are drawn in a 16-colour palette (C2.6). |
 | Full-screen console applications (TUI) | Supported | C2.6, C4.2 | The display's emulator draws SGR's colours and attributes, the alternate screen and the cursor's visibility, swallows the string sequences and answers the device attributes and the size (C2.6); Arlecchino.Commander, built from its source as a base application, lists, views and copies files on the screen through the keyboard (C4.2, the `runtime-commander` scenario); Terminal.Gui's UICatalog 2.5.0 runs with `--disable-cm`, since its configuration watcher needs file change notifications, and CSharpFar needs `HttpClient` at its start, which waits for networking. |
 | Named synchronization objects (`Mutex` with a name) | Supported | N4.1 | Under `/tmp/.dotnet` in the namespace service's `/tmp`. |
-| Cryptography | Partial | R4.1 | System.Native's random bytes, the managed hashes, HMAC and the KDFs, as in the browser flavor; `PlatformNotSupportedException` for the rest; no OpenSSL. |
-| Networking (`Socket`, `HttpClient`) | Partial | W2.2 | IPv4 sockets over the network service's managed stack: TCP, UDP, the loopback and names through musl's resolver, and `HttpClient` over HTTP/1.1 (the suite's Network area); IPv6 and Unix domain sockets until W4, TLS and HTTPS until W3.1. |
+| Cryptography | Supported | W3.1 | OpenSSL 3.5, the long-term support series, built by the system layer from its pinned release for each ISA (no-asm, no engines of the kernel): the algorithms, X.509 and chains through System.Security.Cryptography's unix flavour, as on Linux (the suite's Cryptography area); the root store is Mozilla's CA bundle at `/etc/ssl/certs/ca-certificates.crt`, which the store reads as one file. |
+| Networking (`Socket`, `HttpClient`) | Partial | W3.1 | IPv4 sockets over the network service's managed stack: TCP, UDP, the loopback and names through musl's resolver, `HttpClient` over HTTP/1.1 (W2.2) and `SslStream` and HTTPS over the OpenSSL the system layer builds (W3.1; the suite's Network area); IPv6 and Unix domain sockets until W4. |
 | ASP.NET Core | Planned | M7 | Needs networking. |
 | Diagnostics (`createdump`, EventPipe, `dotnet-dump`) | Absent | — | Decided with the debugger story. |
 | Compression (`System.IO.Compression`) | Supported | R2.3a | zlib-ng and brotli in-tree. |

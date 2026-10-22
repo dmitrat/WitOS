@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
 namespace DotNetCompatibility;
@@ -9,7 +11,8 @@ namespace DotNetCompatibility;
 /// A small HTTP/1.1 server on the loopback for the HTTP checks (plan step W2.2), written over TcpListener so that the
 /// checks test HttpClient alone: GET /text answers a fixed text with its Content-Length, POST /echo answers the request's
 /// body chunked, any other path 404. A connection serves requests until the client closes it, and the server counts the
-/// connections, so that a check sees whether HttpClient keeps one alive.
+/// connections, so that a check sees whether HttpClient keeps one alive. Given a certificate (plan step W3.1), it
+/// serves the same over TLS, so that a check tests HttpClient over HTTPS against a key of the suite's own.
 /// </summary>
 internal sealed class LoopbackHttpServer : IAsyncDisposable
 {
@@ -30,8 +33,11 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
 
     private readonly ConcurrentQueue<string> m_journal = new(); // how each connection ended, for a check that failed
 
-    public LoopbackHttpServer()
+    private readonly X509Certificate2? m_certificate; // the server's certificate, when it serves over TLS
+
+    public LoopbackHttpServer(X509Certificate2? certificate = null)
     {
+        m_certificate = certificate;
         m_listener.Start();
         m_accepting = AcceptAsync();
     }
@@ -77,7 +83,14 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
         var served = 0;
         try
         {
-            var stream = connection.GetStream();
+            Stream stream = connection.GetStream();
+            if (m_certificate is not null)
+            {
+                var secure = new SslStream(stream, leaveInnerStreamOpen: false);
+                await secure.AuthenticateAsServerAsync(m_certificate, clientCertificateRequired: false, checkCertificateRevocation: false);
+                stream = secure;
+            }
+            await using var _ = stream;
             while (await ReadHeadAsync(stream) is { } head)
             {
                 ++served;
@@ -104,7 +117,7 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
     }
 
     // A request's head up to its empty line, without it; null at the end of the stream before a request.
-    private async Task<string?> ReadHeadAsync(NetworkStream stream)
+    private async Task<string?> ReadHeadAsync(Stream stream)
     {
         var head = new List<byte>();
         var one = new byte[1];
@@ -118,14 +131,14 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
         return head.Count == 0 ? null : throw new IOException($"The connection ended after {head.Count} bytes of a request's head.");
     }
 
-    private static async Task WriteAsync(NetworkStream stream, string status, string type, byte[] body)
+    private static async Task WriteAsync(Stream stream, string status, string type, byte[] body)
     {
         var head = $"HTTP/1.1 {status}\r\nContent-Type: {type}\r\nContent-Length: {body.Length}\r\n\r\n";
         await stream.WriteAsync(Encoding.ASCII.GetBytes(head));
         await stream.WriteAsync(body);
     }
 
-    private static async Task WriteChunkedAsync(NetworkStream stream, byte[] body)
+    private static async Task WriteChunkedAsync(Stream stream, byte[] body)
     {
         await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nTransfer-Encoding: chunked\r\n\r\n"u8.ToArray());
         for (var offset = 0; offset < body.Length; offset += CHUNK_BYTES)
@@ -139,9 +152,9 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
     }
 
     /// <summary>
-    /// The server's address, http://127.0.0.1:port/.
+    /// The server's address, http://127.0.0.1:port/, or https:// when it serves over TLS.
     /// </summary>
-    public Uri Address => new($"http://127.0.0.1:{((IPEndPoint)m_listener.LocalEndpoint).Port}/");
+    public Uri Address => new($"{(m_certificate is null ? "http" : "https")}://127.0.0.1:{((IPEndPoint)m_listener.LocalEndpoint).Port}/");
 
     /// <summary>
     /// The connections accepted so far.

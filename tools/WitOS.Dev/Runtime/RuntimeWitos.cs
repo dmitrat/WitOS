@@ -159,6 +159,10 @@ internal static class RuntimeWitos
     // The symbol ILC gives the program's Main: the assembly, the type and the method.
     private const string PLATFORM_MAIN = "Platform_Program__Main";
 
+    // The account database (N2.2): the one account every process runs as, root, with its home on the data volume.
+    private const string PASSWD = "root:x:0:0:root:/data/home:\n";
+    private const string GROUP = "root:x:0:\n";
+
     // The coreclr_tests_runner.c line that starts a group, and a merged runner's line for each test it ran (R7.2b).
     private static readonly Regex TEST_GROUP_LINE = new(@"\[CORECLR-TESTS\] group (\S+)$", RegexOptions.Compiled);
     private static readonly Regex TEST_RESULT_LINE = new(@"(Passed|Failed) test: (.+)$", RegexOptions.Compiled);
@@ -246,8 +250,6 @@ internal static class RuntimeWitos
             "src.coreclr.pal.tests.palsuite.exception_handling.pal_sxs.test1.CMakeLists.txt",
         ["src/native/external/libunwind.cmake"] = "src.native.external.libunwind.cmake",
         // System.Native's profile for witos (R4.1): cryptography without OpenSSL.
-        ["src/libraries/System.Security.Cryptography/src/System.Security.Cryptography.csproj"] =
-            "src.libraries.System.Security.Cryptography.src.System.Security.Cryptography.csproj",
         // System.Diagnostics.Process for witos (N4.2): the unix flavor with WitOS's per-platform members.
         ["src/libraries/System.Diagnostics.Process/src/System.Diagnostics.Process.csproj"] =
             "src.libraries.System.Diagnostics.Process.src.System.Diagnostics.Process.csproj",
@@ -294,9 +296,13 @@ internal static class RuntimeWitos
         // recognizes by its marker (ROOTFS_DIR).
         var sysroot = await Sysroot.BuildAsync(root, architecture);
         var environment = NativeEnvironment(root, sysroot);
-        var probes = await CollectProbesAsync(root, tree, architecture, environment, ProbeDirectory(root, architecture));
+        // OpenSSL (W3.1), against which System.Security.Cryptography.Native.OpenSsl compiles, in the measuring configure
+        // and the build alike; the portable shim opens the libraries at run time from the install's /usr/lib.
+        var openssl = await OpenSsl.BuildAsync(root, architecture);
+        var probes = await CollectProbesAsync(root, tree, architecture, environment, ProbeDirectory(root, architecture), OpenSsl.CMakeArguments(openssl));
         await RunBuildAsync(tree,
-            ["clr.nativeaotruntime+clr.nativeaotlibs+libs.native", "-os", "witos", "-arch", architecture.Name, "-c", "Release", "-cross"],
+            ["clr.nativeaotruntime+clr.nativeaotlibs+libs.native", "-os", "witos", "-arch", architecture.Name, "-c", "Release", "-cross",
+             .. OpenSsl.CMakeArguments(openssl)],
             environment);
         var objects = ObjectDirectory(tree, architecture);
         var offsets = Path.Combine(objects, "nativeaot", "Runtime", "Full", "AsmOffsets.cs");
@@ -763,9 +769,9 @@ internal static class RuntimeWitos
         // The account database (N2.2): every process runs as uid and gid 0, which the libc reports, and a program asks its
         // user's name through getpwuid_r (Environment.UserName), which fails on a system without /etc/passwd.
         var passwd = Path.Combine(output, "passwd");
-        await File.WriteAllTextAsync(passwd, "root:x:0:0:root:/data/home:\n");
+        await File.WriteAllTextAsync(passwd, PASSWD);
         var group = Path.Combine(output, "group");
-        await File.WriteAllTextAsync(group, "root:x:0:\n");
+        await File.WriteAllTextAsync(group, GROUP);
         // The host names (W2.1a), which musl's resolver reads before it asks the DNS server /etc/resolv.conf names: the
         // loopback's; the machine has no name of its own yet.
         var hosts = Path.Combine(output, "hosts");
@@ -798,6 +804,10 @@ internal static class RuntimeWitos
             ("lib/libunwind.so.1", Path.Combine(lib, "libunwind.so.1")),
             // ICU (R4.3), which System.Globalization.Native loads for culture data.
             .. await Icu.PackageFilesAsync(root, architecture),
+            // OpenSSL (W3.1), which System.Security.Cryptography.Native.OpenSsl loads for the algorithms, X.509 and TLS,
+            // and the root certificates its store reads under /etc/ssl/certs.
+            .. await OpenSsl.PackageFilesAsync(root, architecture),
+            .. CaCertificates.PackageFiles(root),
             // tzdata (N4.1), compiled by zic into the TZif files TimeZoneInfo reads under /usr/share/zoneinfo, as on Linux.
             .. await Tzdata.PackageFilesAsync(root),
             // terminfo (C1.3), compiled by tic into the entries System.Console reads under /usr/share/terminfo, as on Linux.
@@ -1042,6 +1052,12 @@ internal static class RuntimeWitos
             ("coreclr/libcoreclr.so", Path.Combine(coreclr, "libcoreclr.so")), ("coreclr/libclrjit.so", Path.Combine(coreclr, "libclrjit.so")),
             ("coreclr/System.Private.CoreLib.dll", Path.Combine(coreclr, "IL", "System.Private.CoreLib.dll")),
             ("coreclr/libSystem.Native.so", Path.Combine(native, "libSystem.Native.so")),
+            // The OpenSSL shim and its libraries (W3.1): the cryptography area of System.Native's check goes through them, and
+            // an X.509 chain consults the user's stores under the home directory, which .NET asks getpwuid_r for, so the
+            // package carries the install's account database (N2.2) too.
+            ("coreclr/libSystem.Security.Cryptography.Native.OpenSsl.so", Path.Combine(native, "libSystem.Security.Cryptography.Native.OpenSsl.so")),
+            .. await OpenSsl.PackageFilesAsync(root, architecture),
+            ("etc/passwd", await WriteAsync(Path.Combine(output, "passwd"), PASSWD)), ("etc/group", await WriteAsync(Path.Combine(output, "group"), GROUP)),
             ($"coreclr/{name}.dll", assembly),
             .. FrameworkClosure(framework, assembly).Select(library => ($"coreclr/{library}.dll", Path.Combine(framework, library + ".dll")))
         ];
@@ -1972,13 +1988,13 @@ internal static class RuntimeWitos
     // configure stops for want of the answers and for no other reason; the probes are copied out and the build
     // directory, whose cache holds the unanswered checks, is removed before the build configures again.
     internal static async Task<IReadOnlyList<string>> CollectProbesAsync(string root, string tree, KernelArchitecture architecture,
-        IReadOnlyDictionary<string, string> environment, string directory)
+        IReadOnlyDictionary<string, string> environment, string directory, IReadOnlyList<string>? cmakeArguments = null)
     {
         var objects = ObjectDirectory(tree, architecture);
         if (Directory.Exists(objects))
             Directory.Delete(objects, recursive: true);
         var configure = await Processes.RunAsync(Path.Combine(tree, "src", "coreclr", "build-runtime.sh"),
-            [$"-{architecture.Name}", "-release", "-cross", "-os", "witos", "-configureonly", "-cmakeargs", "-C " + Path.Combine(root, TRYRUN_MEASURE)],
+            [$"-{architecture.Name}", "-release", "-cross", "-os", "witos", "-configureonly", "-cmakeargs", "-C " + Path.Combine(root, TRYRUN_MEASURE), .. cmakeArguments ?? []],
             tree, 1800, environment);
         var results = Path.Combine(objects, "TryRunResults.cmake");
         if (configure.TimedOut || !File.Exists(results) || configure.Output.Contains("CMake Error at", StringComparison.Ordinal) ||
@@ -2080,6 +2096,13 @@ internal static class RuntimeWitos
         if (result.TimedOut || result.ExitCode != 0)
             throw new InvalidOperationException($"git {arguments[0]} failed in {directory}. {result.Output}\n{result.Error}");
         return result.Output;
+    }
+
+    // Writes a package file's text under the scenario's output and names it.
+    private static async Task<string> WriteAsync(string path, string text)
+    {
+        await File.WriteAllTextAsync(path, text);
+        return path;
     }
 
     private static string Tail(string text) => text.Length <= 6000 ? text : text[^6000..];

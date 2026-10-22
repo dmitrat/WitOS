@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
 
 namespace DotNetCompatibility;
@@ -6,8 +7,8 @@ namespace DotNetCompatibility;
 /// <summary>
 /// Networking over the loopback (plan steps W2.1b and W2.2): TCP through TcpListener, TcpClient and NetworkStream,
 /// asynchronous and synchronous Socket calls with their timeouts and options, UDP through UdpClient, a refused
-/// connection, the end of a stream, name resolution, the IPv6 the platform offers, and HttpClient against a server of
-/// the suite's own. Every check stays on the machine, so that it means the same on a host and in a guest whatever
+/// connection, the end of a stream, name resolution, the IPv6 the platform offers, HttpClient against a server of
+/// the suite's own, and TLS (W3.1): SslStream on both ends and HttpClient over HTTPS with a certificate of the suite's own. Every check stays on the machine, so that it means the same on a host and in a guest whatever
 /// network reaches them.
 /// </summary>
 internal static class NetworkChecks
@@ -177,6 +178,105 @@ internal static class NetworkChecks
             using var absent = await client.GetAsync(new Uri(server.Address, "absent"));
             return CheckResult.That(server.Connections == 1 && absent.StatusCode == HttpStatusCode.NotFound,
                 $"4 requests over {server.Connections} connection(s), the last answered {(int)absent.StatusCode}");
+        });
+        // TLS (W3.1): SslStream on both ends of a loopback connection with a certificate of the suite's own, which the
+        // client trusts by its thumbprint, and HttpClient over HTTPS against the suite's server with the same trust.
+        yield return new Check("Network", "TlsEcho", async () =>
+        {
+            using var authority = TestCertificate.Authority("WitOS compatibility CA");
+            using var certificate = TestCertificate.Server(authority);
+            var expected = TestCertificate.Thumbprint(certificate);
+            using var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            var data = new byte[BYTES];
+            new Random(13).NextBytes(data);
+            var echo = Task.Run(async () =>
+            {
+                using var accepted = await listener.AcceptTcpClientAsync();
+                await using var server = new SslStream(accepted.GetStream(), leaveInnerStreamOpen: false);
+                await server.AuthenticateAsServerAsync(certificate, clientCertificateRequired: false, checkCertificateRevocation: false);
+                var buffer = new byte[16 * 1024];
+                var total = 0;
+                for (int count; total < BYTES && (count = await server.ReadAsync(buffer)) > 0;)
+                {
+                    total += count;
+                    await server.WriteAsync(buffer.AsMemory(0, count));
+                }
+                return server.SslProtocol;
+            });
+            using var client = new TcpClient();
+            await client.ConnectAsync(IPAddress.Loopback, port);
+            await using var secure = new SslStream(client.GetStream(), leaveInnerStreamOpen: false,
+                (_, remote, _, _) => TestCertificate.Thumbprint(remote) == expected);
+            await secure.AuthenticateAsClientAsync(TestCertificate.SERVER_NAME);
+            var writing = secure.WriteAsync(data).AsTask();
+            var back = new byte[BYTES];
+            var received = 0;
+            for (int count; received < BYTES && (count = await secure.ReadAsync(back.AsMemory(received))) > 0;)
+                received += count;
+            await writing;
+            var serverProtocol = await echo;
+            return CheckResult.That(received == BYTES && back.AsSpan().SequenceEqual(data) && secure.IsEncrypted && secure.IsAuthenticated,
+                $"{received} of {BYTES} bytes back over {secure.SslProtocol} ({secure.NegotiatedCipherSuite}), the server saw {serverProtocol}");
+        });
+        yield return new Check("Network", "HttpsGet", async () =>
+        {
+            using var authority = TestCertificate.Authority("WitOS compatibility CA");
+            using var certificate = TestCertificate.Server(authority);
+            var expected = TestCertificate.Thumbprint(certificate);
+            await using var server = new LoopbackHttpServer(certificate);
+            using var client = new HttpClient(new HttpClientHandler
+            {
+                UseProxy = false,
+                ServerCertificateCustomValidationCallback = (_, remote, _, _) => TestCertificate.Thumbprint(remote) == expected
+            });
+            using var response = await client.GetAsync(new Uri(server.Address, "text"));
+            var text = await response.Content.ReadAsStringAsync();
+            return CheckResult.That(response.StatusCode == HttpStatusCode.OK && text == LoopbackHttpServer.TEXT && server.Address.Scheme == "https",
+                $"{(int)response.StatusCode} over {server.Address.Scheme}, {text.Length} characters; the server: {server.Journal}");
+        });
+        // The runner's HTTPS server (W3.1), trusted through the platform's root store alone: the runner lays its authority's
+        // certificate there and names the server in the environment; where it does not, as on the hosts, the check does
+        // not apply.
+        yield return new Check("Network", "HttpsRunner", async () =>
+        {
+            var peer = Environment.GetEnvironmentVariable("WITOS_HTTPS_PEER");
+            if (string.IsNullOrEmpty(peer))
+                return CheckResult.NotApplicable("no WITOS_HTTPS_PEER: the runner's HTTPS server is reached in the guest alone");
+            using var client = new HttpClient(new HttpClientHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(60) };
+            try
+            {
+                using var response = await client.GetAsync(peer);
+                var text = await response.Content.ReadAsStringAsync();
+                return CheckResult.That(response.StatusCode == HttpStatusCode.OK && text.Contains("WitOS runner", StringComparison.Ordinal),
+                    $"{(int)response.StatusCode} from {peer} through the root store's trust: \"{text.TrimEnd()}\"");
+            }
+            catch (HttpRequestException exception)
+            {
+                return CheckResult.That(false, $"{peer}: {exception.Message}{(exception.InnerException is { } inner ? $" ({inner.Message})" : "")}");
+            }
+        });
+        // The strategy's first network test (§66): a public site over HTTPS, trusted through the platform's root store.
+        // Where the network does not reach the site, as on a machine without a route, the check does not apply; a failure
+        // of TLS or of the certificate's chain is a failure.
+        yield return new Check("Network", "HttpsPublic", async () =>
+        {
+            const string site = "https://example.com/";
+            using var client = new HttpClient(new HttpClientHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(30) };
+            try
+            {
+                var text = await client.GetStringAsync(site);
+                return CheckResult.That(text.Contains("<html", StringComparison.OrdinalIgnoreCase), $"{text.Length} characters from {site}");
+            }
+            catch (HttpRequestException exception) when (exception.InnerException is System.Security.Authentication.AuthenticationException inner)
+            {
+                return CheckResult.That(false, $"TLS to {site} failed: {inner.Message}");
+            }
+            catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+            {
+                return CheckResult.NotApplicable($"{site} is not reachable from here: {exception.Message}");
+            }
         });
     }
 }

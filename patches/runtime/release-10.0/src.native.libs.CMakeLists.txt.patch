@@ -1,13 +1,14 @@
 Source: src/native/libs/CMakeLists.txt
 Output: src.native.libs.CMakeLists.txt
 Before: c24b1413cf8bba18d4e231f615cc613cbfbd93771c8b7c5399fea3f33b393dbd
-After: 2c5bbf52fe162569cc166fc3ef45879d8bc70547c9f9c8d728c1d273420c6f5c
+After: a25d6f25f680f875f76d2a85410b50df46bd1be3d48d90b83981ae0c1ad6a37d
 
-The native libraries on witos (plan steps R1.2b and R2.1, RFC 0015 section 8): WitOS has no GSSAPI and no OpenSSL, so
-System.Net.Security.Native and System.Security.Cryptography.Native are not built; Negotiate authentication and
-cryptography fail explicitly until a provider exists. _GNU_SOURCE is defined as on Linux and Haiku: the system layer's
-libc is musl, which declares its GNU functions (sched_getaffinity, struct ucred and the rest) only under it, and
-System.Native does not build without them.
+The native libraries on witos (plan steps R1.2b, R2.1 and W3.1, RFC 0015 section 8): WitOS has no GSSAPI, so
+System.Net.Security.Native is not built and Negotiate authentication fails explicitly; System.Security.Cryptography.Native
+is built as on Linux against the OpenSSL the system layer builds from its pinned release, and the portable shim opens
+libssl.so.3 and libcrypto.so.3 from the install's /usr/lib at run time. _GNU_SOURCE is defined as on Linux and Haiku:
+the system layer's libc is musl, which declares its GNU functions (sched_getaffinity, struct ucred and the rest) only
+under it, and System.Native does not build without them.
 
 --- a/src/native/libs/CMakeLists.txt
 +++ b/src/native/libs/CMakeLists.txt
@@ -20,13 +21,14 @@ System.Native does not build without them.
          set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_GNU_SOURCE")
      endif ()
  else ()
-@@ -156,6 +156,9 @@
+@@ -156,6 +156,10 @@
          endif ()
  
          add_subdirectory(System.Security.Cryptography.Native.Apple)
 +    elseif (CLR_CMAKE_TARGET_WITOS)
-+        # WitOS has no GSSAPI and no OpenSSL: Negotiate authentication and cryptography refuse explicitly until a
-+        # provider exists.
++        # WitOS has no GSSAPI: Negotiate authentication refuses explicitly. Cryptography and TLS go through the OpenSSL
++        # the system layer builds from its pinned release (plan step W3.1), which the shim opens at run time.
++        add_subdirectory(System.Security.Cryptography.Native)
      elseif (CLR_CMAKE_TARGET_ANDROID AND NOT FORCE_ANDROID_OPENSSL)
          add_subdirectory(System.Security.Cryptography.Native.Android)
      elseif (FORCE_ANDROID_OPENSSL)

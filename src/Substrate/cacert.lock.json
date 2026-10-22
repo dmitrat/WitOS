@@ -1,0 +1,7 @@
+{
+  "name": "cacert-2026-10-20",
+  "url": "https://curl.se/ca/cacert-2026-10-20.pem",
+  "sha256": "796f1389bfea13c0ed78f663b765baaff54a508e5483786bd6ece73c5e3e3cbe",
+  "license": "MPL-2.0",
+  "purpose": "The root certificates of the system layer (plan step W3.1): Mozilla's CA bundle as curl's project extracts it from the NSS store, one PEM file by its SHA-256, which the .NET install lays at /etc/ssl/certs/ca-certificates.crt, where System.Security.Cryptography's root store on Unix reads every file of /etc/ssl/certs and OpenSSL's default directory under /etc/ssl lies. The bundle is under the Mozilla Public License 2.0, which its header states and setup requires; a later extract replaces the pin whole."
+}

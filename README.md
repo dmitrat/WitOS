@@ -27,7 +27,7 @@ guest as on Linux, every difference recorded in [Compatibility-Differences.md](@
 The Windows-form runtime that first passed M3 behind a Win32 facade was frozen by [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md)
 and removed at plan step K8.2; the kernel policy it needed left the kernel at K8.4a. [PLAN.md](PLAN.md) tracks the
 work: phases A, K, T1–T3, S, R, D, N, C (C3 apart), V and P are complete, M4–M6 with them, WitOS claims Gate B, "WitOS runs
-.NET" (ADR 0026), and phase W, the network, has reached HTTP without TLS (W2.2); N4, the
+.NET" (ADR 0026), and phase W, the network, has reached TLS and HTTPS over the OpenSSL the system layer builds (W3.1); N4, the
 application environment, brought time
 zones from pinned tzdata, a `/tmp` in the namespace service's memory and file modes and times on the volumes (N4.1),
 `Process.Start` over the process manager with pipes between processes (N4.2) and the terminal of RFC 0020 over a
@@ -310,11 +310,14 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   network service `/system/Network` (W1.2) with a managed TCP/IP stack in C#, tested on the host against a simulated
   segment: ARP, IPv4, ICMP, UDP, DHCP from slirp, loopback and TCP (RFC 9293, RFC 6298, NewReno, window scaling). The
   libc's `AF_INET` sockets and `epoll` over one session per process (W2.1), `System.Net.Sockets`, `Dns` and
-  `HttpClient` over HTTP/1.1 in the compatibility suite's Network area (W2.2), on the three ISAs. TLS (W3.1), ASP.NET
-  Core (W3.2), IPv6, local sockets and interfaces (W4) follow, then the remaining milestones.
+  `HttpClient` over HTTP/1.1 in the compatibility suite's Network area (W2.2), on the three ISAs. TLS (W3.1): OpenSSL 3.5
+  built by the system layer from its pinned release for each ISA, the cryptography and TLS of the Unix form as on Linux,
+  Mozilla's root certificates, `SslStream` and HTTPS to the suite's server, to the runner's with a certificate authority
+  of each boot trusted through the root store, and to a public site. ASP.NET Core (W3.2), IPv6, local sockets and
+  interfaces (W4) follow, then the remaining milestones.
 
-The acceptances establish the network as far as HTTP without TLS, and the processors run in turn under QEMU's
-instruction clock, so they show correctness, not speed. Firmware memory remains reserved.
+The acceptances establish the network as far as HTTPS, and the processors run in turn under QEMU's instruction clock,
+so they show correctness, not speed. Firmware memory remains reserved.
 
 - [Architecture document index](@Docs/README.md)
 - [ADR 0024: three layers and the Unix-form runtime](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md)

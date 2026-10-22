@@ -1,0 +1,7 @@
+{
+  "name": "openssl-3.5.9",
+  "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz",
+  "sha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a",
+  "license": "Apache-2.0",
+  "purpose": "OpenSSL in the system layer (plan step W3.1, RFC 0015 section 8, W0 decision 4): the unix flavour of System.Security.Cryptography and System.Net.Security that upstream .NET builds for witos reaches libssl.so.3 and libcrypto.so.3 through System.Security.Cryptography.Native.OpenSsl, which loads them from /usr/lib at run time, so that the algorithms, X.509 and TLS work as on Linux. OpenSSL 3.5, the long-term support series, at its latest release by the SHA-256 of its source tarball, built for each ISA by its own Configure and make driven by the tool with the pinned clang against the sysroot, on the Linux host, where perl generates its headers at build time: shared libraries, the C implementations (no-asm), no tests, documentation, programs or loadable modules, and no secure memory or AF_ALG engine, which include the Linux kernel's headers the sysroot does not have."
+}

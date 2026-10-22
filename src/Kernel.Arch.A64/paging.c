@@ -1,6 +1,7 @@
 #include "witos/arch.h"
 #include "witos/kernel_stacks.h"
 #include "witos/platform.h"
+#include "witos/package.h"
 #include "witos/virtual.h"
 #include "a64.h"
 
@@ -278,7 +279,7 @@ static void map_storage(const WitBootInfo *boot)
     const WitU64 table = (WitU64)boot->StorageExtents;
     WitU64 mapped = 0;
     require(boot->StorageBytes >= 32 &&
-            boot->StorageBytes <= 128ULL * 1024 * 1024 &&
+            boot->StorageBytes <= WIT_PACKAGE_MAX_BYTES &&
             !boot->StorageReserved &&
             boot->StorageExtentCount &&
             boot->StorageExtentCount <= WIT_MAX_STORAGE_EXTENTS &&
@@ -293,7 +294,7 @@ static void map_storage(const WitBootInfo *boot)
                 !(extent->Base & 4095) &&
                 extent->Length &&
                 !(extent->Length & 4095) &&
-                extent->Length <= 1024 * 1024 &&
+                extent->Length <= WIT_PACKAGE_EXTENT_BYTES &&
                 extent->Base < WIT_PHYSICAL_LIMIT &&
                 extent->Length <= WIT_PHYSICAL_LIMIT - extent->Base &&
                 (extent->Base >= boot->ImageBase + boot->ImageSize ||

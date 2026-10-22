@@ -102,7 +102,8 @@ static int find_index(const WitU8 *data, WitU32 count, const WitU8 *name, WitU32
 
 static int zero_padding_to(const WitU8 *data, WitU64 size, WitU64 *cursor, WitU64 alignment)
 {
-    const WitU64 end = (*cursor + alignment - 1) & ~(alignment - 1); /* cursor is already bounded by 128 MiB. */
+    const WitU64 end =
+        (*cursor + alignment - 1) & ~(alignment - 1); /* cursor is already bounded by WIT_PACKAGE_MAX_BYTES. */
     if (end > size) {
         return 0;
     }

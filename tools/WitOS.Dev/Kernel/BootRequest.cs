@@ -122,6 +122,13 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public ushort NetworkForward { get; init; }
 
     /// <summary>
+    /// The runner's HTTPS server beside the network adapter (plan step W3.1), serving with this authority's certificate at
+    /// <see cref="Host.NetworkPeer.ECHO_ADDRESS"/>:<see cref="Host.NetworkPeer.HTTPS_PORT"/> through QEMU's guestfwd; the
+    /// scenario lays the authority's certificate in the guest's root store. None for no server.
+    /// </summary>
+    public Host.RunnerAuthority? NetworkHttps { get; init; }
+
+    /// <summary>
     /// Whether the display's console is the terminal's main console (plan step C2.3): the device manager starts the
     /// display service when the board has a framebuffer and a keyboard driver, and the terminal takes the display's size
     /// and lets the virtio console mirror it. The runner's side of the mirror then answers no query of the terminal, since

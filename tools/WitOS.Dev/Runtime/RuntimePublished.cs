@@ -1,3 +1,4 @@
+using System.Net;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -159,10 +160,11 @@ internal static class RuntimePublished
             throw new InvalidOperationException($"The record {RuntimeCompatibility.RecordPath(root, architecture)} holds no checks: run runtime-compatibility again.");
         var output = Path.Combine(root, "artifacts", architecture.Name, KernelImageBuilder.RUNTIME_PUBLISHED_SCENARIO);
         Directory.CreateDirectory(output);
-        var package = await BuildPackageAsync(root, output, architecture, directory);
+        using var authority = new RunnerAuthority(IPAddress.Parse(NetworkPeer.ECHO_ADDRESS));
+        var package = await RuntimeApps.WithRunnerAuthorityAsync(await BuildPackageAsync(root, output, architecture, directory), output, authority);
         RuntimeApps.ForgetLogs(root, architecture, KernelImageBuilder.RUNTIME_PUBLISHED_SCENARIO);
         await RuntimeApps.BootAsync(root, architecture, KernelImageBuilder.RUNTIME_PUBLISHED_SCENARIO, RequiredLines(architecture), TIMEOUT_SECONDS,
-            package: package, terminal: RuntimeCompatibility.Script(), processors: RuntimeProcessors.PROCESSORS);
+            package: package, terminal: RuntimeCompatibility.Script(), processors: RuntimeProcessors.PROCESSORS, https: authority);
         var checks = RuntimeCompatibility.ReadChecks(await RuntimeApps.GuestLinesAsync(root, architecture, KernelImageBuilder.RUNTIME_PUBLISHED_SCENARIO));
         if (checks.Count == 0)
             throw new InvalidOperationException("The suite's checks were not found in the guest's serial log or terminal transcript.");
