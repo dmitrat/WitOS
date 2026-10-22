@@ -172,6 +172,10 @@
     {
       "path": "src/libraries/System.Net.Security/src/System.Net.Security.csproj",
       "sha256": "98ebdd8a237a7a622a7673cfd81e2e83720aab5bb7a9ec7080c38774fe520867"
+    },
+    {
+      "path": "src/libraries/System.Net.NetworkInformation/src/System.Net.NetworkInformation.csproj",
+      "sha256": "dea921e19dae2a84d065bd2886b87b229810b537333ee02f4ade1c1753d04495"
     }
   ]
 }

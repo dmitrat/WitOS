@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using WitOS.Dev.Host;
 using WitOS.Dev.Kernel;
 
@@ -10,9 +11,14 @@ namespace WitOS.Dev.Substrate;
 /// modules for the system WitOS. Everything in it comes from the substrate's own builds and pins; nothing is a system
 /// copy.
 /// </summary>
-internal static class Sysroot
+internal static partial class Sysroot
 {
     #region Constants
+
+    /// <summary>
+    /// The kernel headers the sysroot carries from the sanitized set, with what they include (W4.2).
+    /// </summary>
+    public static readonly string[] KERNEL_HEADERS = ["linux/rtnetlink.h"];
 
     /// <summary>
     /// The marker a build recognizes the sysroot by, as FreeBSD's rootfs is recognized by bin/freebsd-version.
@@ -114,6 +120,12 @@ internal static class Sysroot
         // headers they include.
         CopyTree(Path.Combine(root, "src", "Sysroot", "include", "witos"), Path.Combine(include, "witos"));
         CopyTree(Path.Combine(root, "src", "Kernel", "include", "witos"), Path.Combine(include, "witos"));
+        // The kernel's netlink headers (W4.2): <linux/rtnetlink.h> and what it includes, from the pinned sanitized set
+        // (linux-headers.lock.json), the ISA's asm beside the generic ones, as a Linux musl system has them installed.
+        // System.Native's network change listener compiles against them (HAVE_LINUX_RTNETLINK_H), and the libc answers
+        // the route socket they describe (netlink.c). Nothing else of the set: a program on WitOS has no Linux kernel.
+        var headersPin = await LlvmRuntimes.ReadHeadersPinAsync(root);
+        CopyIncluded(LlvmRuntimes.KernelHeaderIncludes(root, headersPin, architecture), include, KERNEL_HEADERS);
         // The C++ runtime's headers as its install lays them out: libunwind's in include, libc++'s and libc++abi's in
         // include/c++/v1 with the configured __config_site and __assertion_handler.
         var cxxInclude = Path.Combine(include, "c++", "v1");
@@ -215,6 +227,27 @@ internal static class Sysroot
 
     #region Tools
 
+    // Copies the headers named and, following their #include <...> lines, every header they reach within the include
+    // directories (the first directory that has a header wins, as the compiler's search does).
+    private static void CopyIncluded(IReadOnlyList<string> includes, string destination, IEnumerable<string> names)
+    {
+        var pending = new Stack<string>(names);
+        var copied = new HashSet<string>(StringComparer.Ordinal);
+        while (pending.Count > 0)
+        {
+            var name = pending.Pop();
+            if (!copied.Add(name))
+                continue;
+            var source = includes.Select(directory => Path.Combine(directory, name)).FirstOrDefault(File.Exists)
+                ?? throw new FileNotFoundException($"The sanitized kernel headers have no {name}.");
+            var target = Path.Combine(destination, name);
+            System.IO.Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(source, target, overwrite: true);
+            foreach (Match included in IncludedHeader().Matches(File.ReadAllText(source)))
+                pending.Push(included.Groups[1].Value);
+        }
+    }
+
     private static void CopyTree(string source, string destination)
     {
         foreach (var file in System.IO.Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
@@ -234,6 +267,9 @@ internal static class Sysroot
         foreach (var file in System.IO.Directory.EnumerateFiles(source, pattern, SearchOption.TopDirectoryOnly))
             File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), overwrite: true);
     }
+
+    [GeneratedRegex(@"^\s*#\s*include\s*<([^>]+)>", RegexOptions.Multiline)]
+    private static partial Regex IncludedHeader();
 
     #endregion
 }

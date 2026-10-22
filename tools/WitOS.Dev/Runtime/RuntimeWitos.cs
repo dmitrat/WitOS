@@ -258,6 +258,10 @@ internal static class RuntimeWitos
         // System.Net.Security's unix flavor, whose types HttpClient's reaches on every request (W2.2).
         ["src/libraries/System.Net.Security/src/System.Net.Security.csproj"] =
             "src.libraries.System.Net.Security.src.System.Net.Security.csproj",
+        // System.Net.NetworkInformation's unix flavor with Linux's files: the interfaces over getifaddrs and the change
+        // notifications over the libc's netlink route socket (W4.2).
+        ["src/libraries/System.Net.NetworkInformation/src/System.Net.NetworkInformation.csproj"] =
+            "src.libraries.System.Net.NetworkInformation.src.System.Net.NetworkInformation.csproj",
         ["src/libraries/System.Diagnostics.Process/src/System/Diagnostics/Process.WitOS.cs"] =
             "src.libraries.System.Diagnostics.Process.src.System.Diagnostics.Process.WitOS.cs",
         ["src/libraries/System.Diagnostics.Process/src/System/Diagnostics/ProcessManager.WitOS.cs"] =
