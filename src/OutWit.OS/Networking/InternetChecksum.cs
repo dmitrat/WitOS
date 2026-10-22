@@ -39,6 +39,26 @@ public static class InternetChecksum
         (source.Value >> 16) + (source.Value & 0xFFFF) + (destination.Value >> 16) + (destination.Value & 0xFFFF) + protocol + (uint)length;
 
     /// <summary>
+    /// The pseudo header of a transport checksum over IPv6 (RFC 8200 section 8.1): the addresses, the length and the
+    /// next header; for two IPv4 addresses in their mapped form, the IPv4 one (W4.3: the socket layer names every address
+    /// as an IPv6 one).
+    /// </summary>
+    /// <param name="source">The source.</param>
+    /// <param name="destination">The destination.</param>
+    /// <param name="protocol">The transport protocol.</param>
+    /// <param name="length">The transport segment's bytes.</param>
+    /// <returns>The pseudo header's sum, to add the segment's to.</returns>
+    public static uint PseudoHeader(Ipv6Address source, Ipv6Address destination, byte protocol, int length)
+    {
+        if (source.IsMapped && destination.IsMapped)
+            return PseudoHeader(source.MappedIpv4, destination.MappedIpv4, protocol, length);
+        return Words(source.High) + Words(source.Low) + Words(destination.High) + Words(destination.Low) + (uint)length + protocol;
+    }
+
+    private static uint Words(ulong value) =>
+        (uint)(value >> 48) + (uint)((value >> 32) & 0xFFFF) + (uint)((value >> 16) & 0xFFFF) + (uint)(value & 0xFFFF);
+
+    /// <summary>
     /// Folds a sum into 16 bits and complements it: the checksum to write.
     /// </summary>
     /// <param name="sum">The sum.</param>
