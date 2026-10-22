@@ -404,12 +404,14 @@ int main(void)
     printf("[DEVICES-INIT] POSIX files over the namespace service: %d checks passed, %d failed\n", passed, failed);
     /* The libc's sockets over the network service (W2.1a), in a process of its own, as any program has them. */
     char *sockets_argv[] = {"/bin/sockets-check", 0};
+    char *local_argv[] = {"/bin/local-sockets-check", 0};
     char *files_argv[] = {"/data/programs/files/Files", 0};
     char *dynamic_argv[] = {"/data/programs/dynamic/dynamic", "0", 0};
     char *app_argv[] = {"/dotnet/dotnet", "/data/programs/app/App.dll", "witos", 0};
     const int sockets = run(sockets_argv);
+    const int local = run(local_argv); /* the libc's local sockets (W4.1), between itself and a child of its own */
     const int files = run(files_argv);
     const int dynamic = run(dynamic_argv);
     const int app = run(app_argv);
-    return failed || sockets || files || dynamic || app ? 1 : 0;
+    return failed || sockets || local || files || dynamic || app ? 1 : 0;
 }

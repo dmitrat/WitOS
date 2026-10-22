@@ -8,7 +8,7 @@ namespace OutWit.OS.Namespace.Server;
 /// <summary>
 /// The volumes the namespace serves, each at a mount point: an absolute path of one component, such as "/data". A path
 /// below a mount point resolves to its volume and the path within it. The files clients map are the table's too, shared
-/// by every session (R4.2).
+/// by every session (R4.2), and so are the names local sockets bind (W4.1).
 /// </summary>
 internal sealed class MountTable
 {
@@ -29,12 +29,14 @@ internal sealed class MountTable
     }
 
     /// <summary>
-    /// A table whose mapped files' chunks come from the source given.
+    /// A table whose mapped files' chunks come from the source given, and whose listening sockets' ends from the other.
     /// </summary>
     /// <param name="chunks">Where the chunks come from.</param>
-    public MountTable(IChunkSource chunks)
+    /// <param name="listenerEnds">Where the listening sockets' ends come from; the handles clients move by default.</param>
+    public MountTable(IChunkSource chunks, IListenerEndSource? listenerEnds = null)
     {
         Mapped = new MappedFiles(chunks);
+        ListenerEnds = listenerEnds ?? new KernelListenerEndSource();
     }
 
     #endregion
@@ -84,6 +86,16 @@ internal sealed class MountTable
     /// The files clients map (R4.2).
     /// </summary>
     public MappedFiles Mapped { get; }
+
+    /// <summary>
+    /// The names local sockets bind (W4.1), every session's.
+    /// </summary>
+    public SocketNames Sockets { get; } = new();
+
+    /// <summary>
+    /// Where the listening sockets' ends come from (W4.1).
+    /// </summary>
+    public IListenerEndSource ListenerEnds { get; }
 
     #endregion
 

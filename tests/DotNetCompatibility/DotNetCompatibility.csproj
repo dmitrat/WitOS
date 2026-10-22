@@ -12,6 +12,11 @@
     <RootNamespace>DotNetCompatibility</RootNamespace>
   </PropertyGroup>
 
+  <!-- The runtime's diagnostic IPC as dotnet-counters and dotnet-trace reach it (the Ipc area, W4.1). -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Diagnostics.NETCore.Client" Version="0.2.750501" />
+  </ItemGroup>
+
   <ItemGroup>
     <None Include="expectations.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

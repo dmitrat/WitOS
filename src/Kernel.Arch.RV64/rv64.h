@@ -112,7 +112,8 @@ WitRv64Frame *wit_rv64_user_trap(WitRv64Frame *frame);
 extern WitU64 wit_rv64_boot_satp;
 extern WitU64 wit_rv64_secondary_stack_tops[WIT_PROCESSOR_CAPACITY];
 extern const WitU8 wit_rv64_secondary_entry[];
-int wit_rv64_secondary_hart(WitU64 *hart);
+/* A started hart's identity into the record tp names (processor.c), first thing at its start. */
+void wit_rv64_hart_identify(WitU64 id);
 WIT_NORETURN void wit_rv64_secondary_main(WitU32 index, WitU64 hart);
 
 /* Handles a trap and returns the frame to resume, which may belong to another thread (exceptions.c). Kernel

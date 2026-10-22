@@ -64,7 +64,8 @@ typedef struct Pipe {
 
 static Pipe pipes[PIPES];
 static volatile int poll_sequence; /* bumped and woken on every change of any pipe */
-static WitU32 shared_pipes; /* live shared pipes, which poll's park looks after every 10 ms */
+static volatile int shared_pipes; /* live shared pipes and local sockets another process changes (W4.1), which poll's
+                                   * park looks after every 10 ms */
 
 static void close_handle(WitU64 handle)
 {
@@ -254,7 +255,7 @@ long __wit_pipe_share(WitU32 index)
     p->Endpoints[WRITE_END] = ends[1];
     p->PeerClosed[READ_END] = p->PeerClosed[WRITE_END] = 0;
     p->Shared = 1;
-    ++shared_pipes;
+    __atomic_add_fetch(&shared_pipes, 1, __ATOMIC_RELEASE);
     __wit_munmap((long)buffer, PIPE_BYTES);
     changed(p); /* the parked waiters look again and find the shared ring */
     __wit_unlock(&p->Lock);
@@ -317,7 +318,7 @@ long __wit_pipe_adopt(WitU64 object, WitU64 endpoint, int write_end, WitU32 *ind
             p->Readers = 1;
         }
         p->References = 1;
-        ++shared_pipes;
+        __atomic_add_fetch(&shared_pipes, 1, __ATOMIC_RELEASE);
         *index = i;
         return 0;
     }
@@ -344,7 +345,7 @@ void __wit_pipe_release(WitU32 index)
         close_handle(p->Object);
         close_handle(p->Endpoints[READ_END]);
         close_handle(p->Endpoints[WRITE_END]);
-        --shared_pipes;
+        __atomic_sub_fetch(&shared_pipes, 1, __ATOMIC_RELEASE);
     } else {
         __wit_munmap((long)p->Buffer, PIPE_BYTES);
     }
@@ -619,6 +620,14 @@ void __wit_poll_bump(void)
 {
     __atomic_add_fetch(&poll_sequence, 1, __ATOMIC_RELEASE);
     __wit_futex(&poll_sequence, FUTEX_WAKE | FUTEX_PRIVATE, 0x7FFFFFFF, 0, 0, 0);
+}
+
+/* A source of changes that bump no word of this process came (+1) or went (-1) (unix.c, W4.1): a local socket whose peer
+ * or whose connecting clients may be another process's, as a shared pipe's are. While one lives, poll's park ends every
+ * 10 ms. */
+void __wit_poll_sources(int delta)
+{
+    __atomic_add_fetch(&shared_pipes, delta, __ATOMIC_RELEASE);
 }
 
 /* The word poll parks on: read before the readiness so that a change between the two is not lost. */

@@ -89,13 +89,13 @@ internal static class PlatformChecks
         });
     }
 
-    // The suite's own assembly, which dotnet runs as the child of the process checks.
-    private static string Suite => Path.Combine(AppContext.BaseDirectory, "DotNetCompatibility.dll");
+    // The suite's own assembly, which dotnet runs as the child of the process checks and the IPC checks (W4.1).
+    internal static string Suite => Path.Combine(AppContext.BaseDirectory, "DotNetCompatibility.dll");
 
     // The dotnet that runs the children: the process itself under "dotnet DotNetCompatibility.dll", as on the hosts' test
     // and in the guest, or the dotnet of the runtime's own install when the suite's apphost runs it (dotnet run), where a
     // child started through the process path would be the apphost running the whole suite again with its children.
-    private static string Muxer
+    internal static string Muxer
     {
         get
         {

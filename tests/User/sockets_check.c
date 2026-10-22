@@ -19,7 +19,8 @@
 
 /* The libc's sockets over the network service (plan step W2.1a): /bin/sockets-check, which the runtime-devices
  * scenario's /bin/init starts, a process like any other, whose start message carried the network service's endpoint.
- * It checks the Linux socket calls as programs use them: what is refused (IPv6, AF_UNIX), UDP and TCP over the loopback
+ * It checks the Linux socket calls as programs use them: what is refused (IPv6, an AF_INET pair;
+ * AF_UNIX is /bin/local-sockets-check's, W4.1), UDP and TCP over the loopback
  * (bind, getsockname, sendto and recvfrom with their addresses, MSG_PEEK, MSG_TRUNC, FIONREAD, a nonblocking connect
  * with poll and SO_ERROR, accept4's flags, EAGAIN, SO_RCVTIMEO, a blocking send larger than the buffers against a
  * reading thread, shutdown's end of the stream, a refused connection), names (/etc/hosts, /etc/resolv.conf from the
@@ -76,10 +77,9 @@ static void refusals(void)
 {
     errno = 0;
     check(socket(AF_INET6, SOCK_STREAM, 0) < 0 && errno == EAFNOSUPPORT, "AF_INET6 is EAFNOSUPPORT");
-    errno = 0;
-    check(socket(AF_UNIX, SOCK_STREAM, 0) < 0 && errno == EAFNOSUPPORT, "AF_UNIX is EAFNOSUPPORT");
     int pair[2];
-    check(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) < 0, "socketpair is refused");
+    errno = 0;
+    check(socketpair(AF_INET, SOCK_STREAM, 0, pair) < 0 && errno == EOPNOTSUPP, "socketpair of AF_INET is EOPNOTSUPP");
 }
 
 static void datagrams(void)

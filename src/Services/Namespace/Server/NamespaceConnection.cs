@@ -118,34 +118,42 @@ internal sealed class NamespaceConnection
             {
                 byte[] reply;
                 KernelHandle? transfer = null;
-                using (var message = m_channel.Receive())
+                var message = m_channel.Receive();
+                NamespaceRequest request;
+                try
                 {
-                    NamespaceRequest request;
+                    request = NamespaceMessages.DecodeRequest(message.Bytes);
+                }
+                catch (FormatException)
+                {
+                    message.Dispose();
+                    reply = NamespaceMessages.Encode(new NamespaceReply(0, 71)); // EPROTO
+                    m_channel.Send(reply);
+                    continue;
+                }
+                lock (m_gate)
+                {
+                    // A request's first handle is the session's to keep (W4.1's SOCKET_LISTEN); every other one, and the
+                    // first when the session leaves it, closes after the request.
+                    m_session.Receive(message.Handles.Count > 0 ? message.Handles[0] : null);
+                    for (var i = 1; i < message.Handles.Count; i++)
+                        message.Handles[i].Dispose();
                     try
                     {
-                        request = NamespaceMessages.DecodeRequest(message.Bytes);
+                        reply = NamespaceMessages.Encode(m_stopped
+                            ? new NamespaceReply(request.Operation, SHUTDOWN)
+                            : m_session.HandleAsync(request).AsTask().GetAwaiter().GetResult());
+                        transfer = m_session.TakeTransfer(); // a MAP's chunk or a listener's end moves with its reply (R4.2, W4.1)
                     }
-                    catch (FormatException)
+                    catch (Exception exception) when (exception is not CapabilityException)
                     {
-                        reply = NamespaceMessages.Encode(new NamespaceReply(0, 71)); // EPROTO
-                        m_channel.Send(reply);
-                        continue;
+                        // A failure the session does not translate: the client gets EIO, the log the failure.
+                        Console.WriteLine($"{PREFIX}request {request.Operation} failed: {exception.GetType().Name}: {exception.Message}");
+                        reply = NamespaceMessages.Encode(new NamespaceReply(request.Operation, 5));
                     }
-                    lock (m_gate)
+                    finally
                     {
-                        try
-                        {
-                            reply = NamespaceMessages.Encode(m_stopped
-                                ? new NamespaceReply(request.Operation, SHUTDOWN)
-                                : m_session.HandleAsync(request).AsTask().GetAwaiter().GetResult());
-                            transfer = m_session.TakeTransfer(); // a MAP's chunk moves with its reply (R4.2)
-                        }
-                        catch (Exception exception) when (exception is not CapabilityException)
-                        {
-                            // A failure the session does not translate: the client gets EIO, the log the failure.
-                            Console.WriteLine($"{PREFIX}request {request.Operation} failed: {exception.GetType().Name}: {exception.Message}");
-                            reply = NamespaceMessages.Encode(new NamespaceReply(request.Operation, 5));
-                        }
+                        m_session.TakeReceived()?.Dispose();
                     }
                 }
                 try

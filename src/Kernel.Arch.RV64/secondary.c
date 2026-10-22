@@ -13,8 +13,8 @@
  * through SBI HSM hart_start with the kernel's number as the opaque word. A started hart enters in S-mode with the
  * bare physical space, takes its stack, installs the trap vector and the boot hart's root, enables the software
  * interrupt alone, reports itself ready and idles in WFI; the inter-processor interrupts reach it as the supervisor
- * software interrupt, which the firmware raises for SBI send_ipi. S-mode reads no mhartid, so a running secondary knows
- * its hart by the stack it runs on, which it never leaves until phase P. */
+ * software interrupt, which the firmware raises for SBI send_ipi. S-mode reads no mhartid, so a started hart records
+ * the hart hart_start gave its entry in the record tp names (processor.c), which every stack it runs on reaches. */
 
 WitU64 wit_rv64_boot_satp;
 WitU64 wit_rv64_secondary_stack_tops[WIT_PROCESSOR_CAPACITY];
@@ -33,7 +33,6 @@ void wit_arch_idle_stack(WitU32 index, WitU64 *low, WitU64 *high)
 }
 
 static WitU64 hart_ids[WIT_PROCESSOR_CAPACITY];
-static volatile WitU32 started[WIT_PROCESSOR_CAPACITY];
 
 static void require(int condition, const char *message)
 {
@@ -70,19 +69,6 @@ void wit_arch_ipi(WitU64 hardware_id, WitU32 kind)
     wit_platform_ipi(hardware_id, kind);
 }
 
-/* The hart of the running secondary processor, by the kernel stack it runs on; false on the boot hart. */
-int wit_rv64_secondary_hart(WitU64 *hart)
-{
-    const WitU64 sp = wit_rv64_stack_pointer();
-    for (WitU32 i = 1; i < WIT_PROCESSOR_CAPACITY; ++i) {
-        if (started[i] && sp >= (WitU64)stacks[i] && sp < (WitU64)stacks[i] + WIT_RV64_KERNEL_STACK_SIZE) {
-            *hart = hart_ids[i];
-            return 1;
-        }
-    }
-    return 0;
-}
-
 /* A started hart, on its own stack with the kernel's translation on: tp names its record (P1.1), its interrupt
  * controller context masked, the software interrupt enabled, it reports itself ready and waits for interrupts. */
 WIT_NORETURN void wit_rv64_secondary_main(WitU32 index, WitU64 hart)
@@ -90,7 +76,7 @@ WIT_NORETURN void wit_rv64_secondary_main(WitU32 index, WitU64 hart)
     require(index != 0 && index < WIT_PROCESSOR_CAPACITY && hart_ids[index] == hart,
         "A started hart is not the one its number names");
     wit_arch_processor_set_index(index);
-    started[index] = 1;
+    wit_rv64_hart_identify(hart); /* before anything asks: the record names the hart on every stack (2026-10-22) */
     wit_rv64_fence();
     wit_platform_processor_interrupts_enable(index, hart);
     /* The inter-processor interrupt; its tick during a run (P1.3a); never a device line, which reaches the boot hart. */

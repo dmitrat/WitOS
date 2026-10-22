@@ -11,7 +11,8 @@
 #include <sys/stat.h>
 #include "kstat.h"
 
-/* Files of the volumes the namespace service mounts (plan step D5.1, witos/namespace.h). A path below one of the
+/* Files of the volumes the namespace service mounts (plan step D5.1, witos/namespace.h), and the names local sockets bind
+ * (W4.1), which the service keeps beside them. A path below one of the
  * service's mount points (/data, /fat, /boot, as it names them) is the service's; every other path stays the
  * package's (files.c). The library connects once, at the first such path: it makes a session channel and a window of
  * its own memory, sends CONNECT on the namespace's endpoint the process started with, and from then on sends each
@@ -155,6 +156,30 @@ static long call_with(WitNamespaceRequest *request, WitNamespaceReply *reply, Wi
 static long call(WitNamespaceRequest *request, WitNamespaceReply *reply)
 {
     return call_with(request, reply, 0);
+}
+
+/* One request that moves a handle to the service (W4.1's SOCKET_LISTEN), and its reply: *moved says whether the handle
+ * left the process, which it did whenever the request was sent, whatever the reply. */
+static long call_moving(WitNamespaceRequest *request, WitNamespaceReply *reply, WitU64 handle, int *moved)
+{
+    request->Version = WIT_NAMESPACE_VERSION;
+    request->Size = sizeof(*request);
+    *moved = 0;
+    long status = namespace_send(session, request, sizeof(*request), &handle, 1);
+    if (status < 0) {
+        return status;
+    }
+    *moved = 1;
+    if ((status = namespace_receive(reply, sizeof(*reply), 0)) < 0) {
+        return status;
+    }
+    if (status != (long)sizeof(*reply) ||
+        reply->Version != WIT_NAMESPACE_VERSION ||
+        reply->Size != sizeof(*reply) ||
+        (reply->Operation != request->Operation && reply->Operation != 0)) {
+        return -EPROTO;
+    }
+    return reply->Error ? -(long)reply->Error : 0;
 }
 
 /* The session and the window, made once; the mount points read with it. A process without the namespace's endpoint
@@ -325,10 +350,11 @@ static void fill(struct kstat *st, const WitNamespaceStat *stat)
     memset(st, 0, sizeof(*st));
     st->st_dev = 16 + stat->Volume;
     st->st_ino = (ino_t)stat->Id;
-    st->st_mode = (stat->Kind == WIT_NAMESPACE_KIND_DIRECTORY     ? S_IFDIR
-                          : stat->Kind == WIT_NAMESPACE_KIND_LINK ? S_IFLNK
-                          : stat->Kind == WIT_NAMESPACE_KIND_FILE ? S_IFREG
-                                                                  : S_IFCHR) |
+    st->st_mode = (stat->Kind == WIT_NAMESPACE_KIND_DIRECTORY       ? S_IFDIR
+                          : stat->Kind == WIT_NAMESPACE_KIND_LINK   ? S_IFLNK
+                          : stat->Kind == WIT_NAMESPACE_KIND_FILE   ? S_IFREG
+                          : stat->Kind == WIT_NAMESPACE_KIND_SOCKET ? S_IFSOCK /* a local socket's name (W4.1) */
+                                                                    : S_IFCHR) |
         (stat->Mode & 07777);
     st->st_nlink = stat->Links;
     st->st_uid = stat->UserId;
@@ -541,6 +567,7 @@ static long list_in_turn(WitU32 index, WitU64 *cursor, unsigned char *buffer, lo
             out[18] = entry.Kind == WIT_NAMESPACE_KIND_DIRECTORY ? DT_DIR
                 : entry.Kind == WIT_NAMESPACE_KIND_FILE          ? DT_REG
                 : entry.Kind == WIT_NAMESPACE_KIND_LINK          ? DT_LNK
+                : entry.Kind == WIT_NAMESPACE_KIND_SOCKET        ? DT_SOCK
                                                                  : DT_UNKNOWN;
             memcpy(out + 19, window + at + sizeof(entry), entry.NameBytes);
             filled += record;
@@ -821,6 +848,107 @@ long __wit_remote_futimes(WitU32 index, const WitNamespaceTimes *times, WitU32 f
     const long r = futimes_in_turn(index, times, flags);
     turn_give();
     return r;
+}
+
+/* The names of local sockets (W4.1, unix.c): a path of files.c's form, or an abstract name's bytes, into the window. */
+static long put_socket_name(const unsigned char *name, WitU32 length, int abstract)
+{
+    if (!abstract) {
+        return put_path(0, name, length);
+    }
+    if (length > 107) {
+        return -EINVAL; /* what sun_path holds after its zero */
+    }
+    memcpy(window, name, length);
+    return (long)length;
+}
+
+static long socket_name_call(WitU32 operation, const unsigned char *name, WitU32 length, int abstract, int type,
+    WitNamespaceReply *reply, WitU64 *handle)
+{
+    WitNamespaceRequest request;
+    memset(&request, 0, sizeof(request));
+    const long bytes = put_socket_name(name, length, abstract);
+    if (bytes < 0) {
+        return bytes;
+    }
+    request.Operation = operation;
+    request.Flags = abstract ? WIT_NAMESPACE_ABSTRACT : 0;
+    request.Length = (WitU64)bytes;
+    request.Mode = (WitU32)type;
+    return call_with(&request, reply, handle);
+}
+
+/* A local socket's name bound: *id names the binding to the service from now on. A process without the namespace has
+ * no names (ENOENT). */
+long __wit_remote_socket_bind(const unsigned char *name, WitU32 length, int abstract, int type, WitU64 *id)
+{
+    WitNamespaceReply reply;
+    if (namespace_connect() < 0) {
+        return -ENOENT;
+    }
+    turn_take();
+    const long status = socket_name_call(WIT_NAMESPACE_SOCKET_BIND, name, length, abstract, type, &reply, 0);
+    turn_give();
+    if (status == 0) {
+        *id = reply.Handle;
+    }
+    return status;
+}
+
+/* A bound socket listens: the endpoint its connections arrive on goes to the service, which keeps it. *moved says
+ * whether it left the process. */
+long __wit_remote_socket_listen(WitU64 id, WitU64 endpoint, int *moved)
+{
+    WitNamespaceRequest request;
+    WitNamespaceReply reply;
+    *moved = 0;
+    if (namespace_connect() < 0) {
+        return -ENOENT;
+    }
+    memset(&request, 0, sizeof(request));
+    request.Operation = WIT_NAMESPACE_SOCKET_LISTEN;
+    request.Handle = id;
+    turn_take();
+    const long status = call_moving(&request, &reply, endpoint, moved);
+    turn_give();
+    return status;
+}
+
+/* The endpoint a connection to a name is sent on: a duplicate of its listener's, SEND and TRANSFER. */
+long __wit_remote_socket_connect(const unsigned char *name, WitU32 length, int abstract, int type, WitU64 *endpoint)
+{
+    WitNamespaceReply reply;
+    WitU64 handle = 0;
+    if (namespace_connect() < 0) {
+        return -ENOENT;
+    }
+    turn_take();
+    const long status = socket_name_call(WIT_NAMESPACE_SOCKET_CONNECT, name, length, abstract, type, &reply, &handle);
+    turn_give();
+    if (status < 0 || !handle) {
+        close_handle(handle);
+        return status < 0 ? status : -EPROTO;
+    }
+    *endpoint = handle;
+    return 0;
+}
+
+/* A bound socket closed: nobody listens on its name any more; an abstract name goes. */
+long __wit_remote_socket_close(WitU64 id)
+{
+    WitNamespaceRequest request;
+    WitNamespaceReply reply;
+    if (namespace_connect() < 0) {
+        return -ENOENT;
+    }
+    memset(&request, 0, sizeof(request));
+    request.Operation = WIT_NAMESPACE_SOCKET_CLOSE;
+    request.Handle = id;
+    turn_take();
+    const long status = call(&request, &reply);
+    turn_give();
+    return status;
 }
 
 long __wit_remote_readlink(const unsigned char *name, WitU32 length, char *buffer, long size)

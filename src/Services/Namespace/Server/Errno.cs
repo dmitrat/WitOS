@@ -64,8 +64,20 @@ internal static class Errno
     /// <summary>EPROTO.</summary>
     public const int PROTOCOL = 71;
 
+    /// <summary>ENXIO: an open of a local socket's name (W4.1).</summary>
+    public const int NO_DEVICE = 6;
+
+    /// <summary>EPROTOTYPE: a connection to a socket of another type (W4.1).</summary>
+    public const int PROTOCOL_TYPE = 91;
+
     /// <summary>EOPNOTSUPP.</summary>
     public const int NOT_SUPPORTED = 95;
+
+    /// <summary>EADDRINUSE: a name bound already (W4.1).</summary>
+    public const int ADDRESS_IN_USE = 98;
+
+    /// <summary>ECONNREFUSED: a name nobody listens on (W4.1).</summary>
+    public const int CONNECTION_REFUSED = 111;
 
     #endregion
 

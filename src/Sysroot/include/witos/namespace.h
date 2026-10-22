@@ -46,6 +46,24 @@
 #define WIT_NAMESPACE_FUTIMES \
     20U /* Handle, a WitNamespaceTimes at Offset of the window, Flags as UTIMES; the reply's Stat */
 
+/* Local sockets (W4.1): the names AF_UNIX sockets bind, which the service keeps beside its volumes' entries, so that a
+ * process finds another's listening socket by its name. A name is a path below a mount point, which a stat, a listing,
+ * an unlink and a rename see as a socket (WIT_NAMESPACE_KIND_SOCKET) and which stays until it is unlinked, as on Linux;
+ * or, with WIT_NAMESPACE_ABSTRACT, Linux's abstract name: Length bytes of the window, in no directory, gone with its
+ * socket. The service holds a listening socket's end of the channel its connections arrive on and hands a connecting
+ * client a duplicate of it; the connection itself is the two processes' own (the libc's unix.c), and no byte of it
+ * passes through the service. Mode carries the socket's type (SOCK_STREAM or SOCK_SEQPACKET). */
+#define WIT_NAMESPACE_SOCKET_BIND \
+    21U /* the name in the window (Length bytes), Flags WIT_NAMESPACE_ABSTRACT, Mode the type: the reply's Handle names
+         * the binding to SOCKET_LISTEN and SOCKET_CLOSE; EADDRINUSE when the name exists */
+#define WIT_NAMESPACE_SOCKET_LISTEN \
+    22U /* Handle a binding of this session; the request's one handle the end connections are sent on (SEND,
+         * DUPLICATE, TRANSFER), which the service keeps until the socket closes or the name is unlinked */
+#define WIT_NAMESPACE_SOCKET_CONNECT \
+    23U /* the name as BIND, Mode the type: the reply's one handle a duplicate of the listener's end (SEND, TRANSFER);
+         * ENOENT for no such name, ECONNREFUSED for a name nobody listens on, EPROTOTYPE for another type */
+#define WIT_NAMESPACE_SOCKET_CLOSE 24U /* Handle a binding of this session: its socket closed */
+
 /* OPEN's flags; the libc maps O_ACCMODE, O_CREAT, O_EXCL, O_TRUNC and O_DIRECTORY onto them. */
 #define WIT_NAMESPACE_READ_ACCESS 0x1U
 #define WIT_NAMESPACE_WRITE_ACCESS 0x2U
@@ -54,6 +72,7 @@
 #define WIT_NAMESPACE_TRUNCATE_FILE 0x10U
 #define WIT_NAMESPACE_DIRECTORY 0x20U /* OPEN: the path must be a directory; REMOVE: remove a directory */
 #define WIT_NAMESPACE_MAP_WRITE 0x40U /* MAP: the object is writable, which a handle opened for writing alone grants */
+#define WIT_NAMESPACE_ABSTRACT 0x80U /* SOCKET_BIND, SOCKET_CONNECT: an abstract name, not a path (W4.1) */
 
 /* UTIMES' and FUTIMES' flags (N4.1): which times the request sets, each as the WitNamespaceTimes value or as the
  * service's clock; a time named by neither stays (UTIME_OMIT). */
@@ -67,6 +86,7 @@
 #define WIT_NAMESPACE_KIND_DIRECTORY 2U
 #define WIT_NAMESPACE_KIND_LINK 3U
 #define WIT_NAMESPACE_KIND_OTHER 4U
+#define WIT_NAMESPACE_KIND_SOCKET 5U /* a local socket's name (W4.1) */
 
 #define WIT_NAMESPACE_WINDOW_BYTES (16U * 4096U) /* the window a client attaches */
 

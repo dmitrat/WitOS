@@ -158,6 +158,33 @@ long __wit_socket_nonblocking(long fd, int nonblocking); /* syscall.c: FIONBIO a
 void __wit_resolv_refresh(void);
 WitU32 __wit_resolv_text(unsigned char *buffer, WitU32 capacity);
 int __wit_resolv_present(void);
+/* Local sockets (unix.c, W4.1): AF_UNIX's stream and sequenced-packet sockets and socketpair's, without the network
+ * service. A connection's rings are the two processes' own; the names sockets bind are the namespace service's
+ * (namespace.c). syscall.c sends every socket call, transfer and ioctl here first, outside the table lock; a record lives
+ * while a descriptor (files.c's KindLocal) or a call in flight references it, and a bound one's close goes to the
+ * namespace service after the last reference, outside the table lock (__wit_local_flush). */
+long __wit_local_call(long n, long a1, long a2, long a3, long a4, long a5, long a6); /* WIT_NOT_A_SOCKET otherwise */
+long __wit_local_transfer(long n, long fd, long a2, long a3);
+long __wit_local_ioctl(long fd, long command, void *argument);
+void __wit_local_reference(WitU32 index);
+void __wit_local_release(WitU32 index);
+void __wit_local_flush(void);
+short __wit_local_poll(WitU32 index, short events); /* files.c, under the table lock */
+short __wit_local_edge(WitU32 index, short events, WitU64 *token); /* epoll.c, under the table lock */
+WitU32 __wit_local_id(WitU32 index);
+long __wit_local_open(WitU32 index, int flags); /* files.c, under the table lock */
+long __wit_local_open_pair(WitU32 first, WitU32 second, int flags, int *fds); /* files.c: both or neither */
+long __wit_local_of(long fd, WitU32 *index, int *nonblocking); /* files.c, under the table lock: 1, 0 or -EBADF */
+long __wit_local_name(const char *path, unsigned char *name, WitU32 *length, int connecting); /* files.c */
+long __wit_local_install(WitU32 index, int flags); /* syscall.c: takes the table lock */
+long __wit_local_install_pair(WitU32 first, WitU32 second, int flags, int *fds);
+long __wit_local_lookup(long fd, WitU32 *index, int *nonblocking);
+long __wit_local_path(const char *path, unsigned char *name, WitU32 *length, int connecting);
+long __wit_remote_socket_bind(const unsigned char *name, WitU32 length, int abstract, int type, WitU64 *id);
+long __wit_remote_socket_listen(WitU64 id, WitU64 endpoint, int *moved);
+long __wit_remote_socket_connect(const unsigned char *name, WitU32 length, int abstract, int type, WitU64 *endpoint);
+long __wit_remote_socket_close(WitU64 id);
+void __wit_poll_sources(int delta); /* pipe.c: sources another process changes, which poll looks at every 10 ms */
 long __wit_memfd_create(const char *name, long flags);
 long __wit_descriptor_capacity(void);
 long __wit_ftruncate(long fd, long size);

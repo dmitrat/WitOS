@@ -315,8 +315,9 @@ the completed steps with their evidence are in [Plan-Completed.md](@Docs/Impleme
   Mozilla's root certificates, `SslStream` and HTTPS to the suite's server, to the runner's with a certificate authority
   of each boot trusted through the root store, and to a public site. ASP.NET Core (W3.2): the shared framework built
   IL alone from its pinned source, one for the three ISAs, and an ordinary Kestrel application published without a RID
-  that answers the runner through the port forward and itself over HTTPS. IPv6, local sockets and interfaces (W4)
-  follow, then the remaining milestones.
+  that answers the runner through the port forward and itself over HTTPS. Local sockets (W4.1): `AF_UNIX` and
+  `socketpair` in the libc, the names in the namespace service, named pipes and the runtime's diagnostic IPC between
+  processes. IPv6 and interfaces (W4.2, W4.3) follow, then the remaining milestones.
 
 The acceptances establish the network as far as ASP.NET Core over HTTPS, and the processors run in turn under QEMU's
 instruction clock, so they show correctness, not speed. Firmware memory remains reserved.
