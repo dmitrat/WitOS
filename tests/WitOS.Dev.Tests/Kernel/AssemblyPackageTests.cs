@@ -54,7 +54,7 @@ public sealed class AssemblyPackageTests
         Reject(new[] { (new string('\u03bb', 513), ReadOnlyMemory<byte>.Empty) });
         Reject(new[] { ("a", ReadOnlyMemory<byte>.Empty), ("a.b", ReadOnlyMemory<byte>.Empty), ("a/child", ReadOnlyMemory<byte>.Empty) });
         var megabyte = new byte[1024 * 1024];
-        Reject(Enumerable.Range(0, 129).Select(i => (i.ToString(), (ReadOnlyMemory<byte>)megabyte)));
+        Reject(Enumerable.Range(0, AssemblyPackage.MAXIMUM_BYTES / megabyte.Length + 1).Select(i => (i.ToString(), (ReadOnlyMemory<byte>)megabyte)));
         Assert.That(AssemblyPackage.Create(Enumerable.Range(0, AssemblyPackage.MAXIMUM_FILES).Select(i => (i.ToString(), ReadOnlyMemory<byte>.Empty))).Length > 32, Is.True, "Exact file quota rejected.");
         Assert.That(AssemblyPackage.Create(Array.Empty<(string, ReadOnlyMemory<byte>)>()).Length == 32, Is.True, "Empty package is not canonical.");
     }
