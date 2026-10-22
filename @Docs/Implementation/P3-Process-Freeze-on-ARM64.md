@@ -1,6 +1,6 @@
 # P3 — a .NET process freezes on ARM64 with four processors
 
-Plan step P3, opened 2026-10-21 while W4.1 closed. A .NET process under CoreCLR on the ARM64 board with four processors
+Plan step P3, opened 2026-10-21 while W4.1 closed and closed 2026-10-22. A .NET process under CoreCLR on the ARM64 board with four processors
 stopped whole, a few times in every ten runs of the scenarios of applications under load, where x64 and riscv64 had not
 shown it. Nothing of the kernel panicked and the guest kept ticking; the runner ended the boot at its wall-clock limit.
 The cause (§5) was not in the kernel and not in CoreCLR: the network service's TCP stack answered its own
@@ -150,8 +150,10 @@ while a stack's loopback holds datagrams (`NextDeadline <= Now`), since the hand
 | Where | Result |
 | --- | --- |
 | `OutWit.OS.Tests`, Networking | 26 passed, the new test among them |
-| `runtime-compatibility` on ARM64, 12 runs with `LOAD=8` on the rebuilt services | in progress |
-| `runtime-devices` and `runtime-compatibility` on x64, ARM64 and riscv64 | in progress |
+| `runtime-compatibility` on ARM64, 12 runs with `LOAD=8` on the rebuilt services | 11 passed; run 6 failed otherwise — not a freeze: the Ipc area's child `dotnet` could not create CoreCLR (§8) — where the loops before the fix froze in one run of twelve |
+| `runtime-devices` (through `runtime-services`) and `runtime-compatibility` on ARM64 | passed on the rebuilt services |
+| `runtime-devices` and `runtime-compatibility` on x64 | passed ( through , then ) |
+| `runtime-devices` and `runtime-compatibility` on riscv64 | passed (the same) |
 
 ## 8. Open
 
@@ -159,5 +161,10 @@ while a stack's loopback holds datagrams (`NextDeadline <= Now`), since the hand
   adapter and the application uses no socket. Its loop of twelve runs passed. It stays on the list of flakes to watch
   (`ci-flakes`), with its own core the next time it comes.
 - `MemoryPack`'s one `EntryPointNotFoundException` on x64 is unrelated to the storm and unexplained.
+- Run 6 of the verification loop: the Ipc area's child (`dotnet … --sleep` with `DOTNET_DiagnosticPorts`) printed
+  `Failed to create CoreCLR, HRESULT: 0x8007000C` — `HRESULT_FROM_WIN32(ERROR_INVALID_ACCESS)`, the PAL's code of a
+  refused `VirtualProtect`, as S8.2's `The access code is invalid` was — and the parent's connection broke; 273 MiB were
+  free afterwards, as in the passing runs, so not memory. Once in some thirty runs. The libc now logs every `mprotect` it
+  refuses (`[LIBC] mprotect refused …`), so the next occurrence names the call; until then it is a flake to watch.
 - Linux also limits challenge acknowledgments globally (`tcp_challenge_ack_limit`); the stack limits them per connection
   alone.
