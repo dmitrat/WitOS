@@ -158,6 +158,7 @@ long __wit_socket_lookup(long fd, WitU32 *index, int *nonblocking); /* syscall.c
 long __wit_socket_nonblocking(long fd, int nonblocking); /* syscall.c: FIONBIO as F_SETFL */
 long __wit_socket_configuration(
     WitSocketConfiguration *configuration); /* socket.c: CONFIGURATION, -ENODEV without the service */
+long __wit_socket_configuration6(WitSocketConfiguration6 *configuration); /* socket.c: CONFIGURATION6 (W4.3) */
 
 /* Netlink route sockets and the interface ioctls (netlink.c, W4.2). */
 long __wit_netlink_call(long n, long a1, long a2, long a3, long a4, long a5, long a6); /* WIT_NOT_A_SOCKET otherwise */
@@ -174,8 +175,8 @@ long __wit_netlink_open(WitU32 index, int flags); /* files.c, under the table lo
 long __wit_netlink_of(long fd, WitU32 *index, int *nonblocking); /* files.c, under the table lock: 1, 0 or -EBADF */
 long __wit_netlink_install(WitU32 index, int flags); /* syscall.c: takes the table lock */
 long __wit_netlink_lookup(long fd, WitU32 *index, int *nonblocking); /* syscall.c: takes the table lock */
-void __wit_netlink_notify(
-    const WitSocketConfiguration *before, const WitSocketConfiguration *after); /* socket.c's events thread */
+void __wit_netlink_notify(const WitSocketConfiguration *before, const WitSocketConfiguration *after,
+    const WitSocketConfiguration6 *before6, const WitSocketConfiguration6 *after6); /* socket.c's events thread */
 void __wit_resolv_refresh(void);
 WitU32 __wit_resolv_text(unsigned char *buffer, WitU32 capacity);
 int __wit_resolv_present(void);

@@ -112,8 +112,8 @@
     {
       "name": "Networking (`Socket`, `HttpClient`)",
       "status": "Partial",
-      "step": "W3.1",
-      "note": "IPv4 sockets over the network service's managed stack: TCP, UDP, the loopback and names through musl's resolver, `HttpClient` over HTTP/1.1 (W2.2) and `SslStream` and HTTPS over the OpenSSL the system layer builds (W3.1; the suite's Network area); IPv6 until W4.3; Unix domain sockets since W4.1 (the next row)."
+      "step": "W4.3",
+      "note": "IPv4 and IPv6 sockets over the network service's managed stack: TCP, UDP, the loopback, dual-stack `AF_INET6` sockets with IPv4 peers in the mapped form, a link-local and a global IPv6 address from the router's advertisement (W4.3), names through musl's resolver, `HttpClient` over HTTP/1.1 (W2.2) and `SslStream` and HTTPS over the OpenSSL the system layer builds (W3.1; the suite's Network area). Not served: multicast group membership, ancillary data, raw sockets, keep-alive probes. Unix domain sockets since W4.1 (the next row)."
     },
     {
       "name": "Local sockets and named pipes (`UnixDomainSocketEndPoint`, `NamedPipeServerStream`)",

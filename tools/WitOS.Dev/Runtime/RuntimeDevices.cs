@@ -473,6 +473,9 @@ internal static class RuntimeDevices
         // The libc's sockets (W2.1a): /bin/sockets-check's checks, the runner's echo server and the runner's connection.
         "[SOCKETS] sockets over the network service: ",
         "[SOCKETS] interfaces: lo and eth0",
+        // IPv6 (W4.3): the loopback, the link-local and global addresses slirp's router advertisement gives eth0's address,
+        // and a dual-stack listener taking an IPv4 client.
+        "[SOCKETS] IPv6: lo ::1, eth0 fe80::5054:ff:fe12:3456 and fec0::5054:ff:fe12:3456, a dual-stack listener took an IPv4 client",
         $"[SOCKETS] {NETWORK_INBOUND_BYTES} bytes echoed by the runner through 10.0.2.100:7, unchanged",
         SOCKETS_LISTENING,
         $"[SOCKETS] echoed {NETWORK_INBOUND_BYTES} bytes back to the runner's connection from {NETWORK_GATEWAY}, inbound through the port forward",

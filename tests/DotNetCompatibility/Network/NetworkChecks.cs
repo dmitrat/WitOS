@@ -8,9 +8,11 @@ namespace DotNetCompatibility;
 /// <summary>
 /// Networking over the loopback (plan steps W2.1b and W2.2): TCP through TcpListener, TcpClient and NetworkStream,
 /// asynchronous and synchronous Socket calls with their timeouts and options, UDP through UdpClient, a refused
-/// connection, the end of a stream, name resolution, the IPv6 the platform offers, HttpClient against a server of
-/// the suite's own, and TLS (W3.1): SslStream on both ends and HttpClient over HTTPS with a certificate of the suite's own. Every check stays on the machine, so that it means the same on a host and in a guest whatever
-/// network reaches them.
+/// connection, the end of a stream, name resolution, IPv6 (W4.3: the platform offers it, TCP and UDP over ::1, and a
+/// dual-mode listener takes an IPv4 client, whose address it names in the mapped form), HttpClient against a server of
+/// the suite's own, and TLS (W3.1): SslStream on both ends and HttpClient over HTTPS with a certificate of the suite's
+/// own. Every check stays on the machine, so that it means the same on a host and in a guest whatever network reaches
+/// them.
 /// </summary>
 internal static class NetworkChecks
 {
@@ -136,6 +138,44 @@ internal static class NetworkChecks
         });
         yield return new Check("Network", "IPv6", () =>
             CheckResult.Now(Socket.OSSupportsIPv6, $"OSSupportsIPv4 {Socket.OSSupportsIPv4}, OSSupportsIPv6 {Socket.OSSupportsIPv6}"));
+        yield return new Check("Network", "IPv6Loopback", async () =>
+        {
+            using var listener = new TcpListener(IPAddress.IPv6Loopback, 0);
+            listener.Start();
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            using var client = new TcpClient(AddressFamily.InterNetworkV6);
+            await client.ConnectAsync(IPAddress.IPv6Loopback, port);
+            using var server = await listener.AcceptTcpClientAsync();
+            await client.GetStream().WriteAsync("over six"u8.ToArray());
+            var buffer = new byte[16];
+            var read = await server.GetStream().ReadAsync(buffer);
+            var peer = (IPEndPoint)server.Client.RemoteEndPoint!;
+            using var receiver = new UdpClient(new IPEndPoint(IPAddress.IPv6Loopback, 0));
+            using var sender = new UdpClient(AddressFamily.InterNetworkV6);
+            await sender.SendAsync("datagram"u8.ToArray(), (IPEndPoint)receiver.Client.LocalEndPoint!);
+            var datagram = await receiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(30));
+            return CheckResult.That(read == 8 && buffer.AsSpan(0, 8).SequenceEqual("over six"u8) && peer.Address.Equals(IPAddress.IPv6Loopback) &&
+                datagram.Buffer.AsSpan().SequenceEqual("datagram"u8) && datagram.RemoteEndPoint.Address.Equals(IPAddress.IPv6Loopback),
+                $"TCP: {read} bytes from {peer}; UDP: {datagram.Buffer.Length} bytes from {datagram.RemoteEndPoint}");
+        });
+        yield return new Check("Network", "DualMode", async () =>
+        {
+            // A dual-mode listener on [::] takes an IPv4 client and names it in the mapped form, as Linux does.
+            using var listener = new TcpListener(IPAddress.IPv6Any, 0);
+            listener.Server.DualMode = true;
+            listener.Start();
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            using var client = new TcpClient(AddressFamily.InterNetwork);
+            await client.ConnectAsync(IPAddress.Loopback, port);
+            using var server = await listener.AcceptTcpClientAsync();
+            await client.GetStream().WriteAsync("four"u8.ToArray());
+            var buffer = new byte[16];
+            var read = await server.GetStream().ReadAsync(buffer);
+            var peer = (IPEndPoint)server.Client.RemoteEndPoint!;
+            var mapped = peer.Address.IsIPv4MappedToIPv6 && peer.Address.MapToIPv4().Equals(IPAddress.Loopback);
+            return CheckResult.That(read == 4 && buffer.AsSpan(0, 4).SequenceEqual("four"u8) && mapped && listener.Server.DualMode,
+                $"{read} bytes from {peer}, mapped {peer.Address.IsIPv4MappedToIPv6}, dual mode {listener.Server.DualMode}");
+        });
         // HttpClient over the loopback (W2.2), against the suite's own server, with no proxy whatever the environment names.
         yield return new Check("Network", "HttpGet", async () =>
         {

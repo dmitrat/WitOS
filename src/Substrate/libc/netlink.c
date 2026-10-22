@@ -18,8 +18,10 @@
  * interface enumeration (SIOCGIFMTU on any socket) and .NET's NetworkChange (a socket bound to the route groups, read
  * for RTM_NEWADDR and the rest) ask of Linux's kernel, answered by the libc from the network service's configuration
  * (socket.c, WIT_SOCKET_CONFIGURATION): the loopback, index 1, and the adapter the service runs its stack on, eth0,
- * index 2, with the lease's address, mask and gateway, the adapter's address and MTU. The kernel knows no network; a
- * process without the service, or one whose service has no adapter, has the loopback alone.
+ * index 2, with the lease's address, mask and gateway, the adapter's address and MTU, and since W4.3 the IPv6
+ * addresses (WIT_SOCKET_CONFIGURATION6): ::1/128 of the loopback, the adapter's link-local and global addresses, its
+ * link-local and on-link prefix routes and the default route through the advertised router. The kernel knows no
+ * network; a process without the service, or one whose service has no adapter, has the loopback alone.
  *
  * A netlink socket is a record with a queue of the messages a request's answers and the events make, read in whole
  * messages as Linux delivers them (one a buffer cannot take is cut, MSG_TRUNC); a dump's answers are queued by the
@@ -85,6 +87,9 @@
 #define RTMGRP_LINK 1U
 #define RTMGRP_IPV4_IFADDR 0x10U
 #define RTMGRP_IPV4_ROUTE 0x40U
+#define RTMGRP_IPV6_IFADDR 0x100U
+#define RTMGRP_IPV6_ROUTE 0x400U
+#define RTPROT_RA 9
 
 struct nlmsghdr {
     WitU32 nlmsg_len;
@@ -163,6 +168,14 @@ typedef struct Interface {
     WitU8 Prefix;
     WitU8 Scope;
     unsigned char Address[4], Mask[4], Broadcast[4], Gateway[4];
+    int Count6; /* the IPv6 addresses (W4.3): ::1 of the loopback, the adapter's link-local and global ones */
+    unsigned char Address6[2][16];
+    WitU8 Prefix6[2], Scope6[2];
+    int Routed6; /* whether the adapter has an on-link prefix: Network6/PrefixLength6 */
+    unsigned char Network6[16];
+    WitU8 PrefixLength6;
+    int HasGateway6; /* whether a router advertised itself: Gateway6 */
+    unsigned char Gateway6[16];
 } Interface;
 
 /* A writer of messages into a buffer: nothing is written past the end, and Overflow says so. */
@@ -200,11 +213,17 @@ static void loopback(Interface *lo)
     lo->Address[0] = 127;
     lo->Address[3] = 1;
     lo->Mask[0] = 255;
+    lo->Count6 = 1;
+    lo->Address6[0][15] = 1;
+    lo->Prefix6[0] = 128;
+    lo->Scope6[0] = RT_SCOPE_HOST;
 }
 
-/* The adapter from the service's configuration: eth0, with the lease's addresses once there is one. */
-static void adapter(Interface *eth, const WitSocketConfiguration *c)
+/* The adapter from the service's configuration: eth0, with the lease's addresses once there is one, and the IPv6
+ * addresses assigned so far (W4.3): the link-local one, the global one with the router's prefix, and the router. */
+static void adapter(Interface *eth, const WitSocketConfiguration *c, const WitSocketConfiguration6 *c6)
 {
+    static const unsigned char none16[16];
     memset(eth, 0, sizeof(*eth));
     eth->Index = 2;
     memcpy(eth->Name, "eth0", 5);
@@ -225,6 +244,33 @@ static void adapter(Interface *eth, const WitSocketConfiguration *c)
         eth->Prefix = popcount(c->Mask);
         eth->Scope = RT_SCOPE_UNIVERSE;
     }
+    if (c6->Flags & WIT_SOCKET_IPV6_LINK_LOCAL) {
+        memcpy(eth->Address6[eth->Count6], c6->LinkLocal, 16);
+        eth->Prefix6[eth->Count6] = 64;
+        eth->Scope6[eth->Count6] = RT_SCOPE_LINK;
+        ++eth->Count6;
+    }
+    if (c6->Flags & WIT_SOCKET_IPV6_GLOBAL) {
+        const WitU8 length = c6->PrefixLength && c6->PrefixLength <= 128 ? (WitU8)c6->PrefixLength : 64;
+        memcpy(eth->Address6[eth->Count6], c6->Global, 16);
+        eth->Prefix6[eth->Count6] = length;
+        eth->Scope6[eth->Count6] = RT_SCOPE_UNIVERSE;
+        ++eth->Count6;
+        if (c6->PrefixLength) {
+            eth->Routed6 = 1;
+            eth->PrefixLength6 = length;
+            for (int i = 0; i < 16; ++i) {
+                const int bits = length - 8 * i;
+                eth->Network6[i] = bits >= 8 ? c6->Global[i]
+                    : bits <= 0              ? 0
+                                             : (unsigned char)(c6->Global[i] & (0xFF << (8 - bits)));
+            }
+        }
+    }
+    if (memcmp(c6->Router, none16, 16) != 0) {
+        eth->HasGateway6 = 1;
+        memcpy(eth->Gateway6, c6->Router, 16);
+    }
 }
 
 /* The interfaces as the configuration gives them now: the loopback, then the adapter when the process has the service
@@ -232,12 +278,27 @@ static void adapter(Interface *eth, const WitSocketConfiguration *c)
 static int interfaces(Interface list[2])
 {
     WitSocketConfiguration c;
+    WitSocketConfiguration6 c6;
     loopback(&list[0]);
     if (__wit_socket_configuration(&c) < 0 || c.Mac == 0) {
         return 1;
     }
-    adapter(&list[1], &c);
+    if (__wit_socket_configuration6(&c6) < 0) {
+        memset(&c6, 0, sizeof(c6));
+    }
+    adapter(&list[1], &c, &c6);
     return 2;
+}
+
+/* Whether an interface holds an IPv6 address. */
+static int has6(const Interface *i, const unsigned char address[16])
+{
+    for (int k = 0; k < i->Count6; ++k) {
+        if (memcmp(i->Address6[k], address, 16) == 0) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 static void *reserve(Writer *w, WitU32 bytes)
@@ -328,6 +389,64 @@ static void address_message(Writer *w, const Interface *i, WitU16 type, WitU16 f
     end(w, at);
 }
 
+/* An IPv6 address of an interface (W4.3): the kernel gives an AF_INET6 address IFA_ADDRESS alone, no IFA_LOCAL. */
+static void address_message6(Writer *w, const Interface *i, int k, WitU16 type, WitU16 flags, WitU32 seq, WitU32 pid)
+{
+    const WitU32 at = begin(w, type, flags, seq, pid);
+    struct ifaddrmsg *m = reserve(w, sizeof(*m));
+    if (m) {
+        m->ifa_family = AF_INET6;
+        m->ifa_prefixlen = i->Prefix6[k];
+        m->ifa_flags = IFA_F_PERMANENT;
+        m->ifa_scope = i->Scope6[k];
+        m->ifa_index = i->Index;
+    }
+    attribute(w, IFA_ADDRESS, i->Address6[k], 16);
+    end(w, at);
+}
+
+static void route_message6(Writer *w, const Interface *eth, const unsigned char *destination, WitU8 length,
+    const unsigned char *gateway, WitU8 protocol, WitU16 flags, WitU32 seq, WitU32 pid)
+{
+    const WitU32 at = begin(w, RTM_NEWROUTE, flags, seq, pid);
+    struct rtmsg *m = reserve(w, sizeof(*m));
+    if (m) {
+        m->rtm_family = AF_INET6;
+        m->rtm_dst_len = length;
+        m->rtm_table = RT_TABLE_MAIN;
+        m->rtm_protocol = protocol;
+        m->rtm_scope = RT_SCOPE_UNIVERSE;
+        m->rtm_type = RTN_UNICAST;
+    }
+    attribute_u32(w, RTA_TABLE, RT_TABLE_MAIN);
+    if (length) {
+        attribute(w, RTA_DST, destination, 16);
+    }
+    if (gateway) {
+        attribute(w, RTA_GATEWAY, gateway, 16);
+    }
+    attribute_u32(w, RTA_OIF, eth->Index);
+    end(w, at);
+}
+
+/* The main table's IPv6 routes of the adapter (W4.3): fe80::/64 with its link-local address, the advertised on-link
+ * prefix, and the default route through the advertised router, as the kernel records a router advertisement. */
+static void route_messages6(Writer *w, const Interface *eth, WitU16 flags, WitU32 seq, WitU32 pid)
+{
+    static const unsigned char link_local[16] = {0xFE, 0x80};
+    for (int k = 0; k < eth->Count6; ++k) {
+        if (eth->Scope6[k] == RT_SCOPE_LINK) {
+            route_message6(w, eth, link_local, 64, 0, RTPROT_KERNEL, flags, seq, pid);
+        }
+    }
+    if (eth->Routed6) {
+        route_message6(w, eth, eth->Network6, eth->PrefixLength6, 0, RTPROT_RA, flags, seq, pid);
+    }
+    if (eth->HasGateway6) {
+        route_message6(w, eth, 0, 0, eth->Gateway6, RTPROT_RA, flags, seq, pid);
+    }
+}
+
 /* The main table's routes of the adapter: its subnet, and the default route through the gateway when the lease names
  * one; the loopback's are the local table's, which a dump of the main table leaves out, as Linux's does. */
 static void route_messages(Writer *w, const Interface *eth, WitU16 flags, WitU32 seq, WitU32 pid)
@@ -397,6 +516,7 @@ static void answer(Writer *w, const struct nlmsghdr *h, WitU32 pid, const Interf
     const int dump = (h->nlmsg_flags & NLM_F_DUMP) == NLM_F_DUMP;
     const unsigned char family = h->nlmsg_len > sizeof(*h) ? *(const unsigned char *)(h + 1) : AF_UNSPEC;
     const int inet = family == AF_UNSPEC || family == AF_INET;
+    const int inet6 = family == AF_UNSPEC || family == AF_INET6;
     if (!dump || (h->nlmsg_type != RTM_GETLINK && h->nlmsg_type != RTM_GETADDR && h->nlmsg_type != RTM_GETROUTE)) {
         error_message(w, h, EOPNOTSUPP, pid);
         return;
@@ -408,6 +528,16 @@ static void answer(Writer *w, const struct nlmsghdr *h, WitU32 pid, const Interf
             address_message(w, &list[i], RTM_NEWADDR, NLM_F_MULTI, h->nlmsg_seq, pid);
         } else if (h->nlmsg_type == RTM_GETROUTE && inet && list[i].Addressed && list[i].Index != 1) {
             route_messages(w, &list[i], NLM_F_MULTI, h->nlmsg_seq, pid);
+        }
+    }
+    /* The IPv6 addresses and routes after the IPv4 ones, as the kernel orders a dump of both (W4.3). */
+    for (int i = 0; inet6 && h->nlmsg_type != RTM_GETLINK && i < count; ++i) {
+        if (h->nlmsg_type == RTM_GETADDR) {
+            for (int k = 0; k < list[i].Count6; ++k) {
+                address_message6(w, &list[i], k, RTM_NEWADDR, NLM_F_MULTI, h->nlmsg_seq, pid);
+            }
+        } else if (list[i].Index != 1 && list[i].Count6) {
+            route_messages6(w, &list[i], NLM_F_MULTI, h->nlmsg_seq, pid);
         }
     }
     done_message(w, h->nlmsg_seq, pid);
@@ -1055,15 +1185,18 @@ long __wit_interface_ioctl(long command, void *argument)
  * adapter's address that went and the one that came (RTM_DELADDR, RTM_NEWADDR), and of its link (RTM_NEWLINK), as the
  * kernel's route multicast tells them; events carry the kernel's port, 0, and no sequence. A queue without room for
  * them drops them, as Linux's does with ENOBUFS at the reader, which asks again. */
-void __wit_netlink_notify(const WitSocketConfiguration *before, const WitSocketConfiguration *after)
+void __wit_netlink_notify(const WitSocketConfiguration *before, const WitSocketConfiguration *after,
+    const WitSocketConfiguration6 *before6, const WitSocketConfiguration6 *after6)
 {
     Interface was, is;
     int had = before->Mac != 0, has = after->Mac != 0;
+    memset(&was, 0, sizeof(was));
+    memset(&is, 0, sizeof(is));
     if (had) {
-        adapter(&was, before);
+        adapter(&was, before, before6);
     }
     if (has) {
-        adapter(&is, after);
+        adapter(&is, after, after6);
     }
     const int address_changed = had != has ||
         (has &&
@@ -1072,6 +1205,15 @@ void __wit_netlink_notify(const WitSocketConfiguration *before, const WitSocketC
                 memcmp(was.Mask, is.Mask, 4) != 0));
     const int link_changed = had != has || (has && (was.Mtu != is.Mtu || was.Flags != is.Flags));
     const int route_changed = address_changed || (has && memcmp(was.Gateway, is.Gateway, 4) != 0);
+    const int address6_changed =
+        had != has || (has && (was.Count6 != is.Count6 || memcmp(was.Address6, is.Address6, sizeof(is.Address6)) != 0));
+    const int route6_changed = address6_changed ||
+        (has &&
+            (was.HasGateway6 != is.HasGateway6 ||
+                memcmp(was.Gateway6, is.Gateway6, 16) != 0 ||
+                was.Routed6 != is.Routed6 ||
+                was.PrefixLength6 != is.PrefixLength6 ||
+                memcmp(was.Network6, is.Network6, 16) != 0));
     for (WitU32 i = 0; i < NETLINKS; ++i) {
         Netlink *n = &netlinks[i];
         int told = 0;
@@ -1091,6 +1233,21 @@ void __wit_netlink_notify(const WitSocketConfiguration *before, const WitSocketC
             }
             if ((n->Groups & RTMGRP_IPV4_ROUTE) && route_changed && has && is.Addressed) {
                 route_messages(&w, &is, 0, 0, 0);
+            }
+            if ((n->Groups & RTMGRP_IPV6_IFADDR) && address6_changed) {
+                for (int k = 0; had && k < was.Count6; ++k) {
+                    if (!has || !has6(&is, was.Address6[k])) {
+                        address_message6(&w, &was, k, RTM_DELADDR, 0, 0, 0);
+                    }
+                }
+                for (int k = 0; has && k < is.Count6; ++k) {
+                    if (!had || !has6(&was, is.Address6[k])) {
+                        address_message6(&w, &is, k, RTM_NEWADDR, 0, 0, 0);
+                    }
+                }
+            }
+            if ((n->Groups & RTMGRP_IPV6_ROUTE) && route6_changed && has && is.Count6) {
+                route_messages6(&w, &is, 0, 0, 0);
             }
             if (!w.Overflow && w.Used) {
                 n->Tail += w.Used;

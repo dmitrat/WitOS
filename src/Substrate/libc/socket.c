@@ -4,6 +4,7 @@
 #include "witos/memory_object.h"
 #include "witos/socket.h"
 #include "witos/wait_objects.h"
+#include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
@@ -18,9 +19,11 @@
 #include <sys/uio.h>
 #include <time.h>
 
-/* Sockets over the network service (plan step W2.1a, witos/socket.h): AF_INET's stream and datagram sockets of a
- * process whose start message carried the service's clients' endpoint (WitProcessContext.Network); without one,
- * socket() answers EAFNOSUPPORT. One session serves the process, connected at its first socket: a request at a time
+/* Sockets over the network service (plan step W2.1a, witos/socket.h): AF_INET's and, since W4.3, AF_INET6's stream and
+ * datagram sockets of a process whose start message carried the service's clients' endpoint
+ * (WitProcessContext.Network); without one, socket() answers EAFNOSUPPORT. An AF_INET6 socket is dual-stack unless
+ * IPV6_V6ONLY is set, its IPv4 peers in their mapped form, as Linux's are; the addresses cross to the service in
+ * WitSocketAddress with their family, and come back in the socket's family (sockaddr_in or sockaddr_in6). One session serves the process, connected at its first socket: a request at a time
  * through the session's Busy word, its bytes in the window, the wait for the reply holding no library lock. No
  * request of the service waits: one that would answers EAGAIN, and the service sends a readiness event for the socket
  * when its state changes, which the network thread — a detached thread of the library's, as the terminal's is — counts
@@ -39,13 +42,14 @@
 #define FUTEX_WAKE 1
 #define FUTEX_PRIVATE 128
 #define SERVICE_GONE (-ENETDOWN)
-#define RESOLV_BYTES 160U
+#define RESOLV_BYTES 400U /* four IPv4 and four IPv6 nameserver lines */
 #define TCP_NODELAY 1 /* <netinet/tcp.h>'s, whose <sys/types.h> brings <endian.h> and its warnings with it */
 
 typedef struct Socket {
     WitU32 References; /* the descriptors and the calls in flight; zero when free */
     WitU32 Id; /* the service's socket */
     int Type; /* SOCK_STREAM or SOCK_DGRAM */
+    int Family; /* AF_INET or AF_INET6 (W4.3) */
     int Closing; /* its last reference went: the service's CLOSE is due */
     WitU64 ReceiveTimeout, SendTimeout; /* SO_RCVTIMEO and SO_SNDTIMEO in nanoseconds; zero waits for ever */
     struct linger Linger; /* SO_LINGER as set */
@@ -84,19 +88,26 @@ static volatile int events;
 /* The configuration the process last saw, for the netlink sockets' events (W4.2): read once the session connects, and
  * again at the service's word that it changed, which tells them what went and what came. */
 static WitSocketConfiguration seen_configuration;
+static WitSocketConfiguration6 seen_configuration6;
 static volatile int configuration_lock;
 
 static void announce_configuration(void)
 {
     WitSocketConfiguration now;
+    WitSocketConfiguration6 now6;
     if (__wit_socket_configuration(&now) < 0) {
         return;
     }
+    if (__wit_socket_configuration6(&now6) < 0) {
+        memset(&now6, 0, sizeof(now6));
+    }
     __wit_lock(&configuration_lock);
     const WitSocketConfiguration before = seen_configuration;
+    const WitSocketConfiguration6 before6 = seen_configuration6;
     seen_configuration = now;
+    seen_configuration6 = now6;
     __wit_unlock(&configuration_lock);
-    __wit_netlink_notify(&before, &now);
+    __wit_netlink_notify(&before, &now, &before6, &now6);
 }
 
 static void *events_thread(void *argument)
@@ -240,9 +251,14 @@ static long connect_session(void)
     __wit_unlock(&configuration_lock);
     if (unseen) {
         WitSocketConfiguration now;
+        WitSocketConfiguration6 now6;
         if (__wit_socket_configuration(&now) == 0) {
+            if (__wit_socket_configuration6(&now6) < 0) {
+                memset(&now6, 0, sizeof(now6));
+            }
             __wit_lock(&configuration_lock);
             seen_configuration = now;
+            seen_configuration6 = now6;
             __wit_unlock(&configuration_lock);
         }
     }
@@ -373,7 +389,7 @@ static long simple(WitSocketRequest *request, WitSocketReply *reply)
 }
 
 /* The record of a socket the service opened, holding one reference. Under the record lock. */
-static long allocate(WitU32 id, int type, WitU32 *index)
+static long allocate(WitU32 id, int type, int family, WitU32 *index)
 {
     __wit_lock(&socket_lock);
     for (WitU32 i = 0; i < SOCKETS; ++i) {
@@ -382,6 +398,7 @@ static long allocate(WitU32 id, int type, WitU32 *index)
             sockets[i].References = 1;
             sockets[i].Id = id;
             sockets[i].Type = type;
+            sockets[i].Family = family;
             *index = i;
             __wit_unlock(&socket_lock);
             return 0;
@@ -483,7 +500,8 @@ static long await_change(int seen, WitU64 deadline)
     return waited == -ETIMEDOUT ? -EAGAIN : waited;
 }
 
-/* An AF_INET address of the caller's, or AF_UNSPEC where allowed. */
+/* An AF_INET or AF_INET6 (W4.3) address of the caller's, or AF_UNSPEC where allowed; the service decides whether the
+ * socket takes the family. */
 static long address_in(const struct sockaddr *address, socklen_t length, WitSocketAddress *out, int unspecified)
 {
     memset(out, 0, sizeof(*out));
@@ -496,32 +514,60 @@ static long address_in(const struct sockaddr *address, socklen_t length, WitSock
     if (address->sa_family == AF_UNSPEC && unspecified) {
         return 0;
     }
-    if (address->sa_family != AF_INET) {
-        return -EAFNOSUPPORT;
+    if (address->sa_family == AF_INET) {
+        if (length < (socklen_t)sizeof(struct sockaddr_in)) {
+            return -EINVAL;
+        }
+        const struct sockaddr_in *in = (const struct sockaddr_in *)address;
+        out->Family = AF_INET;
+        out->Port = ntohs(in->sin_port);
+        memcpy(out->Address, &in->sin_addr, 4);
+        return 0;
     }
-    if (length < (socklen_t)sizeof(struct sockaddr_in)) {
-        return -EINVAL;
+    if (address->sa_family == AF_INET6) {
+        if (length < (socklen_t)sizeof(struct sockaddr_in6)) {
+            return -EINVAL;
+        }
+        const struct sockaddr_in6 *in = (const struct sockaddr_in6 *)address;
+        out->Family = AF_INET6;
+        out->Port = ntohs(in->sin6_port);
+        memcpy(out->Address, &in->sin6_addr, 16);
+        return 0;
     }
-    const struct sockaddr_in *in = (const struct sockaddr_in *)address;
-    out->Family = AF_INET;
-    out->Port = ntohs(in->sin_port);
-    memcpy(out->Address, &in->sin_addr, 4);
-    return 0;
+    return -EAFNOSUPPORT;
 }
 
-/* An address for the caller, cut to its room, with its whole length, as Linux writes one. */
+/* An address for the caller, cut to its room, with its whole length, as Linux writes one: a sockaddr_in for AF_INET, a
+ * sockaddr_in6 for AF_INET6, a link-local address with the adapter's index as its scope. */
 static void address_out(const WitSocketAddress *in, struct sockaddr *address, socklen_t *length)
 {
-    struct sockaddr_in out;
+    struct sockaddr_in out4;
+    struct sockaddr_in6 out6;
+    const void *out;
+    socklen_t size;
     if (!address || !length) {
         return;
     }
-    memset(&out, 0, sizeof(out));
-    out.sin_family = AF_INET;
-    out.sin_port = htons(in->Port);
-    memcpy(&out.sin_addr, in->Address, 4);
-    memcpy(address, &out, *length < sizeof(out) ? *length : sizeof(out));
-    *length = sizeof(out);
+    if (in->Family == AF_INET6) {
+        memset(&out6, 0, sizeof(out6));
+        out6.sin6_family = AF_INET6;
+        out6.sin6_port = htons(in->Port);
+        memcpy(&out6.sin6_addr, in->Address, 16);
+        if (in->Address[0] == 0xFE && (in->Address[1] & 0xC0) == 0x80) {
+            out6.sin6_scope_id = 2; /* eth0 (netlink.c) */
+        }
+        out = &out6;
+        size = sizeof(out6);
+    } else {
+        memset(&out4, 0, sizeof(out4));
+        out4.sin_family = AF_INET;
+        out4.sin_port = htons(in->Port);
+        memcpy(&out4.sin_addr, in->Address, 4);
+        out = &out4;
+        size = sizeof(out4);
+    }
+    memcpy(address, out, *length < size ? *length : size);
+    *length = size;
 }
 
 /* The socket a descriptor names, with a reference the caller gives back: -EBADF or -ENOTSOCK otherwise. */
@@ -547,18 +593,18 @@ static long open_socket(long domain, long type, long protocol)
     if (flags & ~(long)(SOCK_NONBLOCK | SOCK_CLOEXEC)) {
         return -EINVAL;
     }
-    if (domain != AF_INET || !__wit_process.Network) {
-        return -EAFNOSUPPORT; /* AF_INET6 is not there yet (W4.3), .NET then speaks IPv4 alone; AF_UNIX is unix.c's (W4.1) */
+    if ((domain != AF_INET && domain != AF_INET6) || !__wit_process.Network) {
+        return -EAFNOSUPPORT; /* AF_UNIX is unix.c's (W4.1) */
     }
     make(&request, WIT_SOCKET_OPEN, 0);
-    request.Argument[0] = AF_INET;
+    request.Argument[0] = (WitU64)domain;
     request.Argument[1] = (WitU64)kind;
     request.Argument[2] = (WitU64)protocol;
     long r = simple(&request, &reply);
     if (r < 0) {
         return r;
     }
-    r = allocate(reply.Socket, kind == SOCK_STREAM ? SOCK_STREAM : SOCK_DGRAM, &index);
+    r = allocate(reply.Socket, kind == SOCK_STREAM ? SOCK_STREAM : SOCK_DGRAM, (int)domain, &index);
     if (r < 0) {
         make(&request, WIT_SOCKET_CLOSE, reply.Socket);
         simple(&request, &reply);
@@ -684,7 +730,7 @@ static long accept_socket(long fd, struct sockaddr *address, socklen_t *length, 
     }
     const WitU32 id = reply.Socket;
     const WitSocketAddress peer = reply.Address;
-    r = allocate(id, SOCK_STREAM, &accepted);
+    r = allocate(id, SOCK_STREAM, sockets[index].Family, &accepted);
     if (r < 0) {
         make(&request, WIT_SOCKET_CLOSE, id);
         simple(&request, &reply);
@@ -938,7 +984,7 @@ static long shutdown_socket(long fd, long how)
     return done(index, simple(&request, &reply));
 }
 
-/* The options the service keeps: SOL_SOCKET's it serves and TCP_NODELAY. */
+/* The options the service keeps: SOL_SOCKET's it serves, TCP_NODELAY and IPV6_V6ONLY (W4.3). */
 static int served(long level, long name)
 {
     if (level == SOL_SOCKET) {
@@ -950,6 +996,9 @@ static int served(long level, long name)
             name == SO_RCVBUF ||
             name == SO_KEEPALIVE ||
             name == SO_ACCEPTCONN;
+    }
+    if (level == IPPROTO_IPV6) {
+        return name == IPV6_V6ONLY;
     }
     return level == IPPROTO_TCP && name == TCP_NODELAY;
 }
@@ -983,7 +1032,7 @@ static long getsockopt_socket(long fd, long level, long name, void *value, sockl
     int answer;
     if (level == SOL_SOCKET && (name == SO_TYPE || name == SO_DOMAIN || name == SO_PROTOCOL)) {
         answer = name == SO_TYPE     ? s->Type
-            : name == SO_DOMAIN      ? AF_INET
+            : name == SO_DOMAIN      ? s->Family
             : s->Type == SOCK_STREAM ? IPPROTO_TCP
                                      : IPPROTO_UDP;
     } else if (served(level, name)) {
@@ -1225,11 +1274,33 @@ long __wit_socket_configuration(WitSocketConfiguration *configuration)
     return configuration->Version == WIT_SOCKET_VERSION && configuration->Size == sizeof(*configuration) ? 0 : -EIO;
 }
 
+/* The service's IPv6 configuration (CONFIGURATION6, W4.3), outside the table lock: the interface's link-local and
+ * global addresses, the prefix's length, the router and the DNS servers it advertised; -ENODEV without the service,
+ * -EIO for an answer that is none. */
+long __wit_socket_configuration6(WitSocketConfiguration6 *configuration)
+{
+    WitSocketRequest request;
+    WitSocketReply reply;
+    if (!__wit_process.Network) {
+        return -ENODEV;
+    }
+    make(&request, WIT_SOCKET_CONFIGURATION6, 0);
+    request.Length = sizeof(*configuration);
+    const struct iovec out = {configuration, sizeof(*configuration)};
+    const long r = call(&request, 0, 0, 0, &out, 1, 0, &reply);
+    if (r < 0) {
+        return r;
+    }
+    return configuration->Version == WIT_SOCKET_VERSION && configuration->Size == sizeof(*configuration) ? 0 : -EIO;
+}
+
 /* /etc/resolv.conf as the lease gives it (files.c reads it): asked of the service before an open of the file, outside
- * the table lock; a nameserver line for each DNS server, nothing without a lease. */
+ * the table lock; a nameserver line for each DNS server, nothing without a lease, then one for each IPv6 DNS server
+ * the router advertised once the interface has a global address to reach it from (W4.3). */
 void __wit_resolv_refresh(void)
 {
     WitSocketConfiguration configuration;
+    WitSocketConfiguration6 configuration6;
     unsigned char text[RESOLV_BYTES];
     WitU32 length = 0;
     if (__wit_socket_configuration(&configuration) < 0) {
@@ -1259,6 +1330,22 @@ void __wit_resolv_refresh(void)
         }
         memcpy(text + length, line, (unsigned long)used);
         length += (WitU32)used;
+    }
+    if (__wit_socket_configuration6(&configuration6) == 0 && (configuration6.Flags & WIT_SOCKET_IPV6_GLOBAL)) {
+        for (WitU32 i = 0; i < configuration6.DnsCount && i < 4; ++i) {
+            char line[64];
+            memcpy(line, "nameserver ", 11);
+            if (!inet_ntop(AF_INET6, configuration6.Dns[i], line + 11, sizeof(line) - 12)) {
+                continue;
+            }
+            WitU32 used = (WitU32)strlen(line);
+            line[used++] = '\n';
+            if (length + used > sizeof(text)) {
+                break;
+            }
+            memcpy(text + length, line, used);
+            length += used;
+        }
     }
     __wit_lock(&socket_lock);
     memcpy(resolv, text, length);

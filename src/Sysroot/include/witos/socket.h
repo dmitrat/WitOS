@@ -44,6 +44,7 @@
 #define WIT_SOCKET_GET_OPTION 13U /* Socket, Argument[0] the level, Argument[1] the name: the reply's Value */
 #define WIT_SOCKET_SET_OPTION 14U /* Socket, Argument[0] the level, Argument[1] the name, Argument[2] the value */
 #define WIT_SOCKET_CONFIGURATION 15U /* the interface and its lease, a WitSocketConfiguration at Window */
+#define WIT_SOCKET_CONFIGURATION6 16U /* the interface's IPv6 addresses, a WitSocketConfiguration6 at Window (W4.3) */
 #define WIT_SOCKET_CONFIGURATION_EVENT \
     0xFFFFFFFFU /* WitSocketEvent.Socket: the configuration changed, no socket's event (W4.2) */
 
@@ -60,12 +61,15 @@
 #define WIT_SOCKET_ADAPTER 1U /* WitNetworkAdapter's Operation, on the grant channel */
 #define WIT_SOCKET_ADAPTERS_END 0x1U /* WitNetworkAdapter's Flags: no handle, no adapter follows */
 
-/* An address of the socket protocol: AF_INET's port and four bytes (AF_INET6's sixteen from a later step). */
+/* An address of the socket protocol: AF_INET's port and four bytes, or AF_INET6's port and sixteen (W4.3). OPEN takes
+ * AF_INET6 (10) as its family: such a socket serves both families unless IPV6_V6ONLY (IPPROTO_IPV6, 41; 26) is set,
+ * its IPv4 peers named in the mapped form ::ffff:a.b.c.d, as Linux's dual-stack sockets name them; its replies carry
+ * AF_INET6 addresses, an AF_INET socket's AF_INET ones. */
 typedef struct WitSocketAddress {
-    WitU16 Family; /* AF_INET (2), or AF_UNSPEC (0) for none */
+    WitU16 Family; /* AF_INET (2), AF_INET6 (10), or AF_UNSPEC (0) for none */
     WitU16 Port; /* in host order */
     WitU32 Reserved;
-    WitU8 Address[16]; /* AF_INET: the first four, in network order */
+    WitU8 Address[16]; /* AF_INET: the first four, in network order; AF_INET6: all sixteen */
 } WitSocketAddress;
 
 typedef struct WitSocketRequest {
@@ -103,6 +107,22 @@ typedef struct WitSocketConfiguration {
     WitU32 Mtu, Leased; /* Leased: one once DHCP configured the interface */
 } WitSocketConfiguration;
 
+/* CONFIGURATION6's answer in the window (W4.3): the interface's IPv6 addresses as the host assigned them — the
+ * link-local one from the adapter's address and the global one from the router's prefix, each after duplicate address
+ * detection (Flags says which are assigned) — the on-link prefix's length, the default router's link-local address
+ * (zeros for none) and the DNS servers the router advertised. */
+#define WIT_SOCKET_IPV6_LINK_LOCAL 0x1U /* Flags: LinkLocal is assigned */
+#define WIT_SOCKET_IPV6_GLOBAL 0x2U /* Flags: Global is assigned */
+
+typedef struct WitSocketConfiguration6 {
+    WitU32 Version, Size; /* WIT_SOCKET_VERSION, the size of this structure */
+    WitU8 LinkLocal[16], Global[16], Router[16]; /* in network order */
+    WitU32 DnsCount; /* the DNS servers that follow, at most four */
+    WitU32 PrefixLength; /* the on-link prefix's bits; zero for none */
+    WitU32 Flags, Reserved;
+    WitU8 Dns[4][16];
+} WitSocketConfiguration6;
+
 /* On the grant channel, from the device manager: an adapter's packet channel in the one handle slot, then one with
  * WIT_SOCKET_ADAPTERS_END and no handle. */
 typedef struct WitNetworkAdapter {
@@ -116,5 +136,6 @@ WIT_STATIC_ASSERT(sizeof(WitSocketRequest) == 88, "Socket request");
 WIT_STATIC_ASSERT(sizeof(WitSocketReply) == 64, "Socket reply");
 WIT_STATIC_ASSERT(sizeof(WitSocketEvent) == 16, "Socket event");
 WIT_STATIC_ASSERT(sizeof(WitSocketConfiguration) == 56, "Socket configuration");
+WIT_STATIC_ASSERT(sizeof(WitSocketConfiguration6) == 136, "Socket IPv6 configuration");
 WIT_STATIC_ASSERT(sizeof(WitNetworkAdapter) == 64, "Network adapter");
 #endif
