@@ -29,6 +29,16 @@ internal static class BootScenarioRunner
     // The guest's keyboard driver reports every key transition to the log with this prefix (C2.1); the runner types a
     // key once the previous one's transitions are there, and gives up on a key the guest has not reported in this long.
     internal const string KEY_REPORT = "[VIRTIO-INPUT] key ";
+
+    /// <summary>
+    /// The environment variable that asks a guest past its deadline to leave its physical memory beside the logs (P3).
+    /// </summary>
+    internal const string GUEST_DUMP_VARIABLE = "WITOS_GUEST_DUMP";
+
+    /// <summary>
+    /// How long the stop of a guest past its deadline may take when it leaves its memory (P3).
+    /// </summary>
+    private static readonly TimeSpan GUEST_DUMP_BUDGET = TimeSpan.FromMinutes(2);
     private const int KEY_REPORT_MILLISECONDS = 60000;
     private const int KEY_STEP_MILLISECONDS = 20;
 
@@ -58,7 +68,11 @@ internal static class BootScenarioRunner
         }
         var firmwareState = Path.Combine(Path.GetDirectoryName(image)!, name + ".vars.fd");
         File.Copy(architecture.FirmwareVariablesPath(root), firmwareState, overwrite: true);
-        using var qmpControl = new QemuControl();
+        // A guest that runs past its deadline leaves its physical memory beside the logs when WITOS_GUEST_DUMP is 1 (plan
+        // step P3), for guest-threads to read its processes and threads from.
+        using var qmpControl = new QemuControl(Environment.GetEnvironmentVariable(GUEST_DUMP_VARIABLE) == "1"
+            ? Path.Combine(logs, name + ".core")
+            : null);
         // The runner's side of the guest's network (W1.2b): its echo server and the port it reaches the guest through.
         using var peer = request.Network && (request.NetworkEcho || request.NetworkForward != 0 || request.NetworkHttps is not null)
             ? new NetworkPeer(request.NetworkForward, request.NetworkHttps) : null;
@@ -144,7 +158,8 @@ internal static class BootScenarioRunner
         try
         {
             monitorResult = await Processes.RunWithFilesAsync(architecture.QemuPath(root), arguments, root, request.TimeoutSeconds,
-                Path.Combine(logs, name + ".stdout.log"), Path.Combine(logs, name + ".stderr.log"), qmpControl.QuitAsync, cut.Token);
+                Path.Combine(logs, name + ".stdout.log"), Path.Combine(logs, name + ".stderr.log"), qmpControl.QuitAsync, cut.Token,
+                qmpControl.Dumps ? GUEST_DUMP_BUDGET : null);
         }
         finally
         {

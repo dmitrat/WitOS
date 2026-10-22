@@ -45,12 +45,19 @@ internal sealed class QemuControl : IDisposable
 
     private int m_serial;
 
+    private readonly string? m_dumpPath;
+
     #endregion
 
     #region Constructors
 
-    internal QemuControl()
+    /// <summary>
+    /// A control session for one QEMU.
+    /// </summary>
+    /// <param name="dumpPath">Where a guest that runs past its deadline leaves its physical memory (P3), or null.</param>
+    internal QemuControl(string? dumpPath = null)
     {
+        m_dumpPath = dumpPath;
         m_listener.Start(1);
         var port = ((IPEndPoint)m_listener.LocalEndpoint).Port;
         Argument = $"tcp:127.0.0.1:{port},server=off";
@@ -73,6 +80,9 @@ internal sealed class QemuControl : IDisposable
         try
         {
             await SessionAsync(token);
+            // Every processor's registers once (P3: the current one alone showed an idle boot processor while the others'
+            // state was unknown).
+            await HumanAsync("info registers -a", token);
             // The guest ran past its deadline: before QEMU quits, the transcript records where a few samples find the
             // processor (plan step D5.2, where one process spun on a lock whose holder waited for a process the dispatcher
             // never ran). On x64 a sample also records the kernel stack's page above its stack pointer, whose top holds
@@ -91,6 +101,14 @@ internal sealed class QemuControl : IDisposable
                 // The saved frame's last five words: RIP, CS, RFLAGS, RSP, SS; CS 0x33 is user mode.
                 if (words.Length >= 5 && words[^4] == 0x33)
                     await HumanAsync($"x /64gx 0x{words[^2]:x}", token);
+            }
+            // The guest's physical memory as an ELF core when asked (P3): guest-threads reads the kernel's processes and
+            // threads from it with the kernel's map. QEMU writes it before it answers.
+            if (m_dumpPath is not null)
+            {
+                File.Delete(m_dumpPath);
+                await ExecuteAsync("dump-guest-memory", new Dictionary<string, object> { ["paging"] = false, ["protocol"] = "file:" + m_dumpPath },
+                    token);
             }
             // For quit, QEMU's SHUTDOWN event for it acknowledges too, since QEMU may close the connection before the
             // reply leaves (seen on a Linux host, plan step T2.1a).
@@ -268,6 +286,11 @@ internal sealed class QemuControl : IDisposable
     #endregion
 
     #region Properties
+
+    /// <summary>
+    /// Whether a guest past its deadline leaves its memory (P3).
+    /// </summary>
+    internal bool Dumps => m_dumpPath is not null;
 
     /// <summary>
     /// QEMU -qmp argument that connects to the loopback listener.

@@ -43,6 +43,10 @@ public sealed partial class NetworkStack
 
     // Linux's TCP_TIMEWAIT_LEN, and its tcp_fin_timeout for a closed socket waiting for its peer's FIN.
     private const long TIME_WAIT_MILLISECONDS = 60_000;
+
+    // The least time between two acknowledgments a connection sends for unacceptable segments: Linux's
+    // tcp_invalid_ratelimit (P3).
+    private const long INVALID_ACK_INTERVAL_MILLISECONDS = 500;
     private const long FIN_TIMEOUT_MILLISECONDS = 60_000;
 
     // The segments a connection keeps beyond a hole, and their bytes.
@@ -524,7 +528,7 @@ public sealed partial class NetworkStack
             {
                 if (tcp.State == TcpState.TimeWait && header.Has(TcpHeader.FIN))
                     tcp.LingerAt = now + TIME_WAIT_MILLISECONDS;
-                SendAck(tcp);
+                SendInvalidAck(tcp, now);
             }
             return;
         }
@@ -532,7 +536,7 @@ public sealed partial class NetworkStack
         {
             if (header.Sequence != tcp.RcvNxt)
             {
-                SendAck(tcp); // RFC 5961's challenge
+                SendInvalidAck(tcp, now); // RFC 5961's challenge
                 return;
             }
             if (tcp.Parent is not null)
@@ -552,7 +556,7 @@ public sealed partial class NetworkStack
             if (tcp.State == TcpState.SynReceived && header.Sequence == tcp.Irs)
                 Transmit(tcp, tcp.Iss, TcpHeader.SYN | TcpHeader.ACK, []); // the peer did not hear our answer
             else
-                SendAck(tcp); // RFC 5961's challenge
+                SendInvalidAck(tcp, now); // RFC 5961's challenge
             return;
         }
         if (!header.Has(TcpHeader.ACK))
@@ -652,7 +656,7 @@ public sealed partial class NetworkStack
         var ack = header.Acknowledgment;
         if (SequenceGt(ack, tcp.SndMax))
         {
-            SendAck(tcp);
+            SendInvalidAck(tcp, now); // acknowledging what was never sent
             return false;
         }
         if (SequenceLt(ack, tcp.SndUna))
@@ -666,9 +670,14 @@ public sealed partial class NetworkStack
             tcp.SndWl1 = header.Sequence;
             tcp.SndWl2 = ack;
             if (window > 0)
+            {
                 tcp.PersistAt = long.MaxValue;
+                tcp.ProbeBackoff = 0;
+            }
             else
+            {
                 tcp.Retries = 0; // a peer that answers with a closed window is alive
+            }
         }
         if (SequenceGt(ack, tcp.SndUna))
             NewAck(tcp, ack, now);
@@ -943,7 +952,7 @@ public sealed partial class NetworkStack
             {
                 tcp.PersistAt = long.MaxValue;
                 if (tcp.SndWnd == 0 && tcp.Send.Count > (int)(tcp.SndNxt - tcp.SndUna))
-                    SendData(tcp, (int)(tcp.SndNxt - tcp.SndUna), 1, now); // the probe, which the retransmission timer repeats
+                    SendWindowProbe(tcp, now);
             }
         }
     }
@@ -1078,6 +1087,41 @@ public sealed partial class NetworkStack
     }
 
     private void SendAck(TcpSocket tcp) => Transmit(tcp, tcp.SndNxt, TcpHeader.ACK, []);
+
+    // The acknowledgment that answers a segment of a connection that is not acceptable — outside the window, acknowledging
+    // what was never sent, or a reset or a SYN RFC 5961 challenges — at most once in 500 ms of a connection, as Linux
+    // limits it (tcp_invalid_ratelimit): two peers that each find the other's acknowledgments unacceptable otherwise
+    // answer each other without end, as the suite's TLS echo over the loopback did with both windows closed (P3).
+    private void SendInvalidAck(TcpSocket tcp, long now)
+    {
+        if (now < tcp.InvalidAckAt + INVALID_ACK_INTERVAL_MILLISECONDS)
+        {
+            Statistics.AcknowledgmentsSkipped++;
+            return;
+        }
+        tcp.InvalidAckAt = now;
+        SendAck(tcp);
+    }
+
+    // The zero-window probe (RFC 9293 section 3.8.6.1) as Linux sends it (tcp_xmit_probe_skb): an acknowledgment from
+    // before the window, which takes no sequence space — a byte of data would, and the peer, whose window is closed,
+    // would then find every pure acknowledgment that follows unacceptable and learn nothing from it (P3) — and which the
+    // peer answers with its window. The probes back off as retransmissions do until the window opens, and a peer that
+    // answers none of them ends the connection.
+    private void SendWindowProbe(TcpSocket tcp, long now)
+    {
+        if (++tcp.Retries > DATA_RETRIES)
+        {
+            Reset(tcp);
+            Fail(tcp, NetworkErrors.TIMED_OUT);
+            return;
+        }
+        Transmit(tcp, tcp.SndUna - 1, TcpHeader.ACK, []);
+        Statistics.WindowProbes++;
+        tcp.PersistAt = now + Math.Min(tcp.Rto << Math.Min(tcp.ProbeBackoff, 16), RTO_MAX);
+        if (tcp.ProbeBackoff < DATA_RETRIES)
+            tcp.ProbeBackoff++;
+    }
 
     // After the application read: a window update once the window grew by a segment or half the buffer, whichever is
     // less (the receiver's silly window avoidance, RFC 9293 section 3.8.6.2.2).

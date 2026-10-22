@@ -139,6 +139,72 @@ public sealed class TcpTests
         Assert.That(read, Is.EqualTo(accepted), "every byte arrived once the window opened again");
     }
 
+    // P3: a .NET process froze on ARM64 with four processors in the suite's TLS echo over the loopback, and the network
+    // service's stack thread was found in Advance forever, holding the stack's lock, while every socket of every process
+    // waited for it. Both connections' receive buffers were full and both had probed the other's closed window with a
+    // byte, so each side's pure acknowledgments lay beyond the other's RCV.NXT: unacceptable with a zero window, each
+    // answered with an acknowledgment that was unacceptable in turn — an acknowledgment storm that the loopback queue
+    // fed back into the same Advance without end. Linux never consumes sequence space for a window probe
+    // (tcp_xmit_probe_skb) and rate-limits the acknowledgments it sends for out-of-window segments
+    // (tcp_invalid_ratelimit, 500 ms); the stack does the same, and an Advance takes the loopback's queue as it was.
+    [Test]
+    public void ClosedWindowsBothWaysOverTheLoopbackDoNotStormTest()
+    {
+        var network = new SimulatedNetwork();
+        var stack = network.AddStack(0x01_00_00_5E_00_04);
+        Assert.That(stack.OpenTcp(out var listener), Is.Zero);
+        Assert.That(stack.Bind(listener, Ipv4Address.Loopback, PORT), Is.Zero);
+        Assert.That(stack.Listen(listener, 4), Is.Zero);
+        Assert.That(stack.OpenTcp(out var client), Is.Zero);
+        Assert.That(stack.Connect(client, Ipv4Address.Loopback, PORT), Is.EqualTo(NetworkErrors.IN_PROGRESS));
+        network.Pump();
+        Assert.That(stack.Accept(listener, out var server), Is.Zero);
+        var chunk = new byte[64 * 1024];
+        long toServer = 0, toClient = 0;
+        for (var round = 0; round < 64; round++)
+        {
+            var clientFull = stack.SendStream(client, chunk, out var sent) == NetworkErrors.AGAIN;
+            toServer += clientFull ? 0 : sent;
+            var serverFull = stack.SendStream(server, chunk, out sent) == NetworkErrors.AGAIN;
+            toClient += serverFull ? 0 : sent;
+            network.Wait(10);
+            if (clientFull && serverFull)
+                break;
+        }
+        var clientSide = stack.FindTcp(client)!;
+        var serverSide = stack.FindTcp(server)!;
+        Assert.That(clientSide.Receive.Free, Is.LessThan(8), "the client's buffer is full");
+        Assert.That(serverSide.Receive.Free, Is.LessThan(8), "the server's buffer is full");
+        Assert.That(clientSide.Send.Count, Is.Positive.And.EqualTo(serverSide.Send.Count), "both hold what the other's window refused");
+        // Nobody reads for ten seconds: the probes back off, and nothing else goes.
+        var before = stack.Statistics.SegmentsSent;
+        for (var step = 0; step < 100; step++)
+        {
+            network.Now += 100;
+            stack.Advance();
+        }
+        var sent2 = stack.Statistics.SegmentsSent - before;
+        TestContext.Out.WriteLine($"{sent2} segments in ten seconds: {stack.Statistics.WindowProbes} probes, " +
+            $"{stack.Statistics.AcknowledgmentsSkipped} acknowledgments held back");
+        Assert.That(sent2, Is.LessThan(64), $"the probes and their answers alone go over a closed window, not {sent2} segments");
+        Assert.That(clientSide.SndNxt, Is.EqualTo(clientSide.SndUna), "a probe consumes no sequence space");
+        Assert.That(serverSide.SndNxt, Is.EqualTo(serverSide.SndUna), "a probe consumes no sequence space");
+        // Both read: every byte arrives once, and the connections stay synchronized.
+        var buffer = new byte[64 * 1024];
+        long fromClient = 0, fromServer = 0;
+        for (var round = 0; round < 400 && (fromClient < toServer || fromServer < toClient); round++)
+        {
+            while (stack.ReceiveStream(server, buffer, false, out var count) == 0 && count > 0)
+                fromClient += count;
+            while (stack.ReceiveStream(client, buffer, false, out var count) == 0 && count > 0)
+                fromServer += count;
+            network.Wait(50);
+        }
+        Assert.That(fromClient, Is.EqualTo(toServer), "the server read every byte the client sent");
+        Assert.That(fromServer, Is.EqualTo(toClient), "the client read every byte the server sent");
+        Assert.That(stack.DescribeConnections(), Has.Count.EqualTo(2).And.All.Contains("Established"));
+    }
+
     [Test]
     public void BacklogHoldsConnectionsUntilAcceptedTest()
     {

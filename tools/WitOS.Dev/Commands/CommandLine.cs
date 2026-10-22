@@ -201,7 +201,8 @@ internal static class CommandLine
             RuntimeWitos.BuildAsync),
         new CommandFormat(check: false),
         new CommandFormat(check: true),
-        new CommandFingerprint()
+        new CommandFingerprint(),
+        new CommandGuestThreads()
     ];
 
     #endregion

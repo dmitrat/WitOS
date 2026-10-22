@@ -95,15 +95,18 @@ internal static class Processes
     /// <param name="control">Stop callback.</param>
     /// <param name="cut">Ends the run at once, as a timeout does but without the stop callback: the child is killed where
     /// it stands, as a power cut ends a machine (D6.2).</param>
+    /// <param name="controlBudget">How long the stop callback may take; a second by default (P3: a guest's memory dump
+    /// takes longer).</param>
     /// <returns>Exit code, file contents and timeout state; a cut run reports a timeout.</returns>
     public static async Task<ProcessResult> RunWithFilesAsync(string executable, IEnumerable<string> arguments,
         string directory, int timeoutSeconds, string outputPath, string errorPath, Func<CancellationToken, Task> control,
-        CancellationToken cut = default)
+        CancellationToken cut = default, TimeSpan? controlBudget = null)
     {
         if (timeoutSeconds <= 0)
             throw new ArgumentOutOfRangeException(nameof(timeoutSeconds));
+        var budget = controlBudget ?? CONTROL_BUDGET;
         if (!OperatingSystem.IsWindows())
-            return await RunWithFilesUnixAsync(executable, arguments, directory, timeoutSeconds, outputPath, errorPath, control, cut);
+            return await RunWithFilesUnixAsync(executable, arguments, directory, timeoutSeconds, outputPath, errorPath, control, cut, budget);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cut);
         deadline.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
         using var output = File.OpenHandle(outputPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
@@ -128,11 +131,11 @@ internal static class Processes
         catch (Exception exception) { failure = exception; }
         var cleanup = Stopwatch.StartNew();
         if (timedOut && !cut.IsCancellationRequested)
-            failure = await RequestStopAsync((_, _, token) => control(token), Stream.Null, () => "", cleanup) ?? failure;
+            failure = await RequestStopAsync((_, _, token) => control(token), Stream.Null, () => "", cleanup, budget) ?? failure;
         try
         {
             child.Terminate();
-            await child.ConfirmTerminationAsync(CLEANUP_BUDGET - cleanup.Elapsed);
+            await child.ConfirmTerminationAsync(CLEANUP_BUDGET + (budget - CONTROL_BUDGET) - cleanup.Elapsed);
         }
         catch (Exception exception)
         {
@@ -322,7 +325,7 @@ internal static class Processes
     // bounded as on Windows, and the files remain on cleanup failure.
     private static async Task<ProcessResult> RunWithFilesUnixAsync(string executable, IEnumerable<string> arguments,
         string directory, int timeoutSeconds, string outputPath, string errorPath, Func<CancellationToken, Task> control,
-        CancellationToken cut)
+        CancellationToken cut, TimeSpan budget)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cut);
         deadline.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
@@ -362,11 +365,11 @@ internal static class Processes
         catch (Exception exception) { failure = exception; }
         var cleanup = Stopwatch.StartNew();
         if (timedOut && !cut.IsCancellationRequested)
-            failure = await RequestStopAsync((_, _, token) => control(token), Stream.Null, () => "", cleanup) ?? failure;
+            failure = await RequestStopAsync((_, _, token) => control(token), Stream.Null, () => "", cleanup, budget) ?? failure;
         try
         {
             child.Terminate();
-            await child.ConfirmTerminationAsync(CLEANUP_BUDGET - cleanup.Elapsed);
+            await child.ConfirmTerminationAsync(CLEANUP_BUDGET + (budget - CONTROL_BUDGET) - cleanup.Elapsed);
         }
         catch (Exception exception)
         {
@@ -385,9 +388,10 @@ internal static class Processes
     }
 
     private static async Task<Exception?> RequestStopAsync(Func<Stream, Func<string>, CancellationToken, Task> control,
-        Stream input, Func<string> output, Stopwatch cleanup)
+        Stream input, Func<string> output, Stopwatch cleanup, TimeSpan? budget = null)
     {
-        using var stop = new CancellationTokenSource(CONTROL_BUDGET);
+        var limit = budget ?? CONTROL_BUDGET;
+        using var stop = new CancellationTokenSource(limit);
         var token = stop.Token;
         var task = Task.Run(() => control(input, output, token));
         try
