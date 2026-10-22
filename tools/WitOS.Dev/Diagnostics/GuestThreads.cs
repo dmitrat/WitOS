@@ -34,6 +34,10 @@ internal static partial class GuestThreads
 
     private const int FRAMES = 40;
 
+    private const int SCAN_LINES = 48;
+
+    private const int PEEK_WORDS = 512;
+
     #endregion
 
     #region Functions
@@ -48,10 +52,13 @@ internal static partial class GuestThreads
     /// <param name="architecture">The guest's architecture.</param>
     /// <param name="libcPath">The guest's libc.so, for musl's debugger list; the sysroot's by default.</param>
     /// <param name="symbolDirectories">Directories whose ELF files name the functions of the modules.</param>
+    /// <param name="peeks">Words of a process's memory to print: the process's slot, the address and the count.</param>
+    /// <param name="scanWords">Words of each thread's stack above its stack pointer to search for code addresses, for a
+    /// thread whose code keeps no frame records; zero scans none.</param>
     /// <returns>When it is written.</returns>
     /// <exception cref="NotSupportedException">The architecture is not ARM64.</exception>
     public static async Task RunAsync(string root, string corePath, string mapPath, string serialPath, KernelArchitecture architecture,
-        string? libcPath = null, IReadOnlyList<string>? symbolDirectories = null)
+        string? libcPath = null, IReadOnlyList<string>? symbolDirectories = null, IReadOnlyList<Peek>? peeks = null, int scanWords = 0)
     {
         if (architecture != KernelArchitecture.Arm64)
             throw new NotSupportedException("guest-threads reads ARM64 guests so far.");
@@ -78,18 +85,32 @@ internal static partial class GuestThreads
             report.AppendLine($"Processor {cpu}: component 0x{core.Read64(at):x}, thread {core.Read32(at + 8)}, idle {core.Read32(at + 12)}, " +
                 $"parked {core.Read32(at + 24)}, ticking {core.Read32(at + 28)}, kicked {core.Read32(at + 32)}, yielding 0x{core.Read64(at + 40):x}");
         }
+        // Where every processor was when the dump stopped the guest, from the core's notes (the monitor's samples before
+        // it are each of their own moment): a kernel address named by the map, a user address left to the threads.
+        for (var cpu = 0; cpu < core.Processors.Count; cpu++)
+        {
+            var registers = core.Processors[cpu];
+            report.AppendLine($"Processor {cpu} registers: pc {Kernel(registers.Pc)}, sp 0x{registers.Sp:x}, pstate 0x{registers.Pstate:x}, " +
+                $"lr {Kernel(registers.X(30))}, x0 0x{registers.X(0):x}, x1 0x{registers.X(1):x}, x8 0x{registers.X(8):x}");
+        }
         var owners = imageBase + map.Rva("slot_owners", "user");
         for (var slot = 0; slot < (int)layout.ProcessCapacity; slot++)
         {
             var process = core.Read64(owners + (ulong)(slot * 8));
             if (process != 0 && core.Contains(process, (int)layout.ProcessBytes))
-                DescribeProcess(core, layout, tableRoot, slot, process, libc, symbols, report);
+                DescribeProcess(core, layout, tableRoot, slot, process, libc, symbols, report, scanWords,
+                    (peeks ?? []).Where(peek => peek.Slot == slot).ToList());
         }
         Console.Write(report.ToString());
+
+        string Kernel(ulong address) =>
+            address >= imageBase && address - imageBase <= map.Extent && map.Describe(address - imageBase) is { } name
+                ? $"0x{address:x} {name}"
+                : $"0x{address:x}";
     }
 
     private static void DescribeProcess(GuestCore core, Layout layout, ulong tableRoot, int slot, ulong process, ElfSymbols libc,
-        Symbolizer symbols, StringBuilder report)
+        Symbolizer symbols, StringBuilder report, int scanWords, IReadOnlyList<Peek> peeks)
     {
         var top = core.Read32(process + layout.ProcessThreadTop);
         var space = new UserSpace(core, core.Read64(process + layout.ProcessSpaceRoot));
@@ -99,6 +120,16 @@ internal static partial class GuestThreads
             $"{(modules.Count == 0 ? "no module list" : modules[0].Name + (modules.Count > 1 ? $" and {modules.Count - 1} modules" : ""))}");
         foreach (var module in modules)
             report.AppendLine($"    module 0x{module.Base:x} {module.Name}");
+        foreach (var peek in peeks)
+        {
+            report.AppendLine($"  peek 0x{peek.Address:x}, {peek.Count} words:");
+            for (var i = 0; i < peek.Count; i += 4)
+            {
+                var words = Enumerable.Range(i, Math.Min(4, peek.Count - i))
+                    .Select(j => space.Read64(peek.Address + (ulong)(j * 8)) is { } value ? $"0x{value:x16}" : "(unmapped)");
+                report.AppendLine($"    0x{peek.Address + (ulong)(i * 8):x}: {string.Join(' ', words)}");
+            }
+        }
         for (var index = 0; index < top; index++)
         {
             var thread = process + layout.ProcessThreads + (ulong)index * layout.ThreadBytes;
@@ -132,7 +163,8 @@ internal static partial class GuestThreads
             }
             var registers = Enumerable.Range(0, 31).Select(i => core.Read64(frame.Value + layout.FrameX + (ulong)(i * 8))).ToArray();
             var pc = core.Read64(frame.Value + layout.FrameElr);
-            report.AppendLine($"    pc 0x{pc:x} sp 0x{core.Read64(frame.Value + layout.FrameSp):x} " +
+            var sp = core.Read64(frame.Value + layout.FrameSp);
+            report.AppendLine($"    pc 0x{pc:x} sp 0x{sp:x} " +
                 $"lr 0x{registers[30]:x} spsr 0x{core.Read64(frame.Value + layout.FrameSpsr):x} x8 0x{registers[8]:x}");
             report.AppendLine("    x0-x7 " + string.Join(' ', registers.Take(8).Select(value => $"0x{value:x}")));
             report.AppendLine($"    #0 {symbols.Describe(modules, pc)}");
@@ -150,6 +182,25 @@ internal static partial class GuestThreads
                     break;
                 record = previous.Value;
             }
+            if (scanWords > 0)
+                ScanStack(space, modules, symbols, sp, core.Read64(thread + layout.ThreadStackTop), scanWords, report);
+        }
+    }
+
+    // The code addresses among the words of a thread's stack above its stack pointer, for a thread whose code keeps no
+    // frame records (musl's, built without frame pointers, and the libc's own threads): return addresses and the pointers
+    // into a module's data they lie among, each named where the module's symbols are known.
+    private static void ScanStack(UserSpace space, IReadOnlyList<Module> modules, Symbolizer symbols, ulong sp, ulong top, int words,
+        StringBuilder report)
+    {
+        var lines = 0;
+        for (var at = sp & ~7UL; at < top && at < sp + (ulong)words * 8 && lines < SCAN_LINES; at += 8)
+        {
+            var value = space.Read64(at);
+            if (value is null || !modules.Any(module => value.Value >= module.Base && value.Value - module.Base < (1UL << 32)))
+                continue;
+            report.AppendLine($"    stack+0x{at - sp:x} {symbols.Describe(modules, value.Value)}");
+            lines++;
         }
     }
 
@@ -208,6 +259,28 @@ internal static partial class GuestThreads
     }
 
     private sealed record Module(ulong Base, string Name);
+
+    /// <summary>
+    /// Words of a process's memory to print: the process's slot, the address in its space and the count of 8-byte words.
+    /// </summary>
+    public sealed record Peek(int Slot, ulong Address, int Count)
+    {
+        /// <summary>
+        /// Parses "slot:address:count", the address in hexadecimal.
+        /// </summary>
+        /// <exception cref="ArgumentException">The text is not of that form.</exception>
+        public static Peek Parse(string text)
+        {
+            var parts = text.Split(':');
+            if (parts.Length != 3 ||
+                !int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var slot) ||
+                !ulong.TryParse(parts[1].StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? parts[1][2..] : parts[1], NumberStyles.HexNumber,
+                    CultureInfo.InvariantCulture, out var address) ||
+                !int.TryParse(parts[2], NumberStyles.None, CultureInfo.InvariantCulture, out var count) || count < 1 || count > PEEK_WORDS)
+                throw new ArgumentException($"A peek is slot:address:count, the address in hexadecimal and at most {PEEK_WORDS} words: '{text}'.");
+            return new Peek(slot, address, count);
+        }
+    }
 
     // Names an address as module+offset, and as a function where a file of the module's name lies below a directory.
     private sealed class Symbolizer(IReadOnlyList<string> directories)

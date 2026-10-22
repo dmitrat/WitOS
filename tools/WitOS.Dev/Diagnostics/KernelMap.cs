@@ -66,6 +66,22 @@ internal sealed partial class KernelMap
             : throw new KeyNotFoundException($"{found.Count} symbols {name}{(objectName is null ? "" : " of " + objectName)} in the map.");
     }
 
+    /// <summary>
+    /// The highest symbol's relative address: a bound on the image.
+    /// </summary>
+    public ulong Extent => m_symbols.Count == 0 ? 0 : m_symbols.Max(symbol => symbol.Rva);
+
+    /// <summary>
+    /// Names a relative address of the image as the symbol it lies in and the offset into it.
+    /// </summary>
+    /// <param name="rva">The address relative to the image's base.</param>
+    /// <returns>symbol+0xoffset, or null before the first symbol.</returns>
+    public string? Describe(ulong rva)
+    {
+        var found = m_symbols.Where(symbol => symbol.Rva <= rva).OrderByDescending(symbol => symbol.Rva).Take(1).ToList();
+        return found.Count == 0 ? null : $"{found[0].Name}+0x{rva - found[0].Rva:x}";
+    }
+
     [GeneratedRegex(@"Preferred load address is ([0-9a-fA-F]+)")]
     private static partial Regex PreferredBase();
 

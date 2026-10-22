@@ -12,6 +12,11 @@ internal sealed class GuestCore : IDisposable
     #region Constants
 
     private const uint PT_LOAD = 1;
+    private const uint PT_NOTE = 4;
+    private const uint NT_PRSTATUS = 1;
+    private const int PRSTATUS_REGISTERS = 112;
+    private const int REGISTERS = 34;
+    private const ulong NOTES_MAX_BYTES = 1 << 20;
 
     #endregion
 
@@ -22,6 +27,8 @@ internal sealed class GuestCore : IDisposable
     private readonly MemoryMappedViewAccessor m_view;
 
     private readonly List<Segment> m_segments = [];
+
+    private readonly List<ProcessorRegisters> m_processors = [];
 
     #endregion
 
@@ -96,6 +103,13 @@ internal sealed class GuestCore : IDisposable
     /// <param name="address">The first byte.</param>
     /// <param name="count">The bytes.</param>
     /// <returns>Whether it does.</returns>
+    /// <summary>
+    /// Every processor's registers at the instant of the dump, in the order of the core's notes (QEMU's dump stops the
+    /// guest and writes one NT_PRSTATUS note per processor): the one consistent view of where the processors were, where
+    /// the monitor's samples before the dump are each of their own moment.
+    /// </summary>
+    public IReadOnlyList<ProcessorRegisters> Processors => m_processors;
+
     public bool Contains(ulong address, int count) =>
         m_segments.Any(segment => address >= segment.Physical && address + (ulong)count <= segment.Physical + segment.Bytes);
 
@@ -145,16 +159,43 @@ internal sealed class GuestCore : IDisposable
         for (var i = 0; i < count; i++)
         {
             m_view.ReadArray((long)(programHeaders + (ulong)(i * entrySize)), header, 0, header.Length);
-            if (BinaryPrimitives.ReadUInt32LittleEndian(header) != PT_LOAD)
-                continue;
+            var type = BinaryPrimitives.ReadUInt32LittleEndian(header);
             var offset = BinaryPrimitives.ReadUInt64LittleEndian(header.AsSpan(8));
             var physical = BinaryPrimitives.ReadUInt64LittleEndian(header.AsSpan(24));
             var bytes = BinaryPrimitives.ReadUInt64LittleEndian(header.AsSpan(32));
-            if (bytes > 0)
+            if (type == PT_NOTE && bytes > 0 && bytes <= NOTES_MAX_BYTES)
+                ReadNotes(offset, (int)bytes);
+            else if (type == PT_LOAD && bytes > 0)
                 m_segments.Add(new Segment(offset, physical, bytes));
         }
         if (m_segments.Count == 0)
             throw new InvalidDataException("The core has no loadable segment.");
+    }
+
+    // The notes: each a name, a descriptor and a type, 4-byte aligned. An NT_PRSTATUS of CORE holds elf_prstatus, whose
+    // pr_reg at 112 is AArch64's user_pt_regs: x0–x30, sp, pc, pstate.
+    private void ReadNotes(ulong offset, int bytes)
+    {
+        var data = new byte[bytes];
+        m_view.ReadArray((long)offset, data, 0, bytes);
+        for (var at = 0; at + 12 <= bytes;)
+        {
+            var nameBytes = (int)BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(at));
+            var descriptorBytes = (int)BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(at + 4));
+            var type = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(at + 8));
+            var descriptor = at + 12 + ((nameBytes + 3) & ~3);
+            if (nameBytes < 0 || descriptorBytes < 0 || descriptor + descriptorBytes > bytes)
+                break;
+            if (type == NT_PRSTATUS && nameBytes == 5 && data.AsSpan(at + 12, 4).SequenceEqual("CORE"u8) &&
+                descriptorBytes >= PRSTATUS_REGISTERS + REGISTERS * 8)
+            {
+                var values = new ulong[REGISTERS];
+                for (var i = 0; i < REGISTERS; i++)
+                    values[i] = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(descriptor + PRSTATUS_REGISTERS + i * 8));
+                m_processors.Add(new ProcessorRegisters(values));
+            }
+            at = descriptor + ((descriptorBytes + 3) & ~3);
+        }
     }
 
     #endregion
@@ -173,6 +214,17 @@ internal sealed class GuestCore : IDisposable
     #region Nested Types
 
     private sealed record Segment(ulong Offset, ulong Physical, ulong Bytes);
+
+    /// <summary>
+    /// A processor's registers from the core's note: x0–x30, then sp, pc and pstate.
+    /// </summary>
+    public sealed record ProcessorRegisters(ulong[] Values)
+    {
+        public ulong X(int index) => Values[index];
+        public ulong Sp => Values[31];
+        public ulong Pc => Values[32];
+        public ulong Pstate => Values[33];
+    }
 
     #endregion
 }
