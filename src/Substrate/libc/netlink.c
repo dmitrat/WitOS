@@ -390,11 +390,10 @@ static void error_message(Writer *w, const struct nlmsghdr *request, int error, 
 
 /* The answers of one request, written after the queue's tail: a dump of the links, the addresses or the routes of a
  * family, each ending with DONE; anything else is refused with EOPNOTSUPP, as the kernel refuses what it does not
- * serve. The family a dump asks for is the rtgenmsg after the header, AF_UNSPEC when the request carries none. */
-static void answer(Writer *w, const struct nlmsghdr *h, WitU32 pid)
+ * serve. The family a dump asks for is the rtgenmsg after the header, AF_UNSPEC when the request carries none. The
+ * interfaces were read before the record's lock was taken, since reading them asks the service. */
+static void answer(Writer *w, const struct nlmsghdr *h, WitU32 pid, const Interface *list, int count)
 {
-    Interface list[2];
-    const int count = interfaces(list);
     const int dump = (h->nlmsg_flags & NLM_F_DUMP) == NLM_F_DUMP;
     const unsigned char family = h->nlmsg_len > sizeof(*h) ? *(const unsigned char *)(h + 1) : AF_UNSPEC;
     const int inet = family == AF_UNSPEC || family == AF_INET;
@@ -469,10 +468,10 @@ static void changed(Netlink *n)
 }
 
 /* Writes a request's answers into the queue: nothing of them when they do not fit (ENOBUFS). Under the record's lock. */
-static long enqueue_answers(Netlink *n, const struct nlmsghdr *h)
+static long enqueue_answers(Netlink *n, const struct nlmsghdr *h, const Interface *list, int count)
 {
     Writer w = {n->Queue + n->Tail, QUEUE_BYTES - n->Tail, 0, 0};
-    answer(&w, h, n->Port);
+    answer(&w, h, n->Port, list, count);
     if (w.Overflow) {
         return -ENOBUFS;
     }
@@ -543,9 +542,11 @@ static long send_requests(Netlink *n, const unsigned char *bytes, WitU32 length)
 {
     WitU32 at = 0;
     long r = 0;
+    Interface list[2];
     if (length < sizeof(struct nlmsghdr)) {
         return -EINVAL;
     }
+    const int count = interfaces(list); /* a round trip to the service: before the lock */
     __wit_lock(&netlink_lock);
     while (at + sizeof(struct nlmsghdr) <= length) {
         const struct nlmsghdr *h = (const struct nlmsghdr *)(bytes + at);
@@ -554,7 +555,7 @@ static long send_requests(Netlink *n, const unsigned char *bytes, WitU32 length)
             break;
         }
         if (h->nlmsg_flags & NLM_F_REQUEST) {
-            r = enqueue_answers(n, h);
+            r = enqueue_answers(n, h, list, count);
             if (r < 0) {
                 break;
             }
