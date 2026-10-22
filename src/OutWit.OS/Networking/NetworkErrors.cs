@@ -79,6 +79,16 @@ public static class NetworkErrors
     public const int FAMILY_NOT_SUPPORTED = 97;
 
     /// <summary>
+    /// EHOSTUNREACH: an ICMP report said the host is unreachable (W4.3).
+    /// </summary>
+    public const int HOST_UNREACHABLE = 113;
+
+    /// <summary>
+    /// EACCES: an ICMPv6 report said the destination is administratively prohibited (W4.3).
+    /// </summary>
+    public const int ACCESS_DENIED = 13;
+
+    /// <summary>
     /// ENOPROTOOPT: the option is not of the socket's protocol (W4.3: IPV6_V6ONLY of an AF_INET socket).
     /// </summary>
     public const int NO_OPTION = 92;

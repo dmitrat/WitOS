@@ -110,6 +110,47 @@ public sealed class TcpTests
         Assert.That(a.TakeError(client), Is.EqualTo(NetworkErrors.TIMED_OUT));
     }
 
+    // An ICMP destination unreachable report for a SYN ends the attempt with the report's error, as Linux does, so that
+    // a program moves on to its next address: slirp answers a SYN to an address the host cannot reach so (W4.3: .NET
+    // tried example.com's IPv6 address first on a runner without IPv6 and waited for its 30 s timeout).
+    [Test]
+    public void UnreachableReportEndsAConnectionAttemptTest()
+    {
+        var (network, a, b) = Segment();
+        a.Configure(A, MASK, B, []); // B is A's gateway: a SYN to another network goes to it
+        Assert.That(a.OpenTcp(out var client), Is.Zero);
+        var before = network.Captured.Count;
+        Assert.That(a.Connect(client, new Ipv4Address(192, 168, 1, 1), 443), Is.EqualTo(NetworkErrors.IN_PROGRESS));
+        network.Pump();
+        var syn = network.Captured.Skip(before).Single(frame => frame[12] == 0x08 && frame[13] == 0x00 && frame[14 + 9] == Ipv4Header.TCP);
+        // B, as a router, reports the network unreachable, quoting the datagram's header and the SYN's first eight bytes.
+        var quoted = syn.AsSpan(EthernetHeader.SIZE, Ipv4Header.SIZE + 8);
+        var message = new byte[8 + quoted.Length];
+        message[0] = 3; // destination unreachable
+        message[1] = 0; // network unreachable
+        quoted.CopyTo(message.AsSpan(8));
+        var checksum = InternetChecksum.Compute(message);
+        message[2] = (byte)(checksum >> 8);
+        message[3] = (byte)checksum;
+        var packet = new byte[Ipv4Header.SIZE + message.Length];
+        Ipv4Header.Write(packet, B, A, Ipv4Header.ICMP, 1, message.Length);
+        message.CopyTo(packet, Ipv4Header.SIZE);
+        var frame = new byte[EthernetHeader.SIZE + packet.Length];
+        new EthernetHeader(new MacAddress(0x01_00_00_5E_00_02), new MacAddress(0x02_00_00_5E_00_02), EthernetHeader.IPV4).Write(frame);
+        packet.CopyTo(frame, EthernetHeader.SIZE);
+        a.Receive(frame);
+        Assert.That(a.FindTcp(client)!.State, Is.EqualTo(TcpState.Closed));
+        Assert.That(a.Poll(client) & (NetworkStack.ERROR | NetworkStack.HANGUP), Is.EqualTo(NetworkStack.ERROR | NetworkStack.HANGUP));
+        Assert.That(a.TakeError(client), Is.EqualTo(NetworkErrors.NETWORK_UNREACHABLE));
+        Assert.That(a.Statistics.UnreachableReports, Is.EqualTo(1));
+        // A forged report, quoting a sequence number that is not the attempt's, ends nothing.
+        Assert.That(a.OpenTcp(out var second), Is.Zero);
+        Assert.That(a.Connect(second, new Ipv4Address(192, 168, 1, 1), 443), Is.EqualTo(NetworkErrors.IN_PROGRESS));
+        network.Pump();
+        a.Receive(frame); // the old SYN's ports and sequence number
+        Assert.That(a.FindTcp(second)!.State, Is.EqualTo(TcpState.SynSent), "another attempt's report");
+    }
+
     [Test]
     public void ClosedWindowIsProbedAndReopensTest()
     {

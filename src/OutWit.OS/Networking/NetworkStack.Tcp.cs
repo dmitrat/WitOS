@@ -1093,6 +1093,24 @@ public sealed partial class NetworkStack
             TcpHeader.RST | TcpHeader.ACK, 0, []);
     }
 
+    // An ICMP or ICMPv6 destination unreachable report quoting a SYN of this host: the connection in SYN-SENT it belongs
+    // to ends with the report's error, as Linux's tcp_v4_err and tcp_v6_err end it (a hard error before the connection
+    // exists; an established connection ignores such reports, as Linux does without IP_RECVERR). The quoted sequence
+    // number must be the attempt's, so that a forged report ends nothing.
+    private void RefuseConnecting(Ipv6Address local, ushort localPort, Ipv6Address remote, ushort remotePort, uint sequence, int error)
+    {
+        foreach (var tcp in m_tcp.Values)
+        {
+            if (tcp.State == TcpState.SynSent && tcp.LocalPort == localPort && tcp.RemotePort == remotePort && tcp.LocalAddress == local &&
+                tcp.RemoteAddress == remote && SequenceLe(tcp.SndUna, sequence) && SequenceLt(sequence, tcp.SndNxt))
+            {
+                Statistics.UnreachableReports++;
+                Fail(tcp, error);
+                return;
+            }
+        }
+    }
+
     // The answer to a segment nobody takes (RFC 9293 section 3.10.7.1).
     private void SendReset(Ipv6Address local, Ipv6Address remote, TcpHeader header, int payloadBytes)
     {

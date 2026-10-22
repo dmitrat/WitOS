@@ -57,6 +57,37 @@ public sealed class Ipv6StackTests
         Assert.That(network.RouterAdvertisements, Is.EqualTo(1), "no solicitation after an advertisement");
     }
 
+    // slirp answers a SYN to an address the host cannot reach with ICMPv6 "no route": the attempt ends with ENETUNREACH
+    // at once, as on Linux, instead of retransmitting the SYN until the program's timeout.
+    [Test]
+    public void NoRouteReportEndsAConnectionAttemptTest()
+    {
+        var network = new SimulatedNetwork { Ipv6Router = true };
+        var stack = network.AddStack(MAC_A);
+        stack.StartIpv6();
+        network.Wait(1000);
+        network.Wait(1000);
+        Assert.That(stack.Ipv6Global.IsAny, Is.False);
+        Assert.That(stack.OpenTcp(out var client, ipv6: true), Is.Zero);
+        var before = network.Captured.Count;
+        var destination = Ipv6Address.Parse("2001:db8::1");
+        Assert.That(stack.Connect(client, destination, 443), Is.EqualTo(NetworkErrors.IN_PROGRESS));
+        network.Pump();
+        var syn = network.Captured.Skip(before).Single(frame => frame[12] == 0x86 && frame[13] == 0xDD && frame[EthernetHeader.SIZE + 6] == Ipv4Header.TCP);
+        Assert.That(EthernetHeader.TryRead(syn, out var ethernet) && ethernet.Destination == SimulatedNetwork.SERVER_MAC, Is.True, "through the router");
+        var report = Icmpv6.Unreachable(0, syn.AsSpan(EthernetHeader.SIZE), SimulatedNetwork.ROUTER, stack.Ipv6Global);
+        var packet = new byte[Ipv6Header.SIZE + report.Length];
+        Ipv6Header.Write(packet, SimulatedNetwork.ROUTER, stack.Ipv6Global, Ipv6Header.ICMPV6, report.Length);
+        report.CopyTo(packet, Ipv6Header.SIZE);
+        var frame = new byte[EthernetHeader.SIZE + packet.Length];
+        new EthernetHeader(new MacAddress(MAC_A), SimulatedNetwork.SERVER_MAC, EthernetHeader.IPV6).Write(frame);
+        packet.CopyTo(frame, EthernetHeader.SIZE);
+        stack.Receive(frame);
+        Assert.That(stack.FindTcp(client)!.State, Is.EqualTo(TcpState.Closed));
+        Assert.That(stack.TakeError(client), Is.EqualTo(NetworkErrors.NETWORK_UNREACHABLE));
+        Assert.That(stack.Statistics.UnreachableReports, Is.EqualTo(1));
+    }
+
     [Test]
     public void DuplicateAddressStaysUnassignedTest()
     {

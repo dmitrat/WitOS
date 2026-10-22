@@ -1996,7 +1996,11 @@ Cryptography (хранилище корней: 119 сертификатов — 
   `::1` и собственные адреса — через очередь петли (`Advance` различает версии по первому байту), multicast — на
   `33:33:…` (кадры на таких адресах принимаются), link-local и префикс — на линке, остальное — через маршрутизатор или
   `ENETUNREACH`; сообщения обнаружения — только с hop limit 255; ICMPv6 echo отвечается, port unreachable посылается и
-  принимается; заголовки расширений отбрасываются, фрагментации нет. Протокол остаётся версии 1: `WitSocketAddress` с
+  принимается; сообщение destination unreachable (ICMP или ICMPv6, любой код), цитирующее SYN этого хоста, завершает
+  попытку соединения ошибкой Linux (`ENETUNREACH`, `EHOSTUNREACH`, `ECONNREFUSED`, `EACCES`; номер последовательности в
+  цитате должен быть попытки) — нога CI x64 нашла, что .NET пробует адрес IPv6 `example.com` первым, slirp на раннере
+  без IPv6 отвечает «no route», и SYN повторялся дольше таймаута `HttpClient` (`Network.HttpsPublic` стал not
+  applicable); заголовки расширений отбрасываются, фрагментации нет. Протокол остаётся версии 1: `WitSocketAddress` с
   `AF_INET6`, `OPEN` с `AF_INET6`, `IPV6_V6ONLY` (`IPPROTO_IPV6` 41, 26; `ENOPROTOOPT` у `AF_INET`, `EINVAL` после
   `bind`), имена в семействе сокета, адрес `AF_INET` у `CONNECT_TO`/`SEND` двустекового датаграммного сокета — как у
   `connect`/`sendto` Linux, `BIND` — только семейство сокета; `CONFIGURATION6` (16): `WitSocketConfiguration6` —

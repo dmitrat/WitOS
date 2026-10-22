@@ -139,8 +139,8 @@ public sealed partial class NetworkStack
             case Icmpv6.ROUTER_ADVERTISEMENT when ip.HopLimit == Ipv6Header.DISCOVERY_HOP_LIMIT && ip.Source.IsLinkLocal:
                 RouterAdvertised(ip, payload);
                 break;
-            case Icmpv6.DESTINATION_UNREACHABLE when code == Icmpv6.PORT_UNREACHABLE:
-                PortUnreachable6(payload);
+            case Icmpv6.DESTINATION_UNREACHABLE:
+                Unreachable6(code, payload);
                 break;
         }
     }
@@ -255,16 +255,37 @@ public sealed partial class NetworkStack
             ConfigurationChanged?.Invoke();
     }
 
-    // A port unreachable report quoting a datagram a connected socket sent: its peer refused it.
-    private void PortUnreachable6(ReadOnlySpan<byte> payload)
+    // A destination unreachable report quoting what this host sent: a port unreachable for a datagram a connected socket
+    // sent is its peer's refusal; any of them for a connection attempt ends the attempt with Linux's error (slirp answers
+    // a SYN to an address the host cannot reach with "no route", which Linux's tcp_v6_err turns into ENETUNREACH, so that
+    // a program moves to the next address).
+    private void Unreachable6(byte code, ReadOnlySpan<byte> payload)
     {
         var quoted = payload[8..];
-        if (quoted.Length < Ipv6Header.SIZE + UdpHeader.SIZE || quoted[0] >> 4 != 6 || quoted[6] != Ipv4Header.UDP)
+        if (quoted.Length < Ipv6Header.SIZE + 8 || quoted[0] >> 4 != 6)
             return;
+        var source = Ipv6Address.Read(quoted[8..]);
         var destination = Ipv6Address.Read(quoted[24..]);
-        var udp = quoted[Ipv6Header.SIZE..];
-        RefuseConnected(BinaryPrimitives.ReadUInt16BigEndian(udp), destination, BinaryPrimitives.ReadUInt16BigEndian(udp[2..]));
+        var transport = quoted[Ipv6Header.SIZE..];
+        var sourcePort = BinaryPrimitives.ReadUInt16BigEndian(transport);
+        var destinationPort = BinaryPrimitives.ReadUInt16BigEndian(transport[2..]);
+        if (quoted[6] == Ipv4Header.UDP && code == Icmpv6.PORT_UNREACHABLE)
+            RefuseConnected(sourcePort, destination, destinationPort);
+        else if (quoted[6] == Ipv4Header.TCP && UnreachableError6(code) is var error and not 0)
+            RefuseConnecting(source, sourcePort, destination, destinationPort, BinaryPrimitives.ReadUInt32BigEndian(transport[4..]), error);
     }
+
+    // The error a connection attempt ends with for an ICMPv6 destination unreachable code, as Linux's icmpv6_err_convert
+    // maps it: no route, administratively prohibited, beyond scope, address unreachable, port unreachable, and the
+    // policy and reject codes.
+    private static int UnreachableError6(byte code) => code switch
+    {
+        0 => NetworkErrors.NETWORK_UNREACHABLE,
+        1 or 5 or 6 => NetworkErrors.ACCESS_DENIED,
+        2 or 3 => NetworkErrors.HOST_UNREACHABLE,
+        4 => NetworkErrors.CONNECTION_REFUSED,
+        _ => 0
+    };
 
     private void ReceiveUdp6(Ipv6Header ip, ReadOnlySpan<byte> payload, ReadOnlySpan<byte> packet)
     {

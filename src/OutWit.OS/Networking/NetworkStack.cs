@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -555,16 +556,33 @@ public sealed partial class NetworkStack
             SendIpv4(ip.Destination, ip.Source, Ipv4Header.ICMP, reply);
             return;
         }
-        // A port unreachable report for a datagram a connected socket sent: its peer refused it.
-        if (payload[0] == UNREACHABLE && payload[1] == PORT_UNREACHABLE && payload.Length >= 8 + Ipv4Header.SIZE + UdpHeader.SIZE &&
-            Ipv4Header.TryReadPrefix(payload[8..], out var original) && original.Protocol == Ipv4Header.UDP)
+        // A destination unreachable report quoting what this host sent: a port unreachable for a datagram a connected
+        // socket sent is its peer's refusal; any of them for a connection attempt ends the attempt with Linux's error.
+        if (payload[0] == UNREACHABLE && payload.Length >= 8 + Ipv4Header.SIZE + 8 && Ipv4Header.TryReadPrefix(payload[8..], out var original) &&
+            payload.Length >= 8 + original.HeaderLength + 8)
         {
-            var udp = payload[(8 + original.HeaderLength)..];
-            var sourcePort = (ushort)((udp[0] << 8) | udp[1]);
-            var destinationPort = (ushort)((udp[2] << 8) | udp[3]);
-            RefuseConnected(sourcePort, Ipv6Address.Map(original.Destination), destinationPort);
+            var transport = payload[(8 + original.HeaderLength)..];
+            var sourcePort = BinaryPrimitives.ReadUInt16BigEndian(transport);
+            var destinationPort = BinaryPrimitives.ReadUInt16BigEndian(transport[2..]);
+            if (original.Protocol == Ipv4Header.UDP && payload[1] == PORT_UNREACHABLE)
+                RefuseConnected(sourcePort, Ipv6Address.Map(original.Destination), destinationPort);
+            else if (original.Protocol == Ipv4Header.TCP && UnreachableError(payload[1]) is var error and not 0)
+                RefuseConnecting(Ipv6Address.Map(original.Source), sourcePort, Ipv6Address.Map(original.Destination), destinationPort,
+                    BinaryPrimitives.ReadUInt32BigEndian(transport[4..]), error);
         }
     }
+
+    // The error a connection attempt ends with for an ICMP destination unreachable code, as Linux's icmp_err_convert maps
+    // it (RFC 1122 section 4.2.3.9: a hard error in SYN-SENT); zero for a code that ends nothing (fragmentation needed).
+    private static int UnreachableError(byte code) => code switch
+    {
+        0 or 6 or 9 or 11 => NetworkErrors.NETWORK_UNREACHABLE,
+        1 or 7 or 8 or 10 or 12 or 13 or 14 or 15 => NetworkErrors.HOST_UNREACHABLE,
+        2 => NetworkErrors.NO_OPTION,
+        3 => NetworkErrors.CONNECTION_REFUSED,
+        5 => NetworkErrors.NOT_SUPPORTED,
+        _ => 0
+    };
 
     // A port unreachable report (ICMP or ICMPv6) for a datagram a connected socket sent: its peer refused it.
     private void RefuseConnected(ushort sourcePort, Ipv6Address destination, ushort destinationPort)
@@ -988,6 +1006,11 @@ public sealed class NetworkStatistics
 
     /// <inheritdoc cref="SegmentsSent" />
     public long ConnectionsDropped { get; set; }
+
+    /// <summary>
+    /// TCP: connection attempts an ICMP or ICMPv6 destination unreachable report ended (W4.3).
+    /// </summary>
+    public long UnreachableReports { get; set; }
 
     /// <summary>
     /// TCP: zero-window probes sent, and acknowledgments of unacceptable segments the rate limit held back (P3; Linux's
