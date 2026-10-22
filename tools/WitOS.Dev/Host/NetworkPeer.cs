@@ -3,6 +3,7 @@ using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Text;
+using WitOS.Dev.Kernel;
 
 namespace WitOS.Dev.Host;
 
@@ -52,6 +53,7 @@ internal sealed class NetworkPeer : IDisposable
     private readonly Task? m_servingHttps;
     private long m_echoed;
     private int m_httpsRequests;
+    private HttpClient? m_http;
 
     #endregion
 
@@ -130,6 +132,40 @@ internal sealed class NetworkPeer : IDisposable
         if (received != bytes || !back.AsSpan().SequenceEqual(data))
             throw new IOException($"the guest echoed {received} of {bytes} bytes{(received == bytes ? ", changed" : "")}");
         Console.WriteLine($"The runner's {bytes} bytes came back whole from the guest's port {GuestPort} through 127.0.0.1:{ForwardPort}.");
+    }
+
+    /// <summary>
+    /// Sends an HTTP request to the guest's listening socket through the forward (W3.2) and requires an answer of 200 whose
+    /// body holds the action's text; a POST sends the text as its body.
+    /// </summary>
+    /// <param name="argument">The action's argument: the method, the path and the text (<see cref="BootAction.Http"/>).</param>
+    /// <param name="stop">Ends the request.</param>
+    /// <exception cref="IOException">The request failed or the answer is not the expected one.</exception>
+    public async Task HttpAsync(string argument, CancellationToken stop)
+    {
+        var (method, path, text) = BootAction.ParseHttp(argument);
+        var address = $"http://127.0.0.1:{ForwardPort}{path}";
+        try
+        {
+            // One client for the boot: Kestrel keeps the connection alive, so the requests after the first reuse it.
+            m_http ??= new HttpClient(new SocketsHttpHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(300) };
+            using var request = new HttpRequestMessage(new HttpMethod(method), address);
+            if (method == "POST")
+                request.Content = new StringContent(text, Encoding.UTF8);
+            using var response = await m_http.SendAsync(request, stop);
+            var body = await response.Content.ReadAsStringAsync(stop);
+            if (!response.IsSuccessStatusCode || !body.Contains(text, StringComparison.Ordinal))
+                throw new IOException($"{method} {path} on the guest's port {GuestPort} answered {(int)response.StatusCode} with {body.Length} characters, without \"{text}\"");
+            Console.WriteLine($"The guest's port {GuestPort} answered {method} {path} with {(int)response.StatusCode} and {body.Length} characters through 127.0.0.1:{ForwardPort}.");
+        }
+        catch (HttpRequestException exception)
+        {
+            throw new IOException($"{method} {address}, forwarded to the guest's port {GuestPort}, failed: {exception.Message}");
+        }
+        catch (TaskCanceledException) when (!stop.IsCancellationRequested)
+        {
+            throw new IOException($"{method} {address}, forwarded to the guest's port {GuestPort}, was not answered in time");
+        }
     }
 
     // Echoes every connection QEMU's guestfwd makes until the runner stops.
@@ -237,6 +273,7 @@ internal sealed class NetworkPeer : IDisposable
         catch (AggregateException)
         {
         }
+        m_http?.Dispose();
         m_stop.Dispose();
     }
 

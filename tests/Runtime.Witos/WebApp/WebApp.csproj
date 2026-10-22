@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- An ordinary ASP.NET Core application (plan step W3.2, Implementation Strategy §67): what the web SDK's template
+       gives, framework-dependent and portable, with nothing for WitOS. dotnet publish without a RID builds it; the guest
+       runs it unchanged through dotnet on the shared frameworks of its install. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>WebApp</AssemblyName>
+    <RootNamespace>WebApp</RootNamespace>
+  </PropertyGroup>
+
+</Project>

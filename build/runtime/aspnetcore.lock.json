@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/dotnet/aspnetcore",
+  "branch": "release/10.0",
+  "tag": "v10.0.12",
+  "version": "10.0.12",
+  "commit": "cb21a42eafcd44cc35fad48d99dc82ff7512ce2f",
+  "submodules": {
+    "src/submodules/MessagePack-CSharp": "365965f0d8c13c40ff8fde25882066b90f569c7a"
+  },
+  "license": "MIT",
+  "purpose": "The ASP.NET Core shared framework Microsoft.AspNetCore.App (plan step W3.2, Implementation Strategy sections 67 and 68, W0 decision 9): the dotnet/aspnetcore commit of the release that pairs with the runtime's pin (build/runtime/release-10.0.lock.json), whose shared framework the Linux host builds unchanged by the repository's own build with ReadyToRun compilation off, so that every assembly is IL alone and one framework serves x64, ARM64 and riscv64 under CoreCLR's JIT. Upstream publishes the framework as runtime packs per RID whose assemblies carry the RID's ReadyToRun code, which CoreCLR refuses on another machine, and publishes none for riscv64. The submodule is SignalR's MessagePack protocol's source; the native and JavaScript parts of the repository are not built."
+}

@@ -152,11 +152,14 @@ internal static class RuntimeApps
     /// <param name="terminal">The terminal's script (N4.3); no terminal when null.</param>
     /// <param name="processors">The processors the board gives the guest (P2); one by default.</param>
     /// <param name="https">The runner's authority, whose HTTPS server the guest reaches through the adapter (W3.1); none by default.</param>
+    /// <param name="forward">A guest's port the runner reaches through the adapter's hostfwd (W1.2b, W3.2); none by default.</param>
+    /// <param name="actions">What the runner does once the guest's lines appear (W3.2: its requests to the forward); nothing by
+    /// default.</param>
     /// <returns>When the boot passed.</returns>
     public static async Task BootAsync(string root, KernelArchitecture architecture, string scenario, string[] requiredLines,
         int timeoutSeconds, IReadOnlyList<(string Path, string Source)>? volumeFiles = null, long diskBytes = RuntimeDataDisk.BYTES,
         int memoryMiB = MEMORY_MIB, IReadOnlyList<(string Name, string Source)>? package = null, IReadOnlyList<TerminalInput>? terminal = null,
-        int processors = 1, RunnerAuthority? https = null)
+        int processors = 1, RunnerAuthority? https = null, ushort forward = 0, IReadOnlyList<BootAction>? actions = null)
     {
         var image = await KernelImageBuilder.BuildAsync(root, scenario, architecture: architecture, package: package);
         var dataDisk = Path.Combine(Path.GetDirectoryName(image)!, "data-disk.img");
@@ -171,11 +174,13 @@ internal static class RuntimeApps
             DataDisk = dataDisk,
             Terminal = terminal,
             Processors = processors,
-            // The adapter (W1.1) when the runner serves HTTPS (W3.1): the guest reaches the server through QEMU's guestfwd,
-            // which the runner's peer adds to the adapter's user networking; without it the suite's Network area keeps to
-            // the loopback.
-            Network = https is not null,
-            NetworkHttps = https
+            // The adapter (W1.1) when the runner serves HTTPS (W3.1) or reaches a guest's port (W3.2): the guest reaches the
+            // server through QEMU's guestfwd and the runner the port through its hostfwd, both of the adapter's user
+            // networking; without them the suite's Network area keeps to the loopback.
+            Network = https is not null || forward != 0,
+            NetworkHttps = https,
+            NetworkForward = forward,
+            Actions = actions ?? []
         });
     }
 

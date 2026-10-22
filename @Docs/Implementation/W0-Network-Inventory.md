@@ -148,6 +148,9 @@ The others follow from the documents and are recorded for review.
    network service.
 9. **ASP.NET Core.** The shared framework `Microsoft.AspNetCore.App` is managed alone. The install takes it from the
    stock SDK's packs at the version that matches the runtime's band, under `/dotnet/shared/Microsoft.AspNetCore.App`.
+   *W3.2 measured otherwise* ([W3.2-AspNetCore.md](W3.2-AspNetCore.md) §1): the packs are per RID with ReadyToRun code
+   CoreCLR refuses on another machine, and none exists for riscv64, so the install builds the framework IL alone from
+   dotnet/aspnetcore's pinned release by the repository's own build, one framework for the three ISAs.
 
 ## 4. Slices
 

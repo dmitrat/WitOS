@@ -117,9 +117,9 @@
     },
     {
       "name": "ASP.NET Core",
-      "status": "Planned",
-      "step": "M7",
-      "note": "Needs networking."
+      "status": "Supported",
+      "step": "W3.2",
+      "note": "The shared framework Microsoft.AspNetCore.App in the install, built IL alone from its pinned source for every ISA; an ordinary Kestrel application published without a RID serves HTTP and HTTPS over the network service's sockets and answers the runner through the port forward (`runtime-aspnetcore`). No ReadyToRun code: the framework starts under the JIT."
     },
     {
       "name": "Diagnostics (`createdump`, EventPipe, `dotnet-dump`)",

@@ -143,6 +143,12 @@ internal static class KernelImageBuilder
     public const string RUNTIME_COMPATIBILITY_SCENARIO = "runtime-compatibility";
 
     /// <summary>
+    /// An ordinary ASP.NET Core application (W3.2): Kestrel through dotnet beside the device services, requested by the
+    /// runner through the adapter's port forward.
+    /// </summary>
+    public const string RUNTIME_ASPNETCORE_SCENARIO = "runtime-aspnetcore";
+
+    /// <summary>
     /// The terminal scenario (N4.3a): the device services with a virtio console the runner types into.
     /// </summary>
     public const string RUNTIME_TERMINAL_SCENARIO = "runtime-terminal";
@@ -220,7 +226,7 @@ internal static class KernelImageBuilder
             RUNTIME_LIBRARY_TESTS_SCENARIO, RUNTIME_DEVICES_SCENARIO, RUNTIME_COMPATIBILITY_SCENARIO, RUNTIME_LIBRARIES_SCENARIO,
             RUNTIME_NUGET_SUITES_SCENARIO, RUNTIME_SIDE_BY_SIDE_SCENARIO, RUNTIME_TERMINAL_SCENARIO, RUNTIME_PUBLISHED_SCENARIO,
             RUNTIME_POWERSHELL_SCENARIO, RUNTIME_DISPLAY_SCENARIO, RUNTIME_COMMANDER_SCENARIO,
-            RUNTIME_INSTALLER_SCENARIO, RUNTIME_PROCESSORS_SCENARIO, RUNTIME_CSHARPREPL_SCENARIO];
+            RUNTIME_INSTALLER_SCENARIO, RUNTIME_PROCESSORS_SCENARIO, RUNTIME_CSHARPREPL_SCENARIO, RUNTIME_ASPNETCORE_SCENARIO];
 
     // A release map must not name self-test code: test objects, self-test functions, fault triggers or workers.
     private static readonly Regex SELF_TEST_SYMBOL = new(
@@ -304,6 +310,7 @@ internal static class KernelImageBuilder
             : scenario == RUNTIME_LIBRARY_TESTS_SCENARIO ? await Runtime.RuntimeWitos.BuildLibraryTestsPackageAsync(root, output, architecture)
             : scenario == RUNTIME_DEVICES_SCENARIO ? await Runtime.RuntimeDevices.BuildPackageAsync(root, output, architecture)
             : scenario == RUNTIME_COMPATIBILITY_SCENARIO ? await Runtime.RuntimeCompatibility.BuildPackageAsync(root, output, architecture)
+            : scenario == RUNTIME_ASPNETCORE_SCENARIO ? await Runtime.RuntimeAspNetCore.BuildPackageAsync(root, output, architecture)
             : scenario == RUNTIME_TERMINAL_SCENARIO ? await Runtime.RuntimeTerminal.BuildPackageAsync(root, output, architecture)
             : scenario == RUNTIME_DISPLAY_SCENARIO ? await Runtime.RuntimeDisplay.BuildPackageAsync(root, output, architecture)
             : scenario == RUNTIME_PUBLISHED_SCENARIO ? await Runtime.RuntimePublished.BuildPackageAsync(root, output, architecture)
@@ -326,6 +333,7 @@ internal static class KernelImageBuilder
                 or RUNTIME_COMPATIBILITY_SCENARIO or RUNTIME_LIBRARIES_SCENARIO or RUNTIME_NUGET_SUITES_SCENARIO or RUNTIME_TERMINAL_SCENARIO
                 or RUNTIME_SIDE_BY_SIDE_SCENARIO or RUNTIME_PUBLISHED_SCENARIO or RUNTIME_POWERSHELL_SCENARIO or RUNTIME_DISPLAY_SCENARIO
                 or RUNTIME_COMMANDER_SCENARIO or RUNTIME_INSTALLER_SCENARIO or RUNTIME_PROCESSORS_SCENARIO or RUNTIME_CSHARPREPL_SCENARIO
+                or RUNTIME_ASPNETCORE_SCENARIO
                 ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
             : await UserImage.BuildRootAsync(root, output, architecture);
         var objects = await CompileKernelAsync(root, output, scenario, selfTest, target, architecture);

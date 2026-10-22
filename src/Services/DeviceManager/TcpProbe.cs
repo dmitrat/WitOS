@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using OutWit.OS.Networking;
 using OutWit.OS.Resources;
 
@@ -7,9 +8,10 @@ namespace OutWit.OS.DeviceManager;
 /// <summary>
 /// TCP's probe (plan step W1.2b): the device manager connects to the network service as a process will and exchanges a
 /// megabyte with the runner's echo server, which QEMU's user networking forwards from <see cref="ECHO"/>:7 to the host,
-/// checking every byte that comes back; then it listens on <see cref="LISTEN_PORT"/>, which the runner reaches through a
-/// port forward, and echoes what the runner sends until the runner ends its sending, which the runner checks. The
-/// runtime-devices scenario requires both lines, and the runner's check of its own bytes.
+/// checking every byte that comes back; then, where the package marks that the runner connects (<see cref="INBOUND_MARK"/>,
+/// W3.2), it listens on <see cref="LISTEN_PORT"/>, which the runner reaches through a port forward, and echoes what the
+/// runner sends until the runner ends its sending, which the runner checks. The runtime-devices scenario requires both
+/// lines, and the runner's check of its own bytes.
 /// </summary>
 internal static class TcpProbe
 {
@@ -24,6 +26,14 @@ internal static class TcpProbe
     /// The port the probe listens on for the runner.
     /// </summary>
     public const ushort LISTEN_PORT = 8080;
+
+    /// <summary>
+    /// The file of the package that says the runner connects to <see cref="LISTEN_PORT"/> (W3.2): runtime-devices' package
+    /// holds it, while a scenario that boots with the adapter for another reason (the compatibility suite reaching the
+    /// runner's HTTPS server, an application the runner requests on a port of its own) does not, and the probe listens for
+    /// nobody.
+    /// </summary>
+    public const string INBOUND_MARK = "/etc/witos/tcp-probe-inbound";
 
     private const string PREFIX = "[DEVICES] ";
 
@@ -48,7 +58,12 @@ internal static class TcpProbe
         {
             using var client = SocketClient.Connect(clients);
             if (Outbound(client))
-                Inbound(client);
+            {
+                if (File.Exists(INBOUND_MARK))
+                    Inbound(client);
+                else
+                    Console.WriteLine($"{PREFIX}network TCP probe: no connection of the runner expected ({INBOUND_MARK} absent)");
+            }
         }
         catch (Exception exception) when (exception is CapabilityException or FormatException)
         {

@@ -237,6 +237,8 @@ jobs:
             artifacts/runtime-witos/src/artifacts/bin/microsoft.netcore.app.runtime.witos-${{ matrix.arch }}/Release/runtimes/witos-${{ matrix.arch }}/lib/*/*.dll
             artifacts/runtime-witos/src/artifacts/bin/microsoft.netcore.app.runtime.witos-${{ matrix.arch }}/Release/runtimes/witos-${{ matrix.arch }}/native/libSystem.*.so
             artifacts/runtime-witos/compatibility-${{ matrix.arch }}.json
+            artifacts/aspnetcore/*/lib/*
+            artifacts/aspnetcore/*/versions.txt
 
       - name: Source style
         if: matrix.arch == 'x64'
@@ -302,7 +304,8 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: witos-runtime-install-${{ matrix.arch }}
-          path: artifacts/runtime-witos
+          # The artifact's root is artifacts since W3.2 added the ASP.NET Core framework beside runtime-witos.
+          path: artifacts
 
       - name: The NuGet libraries' suites of group ${{ matrix.group }} on the host, then in the guest
         run: >-
@@ -370,7 +373,8 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: witos-runtime-install-${{ matrix.arch }}
-          path: artifacts/runtime-witos
+          # The artifact's root is artifacts since W3.2 added the ASP.NET Core framework beside runtime-witos.
+          path: artifacts
 
       - name: .NET 8 for witos-${{ matrix.arch }} beside .NET 10
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- runtime-side-by-side --arch ${{ matrix.arch }}
@@ -460,7 +464,8 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: witos-runtime-install-${{ matrix.arch }}
-          path: artifacts/runtime-witos
+          # The artifact's root is artifacts since W3.2 added the ASP.NET Core framework beside runtime-witos.
+          path: artifacts
 
       - name: Download the applications published on Windows
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
