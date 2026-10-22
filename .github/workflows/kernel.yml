@@ -11,7 +11,9 @@ permissions:
 
 concurrency:
   group: kernel-${{ github.ref }}
-  cancel-in-progress: true
+  # A pull request's newer push supersedes its run; main's runs finish one at a time, so that a merge never cancels the
+  # run of the merge before it (the audit of 2026-10-20: no run of main had finished for a day of merges).
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   boot:
