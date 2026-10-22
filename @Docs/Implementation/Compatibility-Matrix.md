@@ -29,11 +29,11 @@ types in the guest) and reports its checks not applicable elsewhere.
 | Globalization | 8 | Supported | Supported | Supported |
 | TimeZones | 4 | Supported | Supported | Supported |
 | Terminal | 7 | Supported | Supported | Supported |
-| Network | 15 | Supported | Supported | Partial: IPv6 |
+| Network | 17 | Supported | Supported | Partial: IPv6 |
 | Cryptography | 11 | Supported | Supported | Supported |
 | Ipc | 5 | Supported | Supported | Supported |
 
-121 checks in 17 areas.
+123 checks in 17 areas.
 
 ## Recorded differences
 
@@ -75,6 +75,7 @@ silently.
 | Diagnostics (`createdump`, EventPipe, `dotnet-dump`) | Partial | W4.1 | The runtime's diagnostic IPC over a Unix domain socket: a tool reaches a process through the port it starts with (`DOTNET_DiagnosticPorts`; the Ipc area's DiagnosticsIpc). Every process's id is 1, so the default port has one name and the first .NET process takes it. No `createdump`; the debugger story decides the rest. |
 | Compression (`System.IO.Compression`) | Supported | R2.3a | zlib-ng and brotli in-tree. |
 | Server GC and several scheduling processors | Supported | P1, P2 | Threads run on every processor of the board with their affinity honoured (P1); `Environment.ProcessorCount`, `Thread.GetCurrentProcessorId`, the server collector's heaps and the thread pool see every processor, and the scenarios of N1 and N2 run on four (P2). |
+| Network interfaces and their changes (System.Net.NetworkInformation) | Partial | W4.2 | `NetworkInterface.GetAllNetworkInterfaces`, an interface's addresses, hardware address, index, MTU and DNS servers, `GetIsNetworkAvailable` and `NetworkChange`'s subscriptions work as on Linux: the libc answers the netlink route socket and the `SIOCGIF*` ioctls from the network service's configuration (the loopback and `eth0` with the lease), and a change of the lease reaches the sockets that listen. The gateways are empty and the statistics fail, since Linux's files read them from `/proc/net`, which is not emulated; a link's loss is not reported (Compatibility-Differences: Network interfaces). |
 | Avalonia and other GUI frameworks | Planned | M9 | Needs the presentation layer of RFC 0009. |
 
 ## Hardware

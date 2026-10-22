@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace OutWit.OS.Networking;
 
@@ -101,11 +102,14 @@ public sealed partial class NetworkStack
     /// <param name="dns">The DNS servers.</param>
     public void Configure(Ipv4Address address, Ipv4Address mask, Ipv4Address gateway, IReadOnlyList<Ipv4Address> dns)
     {
+        var changed = address != Address || mask != Mask || gateway != Gateway || !Enumerable.SequenceEqual(m_dns, dns);
         Address = address;
         Mask = mask;
         Gateway = gateway;
         m_dns.Clear();
         m_dns.AddRange(dns);
+        if (changed)
+            ConfigurationChanged?.Invoke();
     }
 
     /// <summary>
@@ -676,6 +680,12 @@ public sealed partial class NetworkStack
     /// A socket's readiness may have changed: a datagram arrived on an empty queue, or an error is pending.
     /// </summary>
     public event Action<int>? SocketReady;
+
+    /// <summary>
+    /// The interface's address, mask, gateway or DNS servers changed (W4.2): a lease taken, renewed with other values or
+    /// lost. The service tells every session, whose libc tells the netlink sockets that listen (RTM_NEWADDR and the rest).
+    /// </summary>
+    public event Action? ConfigurationChanged;
 
     #endregion
 

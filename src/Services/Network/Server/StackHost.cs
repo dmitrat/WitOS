@@ -57,6 +57,7 @@ internal sealed class StackHost : IDisposable
         m_frequency = Clock.Frequency();
         m_stack = new NetworkStack(m_link, Now);
         m_stack.SocketReady += Ready;
+        m_stack.ConfigurationChanged += () => SocketConnection.NotifyAll(SocketMessages.CONFIGURATION_EVENT, 0);
         m_wake = Event.Create();
     }
 

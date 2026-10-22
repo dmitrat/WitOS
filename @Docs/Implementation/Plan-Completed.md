@@ -29,7 +29,7 @@
 | [V — Третья ISA](#v--третья-isa) | V0–V3: фаза завершена, каждый шаг — на трёх ISA | V3 — 2026-10-18 |
 | [N — Стандартный .NET (M6)](#n--стандартный-net-m6) | N1–N4: фаза завершена, M6 выполнен, Gate B заявлен | 2026-10-15 (N4.5) |
 | [P — Многопроцессорность](#p--многопроцессорность) | P1 (P1.0–P1.5), P2 и P3: фаза завершена | 2026-10-22 (P3) |
-| [W — Сеть и далее](#w--сеть-и-далее) | W1.1, W1.2 (W1.2a, W1.2b), W2.1 (W2.1a, W2.1b), W2.2, W3.1, W3.2, W4.1 (инвентаризация W0; W4.2, W4.3 — в плане) | W4.1 — 2026-10-21 |
+| [W — Сеть и далее](#w--сеть-и-далее) | W1.1, W1.2 (W1.2a, W1.2b), W2.1 (W2.1a, W2.1b), W2.2, W3.1, W3.2, W4.1, W4.2 (инвентаризация W0; W4.3 — в плане) | W4.2 — 2026-10-22 |
 
 ## 5. Фазы (выполненные шаги)
 
@@ -1953,6 +1953,34 @@ Cryptography (хранилище корней: 119 сертификатов — 
     через `DOTNET_DiagnosticPorts` и `DiagnosticsClientConnector`; пакет `Microsoft.Diagnostics.NETCore.Client` закреплён
     в проекте набора). У каждого процесса номер 1, поэтому порт диагностики по умолчанию — одно имя, и его занимает первый
     .NET-процесс (записано в различиях).
+
+- [x] **W4.2** Сетевые интерфейсы и их изменения (2026-10-22;
+  [W4.2-Network-Interfaces.md](@Docs/Implementation/W4.2-Network-Interfaces.md)). Libc отвечает на netlink-сокет
+  маршрутов и на ioctl интерфейсов из конфигурации службы сети (`netlink.c`, `WIT_SOCKET_CONFIGURATION`), как ядро Linux
+  отвечает программе: `socket(PF_NETLINK, SOCK_RAW, NETLINK_ROUTE)` — дескриптор рода `KindNetlink` над записью с очередью
+  сообщений (четыре сокета, очереди по 4 КиБ — таблицы libc живут в ограниченном сегменте корневой задачи); дампы
+  `RTM_GETLINK`, `RTM_GETADDR` и `RTM_GETROUTE` (так musl отвечает `getifaddrs` и `if_nameindex`) заполняет сам запрос —
+  петля (индекс 1, `lo`, 127.0.0.1/8, MTU 65536) и адаптер, на котором служба держит стек (индекс 2, `eth0`, его MAC и MTU,
+  адрес аренды с маской и broadcast, маршрут подсети и маршрут по умолчанию через шлюз), затем `NLMSG_DONE`; иной запрос —
+  `NLMSG_ERROR` с `EOPNOTSUPP`, дамп IPv6 — один `DONE` до W4.3; чтение целыми сообщениями, как у Linux (`MSG_TRUNC`,
+  `MSG_PEEK`, `MSG_DONTWAIT`; в пустой буфер — ждёт сообщения и не берёт его: так .NET ждёт готовности), читатель паркуется
+  на слове очереди, которое и есть ребро `epoll`; `bind` с группами и `NETLINK_ADD_MEMBERSHIP`; `SIOCGIFINDEX`, `SIOCGIFNAME`,
+  `SIOCGIFFLAGS`, `SIOCGIFMTU`, `SIOCGIFHWADDR`, `SIOCGIFADDR`, `SIOCGIFNETMASK`, `SIOCGIFBRDADDR`, `SIOCGIFCONF` на сокете
+  любого рода (`__wit_interface_ioctl`); датаграммный `AF_UNIX`-сокет сам по себе открывается ради этих ioctl (их просит
+  `if_nametoindex` musl), имя и передачи — `EOPNOTSUPP`. Структуры и номера Linux записаны в файле, поскольку musl не даёт
+  `<linux/netlink.h>`. Изменения: стек объявляет `ConfigurationChanged`, когда `Configure` меняет адрес, маску, шлюз или
+  DNS (продление без изменений молчит — хост-тест `DhcpAnnouncesAChangedConfigurationTest`), служба шлёт каждой живой
+  сессии `WitSocketEvent` с сокетом `WIT_SOCKET_CONFIGURATION_EVENT`, поток событий libc перечитывает конфигурацию и
+  сообщает подписанным netlink-сокетам, что ушло и что пришло (`RTM_DELADDR`, `RTM_NEWADDR`, `RTM_NEWLINK`, маршруты).
+  Sysroot несёт `<linux/rtnetlink.h>` и всё, что он включает, из pinned sanitized kernel headers (`Sysroot.KERNEL_HEADERS`,
+  по строкам `#include`) — System.Native собирает слушателя `NetworkChange` там, где есть `HAVE_LINUX_RTNETLINK_H`;
+  `System.Net.NetworkInformation` получает unix-флейвор с файлами Linux патчем проекта (PAL Linux просит интерфейсы у
+  System.Native через `getifaddrs`, читает `/etc/resolv.conf`, маршруты из `/proc/net/route` — только если файл есть).
+  Приёмка: `/bin/sockets-check` (`getifaddrs`, `if_nameindex`, `if_nametoindex`, `if_indextoname`, ioctl на UDP-сокете
+  против `lo` и `eth0` с арендой 10.0.2.15/24 и адресом slirp; строка `[SOCKETS] interfaces: lo and eth0`, которую требует
+  `runtime-devices`), `/bin/local-sockets-check` (датаграммный сокет), набор совместимости `Network.Interfaces` и
+  `Network.AddressChange` (Windows: 123 проверки, 0 неожиданных; в гостевой x64 — 123 проверки, 0 неожиданных, весь `runtime-witos` локально; ARM64 и riscv64 — ноги CI PR #182). Различия записаны: статистики нет
+  (`/proc/net` не эмулируется), `GatewayAddresses` пуст, потеря линка не сообщается.
 
   Приёмка: x64, ARM64 и riscv64 (контейнер, на дереве прогона W3.1: `runtime-services` с пятью загрузками
 `runtime-devices`, затем `runtime-compatibility`): каждая необрезанная загрузка — `local sockets: 73 checks passed,

@@ -42,7 +42,8 @@ typedef struct Entry {
     int WriteEnd;
     int Socket; /* a socket's registration (W2.1b), which holds no reference */
     int Local; /* a local socket's registration (W4.1), which holds no reference either */
-    WitU32 SocketId; /* the socket's service identifier at the registration; a local socket's generation */
+    int Netlink; /* a netlink socket's registration (W4.2), which holds none either */
+    WitU32 SocketId; /* the socket's service identifier at the registration; a local or a netlink socket's generation */
     WitU32 Events; /* the interest, with EPOLLET and EPOLLONESHOT */
     WitU64 Data;
     WitU64 Token; /* the edge last reported */
@@ -59,7 +60,7 @@ static Instance instances[EPOLLS];
 
 static void drop(Entry *e)
 {
-    if (!e->Socket && !e->Local) {
+    if (!e->Socket && !e->Local && !e->Netlink) {
         __wit_pipe_release(e->Pipe);
     }
     memset(e, 0, sizeof(*e));
@@ -76,6 +77,18 @@ static int local_named(const Entry *e)
     }
     __wit_local_release(local); /* the look's own reference; the descriptor holds one, so nothing closes */
     return local == e->Pipe && __wit_local_id(local) == e->SocketId;
+}
+
+/* Whether a netlink socket's registration still names its socket (W4.2). */
+static int netlink_named(const Entry *e)
+{
+    WitU32 netlink = 0;
+    int nonblocking = 0;
+    if (__wit_netlink_of(e->Fd, &netlink, &nonblocking) <= 0) {
+        return 0;
+    }
+    __wit_netlink_release(netlink); /* the look's own reference */
+    return netlink == e->Pipe && __wit_netlink_id(netlink) == e->SocketId;
 }
 
 /* Whether a socket's registration still names its socket: the descriptor names the same record with the same
@@ -100,6 +113,9 @@ static int stale(Entry *e)
     }
     if (e->Local) {
         return !local_named(e);
+    }
+    if (e->Netlink) {
+        return !netlink_named(e);
     }
     WitU32 pipe_index = 0;
     int write_end = 0, nonblocking = 0;
@@ -191,10 +207,15 @@ static long control(WitU32 index, int op, long fd, const struct epoll_event *eve
     int write_end = 0, nonblocking = 0;
     if (!__wit_pipe_of(fd, &pipe_index, &write_end, &nonblocking)) {
         WitU32 socket = 0;
-        int local = 1;
+        int local = 1, netlink = 0;
         long named = __wit_local_of(fd, &socket, &nonblocking);
         if (named == 0) {
             local = 0;
+            netlink = 1;
+            named = __wit_netlink_of(fd, &socket, &nonblocking);
+        }
+        if (named == 0) {
+            netlink = 0;
             named = __wit_socket_of(fd, &socket, &nonblocking);
         }
         if (named <= 0) {
@@ -203,6 +224,8 @@ static long control(WitU32 index, int op, long fd, const struct epoll_event *eve
         /* A registration holds no reference: the descriptor's keeps the record. */
         if (local) {
             __wit_local_release(socket);
+        } else if (netlink) {
+            __wit_netlink_release(socket);
         } else {
             __wit_socket_release(socket);
         }
@@ -213,8 +236,11 @@ static long control(WitU32 index, int op, long fd, const struct epoll_event *eve
             if (!free_entry) {
                 return -ENOSPC;
             }
-            *free_entry = (Entry){1, (int)fd, socket, 0, !local, local,
-                local ? __wit_local_id(socket) : __wit_socket_id(socket), event->events, event->data.u64, 0, 0, 0};
+            *free_entry = (Entry){1, (int)fd, socket, 0, !local && !netlink, local, netlink,
+                local         ? __wit_local_id(socket)
+                    : netlink ? __wit_netlink_id(socket)
+                              : __wit_socket_id(socket),
+                event->events, event->data.u64, 0, 0, 0};
             return 0;
         }
         if (!found) {
@@ -236,7 +262,7 @@ static long control(WitU32 index, int op, long fd, const struct epoll_event *eve
             __wit_pipe_release(pipe_index);
             return -ENOSPC;
         }
-        *free_entry = (Entry){1, (int)fd, pipe_index, write_end, 0, 0, 0, event->events, event->data.u64, 0, 0, 0};
+        *free_entry = (Entry){1, (int)fd, pipe_index, write_end, 0, 0, 0, 0, event->events, event->data.u64, 0, 0, 0};
         return 0;
     }
     __wit_pipe_release(pipe_index);
@@ -275,8 +301,8 @@ long __wit_epoll_collect(WitU32 index, struct epoll_event *events, int count)
         if (!e->Used || e->Socket) {
             continue; /* a socket's readiness is asked outside the table lock (__wit_epoll_probes) */
         }
-        if (e->Local) {
-            if (!local_named(e)) {
+        if (e->Local || e->Netlink) {
+            if (e->Local ? !local_named(e) : !netlink_named(e)) {
                 drop(e); /* the descriptor names another file now */
                 continue;
             }
@@ -287,7 +313,8 @@ long __wit_epoll_collect(WitU32 index, struct epoll_event *events, int count)
             const short asked = (short)(((e->Events & EPOLLIN) ? POLLIN : 0) |
                 ((e->Events & EPOLLOUT) ? POLLOUT : 0) |
                 ((e->Events & EPOLLRDHUP) ? POLLRDHUP : 0));
-            const short polled = __wit_local_edge(e->Pipe, asked, &token);
+            const short polled =
+                e->Local ? __wit_local_edge(e->Pipe, asked, &token) : __wit_netlink_edge(e->Pipe, asked, &token);
             const WitU32 got = got_of(polled) | ((polled & POLLRDHUP) ? EPOLLRDHUP : 0);
             if (!got || ((e->Events & EPOLLET) && e->Reported && token == e->Token)) {
                 continue;

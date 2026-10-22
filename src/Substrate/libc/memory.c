@@ -619,6 +619,39 @@ static long privatize(WitU64 start, WitU64 end)
 
 static long publish(WitU64 base, WitU64 size);
 
+/* A refused change of protection leaves a line in the log: what a process that fails with EACCES at a VirtualProtect
+ * (CoreCLR's HRESULT 0x8007000C, the PAL's ERROR_INVALID_ACCESS) needs to be told apart afterwards (P3's loop met one). */
+static void refused(const char *why, WitU64 address, WitU64 length, long protection)
+{
+    static const char digits[] = "0123456789abcdef";
+    char line[160];
+    WitU64 result = 0;
+    size_t used = 0;
+    const char *head = "[LIBC] mprotect refused (";
+    memcpy(line, head, strlen(head));
+    used = strlen(head);
+    for (; *why && used < 100; ++why) {
+        line[used++] = *why;
+    }
+    const WitU64 values[3] = {address, length, (WitU64)protection};
+    const char *labels[3] = {"): address 0x", ", length 0x", ", protection 0x"};
+    for (int i = 0; i < 3; ++i) {
+        for (const char *label = labels[i]; *label; ++label) {
+            line[used++] = *label;
+        }
+        int started = 0;
+        for (int shift = 60; shift >= 0; shift -= 4) {
+            const int digit = (int)((values[i] >> shift) & 15);
+            if (digit || started || shift == 0) {
+                line[used++] = digits[digit];
+                started = 1;
+            }
+        }
+    }
+    line[used++] = '\n';
+    wit_syscall(WIT_CALL_DEBUG_WRITE, __wit_process.Log, (WitU64)line, used, &result);
+}
+
 long __wit_mprotect(long address, long length, long protection)
 {
     WitU64 result = 0, kernel_protection;
@@ -630,6 +663,9 @@ long __wit_mprotect(long address, long length, long protection)
         return 0;
     }
     if ((converted = protection_of(protection, &kernel_protection)) != 0) {
+        if (converted == -EACCES) {
+            refused("writable and executable at once", (WitU64)address, (WitU64)length, protection);
+        }
         return converted;
     }
     const WitU64 start = (WitU64)address, end = start + round_up((unsigned long)length);
@@ -643,6 +679,7 @@ long __wit_mprotect(long address, long length, long protection)
             continue;
         }
         if (m->Kind == MapPlain && (kernel_protection & WIT_MEMORY_EXECUTE)) {
+            refused("plain memory never executes", (WitU64)address, (WitU64)length, protection);
             return -EACCES;
         }
         const WitU64 low = m->Base > start ? m->Base : start, high = m->Base + m->Size < end ? m->Base + m->Size : end;
@@ -654,6 +691,9 @@ long __wit_mprotect(long address, long length, long protection)
         }
         const WitU64 status = wit_syscall(WIT_CALL_MEMORY_PROTECT, low, high - low, kernel_protection, &result);
         if (status != WIT_STATUS_OK) {
+            if (status == WIT_STATUS_DENIED) {
+                refused("the mapping's rights", low, high - low, protection);
+            }
             return status == WIT_STATUS_NOT_COMMITTED ? -ENOMEM
                                                       : (status == WIT_STATUS_DENIED ? -EACCES : __wit_errno(status));
         }

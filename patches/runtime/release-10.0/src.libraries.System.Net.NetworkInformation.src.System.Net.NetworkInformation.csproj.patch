@@ -1,0 +1,41 @@
+Source: src/libraries/System.Net.NetworkInformation/src/System.Net.NetworkInformation.csproj
+Output: src.libraries.System.Net.NetworkInformation.src.System.Net.NetworkInformation.csproj
+Before: dea921e19dae2a84d065bd2886b87b229810b537333ee02f4ade1c1753d04495
+After: 9b9e192ae4dbb9b6e43468997412bd7c5f5b87668cfd883bfc368324f48c2663
+
+System.Net.NetworkInformation for witos (plan step W4.2, RFC 0015 section 8): the project targets the unix flavor when
+the build is for witos, as System.Net.Http and System.Net.Security do (W2.2), and gives it Linux's files: Linux's PAL
+asks System.Native for the interfaces (getifaddrs and the interface ioctls, which the libc answers from the network
+service's configuration through its netlink route socket), reads /etc/resolv.conf for the DNS servers and the routes
+from /proc/net only where that file exists, so NetworkInterface and NetworkChange work, while the statistics, which Linux
+reads from /proc/net, are not kept (Compatibility-Differences: Network interfaces). Without it the assembly built for
+witos is the platform-neutral one, whose types throw PlatformNotSupportedException.
+
+--- a/src/libraries/System.Net.NetworkInformation/src/System.Net.NetworkInformation.csproj
++++ b/src/libraries/System.Net.NetworkInformation/src/System.Net.NetworkInformation.csproj
+@@ -2,6 +2,7 @@
+ 
+   <PropertyGroup>
+     <TargetFrameworks>$(NetCoreAppCurrent)-windows;$(NetCoreAppCurrent)-linux;$(NetCoreAppCurrent)-android;$(NetCoreAppCurrent)-osx;$(NetCoreAppCurrent)-ios;$(NetCoreAppCurrent)-tvos;$(NetCoreAppCurrent)-freebsd;$(NetCoreAppCurrent)-illumos;$(NetCoreAppCurrent)-solaris;$(NetCoreAppCurrent)-haiku;$(NetCoreAppCurrent)</TargetFrameworks>
++    <TargetFrameworks Condition="'$(TargetOS)' == 'witos'">$(TargetFrameworks);$(NetCoreAppCurrent)-unix</TargetFrameworks>
+     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+     <UseCompilerGeneratedDocXmlFile>false</UseCompilerGeneratedDocXmlFile>
+   </PropertyGroup>
+@@ -127,7 +128,7 @@
+   </ItemGroup>
+ 
+   <!-- Linux (other than Android) -->
+-  <ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'linux'">
++  <ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'linux' or '$(TargetPlatformIdentifier)' == 'unix'">
+     <Compile Include="System\Net\NetworkInformation\ExceptionHelper.Linux.cs" />
+     <Compile Include="System\Net\NetworkInformation\LinuxIcmpV4Statistics.cs" />
+     <Compile Include="System\Net\NetworkInformation\LinuxIcmpV6Statistics.cs" />
+@@ -201,7 +202,7 @@
+     <Compile Include="$(CommonPath)Interop\FreeBSD\Interop.Libraries.cs" Link="Common\Interop\FreeBSD\Interop.Libraries.cs" />
+   </ItemGroup>
+ 
+-  <ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'linux' or '$(TargetPlatformIdentifier)' == 'freebsd'">
++  <ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'linux' or '$(TargetPlatformIdentifier)' == 'freebsd' or '$(TargetPlatformIdentifier)' == 'unix'">
+     <Compile Include="System\Net\NetworkInformation\NetworkAddressChange.Unix.cs" />
+     <Compile Include="$(CommonPath)Interop\Unix\System.Native\Interop.NetworkChange.cs" Link="Common\Interop\Unix\System.Native\Interop.NetworkChange.cs" />
+   </ItemGroup>

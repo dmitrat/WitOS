@@ -421,6 +421,22 @@ long __wit_local_lookup(long fd, WitU32 *index, int *nonblocking)
     return r;
 }
 
+long __wit_netlink_install(WitU32 index, int flags)
+{
+    __wit_lock(&tables);
+    const long r = __wit_netlink_open(index, flags);
+    __wit_unlock(&tables);
+    return r;
+}
+
+long __wit_netlink_lookup(long fd, WitU32 *index, int *nonblocking)
+{
+    __wit_lock(&tables);
+    const long r = __wit_netlink_of(fd, index, nonblocking);
+    __wit_unlock(&tables);
+    return r;
+}
+
 long __wit_local_path(const char *path, unsigned char *name, WitU32 *length, int connecting)
 {
     __wit_lock(&tables);
@@ -790,6 +806,9 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
     if (__wit_is_socket_call(n)) {
         long r = __wit_local_call(n, a1, a2, a3, a4, a5, a6); /* local sockets (W4.1) */
         if (r == WIT_NOT_A_SOCKET) {
+            r = __wit_netlink_call(n, a1, a2, a3, a4, a5, a6); /* netlink route sockets (W4.2) */
+        }
+        if (r == WIT_NOT_A_SOCKET) {
             r = __wit_socket_call(n, a1, a2, a3, a4, a5, a6); /* the network service's sockets (W2.1a) */
         }
         __wit_local_flush();
@@ -810,6 +829,10 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
             __wit_local_flush();
             return local;
         }
+        const long netlink = __wit_netlink_transfer(n, a1, a2, a3);
+        if (netlink != WIT_NOT_A_SOCKET) {
+            return netlink;
+        }
         const long carried = __wit_socket_transfer(n, a1, a2, a3);
         if (carried != WIT_NOT_A_SOCKET) {
             return carried;
@@ -826,6 +849,10 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
         if (local != WIT_NOT_A_SOCKET) {
             __wit_local_flush();
             return local;
+        }
+        const long netlink = __wit_netlink_ioctl(a1, a2, (void *)a3);
+        if (netlink != WIT_NOT_A_SOCKET) {
+            return netlink;
         }
         const long answered = __wit_socket_ioctl(a1, a2, (void *)a3);
         if (answered != WIT_NOT_A_SOCKET) {

@@ -9,6 +9,7 @@
 #include "witos/user_abi.h"
 #include "witos/syscall.h"
 #include "witos/libc_context.h"
+#include "witos/socket.h"
 
 /* The start of a program another process started (start.c): the process context from the start message, then the
  * main thread's record and the fault callback, as crt1 sets them up for the root task. A static program's startup
@@ -155,6 +156,26 @@ long __wit_socket_of(long fd, WitU32 *index, int *nonblocking); /* files.c, unde
 long __wit_socket_install(WitU32 index, int flags); /* syscall.c: takes the table lock */
 long __wit_socket_lookup(long fd, WitU32 *index, int *nonblocking); /* syscall.c: takes the table lock */
 long __wit_socket_nonblocking(long fd, int nonblocking); /* syscall.c: FIONBIO as F_SETFL */
+long __wit_socket_configuration(
+    WitSocketConfiguration *configuration); /* socket.c: CONFIGURATION, -ENODEV without the service */
+
+/* Netlink route sockets and the interface ioctls (netlink.c, W4.2). */
+long __wit_netlink_call(long n, long a1, long a2, long a3, long a4, long a5, long a6); /* WIT_NOT_A_SOCKET otherwise */
+long __wit_netlink_transfer(long n, long fd, long a2, long a3); /* WIT_NOT_A_SOCKET otherwise */
+long __wit_netlink_ioctl(long fd, long command, void *argument); /* WIT_NOT_A_SOCKET otherwise */
+long __wit_interface_ioctl(
+    long command, void *argument); /* SIOCGIF* of any socket; WIT_NOT_A_SOCKET for another command */
+void __wit_netlink_reference(WitU32 index);
+void __wit_netlink_release(WitU32 index);
+WitU32 __wit_netlink_id(WitU32 index);
+short __wit_netlink_poll(WitU32 index, short events); /* files.c, under the table lock */
+short __wit_netlink_edge(WitU32 index, short events, WitU64 *token); /* epoll.c, under the table lock */
+long __wit_netlink_open(WitU32 index, int flags); /* files.c, under the table lock */
+long __wit_netlink_of(long fd, WitU32 *index, int *nonblocking); /* files.c, under the table lock: 1, 0 or -EBADF */
+long __wit_netlink_install(WitU32 index, int flags); /* syscall.c: takes the table lock */
+long __wit_netlink_lookup(long fd, WitU32 *index, int *nonblocking); /* syscall.c: takes the table lock */
+void __wit_netlink_notify(
+    const WitSocketConfiguration *before, const WitSocketConfiguration *after); /* socket.c's events thread */
 void __wit_resolv_refresh(void);
 WitU32 __wit_resolv_text(unsigned char *buffer, WitU32 capacity);
 int __wit_resolv_present(void);

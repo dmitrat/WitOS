@@ -2,9 +2,12 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <ifaddrs.h>
+#include <net/if.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <netpacket/packet.h>
 #include <poll.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -25,7 +28,8 @@
  * with poll and SO_ERROR, accept4's flags, EAGAIN, SO_RCVTIMEO, a blocking send larger than the buffers against a
  * reading thread, shutdown's end of the stream, a refused connection), names (/etc/hosts, /etc/resolv.conf from the
  * lease, a name through musl's resolver and slirp's forwarder), a connection to the runner's echo server and one from
- * the runner through a port forward. */
+ * the runner through a port forward, and the interfaces (W4.2: getifaddrs and if_nameindex over the libc's netlink route
+ * socket, if_nametoindex and if_indextoname and the SIOCGIF* ioctls on a UDP socket, naming lo and eth0 with the lease). */
 
 #define LISTEN_PORT 8080
 #define BIG (512 * 1024)
@@ -309,12 +313,129 @@ static void inbound(void)
         echoed, text);
 }
 
+#define ARPHRD_ETHER_TYPE 1
+#define ARPHRD_LOOPBACK_TYPE 772
+
+/* The interfaces (W4.2): what the libc answers from the network service's configuration through netlink and the
+ * interface ioctls — the loopback, index 1, and eth0, index 2, with the lease's address and the adapter's MAC and MTU. */
+static void interfaces(void)
+{
+    struct ifaddrs *list = 0;
+    int lo_inet = 0, lo_packet = 0, eth_inet = 0, eth_packet = 0, eth_mask = 0;
+    unsigned eth_flags = 0;
+    char eth_text[INET_ADDRSTRLEN] = "none";
+    check(getifaddrs(&list) == 0, "getifaddrs lists the interfaces");
+    for (const struct ifaddrs *a = list; a; a = a->ifa_next) {
+        if (!a->ifa_addr) {
+            continue;
+        }
+        const int lo = strcmp(a->ifa_name, "lo") == 0, eth = strcmp(a->ifa_name, "eth0") == 0;
+        if (a->ifa_addr->sa_family == AF_INET) {
+            const struct sockaddr_in *in = (const struct sockaddr_in *)a->ifa_addr;
+            const struct sockaddr_in *mask = (const struct sockaddr_in *)a->ifa_netmask;
+            if (lo) {
+                lo_inet = in->sin_addr.s_addr == htonl(INADDR_LOOPBACK) &&
+                    mask &&
+                    mask->sin_addr.s_addr == htonl(0xFF000000U);
+            } else if (eth) {
+                eth_inet = 1;
+                eth_flags = a->ifa_flags;
+                eth_mask = mask && mask->sin_addr.s_addr == htonl(0xFFFFFF00U);
+                inet_ntop(AF_INET, &in->sin_addr, eth_text, sizeof(eth_text));
+            }
+        } else if (a->ifa_addr->sa_family == AF_PACKET) {
+            const struct sockaddr_ll *ll = (const struct sockaddr_ll *)a->ifa_addr;
+            if (lo) {
+                lo_packet = ll->sll_ifindex == 1 && ll->sll_hatype == ARPHRD_LOOPBACK_TYPE;
+            } else if (eth) {
+                eth_packet = ll->sll_ifindex == 2 &&
+                    ll->sll_hatype == ARPHRD_ETHER_TYPE &&
+                    ll->sll_halen == 6 &&
+                    ll->sll_addr[0] == 0x52 &&
+                    ll->sll_addr[1] == 0x54;
+            }
+        }
+    }
+    freeifaddrs(list);
+    check(lo_inet, "lo has 127.0.0.1/8");
+    check(lo_packet, "lo's link-layer entry names index 1 and the loopback type");
+    check(eth_inet && eth_mask && strcmp(eth_text, "10.0.2.15") == 0, "eth0 has the lease's address, 10.0.2.15/24");
+    check(eth_packet, "eth0's link-layer entry names index 2 and slirp's 52:54 address");
+    check((eth_flags & (IFF_UP | IFF_RUNNING | IFF_BROADCAST | IFF_MULTICAST)) ==
+                (IFF_UP | IFF_RUNNING | IFF_BROADCAST | IFF_MULTICAST) &&
+            !(eth_flags & IFF_LOOPBACK),
+        "eth0 is up, running, broadcast and multicast");
+    struct if_nameindex *names = if_nameindex();
+    int named = 0;
+    for (const struct if_nameindex *n = names; n && n->if_index; ++n) {
+        named +=
+            (n->if_index == 1 && strcmp(n->if_name, "lo") == 0) || (n->if_index == 2 && strcmp(n->if_name, "eth0") == 0)
+            ? 1
+            : 100;
+    }
+    if (names) {
+        if_freenameindex(names);
+    }
+    check(named == 2, "if_nameindex names lo (1) and eth0 (2) alone");
+    check(if_nametoindex("lo") == 1 && if_nametoindex("eth0") == 2 && if_nametoindex("eth9") == 0,
+        "if_nametoindex knows the two");
+    char name[IF_NAMESIZE] = "";
+    check(
+        if_indextoname(2, name) == name && strcmp(name, "eth0") == 0 && if_indextoname(9, name) == 0 && errno == ENXIO,
+        "if_indextoname names index 2 eth0 and no index 9");
+    const int udp = socket(AF_INET, SOCK_DGRAM, 0);
+    struct ifreq request;
+    memset(&request, 0, sizeof(request));
+    memcpy(request.ifr_name, "eth0", 5);
+    check(udp >= 0 && ioctl(udp, SIOCGIFMTU, &request) == 0 && request.ifr_mtu == 1500, "SIOCGIFMTU of eth0 is 1500");
+    const int eth_mtu = request.ifr_mtu;
+    check(ioctl(udp, SIOCGIFHWADDR, &request) == 0 &&
+            request.ifr_hwaddr.sa_family == ARPHRD_ETHER_TYPE &&
+            (unsigned char)request.ifr_hwaddr.sa_data[0] == 0x52 &&
+            (unsigned char)request.ifr_hwaddr.sa_data[1] == 0x54,
+        "SIOCGIFHWADDR of eth0 is Ethernet with slirp's address");
+    check(ioctl(udp, SIOCGIFADDR, &request) == 0 &&
+            ((struct sockaddr_in *)&request.ifr_addr)->sin_addr.s_addr == htonl(0x0A00020FU),
+        "SIOCGIFADDR of eth0 is 10.0.2.15");
+    check(ioctl(udp, SIOCGIFBRDADDR, &request) == 0 &&
+            ((struct sockaddr_in *)&request.ifr_broadaddr)->sin_addr.s_addr == htonl(0x0A0002FFU),
+        "SIOCGIFBRDADDR of eth0 is 10.0.2.255");
+    check(ioctl(udp, SIOCGIFINDEX, &request) == 0 && request.ifr_ifindex == 2, "SIOCGIFINDEX of eth0 is 2");
+    memcpy(request.ifr_name, "lo", 3);
+    check(ioctl(udp, SIOCGIFMTU, &request) == 0 && request.ifr_mtu == 65536, "SIOCGIFMTU of lo is 65536");
+    check(ioctl(udp, SIOCGIFFLAGS, &request) == 0 &&
+            (request.ifr_flags & (IFF_UP | IFF_LOOPBACK | IFF_RUNNING)) == (IFF_UP | IFF_LOOPBACK | IFF_RUNNING),
+        "SIOCGIFFLAGS of lo is up, loopback, running");
+    memcpy(request.ifr_name, "eth9", 5);
+    check(ioctl(udp, SIOCGIFMTU, &request) < 0 && errno == ENODEV, "SIOCGIFMTU of eth9 is ENODEV");
+    struct ifreq entries[4];
+    struct ifconf conf;
+    memset(&conf, 0, sizeof(conf));
+    check(ioctl(udp, SIOCGIFCONF, &conf) == 0 && conf.ifc_len == 2 * (int)sizeof(struct ifreq),
+        "SIOCGIFCONF asks room for two interfaces");
+    conf.ifc_len = sizeof(entries);
+    conf.ifc_req = entries;
+    check(ioctl(udp, SIOCGIFCONF, &conf) == 0 &&
+            conf.ifc_len == 2 * (int)sizeof(struct ifreq) &&
+            strcmp(entries[0].ifr_name, "lo") == 0 &&
+            strcmp(entries[1].ifr_name, "eth0") == 0 &&
+            ((struct sockaddr_in *)&entries[1].ifr_addr)->sin_addr.s_addr == htonl(0x0A00020FU),
+        "SIOCGIFCONF lists lo and eth0 with their addresses");
+    if (udp >= 0) {
+        close(udp);
+    }
+    printf("[SOCKETS] interfaces: lo and eth0 (%s/24, MTU %d), named by getifaddrs, if_nameindex and the interface "
+           "ioctls\n",
+        eth_text, eth_mtu);
+}
+
 int main(void)
 {
     refusals();
     datagrams();
     streams();
     names();
+    interfaces();
     outbound();
     inbound();
     printf("[SOCKETS] sockets over the network service: %d checks passed, %d failed\n", passed, failed);

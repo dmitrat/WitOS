@@ -141,6 +141,18 @@ internal sealed class SocketConnection
     /// </summary>
     /// <param name="socket">The socket.</param>
     /// <param name="readiness">Its readiness bits.</param>
+    /// <summary>
+    /// Tells every live session of an event that is no socket's: the configuration changed (W4.2).
+    /// </summary>
+    public static void NotifyAll(uint socket, uint readiness)
+    {
+        SocketConnection[] live;
+        lock (m_live)
+            live = [.. m_live];
+        foreach (var connection in live)
+            connection.Notify(socket, readiness);
+    }
+
     public void Notify(uint socket, uint readiness)
     {
         try

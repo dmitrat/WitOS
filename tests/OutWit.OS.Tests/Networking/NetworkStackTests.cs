@@ -221,6 +221,25 @@ public sealed class NetworkStackTests
         Assert.That(stack.Address, Is.EqualTo(SimulatedNetwork.LEASED));
     }
 
+    // W4.2: the stack announces its configuration's changes — the lease taken, and the lease lost once the server stops
+    // answering and it expires — and not a renewal that changes nothing; the service tells every session of each.
+    [Test]
+    public void DhcpAnnouncesAChangedConfigurationTest()
+    {
+        var network = new SimulatedNetwork { DhcpServer = true };
+        var stack = network.AddStack(0x5634_1200_5452);
+        var announced = 0;
+        stack.ConfigurationChanged += () => announced++;
+        stack.StartDhcp();
+        network.Pump();
+        Assert.That((announced, stack.Address), Is.EqualTo((1, SimulatedNetwork.LEASED)), "the lease taken");
+        network.Wait(1_800_000);
+        Assert.That((announced, network.Answers), Is.EqualTo((1, 3)), "a renewal with the same values announces nothing");
+        network.DhcpServer = false;
+        network.Wait(3_600_000);
+        Assert.That((announced, stack.Address), Is.EqualTo((2, Ipv4Address.Any)), "the lease lost once it expired unanswered");
+    }
+
     [Test]
     public void DhcpRetransmitsWithoutAServerTest()
     {

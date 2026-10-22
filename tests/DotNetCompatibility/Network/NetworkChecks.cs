@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Security;
 using System.Net.Sockets;
 
@@ -181,6 +182,45 @@ internal static class NetworkChecks
         });
         // TLS (W3.1): SslStream on both ends of a loopback connection with a certificate of the suite's own, which the
         // client trusts by its thumbprint, and HttpClient over HTTPS against the suite's server with the same trust.
+        // W4.2: System.Net.NetworkInformation over the libc's netlink route socket and interface ioctls, which the network
+        // service's configuration answers: the loopback and an adapter that is up with an IPv4 address, its hardware
+        // address, MTU and index, and the DNS servers of /etc/resolv.conf.
+        yield return new Check("Network", "Interfaces", () =>
+        {
+            var all = NetworkInterface.GetAllNetworkInterfaces();
+            var loopback = all.FirstOrDefault(i => i.NetworkInterfaceType == NetworkInterfaceType.Loopback);
+            var adapter = all.FirstOrDefault(i => i.NetworkInterfaceType != NetworkInterfaceType.Loopback &&
+                i.OperationalStatus == OperationalStatus.Up &&
+                i.GetIPProperties().UnicastAddresses.Any(a => a.Address.AddressFamily == AddressFamily.InterNetwork));
+            var properties = adapter?.GetIPProperties();
+            var unicast = properties?.UnicastAddresses.First(a => a.Address.AddressFamily == AddressFamily.InterNetwork);
+            var ipv4 = properties?.GetIPv4Properties();
+            var mac = adapter?.GetPhysicalAddress().GetAddressBytes();
+            var dns = properties is null ? "" : string.Join(' ', properties.DnsAddresses.Select(a => a.ToString()));
+            return CheckResult.Now(
+                loopback is { OperationalStatus: OperationalStatus.Up } &&
+                    loopback.GetIPProperties().UnicastAddresses.Any(a => a.Address.Equals(IPAddress.Loopback)) &&
+                    adapter is not null && ipv4 is { Mtu: > 0, Index: > 0 } && mac is { Length: 0 or 6 } &&
+                    NetworkInterface.GetIsNetworkAvailable(),
+                $"{all.Length} interfaces: {loopback?.Name} ({loopback?.NetworkInterfaceType}), {adapter?.Name} ({adapter?.NetworkInterfaceType}, " +
+                $"{adapter?.GetPhysicalAddress()}, index {ipv4?.Index}, MTU {ipv4?.Mtu}) {unicast?.Address}/{unicast?.PrefixLength}, " +
+                $"DNS {dns}, available {NetworkInterface.GetIsNetworkAvailable()}");
+        });
+        // The change notifications' socket (a netlink route socket bound to the address and route groups on Linux and
+        // WitOS): subscribing opens it and starts its reader, unsubscribing closes it; no change is expected meanwhile.
+        yield return new Check("Network", "AddressChange", () =>
+        {
+            var addresses = 0;
+            var availability = 0;
+            NetworkAddressChangedEventHandler onAddress = (_, _) => Interlocked.Increment(ref addresses);
+            NetworkAvailabilityChangedEventHandler onAvailability = (_, _) => Interlocked.Increment(ref availability);
+            NetworkChange.NetworkAddressChanged += onAddress;
+            NetworkChange.NetworkAvailabilityChanged += onAvailability;
+            Thread.Sleep(200);
+            NetworkChange.NetworkAddressChanged -= onAddress;
+            NetworkChange.NetworkAvailabilityChanged -= onAvailability;
+            return CheckResult.Now(true, $"subscribed to and left the address and availability changes ({addresses} and {availability} meanwhile)");
+        });
         yield return new Check("Network", "TlsEcho", async () =>
         {
             using var authority = TestCertificate.Authority("WitOS compatibility CA");
