@@ -728,6 +728,7 @@ static long option_get(const Netlink *n, int level, int name, void *value, sockl
             answer = (int)QUEUE_BYTES;
             break;
         case SO_ERROR:
+        case SO_ACCEPTCONN: /* .NET reads the type, the domain, the protocol and this of a handle it wraps */
             break;
         default:
             return -ENOPROTOOPT;
