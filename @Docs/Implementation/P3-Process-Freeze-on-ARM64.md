@@ -152,8 +152,8 @@ while a stack's loopback holds datagrams (`NextDeadline <= Now`), since the hand
 | `OutWit.OS.Tests`, Networking | 26 passed, the new test among them |
 | `runtime-compatibility` on ARM64, 12 runs with `LOAD=8` on the rebuilt services | 11 passed; run 6 failed otherwise — not a freeze: the Ipc area's child `dotnet` could not create CoreCLR (§8) — where the loops before the fix froze in one run of twelve |
 | `runtime-devices` (through `runtime-services`) and `runtime-compatibility` on ARM64 | passed on the rebuilt services |
-| `runtime-devices` and `runtime-compatibility` on x64 | passed ( through , then ) |
-| `runtime-devices` and `runtime-compatibility` on riscv64 | passed (the same) |
+| `runtime-devices` and `runtime-compatibility` on x64 | passed: `runtime-devices` through `runtime-services` on the rebuilt services, then `runtime-compatibility` |
+| `runtime-devices` and `runtime-compatibility` on riscv64 | passed, the same way |
 
 ## 8. Open
 
