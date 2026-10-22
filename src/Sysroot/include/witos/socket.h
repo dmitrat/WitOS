@@ -44,6 +44,8 @@
 #define WIT_SOCKET_GET_OPTION 13U /* Socket, Argument[0] the level, Argument[1] the name: the reply's Value */
 #define WIT_SOCKET_SET_OPTION 14U /* Socket, Argument[0] the level, Argument[1] the name, Argument[2] the value */
 #define WIT_SOCKET_CONFIGURATION 15U /* the interface and its lease, a WitSocketConfiguration at Window */
+#define WIT_SOCKET_CONFIGURATION_EVENT \
+    0xFFFFFFFFU /* WitSocketEvent.Socket: the configuration changed, no socket's event (W4.2) */
 
 #define WIT_SOCKET_PEEK 0x2U /* RECEIVE: the datagram or the bytes stay (MSG_PEEK) */
 #define WIT_SOCKET_PEER 0x1U /* NAME: the peer's address (getpeername) */

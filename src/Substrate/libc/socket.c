@@ -81,6 +81,24 @@ static volatile int events;
 
 /* The network thread: each readiness event counted, and the poll word bumped, so that a blocked call, a parked poll or
  * an epoll wait looks again. */
+/* The configuration the process last saw, for the netlink sockets' events (W4.2): read once the session connects, and
+ * again at the service's word that it changed, which tells them what went and what came. */
+static WitSocketConfiguration seen_configuration;
+static volatile int configuration_lock;
+
+static void announce_configuration(void)
+{
+    WitSocketConfiguration now;
+    if (__wit_socket_configuration(&now) < 0) {
+        return;
+    }
+    __wit_lock(&configuration_lock);
+    const WitSocketConfiguration before = seen_configuration;
+    seen_configuration = now;
+    __wit_unlock(&configuration_lock);
+    __wit_netlink_notify(&before, &now);
+}
+
 static void *events_thread(void *argument)
 {
     WitSocketEvent event;
@@ -102,7 +120,7 @@ static void *events_thread(void *argument)
     wait.Deadline = WIT_WAIT_INFINITE;
     for (;;) {
         WitU64 status;
-        int received = 0;
+        int received = 0, configured = 0;
         while ((status = wit_syscall(WIT_CALL_CHANNEL_RECEIVE, session.Events, (WitU64)&message, sizeof(message),
                     &result)) == WIT_STATUS_OK) {
             if ((result & 0xFFFFFFFFULL) != sizeof(event) ||
@@ -110,11 +128,18 @@ static void *events_thread(void *argument)
                 event.Size != sizeof(event)) {
                 continue;
             }
+            if (event.Socket == WIT_SOCKET_CONFIGURATION_EVENT) {
+                configured = 1; /* no socket's: the interface's configuration changed (W4.2) */
+                continue;
+            }
             __atomic_add_fetch(&events, 1, __ATOMIC_RELEASE);
             received = 1;
         }
         if (received) {
             __wit_poll_bump();
+        }
+        if (configured) {
+            announce_configuration();
         }
         if (status != WIT_STATUS_TIMED_OUT) {
             __wit_poll_bump(); /* the service went: whoever waits learns it at the next request */
@@ -209,6 +234,18 @@ static long connect_session(void)
     session.Channel = ends[0];
     session.Connected = 1;
     __wit_unlock(&connect_lock);
+    /* The configuration as it is at the start, before any event names a change (W4.2). */
+    __wit_lock(&configuration_lock);
+    const int unseen = seen_configuration.Version == 0;
+    __wit_unlock(&configuration_lock);
+    if (unseen) {
+        WitSocketConfiguration now;
+        if (__wit_socket_configuration(&now) == 0) {
+            __wit_lock(&configuration_lock);
+            seen_configuration = now;
+            __wit_unlock(&configuration_lock);
+        }
+    }
     return 0;
 }
 
@@ -1125,6 +1162,10 @@ long __wit_socket_ioctl(long fd, long command, void *argument)
     if (!argument && (command == FIONREAD || command == FIONBIO)) {
         return done(index, -EFAULT);
     }
+    const long interface = __wit_interface_ioctl(command, argument); /* SIOCGIF* of any socket (netlink.c, W4.2) */
+    if (interface != WIT_NOT_A_SOCKET) {
+        return done(index, interface);
+    }
     if (command == FIONREAD) {
         make(&request, WIT_SOCKET_POLL, id_of(index));
         const long r = simple(&request, &reply);
@@ -1164,24 +1205,34 @@ short __wit_socket_poll(WitU32 index, short events)
     return ready;
 }
 
+/* The service's configuration (CONFIGURATION), outside the table lock: the interface's lease and the adapter, for
+ * /etc/resolv.conf and for the interfaces netlink.c describes (W4.2); -ENODEV without the service, -EIO for an answer
+ * that is none. */
+long __wit_socket_configuration(WitSocketConfiguration *configuration)
+{
+    WitSocketRequest request;
+    WitSocketReply reply;
+    if (!__wit_process.Network) {
+        return -ENODEV;
+    }
+    make(&request, WIT_SOCKET_CONFIGURATION, 0);
+    request.Length = sizeof(*configuration);
+    const struct iovec out = {configuration, sizeof(*configuration)};
+    const long r = call(&request, 0, 0, 0, &out, 1, 0, &reply);
+    if (r < 0) {
+        return r;
+    }
+    return configuration->Version == WIT_SOCKET_VERSION && configuration->Size == sizeof(*configuration) ? 0 : -EIO;
+}
+
 /* /etc/resolv.conf as the lease gives it (files.c reads it): asked of the service before an open of the file, outside
  * the table lock; a nameserver line for each DNS server, nothing without a lease. */
 void __wit_resolv_refresh(void)
 {
-    WitSocketRequest request;
-    WitSocketReply reply;
     WitSocketConfiguration configuration;
     unsigned char text[RESOLV_BYTES];
     WitU32 length = 0;
-    if (!__wit_process.Network) {
-        return;
-    }
-    make(&request, WIT_SOCKET_CONFIGURATION, 0);
-    request.Length = sizeof(configuration);
-    const struct iovec out = {&configuration, sizeof(configuration)};
-    if (call(&request, 0, 0, 0, &out, 1, 0, &reply) < 0 ||
-        configuration.Version != WIT_SOCKET_VERSION ||
-        configuration.Size != sizeof(configuration)) {
+    if (__wit_socket_configuration(&configuration) < 0) {
         return;
     }
     for (WitU32 i = 0; configuration.Leased && i < configuration.DnsCount && i < 4; ++i) {

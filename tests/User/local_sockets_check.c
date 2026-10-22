@@ -217,8 +217,21 @@ static void pairs(void)
 static void refusals(void)
 {
     errno = 0;
-    check(socket(AF_UNIX, SOCK_DGRAM, 0) < 0 && errno == ESOCKTNOSUPPORT,
-        "a datagram socket of its own is ESOCKTNOSUPPORT");
+    {
+        /* A datagram socket of its own opens for the interface ioctls alone (W4.2: musl's if_nametoindex asks one);
+         * its bind is EOPNOTSUPP, since no name takes a datagram. */
+        const int dgram = socket(AF_UNIX, SOCK_DGRAM, 0);
+        struct sockaddr_un where;
+        memset(&where, 0, sizeof(where));
+        where.sun_family = AF_UNIX;
+        memcpy(where.sun_path, "/tmp/local-check-dgram.sock", 28);
+        check(dgram >= 0, "a datagram socket of its own opens");
+        check(dgram >= 0 && bind(dgram, (const struct sockaddr *)&where, sizeof(where)) < 0 && errno == EOPNOTSUPP,
+            "a datagram socket of its own refuses a name with EOPNOTSUPP");
+        if (dgram >= 0) {
+            close(dgram);
+        }
+    }
     errno = 0;
     check(socket(AF_UNIX, SOCK_STREAM, 7) < 0 && errno == EPROTONOSUPPORT, "an unknown protocol is EPROTONOSUPPORT");
     const int fd = socket(AF_UNIX, SOCK_STREAM, 0);

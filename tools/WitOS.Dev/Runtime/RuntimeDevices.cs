@@ -472,6 +472,7 @@ internal static class RuntimeDevices
         " checks passed, 0 failed",
         // The libc's sockets (W2.1a): /bin/sockets-check's checks, the runner's echo server and the runner's connection.
         "[SOCKETS] sockets over the network service: ",
+        "[SOCKETS] interfaces: lo and eth0",
         $"[SOCKETS] {NETWORK_INBOUND_BYTES} bytes echoed by the runner through 10.0.2.100:7, unchanged",
         SOCKETS_LISTENING,
         $"[SOCKETS] echoed {NETWORK_INBOUND_BYTES} bytes back to the runner's connection from {NETWORK_GATEWAY}, inbound through the port forward",

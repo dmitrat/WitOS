@@ -613,9 +613,11 @@ static long open_local(long type, long protocol)
     if (protocol != 0 && protocol != PF_UNIX) {
         return -EPROTONOSUPPORT;
     }
-    if (kind != SOCK_STREAM && kind != SOCK_SEQPACKET) {
-        return -ESOCKTNOSUPPORT; /* a datagram socket of its own has no name to send to: socketpair's are served */
+    if (kind != SOCK_STREAM && kind != SOCK_SEQPACKET && kind != SOCK_DGRAM) {
+        return -ESOCKTNOSUPPORT;
     }
+    /* A datagram socket of its own has no name to send to (socketpair's are served): it opens for the interface ioctls,
+     * which musl's if_nametoindex asks of one (W4.2), and refuses the rest with EOPNOTSUPP. */
     long r = allocate((int)kind, &index);
     if (r < 0) {
         return r;
@@ -1414,6 +1416,13 @@ long __wit_local_call(long n, long a1, long a2, long a3, long a4, long a5, long 
     if (__wit_local_lookup(a1, &index, &nonblocking) <= 0) {
         return WIT_NOT_A_SOCKET;
     }
+    if (locals[index].Type == SOCK_DGRAM &&
+        !locals[index].Pair &&
+        n != SYS_getsockopt &&
+        n != SYS_setsockopt &&
+        n != SYS_shutdown) {
+        return done(index, -EOPNOTSUPP); /* a datagram socket of its own serves the interface ioctls alone (W4.2) */
+    }
     switch (n) {
     case SYS_bind:
         return done(index, bind_local(index, (const struct sockaddr *)a2, (socklen_t)a3));
@@ -1488,6 +1497,10 @@ long __wit_local_ioctl(long fd, long command, void *argument)
     int nonblocking;
     if (__wit_local_lookup(fd, &index, &nonblocking) <= 0) {
         return WIT_NOT_A_SOCKET;
+    }
+    const long interface = __wit_interface_ioctl(command, argument); /* SIOCGIF* of any socket (netlink.c, W4.2) */
+    if (interface != WIT_NOT_A_SOCKET) {
+        return done(index, interface);
     }
     if (!argument && (command == FIONREAD || command == FIONBIO)) {
         return done(index, -EFAULT);

@@ -119,6 +119,12 @@ public static class SocketMessages
     public const uint CONFIGURATION = 15;
 
     /// <summary>
+    /// WIT_SOCKET_CONFIGURATION_EVENT: a WitSocketEvent whose socket is this tells of the configuration, not of a socket
+    /// (W4.2).
+    /// </summary>
+    public const uint CONFIGURATION_EVENT = 0xFFFFFFFF;
+
+    /// <summary>
     /// WIT_SOCKET_PEEK.
     /// </summary>
     public const uint PEEK = 0x2;
