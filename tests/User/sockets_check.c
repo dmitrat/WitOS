@@ -388,6 +388,7 @@ static void interfaces(void)
     memset(&request, 0, sizeof(request));
     memcpy(request.ifr_name, "eth0", 5);
     check(udp >= 0 && ioctl(udp, SIOCGIFMTU, &request) == 0 && request.ifr_mtu == 1500, "SIOCGIFMTU of eth0 is 1500");
+    const int eth_mtu = request.ifr_mtu;
     check(ioctl(udp, SIOCGIFHWADDR, &request) == 0 &&
             request.ifr_hwaddr.sa_family == ARPHRD_ETHER_TYPE &&
             (unsigned char)request.ifr_hwaddr.sa_data[0] == 0x52 &&
@@ -425,7 +426,7 @@ static void interfaces(void)
     }
     printf("[SOCKETS] interfaces: lo and eth0 (%s/24, MTU %d), named by getifaddrs, if_nameindex and the interface "
            "ioctls\n",
-        eth_text, request.ifr_mtu == 65536 ? 1500 : request.ifr_mtu);
+        eth_text, eth_mtu);
 }
 
 int main(void)
