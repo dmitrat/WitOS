@@ -332,7 +332,7 @@ V2 (слой 2 и рантайм для `riscv64-unknown-linux-musl`) выпол
 P1 (планировщик на N CPU, срезы P1.0–P1.5) и P2 (рантайм на нескольких процессорах) выполнены — в
 [Plan-Completed.md](@Docs/Implementation/Plan-Completed.md).
 
-- [ ] **P3** Замирание .NET-процесса на ARM64 с четырьмя процессорами (открыт 2026-10-21). В `runtime-compatibility`
+- [ ] **P3** Замирание .NET-процесса на ARM64 с четырьмя процессорами (открыт 2026-10-21; [P3-Process-Freeze-on-ARM64.md](@Docs/Implementation/P3-Process-Freeze-on-ARM64.md)). В `runtime-compatibility`
   `Network.TlsEcho` (`SslStream` на обоих концах петли, 1 МиБ эха) не даёт результата за 60 с, после чего процесс встаёт
   целиком: `Network.HttpsGet`, который делает сертификат через OpenSSL до первого `await` на главном потоке, не
   отчитывается даже своим таймаутом — два раза (leg CI W3.1, первый прогон W4.1 в контейнере). В `runtime-libraries`
