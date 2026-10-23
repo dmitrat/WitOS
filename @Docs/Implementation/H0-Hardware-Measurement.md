@@ -2,12 +2,20 @@
 
 Plan step H0 (phase H, [ADR 0028](ADR-0028-First-Release-Target.md)), measured on 2026-10-21 and 2026-10-23 as V0
 measured RISC-V: what the unchanged images meet on the release's targets, where they stop, and the decisions that
-follow, before any line of `Kernel.Platform.Pc` or `Kernel.Platform.Bcm2711`. The step has two parts:
+follow, before any line of `Kernel.Platform.Pc` or `Kernel.Platform.Bcm2711`. The step has three parts:
 
 - **H0.1** (this document's measurements): VMware Workstation, the first target, measured whole; the Raspberry Pi 4B
   through QEMU's `raspi4b` and through `virt` with a GICv2.
-- **H0.2** (§7, pending): the author's bench session on a Pi 4B with the `pftf/RPi4` firmware, which nothing emulated
-  can replace.
+- **H0.2** (pending): the emulator's measurement of the Linux arm64 boot path that
+  [ADR 0030](ADR-0030-Boot-Paths-and-the-Pi-5-Target.md) chose for the Pi boards.
+- **H0.3** (§7, pending): the author's session on a bought board, which nothing emulated can replace.
+
+The author decided on §5's proposals on 2026-10-23: [ADR 0029](ADR-0029-PC-Interrupts-Power-and-Device-Table.md)
+accepts the message interrupts, the power without AML and the larger device table, with two changes (the keyboard is USB
+on every target, so the port call leaves release 1; power goes through the root task's exit status instead of a call),
+and [ADR 0030](ADR-0030-Boot-Paths-and-the-Pi-5-Target.md) boots the Pi boards by the Linux arm64 boot protocol instead of
+`pftf/RPi4` and makes the PocketTerm35 with a Pi 5 phase H's goal. The plan's steps were renumbered then: the PC's are
+H1–H5, the Pi's H6–H10; this document's references below use the new numbers.
 
 Nothing of the measurement is committed code: the q35 platform was instrumented in a scratch tree and the tree
 reverted; the facts are the logs'.
@@ -93,8 +101,8 @@ platform's PIRQ E–H routing finds no ICH9 at 00:1F.0 and keeps the firmware's 
 
 ## 5. Decisions proposed
 
-Each is a proposal with its measurement; the ABI changes and the port mechanism need an ADR, and the author decides
-before H1.
+Each is a proposal with its measurement, as written before the author's decision of 2026-10-23 (ADR 0029, ADR 0030;
+the introduction says what changed).
 
 1. **Interrupts of the PC: MSI first.** VMware routes no INTx, and every device release 1 drives offers MSI (AHCI) or
    MSI-X (NVMe, e1000e, vmxnet3, xHCI). Proposed for ABI-1 1.5: a binding of a device's MSI or MSI-X vector to an
@@ -127,15 +135,23 @@ before H1.
    sessions prove too slow.
 7. **Time without an RTC and Wi-Fi.** The Pi has no RTC: the default stays the firmware's time at boot in the boot
    contract plus SNTP in the network service, and H0.2 measures what `GetTime` returns there. Wi-Fi stays release 1.1.
+   (Decided otherwise by ADR 0030: the Pi boots without UEFI, so there is no `GetTime`; the Pi 4 takes UTC from SNTP and
+   the Pi 5 from its real-time clock behind the firmware.)
 
 ## 6. What H1 inherits
 
 - Boots on VMware already reach the root task with one tolerance; the services' image needs the device table (§5.4)
   and a storage driver (H3) before `/data` exists, and the GOP framebuffer before the display service shows anything.
 - A boot to the end of a program takes seconds, so VMware sessions are cheap; the serial port to a file is the log.
-- The gates stay QEMU's: `-machine pc` without virtio judges H1, `ich9-ahci` and `nvme` judge H3, `e1000e` H5.
+- The gates stay QEMU's: `-machine pc` without virtio judges H1, `qemu-xhci` with `usb-kbd` H2, `ich9-ahci` and `nvme`
+  judge H3, `e1000e` H4.
 
-## 7. H0.2: the author's bench session (pending)
+## 7. H0.3: the author's session on a bought board (pending)
+
+Written for `pftf/RPi4` before ADR 0030; the session now boots H6's image through the Pi firmware's own path
+(`config.txt` naming the kernel and the ramdisk), records the device tree the firmware passes, its framebuffer, its
+entropy seed and the processor state at entry, and may compare `pftf/RPi4` by hand as below. A Pi 4B comes first, a Pi 5
+later.
 
 A Pi 4B (2 GB is enough) with an HDMI monitor, a USB keyboard and a UART adapter on GPIO 14 and 15 at 115,200 baud;
 an SD card with a FAT partition holding `pftf/RPi4` v1.53 as released (`RPI_EFI.fd`, the GPU's files, `config.txt`) and
