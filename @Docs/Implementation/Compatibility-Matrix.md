@@ -29,18 +29,17 @@ types in the guest) and reports its checks not applicable elsewhere.
 | Globalization | 8 | Supported | Supported | Supported |
 | TimeZones | 4 | Supported | Supported | Supported |
 | Terminal | 7 | Supported | Supported | Supported |
-| Network | 17 | Supported | Supported | Partial: IPv6 |
+| Network | 19 | Supported | Supported | Supported |
 | Cryptography | 11 | Supported | Supported | Supported |
 | Ipc | 5 | Supported | Supported | Supported |
 
-123 checks in 17 areas.
+125 checks in 17 areas.
 
 ## Recorded differences
 
 | Check | Platform | Reason |
 | --- | --- | --- |
 | `FileIO.Watcher` | WitOS (x64, ARM64, riscv64) | System.IO.FileSystem.Watcher is not supported: the namespace service sends no change notifications (Compatibility-Differences: File change notifications). |
-| `Network.IPv6` | WitOS (x64, ARM64, riscv64) | The network service serves IPv4 alone until W4: the libc refuses AF_INET6 sockets with EAFNOSUPPORT, so Socket.OSSupportsIPv6 is false and .NET speaks IPv4 (Compatibility-Differences: Networking). |
 | `Platform.KnownOperatingSystem` | WitOS (x64, ARM64, riscv64) | WitOS is neither Windows, Linux, macOS nor FreeBSD: an application that infers Windows from 'not Linux and not macOS' misbehaves there (RFC 0015 §1, ADR 0024). |
 
 ## Beyond the suite
@@ -69,7 +68,7 @@ silently.
 | Full-screen console applications (TUI) | Supported | C2.6, C4.2 | The display's emulator draws SGR's colours and attributes, the alternate screen and the cursor's visibility, swallows the string sequences and answers the device attributes and the size (C2.6); Arlecchino.Commander, built from its source as a base application, lists, views and copies files on the screen through the keyboard (C4.2, the `runtime-commander` scenario); Terminal.Gui's UICatalog 2.5.0 runs with `--disable-cm`, since its configuration watcher needs file change notifications, and CSharpFar needs `HttpClient` at its start, which waits for networking. |
 | Named synchronization objects (`Mutex` with a name) | Supported | N4.1 | Under `/tmp/.dotnet` in the namespace service's `/tmp`. |
 | Cryptography | Supported | W3.1 | OpenSSL 3.5, the long-term support series, built by the system layer from its pinned release for each ISA (no-asm, no engines of the kernel): the algorithms, X.509 and chains through System.Security.Cryptography's unix flavour, as on Linux (the suite's Cryptography area); the root store is Mozilla's CA bundle at `/etc/ssl/certs/ca-certificates.crt`, which the store reads as one file. |
-| Networking (`Socket`, `HttpClient`) | Partial | W3.1 | IPv4 sockets over the network service's managed stack: TCP, UDP, the loopback and names through musl's resolver, `HttpClient` over HTTP/1.1 (W2.2) and `SslStream` and HTTPS over the OpenSSL the system layer builds (W3.1; the suite's Network area); IPv6 until W4.3; Unix domain sockets since W4.1 (the next row). |
+| Networking (`Socket`, `HttpClient`) | Partial | W4.3 | IPv4 and IPv6 sockets over the network service's managed stack: TCP, UDP, the loopback, dual-stack `AF_INET6` sockets with IPv4 peers in the mapped form, a link-local and a global IPv6 address from the router's advertisement (W4.3), names through musl's resolver, `HttpClient` over HTTP/1.1 (W2.2) and `SslStream` and HTTPS over the OpenSSL the system layer builds (W3.1; the suite's Network area). Not served: multicast group membership, ancillary data, raw sockets, keep-alive probes. Unix domain sockets since W4.1 (the next row). |
 | Local sockets and named pipes (`UnixDomainSocketEndPoint`, `NamedPipeServerStream`) | Supported | W4.1 | AF_UNIX stream and sequenced-packet sockets and socketpair, the libc's own: a path below a mount point or an abstract name, connections within a process and between processes, named pipes as on Unix (the suite's Ipc area). A socket's name lives in the namespace service, beside the volume's entries, and is gone at the next boot; no descriptors pass over a socket. |
 | ASP.NET Core | Supported | W3.2 | The shared framework Microsoft.AspNetCore.App in the install, built IL alone from its pinned source for every ISA; an ordinary Kestrel application published without a RID serves HTTP and HTTPS over the network service's sockets and answers the runner through the port forward (`runtime-aspnetcore`). No ReadyToRun code: the framework starts under the JIT. |
 | Diagnostics (`createdump`, EventPipe, `dotnet-dump`) | Partial | W4.1 | The runtime's diagnostic IPC over a Unix domain socket: a tool reaches a process through the port it starts with (`DOTNET_DiagnosticPorts`; the Ipc area's DiagnosticsIpc). Every process's id is 1, so the default port has one name and the first .NET process takes it. No `createdump`; the debugger story decides the rest. |

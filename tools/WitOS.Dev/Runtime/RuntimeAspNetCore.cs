@@ -27,7 +27,7 @@ internal static class RuntimeAspNetCore
     /// <summary>
     /// The line the application prints once Kestrel listens, after which the runner requests.
     /// </summary>
-    public const string LISTENING = "[ASPNET] listening on http://0.0.0.0:8080 and https://0.0.0.0:8443";
+    public const string LISTENING = "[ASPNET] listening on http://[::]:8080 and https://[::]:8443";
 
     /// <summary>
     /// The text the runner expects of /; the application's answer.

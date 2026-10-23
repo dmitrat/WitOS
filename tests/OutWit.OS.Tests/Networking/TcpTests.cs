@@ -9,7 +9,8 @@ namespace OutWit.OS.Tests.Networking;
 /// TCP (plan step W1.2b) between two stacks of the simulated segment and within one: the handshake, data both ways and
 /// the close with TIME-WAIT; a megabyte echoed whole over a segment that loses and swaps frames; a refusal, a peer that
 /// never answers, a closed window and its probes, the backlog, the reset of a close with unread bytes, a simultaneous
-/// close and the loopback.
+/// close and the loopback; over IPv6 (W4.3): the loopback ::1, link-local addresses between two stacks, and a dual-stack
+/// listener that takes connections of both families while an IPV6_V6ONLY one refuses IPv4.
 /// </summary>
 [TestFixture]
 public sealed class TcpTests
@@ -34,7 +35,7 @@ public sealed class TcpTests
         var (client, server, listener) = Connect(network, a, b);
         Assert.That(a.FindTcp(client)!.State, Is.EqualTo(TcpState.Established));
         Assert.That(b.FindTcp(server)!.State, Is.EqualTo(TcpState.Established));
-        Assert.That(b.FindTcp(server)!.RemoteAddress, Is.EqualTo(A));
+        Assert.That(b.FindTcp(server)!.RemoteAddress, Is.EqualTo(Ipv6Address.Map(A)), "an IPv4 peer in the socket layer's mapped form (W4.3)");
         Assert.That(a.Poll(client) & NetworkStack.WRITABLE, Is.Not.Zero, "a connection with room is writable");
         Assert.That(b.Poll(server) & NetworkStack.READABLE, Is.Zero, "nothing to read yet");
 
@@ -107,6 +108,47 @@ public sealed class TcpTests
             network.Wait(1000);
         Assert.That(a.FindTcp(client)!.State, Is.EqualTo(TcpState.Closed));
         Assert.That(a.TakeError(client), Is.EqualTo(NetworkErrors.TIMED_OUT));
+    }
+
+    // An ICMP destination unreachable report for a SYN ends the attempt with the report's error, as Linux does, so that
+    // a program moves on to its next address: slirp answers a SYN to an address the host cannot reach so (W4.3: .NET
+    // tried example.com's IPv6 address first on a runner without IPv6 and waited for its 30 s timeout).
+    [Test]
+    public void UnreachableReportEndsAConnectionAttemptTest()
+    {
+        var (network, a, b) = Segment();
+        a.Configure(A, MASK, B, []); // B is A's gateway: a SYN to another network goes to it
+        Assert.That(a.OpenTcp(out var client), Is.Zero);
+        var before = network.Captured.Count;
+        Assert.That(a.Connect(client, new Ipv4Address(192, 168, 1, 1), 443), Is.EqualTo(NetworkErrors.IN_PROGRESS));
+        network.Pump();
+        var syn = network.Captured.Skip(before).Single(frame => frame[12] == 0x08 && frame[13] == 0x00 && frame[14 + 9] == Ipv4Header.TCP);
+        // B, as a router, reports the network unreachable, quoting the datagram's header and the SYN's first eight bytes.
+        var quoted = syn.AsSpan(EthernetHeader.SIZE, Ipv4Header.SIZE + 8);
+        var message = new byte[8 + quoted.Length];
+        message[0] = 3; // destination unreachable
+        message[1] = 0; // network unreachable
+        quoted.CopyTo(message.AsSpan(8));
+        var checksum = InternetChecksum.Compute(message);
+        message[2] = (byte)(checksum >> 8);
+        message[3] = (byte)checksum;
+        var packet = new byte[Ipv4Header.SIZE + message.Length];
+        Ipv4Header.Write(packet, B, A, Ipv4Header.ICMP, 1, message.Length);
+        message.CopyTo(packet, Ipv4Header.SIZE);
+        var frame = new byte[EthernetHeader.SIZE + packet.Length];
+        new EthernetHeader(new MacAddress(0x01_00_00_5E_00_02), new MacAddress(0x02_00_00_5E_00_02), EthernetHeader.IPV4).Write(frame);
+        packet.CopyTo(frame, EthernetHeader.SIZE);
+        a.Receive(frame);
+        Assert.That(a.FindTcp(client)!.State, Is.EqualTo(TcpState.Closed));
+        Assert.That(a.Poll(client) & (NetworkStack.ERROR | NetworkStack.HANGUP), Is.EqualTo(NetworkStack.ERROR | NetworkStack.HANGUP));
+        Assert.That(a.TakeError(client), Is.EqualTo(NetworkErrors.NETWORK_UNREACHABLE));
+        Assert.That(a.Statistics.UnreachableReports, Is.EqualTo(1));
+        // A forged report, quoting a sequence number that is not the attempt's, ends nothing.
+        Assert.That(a.OpenTcp(out var second), Is.Zero);
+        Assert.That(a.Connect(second, new Ipv4Address(192, 168, 1, 1), 443), Is.EqualTo(NetworkErrors.IN_PROGRESS));
+        network.Pump();
+        a.Receive(frame); // the old SYN's ports and sequence number
+        Assert.That(a.FindTcp(second)!.State, Is.EqualTo(TcpState.SynSent), "another attempt's report");
     }
 
     [Test]
@@ -203,6 +245,113 @@ public sealed class TcpTests
         Assert.That(fromClient, Is.EqualTo(toServer), "the server read every byte the client sent");
         Assert.That(fromServer, Is.EqualTo(toClient), "the client read every byte the server sent");
         Assert.That(stack.DescribeConnections(), Has.Count.EqualTo(2).And.All.Contains("Established"));
+    }
+
+    [Test]
+    public void Ipv6LoopbackConnectionTest()
+    {
+        var network = new SimulatedNetwork();
+        var stack = network.AddStack(0x01_00_00_5E_00_05);
+        Assert.That(stack.OpenTcp(out var listener, ipv6: true), Is.Zero);
+        Assert.That(stack.Bind(listener, Ipv6Address.Loopback, PORT), Is.Zero);
+        Assert.That(stack.Listen(listener, 4), Is.Zero);
+        Assert.That(stack.OpenTcp(out var client, ipv6: true), Is.Zero);
+        Assert.That(stack.Connect(client, Ipv6Address.Loopback, PORT), Is.EqualTo(NetworkErrors.IN_PROGRESS));
+        network.Pump();
+        Assert.That(network.Captured, Is.Empty, "the loopback never reaches the link");
+        Assert.That(stack.Accept(listener, out var server), Is.Zero);
+        var serverSide = stack.FindTcp(server)!;
+        Assert.That((serverSide.Family, serverSide.LocalAddress, serverSide.RemoteAddress, serverSide.Mss),
+            Is.EqualTo((SocketMessages.INET6, Ipv6Address.Loopback, Ipv6Address.Loopback, 1500 - Ipv6Header.SIZE - TcpHeader.SIZE)));
+        Assert.That(stack.SendStream(client, "hello"u8, out _), Is.Zero);
+        network.Pump();
+        Assert.That(ReadAll(stack, server), Is.EqualTo("hello"));
+        Assert.That(stack.SendStream(server, "world"u8, out _), Is.Zero);
+        network.Wait(50);
+        Assert.That(ReadAll(stack, client), Is.EqualTo("world"));
+        Assert.That(stack.Close(client), Is.Zero);
+        network.Pump();
+        Assert.That(stack.FindTcp(server)!.State, Is.EqualTo(TcpState.CloseWait));
+        Assert.That(stack.Close(server), Is.Zero);
+        network.Pump();
+        Assert.That(stack.FindTcp(server), Is.Null, "the passive closer's connection went with the last acknowledgment");
+        Assert.That(stack.FindTcp(client)!.State, Is.EqualTo(TcpState.TimeWait));
+    }
+
+    [Test]
+    public void DualStackListenerTakesBothFamiliesAndV6OnlyRefusesIpv4Test()
+    {
+        var network = new SimulatedNetwork();
+        var stack = network.AddStack(0x01_00_00_5E_00_06);
+        stack.Configure(A, MASK, Ipv4Address.Any, []);
+        Assert.That(stack.OpenTcp(out var listener, ipv6: true), Is.Zero);
+        Assert.That(stack.Bind(listener, Ipv6Address.Any, PORT), Is.Zero);
+        Assert.That(stack.Listen(listener, 4), Is.Zero);
+        Assert.That(stack.OpenTcp(out var taken), Is.Zero);
+        Assert.That(stack.Bind(taken, Ipv4Address.Any, PORT), Is.EqualTo(NetworkErrors.ADDRESS_IN_USE), "a dual-stack listener holds the port's IPv4 side");
+        Assert.That(stack.OpenTcp(out var client4), Is.Zero);
+        Assert.That(stack.Connect(client4, Ipv4Address.Loopback, PORT), Is.EqualTo(NetworkErrors.IN_PROGRESS));
+        Assert.That(stack.OpenTcp(out var client6, ipv6: true), Is.Zero);
+        Assert.That(stack.Connect(client6, Ipv6Address.Loopback, PORT), Is.EqualTo(NetworkErrors.IN_PROGRESS));
+        network.Pump();
+        Assert.That(stack.Accept(listener, out var first), Is.Zero);
+        Assert.That(stack.Accept(listener, out var second), Is.Zero);
+        var peers = new[] { stack.FindTcp(first)!, stack.FindTcp(second)! };
+        Assert.That(peers.Select(peer => peer.Family), Has.All.EqualTo(SocketMessages.INET6), "a dual-stack listener's connections are AF_INET6");
+        Assert.That(peers.Select(peer => peer.RemoteAddress), Is.EquivalentTo(new[] { Ipv6Address.Map(Ipv4Address.Loopback), Ipv6Address.Loopback }),
+            "the IPv4 peer in its mapped form, as Linux names it");
+        Assert.That(peers.Select(peer => peer.Mss), Is.EquivalentTo(new[] { 1500 - Ipv4Header.SIZE - TcpHeader.SIZE, 1500 - Ipv6Header.SIZE - TcpHeader.SIZE }));
+        Assert.That(stack.SendStream(client4, "four"u8, out _), Is.Zero);
+        network.Pump();
+        var ipv4Side = peers.Single(peer => peer.RemoteAddress.IsMapped);
+        Assert.That(ReadAll(stack, ipv4Side.Id), Is.EqualTo("four"));
+
+        Assert.That(stack.OpenTcp(out var only, ipv6: true), Is.Zero);
+        Assert.That(stack.SetV6Only(only, true), Is.Zero);
+        Assert.That(stack.Bind(only, Ipv6Address.Any, PORT + 1), Is.Zero);
+        Assert.That(stack.Listen(only, 4), Is.Zero);
+        Assert.That(stack.Bind(taken, Ipv4Address.Any, PORT + 1), Is.Zero, "an IPV6_V6ONLY listener leaves the port's IPv4 side free");
+        Assert.That(stack.Close(taken), Is.Zero);
+        Assert.That(stack.OpenTcp(out var refused), Is.Zero);
+        Assert.That(stack.Connect(refused, Ipv4Address.Loopback, PORT + 1), Is.EqualTo(NetworkErrors.IN_PROGRESS));
+        network.Pump();
+        Assert.That(stack.TakeError(refused), Is.EqualTo(NetworkErrors.CONNECTION_REFUSED), "no listener takes IPv4 at the port");
+        Assert.That(stack.OpenTcp(out var client6b, ipv6: true), Is.Zero);
+        Assert.That(stack.Connect(client6b, Ipv6Address.Loopback, PORT + 1), Is.EqualTo(NetworkErrors.IN_PROGRESS));
+        network.Pump();
+        Assert.That(stack.Accept(only, out _), Is.Zero);
+        Assert.That(stack.OpenTcp(out var mapped, ipv6: true), Is.Zero);
+        Assert.That(stack.SetV6Only(mapped, true), Is.Zero);
+        Assert.That(stack.Connect(mapped, Ipv4Address.Loopback, PORT), Is.EqualTo(NetworkErrors.NETWORK_UNREACHABLE), "an IPV6_V6ONLY socket reaches no IPv4 address");
+    }
+
+    [Test]
+    public void Ipv6BetweenStacksTest()
+    {
+        var (network, a, b) = Segment();
+        a.StartIpv6();
+        b.StartIpv6();
+        network.Wait(1000);
+        Assert.That((a.Ipv6LinkLocal.IsLinkLocal, b.Ipv6LinkLocal.IsLinkLocal), Is.EqualTo((true, true)));
+        Assert.That(b.OpenTcp(out var listener, ipv6: true), Is.Zero);
+        Assert.That(b.Bind(listener, Ipv6Address.Any, PORT), Is.Zero);
+        Assert.That(b.Listen(listener, 8), Is.Zero);
+        Assert.That(a.OpenTcp(out var client, ipv6: true), Is.Zero);
+        Assert.That(a.Connect(client, b.Ipv6LinkLocal, PORT), Is.EqualTo(NetworkErrors.IN_PROGRESS));
+        network.Pump();
+        Assert.That(b.Accept(listener, out var server), Is.Zero);
+        var clientSide = a.FindTcp(client)!;
+        Assert.That((clientSide.State, clientSide.LocalAddress, clientSide.RemoteAddress, clientSide.Mss),
+            Is.EqualTo((TcpState.Established, a.Ipv6LinkLocal, b.Ipv6LinkLocal, 1500 - Ipv6Header.SIZE - TcpHeader.SIZE)));
+        Assert.That(b.FindTcp(server)!.RemoteAddress, Is.EqualTo(a.Ipv6LinkLocal));
+        Assert.That(a.SendStream(client, "hello"u8, out _), Is.Zero);
+        network.Pump();
+        Assert.That(ReadAll(b, server), Is.EqualTo("hello"));
+        Assert.That(b.SendStream(server, "world"u8, out _), Is.Zero);
+        network.Wait(50);
+        Assert.That(ReadAll(a, client), Is.EqualTo("world"));
+        Assert.That(network.Captured.Count(frame => frame[12] == 0x86 && frame[13] == 0xDD), Is.EqualTo(network.Captured.Count), "IPv6 frames alone");
+        Assert.That(a.Statistics.NeighbourSolicitations, Is.EqualTo(2), "duplicate address detection and the peer's address");
     }
 
     [Test]

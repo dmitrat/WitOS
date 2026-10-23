@@ -29,6 +29,11 @@ public readonly record struct EthernetHeader(MacAddress Destination, MacAddress 
     /// </summary>
     public const ushort ARP = 0x0806;
 
+    /// <summary>
+    /// IPv6 (W4.3).
+    /// </summary>
+    public const ushort IPV6 = 0x86DD;
+
     #endregion
 
     #region Functions

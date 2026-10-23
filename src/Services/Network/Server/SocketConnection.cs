@@ -13,8 +13,10 @@ namespace OutWit.OS.Network.Server;
 /// request waits: one that would answers EAGAIN, and a readiness event follows on the events channel. A full events queue
 /// drops the event, since the events it holds wake the client already, and a client tries its request again after any
 /// event. The session serves datagram and stream sockets alike, each kind's operations as Linux's sockets of the kind
-/// answer them. The sockets a session opened close when the client closes its end or the service stops, after which
-/// every request is refused with ESHUTDOWN.
+/// answer them, of both families (W4.3): an AF_INET socket takes and reports AF_INET addresses, an AF_INET6 one AF_INET6
+/// addresses, its IPv4 peers in their mapped form, and a datagram socket of either family may be sent to an address of
+/// the other's form where Linux allows it. The sockets a session opened close when the client closes its end or the
+/// service stops, after which every request is refused with ESHUTDOWN.
 /// </summary>
 internal sealed class SocketConnection
 {
@@ -50,7 +52,7 @@ internal sealed class SocketConnection
     private readonly KernelHandle m_object;
     private readonly MemoryMapping m_window;
     private readonly StackHost m_host;
-    private readonly Dictionary<int, bool> m_sockets = []; // each socket of the session, and whether it is a stream
+    private readonly Dictionary<int, SessionSocket> m_sockets = []; // each socket of the session: its kind and family
     private readonly object m_gate = new();
     private bool m_stopped;
 
@@ -226,24 +228,28 @@ internal sealed class SocketConnection
             return Open(request);
         if (operation == SocketMessages.CONFIGURATION)
             return Configuration(request);
+        if (operation == SocketMessages.CONFIGURATION6)
+            return Configuration6(request);
         if (operation is < SocketMessages.BIND or > SocketMessages.SET_OPTION)
             return new SocketReply(operation, NetworkErrors.NOT_SUPPORTED);
         var socket = (int)request.Socket;
-        if (!m_sockets.TryGetValue(socket, out var stream))
+        if (!m_sockets.TryGetValue(socket, out var entry))
             return new SocketReply(operation, NetworkErrors.BAD_SOCKET);
+        var (stream, family) = entry;
         var address = request.Address;
         switch (operation)
         {
             case SocketMessages.BIND:
-                return address.Family != SocketMessages.INET
+                // Linux's bind takes the socket's family alone (inet_bind, inet6_bind).
+                return address.Family != family
                     ? new SocketReply(operation, NetworkErrors.FAMILY_NOT_SUPPORTED)
                     : new SocketReply(operation, m_host.Call(stack => stack.Bind(socket, address.Address, address.Port)));
             case SocketMessages.CONNECT_TO:
                 // AF_UNSPEC dissolves a datagram socket's association, as Linux's connect does.
                 if (address.Family == SocketMessages.UNSPECIFIED && !stream)
-                    return new SocketReply(operation, m_host.Call(stack => stack.Connect(socket, Ipv4Address.Any, 0)));
-                if (address.Family != SocketMessages.INET)
-                    return new SocketReply(operation, stream ? NetworkErrors.INVALID : NetworkErrors.FAMILY_NOT_SUPPORTED);
+                    return new SocketReply(operation, m_host.Call(stack => stack.Connect(socket, Ipv6Address.Any, 0)));
+                if (!Accepts(address.Family, family, stream))
+                    return new SocketReply(operation, stream && address.Family == SocketMessages.UNSPECIFIED ? NetworkErrors.INVALID : NetworkErrors.FAMILY_NOT_SUPPORTED);
                 return address.Port == 0
                     ? new SocketReply(operation, NetworkErrors.INVALID)
                     : new SocketReply(operation, m_host.Call(stack => stack.Connect(socket, address.Address, address.Port)));
@@ -263,7 +269,7 @@ internal sealed class SocketConnection
                 m_sockets.Remove(socket);
                 return new SocketReply(operation, m_host.Close(socket));
             case SocketMessages.NAME:
-                return stream ? StreamName(request, socket) : Name(request, socket);
+                return stream ? StreamName(request, socket, family) : Name(request, socket, family);
             case SocketMessages.POLL:
                 return m_host.Call(stack => new SocketReply(operation, 0, Length: stack.Available(socket), Value: stack.Poll(socket)));
             case SocketMessages.GET_OPTION:
@@ -273,24 +279,30 @@ internal sealed class SocketConnection
         }
     }
 
-    // OPEN: an AF_INET stream (TCP) or datagram (UDP) socket.
+    // Whether a socket takes an address of a family as a destination: its own; an AF_INET address on a dual-stack
+    // AF_INET6 datagram socket too, which Linux's connect and sendto map (the stack refuses it on an IPV6_V6ONLY one).
+    private static bool Accepts(ushort addressFamily, ushort socketFamily, bool stream) =>
+        addressFamily == socketFamily || (!stream && addressFamily == SocketMessages.INET && socketFamily == SocketMessages.INET6);
+
+    // OPEN: an AF_INET or AF_INET6 (W4.3) stream (TCP) or datagram (UDP) socket.
     private SocketReply Open(SocketRequest request)
     {
-        if (request.Argument0 != SocketMessages.INET)
+        if (request.Argument0 is not SocketMessages.INET and not SocketMessages.INET6)
             return new SocketReply(request.Operation, NetworkErrors.FAMILY_NOT_SUPPORTED);
         if (request.Argument1 is not SocketMessages.STREAM and not SocketMessages.DATAGRAM)
             return new SocketReply(request.Operation, SOCKET_TYPE_NOT_SUPPORTED);
         var stream = request.Argument1 == SocketMessages.STREAM;
         if (request.Argument2 != 0 && request.Argument2 != (stream ? TCP : UDP))
             return new SocketReply(request.Operation, NetworkErrors.PROTOCOL_NOT_SUPPORTED);
-        var error = m_host.Open(this, stream, out var socket);
+        var family = (ushort)request.Argument0;
+        var error = m_host.Open(this, stream, family == SocketMessages.INET6, out var socket);
         if (error != 0)
             return new SocketReply(request.Operation, error);
-        m_sockets[socket] = stream;
+        m_sockets[socket] = new SessionSocket(stream, family);
         return new SocketReply(request.Operation, 0, (uint)socket);
     }
 
-    // ACCEPT: a connection a listening socket holds, with its peer; the session owns it.
+    // ACCEPT: a connection a listening socket holds, with its peer in the listener's family; the session owns it.
     private SocketReply Accept(SocketRequest request, int socket, bool stream)
     {
         if (!stream)
@@ -298,7 +310,7 @@ internal sealed class SocketConnection
         var error = m_host.Accept(this, socket, out var accepted, out var peer);
         if (error != 0)
             return new SocketReply(request.Operation, error);
-        m_sockets[accepted] = true;
+        m_sockets[accepted] = new SessionSocket(true, peer.Family);
         return new SocketReply(request.Operation, 0, (uint)accepted, Address: peer);
     }
 
@@ -329,7 +341,7 @@ internal sealed class SocketConnection
             return new SocketReply(request.Operation, error);
         var tcp = m_host.Call(stack => stack.FindTcp(socket));
         return new SocketReply(request.Operation, 0, Length: received, Value: (ulong)received,
-            Address: tcp is null ? SocketAddress.None : SocketAddress.Inet(tcp.RemoteAddress, tcp.RemotePort));
+            Address: tcp is null ? SocketAddress.None : SocketAddress.Of(tcp.Family, tcp.RemoteAddress, tcp.RemotePort));
     }
 
     // SHUTDOWN: SHUT_RD, SHUT_WR or SHUT_RDWR of a connection.
@@ -350,13 +362,15 @@ internal sealed class SocketConnection
         if (!InWindow(request.Window, request.Length))
             return new SocketReply(request.Operation, NetworkErrors.INVALID);
         var address = request.Address;
-        if (address.Family is not SocketMessages.UNSPECIFIED and not SocketMessages.INET)
+        var family = m_sockets[socket].Family;
+        if (address.Family != SocketMessages.UNSPECIFIED && !Accepts(address.Family, family, stream: false))
             return new SocketReply(request.Operation, NetworkErrors.FAMILY_NOT_SUPPORTED);
         var start = (int)request.Window;
         var length = (int)request.Length;
-        var to = address.Family == SocketMessages.INET ? address.Address : Ipv4Address.Any;
-        var port = address.Family == SocketMessages.INET ? address.Port : (ushort)0;
-        if (address.Family == SocketMessages.INET && port == 0)
+        var addressed = address.Family != SocketMessages.UNSPECIFIED;
+        var to = addressed ? address.Address : Ipv6Address.Any;
+        var port = addressed ? address.Port : (ushort)0;
+        if (addressed && port == 0)
             return new SocketReply(request.Operation, NetworkErrors.INVALID);
         var error = m_host.Call(stack => stack.SendTo(socket, m_window.Bytes.Slice(start, length), to, port));
         return error == 0 ? new SocketReply(request.Operation, 0, Length: length) : new SocketReply(request.Operation, error);
@@ -376,33 +390,33 @@ internal sealed class SocketConnection
         if (error != 0 || datagram is null)
             return new SocketReply(request.Operation, error != 0 ? error : NetworkErrors.AGAIN);
         return new SocketReply(request.Operation, 0, Length: Math.Min(length, datagram.Payload.Length), Value: (ulong)datagram.Payload.Length,
-            Address: SocketAddress.Inet(datagram.Source, datagram.SourcePort));
+            Address: SocketAddress.Of(m_sockets[socket].Family, datagram.Source, datagram.SourcePort));
     }
 
-    // NAME of a datagram socket: its local address, or its peer's.
-    private SocketReply Name(SocketRequest request, int socket)
+    // NAME of a datagram socket: its local address, or its peer's, in the socket's family.
+    private SocketReply Name(SocketRequest request, int socket, ushort family)
     {
         var udp = m_host.Call(stack => stack.FindUdp(socket));
         if (udp is null)
             return new SocketReply(request.Operation, NetworkErrors.BAD_SOCKET);
         if ((request.Flags & SocketMessages.PEER) != 0)
             return udp.IsConnected
-                ? new SocketReply(request.Operation, 0, Address: SocketAddress.Inet(udp.RemoteAddress, udp.RemotePort))
+                ? new SocketReply(request.Operation, 0, Address: SocketAddress.Of(family, udp.RemoteAddress, udp.RemotePort))
                 : new SocketReply(request.Operation, NetworkErrors.NOT_CONNECTED);
-        return new SocketReply(request.Operation, 0, Address: SocketAddress.Inet(udp.LocalAddress, udp.LocalPort));
+        return new SocketReply(request.Operation, 0, Address: SocketAddress.Of(family, udp.LocalAddress, udp.LocalPort));
     }
 
-    // NAME of a stream socket: its local address, or its connected peer's.
-    private SocketReply StreamName(SocketRequest request, int socket)
+    // NAME of a stream socket: its local address, or its connected peer's, in the socket's family.
+    private SocketReply StreamName(SocketRequest request, int socket, ushort family)
     {
         var tcp = m_host.Call(stack => stack.FindTcp(socket));
         if (tcp is null)
             return new SocketReply(request.Operation, NetworkErrors.BAD_SOCKET);
         if ((request.Flags & SocketMessages.PEER) != 0)
             return tcp.IsConnected || tcp.State == TcpState.SynReceived
-                ? new SocketReply(request.Operation, 0, Address: SocketAddress.Inet(tcp.RemoteAddress, tcp.RemotePort))
+                ? new SocketReply(request.Operation, 0, Address: SocketAddress.Of(family, tcp.RemoteAddress, tcp.RemotePort))
                 : new SocketReply(request.Operation, NetworkErrors.NOT_CONNECTED);
-        return new SocketReply(request.Operation, 0, Address: SocketAddress.Inet(tcp.LocalAddress, tcp.LocalPort));
+        return new SocketReply(request.Operation, 0, Address: SocketAddress.Of(family, tcp.LocalAddress, tcp.LocalPort));
     }
 
     // GET_OPTION: SOL_SOCKET's options and TCP_NODELAY.
@@ -426,18 +440,22 @@ internal sealed class SocketConnection
             (SocketMessages.SOCKET_LEVEL, SocketMessages.KEEP_ALIVE) when tcp is not null => 0UL,
             (SocketMessages.SOCKET_LEVEL, SocketMessages.ACCEPTS_CONNECTIONS) => tcp?.State == TcpState.Listen ? 1UL : 0UL,
             (SocketMessages.TCP_LEVEL, SocketMessages.NO_DELAY) when tcp is not null => tcp.NoDelay ? 1UL : 0UL,
+            (SocketMessages.IPV6_LEVEL, SocketMessages.V6_ONLY) when (udp?.Family ?? tcp!.Family) == SocketMessages.INET6 =>
+                (udp?.V6Only ?? tcp!.V6Only) ? 1UL : 0UL,
             _ => null
         };
         return value is { } got ? new SocketReply(request.Operation, 0, Value: got) : new SocketReply(request.Operation, NO_OPTION);
     }
 
-    // SET_OPTION: SO_BROADCAST, SO_REUSEADDR, SO_REUSEPORT and TCP_NODELAY change the socket; the buffer sizes are the service's and
-    // stay; keep-alive probes are not served yet.
+    // SET_OPTION: SO_BROADCAST, SO_REUSEADDR, SO_REUSEPORT, TCP_NODELAY and IPV6_V6ONLY (W4.3) change the socket; the
+    // buffer sizes are the service's and stay; keep-alive probes are not served yet.
     private SocketReply SetOption(SocketRequest request, int socket, bool stream)
     {
         var enabled = request.Argument2 != 0;
         return (request.Argument0, request.Argument1) switch
         {
+            (SocketMessages.IPV6_LEVEL, SocketMessages.V6_ONLY) =>
+                new SocketReply(request.Operation, m_host.Call(stack => stack.SetV6Only(socket, enabled))),
             (SocketMessages.SOCKET_LEVEL, SocketMessages.BROADCAST) when !stream =>
                 new SocketReply(request.Operation, m_host.Call(stack => stack.SetBroadcast(socket, enabled))),
             (SocketMessages.SOCKET_LEVEL, SocketMessages.REUSE_ADDRESS) =>
@@ -460,6 +478,18 @@ internal sealed class SocketConnection
             stack.LinkAddress, m_host.Mtu, stack.Dhcp.IsBound));
         SocketMessages.WriteConfiguration(m_window.Writable[(int)request.Window..], configuration);
         return new SocketReply(request.Operation, 0, Length: SocketMessages.CONFIGURATION_SIZE);
+    }
+
+    // CONFIGURATION6 (W4.3): the interface's IPv6 addresses, prefix, router and DNS servers into the window.
+    private SocketReply Configuration6(SocketRequest request)
+    {
+        if (request.Length < SocketMessages.CONFIGURATION6_SIZE || !InWindow(request.Window, SocketMessages.CONFIGURATION6_SIZE))
+            return new SocketReply(request.Operation, NetworkErrors.INVALID);
+        var configuration = m_host.Call(stack => new SocketConfiguration6(stack.Ipv6LinkLocal, stack.Ipv6Global, stack.Ipv6Gateway,
+            (uint)stack.Ipv6PrefixLength, [.. stack.Ipv6DnsServers],
+            (stack.Ipv6LinkLocal.IsAny ? 0 : SocketMessages.IPV6_LINK_LOCAL) | (stack.Ipv6Global.IsAny ? 0 : SocketMessages.IPV6_GLOBAL)));
+        SocketMessages.WriteConfiguration6(m_window.Writable[(int)request.Window..], configuration);
+        return new SocketReply(request.Operation, 0, Length: SocketMessages.CONFIGURATION6_SIZE);
     }
 
     // Whether bytes at an offset lie in the window.
@@ -487,6 +517,13 @@ internal sealed class SocketConnection
     /// again after the events it holds.
     /// </summary>
     public static int UndeliveredEvents => Volatile.Read(ref m_undelivered);
+
+    #endregion
+
+    #region Nested Types
+
+    // A socket of the session: a stream (TCP) or a datagram (UDP) socket, of AF_INET or AF_INET6.
+    private readonly record struct SessionSocket(bool Stream, ushort Family);
 
     #endregion
 }

@@ -72,9 +72,19 @@ public sealed class TcpSocket
     public TcpState State { get; internal set; }
 
     /// <summary>
-    /// The local address: Any until bound to one or connected.
+    /// The socket's family: AF_INET or AF_INET6 (W4.3). A connection a listener accepted has the listener's.
     /// </summary>
-    public Ipv4Address LocalAddress { get; internal set; }
+    public ushort Family { get; internal set; } = SocketMessages.INET;
+
+    /// <summary>
+    /// IPV6_V6ONLY: an AF_INET6 socket that takes no IPv4 (W4.3).
+    /// </summary>
+    public bool V6Only { get; internal set; }
+
+    /// <summary>
+    /// The local address: Any until bound to one or connected; an IPv4 address in its mapped form (W4.3).
+    /// </summary>
+    public Ipv6Address LocalAddress { get; internal set; }
 
     /// <summary>
     /// The local port: zero until bound.
@@ -82,9 +92,9 @@ public sealed class TcpSocket
     public ushort LocalPort { get; internal set; }
 
     /// <summary>
-    /// The peer's address.
+    /// The peer's address; an IPv4 address in its mapped form.
     /// </summary>
-    public Ipv4Address RemoteAddress { get; internal set; }
+    public Ipv6Address RemoteAddress { get; internal set; }
 
     /// <summary>
     /// The peer's port: zero without a peer.

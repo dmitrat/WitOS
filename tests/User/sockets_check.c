@@ -22,14 +22,19 @@
 
 /* The libc's sockets over the network service (plan step W2.1a): /bin/sockets-check, which the runtime-devices
  * scenario's /bin/init starts, a process like any other, whose start message carried the network service's endpoint.
- * It checks the Linux socket calls as programs use them: what is refused (IPv6, an AF_INET pair;
+ * It checks the Linux socket calls as programs use them: what is refused (a raw socket, an AF_INET pair;
  * AF_UNIX is /bin/local-sockets-check's, W4.1), UDP and TCP over the loopback
  * (bind, getsockname, sendto and recvfrom with their addresses, MSG_PEEK, MSG_TRUNC, FIONREAD, a nonblocking connect
  * with poll and SO_ERROR, accept4's flags, EAGAIN, SO_RCVTIMEO, a blocking send larger than the buffers against a
  * reading thread, shutdown's end of the stream, a refused connection), names (/etc/hosts, /etc/resolv.conf from the
  * lease, a name through musl's resolver and slirp's forwarder), a connection to the runner's echo server and one from
  * the runner through a port forward, and the interfaces (W4.2: getifaddrs and if_nameindex over the libc's netlink route
- * socket, if_nametoindex and if_indextoname and the SIOCGIF* ioctls on a UDP socket, naming lo and eth0 with the lease). */
+ * socket, if_nametoindex and if_indextoname and the SIOCGIF* ioctls on a UDP socket, naming lo and eth0 with the lease),
+ * and IPv6 (W4.3: datagrams and streams over ::1, a
+ * dual-stack listener taking an IPv4 client with its peer in the mapped form, IPV6_V6ONLY, sockaddr_in6 names,
+ * localhost's ::1, the interface's link-local and global addresses from slirp's router advertisement, and slirp's IPv6
+ * DNS server in /etc/resolv.conf; a query to it and a connection to the host's IPv6 loopback are reported, not
+ * required, since they need IPv6 on the host). */
 
 #define LISTEN_PORT 8080
 #define BIG (512 * 1024)
@@ -72,6 +77,25 @@ static int port_of(int fd)
     return getsockname(fd, (struct sockaddr *)&a, &length) == 0 && length == sizeof(a) ? ntohs(a.sin_port) : -1;
 }
 
+static struct sockaddr_in6 address6_of(const char *ip, int port)
+{
+    struct sockaddr_in6 a;
+    memset(&a, 0, sizeof(a));
+    a.sin6_family = AF_INET6;
+    a.sin6_port = htons((unsigned short)port);
+    inet_pton(AF_INET6, ip, &a.sin6_addr);
+    return a;
+}
+
+static int port6_of(int fd)
+{
+    struct sockaddr_in6 a;
+    socklen_t length = sizeof(a);
+    return getsockname(fd, (struct sockaddr *)&a, &length) == 0 && length == sizeof(a) && a.sin6_family == AF_INET6
+        ? ntohs(a.sin6_port)
+        : -1;
+}
+
 static unsigned char pattern(long i)
 {
     return (unsigned char)(i * 31 + (i >> 9) * 7 + (i >> 17));
@@ -80,7 +104,8 @@ static unsigned char pattern(long i)
 static void refusals(void)
 {
     errno = 0;
-    check(socket(AF_INET6, SOCK_STREAM, 0) < 0 && errno == EAFNOSUPPORT, "AF_INET6 is EAFNOSUPPORT");
+    check(
+        socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6) < 0 && errno == ESOCKTNOSUPPORT, "a raw socket is ESOCKTNOSUPPORT");
     int pair[2];
     errno = 0;
     check(socketpair(AF_INET, SOCK_STREAM, 0, pair) < 0 && errno == EOPNOTSUPP, "socketpair of AF_INET is EOPNOTSUPP");
@@ -429,6 +454,204 @@ static void interfaces(void)
         eth_text, eth_mtu);
 }
 
+/* IPv6 (W4.3). */
+static void ipv6(void)
+{
+    const int a = socket(AF_INET6, SOCK_DGRAM, 0), b = socket(AF_INET6, SOCK_DGRAM, 0);
+    check(a >= 0 && b >= 0, "two AF_INET6 datagram sockets");
+    int value = -1;
+    socklen_t length = sizeof(value);
+    check(getsockopt(a, SOL_SOCKET, SO_DOMAIN, &value, &length) == 0 && value == AF_INET6, "SO_DOMAIN is AF_INET6");
+    length = sizeof(value);
+    check(
+        getsockopt(a, IPPROTO_IPV6, IPV6_V6ONLY, &value, &length) == 0 && value == 0, "IPV6_V6ONLY is off by default");
+    struct sockaddr_in6 where = address6_of("::1", 0);
+    check(bind(a, (struct sockaddr *)&where, sizeof(where)) == 0, "bind to [::1]'s ephemeral port");
+    const int port = port6_of(a);
+    check(port >= 49152, "getsockname names the ephemeral port in a sockaddr_in6");
+    where.sin6_port = htons((unsigned short)port);
+    check(sendto(b, "six", 3, 0, (struct sockaddr *)&where, sizeof(where)) == 3, "sendto over ::1");
+    struct sockaddr_in6 from;
+    length = sizeof(from);
+    char buffer[64] = {0};
+    check(
+        recvfrom(a, buffer, sizeof(buffer), 0, (struct sockaddr *)&from, &length) == 3 && memcmp(buffer, "six", 3) == 0,
+        "recvfrom takes the datagram");
+    check(length == sizeof(from) &&
+            from.sin6_family == AF_INET6 &&
+            IN6_IS_ADDR_LOOPBACK(&from.sin6_addr) &&
+            ntohs(from.sin6_port) == port6_of(b),
+        "recvfrom names the sender, ::1");
+    close(a);
+    close(b);
+    /* A dual-stack listener on [::]: an IPv6 client over ::1 and an IPv4 one over 127.0.0.1, whose peer is mapped. */
+    const int listener = socket(AF_INET6, SOCK_STREAM, 0);
+    where = address6_of("::", 0);
+    check(listener >= 0 && bind(listener, (struct sockaddr *)&where, sizeof(where)) == 0 && listen(listener, 4) == 0,
+        "a dual-stack listener on [::]");
+    const int lport = port6_of(listener);
+    value = 1;
+    check(setsockopt(listener, IPPROTO_IPV6, IPV6_V6ONLY, &value, sizeof(value)) < 0 && errno == EINVAL,
+        "IPV6_V6ONLY cannot change once bound");
+    const int client6 = socket(AF_INET6, SOCK_STREAM, 0);
+    where = address6_of("::1", lport);
+    check(connect(client6, (struct sockaddr *)&where, sizeof(where)) == 0, "connect over ::1");
+    length = sizeof(from);
+    const int server6 = accept(listener, (struct sockaddr *)&from, &length);
+    check(server6 >= 0 &&
+            from.sin6_family == AF_INET6 &&
+            IN6_IS_ADDR_LOOPBACK(&from.sin6_addr) &&
+            ntohs(from.sin6_port) == port6_of(client6),
+        "accept names the IPv6 peer");
+    check(write(client6, "hello6", 6) == 6 &&
+            read(server6, buffer, sizeof(buffer)) == 6 &&
+            memcmp(buffer, "hello6", 6) == 0,
+        "bytes over a TCP connection on ::1");
+    const int client4 = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in where4 = address_of("127.0.0.1", lport);
+    check(connect(client4, (struct sockaddr *)&where4, sizeof(where4)) == 0,
+        "an IPv4 client connects to the dual-stack listener");
+    length = sizeof(from);
+    const int server4 = accept(listener, (struct sockaddr *)&from, &length);
+    check(server4 >= 0 &&
+            from.sin6_family == AF_INET6 &&
+            IN6_IS_ADDR_V4MAPPED(&from.sin6_addr) &&
+            memcmp(&from.sin6_addr.s6_addr[12], "\x7f\x00\x00\x01", 4) == 0 &&
+            ntohs(from.sin6_port) == port_of(client4),
+        "accept names the IPv4 peer in its mapped form, ::ffff:127.0.0.1");
+    check(
+        write(server4, "four", 4) == 4 && read(client4, buffer, sizeof(buffer)) == 4 && memcmp(buffer, "four", 4) == 0,
+        "bytes between the families");
+    struct sockaddr_in peer4;
+    length = sizeof(peer4);
+    check(getpeername(client4, (struct sockaddr *)&peer4, &length) == 0 &&
+            peer4.sin_family == AF_INET &&
+            ntohs(peer4.sin_port) == lport,
+        "the IPv4 client's peer is AF_INET");
+    close(client6);
+    close(server6);
+    close(client4);
+    close(server4);
+    close(listener);
+    /* IPV6_V6ONLY: no IPv4 at the port, which another AF_INET socket may then bind. */
+    const int only = socket(AF_INET6, SOCK_STREAM, 0);
+    value = 1;
+    check(setsockopt(only, IPPROTO_IPV6, IPV6_V6ONLY, &value, sizeof(value)) == 0, "IPV6_V6ONLY set");
+    where = address6_of("::", 0);
+    check(bind(only, (struct sockaddr *)&where, sizeof(where)) == 0 && listen(only, 1) == 0, "an IPV6_V6ONLY listener");
+    const int oport = port6_of(only);
+    const int taker = socket(AF_INET, SOCK_STREAM, 0);
+    where4 = address_of("0.0.0.0", oport);
+    check(bind(taker, (struct sockaddr *)&where4, sizeof(where4)) == 0,
+        "an AF_INET socket binds the IPV6_V6ONLY listener's port");
+    close(taker);
+    const int refused = socket(AF_INET, SOCK_STREAM, 0);
+    where4 = address_of("127.0.0.1", oport);
+    check(connect(refused, (struct sockaddr *)&where4, sizeof(where4)) < 0 && errno == ECONNREFUSED,
+        "an IPv4 connection to an IPV6_V6ONLY listener is refused");
+    close(refused);
+    close(only);
+    const int v4 = socket(AF_INET, SOCK_STREAM, 0);
+    check(setsockopt(v4, IPPROTO_IPV6, IPV6_V6ONLY, &value, sizeof(value)) < 0 && errno == ENOPROTOOPT,
+        "IPV6_V6ONLY of an AF_INET socket is ENOPROTOOPT");
+    where = address6_of("::1", 1);
+    check(bind(v4, (struct sockaddr *)&where, sizeof(where)) < 0 && errno == EAFNOSUPPORT,
+        "an AF_INET socket binds no sockaddr_in6");
+    close(v4);
+    /* localhost's ::1 from /etc/hosts. */
+    struct addrinfo hints, *found = 0;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET6;
+    hints.ai_socktype = SOCK_STREAM;
+    check(getaddrinfo("localhost", "80", &hints, &found) == 0 &&
+            found &&
+            IN6_IS_ADDR_LOOPBACK(&((struct sockaddr_in6 *)found->ai_addr)->sin6_addr),
+        "localhost's ::1 through /etc/hosts");
+    if (found) {
+        freeaddrinfo(found);
+    }
+    /* The interfaces' IPv6 addresses: ::1 of lo; the link-local and the global address of eth0, the latter from slirp's
+     * router advertisement, each assigned a second after its solicitation went unanswered. */
+    char link_local[INET6_ADDRSTRLEN] = "none", global[INET6_ADDRSTRLEN] = "none";
+    int lo6 = 0;
+    for (int attempt = 0; attempt < 100 && strcmp(global, "none") == 0; ++attempt) {
+        struct ifaddrs *list = 0;
+        if (attempt) {
+            usleep(100000);
+        }
+        if (getifaddrs(&list) != 0) {
+            continue;
+        }
+        for (const struct ifaddrs *i = list; i; i = i->ifa_next) {
+            if (!i->ifa_addr || i->ifa_addr->sa_family != AF_INET6) {
+                continue;
+            }
+            const struct sockaddr_in6 *in = (const struct sockaddr_in6 *)i->ifa_addr;
+            if (strcmp(i->ifa_name, "lo") == 0) {
+                lo6 = IN6_IS_ADDR_LOOPBACK(&in->sin6_addr);
+            } else if (strcmp(i->ifa_name, "eth0") == 0) {
+                inet_ntop(AF_INET6, &in->sin6_addr, IN6_IS_ADDR_LINKLOCAL(&in->sin6_addr) ? link_local : global,
+                    INET6_ADDRSTRLEN);
+            }
+        }
+        freeifaddrs(list);
+    }
+    check(lo6, "lo has ::1");
+    check(strncmp(link_local, "fe80::", 6) == 0, "eth0 has a link-local address");
+    check(strncmp(global, "fec0::", 6) == 0, "eth0 has a global address of slirp's prefix fec0::/64");
+    /* /etc/resolv.conf names slirp's IPv6 DNS server once the global address is there, when slirp advertised one: it
+     * puts the RDNSS option in its advertisement only where the host has an IPv6 DNS server, which CI's runners lack. */
+    FILE *resolv = fopen("/etc/resolv.conf", "r");
+    char line[64];
+    int dns6 = 0, other6 = 0;
+    while (resolv && fgets(line, sizeof(line), resolv)) {
+        if (strncmp(line, "nameserver ", 11) == 0 && strchr(line, ':')) {
+            if (strcmp(line, "nameserver fec0::3\n") == 0) {
+                dns6 = 1;
+            } else {
+                other6 = 1;
+            }
+        }
+    }
+    if (resolv) {
+        fclose(resolv);
+    }
+    check(!other6, "an IPv6 nameserver in /etc/resolv.conf, if any, is slirp's fec0::3");
+    printf("[SOCKETS] IPv6: lo ::1, eth0 %s and %s, a dual-stack listener took an IPv4 client\n", link_local, global);
+    /* Reported, not required: slirp forwards an IPv6 datagram to fec0::3 to the host's IPv6 DNS server, and a connection
+     * to [fec0::2] to the host's ::1, where the host has them. */
+    const int query = socket(AF_INET6, SOCK_DGRAM, 0);
+    where = address6_of("fec0::3", 53);
+    const unsigned char dns[] = {0x12, 0x34, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 7, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 3, 'c',
+        'o', 'm', 0, 0, 28, 0, 1};
+    const char *answered = "no answer";
+    for (int attempt = 0; attempt < 2 && answered[0] == 'n'; ++attempt) {
+        if (sendto(query, dns, sizeof(dns), 0, (struct sockaddr *)&where, sizeof(where)) != (ssize_t)sizeof(dns)) {
+            answered = "not sent";
+            break;
+        }
+        struct pollfd pfd = {query, POLLIN, 0};
+        unsigned char answer[512];
+        if (poll(&pfd, 1, 2000) == 1) {
+            const ssize_t n = recv(query, answer, sizeof(answer), 0);
+            if (n >= 12 && answer[0] == 0x12 && answer[1] == 0x34) {
+                answered = (answer[3] & 0xF) == 0 ? "answered" : "answered with an error code";
+            }
+        }
+    }
+    close(query);
+    const int host = socket(AF_INET6, SOCK_STREAM, 0);
+    const struct timeval timeout = {3, 0};
+    setsockopt(host, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    where = address6_of("fec0::2", 7);
+    const int connected = connect(host, (struct sockaddr *)&where, sizeof(where));
+    const int host_errno = errno;
+    close(host);
+    printf("[SOCKETS] IPv6 over the link: an AAAA query to fec0::3 %s; a connection to [fec0::2]:7 %s; %s\n", answered,
+        connected == 0 ? "connected" : strerror(host_errno),
+        dns6 ? "the router advertised the DNS server fec0::3" : "the router advertised no DNS server");
+}
+
 int main(void)
 {
     refusals();
@@ -436,6 +659,7 @@ int main(void)
     streams();
     names();
     interfaces();
+    ipv6();
     outbound();
     inbound();
     printf("[SOCKETS] sockets over the network service: %d checks passed, %d failed\n", passed, failed);

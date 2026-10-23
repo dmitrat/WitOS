@@ -212,7 +212,7 @@ internal static class TcpProbe
         client.Shutdown(connection, SocketMessages.SHUT_WRITE);
         client.Close(connection);
         client.Close(listener);
-        Console.WriteLine($"{PREFIX}network: echoed {echoed} bytes back to the runner's connection from {peer.Address}:{peer.Port}, " +
+        Console.WriteLine($"{PREFIX}network: echoed {echoed} bytes back to the runner's connection from {peer.AddressText}:{peer.Port}, " +
             "inbound through the port forward");
     }
 

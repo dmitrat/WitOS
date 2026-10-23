@@ -57,4 +57,14 @@ public readonly record struct MacAddress(ulong Value)
     }
 
     #endregion
+
+    #region Properties
+
+    /// <summary>
+    /// Whether the address is an IPv6 multicast address's, <c>33:33:xx:xx:xx:xx</c> (RFC 2464 section 7; W4.3): neighbour
+    /// discovery and router advertisements arrive at such addresses.
+    /// </summary>
+    public bool IsIpv6Multicast => (Value & 0xFFFF) == 0x3333;
+
+    #endregion
 }
