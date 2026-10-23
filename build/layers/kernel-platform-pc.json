@@ -1,0 +1,14 @@
+{
+  "name": "kernel-platform-pc",
+  "description": "The PC behind witos/platform.h (q35, QEMU's pc machine, VMware; plan step H1.1): COM1 console, QEMU test exit, the HPET of the ACPI HPET table, CMOS real-time clock, the processors of the ACPI MADT, PIC and PIT tick source, PCI enumeration through the configuration ports with the ECAM window of the ACPI MCFG.",
+  "includes": [],
+  "sources": [
+    "src/Kernel.Platform.Pc/console.c",
+    "src/Kernel.Platform.Pc/hpet.c",
+    "src/Kernel.Platform.Pc/rtc.c",
+    "src/Kernel.Platform.Pc/acpi.c",
+    "src/Kernel.Platform.Pc/interrupts.c",
+    "src/Kernel.Platform.Pc/devices.c"
+  ],
+  "assembly": []
+}

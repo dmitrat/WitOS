@@ -2,12 +2,14 @@
 #include "witos/boot.h"
 #include "witos/platform.h"
 #include "witos/processor.h"
+#include "pc.h"
 
-/* The processors of the q35 board (plan step K7.1) from ACPI: the RSDP the loader published leads to the XSDT (or
- * the RSDT of a revision 1 firmware) and to the MADT, whose Processor Local APIC and Processor Local x2APIC entries
- * name the processors; a processor is usable when enabled or online capable. The tables are read through device-page
+/* The PC's ACPI tables (plan steps K7.1 and H1.1): the RSDP the loader published leads to the XSDT (or the RSDT of a
+ * revision 1 firmware), which names the tables by signature. The processors come from the MADT, whose Processor Local
+ * APIC and Processor Local x2APIC entries name them, a processor usable when enabled or online capable; the clock reads
+ * the HPET table and the device enumeration the MCFG (hpet.c, devices.c). The tables are read through device-page
  * mappings of their pages, each page mapped once; every table's length and checksum are verified before its body is
- * read, and nothing else of ACPI is interpreted here. */
+ * read, and no AML is interpreted. */
 
 #define RSDP_BYTES 36U
 #define HEADER_BYTES 36U
@@ -52,14 +54,14 @@ static const WitU8 *map(const WitBootInfo *boot, WitU64 physical, WitU32 bytes)
     return (const WitU8 *)physical;
 }
 
-static WitU32 le32(const WitU8 *p)
+WitU32 wit_pc_le32(const WitU8 *p)
 {
     return (WitU32)p[0] | ((WitU32)p[1] << 8) | ((WitU32)p[2] << 16) | ((WitU32)p[3] << 24);
 }
 
-static WitU64 le64(const WitU8 *p)
+WitU64 wit_pc_le64(const WitU8 *p)
 {
-    return (WitU64)le32(p) | ((WitU64)le32(p + 4) << 32);
+    return (WitU64)wit_pc_le32(p) | ((WitU64)wit_pc_le32(p + 4) << 32);
 }
 
 static int checksum_ok(const WitU8 *bytes, WitU32 length)
@@ -85,7 +87,7 @@ static int signature(const WitU8 *bytes, const char *expected, WitU32 length)
 static const WitU8 *table(const WitBootInfo *boot, WitU64 physical, WitU32 *length)
 {
     const WitU8 *header = map(boot, physical, HEADER_BYTES);
-    *length = le32(header + 4);
+    *length = wit_pc_le32(header + 4);
     if (*length < HEADER_BYTES || *length > TABLE_LIMIT) {
         return 0;
     }
@@ -103,14 +105,14 @@ static WitU32 read_madt(const WitU8 *madt, WitU32 length, WitProcessorDescriptor
             break;
         }
         if (type == ENTRY_LOCAL_APIC && size >= 8) {
-            const WitU32 flags = le32(entry + 4);
+            const WitU32 flags = wit_pc_le32(entry + 4);
             out[count].HardwareId = entry[3];
             out[count].Enabled = (flags & (LAPIC_ENABLED | LAPIC_ONLINE_CAPABLE)) != 0;
             out[count].Reserved = 0;
             ++count;
         } else if (type == ENTRY_LOCAL_X2APIC && size >= 16) {
-            const WitU32 flags = le32(entry + 8);
-            out[count].HardwareId = le32(entry + 4);
+            const WitU32 flags = wit_pc_le32(entry + 8);
+            out[count].HardwareId = wit_pc_le32(entry + 4);
             out[count].Enabled = (flags & (LAPIC_ENABLED | LAPIC_ONLINE_CAPABLE)) != 0;
             out[count].Reserved = 0;
             ++count;
@@ -120,20 +122,24 @@ static WitU32 read_madt(const WitU8 *madt, WitU32 length, WitProcessorDescriptor
     return count;
 }
 
-WitU32 wit_platform_processors(const WitBootInfo *boot, WitProcessorDescriptor *out, WitU32 capacity)
+const WitU8 *wit_pc_acpi_table(const WitBootInfo *boot, const char *wanted, WitU32 *length)
 {
     WitU32 root_length = 0;
-    if (!boot->AcpiRsdp || !capacity) {
+    *length = 0;
+    if (!boot->AcpiRsdp) {
         return 0;
     }
     const WitU8 *rsdp = map(boot, boot->AcpiRsdp, RSDP_BYTES);
     if (!signature(rsdp, "RSD PTR ", 8) || !checksum_ok(rsdp, 20)) {
         return 0;
     }
-    WitU64 root = le32(rsdp + 16);
+    WitU64 root = wit_pc_le32(rsdp + 16);
     WitU32 entry_bytes = 4;
-    if (rsdp[15] >= 2 && le32(rsdp + 20) >= RSDP_BYTES && checksum_ok(rsdp, RSDP_BYTES) && le64(rsdp + 24)) {
-        root = le64(rsdp + 24);
+    if (rsdp[15] >= 2 &&
+        wit_pc_le32(rsdp + 20) >= RSDP_BYTES &&
+        checksum_ok(rsdp, RSDP_BYTES) &&
+        wit_pc_le64(rsdp + 24)) {
+        root = wit_pc_le64(rsdp + 24);
         entry_bytes = 8;
     }
     const WitU8 *sdt = root ? table(boot, root, &root_length) : 0;
@@ -141,19 +147,27 @@ WitU32 wit_platform_processors(const WitBootInfo *boot, WitProcessorDescriptor *
         return 0;
     }
     for (WitU32 offset = HEADER_BYTES; offset + entry_bytes <= root_length; offset += entry_bytes) {
-        const WitU64 address = entry_bytes == 8 ? le64(sdt + offset) : le32(sdt + offset);
-        WitU32 length = 0;
+        const WitU64 address = entry_bytes == 8 ? wit_pc_le64(sdt + offset) : wit_pc_le32(sdt + offset);
+        WitU32 bytes = 0;
         if (!address) {
             continue;
         }
         const WitU8 *header = map(boot, address, HEADER_BYTES);
-        if (!signature(header, "APIC", 4)) {
+        if (!signature(header, wanted, 4)) {
             continue;
         }
-        const WitU8 *madt = table(boot, address, &length);
-        if (madt && length >= MADT_ENTRIES) {
-            return read_madt(madt, length, out, capacity);
+        const WitU8 *body = table(boot, address, &bytes);
+        if (body) {
+            *length = bytes;
+            return body;
         }
     }
     return 0;
+}
+
+WitU32 wit_platform_processors(const WitBootInfo *boot, WitProcessorDescriptor *out, WitU32 capacity)
+{
+    WitU32 length = 0;
+    const WitU8 *madt = capacity ? wit_pc_acpi_table(boot, "APIC", &length) : 0;
+    return madt && length >= MADT_ENTRIES ? read_madt(madt, length, out, capacity) : 0;
 }

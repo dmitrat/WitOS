@@ -2,7 +2,8 @@
 #include "witos/platform.h"
 #include "witos/x64_instructions.h"
 
-/* q35 console on the COM1 UART and the QEMU isa-debug-exit device. */
+/* The PC's console on the COM1 UART, which q35, QEMU's pc machine and VMware place alike, and QEMU's isa-debug-exit
+ * device. */
 
 /* Compiler intrinsics emit instructions directly; no CRT or Windows API. */
 
@@ -33,7 +34,7 @@ void wit_platform_console_put(WitU8 value)
 
 WitU32 wit_platform_boot_devices(WitU64 *pages, WitU32 capacity)
 {
-    /* COM1 is port I/O and the HPET is mapped on demand; q35 needs no early device pages. */
+    /* COM1 is port I/O and the HPET is mapped on demand; the PC needs no early device pages. */
     (void)pages;
     (void)capacity;
     return 0;

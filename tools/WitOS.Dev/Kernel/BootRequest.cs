@@ -156,5 +156,18 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     /// </summary>
     public IReadOnlyList<BootAction> Actions { get; init; } = [];
 
+    /// <summary>
+    /// QEMU's pc machine in place of q35 (plan step H1.1): i440FX with PIIX3, the HPET, no MCFG and no PIRQ E–H, the QEMU
+    /// board nearest VMware's 440BX with PIIX4; the firmware's entropy comes from RDRAND instead of a virtio entropy
+    /// source, and the default VGA card's GOP is the framebuffer. x64 alone, without the devices of the services.
+    /// </summary>
+    public bool Pc { get; init; }
+
+    /// <summary>
+    /// The boot disk on PIIX's IDE channel instead of virtio-blk (plan step H1.1), so that a <see cref="Pc"/> board has no
+    /// virtio device at all; QEMU writes a snapshot, since an IDE disk cannot be read-only.
+    /// </summary>
+    public bool IdeBootDisk { get; init; }
+
     #endregion
 }

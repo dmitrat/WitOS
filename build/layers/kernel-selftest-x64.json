@@ -3,7 +3,7 @@
   "description": "Kernel self-tests and their x64 fixtures, linked only into WITOS_SELFTEST kernels.",
   "includes": [
     "src/Kernel.Arch.X64",
-    "src/Kernel.Platform.Q35",
+    "src/Kernel.Platform.Pc",
     "tests/User",
     "tests/Kernel"
   ],

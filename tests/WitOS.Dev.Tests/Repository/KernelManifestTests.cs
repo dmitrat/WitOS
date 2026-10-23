@@ -16,7 +16,7 @@ public sealed class KernelManifestTests
 
     private static readonly string[] KERNEL_SOURCE_DIRECTORIES =
     [
-        "src/Boot.Uefi", "src/Kernel", "src/Kernel.Arch.X64", "src/Kernel.Arch.A64", "src/Kernel.Arch.RV64", "src/Kernel.Platform.Q35",
+        "src/Boot.Uefi", "src/Kernel", "src/Kernel.Arch.X64", "src/Kernel.Arch.A64", "src/Kernel.Arch.RV64", "src/Kernel.Platform.Pc",
         "src/Kernel.Platform.QemuVirt", "src/Kernel.Platform.QemuVirtRv", "tests/Kernel", "tests/Kernel.X64", "tests/Kernel.A64",
         "tests/Kernel.RV64"
     ];

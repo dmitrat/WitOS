@@ -1,23 +1,29 @@
 #include "witos/arch.h"
 #include "witos/boot.h"
 #include "witos/platform.h"
-#include "q35.h"
+#include "pc.h"
 
-/* This first clock is explicitly the q35 HPET at the board's fixed aperture.
- * General ACPI discovery and non-q35 targets are separate platform work. */
-#define HPET_BASE WIT_Q35_HPET_BASE
+/* The monotonic clock is the HPET the ACPI HPET table names (plan step H1.1; q35's fixed aperture before): its event
+ * timer block in system memory, a 64-bit main counter, at least three comparators, all of them kept from raising an
+ * interrupt. Its period may be any the specification allows (at most 100 ns): the frequency is 10^15 / period rounded
+ * to the nearest hertz, exact where the period divides 10^15 (QEMU's 10 ns) and within 0.005 ppm of the counter's rate
+ * on VMware, whose 69,841,279 fs does not divide it: a second in seven years, far below a crystal's tolerance. */
+#define TABLE_BYTES 56U /* the header, the event timer block id, the base address structure, the number and the tick */
+#define TABLE_ADDRESS_SPACE 40U /* the base address structure's space: 0, system memory */
+#define TABLE_ADDRESS 44U
+#define REGISTER_BYTES 0x400U /* the general registers and up to 24 comparators */
 
-static WitU64 frequency, last_counter;
+static WitU64 base, frequency, last_counter;
 static int ready;
 
 static WitU32 read32(WitU32 offset)
 {
-    return *(volatile WitU32 *)(HPET_BASE + offset);
+    return *(volatile WitU32 *)(base + offset);
 }
 
 static void write32(WitU32 offset, WitU32 value)
 {
-    *(volatile WitU32 *)(HPET_BASE + offset) = value;
+    *(volatile WitU32 *)(base + offset) = value;
 }
 
 static WitU64 counter(void)
@@ -49,23 +55,25 @@ static void require(int condition, const char *message)
 
 void wit_platform_clock_initialize(const WitBootInfo *boot)
 {
-    WitU32 capabilities, period, timers;
+    WitU32 capabilities, period, timers, length = 0;
     WitU64 start, value, ticks;
     require(!ready && !wit_arch_interrupts_enabled(), "Invalid clock initialization context");
-    wit_arch_map_device_page(boot, HPET_BASE);
+    const WitU8 *table = wit_pc_acpi_table(boot, "HPET", &length);
+    require(table && length >= TABLE_BYTES, "No HPET in the ACPI tables");
+    base = wit_pc_le64(table + TABLE_ADDRESS);
+    require(table[TABLE_ADDRESS_SPACE] == 0 && base && !(base & (REGISTER_BYTES - 1)), "Unsupported HPET");
+    wit_arch_map_device_page(boot, base & ~4095ULL);
     capabilities = read32(0);
     period = read32(4);
     timers = ((capabilities >> 8) & 31) + 1;
     require((capabilities & 0xFF) &&
             (capabilities & (1U << 13)) &&
-            (capabilities >> 16) == 0x8086 &&
             timers >= 3 &&
             timers <= 24 &&
             period >= 1000000 &&
-            period <= 100000000 &&
-            1000000000000000ULL % period == 0,
-        "Unsupported q35 HPET");
-    frequency = 1000000000000000ULL / period;
+            period <= 100000000,
+        "Unsupported HPET");
+    frequency = (1000000000000000ULL + period / 2) / period;
     write32(0x10, 0);
     for (WitU32 i = 0; i < timers; ++i) {
         const WitU32 reg = 0x100 + 0x20 * i;
@@ -102,7 +110,11 @@ void wit_platform_clock_initialize(const WitBootInfo *boot)
     ready = 1;
     wit_console_write("HPET frequency: ");
     wit_console_write_u64(frequency);
-    wit_console_write("\n[TEST-PASS] Clock.IrqIndependent\n");
+    wit_console_write(" (period ");
+    wit_console_write_u64(period);
+    wit_console_write(" fs at ");
+    wit_console_write_hex(base);
+    wit_console_write(")\n[TEST-PASS] Clock.IrqIndependent\n");
 }
 
 WitU64 wit_platform_monotonic_read(void)

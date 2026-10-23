@@ -46,13 +46,13 @@ public sealed class KernelLayeringTests
         @"\bwit_rv64_\w+|\b(?:WIT_ARCH_RISCV64|riscv64|0x5064|sstatus|sepc|scause|stval)\b");
 
     private static readonly Regex ARCHITECTURE_INCLUDE = new(
-        @"#include\s+""(?:[^""]*Arch[^""]*|[^""]*Platform\.[^""]*|x64\.h|q35\.h|cpu_cache\.h|minipal_cpu[^""]*)""");
+        @"#include\s+""(?:[^""]*Arch[^""]*|[^""]*Platform\.[^""]*|x64\.h|pc\.h|cpu_cache\.h|minipal_cpu[^""]*)""");
 
     // Named exceptions, each with its reason. None remain: the PE validator takes its machine and unwind capability
     // from wit_arch_identity().
     private static readonly (string File, string Name)[] ARCHITECTURE_NAME_EXCEPTIONS = [];
 
-    // Board devices: q35 port I/O, UART, HPET aperture and exit port; virt PL011 and Arm semihosting.
+    // Board devices: the PC's port I/O, UART, HPET aperture and exit port; virt PL011 and Arm semihosting.
     private static readonly Regex BOARD_DEVICE = new(
         @"\b(?:__outbyte|__inbyte|__outword|__inword|__outdword|__indword|HPET|COM1|PL011|semihosting)\b|0x3F8|0xFED00000|" +
         @"0x09000000|^\s+(?:out|in)\s|\bhlt\s+#0xf000",

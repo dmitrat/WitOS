@@ -5,7 +5,7 @@
 #include "witos/x64_instructions.h"
 #include "witos/x64_local_timer.h"
 
-/* q35 legacy interrupt routing: the 8259 PIC pair and the 8254 PIT as the boot processor's scheduler tick; a secondary
+/* The PC's legacy interrupt routing: the 8259 PIC pair and the 8254 PIT as the boot processor's scheduler tick; a secondary
  * processor's tick is its local APIC's timer (P1.3a), on the PIT's vector, so that one entry serves both. */
 
 #define TIMER_VECTOR 0x20U /* IRQ0 after the remapping below */
@@ -139,7 +139,7 @@ void wit_platform_timer_acknowledge(void)
     wit_x64_out8(0x20, 0x20); /* Non-specific EOI to the master PIC. */
 }
 
-/* Secondary processors (K7.2): q35's inter-processor interrupts are the local APIC's, the architecture's business;
+/* Secondary processors (K7.2): the PC's inter-processor interrupts are the local APIC's, the architecture's business;
  * the PIC path has nothing to prepare or enable per processor. */
 void wit_platform_processor_prepare(const WitBootInfo *boot, WitU32 index, WitU64 hardware_id)
 {
@@ -158,13 +158,13 @@ void wit_platform_ipi(WitU64 hardware_id, WitU32 kind)
 {
     (void)hardware_id;
     (void)kind;
-    wit_panic("The q35 platform has no inter-processor interrupt of its own");
+    wit_panic("The PC platform has no inter-processor interrupt of its own");
 }
 
 void wit_platform_ipi_complete(WitU32 number)
 {
     (void)number;
-    wit_panic("The q35 platform has no inter-processor interrupt of its own");
+    wit_panic("The PC platform has no inter-processor interrupt of its own");
 }
 
 /* The boot processor's local APIC came on with the first secondary's start and takes the doorbell as it is (P1.2); it

@@ -71,7 +71,7 @@ internal static class BootValidation
                 output.Contains("[PANIC] UEFI RNG unavailable", StringComparison.Ordinal),
             ExpectedOutcome.ClockUnavailable => !result.TimedOut && result.ExitCode == 35 && hello < 0 &&
                 MarkersInOrder(output, "[TEST-PASS] Boot.Contract", "[TEST-PASS] Memory.KernelPaging",
-                    "[PANIC] Unsupported q35 HPET") &&
+                    "[PANIC] No HPET in the ACPI tables") &&
                 !output.Contains("[EXCEPTION]", StringComparison.Ordinal),
             ExpectedOutcome.Success => !result.TimedOut && result.ExitCode == 33 && booted,
             ExpectedOutcome.InvalidBootInfo => failedBeforeContract &&

@@ -30,7 +30,8 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     #region Fields
 
     /// <summary>
-    /// The x64 kernel on the q35 board; the exit is QEMU's isa-debug-exit port.
+    /// The x64 kernel on the PC (H1.1): its board is QEMU's q35, while a scenario may choose QEMU's pc machine
+    /// (<see cref="BootRequest.Pc"/>) and the same kernel boots on VMware; the exit is QEMU's isa-debug-exit port.
     /// </summary>
     public static readonly KernelArchitecture X64 = new("x64", "x64", Machine.Amd64, "BOOTX64.EFI", "qemu-system-x86_64", "q35,hpet=on",
         ["-device", "isa-debug-exit,iobase=0xf4,iosize=0x04"], ["/dynamicbase:no"], "edk2-x86_64-code.fd", "edk2-i386-vars.fd",
