@@ -52,7 +52,7 @@ silently.
 | --- | --- | --- | --- |
 | CoreCLR with the JIT, `Reflection.Emit`, `AssemblyLoadContext` | Supported | R3, R7 | Every method is compiled into the double mapping of a shared memory file; upstream's PAL suite and slices of its runtime and library tests pass in the guest. |
 | Shared framework through `dotnet App.dll` | Supported | R5, R6 | The install under `/dotnet` as the shared-framework packaging lays it out; an application the stock SDK publishes without a RID runs unchanged. |
-| .NET 8 and .NET 10 side by side | Supported | N3 | `release/8.0` with its own patch set beside `release/10.0`; `rollForward` and `--roll-forward` select the framework. On x64 and ARM64: `release/8.0` is not built for riscv64, whose upstream port came after it (V3). |
+| .NET 8 and .NET 10 side by side | Supported | N3 | `release/8.0` with its own patch set beside `release/10.0`; `rollForward` and `--roll-forward` select the framework. On x64 and ARM64: `release/8.0` is not built for riscv64, whose upstream port came after it (V3). .NET 8 keeps the browser's cryptography; its support ends on 10 November 2026, and with the pin's move to .NET 11 the versions side by side become 10 and 11. |
 | NativeAOT | Supported | R2 | The system's own tool for the services of the boot package, not the application contract. |
 | Garbage collector | Supported | R2, P2 | The workstation and the server collector, the server one with a heap per processor (P2), each with its heap bounded to 75% of what a process may own (`DOTNET_GCTotalPhysicalMemory`). |
 | Globalization with ICU | Supported | R4.3 | ICU4C 78.3 built from the pinned source; invariant mode only where an application asks for it. |
@@ -85,6 +85,6 @@ The hardware matrix of Strategy §146.
 | --- | --- | --- |
 | QEMU x64 (q35) | Primary | Every gate runs on it. |
 | QEMU ARM64 (virt) | Primary | Every gate runs on it; a step closes only when the three ISAs pass. |
-| QEMU RISC-V (virt) | Primary | Since V3: the kernel (V1), layer 2 (V2.1–V2.3) and the Unix-form runtime (V2.4) pass there, every scenario of runtime-witos among them, and the applications published on Windows run unchanged with every check of the suite as recorded (runtime-published); a step closes only when the three ISAs pass. The NuGet libraries' own suites (N2.2) and .NET 8 beside .NET 10 (N3) stay on x64 and ARM64. |
+| QEMU RISC-V (virt) | Primary | Since V3: the kernel (V1), layer 2 (V2.1–V2.3) and the Unix-form runtime (V2.4) pass there, every scenario of runtime-witos among them, and the applications published on Windows run unchanged with every check of the suite as recorded (runtime-published); a step closes only when the three ISAs pass. The NuGet libraries' own suites (N2.2) and .NET 8 beside .NET 10 (N3) stay on x64 and ARM64, caveats until a RISC-V board is a release target. |
 | Physical reference machine | Future | After phase V; firmware memory reclamation and the hardware matrix of Strategy §146. |
 | Generic PC | Future | After the reference machine. |
