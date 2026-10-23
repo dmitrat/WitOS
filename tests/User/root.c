@@ -204,12 +204,21 @@ ENTRY_ATTRIBUTES WIT_NORETURN void wit_user_start(const WitRootStartup *startup)
     expect(WIT_CALL_CODE_PUBLISH, code, 4096, 0, WIT_STATUS_OK);
     expect(WIT_CALL_MEMORY_RELEASE, code, 0, 0, WIT_STATUS_OK);
 
-    /* The device table: a version 1 table with at least one descriptor. */
-    const WitU64 table = map_object(startup->Handles[WIT_ROOT_HANDLE_DEVICES], 4096, WIT_MEMORY_READ, WIT_STATUS_OK);
+    /* The device table: a version 1 table with at least one descriptor, in an object of as many pages as its header and
+     * descriptors take (ABI-1 1.5, H1.2a): its whole size maps, and a page beyond it is refused. */
+    const WitU64 devices_handle = startup->Handles[WIT_ROOT_HANDLE_DEVICES];
+    const WitU64 table = map_object(devices_handle, 4096, WIT_MEMORY_READ, WIT_STATUS_OK);
     const volatile WitDeviceTable *devices = (const volatile WitDeviceTable *)table;
     check(devices->Version == WIT_DEVICE_TABLE_VERSION, 101);
     check(devices->Count != 0, 102);
+    const WitU32 device_count = devices->Count;
+    const WitU64 table_bytes =
+        ((WitU64)WIT_DEVICE_TABLE_SIZE + (WitU64)device_count * WIT_DEVICE_DESCRIPTOR_SIZE + 4095) & ~4095ULL;
     expect(WIT_CALL_MEMORY_RELEASE, table, 0, 0, WIT_STATUS_OK);
+    const WitU64 whole = map_object(devices_handle, table_bytes, WIT_MEMORY_READ, WIT_STATUS_OK);
+    check(((const volatile WitDeviceTable *)whole)->Count == device_count, 103);
+    expect(WIT_CALL_MEMORY_RELEASE, whole, 0, 0, WIT_STATUS_OK);
+    map_object(devices_handle, table_bytes + 4096, WIT_MEMORY_READ, WIT_STATUS_TOO_LARGE);
     log_line(startup, mapped, sizeof(mapped) - 1);
 
     /* UTC (K6): its frequency, a plausible reading, a set through the clock capability that the next reading
@@ -254,5 +263,9 @@ ENTRY_ATTRIBUTES WIT_NORETURN void wit_user_start(const WitRootStartup *startup)
     protect_run();
     root_mechanisms();
     log_line(startup, mechanisms, sizeof(mechanisms) - 1);
-    exit_process(0); /* a root task exits with zero; the kernel treats anything else as failure */
+#if defined(WITOS_ROOT_EXIT_RESET)
+    exit_process(WIT_ROOT_EXIT_RESET); /* the reset scenario (H1.2a): the kernel resets the board */
+#else
+    exit_process(0); /* a root task exits with zero; the kernel powers the board off after its test exit */
+#endif
 }

@@ -67,8 +67,12 @@ void wit_platform_ipi_complete(WitU32 number);
 /* The boot processor takes the doorbell too, once others are online (P1.2): what its interrupt controller needs. */
 void wit_platform_ipi_enable_boot(void);
 
-/* Test exit device; halts where it is absent. */
+/* The end of a boot (ADR 0029, plan step H1.2a): the board's test exit with the code (0x10 success, 0x11 failure),
+ * which a QEMU board's runner catches; where it is absent, a success powers the board off when the board can, and
+ * otherwise the processor halts with a line that says why. */
 WIT_NORETURN void wit_platform_finish(WitU32 code);
+/* A reset of the board the root task asked for (WIT_ROOT_EXIT_RESET); returns only where the board cannot reset. */
+void wit_platform_reset(void);
 WIT_NORETURN void wit_panic(const char *reason);
 
 #endif

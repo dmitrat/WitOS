@@ -1,4 +1,5 @@
 #include "witos/arch.h"
+#include "witos/a64_psci.h"
 #include "witos/platform.h"
 #include "virt.h"
 
@@ -49,5 +50,17 @@ WIT_NORETURN void wit_platform_finish(WitU32 code)
      * Without semihosting the call traps or returns, and the processor stays halted. */
     const WitU64 block[2] = {ADP_STOPPED_APPLICATION_EXIT, ((WitU64)code << 1) | 1};
     wit_virt_semihosting(SEMIHOSTING_EXIT, block);
+    if (code == 0x10) {
+        /* Past the test exit, a success turns the board off (ADR 0029). */
+        wit_console_write("[POWER] off through PSCI SYSTEM_OFF\n");
+        wit_a64_psci_hvc(WIT_PSCI_SYSTEM_OFF, 0, 0, 0);
+        wit_console_write("[POWER] PSCI SYSTEM_OFF returned; halted\n");
+    }
     wit_arch_halt();
+}
+
+void wit_platform_reset(void)
+{
+    wit_console_write("[POWER] reset through PSCI SYSTEM_RESET\n");
+    wit_a64_psci_hvc(WIT_PSCI_SYSTEM_RESET, 0, 0, 0);
 }

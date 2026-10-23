@@ -20,5 +20,9 @@ WitU64 wit_rv64_sbi(WitU64 extension, WitU64 function, WitU64 a0, WitU64 a1, Wit
 #define WIT_RV64_SBI_IPI_SEND 0ULL /* send_ipi(mask, base): the supervisor software interrupt of each hart base + bit */
 #define WIT_RV64_SBI_TIME 0x54494D45ULL /* the timer extension */
 #define WIT_RV64_SBI_TIME_SET 0ULL /* set_timer: the absolute time of the next supervisor timer interrupt */
+#define WIT_RV64_SBI_SRST 0x53525354ULL /* the system reset extension (ADR 0029: the board's power off and reset) */
+#define WIT_RV64_SBI_SRST_RESET 0ULL /* system_reset(type, reason): does not return when it succeeds */
+#define WIT_RV64_SBI_SRST_SHUTDOWN 0ULL
+#define WIT_RV64_SBI_SRST_COLD_REBOOT 1ULL
 
 #endif

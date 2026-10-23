@@ -74,14 +74,34 @@ public sealed class DeviceTableTests
         Assert.Throws<FormatException>(() => DeviceTable.Parse(table));
     }
 
+    [Test]
+    public void TableBytesRoundsToPagesTest()
+    {
+        // The header and 17 descriptors fill one page; the 18th takes a second, and 64 take four (ABI-1 1.5).
+        Assert.That(DeviceTable.TableBytes(0), Is.EqualTo(4096));
+        Assert.That(DeviceTable.TableBytes(17), Is.EqualTo(4096));
+        Assert.That(DeviceTable.TableBytes(18), Is.EqualTo(8192));
+        Assert.That(DeviceTable.TableBytes(DeviceTable.CAPACITY), Is.EqualTo(16384));
+    }
+
+    [Test]
+    public void ParseReadsDescriptorsBeyondTheFirstPageTest()
+    {
+        var table = Table(40);
+        Descriptor(table, 39, address: 0x0300, identity0: 0x10011AF4, classWord: 0x01000000, regions: 1, lines: 1);
+        var descriptors = DeviceTable.Parse(table);
+        Assert.That(descriptors, Has.Count.EqualTo(40));
+        Assert.That(descriptors[39].Identity[0], Is.EqualTo(0x10011AF4u));
+    }
+
     #endregion
 
     #region Tools
 
-    // A table page with its header and count descriptors left zero.
+    // A table's pages with its header and count descriptors left zero.
     private static byte[] Table(uint count)
     {
-        var table = new byte[DeviceTable.TABLE_BYTES];
+        var table = new byte[DeviceTable.TableBytes((int)count)];
         BinaryPrimitives.WriteUInt32LittleEndian(table, DeviceTable.VERSION);
         BinaryPrimitives.WriteUInt32LittleEndian(table.AsSpan(4), DeviceTable.HEADER_SIZE);
         BinaryPrimitives.WriteUInt32LittleEndian(table.AsSpan(8), count);

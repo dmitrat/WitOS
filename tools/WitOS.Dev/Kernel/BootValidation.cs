@@ -120,9 +120,15 @@ internal static class BootValidation
             output.Contains(line, StringComparison.Ordinal) &&
             MarkersInOrder(output, "[TEST-PASS] Boot.Contract", "[TEST-PASS] Cpu.ExceptionTables", "[TEST-PASS] Memory.KernelPaging",
                 "[TEST-PASS] Clock.IrqIndependent", "Kernel initialized.", "[TEST-PASS] Boot.Hello");
-        var passed = (request.Expected == ExpectedOutcome.Success && !result.TimedOut && result.ExitCode == 33 && ready || cut) &&
-            banner && clean && required;
-        return new BootVerdict(passed, $"banner={banner} ready={ready} cut={cut} clean={clean} required={required}");
+        // A board that turned itself off or reset at the end (H1.2a) leaves QEMU with 0 after the kernel's power line.
+        var poweredOff = request.Expected == ExpectedOutcome.PoweredOff && !result.TimedOut && result.ExitCode == 0 && ready &&
+            output.Contains("[POWER] off through ", StringComparison.Ordinal);
+        var reset = request.Expected == ExpectedOutcome.Reset && !result.TimedOut && result.ExitCode == 0 && ready &&
+            output.Contains("[POWER] reset through ", StringComparison.Ordinal);
+        var passed = (request.Expected == ExpectedOutcome.Success && !result.TimedOut && result.ExitCode == 33 && ready || cut ||
+            poweredOff || reset) && banner && clean && required;
+        return new BootVerdict(passed,
+            $"banner={banner} ready={ready} cut={cut} poweredOff={poweredOff} reset={reset} clean={clean} required={required}");
     }
 
     /// <summary>

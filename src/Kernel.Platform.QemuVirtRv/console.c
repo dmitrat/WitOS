@@ -1,5 +1,6 @@
 #include "witos/arch.h"
 #include "witos/platform.h"
+#include "witos/rv64_sbi.h"
 #include "virt_rv.h"
 
 /* QEMU virt (riscv64) console on the board's 16550 UART and the test exit through the sifive test finisher (plan
@@ -48,5 +49,17 @@ WIT_NORETURN void wit_platform_finish(WitU32 code)
     /* The host sees the same status as q35's isa-debug-exit and virt's semihosting: guest 0x10 -> 33, 0x11 -> 35. The
      * finisher's "fail" form exits QEMU with the value's upper half; its "pass" form could only say 0. */
     *(volatile WitU32 *)WIT_VIRT_RV_TEST_BASE = ((((WitU32)code << 1) | 1U) << 16) | WIT_VIRT_RV_TEST_FAIL;
+    if (code == 0x10) {
+        /* Past the test exit, a success turns the board off through SBI's system reset extension (ADR 0029). */
+        wit_console_write("[POWER] off through SBI system reset\n");
+        wit_rv64_sbi(WIT_RV64_SBI_SRST, WIT_RV64_SBI_SRST_RESET, WIT_RV64_SBI_SRST_SHUTDOWN, 0, 0, 0);
+        wit_console_write("[POWER] SBI system reset returned; halted\n");
+    }
     wit_arch_halt();
+}
+
+void wit_platform_reset(void)
+{
+    wit_console_write("[POWER] reset through SBI system reset\n");
+    wit_rv64_sbi(WIT_RV64_SBI_SRST, WIT_RV64_SBI_SRST_RESET, WIT_RV64_SBI_SRST_COLD_REBOOT, 0, 0, 0);
 }

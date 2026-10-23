@@ -16,6 +16,11 @@
 #define WIT_ROOT_HANDLE_DEVICES 2U
 #define WIT_ROOT_HANDLE_CLOCK 3U
 
+/* How the root task's end turns into the machine's (ADR 0029, plan step H1.2a): status 0 is the board's test exit and
+ * then its power off; this status, outside every status a program's exit yields (0-255 and WIT_EXIT_SIGNAL's), resets
+ * the board; any other status is a failure, and the kernel halts with its line. */
+#define WIT_ROOT_EXIT_RESET 0x52534554ULL
+
 typedef struct WitRootStartup {
     WitU32 Version, Size;
     WitU32 AbiVersion, Features; /* ABI-1: the version and the feature mask QUERY reports */

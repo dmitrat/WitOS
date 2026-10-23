@@ -49,11 +49,20 @@ internal static class CommandLine
             // the PIC's line reaches the boot processor through LINT0 on PIIX too. The self-test kernel stays on q35: its
             // fixtures know the virtio block function by its ECAM configuration space, which an i440FX board has not.
             .. architecture == KernelArchitecture.X64
-                ? [new BootRequest("release-pc-256", 256, 60, ExpectedOutcome.Success)
-                {
-                    Suite = BootSuite.Release, Pc = true, IdeBootDisk = true, Processors = 2,
-                    RequiredLines = ["[BOOT] Framebuffer: ", "Processors present/online: 2/2", "PCI: 5 functions, 5 described, ECAM 0x"]
-                }]
+                ? [
+                    new BootRequest("release-pc-256", 256, 60, ExpectedOutcome.Success)
+                    {
+                        Suite = BootSuite.Release, Pc = true, IdeBootDisk = true, Processors = 2,
+                        RequiredLines = ["[BOOT] Framebuffer: ", "Processors present/online: 2/2", "PCI: 5 functions, 5 described without bridges, ECAM 0x"]
+                    },
+                    // Without QEMU's test exit, as a machine (H1.2a, ADR 0029): the kernel's end turns the board off through
+                    // ACPI's PM1a_CNT with the DSDT's static _S5, and QEMU exits.
+                    new BootRequest("release-pc-off-256", 256, 60, ExpectedOutcome.PoweredOff)
+                    {
+                        Suite = BootSuite.Release, Pc = true, IdeBootDisk = true, WithoutTestExit = true,
+                        RequiredLines = ["ACPI power: PM1a_CNT I/O ", "[POWER] off through PM1a_CNT"]
+                    }
+                ]
                 : Array.Empty<BootRequest>()
         ]),
         new CommandScenario("libc", "Build the pinned musl over ABI-1 and boot the first libc program as the root task (S1.1)",

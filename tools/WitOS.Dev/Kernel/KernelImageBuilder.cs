@@ -54,6 +54,11 @@ internal static class KernelImageBuilder
     public const string SYSROOT_SCENARIO = "sysroot";
 
     /// <summary>
+    /// The release kernel with a root task that ends asking for a reset (plan step H1.2a, ADR 0029).
+    /// </summary>
+    public const string RESET_SCENARIO = "reset";
+
+    /// <summary>
     /// The try_run measurement of the runtime's native configure (R1.2b): the system layer's root task starts
     /// tests/User/tryrun_init.c as /bin/init, which runs every probe runtime-witos kept; not a suite scenario, since the
     /// probes come from the runtime's build on a Linux host.
@@ -219,7 +224,7 @@ internal static class KernelImageBuilder
     /// which need no self-test and so none of the frozen line's MSVC fixtures, and build on every host.
     /// </summary>
     public static readonly string[] RELEASE_KERNEL_SCENARIOS =
-        [RELEASE_SCENARIO, LIBC_SCENARIO, LIBC_TEST_SCENARIO, CXX_SCENARIO, SPAWN_SCENARIO, PROCESS_SCENARIO, SYSROOT_SCENARIO,
+        [RELEASE_SCENARIO, RESET_SCENARIO, LIBC_SCENARIO, LIBC_TEST_SCENARIO, CXX_SCENARIO, SPAWN_SCENARIO, PROCESS_SCENARIO, SYSROOT_SCENARIO,
             RUNTIME_TRYRUN_SCENARIO, RUNTIME_PROGRAM_SCENARIO, RUNTIME_ACCEPTANCE_SCENARIO, RUNTIME_CORECLR_SCENARIO,
             RUNTIME_CORERUN_SCENARIO, RUNTIME_CORECLR_ACCEPTANCE_SCENARIO, RUNTIME_SYSTEM_NATIVE_SCENARIO, RUNTIME_DOTNET_SCENARIO,
             RUNTIME_PORTABLE_APP_SCENARIO, RUNTIME_PALSUITE_SCENARIO, RUNTIME_CORECLR_TESTS_SCENARIO,
@@ -335,6 +340,7 @@ internal static class KernelImageBuilder
                 or RUNTIME_COMMANDER_SCENARIO or RUNTIME_INSTALLER_SCENARIO or RUNTIME_PROCESSORS_SCENARIO or RUNTIME_CSHARPREPL_SCENARIO
                 or RUNTIME_ASPNETCORE_SCENARIO
                 ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
+            : scenario == RESET_SCENARIO ? await UserImage.BuildRootAsync(root, output, architecture, ["-DWITOS_ROOT_EXIT_RESET=1"])
             : await UserImage.BuildRootAsync(root, output, architecture);
         var objects = await CompileKernelAsync(root, output, scenario, selfTest, target, architecture);
         var efi = await LinkKernelAsync(root, output, objects, architecture);

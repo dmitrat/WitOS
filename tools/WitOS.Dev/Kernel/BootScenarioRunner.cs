@@ -109,7 +109,10 @@ internal static class BootScenarioRunner
         arguments.AddRange(request.IdeBootDisk
             ? ["-drive", $"if=none,id=boot,format=raw,snapshot=on,file={QemuPath(image)}", "-device", "ide-hd,drive=boot,bus=ide.0,bootindex=1"]
             : ["-drive", $"if=none,id=boot,format=raw,readonly=on,file={QemuPath(image)}", "-device", "virtio-blk-pci,drive=boot,bootindex=1"]);
-        arguments.AddRange(architecture.ExitDevice);
+        if (!request.WithoutTestExit)
+        {
+            arguments.AddRange(architecture.ExitDevice);
+        }
         if (request.Display && !request.Pc)
         {
             arguments.AddRange(architecture.DisplayArguments);
