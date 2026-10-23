@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using OutWit.OS.Networking;
@@ -10,7 +11,8 @@ namespace OutWit.OS.Tests.Networking;
 /// the close with TIME-WAIT; a megabyte echoed whole over a segment that loses and swaps frames; a refusal, a peer that
 /// never answers, a closed window and its probes, the backlog, the reset of a close with unread bytes, a simultaneous
 /// close and the loopback; over IPv6 (W4.3): the loopback ::1, link-local addresses between two stacks, and a dual-stack
-/// listener that takes connections of both families while an IPV6_V6ONLY one refuses IPv4.
+/// listener that takes connections of both families while an IPV6_V6ONLY one refuses IPv4; a right edge that never moves
+/// back and an echo whose windows close both ways under random schedules (W1.3).
 /// </summary>
 [TestFixture]
 public sealed class TcpTests
@@ -23,6 +25,7 @@ public sealed class TcpTests
     private static readonly Ipv4Address MASK = new(255, 255, 255, 0);
 
     private const ushort PORT = 7000;
+    private const int ECHO_BYTES = 1024 * 1024;
 
     #endregion
 
@@ -454,6 +457,59 @@ public sealed class TcpTests
         }
     }
 
+    // A receiver honours as in window every segment that was in window for an acknowledgment it sent (RFC 7323 appendix
+    // F, W1.3): the window's shift of 3 counts the window in units of 8 bytes from RCV.NXT, which moves by any count, so a
+    // window rounded down after a segment of an odd length moved the right edge back by up to 7 bytes, and a segment the
+    // peer had sent up to the edge it was offered lay wholly beyond the window and was refused.
+    [Test]
+    public void AdvertisedEdgeNeverMovesBackTest()
+    {
+        var (network, a, b) = Segment();
+        var (client, server, _) = Connect(network, a, b);
+        Assert.That(a.SetNoDelay(client, true), Is.Zero);
+        var receiver = b.FindTcp(server)!;
+        var edge = receiver.AdvertisedEdge;
+        var chunk = new byte[1001];
+        for (var round = 0; round < 1000; round++)
+        {
+            if (a.SendStream(client, chunk, out _) == NetworkErrors.AGAIN)
+                break;
+            network.Wait(50); // each write a segment of its own, each acknowledged by itself
+            Assert.That((int)(receiver.AdvertisedEdge - edge), Is.GreaterThanOrEqualTo(0), $"round {round}: the right edge moved back");
+            edge = receiver.AdvertisedEdge;
+        }
+        network.Wait(5000);
+        var sender = a.FindTcp(client)!;
+        Assert.That(receiver.Receive.Free, Is.LessThan(8), "the receiver's buffer is full to within a unit of its window's shift");
+        Assert.That(sender.SndMax, Is.EqualTo(sender.SndUna), "the receiver took every byte sent within a window it offered");
+        Assert.That(a.Statistics.Timeouts, Is.Zero, "no segment the receiver offered room for timed out");
+    }
+
+    // The suite's TLS echo in the stack's terms under 300 random schedules (W1.3): the client writes a megabyte in TLS
+    // records while it reads at random, and the server reads a record and writes it back whole before it reads again, so
+    // that both windows close and open again; over the loopback, over the loopback with the stack held off past a
+    // retransmission timeout now and then, and between two stacks over a segment that loses and swaps 3% of its frames.
+    // The echo stopped for a minute in about one run of forty in the guest (2026-10-23), and the stack before W1.3
+    // stalled for good in 2 of the loopback's schedules and 97 of the lossy segment's: a segment refused beyond a right
+    // edge that had moved back went again as a byte, which put SND.NXT beyond the peer's RCV.NXT, where the pure
+    // acknowledgments that carried the window updates were unacceptable to a closed window; a timeout took SND.NXT back
+    // before the peer's RCV.NXT, where they were unacceptable too; and a fast retransmission sent bytes beyond SND.MAX,
+    // whose acknowledgment the sender then refused as acknowledging what was never sent.
+    [TestCase(false, false)]
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    public void EchoUnderRandomSchedulesCompletesTest(bool lossy, bool heldOff)
+    {
+        var stalled = new List<string>();
+        for (var seed = 1; seed <= 300; seed++)
+        {
+            var (received, connections) = RandomEcho(seed, lossy, heldOff);
+            if (received < ECHO_BYTES)
+                stalled.Add($"seed {seed}: {received} bytes back; {connections}");
+        }
+        Assert.That(stalled, Is.Empty, string.Join(Environment.NewLine, stalled));
+    }
+
     // SO_REUSEPORT (W2.1b): listeners that all set it share a port, a socket without it is refused, and each connection
     // reaches one of them while they share the connections, as Linux spreads them over its group.
     [Test]
@@ -560,6 +616,66 @@ public sealed class TcpTests
         }
         Assert.That(received, Is.EqualTo(bytes), "every byte came back");
         Assert.That(echoed.SequenceEqual(data), Is.True, "in order and unchanged");
+    }
+
+    // EchoUnderRandomSchedulesCompletesTest's echo under one schedule: the bytes that came back once 30 s passed without
+    // one, and the connections' state.
+    private static (int Received, string Connections) RandomEcho(int seed, bool lossy, bool heldOff)
+    {
+        const int RECORD = 16406; // a TLS 1.3 record of 16 KiB: its header, the type and the tag
+        var random = new Random(seed);
+        SimulatedNetwork network;
+        NetworkStack clientStack, serverStack;
+        int client, server;
+        if (lossy)
+        {
+            (network, clientStack, serverStack) = Segment();
+            (client, server, _) = Connect(network, clientStack, serverStack);
+            network.LossRate = 0.03;
+            network.SwapRate = 0.03;
+        }
+        else
+        {
+            network = new SimulatedNetwork();
+            clientStack = serverStack = network.AddStack(0x01_00_00_5E_00_07);
+            Assert.That(clientStack.OpenTcp(out var listener), Is.Zero);
+            Assert.That(clientStack.Bind(listener, Ipv4Address.Loopback, PORT), Is.Zero);
+            Assert.That(clientStack.Listen(listener, 4), Is.Zero);
+            Assert.That(clientStack.OpenTcp(out client), Is.Zero);
+            Assert.That(clientStack.Connect(client, Ipv4Address.Loopback, PORT), Is.EqualTo(NetworkErrors.IN_PROGRESS));
+            network.Pump();
+            Assert.That(clientStack.Accept(listener, out server), Is.Zero);
+        }
+        var data = new byte[ECHO_BYTES];
+        var record = new byte[RECORD];
+        var read = new byte[20000];
+        int sent = 0, received = 0, held = 0, echoed = 0, written = 0;
+        var progressed = network.Now;
+        while (received < ECHO_BYTES && network.Now - progressed < 30_000)
+        {
+            if (random.Next(3) == 0 && sent < ECHO_BYTES &&
+                clientStack.SendStream(client, data.AsSpan(sent, Math.Min(RECORD, ECHO_BYTES - sent)), out var accepted) == 0)
+                sent += accepted;
+            if (random.Next(3) == 0 && written == held && echoed < ECHO_BYTES &&
+                serverStack.ReceiveStream(server, record, false, out var count) == 0 && count > 0)
+            {
+                (held, written) = (count, 0);
+                echoed += count;
+            }
+            if (random.Next(2) == 0 && written < held && serverStack.SendStream(server, record.AsSpan(written, held - written), out var back) == 0)
+                written += back;
+            if (random.Next(5) == 0 && clientStack.ReceiveStream(client, read.AsSpan(0, random.Next(1, read.Length)), false, out var taken) == 0 &&
+                taken > 0)
+            {
+                received += taken;
+                progressed = network.Now;
+            }
+            if (heldOff && random.Next(200) == 0)
+                network.Now += random.Next(200, 1000); // the stack's thread held off past a retransmission timeout
+            network.Wait(random.Next(0, 3));
+        }
+        var connections = clientStack.DescribeConnections().Concat(serverStack == clientStack ? [] : serverStack.DescribeConnections());
+        return (received, string.Join(" | ", connections));
     }
 
     private static string ReadAll(NetworkStack stack, int socket)

@@ -543,7 +543,12 @@ public sealed partial class NetworkStack
         var now = m_clock();
         var length = payload.Length + (header.Has(TcpHeader.SYN) ? 1 : 0) + (header.Has(TcpHeader.FIN) ? 1 : 0);
         var window = SequenceGt(tcp.AdvertisedEdge, tcp.RcvNxt) ? tcp.AdvertisedEdge - tcp.RcvNxt : 0;
-        if (!Acceptable(tcp.RcvNxt, window, header.Sequence, length))
+        var acceptable = Acceptable(tcp.RcvNxt, window, header.Sequence, length);
+        // With a zero window no segment is acceptable, but a segment at RCV.NXT still counts for its acknowledgment, its
+        // window among them, while its data and FIN go (RFC 9293 section 3.10.7.4, as Linux's tcp_sequence takes it): a
+        // peer's window update otherwise waits for this side's window to open.
+        var closedWindow = !acceptable && window == 0 && header.Sequence == tcp.RcvNxt && !header.Has(TcpHeader.SYN);
+        if (!acceptable && !closedWindow)
         {
             if (!header.Has(TcpHeader.RST))
             {
@@ -615,12 +620,15 @@ public sealed partial class NetworkStack
         {
             return;
         }
-        var ackNow = false;
+        var ackNow = closedWindow; // what a closed window dropped is answered with the window at once
         var received = false;
+        if (closedWindow)
+            payload = [];
+        var fin = header.Has(TcpHeader.FIN) && !closedWindow;
         var dataEnd = header.Sequence + (uint)payload.Length;
         if (payload.Length > 0 && tcp.State is TcpState.Established or TcpState.FinWait1 or TcpState.FinWait2)
             (ackNow, received) = ReceiveData(tcp, header.Sequence, payload);
-        if (header.Has(TcpHeader.FIN) && dataEnd == tcp.RcvNxt && !tcp.FinReceived &&
+        if (fin && dataEnd == tcp.RcvNxt && !tcp.FinReceived &&
             tcp.State is TcpState.Established or TcpState.FinWait1 or TcpState.FinWait2)
         {
             tcp.RcvNxt++;
@@ -643,7 +651,7 @@ public sealed partial class NetworkStack
                     break;
             }
         }
-        else if (header.Has(TcpHeader.FIN) && tcp.FinReceived)
+        else if (fin && tcp.FinReceived)
         {
             ackNow = true; // a FIN again: our acknowledgment was lost
             if (tcp.State == TcpState.TimeWait)
@@ -928,10 +936,13 @@ public sealed partial class NetworkStack
             Statistics.SegmentsRetransmitted++;
     }
 
-    // The oldest unacknowledged segment again (fast retransmit, NewReno's partial acknowledgment), or the FIN alone.
+    // The oldest unacknowledged segment again (fast retransmit, NewReno's partial acknowledgment), or the FIN alone: bytes
+    // that were sent, never beyond SND.MAX — a byte sent first by a retransmission leaves SND.MAX behind it, and the peer's
+    // acknowledgment of that byte is then refused as acknowledging what was never sent, for as long as the connection lives.
     private void RetransmitFirst(TcpSocket tcp, long now)
     {
-        var length = Math.Min(tcp.Mss, tcp.Send.Count);
+        var sentEnd = tcp.FinSent ? tcp.FinSequence : tcp.SndMax;
+        var length = Math.Min(Math.Min(tcp.Mss, tcp.Send.Count), SequenceGt(sentEnd, tcp.SndUna) ? (int)(sentEnd - tcp.SndUna) : 0);
         if (tcp.Timing && SequenceGe(tcp.TimedSequence, tcp.SndUna))
             tcp.Timing = false; // Karn: a retransmitted segment times nothing
         if (length > 0)
@@ -1084,12 +1095,13 @@ public sealed partial class NetworkStack
         End(tcp);
     }
 
-    // Resets a connection: an RST at SND.NXT.
+    // Resets a connection: an RST at SND.MAX, as a pure acknowledgment goes (W1.3), since one at an SND.NXT a timeout took
+    // back lies before the peer's RCV.NXT, where the peer drops it.
     private void Reset(TcpSocket tcp)
     {
         if (tcp.State is TcpState.Closed or TcpState.Listen)
             return;
-        TransmitRaw(tcp.LocalAddress, tcp.RemoteAddress, tcp.LocalPort, tcp.RemotePort, tcp.SndNxt, tcp.RcvNxt,
+        TransmitRaw(tcp.LocalAddress, tcp.RemoteAddress, tcp.LocalPort, tcp.RemotePort, tcp.SndMax, tcp.RcvNxt,
             TcpHeader.RST | TcpHeader.ACK, 0, []);
     }
 
@@ -1125,7 +1137,11 @@ public sealed partial class NetworkStack
             TcpHeader.RST | TcpHeader.ACK, 0, []);
     }
 
-    private void SendAck(TcpSocket tcp) => Transmit(tcp, tcp.SndNxt, TcpHeader.ACK, []);
+    // A pure acknowledgment carries SND.MAX, as BSD's tcp_output sends one: a retransmission timeout takes SND.NXT back
+    // to SND.UNA, and an acknowledgment from there lies before the peer's RCV.NXT once the peer has the bytes, so that the
+    // peer refuses it and its window with it — two sides that timed out together then refused each other's
+    // acknowledgments until the connection failed.
+    private void SendAck(TcpSocket tcp) => Transmit(tcp, tcp.SndMax, TcpHeader.ACK, []);
 
     // The acknowledgment that answers a segment of a connection that is not acceptable — outside the window, acknowledging
     // what was never sent, or a reset or a SYN RFC 5961 challenges — at most once in 500 ms of a connection, as Linux
@@ -1214,23 +1230,28 @@ public sealed partial class NetworkStack
     private static int WindowBytes(TcpSocket tcp) => Math.Min(tcp.Receive.Free, ushort.MaxValue << tcp.RcvScale);
 
     // A segment of a connection, acknowledging RCV.NXT with the window: a SYN carries the MSS and, when the connection
-    // scales its windows, the shift, and its window is never scaled.
+    // scales its windows, the shift, and its window is never scaled. The right edge never moves back (RFC 9293 section
+    // 3.8.6.2.2): the shift counts the window in units from RCV.NXT, which moves by any count, so the edge offered
+    // before is kept rounded up to a unit where the buffer holds that, and otherwise the window field shows it up to a
+    // unit short while AdvertisedEdge, the edge the segments are judged by, stays where it was (RFC 7323 appendix F).
     private bool Transmit(TcpSocket tcp, uint sequence, byte flags, ReadOnlySpan<byte> payload)
     {
         var syn = (flags & TcpHeader.SYN) != 0;
         var windowBytes = WindowBytes(tcp);
-        var edge = tcp.RcvNxt + (uint)windowBytes;
-        if (SequenceLt(edge, tcp.AdvertisedEdge))
+        if (!syn && SequenceGt(tcp.AdvertisedEdge, tcp.RcvNxt))
         {
-            // The right edge never moves back (RFC 9293 section 3.8.6.2.2).
-            edge = tcp.AdvertisedEdge;
-            windowBytes = (int)(edge - tcp.RcvNxt);
+            var unit = 1 << tcp.RcvScale;
+            var offered = ((int)(tcp.AdvertisedEdge - tcp.RcvNxt) + unit - 1) & -unit;
+            if (windowBytes < offered && offered <= tcp.Receive.Free)
+                windowBytes = offered;
         }
         var window = syn ? (ushort)Math.Min(windowBytes, ushort.MaxValue) : (ushort)Math.Min(windowBytes >> tcp.RcvScale, ushort.MaxValue);
         var ack = (flags & TcpHeader.ACK) != 0;
         if (ack)
         {
-            tcp.AdvertisedEdge = tcp.RcvNxt + (syn ? window : (uint)window << tcp.RcvScale);
+            var edge = tcp.RcvNxt + (syn ? window : (uint)window << tcp.RcvScale);
+            if (SequenceGt(edge, tcp.AdvertisedEdge))
+                tcp.AdvertisedEdge = edge;
             tcp.DelayedAckAt = long.MaxValue;
             tcp.UnacknowledgedSegments = 0;
         }
@@ -1287,11 +1308,13 @@ public sealed partial class NetworkStack
         return error;
     }
 
-    // Whether a segment of a length at a sequence number falls in the receive window (RFC 9293 section 3.10.7.4).
+    // Whether a segment of a length at a sequence number falls in the receive window (RFC 9293 section 3.10.7.4); a
+    // segment without data may lie at the window's right edge, as Linux's tcp_sequence takes it, where a peer that filled
+    // the window sends its acknowledgments while a segment before them is still on its way.
     private static bool Acceptable(uint next, uint window, uint sequence, int length)
     {
         if (length == 0)
-            return window == 0 ? sequence == next : SequenceGe(sequence, next) && SequenceLt(sequence, next + window);
+            return SequenceGe(sequence, next) && SequenceLe(sequence, next + window);
         if (window == 0)
             return false;
         var last = sequence + (uint)length - 1;
