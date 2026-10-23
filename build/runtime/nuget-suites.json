@@ -81,7 +81,8 @@
       "assembly": "MemoryPack.Tests.dll",
       "runner": "xunit2",
       "excluded": {
-        "class:MemoryPack.Tests.GeneratorDiagnosticsTest": "fails on Linux too, on .NET 8 and 10 alike: the tests compile against the assemblies loaded when the module initializer ran, where xunit's console runner had not loaded System.Private.Uri, so the generator stops with 'Type System.Uri is not found in compilation' (CS8785); upstream runs them under VSTest, whose adapter at this commit (xunit.runner.visualstudio 2.4.5) the SDK's test platform no longer loads"
+        "class:MemoryPack.Tests.GeneratorDiagnosticsTest": "fails on Linux too, on .NET 8 and 10 alike: the tests compile against the assemblies loaded when the module initializer ran, where xunit's console runner had not loaded System.Private.Uri, so the generator stops with 'Type System.Uri is not found in compilation' (CS8785); upstream runs them under VSTest, whose adapter at this commit (xunit.runner.visualstudio 2.4.5) the SDK's test platform no longer loads",
+        "method:MemoryPack.Tests.Fuzz.Random": "fails on the Linux host now and then (CI 2026-10-21 and 2026-10-22, three runs): it serializes objects of random content, and FluentAssertions 6's equivalency throws NullReferenceException in StringEqualityEquivalencyStep.ValidateSubjectIsString when a random dictionary holds a null string, a flake of the test's own independent of WitOS, where a host failure fails the suite"
       }
     },
     {
@@ -116,7 +117,9 @@
         "method:NUnit.Framework.Tests.Api.TestAssemblyRunnerTests.StopRun_WhenTestIsRunning_StopsTest": "gives a new runner 2 s to start the first of its slow tests, which the emulated processor can spend compiling the runner's path",
         "method:NUnit.Framework.Tests.Attributes.OSPlatformAttributeTests.SupportedForwardSlashDirectorySeparator": "is declared for Linux by SupportedOSPlatform or UnsupportedOSPlatform, and WitOS is not Linux (Compatibility-Differences: Platform identity), so the guest runs the opposite set of these tests from the host's",
         "method:NUnit.Framework.Tests.Internal.NetPlatformDetectionTests.ShouldRunOnLinux": "is declared for Linux by SupportedOSPlatform or UnsupportedOSPlatform, and WitOS is not Linux (Compatibility-Differences: Platform identity), so the guest runs the opposite set of these tests from the host's",
-        "method:NUnit.Framework.Tests.Internal.NetPlatformDetectionTests.ShouldNotRunOnLinux": "is declared for Linux by SupportedOSPlatform or UnsupportedOSPlatform, and WitOS is not Linux (Compatibility-Differences: Platform identity), so the guest runs the opposite set of these tests from the host's"
+        "method:NUnit.Framework.Tests.Internal.NetPlatformDetectionTests.ShouldNotRunOnLinux": "is declared for Linux by SupportedOSPlatform or UnsupportedOSPlatform, and WitOS is not Linux (Compatibility-Differences: Platform identity), so the guest runs the opposite set of these tests from the host's",
+        "method:NUnit.Framework.Tests.AsyncVoidTests.ExceptionThrownInAsyncVoidMethodIsCaughtByNUnit": "runs a test whose async void method throws after a delay of 10 ms and whose teardown sleeps a second so that the exception reaches NUnit, which the emulated processor on four processors can spend compiling the continuation's path and dispatching the exception, so the result is not the error expected (CI's ARM64 leg, 2026-10-21)",
+        "method:NUnit.Framework.Tests.Attributes.MaxTimeTests.FailureReport": "gives itself MaxTime(1000) for an assertion that fails and is caught, which the emulated processor on four processors can spend compiling that path and dispatching the exception the first time, so MaxTime fails the test (CI's ARM64 leg, 2026-10-21)"
       }
     },
     {
