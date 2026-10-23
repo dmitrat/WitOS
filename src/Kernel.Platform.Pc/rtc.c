@@ -1,7 +1,7 @@
 #include "witos/platform.h"
 #include "witos/x64_instructions.h"
 
-/* The MC146818 real-time clock of the q35 board (plan step K6), at the CMOS index and data ports, read once for the
+/* The MC146818 real-time clock of the PC (plan step K6), at the CMOS index and data ports, read once for the
  * UTC domain. QEMU keeps the clock in UTC (its default -rtc base), in BCD unless status register B says binary, in
  * 24-hour form unless B says 12-hour, and the century in CMOS index 0x32. A reading waits for the update-in-progress
  * flag to clear and repeats until two consecutive readings agree; an implausible date reports no clock. */

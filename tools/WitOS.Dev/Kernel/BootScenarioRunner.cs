@@ -21,6 +21,11 @@ internal static class BootScenarioRunner
     // The window of a session on the host's screen (C2.4): QEMU's GTK display, the framebuffer scaled to the window.
     private const string WINDOW_DISPLAY = "gtk,zoom-to-fit=on";
 
+    // The pc board (H1.1): i440FX and PIIX3 with the HPET, and a processor with RDRAND, which the firmware's RNG protocol
+    // serves from where q35's boots take a virtio entropy source.
+    private const string PC_MACHINE = "pc,hpet=on";
+    private const string PC_CPU = "qemu64,+rdrand";
+
     // A screendump waits until the guest wrote nothing for this long, looking every step, up to the limit (C2.3).
     private const int QUIET_MILLISECONDS = 1000;
     private const int QUIET_STEP_MILLISECONDS = 100;
@@ -57,7 +62,12 @@ internal static class BootScenarioRunner
     {
         var architecture = request.Architecture;
         architecture.RequireQemu(root);
-        var cpu = request.CpuModel ?? architecture.DefaultCpu;
+        if (request.Pc && (architecture != KernelArchitecture.X64 || request.Keyboard || request.Network || request.DataDisk is not null ||
+            request.Terminal is not null || request.InteractiveTerminal))
+            throw new InvalidOperationException($"{request.Name}: the pc board (H1.1) is x64's and carries none of the services' devices.");
+        if (request.IdeBootDisk && !request.Pc)
+            throw new InvalidOperationException($"{request.Name}: an IDE boot disk needs the pc board's PIIX (H1.1).");
+        var cpu = request.CpuModel ?? (request.Pc ? PC_CPU : architecture.DefaultCpu);
         var name = request.Name;
         var logs = request.LogDirectory ?? Path.Combine(root, "artifacts", "logs");
         Directory.CreateDirectory(logs);
@@ -81,8 +91,8 @@ internal static class BootScenarioRunner
         using var terminal = request.Terminal is { } script ? new TerminalLink(script, terminalPath, answersQueries: !request.DisplayIsMainConsole) : null;
         // A window's keys are the input (C2.4): the console then shows the mirror and types nothing.
         using var relay = request.InteractiveTerminal && terminal is null ? new TerminalRelay(terminalPath, keys: !request.Window) : null;
-        // The HPET-less q35 is the one board variant a scenario selects.
-        var machine = request.Expected == ExpectedOutcome.ClockUnavailable ? "q35,hpet=off" : architecture.QemuMachine;
+        // The HPET-less q35 and the pc machine (H1.1) are the board variants a scenario selects.
+        var machine = request.Expected == ExpectedOutcome.ClockUnavailable ? "q35,hpet=off" : request.Pc ? PC_MACHINE : architecture.QemuMachine;
         // Emulated with the instruction clock, or on the host's hardware virtualization for a session (C2.7).
         string[] execution = request.Accelerated
             ? ["-accel", HostAccelerator(architecture)]
@@ -94,12 +104,13 @@ internal static class BootScenarioRunner
             "-display", request.Window ? WINDOW_DISPLAY : "none", "-monitor", "none", "-qmp", qmpControl.Argument,
             "-serial", "file:" + QemuPath(serialPath), "-nic", "none", "-no-reboot",
             "-drive", $"if=pflash,unit=0,format=raw,readonly=on,file={QemuPath(architecture.FirmwarePath(root))}",
-            "-drive", $"if=pflash,unit=1,format=raw,file={QemuPath(firmwareState)}",
-            "-drive", $"if=none,id=boot,format=raw,readonly=on,file={QemuPath(image)}",
-            "-device", "virtio-blk-pci,drive=boot,bootindex=1"
+            "-drive", $"if=pflash,unit=1,format=raw,file={QemuPath(firmwareState)}"
         ];
+        arguments.AddRange(request.IdeBootDisk
+            ? ["-drive", $"if=none,id=boot,format=raw,snapshot=on,file={QemuPath(image)}", "-device", "ide-hd,drive=boot,bus=ide.0,bootindex=1"]
+            : ["-drive", $"if=none,id=boot,format=raw,readonly=on,file={QemuPath(image)}", "-device", "virtio-blk-pci,drive=boot,bootindex=1"]);
         arguments.AddRange(architecture.ExitDevice);
-        if (request.Display)
+        if (request.Display && !request.Pc)
         {
             arguments.AddRange(architecture.DisplayArguments);
         }
@@ -119,7 +130,7 @@ internal static class BootScenarioRunner
             arguments.AddRange(["-netdev", "user,id=net0" + (peer?.NetdevOptions ?? ""), "-device",
                 $"virtio-net-pci,netdev=net0,addr=0x{architecture.EntropyLineSlot(request.Display):x}"]);
         }
-        if (request.Expected != ExpectedOutcome.EntropyUnavailable)
+        if (request.Expected != ExpectedOutcome.EntropyUnavailable && !request.Pc)
         {
             arguments.AddRange(["-object", "rng-builtin,id=entropy0", "-device", "virtio-rng-pci,rng=entropy0"]);
         }

@@ -34,8 +34,8 @@ internal static class CommandLine
             (root, architecture) => architecture == KernelArchitecture.X64
                 ? KernelTestSuite.RunAsync(root)
                 : KernelTestSuite.RunFoundationAsync(root, architecture)),
-        new CommandScenario("release", "Build and boot the release kernel without self-tests, once with the board's display (C2.1)", KernelImageBuilder.RELEASE_SCENARIO,
-        [
+        new CommandScenario("release", "Build and boot the release kernel without self-tests, once with the board's display (C2.1) and, on x64, once on QEMU's pc machine without a virtio device (H1.1)", KernelImageBuilder.RELEASE_SCENARIO,
+        architecture => [
             new BootRequest("release-128", 128, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release },
             new BootRequest("release-512", 512, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release },
             // The firmware's framebuffer in the boot contract (C2.1): the loader records ramfb's, the kernel takes it and the
@@ -43,7 +43,18 @@ internal static class CommandLine
             new BootRequest("release-display-256", 256, 60, ExpectedOutcome.Success)
             {
                 Suite = BootSuite.Release, Display = true, RequiredLines = ["[BOOT] Framebuffer: ", "[BOOT] Framebuffer memory type "]
-            }
+            },
+            // The pc board (H1.1): QEMU's i440FX and PIIX3 without a virtio device, the boot disk on IDE and the default
+            // VGA card's GOP as the framebuffer, as VMware's 440BX and PIIX4 boot the same kernel; on two processors, so that
+            // the PIC's line reaches the boot processor through LINT0 on PIIX too. The self-test kernel stays on q35: its
+            // fixtures know the virtio block function by its ECAM configuration space, which an i440FX board has not.
+            .. architecture == KernelArchitecture.X64
+                ? [new BootRequest("release-pc-256", 256, 60, ExpectedOutcome.Success)
+                {
+                    Suite = BootSuite.Release, Pc = true, IdeBootDisk = true, Processors = 2,
+                    RequiredLines = ["[BOOT] Framebuffer: ", "Processors present/online: 2/2", "PCI: 5 functions, 5 described, ECAM 0x"]
+                }]
+                : Array.Empty<BootRequest>()
         ]),
         new CommandScenario("libc", "Build the pinned musl over ABI-1 and boot the first libc program as the root task (S1.1)",
             KernelImageBuilder.LIBC_SCENARIO,

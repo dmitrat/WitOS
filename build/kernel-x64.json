@@ -1,7 +1,7 @@
 {
   "architecture": "x64",
   "status": "active",
-  "description": "x64 kernel on the QEMU q35 board.",
+  "description": "x64 kernel on the PC: QEMU's q35 and pc machines and VMware (plan step H1.1).",
   "includes": [
     "src/Kernel/include",
     "src/Kernel",
@@ -13,7 +13,7 @@
     "kernel-foundation",
     "kernel-common",
     "kernel-arch-x64",
-    "kernel-platform-q35"
+    "kernel-platform-pc"
   ],
   "selfTestLayers": [
     "kernel-selftest-shared",

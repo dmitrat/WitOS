@@ -2,13 +2,17 @@
 #include "witos/device.h"
 #include "witos/platform.h"
 #include "witos/x64_instructions.h"
+#include "pc.h"
 
-/* q35 device enumeration (plan step K3.1): the PCI functions of the board through configuration mechanism #1
- * (ports 0xCF8 and 0xCFC), which needs no mapping; the ECAM window whose base the host bridge's PCIEXBAR register
- * holds is published as each function's configuration region but never read here. The firmware assigned the BARs
- * and routed INTx through the PIC: the Interrupt Line register holds the PIC input, except for the root bus, whose
- * lines the platform routes itself (route_pirqs, plan step N4.3). Nothing here knows a device class; the descriptors
- * carry the identity words as the bus reports them. */
+/* The PC's device enumeration (plan steps K3.1 and H1.1): the PCI functions of the board through configuration
+ * mechanism #1 (ports 0xCF8 and 0xCFC), which needs no mapping and every PC chipset serves; the ECAM window the ACPI
+ * MCFG names for segment 0 is published as the configuration region of each function on a bus it covers but never
+ * read here (q35's MCFG names its PCIEXBAR window, VMware's 440BX has no PCIEXBAR, QEMU's pc machine no MCFG). The
+ * firmware assigned the BARs and routed INTx through the PIC: the Interrupt Line register holds the PIC input, except
+ * on q35's root bus, whose lines the platform routes itself (route_pirqs, plan step N4.3). A line beyond the PIC's
+ * sixteen names no routing (0xFF in every function of VMware's, which routes no INTx), and neither does 0, the
+ * timer's line on every PC, which a firmware that leaves the register cleared would otherwise give a driver. Nothing here
+ * knows a device class; the descriptors carry the identity words as the bus reports them. */
 
 #define CONFIG_ADDRESS 0xCF8U
 #define CONFIG_DATA 0xCFCU
@@ -28,15 +32,28 @@ static void config_write(WitU32 bus, WitU32 device, WitU32 function, WitU32 offs
     wit_x64_out32(CONFIG_DATA, value);
 }
 
-/* PCIEXBAR of the q35 host bridge (D0:F0, offset 0x60): bits 35:28 the base, bits 2:1 the length, bit 0 enable. */
-static WitU64 ecam_base(void)
+/* The ECAM window of segment 0 from the MCFG: after the header and eight reserved bytes, entries of 16 bytes, each the
+ * window's base (the address of bus 0, whatever its first bus), the segment, the first and the last bus. */
+#define MCFG_ENTRIES 44U
+#define MCFG_ENTRY_BYTES 16U
+
+static WitU64 ecam;
+static WitU32 ecam_first_bus, ecam_last_bus;
+
+static void find_ecam(const WitBootInfo *boot)
 {
-    const WitU64 low = config_read(0, 0, 0, 0x60), high = config_read(0, 0, 0, 0x64);
-    const WitU64 value = low | (high << 32);
-    if (!(value & 1)) {
-        return 0;
+    WitU32 length = 0;
+    const WitU8 *mcfg = wit_pc_acpi_table(boot, "MCFG", &length);
+    for (WitU32 offset = MCFG_ENTRIES; mcfg && offset + MCFG_ENTRY_BYTES <= length; offset += MCFG_ENTRY_BYTES) {
+        const WitU8 *entry = mcfg + offset;
+        const WitU64 base = wit_pc_le64(entry);
+        if (base && !(base & 0xFFFFFULL) && entry[8] == 0 && entry[9] == 0 && entry[10] <= entry[11]) {
+            ecam = base;
+            ecam_first_bus = entry[10];
+            ecam_last_bus = entry[11];
+            return;
+        }
     }
-    return value & 0x0000000FF0000000ULL;
 }
 
 /* INTx lines of the root bus (plan step N4.3). A root-bus function in slot s asserts pin p on the LPC bridge's
@@ -51,6 +68,7 @@ static WitU64 ecam_base(void)
  * lines; nothing binds them. Measured on OVMF: E–H to 10, 10, 11, 11, slots 2 and 3 on G and H (11), rotation 0;
  * 31.2 and 31.3 on 10 through A–D. */
 #define LPC_DEVICE 31U
+#define ICH9_LPC_ID 0x29188086U /* q35's LPC bridge; PIIX boards (QEMU's pc, VMware) keep the firmware's lines */
 #define LPC_PIRQ_ROUTING 0x68U /* PIRQE..H, a byte each: bits 3:0 the line, bit 7 the routing disabled */
 #define ELCR_MASTER 0x4D0U
 #define ELCR_SLAVE 0x4D1U
@@ -61,6 +79,7 @@ static WitU64 ecam_base(void)
 static const WitU8 PIRQ_LINES[4] = {10, 11, 5, 6};
 static WitU32 rotation = NO_ROTATION; /* 0: (pin - 1 + slot) % 4; 1: (pin - 1 + slot - 1) % 4 */
 static WitU32 firmware_routing; /* the PIRQ E..H routing the firmware left, logged */
+static int ich9; /* whether the board has ICH9's LPC bridge, whose PIRQ E..H the platform routes */
 
 static WitU32 pirq_index(WitU32 slot, WitU32 pin, WitU32 r)
 {
@@ -75,9 +94,10 @@ static int function_present(WitU32 device, WitU32 function)
 
 static void route_pirqs(void)
 {
-    if ((config_read(0, LPC_DEVICE, 0, 0x00) & 0xFFFF) != 0x8086) {
-        return; /* no LPC bridge: the firmware's lines stay */
+    if (config_read(0, LPC_DEVICE, 0, 0x00) != ICH9_LPC_ID) {
+        return; /* no ICH9 LPC bridge: the firmware's lines stay */
     }
+    ich9 = 1;
     const WitU32 firmware = config_read(0, LPC_DEVICE, 0, LPC_PIRQ_ROUTING);
     firmware_routing = firmware;
     for (WitU32 i = 0; i < 4; ++i) {
@@ -160,6 +180,10 @@ static WitU32 line_of(WitU32 bus, WitU32 device, WitU32 function, WitU32 pin, Wi
 /* The routing as decided: the firmware's PIRQ E..H table and the rotation, logged once. */
 static void log_routing(void)
 {
+    if (!ich9) {
+        wit_console_write("PCI INTx: no ICH9 LPC bridge, the firmware's lines kept\n");
+        return;
+    }
     wit_console_write("PCI INTx: firmware PIRQ E-H routing ");
     wit_console_write_hex(firmware_routing);
     wit_console_write(rotation == NO_ROTATION ? ", the firmware's lines kept\n" : ", rotation ");
@@ -220,8 +244,10 @@ static void describe_bars(WitU32 bus, WitU32 device, WitU32 function, WitDeviceD
     config_write(bus, device, function, 0x04, command);
 }
 
-static WitU32 describe_bus(
-    WitU64 ecam, WitU32 bus, WitU32 depth, WitDeviceDescriptor *table, WitU32 count, WitU32 capacity)
+/* Every function found, described or not, so that a board whose functions overflow the table says so. */
+static WitU32 functions_found;
+
+static WitU32 describe_bus(WitU32 bus, WitU32 depth, WitDeviceDescriptor *table, WitU32 count, WitU32 capacity)
 {
     for (WitU32 device = 0; device < 32; ++device) {
         const WitU32 functions = (config_read(bus, device, 0, 0x0C) & 0x00800000U) ? 8 : 1;
@@ -234,11 +260,12 @@ static WitU32 describe_bus(
             if (header == 1 && depth < BRIDGE_DEPTH) {
                 const WitU32 secondary = (config_read(bus, device, function, 0x18) >> 8) & 0xFF;
                 if (secondary > bus) {
-                    count = describe_bus(ecam, secondary, depth + 1, table, count, capacity);
+                    count = describe_bus(secondary, depth + 1, table, count, capacity);
                 }
             }
+            ++functions_found;
             if (count >= capacity) {
-                return count;
+                continue;
             }
             WitDeviceDescriptor *d = &table[count];
             for (WitU32 i = 0; i < sizeof(*d); ++i) {
@@ -250,7 +277,7 @@ static WitU32 describe_bus(
             d->Identity[1] = config_read(bus, device, function, 0x08);
             d->Identity[2] = header == 0 ? config_read(bus, device, function, 0x2C) : 0;
             d->Identity[3] = header;
-            if (ecam) {
+            if (ecam && bus >= ecam_first_bus && bus <= ecam_last_bus) {
                 WitDeviceRegion *r = &d->Regions[d->RegionCount++];
                 r->Base = ecam + ((WitU64)bus << 20) + ((WitU64)device << 15) + ((WitU64)function << 12);
                 r->Size = 4096;
@@ -262,9 +289,12 @@ static WitU32 describe_bus(
             const WitU32 interrupt = config_read(bus, device, function, 0x3C);
             const WitU32 pin = (interrupt >> 8) & 0xFF, firmware_line = interrupt & 0xFF;
             if (pin >= 1 && pin <= 4 && firmware_line < 16) {
-                d->Lines[d->LineCount].Kind = WIT_DEVICE_LINE_LEVEL;
-                d->Lines[d->LineCount].Line = line_of(bus, device, function, pin, firmware_line);
-                ++d->LineCount;
+                const WitU32 line = line_of(bus, device, function, pin, firmware_line);
+                if (line) {
+                    d->Lines[d->LineCount].Kind = WIT_DEVICE_LINE_LEVEL;
+                    d->Lines[d->LineCount].Line = line;
+                    ++d->LineCount;
+                }
             }
             ++count;
         }
@@ -275,15 +305,27 @@ static WitU32 describe_bus(
 WitU32 wit_platform_devices(const WitBootInfo *boot, WitDeviceDescriptor *table, WitU32 capacity)
 {
     WitU32 count = 0;
-    /* q35 is enumerated through its configuration ports; the ACPI tables are not needed. No host bridge: no PCI. */
+    WitDeviceDescriptor framebuffer;
+    /* The firmware's framebuffer (C2.1) is a device of the boot contract, described after the bus's functions; its slot
+     * is kept, so that a board with more functions than the table holds (VMware's 49) still has its screen. */
+    const int has_framebuffer = capacity && wit_device_describe_framebuffer(boot, &framebuffer);
+    const WitU32 bus_capacity = capacity - (has_framebuffer ? 1U : 0U);
+    /* No host bridge: no PCI. */
     if ((config_read(0, 0, 0, 0x00) & 0xFFFF) != 0xFFFF) {
+        find_ecam(boot);
         route_pirqs();
         log_routing();
-        count = describe_bus(ecam_base(), 0, 0, table, 0, capacity);
+        count = describe_bus(0, 0, table, 0, bus_capacity);
+        wit_console_write("PCI: ");
+        wit_console_write_u64(functions_found);
+        wit_console_write(" functions, ");
+        wit_console_write_u64(count);
+        wit_console_write(" described, ECAM ");
+        wit_console_write_hex(ecam);
+        wit_console_write("\n");
     }
-    /* The firmware's framebuffer (C2.1): a device of the boot contract, after the bus's functions. */
-    if (count < capacity && wit_device_describe_framebuffer(boot, &table[count])) {
-        ++count;
+    if (has_framebuffer) {
+        table[count++] = framebuffer;
     }
     return count;
 }
