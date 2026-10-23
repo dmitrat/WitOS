@@ -180,6 +180,12 @@ jobs:
             .tools/qemu-11.1.0
           key: linux-ubuntu-24.04-llvm-20.1.8-1ead36b3dfcb774b-qemu-11.1.0-6ee1d1a61f682124-riscv64-slirp
 
+      - name: Cache the pinned libc-test checkout, which repo.or.cz serves unreliably
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .tools/libc-test
+          key: linux-libc-test-${{ hashFiles('src/Substrate/libc-test.lock.json') }}
+
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
 
@@ -294,6 +300,12 @@ jobs:
             .tools/qemu-11.1.0
           key: linux-ubuntu-24.04-llvm-20.1.8-1ead36b3dfcb774b-qemu-11.1.0-6ee1d1a61f682124-riscv64-slirp
 
+      - name: Cache the pinned libc-test checkout, which repo.or.cz serves unreliably
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .tools/libc-test
+          key: linux-libc-test-${{ hashFiles('src/Substrate/libc-test.lock.json') }}
+
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
 
@@ -362,6 +374,12 @@ jobs:
             .tools/downloads/qemu-11.1.0.tar.xz
             .tools/qemu-11.1.0
           key: linux-ubuntu-24.04-llvm-20.1.8-1ead36b3dfcb774b-qemu-11.1.0-6ee1d1a61f682124-riscv64-slirp
+
+      - name: Cache the pinned libc-test checkout, which repo.or.cz serves unreliably
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .tools/libc-test
+          key: linux-libc-test-${{ hashFiles('src/Substrate/libc-test.lock.json') }}
 
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
@@ -453,6 +471,12 @@ jobs:
             .tools/downloads/qemu-11.1.0.tar.xz
             .tools/qemu-11.1.0
           key: linux-ubuntu-24.04-llvm-20.1.8-1ead36b3dfcb774b-qemu-11.1.0-6ee1d1a61f682124-riscv64-slirp
+
+      - name: Cache the pinned libc-test checkout, which repo.or.cz serves unreliably
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .tools/libc-test
+          key: linux-libc-test-${{ hashFiles('src/Substrate/libc-test.lock.json') }}
 
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
@@ -583,6 +607,12 @@ jobs:
             .tools/downloads/qemu-11.1.0.tar.xz
             .tools/qemu-11.1.0
           key: linux-ubuntu-24.04-llvm-20.1.8-1ead36b3dfcb774b-qemu-11.1.0-6ee1d1a61f682124-riscv64-slirp
+
+      - name: Cache the pinned libc-test checkout, which repo.or.cz serves unreliably
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .tools/libc-test
+          key: linux-libc-test-${{ hashFiles('src/Substrate/libc-test.lock.json') }}
 
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
