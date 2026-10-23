@@ -1,6 +1,8 @@
 # ADR 0028: The first release — a console on real hardware, VMware first, a Raspberry Pi 4 handheld as the target
 
-**Status:** Accepted 2026-10-21 by the author's decision.
+**Status:** Accepted 2026-10-21 by the author's decision. Amended by
+[ADR 0030](ADR-0030-Boot-Paths-and-the-Pi-5-Target.md) on 2026-10-23: the PocketTerm35 with a Pi 5 is phase H's goal,
+the Pi 4 its first stage, and the Pi boards boot by the Linux arm64 boot protocol instead of UEFI.
 **Date:** 2026-10-21.
 **Scope:** What the first conditional release of WitOS is, which hardware it is judged on and in which order, and what
 that asks of the plan (phase H).
