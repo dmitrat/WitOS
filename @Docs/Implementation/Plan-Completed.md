@@ -2166,20 +2166,24 @@ Cryptography (хранилище корней: 119 сертификатов — 
   отказы, две цели с разными сообщениями, подтверждение без действия на x64, `UNSUPPORTED` на ARM64 и riscv64. Прогоны:
   `test` x64, ARM64 и riscv64, `runtime-services` x64 в контейнере. Остаток — отказ раннера ставить клавиатуру рядом с
   сетевым адаптером (W1.1) можно снять на x64, когда сценарию понадобятся оба.
-- [x] **H2.1** USB: контроллер xHCI и клавиатура загрузочного протокола HID (2026-10-23; [H2.1-Xhci-Keyboard.md](@Docs/Implementation/H2.1-Xhci-Keyboard.md), ADR 0029).
-  Ядро USB — `OutWit.OS.Hardware.Usb`, проверено на хосте: дескрипторы, setup-пакеты, загрузочная клавиатура (коды evdev по
-  таблице `hid_keyboard` Linux, SYN после изменившегося отчёта, ErrorRollOver пропускается), кольца TRB с циклом через Link
-  TRB, контексты 32 и 64 байта, интервал прерывающего endpoint по скорости. `XhciController`: передача от прошивки (USB
-  Legacy Support), сброс и запуск (16 слотов, DCBAA со scratchpad, кольцо команд, сегмент событий на 256 TRB, прерыватель 0
-  по MSI-X или INTx), порты из Supported Protocol, адресация устройства на порту (сброс порта USB 2, Enable Slot с типом
-  слота, Address Device, bMaxPacketSize0 и Evaluate Context), управляющие передачи, прерывающий IN endpoint. 64-битные
-  регистры пишутся двумя словами, младшим первым; CAPLENGTH и HCIVERSION читаются одним dword. `DmaArena` — объект памяти до
-  64 страниц, закреплённый для устройства. `InputServer` перенесён в OutWit.OS и общий у драйверов virtio и xHCI. Драйвер
-  `/system/Drivers/Xhci` пишет каждую клавишу в журнал (`[XHCI] key`) и обслуживает протокол ввода; менеджер устройств
-  отдаёт ему контроллер USB класса 0C/03 с интерфейсом 0x30 любого вендора, дисплей берёт канал клавиатуры virtio, иначе
-  xHCI. WitOS.Dev: `BootRequest.UsbKeyboard` (`qemu-xhci` и `usb-kbd` в слоте клавиатуры virtio), раннер считает строки
-  клавиш обоих драйверов; `runtime-display` идёт с USB-клавиатурой, `runtime-commander` и `runtime-installer` — с virtio.
-  Замер: QEMU `qemu-xhci` — 64 слота, порты USB 3.0 1–4 и USB 2.0 5–8, `usb-kbd` на порту 5 на высокой скорости;
-  `runtime-display` с ней прошёл на x64 (MSI-X), ARM64 и riscv64 (INTx) в контейнере, по 160 переходов клавиш, кадр
-  экрана совпал с кадром хоста; VMware — xHCI 1.20, 127 слотов, клавиатура 0e0f:0006 на порту 6 настроена (только с
-  `keyboard.vusb.enable`), мышь на порту 5 и два хаба на портах 7 и 8 оставлены H2.2.
+- [x] **H2.1** USB: контроллер xHCI и клавиатура загрузочного протокола HID (2026-10-23;
+  [H2.1-Xhci-Keyboard.md](@Docs/Implementation/H2.1-Xhci-Keyboard.md), ADR 0029). Ядро USB — `OutWit.OS.Hardware.Usb`,
+  проверено на хосте: дескрипторы, setup-пакеты, загрузочная клавиатура (коды evdev по таблице `hid_keyboard` Linux, SYN
+  после изменившегося отчёта, ErrorRollOver пропускается), кольца TRB с циклом через Link TRB, контексты 32 и 64 байта,
+  интервал прерывающего endpoint по скорости. `XhciController`: передача от прошивки (USB Legacy Support), сброс и
+  запуск (16 слотов, DCBAA со scratchpad, кольцо команд, сегмент событий на 256 TRB, прерыватель 0 по MSI-X или INTx),
+  порты из Supported Protocol, адресация устройства на порту (сброс порта USB 2, Enable Slot с типом слота, Address
+  Device, bMaxPacketSize0 и Evaluate Context), управляющие передачи, прерывающий IN endpoint. 64-битные регистры пишутся
+  двумя словами, младшим первым; CAPLENGTH и HCIVERSION читаются одним dword. Обращения `MmioRegion` не встраиваются:
+  JIT x64 сужал встроенное чтение PORTSC, проверенное по маске байта, до однобайтового, на которое xHCI QEMU отвечает
+  нулём, и драйвер на x64 не видел клавиатуры (CI PR #196); хостовый тест требует запрет встраивания у каждого
+  обращения. `DmaArena` — объект памяти до 64 страниц, закреплённый для устройства. `InputServer` перенесён в OutWit.OS
+  и общий у драйверов virtio и xHCI. Драйвер `/system/Drivers/Xhci` пишет каждую клавишу в журнал (`[XHCI] key`) и
+  обслуживает протокол ввода; менеджер устройств отдаёт ему контроллер USB класса 0C/03 с интерфейсом 0x30 любого
+  вендора, дисплей берёт канал клавиатуры virtio, иначе xHCI. WitOS.Dev: `BootRequest.UsbKeyboard` (`qemu-xhci` и
+  `usb-kbd` в слоте клавиатуры virtio), раннер считает строки клавиш обоих драйверов; `runtime-display` идёт с
+  USB-клавиатурой, `runtime-commander` и `runtime-installer` — с virtio. Замер: QEMU `qemu-xhci` — 64 слота, порты USB
+  3.0 1–4 и USB 2.0 5–8, `usb-kbd` на порту 5 на высокой скорости; `runtime-display` с ней прошёл на x64 (MSI-X), ARM64
+  и riscv64 (INTx) в контейнере, по 160 переходов клавиш, кадр экрана совпал с кадром хоста; VMware — xHCI 1.20, 127
+  слотов, клавиатура 0e0f:0006 на порту 6 настроена (только с `keyboard.vusb.enable`), мышь на порту 5 и два хаба на
+  портах 7 и 8 оставлены H2.2.
