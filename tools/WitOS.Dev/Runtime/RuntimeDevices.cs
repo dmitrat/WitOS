@@ -45,6 +45,16 @@ internal static class RuntimeDevices
     public const string VIRTIO_INPUT_EXECUTABLE = "VirtioInput";
 
     /// <summary>
+    /// The xHCI driver's sources (H2.1).
+    /// </summary>
+    public const string XHCI_PROGRAM = "src/Services/Drivers/Xhci";
+
+    /// <summary>
+    /// The executable runtime-witos publishes from the xHCI driver, /system/Drivers/Xhci.
+    /// </summary>
+    public const string XHCI_EXECUTABLE = "Xhci";
+
+    /// <summary>
     /// The virtio network driver's sources (W1.1).
     /// </summary>
     public const string VIRTIO_NET_PROGRAM = "src/Services/Drivers/VirtioNet";
@@ -219,6 +229,9 @@ internal static class RuntimeDevices
     // OutWit.OS's filesystem providers (D4.1, D4.2, N4.1), which a service compiles with OutWit.OS's package references.
     private static readonly string[] OUTWIT_OS_FILESYSTEM_FOLDERS = ["FileSystems", "FileSystems/Fat", "FileSystems/Ext4", "FileSystems/Memory"];
 
+    // OutWit.OS's USB core and xHCI controller (H2.1), which the xHCI driver alone compiles.
+    private static readonly string[] OUTWIT_OS_USB_FOLDERS = ["Hardware/Usb"];
+
     #endregion
 
     #region Functions
@@ -254,6 +267,7 @@ internal static class RuntimeDevices
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_BLOCK_EXECUTABLE, VIRTIO_BLOCK_PROGRAM, ["Virtio"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_CONSOLE_EXECUTABLE, VIRTIO_CONSOLE_PROGRAM, ["Virtio"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_INPUT_EXECUTABLE, VIRTIO_INPUT_PROGRAM, ["Virtio"], []);
+        await PublishServiceAsync(root, tree, architecture, version, sysroot, XHCI_EXECUTABLE, XHCI_PROGRAM, [], OUTWIT_OS_USB_FOLDERS);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_NET_EXECUTABLE, VIRTIO_NET_PROGRAM, ["Virtio"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, NETWORK_EXECUTABLE, NETWORK_PROGRAM, ["Server"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, TERMINAL_EXECUTABLE, TERMINAL_PROGRAM, ["Server"], []);
@@ -564,12 +578,13 @@ internal static class RuntimeDevices
         var driver = Path.Combine(directory, VIRTIO_BLOCK_EXECUTABLE);
         var console = Path.Combine(directory, VIRTIO_CONSOLE_EXECUTABLE);
         var input = Path.Combine(directory, VIRTIO_INPUT_EXECUTABLE);
+        var xhci = Path.Combine(directory, XHCI_EXECUTABLE);
         var network = Path.Combine(directory, VIRTIO_NET_EXECUTABLE);
         var names = Path.Combine(directory, NAMESPACE_EXECUTABLE);
         var networking = Path.Combine(directory, NETWORK_EXECUTABLE);
         var terminal = Path.Combine(directory, TERMINAL_EXECUTABLE);
         var display = Path.Combine(directory, DISPLAY_EXECUTABLE);
-        if (!File.Exists(driver) || !File.Exists(console) || !File.Exists(input) || !File.Exists(network) || !File.Exists(names) ||
+        if (!File.Exists(driver) || !File.Exists(console) || !File.Exists(input) || !File.Exists(xhci) || !File.Exists(network) || !File.Exists(names) ||
             !File.Exists(networking) || !File.Exists(terminal) || !File.Exists(display))
             throw new InvalidOperationException($"No witos drivers, namespace, network, terminal or display service in {directory}. " +
                 $"Run: dotnet run --project tools/WitOS.Dev -- runtime-services --arch {architecture.Name}");
@@ -577,7 +592,7 @@ internal static class RuntimeDevices
         [
             ("system/" + DEVICE_MANAGER_EXECUTABLE, program[0].Source), ("system/Drivers/" + VIRTIO_BLOCK_EXECUTABLE, driver),
             ("system/Drivers/" + VIRTIO_CONSOLE_EXECUTABLE, console), ("system/Drivers/" + VIRTIO_INPUT_EXECUTABLE, input),
-            ("system/Drivers/" + VIRTIO_NET_EXECUTABLE, network),
+            ("system/Drivers/" + VIRTIO_NET_EXECUTABLE, network), ("system/Drivers/" + XHCI_EXECUTABLE, xhci),
             ("system/" + NAMESPACE_EXECUTABLE, names), ("system/" + NETWORK_EXECUTABLE, networking), ("system/" + TERMINAL_EXECUTABLE, terminal),
             ("system/" + DISPLAY_EXECUTABLE, display),
             .. SpleenFont.PackageFiles(root), .. program.Skip(1)
@@ -647,7 +662,7 @@ internal static class RuntimeDevices
     {
         var compile = string.Concat(OUTWIT_OS_FOLDERS.Concat(outwitFolders).Select(folder => Path.Combine(root, OUTWIT_OS_SOURCES, folder))
             .Concat(folders.Select(folder => Path.Combine(root, program, folder))).Select(Compile));
-        var packages = outwitFolders.Length == 0 ? "" : string.Concat(PackageReferences(root).Select(reference =>
+        var packages = !outwitFolders.Intersect(OUTWIT_OS_FILESYSTEM_FOLDERS).Any() ? "" : string.Concat(PackageReferences(root).Select(reference =>
             $"      <PackageReference Include=\"{SecurityElement.Escape(reference.Package)}\" Version=\"{SecurityElement.Escape(reference.Version)}\" />\n"));
         var published = await RuntimeWitos.PublishProgramAsync(root, tree, architecture, name, Path.Combine(root, program), version,
             $$"""

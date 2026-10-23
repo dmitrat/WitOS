@@ -104,6 +104,12 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public bool Keyboard { get; init; }
 
     /// <summary>
+    /// The keyboard as USB (plan step H2.1, ADR 0029: USB on every target): QEMU's usb-kbd on a qemu-xhci controller in
+    /// the virtio keyboard's slot, which the xHCI driver serves; with <see cref="Keyboard"/>.
+    /// </summary>
+    public bool UsbKeyboard { get; init; }
+
+    /// <summary>
     /// A network adapter (plan step W1.1): virtio-net-pci on QEMU's user networking (slirp), whose gateway, DHCP server
     /// and DNS forwarder the guest reaches at 10.0.2.2 and 10.0.2.3.
     /// </summary>

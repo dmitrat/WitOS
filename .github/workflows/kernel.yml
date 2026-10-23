@@ -229,6 +229,7 @@ jobs:
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/Namespace
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/VirtioConsole
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/VirtioInput
+            artifacts/runtime-witos/ilc/${{ matrix.arch }}/Xhci
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/VirtioNet
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/Network
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/Terminal

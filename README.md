@@ -18,7 +18,8 @@ signals and its dynamic linker, LLVM's C++ runtime, a process manager with `posi
 `build/abi2.json`. The root task starts WitOS's services, NativeAOT programs in processes of their own ([ADR 0025](@Docs/Implementation/ADR-0025-Devices-as-NativeAOT-Services.md)):
 the device manager, a virtio-blk driver per disk, the namespace service with ext4 and FAT volumes written through
 the ext4 journal, which e2fsprogs judges, the terminal service with Linux's line discipline over a virtio console, the
-display service drawing that terminal on the firmware's framebuffer with a virtio keyboard, and the network service with
+display service drawing that terminal on the firmware's framebuffer with a virtio or a USB keyboard (an xHCI driver, H2.1),
+and the network service with
 a managed TCP/IP stack over virtio-net. Upstream .NET runs in its Unix form (`TargetOS=witos`, [RFC 0015 v2](@Docs/RFC-0015-DotNet-Runtime-Port-and-Compatibility-Contract.md)):
 .NET 10.0.12 and 8.0.31 side by side under `/dotnet` with ICU built from source; an ordinary application published by the
 stock SDK without a RID runs unchanged as `dotnet App.dll`, uses the volumes through System.IO, and the .NET

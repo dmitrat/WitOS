@@ -1,17 +1,17 @@
 using System;
 using System.Collections.Generic;
 using OutWit.OS.Communication;
-using OutWit.OS.Hardware;
 using OutWit.OS.Resources;
 
-namespace OutWit.OS.Drivers.VirtioInput.Virtio;
+namespace OutWit.OS.Hardware;
 
 /// <summary>
-/// The input protocol (witos/input.h, plan step C2.2) served over the device: a window attached, the events the device
+/// The input protocol (witos/input.h, plan step C2.2) served over a device: a window attached, the events the device
 /// reported queued — at most QUEUE, the oldest dropped beyond — and a READ answered from the queue or held until an
-/// event comes; every request checked before anything is done.
+/// event comes; every request checked before anything is done. The virtio keyboard's driver and, since H2.1, the xHCI
+/// driver serve it.
 /// </summary>
-internal sealed class InputServer : IDisposable
+public sealed class InputServer : IDisposable
 {
     #region Fields
 
