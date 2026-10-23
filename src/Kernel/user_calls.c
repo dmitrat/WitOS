@@ -41,7 +41,7 @@ static WitArchFrame *resume_restored(WitUserCall *call, WitU64 status)
 
 static WitArchFrame *query(WitUserCall *call)
 {
-    *call->Value = WIT_ABI_VERSION | ((WitU64)WIT_ABI_FEATURES << 32);
+    *call->Value = WIT_ABI_VERSION | ((WitU64)wit_user_abi_features() << 32);
     return 0;
 }
 
@@ -360,6 +360,13 @@ static WitArchFrame *interrupt_ack(WitUserCall *call)
     return 0;
 }
 
+static WitArchFrame *interrupt_bind_message(WitUserCall *call)
+{
+    *call->Status =
+        wit_user_interrupt_bind_message(call->Process, call->Argument0, call->Argument1, call->Argument2, call->Value);
+    return 0;
+}
+
 static WitArchFrame *dma_pin(WitUserCall *call)
 {
     *call->Status = wit_user_dma_pin(call->Process, call->Argument0, call->Argument1, call->Argument2, call->Value);
@@ -614,6 +621,7 @@ static WitArchFrame *(*const handlers[CALL_COUNT])(WitUserCall *) = {
     [WIT_CALL_INTERRUPT_BIND] = interrupt_bind,
     [WIT_CALL_INTERRUPT_ACK] = interrupt_ack,
     [WIT_CALL_DMA_PIN] = dma_pin,
+    [WIT_CALL_INTERRUPT_BIND_MESSAGE] = interrupt_bind_message,
     [WIT_CALL_DMA_UNPIN] = dma_unpin,
     [WIT_CALL_PROCESS_CREATE] = process_create,
     [WIT_CALL_PROCESS_KILL] = process_kill,

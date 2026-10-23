@@ -65,23 +65,20 @@ internal sealed class VirtioBlockQueue : IDisposable
     private readonly KernelHandle m_memory;
     private readonly MemoryMapping m_pages;
     private readonly DmaPin m_pin;
-    private readonly KernelHandle m_event;
-    private readonly InterruptBinding m_binding;
+    private readonly VirtioInterrupt m_interrupt;
     private readonly Virtqueue m_queue;
 
     #endregion
 
     #region Constructors
 
-    private VirtioBlockQueue(VirtioPciTransport transport, KernelHandle memory, MemoryMapping pages, DmaPin pin, KernelHandle signaled,
-        InterruptBinding binding, Virtqueue queue, uint features, DeviceConfiguration configuration)
+    private VirtioBlockQueue(VirtioPciTransport transport, KernelHandle memory, MemoryMapping pages, DmaPin pin, VirtioInterrupt interrupt, Virtqueue queue, uint features, DeviceConfiguration configuration)
     {
         m_transport = transport;
         m_memory = memory;
         m_pages = pages;
         m_pin = pin;
-        m_event = signaled;
-        m_binding = binding;
+        m_interrupt = interrupt;
         m_queue = queue;
         IsReadOnly = (features & READ_ONLY) != 0;
         Flushes = (features & FLUSH) != 0;
@@ -110,24 +107,22 @@ internal sealed class VirtioBlockQueue : IDisposable
         var memory = MemoryObject.Create(PAGES * PAGE);
         var pages = MemoryMapping.Map(memory, 0, PAGES * PAGE, MemoryMapping.READ_WRITE);
         DmaPin? pin = null;
-        KernelHandle? signaled = null;
-        InterruptBinding? binding = null;
+        VirtioInterrupt? interrupt = null;
         try
         {
             pin = DmaPin.Pin(device, memory, 0, PAGES * PAGE);
+            interrupt = VirtioInterrupt.Prepare(transport); // an MSI-X message takes effect from the reset on
             transport.Reset();
             var features = transport.Negotiate(ACCEPTED);
             var configuration = DeviceConfiguration.Read(transport, features);
             var queue = Virtqueue.Open(transport, 0, pages, pin, 0, 3); // a request's three descriptors at least
             transport.DriverReady();
-            signaled = Event.Create();
-            binding = InterruptBinding.Bind(device, 0, signaled);
-            return new VirtioBlockQueue(transport, memory, pages, pin, signaled, binding, queue, features, configuration);
+            interrupt.Start();
+            return new VirtioBlockQueue(transport, memory, pages, pin, interrupt, queue, features, configuration);
         }
         catch
         {
-            binding?.Dispose();
-            signaled?.Dispose();
+            interrupt?.Dispose();
             pin?.Dispose();
             pages.Dispose();
             memory.Dispose();
@@ -171,10 +166,10 @@ internal sealed class VirtioBlockQueue : IDisposable
             m_queue.Describe(i + 1, segments[i].Address, (uint)segments[i].Length, data, (ushort)(i + 2));
         m_queue.Describe(segments.Length + 1, header + 16, 1, Virtqueue.WRITE, 0);
         m_queue.Submit(0);
-        Event.Wait(Event.INFINITE, m_event);
-        var isr = m_transport.ReadInterruptStatus(); // reading it ends the interrupt's cause
+        Event.Wait(Event.INFINITE, m_interrupt.Signaled);
+        var isr = m_interrupt.ReadStatus(); // reading it ends the interrupt's cause
         var completed = m_queue.TryComplete(out var head, out _);
-        m_binding.Acknowledge();
+        m_interrupt.Acknowledge();
         if ((isr & 1) == 0 || !completed || head != 0 || m_queue.Pending != 0)
             throw new IOException($"The device completed no request of ours: ISR {isr}, completed {completed}, head {head}.");
         if (m_pages.Bytes[STATUS] is var status and not 0)
@@ -188,13 +183,12 @@ internal sealed class VirtioBlockQueue : IDisposable
     #region IDisposable
 
     /// <summary>
-    /// Quiesces the device, then gives back the binding, the event, the pin and the pages.
+    /// Quiesces the device, then gives back the interrupt, the pin and the pages.
     /// </summary>
     public void Dispose()
     {
         m_transport.Quiesce();
-        m_binding.Dispose();
-        m_event.Dispose();
+        m_interrupt.Dispose();
         m_pin.Dispose();
         m_pages.Dispose();
         m_memory.Dispose();
@@ -203,6 +197,11 @@ internal sealed class VirtioBlockQueue : IDisposable
     #endregion
 
     #region Properties
+
+    /// <summary>
+    /// What the device interrupts through: its INTx line or an MSI-X message (H1.2b).
+    /// </summary>
+    public string InterruptDescription => m_interrupt.Description;
 
     /// <summary>
     /// The device's bytes.

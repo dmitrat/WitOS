@@ -47,6 +47,14 @@ int wit_platform_line_valid(WitU32 line);
 void wit_platform_line_unmask(WitU32 line);
 void wit_platform_line_mask(WitU32 line);
 void wit_platform_line_complete(WitU32 line);
+/* Message interrupts (ADR 0029, H1.2b): a board that has them allocates a target — the address and the data a device
+ * writes — and names it by a token at or above WIT_PLATFORM_MESSAGE_BASE, apart from every line; the kernel delivers a
+ * message as wit_user_interrupt of its token. Allocation returns zero when every target is bound; supported is zero on
+ * a board without message interrupts, which never allocates. */
+#define WIT_PLATFORM_MESSAGE_BASE 0x100U
+int wit_platform_messages_supported(void);
+int wit_platform_message_allocate(WitU64 *address, WitU32 *data, WitU32 *token);
+void wit_platform_message_free(WitU32 token);
 void wit_platform_clock_initialize(const struct WitBootInfo *boot);
 WitU64 wit_platform_monotonic_read(void);
 WitU64 wit_platform_monotonic_frequency(void);

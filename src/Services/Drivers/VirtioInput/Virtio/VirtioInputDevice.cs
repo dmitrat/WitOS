@@ -57,8 +57,7 @@ internal sealed class VirtioInputDevice : IDisposable
     private readonly KernelHandle m_memory;
     private readonly MemoryMapping m_pages;
     private readonly DmaPin m_pin;
-    private readonly KernelHandle m_event;
-    private readonly InterruptBinding m_binding;
+    private readonly VirtioInterrupt m_interrupt;
     private readonly Virtqueue m_events;
     private readonly Virtqueue m_status;
     private readonly int m_buffers;
@@ -67,16 +66,14 @@ internal sealed class VirtioInputDevice : IDisposable
 
     #region Constructors
 
-    private VirtioInputDevice(VirtioPciTransport transport, KernelHandle memory, MemoryMapping pages, DmaPin pin, KernelHandle signaled,
-        InterruptBinding binding, Virtqueue events, Virtqueue status, int buffers, string name, (int Bus, int Vendor, int Product, int Version) ids,
+    private VirtioInputDevice(VirtioPciTransport transport, KernelHandle memory, MemoryMapping pages, DmaPin pin, VirtioInterrupt interrupt, Virtqueue events, Virtqueue status, int buffers, string name, (int Bus, int Vendor, int Product, int Version) ids,
         int keys)
     {
         m_transport = transport;
         m_memory = memory;
         m_pages = pages;
         m_pin = pin;
-        m_event = signaled;
-        m_binding = binding;
+        m_interrupt = interrupt;
         m_events = events;
         m_status = status;
         m_buffers = buffers;
@@ -103,11 +100,11 @@ internal sealed class VirtioInputDevice : IDisposable
         var memory = MemoryObject.Create(PAGES * PAGE);
         var pages = MemoryMapping.Map(memory, 0, PAGES * PAGE, MemoryMapping.READ_WRITE);
         DmaPin? pin = null;
-        KernelHandle? signaled = null;
-        InterruptBinding? binding = null;
+        VirtioInterrupt? interrupt = null;
         try
         {
             pin = DmaPin.Pin(device, memory, 0, PAGES * PAGE);
+            interrupt = VirtioInterrupt.Prepare(transport); // an MSI-X message takes effect from the reset on
             transport.Reset();
             transport.Negotiate(0);
             var name = ReadString(transport, CFG_ID_NAME, 0);
@@ -117,10 +114,9 @@ internal sealed class VirtioInputDevice : IDisposable
             var events = Virtqueue.Open(transport, 0, pages, pin, EVENT_QUEUE, LEAST_EVENTS);
             var status = Virtqueue.Open(transport, 1, pages, pin, STATUS_QUEUE, 1);
             transport.DriverReady();
-            signaled = Event.Create();
-            binding = InterruptBinding.Bind(device, 0, signaled);
+            interrupt.Start();
             var buffers = Math.Min(EVENT_COUNT, (int)events.Size);
-            var input = new VirtioInputDevice(transport, memory, pages, pin, signaled, binding, events, status, buffers, name, ids, keys);
+            var input = new VirtioInputDevice(transport, memory, pages, pin, interrupt, events, status, buffers, name, ids, keys);
             for (var i = 0; i < buffers; i++)
             {
                 events.Describe(i, pin.RunAt(EVENT_BUFFERS + i * EVENT_BYTES).Address, EVENT_BYTES, Virtqueue.WRITE, 0);
@@ -131,8 +127,7 @@ internal sealed class VirtioInputDevice : IDisposable
         }
         catch
         {
-            binding?.Dispose();
-            signaled?.Dispose();
+            interrupt?.Dispose();
             pin?.Dispose();
             pages.Dispose();
             memory.Dispose();
@@ -147,7 +142,7 @@ internal sealed class VirtioInputDevice : IDisposable
     /// <returns>The events, in the device's order: the type, the code and the value of each.</returns>
     public IReadOnlyList<(ushort Type, ushort Code, int Value)> Service()
     {
-        _ = m_transport.ReadInterruptStatus();
+        _ = m_interrupt.ReadStatus();
         var events = new List<(ushort, ushort, int)>();
         var offered = false;
         while (m_events.TryComplete(out var head, out var length))
@@ -169,7 +164,7 @@ internal sealed class VirtioInputDevice : IDisposable
         while (m_status.TryComplete(out _, out _))
         {
         }
-        m_binding.Acknowledge();
+        m_interrupt.Acknowledge();
         return events;
     }
 
@@ -229,8 +224,7 @@ internal sealed class VirtioInputDevice : IDisposable
     public void Dispose()
     {
         m_transport.Quiesce();
-        m_binding.Dispose();
-        m_event.Dispose();
+        m_interrupt.Dispose();
         m_pin.Dispose();
         m_pages.Dispose();
         m_memory.Dispose();
@@ -241,9 +235,14 @@ internal sealed class VirtioInputDevice : IDisposable
     #region Properties
 
     /// <summary>
+    /// What the device interrupts through: its INTx line or an MSI-X message (H1.2b).
+    /// </summary>
+    public string InterruptDescription => m_interrupt.Description;
+
+    /// <summary>
     /// The event the device's line sets.
     /// </summary>
-    public KernelHandle Interrupt => m_event;
+    public KernelHandle Interrupt => m_interrupt.Signaled;
 
     /// <summary>
     /// The device's name, as it reports it (QEMU Virtio Keyboard).

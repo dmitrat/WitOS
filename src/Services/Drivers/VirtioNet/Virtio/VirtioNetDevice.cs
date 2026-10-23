@@ -53,8 +53,7 @@ internal sealed class VirtioNetDevice : IDisposable
     private readonly KernelHandle m_memory;
     private readonly MemoryMapping m_pages;
     private readonly DmaPin m_pin;
-    private readonly KernelHandle m_event;
-    private readonly InterruptBinding m_binding;
+    private readonly VirtioInterrupt m_interrupt;
     private readonly Virtqueue m_receive;
     private readonly Virtqueue m_transmit;
     private readonly uint m_features;
@@ -65,15 +64,13 @@ internal sealed class VirtioNetDevice : IDisposable
 
     #region Constructors
 
-    private VirtioNetDevice(VirtioPciTransport transport, KernelHandle memory, MemoryMapping pages, DmaPin pin, KernelHandle signaled,
-        InterruptBinding binding, Virtqueue receive, Virtqueue transmit, uint features, ulong address)
+    private VirtioNetDevice(VirtioPciTransport transport, KernelHandle memory, MemoryMapping pages, DmaPin pin, VirtioInterrupt interrupt, Virtqueue receive, Virtqueue transmit, uint features, ulong address)
     {
         m_transport = transport;
         m_memory = memory;
         m_pages = pages;
         m_pin = pin;
-        m_event = signaled;
-        m_binding = binding;
+        m_interrupt = interrupt;
         m_receive = receive;
         m_transmit = transmit;
         m_features = features;
@@ -100,11 +97,11 @@ internal sealed class VirtioNetDevice : IDisposable
         var memory = MemoryObject.Create(PAGES * PAGE);
         var pages = MemoryMapping.Map(memory, 0, PAGES * PAGE, MemoryMapping.READ_WRITE);
         DmaPin? pin = null;
-        KernelHandle? signaled = null;
-        InterruptBinding? binding = null;
+        VirtioInterrupt? interrupt = null;
         try
         {
             pin = DmaPin.Pin(device, memory, 0, PAGES * PAGE);
+            interrupt = VirtioInterrupt.Prepare(transport); // an MSI-X message takes effect from the reset on
             transport.Reset();
             var features = transport.Negotiate(ACCEPTED);
             if ((features & MAC) == 0)
@@ -113,9 +110,8 @@ internal sealed class VirtioNetDevice : IDisposable
             var receive = Virtqueue.Open(transport, 0, pages, pin, RECEIVE_QUEUE, RECEIVE_COUNT);
             var transmit = Virtqueue.Open(transport, 1, pages, pin, TRANSMIT_QUEUE, TRANSMIT_COUNT);
             transport.DriverReady();
-            signaled = Event.Create();
-            binding = InterruptBinding.Bind(device, 0, signaled);
-            var adapter = new VirtioNetDevice(transport, memory, pages, pin, signaled, binding, receive, transmit, features, address);
+            interrupt.Start();
+            var adapter = new VirtioNetDevice(transport, memory, pages, pin, interrupt, receive, transmit, features, address);
             for (var i = 0; i < RECEIVE_COUNT; i++)
             {
                 receive.Describe(i, pin.RunAt(RECEIVE_BUFFERS + i * BUFFER).Address, BUFFER, Virtqueue.WRITE, 0);
@@ -126,8 +122,7 @@ internal sealed class VirtioNetDevice : IDisposable
         }
         catch
         {
-            binding?.Dispose();
-            signaled?.Dispose();
+            interrupt?.Dispose();
             pin?.Dispose();
             pages.Dispose();
             memory.Dispose();
@@ -141,9 +136,9 @@ internal sealed class VirtioNetDevice : IDisposable
     /// </summary>
     public void Service()
     {
-        _ = m_transport.ReadInterruptStatus();
+        _ = m_interrupt.ReadStatus();
         Collect();
-        m_binding.Acknowledge();
+        m_interrupt.Acknowledge();
     }
 
     /// <summary>
@@ -164,7 +159,7 @@ internal sealed class VirtioNetDevice : IDisposable
                     m_transmit.Notify();
                     offered = false;
                 }
-                Event.Wait(Event.INFINITE, m_event);
+                Event.Wait(Event.INFINITE, m_interrupt.Signaled);
                 Service();
             }
             var buffer = m_free.Pop();
@@ -179,7 +174,7 @@ internal sealed class VirtioNetDevice : IDisposable
             m_transmit.Notify();
         while (m_free.Count < TRANSMIT_COUNT)
         {
-            Event.Wait(Event.INFINITE, m_event);
+            Event.Wait(Event.INFINITE, m_interrupt.Signaled);
             Service();
         }
     }
@@ -239,13 +234,12 @@ internal sealed class VirtioNetDevice : IDisposable
     #region IDisposable
 
     /// <summary>
-    /// Quiesces the device, then gives back the binding, the event, the pin and the pages.
+    /// Quiesces the device, then gives back the interrupt, the pin and the pages.
     /// </summary>
     public void Dispose()
     {
         m_transport.Quiesce();
-        m_binding.Dispose();
-        m_event.Dispose();
+        m_interrupt.Dispose();
         m_pin.Dispose();
         m_pages.Dispose();
         m_memory.Dispose();
@@ -256,9 +250,14 @@ internal sealed class VirtioNetDevice : IDisposable
     #region Properties
 
     /// <summary>
+    /// What the device interrupts through: its INTx line or an MSI-X message (H1.2b).
+    /// </summary>
+    public string InterruptDescription => m_interrupt.Description;
+
+    /// <summary>
     /// The event the device's line sets: a wait on it ends when the device received a frame or completed a transmit.
     /// </summary>
-    public KernelHandle Interrupt => m_event;
+    public KernelHandle Interrupt => m_interrupt.Signaled;
 
     /// <summary>
     /// The adapter's MAC address, its first byte the lowest.

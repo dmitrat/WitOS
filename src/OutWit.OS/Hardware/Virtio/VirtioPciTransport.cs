@@ -19,6 +19,11 @@ public sealed class VirtioPciTransport : IDisposable
     /// </summary>
     public const uint VERSION_1 = 1;
 
+    /// <summary>
+    /// The MSI-X entry of no queue or configuration change (virtio 1.x §4.1.5.1.2).
+    /// </summary>
+    public const ushort NO_VECTOR = 0xFFFF;
+
     private const byte CAPABILITY_VENDOR = 9;
     private const int COMMON = 1;
     private const int NOTIFY = 2;
@@ -27,7 +32,6 @@ public sealed class VirtioPciTransport : IDisposable
     private const int COMMAND = 0x04;
     private const int STATUS = 0x06;
     private const int CAPABILITIES = 0x34;
-    private const int BARS = 0x10;
 
     // The common configuration's registers (virtio 1.x, §4.1.4.3).
     private const int DEVICE_FEATURE_SELECT = 0;
@@ -38,6 +42,7 @@ public sealed class VirtioPciTransport : IDisposable
     private const int CONFIG_GENERATION = 21;
     private const int QUEUE_SELECT = 22;
     private const int QUEUE_SIZE = 24;
+    private const int QUEUE_MSIX_VECTOR = 26;
     private const int QUEUE_ENABLE = 28;
     private const int QUEUE_NOTIFY_OFF = 30;
     private const int QUEUE_DESCRIPTOR = 32;
@@ -61,9 +66,12 @@ public sealed class VirtioPciTransport : IDisposable
 
     #region Constructors
 
-    private VirtioPciTransport(KernelHandle configurationObject, MmioRegion configuration, KernelHandle barObject, MmioRegion bar,
-        int common, int notify, int isr, int device, uint notifyMultiplier)
+    private VirtioPciTransport(KernelHandle device, DeviceDescriptor descriptor, KernelHandle configurationObject,
+        MmioRegion configuration, KernelHandle barObject, MmioRegion bar, int common, int notify, int isr, int deviceConfiguration,
+        uint notifyMultiplier)
     {
+        Device = device;
+        Descriptor = descriptor;
         m_configurationObject = configurationObject;
         Configuration = configuration;
         m_barObject = barObject;
@@ -71,7 +79,7 @@ public sealed class VirtioPciTransport : IDisposable
         Common = common;
         Notify = notify;
         Isr = isr;
-        DeviceConfiguration = device;
+        DeviceConfiguration = deviceConfiguration;
         NotifyMultiplier = notifyMultiplier;
     }
 
@@ -89,7 +97,7 @@ public sealed class VirtioPciTransport : IDisposable
     /// <exception cref="CapabilityException">A region could not be had.</exception>
     public static VirtioPciTransport Open(KernelHandle device, DeviceDescriptor descriptor)
     {
-        var configurationObject = Device.Memory(device, 0);
+        var configurationObject = Hardware.Device.Memory(device, 0);
         var configuration = MmioRegion.Map(configurationObject, MemoryObject.PAGE);
         try
         {
@@ -114,21 +122,13 @@ public sealed class VirtioPciTransport : IDisposable
                 throw new IOException($"The function's virtio capabilities are {found:x} in BARs {bars[COMMON]}, {bars[NOTIFY]}, " +
                     $"{bars[ISR]}, {bars[DEVICE]}.");
             // The BAR the capabilities name, among the descriptor's regions by its firmware-assigned base.
-            var raw = configuration.Read32(BARS + bars[COMMON] * 4);
-            ulong address = raw & 0xFFFFFFF0U;
-            if ((raw & 6) == 4)
-                address |= (ulong)configuration.Read32(BARS + 4 + bars[COMMON] * 4) << 32;
-            var region = 1;
-            while (region < descriptor.Regions.Count && descriptor.Regions[region].Base != address)
-                region++;
-            if (region == descriptor.Regions.Count)
-                throw new IOException($"The virtio BAR at {address:x} is not among the descriptor's regions.");
-            var barObject = Device.Memory(device, region);
+            var region = PciConfiguration.RegionOfBar(configuration, descriptor, bars[COMMON]);
+            var barObject = Hardware.Device.Memory(device, region);
             try
             {
                 var bar = MmioRegion.Map(barObject, (int)descriptor.Regions[region].Size);
-                return new VirtioPciTransport(configurationObject, configuration, barObject, bar, offsets[COMMON], offsets[NOTIFY],
-                    offsets[ISR], offsets[DEVICE], multiplier);
+                return new VirtioPciTransport(device, descriptor, configurationObject, configuration, barObject, bar, offsets[COMMON],
+                    offsets[NOTIFY], offsets[ISR], offsets[DEVICE], multiplier);
             }
             catch
             {
@@ -222,6 +222,13 @@ public sealed class VirtioPciTransport : IDisposable
         Bar.Write64(Common + QUEUE_DESCRIPTOR, descriptors);
         Bar.Write64(Common + QUEUE_DRIVER, driver);
         Bar.Write64(Common + QUEUE_DEVICE, device);
+        if (QueueVector != NO_VECTOR)
+        {
+            // An MSI-X entry for the queue (H1.2b): the device answers NO_VECTOR when it cannot take it.
+            Bar.Write16(Common + QUEUE_MSIX_VECTOR, QueueVector);
+            if (Bar.Read16(Common + QUEUE_MSIX_VECTOR) != QueueVector)
+                throw new IOException($"The device refused MSI-X entry {QueueVector} for a queue.");
+        }
         var notify = Notify + (int)(Bar.Read16(Common + QUEUE_NOTIFY_OFF) * NotifyMultiplier);
         Bar.Write16(Common + QUEUE_ENABLE, 1);
         return notify;
@@ -254,6 +261,22 @@ public sealed class VirtioPciTransport : IDisposable
     /// The function's configuration space.
     /// </summary>
     public MmioRegion Configuration { get; }
+
+    /// <summary>
+    /// The device the driver holds, with BIND.
+    /// </summary>
+    public KernelHandle Device { get; }
+
+    /// <summary>
+    /// The device's descriptor.
+    /// </summary>
+    public DeviceDescriptor Descriptor { get; }
+
+    /// <summary>
+    /// The MSI-X entry each queue set up from here takes (H1.2b); <see cref="NO_VECTOR"/> while the device interrupts
+    /// through its INTx line.
+    /// </summary>
+    public ushort QueueVector { get; set; } = NO_VECTOR;
 
     /// <summary>
     /// The BAR of the common configuration, the notifications, the ISR status and the device-specific configuration.

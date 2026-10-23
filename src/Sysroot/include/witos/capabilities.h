@@ -74,8 +74,17 @@ int witos_clock_frequency(WitU64 *frequency);
  * handle with ACK. EACCES without BIND, EBUSY for a line another binding holds, EINVAL. */
 int witos_interrupt_bind(WitU64 device, WitU32 line, WitU64 event, WitU64 *binding);
 
-/* Unmasks the bound line after its interrupt was served (D2). */
+/* Unmasks the bound line after its interrupt was served (D2); does nothing for a message binding. */
 int witos_interrupt_ack(WitU64 binding);
+
+/* Binds a message target of the board to an event (H1.2b, ADR 0029): a handle, and the address and the data the driver
+ * writes into its function's MSI capability or MSI-X table entry; each message the device writes sets the event, and
+ * nothing is masked. EACCES without BIND or SIGNAL, ENOMEM when every target is bound, and the errno of UNSUPPORTED on
+ * a board without message interrupts. */
+int witos_interrupt_bind_message(WitU64 device, WitU64 event, WitU64 *binding, WitU64 *address, WitU32 *data);
+
+/* Whether the board serves message interrupts (QUERY's WIT_ABI_FEATURE_MESSAGE_INTERRUPTS, H1.2b): 1 or 0. */
+int witos_message_interrupts(void);
 
 /* Pins a page-aligned window of an anonymous memory object for the device's DMA (D2), writing its physical ranges to
  * ranges, capacity pairs of an address and a size (a zero size ends the list): a pin handle, which keeps the pages

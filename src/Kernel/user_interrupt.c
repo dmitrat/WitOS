@@ -1,5 +1,6 @@
 #include "user.h"
 #include "witos/devices.h"
+#include "witos/message_interrupt.h"
 #include "witos/platform.h"
 
 /* Interrupts from user mode (RFC 0011 section 7.7, plan step K3.2): INTERRUPT_BIND ties a line of an acquired
@@ -8,12 +9,15 @@
  * board's; it holds a reference to the device (the device stays acquired while bound) and to the event (the event
  * lives while bound, whatever handles the component closes). On an interrupt the kernel masks the line, sets the
  * event and resumes; the line stays masked until INTERRUPT_ACK or the binding's end. The kernel knows no device
- * protocol: what the interrupt means is the driver's business. */
+ * protocol: what the interrupt means is the driver's business. INTERRUPT_BIND_MESSAGE (H1.2b, ADR 0029) binds a
+ * message target the board allocates, named by a token above every line: nothing is masked, an acknowledgement does
+ * nothing, and the binding's end frees the target. */
 
 #define INTERRUPT_RIGHTS (WIT_RIGHT_ACK | WIT_RIGHT_QUERY | WIT_RIGHT_DUPLICATE | WIT_RIGHT_TRANSFER)
 
 typedef struct WitInterruptBinding {
-    WitU32 Live, Line, Device; /* Device: the descriptor index plus one */
+    WitU32 Live, Line, Device; /* Line: a line, or a message target's token; Device: the descriptor index plus one */
+    WitU32 Message; /* nonzero for a message target (H1.2b) */
     WitU64 Owner; /* the owner token of the binding component (user_device.c) */
     WitU64 Event; /* the event object number in the owner's table */
 } WitInterruptBinding;
@@ -58,11 +62,16 @@ static void end_binding(WitUserProcess *p, WitU64 object)
 {
     WitInterruptBinding *b = slot(object);
     require(b != 0 && b->Owner == wit_user_owner_token(p), "Ended binding is not the component's");
-    wit_platform_line_mask(b->Line);
+    if (b->Message) {
+        wit_platform_message_free(b->Line);
+    } else {
+        wit_platform_line_mask(b->Line);
+    }
     wit_event_release(&p->Events, b->Event);
     wit_user_device_unreference(p, b->Device - 1);
     b->Live = 0;
     b->Line = 0;
+    b->Message = 0;
     b->Device = 0;
     b->Owner = 0;
     b->Event = 0;
@@ -119,6 +128,7 @@ WitU64 wit_user_interrupt_bind(WitUserProcess *p, WitU64 device, WitU64 line_ind
     wit_event_retain(&p->Events, event_object);
     wit_user_device_reference(p, device_index);
     bindings[free].Line = line;
+    bindings[free].Message = 0;
     bindings[free].Device = device_index + 1;
     bindings[free].Owner = wit_user_owner_token(p);
     bindings[free].Event = event_object;
@@ -141,7 +151,82 @@ WitU64 wit_user_interrupt_ack(WitUserProcess *p, WitU64 handle, WitU64 reserved0
     if (status != WIT_STATUS_OK) {
         return status;
     }
-    wit_platform_line_unmask(b->Line);
+    if (!b->Message) {
+        wit_platform_line_unmask(b->Line); /* a message is an edge: nothing stays masked */
+    }
+    return WIT_STATUS_OK;
+}
+
+WitU32 wit_user_abi_features(void)
+{
+    return WIT_ABI_FEATURES | (wit_platform_messages_supported() ? WIT_ABI_FEATURE_MESSAGE_INTERRUPTS : 0U);
+}
+
+/* BindMessage(WitMessageBindRequest, 48, 0): the request, the device (BIND), the event (SIGNAL), a free binding, a free
+ * handle and the request's writability are checked before the board allocates a target; then the binding, the handle
+ * and the target's address and data in the request appear together. */
+WitU64 wit_user_interrupt_bind_message(WitUserProcess *p, WitU64 address, WitU64 size, WitU64 reserved, WitU64 *result)
+{
+    WitMessageBindRequest request;
+    WitU32 device_index = 0, free = WIT_INTERRUPT_CAPACITY, event_rights = 0, token = 0, data = 0;
+    WitU64 event_object = 0, target = 0;
+    WitEvent *event;
+    *result = 0;
+    if (reserved || size != sizeof(request)) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    if (!wit_user_copy_from(&p->Space, address, (WitU8 *)&request, sizeof(request))) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    if (request.Version != WIT_MESSAGE_BIND_VERSION) {
+        return WIT_STATUS_UNSUPPORTED;
+    }
+    if (request.Size != sizeof(request) || request.Flags || request.Reserved || request.Reserved1) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    const WitU64 status = wit_user_device_index(p, request.Device, WIT_RIGHT_BIND, &device_index);
+    if (status != WIT_STATUS_OK) {
+        return status;
+    }
+    const WitU64 event_status = wit_event_get(&p->Events, &p->Handles, request.Event, WIT_RIGHT_SIGNAL, &event);
+    if (event_status != WIT_STATUS_OK) {
+        return event_status;
+    }
+    require(wit_handle_describe(&p->Handles, request.Event, WIT_HANDLE_EVENT, &event_object, &event_rights),
+        "Checked event handle has no description");
+    if (!wit_platform_messages_supported()) {
+        return WIT_STATUS_UNSUPPORTED;
+    }
+    if (!wit_user_buffer_writable(&p->Space, address, sizeof(request))) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    for (WitU32 i = 0; i < WIT_INTERRUPT_CAPACITY && free == WIT_INTERRUPT_CAPACITY; ++i) {
+        if (!bindings[i].Live) {
+            free = i;
+        }
+    }
+    if (free == WIT_INTERRUPT_CAPACITY ||
+        !wit_handles_free_count(&p->Handles) ||
+        !wit_platform_message_allocate(&target, &data, &token)) {
+        return WIT_STATUS_NO_MEMORY;
+    }
+    require(token >= WIT_PLATFORM_MESSAGE_BASE, "A message target's token is a line");
+    const WitU64 handle = wit_handle_grant_object(&p->Handles, WIT_HANDLE_INTERRUPT, INTERRUPT_RIGHTS, free + 1);
+    require(handle != 0, "Interrupt handle grant failed after the free slot check");
+    wit_event_retain(&p->Events, event_object);
+    wit_user_device_reference(p, device_index);
+    bindings[free].Line = token;
+    bindings[free].Message = 1;
+    bindings[free].Device = device_index + 1;
+    bindings[free].Owner = wit_user_owner_token(p);
+    bindings[free].Event = event_object;
+    bindings[free].Live = 1;
+    p->InterruptReferences[free] = 1;
+    request.Address = target;
+    request.Data = data;
+    require(wit_user_copy_to(&p->Space, address, (const WitU8 *)&request, sizeof(request)),
+        "Validated message request changed");
+    *result = handle;
     return WIT_STATUS_OK;
 }
 

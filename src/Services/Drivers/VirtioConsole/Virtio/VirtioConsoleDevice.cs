@@ -47,8 +47,7 @@ internal sealed class VirtioConsoleDevice : IDisposable
     private readonly KernelHandle m_memory;
     private readonly MemoryMapping m_pages;
     private readonly DmaPin m_pin;
-    private readonly KernelHandle m_event;
-    private readonly InterruptBinding m_binding;
+    private readonly VirtioInterrupt m_interrupt;
     private readonly Virtqueue m_receive;
     private readonly Virtqueue m_transmit;
     private readonly byte[] m_input = new byte[INPUT_BYTES];
@@ -60,15 +59,13 @@ internal sealed class VirtioConsoleDevice : IDisposable
 
     #region Constructors
 
-    private VirtioConsoleDevice(VirtioPciTransport transport, KernelHandle memory, MemoryMapping pages, DmaPin pin, KernelHandle signaled,
-        InterruptBinding binding, Virtqueue receive, Virtqueue transmit, int columns, int rows)
+    private VirtioConsoleDevice(VirtioPciTransport transport, KernelHandle memory, MemoryMapping pages, DmaPin pin, VirtioInterrupt interrupt, Virtqueue receive, Virtqueue transmit, int columns, int rows)
     {
         m_transport = transport;
         m_memory = memory;
         m_pages = pages;
         m_pin = pin;
-        m_event = signaled;
-        m_binding = binding;
+        m_interrupt = interrupt;
         m_receive = receive;
         m_transmit = transmit;
         Columns = columns;
@@ -93,20 +90,19 @@ internal sealed class VirtioConsoleDevice : IDisposable
         var memory = MemoryObject.Create(PAGES * PAGE);
         var pages = MemoryMapping.Map(memory, 0, PAGES * PAGE, MemoryMapping.READ_WRITE);
         DmaPin? pin = null;
-        KernelHandle? signaled = null;
-        InterruptBinding? binding = null;
+        VirtioInterrupt? interrupt = null;
         try
         {
             pin = DmaPin.Pin(device, memory, 0, PAGES * PAGE);
+            interrupt = VirtioInterrupt.Prepare(transport); // an MSI-X message takes effect from the reset on
             transport.Reset();
             var features = transport.Negotiate(ACCEPTED);
             var (columns, rows) = ReadSize(transport, features);
             var receive = Virtqueue.Open(transport, 0, pages, pin, RECEIVE_QUEUE, RECEIVE_COUNT);
             var transmit = Virtqueue.Open(transport, 1, pages, pin, TRANSMIT_QUEUE, 1);
             transport.DriverReady();
-            signaled = Event.Create();
-            binding = InterruptBinding.Bind(device, 0, signaled);
-            var console = new VirtioConsoleDevice(transport, memory, pages, pin, signaled, binding, receive, transmit, columns, rows);
+            interrupt.Start();
+            var console = new VirtioConsoleDevice(transport, memory, pages, pin, interrupt, receive, transmit, columns, rows);
             for (var i = 0; i < RECEIVE_COUNT; i++)
             {
                 receive.Describe(i, pin.RunAt(RECEIVE_BUFFERS + i * RECEIVE_BUFFER).Address, RECEIVE_BUFFER, Virtqueue.WRITE, 0);
@@ -117,8 +113,7 @@ internal sealed class VirtioConsoleDevice : IDisposable
         }
         catch
         {
-            binding?.Dispose();
-            signaled?.Dispose();
+            interrupt?.Dispose();
             pin?.Dispose();
             pages.Dispose();
             memory.Dispose();
@@ -132,9 +127,9 @@ internal sealed class VirtioConsoleDevice : IDisposable
     /// </summary>
     public void Service()
     {
-        var isr = m_transport.ReadInterruptStatus();
+        var isr = m_interrupt.ReadStatus();
         Collect();
-        m_binding.Acknowledge();
+        m_interrupt.Acknowledge();
         _ = isr;
     }
 
@@ -155,7 +150,7 @@ internal sealed class VirtioConsoleDevice : IDisposable
             m_transmit.Submit(0);
             while (m_transmitting)
             {
-                Event.Wait(Event.INFINITE, m_event);
+                Event.Wait(Event.INFINITE, m_interrupt.Signaled);
                 Service();
             }
             done += piece;
@@ -221,13 +216,12 @@ internal sealed class VirtioConsoleDevice : IDisposable
     #region IDisposable
 
     /// <summary>
-    /// Quiesces the device, then gives back the binding, the event, the pin and the pages.
+    /// Quiesces the device, then gives back the interrupt, the pin and the pages.
     /// </summary>
     public void Dispose()
     {
         m_transport.Quiesce();
-        m_binding.Dispose();
-        m_event.Dispose();
+        m_interrupt.Dispose();
         m_pin.Dispose();
         m_pages.Dispose();
         m_memory.Dispose();
@@ -238,9 +232,14 @@ internal sealed class VirtioConsoleDevice : IDisposable
     #region Properties
 
     /// <summary>
+    /// What the device interrupts through: its INTx line or an MSI-X message (H1.2b).
+    /// </summary>
+    public string InterruptDescription => m_interrupt.Description;
+
+    /// <summary>
     /// The event the device's line sets: a wait on it ends when the device received bytes or completed a transmit.
     /// </summary>
-    public KernelHandle Interrupt => m_event;
+    public KernelHandle Interrupt => m_interrupt.Signaled;
 
     /// <summary>
     /// The bytes received and not read yet.

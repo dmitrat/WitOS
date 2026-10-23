@@ -48,6 +48,7 @@ internal static class Program
             (device, var descriptor) = Take(channel, name);
             transport = VirtioPciTransport.Open(device, descriptor);
             adapter = VirtioNetDevice.Open(transport, device);
+            Console.WriteLine($"{PREFIX}driver of {name}: interrupts through {adapter.InterruptDescription}");
             server = new PacketServer(adapter);
             (packets, theirs) = Channel.Create();
             var (receive, transmit) = adapter.QueueSizes;

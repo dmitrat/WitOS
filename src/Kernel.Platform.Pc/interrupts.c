@@ -3,6 +3,7 @@
 #include "witos/platform.h"
 #include "witos/processor.h"
 #include "witos/x64_instructions.h"
+#include "witos/x64_lapic.h"
 #include "witos/x64_local_timer.h"
 
 /* The PC's legacy interrupt routing: the 8259 PIC pair and the 8254 PIT as the boot processor's scheduler tick; a secondary
@@ -34,12 +35,9 @@ void wit_platform_timer_start(void)
     }
     const WitU64 apic = wit_x64_read_msr(0x1B);
     require((apic & (1ULL << 10)) == 0, "x2APIC is unsupported by the bootstrap timer");
-    /* The PC backend uses the legacy PIC/PIT path. With one processor the local APIC is disabled so that it
-     * does not retain firmware routing; with secondary processors online (K7.2) the architecture enabled it
-     * with the PIC's line through LINT0, and it carries the inter-processor interrupts. */
-    if (wit_cpus_online() == 1) {
-        wit_x64_write_msr(0x1B, apic & ~(1ULL << 11));
-    }
+    /* The PC backend uses the legacy PIC/PIT path for the tick. The boot processor's local APIC is on whatever the
+     * number of processors (H1.2b, the board prepared it with its devices): the PIC's line through LINT0, the message
+     * interrupts and, with secondary processors online (K7.2), the inter-processor interrupts. */
     wit_x64_out8(0x21, 0xFF);
     wit_x64_out8(0xA1, 0xFF);
     wit_x64_out8(0x20, 0x11);
@@ -81,6 +79,42 @@ void wit_platform_timer_stop(void)
     mask_slave = 0xFF;
     wit_x64_out8(0x21, mask_master);
     wit_x64_out8(0xA1, mask_slave);
+}
+
+/* Message targets (ADR 0029, H1.2b): the boot processor's APIC, which the devices' enumeration prepared, at a vector of
+ * the 32 from WIT_X64_MESSAGE_VECTOR_FIRST; the address names the APIC (0xFEE00000 with its id), the data the vector
+ * with fixed delivery on an edge, and the token is WIT_PLATFORM_MESSAGE_BASE plus the vector, as the architecture
+ * delivers it. */
+static WitU32 messages_bound;
+
+int wit_platform_messages_supported(void)
+{
+    return 1;
+}
+
+int wit_platform_message_allocate(WitU64 *address, WitU32 *data, WitU32 *token)
+{
+    for (WitU32 i = 0; i < WIT_X64_MESSAGE_VECTOR_COUNT; ++i) {
+        if (!(messages_bound & (1U << i))) {
+            const WitU32 vector = WIT_X64_MESSAGE_VECTOR_FIRST + i;
+            messages_bound |= 1U << i;
+            *address = 0xFEE00000ULL | ((WitU64)wit_x64_lapic_boot_id() << 12);
+            *data = vector;
+            *token = WIT_PLATFORM_MESSAGE_BASE + vector;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void wit_platform_message_free(WitU32 token)
+{
+    const WitU32 index = token - WIT_PLATFORM_MESSAGE_BASE - WIT_X64_MESSAGE_VECTOR_FIRST;
+    require(token >= WIT_PLATFORM_MESSAGE_BASE + WIT_X64_MESSAGE_VECTOR_FIRST &&
+            index < WIT_X64_MESSAGE_VECTOR_COUNT &&
+            (messages_bound & (1U << index)),
+        "Freed message target was not bound");
+    messages_bound &= ~(1U << index);
 }
 
 /* Device lines are the PIC inputs 1 to 15 except the cascade; a slave line needs the cascade input open. */
