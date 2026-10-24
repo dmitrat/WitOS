@@ -106,8 +106,9 @@ minutes:
   before (`AccessViolationException` in `VirtualDispatchHelpers.VirtualFunctionPointer`, the plan's known defects), but
   nothing yet ties the guest's crash to that one. The plan gives it a step of its own, P5.
 - **The idle processors at CI's 4-hour mark.** The samples of PR #192's x64 boot, taken at the limit, showed every
-  processor idle, not a processor in the search with the others spinning. They were one moment at the end of four
-  hours. With the search fixed, no replay stalled, so the step records them without a further explanation.
+  processor idle, not a processor in the search with the others spinning. P5's hunt reproduced that picture with the
+  search fixed, once in about a hundred x64 replays: the kernel live, every thread of `MemoryPack.Tests` waiting on a
+  handle nobody set (`P5-MemoryPack-Crash.md` §5). It is P5's, not this step's.
 - **The garbage collector's rate.** The cores of the MathNet false alarms showed 181,000 garbage collections with 67 MB
   of a heap limit of 805 MB committed. That is a high rate for such a heap. This step did not measure why; a
   performance step may.
