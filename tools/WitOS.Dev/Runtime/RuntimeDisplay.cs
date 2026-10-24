@@ -7,8 +7,9 @@ using WitOS.Dev.Substrate;
 namespace WitOS.Dev.Runtime;
 
 /// <summary>
-/// The display scenario (plan steps C2.1–C2.3): the device services boot with the board's ramfb, a virtio keyboard and a
-/// virtio console whose character device the runner owns. The device manager draws the test pattern into the framebuffer
+/// The display scenario (plan steps C2.1–C2.3): the device services boot with the board's ramfb, a USB keyboard on
+/// QEMU's xHCI controller (H2.1, ADR 0029; a virtio keyboard until then, which runtime-commander and runtime-installer
+/// keep) and a virtio console whose character device the runner owns. The device manager draws the test pattern into the framebuffer
 /// (C2.1), then starts the display service with the framebuffer and the keyboard driver's channel, and the terminal
 /// service with the display's console as its main one and the virtio console as its mirror (C2.2); apps_init runs
 /// tests/User/display_check.c and then upstream PowerShell from the data volume on that terminal (C2.3: C1's interactive
@@ -97,6 +98,7 @@ internal static class RuntimeDisplay
             DataDisk = dataDisk,
             Display = true,
             Keyboard = true,
+            UsbKeyboard = true, // H2.1: the keyboard of every target is USB (ADR 0029)
             Terminal = [], // the virtio console mirrors the display: its transcript is what the display drew
             Actions = Actions()
         });
@@ -211,9 +213,13 @@ internal static class RuntimeDisplay
     [
         "[BOOT] Framebuffer: ",
         "[DEVICES] Device discovered: Class: FrameBuffer, Provider: Firmware, DeviceId: firmware/framebuffer, Regions: 1, Lines: 0",
-        "[DEVICES] Device discovered: Class: InputDevice, Provider: Virtio, DeviceId: pci/",
-        "[VIRTIO-INPUT] driver of pci/",
-        ": reporting events, serving the input protocol",
+        "[DEVICES] Device discovered: Class: UsbController, Provider: RedHat, DeviceId: pci/",
+        "[XHCI] driver of pci/",
+        architecture == KernelArchitecture.X64 ? ": interrupts through MSI-X entry 0, message " : ": interrupts through its INTx line",
+        ": a keyboard of the boot protocol on interface 0, endpoint 81",
+        ": 1 keyboard of the boot protocol, ",
+        ": reporting keys, serving the input protocol",
+        "[DEVICES] driver /system/Drivers/Xhci of pci/",
         "[DEVICES] display probe: ",
         ": test pattern drawn",
         "[DISPLAY] display service on ",
@@ -224,7 +230,7 @@ internal static class RuntimeDisplay
         "100 by 37, 2 consoles, canonical with echo",
         "[DEVICES] terminal service /system/Terminal on firmware/framebuffer, mirrored on pci/",
         "[DEVICES] terminal probe: 100 by 37, canonical with echo",
-        $"[VIRTIO-INPUT] key {FIRST_KEY_CODE} down",
+        $"[XHCI] key {FIRST_KEY_CODE} down",
         $"[DEVICES] terminal probe: echo: {PROBE_TEXT}",
         "[ROOT-TASK] /system/DeviceManager was ready before /bin/init",
         $"[DISPLAY-CHECK] echo: {CHECK_TEXT}",
@@ -240,6 +246,7 @@ internal static class RuntimeDisplay
         "[DEVICES] terminal service /system/Terminal: stopped",
         "[DISPLAY] display service for firmware/framebuffer: stopped after ",
         "[DEVICES] display service /system/Display: stopped",
+        ": stopped, the controller halted and reset",
         "[DEVICES] device manager: stopped",
         "[ROOT-TASK] /system/DeviceManager stopped",
         architecture.RootTaskPassedLine

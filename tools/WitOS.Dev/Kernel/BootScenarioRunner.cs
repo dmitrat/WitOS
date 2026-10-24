@@ -31,9 +31,10 @@ internal static class BootScenarioRunner
     private const int QUIET_STEP_MILLISECONDS = 100;
     private const int QUIET_LIMIT_MILLISECONDS = 15000;
 
-    // The guest's keyboard driver reports every key transition to the log with this prefix (C2.1); the runner types a
-    // key once the previous one's transitions are there, and gives up on a key the guest has not reported in this long.
-    internal const string KEY_REPORT = "[VIRTIO-INPUT] key ";
+    // The guest's keyboard driver reports every key transition to the log with one of these prefixes (C2.1, H2.1: the
+    // virtio keyboard's driver and the xHCI driver); the runner types a key once the previous one's transitions are there,
+    // and gives up on a key the guest has not reported in this long.
+    internal static readonly string[] KEY_REPORTS = ["[VIRTIO-INPUT] key ", "[XHCI] key "];
 
     /// <summary>
     /// The environment variable that asks a guest past its deadline to leave its physical memory beside the logs (P3).
@@ -122,7 +123,12 @@ internal static class BootScenarioRunner
             // Slot 6 (C2.2): the board's four INTx lines rotate by slot, the kernel binds a line once, and the boot disk,
             // the data disk and the console take three of them; the fifth virtio device shares a line with the entropy
             // source (slot 2), which nothing binds once the firmware reset it, instead of with a device a driver holds.
-            arguments.AddRange(["-device", "virtio-keyboard-pci,addr=0x6"]);
+            // A USB keyboard's controller takes the same slot (H2.1), where the board gives it no message interrupt.
+            arguments.AddRange(request.UsbKeyboard ? ["-device", "qemu-xhci,addr=0x6", "-device", "usb-kbd"] : ["-device", "virtio-keyboard-pci,addr=0x6"]);
+        }
+        else if (request.UsbKeyboard)
+        {
+            throw new InvalidOperationException($"{name}: a USB keyboard is a keyboard; set Keyboard too.");
         }
         if (request.Network)
         {
@@ -349,8 +355,11 @@ internal static class BootScenarioRunner
     internal static int KeyReports(string log)
     {
         var count = 0;
-        for (var at = log.IndexOf(KEY_REPORT, StringComparison.Ordinal); at >= 0; at = log.IndexOf(KEY_REPORT, at + KEY_REPORT.Length, StringComparison.Ordinal))
-            count++;
+        foreach (var prefix in KEY_REPORTS)
+        {
+            for (var at = log.IndexOf(prefix, StringComparison.Ordinal); at >= 0; at = log.IndexOf(prefix, at + prefix.Length, StringComparison.Ordinal))
+                count++;
+        }
         return count;
     }
 

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The xHCI driver (plan step H2.1, ADR 0025 and ADR 0029): the NativeAOT program /system/Drivers/Xhci of the boot
+       package, which the device manager starts with a USB controller of the xHCI interface it moves to it; it drives the
+       controller and the keyboards of the HID boot protocol on its root ports and serves their keys over the input
+       protocol, as the virtio keyboard's driver does. runtime-witos publishes it for witos with the OutWit.OS sources and
+       their Hardware/Usb folder; on the host the project builds. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Xhci</AssemblyName>
+    <RootNamespace>OutWit.OS.Drivers.Xhci</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../OutWit.OS/OutWit.OS.csproj" />
+  </ItemGroup>
+</Project>

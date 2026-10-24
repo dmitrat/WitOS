@@ -210,8 +210,9 @@ internal static class Program
         var framebuffer = records.FirstOrDefault(record => record.Class == FirmwareTranslator.FRAME_BUFFER);
         if (framebuffer is null)
             return null;
-        var keyboard = drivers.FirstOrDefault(driver => driver.Status == 0 && driver.Service is not null &&
-            driver.Record.Class == DriverTable.INPUT_DEVICE);
+        // A virtio keyboard first, then an xHCI controller's keyboards (H2.1): one input channel reaches the display.
+        var keyboard = drivers.Where(driver => driver.Status == 0 && driver.Service is not null && DriverTable.ServesInput(driver.Record))
+            .OrderBy(driver => driver.Record.Class == DriverTable.INPUT_DEVICE ? 0 : 1).FirstOrDefault();
         if (keyboard is null)
         {
             Console.WriteLine($"{PREFIX}display service {DisplayActivation.PATH} not started on {framebuffer.Id}: no keyboard, the terminal stays on the serial console");

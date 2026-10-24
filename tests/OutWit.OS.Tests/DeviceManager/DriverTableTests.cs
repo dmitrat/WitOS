@@ -21,6 +21,21 @@ public sealed class DriverTableTests
         Assert.That(DriverTable.Find(Record("Virtio", DriverTable.INPUT_DEVICE)), Is.EqualTo(DriverTable.VIRTIO_INPUT), "C2.1: the keyboard");
     }
 
+    // H2.1: a USB controller of the xHCI interface has the xHCI driver whatever its vendor, the older interfaces none,
+    // and its driver serves the input protocol as the virtio keyboard's does.
+    [Test]
+    public void XhciControllersHaveTheirDriverTest()
+    {
+        var xhci = Record("RedHat", DriverTable.USB_CONTROLLER, 0x0C0330);
+        Assert.That(DriverTable.Find(xhci), Is.EqualTo(DriverTable.XHCI));
+        Assert.That(DriverTable.Find(Record("Vendor15ad", DriverTable.USB_CONTROLLER, 0x0C0330)), Is.EqualTo(DriverTable.XHCI), "VMware's controller");
+        Assert.That(DriverTable.Find(Record("Intel", DriverTable.USB_CONTROLLER, 0x0C0320)), Is.Null, "EHCI");
+        Assert.That(DriverTable.Find(Record("Vendor15ad", DriverTable.USB_CONTROLLER, 0x0C0300)), Is.Null, "UHCI");
+        Assert.That(DriverTable.ServesInput(xhci), Is.True);
+        Assert.That(DriverTable.ServesInput(Record("Virtio", DriverTable.INPUT_DEVICE)), Is.True);
+        Assert.That(DriverTable.ServesInput(Record("Virtio", DriverTable.BLOCK_STORAGE)), Is.False);
+    }
+
     [Test]
     public void OtherDevicesHaveNoDriverTest()
     {
@@ -33,8 +48,8 @@ public sealed class DriverTableTests
 
     #region Tools
 
-    private static DeviceRecord Record(string provider, string contract) =>
-        new("pci/00:02.0/1af4:1042", contract, provider, new DeviceDescriptor(0, DeviceDescriptor.BUS_PCI, 0x200, [0, 0, 0, 0], [], []));
+    private static DeviceRecord Record(string provider, string contract, uint classCode = 0) =>
+        new("pci/00:02.0/1af4:1042", contract, provider, new DeviceDescriptor(0, DeviceDescriptor.BUS_PCI, 0x200, [0, classCode << 8, 0, 0], [], []));
 
     #endregion
 }

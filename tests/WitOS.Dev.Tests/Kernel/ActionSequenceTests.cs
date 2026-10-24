@@ -42,6 +42,9 @@ public sealed class ActionSequenceTests
             "[USER] [VIRTIO-INPUT] key 35 down" + "\n" + "[USER] [VIRTIO-INPUT] key 35 up" + "\n" + "[USER] [DEVICES] key 1" + "\n";
         Assert.That(BootScenarioRunner.KeyReports(log), Is.EqualTo(2));
         Assert.That(BootScenarioRunner.KeyReports(""), Is.Zero);
+        const string usb = "[USER] [XHCI] port 5 (USB 2.0, high speed): a keyboard of the boot protocol" + "\n" +
+            "[USER] [XHCI] key 42 down" + "\n" + "[USER] [XHCI] key 35 down" + "\n" + "[USER] [XHCI] key 35 up" + "\n";
+        Assert.That(BootScenarioRunner.KeyReports(usb), Is.EqualTo(3), "H2.1: the xHCI driver's key lines count too");
     }
 
     // QEMU counts every processor's instructions in one clock (P2): the shift falls with the processors, so that a tick is

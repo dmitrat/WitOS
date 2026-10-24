@@ -4,7 +4,8 @@ namespace OutWit.OS.DeviceManager.Drivers;
 
 /// <summary>
 /// The drivers the device manager knows (ADR 0025, decision 7): a provider and a contract mapped to a driver program
-/// of the boot package, until driver packages carry their match metadata (RFC 0010, RFC 0007 §110).
+/// of the boot package, until driver packages carry their match metadata (RFC 0010, RFC 0007 §110); a USB
+/// controller of the xHCI interface, whatever its vendor, to the xHCI driver (H2.1).
 /// </summary>
 internal static class DriverTable
 {
@@ -29,6 +30,22 @@ internal static class DriverTable
     /// The virtio network driver (W1.1).
     /// </summary>
     public const string VIRTIO_NET = "/system/Drivers/VirtioNet";
+
+    /// <summary>
+    /// The xHCI driver (H2.1): the USB keyboards of the controller, served as the virtio keyboard is.
+    /// </summary>
+    public const string XHCI = "/system/Drivers/Xhci";
+
+    /// <summary>
+    /// The UHI class of a USB host controller of any interface, which the PCI class 0C/03 names; the programming
+    /// interface tells xHCI (0x30) from the older ones.
+    /// </summary>
+    public const string USB_CONTROLLER = "UsbController";
+
+    /// <summary>
+    /// The PCI programming interface of an xHCI controller.
+    /// </summary>
+    public const uint XHCI_INTERFACE = 0x30;
 
     /// <summary>
     /// The UHI class of a network adapter, whose driver serves the packet protocol on its service channel (W1.1).
@@ -65,8 +82,16 @@ internal static class DriverTable
         ("Virtio", SERIAL_CONSOLE) => VIRTIO_CONSOLE,
         ("Virtio", INPUT_DEVICE) => VIRTIO_INPUT,
         ("Virtio", NETWORK_QUEUE) => VIRTIO_NET,
+        (_, USB_CONTROLLER) when (record.Descriptor.ClassCode & 0xFF) == XHCI_INTERFACE => XHCI,
         _ => null
     };
+
+    /// <summary>
+    /// Whether a device's driver serves the input protocol, a keyboard's keys for the display (C2.2, H2.1).
+    /// </summary>
+    /// <param name="record">A device record.</param>
+    /// <returns>Whether it does.</returns>
+    public static bool ServesInput(DeviceRecord record) => record.Class == INPUT_DEVICE || Find(record) == XHCI;
 
     #endregion
 }
