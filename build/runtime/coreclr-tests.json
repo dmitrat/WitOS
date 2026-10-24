@@ -16,12 +16,7 @@
     "GC/Coverage/LargeObjectAlloc": "faults now and then in the same place as NoGC, freeing a handle (TableFreeSingleHandleToCache), and passes alone; an open question of the R7.2b document",
     "GC/LargeMemory/API/gc/gettotalmemory": "asks for 2 GB, since it reads the physical memory from /proc/meminfo, which WitOS does not have: on ARM64 the GC commits the process's whole page quota (256 MiB before N2.2) before the allocation fails, and the runtime then has no memory to raise OutOfMemoryException",
     "GC/Regressions/v2.0-beta2/460373/460373": "keeps 500 MB live, past the pages a process commits (the system layer's quota, 256 MiB before N2.2) and the guest's 512 MiB: the runtime ends on the out-of-memory exception",
-    "GC/Regressions/v2.0-rtm/494226/494226": {
-      "reason": "allocates 20 million small arrays until the GC's limit and then writes to the console: on x64 and arm64 the arrays are unreachable once the try block ends and the console's first allocations find memory, on riscv64 the console's first allocation finds the heap full and its OutOfMemoryException leaves the test; the test checks a card table assert of the GC, which its run does not hit on riscv64 either; an open question of the V2.4 document",
-      "architectures": [
-        "riscv64"
-      ]
-    },
+    "GC/Regressions/v2.0-rtm/494226/494226": "allocates 20 million small arrays until the GC's hard limit, which the scenario's 512 MiB guest always reaches (75% of the system's memory): there upstream's workstation GC with background collection may creep to the out-of-memory end in full compacting collections that each free a few kilobytes, as a Linux run of Microsoft's 10.0.12 with the guest's view of memory shows too (3 of 32 runs with a 2 MiB generation 0 took 88-110 gen2 collections, none without background collection); under TCG a full collection costs about a second of the host, and a creep outlived the process's tick budget on x64 and creeps on riscv64 (P6); upstream leaves the test out on arm32, where it meets the out-of-memory path too",
     "GC/API/Refresh/Refresh": {
       "reason": "calls GC.RefreshMemoryLimit, which the GC turns off when DOTNET_GCTotalPhysicalMemory is set, and the root task sets it for every process, the GC's knob for a container's limit (N2.2, Compatibility-Differences: Threads and resources); upstream builds the test for x64 and arm64 alone (CLRTestTargetUnsupported), so riscv64's build has none to leave out",
       "architectures": [

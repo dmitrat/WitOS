@@ -1,12 +1,17 @@
 Source: src/coreclr/gc/unix/gcenv.unix.cpp
 Output: src.coreclr.gc.unix.gcenv.unix.cpp
 Before: ca6f3fb82bb8d33a17126edd3e72183452d60c49b66e0aebb18babdb3645fcab
-After: 6d9db88d311da62501a793118b1d9078232d19ea130e6b4958438370150d54e2
+After: 1bf9d02776c7c2b64ca7c2ef1d3e8726631bea12509ce44c0be0e7a683d97314
 
 The process-wide barrier of the GC on witos (plan step R1.2b): the layer-2 triple defines __linux__, but WitOS has no
 Linux UAPI headers; the GC takes musl's <sys/membarrier.h>, as it takes FreeBSD's, and musl's membarrier(cmd, flags),
 which has no processor argument. The system layer serves the private expedited barrier with the kernel's process write
 barrier.
+
+The size of the processor's cache (plan step P6): musl's sysconf names no cache and WitOS has no /sys, so the GC found
+none, and a workstation GC's least generation 0 budget fell to 160 KiB (256 KiB, the floor, by 5/8) where a Linux
+without the cache in its sysfs gets 2 MiB on up to four processors. WitOS takes the heuristic upstream gives that Linux
+(4 MiB for up to four processors, 8, 16 and 32 MiB beyond).
 
 --- a/src/coreclr/gc/unix/gcenv.unix.cpp
 +++ b/src/coreclr/gc/unix/gcenv.unix.cpp
@@ -27,4 +32,13 @@ barrier.
 +#define membarrier(cmd, flags, cpu_id) membarrier(cmd, flags) // musl's membarrier has no processor argument
  #endif
  #endif
- 
+
+@@ -937,7 +939,7 @@
+     assert (cacheLevel != nullptr);
+     assert (cacheSize != nullptr);
+
+-#if (defined(TARGET_LINUX) && !defined(TARGET_APPLE))
++#if ((defined(TARGET_LINUX) || defined(TARGET_WITOS)) && !defined(TARGET_APPLE))
+     {
+         // Use the following heuristics at best depending on the CPU count
+         // 1 ~ 4   :  4 MB
