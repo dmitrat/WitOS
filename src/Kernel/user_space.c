@@ -416,6 +416,9 @@ static WitU64 reserved_range(const WitUserSpace *space, WitU64 address, WitU64 s
     return WIT_STATUS_NOT_RESERVED;
 }
 
+/* The gap search's room to sort a space's reservations (P4): memory calls run one at a time under the kernel lock. */
+static WitVirtualRange gap_scratch[WIT_PROCESS_RESERVATION_CAPACITY];
+
 static WitU64 reserve_within(
     WitUserSpace *space, WitU64 size, WitU64 alignment, WitU64 low, WitU64 high, WitU64 *result)
 {
@@ -446,7 +449,8 @@ static WitU64 reserve_within(
         return WIT_STATUS_NO_MEMORY;
     }
     WitU64 candidate;
-    if (!wit_virtual_gap(space->Reservations, space->ReservationLimit, low, high, size, alignment, &candidate)) {
+    if (!wit_virtual_gap(
+            space->Reservations, space->ReservationLimit, low, high, size, alignment, gap_scratch, &candidate)) {
         return WIT_STATUS_NO_MEMORY;
     }
     space->Reservations[slot] = (WitUserReservation){candidate, size};
