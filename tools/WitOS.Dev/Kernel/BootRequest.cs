@@ -181,5 +181,12 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     /// </summary>
     public bool WithoutTestExit { get; init; }
 
+    /// <summary>
+    /// The user faults a layer-2 scenario on the release kernel provokes on purpose (plan step P5: a program's unhandled
+    /// fault and the libc's report of it): the release judge requires exactly this many of the kernel's fault lines,
+    /// where it otherwise forbids every one.
+    /// </summary>
+    public int UserFaults { get; init; }
+
     #endregion
 }

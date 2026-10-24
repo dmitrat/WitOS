@@ -1,3 +1,4 @@
+using WitOS.Dev.Host;
 using WitOS.Dev.Kernel;
 using WitOS.Dev.Tests.Support;
 
@@ -33,6 +34,24 @@ public sealed class BootValidationTests
             "Malformed fault accepted");
         Assert.That(BootValidation.ValidateUserFaults((FAULT + Summary(1, 1)).Replace("0033", "0008")), Is.False,
             "Supervisor fault accepted");
+    }
+
+    // A release scenario's user faults (plan step P5): the kernel's fault lines are forbidden unless the scenario provokes
+    // that many on purpose.
+    [Test]
+    public void ReleaseJudgeCountsTheUserFaultsAScenarioProvokesTest()
+    {
+        var root = TestEnvironment.Root;
+        var log = KernelAbi.Banner(root) + "\n[TEST-PASS] Boot.Contract\n[TEST-PASS] Cpu.ExceptionTables\n" +
+            "[TEST-PASS] Memory.KernelPaging\n[TEST-PASS] Clock.IrqIndependent\nKernel initialized.\n[TEST-PASS] Boot.Hello\n" +
+            "[LIBC] SIGSEGV ends the process: pc 0x1000\n" + FAULT + "[TEST-PASS] Boot.RootTask\n";
+        var result = new ProcessResult(33, log, "", false);
+        var request = new BootRequest("spawn", 256, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release };
+        Assert.That(BootValidation.EvaluateRelease(root, request, result).Passed, Is.False, "An unexpected fault accepted");
+        Assert.That(BootValidation.EvaluateRelease(root, request with { UserFaults = 1 }, result).Passed, Is.True,
+            "The provoked fault refused");
+        Assert.That(BootValidation.EvaluateRelease(root, request with { UserFaults = 2 }, result).Passed, Is.False,
+            "A missing fault accepted");
     }
 
     // The riscv64 fault judge (plan step V1.2): the foundation markers, the trigger, an exception taken in S-mode on the
