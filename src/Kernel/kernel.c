@@ -3,6 +3,7 @@
 #include "root_task.h"
 #include "witos/memory.h"
 #include "witos/random.h"
+#include "witos/root.h"
 #include "witos/virtual.h"
 #include "witos/clock.h"
 #include "witos/processor.h"
@@ -39,6 +40,12 @@ static WIT_NORETURN void finish(void)
     /* The root task (K4): the first component of the new direction, when the boot volume carries its image. */
     WitU64 exit_code = 0;
     if (wit_root_task_run(boot_info, &physical_pages, &exit_code)) {
+        if (exit_code == WIT_ROOT_EXIT_RESET) {
+            /* The root task asked for a reset (ADR 0029, H1.2a): it stopped what it runs before it ended. */
+            wit_console_write("[TEST-PASS] Boot.RootTask\n[POWER] the root task asked for a reset\n");
+            wit_platform_reset();
+            wit_panic("The board cannot reset");
+        }
         if (exit_code != 0) {
             wit_panic("Root task exited with a nonzero code");
         }

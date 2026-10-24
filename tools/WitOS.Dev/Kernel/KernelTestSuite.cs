@@ -106,6 +106,14 @@ internal static class KernelTestSuite
         });
         await BootScenarioRunner.RunAsync(root, image,
             new BootRequest("boot-intel", 256, 60, ExpectedOutcome.Success) { CpuModel = "Nehalem" });
+        // The reset the root task asks for (H1.2a, ADR 0029): the FADT's reset register on q35, and QEMU, started with
+        // -no-reboot, exits.
+        var reset = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RESET_SCENARIO);
+        await BootScenarioRunner.RunAsync(root, reset, new BootRequest("reset", 256, 60, ExpectedOutcome.Reset)
+        {
+            Suite = BootSuite.Release,
+            RequiredLines = ["[POWER] the root task asked for a reset", "[POWER] reset through RESET_REG"]
+        });
         // The first libc program (S1.1): unchanged musl over the system layer's dispatch, as the root task.
         var libc = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.LIBC_SCENARIO);
         await RunOnOneAndTwoAsync(root, libc, new BootRequest("libc", 256, 60, ExpectedOutcome.Success)
@@ -169,7 +177,7 @@ internal static class KernelTestSuite
         var timeout = await KernelImageBuilder.BuildAsync(root, "timeout");
         await BootScenarioRunner.RunAsync(root, timeout,
             new BootRequest("timeout", 256, SELFTEST_HANG, ExpectedOutcome.Timeout));
-        Console.WriteLine("PASS: all 34 kernel integration scenarios.");
+        Console.WriteLine("PASS: all 35 kernel integration scenarios.");
     }
 
     /// <summary>
@@ -261,6 +269,15 @@ internal static class KernelTestSuite
                 });
             scenarios += 8;
         }
+        // The reset the root task asks for (H1.2a, ADR 0029): PSCI's SYSTEM_RESET on virt, SBI's system reset on riscv64.
+        var reset = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RESET_SCENARIO, architecture: architecture);
+        await BootScenarioRunner.RunAsync(root, reset,
+            Request("reset", 256, limit, ExpectedOutcome.Reset) with
+            {
+                Suite = BootSuite.Release,
+                RequiredLines = ["[POWER] the root task asked for a reset", "[POWER] reset through "]
+            });
+        scenarios++;
         var panic = await KernelImageBuilder.BuildAsync(root, "invalid-boot-info", architecture: architecture);
         await BootScenarioRunner.RunAsync(root, panic,
             Request("invalid-boot-info", 256, limit, ExpectedOutcome.InvalidBootInfo));

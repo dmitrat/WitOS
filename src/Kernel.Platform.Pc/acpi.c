@@ -19,7 +19,7 @@
 #define ENTRY_LOCAL_X2APIC 9U
 #define LAPIC_ENABLED 1U
 #define LAPIC_ONLINE_CAPABLE 2U
-#define MAPPED_PAGES 64U
+#define MAPPED_PAGES 256U /* the tables and a DSDT of up to 512 KiB */
 
 static WitU64 mapped[MAPPED_PAGES];
 static WitU32 mapped_count;
@@ -84,15 +84,26 @@ static int signature(const WitU8 *bytes, const char *expected, WitU32 length)
 }
 
 /* A verified table at a physical address: its header mapped, its length within bounds, its body mapped and summed. */
-static const WitU8 *table(const WitBootInfo *boot, WitU64 physical, WitU32 *length)
+static const WitU8 *table_limited(const WitBootInfo *boot, WitU64 physical, WitU32 limit, WitU32 *length)
 {
     const WitU8 *header = map(boot, physical, HEADER_BYTES);
     *length = wit_pc_le32(header + 4);
-    if (*length < HEADER_BYTES || *length > TABLE_LIMIT) {
+    if (*length < HEADER_BYTES || *length > limit) {
         return 0;
     }
     const WitU8 *body = map(boot, physical, *length);
     return checksum_ok(body, *length) ? body : 0;
+}
+
+static const WitU8 *table(const WitBootInfo *boot, WitU64 physical, WitU32 *length)
+{
+    return table_limited(boot, physical, TABLE_LIMIT, length);
+}
+
+const WitU8 *wit_pc_acpi_table_at(const WitBootInfo *boot, WitU64 physical, WitU32 limit, WitU32 *length)
+{
+    *length = 0;
+    return physical ? table_limited(boot, physical, limit, length) : 0;
 }
 
 static WitU32 read_madt(const WitU8 *madt, WitU32 length, WitProcessorDescriptor *out, WitU32 capacity)

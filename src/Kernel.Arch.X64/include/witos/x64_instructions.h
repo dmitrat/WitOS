@@ -183,6 +183,18 @@ static inline void wit_x64_out8(WitU16 port, WitU8 value)
     __asm__ volatile("outb %0, %1" : : "a"(value), "Nd"(port) : "memory");
 }
 
+static inline WitU16 wit_x64_in16(WitU16 port)
+{
+    WitU16 value;
+    __asm__ volatile("inw %1, %0" : "=a"(value) : "Nd"(port) : "memory");
+    return value;
+}
+
+static inline void wit_x64_out16(WitU16 port, WitU16 value)
+{
+    __asm__ volatile("outw %0, %1" : : "a"(value), "Nd"(port) : "memory");
+}
+
 static inline void wit_x64_out32(WitU16 port, WitU32 value)
 {
     __asm__ volatile("outl %0, %1" : : "a"(value), "Nd"(port) : "memory");

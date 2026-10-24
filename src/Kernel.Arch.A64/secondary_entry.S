@@ -2,6 +2,7 @@
 // reads of the boot processor's translation registers it will copy.
     .text
     .globl wit_a64_psci_cpu_on
+    .globl wit_a64_psci_hvc
     .globl wit_a64_secondary_entry
     .globl wit_a64_translation_control
     .globl wit_a64_memory_attributes
@@ -16,6 +17,12 @@ wit_a64_psci_cpu_on:
     mov x2, x1
     mov x1, x0
     ldr x0, =PSCI_CPU_ON
+    hvc #0
+    ret
+
+// x0 = a PSCI function, x1-x3 = its arguments -> x0 its result, through HVC (witos/a64_psci.h; ADR 0029: the board's
+// power off and reset). A function that turns the machine off or resets it does not return when it succeeds.
+wit_a64_psci_hvc:
     hvc #0
     ret
 

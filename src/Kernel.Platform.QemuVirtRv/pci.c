@@ -336,6 +336,9 @@ static WitU32 describe_bus(const WitBootInfo *boot, const EcamBridge *bridge, Wi
                     count = describe_bus(boot, bridge, secondary, depth + 1, table, count, capacity);
                 }
             }
+            if (header != 0) {
+                continue; /* no driver drives a bridge, and the table describes none (ADR 0029, H1.2a) */
+            }
             if (count >= capacity) {
                 return count;
             }

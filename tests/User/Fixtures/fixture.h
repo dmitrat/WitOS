@@ -267,6 +267,14 @@ FIXTURE_CALL const volatile WitDeviceDescriptor *fixture_find_device(
             header->DescriptorSize == WIT_DEVICE_DESCRIPTOR_SIZE,
         2);
     fixture_check(header->Count != 0 && header->Count <= WIT_DEVICE_CAPACITY, 3);
+    /* The table takes as many pages as its descriptors (ABI-1 1.5): a longer one is mapped again whole. */
+    const WitU64 bytes =
+        ((WitU64)WIT_DEVICE_TABLE_SIZE + (WitU64)header->Count * WIT_DEVICE_DESCRIPTOR_SIZE + 4095) & ~4095ULL;
+    if (bytes > 4096) {
+        fixture_expect(WIT_CALL_MEMORY_RELEASE, *mapped, 0, 0, WIT_STATUS_OK);
+        *mapped = fixture_map(table, 0, bytes, WIT_MEMORY_READ, 0, WIT_STATUS_OK);
+        header = (const volatile WitDeviceTable *)*mapped;
+    }
     const volatile WitDeviceDescriptor *descriptors =
         (const volatile WitDeviceDescriptor *)(*mapped + WIT_DEVICE_TABLE_SIZE);
     for (*index = 0; *index < header->Count; ++*index) {

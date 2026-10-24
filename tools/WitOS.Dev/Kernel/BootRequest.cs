@@ -169,5 +169,11 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     /// </summary>
     public bool IdeBootDisk { get; init; }
 
+    /// <summary>
+    /// The board without its test exit (plan step H1.2a), as a machine has none: the kernel's end then turns the board off,
+    /// which <see cref="ExpectedOutcome.PoweredOff"/> judges.
+    /// </summary>
+    public bool WithoutTestExit { get; init; }
+
     #endregion
 }

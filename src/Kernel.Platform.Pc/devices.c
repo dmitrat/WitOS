@@ -264,6 +264,9 @@ static WitU32 describe_bus(WitU32 bus, WitU32 depth, WitDeviceDescriptor *table,
                 }
             }
             ++functions_found;
+            if (header != 0) {
+                continue; /* no driver drives a bridge, and the table describes none (ADR 0029, H1.2a) */
+            }
             if (count >= capacity) {
                 continue;
             }
@@ -310,6 +313,7 @@ WitU32 wit_platform_devices(const WitBootInfo *boot, WitDeviceDescriptor *table,
      * is kept, so that a board with more functions than the table holds (VMware's 49) still has its screen. */
     const int has_framebuffer = capacity && wit_device_describe_framebuffer(boot, &framebuffer);
     const WitU32 bus_capacity = capacity - (has_framebuffer ? 1U : 0U);
+    wit_pc_power_initialize(boot);
     /* No host bridge: no PCI. */
     if ((config_read(0, 0, 0, 0x00) & 0xFFFF) != 0xFFFF) {
         find_ecam(boot);
@@ -320,7 +324,7 @@ WitU32 wit_platform_devices(const WitBootInfo *boot, WitDeviceDescriptor *table,
         wit_console_write_u64(functions_found);
         wit_console_write(" functions, ");
         wit_console_write_u64(count);
-        wit_console_write(" described, ECAM ");
+        wit_console_write(" described without bridges, ECAM ");
         wit_console_write_hex(ecam);
         wit_console_write("\n");
     }

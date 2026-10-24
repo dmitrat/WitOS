@@ -59,7 +59,7 @@
  * 624 chunks of its assemblies; the run of the libraries' fourteen suites held more than 1000 at once. */
 #define WIT_MEMORY_OBJECT_TABLE_CAPACITY 4096U
 #define WIT_MEMORY_OBJECT_PAGES 64U /* pages of one memory object */
-#define WIT_DEVICE_CAPACITY 16U /* device descriptors the kernel publishes; the table fits one page */
+#define WIT_DEVICE_CAPACITY 64U /* device descriptors the kernel publishes, in as many pages as they take (H1.2a) */
 #define WIT_INTERRUPT_CAPACITY 8U /* interrupt bindings, kernel-wide: one per line */
 #define WIT_PIN_CAPACITY 8U /* DMA pins of a component */
 #define WIT_THREAD_SUSPEND_MAX 127U /* suspend count of one thread */

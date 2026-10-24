@@ -6,9 +6,9 @@ using OutWit.OS.Resources;
 namespace OutWit.OS.Hardware;
 
 /// <summary>
-/// The kernel's device descriptor table (witos/device.h, RFC 0011 §7.7): one page the platform filled at boot, read
-/// through its memory object. Every field is little-endian and fixed-size. The reader validates the table instead of
-/// trusting it (RFC 0007 §137).
+/// The kernel's device descriptor table (witos/device.h, RFC 0011 §7.7): the header and the descriptors the platform
+/// filled at boot, in as many pages as they take (ABI-1 1.5, plan step H1.2a), read through its memory object. Every
+/// field is little-endian and fixed-size. The reader validates the table instead of trusting it (RFC 0007 §137).
 /// </summary>
 public static class DeviceTable
 {
@@ -30,9 +30,14 @@ public static class DeviceTable
     public const int DESCRIPTOR_SIZE = 232;
 
     /// <summary>
-    /// The bytes of the table: one page.
+    /// The bytes of a page, the first of which holds the header.
     /// </summary>
-    public const int TABLE_BYTES = 4096;
+    public const int PAGE_BYTES = 4096;
+
+    /// <summary>
+    /// The most descriptors a table holds (WIT_DEVICE_CAPACITY).
+    /// </summary>
+    public const int CAPACITY = 64;
 
     private const int REGIONS = 7;
     private const int LINES = 2;
@@ -54,9 +59,25 @@ public static class DeviceTable
     /// <exception cref="FormatException">The table is not one this reader knows.</exception>
     public static IReadOnlyList<DeviceDescriptor> Read(KernelHandle table)
     {
-        using var mapping = MemoryMapping.Map(table, 0, TABLE_BYTES, MemoryMapping.READ);
+        uint count;
+        using (var first = MemoryMapping.Map(table, 0, PAGE_BYTES, MemoryMapping.READ))
+        {
+            if (first.Bytes.Length < HEADER_SIZE)
+                throw new FormatException("The device table is shorter than its header.");
+            count = BinaryPrimitives.ReadUInt32LittleEndian(first.Bytes[8..]);
+        }
+        if (count > CAPACITY)
+            throw new FormatException($"The device table counts {count} descriptors, more than {CAPACITY}.");
+        using var mapping = MemoryMapping.Map(table, 0, TableBytes((int)count), MemoryMapping.READ);
         return Parse(mapping.Bytes);
     }
+
+    /// <summary>
+    /// The bytes of a table's object: the header and the descriptors rounded up to whole pages.
+    /// </summary>
+    /// <param name="count">The descriptors the table counts.</param>
+    /// <returns>The object's size in bytes, at least a page.</returns>
+    public static int TableBytes(int count) => (HEADER_SIZE + count * DESCRIPTOR_SIZE + PAGE_BYTES - 1) / PAGE_BYTES * PAGE_BYTES;
 
     /// <summary>
     /// Reads the descriptors of a table's bytes.

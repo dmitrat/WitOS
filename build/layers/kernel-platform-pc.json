@@ -8,7 +8,8 @@
     "src/Kernel.Platform.Pc/rtc.c",
     "src/Kernel.Platform.Pc/acpi.c",
     "src/Kernel.Platform.Pc/interrupts.c",
-    "src/Kernel.Platform.Pc/devices.c"
+    "src/Kernel.Platform.Pc/devices.c",
+    "src/Kernel.Platform.Pc/power.c"
   ],
   "assembly": []
 }

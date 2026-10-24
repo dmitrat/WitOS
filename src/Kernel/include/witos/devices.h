@@ -9,8 +9,9 @@ struct WitBootInfo;
  * memory object, and the ownership of each descriptor (plan step K3.1). The kernel never reads a descriptor's
  * meaning; it hands out the regions a descriptor lists and keeps one owner per device. */
 void wit_devices_initialize(const struct WitBootInfo *boot, WitPageAllocator *allocator);
-/* The physical page holding the table (WitDeviceTable then the descriptors); zero before initialization. */
-WitU64 wit_devices_table_page(void);
+/* The physical pages holding the table (WitDeviceTable then the descriptors, as many pages as the count needs,
+ * H1.2a) in *pages; returns their count, zero before initialization. */
+WitU32 wit_devices_table_pages(const WitU64 **pages);
 WitU32 wit_devices_count(void);
 const WitDeviceDescriptor *wit_devices_descriptor(WitU32 index);
 /* Acquire takes a free descriptor for the owner token (nonzero) and returns nonzero; release frees it. */

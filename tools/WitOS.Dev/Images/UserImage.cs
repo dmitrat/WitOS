@@ -94,14 +94,15 @@ internal static class UserImage
     /// as a C array for the kernel self-test. Built for every scenario, since the release kernel starts it.
     /// </summary>
     /// <returns>Path of the flat image to place on the boot disk.</returns>
-    public static async Task<string> BuildRootAsync(string root, string output, KernelArchitecture architecture)
+    public static async Task<string> BuildRootAsync(string root, string output, KernelArchitecture architecture,
+        IReadOnlyList<string>? defines = null)
     {
         var image = Path.Combine(output, "RootFixture.elf");
         var objects = new List<string>();
         foreach (var source in ROOT_SOURCES)
         {
             var obj = Path.Combine(output, "RootFixture." + Path.GetFileNameWithoutExtension(source) + ".o");
-            await CompileFreestandingAsync(root, architecture, Path.Combine(root, "tests", "User", source), obj);
+            await CompileFreestandingAsync(root, architecture, Path.Combine(root, "tests", "User", source), obj, [.. defines ?? []]);
             objects.Add(obj);
         }
         await Processes.RequireSuccessAsync(Toolchain.Lld(root),

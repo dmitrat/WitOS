@@ -31,12 +31,13 @@ static WitU64 owner_token(const WitUserProcess *p)
  * the root task's startup hand it over. Zero when the table has no slot or no handle. */
 WitU64 wit_user_device_table_grant(WitUserProcess *p, WitU32 rights)
 {
-    WitU64 page = wit_devices_table_page();
+    const WitU64 *pages = 0;
+    const WitU32 count = wit_devices_table_pages(&pages);
     WitU32 object = 0;
-    if (!page || (rights & ~(WitU32)TABLE_RIGHTS)) {
+    if (!count || (rights & ~(WitU32)TABLE_RIGHTS)) {
         return 0;
     }
-    if (!wit_user_memory_object_adopt(p, WIT_MEMORY_OBJECT_TABLE, &page, 1, 0, &object)) {
+    if (!wit_user_memory_object_adopt(p, WIT_MEMORY_OBJECT_TABLE, pages, count, 0, &object)) {
         return 0;
     }
     const WitU64 handle = wit_handle_grant_object(&p->Handles, WIT_HANDLE_MEMORY_OBJECT, rights, object);

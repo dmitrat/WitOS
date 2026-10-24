@@ -24,8 +24,9 @@
 #define WIT_ABI_VERSION_MAJOR 1U
 /* 1.1 since R7.2b (PROCESS_QUERY's BUDGET state, THREAD_CREATE's STACK_ADJACENT), 1.2 since D1.2 (a device's last
  * reference crosses processes), 1.3 since C2.1 (DEVICE_MEMORY's window), 1.4 since P1.4 (THREAD_QUERY's version 6
- * with the thread's processor). */
-#define WIT_ABI_VERSION_MINOR 4U
+ * with the thread's processor), 1.5 since H1.2a (a device table of up to 64 descriptors in as many pages as they take,
+ * and the root task's reset status, witos/root.h; ADR 0029). */
+#define WIT_ABI_VERSION_MINOR 5U
 /* The version QUERY reports and the startup descriptor carries: the major version in the high 16 bits, the minor in
  * the low 16 (the draft counters of phase K ran from 1 to 72 with major 0). A system layer refuses another major. */
 #define WIT_ABI_VERSION ((WIT_ABI_VERSION_MAJOR << 16) | WIT_ABI_VERSION_MINOR)
