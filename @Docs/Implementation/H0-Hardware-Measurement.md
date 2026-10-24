@@ -6,7 +6,7 @@ follow, before any line of `Kernel.Platform.Pc` or `Kernel.Platform.Bcm2711`. Th
 
 - **H0.1** (this document's measurements): VMware Workstation, the first target, measured whole; the Raspberry Pi 4B
   through QEMU's `raspi4b` and through `virt` with a GICv2.
-- **H0.2** (pending): the emulator's measurement of the Linux arm64 boot path that
+- **H0.2** (§8): the emulator's measurement of the Linux arm64 boot path that
   [ADR 0030](ADR-0030-Boot-Paths-and-the-Pi-5-Target.md) chose for the Pi boards.
 - **H0.3** (§7, pending): the author's session on a bought board, which nothing emulated can replace.
 
@@ -162,3 +162,45 @@ the unchanged ARM64 image (`efi/boot/bootaa64.efi`, the package and the root tas
   `dtoverlay=waveshare-35dpi-4b`, the memory map;
 - where the kernel stops: expected at the GIC (GIC-400, a GICv2), as on `virt,gic-version=2`;
 - what the firmware's `GetTime` returns without an RTC, and whether PSCI's `CPU_ON` starts the other cores.
+
+## 8. H0.2: the Linux arm64 boot path in QEMU
+
+Measured on 2026-10-23 for [ADR 0030](ADR-0030-Boot-Paths-and-the-Pi-5-Target.md)'s entry, before its first line.
+
+**Method.** A probe of 472 bytes with Linux's arm64 image header (assembled by the pinned clang, linked by `ld.lld`,
+copied raw by `llvm-objcopy`; in a scratch directory, never committed) prints the state it was entered in to the
+board's PL011 and exits. QEMU 11.1 boots it with `-kernel`, `-initrd` and `-append`, and the machine property `dumpdtb`
+writes the device tree QEMU hands the image, read by a small reader of the flattened format. `raspi4b` takes the
+Raspberry Pi firmware's own tree for the board, `bcm2711-rpi-4-b.dtb` from `pftf/RPi4` v1.53's archive (§1).
+
+| What | `virt` | `virt,virtualization=on` | `raspi4b` |
+| --- | --- | --- | --- |
+| Exception level | EL1 | EL2 | EL2 |
+| Image, at RAM's base plus 2 MiB | 0x40200000 | 0x40200000 | 0x200000 |
+| Device tree, in x0; x1–x3 | 0x48200000; zero | 0x48200000; zero | 0x8200000; zero |
+| MMU and caches | off (SCTLR_EL1 0x00C50838) | off (SCTLR_EL2 and HCR_EL2 zero) | off (SCTLR_EL2 and HCR_EL2 zero) |
+| Interrupts | DAIF all masked | DAIF all masked | DAIF all masked |
+| Counter frequency | 62.5 MHz | 62.5 MHz | 62.5 MHz |
+| Initial ramdisk | `/chosen` `linux,initrd-start` 0x48000000 and `-end` | the same | 0x8000000 and its end |
+| Entropy | `/chosen` `rng-seed` (32 bytes) and `kaslr-seed` | the same | none: QEMU adds no seed and disables the RNG200's node, which it does not model |
+| Memory | `/memory@40000000`, 256 MiB | the same | `/memory@0`, 960 MiB below the VideoCore's share; `/memreserve/` 0–0x1000 for the spin table |
+| Secondary processors | `enable-method` PSCI over `hvc` | the same | `spin-table`, `cpu-release-addr` 0xd8, 0xe0, 0xe8 and 0xf0 |
+| Framebuffer | none | none | no `simple-framebuffer`: the tree names the firmware's `brcm,bcm2708-fb` over the mailbox `brcm,bcm2835-mbox` at 0x7e00b880 (0xfe00b880 through `/soc`'s ranges) |
+| Console | `/chosen` `stdout-path` the PL011 at 0x09000000 | the same | the PL011 `uart0` at 0x7e201000 (0xfe201000), which QEMU connects to `-serial` |
+
+QEMU also disables `raspi4b`'s PCIe, thermal and GENET nodes, which it does not model, and warns of each.
+
+What H6 takes from it:
+
+- **Both levels.** The entry meets EL1 (`virt`) and EL2 (`virt` with virtualization, `raspi4b`, the Pi firmware's
+  stub); it leaves EL2 for EL1 and runs at EL1 as it is.
+- **The MMU is off on every board.** The entry builds an identity map and turns the MMU on before the kernel, or the
+  architecture layer learns to start with it off; H6 measures which is smaller.
+- **The image runs where it is loaded.** RAM's base differs (0x40000000, 0), so the entry applies the image's base
+  relocations itself, as the UEFI loader does today.
+- **Entropy.** `virt` gives a seed in `/chosen`; for `raspi4b` the runner adds `/chosen/rng-seed` to the tree it passes,
+  as QEMU's `virt` does itself; on a real Pi 4 the RNG200 or a seed of the firmware's (H0.3).
+- **The framebuffer is the board's means.** No `simple-framebuffer` appears; on a Pi the VideoCore's mailbox property
+  interface allocates one, which QEMU's `raspi4b` emulates (H7).
+- **Secondary processors** start by the tree's `enable-method`: PSCI on `virt`, the spin table on `raspi4b` and under
+  the Pi 4's default stub (write the entry to the release address, then `SEV`) (H7).
