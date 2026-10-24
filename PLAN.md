@@ -125,8 +125,6 @@ PocketTerm35 с Raspberry Pi 5 (640×480 по DPI, клавиатура RP2040 �
   - NUnit `DelayedConstraintTests.ThatBlockingDelegateWhichSucceedsWithPolling_ReturnsEarly` на ARM64 дважды вышел за окно
     100–500 мс (2026-10-18 и 19, на одном процессоре; с P2 набор идёт на четырёх). Повтор — шаг на задержку пробуждения
     (RFC 0005), не исключение.
-  - NUnit `AsyncVoidTests.ExceptionThrownInAsyncVoidMethodIsCaughtByNUnit` в госте дважды (2026-10-14 и 2026-10-20):
-    исключение async-void доходит до контекста NUnit с задержкой. Третий раз — шаг воспроизведения.
   - Группа `serialization-numerics` набора N2.2 на x64 близка к стеновому пределу задания (2026-10-20) — повтор означает
     замер длительности, не поднятие предела вслепую.
   - `GC/Regressions/v2.0-rtm/494226` из тестов CoreCLR на x64 однажды завершён сигналом 24 (`SIGXCPU`, бюджет тиков
