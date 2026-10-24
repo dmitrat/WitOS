@@ -71,8 +71,9 @@ ports 0x60 and 0x64, the one release-1 device a port call would have served, is 
 4. **The device table.** The platform describes no PCI bridges, since no driver drives one and every function keeps its
    bus address; `WIT_DEVICE_CAPACITY` rises to 64 (four pages), and the table object's size is the header plus `Count`
    descriptors rounded to pages. A reader takes `Count` as before and maps that size instead of one page.
-5. **Version.** ABI-1 becomes 1.5: one call in the device family, one feature bit, one exit constant of the root task
-   and the table's capacity. Each is an addition, `ABI-Reference.md` follows the headers, and nothing changes meaning.
+5. **Version.** Each slice of H1.2 that lands raises ABI-1's minor: 1.5 with H1.2a (the table's capacity and the root
+   task's exit constant), 1.6 with H1.2b (the call in the device family and its feature bit). Each is an addition,
+   `ABI-Reference.md` follows the headers, and nothing changes meaning.
 
 The other decisions of H0 §5 need no ABI: the PC platform's facts are done in H1.1, the GICv2 is judged on
 `virt,gic-version=2` and `raspi4b` (H7), and time on a board without a real-time clock is the plan's (H7, H9).

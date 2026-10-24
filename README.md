@@ -4,11 +4,11 @@ WitOS is an experimental operating system built around a minimal native kernel a
 
 The hardware layer may eventually be supplied in firmware. The first implementation uses QEMU and UEFI to test the same separation without custom hardware.
 
-**Roadmap:** [План WitOS / PLAN.md](PLAN.md) — цели, фазы A–P и критерии готовности. **Architecture decision (2026-10-06):** [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md) — a nano-kernel of mechanisms, a user-space system layer and unchanged upstream .NET in its Unix form (`TargetOS=witos`); the Windows-form host line of P6.4 was frozen, its plan archived, and its code removed at plan step K8.2.
+**Roadmap:** [План WitOS / PLAN.md](PLAN.md) — цели, текущие фазы (H — первый релиз на железе) и критерии готовности; выполненное — в [Plan-Completed.md](@Docs/Implementation/Plan-Completed.md). **Architecture decision (2026-10-06):** [ADR 0024](@Docs/Implementation/ADR-0024-Three-Layers-and-Unix-Form-Runtime.md) — a nano-kernel of mechanisms, a user-space system layer and unchanged upstream .NET in its Unix form (`TargetOS=witos`); the Windows-form host line of P6.4 was frozen, its plan archived, and its code removed at plan step K8.2.
 
 ## Current status
 
-**Current local implementation.** The kernel boots through UEFI on x64 (QEMU q35), ARM64 (QEMU `virt`) and riscv64 (QEMU
+**Current local implementation.** The kernel boots through UEFI on x64 (QEMU q35 and pc, and VMware Workstation), ARM64 (QEMU `virt`) and riscv64 (QEMU
 `virt` over OpenSBI), is compiled by the pinned clang on the three, and keeps the mechanisms of ABI-1 ([RFC 0011 v3](@Docs/RFC-0011-Kernel-Architecture-and-ABI.md)):
 processes with private address spaces, the one thread form, memory objects, channels that carry capabilities, events and
 the one wait with absolute deadlines, faults and activations delivered to user space, device descriptors with interrupt
