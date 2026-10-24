@@ -60,7 +60,7 @@
 #define WIT_MEMORY_OBJECT_TABLE_CAPACITY 4096U
 #define WIT_MEMORY_OBJECT_PAGES 64U /* pages of one memory object */
 #define WIT_DEVICE_CAPACITY 64U /* device descriptors the kernel publishes, in as many pages as they take (H1.2a) */
-#define WIT_INTERRUPT_CAPACITY 8U /* interrupt bindings, kernel-wide: one per line */
+#define WIT_INTERRUPT_CAPACITY 16U /* interrupt bindings, kernel-wide: one per line or message target (H1.2b) */
 #define WIT_PIN_CAPACITY 8U /* DMA pins of a component */
 #define WIT_THREAD_SUSPEND_MAX 127U /* suspend count of one thread */
 

@@ -1,10 +1,12 @@
 #include "fixture.h"
 #include "witos/dma.h"
+#include "witos/message_interrupt.h"
 
 /* Interrupt and DMA fixture over the devices of ABI-1 (RFC 0011 v3 section 7.7, plan steps K3.2 and K8.3):
  * INTERRUPT_BIND of the virtio block function's line to an event, the binding's rights, uniqueness, acknowledgement and
- * lifetime, and DMA_PIN of an anonymous object for the device with its ranges and refusals. The driver that uses both
- * is the virtio fixture. */
+ * lifetime, INTERRUPT_BIND_MESSAGE's targets where the board has them and its refusal where it has none (H1.2b), and
+ * DMA_PIN of an anonymous object for the device with its ranges and refusals. The driver that uses both is the virtio
+ * fixture. */
 
 #define RANGES 8U
 
@@ -70,6 +72,64 @@ static void bind_test(WitU64 table, const volatile WitDeviceDescriptor *block, W
     fixture_close(acquire(table, index, WIT_STATUS_OK));
 }
 
+static void message_request(WitMessageBindRequest *request, WitU64 device, WitU64 event)
+{
+    request->Version = WIT_MESSAGE_BIND_VERSION;
+    request->Size = sizeof(*request);
+    request->Device = device;
+    request->Event = event;
+    request->Flags = 0;
+    request->Reserved = 0;
+    request->Address = 0;
+    request->Data = 0;
+    request->Reserved1 = 0;
+}
+
+static WitU64 bind_message(WitMessageBindRequest *request, WitU64 device, WitU64 event, WitU64 expected)
+{
+    message_request(request, device, event);
+    return fixture_expect(WIT_CALL_INTERRUPT_BIND_MESSAGE, (WitU64)request, sizeof(*request), 0, expected);
+}
+
+static void message_test(WitU64 device)
+{
+    WitMessageBindRequest request;
+    const WitU64 features = fixture_expect(WIT_CALL_QUERY, 0, 0, 0, WIT_STATUS_OK) >> 32;
+    const WitU64 event = fixture_expect(WIT_CALL_EVENT_CREATE, 0, 0, 0, WIT_STATUS_OK);
+    if (!(features & WIT_ABI_FEATURE_MESSAGE_INTERRUPTS)) {
+        /* A board without message interrupts refuses the call whole. */
+        bind_message(&request, device, event, WIT_STATUS_UNSUPPORTED);
+        fixture_close(event);
+        return;
+    }
+    /* Refusals: a foreign version, a wrong size, flags, an event without SIGNAL, a device without BIND. */
+    message_request(&request, device, event);
+    request.Version = 2;
+    fixture_expect(WIT_CALL_INTERRUPT_BIND_MESSAGE, (WitU64)&request, sizeof(request), 0, WIT_STATUS_UNSUPPORTED);
+    request.Version = WIT_MESSAGE_BIND_VERSION;
+    fixture_expect(
+        WIT_CALL_INTERRUPT_BIND_MESSAGE, (WitU64)&request, sizeof(request) - 8, 0, WIT_STATUS_INVALID_ARGUMENT);
+    request.Flags = 1;
+    fixture_expect(WIT_CALL_INTERRUPT_BIND_MESSAGE, (WitU64)&request, sizeof(request), 0, WIT_STATUS_INVALID_ARGUMENT);
+    const WitU64 waiter = fixture_duplicate(event, WIT_RIGHT_WAIT, WIT_STATUS_OK);
+    bind_message(&request, device, waiter, WIT_STATUS_DENIED);
+    fixture_close(waiter);
+    const WitU64 query = fixture_duplicate(device, WIT_RIGHT_QUERY, WIT_STATUS_OK);
+    bind_message(&request, query, event, WIT_STATUS_DENIED);
+    fixture_close(query);
+    /* Two targets: an address and data written into each request, and two different messages. */
+    WitMessageBindRequest second;
+    const WitU64 first_binding = bind_message(&request, device, event, WIT_STATUS_OK);
+    fixture_check(request.Address != 0 && request.Data != 0 && request.Reserved1 == 0, 30);
+    const WitU64 second_binding = bind_message(&second, device, event, WIT_STATUS_OK);
+    fixture_check(second.Address != 0 && second.Data != request.Data, 31);
+    /* A message is an edge: an acknowledgement succeeds and does nothing; the bindings end with their handles. */
+    fixture_expect(WIT_CALL_INTERRUPT_ACK, first_binding, 0, 0, WIT_STATUS_OK);
+    fixture_close(first_binding);
+    fixture_close(second_binding);
+    fixture_close(event);
+}
+
 static void dma_test(WitU64 device)
 {
     WitDmaRange ranges[RANGES];
@@ -120,6 +180,9 @@ FIXTURE_ENTRY void wit_user_start(const WitRootStartup *startup)
     const WitU64 device = acquire(table, index, WIT_STATUS_OK);
     if (config->Mode == WIT_INTERRUPT_TEST_BIND) {
         bind_test(table, block, index, device);
+        const WitU64 again = acquire(table, index, WIT_STATUS_OK);
+        message_test(again);
+        fixture_close(again);
     } else if (config->Mode == WIT_INTERRUPT_TEST_DMA) {
         dma_test(device);
     } else {

@@ -25,8 +25,9 @@
 /* 1.1 since R7.2b (PROCESS_QUERY's BUDGET state, THREAD_CREATE's STACK_ADJACENT), 1.2 since D1.2 (a device's last
  * reference crosses processes), 1.3 since C2.1 (DEVICE_MEMORY's window), 1.4 since P1.4 (THREAD_QUERY's version 6
  * with the thread's processor), 1.5 since H1.2a (a device table of up to 64 descriptors in as many pages as they take,
- * and the root task's reset status, witos/root.h; ADR 0029). */
-#define WIT_ABI_VERSION_MINOR 5U
+ * and the root task's reset status, witos/root.h; ADR 0029), 1.6 since H1.2b (INTERRUPT_BIND_MESSAGE and its feature
+ * bit, witos/message_interrupt.h; ADR 0029). */
+#define WIT_ABI_VERSION_MINOR 6U
 /* The version QUERY reports and the startup descriptor carries: the major version in the high 16 bits, the minor in
  * the low 16 (the draft counters of phase K ran from 1 to 72 with major 0). A system layer refuses another major. */
 #define WIT_ABI_VERSION ((WIT_ABI_VERSION_MAJOR << 16) | WIT_ABI_VERSION_MINOR)
@@ -37,6 +38,9 @@
 #define WIT_ABI_FEATURE_PROCESSES 4U
 #define WIT_ABI_FEATURE_UTC 8U
 #define WIT_ABI_FEATURE_SMP 16U
+/* Where the board serves INTERRUPT_BIND_MESSAGE (H1.2b): set by the board, never part of WIT_ABI_FEATURES, which names
+ * the families every board has. */
+#define WIT_ABI_FEATURE_MESSAGE_INTERRUPTS 32U
 #define WIT_ABI_FEATURES \
     (WIT_ABI_FEATURE_CHANNELS | \
         WIT_ABI_FEATURE_DEVICES | \
@@ -220,6 +224,10 @@
 #define WIT_CALL_DMA_PIN 84U
 /* Unpin(pin handle, 0, 0) -> 0: closes the handle; the pin ends with its last handle. */
 #define WIT_CALL_DMA_UNPIN 85U
+/* BindMessage(WitMessageBindRequest, 48, 0) -> interrupt handle with QUERY, DUPLICATE and TRANSFER (ABI-1 1.6, H1.2b,
+ * witos/message_interrupt.h): a message target of the board bound to an event, its address and data written into the
+ * request; UNSUPPORTED where the board has none, NO_MEMORY when every target is bound. */
+#define WIT_CALL_INTERRUPT_BIND_MESSAGE 86U
 /* 80-85 devices (K3). */
 
 /* Processes (RFC 0011 section 7.8, plan step K5.2c). Create(WitProcessCreateRequest, 32, output pointer) -> process

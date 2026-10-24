@@ -33,7 +33,7 @@ int wit_root_task_create(WitUserProcess *process, WitPageAllocator *allocator, W
     startup->Version = WIT_ROOT_STARTUP_VERSION;
     startup->Size = sizeof(*startup);
     startup->AbiVersion = WIT_ABI_VERSION;
-    startup->Features = WIT_ABI_FEATURES;
+    startup->Features = wit_user_abi_features();
     startup->MemoryBase = WIT_USER_MEMORY_BASE;
     startup->MemoryLimit = WIT_USER_MEMORY_LIMIT;
     startup->CodeBase = WIT_USER_CODE_BASE;

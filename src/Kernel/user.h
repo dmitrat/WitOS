@@ -310,6 +310,9 @@ void wit_user_event_signal_object(WitUserProcess *, WitU64);
  * the architecture's interrupt path, the binding handle's lifecycle; a pin of an anonymous object for a device and
  * the pin handle's lifecycle; the component's reset of both. */
 WitU64 wit_user_interrupt_bind(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
+WitU64 wit_user_interrupt_bind_message(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
+/* QUERY's feature mask: the families every board has, and message interrupts where the board serves them (H1.2b). */
+WitU32 wit_user_abi_features(void);
 WitU64 wit_user_interrupt_ack(WitUserProcess *, WitU64, WitU64, WitU64);
 void wit_user_interrupt_raised(WitU32);
 WitU64 wit_user_interrupt_close(WitUserProcess *, WitU64);

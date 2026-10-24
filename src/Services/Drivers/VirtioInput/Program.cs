@@ -48,6 +48,7 @@ internal static class Program
             (device, var descriptor) = Take(channel, name);
             transport = VirtioPciTransport.Open(device, descriptor);
             input = VirtioInputDevice.Open(transport, device);
+            Console.WriteLine($"{PREFIX}driver of {name}: interrupts through {input.InterruptDescription}");
             server = new InputServer();
             (events, theirs) = Channel.Create();
             Console.WriteLine($"{PREFIX}driver of {name}: '{input.Name}', bus {input.Ids.Bus} vendor {input.Ids.Vendor:x4} product {input.Ids.Product:x4}, " +

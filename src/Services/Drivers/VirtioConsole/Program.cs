@@ -48,6 +48,7 @@ internal static class Program
             (device, var descriptor) = Take(channel, name);
             transport = VirtioPciTransport.Open(device, descriptor);
             console = VirtioConsoleDevice.Open(transport, device);
+            Console.WriteLine($"{PREFIX}driver of {name}: interrupts through {console.InterruptDescription}");
             server = new SerialServer(console, name);
             (serial, theirs) = Channel.Create();
             var (receive, transmit) = console.QueueSizes;

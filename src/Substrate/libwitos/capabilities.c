@@ -2,6 +2,7 @@
 #include "witos/capabilities.h"
 #include "witos/channels.h"
 #include "witos/dma.h"
+#include "witos/message_interrupt.h"
 #include "witos/libc_context.h"
 #include "witos/memory_object.h"
 #include "witos/syscall.h"
@@ -254,6 +255,38 @@ int witos_interrupt_ack(WitU64 binding)
 {
     WitU64 result = 0;
     return error_of(wit_syscall(WIT_CALL_INTERRUPT_ACK, binding, 0, 0, &result));
+}
+
+int witos_interrupt_bind_message(WitU64 device, WitU64 event, WitU64 *binding, WitU64 *address, WitU32 *data)
+{
+    WitMessageBindRequest request;
+    if (!binding || !address || !data) {
+        return EINVAL;
+    }
+    *binding = 0;
+    *address = 0;
+    *data = 0;
+    memset(&request, 0, sizeof(request));
+    request.Version = WIT_MESSAGE_BIND_VERSION;
+    request.Size = sizeof(request);
+    request.Device = device;
+    request.Event = event;
+    const int error =
+        error_of(wit_syscall(WIT_CALL_INTERRUPT_BIND_MESSAGE, (WitU64)&request, sizeof(request), 0, binding));
+    if (!error) {
+        *address = request.Address;
+        *data = request.Data;
+    }
+    return error;
+}
+
+int witos_message_interrupts(void)
+{
+    WitU64 result = 0;
+    if (wit_syscall(WIT_CALL_QUERY, 0, 0, 0, &result) != WIT_STATUS_OK) {
+        return 0;
+    }
+    return ((result >> 32) & WIT_ABI_FEATURE_MESSAGE_INTERRUPTS) != 0;
 }
 
 int witos_dma_pin(

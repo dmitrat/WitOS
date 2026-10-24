@@ -2,6 +2,7 @@
 #include "user.h"
 #include "witos/platform.h"
 #include "witos/x64_instructions.h"
+#include "witos/x64_lapic.h"
 
 static volatile WitU64 timer_ticks[WIT_PROCESSOR_CAPACITY]; /* each processor's ticks (P1.3a) */
 
@@ -60,10 +61,16 @@ static WitInterruptContext *prepare_thread(WitU32 index)
 #endif
 
 /* A device line's vector (0x21 to 0x2F: the PIC inputs 1 to 15): the line is masked and completed, then the kernel
- * delivers it to the bound event of the running component and dispatches. */
+ * delivers it to the bound event of the running component and dispatches. A message vector (0x30 to 0x4F, H1.2b) is
+ * ended at the local APIC and delivered by the token the board gave its target. */
 WitInterruptContext *wit_x64_device_interrupt(WitInterruptContext *context)
 {
-    const WitU32 line = wit_x64_device_vector - 32;
+    const WitU32 vector = wit_x64_device_vector;
+    if (vector >= WIT_X64_MESSAGE_VECTOR_FIRST) {
+        wit_x64_lapic_end_of_interrupt();
+        return wit_user_interrupt(context, WIT_PLATFORM_MESSAGE_BASE + vector);
+    }
+    const WitU32 line = vector - 32;
     wit_platform_line_mask(line);
     wit_platform_line_complete(line);
     return wit_user_interrupt(context, line);

@@ -38,6 +38,32 @@ public sealed class InterruptBinding : IDisposable
     }
 
     /// <summary>
+    /// Binds a message target of the board to the event (ADR 0029, H1.2b): the driver writes the address and the data
+    /// into its function's MSI capability or MSI-X entry, and each message the device writes sets the event.
+    /// </summary>
+    /// <param name="device">The device, with BIND.</param>
+    /// <param name="signaled">The event the kernel sets on each message.</param>
+    /// <param name="address">Where the device writes the message.</param>
+    /// <param name="data">What it writes.</param>
+    /// <returns>The binding.</returns>
+    /// <exception cref="CapabilityException">The board has no message interrupts, or every target is bound.</exception>
+    public static unsafe InterruptBinding BindMessage(KernelHandle device, KernelHandle signaled, out ulong address, out uint data)
+    {
+        ulong binding = 0, target = 0;
+        uint message = 0;
+        CapabilityException.ThrowOnError("INTERRUPT_BIND_MESSAGE",
+            Libwitos.InterruptBindMessage(device.Value, signaled.Value, &binding, &target, &message));
+        address = target;
+        data = message;
+        return new InterruptBinding(new KernelHandle(binding));
+    }
+
+    /// <summary>
+    /// Whether the board serves message interrupts (QUERY's feature, H1.2b).
+    /// </summary>
+    public static bool MessagesSupported => Libwitos.MessageInterrupts() != 0;
+
+    /// <summary>
     /// Unmasks the line after its interrupt was served.
     /// </summary>
     /// <exception cref="CapabilityException">The binding is gone.</exception>

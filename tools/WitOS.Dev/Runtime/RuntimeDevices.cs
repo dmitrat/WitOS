@@ -329,6 +329,7 @@ internal static class RuntimeDevices
     public static string[] RequiredLines(KernelArchitecture architecture, int boot = 1) =>
     [
         .. FirstLines(),
+        .. InterruptLines(architecture),
         .. boot > 1 ? [$": partition \"{RuntimeDataDisk.TEST_PARTITION}\": holds the {RuntimeDataDisk.TEST_PATTERN_BYTES} bytes a previous boot wrote",
             $": partition \"{RuntimeDataDisk.FAT_PARTITION}\": after the reboot, read back what a previous boot wrote"] : Array.Empty<string>(),
         .. boot == 1 ? FirstExt4Lines() : boot == CUT_BOOT + 1 ? AfterCutExt4Lines() : AfterRebootExt4Lines(counted: boot <= CUT_BOOT),
@@ -336,6 +337,12 @@ internal static class RuntimeDevices
         .. boot == 1 ? ["[NAMESPACE] created /data/home"] : Array.Empty<string>(), // the home of the one account (C1.2)
         .. boot == CUT_BOOT ? [CUT_AFTER] : LastLines(architecture)
     ];
+
+    // How the virtio drivers interrupt (H1.2b, ADR 0029): MSI-X messages where the board serves them (the PC), the INTx
+    // line elsewhere.
+    private static string[] InterruptLines(KernelArchitecture architecture) => architecture == KernelArchitecture.X64
+        ? ["[VIRTIO-BLOCK] driver of pci/", ": interrupts through MSI-X entry 0, message ", "[VIRTIO-NET] driver of pci/"]
+        : [": interrupts through its INTx line"];
 
     // What every boot of the scenario prints first: discovery, the drivers, the disks and the FAT volumes.
     private static string[] FirstLines() =>

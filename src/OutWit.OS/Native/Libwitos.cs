@@ -71,6 +71,12 @@ internal static unsafe partial class Libwitos
     [LibraryImport(LIBRARY, EntryPoint = "witos_interrupt_ack")]
     internal static partial int InterruptAck(ulong binding);
 
+    [LibraryImport(LIBRARY, EntryPoint = "witos_interrupt_bind_message")]
+    internal static partial int InterruptBindMessage(ulong device, ulong handle, ulong* binding, ulong* address, uint* data);
+
+    [LibraryImport(LIBRARY, EntryPoint = "witos_message_interrupts")]
+    internal static partial int MessageInterrupts();
+
     [LibraryImport(LIBRARY, EntryPoint = "witos_dma_pin")]
     internal static partial int DmaPin(ulong device, ulong memoryObject, ulong offset, ulong bytes, ulong* ranges, uint capacity,
         ulong* pin);

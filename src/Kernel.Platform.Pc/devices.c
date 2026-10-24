@@ -2,6 +2,7 @@
 #include "witos/device.h"
 #include "witos/platform.h"
 #include "witos/x64_instructions.h"
+#include "witos/x64_lapic.h"
 #include "pc.h"
 
 /* The PC's device enumeration (plan steps K3.1 and H1.1): the PCI functions of the board through configuration
@@ -314,6 +315,8 @@ WitU32 wit_platform_devices(const WitBootInfo *boot, WitDeviceDescriptor *table,
     const int has_framebuffer = capacity && wit_device_describe_framebuffer(boot, &framebuffer);
     const WitU32 bus_capacity = capacity - (has_framebuffer ? 1U : 0U);
     wit_pc_power_initialize(boot);
+    /* The boot processor's APIC for message interrupts (H1.2b), whatever the number of processors. */
+    wit_x64_lapic_boot_prepare(boot);
     /* No host bridge: no PCI. */
     if ((config_read(0, 0, 0, 0x00) & 0xFFFF) != 0xFFFF) {
         find_ecam(boot);

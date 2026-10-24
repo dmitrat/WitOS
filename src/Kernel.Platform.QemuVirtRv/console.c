@@ -63,3 +63,24 @@ void wit_platform_reset(void)
     wit_console_write("[POWER] reset through SBI system reset\n");
     wit_rv64_sbi(WIT_RV64_SBI_SRST, WIT_RV64_SBI_SRST_RESET, WIT_RV64_SBI_SRST_COLD_REBOOT, 0, 0, 0);
 }
+
+/* No message interrupts on this board (ADR 0029, H1.2b): INTERRUPT_BIND_MESSAGE answers UNSUPPORTED and QUERY clears
+ * the feature; the GICv3 ITS (ARM64) and the IMSIC (riscv64) wait for a step that needs them. */
+int wit_platform_messages_supported(void)
+{
+    return 0;
+}
+
+int wit_platform_message_allocate(WitU64 *address, WitU32 *data, WitU32 *token)
+{
+    (void)address;
+    (void)data;
+    (void)token;
+    return 0;
+}
+
+void wit_platform_message_free(WitU32 token)
+{
+    (void)token;
+    wit_panic("This board binds no message target");
+}

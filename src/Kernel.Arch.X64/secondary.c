@@ -1,3 +1,4 @@
+#include "witos/x64_lapic.h"
 #include "witos/arch.h"
 #include "witos/boot.h"
 #include "witos/cpu.h"
@@ -119,7 +120,8 @@ void wit_arch_idle_stack(WitU32 index, WitU64 *low, WitU64 *high)
 }
 
 static WitU64 apic_base, trampoline_page;
-static int apic_enabled;
+static int apic_enabled, boot_apic_ready;
+static WitU32 boot_apic_id;
 
 static void require(int condition, const char *message)
 {
@@ -181,9 +183,7 @@ void wit_arch_secondary_prepare(const WitBootInfo *boot, WitU32 index, WitU64 ha
     require(index != 0 && index < WIT_PROCESSOR_CAPACITY, "Secondary processor index out of range");
     require(hardware_id < 256, "An APIC id beyond the xAPIC destination field");
     if (!apic_enabled) {
-        apic_base = wit_x64_read_msr(APIC_BASE_MSR) & APIC_BASE_ADDRESS;
-        wit_arch_map_device_page(boot, apic_base);
-        enable_local_apic(1);
+        wit_x64_lapic_boot_prepare(boot);
         wit_x64_boot_cr0 = wit_x64_read_cr0();
         wit_x64_boot_cr4 = wit_x64_read_cr4();
         trampoline_page = wit_x64_trampoline_page();
@@ -242,6 +242,31 @@ void wit_arch_invalidate_local(WitU64 address)
 int wit_x64_lapic_enabled(void)
 {
     return apic_enabled;
+}
+
+/* The boot processor's APIC (H1.2b): mapped and enabled once, by the first secondary's start or by the board for message
+ * interrupts, whatever the number of processors; its id names it in a message's address. */
+void wit_x64_lapic_boot_prepare(const WitBootInfo *boot)
+{
+    if (boot_apic_ready) {
+        return;
+    }
+    apic_base = wit_x64_read_msr(APIC_BASE_MSR) & APIC_BASE_ADDRESS;
+    wit_arch_map_device_page(boot, apic_base);
+    enable_local_apic(1);
+    boot_apic_id = *apic(APIC_ID) >> 24;
+    boot_apic_ready = 1;
+}
+
+WitU32 wit_x64_lapic_boot_id(void)
+{
+    require(boot_apic_ready, "The boot processor's APIC is not prepared");
+    return boot_apic_id;
+}
+
+void wit_x64_lapic_end_of_interrupt(void)
+{
+    *apic(APIC_EOI) = 0;
 }
 
 /* The local APIC's timer, the tick of a secondary processor (P1.3a): periodic, divided by 16, its count for one tick
