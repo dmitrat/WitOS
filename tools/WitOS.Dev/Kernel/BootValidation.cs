@@ -106,10 +106,12 @@ internal static class BootValidation
         var ready = MarkersInOrder(output, "[TEST-PASS] Boot.Contract", "[TEST-PASS] Cpu.ExceptionTables",
             "[TEST-PASS] Memory.KernelPaging", "[TEST-PASS] Clock.IrqIndependent", "Kernel initialized.",
             "[TEST-PASS] Boot.Hello", "[TEST-PASS] Boot.RootTask");
-        // The root task (K4) writes to the kernel log as a user component; user self-tests and faults stay forbidden.
-        string[] forbidden = ["[PANIC]", "[EXCEPTION]", "[USER-FAULT]", "[TEST-BEGIN] User.", "[TEST-PASS] User.", "Scheduler.",
+        // The root task (K4) writes to the kernel log as a user component; user self-tests stay forbidden, and faults but
+        // the ones the scenario provokes (P5).
+        string[] forbidden = ["[PANIC]", "[EXCEPTION]", "[TEST-BEGIN] User.", "[TEST-PASS] User.", "Scheduler.",
             "Random.ChaCha20Vector", "Memory.VirtualMappings", "Cpu.ContextStateProfile"];
-        var clean = forbidden.All(marker => !output.Contains(marker, StringComparison.Ordinal));
+        var clean = forbidden.All(marker => !output.Contains(marker, StringComparison.Ordinal)) &&
+            Regex.Matches(output, @"\[USER-FAULT\]").Count == request.UserFaults;
         // A layer-2 scenario on the release kernel (plan step T2.1b) names the lines its root task must print; a line a
         // process with a terminal prints goes to the terminal's transcript (N4.3a).
         var required = request.RequiredLines.All(line => output.Contains(line, StringComparison.Ordinal) ||

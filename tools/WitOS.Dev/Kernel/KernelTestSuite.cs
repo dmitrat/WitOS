@@ -142,9 +142,10 @@ internal static class KernelTestSuite
             Suite = BootSuite.Release,
             RequiredLines =
             [
-                KernelArchitecture.X64.SpawnChildLine, KernelArchitecture.X64.DynamicPassedLine, KernelArchitecture.X64.PhaseSPassedLine,
-                KernelArchitecture.X64.CxxPassedLine, KernelArchitecture.X64.SpawnPassedLine
-            ]
+                KernelArchitecture.X64.SpawnChildLine, KernelArchitecture.X64.DynamicPassedLine, KernelArchitecture.X64.FaultReportLine,
+                KernelArchitecture.X64.PhaseSPassedLine, KernelArchitecture.X64.CxxPassedLine, KernelArchitecture.X64.SpawnPassedLine
+            ],
+            UserFaults = 1
         });
         // The process manager (S6.1): the system layer's root task serves /bin/init's posix_spawn.
         var process = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.PROCESS_SCENARIO);
@@ -249,9 +250,10 @@ internal static class KernelTestSuite
                     Suite = BootSuite.Release,
                     RequiredLines =
                     [
-                        architecture.SpawnChildLine, architecture.DynamicPassedLine, architecture.PhaseSPassedLine,
-                        architecture.CxxPassedLine, architecture.SpawnPassedLine
-                    ]
+                        architecture.SpawnChildLine, architecture.DynamicPassedLine, architecture.FaultReportLine,
+                        architecture.PhaseSPassedLine, architecture.CxxPassedLine, architecture.SpawnPassedLine
+                    ],
+                    UserFaults = 1
                 });
             var process = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.PROCESS_SCENARIO, architecture: architecture);
             await RunOnOneAndTwoAsync(root, process,

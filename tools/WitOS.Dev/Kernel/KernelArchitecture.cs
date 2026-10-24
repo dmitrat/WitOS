@@ -212,6 +212,12 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     public string DynamicPassedLine => $"[DYNAMIC] dynamic program on {Triple[..Triple.IndexOf('-')]}: ";
 
     /// <summary>
+    /// The place the libc's report of the dynamic program's unhandled fault names (P5): the library that read address
+    /// 0, by module and offset.
+    /// </summary>
+    public string FaultReportLine => "(libdynamic.so+0x";
+
+    /// <summary>
     /// The line the acceptance program of phase S prints when its checks passed: a dynamic C++ program with threads,
     /// exceptions across modules and a signal over the shared C++ runtime (S5.4).
     /// </summary>

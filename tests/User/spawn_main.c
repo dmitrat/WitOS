@@ -117,6 +117,11 @@ int main(void)
     info = finish(start(dynamic_args, environment));
     check(info.State == WIT_PROCESS_STATE_EXITED && info.ExitCode == 5, "a dynamic program");
 
+    /* An unhandled fault in a library (P5): the libc reports it with the library's name, then the process faults. */
+    static char *fault_args[] = {DYNAMIC, "fault", 0};
+    info = finish(start(fault_args, environment));
+    check(info.State == WIT_PROCESS_STATE_FAULTED, "an unhandled fault of a dynamic program");
+
     /* The dynamic linker run as a command: a static image for the loader, which maps the program itself. */
     static char *command_args[] = {INTERPRETER, DYNAMIC, "6", 0};
     info = finish(start(command_args, 0));
