@@ -6,6 +6,7 @@
 #include "witos/thread_reference.h"
 #include "witos/wait_objects.h"
 #include <errno.h>
+#include <link.h>
 #include <signal.h>
 #include <string.h>
 #include "ksigaction.h"
@@ -356,6 +357,138 @@ static void apply_ucontext(WitThreadContext *saved, const ucontext_t *uc)
 #endif
 }
 
+/* A line of a fault's report under construction: text and hexadecimal numbers appended within its bounds. */
+typedef struct ReportLine {
+    char Text[192];
+    size_t Length;
+} ReportLine;
+
+static void report_text(ReportLine *line, const char *text)
+{
+    while (*text && line->Length < sizeof(line->Text) - 2) {
+        line->Text[line->Length++] = *text++;
+    }
+}
+
+static void report_hex(ReportLine *line, WitU64 value)
+{
+    static const char digits[] = "0123456789abcdef";
+    char reversed[16];
+    int count = 0;
+    report_text(line, "0x");
+    do {
+        reversed[count++] = digits[value & 15];
+        value >>= 4;
+    } while (value && count < 16);
+    while (count > 0 && line->Length < sizeof(line->Text) - 2) {
+        line->Text[line->Length++] = reversed[--count];
+    }
+}
+
+static void report_write(ReportLine *line)
+{
+    WitU64 result = 0;
+    line->Text[line->Length++] = '\n';
+    wit_syscall(WIT_CALL_DEBUG_WRITE, __wit_process.Log, (WitU64)line->Text, line->Length, &result);
+    line->Length = 0;
+}
+
+/* musl's dynamic linker publishes its list of modules for debuggers (r_debug); a static program has no list. */
+extern struct r_debug *_dl_debug_addr __attribute__((__weak__));
+
+/* The module whose loadable segments hold an address, by that list and each module's own program headers, read where
+ * its ELF header lies at its base; with its name and the address's offset from the base, as Linux's report of a fault
+ * names the image (P5). Nothing is locked: the report runs on a thread whose process is ending. */
+static void report_place(ReportLine *line, WitU64 address)
+{
+    report_hex(line, address);
+    if (!&_dl_debug_addr || !_dl_debug_addr) {
+        return;
+    }
+    for (const struct link_map *map = _dl_debug_addr->r_map; map; map = map->l_next) {
+        const WitU64 base = map->l_addr;
+        if (address < base || base < 0x10000) {
+            continue;
+        }
+        const Elf64_Ehdr *header = (const Elf64_Ehdr *)base;
+        if (memcmp(header->e_ident, ELFMAG, SELFMAG) != 0 || header->e_phentsize != sizeof(Elf64_Phdr)) {
+            continue;
+        }
+        const Elf64_Phdr *segments = (const Elf64_Phdr *)(base + header->e_phoff);
+        for (unsigned i = 0; i < header->e_phnum; ++i) {
+            if (segments[i].p_type == PT_LOAD &&
+                address - base >= segments[i].p_vaddr &&
+                address - base - segments[i].p_vaddr < segments[i].p_memsz) {
+                const char *name = map->l_name && *map->l_name ? map->l_name : "the program";
+                const char *slash = strrchr(name, '/');
+                report_text(line, " (");
+                report_text(line, slash ? slash + 1 : name);
+                report_text(line, "+");
+                report_hex(line, address - base);
+                report_text(line, ")");
+                return;
+            }
+        }
+    }
+}
+
+/* The report of a synchronous fault that ends the process (P5): the signal, where it was raised as module and offset,
+ * the address concerned and the return addresses of the frame-pointer chain, read only within the thread's stack as
+ * the interrupted context names it, before the kernel's own [USER-FAULT] line. */
+static void report_fatal(const WitUserExceptionInfo *info, int sig, WitU64 address)
+{
+    const WitThreadContext *context = &info->Context;
+    ReportLine line = {{0}, 0};
+    report_text(&line, "[LIBC] ");
+    report_text(&line,
+        sig == SIGSEGV       ? "SIGSEGV"
+            : sig == SIGBUS  ? "SIGBUS"
+            : sig == SIGFPE  ? "SIGFPE"
+            : sig == SIGILL  ? "SIGILL"
+            : sig == SIGTRAP ? "SIGTRAP"
+                             : "a fault");
+    report_text(&line, " ends the process: pc ");
+    report_hex(&line, CONTEXT_PC(context));
+    report_text(&line, ", address ");
+    report_hex(&line, address);
+    report_text(&line, ", sp ");
+    report_hex(&line, CONTEXT_SP(context));
+    report_write(&line); /* before anything is read from the process's memory */
+    report_text(&line, "[LIBC]   at ");
+    report_place(&line, CONTEXT_PC(context));
+    report_write(&line);
+#if defined(__x86_64__)
+    WitU64 frame = context->Rbp; /* [frame] the caller's frame, [frame + 8] the return address */
+    const WitU64 link_offset = 0, return_offset = 8, low_extent = 0;
+#elif defined(__aarch64__)
+    WitU64 frame = context->X[29]; /* the frame record: x29 then x30 */
+    const WitU64 link_offset = 0, return_offset = 8, low_extent = 0;
+#else
+    WitU64 frame = context->X[7]; /* s0; the psABI's record lies below it: ra at s0 - 8, the caller's s0 at s0 - 16 */
+    const WitU64 link_offset = (WitU64)-16, return_offset = (WitU64)-8, low_extent = 16;
+#endif
+    if (!context->StackHigh) {
+        return;
+    }
+    for (int depth = 0; depth < 16; ++depth) {
+        if ((frame & 7) || frame < context->StackLow + low_extent || frame > context->StackHigh - 16) {
+            return;
+        }
+        const WitU64 caller = *(const WitU64 *)(frame + return_offset);
+        const WitU64 next = *(const WitU64 *)(frame + link_offset);
+        if (caller < 0x10000) {
+            return; /* no code lies there: the register held no frame (code built without frame pointers) */
+        }
+        report_text(&line, "[LIBC]   called from ");
+        report_place(&line, caller);
+        report_write(&line);
+        if (next <= frame) {
+            return;
+        }
+        frame = next;
+    }
+}
+
 static __attribute__((__noreturn__)) void reject(WitU64 token)
 {
     WitU64 result = 0;
@@ -531,12 +664,14 @@ static __attribute__((__noinline__)) void deliver(WitU64 token, WitU64 vector, W
     } else {
         sig = classify(vector, info->Error, address, &info->Context, &code, &fault_address);
         if (!sig) {
+            report_fatal(info, 0, address);
             reject(token);
         }
     }
     const unsigned long bit = SIGNAL_BIT(sig);
     if (state->Mask & bit) {
         if (!activation) {
+            report_fatal(info, sig, address);
             reject(token); /* a blocked synchronous fault ends the process, as on Linux */
         }
         state->Pending |= bit;
@@ -551,12 +686,14 @@ static __attribute__((__noinline__)) void deliver(WitU64 token, WitU64 vector, W
     void (*handler)(int) = actions[sig].Handler;
     if (handler == SIG_IGN) {
         if (!activation) {
+            report_fatal(info, sig, address);
             reject(token); /* an ignored fault would re-execute forever */
         }
         continue_unchanged(token, info);
     }
     if (handler == SIG_DFL) {
         if (!activation) {
+            report_fatal(info, sig, address);
             reject(token); /* the kernel reports the fault and the process ends */
         }
         if (default_ignores(sig)) {
