@@ -36,7 +36,8 @@ internal static class CommandLine
                 : KernelTestSuite.RunFoundationAsync(root, architecture)),
         new CommandScenario("release", "Build and boot the release kernel without self-tests, once with the board's display (C2.1), on x64 once on QEMU's pc machine without a virtio device (H1.1), and on ARM64 by the Linux arm64 boot protocol at EL1 and EL2 (H6) and with a GICv2 (H7.1)", KernelImageBuilder.RELEASE_SCENARIO,
         architecture => [
-            new BootRequest("release-128", 128, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release },
+            // A board with a real-time clock reads UTC at boot (K6); the root task accepts a board without one (H7.2).
+            new BootRequest("release-128", 128, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release, RequiredLines = ["UTC at boot: "] },
             new BootRequest("release-512", 512, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release },
             // The firmware's framebuffer in the boot contract (C2.1): the loader records ramfb's, the kernel takes it and the
             // platform publishes it as a device.
@@ -52,12 +53,21 @@ internal static class CommandLine
                     new BootRequest("release-linux-256", 256, 60, ExpectedOutcome.Success)
                     {
                         Suite = BootSuite.Release, LinuxBoot = true, Processors = 2,
-                        RequiredLines = ["[BOOT] Linux arm64 entry at EL1", "[BOOT] Boot contract from the device tree: ", "Processors present/online: 2/2"]
+                        RequiredLines =
+                        [
+                            "[BOOT] Linux arm64 entry at EL1", "[BOOT] Boot contract from the device tree: ",
+                            "Processor start: 2 by PSCI, 0 by spin table; PSCI conduit HVC", "Processors present/online: 2/2"
+                        ]
                     },
+                    // At EL2 the board names PSCI by SMC, whose CPU_ON starts the second processor (H7.2).
                     new BootRequest("release-linux-el2-128", 128, 60, ExpectedOutcome.Success)
                     {
-                        Suite = BootSuite.Release, LinuxBoot = true, Virtualization = true,
-                        RequiredLines = ["[BOOT] Linux arm64 entry at EL2", "[BOOT] Boot contract from the device tree: "]
+                        Suite = BootSuite.Release, LinuxBoot = true, Virtualization = true, Processors = 2,
+                        RequiredLines =
+                        [
+                            "[BOOT] Linux arm64 entry at EL2", "[BOOT] Boot contract from the device tree: ",
+                            "Processor start: 2 by PSCI, 0 by spin table; PSCI conduit SMC", "Processors present/online: 2/2"
+                        ]
                     },
                     // The GIC the device tree names (H7.1): a GICv2, as the Pi 4's GIC-400, through the firmware and by the
                     // Linux protocol, each on two processors, whose doorbells go through GICD_SGIR, and at EL2 as the Pi's
@@ -65,7 +75,10 @@ internal static class CommandLine
                     new BootRequest("release-gic2-256", 256, 60, ExpectedOutcome.Success)
                     {
                         Suite = BootSuite.Release, Gic2 = true, Processors = 2,
-                        RequiredLines = ["Interrupt controller: GICv2, distributor 0x", "Processors present/online: 2/2"]
+                        RequiredLines =
+                        [
+                            "Console: PL011 at 0x0000000009000000", "Interrupt controller: GICv2, distributor 0x", "Processors present/online: 2/2"
+                        ]
                     },
                     new BootRequest("release-linux-gic2-256", 256, 60, ExpectedOutcome.Success)
                     {
@@ -76,6 +89,20 @@ internal static class CommandLine
                     {
                         Suite = BootSuite.Release, LinuxBoot = true, Gic2 = true, Virtualization = true,
                         RequiredLines = ["[BOOT] Linux arm64 entry at EL2", "Interrupt controller: GICv2, distributor 0x"]
+                    },
+                    // The Raspberry Pi 4 (H7.2): QEMU's raspi4b with the Raspberry Pi firmware's tree, entered at EL2; the
+                    // console is the tree's serial0, the mini UART, the GIC-400 lies below /soc's ranges, and the other
+                    // three processors leave the spin table QEMU parks them in.
+                    new BootRequest("release-raspi4b", BootScenarioRunner.RASPI4_MEMORY_MIB, 60, ExpectedOutcome.Success)
+                    {
+                        Suite = BootSuite.Release, LinuxBoot = true, Raspi4 = true, Processors = BootScenarioRunner.RASPI4_PROCESSORS,
+                        RequiredLines =
+                        [
+                            "[BOOT] Linux arm64 entry at EL2", "Console: mini UART at 0x00000000FE215040",
+                            "Interrupt controller: GICv2, distributor 0x00000000FF841000, CPU interface 0x00000000FF842000, timer interrupt 27",
+                            "UTC: no real-time clock", "Processor start: 0 by PSCI, 4 by spin table; PSCI conduit none",
+                            "Processors present/online: 4/4", "Devices: 0 in 1 page"
+                        ]
                     }
                 ]
                 : Array.Empty<BootRequest>(),

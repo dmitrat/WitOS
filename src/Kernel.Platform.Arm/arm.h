@@ -5,9 +5,9 @@
 
 /* The ARM64 platform (H7.1): one kernel for every board a device tree describes — QEMU's virt, then the Raspberry Pis —
  * whose interrupt controller, timer interrupt and real-time clock come from the tree (tree.c), used only by this
- * directory. The console is still the virt board's PL011 until H7.2 takes it from the tree's stdout-path. */
+ * directory; since H7.2 the console and the start of the processors come from the tree too. */
 
-#define WIT_ARM_PL011_BASE 0x09000000ULL
+#define WIT_ARM_PL011_BASE 0x09000000ULL /* the virt board's console, until a boot path hands the tree over */
 #define WIT_ARM_GICR_STRIDE 0x20000ULL /* the two frames of each processor's GICv3 redistributor (K7.2) */
 #define WIT_ARM_GICR_SGI_OFFSET 0x10000ULL
 
@@ -40,10 +40,18 @@ typedef struct WitArmTreeItem {
 } WitArmTreeItem;
 
 int wit_arm_tree_open(const struct WitBootInfo *boot, WitArmTree *tree);
+/* The same in a boot stage, before the kernel's paging, where the tree is reachable at its address (H7.2). */
+int wit_arm_tree_open_early(WitU64 address, WitArmTree *tree);
 int wit_arm_tree_next(WitArmTree *tree, WitArmTreeItem *item);
 /* The index-th region of a reg property of the node at the tree's depth, in the processor's address space; zero when
  * the property is shorter or an ancestor's ranges do not translate it. */
 int wit_arm_tree_reg(const WitArmTree *tree, const WitArmTreeItem *item, WitU32 index, WitU64 *base, WitU64 *size);
+/* Moves the walk to the node a path names ("/soc/serial@7e201000"; a component without a unit address also matches a
+ * name with one) and returns its depth, its properties next; zero when the tree has no such node. */
+WitU32 wit_arm_tree_seek(WitArmTree *tree, const char *path, WitU32 length);
+/* The named property of the node at the depth the walk stands in, from the walk's next items; zero at the first child or
+ * the node's end. */
+int wit_arm_tree_property(WitArmTree *tree, WitU32 depth, const char *name, WitArmTreeItem *item);
 /* Whether a string list property (compatible) holds the word. */
 int wit_arm_tree_names(const WitArmTreeItem *item, const char *word);
 /* Maps a page for reading once: the tree's pages and the pages a walk reads (an ECAM window). */
@@ -64,6 +72,12 @@ typedef struct WitArmBoard {
 } WitArmBoard;
 
 const WitArmBoard *wit_arm_board(const struct WitBootInfo *boot);
+
+/* A PSCI call through the conduit the tree's /psci names (processors.c, H7.2): zero when the board has none. */
+int wit_arm_psci(WitU64 function, WitU64 a1, WitU64 a2, WitU64 a3, WitU64 *result);
+
+/* Prints the console the tree named (console.c, H7.2), once paging is active. */
+void wit_arm_console_describe(void);
 
 /* Arm semihosting call (HLT #0xF000); QEMU serves it when started with -semihosting-config. */
 WitU64 wit_arm_semihosting(WitU64 operation, const void *parameter);

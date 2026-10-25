@@ -7,15 +7,10 @@
 // the boot layer's C with the tree. Nothing here reads an absolute address before the relocations: every reference is
 // PC-relative (adrp/add).
 
-    .equ SCTLR_EL1_RES1, 0x30D00800        // RES1 bits 11, 20, 22, 23, 28, 29; EE, WXN and the MMU off
     .equ SCTLR_M, 1
     .equ SCTLR_C, 1 << 2
     .equ SCTLR_SA, 1 << 3
     .equ SCTLR_I, 1 << 12
-    .equ HCR_RW, 1 << 31                    // EL1 is AArch64
-    .equ CPTR_EL2_RES1, 0x33FF              // no trap of the floating-point unit
-    .equ SPSR_EL1H_MASKED, 0x3C5            // EL1h, DAIF masked
-    .equ ICC_SRE_ENABLE, 0x9                // SRE and Enable: EL1 reaches the GICv3 CPU interface's registers
     .equ CPACR_FPEN, 3 << 20
 
     // Translation of the first stage: 4 KiB granule, 48-bit addresses from level 0, whose first entry is a level-1 table
@@ -48,42 +43,7 @@ wit_linux_entry:
     mrs x20, CurrentEL
     lsr x20, x20, #2                        // the level the bootloader entered at
     msr daifset, #0xf
-    cmp x20, #2
-    b.ne at_el1
-
-    // EL2: AArch64 at EL1, the counters and the floating-point unit untrapped, no stage 2, the GICv3 CPU interface's
-    // registers open to EL1 where the processor has them; then an exception return to EL1 with the MMU off.
-    mov x9, #HCR_RW
-    msr hcr_el2, x9
-    mrs x9, cnthctl_el2
-    orr x9, x9, #3                          // EL1PCTEN and EL1PCEN
-    msr cnthctl_el2, x9
-    msr cntvoff_el2, xzr
-    mov x9, #CPTR_EL2_RES1
-    msr cptr_el2, x9
-    msr hstr_el2, xzr
-    msr vttbr_el2, xzr
-    mrs x9, pmcr_el0
-    ubfx x9, x9, #11, #5                    // HPMN: every counter EL1's, no debug or monitor trap
-    msr mdcr_el2, x9
-    mrs x9, id_aa64pfr0_el1
-    ubfx x9, x9, #24, #4                    // GIC: the system register interface
-    cbz x9, 1f
-    mrs x9, s3_4_c12_c9_5                   // ICC_SRE_EL2
-    mov x10, #ICC_SRE_ENABLE
-    orr x9, x9, x10
-    msr s3_4_c12_c9_5, x9
-    isb
-1:
-    ldr x9, =SCTLR_EL1_RES1
-    msr sctlr_el1, x9
-    mov x9, #SPSR_EL1H_MASKED
-    msr spsr_el2, x9
-    adr x9, at_el1
-    msr elr_el2, x9
-    eret
-
-at_el1:
+    bl wit_a64_leave_el2                    // the architecture's way out of EL2, shared with secondary processors
     mov x9, #CPACR_FPEN
     msr cpacr_el1, x9
     isb

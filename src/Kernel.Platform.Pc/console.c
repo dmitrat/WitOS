@@ -22,6 +22,12 @@ void wit_console_initialize(void)
     wit_x64_out8(COM1 + 4, 0x03);
 }
 
+/* COM1 is every PC's console, which no device tree names (H7.2). */
+void wit_platform_console_tree(WitU64 tree)
+{
+    (void)tree;
+}
+
 void wit_platform_console_put(WitU8 value)
 {
     for (WitU32 spin = 0; spin < SERIAL_POLL_LIMIT; ++spin) {

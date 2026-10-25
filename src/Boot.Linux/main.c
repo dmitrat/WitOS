@@ -208,6 +208,7 @@ WIT_NORETURN void wit_linux_main(WitU64 tree, WitU64 level)
 {
     WitLinuxRange reserved[WIT_LINUX_RANGES + 3];
 
+    wit_platform_console_tree(tree); /* the console the tree names, before the first line (H7.2) */
     wit_console_initialize();
     wit_console_write("[BOOT] Linux ");
     wit_console_write(wit_arch_identity()->Name);

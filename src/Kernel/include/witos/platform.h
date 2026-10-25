@@ -8,6 +8,9 @@ struct WitBootInfo;
 /* Board console: initialization and one byte out. src/Kernel/console.c formats on top of it. */
 void wit_console_initialize(void);
 void wit_platform_console_put(WitU8 value);
+/* The console a board's device tree names (plan step H7.2): a boot path that has the tree hands it over before its first
+ * line, or as soon as it has it; a board whose console is fixed ignores it. Zero is no tree. */
+void wit_platform_console_tree(WitU64 tree);
 
 void wit_console_write(const char *text);
 void wit_console_write_u64(WitU64 value);

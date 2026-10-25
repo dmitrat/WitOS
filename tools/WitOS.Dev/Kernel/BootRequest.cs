@@ -214,6 +214,13 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public bool Gic2 { get; init; }
 
     /// <summary>
+    /// QEMU's raspi4b, the Raspberry Pi 4 Model B (plan step H7.2): four Cortex-A72 entered at EL2, 2 GiB, a GIC-400, the
+    /// mini UART as the console and no PCI bus; booted by the Linux protocol (<see cref="LinuxBoot"/>) with the Raspberry Pi
+    /// firmware's pinned tree (<see cref="RaspberryPiTree"/>), into which the runner writes an entropy seed.
+    /// </summary>
+    public bool Raspi4 { get; init; }
+
+    /// <summary>
     /// The board without its test exit (plan step H1.2a), as a machine has none: the kernel's end then turns the board off,
     /// which <see cref="ExpectedOutcome.PoweredOff"/> judges.
     /// </summary>

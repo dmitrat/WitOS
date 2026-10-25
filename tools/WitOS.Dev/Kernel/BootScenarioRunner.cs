@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using WitOS.Dev.Host;
 
 namespace WitOS.Dev.Kernel;
@@ -34,6 +35,12 @@ internal static class BootScenarioRunner
 
     // The ARM64 board with a GICv2 (H7.1), as a Raspberry Pi 4's GIC-400.
     private const string GIC2_MACHINE = "virt,gic-version=2,acpi=off";
+
+    // QEMU's Raspberry Pi 4 Model B (H7.2): its memory and processors are the board's, which QEMU requires as they are.
+    private const string RASPI4_MACHINE = "raspi4b";
+    internal const int RASPI4_MEMORY_MIB = 2048;
+    internal const int RASPI4_PROCESSORS = 4;
+    private const int ENTROPY_SEED_BYTES = 32;
 
     // A screendump waits until the guest wrote nothing for this long, looking every step, up to the limit (C2.3).
     private const int QUIET_MILLISECONDS = 1000;
@@ -95,6 +102,11 @@ internal static class BootScenarioRunner
             throw new InvalidOperationException($"{request.Name}: an IDE boot disk needs the pc board's PIIX (H1.1).");
         if ((request.LinuxBoot || request.Virtualization) && !architecture.LinuxImage)
             throw new InvalidOperationException($"{request.Name}: the Linux boot protocol's entry (H6) is ARM64's.");
+        if (request.Raspi4 && (!request.LinuxBoot || request.Gic2 || request.Virtualization || request.MemoryMiB != RASPI4_MEMORY_MIB ||
+            request.Processors != RASPI4_PROCESSORS || request.Display || request.Keyboard || request.Network || request.DataDisk is not null ||
+            request.Terminal is not null))
+            throw new InvalidOperationException(
+                $"{request.Name}: QEMU's raspi4b (H7.2) boots by the Linux protocol with {RASPI4_MEMORY_MIB} MiB and {RASPI4_PROCESSORS} processors and none of the services' devices.");
         var cpu = request.CpuModel ?? (request.Pc ? PC_CPU : architecture.DefaultCpu);
         var name = request.Name;
         var logs = request.LogDirectory ?? Path.Combine(root, "artifacts", "logs");
@@ -128,6 +140,7 @@ internal static class BootScenarioRunner
         var machine = (request.Expected == ExpectedOutcome.ClockUnavailable ? "q35,hpet=off"
                 : request.Pc ? PC_MACHINE
                 : request.Gic2 ? GIC2_MACHINE
+                : request.Raspi4 ? RASPI4_MACHINE
                 : architecture.QemuMachine) +
             (request.Virtualization ? ",virtualization=on" : "");
         // Emulated with the instruction clock, or on the host's hardware virtualization for a session (C2.7).
@@ -139,10 +152,23 @@ internal static class BootScenarioRunner
             "-machine", machine, .. execution,
             "-cpu", cpu, "-smp", request.Processors.ToString(), "-m", request.MemoryMiB.ToString(),
             "-display", request.Window ? WINDOW_DISPLAY : "none", "-monitor", "none", "-qmp", qmpControl.Argument,
+            // The Raspberry Pi tree's console is its serial0, the mini UART, which raspi4b connects to its second serial
+            // port (H7.2).
+            .. request.Raspi4 ? ["-serial", "null"] : Array.Empty<string>(),
             "-serial", "file:" + QemuPath(serialPath), "-nic", "none", "-no-reboot"
         ];
         // The Linux arm64 boot path (H6): QEMU itself loads the image and the ramdisk and enters the image with its device
         // tree, where the firmware would load the loader from the boot disk.
+        if (request.Raspi4)
+        {
+            // The Raspberry Pi firmware's tree, with the entropy seed QEMU writes into its virt board's tree and not into
+            // this one (H0.2).
+            var tree = Path.Combine(logs, name + ".dtb");
+            await File.WriteAllBytesAsync(tree,
+                DeviceTreeBlob.WithChosenProperty(await File.ReadAllBytesAsync(RaspberryPiTree.Require(root)), "rng-seed",
+                    RandomNumberGenerator.GetBytes(ENTROPY_SEED_BYTES)));
+            arguments.AddRange(["-dtb", QemuPath(tree)]);
+        }
         arguments.AddRange(request.LinuxBoot
             ? ["-kernel", QemuPath(KernelImageBuilder.LinuxImagePath(image)), "-initrd", QemuPath(KernelImageBuilder.InitrdPath(image))]
             : [
@@ -187,7 +213,8 @@ internal static class BootScenarioRunner
             arguments.AddRange(["-netdev", "user,id=net0" + (peer?.NetdevOptions ?? ""), "-device",
                 $"{adapter},netdev=net0,addr=0x{architecture.EntropyLineSlot(request.Display):x}"]);
         }
-        if (request.Expected != ExpectedOutcome.EntropyUnavailable && !request.Pc)
+        // The firmware's entropy source; raspi4b has no PCI bus, and its seed is the tree's (H7.2).
+        if (request.Expected != ExpectedOutcome.EntropyUnavailable && !request.Pc && !request.Raspi4)
         {
             arguments.AddRange(["-object", "rng-builtin,id=entropy0", "-device", "virtio-rng-pci,rng=entropy0"]);
         }
