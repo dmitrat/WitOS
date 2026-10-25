@@ -15,7 +15,8 @@ namespace OutWit.OS.DeviceManager;
 /// block channels: the disk as a block storage resource on the driver's block channel, its GUID partition table read
 /// through it, a write refused by a read-only disk, and on a writable disk's test partition a durable write of more
 /// than one window read back; then the FAT volumes of D4.1 (<see cref="FileSystemProbe"/>): the read-only boot disk's
-/// and the data disk's FAT partition; and the data disk's ext4 partition of D4.2 (<see cref="Ext4Probe"/>).
+/// — or, on the PC's one disk (H3.3), its EFI system partition's — and the data disk's FAT partition; and the data disk's
+/// ext4 partition of D4.2 (<see cref="Ext4Probe"/>).
 /// </summary>
 internal static class StorageProbe
 {
@@ -74,6 +75,13 @@ internal static class StorageProbe
             }
             Console.WriteLine($"{PREFIX}storage {id}: GUID partition table of {table.Partitions.Count} partitions: " +
                 string.Join(", ", table.Partitions.Select(partition => $"\"{partition.Name}\" on blocks {partition.FirstBlock}-{partition.LastBlock}")));
+            var system = table.Partitions.FirstOrDefault(partition => partition.Type == GptPartition.EFI_SYSTEM);
+            if (system is not null)
+            {
+                await using var partition = system.Open(storage, isReadOnly: true);
+                if (await FatFileSystem.DetectAsync(partition))
+                    await FileSystemProbe.ReadBootVolumeAsync(partition, id);
+            }
             var test = table.Partitions.FirstOrDefault(partition => partition.Name == TEST_PARTITION);
             if (test is not null && !info.IsReadOnly)
                 await WriteAndReadAsync(storage, test, id);
