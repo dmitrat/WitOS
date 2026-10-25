@@ -133,7 +133,7 @@ internal static class BootScenarioRunner
             ? ["-drive", $"if=none,id=boot,format=raw,snapshot=on,file={QemuPath(image)}", "-device", "ide-hd,drive=boot,bus=ide.0,bootindex=1"]
             : request.BootDiskController == DiskController.Virtio
             ? ["-drive", $"if=none,id=boot,format=raw,readonly=on,file={QemuPath(image)}", "-device", "virtio-blk-pci,drive=boot,bootindex=1"]
-            : ["-drive", $"if=none,id=boot,format=raw,file={QemuPath(image)}", .. BootDiskDevices(request, architecture)]);
+            : ["-drive", $"if=none,id=boot,format=raw,{GUEST_FLUSHES},file={QemuPath(image)}", .. BootDiskDevices(request, architecture)]);
         if (!request.WithoutTestExit)
         {
             arguments.AddRange(architecture.ExitDevice);
