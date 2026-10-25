@@ -54,6 +54,26 @@ public static class XhciContexts
     /// </summary>
     public const int SUPER_SPEED = 4;
 
+    /// <summary>
+    /// An Endpoint Context's state of an endpoint that takes transfers.
+    /// </summary>
+    public const int RUNNING = 1;
+
+    /// <summary>
+    /// An Endpoint Context's state after a STALL, a babble or a transaction error: Reset Endpoint takes it to Stopped.
+    /// </summary>
+    public const int HALTED = 2;
+
+    /// <summary>
+    /// An Endpoint Context's state in which Set TR Dequeue Pointer may move its ring.
+    /// </summary>
+    public const int STOPPED = 3;
+
+    /// <summary>
+    /// The Slot Context's Hub flag.
+    /// </summary>
+    private const uint HUB = 1 << 26;
+
     #endregion
 
     #region Functions
@@ -74,20 +94,36 @@ public static class XhciContexts
     }
 
     /// <summary>
-    /// Writes the Slot Context of a device on a root hub port.
+    /// Writes the Slot Context of a device (xHCI 1.2 §6.2.2): its route string, speed and context entries; its root hub
+    /// port and, for a hub, its ports; the Transaction Translator it is reached through and, for a high-speed hub, its own
+    /// TT Think Time. The Hub fields take effect through Address Device or Configure Endpoint with the slot's add flag.
     /// </summary>
     /// <param name="input">The Input Context.</param>
     /// <param name="contextBytes">32 or 64.</param>
-    /// <param name="speed">The port's speed.</param>
-    /// <param name="rootPort">The root hub port, from 1.</param>
+    /// <param name="location">Where the device sits.</param>
     /// <param name="contextEntries">The index of the last valid Endpoint Context.</param>
-    public static void WriteSlot(Span<byte> input, int contextBytes, int speed, int rootPort, int contextEntries)
+    /// <param name="hub">The device's hub descriptor when it is a hub, otherwise null.</param>
+    public static void WriteSlot(Span<byte> input, int contextBytes, UsbLocation location, int contextEntries, UsbHubDescriptor? hub = null)
     {
         var slot = input.Slice(contextBytes, contextBytes);
         slot.Clear();
-        BinaryPrimitives.WriteUInt32LittleEndian(slot, (uint)(speed << 20 | contextEntries << 27));
-        BinaryPrimitives.WriteUInt32LittleEndian(slot[4..], (uint)rootPort << 16);
+        BinaryPrimitives.WriteUInt32LittleEndian(slot, location.Route & 0xFFFFF | (uint)location.Speed << 20 | (hub is null ? 0 : HUB) |
+            (uint)contextEntries << 27);
+        BinaryPrimitives.WriteUInt32LittleEndian(slot[4..], (uint)location.RootPort << 16 | (uint)(hub?.Ports ?? 0) << 24);
+        var thinkTime = hub is not null && location.Speed == HIGH_SPEED ? hub.ThinkTime : 0;
+        BinaryPrimitives.WriteUInt32LittleEndian(slot[8..], (uint)(location.TtSlot | location.TtPort << 8 | thinkTime << 16));
     }
+
+    /// <summary>
+    /// Reads an Endpoint Context's state from a device's Output Context (xHCI 1.2 §6.2.3): <see cref="RUNNING"/>,
+    /// <see cref="HALTED"/>, <see cref="STOPPED"/> or another.
+    /// </summary>
+    /// <param name="output">The Output Context.</param>
+    /// <param name="contextBytes">32 or 64.</param>
+    /// <param name="index">The endpoint's Device Context Index.</param>
+    /// <returns>The state.</returns>
+    public static int EndpointState(ReadOnlySpan<byte> output, int contextBytes, int index) =>
+        (int)(BinaryPrimitives.ReadUInt32LittleEndian(output[(contextBytes * index)..]) & 7);
 
     /// <summary>
     /// Writes an Endpoint Context.

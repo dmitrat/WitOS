@@ -9,7 +9,9 @@ namespace WitOS.Dev.Runtime;
 /// <summary>
 /// The display scenario (plan steps C2.1–C2.3): the device services boot with the board's ramfb, a USB keyboard on
 /// QEMU's xHCI controller (H2.1, ADR 0029; a virtio keyboard until then, which runtime-commander and runtime-installer
-/// keep) and a virtio console whose character device the runner owns. The device manager draws the test pattern into the framebuffer
+/// keep) and a virtio console whose character device the runner owns. While the check waits for its line, the runner
+/// plugs a USB hub into the controller and a keyboard into the hub (H2.2), types the line on that keyboard and unplugs
+/// the hub with the keyboard below it; PowerShell's commands come from the boot's keyboard again. The device manager draws the test pattern into the framebuffer
 /// (C2.1), then starts the display service with the framebuffer and the keyboard driver's channel, and the terminal
 /// service with the display's console as its main one and the virtio console as its mirror (C2.2); apps_init runs
 /// tests/User/display_check.c and then upstream PowerShell from the data volume on that terminal (C2.3: C1's interactive
@@ -42,6 +44,37 @@ internal static class RuntimeDisplay
     public const int FIRST_KEY_CODE = 35;
 
     /// <summary>
+    /// The Linux key code of the check's line's first key (KEY_S), which the keyboard plugged into the hub types.
+    /// </summary>
+    public const int CHECK_KEY_CODE = 31;
+
+    /// <summary>
+    /// The id of the hub the runner plugs into the controller's second port during the session (H2.2).
+    /// </summary>
+    public const string HUB = "hub2";
+
+    /// <summary>
+    /// The id of the keyboard the runner plugs into the hub's first port.
+    /// </summary>
+    public const string HUB_KEYBOARD = "kbd2";
+
+    /// <summary>
+    /// The root port of the boot's keyboard as the driver names it: QEMU's xHCI puts its USB 2 ports after its four USB 3
+    /// ones, so the bus's first port is root port 5.
+    /// </summary>
+    public const string KEYBOARD_PORT = "port 5";
+
+    /// <summary>
+    /// The root port of the hub, the bus's second port.
+    /// </summary>
+    public const string HUB_PORT = "port 6";
+
+    /// <summary>
+    /// The keyboard below the hub.
+    /// </summary>
+    public const string HUB_KEYBOARD_PORT = HUB_PORT + ".1";
+
+    /// <summary>
     /// The checks display_check counts.
     /// </summary>
     public const int CHECKS = 4;
@@ -64,6 +97,8 @@ internal static class RuntimeDisplay
     public static readonly string[] COMMANDS = ["$PSVersionTable", "1 + 2", "Get-Date", "Get-ChildItem /data"];
 
     private const string CHECK_PROMPT = "[DISPLAY-CHECK] type a line";
+    private const string HUB_LINE = $"[XHCI] {HUB_PORT}: a hub of 8 ports, powered for 100 ms, endpoint 81 at interval 255: watching its ports";
+    private const string HUB_KEYBOARD_LINE = $"[XHCI] {HUB_KEYBOARD_PORT}: a keyboard of the report protocol on interface 0, endpoint 81";
     private const int TIMEOUT_SECONDS = 3600;
 
     #endregion
@@ -118,14 +153,21 @@ internal static class RuntimeDisplay
     }
 
     /// <summary>
-    /// What the runner does once each line appeared: types the probe's and the check's lines, then each command at
-    /// PowerShell's prompt, takes the screendump at the prompt after the last command, and types exit.
+    /// What the runner does once each line appeared: types the probe's line; once the check asks for its line, plugs a
+    /// hub into the controller's second port and, once the driver watches the hub's ports, a keyboard into the hub's
+    /// first port (H2.2), types the check's line on that keyboard — QEMU gives the keys to the keyboard plugged last —
+    /// and unplugs the hub with the keyboard below it once the check echoed the line; then types each command at
+    /// PowerShell's prompt on the boot's keyboard, takes the screendump at the prompt after the last command, and types
+    /// exit.
     /// </summary>
     /// <returns>The actions.</returns>
     public static IReadOnlyList<BootAction> Actions() =>
     [
         new("[DEVICES] terminal probe: ", BootActionKind.Key, KeyTyping.Keys(PROBE_TEXT + "\r")),
-        new(CHECK_PROMPT, BootActionKind.Key, KeyTyping.Keys(CHECK_TEXT + "\r")),
+        new(CHECK_PROMPT, BootActionKind.DeviceAdd, $"usb-hub,bus={BootScenarioRunner.USB_BUS},port=2,id={HUB}"),
+        new(HUB_LINE, BootActionKind.DeviceAdd, $"usb-kbd,bus={BootScenarioRunner.USB_BUS},port=2.1,id={HUB_KEYBOARD}"),
+        new(HUB_KEYBOARD_LINE, BootActionKind.Key, KeyTyping.Keys(CHECK_TEXT + "\r")),
+        new($"[DISPLAY-CHECK] echo: {CHECK_TEXT}", BootActionKind.DeviceDelete, HUB),
         .. COMMANDS.Select(command => new BootAction(RuntimePowerShell.PROMPT, BootActionKind.Key, KeyTyping.Keys(command + "\r"))),
         new(RuntimePowerShell.PROMPT, BootActionKind.Screendump),
         new("", BootActionKind.Key, KeyTyping.Keys("exit\r"))
@@ -202,9 +244,10 @@ internal static class RuntimeDisplay
 
     /// <summary>
     /// The lines the scenario requires in the serial log or the terminal's transcript: the display's and the terminal's
-    /// start, the keys typed reaching the probe and the check, C1's session on the screen — the version table with WitOS's
-    /// name, the console mark with the shell's version, the prompt, the listing, PowerShell exiting with 0 — and the
-    /// services' stop.
+    /// start, the keys typed reaching the probe and the check, the hub and the keyboard plugged in during the session and
+    /// unplugged with it, each key line naming the keyboard that typed it (H2.2), C1's session on the screen — the version
+    /// table with WitOS's name, the console mark with the shell's version, the prompt, the listing, PowerShell exiting
+    /// with 0 — and the services' stop.
     /// </summary>
     /// <param name="architecture">Target architecture.</param>
     /// <param name="version">PowerShell's version, which the mark's panel names.</param>
@@ -216,8 +259,8 @@ internal static class RuntimeDisplay
         "[DEVICES] Device discovered: Class: UsbController, Provider: RedHat, DeviceId: pci/",
         "[XHCI] driver of pci/",
         architecture == KernelArchitecture.X64 ? ": interrupts through MSI-X entry 0, message " : ": interrupts through its INTx line",
-        ": a keyboard of the boot protocol on interface 0, endpoint 81",
-        ": 1 keyboard of the boot protocol, ",
+        $"[XHCI] {KEYBOARD_PORT}: a keyboard of the report protocol on interface 0, endpoint 81",
+        ": 1 device, 0 hubs, 1 keyboard, ",
         ": reporting keys, serving the input protocol",
         "[DEVICES] driver /system/Drivers/Xhci of pci/",
         "[DEVICES] display probe: ",
@@ -230,10 +273,16 @@ internal static class RuntimeDisplay
         "100 by 37, 2 consoles, canonical with echo",
         "[DEVICES] terminal service /system/Terminal on firmware/framebuffer, mirrored on pci/",
         "[DEVICES] terminal probe: 100 by 37, canonical with echo",
-        $"[XHCI] key {FIRST_KEY_CODE} down",
+        $"[XHCI] key {FIRST_KEY_CODE} down ({KEYBOARD_PORT})",
         $"[DEVICES] terminal probe: echo: {PROBE_TEXT}",
         "[ROOT-TASK] /system/DeviceManager was ready before /bin/init",
+        HUB_LINE,
+        HUB_KEYBOARD_LINE,
+        $"[XHCI] key {CHECK_KEY_CODE} down ({HUB_KEYBOARD_PORT})",
         $"[DISPLAY-CHECK] echo: {CHECK_TEXT}",
+        $"[XHCI] {HUB_KEYBOARD_PORT}: detached, slot ",
+        $"[XHCI] {HUB_PORT}: detached, slot ",
+        $"[XHCI] key 42 down ({KEYBOARD_PORT})", // Shift for the first command's '$', typed on the boot's keyboard again
         CheckLine(architecture),
         "PSVersion",
         "WitOS",

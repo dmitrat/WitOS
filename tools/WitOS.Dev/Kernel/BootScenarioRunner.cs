@@ -37,6 +37,22 @@ internal static class BootScenarioRunner
     internal static readonly string[] KEY_REPORTS = ["[VIRTIO-INPUT] key ", "[XHCI] key "];
 
     /// <summary>
+    /// The id of a USB keyboard's xHCI controller (H2.1).
+    /// </summary>
+    internal const string USB_CONTROLLER = "xhci";
+
+    /// <summary>
+    /// Its USB bus, which device_add actions plug hubs and keyboards into (H2.2): a device's port is the bus's port, then
+    /// each hub's port below it, such as "2.1".
+    /// </summary>
+    internal const string USB_BUS = USB_CONTROLLER + ".0";
+
+    /// <summary>
+    /// The id of the USB keyboard a boot starts with, on the bus's first port.
+    /// </summary>
+    internal const string USB_KEYBOARD = "kbd1";
+
+    /// <summary>
     /// The environment variable that asks a guest past its deadline to leave its physical memory beside the logs (P3).
     /// </summary>
     internal const string GUEST_DUMP_VARIABLE = "WITOS_GUEST_DUMP";
@@ -124,7 +140,9 @@ internal static class BootScenarioRunner
             // the data disk and the console take three of them; the fifth virtio device shares a line with the entropy
             // source (slot 2), which nothing binds once the firmware reset it, instead of with a device a driver holds.
             // A USB keyboard's controller takes the same slot (H2.1), where the board gives it no message interrupt.
-            arguments.AddRange(request.UsbKeyboard ? ["-device", "qemu-xhci,addr=0x6", "-device", "usb-kbd"] : ["-device", "virtio-keyboard-pci,addr=0x6"]);
+            arguments.AddRange(request.UsbKeyboard
+                ? ["-device", $"qemu-xhci,id={USB_CONTROLLER},addr=0x6", "-device", $"usb-kbd,bus={USB_BUS},port=1,id={USB_KEYBOARD}"]
+                : ["-device", "virtio-keyboard-pci,addr=0x6"]);
         }
         else if (request.UsbKeyboard)
         {
@@ -293,6 +311,14 @@ internal static class BootScenarioRunner
                             {
                                 await (peer ?? throw new InvalidDataException("an HTTP request without a forward to the guest's port"))
                                     .HttpAsync(action.Argument, stop);
+                            }
+                            else if (action.Kind == BootActionKind.DeviceAdd)
+                            {
+                                await control.DeviceAddAsync(action.Argument, stop);
+                            }
+                            else if (action.Kind == BootActionKind.DeviceDelete)
+                            {
+                                await control.DeviceDeleteAsync(action.Argument, stop);
                             }
                             else if (action.Kind == BootActionKind.Screendump)
                             {

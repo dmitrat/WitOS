@@ -70,6 +70,21 @@ public readonly record struct XhciTrb(ulong Parameter, uint Status, uint Control
     public const uint EVALUATE_CONTEXT = 13;
 
     /// <summary>
+    /// The Reset Endpoint command, which takes a halted endpoint to Stopped.
+    /// </summary>
+    public const uint RESET_ENDPOINT = 14;
+
+    /// <summary>
+    /// The Stop Endpoint command, which takes a running endpoint to Stopped.
+    /// </summary>
+    public const uint STOP_ENDPOINT = 15;
+
+    /// <summary>
+    /// The Set TR Dequeue Pointer command, which moves a stopped endpoint's dequeue pointer and cycle state.
+    /// </summary>
+    public const uint SET_TR_DEQUEUE = 16;
+
+    /// <summary>
     /// The Transfer Event.
     /// </summary>
     public const uint TRANSFER_EVENT = 32;
@@ -90,9 +105,34 @@ public readonly record struct XhciTrb(ulong Parameter, uint Status, uint Control
     public const uint SUCCESS = 1;
 
     /// <summary>
+    /// The completion code of a device that sent more than the packet's bytes; the endpoint halts.
+    /// </summary>
+    public const uint BABBLE = 3;
+
+    /// <summary>
+    /// The completion code of a transaction the device did not answer as the protocol asks; the endpoint halts.
+    /// </summary>
+    public const uint TRANSACTION_ERROR = 4;
+
+    /// <summary>
+    /// The completion code of a device's STALL handshake; the endpoint halts.
+    /// </summary>
+    public const uint STALL = 6;
+
+    /// <summary>
     /// The completion code of a transfer that moved fewer bytes than its TRB named.
     /// </summary>
     public const uint SHORT_PACKET = 13;
+
+    /// <summary>
+    /// The completion code of the transfer a Stop Endpoint command stopped.
+    /// </summary>
+    public const uint STOPPED = 26;
+
+    /// <summary>
+    /// The completion code of a stopped transfer whose length the controller does not report.
+    /// </summary>
+    public const uint STOPPED_LENGTH_INVALID = 27;
 
     /// <summary>
     /// The control word's cycle bit.
@@ -156,6 +196,19 @@ public readonly record struct XhciTrb(ulong Parameter, uint Status, uint Control
     /// <param name="flags">The control word's bits beside the type and the cycle.</param>
     /// <returns>The TRB, its cycle bit clear.</returns>
     public static XhciTrb Of(uint type, ulong parameter = 0, uint status = 0, uint flags = 0) => new(parameter, status, type << 10 | flags);
+
+    /// <summary>
+    /// A command that names a slot and an endpoint, as Reset Endpoint and Set TR Dequeue Pointer do: the Device Context
+    /// Index in bits 20–16 and the slot in bits 31–24.
+    /// </summary>
+    /// <param name="type">The command.</param>
+    /// <param name="slot">The slot.</param>
+    /// <param name="index">The endpoint's Device Context Index.</param>
+    /// <param name="parameter">The parameter: Set TR Dequeue Pointer's new dequeue pointer with its cycle state in bit 0.</param>
+    /// <returns>The TRB, its cycle bit clear; Reset Endpoint's Transfer State Preserve clear, so the endpoint's data toggle
+    /// starts again, as the device's does after CLEAR_FEATURE(ENDPOINT_HALT).</returns>
+    public static XhciTrb OfEndpoint(uint type, int slot, int index, ulong parameter = 0) =>
+        Of(type, parameter, 0, (uint)slot << 24 | (uint)index << 16);
 
     #endregion
 

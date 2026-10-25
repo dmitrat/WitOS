@@ -75,6 +75,17 @@ public sealed class QemuControlTests
     }
 
     [Test]
+    public void DeviceArgumentsFollowTheDeviceOptionTest()
+    {
+        Assert.That(QemuControl.DeviceArguments("usb-kbd,bus=xhci.0,port=2.1,id=kbd2"),
+            Is.EqualTo(new Dictionary<string, string> { ["driver"] = "usb-kbd", ["bus"] = "xhci.0", ["port"] = "2.1", ["id"] = "kbd2" }));
+        Assert.That(QemuControl.DeviceArguments("usb-hub"), Is.EqualTo(new Dictionary<string, string> { ["driver"] = "usb-hub" }));
+        Assert.Throws<ArgumentException>(() => QemuControl.DeviceArguments("bus=xhci.0"), "no driver first");
+        Assert.Throws<ArgumentException>(() => QemuControl.DeviceArguments("usb-kbd,port"), "a property without a value");
+        Assert.Throws<ArgumentException>(() => QemuControl.DeviceArguments("usb-kbd,id=a,id=b"), "a property twice");
+    }
+
+    [Test]
     [Category(TestCategories.QEMU_CLEANUP)]
     [Explicit("Stress test; requires the pinned QEMU")]
     public async Task QemuTimeoutCleanupTest()
