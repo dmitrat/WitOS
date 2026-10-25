@@ -521,9 +521,9 @@ internal static class RuntimeDevices
     private static string[] FirstLines(KernelArchitecture architecture, int boot, PcProfile? pc) =>
     [
         "[DEVICES] Device discovered: Class: EntropySource, Provider: Virtio, DeviceId: pci/",
-        ": holds the device, its configuration space reads 1af4:",
-        .. pc is not null ? Array.Empty<string>() :
+        .. pc is not null ? Array.Empty<string>() : // the PC's boots have no virtio disk and, since H4, no virtio adapter
         [
+            ": holds the device, its configuration space reads 1af4:",
             "[DEVICES] Device discovered: Class: BlockStorageController, Provider: Virtio, DeviceId: pci/",
             "[VIRTIO-BLOCK] driver of pci/",
             ": read sector 0 through queue 0 and its interrupt: a boot sector (signature aa55, file system FAT",
