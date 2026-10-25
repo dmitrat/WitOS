@@ -1,21 +1,21 @@
 using System;
 using System.Collections.Generic;
 using OutWit.OS.Communication;
-using OutWit.OS.Hardware;
 using OutWit.OS.Resources;
 
-namespace OutWit.OS.Drivers.VirtioNet.Virtio;
+namespace OutWit.OS.Hardware;
 
 /// <summary>
-/// The packet protocol (witos/packet.h, plan step W1.1) served over the device: a window attached, INFO from the
-/// device's configuration, a SEND's frames checked whole and transmitted, and a RECEIVE answered from the device's frame
-/// queue or held until a frame comes; every request checked before anything is done.
+/// The packet protocol (witos/packet.h, plan step W1.1) served over a network adapter (H4: the virtio network device's
+/// and an e1000e's drivers alike): a window attached, INFO from the adapter, a SEND's frames checked whole and
+/// transmitted, and a RECEIVE answered from the adapter's frame queue or held until a frame comes; every request checked
+/// before anything is done.
 /// </summary>
-internal sealed class PacketServer : IDisposable
+public sealed class PacketServer : IDisposable
 {
     #region Fields
 
-    private readonly VirtioNetDevice m_device;
+    private readonly IPacketDevice m_device;
     private readonly List<(int Offset, int Length)> m_frames = [];
     private MemoryMapping? m_window;
     private PacketRequest? m_pendingReceive;
@@ -24,7 +24,11 @@ internal sealed class PacketServer : IDisposable
 
     #region Constructors
 
-    public PacketServer(VirtioNetDevice device)
+    /// <summary>
+    /// A server of the adapter, with no window attached.
+    /// </summary>
+    /// <param name="device">The adapter.</param>
+    public PacketServer(IPacketDevice device)
     {
         m_device = device;
     }
@@ -60,7 +64,7 @@ internal sealed class PacketServer : IDisposable
                     : new PacketReply(PacketMessages.ATTACH, PacketMessages.INVALID));
             case PacketMessages.INFO:
                 return PacketMessages.Encode(new PacketReply(PacketMessages.INFO, 0, Link: m_device.LinkUp ? PacketMessages.LINK_UP : 0,
-                    Address: m_device.Address, Mtu: VirtioNetDevice.MTU));
+                    Address: m_device.Address, Mtu: (ushort)m_device.Mtu));
         }
         if (m_window is null)
             return PacketMessages.Encode(new PacketReply(request.Operation, PacketMessages.INVALID));
@@ -119,7 +123,7 @@ internal sealed class PacketServer : IDisposable
     private PacketReply Send(PacketRequest request)
     {
         var bytes = m_window!.Bytes.Slice((int)request.Window, (int)request.Length).ToArray();
-        var error = PacketMessages.Unpack(bytes, request.Count, VirtioNetDevice.MTU, m_frames);
+        var error = PacketMessages.Unpack(bytes, request.Count, m_device.Mtu, m_frames);
         if (error != 0)
             return new PacketReply(PacketMessages.SEND, error);
         var frames = new ReadOnlyMemory<byte>[m_frames.Count];

@@ -124,10 +124,16 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public bool UsbKeyboard { get; init; }
 
     /// <summary>
-    /// A network adapter (plan step W1.1): virtio-net-pci on QEMU's user networking (slirp), whose gateway, DHCP server
-    /// and DNS forwarder the guest reaches at 10.0.2.2 and 10.0.2.3.
+    /// A network adapter (plan step W1.1): virtio-net-pci, or the adapter <see cref="NetworkAdapter"/> names, on QEMU's
+    /// user networking (slirp), whose gateway, DHCP server and DNS forwarder the guest reaches at 10.0.2.2 and 10.0.2.3.
     /// </summary>
     public bool Network { get; init; }
+
+    /// <summary>
+    /// The adapter <see cref="Network"/> puts on the board (H4): virtio-net-pci, or QEMU's e1000e, an Intel 82574L as a
+    /// PC and VMware have it, in the same slot.
+    /// </summary>
+    public NetworkAdapter NetworkAdapter { get; init; } = NetworkAdapter.Virtio;
 
     /// <summary>
     /// The runner's echo server beside the network adapter (plan step W1.2b): the guest reaches it at
@@ -224,4 +230,20 @@ internal enum DiskController
     /// QEMU's nvme, whose drive is its namespace 1 (H3.2).
     /// </summary>
     Nvme
+}
+
+/// <summary>
+/// The adapters a board's network may have (<see cref="BootRequest.NetworkAdapter"/>).
+/// </summary>
+internal enum NetworkAdapter
+{
+    /// <summary>
+    /// virtio-net-pci.
+    /// </summary>
+    Virtio,
+
+    /// <summary>
+    /// QEMU's e1000e, an Intel 82574L (H4).
+    /// </summary>
+    E1000e
 }

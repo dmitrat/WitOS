@@ -233,6 +233,7 @@ jobs:
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/Ahci
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/Nvme
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/VirtioNet
+            artifacts/runtime-witos/ilc/${{ matrix.arch }}/E1000
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/Network
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/Terminal
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/Display

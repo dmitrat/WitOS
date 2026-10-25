@@ -75,6 +75,16 @@ internal static class RuntimeDevices
     public const string NVME_EXECUTABLE = "Nvme";
 
     /// <summary>
+    /// The e1000e driver's sources (H4).
+    /// </summary>
+    public const string E1000_PROGRAM = "src/Services/Drivers/E1000";
+
+    /// <summary>
+    /// The executable runtime-witos publishes from the e1000e driver, /system/Drivers/E1000.
+    /// </summary>
+    public const string E1000_EXECUTABLE = "E1000";
+
+    /// <summary>
     /// The virtio network driver's sources (W1.1).
     /// </summary>
     public const string VIRTIO_NET_PROGRAM = "src/Services/Drivers/VirtioNet";
@@ -269,6 +279,9 @@ internal static class RuntimeDevices
     // OutWit.OS's NVMe controller (H3.2), which the NVMe driver alone compiles.
     private static readonly string[] OUTWIT_OS_NVME_FOLDERS = ["Hardware/Nvme"];
 
+    // OutWit.OS's e1000e adapter (H4), which the e1000e driver alone compiles.
+    private static readonly string[] OUTWIT_OS_E1000_FOLDERS = ["Hardware/E1000"];
+
     #endregion
 
     #region Functions
@@ -308,6 +321,7 @@ internal static class RuntimeDevices
         await PublishServiceAsync(root, tree, architecture, version, sysroot, AHCI_EXECUTABLE, AHCI_PROGRAM, [], OUTWIT_OS_AHCI_FOLDERS);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, NVME_EXECUTABLE, NVME_PROGRAM, [], OUTWIT_OS_NVME_FOLDERS);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_NET_EXECUTABLE, VIRTIO_NET_PROGRAM, ["Virtio"], []);
+        await PublishServiceAsync(root, tree, architecture, version, sysroot, E1000_EXECUTABLE, E1000_PROGRAM, [], OUTWIT_OS_E1000_FOLDERS);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, NETWORK_EXECUTABLE, NETWORK_PROGRAM, ["Server"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, TERMINAL_EXECUTABLE, TERMINAL_PROGRAM, ["Server"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, DISPLAY_EXECUTABLE, DISPLAY_PROGRAM, ["Server"], []);
@@ -372,7 +386,8 @@ internal static class RuntimeDevices
         }
         // The PC's one disk (H3.3): the boot disk's FAT volume as its EFI system partition after the data partitions, which
         // the firmware boots from on NVMe and, where it drives one, on AHCI; the probes, the namespace service and /bin/init
-        // find on it what the two disks gave them, and the host judges it after each boot as it judges the data disk.
+        // find on it what the two disks gave them, and the host judges it after each boot as it judges the data disk. The
+        // network adapter of these boots is the PC's, an e1000e (H4).
         var pcDisk = Path.Combine(Path.GetDirectoryName(image)!, "pc-disk.img");
         await RuntimeDataDisk.CreateAsync(pcDisk, programs: programs, bootImage: image);
         var pcBoot = 0;
@@ -387,6 +402,7 @@ internal static class RuntimeDevices
                 RequiredLines = RequiredLines(architecture, ++pcBoot, profile),
                 BootDiskController = controller,
                 Network = true,
+                NetworkAdapter = NetworkAdapter.E1000e,
                 NetworkEcho = true,
                 NetworkForward = NETWORK_LISTEN_PORT,
                 Actions =
@@ -398,7 +414,8 @@ internal static class RuntimeDevices
             await RuntimeDataDisk.CheckAsync(pcDisk, pcBoot);
         }
         Console.WriteLine($"PC disk on witos-{architecture.Name}: the firmware booted the one disk from " +
-            $"{string.Join(" and ", PcControllers(architecture).Select(controller => controller == DiskController.Nvme ? "NVMe" : "AHCI"))}, whose EFI system partition the namespace mounted at /boot beside its data partitions.");
+            $"{string.Join(" and ", PcControllers(architecture).Select(controller => controller == DiskController.Nvme ? "NVMe" : "AHCI"))}, whose EFI system partition the namespace mounted at /boot beside its data partitions, " +
+            "and the network service ran on its e1000e.");
         Console.WriteLine($"Devices on witos-{architecture.Name}: the device manager discovered the devices, moved each disk to its " +
             $"driver and wrote the data disk through the block protocol and the FAT provider before /bin/init; the image holds the " +
             $"{RuntimeDataDisk.TEST_PATTERN_BYTES} bytes and the guest's files on a clean FAT volume ({check!.Files} files, " +
@@ -416,15 +433,16 @@ internal static class RuntimeDevices
         architecture == KernelArchitecture.Arm64 ? [DiskController.Nvme] : [DiskController.Nvme, DiskController.Ahci];
 
     /// <summary>
-    /// The lines the runtime-devices scenario requires (D1.1, D1.2, D2, D3.2, D4.1, D4.2, D4.3, H3.1–H3.3).
+    /// The lines the runtime-devices scenario requires (D1.1, D1.2, D2, D3.2, D4.1, D4.2, D4.3, H3.1–H3.3, H4).
     /// </summary>
     /// <param name="architecture">Target architecture.</param>
     /// <param name="boot">The boot of the disk.</param>
-    /// <param name="pc">The PC's one disk and its controller, for its boots (H3.3); null for the boot and data disks.</param>
+    /// <param name="pc">The PC's one disk and its controller, for its boots (H3.3) on the e1000e (H4); null for the boot and
+    /// data disks.</param>
     /// <returns>The required lines.</returns>
     public static string[] RequiredLines(KernelArchitecture architecture, int boot = 1, PcProfile? pc = null) =>
     [
-        .. FirstLines(boot, pc),
+        .. FirstLines(architecture, boot, pc),
         .. InterruptLines(architecture, pc),
         .. pc is not null
             ? pc.Controller == DiskController.Ahci ? AhciLines(architecture, pc.Bytes) : NvmeLines(architecture, pc.Bytes, "witos-boot")
@@ -435,16 +453,31 @@ internal static class RuntimeDevices
         .. boot == 1 ? FirstExt4Lines() : boot == CUT_BOOT + 1 ? AfterCutExt4Lines() : AfterRebootExt4Lines(counted: boot <= CUT_BOOT),
         .. MiddleLines(architecture, boot, pc is not null),
         .. boot == 1 ? ["[NAMESPACE] created /data/home"] : Array.Empty<string>(), // the home of the one account (C1.2)
-        .. boot == CUT_BOOT ? [CUT_AFTER] : LastLines(architecture)
+        .. boot == CUT_BOOT ? [CUT_AFTER] : LastLines(architecture, pc is not null)
     ];
 
     // How the virtio drivers interrupt (H1.2b, ADR 0029): MSI-X messages where the board serves them (the PC), the INTx
-    // line elsewhere; the PC's one disk leaves the network adapter the one virtio driver of its boots.
-    private static string[] InterruptLines(KernelArchitecture architecture, PcProfile? pc) => architecture != KernelArchitecture.X64
+    // line elsewhere; the PC's one disk and its e1000e leave its boots no virtio driver (H3.3, H4), whose own lines name
+    // their interrupts.
+    private static string[] InterruptLines(KernelArchitecture architecture, PcProfile? pc) => pc is not null
+        ? []
+        : architecture != KernelArchitecture.X64
         ? [": interrupts through its INTx line"]
-        : pc is null
-        ? ["[VIRTIO-BLOCK] driver of pci/", ": interrupts through MSI-X entry 0, message ", "[VIRTIO-NET] driver of pci/"]
-        : [": interrupts through MSI-X entry 0, message ", "[VIRTIO-NET] driver of pci/"];
+        : ["[VIRTIO-BLOCK] driver of pci/", ": interrupts through MSI-X entry 0, message ", "[VIRTIO-NET] driver of pci/"];
+
+    // The e1000e driver of the PC's one disk's boots (H4): QEMU's 82574L identified, its address (QEMU's first) and link,
+    // the packet protocol served, the interrupt an MSI message on the PC and the INTx line elsewhere, and the driver's
+    // stop with the adapter reset.
+    private static string[] E1000Lines(KernelArchitecture architecture) =>
+    [
+        "[DEVICES] Device discovered: Class: NetworkController, Provider: Intel, DeviceId: pci/",
+        "[E1000] driver of pci/",
+        ": holds the device, its configuration space reads 8086:10d3",
+        ": Intel 82574L, interrupts through " + (architecture == KernelArchitecture.X64 ? "MSI, message " : "its INTx line"),
+        ": address 52:54:00:12:34:56, link up at 1000 Mb/s full duplex, 32 receive and 16 transmit descriptors, ",
+        "[DEVICES] driver /system/Drivers/E1000 of pci/",
+        ": stopped, the adapter reset"
+    ];
 
     // The AHCI driver of the boot whose data disk — or the PC's one disk (H3.3) — hangs on an AHCI controller (H3.1):
     // QEMU's ICH9 SATA controller, its first port's disk of so many bytes identified and its sector 0 read, the block
@@ -485,12 +518,12 @@ internal static class RuntimeDevices
     // What every boot of the scenario prints first: discovery, the drivers, the disks and the FAT volumes; the virtio data
     // disk's own lines on every boot but the AHCI and NVMe boots', and the virtio boot disk's on every boot but those of
     // the PC's one disk, whose partition table holds its EFI system partition as well (H3.3).
-    private static string[] FirstLines(int boot, PcProfile? pc) =>
+    private static string[] FirstLines(KernelArchitecture architecture, int boot, PcProfile? pc) =>
     [
         "[DEVICES] Device discovered: Class: EntropySource, Provider: Virtio, DeviceId: pci/",
-        ": holds the device, its configuration space reads 1af4:",
-        .. pc is not null ? Array.Empty<string>() :
+        .. pc is not null ? Array.Empty<string>() : // the PC's boots have no virtio disk and, since H4, no virtio adapter
         [
+            ": holds the device, its configuration space reads 1af4:",
             "[DEVICES] Device discovered: Class: BlockStorageController, Provider: Virtio, DeviceId: pci/",
             "[VIRTIO-BLOCK] driver of pci/",
             ": read sector 0 through queue 0 and its interrupt: a boot sector (signature aa55, file system FAT",
@@ -506,11 +539,15 @@ internal static class RuntimeDevices
         ],
         ": serving the block protocol",
         $": {pc?.Bytes ?? RuntimeDataDisk.BYTES} bytes in blocks of 512, writable, through the block channel and a window of 262144 bytes",
-        // The network adapter (W1.1): its driver, the packet channel and an ARP exchange with QEMU's gateway.
-        "[DEVICES] Device discovered: Class: NetworkQueueDevice, Provider: Virtio, DeviceId: pci/",
-        "[VIRTIO-NET] driver of pci/",
+        // The network adapter (W1.1): its driver, the packet channel and an ARP exchange with QEMU's gateway; on the PC's one
+        // disk an e1000e, as a PC and VMware have it (H4).
+        .. pc is not null ? E1000Lines(architecture) :
+        [
+            "[DEVICES] Device discovered: Class: NetworkQueueDevice, Provider: Virtio, DeviceId: pci/",
+            "[VIRTIO-NET] driver of pci/",
+            "[DEVICES] driver /system/Drivers/VirtioNet of pci/"
+        ],
         ": serving the packet protocol",
-        "[DEVICES] driver /system/Drivers/VirtioNet of pci/",
         ", MTU 1500, link up, through the packet channel and a window of 16384 bytes",
         ": ARP reply from 10.0.2.2 at 52:55:0a:00:02:02",
         $": GUID partition table of {(pc is null ? 3 : 4)} partitions: \"{RuntimeDataDisk.TEST_PARTITION}\" on blocks {RuntimeDataDisk.TEST_PARTITION_FIRST_BLOCK}-" +
@@ -620,7 +657,7 @@ internal static class RuntimeDevices
     ];
 
     // What a boot that is not cut off prints last: /bin/init's checks and programs, and the stop (D6.1).
-    private static string[] LastLines(KernelArchitecture architecture) =>
+    private static string[] LastLines(KernelArchitecture architecture, bool pc) =>
     [
         "[DEVICES-INIT] POSIX files over the namespace service: ",
         " checks passed, 0 failed",
@@ -650,7 +687,7 @@ internal static class RuntimeDevices
         ", 4 volumes unmounted",
         "[DEVICES] network service /system/Network: stopped",
         "[DEVICES] namespace service /system/Namespace: stopped",
-        ": stopped, the device reset",
+        pc ? ": stopped, the adapter reset" : ": stopped, the device reset", // the PC's e1000e (H4), the virtio drivers
         "[DEVICES] device manager: stopped",
         "[ROOT-TASK] /system/DeviceManager stopped",
         architecture.RootTaskPassedLine
@@ -715,12 +752,13 @@ internal static class RuntimeDevices
         var ahci = Path.Combine(directory, AHCI_EXECUTABLE);
         var nvme = Path.Combine(directory, NVME_EXECUTABLE);
         var network = Path.Combine(directory, VIRTIO_NET_EXECUTABLE);
+        var e1000 = Path.Combine(directory, E1000_EXECUTABLE);
         var names = Path.Combine(directory, NAMESPACE_EXECUTABLE);
         var networking = Path.Combine(directory, NETWORK_EXECUTABLE);
         var terminal = Path.Combine(directory, TERMINAL_EXECUTABLE);
         var display = Path.Combine(directory, DISPLAY_EXECUTABLE);
         if (!File.Exists(driver) || !File.Exists(console) || !File.Exists(input) || !File.Exists(xhci) || !File.Exists(ahci) || !File.Exists(nvme) || !File.Exists(network) ||
-            !File.Exists(names) ||
+            !File.Exists(e1000) || !File.Exists(names) ||
             !File.Exists(networking) || !File.Exists(terminal) || !File.Exists(display))
             throw new InvalidOperationException($"No witos drivers, namespace, network, terminal or display service in {directory}. " +
                 $"Run: dotnet run --project tools/WitOS.Dev -- runtime-services --arch {architecture.Name}");
@@ -729,7 +767,7 @@ internal static class RuntimeDevices
             ("system/" + DEVICE_MANAGER_EXECUTABLE, program[0].Source), ("system/Drivers/" + VIRTIO_BLOCK_EXECUTABLE, driver),
             ("system/Drivers/" + VIRTIO_CONSOLE_EXECUTABLE, console), ("system/Drivers/" + VIRTIO_INPUT_EXECUTABLE, input),
             ("system/Drivers/" + VIRTIO_NET_EXECUTABLE, network), ("system/Drivers/" + XHCI_EXECUTABLE, xhci), ("system/Drivers/" + AHCI_EXECUTABLE, ahci),
-            ("system/Drivers/" + NVME_EXECUTABLE, nvme),
+            ("system/Drivers/" + NVME_EXECUTABLE, nvme), ("system/Drivers/" + E1000_EXECUTABLE, e1000),
             ("system/" + NAMESPACE_EXECUTABLE, names), ("system/" + NETWORK_EXECUTABLE, networking), ("system/" + TERMINAL_EXECUTABLE, terminal),
             ("system/" + DISPLAY_EXECUTABLE, display),
             .. SpleenFont.PackageFiles(root), .. program.Skip(1)

@@ -162,8 +162,9 @@ internal static class BootScenarioRunner
             // both, and the kernel binds a line once, so a board has one or the other until a line serves several bindings.
             if (request.Keyboard)
                 throw new InvalidOperationException($"{name}: a keyboard and a network adapter would share an INTx line, which the kernel binds once.");
+            var adapter = request.NetworkAdapter == NetworkAdapter.E1000e ? "e1000e" : "virtio-net-pci";
             arguments.AddRange(["-netdev", "user,id=net0" + (peer?.NetdevOptions ?? ""), "-device",
-                $"virtio-net-pci,netdev=net0,addr=0x{architecture.EntropyLineSlot(request.Display):x}"]);
+                $"{adapter},netdev=net0,addr=0x{architecture.EntropyLineSlot(request.Display):x}"]);
         }
         if (request.Expected != ExpectedOutcome.EntropyUnavailable && !request.Pc)
         {

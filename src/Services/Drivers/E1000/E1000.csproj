@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The e1000e driver (plan step H4, ADR 0025): the NativeAOT program /system/Drivers/E1000 of the boot package, which
+       the device manager starts with an Intel 82574L it moves to it; it drives the adapter and serves the packet protocol
+       (witos/packet.h) to its one client, as the virtio network driver does. runtime-witos publishes it for witos with the
+       OutWit.OS sources and their Hardware/E1000 folder; on the host the project builds. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>E1000</AssemblyName>
+    <RootNamespace>OutWit.OS.Drivers.E1000</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../OutWit.OS/OutWit.OS.csproj" />
+  </ItemGroup>
+</Project>
