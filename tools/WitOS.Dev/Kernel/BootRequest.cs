@@ -63,6 +63,12 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public string? DataDisk { get; init; }
 
     /// <summary>
+    /// The controller the data disk hangs on: virtio-blk, an AHCI controller's first port (H3.1) — q35's own ICH9 SATA
+    /// controller, an ich9-ahci on the boards without one — or an NVMe controller's namespace 1 (H3.2).
+    /// </summary>
+    public DiskController DataDiskController { get; init; } = DiskController.Virtio;
+
+    /// <summary>
     /// A line after which the runner kills QEMU where it stands, without asking it to quit, as a power cut ends a machine
     /// (D6.2): the boot an <see cref="ExpectedOutcome.Cut"/> request judges by what it printed before; none when null.
     /// </summary>
@@ -190,4 +196,25 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public int UserFaults { get; init; }
 
     #endregion
+}
+
+/// <summary>
+/// The controllers a data disk may hang on (<see cref="BootRequest.DataDiskController"/>).
+/// </summary>
+internal enum DiskController
+{
+    /// <summary>
+    /// virtio-blk-pci.
+    /// </summary>
+    Virtio,
+
+    /// <summary>
+    /// ide-hd on an AHCI controller's first port (H3.1).
+    /// </summary>
+    Ahci,
+
+    /// <summary>
+    /// QEMU's nvme, whose drive is its namespace 1 (H3.2).
+    /// </summary>
+    Nvme
 }

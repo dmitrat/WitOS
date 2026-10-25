@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.RegularExpressions;
 using WitOS.Dev.Host;
 using WitOS.Dev.Runtime;
@@ -41,6 +42,22 @@ public sealed class RuntimeNuGetSuitesTests
         Assert.That(matrix.Success, Is.True, "kernel.yml has no matrix of the suites' groups");
         Assert.That(matrix.Groups[1].Value.Split(',', StringSplitOptions.TrimEntries),
             Is.EquivalentTo(selection.Suites.Select(suite => suite.Group).Distinct()));
+    }
+
+    // The jobs that boot the services on the linux-host leg's install (the suites, the published applications) take
+    // every service the package carries from its upload: a driver missing there fails each of them at the package
+    // (H3.1's AHCI driver did so).
+    [Test]
+    public void EveryServiceOfThePackageIsUploadedTest()
+    {
+        var workflow = File.ReadAllText(Path.Combine(TestEnvironment.Root, ".github", "workflows", "kernel.yml"));
+        var services = typeof(RuntimeDevices).GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Where(field => field.IsLiteral && field.Name.EndsWith("_EXECUTABLE", StringComparison.Ordinal) && field.Name != nameof(RuntimeDevices.FILES_EXECUTABLE))
+            .Select(field => (string)field.GetRawConstantValue()!)
+            .ToList();
+        Assert.That(services, Has.Count.GreaterThan(10));
+        foreach (var service in services)
+            Assert.That(workflow, Does.Contain($"artifacts/runtime-witos/ilc/${{{{ matrix.arch }}}}/{service}\n"), $"{service} is not uploaded");
     }
 
     // A host run the host's .NET lost to a signal is run once more; a failed test, a timeout or a summary is not.

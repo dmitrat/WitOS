@@ -56,7 +56,7 @@ internal static class Program
             // The block probe goes to block drivers alone: a serial driver's channel (N4.3a) speaks the serial protocol,
             // and a probe there would take the channel the terminal service needs.
             foreach (var driver in drivers.Where(driver =>
-                         driver.Status == 0 && driver.Service is not null && driver.Record.Class == DriverTable.BLOCK_STORAGE))
+                         driver.Status == 0 && driver.Service is not null && DriverTable.ServesBlocks(driver.Record)))
             {
                 var disk = StorageProbe.RunAsync(driver).GetAwaiter().GetResult();
                 if (disk is not null)

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The NVMe driver (plan step H3.2, ADR 0025): the NativeAOT program /system/Drivers/Nvme of the boot package, which
+       the device manager starts with an NVMe controller it moves to it; it drives the controller and serves its first
+       active namespace over the block protocol, as the virtio block driver serves its disk. runtime-witos
+       publishes it for witos with the OutWit.OS sources and their Hardware/Nvme folder; on the host the project builds. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Nvme</AssemblyName>
+    <RootNamespace>OutWit.OS.Drivers.Nvme</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../OutWit.OS/OutWit.OS.csproj" />
+  </ItemGroup>
+</Project>

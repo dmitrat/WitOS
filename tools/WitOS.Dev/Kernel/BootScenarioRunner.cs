@@ -18,6 +18,12 @@ internal static class BootScenarioRunner
     // time follows the host's between keys instead of racing ahead, and the host's processor rests.
     private const string INTERACTIVE_TIME = "sleep=on";
 
+    // A writable disk's flushes end at QEMU's device without the host's fdatasync: the guest's flush is served as before,
+    // while an idle guest's time no longer runs ahead of a host flush that a loaded host takes long over (a gate's AHCI
+    // flush timed out so in CI, H3.2). A cut boot (D6.2) kills QEMU, not the host, whose page cache keeps every write QEMU
+    // made, so what the gates judge is unchanged.
+    private const string GUEST_FLUSHES = "cache.no-flush=on";
+
     // The window of a session on the host's screen (C2.4): QEMU's GTK display, the framebuffer scaled to the window.
     private const string WINDOW_DISPLAY = "gtk,zoom-to-fit=on";
 
@@ -168,12 +174,12 @@ internal static class BootScenarioRunner
             var rules = Path.Combine(logs, name + ".blkdebug.conf");
             await File.WriteAllTextAsync(rules, string.Concat(request.DataDiskReadErrors.Select(sector =>
                 $"[inject-error]\nevent = \"read_aio\"\niotype = \"read\"\nerrno = \"5\"\nsector = \"{sector}\"\n\n")));
-            arguments.AddRange(["-drive", $"if=none,id=data,format=raw,rerror=report,werror=report,file.driver=blkdebug," +
-                $"file.config={QemuPath(rules)},file.image.filename={QemuPath(request.DataDisk)}", "-device", "virtio-blk-pci,drive=data"]);
+            arguments.AddRange(["-drive", $"if=none,id=data,format=raw,{GUEST_FLUSHES},rerror=report,werror=report,file.driver=blkdebug," +
+                $"file.config={QemuPath(rules)},file.image.filename={QemuPath(request.DataDisk)}", .. DataDiskDevices(request, architecture)]);
         }
         else if (request.DataDisk is not null)
         {
-            arguments.AddRange(["-drive", $"if=none,id=data,format=raw,file={QemuPath(request.DataDisk)}", "-device", "virtio-blk-pci,drive=data"]);
+            arguments.AddRange(["-drive", $"if=none,id=data,format=raw,{GUEST_FLUSHES},file={QemuPath(request.DataDisk)}", .. DataDiskDevices(request, architecture)]);
         }
         if (terminal is not null || relay is not null)
         {
@@ -359,6 +365,23 @@ internal static class BootScenarioRunner
         }
         return null;
     }
+
+    /// <summary>
+    /// The devices of a request's data disk, whose drive is "data" (D3.2, H3.1, H3.2): a virtio block device, an ATA disk
+    /// on the first port of an AHCI controller — q35's own ICH9 SATA controller, whose ports are its buses ide.0 to ide.5,
+    /// or an ich9-ahci put where the virtio device would be on the boards without one, so that it takes the same INTx
+    /// line — or an NVMe controller there, whose namespace 1 the drive is.
+    /// </summary>
+    /// <param name="request">The request.</param>
+    /// <param name="architecture">Its architecture.</param>
+    /// <returns>The -device arguments.</returns>
+    internal static string[] DataDiskDevices(BootRequest request, KernelArchitecture architecture) => request.DataDiskController switch
+    {
+        DiskController.Ahci when architecture == KernelArchitecture.X64 && !request.Pc => ["-device", "ide-hd,drive=data,bus=ide.0"],
+        DiskController.Ahci => ["-device", "ich9-ahci,id=ahci", "-device", "ide-hd,drive=data,bus=ahci.0"],
+        DiskController.Nvme => ["-device", "nvme,serial=witos-data,drive=data"],
+        _ => ["-device", "virtio-blk-pci,drive=data"],
+    };
 
     /// <summary>
     /// QEMU's instruction clock for a board (P2): its single-threaded TCG runs the processors in turn and counts every

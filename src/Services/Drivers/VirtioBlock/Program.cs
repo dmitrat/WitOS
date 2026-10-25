@@ -50,8 +50,8 @@ internal static class Program
             transport = VirtioPciTransport.Open(device, descriptor);
             queue = VirtioBlockQueue.Open(transport, device);
             Console.WriteLine($"{PREFIX}driver of {name}: interrupts through {queue.InterruptDescription}");
-            Console.WriteLine($"{PREFIX}driver of {name}: {Describe(queue.Read(0))}");
-            server = BlockServer.Create(queue, device, name);
+            Console.WriteLine($"{PREFIX}driver of {name}: {Describe(queue.ReadSector(0))}");
+            server = BlockServer.Create(queue, device, PREFIX, name);
             (block, theirs) = Channel.Create();
             var info = server.Info;
             Console.WriteLine($"{PREFIX}driver of {name}: {info.Length} bytes in blocks of {info.BlockSize}, " +
