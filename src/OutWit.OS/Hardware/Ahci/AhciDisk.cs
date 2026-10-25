@@ -133,5 +133,8 @@ public sealed class AhciDisk : IBlockDevice
     /// <inheritdoc />
     public long MaxSegmentBytes => AhciCommands.PRDT_ENTRY_LIMIT;
 
+    /// <inheritdoc />
+    public long MaxTransferBytes => (long)AhciCommands.MAX_SECTORS * BlockSize;
+
     #endregion
 }

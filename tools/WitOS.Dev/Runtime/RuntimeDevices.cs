@@ -65,6 +65,16 @@ internal static class RuntimeDevices
     public const string AHCI_EXECUTABLE = "Ahci";
 
     /// <summary>
+    /// The NVMe driver's sources (H3.2).
+    /// </summary>
+    public const string NVME_PROGRAM = "src/Services/Drivers/Nvme";
+
+    /// <summary>
+    /// The executable runtime-witos publishes from the NVMe driver, /system/Drivers/Nvme.
+    /// </summary>
+    public const string NVME_EXECUTABLE = "Nvme";
+
+    /// <summary>
     /// The virtio network driver's sources (W1.1).
     /// </summary>
     public const string VIRTIO_NET_PROGRAM = "src/Services/Drivers/VirtioNet";
@@ -152,15 +162,20 @@ internal static class RuntimeDevices
     /// <summary>
     /// The boots of one data disk the scenario makes (D6.1, D6.2, D6.3, H3.1): two that end with the services stopped, a
     /// third that the host cuts off while /bin/init writes rounds of files, a fourth that finds what the cut left, a fifth
-    /// on a disk that fails some reads, and a sixth with the disk on an AHCI controller.
+    /// on a disk that fails some reads, a sixth with the disk on an AHCI controller and a seventh on an NVMe controller.
     /// </summary>
-    public const int BOOTS = 6;
+    public const int BOOTS = 7;
 
     /// <summary>
     /// The boot whose data disk hangs on an AHCI controller's first port (H3.1): the AHCI driver serves it, and the probes,
     /// the namespace service and /bin/init find on it what the five boots on virtio-blk left.
     /// </summary>
     public const int AHCI_BOOT = 6;
+
+    /// <summary>
+    /// The boot whose data disk is an NVMe controller's namespace (H3.2), which the NVMe driver serves.
+    /// </summary>
+    public const int NVME_BOOT = 7;
 
     /// <summary>
     /// The boot whose data disk fails the reads of /big.bin's first block (devices_init.c's FAIL_BOOT, D6.3).
@@ -251,6 +266,9 @@ internal static class RuntimeDevices
     // OutWit.OS's AHCI controller (H3.1), which the AHCI driver alone compiles.
     private static readonly string[] OUTWIT_OS_AHCI_FOLDERS = ["Hardware/Ahci"];
 
+    // OutWit.OS's NVMe controller (H3.2), which the NVMe driver alone compiles.
+    private static readonly string[] OUTWIT_OS_NVME_FOLDERS = ["Hardware/Nvme"];
+
     #endregion
 
     #region Functions
@@ -288,6 +306,7 @@ internal static class RuntimeDevices
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_INPUT_EXECUTABLE, VIRTIO_INPUT_PROGRAM, ["Virtio"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, XHCI_EXECUTABLE, XHCI_PROGRAM, [], OUTWIT_OS_USB_FOLDERS);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, AHCI_EXECUTABLE, AHCI_PROGRAM, [], OUTWIT_OS_AHCI_FOLDERS);
+        await PublishServiceAsync(root, tree, architecture, version, sysroot, NVME_EXECUTABLE, NVME_PROGRAM, [], OUTWIT_OS_NVME_FOLDERS);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_NET_EXECUTABLE, VIRTIO_NET_PROGRAM, ["Virtio"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, NETWORK_EXECUTABLE, NETWORK_PROGRAM, ["Server"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, TERMINAL_EXECUTABLE, TERMINAL_PROGRAM, ["Server"], []);
@@ -301,8 +320,9 @@ internal static class RuntimeDevices
         await RuntimeDataDisk.CreateAsync(dataDisk, programs: programs);
         // Boots of one data disk (D6.1, D6.2): the first writes it, the services stop and unmount its volumes, and the second
         // finds what the first wrote; the third is cut off while it writes, and the fourth finds what the cut left; the fifth
-        // fails some reads (D6.3), and the sixth reaches the disk through an AHCI controller (H3.1). The host judges the disk
-        // after each: unmounted and clean after a stop, replayable by e2fsck after the cut.
+        // fails some reads (D6.3), the sixth reaches the disk through an AHCI controller (H3.1) and the seventh as an NVMe
+        // namespace (H3.2). The host judges the disk after each: unmounted and clean after a stop, replayable by e2fsck
+        // after the cut.
         OutWit.OS.FileSystems.FileSystemCheckReport? check = null;
         var durable = -1;
         for (var boot = 1; boot <= BOOTS; boot++)
@@ -316,7 +336,7 @@ internal static class RuntimeDevices
                 Suite = BootSuite.Release,
                 RequiredLines = RequiredLines(architecture, boot),
                 DataDisk = dataDisk,
-                DataDiskController = boot == AHCI_BOOT ? DiskController.Ahci : DiskController.Virtio,
+                DataDiskController = boot switch { AHCI_BOOT => DiskController.Ahci, NVME_BOOT => DiskController.Nvme, _ => DiskController.Virtio },
                 Network = true,
                 // TCP (W1.2b): the runner's echo server behind 10.0.2.100:7, and the probe's listening socket the runner
                 // connects to through a port forward once the probe says it listens.
@@ -366,7 +386,7 @@ internal static class RuntimeDevices
     [
         .. FirstLines(boot),
         .. InterruptLines(architecture),
-        .. boot == AHCI_BOOT ? AhciLines(architecture) : Array.Empty<string>(),
+        .. boot == AHCI_BOOT ? AhciLines(architecture) : boot == NVME_BOOT ? NvmeLines(architecture) : Array.Empty<string>(),
         .. boot > 1 ? [$": partition \"{RuntimeDataDisk.TEST_PARTITION}\": holds the {RuntimeDataDisk.TEST_PATTERN_BYTES} bytes a previous boot wrote",
             $": partition \"{RuntimeDataDisk.FAT_PARTITION}\": after the reboot, read back what a previous boot wrote"] : Array.Empty<string>(),
         .. boot == 1 ? FirstExt4Lines() : boot == CUT_BOOT + 1 ? AfterCutExt4Lines() : AfterRebootExt4Lines(counted: boot <= CUT_BOOT),
@@ -399,8 +419,25 @@ internal static class RuntimeDevices
         ": stopped, the ports idle"
     ];
 
+    // The NVMe driver of the boot whose data disk is an NVMe namespace (H3.2): QEMU's controller identified with its
+    // namespace 1, whose block 0 it reads, the block protocol served, the interrupt MSI-X entry 0 on the PC and the INTx
+    // line elsewhere, and the driver's stop after the controller's normal shutdown.
+    private static string[] NvmeLines(KernelArchitecture architecture) =>
+    [
+        "[DEVICES] Device discovered: Class: NvmeController, Provider: ",
+        "[NVME] driver of pci/",
+        ": holds the device, its configuration space reads 1b36:0010",
+        ": NVMe 1.4, \"QEMU NVMe Ctrl\", serial witos-data, firmware ",
+        ", a volatile write cache, interrupts through " + (architecture == KernelArchitecture.X64 ? "MSI-X entry 0, message " : "its INTx line"),
+        $"[NVME] namespace 1: {RuntimeDataDisk.BYTES} bytes in blocks of 512, transfers of up to 524288 bytes",
+        ": read block 0 of namespace 1: a protective MBR (signature aa55) of a GUID partition table",
+        $": namespace 1, {RuntimeDataDisk.BYTES} bytes in blocks of 512, writable, a volatile cache it flushes, transfers of up to 262144 bytes in 128 segments, ",
+        "[DEVICES] driver /system/Drivers/Nvme of pci/",
+        ": stopped, the controller shut down and disabled"
+    ];
+
     // What every boot of the scenario prints first: discovery, the drivers, the disks and the FAT volumes; the virtio data
-    // disk's own lines on every boot but the AHCI boot's.
+    // disk's own lines on every boot but the AHCI and NVMe boots'.
     private static string[] FirstLines(int boot) =>
     [
         "[DEVICES] Device discovered: Class: BlockStorageController, Provider: Virtio, DeviceId: pci/",
@@ -408,7 +445,7 @@ internal static class RuntimeDevices
         "[VIRTIO-BLOCK] driver of pci/",
         ": holds the device, its configuration space reads 1af4:",
         ": read sector 0 through queue 0 and its interrupt: a boot sector (signature aa55, file system FAT",
-        .. boot == AHCI_BOOT ? Array.Empty<string>() :
+        .. boot is AHCI_BOOT or NVME_BOOT ? Array.Empty<string>() :
         [
             ": read sector 0 through queue 0 and its interrupt: a protective MBR (signature aa55) of a GUID partition table",
             $": {RuntimeDataDisk.BYTES} bytes in blocks of 512, writable, a volatile cache it flushes, transfers of up to "
@@ -625,12 +662,13 @@ internal static class RuntimeDevices
         var input = Path.Combine(directory, VIRTIO_INPUT_EXECUTABLE);
         var xhci = Path.Combine(directory, XHCI_EXECUTABLE);
         var ahci = Path.Combine(directory, AHCI_EXECUTABLE);
+        var nvme = Path.Combine(directory, NVME_EXECUTABLE);
         var network = Path.Combine(directory, VIRTIO_NET_EXECUTABLE);
         var names = Path.Combine(directory, NAMESPACE_EXECUTABLE);
         var networking = Path.Combine(directory, NETWORK_EXECUTABLE);
         var terminal = Path.Combine(directory, TERMINAL_EXECUTABLE);
         var display = Path.Combine(directory, DISPLAY_EXECUTABLE);
-        if (!File.Exists(driver) || !File.Exists(console) || !File.Exists(input) || !File.Exists(xhci) || !File.Exists(ahci) || !File.Exists(network) ||
+        if (!File.Exists(driver) || !File.Exists(console) || !File.Exists(input) || !File.Exists(xhci) || !File.Exists(ahci) || !File.Exists(nvme) || !File.Exists(network) ||
             !File.Exists(names) ||
             !File.Exists(networking) || !File.Exists(terminal) || !File.Exists(display))
             throw new InvalidOperationException($"No witos drivers, namespace, network, terminal or display service in {directory}. " +
@@ -640,6 +678,7 @@ internal static class RuntimeDevices
             ("system/" + DEVICE_MANAGER_EXECUTABLE, program[0].Source), ("system/Drivers/" + VIRTIO_BLOCK_EXECUTABLE, driver),
             ("system/Drivers/" + VIRTIO_CONSOLE_EXECUTABLE, console), ("system/Drivers/" + VIRTIO_INPUT_EXECUTABLE, input),
             ("system/Drivers/" + VIRTIO_NET_EXECUTABLE, network), ("system/Drivers/" + XHCI_EXECUTABLE, xhci), ("system/Drivers/" + AHCI_EXECUTABLE, ahci),
+            ("system/Drivers/" + NVME_EXECUTABLE, nvme),
             ("system/" + NAMESPACE_EXECUTABLE, names), ("system/" + NETWORK_EXECUTABLE, networking), ("system/" + TERMINAL_EXECUTABLE, terminal),
             ("system/" + DISPLAY_EXECUTABLE, display),
             .. SpleenFont.PackageFiles(root), .. program.Skip(1)

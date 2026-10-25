@@ -11,6 +11,7 @@
     <Project Path="src/Services/Drivers/VirtioInput/VirtioInput.csproj" />
     <Project Path="src/Services/Drivers/Xhci/Xhci.csproj" />
     <Project Path="src/Services/Drivers/Ahci/Ahci.csproj" />
+    <Project Path="src/Services/Drivers/Nvme/Nvme.csproj" />
     <Project Path="src/Services/Drivers/VirtioNet/VirtioNet.csproj" />
     <Project Path="src/Services/Display/Display.csproj" />
     <Project Path="src/Services/Terminal/Terminal.csproj" />

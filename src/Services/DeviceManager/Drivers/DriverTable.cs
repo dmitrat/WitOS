@@ -5,8 +5,8 @@ namespace OutWit.OS.DeviceManager.Drivers;
 /// <summary>
 /// The drivers the device manager knows (ADR 0025, decision 7): a provider and a contract mapped to a driver program
 /// of the boot package, until driver packages carry their match metadata (RFC 0010, RFC 0007 §110); a USB
-/// controller of the xHCI interface, whatever its vendor, to the xHCI driver (H2.1), and a SATA controller of the AHCI
-/// interface to the AHCI driver (H3.1).
+/// controller of the xHCI interface, whatever its vendor, to the xHCI driver (H2.1), a SATA controller of the AHCI
+/// interface to the AHCI driver (H3.1), and an NVMe controller to the NVMe driver (H3.2).
 /// </summary>
 internal static class DriverTable
 {
@@ -52,6 +52,22 @@ internal static class DriverTable
     /// The PCI programming interface of an AHCI controller.
     /// </summary>
     public const uint AHCI_INTERFACE = 0x01;
+
+    /// <summary>
+    /// The NVMe driver (H3.2): an NVMe controller's first active namespace, served over the block protocol.
+    /// </summary>
+    public const string NVME = "/system/Drivers/Nvme";
+
+    /// <summary>
+    /// The UHI class of a non-volatile memory controller, which the PCI class 01/08 names; the programming interface 0x02
+    /// is NVM Express's I/O controller.
+    /// </summary>
+    public const string NVME_CONTROLLER = "NvmeController";
+
+    /// <summary>
+    /// The PCI programming interface of an NVM Express I/O controller.
+    /// </summary>
+    public const uint NVME_INTERFACE = 0x02;
 
     /// <summary>
     /// The UHI class of a USB host controller of any interface, which the PCI class 0C/03 names; the programming
@@ -101,6 +117,7 @@ internal static class DriverTable
         ("Virtio", NETWORK_QUEUE) => VIRTIO_NET,
         (_, USB_CONTROLLER) when (record.Descriptor.ClassCode & 0xFF) == XHCI_INTERFACE => XHCI,
         (_, SATA_CONTROLLER) when (record.Descriptor.ClassCode & 0xFF) == AHCI_INTERFACE => AHCI,
+        (_, NVME_CONTROLLER) when (record.Descriptor.ClassCode & 0xFF) == NVME_INTERFACE => NVME,
         _ => null
     };
 
@@ -112,11 +129,11 @@ internal static class DriverTable
     public static bool ServesInput(DeviceRecord record) => record.Class == INPUT_DEVICE || Find(record) == XHCI;
 
     /// <summary>
-    /// Whether a device's driver serves the block protocol, a disk for the namespace service (D3.2, H3.1).
+    /// Whether a device's driver serves the block protocol, a disk for the namespace service (D3.2, H3.1, H3.2).
     /// </summary>
     /// <param name="record">A device record.</param>
     /// <returns>Whether it does.</returns>
-    public static bool ServesBlocks(DeviceRecord record) => record.Class == BLOCK_STORAGE || Find(record) == AHCI;
+    public static bool ServesBlocks(DeviceRecord record) => record.Class == BLOCK_STORAGE || Find(record) is AHCI or NVME;
 
     #endregion
 }

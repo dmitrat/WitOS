@@ -242,6 +242,11 @@ internal sealed class VirtioBlockQueue : IBlockDevice, IDisposable
     /// </summary>
     public long MaxSegmentBytes { get; }
 
+    /// <summary>
+    /// The bytes of one request: what its segments carry, the device naming no other limit.
+    /// </summary>
+    public long MaxTransferBytes => long.MaxValue;
+
     #endregion
 
     #region Nested Types

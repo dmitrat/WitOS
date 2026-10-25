@@ -49,7 +49,7 @@ public sealed class BlockServer : IDisposable
 
     /// <summary>
     /// The server of a disk. A transfer touches at most one page more than its whole pages, so the disk's segments less
-    /// one bound the transfer limit in pages, within the largest window.
+    /// one bound the transfer limit in pages, within the largest window and the disk's largest request.
     /// </summary>
     /// <param name="disk">The disk.</param>
     /// <param name="device">The device, with BIND, for the window's pin.</param>
@@ -62,6 +62,7 @@ public sealed class BlockServer : IDisposable
         var transfer = disk.MaxSegments > BlockMessages.WINDOW_BYTES / PAGE
             ? BlockMessages.WINDOW_BYTES
             : (disk.MaxSegments - 1) * PAGE;
+        transfer = (int)Math.Min(transfer, disk.MaxTransferBytes);
         transfer -= transfer % disk.BlockSize;
         if (transfer < disk.BlockSize)
             throw new IOException($"The device's {disk.MaxSegments} segments cannot carry a block of {disk.BlockSize} bytes.");

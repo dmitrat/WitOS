@@ -63,4 +63,9 @@ public interface IBlockDevice
     /// The bytes of one segment.
     /// </summary>
     long MaxSegmentBytes { get; }
+
+    /// <summary>
+    /// The bytes of the largest request, whatever its segments: an NVMe controller's MDTS, the sectors of one ATA command.
+    /// </summary>
+    long MaxTransferBytes { get; }
 }

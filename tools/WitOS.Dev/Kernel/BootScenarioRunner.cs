@@ -361,9 +361,10 @@ internal static class BootScenarioRunner
     }
 
     /// <summary>
-    /// The devices of a request's data disk, whose drive is "data" (D3.2, H3.1): a virtio block device, or an ATA disk on
-    /// the first port of an AHCI controller — q35's own ICH9 SATA controller, whose ports are its buses ide.0 to ide.5, or
-    /// an ich9-ahci put where the virtio device would be on the boards without one, so that it takes the same INTx line.
+    /// The devices of a request's data disk, whose drive is "data" (D3.2, H3.1, H3.2): a virtio block device, an ATA disk
+    /// on the first port of an AHCI controller — q35's own ICH9 SATA controller, whose ports are its buses ide.0 to ide.5,
+    /// or an ich9-ahci put where the virtio device would be on the boards without one, so that it takes the same INTx
+    /// line — or an NVMe controller there, whose namespace 1 the drive is.
     /// </summary>
     /// <param name="request">The request.</param>
     /// <param name="architecture">Its architecture.</param>
@@ -372,6 +373,7 @@ internal static class BootScenarioRunner
     {
         DiskController.Ahci when architecture == KernelArchitecture.X64 && !request.Pc => ["-device", "ide-hd,drive=data,bus=ide.0"],
         DiskController.Ahci => ["-device", "ich9-ahci,id=ahci", "-device", "ide-hd,drive=data,bus=ahci.0"],
+        DiskController.Nvme => ["-device", "nvme,serial=witos-data,drive=data"],
         _ => ["-device", "virtio-blk-pci,drive=data"],
     };
 
