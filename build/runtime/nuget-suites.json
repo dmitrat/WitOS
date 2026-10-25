@@ -94,7 +94,9 @@
       "output": "src/Numerics.Tests/bin/Release/net6.0",
       "assembly": "MathNet.Numerics.Tests.dll",
       "runner": "nunitlite",
-      "excluded": {}
+      "excluded": {
+        "method:MathNet.Numerics.Tests.StatisticsTests.RunningWeightedStatisticsTests.ConsistentWithUnweighted": "draws its weights from DiscreteUniform(1, 5) on MathNet's default random source, seeded anew in every run, and compares the weighted and the repeated statistics of NIST's ill-conditioned NumAcc1 data (values near 10^7 that differ in the last digits) within absolute tolerances of 1e-8 and 1e-9: it failed on the Linux host now and then (four CI runs from 2026-10-15 to 2026-10-24, each time the case numacc1), a flake of the test's own independent of WitOS, where a host failure fails the suite"
+      }
     },
     {
       "name": "nunit.framework.tests",
