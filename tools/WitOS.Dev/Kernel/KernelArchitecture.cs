@@ -45,7 +45,10 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
         "qemu-system-aarch64", "virt,gic-version=3,acpi=off", ["-semihosting-config", "enable=on,target=native"], [],
         "edk2-aarch64-code.fd", "edk2-arm-vars.fd", "cortex-a72", "aarch64-unknown-linux-musl", 183,
         [], // x18 is an ordinary register of layer 2 since R3.3: the kernel stopped resetting it at K8.4b
-        "aarch64-unknown-windows");
+        "aarch64-unknown-windows")
+    {
+        LinuxImage = true
+    };
 
     /// <summary>
     /// The RISC-V 64 kernel on the QEMU virt board over OpenSBI, loaded by EDK II from pflash (plan step V1, the
@@ -113,6 +116,13 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     /// for a port whose secondary processors are still to come (none since V1.4).
     /// </summary>
     public bool SecondaryProcessors { get; init; } = true;
+
+    /// <summary>
+    /// Whether the kernel also boots by the Linux arm64 boot protocol (plan step H6, ADR 0030): its image links the boot
+    /// layer src/Boot.Linux beside the UEFI loader, and the tool writes the image laid out flat with the protocol's header
+    /// and the initial ramdisk beside the boot disk (<see cref="KernelImageBuilder.LinuxImagePath"/>).
+    /// </summary>
+    public bool LinuxImage { get; init; }
 
     /// <summary>
     /// The option that keeps layer-2 code off the procedure linkage table, where the ISA has one: clang refuses

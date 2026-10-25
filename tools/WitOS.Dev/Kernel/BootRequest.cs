@@ -196,6 +196,18 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public bool IdeBootDisk { get; init; }
 
     /// <summary>
+    /// The Linux arm64 boot protocol in place of the firmware (plan step H6, ADR 0030): QEMU loads the kernel's flat image
+    /// and its initial ramdisk beside the boot disk (<see cref="KernelImageBuilder.LinuxImagePath"/>) and enters the image
+    /// with the device tree it writes; no firmware, no boot disk.
+    /// </summary>
+    public bool LinuxBoot { get; init; }
+
+    /// <summary>
+    /// The board's EL2 (QEMU's virtualization=on), at which a <see cref="LinuxBoot"/> enters the image (H6).
+    /// </summary>
+    public bool Virtualization { get; init; }
+
+    /// <summary>
     /// The board without its test exit (plan step H1.2a), as a machine has none: the kernel's end then turns the board off,
     /// which <see cref="ExpectedOutcome.PoweredOff"/> judges.
     /// </summary>

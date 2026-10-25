@@ -34,7 +34,7 @@ internal static class CommandLine
             (root, architecture) => architecture == KernelArchitecture.X64
                 ? KernelTestSuite.RunAsync(root)
                 : KernelTestSuite.RunFoundationAsync(root, architecture)),
-        new CommandScenario("release", "Build and boot the release kernel without self-tests, once with the board's display (C2.1) and, on x64, once on QEMU's pc machine without a virtio device (H1.1)", KernelImageBuilder.RELEASE_SCENARIO,
+        new CommandScenario("release", "Build and boot the release kernel without self-tests, once with the board's display (C2.1), on x64 once on QEMU's pc machine without a virtio device (H1.1), and on ARM64 by the Linux arm64 boot protocol at EL1 and EL2 (H6)", KernelImageBuilder.RELEASE_SCENARIO,
         architecture => [
             new BootRequest("release-128", 128, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release },
             new BootRequest("release-512", 512, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release },
@@ -44,6 +44,23 @@ internal static class CommandLine
             {
                 Suite = BootSuite.Release, Display = true, RequiredLines = ["[BOOT] Framebuffer: ", "[BOOT] Framebuffer memory type "]
             },
+            // The Linux arm64 boot protocol (H6, ADR 0030): QEMU enters the same kernel image with the device tree and the
+            // initial ramdisk, without the firmware, at EL1 on two processors (PSCI over hvc) and at EL2 on one, whose
+            // entry drops to EL1 first.
+            .. architecture.LinuxImage
+                ? [
+                    new BootRequest("release-linux-256", 256, 60, ExpectedOutcome.Success)
+                    {
+                        Suite = BootSuite.Release, LinuxBoot = true, Processors = 2,
+                        RequiredLines = ["[BOOT] Linux arm64 entry at EL1", "[BOOT] Boot contract from the device tree: ", "Processors present/online: 2/2"]
+                    },
+                    new BootRequest("release-linux-el2-128", 128, 60, ExpectedOutcome.Success)
+                    {
+                        Suite = BootSuite.Release, LinuxBoot = true, Virtualization = true,
+                        RequiredLines = ["[BOOT] Linux arm64 entry at EL2", "[BOOT] Boot contract from the device tree: "]
+                    }
+                ]
+                : Array.Empty<BootRequest>(),
             // The pc board (H1.1): QEMU's i440FX and PIIX3 without a virtio device, the boot disk on IDE and the default
             // VGA card's GOP as the framebuffer, as VMware's 440BX and PIIX4 boot the same kernel; on two processors, so that
             // the PIC's line reaches the boot processor through LINT0 on PIIX too. The self-test kernel stays on q35: its
