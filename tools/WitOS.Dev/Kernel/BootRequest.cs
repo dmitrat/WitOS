@@ -208,6 +208,12 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public bool Virtualization { get; init; }
 
     /// <summary>
+    /// The ARM64 board with a GICv2 (QEMU's virt with gic-version=2) in place of its GICv3 (plan step H7.1): the GIC a
+    /// Raspberry Pi 4's GIC-400 is, which the kernel takes from the device tree as it takes the GICv3.
+    /// </summary>
+    public bool Gic2 { get; init; }
+
+    /// <summary>
     /// The board without its test exit (plan step H1.2a), as a machine has none: the kernel's end then turns the board off,
     /// which <see cref="ExpectedOutcome.PoweredOff"/> judges.
     /// </summary>

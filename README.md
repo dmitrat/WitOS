@@ -192,7 +192,7 @@ src/Kernel/                  Architecture-independent kernel: memory, handles, p
 src/Kernel.Arch.X64/         x64 traps, frames, contexts, page tables and user transitions
 src/Kernel.Platform.Pc/      PC board devices (q35, QEMU pc, VMware): COM1, PIC/PIT, HPET, RTC, PCI and test exit
 src/Kernel.Arch.A64/         ARM64 vectors, frames, EL0 entry, kernel and user page tables
-src/Kernel.Platform.QemuVirt/ QEMU virt board: PL011, generic counter, GICv3, PL031 and semihosting exit
+src/Kernel.Platform.Arm/     ARM64 boards a device tree describes (virt, the Pis): GICv2/v3, timer, PL031, PL011, exit
 src/Substrate/               The system layer: WitOS's part of the libc, libwitos and the pins of its upstream sources
 src/RootTask/                The system layer's root task and process manager
 src/OutWit.OS/               The managed capability API of WitOS's own services, over libwitos (D1.1)

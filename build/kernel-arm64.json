@@ -1,7 +1,7 @@
 {
   "architecture": "arm64",
   "status": "active",
-  "description": "ARM64 kernel on the QEMU virt board: boot contract, exception vectors, kernel translation tables, the boot package's extents, randomness, the generic counter, the GICv3 timer, kernel-thread preemption and EL0 components through the common kernel.",
+  "description": "ARM64 kernel for every board a device tree describes (QEMU virt; H7): boot contract, exception vectors, kernel translation tables, the boot package's extents, randomness, the generic counter, the GIC timer, kernel-thread preemption and EL0 components through the common kernel.",
   "includes": [
     "src/Kernel/include",
     "src/Kernel",
@@ -14,7 +14,7 @@
     "kernel-foundation",
     "kernel-common",
     "kernel-arch-a64",
-    "kernel-platform-qemu-virt"
+    "kernel-platform-arm"
   ],
   "selfTestLayers": [
     "kernel-selftest-shared",

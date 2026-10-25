@@ -34,7 +34,7 @@ internal static class CommandLine
             (root, architecture) => architecture == KernelArchitecture.X64
                 ? KernelTestSuite.RunAsync(root)
                 : KernelTestSuite.RunFoundationAsync(root, architecture)),
-        new CommandScenario("release", "Build and boot the release kernel without self-tests, once with the board's display (C2.1), on x64 once on QEMU's pc machine without a virtio device (H1.1), and on ARM64 by the Linux arm64 boot protocol at EL1 and EL2 (H6)", KernelImageBuilder.RELEASE_SCENARIO,
+        new CommandScenario("release", "Build and boot the release kernel without self-tests, once with the board's display (C2.1), on x64 once on QEMU's pc machine without a virtio device (H1.1), and on ARM64 by the Linux arm64 boot protocol at EL1 and EL2 (H6) and with a GICv2 (H7.1)", KernelImageBuilder.RELEASE_SCENARIO,
         architecture => [
             new BootRequest("release-128", 128, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release },
             new BootRequest("release-512", 512, 60, ExpectedOutcome.Success) { Suite = BootSuite.Release },
@@ -58,6 +58,24 @@ internal static class CommandLine
                     {
                         Suite = BootSuite.Release, LinuxBoot = true, Virtualization = true,
                         RequiredLines = ["[BOOT] Linux arm64 entry at EL2", "[BOOT] Boot contract from the device tree: "]
+                    },
+                    // The GIC the device tree names (H7.1): a GICv2, as the Pi 4's GIC-400, through the firmware and by the
+                    // Linux protocol, each on two processors, whose doorbells go through GICD_SGIR, and at EL2 as the Pi's
+                    // firmware enters, where the entry finds no GICv3 system registers to open.
+                    new BootRequest("release-gic2-256", 256, 60, ExpectedOutcome.Success)
+                    {
+                        Suite = BootSuite.Release, Gic2 = true, Processors = 2,
+                        RequiredLines = ["Interrupt controller: GICv2, distributor 0x", "Processors present/online: 2/2"]
+                    },
+                    new BootRequest("release-linux-gic2-256", 256, 60, ExpectedOutcome.Success)
+                    {
+                        Suite = BootSuite.Release, LinuxBoot = true, Gic2 = true, Processors = 2,
+                        RequiredLines = ["[BOOT] Linux arm64 entry at EL1", "Interrupt controller: GICv2, distributor 0x", "Processors present/online: 2/2"]
+                    },
+                    new BootRequest("release-linux-gic2-el2-128", 128, 60, ExpectedOutcome.Success)
+                    {
+                        Suite = BootSuite.Release, LinuxBoot = true, Gic2 = true, Virtualization = true,
+                        RequiredLines = ["[BOOT] Linux arm64 entry at EL2", "Interrupt controller: GICv2, distributor 0x"]
                     }
                 ]
                 : Array.Empty<BootRequest>(),
