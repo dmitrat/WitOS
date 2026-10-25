@@ -6,7 +6,8 @@ namespace OutWit.OS.DeviceManager.Drivers;
 /// The drivers the device manager knows (ADR 0025, decision 7): a provider and a contract mapped to a driver program
 /// of the boot package, until driver packages carry their match metadata (RFC 0010, RFC 0007 §110); a USB
 /// controller of the xHCI interface, whatever its vendor, to the xHCI driver (H2.1), a SATA controller of the AHCI
-/// interface to the AHCI driver (H3.1), and an NVMe controller to the NVMe driver (H3.2).
+/// interface to the AHCI driver (H3.1), an NVMe controller to the NVMe driver (H3.2), and Intel's 82574L, the e1000e
+/// that QEMU and VMware present, to the e1000e driver (H4).
 /// </summary>
 internal static class DriverTable
 {
@@ -70,6 +71,22 @@ internal static class DriverTable
     public const uint NVME_INTERFACE = 0x02;
 
     /// <summary>
+    /// The e1000e driver (H4): an Intel 82574L, served over the packet protocol as the virtio network device is.
+    /// </summary>
+    public const string E1000 = "/system/Drivers/E1000";
+
+    /// <summary>
+    /// The UHI class of a network controller of any kind, which the PCI class 02 names; Ethernet has no programming
+    /// interface, so the vendor and the device tell an adapter's driver.
+    /// </summary>
+    public const string NETWORK_CONTROLLER = "NetworkController";
+
+    /// <summary>
+    /// The PCI device identifier of Intel's 82574L (vendor 0x8086).
+    /// </summary>
+    public const ushort DEVICE_82574L = 0x10D3;
+
+    /// <summary>
     /// The UHI class of a USB host controller of any interface, which the PCI class 0C/03 names; the programming
     /// interface tells xHCI (0x30) from the older ones.
     /// </summary>
@@ -118,6 +135,7 @@ internal static class DriverTable
         (_, USB_CONTROLLER) when (record.Descriptor.ClassCode & 0xFF) == XHCI_INTERFACE => XHCI,
         (_, SATA_CONTROLLER) when (record.Descriptor.ClassCode & 0xFF) == AHCI_INTERFACE => AHCI,
         (_, NVME_CONTROLLER) when (record.Descriptor.ClassCode & 0xFF) == NVME_INTERFACE => NVME,
+        ("Intel", NETWORK_CONTROLLER) when record.Descriptor.Device == DEVICE_82574L => E1000,
         _ => null
     };
 
@@ -134,6 +152,13 @@ internal static class DriverTable
     /// <param name="record">A device record.</param>
     /// <returns>Whether it does.</returns>
     public static bool ServesBlocks(DeviceRecord record) => record.Class == BLOCK_STORAGE || Find(record) is AHCI or NVME;
+
+    /// <summary>
+    /// Whether a device's driver serves the packet protocol, a network adapter for the network service (W1.1, H4).
+    /// </summary>
+    /// <param name="record">A device record.</param>
+    /// <returns>Whether it does.</returns>
+    public static bool ServesPackets(DeviceRecord record) => record.Class == NETWORK_QUEUE || Find(record) == E1000;
 
     #endregion
 }

@@ -63,10 +63,10 @@ internal static class Program
                     disks.Add((driver.Record.Id, disk));
             }
             // The network adapters' probe (W1.1): an ARP exchange with the board's gateway through the packet channel, which
-            // then goes to the network service (W1.2a).
+            // then goes to the network service (W1.2a); a virtio adapter's or an e1000e's alike (H4).
             var adapters = new List<(string Device, Channel Packets)>();
             foreach (var driver in drivers.Where(driver =>
-                         driver.Status == 0 && driver.Service is not null && driver.Record.Class == DriverTable.NETWORK_QUEUE))
+                         driver.Status == 0 && driver.Service is not null && DriverTable.ServesPackets(driver.Record)))
                 adapters.Add((driver.Record.Id, NetworkProbe.Run(driver)));
             var names = StartNamespace(disks);
             var network = StartNetwork(adapters);

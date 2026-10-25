@@ -15,7 +15,7 @@ namespace OutWit.OS.Drivers.VirtioNet.Virtio;
 /// event. The frames the device received wait in the driver's own queue, at most PacketMessages.QUEUE of them, until the
 /// client takes them. One driver thread at a time.
 /// </summary>
-internal sealed class VirtioNetDevice : IDisposable
+internal sealed class VirtioNetDevice : IPacketDevice, IDisposable
 {
     #region Constants
 
@@ -282,6 +282,9 @@ internal sealed class VirtioNetDevice : IDisposable
             }
         }
     }
+
+    /// <inheritdoc />
+    public int Mtu => MTU;
 
     /// <summary>
     /// The frames waiting for the client.
