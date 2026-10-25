@@ -61,7 +61,7 @@ internal static class RuntimeShell
             (image, dataDisk, where) = await BuildAsync(root, architecture, options, output);
             if (options.Prepare is not null)
             {
-                Prepare(architecture, options, image, dataDisk);
+                await PrepareAsync(architecture, options, image, dataDisk);
                 return;
             }
         }
@@ -70,12 +70,14 @@ internal static class RuntimeShell
               $"mirrors it; type exit in the window to end the session{(where is null ? "" : $"; your files are under {where}")}."
             : $"WitOS on witos-{architecture.Name}: PowerShell opens on this console once the services are up; " +
               $"type exit to end the session{(where is null ? "" : $"; your files are under {where}")}.");
-        await BootScenarioRunner.RunAsync(root, image, new BootRequest($"{architecture.Name}-{SCENARIO}-{options.MemoryMiB}",
+        // The PC's one disk (H3.3) boots from NVMe, which every board's firmware drives, with no disk beside it.
+        await BootScenarioRunner.RunAsync(root, options.Pc ? dataDisk : image, new BootRequest($"{architecture.Name}-{SCENARIO}-{options.MemoryMiB}",
             options.MemoryMiB, TIMEOUT_SECONDS, ExpectedOutcome.Success)
         {
             Architecture = architecture,
             Suite = BootSuite.Release,
-            DataDisk = dataDisk,
+            DataDisk = options.Pc ? null : dataDisk,
+            BootDiskController = options.Pc ? DiskController.Nvme : DiskController.Virtio,
             InteractiveTerminal = true,
             Display = options.Window,
             Keyboard = options.Window,
@@ -115,19 +117,30 @@ internal static class RuntimeShell
         }
         var image = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_POWERSHELL_SCENARIO, outputDirectory: output,
             architecture: architecture, package: package);
-        var dataDisk = options.Disk is null ? Path.Combine(output, "data-disk.img") : Path.GetFullPath(options.Disk);
+        var dataDisk = options.Pc ? Path.Combine(output, "pc-disk.img") : options.Disk is null ? Path.Combine(output, "data-disk.img") : Path.GetFullPath(options.Disk);
         if (options.Disk is not null && File.Exists(dataDisk))
             Console.WriteLine($"Booting the data disk {dataDisk} as the previous session left it{(where is null ? "" : "; the published directory is not laid on an existing disk")}.");
         else
-            await RuntimeDataDisk.CreateAsync(dataDisk, files: volume, bytes: DISK_BYTES);
+            await RuntimeDataDisk.CreateAsync(dataDisk, files: volume, bytes: DISK_BYTES, bootImage: options.Pc ? image : null);
         return (image, dataDisk, where);
     }
 
-    // The prepared session: the image and the disk side by side in the directory, and the command that boots them.
-    private static void Prepare(KernelArchitecture architecture, ShellOptions options, string image, string dataDisk)
+    // The prepared session: the image and the disk side by side in the directory, and the command that boots them; or the
+    // PC's one disk with a VMDK descriptor that names it, for a VMware machine with EFI firmware (H3.3).
+    private static async Task PrepareAsync(KernelArchitecture architecture, ShellOptions options, string image, string dataDisk)
     {
         var directory = Path.GetFullPath(options.Prepare!);
         Directory.CreateDirectory(directory);
+        if (options.Pc)
+        {
+            var raw = Path.Combine(directory, $"WitOS-pc-{architecture.Name}.img");
+            var vmdk = Path.ChangeExtension(raw, ".vmdk");
+            File.Copy(dataDisk, raw, overwrite: true);
+            await RuntimeDataDisk.WriteVmdkAsync(raw, vmdk);
+            Console.WriteLine($"Prepared the PC's one disk for witos-{architecture.Name} in {directory}: {Path.GetFileName(raw)}, raw, and " +
+                $"{Path.GetFileName(vmdk)}, its VMDK descriptor; attach the descriptor to a SATA or NVMe controller of a machine with EFI firmware.");
+            return;
+        }
         var preparedImage = Path.Combine(directory, $"WitOS-{architecture.Name}-shell.img");
         var preparedDisk = Path.Combine(directory, $"data-{architecture.Name}.img");
         File.Copy(image, preparedImage, overwrite: true);

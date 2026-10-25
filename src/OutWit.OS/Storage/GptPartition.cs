@@ -15,6 +15,15 @@ namespace OutWit.OS.Storage;
 /// <param name="Name">The entry's name.</param>
 public sealed record GptPartition(int Index, Guid Type, Guid Id, long FirstBlock, long LastBlock, ulong Attributes, string Name)
 {
+    #region Constants
+
+    /// <summary>
+    /// The type of an EFI system partition (UEFI 2.10, §5.3.3), the FAT volume a firmware boots from (plan step H3.3).
+    /// </summary>
+    public static readonly Guid EFI_SYSTEM = new("c12a7328-f81f-11d2-ba4b-00a0c93ec93b");
+
+    #endregion
+
     #region Functions
 
     /// <summary>

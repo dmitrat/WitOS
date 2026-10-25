@@ -12,5 +12,7 @@ namespace WitOS.Dev.Runtime;
 /// <param name="Prepare">A directory to write the session's image and data disk to instead of booting them.</param>
 /// <param name="Image">A prepared image to boot with its <paramref name="Disk"/> instead of building one.</param>
 /// <param name="Accelerated">The host's hardware virtualization instead of TCG (C2.7).</param>
+/// <param name="Pc">The PC's one disk (H3.3): the image's FAT volume as the EFI system partition of the data disk, booted
+/// from NVMe, or prepared with a VMDK descriptor for VMware.</param>
 internal sealed record ShellOptions(string? Published, int MemoryMiB, string? Disk, bool Window, string? Prepare, string? Image,
-    bool Accelerated = false);
+    bool Accelerated = false, bool Pc = false);

@@ -71,6 +71,17 @@ internal static class RuntimeDataDisk
     public const long EXT4_PARTITION_LAST_BLOCK = BYTES / BLOCK - 2048 - 1;
 
     /// <summary>
+    /// The name of the EFI system partition of the PC's one disk (H3.3), which holds the boot disk's FAT volume.
+    /// </summary>
+    public const string SYSTEM_PARTITION = "EFI System";
+
+    /// <summary>
+    /// The first block of the EFI system partition on the PC's one disk of a data disk's size: after the ext4 partition,
+    /// so that the data partitions keep their places. A larger disk's follows its larger ext4 partition the same way.
+    /// </summary>
+    public const long SYSTEM_PARTITION_FIRST_BLOCK = EXT4_PARTITION_LAST_BLOCK + 1;
+
+    /// <summary>
     /// The image of the ext4 volume beside the disk's, kept to compare after the boot.
     /// </summary>
     public const string EXT4_IMAGE = "ext4-volume.img";
@@ -120,6 +131,7 @@ internal static class RuntimeDataDisk
     private static readonly Guid FAT_PARTITION_ID = new("5b8e0a43-1f6c-4d27-a9e3-2c7d14f6b980");
     private static readonly Guid LINUX_DATA = new("0fc63daf-8483-4772-8e79-3d69d8477de4");
     private static readonly Guid EXT4_PARTITION_ID = new("a1d7c3e5-62b4-4f09-8d1e-3b6f5c2a7e48");
+    private static readonly Guid SYSTEM_PARTITION_ID = new("6e2c9a41-0d7b-4f35-b8c6-5a1f3e9d7c02");
 
     #endregion
 
@@ -136,19 +148,33 @@ internal static class RuntimeDataDisk
     /// <param name="bytes">The disk's size, a whole number of MiB; the ext4 partition takes what the others leave.</param>
     /// <param name="fatFiles">Files the FAT volume holds beside the host's file, at their paths from its root (C4.3: a
     /// folder feed); none by default.</param>
+    /// <param name="bootImage">A boot disk's image, whose FAT volume the disk then carries as its EFI system partition after
+    /// the ext4 partition (H3.3): the PC's one disk, which the firmware boots from and whose data partitions keep their
+    /// places, <paramref name="bytes"/> before it and the volume's bytes more in all. None by default.</param>
     public static async Task CreateAsync(string path, bool ext4 = true, IReadOnlyList<(string Path, string Source)>? programs = null,
-        IReadOnlyList<(string Path, string Source)>? files = null, long bytes = BYTES, IReadOnlyList<(string Path, string Source)>? fatFiles = null)
+        IReadOnlyList<(string Path, string Source)>? files = null, long bytes = BYTES, IReadOnlyList<(string Path, string Source)>? fatFiles = null,
+        string? bootImage = null)
     {
         if (bytes < BYTES || bytes % (1024 * 1024) != 0)
             throw new ArgumentOutOfRangeException(nameof(bytes), $"A data disk has a whole number of MiB, at least {BYTES} bytes.");
+        var system = bootImage is null ? null : await File.ReadAllBytesAsync(bootImage);
+        if (system is not null && system.Length % (1024 * 1024) != 0)
+            throw new ArgumentException("The PC's one disk carries a boot disk of whole MiB.", nameof(bootImage));
         var ext4Last = bytes / BLOCK - 2048 - 1;
-        await using var disk = new MemoryBlockStorage(bytes, BLOCK);
-        var table = await GptPartitionTable.WriteAsync(disk, DISK_ID,
+        var total = bytes + (system?.Length ?? 0);
+        await using var disk = new MemoryBlockStorage(total, BLOCK);
+        List<GptPartition> partitions =
         [
             new GptPartition(0, TEST_PARTITION_TYPE, TEST_PARTITION_ID, TEST_PARTITION_FIRST_BLOCK, TEST_PARTITION_LAST_BLOCK, 0, TEST_PARTITION),
             new GptPartition(1, BASIC_DATA, FAT_PARTITION_ID, FAT_PARTITION_FIRST_BLOCK, FAT_PARTITION_LAST_BLOCK, 0, FAT_PARTITION),
             new GptPartition(2, LINUX_DATA, EXT4_PARTITION_ID, EXT4_PARTITION_FIRST_BLOCK, ext4Last, 0, EXT4_PARTITION)
-        ]);
+        ];
+        if (system is not null)
+            partitions.Add(new GptPartition(3, GptPartition.EFI_SYSTEM, SYSTEM_PARTITION_ID, ext4Last + 1, ext4Last + system.Length / BLOCK, 0,
+                SYSTEM_PARTITION));
+        var table = await GptPartitionTable.WriteAsync(disk, DISK_ID, partitions);
+        if (system is not null)
+            await disk.WriteAsync((ext4Last + 1) * BLOCK, system);
         if (ext4)
         {
             var volume = Ext4Image(path);
@@ -221,6 +247,37 @@ internal static class RuntimeDataDisk
             await RuntimeExt4Volume.CheckAsync(volumeImage, boots);
         }
         return report;
+    }
+
+    /// <summary>
+    /// Writes a VMDK descriptor beside a raw disk (H3.3): a monolithic flat disk whose one extent is the raw image as it
+    /// is, which VMware attaches to a SATA or NVMe controller without a conversion.
+    /// </summary>
+    /// <param name="raw">The raw image, whose name the descriptor names relative to itself.</param>
+    /// <param name="descriptor">The descriptor's path, in the image's directory.</param>
+    public static async Task WriteVmdkAsync(string raw, string descriptor)
+    {
+        var sectors = new FileInfo(raw).Length / BLOCK;
+        var cylinders = Math.Min(sectors / (16 * 63), 16383);
+        var text = $"""
+            # Disk DescriptorFile
+            version=1
+            CID=fffffffe
+            parentCID=ffffffff
+            createType="monolithicFlat"
+
+            # Extent description
+            RW {sectors} FLAT "{Path.GetFileName(raw)}" 0
+
+            # The Disk Data Base
+            ddb.virtualHWVersion = "4"
+            ddb.adapterType = "ide"
+            ddb.geometry.cylinders = "{cylinders}"
+            ddb.geometry.heads = "16"
+            ddb.geometry.sectors = "63"
+
+            """;
+        await File.WriteAllTextAsync(descriptor, text.ReplaceLineEndings("\n"));
     }
 
     /// <summary>

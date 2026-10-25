@@ -14,7 +14,9 @@ namespace OutWit.OS.Namespace.Volumes;
 /// <summary>
 /// The namespace's mount policy (plan step D5.1), explicit until configuration exists: a GUID partition named
 /// "WitOS ext4" mounts at /data and one named "WitOS FAT" at /fat, each through the provider its volume needs; a disk
-/// without a partition table that holds a FAT volume mounts at /boot. A read-only disk mounts read-only.
+/// without a partition table that holds a FAT volume mounts at /boot, and so does a GUID disk's EFI system partition
+/// (H3.3: the PC's one disk), read-only whatever the disk, since the firmware boots from it. A read-only disk mounts
+/// read-only.
 /// </summary>
 internal static class VolumeMounter
 {
@@ -57,6 +59,13 @@ internal static class VolumeMounter
             if (await FatFileSystem.DetectAsync(disk))
                 await AddAsync(mounts, "/boot", await FatFileSystem.MountAsync(disk), $"{device}, the whole disk", kept);
             return kept;
+        }
+        if (table.Partitions.FirstOrDefault(entry => entry.Type == GptPartition.EFI_SYSTEM) is { } system)
+        {
+            var storage = system.Open(disk, isReadOnly: true);
+            kept.Add(storage);
+            if (await FatFileSystem.DetectAsync(storage))
+                await AddAsync(mounts, "/boot", await FatFileSystem.MountAsync(storage), $"{device}, partition \"{system.Name}\"", kept);
         }
         foreach (var (name, point) in PARTITIONS)
         {

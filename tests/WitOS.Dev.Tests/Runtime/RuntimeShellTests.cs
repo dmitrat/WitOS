@@ -68,5 +68,14 @@ public sealed class RuntimeShellTests
         Assert.Throws<ArgumentException>(() => CommandShell.Parse(["--screen", "on"]));
     }
 
+    [Test]
+    public void PcDiskIsMadeAnewTest()
+    {
+        var (_, options) = CommandShell.Parse(["--pc", "--prepare", "vmware"]);
+        Assert.That((options.Pc, options.Prepare, options.Disk, options.Image), Is.EqualTo((true, "vmware", (string?)null, (string?)null)));
+        Assert.Throws<ArgumentException>(() => CommandShell.Parse(["--pc", "--disk", "data.img"]), "the one disk is made anew");
+        Assert.Throws<ArgumentException>(() => CommandShell.Parse(["--pc", "--image", "WitOS.img", "--disk", "data.img"]));
+    }
+
     #endregion
 }
