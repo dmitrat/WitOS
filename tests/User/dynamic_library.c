@@ -26,3 +26,10 @@ int *dynamic_tls_address(void)
 {
     return &dynamic_tls;
 }
+
+/* Reads through a pointer (plan step P5): the spawn scenario passes none, so that the libc's report of the fault names
+ * this library. */
+__attribute__((__noinline__)) int dynamic_read(const volatile int *pointer)
+{
+    return *pointer;
+}

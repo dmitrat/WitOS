@@ -88,9 +88,10 @@ internal static class CommandLine
                 Suite = BootSuite.Release,
                 RequiredLines =
                 [
-                    architecture.SpawnChildLine, architecture.DynamicPassedLine, architecture.PhaseSPassedLine,
-                    architecture.CxxPassedLine, architecture.SpawnPassedLine
-                ]
+                    architecture.SpawnChildLine, architecture.DynamicPassedLine, architecture.FaultReportLine,
+                    architecture.PhaseSPassedLine, architecture.CxxPassedLine, architecture.SpawnPassedLine
+                ],
+                UserFaults = 1
             }]),
         new CommandScenario("sysroot", "Build layer 2's sysroot and boot a C++ program clang's driver built against it as /bin/init (R1.2a)",
             KernelImageBuilder.SYSROOT_SCENARIO,

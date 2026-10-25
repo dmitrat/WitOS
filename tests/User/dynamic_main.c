@@ -39,6 +39,7 @@ extern int dynamic_counter;
 int dynamic_constructed(void);
 int dynamic_answer(int value);
 int *dynamic_tls_address(void);
+int dynamic_read(const volatile int *pointer);
 
 static int checks;
 static volatile sig_atomic_t signalled;
@@ -101,6 +102,12 @@ int main(int argc, char **argv)
 {
     printf("[DYNAMIC] started on " ISA_NAME "\n");
     check(argc == 2, "the arguments");
+    if (strcmp(argv[1], "fault") == 0) {
+        /* A fault nothing handles (P5): the libc reports it, naming the library, and the process ends as faulted. */
+        printf("[DYNAMIC] reading address 0 in the library\n");
+        fflush(stdout);
+        return dynamic_read(0);
+    }
 
     /* The needed library: its constructor ran, its data and functions are bound, its TLS is per thread. */
     check(dynamic_constructed() == 1, "the library's constructor");
