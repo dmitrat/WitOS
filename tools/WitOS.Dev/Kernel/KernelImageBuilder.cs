@@ -352,12 +352,35 @@ internal static class KernelImageBuilder
         var disk = Path.Combine(output, $"WitOS-{architecture.Name}.img");
         FatImage.Create(disk, await File.ReadAllBytesAsync(efi), bootPackage, architecture.EfiName,
             rootTask is null ? null : await File.ReadAllBytesAsync(rootTask));
+        if (architecture.LinuxImage && rootTask is not null)
+        {
+            // The Linux arm64 boot path (H6): the same kernel laid out flat with the protocol's header, and the root task
+            // and the package in one initial ramdisk, which QEMU's -kernel and -initrd or a board's bootloader load.
+            var pe = await File.ReadAllBytesAsync(efi);
+            var entry = LinuxImage.EntryRva(await File.ReadAllLinesAsync(Path.Combine(output, "WitOS.map")), pe);
+            await File.WriteAllBytesAsync(LinuxImagePath(disk), LinuxImage.FromPe(pe, entry));
+            await File.WriteAllBytesAsync(InitrdPath(disk), InitialRamdisk.Create(await File.ReadAllBytesAsync(rootTask), bootPackage));
+        }
         await File.WriteAllTextAsync(Path.Combine(output, "build.txt"),
             $"Build: {buildId}\nScenario: {scenario}\nKernel compiler: {KernelCompiler(architecture)}\n" +
             $"QEMU: {Toolchain.QEMU_VERSION}\n");
         Console.WriteLine($"Built {scenario}: {disk}");
         return disk;
     }
+
+    /// <summary>
+    /// The kernel image of the Linux arm64 boot path beside a boot disk (H6).
+    /// </summary>
+    /// <param name="disk">The boot disk's image.</param>
+    /// <returns>The image's path.</returns>
+    public static string LinuxImagePath(string disk) => Path.ChangeExtension(disk, ".Image");
+
+    /// <summary>
+    /// The initial ramdisk of the Linux arm64 boot path beside a boot disk (H6).
+    /// </summary>
+    /// <param name="disk">The boot disk's image.</param>
+    /// <returns>The ramdisk's path.</returns>
+    public static string InitrdPath(string disk) => Path.ChangeExtension(disk, ".initrd");
 
     #endregion
 

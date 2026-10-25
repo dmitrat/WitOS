@@ -90,6 +90,8 @@ internal static class BootScenarioRunner
             throw new InvalidOperationException($"{request.Name}: the pc board (H1.1) is x64's and carries none of the services' devices.");
         if (request.IdeBootDisk && !request.Pc)
             throw new InvalidOperationException($"{request.Name}: an IDE boot disk needs the pc board's PIIX (H1.1).");
+        if ((request.LinuxBoot || request.Virtualization) && !architecture.LinuxImage)
+            throw new InvalidOperationException($"{request.Name}: the Linux boot protocol's entry (H6) is ARM64's.");
         var cpu = request.CpuModel ?? (request.Pc ? PC_CPU : architecture.DefaultCpu);
         var name = request.Name;
         var logs = request.LogDirectory ?? Path.Combine(root, "artifacts", "logs");
@@ -115,7 +117,8 @@ internal static class BootScenarioRunner
         // A window's keys are the input (C2.4): the console then shows the mirror and types nothing.
         using var relay = request.InteractiveTerminal && terminal is null ? new TerminalRelay(terminalPath, keys: !request.Window) : null;
         // The HPET-less q35 and the pc machine (H1.1) are the board variants a scenario selects.
-        var machine = request.Expected == ExpectedOutcome.ClockUnavailable ? "q35,hpet=off" : request.Pc ? PC_MACHINE : architecture.QemuMachine;
+        var machine = (request.Expected == ExpectedOutcome.ClockUnavailable ? "q35,hpet=off" : request.Pc ? PC_MACHINE : architecture.QemuMachine) +
+            (request.Virtualization ? ",virtualization=on" : "");
         // Emulated with the instruction clock, or on the host's hardware virtualization for a session (C2.7).
         string[] execution = request.Accelerated
             ? ["-accel", HostAccelerator(architecture)]
@@ -125,11 +128,18 @@ internal static class BootScenarioRunner
             "-machine", machine, .. execution,
             "-cpu", cpu, "-smp", request.Processors.ToString(), "-m", request.MemoryMiB.ToString(),
             "-display", request.Window ? WINDOW_DISPLAY : "none", "-monitor", "none", "-qmp", qmpControl.Argument,
-            "-serial", "file:" + QemuPath(serialPath), "-nic", "none", "-no-reboot",
-            "-drive", $"if=pflash,unit=0,format=raw,readonly=on,file={QemuPath(architecture.FirmwarePath(root))}",
-            "-drive", $"if=pflash,unit=1,format=raw,file={QemuPath(firmwareState)}"
+            "-serial", "file:" + QemuPath(serialPath), "-nic", "none", "-no-reboot"
         ];
-        arguments.AddRange(request.IdeBootDisk
+        // The Linux arm64 boot path (H6): QEMU itself loads the image and the ramdisk and enters the image with its device
+        // tree, where the firmware would load the loader from the boot disk.
+        arguments.AddRange(request.LinuxBoot
+            ? ["-kernel", QemuPath(KernelImageBuilder.LinuxImagePath(image)), "-initrd", QemuPath(KernelImageBuilder.InitrdPath(image))]
+            : [
+                "-drive", $"if=pflash,unit=0,format=raw,readonly=on,file={QemuPath(architecture.FirmwarePath(root))}",
+                "-drive", $"if=pflash,unit=1,format=raw,file={QemuPath(firmwareState)}"
+            ]);
+        arguments.AddRange(request.LinuxBoot ? []
+            : request.IdeBootDisk
             ? ["-drive", $"if=none,id=boot,format=raw,snapshot=on,file={QemuPath(image)}", "-device", "ide-hd,drive=boot,bus=ide.0,bootindex=1"]
             : request.BootDiskController == DiskController.Virtio
             ? ["-drive", $"if=none,id=boot,format=raw,readonly=on,file={QemuPath(image)}", "-device", "virtio-blk-pci,drive=boot,bootindex=1"]

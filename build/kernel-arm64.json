@@ -9,6 +9,7 @@
   ],
   "layers": [
     "boot-uefi",
+    "boot-linux",
     "kernel-boot",
     "kernel-foundation",
     "kernel-common",

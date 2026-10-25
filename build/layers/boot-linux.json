@@ -1,0 +1,12 @@
+{
+  "name": "boot-linux",
+  "description": "The Linux arm64 boot protocol's entry linked into the kernel image beside the UEFI loader (H6, ADR 0030): EL2 to EL1, the first stage's identity map, the image's base relocations, the device tree's memory, reservations, initial ramdisk and entropy seed, and the boot contract.",
+  "includes": [],
+  "sources": [
+    "src/Boot.Linux/fdt.c",
+    "src/Boot.Linux/main.c"
+  ],
+  "assembly": [
+    "src/Boot.Linux/entry.S"
+  ]
+}
