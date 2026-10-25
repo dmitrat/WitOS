@@ -398,7 +398,7 @@ internal static class RuntimeDevices
             await RuntimeDataDisk.CheckAsync(pcDisk, pcBoot);
         }
         Console.WriteLine($"PC disk on witos-{architecture.Name}: the firmware booted the one disk from " +
-            $"{string.Join(" and ", PcControllers(architecture))}, whose EFI system partition the namespace mounted at /boot beside its data partitions.");
+            $"{string.Join(" and ", PcControllers(architecture).Select(controller => controller == DiskController.Nvme ? "NVMe" : "AHCI"))}, whose EFI system partition the namespace mounted at /boot beside its data partitions.");
         Console.WriteLine($"Devices on witos-{architecture.Name}: the device manager discovered the devices, moved each disk to its " +
             $"driver and wrote the data disk through the block protocol and the FAT provider before /bin/init; the image holds the " +
             $"{RuntimeDataDisk.TEST_PATTERN_BYTES} bytes and the guest's files on a clean FAT volume ({check!.Files} files, " +
