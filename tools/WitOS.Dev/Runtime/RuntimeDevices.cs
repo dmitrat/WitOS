@@ -370,6 +370,35 @@ internal static class RuntimeDevices
             }
             check = await RuntimeDataDisk.CheckAsync(dataDisk, boot);
         }
+        // The PC's one disk (H3.3): the boot disk's FAT volume as its EFI system partition after the data partitions, which
+        // the firmware boots from on NVMe and, where it drives one, on AHCI; the probes, the namespace service and /bin/init
+        // find on it what the two disks gave them, and the host judges it after each boot as it judges the data disk.
+        var pcDisk = Path.Combine(Path.GetDirectoryName(image)!, "pc-disk.img");
+        await RuntimeDataDisk.CreateAsync(pcDisk, programs: programs, bootImage: image);
+        var pcBoot = 0;
+        foreach (var controller in PcControllers(architecture))
+        {
+            var profile = new PcProfile(controller, new FileInfo(pcDisk).Length);
+            var name = $"{architecture.Name}-runtime-devices-512-pc-{controller.ToString().ToLowerInvariant()}";
+            await BootScenarioRunner.RunAsync(root, pcDisk, new BootRequest(name, 512, 1200, ExpectedOutcome.Success)
+            {
+                Architecture = architecture,
+                Suite = BootSuite.Release,
+                RequiredLines = RequiredLines(architecture, ++pcBoot, profile),
+                BootDiskController = controller,
+                Network = true,
+                NetworkEcho = true,
+                NetworkForward = NETWORK_LISTEN_PORT,
+                Actions =
+                [
+                    new BootAction(NETWORK_LISTENING, BootActionKind.Connect, NETWORK_INBOUND_BYTES.ToString(CultureInfo.InvariantCulture)),
+                    new BootAction(SOCKETS_LISTENING, BootActionKind.Connect, NETWORK_INBOUND_BYTES.ToString(CultureInfo.InvariantCulture))
+                ]
+            });
+            await RuntimeDataDisk.CheckAsync(pcDisk, pcBoot);
+        }
+        Console.WriteLine($"PC disk on witos-{architecture.Name}: the firmware booted the one disk from " +
+            $"{string.Join(" and ", PcControllers(architecture))}, whose EFI system partition the namespace mounted at /boot beside its data partitions.");
         Console.WriteLine($"Devices on witos-{architecture.Name}: the device manager discovered the devices, moved each disk to its " +
             $"driver and wrote the data disk through the block protocol and the FAT provider before /bin/init; the image holds the " +
             $"{RuntimeDataDisk.TEST_PATTERN_BYTES} bytes and the guest's files on a clean FAT volume ({check!.Files} files, " +
@@ -378,33 +407,49 @@ internal static class RuntimeDevices
     }
 
     /// <summary>
-    /// The lines the runtime-devices scenario requires (D1.1, D1.2, D2, D3.2, D4.1, D4.2, D4.3).
+    /// The controllers the firmware boots the PC's one disk from (H3.3): NVMe on every board, and AHCI where the firmware
+    /// drives one, which ARM64's does not (it finds no boot device there and starts its shell).
     /// </summary>
     /// <param name="architecture">Target architecture.</param>
+    /// <returns>The controllers, in the order the scenario boots them.</returns>
+    public static DiskController[] PcControllers(KernelArchitecture architecture) =>
+        architecture == KernelArchitecture.Arm64 ? [DiskController.Nvme] : [DiskController.Nvme, DiskController.Ahci];
+
+    /// <summary>
+    /// The lines the runtime-devices scenario requires (D1.1, D1.2, D2, D3.2, D4.1, D4.2, D4.3, H3.1–H3.3).
+    /// </summary>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="boot">The boot of the disk.</param>
+    /// <param name="pc">The PC's one disk and its controller, for its boots (H3.3); null for the boot and data disks.</param>
     /// <returns>The required lines.</returns>
-    public static string[] RequiredLines(KernelArchitecture architecture, int boot = 1) =>
+    public static string[] RequiredLines(KernelArchitecture architecture, int boot = 1, PcProfile? pc = null) =>
     [
-        .. FirstLines(boot),
-        .. InterruptLines(architecture),
-        .. boot == AHCI_BOOT ? AhciLines(architecture) : boot == NVME_BOOT ? NvmeLines(architecture) : Array.Empty<string>(),
+        .. FirstLines(boot, pc),
+        .. InterruptLines(architecture, pc),
+        .. pc is not null
+            ? pc.Controller == DiskController.Ahci ? AhciLines(architecture, pc.Bytes) : NvmeLines(architecture, pc.Bytes, "witos-boot")
+            : boot == AHCI_BOOT ? AhciLines(architecture, RuntimeDataDisk.BYTES)
+            : boot == NVME_BOOT ? NvmeLines(architecture, RuntimeDataDisk.BYTES, "witos-data") : Array.Empty<string>(),
         .. boot > 1 ? [$": partition \"{RuntimeDataDisk.TEST_PARTITION}\": holds the {RuntimeDataDisk.TEST_PATTERN_BYTES} bytes a previous boot wrote",
             $": partition \"{RuntimeDataDisk.FAT_PARTITION}\": after the reboot, read back what a previous boot wrote"] : Array.Empty<string>(),
         .. boot == 1 ? FirstExt4Lines() : boot == CUT_BOOT + 1 ? AfterCutExt4Lines() : AfterRebootExt4Lines(counted: boot <= CUT_BOOT),
-        .. MiddleLines(architecture, boot),
+        .. MiddleLines(architecture, boot, pc is not null),
         .. boot == 1 ? ["[NAMESPACE] created /data/home"] : Array.Empty<string>(), // the home of the one account (C1.2)
         .. boot == CUT_BOOT ? [CUT_AFTER] : LastLines(architecture)
     ];
 
     // How the virtio drivers interrupt (H1.2b, ADR 0029): MSI-X messages where the board serves them (the PC), the INTx
-    // line elsewhere.
-    private static string[] InterruptLines(KernelArchitecture architecture) => architecture == KernelArchitecture.X64
+    // line elsewhere; the PC's one disk leaves the network adapter the one virtio driver of its boots.
+    private static string[] InterruptLines(KernelArchitecture architecture, PcProfile? pc) => architecture != KernelArchitecture.X64
+        ? [": interrupts through its INTx line"]
+        : pc is null
         ? ["[VIRTIO-BLOCK] driver of pci/", ": interrupts through MSI-X entry 0, message ", "[VIRTIO-NET] driver of pci/"]
-        : [": interrupts through its INTx line"];
+        : [": interrupts through MSI-X entry 0, message ", "[VIRTIO-NET] driver of pci/"];
 
-    // The AHCI driver of the boot whose data disk hangs on an AHCI controller (H3.1): QEMU's ICH9 SATA controller, its
-    // first port's disk identified and its sector 0 read, the block protocol served, the interrupt an MSI message on the
-    // PC and the INTx line elsewhere, and the driver's stop.
-    private static string[] AhciLines(KernelArchitecture architecture) =>
+    // The AHCI driver of the boot whose data disk — or the PC's one disk (H3.3) — hangs on an AHCI controller (H3.1):
+    // QEMU's ICH9 SATA controller, its first port's disk of so many bytes identified and its sector 0 read, the block
+    // protocol served, the interrupt an MSI message on the PC and the INTx line elsewhere, and the driver's stop.
+    private static string[] AhciLines(KernelArchitecture architecture, long bytes) =>
     [
         "[DEVICES] Device discovered: Class: SataController, Provider: ",
         "[AHCI] driver of pci/",
@@ -412,49 +457,55 @@ internal static class RuntimeDevices
         ": AHCI 1.0, 6 ports (implemented 3f), 32 command slots, 64-bit addresses, interrupts through " +
             (architecture == KernelArchitecture.X64 ? "MSI, message " : "its INTx line"),
         "[AHCI] port 0: an ATA disk \"QEMU HARDDISK\", serial QM",
-        $", {RuntimeDataDisk.BYTES} bytes in blocks of 512, a write cache, link 1.5 Gb/s",
+        $", {bytes} bytes in blocks of 512, a write cache, link 1.5 Gb/s",
         ": read sector 0 of port 0: a protective MBR (signature aa55) of a GUID partition table",
-        $": port 0, {RuntimeDataDisk.BYTES} bytes in blocks of 512, writable, a volatile cache it flushes, transfers of up to 262144 bytes in 128 segments, ",
+        $": port 0, {bytes} bytes in blocks of 512, writable, a volatile cache it flushes, transfers of up to 262144 bytes in 128 segments, ",
         "[DEVICES] driver /system/Drivers/Ahci of pci/",
         ": stopped, the ports idle"
     ];
 
-    // The NVMe driver of the boot whose data disk is an NVMe namespace (H3.2): QEMU's controller identified with its
-    // namespace 1, whose block 0 it reads, the block protocol served, the interrupt MSI-X entry 0 on the PC and the INTx
-    // line elsewhere, and the driver's stop after the controller's normal shutdown.
-    private static string[] NvmeLines(KernelArchitecture architecture) =>
+    // The NVMe driver of the boot whose data disk — or the PC's one disk (H3.3) — is an NVMe namespace (H3.2): QEMU's
+    // controller of the serial the runner names identified with its namespace 1 of so many bytes, whose block 0 it reads,
+    // the block protocol served, the interrupt MSI-X entry 0 on the PC and the INTx line elsewhere, and the driver's stop
+    // after the controller's normal shutdown.
+    private static string[] NvmeLines(KernelArchitecture architecture, long bytes, string serial) =>
     [
         "[DEVICES] Device discovered: Class: NvmeController, Provider: ",
         "[NVME] driver of pci/",
         ": holds the device, its configuration space reads 1b36:0010",
-        ": NVMe 1.4, \"QEMU NVMe Ctrl\", serial witos-data, firmware ",
+        $": NVMe 1.4, \"QEMU NVMe Ctrl\", serial {serial}, firmware ",
         ", a volatile write cache, interrupts through " + (architecture == KernelArchitecture.X64 ? "MSI-X entry 0, message " : "its INTx line"),
-        $"[NVME] namespace 1: {RuntimeDataDisk.BYTES} bytes in blocks of 512, transfers of up to 524288 bytes",
+        $"[NVME] namespace 1: {bytes} bytes in blocks of 512, transfers of up to 524288 bytes",
         ": read block 0 of namespace 1: a protective MBR (signature aa55) of a GUID partition table",
-        $": namespace 1, {RuntimeDataDisk.BYTES} bytes in blocks of 512, writable, a volatile cache it flushes, transfers of up to 262144 bytes in 128 segments, ",
+        $": namespace 1, {bytes} bytes in blocks of 512, writable, a volatile cache it flushes, transfers of up to 262144 bytes in 128 segments, ",
         "[DEVICES] driver /system/Drivers/Nvme of pci/",
         ": stopped, the controller shut down and disabled"
     ];
 
     // What every boot of the scenario prints first: discovery, the drivers, the disks and the FAT volumes; the virtio data
-    // disk's own lines on every boot but the AHCI and NVMe boots'.
-    private static string[] FirstLines(int boot) =>
+    // disk's own lines on every boot but the AHCI and NVMe boots', and the virtio boot disk's on every boot but those of
+    // the PC's one disk, whose partition table holds its EFI system partition as well (H3.3).
+    private static string[] FirstLines(int boot, PcProfile? pc) =>
     [
-        "[DEVICES] Device discovered: Class: BlockStorageController, Provider: Virtio, DeviceId: pci/",
         "[DEVICES] Device discovered: Class: EntropySource, Provider: Virtio, DeviceId: pci/",
-        "[VIRTIO-BLOCK] driver of pci/",
         ": holds the device, its configuration space reads 1af4:",
-        ": read sector 0 through queue 0 and its interrupt: a boot sector (signature aa55, file system FAT",
-        .. boot is AHCI_BOOT or NVME_BOOT ? Array.Empty<string>() :
+        .. pc is not null ? Array.Empty<string>() :
+        [
+            "[DEVICES] Device discovered: Class: BlockStorageController, Provider: Virtio, DeviceId: pci/",
+            "[VIRTIO-BLOCK] driver of pci/",
+            ": read sector 0 through queue 0 and its interrupt: a boot sector (signature aa55, file system FAT",
+            " bytes in blocks of 512, read-only, ",
+            "[DEVICES] driver /system/Drivers/VirtioBlock of pci/",
+            ": the driver refuses a write with errno 30",
+            ": no GUID partition table"
+        ],
+        .. boot is AHCI_BOOT or NVME_BOOT || pc is not null ? Array.Empty<string>() :
         [
             ": read sector 0 through queue 0 and its interrupt: a protective MBR (signature aa55) of a GUID partition table",
             $": {RuntimeDataDisk.BYTES} bytes in blocks of 512, writable, a volatile cache it flushes, transfers of up to "
         ],
-        " bytes in blocks of 512, read-only, ",
         ": serving the block protocol",
-        "[DEVICES] driver /system/Drivers/VirtioBlock of pci/",
-        $": {RuntimeDataDisk.BYTES} bytes in blocks of 512, writable, through the block channel and a window of 262144 bytes",
-        ": the driver refuses a write with errno 30",
+        $": {pc?.Bytes ?? RuntimeDataDisk.BYTES} bytes in blocks of 512, writable, through the block channel and a window of 262144 bytes",
         // The network adapter (W1.1): its driver, the packet channel and an ARP exchange with QEMU's gateway.
         "[DEVICES] Device discovered: Class: NetworkQueueDevice, Provider: Virtio, DeviceId: pci/",
         "[VIRTIO-NET] driver of pci/",
@@ -462,11 +513,11 @@ internal static class RuntimeDevices
         "[DEVICES] driver /system/Drivers/VirtioNet of pci/",
         ", MTU 1500, link up, through the packet channel and a window of 16384 bytes",
         ": ARP reply from 10.0.2.2 at 52:55:0a:00:02:02",
-        ": no GUID partition table",
-        $": GUID partition table of 3 partitions: \"{RuntimeDataDisk.TEST_PARTITION}\" on blocks {RuntimeDataDisk.TEST_PARTITION_FIRST_BLOCK}-" +
+        $": GUID partition table of {(pc is null ? 3 : 4)} partitions: \"{RuntimeDataDisk.TEST_PARTITION}\" on blocks {RuntimeDataDisk.TEST_PARTITION_FIRST_BLOCK}-" +
             $"{RuntimeDataDisk.TEST_PARTITION_LAST_BLOCK}, \"{RuntimeDataDisk.FAT_PARTITION}\" on blocks {RuntimeDataDisk.FAT_PARTITION_FIRST_BLOCK}-" +
             $"{RuntimeDataDisk.FAT_PARTITION_LAST_BLOCK}, \"{RuntimeDataDisk.EXT4_PARTITION}\" on blocks {RuntimeDataDisk.EXT4_PARTITION_FIRST_BLOCK}-" +
-            $"{RuntimeDataDisk.EXT4_PARTITION_LAST_BLOCK}",
+            $"{RuntimeDataDisk.EXT4_PARTITION_LAST_BLOCK}" + (pc is null ? "" : $", \"{RuntimeDataDisk.SYSTEM_PARTITION}\" on blocks " +
+            $"{RuntimeDataDisk.SYSTEM_PARTITION_FIRST_BLOCK}-{pc.Bytes / 512 - 2048 - 1}"),
         $": partition \"{RuntimeDataDisk.TEST_PARTITION}\": wrote {RuntimeDataDisk.TEST_PATTERN_BYTES} bytes durably and read them back",
         "[DEVICES] fat pci/",
         ": FAT16 volume of ",
@@ -524,17 +575,17 @@ internal static class RuntimeDevices
 
     // What every boot prints after the probes: the namespace service and /bin/init's count of the boots, the files the
     // previous boot left and, after the cut, the files the cut left (D6.1, D6.2).
-    private static string[] MiddleLines(KernelArchitecture architecture, int boot) =>
+    private static string[] MiddleLines(KernelArchitecture architecture, int boot, bool pc) =>
     [
         $"[DEVICES] device manager on {architecture.OsArchitecture}: ",
-        " 3 drivers ready, DMA isolation: none (no IOMMU), ready",
+        $" {(pc ? 2 : 3)} drivers ready, DMA isolation: none (no IOMMU), ready",
         "[NAMESPACE] mounted /tmp: tmpfs volume of 67108864 bytes in memory", // N4.1
         "[NAMESPACE] mounted /boot: FAT16 volume of ",
         $"[NAMESPACE] mounted /data: ext4 volume \"{RuntimeExt4Volume.LABEL}\" of " +
             $"{(RuntimeDataDisk.EXT4_PARTITION_LAST_BLOCK - RuntimeDataDisk.EXT4_PARTITION_FIRST_BLOCK + 1) * 512} bytes, writable, from pci/",
         $"[NAMESPACE] mounted /fat: FAT",
         "[NAMESPACE] namespace service: 4 volumes mounted, serving their files",
-        "[DEVICES] namespace service /system/Namespace with 2 disks: ready",
+        $"[DEVICES] namespace service /system/Namespace with {(pc ? 1 : 2)} disks: ready",
         // The network service (W1.2a): the adapter, DHCP's lease from QEMU's user networking, and the device manager's
         // probe, a DNS query to slirp's forwarder over a datagram socket of the service.
         "[NETWORK] pci/",
@@ -763,6 +814,17 @@ internal static class RuntimeDevices
 
     private static string Compile(string folder) =>
         $"      <Compile Include=\"{SecurityElement.Escape(Path.Combine(folder, "*.cs"))}\" />\n";
+
+    #endregion
+
+    #region Nested Types
+
+    /// <summary>
+    /// A boot of the PC's one disk (H3.3): the controller it hangs on and its bytes, which its driver's lines name.
+    /// </summary>
+    /// <param name="Controller">The controller.</param>
+    /// <param name="Bytes">The disk's bytes.</param>
+    internal sealed record PcProfile(DiskController Controller, long Bytes);
 
     #endregion
 }

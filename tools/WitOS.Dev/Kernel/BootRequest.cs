@@ -69,6 +69,13 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public DiskController DataDiskController { get; init; } = DiskController.Virtio;
 
     /// <summary>
+    /// The controller the boot disk hangs on (H3.3): a read-only virtio block device, or, for the PC's one disk that the
+    /// guest also writes, an AHCI controller's first port or an NVMe namespace, writable, the firmware booting from its EFI
+    /// system partition. ARM64's firmware drives no AHCI controller.
+    /// </summary>
+    public DiskController BootDiskController { get; init; } = DiskController.Virtio;
+
+    /// <summary>
     /// A line after which the runner kills QEMU where it stands, without asking it to quit, as a power cut ends a machine
     /// (D6.2): the boot an <see cref="ExpectedOutcome.Cut"/> request judges by what it printed before; none when null.
     /// </summary>

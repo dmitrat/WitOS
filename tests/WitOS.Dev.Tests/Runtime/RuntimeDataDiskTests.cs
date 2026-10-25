@@ -134,6 +134,46 @@ public sealed class RuntimeDataDiskTests
         }
     }
 
+    // The PC's one disk (H3.3): the data partitions where a data disk keeps them, the boot disk's bytes as an EFI system
+    // partition after them, and a VMDK descriptor that names the raw image as its one flat extent.
+    [Test]
+    public async Task PcDiskCarriesTheSystemPartitionAfterTheDataTest()
+    {
+        var path = TemporaryImage();
+        try
+        {
+            var boot = Path.Combine(Path.GetDirectoryName(path)!, "boot.img");
+            var system = new byte[2 * 1024 * 1024];
+            system[0] = 0xEB;
+            system[^1] = 0x5A;
+            await File.WriteAllBytesAsync(boot, system);
+            await RuntimeDataDisk.CreateAsync(path, ext4: false, bootImage: boot);
+            var image = await File.ReadAllBytesAsync(path);
+            await using var disk = new MemoryBlockStorage(image);
+            var table = await GptPartitionTable.ReadAsync(disk);
+            Assert.That(disk.Info.Length, Is.EqualTo(RuntimeDataDisk.BYTES + system.Length));
+            Assert.That(table.Partitions.Select(entry => entry.Name), Is.EqualTo(new[]
+                { RuntimeDataDisk.TEST_PARTITION, RuntimeDataDisk.FAT_PARTITION, RuntimeDataDisk.EXT4_PARTITION, RuntimeDataDisk.SYSTEM_PARTITION }));
+            Assert.That(table.Partitions[2].LastBlock, Is.EqualTo(RuntimeDataDisk.EXT4_PARTITION_LAST_BLOCK), "the ext4 partition keeps a data disk's size");
+            var esp = table.Partitions[3];
+            Assert.That((esp.Type, esp.FirstBlock, esp.LastBlock),
+                Is.EqualTo((GptPartition.EFI_SYSTEM, RuntimeDataDisk.SYSTEM_PARTITION_FIRST_BLOCK, RuntimeDataDisk.SYSTEM_PARTITION_FIRST_BLOCK + system.Length / 512 - 1)));
+            Assert.That(image.AsSpan((int)(esp.FirstBlock * 512), system.Length).SequenceEqual(system), Is.True, "the boot disk's bytes as they are");
+            var vmdk = Path.ChangeExtension(path, ".vmdk");
+            await RuntimeDataDisk.WriteVmdkAsync(path, vmdk);
+            var descriptor = await File.ReadAllTextAsync(vmdk);
+            Assert.That(descriptor, Does.StartWith("# Disk DescriptorFile\n"));
+            Assert.That(descriptor, Does.Contain("createType=\"monolithicFlat\"\n"));
+            Assert.That(descriptor, Does.Contain($"RW {image.Length / 512} FLAT \"data-disk.img\" 0\n"), "the raw image as its one extent");
+            Assert.That(descriptor, Does.Not.Contain("\r"));
+            Assert.ThrowsAsync<ArgumentException>(async () => await RuntimeDataDisk.CreateAsync(path, ext4: false, bootImage: vmdk), "a boot disk of no whole MiB");
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(path)!, recursive: true);
+        }
+    }
+
     // A data disk's path in a directory of its own, beside which CreateAsync keeps the ext4 volume.
     private static string TemporaryImage()
     {

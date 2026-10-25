@@ -131,7 +131,9 @@ internal static class BootScenarioRunner
         ];
         arguments.AddRange(request.IdeBootDisk
             ? ["-drive", $"if=none,id=boot,format=raw,snapshot=on,file={QemuPath(image)}", "-device", "ide-hd,drive=boot,bus=ide.0,bootindex=1"]
-            : ["-drive", $"if=none,id=boot,format=raw,readonly=on,file={QemuPath(image)}", "-device", "virtio-blk-pci,drive=boot,bootindex=1"]);
+            : request.BootDiskController == DiskController.Virtio
+            ? ["-drive", $"if=none,id=boot,format=raw,readonly=on,file={QemuPath(image)}", "-device", "virtio-blk-pci,drive=boot,bootindex=1"]
+            : ["-drive", $"if=none,id=boot,format=raw,file={QemuPath(image)}", .. BootDiskDevices(request, architecture)]);
         if (!request.WithoutTestExit)
         {
             arguments.AddRange(architecture.ExitDevice);
@@ -381,6 +383,22 @@ internal static class BootScenarioRunner
         DiskController.Ahci => ["-device", "ich9-ahci,id=ahci", "-device", "ide-hd,drive=data,bus=ahci.0"],
         DiskController.Nvme => ["-device", "nvme,serial=witos-data,drive=data"],
         _ => ["-device", "virtio-blk-pci,drive=data"],
+    };
+
+    /// <summary>
+    /// The devices of the PC's one disk as the boot disk, whose drive is "boot" (H3.3): an ATA disk on an AHCI
+    /// controller's first port — q35's own, an ich9-ahci where the virtio boot disk would be elsewhere — or an NVMe
+    /// controller there, whose namespace 1 the drive is; the firmware boots it first.
+    /// </summary>
+    /// <param name="request">The request.</param>
+    /// <param name="architecture">Its architecture.</param>
+    /// <returns>The -device arguments.</returns>
+    internal static string[] BootDiskDevices(BootRequest request, KernelArchitecture architecture) => request.BootDiskController switch
+    {
+        DiskController.Ahci when architecture == KernelArchitecture.X64 && !request.Pc => ["-device", "ide-hd,drive=boot,bus=ide.0,bootindex=1"],
+        DiskController.Ahci => ["-device", "ich9-ahci,id=ahci", "-device", "ide-hd,drive=boot,bus=ahci.0,bootindex=1"],
+        DiskController.Nvme => ["-device", "nvme,serial=witos-boot,drive=boot,bootindex=1"],
+        _ => throw new ArgumentOutOfRangeException(nameof(request), $"No boot disk device of {request.BootDiskController}."),
     };
 
     /// <summary>
