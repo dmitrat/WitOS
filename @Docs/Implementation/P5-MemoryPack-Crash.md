@@ -4,7 +4,10 @@ Plan step P5, opened 2026-10-24 under the plan's rule that a failure seen twice 
 the group `serialization-numerics` of the NuGet libraries' suites (N2.2), now and then dies by SIGSEGV in the guest, and
 now and then stops with all its threads waiting. P4 (`P4-Reservation-Gap-Search.md`) removed the kernel's quadratic
 reservation search, which had made the group stall for hours. What this document describes remains after that fix.
-The step's first slice makes a crash name its module; the cause is open.
+The step closed on 2026-10-25 in two slices. The first makes a crash name its module. The second found the cause in
+neither WitOS nor .NET: MemoryPack 1.21.4's `BitArrayFormatter` writes past the end of an array on .NET 10, where
+`BitArray` changed its private layout (§8). One test exercises it, `WellknownFormattersTest.Others`; it leaves the
+selection with that reason, and the suite stays.
 
 ## 1. The occurrences
 
@@ -92,7 +95,8 @@ looked at so far:
   the space, idle ones included. x64 runs without PCID, so loading another root flushes the user translations, and
   every unmap and every switch runs under the kernel lock.
 - **The libc's mapping calls the collector makes** (`mprotect` to commit, `mmap(MAP_FIXED, PROT_NONE)` to decommit,
-  `madvise` to reset). Open.
+  `madvise` to reset). Not found. A libc built to log every failure of a fixed `mmap`, of `munmap` and of a commit by
+  `mprotect` logged none over the series.
 
 ## 5. The stop: every managed thread waits
 
@@ -115,9 +119,109 @@ Replay 32's core, read with the kernel's map and the layout of its records from 
   slots' lock before it sets the event, and a waiter that timed out reads the mark under the same lock, so that race
   loses nothing. No defect was found there.
 
-## 6. Next
+## 6. Heap verification and suspension in the guest
 
-- Heap verification in the guest at each collection (CoreCLR's `DOTNET_HeapVerify`, where the build serves it) on the
-  replays, so that the corruption is caught at the collection after it happens, not at the next card walk.
-- A dump at the fault, not after it. The report gives the place; the heap's state needs the process stopped there.
-- The libc's `mmap`, `mprotect` and `madvise` on the collector's ranges, under several threads.
+The replays then ran with the collector's own checks and with fewer moving parts:
+
+- **Heap verification** (`DOTNET_HeapVerify=1`). The collector fills freed memory with `0xCC` and checks the heap at
+  each collection. In a dump at the fault, a field of a live object held `0xcccccccccccccccc`, a value its code had
+  not written there: the object's memory had been written over from outside it (§8 shows from where).
+- **No thread suspension by injection** (`DOTNET_INTERNAL_ThreadSuspendInjection=0`). The runtime then suspends its
+  threads for a collection without the activations the libc delivers as signals. The suite still crashed once in 47
+  replays, so the libc's delivery of activations was not the cause.
+
+Nothing further was found wanting below the runtime. The kernel's commit, the shootdowns, the libc's mapping calls and
+its futex slots stood as §4 and §5 describe. The registers a signal frame carries were checked too, and so was the
+process write barrier behind `membarrier`.
+
+## 7. The corruption on Linux, and on .NET 10 alone
+
+The suite ran on the container's Linux, outside WitOS. Its build was the one the tool makes, and xunit's console
+runner 2.9.3 ran it with the selection's exclusions, on four processors a run, under heap verification
+(`DOTNET_HeapVerify=1`) and the guest's limit (`DOTNET_GCTotalPhysicalMemory=40000000`, 1 GiB). Only the runtime
+changed between the series:
+
+| Runtime (Microsoft's builds) | Runs that died |
+| --- | --- |
+| .NET 8.0.32 | 0 of 120 |
+| .NET 10.0.8 | 6 of 60 |
+| .NET 10.0.12 | 5 of 60 |
+| .NET 10.0.13 | 2 of 60, 5 of 100, 7 of 100 |
+
+The same bytes of MemoryPack ran in every series: its newest build in the package is for `net8.0`, the one every .NET
+10 application loads too. CI's Linux hosts had met the suite's `AccessViolationException` without heap verification
+since 2026-10-15.
+
+A series per runtime knob on .NET 10 still died, so no single subsystem of the runtime was at fault:
+
+| .NET 10 knob | Runs that died |
+| --- | --- |
+| `DOTNET_GCWriteBarrier=3` (a card marked for every reference stored), 10.0.8 | 5 of 60 |
+| `DOTNET_gcConcurrent=0`, 10.0.8 | 1 of 60 |
+| `DOTNET_GCName=libclrgc.so` (the collector of segments, not regions), 10.0.8 | 1 of 60 |
+| `DOTNET_JitObjectStackAllocation=0`, 10.0.8 | 7 of 60 |
+| `DOTNET_TieredCompilation=0`, 10.0.13 | 4 of 100 |
+| `DOTNET_TieredPGO=0`, 10.0.13 | 7 of 100 |
+| `DOTNET_ReadyToRun=0`, 10.0.13 | 7 of 100 |
+| `DOTNET_INTERNAL_ThreadSuspendInjection=0`, 10.0.13 | 5 of 100 |
+
+## 8. The cause: MemoryPack's view of `BitArray`
+
+Six full dumps of dead runs on .NET 10.0.8 (`DOTNET_DbgEnableMiniDump`), read with `dotnet-dump`:
+
+- **The same picture in each.** `verifyheap` found a small run of memory in generation 0, just after a free object,
+  overwritten: an object whose method table read zero, and live objects pointing into the run. The victims differed
+  every time: an xunit `XunitTestCase`'s display name, FluentAssertions' options and `AssertionScope`, a
+  `ConcurrentDictionary`'s tables, a delegate, an `object[]`. None was MemoryPack's.
+- **No runtime bug matched.** dotnet/runtime's GC hole at a hijacked return into `CallDescrWorkerInternal`
+  (#131267, fixed in 10.0.12 by #131708) has the same symptoms, but 10.0.12 and 10.0.13 still died. A stress program
+  without MemoryPack and xunit, with reflection, compiled expressions, aging objects and multidimensional arrays on
+  several threads, died on neither runtime in 24 runs of a minute.
+
+The issue Cysharp/MemoryPack#460 (open since 2026-09-17) names MemoryPack's habit of writing private fields of BCL
+types through view classes and `Unsafe.As`. Two places do so on modern .NET:
+
+- `CollectionsMarshalEx` views `List<T>` and `Stack<T>` as `{ T[]; int; int }`. Their layout is the same on .NET 8 and
+  10.
+- `BitArrayFormatter` views `BitArray` as `{ int[] m_array; int m_length; int _version }`. That was its layout up to
+  .NET 9. On .NET 10 `BitArray` holds `{ byte[] _array; int _bitLength; int _version }`, measured on both runtimes
+  by the fields' names, types and offsets.
+
+The formatter therefore reads and writes `BitArray`'s byte array as if it held 32-bit words:
+
+- **Serialize** writes `m_array` with `WriteUnmanagedArray`. For 1000 bits that is a `byte[125]` taken for an
+  `int[125]`, so 500 bytes are written, the last 375 of them read past the array.
+- **Deserialize** builds `new BitArray(length)`, whose array is a fresh `byte[125]`, and calls
+  `ReadUnmanagedArray(ref view.m_array)`. `DangerousReadUnmanagedArray` reuses an array of the length it reads, so it
+  copies 500 bytes into the `byte[125]`.
+- **The damage.** The 375 bytes past it land on whatever follows: live objects, or the zeroed memory the allocator
+  hands out next.
+
+`WellknownFormattersTest.Others` round-trips such a `BitArray` (1000 bits). It ran while other test collections
+allocated beside it, which is why the victims were theirs. A program of a dozen lines makes the round trip, then
+allocates an `object[8]` and checks that it is empty:
+
+- **.NET 8.0.32:** a thousand rounds, none disturbed.
+- **.NET 10.0.13:** the first round died with `AccessViolationException` in `SpanHelpers.Memmove` under
+  `BitArrayFormatter.Deserialize`.
+
+The suite without that one test ran 100 times on .NET 10.0.13 under heap verification with no death, where the whole
+suite died 7 times in 100 alongside it.
+
+## 9. The decision
+
+The test leaves the selection with its reason (`method:MemoryPack.Tests.WellknownFormattersTest.Others` in
+`build/runtime/nuget-suites.json`). The suite and its other 120 tests stay, on the host and in the guest.
+
+What the step keeps:
+
+- **The libc's fault report** (§2) and the judge's count of provoked faults.
+- **The method.** Full dumps on a Linux host and `dotnet-dump`'s `verifyheap`, `gcwhere` and `gcroot` told this case
+  apart, where the guest's own dumps had shown the damage but not its author.
+
+The diagnostics of the hunt stay out of the repository: the replays, the core readers, the libc's logging of failed
+mapping calls, and a pause at a fatal fault that kept the faulting thread asleep for a dump.
+
+MemoryPack's own fix belongs upstream: `BitArray`'s public `CopyTo(int[], 0)` and `new BitArray(int[])` keep the
+format and need no view, as #460 proposes. Until then, a .NET 10 program must not serialize a `BitArray` with
+MemoryPack 1.21.4.
