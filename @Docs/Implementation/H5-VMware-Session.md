@@ -55,19 +55,42 @@ VMware's own VNC server shows the screen with no window and no VMware Tools:
 - A plain RFB 3.8 client with security type None takes a frame in raw encoding. The banner and the prompt above are
   such frames.
 
-### 1.4 Open: keys reached no keyboard
+### 1.4 Open: the console's keys
 
-Keys sent without a person did not reach the guest. The xHCI driver logged no key transition:
+Keys sent without a person reach VMware's PS/2 keyboard, not its USB one. A scratch kernel measured where they go; its
+change was never committed. The boot processor's tick read the 8042 and logged every byte. A scratch xHCI driver sent
+the keyboard more requests.
 
-- RFB `KeyEvent`s through VMware's VNC server, with the keyboard configured and its interrupt endpoint polled;
-- keystrokes injected into the Workstation window after Ctrl+G.
+- **VNC.** RFB `KeyEvent`s through VMware's VNC server reach the firmware: its Boot Manager opens. Under WitOS they
+  arrive as scan codes of set 1 at the 8042 (0x1E and 0x9E for a press and a release of A), from the firmware's last
+  seconds through the session. In the same boots the USB keyboard was configured with SET_IDLE and its interrupt
+  endpoint polled, and the xHCI driver logged no key.
+- **No guest action moved them to the USB keyboard.** The guest tried in turn:
+  - the keyboard's LEDs set off through SET_REPORT, as Linux's keyboard handler and Windows do when a keyboard starts;
+  - the PS/2 keyboard's Disable Scanning (0xF5);
+  - the 8042's command byte without its keyboard interrupt;
+  - a keyboard reset (0xFF, answered 0xFA and 0xAA) left with scanning disabled;
+  - the 8042's keyboard port disabled (0xAD).
 
-VMware's USB analyzer (`usb.analyzer.enable`) records its virtual hubs' traffic, not the virtual keyboard's, so it
-cannot tell whether VMware routed the keys to the PS/2 keyboard or the USB one never reported them.
+  After 0xF5 or 0xAD, VMware drops the keys, and none reaches either keyboard. `keyboard.allowBothIRQs = "FALSE"` in the
+  `.vmx`, which a forum thread names beside `keyboard.vusb.enable`, changed nothing.
+- **The console's own path is unmeasured.** Input injected into the Workstation window never grabbed the VM: keys sent
+  through UI Automation, and a click and keys through `mouse_event` and `keybd_event`. The status bar went on asking to
+  click inside. A modal "Removable Devices" hint, which each start opens, keeps the window disabled until it is
+  dismissed.
+- VMware's USB analyzer (`usb.analyzer.enable`) records its virtual hubs' traffic, not the virtual keyboard's.
 
-The session by hand answers it. If a real key on the console is not logged as `[XHCI] key <code> down`, the keyboard's
-report path on VMware is H5's to fix: its HID class requests, its LEDs, or VMware's routing between its PS/2 and USB
-keyboards.
+The likely reading: VMware's VNC server feeds scan codes to its PS/2 device, while the console's input goes through
+VMware's HID layer, which `keyboard.vusb.enable` sends to the USB keyboard. Users of Linux guests report that the
+setting moves their keys to the USB keyboard.
+
+The session by hand decides it:
+
+- **If a key on the console is logged as `[XHCI] key <code> down`,** the USB path works by hand. Only automation through
+  VNC meets the PS/2 keyboard.
+- **If the console's keys reach the PS/2 keyboard too,** WitOS on VMware needs a PS/2 keyboard, against
+  [ADR 0029](ADR-0029-PC-Interrupts-Power-and-Device-Table.md)'s USB keyboard on every target and its kernel without port
+  access in the release. That is the author's decision, recorded in an ADR before any port reaches a driver.
 
 ## 2. The session by hand
 
