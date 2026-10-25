@@ -55,6 +55,16 @@ internal static class RuntimeDevices
     public const string XHCI_EXECUTABLE = "Xhci";
 
     /// <summary>
+    /// The AHCI driver's sources (H3.1).
+    /// </summary>
+    public const string AHCI_PROGRAM = "src/Services/Drivers/Ahci";
+
+    /// <summary>
+    /// The executable runtime-witos publishes from the AHCI driver, /system/Drivers/Ahci.
+    /// </summary>
+    public const string AHCI_EXECUTABLE = "Ahci";
+
+    /// <summary>
     /// The virtio network driver's sources (W1.1).
     /// </summary>
     public const string VIRTIO_NET_PROGRAM = "src/Services/Drivers/VirtioNet";
@@ -140,11 +150,17 @@ internal static class RuntimeDevices
     public const string VOLUME_GREETING = "Read from the ext4 volume";
 
     /// <summary>
-    /// The boots of one data disk the scenario makes (D6.1, D6.2, D6.3): two that end with the services stopped, a third
-    /// that the host cuts off while /bin/init writes rounds of files, a fourth that finds what the cut left, and a fifth on
-    /// a disk that fails some reads.
+    /// The boots of one data disk the scenario makes (D6.1, D6.2, D6.3, H3.1): two that end with the services stopped, a
+    /// third that the host cuts off while /bin/init writes rounds of files, a fourth that finds what the cut left, a fifth
+    /// on a disk that fails some reads, and a sixth with the disk on an AHCI controller.
     /// </summary>
-    public const int BOOTS = 5;
+    public const int BOOTS = 6;
+
+    /// <summary>
+    /// The boot whose data disk hangs on an AHCI controller's first port (H3.1): the AHCI driver serves it, and the probes,
+    /// the namespace service and /bin/init find on it what the five boots on virtio-blk left.
+    /// </summary>
+    public const int AHCI_BOOT = 6;
 
     /// <summary>
     /// The boot whose data disk fails the reads of /big.bin's first block (devices_init.c's FAIL_BOOT, D6.3).
@@ -232,6 +248,9 @@ internal static class RuntimeDevices
     // OutWit.OS's USB core and xHCI controller (H2.1), which the xHCI driver alone compiles.
     private static readonly string[] OUTWIT_OS_USB_FOLDERS = ["Hardware/Usb"];
 
+    // OutWit.OS's AHCI controller (H3.1), which the AHCI driver alone compiles.
+    private static readonly string[] OUTWIT_OS_AHCI_FOLDERS = ["Hardware/Ahci"];
+
     #endregion
 
     #region Functions
@@ -268,6 +287,7 @@ internal static class RuntimeDevices
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_CONSOLE_EXECUTABLE, VIRTIO_CONSOLE_PROGRAM, ["Virtio"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_INPUT_EXECUTABLE, VIRTIO_INPUT_PROGRAM, ["Virtio"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, XHCI_EXECUTABLE, XHCI_PROGRAM, [], OUTWIT_OS_USB_FOLDERS);
+        await PublishServiceAsync(root, tree, architecture, version, sysroot, AHCI_EXECUTABLE, AHCI_PROGRAM, [], OUTWIT_OS_AHCI_FOLDERS);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_NET_EXECUTABLE, VIRTIO_NET_PROGRAM, ["Virtio"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, NETWORK_EXECUTABLE, NETWORK_PROGRAM, ["Server"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, TERMINAL_EXECUTABLE, TERMINAL_PROGRAM, ["Server"], []);
@@ -280,8 +300,9 @@ internal static class RuntimeDevices
         var dataDisk = Path.Combine(Path.GetDirectoryName(image)!, "data-disk.img");
         await RuntimeDataDisk.CreateAsync(dataDisk, programs: programs);
         // Boots of one data disk (D6.1, D6.2): the first writes it, the services stop and unmount its volumes, and the second
-        // finds what the first wrote; the third is cut off while it writes, and the fourth finds what the cut left. The
-        // host judges the disk after each: unmounted and clean after a stop, replayable by e2fsck after the cut.
+        // finds what the first wrote; the third is cut off while it writes, and the fourth finds what the cut left; the fifth
+        // fails some reads (D6.3), and the sixth reaches the disk through an AHCI controller (H3.1). The host judges the disk
+        // after each: unmounted and clean after a stop, replayable by e2fsck after the cut.
         OutWit.OS.FileSystems.FileSystemCheckReport? check = null;
         var durable = -1;
         for (var boot = 1; boot <= BOOTS; boot++)
@@ -295,6 +316,7 @@ internal static class RuntimeDevices
                 Suite = BootSuite.Release,
                 RequiredLines = RequiredLines(architecture, boot),
                 DataDisk = dataDisk,
+                DataDiskController = boot == AHCI_BOOT ? DiskController.Ahci : DiskController.Virtio,
                 Network = true,
                 // TCP (W1.2b): the runner's echo server behind 10.0.2.100:7, and the probe's listening socket the runner
                 // connects to through a port forward once the probe says it listens.
@@ -342,8 +364,9 @@ internal static class RuntimeDevices
     /// <returns>The required lines.</returns>
     public static string[] RequiredLines(KernelArchitecture architecture, int boot = 1) =>
     [
-        .. FirstLines(),
+        .. FirstLines(boot),
         .. InterruptLines(architecture),
+        .. boot == AHCI_BOOT ? AhciLines(architecture) : Array.Empty<string>(),
         .. boot > 1 ? [$": partition \"{RuntimeDataDisk.TEST_PARTITION}\": holds the {RuntimeDataDisk.TEST_PATTERN_BYTES} bytes a previous boot wrote",
             $": partition \"{RuntimeDataDisk.FAT_PARTITION}\": after the reboot, read back what a previous boot wrote"] : Array.Empty<string>(),
         .. boot == 1 ? FirstExt4Lines() : boot == CUT_BOOT + 1 ? AfterCutExt4Lines() : AfterRebootExt4Lines(counted: boot <= CUT_BOOT),
@@ -358,16 +381,38 @@ internal static class RuntimeDevices
         ? ["[VIRTIO-BLOCK] driver of pci/", ": interrupts through MSI-X entry 0, message ", "[VIRTIO-NET] driver of pci/"]
         : [": interrupts through its INTx line"];
 
-    // What every boot of the scenario prints first: discovery, the drivers, the disks and the FAT volumes.
-    private static string[] FirstLines() =>
+    // The AHCI driver of the boot whose data disk hangs on an AHCI controller (H3.1): QEMU's ICH9 SATA controller, its
+    // first port's disk identified and its sector 0 read, the block protocol served, the interrupt an MSI message on the
+    // PC and the INTx line elsewhere, and the driver's stop.
+    private static string[] AhciLines(KernelArchitecture architecture) =>
+    [
+        "[DEVICES] Device discovered: Class: SataController, Provider: ",
+        "[AHCI] driver of pci/",
+        ": holds the device, its configuration space reads 8086:2922",
+        ": AHCI 1.0, 6 ports (implemented 3f), 32 command slots, 64-bit addresses, interrupts through " +
+            (architecture == KernelArchitecture.X64 ? "MSI, message " : "its INTx line"),
+        "[AHCI] port 0: an ATA disk \"QEMU HARDDISK\", serial QM",
+        $", {RuntimeDataDisk.BYTES} bytes in blocks of 512, a write cache, link 1.5 Gb/s",
+        ": read sector 0 of port 0: a protective MBR (signature aa55) of a GUID partition table",
+        $": port 0, {RuntimeDataDisk.BYTES} bytes in blocks of 512, writable, a volatile cache it flushes, transfers of up to 262144 bytes in 128 segments, ",
+        "[DEVICES] driver /system/Drivers/Ahci of pci/",
+        ": stopped, the ports idle"
+    ];
+
+    // What every boot of the scenario prints first: discovery, the drivers, the disks and the FAT volumes; the virtio data
+    // disk's own lines on every boot but the AHCI boot's.
+    private static string[] FirstLines(int boot) =>
     [
         "[DEVICES] Device discovered: Class: BlockStorageController, Provider: Virtio, DeviceId: pci/",
         "[DEVICES] Device discovered: Class: EntropySource, Provider: Virtio, DeviceId: pci/",
         "[VIRTIO-BLOCK] driver of pci/",
         ": holds the device, its configuration space reads 1af4:",
         ": read sector 0 through queue 0 and its interrupt: a boot sector (signature aa55, file system FAT",
-        ": read sector 0 through queue 0 and its interrupt: a protective MBR (signature aa55) of a GUID partition table",
-        $": {RuntimeDataDisk.BYTES} bytes in blocks of 512, writable, a volatile cache it flushes, transfers of up to ",
+        .. boot == AHCI_BOOT ? Array.Empty<string>() :
+        [
+            ": read sector 0 through queue 0 and its interrupt: a protective MBR (signature aa55) of a GUID partition table",
+            $": {RuntimeDataDisk.BYTES} bytes in blocks of 512, writable, a volatile cache it flushes, transfers of up to "
+        ],
         " bytes in blocks of 512, read-only, ",
         ": serving the block protocol",
         "[DEVICES] driver /system/Drivers/VirtioBlock of pci/",
@@ -579,12 +624,14 @@ internal static class RuntimeDevices
         var console = Path.Combine(directory, VIRTIO_CONSOLE_EXECUTABLE);
         var input = Path.Combine(directory, VIRTIO_INPUT_EXECUTABLE);
         var xhci = Path.Combine(directory, XHCI_EXECUTABLE);
+        var ahci = Path.Combine(directory, AHCI_EXECUTABLE);
         var network = Path.Combine(directory, VIRTIO_NET_EXECUTABLE);
         var names = Path.Combine(directory, NAMESPACE_EXECUTABLE);
         var networking = Path.Combine(directory, NETWORK_EXECUTABLE);
         var terminal = Path.Combine(directory, TERMINAL_EXECUTABLE);
         var display = Path.Combine(directory, DISPLAY_EXECUTABLE);
-        if (!File.Exists(driver) || !File.Exists(console) || !File.Exists(input) || !File.Exists(xhci) || !File.Exists(network) || !File.Exists(names) ||
+        if (!File.Exists(driver) || !File.Exists(console) || !File.Exists(input) || !File.Exists(xhci) || !File.Exists(ahci) || !File.Exists(network) ||
+            !File.Exists(names) ||
             !File.Exists(networking) || !File.Exists(terminal) || !File.Exists(display))
             throw new InvalidOperationException($"No witos drivers, namespace, network, terminal or display service in {directory}. " +
                 $"Run: dotnet run --project tools/WitOS.Dev -- runtime-services --arch {architecture.Name}");
@@ -592,7 +639,7 @@ internal static class RuntimeDevices
         [
             ("system/" + DEVICE_MANAGER_EXECUTABLE, program[0].Source), ("system/Drivers/" + VIRTIO_BLOCK_EXECUTABLE, driver),
             ("system/Drivers/" + VIRTIO_CONSOLE_EXECUTABLE, console), ("system/Drivers/" + VIRTIO_INPUT_EXECUTABLE, input),
-            ("system/Drivers/" + VIRTIO_NET_EXECUTABLE, network), ("system/Drivers/" + XHCI_EXECUTABLE, xhci),
+            ("system/Drivers/" + VIRTIO_NET_EXECUTABLE, network), ("system/Drivers/" + XHCI_EXECUTABLE, xhci), ("system/Drivers/" + AHCI_EXECUTABLE, ahci),
             ("system/" + NAMESPACE_EXECUTABLE, names), ("system/" + NETWORK_EXECUTABLE, networking), ("system/" + TERMINAL_EXECUTABLE, terminal),
             ("system/" + DISPLAY_EXECUTABLE, display),
             .. SpleenFont.PackageFiles(root), .. program.Skip(1)

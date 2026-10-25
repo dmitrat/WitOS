@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The AHCI driver (plan step H3.1, ADR 0025): the NativeAOT program /system/Drivers/Ahci of the boot package, which
+       the device manager starts with a SATA controller of the AHCI interface it moves to it; it drives the controller and
+       serves its first ATA disk over the block protocol, as the virtio block driver serves its disk. runtime-witos
+       publishes it for witos with the OutWit.OS sources and their Hardware/Ahci folder; on the host the project builds. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Ahci</AssemblyName>
+    <RootNamespace>OutWit.OS.Drivers.Ahci</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../OutWit.OS/OutWit.OS.csproj" />
+  </ItemGroup>
+</Project>

@@ -169,11 +169,11 @@ internal static class BootScenarioRunner
             await File.WriteAllTextAsync(rules, string.Concat(request.DataDiskReadErrors.Select(sector =>
                 $"[inject-error]\nevent = \"read_aio\"\niotype = \"read\"\nerrno = \"5\"\nsector = \"{sector}\"\n\n")));
             arguments.AddRange(["-drive", $"if=none,id=data,format=raw,rerror=report,werror=report,file.driver=blkdebug," +
-                $"file.config={QemuPath(rules)},file.image.filename={QemuPath(request.DataDisk)}", "-device", "virtio-blk-pci,drive=data"]);
+                $"file.config={QemuPath(rules)},file.image.filename={QemuPath(request.DataDisk)}", .. DataDiskDevices(request, architecture)]);
         }
         else if (request.DataDisk is not null)
         {
-            arguments.AddRange(["-drive", $"if=none,id=data,format=raw,file={QemuPath(request.DataDisk)}", "-device", "virtio-blk-pci,drive=data"]);
+            arguments.AddRange(["-drive", $"if=none,id=data,format=raw,file={QemuPath(request.DataDisk)}", .. DataDiskDevices(request, architecture)]);
         }
         if (terminal is not null || relay is not null)
         {
@@ -359,6 +359,21 @@ internal static class BootScenarioRunner
         }
         return null;
     }
+
+    /// <summary>
+    /// The devices of a request's data disk, whose drive is "data" (D3.2, H3.1): a virtio block device, or an ATA disk on
+    /// the first port of an AHCI controller — q35's own ICH9 SATA controller, whose ports are its buses ide.0 to ide.5, or
+    /// an ich9-ahci put where the virtio device would be on the boards without one, so that it takes the same INTx line.
+    /// </summary>
+    /// <param name="request">The request.</param>
+    /// <param name="architecture">Its architecture.</param>
+    /// <returns>The -device arguments.</returns>
+    internal static string[] DataDiskDevices(BootRequest request, KernelArchitecture architecture) => request.DataDiskController switch
+    {
+        DiskController.Ahci when architecture == KernelArchitecture.X64 && !request.Pc => ["-device", "ide-hd,drive=data,bus=ide.0"],
+        DiskController.Ahci => ["-device", "ich9-ahci,id=ahci", "-device", "ide-hd,drive=data,bus=ahci.0"],
+        _ => ["-device", "virtio-blk-pci,drive=data"],
+    };
 
     /// <summary>
     /// QEMU's instruction clock for a board (P2): its single-threaded TCG runs the processors in turn and counts every

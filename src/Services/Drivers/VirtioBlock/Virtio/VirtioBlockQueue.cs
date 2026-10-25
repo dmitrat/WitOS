@@ -13,7 +13,7 @@ namespace OutWit.OS.Drivers.VirtioBlock.Virtio;
 /// a sector of its own — driven by the device's INTx line bound to an event. A request's data are segments of physical
 /// memory, the driver's own sector or a client's pinned window (plan step D3.2). One request at a time.
 /// </summary>
-internal sealed class VirtioBlockQueue : IDisposable
+internal sealed class VirtioBlockQueue : IBlockDevice, IDisposable
 {
     #region Constants
 
@@ -136,11 +136,20 @@ internal sealed class VirtioBlockQueue : IDisposable
     /// <param name="sector">The sector's number.</param>
     /// <returns>Its bytes.</returns>
     /// <exception cref="IOException">The device completed another request or reported an error.</exception>
-    public byte[] Read(ulong sector)
+    public byte[] ReadSector(ulong sector)
     {
         Submit(TYPE_IN, sector, [(m_pin.RunAt(OWN_SECTOR).Address, SECTOR)]);
         return m_pages.Bytes.Slice(OWN_SECTOR, SECTOR).ToArray();
     }
+
+    /// <inheritdoc />
+    public void Read(long offset, ReadOnlySpan<(ulong Address, int Length)> segments) => Submit(TYPE_IN, (ulong)(offset / SECTOR), segments);
+
+    /// <inheritdoc />
+    public void Write(long offset, ReadOnlySpan<(ulong Address, int Length)> segments) => Submit(TYPE_OUT, (ulong)(offset / SECTOR), segments);
+
+    /// <inheritdoc />
+    public void Flush() => Submit(TYPE_FLUSH, 0, []);
 
     /// <summary>
     /// Serves one request through the queue: the header, the data's segments, the status, a notification, and the

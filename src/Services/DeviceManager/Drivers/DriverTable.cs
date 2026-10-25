@@ -5,7 +5,8 @@ namespace OutWit.OS.DeviceManager.Drivers;
 /// <summary>
 /// The drivers the device manager knows (ADR 0025, decision 7): a provider and a contract mapped to a driver program
 /// of the boot package, until driver packages carry their match metadata (RFC 0010, RFC 0007 §110); a USB
-/// controller of the xHCI interface, whatever its vendor, to the xHCI driver (H2.1).
+/// controller of the xHCI interface, whatever its vendor, to the xHCI driver (H2.1), and a SATA controller of the AHCI
+/// interface to the AHCI driver (H3.1).
 /// </summary>
 internal static class DriverTable
 {
@@ -35,6 +36,22 @@ internal static class DriverTable
     /// The xHCI driver (H2.1): the USB keyboards of the controller, served as the virtio keyboard is.
     /// </summary>
     public const string XHCI = "/system/Drivers/Xhci";
+
+    /// <summary>
+    /// The AHCI driver (H3.1): a SATA controller's first ATA disk, served over the block protocol as the virtio disk is.
+    /// </summary>
+    public const string AHCI = "/system/Drivers/Ahci";
+
+    /// <summary>
+    /// The UHI class of a SATA controller of any interface, which the PCI class 01/06 names; the programming interface
+    /// tells AHCI (0x01) from a vendor's own.
+    /// </summary>
+    public const string SATA_CONTROLLER = "SataController";
+
+    /// <summary>
+    /// The PCI programming interface of an AHCI controller.
+    /// </summary>
+    public const uint AHCI_INTERFACE = 0x01;
 
     /// <summary>
     /// The UHI class of a USB host controller of any interface, which the PCI class 0C/03 names; the programming
@@ -83,6 +100,7 @@ internal static class DriverTable
         ("Virtio", INPUT_DEVICE) => VIRTIO_INPUT,
         ("Virtio", NETWORK_QUEUE) => VIRTIO_NET,
         (_, USB_CONTROLLER) when (record.Descriptor.ClassCode & 0xFF) == XHCI_INTERFACE => XHCI,
+        (_, SATA_CONTROLLER) when (record.Descriptor.ClassCode & 0xFF) == AHCI_INTERFACE => AHCI,
         _ => null
     };
 
@@ -92,6 +110,13 @@ internal static class DriverTable
     /// <param name="record">A device record.</param>
     /// <returns>Whether it does.</returns>
     public static bool ServesInput(DeviceRecord record) => record.Class == INPUT_DEVICE || Find(record) == XHCI;
+
+    /// <summary>
+    /// Whether a device's driver serves the block protocol, a disk for the namespace service (D3.2, H3.1).
+    /// </summary>
+    /// <param name="record">A device record.</param>
+    /// <returns>Whether it does.</returns>
+    public static bool ServesBlocks(DeviceRecord record) => record.Class == BLOCK_STORAGE || Find(record) == AHCI;
 
     #endregion
 }
