@@ -39,7 +39,7 @@ public sealed class AhciDisk : IBlockDevice
     /// <exception cref="IOException">The disk failed the command, has no 48-bit addresses or reports no sector.</exception>
     internal void Identify()
     {
-        Command(AhciCommands.IDENTIFY_DEVICE, 0, 0, [(m_sector.Physical, AtaIdentify.BYTES)], false, "IDENTIFY DEVICE");
+        Command(AhciCommands.IDENTIFY_DEVICE, 0, 0, [(m_sector.Physical, AtaIdentify.BYTES)], false, "IDENTIFY DEVICE", AhciController.COMMAND_SECONDS);
         try
         {
             m_identify = AtaIdentify.Read(m_sector.Bytes);
@@ -62,7 +62,7 @@ public sealed class AhciDisk : IBlockDevice
     {
         if (BlockSize > AtaIdentify.BYTES)
             throw new IOException($"A sector of {BlockSize} bytes exceeds the driver's own buffer.");
-        Command(AhciCommands.READ_DMA_EXT, sector, 1, [(m_sector.Physical, BlockSize)], false, $"a read at sector {sector}");
+        Command(AhciCommands.READ_DMA_EXT, sector, 1, [(m_sector.Physical, BlockSize)], false, $"a read at sector {sector}", AhciController.COMMAND_SECONDS);
         return m_sector.Bytes[..BlockSize].ToArray();
     }
 
@@ -73,7 +73,8 @@ public sealed class AhciDisk : IBlockDevice
     public void Write(long offset, ReadOnlySpan<(ulong Address, int Length)> segments) => Transfer(AhciCommands.WRITE_DMA_EXT, offset, segments, true);
 
     /// <inheritdoc />
-    public void Flush() => Command(Identity.FlushExt ? AhciCommands.FLUSH_CACHE_EXT : AhciCommands.FLUSH_CACHE, 0, 0, [], false, "a flush");
+    public void Flush() =>
+        Command(Identity.FlushExt ? AhciCommands.FLUSH_CACHE_EXT : AhciCommands.FLUSH_CACHE, 0, 0, [], false, "a flush", AhciController.FLUSH_SECONDS);
 
     // A read or a write of whole sectors.
     private void Transfer(byte command, long offset, ReadOnlySpan<(ulong Address, int Length)> segments, bool write)
@@ -84,11 +85,11 @@ public sealed class AhciDisk : IBlockDevice
         if (offset % BlockSize != 0 || bytes % BlockSize != 0 || bytes == 0 || bytes / BlockSize > AhciCommands.MAX_SECTORS)
             throw new IOException($"A transfer of {bytes} bytes at {offset} is no run of whole sectors the disk takes in one command.");
         var sector = (ulong)(offset / BlockSize);
-        Command(command, sector, (int)(bytes / BlockSize), segments, write, $"a {(write ? "write" : "read")} at sector {sector}");
+        Command(command, sector, (int)(bytes / BlockSize), segments, write, $"a {(write ? "write" : "read")} at sector {sector}", AhciController.COMMAND_SECONDS);
     }
 
     // A command in slot 0: its FIS, its PRDT, its header, then the controller's issue and wait.
-    private void Command(byte command, ulong lba, int count, ReadOnlySpan<(ulong Address, int Length)> segments, bool write, string what)
+    private void Command(byte command, ulong lba, int count, ReadOnlySpan<(ulong Address, int Length)> segments, bool write, string what, int seconds)
     {
         if (segments.Length > AhciController.PRDT_ENTRIES)
             throw new IOException($"A command of {segments.Length} segments exceeds the table's {AhciController.PRDT_ENTRIES}.");
@@ -98,7 +99,7 @@ public sealed class AhciDisk : IBlockDevice
         for (var i = 0; i < segments.Length; i++)
             AhciCommands.WritePrdtEntry(table, i, segments[i].Address, segments[i].Length);
         AhciCommands.WriteHeader(m_controller.List(Port).Bytes, 0, write, segments.Length, m_table.Physical);
-        m_controller.Issue(Port, what);
+        m_controller.Issue(Port, what, seconds);
     }
 
     #endregion

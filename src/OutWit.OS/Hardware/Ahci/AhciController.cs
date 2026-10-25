@@ -29,9 +29,21 @@ public sealed class AhciController : IDisposable
     private const int ARENA_PAGES = 16;
 
     /// <summary>
-    /// The seconds a command, the reset or a port's stop may take.
+    /// The seconds the reset or a port's stop may take.
     /// </summary>
     private const int TIMEOUT_SECONDS = 10;
+
+    /// <summary>
+    /// The seconds a read or a write may take: Linux's for a SCSI disk (SD_TIMEOUT), which libata's disks take. Under
+    /// QEMU's instruction clock without sleep, as the gates run, an idle guest's time runs ahead of a host's write, so a
+    /// short timeout fails a command the host still serves.
+    /// </summary>
+    public const int COMMAND_SECONDS = 30;
+
+    /// <summary>
+    /// The seconds a flush may take: twice a command's, as Linux's sd gives one (SD_FLUSH_TIMEOUT_MULTIPLIER).
+    /// </summary>
+    public const int FLUSH_SECONDS = 60;
 
     /// <summary>
     /// The milliseconds the ports' links are given after the reset while a port sees a device without communication.
@@ -326,13 +338,14 @@ public sealed class AhciController : IDisposable
     /// </summary>
     /// <param name="port">The disk's port.</param>
     /// <param name="what">The command, for a failure's message: "a read at sector 8".</param>
+    /// <param name="seconds">The seconds it may take: <see cref="COMMAND_SECONDS"/> or <see cref="FLUSH_SECONDS"/>.</param>
     /// <exception cref="IOException">The device reported an error or the command did not complete.</exception>
-    internal void Issue(int port, string what)
+    internal void Issue(int port, string what, int seconds)
     {
         m_status[port] = 0;
         MmioRegion.Barrier();
         WritePort(port, PxCI, 1);
-        var deadline = Clock.MonotonicAfter(TIMEOUT_SECONDS);
+        var deadline = Clock.MonotonicAfter(seconds);
         for (; ; )
         {
             Service();
@@ -348,7 +361,7 @@ public sealed class AhciController : IDisposable
             }
             var now = Clock.Monotonic();
             if (now > deadline)
-                Fail(port, what, "no completion in " + TIMEOUT_SECONDS + " s");
+                Fail(port, what, "no completion in " + seconds + " s");
             try
             {
                 Event.Wait(Math.Min(deadline, now + Clock.Frequency() / 100), m_signaled);

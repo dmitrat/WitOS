@@ -18,6 +18,12 @@ internal static class BootScenarioRunner
     // time follows the host's between keys instead of racing ahead, and the host's processor rests.
     private const string INTERACTIVE_TIME = "sleep=on";
 
+    // A writable disk's flushes end at QEMU's device without the host's fdatasync: the guest's flush is served as before,
+    // while an idle guest's time no longer runs ahead of a host flush that a loaded host takes long over (a gate's AHCI
+    // flush timed out so in CI, H3.2). A cut boot (D6.2) kills QEMU, not the host, whose page cache keeps every write QEMU
+    // made, so what the gates judge is unchanged.
+    private const string GUEST_FLUSHES = "cache.no-flush=on";
+
     // The window of a session on the host's screen (C2.4): QEMU's GTK display, the framebuffer scaled to the window.
     private const string WINDOW_DISPLAY = "gtk,zoom-to-fit=on";
 
@@ -168,12 +174,12 @@ internal static class BootScenarioRunner
             var rules = Path.Combine(logs, name + ".blkdebug.conf");
             await File.WriteAllTextAsync(rules, string.Concat(request.DataDiskReadErrors.Select(sector =>
                 $"[inject-error]\nevent = \"read_aio\"\niotype = \"read\"\nerrno = \"5\"\nsector = \"{sector}\"\n\n")));
-            arguments.AddRange(["-drive", $"if=none,id=data,format=raw,rerror=report,werror=report,file.driver=blkdebug," +
+            arguments.AddRange(["-drive", $"if=none,id=data,format=raw,{GUEST_FLUSHES},rerror=report,werror=report,file.driver=blkdebug," +
                 $"file.config={QemuPath(rules)},file.image.filename={QemuPath(request.DataDisk)}", .. DataDiskDevices(request, architecture)]);
         }
         else if (request.DataDisk is not null)
         {
-            arguments.AddRange(["-drive", $"if=none,id=data,format=raw,file={QemuPath(request.DataDisk)}", .. DataDiskDevices(request, architecture)]);
+            arguments.AddRange(["-drive", $"if=none,id=data,format=raw,{GUEST_FLUSHES},file={QemuPath(request.DataDisk)}", .. DataDiskDevices(request, architecture)]);
         }
         if (terminal is not null || relay is not null)
         {

@@ -29,9 +29,16 @@ public sealed class NvmeController : IDisposable
     private const int ARENA_PAGES = 16;
 
     /// <summary>
-    /// The seconds a command may take.
+    /// The seconds an I/O command may take: Linux's NVMe io_timeout. Under QEMU's instruction clock without sleep, as the
+    /// gates run, an idle guest's time runs ahead of a host's write, so a short timeout fails a command the host still
+    /// serves.
     /// </summary>
-    private const int TIMEOUT_SECONDS = 10;
+    private const int IO_SECONDS = 30;
+
+    /// <summary>
+    /// The seconds an admin command, the enable and the shutdown may take at most: Linux's NVMe admin_timeout.
+    /// </summary>
+    private const int ADMIN_SECONDS = 60;
 
     // Controller registers.
     private const int CAP = 0x00;
@@ -228,7 +235,8 @@ public sealed class NvmeController : IDisposable
         queue.Tail = (queue.Tail + 1) % QUEUE_ENTRIES;
         MmioRegion.Barrier();
         m_bar.Write32(DOORBELLS + 2 * queue.Id * m_stride, (uint)queue.Tail);
-        var deadline = Clock.MonotonicAfter(TIMEOUT_SECONDS);
+        var seconds = queue == m_io ? IO_SECONDS : ADMIN_SECONDS;
+        var deadline = Clock.MonotonicAfter(seconds);
         for (; ; )
         {
             MmioRegion.Barrier();
@@ -251,7 +259,7 @@ public sealed class NvmeController : IDisposable
             if ((m_bar.Read32(CSTS) & CSTS_FATAL) != 0)
                 throw new IOException($"the controller reports a fatal status during {what}: CSTS {m_bar.Read32(CSTS):x8}");
             if (now > deadline)
-                throw new IOException($"the controller did not complete {what} in {TIMEOUT_SECONDS} s");
+                throw new IOException($"the controller did not complete {what} in {seconds} s");
             try
             {
                 Event.Wait(Math.Min(deadline, now + Clock.Frequency() / 100), m_signaled);
