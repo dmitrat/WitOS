@@ -84,7 +84,7 @@ public sealed class UsbCoreTests
     [Test]
     public void BootReportsBecomeKeysTest()
     {
-        var keyboard = new HidBootKeyboard();
+        var keyboard = HidKeyboard.Boot();
         var events = new List<(ushort Type, ushort Code, int Value)>();
         Assert.That(keyboard.Update([0, 0, 0x04, 0, 0, 0, 0, 0], events), Is.True);
         Assert.That(events, Is.EqualTo(new[] { Key(30, 1), Syn() }), "a goes down");
@@ -102,18 +102,18 @@ public sealed class UsbCoreTests
     [Test]
     public void UsagesMapToEvdevCodesTest()
     {
-        Assert.That(HidBootKeyboard.KeyCode(0x04), Is.EqualTo(30), "a");
-        Assert.That(HidBootKeyboard.KeyCode(0x1D), Is.EqualTo(44), "z");
-        Assert.That(HidBootKeyboard.KeyCode(0x1E), Is.EqualTo(2), "1");
-        Assert.That(HidBootKeyboard.KeyCode(0x27), Is.EqualTo(11), "0");
-        Assert.That(HidBootKeyboard.KeyCode(0x28), Is.EqualTo(28), "Enter");
-        Assert.That(HidBootKeyboard.KeyCode(0x2C), Is.EqualTo(57), "Space");
-        Assert.That(HidBootKeyboard.KeyCode(0x45), Is.EqualTo(88), "F12");
-        Assert.That(HidBootKeyboard.KeyCode(0x4F), Is.EqualTo(106), "Right");
-        Assert.That(HidBootKeyboard.KeyCode(0x52), Is.EqualTo(103), "Up");
-        Assert.That(HidBootKeyboard.KeyCode(0x65), Is.EqualTo(127), "Application");
-        Assert.That(HidBootKeyboard.KeyCode(0xE5), Is.EqualTo(54), "right Shift");
-        Assert.That(HidBootKeyboard.KeyCode(0x66), Is.Zero, "beyond the table");
+        Assert.That(HidKeyboard.KeyCode(0x04), Is.EqualTo(30), "a");
+        Assert.That(HidKeyboard.KeyCode(0x1D), Is.EqualTo(44), "z");
+        Assert.That(HidKeyboard.KeyCode(0x1E), Is.EqualTo(2), "1");
+        Assert.That(HidKeyboard.KeyCode(0x27), Is.EqualTo(11), "0");
+        Assert.That(HidKeyboard.KeyCode(0x28), Is.EqualTo(28), "Enter");
+        Assert.That(HidKeyboard.KeyCode(0x2C), Is.EqualTo(57), "Space");
+        Assert.That(HidKeyboard.KeyCode(0x45), Is.EqualTo(88), "F12");
+        Assert.That(HidKeyboard.KeyCode(0x4F), Is.EqualTo(106), "Right");
+        Assert.That(HidKeyboard.KeyCode(0x52), Is.EqualTo(103), "Up");
+        Assert.That(HidKeyboard.KeyCode(0x65), Is.EqualTo(127), "Application");
+        Assert.That(HidKeyboard.KeyCode(0xE5), Is.EqualTo(54), "right Shift");
+        Assert.That(HidKeyboard.KeyCode(0x66), Is.Zero, "beyond the table");
     }
 
     [Test]
@@ -164,7 +164,7 @@ public sealed class UsbCoreTests
     {
         var input = new byte[XhciContexts.INPUT_CONTEXTS * contextBytes];
         XhciContexts.WriteControl(input, contextBytes, 0, 0b1001);
-        XhciContexts.WriteSlot(input, contextBytes, XhciContexts.HIGH_SPEED, 5, 3);
+        XhciContexts.WriteSlot(input, contextBytes, UsbLocation.Root(5, XhciContexts.HIGH_SPEED), 3);
         XhciContexts.WriteEndpoint(input, contextBytes, 3, XhciContexts.INTERRUPT_IN, 8, 6, 0, 0x30000, 8);
         Assert.That(BinaryPrimitives.ReadUInt32LittleEndian(input.AsSpan(4)), Is.EqualTo(0b1001U), "the add flags");
         var slot = input.AsSpan(contextBytes);

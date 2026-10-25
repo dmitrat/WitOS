@@ -179,6 +179,72 @@ internal sealed class QemuControl : IDisposable
         }
     }
 
+    /// <summary>
+    /// Plugs a device into the running board (plan step H2.2): QEMU's device_add with the driver and its properties as
+    /// -device writes them, such as "usb-kbd,bus=xhci.0,port=2.1,id=kbd2".
+    /// </summary>
+    /// <param name="specification">The driver, then its properties as name=value, comma-separated.</param>
+    /// <param name="cancellation">Stops the request.</param>
+    internal async Task DeviceAddAsync(string specification, CancellationToken cancellation)
+    {
+        var arguments = DeviceArguments(specification);
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation, m_lifetime.Token);
+        await m_turn.WaitAsync(stop.Token);
+        try
+        {
+            await SessionAsync(stop.Token);
+            await ExecuteAsync("device_add", arguments, stop.Token);
+        }
+        finally
+        {
+            m_turn.Release();
+        }
+    }
+
+    /// <summary>
+    /// Unplugs a device a -device or device_add named (plan step H2.2): QEMU's device_del, which a USB device obeys at
+    /// once, taking the devices below a hub with it.
+    /// </summary>
+    /// <param name="id">The device's id.</param>
+    /// <param name="cancellation">Stops the request.</param>
+    internal async Task DeviceDeleteAsync(string id, CancellationToken cancellation)
+    {
+        if (id.Length == 0 || id.Contains(','))
+            throw new ArgumentException($"A device id, not \"{id}\".", nameof(id));
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation, m_lifetime.Token);
+        await m_turn.WaitAsync(stop.Token);
+        try
+        {
+            await SessionAsync(stop.Token);
+            await ExecuteAsync("device_del", new { id }, stop.Token);
+        }
+        finally
+        {
+            m_turn.Release();
+        }
+    }
+
+    /// <summary>
+    /// The arguments of device_add for a device as -device writes it.
+    /// </summary>
+    /// <param name="specification">The driver, then its properties as name=value, comma-separated.</param>
+    /// <returns>The driver and the properties by name.</returns>
+    /// <exception cref="ArgumentException">The specification names no driver, or a property has no value.</exception>
+    internal static Dictionary<string, string> DeviceArguments(string specification)
+    {
+        var parts = specification.Split(',');
+        if (parts[0].Length == 0 || parts[0].Contains('='))
+            throw new ArgumentException($"A device names its driver first, not \"{specification}\".", nameof(specification));
+        var arguments = new Dictionary<string, string> { ["driver"] = parts[0] };
+        foreach (var part in parts.Skip(1))
+        {
+            var equals = part.IndexOf('=');
+            if (equals <= 0 || !arguments.TryAdd(part[..equals], part[(equals + 1)..]))
+                throw new ArgumentException($"A property is name=value, once, not \"{part}\" in \"{specification}\".", nameof(specification));
+        }
+        return arguments;
+    }
+
     #endregion
 
     #region Tools

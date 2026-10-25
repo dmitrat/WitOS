@@ -82,6 +82,12 @@ public sealed class XhciRing
     /// </summary>
     public int Capacity => m_count - 1;
 
+    /// <summary>
+    /// The physical address the next TRB goes to, with the producer's cycle state in bit 0: what Set TR Dequeue Pointer
+    /// names so that a stopped endpoint skips every TRB the ring still holds.
+    /// </summary>
+    public ulong Next => m_segment.Physical + (ulong)(m_index * XhciTrb.BYTES) | (m_cycle ? 1UL : 0);
+
     #endregion
 }
 

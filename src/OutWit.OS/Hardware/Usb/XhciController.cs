@@ -2,25 +2,29 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using OutWit.OS.Resources;
 
 namespace OutWit.OS.Hardware.Usb;
 
 /// <summary>
-/// An xHCI host controller (xHCI 1.2, plan step H2.1) the driver holds: its registers through the BAR the PCI function
-/// names, its structures in one pinned arena, its interrupter 0 bound to an event — an MSI-X message where the kernel
-/// and the function have one, its INTx line otherwise. It takes the controller from the firmware (USB Legacy Support),
-/// resets and starts it with a command ring and one event ring segment, and serves what a USB core above it asks: the
-/// root hub's ports with their protocols, a device addressed on a port, control transfers on its default endpoint, an
-/// interrupt IN endpoint configured and its transfers queued, and the events the controller reports.
+/// An xHCI host controller (xHCI 1.2, plan steps H2.1 and H2.2) the driver holds: its registers through the BAR the PCI
+/// function names, its structures in one pinned arena, its interrupter 0 bound to an event — an MSI-X message where the
+/// kernel and the function have one, its INTx line otherwise. It takes the controller from the firmware (USB Legacy
+/// Support), resets and starts it with a command ring and one event ring segment, and serves the USB core above it
+/// (<see cref="IUsbHost"/>): the root hub's ports with their protocols, a device addressed where it sits — on a root port
+/// or below hubs, by its route string — control transfers on its default endpoint, interrupt IN endpoints configured and
+/// their transfers queued, a halted endpoint reset and its ring moved past what it held, a slot disabled with its
+/// structures kept for the next device, and the events the controller reports.
 /// </summary>
-public sealed class XhciController : IDisposable
+public sealed class XhciController : IUsbHost, IDisposable
 {
     #region Constants
 
     /// <summary>
-    /// The pages of the arena: the controller's structures, then five pages' worth for each device.
+    /// The pages of the arena: the controller's structures, then a device's contexts, control ring and buffer, and a ring
+    /// and a buffer for each of its interrupt endpoints, kept for the next device once it goes.
     /// </summary>
     private const int ARENA_PAGES = 64;
 
@@ -35,14 +39,15 @@ public sealed class XhciController : IDisposable
     private const int RING_BYTES = 4096;
 
     /// <summary>
-    /// The TRBs of a device's transfer ring: 64.
+    /// The bytes of a block the arena's pools keep: a transfer ring of 64 TRBs, a device's control buffer, an interrupt
+    /// endpoint's buffer.
     /// </summary>
-    private const int TRANSFER_RING_BYTES = 1024;
+    private const int BLOCK_BYTES = UsbBus.REPORT_BUFFER_BYTES;
 
     /// <summary>
-    /// The bytes of a device's control buffer, the largest configuration the driver reads.
+    /// The bytes of a device's control buffer, the largest descriptor the driver reads.
     /// </summary>
-    private const int CONTROL_BYTES = 1024;
+    private const int CONTROL_BYTES = BLOCK_BYTES;
 
     /// <summary>
     /// The seconds a command, a control transfer or the controller's own change may take.
@@ -91,6 +96,8 @@ public sealed class XhciController : IDisposable
     private const uint PORT_RESET = 1 << 4;
     private const uint PORT_POWER = 1 << 9;
     private const uint CHANGES = 0x7FU << 17; // CSC, PEC, WRC, OCC, PRC, PLC, CEC: written 1 to clear
+    private const uint CONNECT_CHANGE = 1 << 17;
+    private const uint ENABLE_CHANGE = 1 << 18;
     private const uint RESET_CHANGE = 1 << 21;
     private const uint PRESERVED = 1 | 1 << 3 | 0xFU << 10 | 1U << 30 | 0xFU << 5 | 1 << 9 | 3 << 14 | 7U << 25;
 
@@ -112,11 +119,15 @@ public sealed class XhciController : IDisposable
     private readonly int m_doorbells;
     private readonly int m_contextBytes;
     private readonly List<XhciPort> m_ports = [];
+    private readonly List<UsbRootPort> m_rootPorts = [];
+    private readonly XhciDevice?[] m_devices = new XhciDevice?[SLOTS + 1];
+    private readonly Stack<XhciSlotMemory> m_slotMemory = [];
+    private readonly Stack<IDmaBuffer> m_blocks = [];
     private XhciRing? m_commands;
     private XhciEventRing? m_events;
     private IDmaBuffer? m_contexts;
     private readonly Dictionary<ulong, XhciTrb> m_completed = [];
-    private readonly Dictionary<int, XhciTrb> m_controlEvents = [];
+    private readonly Dictionary<int, List<XhciTrb>> m_controlEvents = [];
     private readonly List<XhciTrb> m_transfers = [];
     private readonly List<int> m_portChanges = [];
     private bool m_running;
@@ -223,159 +234,290 @@ public sealed class XhciController : IDisposable
         }
     }
 
-    /// <summary>
-    /// Addresses the device on a port: the port reset where its protocol needs one, a slot enabled, the default control
-    /// endpoint set up from the port's speed and the device given its address, its descriptor's bMaxPacketSize0 taken.
-    /// </summary>
-    /// <param name="port">A port with a device connected.</param>
-    /// <returns>The device.</returns>
-    /// <exception cref="IOException">The port did not enable, or a command failed.</exception>
-    public XhciDevice Address(XhciPort port)
+    /// <inheritdoc />
+    public UsbRootPortState ReadRootPort(int port)
     {
-        var portsc = ReadPort(port.Number);
-        if (port.Major == 2)
+        var portsc = ReadPort(port);
+        return new UsbRootPortState((portsc & CONNECTED) != 0, (portsc & ENABLED) != 0, (int)(portsc >> 10 & 0xF),
+            (portsc & CONNECT_CHANGE) != 0, (portsc & ENABLE_CHANGE) != 0);
+    }
+
+    /// <inheritdoc />
+    public void AcknowledgeRootPort(int port)
+    {
+        var portsc = ReadPort(port);
+        if ((portsc & CHANGES) != 0)
+            WritePort(port, portsc & PRESERVED | portsc & CHANGES); // written 1 to clear, the port's enable left alone
+    }
+
+    /// <inheritdoc />
+    public UsbRootPortState ResetRootPort(int port)
+    {
+        var info = RootPort(port);
+        var deadline = Clock.MonotonicAfter(TIMEOUT_SECONDS);
+        var portsc = ReadPort(port);
+        if (info.Major == 2)
         {
-            WritePort(port.Number, portsc & PRESERVED | PORT_RESET);
-            var deadline = Clock.MonotonicAfter(TIMEOUT_SECONDS);
-            while (((portsc = ReadPort(port.Number)) & RESET_CHANGE) == 0)
+            WritePort(port, portsc & PRESERVED | PORT_RESET);
+            while (((portsc = ReadPort(port)) & RESET_CHANGE) == 0)
             {
                 if (Clock.Monotonic() > deadline)
-                    throw new IOException($"Port {port.Number} did not end its reset: PORTSC {portsc:x8}.");
+                    throw new IOException($"Port {port} did not end its reset: PORTSC {portsc:x8}.");
                 Thread.Sleep(1);
             }
-            WritePort(port.Number, portsc & PRESERVED | RESET_CHANGE);
+            WritePort(port, portsc & PRESERVED | RESET_CHANGE);
             Thread.Sleep(10); // USB 2.0 §7.1.7.3: the reset's recovery time before the device answers
-            portsc = ReadPort(port.Number);
         }
-        if ((portsc & (CONNECTED | ENABLED)) != (CONNECTED | ENABLED))
-            throw new IOException($"Port {port.Number} is not enabled: PORTSC {portsc:x8}.");
-        var speed = (int)(portsc >> 10 & 0xF);
+        else
+        {
+            // A USB 3 port enables itself once its link trained.
+            while (((portsc = ReadPort(port)) & (CONNECTED | ENABLED)) == CONNECTED && Clock.Monotonic() <= deadline)
+                Thread.Sleep(1);
+        }
+        return ReadRootPort(port);
+    }
+
+    /// <inheritdoc />
+    public int Address(UsbLocation location)
+    {
+        var port = RootPort(location.RootPort);
         var slot = Command(XhciTrb.Of(XhciTrb.ENABLE_SLOT, flags: (uint)port.SlotType << 16)).Slot;
         if (slot is <= 0 || slot > SLOTS)
             throw new IOException($"The controller enabled slot {slot}.");
-        var device = new XhciDevice(slot, port.Number, speed, m_arena.Allocate(XhciContexts.INPUT_CONTEXTS * m_contextBytes),
-            m_arena.Allocate(XhciContexts.DEVICE_CONTEXTS * m_contextBytes), new XhciRing(m_arena.Allocate(TRANSFER_RING_BYTES), MmioRegion.Barrier),
-            m_arena.Allocate(CONTROL_BYTES), XhciContexts.DefaultMaxPacket(speed));
-        BinaryPrimitives.WriteUInt64LittleEndian(m_contexts!.Bytes[(slot * 8)..], device.Output.Physical);
-        var input = device.Input.Bytes;
-        XhciContexts.WriteControl(input, m_contextBytes, 0, 0b11);
-        XhciContexts.WriteSlot(input, m_contextBytes, speed, port.Number, 1);
-        XhciContexts.WriteEndpoint(input, m_contextBytes, 1, XhciContexts.CONTROL, device.MaxPacket0, 0, 0, device.Control.Base, 8);
-        Command(XhciTrb.Of(XhciTrb.ADDRESS_DEVICE, device.Input.Physical, flags: (uint)slot << 24));
-        var first = UsbDescriptors.ReadDevice(Control(device, UsbSetup.GetDescriptor(UsbDescriptors.DEVICE, 0, 8)));
-        var maxPacket0 = speed >= XhciContexts.SUPER_SPEED ? 1 << first.MaxPacketSize0 : first.MaxPacketSize0;
-        if (maxPacket0 != device.MaxPacket0 && maxPacket0 is 8 or 16 or 32 or 64 or 512)
+        var device = new XhciDevice(slot, location, TakeSlotMemory(), XhciContexts.DefaultMaxPacket(location.Speed));
+        m_devices[slot] = device;
+        BinaryPrimitives.WriteUInt64LittleEndian(m_contexts!.Bytes[(slot * 8)..], device.Memory.Output.Physical);
+        try
         {
-            device.MaxPacket0 = maxPacket0;
-            XhciContexts.WriteControl(input, m_contextBytes, 0, 0b10);
-            XhciContexts.WriteEndpoint(input, m_contextBytes, 1, XhciContexts.CONTROL, maxPacket0, 0, 0, device.Control.Base, 8);
-            Command(XhciTrb.Of(XhciTrb.EVALUATE_CONTEXT, device.Input.Physical, flags: (uint)slot << 24));
+            var input = device.Memory.Input.Bytes;
+            XhciContexts.WriteControl(input, m_contextBytes, 0, 0b11);
+            XhciContexts.WriteSlot(input, m_contextBytes, location, 1);
+            XhciContexts.WriteEndpoint(input, m_contextBytes, 1, XhciContexts.CONTROL, device.MaxPacket0, 0, 0, device.Control.Base, 8);
+            Command(XhciTrb.Of(XhciTrb.ADDRESS_DEVICE, device.Memory.Input.Physical, flags: (uint)slot << 24));
+            var first = UsbDescriptors.ReadDevice(Control(slot, UsbSetup.GetDescriptor(UsbDescriptors.DEVICE, 0, 8)));
+            var maxPacket0 = location.Speed >= XhciContexts.SUPER_SPEED ? 1 << first.MaxPacketSize0 : first.MaxPacketSize0;
+            if (maxPacket0 != device.MaxPacket0 && maxPacket0 is 8 or 16 or 32 or 64 or 512)
+            {
+                device.MaxPacket0 = maxPacket0;
+                XhciContexts.WriteControl(input, m_contextBytes, 0, 0b10);
+                XhciContexts.WriteEndpoint(input, m_contextBytes, 1, XhciContexts.CONTROL, maxPacket0, 0, 0, device.Control.Base, 8);
+                Command(XhciTrb.Of(XhciTrb.EVALUATE_CONTEXT, device.Memory.Input.Physical, flags: (uint)slot << 24));
+            }
+            return slot;
         }
-        return device;
+        catch (Exception exception) when (exception is IOException or FormatException)
+        {
+            try
+            {
+                Disable(slot);
+            }
+            catch (IOException)
+            {
+                // The slot is dropped all the same; its memory stays out of the pool.
+            }
+            throw exception as IOException ?? new IOException(exception.Message, exception);
+        }
     }
 
-    /// <summary>
-    /// A control transfer on a device's default endpoint: the setup, the data the request names, the status.
-    /// </summary>
-    /// <param name="device">The device.</param>
-    /// <param name="setup">The request; its wLength at most the device's control buffer.</param>
-    /// <returns>For an IN request, the bytes of the data stage as the buffer holds them (wLength of them); none otherwise.</returns>
-    /// <exception cref="IOException">The transfer failed or timed out.</exception>
-    public byte[] Control(XhciDevice device, UsbSetup setup)
+    /// <inheritdoc />
+    public int MaxPacket0(int slot) => DeviceAt(slot).MaxPacket0;
+
+    /// <inheritdoc />
+    public byte[] Control(int slot, UsbSetup setup)
     {
+        var device = DeviceAt(slot);
         if (setup.Length > CONTROL_BYTES)
             throw new ArgumentOutOfRangeException(nameof(setup), $"A data stage of {setup.Length} bytes.");
-        var buffer = device.Buffer.Bytes;
+        var buffer = device.Memory.Buffer.Bytes;
         buffer[..setup.Length].Clear();
         var transferType = setup.Length == 0 ? 0U : setup.IsIn ? 3U : 2U;
-        device.Control.Enqueue(XhciTrb.Of(XhciTrb.SETUP, setup.Encode(), 8, XhciTrb.IMMEDIATE_DATA | transferType << 16));
+        var stages = new List<ulong>(3)
+        {
+            device.Control.Enqueue(XhciTrb.Of(XhciTrb.SETUP, setup.Encode(), 8, XhciTrb.IMMEDIATE_DATA | transferType << 16))
+        };
         if (setup.Length > 0)
-            device.Control.Enqueue(XhciTrb.Of(XhciTrb.DATA, device.Buffer.Physical, setup.Length, setup.IsIn ? XhciTrb.DIRECTION_IN : 0));
+            stages.Add(device.Control.Enqueue(XhciTrb.Of(XhciTrb.DATA, device.Memory.Buffer.Physical, setup.Length, setup.IsIn ? XhciTrb.DIRECTION_IN : 0)));
         var status = device.Control.Enqueue(XhciTrb.Of(XhciTrb.STATUS,
             flags: XhciTrb.INTERRUPT_ON_COMPLETION | (setup.Length > 0 && setup.IsIn ? 0 : XhciTrb.DIRECTION_IN)));
-        m_controlEvents.Remove(device.Slot);
-        Ring(device.Slot, 1);
+        stages.Add(status);
+        m_controlEvents.Remove(slot);
+        Ring(slot, 1);
         var deadline = Clock.MonotonicAfter(TIMEOUT_SECONDS);
+        var what = $"request {setup.Request:x2} of slot {slot}";
         for (; ; )
         {
-            if (m_controlEvents.Remove(device.Slot, out var trbEvent))
+            if (TakeControlEvent(slot, stages, out var trbEvent))
             {
                 if (trbEvent.CompletionCode is not (XhciTrb.SUCCESS or XhciTrb.SHORT_PACKET))
-                    throw new IOException($"Request {setup.Request:x2} of slot {device.Slot} completed with code {trbEvent.CompletionCode}.");
+                {
+                    // A STALL, a babble or a transaction error halts the endpoint: it takes requests again before this one fails.
+                    var recovered = RecoverEndpoint(slot, 1);
+                    throw new IOException($"The {what} completed with code {trbEvent.CompletionCode}" +
+                        (recovered ? "" : "; its control endpoint could not be reset") + ".");
+                }
                 if (trbEvent.Parameter == status)
                     return setup.IsIn ? buffer[..setup.Length].ToArray() : [];
                 continue; // an earlier stage's event; the status stage's follows
             }
-            WaitForEvents(deadline, $"request {setup.Request:x2} of slot {device.Slot}");
+            try
+            {
+                WaitForEvents(deadline, what);
+            }
+            catch (IOException)
+            {
+                RecoverEndpoint(slot, 1); // the request's stages skipped, so that the next one starts on its own
+                throw;
+            }
         }
     }
 
-    /// <summary>
-    /// Configures an interrupt IN endpoint of an addressed device with a transfer ring of its own.
-    /// </summary>
-    /// <param name="device">The device.</param>
-    /// <param name="endpoint">The endpoint.</param>
-    /// <returns>Its Device Context Index.</returns>
-    /// <exception cref="IOException">The command failed.</exception>
-    public int ConfigureInterruptIn(XhciDevice device, UsbEndpoint endpoint)
+    /// <inheritdoc />
+    public int ConfigureInterruptIn(int slot, UsbEndpoint endpoint)
     {
+        var device = DeviceAt(slot);
         var index = XhciContexts.Index(endpoint);
-        var ring = new XhciRing(m_arena.Allocate(TRANSFER_RING_BYTES), MmioRegion.Barrier);
-        device.Rings[index] = ring;
-        var input = device.Input.Bytes;
+        var segment = TakeBlock();
+        var buffer = TakeBlock();
+        var ring = new XhciRing(segment, MmioRegion.Barrier);
+        var input = device.Memory.Input.Bytes;
+        var entries = Math.Max(index, device.ContextEntries);
         XhciContexts.WriteControl(input, m_contextBytes, 0, 1U | 1U << index);
-        XhciContexts.WriteSlot(input, m_contextBytes, device.Speed, device.Port, Math.Max(index, device.ContextEntries));
-        device.ContextEntries = Math.Max(index, device.ContextEntries);
-        var burst = device.Speed == XhciContexts.HIGH_SPEED ? endpoint.MaxPacketSize >> 11 & 3 : 0;
+        XhciContexts.WriteSlot(input, m_contextBytes, device.Location, entries, device.Hub);
+        var burst = device.Location.Speed == XhciContexts.HIGH_SPEED ? endpoint.MaxPacketSize >> 11 & 3 : 0;
         XhciContexts.WriteEndpoint(input, m_contextBytes, index, XhciContexts.INTERRUPT_IN, endpoint.PacketBytes,
-            XhciContexts.Interval(device.Speed, endpoint.Interval), burst, ring.Base, endpoint.PacketBytes);
-        Command(XhciTrb.Of(XhciTrb.CONFIGURE_ENDPOINT, device.Input.Physical, flags: (uint)device.Slot << 24));
+            XhciContexts.Interval(device.Location.Speed, endpoint.Interval), burst, ring.Base, endpoint.PacketBytes);
+        try
+        {
+            Command(XhciTrb.Of(XhciTrb.CONFIGURE_ENDPOINT, device.Memory.Input.Physical, flags: (uint)slot << 24));
+        }
+        catch (IOException)
+        {
+            m_blocks.Push(segment);
+            m_blocks.Push(buffer);
+            throw;
+        }
+        device.ContextEntries = entries;
+        device.Rings[index] = ring;
+        device.Segments[index] = segment;
+        device.Buffers[index] = buffer;
         return index;
     }
 
-    /// <summary>
-    /// Queues a transfer on an IN endpoint the device configured: the controller fills the buffer when the device sends.
-    /// </summary>
-    /// <param name="device">The device.</param>
-    /// <param name="index">The endpoint's Device Context Index.</param>
-    /// <param name="buffer">The buffer.</param>
-    /// <param name="length">The bytes asked for.</param>
-    public void Receive(XhciDevice device, int index, IDmaBuffer buffer, int length)
+    /// <inheritdoc />
+    public void ConfigureHub(int slot, UsbHubDescriptor hub)
     {
-        device.Rings[index].Enqueue(XhciTrb.Of(XhciTrb.NORMAL, buffer.Physical, (uint)length,
+        var device = DeviceAt(slot);
+        var input = device.Memory.Input.Bytes;
+        XhciContexts.WriteControl(input, m_contextBytes, 0, 1);
+        XhciContexts.WriteSlot(input, m_contextBytes, device.Location, device.ContextEntries, hub);
+        Command(XhciTrb.Of(XhciTrb.CONFIGURE_ENDPOINT, device.Memory.Input.Physical, flags: (uint)slot << 24));
+        device.Hub = hub;
+    }
+
+    /// <inheritdoc />
+    public void Receive(int slot, int index, int length)
+    {
+        var device = DeviceAt(slot);
+        var ring = device.Rings[index] ?? throw new InvalidOperationException($"Endpoint {index} of slot {slot} is not configured.");
+        if (length is <= 0 or > BLOCK_BYTES)
+            throw new ArgumentOutOfRangeException(nameof(length), $"A transfer of {length} bytes.");
+        ring.Enqueue(XhciTrb.Of(XhciTrb.NORMAL, device.Buffers[index]!.Physical, (uint)length,
             XhciTrb.INTERRUPT_ON_COMPLETION | XhciTrb.INTERRUPT_SHORT));
-        Ring(device.Slot, index);
+        Ring(slot, index);
+    }
+
+    /// <inheritdoc />
+    public ReadOnlySpan<byte> Received(int slot, int index) =>
+        (DeviceAt(slot).Buffers[index] ?? throw new InvalidOperationException($"Endpoint {index} of slot {slot} is not configured.")).Bytes;
+
+    /// <inheritdoc />
+    public bool RecoverEndpoint(int slot, int index)
+    {
+        if (slot is <= 0 || slot > SLOTS || m_devices[slot] is not { } device || device.Rings[index] is not { } ring)
+            return false;
+        try
+        {
+            switch (XhciContexts.EndpointState(device.Memory.Output.Bytes, m_contextBytes, index))
+            {
+                case XhciContexts.HALTED:
+                    Command(XhciTrb.OfEndpoint(XhciTrb.RESET_ENDPOINT, slot, index));
+                    break;
+                case XhciContexts.RUNNING:
+                    Command(XhciTrb.OfEndpoint(XhciTrb.STOP_ENDPOINT, slot, index));
+                    break;
+            }
+            Command(XhciTrb.OfEndpoint(XhciTrb.SET_TR_DEQUEUE, slot, index, ring.Next));
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public void Disable(int slot)
+    {
+        var device = DeviceAt(slot);
+        m_devices[slot] = null;
+        Forget(slot);
+        Command(XhciTrb.Of(XhciTrb.DISABLE_SLOT, flags: (uint)slot << 24)); // a failure keeps the device's memory out of the pools
+        Forget(slot); // the events the controller wrote before the command completed
+        BinaryPrimitives.WriteUInt64LittleEndian(m_contexts!.Bytes[(slot * 8)..], 0);
+        m_slotMemory.Push(device.Memory);
+        for (var index = 0; index < device.Segments.Length; index++)
+        {
+            if (device.Segments[index] is { } segment)
+            {
+                m_blocks.Push(segment);
+                m_blocks.Push(device.Buffers[index]!);
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public void Delay(int milliseconds) => Thread.Sleep(milliseconds);
+
+    /// <summary>
+    /// Serves the interrupter once its event was set: the pending interrupt cleared, every event taken and sorted, the
+    /// INTx line unmasked. The transfers and the port changes then wait for <see cref="TryTakeTransfer"/> and
+    /// <see cref="TryTakePortChange"/>.
+    /// </summary>
+    public void Service() => Drain();
+
+    /// <summary>
+    /// The next Transfer Event of an endpoint other than a default one, in the controller's order; a device let go
+    /// leaves none behind.
+    /// </summary>
+    /// <param name="transfer">The event.</param>
+    /// <returns>Whether there was one.</returns>
+    public bool TryTakeTransfer(out XhciTrb transfer)
+    {
+        if (m_transfers.Count == 0)
+        {
+            transfer = default;
+            return false;
+        }
+        transfer = m_transfers[0];
+        m_transfers.RemoveAt(0);
+        return true;
     }
 
     /// <summary>
-    /// A buffer from the controller's arena, for a device's transfers.
+    /// The next root port a Port Status Change Event named.
     /// </summary>
-    /// <param name="bytes">Its bytes, at most a page.</param>
-    /// <returns>The buffer.</returns>
-    public IDmaBuffer Allocate(int bytes) => m_arena.Allocate(bytes);
-
-    /// <summary>
-    /// Serves the interrupter once its event was set: the pending interrupt cleared, every event taken, the INTx line
-    /// unmasked.
-    /// </summary>
-    /// <returns>The Transfer Events of the endpoints other than the default ones, in the controller's order.</returns>
-    public List<XhciTrb> Service()
+    /// <param name="port">The port, from 1.</param>
+    /// <returns>Whether there was one.</returns>
+    public bool TryTakePortChange(out int port)
     {
-        Drain();
-        var transfers = new List<XhciTrb>(m_transfers);
-        m_transfers.Clear();
-        return transfers;
-    }
-
-    /// <summary>
-    /// The ports whose status changed since the last call, by Port Status Change Events.
-    /// </summary>
-    /// <returns>Their numbers.</returns>
-    public List<int> TakePortChanges()
-    {
-        var changes = new List<int>(m_portChanges);
-        m_portChanges.Clear();
-        return changes;
+        if (m_portChanges.Count == 0)
+        {
+            port = 0;
+            return false;
+        }
+        port = m_portChanges[0];
+        m_portChanges.RemoveAt(0);
+        return true;
     }
 
     /// <summary>
@@ -460,6 +602,7 @@ public sealed class XhciController : IDisposable
             offset = next == 0 ? 0 : offset + next * 4;
         }
         m_ports.Sort((left, right) => left.Number.CompareTo(right.Number));
+        m_rootPorts.AddRange(m_ports.Select(port => new UsbRootPort(port.Number, port.Major, port.Minor)));
     }
 
     // USB Legacy Support (xHCI 1.2 §7.1): the OS Owned semaphore set, the BIOS's cleared within a second, the SMIs off.
@@ -514,8 +657,8 @@ public sealed class XhciController : IDisposable
     }
 
     // Every event the ring holds, sorted for whoever waits for it: command completions by their TRB, the default
-    // endpoints' Transfer Events by their slot, the other endpoints' for Service, port changes by their port. Whether
-    // there was any.
+    // endpoints' Transfer Events by their slot, the other endpoints' and the port changes in order for the core. The
+    // Transfer Events a Stop Endpoint leaves are the driver's own doing and dropped. Whether there was any.
     private bool Drain()
     {
         m_bar.Write32(m_runtime + IMAN, INTERRUPT_PENDING | INTERRUPT_ENABLE);
@@ -529,8 +672,12 @@ public sealed class XhciController : IDisposable
                 case XhciTrb.COMMAND_COMPLETION:
                     m_completed[trb.Parameter] = trb;
                     break;
+                case XhciTrb.TRANSFER_EVENT when trb.CompletionCode is XhciTrb.STOPPED or XhciTrb.STOPPED_LENGTH_INVALID:
+                    break;
                 case XhciTrb.TRANSFER_EVENT when trb.Endpoint == 1:
-                    m_controlEvents[trb.Slot] = trb;
+                    if (!m_controlEvents.TryGetValue(trb.Slot, out var list))
+                        m_controlEvents[trb.Slot] = list = [];
+                    list.Add(trb);
                     break;
                 case XhciTrb.TRANSFER_EVENT:
                     m_transfers.Add(trb);
@@ -545,6 +692,65 @@ public sealed class XhciController : IDisposable
         if (m_msiX is null)
             m_binding.Acknowledge();
         return any;
+    }
+
+    // The first event of a slot's control endpoint that names one of a request's stages; the others, a request's that
+    // ended before, dropped.
+    private bool TakeControlEvent(int slot, List<ulong> stages, out XhciTrb trb)
+    {
+        trb = default;
+        if (!m_controlEvents.TryGetValue(slot, out var list))
+            return false;
+        while (list.Count > 0)
+        {
+            var first = list[0];
+            list.RemoveAt(0);
+            if (stages.Contains(first.Parameter))
+            {
+                trb = first;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // A device that goes leaves no event behind for its slot's next device.
+    private void Forget(int slot)
+    {
+        m_transfers.RemoveAll(trb => trb.Slot == slot);
+        m_controlEvents.Remove(slot);
+    }
+
+    private XhciDevice DeviceAt(int slot) => slot is > 0 and <= SLOTS && m_devices[slot] is { } device ? device
+        : throw new IOException($"Slot {slot} holds no device.");
+
+    private XhciPort RootPort(int number) => m_ports.FirstOrDefault(port => port.Number == number)
+        ?? throw new IOException($"The controller has no root port {number}.");
+
+    // A device's contexts, control ring and buffer: a device's that went, zeroed, or new from the arena.
+    private XhciSlotMemory TakeSlotMemory()
+    {
+        if (m_slotMemory.TryPop(out var memory))
+        {
+            memory.Input.Bytes.Clear();
+            memory.Output.Bytes.Clear();
+            memory.ControlRing.Bytes.Clear();
+            memory.Buffer.Bytes.Clear();
+            return memory;
+        }
+        return new XhciSlotMemory(m_arena.Allocate(XhciContexts.INPUT_CONTEXTS * m_contextBytes),
+            m_arena.Allocate(XhciContexts.DEVICE_CONTEXTS * m_contextBytes), m_arena.Allocate(BLOCK_BYTES), m_arena.Allocate(CONTROL_BYTES));
+    }
+
+    // A block for an interrupt endpoint's ring or buffer: a device's that went, zeroed, or new from the arena.
+    private IDmaBuffer TakeBlock()
+    {
+        if (m_blocks.TryPop(out var block))
+        {
+            block.Bytes.Clear();
+            return block;
+        }
+        return m_arena.Allocate(BLOCK_BYTES);
     }
 
     private void Ring(int slot, int target)
@@ -651,6 +857,9 @@ public sealed class XhciController : IDisposable
     /// </summary>
     public IReadOnlyList<XhciPort> Ports => m_ports;
 
+    /// <inheritdoc />
+    public IReadOnlyList<UsbRootPort> RootPorts => m_rootPorts;
+
     /// <summary>
     /// Whether the firmware kept the controller after the driver asked for it (USB Legacy Support).
     /// </summary>
@@ -684,23 +893,28 @@ public sealed class XhciController : IDisposable
 public sealed record XhciPort(int Number, int Major, int Minor, int SlotType);
 
 /// <summary>
-/// A device the controller addressed: its slot, its port and speed, its contexts and its rings.
+/// A device's contexts, control ring and buffer, which the next device takes once it goes.
 /// </summary>
-public sealed class XhciDevice
+/// <param name="Input">Its Input Context.</param>
+/// <param name="Output">Its Output Context, which the Device Context Base Address Array names.</param>
+/// <param name="ControlRing">Its default control endpoint's ring.</param>
+/// <param name="Buffer">Its control transfers' data.</param>
+internal sealed record XhciSlotMemory(IDmaBuffer Input, IDmaBuffer Output, IDmaBuffer ControlRing, IDmaBuffer Buffer);
+
+/// <summary>
+/// A device the controller addressed: its slot and where it sits, its contexts and its rings.
+/// </summary>
+internal sealed class XhciDevice
 {
     #region Constructors
 
-    internal XhciDevice(int slot, int port, int speed, IDmaBuffer input, IDmaBuffer output, XhciRing control, IDmaBuffer buffer, int maxPacket0)
+    internal XhciDevice(int slot, UsbLocation location, XhciSlotMemory memory, int maxPacket0)
     {
         Slot = slot;
-        Port = port;
-        Speed = speed;
-        Input = input;
-        Output = output;
-        Control = control;
-        Buffer = buffer;
+        Location = location;
+        Memory = memory;
+        Control = new XhciRing(memory.ControlRing, MmioRegion.Barrier);
         MaxPacket0 = maxPacket0;
-        Rings[1] = control;
     }
 
     #endregion
@@ -713,34 +927,49 @@ public sealed class XhciDevice
     public int Slot { get; }
 
     /// <summary>
-    /// Its root hub port.
+    /// Where it sits, its speed among it.
     /// </summary>
-    public int Port { get; }
+    public UsbLocation Location { get; }
 
     /// <summary>
-    /// Its speed, as PORTSC reported it.
+    /// Its contexts, control ring and buffer.
     /// </summary>
-    public int Speed { get; }
+    public XhciSlotMemory Memory { get; }
+
+    /// <summary>
+    /// Its default control endpoint's ring.
+    /// </summary>
+    public XhciRing Control { get; }
 
     /// <summary>
     /// The default control endpoint's packet bytes.
     /// </summary>
-    public int MaxPacket0 { get; internal set; }
+    public int MaxPacket0 { get; set; }
 
     /// <summary>
     /// The index of the last valid Endpoint Context.
     /// </summary>
-    public int ContextEntries { get; internal set; } = 1;
+    public int ContextEntries { get; set; } = 1;
 
-    internal IDmaBuffer Input { get; }
+    /// <summary>
+    /// Its hub descriptor once the controller was told it is a hub.
+    /// </summary>
+    public UsbHubDescriptor? Hub { get; set; }
 
-    internal IDmaBuffer Output { get; }
+    /// <summary>
+    /// Its interrupt endpoints' rings by Device Context Index.
+    /// </summary>
+    public XhciRing?[] Rings { get; } = new XhciRing?[XhciContexts.DEVICE_CONTEXTS];
 
-    internal XhciRing Control { get; }
+    /// <summary>
+    /// The blocks those rings live in.
+    /// </summary>
+    public IDmaBuffer?[] Segments { get; } = new IDmaBuffer?[XhciContexts.DEVICE_CONTEXTS];
 
-    internal IDmaBuffer Buffer { get; }
-
-    internal XhciRing[] Rings { get; } = new XhciRing[32];
+    /// <summary>
+    /// Their transfers' buffers.
+    /// </summary>
+    public IDmaBuffer?[] Buffers { get; } = new IDmaBuffer?[XhciContexts.DEVICE_CONTEXTS];
 
     #endregion
 }

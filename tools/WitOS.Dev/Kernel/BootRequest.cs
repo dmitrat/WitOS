@@ -104,8 +104,9 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public bool Keyboard { get; init; }
 
     /// <summary>
-    /// The keyboard as USB (plan step H2.1, ADR 0029: USB on every target): QEMU's usb-kbd on a qemu-xhci controller in
-    /// the virtio keyboard's slot, which the xHCI driver serves; with <see cref="Keyboard"/>.
+    /// The keyboard as USB (plan step H2.1, ADR 0029: USB on every target): QEMU's usb-kbd on the first port of a
+    /// qemu-xhci controller in the virtio keyboard's slot, which the xHCI driver serves; with <see cref="Keyboard"/>. The
+    /// controller's bus takes the hubs and keyboards that device_add actions plug in during the boot (H2.2).
     /// </summary>
     public bool UsbKeyboard { get; init; }
 

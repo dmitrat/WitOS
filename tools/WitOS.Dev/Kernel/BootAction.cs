@@ -82,5 +82,16 @@ internal enum BootActionKind
     /// An HTTP request to the guest's port <see cref="BootRequest.NetworkForward"/> through QEMU's hostfwd (W3.2): the
     /// argument's method and path, answered with 200 and the argument's text (<see cref="BootAction.Http"/>).
     /// </summary>
-    Http
+    Http,
+
+    /// <summary>
+    /// A device plugged into the running board through QEMU's device_add (H2.2): the argument is the device as -device
+    /// writes it, such as "usb-kbd,bus=xhci.0,port=2.1,id=kbd2".
+    /// </summary>
+    DeviceAdd,
+
+    /// <summary>
+    /// A device unplugged from the running board through QEMU's device_del (H2.2): the argument is its id.
+    /// </summary>
+    DeviceDelete
 }
