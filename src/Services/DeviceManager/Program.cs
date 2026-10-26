@@ -55,10 +55,13 @@ internal static class Program
             var disks = new List<(string Device, ChannelBlockStorage Disk)>();
             // The block probe goes to block drivers alone: a serial driver's channel (N4.3a) speaks the serial protocol,
             // and a probe there would take the channel the terminal service needs.
+            // A session runs none of the gates' probes (H5.1): its disks open for the namespace service unprobed.
+            if (Session.Active)
+                Console.WriteLine($"{PREFIX}probes: skipped in a session ({Session.MARK})");
             foreach (var driver in drivers.Where(driver =>
                          driver.Status == 0 && driver.Service is not null && DriverTable.ServesBlocks(driver.Record)))
             {
-                var disk = StorageProbe.RunAsync(driver).GetAwaiter().GetResult();
+                var disk = StorageProbe.RunAsync(driver, probe: !Session.Active).GetAwaiter().GetResult();
                 if (disk is not null)
                     disks.Add((driver.Record.Id, disk));
             }
@@ -67,12 +70,13 @@ internal static class Program
             var adapters = new List<(string Device, Channel Packets)>();
             foreach (var driver in drivers.Where(driver =>
                          driver.Status == 0 && driver.Service is not null && DriverTable.ServesPackets(driver.Record)))
-                adapters.Add((driver.Record.Id, NetworkProbe.Run(driver)));
+                adapters.Add((driver.Record.Id, NetworkProbe.Run(driver, probe: !Session.Active)));
             var names = StartNamespace(disks);
             var network = StartNetwork(adapters);
             // The firmware's framebuffer (C2.1): the test pattern through DEVICE_MEMORY's windows, before the display service
             // takes the framebuffer and draws the terminal's screen over it (C2.2).
-            DisplayProbe.Run(table, records);
+            if (!Session.Active)
+                DisplayProbe.Run(table, records);
             var display = StartDisplay(table, records, drivers);
             var terminal = StartTerminal(drivers, display);
             Console.WriteLine($"{PREFIX}device manager on {RuntimeInformation.ProcessArchitecture}: {records.Count} devices discovered, " +
@@ -186,7 +190,7 @@ internal static class Program
             Console.WriteLine(network.Status == 0
                 ? $"{PREFIX}network service {NetworkActivation.PATH} with {adapters.Count} adapter{(adapters.Count == 1 ? "" : "s")}: ready"
                 : $"{PREFIX}network service {NetworkActivation.PATH}: not ready, errno {network.Status}");
-            if (network.Clients is { } clients && adapters.Count > 0)
+            if (network.Clients is { } clients && adapters.Count > 0 && !Session.Active)
             {
                 DnsProbe.Run(clients);
                 TcpProbe.Run(clients); // W1.2b
@@ -260,7 +264,7 @@ internal static class Program
             Console.WriteLine(terminal.Status == 0
                 ? $"{PREFIX}terminal service {TerminalActivation.PATH} on {names[0]}{(names.Count > 1 ? $", mirrored on {names[1]}" : "")}: ready"
                 : $"{PREFIX}terminal service {TerminalActivation.PATH}: not ready, errno {terminal.Status}");
-            if (terminal.Clients is { } clients)
+            if (terminal.Clients is { } clients && !Session.Active)
                 TerminalProbe.Run(clients);
             return terminal;
         }

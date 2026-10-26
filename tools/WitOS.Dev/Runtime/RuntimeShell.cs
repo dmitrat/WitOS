@@ -23,7 +23,7 @@ internal static class RuntimeShell
 
     private const long DISK_BYTES = 1536L << 20; // the .NET SDK takes 400 MiB of the layer (C2.5); the disk is written from one array, so below 2 GiB
 
-    // The package's mark of a session, which the device manager's terminal probe looks for (TerminalProbe.SESSION_MARK).
+    // The package's mark of a session, whose boot runs none of the device manager's probes (Session.MARK, C2.7, H5.1).
     private const string SESSION_MARK = "etc/witos/session";
 
     #endregion
