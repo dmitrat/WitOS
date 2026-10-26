@@ -16,7 +16,9 @@ namespace OutWit.OS.Namespace.Volumes;
 /// "WitOS ext4" mounts at /data and one named "WitOS FAT" at /fat, each through the provider its volume needs; a disk
 /// without a partition table that holds a FAT volume mounts at /boot, and so does a GUID disk's EFI system partition
 /// (H3.3: the PC's one disk), read-only whatever the disk, since the firmware boots from it. A read-only disk mounts
-/// read-only.
+/// read-only. Each volume reads and writes through a cache of its own (plan step H5.3: every lookup and read went to the
+/// disk through its driver): blocks of 4 KiB, 32 MiB for an ext4 volume and 4 MiB for a FAT one, written through, so
+/// that a write is on the disk when it completes as before (D6).
 /// </summary>
 internal static class VolumeMounter
 {
@@ -34,6 +36,12 @@ internal static class VolumeMounter
     private const string HOME_VOLUME = "/data";
 
     private const string HOME_DIRECTORY = "/home";
+
+    private const int CACHE_BLOCK = 4096;
+
+    private const int EXT4_CACHE_BLOCKS = 8192;
+
+    private const int FAT_CACHE_BLOCKS = 1024;
 
     #endregion
 
@@ -56,16 +64,18 @@ internal static class VolumeMounter
         }
         catch (InvalidDataException)
         {
-            if (await FatFileSystem.DetectAsync(disk))
-                await AddAsync(mounts, "/boot", await FatFileSystem.MountAsync(disk), $"{device}, the whole disk", kept);
+            var whole = Cached(disk, FAT_CACHE_BLOCKS, kept);
+            if (await FatFileSystem.DetectAsync(whole))
+                await AddAsync(mounts, "/boot", await FatFileSystem.MountAsync(whole), $"{device}, the whole disk", whole, kept);
             return kept;
         }
         if (table.Partitions.FirstOrDefault(entry => entry.Type == GptPartition.EFI_SYSTEM) is { } system)
         {
             var storage = system.Open(disk, isReadOnly: true);
             kept.Add(storage);
-            if (await FatFileSystem.DetectAsync(storage))
-                await AddAsync(mounts, "/boot", await FatFileSystem.MountAsync(storage), $"{device}, partition \"{system.Name}\"", kept);
+            var cached = Cached(storage, FAT_CACHE_BLOCKS, kept);
+            if (await FatFileSystem.DetectAsync(cached))
+                await AddAsync(mounts, "/boot", await FatFileSystem.MountAsync(cached), $"{device}, partition \"{system.Name}\"", cached, kept);
         }
         foreach (var (name, point) in PARTITIONS)
         {
@@ -74,10 +84,10 @@ internal static class VolumeMounter
                 continue;
             var storage = partition.Open(disk, disk.Info.IsReadOnly);
             kept.Add(storage);
-            IFileSystem volume = await Ext4FileSystem.DetectAsync(storage)
-                ? await Ext4FileSystem.MountAsync(storage)
-                : await FatFileSystem.MountAsync(storage);
-            await AddAsync(mounts, point, volume, $"{device}, partition \"{name}\"", kept);
+            var ext4 = await Ext4FileSystem.DetectAsync(storage);
+            var cached = Cached(storage, ext4 ? EXT4_CACHE_BLOCKS : FAT_CACHE_BLOCKS, kept);
+            IFileSystem volume = ext4 ? await Ext4FileSystem.MountAsync(cached) : await FatFileSystem.MountAsync(cached);
+            await AddAsync(mounts, point, volume, $"{device}, partition \"{name}\"", cached, kept);
             if (point == HOME_VOLUME && !volume.Volume.IsReadOnly)
                 await EnsureDirectoryAsync(volume, HOME_DIRECTORY, point);
         }
@@ -92,13 +102,40 @@ internal static class VolumeMounter
         Console.WriteLine($"{PREFIX}created {point}{path}");
     }
 
-    private static Task AddAsync(MountTable mounts, string point, IFileSystem volume, string source, List<IAsyncDisposable> kept)
+    private static Task AddAsync(MountTable mounts, string point, IFileSystem volume, string source, CachedBlockStorage cache,
+        List<IAsyncDisposable> kept)
     {
         mounts.Add(point, volume);
         kept.Add(volume);
+        kept.Add(new CacheReport(point, cache)); // the last kept, so the first to go at the stop
         Console.WriteLine($"{PREFIX}mounted {point}: {volume.Volume.Format} volume{(volume.Volume.Label is { } label ? $" \"{label}\"" : "")} of " +
-            $"{volume.Volume.Length} bytes, {(volume.Volume.IsReadOnly ? "read-only" : "writable")}, from {source}");
+            $"{volume.Volume.Length} bytes, {(volume.Volume.IsReadOnly ? "read-only" : "writable")}, from {source}, " +
+            $"through a cache of {cache.CapacityBytes >> 20} MiB in blocks of {cache.BlockSize} bytes");
         return Task.CompletedTask;
+    }
+
+    // A cache over the resource, written through, kept beside it; the resource stays open for its own disposal after.
+    private static CachedBlockStorage Cached(IBlockStorage storage, int blocks, List<IAsyncDisposable> kept)
+    {
+        var cache = new CachedBlockStorage(storage, blocks, leaveOpen: true, blockSize: CACHE_BLOCK);
+        kept.Add(cache);
+        return cache;
+    }
+
+    #endregion
+
+    #region Types
+
+    // The cache's account at the stop (H5.3), before its volume unmounts.
+    private sealed class CacheReport(string point, CachedBlockStorage cache) : IAsyncDisposable
+    {
+        public ValueTask DisposeAsync()
+        {
+            var read = cache.Hits + cache.Misses;
+            Console.WriteLine($"{PREFIX}{point}: {cache.Hits} of {read} blocks read from the cache" +
+                (read == 0 ? "" : $" ({cache.Hits * 100 / read}%)") + $", {cache.Misses} from the disk");
+            return ValueTask.CompletedTask;
+        }
     }
 
     #endregion

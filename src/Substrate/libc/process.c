@@ -100,7 +100,7 @@ static WitU64 monotonic_after(WitU64 nanoseconds)
     WitU64 now = 0, frequency = 0;
     wit_syscall(WIT_CALL_CLOCK_READ, WIT_CLOCK_MONOTONIC, 0, 0, &now);
     wit_syscall(WIT_CALL_CLOCK_FREQUENCY, WIT_CLOCK_MONOTONIC, 0, 0, &frequency);
-    return now + nanoseconds * frequency / 1000000000ULL;
+    return now + nanoseconds / 1000000000ULL * frequency + nanoseconds % 1000000000ULL * frequency / 1000000000ULL;
 }
 
 static WitU64 strings_bytes(char *const list[], WitU32 *count)

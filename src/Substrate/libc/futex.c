@@ -122,7 +122,9 @@ static long deadline_of(int operation, const struct timespec *timeout, WitU64 *d
             return -EINVAL;
         }
         const WitU64 target = (WitU64)timeout->tv_sec * 1000000000ULL + (WitU64)timeout->tv_nsec;
-        *deadline = target <= utc ? now : now + (target - utc) * frequency / 1000000000ULL;
+        /* In whole seconds and the rest, so that no product passes 64 bits (H5.3: the TSC's domain runs up to 10^9). */
+        const WitU64 delta = target <= utc ? 0 : target - utc;
+        *deadline = now + delta / 1000000000ULL * frequency + delta % 1000000000ULL * frequency / 1000000000ULL;
         return 0;
     }
     *deadline = counts_of(timeout, frequency);
