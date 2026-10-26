@@ -99,10 +99,17 @@ internal static class CommandLine
                         RequiredLines =
                         [
                             "[BOOT] Linux arm64 entry at EL2", "Console: mini UART at 0x00000000FE215040",
+                            "[BOOT] Framebuffer: ", "from the firmware through the VideoCore's mailbox",
                             "Interrupt controller: GICv2, distributor 0x00000000FF841000, CPU interface 0x00000000FF842000, timer interrupt 27",
                             "UTC: no real-time clock", "Processor start: 0 by PSCI, 4 by spin table; PSCI conduit none",
-                            "Processors present/online: 4/4", "Devices: 0 in 1 page"
+                            "Processors present/online: 4/4", "Devices: 1 in 1 page"
                         ]
+                    },
+                    // Without the test exit, as a Pi boots (H7.3): no semihosting, and the board's watchdog turns it off.
+                    new BootRequest("release-raspi4b-off", BootScenarioRunner.RASPI4_MEMORY_MIB, 60, ExpectedOutcome.PoweredOff)
+                    {
+                        Suite = BootSuite.Release, LinuxBoot = true, Raspi4 = true, Processors = BootScenarioRunner.RASPI4_PROCESSORS,
+                        WithoutTestExit = true, RequiredLines = ["[POWER] off through the watchdog"]
                     }
                 ]
                 : Array.Empty<BootRequest>(),

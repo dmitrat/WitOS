@@ -1,6 +1,6 @@
 {
   "name": "kernel-platform-arm",
-  "description": "The ARM64 platform of every board a device tree describes (H7.1): the tree's reader, the GIC it names (v2 or v3) with the EL1 virtual timer's PPI, the PL031 it names, the console it names (a PL011 or the Pi's mini UART), the start of its processors (PSCI by its conduit, a spin table), the generic counter as the monotonic clock, the test exit through Arm semihosting and PCI enumeration from the tree's ECAM bridge.",
+  "description": "The ARM64 platform of every board a device tree describes (H7.1): the tree's reader, the GIC it names (v2 or v3) with the EL1 virtual timer's PPI, the PL031 it names, the console it names (a PL011 or the Pi's mini UART), the start of its processors (PSCI by its conduit, a spin table), the firmware's framebuffer it names (a simple-framebuffer or the VideoCore's mailbox), the board's power (PSCI or the Pi's watchdog), the generic counter as the monotonic clock, the test exit through Arm semihosting where the board has it and PCI enumeration from the tree's ECAM bridge.",
   "includes": [],
   "sources": [
     "src/Kernel.Platform.Arm/tree.c",
@@ -8,11 +8,14 @@
     "src/Kernel.Platform.Arm/clock.c",
     "src/Kernel.Platform.Arm/interrupts.c",
     "src/Kernel.Platform.Arm/devices.c",
-    "src/Kernel.Platform.Arm/processors.c"
+    "src/Kernel.Platform.Arm/processors.c",
+    "src/Kernel.Platform.Arm/power.c",
+    "src/Kernel.Platform.Arm/display.c"
   ],
   "assembly": [
     "src/Kernel.Platform.Arm/semihosting.S",
     "src/Kernel.Platform.Arm/counter.S",
-    "src/Kernel.Platform.Arm/gic.S"
+    "src/Kernel.Platform.Arm/gic.S",
+    "src/Kernel.Platform.Arm/cache.S"
   ]
 }

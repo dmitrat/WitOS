@@ -141,6 +141,11 @@ WitU32 wit_platform_processors(const WitBootInfo *boot, WitProcessorDescriptor *
     return count;
 }
 
+int wit_arm_psci_available(void)
+{
+    return conduit != CONDUIT_NONE;
+}
+
 int wit_arm_psci(WitU64 function, WitU64 a1, WitU64 a2, WitU64 a3, WitU64 *result)
 {
     if (conduit == CONDUIT_NONE) {
