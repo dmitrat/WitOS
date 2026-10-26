@@ -146,7 +146,7 @@ int wit_arm_tree_next(WitArmTree *tree, WitArmTreeItem *item)
             tree->Offset = (tree->Offset + length + 1 + 3) & ~3U;
             item->Depth = ++tree->Depth;
             if (tree->Depth <= WIT_ARM_TREE_DEPTH) {
-                tree->Nodes[tree->Depth] = (WitArmTreeNode){DEFAULT_ADDRESS_CELLS, DEFAULT_SIZE_CELLS, 0, 0, 0};
+                tree->Nodes[tree->Depth] = (WitArmTreeNode){DEFAULT_ADDRESS_CELLS, DEFAULT_SIZE_CELLS, 0, 0, 0, 0, 0};
             }
             return 1;
         }
@@ -186,6 +186,9 @@ int wit_arm_tree_next(WitArmTree *tree, WitArmTreeItem *item)
                     node->Ranges = item->Value;
                     node->RangesLength = length;
                     node->HasRanges = 1;
+                } else if (wit_arm_same(item->Name, "dma-ranges")) {
+                    node->DmaRanges = item->Value;
+                    node->DmaRangesLength = length;
                 }
             }
             return 1;
@@ -342,6 +345,7 @@ int wit_arm_tree_names(const WitArmTreeItem *item, const char *word)
 #define KIND_GIC2 2U
 #define KIND_TIMER 3U
 #define KIND_PL031 4U
+#define KIND_WATCHDOG 5U
 
 typedef struct BoardNode {
     WitU32 Kind, Regions, InterruptsLength;
@@ -350,7 +354,8 @@ typedef struct BoardNode {
 } BoardNode;
 
 /* The board's devices the platform drives, from one walk: the first GIC by its compatible (arm,gic-v3; a GICv2 by any
- * of the bindings QEMU's and the Pi's trees use), the virtual timer's interrupt of arm,armv8-timer, the first PL031. */
+ * of the bindings QEMU's and the Pi's trees use), the virtual timer's interrupt of arm,armv8-timer, the first PL031 and
+ * the Raspberry Pi's power management block with its watchdog (H7.3). */
 const WitArmBoard *wit_arm_board(const WitBootInfo *boot)
 {
     WitArmTree tree;
@@ -383,6 +388,8 @@ const WitArmBoard *wit_arm_board(const WitBootInfo *boot)
                     node->Kind = KIND_TIMER;
                 } else if (wit_arm_tree_names(&item, "arm,pl031")) {
                     node->Kind = KIND_PL031;
+                } else if (wit_arm_tree_names(&item, "brcm,bcm2835-pm-wdt")) {
+                    node->Kind = KIND_WATCHDOG;
                 }
             } else if (wit_arm_same(item.Name, "reg")) {
                 WitU64 size = 0;
@@ -411,6 +418,8 @@ const WitArmBoard *wit_arm_board(const WitBootInfo *boot)
                 board.TimerInterrupt = (type == 1 ? PPI_FIRST : SPI_FIRST) + number;
             } else if (node->Kind == KIND_PL031 && node->Regions >= 1 && !board.RealTimeClock) {
                 board.RealTimeClock = node->Base[0];
+            } else if (node->Kind == KIND_WATCHDOG && node->Regions >= 1 && !board.Watchdog) {
+                board.Watchdog = node->Base[0];
             }
         }
     }

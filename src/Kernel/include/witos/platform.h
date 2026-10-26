@@ -11,6 +11,10 @@ void wit_platform_console_put(WitU8 value);
 /* The console a board's device tree names (plan step H7.2): a boot path that has the tree hands it over before its first
  * line, or as soon as it has it; a board whose console is fixed ignores it. Zero is no tree. */
 void wit_platform_console_tree(WitU64 tree);
+/* The firmware's framebuffer a board's device tree names, for a boot path that builds the boot contract from the tree
+ * (plan step H7.3): a simple-framebuffer, or one the board's firmware allocates on request (the Raspberry Pi's
+ * VideoCore mailbox). It fills the contract's framebuffer fields, zero where the tree names none. */
+void wit_platform_framebuffer_tree(WitU64 tree, struct WitBootInfo *boot);
 
 void wit_console_write(const char *text);
 void wit_console_write_u64(WitU64 value);

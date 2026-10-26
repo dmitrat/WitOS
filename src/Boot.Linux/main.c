@@ -206,7 +206,7 @@ static void take_initrd(const WitU8 *initrd, WitU64 bytes)
 
 WIT_NORETURN void wit_linux_main(WitU64 tree, WitU64 level)
 {
-    WitLinuxRange reserved[WIT_LINUX_RANGES + 3];
+    WitLinuxRange reserved[WIT_LINUX_RANGES + 4];
 
     wit_platform_console_tree(tree); /* the console the tree names, before the first line (H7.2) */
     wit_console_initialize();
@@ -237,6 +237,7 @@ WIT_NORETURN void wit_linux_main(WitU64 tree, WitU64 level)
     wit_console_write("[BOOT] Cryptographic seed acquired\n");
 
     take_initrd((const WitU8 *)tree_info.InitrdStart, tree_info.InitrdEnd - tree_info.InitrdStart);
+    wit_platform_framebuffer_tree(tree, &boot_info); /* the firmware's framebuffer the tree names (H7.3) */
     WitU32 count = tree_info.ReservedCount;
     for (WitU32 i = 0; i < count; ++i) {
         reserved[i] = tree_info.Reserved[i];
@@ -247,16 +248,14 @@ WIT_NORETURN void wit_linux_main(WitU64 tree, WitU64 level)
     reserved[count++].Length = boot_info.ImageSize;
     reserved[count].Base = tree_info.InitrdStart;
     reserved[count++].Length = tree_info.InitrdEnd - tree_info.InitrdStart;
+    if (boot_info.FramebufferBytes) {
+        reserved[count].Base = boot_info.FramebufferBase; /* never usable memory, whatever the tree's memory says */
+        reserved[count++].Length = boot_info.FramebufferBytes;
+    }
     build_memory_map(reserved, count);
 
     boot_info.AcpiRsdp = 0;
     boot_info.DeviceTree = tree;
-    boot_info.FramebufferBase = 0;
-    boot_info.FramebufferBytes = 0;
-    boot_info.FramebufferWidth = 0;
-    boot_info.FramebufferHeight = 0;
-    boot_info.FramebufferStride = 0;
-    boot_info.FramebufferFormat = 0;
     boot_info.Magic = WIT_BOOT_MAGIC;
     boot_info.Version = WIT_BOOT_VERSION;
     boot_info.Size = sizeof(WitBootInfo);

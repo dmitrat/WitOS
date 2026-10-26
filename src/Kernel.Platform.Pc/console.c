@@ -28,6 +28,13 @@ void wit_platform_console_tree(WitU64 tree)
     (void)tree;
 }
 
+/* No boot path of this board builds its contract from a device tree (H7.3). */
+void wit_platform_framebuffer_tree(WitU64 tree, struct WitBootInfo *boot)
+{
+    (void)tree;
+    (void)boot;
+}
+
 void wit_platform_console_put(WitU8 value)
 {
     for (WitU32 spin = 0; spin < SERIAL_POLL_LIMIT; ++spin) {

@@ -41,6 +41,7 @@ internal static class BootScenarioRunner
     internal const int RASPI4_MEMORY_MIB = 2048;
     internal const int RASPI4_PROCESSORS = 4;
     private const int ENTROPY_SEED_BYTES = 32;
+    private const string RASPI4_TEST_EXIT = "witos.test-exit";
 
     // A screendump waits until the guest wrote nothing for this long, looking every step, up to the limit (C2.3).
     private const int QUIET_MILLISECONDS = 1000;
@@ -184,6 +185,10 @@ internal static class BootScenarioRunner
         if (!request.WithoutTestExit)
         {
             arguments.AddRange(architecture.ExitDevice);
+            // A board other than virt takes the semihosting test exit only where its bootargs ask for it (H7.3), since
+            // HLT #0xF000 is an undefined instruction on a board without a debugger.
+            if (request.Raspi4)
+                arguments.AddRange(["-append", RASPI4_TEST_EXIT]);
         }
         if (request.Display && !request.Pc)
         {

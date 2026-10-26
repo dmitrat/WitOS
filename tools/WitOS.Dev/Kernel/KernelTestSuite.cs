@@ -293,6 +293,20 @@ internal static class KernelTestSuite
                 RequiredLines = ["[POWER] the root task asked for a reset", "[POWER] reset through "]
             });
         scenarios++;
+        if (architecture == KernelArchitecture.Arm64)
+        {
+            // The Raspberry Pi 4's reset (H7.3): its watchdog, where the board has no PSCI.
+            await BootScenarioRunner.RunAsync(root, reset,
+                Request("reset-raspi4b", BootScenarioRunner.RASPI4_MEMORY_MIB, limit, ExpectedOutcome.Reset) with
+                {
+                    Suite = BootSuite.Release,
+                    LinuxBoot = true,
+                    Raspi4 = true,
+                    Processors = BootScenarioRunner.RASPI4_PROCESSORS,
+                    RequiredLines = ["[POWER] the root task asked for a reset", "[POWER] reset through the watchdog"]
+                });
+            scenarios++;
+        }
         var panic = await KernelImageBuilder.BuildAsync(root, "invalid-boot-info", architecture: architecture);
         await BootScenarioRunner.RunAsync(root, panic,
             Request("invalid-boot-info", 256, limit, ExpectedOutcome.InvalidBootInfo));

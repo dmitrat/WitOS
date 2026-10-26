@@ -24,6 +24,8 @@ struct WitBootInfo;
 typedef struct WitArmTreeNode {
     WitU32 AddressCells, SizeCells, RangesLength, HasRanges;
     const WitU8 *Ranges;
+    WitU32 DmaRangesLength; /* how the bus's devices see memory (H7.3: the VideoCore's mailbox) */
+    const WitU8 *DmaRanges;
 } WitArmTreeNode;
 
 typedef struct WitArmTree {
@@ -68,13 +70,24 @@ typedef struct WitArmBoard {
     WitU64 Redistributors; /* GICv3's first redistributor region, the boot processor's frames first */
     WitU32 TimerInterrupt; /* the EL1 virtual timer's INTID */
     WitU64 RealTimeClock; /* a PL031's base; zero when the board has none */
+    WitU64 Watchdog; /* the Raspberry Pi's power management block (brcm,bcm2835-pm-wdt, H7.3); zero when none */
     int Read;
 } WitArmBoard;
 
 const WitArmBoard *wit_arm_board(const struct WitBootInfo *boot);
 
 /* A PSCI call through the conduit the tree's /psci names (processors.c, H7.2): zero when the board has none. */
+int wit_arm_psci_available(void);
 int wit_arm_psci(WitU64 function, WitU64 a1, WitU64 a2, WitU64 a3, WitU64 *result);
+
+/* The end of a boot (power.c, H7.3): the test exit the early tree allows, and the watchdog the board's tree names,
+ * whose page the clock maps once paging is active. */
+void wit_arm_power_tree(WitU64 tree);
+void wit_arm_power_map(const struct WitBootInfo *boot);
+
+/* The firmware's framebuffer the tree names (display.c, H7.3), for a boot path that builds the boot contract from the
+ * tree; the cache's clean and invalidation of a buffer the VideoCore reads and writes (cache.S). */
+void wit_arm_clean_invalidate(WitU64 address, WitU64 bytes);
 
 /* Prints the console the tree named (console.c, H7.2), once paging is active. */
 void wit_arm_console_describe(void);

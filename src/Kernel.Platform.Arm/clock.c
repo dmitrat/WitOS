@@ -48,6 +48,7 @@ void wit_platform_clock_initialize(const struct WitBootInfo *boot)
     wit_console_write("[TEST-PASS] Clock.IrqIndependent\n");
     wit_arm_console_describe();
     wit_arm_interrupts_map(boot);
+    wit_arm_power_map(boot);
     realtime = wit_arm_board(boot)->RealTimeClock;
     if (realtime) {
         wit_arch_map_device_page(boot, realtime & ~4095ULL);
