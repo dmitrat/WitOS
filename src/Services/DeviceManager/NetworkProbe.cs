@@ -43,14 +43,17 @@ internal static class NetworkProbe
     #region Functions
 
     /// <summary>
-    /// Runs the probe on a network driver's packet channel, which it takes and gives back for the network service.
+    /// Takes a network driver's packet channel for the network service, probing it first unless the boot is a session
+    /// (H5.1).
     /// </summary>
     /// <param name="driver">A network driver that answered ready.</param>
+    /// <param name="probe">Whether to run the ARP exchange.</param>
     /// <returns>The packet channel.</returns>
-    public static Channel Run(DriverActivation driver)
+    public static Channel Run(DriverActivation driver, bool probe)
     {
         var channel = new Channel(driver.TakeService());
-        Probe(channel, driver.Record.Id);
+        if (probe)
+            Probe(channel, driver.Record.Id);
         return channel;
     }
 

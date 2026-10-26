@@ -40,11 +40,12 @@ internal static class StorageProbe
     #region Functions
 
     /// <summary>
-    /// Probes the disk a ready driver serves on its block channel.
+    /// Opens the disk a ready driver serves on its block channel and, unless the boot is a session (H5.1), probes it.
     /// </summary>
     /// <param name="driver">The driver's activation, with its block channel.</param>
+    /// <param name="probe">Whether to probe the disk past its opening.</param>
     /// <returns>The disk, open for the device manager's life; null when the probe failed.</returns>
-    public static async Task<ChannelBlockStorage?> RunAsync(DriverActivation driver)
+    public static async Task<ChannelBlockStorage?> RunAsync(DriverActivation driver, bool probe)
     {
         var id = driver.Record.Id;
         ChannelBlockStorage? storage = null;
@@ -55,6 +56,8 @@ internal static class StorageProbe
             var info = storage.Info;
             Console.WriteLine($"{PREFIX}storage {id}: {info.Length} bytes in blocks of {info.LogicalBlockSize}, " +
                 $"{(info.IsReadOnly ? "read-only" : "writable")}, through the block channel and a window of {session.Window.Length} bytes");
+            if (!probe)
+                return storage;
             if (info.IsReadOnly)
             {
                 // The driver's own check, past the resource's: a write to a read-only device.

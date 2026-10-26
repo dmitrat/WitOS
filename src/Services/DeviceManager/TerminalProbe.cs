@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Text;
 using OutWit.OS.Resources;
 using OutWit.OS.Terminals;
@@ -10,8 +9,8 @@ namespace OutWit.OS.DeviceManager;
 /// The terminal's probe (plan step N4.3a, as the storage probes of D2 to D4): the device manager connects to the
 /// terminal service as a process would, asks for a line, and, when one is typed within the time, writes it back to
 /// the terminal and to the log; the runtime-terminal scenario types the line and requires both. The attributes and
-/// the size are reported too. A session a person works in (C2.7: its package holds /etc/witos/session) skips the probe,
-/// whose wait would hold /bin/init back.
+/// the size are reported too. A session a person works in (C2.7, <see cref="Session"/>) runs no probe, and this one's wait
+/// would hold /bin/init back.
 /// </summary>
 internal static class TerminalProbe
 {
@@ -26,11 +25,6 @@ internal static class TerminalProbe
 
     private const int WAIT_SECONDS = 30;
 
-    /// <summary>
-    /// The package's mark of a session a person works in (C2.7).
-    /// </summary>
-    public const string SESSION_MARK = "/etc/witos/session";
-
     #endregion
 
     #region Functions
@@ -41,11 +35,6 @@ internal static class TerminalProbe
     /// <param name="clients">The terminal service's clients' endpoint.</param>
     public static void Run(KernelHandle clients)
     {
-        if (File.Exists(SESSION_MARK))
-        {
-            Console.WriteLine($"{PREFIX}terminal probe: skipped in a session ({SESSION_MARK})");
-            return;
-        }
         try
         {
             using var client = TerminalClient.Connect(clients);
