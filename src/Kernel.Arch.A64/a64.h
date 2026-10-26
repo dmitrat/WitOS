@@ -87,10 +87,8 @@ WitU64 wit_a64_memory_features(void);
 WitU64 wit_a64_processor_id(void);
 WitU64 wit_a64_isa_features(void);
 WitU64 wit_a64_processor_features(void);
-/* Secondary processors (secondary.asm, K7.2): PSCI CPU_ON through the virt profile's HVC conduit, the entry a started
- * processor begins at with the MMU off, the boot processor's translation registers it copies, and its C main. */
-WitU64 wit_a64_psci_cpu_on(WitU64 target, WitU64 entry, WitU64 context);
-extern const WitU8 wit_a64_secondary_entry[];
+/* Secondary processors (secondary_entry.S, K7.2): the boot processor's translation registers a started processor copies
+ * (its entries and how the platform starts it are witos/a64_board.h's, H7.2). */
 WitU64 wit_a64_translation_control(void);
 WitU64 wit_a64_memory_attributes(void);
 WitU64 wit_a64_translation_base_high(void);

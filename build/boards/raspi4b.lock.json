@@ -1,0 +1,7 @@
+{
+  "name": "RPi4_UEFI_Firmware_v1.53",
+  "url": "https://github.com/pftf/RPi4/releases/download/v1.53/RPi4_UEFI_Firmware_v1.53.zip",
+  "sha256": "ca9973e2a7a546b3df871cfb7382e656829114b6dfa424f40dc67cc90a217d88",
+  "tree": "bcm2711-rpi-4-b.dtb",
+  "purpose": "The Raspberry Pi 4 Model B's device tree as the Raspberry Pi firmware ships it (plan step H7.2), which QEMU's raspi4b takes with -dtb, as H0.2 measured it: the archive of pftf/RPi4 v1.53 by its SHA-256, of which setup extracts the board's tree alone. The files beside the UEFI image are under the Raspberry Pi boot files' terms, which the archive's Readme.md names; WitOS ships none of them."
+}

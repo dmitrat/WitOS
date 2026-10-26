@@ -1,4 +1,5 @@
 #include "witos/arch.h"
+#include "witos/a64_board.h"
 #include "witos/boot.h"
 #include "witos/cpu.h"
 #include "witos/platform.h"
@@ -6,15 +7,18 @@
 #include "user.h"
 #include "a64.h"
 
-/* Secondary processors of ARM64 (plan step K7.2). The boot processor records its translation registers, SCTLR and
- * CPACR for the entry in secondary_entry.asm, gives each processor a kernel stack, lets the platform map that processor's
- * interrupt controller frames, and starts it through PSCI CPU_ON with the kernel's number as the context. A started
+/* Secondary processors of ARM64 (plan steps K7.2, H7.2). The boot processor records its translation registers, SCTLR
+ * and CPACR for the entries in secondary_entry.S, gives each processor a kernel stack and its identity, lets the
+ * platform map that processor's interrupt controller frames, and has the platform start it by the means the board's
+ * device tree names (PSCI CPU_ON with the kernel's number as the context, or a spin table's release word). A started
  * processor enables its interrupts through the platform, reports itself ready and idles in WFI; the shared vector
  * table brings its inter-processor interrupts to wit_a64_interrupt. */
 
 WitU64 wit_a64_boot_mair, wit_a64_boot_tcr, wit_a64_boot_ttbr0, wit_a64_boot_ttbr1, wit_a64_boot_sctlr,
     wit_a64_boot_cpacr;
 WitU64 wit_a64_secondary_stack_tops[WIT_PROCESSOR_CAPACITY];
+/* Each prepared processor's MPIDR affinity, by which a spin table's entry finds its number (H7.2). */
+WitU64 wit_a64_secondary_ids[WIT_PROCESSOR_CAPACITY];
 
 __declspec(align(4096)) static WitU8 stacks[WIT_PROCESSOR_CAPACITY][WIT_A64_KERNEL_STACK_SIZE];
 
@@ -28,6 +32,8 @@ void wit_arch_idle_stack(WitU32 index, WitU64 *low, WitU64 *high)
     *low = (WitU64)stacks[index];
     *high = *low + WIT_A64_KERNEL_STACK_SIZE;
 }
+
+#define AFFINITY_MASK 0xFF00FFFFFFULL /* Aff3 and Aff2:Aff1:Aff0, as MPIDR_EL1 holds them */
 
 static void require(int condition, const char *message)
 {
@@ -48,6 +54,7 @@ void wit_arch_secondary_prepare(const WitBootInfo *boot, WitU32 index, WitU64 ha
         wit_a64_boot_cpacr = wit_a64_fp_access(); /* FP/SIMD without traps: the vectors save the q registers */
     }
     wit_a64_secondary_stack_tops[index] = (WitU64)stacks[index] + WIT_A64_KERNEL_STACK_SIZE;
+    wit_a64_secondary_ids[index] = hardware_id & AFFINITY_MASK;
     wit_platform_processor_prepare(boot, index, hardware_id);
     /* The entry reads these with the MMU and caches off: they must be in memory, not in this processor's cache. */
     wit_a64_clean_data((WitU64)&wit_a64_boot_mair, sizeof(wit_a64_boot_mair));
@@ -57,11 +64,12 @@ void wit_arch_secondary_prepare(const WitBootInfo *boot, WitU32 index, WitU64 ha
     wit_a64_clean_data((WitU64)&wit_a64_boot_sctlr, sizeof(wit_a64_boot_sctlr));
     wit_a64_clean_data((WitU64)&wit_a64_boot_cpacr, sizeof(wit_a64_boot_cpacr));
     wit_a64_clean_data((WitU64)wit_a64_secondary_stack_tops, sizeof(wit_a64_secondary_stack_tops));
+    wit_a64_clean_data((WitU64)wit_a64_secondary_ids, sizeof(wit_a64_secondary_ids));
 }
 
 int wit_arch_secondary_start(WitU32 index, WitU64 hardware_id)
 {
-    return wit_a64_psci_cpu_on(hardware_id, (WitU64)wit_a64_secondary_entry, index) == 0;
+    return wit_a64_board_processor_start(index, hardware_id);
 }
 
 void wit_arch_ipi(WitU64 hardware_id, WitU32 kind)

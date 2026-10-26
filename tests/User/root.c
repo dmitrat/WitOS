@@ -13,8 +13,8 @@
  * One C source for both ISAs, compiled by the pinned clang for the architecture's triple and linked by lld at the
  * image window (tests/User/root.ld): no libc, no runtime, the ABI-1 transport of witos/syscall.h alone. It checks
  * the descriptor, writes to the kernel log through the log handle, maps the first page of the boot package and
- * checks its magic, maps the device table and checks that the board published devices, reads UTC and sets it through
- * the clock capability (K6), delegates the log over a channel (S5.2), protects a run of adjacent reservations
+ * checks its magic, maps the device table the board published, reads UTC where the board has a real-time clock and
+ * sets it through the clock capability (K6), delegates the log over a channel (S5.2), protects a run of adjacent reservations
  * (S7.2), checks the mechanisms no other part of layer 2 uses yet (root_mechanisms.c, K8.2), then exits with zero; a
  * failed check exits with 241. The data page holds the status of a failed check at 1304 and the count of checks at
  * 1312 for the kernel self-test's diagnostics. */
@@ -204,13 +204,14 @@ ENTRY_ATTRIBUTES WIT_NORETURN void wit_user_start(const WitRootStartup *startup)
     expect(WIT_CALL_CODE_PUBLISH, code, 4096, 0, WIT_STATUS_OK);
     expect(WIT_CALL_MEMORY_RELEASE, code, 0, 0, WIT_STATUS_OK);
 
-    /* The device table: a version 1 table with at least one descriptor, in an object of as many pages as its header and
-     * descriptors take (ABI-1 1.5, H1.2a): its whole size maps, and a page beyond it is refused. */
+    /* The device table: a version 1 table in an object of as many pages as its header and descriptors take (ABI-1 1.5,
+     * H1.2a): its whole size maps, and a page beyond it is refused. A board whose tree names no bus has none (the
+     * Raspberry Pi 4 on QEMU's raspi4b, H7.2). */
     const WitU64 devices_handle = startup->Handles[WIT_ROOT_HANDLE_DEVICES];
     const WitU64 table = map_object(devices_handle, 4096, WIT_MEMORY_READ, WIT_STATUS_OK);
     const volatile WitDeviceTable *devices = (const volatile WitDeviceTable *)table;
     check(devices->Version == WIT_DEVICE_TABLE_VERSION, 101);
-    check(devices->Count != 0, 102);
+    check(devices->Count <= 64, 102); /* the kernel's table holds 64 descriptors (H1.2a) */
     const WitU32 device_count = devices->Count;
     const WitU64 table_bytes =
         ((WitU64)WIT_DEVICE_TABLE_SIZE + (WitU64)device_count * WIT_DEVICE_DESCRIPTOR_SIZE + 4095) & ~4095ULL;
@@ -221,12 +222,16 @@ ENTRY_ATTRIBUTES WIT_NORETURN void wit_user_start(const WitRootStartup *startup)
     map_object(devices_handle, table_bytes + 4096, WIT_MEMORY_READ, WIT_STATUS_TOO_LARGE);
     log_line(startup, mapped, sizeof(mapped) - 1);
 
-    /* UTC (K6): its frequency, a plausible reading, a set through the clock capability that the next reading
-     * continues from, and the refusals of another handle and of the monotonic clock. */
+    /* UTC (K6): a plausible reading from the board's real-time clock, or UNSUPPORTED on a board without one (the
+     * Raspberry Pis, H7.2) until the clock capability sets the time; a set that the next reading continues from, its
+     * frequency, and the refusals of another handle and of the monotonic clock. */
     const WitU64 clock = startup->Handles[WIT_ROOT_HANDLE_CLOCK];
-    check(expect(WIT_CALL_CLOCK_FREQUENCY, WIT_CLOCK_UTC, 0, 0, WIT_STATUS_OK) == 1000000000ULL, 11);
-    check(expect(WIT_CALL_CLOCK_READ, WIT_CLOCK_UTC, 0, 0, WIT_STATUS_OK) >= UTC_2026, 12);
+    WitU64 utc = 0;
+    const WitU64 utc_status = wit_syscall(WIT_CALL_CLOCK_READ, WIT_CLOCK_UTC, 0, 0, &utc);
+    ++*CHECKS_PASSED;
+    check(utc_status == WIT_STATUS_OK ? utc >= UTC_2026 : utc_status == WIT_STATUS_UNSUPPORTED, 12);
     expect(WIT_CALL_CLOCK_SET, clock, WIT_CLOCK_UTC, UTC_2030, WIT_STATUS_OK);
+    check(expect(WIT_CALL_CLOCK_FREQUENCY, WIT_CLOCK_UTC, 0, 0, WIT_STATUS_OK) == 1000000000ULL, 11);
     check(expect(WIT_CALL_CLOCK_READ, WIT_CLOCK_UTC, 0, 0, WIT_STATUS_OK) >= UTC_2030, 13);
     expect(WIT_CALL_CLOCK_SET, startup->Handles[WIT_ROOT_HANDLE_LOG], WIT_CLOCK_UTC, UTC_2030, WIT_STATUS_WRONG_TYPE);
     expect(WIT_CALL_CLOCK_SET, clock, WIT_CLOCK_MONOTONIC, UTC_2030, WIT_STATUS_INVALID_ARGUMENT);

@@ -76,16 +76,20 @@ int wit_arm_same(const char *a, const char *b)
     return *a == *b;
 }
 
-int wit_arm_tree_open(const WitBootInfo *boot, WitArmTree *tree)
+/* Opens the tree at an address: with the boot contract once paging is active, mapping its pages; without one in a boot
+ * stage, where the tree is reachable as it is (H7.2: the console before the first line). */
+static int open_tree(const WitBootInfo *boot, WitU64 address, WitArmTree *tree)
 {
-    const WitU8 *base = (const WitU8 *)boot->DeviceTree;
+    const WitU8 *base = (const WitU8 *)address;
     for (WitU32 i = 0; i < sizeof(*tree); ++i) {
         ((WitU8 *)tree)[i] = 0;
     }
-    if (!boot->DeviceTree || (boot->DeviceTree & 7)) {
+    if (!address || (address & 7)) {
         return 0;
     }
-    wit_arm_map_once(boot, boot->DeviceTree & ~4095ULL);
+    if (boot) {
+        wit_arm_map_once(boot, address & ~4095ULL);
+    }
     if (wit_arm_be32(base) != FDT_MAGIC) {
         return 0;
     }
@@ -102,14 +106,26 @@ int wit_arm_tree_open(const WitBootInfo *boot, WitArmTree *tree)
         strings_size > FDT_BLOCK_BYTES) {
         return 0;
     }
-    map_range(boot, boot->DeviceTree + structure, structure_size);
-    map_range(boot, boot->DeviceTree + strings, strings_size);
+    if (boot) {
+        map_range(boot, address + structure, structure_size);
+        map_range(boot, address + strings, strings_size);
+    }
     tree->Base = base;
     tree->Offset = structure;
     tree->Limit = structure + structure_size;
     tree->Strings = strings;
     tree->StringsLimit = strings + strings_size;
     return 1;
+}
+
+int wit_arm_tree_open(const WitBootInfo *boot, WitArmTree *tree)
+{
+    return open_tree(boot, boot->DeviceTree, tree);
+}
+
+int wit_arm_tree_open_early(WitU64 address, WitArmTree *tree)
+{
+    return open_tree(0, address, tree);
 }
 
 int wit_arm_tree_next(WitArmTree *tree, WitArmTreeItem *item)
@@ -236,6 +252,70 @@ int wit_arm_tree_reg(const WitArmTree *tree, const WitArmTreeItem *item, WitU32 
     }
     *base = address;
     return 1;
+}
+
+/* Whether a path's component names a node: the whole name, or the name before its unit address when the component has
+ * none ("serial" for "serial@7e201000"), as the binding allows where it is unambiguous. */
+static int component_names(const char *component, WitU32 length, const char *name)
+{
+    WitU32 i = 0, unit = 1;
+    for (WitU32 k = 0; k < length; ++k) {
+        unit &= component[k] != '@';
+    }
+    for (; i < length && name[i] && name[i] == component[i]; ++i) {
+    }
+    return i == length && (name[i] == 0 || (unit && name[i] == '@'));
+}
+
+WitU32 wit_arm_tree_seek(WitArmTree *tree, const char *path, WitU32 length)
+{
+    WitArmTreeItem item;
+    WitU32 after[WIT_ARM_TREE_DEPTH + 1]; /* the path's offset past the component each open node matched */
+    WitU32 matched = 0; /* the deepest open node whose ancestors all match the path */
+    if (length == 0 || path[0] != '/') {
+        return 0;
+    }
+    while (length > 1 && path[length - 1] == '/') {
+        --length;
+    }
+    while (wit_arm_tree_next(tree, &item)) {
+        if (item.Kind == WIT_ARM_TREE_BEGIN && item.Depth == 1) {
+            matched = 1;
+            after[1] = 1;
+            if (length == 1) {
+                return 1;
+            }
+        } else if (item.Kind == WIT_ARM_TREE_BEGIN && item.Depth <= WIT_ARM_TREE_DEPTH && matched == item.Depth - 1) {
+            const WitU32 start = after[matched];
+            WitU32 end = start;
+            while (end < length && path[end] != '/') {
+                ++end;
+            }
+            if (end > start && component_names(path + start, end - start, item.Name)) {
+                matched = item.Depth;
+                after[matched] = end + 1;
+                if (end == length) {
+                    return matched;
+                }
+            }
+        } else if (item.Kind == WIT_ARM_TREE_END && matched >= item.Depth) {
+            matched = item.Depth - 1;
+        }
+    }
+    return 0;
+}
+
+int wit_arm_tree_property(WitArmTree *tree, WitU32 depth, const char *name, WitArmTreeItem *item)
+{
+    while (wit_arm_tree_next(tree, item)) {
+        if (item->Kind != WIT_ARM_TREE_PROPERTY || item->Depth != depth) {
+            return 0; /* a child or the node's end: a node's properties come first */
+        }
+        if (wit_arm_same(item->Name, name)) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 int wit_arm_tree_names(const WitArmTreeItem *item, const char *word)

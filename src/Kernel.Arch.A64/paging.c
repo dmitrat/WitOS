@@ -1,4 +1,5 @@
 #include "witos/arch.h"
+#include "witos/a64_board.h"
 #include "witos/kernel_stacks.h"
 #include "witos/platform.h"
 #include "witos/package.h"
@@ -495,6 +496,27 @@ void wit_arch_map_device_page(const WitBootInfo *boot, WitU64 physical)
     entry = leaf(physical, 0);
     require(!entry || !(*entry & DESC_VALID), "Device page already mapped");
     set_page(physical, page_descriptor(physical, 1, 0, 1));
+}
+
+/* A word the kernel does not map (H7.2): a spin table's release word lies in a page the firmware reserved, page 0 on a
+ * Raspberry Pi, which no translation of the kernel holds so that a null pointer faults. Its page is mapped as device
+ * memory at its own address for the one write, which the processor that waits reads with its MMU off, and taken away
+ * again. */
+void wit_a64_write_physical(const WitBootInfo *boot, WitU64 physical, WitU64 value)
+{
+    const WitU64 page = physical & ~4095ULL;
+    WitU64 *entry;
+    require(active, "Physical write before kernel paging");
+    require((physical & 7) == 0 && physical < WIT_PHYSICAL_LIMIT, "Invalid physical word");
+    require(boot->ImageBase >= page + 4096 || boot->ImageBase + boot->ImageSize <= page,
+        "Physical word in the kernel image");
+    require(!overlaps_usable(boot, page), "Physical word in usable RAM");
+    entry = leaf(page, 0);
+    require(!entry || !(*entry & DESC_VALID), "Physical word in a mapped page");
+    set_page(page, page_descriptor(page, 1, 0, 1));
+    *(volatile WitU64 *)physical = value;
+    wit_a64_data_barrier();
+    remove_page(page);
 }
 
 #if defined(WITOS_SELFTEST)

@@ -92,6 +92,7 @@ EfiStatus efi_main(EfiHandle image, EfiSystemTable *system)
 
     wit_boot_describe_image(&boot_info);
     firmware_tables(system, &boot_info);
+    wit_platform_console_tree(boot_info.DeviceTree); /* the console the tree names, once it is known (H7.2) */
     wit_boot_entropy(services, &boot_info);
     wit_boot_display(services, &boot_info);
     if (!wit_boot_storage(image, services, &boot_info)) {

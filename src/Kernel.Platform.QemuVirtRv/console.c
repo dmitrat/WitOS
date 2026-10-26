@@ -21,6 +21,12 @@ void wit_console_initialize(void)
     /* The firmware has set the UART up for its own console; QEMU ignores the line settings. */
 }
 
+/* The board's 16550 stays the console until a RISC-V board names another (H7.2 takes ARM64's from the tree). */
+void wit_platform_console_tree(WitU64 tree)
+{
+    (void)tree;
+}
+
 void wit_platform_console_put(WitU8 value)
 {
     for (WitU32 spin = 0; spin < SERIAL_POLL_LIMIT; ++spin) {
