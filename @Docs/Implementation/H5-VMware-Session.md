@@ -55,7 +55,7 @@ VMware's own VNC server shows the screen with no window and no VMware Tools:
 - A plain RFB 3.8 client with security type None takes a frame in raw encoding. The banner and the prompt above are
   such frames.
 
-### 1.4 Open: the console's keys
+### 1.4 The console's keys: PS/2 too
 
 Keys sent without a person reach VMware's PS/2 keyboard, not its USB one. A scratch kernel measured where they go; its
 change was never committed. The boot processor's tick read the 8042 and logged every byte. A scratch xHCI driver sent
@@ -84,13 +84,19 @@ The likely reading: VMware's VNC server feeds scan codes to its PS/2 device, whi
 VMware's HID layer, which `keyboard.vusb.enable` sends to the USB keyboard. Users of Linux guests report that the
 setting moves their keys to the USB keyboard.
 
-The session by hand decides it:
+The session by hand decided it on 2026-10-25. The author booted the same scratch kernel in VMware Workstation and typed
+on its console, the VM grabbed by a click. The 8042 delivered every key as a scan code of set 1: Shift, Ctrl, letters,
+digits, and the Ctrl and Alt of VMware's release key (0x1D, 0x38, then 0xB8, 0x9D). The xHCI driver had configured the
+USB keyboard 0e0f:0006 and polled its interrupt endpoint in the same boot (`a keyboard of the report protocol on
+interface 0 … reporting keys`), and logged no key. A boot of the committed kernel from the SATA machine in the same
+session logged none either. So the console's keys reach VMware's PS/2 keyboard too, with `keyboard.vusb.enable = "TRUE"`
+and `guestOS = "other-64"`.
 
-- **If a key on the console is logged as `[XHCI] key <code> down`,** the USB path works by hand. Only automation through
-  VNC meets the PS/2 keyboard.
-- **If the console's keys reach the PS/2 keyboard too,** WitOS on VMware needs a PS/2 keyboard, against
-  [ADR 0029](ADR-0029-PC-Interrupts-Power-and-Device-Table.md)'s USB keyboard on every target and its kernel without port
-  access in the release. That is the author's decision, recorded in an ADR before any port reaches a driver.
+WitOS on VMware therefore needs a PS/2 keyboard, against [ADR 0029](ADR-0029-PC-Interrupts-Power-and-Device-Table.md)'s
+USB keyboard on every target and its kernel without port access in the release. **The author decided on 2026-10-26** to
+close H7 first and then come back to VMware until WitOS runs there well enough for the author to use it. The keyboard is then either an ADR
+for the 8042's port region as a device with an i8042 driver service on the input protocol (which laptops' built-in
+keyboards need too), or VMware settings the author checks by hand.
 
 ## 2. The session by hand
 
