@@ -33,3 +33,27 @@ WitU64 wit_arch_processor_features(void)
     cpuid(1, 0, r);
     return (WitU64)r[2] | ((WitU64)r[3] << 32);
 }
+
+/* Port I/O for DEVICE_PORT (ABI-1 1.7, H5.2, ADR 0031): the kernel validated the port, the width and the value. */
+int wit_arch_ports_supported(void)
+{
+    return 1;
+}
+
+WitU32 wit_arch_port_read(WitU32 port, WitU32 width)
+{
+    return width == 1 ? wit_x64_in8((WitU16)port)
+        : width == 2  ? wit_x64_in16((WitU16)port)
+                      : wit_x64_in32((WitU16)port);
+}
+
+void wit_arch_port_write(WitU32 port, WitU32 width, WitU32 value)
+{
+    if (width == 1) {
+        wit_x64_out8((WitU16)port, (WitU8)value);
+    } else if (width == 2) {
+        wit_x64_out16((WitU16)port, (WitU16)value);
+    } else {
+        wit_x64_out32((WitU16)port, value);
+    }
+}

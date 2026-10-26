@@ -53,6 +53,12 @@ internal static unsafe partial class Libwitos
     [LibraryImport(LIBRARY, EntryPoint = "witos_device_memory_at")]
     internal static partial int DeviceMemoryAt(ulong device, uint region, ulong window, ulong* memoryObject);
 
+    [LibraryImport(LIBRARY, EntryPoint = "witos_device_port_read")]
+    internal static partial int DevicePortRead(ulong device, uint region, uint offset, uint width, uint* value);
+
+    [LibraryImport(LIBRARY, EntryPoint = "witos_device_port_write")]
+    internal static partial int DevicePortWrite(ulong device, uint region, uint offset, uint width, uint value);
+
     [LibraryImport(LIBRARY, EntryPoint = "witos_memory_object_create")]
     internal static partial int MemoryObjectCreate(ulong bytes, ulong* memoryObject);
 

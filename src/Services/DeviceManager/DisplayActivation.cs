@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using OutWit.OS.Communication;
 using OutWit.OS.DeviceManager.Uhi;
@@ -43,34 +44,40 @@ internal sealed class DisplayActivation : IDisposable
     #region Functions
 
     /// <summary>
-    /// Starts the service with the framebuffer and the keyboard's channel, which move to it.
+    /// Starts the service with the framebuffer and the keyboards' channels, which move to it.
     /// </summary>
     /// <param name="table">The device table, with ACQUIRE.</param>
     /// <param name="record">The framebuffer.</param>
-    /// <param name="keyboard">The keyboard driver's input channel, the service's end, moved; null without a keyboard.</param>
+    /// <param name="keyboards">The keyboard drivers' input channels, the service's ends, moved: none, one or two (H5.2: a
+    /// PC's PS/2 keyboard beside its USB keyboards).</param>
     /// <returns>The activation: ready with the console channel's end, or its status.</returns>
     /// <exception cref="FileNotFoundException">The boot package has no display service.</exception>
     /// <exception cref="CapabilityException">A capability could not be had.</exception>
-    public static DisplayActivation Start(KernelHandle table, DeviceRecord record, KernelHandle? keyboard)
+    public static DisplayActivation Start(KernelHandle table, DeviceRecord record, IReadOnlyList<KernelHandle> keyboards)
     {
         if (!File.Exists(PATH))
         {
-            keyboard?.Dispose();
+            foreach (var keyboard in keyboards)
+                keyboard.Dispose();
             throw new FileNotFoundException($"The boot package has no {PATH}.", PATH);
         }
         var device = Device.Acquire(table, record.Descriptor.Index);
         var (channel, theirs) = Channel.Create();
         try
         {
-            // The framebuffer moves with the start, the device manager's last reference to it, the keyboard's channel
+            // The framebuffer moves with the start, the device manager's last reference to it, the keyboards' channels
             // beside it, before the service runs.
             using (device)
-            using (keyboard)
             {
-                if (keyboard is null)
-                    channel.Send(DisplayStart.Encode(record.Descriptor), device);
-                else
-                    channel.Send(DisplayStart.Encode(record.Descriptor), device, keyboard);
+                try
+                {
+                    channel.Send(DisplayStart.Encode(record.Descriptor), [device, .. keyboards]);
+                }
+                finally
+                {
+                    foreach (var keyboard in keyboards)
+                        keyboard.Dispose();
+                }
             }
             var process = ServiceLauncher.Start(PATH, [record.Id], theirs);
             try

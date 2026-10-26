@@ -114,3 +114,24 @@ WitU64 wit_arch_cache_size(void)
 {
     return 0;
 }
+
+/* No port space (ABI-1 1.7, H5.2, ADR 0031): DEVICE_PORT is UNSUPPORTED, and the kernel never asks for an access. */
+int wit_arch_ports_supported(void)
+{
+    return 0;
+}
+
+WitU32 wit_arch_port_read(WitU32 port, WitU32 width)
+{
+    (void)port;
+    (void)width;
+    wit_panic("Port read on an architecture without a port space");
+}
+
+void wit_arch_port_write(WitU32 port, WitU32 width, WitU32 value)
+{
+    (void)port;
+    (void)width;
+    (void)value;
+    wit_panic("Port write on an architecture without a port space");
+}

@@ -89,7 +89,10 @@ internal static class RuntimeCommander
             RequiredLines = RequiredLines(architecture),
             DataDisk = dataDisk,
             Display = true,
-            Keyboard = true,
+            // The PC's PS/2 keyboard on x64 (H5.2): the commander's keys — End, Enter, F3, F5, F10 and text — through the
+            // i8042 and set 1's codes; the virtio keyboard elsewhere.
+            Keyboard = architecture != KernelArchitecture.X64,
+            Ps2Keyboard = architecture == KernelArchitecture.X64,
             Terminal = [], // the virtio console mirrors the display: its transcript is what the display drew
             Actions = Actions()
         });
@@ -136,7 +139,15 @@ internal static class RuntimeCommander
     /// <returns>The lines.</returns>
     public static string[] RequiredLines(KernelArchitecture architecture) =>
     [
-        "[DEVICES] display service /system/Display on firmware/framebuffer with the keyboard pci/",
+        .. architecture == KernelArchitecture.X64
+            ? new[]
+            {
+                "[I8042] driver of legacy/i8042: holds the device, ports 0x60 and 0x64, line 1",
+                "(the keyboard's interrupt, translation to set 1)",
+                "[DEVICES] display service /system/Display on firmware/framebuffer with the keyboard legacy/i8042: ready",
+                "[I8042] key 107 down" // End, an enhanced key behind 0xE0
+            }
+            : ["[DEVICES] display service /system/Display on firmware/framebuffer with the keyboard pci/"],
         "[DEVICES] terminal service /system/Terminal on firmware/framebuffer, mirrored on pci/",
         QUIT_HINT,
         NOTE_TEXT,

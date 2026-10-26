@@ -57,5 +57,33 @@ public static class Device
         return new KernelHandle(memoryObject);
     }
 
+    /// <summary>
+    /// Reads a byte of a device's port region (ABI-1 1.7, plan step H5.2, ADR 0031).
+    /// </summary>
+    /// <param name="device">The device, with BIND.</param>
+    /// <param name="region">The port region's index in the descriptor.</param>
+    /// <param name="offset">The byte's offset within the region.</param>
+    /// <returns>The byte.</returns>
+    /// <exception cref="CapabilityException">The region is no port region, the offset lies beyond it, or the architecture
+    /// has no port space.</exception>
+    public static unsafe byte PortRead8(KernelHandle device, int region, int offset)
+    {
+        uint value = 0;
+        CapabilityException.ThrowOnError("DEVICE_PORT", Libwitos.DevicePortRead(device.Value, (uint)region, (uint)offset, 1, &value));
+        return (byte)value;
+    }
+
+    /// <summary>
+    /// Writes a byte of a device's port region (ABI-1 1.7, plan step H5.2, ADR 0031).
+    /// </summary>
+    /// <param name="device">The device, with BIND.</param>
+    /// <param name="region">The port region's index in the descriptor.</param>
+    /// <param name="offset">The byte's offset within the region.</param>
+    /// <param name="value">The byte.</param>
+    /// <exception cref="CapabilityException">The region is no port region, the offset lies beyond it, or the architecture
+    /// has no port space.</exception>
+    public static void PortWrite8(KernelHandle device, int region, int offset, byte value) =>
+        CapabilityException.ThrowOnError("DEVICE_PORT", Libwitos.DevicePortWrite(device.Value, (uint)region, (uint)offset, 1, value));
+
     #endregion
 }

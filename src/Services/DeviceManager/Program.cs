@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using OutWit.OS.Communication;
+using OutWit.OS.Display;
 using OutWit.OS.DeviceManager.Drivers;
 using OutWit.OS.DeviceManager.Uhi;
 using OutWit.OS.Hardware;
@@ -214,19 +215,21 @@ internal static class Program
         var framebuffer = records.FirstOrDefault(record => record.Class == FirmwareTranslator.FRAME_BUFFER);
         if (framebuffer is null)
             return null;
-        // A virtio keyboard first, then an xHCI controller's keyboards (H2.1): one input channel reaches the display.
-        var keyboard = drivers.Where(driver => driver.Status == 0 && driver.Service is not null && DriverTable.ServesInput(driver.Record))
-            .OrderBy(driver => driver.Record.Class == DriverTable.INPUT_DEVICE ? 0 : 1).FirstOrDefault();
-        if (keyboard is null)
+        // A virtio keyboard first, then an xHCI controller's keyboards (H2.1) and the PC's PS/2 keyboard (H5.2): two input
+        // channels reach the display, whose keys it merges, so that a PC types from either keyboard.
+        var keyboards = drivers.Where(driver => driver.Status == 0 && driver.Service is not null && DriverTable.ServesInput(driver.Record))
+            .OrderBy(driver => driver.Record.Class == DriverTable.INPUT_DEVICE ? 0 : 1).Take(DisplayStart.KEYBOARDS).ToList();
+        if (keyboards.Count == 0)
         {
             Console.WriteLine($"{PREFIX}display service {DisplayActivation.PATH} not started on {framebuffer.Id}: no keyboard, the terminal stays on the serial console");
             return null;
         }
         try
         {
-            var display = DisplayActivation.Start(table, framebuffer, keyboard.TakeService());
+            var display = DisplayActivation.Start(table, framebuffer, [.. keyboards.Select(keyboard => keyboard.TakeService())]);
             Console.WriteLine(display.Status == 0
-                ? $"{PREFIX}display service {DisplayActivation.PATH} on {framebuffer.Id} with the keyboard {keyboard.Record.Id}: ready"
+                ? $"{PREFIX}display service {DisplayActivation.PATH} on {framebuffer.Id} with " +
+                  $"{string.Join(" and ", keyboards.Select(keyboard => $"the keyboard {keyboard.Record.Id}"))}: ready"
                 : $"{PREFIX}display service {DisplayActivation.PATH}: not ready, errno {display.Status}");
             return display;
         }

@@ -85,6 +85,16 @@ internal static class RuntimeDevices
     public const string E1000_EXECUTABLE = "E1000";
 
     /// <summary>
+    /// The PS/2 keyboard driver's sources (H5.2, ADR 0031).
+    /// </summary>
+    public const string I8042_PROGRAM = "src/Services/Drivers/I8042";
+
+    /// <summary>
+    /// The executable runtime-witos publishes from the PS/2 keyboard driver, /system/Drivers/I8042.
+    /// </summary>
+    public const string I8042_EXECUTABLE = "I8042";
+
+    /// <summary>
     /// The virtio network driver's sources (W1.1).
     /// </summary>
     public const string VIRTIO_NET_PROGRAM = "src/Services/Drivers/VirtioNet";
@@ -282,6 +292,9 @@ internal static class RuntimeDevices
     // OutWit.OS's e1000e adapter (H4), which the e1000e driver alone compiles.
     private static readonly string[] OUTWIT_OS_E1000_FOLDERS = ["Hardware/E1000"];
 
+    // OutWit.OS's i8042 controller (H5.2), which the PS/2 keyboard driver alone compiles.
+    private static readonly string[] OUTWIT_OS_I8042_FOLDERS = ["Hardware/I8042"];
+
     #endregion
 
     #region Functions
@@ -322,6 +335,7 @@ internal static class RuntimeDevices
         await PublishServiceAsync(root, tree, architecture, version, sysroot, NVME_EXECUTABLE, NVME_PROGRAM, [], OUTWIT_OS_NVME_FOLDERS);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, VIRTIO_NET_EXECUTABLE, VIRTIO_NET_PROGRAM, ["Virtio"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, E1000_EXECUTABLE, E1000_PROGRAM, [], OUTWIT_OS_E1000_FOLDERS);
+        await PublishServiceAsync(root, tree, architecture, version, sysroot, I8042_EXECUTABLE, I8042_PROGRAM, [], OUTWIT_OS_I8042_FOLDERS);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, NETWORK_EXECUTABLE, NETWORK_PROGRAM, ["Server"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, TERMINAL_EXECUTABLE, TERMINAL_PROGRAM, ["Server"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, DISPLAY_EXECUTABLE, DISPLAY_PROGRAM, ["Server"], []);
@@ -615,6 +629,7 @@ internal static class RuntimeDevices
     private static string[] MiddleLines(KernelArchitecture architecture, int boot, bool pc) =>
     [
         $"[DEVICES] device manager on {architecture.OsArchitecture}: ",
+        // No i8042: its boots ask for no PS/2 keyboard (H5.2), which q35 then does not carry.
         $" {(pc ? 2 : 3)} drivers ready, DMA isolation: none (no IOMMU), ready",
         "[NAMESPACE] mounted /tmp: tmpfs volume of 67108864 bytes in memory", // N4.1
         "[NAMESPACE] mounted /boot: FAT16 volume of ",
@@ -753,12 +768,13 @@ internal static class RuntimeDevices
         var nvme = Path.Combine(directory, NVME_EXECUTABLE);
         var network = Path.Combine(directory, VIRTIO_NET_EXECUTABLE);
         var e1000 = Path.Combine(directory, E1000_EXECUTABLE);
+        var i8042 = Path.Combine(directory, I8042_EXECUTABLE);
         var names = Path.Combine(directory, NAMESPACE_EXECUTABLE);
         var networking = Path.Combine(directory, NETWORK_EXECUTABLE);
         var terminal = Path.Combine(directory, TERMINAL_EXECUTABLE);
         var display = Path.Combine(directory, DISPLAY_EXECUTABLE);
         if (!File.Exists(driver) || !File.Exists(console) || !File.Exists(input) || !File.Exists(xhci) || !File.Exists(ahci) || !File.Exists(nvme) || !File.Exists(network) ||
-            !File.Exists(e1000) || !File.Exists(names) ||
+            !File.Exists(e1000) || !File.Exists(i8042) || !File.Exists(names) ||
             !File.Exists(networking) || !File.Exists(terminal) || !File.Exists(display))
             throw new InvalidOperationException($"No witos drivers, namespace, network, terminal or display service in {directory}. " +
                 $"Run: dotnet run --project tools/WitOS.Dev -- runtime-services --arch {architecture.Name}");
@@ -768,6 +784,7 @@ internal static class RuntimeDevices
             ("system/Drivers/" + VIRTIO_CONSOLE_EXECUTABLE, console), ("system/Drivers/" + VIRTIO_INPUT_EXECUTABLE, input),
             ("system/Drivers/" + VIRTIO_NET_EXECUTABLE, network), ("system/Drivers/" + XHCI_EXECUTABLE, xhci), ("system/Drivers/" + AHCI_EXECUTABLE, ahci),
             ("system/Drivers/" + NVME_EXECUTABLE, nvme), ("system/Drivers/" + E1000_EXECUTABLE, e1000),
+            ("system/Drivers/" + I8042_EXECUTABLE, i8042),
             ("system/" + NAMESPACE_EXECUTABLE, names), ("system/" + NETWORK_EXECUTABLE, networking), ("system/" + TERMINAL_EXECUTABLE, terminal),
             ("system/" + DISPLAY_EXECUTABLE, display),
             .. SpleenFont.PackageFiles(root), .. program.Skip(1)

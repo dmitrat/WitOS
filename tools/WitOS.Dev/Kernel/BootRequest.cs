@@ -124,6 +124,14 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public bool UsbKeyboard { get; init; }
 
     /// <summary>
+    /// The board's own PS/2 keyboard as the keyboard (plan step H5.2, ADR 0031): the PC's i8042, served by the PS/2
+    /// keyboard's driver. q35 carries it only then (the runner turns it off otherwise, <c>i8042=off</c>, since a keyboard
+    /// makes the display the console); the runner adds no keyboard device, so that QMP's keys reach the PS/2 keyboard, and
+    /// waits for each key's report as it does for <see cref="Keyboard"/>'s. x64 alone, and not beside <see cref="Keyboard"/>.
+    /// </summary>
+    public bool Ps2Keyboard { get; init; }
+
+    /// <summary>
     /// A network adapter (plan step W1.1): virtio-net-pci, or the adapter <see cref="NetworkAdapter"/> names, on QEMU's
     /// user networking (slirp), whose gateway, DHCP server and DNS forwarder the guest reaches at 10.0.2.2 and 10.0.2.3.
     /// </summary>
@@ -160,7 +168,7 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     /// and lets the virtio console mirror it. The runner's side of the mirror then answers no query of the terminal, since
     /// the display does and two answers garble the input.
     /// </summary>
-    public bool DisplayIsMainConsole => Display && Keyboard;
+    public bool DisplayIsMainConsole => Display && (Keyboard || Ps2Keyboard);
 
     /// <summary>
     /// The display in a window of the host's screen instead of headless (plan step C2.4, the shell command): QEMU's GTK

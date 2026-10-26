@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "witos/capabilities.h"
 #include "witos/channels.h"
+#include "witos/device.h"
 #include "witos/dma.h"
 #include "witos/message_interrupt.h"
 #include "witos/libc_context.h"
@@ -175,6 +176,36 @@ int witos_device_memory_at(WitU64 device, WitU32 region, WitU64 window, WitU64 *
     }
     *object = 0;
     return error_of(wit_syscall(WIT_CALL_DEVICE_MEMORY, device, region, window, object));
+}
+
+static int device_port(
+    WitU64 device, WitU32 region, WitU32 operation, WitU32 offset, WitU32 width, WitU32 written, WitU32 *value)
+{
+    WitDevicePortRequest request;
+    WitU64 result = 0;
+    memset(&request, 0, sizeof(request));
+    request.Version = WIT_DEVICE_PORT_VERSION;
+    request.Size = sizeof(request);
+    request.Region = region;
+    request.Operation = operation;
+    request.Width = width;
+    request.Offset = offset;
+    request.Value = written;
+    const int error = error_of(wit_syscall(WIT_CALL_DEVICE_PORT, device, (WitU64)&request, sizeof(request), &result));
+    if (value) {
+        *value = error ? 0 : (WitU32)result;
+    }
+    return error;
+}
+
+int witos_device_port_read(WitU64 device, WitU32 region, WitU32 offset, WitU32 width, WitU32 *value)
+{
+    return value ? device_port(device, region, WIT_DEVICE_PORT_READ, offset, width, 0, value) : EINVAL;
+}
+
+int witos_device_port_write(WitU64 device, WitU32 region, WitU32 offset, WitU32 width, WitU32 value)
+{
+    return device_port(device, region, WIT_DEVICE_PORT_WRITE, offset, width, value, 0);
 }
 
 int witos_memory_object_create(WitU64 bytes, WitU64 *object)

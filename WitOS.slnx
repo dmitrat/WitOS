@@ -8,6 +8,7 @@
     <Project Path="src/Services/Network/Network.csproj" />
     <Project Path="src/Services/Drivers/VirtioBlock/VirtioBlock.csproj" />
     <Project Path="src/Services/Drivers/VirtioConsole/VirtioConsole.csproj" />
+    <Project Path="src/Services/Drivers/I8042/I8042.csproj" />
     <Project Path="src/Services/Drivers/VirtioInput/VirtioInput.csproj" />
     <Project Path="src/Services/Drivers/Xhci/Xhci.csproj" />
     <Project Path="src/Services/Drivers/Ahci/Ahci.csproj" />

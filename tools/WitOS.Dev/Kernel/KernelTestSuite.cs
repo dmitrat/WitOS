@@ -91,7 +91,8 @@ internal static class KernelTestSuite
         {
             RequiredLines = [KernelArchitecture.X64.RootStartedLine, KernelArchitecture.X64.RootMechanismsLine]
         });
-        await BootScenarioRunner.RunAsync(root, image, new BootRequest("boot-512", 512, 60, ExpectedOutcome.Success));
+        // The interrupts fixture reads the i8042 and binds its edge line (H5.2): q35 carries it with the PS/2 keyboard alone.
+        await BootScenarioRunner.RunAsync(root, image, new BootRequest("boot-512", 512, 60, ExpectedOutcome.Success) { Ps2Keyboard = true });
         // Two processors: the table names both and both come online, the second idling for inter-processor interrupts (K7.2).
         await BootScenarioRunner.RunAsync(root, image, new BootRequest("boot-smp2", 256, 60, ExpectedOutcome.Success)
         {
