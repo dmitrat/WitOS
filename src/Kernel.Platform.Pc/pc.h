@@ -18,6 +18,8 @@ const WitU8 *wit_pc_acpi_table_at(const WitBootInfo *boot, WitU64 physical, WitU
 void wit_pc_power_initialize(const WitBootInfo *boot);
 void wit_pc_power_off(void);
 void wit_pc_reset(void);
+/* Whether the board has an i8042 (H5.2): the FADT names one or predates the field that would. */
+int wit_pc_has_8042(void);
 
 /* Little-endian fields of an ACPI table. */
 WitU32 wit_pc_le32(const WitU8 *bytes);

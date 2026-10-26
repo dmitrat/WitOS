@@ -38,6 +38,12 @@ public static class DisplayStart
     /// </summary>
     public const string FONT = "/system/fonts/spleen-8x16.bdf";
 
+    /// <summary>
+    /// The keyboards' input channels a start carries at most, after the framebuffer (H5.2: a PC's PS/2 keyboard beside its
+    /// USB keyboards), within the four handles of a message and the four of a wait.
+    /// </summary>
+    public const int KEYBOARDS = 2;
+
     #endregion
 
     #region Functions

@@ -25,13 +25,19 @@
  * no lines. */
 #define WIT_DEVICE_BUS_FIRMWARE 2U
 #define WIT_FIRMWARE_DEVICE_FRAMEBUFFER 1U
+/* Legacy (ABI-1 1.7, H5.2, ADR 0031): a device of the board's legacy resources that its firmware tables name. Address =
+ * 0; Identity[0] = the kind. The PC's i8042: region 0 = port 0x60 (data), region 1 = port 0x64 (status and command), each
+ * one byte; line 0 = the keyboard's IRQ 1, line 1 = the auxiliary device's IRQ 12, both edges. */
+#define WIT_DEVICE_BUS_LEGACY 3U
+#define WIT_LEGACY_DEVICE_I8042 1U
 /* Region flags. */
 #define WIT_DEVICE_REGION_MEMORY 1U /* memory-mapped, mappable through DEVICE_MEMORY */
-#define WIT_DEVICE_REGION_PORT 2U /* port I/O: described, never mappable (UNSUPPORTED) */
+#define WIT_DEVICE_REGION_PORT 2U /* port I/O: never mappable (UNSUPPORTED), reached through DEVICE_PORT (ABI-1 1.7) */
 #define WIT_DEVICE_REGION_PREFETCHABLE 4U
 #define WIT_DEVICE_REGION_CONFIG 8U /* the function's configuration space (ECAM page) */
 /* Line kinds. */
 #define WIT_DEVICE_LINE_LEVEL 1U /* a shared, level-triggered line (PCI INTx) */
+#define WIT_DEVICE_LINE_EDGE 2U /* an edge-triggered line of its own (an ISA IRQ, ABI-1 1.7) */
 
 typedef struct WitDeviceRegion {
     WitU64 Base; /* physical */
@@ -53,6 +59,22 @@ typedef struct WitDeviceDescriptor {
     WitU32 Reserved[4];
 } WitDeviceDescriptor;
 
+/* Port I/O on a held device's port region (ABI-1 1.7, H5.2, ADR 0031). Port(device handle with BIND, WitDevicePortRequest,
+ * 32) -> the value read, or 0 for a write: one access of Width bytes (1, 2 or 4, aligned in Offset) at Offset within the
+ * region, which must be a port region of the device's descriptor; a written Value must fit the width. The whole request
+ * is checked before the port is touched; the architecture without a port space answers UNSUPPORTED. */
+#define WIT_DEVICE_PORT_VERSION 1U
+#define WIT_DEVICE_PORT_SIZE 32U
+#define WIT_DEVICE_PORT_READ 1U
+#define WIT_DEVICE_PORT_WRITE 2U
+
+typedef struct WitDevicePortRequest {
+    WitU32 Version, Size;
+    WitU32 Region, Operation; /* a port region's index, WIT_DEVICE_PORT_READ or WIT_DEVICE_PORT_WRITE */
+    WitU32 Width, Offset; /* 1, 2 or 4 bytes at an offset within the region aligned to the width */
+    WitU32 Value, Reserved; /* the value written; zero */
+} WitDevicePortRequest;
+
 /* The table: this header, then Count descriptors. */
 typedef struct WitDeviceTable {
     WitU32 Version, Size; /* of this header */
@@ -63,6 +85,7 @@ WIT_STATIC_ASSERT(sizeof(WitDeviceRegion) == 24, "Device region ABI");
 WIT_STATIC_ASSERT(sizeof(WitDeviceLine) == 8, "Device line ABI");
 WIT_STATIC_ASSERT(sizeof(WitDeviceDescriptor) == WIT_DEVICE_DESCRIPTOR_SIZE, "Device descriptor ABI");
 WIT_STATIC_ASSERT(sizeof(WitDeviceTable) == WIT_DEVICE_TABLE_SIZE, "Device table ABI");
+WIT_STATIC_ASSERT(sizeof(WitDevicePortRequest) == WIT_DEVICE_PORT_SIZE, "Device port request ABI");
 
 /* The descriptor of the firmware's framebuffer from the boot contract (C2.1), for a platform's enumeration: 1 when the
  * boot carries one that the descriptor's words can hold and the descriptor was filled, 0 otherwise. The common kernel

@@ -415,6 +415,12 @@ static WitArchFrame *device_memory(WitUserCall *call)
     return 0;
 }
 
+static WitArchFrame *device_port(WitUserCall *call)
+{
+    *call->Status = wit_user_device_port(call->Process, call->Argument0, call->Argument1, call->Argument2, call->Value);
+    return 0;
+}
+
 static WitArchFrame *channel_create(WitUserCall *call)
 {
     *call->Status = wit_user_channel_create(call->Process, call->Argument0, call->Argument1, call->Argument2);
@@ -622,6 +628,7 @@ static WitArchFrame *(*const handlers[CALL_COUNT])(WitUserCall *) = {
     [WIT_CALL_INTERRUPT_ACK] = interrupt_ack,
     [WIT_CALL_DMA_PIN] = dma_pin,
     [WIT_CALL_INTERRUPT_BIND_MESSAGE] = interrupt_bind_message,
+    [WIT_CALL_DEVICE_PORT] = device_port,
     [WIT_CALL_DMA_UNPIN] = dma_unpin,
     [WIT_CALL_PROCESS_CREATE] = process_create,
     [WIT_CALL_PROCESS_KILL] = process_kill,

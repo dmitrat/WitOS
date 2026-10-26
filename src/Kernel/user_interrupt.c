@@ -103,7 +103,8 @@ WitU64 wit_user_interrupt_bind(WitUserProcess *p, WitU64 device, WitU64 line_ind
         return WIT_STATUS_INVALID_ARGUMENT;
     }
     const WitU32 line = d->Lines[line_index].Line;
-    if (d->Lines[line_index].Kind != WIT_DEVICE_LINE_LEVEL || !wit_platform_line_valid(line)) {
+    const WitU32 kind = d->Lines[line_index].Kind;
+    if ((kind != WIT_DEVICE_LINE_LEVEL && kind != WIT_DEVICE_LINE_EDGE) || !wit_platform_line_valid(line)) {
         return WIT_STATUS_UNSUPPORTED;
     }
     const WitU64 event_status = wit_event_get(&p->Events, &p->Handles, event, WIT_RIGHT_SIGNAL, &target);
@@ -159,7 +160,9 @@ WitU64 wit_user_interrupt_ack(WitUserProcess *p, WitU64 handle, WitU64 reserved0
 
 WitU32 wit_user_abi_features(void)
 {
-    return WIT_ABI_FEATURES | (wit_platform_messages_supported() ? WIT_ABI_FEATURE_MESSAGE_INTERRUPTS : 0U);
+    return WIT_ABI_FEATURES |
+        (wit_platform_messages_supported() ? WIT_ABI_FEATURE_MESSAGE_INTERRUPTS : 0U) |
+        (wit_arch_ports_supported() ? WIT_ABI_FEATURE_DEVICE_PORTS : 0U);
 }
 
 /* BindMessage(WitMessageBindRequest, 48, 0): the request, the device (BIND), the event (SIGNAL), a free binding, a free

@@ -4,7 +4,8 @@
 
 /* Interrupt and DMA fixture over the devices of ABI-1 (RFC 0011 v3 section 7.7, plan steps K3.2 and K8.3):
  * INTERRUPT_BIND of the virtio block function's line to an event, the binding's rights, uniqueness, acknowledgement and
- * lifetime, INTERRUPT_BIND_MESSAGE's targets where the board has them and its refusal where it has none (H1.2b), and
+ * lifetime, INTERRUPT_BIND_MESSAGE's targets where the board has them and its refusal where it has none (H1.2b),
+ * DEVICE_PORT's refusals on every board and a read of the i8042's status where the architecture has ports (H5.2), and
  * DMA_PIN of an anonymous object for the device with its ranges and refusals. The driver that uses both is the virtio
  * fixture. */
 
@@ -130,6 +131,70 @@ static void message_test(WitU64 device)
     fixture_close(event);
 }
 
+static WitU64 port(
+    WitU64 device, WitU32 region, WitU32 operation, WitU32 width, WitU32 offset, WitU32 value, WitU64 expected)
+{
+    WitDevicePortRequest request = {
+        WIT_DEVICE_PORT_VERSION, sizeof(request), region, operation, width, offset, value, 0};
+    return fixture_expect(WIT_CALL_DEVICE_PORT, device, (WitU64)&request, sizeof(request), expected);
+}
+
+/* DEVICE_PORT (ABI-1 1.7, H5.2): on every board a memory region is refused, so are a region beyond the descriptor and a
+ * malformed request, and a device without BIND; where the architecture has a port space, QUERY says so and the board's
+ * i8042, when it describes one, answers a read of its status port, refuses an access beyond its one byte, and binds its
+ * keyboard's edge line. */
+static void port_test(WitU64 table, WitU64 mapped, WitU64 block)
+{
+    WitDevicePortRequest request = {WIT_DEVICE_PORT_VERSION, sizeof(request), 0, WIT_DEVICE_PORT_READ, 1, 0, 0, 0};
+    const WitU64 features = fixture_expect(WIT_CALL_QUERY, 0, 0, 0, WIT_STATUS_OK) >> 32;
+    port(block, 0, WIT_DEVICE_PORT_READ, 1, 0, 0, WIT_STATUS_UNSUPPORTED); /* the configuration page is memory */
+    port(block, WIT_DEVICE_REGIONS, WIT_DEVICE_PORT_READ, 1, 0, 0, WIT_STATUS_INVALID_ARGUMENT);
+    port(block, 0, WIT_DEVICE_PORT_READ, 3, 0, 0, WIT_STATUS_INVALID_ARGUMENT);
+    port(block, 0, WIT_DEVICE_PORT_READ, 1, 0, 1, WIT_STATUS_INVALID_ARGUMENT);
+    port(block, 0, 3, 1, 0, 0, WIT_STATUS_INVALID_ARGUMENT);
+    request.Version = 2;
+    fixture_expect(WIT_CALL_DEVICE_PORT, block, (WitU64)&request, sizeof(request), WIT_STATUS_UNSUPPORTED);
+    request.Version = WIT_DEVICE_PORT_VERSION;
+    fixture_expect(WIT_CALL_DEVICE_PORT, block, (WitU64)&request, sizeof(request) - 8, WIT_STATUS_INVALID_ARGUMENT);
+    const WitU64 query = fixture_duplicate(block, WIT_RIGHT_QUERY, WIT_STATUS_OK);
+    port(query, 0, WIT_DEVICE_PORT_READ, 1, 0, 0, WIT_STATUS_DENIED);
+    fixture_close(query);
+    const volatile WitDeviceTable *header = (const volatile WitDeviceTable *)mapped;
+    const volatile WitDeviceDescriptor *descriptors =
+        (const volatile WitDeviceDescriptor *)(mapped + WIT_DEVICE_TABLE_SIZE);
+    WitU32 i8042 = header->Count;
+    for (WitU32 i = 0; i < header->Count; ++i) {
+        if (descriptors[i].Bus == WIT_DEVICE_BUS_LEGACY && descriptors[i].Identity[0] == WIT_LEGACY_DEVICE_I8042) {
+            i8042 = i;
+        }
+    }
+    if (!(features & WIT_ABI_FEATURE_DEVICE_PORTS)) {
+        fixture_check(i8042 == header->Count, 40); /* no board without ports describes a port device */
+        return;
+    }
+    if (i8042 == header->Count) {
+        return;
+    }
+    fixture_check(descriptors[i8042].RegionCount == 2 &&
+            descriptors[i8042].Regions[1].Base == 0x64 &&
+            (descriptors[i8042].Regions[1].Flags & WIT_DEVICE_REGION_PORT) &&
+            descriptors[i8042].Lines[0].Kind == WIT_DEVICE_LINE_EDGE &&
+            descriptors[i8042].Lines[0].Line == 1,
+        41);
+    const WitU64 controller = acquire(table, i8042, WIT_STATUS_OK);
+    port(controller, 1, WIT_DEVICE_PORT_READ, 1, 0, 0, WIT_STATUS_OK); /* the status register, whatever it holds */
+    port(controller, 1, WIT_DEVICE_PORT_READ, 1, 1, 0, WIT_STATUS_INVALID_ARGUMENT);
+    port(controller, 1, WIT_DEVICE_PORT_READ, 2, 0, 0, WIT_STATUS_INVALID_ARGUMENT);
+    port(controller, 0, WIT_DEVICE_PORT_WRITE, 1, 0, 0x100, WIT_STATUS_INVALID_ARGUMENT);
+    /* The keyboard's edge line binds as a level line does, once; the binding's end masks it again. */
+    const WitU64 event = fixture_expect(WIT_CALL_EVENT_CREATE, 0, 0, 0, WIT_STATUS_OK);
+    const WitU64 keyboard = bind(controller, 0, event, WIT_STATUS_OK);
+    bind(controller, 0, event, WIT_STATUS_BUSY);
+    fixture_close(keyboard);
+    fixture_close(event);
+    fixture_close(controller);
+}
+
 static void dma_test(WitU64 device)
 {
     WitDmaRange ranges[RANGES];
@@ -182,6 +247,7 @@ FIXTURE_ENTRY void wit_user_start(const WitRootStartup *startup)
         bind_test(table, block, index, device);
         const WitU64 again = acquire(table, index, WIT_STATUS_OK);
         message_test(again);
+        port_test(table, mapped, again);
         fixture_close(again);
     } else if (config->Mode == WIT_INTERRUPT_TEST_DMA) {
         dma_test(device);

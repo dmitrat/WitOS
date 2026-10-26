@@ -26,6 +26,8 @@
 #define FLAG_RESET_REG_SUP (1U << 10)
 #define FLAG_HW_REDUCED_ACPI (1U << 20)
 #define BOOT_ARCH_8042 (1U << 1)
+#define ACPI_REVISION 8U /* the header's revision byte */
+#define FADT_BOOT_ARCH_REVISION 3U /* ACPI 2.0's FADT, the first to define IAPC_BOOT_ARCH */
 #define DSDT_LIMIT (512U * 1024U)
 #define SPACE_MEMORY 0U
 #define SPACE_IO 1U
@@ -43,6 +45,7 @@ typedef struct Register {
 
 static Register pm1a, pm1b, reset_register;
 static WitU32 smi_command, acpi_enable, reset_value, has_reset, has_8042, has_s5, slp_typ_a, slp_typ_b;
+static WitU32 legacy_8042; /* the FADT predates IAPC_BOOT_ARCH, as QEMU's pc machine's does (H5.2) */
 static const char *no_soft_off = "no FADT";
 
 /* A generic address structure at an offset of the FADT, kept when the FADT reaches it and its address is set. */
@@ -161,6 +164,7 @@ void wit_pc_power_initialize(const WitBootInfo *boot)
     smi_command = wit_pc_le32(fadt + FADT_SMI_CMD);
     acpi_enable = fadt[FADT_ACPI_ENABLE];
     has_8042 = (fadt[FADT_IAPC_BOOT_ARCH] & BOOT_ARCH_8042) != 0;
+    legacy_8042 = fadt[ACPI_REVISION] < FADT_BOOT_ARCH_REVISION;
     if (!read_register(fadt, length, FADT_X_PM1A_CNT_BLK, &pm1a) && wit_pc_le32(fadt + FADT_PM1A_CNT_BLK)) {
         pm1a.Space = SPACE_IO;
         pm1a.Address = wit_pc_le32(fadt + FADT_PM1A_CNT_BLK);
@@ -268,4 +272,11 @@ void wit_pc_reset(void)
             wit_arch_spin_pause();
         }
     }
+}
+
+/* Whether the board has an i8042 for its keyboard (H5.2, ADR 0031): the FADT's IAPC_BOOT_ARCH names one, or the FADT
+ * predates the field, as a PC of ACPI 1.0's time had one whatever its tables said. */
+int wit_pc_has_8042(void)
+{
+    return has_8042 || legacy_8042;
 }

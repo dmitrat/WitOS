@@ -30,6 +30,18 @@ public sealed record DeviceDescriptor(int Index, uint Bus, uint Address, IReadOn
     /// </summary>
     public const uint BUS_FIRMWARE = 2;
 
+    /// <summary>
+    /// The legacy resources of the board that its firmware tables name (ABI-1 1.7, plan step H5.2): Address is zero,
+    /// Identity[0] the kind, such as the PC's i8042 (<see cref="LEGACY_I8042"/>).
+    /// </summary>
+    public const uint BUS_LEGACY = 3;
+
+    /// <summary>
+    /// The PC's i8042 keyboard controller on the legacy bus: region 0 its data port, region 1 its status and command port,
+    /// line 0 the keyboard's and line 1 the auxiliary device's.
+    /// </summary>
+    public const uint LEGACY_I8042 = 1;
+
     #endregion
 
     #region Properties

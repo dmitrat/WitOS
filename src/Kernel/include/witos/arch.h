@@ -52,6 +52,11 @@ void wit_arch_initialize(void);
 void wit_arch_disable_interrupts(void);
 WIT_NORETURN void wit_arch_halt(void);
 void wit_arch_map_device_page(const struct WitBootInfo *boot, WitU64 physical);
+/* Port I/O for DEVICE_PORT (ABI-1 1.7, H5.2, ADR 0031): whether the architecture has a port space, and one access of 1,
+ * 2 or 4 bytes at a validated port; ARM64 and riscv64 have none, and the kernel never asks them for an access. */
+int wit_arch_ports_supported(void);
+WitU32 wit_arch_port_read(WitU32 port, WitU32 width);
+void wit_arch_port_write(WitU32 port, WitU32 width, WitU32 value);
 
 /* Switching between kernel and user mode. */
 void wit_arch_run_user(WitArchFrame *frame, WitU64 root);

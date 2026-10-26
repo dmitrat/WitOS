@@ -71,6 +71,10 @@ static void find_ecam(const WitBootInfo *boot)
 #define LPC_DEVICE 31U
 #define ICH9_LPC_ID 0x29188086U /* q35's LPC bridge; PIIX boards (QEMU's pc, VMware) keep the firmware's lines */
 #define LPC_PIRQ_ROUTING 0x68U /* PIRQE..H, a byte each: bits 3:0 the line, bit 7 the routing disabled */
+#define I8042_DATA 0x60U /* the i8042's ports and ISA lines (H5.2, ADR 0031) */
+#define I8042_STATUS 0x64U
+#define I8042_KEYBOARD_LINE 1U
+#define I8042_AUXILIARY_LINE 12U
 #define ELCR_MASTER 0x4D0U
 #define ELCR_SLAVE 0x4D1U
 #define NO_ROTATION 2U
@@ -306,6 +310,23 @@ static WitU32 describe_bus(WitU32 bus, WitU32 depth, WitDeviceDescriptor *table,
     return count;
 }
 
+/* The i8042 keyboard controller (H5.2, ADR 0031): a device of the legacy bus with its two ports and its two ISA lines,
+ * the keyboard's and the auxiliary device's, each an edge of the PIC; whether it answers is its driver's to find. */
+static void describe_i8042(WitDeviceDescriptor *d)
+{
+    for (WitU32 i = 0; i < sizeof(*d); ++i) {
+        ((WitU8 *)d)[i] = 0;
+    }
+    d->Bus = WIT_DEVICE_BUS_LEGACY;
+    d->Identity[0] = WIT_LEGACY_DEVICE_I8042;
+    d->RegionCount = 2;
+    d->Regions[0] = (WitDeviceRegion){I8042_DATA, 1, WIT_DEVICE_REGION_PORT, 0};
+    d->Regions[1] = (WitDeviceRegion){I8042_STATUS, 1, WIT_DEVICE_REGION_PORT, 0};
+    d->LineCount = 2;
+    d->Lines[0] = (WitDeviceLine){WIT_DEVICE_LINE_EDGE, I8042_KEYBOARD_LINE};
+    d->Lines[1] = (WitDeviceLine){WIT_DEVICE_LINE_EDGE, I8042_AUXILIARY_LINE};
+}
+
 WitU32 wit_platform_devices(const WitBootInfo *boot, WitDeviceDescriptor *table, WitU32 capacity)
 {
     WitU32 count = 0;
@@ -330,6 +351,10 @@ WitU32 wit_platform_devices(const WitBootInfo *boot, WitDeviceDescriptor *table,
         wit_console_write(" described without bridges, ECAM ");
         wit_console_write_hex(ecam);
         wit_console_write("\n");
+    }
+    if (wit_pc_has_8042() && count < bus_capacity) {
+        describe_i8042(&table[count++]);
+        wit_console_write("Legacy devices: an i8042 at ports 0x60 and 0x64, lines 1 and 12\n");
     }
     if (has_framebuffer) {
         table[count++] = framebuffer;

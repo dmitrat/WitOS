@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using OutWit.OS.Communication;
 using OutWit.OS.Display;
@@ -37,15 +39,15 @@ internal static class Program
         var name = arguments.Length > 0 ? arguments[0] : "a framebuffer";
         using var channel = new Channel(Grant.Take());
         KernelHandle? device = null;
-        KernelHandle? keyboardChannel = null;
+        List<KernelHandle> keyboardChannels = [];
         FramebufferSink? sink = null;
-        KeyboardLink? keyboard = null;
+        List<KeyboardLink> keyboards = [];
         DisplayConsole? console = null;
         Channel? serial = null;
         KernelHandle? theirs = null;
         try
         {
-            (device, var descriptor, keyboardChannel) = Take(channel, name);
+            (device, var descriptor, keyboardChannels) = Take(channel, name);
             var geometry = FramebufferGeometry.FromDescriptor(descriptor);
             var font = BitmapFont.ParseBdf(File.ReadAllText(DisplayStart.FONT));
             sink = FramebufferSink.Map(device, geometry, (long)descriptor.Regions[0].Size);
@@ -53,16 +55,16 @@ internal static class Program
             var screen = new TerminalScreen(renderer.Columns, renderer.Rows);
             renderer.Clear();
             renderer.Render(screen);
-            if (keyboardChannel is not null)
+            while (keyboardChannels.Count > 0)
             {
-                keyboard = KeyboardLink.Open(keyboardChannel);
-                keyboardChannel = null; // the link's now
+                keyboards.Add(KeyboardLink.Open(keyboardChannels[0]));
+                keyboardChannels.RemoveAt(0); // the link's now
             }
             console = new DisplayConsole(screen, renderer);
             (serial, theirs) = Channel.Create();
             Console.WriteLine($"{PREFIX}display service on {RuntimeInformation.ProcessArchitecture} for {name}: {geometry.Width} by {geometry.Height} " +
                 $"{geometry.FormatName} in {sink.Windows} windows, {renderer.Columns} by {renderer.Rows} cells of {font.Width} by {font.Height} " +
-                $"({font.Count} glyphs of {Path.GetFileName(DisplayStart.FONT)}), {(keyboard is null ? "no keyboard" : "the keyboard's keys")}: " +
+                $"({font.Count} glyphs of {Path.GetFileName(DisplayStart.FONT)}), {(keyboards.Count == 0 ? "no keyboard" : "the keyboard's keys")}: " +
                 "serving the serial protocol");
             channel.Send(ServiceStatus.Encode(0), theirs); // the console channel's other end moves with the answer
         }
@@ -74,16 +76,19 @@ internal static class Program
             theirs?.Dispose();
             serial?.Dispose();
             console?.Dispose();
-            keyboard?.Dispose();
-            keyboardChannel?.Dispose();
+            foreach (var keyboard in keyboards)
+                keyboard.Dispose();
+            foreach (var keyboardChannel in keyboardChannels)
+                keyboardChannel.Dispose();
             sink?.Dispose();
             device?.Dispose();
             channel.Send(ServiceStatus.Encode(error));
             return 1;
         }
-        var stopped = Serve(channel, serial, console, ref keyboard, name);
+        var stopped = Serve(channel, serial, console, keyboards, name);
         console.Dispose();
-        keyboard?.Dispose();
+        foreach (var keyboard in keyboards)
+            keyboard.Dispose();
         sink.Dispose();
         device.Dispose();
         if (stopped)
@@ -94,16 +99,16 @@ internal static class Program
         return 0;
     }
 
-    // The device manager's start: the framebuffer's descriptor, the device, and the keyboard driver's channel when there
-    // is one; the handles are the service's.
-    private static (KernelHandle Device, DeviceDescriptor Descriptor, KernelHandle? Keyboard) Take(Channel channel, string name)
+    // The device manager's start: the framebuffer's descriptor, the device, and the keyboard drivers' channels, at most
+    // two (H5.2); the handles are the service's.
+    private static (KernelHandle Device, DeviceDescriptor Descriptor, List<KernelHandle> Keyboards) Take(Channel channel, string name)
     {
         var start = channel.Receive();
         DeviceDescriptor descriptor;
         try
         {
             descriptor = DisplayStart.Decode(start.Bytes);
-            if (start.Handles.Count is not (1 or 2) || descriptor.Regions.Count < 1)
+            if (start.Handles.Count < 1 || start.Handles.Count > 1 + DisplayStart.KEYBOARDS || descriptor.Regions.Count < 1)
                 throw new FormatException($"The display's start carries {start.Handles.Count} handles and {descriptor.Regions.Count} regions.");
         }
         catch
@@ -112,31 +117,33 @@ internal static class Program
             throw;
         }
         Console.WriteLine($"{PREFIX}display service for {name}: holds the framebuffer, descriptor {descriptor.Index}" +
-            $"{(start.Handles.Count == 2 ? ", and the keyboard's channel" : "")}");
-        return (start.Handles[0], descriptor, start.Handles.Count == 2 ? start.Handles[1] : null);
+            $"{(start.Handles.Count == 2 ? ", and the keyboard's channel" : start.Handles.Count > 2 ? $", and {start.Handles.Count - 1} keyboards' channels" : "")}");
+        return (start.Handles[0], descriptor, [.. start.Handles.Skip(1)]);
     }
 
-    // The device manager's channel, the console channel while its client keeps it, and the keyboard's until the driver
-    // goes, until the device manager asks the service to stop (D6.1) or closes its own. Whether it was a stop.
-    private static bool Serve(Channel manager, Channel serial, DisplayConsole console, ref KeyboardLink? keyboard, string name)
+    // The device manager's channel, the console channel while its client keeps it, and each keyboard's until its driver
+    // goes — four handles at most, one wait's — until the device manager asks the service to stop (D6.1) or closes its
+    // own. The keys of every keyboard enter the one console. Whether it was a stop.
+    private static bool Serve(Channel manager, Channel serial, DisplayConsole console, List<KeyboardLink> keyboards, string name)
     {
         Channel? client = serial;
         for (; ; )
         {
-            var endpoints = new KernelHandle[1 + (client is null ? 0 : 1) + (keyboard is null ? 0 : 1)];
+            var endpoints = new KernelHandle[1 + (client is null ? 0 : 1) + keyboards.Count];
             endpoints[0] = manager.Endpoint;
             var clientIndex = client is null ? -1 : 1;
-            var keyboardIndex = keyboard is null ? -1 : endpoints.Length - 1;
+            var firstKeyboard = client is null ? 1 : 2;
             if (client is not null)
                 endpoints[clientIndex] = client.Endpoint;
-            if (keyboard is not null)
-                endpoints[keyboardIndex] = keyboard.Endpoint;
+            for (var i = 0; i < keyboards.Count; ++i)
+                endpoints[firstKeyboard + i] = keyboards[i].Endpoint;
             var index = Event.Wait(Event.INFINITE, endpoints);
-            if (index == keyboardIndex)
+            if (index >= firstKeyboard)
             {
+                var keyboard = keyboards[index - firstKeyboard];
                 try
                 {
-                    var bytes = keyboard!.Pump();
+                    var bytes = keyboard.Pump();
                     if (bytes.Length > 0)
                     {
                         console.Keys(bytes);
@@ -147,8 +154,8 @@ internal static class Program
                 catch (Exception exception) when (exception is CapabilityException or FormatException)
                 {
                     Console.WriteLine($"{PREFIX}display service for {name}: the keyboard went: {exception.Message}");
-                    keyboard!.Dispose();
-                    keyboard = null;
+                    keyboard.Dispose();
+                    keyboards.Remove(keyboard);
                 }
                 continue;
             }

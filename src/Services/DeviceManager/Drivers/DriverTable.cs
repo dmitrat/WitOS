@@ -76,6 +76,12 @@ internal static class DriverTable
     public const string E1000 = "/system/Drivers/E1000";
 
     /// <summary>
+    /// The PS/2 keyboard driver (H5.2, ADR 0031): the PC's i8042 of the legacy bus, served over the input protocol as the
+    /// xHCI and virtio keyboards are.
+    /// </summary>
+    public const string I8042 = "/system/Drivers/I8042";
+
+    /// <summary>
     /// The UHI class of a network controller of any kind, which the PCI class 02 names; Ethernet has no programming
     /// interface, so the vendor and the device tell an adapter's driver.
     /// </summary>
@@ -136,15 +142,16 @@ internal static class DriverTable
         (_, SATA_CONTROLLER) when (record.Descriptor.ClassCode & 0xFF) == AHCI_INTERFACE => AHCI,
         (_, NVME_CONTROLLER) when (record.Descriptor.ClassCode & 0xFF) == NVME_INTERFACE => NVME,
         ("Intel", NETWORK_CONTROLLER) when record.Descriptor.Device == DEVICE_82574L => E1000,
+        (LegacyTranslator.PROVIDER, LegacyTranslator.KEYBOARD_CONTROLLER) => I8042,
         _ => null
     };
 
     /// <summary>
-    /// Whether a device's driver serves the input protocol, a keyboard's keys for the display (C2.2, H2.1).
+    /// Whether a device's driver serves the input protocol, a keyboard's keys for the display (C2.2, H2.1, H5.2).
     /// </summary>
     /// <param name="record">A device record.</param>
     /// <returns>Whether it does.</returns>
-    public static bool ServesInput(DeviceRecord record) => record.Class == INPUT_DEVICE || Find(record) == XHCI;
+    public static bool ServesInput(DeviceRecord record) => record.Class == INPUT_DEVICE || Find(record) is XHCI or I8042;
 
     /// <summary>
     /// Whether a device's driver serves the block protocol, a disk for the namespace service (D3.2, H3.1, H3.2).

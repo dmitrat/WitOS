@@ -149,6 +149,61 @@ WitU64 wit_user_device_memory(WitUserProcess *p, WitU64 device, WitU64 region, W
     return WIT_STATUS_OK;
 }
 
+/* Port(device handle with BIND, WitDevicePortRequest, 32) (ABI-1 1.7, H5.2, ADR 0031): the whole request is checked —
+ * its version and size, a port region of the device's descriptor, the operation, a width of 1, 2 or 4 aligned in an
+ * offset within the region, a value that fits the width, the reserved word — before the one access the architecture
+ * makes. The value read is the result; a write's is zero. An architecture without a port space answers UNSUPPORTED. */
+WitU64 wit_user_device_port(WitUserProcess *p, WitU64 device, WitU64 address, WitU64 size, WitU64 *result)
+{
+    WitDevicePortRequest request;
+    WitU32 index = 0, granted = 0;
+    *result = 0;
+    if (size != sizeof(request)) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    const WitU64 status = get(p, device, WIT_RIGHT_BIND, &index, &granted);
+    if (status != WIT_STATUS_OK) {
+        return status;
+    }
+    if (!wit_user_copy_from(&p->Space, address, (WitU8 *)&request, sizeof(request))) {
+        return WIT_STATUS_BAD_ADDRESS;
+    }
+    if (request.Version != WIT_DEVICE_PORT_VERSION) {
+        return WIT_STATUS_UNSUPPORTED;
+    }
+    if (request.Size != sizeof(request) ||
+        request.Reserved ||
+        (request.Operation != WIT_DEVICE_PORT_READ && request.Operation != WIT_DEVICE_PORT_WRITE) ||
+        (request.Width != 1 && request.Width != 2 && request.Width != 4) ||
+        request.Offset % request.Width ||
+        (request.Operation == WIT_DEVICE_PORT_READ && request.Value) ||
+        (request.Width < 4 && (request.Value >> (request.Width * 8)))) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    const WitDeviceDescriptor *d = wit_devices_descriptor(index);
+    require(d != 0, "Acquired device has no descriptor");
+    if (request.Region >= d->RegionCount) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    const WitDeviceRegion *r = &d->Regions[request.Region];
+    if (!(r->Flags & WIT_DEVICE_REGION_PORT)) {
+        return WIT_STATUS_UNSUPPORTED; /* a memory region maps through DEVICE_MEMORY */
+    }
+    if (request.Offset >= r->Size || request.Width > r->Size - request.Offset || r->Base + r->Size > 0x10000ULL) {
+        return WIT_STATUS_INVALID_ARGUMENT;
+    }
+    if (!wit_arch_ports_supported()) {
+        return WIT_STATUS_UNSUPPORTED;
+    }
+    const WitU32 port = (WitU32)r->Base + request.Offset;
+    if (request.Operation == WIT_DEVICE_PORT_READ) {
+        *result = wit_arch_port_read(port, request.Width);
+    } else {
+        wit_arch_port_write(port, request.Width, request.Value);
+    }
+    return WIT_STATUS_OK;
+}
+
 WitU64 wit_user_device_close(WitUserProcess *p, WitU64 handle)
 {
     WitU32 index = 0, granted = 0;

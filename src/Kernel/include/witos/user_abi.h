@@ -26,8 +26,9 @@
  * reference crosses processes), 1.3 since C2.1 (DEVICE_MEMORY's window), 1.4 since P1.4 (THREAD_QUERY's version 6
  * with the thread's processor), 1.5 since H1.2a (a device table of up to 64 descriptors in as many pages as they take,
  * and the root task's reset status, witos/root.h; ADR 0029), 1.6 since H1.2b (INTERRUPT_BIND_MESSAGE and its feature
- * bit, witos/message_interrupt.h; ADR 0029). */
-#define WIT_ABI_VERSION_MINOR 6U
+ * bit, witos/message_interrupt.h; ADR 0029), 1.7 since H5.2 (DEVICE_PORT, its feature bit, the legacy bus and edge
+ * lines, witos/device.h; ADR 0031). */
+#define WIT_ABI_VERSION_MINOR 7U
 /* The version QUERY reports and the startup descriptor carries: the major version in the high 16 bits, the minor in
  * the low 16 (the draft counters of phase K ran from 1 to 72 with major 0). A system layer refuses another major. */
 #define WIT_ABI_VERSION ((WIT_ABI_VERSION_MAJOR << 16) | WIT_ABI_VERSION_MINOR)
@@ -41,6 +42,8 @@
 /* Where the board serves INTERRUPT_BIND_MESSAGE (H1.2b): set by the board, never part of WIT_ABI_FEATURES, which names
  * the families every board has. */
 #define WIT_ABI_FEATURE_MESSAGE_INTERRUPTS 32U
+/* Where the architecture serves DEVICE_PORT (H5.2, ADR 0031): x64's port space; never part of WIT_ABI_FEATURES. */
+#define WIT_ABI_FEATURE_DEVICE_PORTS 64U
 #define WIT_ABI_FEATURES \
     (WIT_ABI_FEATURE_CHANNELS | \
         WIT_ABI_FEATURE_DEVICES | \
@@ -228,6 +231,10 @@
  * witos/message_interrupt.h): a message target of the board bound to an event, its address and data written into the
  * request; UNSUPPORTED where the board has none, NO_MEMORY when every target is bound. */
 #define WIT_CALL_INTERRUPT_BIND_MESSAGE 86U
+/* Port(device handle with BIND, WitDevicePortRequest, 32) -> the value read, or 0 for a write (ABI-1 1.7, H5.2, ADR 0031,
+ * witos/device.h): one access of 1, 2 or 4 bytes within one of the device's port regions; UNSUPPORTED where the
+ * architecture has no port space. */
+#define WIT_CALL_DEVICE_PORT 87U
 /* 80-85 devices (K3). */
 
 /* Processes (RFC 0011 section 7.8, plan step K5.2c). Create(WitProcessCreateRequest, 32, output pointer) -> process

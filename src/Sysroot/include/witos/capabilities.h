@@ -51,6 +51,12 @@ int witos_device_acquire(WitU64 table, WitU32 index, WitU64 *device);
 int witos_device_memory(WitU64 device, WitU32 region, WitU64 *object);
 int witos_device_memory_at(WitU64 device, WitU32 region, WitU64 window, WitU64 *object);
 
+/* One access of 1, 2 or 4 bytes at an offset of a device's port region (ABI-1 1.7, H5.2, ADR 0031): EACCES without BIND,
+ * EINVAL for a region, width or offset the descriptor does not allow, ENOSYS for a memory region or an architecture
+ * without a port space. */
+int witos_device_port_read(WitU64 device, WitU32 region, WitU32 offset, WitU32 width, WitU32 *value);
+int witos_device_port_write(WitU64 device, WitU32 region, WitU32 offset, WitU32 width, WitU32 value);
+
 /* An anonymous memory object of bytes, a multiple of the page size, its pages zeroed and charged to the process (D2):
  * MAP, WRITE, QUERY, DUPLICATE and TRANSFER; ENOMEM for the quota or more than 64 pages. */
 int witos_memory_object_create(WitU64 bytes, WitU64 *object);

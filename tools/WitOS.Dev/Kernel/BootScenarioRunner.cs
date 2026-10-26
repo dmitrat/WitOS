@@ -49,9 +49,9 @@ internal static class BootScenarioRunner
     private const int QUIET_LIMIT_MILLISECONDS = 15000;
 
     // The guest's keyboard driver reports every key transition to the log with one of these prefixes (C2.1, H2.1: the
-    // virtio keyboard's driver and the xHCI driver); the runner types a key once the previous one's transitions are there,
+    // virtio keyboard's driver, the xHCI driver and, since H5.2, the PS/2 keyboard's); the runner types a key once the previous one's transitions are there,
     // and gives up on a key the guest has not reported in this long.
-    internal static readonly string[] KEY_REPORTS = ["[VIRTIO-INPUT] key ", "[XHCI] key "];
+    internal static readonly string[] KEY_REPORTS = ["[VIRTIO-INPUT] key ", "[XHCI] key ", "[I8042] key "];
 
     /// <summary>
     /// The id of a USB keyboard's xHCI controller (H2.1).
@@ -99,6 +99,8 @@ internal static class BootScenarioRunner
         if (request.Pc && (architecture != KernelArchitecture.X64 || request.Keyboard || request.Network || request.DataDisk is not null ||
             request.Terminal is not null || request.InteractiveTerminal))
             throw new InvalidOperationException($"{request.Name}: the pc board (H1.1) is x64's and carries none of the services' devices.");
+        if (request.Ps2Keyboard && (architecture != KernelArchitecture.X64 || request.Keyboard))
+            throw new InvalidOperationException($"{request.Name}: the PS/2 keyboard (H5.2) is the PC's, and the boot adds no other keyboard.");
         if (request.IdeBootDisk && !request.Pc)
             throw new InvalidOperationException($"{request.Name}: an IDE boot disk needs the pc board's PIIX (H1.1).");
         if ((request.LinuxBoot || request.Virtualization) && !architecture.LinuxImage)
@@ -143,7 +145,10 @@ internal static class BootScenarioRunner
                 : request.Gic2 ? GIC2_MACHINE
                 : request.Raspi4 ? RASPI4_MACHINE
                 : architecture.QemuMachine) +
-            (request.Virtualization ? ",virtualization=on" : "");
+            (request.Virtualization ? ",virtualization=on" : "") +
+            // q35's i8042 only where the request asks for the PS/2 keyboard (H5.2), as a USB keyboard only where it asks for
+            // one: with it every boot would have a keyboard, and the display would take the console from the serial one.
+            (architecture == KernelArchitecture.X64 && !request.Pc && !request.Ps2Keyboard ? ",i8042=off" : "");
         // Emulated with the instruction clock, or on the host's hardware virtualization for a session (C2.7).
         string[] execution = request.Accelerated
             ? ["-accel", HostAccelerator(architecture)]
@@ -388,7 +393,7 @@ internal static class BootScenarioRunner
                                 await control.ScreendumpAsync(screen, stop);
                                 await File.WriteAllTextAsync(TranscriptPath(screen), transcript, stop);
                             }
-                            else if (request.Keyboard)
+                            else if (request.Keyboard || request.Ps2Keyboard)
                             {
                                 // Each key after the guest's driver reported the previous one's transitions, which it does once it
                                 // gave their buffers back (C2.3): a report the device's queue has no room for is lost.

@@ -288,6 +288,7 @@ void wit_memory_objects_orphan(WitUserProcess *);
 WitU64 wit_user_device_table_grant(WitUserProcess *, WitU32);
 WitU64 wit_user_device_acquire(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
 WitU64 wit_user_device_memory(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
+WitU64 wit_user_device_port(WitUserProcess *, WitU64, WitU64, WitU64, WitU64 *);
 WitU64 wit_user_device_close(WitUserProcess *, WitU64);
 WitU64 wit_user_device_duplicate(WitUserProcess *, WitU64, WitU64, WitU64);
 void wit_user_device_release(WitUserProcess *, WitU64);
