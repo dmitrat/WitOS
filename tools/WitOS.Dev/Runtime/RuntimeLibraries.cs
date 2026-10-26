@@ -35,9 +35,12 @@ internal static class RuntimeLibraries
     /// <returns>When the applications ran.</returns>
     public static async Task RunAsync(string root, KernelArchitecture architecture)
     {
-        // On several processors (P2), as an application meets a machine.
+        // On several processors (P2), as an application meets a machine. With a gigabyte (R9): Roslyn's tests read every
+        // library of the framework whole as a reference (MetadataReference.CreateFromFile), and the ReadyToRun framework's
+        // images are 2.5 times their IL, while the package that holds them lies in the guest's memory; with 512 MiB, 266 of
+        // them usable, the reads met OutOfMemoryException.
         await RuntimeApps.BootAsync(root, architecture, KernelImageBuilder.RUNTIME_LIBRARIES_SCENARIO, RequiredLines(), 3600,
-            processors: RuntimeProcessors.PROCESSORS);
+            memoryMiB: 1024, processors: RuntimeProcessors.PROCESSORS);
         Console.WriteLine($"Libraries on witos-{architecture.Name}: NUnit's and xUnit's applications passed their tests of MessagePack, " +
             "Math.NET, MemoryPack and Roslyn unchanged through dotnet.");
     }

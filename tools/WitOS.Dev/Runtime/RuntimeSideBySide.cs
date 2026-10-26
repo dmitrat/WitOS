@@ -144,7 +144,7 @@ internal static class RuntimeSideBySide
             ["libs.sfx", "-os", "witos", "-arch", architecture.Name, "-c", "Release", $"/p:RuntimeIdentifierGraphPath={graph}"], environment);
         var references = Path.Combine(tree, "artifacts", "bin", "microsoft.netcore.app.ref", "ref", pin.TargetFramework);
         var framework = await RuntimeWitos.FrameworkFilesAsync(tree, Path.Combine(root, "artifacts", architecture.Name, "release-8.0"),
-            architecture, pin.ProductVersion, pin.TargetFramework);
+            architecture, pin.ProductVersion, pin.TargetFramework, readyToRun: false);
         if (!File.Exists(Path.Combine(references, "System.Runtime.dll")) || framework.All(file => file.Name != "System.Console.dll"))
             throw new InvalidDataException($"8.0's shared framework for {name} left no System.Console or reference pack in {tree}.");
         Console.WriteLine($".NET {pin.ProductVersion} for {name}: CoreCLR, CoreLib, hostpolicy and {framework.Count} files of the shared framework ({tree}).");
@@ -199,7 +199,7 @@ internal static class RuntimeSideBySide
             $"/dotnet/dotnet /app/net8-latest/App.dll {Major(ten)}",
             $"/dotnet/dotnet exec --roll-forward LatestMajor /app/net8/App.dll {Major(ten)}"
         ];
-        var framework = await RuntimeWitos.FrameworkFilesAsync(tree, output, architecture, pin.ProductVersion, pin.TargetFramework);
+        var framework = await RuntimeWitos.FrameworkFilesAsync(tree, output, architecture, pin.ProductVersion, pin.TargetFramework, readyToRun: false);
         IEnumerable<(string Name, string Source)> package =
         [
             .. await RuntimeApps.BuildPackageAsync(root, output, architecture, [], commands),

@@ -1,0 +1,20 @@
+Source: src/coreclr/tools/aot/ILCompiler.Diagnostics/PerfMapWriter.cs
+Output: src.coreclr.tools.aot.ILCompiler.Diagnostics.PerfMapWriter.cs
+Before: 421832c082a715dbaf818b44615dccc1bc8714f68d4e84d18c4aa523171826e4
+After: 2a983589dd16b5c784ad27c2167dd9bf9444153cc3b240c6656c53d97d3e7870
+
+ReadyToRun images for witos (plan step R9): the runtime pack's ReadyToRun compilation writes a perf map, whose
+signature names the target's operating system, and TargetOS.WitOS had no token, so the compilation stopped with
+NotImplementedException. A witos image is a Linux one to the runtime (pedecoder.h) and to crossgen2's machine field
+(TargetExtensions.cs), and its perf map says Linux too.
+
+--- a/src/coreclr/tools/aot/ILCompiler.Diagnostics/PerfMapWriter.cs
++++ b/src/coreclr/tools/aot/ILCompiler.Diagnostics/PerfMapWriter.cs
+@@ -113,6 +113,7 @@
+                 TargetOS.Unknown => PerfMapOSToken.Unknown,
+                 TargetOS.Windows => PerfMapOSToken.Windows,
+                 TargetOS.Linux => PerfMapOSToken.Linux,
++                TargetOS.WitOS => PerfMapOSToken.Linux, // WitOS's images take Linux's mark (TargetExtensions.cs)
+                 TargetOS.OSX => PerfMapOSToken.OSX,
+                 TargetOS.FreeBSD => PerfMapOSToken.FreeBSD,
+                 TargetOS.NetBSD => PerfMapOSToken.NetBSD,

@@ -94,6 +94,14 @@
       "sha256": "1e76a64cf06b20ed12917d4e63009860bf4948f26a176b8a8449a7065683d7a4"
     },
     {
+      "path": "src/coreclr/tools/aot/ILCompiler.ReadyToRun/ObjectWriter/TargetExtensions.cs",
+      "sha256": "3ed9211611f38f3dd592b758ce01bf27d1ee496e446f17c6b1ba9f95f143a3e6"
+    },
+    {
+      "path": "src/coreclr/tools/aot/ILCompiler.Diagnostics/PerfMapWriter.cs",
+      "sha256": "421832c082a715dbaf818b44615dccc1bc8714f68d4e84d18c4aa523171826e4"
+    },
+    {
       "path": "src/coreclr/nativeaot/BuildIntegration/Microsoft.NETCore.Native.Unix.targets",
       "sha256": "cec7dfe627fa35b719cc6049f09732b2dcfc0470cced3fc646a689a2c419f28e"
     },

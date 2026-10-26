@@ -246,6 +246,7 @@ jobs:
             artifacts/runtime-witos/src/artifacts/bin/witos-${{ matrix.arch }}.Release/corehost/libhostpolicy.so
             artifacts/runtime-witos/src/artifacts/bin/witos-${{ matrix.arch }}.Release/corehost/apphost
             artifacts/runtime-witos/src/artifacts/bin/microsoft.netcore.app.runtime.witos-${{ matrix.arch }}/Release/runtimes/witos-${{ matrix.arch }}/lib/*/*.dll
+            artifacts/runtime-witos/src/artifacts/bin/witos-readytorun/${{ matrix.arch }}/*.dll
             artifacts/runtime-witos/src/artifacts/bin/microsoft.netcore.app.runtime.witos-${{ matrix.arch }}/Release/runtimes/witos-${{ matrix.arch }}/native/libSystem.*.so
             artifacts/runtime-witos/compatibility-${{ matrix.arch }}.json
             artifacts/aspnetcore/*/lib/*

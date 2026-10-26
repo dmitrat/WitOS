@@ -182,7 +182,7 @@ dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-rebase -
 dotnet run --project tools/WitOS.Dev --configuration Release -- runtime-services --arch arm64
 ```
 
-`runtime-witos` ends by publishing WitOS's NativeAOT services, the device manager first, and booting their scenario, `runtime-devices`. `runtime-services` repeats that step alone with the packages an earlier `runtime-witos` built. See [D1.1](@Docs/Implementation/D1.1-Device-Manager.md).
+`runtime-witos` ends by publishing WitOS's NativeAOT services, the device manager first, and booting their scenario, `runtime-devices`. `runtime-services` repeats that step alone with the packages an earlier `runtime-witos` built, and `runtime-readytorun` repeats R9's: CoreLib and the shared framework compiled to ReadyToRun, as the install takes them. See [D1.1](@Docs/Implementation/D1.1-Device-Manager.md).
 
 ## Layout
 
