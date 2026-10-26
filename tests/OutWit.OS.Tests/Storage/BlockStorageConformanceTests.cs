@@ -15,6 +15,9 @@ namespace OutWit.OS.Tests.Storage;
 [TestFixture("Partition")]
 [TestFixture("CachedThrough")]
 [TestFixture("CachedBack")]
+[TestFixture("CachedLargeThrough")]
+[TestFixture("CachedLargeBack")]
+[TestFixture("CachedOverChannel")]
 [TestFixture("Channel")]
 public sealed class BlockStorageConformanceTests(string provider)
 {
@@ -151,6 +154,11 @@ public sealed class BlockStorageConformanceTests(string provider)
         "Partition" => new PartitionBlockStorage(new MemoryBlockStorage((BLOCKS + 8) * BLOCK, BLOCK), 3 * BLOCK, BLOCKS * BLOCK, isReadOnly),
         "CachedThrough" => new CachedBlockStorage(new MemoryBlockStorage(BLOCKS * BLOCK, BLOCK, isReadOnly), 8),
         "CachedBack" => new CachedBlockStorage(new MemoryBlockStorage(BLOCKS * BLOCK, BLOCK, isReadOnly), 8, writeBack: true),
+        // Blocks of four sectors (H5.3), and of the channel's transfer limit, which a run of misses is read in.
+        "CachedLargeThrough" => new CachedBlockStorage(new MemoryBlockStorage(BLOCKS * BLOCK, BLOCK, isReadOnly), 8, blockSize: 4 * BLOCK),
+        "CachedLargeBack" => new CachedBlockStorage(new MemoryBlockStorage(BLOCKS * BLOCK, BLOCK, isReadOnly), 8, writeBack: true, blockSize: 4 * BLOCK),
+        "CachedOverChannel" => new CachedBlockStorage(
+            ChannelBlockStorage.Open(new LoopbackBlockSession(new MemoryBlockStorage(BLOCKS * BLOCK, BLOCK, isReadOnly), 4096, 2 * BLOCK)), 8, blockSize: 2 * BLOCK),
         "Channel" => ChannelBlockStorage.Open(new LoopbackBlockSession(new MemoryBlockStorage(BLOCKS * BLOCK, BLOCK, isReadOnly), 4096, 2 * BLOCK)),
         _ => throw new ArgumentOutOfRangeException(nameof(provider))
     };

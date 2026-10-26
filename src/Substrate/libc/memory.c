@@ -401,11 +401,14 @@ static long map_code_copy(
     if (status >= 0) {
         base = map_shared_file(address, size, protection, file, 0, size);
     }
-    if (base >= 0 &&
-        (protection & WIT_MEMORY_EXECUTE) &&
-        wit_syscall(WIT_CALL_CODE_PUBLISH, (WitU64)base, size, 0, &result) != WIT_STATUS_OK) {
-        remove_range((WitU64)base, size);
-        base = -EACCES;
+    /* Window by window: CODE_PUBLISH covers one reservation, and a copy of more than a chunk is one mapping per chunk
+     * (R9: a ReadyToRun image of PowerShell's carries more than a chunk of code). */
+    for (WitU64 done = 0; base >= 0 && (protection & WIT_MEMORY_EXECUTE) && done < size; done += CHUNK) {
+        const WitU64 part = size - done < CHUNK ? size - done : CHUNK;
+        if (wit_syscall(WIT_CALL_CODE_PUBLISH, (WitU64)base + done, part, 0, &result) != WIT_STATUS_OK) {
+            remove_range((WitU64)base, size);
+            base = -EACCES;
+        }
     }
     __wit_shared_release(file); /* the creation's reference: the mappings hold the file now */
     return base;

@@ -151,6 +151,15 @@ static inline WitU16 wit_x64_store_task_register(void)
     return selector;
 }
 
+/* The time stamp counter, read after every earlier instruction (LFENCE), the monotonic clock's source where it runs at a
+ * constant rate (plan step H5.3). */
+static inline WitU64 wit_x64_read_tsc(void)
+{
+    WitU32 low, high;
+    __asm__ volatile("lfence\n\trdtsc" : "=a"(low), "=d"(high) : : "memory");
+    return ((WitU64)high << 32) | low;
+}
+
 /* CPUID of a leaf and a subleaf: EAX, EBX, ECX and EDX in that order, as MSVC's __cpuidex gave them. */
 static inline void wit_x64_cpuidex(int registers[4], int leaf, int subleaf)
 {
