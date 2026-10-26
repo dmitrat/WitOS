@@ -32,6 +32,9 @@ internal static class BootScenarioRunner
     private const string PC_MACHINE = "pc,hpet=on";
     private const string PC_CPU = "qemu64,+rdrand";
 
+    // The ARM64 board with a GICv2 (H7.1), as a Raspberry Pi 4's GIC-400.
+    private const string GIC2_MACHINE = "virt,gic-version=2,acpi=off";
+
     // A screendump waits until the guest wrote nothing for this long, looking every step, up to the limit (C2.3).
     private const int QUIET_MILLISECONDS = 1000;
     private const int QUIET_STEP_MILLISECONDS = 100;
@@ -116,8 +119,16 @@ internal static class BootScenarioRunner
         using var terminal = request.Terminal is { } script ? new TerminalLink(script, terminalPath, answersQueries: !request.DisplayIsMainConsole) : null;
         // A window's keys are the input (C2.4): the console then shows the mirror and types nothing.
         using var relay = request.InteractiveTerminal && terminal is null ? new TerminalRelay(terminalPath, keys: !request.Window) : null;
-        // The HPET-less q35 and the pc machine (H1.1) are the board variants a scenario selects.
-        var machine = (request.Expected == ExpectedOutcome.ClockUnavailable ? "q35,hpet=off" : request.Pc ? PC_MACHINE : architecture.QemuMachine) +
+        // The HPET-less q35, the pc machine (H1.1) and the virt board with a GICv2 (H7.1) are the board variants a scenario
+        // selects.
+        if (request.Gic2 && architecture != KernelArchitecture.Arm64)
+        {
+            throw new InvalidOperationException($"{name}: a GICv2 is an ARM64 board's.");
+        }
+        var machine = (request.Expected == ExpectedOutcome.ClockUnavailable ? "q35,hpet=off"
+                : request.Pc ? PC_MACHINE
+                : request.Gic2 ? GIC2_MACHINE
+                : architecture.QemuMachine) +
             (request.Virtualization ? ",virtualization=on" : "");
         // Emulated with the instruction clock, or on the host's hardware virtualization for a session (C2.7).
         string[] execution = request.Accelerated

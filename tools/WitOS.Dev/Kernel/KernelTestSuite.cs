@@ -224,6 +224,19 @@ internal static class KernelTestSuite
                 });
             scenarios += 2;
         }
+        if (architecture == KernelArchitecture.Arm64)
+        {
+            // The GIC the device tree names (H7.1): the foundation and the user suites, the virtio block function's line
+            // among them, on a GICv2 with four processors, whose doorbells go to each by its CPU interface.
+            await BootScenarioRunner.RunAsync(root, image,
+                Request("boot-gic2-smp4", 256, limit, ExpectedOutcome.Success) with
+                {
+                    Gic2 = true,
+                    Processors = 4,
+                    RequiredLines = ["Interrupt controller: GICv2, distributor 0x", "Processors present/online: 4/4"]
+                });
+            ++scenarios;
+        }
         if (architecture.Libc)
         {
             var libc = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.LIBC_SCENARIO, architecture: architecture);

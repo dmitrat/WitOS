@@ -2,8 +2,8 @@
 
     .text
 
-    .globl wit_virt_semihosting
+    .globl wit_arm_semihosting
 
-wit_virt_semihosting:
+wit_arm_semihosting:
     hlt #0xf000
     ret

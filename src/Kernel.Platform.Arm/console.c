@@ -1,9 +1,10 @@
 #include "witos/arch.h"
 #include "witos/a64_psci.h"
 #include "witos/platform.h"
-#include "virt.h"
+#include "arm.h"
 
-/* QEMU virt console on the PL011 UART and the test exit through Arm semihosting. */
+/* The console on the PL011 UART (the virt board's until H7.2 takes it from the device tree) and the test exit through
+ * Arm semihosting. */
 
 #define PL011_DATA 0x000U
 #define PL011_FLAGS 0x018U
@@ -15,7 +16,7 @@
 
 static volatile WitU32 *pl011(WitU32 offset)
 {
-    return (volatile WitU32 *)(WIT_VIRT_PL011_BASE + offset);
+    return (volatile WitU32 *)(WIT_ARM_PL011_BASE + offset);
 }
 
 void wit_console_initialize(void)
@@ -40,7 +41,7 @@ WitU32 wit_platform_boot_devices(WitU64 *pages, WitU32 capacity)
     if (capacity == 0) {
         return 0;
     }
-    pages[0] = WIT_VIRT_PL011_BASE;
+    pages[0] = WIT_ARM_PL011_BASE;
     return 1;
 }
 
@@ -49,7 +50,7 @@ WIT_NORETURN void wit_platform_finish(WitU32 code)
     /* The host sees the same status as q35's isa-debug-exit: guest 0x10 -> 33, guest 0x11 -> 35.
      * Without semihosting the call traps or returns, and the processor stays halted. */
     const WitU64 block[2] = {ADP_STOPPED_APPLICATION_EXIT, ((WitU64)code << 1) | 1};
-    wit_virt_semihosting(SEMIHOSTING_EXIT, block);
+    wit_arm_semihosting(SEMIHOSTING_EXIT, block);
     if (code == 0x10) {
         /* Past the test exit, a success turns the board off (ADR 0029). */
         wit_console_write("[POWER] off through PSCI SYSTEM_OFF\n");
