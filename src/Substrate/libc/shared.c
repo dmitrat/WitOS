@@ -27,21 +27,47 @@
 #define CHUNK ((WitU64)WIT_MEMORY_OBJECT_PAGES * 4096ULL)
 #define SIZE_LIMIT (16ULL << 30) /* a file's chunk table stays within 512 KiB */
 
+/* The record is packed to 320 bytes: the tables are the root task's writable segment, which the flat format bounds at
+ * a MiB (WIT_FLAT_MAX_SEGMENT_BYTES), and R9's two fields put it 584 bytes over. */
 typedef struct SharedFile {
     WitU32 References; /* descriptors and mappings; the name keeps a file alive too */
-    WitU32 Live;
-    WitU32 NameLength; /* zero for an anonymous file (memfd_create) or one shm_unlink took the name of */
+    WitU32
+        Remote; /* one more than the remote record of a volume's file whose chunks the namespace service shares (R4.2) */
+    WitU16 Mode; /* the permission bits, 0600 until chmod changes them (N4.1), as a file of tmpfs keeps its own */
+    WitU8 Live;
+    WitU8 NameLength; /* zero for an anonymous file (memfd_create) or one shm_unlink took the name of */
+    WitU8 Writable; /* a remote file's chunks are asked for writable */
+    WitU8
+        Fixed; /* a file of the library's own, sized once at its creation, whose chunk objects are as large as the file
+                    needs (R9: a page or two of an image's code); it has no descriptor and never grows */
     unsigned char Name[NAME_BYTES];
     WitU64 Size;
     WitU64 *Chunks; /* the chunk objects' handles, zero for a chunk nobody mapped yet */
     WitU64 ChunkCapacity; /* entries of Chunks, a mapping of whole pages */
     WitU64 View; /* the library's read and write view of chunk ViewChunk (R7.2a), zero when none */
     WitU64 ViewChunk;
-    WitU32
-        Remote; /* one more than the remote record of a volume's file whose chunks the namespace service shares (R4.2) */
-    int Writable; /* such a file's chunks are asked for writable */
-    WitU32 Mode; /* the permission bits, 0600 until chmod changes them (N4.1), as a file of tmpfs keeps its own */
+    WitU64
+        OneChunk; /* a fixed file's chunk table when it has one chunk, so that a copy of a page costs no table page */
 } SharedFile;
+
+/* The bytes of a chunk's object: a chunk of a fixed file holds what the file needs of it, rounded to pages. */
+static WitU64 chunk_bytes(const SharedFile *f, WitU64 chunk)
+{
+    const WitU64 start = chunk * CHUNK;
+    if (f->Fixed && start < f->Size && f->Size - start < CHUNK) {
+        return (f->Size - start + 4095) & ~4095ULL;
+    }
+    return CHUNK;
+}
+
+static void drop_table(SharedFile *f)
+{
+    if (f->Chunks && f->Chunks != &f->OneChunk) {
+        __wit_munmap((long)f->Chunks, (long)(f->ChunkCapacity * sizeof(WitU64)));
+    }
+    f->Chunks = 0;
+    f->ChunkCapacity = 0;
+}
 
 static SharedFile files[FILES];
 
@@ -72,9 +98,7 @@ static void settle(SharedFile *f)
             close_handle(f->Chunks[i]);
         }
     }
-    if (f->Chunks) {
-        __wit_munmap((long)f->Chunks, (long)(f->ChunkCapacity * sizeof(WitU64)));
-    }
+    drop_table(f);
     const WitU32 remote = f->Remote;
     memset(f, 0, sizeof(*f));
     if (remote) {
@@ -125,7 +149,7 @@ long __wit_shared_open(const unsigned char *name, WitU32 length, long flags, Wit
     const long status = create(index);
     if (status == 0) {
         memcpy(files[*index].Name, name, length);
-        files[*index].NameLength = length;
+        files[*index].NameLength = (WitU8)length;
     }
     return status;
 }
@@ -147,6 +171,28 @@ long __wit_shared_find(const unsigned char *name, WitU32 length, WitU32 *index)
 long __wit_shared_anonymous(WitU32 *index)
 {
     return create(index);
+}
+
+/* A file of the library's own for a copy of a known size (R9: the page or two of an executable package mapping that a
+ * write reaches), whose chunk objects take only the pages the size needs, where a chunk is otherwise 64 pages: a copy
+ * of one page costs one page. The caller's reference; the file never grows. */
+long __wit_shared_anonymous_fixed(WitU64 size, WitU32 *index)
+{
+    long status = create(index);
+    if (status < 0) {
+        return status;
+    }
+    SharedFile *f = &files[*index];
+    if (size <= CHUNK) {
+        f->Chunks = &f->OneChunk;
+        f->ChunkCapacity = 1;
+        f->Size = size;
+    } else if ((status = __wit_shared_truncate(*index, size)) < 0) {
+        __wit_shared_release(*index);
+        return status;
+    }
+    f->Fixed = 1;
+    return 0;
 }
 
 /* A volume's file mapped shared (R4.2): a file of the process whose chunks are the memory objects the namespace service
@@ -171,7 +217,7 @@ long __wit_shared_remote(WitU32 remote, WitU64 size, int writable, WitU32 *index
         return status;
     }
     files[*index].Remote = remote + 1;
-    files[*index].Writable = writable;
+    files[*index].Writable = (WitU8)(writable != 0);
     __wit_remote_reference(remote);
     return 0;
 }
@@ -221,7 +267,7 @@ WitU32 __wit_shared_mode(WitU32 index)
 /* chmod and fchmod of a shared memory file (N4.1): the bits are kept, as tmpfs keeps them. */
 long __wit_shared_chmod(WitU32 index, long mode)
 {
-    files[index].Mode = (WitU32)(mode & 07777);
+    files[index].Mode = (WitU16)(mode & 07777);
     return 0;
 }
 
@@ -232,6 +278,9 @@ long __wit_shared_truncate(WitU32 index, WitU64 size)
     SharedFile *f = &files[index];
     if (size > SIZE_LIMIT) {
         return -EFBIG;
+    }
+    if (f->Fixed) {
+        return -EPERM; /* its chunk objects are sized to it; nothing reaches it through a descriptor */
     }
     const WitU64 needed = (size + CHUNK - 1) / CHUNK;
     if (needed > f->ChunkCapacity) {
@@ -279,7 +328,7 @@ long __wit_shared_chunk(WitU32 index, WitU64 offset, WitU64 *handle)
     }
     if (!*chunk) {
         WitU64 object = 0;
-        const WitU64 status = wit_syscall(WIT_CALL_MEMORY_OBJECT_CREATE, CHUNK, 0, 0, &object);
+        const WitU64 status = wit_syscall(WIT_CALL_MEMORY_OBJECT_CREATE, chunk_bytes(f, offset / CHUNK), 0, 0, &object);
         if (status != WIT_STATUS_OK) {
             return status == WIT_STATUS_NO_MEMORY ? -ENOMEM : __wit_errno(status);
         }
@@ -300,7 +349,7 @@ static long view(SharedFile *f, WitU64 chunk, unsigned char **address)
         request.Size = sizeof(request);
         request.Object = f->Chunks[chunk];
         request.Offset = 0;
-        request.Bytes = CHUNK;
+        request.Bytes = chunk_bytes(f, chunk);
         request.Address = 0;
         request.Protection = WIT_MEMORY_READ | WIT_MEMORY_WRITE;
         request.Flags = 0;

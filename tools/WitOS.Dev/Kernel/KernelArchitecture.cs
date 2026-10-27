@@ -69,7 +69,8 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
         "riscv64-unknown-elf")
     {
         KernelCompileOptions = ["-march=rv64gc", "-mabi=lp64d", "-mcmodel=medany", "-mno-relax", "-fPIE", "-fno-asynchronous-unwind-tables", "-fno-unwind-tables"],
-        LinkerScript = "src/Kernel.Arch.RV64/kernel.ld"
+        LinkerScript = "src/Kernel.Arch.RV64/kernel.ld",
+        ReadyToRunFramework = false
     };
 
     #endregion
@@ -116,6 +117,14 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     /// for a port whose secondary processors are still to come (none since V1.4).
     /// </summary>
     public bool SecondaryProcessors { get; init; } = true;
+
+    /// <summary>
+    /// Whether the install's shared framework is ReadyToRun (plan step R9). riscv64 keeps the IL framework until a
+    /// RISC-V board is a release target, as the NuGet libraries' suites and .NET 8 do: its images load and relocate, and
+    /// with DOTNET_ReadyToRun=0 they pass, but running their code ends in a fault whose resume address the kernel
+    /// refuses (BAD_ADDRESS) in runtime-dotnet.
+    /// </summary>
+    public bool ReadyToRunFramework { get; init; } = true;
 
     /// <summary>
     /// Whether the kernel also boots by the Linux arm64 boot protocol (plan step H6, ADR 0030): its image links the boot

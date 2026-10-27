@@ -222,6 +222,7 @@ long __wit_utimensat(
     long dirfd, const char *path, const struct timespec *times, long flags); /* a null path: the descriptor's (N4.1) */
 long __wit_shared_open(const unsigned char *name, WitU32 length, long flags, WitU32 *index);
 long __wit_shared_anonymous(WitU32 *index);
+long __wit_shared_anonymous_fixed(WitU64 size, WitU32 *index); /* a file of a size set once, its chunks as large (R9) */
 long __wit_shared_remote(WitU32 remote, WitU64 size, int writable, WitU32 *index);
 WitU32 __wit_shared_remote_of(WitU32 index);
 long __wit_shared_unlink(const unsigned char *name, WitU32 length);

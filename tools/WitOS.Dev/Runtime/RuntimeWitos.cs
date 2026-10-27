@@ -291,6 +291,8 @@ internal static class RuntimeWitos
         var tree = Path.Combine(root, "artifacts", "runtime-witos", "src");
         if (!Directory.Exists(Path.Combine(tree, ".dotnet")))
             throw new InvalidOperationException($"No witos tree in {tree}. Run: dotnet run --project tools/WitOS.Dev -- runtime-witos --arch {architecture.Name}");
+        if (!architecture.ReadyToRunFramework)
+            throw new InvalidOperationException($"witos-{architecture.Name} keeps the IL framework (R9, KernelArchitecture.ReadyToRunFramework).");
         await BuildCompilerAsync(root, tree);
         await BuildReadyToRunAsync(root, tree, architecture);
     }
@@ -419,7 +421,10 @@ internal static class RuntimeWitos
         // R9: the shared framework the install lays out is ReadyToRun, as upstream ships it, compiled by the tree's crossgen2
         // with the host's JITs (R1.3).
         var ilc = await BuildCompilerAsync(root, tree);
-        await BuildReadyToRunAsync(root, tree, architecture);
+        if (architecture.ReadyToRunFramework)
+            await BuildReadyToRunAsync(root, tree, architecture);
+        else
+            Console.WriteLine($"ReadyToRun for witos-{architecture.Name}: none, the install keeps the IL framework (R9).");
         // W3.2: the ASP.NET Core shared framework, built IL alone from its pinned source, which the install lays beside
         // Microsoft.NETCore.App from this scenario on.
         await AspNetCoreFramework.BuildAsync(root);
@@ -832,7 +837,7 @@ internal static class RuntimeWitos
             // the runtime's own for file systems without notifications, it polls and constructs no watcher.
             "DOTNET_USE_POLLING_FILE_WATCHER=1\n");
         var sysroot = await Sysroot.BuildAsync(root, architecture);
-        var shared = await FrameworkFilesAsync(tree, output, architecture, version, pin.TargetFramework, readyToRun: true);
+        var shared = await FrameworkFilesAsync(tree, output, architecture, version, pin.TargetFramework, architecture.ReadyToRunFramework);
 
         var lib = Path.Combine(sysroot, "usr", "lib");
         return

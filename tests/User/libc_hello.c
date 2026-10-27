@@ -347,10 +347,16 @@ int main(void)
 #else
     const off_t code_page = 8192;
 #endif
-    void *code = code_fd >= 0 ? mmap(0, 4096, PROT_READ | PROT_EXEC, MAP_PRIVATE, code_fd, code_page) : MAP_FAILED;
+    /* The three pages map together, so that the copy of the one written (R9, below) leaves the others before and after
+     * it the package's: none on x64, both sides on ARM64, both before on riscv64. */
+    char *pages = code_fd >= 0 ? mmap(0, 3 * 4096, PROT_READ | PROT_EXEC, MAP_PRIVATE, code_fd, 0) : MAP_FAILED;
+    void *code = pages == MAP_FAILED ? MAP_FAILED : pages + code_page;
     check(code != MAP_FAILED, "a file's code mapped executable");
     if (code != MAP_FAILED) {
         int (*answer)(void) = (int (*)(void))code;
+        unsigned char others[2 * 4096];
+        memcpy(others, pages + (code_page == 0 ? 4096 : 0), 4096);
+        memcpy(others + 4096, pages + (code_page == 2 * 4096 ? 4096 : 2 * 4096), 4096);
         check(answer() == 42, "the mapped code runs");
 #if defined(__riscv)
         /* V2.4: Linux's RISC-V instruction cache flush, which musl issues as a system call and the library serves by
@@ -361,11 +367,24 @@ int main(void)
         check(__riscv_flush_icache(code, (char *)code + 4096, 2) == -1 && errno == EINVAL,
             "a cache flush with unknown flags");
 #endif
-        check(mprotect(code, 4096, PROT_READ | PROT_WRITE) == -1 && errno == EACCES, "a file's code is never writable");
+        /* R9: a page of a file's code made writable becomes a copy in a shared memory file of the process's own first,
+         * which turns executable again, while the pages around it stay the package's: an arm64 ReadyToRun image's
+         * relocations lie in a page or two of its code, which CoreCLR writes through a writable window (S8.2). The last
+         * byte of the page lies past the code. */
+        const int writable = mprotect(code, 4096, PROT_READ | PROT_WRITE) == 0;
+        if (writable) {
+            volatile unsigned char *last = (volatile unsigned char *)code + 4095;
+            *last = (unsigned char)(*last ^ 0x5A);
+        }
+        check(writable && mprotect(code, 4096, PROT_READ | PROT_EXEC) == 0 && answer() == 42,
+            "a page of a file's code made writable and executable again runs");
+        check(memcmp(others, pages + (code_page == 0 ? 4096 : 0), 4096) == 0 &&
+                memcmp(others + 4096, pages + (code_page == 2 * 4096 ? 4096 : 2 * 4096), 4096) == 0,
+            "the pages around the copied one stay the file's");
         check(
             mprotect(code, 4096, PROT_READ) == 0 && mprotect(code, 4096, PROT_READ | PROT_EXEC) == 0 && answer() == 42,
             "the code's protection changes within its rights");
-        check(munmap(code, 4096) == 0, "the code unmapped");
+        check(munmap(pages, 3 * 4096) == 0, "the code unmapped");
     }
     /* A read-only private mapping of a page-aligned file shows the package's pages without a copy, and mprotect that
      * makes it writable gives it a copy first (R3.1): the write stays the process's, and the package keeps its bytes. */
