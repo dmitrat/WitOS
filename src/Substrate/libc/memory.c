@@ -580,18 +580,67 @@ long __wit_munmap(long address, long length)
     return remove_range((WitU64)address, round_up((unsigned long)length));
 }
 
+/* The pages [low, high) of an executable package mapping that a write reaches (R9: an arm64 ReadyToRun image of the
+ * package carries base relocations in a page or two of its code, which CoreCLR writes through a writable window, S8.2):
+ * they become a copy in a shared memory file of the process's own of exactly their size (__wit_shared_anonymous_fixed),
+ * as D5.3's executable copy of a volume's code is one of the whole mapping, whose chunk objects carry both rights, so
+ * that the pages turn writable and executable again and are published when executable; the rest of the mapping stays
+ * the package's pages without a copy, as Linux copies the written pages of a private file mapping alone (a copy of the
+ * whole mapping cost every process the code of each image it loaded, 55 MB of the framework on ARM64, and ran the
+ * compatibility suite's children out of memory). Plain memory never executes. */
+static long copy_package_code(const Mapping *m, WitU64 low, WitU64 high)
+{
+    const WitU64 size = high - low, source = m->Source + (low - m->Base);
+    WitU64 result = 0;
+    WitU32 file = 0;
+    long status = __wit_shared_anonymous_fixed(size, &file);
+    if (status < 0) {
+        return status;
+    }
+    for (WitU64 done = 0; status >= 0 && done < size; done += CHUNK) {
+        const WitU64 part = size - done < CHUNK ? size - done : CHUNK;
+        WitU64 object = 0, view = 0, window = 0;
+        status = __wit_shared_chunk(file, done, &object);
+        if (status >= 0 && map_object(object, 0, part, 0, WIT_MEMORY_READ | WIT_MEMORY_WRITE, &view) != WIT_STATUS_OK) {
+            status = -ENOMEM;
+        }
+        if (status >= 0) {
+            if (map_package(0, source + done, part, WIT_MEMORY_READ, &window) == WIT_STATUS_OK) {
+                memcpy((void *)view, (const void *)window, part);
+                release(window, 0);
+            } else {
+                status = -ENOMEM;
+            }
+            release(view, 0);
+        }
+    }
+    if (status >= 0) {
+        status = remove_range(low, size);
+    }
+    if (status >= 0) {
+        status = map_shared_file(low, size, m->Protection, file, 0, size);
+    }
+    for (WitU64 done = 0; status >= 0 && done < size; done += CHUNK) {
+        const WitU64 part = size - done < CHUNK ? size - done : CHUNK;
+        if (wit_syscall(WIT_CALL_CODE_PUBLISH, low + done, part, 0, &result) != WIT_STATUS_OK) {
+            status = -EACCES;
+        }
+    }
+    __wit_shared_release(file); /* the creation's reference: the mapping holds the file now */
+    return status < 0 ? status : 0;
+}
+
 /* Copy-on-write, made eager (R3.1): the part of a package mapping in [start, end) that mprotect makes writable becomes
  * plain memory holding the same bytes, as a private mapping of a file does on Linux; the package stays read-only. The
- * bytes are read through a window of the package, since the mapping itself may be PROT_NONE. A mapping made with
- * PROT_EXEC stays the package's: plain memory never executes, so its code would not run again, and the kernel refuses
- * the write instead (EACCES). */
+ * bytes are read through a window of the package, since the mapping itself may be PROT_NONE. The same part of a mapping
+ * made with PROT_EXEC becomes a copy in a shared memory file instead (copy_package_code, R9), since plain memory never
+ * executes. */
 static long privatize(WitU64 start, WitU64 end)
 {
     for (;;) {
         unsigned i = 0;
         while (i < count &&
             (mappings[i].Kind != MapPackage ||
-                (mappings[i].Protection & WIT_MEMORY_EXECUTE) ||
                 mappings[i].Base + mappings[i].Size <= start ||
                 mappings[i].Base >= end)) {
             ++i;
@@ -602,6 +651,13 @@ static long privatize(WitU64 start, WitU64 end)
         const Mapping m = mappings[i];
         const WitU64 low = m.Base > start ? m.Base : start;
         const WitU64 high = m.Base + m.Size < end ? m.Base + m.Size : end;
+        if (m.Protection & WIT_MEMORY_EXECUTE) {
+            const long copied = copy_package_code(&m, low, high);
+            if (copied < 0) {
+                return copied;
+            }
+            continue;
+        }
         WitU64 window = 0;
         if (map_package(0, m.Source + (low - m.Base), high - low, WIT_MEMORY_READ, &window) != WIT_STATUS_OK) {
             return -ENOMEM;

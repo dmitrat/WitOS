@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -225,6 +226,9 @@ internal static class RuntimeWitos
         ["src/coreclr/tools/Common/TypeSystem/Common/TargetDetails.cs"] =
             "src.coreclr.tools.Common.TypeSystem.Common.TargetDetails.cs",
         ["src/coreclr/tools/Common/CommandLineHelpers.cs"] = "src.coreclr.tools.Common.CommandLineHelpers.cs",
+        ["src/coreclr/tools/aot/ILCompiler.ReadyToRun/ObjectWriter/TargetExtensions.cs"] =
+            "src.coreclr.tools.aot.ILCompiler.ReadyToRun.ObjectWriter.TargetExtensions.cs",
+        ["src/coreclr/tools/aot/ILCompiler.Diagnostics/PerfMapWriter.cs"] = "src.coreclr.tools.aot.ILCompiler.Diagnostics.PerfMapWriter.cs",
         // NativeAOT's link for witos through the SDK's targets (R2.3b).
         ["src/coreclr/nativeaot/BuildIntegration/Microsoft.NETCore.Native.Unix.targets"] =
             "src.coreclr.nativeaot.BuildIntegration.Microsoft.NETCore.Native.Unix.targets",
@@ -273,6 +277,25 @@ internal static class RuntimeWitos
     #endregion
 
     #region Functions
+
+    /// <summary>
+    /// R9's step alone, on the tree an earlier runtime-witos built and patched: the host's compiler, then the ReadyToRun
+    /// CoreLib and runtime pack the install takes (the runtime-readytorun command), without the runtime's build and its
+    /// scenarios.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <exception cref="InvalidOperationException">runtime-witos built no tree for the pin.</exception>
+    public static async Task ReadyToRunAsync(string root, KernelArchitecture architecture)
+    {
+        var tree = Path.Combine(root, "artifacts", "runtime-witos", "src");
+        if (!Directory.Exists(Path.Combine(tree, ".dotnet")))
+            throw new InvalidOperationException($"No witos tree in {tree}. Run: dotnet run --project tools/WitOS.Dev -- runtime-witos --arch {architecture.Name}");
+        if (!architecture.ReadyToRunFramework)
+            throw new InvalidOperationException($"witos-{architecture.Name} keeps the IL framework (R9, KernelArchitecture.ReadyToRunFramework).");
+        await BuildCompilerAsync(root, tree);
+        await BuildReadyToRunAsync(root, tree, architecture);
+    }
 
     /// <summary>
     /// Applies the patch set to the pinned tree, builds System.Private.CoreLib for TargetOS=witos (plan step R1.1), then
@@ -395,6 +418,13 @@ internal static class RuntimeWitos
         // The hosts (R5): upstream's dotnet muxer, hostfxr and hostpolicy for witos, built with no patch, run dotnet App.dll
         // from the shared-framework layout of a .NET install.
         await RunBuildAsync(tree, ["host.native", "-os", "witos", "-arch", architecture.Name, "-c", "Release", "-cross"], environment);
+        // R9: the shared framework the install lays out is ReadyToRun, as upstream ships it, compiled by the tree's crossgen2
+        // with the host's JITs (R1.3).
+        var ilc = await BuildCompilerAsync(root, tree);
+        if (architecture.ReadyToRunFramework)
+            await BuildReadyToRunAsync(root, tree, architecture);
+        else
+            Console.WriteLine($"ReadyToRun for witos-{architecture.Name}: none, the install keeps the IL framework (R9).");
         // W3.2: the ASP.NET Core shared framework, built IL alone from its pinned source, which the install lays beside
         // Microsoft.NETCore.App from this scenario on.
         await AspNetCoreFramework.BuildAsync(root);
@@ -469,7 +499,6 @@ internal static class RuntimeWitos
                 string.Join(", ", differing.Select(probe => $"{probe} = {answers[probe]}, the guest {measured[probe]}")) + $" ({report}).");
         Console.WriteLine($"tryrun.cmake answers the {probes.Count} probes of the native configure as witos-{architecture.Name} does ({report}).");
 
-        var ilc = await BuildCompilerAsync(root, tree);
         await PackCompilerAsync(root, tree);
         var version = PackageVersion(tree, architecture);
         Console.WriteLine($"NativeAOT's packages for witos-{architecture.Name}: {version} ({PackageFeed(tree)}).");
@@ -808,7 +837,7 @@ internal static class RuntimeWitos
             // the runtime's own for file systems without notifications, it polls and constructs no watcher.
             "DOTNET_USE_POLLING_FILE_WATCHER=1\n");
         var sysroot = await Sysroot.BuildAsync(root, architecture);
-        var shared = await FrameworkFilesAsync(tree, output, architecture, version, pin.TargetFramework);
+        var shared = await FrameworkFilesAsync(tree, output, architecture, version, pin.TargetFramework, architecture.ReadyToRunFramework);
 
         var lib = Path.Combine(sysroot, "usr", "lib");
         return
@@ -946,16 +975,22 @@ internal static class RuntimeWitos
     /// <param name="architecture">Target architecture.</param>
     /// <param name="version">The framework's version, its directory's name.</param>
     /// <param name="targetFramework">The tree's target framework, such as net10.0.</param>
+    /// <param name="readyToRun">Whether CoreLib and the libraries are the runtime pack's ReadyToRun images (R9), which the
+    /// tree's BuildReadyToRunAsync left, or the IL ones of its libs.sfx (.NET 8's tree, N3).</param>
     /// <returns>Each file's name in the framework's directory and its source.</returns>
-    /// <exception cref="InvalidOperationException">The tree built no CoreCLR or hostpolicy for the architecture.</exception>
+    /// <exception cref="InvalidOperationException">The tree built no CoreCLR, hostpolicy or ReadyToRun pack for the
+    /// architecture.</exception>
     internal static async Task<IReadOnlyList<(string Name, string Source)>> FrameworkFilesAsync(string tree, string output,
-        KernelArchitecture architecture, string version, string targetFramework)
+        KernelArchitecture architecture, string version, string targetFramework, bool readyToRun)
     {
         var coreclr = Path.Combine(tree, "artifacts", "bin", "coreclr", $"witos.{architecture.Name}.Release");
         var corehost = Path.Combine(tree, "artifacts", "bin", $"witos-{architecture.Name}.Release", "corehost");
         var framework = Path.Combine(tree, "artifacts", "bin", $"microsoft.netcore.app.runtime.witos-{architecture.Name}", "Release", "runtimes",
             $"witos-{architecture.Name}", "lib", targetFramework);
         var native = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(framework)!)!, "native");
+        var libraries = readyToRun ? ReadyToRunDirectory(tree, architecture) : framework;
+        if (readyToRun && !File.Exists(Path.Combine(libraries, "System.Private.CoreLib.dll")))
+            throw new InvalidOperationException($"{tree} built no ReadyToRun framework for witos-{architecture.Name} (R9): run runtime-witos.");
         if (!File.Exists(Path.Combine(corehost, "libhostpolicy.so")) || !File.Exists(Path.Combine(coreclr, "libcoreclr.so")) ||
             !Directory.Exists(framework))
             throw new InvalidOperationException($"{tree} built no hostpolicy, CoreCLR or shared framework for witos-{architecture.Name}.");
@@ -963,9 +998,10 @@ internal static class RuntimeWitos
         {
             ("libhostpolicy.so", Path.Combine(corehost, "libhostpolicy.so")), ("libcoreclr.so", Path.Combine(coreclr, "libcoreclr.so")),
             ("libclrjit.so", Path.Combine(coreclr, "libclrjit.so")),
-            ("System.Private.CoreLib.dll", Path.Combine(coreclr, "IL", "System.Private.CoreLib.dll"))
+            ("System.Private.CoreLib.dll", readyToRun ? Path.Combine(libraries, "System.Private.CoreLib.dll") : Path.Combine(coreclr, "IL", "System.Private.CoreLib.dll"))
         };
-        shared.AddRange(Directory.GetFiles(framework, "*.dll").Order(StringComparer.Ordinal).Select(file => (Path.GetFileName(file), file)));
+        shared.AddRange(Directory.GetFiles(libraries, "*.dll").Where(file => Path.GetFileName(file) != "System.Private.CoreLib.dll")
+            .Order(StringComparer.Ordinal).Select(file => (Path.GetFileName(file), file)));
         // The libraries' native libraries alone: libs.pretest (R7.3) also copies the runtime and the hosts beside them.
         shared.AddRange(Directory.GetFiles(native, "libSystem.*.so").Order(StringComparer.Ordinal).Select(file => (Path.GetFileName(file), file)));
         var directory = Path.Combine(output, version);
@@ -1994,6 +2030,74 @@ internal static class RuntimeWitos
     }
 
     // The shared framework's libraries for the architecture (R2.3a): the runtime pack's lib directory.
+    // The ReadyToRun shared framework of a tree (R9): the libraries of its CoreCLR runtime pack, CoreLib among them.
+    private static string ReadyToRunDirectory(string tree, KernelArchitecture architecture) =>
+        Path.Combine(tree, "artifacts", "bin", "witos-readytorun", architecture.Name);
+
+    // The host's JITs a crossgen2 of the tree loads: what BuildCompilerAsync builds for the x64 Linux host (R1.3, V2.4).
+    private static readonly string[] HOST_JITS =
+        ["libjitinterface_x64.so", "libclrjit_unix_x64_x64.so", "libclrjit_universal_arm64_x64.so", "libclrjit_unix_riscv64_x64.so"];
+
+    /// <summary>
+    /// The shared framework as upstream ships it, compiled to ReadyToRun for witos (plan step R9): upstream's
+    /// clr.nativecorelib compiles CoreLib and the CoreCLR runtime pack (PublishReadyToRun) the libraries, both with the
+    /// tree's crossgen2, which writes Linux's machine mark for witos (the guest's CoreCLR takes it, pedecoder.h) and loads
+    /// the host's JITs BuildCompilerAsync built, laid where a cross build lays its cross components (the output's x64
+    /// directory). The pack's platform manifest is the one its files give: the witos build leaves libclrinterpreter.so in
+    /// CoreCLR's shared framework output, which upstream's Release template does not list. The pack's libraries go to
+    /// ReadyToRunDirectory, which the install takes.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="tree">The work tree, whose host compiler is built.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <exception cref="InvalidDataException">The pack is missing, or its CoreLib is no ReadyToRun image.</exception>
+    internal static async Task BuildReadyToRunAsync(string root, string tree, KernelArchitecture architecture)
+    {
+        var host = Path.Combine(tree, "artifacts", "bin", "coreclr", "linux.x64.Release");
+        var cross = Path.Combine(tree, "artifacts", "bin", "coreclr", $"witos.{architecture.Name}.Release", "x64");
+        Directory.CreateDirectory(cross);
+        foreach (var jit in HOST_JITS)
+            File.Copy(Path.Combine(host, jit), Path.Combine(cross, jit), overwrite: true);
+        await RunBuildAsync(tree, ["clr.nativecorelib", "-os", "witos", "-arch", architecture.Name, "-c", "Release"], null);
+        var id = $"Microsoft.NETCore.App.Runtime.witos-{architecture.Name}";
+        DropPackages(tree, id);
+        await RunBuildAsync(tree,
+            ["--projects", Path.Combine(tree, "src", "installer", "pkg", "sfx", "Microsoft.NETCore.App", "Microsoft.NETCore.App.Runtime.CoreCLR.sfxproj"),
+                "-os", "witos", "-arch", architecture.Name, "-c", "Release", "/p:UseTemplatedPlatformManifest=false"],
+            null);
+        var package = Directory.GetFiles(PackageFeed(tree), id + ".*.nupkg")
+            .SingleOrDefault(file => !file.EndsWith(".symbols.nupkg", StringComparison.Ordinal) && char.IsAsciiDigit(Path.GetFileName(file)[id.Length + 1]))
+            ?? throw new InvalidDataException($"The CoreCLR runtime pack for witos-{architecture.Name} is not in {PackageFeed(tree)}.");
+        var directory = ReadyToRunDirectory(tree, architecture);
+        if (Directory.Exists(directory))
+            Directory.Delete(directory, recursive: true);
+        Directory.CreateDirectory(directory);
+        var prefix = $"runtimes/witos-{architecture.Name}/lib/{ReadLock(root).TargetFramework}/";
+        var compiled = 0;
+        var libraries = 0;
+        using (var archive = ZipFile.OpenRead(package))
+        {
+            foreach (var entry in archive.Entries.Where(entry => entry.FullName.StartsWith(prefix, StringComparison.Ordinal) && entry.Name.EndsWith(".dll", StringComparison.Ordinal)))
+            {
+                var file = Path.Combine(directory, entry.Name);
+                entry.ExtractToFile(file);
+                ++libraries;
+                compiled += IsReadyToRun(file) ? 1 : 0;
+            }
+        }
+        if (!IsReadyToRun(Path.Combine(directory, "System.Private.CoreLib.dll")))
+            throw new InvalidDataException($"The runtime pack for witos-{architecture.Name} carries no ReadyToRun CoreLib ({package}).");
+        Console.WriteLine($"ReadyToRun for witos-{architecture.Name}: {compiled} of {libraries} libraries of the runtime pack, CoreLib among them " +
+            $"(the rest type forwarders) ({Path.GetFileName(package)}).");
+    }
+
+    // Whether a PE image carries native code: a ReadyToRun header in its CLI header's managed native header.
+    private static bool IsReadyToRun(string file)
+    {
+        using var reader = new PEReader(File.OpenRead(file));
+        return reader.PEHeaders.CorHeader is { ManagedNativeHeaderDirectory.Size: > 0 };
+    }
+
     private static string FrameworkDirectory(string root, string tree, KernelArchitecture architecture) =>
         Path.Combine(tree, "artifacts", "bin", $"microsoft.netcore.app.runtime.witos-{architecture.Name}", "Release", "runtimes",
             $"witos-{architecture.Name}", "lib", ReadLock(root).TargetFramework);

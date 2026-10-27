@@ -1,0 +1,23 @@
+Source: src/coreclr/tools/aot/ILCompiler.ReadyToRun/ObjectWriter/TargetExtensions.cs
+Output: src.coreclr.tools.aot.ILCompiler.ReadyToRun.ObjectWriter.TargetExtensions.cs
+Before: 3ed9211611f38f3dd592b758ce01bf27d1ee496e446f17c6b1ba9f95f143a3e6
+After: e60d162efadde2d11c5b723e6fcbea4f08e8a7538b20c043dd2a0d2baab57cbe
+
+ReadyToRun images for witos (plan step R9): crossgen2 names a native image's operating system in its machine field
+(IMAGE_FILE_MACHINE_NATIVE_OS_OVERRIDE), and TargetOS.WitOS had no mark, so --targetos witos stopped with
+NotImplementedException. WitOS's CoreCLR is built for the musl triple, which defines __linux__, and pedecoder.h takes
+Linux's mark from it: the guest accepts Linux's images (S8.2), so crossgen2 writes that mark for witos too.
+
+--- a/src/coreclr/tools/aot/ILCompiler.ReadyToRun/ObjectWriter/TargetExtensions.cs
++++ b/src/coreclr/tools/aot/ILCompiler.ReadyToRun/ObjectWriter/TargetExtensions.cs
+@@ -111,6 +111,10 @@
+                 case TargetOS.Linux:
+                     return MachineOSOverride.Linux;
+ 
++                // WitOS's CoreCLR takes Linux's mark: its triple is musl's, which defines __linux__ (pedecoder.h).
++                case TargetOS.WitOS:
++                    return MachineOSOverride.Linux;
++
+                 case TargetOS.OSX:
+                 case TargetOS.MacCatalyst:
+                 case TargetOS.iOS:

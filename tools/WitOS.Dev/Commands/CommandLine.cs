@@ -242,6 +242,9 @@ internal static class CommandLine
                 RequiredLines = [architecture.LibraryTestsPassedLine, architecture.RootTaskPassedLine]
             }]),
         new CommandRebase(),
+        new CommandArchitecture("runtime-readytorun",
+            "Compile CoreLib and the shared framework to ReadyToRun on the tree runtime-witos built, as its install takes them, without the runtime's build (R9)",
+            RuntimeWitos.ReadyToRunAsync),
         new CommandArchitecture("runtime-services",
             "Publish WitOS's NativeAOT services with the packages runtime-witos built and boot their scenarios, without the runtime's build (D1.1)",
             RuntimeDevices.ServicesAsync),
