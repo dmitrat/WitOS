@@ -493,6 +493,41 @@ internal static class Toolchain
         RequireDownloadAsync(path, [url], sha256);
 
     /// <summary>
+    /// A file's bytes over HTTP, asked again after a pause when the server answers 429 (Too Many Requests) or a 5xx
+    /// status, five times at most: raw.githubusercontent.com limits the rate of a runner's requests, and the pinned
+    /// compiler-rt and LLVM libc files are fetched one by one (2026-10-28: a CI leg failed twice in a row with 429).
+    /// The pause is the server's Retry-After, or 5 s doubled each time, never above two minutes. A request to
+    /// raw.githubusercontent.com carries the token in <c>GITHUB_TOKEN</c> when one is set, as CI sets the job's, since
+    /// GitHub limits authenticated requests far less (the retries alone left a leg on 429 for two minutes); the token
+    /// goes to that host alone.
+    /// </summary>
+    /// <param name="client">The client.</param>
+    /// <param name="url">The file's address.</param>
+    /// <returns>Its bytes.</returns>
+    /// <exception cref="HttpRequestException">The server refused it, or kept answering 429 or 5xx.</exception>
+    public static async Task<byte[]> GetBytesAsync(HttpClient client, string url)
+    {
+        var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+        var authenticated = !string.IsNullOrEmpty(token) &&
+            new Uri(url).Host.Equals("raw.githubusercontent.com", StringComparison.OrdinalIgnoreCase);
+        for (var attempt = 1; ; ++attempt)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            if (authenticated)
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            using var response = await client.SendAsync(request);
+            if (response.IsSuccessStatusCode)
+                return await response.Content.ReadAsByteArrayAsync();
+            var status = (int)response.StatusCode;
+            if (attempt == 6 || (status != 429 && status < 500))
+                response.EnsureSuccessStatusCode();
+            var pause = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(5 << (attempt - 1));
+            Console.WriteLine($"{url} answered {status}; asking again in {Math.Min(pause.TotalSeconds, 120):0} s");
+            await Task.Delay(pause > TimeSpan.FromMinutes(2) ? TimeSpan.FromMinutes(2) : pause);
+        }
+    }
+
+    /// <summary>
     /// A pinned download from the first of several places that answers: fetched when missing, its SHA-256 always checked,
     /// so that any place serves the same bytes or none.
     /// </summary>
