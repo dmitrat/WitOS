@@ -64,10 +64,8 @@ internal static class RuntimeInstaller
         var scenario = KernelImageBuilder.RUNTIME_INSTALLER_SCENARIO;
         var output = Path.Combine(root, "artifacts", architecture.Name, scenario);
         Directory.CreateDirectory(output);
-        var installer = InstallerPackage.COMMAND;
         var latest = await AppCatalog.ReadAsync(root, APPLICATION);
-        var package = new List<(string Name, string Source)>(await RuntimeApps.PackageAsync(root, output, architecture, [],
-            ["cd /data", $"{installer} --feed {FEED}", $"{installer} use {APPLICATION} {latest.Version}", $"{installer} list --feed {FEED}", ARLC]));
+        var package = new List<(string Name, string Source)>(await RuntimeApps.PackageAsync(root, output, architecture, [], Commands(architecture, latest.Version)));
         package.AddRange(await InstallerPackage.FilesAsync(root, architecture, output));
         var image = await KernelImageBuilder.BuildAsync(root, scenario, outputDirectory: output, architecture: architecture, package: package);
 
@@ -76,7 +74,7 @@ internal static class RuntimeInstaller
         var latestFiles = await AppSourceBuild.FilesAsync(root, latest);
         var apphost = await File.ReadAllBytesAsync(AppsLayer.ApphostPath(root, architecture));
         var dataDisk = Path.Combine(output, "data-disk.img");
-        await RuntimeDataDisk.CreateAsync(dataDisk, files: await VolumeFilesAsync(output, old, oldFiles, apphost), bytes: DISK_BYTES,
+        await RuntimeDataDisk.CreateAsync(dataDisk, files: await VolumeFilesAsync(output, old, oldFiles, apphost, NativeCodeBuild.For(root, architecture)), bytes: DISK_BYTES,
             fatFiles: await FeedFilesAsync(output, latest, latestFiles));
 
         var name = $"{architecture.Name}-{scenario}-{MEMORY_MIB}";
@@ -102,12 +100,31 @@ internal static class RuntimeInstaller
         screenshot.RequireFrame(expected.Frame);
         if (!expected.Screen.Text.Contains(Used(OLD_VERSION), StringComparison.Ordinal))
             throw new InvalidOperationException($"The screen at the screendump does not say '{Used(OLD_VERSION)}': {expected.Screen.Text}");
-        await RequireLayerAsync(dataDisk, latest, latestFiles, oldFiles, apphost);
+        await RequireLayerAsync(dataDisk, architecture, latest, latestFiles, oldFiles, apphost, NativeCodeBuild.For(root, architecture));
         Console.WriteLine($"Installer on witos-{architecture.Name}: witos-apps updated {APPLICATION} {OLD_VERSION} to {latest.Version} from the feed on " +
             $"{FEED} beside the old version and rolled back on the screen through the keyboard, put the update in use again by its use command, " +
             $"and the commander started through its rewritten launcher; the screen equals the frame the host rendered, and the clean volume " +
-            $"holds the {latestFiles.Count} files of the new version, its launcher and current, with the old version kept.");
+            $"holds the {latestFiles.Count} files of the new version, its launcher and current, with the old version kept" +
+            (architecture.ReadyToRunFramework ? "; the guest's crossgen2 compiled the update's native code, which equals the host's byte for byte, and its launcher names it." : "."));
     }
+
+    /// <summary>
+    /// What /bin/init runs: the installer's screen on the feed, the update put in use again by the use command, its native
+    /// code compiled on the device where the architecture has native code (R9.2), the list, and the commander through its
+    /// launcher.
+    /// </summary>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="version">The feed's version.</param>
+    /// <returns>The lines of /etc/apps.</returns>
+    public static string[] Commands(KernelArchitecture architecture, string version) =>
+    [
+        "cd /data",
+        $"{InstallerPackage.COMMAND} --feed {FEED}",
+        $"{InstallerPackage.COMMAND} use {APPLICATION} {version}",
+        .. architecture.ReadyToRunFramework ? [$"{InstallerPackage.COMMAND} compile {APPLICATION}"] : Array.Empty<string>(),
+        $"{InstallerPackage.COMMAND} list --feed {FEED}",
+        ARLC
+    ];
 
     /// <summary>
     /// What the runner does once each line appeared: the probe's line; I once the installer shows the feed's update; U once
@@ -146,23 +163,27 @@ internal static class RuntimeInstaller
         $"[APPS-INIT] {InstallerPackage.COMMAND} --feed exited with 0",
         Used(version),
         $"[APPS-INIT] {InstallerPackage.COMMAND} use exited with 0",
+        .. architecture.ReadyToRunFramework
+            ? [$"Compiled {APPLICATION} {version} for {architecture.Name}: ", $"[APPS-INIT] {InstallerPackage.COMMAND} compile exited with 0"]
+            : Array.Empty<string>(),
         $"{APPLICATION}: installed {OLD_VERSION}, {version}; in use {version}; feed {version} (installed)",
         $"[APPS-INIT] {InstallerPackage.COMMAND} list exited with 0",
         $"[APPS-INIT] {ARLC}  exited with 0",
-        "[APPS-INIT] 4 commands, 0 failed",
+        $"[APPS-INIT] {Commands(architecture, version).Length - 1} commands, 0 failed",
         "[DEVICES] device manager: stopped",
         architecture.RootTaskPassedLine
     ];
 
-    // The data volume: the layer with the old version, as the host's tool lays it, and the home directory.
+    // The data volume: the layer with the old version, as the host's tool lays it with its native code where the
+    // architecture has it (R9.2), and the home directory.
     private static async Task<IReadOnlyList<(string Path, string Source)>> VolumeFilesAsync(string output, AppEntry old,
-        IReadOnlyList<(string Path, string Source)> files, byte[] apphost)
+        IReadOnlyList<(string Path, string Source)> files, byte[] apphost, NativeCodeBuild? native)
     {
         var staging = Path.Combine(output, "layer");
         if (Directory.Exists(staging))
             Directory.Delete(staging, recursive: true);
         var layer = Path.Combine(staging, "volume");
-        await AppsLayer.InstallAsync(new DirectoryLayerStore(layer), old, files, apphost, Path.Combine(staging, "launchers"));
+        await AppsLayer.InstallAsync(new DirectoryLayerStore(layer), old, files, apphost, Path.Combine(staging, "launchers"), native: native);
         var keep = Path.Combine(staging, "keep");
         await File.WriteAllTextAsync(keep, "");
         return [.. Directory.EnumerateFiles(layer, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
@@ -183,17 +204,20 @@ internal static class RuntimeInstaller
 
     // The volume after the boot: current names the update, the launcher starts it, every file of the update is the
     // publish's, and the old version is kept.
-    private static async Task RequireLayerAsync(string dataDisk, AppEntry latest, IReadOnlyList<(string Path, string Source)> latestFiles,
-        IReadOnlyList<(string Path, string Source)> oldFiles, byte[] apphost)
+    // Where the architecture has native code (R9.2), the update's native directory, which the guest's crossgen2 wrote,
+    // equals the one the host compiles from the same files byte for byte, its marker included, and the launcher names it.
+    private static async Task RequireLayerAsync(string dataDisk, KernelArchitecture architecture, AppEntry latest,
+        IReadOnlyList<(string Path, string Source)> latestFiles, IReadOnlyList<(string Path, string Source)> oldFiles, byte[] apphost, NativeCodeBuild? native)
     {
         var assembly = latest.Commands.Single().Assembly;
+        var nativeName = native is null ? null : NativeCode.DirectoryName(architecture.Name);
         var directory = $"/{AppsLayer.ROOT}/{APPLICATION}";
         var paths = new List<string> { $"{directory}/{AppsLayer.CURRENT}", $"/{AppsLayer.BIN}/{latest.Commands.Single().Name}", $"{directory}/{OLD_VERSION}/{assembly}" };
         paths.AddRange(latestFiles.Select(file => $"{directory}/{latest.Version}/{file.Path}"));
         var contents = await RuntimeDataDisk.ReadExt4Async(dataDisk, paths);
         if (System.Text.Encoding.UTF8.GetString(contents[0]).Trim() != latest.Version)
             throw new InvalidOperationException($"The volume's {paths[0]} does not name {latest.Version}.");
-        if (!contents[1].AsSpan().SequenceEqual(AppLauncher.Write(apphost, AppLauncher.AppPath(APPLICATION, latest.Version, assembly))))
+        if (!contents[1].AsSpan().SequenceEqual(AppLauncher.Write(apphost, AppLauncher.AppPath(APPLICATION, latest.Version, assembly, nativeName))))
             throw new InvalidOperationException($"The volume's {paths[1]} is not the launcher of {APPLICATION} {latest.Version}.");
         var oldAssembly = await File.ReadAllBytesAsync(oldFiles.Single(file => file.Path == assembly).Source);
         if (!contents[2].AsSpan().SequenceEqual(oldAssembly))
@@ -203,6 +227,16 @@ internal static class RuntimeInstaller
             var publish = await File.ReadAllBytesAsync(latestFiles[i].Source);
             if (!contents[3 + i].AsSpan().SequenceEqual(publish))
                 throw new InvalidOperationException($"The volume's {paths[3 + i]} differs from the publish's.");
+        }
+        if (native is null)
+            return;
+        var expected = await native.FilesAsync(latest, latestFiles);
+        var compiled = await RuntimeDataDisk.ReadExt4Async(dataDisk, [.. expected.Select(file => $"{directory}/{latest.Version}/{nativeName}/{file.Path}")]);
+        for (var i = 0; i < expected.Count; i++)
+        {
+            var host = await File.ReadAllBytesAsync(expected[i].Source);
+            if (!compiled[i].AsSpan().SequenceEqual(host))
+                throw new InvalidOperationException($"The guest's {nativeName}/{expected[i].Path} of {APPLICATION} {latest.Version} differs from the host's.");
         }
     }
 

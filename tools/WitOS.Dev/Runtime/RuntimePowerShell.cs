@@ -1,3 +1,4 @@
+using WitOS.Apps;
 using WitOS.Dev.Host;
 using WitOS.Dev.Kernel;
 using WitOS.Dev.Substrate;
@@ -47,6 +48,17 @@ internal static class RuntimePowerShell
     /// The word before the date in the scenario's output: "date=2026-10-16", of which the century is required.
     /// </summary>
     public const string DATE = "date";
+
+    /// <summary>
+    /// The word before PowerShell's home directory in the scenario's output: "pshome=/data/apps/PowerShell/7.6.7/native-x64"
+    /// where the layer carries the version's native code (R9.2).
+    /// </summary>
+    public const string PSHOME = "pshome";
+
+    /// <summary>
+    /// The word before the count of methods the JIT compiled for the batch command: "jitted=312", reported for R9.2.
+    /// </summary>
+    public const string JITTED = "jitted";
 
     /// <summary>
     /// The prompt PowerShell shows in the data volume's root, which the runner types after.
@@ -139,7 +151,10 @@ internal static class RuntimePowerShell
         $"{BATCH} '{EVEN}=' + (1..10 | Where-Object {{ $_ % 2 -eq 0 }} | Measure-Object).Count; " +
             $"Set-Content /data/pwsh.txt {WRITTEN}; Get-Content /data/pwsh.txt; '{DATE}=' + (Get-Date).ToString('yyyy-MM-dd'); Get-ChildItem /data; " +
             // The shell applications run commands through, and the POSIX shell WitOS does not provide (ADR 0027 decision 6).
-            $"'{SHELL}=' + $env:SHELL; 'sh=' + (Test-Path /bin/sh)",
+            $"'{SHELL}=' + $env:SHELL; 'sh=' + (Test-Path /bin/sh); " +
+            // Where PowerShell runs from (R9.2): the version's native directory where the architecture's framework is
+            // ReadyToRun, and how many methods the JIT compiled for this command, which its ReadyToRun images spare.
+            $"'{PSHOME}=' + $PSHOME; '{JITTED}=' + [System.Runtime.JitInfo]::GetCompiledMethodCount()",
         PWSH
     ];
 
@@ -157,6 +172,16 @@ internal static class RuntimePowerShell
         new(PROMPT, "Get-ChildItem /data\r"),
         new(PROMPT, "exit\r")
     ];
+
+    /// <summary>
+    /// The directory PowerShell runs from, as the batch command prints it: the layer's version, in its native directory
+    /// where the architecture's framework is ReadyToRun and the host compiled the version (R9.2).
+    /// </summary>
+    /// <param name="architecture">Target architecture.</param>
+    /// <param name="version">PowerShell's version.</param>
+    /// <returns>The line.</returns>
+    public static string HomeLine(KernelArchitecture architecture, string version) =>
+        $"{PSHOME}=/data/apps/{PowerShell.CATALOG_ID}/{version}" + (architecture.ReadyToRunFramework ? "/" + NativeCode.DirectoryName(architecture.Name) : "");
 
     /// <summary>
     /// The lines the scenario requires, in the serial log or the transcript: the version table with WitOS's name, the
@@ -177,6 +202,8 @@ internal static class RuntimePowerShell
         "Directory: /data",
         $"{SHELL}=/data/apps/bin/pwsh",
         "sh=False",
+        HomeLine(architecture, version),
+        $"{JITTED}=",
         EMBLEM_ROW,
         $"PowerShell {version}",
         PROMPT,

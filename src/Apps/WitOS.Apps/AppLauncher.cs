@@ -45,13 +45,17 @@ public static class AppLauncher
     }
 
     /// <summary>
-    /// A command's assembly as its launcher names it: relative to the layer's bin directory.
+    /// A command's assembly as its launcher names it: relative to the layer's bin directory, in the version's native
+    /// directory when the version holds the architecture's native code (R9.2), since that directory is a whole copy of
+    /// the version with its assemblies compiled.
     /// </summary>
     /// <param name="id">The application's identity.</param>
     /// <param name="version">The version.</param>
     /// <param name="assembly">The assembly's path in the version's directory.</param>
+    /// <param name="native">The native directory's name, or null for the version's own files.</param>
     /// <returns>The path the launcher holds.</returns>
-    public static string AppPath(string id, string version, string assembly) => $"../{id}/{version}/{assembly}";
+    public static string AppPath(string id, string version, string assembly, string? native = null) =>
+        native is null ? $"../{id}/{version}/{assembly}" : $"../{id}/{version}/{native}/{assembly}";
 
     #endregion
 }

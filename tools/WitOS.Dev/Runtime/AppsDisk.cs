@@ -64,13 +64,14 @@ internal static class AppsDisk
             return;
         }
         var apphost = await File.ReadAllBytesAsync(AppsLayer.ApphostPath(root, architecture));
+        var native = NativeCodeBuild.For(root, architecture);
         var launchers = Path.Combine(scratch, "launchers");
         var report = new List<string>();
         await RuntimeDataDisk.EditExt4Async(path, async volume =>
         {
             var store = new Ext4LayerStore(volume, Path.Combine(scratch, "debugfs"));
             if (use is { } chosen)
-                await AppsLayer.UseAsync(store, chosen.Id, chosen.Version, apphost, launchers);
+                await AppsLayer.UseAsync(store, chosen.Id, chosen.Version, apphost, launchers, architecture.Name);
             else
             {
                 foreach (var entry in catalog)
@@ -81,7 +82,7 @@ internal static class AppsDisk
                         continue;
                     }
                     var written = await AppsLayer.InstallAsync(store, entry, await AppsLayer.ApplicationFilesAsync(root, architecture, entry), apphost,
-                        launchers, await AppsLayer.PackageFilesAsync(root, entry));
+                        launchers, await AppsLayer.PackageFilesAsync(root, entry), native);
                     report.Add($"{entry.Id} {entry.Version} {(written ? "installed" : "was there")}");
                 }
             }

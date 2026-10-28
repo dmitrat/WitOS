@@ -11,7 +11,9 @@ namespace WitOS.Installer;
 /// <param name="Layer">The layer's root, /data/apps in the guest.</param>
 /// <param name="Feed">The folder feed, or null.</param>
 /// <param name="Apphost">The witos apphost, beside the installer in the boot package.</param>
-internal sealed record InstallerOptions(string Layer, string? Feed, string Apphost)
+/// <param name="Crossgen2">crossgen2's launcher, with which a version's native code is compiled on the device (R9.2); a
+/// system without it compiles none.</param>
+internal sealed record InstallerOptions(string Layer, string? Feed, string Apphost, string Crossgen2)
 {
     #region Constants
 
@@ -20,8 +22,14 @@ internal sealed record InstallerOptions(string Layer, string? Feed, string Appho
     /// </summary>
     public const string APPHOST = "apphost";
 
+    /// <summary>
+    /// crossgen2's launcher in the boot package (R9.2).
+    /// </summary>
+    public const string CROSSGEN2 = "/system/Crossgen2/crossgen2";
+
     private const string USAGE =
-        "witos-apps [list | install <application> [<version>] | use <application> <version>] [--feed <directory>] [--layer <directory>] [--apphost <file>]";
+        "witos-apps [list | install <application> [<version>] | use <application> <version> | compile <application> [<version>]] " +
+        "[--feed <directory>] [--layer <directory>] [--apphost <file>] [--crossgen2 <file>]";
 
     #endregion
 
@@ -38,6 +46,7 @@ internal sealed record InstallerOptions(string Layer, string? Feed, string Appho
         var layer = AppsDirectory.GUEST_ROOT;
         string? feed = null;
         var apphost = Path.Combine(AppContext.BaseDirectory, APPHOST);
+        var crossgen2 = CROSSGEN2;
         var words = new List<string>();
         for (var i = 0; i < arguments.Count; i++)
         {
@@ -61,6 +70,9 @@ internal sealed record InstallerOptions(string Layer, string? Feed, string Appho
                 case "--apphost":
                     apphost = value;
                     break;
+                case "--crossgen2":
+                    crossgen2 = value;
+                    break;
                 default:
                     throw new ArgumentException($"Unknown option {argument}: {USAGE}");
             }
@@ -72,11 +84,12 @@ internal sealed record InstallerOptions(string Layer, string? Feed, string Appho
             "" or "list" => operands.Count == 0,
             "install" => operands.Count is 1 or 2 && feed is not null,
             "use" => operands.Count == 2,
+            "compile" => operands.Count is 1 or 2,
             _ => false
         };
         if (!valid)
             throw new ArgumentException($"Usage: {USAGE}");
-        return (verb, operands, new InstallerOptions(layer, feed, apphost));
+        return (verb, operands, new InstallerOptions(layer, feed, apphost, crossgen2));
     }
 
     #endregion

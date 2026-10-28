@@ -2034,6 +2034,25 @@ internal static class RuntimeWitos
     private static string ReadyToRunDirectory(string tree, KernelArchitecture architecture) =>
         Path.Combine(tree, "artifacts", "bin", "witos-readytorun", architecture.Name);
 
+    /// <summary>
+    /// The tree's crossgen2 for the x64 Linux host, which BuildCompilerAsync's clr.tools publishes beside its JITs; the
+    /// layer's native code is compiled with it (R9.2).
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <returns>The executable's path.</returns>
+    internal static string HostCrossgen2Path(string root) =>
+        Path.Combine(root, "artifacts", "runtime-witos", "src", "artifacts", "bin", "coreclr", "linux.x64.Release", "crossgen2-published", "crossgen2");
+
+    /// <summary>
+    /// The ReadyToRun libraries of Microsoft.NETCore.App the install lays out for an architecture (R9), which the layer's
+    /// native code references (R9.2).
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>The directory.</returns>
+    internal static string InstalledFrameworkDirectory(string root, KernelArchitecture architecture) =>
+        ReadyToRunDirectory(Path.Combine(root, "artifacts", "runtime-witos", "src"), architecture);
+
     // The host's JITs a crossgen2 of the tree loads: what BuildCompilerAsync builds for the x64 Linux host (R1.3, V2.4).
     private static readonly string[] HOST_JITS =
         ["libjitinterface_x64.so", "libclrjit_unix_x64_x64.so", "libclrjit_universal_arm64_x64.so", "libclrjit_unix_riscv64_x64.so"];

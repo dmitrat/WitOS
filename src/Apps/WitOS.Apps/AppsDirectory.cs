@@ -54,9 +54,12 @@ public sealed class AppsDirectory
     /// The layer at a directory.
     /// </summary>
     /// <param name="root">The layer's root, /data/apps in the guest.</param>
-    public AppsDirectory(string root)
+    /// <param name="architecture">The architecture whose native code the launchers name (R9.2): the process's own
+    /// unless given.</param>
+    public AppsDirectory(string root, string? architecture = null)
     {
         Root = root;
+        Architecture = architecture ?? NativeCode.ProcessArchitecture;
     }
 
     #endregion
@@ -118,6 +121,14 @@ public sealed class AppsDirectory
     }
 
     /// <summary>
+    /// Whether an installed version holds the native code of the layer's architecture (R9.2).
+    /// </summary>
+    /// <param name="id">The application's identity.</param>
+    /// <param name="version">The version.</param>
+    /// <returns>Whether its native directory holds its marker.</returns>
+    public bool IsCompiled(string id, string version) => NativeCode.IsCompiled(Path.Combine(Root, id, version), Architecture);
+
+    /// <summary>
     /// Installs a feed's version unless the layer has it, then makes it the version in use. The package's bytes must
     /// have the SHA-256 the entry names; a failed installation leaves the layer as it was.
     /// </summary>
@@ -171,7 +182,7 @@ public sealed class AppsDirectory
 
     /// <summary>
     /// Makes an installed version the one in use: its commands' launchers, then current. This is the update's last step
-    /// and the rollback.
+    /// and the rollback. The launchers name the version's native directory while it holds its marker (R9.2).
     /// </summary>
     /// <param name="id">The application's identity.</param>
     /// <param name="version">The installed version.</param>
@@ -180,13 +191,14 @@ public sealed class AppsDirectory
     public void Use(string id, string version, byte[] apphost)
     {
         var manifest = Manifest(id, version);
+        var native = IsCompiled(id, version) ? NativeCode.DirectoryName(Architecture) : null;
         var bin = Path.Combine(Root, BIN);
         Directory.CreateDirectory(bin);
         foreach (var command in manifest.Commands)
         {
             var launcher = Path.Combine(bin, command.Name);
             var fresh = Path.Combine(bin, "." + command.Name + PARTIAL);
-            File.WriteAllBytes(fresh, AppLauncher.Write(apphost, AppLauncher.AppPath(id, version, command.Assembly)));
+            File.WriteAllBytes(fresh, AppLauncher.Write(apphost, AppLauncher.AppPath(id, version, command.Assembly, native)));
             if (!OperatingSystem.IsWindows())
                 File.SetUnixFileMode(fresh, EXECUTABLE);
             File.Move(fresh, launcher, overwrite: true);
@@ -196,6 +208,32 @@ public sealed class AppsDirectory
         File.WriteAllText(next, version + "\n");
         File.Move(next, current, overwrite: true);
         WriteSdkRoots();
+    }
+
+    /// <summary>
+    /// Compiles an installed version's native code on the device (R9.2): native-&lt;arch&gt;/ made anew by crossgen2 against
+    /// the frameworks the application runs on, then, when the version is the one in use, its launchers written again so
+    /// that they name it. A version without a command has nothing to launch and is not compiled.
+    /// </summary>
+    /// <param name="id">The application's identity.</param>
+    /// <param name="version">The installed version.</param>
+    /// <param name="frameworks">The frameworks' directories, Microsoft.NETCore.App's first.</param>
+    /// <param name="crossgen2">Runs crossgen2 with a response file.</param>
+    /// <param name="apphost">The apphost's bytes.</param>
+    /// <param name="report">Told each step.</param>
+    /// <param name="cancellationToken">Cancels before the native directory is renamed into place.</param>
+    /// <returns>What was compiled, or null for a version without a command.</returns>
+    /// <exception cref="InvalidOperationException">The layer has no such version.</exception>
+    public async Task<NativeReport?> CompileAsync(string id, string version, IReadOnlyList<string> frameworks,
+        Func<string, CancellationToken, Task<int>> crossgen2, byte[] apphost, Action<string>? report = null, CancellationToken cancellationToken = default)
+    {
+        if (Manifest(id, version).Commands.Count == 0)
+            return null;
+        report?.Invoke($"Compiling {id} {version} for {Architecture}");
+        var result = await NativeCode.CompileAsync(Path.Combine(Root, id, version), Architecture, frameworks, crossgen2, report, cancellationToken);
+        if (Current(id) == version)
+            Use(id, version, apphost);
+        return result;
     }
 
     /// <summary>
@@ -259,6 +297,11 @@ public sealed class AppsDirectory
     /// The layer's root.
     /// </summary>
     public string Root { get; }
+
+    /// <summary>
+    /// The architecture whose native code the launchers name: x64, arm64 or riscv64.
+    /// </summary>
+    public string Architecture { get; }
 
     #endregion
 }
