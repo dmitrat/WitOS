@@ -132,6 +132,8 @@ internal static class BootScenarioRunner
         // The runner's side of the guest's network (W1.2b): its echo server and the port it reaches the guest through.
         using var peer = request.Network && (request.NetworkEcho || request.NetworkForward != 0 || request.NetworkHttps is not null)
             ? new NetworkPeer(request.NetworkForward, request.NetworkHttps) : null;
+        // E2.2: the runner's SMB server, a share of the host's at 10.0.2.100:445.
+        using var samba = request.Network && request.NetworkShare is { } share ? SambaPeer.Start(share) : null;
         var terminalPath = Path.Combine(logs, name + ".terminal.log");
         // The mirror of a display answers no terminal query: the display does (C2.3).
         using var terminal = request.Terminal is { } script ? new TerminalLink(script, terminalPath, answersQueries: !request.DisplayIsMainConsole) : null;
@@ -223,7 +225,7 @@ internal static class BootScenarioRunner
             if (request.Keyboard)
                 throw new InvalidOperationException($"{name}: a keyboard and a network adapter would share an INTx line, which the kernel binds once.");
             var adapter = request.NetworkAdapter == NetworkAdapter.E1000e ? "e1000e" : "virtio-net-pci";
-            arguments.AddRange(["-netdev", "user,id=net0" + (peer?.NetdevOptions ?? ""), "-device",
+            arguments.AddRange(["-netdev", "user,id=net0" + (peer?.NetdevOptions ?? "") + (samba?.NetdevOptions ?? ""), "-device",
                 $"{adapter},netdev=net0,addr=0x{architecture.EntropyLineSlot(request.Display):x}"]);
         }
         // The firmware's entropy source; raspi4b has no PCI bus, and its seed is the tree's (H7.2).

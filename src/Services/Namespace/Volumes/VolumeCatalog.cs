@@ -63,13 +63,17 @@ internal sealed class VolumeCatalog
     /// <param name="identity">The volume's identity: the format's, or the partition's where the format keeps none or a weak
     /// one; null for none.</param>
     /// <param name="weakIdentity">Whether the identity is a FAT serial number, which copies share.</param>
+    /// <param name="requested">The alias a mount asked for below /media (E2.2), or null for the label's.</param>
     /// <returns>The attached volume.</returns>
     /// <exception cref="ArgumentException">The system's alias is taken.</exception>
-    public CatalogVolume Attach(IFileSystem volume, uint origin, string? systemAlias, string? identity, bool weakIdentity)
+    /// <exception cref="FileSystemException">The alias asked for is taken (InUse).</exception>
+    public CatalogVolume Attach(IFileSystem volume, uint origin, string? systemAlias, string? identity, bool weakIdentity, string? requested = null)
     {
         lock (m_gate)
         {
-            var alias = systemAlias ?? Alias(volume.Volume.Label, identity);
+            if (requested is not null && !Free(requested))
+                throw new FileSystemException(FileSystemError.InUse, $"The alias {requested} is another volume's or the system's.");
+            var alias = systemAlias ?? requested ?? Alias(volume.Volume.Label, identity);
             var point = systemAlias is null ? $"{MountTable.MEDIA}/{alias}" : "/" + systemAlias.ToLowerInvariant();
             var collision = identity is not null && m_volumes.Any(other => other.Identity == identity);
             var mount = m_mounts.Add(point, volume);

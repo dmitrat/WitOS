@@ -137,6 +137,21 @@ public static class NamespaceMessages
     /// <summary>VOLUMES: each volume's size and free space too.</summary>
     public const uint SPACE = 0x1000;
 
+    /// <summary>
+    /// WIT_NAMESPACE_MOUNT (E2.2): mount(2)'s source, target, type and options in the window, each zero-terminated; a share
+    /// mounts below /media and the reply's window holds its NamespaceVolume.
+    /// </summary>
+    public const uint MOUNT = 27;
+
+    /// <summary>WIT_NAMESPACE_UNMOUNT (E2.2): umount2(2) of the mount point in the window.</summary>
+    public const uint UNMOUNT = 28;
+
+    /// <summary>MOUNT: MS_RDONLY, the mount refuses every change.</summary>
+    public const uint MOUNT_READ_ONLY = 0x1;
+
+    /// <summary>UNMOUNT: MNT_DETACH, the volume goes though files of it are open, which fail from then on.</summary>
+    public const uint UNMOUNT_DETACH = 0x2;
+
     /// <summary>A volume refuses changes.</summary>
     public const uint VOLUME_READ_ONLY = 0x1;
 
@@ -215,6 +230,12 @@ public static class NamespaceMessages
 
     /// <summary>A disk message's flag: the device manager moved every disk.</summary>
     public const uint DISK_END = 0x2;
+
+    /// <summary>
+    /// A disk message's flag (E2.2): its handle is the network service's clients' endpoint, which the device manager moves
+    /// once the network is ready, not a disk.
+    /// </summary>
+    public const uint DISK_NETWORK = 0x4;
 
     private const int DEVICE_BYTES = 64;
 

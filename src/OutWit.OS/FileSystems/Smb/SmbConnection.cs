@@ -194,7 +194,8 @@ internal sealed class SmbConnection : IAsyncDisposable
         await m_turn.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            ObjectDisposedException.ThrowIf(m_disposed != 0, this);
+            if (m_disposed != 0)
+                throw new SmbException(0, $"//{Server} is unmounted: {Describe(command)} goes nowhere."); // EIO for a file still open
             var response = await ExchangeAsync(command, body, treeId, creditCharge, cancellationToken).ConfigureAwait(false);
             if (response.Status != SmbStatus.SUCCESS && Array.IndexOf(accepted, response.Status) < 0)
                 throw SmbStatus.Failure(response.Status, Describe(command));

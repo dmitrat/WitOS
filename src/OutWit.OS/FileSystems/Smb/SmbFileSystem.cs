@@ -373,9 +373,9 @@ public sealed class SmbFileSystem : IFileSystem
         {
             await RequestAsync(SmbConnection.CLOSE, body, 1, cancellationToken, SmbStatus.FILE_CLOSED).ConfigureAwait(false);
         }
-        catch (ObjectDisposedException)
+        catch (SmbException)
         {
-            // The volume went first: the server closed the handle with the session.
+            // The share went first (unmounted or dropped): the server closed the handle with the session.
         }
     }
 

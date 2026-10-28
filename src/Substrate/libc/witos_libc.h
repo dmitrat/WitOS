@@ -272,6 +272,13 @@ long __wit_remote_fvolume(WitU32 index, struct WitNamespaceVolume *volume);
 struct statfs;
 /* statfs (fd -1) and fstatfs (path null) (E1): a volume's from the namespace service, the package's and /dev/shm's here. */
 long __wit_statfs(long fd, const char *path, struct statfs *buf);
+/* mount(2) and umount2(2) of a share (E2.2), outside the table lock, since the namespace service logs on to a server
+ * over the network: the target's name normalized under the lock (__wit_resolve_name, the name without its leading
+ * slash, length 0 for an empty target), then the service's MOUNT or UNMOUNT in the session's turn. */
+long __wit_resolve_name(const char *path, unsigned char *name, WitU32 capacity, WitU32 *length);
+long __wit_remote_mount(const char *source, const unsigned char *target, WitU32 target_length, const char *type,
+    unsigned long flags, const char *data);
+long __wit_remote_unmount(const unsigned char *name, WitU32 length, long flags);
 long __wit_remote_list(WitU32 index, WitU64 *cursor, unsigned char *buffer, long bytes);
 long __wit_remote_mkdir(const unsigned char *name, WitU32 length);
 long __wit_remote_remove(const unsigned char *name, WitU32 length, int directory);

@@ -434,6 +434,9 @@
           "WitOS.Apps": "[1.0.0, )"
         }
       },
+      "witos-volumes": {
+        "type": "Project"
+      },
       "witos.apps": {
         "type": "Project"
       }

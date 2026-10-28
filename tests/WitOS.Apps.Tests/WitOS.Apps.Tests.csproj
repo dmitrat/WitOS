@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Apps/WitOS.Apps/WitOS.Apps.csproj" />
     <ProjectReference Include="../../src/Apps/Installer/Installer.csproj" />
+    <ProjectReference Include="../../src/Apps/Volumes/Volumes.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="NUnit.Framework" />

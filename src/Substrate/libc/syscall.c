@@ -798,6 +798,33 @@ void __wit_mapping_forget_locked(WitU64 base)
     __wit_unlock(&tables);
 }
 
+#if defined(SYS_mount)
+/* mount(2) and umount2(2) of a share (E2.2): the target normalized and the namespace's session made under the table
+ * lock, as every path's first use makes it, then the service's MOUNT or UNMOUNT without it, since the service logs on
+ * to a server over the network. */
+static long mount_call(long n, long a1, long a2, long a3, long a4, long a5)
+{
+    const char *target = (const char *)(n == SYS_mount ? a2 : a1);
+    unsigned char name[1024];
+    WitU32 length = 0;
+    long status = 0;
+    __wit_lock(&tables);
+    (void)__wit_remote_name((const unsigned char *)"media", 5);
+    if (target && *target) {
+        status = __wit_resolve_name(target, name, sizeof(name), &length);
+    } else if (n == SYS_umount2) {
+        status = -ENOENT;
+    }
+    __wit_unlock(&tables);
+    if (status < 0) {
+        return status;
+    }
+    return n == SYS_mount
+        ? __wit_remote_mount((const char *)a1, name, length, (const char *)a3, (unsigned long)a4, (const char *)a5)
+        : __wit_remote_unmount(name, length, a2);
+}
+#endif
+
 long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
 {
     if (!uses_tables(n)) {
@@ -859,6 +886,11 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
             return answered;
         }
     }
+#if defined(SYS_mount)
+    if (n == SYS_mount || n == SYS_umount2) {
+        return mount_call(n, a1, a2, a3, a4, a5); /* a share's logon takes round trips: outside the table lock (E2.2) */
+    }
+#endif
     /* /etc/resolv.conf is the lease's, asked of the network service before the open, outside the table lock (W2.1a). */
 #if defined(SYS_open)
     if (n == SYS_open && a1 && strcmp((const char *)a1, "/etc/resolv.conf") == 0) {

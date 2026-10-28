@@ -74,6 +74,15 @@
 #define WIT_NAMESPACE_STATFS \
     26U /* Handle, or with Handle 0 the path in the window (Length bytes): the WitNamespaceVolume of the volume it lies
          * on, with its space, into the window; Length its bytes (statfs and fstatfs) */
+/* Network volumes (E2.2): a share of an SMB 3 server, mounted on request below /media and unmounted again. */
+#define WIT_NAMESPACE_MOUNT \
+    27U /* Flags WIT_NAMESPACE_MOUNT_READ_ONLY or 0; mount(2)'s source, target, type and options in the window, each
+         * zero-terminated (Length bytes): the share mounts, and its WitNamespaceVolume comes into the window */
+#define WIT_NAMESPACE_UNMOUNT \
+    28U /* Flags WIT_NAMESPACE_UNMOUNT_DETACH or 0; the mount point in the window (Length bytes): the network volume
+         * there goes; EBUSY while files of it are open, unless detached */
+#define WIT_NAMESPACE_MOUNT_READ_ONLY 0x1U /* MS_RDONLY */
+#define WIT_NAMESPACE_UNMOUNT_DETACH 0x2U /* MNT_DETACH */
 
 /* OPEN's flags; the libc maps O_ACCMODE, O_CREAT, O_EXCL, O_TRUNC and O_DIRECTORY onto them. */
 #define WIT_NAMESPACE_READ_ACCESS 0x1U
@@ -163,6 +172,10 @@ typedef struct WitNamespaceDisk {
 } WitNamespaceDisk;
 
 #define WIT_NAMESPACE_DISK_READ_ONLY 0x1U
+#define WIT_NAMESPACE_DISK_END 0x2U /* the device manager moved every disk */
+/* E2.2: the handle is the network service's clients' endpoint, which the device manager moves once the network is
+ * ready, not a disk */
+#define WIT_NAMESPACE_DISK_NETWORK 0x4U
 
 /* A volume of the catalog (E1, ADR 0032), the record VOLUMES and STATFS write into the window. The texts are UTF-8,
  * zero-terminated within their fields. */

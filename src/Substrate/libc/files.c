@@ -1522,6 +1522,9 @@ static unsigned long fs_magic(const char *format)
     if (strcmp(format, "tmpfs") == 0) {
         return 0x01021994UL; /* TMPFS_MAGIC */
     }
+    if (strcmp(format, "SMB3") == 0) {
+        return 0xFE534D42UL; /* SMB2_SUPER_MAGIC, a share (E2.2), which .NET's DriveInfo takes for a network drive */
+    }
     return 0x7275UL; /* ROMFS_MAGIC: the boot package, read-only, and /media */
 }
 
@@ -1588,6 +1591,23 @@ long __wit_statfs(long fd, const char *path, struct statfs *buf)
         }
     }
     return fill_statfs(buf, fs_magic(""), PAGE, (__wit_process.PackageBytes + PAGE - 1) & ~(PAGE - 1), 0, 2, 1);
+}
+
+/* A path normalized as every call names it, for mount(2)'s and umount2(2)'s targets (E2.2); under the table lock. */
+long __wit_resolve_name(const char *path, unsigned char *name, WitU32 capacity, WitU32 *length)
+{
+    unsigned char resolved[NAME_MAX_BYTES];
+    WitU32 resolved_length = 0;
+    long status;
+    if ((status = mount()) < 0 || (status = resolve(AT_FDCWD, path, resolved, &resolved_length)) < 0) {
+        return status;
+    }
+    if (resolved_length > capacity) {
+        return -ENAMETOOLONG;
+    }
+    memcpy(name, resolved, resolved_length);
+    *length = resolved_length;
+    return 0;
 }
 
 long __wit_fstatat(long dirfd, const char *path, struct kstat *st, long flags)

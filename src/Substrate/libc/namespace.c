@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
+#include <sys/mount.h>
 #include <sys/stat.h>
 #include "kstat.h"
 
@@ -268,6 +269,9 @@ static const char *fs_type(const char *format)
     }
     if (strcmp(format, "exFAT") == 0) {
         return "exfat";
+    }
+    if (strcmp(format, "SMB3") == 0) {
+        return "smb3"; /* a share (E2.2), as Linux names a mount of mount -t smb3 */
     }
     return format; /* ext2, ext3, ext4, tmpfs as they are */
 }
@@ -1028,6 +1032,79 @@ long __wit_remote_fvolume(WitU32 index, WitNamespaceVolume *volume)
 {
     turn_take();
     const long r = volume_in_turn(0, 0, 1, index, volume);
+    turn_give();
+    return r;
+}
+
+/* mount(2) of a share (E2.2): the source, the target (a normalized name, or none), the type and the options into the
+ * window, each zero-terminated, as the service's MOUNT takes them. Linux's flags beyond MS_RDONLY, the nosuid, nodev,
+ * noexec and silent ones apart, ask what the service does not do (a remount, a bind, a move) and are EINVAL; the magic
+ * old callers put in the high half is dropped. A process without the namespace's endpoint mounts nothing (ENODEV). */
+long __wit_remote_mount(const char *source, const unsigned char *target, WitU32 target_length, const char *type,
+    unsigned long flags, const char *data)
+{
+    if ((flags & 0xFFFF0000UL) == 0xC0ED0000UL) { /* MS_MGC_VAL */
+        flags &= 0xFFFFUL;
+    }
+    if (flags & ~(unsigned long)(MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC | MS_SILENT)) {
+        return -EINVAL;
+    }
+    if (!source || !type) {
+        return -EINVAL;
+    }
+    if (namespace_connect() < 0 || connected <= 0) {
+        return -ENODEV;
+    }
+    const size_t source_bytes = strlen(source), type_bytes = strlen(type), data_bytes = data ? strlen(data) : 0;
+    const size_t target_bytes = target_length ? (size_t)target_length + 1 : 0;
+    const size_t total = source_bytes + 1 + target_bytes + 1 + type_bytes + 1 + data_bytes + 1;
+    if (total > WINDOW) {
+        return -EINVAL;
+    }
+    WitNamespaceRequest request;
+    WitNamespaceReply reply;
+    memset(&request, 0, sizeof(request));
+    turn_take();
+    size_t at = 0;
+    memcpy(window + at, source, source_bytes + 1);
+    at += source_bytes + 1;
+    if (target_length) {
+        window[at++] = '/';
+        memcpy(window + at, target, target_length);
+        at += target_length;
+    }
+    window[at++] = 0;
+    memcpy(window + at, type, type_bytes + 1);
+    at += type_bytes + 1;
+    if (data_bytes) {
+        memcpy(window + at, data, data_bytes);
+    }
+    window[at + data_bytes] = 0;
+    request.Operation = WIT_NAMESPACE_MOUNT;
+    request.Flags = (flags & MS_RDONLY) ? WIT_NAMESPACE_MOUNT_READ_ONLY : 0;
+    request.Length = (WitU64)total;
+    const long r = call(&request, &reply);
+    turn_give();
+    return r;
+}
+
+/* umount2(2) of a share (E2.2): MNT_DETACH leaves files of it open to fail; MNT_FORCE is taken as a plain unmount,
+ * MNT_EXPIRE is EAGAIN as Linux answers its first call. */
+long __wit_remote_unmount(const unsigned char *name, WitU32 length, long flags)
+{
+    if (flags & ~(long)(MNT_FORCE | MNT_DETACH | MNT_EXPIRE | UMOUNT_NOFOLLOW)) {
+        return -EINVAL;
+    }
+    if (flags & MNT_EXPIRE) {
+        return -EAGAIN;
+    }
+    if (namespace_connect() < 0 || connected <= 0 || !__wit_remote_name(name, length)) {
+        return -EINVAL; /* no mount point of the service */
+    }
+    WitNamespaceReply reply;
+    turn_take();
+    const long r =
+        path_call(WIT_NAMESPACE_UNMOUNT, (flags & MNT_DETACH) ? WIT_NAMESPACE_UNMOUNT_DETACH : 0, name, length, &reply);
     turn_give();
     return r;
 }

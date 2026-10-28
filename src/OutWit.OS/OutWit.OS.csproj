@@ -10,6 +10,8 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="OutWit.OS.Tests" />
+    <!-- The runner's SMB server writes the NT hash of its account's password (E2.2). -->
+    <InternalsVisibleTo Include="WitOS.Dev" />
   </ItemGroup>
   <ItemGroup>
     <!-- FAT through the independent OutWit library, reached by FileSystems/Fat alone (storage document §14-15, plan step
