@@ -102,8 +102,13 @@ internal sealed class SambaPeer : IDisposable
         if (OperatingSystem.IsLinux())
             File.SetUnixFileMode(passwords, UnixFileMode.UserRead | UnixFileMode.UserWrite);
         var log = File.CreateText(Path.Combine(state, "smbd.log"));
-        var process = Process.Start(new ProcessStartInfo(SMBD, ["--foreground", "--no-process-group", "--debug-stdout", "-s", configuration])
+        // smbd in a session of its own (--foreground calls setsid unless told --no-process-group), since its parent ends
+        // with kill(0, SIGTERM) (killkids, at exit), which in the caller's process group ended the CI runner itself; and
+        // a standard input of its own, open while it runs, since --foreground ends smbd at EOF on a pipe — the CI step's
+        // standard input is one — so that closing it is the stop.
+        var process = Process.Start(new ProcessStartInfo(SMBD, ["--foreground", "--debug-stdout", "-s", configuration])
         {
+            RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true
         }) ?? throw new InvalidOperationException("smbd did not start.");
@@ -144,11 +149,15 @@ internal sealed class SambaPeer : IDisposable
     {
         try
         {
-            if (!m_process.HasExited)
+            m_process.StandardInput.Close(); // EOF: smbd ends cleanly, and its children with it
+            if (!m_process.WaitForExit(5000))
                 m_process.Kill(entireProcessTree: true);
             m_process.WaitForExit(5000);
         }
         catch (InvalidOperationException)
+        {
+        }
+        catch (IOException)
         {
         }
         m_process.Dispose();
