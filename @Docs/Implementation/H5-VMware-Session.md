@@ -98,11 +98,53 @@ close H7 first and then come back to VMware until WitOS runs there well enough f
 for the 8042's port region as a device with an i8042 driver service on the input protocol (which laptops' built-in
 keyboards need too), or VMware settings the author checks by hand.
 
-## 2. The session by hand
+## 2. The session by hand (2026-10-28)
 
-To be measured by the author:
+The author ran the session from VMware Workstation's window on the machine of §1.1 with the disk of R9's second commit
+(4563a78: the session boot of H5.1, the PS/2 keyboard of H5.2, the TSC clock and the block cache of H5.3, the
+ReadyToRun framework of R9).
 
-- typing at the prompt;
-- `Get-ChildItem /data`, a command that uses the network (`Invoke-WebRequest` through VMware's NAT);
-- the screen console's latency, which no gate measures (the author's decision of 2026-10-20);
-- the soft-off at `Stop-Computer` or the end of the session, and the reset (ADR 0029).
+### 2.1 What the author saw
+
+- The prompt came about 10 s after the machine started. Without a window the same disk gave the device manager's ready
+  line 7.6 s after `vmrun start` and the prompt 13.1 s after it (the frame that then stayed still), against 16.1 s with
+  the libc before R9's second commit and 58 s before H5.1.
+- The keyboard works. Every key the author typed came through the 8042 (`[I8042] key …`), while the xHCI driver, which
+  had configured VMware's USB keyboard 0e0f:0006 and polled its interrupt endpoint, logged no key, as §1.4 measured for
+  VNC. So the Workstation console's keys reach the PS/2 keyboard too.
+- Keys typed the moment the logo and the prompt appeared did nothing; about a second later the keyboard worked (§2.2).
+- PowerShell ran at the prompt, and `exit` ended the session with the board's soft-off (`[POWER] off through PM1a_CNT`,
+  ADR 0029). The author started the machine again and ended it the same way. The network service's report at the
+  session's end names an established TCP connection of the session to 20.50.88.233:443 through VMware's NAT.
+
+Not tried in this session: the reset and a network command.
+
+### 2.2 The first second of keys: VMware's virtual USB keyboard
+
+Three boots without a window measured the author's observation, with keys sent through VMware's VNC server, which gives
+them to the PS/2 keyboard as the console does (§1.4). A script started the machine, stamped the serial log's lines,
+took a frame every 0.15 s and typed on one VNC connection: a frame change shows when a key reached the screen, and an
+`[I8042] key` line whether it reached the 8042 (the serial file's lines arrive about 0.4 s late).
+
+| Boot | Typed | Reached the 8042 |
+| --- | --- | --- |
+| 1 | `z` 0.8 s after the terminal service's ready line, 5 s before the prompt; then `a`…`l` 0.25 s apart from 0.3 s after the prompt's frame | `z` never; every letter, each on the screen within the next frame |
+| 2 | `z` `y` `x` `w` `v` `u` `t` `s` at 0, 0.3, 0.6, 0.9, 1.2, 1.5, 2.0 and 2.5 s after the first, all before the prompt; then `a`…`d` | the first four never (0 to 0.9 s after the first key), every key from 1.3 s on. The keys typed before PowerShell's first read were echoed by the terminal's canonical discipline and reached PSReadLine whole: `PS /data> vuatbscd` |
+| 3 | the same, with `keyboard.vusb.enable = "FALSE"` | every key, the first among them |
+
+So with VMware's virtual USB keyboard present, the first second of input after a boot's first key reaches neither
+keyboard — not the 8042, not the USB keyboard's endpoint, and no port of the xHCI changed — and without it nothing is
+lost. That is what the author met at the prompt, and what H5.2 §6.1 saw as a lost first line. The session's machine now
+has `keyboard.vusb.enable = "FALSE"`: on VMware the keys come through the PS/2 keyboard either way, and the xHCI driver
+then meets the two hubs and the mouse alone. The guest keeps every key it is given: what is typed before PowerShell
+reads stays in the line discipline through its mode changes, as Linux keeps it.
+
+What stays open: no interrupt transfer of VMware's xHCI has ever completed in the driver — not a keyboard report, not a
+hub's status change (nothing was plugged) — while Linux guests get their keyboard through that device with the same
+setting. Whether VMware's keyboard routing or the driver's endpoint programming on a controller stricter than QEMU's is
+the cause is a measurement for a scratch driver, worth making before a board whose keyboard is USB alone (ADR 0029).
+
+### 2.3 Latency
+
+A key's echo appeared in the frame after the VNC event, within the 0.15 s the frames were taken at (boot 1's twelve
+letters, boot 3's twelve). No gate measures the screen console's latency (the author's decision of 2026-10-20).
