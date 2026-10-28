@@ -14,7 +14,9 @@
  * executes (plain memory never does; the pages are published for instruction fetch). A file of at least a page
  * starts at a page boundary in the package (S5.1), and a mapping of it without a copy is made of package mappings of
  * at most WIT_MEMORY_OBJECT_PAGES pages at consecutive addresses; mprotect that makes such pages writable gives them
- * a private copy first. MAP_FIXED replaces whatever of the library's mappings lies in its range, as Linux does: a
+ * a private copy first. MAP_FIXED replaces whatever of the library's mappings lies in its range, as Linux does: an
+ * anonymous one over plain mappings alone gives their pages back and commits the range anew in place (S8.3), so that a
+ * collector's decommits never split a reservation; otherwise a
  * plain part is released from its reservation (the kernel splits it), a package mapping that is only partly covered
  * is mapped again around the range; munmap of any range does the same, and mprotect changes every mapping the range
  * touches. A shared mapping of a shared memory file (shared.c, R3.2b) is made of mappings of its chunk objects, one
@@ -266,6 +268,9 @@ static long remove_range(WitU64 start, WitU64 size)
             continue; /* the slot now holds another mapping */
         }
         if (m.Kind == MapPlain) {
+            if (low > m.Base && high < m_end && count == MAPPINGS) {
+                return -ENOMEM; /* the upper part would need an entry: refused before the kernel splits (S8.3) */
+            }
             const WitU64 status = release(low, high - low);
             if (status != WIT_STATUS_OK) {
                 return status == WIT_STATUS_NO_MEMORY ? -ENOMEM : -EINVAL;
@@ -306,6 +311,52 @@ static long remove_range(WitU64 start, WitU64 size)
         i = 0; /* the table changed order; start over (every pass removes or shrinks a mapping in the range) */
     }
     return 0;
+}
+
+/* Whether the library's plain mappings cover [start, end) whole. */
+static int plain_covers(WitU64 start, WitU64 end)
+{
+    for (WitU64 at = start; at < end;) {
+        unsigned i = 0;
+        while (i < count &&
+            !(mappings[i].Kind == MapPlain && mappings[i].Base <= at && at - mappings[i].Base < mappings[i].Size)) {
+            ++i;
+        }
+        if (i == count) {
+            return 0;
+        }
+        const WitU64 m_end = mappings[i].Base + mappings[i].Size;
+        at = m_end < end ? m_end : end;
+    }
+    return 1;
+}
+
+/* An anonymous MAP_FIXED over plain mappings alone (S8.3): the range's pages go back and the range is committed anew
+ * under the protection (fresh zero pages; none for PROT_NONE), in the reservations it lies in. This is how CoreCLR's
+ * collector decommits (VirtualDecommit, an mmap of PROT_NONE over its reserved range, taken again with mprotect), and
+ * Linux merges such a replacement back into its neighbours; released from its reservation and reserved again, every
+ * decommit inside a range split the reservation in three, and a long-running process spent the kernel's reservation
+ * table one decommit at a time until a reservation failed after its range was released, which the collector took for
+ * a range still committed (the namespace service's SIGSEGV under the measurement of R9.2). */
+static long replace_plain(WitU64 start, WitU64 size, WitU64 protection)
+{
+    const WitU64 end = start + size;
+    WitU64 result = 0;
+    for (unsigned i = 0; i < count; ++i) {
+        const Mapping *m = &mappings[i];
+        if (m->Kind != MapPlain || m->Base + m->Size <= start || m->Base >= end) {
+            continue;
+        }
+        const WitU64 low = m->Base > start ? m->Base : start, high = m->Base + m->Size < end ? m->Base + m->Size : end;
+        if (wit_syscall(WIT_CALL_MEMORY_DECOMMIT, low, high - low, 0, &result) != WIT_STATUS_OK) {
+            return -ENOMEM;
+        }
+        if (protection != WIT_MEMORY_NONE &&
+            wit_syscall(WIT_CALL_MEMORY_COMMIT, low, high - low, protection, &result) != WIT_STATUS_OK) {
+            return -ENOMEM;
+        }
+    }
+    return (long)start;
 }
 
 /* Anonymous memory: a reservation committed under the protection, or reserved alone for PROT_NONE. */
@@ -533,6 +584,12 @@ long __wit_mmap(long address, long length, long protection, long flags, long fd,
     if (volume && (flags & MAP_SHARED)) {
         return map_volume_shared(
             place, size, kernel_protection, (WitU32)source, kind == 5, (WitU64)offset, file_length, replace);
+    }
+    if (replace &&
+        (flags & MAP_ANONYMOUS) &&
+        !(kernel_protection & WIT_MEMORY_EXECUTE) &&
+        plain_covers(place, place + size)) {
+        return replace_plain(place, size, kernel_protection);
     }
     if (replace && (converted = remove_range(place, size)) < 0) {
         return converted;

@@ -170,3 +170,15 @@ The decision:
    measurement nothing has made: PowerShell's 59 assemblies take minutes on the x64 host, and a Pi 4 under the JIT is
    estimated at 15–30 minutes, a background task after an installation, never the first run itself.
 4. The order stays the author's of 2026-10-26: their session on VMware first, then R9.2.
+
+The measurement of 2026-10-28, on VMware with two processors after the author's session: the tree's crossgen2 ran in
+the guest as a portable application under the install's JIT, with the JIT interface and the x64 JIT the witos build
+makes (`libjitinterface_x64.so`, `libclrjit_unix_x64_x64.so`; 4.8 MB with crossgen2's IL), and compiled PowerShell's
+59 assemblies one process each in 224 s, the framework and PowerShell as references:
+`System.Management.Automation.dll` in 28 s, `Microsoft.CodeAnalysis.CSharp.dll` in 30 s, and about 2 s for each small
+assembly, which is crossgen2's own start under the JIT. Every image equals, byte for byte, the image the host's
+crossgen2 makes from the same references (15 s on the host). A Pi 4 is estimated at three to five times the guest's
+time. One crossgen2 process for every assembly, and crossgen2 itself in ReadyToRun as part of the system image, are
+the obvious next measurements. The first run of the measurement found S8.3: the namespace service, serving the
+mappings of some 300 assemblies, died when its collector's decommits had spent its reservation table
+([S8.3-Collector-Decommits-in-Place.md](S8.3-Collector-Decommits-in-Place.md)).
