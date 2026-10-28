@@ -42,7 +42,9 @@ internal static class RuntimeInstaller
 
     private const long DISK_BYTES = 1536L << 20; // the .NET SDK takes 400 MiB of the layer (C2.5); the disk is written from one array, so below 2 GiB
 
-    private const int TIMEOUT_SECONDS = 3600;
+    // Two hours (R9.2): the guest's crossgen2 compiles the update's 34 assemblies under TCG, which on CI's x64 runner took most of
+    // the hour the scenario had before, the screen's part after it still to come.
+    private const int TIMEOUT_SECONDS = 7200;
 
     // The commander's command line, drawn once its panels are up.
     private const string COMMANDER_READY = "type a command here";
