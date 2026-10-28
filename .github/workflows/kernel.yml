@@ -186,11 +186,21 @@ jobs:
           path: .tools/libc-test
           key: linux-libc-test-${{ hashFiles('src/Substrate/libc-test.lock.json') }}
 
+      - name: Cache the compiler-rt and LLVM libc files, which raw.githubusercontent.com serves one request at a time
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .tools/compiler-rt
+            .tools/llvm-runtimes-20.1.8/llvm-project
+          key: linux-llvm-files-${{ hashFiles('src/Substrate/compiler-rt.lock.json', 'src/Substrate/llvm-runtimes.lock.json') }}
+
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
 
       - name: Extract verified LLVM, build QEMU, fetch musl, compiler-rt, the LLVM runtimes and libc-test
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Check environment
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- doctor
@@ -312,11 +322,21 @@ jobs:
           path: .tools/libc-test
           key: linux-libc-test-${{ hashFiles('src/Substrate/libc-test.lock.json') }}
 
+      - name: Cache the compiler-rt and LLVM libc files, which raw.githubusercontent.com serves one request at a time
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .tools/compiler-rt
+            .tools/llvm-runtimes-20.1.8/llvm-project
+          key: linux-llvm-files-${{ hashFiles('src/Substrate/compiler-rt.lock.json', 'src/Substrate/llvm-runtimes.lock.json') }}
+
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
 
       - name: Extract verified LLVM, build QEMU, fetch musl, compiler-rt, the LLVM runtimes and ICU
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Download the .NET install and the services of witos-${{ matrix.arch }}
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -387,11 +407,21 @@ jobs:
           path: .tools/libc-test
           key: linux-libc-test-${{ hashFiles('src/Substrate/libc-test.lock.json') }}
 
+      - name: Cache the compiler-rt and LLVM libc files, which raw.githubusercontent.com serves one request at a time
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .tools/compiler-rt
+            .tools/llvm-runtimes-20.1.8/llvm-project
+          key: linux-llvm-files-${{ hashFiles('src/Substrate/compiler-rt.lock.json', 'src/Substrate/llvm-runtimes.lock.json') }}
+
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
 
       - name: Extract verified LLVM, build QEMU, fetch musl, compiler-rt, the LLVM runtimes and ICU
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Download the .NET 10 install and the services of witos-${{ matrix.arch }}
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -484,11 +514,21 @@ jobs:
           path: .tools/libc-test
           key: linux-libc-test-${{ hashFiles('src/Substrate/libc-test.lock.json') }}
 
+      - name: Cache the compiler-rt and LLVM libc files, which raw.githubusercontent.com serves one request at a time
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .tools/compiler-rt
+            .tools/llvm-runtimes-20.1.8/llvm-project
+          key: linux-llvm-files-${{ hashFiles('src/Substrate/compiler-rt.lock.json', 'src/Substrate/llvm-runtimes.lock.json') }}
+
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
 
       - name: Extract verified LLVM, build QEMU, fetch musl, compiler-rt, the LLVM runtimes and ICU
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Download the .NET install, the services and the suite's record of witos-${{ matrix.arch }}
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -620,11 +660,21 @@ jobs:
           path: .tools/libc-test
           key: linux-libc-test-${{ hashFiles('src/Substrate/libc-test.lock.json') }}
 
+      - name: Cache the compiler-rt and LLVM libc files, which raw.githubusercontent.com serves one request at a time
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .tools/compiler-rt
+            .tools/llvm-runtimes-20.1.8/llvm-project
+          key: linux-llvm-files-${{ hashFiles('src/Substrate/compiler-rt.lock.json', 'src/Substrate/llvm-runtimes.lock.json') }}
+
       - name: Build host tools
         run: dotnet build WitOS.slnx --configuration Release
 
       - name: Extract verified LLVM, build QEMU, fetch musl, compiler-rt, the LLVM runtimes and libc-test
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- setup
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: The x64 suite
         run: dotnet run --project tools/WitOS.Dev --configuration Release --no-build -- test
