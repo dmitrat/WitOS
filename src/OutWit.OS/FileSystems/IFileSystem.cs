@@ -113,6 +113,13 @@ public interface IFileSystem : IAsyncDisposable
     /// <returns>What the check found.</returns>
     ValueTask<FileSystemCheckReport> CheckAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The volume's size and free space now (plan step E1): what statfs reports.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the count.</param>
+    /// <returns>The space.</returns>
+    ValueTask<FileSystemSpace> GetSpaceAsync(CancellationToken cancellationToken = default);
+
     #endregion
 
     #region Properties

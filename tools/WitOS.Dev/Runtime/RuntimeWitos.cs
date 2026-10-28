@@ -547,6 +547,8 @@ internal static class RuntimeWitos
         // N4.3a: the terminal over the console driver and its service. N1: the .NET compatibility suite, an ordinary
         // portable application, beside the services; N2.1: representative NuGet libraries under NUnit and xUnit.
         await RuntimeTerminal.RunAsync(root, architecture);
+        // E1 (ADR 0032): a drive's volume below /media, and a program run from it.
+        await RuntimeVolumes.RunAsync(root, architecture);
         // C2.1 (RFC 0020 §28): the firmware's framebuffer and a virtio keyboard beside the services.
         await RuntimeDisplay.RunAsync(root, architecture);
         // C1.3 (RFC 0020): upstream PowerShell from the data volume, non-interactively and under PSReadLine on the terminal.

@@ -32,7 +32,9 @@ public sealed class FatFileSystem : IFileSystem
     {
         m_volume = volume;
         var info = volume.Info;
-        Volume = new FileSystemVolume(Format(info.Kind), label, info.TotalSectors * info.SectorSize, info.ClusterSize, volume.IsReadOnly);
+        // The serial number as Windows prints it: its high and low halves in hexadecimal (ADR 0032 decision 1, a weak identity).
+        Volume = new FileSystemVolume(Format(info.Kind), label, info.TotalSectors * info.SectorSize, info.ClusterSize, volume.IsReadOnly,
+            $"{info.VolumeSerial >> 16:X4}-{info.VolumeSerial & 0xFFFF:X4}");
     }
 
     #endregion
@@ -103,19 +105,32 @@ public sealed class FatFileSystem : IFileSystem
     }
 
     /// <summary>
-    /// Formats a resource as the library chooses for its size (storage document §59), then mounts it.
+    /// Formats a resource as the library chooses for its size (storage document §59), or in the format named, then mounts
+    /// it.
     /// </summary>
     /// <param name="storage">A writable resource; what it held is lost.</param>
     /// <param name="label">The volume's label, or null.</param>
+    /// <param name="format">The format as a mounted volume names it — "FAT12", "FAT16", "FAT32" or "exFAT" — or null for the
+    /// library's choice (E1: a drive as Windows formats it).</param>
     /// <param name="cancellationToken">Cancels the format.</param>
     /// <returns>The empty filesystem.</returns>
+    /// <exception cref="ArgumentException">The format is none of those.</exception>
     /// <exception cref="FileSystemException">The resource is read-only, or no FAT format fits it.</exception>
-    public static async ValueTask<FatFileSystem> FormatAsync(IBlockStorage storage, string? label = null,
+    public static async ValueTask<FatFileSystem> FormatAsync(IBlockStorage storage, string? label = null, string? format = null,
         CancellationToken cancellationToken = default)
     {
+        FatKind? kind = format switch
+        {
+            null => null,
+            "FAT12" => FatKind.Fat12,
+            "FAT16" => FatKind.Fat16,
+            "FAT32" => FatKind.Fat32,
+            "exFAT" => FatKind.ExFat,
+            _ => throw new ArgumentException($"{format} is no FAT format.", nameof(format))
+        };
         await using (var device = FatBlockDevice.Over(storage))
         {
-            await FatErrors.RunAsync(() => FatFormatter.FormatAsync(device, new FatFormatOptions { Label = label, Clock = UtcClock.INSTANCE },
+            await FatErrors.RunAsync(() => FatFormatter.FormatAsync(device, new FatFormatOptions { Label = label, Kind = kind, Clock = UtcClock.INSTANCE },
                 cancellationToken)).ConfigureAwait(false);
         }
         return await MountAsync(storage, cancellationToken).ConfigureAwait(false);
@@ -221,6 +236,17 @@ public sealed class FatFileSystem : IFileSystem
     /// <param name="operation">The operation.</param>
     /// <param name="cancellationToken">Cancels the wait for the operations before.</param>
     /// <returns>Its result.</returns>
+    /// <inheritdoc />
+    /// <remarks>The free clusters are counted through the whole allocation table (the bitmap on exFAT), as Linux's vfat
+    /// counts them when it has no count of its own.</remarks>
+    public ValueTask<FileSystemSpace> GetSpaceAsync(CancellationToken cancellationToken = default) =>
+        LockedAsync(async () =>
+        {
+            var info = m_volume.Info;
+            var free = await m_volume.CountFreeClustersAsync(cancellationToken).ConfigureAwait(false);
+            return new FileSystemSpace((long)info.ClusterCount * info.ClusterSize, free * info.ClusterSize);
+        }, cancellationToken);
+
     internal async ValueTask<T> LockedAsync<T>(Func<ValueTask<T>> operation, CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(m_disposed != 0, this);

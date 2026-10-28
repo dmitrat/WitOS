@@ -9,6 +9,8 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/statfs.h>
+#include <sys/statvfs.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -368,10 +370,10 @@ int main(void)
     check(stat("/tmp", &tmp_stat) == 0 && S_ISDIR(tmp_stat.st_mode), "/tmp is a directory");
     volume("/tmp", 1);
     check(chmod("/bin/init", 0755) < 0 && errno == EROFS, "chmod in the package is EROFS");
-    /* /etc/mtab (C1.2): the mount table the libc serves from the namespace's mount points, which System.Native reads
+    /* /etc/mtab (C1.2, E1): the mount table the libc serves from the namespace's catalog, which System.Native reads
      * for DriveInfo.GetDrives(): the package at / and the four volumes, read-only; and the home the service made. */
     FILE *mounts = setmntent("/etc/mtab", "r");
-    int seen = 0, entries = 0;
+    int seen = 0, entries = 0, described = 0;
     for (struct mntent *entry; mounts && (entry = getmntent(mounts)) != 0; ++entries) {
         seen |= strcmp(entry->mnt_dir, "/") == 0   ? 1
             : strcmp(entry->mnt_dir, "/data") == 0 ? 2
@@ -379,11 +381,50 @@ int main(void)
             : strcmp(entry->mnt_dir, "/boot") == 0 ? 8
             : strcmp(entry->mnt_dir, "/tmp") == 0  ? 16
                                                    : 0;
+        /* E1 (ADR 0032): a volume's line names its alias, its type as Linux names it and whether it is read-only. */
+        described += strcmp(entry->mnt_dir, "/data") == 0 &&
+            strcmp(entry->mnt_fsname, "Data") == 0 &&
+            strcmp(entry->mnt_type, "ext4") == 0 &&
+            strcmp(entry->mnt_opts, "rw") == 0;
+        described += strcmp(entry->mnt_dir, "/boot") == 0 &&
+            strcmp(entry->mnt_fsname, "Boot") == 0 &&
+            strcmp(entry->mnt_type, "vfat") == 0 &&
+            strcmp(entry->mnt_opts, "ro") == 0;
     }
     if (mounts) {
         endmntent(mounts);
     }
     check(mounts != 0 && entries == 5 && seen == 31, "/etc/mtab lists the package and the four volumes");
+    check(described == 2, "/etc/mtab names each volume's alias, type and access");
+    /* statfs, fstatfs and statvfs (E1): each volume's format by Linux's magic number, its blocks and free blocks, and
+     * whether it is read-only, from the namespace's catalog; the package a read-only ROMFS; a missing path ENOENT. */
+    struct statfs fs, by_descriptor;
+    check(statfs("/data", &fs) == 0 &&
+            fs.f_type == 0xEF53 &&
+            fs.f_blocks > 0 &&
+            fs.f_bfree > 0 &&
+            fs.f_bfree <= fs.f_blocks &&
+            fs.f_bavail == fs.f_bfree &&
+            !(fs.f_flags & ST_RDONLY),
+        "statfs of the ext4 volume");
+    const int counted_fd = open("/data/boots.txt", O_RDONLY);
+    check(counted_fd >= 0 &&
+            fstatfs(counted_fd, &by_descriptor) == 0 &&
+            by_descriptor.f_type == 0xEF53 &&
+            by_descriptor.f_fsid.__val[0] == fs.f_fsid.__val[0] &&
+            by_descriptor.f_blocks == fs.f_blocks,
+        "fstatfs of a file of the ext4 volume");
+    if (counted_fd >= 0) {
+        close(counted_fd);
+    }
+    check(statfs("/fat", &fs) == 0 && fs.f_type == 0x4D44 && fs.f_bfree > 0 && fs.f_bfree <= fs.f_blocks,
+        "statfs of the FAT volume");
+    check(statfs("/tmp", &fs) == 0 && fs.f_type == 0x01021994 && fs.f_bfree > 0, "statfs of /tmp");
+    struct statvfs vfs;
+    check(statvfs("/boot", &vfs) == 0 && (vfs.f_flag & ST_RDONLY) && vfs.f_blocks > 0, "statvfs of the boot volume");
+    check(statfs("/", &fs) == 0 && fs.f_type == 0x7275 && (fs.f_flags & ST_RDONLY) && fs.f_bfree == 0,
+        "statfs of the package");
+    check(statfs("/data/no-such-file", &fs) < 0 && errno == ENOENT, "statfs of a missing path is ENOENT");
     struct stat mtab_stat;
     check(stat("/etc/mtab", &mtab_stat) == 0 && S_ISREG(mtab_stat.st_mode) && mtab_stat.st_size > 0,
         "/etc/mtab is a regular file");

@@ -42,7 +42,7 @@ public sealed class PowerShellTests
     public void ScenarioTypesEnterAsCarriageReturnTest()
     {
         var script = RuntimePowerShell.Script();
-        Assert.That(script.Count(input => input.After == RuntimePowerShell.PROMPT), Is.EqualTo(5));
+        Assert.That(script.Count(input => input.After == RuntimePowerShell.PROMPT), Is.EqualTo(6));
         Assert.That(script.Where(input => input.After == RuntimePowerShell.PROMPT).All(input => input.Text.EndsWith('\r')), Is.True,
             "PSReadLine reads the terminal raw, where Enter is CR");
         Assert.That(script[^1].Text, Is.EqualTo("exit\r"));

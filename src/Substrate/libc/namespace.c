@@ -260,35 +260,71 @@ static long namespace_connect(void)
     return 0;
 }
 
-/* The mount table as /etc/mtab (C1.2): one mntent line for the package at / and one for each point the service names,
- * what System.Native reads for DriveInfo.GetDrives() and Environment.GetLogicalDrives() where Linux reads /proc/mounts,
- * and what PowerShell builds its root drive from. A process without the namespace's endpoint sees the package alone.
- * The fields are the device, the point, the type, the options and the dump and pass numbers; the libc knows the points,
- * not the volumes' formats, so the type names the layer that serves them and the options claim nothing. */
+/* A volume's format as Linux names its file system type, what /etc/mtab and DriveInfo.DriveFormat show (E1). */
+static const char *fs_type(const char *format)
+{
+    if (strncmp(format, "FAT", 3) == 0) {
+        return "vfat";
+    }
+    if (strcmp(format, "exFAT") == 0) {
+        return "exfat";
+    }
+    return format; /* ext2, ext3, ext4, tmpfs as they are */
+}
+
+static WitU32 append(unsigned char *buffer, WitU32 length, WitU32 capacity, const char *text, WitU32 bytes)
+{
+    if (length + bytes > capacity) {
+        return capacity + 1; /* too long: the caller drops the line */
+    }
+    memcpy(buffer + length, text, bytes);
+    return length + bytes;
+}
+
+/* The mount table as /etc/mtab (C1.2, E1): one mntent line for the package at / and one for each volume of the
+ * namespace's catalog (WIT_NAMESPACE_VOLUMES), read anew at each open, so that a volume that came later is there; what
+ * System.Native reads for DriveInfo.GetDrives() and Environment.GetLogicalDrives() where Linux reads /proc/mounts, and
+ * what PowerShell builds its root drive from. A process without the namespace's endpoint sees the package alone. The
+ * fields are the volume's alias as the device, the point, the type as Linux names it, ro or rw, and the dump and pass
+ * numbers. */
 WitU32 __wit_mounts_text(unsigned char *buffer, WitU32 capacity)
 {
     static const char package[] = "package / witos-package ro 0 0\n";
-    static const char volume[] = " witos-volume defaults 0 0\n";
     WitU32 length = 0;
-    namespace_connect(); /* reads the mount points when the endpoint is there */
     if (sizeof(package) - 1 <= capacity) {
         memcpy(buffer, package, sizeof(package) - 1);
         length = sizeof(package) - 1;
     }
-    for (WitU32 i = 0; i < mount_count; ++i) {
-        const WitU32 point = mount_lengths[i]; /* stored without its slash: "<point> /<point> witos-volume ..." */
-        if (length + point + 2 + point + sizeof(volume) - 1 > capacity) {
-            break;
-        }
-        memcpy(buffer + length, mount_points[i], point);
-        length += point;
-        buffer[length++] = ' ';
-        buffer[length++] = '/';
-        memcpy(buffer + length, mount_points[i], point);
-        length += point;
-        memcpy(buffer + length, volume, sizeof(volume) - 1);
-        length += (WitU32)(sizeof(volume) - 1);
+    if (namespace_connect() < 0 || !connected) {
+        return length;
     }
+    WitNamespaceRequest request;
+    WitNamespaceReply reply;
+    memset(&request, 0, sizeof(request));
+    request.Operation = WIT_NAMESPACE_VOLUMES;
+    turn_take();
+    if (call(&request, &reply) == 0 && reply.Length <= WINDOW) {
+        for (WitU64 at = 0; at + sizeof(WitNamespaceVolume) <= reply.Length; at += sizeof(WitNamespaceVolume)) {
+            WitNamespaceVolume volume;
+            memcpy(&volume, window + at, sizeof(volume));
+            volume.Alias[sizeof(volume.Alias) - 1] = 0;
+            volume.Point[sizeof(volume.Point) - 1] = 0;
+            volume.Format[sizeof(volume.Format) - 1] = 0;
+            const char *type = fs_type(volume.Format);
+            const char *options = (volume.Flags & WIT_NAMESPACE_VOLUME_READ_ONLY) ? " ro 0 0\n" : " rw 0 0\n";
+            WitU32 line = append(buffer, length, capacity, volume.Alias, (WitU32)strlen(volume.Alias));
+            line = append(buffer, line, capacity, " ", 1);
+            line = append(buffer, line, capacity, volume.Point, (WitU32)strlen(volume.Point));
+            line = append(buffer, line, capacity, " ", 1);
+            line = append(buffer, line, capacity, type, (WitU32)strlen(type));
+            line = append(buffer, line, capacity, options, 8);
+            if (line > capacity) {
+                break;
+            }
+            length = line;
+        }
+    }
+    turn_give();
     return length;
 }
 
@@ -955,6 +991,43 @@ long __wit_remote_readlink(const unsigned char *name, WitU32 length, char *buffe
 {
     turn_take();
     const long r = readlink_in_turn(name, length, buffer, size);
+    turn_give();
+    return r;
+}
+
+/* The volume a path or an open file of a volume lies on (E1): STATFS's WitNamespaceVolume with its space. */
+static long volume_in_turn(
+    const unsigned char *name, WitU32 length, int by_index, WitU32 index, WitNamespaceVolume *volume)
+{
+    WitNamespaceReply reply;
+    const long status = by_index ? handle_call(WIT_NAMESPACE_STATFS, index, 0, 0, &reply)
+                                 : path_call(WIT_NAMESPACE_STATFS, 0, name, length, &reply);
+    if (status < 0) {
+        return status;
+    }
+    if (reply.Length < sizeof(*volume)) {
+        return -EPROTO;
+    }
+    memcpy(volume, window, sizeof(*volume));
+    if (volume->Version != WIT_NAMESPACE_VERSION || volume->Size != sizeof(*volume)) {
+        return -EPROTO;
+    }
+    volume->Format[sizeof(volume->Format) - 1] = 0;
+    return 0;
+}
+
+long __wit_remote_volume(const unsigned char *name, WitU32 length, WitNamespaceVolume *volume)
+{
+    turn_take();
+    const long r = volume_in_turn(name, length, 0, 0, volume);
+    turn_give();
+    return r;
+}
+
+long __wit_remote_fvolume(WitU32 index, WitNamespaceVolume *volume)
+{
+    turn_take();
+    const long r = volume_in_turn(0, 0, 1, index, volume);
     turn_give();
     return r;
 }

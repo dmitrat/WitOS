@@ -10,6 +10,8 @@
 #include <sys/file.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/statfs.h>
+#include <sys/statvfs.h>
 #include <sys/uio.h>
 #include "kstat.h"
 
@@ -1503,6 +1505,89 @@ static void fill_stat(struct kstat *st, Kind kind, WitU32 index, WitU64 length)
         st->st_ino = 2;
         st->st_mode = S_IFCHR | 0666;
     }
+}
+
+/* A file system's magic number as Linux's statfs reports it, by which .NET names a volume's format (E1). */
+static unsigned long fs_magic(const char *format)
+{
+    if (strncmp(format, "ext", 3) == 0) {
+        return 0xEF53UL; /* EXT4_SUPER_MAGIC, shared by ext2 and ext3 */
+    }
+    if (strncmp(format, "FAT", 3) == 0) {
+        return 0x4D44UL; /* MSDOS_SUPER_MAGIC */
+    }
+    if (strcmp(format, "exFAT") == 0) {
+        return 0x2011BAB0UL; /* EXFAT_SUPER_MAGIC */
+    }
+    if (strcmp(format, "tmpfs") == 0) {
+        return 0x01021994UL; /* TMPFS_MAGIC */
+    }
+    return 0x7275UL; /* ROMFS_MAGIC: the boot package, read-only, and /media */
+}
+
+/* A statfs of a volume, its device the stat's (16 plus its index), or of a space the libc serves itself: the package
+ * (device 2), read-only and full, or /dev/shm (device 3), as Linux reports a tmpfs. */
+static long fill_statfs(
+    struct statfs *buf, unsigned long magic, WitU64 unit, WitU64 total, WitU64 free, int device, int read_only)
+{
+    memset(buf, 0, sizeof(*buf));
+    buf->f_type = magic;
+    buf->f_bsize = (unsigned long)unit;
+    buf->f_frsize = (unsigned long)unit;
+    buf->f_blocks = total / unit;
+    buf->f_bfree = free / unit;
+    buf->f_bavail = free / unit;
+    buf->f_fsid.__val[0] = device;
+    buf->f_namelen = 255;
+    buf->f_flags = read_only ? ST_RDONLY : 0;
+    return 0;
+}
+
+static long volume_statfs(struct statfs *buf, const WitNamespaceVolume *volume)
+{
+    const WitU64 unit = volume->AllocationUnit ? volume->AllocationUnit : PAGE;
+    return fill_statfs(buf, fs_magic(volume->Format), unit, volume->TotalBytes, volume->FreeBytes,
+        16 + (int)volume->Index, (volume->Flags & WIT_NAMESPACE_VOLUME_READ_ONLY) != 0);
+}
+
+long __wit_statfs(long fd, const char *path, struct statfs *buf)
+{
+    unsigned char name[NAME_MAX_BYTES];
+    WitU32 length = 0;
+    WitNamespaceVolume volume;
+    long status;
+    if ((status = mount()) < 0) {
+        return status;
+    }
+    if (path) {
+        if ((status = resolve(AT_FDCWD, path, name, &length)) < 0) {
+            return status;
+        }
+        if (__wit_remote_name(name, length)) {
+            return (status = __wit_remote_volume(name, length, &volume)) < 0 ? status : volume_statfs(buf, &volume);
+        }
+        struct kstat st;
+        if ((status = __wit_fstatat(AT_FDCWD, path, &st, 0)) < 0) {
+            return status;
+        }
+        if (shared_directory(name, length) || st.st_dev == 3) {
+            return fill_statfs(buf, fs_magic("tmpfs"), PAGE, 0, 0, 3, 0);
+        }
+    } else if (fd < 0) {
+        return -EBADF;
+    } else if (fd >= FIRST_DESCRIPTOR || (__wit_process.ClosedStreams & (1U << fd))) {
+        const Descriptor *d = descriptor(fd);
+        if (!d) {
+            return -EBADF;
+        }
+        if (d->Kind == KindRemoteFile || d->Kind == KindRemoteDirectory) {
+            return (status = __wit_remote_fvolume(d->Index, &volume)) < 0 ? status : volume_statfs(buf, &volume);
+        }
+        if (d->Kind == KindShared) {
+            return fill_statfs(buf, fs_magic("tmpfs"), PAGE, 0, 0, 3, 0);
+        }
+    }
+    return fill_statfs(buf, fs_magic(""), PAGE, (__wit_process.PackageBytes + PAGE - 1) & ~(PAGE - 1), 0, 2, 1);
 }
 
 long __wit_fstatat(long dirfd, const char *path, struct kstat *st, long flags)

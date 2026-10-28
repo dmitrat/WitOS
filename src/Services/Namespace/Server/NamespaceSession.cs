@@ -85,6 +85,8 @@ internal sealed class NamespaceSession : IAsyncDisposable
                 NamespaceMessages.SOCKET_LISTEN => ListenSocket(request),
                 NamespaceMessages.SOCKET_CONNECT => await ConnectSocketAsync(request, cancellationToken).ConfigureAwait(false),
                 NamespaceMessages.SOCKET_CLOSE => CloseSocket(request),
+                NamespaceMessages.VOLUMES => await VolumesAsync(request, cancellationToken).ConfigureAwait(false),
+                NamespaceMessages.STATFS => await FileSystemStatAsync(request, cancellationToken).ConfigureAwait(false),
                 _ => Fail(request, Errno.NOT_IMPLEMENTED)
             };
         }
@@ -128,6 +130,8 @@ internal sealed class NamespaceSession : IAsyncDisposable
             NamespaceMessages.SOCKET_LISTEN => "socket listen",
             NamespaceMessages.SOCKET_CONNECT => "socket connect",
             NamespaceMessages.SOCKET_CLOSE => "socket close",
+            NamespaceMessages.VOLUMES => "volumes",
+            NamespaceMessages.STATFS => "statfs",
             _ => $"operation {request.Operation}"
         };
         if (m_opened.TryGetValue(request.Handle, out var opened))
@@ -148,6 +152,50 @@ internal sealed class NamespaceSession : IAsyncDisposable
         var bytes = Encoding.UTF8.GetBytes(string.Concat(m_mounts.Mounts.Select(mount => mount.Point + "\0")));
         if (bytes.Length > m_window.Length)
             return Fail(request, Errno.NAME_TOO_LONG);
+        m_window.Write(0, bytes);
+        return new NamespaceReply(request.Operation, 0, Length: bytes.Length);
+    }
+
+    // The catalog's volumes (E1, ADR 0032 decision 3), with their space when asked, into the window.
+    private async ValueTask<NamespaceReply> VolumesAsync(NamespaceRequest request, CancellationToken cancellationToken)
+    {
+        var volumes = m_mounts.Catalog.Volumes;
+        if (volumes.Count * NamespaceVolume.SIZE > m_window.Length)
+            return Fail(request, Errno.NAME_TOO_LONG);
+        var bytes = new byte[volumes.Count * NamespaceVolume.SIZE];
+        for (var i = 0; i < volumes.Count; i++)
+        {
+            var space = (request.Flags & NamespaceMessages.SPACE) != 0
+                ? await volumes[i].Mount.Volume.GetSpaceAsync(cancellationToken).ConfigureAwait(false)
+                : null;
+            volumes[i].Record(space).Write(bytes.AsSpan(i * NamespaceVolume.SIZE));
+        }
+        m_window.Write(0, bytes);
+        return new NamespaceReply(request.Operation, 0, Length: bytes.Length);
+    }
+
+    // statfs and fstatfs (E1, ADR 0032 decision 4): the volume a handle or a path lies on, with its space, into the window.
+    private async ValueTask<NamespaceReply> FileSystemStatAsync(NamespaceRequest request, CancellationToken cancellationToken)
+    {
+        MountTable.Mount mount;
+        if (request.Handle != 0)
+        {
+            if (!m_opened.TryGetValue(request.Handle, out var opened))
+                return Fail(request, Errno.BAD_HANDLE);
+            mount = opened.Mount;
+        }
+        else
+        {
+            // A path that is not there is ENOENT, as Linux's statfs answers it.
+            var (resolved, inner) = Resolve(Path(request, 0, request.Length));
+            if ((await resolved.Volume.GetEntryAsync(inner, cancellationToken).ConfigureAwait(false) ?? Root(resolved, inner)) is null)
+                return Fail(request, Errno.NOT_FOUND);
+            mount = resolved;
+        }
+        var volume = m_mounts.Catalog.Of(mount) ??
+            new Volumes.CatalogVolume(mount.Point.TrimStart('/'), mount.Point, NamespaceMessages.ORIGIN_SYSTEM, null, false, false, mount);
+        var bytes = new byte[NamespaceVolume.SIZE];
+        volume.Record(await mount.Volume.GetSpaceAsync(cancellationToken).ConfigureAwait(false)).Write(bytes);
         m_window.Write(0, bytes);
         return new NamespaceReply(request.Operation, 0, Length: bytes.Length);
     }

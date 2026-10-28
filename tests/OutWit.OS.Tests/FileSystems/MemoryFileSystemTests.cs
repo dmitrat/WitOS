@@ -74,6 +74,18 @@ public sealed class MemoryFileSystemTests
         Assert.That(report.IsClean, Is.True);
     }
 
+    // The volume's space (E1, statfs): its capacity, less the bytes its files hold.
+    [Test]
+    public async Task SpaceIsTheCapacityLessTheFilesTest()
+    {
+        await using var volume = new MemoryFileSystem(1 << 20, "tmp");
+        Assert.That(await volume.GetSpaceAsync(), Is.EqualTo(new FileSystemSpace(1 << 20, 1 << 20)));
+        await using (var file = await volume.OpenAsync("/a.bin", FileMode.CreateNew, FileAccess.Write))
+            await file.WriteAsync(0, new byte[1000]);
+        Assert.That(await volume.GetSpaceAsync(), Is.EqualTo(new FileSystemSpace(1 << 20, (1 << 20) - 1000)));
+        Assert.That(volume.Volume.Identity, Is.Null, "a volume of memory has no identity of its own");
+    }
+
     [Test]
     public async Task ModesAreKeptAsGivenTest()
     {

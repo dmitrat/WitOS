@@ -61,6 +61,11 @@ internal static class RuntimePowerShell
     public const string JITTED = "jitted";
 
     /// <summary>
+    /// The word before the root of PowerShell's drive Data: in the interactive session: "drive=/data" (E1).
+    /// </summary>
+    public const string DRIVE = "drive";
+
+    /// <summary>
     /// The prompt PowerShell shows in the data volume's root, which the runner types after.
     /// </summary>
     public const string PROMPT = "PS /data>";
@@ -170,6 +175,8 @@ internal static class RuntimePowerShell
         new(PROMPT, "1 + 2\r"),
         new(PROMPT, "Get-Date\r"),
         new(PROMPT, "Get-ChildItem /data\r"),
+        // The profile's drives (E1, ADR 0032): Data: over /data.
+        new(PROMPT, $"'{DRIVE}=' + (Get-PSDrive Data).Root\r"),
         new(PROMPT, "exit\r")
     ];
 
@@ -204,6 +211,7 @@ internal static class RuntimePowerShell
         "sh=False",
         HomeLine(architecture, version),
         $"{JITTED}=",
+        $"{DRIVE}=/data",
         EMBLEM_ROW,
         $"PowerShell {version}",
         PROMPT,

@@ -48,7 +48,7 @@ public sealed class Ext4FileSystem : IFileSystem
         m_writer = writer;
         var superblock = volume.Superblock;
         Volume = new FileSystemVolume(superblock.Format, superblock.Label.Length == 0 ? null : superblock.Label,
-            (long)superblock.BlocksCount * superblock.BlockSize, superblock.BlockSize, writer is null);
+            (long)superblock.BlocksCount * superblock.BlockSize, superblock.BlockSize, writer is null, Uuid(superblock.Uuid));
     }
 
     #endregion
@@ -326,6 +326,22 @@ public sealed class Ext4FileSystem : IFileSystem
     /// <returns>The failure.</returns>
     internal static FileSystemException ReadOnly() =>
         new(FileSystemError.ReadOnly, "The volume is mounted read-only: its resource refuses writes, or the provider does not write what it uses.");
+
+    /// <inheritdoc />
+    public ValueTask<FileSystemSpace> GetSpaceAsync(CancellationToken cancellationToken = default) =>
+        ReadAsync(() =>
+        {
+            var superblock = m_volume.Superblock;
+            return ValueTask.FromResult(new FileSystemSpace((long)superblock.BlocksCount * superblock.BlockSize,
+                (long)superblock.FreeBlocks * superblock.BlockSize));
+        }, cancellationToken);
+
+    // The UUID as Linux's blkid prints it: the bytes in order, grouped 4-2-2-2-6.
+    private static string Uuid(byte[] bytes)
+    {
+        var hex = System.Convert.ToHexString(bytes).ToLowerInvariant();
+        return $"{hex[..8]}-{hex[8..12]}-{hex[12..16]}-{hex[16..20]}-{hex[20..]}";
+    }
 
     // A read: alone on a writable mount, at once on a read-only one.
     private async ValueTask<T> ReadAsync<T>(Func<ValueTask<T>> read, CancellationToken cancellationToken)

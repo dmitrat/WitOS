@@ -935,6 +935,14 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
     case SYS_newfstatat:
         return __wit_fstatat(a1, (const char *)a2, (struct kstat *)a3, a4);
 #endif
+#if defined(SYS_statfs)
+    case SYS_statfs:
+        return __wit_statfs(-1, (const char *)a1, (struct statfs *)a2);
+#endif
+#if defined(SYS_fstatfs)
+    case SYS_fstatfs:
+        return __wit_statfs(a1, 0, (struct statfs *)a2);
+#endif
     case SYS_faccessat:
         return __wit_faccessat(a1, (const char *)a2, a3);
     case SYS_getdents64:

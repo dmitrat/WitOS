@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- An ordinary console application (plan step E1): published by the stock SDK without a RID, laid on a FAT volume of a
+       drive with an MBR, as Windows formats a USB drive, and run from there; it looks at the volumes as .NET sees them. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Volumes</AssemblyName>
+  </PropertyGroup>
+
+</Project>

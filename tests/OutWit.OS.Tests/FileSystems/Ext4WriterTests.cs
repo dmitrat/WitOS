@@ -40,6 +40,8 @@ public sealed class Ext4WriterTests(string variant)
         await using (var volume = await Ext4FileSystem.MountAsync(disk))
         {
             Assert.That(volume.Volume.IsReadOnly, Is.False);
+            Assert.That(volume.Volume.Identity, Does.Match("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"), "the UUID as blkid prints it (E1)");
+            var before = await volume.GetSpaceAsync();
             await volume.CreateDirectoryAsync("/made/sub");
             await using (var file = await volume.OpenAsync("/made/sub/big.bin", FileMode.CreateNew, FileAccess.ReadWrite))
             {
@@ -62,6 +64,9 @@ public sealed class Ext4WriterTests(string variant)
             for (var i = 0; i < 40; i++)
                 await volume.DeleteAsync($"/many/an-entry-with-a-rather-long-name-{i:0000}.txt");
             await volume.DeleteAsync("/empty.txt");
+            var after = await volume.GetSpaceAsync();
+            Assert.That(after.TotalBytes, Is.EqualTo(before.TotalBytes));
+            Assert.That(before.FreeBytes - after.FreeBytes, Is.GreaterThanOrEqualTo(1_000_000), "the superblock's free count follows the allocator (E1)");
             var mode = await volume.SetModeAsync("/note.txt", 0x1A0);                 // 0640 (N4.1)
             Assert.That(mode.Unix!.Mode, Is.EqualTo(0x1A0));
             Assert.That((await volume.SetModeAsync("/made", 0x1C0)).Unix!.Mode, Is.EqualTo(0x1C0)); // 0700 on a directory
