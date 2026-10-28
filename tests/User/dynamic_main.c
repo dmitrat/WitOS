@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 
 /* The dynamic program of the spawn scenario (plan step S5.3, /bin/dynamic): a position-independent executable whose
  * PT_INTERP names musl's dynamic linker, libc.so, in the boot package (the runtime-devices scenario starts it from a
@@ -18,7 +19,8 @@
  * everything and enters the program; the root task also runs the linker as a command that loads the program itself.
  * The program checks the library's data, functions, constructor and thread-local variable, dladdr and
  * dl_iterate_phdr, a TLS module opened with dlopen and reached from a thread that existed before it and from one
- * created after it, dlsym and dlerror, and a signal; then it reports the kernel reservations its mappings take and
+ * created after it, dlsym and dlerror, a signal, and (S8.3) a collector's decommits inside a mapping, which keep its
+ * reservation; then it reports the kernel reservations its mappings take and
  * exits with argv[1]. A failed check exits with 1. */
 
 #if defined(__x86_64__)
@@ -53,6 +55,18 @@ static void check(int condition, const char *what)
         printf("[DYNAMIC] FAILED: %s (%s)\n", what, dlerror() ? "dlerror set" : "no dlerror");
         exit(1);
     }
+}
+
+/* The kernel's reservations of the process (MEMORY_QUERY). */
+static WitU32 reservations(void)
+{
+    WitUserMemoryInfo memory;
+    WitU64 copied = 0;
+    memset(&memory, 0, sizeof(memory));
+    check(wit_syscall(WIT_CALL_MEMORY_QUERY, (WitU64)&memory, sizeof(memory), WIT_MEMORY_INFO_VERSION, &copied) ==
+            WIT_STATUS_OK,
+        "MEMORY_QUERY");
+    return memory.ReservationCount;
 }
 
 static void *library_thread(void *argument)
@@ -151,6 +165,36 @@ int main(int argc, char **argv)
     memset(&action, 0, sizeof(action));
     action.sa_handler = on_signal;
     check(sigaction(SIGUSR1, &action, 0) == 0 && raise(SIGUSR1) == 0 && signalled == SIGUSR1, "a raised signal");
+
+    /* A collector's decommits (S8.3): CoreCLR's GC gives pages back with an anonymous MAP_FIXED of PROT_NONE over its
+     * reservation and takes them again with mprotect. Inside a mapping they keep the kernel's reservation, so that a
+     * long-running process never spends the reservation table one decommit at a time. */
+    unsigned char *heap = mmap(0, 64 * 4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    check(heap != MAP_FAILED && mprotect(heap, 64 * 4096, PROT_READ | PROT_WRITE) == 0,
+        "a collector's reservation committed");
+    memset(heap, 9, 64 * 4096);
+    const WitU32 before = reservations();
+    for (unsigned page = 1; page < 64; page += 2) {
+        check(mmap(heap + page * 4096, 4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) ==
+                heap + page * 4096,
+            "a decommit inside a mapping");
+    }
+    check(reservations() == before, "decommits inside a mapping keep its reservation");
+    check(mprotect(heap, 64 * 4096, PROT_READ | PROT_WRITE) == 0 &&
+            heap[0] == 9 &&
+            heap[4096] == 0 &&
+            heap[2 * 4096 + 4095] == 9 &&
+            heap[63 * 4096 + 4095] == 0,
+        "recommitted pages are zero and the others kept");
+    check(mmap(heap + 8 * 4096, 4 * 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) ==
+                heap + 8 * 4096 &&
+            heap[8 * 4096] == 0 &&
+            heap[11 * 4096 + 4095] == 0 &&
+            heap[12 * 4096] == 9 &&
+            heap[7 * 4096] == 0 &&
+            reservations() == before,
+        "a writable replacement inside a mapping is zero pages in place");
+    check(munmap(heap, 64 * 4096) == 0 && reservations() == before - 1, "the collector's reservation released");
 
     WitUserMemoryInfo memory;
     WitU64 copied = 0;
