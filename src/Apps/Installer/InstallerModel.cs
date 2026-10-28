@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using WitOS.Apps;
@@ -97,6 +98,34 @@ internal sealed class InstallerModel
         Layer.Use(id, version, Apphost());
         return $"{id} uses {version}";
     }
+
+    /// <summary>
+    /// Compiles an installed version's native code on the device with the system's crossgen2 against the framework the
+    /// installer itself runs on, the install's Microsoft.NETCore.App (R9.2); a version in use gets launchers that name it.
+    /// </summary>
+    /// <param name="id">The application.</param>
+    /// <param name="version">The installed version, or null for the one in use.</param>
+    /// <param name="report">Told each step.</param>
+    /// <param name="cancellationToken">Cancels before the native directory is renamed into place.</param>
+    /// <returns>What happened, for the status line.</returns>
+    /// <exception cref="InvalidOperationException">The layer has no such version, or the system has no crossgen2.</exception>
+    public async Task<string> CompileAsync(string id, string? version, Action<string> report, CancellationToken cancellationToken = default)
+    {
+        var chosen = version ?? Layer.Current(id) ?? throw new InvalidOperationException($"The layer has no version of {id} in use.");
+        if (!File.Exists(m_options.Crossgen2))
+            throw new InvalidOperationException($"No crossgen2 at {m_options.Crossgen2}: this system compiles no native code.");
+        var result = await Layer.CompileAsync(id, chosen, [RuntimeEnvironment.GetRuntimeDirectory()], NativeCode.Crossgen2Process(m_options.Crossgen2, report),
+            Apphost(), report, cancellationToken);
+        return result is null
+            ? $"{id} {chosen} has no command; nothing to compile"
+            : $"Compiled {id} {chosen} for {result.Architecture}: {result.Compiled.Count} assemblies" +
+              (result.Failed.Count == 0 ? "" : $", {result.Failed.Count} kept as IL");
+    }
+
+    /// <summary>
+    /// Whether the system compiles native code: its crossgen2 is there.
+    /// </summary>
+    public bool Compiles => File.Exists(m_options.Crossgen2);
 
     private byte[] Apphost() => m_apphost ??= File.ReadAllBytes(m_options.Apphost);
 

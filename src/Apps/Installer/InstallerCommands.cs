@@ -8,8 +8,9 @@ using WitOS.Apps;
 namespace WitOS.Installer;
 
 /// <summary>
-/// The installer's commands for scripts, without the screen: list the layer and the feed, install a feed's version, use
-/// an installed version.
+/// The installer's commands for scripts, without the screen: list the layer and the feed, install a feed's version and
+/// compile its native code where the system has crossgen2 (R9.2), use an installed version, compile a version's native
+/// code.
 /// </summary>
 internal static class InstallerCommands
 {
@@ -18,7 +19,7 @@ internal static class InstallerCommands
     /// <summary>
     /// Runs a verb.
     /// </summary>
-    /// <param name="verb">list, install or use.</param>
+    /// <param name="verb">list, install, use or compile.</param>
     /// <param name="operands">The verb's operands.</param>
     /// <param name="options">The layer, the feed and the apphost.</param>
     /// <param name="output">Where the lines go.</param>
@@ -45,6 +46,12 @@ internal static class InstallerCommands
                     var row = model.Rows.Single(item => item.Id == id) with { Offered = entry };
                     // Each step a line, the last saying what happened.
                     await model.InstallAsync(row, line => output.WriteLine(line));
+                    // The native code at the installation, not at the first start (R9.2).
+                    if (model.Compiles && !model.Layer.IsCompiled(id, entry.Manifest.Version))
+                        await output.WriteLineAsync(await model.CompileAsync(id, entry.Manifest.Version, line => output.WriteLine(line)));
+                    break;
+                case "compile":
+                    await output.WriteLineAsync(await model.CompileAsync(operands[0], operands.Count == 2 ? operands[1] : null, line => output.WriteLine(line)));
                     break;
                 case "use":
                     await output.WriteLineAsync(model.Use(operands[0], operands[1]));

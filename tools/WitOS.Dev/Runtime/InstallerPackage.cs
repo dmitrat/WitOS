@@ -8,7 +8,9 @@ namespace WitOS.Dev.Runtime;
 /// The installer of base applications in the boot package (plan step C4.3, ADR 0027 decision 5): WitOS's own portable
 /// application, published by the stock SDK without a RID, under /system/Installer with the witos apphost beside it, from
 /// which it writes the layer's launchers, and its own launcher /usr/bin/witos-apps, on PATH. It belongs to the system,
-/// updated with the image, and manages the layer of the data volume.
+/// updated with the image, and manages the layer of the data volume. Where the architecture's framework is ReadyToRun
+/// (R9), its assemblies are too, and crossgen2 lies beside it under /system/Crossgen2, with which it compiles a version's
+/// native code on the device (R9.2).
 /// </summary>
 internal static class InstallerPackage
 {
@@ -56,10 +58,17 @@ internal static class InstallerPackage
         var apphost = await File.ReadAllBytesAsync(apphostPath);
         var launcher = Path.Combine(output, "witos-apps");
         await File.WriteAllBytesAsync(launcher, AppLauncher.Write(apphost, $"../../{DIRECTORY}/{ASSEMBLY}"));
-        var files = Directory.EnumerateFiles(published, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
-            .Select(path => ($"{DIRECTORY}/{Path.GetRelativePath(published, path).Replace('\\', '/')}", path)).ToList();
+        IReadOnlyList<(string Path, string Source)> installerFiles = [.. Directory.EnumerateFiles(published, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
+            .Select(path => (Path.GetRelativePath(published, path).Replace('\\', '/'), path))];
+        // R9.2: the installer's assemblies as ReadyToRun images where the architecture's framework is, as the system's
+        // framework is (R9), and crossgen2, with which it compiles the layer's versions on the device.
+        var native = NativeCodeBuild.For(root, architecture);
+        if (native is not null)
+            installerFiles = await native.CompileAsync("installer", "witos-apps", installerFiles);
+        var files = installerFiles.Select(file => ($"{DIRECTORY}/{file.Path}", file.Source)).ToList();
         files.Add(($"{DIRECTORY}/apphost", apphostPath));
         files.Add((COMMAND.TrimStart('/'), launcher));
+        files.AddRange(await Crossgen2Package.FilesAsync(root, architecture, Path.Combine(output, "crossgen2-launcher")));
         return files;
     }
 

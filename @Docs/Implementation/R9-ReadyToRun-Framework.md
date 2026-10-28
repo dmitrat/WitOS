@@ -181,4 +181,6 @@ crossgen2 makes from the same references (15 s on the host). A Pi 4 is estimated
 time. One crossgen2 process for every assembly, and crossgen2 itself in ReadyToRun as part of the system image, are
 the obvious next measurements. The first run of the measurement found S8.3: the namespace service, serving the
 mappings of some 300 assemblies, died when its collector's decommits had spent its reservation table
-([S8.3-Collector-Decommits-in-Place.md](S8.3-Collector-Decommits-in-Place.md)).
+([S8.3-Collector-Decommits-in-Place.md](S8.3-Collector-Decommits-in-Place.md)). R9.2 (2026-10-28) made both: one crossgen2 process
+compiles a directory's assemblies, and the guest's crossgen2 is ReadyToRun in the boot package
+([R9.2-Native-Code-of-Base-Applications.md](R9.2-Native-Code-of-Base-Applications.md)).

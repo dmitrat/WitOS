@@ -142,6 +142,56 @@ public sealed class AppsDirectoryTests
         Assert.That(File.Exists(globalJson), Is.False, "the version in use holds no SDK");
     }
 
+    // A version's native code (R9.2): the launchers name native-<arch>/ while it holds its marker, and the version's own
+    // files otherwise; another architecture's directory is not taken.
+    [Test]
+    public async Task LaunchersNameTheNativeDirectoryWhileItHoldsItsMarkerTest()
+    {
+        var feed = Path.Combine(m_scratch.FullName, "feed");
+        await WriteVersionAsync(feed, "1.0");
+        var layer = new AppsDirectory(Path.Combine(m_scratch.FullName, "apps"), "x64");
+        await layer.InstallAsync(AppFeed.Read(feed).Entries.Single(), Apphost());
+        Assert.That(LauncherTarget(layer), Is.EqualTo("../Tool/1.0/tool.dll"));
+        Assert.That(layer.IsCompiled("Tool", "1.0"), Is.False);
+
+        var other = Path.Combine(layer.Root, "Tool", "1.0", NativeCode.DirectoryName("arm64"));
+        Directory.CreateDirectory(other);
+        File.WriteAllText(Path.Combine(other, NativeCode.MARKER), "{}");
+        var native = Path.Combine(layer.Root, "Tool", "1.0", NativeCode.DirectoryName("x64"));
+        Directory.CreateDirectory(native);
+        layer.Use("Tool", "1.0", Apphost());
+        Assert.That(LauncherTarget(layer), Is.EqualTo("../Tool/1.0/tool.dll"), "a native directory without its marker is not complete");
+
+        File.WriteAllText(Path.Combine(native, NativeCode.MARKER), "{}");
+        Assert.That(layer.IsCompiled("Tool", "1.0"), Is.True);
+        layer.Use("Tool", "1.0", Apphost());
+        Assert.That(LauncherTarget(layer), Is.EqualTo("../Tool/1.0/native-x64/tool.dll"));
+        Assert.That(layer.Versions("Tool"), Is.EqualTo(new[] { "1.0" }), "the native directory is no version");
+    }
+
+    // Compiling on the device (R9.2): the version's native directory is made, and a version in use gets launchers that
+    // name it, while one not in use keeps the launchers as they are.
+    [Test]
+    public async Task CompiledVersionInUseGetsNativeLaunchersTest()
+    {
+        var feed = Path.Combine(m_scratch.FullName, "feed");
+        await WriteVersionAsync(feed, "1.0");
+        await WriteVersionAsync(feed, "2.0");
+        var entries = AppFeed.Read(feed).Entries;
+        var layer = new AppsDirectory(Path.Combine(m_scratch.FullName, "apps"), "x64");
+        await layer.InstallAsync(entries[0], Apphost());
+        await layer.InstallAsync(entries[1], Apphost());
+        var steps = new List<string>();
+        var report = await layer.CompileAsync("Tool", "1.0", [], (_, _) => Task.FromResult(0), Apphost(), steps.Add);
+        Assert.That(report!.Compiled, Is.Empty, "the stand-in's assemblies are no PE files");
+        Assert.That(layer.IsCompiled("Tool", "1.0"), Is.True);
+        Assert.That(LauncherTarget(layer), Is.EqualTo("../Tool/2.0/tool.dll"), "the version in use keeps its launchers");
+        await layer.CompileAsync("Tool", "2.0", [], (_, _) => Task.FromResult(0), Apphost(), steps.Add);
+        Assert.That(LauncherTarget(layer), Is.EqualTo("../Tool/2.0/native-x64/tool.dll"));
+        Assert.That(steps, Has.Some.EqualTo("Compiling Tool 2.0 for x64"));
+        Assert.ThrowsAsync<InvalidOperationException>(() => layer.CompileAsync("Tool", "3.0", [], (_, _) => Task.FromResult(0), Apphost()));
+    }
+
     [Test]
     public void ManifestIsCheckedWholeTest()
     {

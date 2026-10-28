@@ -186,6 +186,17 @@ public sealed class AppsLayerTests
         Assert.That(await AppsLayer.CurrentAsync(store, "Tool"), Is.EqualTo("1.0"), "the rollback");
         Assert.That(await LauncherTargetAsync(store, scratch), Is.EqualTo("../Tool/1.0/tool.dll"));
         Assert.ThrowsAsync<InvalidOperationException>(() => AppsLayer.UseAsync(store, "Tool", "3.0", apphost, Path.Combine(scratch, "launchers")));
+        // A version's native code (R9.2): the launcher names native-<arch>/ of the architecture asked while its marker is
+        // there, as the guest's AppsDirectory does.
+        await store.WriteFileAsync("apps/Tool/1.0/native-x64/tool.dll", program);
+        await AppsLayer.UseAsync(store, "Tool", "1.0", apphost, Path.Combine(scratch, "launchers"), "x64");
+        Assert.That(await LauncherTargetAsync(store, scratch), Is.EqualTo("../Tool/1.0/tool.dll"), "no marker, no native code");
+        await store.WriteTextAsync("apps/Tool/1.0/native-x64/witos-native.json", "{}");
+        await AppsLayer.UseAsync(store, "Tool", "1.0", apphost, Path.Combine(scratch, "launchers"), "x64");
+        Assert.That(await LauncherTargetAsync(store, scratch), Is.EqualTo("../Tool/1.0/native-x64/tool.dll"));
+        await AppsLayer.UseAsync(store, "Tool", "1.0", apphost, Path.Combine(scratch, "launchers"), "arm64");
+        Assert.That(await LauncherTargetAsync(store, scratch), Is.EqualTo("../Tool/1.0/tool.dll"), "another architecture's is not taken");
+        Assert.That(await AppsLayer.VersionsAsync(store, "Tool"), Is.EqualTo(new[] { "1.0", "2.0" }), "the native directory is no version");
         // An SDK the layer provides (C2.5): no launcher, and global.json beside the layer names the version in use.
         Assert.That(await store.ExistsAsync("global.json"), Is.False, "no SDK yet");
         var sdk = AppCatalog.Parse(Entry("Sdk", "1.0", Archive(), command: ""), "Sdk");

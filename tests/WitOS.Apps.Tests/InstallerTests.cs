@@ -44,7 +44,7 @@ public sealed class InstallerTests
         await File.WriteAllBytesAsync(apphost, Encoding.UTF8.GetBytes("ELF-head" + PLACEHOLDER + new string('\0', 1025 - PLACEHOLDER.Length) + "tail"));
         var old = await WriteVersionAsync(feed, "1.0");
         await WriteVersionAsync(feed, "2.0");
-        m_options = new InstallerOptions(Path.Combine(m_scratch.FullName, "apps"), feed, apphost);
+        m_options = new InstallerOptions(Path.Combine(m_scratch.FullName, "apps"), feed, apphost, Path.Combine(m_scratch.FullName, "no-crossgen2"));
         // The layer holds 1.0, as the host's tool lays it; the feed offers 2.0 beside it.
         await new AppsDirectory(m_options.Layer).InstallAsync(old, await File.ReadAllBytesAsync(apphost));
     }
@@ -105,6 +105,11 @@ public sealed class InstallerTests
         output.GetStringBuilder().Clear();
         await InstallerCommands.RunAsync("list", [], m_options, output, error);
         Assert.That(output.ToString(), Does.Contain("Tool: installed 1.0, 2.0; in use 1.0; feed 2.0 (installed)"));
+
+        // A system without crossgen2 installs without native code and says so when asked to compile (R9.2).
+        Assert.That(await InstallerCommands.RunAsync("compile", ["Tool"], m_options, output, error), Is.EqualTo(1));
+        Assert.That(error.ToString(), Does.Contain("No crossgen2 at").And.Contain("compiles no native code"));
+        Assert.That(new AppsDirectory(m_options.Layer).IsCompiled("Tool", "2.0"), Is.False);
     }
 
     [Test]
@@ -117,6 +122,10 @@ public sealed class InstallerTests
         Assert.Throws<ArgumentException>(() => InstallerOptions.Parse(["install", "Tool"]), "an installation needs a feed");
         Assert.Throws<ArgumentException>(() => InstallerOptions.Parse(["use", "Tool"]), "use needs a version");
         Assert.Throws<ArgumentException>(() => InstallerOptions.Parse(["remove", "Tool"]));
+        Assert.That(InstallerOptions.Parse(["compile", "Tool"]).Verb, Is.EqualTo("compile"), "compile the version in use (R9.2)");
+        Assert.That(InstallerOptions.Parse(["compile", "Tool", "2.0", "--crossgen2", "/x/crossgen2"]).Options.Crossgen2, Is.EqualTo("/x/crossgen2"));
+        Assert.That(InstallerOptions.Parse([]).Options.Crossgen2, Is.EqualTo(InstallerOptions.CROSSGEN2));
+        Assert.Throws<ArgumentException>(() => InstallerOptions.Parse(["compile"]), "compile names the application");
         Assert.Throws<ArgumentException>(() => InstallerOptions.Parse(["--feed"]));
     }
 

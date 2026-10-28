@@ -12,6 +12,8 @@ namespace WitOS.Dev.Runtime;
 /// apps/bin/&lt;command&gt;, upstream's witos apphost written for the version's assembly as the SDK writes a .NET tool's shim
 /// (the assembly's path, relative to the launcher, in the apphost's placeholder). An installation puts a new version
 /// beside the old and makes it current; using another installed version rewrites the launchers, which is the rollback.
+/// A version with commands also gets its derived native directory, apps/&lt;id&gt;/&lt;version&gt;/native-&lt;arch&gt;/, compiled on the
+/// host where the architecture's framework is ReadyToRun (R9.2), and the launchers name it.
 /// No installation database exists: the layer is its directories and the launchers follow from the manifests.
 /// </summary>
 internal static class AppsLayer
@@ -78,9 +80,11 @@ internal static class AppsLayer
     /// <param name="apphost">The apphost's bytes.</param>
     /// <param name="scratch">A directory of the host for the launchers written.</param>
     /// <param name="packages">The NuGet packages it finds in the global packages folder, by their paths from the folder.</param>
+    /// <param name="native">The builder of the architecture's native code (R9.2), or null where the layer stays IL: a version
+    /// with commands gets native-&lt;arch&gt;/ after its manifest, an installed one that lacks it too, the marker last.</param>
     /// <returns>Whether the version was written; false when the layer had it.</returns>
     public static async Task<bool> InstallAsync(ILayerStore store, AppEntry entry, IReadOnlyList<(string Path, string Source)> files, byte[] apphost,
-        string scratch, IReadOnlyList<(string Path, string Source)>? packages = null)
+        string scratch, IReadOnlyList<(string Path, string Source)>? packages = null, NativeCodeBuild? native = null)
     {
         var directory = VersionDirectory(entry.Id, entry.Version);
         var written = !await store.ExistsAsync($"{directory}/{MANIFEST}");
@@ -99,29 +103,41 @@ internal static class AppsLayer
             // The manifest last: a version is installed when its manifest is there.
             await store.WriteTextAsync($"{directory}/{MANIFEST}", ManifestJson(entry));
         }
-        await UseAsync(store, entry.Id, entry.Version, apphost, scratch);
+        // The derived native directory (R9.2) after the version, its marker last, as the guest's installer writes it.
+        if (native is not null && !await store.ExistsAsync($"{directory}/{NativeCode.DirectoryName(native.Architecture.Name)}/{NativeCode.MARKER}"))
+        {
+            foreach (var (path, source) in await native.FilesAsync(entry, files))
+                await store.WriteFileAsync($"{directory}/{NativeCode.DirectoryName(native.Architecture.Name)}/{path}", source);
+        }
+        await UseAsync(store, entry.Id, entry.Version, apphost, scratch, native?.Architecture.Name);
         return written;
     }
 
     /// <summary>
-    /// Makes an installed version the one in use: its name in current and its commands' launchers.
+    /// Makes an installed version the one in use: its name in current and its commands' launchers, which name the
+    /// version's native directory while it holds its marker (R9.2), as AppsDirectory's in the guest do.
     /// </summary>
     /// <param name="store">The layer's store.</param>
     /// <param name="id">The application's identity.</param>
     /// <param name="version">The installed version.</param>
     /// <param name="apphost">The apphost's bytes.</param>
     /// <param name="scratch">A directory of the host for the launchers written.</param>
+    /// <param name="architecture">The architecture whose native directory the launchers may name, or null for none.</param>
     /// <exception cref="InvalidOperationException">The layer has no such version.</exception>
-    public static async Task UseAsync(ILayerStore store, string id, string version, byte[] apphost, string scratch)
+    public static async Task UseAsync(ILayerStore store, string id, string version, byte[] apphost, string scratch, string? architecture = null)
     {
         var manifest = await store.ReadTextAsync($"{VersionDirectory(id, version)}/{MANIFEST}")
             ?? throw new InvalidOperationException($"The layer has no {id} {version}.");
         var entry = AppCatalog.Parse(manifest, id);
+        var native = architecture is not null &&
+            await store.ExistsAsync($"{VersionDirectory(id, version)}/{NativeCode.DirectoryName(architecture)}/{NativeCode.MARKER}")
+                ? NativeCode.DirectoryName(architecture)
+                : null;
         Directory.CreateDirectory(scratch);
         foreach (var command in entry.Commands)
         {
             var launcher = Path.Combine(scratch, $"{id}-{version}-{command.Name}");
-            await File.WriteAllBytesAsync(launcher, AppLauncher.Write(apphost, AppLauncher.AppPath(id, version, command.Assembly)));
+            await File.WriteAllBytesAsync(launcher, AppLauncher.Write(apphost, AppLauncher.AppPath(id, version, command.Assembly, native)));
             if (OperatingSystem.IsLinux())
                 File.SetUnixFileMode(launcher, (UnixFileMode)Convert.ToInt32("755", 8));
             await store.WriteFileAsync($"{BIN}/{command.Name}", launcher);
@@ -183,12 +199,13 @@ internal static class AppsLayer
         var layer = Path.Combine(staging, "volume");
         var store = new DirectoryLayerStore(layer);
         var apphost = await File.ReadAllBytesAsync(ApphostPath(root, architecture));
+        var native = NativeCodeBuild.For(root, architecture);
         foreach (var entry in await AppCatalog.ReadAsync(root))
         {
             if (!AppCatalog.Serves(entry, architecture))
                 continue; // a per-RID publication with no archive for this architecture (C2.5)
             await InstallAsync(store, entry, await ApplicationFilesAsync(root, architecture, entry), apphost, Path.Combine(staging, "launchers"),
-                await PackageFilesAsync(root, entry));
+                await PackageFilesAsync(root, entry), native);
         }
         return [.. Directory.EnumerateFiles(layer, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
             .Select(file => (Path.GetRelativePath(layer, file).Replace('\\', '/'), file))];
