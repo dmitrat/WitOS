@@ -54,6 +54,15 @@ public sealed class XhciController : IUsbHost, IDisposable
     /// </summary>
     private const int TIMEOUT_SECONDS = 5;
 
+    // The longest a bulk transfer waits (E3): a drive's write of a MiB to a slow medium.
+    private const int BULK_TIMEOUT_SECONDS = 30;
+
+    // A Normal TRB's data never crosses a 64 KiB boundary (xHCI 1.2 §4.11.7.1).
+    private const ulong TRB_BOUNDARY = 1UL << 16;
+
+    // A bulk endpoint's average TRB, as xHCI 1.2 §4.14.1.1 suggests for bulk.
+    private const int BULK_AVERAGE_TRB = 3072;
+
     /// <summary>
     /// The extended capability of USB Legacy Support.
     /// </summary>
@@ -404,6 +413,112 @@ public sealed class XhciController : IUsbHost, IDisposable
     }
 
     /// <inheritdoc />
+    public (int In, int Out) ConfigureBulk(int slot, UsbEndpoint input, UsbEndpoint output)
+    {
+        var device = DeviceAt(slot);
+        var (inIndex, outIndex) = (XhciContexts.Index(input), XhciContexts.Index(output));
+        IDmaBuffer[] blocks = [TakeBlock(), TakeBlock(), TakeBlock(), TakeBlock()]; // two rings and two buffers
+        var inRing = new XhciRing(blocks[0], MmioRegion.Barrier);
+        var outRing = new XhciRing(blocks[1], MmioRegion.Barrier);
+        var context = device.Memory.Input.Bytes;
+        var entries = Math.Max(Math.Max(inIndex, outIndex), device.ContextEntries);
+        XhciContexts.WriteControl(context, m_contextBytes, 0, 1U | 1U << inIndex | 1U << outIndex);
+        XhciContexts.WriteSlot(context, m_contextBytes, device.Location, entries, device.Hub);
+        XhciContexts.WriteEndpoint(context, m_contextBytes, inIndex, XhciContexts.BULK_IN, input.PacketBytes, 0, 0, inRing.Base, BULK_AVERAGE_TRB);
+        XhciContexts.WriteEndpoint(context, m_contextBytes, outIndex, XhciContexts.BULK_OUT, output.PacketBytes, 0, 0, outRing.Base, BULK_AVERAGE_TRB);
+        try
+        {
+            Command(XhciTrb.Of(XhciTrb.CONFIGURE_ENDPOINT, device.Memory.Input.Physical, flags: (uint)slot << 24));
+        }
+        catch (IOException)
+        {
+            foreach (var block in blocks)
+                m_blocks.Push(block);
+            throw;
+        }
+        device.ContextEntries = entries;
+        (device.Rings[inIndex], device.Segments[inIndex], device.Buffers[inIndex], device.PacketBytes[inIndex]) =
+            (inRing, blocks[0], blocks[2], input.PacketBytes);
+        (device.Rings[outIndex], device.Segments[outIndex], device.Buffers[outIndex], device.PacketBytes[outIndex]) =
+            (outRing, blocks[1], blocks[3], output.PacketBytes);
+        return (inIndex, outIndex);
+    }
+
+    /// <inheritdoc />
+    public BulkResult Bulk(int slot, int index, ReadOnlySpan<(ulong Address, int Length)> segments, out int transferred)
+    {
+        var device = DeviceAt(slot);
+        var ring = device.Rings[index] ?? throw new InvalidOperationException($"Endpoint {index} of slot {slot} is not configured.");
+        // One Transfer Descriptor: the segments cut at 64 KiB boundaries, chained, each interrupting a short packet, the
+        // last on its completion; TD Size counts the packets left after each TRB (xHCI 1.2 §4.11.2.4).
+        var pieces = new List<(ulong Address, int Length)>();
+        long total = 0;
+        foreach (var (address, length) in segments)
+        {
+            for (var at = address; at < address + (ulong)length;)
+            {
+                var end = Math.Min(address + (ulong)length, (at & ~(TRB_BOUNDARY - 1)) + TRB_BOUNDARY);
+                pieces.Add((at, (int)(end - at)));
+                at = end;
+            }
+            total += length;
+        }
+        transferred = 0;
+        if (pieces.Count == 0)
+            return BulkResult.Done;
+        if (pieces.Count >= ring.Capacity)
+            throw new ArgumentException($"A bulk transfer of {pieces.Count} pieces; the ring holds {ring.Capacity - 1}.", nameof(segments));
+        var packet = Math.Max(1, device.PacketBytes[index]);
+        var trbs = new ulong[pieces.Count];
+        var before = new int[pieces.Count];
+        var left = total;
+        for (var i = 0; i < pieces.Count; i++)
+        {
+            before[i] = (int)(total - left);
+            left -= pieces[i].Length;
+            var tdSize = (uint)Math.Min(31, (left + packet - 1) / packet);
+            var flags = XhciTrb.INTERRUPT_SHORT | (i < pieces.Count - 1 ? XhciTrb.CHAIN : XhciTrb.INTERRUPT_ON_COMPLETION);
+            trbs[i] = ring.Enqueue(XhciTrb.Of(XhciTrb.NORMAL, pieces[i].Address, (uint)pieces[i].Length | tdSize << 17, flags));
+        }
+        Ring(slot, index);
+        var deadline = Clock.MonotonicAfter(BULK_TIMEOUT_SECONDS);
+        for (; ; )
+        {
+            if (TakeTransfer(slot, index, out var trb))
+            {
+                var at = Array.IndexOf(trbs, trb.Parameter);
+                if (at < 0)
+                    continue; // an earlier transfer's event for its last TRB, after its short packet ended it
+                transferred = before[at] + pieces[at].Length - Math.Min(trb.Residual, pieces[at].Length);
+                if (trb.CompletionCode == XhciTrb.SUCCESS && at == trbs.Length - 1 || trb.CompletionCode == XhciTrb.SHORT_PACKET)
+                    return BulkResult.Done; // a short packet ends the descriptor, whose TRBs after it the controller skips
+                if (trb.CompletionCode == XhciTrb.SUCCESS)
+                    continue;
+                var stalled = trb.CompletionCode == XhciTrb.STALL;
+                RecoverEndpoint(slot, index); // halted on the controller's side: reset, the descriptor's rest skipped
+                return stalled ? BulkResult.Stalled : BulkResult.Failed;
+            }
+            try
+            {
+                WaitForEvents(deadline, $"a bulk transfer on endpoint {index} of slot {slot}");
+            }
+            catch (IOException)
+            {
+                RecoverEndpoint(slot, index); // the descriptor stopped and skipped, so that the next one starts on its own
+                return BulkResult.Failed;
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public Span<byte> BulkBuffer(int slot, int index, out ulong physical)
+    {
+        var buffer = DeviceAt(slot).Buffers[index] ?? throw new InvalidOperationException($"Endpoint {index} of slot {slot} is not configured.");
+        physical = buffer.Physical;
+        return buffer.Bytes;
+    }
+
+    /// <inheritdoc />
     public void ConfigureHub(int slot, UsbHubDescriptor hub)
     {
         var device = DeviceAt(slot);
@@ -714,6 +829,20 @@ public sealed class XhciController : IUsbHost, IDisposable
         return false;
     }
 
+    // The first Transfer Event of an endpoint the core does not serve (a bulk one, E3), taken out of the order the core reads.
+    private bool TakeTransfer(int slot, int index, out XhciTrb trb)
+    {
+        var at = m_transfers.FindIndex(item => item.Slot == slot && item.Endpoint == index);
+        if (at < 0)
+        {
+            trb = default;
+            return false;
+        }
+        trb = m_transfers[at];
+        m_transfers.RemoveAt(at);
+        return true;
+    }
+
     // A device that goes leaves no event behind for its slot's next device.
     private void Forget(int slot)
     {
@@ -970,6 +1099,11 @@ internal sealed class XhciDevice
     /// Their transfers' buffers.
     /// </summary>
     public IDmaBuffer?[] Buffers { get; } = new IDmaBuffer?[XhciContexts.DEVICE_CONTEXTS];
+
+    /// <summary>
+    /// The packet bytes of each bulk endpoint, by its Device Context Index (E3).
+    /// </summary>
+    public int[] PacketBytes { get; } = new int[XhciContexts.DEVICE_CONTEXTS];
 
     #endregion
 }

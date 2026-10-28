@@ -91,6 +91,13 @@ public readonly record struct UsbSetup(byte RequestType, byte Request, ushort Va
     /// </summary>
     private const byte OUT_CLASS_INTERFACE = 0x21;
 
+    private const byte IN_CLASS_INTERFACE = 0xA1;
+
+    // Bulk-Only Transport's class requests (USB MSC BOT 1.0 §3.1, §3.2).
+    private const byte BULK_ONLY_RESET = 0xFF;
+
+    private const byte GET_MAX_LUN = 0xFE;
+
     /// <summary>
     /// bmRequestType: device to host, class, the device (a hub's descriptor).
     /// </summary>
@@ -149,6 +156,20 @@ public readonly record struct UsbSetup(byte RequestType, byte Request, ushort Va
     /// <returns>The packet.</returns>
     public static UsbSetup SetIdle(byte interfaceNumber, byte duration) =>
         new(OUT_CLASS_INTERFACE, SET_IDLE, (ushort)(duration << 8), interfaceNumber, 0);
+
+    /// <summary>
+    /// Bulk-Only Transport's Get Max LUN of an interface (E3): one byte, the highest logical unit; a STALL means one unit.
+    /// </summary>
+    /// <param name="interfaceNumber">The interface.</param>
+    /// <returns>The packet.</returns>
+    public static UsbSetup GetMaxLun(byte interfaceNumber) => new(IN_CLASS_INTERFACE, GET_MAX_LUN, 0, interfaceNumber, 1);
+
+    /// <summary>
+    /// Bulk-Only Transport's Bulk-Only Mass Storage Reset of an interface (E3), the first step of its reset recovery.
+    /// </summary>
+    /// <param name="interfaceNumber">The interface.</param>
+    /// <returns>The packet.</returns>
+    public static UsbSetup BulkOnlyReset(byte interfaceNumber) => new(OUT_CLASS_INTERFACE, BULK_ONLY_RESET, 0, interfaceNumber, 0);
 
     /// <summary>
     /// GET_DESCRIPTOR of an interface's HID report descriptor (HID 1.11 §7.1.1).

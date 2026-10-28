@@ -78,9 +78,14 @@ public static class ServiceStop
         try
         {
             channel.Send(Encode(deadline));
-            Event.Wait(deadline, channel.Endpoint, process);
-            using var answer = channel.Receive(); // an answer the service left before it ended is still queued
-            return ServiceStatus.Decode(answer.Bytes);
+            for (; ; )
+            {
+                Event.Wait(deadline, channel.Endpoint, process);
+                using var answer = channel.Receive(); // an answer the service left before it ended is still queued
+                if (answer.Bytes.Length == ServiceStatus.SIZE)
+                    return ServiceStatus.Decode(answer.Bytes);
+                // An announcement the service made before it read the stop (E3: a drive that came or went); its handles go.
+            }
         }
         catch (CapabilityException exception) when (exception.Error == Channel.PEER_CLOSED)
         {

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- An ordinary console application (plan step E3): published by the stock SDK without a RID, run beside a USB drive
+       the namespace mounts below /media; it uses the drive through System.IO, asks for it to be taken out and put back,
+       and sees it go and come. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Drive</AssemblyName>
+  </PropertyGroup>
+
+</Project>

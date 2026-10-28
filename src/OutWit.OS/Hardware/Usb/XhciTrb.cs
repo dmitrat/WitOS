@@ -150,6 +150,11 @@ public readonly record struct XhciTrb(ulong Parameter, uint Status, uint Control
     public const uint INTERRUPT_SHORT = 1 << 2;
 
     /// <summary>
+    /// The Chain bit: the next TRB belongs to the same Transfer Descriptor (E3).
+    /// </summary>
+    public const uint CHAIN = 1 << 4;
+
+    /// <summary>
     /// Interrupt On Completion.
     /// </summary>
     public const uint INTERRUPT_ON_COMPLETION = 1 << 5;

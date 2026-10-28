@@ -303,8 +303,19 @@ internal static class Program
     private static int Serve(Channel channel, NamespaceActivation? names, NetworkActivation? network, TerminalActivation? terminal,
         DisplayActivation? display, IReadOnlyList<DriverActivation> drivers)
     {
+        // E3: the drives a USB controller's driver announces as they come and go, which go on to the namespace service; the
+        // wait takes the root task's channel and three controllers' (OBJECT_WAIT's four handles).
+        var announcing = drivers.Where(driver => driver.Status == 0 && driver.Path == DriverTable.XHCI).Take(3).ToList();
         for (; ; )
         {
+            var index = Event.Wait(Event.INFINITE, [channel.Endpoint, .. announcing.Select(driver => driver.Channel.Endpoint)]);
+            if (index > 0)
+            {
+                var driver = announcing[index - 1];
+                if (!Announced(driver, names))
+                    announcing.Remove(driver);
+                continue;
+            }
             ChannelMessage message;
             try
             {
@@ -348,6 +359,52 @@ internal static class Program
                 channel.Send(ServiceStatus.Encode(error));
                 return error == 0 ? 0 : 1;
             }
+        }
+    }
+
+    // A drive a USB controller's driver announced (E3): a disk message with the drive's block channel when it came, or with
+    // DISK_GONE and no handle when it went, forwarded to the namespace service as it is. False once the driver's channel
+    // closed.
+    private static bool Announced(DriverActivation driver, NamespaceActivation? names)
+    {
+        ChannelMessage message;
+        try
+        {
+            message = driver.Channel.Receive();
+        }
+        catch (CapabilityException exception) when (exception.Error == Channel.PEER_CLOSED)
+        {
+            return false;
+        }
+        using (message)
+        {
+            uint flags;
+            string device;
+            try
+            {
+                (flags, device) = NamespaceMessages.DecodeDisk(message.Bytes);
+            }
+            catch (FormatException)
+            {
+                Console.WriteLine($"{PREFIX}a message of {message.Bytes.Length} bytes from driver {driver.Path} of {driver.Record.Id}, which the device manager does not serve");
+                return true;
+            }
+            var gone = (flags & NamespaceMessages.DISK_GONE) != 0;
+            if (names is not { Status: 0 })
+            {
+                Console.WriteLine($"{PREFIX}drive {device} {(gone ? "went" : "came")}; no namespace service mounts it");
+                return true;
+            }
+            try
+            {
+                names.Channel.Send(message.Bytes, [.. message.Handles]);
+                Console.WriteLine($"{PREFIX}drive {device} of {driver.Record.Id} {(gone ? "went: the namespace service lets its volumes go" : "came: to the namespace service")}");
+            }
+            catch (CapabilityException exception)
+            {
+                Console.WriteLine($"{PREFIX}drive {device}: the namespace service could not have it, error {exception.Error}");
+            }
+            return true;
         }
     }
 

@@ -70,6 +70,7 @@ public sealed class UsbBus
     #region Fields
 
     private readonly IUsbHost m_host;
+    private readonly List<(bool Arrived, UsbStorage Storage)> m_storage = [];
     private readonly Action<string> m_log;
     private readonly Dictionary<int, Node> m_roots = [];
     private readonly Dictionary<int, Node> m_slots = [];
@@ -162,6 +163,17 @@ public sealed class UsbBus
             HubChanged(node, hub, data);
         }
         m_host.Receive(slot, index, endpoint.Length);
+    }
+
+    /// <summary>
+    /// The drives that came and went since the last call, in order (E3): what the driver serves as disks.
+    /// </summary>
+    /// <returns>Each drive and whether it arrived or left.</returns>
+    public List<(bool Arrived, UsbStorage Storage)> TakeStorage()
+    {
+        var taken = m_storage.ToList();
+        m_storage.Clear();
+        return taken;
     }
 
     /// <summary>
@@ -286,10 +298,18 @@ public sealed class UsbBus
             ConfigureHub(node, device, configuration, hub ?? throw new FormatException("A hub without an interrupt IN endpoint."));
             return;
         }
+        // A drive (E3): a mass storage interface of SCSI's command set over Bulk-Only Transport, with its two bulk endpoints.
+        var storage = configuration.Interfaces.FirstOrDefault(item => item.Class == ScsiDisk.CLASS_MASS_STORAGE && item.SubClass == ScsiDisk.SUBCLASS_SCSI &&
+            item.Protocol == ScsiDisk.PROTOCOL_BULK_ONLY && item.AlternateSetting == 0 && item.Endpoints.Any(IsBulkIn) && item.Endpoints.Any(IsBulkOut));
+        if (storage is not null)
+        {
+            ConfigureStorage(node, device, configuration, storage);
+            return;
+        }
         var interfaces = configuration.Interfaces.Where(item => item.Class == UsbDescriptors.CLASS_HID && item.AlternateSetting == 0 && item.Endpoints.Any(IsInterruptIn)).ToList();
         if (interfaces.Count == 0)
         {
-            m_log($"{node.Name}: neither a hub nor a HID interface, left unconfigured");
+            m_log($"{node.Name}: neither a hub, a drive nor a HID interface, left unconfigured");
             return;
         }
         ConfigureKeyboards(node, configuration, interfaces);
@@ -322,6 +342,31 @@ public sealed class UsbBus
 
     // A device's HID interfaces: their endpoints configured before the configuration is set, as xHCI asks; then each
     // interface whose report descriptor names keys a keyboard whose reports are asked for.
+    // A drive (E3): its bulk endpoints configured, the configuration set, its highest logical unit asked (a STALL is one
+    // unit), and the drive announced to whoever serves it as a disk.
+    private void ConfigureStorage(Node node, UsbDeviceDescriptor device, UsbConfiguration configuration, UsbInterface item)
+    {
+        var input = item.Endpoints.First(IsBulkIn);
+        var output = item.Endpoints.First(IsBulkOut);
+        var (inIndex, outIndex) = m_host.ConfigureBulk(node.Slot, input, output);
+        m_host.Control(node.Slot, UsbSetup.SetConfiguration(configuration.Value));
+        byte maxLun = 0;
+        try
+        {
+            maxLun = m_host.Control(node.Slot, UsbSetup.GetMaxLun(item.Number))[0];
+        }
+        catch (IOException)
+        {
+            // BOT 3.2: a device of one unit may stall Get Max LUN.
+        }
+        var storage = new UsbStorage(node.Slot, node.Name, item.Number, input, output, inIndex, outIndex, (byte)Math.Min((int)maxLun, 15), device.Vendor,
+            device.Product);
+        node.Storage = storage;
+        m_log($"{node.Name}: a drive, interface {item.Number}, bulk endpoints {input.Address:x2} and {output.Address:x2} of {input.PacketBytes} bytes, " +
+            $"{maxLun + 1} logical unit{(maxLun == 0 ? "" : "s")}");
+        m_storage.Add((true, storage));
+    }
+
     private void ConfigureKeyboards(Node node, UsbConfiguration configuration, List<UsbInterface> interfaces)
     {
         var endpoints = interfaces.Select(item => item.Endpoints.First(IsInterruptIn)).ToList();
@@ -440,6 +485,8 @@ public sealed class UsbBus
             foreach (var child in hub.Children.Where(item => item is not null).ToList())
                 Detach(child!);
         }
+        if (node.Storage is { } storage)
+            m_storage.Add((false, storage)); // its disk's server goes before its slot
         var start = m_events.Count;
         foreach (var endpoint in node.Endpoints)
             endpoint.Keyboard?.Release(m_events);
@@ -505,6 +552,10 @@ public sealed class UsbBus
 
     private static bool IsInterruptIn(UsbEndpoint endpoint) => endpoint.IsIn && endpoint.Type == UsbEndpoint.INTERRUPT;
 
+    private static bool IsBulkIn(UsbEndpoint endpoint) => endpoint.Type == UsbEndpoint.BULK && endpoint.IsIn;
+
+    private static bool IsBulkOut(UsbEndpoint endpoint) => endpoint.Type == UsbEndpoint.BULK && !endpoint.IsIn;
+
     /// <summary>
     /// A speed's name.
     /// </summary>
@@ -562,6 +613,8 @@ public sealed class UsbBus
 
         public Hub? Hub { get; set; }
 
+        public UsbStorage? Storage { get; set; }
+
         public List<Endpoint> Endpoints { get; } = [];
 
         public string Name => $"port {Location.Path}";
@@ -591,3 +644,20 @@ public sealed class UsbBus
 
     #endregion
 }
+
+/// <summary>
+/// A drive the bus configured (E3): its slot and port, its mass storage interface and bulk endpoints with their Device
+/// Context Indexes, its highest logical unit and its identity.
+/// </summary>
+/// <param name="Slot">The device's slot.</param>
+/// <param name="Name">Its port, as the log names it.</param>
+/// <param name="Interface">The interface's number, which the class requests name.</param>
+/// <param name="Input">The bulk IN endpoint.</param>
+/// <param name="Output">The bulk OUT endpoint.</param>
+/// <param name="InIndex">The IN endpoint's Device Context Index.</param>
+/// <param name="OutIndex">The OUT endpoint's Device Context Index.</param>
+/// <param name="MaxLun">The highest logical unit.</param>
+/// <param name="Vendor">The device's vendor id.</param>
+/// <param name="Product">The device's product id.</param>
+public sealed record UsbStorage(int Slot, string Name, byte Interface, UsbEndpoint Input, UsbEndpoint Output, int InIndex, int OutIndex, byte MaxLun,
+    ushort Vendor, ushort Product);

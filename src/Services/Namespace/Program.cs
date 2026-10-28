@@ -81,6 +81,7 @@ internal static class Program
             channel.Send(ServiceStatus.Encode(error));
             return 1;
         }
+        var drives = new Dictionary<string, MountedDrive>(StringComparer.Ordinal);
         var (clients, theirs) = Channel.Create();
         using (theirs)
         {
@@ -101,8 +102,19 @@ internal static class Program
                 if (ServiceStop.TryDecode(message.Bytes, out _))
                 {
                     message.Dispose();
+                    foreach (var device in drives.Keys.ToList())
+                        Leave(mounts, drives, device); // the drives' volumes before the disks'
                     channel.Send(ServiceStatus.Encode(Stop(mounts, kept)));
                     return 0;
+                }
+                if (Drive(message) is { } drive)
+                {
+                    // E3: a drive that came, mounted below /media, or one that went, its volumes let go.
+                    if (drive.Gone)
+                        Leave(mounts, drives, drive.Device);
+                    else
+                        drives[drive.Device] = Arrive(mounts, drive.Device, drive.Handle!);
+                    continue;
                 }
                 if (Network(message) is { } network)
                 {
@@ -158,6 +170,70 @@ internal static class Program
         return error;
     }
 
+    // A disk message with DISK_REMOVABLE and its one handle, or with DISK_GONE and none (E3): a drive's announcement.
+    private static Announced? Drive(ChannelMessage message)
+    {
+        try
+        {
+            var (flags, device) = NamespaceMessages.DecodeDisk(message.Bytes);
+            if ((flags & NamespaceMessages.DISK_GONE) != 0)
+            {
+                message.Dispose();
+                return new Announced(device, true, null);
+            }
+            return (flags & NamespaceMessages.DISK_REMOVABLE) != 0 && message.Handles.Count == 1 ? new Announced(device, false, message.Handles[0]) : null;
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+    }
+
+    // A drive that came (E3): its block channel attached, each volume of it mounted below /media with the removable origin.
+    private static MountedDrive Arrive(MountTable mounts, string device, KernelHandle handle)
+    {
+        var attached = new List<CatalogVolume>();
+        var kept = new List<IAsyncDisposable>();
+        try
+        {
+            var disk = ChannelBlockStorage.Attach(new Channel(handle));
+            kept.Add(disk);
+            kept.AddRange(VolumeMounter.MountAsync(mounts, disk, device, removable: true, attached).GetAwaiter().GetResult());
+            Console.WriteLine($"{PREFIX}drive {device}: {attached.Count} volume{(attached.Count == 1 ? "" : "s")} mounted" +
+                (attached.Count == 0 ? "" : $" at {string.Join(", ", attached.Select(volume => volume.Point))}"));
+        }
+        catch (Exception exception) when (exception is CapabilityException or IOException or FormatException)
+        {
+            Console.WriteLine($"{PREFIX}drive {device}: not mounted: {exception.Message}");
+        }
+        return new MountedDrive(kept, attached);
+    }
+
+    // A drive that went (E3): its volumes leave the catalog, so that no lookup reaches them, and what held them closes; a
+    // file of it still open fails from then on, since its disk is gone.
+    private static void Leave(MountTable mounts, Dictionary<string, MountedDrive> drives, string device)
+    {
+        if (!drives.Remove(device, out var drive))
+            return;
+        foreach (var volume in drive.Volumes)
+        {
+            mounts.Catalog.Detach(volume.Alias);
+            Console.WriteLine($"{PREFIX}{volume.Point} left with its drive {device}");
+        }
+        for (var i = drive.Kept.Count - 1; i >= 0; i--)
+        {
+            try
+            {
+                drive.Kept[i].DisposeAsync().AsTask().GetAwaiter().GetResult();
+            }
+            catch (Exception exception)
+            {
+                // The drive is gone: what its volumes held back cannot reach it.
+                Console.WriteLine($"{PREFIX}drive {device}: {exception.GetType().Name}: {exception.Message}");
+            }
+        }
+    }
+
     // A disk message with DISK_NETWORK and its one handle: the network service's clients' endpoint (E2.2).
     private static KernelHandle? Network(ChannelMessage message)
     {
@@ -180,6 +256,12 @@ internal static class Program
     #endregion
 
     #region Types
+
+    // A drive's announcement: its device, whether it went, and its block channel when it came.
+    private sealed record Announced(string Device, bool Gone, KernelHandle? Handle);
+
+    // A drive mounted (E3): what its mounts keep open, in the order they opened, and its volumes in the catalog.
+    private sealed record MountedDrive(List<IAsyncDisposable> Kept, List<CatalogVolume> Volumes);
 
     // A handle the service keeps until it stops.
     private sealed class HandleKeeper(KernelHandle handle) : IAsyncDisposable

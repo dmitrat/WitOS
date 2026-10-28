@@ -225,6 +225,11 @@ public sealed record UsbEndpoint(byte Address, byte Attributes, ushort MaxPacket
     public const int INTERRUPT = 3;
 
     /// <summary>
+    /// The transfer type of a bulk endpoint (E3).
+    /// </summary>
+    public const int BULK = 2;
+
+    /// <summary>
     /// The endpoint's number.
     /// </summary>
     public int Number => Address & 0x0F;

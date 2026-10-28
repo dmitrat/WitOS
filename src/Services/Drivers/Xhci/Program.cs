@@ -6,6 +6,7 @@ using System.Linq;
 using OutWit.OS.Communication;
 using OutWit.OS.Hardware;
 using OutWit.OS.Hardware.Usb;
+using OutWit.OS.Namespaces;
 using OutWit.OS.Resources;
 
 namespace OutWit.OS.Drivers.Xhci;
@@ -19,7 +20,10 @@ namespace OutWit.OS.Drivers.Xhci;
 /// always asked for, and the devices that come and go afterwards. It answers that it is ready with the other end of an
 /// input channel, on which it serves the input protocol (witos/input.h) to the display service as the virtio keyboard's
 /// driver does, reports every key to the log as well, and serves both channels and the controller until the device
-/// manager asks it to stop or closes its own.
+/// manager asks it to stop or closes its own. A drive (plan step E3: mass storage of SCSI over Bulk-Only Transport) it
+/// opens as a disk when it comes, serves the block protocol on a channel of its own and announces to the device manager
+/// as a removable disk, whose channel goes on to the namespace service; when the drive goes, it says so. One drive at a
+/// time: the wait takes the manager's channel, the controller's interrupt, the input channel and one block channel.
 /// </summary>
 internal static class Program
 {
@@ -31,6 +35,14 @@ internal static class Program
     /// EIO, the errno value of a controller that does not answer as its descriptor says.
     /// </summary>
     private const int DEVICE_ERROR = 5;
+
+    // A drive's requests (E3): sixteen segments of at most 64 KiB, 64 KiB a command, so that a transfer's TRBs, cut at
+    // 64 KiB boundaries, fit a bulk ring.
+    private const int DRIVE_SEGMENTS = 16;
+
+    private const long DRIVE_SEGMENT_BYTES = 64 * 1024;
+
+    private const long DRIVE_TRANSFER_BYTES = 64 * 1024;
 
     #endregion
 
@@ -76,7 +88,7 @@ internal static class Program
             channel.Send(ServiceStatus.Encode(error));
             return 1;
         }
-        var stopped = Serve(channel, events, server, controller, bus, name);
+        var stopped = Serve(channel, events, server, controller, bus, device, name);
         server.Dispose();
         controller.Dispose(); // halted before its memory goes
         device.Dispose();
@@ -124,14 +136,40 @@ internal static class Program
     // turns a keyboard's report into key events and serves a hub's changed ports, each root port's change to the core,
     // which takes the device that came and lets go the device that went — and the key events queued for the client.
     // Whether it was a stop.
-    private static bool Serve(Channel manager, Channel events, InputServer server, XhciController controller, UsbBus bus, string name)
+    private static bool Serve(Channel manager, Channel events, InputServer server, XhciController controller, UsbBus bus, KernelHandle device,
+        string name)
     {
         Channel? client = events;
+        Drive? drive = null;
+        drive = Drives(manager, controller, bus, device, name, drive); // the drives the bus found at its start
+        try
+        {
+            return Serve(manager, ref client, server, controller, bus, device, name, ref drive);
+        }
+        finally
+        {
+            drive?.Dispose();
+        }
+    }
+
+    private static bool Serve(Channel manager, ref Channel? client, InputServer server, XhciController controller, UsbBus bus, KernelHandle device,
+        string name, ref Drive? drive)
+    {
         for (; ; )
         {
-            var index = client is null
-                ? Event.Wait(Event.INFINITE, manager.Endpoint, controller.Interrupt)
-                : Event.Wait(Event.INFINITE, manager.Endpoint, controller.Interrupt, client.Endpoint);
+            // The manager's channel, the interrupt, then the input channel and the drive's block channel while they are open.
+            var waited = new List<KernelHandle>(4) { manager.Endpoint, controller.Interrupt };
+            if (client is not null)
+                waited.Add(client.Endpoint);
+            var blockAt = drive?.Block is null ? -1 : waited.Count;
+            if (drive?.Block is { } block)
+                waited.Add(block.Endpoint);
+            var index = Event.Wait(Event.INFINITE, [.. waited]);
+            if (index == blockAt)
+            {
+                ServeDrive(drive!, name);
+                continue;
+            }
             if (index == 1)
             {
                 controller.Service();
@@ -151,6 +189,7 @@ internal static class Program
                     if (server.Completed() is { } completed)
                         Answer(client, completed);
                 }
+                drive = Drives(manager, controller, bus, device, name, drive);
                 continue;
             }
             var channel = index == 0 ? manager : client!;
@@ -164,6 +203,7 @@ internal static class Program
                 if (index == 0)
                 {
                     client?.Dispose();
+                    client = null;
                     return false;
                 }
                 Console.WriteLine($"{PREFIX}driver of {name}: the client closed the input channel");
@@ -179,6 +219,7 @@ internal static class Program
                     if (ServiceStop.TryDecode(message.Bytes, out _))
                     {
                         client?.Dispose();
+                        client = null;
                         return true;
                     }
                     Console.WriteLine($"{PREFIX}a request of {message.Bytes.Length} bytes, which the driver does not serve");
@@ -187,6 +228,84 @@ internal static class Program
                 if (server.Serve(message) is { } reply)
                     Answer(client!, reply);
             }
+        }
+    }
+
+    // The drives that came and went since the last look (E3): one that comes opened as a disk, served on a block channel
+    // whose other end goes to the device manager in a removable disk's message; one that goes let go with a message
+    // that says so. A second drive while one is served is left.
+    private static Drive? Drives(Channel manager, XhciController controller, UsbBus bus, KernelHandle device, string name, Drive? drive)
+    {
+        foreach (var (arrived, storage) in bus.TakeStorage())
+        {
+            var identity = $"{name}/usb-{storage.Name.Replace("port ", "", StringComparison.Ordinal)}";
+            if (!arrived)
+            {
+                if (drive?.Storage.Slot != storage.Slot)
+                    continue;
+                drive.Dispose();
+                drive = null;
+                Tell(manager, NamespaceMessages.EncodeDisk(NamespaceMessages.DISK_GONE, identity), null);
+                Console.WriteLine($"{PREFIX}{storage.Name}: the drive went; the device manager is told");
+                continue;
+            }
+            if (drive is not null)
+            {
+                Console.WriteLine($"{PREFIX}{storage.Name}: a second drive, left while the one at {drive.Storage.Name} is served (one at a time)");
+                continue;
+            }
+            try
+            {
+                var disk = ScsiDisk.Open(new BulkOnlyTransport(new UsbBulkPipes(controller, storage)), controller.Delay, DRIVE_SEGMENTS, DRIVE_SEGMENT_BYTES,
+                    DRIVE_TRANSFER_BYTES);
+                var server = BlockServer.Create(disk, device, PREFIX, identity);
+                var (block, theirs) = Channel.Create();
+                drive = new Drive(storage, server, block);
+                Console.WriteLine($"{PREFIX}{storage.Name}: drive \"{disk.Vendor} {disk.Product} {disk.Revision}\" ({storage.Vendor:x4}:{storage.Product:x4}), " +
+                    $"{disk.Capacity} bytes in blocks of {disk.BlockSize}, {(disk.IsRemovable ? "removable" : "fixed")}, " +
+                    $"{(disk.IsReadOnly ? "write-protected" : "writable")}: serving the block protocol");
+                var flags = NamespaceMessages.DISK_REMOVABLE | (disk.IsReadOnly ? NamespaceMessages.DISK_READ_ONLY : 0);
+                Tell(manager, NamespaceMessages.EncodeDisk(flags, identity), theirs);
+            }
+            catch (Exception exception) when (exception is IOException or CapabilityException or ArgumentException)
+            {
+                Console.WriteLine($"{PREFIX}{storage.Name}: the drive could not be opened: {exception.Message}");
+            }
+        }
+        return drive;
+    }
+
+    // One request of the drive's block channel; a client that closed it leaves the drive served to no one.
+    private static void ServeDrive(Drive drive, string name)
+    {
+        ChannelMessage message;
+        try
+        {
+            message = drive.Block!.Receive();
+        }
+        catch (CapabilityException exception) when (exception.Error == Channel.PEER_CLOSED)
+        {
+            Console.WriteLine($"{PREFIX}driver of {name}: the client closed the block channel of the drive at {drive.Storage.Name}");
+            drive.Close();
+            return;
+        }
+        using (message)
+            Answer(drive.Block!, drive.Server.Serve(message));
+    }
+
+    private static void Tell(Channel manager, byte[] bytes, KernelHandle? handle)
+    {
+        try
+        {
+            if (handle is null)
+                manager.Send(bytes);
+            else
+                manager.Send(bytes, handle);
+        }
+        catch (CapabilityException exception)
+        {
+            handle?.Dispose();
+            Console.WriteLine($"{PREFIX}the device manager could not be told of a drive: error {exception.Error}");
         }
     }
 
@@ -208,6 +327,34 @@ internal static class Program
     {
         var list = numbers.ToList();
         return list.Count == 1 ? $"port {list[0]}" : $"ports {list.Min()}–{list.Max()}";
+    }
+
+    #endregion
+
+    #region Types
+
+    // A drive served (E3): its storage, the block protocol's server over its disk and the block channel, null once its
+    // client closed it.
+    private sealed class Drive(UsbStorage storage, BlockServer server, Channel block) : IDisposable
+    {
+        public UsbStorage Storage { get; } = storage;
+
+        public BlockServer Server { get; } = server;
+
+        public Channel? Block { get; private set; } = block;
+
+        public void Close()
+        {
+            Server.Detach();
+            Block?.Dispose();
+            Block = null;
+        }
+
+        public void Dispose()
+        {
+            Close();
+            Server.Dispose();
+        }
     }
 
     #endregion
