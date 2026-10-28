@@ -493,6 +493,32 @@ internal static class Toolchain
         RequireDownloadAsync(path, [url], sha256);
 
     /// <summary>
+    /// A file's bytes over HTTP, asked again after a pause when the server answers 429 (Too Many Requests) or a 5xx
+    /// status, five times at most: raw.githubusercontent.com limits the rate of a runner's requests, and the pinned
+    /// compiler-rt and LLVM libc files are fetched one by one (2026-10-28: a CI leg failed twice in a row with 429).
+    /// The pause is the server's Retry-After, or 5 s doubled each time, never above two minutes.
+    /// </summary>
+    /// <param name="client">The client.</param>
+    /// <param name="url">The file's address.</param>
+    /// <returns>Its bytes.</returns>
+    /// <exception cref="HttpRequestException">The server refused it, or kept answering 429 or 5xx.</exception>
+    public static async Task<byte[]> GetBytesAsync(HttpClient client, string url)
+    {
+        for (var attempt = 1; ; ++attempt)
+        {
+            using var response = await client.GetAsync(url);
+            if (response.IsSuccessStatusCode)
+                return await response.Content.ReadAsByteArrayAsync();
+            var status = (int)response.StatusCode;
+            if (attempt == 6 || (status != 429 && status < 500))
+                response.EnsureSuccessStatusCode();
+            var pause = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(5 << (attempt - 1));
+            Console.WriteLine($"{url} answered {status}; asking again in {Math.Min(pause.TotalSeconds, 120):0} s");
+            await Task.Delay(pause > TimeSpan.FromMinutes(2) ? TimeSpan.FromMinutes(2) : pause);
+        }
+    }
+
+    /// <summary>
     /// A pinned download from the first of several places that answers: fetched when missing, its SHA-256 always checked,
     /// so that any place serves the same bytes or none.
     /// </summary>

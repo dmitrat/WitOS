@@ -95,7 +95,7 @@ internal static class CompilerRtBuiltins
                 await gate.WaitAsync();
                 try
                 {
-                    var bytes = await client.GetByteArrayAsync($"https://raw.githubusercontent.com/llvm/llvm-project/{pin.Tag}/{source.Path}");
+                    var bytes = await Toolchain.GetBytesAsync(client, $"https://raw.githubusercontent.com/llvm/llvm-project/{pin.Tag}/{source.Path}");
                     Verify(bytes, source);
                     Directory.CreateDirectory(Path.GetDirectoryName(cached)!);
                     var temporary = cached + "." + Guid.NewGuid().ToString("N") + ".tmp";
