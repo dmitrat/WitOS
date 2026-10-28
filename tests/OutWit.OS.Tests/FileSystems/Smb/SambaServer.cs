@@ -108,8 +108,13 @@ internal sealed class SambaServer : IAsyncDisposable
         if (OperatingSystem.IsLinux()) // always, past the skip above; the analyzer reads the guard alone
             File.SetUnixFileMode(Path.Combine(directory, "private", "smbpasswd"), UnixFileMode.UserRead | UnixFileMode.UserWrite);
 
-        var start = new ProcessStartInfo(SMBD, ["--foreground", "--no-process-group", "--debug-stdout", "-s", configuration])
+        // smbd in a session of its own (--foreground calls setsid unless told --no-process-group), since its parent ends
+        // with kill(0, SIGTERM) (killkids, at exit), which in the test's process group ended the CI runner itself; and a
+        // standard input of its own, open while it runs, since --foreground ends smbd at EOF on a pipe — the CI step's
+        // standard input is one — so that closing it is the stop.
+        var start = new ProcessStartInfo(SMBD, ["--foreground", "--debug-stdout", "-s", configuration])
         {
+            RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
@@ -177,11 +182,22 @@ internal sealed class SambaServer : IAsyncDisposable
     {
         try
         {
-            if (!m_process.HasExited)
+            m_process.StandardInput.Close(); // EOF: smbd ends cleanly, and its children with it
+            using var patience = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            try
+            {
+                await m_process.WaitForExitAsync(patience.Token);
+            }
+            catch (OperationCanceledException)
+            {
                 m_process.Kill(entireProcessTree: true);
-            await m_process.WaitForExitAsync();
+                await m_process.WaitForExitAsync();
+            }
         }
         catch (InvalidOperationException)
+        {
+        }
+        catch (IOException)
         {
         }
         m_process.Dispose();
