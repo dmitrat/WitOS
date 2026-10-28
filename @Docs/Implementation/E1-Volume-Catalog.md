@@ -122,12 +122,14 @@ provider's space and identity.
 
 ## 7. What ran
 
-On 2026-10-28, in the Linux container of `build/linux/Dockerfile` (ARM64 and riscv64 follow in the same container and
-in CI's `linux-host` legs, whose `runtime-witos` runs every scenario of the table):
+On 2026-10-28, in the Linux container of `build/linux/Dockerfile`; CI's `linux-host` legs run every scenario of the table
+again in their `runtime-witos`:
 
-| ISA | `runtime-services` (`runtime-devices`' nine boots) | `runtime-volumes` | `runtime-powershell` | `runtime-compatibility` | `test` |
+| ISA | `runtime-services` (`runtime-devices`' boots) | `runtime-volumes` | `runtime-powershell` | `runtime-compatibility` | `test` |
 | --- | --- | --- | --- | --- | --- |
-| x64 | passed; `/bin/init` 124 checks, 0 failed | passed in 30 s, 10 of 10 | passed, `drive=/data` | 125 checks, 2 recorded differences, 0 unexpected | 36 scenarios passed |
+| x64 | nine passed; `/bin/init` 124 checks, 0 failed | passed in 30 s, 10 of 10 | passed, `drive=/data` | 125 checks, 2 recorded differences, 0 unexpected | 36 scenarios passed |
+| ARM64 | eight passed; `/bin/init` 124 checks, 0 failed | passed in 34 s, 10 of 10 | passed, `drive=/data` | 125 checks, 2 recorded differences, 0 unexpected | 32 scenarios passed |
+| riscv64 | nine passed; `/bin/init` 124–127 checks, 0 failed | passed in 39 s, 10 of 10 | passed, `drive=/data` | see below | 29 scenarios passed |
 
 The drive's mount line on x64:
 
@@ -137,6 +139,11 @@ The drive's mount line on x64:
 
 The first run formatted the drive as the library chose for its size, FAT16 in a partition of type 0x0C, which passed
 the same ten checks; the scenario now formats FAT32, as the partition's type says and Windows formats such a drive.
+
+The container's riscv64 runtime was built on 2026-10-21, before W4.2 gave `System.Net.NetworkInformation` its Unix
+flavor, so its compatibility suite failed `Network.Interfaces` and `Network.AddressChange` with the whole assembly's
+`PlatformNotSupportedException` and passed every other check; nothing of E1 is in that path. CI's riscv64 leg builds
+the runtime anew and judges the suite there.
 
 ## 8. Limits kept explicit
 
