@@ -149,9 +149,10 @@ jobs:
     # one after the other they outgrew three hours; riscv64's leg since V2.4, whose runtime passes the same scenarios.
     # The host tests and the source style run in the x64 leg. Each leg uploads the .NET install and the services it built
     # for the NuGet libraries' own suites (N2.2), which run in jobs of their own on x64 and arm64. riscv64's leg took
-    # 2 h 25 min at its first run (V2.4), so a leg may run four hours.
+    # 2 h 25 min at its first run (V2.4), so a leg may run four hours; five since R9.2, whose installer scenario compiles an
+    # application in the guest, which took x64's leg past an hour of its own.
     runs-on: ubuntu-24.04
-    timeout-minutes: 240
+    timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
