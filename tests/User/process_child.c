@@ -38,6 +38,14 @@ static int write_all(int fd, const unsigned char *buffer, size_t bytes)
 
 int main(int argc, char **argv)
 {
+    if (argc == 3 && strcmp(argv[1], "ids") == 0) {
+        /* Process ids (E4.3): the parent the argument names is this process's parent, and the exit status is the low
+         * bits of its own id, which the parent compares with what posix_spawn answered. */
+        if (getppid() != (pid_t)atoi(argv[2]) || getpid() <= 1 || getpid() == getppid()) {
+            return 200;
+        }
+        return getpid() % 128;
+    }
     if (argc == 3 && strcmp(argv[1], "exit") == 0) {
         return atoi(argv[2]);
     }

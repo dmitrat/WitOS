@@ -18,7 +18,7 @@ public sealed class ServiceStopTests
         var stop = ServiceStop.Encode(0x0123456789ABCDEF);
 
         Assert.That(stop, Has.Length.EqualTo(24));
-        Assert.That(BinaryPrimitives.ReadUInt32LittleEndian(stop), Is.EqualTo(5u));
+        Assert.That(BinaryPrimitives.ReadUInt32LittleEndian(stop), Is.EqualTo(6u));
         Assert.That(BinaryPrimitives.ReadUInt32LittleEndian(stop.AsSpan(4)), Is.EqualTo(24u));
         Assert.That(BinaryPrimitives.ReadUInt32LittleEndian(stop.AsSpan(8)), Is.EqualTo(2u));
         Assert.That(BinaryPrimitives.ReadUInt32LittleEndian(stop.AsSpan(12)), Is.Zero);

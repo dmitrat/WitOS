@@ -88,6 +88,13 @@ internal static class RuntimeFileManager
     // The commander's word once a command ended and the terminal came back: before it, keys go to the program's terminal.
     private const string COMMAND_DONE = "reads what it";
 
+    // The command's exit as Commander's output view (Ctrl+O) reports it: the status its waitpid read.
+    private const string EXITED = "[exit 0]";
+
+    // A name the panels show once Esc took the output view away, which the view never shows: F10 waits for it, since an
+    // Esc followed at once by F10's sequence reads as one key with Alt.
+    private const string PANELS_BACK = "lost+found";
+
     #endregion
 
     #region Functions
@@ -166,7 +173,9 @@ internal static class RuntimeFileManager
         new(QUESTION, BootActionKind.Key, KeyTyping.Keys(NAME + "\r")),
         new(HOLDING, BootActionKind.Screendump),
         new("", BootActionKind.Key, "k"),
-        new(COMMAND_DONE, BootActionKind.Key, "f10")
+        new(COMMAND_DONE, BootActionKind.Key, "ctrl+o"),
+        new(EXITED, BootActionKind.Key, "esc"),
+        new(PANELS_BACK, BootActionKind.Key, "f10")
     ];
 
     /// <summary>
@@ -181,6 +190,7 @@ internal static class RuntimeFileManager
         $"[INTERACTIVE] Hello, {NAME}!",
         HOLDING,
         $"[INTERACTIVE] the screen went back after 'k' on witos-{architecture.Name}",
+        EXITED,
         "[APPS-INIT] /data/apps/bin/pwsh -NoLogo exited with 0",
         "[APPS-INIT] 1 commands, 0 failed",
         "[DEVICES] device manager: stopped",

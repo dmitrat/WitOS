@@ -185,6 +185,9 @@ void __wit_start_program(const unsigned long *stack)
     __wit_process.Terminal = message.Capabilities & WIT_START_TERMINAL ? optional[next++] : 0;
     __wit_process.Network = message.Capabilities & WIT_START_NETWORK ? optional[next++] : 0;
     __wit_process.ClosedStreams = message.ClosedStreams;
+    __wit_process.ProcessId =
+        message.ProcessId ? message.ProcessId : 1; /* E4.3: a creator without a manager gives none */
+    __wit_process.ParentId = message.ParentId;
     wit_syscall(WIT_CALL_HANDLE_CLOSE, endpoint, 0, 0, &result);
     if (message.Streams) {
         receive_streams(message.Streams);

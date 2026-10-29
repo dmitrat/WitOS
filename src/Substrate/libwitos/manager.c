@@ -78,9 +78,15 @@ static WitU64 offered_terminal;
  * process the manager starts afterwards; zero until then. */
 static WitU64 offered_network;
 
+/* The process ids the manager gives (E4.3): the root task is 1, and every process the manager starts takes the next,
+ * services and the first process among them; an id is not given again. */
+#define ROOT_PROCESS_ID 1U
+static WitU32 next_process_id = ROOT_PROCESS_ID + 1;
+
 /* Starts the program a mapped spawn request names, after checking the request whole; the grant is moved into the new
- * process's start message or closed. */
-static int spawn_request(const char *base, WitU64 bytes, WitU64 manager, WitU64 grant, WitU64 *process)
+ * process's start message or closed. The process takes the next id, its parent is the requester the request names. */
+static int spawn_request(
+    const char *base, WitU64 bytes, WitU64 manager, WitU64 grant, WitU32 parent, WitU64 *process, WitU32 *id)
 {
     const WitSpawnRequest *request = (const WitSpawnRequest *)base;
     char **argv = 0, **envp = 0, **path = 0, **directory = 0;
@@ -114,8 +120,9 @@ static int spawn_request(const char *base, WitU64 bytes, WitU64 manager, WitU64 
         error = EINVAL;
     }
     if (!error) {
+        *id = next_process_id++;
         const witos_spawn_options options = {manager, directory[0], request->ClosedStreams, request->Streams, grant,
-            offered_namespace, offered_terminal, offered_network};
+            offered_namespace, offered_terminal, offered_network, *id, parent};
         error = witos_spawn_ex(process, path[0], argv, envp, &options);
     } else {
         close_handle(grant);
@@ -127,10 +134,11 @@ static int spawn_request(const char *base, WitU64 bytes, WitU64 manager, WitU64 
     return error;
 }
 
-/* Answers on the reply endpoint, moving the process's handle with the requester's rights, and closes the endpoint. */
-static void reply_to(WitU64 endpoint, int error, WitU64 process)
+/* Answers on the reply endpoint, moving the process's handle with the requester's rights with its id, and closes the
+ * endpoint. */
+static void reply_to(WitU64 endpoint, int error, WitU64 process, WitU32 id)
 {
-    WitManagerReply reply = {WIT_MANAGER_VERSION, sizeof(reply), WIT_MANAGER_SPAWN, (WitU32)error};
+    WitManagerReply reply = {WIT_MANAGER_VERSION, sizeof(reply), WIT_MANAGER_SPAWN, (WitU32)error, error ? 0 : id, 0};
     WitU64 handle = 0, result = 0;
     WitChannelMessage message;
     if (!error &&
@@ -157,6 +165,7 @@ static void serve(WitU64 queue, WitU64 manager)
 {
     WitManagerRequest request;
     WitU64 handles[3] = {0, 0, 0}, result = 0, address = 0, process = 0;
+    WitU32 id = 0;
     WitChannelMessage message;
     memset(&message, 0, sizeof(message));
     message.Version = WIT_CHANNEL_MESSAGE_VERSION;
@@ -174,7 +183,6 @@ static void serve(WitU64 queue, WitU64 manager)
         request.Version != WIT_MANAGER_VERSION ||
         request.Size != sizeof(request) ||
         request.Operation != WIT_MANAGER_SPAWN ||
-        request.Reserved ||
         !request.Bytes ||
         request.Bytes > REQUEST_LIMIT) {
         error = EINVAL;
@@ -192,14 +200,15 @@ static void serve(WitU64 queue, WitU64 manager)
         error = status == WIT_STATUS_OK ? 0 : EINVAL;
     }
     if (!error) {
-        error = spawn_request((const char *)address, request.Bytes, manager, handles[2], &process);
+        error =
+            spawn_request((const char *)address, request.Bytes, manager, handles[2], request.ParentId, &process, &id);
         handles[2] = 0; /* moved or closed */
         wit_syscall(WIT_CALL_MEMORY_RELEASE, address, 0, 0, &result);
     }
     close_handle(handles[0]);
     close_handle(handles[2]);
     if (handles[1]) {
-        reply_to(handles[1], error, process);
+        reply_to(handles[1], error, process, id);
     } else {
         close_handle(process);
     }
@@ -311,7 +320,8 @@ int witos_manager_run_services(witos_service *services, WitU32 count, const char
     /* Each service in turn, until it answers or ends; the queue is served meanwhile. */
     for (WitU32 i = 0; i < count; ++i) {
         char *service_argv[] = {(char *)services[i].path, 0};
-        const witos_spawn_options service_options = {ends[1], 0, 0, 0, services[i].grant, 0, 0, 0};
+        const witos_spawn_options service_options = {
+            ends[1], 0, 0, 0, services[i].grant, 0, 0, 0, next_process_id++, ROOT_PROCESS_ID};
         services[i].grant = 0; /* moved into its start message or closed */
         services[i].process = 0;
         services[i].status =
@@ -322,7 +332,8 @@ int witos_manager_run_services(witos_service *services, WitU32 count, const char
             services[i].status = index < 0 ? ECHILD : service_status(services[i].ready); /* it may answer and end */
         }
     }
-    const witos_spawn_options options = {ends[1], 0, 0, 0, 0, offered_namespace, offered_terminal, offered_network};
+    const witos_spawn_options options = {
+        ends[1], 0, 0, 0, 0, offered_namespace, offered_terminal, offered_network, next_process_id++, ROOT_PROCESS_ID};
     int error = witos_spawn_ex(&first, path, argv, envp, &options);
     if (!error) {
         WitU64 waited[2] = {ends[0], first};

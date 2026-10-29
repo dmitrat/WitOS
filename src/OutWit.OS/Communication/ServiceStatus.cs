@@ -14,7 +14,7 @@ public static class ServiceStatus
     /// <summary>
     /// WIT_MANAGER_VERSION, the version of a WitServiceStatus.
     /// </summary>
-    public const uint VERSION = 5;
+    public const uint VERSION = 6;
 
     /// <summary>
     /// The size of a WitServiceStatus.
