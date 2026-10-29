@@ -218,6 +218,18 @@ internal static class BootScenarioRunner
         {
             throw new InvalidOperationException($"{name}: a USB keyboard is a keyboard; set Keyboard too.");
         }
+        if (request.UsbDrive is not null)
+        {
+            // E3: the drive on the USB keyboard's controller, or on one of its own in that slot; its image a block node of
+            // its own, which device_del leaves, so that device_add puts the drive back.
+            if (request.Pc || request.Raspi4 || (!request.UsbKeyboard && (request.Keyboard || request.Network)))
+                throw new InvalidOperationException($"{name}: a USB drive needs the slot of the USB keyboard's controller, which a virtio keyboard or a network " +
+                    "adapter takes, and the pc and raspi4b boards have no such slot.");
+            if (!request.UsbKeyboard)
+                arguments.AddRange(["-device", $"qemu-xhci,id={USB_CONTROLLER},addr=0x6"]);
+            arguments.AddRange(["-blockdev", $"driver=file,filename={QemuPath(request.UsbDrive)},node-name=stickfile",
+                "-blockdev", "driver=raw,file=stickfile,node-name=stick", "-device", BootRequest.USB_DRIVE_DEVICE]);
+        }
         if (request.Network)
         {
             // The entropy source's line too (W1.1), for the same reason: a keyboard and a network adapter would need it

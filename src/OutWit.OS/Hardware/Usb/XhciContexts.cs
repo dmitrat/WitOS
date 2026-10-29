@@ -25,6 +25,16 @@ public static class XhciContexts
     public const int INTERRUPT_IN = 7;
 
     /// <summary>
+    /// The Endpoint Context's type of a bulk OUT endpoint (E3).
+    /// </summary>
+    public const int BULK_OUT = 2;
+
+    /// <summary>
+    /// The Endpoint Context's type of a bulk IN endpoint (E3).
+    /// </summary>
+    public const int BULK_IN = 6;
+
+    /// <summary>
     /// The contexts of an Input Context: the control, the slot and 31 endpoints.
     /// </summary>
     public const int INPUT_CONTEXTS = 33;
@@ -131,7 +141,7 @@ public static class XhciContexts
     /// <param name="input">The Input Context.</param>
     /// <param name="contextBytes">32 or 64.</param>
     /// <param name="index">The endpoint's Device Context Index, 1 for the default control endpoint.</param>
-    /// <param name="type">Its type: <see cref="CONTROL"/> or <see cref="INTERRUPT_IN"/>.</param>
+    /// <param name="type">Its type: <see cref="CONTROL"/>, <see cref="INTERRUPT_IN"/>, <see cref="BULK_IN"/> or <see cref="BULK_OUT"/>.</param>
     /// <param name="maxPacket">Its packet's bytes.</param>
     /// <param name="interval">The exponent of its service interval in 125 µs units, see <see cref="Interval"/>.</param>
     /// <param name="maxBurst">The packets of a burst less one.</param>
@@ -142,7 +152,7 @@ public static class XhciContexts
     {
         var endpoint = input.Slice(contextBytes * (1 + index), contextBytes);
         endpoint.Clear();
-        var maxEsitPayload = type == CONTROL ? 0 : maxPacket * (maxBurst + 1);
+        var maxEsitPayload = type is CONTROL or BULK_IN or BULK_OUT ? 0 : maxPacket * (maxBurst + 1); // periodic endpoints' alone
         BinaryPrimitives.WriteUInt32LittleEndian(endpoint, (uint)interval << 16);
         BinaryPrimitives.WriteUInt32LittleEndian(endpoint[4..], (uint)(3 << 1 | type << 3 | maxBurst << 8 | maxPacket << 16));
         BinaryPrimitives.WriteUInt64LittleEndian(endpoint[8..], dequeue | 1); // the Dequeue Cycle State of a new ring

@@ -97,6 +97,36 @@ public interface IUsbHost
     ReadOnlySpan<byte> Received(int slot, int index);
 
     /// <summary>
+    /// Configures a mass storage interface's bulk IN and OUT endpoints (E3), each with a ring and a page of its own.
+    /// </summary>
+    /// <param name="slot">The device.</param>
+    /// <param name="input">The bulk IN endpoint.</param>
+    /// <param name="output">The bulk OUT endpoint.</param>
+    /// <returns>Their Device Context Indexes.</returns>
+    /// <exception cref="System.IO.IOException">The command failed.</exception>
+    (int In, int Out) ConfigureBulk(int slot, UsbEndpoint input, UsbEndpoint output);
+
+    /// <summary>
+    /// One bulk transfer through physical segments, waited for (E3): done, perhaps short; stalled, the endpoint taking
+    /// transfers again on the controller's side while the device's halt is the caller's to clear; or failed.
+    /// </summary>
+    /// <param name="slot">The device.</param>
+    /// <param name="index">The endpoint's Device Context Index.</param>
+    /// <param name="segments">The physical segments.</param>
+    /// <param name="transferred">The bytes moved.</param>
+    /// <returns>The transfer's result.</returns>
+    BulkResult Bulk(int slot, int index, ReadOnlySpan<(ulong Address, int Length)> segments, out int transferred);
+
+    /// <summary>
+    /// A bulk endpoint's page, for the small transfers its transport makes through it.
+    /// </summary>
+    /// <param name="slot">The device.</param>
+    /// <param name="index">The endpoint's Device Context Index.</param>
+    /// <param name="physical">The page's physical address.</param>
+    /// <returns>The page's bytes.</returns>
+    Span<byte> BulkBuffer(int slot, int index, out ulong physical);
+
+    /// <summary>
     /// Takes an endpoint whose transfer failed back to taking transfers: a halted one reset, a running one stopped, its
     /// ring's dequeue moved past every transfer it still holds.
     /// </summary>

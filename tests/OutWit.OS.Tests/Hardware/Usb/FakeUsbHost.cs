@@ -151,6 +151,29 @@ internal sealed class FakeUsbHost : IUsbHost
         return index;
     }
 
+    public (int In, int Out) ConfigureBulk(int slot, UsbEndpoint input, UsbEndpoint output)
+    {
+        var (inIndex, outIndex) = (XhciContexts.Index(input), XhciContexts.Index(output));
+        m_buffers[(slot, inIndex)] = new byte[4096];
+        m_buffers[(slot, outIndex)] = new byte[4096];
+        Requests.Add($"configure bulk endpoints {input.Address:x2} and {output.Address:x2} of slot {slot}");
+        return (inIndex, outIndex);
+    }
+
+    // The bus never moves a bulk transfer itself: its storage's driver does, through pipes the tests simulate apart.
+    public BulkResult Bulk(int slot, int index, ReadOnlySpan<(ulong Address, int Length)> segments, out int transferred)
+    {
+        Requests.Add($"bulk on endpoint {index} of slot {slot}");
+        transferred = 0;
+        return BulkResult.Failed;
+    }
+
+    public Span<byte> BulkBuffer(int slot, int index, out ulong physical)
+    {
+        physical = 0x1000UL * (ulong)index;
+        return m_buffers[(slot, index)];
+    }
+
     public void ConfigureHub(int slot, UsbHubDescriptor hub) => Requests.Add($"hub slot {slot}: {hub.Ports} ports");
 
     public void Receive(int slot, int index, int length)

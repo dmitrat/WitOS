@@ -176,6 +176,10 @@ typedef struct WitNamespaceDisk {
 /* E2.2: the handle is the network service's clients' endpoint, which the device manager moves once the network is
  * ready, not a disk */
 #define WIT_NAMESPACE_DISK_NETWORK 0x4U
+/* E3: a removable drive a USB controller's driver announced after the start, its volumes below /media; and one that went,
+ * named by its device, with no handle */
+#define WIT_NAMESPACE_DISK_REMOVABLE 0x8U
+#define WIT_NAMESPACE_DISK_GONE 0x10U
 
 /* A volume of the catalog (E1, ADR 0032), the record VOLUMES and STATFS write into the window. The texts are UTF-8,
  * zero-terminated within their fields. */

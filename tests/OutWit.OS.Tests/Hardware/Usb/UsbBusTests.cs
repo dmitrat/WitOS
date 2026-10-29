@@ -256,6 +256,25 @@ public sealed class UsbBusTests
     public void DeviceThatIsNoKeyboardIsLeftUnconfiguredTest()
     {
         var (host, bus, log) = Bus();
+        byte[] vendor =
+        [
+            0x09, 0x02, 0x20, 0x00, 0x01, 0x01, 0x00, 0x80, 0x32,
+            0x09, 0x04, 0x00, 0x00, 0x02, 0xFF, 0x00, 0x00, 0x00,
+            0x07, 0x05, 0x81, 0x02, 0x00, 0x02, 0x00,
+            0x07, 0x05, 0x02, 0x02, 0x00, 0x02, 0x00,
+        ];
+        host.Plug(5, new FakeDevice(XhciContexts.HIGH_SPEED, KEYBOARD_DEVICE, vendor));
+        bus.Start();
+        Assert.That(log, Has.Some.EqualTo("port 5: neither a hub, a drive nor a HID interface, left unconfigured"));
+        Assert.That(bus.Devices, Is.EqualTo(1), "addressed, so that its port's change lets it go");
+    }
+
+    // A drive (E3): its mass storage interface of SCSI over Bulk-Only Transport configured with its two bulk endpoints,
+    // its units asked, and announced when it comes and when it goes.
+    [Test]
+    public void DriveIsConfiguredAndAnnouncedTest()
+    {
+        var (host, bus, log) = Bus();
         byte[] storage =
         [
             0x09, 0x02, 0x20, 0x00, 0x01, 0x01, 0x00, 0x80, 0x32,
@@ -265,8 +284,17 @@ public sealed class UsbBusTests
         ];
         host.Plug(5, new FakeDevice(XhciContexts.HIGH_SPEED, KEYBOARD_DEVICE, storage));
         bus.Start();
-        Assert.That(log, Has.Some.EqualTo("port 5: neither a hub nor a HID interface, left unconfigured"));
-        Assert.That(bus.Devices, Is.EqualTo(1), "addressed, so that its port's change lets it go");
+        Assert.That(host.Requests, Has.Some.EqualTo("configure bulk endpoints 81 and 02 of slot 1"));
+        Assert.That(host.Requests, Has.Some.EqualTo("slot 1: a1 fe 0000 0000"), "Get Max LUN of interface 0");
+        Assert.That(log, Has.Some.EqualTo("port 5: a drive, interface 0, bulk endpoints 81 and 02 of 512 bytes, 1 logical unit"));
+        var arrived = bus.TakeStorage();
+        Assert.That(arrived.Select(item => (item.Arrived, item.Storage.Slot, item.Storage.InIndex, item.Storage.OutIndex, item.Storage.Name)),
+            Is.EqualTo(new[] { (true, 1, 3, 4, "port 5") }));
+        Assert.That(bus.TakeStorage(), Is.Empty);
+
+        host.Unplug(5);
+        bus.RootPortChanged(5);
+        Assert.That(bus.TakeStorage().Select(item => (item.Arrived, item.Storage.Slot)), Is.EqualTo(new[] { (false, 1) }));
     }
 
     [Test]

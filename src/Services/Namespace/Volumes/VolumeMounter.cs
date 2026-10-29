@@ -58,9 +58,14 @@ internal static class VolumeMounter
     /// <param name="mounts">The namespace's volumes and their catalog.</param>
     /// <param name="disk">The disk.</param>
     /// <param name="device">Its device, for the lines.</param>
+    /// <param name="removable">Whether the disk is a drive that came after the start (E3): none of its volumes takes the
+    /// system's places, each mounts below /media with the removable origin.</param>
+    /// <param name="attached">Where the volumes the catalog attached go, for the drive's departure; or null.</param>
     /// <returns>The resources the mounts keep open, the partitions among them.</returns>
-    public static async Task<List<IAsyncDisposable>> MountAsync(MountTable mounts, IBlockStorage disk, string device)
+    public static async Task<List<IAsyncDisposable>> MountAsync(MountTable mounts, IBlockStorage disk, string device, bool removable = false,
+        List<CatalogVolume>? attached = null)
     {
+        var origin = removable ? NamespaceMessages.ORIGIN_REMOVABLE : NamespaceMessages.ORIGIN_INTERNAL;
         var kept = new List<IAsyncDisposable>();
         GptPartitionTable? gpt = null;
         try
@@ -74,12 +79,12 @@ internal static class VolumeMounter
         {
             foreach (var partition in gpt.Partitions)
             {
-                var system = partition.Type == GptPartition.EFI_SYSTEM;
-                var alias = system ? BOOT : PARTITIONS.FirstOrDefault(entry => entry.Partition == partition.Name).Alias;
+                var system = !removable && partition.Type == GptPartition.EFI_SYSTEM;
+                var alias = removable ? null : system ? BOOT : PARTITIONS.FirstOrDefault(entry => entry.Partition == partition.Name).Alias;
                 var storage = partition.Open(disk, system || disk.Info.IsReadOnly);
                 kept.Add(storage);
                 // A GUID partition's own GUID is a stronger identity than a FAT serial number.
-                await MountVolumeAsync(mounts, storage, $"{device}, partition \"{partition.Name}\"", alias, partition.Id.ToString(), kept);
+                await MountVolumeAsync(mounts, storage, $"{device}, partition \"{partition.Name}\"", alias, partition.Id.ToString(), kept, origin, attached);
             }
             return kept;
         }
@@ -97,18 +102,19 @@ internal static class VolumeMounter
             {
                 var storage = partition.Open(disk, disk.Info.IsReadOnly);
                 kept.Add(storage);
-                await MountVolumeAsync(mounts, storage, $"{device}, partition {partition.Index} of type 0x{partition.Type:X2}", null, null, kept);
+                await MountVolumeAsync(mounts, storage, $"{device}, partition {partition.Index} of type 0x{partition.Type:X2}", null, null, kept, origin,
+                    attached);
             }
             return kept;
         }
-        await MountVolumeAsync(mounts, disk, $"{device}, the whole disk", BOOT, null, kept);
+        await MountVolumeAsync(mounts, disk, $"{device}, the whole disk", removable ? null : BOOT, null, kept, origin, attached);
         return kept;
     }
 
     // A volume of a resource, if a format WitOS reads holds it: mounted through its cache, attached to the catalog under
     // the system's alias while that is free and below /media otherwise.
     private static async Task MountVolumeAsync(MountTable mounts, IBlockStorage storage, string source, string? systemAlias, string? partitionId,
-        List<IAsyncDisposable> kept)
+        List<IAsyncDisposable> kept, uint origin, List<CatalogVolume>? attachedVolumes)
     {
         var ext4 = await Ext4FileSystem.DetectAsync(storage);
         if (!ext4 && !await FatFileSystem.DetectAsync(storage))
@@ -132,7 +138,8 @@ internal static class VolumeMounter
             return;
         }
         var (identity, weak) = ext4 || partitionId is null ? (volume.Volume.Identity, !ext4 && volume.Volume.Identity is not null) : (partitionId, false);
-        var attached = mounts.Catalog.Attach(volume, NamespaceMessages.ORIGIN_INTERNAL, systemAlias, identity, weak);
+        var attached = mounts.Catalog.Attach(volume, origin, systemAlias, identity, weak);
+        attachedVolumes?.Add(attached);
         kept.Add(volume);
         kept.Add(new CacheReport(attached.Point, cache)); // the last kept, so the first to go at the stop
         Console.WriteLine($"{PREFIX}mounted {attached.Point}: {volume.Volume.Format} volume{(volume.Volume.Label is { } label ? $" \"{label}\"" : "")} of " +

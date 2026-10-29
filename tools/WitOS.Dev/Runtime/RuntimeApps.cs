@@ -157,12 +157,13 @@ internal static class RuntimeApps
     /// default.</param>
     /// <param name="extraDisk">A third disk's image (E1), or null.</param>
     /// <param name="share">A share the runner serves over SMB (E2.2), which brings the adapter; or null.</param>
+    /// <param name="usbDrive">A USB drive's image (E3), or null.</param>
     /// <returns>When the boot passed.</returns>
     public static async Task BootAsync(string root, KernelArchitecture architecture, string scenario, string[] requiredLines,
         int timeoutSeconds, IReadOnlyList<(string Path, string Source)>? volumeFiles = null, long diskBytes = RuntimeDataDisk.BYTES,
         int memoryMiB = MEMORY_MIB, IReadOnlyList<(string Name, string Source)>? package = null, IReadOnlyList<TerminalInput>? terminal = null,
         int processors = 1, RunnerAuthority? https = null, ushort forward = 0, IReadOnlyList<BootAction>? actions = null, string? extraDisk = null,
-        NetworkShare? share = null)
+        NetworkShare? share = null, string? usbDrive = null)
     {
         var image = await KernelImageBuilder.BuildAsync(root, scenario, architecture: architecture, package: package);
         var dataDisk = Path.Combine(Path.GetDirectoryName(image)!, "data-disk.img");
@@ -185,7 +186,8 @@ internal static class RuntimeApps
             NetworkShare = share,
             NetworkForward = forward,
             Actions = actions ?? [],
-            ExtraDisk = extraDisk
+            ExtraDisk = extraDisk,
+            UsbDrive = usbDrive
         });
     }
 

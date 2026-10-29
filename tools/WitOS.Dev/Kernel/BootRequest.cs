@@ -131,6 +131,23 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public bool UsbKeyboard { get; init; }
 
     /// <summary>
+    /// A USB drive (E3): QEMU's usb-storage on port 2 of the qemu-xhci controller — the USB keyboard's, or one of its own in
+    /// that slot — over a raw image as a block node that outlives the device, so that QMP's device_del takes the drive out
+    /// and device_add with <see cref="USB_DRIVE_DEVICE"/> puts it back; none when null.
+    /// </summary>
+    public string? UsbDrive { get; init; }
+
+    /// <summary>
+    /// The usb-storage device of <see cref="UsbDrive"/> as -device and device_add write it.
+    /// </summary>
+    public const string USB_DRIVE_DEVICE = "usb-storage,bus=xhci.0,port=2,drive=stick,id=stick1";
+
+    /// <summary>
+    /// The id of the usb-storage device of <see cref="UsbDrive"/>, which device_del names.
+    /// </summary>
+    public const string USB_DRIVE_ID = "stick1";
+
+    /// <summary>
     /// The board's own PS/2 keyboard as the keyboard (plan step H5.2, ADR 0031): the PC's i8042, served by the PS/2
     /// keyboard's driver. q35 carries it only then (the runner turns it off otherwise, <c>i8042=off</c>, since a keyboard
     /// makes the display the console); the runner adds no keyboard device, so that QMP's keys reach the PS/2 keyboard, and

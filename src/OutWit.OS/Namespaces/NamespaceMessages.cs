@@ -237,6 +237,17 @@ public static class NamespaceMessages
     /// </summary>
     public const uint DISK_NETWORK = 0x4;
 
+    /// <summary>
+    /// A disk message's flag (E3): the disk is a removable drive a USB controller's driver serves and announced through the
+    /// device manager after the service started; its volumes mount below /media with the removable origin.
+    /// </summary>
+    public const uint DISK_REMOVABLE = 0x8;
+
+    /// <summary>
+    /// A disk message's flag (E3): the drive the device names went; the message carries no handle.
+    /// </summary>
+    public const uint DISK_GONE = 0x10;
+
     private const int DEVICE_BYTES = 64;
 
     #endregion
