@@ -559,6 +559,8 @@ internal static class RuntimeWitos
         await RuntimePowerShell.RunAsync(root, architecture);
         // C4.2 (ADR 0027): the file manager Arlecchino.Commander, built from its source, from the layer on the screen.
         await RuntimeCommander.RunAsync(root, architecture);
+        // E4.2: the file manager with a USB drive: a copy, a folder and an interactive program under a pseudo-terminal.
+        await RuntimeFileManager.RunAsync(root, architecture);
         // C4.3 (ADR 0027): the installer in the boot package updates the file manager from a folder feed and rolls back.
         await RuntimeInstaller.RunAsync(root, architecture);
         await RuntimeCSharpRepl.RunAsync(root, architecture);
@@ -831,6 +833,10 @@ internal static class RuntimeWitos
             $"# The default environment of every process; the root task reads it (N4.1).\nPATH=/bin:/usr/bin:/data/apps/bin:/dotnet\n" +
             // The base applications' launchers (ADR 0027): on PATH, and PowerShell's the shell applications run commands through.
             $"SHELL=/data/apps/bin/pwsh\nHOME=/data/home\nTERM={Terminfo.TERM}\n" +
+            // PowerShell as SHELL, which any program may start (E4.2: Arlecchino.Commander runs its commands through it):
+            // until upstream guards its login-shell check with Platform.IsMacOS (C1.1: every Unix that is not Linux takes
+            // the macOS path and calls sysctl, which musl lacks), the variable pwsh's own re-exec sets skips it.
+            "__PWSH_LOGIN_CHECKED=1\n" +
             // CoreCLR gathers no MultiCoreJit startup profile (S8.1): on two or more processors it writes the profile a
             // record at a time, 4 bytes a write — pwsh's was 60 KiB, 15,000 writes — and each write of a volume's file is a
             // durable transaction of the namespace service's journal, with its flushes, so that a session's exit took
