@@ -33,7 +33,14 @@
  *
  * The process's terminal is the console, or the slave side of a pseudo-terminal when its creator started it there (E4.1:
  * a WitStreamMessage of WIT_STREAM_TERMINAL, start.c), whose number its sessions name in their CONNECT; it is the
- * process's controlling terminal, whose signals it raises. The pseudo-terminals' own descriptors follow below. */
+ * process's controlling terminal, whose signals it raises. The pseudo-terminals' own descriptors follow below.
+ *
+ * poll of the standard input (E4.1): a program that asks whether a key waits many times a second — .NET's
+ * Console.KeyAvailable is poll(0, 0), which Arlecchino's input loop asks every 8 ms — would make a round trip with the
+ * service each time, which under QEMU's TCG took most of an idle program's processor time. The service sends EVENT_INPUT
+ * whenever input becomes ready, and the terminal thread counts them; so once the service answered that nothing waits,
+ * the same answer stands without a question while no event came, for 50 ms at most, in case the full events queue
+ * dropped one. A poll of the standard input connects the reader's session, with its events, as a read does. */
 
 #define WINDOW WIT_TERMINAL_WINDOW_BYTES
 #define WINDOW_RIGHTS (WIT_RIGHT_MAP | WIT_RIGHT_WRITE | WIT_RIGHT_TRANSFER)
@@ -53,6 +60,9 @@ typedef struct Session {
 
 static Session reader, control;
 static volatile int connect_lock;
+static volatile unsigned input_events; /* EVENT_INPUT the terminal thread took */
+static volatile unsigned quiet_events; /* input_events when the service last answered that no input waits */
+static volatile WitU64 quiet_until; /* the monotonic time that answer stands until without a question; zero for none */
 static int process_pseudo = -1; /* the pseudo-terminal the process's standard streams are, -1 for the console (E4.1) */
 
 static void close_handle(WitU64 handle)
@@ -113,6 +123,7 @@ static void *events_thread(void *argument)
             }
             switch (event.Kind) {
             case WIT_TERMINAL_EVENT_INPUT:
+                __atomic_add_fetch(&input_events, 1, __ATOMIC_RELEASE);
                 __wit_poll_bump();
                 break;
             case WIT_TERMINAL_EVENT_INTERRUPT:
@@ -474,18 +485,42 @@ long __wit_terminal_ioctl(long stream, long request, void *argument)
     return connected < 0 ? connected : session_ioctl(&control, stream == 0, request, argument);
 }
 
+/* The monotonic clock's reading, and *quiet_ticks its ticks of 50 ms. */
+static WitU64 monotonic_now(WitU64 *quiet_ticks)
+{
+    WitU64 now = 0, frequency = 0;
+    wit_syscall(WIT_CALL_CLOCK_READ, WIT_CLOCK_MONOTONIC, 0, 0, &now);
+    wit_syscall(WIT_CALL_CLOCK_FREQUENCY, WIT_CLOCK_MONOTONIC, 0, 0, &frequency);
+    *quiet_ticks = frequency / 20;
+    return now;
+}
+
 /* poll's readiness of a standard stream (syscall.c): the input when the discipline would give something now, an output
- * always. */
+ * always. The service's last "nothing waits" stands while no EVENT_INPUT came, for 50 ms at most. */
 short __wit_terminal_poll(long stream, short events)
 {
     WitTerminalReply reply;
+    WitU64 quiet_ticks = 0;
     if (stream != 0) {
         return (short)(events & (POLLOUT | POLLWRNORM));
+    }
+    const long unheard = connect_session(&reader, 1, 1, WIT_TERMINAL_CONNECT, /* nonzero: no events to trust */
+        process_pseudo >= 0 ? WIT_TERMINAL_PSEUDO : 0, process_pseudo >= 0 ? (WitU64)process_pseudo : 0);
+    const WitU64 now = monotonic_now(&quiet_ticks);
+    const unsigned seen = __atomic_load_n(&input_events, __ATOMIC_ACQUIRE);
+    if (!unheard && seen == quiet_events && now < quiet_until) {
+        return 0;
     }
     if (control_request(WIT_TERMINAL_POLL, 0, 0, &reply) < 0) {
         return POLLERR;
     }
-    return (reply.Flags & WIT_TERMINAL_INPUT_READY) ? (short)(events & (POLLIN | POLLRDNORM)) : 0;
+    if (reply.Flags & WIT_TERMINAL_INPUT_READY) {
+        quiet_until = 0;
+        return (short)(events & (POLLIN | POLLRDNORM));
+    }
+    quiet_events = seen; /* read before the question: an event since then asks again */
+    quiet_until = unheard ? 0 : now + quiet_ticks;
+    return 0;
 }
 
 /* Pseudo-terminals (plan step E4.1, witos/terminal.h): /dev/ptmx opens a master, /dev/pts/<number> a pseudo-terminal's
