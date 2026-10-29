@@ -41,7 +41,8 @@ public sealed class AppsLayerTests
         var catalog = await AppCatalog.ReadAsync(TestEnvironment.Root);
         var commander = catalog.Single(entry => entry.Id == "Arlecchino.Commander");
         Assert.That(commander.Source.Kind, Is.EqualTo(AppCatalog.SOURCE));
-        Assert.That(commander.Source.Repository, Is.EqualTo("https://github.com/The1fEst/Arlecchino.Commander"));
+        // E4.2: the author's fork, upstream's release and WitOS's commits, which follows upstream.
+        Assert.That(commander.Source.Repository, Is.EqualTo("https://github.com/dmitrat/Arlecchino.Commander"));
         Assert.That(commander.Source.Properties, Is.EqualTo(new[] { "PublishAot=false" }), "a portable application, not NativeAOT");
         Assert.That(commander.Commands.Select(command => (command.Name, command.Assembly)), Is.EqualTo(new[] { ("arlc", "arlc.dll") }));
         Assert.That(commander.Native, Is.Null, "no native part: input and output through System.Console");

@@ -121,10 +121,9 @@ internal static class RuntimePowerShell
     }
 
     /// <summary>
-    /// The package of a PowerShell session: the device services, the install and apps_init with the commands, and the
-    /// environment with the variable that skips PowerShell's login-shell check. Until upstream guards that check with
-    /// Platform.IsMacOS (C1.1: every Unix that is not Linux takes the macOS path and calls sysctl), the variable pwsh's own
-    /// re-exec sets skips it.
+    /// The package of a PowerShell session: the device services, the install and apps_init with the commands. The
+    /// install's environment carries the variable that skips PowerShell's login-shell check (C1.1; since E4.2 beside
+    /// SHELL, for every program that starts the shell).
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="output">Artifact directory of the scenario.</param>
@@ -134,12 +133,7 @@ internal static class RuntimePowerShell
     public static async Task<IReadOnlyList<(string Name, string Source)>> PackageAsync(string root, string output, KernelArchitecture architecture,
         IReadOnlyList<string> commands)
     {
-        var package = (await RuntimeApps.PackageAsync(root, output, architecture, [], commands)).ToList();
-        var environmentIndex = package.FindIndex(file => file.Name == "etc/environment");
-        var environment = Path.Combine(output, "environment");
-        await File.WriteAllTextAsync(environment, await File.ReadAllTextAsync(package[environmentIndex].Source) + "__PWSH_LOGIN_CHECKED=1\n");
-        package[environmentIndex] = ("etc/environment", environment);
-        return package;
+        return await RuntimeApps.PackageAsync(root, output, architecture, [], commands);
     }
 
     /// <summary>

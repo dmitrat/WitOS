@@ -34,6 +34,15 @@ internal static class PowerShell
     /// </summary>
     public const string NATIVE_LIBRARY = "libpsl-native.so";
 
+    /// <summary>
+    /// The startup hook WitOS lays beside pwsh.dll (E4.2), which pwsh.runtimeconfig.json names.
+    /// </summary>
+    public const string LOGIN_HOOK = "WitOS.PowerShellLogin.dll";
+
+    private const string LOGIN_HOOK_PROJECT = "src/Apps/PowerShellLogin/PowerShellLogin.csproj";
+
+    private const string RUNTIME_CONFIG = "pwsh.runtimeconfig.json";
+
     // The library's sources within PowerShell-Native, and the configure results its pal_config.h.in asks for: WitOS
     // has sysconf and no sys/sysctl.h, as Linux with musl.
     private const string NATIVE_SOURCES = "src/libpsl-native/src";
@@ -146,7 +155,8 @@ internal static class PowerShell
 
     /// <summary>
     /// PowerShell's files as a base application of the layer (ADR 0027, plan step C4.1), by their paths in its directory:
-    /// the archive's, the native library built for the ISA, and WitOS's profile.
+    /// the archive's, the native library built for the ISA, WitOS's profile, and (E4.2) WitOS's startup hook with the
+    /// archive's runtimeconfig naming it.
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="architecture">Target architecture.</param>
@@ -161,7 +171,50 @@ internal static class PowerShell
         // The session banner's profile (C1.4): $PSHOME/profile.ps1, which every interactive session runs; WitOS's, not
         // the archive's, and the one file beside the archive's.
         files.Add(("profile.ps1", Path.Combine(root, Runtime.ConsoleLogo.PROFILE)));
+        // The startup hook (E4.2): pwsh removes __PWSH_LOGIN_CHECKED from its own environment once its login-shell check
+        // read it, so a pwsh another pwsh starts — Arlecchino.Commander runs its commands through SHELL — met the check's
+        // sysctl without it (C1.1); the hook sets it again before Main, and the runtimeconfig names the hook by its path
+        // in the layer.
+        files.RemoveAll(file => file.Item1 == RUNTIME_CONFIG);
+        files.Add((RUNTIME_CONFIG, await RuntimeConfigAsync(root, pin, Path.Combine(tree, RUNTIME_CONFIG))));
+        files.Add((LOGIN_HOOK, await BuildLoginHookAsync(root)));
         return files;
+    }
+
+    /// <summary>
+    /// The startup hook's path in the guest: beside pwsh.dll in the version's directory of the layer.
+    /// </summary>
+    /// <param name="version">PowerShell's version.</param>
+    /// <returns>The path.</returns>
+    public static string LoginHookPath(string version) => $"{WitOS.Apps.AppsDirectory.GUEST_ROOT}/{CATALOG_ID}/{version}/{LOGIN_HOOK}";
+
+    // The archive's runtimeconfig with STARTUP_HOOKS among its configuration properties, which hostpolicy reads as it
+    // reads DOTNET_STARTUP_HOOKS.
+    private static async Task<string> RuntimeConfigAsync(string root, PowerShellPin pin, string archived)
+    {
+        var config = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(archived))
+            ?? throw new InvalidDataException($"{archived} holds no JSON.");
+        var options = config["runtimeOptions"] as System.Text.Json.Nodes.JsonObject
+            ?? throw new InvalidDataException($"{archived} has no runtimeOptions.");
+        if (options["configProperties"] is not System.Text.Json.Nodes.JsonObject properties)
+            options["configProperties"] = properties = new System.Text.Json.Nodes.JsonObject();
+        properties["STARTUP_HOOKS"] = LoginHookPath(pin.Version);
+        var output = Path.Combine(root, "artifacts", "powershell-login");
+        Directory.CreateDirectory(output);
+        var written = Path.Combine(output, RUNTIME_CONFIG);
+        await File.WriteAllTextAsync(written, config.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+        return written;
+    }
+
+    // The startup hook, built by the SDK the repository builds with.
+    private static async Task<string> BuildLoginHookAsync(string root)
+    {
+        var output = Path.Combine(root, "artifacts", "powershell-login", "hook");
+        await Processes.RequireSuccessAsync("dotnet", ["build", Path.Combine(root, LOGIN_HOOK_PROJECT), "-c", "Release", "-o", output, "-nologo", "-v", "q"], root);
+        var hook = Path.Combine(output, LOGIN_HOOK);
+        if (!File.Exists(hook))
+            throw new InvalidOperationException($"The build of {LOGIN_HOOK_PROJECT} left no {LOGIN_HOOK}.");
+        return hook;
     }
 
     // PowerShell-Native at the pinned commit, as libc-test is checked out: one commit fetched, detached, verified.

@@ -101,7 +101,7 @@
       "name": "Full-screen console applications (TUI)",
       "status": "Supported",
       "step": "C2.6, C4.2",
-      "note": "The display's emulator draws SGR's colours and attributes, the alternate screen and the cursor's visibility, swallows the string sequences and answers the device attributes and the size (C2.6); Arlecchino.Commander, built from its source as a base application, lists, views and copies files on the screen through the keyboard (C4.2, the `runtime-commander` scenario); Terminal.Gui's UICatalog 2.5.0 runs with `--disable-cm`, since its configuration watcher needs file change notifications, and CSharpFar needs `HttpClient` at its start, which waits for networking."
+      "note": "The display's emulator draws SGR's colours and attributes, the alternate screen and the cursor's visibility, swallows the string sequences and answers the device attributes and the size (C2.6); Arlecchino.Commander, built from its source as a base application, lists, views and copies files on the screen through the keyboard (C4.2, the `runtime-commander` scenario) and, from the author's fork, picks a volume, copies from a USB drive and runs commands and interactive programs under a pseudo-terminal (E4.2, the `runtime-file-manager` scenario); Terminal.Gui's UICatalog 2.5.0 runs with `--disable-cm`, since its configuration watcher needs file change notifications, and CSharpFar needs `HttpClient` at its start, which waits for networking."
     },
     {
       "name": "Named synchronization objects (`Mutex` with a name)",

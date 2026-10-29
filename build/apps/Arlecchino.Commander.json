@@ -1,16 +1,16 @@
 {
   "id": "Arlecchino.Commander",
-  "version": "2026.9.19",
+  "version": "2026.10.29",
   "framework": "Microsoft.NETCore.App 10.0",
   "source": {
     "kind": "source",
-    "repository": "https://github.com/The1fEst/Arlecchino.Commander",
-    "commit": "697750104b83f7b7db5fd6e0850bccf58f70c36e",
+    "repository": "https://github.com/dmitrat/Arlecchino.Commander",
+    "commit": "e71fd63aae185f4f21b7c25db3c56cbdd8d44575",
     "project": "src/Arlecchino.Commander/Arlecchino.Commander.csproj",
     "properties": [ "PublishAot=false" ]
   },
   "commands": [
     { "name": "arlc", "assembly": "arlc.dll" }
   ],
-  "purpose": "The file manager of the early console (plan step C4.2, ADR 0027): Arlecchino.Commander, MIT, Midnight Commander's layout on the Arlecchino framework, as a base application of the data volume's layer with the command arlc. Its releases are NativeAOT binaries of Linux, macOS and Windows alone, so the layer builds it from its source with the Arlecchino submodule by the stock SDK as a portable application without AOT, unchanged: the commit of 2026-09-19 after the release v2026.9.2, versioned by its date, since that release names a commit of the Arlecchino submodule its repository no longer holds (the library's history was rewritten) while this one takes the library's release v2026.9.3; on WitOS it falls back to pipes for commands (no pseudo-terminal), to polling for folder changes (no inotify) and to no trash, as its code does for an operating system it does not know, and runs commands through SHELL, which is PowerShell."
+  "purpose": "The file manager of the early console (plan step C4.2, ADR 0027): Arlecchino.Commander, MIT, Midnight Commander's layout on the Arlecchino framework, as a base application of the data volume's layer with the command arlc. Its releases are NativeAOT binaries of Linux, macOS and Windows alone, so the layer builds it from its source with the Arlecchino submodule by the stock SDK as a portable application without AOT, from the author's fork (E4.2; the author's decision of 2026-10-29: the fork follows upstream while it is maintained): the branch `witos`, upstream's release v2026.10.2 and the fork's one commit, which runs commands on a pseudo-terminal of their own on WitOS (a dialect of its POSIX terminal with Linux's numbers, which WitOS's libc answers since E4.1), versioned by that commit's date; on WitOS it falls back to polling for folder changes (no inotify) and to no trash, as its code does for an operating system it does not know, and runs commands through SHELL, which is PowerShell."
 }

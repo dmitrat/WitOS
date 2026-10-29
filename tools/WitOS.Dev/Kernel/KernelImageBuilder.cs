@@ -210,6 +210,12 @@ internal static class KernelImageBuilder
     public const string RUNTIME_USB_DRIVE_SCENARIO = "runtime-usb-drive";
 
     /// <summary>
+    /// The file manager of the developer scenario (E4.2): Arlecchino.Commander on the screen with a USB drive, a copy, a
+    /// folder made and an interactive program run under a pseudo-terminal.
+    /// </summary>
+    public const string RUNTIME_FILE_MANAGER_SCENARIO = "runtime-file-manager";
+
+    /// <summary>
     /// Representative NuGet libraries (N2.1): NUnit's and xUnit's test applications run through dotnet beside the device
     /// services; not a suite scenario, for the same reason.
     /// </summary>
@@ -250,7 +256,7 @@ internal static class KernelImageBuilder
             RUNTIME_NUGET_SUITES_SCENARIO, RUNTIME_SIDE_BY_SIDE_SCENARIO, RUNTIME_TERMINAL_SCENARIO, RUNTIME_PUBLISHED_SCENARIO,
             RUNTIME_POWERSHELL_SCENARIO, RUNTIME_DISPLAY_SCENARIO, RUNTIME_COMMANDER_SCENARIO,
             RUNTIME_INSTALLER_SCENARIO, RUNTIME_PROCESSORS_SCENARIO, RUNTIME_CSHARPREPL_SCENARIO, RUNTIME_ASPNETCORE_SCENARIO,
-            RUNTIME_VOLUMES_SCENARIO, RUNTIME_SMB_SCENARIO, RUNTIME_USB_DRIVE_SCENARIO];
+            RUNTIME_VOLUMES_SCENARIO, RUNTIME_SMB_SCENARIO, RUNTIME_USB_DRIVE_SCENARIO, RUNTIME_FILE_MANAGER_SCENARIO];
 
     // A release map must not name self-test code: test objects, self-test functions, fault triggers or workers.
     private static readonly Regex SELF_TEST_SYMBOL = new(
@@ -358,6 +364,7 @@ internal static class KernelImageBuilder
                 or RUNTIME_SIDE_BY_SIDE_SCENARIO or RUNTIME_PUBLISHED_SCENARIO or RUNTIME_POWERSHELL_SCENARIO or RUNTIME_DISPLAY_SCENARIO
                 or RUNTIME_COMMANDER_SCENARIO or RUNTIME_INSTALLER_SCENARIO or RUNTIME_PROCESSORS_SCENARIO or RUNTIME_CSHARPREPL_SCENARIO
                 or RUNTIME_ASPNETCORE_SCENARIO or RUNTIME_VOLUMES_SCENARIO or RUNTIME_SMB_SCENARIO or RUNTIME_USB_DRIVE_SCENARIO
+                or RUNTIME_FILE_MANAGER_SCENARIO
                 ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
             : scenario == RESET_SCENARIO ? await UserImage.BuildRootAsync(root, output, architecture, ["-DWITOS_ROOT_EXIT_RESET=1"])
             : await UserImage.BuildRootAsync(root, output, architecture);
