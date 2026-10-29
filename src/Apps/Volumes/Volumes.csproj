@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- witos-volumes (plan step E2.2, ADR 0032): the volumes of the namespace's catalog listed, and shares mounted and
+       unmounted through the libc's mount(2) and umount2(2). runtime-services publishes its sources as a NativeAOT program
+       of the boot package, /usr/bin/witos-volumes, beside the services; on the host the project builds and its parsing
+       is tested. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>witos-volumes</AssemblyName>
+    <RootNamespace>WitOS.Volumes</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="WitOS.Apps.Tests" />
+  </ItemGroup>
+</Project>

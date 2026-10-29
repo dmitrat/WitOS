@@ -166,11 +166,11 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Install what building QEMU, running LLVM and driving dotnet/runtime's native build need
+      - name: Install what building QEMU, running LLVM and driving dotnet/runtime's native build need, and Samba, the SMB client's reference server
         run: >-
           sudo apt-get update && sudo apt-get install -y --no-install-recommends
           bison bzip2 cmake flex g++ gcc libglib2.0-dev libicu-dev libkrb5-dev liblttng-ust-dev libpixman-1-dev libslirp-dev
-          libssl-dev libxml2 make ninja-build pkg-config python3 python3-venv xz-utils zlib1g-dev
+          libssl-dev libxml2 make ninja-build pkg-config python3 python3-venv samba xz-utils zlib1g-dev
 
       - name: Cache the pinned LLVM and QEMU releases and the built QEMU
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -249,6 +249,7 @@ jobs:
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/Network
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/Terminal
             artifacts/runtime-witos/ilc/${{ matrix.arch }}/Display
+            artifacts/runtime-witos/ilc/${{ matrix.arch }}/witos-volumes
             artifacts/runtime-witos/src/artifacts/bin/coreclr/witos.${{ matrix.arch }}.Release/libcoreclr.so
             artifacts/runtime-witos/src/artifacts/bin/coreclr/witos.${{ matrix.arch }}.Release/libclrjit.so
             artifacts/runtime-witos/src/artifacts/bin/coreclr/witos.${{ matrix.arch }}.Release/IL/System.Private.CoreLib.dll

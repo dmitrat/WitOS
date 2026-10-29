@@ -8,6 +8,7 @@ using OutWit.OS.Display;
 using OutWit.OS.DeviceManager.Drivers;
 using OutWit.OS.DeviceManager.Uhi;
 using OutWit.OS.Hardware;
+using OutWit.OS.Namespaces;
 using OutWit.OS.Resources;
 using OutWit.OS.Storage;
 
@@ -74,6 +75,9 @@ internal static class Program
                 adapters.Add((driver.Record.Id, NetworkProbe.Run(driver, probe: !Session.Active)));
             var names = StartNamespace(disks);
             var network = StartNetwork(adapters);
+            // E2.2: the namespace service mounts shares through the network service, which starts after it.
+            if (names is { Status: 0 } && network?.Clients is { } reach)
+                GiveNetwork(names, reach);
             // The firmware's framebuffer (C2.1): the test pattern through DEVICE_MEMORY's windows, before the display service
             // takes the framebuffer and draws the terminal's screen over it (C2.2).
             if (!Session.Active)
@@ -183,6 +187,20 @@ internal static class Program
 
     // The network service with the adapters' packet channels (W1.2a), or with none, serving the loopback alone (W2.1a); its
     // probes run when it has an adapter. Null when it could not start.
+    // The network service's clients' endpoint, moved to the namespace service as a disk message with DISK_NETWORK (E2.2).
+    private static void GiveNetwork(NamespaceActivation names, KernelHandle clients)
+    {
+        try
+        {
+            using var given = clients.Duplicate(Rights.Send | Rights.Duplicate | Rights.Transfer); // moved by the send
+            names.Channel.Send(NamespaceMessages.EncodeDisk(NamespaceMessages.DISK_NETWORK, "network"), given);
+        }
+        catch (CapabilityException exception)
+        {
+            Console.WriteLine($"{PREFIX}the namespace service could not have the network's endpoint: error {exception.Error}; shares do not mount");
+        }
+    }
+
     private static NetworkActivation? StartNetwork(IReadOnlyList<(string Device, Channel Packets)> adapters)
     {
         try

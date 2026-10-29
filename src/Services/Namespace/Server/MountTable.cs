@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using OutWit.OS.FileSystems;
 
@@ -26,6 +27,7 @@ internal sealed class MountTable
     #region Fields
 
     private readonly object m_gate = new();
+    private readonly Dictionary<Mount, int> m_holders = new(ReferenceEqualityComparer.Instance);
     private Mount[] m_mounts = [];
     private uint m_nextIndex;
 
@@ -115,6 +117,45 @@ internal sealed class MountTable
         return found;
     }
 
+    /// <summary>
+    /// A session opened a file or a directory of a mount (E2.2): an unmount waits for its close, or detaches.
+    /// </summary>
+    /// <param name="mount">The mount.</param>
+    public void Hold(Mount mount)
+    {
+        lock (m_gate)
+            m_holders[mount] = m_holders.GetValueOrDefault(mount) + 1;
+    }
+
+    /// <summary>
+    /// A session closed what it held of a mount.
+    /// </summary>
+    /// <param name="mount">The mount.</param>
+    public void Let(Mount mount)
+    {
+        lock (m_gate)
+        {
+            if (m_holders.TryGetValue(mount, out var count))
+            {
+                if (count <= 1)
+                    m_holders.Remove(mount);
+                else
+                    m_holders[mount] = count - 1;
+            }
+        }
+    }
+
+    /// <summary>
+    /// How many open files and directories of a mount the sessions hold.
+    /// </summary>
+    /// <param name="mount">The mount.</param>
+    /// <returns>The count.</returns>
+    public int Holders(Mount mount)
+    {
+        lock (m_gate)
+            return m_holders.GetValueOrDefault(mount);
+    }
+
     // "/" and one component, or /media/ and one.
     private static bool IsPoint(string point)
     {
@@ -152,6 +193,12 @@ internal sealed class MountTable
     /// Where the listening sockets' ends come from (W4.1).
     /// </summary>
     public IListenerEndSource ListenerEnds { get; }
+
+    /// <summary>
+    /// How a session reaches a server on the network (E2.2): a byte stream to an address literal and a port; null until
+    /// the device manager gives the service the network service's endpoint.
+    /// </summary>
+    public Func<string, ushort, Stream>? Connector { get; set; }
 
     #endregion
 

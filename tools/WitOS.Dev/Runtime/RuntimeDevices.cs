@@ -236,6 +236,21 @@ internal static class RuntimeDevices
     public const string FILES_EXECUTABLE = "Files";
 
     /// <summary>
+    /// The volumes command's sources (E2.2).
+    /// </summary>
+    public const string VOLUMES_PROGRAM = "src/Apps/Volumes";
+
+    /// <summary>
+    /// The volumes command's executable.
+    /// </summary>
+    public const string VOLUMES_EXECUTABLE = "witos-volumes";
+
+    /// <summary>
+    /// The volumes command in the boot package, on PATH.
+    /// </summary>
+    public const string VOLUMES_COMMAND = "/usr/bin/witos-volumes";
+
+    /// <summary>
     /// The runtime-devices scenario's /bin/init: it starts after the device manager answered.
     /// </summary>
     public const string DEVICES_INIT = "tests/User/devices_init.c";
@@ -279,6 +294,9 @@ internal static class RuntimeDevices
 
     // OutWit.OS's filesystem providers (D4.1, D4.2, N4.1), which a service compiles with OutWit.OS's package references.
     private static readonly string[] OUTWIT_OS_FILESYSTEM_FOLDERS = ["FileSystems", "FileSystems/Fat", "FileSystems/Ext4", "FileSystems/Memory"];
+
+    // OutWit.OS's SMB 3 client (E2.1), which the namespace service alone compiles to mount shares (E2.2).
+    private static readonly string[] OUTWIT_OS_SMB_FOLDERS = ["FileSystems/Smb"];
 
     // OutWit.OS's USB core and xHCI controller (H2.1), which the xHCI driver alone compiles.
     private static readonly string[] OUTWIT_OS_USB_FOLDERS = ["Hardware/Usb"];
@@ -340,7 +358,16 @@ internal static class RuntimeDevices
         await PublishServiceAsync(root, tree, architecture, version, sysroot, TERMINAL_EXECUTABLE, TERMINAL_PROGRAM, ["Server"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, DISPLAY_EXECUTABLE, DISPLAY_PROGRAM, ["Server"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, NAMESPACE_EXECUTABLE, NAMESPACE_PROGRAM, ["Server", "Volumes"],
-            OUTWIT_OS_FILESYSTEM_FOLDERS);
+            [.. OUTWIT_OS_FILESYSTEM_FOLDERS, .. OUTWIT_OS_SMB_FOLDERS]);
+        // E2.2: the volumes command, a NativeAOT program of the boot package beside the services, which calls the libc's
+        // mount(2) and umount2(2) directly.
+        var volumesCommand = await RuntimeWitos.PublishProgramAsync(root, tree, architecture, VOLUMES_EXECUTABLE, Path.Combine(root, VOLUMES_PROGRAM), version,
+            """
+                <ItemGroup>
+                  <DirectPInvoke Include="libc" />
+                </ItemGroup>
+            """);
+        File.Copy(volumesCommand, Path.Combine(RuntimeWitos.ProgramDirectory(root, architecture), VOLUMES_EXECUTABLE), overwrite: true);
         var files = await RuntimeWitos.PublishProgramAsync(root, tree, architecture, FILES_EXECUTABLE, Path.Combine(root, FILES_PROGRAM), version, "");
         var image = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_DEVICES_SCENARIO, architecture: architecture);
         var programs = await BuildVolumeProgramsAsync(root, Path.GetDirectoryName(image)!, architecture, files);
@@ -773,6 +800,9 @@ internal static class RuntimeDevices
         var networking = Path.Combine(directory, NETWORK_EXECUTABLE);
         var terminal = Path.Combine(directory, TERMINAL_EXECUTABLE);
         var display = Path.Combine(directory, DISPLAY_EXECUTABLE);
+        var volumes = Path.Combine(directory, VOLUMES_EXECUTABLE);
+        if (!File.Exists(volumes))
+            throw new InvalidOperationException($"No witos-volumes in {directory}. Run: dotnet run --project tools/WitOS.Dev -- runtime-services --arch {architecture.Name}");
         if (!File.Exists(driver) || !File.Exists(console) || !File.Exists(input) || !File.Exists(xhci) || !File.Exists(ahci) || !File.Exists(nvme) || !File.Exists(network) ||
             !File.Exists(e1000) || !File.Exists(i8042) || !File.Exists(names) ||
             !File.Exists(networking) || !File.Exists(terminal) || !File.Exists(display))
@@ -786,7 +816,7 @@ internal static class RuntimeDevices
             ("system/Drivers/" + NVME_EXECUTABLE, nvme), ("system/Drivers/" + E1000_EXECUTABLE, e1000),
             ("system/Drivers/" + I8042_EXECUTABLE, i8042),
             ("system/" + NAMESPACE_EXECUTABLE, names), ("system/" + NETWORK_EXECUTABLE, networking), ("system/" + TERMINAL_EXECUTABLE, terminal),
-            ("system/" + DISPLAY_EXECUTABLE, display),
+            ("system/" + DISPLAY_EXECUTABLE, display), (VOLUMES_COMMAND.TrimStart('/'), volumes),
             .. SpleenFont.PackageFiles(root), .. program.Skip(1)
         ];
     }

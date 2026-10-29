@@ -170,6 +170,11 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public Host.RunnerAuthority? NetworkHttps { get; init; }
 
     /// <summary>
+    /// A share the runner serves over SMB 3 at 10.0.2.100:445 (E2.2: Samba's smbd behind QEMU's guestfwd); none when null.
+    /// </summary>
+    public Host.NetworkShare? NetworkShare { get; init; }
+
+    /// <summary>
     /// Whether the display's console is the terminal's main console (plan step C2.3): the device manager starts the
     /// display service when the board has a framebuffer and a keyboard driver, and the terminal takes the display's size
     /// and lets the virtio console mirror it. The runner's side of the mirror then answers no query of the terminal, since

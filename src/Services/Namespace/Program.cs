@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 using OutWit.OS.Communication;
 using OutWit.OS.FileSystems.Memory;
 using OutWit.OS.Namespace.Server;
 using OutWit.OS.Namespace.Volumes;
 using OutWit.OS.Namespaces;
+using OutWit.OS.Networking;
 using OutWit.OS.Resources;
 using OutWit.OS.Storage;
 
@@ -29,6 +32,11 @@ internal static class Program
     /// What the files of /tmp may hold in all (N4.1).
     /// </summary>
     private const long TEMPORARY_BYTES = 64L * 1024 * 1024;
+
+    /// <summary>
+    /// How long a share's connect and each of its reads and writes may wait, in the guest's time (E2.2).
+    /// </summary>
+    private const int CONNECT_SECONDS = 60;
 
     #endregion
 
@@ -89,12 +97,22 @@ internal static class Program
                     NamespaceConnection.Accept(clients.Receive(), mounts);
                     continue;
                 }
-                using var message = channel.Receive();
+                var message = channel.Receive();
                 if (ServiceStop.TryDecode(message.Bytes, out _))
                 {
+                    message.Dispose();
                     channel.Send(ServiceStatus.Encode(Stop(mounts, kept)));
                     return 0;
                 }
+                if (Network(message) is { } network)
+                {
+                    // E2.2: the network service's endpoint, which a mount of a share connects through; the service keeps it.
+                    kept.Add(new HandleKeeper(network));
+                    mounts.Connector = (address, port) => SocketStream.Connect(network, Peer(address, port), CONNECT_SECONDS);
+                    Console.WriteLine($"{PREFIX}the network service's endpoint: shares mount below {MountTable.MEDIA}");
+                    continue;
+                }
+                message.Dispose();
                 Console.WriteLine($"{PREFIX}a message of {message.Bytes.Length} bytes from the device manager, which the service does not serve");
             }
         }
@@ -111,6 +129,18 @@ internal static class Program
     {
         var sessions = NamespaceConnection.StopAll();
         var error = 0;
+        // The shares mounted on request (E2.2) log off before the disks' volumes go.
+        foreach (var volume in mounts.Catalog.Volumes.Where(volume => volume.Origin == NamespaceMessages.ORIGIN_NETWORK))
+        {
+            try
+            {
+                volume.Mount.Volume.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            }
+            catch (Exception exception)
+            {
+                Console.WriteLine($"{PREFIX}stopping {volume.Point}: {exception.GetType().Name}: {exception.Message}");
+            }
+        }
         for (var i = kept.Count - 1; i >= 0; i--)
         {
             try
@@ -126,6 +156,39 @@ internal static class Program
         Console.WriteLine($"{PREFIX}namespace service: {sessions} sessions stopped, {mounts.Catalog.Volumes.Count} volumes unmounted" +
             (error == 0 ? "" : ", with errors"));
         return error;
+    }
+
+    // A disk message with DISK_NETWORK and its one handle: the network service's clients' endpoint (E2.2).
+    private static KernelHandle? Network(ChannelMessage message)
+    {
+        try
+        {
+            var (flags, _) = NamespaceMessages.DecodeDisk(message.Bytes);
+            return (flags & NamespaceMessages.DISK_NETWORK) != 0 && message.Handles.Count == 1 ? message.Handles[0] : null;
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+    }
+
+    // A literal address and a port as the network service names a peer.
+    private static SocketAddress Peer(string address, ushort port) => address.Contains(':')
+        ? SocketAddress.Inet6(Ipv6Address.Parse(address.Trim('[', ']')), port)
+        : SocketAddress.Inet(Ipv4Address.Parse(address), port);
+
+    #endregion
+
+    #region Types
+
+    // A handle the service keeps until it stops.
+    private sealed class HandleKeeper(KernelHandle handle) : IAsyncDisposable
+    {
+        public ValueTask DisposeAsync()
+        {
+            handle.Dispose();
+            return ValueTask.CompletedTask;
+        }
     }
 
     #endregion

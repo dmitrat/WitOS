@@ -156,11 +156,13 @@ internal static class RuntimeApps
     /// <param name="actions">What the runner does once the guest's lines appear (W3.2: its requests to the forward); nothing by
     /// default.</param>
     /// <param name="extraDisk">A third disk's image (E1), or null.</param>
+    /// <param name="share">A share the runner serves over SMB (E2.2), which brings the adapter; or null.</param>
     /// <returns>When the boot passed.</returns>
     public static async Task BootAsync(string root, KernelArchitecture architecture, string scenario, string[] requiredLines,
         int timeoutSeconds, IReadOnlyList<(string Path, string Source)>? volumeFiles = null, long diskBytes = RuntimeDataDisk.BYTES,
         int memoryMiB = MEMORY_MIB, IReadOnlyList<(string Name, string Source)>? package = null, IReadOnlyList<TerminalInput>? terminal = null,
-        int processors = 1, RunnerAuthority? https = null, ushort forward = 0, IReadOnlyList<BootAction>? actions = null, string? extraDisk = null)
+        int processors = 1, RunnerAuthority? https = null, ushort forward = 0, IReadOnlyList<BootAction>? actions = null, string? extraDisk = null,
+        NetworkShare? share = null)
     {
         var image = await KernelImageBuilder.BuildAsync(root, scenario, architecture: architecture, package: package);
         var dataDisk = Path.Combine(Path.GetDirectoryName(image)!, "data-disk.img");
@@ -178,8 +180,9 @@ internal static class RuntimeApps
             // The adapter (W1.1) when the runner serves HTTPS (W3.1) or reaches a guest's port (W3.2): the guest reaches the
             // server through QEMU's guestfwd and the runner the port through its hostfwd, both of the adapter's user
             // networking; without them the suite's Network area keeps to the loopback.
-            Network = https is not null || forward != 0,
+            Network = https is not null || forward != 0 || share is not null,
             NetworkHttps = https,
+            NetworkShare = share,
             NetworkForward = forward,
             Actions = actions ?? [],
             ExtraDisk = extraDisk

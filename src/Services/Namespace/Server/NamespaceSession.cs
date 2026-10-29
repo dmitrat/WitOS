@@ -6,7 +6,9 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using OutWit.OS.FileSystems;
+using OutWit.OS.FileSystems.Smb;
 using OutWit.OS.Namespaces;
+using OutWit.OS.Networking;
 using OutWit.OS.Resources;
 
 namespace OutWit.OS.Namespace.Server;
@@ -87,6 +89,8 @@ internal sealed class NamespaceSession : IAsyncDisposable
                 NamespaceMessages.SOCKET_CLOSE => CloseSocket(request),
                 NamespaceMessages.VOLUMES => await VolumesAsync(request, cancellationToken).ConfigureAwait(false),
                 NamespaceMessages.STATFS => await FileSystemStatAsync(request, cancellationToken).ConfigureAwait(false),
+                NamespaceMessages.MOUNT => await MountAsync(request, cancellationToken).ConfigureAwait(false),
+                NamespaceMessages.UNMOUNT => await UnmountAsync(request).ConfigureAwait(false),
                 _ => Fail(request, Errno.NOT_IMPLEMENTED)
             };
         }
@@ -200,6 +204,95 @@ internal sealed class NamespaceSession : IAsyncDisposable
         return new NamespaceReply(request.Operation, 0, Length: bytes.Length);
     }
 
+    // MOUNT (E2.2): a share of an SMB server, reached through the network service, logged on and attached to the catalog
+    // below /media; its record answers. Each failure is the errno Linux's mount of a CIFS share answers.
+    private async ValueTask<NamespaceReply> MountAsync(NamespaceRequest request, CancellationToken cancellationToken)
+    {
+        if (request.Length <= 0 || request.Length > Math.Min(2 * PATH_LIMIT, m_window.Length))
+            return Fail(request, Errno.INVALID);
+        var fields = Encoding.UTF8.GetString(m_window.Read(0, (int)request.Length)).Split(' ');
+        if (fields.Length < 4)
+            return Fail(request, Errno.INVALID);
+        Volumes.NetworkMount mount;
+        try
+        {
+            mount = Volumes.NetworkMount.Parse(fields[0], fields[1], fields[2], fields[3], (request.Flags & NamespaceMessages.MOUNT_READ_ONLY) != 0);
+        }
+        catch (NotSupportedException exception)
+        {
+            Console.WriteLine($"{PREFIX}mount of {fields[0]}: {exception.Message}");
+            return Fail(request, Errno.NO_FILE_SYSTEM);
+        }
+        catch (ArgumentException exception)
+        {
+            Console.WriteLine($"{PREFIX}mount of {fields[0]}: {exception.Message}");
+            return Fail(request, Errno.INVALID);
+        }
+        if (m_mounts.Connector is not { } connector)
+        {
+            Console.WriteLine($"{PREFIX}mount of {mount}: the service has no network");
+            return Fail(request, Errno.NETWORK_DOWN);
+        }
+        SmbFileSystem volume;
+        try
+        {
+            volume = await SmbFileSystem.MountAsync(connector(mount.Address, mount.Port), mount.Server, mount.Share, mount.Credentials, mount.ReadOnly,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or FileSystemException or System.Net.Sockets.SocketException)
+        {
+            Console.WriteLine($"{PREFIX}mount of {mount}: {exception.Message}");
+            return Fail(request, exception switch
+            {
+                SocketStreamException failed => failed.Error,
+                System.Net.Sockets.SocketException { SocketErrorCode: System.Net.Sockets.SocketError.ConnectionRefused } => Errno.CONNECTION_REFUSED,
+                FileSystemException failure => Errno.Of(failure),
+                _ => Errno.IO
+            });
+        }
+        Volumes.CatalogVolume attached;
+        try
+        {
+            attached = m_mounts.Catalog.Attach(volume, NamespaceMessages.ORIGIN_NETWORK, null, volume.Volume.Identity, false, mount.Alias);
+        }
+        catch (FileSystemException exception)
+        {
+            await volume.DisposeAsync().ConfigureAwait(false);
+            Console.WriteLine($"{PREFIX}mount of {mount}: {exception.Message}");
+            return Fail(request, Errno.BUSY);
+        }
+        Console.WriteLine($"{PREFIX}mounted {attached.Point}: {volume.Volume.Format} volume \"{volume.Share}\" of {volume.Volume.Length} bytes, " +
+            $"{(volume.Volume.IsReadOnly ? "read-only" : "writable")}, from //{mount.Server}/{mount.Share} (SMB {volume.Dialect} at {mount.Address}:{mount.Port} " +
+            $"as {mount.Credentials})" + (attached.Collision ? $"; its identity {volume.Volume.Identity} is another attached volume's too" : ""));
+        var bytes = new byte[NamespaceVolume.SIZE];
+        attached.Record(await volume.GetSpaceAsync(cancellationToken).ConfigureAwait(false)).Write(bytes);
+        m_window.Write(0, bytes);
+        return new NamespaceReply(request.Operation, 0, Length: bytes.Length);
+    }
+
+    // UNMOUNT (E2.2): a network volume leaves the catalog and its connection closes; EBUSY while a session holds a file
+    // of it, unless detached. A disk's volume goes with its device (E3), never by a request.
+    private async ValueTask<NamespaceReply> UnmountAsync(NamespaceRequest request)
+    {
+        var point = Path(request, 0, request.Length).TrimEnd('/');
+        var mount = m_mounts.Mounts.FirstOrDefault(item => item.Point == point);
+        if (mount is null)
+            return Fail(request, Errno.INVALID); // as Linux answers a path that is no mount point
+        var volume = m_mounts.Catalog.Of(mount);
+        if (volume is null || volume.Origin != NamespaceMessages.ORIGIN_NETWORK)
+        {
+            Console.WriteLine($"{PREFIX}unmount of {point}: only a network volume unmounts on request");
+            return Fail(request, Errno.BUSY);
+        }
+        var holders = m_mounts.Holders(mount);
+        if (holders > 0 && (request.Flags & NamespaceMessages.UNMOUNT_DETACH) == 0)
+            return Fail(request, Errno.BUSY);
+        m_mounts.Catalog.Detach(volume.Alias);
+        await mount.Volume.DisposeAsync().ConfigureAwait(false);
+        Console.WriteLine($"{PREFIX}unmounted {point}" + (holders > 0 ? $", detached from {holders} open files" : ""));
+        return new NamespaceReply(request.Operation, 0);
+    }
+
     // A file or a directory opened: the flags as FileStream's modes, a directory read alone, its listing taken later.
     private async ValueTask<NamespaceReply> OpenAsync(NamespaceRequest request, CancellationToken cancellationToken)
     {
@@ -242,8 +335,9 @@ internal sealed class NamespaceSession : IAsyncDisposable
 
     // A handle goes (R4.2): a handle that maps its file writable writes the chunks back first, and the last handle that
     // mapped the file drops its chunks; then the file closes.
-    private static async ValueTask ReleaseAsync(Opened opened)
+    private async ValueTask ReleaseAsync(Opened opened)
     {
+        m_mounts.Let(opened.Mount);
         if (opened is { Mapped: { } mapped, File: { } writer })
         {
             await mapped.Gate.WaitAsync().ConfigureAwait(false);
@@ -761,6 +855,7 @@ internal sealed class NamespaceSession : IAsyncDisposable
     {
         var handle = m_next++;
         m_opened[handle] = opened;
+        m_mounts.Hold(opened.Mount); // an unmount waits for its close (E2.2)
         return new NamespaceReply(request.Operation, 0, Handle: handle, Stat: stat);
     }
 

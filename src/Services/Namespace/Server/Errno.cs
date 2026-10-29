@@ -79,6 +79,12 @@ internal static class Errno
     /// <summary>ECONNREFUSED: a name nobody listens on (W4.1).</summary>
     public const int CONNECTION_REFUSED = 111;
 
+    /// <summary>ENODEV: a file system type the namespace does not mount (E2.2), as Linux's mount answers one.</summary>
+    public const int NO_FILE_SYSTEM = 19;
+
+    /// <summary>ENETDOWN: the service has no network to reach a share through (E2.2).</summary>
+    public const int NETWORK_DOWN = 100;
+
     #endregion
 
     #region Functions
