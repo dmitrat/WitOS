@@ -2670,9 +2670,10 @@ Cryptography (хранилище корней: 119 сертификатов — 
   данных — 216 байт), запрос диспетчеру версии 6 — `ParentId` запрашивающего, ответ — `ProcessId` нового процесса;
   `witos_spawn_options` несёт оба, клиент диспетчера `witos_manager_spawn` называет id вызывающего. libc: `getpid` и
   `getppid` отвечают из контекста процесса, `posix_spawn` — id из ответа диспетчера (его берут `waitpid`, `waitid` и
-  `kill`), свой счётчик детей libc убран, программа без диспетчера — 1; id потоков остаются библиотечными, у главного —
-  1, так как динамический компоновщик musl читает его до сообщения старта. `ServiceStatus` и `WitServiceStop` — версии 6.
-  ABI-1 не меняется. Ворота — `process` (свой PID у `/bin/init`, родитель 1; ребёнок проверяет PID родителя и выходит
-  младшими битами своего, равными ответу `posix_spawn`) и `runtime-file-manager` с `[exit 0]` в выводе Commander
+  `kill`), свой счётчик детей libc убран, программа без диспетчера — 1; id потоков остаются библиотечными, а у главного —
+  PID процесса, как в Linux (GC рантайма спрашивает `sched_getaffinity(getpid(), …)`; `main_thread.c` пишет его в запись
+  musl, которую динамический компоновщик заполнил до сообщения старта); сигнал своему PID (`kill`, `tgkill`) доходит. `ServiceStatus` и `WitServiceStop` — версии 6.
+  ABI-1 не меняется. Ворота — `process` (свой PID у `/bin/init`, родитель 1; ребёнок проверяет PID родителя, сигналы себе, свой
+  id главного потока и `sched_getaffinity(getpid())` и выходит младшими битами своего PID, равными ответу `posix_spawn`) и `runtime-file-manager` с `[exit 0]` в выводе Commander
   (Ctrl-O); `release`, `spawn`, `libc-test`, `runtime-services`, `runtime-terminal` и `runtime-compatibility` (x64)
   проходят как прежде. Результаты по ISA — в документе шага.

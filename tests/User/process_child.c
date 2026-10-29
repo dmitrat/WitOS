@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <limits.h>
+#include <sched.h>
 #include <signal.h>
 #include <spawn.h>
 #include <stdio.h>
@@ -64,6 +65,13 @@ int main(int argc, char **argv)
         }
         if (kill(getpid() + 1000, 0) == 0 || errno != ESRCH) {
             return 202;
+        }
+        /* The main thread's id is the process's, as on Linux: the runtime's GC asks sched_getaffinity(getpid(), ...). */
+        cpu_set_t processors;
+        if (syscall(SYS_gettid) != getpid() ||
+            sched_getaffinity(getpid(), sizeof(processors), &processors) != 0 ||
+            CPU_COUNT(&processors) < 1) {
+            return 203;
         }
         return getpid() % 128;
     }
