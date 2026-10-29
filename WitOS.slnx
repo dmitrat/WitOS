@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Apps/Installer/Installer.csproj" />
+    <Project Path="src/Apps/PowerShellLogin/PowerShellLogin.csproj" />
     <Project Path="src/Apps/Volumes/Volumes.csproj" />
     <Project Path="src/Apps/WitOS.Apps/WitOS.Apps.csproj" />
     <Project Path="src/OutWit.OS/OutWit.OS.csproj" />

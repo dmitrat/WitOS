@@ -50,6 +50,10 @@ internal static class RuntimeFileManager
 
     private const string APPLICATION = "interactive";
 
+    // Commander started from PowerShell, as a session starts it at the prompt: its commands go through SHELL, a pwsh that
+    // pwsh's own descendant starts, which E4.2's startup hook lets past the login-shell check.
+    private const string START = "/data/apps/bin/pwsh -NoLogo -Command /data/apps/bin/arlc";
+
     private const int MEMORY_MIB = 1024;
 
     private const long DISK_BYTES = 1536L << 20; // the layer with the .NET SDK (C2.5), as runtime-commander's
@@ -101,7 +105,7 @@ internal static class RuntimeFileManager
         var output = Path.Combine(root, "artifacts", architecture.Name, scenario);
         Directory.CreateDirectory(output);
         var published = await RuntimeApps.PublishAsync(root, output, PROJECT, APPLICATION);
-        var package = await RuntimeApps.PackageAsync(root, output, architecture, [], ["cd /data", RuntimeCommander.ARLC]);
+        var package = await RuntimeApps.PackageAsync(root, output, architecture, [], ["cd /data", START]);
         var image = await KernelImageBuilder.BuildAsync(root, scenario, outputDirectory: output, architecture: architecture, package: package);
         var volume = await AppsDisk.VolumeFilesAsync(root, architecture, output);
         var dataDisk = Path.Combine(output, "data-disk.img");
@@ -177,7 +181,7 @@ internal static class RuntimeFileManager
         $"[INTERACTIVE] Hello, {NAME}!",
         HOLDING,
         $"[INTERACTIVE] the screen went back after 'k' on witos-{architecture.Name}",
-        $"[APPS-INIT] {RuntimeCommander.ARLC}  exited with 0",
+        "[APPS-INIT] /data/apps/bin/pwsh -NoLogo exited with 0",
         "[APPS-INIT] 1 commands, 0 failed",
         "[DEVICES] device manager: stopped",
         architecture.RootTaskPassedLine

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The startup hook WitOS gives PowerShell in the data volume's layer (plan step E4.2): pwsh.runtimeconfig.json names it
+       in STARTUP_HOOKS, and it sets the variable that skips PowerShell's login-shell check before pwsh's Main. -->
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>WitOS.PowerShellLogin</AssemblyName>
+    <RootNamespace>WitOS.PowerShellLogin</RootNamespace>
+  </PropertyGroup>
+
+</Project>
