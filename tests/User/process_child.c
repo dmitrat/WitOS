@@ -1,10 +1,12 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <limits.h>
+#include <signal.h>
 #include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -21,6 +23,13 @@
  * i & 0xFF); "fill BYTES" writes that pattern to its output (N4.2). Anything else exits with 100. */
 
 extern char **environ;
+
+static volatile sig_atomic_t heard;
+
+static void on_signal(int sig)
+{
+    heard += sig == SIGUSR1;
+}
 
 /* Writes every byte, in pieces as the pipe takes them. */
 static int write_all(int fd, const unsigned char *buffer, size_t bytes)
@@ -43,6 +52,18 @@ int main(int argc, char **argv)
          * bits of its own id, which the parent compares with what posix_spawn answered. */
         if (getppid() != (pid_t)atoi(argv[2]) || getpid() <= 1 || getpid() == getppid()) {
             return 200;
+        }
+        /* A signal to its own id reaches it, through kill and tgkill alike, as System.Native re-raises a signal with
+         * kill(getpid(), ...); a signal to an id that is neither its own nor a child's is ESRCH. */
+        signal(SIGUSR1, on_signal);
+        if (kill(getpid(), 0) != 0 ||
+            kill(getpid(), SIGUSR1) != 0 ||
+            syscall(SYS_tgkill, getpid(), syscall(SYS_gettid), SIGUSR1) != 0 ||
+            heard != 2) {
+            return 201;
+        }
+        if (kill(getpid() + 1000, 0) == 0 || errno != ESRCH) {
+            return 202;
         }
         return getpid() % 128;
     }
