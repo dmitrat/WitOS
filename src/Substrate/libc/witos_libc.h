@@ -136,6 +136,27 @@ long __wit_terminal_read(void *buffer, long bytes);
 long __wit_terminal_write(const void *buffer, long bytes);
 long __wit_terminal_ioctl(long stream, long request, void *argument);
 short __wit_terminal_poll(long stream, short events);
+void __wit_terminal_assign(int number); /* start.c: the pseudo-terminal the process's streams are (E4.1) */
+long __wit_terminal_pseudo(void); /* that pseudo-terminal, -1 for the console */
+/* Pseudo-terminals (terminal.c, E4.1): /dev/ptmx and /dev/pts/<number>, each a descriptor (files.c's KindPseudo) over a
+ * record its descriptors and the calls in flight reference; opened, transferred, asked and polled outside the table
+ * lock. */
+#define WIT_NOT_A_PSEUDO (-0x10004L) /* outside the errno range */
+int __wit_is_pseudo_path(const char *path);
+long __wit_pseudo_path_number(const char *path); /* the N of /dev/pts/N, -1 for any other path */
+long __wit_pseudo_slave(long fd); /* syscall.c: takes the table lock; a slave descriptor's number, -1 otherwise */
+long __wit_pseudo_open(const char *path, long flags);
+long __wit_pseudo_transfer(long n, long fd, long a2, long a3); /* WIT_NOT_A_PSEUDO otherwise */
+long __wit_pseudo_ioctl(long fd, long command, void *argument); /* WIT_NOT_A_PSEUDO otherwise */
+short __wit_pseudo_poll(WitU32 index, short events);
+void __wit_pseudo_reference(WitU32 index);
+void __wit_pseudo_release(WitU32 index);
+long __wit_pseudo_slave_number(WitU32 index); /* under the table lock: -1 for a master */
+long __wit_pseudo_descriptor(WitU32 index, int flags); /* files.c, under the table lock */
+long __wit_pseudo_of(long fd, WitU32 *index, int *nonblocking); /* files.c, under the table lock: 1, 0 or -EBADF */
+long __wit_pseudo_slave_of(long fd); /* files.c, under the table lock: a slave's number, -1 for anything else */
+long __wit_pseudo_install(WitU32 index, int flags); /* syscall.c: takes the table lock */
+long __wit_pseudo_lookup(long fd, WitU32 *index, int *nonblocking); /* syscall.c: takes the table lock */
 /* Sockets over the network service (socket.c, W2.1a), when the start message carried its endpoint: the socket calls
  * and a socket's transfers, ioctl and poll outside the table lock; a socket's record referenced by its descriptors
  * (files.c) and the calls in flight, its CLOSE sent after the last reference outside the table lock; /etc/resolv.conf

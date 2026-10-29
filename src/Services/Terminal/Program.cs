@@ -29,6 +29,7 @@ internal static class Program
     {
         using var channel = new Channel(Grant.Take());
         var hub = new TerminalHub();
+        var pseudo = new PseudoTerminals();
         var links = new List<ConsoleLink>();
         try
         {
@@ -42,7 +43,7 @@ internal static class Program
             {
                 var link = ConsoleLink.Open(console, hub.Input);
                 links.Add(link);
-                hub.Attach(link);
+                hub.Attach(link, link.Size.Columns, link.Size.Rows);
             }
         }
         catch (Exception exception) when (exception is CapabilityException or FormatException or InvalidOperationException)
@@ -68,13 +69,13 @@ internal static class Program
             {
                 if (Event.Wait(Event.INFINITE, clients.Endpoint, channel.Endpoint) == 0)
                 {
-                    TerminalConnection.Accept(clients.Receive(), hub);
+                    TerminalConnection.Accept(clients.Receive(), hub, pseudo);
                     continue;
                 }
                 using var message = channel.Receive();
                 if (ServiceStop.TryDecode(message.Bytes, out _))
                 {
-                    channel.Send(ServiceStatus.Encode(Stop(hub, links)));
+                    channel.Send(ServiceStatus.Encode(Stop(hub, pseudo, links)));
                     return 0;
                 }
                 Console.WriteLine($"{PREFIX}a message of {message.Bytes.Length} bytes from the device manager, which the service does not serve");
@@ -82,20 +83,29 @@ internal static class Program
         }
         catch (CapabilityException exception) when (exception.Error == Channel.PEER_CLOSED)
         {
-            Stop(hub, links);
+            Stop(hub, pseudo, links);
             return 0;
         }
     }
 
-    // The stop (D6.1): no read waits any more, every session answers ESHUTDOWN, the links close.
-    private static int Stop(TerminalHub hub, List<ConsoleLink> links)
+    // The stop (D6.1): no read waits any more, every session answers ESHUTDOWN — the console's and each
+    // pseudo-terminal's, its master's too (E4.1) — the links close.
+    private static int Stop(TerminalHub hub, PseudoTerminals pseudo, List<ConsoleLink> links)
     {
-        var sessions = hub.Stop();
+        var sessions = new List<ITerminalSession>(hub.Stop());
+        var terminals = pseudo.Stop();
+        foreach (var terminal in terminals)
+        {
+            sessions.AddRange(terminal.Slave.Stop());
+            if (terminal.Master is { } master)
+                sessions.Add(master);
+        }
         foreach (var session in sessions)
-            session.Stop();
+            ((TerminalConnection)session).Stop();
         foreach (var link in links)
             link.Dispose();
-        Console.WriteLine($"{PREFIX}terminal service: {sessions.Length} sessions stopped, {links.Count} console{(links.Count == 1 ? "" : "s")} released");
+        var ended = terminals.Length == 0 ? "" : $"{terminals.Length} pseudo-terminal{(terminals.Length == 1 ? "" : "s")} ended, ";
+        Console.WriteLine($"{PREFIX}terminal service: {sessions.Count} sessions stopped, {ended}{links.Count} console{(links.Count == 1 ? "" : "s")} released");
         return 0;
     }
 

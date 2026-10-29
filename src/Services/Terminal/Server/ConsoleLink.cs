@@ -15,7 +15,7 @@ namespace OutWit.OS.Terminal.Server;
 /// answered and wakes the writer whose bytes the device took. The hub's echo, written from the pump thread itself, is
 /// queued and not waited for, since the pump would otherwise wait for its own reply.
 /// </summary>
-internal sealed class ConsoleLink : IDisposable
+internal sealed class ConsoleLink : ITerminalLink, IDisposable
 {
     #region Constants
 
@@ -142,6 +142,12 @@ internal sealed class ConsoleLink : IDisposable
                 Monitor.Wait(m_writeGate);
         }
     }
+
+    /// <summary>
+    /// The hub's echo, which the pump writes: queued like any write, not waited for.
+    /// </summary>
+    /// <param name="bytes">The device's bytes, after output processing.</param>
+    public void Echo(ReadOnlySpan<byte> bytes) => Write(bytes);
 
     // The pump: the channel's replies and the writers' wake-ups.
     private void Pump()

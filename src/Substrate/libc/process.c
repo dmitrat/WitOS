@@ -5,6 +5,7 @@
 #include "witos/memory_object.h"
 #include "witos/process.h"
 #include "witos/start.h"
+#include "witos/terminal.h"
 #include "witos/wait_objects.h"
 #include <errno.h>
 #include <limits.h>
@@ -124,8 +125,9 @@ static WitU64 put_strings(unsigned char *base, WitU64 offset, char *const list[]
 }
 
 /* What a standard descriptor of the child holds: the log stream Value stands for (0 is the empty input, 1 and 2 the
- * log), the pipe end of the caller's descriptor Value (N4.2), nothing, or another descriptor of the caller's (a file,
- * a directory, a device), which a child never takes: inherited, it is closed; asked for by an action, it is ENOSYS. */
+ * log), the pipe end of the caller's descriptor Value (N4.2), the slave side of pseudo-terminal Value (E4.1), nothing,
+ * or another descriptor of the caller's (a file, a directory, a device), which a child never takes: inherited, it is
+ * closed; asked for by an action, it is ENOSYS. */
 typedef struct View {
     int Kind;
     int Value;
@@ -136,14 +138,17 @@ typedef struct View {
 #define VIEW_LOG 1
 #define VIEW_PIPE 2
 #define VIEW_OTHER 3
+#define VIEW_TERMINAL 4
 
-/* The caller's standard descriptor n as the child inherits it: the log stream itself, a pipe end (N4.2), or nothing
- * (a duplicate of another stream or another kind of descriptor there stays the caller's, S6.2). */
+/* The caller's standard descriptor n as the child inherits it: the log stream itself — or the terminal, which is the
+ * pseudo-terminal the caller's streams are when they are one (E4.1) — a pipe end (N4.2), or nothing (a duplicate of
+ * another stream or another kind of descriptor there stays the caller's, S6.2). */
 static View inherited(int n)
 {
     const long source = __wit_source_of(n);
     if (source == n) {
-        return (View){VIEW_LOG, n, 0};
+        const long pseudo = __wit_terminal_present() ? __wit_terminal_pseudo() : -1;
+        return pseudo >= 0 ? (View){VIEW_TERMINAL, (int)pseudo, 0} : (View){VIEW_LOG, n, 0};
     }
     if (source == WIT_SOURCE_PIPE) {
         return (View){VIEW_PIPE, n, 0};
@@ -152,10 +157,12 @@ static View inherited(int n)
 }
 
 /* What the child starts with: the caller's directory and streams, changed by the file actions in their order. On
- * return, bit n of *closed says the child starts without the log at standard descriptor n, and sources[n] is the
- * caller's descriptor whose pipe end that descriptor becomes (N4.2), -1 for none. */
-static int apply_actions(
-    const posix_spawn_file_actions_t *actions, char *directory, long size, WitU32 *closed, int sources[STREAMS])
+ * return, bit n of *closed says the child starts without the log at standard descriptor n, sources[n] is the
+ * caller's descriptor whose pipe end that descriptor becomes (N4.2), -1 for none, and terminals[n] the pseudo-terminal
+ * whose slave side it is (E4.1), -1 for none. A child's terminal streams are one pseudo-terminal, and none of its
+ * streams is the console's terminal beside them: ENOSYS otherwise. */
+static int apply_actions(const posix_spawn_file_actions_t *actions, char *directory, long size, WitU32 *closed,
+    int sources[STREAMS], int terminals[STREAMS])
 {
     long length = __wit_directory_resolve(0, ".", directory, size);
     View view[STREAMS];
@@ -181,8 +188,11 @@ static int apply_actions(
                 return ENOSYS; /* a child inherits no descriptor but the standard ones */
             }
             View source;
+            const long slave = STANDARD(op->srcfd) ? -1 : __wit_pseudo_slave(op->srcfd);
             if (STANDARD(op->srcfd)) {
                 source = view[op->srcfd]; /* as the child sees it after the actions so far */
+            } else if (slave >= 0) {
+                source = (View){VIEW_TERMINAL, (int)slave, 0}; /* a pseudo-terminal's slave descriptor (E4.1) */
             } else {
                 const long kind = __wit_source_of(op->srcfd);
                 if (kind < 0) {
@@ -203,6 +213,15 @@ static int apply_actions(
             view[op->fd] = source;
             break;
         }
+        case FDOP_OPEN: {
+            /* A pseudo-terminal's slave at a standard descriptor (E4.1): what a terminal emulator gives its child. */
+            const long number = __wit_pseudo_path_number(op->path);
+            if (!STANDARD(op->fd) || number < 0 || number >= WIT_TERMINAL_PSEUDO_MAXIMUM) {
+                return ENOSYS; /* a file as a stream */
+            }
+            view[op->fd] = (View){VIEW_TERMINAL, (int)number, 1};
+            break;
+        }
         case FDOP_CHDIR:
             if ((length = __wit_directory_resolve(directory, op->path, directory, size)) < 0) {
                 return (int)-length;
@@ -218,9 +237,26 @@ static int apply_actions(
         }
     }
     *closed = 0;
+    int terminal = -1, console = 0;
+    for (int n = 0; n < STREAMS; ++n) {
+        if (view[n].Kind == VIEW_TERMINAL) {
+            if (terminal >= 0 && terminal != view[n].Value) {
+                return ENOSYS; /* two pseudo-terminals */
+            }
+            terminal = view[n].Value;
+        }
+        console |= view[n].Kind == VIEW_LOG && __wit_terminal_present();
+    }
+    if (terminal >= 0 && console) {
+        return ENOSYS; /* the console's terminal beside a pseudo-terminal */
+    }
     for (int n = 0; n < STREAMS; ++n) {
         sources[n] = -1;
+        terminals[n] = -1;
         switch (view[n].Kind) {
+        case VIEW_TERMINAL:
+            terminals[n] = view[n].Value; /* the standard stream stays, and the terminal is that pseudo-terminal */
+            break;
         case VIEW_LOG:
             if (view[n].Value != n && (view[n].Value == 0 || n == 0)) {
                 return ENOSYS; /* the empty input as an output, or the log as the input */
@@ -246,14 +282,15 @@ static int apply_actions(
 
 /* The streams the actions bound pipe ends to (N4.2): each pipe shared and its handles duplicated, a WitStreamMessage
  * per stream queued on a fresh channel, whose other end becomes the child's grant; the caller's end is closed at once,
- * since the queue stays with the child's. Nothing remains of a failure. */
-static int send_streams(const int sources[STREAMS], WitU64 *grant, WitU32 *count)
+ * since the queue stays with the child's. A terminal stream (E4.1) is a message without handles naming its
+ * pseudo-terminal. Nothing remains of a failure. */
+static int send_streams(const int sources[STREAMS], const int terminals[STREAMS], WitU64 *grant, WitU32 *count)
 {
     WitU64 ends[2] = {0, 0}, result = 0;
     *grant = 0;
     *count = 0;
     for (int n = 0; n < STREAMS; ++n) {
-        *count += sources[n] >= 0;
+        *count += sources[n] >= 0 || terminals[n] >= 0;
     }
     if (!*count) {
         return 0;
@@ -267,6 +304,26 @@ static int send_streams(const int sources[STREAMS], WitU64 *grant, WitU32 *count
         int write_end = 0, nonblocking = 0;
         WitStreamMessage stream;
         WitChannelMessage message;
+        if (terminals[n] >= 0) {
+            memset(&stream, 0, sizeof(stream));
+            stream.Version = WIT_START_VERSION;
+            stream.Size = sizeof(stream);
+            stream.Descriptor = (WitU32)n;
+            stream.End = WIT_STREAM_TERMINAL;
+            stream.Terminal = (WitU32)terminals[n];
+            memset(&message, 0, sizeof(message));
+            message.Version = WIT_CHANNEL_MESSAGE_VERSION;
+            message.Size = sizeof(message);
+            message.Data = (WitU64)&stream;
+            message.Bytes = sizeof(stream);
+            status = wit_syscall(WIT_CALL_CHANNEL_SEND, ends[0], (WitU64)&message, sizeof(message), &result);
+            if (status != WIT_STATUS_OK) {
+                close_handle(ends[0]);
+                close_handle(ends[1]);
+                return errno_of(status);
+            }
+            continue;
+        }
         if (sources[n] < 0) {
             continue;
         }
@@ -586,7 +643,7 @@ int posix_spawn(pid_t *restrict result, const char *restrict path, const posix_s
     char found[PATH_MAX], directory[PATH_MAX];
     WitU32 closed = 0, streams = 0;
     WitU64 object = 0, bytes = 0, process = 0, killed = 0, grant = 0;
-    int sources[STREAMS];
+    int sources[STREAMS], terminals[STREAMS];
     if (!__wit_process.Manager) {
         return ENOSYS;
     }
@@ -602,7 +659,7 @@ int posix_spawn(pid_t *restrict result, const char *restrict path, const posix_s
         }
         path = found;
     }
-    int error = apply_actions(actions, directory, sizeof(directory), &closed, sources);
+    int error = apply_actions(actions, directory, sizeof(directory), &closed, sources, terminals);
     char program[PATH_MAX];
     if (!error && path[0] != '/') {
         /* A relative path names the program from the directory the child starts in, as exec after the actions would. */
@@ -616,7 +673,7 @@ int posix_spawn(pid_t *restrict result, const char *restrict path, const posix_s
         error = start_reaper();
     }
     if (!error) {
-        error = send_streams(sources, &grant, &streams);
+        error = send_streams(sources, terminals, &grant, &streams);
     }
     if (!error) {
         error = build_request(path, argv, envp, directory, closed, streams, &object, &bytes);

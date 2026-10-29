@@ -15,7 +15,18 @@
  * control characters carry Linux's generic termios values, which both ISAs share and the libc copies as they are; the
  * libc keeps nothing of the discipline. Every process that connects shares the terminal: a line goes to whoever reads
  * it first, a signal character to every session, as a Linux session without job control sees them. Nothing of the
- * protocol is an application API: applications see System.Console through the libc. */
+ * protocol is an application API: applications see System.Console through the libc.
+ *
+ * Pseudo-terminals (plan step E4.1, RFC 0020 section 27): OPEN_PSEUDO on the clients' endpoint, with the same handles
+ * as CONNECT and the events' end required, makes a pseudo-terminal and makes the session its master side. The slave
+ * side is a terminal of its own — a discipline, a size and sessions, as the console's — whose device is the master: what
+ * the master writes is typed at the slave's discipline, and what the slave's programs write, after output processing,
+ * and the discipline's echo are the master's to read. A CONNECT with the flag PSEUDO and Offset naming the number joins
+ * the slave side of that pseudo-terminal; the libc's /dev/ptmx and /dev/pts/<number>. The master's READ never waits
+ * with NONBLOCK, the master learns of output by EVENT_INPUT and of the slave side's end by EVENT_HANGUP: once a slave
+ * session joined and the last one left, the master's READ of nothing answers EIO and POLL says HANGUP, as Linux's
+ * master does; once the master went, the slave's sessions get EVENT_HANGUP, their READ of nothing answers the end of
+ * the file and their WRITE EIO. A pseudo-terminal ends once its master and its last slave session went. */
 #define WIT_TERMINAL_VERSION 1U
 #define WIT_TERMINAL_PATH "/system/Terminal"
 
@@ -36,6 +47,13 @@
 #define WIT_TERMINAL_DRAIN \
     9U /* until every write reached the device: at once, since a write completes before its reply */
 #define WIT_TERMINAL_DISCONNECT 10U /* the session ends; closing the session's end does the same */
+/* On the clients' endpoint (E4.1). */
+#define WIT_TERMINAL_OPEN_PSEUDO 11U /* CONNECT's handles, the events' end required: a pseudo-terminal's master */
+/* On a session (E4.1). */
+#define WIT_TERMINAL_GET_NUMBER 12U /* the reply's Length: the pseudo-terminal's number; ENOTTY on the console */
+#define WIT_TERMINAL_SET_SIZE \
+    13U /* a pseudo-terminal's size from Flags, the columns in the low 16 bits and the rows in the high ones; the slave's
+         * sessions get EVENT_SIZE when it changes; ENOTTY on the console, whose size its device gives */
 /* The device manager's message on the channel it granted the service, before the service answers ready: the consoles'
  * serial channels in the handle slots, one or two (C2.2) — the main console first, whose size the terminal takes, then
  * a console that mirrors it: the display's console (witos/display.h) and the virtio console, each written the same
@@ -45,8 +63,11 @@
 #define WIT_TERMINAL_NONBLOCK 1U /* READ */
 #define WIT_TERMINAL_INPUT 1U /* FLUSH */
 #define WIT_TERMINAL_OUTPUT 2U /* FLUSH */
+#define WIT_TERMINAL_PSEUDO 1U /* CONNECT: the slave side of pseudo-terminal Offset (E4.1) */
 #define WIT_TERMINAL_INPUT_READY 1U /* POLL's reply */
 #define WIT_TERMINAL_OUTPUT_READY 2U /* POLL's reply */
+#define WIT_TERMINAL_HANGUP 4U /* POLL's reply: the other side of a pseudo-terminal went (E4.1) */
+#define WIT_TERMINAL_PSEUDO_MAXIMUM 16U /* pseudo-terminals at once */
 /* SET_ATTRIBUTES' Flags: tcsetattr's optional actions. */
 #define WIT_TERMINAL_NOW 0U /* TCSANOW */
 #define WIT_TERMINAL_AFTER_OUTPUT 1U /* TCSADRAIN */

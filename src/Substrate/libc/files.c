@@ -71,7 +71,8 @@ typedef enum Kind {
     KindEpoll, /* an epoll instance Index (epoll.c, N4.2) */
     KindSocket, /* a socket, record Index of socket.c (W2.1a) */
     KindLocal, /* a local socket, record Index of unix.c (W4.1) */
-    KindNetlink /* a netlink route socket, record Index of netlink.c (W4.2) */
+    KindNetlink, /* a netlink route socket, record Index of netlink.c (W4.2) */
+    KindPseudo /* a pseudo-terminal's master or opened slave, record Index of terminal.c (E4.1) */
 } Kind;
 
 typedef struct Descriptor {
@@ -470,6 +471,9 @@ static void close_descriptor(Descriptor *d)
     }
     if (d->Kind == KindNetlink) {
         __wit_netlink_release(d->Index);
+    }
+    if (d->Kind == KindPseudo) {
+        __wit_pseudo_release(d->Index); /* the last reference closes its session (terminal.c) */
     }
     if (--descriptions[d->Description].References == 0) {
         unlock_description(&descriptions[d->Description]); /* a description's lock ends with its last descriptor */
@@ -1126,7 +1130,7 @@ long __wit_pread(long fd, void *buffer, long bytes, long offset)
     if (d->Kind == KindDirectory || d->Kind == KindRemoteDirectory) {
         return -EISDIR;
     }
-    if (d->Kind == KindSocket || d->Kind == KindLocal || d->Kind == KindNetlink) {
+    if (d->Kind == KindSocket || d->Kind == KindLocal || d->Kind == KindNetlink || d->Kind == KindPseudo) {
         return -ESPIPE;
     }
     if (d->Kind == KindNull) {
@@ -1278,7 +1282,8 @@ long __wit_pwrite(long fd, const void *buffer, long bytes, long offset)
         d->Kind == KindPipeWrite ||
         d->Kind == KindSocket ||
         d->Kind == KindLocal ||
-        d->Kind == KindNetlink) {
+        d->Kind == KindNetlink ||
+        d->Kind == KindPseudo) {
         return -ESPIPE;
     }
     return offset < 0 ? -EINVAL : write_at(d, buffer, bytes, offset);
@@ -1360,7 +1365,8 @@ long __wit_fsync(long fd)
             d->Kind == KindPipeWrite ||
             d->Kind == KindSocket ||
             d->Kind == KindLocal ||
-            d->Kind == KindNetlink
+            d->Kind == KindNetlink ||
+            d->Kind == KindPseudo
         ? -EINVAL
         : 0;
 }
@@ -1376,7 +1382,8 @@ long __wit_lseek(long fd, long offset, long whence)
         d->Kind == KindPipeWrite ||
         d->Kind == KindSocket ||
         d->Kind == KindLocal ||
-        d->Kind == KindNetlink) {
+        d->Kind == KindNetlink ||
+        d->Kind == KindPseudo) {
         return -ESPIPE;
     }
     WitU64 length = d->Kind == KindShared ? __wit_shared_size(d->Index) : 0;
@@ -1496,6 +1503,12 @@ static void fill_stat(struct kstat *st, Kind kind, WitU32 index, WitU64 length)
                     : kind == KindNetlink ? 0x20000
                                           : 0); /* each kind's apart */
         st->st_mode = S_IFSOCK | 0777;
+    } else if (kind == KindPseudo) {
+        const long slave = __wit_pseudo_slave_number(index);
+        st->st_dev = 7; /* devpts, as Linux reports a pseudo-terminal's slave; /dev/ptmx is the tty device 5, 2 */
+        st->st_ino = (ino_t)(slave < 0 ? 2 : 3 + slave);
+        st->st_mode = slave < 0 ? S_IFCHR | 0666 : S_IFCHR | 0620;
+        st->st_rdev = slave < 0 ? (5 << 8) | 2 : (dev_t)((136 << 8) | (slave & 0xFF) | ((slave & ~0xFF) << 12));
     } else if (kind == KindText) {
         st->st_ino = 5 + index; /* the mount table (C1.2), resolv.conf (W2.1a) */
         st->st_mode = S_IFREG | 0444;
@@ -1989,6 +2002,37 @@ long __wit_local_open(WitU32 index, int flags)
     return open_descriptor(KindLocal, index, 0, O_RDWR | (flags & (O_NONBLOCK | O_CLOEXEC)));
 }
 
+/* A descriptor over a pseudo-terminal's record (terminal.c, E4.1), which its reference is now. Under the table lock. */
+long __wit_pseudo_descriptor(WitU32 index, int flags)
+{
+    return open_descriptor(KindPseudo, index, 0, O_RDWR | (flags & (O_NONBLOCK | O_CLOEXEC)));
+}
+
+/* The pseudo-terminal's record a descriptor names, with a reference for the call the caller makes outside the table
+ * lock: 1, 0 for a descriptor that is no pseudo-terminal's, -EBADF for none. Under the table lock. */
+long __wit_pseudo_of(long fd, WitU32 *index, int *nonblocking)
+{
+    const Descriptor *d = descriptor(fd);
+    if (!d) {
+        return __wit_stream_of(fd) >= 0 ? 0 : -EBADF;
+    }
+    if (d->Kind != KindPseudo) {
+        return 0;
+    }
+    *index = d->Index;
+    *nonblocking = (descriptions[d->Description].StatusFlags & O_NONBLOCK) != 0;
+    __wit_pseudo_reference(d->Index);
+    return 1;
+}
+
+/* The pseudo-terminal a descriptor is the slave side of, -1 for any other descriptor (process.c). Under the table
+ * lock. */
+long __wit_pseudo_slave_of(long fd)
+{
+    const Descriptor *d = descriptor(fd);
+    return d && d->Kind == KindPseudo ? __wit_pseudo_slave_number(d->Index) : -1;
+}
+
 /* A descriptor over a netlink socket's record (netlink.c, W4.2), which its reference is now. Under the table lock. */
 long __wit_netlink_open(WitU32 index, int flags)
 {
@@ -2243,6 +2287,9 @@ static void duplicate_into(long target, long stream, const Descriptor *source, i
     if (source->Kind == KindNetlink) {
         __wit_netlink_reference(source->Index);
     }
+    if (source->Kind == KindPseudo) {
+        __wit_pseudo_reference(source->Index);
+    }
 }
 
 /* dup and F_DUPFD: the lowest free descriptor at or above lowest. */
@@ -2332,7 +2379,8 @@ int __wit_is_file_descriptor(long fd)
         d->Kind != KindPipeWrite &&
         d->Kind != KindSocket &&
         d->Kind != KindLocal &&
-        d->Kind != KindNetlink;
+        d->Kind != KindNetlink &&
+        d->Kind != KindPseudo;
 }
 
 /* FIONREAD of a pipe's read end: -ENOTTY for anything else. */

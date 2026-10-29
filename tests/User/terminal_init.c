@@ -3,10 +3,12 @@
 #include <poll.h>
 #include <pthread.h>
 #include <signal.h>
+#include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/wait.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -17,7 +19,8 @@
  * isatty of the three streams, the size, the attributes, a line read in canonical mode and printed back, a key read in
  * raw mode, a read ended by SIGINT from Ctrl-C through a handler, the end of the file from Ctrl-D, and poll's readiness
  * before and after a line is typed. The last line names the ISA and the checks; a failed check exits with 1, which the
- * root task reports as a failed boot. */
+ * root task reports as a failed boot. Then it starts /bin/pty-check (E4.1), which needs nothing typed, and requires its
+ * exit with 0. */
 
 #if defined(__x86_64__)
 #define ISA_NAME "x86_64"
@@ -135,5 +138,13 @@ int main(void)
     check(write(2, "[TERMINAL-INIT] standard error\n", 31) == 31, "a write to the standard error");
 
     printf("[TERMINAL-INIT] terminal on " ISA_NAME ": %d checks passed\n", checks);
+    fflush(stdout);
+
+    /* The pseudo-terminals (E4.1): a program of their own, its output the terminal's. */
+    char *const arguments[] = {"/bin/pty-check", 0};
+    pid_t pid = 0;
+    int status = -1;
+    check(posix_spawn(&pid, "/bin/pty-check", 0, 0, arguments, environ) == 0, "/bin/pty-check starts");
+    check(waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0, "/bin/pty-check passes");
     return 0;
 }

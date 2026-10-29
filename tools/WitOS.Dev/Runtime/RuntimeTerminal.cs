@@ -30,6 +30,11 @@ internal static class RuntimeTerminal
     /// </summary>
     public const string INIT = "tests/User/terminal_init.c";
 
+    /// <summary>
+    /// The pseudo-terminals' check (E4.1), which /bin/init starts after its own checks.
+    /// </summary>
+    public const string PSEUDO_TERMINAL_CHECK = "tests/User/pty_check.c";
+
     #endregion
 
     #region Functions
@@ -72,7 +77,10 @@ internal static class RuntimeTerminal
         var init = Path.Combine(output, "terminal_init.o");
         await MuslLibc.CompileAsync(root, architecture, Path.Combine(root, INIT), init, LibWitos.Options(root));
         var program = await MuslLibc.LinkStartedProgramAsync(root, architecture, output, "terminal_init", [init]);
-        return [("bin/init", program), .. services];
+        var check = Path.Combine(output, "pty_check.o");
+        await MuslLibc.CompileAsync(root, architecture, Path.Combine(root, PSEUDO_TERMINAL_CHECK), check, LibWitos.Options(root));
+        var pseudo = await MuslLibc.LinkStartedProgramAsync(root, architecture, output, "pty_check", [check]);
+        return [("bin/init", program), ("bin/pty-check", pseudo), .. services];
     }
 
     /// <summary>
@@ -110,8 +118,15 @@ internal static class RuntimeTerminal
         "[TERMINAL-INIT] standard error",
         $"[TERMINAL-INIT] terminal on {architecture.Triple[..architecture.Triple.IndexOf('-')]}: ",
         " checks passed",
+        // E4.1: a terminal emulator's child, grandchild and signals through a pseudo-terminal, and openpty's way.
+        "[PTY] emulator: the child ran on /dev/pts/",
+        $"[PTY] pseudo-terminals on {architecture.Triple[..architecture.Triple.IndexOf('-')]}: ",
+        " checks passed, 0 failed",
         "[DEVICES] terminal service /system/Terminal: stopped",
-        "[TERMINAL] terminal service: 0 sessions stopped, 1 console released",
+        // E4.1: the sessions a process that just ended left are the service's to see go, so their count at the stop is
+        // not required; no pseudo-terminal is left ("… pseudo-terminals ended, " would stand before the console).
+        "[TERMINAL] terminal service: ",
+        " sessions stopped, 1 console released",
         "[DEVICES] device manager: stopped",
         "[ROOT-TASK] /system/DeviceManager stopped",
         architecture.RootTaskPassedLine
