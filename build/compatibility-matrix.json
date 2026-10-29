@@ -74,6 +74,12 @@
       "note": "The terminal service over the virtio console with Linux's line discipline: `ReadLine`, `ReadKey`, `KeyAvailable`, `CancelKeyPress`, the window size; without a terminal the standard streams are the kernel log."
     },
     {
+      "name": "Pseudo-terminals",
+      "status": "Partial",
+      "step": "E4.1",
+      "note": "`/dev/ptmx` and `/dev/pts/<n>` over the terminal service with the slave's line discipline: musl's `posix_openpt`, `grantpt`, `unlockpt` and `ptsname`, the size and SIGWINCH, the termios calls through the master, the hangup both ways, and `posix_spawn` with the slave at a child's standard descriptors, which its own children inherit; no `epoll` of such a descriptor, no job control or process groups, 16 at once (the `runtime-terminal` scenario's `/bin/pty-check`)."
+    },
+    {
       "name": "PowerShell 7 (upstream, `dotnet pwsh.dll`, PSReadLine)",
       "status": "Supported",
       "step": "C1.3",

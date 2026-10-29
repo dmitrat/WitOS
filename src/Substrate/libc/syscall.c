@@ -421,6 +421,32 @@ long __wit_local_lookup(long fd, WitU32 *index, int *nonblocking)
     return r;
 }
 
+/* terminal.c (E4.1): a pseudo-terminal's descriptor and the record a descriptor names, each under the table lock, which
+ * the pseudo-terminal's calls, made outside it, do not hold. */
+long __wit_pseudo_install(WitU32 index, int flags)
+{
+    __wit_lock(&tables);
+    const long r = __wit_pseudo_descriptor(index, flags);
+    __wit_unlock(&tables);
+    return r;
+}
+
+long __wit_pseudo_lookup(long fd, WitU32 *index, int *nonblocking)
+{
+    __wit_lock(&tables);
+    const long r = __wit_pseudo_of(fd, index, nonblocking);
+    __wit_unlock(&tables);
+    return r;
+}
+
+long __wit_pseudo_slave(long fd)
+{
+    __wit_lock(&tables);
+    const long r = __wit_pseudo_slave_of(fd);
+    __wit_unlock(&tables);
+    return r;
+}
+
 long __wit_netlink_install(WitU32 index, int flags)
 {
     __wit_lock(&tables);
@@ -720,6 +746,7 @@ static long poll_descriptors(struct pollfd *fds, unsigned long count, const stru
     WitU64 deadline = WIT_WAIT_INFINITE;
     signed char streams[1024];
     WitU32 sockets[1024];
+    WitU32 pseudo[1024];
     if (timeout) {
         const long converted = __wit_futex_deadline(timeout, &deadline);
         if (converted < 0) {
@@ -738,8 +765,13 @@ static long poll_descriptors(struct pollfd *fds, unsigned long count, const stru
             int nonblocking;
             streams[i] = (signed char)(fds[i].fd >= 0 && terminal ? __wit_stream_of(fds[i].fd) : -1);
             sockets[i] = NO_SOCKET;
+            pseudo[i] = NO_SOCKET;
             if (fds[i].fd >= 0 && streams[i] < 0 && __wit_socket_of(fds[i].fd, &sockets[i], &nonblocking) > 0) {
                 fds[i].revents = 0; /* asked of the service below, with the reference the lookup took */
+                continue;
+            }
+            if (fds[i].fd >= 0 && streams[i] < 0 && __wit_pseudo_of(fds[i].fd, &pseudo[i], &nonblocking) > 0) {
+                fds[i].revents = 0; /* asked of the terminal service below (E4.1) */
                 continue;
             }
             fds[i].revents = fds[i].fd < 0 || streams[i] >= 0 ? 0 : __wit_descriptor_poll(fds[i].fd, fds[i].events);
@@ -755,6 +787,11 @@ static long poll_descriptors(struct pollfd *fds, unsigned long count, const stru
                 fds[i].revents = __wit_socket_poll(sockets[i], fds[i].events);
                 ready += fds[i].revents != 0;
                 __wit_socket_release(sockets[i]);
+            }
+            if (pseudo[i] != NO_SOCKET) {
+                fds[i].revents = __wit_pseudo_poll(pseudo[i], fds[i].events);
+                ready += fds[i].revents != 0;
+                __wit_pseudo_release(pseudo[i]);
             }
         }
         __wit_socket_flush();
@@ -851,6 +888,10 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
         if (moved != NOT_A_TERMINAL) {
             return moved;
         }
+        const long pseudo = __wit_pseudo_transfer(n, a1, a2, a3); /* a pseudo-terminal's (E4.1) */
+        if (pseudo != WIT_NOT_A_PSEUDO) {
+            return pseudo;
+        }
         const long local = __wit_local_transfer(n, a1, a2, a3);
         if (local != WIT_NOT_A_SOCKET) {
             __wit_local_flush();
@@ -872,6 +913,10 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
         }
     }
     if (n == SYS_ioctl) {
+        const long pseudo = __wit_pseudo_ioctl(a1, a2, (void *)a3); /* a pseudo-terminal's (E4.1) */
+        if (pseudo != WIT_NOT_A_PSEUDO) {
+            return pseudo;
+        }
         const long local = __wit_local_ioctl(a1, a2, (void *)a3);
         if (local != WIT_NOT_A_SOCKET) {
             __wit_local_flush();
@@ -891,6 +936,15 @@ long __wit_syscall(long n, long a1, long a2, long a3, long a4, long a5, long a6)
         return mount_call(n, a1, a2, a3, a4, a5); /* a share's logon takes round trips: outside the table lock (E2.2) */
     }
 #endif
+    /* /dev/ptmx and /dev/pts/<number> are the terminal service's, opened outside the table lock (E4.1). */
+#if defined(SYS_open)
+    if (n == SYS_open && __wit_is_pseudo_path((const char *)a1)) {
+        return __wit_pseudo_open((const char *)a1, a2);
+    }
+#endif
+    if (n == SYS_openat && __wit_is_pseudo_path((const char *)a2)) {
+        return __wit_pseudo_open((const char *)a2, a3);
+    }
     /* /etc/resolv.conf is the lease's, asked of the network service before the open, outside the table lock (W2.1a). */
 #if defined(SYS_open)
     if (n == SYS_open && a1 && strcmp((const char *)a1, "/etc/resolv.conf") == 0) {

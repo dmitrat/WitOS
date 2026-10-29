@@ -1,6 +1,7 @@
 #include "witos_libc.h"
 #include "witos/channels.h"
 #include "witos/start.h"
+#include "witos/terminal.h"
 #include "witos/wait_objects.h"
 #include <elf.h>
 #include <string.h>
@@ -75,15 +76,32 @@ static WitU64 receive(WitU64 endpoint, void *data, WitU32 bytes, WitU64 *handles
 }
 
 /* The standard streams given as pipes (N4.2): one WitStreamMessage per stream on the grant, each with the ring's
- * object and the end's endpoint, installed at its descriptor (files.c); then the grant goes, since it carried the
- * streams alone. */
+ * object and the end's endpoint, installed at its descriptor (files.c); a stream on a pseudo-terminal's slave side
+ * (E4.1) carries no handles and makes that pseudo-terminal the process's terminal (terminal.c); then the grant goes,
+ * since it carried the streams alone. */
 static void receive_streams(WitU32 count)
 {
     WitU64 result = 0;
+    long terminal = -1;
     for (WitU32 i = 0; i < count; ++i) {
         WitStreamMessage stream;
         WitU64 handles[2] = {0, 0};
         const WitU64 status = receive(__wit_process.Grant, &stream, sizeof(stream), handles, 2, &result);
+        if (status == WIT_STATUS_OK &&
+            (result & 0xFFFFFFFFULL) == sizeof(stream) &&
+            stream.Version == WIT_START_VERSION &&
+            stream.Size == sizeof(stream) &&
+            stream.End == WIT_STREAM_TERMINAL) {
+            if ((result >> 32) != 0 ||
+                stream.Descriptor >= WIT_START_STREAMS_MAXIMUM ||
+                stream.Flags ||
+                stream.Terminal >= WIT_TERMINAL_PSEUDO_MAXIMUM ||
+                (terminal >= 0 && (WitU32)terminal != stream.Terminal)) {
+                refuse();
+            }
+            terminal = stream.Terminal;
+            continue;
+        }
         if (status != WIT_STATUS_OK ||
             (result & 0xFFFFFFFFULL) != sizeof(stream) ||
             (result >> 32) != 2 ||
@@ -92,11 +110,14 @@ static void receive_streams(WitU32 count)
             stream.Descriptor >= WIT_START_STREAMS_MAXIMUM ||
             stream.End > WIT_STREAM_WRITE_END ||
             (stream.Flags & ~WIT_STREAM_NONBLOCKING) ||
-            stream.Reserved ||
+            stream.Terminal ||
             __wit_install_stream(stream.Descriptor, handles[0], handles[1], stream.End == WIT_STREAM_WRITE_END,
                 (stream.Flags & WIT_STREAM_NONBLOCKING) != 0) < 0) {
             refuse();
         }
+    }
+    if (terminal >= 0) {
+        __wit_terminal_assign((int)terminal);
     }
     wit_syscall(WIT_CALL_HANDLE_CLOSE, __wit_process.Grant, 0, 0, &result);
     __wit_process.Grant = 0;

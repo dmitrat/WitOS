@@ -67,7 +67,33 @@ public static class TerminalMessages
 
     public const uint DISCONNECT = 10;
 
+    /// <summary>
+    /// WIT_TERMINAL_OPEN_PSEUDO (E4.1): on the clients' endpoint, a pseudo-terminal whose master the session is.
+    /// </summary>
+    public const uint OPEN_PSEUDO = 11;
+
+    /// <summary>
+    /// WIT_TERMINAL_GET_NUMBER (E4.1): the pseudo-terminal's number in the reply's Length.
+    /// </summary>
+    public const uint GET_NUMBER = 12;
+
+    /// <summary>
+    /// WIT_TERMINAL_SET_SIZE (E4.1): a pseudo-terminal's size, the columns in the low 16 bits of Flags and the rows in
+    /// the high ones.
+    /// </summary>
+    public const uint SET_SIZE = 13;
+
     public const uint DEVICE = 16;
+
+    /// <summary>
+    /// WIT_TERMINAL_PSEUDO (E4.1): a CONNECT of the slave side of pseudo-terminal Offset.
+    /// </summary>
+    public const uint PSEUDO = 1;
+
+    /// <summary>
+    /// WIT_TERMINAL_PSEUDO_MAXIMUM: the pseudo-terminals at once.
+    /// </summary>
+    public const int PSEUDO_MAXIMUM = 16;
 
     public const uint NONBLOCK = 1;
 
@@ -78,6 +104,11 @@ public static class TerminalMessages
     public const uint INPUT_READY = 1;
 
     public const uint OUTPUT_READY = 2;
+
+    /// <summary>
+    /// WIT_TERMINAL_HANGUP (E4.1): POLL's reply when the other side of a pseudo-terminal went.
+    /// </summary>
+    public const uint HANGUP = 4;
 
     public const uint NOW = 0;
 
@@ -99,6 +130,16 @@ public static class TerminalMessages
     /// EINTR: a signal character came before the bytes a READ waited for.
     /// </summary>
     public const int INTERRUPTED = 4;
+
+    /// <summary>
+    /// EIO: the other side of a pseudo-terminal went (E4.1).
+    /// </summary>
+    public const int IO_ERROR = 5;
+
+    /// <summary>
+    /// ENOTTY: a pseudo-terminal's request on the console (E4.1).
+    /// </summary>
+    public const int NOT_A_PSEUDO_TERMINAL = 25;
 
     /// <summary>
     /// EAGAIN: a non-blocking READ found nothing.

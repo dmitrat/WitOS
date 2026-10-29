@@ -78,13 +78,17 @@ WIT_STATIC_ASSERT(sizeof(WitStartMessage) == WIT_START_SIZE, "Start message");
 #define WIT_STREAM_SIZE 24U
 #define WIT_STREAM_READ_END 0U
 #define WIT_STREAM_WRITE_END 1U
+/* A standard stream on the slave side of a pseudo-terminal (E4.1, witos/terminal.h): no handles, Terminal names it, and
+ * the process connects to the terminal service with the endpoint its start message carried; every terminal stream of a
+ * process names the same pseudo-terminal, which is the process's terminal. */
+#define WIT_STREAM_TERMINAL 2U
 #define WIT_STREAM_NONBLOCKING 0x1U /* the end was opened with O_NONBLOCK */
 
 typedef struct WitStreamMessage {
     WitU32 Version, Size; /* WIT_START_VERSION, WIT_STREAM_SIZE */
     WitU32 Descriptor; /* the standard descriptor the end becomes: 0, 1 or 2 */
-    WitU32 End; /* WIT_STREAM_READ_END or WIT_STREAM_WRITE_END */
-    WitU32 Flags, Reserved; /* WIT_STREAM_NONBLOCKING; zero */
+    WitU32 End; /* WIT_STREAM_READ_END, WIT_STREAM_WRITE_END or WIT_STREAM_TERMINAL */
+    WitU32 Flags, Terminal; /* WIT_STREAM_NONBLOCKING; a terminal stream's pseudo-terminal, zero otherwise */
 } WitStreamMessage;
 
 WIT_STATIC_ASSERT(sizeof(WitStreamMessage) == WIT_STREAM_SIZE, "Stream message");
