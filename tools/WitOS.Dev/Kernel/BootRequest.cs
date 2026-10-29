@@ -63,6 +63,13 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public string? DataDisk { get; init; }
 
     /// <summary>
+    /// A raw image QEMU gives the board as a third, writable virtio block device (E1: a drive whose volumes the namespace
+    /// mounts below /media), in the slot whose INTx line is the entropy source's, which a keyboard or a network adapter
+    /// would take otherwise; none when null.
+    /// </summary>
+    public string? ExtraDisk { get; init; }
+
+    /// <summary>
     /// The controller the data disk hangs on: virtio-blk, an AHCI controller's first port (H3.1) — q35's own ICH9 SATA
     /// controller, an ich9-ahci on the boards without one — or an NVMe controller's namespace 1 (H3.2).
     /// </summary>

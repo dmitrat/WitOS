@@ -155,11 +155,12 @@ internal static class RuntimeApps
     /// <param name="forward">A guest's port the runner reaches through the adapter's hostfwd (W1.2b, W3.2); none by default.</param>
     /// <param name="actions">What the runner does once the guest's lines appear (W3.2: its requests to the forward); nothing by
     /// default.</param>
+    /// <param name="extraDisk">A third disk's image (E1), or null.</param>
     /// <returns>When the boot passed.</returns>
     public static async Task BootAsync(string root, KernelArchitecture architecture, string scenario, string[] requiredLines,
         int timeoutSeconds, IReadOnlyList<(string Path, string Source)>? volumeFiles = null, long diskBytes = RuntimeDataDisk.BYTES,
         int memoryMiB = MEMORY_MIB, IReadOnlyList<(string Name, string Source)>? package = null, IReadOnlyList<TerminalInput>? terminal = null,
-        int processors = 1, RunnerAuthority? https = null, ushort forward = 0, IReadOnlyList<BootAction>? actions = null)
+        int processors = 1, RunnerAuthority? https = null, ushort forward = 0, IReadOnlyList<BootAction>? actions = null, string? extraDisk = null)
     {
         var image = await KernelImageBuilder.BuildAsync(root, scenario, architecture: architecture, package: package);
         var dataDisk = Path.Combine(Path.GetDirectoryName(image)!, "data-disk.img");
@@ -180,7 +181,8 @@ internal static class RuntimeApps
             Network = https is not null || forward != 0,
             NetworkHttps = https,
             NetworkForward = forward,
-            Actions = actions ?? []
+            Actions = actions ?? [],
+            ExtraDisk = extraDisk
         });
     }
 

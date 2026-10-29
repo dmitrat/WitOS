@@ -39,8 +39,41 @@ public sealed class FatFileSystemTests(string backend)
         Assert.That(fileSystem.Volume.Length, Is.LessThanOrEqualTo(storage.Info.Length));
         Assert.That(fileSystem.Volume.AllocationUnit % BLOCK, Is.Zero);
         Assert.That(fileSystem.Volume.IsReadOnly, Is.False);
+        Assert.That(fileSystem.Volume.Identity, Does.Match("^[0-9A-F]{4}-[0-9A-F]{4}$"), "the serial number as Windows prints it (E1)");
         Assert.That(await fileSystem.EnumerateAsync("/"), Is.Empty);
         Assert.That(await FatFileSystem.DetectAsync(storage), Is.True);
+    }
+
+    // A format asked by its name (E1: a drive as Windows formats it), and a name that is no FAT format refused.
+    [Test]
+    public async Task FormatTakesTheFormatAskedTest()
+    {
+        await using var storage = new MemoryBlockStorage(40L << 20, BLOCK);
+        await using (var fileSystem = await FatFileSystem.FormatAsync(storage, "STICK", "FAT32"))
+        {
+            Assert.That(fileSystem.Volume.Format, Is.EqualTo("FAT32"));
+            Assert.That(fileSystem.Volume.Label, Is.EqualTo("STICK"));
+        }
+        Assert.ThrowsAsync<ArgumentException>(async () => await FatFileSystem.FormatAsync(storage, "STICK", "NTFS"));
+    }
+
+    // The volume's space (E1, statfs): the clusters of the data area, and the free ones counted through the table.
+    [Test]
+    public async Task SpaceFollowsTheFilesTest()
+    {
+        await using var storage = Create();
+        await using var fileSystem = await FatFileSystem.FormatAsync(storage);
+        var before = await fileSystem.GetSpaceAsync();
+        Assert.That(before.TotalBytes, Is.GreaterThan(0).And.LessThanOrEqualTo(fileSystem.Volume.Length));
+        Assert.That(before.FreeBytes, Is.GreaterThan(0).And.LessThanOrEqualTo(before.TotalBytes));
+        await using (var file = await fileSystem.OpenAsync("/big.bin", FileMode.CreateNew, FileAccess.Write))
+            await file.WriteAsync(0, new byte[200_000]);
+        var after = await fileSystem.GetSpaceAsync();
+        Assert.That(after.TotalBytes, Is.EqualTo(before.TotalBytes));
+        Assert.That(before.FreeBytes - after.FreeBytes, Is.GreaterThanOrEqualTo(200_000).And.LessThan(200_000 + 2L * fileSystem.Volume.AllocationUnit),
+            "the file's clusters, and a directory's at most");
+        await fileSystem.DeleteAsync("/big.bin");
+        Assert.That((await fileSystem.GetSpaceAsync()).FreeBytes, Is.EqualTo(before.FreeBytes));
     }
 
     [Test]

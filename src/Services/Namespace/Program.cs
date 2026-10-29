@@ -42,8 +42,10 @@ internal static class Program
         // /tmp (N4.1): a volume in the service's memory, there whatever disks the machine has, with the modes POSIX
         // programs and .NET's named synchronization objects (/tmp/.dotnet) need; its files last the boot.
         var temporary = new MemoryFileSystem(TEMPORARY_BYTES, "tmp");
-        mounts.Add("/tmp", temporary);
+        mounts.Catalog.Attach(temporary, NamespaceMessages.ORIGIN_MEMORY, "Tmp", null, false);
         kept.Add(temporary);
+        // /media (E1, ADR 0032): the directory every volume that is not the system's mounts below, there from the start.
+        mounts.Add(MountTable.MEDIA, new MediaDirectory(mounts));
         Console.WriteLine($"{PREFIX}mounted /tmp: {temporary.Volume.Format} volume of {temporary.Volume.Length} bytes in memory");
         try
         {
@@ -75,7 +77,7 @@ internal static class Program
         using (theirs)
         {
             using var offered = theirs.Duplicate(Rights.Send | Rights.Duplicate | Rights.Transfer);
-            Console.WriteLine($"{PREFIX}namespace service: {mounts.Mounts.Count} volumes mounted, serving their files");
+            Console.WriteLine($"{PREFIX}namespace service: {mounts.Catalog.Volumes.Count} volumes mounted, serving their files");
             channel.Send(ServiceStatus.Encode(0), offered);
         }
         try
@@ -121,7 +123,7 @@ internal static class Program
                 error = 5; // EIO
             }
         }
-        Console.WriteLine($"{PREFIX}namespace service: {sessions} sessions stopped, {mounts.Mounts.Count} volumes unmounted" +
+        Console.WriteLine($"{PREFIX}namespace service: {sessions} sessions stopped, {mounts.Catalog.Volumes.Count} volumes unmounted" +
             (error == 0 ? "" : ", with errors"));
         return error;
     }

@@ -2,6 +2,19 @@
 # session renders one of the marks of /etc/witos/logo with the facts of the running system beside it. The kernel, the
 # root task and the services never print it (ADR 0024: mechanisms only); a redirected output, a non-interactive session
 # or WITOS_NO_LOGO=1 sees nothing. Every value of the panel is read at run time; a value that cannot be read is omitted.
+# The volumes as PowerShell drives (plan step E1, ADR 0032 decision 5): a file system drive named by each volume's alias
+# over its mount point (Data:, Boot:, a USB drive's name below /media), from /etc/mtab, whose first field the libc writes
+# as the alias. A drive is PowerShell's, never a System.IO path; every session that runs the profile gets them.
+try {
+    foreach ($entry in Get-Content -LiteralPath /etc/mtab -ErrorAction Stop) {
+        $fields = $entry -split ' '
+        if ($fields.Count -lt 2 -or $fields[1] -eq '/' -or $fields[0] -notmatch '^[A-Za-z0-9_-]+$') { continue }
+        if (-not (Get-PSDrive -Name $fields[0] -ErrorAction SilentlyContinue)) {
+            New-PSDrive -Name $fields[0] -PSProvider FileSystem -Root $fields[1] -Scope Global | Out-Null
+        }
+    }
+} catch { }
+
 if ($env:WITOS_NO_LOGO -or [Console]::IsOutputRedirected -or [Console]::IsInputRedirected) { return }
 $logo = '/etc/witos/logo'
 if (-not (Test-Path -LiteralPath "$logo/palette.json")) { return }
@@ -36,8 +49,10 @@ function Get-WitFields {
     } catch { }
     $f['Shell'] = "PowerShell $($PSVersionTable.PSVersion)"
     try {
-        $points = (Get-Content -LiteralPath /etc/mtab -ErrorAction Stop | ForEach-Object { ($_ -split ' ')[1] }) -join ', '
-        if ($points) { $f['Volumes'] = $points }
+        # The volumes by their aliases (ADR 0032), the package at / apart.
+        $aliases = (Get-Content -LiteralPath /etc/mtab -ErrorAction Stop | Where-Object { ($_ -split ' ')[1] -ne '/' } |
+            ForEach-Object { ($_ -split ' ')[0] }) -join ', '
+        if ($aliases) { $f['Volumes'] = $aliases }
     } catch { }
     return $f
 }

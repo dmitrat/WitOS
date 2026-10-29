@@ -60,6 +60,10 @@ public sealed class MemoryFileSystem : IFileSystem
     #region Functions
 
     /// <inheritdoc />
+    public ValueTask<FileSystemSpace> GetSpaceAsync(CancellationToken cancellationToken = default) =>
+        LockedAsync(() => new FileSystemSpace(Volume.Length, Volume.Length - m_used), cancellationToken);
+
+    /// <inheritdoc />
     public ValueTask<FileSystemEntry?> GetEntryAsync(string path, CancellationToken cancellationToken = default) =>
         LockedAsync(() => Find(path) is { } node ? Entry(node) : null, cancellationToken);
 

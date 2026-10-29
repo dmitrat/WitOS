@@ -64,6 +64,32 @@ public sealed class NamespaceMessagesTests
         Assert.That(full, Is.Zero);
     }
 
+    // WitNamespaceVolume (E1): 256 bytes, the numbers first, then the texts at 40, 72, 136, 152 and 192; a label longer
+    // than its field cut at a character.
+    [Test]
+    public void VolumeHasTheHeaderLayoutTest()
+    {
+        var volume = new NamespaceVolume(NamespaceMessages.VOLUME_SPACE | NamespaceMessages.VOLUME_WEAK_IDENTITY, NamespaceMessages.ORIGIN_REMOVABLE,
+            1L << 33, 12345, 4096, 7, "USB-DISK", "/media/USB-DISK", "FAT32", "ABCD-1234", "USB DISK");
+        var bytes = new byte[NamespaceVolume.SIZE];
+        volume.Write(bytes);
+
+        Assert.That(NamespaceVolume.SIZE, Is.EqualTo(256));
+        Assert.That(BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(4)), Is.EqualTo(256));
+        Assert.That(BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(12)), Is.EqualTo(NamespaceMessages.ORIGIN_REMOVABLE));
+        Assert.That(BinaryPrimitives.ReadInt64LittleEndian(bytes.AsSpan(16)), Is.EqualTo(1L << 33));
+        Assert.That(BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(36)), Is.EqualTo(7));
+        foreach (var (at, text) in new[] { (40, "USB-DISK"), (72, "/media/USB-DISK"), (136, "FAT32"), (152, "ABCD-1234"), (192, "USB DISK") })
+            Assert.That(Encoding.UTF8.GetString(bytes, at, text.Length), Is.EqualTo(text));
+        Assert.That(NamespaceVolume.Read(bytes), Is.EqualTo(volume));
+
+        var longLabel = volume with { Label = new string('é', 40) };
+        longLabel.Write(bytes);
+        Assert.That(NamespaceVolume.Read(bytes).Label, Is.EqualTo(new string('é', 31)), "63 bytes hold 31 characters of two bytes");
+        Assert.Throws<System.ArgumentException>(() => (volume with { Alias = new string('a', 32) }).Write(bytes));
+        Assert.Throws<FormatException>(() => NamespaceVolume.Read(new byte[NamespaceVolume.SIZE]));
+    }
+
     [Test]
     public void DisksRoundTripTest()
     {

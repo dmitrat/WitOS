@@ -265,6 +265,13 @@ long __wit_remote_transfer_begin(long fd, int writing, WitU32 *index, WitU32 *de
 long __wit_remote_transfer(WitU32 index, WitU32 description, int writing, void *buffer, long bytes, long offset);
 void __wit_remote_transfer_end(WitU32 index, WitU32 description);
 long __wit_remote_stat(const unsigned char *name, WitU32 length, struct kstat *st);
+struct WitNamespaceVolume;
+/* The volume a path or an open file of a volume lies on, with its space (E1: statfs and fstatfs). */
+long __wit_remote_volume(const unsigned char *name, WitU32 length, struct WitNamespaceVolume *volume);
+long __wit_remote_fvolume(WitU32 index, struct WitNamespaceVolume *volume);
+struct statfs;
+/* statfs (fd -1) and fstatfs (path null) (E1): a volume's from the namespace service, the package's and /dev/shm's here. */
+long __wit_statfs(long fd, const char *path, struct statfs *buf);
 long __wit_remote_list(WitU32 index, WitU64 *cursor, unsigned char *buffer, long bytes);
 long __wit_remote_mkdir(const unsigned char *name, WitU32 length);
 long __wit_remote_remove(const unsigned char *name, WitU32 length, int directory);

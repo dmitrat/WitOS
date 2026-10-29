@@ -64,6 +64,17 @@
          * ENOENT for no such name, ECONNREFUSED for a name nobody listens on, EPROTOTYPE for another type */
 #define WIT_NAMESPACE_SOCKET_CLOSE 24U /* Handle a binding of this session: its socket closed */
 
+/* Volumes (E1, ADR 0032): the catalog of the volumes the service mounts, each a WitNamespaceVolume — its alias, its
+ * mount point, its format, its identity, its label, its origin and whether it is read-only; its size and free space when
+ * asked (WIT_NAMESPACE_SPACE), since a FAT volume counts its free clusters through its whole table. The system's volumes
+ * keep their mount points (/boot, /data, /fat, /tmp); every other volume mounts at /media/<alias>, a directory the
+ * service serves from its start, so that a volume that comes later is reached without a new list of mount points. */
+#define WIT_NAMESPACE_VOLUMES \
+    25U /* Flags WIT_NAMESPACE_SPACE or 0: a WitNamespaceVolume for each volume into the window; Length their bytes */
+#define WIT_NAMESPACE_STATFS \
+    26U /* Handle, or with Handle 0 the path in the window (Length bytes): the WitNamespaceVolume of the volume it lies
+         * on, with its space, into the window; Length its bytes (statfs and fstatfs) */
+
 /* OPEN's flags; the libc maps O_ACCMODE, O_CREAT, O_EXCL, O_TRUNC and O_DIRECTORY onto them. */
 #define WIT_NAMESPACE_READ_ACCESS 0x1U
 #define WIT_NAMESPACE_WRITE_ACCESS 0x2U
@@ -153,10 +164,40 @@ typedef struct WitNamespaceDisk {
 
 #define WIT_NAMESPACE_DISK_READ_ONLY 0x1U
 
+/* A volume of the catalog (E1, ADR 0032), the record VOLUMES and STATFS write into the window. The texts are UTF-8,
+ * zero-terminated within their fields. */
+typedef struct WitNamespaceVolume {
+    WitU32 Version, Size; /* WIT_NAMESPACE_VERSION, the size of this structure */
+    WitU32 Flags; /* WIT_NAMESPACE_VOLUME_* */
+    WitU32 Origin; /* WIT_NAMESPACE_ORIGIN_* */
+    WitU64 TotalBytes, FreeBytes; /* with WIT_NAMESPACE_VOLUME_SPACE alone */
+    WitU32 AllocationUnit; /* the bytes the volume allocates at a time */
+    WitU32 Index; /* the volume's index in the mount list, which a stat's Volume names */
+    char Alias[32]; /* Boot, Data, Fat, Tmp, or the name under /media */
+    char Point[64]; /* the mount point */
+    char Format[16]; /* ext4, FAT32, exFAT, tmpfs, media... */
+    char Identity[40]; /* an ext4 UUID, a GUID partition's GUID, a FAT serial number; empty for none */
+    char Label[64]; /* the volume's own name; empty for none */
+} WitNamespaceVolume;
+
+#define WIT_NAMESPACE_SPACE 0x1000U /* VOLUMES: each volume's size and free space too */
+
+#define WIT_NAMESPACE_VOLUME_READ_ONLY 0x1U
+#define WIT_NAMESPACE_VOLUME_WEAK_IDENTITY 0x2U /* a FAT serial number: 32 bits that copies share */
+#define WIT_NAMESPACE_VOLUME_COLLISION 0x4U /* another attached volume has the same identity */
+#define WIT_NAMESPACE_VOLUME_SPACE 0x8U /* TotalBytes and FreeBytes hold */
+
+#define WIT_NAMESPACE_ORIGIN_INTERNAL 1U /* a disk of the machine */
+#define WIT_NAMESPACE_ORIGIN_REMOVABLE 2U /* a drive that comes and goes (E3) */
+#define WIT_NAMESPACE_ORIGIN_NETWORK 3U /* a share of another machine (E2) */
+#define WIT_NAMESPACE_ORIGIN_MEMORY 4U /* the service's memory (/tmp) */
+#define WIT_NAMESPACE_ORIGIN_SYSTEM 5U /* the service's own directory, /media */
+
 WIT_STATIC_ASSERT(sizeof(WitNamespaceStat) == 96, "Namespace stat");
 WIT_STATIC_ASSERT(sizeof(WitNamespaceTimes) == 24, "Namespace times");
 WIT_STATIC_ASSERT(sizeof(WitNamespaceRequest) == 48, "Namespace request");
 WIT_STATIC_ASSERT(sizeof(WitNamespaceReply) == 136, "Namespace reply");
 WIT_STATIC_ASSERT(sizeof(WitNamespaceEntry) == 16, "Namespace entry");
+WIT_STATIC_ASSERT(sizeof(WitNamespaceVolume) == 256, "Namespace volume");
 WIT_STATIC_ASSERT(sizeof(WitNamespaceDisk) == 80, "Namespace disk");
 #endif

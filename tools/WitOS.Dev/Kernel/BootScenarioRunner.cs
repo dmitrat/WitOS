@@ -99,6 +99,9 @@ internal static class BootScenarioRunner
         if (request.Pc && (architecture != KernelArchitecture.X64 || request.Keyboard || request.Network || request.DataDisk is not null ||
             request.Terminal is not null || request.InteractiveTerminal))
             throw new InvalidOperationException($"{request.Name}: the pc board (H1.1) is x64's and carries none of the services' devices.");
+        if (request.ExtraDisk is not null && (request.Keyboard || request.Network || request.Pc || request.Raspi4))
+            throw new InvalidOperationException($"{request.Name}: a third disk (E1) takes the entropy source's line, which a keyboard or a network " +
+                "adapter would share, and the pc and raspi4b boards carry no virtio disk.");
         if (request.Ps2Keyboard && (architecture != KernelArchitecture.X64 || request.Keyboard))
             throw new InvalidOperationException($"{request.Name}: the PS/2 keyboard (H5.2) is the PC's, and the boot adds no other keyboard.");
         if (request.IdeBootDisk && !request.Pc)
@@ -241,6 +244,11 @@ internal static class BootScenarioRunner
         else if (request.DataDisk is not null)
         {
             arguments.AddRange(["-drive", $"if=none,id=data,format=raw,{GUEST_FLUSHES},file={QemuPath(request.DataDisk)}", .. DataDiskDevices(request, architecture)]);
+        }
+        if (request.ExtraDisk is not null)
+        {
+            arguments.AddRange(["-drive", $"if=none,id=extra,format=raw,{GUEST_FLUSHES},file={QemuPath(request.ExtraDisk)}",
+                "-device", $"virtio-blk-pci,drive=extra,addr=0x{architecture.EntropyLineSlot(request.Display):x}"]);
         }
         if (terminal is not null || relay is not null)
         {

@@ -128,6 +128,42 @@ public static class NamespaceMessages
     /// <summary>SOCKET_BIND, SOCKET_CONNECT: an abstract name, not a path (W4.1).</summary>
     public const uint ABSTRACT = 0x80;
 
+    /// <summary>WIT_NAMESPACE_VOLUMES (E1): a NamespaceVolume for each volume into the window.</summary>
+    public const uint VOLUMES = 25;
+
+    /// <summary>WIT_NAMESPACE_STATFS (E1): the NamespaceVolume, with its space, of the volume a handle or a path lies on.</summary>
+    public const uint STATFS = 26;
+
+    /// <summary>VOLUMES: each volume's size and free space too.</summary>
+    public const uint SPACE = 0x1000;
+
+    /// <summary>A volume refuses changes.</summary>
+    public const uint VOLUME_READ_ONLY = 0x1;
+
+    /// <summary>A volume's identity is a FAT serial number, which copies share.</summary>
+    public const uint VOLUME_WEAK_IDENTITY = 0x2;
+
+    /// <summary>Another attached volume has the same identity.</summary>
+    public const uint VOLUME_COLLISION = 0x4;
+
+    /// <summary>A record's TotalBytes and FreeBytes hold.</summary>
+    public const uint VOLUME_SPACE = 0x8;
+
+    /// <summary>A disk of the machine.</summary>
+    public const uint ORIGIN_INTERNAL = 1;
+
+    /// <summary>A drive that comes and goes.</summary>
+    public const uint ORIGIN_REMOVABLE = 2;
+
+    /// <summary>A share of another machine.</summary>
+    public const uint ORIGIN_NETWORK = 3;
+
+    /// <summary>The service's memory.</summary>
+    public const uint ORIGIN_MEMORY = 4;
+
+    /// <summary>The service's own directory, /media.</summary>
+    public const uint ORIGIN_SYSTEM = 5;
+
     /// <summary>The bytes of the times of UTIMES and FUTIMES in the window (WitNamespaceTimes).</summary>
     public const int TIMES_SIZE = 24;
 

@@ -192,6 +192,12 @@ internal static class KernelImageBuilder
     public const string RUNTIME_CSHARPREPL_SCENARIO = "runtime-csharprepl";
 
     /// <summary>
+    /// Named volumes (E1, ADR 0032): a drive with an MBR and a FAT volume below /media beside the device services and the
+    /// .NET install, and a program run from it that looks at the volumes as .NET sees them.
+    /// </summary>
+    public const string RUNTIME_VOLUMES_SCENARIO = "runtime-volumes";
+
+    /// <summary>
     /// Representative NuGet libraries (N2.1): NUnit's and xUnit's test applications run through dotnet beside the device
     /// services; not a suite scenario, for the same reason.
     /// </summary>
@@ -231,7 +237,8 @@ internal static class KernelImageBuilder
             RUNTIME_LIBRARY_TESTS_SCENARIO, RUNTIME_DEVICES_SCENARIO, RUNTIME_COMPATIBILITY_SCENARIO, RUNTIME_LIBRARIES_SCENARIO,
             RUNTIME_NUGET_SUITES_SCENARIO, RUNTIME_SIDE_BY_SIDE_SCENARIO, RUNTIME_TERMINAL_SCENARIO, RUNTIME_PUBLISHED_SCENARIO,
             RUNTIME_POWERSHELL_SCENARIO, RUNTIME_DISPLAY_SCENARIO, RUNTIME_COMMANDER_SCENARIO,
-            RUNTIME_INSTALLER_SCENARIO, RUNTIME_PROCESSORS_SCENARIO, RUNTIME_CSHARPREPL_SCENARIO, RUNTIME_ASPNETCORE_SCENARIO];
+            RUNTIME_INSTALLER_SCENARIO, RUNTIME_PROCESSORS_SCENARIO, RUNTIME_CSHARPREPL_SCENARIO, RUNTIME_ASPNETCORE_SCENARIO,
+            RUNTIME_VOLUMES_SCENARIO];
 
     // A release map must not name self-test code: test objects, self-test functions, fault triggers or workers.
     private static readonly Regex SELF_TEST_SYMBOL = new(
@@ -338,7 +345,7 @@ internal static class KernelImageBuilder
                 or RUNTIME_COMPATIBILITY_SCENARIO or RUNTIME_LIBRARIES_SCENARIO or RUNTIME_NUGET_SUITES_SCENARIO or RUNTIME_TERMINAL_SCENARIO
                 or RUNTIME_SIDE_BY_SIDE_SCENARIO or RUNTIME_PUBLISHED_SCENARIO or RUNTIME_POWERSHELL_SCENARIO or RUNTIME_DISPLAY_SCENARIO
                 or RUNTIME_COMMANDER_SCENARIO or RUNTIME_INSTALLER_SCENARIO or RUNTIME_PROCESSORS_SCENARIO or RUNTIME_CSHARPREPL_SCENARIO
-                or RUNTIME_ASPNETCORE_SCENARIO
+                or RUNTIME_ASPNETCORE_SCENARIO or RUNTIME_VOLUMES_SCENARIO
                 ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
             : scenario == RESET_SCENARIO ? await UserImage.BuildRootAsync(root, output, architecture, ["-DWITOS_ROOT_EXIT_RESET=1"])
             : await UserImage.BuildRootAsync(root, output, architecture);
