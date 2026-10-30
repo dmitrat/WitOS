@@ -34,6 +34,7 @@ __attribute__((__noreturn__, __used__)) void _start_c(const WitRootStartup *star
     __wit_process.Log = startup->Handles[WIT_ROOT_HANDLE_LOG];
     __wit_process.Package = startup->Handles[WIT_ROOT_HANDLE_PACKAGE];
     __wit_process.PackageBytes = startup->PackageBytes;
+    __wit_process.ProcessId = 1; /* the root task (E4.3): the process manager numbers the rest from 2 */
     __wit_thread_init(); /* the main thread's record and handle (S2, S3) */
     __wit_signal_init(); /* the fault callback every signal arrives through (S3) */
     wit_syscall(WIT_CALL_RANDOM, (WitU64)random_bytes, sizeof(random_bytes), 0, &result);

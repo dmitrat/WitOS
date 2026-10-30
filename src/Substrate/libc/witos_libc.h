@@ -22,8 +22,10 @@ __attribute__((__visibility__("hidden"))) void __wit_start_program(const unsigne
 __attribute__((__visibility__("hidden"))) long __wit_syscall(
     long n, long a1, long a2, long a3, long a4, long a5, long a6);
 
-/* The process's id, its main thread's: getpid (syscall.c) and the calls that name the own process (system.c). */
-#define WIT_LIBC_PROCESS_ID 1L
+/* The process's id (E4.3): the process manager's, from the start message, and 1 in the root task (crt1) and where a
+ * creator gave none. getpid (syscall.c) and the calls that name the own process (system.c) answer it. Thread ids stay
+ * the library's own, the main thread's 1 (thread.c): musl's dynamic linker reads it before the start message comes. */
+#define WIT_LIBC_PROCESS_ID ((long)__wit_process.ProcessId)
 
 /* What the system layer knows of the machine and of the process's limits (system.c, R2.1). */
 struct sysinfo;

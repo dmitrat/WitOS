@@ -23,7 +23,6 @@
 
 #define LOG_HANDLE (__wit_process.Log)
 #define DEBUG_WRITE_MAX 65536UL /* WIT_DEBUG_WRITE_MAX of one call */
-#define TID WIT_LIBC_PROCESS_ID
 
 long __wit_errno(WitU64 status)
 {
@@ -1240,8 +1239,9 @@ static long dispatch(long n, long a1, long a2, long a3, long a4, long a5, long a
     case SYS_rt_sigtimedwait:
         return -ENOSYS; /* queued values and synchronous waits for signals are not there yet */
     case SYS_getpid:
-        return TID;
+        return WIT_LIBC_PROCESS_ID; /* the process manager's id (E4.3); the root task is 1 */
     case SYS_getppid:
+        return (long)__wit_process.ParentId;
     case SYS_getuid:
     case SYS_geteuid:
     case SYS_getgid:

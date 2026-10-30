@@ -96,7 +96,7 @@ static int build_request(const char *path, char *const argv[], char *const envp[
 
 int witos_manager_spawn(const char *path, char *const argv[], char *const envp[], WitU64 grant, WitU64 *process)
 {
-    WitManagerRequest request = {WIT_MANAGER_VERSION, sizeof(request), WIT_MANAGER_SPAWN, 0, 0};
+    WitManagerRequest request = {WIT_MANAGER_VERSION, sizeof(request), WIT_MANAGER_SPAWN, __wit_process.ProcessId, 0};
     WitManagerReply reply;
     WitU64 object = 0, mine = 0, theirs = 0, handles[3] = {0, 0, 0};
     WitU32 count = 0, handle_count = 0;

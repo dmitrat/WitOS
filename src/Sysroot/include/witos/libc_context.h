@@ -13,11 +13,13 @@ typedef struct WitProcessContext {
     WitU64 PackageBytes; /* the size of the package */
     WitU64 Manager; /* the process manager's endpoint (S6.1); zero in the root task and without a manager */
     WitU32 ClosedStreams; /* bit n: standard descriptor n is closed (S6.2) */
-    WitU32 Reserved;
+    WitU32 ProcessId; /* getpid (E4.3): the start message's, 1 in the root task and where a creator gave none */
     WitU64 Grant; /* the capability the creator granted (D1.1, witos/start.h); zero without one and once taken */
     WitU64 Namespace; /* the namespace service's clients' endpoint (D5.1, witos/namespace.h); zero without one */
     WitU64 Terminal; /* the terminal service's clients' endpoint (N4.3, witos/terminal.h); zero without one */
     WitU64 Network; /* the network service's clients' endpoint (W2.1a, witos/socket.h); zero without one */
+    WitU32 ParentId; /* getppid (E4.3): the start message's, zero for none */
+    WitU32 Reserved;
 } WitProcessContext;
 
 extern WitProcessContext __wit_process;

@@ -426,7 +426,7 @@ typedef struct StartState {
     WitU64 Terminal; /* the terminal's endpoint to duplicate into the process (N4.3); zero for none */
     WitU64 Network; /* the network service's endpoint to duplicate into the process (W2.1a); zero for none */
     WitU32 Streams; /* the stream messages the creator sends on the grant after the start (N4.2) */
-    WitU32 Reserved;
+    WitU32 ProcessId, ParentId; /* the process's id and its parent's (E4.3); zero for none */
 } StartState;
 
 /* The start message: the package's size, the closed streams and the initial directory, duplicates of the log, the
@@ -507,6 +507,8 @@ static int send_start(WitU64 endpoint, WitU64 manager, WitU64 *grant, const Star
         message.Header.DirectoryBytes = state->DirectoryBytes;
         message.Header.Capabilities = capabilities;
         message.Header.Streams = state->Streams;
+        message.Header.ProcessId = state->ProcessId;
+        message.Header.ParentId = state->ParentId;
         memcpy(message.Bytes + sizeof(message.Header), state->Directory, state->DirectoryBytes);
         request.Version = WIT_CHANNEL_MESSAGE_VERSION;
         request.Size = sizeof(request);
@@ -623,6 +625,8 @@ int witos_spawn_ex(
     state.Terminal = options ? options->terminal_endpoint : 0;
     state.Network = options ? options->network_endpoint : 0;
     state.Streams = options ? options->streams : 0;
+    state.ProcessId = options ? options->process_id : 0;
+    state.ParentId = options ? options->parent_id : 0;
     int error = open_program(&program, path, PROGRAM_BASE, 1);
     if (!error && program.Interpreter[0]) {
         /* The dynamic linker: an image of the package itself, with no interpreter of its own. */
