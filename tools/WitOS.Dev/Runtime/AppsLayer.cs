@@ -221,9 +221,21 @@ internal static class AppsLayer
             { Id: PowerShell.CATALOG_ID } => await PowerShell.ApplicationFilesAsync(root, architecture),
             { Source.Kind: AppCatalog.SOURCE } => await AppSourceBuild.FilesAsync(root, entry),
             { Source.Kind: AppCatalog.TOOL } => await AppToolPackage.FilesAsync(root, entry),
-            { Source.Kind: AppCatalog.ARCHIVE } => await AppArchive.FilesAsync(root, entry, architecture),
+            { Source.Kind: AppCatalog.ARCHIVE } => await WithSdkFrameworkAsync(root, architecture, await AppArchive.FilesAsync(root, entry, architecture)),
             _ => throw new NotSupportedException($"{entry.Id}: the layer lays no {entry.Source.Kind} source yet; its step brings it.")
         };
+
+    /// <summary>
+    /// An application's files and, where they hold an SDK, the install's Microsoft.NETCore.App beside it (E4.4): hostfxr
+    /// runs the SDK it finds through global.json's sdk.paths with the frameworks of the root it found the SDK in, never the
+    /// muxer's (fx_muxer's handle_cli: "Use the root path from the resolved SDK to run the SDK dll"), so a root that held
+    /// sdk/ alone listed its SDK and ran none of its commands, each ending in "No frameworks were found" with 150.
+    /// </summary>
+    private static async Task<IReadOnlyList<(string Path, string Source)>> WithSdkFrameworkAsync(string root, KernelArchitecture architecture,
+        IReadOnlyList<(string Path, string Source)> files) =>
+        files.Any(file => file.Path.StartsWith(SdkRoots.SDK + "/", StringComparison.Ordinal))
+            ? [.. files, .. await RuntimeWitos.SharedFrameworkFilesAsync(root, Path.Combine(root, "artifacts", architecture.Name, "sdk-framework"), architecture)]
+            : files;
 
     /// <summary>
     /// The NuGet packages an application finds in the global packages folder, by their paths from the folder.

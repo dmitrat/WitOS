@@ -88,13 +88,15 @@ public sealed class AppsLayerTests
                 .Replace("%x", ArchiveOf("x64"))), "Sdk"), "one archive or one per architecture");
     }
 
-    // The paths an archive lays (C2.5): those under its lay directories, less those under its leave directories; a lay
-    // directory that holds nothing is refused, and no lay directories lay the whole archive.
+    // The paths an archive lays (C2.5): those under its lay directories, less its leave paths, each a directory and what
+    // it holds or a file (E4.4); a lay directory that holds nothing is refused, and no lay directories lay the whole
+    // archive.
     [Test]
     public void ArchiveLaysItsDirectoriesTest()
     {
-        string[] paths = ["LICENSE", "dotnet", "sdk/1.0/dotnet.dll", "sdk/1.0/Template/apphost", "sdk/1.0/Roslyn/csc.dll", "packs/Ref/1.0/ref/a.dll", "shared/App/1.0/b.dll"];
-        Assert.That(AppArchive.Select(paths, ["sdk/1.0", "packs/Ref/1.0"], ["sdk/1.0/Template"]),
+        string[] paths = ["LICENSE", "dotnet", "sdk/1.0/dotnet.dll", "sdk/1.0/Template/apphost", "sdk/1.0/Roslyn/csc.dll", "sdk/1.0/Roslyn/csc",
+            "packs/Ref/1.0/ref/a.dll", "shared/App/1.0/b.dll"];
+        Assert.That(AppArchive.Select(paths, ["sdk/1.0", "packs/Ref/1.0"], ["sdk/1.0/Template", "sdk/1.0/Roslyn/csc"]),
             Is.EqualTo(new[] { "sdk/1.0/dotnet.dll", "sdk/1.0/Roslyn/csc.dll", "packs/Ref/1.0/ref/a.dll" }));
         Assert.That(AppArchive.Select(paths, [], []), Is.EqualTo(paths));
         Assert.Throws<InvalidDataException>(() => AppArchive.Select(paths, ["sdk/2.0"], []));

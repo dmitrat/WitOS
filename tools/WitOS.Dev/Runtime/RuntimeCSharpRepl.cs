@@ -9,7 +9,9 @@ namespace WitOS.Dev.Runtime;
 /// by its launcher /data/apps/bin/csharprepl on the terminal beside the device services and the .NET install; the runner
 /// types a session into it — an expression, a class and a call, the system's description, a file of the volume, a
 /// script loaded with #load, a compilation error — and exits. The required lines are the REPL's answers in the
-/// terminal's transcript. NO_COLOR keeps them plain words, as the other runners' no-colour options do.
+/// terminal's transcript. NO_COLOR keeps them plain words, as the other runners' no-colour options do. Before the REPL
+/// the layer's SDK runs its own commands (E4.4): dotnet --version, then dotnet build of a console project of the volume,
+/// whose program dotnet runs.
 /// </summary>
 internal static class RuntimeCSharpRepl
 {
@@ -46,6 +48,19 @@ internal static class RuntimeCSharpRepl
     // dotnet lists the SDKs global.json names (C2.5): the layer's, under its root.
     private const string LIST_SDKS = "/dotnet/dotnet --list-sdks";
 
+    // dotnet runs the SDK's own CLI (E4.4), with the framework the layer lays beside the SDK, since hostfxr runs an SDK
+    // with the frameworks of the root it found it in.
+    private const string SDK_VERSION = "/dotnet/dotnet --version";
+
+    // A console project the SDK builds in the guest (E4.4), laid on the data volume as its source, and its program.
+    private const string BUILD_PROJECT = "tests/Runtime.Witos/GuestBuild";
+
+    private const string BUILD_DIRECTORY = "build";
+
+    private const string BUILD = "/dotnet/dotnet build -nologo";
+
+    private const string BUILT = "/dotnet/dotnet bin/Debug/net10.0/GuestBuild.dll";
+
     #endregion
 
     #region Functions
@@ -69,7 +84,10 @@ internal static class RuntimeCSharpRepl
             Console.WriteLine($"CSharpRepl on witos-{architecture.Name}: not run, no .NET SDK publication for {architecture.Name}.");
             return;
         }
-        var package = (await RuntimeApps.PackageAsync(root, output, architecture, [], ["cd /data", LIST_SDKS, CSHARPREPL])).ToList();
+        var package = (await RuntimeApps.PackageAsync(root, output, architecture, [],
+        [
+            "cd /data", LIST_SDKS, SDK_VERSION, $"cd {AppsLayer.MOUNT}/{BUILD_DIRECTORY}", BUILD, BUILT, "cd /data", CSHARPREPL
+        ])).ToList();
         var environmentIndex = package.FindIndex(file => file.Name == "etc/environment");
         var environment = Path.Combine(output, "environment");
         await File.WriteAllTextAsync(environment, await File.ReadAllTextAsync(package[environmentIndex].Source) + "NO_COLOR=1\n");
@@ -81,13 +99,15 @@ internal static class RuntimeCSharpRepl
         await File.WriteAllTextAsync(text, FILE_TEXT);
         volume.Add(("csx/hello.csx", script));
         volume.Add(("csx/hello.txt", text));
+        foreach (var file in new[] { "GuestBuild.csproj", "Program.cs" })
+            volume.Add(($"{BUILD_DIRECTORY}/{file}", Path.Combine(root, BUILD_PROJECT, file)));
         foreach (var log in new[] { "serial", "terminal" })
         {
             var path = Path.Combine(root, "artifacts", "logs", $"{architecture.Name}-{scenario}-{MEMORY_MIB}.{log}.log");
             if (File.Exists(path))
                 File.Delete(path);
         }
-        await RuntimeApps.BootAsync(root, architecture, scenario, RequiredLines(sdk), TIMEOUT_SECONDS, volume, DISK_BYTES, MEMORY_MIB, package, Script());
+        await RuntimeApps.BootAsync(root, architecture, scenario, RequiredLines(sdk, architecture), TIMEOUT_SECONDS, volume, DISK_BYTES, MEMORY_MIB, package, Script());
         Console.WriteLine($"CSharpRepl on witos-{architecture.Name}: C# typed into the REPL compiled and ran in the guest through Roslyn's " +
             "scripting, from the data volume's layer through its launcher.");
     }
@@ -123,15 +143,20 @@ internal static class RuntimeCSharpRepl
     }
 
     /// <summary>
-    /// The lines the scenario requires: dotnet's listing of the layer's SDK, each answer of the REPL, the compiler's
-    /// error and the REPL's exit with 0.
+    /// The lines the scenario requires: dotnet's listing of the layer's SDK, the SDK's version, the build of the volume's
+    /// project and its program's line, each answer of the REPL, the compiler's error and the REPL's exit with 0.
     /// </summary>
     /// <param name="sdk">The SDK's catalog entry.</param>
+    /// <param name="architecture">The ISA.</param>
     /// <returns>The required lines.</returns>
-    public static string[] RequiredLines(AppEntry sdk) =>
+    public static string[] RequiredLines(AppEntry sdk, KernelArchitecture architecture) =>
     [
         $"{sdk.Version} [{AppsLayer.MOUNT}/{AppsLayer.ROOT}/{sdk.Id}/{sdk.Version}/{SdkRoots.SDK}]",
         $"[APPS-INIT] {LIST_SDKS} exited with 0",
+        $"[APPS-INIT] {SDK_VERSION} exited with 0",
+        "[APPS-INIT] /dotnet/dotnet build exited with 0",
+        $"[GUEST-BUILD] built in the guest, running on witos-{architecture.Name}",
+        $"[APPS-INIT] {BUILT} exited with 0",
         "\"witos-42\"",
         "\"hi witos\"",
         "\"WitOS",
@@ -139,7 +164,7 @@ internal static class RuntimeCSharpRepl
         "\"loaded from a script\"",
         "CS0029",
         $"[APPS-INIT] {CSHARPREPL}  exited with 0",
-        "[APPS-INIT] 2 commands, 0 failed"
+        "[APPS-INIT] 5 commands, 0 failed"
     ];
 
     #endregion

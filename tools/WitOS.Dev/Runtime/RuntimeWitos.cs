@@ -850,7 +850,7 @@ internal static class RuntimeWitos
             // the runtime's own for file systems without notifications, it polls and constructs no watcher.
             "DOTNET_USE_POLLING_FILE_WATCHER=1\n");
         var sysroot = await Sysroot.BuildAsync(root, architecture);
-        var shared = await FrameworkFilesAsync(tree, output, architecture, version, pin.TargetFramework, architecture.ReadyToRunFramework);
+        var shared = await SharedFrameworkFilesAsync(root, output, architecture);
 
         var lib = Path.Combine(sysroot, "usr", "lib");
         return
@@ -874,7 +874,7 @@ internal static class RuntimeWitos
             ("etc/environment", environment),
             ("dotnet/dotnet", Path.Combine(corehost, "dotnet")),
             ($"dotnet/host/fxr/{version}/libhostfxr.so", Path.Combine(corehost, "libhostfxr.so")),
-            .. shared.Select(file => ($"dotnet/shared/Microsoft.NETCore.App/{version}/{file.Name}", file.Source)),
+            .. shared.Select(file => ($"dotnet/{file.Path}", file.Source)),
             // The ASP.NET Core shared framework (W3.2), IL alone from its pinned source, which an application's framework
             // reference to Microsoft.AspNetCore.App resolves to.
             .. await AspNetCoreFramework.FrameworkFilesAsync(root, output, architecture)
@@ -973,6 +973,25 @@ internal static class RuntimeWitos
         if (scripts.Length != 1)
             throw new InvalidOperationException($"No single archived test build of {name} in {bin}. Run: dotnet run --project tools/WitOS.Dev -- runtime-witos");
         return Path.GetDirectoryName(scripts[0])!;
+    }
+
+    /// <summary>
+    /// The install's Microsoft.NETCore.App by its paths below a .NET root, shared/Microsoft.NETCore.App/&lt;version&gt;/:
+    /// the install's own (R5) and, since E4.4, a copy beside the SDK of the data volume's layer, whose root hostfxr runs
+    /// the SDK's commands from.
+    /// </summary>
+    /// <param name="root">Repository root.</param>
+    /// <param name="output">A directory of the host for the framework's deps.json.</param>
+    /// <param name="architecture">Target architecture.</param>
+    /// <returns>Each file's path below the root and its source.</returns>
+    internal static async Task<IReadOnlyList<(string Path, string Source)>> SharedFrameworkFilesAsync(string root, string output,
+        KernelArchitecture architecture)
+    {
+        var pin = ReadLock(root);
+        var version = pin.ProductVersion;
+        var shared = await FrameworkFilesAsync(Path.Combine(root, "artifacts", "runtime-witos", "src"), output, architecture, version,
+            pin.TargetFramework, architecture.ReadyToRunFramework);
+        return [.. shared.Select(file => ($"shared/Microsoft.NETCore.App/{version}/{file.Name}", file.Source))];
     }
 
     // The shared framework's deps.json as the shared framework's packaging writes it (R5): one runtime-pack library for the

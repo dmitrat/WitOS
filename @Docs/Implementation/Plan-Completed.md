@@ -30,7 +30,7 @@
 | [N — Стандартный .NET (M6)](#n--стандартный-net-m6) | N1–N4: фаза завершена, M6 выполнен, Gate B заявлен | 2026-10-15 (N4.5) |
 | [P — Многопроцессорность](#p--многопроцессорность) | P1 (P1.0–P1.5), P2–P6 | 2026-10-25 (P5) |
 | [H — Железо: первый релиз](#h--железо-первый-релиз) | H0.1, H0.2, H1 (H1.1, H1.2a, H1.2b), H2 (H2.1, H2.2), H3 (H3.1, H3.2, H3.3), H4, H5.1, H5.2, H5.3, H6, H7.1, H7.2, H7.3 | H5.3 — 2026-10-26 |
-| [E — Сценарий разработчика (Ц6)](#e--сценарий-разработчика-ц6) | E0–E3, E4.1–E4.3 (E4.4, E5 — в плане) | E4.3 — 2026-10-29 |
+| [E — Сценарий разработчика (Ц6)](#e--сценарий-разработчика-ц6) | E0–E4 (E5 — в плане) | E4.4 — 2026-10-29 |
 | [W — Сеть и далее](#w--сеть-и-далее) | W1.1, W1.2 (W1.2a, W1.2b), W1.3, W2.1 (W2.1a, W2.1b), W2.2, W3.1, W3.2, W4.1, W4.2, W4.3 (инвентаризация W0): фаза завершена, критерий M7 (§68) выполнен | W4.3 — 2026-10-22 (W1.3 — 2026-10-23) |
 
 ## 5. Фазы (выполненные шаги)
@@ -2545,7 +2545,7 @@ Cryptography (хранилище корней: 119 сертификатов — 
 ### E — Сценарий разработчика (Ц6)
 
 Цель (автор, 2026-10-28): консольную программу, написанную на Windows, переносят в WitOS на VMware и запускают из
-удобного файлового менеджера, где файлы копируют и создают папки. Открытые шаги E4.4 и E5 — в плане.
+удобного файлового менеджера, где файлы копируют и создают папки. Открытый шаг E5 — в плане.
 
 - [x] **E0** Замер сегодняшними средствами (2026-10-28;
   [E0-Developer-Scenario-Measurement.md](@Docs/Implementation/E0-Developer-Scenario-Measurement.md)). Обычная консольная
@@ -2677,3 +2677,20 @@ Cryptography (хранилище корней: 119 сертификатов — 
   id главного потока и `sched_getaffinity(getpid())` и выходит младшими битами своего PID, равными ответу `posix_spawn`) и `runtime-file-manager` с `[exit 0]` в выводе Commander
   (Ctrl-O); `release`, `spawn`, `libc-test`, `runtime-services`, `runtime-terminal` и `runtime-compatibility` (x64)
   проходят как прежде. Результаты по ISA — в документе шага.
+- [x] **E4.4** Команды SDK в госте (2026-10-29; [E4.4-Sdk-Commands.md](@Docs/Implementation/E4.4-Sdk-Commands.md); слово
+  автора 2026-10-29). Найдено предпроверкой E5 на VMware: `dotnet --list-sdks` отвечал, а `dotnet --version` кончался
+  кодом 150 «No frameworks were found». Четыре причины, каждая найдена гостем после ухода предыдущей:
+  - hostfxr запускает SDK из `sdk.paths` с фреймворками его корня (`fx_muxer.cpp`, `handle_cli`) — слой кладёт рядом с
+    SDK `Microsoft.NETCore.App` установки (`RuntimeWitos.SharedFrameworkFilesAsync`, 68 МБ на x64);
+  - CLI SDK берёт `Process.StartTime` текущего процесса, а на witos это было PNSE — загрузчик libwitos пишет во
+    вспомогательный вектор `WIT_AT_START_TIME` (монотонные наносекунды при построении стека), `Process.WitOS.cs` читает
+    его через `getauxval` musl и считает время по `Stopwatch`; проверка набора N1 `Platform.ProcessStartTime`;
+  - восстановление SDK 10 скачивает пакет ссылок ASP.NET Core, если его нет в `packs/` (NU1301 без сети), — слой кладёт
+    `packs/Microsoft.AspNetCore.App.Ref` из архива SDK;
+  - задача `Csc` запускала Linux-apphost `Roslyn/bincore/csc` («Exec format error») — слой оставляет за бортом
+    Linux-apphost'ы SDK (`MSBuild`, `csc`, `vbc`, `VBCSCompiler`; `leave` принимает файл), и Roslyn идёт через
+    `dotnet exec csc.dll`.
+  ABI-1 и экспорт libc не меняются. Ворота — `runtime-csharprepl`: `dotnet --version`, `dotnet build`
+  `tests/Runtime.Witos/GuestBuild` на томе без сети и запуск собранного (`[GUEST-BUILD] … witos-<arch>`) на x64 и ARM64
+  (у riscv64 нет публикации SDK); `runtime-witos` на трёх ISA, `process`, `spawn`, `libc-test`. Результаты по ISA — в
+  документе шага.
