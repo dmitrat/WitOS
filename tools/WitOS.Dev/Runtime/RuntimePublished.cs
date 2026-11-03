@@ -162,10 +162,12 @@ internal static class RuntimePublished
         Directory.CreateDirectory(output);
         using var authority = new RunnerAuthority(IPAddress.Parse(NetworkPeer.ECHO_ADDRESS));
         var package = await RuntimeApps.WithRunnerAuthorityAsync(await BuildPackageAsync(root, output, architecture, directory), output, authority);
-        RuntimeApps.ForgetLogs(root, architecture, KernelImageBuilder.RUNTIME_PUBLISHED_SCENARIO);
+        RuntimeApps.ForgetLogs(root, architecture, KernelImageBuilder.RUNTIME_PUBLISHED_SCENARIO, RuntimeApps.LOADED_MEMORY_MIB);
         await RuntimeApps.BootAsync(root, architecture, KernelImageBuilder.RUNTIME_PUBLISHED_SCENARIO, RequiredLines(architecture), TIMEOUT_SECONDS,
-            package: package, terminal: RuntimeCompatibility.Script(), processors: RuntimeProcessors.PROCESSORS, https: authority);
-        var checks = RuntimeCompatibility.ReadChecks(await RuntimeApps.GuestLinesAsync(root, architecture, KernelImageBuilder.RUNTIME_PUBLISHED_SCENARIO));
+            package: package, terminal: RuntimeCompatibility.Script(), processors: RuntimeProcessors.PROCESSORS, https: authority,
+            memoryMiB: RuntimeApps.LOADED_MEMORY_MIB);
+        var checks = RuntimeCompatibility.ReadChecks(await RuntimeApps.GuestLinesAsync(root, architecture, KernelImageBuilder.RUNTIME_PUBLISHED_SCENARIO,
+            RuntimeApps.LOADED_MEMORY_MIB));
         if (checks.Count == 0)
             throw new InvalidOperationException("The suite's checks were not found in the guest's serial log or terminal transcript.");
         var differences = Compare(record.Checks, checks);
