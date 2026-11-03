@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Text;
 using OutWit.OS.FileSystems;
 using OutWit.OS.FileSystems.Fat;
@@ -121,7 +122,37 @@ internal static class RuntimeDataDisk
     /// </summary>
     public const string GUEST_TEXT = "Written by WitOS through its virtio driver, the block protocol and OutWit.Common.Fat.";
 
+    /// <summary>
+    /// The bytes of the VMware machine's USB drive (plan step E4.5): 1008 MiB, which the VHD footer's geometry of 2048
+    /// cylinders, 16 heads and 63 sectors covers exactly, so that a reader of the format that sizes a disk by its geometry
+    /// sees the size one that reads the footer's size sees.
+    /// </summary>
+    public const long USB_DRIVE_BYTES = 2048L * 16 * 63 * BLOCK;
+
+    /// <summary>
+    /// The USB drive's label, its alias below /media.
+    /// </summary>
+    public const string USB_DRIVE_LABEL = "WITUSB";
+
+    /// <summary>
+    /// The file on the USB drive that says how to use it.
+    /// </summary>
+    public const string USB_DRIVE_README = "/readme.txt";
+
+    /// <summary>
+    /// What the USB drive's readme says.
+    /// </summary>
+    public const string USB_DRIVE_TEXT = "The USB drive of the WitOS machine. In WitOS it is /media/WITUSB. In Windows, while the machine is off, " +
+        "open WitOS-usb.vhd (Mount) to put files here or take them, and eject the drive before you start the machine.\n";
+
+    /// <summary>
+    /// The bytes of a VHD footer, which follows a fixed VHD's disk.
+    /// </summary>
+    public const int VHD_FOOTER_BYTES = 512;
+
     private const int BLOCK = 512;
+
+    private const long USB_DRIVE_FIRST_BLOCK = 2048;
 
     // The disk's identities, fixed so that every run builds the same table.
     private static readonly Guid DISK_ID = new("3f2b8c1e-6a4d-4e7b-9b52-1d0c7e5a9f31");
@@ -132,6 +163,7 @@ internal static class RuntimeDataDisk
     private static readonly Guid LINUX_DATA = new("0fc63daf-8483-4772-8e79-3d69d8477de4");
     private static readonly Guid EXT4_PARTITION_ID = new("a1d7c3e5-62b4-4f09-8d1e-3b6f5c2a7e48");
     private static readonly Guid SYSTEM_PARTITION_ID = new("6e2c9a41-0d7b-4f35-b8c6-5a1f3e9d7c02");
+    private static readonly Guid USB_DRIVE_ID = new("d4a7e2c9-3b5f-4e81-9c06-7f1b2a8e5d43");
 
     #endregion
 
@@ -255,9 +287,11 @@ internal static class RuntimeDataDisk
     /// </summary>
     /// <param name="raw">The raw image, whose name the descriptor names relative to itself.</param>
     /// <param name="descriptor">The descriptor's path, in the image's directory.</param>
-    public static async Task WriteVmdkAsync(string raw, string descriptor)
+    /// <param name="bytes">The extent's bytes from the file's start: the whole file by default, a fixed VHD's disk without
+    /// its footer (E4.5).</param>
+    public static async Task WriteVmdkAsync(string raw, string descriptor, long? bytes = null)
     {
-        var sectors = new FileInfo(raw).Length / BLOCK;
+        var sectors = (bytes ?? new FileInfo(raw).Length) / BLOCK;
         var cylinders = Math.Min(sectors / (16 * 63), 16383);
         var text = $"""
             # Disk DescriptorFile
@@ -287,12 +321,21 @@ internal static class RuntimeDataDisk
     /// host's local time, E4.5 §5), the disk on SATA, the e1000e adapter on NAT (H4), the first serial port to serial.log beside the machine, which is the
     /// kernel's log, and no virtual USB keyboard, whose presence cost the first second of a boot's keys (H5 §2.2); 2 GiB
     /// and two processors, since dotnet build of a console project ran out of memory in 1 GiB. No remote display: a
-    /// person opens the machine in Workstation.
+    /// person opens the machine in Workstation. A USB drive, when one is named, is a disk on the xHCI controller's port
+    /// 6, which VMware attaches through its VMDK descriptor (E4.5 §5; the keys are undocumented and were measured).
     /// </summary>
     /// <param name="descriptor">The disk's VMDK descriptor, which the machine names relative to itself.</param>
     /// <param name="machine">The machine's path, in the descriptor's directory.</param>
-    public static async Task WriteVmxAsync(string descriptor, string machine)
+    /// <param name="usbDrive">The VMDK descriptor of a USB drive in the same directory, or none.</param>
+    public static async Task WriteVmxAsync(string descriptor, string machine, string? usbDrive = null)
     {
+        var usb = usbDrive is null ? "" : $"""
+            usb_xhci:6.present = "TRUE"
+            usb_xhci:6.deviceType = "disk"
+            usb_xhci:6.fileName = "{Path.GetFileName(usbDrive)}"
+            usb_xhci:6.readonly = "FALSE"
+
+            """;
         var text = $"""
             .encoding = "UTF-8"
             config.version = "8"
@@ -335,12 +378,110 @@ internal static class RuntimeDataDisk
             svga.present = "TRUE"
             usb.present = "TRUE"
             usb_xhci.present = "TRUE"
-            keyboard.vusb.enable = "FALSE"
+            {usb}keyboard.vusb.enable = "FALSE"
             sound.present = "FALSE"
             floppy0.present = "FALSE"
 
             """;
         await File.WriteAllTextAsync(machine, text.ReplaceLineEndings("\n"));
+    }
+
+    /// <summary>
+    /// Writes the VMware machine's USB drive (plan step E4.5): an MBR with one FAT32 partition labelled WITUSB from block
+    /// 2048, as Windows formats a USB drive, holding the readme, and after the disk the footer of a fixed VHD, so that
+    /// Windows opens the same file as a disk while the machine is off and VMware attaches it through a VMDK descriptor whose
+    /// flat extent ends before the footer.
+    /// </summary>
+    /// <param name="path">The drive's file, a .vhd.</param>
+    public static async Task WriteUsbDriveAsync(string path)
+    {
+        await using var disk = new MemoryBlockStorage(USB_DRIVE_BYTES, BLOCK);
+        var table = await MbrPartitionTable.WriteAsync(disk, 0x57495435,
+            [new MbrPartition(1, 0x0C, USB_DRIVE_FIRST_BLOCK, USB_DRIVE_BYTES / BLOCK - USB_DRIVE_FIRST_BLOCK, false)]);
+        await using (var partition = table.Partitions[0].Open(disk))
+        await using (var volume = await FatFileSystem.FormatAsync(partition, USB_DRIVE_LABEL, "FAT32"))
+        {
+            await using (var file = await volume.OpenAsync(USB_DRIVE_README, FileMode.CreateNew, FileAccess.Write))
+                await file.WriteAsync(0, Encoding.UTF8.GetBytes(USB_DRIVE_TEXT));
+            await volume.FlushAsync();
+        }
+        await using var output = new FileStream(path, FileMode.Create, FileAccess.Write);
+        output.Write(disk.Bytes);
+        output.Write(VhdFooter(USB_DRIVE_BYTES, USB_DRIVE_ID));
+    }
+
+    /// <summary>
+    /// The footer of a fixed VHD (Microsoft's Virtual Hard Disk Image Format Specification): the cookie, a fixed disk's
+    /// type and data offset, the size twice, the geometry the specification computes from it, the creator and the
+    /// checksum, big-endian. The time stamp is the format's epoch, so that every run writes the same bytes.
+    /// </summary>
+    /// <param name="bytes">The disk's bytes, a multiple of 512.</param>
+    /// <param name="id">The disk's unique identity.</param>
+    /// <returns>The footer's 512 bytes.</returns>
+    public static byte[] VhdFooter(long bytes, Guid id)
+    {
+        if (bytes <= 0 || bytes % BLOCK != 0)
+            throw new ArgumentOutOfRangeException(nameof(bytes), "A VHD's disk is a whole number of sectors.");
+        var footer = new byte[VHD_FOOTER_BYTES];
+        var span = footer.AsSpan();
+        "conectix"u8.CopyTo(span);
+        BinaryPrimitives.WriteUInt32BigEndian(span[8..], 2); // features: the reserved bit, always set
+        BinaryPrimitives.WriteUInt32BigEndian(span[12..], 0x00010000); // the format's version 1.0
+        BinaryPrimitives.WriteUInt64BigEndian(span[16..], ulong.MaxValue); // a fixed disk has no dynamic header
+        "wit "u8.CopyTo(span[28..]); // the creator application
+        BinaryPrimitives.WriteUInt32BigEndian(span[32..], 0x00010000);
+        "Wi2k"u8.CopyTo(span[36..]); // the creator's host, Windows
+        BinaryPrimitives.WriteUInt64BigEndian(span[40..], (ulong)bytes); // the original size
+        BinaryPrimitives.WriteUInt64BigEndian(span[48..], (ulong)bytes); // the current size
+        var (cylinders, heads, sectors) = VhdGeometry(bytes / BLOCK);
+        BinaryPrimitives.WriteUInt16BigEndian(span[56..], (ushort)cylinders);
+        span[58] = (byte)heads;
+        span[59] = (byte)sectors;
+        BinaryPrimitives.WriteUInt32BigEndian(span[60..], 2); // a fixed disk
+        id.TryWriteBytes(span[68..84]);
+        uint sum = 0;
+        foreach (var value in footer)
+            sum += value;
+        BinaryPrimitives.WriteUInt32BigEndian(span[64..], ~sum);
+        return footer;
+    }
+
+    /// <summary>
+    /// The geometry the VHD specification gives a disk of this many sectors: cylinders, heads and sectors per track.
+    /// </summary>
+    /// <param name="totalSectors">The disk's sectors.</param>
+    /// <returns>The geometry, which may cover fewer sectors than the disk.</returns>
+    public static (int Cylinders, int Heads, int Sectors) VhdGeometry(long totalSectors)
+    {
+        totalSectors = Math.Min(totalSectors, 65535L * 16 * 255);
+        long sectorsPerTrack;
+        long heads;
+        long cylinderTimesHeads;
+        if (totalSectors >= 65535L * 16 * 63)
+        {
+            sectorsPerTrack = 255;
+            heads = 16;
+            cylinderTimesHeads = totalSectors / sectorsPerTrack;
+        }
+        else
+        {
+            sectorsPerTrack = 17;
+            cylinderTimesHeads = totalSectors / sectorsPerTrack;
+            heads = Math.Max((cylinderTimesHeads + 1023) / 1024, 4);
+            if (cylinderTimesHeads >= heads * 1024 || heads > 16)
+            {
+                sectorsPerTrack = 31;
+                heads = 16;
+                cylinderTimesHeads = totalSectors / sectorsPerTrack;
+            }
+            if (cylinderTimesHeads >= heads * 1024)
+            {
+                sectorsPerTrack = 63;
+                heads = 16;
+                cylinderTimesHeads = totalSectors / sectorsPerTrack;
+            }
+        }
+        return ((int)(cylinderTimesHeads / heads), (int)heads, (int)sectorsPerTrack);
     }
 
     /// <summary>
