@@ -22,11 +22,14 @@ internal static class RuntimeApps
 
     /// <summary>
     /// The memory of a scenario whose applications run under load on several processors, as an application meets a
-    /// machine: the compatibility suite with the children it starts, its published bytes, and ASP.NET Core. The boot
+    /// machine: the compatibility suite with the children it starts, its published bytes, and ASP.NET Core; and of the
+    /// libraries' tests, whose RemoteExecutor starts a child .NET process beside xunit's. The boot
     /// package, which holds the .NET install, lies in the guest's memory, so 512 MiB leave some 266 usable, and a .NET
     /// process's collector may take 75% of what was free at the start. Since E4.3 every .NET process runs its own
     /// diagnostic server, as on Linux, and the suite's NamedPipeChild met OutOfMemoryException creating a thread's stack,
-    /// on ARM64 in two runs of three; on riscv64, ASP.NET Core could not map its code. R9 gave the libraries a gigabyte.
+    /// on ARM64 in two runs of three; on riscv64, ASP.NET Core could not map its code; and a RemoteExecutor child of
+    /// the libraries' tests ended with CoreCLR's uncaught Exception* on ARM64 with 306 MiB free. R9 gave the libraries
+    /// a gigabyte.
     /// </summary>
     public const int LOADED_MEMORY_MIB = 1024;
 
