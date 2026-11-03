@@ -170,6 +170,7 @@ public sealed class RuntimeDataDiskTests
             await RuntimeDataDisk.WriteVmxAsync(vmdk, vmx);
             var machine = await File.ReadAllTextAsync(vmx);
             Assert.That(machine, Does.Contain("firmware = \"efi\"\n").And.Contain("hpet0.present = \"TRUE\"\n"), "the firmware and the clock H5 measured");
+            Assert.That(machine, Does.Contain("rtc.diffFromUTC = \"0\"\n"), "the real-time clock in UTC, as the kernel reads it");
             Assert.That(machine, Does.Contain("sata0:0.fileName = \"data-disk.vmdk\"\n"), "the descriptor beside it");
             Assert.That(machine, Does.Contain("ethernet0.virtualDev = \"e1000e\"\n").And.Contain("serial0.fileName = \"serial.log\"\n"));
             Assert.That(machine, Does.Contain("keyboard.vusb.enable = \"FALSE\"\n").And.Contain("memsize = \"2048\"\n"));

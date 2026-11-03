@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -45,6 +46,28 @@ public sealed class VolumeCatalogTests
         Assert.That(mounts.Remove("/media/STICK"), Is.SameAs(stick));
         Assert.That(mounts.Resolve("/media/STICK"), Is.EqualTo(((MountTable.Mount, string)?)(media, "/STICK")));
         Assert.That(mounts.Add("/media/NEXT", await FormatAsync("NEXT")).Index, Is.GreaterThan(stick.Index), "an index is never reused");
+    }
+
+    [Test]
+    public void MediaRefusesAsLinuxRefusesTest()
+    {
+        var media = new MediaDirectory(new MountTable());
+
+        Assert.That(Error(() => media.OpenAsync("/STICK/a.txt", FileMode.Create, FileAccess.Write)), Is.EqualTo(FileSystemError.NotFound),
+            "a file of a drive that is not mounted: its directory is missing, as Linux answers ENOENT");
+        Assert.That(Error(() => media.CreateDirectoryAsync("/STICK/dir")), Is.EqualTo(FileSystemError.NotFound));
+        Assert.That(Error(() => media.DeleteAsync("/STICK/a.txt")), Is.EqualTo(FileSystemError.NotFound));
+        Assert.That(Error(() => media.RenameAsync("/STICK/a.txt", "/b.txt")), Is.EqualTo(FileSystemError.NotFound));
+        Assert.That(Error(() => media.OpenAsync("/a.txt", FileMode.Open, FileAccess.Read)), Is.EqualTo(FileSystemError.NotFound));
+        Assert.That(Error(() => media.SetModeAsync("/a.txt", 0x1A4)), Is.EqualTo(FileSystemError.NotFound));
+        Assert.That(Error(() => media.SetTimesAsync("/a.txt", null, DateTimeOffset.UtcNow)), Is.EqualTo(FileSystemError.NotFound));
+
+        Assert.That(Error(() => media.OpenAsync("/a.txt", FileMode.Create, FileAccess.Write)), Is.EqualTo(FileSystemError.ReadOnly),
+            "a name of /media itself: its directory is there and read-only, EROFS");
+        Assert.That(Error(() => media.CreateDirectoryAsync("/dir")), Is.EqualTo(FileSystemError.ReadOnly));
+        Assert.That(Error(() => media.DeleteAsync("/a.txt")), Is.EqualTo(FileSystemError.ReadOnly));
+        Assert.That(Error(() => media.SetModeAsync("/", 0x1FF)), Is.EqualTo(FileSystemError.ReadOnly));
+        Assert.That(Error(() => media.OpenAsync("/", FileMode.Open, FileAccess.Read)), Is.EqualTo(FileSystemError.NotAFile));
     }
 
     [Test]
@@ -158,6 +181,33 @@ public sealed class VolumeCatalogTests
     #endregion
 
     #region Functions
+
+    // The error a call of the media directory throws, synchronously or when awaited.
+    private static FileSystemError? Error<T>(Func<ValueTask<T>> call)
+    {
+        try
+        {
+            call().AsTask().GetAwaiter().GetResult();
+            return null;
+        }
+        catch (FileSystemException exception)
+        {
+            return exception.Error;
+        }
+    }
+
+    private static FileSystemError? Error(Func<ValueTask> call)
+    {
+        try
+        {
+            call().AsTask().GetAwaiter().GetResult();
+            return null;
+        }
+        catch (FileSystemException exception)
+        {
+            return exception.Error;
+        }
+    }
 
     private static async Task<IFileSystem> FormatAsync(string? label) =>
         await FatFileSystem.FormatAsync(new MemoryBlockStorage(DISK_BYTES), label);

@@ -283,7 +283,8 @@ internal static class RuntimeDataDisk
     /// <summary>
     /// Writes a VMware machine beside the PC's one disk and its descriptor (plan step E4.5), as H5's sessions measured
     /// it: EFI firmware without Secure Boot and with its serial console, the HPET the kernel's clock takes (H1.1), the
-    /// disk on SATA, the e1000e adapter on NAT (H4), the first serial port to serial.log beside the machine, which is the
+    /// real-time clock in UTC, which the kernel reads as UTC (VMware runs a new machine's clock of this guest type in the
+    /// host's local time, E4.5 §5), the disk on SATA, the e1000e adapter on NAT (H4), the first serial port to serial.log beside the machine, which is the
     /// kernel's log, and no virtual USB keyboard, whose presence cost the first second of a boot's keys (H5 §2.2); 2 GiB
     /// and two processors, since dotnet build of a console project ran out of memory in 1 GiB. No remote display: a
     /// person opens the machine in Workstation.
@@ -306,6 +307,7 @@ internal static class RuntimeDataDisk
             cpuid.coresPerSocket = "2"
             hpet0.present = "TRUE"
             tools.syncTime = "FALSE"
+            rtc.diffFromUTC = "0"
             pciBridge0.present = "TRUE"
             pciBridge4.present = "TRUE"
             pciBridge4.virtualDev = "pcieRootPort"

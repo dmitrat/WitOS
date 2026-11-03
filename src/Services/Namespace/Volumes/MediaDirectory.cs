@@ -12,7 +12,9 @@ namespace OutWit.OS.Namespace.Volumes;
 /// <summary>
 /// /media (plan step E1, ADR 0032 decision 2): the directory the service serves from its start, below which every volume
 /// that is not the system's mounts at its alias. It holds nothing of its own: its listing is the aliases mounted below it
-/// now, each a directory a path below resolves to through the mount table, and it refuses every change.
+/// now, each a directory a path below resolves to through the mount table, and it refuses every change. A path that
+/// reaches it below an alias names a volume that is not mounted, and is refused as Linux refuses a path through a
+/// missing directory, ENOENT, never as a change of a read-only directory (E4.5 §5).
 /// </summary>
 internal sealed class MediaDirectory : IFileSystem
 {
@@ -61,24 +63,27 @@ internal sealed class MediaDirectory : IFileSystem
 
     /// <inheritdoc />
     public ValueTask<IFileHandle> OpenAsync(string path, FileMode mode, FileAccess access, CancellationToken cancellationToken = default) =>
-        throw (path == "/" ? new FileSystemException(FileSystemError.NotAFile, "/media is a directory.") : Refused(path));
+        throw (path == "/" ? new FileSystemException(FileSystemError.NotAFile, "/media is a directory.")
+            : Nested(path) || mode is FileMode.Open or FileMode.Truncate ? Missing(path) : Refused(path));
 
     /// <inheritdoc />
-    public ValueTask<FileSystemEntry> CreateDirectoryAsync(string path, CancellationToken cancellationToken = default) => throw Refused(path);
+    public ValueTask<FileSystemEntry> CreateDirectoryAsync(string path, CancellationToken cancellationToken = default) =>
+        throw (Nested(path) ? Missing(path) : Refused(path));
 
     /// <inheritdoc />
-    public ValueTask DeleteAsync(string path, CancellationToken cancellationToken = default) => throw Refused(path);
+    public ValueTask DeleteAsync(string path, CancellationToken cancellationToken = default) => throw (Nested(path) ? Missing(path) : Refused(path));
 
     /// <inheritdoc />
     public ValueTask<FileSystemEntry> RenameAsync(string source, string destination, CancellationToken cancellationToken = default) =>
-        throw Refused(source);
+        throw (Nested(source) ? Missing(source) : Nested(destination) ? Missing(destination) : Refused(source));
 
     /// <inheritdoc />
-    public ValueTask<FileSystemEntry> SetModeAsync(string path, int mode, CancellationToken cancellationToken = default) => throw Refused(path);
+    public ValueTask<FileSystemEntry> SetModeAsync(string path, int mode, CancellationToken cancellationToken = default) =>
+        throw (path == "/" ? Refused(path) : Missing(path));
 
     /// <inheritdoc />
     public ValueTask<FileSystemEntry> SetTimesAsync(string path, DateTimeOffset? accessed, DateTimeOffset? modified,
-        CancellationToken cancellationToken = default) => throw Refused(path);
+        CancellationToken cancellationToken = default) => throw (path == "/" ? Refused(path) : Missing(path));
 
     /// <inheritdoc />
     public ValueTask FlushAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
@@ -102,6 +107,12 @@ internal sealed class MediaDirectory : IFileSystem
     private FileSystemEntry Directory(string path, string name) =>
         new(path, name, FileSystemEntryKind.Directory, 0, FileSystemAttributes.None, m_created, m_created, m_created,
             new FileSystemUnixMetadata(MODE, 0, 0, 2, 1));
+
+    // A path below a name of /media: the name is no alias mounted now, or the mount table would have resolved it.
+    private static bool Nested(string path) => path.IndexOf('/', 1) >= 0;
+
+    private static FileSystemException Missing(string path) =>
+        new(FileSystemError.NotFound, $"/media{path}: no volume is mounted at /media/{path[1..].Split('/')[0]}.");
 
     private static FileSystemException Refused(string path) =>
         new(FileSystemError.ReadOnly, $"/media{(path == "/" ? "" : path)} is the system's: a volume mounts below it, nothing is written in it.");
