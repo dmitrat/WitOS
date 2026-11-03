@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Text;
 using OutWit.OS.FileSystems.Ext4;
 using OutWit.OS.FileSystems.Fat;
@@ -166,12 +167,89 @@ public sealed class RuntimeDataDiskTests
             Assert.That(descriptor, Does.Contain("createType=\"monolithicFlat\"\n"));
             Assert.That(descriptor, Does.Contain($"RW {image.Length / 512} FLAT \"data-disk.img\" 0\n"), "the raw image as its one extent");
             Assert.That(descriptor, Does.Not.Contain("\r"));
+            var vmx = Path.ChangeExtension(path, ".vmx");
+            await RuntimeDataDisk.WriteVmxAsync(vmdk, vmx);
+            var machine = await File.ReadAllTextAsync(vmx);
+            Assert.That(machine, Does.Contain("firmware = \"efi\"\n").And.Contain("hpet0.present = \"TRUE\"\n"), "the firmware and the clock H5 measured");
+            Assert.That(machine, Does.Contain("rtc.diffFromUTC = \"0\"\n"), "the real-time clock in UTC, as the kernel reads it");
+            Assert.That(machine, Does.Contain("sata0:0.fileName = \"data-disk.vmdk\"\n"), "the descriptor beside it");
+            Assert.That(machine, Does.Contain("ethernet0.virtualDev = \"e1000e\"\n").And.Contain("serial0.fileName = \"serial.log\"\n"));
+            Assert.That(machine, Does.Contain("keyboard.vusb.enable = \"FALSE\"\n").And.Contain("memsize = \"2048\"\n"));
+            Assert.That(machine, Does.Not.Contain("RemoteDisplay").And.Not.Contain("\r"), "no remote display without a password");
             Assert.ThrowsAsync<ArgumentException>(async () => await RuntimeDataDisk.CreateAsync(path, ext4: false, bootImage: vmdk), "a boot disk of no whole MiB");
         }
         finally
         {
             Directory.Delete(Path.GetDirectoryName(path)!, recursive: true);
         }
+    }
+
+    // The VMware machine's USB drive (E4.5): a fixed VHD whose disk is an MBR with one FAT32 volume, which VMware attaches
+    // through a descriptor whose extent leaves the footer out, on the xHCI controller's port 6.
+    [Test]
+    public async Task UsbDriveIsAFixedVhdTest()
+    {
+        var path = TemporaryImage();
+        try
+        {
+            var drive = Path.Combine(Path.GetDirectoryName(path)!, "WitOS-usb.vhd");
+            await RuntimeDataDisk.WriteUsbDriveAsync(drive);
+            var image = await File.ReadAllBytesAsync(drive);
+            Assert.That(image.LongLength, Is.EqualTo(RuntimeDataDisk.USB_DRIVE_BYTES + RuntimeDataDisk.VHD_FOOTER_BYTES));
+
+            var footer = image.AsSpan(image.Length - RuntimeDataDisk.VHD_FOOTER_BYTES);
+            Assert.That(Encoding.ASCII.GetString(footer[..8]), Is.EqualTo("conectix"));
+            Assert.That(BinaryPrimitives.ReadUInt32BigEndian(footer[60..]), Is.EqualTo(2), "a fixed disk");
+            Assert.That(BinaryPrimitives.ReadUInt64BigEndian(footer[16..]), Is.EqualTo(ulong.MaxValue), "no dynamic header");
+            Assert.That(BinaryPrimitives.ReadUInt64BigEndian(footer[48..]), Is.EqualTo((ulong)RuntimeDataDisk.USB_DRIVE_BYTES), "the current size");
+            var geometry = (Cylinders: BinaryPrimitives.ReadUInt16BigEndian(footer[56..]), Heads: footer[58], Sectors: footer[59]);
+            Assert.That((long)geometry.Cylinders * geometry.Heads * geometry.Sectors * 512, Is.EqualTo(RuntimeDataDisk.USB_DRIVE_BYTES),
+                "the geometry covers the disk exactly");
+            uint sum = 0;
+            for (var i = 0; i < footer.Length; i++)
+                sum += i is >= 64 and < 68 ? 0u : footer[i];
+            Assert.That(BinaryPrimitives.ReadUInt32BigEndian(footer[64..]), Is.EqualTo(~sum), "the footer's checksum");
+
+            // The file as a disk, the footer its last sector, which the table and the volume never reach.
+            await using (var disk = new MemoryBlockStorage(image, 512, isReadOnly: true))
+            {
+                var table = await MbrPartitionTable.ReadAsync(disk);
+                Assert.That(table.Partitions.Select(entry => (entry.Type, entry.FirstBlock)), Is.EqualTo(new[] { ((byte)0x0C, 2048L) }));
+                await using var partition = table.Partitions[0].Open(disk, isReadOnly: true);
+                await using var volume = await FatFileSystem.MountAsync(partition);
+                Assert.That(volume.Volume.Label, Is.EqualTo(RuntimeDataDisk.USB_DRIVE_LABEL));
+                Assert.That(volume.Volume.Format, Is.EqualTo("FAT32"));
+                Assert.That((await volume.GetEntryAsync(RuntimeDataDisk.USB_DRIVE_README))!.Length,
+                    Is.EqualTo(Encoding.UTF8.GetByteCount(RuntimeDataDisk.USB_DRIVE_TEXT)));
+                Assert.That((await volume.CheckAsync()).IsClean, Is.True);
+            }
+
+            var vmdk = Path.ChangeExtension(drive, ".vmdk");
+            await RuntimeDataDisk.WriteVmdkAsync(drive, vmdk, RuntimeDataDisk.USB_DRIVE_BYTES);
+            Assert.That(await File.ReadAllTextAsync(vmdk), Does.Contain($"RW {RuntimeDataDisk.USB_DRIVE_BYTES / 512} FLAT \"WitOS-usb.vhd\" 0\n"),
+                "the disk without the footer");
+            var vmx = Path.ChangeExtension(path, ".vmx");
+            await RuntimeDataDisk.WriteVmxAsync(Path.ChangeExtension(path, ".vmdk"), vmx, vmdk);
+            Assert.That(await File.ReadAllTextAsync(vmx), Does.Contain(
+                "usb_xhci.present = \"TRUE\"\nusb_xhci:6.present = \"TRUE\"\nusb_xhci:6.deviceType = \"disk\"\n" +
+                "usb_xhci:6.fileName = \"WitOS-usb.vmdk\"\nusb_xhci:6.readonly = \"FALSE\"\nkeyboard.vusb.enable = \"FALSE\"\n"));
+            await RuntimeDataDisk.WriteVmxAsync(Path.ChangeExtension(path, ".vmdk"), vmx);
+            Assert.That(await File.ReadAllTextAsync(vmx), Does.Contain("usb_xhci.present = \"TRUE\"\nkeyboard.vusb.enable = \"FALSE\"\n"), "no drive unless named");
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(path)!, recursive: true);
+        }
+    }
+
+    // The VHD specification's geometry: Virtual PC's 10 MiB disk and a gigabyte, which it covers short of the end.
+    [Test]
+    public void VhdGeometryFollowsTheSpecificationTest()
+    {
+        Assert.That(RuntimeDataDisk.VhdGeometry(10 * 2048), Is.EqualTo((301, 4, 17)));
+        Assert.That(RuntimeDataDisk.VhdGeometry(1024 * 2048), Is.EqualTo((2080, 16, 63)));
+        Assert.That(RuntimeDataDisk.VhdGeometry(RuntimeDataDisk.USB_DRIVE_BYTES / 512), Is.EqualTo((2048, 16, 63)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => RuntimeDataDisk.VhdFooter(1000, Guid.Empty));
     }
 
     // A data disk's path in a directory of its own, beside which CreateAsync keeps the ext4 volume.

@@ -340,14 +340,16 @@ internal static class Program
                     var stopped = Report($"display service {DisplayActivation.PATH}", ServiceStop.Request(display.Channel, display.Process, deadline));
                     error = error != 0 ? error : stopped;
                 }
-                if (network is { Status: 0 })
-                {
-                    var stopped = Report($"network service {NetworkActivation.PATH}", ServiceStop.Request(network.Channel, network.Process, deadline));
-                    error = error != 0 ? error : stopped;
-                }
+                // The namespace service before the network service (E4.5): a share it mounted (E2.2) closes its files,
+                // disconnects its tree and logs off through the network service's sockets.
                 if (names is { Status: 0 })
                 {
                     var stopped = Report($"namespace service {NamespaceActivation.PATH}", ServiceStop.Request(names.Channel, names.Process, deadline));
+                    error = error != 0 ? error : stopped;
+                }
+                if (network is { Status: 0 })
+                {
+                    var stopped = Report($"network service {NetworkActivation.PATH}", ServiceStop.Request(network.Channel, network.Process, deadline));
                     error = error != 0 ? error : stopped;
                 }
                 foreach (var driver in drivers.Where(driver => driver.Status == 0))

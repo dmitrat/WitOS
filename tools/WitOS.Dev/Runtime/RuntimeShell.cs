@@ -26,6 +26,9 @@ internal static class RuntimeShell
     // The package's mark of a session, whose boot runs none of the device manager's probes (Session.MARK, C2.7, H5.1).
     private const string SESSION_MARK = "etc/witos/session";
 
+    // The VMware machine's USB drive beside its disk (E4.5).
+    private const string USB_DRIVE = "WitOS-usb.vhd";
+
     #endregion
 
     #region Functions
@@ -139,6 +142,22 @@ internal static class RuntimeShell
             await RuntimeDataDisk.WriteVmdkAsync(raw, vmdk);
             Console.WriteLine($"Prepared the PC's one disk for witos-{architecture.Name} in {directory}: {Path.GetFileName(raw)}, raw, and " +
                 $"{Path.GetFileName(vmdk)}, its VMDK descriptor; attach the descriptor to a SATA or NVMe controller of a machine with EFI firmware.");
+            if (architecture == KernelArchitecture.X64)
+            {
+                // A machine VMware Workstation opens as it is (E4.5): the PC is x64's, with a USB drive, a fixed VHD that
+                // Windows opens while the machine is off. A drive already there is the person's and stays as it is.
+                var drive = Path.Combine(directory, USB_DRIVE);
+                var driveVmdk = Path.ChangeExtension(drive, ".vmdk");
+                var kept = File.Exists(drive) && new FileInfo(drive).Length == RuntimeDataDisk.USB_DRIVE_BYTES + RuntimeDataDisk.VHD_FOOTER_BYTES;
+                if (!kept)
+                    await RuntimeDataDisk.WriteUsbDriveAsync(drive);
+                await RuntimeDataDisk.WriteVmdkAsync(drive, driveVmdk, RuntimeDataDisk.USB_DRIVE_BYTES);
+                var vmx = Path.ChangeExtension(raw, ".vmx");
+                await RuntimeDataDisk.WriteVmxAsync(vmdk, vmx, driveVmdk);
+                Console.WriteLine($"  and {Path.GetFileName(vmx)}, a VMware machine with the disk on SATA: open it in VMware Workstation;");
+                Console.WriteLine($"  and {USB_DRIVE},{(kept ? " kept as it was," : "")} the machine's USB drive, /media/{RuntimeDataDisk.USB_DRIVE_LABEL} in " +
+                    "WitOS: while the machine is off, Windows opens it as a disk (Mount), and it is ejected before the machine starts.");
+            }
             return;
         }
         var preparedImage = Path.Combine(directory, $"WitOS-{architecture.Name}-shell.img");
