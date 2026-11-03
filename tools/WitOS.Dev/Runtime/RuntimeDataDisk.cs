@@ -281,6 +281,67 @@ internal static class RuntimeDataDisk
     }
 
     /// <summary>
+    /// Writes a VMware machine beside the PC's one disk and its descriptor (plan step E4.5), as H5's sessions measured
+    /// it: EFI firmware without Secure Boot and with its serial console, the HPET the kernel's clock takes (H1.1), the
+    /// disk on SATA, the e1000e adapter on NAT (H4), the first serial port to serial.log beside the machine, which is the
+    /// kernel's log, and no virtual USB keyboard, whose presence cost the first second of a boot's keys (H5 §2.2); 2 GiB
+    /// and two processors, since dotnet build of a console project ran out of memory in 1 GiB. No remote display: a
+    /// person opens the machine in Workstation.
+    /// </summary>
+    /// <param name="descriptor">The disk's VMDK descriptor, which the machine names relative to itself.</param>
+    /// <param name="machine">The machine's path, in the descriptor's directory.</param>
+    public static async Task WriteVmxAsync(string descriptor, string machine)
+    {
+        var text = $"""
+            .encoding = "UTF-8"
+            config.version = "8"
+            virtualHW.version = "21"
+            displayName = "WitOS"
+            guestOS = "other-64"
+            firmware = "efi"
+            uefi.secureBoot.enabled = "FALSE"
+            efi.serialconsole.enabled = "TRUE"
+            memsize = "2048"
+            numvcpus = "2"
+            cpuid.coresPerSocket = "2"
+            hpet0.present = "TRUE"
+            tools.syncTime = "FALSE"
+            pciBridge0.present = "TRUE"
+            pciBridge4.present = "TRUE"
+            pciBridge4.virtualDev = "pcieRootPort"
+            pciBridge4.functions = "8"
+            pciBridge5.present = "TRUE"
+            pciBridge5.virtualDev = "pcieRootPort"
+            pciBridge5.functions = "8"
+            pciBridge6.present = "TRUE"
+            pciBridge6.virtualDev = "pcieRootPort"
+            pciBridge6.functions = "8"
+            pciBridge7.present = "TRUE"
+            pciBridge7.virtualDev = "pcieRootPort"
+            pciBridge7.functions = "8"
+            sata0.present = "TRUE"
+            sata0:0.present = "TRUE"
+            sata0:0.fileName = "{Path.GetFileName(descriptor)}"
+            ethernet0.present = "TRUE"
+            ethernet0.virtualDev = "e1000e"
+            ethernet0.connectionType = "nat"
+            ethernet0.startConnected = "TRUE"
+            ethernet0.addressType = "generated"
+            serial0.present = "TRUE"
+            serial0.fileType = "file"
+            serial0.fileName = "serial.log"
+            svga.present = "TRUE"
+            usb.present = "TRUE"
+            usb_xhci.present = "TRUE"
+            keyboard.vusb.enable = "FALSE"
+            sound.present = "FALSE"
+            floppy0.present = "FALSE"
+
+            """;
+        await File.WriteAllTextAsync(machine, text.ReplaceLineEndings("\n"));
+    }
+
+    /// <summary>
     /// Changes the ext4 partition of an existing disk (plan step C4.1): the partition is copied out beside the disk,
     /// repaired by e2fsck (which replays a journal a session left), changed, repaired again so that its counts hold and
     /// required clean, then copied back in place. The rest of the disk stays as it is.

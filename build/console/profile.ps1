@@ -15,6 +15,16 @@ try {
     }
 } catch { }
 
+# Unix's file commands as Windows' PowerShell names its cmdlets (plan step E4.5). pwsh on Unix leaves ls, cp, mv, rm,
+# rmdir, cat, sort, sleep, tee and clear to the system's coreutils and defines no mkdir, while WitOS has no coreutils and
+# no /bin/sh (ADR 0027): at a session's prompt and on Arlecchino.Commander's command line each was "not recognized".
+# ps and kill stay out, since another process's list and termination are PlatformNotSupportedException on WitOS.
+foreach ($pair in @{ ls = 'Get-ChildItem'; cp = 'Copy-Item'; mv = 'Move-Item'; rm = 'Remove-Item'; rmdir = 'Remove-Item'
+        cat = 'Get-Content'; sort = 'Sort-Object'; sleep = 'Start-Sleep'; tee = 'Tee-Object'; clear = 'Clear-Host' }.GetEnumerator()) {
+    Set-Alias -Name $pair.Key -Value $pair.Value -Scope Global
+}
+function global:mkdir { New-Item -ItemType Directory @args }
+
 if ($env:WITOS_NO_LOGO -or [Console]::IsOutputRedirected -or [Console]::IsInputRedirected) { return }
 $logo = '/etc/witos/logo'
 if (-not (Test-Path -LiteralPath "$logo/palette.json")) { return }

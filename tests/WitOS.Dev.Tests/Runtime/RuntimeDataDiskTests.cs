@@ -166,6 +166,14 @@ public sealed class RuntimeDataDiskTests
             Assert.That(descriptor, Does.Contain("createType=\"monolithicFlat\"\n"));
             Assert.That(descriptor, Does.Contain($"RW {image.Length / 512} FLAT \"data-disk.img\" 0\n"), "the raw image as its one extent");
             Assert.That(descriptor, Does.Not.Contain("\r"));
+            var vmx = Path.ChangeExtension(path, ".vmx");
+            await RuntimeDataDisk.WriteVmxAsync(vmdk, vmx);
+            var machine = await File.ReadAllTextAsync(vmx);
+            Assert.That(machine, Does.Contain("firmware = \"efi\"\n").And.Contain("hpet0.present = \"TRUE\"\n"), "the firmware and the clock H5 measured");
+            Assert.That(machine, Does.Contain("sata0:0.fileName = \"data-disk.vmdk\"\n"), "the descriptor beside it");
+            Assert.That(machine, Does.Contain("ethernet0.virtualDev = \"e1000e\"\n").And.Contain("serial0.fileName = \"serial.log\"\n"));
+            Assert.That(machine, Does.Contain("keyboard.vusb.enable = \"FALSE\"\n").And.Contain("memsize = \"2048\"\n"));
+            Assert.That(machine, Does.Not.Contain("RemoteDisplay").And.Not.Contain("\r"), "no remote display without a password");
             Assert.ThrowsAsync<ArgumentException>(async () => await RuntimeDataDisk.CreateAsync(path, ext4: false, bootImage: vmdk), "a boot disk of no whole MiB");
         }
         finally

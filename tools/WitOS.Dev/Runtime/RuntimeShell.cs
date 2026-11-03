@@ -139,6 +139,13 @@ internal static class RuntimeShell
             await RuntimeDataDisk.WriteVmdkAsync(raw, vmdk);
             Console.WriteLine($"Prepared the PC's one disk for witos-{architecture.Name} in {directory}: {Path.GetFileName(raw)}, raw, and " +
                 $"{Path.GetFileName(vmdk)}, its VMDK descriptor; attach the descriptor to a SATA or NVMe controller of a machine with EFI firmware.");
+            if (architecture == KernelArchitecture.X64)
+            {
+                // A machine VMware Workstation opens as it is (E4.5): the PC is x64's.
+                var vmx = Path.ChangeExtension(raw, ".vmx");
+                await RuntimeDataDisk.WriteVmxAsync(vmdk, vmx);
+                Console.WriteLine($"  and {Path.GetFileName(vmx)}, a VMware machine with the disk on SATA: open it in VMware Workstation.");
+            }
             return;
         }
         var preparedImage = Path.Combine(directory, $"WitOS-{architecture.Name}-shell.img");
