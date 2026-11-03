@@ -190,8 +190,15 @@ public sealed class SmbFileSystem : IFileSystem
     }
 
     /// <inheritdoc />
-    public ValueTask<string> ReadLinkAsync(string path, CancellationToken cancellationToken = default) =>
-        throw new FileSystemException(FileSystemError.NotALink, $"{path} is no link: a share shows a link as what it points to.");
+    /// <remarks>
+    /// A share shows a link as what it points to: an entry that exists is NotALink, and a missing one NotFound, since
+    /// musl's realpath tells the two apart by readlink (E4.5: .NET's host took a missing runtimeconfig.dev.json of a
+    /// share for one that is there and reported that it could not open it).
+    /// </remarks>
+    public async ValueTask<string> ReadLinkAsync(string path, CancellationToken cancellationToken = default) =>
+        await GetEntryAsync(path, cancellationToken).ConfigureAwait(false) is null
+            ? throw new FileSystemException(FileSystemError.NotFound, $"Nothing is at {path}.")
+            : throw new FileSystemException(FileSystemError.NotALink, $"{path} is no link: a share shows a link as what it points to.");
 
     /// <inheritdoc />
     public async ValueTask<IFileHandle> OpenAsync(string path, FileMode mode, FileAccess access, CancellationToken cancellationToken = default)

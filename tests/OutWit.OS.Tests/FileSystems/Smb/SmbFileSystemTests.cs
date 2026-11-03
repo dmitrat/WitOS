@@ -183,6 +183,8 @@ public sealed class SmbFileSystemTests
         Assert.That(entry.Attributes.HasFlag(FileSystemAttributes.ReadOnly), Is.False);
         Assert.That(ErrorOf(() => volume.SetModeAsync("/kept.txt", 0x1C0).AsTask()), Is.EqualTo(FileSystemError.NotPermitted), "0700 says more than read-only");
         Assert.That(ErrorOf(() => volume.ReadLinkAsync("/kept.txt").AsTask()), Is.EqualTo(FileSystemError.NotALink));
+        // A missing entry is NotFound (E4.5): musl's realpath tells the two apart by readlink.
+        Assert.That(ErrorOf(() => volume.ReadLinkAsync("/missing.json").AsTask()), Is.EqualTo(FileSystemError.NotFound));
     }
 
     [Test]
