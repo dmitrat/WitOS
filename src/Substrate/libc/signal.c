@@ -30,7 +30,7 @@
 #define SIGNALS 64
 #define SIGNAL_BIT(sig) (1UL << ((sig) - 1))
 #define UNBLOCKABLE (SIGNAL_BIT(SIGKILL) | SIGNAL_BIT(SIGSTOP))
-#define OWN_PID 1
+#define OWN_PID ((int)WIT_LIBC_PROCESS_ID) /* the process manager's id of this process (E4.3) */
 
 typedef struct Action {
     void (*Handler)(int);

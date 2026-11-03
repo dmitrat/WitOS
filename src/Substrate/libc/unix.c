@@ -1244,7 +1244,8 @@ static long getsockopt_local(WitU32 index, long level, long name, void *value, s
         return 0;
     }
     if (name == SO_PEERCRED) {
-        /* The one account every process runs as (root, N2.2), and the process id every process has. */
+        /* The one account every process runs as (root, N2.2), and the caller's own process id (E4.3): the peer's is not
+         * carried over a connection. */
         const struct ucred credentials = {(pid_t)WIT_LIBC_PROCESS_ID, 0, 0};
         if (*length < sizeof(credentials)) {
             return -EINVAL;

@@ -48,6 +48,15 @@ internal static class MuslLibc
 
     private const string URL = "https://musl.libc.org/releases/" + TARBALL;
 
+    // Where else the same bytes are, tried in turn when musl.libc.org does not answer (it failed GitHub's runners twice on
+    // 2026-10-29 with "Network is unreachable"): Debian's original tarball and Buildroot's source mirror, both the
+    // release's bytes, which the pinned SHA-256 judges wherever they came from.
+    private static readonly string[] MIRRORS =
+    [
+        "https://deb.debian.org/debian/pool/main/m/musl/musl_" + VERSION + ".orig.tar.gz",
+        "https://sources.buildroot.net/musl/" + TARBALL
+    ];
+
     // Assembly that issues Linux system calls or builds on Linux's thread and signal entry; musl's generic C or
     // WitOS's own file takes its place. Threads (S2) and signals (S3) replace the stubs that result.
     private static readonly string[] OMITTED =
@@ -125,10 +134,22 @@ internal static class MuslLibc
         if (!File.Exists(tarball))
         {
             Console.WriteLine($"Downloading pinned musl {VERSION} (about 1 MiB)...");
-            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-            var bytes = await client.GetByteArrayAsync(URL);
+            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
+            byte[]? bytes = null;
+            foreach (var url in (string[])[URL, .. MIRRORS])
+            {
+                try
+                {
+                    bytes = await client.GetByteArrayAsync(url);
+                    break;
+                }
+                catch (Exception error) when (error is HttpRequestException or TaskCanceledException && url != MIRRORS[^1])
+                {
+                    Console.WriteLine($"  {url}: {error.Message}; trying the next source.");
+                }
+            }
             var partial = tarball + ".partial";
-            await File.WriteAllBytesAsync(partial, bytes);
+            await File.WriteAllBytesAsync(partial, bytes!);
             File.Move(partial, tarball, overwrite: true);
         }
         string digest;

@@ -137,9 +137,21 @@ int main(void)
             strcmp(resolved, "/bin/init") == 0,
         "AT_EXECFN names the program");
 
+    /* Process ids (E4.3): the process manager's, the root task being 1 and this process's parent; a child's id is the
+     * one posix_spawn answers, and its parent this process. */
+    const pid_t self = getpid();
+    check(self > 1 && getppid() == 1, "a process id of its own, the root task its parent");
+    char parent[16];
+    snprintf(parent, sizeof(parent), "%d", (int)self);
+    char *ids[] = {"child", "ids", parent, 0};
+    pid_t identified = 0;
+    check(posix_spawn(&identified, "/bin/child", 0, 0, ids, environ) == 0 && identified > self, "a child's process id");
+    int status = finish(identified);
+    check(WIFEXITED(status) && WEXITSTATUS(status) == identified % 128, "the child knows its id and its parent's");
+
     /* An exit status. */
     char *exit_three[] = {"child", "exit", "3", 0};
-    int status = finish(start(exit_three, environ));
+    status = finish(start(exit_three, environ));
     check(WIFEXITED(status) && WEXITSTATUS(status) == 3, "an exit status");
 
     /* posix_spawnp finds the program through PATH. */

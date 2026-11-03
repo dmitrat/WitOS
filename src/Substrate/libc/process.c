@@ -44,7 +44,6 @@
  * 0 for whether the child exists, and EPERM for any other signal, since no signal crosses a process (RFC 0011 §9.3). */
 
 #define CHILDREN 64
-#define FIRST_PID 2
 #define WAIT_HANDLES 4U /* WIT_OBJECT_WAIT_CAPACITY: the handles of one OBJECT_WAIT */
 #define POLL_NANOSECONDS 10000000ULL /* a wait for more children than one OBJECT_WAIT holds looks again after 10 ms */
 #define REAPER_NANOSECONDS 50000000ULL /* the reaper looks again after 50 ms when more children run than it waits on */
@@ -60,7 +59,6 @@ typedef struct Child {
 } Child;
 
 static Child children[CHILDREN];
-static int next_pid = FIRST_PID;
 static volatile int lock;
 static volatile int reaper_lock; /* the reaper's start, apart from the table's lock */
 static int reaper_started;
@@ -409,12 +407,14 @@ static int build_request(const char *path, char *const argv[], char *const envp[
 }
 
 /* Sends the request with the object, the reply end and the grant (zero for none), and waits for the reply on the
- * other end. The object and the grant are moved or closed. */
-static int ask_manager(WitU64 object, WitU64 bytes, WitU64 grant, WitU64 *process)
+ * other end: the new process's handle and the id the process manager gave it (E4.3). The object and the grant are
+ * moved or closed. */
+static int ask_manager(WitU64 object, WitU64 bytes, WitU64 grant, WitU64 *process, int *id)
 {
     WitU64 ends[2] = {0, 0}, result = 0, status;
     WitU64 handles[3];
-    WitManagerRequest request = {WIT_MANAGER_VERSION, sizeof(request), WIT_MANAGER_SPAWN, 0, bytes};
+    WitManagerRequest request = {
+        WIT_MANAGER_VERSION, sizeof(request), WIT_MANAGER_SPAWN, __wit_process.ProcessId, bytes};
     WitManagerReply reply;
     WitChannelMessage message;
     WitUserWaitRequest wait;
@@ -469,7 +469,9 @@ static int ask_manager(WitU64 object, WitU64 bytes, WitU64 grant, WitU64 *proces
         reply.Version != WIT_MANAGER_VERSION ||
         reply.Size != sizeof(reply) ||
         reply.Operation != WIT_MANAGER_SPAWN ||
-        (reply.Error == 0) != ((result >> 32) == 1)) {
+        (reply.Error == 0) != ((result >> 32) == 1) ||
+        (reply.Error == 0 && (reply.ProcessId <= 1 || reply.ProcessId > INT_MAX)) ||
+        reply.Reserved) {
         close_handle(handles[0]);
         return EIO; /* the manager went away or broke the protocol */
     }
@@ -477,6 +479,7 @@ static int ask_manager(WitU64 object, WitU64 bytes, WitU64 grant, WitU64 *proces
         return (int)reply.Error;
     }
     *process = handles[0];
+    *id = (int)reply.ProcessId;
     return 0;
 }
 
@@ -615,14 +618,15 @@ static int start_reaper(void)
     return error;
 }
 
-static int record(WitU64 process)
+/* A child in the table by the id the process manager gave it (E4.3): what posix_spawn answers and waitpid and kill take. */
+static int record(WitU64 process, int id)
 {
     int pid = 0;
     WitU64 result = 0;
     __wit_lock(&lock);
     for (unsigned i = 0; i < CHILDREN && !pid; ++i) {
         if (!children[i].Pid) {
-            children[i].Pid = pid = next_pid++;
+            children[i].Pid = pid = id;
             children[i].Handle = process;
             children[i].Signaled = 0;
         }
@@ -682,11 +686,12 @@ int posix_spawn(pid_t *restrict result, const char *restrict path, const posix_s
         close_handle(grant);
         return error;
     }
-    error = ask_manager(object, bytes, grant, &process);
+    int id = 0;
+    error = ask_manager(object, bytes, grant, &process, &id);
     if (error) {
         return error;
     }
-    const int pid = record(process);
+    const int pid = record(process, id);
     if (!pid) {
         wit_syscall(WIT_CALL_PROCESS_KILL, process, 127, 0, &killed); /* no room to wait for it */
         close_handle(process);

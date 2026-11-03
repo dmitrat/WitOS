@@ -62,6 +62,11 @@ typedef struct Launch {
  * pointer and reads its id (set_tid_address) before the start message arrives and its record is complete (S5.3). */
 static Thread threads[THREADS] = {[0] = {.Tid = MAIN_TID}};
 static int next_tid = MAIN_TID + 1;
+static int main_tid =
+    MAIN_TID; /* the process's id once the start message named it (E4.3), which no other thread takes */
+
+static WitU64 current_pointer(void);
+__attribute__((__visibility__("hidden"))) void __wit_main_thread_id(int tid);
 
 #if defined(__x86_64__)
 static volatile int pointer_set; /* musl installed the main thread's pointer (__set_thread_area, below) */
@@ -114,12 +119,18 @@ static Thread *find_tid(int tid)
     return 0;
 }
 
-/* The main thread's record, before the library starts (crt1): its identity and a handle of its own. */
+/* The main thread's record, before the library starts (crt1, start.c): its identity, a handle of its own and the
+ * process's id as its id (E4.3), as on Linux, where the main thread's id is the process's: the runtime's GC asks
+ * sched_getaffinity(getpid(), ...) of it. musl read the library's first id already where its thread pointer is set. */
 void __wit_thread_init(void)
 {
     Thread *main = &threads[0];
     WitU64 handle = 0, result = 0;
-    main->Tid = MAIN_TID;
+    main_tid = __wit_process.ProcessId ? (int)__wit_process.ProcessId : MAIN_TID;
+    main->Tid = main_tid;
+    if (current_pointer()) {
+        __wit_main_thread_id(main_tid);
+    }
     main->Identity = current_identity();
     if (wit_syscall(WIT_CALL_HANDLE_DUPLICATE, WIT_THREAD_SELF, (WitU64)&handle, 0, &result) == WIT_STATUS_OK) {
         main->Handle = handle;
@@ -343,7 +354,10 @@ int __clone(int (*function)(void *), void *stack, int flags, void *argument, ...
         wit_syscall(WIT_CALL_HANDLE_CLOSE, handle, 0, 0, &result); /* a never-resumed thread ends with its handle */
         return (int)__wit_errno(status);
     }
-    const int tid = next_tid++;
+    int tid = next_tid++;
+    if (tid == main_tid) {
+        tid = next_tid++; /* the process's id is the main thread's */
+    }
     memset(&record->Signals, 0, sizeof(record->Signals));
     record->Signals.Mask = find_current()->Signals.Mask; /* inherited, as musl's start() then sets it */
     memset(&record->Local, 0, sizeof(record->Local));

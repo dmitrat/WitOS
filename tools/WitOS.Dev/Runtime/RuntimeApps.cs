@@ -21,6 +21,19 @@ internal static class RuntimeApps
     public const int MEMORY_MIB = 512;
 
     /// <summary>
+    /// The memory of a scenario whose applications run under load on several processors, as an application meets a
+    /// machine: the compatibility suite with the children it starts, its published bytes, and ASP.NET Core; and of the
+    /// libraries' tests, whose RemoteExecutor starts a child .NET process beside xunit's. The boot
+    /// package, which holds the .NET install, lies in the guest's memory, so 512 MiB leave some 266 usable, and a .NET
+    /// process's collector may take 75% of what was free at the start. Since E4.3 every .NET process runs its own
+    /// diagnostic server, as on Linux, and the suite's NamedPipeChild met OutOfMemoryException creating a thread's stack,
+    /// on ARM64 in two runs of three; on riscv64, ASP.NET Core could not map its code; and a RemoteExecutor child of
+    /// the libraries' tests ended with CoreCLR's uncaught Exception* on ARM64 with 306 MiB free. R9 gave the libraries
+    /// a gigabyte.
+    /// </summary>
+    public const int LOADED_MEMORY_MIB = 1024;
+
+    /// <summary>
     /// The variable that names the runner's HTTPS server to the suite (W3.1).
     /// </summary>
     public const string HTTPS_PEER_VARIABLE = "WITOS_HTTPS_PEER";
@@ -91,9 +104,10 @@ internal static class RuntimeApps
     /// <param name="root">Repository root.</param>
     /// <param name="architecture">Target architecture.</param>
     /// <param name="scenario">The scenario.</param>
+    /// <param name="memoryMiB">The guest's memory, which the boot's name carries.</param>
     /// <returns>The log's path.</returns>
-    public static string SerialLog(string root, KernelArchitecture architecture, string scenario) =>
-        Path.Combine(root, "artifacts", "logs", $"{architecture.Name}-{scenario}-{MEMORY_MIB}.serial.log");
+    public static string SerialLog(string root, KernelArchitecture architecture, string scenario, int memoryMiB = MEMORY_MIB) =>
+        Path.Combine(root, "artifacts", "logs", $"{architecture.Name}-{scenario}-{memoryMiB}.serial.log");
 
     /// <summary>
     /// The terminal transcript of a scenario booted with the terminal (N4.3): where a process whose standard streams are
@@ -102,9 +116,10 @@ internal static class RuntimeApps
     /// <param name="root">Repository root.</param>
     /// <param name="architecture">Target architecture.</param>
     /// <param name="scenario">The scenario.</param>
+    /// <param name="memoryMiB">The guest's memory, which the boot's name carries.</param>
     /// <returns>The transcript's path.</returns>
-    public static string TerminalLog(string root, KernelArchitecture architecture, string scenario) =>
-        Path.Combine(root, "artifacts", "logs", $"{architecture.Name}-{scenario}-{MEMORY_MIB}.terminal.log");
+    public static string TerminalLog(string root, KernelArchitecture architecture, string scenario, int memoryMiB = MEMORY_MIB) =>
+        Path.Combine(root, "artifacts", "logs", $"{architecture.Name}-{scenario}-{memoryMiB}.terminal.log");
 
     /// <summary>
     /// Every line the guest wrote in a scenario: the serial log's, then the terminal transcript's when the scenario had
@@ -113,11 +128,13 @@ internal static class RuntimeApps
     /// <param name="root">Repository root.</param>
     /// <param name="architecture">Target architecture.</param>
     /// <param name="scenario">The scenario.</param>
+    /// <param name="memoryMiB">The guest's memory, which the boot's name carries.</param>
     /// <returns>The lines.</returns>
-    public static async Task<IReadOnlyList<string>> GuestLinesAsync(string root, KernelArchitecture architecture, string scenario)
+    public static async Task<IReadOnlyList<string>> GuestLinesAsync(string root, KernelArchitecture architecture, string scenario,
+        int memoryMiB = MEMORY_MIB)
     {
         var lines = new List<string>();
-        foreach (var path in new[] { SerialLog(root, architecture, scenario), TerminalLog(root, architecture, scenario) })
+        foreach (var path in new[] { SerialLog(root, architecture, scenario, memoryMiB), TerminalLog(root, architecture, scenario, memoryMiB) })
             if (File.Exists(path))
                 lines.AddRange(await File.ReadAllLinesAsync(path));
         return lines;
@@ -129,9 +146,10 @@ internal static class RuntimeApps
     /// <param name="root">Repository root.</param>
     /// <param name="architecture">Target architecture.</param>
     /// <param name="scenario">The scenario.</param>
-    public static void ForgetLogs(string root, KernelArchitecture architecture, string scenario)
+    /// <param name="memoryMiB">The guest's memory, which the boot's name carries.</param>
+    public static void ForgetLogs(string root, KernelArchitecture architecture, string scenario, int memoryMiB = MEMORY_MIB)
     {
-        foreach (var path in new[] { SerialLog(root, architecture, scenario), TerminalLog(root, architecture, scenario) })
+        foreach (var path in new[] { SerialLog(root, architecture, scenario, memoryMiB), TerminalLog(root, architecture, scenario, memoryMiB) })
             if (File.Exists(path))
                 File.Delete(path);
     }

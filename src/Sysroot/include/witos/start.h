@@ -23,14 +23,15 @@
  * once the streams arrived, so a process with streams has no grant of its own; and, since a message holds four
  * handles, the optional capabilities the first message cannot hold follow in a second one (WIT_START_MORE). N4.3
  * adds the terminal service's clients' endpoint (WIT_START_TERMINAL, witos/terminal.h), after the namespace's, and
- * W2.1a the network service's (WIT_START_NETWORK, witos/socket.h), after the terminal's. The
- * arguments and the environment stay on the stack, where musl reads them and a message of 256 bytes could not hold
- * them. */
+ * W2.1a the network service's (WIT_START_NETWORK, witos/socket.h), after the terminal's. Version 7 (E4.3) carries the
+ * process's id and its parent's, which the process manager gives (witos/manager.h), so that getpid and getppid answer
+ * them; zero where a creator gives none. The arguments and the environment stay on the stack, where musl reads them and
+ * a message of 256 bytes could not hold them. */
 #define WIT_AT_START 0x57490001UL
 
-#define WIT_START_VERSION 6U
-#define WIT_START_SIZE 32U
-#define WIT_START_DIRECTORY_MAXIMUM 224U /* the rest of a channel message's 256 bytes */
+#define WIT_START_VERSION 7U
+#define WIT_START_SIZE 40U
+#define WIT_START_DIRECTORY_MAXIMUM 216U /* the rest of a channel message's 256 bytes */
 #define WIT_START_HANDLE_LOG 0U /* the kernel log: DEBUG_WRITE, standard output and error */
 #define WIT_START_HANDLE_PACKAGE 1U /* the boot package object: MAP, EXECUTE and QUERY */
 #define WIT_START_HANDLES 2U /* the capabilities every start message carries */
@@ -65,6 +66,7 @@ typedef struct WitStartMessage {
     WitU32
         Capabilities; /* WIT_START_MANAGER ... WIT_START_NETWORK: the optional capabilities carried, WIT_START_MORE */
     WitU32 Streams; /* the WitStreamMessages that follow on the grant (N4.2), at most WIT_START_STREAMS_MAXIMUM */
+    WitU32 ProcessId, ParentId; /* the process's id and its parent's (version 7, E4.3); zero for none */
 } WitStartMessage;
 
 WIT_STATIC_ASSERT(sizeof(WitStartMessage) == WIT_START_SIZE, "Start message");

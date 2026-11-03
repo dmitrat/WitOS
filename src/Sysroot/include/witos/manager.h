@@ -14,8 +14,10 @@
  * Streams), which the requester sends on the grant after the start (witos/start.h, WitStreamMessage). Version 5
  * (N4.3) lets a service's ready answer name in Capabilities the endpoints its handle slots carry for the processes the
  * manager starts afterwards: the namespace's clients' endpoint, then the terminal's (witos/terminal.h), then, since
- * W2.1a, the network service's (witos/socket.h). */
-#define WIT_MANAGER_VERSION 5U
+ * W2.1a, the network service's (witos/socket.h). Version 6 (E4.3) gives processes ids of their own: the manager numbers
+ * every process it starts from 2, the root task being 1, gives each its id and its parent's in the start message
+ * (witos/start.h), and answers a spawn request with the new process's id, while the request names the requester's. */
+#define WIT_MANAGER_VERSION 6U
 #define WIT_MANAGER_SPAWN 1U /* start a program of the boot package */
 
 /* A request: the bytes of the message, with the request's memory object (MAP, TRANSFER) and the reply endpoint
@@ -23,21 +25,23 @@
  * granted (TRANSFER), which the manager moves into its start message. */
 typedef struct WitManagerRequest {
     WitU32 Version, Size;
-    WitU32 Operation, Reserved;
+    WitU32 Operation;
+    WitU32 ParentId; /* the requester's process id (version 6), the new process's parent; zero for none */
     WitU64 Bytes; /* the request's bytes at the start of the memory object */
 } WitManagerRequest;
 
 WIT_STATIC_ASSERT(sizeof(WitManagerRequest) == 24, "Manager request");
 
 /* A reply: zero or an errno value; with zero, the new process's handle (WAIT, QUERY, KILL, DUPLICATE, TRANSFER) in its
- * one handle slot. */
+ * one handle slot and its process id (version 6). */
 typedef struct WitManagerReply {
     WitU32 Version, Size;
     WitU32 Operation;
     WitU32 Error;
+    WitU32 ProcessId, Reserved; /* the new process's id; zero */
 } WitManagerReply;
 
-WIT_STATIC_ASSERT(sizeof(WitManagerReply) == 16, "Manager reply");
+WIT_STATIC_ASSERT(sizeof(WitManagerReply) == 24, "Manager reply");
 
 /* The bytes of a spawn request: the program's path, the arguments and the environment, each a run of zero-terminated
  * strings, and the initial directory, an absolute path (version 2, S6.2), at offsets from the start of the request

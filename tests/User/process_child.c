@@ -1,10 +1,13 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <limits.h>
+#include <sched.h>
+#include <signal.h>
 #include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -22,6 +25,13 @@
 
 extern char **environ;
 
+static volatile sig_atomic_t heard;
+
+static void on_signal(int sig)
+{
+    heard += sig == SIGUSR1;
+}
+
 /* Writes every byte, in pieces as the pipe takes them. */
 static int write_all(int fd, const unsigned char *buffer, size_t bytes)
 {
@@ -38,6 +48,33 @@ static int write_all(int fd, const unsigned char *buffer, size_t bytes)
 
 int main(int argc, char **argv)
 {
+    if (argc == 3 && strcmp(argv[1], "ids") == 0) {
+        /* Process ids (E4.3): the parent the argument names is this process's parent, and the exit status is the low
+         * bits of its own id, which the parent compares with what posix_spawn answered. */
+        if (getppid() != (pid_t)atoi(argv[2]) || getpid() <= 1 || getpid() == getppid()) {
+            return 200;
+        }
+        /* A signal to its own id reaches it, through kill and tgkill alike, as System.Native re-raises a signal with
+         * kill(getpid(), ...); a signal to an id that is neither its own nor a child's is ESRCH. */
+        signal(SIGUSR1, on_signal);
+        if (kill(getpid(), 0) != 0 ||
+            kill(getpid(), SIGUSR1) != 0 ||
+            syscall(SYS_tgkill, getpid(), syscall(SYS_gettid), SIGUSR1) != 0 ||
+            heard != 2) {
+            return 201;
+        }
+        if (kill(getpid() + 1000, 0) == 0 || errno != ESRCH) {
+            return 202;
+        }
+        /* The main thread's id is the process's, as on Linux: the runtime's GC asks sched_getaffinity(getpid(), ...). */
+        cpu_set_t processors;
+        if (syscall(SYS_gettid) != getpid() ||
+            sched_getaffinity(getpid(), sizeof(processors), &processors) != 0 ||
+            CPU_COUNT(&processors) < 1) {
+            return 203;
+        }
+        return getpid() % 128;
+    }
     if (argc == 3 && strcmp(argv[1], "exit") == 0) {
         return atoi(argv[2]);
     }
