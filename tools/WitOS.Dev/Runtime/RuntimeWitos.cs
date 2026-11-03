@@ -470,7 +470,8 @@ internal static class RuntimeWitos
         var libraries = ReadLibraryTestSelection(root);
         await RunLibraryTestsBuildAsync(tree, architecture, libraries.Projects, environment);
         var libraryTests = await KernelImageBuilder.BuildAsync(root, KernelImageBuilder.RUNTIME_LIBRARY_TESTS_SCENARIO, architecture: architecture);
-        var librariesRequest = new BootRequest($"{architecture.Name}-runtime-library-tests-512", 512, 3600, ExpectedOutcome.Success)
+        var librariesRequest = new BootRequest($"{architecture.Name}-runtime-library-tests-{RuntimeApps.LOADED_MEMORY_MIB}",
+            RuntimeApps.LOADED_MEMORY_MIB, 3600, ExpectedOutcome.Success)
         {
             Architecture = architecture,
             Suite = BootSuite.Release,

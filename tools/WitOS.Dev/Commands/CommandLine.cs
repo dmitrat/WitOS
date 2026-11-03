@@ -236,7 +236,8 @@ internal static class CommandLine
         new CommandScenario("runtime-library-tests",
             "Boot slices of the .NET libraries' tests for witos, upstream's test projects of build/runtime/library-tests.json under xunit's console runner (R7.3)",
             KernelImageBuilder.RUNTIME_LIBRARY_TESTS_SCENARIO,
-            architecture => [new BootRequest("runtime-library-tests-512", 512, 3600, ExpectedOutcome.Success)
+            architecture => [new BootRequest($"runtime-library-tests-{RuntimeApps.LOADED_MEMORY_MIB}", RuntimeApps.LOADED_MEMORY_MIB, 3600,
+                ExpectedOutcome.Success)
             {
                 Suite = BootSuite.Release,
                 RequiredLines = [architecture.LibraryTestsPassedLine, architecture.RootTaskPassedLine]
