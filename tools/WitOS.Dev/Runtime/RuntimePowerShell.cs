@@ -66,8 +66,8 @@ internal static class RuntimePowerShell
     public const string DRIVE = "drive";
 
     /// <summary>
-    /// The word before what the profile's Unix commands did in the interactive session (E4.5): mkdir of a nested path,
-    /// a file copied, moved and read, the directory listed and sorted, then removed.
+    /// The word before what the profile's Unix commands did in the interactive session (E4.5): the screen cleared, mkdir
+    /// of a nested path, a file copied, moved and read, the directory listed and sorted, then removed.
     /// </summary>
     public const string ALIASES = "aliases";
 
@@ -178,9 +178,9 @@ internal static class RuntimePowerShell
         // The profile's drives (E1, ADR 0032): Data: over /data.
         new(PROMPT, $"'{DRIVE}=' + (Get-PSDrive Data).Root\r"),
         // The profile's Unix commands (E4.5): WitOS has no coreutils, so pwsh on Unix found none of them.
-        new(PROMPT, "mkdir /data/unix/inner | Out-Null; Set-Content /data/unix/inner/t.txt unix; cp /data/unix/inner/t.txt /data/unix/c.txt; " +
-            $"mv /data/unix/c.txt /data/unix/m.txt; '{ALIASES}=' + (cat /data/unix/m.txt) + ':' + ((ls /data/unix -Name | sort) -join ','); " +
-            "rm -r /data/unix\r"),
+        new(PROMPT, "clear; $cleared = $?; mkdir /data/unix/inner | Out-Null; Set-Content /data/unix/inner/t.txt unix; " +
+            $"cp /data/unix/inner/t.txt /data/unix/c.txt; mv /data/unix/c.txt /data/unix/m.txt; '{ALIASES}=' + (cat /data/unix/m.txt) + ':' + " +
+            "((ls /data/unix -Name | sort) -join ',') + \":cleared=$cleared\"; rm -r /data/unix\r"),
         new(PROMPT, "exit\r")
     ];
 
@@ -216,7 +216,7 @@ internal static class RuntimePowerShell
         HomeLine(architecture, version),
         $"{JITTED}=",
         $"{DRIVE}=/data",
-        $"{ALIASES}=unix:inner,m.txt",
+        $"{ALIASES}=unix:inner,m.txt:cleared=True",
         EMBLEM_ROW,
         $"PowerShell {version}",
         PROMPT,

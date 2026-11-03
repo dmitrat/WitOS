@@ -50,7 +50,7 @@ public sealed class PowerShellTests
         Assert.That(required, Does.Contain(RuntimePowerShell.PROMPT));
         Assert.That(required, Does.Contain("PowerShell 7.6.7"), "The mark's panel names the shell");
         Assert.That(required, Does.Contain(RuntimePowerShell.EMBLEM_ROW));
-        Assert.That(required, Does.Contain($"{RuntimePowerShell.ALIASES}=unix:inner,m.txt"), "the profile's Unix commands (E4.5)");
+        Assert.That(required, Does.Contain($"{RuntimePowerShell.ALIASES}=unix:inner,m.txt:cleared=True"), "the profile's Unix commands (E4.5)");
         Assert.That(RuntimePowerShell.Commands().Count(command => command.StartsWith(RuntimePowerShell.PWSH, StringComparison.Ordinal)), Is.EqualTo(3));
         Assert.That(RuntimePowerShell.Commands()[^1], Is.EqualTo(RuntimePowerShell.PWSH), "The interactive session runs the profile");
     }

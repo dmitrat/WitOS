@@ -24,6 +24,9 @@ foreach ($pair in @{ ls = 'Get-ChildItem'; cp = 'Copy-Item'; mv = 'Move-Item'; r
     Set-Alias -Name $pair.Key -Value $pair.Value -Scope Global
 }
 function global:mkdir { New-Item -ItemType Directory @args }
+# pwsh on Unix clears the screen by running the clear program, which WitOS does not have; .NET's console writes the
+# terminal's own sequence, which it reads from the install's terminfo (C1.3), so clear and cls work as on Windows.
+function global:Clear-Host { [Console]::Clear() }
 
 if ($env:WITOS_NO_LOGO -or [Console]::IsOutputRedirected -or [Console]::IsInputRedirected) { return }
 $logo = '/etc/witos/logo'
