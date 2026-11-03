@@ -1,21 +1,24 @@
 Source: src/libraries/System.Diagnostics.Process/src/System/Diagnostics/Process.WitOS.cs
 Output: src.libraries.System.Diagnostics.Process.src.System.Diagnostics.Process.WitOS.cs
 Before: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
-After: 9ced8c9ecdf7754803e9fd54462a3f5c1e5422c7769ed32b2a48ec58e90ef117
+After: 9137c7fd87f4a281dd1dfd360b093ff1ba579d99cc5ff24b9333c5866c65c097
 
 Process's per-platform members for WitOS (plan step N4.2, RFC 0015 section 8), as Process.FreeBSD.cs holds FreeBSD's:
 a process starts through the libc's posix_spawn over the process manager and ends as waitpid reports, and what Linux
-reads from /proc — the start time, another process's processor times, the parent, the working set, the affinity —
-is PlatformNotSupportedException, since WitOS has no /proc and the kernel reports none of it.
+reads from /proc — another process's start time and processor times, the parent, the working set, the affinity — is
+PlatformNotSupportedException, since WitOS has no /proc and the kernel reports none of it. The current process's start
+time (E4.4) is the moment its loader named in the auxiliary vector (WIT_AT_START_TIME), on the monotonic clock
+Stopwatch reads: the .NET SDK's CLI asks for it at every start.
 
 --- a/src/libraries/System.Diagnostics.Process/src/System/Diagnostics/Process.WitOS.cs
 +++ b/src/libraries/System.Diagnostics.Process/src/System/Diagnostics/Process.WitOS.cs
-@@ -0,0 +1,121 @@
+@@ -0,0 +1,144 @@
 +// Licensed to the .NET Foundation under one or more agreements.
 +// The .NET Foundation licenses this file to you under the MIT license.
 +
 +using System.Collections.Generic;
 +using System.ComponentModel;
++using System.Runtime.InteropServices;
 +using System.Runtime.Versioning;
 +
 +namespace System.Diagnostics
@@ -23,7 +26,8 @@ is PlatformNotSupportedException, since WitOS has no /proc and the kernel report
 +    // WitOS (TargetOS=witos): a process starts through the libc's posix_spawn over the process manager and ends as
 +    // waitpid reports; what Linux reads from /proc — the start time, the processor times, the parent, the working
 +    // set — is not there, and the kernel gives no affinity, so each of those is PlatformNotSupportedException, as the
-+    // iOS flavor answers. The current process answers its own processor times from the runtime.
++    // iOS flavor answers. The current process answers its own processor times from the runtime, and its start time from
++    // the moment its loader named in the auxiliary vector (E4.4).
 +    public partial class Process : IDisposable
 +    {
 +        /// <summary>
@@ -37,10 +41,31 @@ is PlatformNotSupportedException, since WitOS has no /proc and the kernel report
 +        }
 +
 +        /// <summary>Gets the time the associated process was started.</summary>
-+        internal static DateTime StartTimeCore
++        internal DateTime StartTimeCore
 +        {
-+            get { throw new PlatformNotSupportedException(); }
++            get
++            {
++                EnsureState(State.HaveNonExitedId);
++
++                // The loader that built the process's first stack named that moment in the auxiliary vector: the
++                // nanoseconds of the monotonic clock Stopwatch reads. Another process's start reaches no one.
++                long started = IsCurrentProcess ? (long)GetAuxiliaryValue(AuxiliaryStartTime) : 0;
++                if (started == 0)
++                {
++                    throw new PlatformNotSupportedException();
++                }
++
++                // Converted to the local time zone last, as Linux's BootTimeToDateTime converts, to avoid DST issues.
++                return (DateTime.UtcNow - Stopwatch.GetElapsedTime(started)).ToLocalTime();
++            }
 +        }
++
++        /// <summary>WIT_AT_START_TIME of witos/start.h, the tag of the process's start in its auxiliary vector.</summary>
++        private const nuint AuxiliaryStartTime = 0x57490002;
++
++        /// <summary>The value of a tag of the auxiliary vector, zero when absent: musl's getauxval.</summary>
++        [LibraryImport(Interop.Libraries.libc, EntryPoint = "getauxval")]
++        private static partial nuint GetAuxiliaryValue(nuint type);
 +
 +        /// <summary>
 +        /// Gets the amount of time the associated process has spent utilizing the CPU.

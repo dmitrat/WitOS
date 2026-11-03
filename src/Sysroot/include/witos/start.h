@@ -29,6 +29,11 @@
  * a message of 256 bytes could not hold them. */
 #define WIT_AT_START 0x57490001UL
 
+/* The moment the creator built the process's first stack (E4.4): the nanoseconds of the monotonic clock as the libc's
+ * clock_gettime(CLOCK_MONOTONIC) reads them in every process, which .NET's Stopwatch reads too. Process.StartTime of the
+ * current process takes it, where Linux reads the start from /proc/self/stat; zero or absent where no loader named it. */
+#define WIT_AT_START_TIME 0x57490002UL
+
 #define WIT_START_VERSION 7U
 #define WIT_START_SIZE 40U
 #define WIT_START_DIRECTORY_MAXIMUM 216U /* the rest of a channel message's 256 bytes */

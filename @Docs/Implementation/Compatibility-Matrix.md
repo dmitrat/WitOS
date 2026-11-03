@@ -15,7 +15,7 @@ types in the guest) and reports its checks not applicable elsewhere.
 
 | Area | Checks | Windows | Linux | WitOS (x64, ARM64, riscv64) |
 | --- | --- | --- | --- | --- |
-| Platform | 6 | Supported | Supported | Partial: KnownOperatingSystem |
+| Platform | 7 | Supported | Supported | Partial: KnownOperatingSystem |
 | Console | 5 | Supported | Supported | Supported |
 | Tasks | 7 | Supported | Supported | Supported |
 | Threads | 6 | Supported | Supported | Supported |
@@ -33,7 +33,7 @@ types in the guest) and reports its checks not applicable elsewhere.
 | Cryptography | 11 | Supported | Supported | Supported |
 | Ipc | 5 | Supported | Supported | Supported |
 
-125 checks in 17 areas.
+126 checks in 17 areas.
 
 ## Recorded differences
 

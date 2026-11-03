@@ -13,6 +13,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 /* The ELF loader of the root task (plan steps S5.2, S5.3 and D5.3). A program is a position-independent executable in
@@ -34,7 +35,7 @@
  * argv, envp and the auxiliary vector with AT_PHDR, AT_ENTRY (the program's), AT_BASE (the interpreter's base, for a
  * dynamic program alone: musl's dlstart.c of a static one finds its base through PT_DYNAMIC), AT_RANDOM, AT_EXECFN
  * (the program's path as the caller named it, at the top of the stack, which .NET's minipal_getexepath reads where
- * Linux has /proc/self/exe, R3.2) and WIT_AT_START. The thread starts at the interpreter's entry, or the program's without one. The start message goes
+ * Linux has /proc/self/exe, R3.2), WIT_AT_START and WIT_AT_START_TIME (E4.4). The thread starts at the interpreter's entry, or the program's without one. The start message goes
  * out before the thread starts (witos/start.h): duplicates of the loader's log, WRITE alone, of the package, MAP,
  * EXECUTE and QUERY, and of the process manager's endpoint, SEND alone, when the start names one (S6.1), each with
  * TRANSFER, as a capability moves, then the capability the start grants (D1.1), moved itself. The objects are charged
@@ -53,7 +54,7 @@
 #define STACK_TOP WIT_USER_CODE_LIMIT
 #define STACK_BASE (STACK_TOP - CHUNK) /* the top chunk, which holds argc, argv, envp and the auxiliary vector */
 #define ARGUMENT_BYTES (CHUNK / 4) /* the strings and pointers of argv and envp */
-#define AUXILIARY_PAIRS 16U
+#define AUXILIARY_PAIRS 17U
 #define LOG_RIGHTS (WIT_RIGHT_WRITE | WIT_RIGHT_TRANSFER)
 #define MANAGER_RIGHTS (WIT_RIGHT_SEND | WIT_RIGHT_TRANSFER)
 #define NAMESPACE_RIGHTS (WIT_RIGHT_SEND | WIT_RIGHT_TRANSFER)
@@ -340,13 +341,16 @@ static WitU64 *put_strings(char *const list[], WitU64 count, WitU64 *word, unsig
 }
 
 /* The auxiliary vector: the program's headers and entry, the interpreter's base when there is one, the 16 random
- * bytes, the program's path, the ids, the start endpoint. */
+ * bytes, the program's path, the ids, the start endpoint and the moment the process starts (E4.4). */
 static WitU64 *put_auxiliary(
     WitU64 *word, const Program *p, const Program *interpreter, WitU64 random, WitU64 path, WitU64 endpoint)
 {
+    struct timespec now;
+    const WitU64 started =
+        clock_gettime(CLOCK_MONOTONIC, &now) == 0 ? (WitU64)now.tv_sec * 1000000000ULL + (WitU64)now.tv_nsec : 0;
     const WitU64 pairs[] = {AT_PHDR, p->Base + p->Headers, AT_PHENT, sizeof(Elf64_Phdr), AT_PHNUM, p->Header.e_phnum,
         AT_PAGESZ, PAGE, AT_ENTRY, p->Base + p->Header.e_entry, AT_RANDOM, random, AT_EXECFN, path, AT_UID, 0, AT_EUID,
-        0, AT_GID, 0, AT_EGID, 0, AT_SECURE, 0, AT_HWCAP, 0, WIT_AT_START, endpoint};
+        0, AT_GID, 0, AT_EGID, 0, AT_SECURE, 0, AT_HWCAP, 0, WIT_AT_START, endpoint, WIT_AT_START_TIME, started};
     memcpy(word, pairs, sizeof(pairs));
     word += sizeof(pairs) / sizeof(pairs[0]);
     if (interpreter) {

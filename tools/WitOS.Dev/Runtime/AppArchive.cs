@@ -33,19 +33,20 @@ internal static class AppArchive
     }
 
     /// <summary>
-    /// The archive's paths to lay: those under a lay directory, or all of them without one, less those under a leave
-    /// directory; every lay directory must hold something.
+    /// The archive's paths to lay: those under a lay directory, or all of them without one, less each leave path, a file
+    /// or a directory and what it holds (E4.4: the SDK's Linux apphosts are files); every lay directory must hold
+    /// something.
     /// </summary>
     /// <param name="paths">The archive's files by their paths, with '/'.</param>
     /// <param name="lay">The directories to lay.</param>
-    /// <param name="leave">The directories left out.</param>
+    /// <param name="leave">The files and directories left out.</param>
     /// <returns>The paths laid, in the order given.</returns>
     /// <exception cref="InvalidDataException">A lay directory holds nothing.</exception>
     public static IReadOnlyList<string> Select(IEnumerable<string> paths, IReadOnlyList<string> lay, IReadOnlyList<string> leave)
     {
         static bool Under(string path, string directory) => path.StartsWith(directory + "/", StringComparison.Ordinal);
         var selected = paths.Where(path => (lay.Count == 0 || lay.Any(directory => Under(path, directory))) &&
-            !leave.Any(directory => Under(path, directory))).ToList();
+            !leave.Any(left => path == left || Under(path, left))).ToList();
         foreach (var directory in lay)
         {
             if (!selected.Any(path => Under(path, directory)))

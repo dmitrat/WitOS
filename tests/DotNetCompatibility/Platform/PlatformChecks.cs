@@ -49,6 +49,15 @@ internal static class PlatformChecks
             return CheckResult.That(process.ExitCode == 0 && output.Contains("Microsoft.NETCore.App", StringComparison.Ordinal),
                 $"{Path.GetFileName(Muxer)} --list-runtimes exited with {process.ExitCode}");
         });
+        // The current process's start (E4.4), which the .NET SDK's CLI asks for at every start: Linux reads it from
+        // /proc/self/stat, WitOS from the moment its loader named in the auxiliary vector.
+        yield return new Check("Platform", "ProcessStartTime", () =>
+        {
+            using var current = Process.GetCurrentProcess();
+            var started = current.StartTime;
+            var now = DateTime.Now;
+            return CheckResult.Now(started <= now && now - started < TimeSpan.FromDays(1), $"started {now - started} ago");
+        });
         // The suite itself as a child (Program.cs's --echo, N4.2): its input, output and error through pipes, many times
         // a pipe's buffer, its directory, a variable of its environment and its exit code.
         yield return new Check("Platform", "ProcessPipes", async () =>
