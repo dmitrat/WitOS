@@ -56,7 +56,7 @@ internal static class RuntimeAspNetCore
     public static async Task RunAsync(string root, KernelArchitecture architecture)
     {
         var scenario = KernelImageBuilder.RUNTIME_ASPNETCORE_SCENARIO;
-        RuntimeApps.ForgetLogs(root, architecture, scenario);
+        RuntimeApps.ForgetLogs(root, architecture, scenario, RuntimeApps.LOADED_MEMORY_MIB);
         var output = Path.Combine(root, "artifacts", architecture.Name, scenario);
         Directory.CreateDirectory(output);
         // The framework once for the pin (runtime-witos builds it before its first install; the command alone builds it too).
@@ -64,7 +64,7 @@ internal static class RuntimeAspNetCore
             await AspNetCoreFramework.BuildAsync(root);
         var package = await BuildPackageAsync(root, output, architecture);
         await RuntimeApps.BootAsync(root, architecture, scenario, RequiredLines(), 1500, package: package,
-            processors: RuntimeProcessors.PROCESSORS, forward: HTTP_PORT, actions: Actions());
+            processors: RuntimeProcessors.PROCESSORS, forward: HTTP_PORT, actions: Actions(), memoryMiB: RuntimeApps.LOADED_MEMORY_MIB);
         Console.WriteLine($"ASP.NET Core on witos-{architecture.Name}: Kestrel answered the runner's requests through the forward and its own HTTPS request.");
     }
 

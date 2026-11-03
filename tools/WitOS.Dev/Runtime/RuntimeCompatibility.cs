@@ -39,7 +39,7 @@ internal static class RuntimeCompatibility
     /// <returns>When the suite ran.</returns>
     public static async Task RunAsync(string root, KernelArchitecture architecture)
     {
-        RuntimeApps.ForgetLogs(root, architecture, KernelImageBuilder.RUNTIME_COMPATIBILITY_SCENARIO);
+        RuntimeApps.ForgetLogs(root, architecture, KernelImageBuilder.RUNTIME_COMPATIBILITY_SCENARIO, RuntimeApps.LOADED_MEMORY_MIB);
         // The runner's authority of this boot (W3.1): its certificate in the guest's root store, its HTTPS server behind
         // the adapter, so that the suite's Network.HttpsRunner check trusts the server through the store.
         using var authority = new RunnerAuthority(IPAddress.Parse(NetworkPeer.ECHO_ADDRESS));
@@ -48,10 +48,11 @@ internal static class RuntimeCompatibility
         var package = await RuntimeApps.WithRunnerAuthorityAsync(await BuildPackageAsync(root, output, architecture), output, authority);
         // On several processors (P2), as an application meets a machine.
         await RuntimeApps.BootAsync(root, architecture, KernelImageBuilder.RUNTIME_COMPATIBILITY_SCENARIO, RequiredLines(architecture), 1800,
-            package: package, terminal: Script(), processors: RuntimeProcessors.PROCESSORS, https: authority);
+            package: package, terminal: Script(), processors: RuntimeProcessors.PROCESSORS, https: authority, memoryMiB: RuntimeApps.LOADED_MEMORY_MIB);
         // N4.4: the record of this run, which runtime-published compares a publish of another host against. The suite
         // writes to the terminal (N4.3), so its lines are in the transcript, not in the serial log.
-        var checks = ReadChecks(await RuntimeApps.GuestLinesAsync(root, architecture, KernelImageBuilder.RUNTIME_COMPATIBILITY_SCENARIO));
+        var checks = ReadChecks(await RuntimeApps.GuestLinesAsync(root, architecture, KernelImageBuilder.RUNTIME_COMPATIBILITY_SCENARIO,
+            RuntimeApps.LOADED_MEMORY_MIB));
         if (checks.Count == 0)
             throw new InvalidOperationException("The suite's checks were not found in the guest's serial log or terminal transcript.");
         var sdk = (await Processes.RunAsync("dotnet", ["--version"], root)).Output.Trim();
