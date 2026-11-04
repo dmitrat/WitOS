@@ -127,18 +127,7 @@ internal sealed class FakeUsbHost : IUsbHost
         if (device.Stalls.Contains((setup.RequestType, setup.Request)))
             throw new IOException($"The request {setup.Request:x2} of slot {slot} completed with code 6.");
         var data = new byte[setup.Length];
-        byte[] answer = (setup.RequestType, setup.Request, setup.Value >> 8) switch
-        {
-            (0x80, UsbSetup.GET_DESCRIPTOR, UsbDescriptors.DEVICE) => device.DeviceDescriptor,
-            (0x80, UsbSetup.GET_DESCRIPTOR, UsbDescriptors.CONFIGURATION) => device.Configuration,
-            (0x81, UsbSetup.GET_DESCRIPTOR, UsbDescriptors.REPORT) => device.ReportDescriptor ?? throw new IOException("No report descriptor."),
-            (0xA0, UsbSetup.GET_DESCRIPTOR, UsbHub.DESCRIPTOR) => device.Hub!.Descriptor,
-            (0xA0, UsbSetup.GET_STATUS, _) => new byte[4],
-            (0xA3, UsbSetup.GET_STATUS, _) => device.Hub!.Ports[setup.Index].Status(),
-            (0x23, UsbSetup.SET_FEATURE, _) => device.Hub!.Ports[setup.Index].Set(setup.Value),
-            (0x23, UsbSetup.CLEAR_FEATURE, _) => device.Hub!.Ports[setup.Index].Clear(setup.Value),
-            _ => [],
-        };
+        var answer = device.Answer(setup);
         answer.AsSpan(0, Math.Min(answer.Length, data.Length)).CopyTo(data);
         return setup.IsIn ? data : [];
     }
@@ -239,10 +228,60 @@ internal sealed class FakeUsbHost : IUsbHost
 }
 
 /// <summary>
-/// A device of the fake host: its descriptors, the requests it stalls, a hub's ports where it is one.
+/// A device of the fake host and of the DWC2 model (H8.3): its descriptors, the requests it stalls, a hub's ports where it is
+/// one, the reports its interrupt endpoints send, the bytes its bulk endpoints move, and the address and data toggles a
+/// controller that addresses devices itself sets.
 /// </summary>
 internal sealed class FakeDevice(int speed, byte[] deviceDescriptor, byte[] configuration, byte[]? reportDescriptor = null, FakeHub? hub = null)
 {
+    /// <summary>
+    /// The answer to a request, its effect on a hub's ports done.
+    /// </summary>
+    public byte[] Answer(UsbSetup setup) => (setup.RequestType, setup.Request, setup.Value >> 8) switch
+    {
+        (0x80, UsbSetup.GET_DESCRIPTOR, UsbDescriptors.DEVICE) => DeviceDescriptor,
+        (0x80, UsbSetup.GET_DESCRIPTOR, UsbDescriptors.CONFIGURATION) => Configuration,
+        (0x81, UsbSetup.GET_DESCRIPTOR, UsbDescriptors.REPORT) => ReportDescriptor ?? throw new IOException("No report descriptor."),
+        (0xA0, UsbSetup.GET_DESCRIPTOR, UsbHub.DESCRIPTOR) => Hub!.Descriptor,
+        (0xA0, UsbSetup.GET_STATUS, _) => new byte[4],
+        (0xA3, UsbSetup.GET_STATUS, _) => Hub!.Ports[setup.Index].Status(),
+        (0x23, UsbSetup.SET_FEATURE, _) => Hub!.Ports[setup.Index].Set(setup.Value),
+        (0x23, UsbSetup.CLEAR_FEATURE, _) => Hub!.Ports[setup.Index].Clear(setup.Value),
+        _ => [],
+    };
+
+    /// <summary>
+    /// Queues a report the device sends on an interrupt IN endpoint.
+    /// </summary>
+    public void Report(int endpoint, byte[] bytes)
+    {
+        if (!Reports.TryGetValue(endpoint, out var queue))
+            Reports[endpoint] = queue = new Queue<byte[]>();
+        queue.Enqueue(bytes);
+    }
+
+    public Dictionary<int, Queue<byte[]>> Reports { get; } = [];
+
+    /// <summary>
+    /// The bytes its bulk OUT endpoint took, which its bulk IN endpoint sends back: a loopback.
+    /// </summary>
+    public List<byte> Bulk { get; } = [];
+
+    /// <summary>
+    /// The endpoints, by address, that stall until their halt is cleared.
+    /// </summary>
+    public HashSet<int> Halted { get; } = [];
+
+    /// <summary>
+    /// The address a controller gave it by SET_ADDRESS; a reset of its port returns it to 0.
+    /// </summary>
+    public int Address { get; set; }
+
+    /// <summary>
+    /// Each endpoint's next data toggle, by address, as the device keeps it: DATA1 where true.
+    /// </summary>
+    public Dictionary<int, bool> Toggles { get; } = [];
+
     public int Speed { get; } = speed;
 
     public byte[] DeviceDescriptor { get; } = deviceDescriptor;
@@ -328,6 +367,7 @@ internal sealed class FakeHubPort
     {
         if (feature == UsbHub.PORT_RESET && Device is not null)
         {
+            Device.Address = 0;
             StatusBits |= 0x0002;
             ChangeBits |= 0x0012;
         }

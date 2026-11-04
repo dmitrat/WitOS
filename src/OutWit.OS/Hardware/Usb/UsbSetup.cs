@@ -32,6 +32,11 @@ public readonly record struct UsbSetup(byte RequestType, byte Request, ushort Va
     public const byte SET_FEATURE = 3;
 
     /// <summary>
+    /// bRequest SET_ADDRESS, which a host controller that addresses no device itself sends (DWC2, H8.3).
+    /// </summary>
+    public const byte SET_ADDRESS = 5;
+
+    /// <summary>
     /// bRequest GET_DESCRIPTOR.
     /// </summary>
     public const byte GET_DESCRIPTOR = 6;
@@ -131,6 +136,13 @@ public readonly record struct UsbSetup(byte RequestType, byte Request, ushort Va
     /// <returns>The packet.</returns>
     public static UsbSetup GetDescriptor(byte type, byte index, ushort length) =>
         new(IN_STANDARD_DEVICE, GET_DESCRIPTOR, (ushort)(type << 8 | index), 0, length);
+
+    /// <summary>
+    /// SET_ADDRESS, to the device at the default address (USB 2.0 §9.4.6).
+    /// </summary>
+    /// <param name="address">The address, 1–127.</param>
+    /// <returns>The packet.</returns>
+    public static UsbSetup SetAddress(int address) => new(OUT_STANDARD_DEVICE, SET_ADDRESS, (ushort)address, 0, 0);
 
     /// <summary>
     /// SET_CONFIGURATION.

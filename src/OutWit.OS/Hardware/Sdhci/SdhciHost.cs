@@ -7,19 +7,6 @@ using System.Threading;
 namespace OutWit.OS.Hardware.Sdhci;
 
 /// <summary>
-/// How a host waits for its controller between looks at its status (plan step H8.2): the driver's interrupt binding in the
-/// guest, nothing in a host test whose model answers at once.
-/// </summary>
-public interface IInterruptWait
-{
-    /// <summary>
-    /// Waits until the device may have changed its status, or the time passed.
-    /// </summary>
-    /// <param name="timeout">The longest wait.</param>
-    void Wait(TimeSpan timeout);
-}
-
-/// <summary>
 /// What a board says of its SD controller (plan step H8.2), from its device tree node: the bus width the card is wired
 /// for, the controller's base clock where its capabilities report none, whether the card's write-protect pin means
 /// anything (a microSD slot has none), and the offset of the device's view of memory (the node's dma-ranges).
