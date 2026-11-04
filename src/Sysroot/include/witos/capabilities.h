@@ -76,6 +76,15 @@ int witos_object_wait(const WitU64 *handles, WitU32 count, WitU64 deadline, WitU
 int witos_clock_read(WitU64 *ticks);
 int witos_clock_frequency(WitU64 *frequency);
 
+/* UTC in nanoseconds since 1970 (H7.4): ENOSYS on a board without a real-time clock until the holder of the clock
+ * capability sets it. */
+int witos_clock_utc(WitU64 *nanoseconds);
+
+/* Sets UTC to nanoseconds since 1970 through the clock capability (K6, H7.4), from which later reads go on: EBADF for a
+ * handle that is not the capability, EACCES without WRITE, EINVAL for a time before the boot or beyond the clock's
+ * range. */
+int witos_clock_set(WitU64 clock, WitU64 nanoseconds);
+
 /* Binds a device's interrupt line to an event (D2): the kernel masks the line and sets the event on each interrupt; a
  * handle with ACK. EACCES without BIND, EBUSY for a line another binding holds, EINVAL. */
 int witos_interrupt_bind(WitU64 device, WitU32 line, WitU64 event, WitU64 *binding);

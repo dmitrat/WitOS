@@ -258,6 +258,13 @@ internal sealed record BootRequest(string Name, int MemoryMiB, int TimeoutSecond
     public bool Raspi4 { get; init; }
 
     /// <summary>
+    /// The virt board as a board without a real-time clock (plan step H7.4): booted by the Linux protocol
+    /// (<see cref="LinuxBoot"/>) with the tree QEMU writes for it less its PL031, which the runner takes out, so that the
+    /// kernel finds no clock and UTC waits for the system's time service, as on a Raspberry Pi.
+    /// </summary>
+    public bool WithoutRealTimeClock { get; init; }
+
+    /// <summary>
     /// The board without its test exit (plan step H1.2a), as a machine has none: the kernel's end then turns the board off,
     /// which <see cref="ExpectedOutcome.PoweredOff"/> judges.
     /// </summary>

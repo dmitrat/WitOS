@@ -317,11 +317,13 @@ int witos_manager_run_services(witos_service *services, WitU32 count, const char
         }
         return (int)-__wit_errno(status);
     }
-    /* Each service in turn, until it answers or ends; the queue is served meanwhile. */
+    /* Each service in turn, until it answers or ends; the queue is served meanwhile. A service started after one that
+     * offered the namespace's or the network service's clients' endpoint has them, as the first process has (H7.4: the
+     * time service's /data and SNTP), and never the terminal's, so that its lines stay the kernel log's. */
     for (WitU32 i = 0; i < count; ++i) {
         char *service_argv[] = {(char *)services[i].path, 0};
-        const witos_spawn_options service_options = {
-            ends[1], 0, 0, 0, services[i].grant, 0, 0, 0, next_process_id++, ROOT_PROCESS_ID};
+        const witos_spawn_options service_options = {ends[1], 0, 0, 0, services[i].grant, offered_namespace, 0,
+            offered_network, next_process_id++, ROOT_PROCESS_ID};
         services[i].grant = 0; /* moved into its start message or closed */
         services[i].process = 0;
         services[i].status =

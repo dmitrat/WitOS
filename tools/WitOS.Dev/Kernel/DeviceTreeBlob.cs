@@ -115,6 +115,117 @@ internal static class DeviceTreeBlob
         }
     }
 
+    /// <summary>
+    /// The blob without the nodes whose compatible property names the word given, with everything below them (plan step
+    /// H7.4: the virt board's PL031, so that the board has no real-time clock).
+    /// </summary>
+    /// <param name="blob">The tree.</param>
+    /// <param name="compatible">One of the strings of the nodes' compatible property.</param>
+    /// <param name="removed">How many nodes went.</param>
+    /// <returns>The new tree.</returns>
+    /// <exception cref="InvalidDataException">The blob is not one, or its structure is malformed.</exception>
+    public static byte[] WithoutCompatible(byte[] blob, string compatible, out int removed)
+    {
+        var (reservations, structure, strings, bootProcessor) = Read(blob);
+        var word = Encoding.ASCII.GetBytes(compatible);
+        var open = new Stack<(int Start, bool Matched)>();
+        var cuts = new List<(int Start, int End)>();
+        var offset = 0;
+        while (true)
+        {
+            var token = Word(structure, offset);
+            var start = offset;
+            offset += 4;
+            switch (token)
+            {
+                case BEGIN_NODE:
+                    {
+                        var end = Array.IndexOf(structure, (byte)0, offset);
+                        if (end < 0)
+                            throw new InvalidDataException("Unterminated node name.");
+                        offset = Align(end + 1);
+                        open.Push((start, false));
+                        break;
+                    }
+                case END_NODE:
+                    {
+                        if (open.Count == 0)
+                            throw new InvalidDataException("Unbalanced structure block.");
+                        var node = open.Pop();
+                        // A node within one that goes has gone with it already.
+                        if (node.Matched && !cuts.Any(cut => cut.Start <= node.Start && offset <= cut.End))
+                        {
+                            cuts.RemoveAll(cut => node.Start <= cut.Start && cut.End <= offset);
+                            cuts.Add((node.Start, offset));
+                        }
+                        break;
+                    }
+                case PROP:
+                    {
+                        var length = (int)Word(structure, offset);
+                        var nameOffset = (int)Word(structure, offset + 4);
+                        var value = offset + 8;
+                        offset = Align(value + length);
+                        if (open.Count > 0 && value + length <= structure.Length && StringAt(strings, nameOffset) == "compatible" &&
+                            Names(structure.AsSpan(value, length), word))
+                        {
+                            var node = open.Pop();
+                            open.Push((node.Start, true));
+                        }
+                        break;
+                    }
+                case NOP:
+                    break;
+                case END:
+                    {
+                        if (open.Count != 0)
+                            throw new InvalidDataException("Unbalanced structure block.");
+                        removed = cuts.Count;
+                        var output = new List<byte>(structure.Length);
+                        var at = 0;
+                        foreach (var (cutStart, cutEnd) in cuts.OrderBy(cut => cut.Start))
+                        {
+                            output.AddRange(structure.AsSpan(at, cutStart - at).ToArray());
+                            at = cutEnd;
+                        }
+                        output.AddRange(structure.AsSpan(at, offset - at).ToArray());
+                        return Write(reservations, output.ToArray(), strings, bootProcessor);
+                    }
+                default:
+                    throw new InvalidDataException($"Unknown structure token {token} at {start}.");
+            }
+            if (offset > structure.Length)
+                throw new InvalidDataException("Malformed structure block.");
+        }
+    }
+
+    // Whether a list of zero-terminated strings holds the word as one of them.
+    private static bool Names(ReadOnlySpan<byte> list, byte[] word)
+    {
+        while (!list.IsEmpty)
+        {
+            var end = list.IndexOf((byte)0);
+            var item = end < 0 ? list : list[..end];
+            if (item.SequenceEqual(word))
+                return true;
+            if (end < 0)
+                break;
+            list = list[(end + 1)..];
+        }
+        return false;
+    }
+
+    // The zero-terminated string at an offset of the strings block.
+    private static string StringAt(byte[] strings, int offset)
+    {
+        if (offset < 0 || offset >= strings.Length)
+            throw new InvalidDataException($"A property's name lies outside the strings block at {offset}.");
+        var end = Array.IndexOf(strings, (byte)0, offset);
+        if (end < 0)
+            throw new InvalidDataException("Unterminated string in the strings block.");
+        return Encoding.ASCII.GetString(strings, offset, end - offset);
+    }
+
     // The header's blocks: the memory reservations with their terminating entry, the structure and the strings.
     private static (byte[] Reservations, byte[] Structure, byte[] Strings, uint BootProcessor) Read(byte[] blob)
     {

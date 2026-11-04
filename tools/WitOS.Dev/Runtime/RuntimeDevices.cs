@@ -120,6 +120,17 @@ internal static class RuntimeDevices
     public const string TERMINAL_PROGRAM = "src/Services/Terminal";
 
     /// <summary>
+    /// The time service's sources (H7.4).
+    /// </summary>
+    public const string TIME_PROGRAM = "src/Services/Time";
+
+    /// <summary>
+    /// The executable runtime-witos publishes from the time service, /system/Time, which the root task starts where the
+    /// system keeps time (H7.4).
+    /// </summary>
+    public const string TIME_EXECUTABLE = "Time";
+
+    /// <summary>
     /// The display service's sources (C2.2).
     /// </summary>
     public const string DISPLAY_PROGRAM = "src/Services/Display";
@@ -357,6 +368,7 @@ internal static class RuntimeDevices
         await PublishServiceAsync(root, tree, architecture, version, sysroot, NETWORK_EXECUTABLE, NETWORK_PROGRAM, ["Server"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, TERMINAL_EXECUTABLE, TERMINAL_PROGRAM, ["Server"], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, DISPLAY_EXECUTABLE, DISPLAY_PROGRAM, ["Server"], []);
+        await PublishServiceAsync(root, tree, architecture, version, sysroot, TIME_EXECUTABLE, TIME_PROGRAM, [], []);
         await PublishServiceAsync(root, tree, architecture, version, sysroot, NAMESPACE_EXECUTABLE, NAMESPACE_PROGRAM, ["Server", "Volumes"],
             [.. OUTWIT_OS_FILESYSTEM_FOLDERS, .. OUTWIT_OS_SMB_FOLDERS]);
         // E2.2: the volumes command, a NativeAOT program of the boot package beside the services, which calls the libc's
@@ -776,8 +788,8 @@ internal static class RuntimeDevices
 
     /// <summary>
     /// The device services' files of the boot package: the device manager, the drivers, the namespace, terminal and
-    /// display services runtime-witos or runtime-services published, with the dynamic linker and the C++ runtime they
-    /// need, and the display's font with its license (C2.2).
+    /// display services and the time service (H7.4) runtime-witos or runtime-services published, with the dynamic linker
+    /// and the C++ runtime they need, and the display's font with its license (C2.2).
     /// </summary>
     /// <param name="root">Repository root.</param>
     /// <param name="architecture">Target architecture.</param>
@@ -800,13 +812,14 @@ internal static class RuntimeDevices
         var networking = Path.Combine(directory, NETWORK_EXECUTABLE);
         var terminal = Path.Combine(directory, TERMINAL_EXECUTABLE);
         var display = Path.Combine(directory, DISPLAY_EXECUTABLE);
+        var time = Path.Combine(directory, TIME_EXECUTABLE);
         var volumes = Path.Combine(directory, VOLUMES_EXECUTABLE);
         if (!File.Exists(volumes))
             throw new InvalidOperationException($"No witos-volumes in {directory}. Run: dotnet run --project tools/WitOS.Dev -- runtime-services --arch {architecture.Name}");
         if (!File.Exists(driver) || !File.Exists(console) || !File.Exists(input) || !File.Exists(xhci) || !File.Exists(ahci) || !File.Exists(nvme) || !File.Exists(network) ||
             !File.Exists(e1000) || !File.Exists(i8042) || !File.Exists(names) ||
-            !File.Exists(networking) || !File.Exists(terminal) || !File.Exists(display))
-            throw new InvalidOperationException($"No witos drivers, namespace, network, terminal or display service in {directory}. " +
+            !File.Exists(networking) || !File.Exists(terminal) || !File.Exists(display) || !File.Exists(time))
+            throw new InvalidOperationException($"No witos drivers, namespace, network, terminal, display or time service in {directory}. " +
                 $"Run: dotnet run --project tools/WitOS.Dev -- runtime-services --arch {architecture.Name}");
         return
         [
@@ -816,7 +829,7 @@ internal static class RuntimeDevices
             ("system/Drivers/" + NVME_EXECUTABLE, nvme), ("system/Drivers/" + E1000_EXECUTABLE, e1000),
             ("system/Drivers/" + I8042_EXECUTABLE, i8042),
             ("system/" + NAMESPACE_EXECUTABLE, names), ("system/" + NETWORK_EXECUTABLE, networking), ("system/" + TERMINAL_EXECUTABLE, terminal),
-            ("system/" + DISPLAY_EXECUTABLE, display), (VOLUMES_COMMAND.TrimStart('/'), volumes),
+            ("system/" + DISPLAY_EXECUTABLE, display), ("system/" + TIME_EXECUTABLE, time), (VOLUMES_COMMAND.TrimStart('/'), volumes),
             .. SpleenFont.PackageFiles(root), .. program.Skip(1)
         ];
     }

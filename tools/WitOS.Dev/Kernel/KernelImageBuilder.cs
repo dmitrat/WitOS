@@ -204,6 +204,12 @@ internal static class KernelImageBuilder
     public const string RUNTIME_SMB_SCENARIO = "runtime-smb";
 
     /// <summary>
+    /// The board's time (H7.4): the device services and the time service, which sets UTC from the runner's SNTP server and,
+    /// on a board without a real-time clock, from the time it saved on /data, in two boots of one data disk.
+    /// </summary>
+    public const string RUNTIME_TIME_SCENARIO = "runtime-time";
+
+    /// <summary>
     /// A USB drive (E3): QEMU's usb-storage on a qemu-xhci controller, served by the xHCI driver, mounted below /media,
     /// taken out and put back while a program uses it.
     /// </summary>
@@ -256,7 +262,7 @@ internal static class KernelImageBuilder
             RUNTIME_NUGET_SUITES_SCENARIO, RUNTIME_SIDE_BY_SIDE_SCENARIO, RUNTIME_TERMINAL_SCENARIO, RUNTIME_PUBLISHED_SCENARIO,
             RUNTIME_POWERSHELL_SCENARIO, RUNTIME_DISPLAY_SCENARIO, RUNTIME_COMMANDER_SCENARIO,
             RUNTIME_INSTALLER_SCENARIO, RUNTIME_PROCESSORS_SCENARIO, RUNTIME_CSHARPREPL_SCENARIO, RUNTIME_ASPNETCORE_SCENARIO,
-            RUNTIME_VOLUMES_SCENARIO, RUNTIME_SMB_SCENARIO, RUNTIME_USB_DRIVE_SCENARIO, RUNTIME_FILE_MANAGER_SCENARIO];
+            RUNTIME_VOLUMES_SCENARIO, RUNTIME_SMB_SCENARIO, RUNTIME_USB_DRIVE_SCENARIO, RUNTIME_FILE_MANAGER_SCENARIO, RUNTIME_TIME_SCENARIO];
 
     // A release map must not name self-test code: test objects, self-test functions, fault triggers or workers.
     private static readonly Regex SELF_TEST_SYMBOL = new(
@@ -364,7 +370,7 @@ internal static class KernelImageBuilder
                 or RUNTIME_SIDE_BY_SIDE_SCENARIO or RUNTIME_PUBLISHED_SCENARIO or RUNTIME_POWERSHELL_SCENARIO or RUNTIME_DISPLAY_SCENARIO
                 or RUNTIME_COMMANDER_SCENARIO or RUNTIME_INSTALLER_SCENARIO or RUNTIME_PROCESSORS_SCENARIO or RUNTIME_CSHARPREPL_SCENARIO
                 or RUNTIME_ASPNETCORE_SCENARIO or RUNTIME_VOLUMES_SCENARIO or RUNTIME_SMB_SCENARIO or RUNTIME_USB_DRIVE_SCENARIO
-                or RUNTIME_FILE_MANAGER_SCENARIO
+                or RUNTIME_FILE_MANAGER_SCENARIO or RUNTIME_TIME_SCENARIO
                 ? await Substrate.LibWitos.BuildRootTaskAsync(root, output, architecture)
             : scenario == RESET_SCENARIO ? await UserImage.BuildRootAsync(root, output, architecture, ["-DWITOS_ROOT_EXIT_RESET=1"])
             : await UserImage.BuildRootAsync(root, output, architecture);

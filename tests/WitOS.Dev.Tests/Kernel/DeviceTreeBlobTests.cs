@@ -49,13 +49,30 @@ public sealed class DeviceTreeBlobTests
     }
 
     [Test]
+    public void ClockNodeGoesWithWhatItHoldsTest()
+    {
+        var tree = Tree(withChosen: true, withClock: true);
+        Assert.That(Properties(tree).Keys, Does.Contain("/pl031@9010000/inner"));
+        var changed = DeviceTreeBlob.WithoutCompatible(tree, "arm,pl031", out var removed);
+        Assert.That(removed, Is.EqualTo(1));
+        var properties = Properties(changed);
+        Assert.That(properties.Keys, Is.EquivalentTo(new[] { "/", "/memory@0", "/chosen", "/fake@0" }),
+            "the clock and the node below it gone; a node whose compatible only begins with the word kept");
+        Assert.That(properties["/chosen"].Single().Name, Is.EqualTo("bootargs"));
+        Assert.That(Reservations(changed), Is.EqualTo(new[] { (0UL, 0x1000UL) }));
+        Assert.That(DeviceTreeBlob.WithoutCompatible(changed, "arm,pl031", out removed), Is.EqualTo(changed));
+        Assert.That(removed, Is.Zero, "nothing left to take");
+    }
+
+    [Test]
     public void NotATreeIsRefusedTest()
     {
         Assert.Throws<InvalidDataException>(() => DeviceTreeBlob.Require(new byte[64]));
     }
 
-    // A tree of the root (#address-cells), /memory@0 (reg) and, when asked, /chosen (bootargs), with one reservation.
-    private static byte[] Tree(bool withChosen)
+    // A tree of the root (#address-cells), /memory@0 (reg) and, when asked, /chosen (bootargs) and a PL031 with a node
+    // below it beside a node whose compatible only begins like the PL031's (H7.4), with one reservation.
+    private static byte[] Tree(bool withChosen, bool withClock = false)
     {
         var strings = new List<byte>();
         uint Name(string name)
@@ -95,6 +112,19 @@ public sealed class DeviceTreeBlobTests
         {
             Begin("chosen");
             Property("bootargs", Encoding.ASCII.GetBytes("witos\0"));
+            Word(2);
+        }
+        if (withClock)
+        {
+            Begin("pl031@9010000");
+            Property("reg", [0, 0, 0, 0, 0x09, 0x01, 0, 0]);
+            Property("compatible", Encoding.ASCII.GetBytes("arm,pl031\0arm,primecell\0"));
+            Begin("inner");
+            Property("status", Encoding.ASCII.GetBytes("okay\0"));
+            Word(2);
+            Word(2);
+            Begin("fake@0");
+            Property("compatible", Encoding.ASCII.GetBytes("arm,pl0310\0"));
             Word(2);
         }
         Word(2);

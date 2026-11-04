@@ -7,9 +7,12 @@
 
 /* Device enumeration (plan step K3.1): the PCI functions behind the generic ECAM host bridge the flattened device tree
  * describes (compatible "pci-host-ecam-generic": reg, bus-range, interrupt-map), read
- * through the ECAM pages mapped on demand. The firmware assigned the BARs; the INTx lines come from the device
- * tree's interrupt map, GIC SPI numbers as INTIDs. Without a device tree (the firmware publishes one only when it
- * runs without ACPI) there is no bus and the table is empty. Nothing here knows a device class. */
+ * through the ECAM pages mapped on demand. The firmware assigned the BARs where there is one; where nothing did (the
+ * Linux arm64 entry, H6, on virt: QEMU loads the image and no firmware enumerates the bus), the memory BARs take
+ * addresses from the bridge's 32-bit memory window, as Linux's PCI core assigns what is unassigned (H7.4); the I/O
+ * BARs stay unassigned, since no ARM64 board reaches ports. The INTx lines come from the device tree's interrupt map,
+ * GIC SPI numbers as INTIDs. Without a device tree (the firmware publishes one only when it runs without ACPI) there is
+ * no bus and the table is empty. Nothing here knows a device class. */
 
 #define BRIDGE_DEPTH 4U
 
@@ -20,8 +23,19 @@ typedef struct EcamBridge {
     const WitU8 *InterruptMap;
     WitU32 InterruptMapBytes;
     WitU32 MapMask[4]; /* interrupt-map-mask: three address cells and the pin */
+    const WitU8 *Ranges; /* the windows: a PCI address of three cells, the parent's address, the size */
+    WitU32 RangesBytes;
+    WitU32 ParentAddressCells, SizeCells;
     int Found;
 } EcamBridge;
+
+/* The bridge's 32-bit memory window, from which a memory BAR nothing assigned takes its address (H7.4): its PCI address,
+ * the processor's address of the same byte, its size and the next byte not yet given. */
+typedef struct MemoryWindow {
+    WitU64 Pci, Cpu, Size, Next;
+    WitU32 Assigned;
+    int Found;
+} MemoryWindow;
 
 /* An interrupt controller the map's entries name by phandle: its address and interrupt cells size each entry. */
 typedef struct InterruptController {
@@ -55,6 +69,7 @@ static void read_tree(const WitBootInfo *boot, EcamBridge *bridge)
         } else if (item.Kind == WIT_ARM_TREE_END) {
             if (depth == 2 && compatible_seen && candidate.Size && !bridge->Found) {
                 *bridge = candidate;
+                bridge->ParentAddressCells = node[1].AddressCells;
                 bridge->Found = 1;
             }
             if (depth <= WIT_ARM_TREE_DEPTH && node[depth].Live) {
@@ -97,9 +112,59 @@ static void read_tree(const WitBootInfo *boot, EcamBridge *bridge)
                 for (WitU32 i = 0; i < 4; ++i) {
                     candidate.MapMask[i] = wit_arm_be32(value + i * 4);
                 }
+            } else if (wit_arm_same(name, "ranges")) {
+                candidate.Ranges = value;
+                candidate.RangesBytes = length;
+            } else if (wit_arm_same(name, "#size-cells") && length >= 4) {
+                candidate.SizeCells = wit_arm_be32(value);
             }
         }
     }
+}
+
+/* A number of one or two big-endian cells. */
+static WitU64 cells_value(const WitU8 *at, WitU32 cells)
+{
+    return cells == 2 ? ((WitU64)wit_arm_be32(at) << 32) | wit_arm_be32(at + 4) : wit_arm_be32(at);
+}
+
+/* The bridge's first 32-bit memory window of its ranges (space code 2 in the PCI address's first cell), prefetchable or
+ * not: a 32-bit window serves every memory BAR, a 64-bit one through its upper half at zero. */
+static void find_window(const EcamBridge *bridge, MemoryWindow *window)
+{
+    const WitU32 parent = bridge->ParentAddressCells, size = bridge->SizeCells;
+    if (!bridge->Ranges || parent < 1 || parent > 2 || size < 1 || size > 2) {
+        return;
+    }
+    const WitU32 entry = (3 + parent + size) * 4;
+    for (WitU32 at = 0; at + entry <= bridge->RangesBytes; at += entry) {
+        const WitU8 *e = bridge->Ranges + at;
+        if (((wit_arm_be32(e) >> 24) & 3) != 2) {
+            continue;
+        }
+        window->Pci = cells_value(e + 4, 2);
+        window->Cpu = cells_value(e + 12, parent);
+        window->Size = cells_value(e + 12 + parent * 4, size);
+        window->Next = window->Pci;
+        window->Found = window->Size != 0;
+        return;
+    }
+}
+
+/* The PCI address a memory BAR of the size given takes from the window, aligned to its size; 0 when the window has no
+ * room left. */
+static WitU64 take_window(MemoryWindow *window, WitU64 size)
+{
+    if (!window->Found || size == 0 || (size & (size - 1))) {
+        return 0;
+    }
+    const WitU64 address = (window->Next + size - 1) & ~(size - 1);
+    if (address < window->Next || address + size < address || address + size > window->Pci + window->Size) {
+        return 0;
+    }
+    window->Next = address + size;
+    ++window->Assigned;
+    return address;
 }
 
 static const InterruptController *controller(WitU32 phandle)
@@ -153,8 +218,8 @@ static volatile WitU32 *config(
     return (volatile WitU32 *)(page + (offset & 0xFFCU));
 }
 
-static void describe_bars(const WitBootInfo *boot, const EcamBridge *bridge, WitU32 bus, WitU32 device, WitU32 function,
-    WitDeviceDescriptor *d)
+static void describe_bars(const WitBootInfo *boot, const EcamBridge *bridge, MemoryWindow *window, WitU32 bus,
+    WitU32 device, WitU32 function, WitDeviceDescriptor *d)
 {
     volatile WitU32 *command = config(boot, bridge, bus, device, function, 0x04);
     const WitU32 saved = *command;
@@ -178,11 +243,12 @@ static void describe_bars(const WitBootInfo *boot, const EcamBridge *bridge, Wit
         } else {
             const int wide = (original & 6) == 4;
             WitU64 base = original & ~15U, mask = probe & ~15U;
+            volatile WitU32 *upper = 0;
             if (wide) {
                 if (bar + 1 >= 6) {
                     break;
                 }
-                volatile WitU32 *upper = config(boot, bridge, bus, device, function, 0x14 + bar * 4);
+                upper = config(boot, bridge, bus, device, function, 0x14 + bar * 4);
                 const WitU32 upper_original = *upper;
                 *upper = 0xFFFFFFFFU;
                 const WitU32 upper_probe = *upper;
@@ -192,8 +258,20 @@ static void describe_bars(const WitBootInfo *boot, const EcamBridge *bridge, Wit
             } else {
                 mask |= 0xFFFFFFFF00000000ULL;
             }
+            const WitU64 size = ~mask + 1;
+            if (base == 0) {
+                /* Nothing assigned it (H7.4): an address of the bridge's window, written while decoding is off. */
+                const WitU64 address = take_window(window, size);
+                if (address) {
+                    *slot = (WitU32)address;
+                    if (upper) {
+                        *upper = (WitU32)(address >> 32);
+                    }
+                    base = address - window->Pci + window->Cpu;
+                }
+            }
             r->Base = base;
-            r->Size = ~mask + 1;
+            r->Size = size;
             r->Flags = WIT_DEVICE_REGION_MEMORY | ((original & 8) ? WIT_DEVICE_REGION_PREFETCHABLE : 0);
             bar += wide ? 2 : 1;
         }
@@ -205,8 +283,8 @@ static void describe_bars(const WitBootInfo *boot, const EcamBridge *bridge, Wit
     *command = saved;
 }
 
-static WitU32 describe_bus(const WitBootInfo *boot, const EcamBridge *bridge, WitU32 bus, WitU32 depth,
-    WitDeviceDescriptor *table, WitU32 count, WitU32 capacity)
+static WitU32 describe_bus(const WitBootInfo *boot, const EcamBridge *bridge, MemoryWindow *window, WitU32 bus,
+    WitU32 depth, WitDeviceDescriptor *table, WitU32 count, WitU32 capacity)
 {
     for (WitU32 device = 0; device < 32; ++device) {
         const WitU32 first = *config(boot, bridge, bus, device, 0, 0x00);
@@ -223,7 +301,7 @@ static WitU32 describe_bus(const WitBootInfo *boot, const EcamBridge *bridge, Wi
             if (header == 1 && depth < BRIDGE_DEPTH) {
                 const WitU32 secondary = (*config(boot, bridge, bus, device, function, 0x18) >> 8) & 0xFF;
                 if (secondary > bus && secondary <= bridge->BusLast) {
-                    count = describe_bus(boot, bridge, secondary, depth + 1, table, count, capacity);
+                    count = describe_bus(boot, bridge, window, secondary, depth + 1, table, count, capacity);
                 }
             }
             if (header != 0) {
@@ -247,7 +325,7 @@ static WitU32 describe_bus(const WitBootInfo *boot, const EcamBridge *bridge, Wi
             r->Size = 4096;
             r->Flags = WIT_DEVICE_REGION_MEMORY | WIT_DEVICE_REGION_CONFIG;
             if (header == 0) {
-                describe_bars(boot, bridge, bus, device, function, d);
+                describe_bars(boot, bridge, window, bus, device, function, d);
             }
             const WitU32 pin = (*config(boot, bridge, bus, device, function, 0x3C) >> 8) & 0xFF;
             WitU32 intid = 0;
@@ -273,7 +351,16 @@ WitU32 wit_platform_devices(const WitBootInfo *boot, WitDeviceDescriptor *table,
         if (!bridge.Found || !bridge.Base || !bridge.Size || bridge.BusLast < bridge.BusFirst) {
             wit_console_write("[DEVICES] No generic ECAM bridge in the device tree\n");
         } else {
-            count = describe_bus(boot, &bridge, bridge.BusFirst, 0, table, 0, capacity);
+            MemoryWindow window = {0};
+            find_window(&bridge, &window);
+            count = describe_bus(boot, &bridge, &window, bridge.BusFirst, 0, table, 0, capacity);
+            if (window.Assigned) {
+                wit_console_write("[DEVICES] PCI: ");
+                wit_console_write_u64(window.Assigned);
+                wit_console_write(" memory BARs nothing had assigned took addresses of the bridge's window at ");
+                wit_console_write_hex(window.Cpu);
+                wit_console_write("\n");
+            }
         }
     }
     /* The firmware's framebuffer (C2.1): a device of the boot contract, after the bus's functions. */

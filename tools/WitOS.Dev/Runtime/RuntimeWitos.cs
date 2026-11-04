@@ -552,6 +552,8 @@ internal static class RuntimeWitos
         await RuntimeVolumes.RunAsync(root, architecture);
         // E2.2: a share of the runner's Samba mounted below /media and used through System.IO.
         await RuntimeSmb.RunAsync(root, architecture);
+        // H7.4: the board's time, from the runner's SNTP server and, on a board without a real-time clock, from /data.
+        await RuntimeTime.RunAsync(root, architecture);
         // E3: a USB drive served by the xHCI driver, mounted below /media, taken out and put back.
         await RuntimeUsbDrive.RunAsync(root, architecture);
         // C2.1 (RFC 0020 §28): the firmware's framebuffer and a virtio keyboard beside the services.

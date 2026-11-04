@@ -250,6 +250,21 @@ int witos_clock_frequency(WitU64 *frequency)
     return error_of(wit_syscall(WIT_CALL_CLOCK_FREQUENCY, WIT_CLOCK_MONOTONIC, 0, 0, frequency));
 }
 
+int witos_clock_utc(WitU64 *nanoseconds)
+{
+    if (!nanoseconds) {
+        return EINVAL;
+    }
+    *nanoseconds = 0;
+    return error_of(wit_syscall(WIT_CALL_CLOCK_READ, WIT_CLOCK_UTC, 0, 0, nanoseconds));
+}
+
+int witos_clock_set(WitU64 clock, WitU64 nanoseconds)
+{
+    WitU64 result = 0;
+    return error_of(wit_syscall(WIT_CALL_CLOCK_SET, clock, WIT_CLOCK_UTC, nanoseconds, &result));
+}
+
 int witos_object_wait(const WitU64 *handles, WitU32 count, WitU64 deadline, WitU32 *index)
 {
     WitUserWaitRequest wait;

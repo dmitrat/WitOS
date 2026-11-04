@@ -5,6 +5,7 @@
 #include "witos/memory.h"
 #include "witos/root.h"
 #include "witos/spawn.h"
+#include "witos/time.h"
 #include "witos/user_abi.h"
 #include "witos/user_layout.h"
 #include <stdio.h>
@@ -19,7 +20,10 @@
  * remaining process with the root task. A root task that exits with anything but zero, or whose services did not
  * stop, is a failed boot. When the package has the device manager (D1.1, ADR
  * 0025), the root task starts it first and moves the device table to it over the channel it grants it, keeps no
- * device authority, and starts /bin/init once the device manager answered or ended. */
+ * device authority, and starts /bin/init once the device manager answered or ended. Where the system keeps time (H7.4:
+ * a board without a real-time clock, or a package that names time servers), the time service follows the device
+ * manager with the clock capability, which the root task gives on and keeps no more, so that UTC holds the best time
+ * the system has before /bin/init starts. */
 
 #if defined(__x86_64__)
 #define ISA_NAME "x86_64"
@@ -94,6 +98,34 @@ static int prepare_device_manager(witos_service *service)
     return 0;
 }
 
+/* The time service's (H7.4): its channel, with the clock capability already sent over it; 0 when the package has no
+ * time service or the system has no time to keep (a board with a real-time clock and no time servers named), an errno
+ * value when the channel could not be prepared. */
+static int prepare_time(witos_service *service)
+{
+    const WitRootStartup *startup = (const WitRootStartup *)WIT_USER_INFO;
+    const WitTimeMessage start = {WIT_TIME_VERSION, sizeof(start), WIT_TIME_START, 0};
+    const WitU64 clock = startup->Handles[WIT_ROOT_HANDLE_CLOCK];
+    WitU64 utc = 0, mine = 0, theirs = 0;
+    memset(service, 0, sizeof(*service));
+    if (access(WIT_TIME_PATH, F_OK) != 0 || (witos_clock_utc(&utc) == 0 && access(WIT_TIME_SERVERS, F_OK) != 0)) {
+        return 0;
+    }
+    int error = witos_channel_create(&mine, &theirs);
+    if (!error) {
+        error = witos_channel_send(mine, &start, sizeof(start), &clock, 1); /* the time service holds it now */
+    }
+    if (error) {
+        witos_handle_close(mine);
+        witos_handle_close(theirs);
+        return error;
+    }
+    service->path = WIT_TIME_PATH;
+    service->grant = theirs;
+    service->ready = mine;
+    return 0;
+}
+
 int main(void)
 {
     static char *argv[] = {INIT, 0};
@@ -116,31 +148,57 @@ int main(void)
     envp[entries++] = memory;
     envp[entries] = 0;
     WitProcessInfo info;
-    witos_service device_manager;
+    witos_service services[2], prepared;
+    WitU32 count = 0;
     int stopped = 0;
     memset(&info, 0, sizeof(info));
-    const int prepared = prepare_device_manager(&device_manager);
-    if (prepared) {
-        printf("[ROOT-TASK] " WIT_DEVICE_MANAGER_PATH " could not be prepared: %s\n", strerror(prepared));
+    memset(services, 0, sizeof(services));
+    /* The device manager first, whose ready answer brings the endpoints the time service needs, then the time service. */
+    int error = prepare_device_manager(&prepared);
+    if (error) {
+        printf("[ROOT-TASK] " WIT_DEVICE_MANAGER_PATH " could not be prepared: %s\n", strerror(error));
+    } else if (prepared.path) {
+        services[count++] = prepared;
     }
-    const WitU32 services = device_manager.path ? 1 : 0;
-    printf("[ROOT-TASK] process manager on " ISA_NAME ", starting %s" INIT "\n",
-        services ? WIT_DEVICE_MANAGER_PATH " and " : "");
-    const int error = witos_manager_run_services(&device_manager, services, INIT, argv, envp, &info);
-    if (services) {
-        if (device_manager.status) {
-            printf("[ROOT-TASK] " WIT_DEVICE_MANAGER_PATH " was not ready: %s\n", strerror(device_manager.status));
+    error = prepare_time(&prepared);
+    if (error) {
+        printf("[ROOT-TASK] " WIT_TIME_PATH " could not be prepared: %s\n", strerror(error));
+    } else if (prepared.path) {
+        services[count++] = prepared;
+    }
+    printf("[ROOT-TASK] process manager on " ISA_NAME ", starting %s%s" INIT "\n", count ? services[0].path : "",
+        count == 2  ? ", " WIT_TIME_PATH " and "
+            : count ? " and "
+                    : "");
+    error = witos_manager_run_services(services, count, INIT, argv, envp, &info);
+    int ready[2] = {0, 0};
+    for (WitU32 i = 0; i < count; ++i) {
+        ready[i] = !services[i].status;
+        if (ready[i]) {
+            printf("[ROOT-TASK] %s was ready before " INIT "\n", services[i].path);
         } else {
-            printf("[ROOT-TASK] " WIT_DEVICE_MANAGER_PATH " was ready before " INIT "\n");
-            /* The services stop before the root task ends, which would end them where they stand: the device manager
-             * stops the namespace service, which unmounts its volumes, and the drivers (D6.1). */
-            stopped = witos_manager_stop_services(&device_manager, services, STOP_SECONDS);
-            printf(stopped ? "[ROOT-TASK] " WIT_DEVICE_MANAGER_PATH " did not stop: %s\n"
-                           : "[ROOT-TASK] " WIT_DEVICE_MANAGER_PATH " stopped%s\n",
-                stopped ? strerror(stopped) : "");
+            printf("[ROOT-TASK] %s was not ready: %s\n", services[i].path, strerror(services[i].status));
         }
-        witos_handle_close(device_manager.ready);
-        witos_handle_close(device_manager.process);
+    }
+    if (count) {
+        /* The services stop before the root task ends, which would end them where they stand, the last first: the time
+         * service keeps the time on /data (H7.4), then the device manager stops the namespace service, which unmounts
+         * its volumes, and the drivers (D6.1). A service that was not ready is not asked. */
+        stopped = witos_manager_stop_services(services, count, STOP_SECONDS);
+        for (WitU32 i = count; i-- > 0;) {
+            if (!ready[i]) {
+                continue;
+            }
+            if (services[i].status) {
+                printf("[ROOT-TASK] %s did not stop: %s\n", services[i].path, strerror(services[i].status));
+            } else {
+                printf("[ROOT-TASK] %s stopped\n", services[i].path);
+            }
+        }
+    }
+    for (WitU32 i = 0; i < count; ++i) {
+        witos_handle_close(services[i].ready);
+        witos_handle_close(services[i].process);
     }
     if (error) {
         printf("[ROOT-TASK] " INIT " could not start: %s\n", strerror(error));

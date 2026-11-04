@@ -31,6 +31,12 @@ internal static unsafe partial class Libwitos
     [LibraryImport(LIBRARY, EntryPoint = "witos_clock_frequency")]
     internal static partial int ClockFrequency(ulong* frequency);
 
+    [LibraryImport(LIBRARY, EntryPoint = "witos_clock_utc")]
+    internal static partial int ClockUtc(ulong* nanoseconds);
+
+    [LibraryImport(LIBRARY, EntryPoint = "witos_clock_set")]
+    internal static partial int ClockSet(ulong clock, ulong nanoseconds);
+
     [LibraryImport(LIBRARY, EntryPoint = "witos_channel_create")]
     internal static partial int ChannelCreate(ulong* first, ulong* second);
 
