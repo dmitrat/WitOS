@@ -160,11 +160,13 @@ internal sealed record KernelArchitecture(string Name, string LinkMachine, Machi
     /// The PCI slot whose INTx line is the entropy source's, which no driver binds (W1.1): a board's four lines rotate by
     /// slot, so slot s shares its line with s + 4. The entropy source is the second virtio device, at slot 2 where the
     /// devices start at slot 1 — every virt board, and q35 without its VGA card (a display) — and at slot 3 where q35's
-    /// VGA card holds slot 1; the kernel binds a line once, so a device a driver holds goes there.
+    /// VGA card holds slot 1; the kernel binds a line once, so a device a driver holds goes there. A board booted by the
+    /// Linux protocol (H6) has no boot disk, so the entropy source is the first device, at slot 1 (H7.4).
     /// </summary>
     /// <param name="display">Whether the board has the display, which removes q35's VGA card.</param>
+    /// <param name="bootDisk">Whether the board has a boot disk, the first device.</param>
     /// <returns>The slot.</returns>
-    public int EntropyLineSlot(bool display) => this == X64 && !display ? 7 : 6;
+    public int EntropyLineSlot(bool display, bool bootDisk = true) => (this == X64 && !display ? 7 : 6) - (bootDisk ? 0 : 1);
 
     #endregion
 

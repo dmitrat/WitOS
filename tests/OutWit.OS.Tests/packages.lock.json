@@ -140,6 +140,12 @@
         "dependencies": {
           "OutWit.OS": "[1.0.0, )"
         }
+      },
+      "time": {
+        "type": "Project",
+        "dependencies": {
+          "OutWit.OS": "[1.0.0, )"
+        }
       }
     }
   }

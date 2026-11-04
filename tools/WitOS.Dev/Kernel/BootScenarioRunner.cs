@@ -42,6 +42,7 @@ internal static class BootScenarioRunner
     internal const int RASPI4_PROCESSORS = 4;
     private const int ENTROPY_SEED_BYTES = 32;
     private const string RASPI4_TEST_EXIT = "witos.test-exit";
+    private const string REAL_TIME_CLOCK = "arm,pl031"; // the virt board's real-time clock (H7.4)
 
     // A screendump waits until the guest wrote nothing for this long, looking every step, up to the limit (C2.3).
     private const int QUIET_MILLISECONDS = 1000;
@@ -108,6 +109,9 @@ internal static class BootScenarioRunner
             throw new InvalidOperationException($"{request.Name}: an IDE boot disk needs the pc board's PIIX (H1.1).");
         if ((request.LinuxBoot || request.Virtualization) && !architecture.LinuxImage)
             throw new InvalidOperationException($"{request.Name}: the Linux boot protocol's entry (H6) is ARM64's.");
+        if (request.WithoutRealTimeClock && (!request.LinuxBoot || request.Raspi4))
+            throw new InvalidOperationException($"{request.Name}: the virt board loses its real-time clock (H7.4) in the tree QEMU writes " +
+                "for the Linux protocol's entry, which a firmware's boot does not take.");
         if (request.Raspi4 && (!request.LinuxBoot || request.Gic2 || request.Virtualization || request.MemoryMiB != RASPI4_MEMORY_MIB ||
             request.Processors != RASPI4_PROCESSORS || request.Display || request.Keyboard || request.Network || request.DataDisk is not null ||
             request.Terminal is not null))
@@ -180,6 +184,8 @@ internal static class BootScenarioRunner
                     RandomNumberGenerator.GetBytes(ENTROPY_SEED_BYTES)));
             arguments.AddRange(["-dtb", QemuPath(tree)]);
         }
+        if (request.WithoutRealTimeClock)
+            arguments.AddRange(["-dtb", QemuPath(await TreeWithoutClockAsync(root, request, image, machine, cpu, logs))]);
         arguments.AddRange(request.LinuxBoot
             ? ["-kernel", QemuPath(KernelImageBuilder.LinuxImagePath(image)), "-initrd", QemuPath(KernelImageBuilder.InitrdPath(image))]
             : [
@@ -238,7 +244,7 @@ internal static class BootScenarioRunner
                 throw new InvalidOperationException($"{name}: a keyboard and a network adapter would share an INTx line, which the kernel binds once.");
             var adapter = request.NetworkAdapter == NetworkAdapter.E1000e ? "e1000e" : "virtio-net-pci";
             arguments.AddRange(["-netdev", "user,id=net0" + (peer?.NetdevOptions ?? "") + (samba?.NetdevOptions ?? ""), "-device",
-                $"{adapter},netdev=net0,addr=0x{architecture.EntropyLineSlot(request.Display):x}"]);
+                $"{adapter},netdev=net0,addr=0x{architecture.EntropyLineSlot(request.Display, !request.LinuxBoot):x}"]);
         }
         // The firmware's entropy source; raspi4b has no PCI bus, and its seed is the tree's (H7.2).
         if (request.Expected != ExpectedOutcome.EntropyUnavailable && !request.Pc && !request.Raspi4)
@@ -262,7 +268,7 @@ internal static class BootScenarioRunner
         if (request.ExtraDisk is not null)
         {
             arguments.AddRange(["-drive", $"if=none,id=extra,format=raw,{GUEST_FLUSHES},file={QemuPath(request.ExtraDisk)}",
-                "-device", $"virtio-blk-pci,drive=extra,addr=0x{architecture.EntropyLineSlot(request.Display):x}"]);
+                "-device", $"virtio-blk-pci,drive=extra,addr=0x{architecture.EntropyLineSlot(request.Display, !request.LinuxBoot):x}"]);
         }
         if (terminal is not null || relay is not null)
         {
@@ -344,6 +350,32 @@ internal static class BootScenarioRunner
     #region Tools
 
     private static string QemuPath(string path) => path.Replace('\\', '/').Replace(",", ",,");
+
+    // The board without a real-time clock (H7.4): QEMU dumps the tree it writes for this machine, processors, memory, image
+    // and ramdisk, and the runner takes the PL031 out and writes a fresh entropy seed into it, as the virt board writes one
+    // into its own tree.
+    private static async Task<string> TreeWithoutClockAsync(string root, BootRequest request, string image, string machine, string cpu,
+        string logs)
+    {
+        var architecture = request.Architecture;
+        var dumped = Path.Combine(logs, request.Name + ".virt.dtb");
+        if (File.Exists(dumped))
+            File.Delete(dumped);
+        var dump = await Processes.RunAsync(architecture.QemuPath(root),
+        [
+            "-machine", $"{machine},dumpdtb={QemuPath(dumped)}", "-cpu", cpu, "-smp", request.Processors.ToString(),
+            "-m", request.MemoryMiB.ToString(), "-display", "none", "-monitor", "none", "-serial", "null", "-nic", "none",
+            "-kernel", QemuPath(KernelImageBuilder.LinuxImagePath(image)), "-initrd", QemuPath(KernelImageBuilder.InitrdPath(image))
+        ], root, 120);
+        if (!File.Exists(dumped))
+            throw new InvalidOperationException($"{request.Name}: QEMU dumped no device tree (exit {dump.ExitCode}).\n{dump.Output}\n{dump.Error}");
+        var tree = DeviceTreeBlob.WithoutCompatible(await File.ReadAllBytesAsync(dumped), REAL_TIME_CLOCK, out var removed);
+        if (removed != 1)
+            throw new InvalidOperationException($"{request.Name}: the board's tree holds {removed} nodes compatible with {REAL_TIME_CLOCK}, not one.");
+        var path = Path.Combine(logs, request.Name + ".dtb");
+        await File.WriteAllBytesAsync(path, DeviceTreeBlob.WithChosenProperty(tree, "rng-seed", RandomNumberGenerator.GetBytes(ENTROPY_SEED_BYTES)));
+        return path;
+    }
 
     /// <summary>
     /// The host's hardware virtualization for a guest of an architecture (plan step C2.7): WHPX on Windows, KVM on Linux,
