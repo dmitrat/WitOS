@@ -333,7 +333,7 @@ RP1 за PCIe (два xHCI, Ethernet, UART, DPI), прерывания RP1 — �
   там, где он есть, выключение и перезагрузка через сторож Pi, кадровый буфер прошивки через mailbox VideoCore,
   [H7.3-Pi-Power-and-Framebuffer.md](@Docs/Implementation/H7.3-Pi-Power-and-Framebuffer.md)) выполнены 2026-10-25
   ([H7.1-Arm-Platform.md](@Docs/Implementation/H7.1-Arm-Platform.md), [H7.2-Raspberry-Pi-4.md](@Docs/Implementation/H7.2-Raspberry-Pi-4.md)).
-- [ ] **H8** Устройства Pi 4 в службах: SDHCI/EMMC2 по `witos/block.h` (ворота `raspi4b`: SD-контроллер эмулируется), DWC2
+- [ ] **H8** Устройства Pi 4 в службах (устройства Pi — узлы дерева, не PCI: предложение [ADR 0033](@Docs/Implementation/ADR-0033-Device-Tree-Devices.md) — шина дерева в таблице устройств и само дерево рядом с ней, ABI-1 1.8 — ждёт решения автора; затем срезы H8.1 — устройства дерева, H8.2 — SDHCI, H8.3 — DWC2, H8.4 — образ SD-карты): SDHCI/EMMC2 по `witos/block.h` (ворота `raspi4b`: SD-контроллер эмулируется), DWC2
   с ядром USB H2 (ворота `raspi4b` + `usb-kbd`), GENET по `witos/packet.h` (только железо), VL805 xHCI за PCIe BCM2711
   (драйвер H2; корневой комплекс brcm; только железо); запись-вдогонку службы пространства имён на SD-карте — замер
   (каждая запись — транзакция журнала ext4 со сбросами: скорость и износ карты) и решение; образ SD-карты `image --rpi4`
