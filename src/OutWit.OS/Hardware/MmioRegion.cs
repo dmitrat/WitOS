@@ -13,7 +13,7 @@ namespace OutWit.OS.Hardware;
 /// `test byte ptr [register], mask`, a one-byte read, and a device that serves only accesses of its registers' width
 /// answers it with zero without seeing it — QEMU's xHCI read every PORTSC so (plan step H2.1).
 /// </summary>
-public sealed unsafe class MmioRegion : IDisposable
+public sealed unsafe class MmioRegion : IDeviceRegisters, IDisposable
 {
     #region Fields
 
@@ -46,6 +46,9 @@ public sealed unsafe class MmioRegion : IDisposable
     /// A full barrier for the device's view of memory: what was written before reaches the device before what follows.
     /// </summary>
     public static void Barrier() => Libwitos.DeviceBarrier();
+
+    /// <inheritdoc />
+    public void Fence() => Barrier();
 
     /// <summary>
     /// Reads the byte at an offset.
