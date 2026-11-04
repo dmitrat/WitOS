@@ -96,3 +96,14 @@ at the processor's addresses. These are properties of the tree, and their meanin
 - The Pi 5 (H9) reaches RP1's devices through PCIe. RP1's own children are nodes of the firmware's tree below the PCIe
   node, and this bus describes them once the root complex is up.
 - The device manager's table of drivers gains compatible strings beside PCI identities.
+- The Pi's DMA masters see memory through their buses, and none of them snoops the processors' caches. The pinned tree
+  names no `dma-coherent` node, and the `dma-ranges` of `/soc` and `/emmc2bus` put the first GiB of memory at bus address
+  0xC0000000. So:
+  - a driver adds that offset to a physical address it gives the device;
+  - it refuses memory beyond the device's 32-bit view, which with that offset is exactly the first GiB;
+  - it cleans a buffer to the point of coherency before the device reads it (`DC CVAC`), and cleans and invalidates it
+    before reading what the device wrote (`DC CIVAC`). `SCTLR_EL1.UCI` already lets EL0 do both.
+
+  The maintenance goes by virtual address, so it is done where the memory is mapped: a driver's core over its own
+  buffers, the block server over its client's window. QEMU models no cache, so only the board judges it. H8.1 gives
+  libwitos and OutWit.OS the two operations.
